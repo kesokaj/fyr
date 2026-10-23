@@ -9,3 +9,5 @@ Last reviewed: 2026-10-23
 - `.agents/docs/plans/2026-10-23-session-sized-work.md` — session-sized work: the always-on rule, the handoff kickoff, phase sizing, the peak-context metric, then the EGM deltas as its first phases
 
 ## Next
+
+- Eval runner over the metrics store's labels: a fixture format (from `testing/kit-preamble.sh`), a sandbox run per CLI, a scored result ingested with `metrics ingest --source --label --outcome`; after the session-sized-work plan. Consumers: preflight's Antigravity-run rule, every plan's behavioural runs, the dreamer.

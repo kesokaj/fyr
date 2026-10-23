@@ -2,6 +2,10 @@
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
+## R0 — Purpose: the second brain of both CLIs
+
+`sh-agent` is the one place Claude Code and the Antigravity CLI keep what a session cannot hold on its own: the context, skills, rules and agents (`install`), the trail and its index (`search`), the project memory (`memory`), the shape of every session (`metrics`) and the nightly consolidation (`dream`). A CLI consults it at the moments the context names — resume, before touching an area, at a phase end — and the harness grows there, in the binary and its specs, never in the context, whose hand-written part stays under its size pin: a new consult moment is one clause on an existing context line plus the verb's own usage text. The brain is consulted, never consulting: nothing in `sh-agent` acts on a CLI between its turns (R3), and a CLI only learns what it asks for, so a moment the context does not name never fires. (ADR-061.)
+
 ## R1 — One source, two vendors
 
 `context/AGENTS.md` (plus `context/*.md`) is the single global context, deployed to Claude Code and the Antigravity CLI. Subagents are authored once in Claude Code format under `agents/`; the Antigravity flavour is derived at install time. Nothing generated is committed.

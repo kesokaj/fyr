@@ -1,6 +1,6 @@
 # styrman-harness
 
-A personal agent harness for **Claude Code** and the **Antigravity CLI** (`agy`): one global context file in the [agents.md](https://agents.md) standard, skills in the [Agent Skills](https://agentskills.io) `SKILL.md` standard, subagents, and `sh-agent` — a small Go binary that installs, resyncs, inspects, and removes all of it, and gives every session a local search index of the project it works in (`sh-agent search`). No hooks, no gates, no CI, no service.
+A personal agent harness for **Claude Code** and the **Antigravity CLI** (`agy`): one global context file in the [agents.md](https://agents.md) standard, skills in the [Agent Skills](https://agentskills.io) `SKILL.md` standard, subagents, and `sh-agent` — a small Go binary that installs, resyncs, inspects and removes all of it and is the second brain both CLIs consult for the trail index, the project memory, every session's metrics and the nightly dream (`REQUIREMENTS.md` R0). No hooks, no gates, no CI, no service.
 
 ## How it works
 

@@ -5,6 +5,7 @@ Project rules for this repo. They override the global context, which this repo i
 ## What this repo is
 
 The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `sh-agent`, the Go binary that installs them into Claude Code and the Antigravity CLI. No hooks, no gates, no CI.
+`sh-agent` is also the second brain both CLIs consult at the moments the context names (search, memory, metrics, dream): the purpose and its two constraints are `REQUIREMENTS.md` R0.
 
 ## How the harness works
 
