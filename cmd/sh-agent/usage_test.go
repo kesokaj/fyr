@@ -33,6 +33,13 @@ func TestUsageErrorsExit2(t *testing.T) {
 		"status --vendor bogus":              {[]string{"status", "--repo", "../..", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"uninstall --dry-run --vendor bogus": {[]string{"uninstall", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"report --dry-run --vendor bogus":    {[]string{"report", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
+		// kickoff reads the checkout the shell is in and nothing else: each of
+		// the three global flags is refused before the verb runs, a valid
+		// vendor included, and a stray word is refused like any other verb's.
+		"kickoff --home":      {[]string{"kickoff", "--home", home}, "--home, --repo and --vendor do not apply"},
+		"kickoff --repo":      {[]string{"kickoff", "--repo", "../.."}, "--home, --repo and --vendor do not apply"},
+		"kickoff --vendor":    {[]string{"kickoff", "--vendor", "claude"}, "--home, --repo and --vendor do not apply"},
+		"kickoff with a word": {[]string{"kickoff", "now"}, "kickoff takes no arguments"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer

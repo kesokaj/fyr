@@ -68,9 +68,9 @@ The handoff records the remainder — it is never a substitute for rows already 
 
 ## Step 4: Write the Handoff Document
 
-Use this template:
+Use this template (its outer fence is four backticks so the Kickoff's inner fence does not close it):
 
-```markdown
+````markdown
 ---
 owner: main
 date: YYYY-MM-DD
@@ -126,10 +126,19 @@ agent to start with only when one is genuinely the first move.>
 
 1. <prioritized action item>
 2. <prioritized action item>
+
+## Kickoff
+
+```text
+Project: <absolute path>. Read AGENTS.md, then <handoff path>, then <plan path>; do Phase <n> — <name> only.
+Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's `changes/` entry, commit and push; the closing handoff. Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
+Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff with the next Kickoff and end the session.
 ```
+````
 
 ### Writing Rules
 
+- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. `sh-agent kickoff` prints that fenced block; a Kickoff written as prose is printed as a fallback, but it is not the template. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no docs root, so no handoff) the same block is printed in chat only, nothing saved.
 - **Be concise.** The whole document should be under 150 lines. A fresh agent needs signal, not noise.
 - **Paths are repo-relative** (`.agents/docs/…`), because the next reader may be on the other machine where the checkout lives elsewhere; the `Project:` line is the only absolute path. A path in another checkout is written as `<repo name>/<relative path>`.
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
@@ -179,9 +188,8 @@ Stage the handoff and anything Step 3 wrote, by name, then `git commit -m "Hando
 After saving, tell the user:
 
 1. Where the handoff document was saved (absolute path)
-2. How to use it: *"Start a new session and paste: `Read the handoff at <path> and continue the work.`"*
+2. "Run `/clear` (Claude Code) or start a new conversation (Antigravity), then paste:" followed by the Kickoff block verbatim (the nothing-queued line when that is the case). The one-command path from the shell: `claude "$(sh-agent kickoff)"` on Claude Code, `agy -i "$(sh-agent kickoff)"` on Antigravity — `sh-agent kickoff` prints the newest handoff's block for the checkout it runs in, nothing on stdout and `kickoff: nothing queued` on stderr with exit 1 when nothing is. An unattended plan runs phase after phase with `while k=$(sh-agent kickoff); do claude -p "$k" --permission-mode <mode>; done` (`agy -p "$k" --mode <mode>` on Antigravity): each iteration is an unattended session that honours the Kickoff's closed approvals and sets the `/goal` the global context asks of unattended runs; the loop ends at the first handoff that queues nothing, and a phase that waits on a who: user box or an `Open:` row ends it too, with the question in that handoff's Next Steps. Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
 3. A 1-sentence summary of the handoff content
-4. When its Next Steps queue nothing for the agent, recommend a fresh session (`/clear` on Claude Code, a new conversation on Antigravity) for the next task: a new task in a session that has closed one re-reads that whole context on every turn
 
 ## Cross-References
 
