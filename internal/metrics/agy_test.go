@@ -94,7 +94,7 @@ func agyFixture(t *testing.T) (home, root string) {
 			db.Exec(`INSERT INTO gen_metadata VALUES (?, ?, ?)`, i, g, len(g))
 		}
 	}
-	const t0 = 1791367200 // 2026-10-08 06:40:00Z
+	const t0 = 1791367200 // 2026-10-07 10:00:00Z (the summaries table dates the conversation 10-08; the session starts at its first step)
 	conv("C1", [][]any{
 		{14, 3, agyStepMeta(t0, "", nil), nil},
 		{15, 3, agyStepMeta(t0+5, "", nil), nil},

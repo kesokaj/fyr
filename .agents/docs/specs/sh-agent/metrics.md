@@ -30,8 +30,8 @@ The verbs reuse the global `--home` and `--vendor` flags.
 
 ```
 sh-agent metrics ingest [--home H] [--vendor claude|agy|all] [--source DIR --label KEY=VALUE [--outcome pass|fail]]
-sh-agent metrics show   [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--json]
-sh-agent metrics report [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--label KEY=VALUE | --all-labels] [--out FILE]
+sh-agent metrics show   [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]
+sh-agent metrics report [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]
 sh-agent metrics export [--home H] FILE
 ```
 
@@ -45,6 +45,7 @@ sh-agent metrics export [--home H] FILE
 | `--since` | date | 30 days ago | Start of the window. |
 | `--until` | date | now | End of the window, exclusive (`show`, `report`). `--since A --until B` and `--since B` never overlap; `/retro` reads the window before its own this way. A session belongs to the window it starts in, `[since, until)`, and is counted whole there, so adjacent windows never share one. |
 | `--project` | directory | all | Only sessions whose `project_root` is this directory or under it (a session started in a subdirectory is the project's; a sibling that only shares the name's prefix is not). |
+| `--context-target` | token count above 0 | 300000 | The peak context a main session should stay under (`show`, `report`). B3 counts the main sessions whose peak passed it; the value is a flag, not a pin, so `/retro` can tune phase sizing against it without a rebuild (plan `2026-10-23-session-sized-work.md` D4, D15). |
 | `--json` | bool | false | Print the `## Output` object instead of tables. |
 | `--out` | file | `~/.config/sh-agent/reports/<YYYY-MM-DD-HHMM>-metrics.html` | Where the report is written. An existing file is refused. |
 
@@ -159,7 +160,9 @@ Keys are snake_case, like `report.json`. Every metric is split by vendor (`claud
   "B": {"tool_calls": {"claude": 1899}, "tool_calls_by_tool": {"claude": {"Bash": 1300}},
         "turns": {"claude": 127}, "tokens": {"claude": {"in": 0, "out": 0, "cache_read": 0, "cache_write": 0}},
         "cost_usd": {"claude": 135.24, "agy": null}, "wall_min": {}, "active_min": {},
-        "peak_context": {}, "compactions": {"claude": 0, "agy": null}},
+        "peak_context": {"claude": 412000, "agy": 42000}, "compactions": {"claude": 0, "agy": null},
+        "context_target": 300000, "sessions_over_context_target": {"claude": 5, "agy": 0},
+        "session_peaks": {"claude": [{"session": "a1b2…", "date": "2026-10-07", "peak": 412000}], "agy": [{"session": "c3d4…", "date": "2026-10-06", "peak": 42000}]}},
   "C": {"sqlite_verbs": {"claude": 42}, "grep_calls": {"claude": 1545}, "search_grep_ratio": {"claude": 0.027},
         "forbidden": {"git add -A": 4, "git add .": 0, "git push --force": 0, "--no-verify": 0, "commit chained to test": 1},
         "first_reads": {"plan": 3}, "skills": {"claude": {"golang": 3}}},
@@ -171,7 +174,7 @@ Keys are snake_case, like `report.json`. Every metric is split by vendor (`claud
 }
 ```
 
-The values above illustrate the shape. They are not fixtures. `daily` holds one entry per UTC day of the window, and the report's trend charts read it.
+The values above illustrate the shape. They are not fixtures. `daily` holds one entry per UTC day of the window, and the report's trend charts read it. `session_peaks` lists main sessions only, largest peak first, one list per vendor that has a session with a context value in the window; `sessions_over_context_target` counts the entries of that list past `context_target` and is `null`, named in `notes`, for a vendor with no such session (never 0). A session's id and start day are the only identifiers carried: no project path, no content (plan D6, D16).
 
 ### Report (`metrics report`)
 
@@ -191,7 +194,7 @@ The values above illustrate the shape. They are not fixtures. `daily` holds one 
 - tool calls by tool (the ten most used);
 - subagent tool calls by type;
 - runs passed of k per sandbox label;
-- the summary table.
+- the summary table, where the row `sessions over context target (<N>)` reads `k of n`: k the main sessions whose peak passed the target, n the main sessions in the window with a peak at all; `n/a` for a vendor with none.
 
 **Missing values.** A value a CLI cannot produce is not drawn:
 - no Antigravity cost line;
@@ -216,7 +219,7 @@ Tables show those values as `n/a`.
 | — | Replayed history | A resumed or forked Claude session copies earlier messages into a new transcript. `show` counts a tool step, an assistant message or a generation once per CLI and label by its id, under the first session in the query's window that holds it, so replayed tool calls, tokens, verbs and errors are not counted twice. User turns, interrupts and compactions are not deduplicated, and a replay whose original session lies outside the window still counts once inside it. The label is part of the key, so a sandbox run that reuses real ids never hides a real session's steps under `--all-labels`. |
 | B1 | Tokens and cost | Claude: the maximum of each usage field per message id, summed. Cost and duration come from the session's last `cost-state` line. Antigravity: `gen_metadata` usage. |
 | B2 | Time and volume | Wall time = `ended_at - started_at` of main sessions. Active time = the sum of gaps under 5 min between a main session's steps. A subagent runs inside its parent's time and is counted in neither. Also turns (typed user turns) and tool calls (main and subagent). |
-| B3 | Context | Peak context = max(input + cache read + cache write) of one message. Also the number of compactions. |
+| B3 | Context | Peak context = max(input + cache read + cache write) of one message (Claude); the `gen_metadata` context of one generation (Antigravity). Also the number of compactions. Also the sessions whose peak passed the context target, default 300K, and each main session's peak: the peak follows the replayed-history rule above, so a fork's copy of an earlier session's messages counts under the session that first had them, and a subagent's peak belongs to no session (it runs inside its parent's time). |
 | B4 | Subagents | Count by type, the tool calls of each, and SendMessage resumes. |
 | C1 | Search vs grep | `sh-agent search\|index` verb segments divided by `grep`/`rg` segments plus Grep tool calls. |
 | C2 | Forbidden shapes | `git add -A`, `git add .`, `git push --force\|-f`, `--no-verify`, and `git commit` in the same Bash call as `go test`. |
@@ -291,7 +294,9 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 | Still locked after the 10 s busy timeout | The source counts as failed (`database is locked`), exit 1; the next run picks it up |
 | `show`, `report` or `export` on a home with no store (never ingested) | `sh-agent metrics: no metrics store at <path>; run \`sh-agent metrics ingest\` first`, exit 1; nothing is created |
 | `export FILE` or `report --out FILE` exists | `refusing to overwrite FILE`, exit 1 |
-| `--source` without `--label`, or any metrics flag the subcommand does not read (`ingest --json`, `export --label`, `show --out`) | Usage error naming the flag, exit 2 |
+| `--source` without `--label`, or any metrics flag the subcommand does not read (`ingest --json`, `export --label`, `show --out`, `ingest --context-target`) | Usage error naming the flag, exit 2 |
+| `--context-target 0` or a negative value | `--context-target takes a token count above 0`, exit 2 |
+| No main session of a vendor in the window carries a context value | That vendor's `sessions_over_context_target` is `null` (`n/a` in the tables), `notes` says so; never 0 |
 | Ingest fails inside `dream` | A line in `dream.log`; the dream's exit status and `last_run.error` are unchanged |
 
 ## Non-goals

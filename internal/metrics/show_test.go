@@ -3,6 +3,7 @@ package metrics
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,5 +206,100 @@ func TestShowAdjacentWindowsShareNoSession(t *testing.T) {
 	after, _ := s.Show(ShowOptions{Since: split, Now: split.AddDate(0, 0, 3)})
 	if before.Sessions["claude"] != 2 || after.Sessions["claude"] != 1 {
 		t.Fatalf("before %d, after %d; want 2 (early, across) and 1 (boundary)", before.Sessions["claude"], after.Sessions["claude"])
+	}
+}
+
+// The context target (plan 2026-10-23-session-sized-work, Phase 2): each main
+// session's peak context, the count of those past the target (300,000 tokens
+// unless set), both per vendor; a subagent's peak is its parent's time and is
+// left out; replayed history counts under the session that first had it; a
+// vendor with no main session carrying a context value in the window is null
+// with a note, never 0; n in "k of n" is the sessions that have a peak.
+func TestShowContextTarget(t *testing.T) {
+	ahome, _ := agyFixture(t) // C1: main, peak 42000; C2: a subagent
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: ahome, HomeGiven: true, Vendor: "agy"})
+	base := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC).UnixMilli()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('A', 'claude', ?, ?), ('B', 'claude', ?, ?), ('N', 'claude', ?, ?)`,
+			[]any{base, base + 60000, base + 120000, base + 180000, base + 240000, base + 300000}},
+		{`INSERT INTO sessions(id, vendor, parent_id, agent_type, started_at, ended_at) VALUES ('S', 'claude', 'A', 'reviewer', ?, ?)`, []any{base, base + 60000}},
+		// A's one message: 300000 in + 50000 cache read = 350000, over the target.
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, cache_read) VALUES ('A', 'msg:m1', ?, 'assistant', 300000, 50000)`, []any{base + 1000}},
+		// B replays A's m1 (a fork) and adds one message of its own at 1000.
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, cache_read) VALUES ('B', 'msg:m1', ?, 'assistant', 300000, 50000), ('B', 'msg:m2', ?, 'assistant', 1000, 0)`, []any{base + 1000, base + 130000}},
+		// The subagent's context is the largest of all and must not appear.
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in) VALUES ('S', 'msg:m9', ?, 'assistant', 900000)`, []any{base + 2000}},
+		// N has no model call: no peak, not in n.
+		{`INSERT INTO steps(session_id, ext_id, ts, kind) VALUES ('N', 'u1', ?, 'user')`, []any{base + 241000}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	window := ShowOptions{Since: time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}
+	sum, err := s.Show(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.B.ContextTarget != 300000 {
+		t.Errorf("default context target %d, want 300000", sum.B.ContextTarget)
+	}
+	wantPeaks := map[string][]SessionPeak{
+		"claude": {{Session: "A", Date: "2026-10-01", Peak: 350000}, {Session: "B", Date: "2026-10-01", Peak: 1000}},
+		"agy":    {{Session: "C1", Date: "2026-10-07", Peak: 42000}},
+	}
+	for v, want := range wantPeaks {
+		if got := sum.B.SessionPeaks[v]; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s session peaks %v, want %v", v, got, want)
+		}
+	}
+	if p := sum.B.SessionsOverContextTarget["claude"]; p == nil || *p != 1 {
+		t.Errorf("claude over target = %v, want 1", p)
+	}
+	if p := sum.B.SessionsOverContextTarget["agy"]; p == nil || *p != 0 {
+		t.Errorf("agy over target = %v, want 0 (a number: Antigravity records context)", p)
+	}
+	var buf bytes.Buffer
+	if err := sum.WriteJSON(&buf); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"context_target": 300000`, `"sessions_over_context_target": {`, `"session_peaks": {`, `"session": "A"`, `"peak": 350000`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("show --json lacks %s", want)
+		}
+	}
+	var text bytes.Buffer
+	sum.WriteText(&text)
+	if !strings.Contains(text.String(), "over context target 300000") || !strings.Contains(text.String(), "1 of 2") {
+		t.Errorf("text table lacks the over-target row as k of n:\n%s", text.String())
+	}
+
+	// A lower target moves both counts; the target is reported back.
+	window.ContextTarget = 40000
+	low, err := s.Show(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if low.B.ContextTarget != 40000 || *low.B.SessionsOverContextTarget["claude"] != 1 || *low.B.SessionsOverContextTarget["agy"] != 1 {
+		t.Errorf("target 40000: %d, claude %v, agy %v; want 40000, 1, 1", low.B.ContextTarget, *low.B.SessionsOverContextTarget["claude"], *low.B.SessionsOverContextTarget["agy"])
+	}
+
+	// A window with no Antigravity session: null, named in notes, never 0.
+	only, err := s.Show(ShowOptions{Since: time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := only.B.SessionsOverContextTarget["agy"]; !ok || p != nil {
+		t.Errorf("agy over target with no agy session = %v (present %v), want a null entry", p, ok)
+	}
+	if !strings.Contains(strings.Join(only.Notes, "\n"), "agy: no main session in the window carries a context value") {
+		t.Errorf("notes do not name agy's missing context value: %q", only.Notes)
+	}
+	if _, ok := only.B.SessionPeaks["agy"]; ok {
+		t.Errorf("agy has session peaks in a window without agy sessions: %v", only.B.SessionPeaks["agy"])
 	}
 }

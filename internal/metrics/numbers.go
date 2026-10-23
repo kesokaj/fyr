@@ -63,6 +63,9 @@ func (s *Summary) Numbers() map[string]float64 {
 		put("B.wall_min."+v, s.B.WallMin[v])
 		put("B.active_min."+v, s.B.ActiveMin[v])
 		put("B.peak_context."+v, float64(s.B.PeakContext[v]))
+		if p := s.B.SessionsOverContextTarget[v]; p != nil {
+			put("B.sessions_over_context_target."+v, float64(*p))
+		}
 		if p := s.B.Compactions[v]; p != nil {
 			put("B.compactions."+v, float64(*p))
 		}
@@ -88,6 +91,7 @@ func (s *Summary) Numbers() map[string]float64 {
 	for _, sev := range []string{"high", "medium", "low"} {
 		put("A.review_findings."+sev, float64(s.A.ReviewFindings[sev]))
 	}
+	put("B.context_target", float64(s.B.ContextTarget))
 	put("A.escaped_bugs", float64(s.A.EscapedBugs))
 	put("A.corrections", float64(s.A.Corrections))
 	for _, k := range forbiddenKeys {

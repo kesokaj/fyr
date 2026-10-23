@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -119,5 +120,31 @@ func TestReportDrawsNoMissingValues(t *testing.T) {
 	}
 	if strings.Contains(section("sh-agent search : grep"), "<title>Antigravity") {
 		t.Error("the ratio chart draws Antigravity days that have no grep call")
+	}
+}
+
+// The summary table carries the over-target row as "k of n" per CLI, from the
+// same Summary as show (plan 2026-10-23-session-sized-work, Phase 2).
+func TestReportContextTargetRow(t *testing.T) {
+	sum := reportFixture(t)
+	var buf bytes.Buffer
+	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	row := regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>([^<]*)</td><td>([^<]*)</td>`).FindStringSubmatch(buf.String())
+	if row == nil {
+		t.Fatalf("the summary table has no over-target row:\n%s", buf.String())
+	}
+	for i, v := range []string{"claude", "agy"} {
+		want := fmt.Sprintf("%d of %d", *sum.B.SessionsOverContextTarget[v], len(sum.B.SessionPeaks[v]))
+		if row[i+1] != want {
+			t.Errorf("%s over-target cell %q, want %q", v, row[i+1], want)
+		}
+	}
+	sum.B.SessionsOverContextTarget["agy"] = nil
+	buf.Reset()
+	RenderReport(&buf, sum, time.Now())
+	if !regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>[^<]*</td><td>n/a</td>`).MatchString(buf.String()) {
+		t.Error("a vendor with no context value is not drawn as n/a")
 	}
 }

@@ -65,8 +65,8 @@ Commands:
   dream --install-timer | --remove-timer [--dry-run]  install (systemd user timer on Linux, launchd agent on macOS) or remove the nightly "dream --all", run with the PATH of the installing shell; uninstall removes it too
   dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and both CLIs' transcripts, redacted, to a CLI with no tools, and write the proposals and draft skills it returns under ~/.config/sh-agent/proposals/dream/ (R3's exception; --vendor picks the CLI, default from the manifest)
   metrics ingest [--vendor V] [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Claude Code and Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/sh-agent/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; transcripts come from --source, else --home, else $CLAUDE_CONFIG_DIR, else this home
-  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--json]  the agent-evaluation summary of the metrics store, a column per CLI: outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, compactions), process adherence (sh-agent search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
-  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per CLI; tool calls by tool; subagent tool calls by type; pass^k per sandbox label), inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
+  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, a column per CLI: outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (sh-agent search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
+  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per CLI; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
   memory show             print this project's memory index, capped at what a session loads, plus a hint when Claude Code's native memory is still on here
   version                 print the build version
@@ -112,6 +112,7 @@ type ctx struct {
 	feedbackRepo, fromZip, kind, refs, memType, memName, memDesc, dreamProject              string
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut   string
 	metricsUntil                                                                            string
+	metricsContextTarget                                                                    int64
 	metricsAllLabels, metricsJSON                                                           bool
 	limit                                                                                   int
 	// src is the harness, resolved before run for the verbs that mark source
@@ -179,6 +180,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.metricsProject, "project", "", "metrics show: only sessions in this project root")
 		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "metrics show: include labelled (sandbox) sessions")
 		c.fs.BoolVar(&c.metricsJSON, "json", false, "metrics show: print the summary as JSON")
+		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "metrics show, report: the peak context, in tokens, a main session should stay under (default 300000)")
 		c.fs.StringVar(&c.metricsOut, "out", "", "metrics report: the HTML file to write (default ~/.config/sh-agent/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
 	"search": {flags: func(c *ctx) {
@@ -505,7 +507,7 @@ func runMetrics(c *ctx) error {
 		return nil
 	case "report":
 		if len(args) > 0 || c.metricsJSON {
-			fmt.Fprintln(c.out, "sh-agent metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--out FILE]")
+			fmt.Fprintln(c.out, "sh-agent metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
 			return exitCode(2)
 		}
 		sum, err := c.metricsSummary("report")
@@ -550,7 +552,7 @@ func runMetrics(c *ctx) error {
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
 func (c *ctx) metricsFlagsOutside(allowed ...string) string {
-	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true}
+	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true}
 	ok := map[string]bool{}
 	for _, a := range allowed {
 		ok[a] = true
@@ -606,6 +608,14 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if c.metricsOut != "" && c.fs.Arg(0) != "report" {
 		return o, errors.New("--out belongs to report")
 	}
+	// Given means set: 0 left to the package is the default target, 0 typed
+	// is a mistake.
+	given := false
+	c.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "context-target" })
+	if given && c.metricsContextTarget <= 0 {
+		return o, errors.New("--context-target takes a token count above 0")
+	}
+	o.ContextTarget = c.metricsContextTarget
 	o.Label, o.AllLabels = c.metricsLabel, c.metricsAllLabels
 	if c.metricsProject != "" {
 		abs, err := filepath.Abs(c.metricsProject)

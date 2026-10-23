@@ -26,6 +26,15 @@ func TestNumbersOnly(t *testing.T) {
 	if _, ok := n["B.cost_usd.agy"]; ok {
 		t.Error("a metric Antigravity cannot produce is present (must be absent, never 0)")
 	}
+	// The context target and the over-target count reach the dream; the
+	// per-session list, which would carry session ids, does not.
+	if n["B.context_target"] != 300000 || n["B.sessions_over_context_target.claude"] != float64(*sum.B.SessionsOverContextTarget["claude"]) {
+		t.Errorf("context target %v, over target %v", n["B.context_target"], n["B.sessions_over_context_target.claude"])
+	}
+	sum.B.SessionsOverContextTarget["agy"] = nil
+	if _, ok := sum.Numbers()["B.sessions_over_context_target.agy"]; ok {
+		t.Error("a null over-target count is present (must be absent, never 0)")
+	}
 }
 
 // A snapshot reads a copy: the store's directory gains no -wal or -shm and

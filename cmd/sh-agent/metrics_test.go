@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func TestMetricsVerb(t *testing.T) {
 	home := t.TempDir()
 	dir := filepath.Join(home, ".claude", "projects", "-p")
 	os.MkdirAll(dir, 0o755)
-	line := `{"type":"assistant","sessionId":"S1","cwd":"/p","timestamp":"2026-10-08T10:00:00Z","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}` + "\n"
+	line := `{"type":"assistant","sessionId":"S1","cwd":"/p","timestamp":"2026-10-08T10:00:00Z","message":{"id":"m1","usage":{"input_tokens":5},"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}` + "\n"
 	os.WriteFile(filepath.Join(dir, "S1.jsonl"), []byte(line), 0o600)
 
 	decoy := filepath.Join(t.TempDir(), "decoy")
@@ -42,6 +43,28 @@ func TestMetricsVerb(t *testing.T) {
 	if !strings.Contains(out.String(), `"tool_calls_by_tool"`) || !strings.Contains(out.String(), `"Bash": 1`) {
 		t.Fatalf("show --json printed %s", out.String())
 	}
+	// The context target: 300000 unless --context-target says otherwise; the
+	// one session (peak 5) is under the default and over a target of 3.
+	if !strings.Contains(out.String(), `"context_target": 300000`) || !strings.Contains(out.String(), `"claude": 0`) {
+		t.Fatalf("show --json lacks the default context target or the over-target count:\n%s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"metrics", "show", "--json", "--since", "2026-10-01", "--context-target", "3", "--home", home}, &out); err != nil {
+		t.Fatalf("show --context-target: %v\n%s", err, out.String())
+	}
+	var got struct {
+		B struct {
+			ContextTarget int64            `json:"context_target"`
+			Over          map[string]*int  `json:"sessions_over_context_target"`
+			Peaks         map[string][]any `json:"session_peaks"`
+		}
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.B.ContextTarget != 3 || got.B.Over["claude"] == nil || *got.B.Over["claude"] != 1 || got.B.Over["agy"] != nil || len(got.B.Peaks["claude"]) != 1 {
+		t.Fatalf("show --json --context-target 3 printed:\n%s", out.String())
+	}
 	// --until closes the window: a window that ends before the session has
 	// none of its tool calls (the previous-window read /retro does).
 	out.Reset()
@@ -58,11 +81,11 @@ func TestMetricsVerb(t *testing.T) {
 
 	rep := filepath.Join(t.TempDir(), "r.html")
 	out.Reset()
-	if err := run([]string{"metrics", "report", "--since", "2026-10-01", "--out", rep, "--home", home}, &out); err != nil {
+	if err := run([]string{"metrics", "report", "--since", "2026-10-01", "--context-target", "3", "--out", rep, "--home", home}, &out); err != nil {
 		t.Fatalf("report: %v\n%s", err, out.String())
 	}
-	if b, err := os.ReadFile(rep); err != nil || !bytes.Contains(b, []byte("Tool calls per day")) {
-		t.Fatalf("report file: %v", err)
+	if b, err := os.ReadFile(rep); err != nil || !bytes.Contains(b, []byte("Tool calls per day")) || !bytes.Contains(b, []byte("sessions over context target (3)</td><td>1 of 1")) {
+		t.Fatalf("report file: %v, or it lacks the over-target row at the flag's target", err)
 	}
 
 	exp := filepath.Join(t.TempDir(), "m.jsonl")
@@ -107,6 +130,10 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"metrics", "ingest", "--out", filepath.Join(home, "x.html")},
 		{"metrics", "export", "--json", filepath.Join(home, "x.jsonl")},
 		{"metrics", "export", "--label", "a=b", filepath.Join(home, "x.jsonl")},
+		{"metrics", "show", "--context-target", "0"},
+		{"metrics", "report", "--context-target", "-1", "--out", filepath.Join(home, "x.html")},
+		{"metrics", "ingest", "--context-target", "1"},
+		{"metrics", "export", "--context-target", "1", filepath.Join(home, "x.jsonl")},
 	} {
 		err := run(append(args, "--home", home), &bytes.Buffer{})
 		var code exitCode
@@ -119,7 +146,8 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 	}
 	// Each verb's own usage line names every flag it takes (security review
 	// 6118921..c478d86: report's omitted --until).
-	for verb, flag := range map[string]string{"report": "--until"} {
+	for verb, flag := range map[string]string{"report": "--until", "report ": "--context-target"} {
+		verb = strings.TrimSpace(verb)
 		var out bytes.Buffer
 		run([]string{"metrics", verb, "extra", "--home", home}, &out)
 		if !strings.Contains(out.String(), flag) {

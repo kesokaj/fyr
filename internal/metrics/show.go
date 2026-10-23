@@ -17,7 +17,14 @@ type ShowOptions struct {
 	Project   string
 	Label     string
 	AllLabels bool
+	// ContextTarget is the peak context, in tokens, a main session should
+	// stay under; 0 means DefaultContextTarget (plan session-sized-work D4).
+	ContextTarget int64
 }
+
+// DefaultContextTarget is the context target when none is given: one number,
+// shared with the auto-compact backstop (plan session-sized-work D4, D27).
+const DefaultContextTarget = 300000
 
 // activeGap is the longest pause still counted as active time (spec B2).
 const activeGap = 5 * time.Minute
@@ -82,6 +89,23 @@ type Efficiency struct {
 	ActiveMin       map[string]float64        `json:"active_min"`
 	PeakContext     map[string]int64          `json:"peak_context"`
 	Compactions     map[string]*int           `json:"compactions"`
+	// ContextTarget is the target the next two fields are measured against.
+	ContextTarget int64 `json:"context_target"`
+	// SessionsOverContextTarget counts the main sessions whose peak passed
+	// the target; nil, named in Notes, for a vendor with no main session in
+	// the window that carries a context value (spec B3).
+	SessionsOverContextTarget map[string]*int `json:"sessions_over_context_target"`
+	// SessionPeaks is every main session's peak context, largest first,
+	// for the vendors that have one; no content, no path (plan D6, D16).
+	SessionPeaks map[string][]SessionPeak `json:"session_peaks"`
+}
+
+// SessionPeak is one main session's peak context: the session's id, the UTC
+// day it started and the largest context one of its model calls saw.
+type SessionPeak struct {
+	Session string `json:"session"`
+	Date    string `json:"date"`
+	Peak    int64  `json:"peak"`
 }
 
 type Adherence struct {
@@ -176,6 +200,10 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	rows.Close()
 
 	sum := newSummary(since, now)
+	sum.B.ContextTarget = o.ContextTarget
+	if sum.B.ContextTarget <= 0 {
+		sum.B.ContextTarget = DefaultContextTarget
+	}
 	for _, x := range all {
 		steps, err := s.stepsOf(x.id)
 		if err != nil {
@@ -239,7 +267,8 @@ func newSummary(since, now time.Time) *Summary {
 			PassK: map[string]PassK{}},
 		B: Efficiency{ToolCalls: vi(), ToolCallsByTool: vm(), Turns: vi(), Tokens: map[string]*Tokens{},
 			CostUSD: map[string]*float64{}, WallMin: map[string]float64{}, ActiveMin: map[string]float64{},
-			PeakContext: map[string]int64{}, Compactions: map[string]*int{}},
+			PeakContext: map[string]int64{}, Compactions: map[string]*int{},
+			SessionsOverContextTarget: map[string]*int{}, SessionPeaks: map[string][]SessionPeak{}},
 		C: Adherence{SQLiteVerbs: vi(), GrepCalls: vi(), SearchGrepRatio: map[string]*float64{},
 			Forbidden:  map[string]int{"git add -A": 0, "git add .": 0, "git push --force": 0, "--no-verify": 0, "commit chained to test": 0},
 			FirstReads: vi(), Skills: vm()},
@@ -315,7 +344,7 @@ func (s *Summary) add(x sess, steps []stp) {
 		s.B.Tokens[v] = &Tokens{}
 	}
 	tk := s.B.Tokens[v]
-	var last int64
+	var last, peak int64
 	var lastHash string
 	reads := 0
 	if s.seen == nil {
@@ -345,6 +374,7 @@ func (s *Summary) add(x sess, steps []stp) {
 			ctx = st.in + st.cr + st.cw
 		}
 		s.B.PeakContext[v] = max(s.B.PeakContext[v], ctx)
+		peak = max(peak, ctx)
 		if st.ts > 0 && st.in+st.out+st.cr+st.cw > 0 {
 			s.day(st.ts).Tokens[v] += st.in + st.out + st.cr + st.cw
 		}
@@ -403,6 +433,24 @@ func (s *Summary) add(x sess, steps []stp) {
 			s.verbs(v, st)
 		}
 	}
+	// A main session with at least one model call has a peak; a subagent runs
+	// inside its parent's window and is not a session of its own here.
+	if main && peak > 0 {
+		s.B.SessionPeaks[v] = append(s.B.SessionPeaks[v], SessionPeak{Session: x.id, Date: sessionDay(x), Peak: peak})
+	}
+}
+
+// sessionDay is the UTC day a session started, or ended when no start is
+// recorded; "" when neither is.
+func sessionDay(x sess) string {
+	ts := x.start
+	if ts == 0 {
+		ts = x.end
+	}
+	if ts == 0 {
+		return ""
+	}
+	return time.UnixMilli(ts).UTC().Format("2006-01-02")
 }
 
 func (s *Summary) verbs(v string, st stp) {
@@ -526,6 +574,7 @@ func (s *Summary) finish(all []sess) {
 		s.A.PassK[l] = *p
 	}
 	for _, v := range vendors {
+		s.finishContext(v)
 		a := s.acc(v)
 		if s.Sessions[v] == 0 && len(s.Subagents[v]) == 0 {
 			continue
@@ -561,6 +610,41 @@ func (s *Summary) finish(all []sess) {
 			break
 		}
 	}
+}
+
+// finishContext orders v's session peaks, largest first, and counts those
+// past the target; with no peak the count is nil and a note says so.
+func (s *Summary) finishContext(v string) {
+	peaks := s.B.SessionPeaks[v]
+	if len(peaks) == 0 {
+		delete(s.B.SessionPeaks, v)
+		s.B.SessionsOverContextTarget[v] = nil
+		s.Notes = append(s.Notes, v+": no main session in the window carries a context value; sessions over context target is n/a")
+		return
+	}
+	sort.Slice(peaks, func(i, j int) bool {
+		if peaks[i].Peak != peaks[j].Peak {
+			return peaks[i].Peak > peaks[j].Peak
+		}
+		return peaks[i].Session < peaks[j].Session
+	})
+	over := 0
+	for _, p := range peaks {
+		if p.Peak > s.B.ContextTarget {
+			over++
+		}
+	}
+	s.B.SessionsOverContextTarget[v] = &over
+}
+
+// overTarget renders the over-target count as "k of n", n the main sessions
+// with a peak, or "n/a".
+func (s *Summary) overTarget(v string) string {
+	p := s.B.SessionsOverContextTarget[v]
+	if p == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%d of %d", *p, len(s.B.SessionPeaks[v]))
 }
 
 // WriteJSON prints the summary as one indented object.
@@ -658,6 +742,7 @@ func (s *Summary) WriteText(w io.Writer) {
 	row("cost USD", pf(s.B.CostUSD, "%.2f"))
 	row("wall / active min", func(v string) string { return fmt.Sprintf("%.0f / %.0f", s.B.WallMin[v], s.B.ActiveMin[v]) })
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
+	row(fmt.Sprintf("over context target %d", s.B.ContextTarget), s.overTarget)
 	row("compactions", pi(s.B.Compactions))
 	head("C. process adherence")
 	row("sh-agent search|index", n(s.C.SQLiteVerbs))

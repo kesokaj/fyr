@@ -33,6 +33,7 @@ func TestUsageErrorsExit2(t *testing.T) {
 		"status --vendor bogus":              {[]string{"status", "--repo", "../..", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"uninstall --dry-run --vendor bogus": {[]string{"uninstall", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"report --dry-run --vendor bogus":    {[]string{"report", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
+		"metrics show --context-target 0":    {[]string{"metrics", "show", "--context-target", "0", "--home", home}, "--context-target takes a token count above 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer

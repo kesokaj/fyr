@@ -351,6 +351,7 @@ func outcomeTable(s *Summary) table {
 	row("tool calls", func(v string) string { return fmt.Sprint(s.B.ToolCalls[v]) })
 	row("cost USD", pf(s.B.CostUSD, "%.2f"))
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
+	row(fmt.Sprintf("sessions over context target (%d)", s.B.ContextTarget), s.overTarget)
 	row("sh-agent search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
 	row("tool error rate", pf(s.D.ToolErrorRate, "%.3f"))
 	row("denials", pi(s.D.Denials))
