@@ -18,7 +18,6 @@
 //	sh-agent dream --install-timer|--remove-timer [--dry-run]  install or remove the nightly timer
 //	sh-agent metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
 //	sh-agent memory add|show         write one memory (body on stdin) or print the index of this project's .agents/memory/
-//	sh-agent kickoff                 print the newest handoff's Kickoff block for the checkout you are in; exit 1 when nothing is queued
 //	sh-agent version
 package main
 
@@ -70,7 +69,6 @@ Commands:
   metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per CLI; tool calls by tool; subagent tool calls by type; pass^k per sandbox label), inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
   memory show             print this project's memory index, capped at what a session loads, plus a hint when Claude Code's native memory is still on here
-  kickoff                 print the newest handoff's "## Kickoff" block for the checkout you are in, without its fence, so one command starts the next session: claude "$(sh-agent kickoff)" or agy -i "$(sh-agent kickoff)"; when nothing is queued (no handoff, no Kickoff section, or its nothing-queued line) it prints "kickoff: nothing queued" on stderr and exits 1 with nothing on stdout; --home, --repo and --vendor are refused (it reads no home and no harness tree)
   version                 print the build version
 
 Flags accepted by every command:
@@ -146,19 +144,15 @@ type verb struct {
 	flags      func(c *ctx) // registers the verb's own flags; nil for none
 	source     bool         // resolve the harness source before run
 	positional bool         // takes positional arguments (search words, adopt's name, memory's subverb); every other verb refuses a stray one
-	local      bool         // reads the checkout the shell is in and nothing else: --home, --repo and --vendor are refused before it runs (kickoff)
 	run        func(c *ctx) error
 }
 
 // verbs is the command table. A verb's FlagSet holds the three global flags
 // and the ones its flags func registers, so `list --check` is a usage error
-// instead of a flag parsed and silently ignored (IN5). A verb that moves the
-// harness or experience along a path is a map change under the project's
-// README map rule; a consult verb (search, memory, metrics, kickoff: R0)
-// draws no line (ADR-058).
+// instead of a flag parsed and silently ignored (IN5). Adding a verb here is
+// a map change under the project's README map rule (D9: verbs unchanged).
 var verbs = map[string]verb{
 	"version":   {run: runVersion},
-	"kickoff":   {local: true, run: runKickoff},
 	"uninstall": {flags: (*ctx).dryRunFlag, run: runUninstall},
 	"report": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.feedbackRepo, "feedback-repo", "", "report: feedback checkout (never cloned into)")
@@ -254,15 +248,6 @@ func run(args []string, out io.Writer) error {
 		// A stray argument is never ignored: `list - --check` and `update --
 		// --from-zip x` would otherwise run the verb as if nothing had been said.
 		fmt.Fprintf(out, "%s takes no arguments: %q\n", cmd, c.fs.Args())
-		return exitCode(2)
-	}
-
-	// A verb that reads only the checkout the shell is in takes none of the
-	// three global flags: a flag that would do nothing is a usage error, not
-	// a flag parsed and silently ignored (IN5), and it is refused here, once,
-	// before the verb runs (the BUG-171 shape).
-	if v.local && (c.repoFlag != "" || c.homeFlag != "" || c.vendorFlag != "") {
-		fmt.Fprintf(out, "sh-agent %s: --home, --repo and --vendor do not apply: %s reads the checkout the shell is in, not a home or a harness tree\n", cmd, cmd)
 		return exitCode(2)
 	}
 
