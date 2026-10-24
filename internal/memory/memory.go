@@ -1,8 +1,7 @@
 // Package memory is a project's memory store, .agents/memory/ at the
-// repository root: one file per memory plus the MEMORY.md index. Both CLIs
-// write and read it through `sh-agent memory`, so a memory is taken the same
-// way on Claude Code and on Antigravity (R10, plan
-// 2026-09-30-parity-memory-dream).
+// repository root: one file per memory plus the MEMORY.md index. The CLI
+// writes and reads it through `sh-agent memory`, so a memory is taken the
+// same way on every machine (R10, plan 2026-09-30-parity-memory-dream).
 package memory
 
 import (
@@ -23,7 +22,8 @@ import (
 	"github.com/kesokaj/styrman-harness/internal/trail"
 )
 
-// The index caps match what Claude Code loads of its own MEMORY.md.
+// The index caps: what `memory show` prints of MEMORY.md, so a session loads
+// a bounded index however long the file grows.
 const (
 	maxLines = 200
 	maxBytes = 25 * 1024
@@ -196,10 +196,8 @@ func hasLine(lines []string, name string) bool {
 	return false
 }
 
-// Show returns the index, capped at what a session loads, plus the rollout
-// hint when Claude Code's native memory may still be on here (D20, D27):
-// claudeInstalled is true unless the install manifest names Antigravity alone.
-func Show(dir string, claudeInstalled bool) (string, error) {
+// Show returns the index, capped at what a session loads.
+func Show(dir string) (string, error) {
 	root, err := Root(dir)
 	if err != nil {
 		return "", err
@@ -220,26 +218,7 @@ func Show(dir string, claudeInstalled bool) (string, error) {
 		}
 		b.WriteString(l + "\n")
 	}
-	if nativeOn(root, claudeInstalled) {
-		b.WriteString("Claude Code's native memory is still on here: run /init-project to switch it off (R10)\n")
-	}
 	return b.String(), nil
-}
-
-// nativeOn reports whether this project's settings leave Claude Code's own
-// auto memory on: a settings file without "autoMemoryEnabled": false, or no
-// file at all on a machine where Claude Code is installed.
-func nativeOn(root string, claudeInstalled bool) bool {
-	data, err := os.ReadFile(filepath.Join(root, ".claude", "settings.local.json"))
-	if err != nil {
-		return claudeInstalled
-	}
-	var s map[string]any
-	if json.Unmarshal(data, &s) != nil {
-		return true
-	}
-	v, ok := s["autoMemoryEnabled"].(bool)
-	return !ok || v
 }
 
 // readLines returns the non-empty lines of path; a missing file is empty. A

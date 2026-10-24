@@ -16,11 +16,12 @@ import (
 // Install writes the planned files under home, removes files a previous
 // install wrote that the plan no longer contains, and records the manifest.
 // Writing is idempotent: an unchanged file is neither rewritten nor reported.
-func Install(src Source, home string, files []File, vendor string, dryRun bool, out io.Writer) error {
-	v, err := NormalizeVendor(vendor)
-	if err != nil {
-		return err
-	}
+//
+// The resync is also how an install from before ADR-062 sheds its Claude Code
+// files: the old manifest lists ~/.claude/AGENTS.md, the CLAUDE.md stub and
+// the skills, agents, commands and rules under ~/.claude, this plan names
+// none of them, and each is removed by the one rule below.
+func Install(src Source, home string, files []File, dryRun bool, out io.Writer) error {
 	old, _, err := LoadState(home)
 	if err != nil {
 		return err
@@ -68,10 +69,6 @@ func Install(src Source, home string, files []File, vendor string, dryRun bool, 
 		}
 		existing, readErr := os.ReadFile(dest)
 		switch {
-		case f.KeepForeign && readErr == nil && !IsOurs(existing) && !bytes.Equal(existing, f.Data):
-			counts["kept"]++
-			fmt.Fprintf(out, "keep    ~/%s (not written by sh-agent; move only rules meant for every machine into a rule file under rules/ in the harness repo — rules/ ships to every install on every machine, never credentials or personal or host-specific notes — then remove the file and run install again)\n", f.Rel)
-			continue
 		case readErr == nil && bytes.Equal(existing, f.Data):
 			counts["unchanged"]++
 			// Same bytes is not the same file: a deployed copy that someone
@@ -169,7 +166,7 @@ func Install(src Source, home string, files []File, vendor string, dryRun bool, 
 	case info.Dirty:
 		commit += "+dirty" // the files came from the working tree, not from this commit
 	}
-	st := State{Repo: repo, Commit: commit, InstalledAt: time.Now().Format(time.RFC3339), Vendor: v, Files: manifest}
+	st := State{Repo: repo, Commit: commit, InstalledAt: time.Now().Format(time.RFC3339), Vendor: VendorAntigravity, Files: manifest}
 	if !dryRun {
 		if err := SaveState(home, st); err != nil {
 			return fmt.Errorf("saving manifest: %w", err)
@@ -223,8 +220,6 @@ func Status(home string, files []File) (Report, error) {
 		case err != nil:
 			return Report{}, err
 		case bytes.Equal(existing, f.Data):
-		case f.KeepForeign && !IsOurs(existing):
-			state = "foreign"
 		default:
 			state = "differs"
 		}
@@ -261,7 +256,7 @@ func Diff(home string, files []File, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if bytes.Equal(existing, f.Data) || (f.KeepForeign && !IsOurs(existing)) {
+		if bytes.Equal(existing, f.Data) {
 			continue
 		}
 		// Under the home's own runtime directory, never the system temp dir:
@@ -416,12 +411,14 @@ func underLink(home, rel string) bool {
 }
 
 // pruneEmptyDirs removes now-empty directories from dir upward, stopping at
-// the vendor roots and anything above them so uninstall never removes
-// ~/.claude or ~/.gemini/config themselves.
+// the vendor root and anything above it so uninstall never removes
+// ~/.gemini/config itself. ~/.claude stays a stop too: the resync that sheds
+// a pre-ADR-062 install's files there must leave the directory, which holds
+// the operator's own settings.
 func pruneEmptyDirs(home, dir string) {
 	stop := map[string]bool{
 		home:                                       true,
-		filepath.Join(home, ClaudeRoot):            true,
+		filepath.Join(home, ".claude"):             true, // an install before ADR-062 wrote there
 		filepath.Join(home, ".gemini"):             true,
 		filepath.Join(home, AgyRoot):               true,
 		filepath.Join(home, ".config"):             true,

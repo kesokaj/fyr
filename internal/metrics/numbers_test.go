@@ -20,7 +20,8 @@ func TestNumbersOnly(t *testing.T) {
 			t.Errorf("key %q is not one of the package's names", k)
 		}
 	}
-	if n["B.tool_calls.claude"] != float64(sum.B.ToolCalls["claude"]) || n["C.forbidden.git_add_dot"] != 1 {
+	// git add . twice: the agy fixture and its labelled sandbox run.
+	if n["B.tool_calls.claude"] != float64(sum.B.ToolCalls["claude"]) || n["C.forbidden.git_add_dot"] != 2 {
 		t.Errorf("values: tool calls %v, git add . %v", n["B.tool_calls.claude"], n["C.forbidden.git_add_dot"])
 	}
 	if _, ok := n["B.cost_usd.agy"]; ok {
@@ -43,7 +44,7 @@ func TestSnapshotReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "metrics.db")
 	s := openT(t, p)
-	s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('x', 'claude', 1, 2)`)
+	s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('x', 'agy', 1, 2)`)
 	s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	s.Close()
 	for _, suffix := range []string{"-wal", "-shm"} {

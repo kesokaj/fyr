@@ -40,7 +40,7 @@ func fsHarness() map[string]string {
 }
 
 func TestPlanFromFSSource(t *testing.T) {
-	files, err := Plan(mapSource(fsHarness()), nil, VendorAll)
+	files, err := Plan(mapSource(fsHarness()), nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
@@ -51,15 +51,6 @@ func TestPlanFromFSSource(t *testing.T) {
 		byRel[f.Rel] = f
 	}
 	want := []string{
-		".claude/AGENTS.md",
-		".claude/CLAUDE.md",
-		".claude/agents/reviewer.md",
-		".claude/commands/deploy.md",
-		".claude/commands/ship.md",
-		".claude/rules/go-style.md",
-		".claude/skills/alpha/SKILL.md",
-		".claude/skills/alpha/assets/.gitkeep",
-		".claude/skills/alpha/references/notes.md",
 		".gemini/config/agents/reviewer/agent.md",
 		".gemini/config/rules/AGENTS.md",
 		".gemini/config/rules/go-style.md",
@@ -75,7 +66,7 @@ func TestPlanFromFSSource(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("planned files:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	notes := byRel[filepath.FromSlash(".claude/skills/alpha/references/notes.md")]
+	notes := byRel[filepath.FromSlash(".gemini/config/skills/alpha/references/notes.md")]
 	if string(notes.Data) != "notes\n" {
 		t.Errorf("notes.md data = %q", notes.Data)
 	}
@@ -84,7 +75,7 @@ func TestPlanFromFSSource(t *testing.T) {
 	if notes.Mode != 0o644 {
 		t.Errorf("notes.md mode = %v, want 0644", notes.Mode)
 	}
-	ctx := string(byRel[filepath.FromSlash(".claude/AGENTS.md")].Data)
+	ctx := string(byRel[filepath.FromSlash(".gemini/config/rules/AGENTS.md")].Data)
 	for _, part := range []string{Marker, "Be honest.", "## Environment", "Skills (1): `alpha`", "`reviewer` (inherit)", "`/deploy`", "`go-style`"} {
 		if !strings.Contains(ctx, part) {
 			t.Errorf("rendered context lacks %q", part)
@@ -119,7 +110,7 @@ func TestFSSourceRefusals(t *testing.T) {
 					files[k] = v
 				}
 			}
-			_, err := Plan(mapSource(files), nil, VendorAll)
+			_, err := Plan(mapSource(files), nil)
 			if err == nil {
 				t.Fatalf("Plan succeeded, want an error naming %q", tc.want)
 			}
@@ -154,11 +145,11 @@ func TestDirSourceReadsTheSameAsFS(t *testing.T) {
 	for name, body := range fsHarness() {
 		writeFile(t, filepath.Join(repo, filepath.FromSlash(name)), body)
 	}
-	fromDir, err := Plan(DirSource(repo), nil, VendorAll)
+	fromDir, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatalf("Plan(DirSource): %v", err)
 	}
-	fromFS, err := Plan(mapSource(fsHarness()), nil, VendorAll)
+	fromFS, err := Plan(mapSource(fsHarness()), nil)
 	if err != nil {
 		t.Fatalf("Plan(map): %v", err)
 	}
@@ -167,7 +158,7 @@ func TestDirSourceReadsTheSameAsFS(t *testing.T) {
 	}
 	for i := range fromDir {
 		a, b := fromDir[i], fromFS[i]
-		if a.Rel != b.Rel || string(a.Data) != string(b.Data) || a.Mode != b.Mode || a.KeepForeign != b.KeepForeign {
+		if a.Rel != b.Rel || string(a.Data) != string(b.Data) || a.Mode != b.Mode {
 			t.Errorf("file %d: dir %s %v, fs %s %v", i, a.Rel, a.Mode, b.Rel, b.Mode)
 		}
 	}
@@ -188,13 +179,13 @@ func TestDirSourceFollowsLinkedSkillDir(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(repo, "skills", "gamma")); err != nil {
 		t.Skip("symlinks unavailable here")
 	}
-	files, err := Plan(DirSource(repo), nil, VendorClaude)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
 	found := false
 	for _, f := range files {
-		if f.Rel == filepath.Join(ClaudeRoot, "skills", "gamma", "references", "g.md") && string(f.Data) == "g\n" {
+		if f.Rel == filepath.Join(AgyRoot, "skills", "gamma", "references", "g.md") && string(f.Data) == "g\n" {
 			found = true
 		}
 	}
@@ -216,11 +207,11 @@ func TestEmbeddedInstallState(t *testing.T) {
 	src := mapSource(fsHarness())
 	src.Version = "v1.2.3"
 	home := t.TempDir()
-	files, err := Plan(src, nil, VendorAll)
+	files, err := Plan(src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(src, home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(src, home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	st, found, err := LoadState(home)

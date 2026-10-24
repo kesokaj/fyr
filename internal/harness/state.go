@@ -15,11 +15,14 @@ import (
 // path not listed here is not sh-agent's to delete, whatever directory it
 // sits in.
 type State struct {
-	Repo        string   `json:"repo"`
-	Commit      string   `json:"commit"`
-	InstalledAt string   `json:"installedAt"`
-	Vendor      string   `json:"vendor,omitempty"`
-	Files       []string `json:"files"` // relative to $HOME, sorted
+	Repo        string `json:"repo"`
+	Commit      string `json:"commit"`
+	InstalledAt string `json:"installedAt"`
+	// Vendor is always "antigravity" when written. A value an install from
+	// before ADR-062 recorded (such as "all") is read and ignored: the
+	// install it describes is replaced by the next one.
+	Vendor string   `json:"vendor,omitempty"`
+	Files  []string `json:"files"` // relative to $HOME, sorted
 }
 
 func statePath(home string) string {
@@ -52,9 +55,6 @@ func LoadState(home string) (State, bool, error) {
 		}
 	}
 	s.Files = kept
-	if s.Vendor == "" {
-		s.Vendor = VendorAll
-	}
 	return s, true, nil
 }
 

@@ -1,19 +1,19 @@
 # styrman-harness
 
-Your rules, skills and subagents for **Claude Code** and the **Antigravity CLI** (`agy`), kept in one repository and installed the same way on every machine you work from, plus `sh-agent`, a small Go binary that does the installing and keeps what a session cannot hold on its own: the searchable trail of each project, its memory, the shape of every session and a nightly consolidation. One operator, their own machines, a private repository. No hooks, no gates, no CI, no service.
+Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in one repository and installed the same way on every machine you work from, plus `sh-agent`, a small Go binary that does the installing and keeps what a session cannot hold on its own: the searchable trail of each project, its memory, the shape of every session and a nightly consolidation. One operator, their own machines, a private repository. No hooks, no gates, no CI, no service.
 
 ## Why it exists
 
 - **Context drifts.** A rule you add on the laptop is missing on the workstation a week later. Here every rule, skill and agent is a file in this repository; `sh-agent install` puts the same set on every machine, and `sh-agent update` moves a machine forward when you say so.
-- **Sessions forget.** A CLI session ends and its lessons go with it. The harness writes them down in the project's own trail (handoffs, decisions, bugs, plans) and in a memory store both CLIs read at the start of the next session.
-- **A CLI cannot measure itself.** `sh-agent metrics` records the shape of every session (tools, tokens, compactions, denials, never your prose), so you can see where the work goes and tune the harness from numbers instead of impressions.
+- **Sessions forget.** A CLI session ends and its lessons go with it. The harness writes them down in the project's own trail (handoffs, decisions, bugs, plans) and in a memory store the CLI reads at the start of the next session.
+- **A CLI cannot measure itself.** `sh-agent metrics` records the shape of every session (tools, tokens, errors, never your prose), so you can see where the work goes and tune the harness from numbers instead of impressions.
 
 ## What you get
 
 | | |
 |---|---|
-| One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.claude/AGENTS.md` and `~/.gemini/config/rules/AGENTS.md` |
-| Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` on either CLI |
+| One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
+| Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
 | Subagents | 8, written once in Claude Code's format; the Antigravity flavour is derived at install |
 | Rules | always-on rules under `rules/` (today: critical thinking, and one session per task or phase) |
 | The binary | `sh-agent`: install, update, status, uninstall; `search` over a project's files and trail records; `memory`; `metrics`; the nightly `dream` |
@@ -31,26 +31,26 @@ sh-agent status                   # ends with "drift none"
 
 Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search` and `metrics`.
 
-Two things to know about your home directory. `install` writes two keys into `~/.claude/settings.json`, each only when absent: `"attribution": {"commit": "", "pr": ""}` so no commit carries a Co-Authored-By trailer, and `"autoCompactWindow": 300000` so a Claude Code session compacts at the harness's context target rather than at the model's own limit (a value you saved with `/autocompact`, the `--autocompact` flag or `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins, and the harness never touches those; `status` notes a key the file does not set). And the harness's own state lives in `~/.config/sh-agent/` (feedback log, retro proposals, the search index, the metrics store), so Claude Code asks once per session before it first reads or writes there; add that directory to `permissions.additionalDirectories` in `~/.claude/settings.json` to stop the prompt.
+Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/sh-agent`); it never reads or writes `~/.claude`. A machine an older version installed for Claude Code keeps its `~/.claude/settings.json` keys (`attribution`, `autoCompactWindow`) as yours; the first install after the upgrade removes the `~/.claude` files that older install listed in its manifest, and nothing else there (ADR-062). And the harness's own state lives in `~/.config/sh-agent/` (feedback log, retro proposals, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
 
 ## Daily commands
 
 | Command | What it does |
 |---|---|
-| `sh-agent status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer, and a note for a settings key or a `PATH` shadow. Exit 1 on drift. |
+| `sh-agent status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer, and a note for a `PATH` shadow. Exit 1 on drift. |
 | `sh-agent update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. |
 | `sh-agent install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has. Idempotent; `--dry-run` prints without changing. |
 | `sh-agent diff` | A unified diff of every drifted file. |
-| `sh-agent uninstall` | Removes exactly what it installed, the dream timer included; the metrics store and your settings stay. |
+| `sh-agent uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. |
 | `sh-agent list` / `render` | The skill and agent inventory; the assembled context as deployed. |
 | `sh-agent search <words>` | Ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `sh-agent index` maintains the index. |
-| `sh-agent memory add` / `show` | The project memory store (`.agents/memory/`), written and read the same way on both CLIs; `show` is what a session loads at start. |
-| `sh-agent metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/sh-agent/metrics.db`, summarises it per CLI (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Never arguments, prose or tool output. |
-| `sh-agent dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to a CLI with no tools; the proposals land under `~/.config/sh-agent/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |
+| `sh-agent memory add` / `show` | The project memory store (`.agents/memory/`), `show` prints the index a session loads at start. |
+| `sh-agent metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/sh-agent/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest reads Antigravity only; rows an older version stored for Claude Code are kept and shown as a historical column. Never arguments, prose or tool output. |
+| `sh-agent dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals land under `~/.config/sh-agent/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |
 | `sh-agent adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `sh-agent version` | The build version. |
 
-`sh-agent` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. Every verb takes `--home DIR` (install somewhere other than `$HOME`, which the tests use) and `--vendor antigravity|claude|all`. The full behaviour of each verb is in `.agents/docs/specs/sh-agent/`.
+`sh-agent` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. The global flags are `--repo DIR` and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in `.agents/docs/specs/sh-agent/`.
 
 ## How it works
 
@@ -73,8 +73,8 @@ flowchart LR
         binaryPlace["Release binary<br/>harness built in, no repository"]
         zipPlace["Zip place<br/>repo zip downloaded by hand, no tree kept"]
         installer["sh-agent install / sh-agent update"]
-        homeFiles["~/.claude and ~/.gemini/config<br/>installed files, no repository"]
-        sessions["Claude Code and Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
+        homeFiles["~/.gemini/config<br/>installed files, no repository"]
+        sessions["Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
         configDir["~/.config/sh-agent/<br/>feedback.jsonl, retros.jsonl, proposals/, state.json, search.db, metrics.db<br/>stays on this machine"]
         dreamer["sh-agent dream --all<br/>nightly user timer, a CLI with no tools"]
     end
@@ -174,13 +174,13 @@ A zip of `main` ("Code → Download ZIP") works too, but no release lists it, so
 
 Every customization is a file in a directory: drop it in, run `sh-agent install`, commit. Nothing to register.
 
-| Put it in | What it is | Claude Code gets | Antigravity gets |
-|---|---|---|---|
-| `skills/<name>/SKILL.md` | a skill (Agent Skills standard); loaded when its description matches, typed as `/name` | `~/.claude/skills/<name>/` | `~/.gemini/config/skills/<name>/` |
-| `agents/<name>.md` | a subagent in Claude Code's format (`name`, `description`, `tools`, `model`, …) | `~/.claude/agents/<name>.md` | `~/.gemini/config/agents/<name>/agent.md`, tools and model translated |
-| `rules/<name>.md` | an always-on or path-scoped rule; on Antigravity it shares the context's 24,000-byte rules block | `~/.claude/rules/<name>.md` | `~/.gemini/config/rules/<name>.md` |
-| `commands/<name>.md` | a plain markdown prompt invoked as `/name` (prefer a skill: it works on both CLIs without translation) | `~/.claude/commands/<name>.md` | `~/.gemini/config/workflows/<name>.md` |
-| `context/<name>.md` | more global context, appended after `AGENTS.md` | part of `~/.claude/AGENTS.md` | part of `~/.gemini/config/rules/AGENTS.md` |
+| Put it in | What it is | Antigravity gets |
+|---|---|---|
+| `skills/<name>/SKILL.md` | a skill (Agent Skills standard); loaded when its description matches, typed as `/name` | `~/.gemini/config/skills/<name>/` |
+| `agents/<name>.md` | a subagent in Claude Code's format (`name`, `description`, `tools`, `model`, …) | `~/.gemini/config/agents/<name>/agent.md`, tools and model translated |
+| `rules/<name>.md` | an always-on or path-scoped rule; it shares the context's 24,000-byte rules block | `~/.gemini/config/rules/<name>.md` |
+| `commands/<name>.md` | a plain markdown prompt invoked as `/name` (prefer a skill) | `~/.gemini/config/workflows/<name>.md` |
+| `context/<name>.md` | more global context, appended after `AGENTS.md` | part of `~/.gemini/config/rules/AGENTS.md` |
 
 The installer refuses what would grant a permission behind your back: a skill without a `description`, a skill or rule that sets `allowed-tools` or `hooks`, an agent with a key outside its allow-list, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity cannot map (an unknown name hangs its subagent). `AGENTS.md` § Rules for working here lists each refusal and why.
 

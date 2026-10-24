@@ -221,8 +221,9 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 	home := t.TempDir()
 	self := []byte("#!/bin/sh\necho sh-agent\n")
 
-	// A CLAUDE.md the operator wrote must survive an install.
-	claudeMD := filepath.Join(home, ClaudeRoot, "CLAUDE.md")
+	// A file the operator keeps under ~/.claude is not the installer's: it
+	// survives install and uninstall, and no file is written beside it.
+	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
 	if err := os.MkdirAll(filepath.Dir(claudeMD), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -230,26 +231,21 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	files, err := Plan(DirSource(repo), self, VendorAll)
+	files, err := Plan(DirSource(repo), self)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		".claude/AGENTS.md",
-		".claude/skills/alpha/SKILL.md",
-		".claude/skills/alpha/references/notes.md",
-		".claude/skills/beta/SKILL.md",
-		".claude/agents/reviewer.md",
 		".gemini/config/rules/AGENTS.md",
 		".gemini/config/skills/alpha/SKILL.md",
+		".gemini/config/skills/alpha/references/notes.md",
+		".gemini/config/skills/beta/SKILL.md",
 		".gemini/config/agents/reviewer/agent.md",
-		".claude/commands/deploy.md",
 		".gemini/config/workflows/deploy.md",
-		".claude/rules/go-style.md",
 		".gemini/config/rules/go-style.md",
 		".local/bin/sh-agent",
 		".config/sh-agent/state.json",
@@ -258,14 +254,11 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 			t.Errorf("expected %s after install: %v", rel, err)
 		}
 	}
+	if entries, _ := os.ReadDir(filepath.Join(home, ".claude")); len(entries) != 1 {
+		t.Errorf("install wrote under ~/.claude: %v", entries)
+	}
 	if got, _ := os.ReadFile(claudeMD); string(got) != "my own notes\n" {
-		t.Errorf("foreign CLAUDE.md was overwritten: %q", got)
-	}
-	if !strings.Contains(out.String(), "keep    ~/.claude/CLAUDE.md") {
-		t.Errorf("install should report the kept file:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "move only rules meant for every machine into a rule file under rules/") || !strings.Contains(out.String(), "never credentials or personal or host-specific notes") {
-		t.Fatalf("keep line lacks the rules/ guidance or its exclusion of credentials and personal notes:\n%s", out.String())
+		t.Errorf("the operator's CLAUDE.md was touched: %q", got)
 	}
 	if info, _ := os.Stat(filepath.Join(home, BinPath)); info.Mode().Perm()&0o100 == 0 {
 		t.Errorf("binary should be executable, mode %v", info.Mode())
@@ -275,11 +268,11 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Drift() || report.Counts["foreign"] != 1 {
-		t.Errorf("fresh install should be clean apart from the foreign CLAUDE.md: %+v", report.Counts)
+	if report.Drift() || report.Counts["foreign"] != 0 {
+		t.Errorf("fresh install should be clean: %+v", report.Counts)
 	}
 	// status and diff plan without the binary; the installed one is not stale.
-	noSelf, err := Plan(DirSource(repo), nil, VendorAll)
+	noSelf, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +281,7 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 	}
 
 	// Edit a deployed file, delete another: both show up as drift.
-	if err := os.WriteFile(filepath.Join(home, ".claude/skills/alpha/SKILL.md"), []byte("edited"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".gemini/config/skills/alpha/SKILL.md"), []byte("edited"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(home, ".gemini/config/agents/reviewer/agent.md")); err != nil {
@@ -299,24 +292,22 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 		t.Errorf("drift not detected: %+v", report.Counts)
 	}
 
-	// Remove a skill from the repo and reinstall: the deployed copies go away.
+	// Remove a skill from the repo and reinstall: the deployed copy goes away.
 	if err := os.RemoveAll(filepath.Join(repo, "skills", "beta")); err != nil {
 		t.Fatal(err)
 	}
-	files, err = Plan(DirSource(repo), self, VendorAll)
+	files, err = Plan(DirSource(repo), self)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".claude/skills/beta", ".gemini/config/skills/beta"} {
-		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
-			t.Errorf("stale %s should have been removed", rel)
-		}
+	if _, err := os.Stat(filepath.Join(home, ".gemini/config/skills/beta")); err == nil {
+		t.Error("stale .gemini/config/skills/beta should have been removed")
 	}
-	if !strings.Contains(out.String(), "2 removed") {
+	if !strings.Contains(out.String(), "1 removed") {
 		t.Errorf("resync should report removals:\n%s", out.String())
 	}
 	report, _ = Status(home, files)
@@ -328,164 +319,120 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 	if err := Uninstall(home, true, &out); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude/AGENTS.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".gemini/config/rules/AGENTS.md")); err != nil {
 		t.Errorf("dry-run uninstall removed a file")
 	}
 
 	if err := Uninstall(home, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".claude/AGENTS.md", ".claude/skills", ".claude/agents", ".gemini/config/skills", ".gemini/config/rules", ".local/bin/sh-agent", ".config/sh-agent"} {
+	for _, rel := range []string{".gemini/config/skills", ".gemini/config/rules", ".gemini/config/agents", ".local/bin/sh-agent", ".config/sh-agent"} {
 		if _, err := os.Lstat(filepath.Join(home, rel)); err == nil {
 			t.Errorf("%s should be gone after uninstall", rel)
 		}
 	}
-	for _, rel := range []string{".claude", ".gemini/config", ".claude/CLAUDE.md"} {
+	for _, rel := range []string{".gemini/config", ".claude/CLAUDE.md"} {
 		if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
 			t.Errorf("%s must survive uninstall: %v", rel, err)
 		}
 	}
-	if got, _ := os.ReadFile(claudeMD); string(got) != "my own notes\n" {
-		t.Errorf("foreign CLAUDE.md touched by uninstall: %q", got)
-	}
 }
 
-func TestInstallWritesOwnClaudeStub(t *testing.T) {
+// TestPlanAntigravityOnly: every planned path is under the Antigravity CLI's
+// directory or is the binary, and the manifest records the one vendor that a
+// reader of state.json (the init-project skill) checks for.
+func TestPlanAntigravityOnly(t *testing.T) {
 	repo := newRepo(t)
+	files, err := Plan(DirSource(repo), []byte("#!/bin/sh\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if !strings.HasPrefix(f.Rel, AgyRoot+string(filepath.Separator)) && f.Rel != BinPath {
+			t.Errorf("planned %s, outside ~/%s", f.Rel, AgyRoot)
+		}
+	}
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
-	if err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Errorf("an install into an empty home made ~/.claude: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(home, ClaudeRoot, "CLAUDE.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !IsOurs(got) || !strings.Contains(string(got), "\n@AGENTS.md\n") {
-		t.Errorf("stub = %q", got)
-	}
-}
-
-func TestVendorSelection(t *testing.T) {
-	// NormalizeVendor checks
-	for _, in := range []string{"", "all", "ALL", " all "} {
-		if got, err := NormalizeVendor(in); err != nil || got != VendorAll {
-			t.Errorf("NormalizeVendor(%q) = %q, err %v", in, got, err)
-		}
-	}
-	for _, in := range []string{"antigravity", "Antigravity", "agy", "gemini"} {
-		if got, err := NormalizeVendor(in); err != nil || got != VendorAntigravity {
-			t.Errorf("NormalizeVendor(%q) = %q, err %v", in, got, err)
-		}
-	}
-	for _, in := range []string{"claude", "Claude", "claudecode"} {
-		if got, err := NormalizeVendor(in); err != nil || got != VendorClaude {
-			t.Errorf("NormalizeVendor(%q) = %q, err %v", in, got, err)
-		}
-	}
-	if _, err := NormalizeVendor("invalid-vendor"); err == nil {
-		t.Error("NormalizeVendor should reject unknown vendor")
-	}
-
-	repo := newRepo(t)
-	self := []byte("#!/bin/sh\necho sh-agent\n")
-
-	// Plan for antigravity only
-	agyPlan, err := Plan(DirSource(repo), self, VendorAntigravity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range agyPlan {
-		if strings.HasPrefix(f.Rel, ClaudeRoot) {
-			t.Errorf("antigravity plan contains Claude file %s", f.Rel)
-		}
-	}
-	foundAgyAgents := false
-	for _, f := range agyPlan {
-		if f.Rel == filepath.Join(AgyRoot, "rules", "AGENTS.md") {
-			foundAgyAgents = true
-		}
-	}
-	if !foundAgyAgents {
-		t.Error("antigravity plan missing rules/AGENTS.md")
-	}
-
-	// Plan for claude only
-	claudePlan, err := Plan(DirSource(repo), self, VendorClaude)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range claudePlan {
-		if strings.HasPrefix(f.Rel, AgyRoot) {
-			t.Errorf("claude plan contains Antigravity file %s", f.Rel)
-		}
-	}
-
-	// Install antigravity-only to clean home
-	home := t.TempDir()
-	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, agyPlan, VendorAntigravity, false, &out); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ClaudeRoot)); err == nil {
-		t.Errorf(".claude should not exist after antigravity-only install")
-	}
-	if _, err := os.Stat(filepath.Join(home, AgyRoot, "rules", "AGENTS.md")); err != nil {
-		t.Errorf("expected antigravity rules/AGENTS.md to exist: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(home, BinPath)); err != nil {
-		t.Errorf("expected binary to be installed: %v", err)
-	}
-
-	// Verify state records vendor
 	st, found, err := LoadState(home)
-	if err != nil || !found {
-		t.Fatalf("LoadState failed: %v, found: %v", err, found)
+	if err != nil || !found || st.Vendor != VendorAntigravity {
+		t.Errorf("state = %+v, %v, %v; want vendor %q", st, found, err, VendorAntigravity)
 	}
-	if st.Vendor != VendorAntigravity {
-		t.Errorf("state vendor = %q, want %q", st.Vendor, VendorAntigravity)
+}
+
+// TestResyncShedsOldClaudeFiles: a manifest from an install before ADR-062
+// lists files under ~/.claude. The next install's resync removes each one
+// and names it, by the one rule it applies to any file the plan no longer
+// holds: a symlink, or a file under a linked directory, is the operator's and
+// stays; ~/.claude itself and a file the manifest never listed stay; the
+// vendor the old manifest recorded is ignored (plan fyr Phase 2, D14, D17).
+func TestResyncShedsOldClaudeFiles(t *testing.T) {
+	repo := newRepo(t)
+	home := t.TempDir()
+	put := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(home, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := []string{
+		".claude/AGENTS.md", ".claude/CLAUDE.md", ".claude/skills/alpha/SKILL.md",
+		".claude/agents/reviewer.md", ".claude/commands/deploy.md", ".claude/rules/go-style.md",
+		".claude/rules/linked.md",
+	}
+	for _, rel := range old[:6] {
+		put(rel, Marker+"\nold\n")
+	}
+	put(".claude/settings.json", "{}\n") // the operator's, never in a manifest
+	put("dotfiles/linked.md", "mine\n")
+	if err := os.Symlink(filepath.Join(home, "dotfiles", "linked.md"), filepath.Join(home, ".claude", "rules", "linked.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveState(home, State{Repo: repo, Vendor: "all", Files: old}); err != nil {
+		t.Fatal(err)
 	}
 
-	// Status check with antigravity plan has no drift
-	noSelfAgy, err := Plan(DirSource(repo), nil, VendorAntigravity)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := Status(home, noSelfAgy)
+	var out bytes.Buffer
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range old[:6] {
+		if _, err := os.Lstat(filepath.Join(home, rel)); !os.IsNotExist(err) {
+			t.Errorf("~/%s was kept: %v", rel, err)
+		}
+		if !strings.Contains(out.String(), "remove  ~/"+rel+" (no longer in the source)") {
+			t.Errorf("the removal of ~/%s is not reported:\n%s", rel, out.String())
+		}
+	}
+	for _, rel := range []string{".claude", ".claude/settings.json", ".claude/rules/linked.md", "dotfiles/linked.md"} {
+		if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
+			t.Errorf("~/%s must stay: %v", rel, err)
+		}
+	}
+	if !strings.Contains(out.String(), "6 removed") {
+		t.Errorf("install should count six removals:\n%s", out.String())
+	}
+	st, _, err := LoadState(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Drift() {
-		t.Errorf("antigravity status has drift: %+v", report.Counts)
-	}
-
-	// Switch from antigravity to all, then back to antigravity:
-	// Verify resync removes Claude files when returning to antigravity
-	allPlan, err := Plan(DirSource(repo), self, VendorAll)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Install(DirSource(repo), home, allPlan, VendorAll, false, &bytes.Buffer{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ClaudeRoot, "AGENTS.md")); err != nil {
-		t.Fatalf("expected .claude/AGENTS.md after installing all: %v", err)
-	}
-
-	// Now switch back to antigravity
-	out.Reset()
-	if err := Install(DirSource(repo), home, agyPlan, VendorAntigravity, false, &out); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, ClaudeRoot, "AGENTS.md")); err == nil {
-		t.Errorf(".claude/AGENTS.md should have been removed by resync when switching back to antigravity")
-	}
-	st, _, err = LoadState(home)
-	if err != nil {
-		t.Fatal(err)
+	for _, rel := range st.Files {
+		if strings.HasPrefix(rel, ".claude") {
+			t.Errorf("the new manifest still lists ~/%s", rel)
+		}
 	}
 	if st.Vendor != VendorAntigravity {
 		t.Errorf("state vendor = %q, want %q", st.Vendor, VendorAntigravity)
@@ -502,8 +449,8 @@ func TestAdopt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: gamma\ndescription: g\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A symlink the way `npx skills add -g` leaves one for Claude Code.
-	link := filepath.Join(home, ClaudeRoot, "skills", "gamma")
+	// A symlink the way `npx skills add -g` leaves one in a vendor directory.
+	link := filepath.Join(home, AgyRoot, "skills", "gamma")
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -907,12 +854,12 @@ func TestInstallMarksDirtyTree(t *testing.T) {
 	gitIn(t, repo, "commit", "-q", "-m", "fixture")
 	short := gitIn(t, repo, "rev-parse", "--short", "HEAD")
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	st, _, err := LoadState(home)
@@ -925,11 +872,11 @@ func TestInstallMarksDirtyTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "context", "AGENTS.md"), []byte("# AGENTS.md\n\nBe honest and brief.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	files, err = Plan(DirSource(repo), nil, VendorAll)
+	files, err = Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	st, _, err = LoadState(home)
@@ -1416,7 +1363,7 @@ func TestPlanRefusesSecretShapedFiles(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(repo, "skills", "alpha", name), []byte("secret\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := Plan(DirSource(repo), nil, VendorAll); err == nil {
+			if _, err := Plan(DirSource(repo), nil); err == nil {
 				t.Fatalf("%s must not be deployed", name)
 			} else if !strings.Contains(err.Error(), name) {
 				t.Errorf("the error should name the file, got %v", err)
@@ -1428,7 +1375,7 @@ func TestPlanRefusesSecretShapedFiles(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(repo, "skills", "alpha", "keys-explained.md"), []byte("about keys\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		files, err := Plan(DirSource(repo), nil, VendorAll)
+		files, err := Plan(DirSource(repo), nil)
 		if err != nil {
 			t.Fatalf("a normal file must still plan: %v", err)
 		}
@@ -1569,7 +1516,7 @@ func TestReinstallNeverNeedsToDownloadAToolchain(t *testing.T) {
 }
 
 // TestPlanDropsGroupAndOtherWrite: a skill file that is group-writable in
-// the repo must not land group-writable in ~/.claude, where its contents are
+// the repo must not land group-writable in ~/.gemini/config, where its contents are
 // instructions every session reads (security review of v1.0.0).
 func TestPlanDropsGroupAndOtherWrite(t *testing.T) {
 	repo := newRepo(t)
@@ -1580,7 +1527,7 @@ func TestPlanDropsGroupAndOtherWrite(t *testing.T) {
 	if err := os.Chmod(loose, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1612,20 +1559,20 @@ func TestInstallCorrectsTheModeOfAnUnchangedFile(t *testing.T) {
 	}
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &buf); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &buf); err != nil {
 		t.Fatal(err)
 	}
-	victim := filepath.Join(home, ClaudeRoot, "skills", "alpha", "SKILL.md")
+	victim := filepath.Join(home, AgyRoot, "skills", "alpha", "SKILL.md")
 	if err := os.Chmod(victim, 0o666); err != nil {
 		t.Fatal(err)
 	}
 	buf.Reset()
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &buf); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &buf); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(victim)
@@ -1640,7 +1587,7 @@ func TestInstallCorrectsTheModeOfAnUnchangedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf.Reset()
-	if err := Install(DirSource(repo), home, files, VendorAll, true, &buf); err != nil {
+	if err := Install(DirSource(repo), home, files, true, &buf); err != nil {
 		t.Fatal(err)
 	}
 	if info, _ := os.Stat(victim); info.Mode().Perm() != 0o666 {
@@ -1695,7 +1642,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 	}
 	plan := func() []File {
 		t.Helper()
-		files, err := Plan(DirSource(repo), []byte("#!/bin/sh\necho sh-agent\n"), VendorAll)
+		files, err := Plan(DirSource(repo), []byte("#!/bin/sh\necho sh-agent\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1704,7 +1651,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 	install := func(files []File, dryRun bool) string {
 		t.Helper()
 		var out bytes.Buffer
-		if err := Install(DirSource(repo), home, files, VendorAll, dryRun, &out); err != nil {
+		if err := Install(DirSource(repo), home, files, dryRun, &out); err != nil {
 			t.Fatalf("install: %v\n%s", err, out.String())
 		}
 		return out.String()
@@ -1775,7 +1722,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a 0000 file and its umask blurs the mode cases")
 	}
-	victim := filepath.Join(home, ClaudeRoot, "skills", "alpha", "SKILL.md")
+	victim := filepath.Join(home, AgyRoot, "skills", "alpha", "SKILL.md")
 	if err := os.Chmod(victim, 0o666); err != nil {
 		t.Fatal(err)
 	}
@@ -1812,7 +1759,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 	if err := os.Chmod(victim, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	gamma := filepath.Join(home, ClaudeRoot, "skills", "alpha", "references", "notes.md")
+	gamma := filepath.Join(home, AgyRoot, "skills", "alpha", "references", "notes.md")
 	if err := os.Chmod(gamma, 0o666); err != nil {
 		t.Fatal(err)
 	}
@@ -1844,7 +1791,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	err := Install(DirSource(repo), home, files, VendorAll, false, &buf)
+	err := Install(DirSource(repo), home, files, false, &buf)
 	if err == nil {
 		t.Fatalf("a directory at a destination did not fail the install:\n%s", buf.String())
 	}
@@ -1968,11 +1915,11 @@ func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
 	}
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	old, _, _ := LoadState(home)
@@ -1983,17 +1930,17 @@ func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(repo, "skills", "aaa-new", "SKILL.md"), []byte("---\nname: aaa-new\ndescription: new\n---\nbody\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, "skills", "alpha", "SKILL.md"), []byte("---\nname: alpha\ndescription: changed\n---\nnew body\n"), 0o644)
-	alphaDir := filepath.Join(home, ".claude", "skills", "alpha")
+	alphaDir := filepath.Join(home, AgyRoot, "skills", "alpha")
 	if err := os.Chmod(alphaDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(alphaDir, 0o755) })
-	files, err = Plan(DirSource(repo), nil, VendorAll)
+	files, err = Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err == nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err == nil {
 		t.Fatalf("install did not fail on the unwritable directory:\n%s", out.String())
 	}
 	st, _, err := LoadState(home)
@@ -2004,7 +1951,7 @@ func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
 	for _, rel := range st.Files {
 		listed[rel] = true
 	}
-	newRel := filepath.Join(".claude", "skills", "aaa-new", "SKILL.md")
+	newRel := filepath.Join(AgyRoot, "skills", "aaa-new", "SKILL.md")
 	if _, err := os.Stat(filepath.Join(home, newRel)); err != nil {
 		t.Fatalf("the new skill was not written before the failure: %v", err)
 	}
@@ -2025,11 +1972,11 @@ func TestInstallMidFailureKeepsManifestComplete(t *testing.T) {
 	}
 }
 
-// deployedSkillFiles returns the planned .claude/skills paths, sorted.
+// deployedSkillFiles returns the planned skill paths, sorted.
 func deployedSkillFiles(files []File) []string {
 	var rels []string
 	for _, f := range files {
-		if strings.HasPrefix(f.Rel, filepath.Join(".claude", "skills")+string(filepath.Separator)) {
+		if strings.HasPrefix(f.Rel, filepath.Join(AgyRoot, "skills")+string(filepath.Separator)) {
 			rels = append(rels, f.Rel)
 		}
 	}
@@ -2045,11 +1992,11 @@ func deployedSkillFiles(files []File) []string {
 func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	rels := deployedSkillFiles(files)
@@ -2075,7 +2022,7 @@ func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
 	for i, target := range []string{same, other} {
@@ -2125,17 +2072,17 @@ func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
 func TestUninstallAndLinkedDirs(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	rels := deployedSkillFiles(files)
-	// The whole .claude/skills directory becomes the operator's link to a
+	// The whole skills directory becomes the operator's link to a
 	// tree of their own; the manifest still lists every file under it.
-	skillsDir := filepath.Join(home, ".claude", "skills")
+	skillsDir := filepath.Join(home, AgyRoot, "skills")
 	mine := filepath.Join(t.TempDir(), "mine")
 	if err := os.Rename(skillsDir, mine); err != nil {
 		t.Fatal(err)
@@ -2143,12 +2090,12 @@ func TestUninstallAndLinkedDirs(t *testing.T) {
 	if err := os.Symlink(mine, skillsDir); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(filepath.Join(mine, strings.TrimPrefix(rels[0], filepath.Join(".claude", "skills")+string(filepath.Separator))))
+	before, _ := os.ReadFile(filepath.Join(mine, strings.TrimPrefix(rels[0], filepath.Join(AgyRoot, "skills")+string(filepath.Separator))))
 	// A reinstall with a changed skill writes nothing through the link.
 	os.WriteFile(filepath.Join(repo, "skills", "alpha", "SKILL.md"), []byte("---\nname: alpha\ndescription: changed\n---\nnew body\n"), 0o644)
-	files, _ = Plan(DirSource(repo), nil, VendorAll)
+	files, _ = Plan(DirSource(repo), nil)
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
 	after, _ := os.ReadFile(filepath.Join(mine, "alpha", "SKILL.md"))
@@ -2177,11 +2124,11 @@ func TestUninstallAndLinkedDirs(t *testing.T) {
 func TestUninstallKeepsMetricsStore(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	store := filepath.Join(home, ".config", "sh-agent", "metrics.db")
@@ -2203,11 +2150,11 @@ func TestUninstallKeepsMetricsStore(t *testing.T) {
 func TestUninstallSkipsLink(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	rel := deployedSkillFiles(files)[0]
@@ -2237,14 +2184,14 @@ func TestUninstallSkipsLink(t *testing.T) {
 func TestUninstallSkipsFilesUnderLink(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	skillsDir := filepath.Join(home, ".claude", "skills")
+	skillsDir := filepath.Join(home, AgyRoot, "skills")
 	mine := filepath.Join(t.TempDir(), "mine")
 	if err := os.Rename(skillsDir, mine); err != nil {
 		t.Fatal(err)
@@ -2275,11 +2222,11 @@ func TestInstallResyncFailureKeepsManifest(t *testing.T) {
 	}
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	// beta leaves the repo (its deployed file becomes stale) and a new skill
@@ -2287,18 +2234,18 @@ func TestInstallResyncFailureKeepsManifest(t *testing.T) {
 	os.RemoveAll(filepath.Join(repo, "skills", "beta"))
 	os.MkdirAll(filepath.Join(repo, "skills", "aaa-new"), 0o755)
 	os.WriteFile(filepath.Join(repo, "skills", "aaa-new", "SKILL.md"), []byte("---\nname: aaa-new\ndescription: new\n---\nbody\n"), 0o644)
-	betaDir := filepath.Join(home, ".claude", "skills", "beta")
+	betaDir := filepath.Join(home, AgyRoot, "skills", "beta")
 	if err := os.Chmod(betaDir, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(betaDir, 0o755) })
-	files, _ = Plan(DirSource(repo), nil, VendorAll)
+	files, _ = Plan(DirSource(repo), nil)
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err == nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err == nil {
 		t.Fatalf("install did not fail on the unremovable stale file:\n%s", out.String())
 	}
 	st, _, _ := LoadState(home)
-	newRel := filepath.Join(".claude", "skills", "aaa-new", "SKILL.md")
+	newRel := filepath.Join(AgyRoot, "skills", "aaa-new", "SKILL.md")
 	found := false
 	for _, rel := range st.Files {
 		found = found || rel == newRel
@@ -2313,11 +2260,11 @@ func TestInstallResyncFailureKeepsManifest(t *testing.T) {
 func TestResyncSkipsLink(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	rel := deployedSkillFiles(files)[0]
@@ -2333,11 +2280,11 @@ func TestResyncSkipsLink(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(repo, "skills", skill)); err != nil {
 		t.Fatal(err)
 	}
-	files, err = Plan(DirSource(repo), nil, VendorAll)
+	files, err = Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Lstat(dest); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -2477,7 +2424,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 		"metadata map":  "metadata:\n  version: \"1.0\"\n",
 		"license":       "license: Apache-2.0\n",
 		"comment line":  "# a comment\n",
-		"column-0 list": "compatibility:\n- claude\n- agy\n",
+		"column-0 list": "compatibility:\n- agy\n- gemini\n",
 	} {
 		if err := skill(front); err != nil {
 			t.Errorf("skill with %s refused: %v", name, err)
@@ -2663,7 +2610,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			"a tab-indented first line":        "\t" + hidden + "\n" + plain,
 			"a tab-led key after a key":        plain + "\t" + hidden + "\n",
 			"a tab-led key after a nested map": plain + "metadata:\n  version: \"1.0\"\n\t" + hidden + "\n",
-			"a tab-led key after a list":       plain + "compatibility:\n  - claude\n\t" + hidden + "\n",
+			"a tab-led key after a list":       plain + "compatibility:\n  - agy\n\t" + hidden + "\n",
 			"a tab-led key after an empty key": plain + "metadata:\n\t" + hidden + "\n",
 		}
 		for name, sep := range map[string]string{
@@ -2690,7 +2637,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 		value, list, nested := k.extra[0], k.extra[1], k.extra[2]
 		for name, front := range map[string]string{
 			"a nested map":     plain + nested + ":\n  version: \"1.0\"\n",
-			"an indented list": plain + list + ":\n  - claude\n",
+			"an indented list": plain + list + ":\n  - agy\n",
 			"a CRLF file":      strings.ReplaceAll(plain, "\n", "\r\n") + value + ": MIT\r\n",
 			"a comment first":  "# a comment\n" + plain,
 			// A tab inside a value, and a line that is only a tab, are not

@@ -2,6 +2,8 @@ package dream
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,25 +38,98 @@ func newFixture(t *testing.T) fixture {
 	write(t, filepath.Join(f.root, ".agents", "memory", "deploy-day.md"), "---\nname: deploy-day\n---\n\nWe deploy on Fridays.\n", old)
 	write(t, filepath.Join(f.root, ".agents", "docs", "bugs", "INDEX.md"), "| BUG-001 | fresh bug row |\n", fresh)
 	write(t, filepath.Join(f.root, ".agents", "docs", "changes", "2026-09-01-0000-old.md"), "an old change entry\n", old)
-	write(t, filepath.Join(f.home, ".claude", "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert\"\n---\n", old)
+	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert\"\n---\n", old)
 	fb := func(ts time.Time, project, text string) string {
 		b, _ := json.Marshal(map[string]string{"ts": ts.Format(time.RFC3339), "project": project, "original": text})
 		return string(b) + "\n"
 	}
 	write(t, filepath.Join(f.home, ".config", "sh-agent", "feedback.jsonl"),
 		fb(fresh, f.root, "fresh feedback for this project")+fb(old, f.root, "old feedback")+fb(fresh, "/elsewhere", "another project's feedback"), fresh)
-	tl := func(ts time.Time, cwd, role, text string) string {
-		b, _ := json.Marshal(map[string]any{"type": role, "cwd": cwd, "timestamp": ts.Format(time.RFC3339Nano),
-			"message": map[string]any{"role": role, "content": []map[string]string{{"type": "text", "text": text}, {"type": "tool_use", "text": "not prose"}}}})
-		return string(b) + "\n"
-	}
-	write(t, filepath.Join(f.home, ".claude", "projects", "-x", "s1.jsonl"),
-		tl(fresh, f.root, "user", "please remember the deploy day")+
-			tl(fresh, filepath.Join(f.root, "sub"), "assistant", "noted from a subdirectory")+
-			tl(old, f.root, "user", "an old line before the watermark")+
-			tl(fresh, "/elsewhere", "user", "another project's line")+
-			`{"type":"summary","summary":"not a message"}`+"\n", fresh)
+	// The root's conversation is older than the subdirectory's, so the cap
+	// drops it first, and long enough that dropping it frees more than the
+	// line naming it costs (TestCollectCapDropsTranscriptThenTrail).
+	agyConversations(t, f.home, map[string]agyConv{
+		"at-root":   {f.root, fresh.Add(-10 * time.Minute), []agyStep{{typ: 14, text: "please remember the deploy day"}, {typ: 15, text: "noted: the deploy day is Friday, and every release waits for it"}, {typ: 132, text: "TOOL OUTPUT that is not prose at all"}}},
+		"under":     {filepath.Join(f.root, "sub"), fresh, []agyStep{{typ: 15, text: "noted from a subdirectory"}}},
+		"old-one":   {f.root, old, []agyStep{{typ: 14, text: "an old line before the watermark"}}},
+		"elsewhere": {"/elsewhere", fresh, []agyStep{{typ: 14, text: "another project's line of text"}}},
+	})
 	return f
+}
+
+// agyConv is one Antigravity conversation: its workspace, when it was last
+// modified, and its steps.
+type agyConv struct {
+	workspace string
+	modified  time.Time
+	steps     []agyStep
+}
+
+// agyStep is one step: 14 the user's input, 15 the model's reply, 132 a
+// tool's output (the D8 probe's step types). A tool step may name its tool
+// and arguments in the metadata, where the metrics reader finds them.
+type agyStep struct {
+	typ        int
+	text       string
+	tool, args string
+}
+
+// agyConversations writes the two databases Antigravity keeps, in the shapes
+// internal/search and internal/metrics read: summaries map conversations to
+// workspaces, and each conversation's steps hold a protobuf blob with the text
+// as one field. A second call adds to the summaries.
+func agyConversations(t *testing.T, home string, convs map[string]agyConv) {
+	t.Helper()
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	exec := func(path string, stmts ...func(*sql.DB) error) {
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		for _, f := range stmts {
+			if err := f(db); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exec(filepath.Join(dir, "conversation_summaries.db"), func(db *sql.DB) error {
+		_, err := db.Exec("CREATE TABLE IF NOT EXISTS conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')")
+		return err
+	}, func(db *sql.DB) error {
+		for id, c := range convs {
+			if _, err := db.Exec(`INSERT INTO conversation_summaries(conversation_id, last_modified_time, workspace_uris) VALUES(?,?,?)`, id, c.modified.UTC().Format("2006-01-02 15:04:05.000000000+00:00"), `["file://`+c.workspace+`"]`); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	for id, c := range convs {
+		exec(filepath.Join(dir, "conversations", id+".db"), func(db *sql.DB) error {
+			if _, err := db.Exec("CREATE TABLE steps (`idx` integer, `step_type` integer, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `step_payload` blob)"); err != nil {
+				return err
+			}
+			for i, st := range c.steps {
+				var meta []byte
+				if st.tool != "" {
+					meta = pbField(4, append(pbField(2, []byte(st.tool)), pbField(3, []byte(st.args))...))
+				}
+				if _, err := db.Exec(`INSERT INTO steps(idx, step_type, metadata, step_payload) VALUES(?,?,?,?)`, i, st.typ, meta, pbField(1, []byte(st.text))); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+}
+
+// pbField is protobuf wire bytes: a length-delimited field n holding b.
+func pbField(n int, b []byte) []byte {
+	out := binary.AppendUvarint(nil, uint64(n<<3|2))
+	return append(binary.AppendUvarint(out, uint64(len(b))), b...)
 }
 
 func write(t *testing.T, path, body string, mtime time.Time) {
@@ -93,7 +168,7 @@ func labels(c Collected) string {
 
 func TestCollectInputs(t *testing.T) {
 	f := newFixture(t)
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +188,7 @@ func TestCollectInputs(t *testing.T) {
 			t.Errorf("prompt lacks %q\ninputs:\n%s", want, labels(c))
 		}
 	}
-	for _, not := range []string{"an old change entry", "old feedback", "another project", "an old line before", "not prose", "not a message"} {
+	for _, not := range []string{"an old change entry", "old feedback", "another project", "an old line before", "TOOL OUTPUT"} {
 		if strings.Contains(text, not) {
 			t.Errorf("prompt carries %q", not)
 		}
@@ -123,7 +198,7 @@ func TestCollectInputs(t *testing.T) {
 func TestCollectUnchanged(t *testing.T) {
 	f := newFixture(t)
 	later := now.Add(time.Hour)
-	c, err := collect(f.home, "claude", project(f), later, maxPrompt)
+	c, err := collect(f.home, project(f), later, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,8 +212,8 @@ func TestCollectUnchanged(t *testing.T) {
 func TestCollectSkillAloneIsNoChange(t *testing.T) {
 	f := newFixture(t)
 	later := now.Add(time.Hour)
-	write(t, filepath.Join(f.home, ".claude", "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert, updated\"\n---\n", now.Add(2*time.Hour))
-	c, err := collect(f.home, "claude", project(f), later, maxPrompt)
+	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert, updated\"\n---\n", now.Add(2*time.Hour))
+	c, err := collect(f.home, project(f), later, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +225,7 @@ func TestCollectSkillAloneIsNoChange(t *testing.T) {
 func TestCollectRedactsAndHidesHome(t *testing.T) {
 	f := newFixture(t)
 	write(t, filepath.Join(f.root, ".agents", "memory", "leak.md"), "token = FAKEVALUE\nstored under "+f.home+"/x\n", fresh)
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,13 +239,13 @@ func TestCollectRedactsAndHidesHome(t *testing.T) {
 
 func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 	f := newFixture(t)
-	full, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	full, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Room for everything but the transcript.
 	small := len(full.Prompt) - 40
-	c, err := collect(f.home, "claude", project(f), since, small)
+	c, err := collect(f.home, project(f), since, small)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +256,7 @@ func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 		t.Errorf("dropped = %v, want the transcript named", c.Dropped)
 	}
 	// Room for less than memory alone: the project fails.
-	if _, err := collect(f.home, "claude", project(f), since, 10); err == nil || !strings.Contains(err.Error(), "memory over cap") {
+	if _, err := collect(f.home, project(f), since, 10); err == nil || !strings.Contains(err.Error(), "memory over cap") {
 		t.Errorf("err = %v, want memory over cap", err)
 	}
 }
@@ -189,7 +264,7 @@ func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	f := newFixture(t)
 	var out bytes.Buffer
-	o := Options{Home: f.home, Vendor: "claude", All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
 		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
 	before := tree(t, f.home)
 	if err := Run(o); err != nil {
@@ -198,7 +273,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 	if after := tree(t, f.home); after != before {
 		t.Errorf("dry run wrote:\nbefore %s\nafter  %s", before, after)
 	}
-	if !strings.Contains(out.String(), f.root) || !strings.Contains(out.String(), "claude -p") {
+	if !strings.Contains(out.String(), f.root) || !strings.Contains(out.String(), "agy --input-format stream-json") {
 		t.Errorf("dry run output lacks the project or the command:\n%s", out.String())
 	}
 }
@@ -275,7 +350,7 @@ func TestDryRunLines(t *testing.T) {
 	later := now.Add(time.Hour)
 	write(t, statePath(f.home), `{"projects":{"`+calm.root+`":"`+later.Format(time.RFC3339)+`"}}`, old)
 	var out bytes.Buffer
-	o := Options{Home: f.home, Vendor: "antigravity", All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
 		Projects: func(string) ([]search.Project, error) {
 			return []search.Project{project(f), project(calm), {Root: filepath.Join(f.root, "gone")}}, nil
 		}}
@@ -303,7 +378,7 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 	big := strings.Repeat("a memory line that fills the store. ", 8000) // ~290 KB
 	write(t, filepath.Join(f.root, ".agents", "memory", "huge.md"), big, fresh)
 	var out bytes.Buffer
-	o := Options{Home: f.home, Vendor: "claude", All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
 		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
 	if err := Run(o); err != nil {
 		t.Fatal(err)
@@ -362,7 +437,7 @@ func TestCollectDoesNotFollowLinkedTrail(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents", "docs", "reviews")); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,33 +450,9 @@ func TestCollectDoesNotFollowLinkedTrail(t *testing.T) {
 }
 
 func TestCommand(t *testing.T) {
-	agy := strings.Join(command("antigravity"), " ")
+	agy := strings.Join(command(), " ")
 	if !strings.HasPrefix(agy, "agy --input-format stream-json --output-format stream-json --mode plan -p") {
-		t.Errorf("antigravity: %s", agy)
-	}
-	for _, v := range []string{"claude", "all"} {
-		c := command(v)
-		joined := strings.Join(c, " ")
-		if c[0] != "claude" || c[2] != "--tools" || c[3] != "" || !strings.Contains(joined, "--strict-mcp-config --setting-sources local --no-session-persistence") {
-			t.Errorf("%s: %q", v, c)
-		}
-	}
-}
-
-func TestCollectNamesAnUnreadableTranscript(t *testing.T) {
-	f := newFixture(t)
-	old := transcriptLineMax
-	// The scanner's limit is the larger of this and its 64 KiB start buffer.
-	transcriptLineMax = 80 * 1024
-	defer func() { transcriptLineMax = old }()
-	long, _ := json.Marshal(map[string]any{"type": "user", "cwd": f.root, "timestamp": fresh.Format(time.RFC3339Nano), "message": map[string]any{"content": strings.Repeat("x", 100*1024)}})
-	write(t, filepath.Join(f.home, ".claude", "projects", "-x", "long.jsonl"), string(long)+"\n", fresh)
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(strings.Join(c.Dropped, " "), "claude transcript long.jsonl") {
-		t.Errorf("dropped = %v", c.Dropped)
+		t.Errorf("command: %s", agy)
 	}
 }
 
@@ -414,7 +465,7 @@ func TestCollectDoesNotFollowALinkedAgentsDir(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents")); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,34 +484,6 @@ func TestRunUsage(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("a usage error wrote %v", entries)
-	}
-}
-
-// TestSessionTextSkipsCommandOutput: Claude Code writes a slash command's
-// output as user-typed string content (`<local-command-stdout>`); that is
-// command output, not prose, and reached the prompt (audit of 2026-09-30,
-// SD10).
-func TestSessionTextSkipsCommandOutput(t *testing.T) {
-	f := newFixture(t)
-	line := func(text string) string {
-		b, _ := json.Marshal(map[string]any{"type": "user", "cwd": f.root, "timestamp": fresh.Format(time.RFC3339Nano),
-			"message": map[string]any{"role": "user", "content": text}})
-		return string(b) + "\n"
-	}
-	path := filepath.Join(f.home, ".claude", "projects", "-x", "s2.jsonl")
-	write(t, path, line("<local-command-stdout>token = SHOULDNOTSHOW</local-command-stdout>")+line("<command-message>init-project</command-message>")+
-		line("<task-notification><result>SUBAGENTRESULT</result></task-notification>")+line("<system-reminder>REMINDERTEXT</system-reminder>")+line("a real user line"), fresh)
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, not := range []string{"SHOULDNOTSHOW", "<command-message>", "SUBAGENTRESULT", "REMINDERTEXT"} {
-		if strings.Contains(c.Prompt, not) {
-			t.Errorf("prompt carries command output %q", not)
-		}
-	}
-	if !strings.Contains(c.Prompt, "a real user line") {
-		t.Error("a real user line was dropped")
 	}
 }
 
@@ -485,7 +508,7 @@ func TestTrailDateFromGit(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(f.root, rel), fresh, fresh); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,28 +520,12 @@ func TestTrailDateFromGit(t *testing.T) {
 	// the `git status` read, whose misplaced global option once made it fail
 	// silently — security review round 2, 2026-10-01).
 	write(t, filepath.Join(f.root, rel), "an old bug record, edited today\n", fresh)
-	c, err = collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err = collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(c.Prompt, "edited today") {
 		t.Errorf("a modified tracked record was not sent:\n%s", labels(c))
-	}
-}
-
-// TestSessionTextSkipsMetaLines: a transcript line with isMeta is the harness
-// talking, never the user or the model (security review round 2, 2026-10-01).
-func TestSessionTextSkipsMetaLines(t *testing.T) {
-	f := newFixture(t)
-	b, _ := json.Marshal(map[string]any{"type": "user", "isMeta": true, "cwd": f.root, "timestamp": fresh.Format(time.RFC3339Nano),
-		"message": map[string]any{"role": "user", "content": "META CAVEAT TEXT that is long enough to count as prose"}})
-	write(t, filepath.Join(f.home, ".claude", "projects", "-x", "s3.jsonl"), string(b)+"\n", fresh)
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(c.Prompt, "META CAVEAT") {
-		t.Error("a meta line reached the prompt")
 	}
 }
 
@@ -535,7 +542,7 @@ func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 	// query-string needle matches only the decoded line (the gate's measurement).
 	fmt.Fprintf(fh, `{"ts":%q,"project":%q,"original":"see https://h.example/p?x=1\u0026sig=0123456789abcdef0123456789abcdef"}`+"\n", fresh.Format(time.RFC3339), f.root)
 	fh.Close()
-	c, err := collect(f.home, "claude", project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -553,14 +560,14 @@ func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 // row 16).
 func TestSkillsReadsBlockScalarDescription(t *testing.T) {
 	home := t.TempDir()
-	dir := filepath.Join(home, ".claude", "skills", "folded")
+	dir := filepath.Join(home, harness.AgyRoot, "skills", "folded")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: folded\ndescription: >\n  one line\n  and two\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := skills(home, harness.VendorClaude)
+	got := skills(home)
 	if len(got) != 1 || got[0].name != "folded" {
 		t.Fatalf("skills = %+v, want the one folded skill", got)
 	}

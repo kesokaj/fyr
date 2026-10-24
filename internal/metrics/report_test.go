@@ -12,14 +12,16 @@ import (
 	"time"
 )
 
+// reportFixture is an Antigravity ingest, a labelled sandbox run of it and
+// the historical rows an older ingest left from Claude Code: the report's
+// two columns, agy first.
 func reportFixture(t *testing.T) *Summary {
 	t.Helper()
-	chome, _ := claudeFixture(t)
-	ahome, _ := agyFixture(t)
+	ahome, root := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-	ingestT(t, s, Options{Home: chome, HomeGiven: true, Vendor: "claude"})
-	ingestT(t, s, Options{Home: ahome, HomeGiven: true, Vendor: "agy"})
-	ingestT(t, s, Options{Source: sandboxCopy(t), Label: "arm=lean", Outcome: "pass", Vendor: "claude"})
+	historicalRows(t, s, root)
+	ingestT(t, s, Options{Home: ahome})
+	ingestT(t, s, Options{Source: agyRunCopy(t), Label: "arm=lean", Outcome: "pass"})
 	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC), AllLabels: true})
 	if err != nil {
 		t.Fatal(err)
@@ -41,18 +43,18 @@ func TestReportSelfContainedAndConsistent(t *testing.T) {
 			t.Errorf("report contains %q", bad)
 		}
 	}
-	for _, want := range []string{"Tool calls per day", "Tool calls by tool", "Subagent tool calls by type", "Sandbox runs", "<title>Claude Code, ", "prefers-color-scheme:dark", "n/a"} {
+	for _, want := range []string{"Tool calls per day", "Tool calls by tool", "Subagent tool calls by type", "Sandbox runs", "<title>Antigravity, ", "<title>Claude Code (historical), ", "prefers-color-scheme:dark", "n/a"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("report lacks %q", want)
 		}
 	}
 	// The summary table's tool-call row is show's B.tool_calls.
 	row := regexp.MustCompile(`<td>tool calls</td><td>(\d+)</td><td>(\d+)</td>`).FindStringSubmatch(html)
-	if row == nil || row[1] != strconv.Itoa(sum.B.ToolCalls["claude"]) || row[2] != strconv.Itoa(sum.B.ToolCalls["agy"]) {
-		t.Errorf("summary tool-call row %v, want %d and %d", row, sum.B.ToolCalls["claude"], sum.B.ToolCalls["agy"])
+	if row == nil || row[1] != strconv.Itoa(sum.B.ToolCalls["agy"]) || row[2] != strconv.Itoa(sum.B.ToolCalls["claude"]) {
+		t.Errorf("summary tool-call row %v, want %d and %d", row, sum.B.ToolCalls["agy"], sum.B.ToolCalls["claude"])
 	}
 	// The per-day table sums to the same totals.
-	for _, v := range []string{"claude", "agy"} {
+	for _, v := range []string{"agy", "claude"} {
 		n := 0
 		for _, d := range sum.Daily {
 			n += d.ToolCalls[v]
@@ -123,7 +125,7 @@ func TestReportDrawsNoMissingValues(t *testing.T) {
 	}
 }
 
-// The summary table carries the over-target row as "k of n" per CLI, from the
+// The summary table carries the over-target row as "k of n" per column, from the
 // same Summary as show (plan 2026-10-23-session-sized-work, Phase 2).
 func TestReportContextTargetRow(t *testing.T) {
 	sum := reportFixture(t)
@@ -135,7 +137,7 @@ func TestReportContextTargetRow(t *testing.T) {
 	if row == nil {
 		t.Fatalf("the summary table has no over-target row:\n%s", buf.String())
 	}
-	for i, v := range []string{"claude", "agy"} {
+	for i, v := range []string{"agy", "claude"} {
 		want := fmt.Sprintf("%d of %d", *sum.B.SessionsOverContextTarget[v], len(sum.B.SessionPeaks[v]))
 		if row[i+1] != want {
 			t.Errorf("%s over-target cell %q, want %q", v, row[i+1], want)
@@ -144,7 +146,30 @@ func TestReportContextTargetRow(t *testing.T) {
 	sum.B.SessionsOverContextTarget["agy"] = nil
 	buf.Reset()
 	RenderReport(&buf, sum, time.Now())
-	if !regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>[^<]*</td><td>n/a</td>`).MatchString(buf.String()) {
+	if !regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>n/a</td><td>[^<]*</td>`).MatchString(buf.String()) {
 		t.Error("a vendor with no context value is not drawn as n/a")
+	}
+}
+
+// An agy-only store draws one series: no historical column, no Claude Code
+// label, and the summary table has one value column.
+func TestReportAgyOnly(t *testing.T) {
+	ahome, _ := agyFixture(t)
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: ahome})
+	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	if strings.Contains(html, "Claude Code") {
+		t.Error("an agy-only report names Claude Code")
+	}
+	if !regexp.MustCompile(`<td>tool calls</td><td>4</td></tr>`).MatchString(html) {
+		t.Errorf("the summary's tool-call row is not one agy cell of 4:\n%s", html)
 	}
 }

@@ -10,18 +10,14 @@ import (
 	"github.com/kesokaj/styrman-harness/internal/search"
 )
 
-// Options are one ingest's inputs (spec § Verbs).
+// Options are one ingest's inputs (spec § Verbs). Ingest reads the
+// Antigravity CLI's conversations only; rows an older ingest read from Claude
+// Code stay in the store as history (plan fyr D7).
 type Options struct {
 	Home string
-	// HomeGiven is true when the operator passed --home: the transcript-root
-	// rule then ignores CLAUDE_CONFIG_DIR (D9).
-	HomeGiven bool
-	// Vendor is "claude", "agy" or "all"; empty means all.
-	Vendor string
 	// Source is a sandbox home; Label (KEY=VALUE) is required with it, and
 	// Outcome ("pass", "fail" or "") is stamped with it (D11).
 	Source, Label, Outcome string
-	Getenv                 func(string) string
 }
 
 // Result counts one ingest.
@@ -38,11 +34,6 @@ func (r Result) Line() string {
 
 // Validate is the usage check: exit 2 when it fails.
 func (o Options) Validate() error {
-	switch o.Vendor {
-	case "", "all", "claude", "agy", "antigravity":
-	default:
-		return fmt.Errorf("--vendor %q: want claude, agy or all", o.Vendor)
-	}
 	if o.Source != "" && o.Label == "" {
 		return fmt.Errorf("--source needs --label KEY=VALUE")
 	}
@@ -61,40 +52,11 @@ func (o Options) Validate() error {
 	return nil
 }
 
-// claudeRoot is where Claude Code's transcripts are read from: --source, then
-// --home, then CLAUDE_CONFIG_DIR only when neither flag was given, then the
-// home (D9). The environment variable never redirects a scratch-home run to
-// the operator's real transcripts (R6).
-func (o Options) claudeRoot() string {
-	switch {
-	case o.Source != "":
-		return filepath.Join(o.Source, ".claude", "projects")
-	case o.HomeGiven:
-		return filepath.Join(o.Home, ".claude", "projects")
-	}
-	getenv := o.Getenv
-	if getenv == nil {
-		getenv = os.Getenv
-	}
-	if dir := getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return filepath.Join(dir, "projects")
-	}
-	return filepath.Join(o.Home, ".claude", "projects")
-}
-
 func (o Options) agyRoot() string {
 	if o.Source != "" {
 		return filepath.Join(o.Source, ".gemini", "antigravity-cli")
 	}
 	return filepath.Join(o.Home, ".gemini", "antigravity-cli")
-}
-
-func (o Options) wants(vendor string) bool {
-	v := o.Vendor
-	if v == "antigravity" {
-		v = "agy"
-	}
-	return v == "" || v == "all" || v == vendor
 }
 
 // Ingest reads every transcript the options name into s. A source that fails
@@ -106,12 +68,7 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 	if err != nil {
 		return r, err
 	}
-	if o.wants("claude") {
-		s.ingestClaude(o, &r, log)
-	}
-	if o.wants("agy") {
-		s.ingestAgy(o, &r, log)
-	}
+	s.ingestAgy(o, &r, log)
 	// A kit learns its run's outcome after the run (accept.py): the label's
 	// sessions with no outcome yet get this one, though no transcript changed.
 	// An earlier run, stamped after its own acceptance, keeps its outcome.
@@ -156,8 +113,8 @@ func (s *Store) counts() ([3]int, error) {
 func printable(s string) string { return search.Printable(s) }
 
 // openRegular opens p without blocking and checks on the opened file that it
-// is a regular file: the one way ingest opens a transcript, a trail file or a
-// .meta.json, so a FIFO swapped in after any earlier check neither hangs nor
+// is a regular file: the one way ingest opens a conversation file or a trail
+// file, so a FIFO swapped in after any earlier check neither hangs nor
 // is read (security review of v2.6.0, part 1, round 4).
 func openRegular(p string) (*os.File, os.FileInfo, error) {
 	f, err := openNonBlocking(p)

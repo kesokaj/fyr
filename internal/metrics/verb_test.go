@@ -19,7 +19,7 @@ func TestVerb(t *testing.T) {
 		{"FOO=1 BAR=x sudo -n go test -race -count=1 ./...", []string{"go test -race -count"}},
 		{"go run ./cmd/sh-agent search --refs internal/x.go --kind bug", []string{"sh-agent search --refs --kind"}},
 		{"sh-agent search --refs x 2>/dev/null", []string{"sh-agent search --refs"}},
-		{"env -u CLAUDE_CONFIG_DIR sh-agent metrics ingest --home h", []string{"sh-agent metrics ingest --home"}},
+		{"env -u SH_AGENT_REPO sh-agent metrics ingest --home h", []string{"sh-agent metrics ingest --home"}},
 		{"echo 'a; b && c' ; ls -la", []string{"echo", "ls -la"}},
 		{"git push --force-with-lease=origin/main", []string{"git push --force-with-lease"}},
 		{"cat > f.md <<'EOF'\nsecret line one\nrm -rf everything\nEOF\ngit diff", []string{"cat", "git diff"}},

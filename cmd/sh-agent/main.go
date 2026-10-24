@@ -1,8 +1,7 @@
 // Command sh-agent installs, resyncs, inspects, and removes the sh-agent
-// harness — global context, skills, and subagents — for Claude Code and the
-// Antigravity CLI.
+// harness — global context, skills, and subagents — for the Antigravity CLI.
 //
-//	sh-agent install [--dry-run]     deploy the repo into ~/.claude and ~/.gemini/config
+//	sh-agent install [--dry-run]     deploy the repo into ~/.gemini/config
 //	sh-agent status                  show drift between the repo and what is installed
 //	sh-agent diff                    unified diff of every drifted file
 //	sh-agent update [--check|--dry-run]  checkout: git pull and reinstall; release binary: download and verify the newest release
@@ -45,7 +44,7 @@ import (
 const usage = `sh-agent — lifecycle tool for the sh-agent harness
 
 Commands:
-  install [--vendor V] [--dry-run]  deploy context, skills, and agents into ~/.claude and/or ~/.gemini/config (alias: sync)
+  install [--dry-run]     deploy context, skills, and agents into ~/.gemini/config (alias: sync)
   status                  show what is installed and whether it drifted from the repo (exit 1 on drift)
   diff                    unified diff of every drifted file
   update [--check|--dry-run]  checkout: git fetch, pull --ff-only and reinstall when behind; release binary: download the newest release, check it against its SHA256SUMS, replace the binary and reinstall (--check only reports, exit 2 when behind; --dry-run reports what update would do and changes nothing)
@@ -61,18 +60,17 @@ Commands:
   index [--global] [--rebuild]  reconcile the search index, or delete and rebuild it, and print its counts
   memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, into this project's .agents/memory/ and its MEMORY.md line (T: user, feedback, project or reference); every CLI writes memory this way (R10)
   dream --install-timer | --remove-timer [--dry-run]  install (systemd user timer on Linux, launchd agent on macOS) or remove the nightly "dream --all", run with the PATH of the installing shell; uninstall removes it too
-  dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and both CLIs' transcripts, redacted, to a CLI with no tools, and write the proposals and draft skills it returns under ~/.config/sh-agent/proposals/dream/ (R3's exception; --vendor picks the CLI, default from the manifest)
-  metrics ingest [--vendor V] [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Claude Code and Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/sh-agent/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; transcripts come from --source, else --home, else $CLAUDE_CONFIG_DIR, else this home
-  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, a column per CLI: outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (sh-agent search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
-  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per CLI; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
+  dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and its Antigravity conversations, redacted, to agy with no tool it may use, and write the proposals and draft skills it returns under ~/.config/sh-agent/proposals/dream/ (R3's exception)
+  metrics ingest [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/sh-agent/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; conversations come from --source, else this home
+  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, an agy column (and a claude (historical) column only when the store holds rows an older ingest read from Claude Code): outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (sh-agent search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
+  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
-  memory show             print this project's memory index, capped at what a session loads, plus a hint when Claude Code's native memory is still on here
+  memory show             print this project's memory index, capped at what a session loads
   version                 print the build version
 
 Flags accepted by every command:
   --repo DIR        harness checkout, for a build made from one (default: --repo, $SH_AGENT_REPO, the working directory or its parents, then the last install). A release binary installs the harness built into it and refuses --repo (ADR-034)
   --home DIR        install under DIR instead of $HOME (for testing)
-  --vendor VENDOR   target vendor: all, antigravity (or agy), claude (default: from manifest if installed, else all)
 `
 
 // version is set by a release build, -ldflags "-X main.version=vX.Y.Z"; empty
@@ -104,7 +102,7 @@ type ctx struct {
 	out  io.Writer
 	home string
 	// global flags, accepted by every verb
-	repoFlag, homeFlag, vendorFlag string
+	repoFlag, homeFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
 	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer bool
 	fromZip, kind, refs, memType, memName, memDesc, dreamProject                            string
@@ -121,18 +119,6 @@ type ctx struct {
 // no git helper is ever called with "" (D17).
 func (c *ctx) repo() string { return c.src.Dir }
 
-// vendor resolves --vendor against the manifest.
-func (c *ctx) vendor() (string, error) {
-	v, err := resolveVendor(c.vendorFlag, c.home)
-	if err != nil {
-		// A usage error exits 2 with its reason on the caller's writer, like
-		// every other usage error here (BUG-168).
-		fmt.Fprintln(c.out, "sh-agent "+c.cmd+":", err)
-		return "", exitCode(2)
-	}
-	return v, nil
-}
-
 func (c *ctx) dryRunFlag() {
 	c.fs.BoolVar(&c.dryRun, "dry-run", false, "print what would change, change nothing")
 }
@@ -146,7 +132,7 @@ type verb struct {
 	run        func(c *ctx) error
 }
 
-// verbs is the command table. A verb's FlagSet holds the three global flags
+// verbs is the command table. A verb's FlagSet holds the two global flags
 // and the ones its flags func registers, so `list --check` is a usage error
 // instead of a flag parsed and silently ignored (IN5). Adding a verb here is
 // a map change under the project's README map rule (D9: verbs unchanged).
@@ -190,7 +176,7 @@ var verbs = map[string]verb{
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
-	"status":  {source: true, run: func(c *ctx) error { return status(c.src, c.home, c.vendorFlag, c.out) }},
+	"status":  {source: true, run: func(c *ctx) error { return status(c.src, c.home, c.out) }},
 	"diff":    {source: true, run: runDiff},
 	"update": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.check, "check", false, "update: only report whether the repo is behind")
@@ -227,7 +213,6 @@ func run(args []string, out io.Writer) error {
 	c.fs.SetOutput(out)
 	c.fs.StringVar(&c.repoFlag, "repo", "", "harness checkout")
 	c.fs.StringVar(&c.homeFlag, "home", "", "install under this directory instead of $HOME")
-	c.fs.StringVar(&c.vendorFlag, "vendor", "", "target vendor: all, antigravity (or agy), claude")
 	if v.flags != nil {
 		v.flags(c)
 	}
@@ -262,16 +247,6 @@ func run(args []string, out io.Writer) error {
 		c.home = abs
 	}
 
-	// --vendor is every verb's flag, so a bad value is a usage error before
-	// any verb does anything: update checked it after the fetch and the pull
-	// and exited 1, under --dry-run not at all, status exited 1, and
-	// uninstall took any word (BUG-171).
-	if c.vendorFlag != "" {
-		if _, err := c.vendor(); err != nil {
-			return err
-		}
-	}
-
 	fromZipSet := false
 	c.fs.Visit(func(f *flag.Flag) { fromZipSet = fromZipSet || f.Name == "from-zip" })
 	// The parsed FlagSet decides, never a scan of the raw arguments: `--home --`
@@ -292,7 +267,7 @@ func run(args []string, out io.Writer) error {
 			fmt.Fprintln(out, "sh-agent update: --from-zip installs the named zip; --check/--repo do not apply to it")
 			return exitCode(2)
 		}
-		return updateFromZip(c.fromZip, c.home, c.vendorFlag, c.dryRun, out)
+		return updateFromZip(c.fromZip, c.home, c.dryRun, out)
 	}
 
 	if v.source {
@@ -363,15 +338,12 @@ func otherSystemTimerNote(c *ctx) {
 
 // runMemory needs no harness tree (R10).
 func runMemory(c *ctx) error {
-	return memoryCmd(c.fs.Args(), memory.Entry{Type: c.memType, Name: c.memName, Description: c.memDesc}, c.home, c.vendorFlag, c.out)
+	return memoryCmd(c.fs.Args(), memory.Entry{Type: c.memType, Name: c.memName, Description: c.memDesc}, c.out)
 }
 
 // runDream needs no harness tree (R3's exception).
 func runDream(c *ctx) error {
-	vendor, err := c.vendor()
-	if err != nil {
-		return err
-	}
+	var err error
 	switch {
 	case c.installTimer && c.removeTimer:
 		// A usage error exits 2 like every other dream usage error, and says
@@ -412,7 +384,7 @@ func runDream(c *ctx) error {
 			otherSystemTimerNote(c)
 		}
 	default:
-		err = dream.Run(dream.Options{Home: c.home, Vendor: vendor, All: c.dreamAll, Project: c.dreamProject, DryRun: c.dryRun, Out: c.out})
+		err = dream.Run(dream.Options{Home: c.home, All: c.dreamAll, Project: c.dreamProject, DryRun: c.dryRun, Out: c.out})
 	}
 	var ee *dream.ExitError
 	if errors.As(err, &ee) {
@@ -458,8 +430,7 @@ func runMetrics(c *ctx) error {
 			fmt.Fprintf(c.out, "metrics ingest takes no arguments: %q\n", args)
 			return exitCode(2)
 		}
-		o := metrics.Options{Home: c.home, HomeGiven: c.homeFlag != "", Vendor: c.vendorFlag,
-			Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
+		o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
 		if err := o.Validate(); err != nil {
 			fmt.Fprintln(c.out, "sh-agent metrics ingest: "+err.Error())
 			return exitCode(2)
@@ -636,10 +607,6 @@ func runSearch(c *ctx) error {
 }
 
 func runInstall(c *ctx) error {
-	vendor, err := c.vendor()
-	if err != nil {
-		return err
-	}
 	repo := c.repo()
 	if repo == "" {
 		// A release binary installs the harness built into it and itself:
@@ -649,7 +616,7 @@ func runInstall(c *ctx) error {
 		} else {
 			fmt.Fprintf(c.out, "release binary %s: installing the harness built into it and the running binary\n", c.src.Version)
 		}
-		return installFiles(c.src, c.home, vendor, c.dryRun, c.out)
+		return installFiles(c.src, c.home, c.dryRun, c.out)
 	}
 	if err := knownCheckout(c.repoFlag, c.home, repo); err != nil {
 		return err
@@ -668,11 +635,7 @@ func runInstall(c *ctx) error {
 	if c.dryRun && rebuild {
 		fmt.Fprintf(c.out, "[dry-run] the binary would be rebuilt from %s\n", repo)
 	} else if rebuild {
-		pass, err := installPassArgs(c.homeFlag, c.home, c.vendorFlag)
-		if err != nil {
-			return err
-		}
-		return harness.Reinstall(repo, pass, c.out)
+		return harness.Reinstall(repo, installPassArgs(c.homeFlag, c.home), c.out)
 	}
 	if !own && c.dryRun {
 		fmt.Fprintln(c.out, "[dry-run] plain copy, not its own git checkout: the running binary would be installed as is")
@@ -681,14 +644,10 @@ func runInstall(c *ctx) error {
 	} else if goErr != nil {
 		fmt.Fprintln(c.out, "warning: go is not on PATH; the running binary was copied, not rebuilt — install Go and run `sh-agent update`")
 	}
-	return installFiles(c.src, c.home, vendor, c.dryRun, c.out)
+	return installFiles(c.src, c.home, c.dryRun, c.out)
 }
 
 func runDiff(c *ctx) error {
-	vendor, err := c.vendor()
-	if err != nil {
-		return err
-	}
 	// A zip install is not compared: the zip is not kept, and the source this
 	// binary resolves (its embedded files, a checkout) is not what was
 	// installed (ADR-038).
@@ -696,7 +655,7 @@ func runDiff(c *ctx) error {
 		fmt.Fprintln(c.out, "diff       not compared — this home was installed from a zip that is not kept; run update --from-zip <file> again to change it")
 		return nil
 	}
-	files, err := harness.Plan(c.src, nil, vendor)
+	files, err := harness.Plan(c.src, nil)
 	if err != nil {
 		return err
 	}
@@ -713,13 +672,10 @@ func runUpdate(c *ctx) error {
 	if repo == "" {
 		// A release binary has no source to build from: the newest release is
 		// downloaded and verified instead.
-		args, err := installPassArgs(c.homeFlag, c.home, c.vendorFlag)
-		if err != nil {
-			return err
-		}
+		args := installPassArgs(c.homeFlag, c.home)
 		// The BUG-079 note, when this run wrote the installed binary, is
 		// printed by UpdateFromRelease itself: only there is "replaced" known.
-		err = harness.UpdateFromRelease(c.home, c.src.Version, check, args, c.out)
+		err := harness.UpdateFromRelease(c.home, c.src.Version, check, args, c.out)
 		if errors.Is(err, harness.ErrNewerRelease) {
 			if dry {
 				fmt.Fprintln(c.out, "[dry-run] update would download that release, check it against its SHA256SUMS, replace the binary and reinstall")
@@ -735,7 +691,7 @@ func runUpdate(c *ctx) error {
 	if err := knownCheckout(c.repoFlag, c.home, repo); err != nil {
 		return err
 	}
-	err := update(repo, c.home, check, c.homeFlag, c.vendorFlag, c.out)
+	err := update(repo, c.home, check, c.homeFlag, c.out)
 	var code exitCode
 	if dry && errors.As(err, &code) && code == 2 {
 		fmt.Fprintln(c.out, "[dry-run] update would pull those commits, rebuild and reinstall")
@@ -790,30 +746,24 @@ func runAdopt(c *ctx) error {
 }
 
 // installFiles plans the source with the running binary and installs it,
-// then the PATH note and the settings the harness owns (attribution, the
-// auto-compact window) every install writes when absent.
-func installFiles(src harness.Source, home, vendor string, dryRun bool, out io.Writer) error {
+// then the PATH note. No vendor setting is read or written (ADR-062): the
+// harness is files in the customization directory, nothing else.
+func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) error {
 	self, err := selfExecutable()
 	if err != nil {
 		return err
 	}
-	files, err := harness.Plan(src, self, vendor)
+	files, err := harness.Plan(src, self)
 	if err != nil {
 		return err
 	}
-	if err := harness.Install(src, home, files, vendor, dryRun, out); err != nil {
+	if err := harness.Install(src, home, files, dryRun, out); err != nil {
 		return err
 	}
 	// A dry run wrote no binary, so no statement about how PATH reaches it is
 	// true.
 	if !dryRun {
 		pathHint(home, out)
-	}
-	if vendor == harness.VendorAll || vendor == harness.VendorClaude {
-		for _, s := range harness.OwnedSettings {
-			harness.SettingSet(home, s, dryRun, out)
-		}
-		harness.SettingsHint(home, "note: ", out)
 	}
 	return nil
 }
@@ -823,7 +773,7 @@ var stdin io.Reader = os.Stdin
 
 // memoryCmd runs `memory add` and `memory show` in the checkout holding the
 // working directory. A refusal prints its reason and exits 2.
-func memoryCmd(args []string, e memory.Entry, home, vendorFlag string, out io.Writer) error {
+func memoryCmd(args []string, e memory.Entry, out io.Writer) error {
 	if len(args) != 1 || (args[0] != "add" && args[0] != "show") {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
 		fmt.Fprintln(out, "usage: sh-agent memory add --type T --name SLUG --description TEXT (body on stdin) | sh-agent memory show")
@@ -840,12 +790,7 @@ func memoryCmd(args []string, e memory.Entry, home, vendorFlag string, out io.Wr
 			text = "saved " + text + "\n"
 		}
 	} else {
-		vendor, verr := resolveVendor(vendorFlag, home)
-		if verr != nil {
-			fmt.Fprintln(out, "sh-agent memory:", verr)
-			return exitCode(2)
-		}
-		text, err = memory.Show(wd, vendor != harness.VendorAntigravity)
+		text, err = memory.Show(wd)
 	}
 	if memory.IsRefusal(err) {
 		fmt.Fprintln(out, "sh-agent memory:", err) // on the caller's writer, where a test reads it (IN13)
@@ -858,18 +803,7 @@ func memoryCmd(args []string, e memory.Entry, home, vendorFlag string, out io.Wr
 	return nil
 }
 
-func resolveVendor(flagVal, home string) (string, error) {
-	if flagVal != "" {
-		return harness.NormalizeVendor(flagVal)
-	}
-	st, found, err := harness.LoadState(home)
-	if err == nil && found && st.Vendor != "" {
-		return harness.NormalizeVendor(st.Vendor)
-	}
-	return harness.VendorAll, nil
-}
-
-func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
+func status(src harness.Source, home string, out io.Writer) error {
 	repo := src.Dir
 	// Read first: the source line says when this home came from a zip, which
 	// the embedded files or a checkout beside it do not describe (ADR-038).
@@ -909,10 +843,6 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 		fmt.Fprintln(out, "installed  nothing — run `sh-agent install`")
 		return exitCode(1)
 	}
-	vDisplay := st.Vendor
-	if vDisplay == "" {
-		vDisplay = harness.VendorAll
-	}
 	from := "commit " + st.Commit
 	switch origin.Kind {
 	case harness.OriginRelease:
@@ -923,7 +853,7 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 			from += " (" + origin.Trust + ")"
 		}
 	}
-	fmt.Fprintf(out, "installed  %s from %s (vendor: %s, %d files, manifest ~/.config/sh-agent/state.json)\n", st.InstalledAt, from, vDisplay, len(st.Files))
+	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/sh-agent/state.json)\n", st.InstalledAt, from, len(st.Files))
 	// The line describes the installed file, not this process: status may
 	// run from `go run` or from a build outside ~/.local/bin.
 	binaryLine := "binary     unknown (installed file has no build info)"
@@ -965,22 +895,12 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 	}
 	fmt.Fprintln(out, "dream      "+dream.StatusLine(home))
 
-	vendor, err := resolveVendor(vendorFlag, home)
-	if err != nil {
-		return err
-	}
-
 	inv, err := harness.LoadInventory(src)
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "repo has   %d skills, %d agents, %d commands, %d rules\n", len(inv.Skills), len(inv.Agents), len(inv.Commands), len(inv.Rules))
-	if vendor == harness.VendorAll || vendor == harness.VendorClaude {
-		fmt.Fprintf(out, "claude     ~/%s  (AGENTS.md, CLAUDE.md, skills/, agents/, commands/, rules/)\n", harness.ClaudeRoot)
-	}
-	if vendor == harness.VendorAll || vendor == harness.VendorAntigravity {
-		fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
-	}
+	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
 
 	if fromZip {
 		// The zip is not kept, so its content cannot be compared; say so and
@@ -1000,7 +920,7 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 		}
 		return nil
 	}
-	files, err := harness.Plan(src, nil, vendor)
+	files, err := harness.Plan(src, nil)
 	if err != nil {
 		return err
 	}
@@ -1013,12 +933,6 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 			fmt.Fprintf(out, "  %-8s ~/%s\n", e.State, e.Rel)
 		}
 	}
-	if report.Counts["foreign"] > 0 {
-		fmt.Fprintln(out, "note       ~/.claude/CLAUDE.md is yours; move only rules meant for every machine into a rule file under rules/ in the harness repo — rules/ ships to every install on every machine, never credentials or personal or host-specific notes — then remove it and run install to write the one-line import")
-	}
-	if vendor == harness.VendorAll || vendor == harness.VendorClaude {
-		harness.SettingsHint(home, "note       ", out)
-	}
 	if !report.Drift() {
 		fmt.Fprintf(out, "drift      none — %d files match the repo\n", report.Counts["ok"])
 		return nil
@@ -1028,7 +942,7 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 	return exitCode(1)
 }
 
-func update(repo, home string, checkOnly bool, homeFlag, vendorFlag string, out io.Writer) error {
+func update(repo, home string, checkOnly bool, homeFlag string, out io.Writer) error {
 	behind, err := harness.Behind(repo)
 	if err != nil {
 		return err
@@ -1064,11 +978,7 @@ func update(repo, home string, checkOnly bool, homeFlag, vendorFlag string, out 
 		}
 		fmt.Fprintf(out, "pulled to %s\n", harness.Inspect(repo).Commit) // the tree moved: inspected again
 	}
-	args, err := installPassArgs(homeFlag, home, vendorFlag)
-	if err != nil {
-		return err
-	}
-	if err := harness.Reinstall(repo, args, out); err != nil {
+	if err := harness.Reinstall(repo, installPassArgs(homeFlag, home), out); err != nil {
 		return err
 	}
 	// Reinstall wrote ~/.local/bin/sh-agent; the process running this update
@@ -1078,22 +988,12 @@ func update(repo, home string, checkOnly bool, homeFlag, vendorFlag string, out 
 }
 
 // installPassArgs are the flags an update or a rebuilding install hands to
-// the install it runs: the home it was told to use, and the vendor when it
-// was given explicitly (an explicit `all` must override the narrower vendor
-// the home's state may record) or is narrower than "all".
-func installPassArgs(homeFlag, home, vendorFlag string) ([]string, error) {
-	var args []string
+// the install it runs: the home it was told to use.
+func installPassArgs(homeFlag, home string) []string {
 	if homeFlag != "" {
-		args = append(args, "--home", home)
+		return []string{"--home", home}
 	}
-	vendor, err := resolveVendor(vendorFlag, home)
-	if err != nil {
-		return nil, err
-	}
-	if vendorFlag != "" || vendor != harness.VendorAll {
-		args = append(args, "--vendor", vendor)
-	}
-	return args, nil
+	return nil
 }
 
 // knownCheckout refuses to build and install from a checkout that was only
@@ -1291,11 +1191,7 @@ func versionFromInfo(info *debug.BuildInfo) string {
 // downloaded, with the running binary: unpack, install, delete the unpacked
 // copy (R8, R9's zip place; ADR-038). Nothing is fetched, and nothing in the
 // zip replaces the binary: the running one is installed as in every install.
-func updateFromZip(zipPath, home, vendorFlag string, dryRun bool, out io.Writer) (err error) {
-	vendor, err := resolveVendor(vendorFlag, home)
-	if err != nil {
-		return err
-	}
+func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error) {
 	// A dry run writes nothing, so it never creates ~/.config/sh-agent: when
 	// that directory is absent the unpack goes beside the zip instead, never
 	// the system temp directory (IN10).
@@ -1358,7 +1254,7 @@ func updateFromZip(zipPath, home, vendorFlag string, dryRun bool, out io.Writer)
 	// The manifest keeps the verdict too, so status can tell a verified install
 	// from an unverified one after the output has scrolled away.
 	src := harness.Source{FS: os.DirFS(dir), Dir: dir, Origin: harness.ZipOrigin(sum, verifiedTag)}
-	if err := installFiles(src, home, vendor, dryRun, out); err != nil {
+	if err := installFiles(src, home, dryRun, out); err != nil {
 		return err
 	}
 	// Only after a successful install: a refused or dry run changes nothing,

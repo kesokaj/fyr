@@ -32,17 +32,13 @@ const (
 
 var promptOrder = []string{kindMemory, kindFeedback, kindTrail, kindSkill, kindMetrics, kindTranscript}
 
-// transcriptLineMax is the longest transcript line read; a longer one ends
-// that file's read, which is named as left out. A test lowers it.
-var transcriptLineMax = 16 * 1024 * 1024
-
 // trailDirs are the records a dream reads under a project's docs root.
 var trailDirs = []string{"bugs", "reviews", "retros", "changes", "handoffs"}
 
 // collect gathers what project p would send: every memory file, and the
 // feedback, trail and transcripts after since, with the installed skills.
 // Changed is true when anything but the skills is newer than since.
-func collect(home, vendor string, p search.Project, since time.Time, limit int) (Collected, error) {
+func collect(home string, p search.Project, since time.Time, limit int) (Collected, error) {
 	c := Collected{Root: p.Root, Name: p.Name}
 	add := func(kind, label, text string, t time.Time) {
 		if strings.TrimSpace(text) == "" {
@@ -96,7 +92,7 @@ func collect(home, vendor string, p search.Project, since time.Time, limit int) 
 		}
 	}
 
-	for _, s := range skills(home, vendor) {
+	for _, s := range skills(home) {
 		add(kindSkill, "skill "+s.name, s.name+": "+s.description, time.Time{})
 	}
 
@@ -109,11 +105,6 @@ func collect(home, vendor string, p search.Project, since time.Time, limit int) 
 		add(kindMetrics, "metrics", sum, time.Time{})
 	}
 
-	trs, trErrs := claudeTranscript(home, p.Root, since)
-	for _, tr := range trs {
-		add(kindTranscript, "claude "+tr.label, tr.text, tr.ts)
-	}
-	c.Dropped = append(c.Dropped, trErrs...)
 	// An Antigravity read error fails the project, so its watermark stays and
 	// the conversations are read again next time, never skipped for good
 	// (code review 2026-09-30).
@@ -268,13 +259,10 @@ func docsOf(p search.Project) string {
 
 type skill struct{ name, description string }
 
-// skills are the installed skills' names and descriptions, from the skill
-// directory of the vendor the manifest names.
-func skills(home, vendor string) []skill {
-	dir := filepath.Join(home, ".claude", "skills")
-	if vendor == harness.VendorAntigravity {
-		dir = filepath.Join(home, ".gemini", "config", "skills")
-	}
+// skills are the installed skills' names and descriptions, from the
+// Antigravity CLI's skill directory.
+func skills(home string) []skill {
+	dir := filepath.Join(home, harness.AgyRoot, "skills")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -297,125 +285,4 @@ func skills(home, vendor string) []skill {
 		}
 	}
 	return out
-}
-
-type transcript struct {
-	label, text string
-	ts          time.Time
-}
-
-// claudeTranscript is Claude Code's session text for root after since: the
-// user and assistant text parts of lines whose cwd is root or under it.
-// CLAUDE_CONFIG_DIR moves Claude Code's directory, as it does for the CLI.
-func claudeTranscript(home, root string, since time.Time) ([]transcript, []string) {
-	base := filepath.Join(home, ".claude")
-	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
-		base = d
-	}
-	projects := filepath.Join(base, "projects")
-	dirs, err := os.ReadDir(projects)
-	if err != nil {
-		return nil, nil
-	}
-	root = filepath.Clean(root)
-	var out []transcript
-	var errs []string
-	for _, d := range dirs {
-		if !d.IsDir() {
-			continue
-		}
-		files, _ := os.ReadDir(filepath.Join(projects, d.Name()))
-		for _, f := range files {
-			path := filepath.Join(projects, d.Name(), f.Name())
-			info, err := f.Info()
-			if err != nil || !info.Mode().IsRegular() || !strings.HasSuffix(f.Name(), ".jsonl") || !info.ModTime().After(since) {
-				continue
-			}
-			t, err := sessionText(path, root, since)
-			if err != nil {
-				errs = append(errs, "claude transcript "+f.Name()+": "+err.Error())
-			}
-			if t.text != "" {
-				t.label = strings.TrimSuffix(f.Name(), ".jsonl")
-				out = append(out, t)
-			}
-		}
-	}
-	return out, errs
-}
-
-func sessionText(path, root string, since time.Time) (transcript, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return transcript{}, err
-	}
-	defer f.Close()
-	var b strings.Builder
-	var last time.Time
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), transcriptLineMax)
-	for sc.Scan() {
-		var l struct {
-			Type      string `json:"type"`
-			Cwd       string `json:"cwd"`
-			Timestamp string `json:"timestamp"`
-			IsMeta    bool   `json:"isMeta"`
-			Message   struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		}
-		// A meta line is the harness talking (a caveat, an injected
-		// reminder), never the user or the model (security review 2026-10-01).
-		if json.Unmarshal(sc.Bytes(), &l) != nil || (l.Type != "user" && l.Type != "assistant") || l.IsMeta {
-			continue
-		}
-		cwd := filepath.Clean(l.Cwd)
-		if cwd != root && !strings.HasPrefix(cwd, root+string(filepath.Separator)) {
-			continue
-		}
-		ts, err := time.Parse(time.RFC3339Nano, l.Timestamp)
-		if err != nil || !ts.After(since) {
-			continue
-		}
-		if text := contentText(l.Message.Content); text != "" {
-			fmt.Fprintf(&b, "%s: %s\n", l.Type, text)
-			last = ts
-		}
-	}
-	return transcript{text: b.String(), ts: last}, sc.Err()
-}
-
-// contentText is a message's text: a plain string, or the text parts of a
-// parts array (tool calls and results are not prose).
-func contentText(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) == nil {
-		s = strings.TrimSpace(s)
-		// Claude Code writes a slash command's output and its command line
-		// as user-typed string content; that is command output, not prose
-		// (audit 2026-09-30, SD10).
-		// Also a background task's or subagent's result and a system
-		// reminder, which the harness writes into user turns (security
-		// review of the fix).
-		for _, p := range []string{"<local-command", "<command-", "<task-notification", "<system-reminder"} {
-			if strings.HasPrefix(s, p) {
-				return ""
-			}
-		}
-		return s
-	}
-	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if json.Unmarshal(raw, &parts) != nil {
-		return ""
-	}
-	var texts []string
-	for _, p := range parts {
-		if p.Type == "text" && strings.TrimSpace(p.Text) != "" {
-			texts = append(texts, strings.TrimSpace(p.Text))
-		}
-	}
-	return strings.Join(texts, "\n")
 }

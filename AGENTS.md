@@ -4,7 +4,7 @@ Project rules for this repo. They override the global context, which this repo i
 
 ## What this repo is
 
-The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `sh-agent`, the Go binary that installs them into Claude Code and the Antigravity CLI. No hooks, no gates, no CI.
+The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `sh-agent`, the Go binary that installs them into the Antigravity CLI. No hooks, no gates, no CI.
 `sh-agent` is also the second brain both CLIs consult at the moments the context names (search, memory, metrics, dream): the purpose and its two constraints are `REQUIREMENTS.md` R0.
 
 ## How the harness works
@@ -36,12 +36,12 @@ go mod download                                         # once per version, whil
 ## Layout
 
 ```
-context/AGENTS.md      the global context — single source, deployed to both vendors
+context/AGENTS.md      the global context — single source, deployed to ~/.gemini/config/rules/AGENTS.md
 context/dev-setup.md   environment, stack, GCP defaults — appended to the context at install
 agents/*.md            subagents in Claude Code format; Antigravity's agent.md is derived at install
 skills/<name>/         skills; .agents/skills is a symlink here so `npx skills add` lands in skills/
 skills/google-catalog/catalog/  Google-published skills vendored at a pin (counts, exclusions, notes: its MANIFEST.md), reached through the google-catalog router, never installed as skills
-commands/, rules/      markdown prompts invoked as /name, and always-on rules; both deploy to both vendors verbatim, and rules share the Antigravity block (commands/ empty by design, operator 2026-09-30; rules/ holds critical-thinking.md (ADR-050) and session-sizing.md (ADR-058))
+commands/, rules/      markdown prompts invoked as /name, and always-on rules; both deploy verbatim (workflows/ and rules/ under ~/.gemini/config), and rules share the Antigravity block (commands/ empty by design, operator 2026-09-30; rules/ holds critical-thinking.md (ADR-050) and session-sizing.md (ADR-058))
 cmd/sh-agent, internal/harness   the binary and its tests
 embed.go, *_test.go    package `styrman` at the root: the `go:embed` of the five content directories (it cannot reach a parent, so it sits here) and the tests of the tree beside it (the embed pinned both ways to git, the init-project assets, the plan)
 internal/search        `sh-agent search` and `index`: the SQLite index (one of the two packages that import the driver, with `internal/metrics`); also the dream job's two read-only SQLite reads (the global index's project list, Antigravity's conversation databases, from copies)

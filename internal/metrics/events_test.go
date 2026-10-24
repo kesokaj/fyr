@@ -64,7 +64,7 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 		id         string
 		start, end time.Time
 	}{{"S1", at(10, 0), at(10, 20)}, {"S2", at(12, 0), at(12, 10)}, {"S3", at(12, 5), at(12, 30)}} {
-		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'claude', ?, ?, ?)`,
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`,
 			x.id, root, x.start.UnixMilli(), x.end.UnixMilli()); err != nil {
 			t.Fatal(err)
 		}
@@ -126,7 +126,7 @@ func TestShowOutcomeFromEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := sum.A.DoDClosed["claude"]; c.Closed != 1 || c.Ambiguous != 0 || c.Of != 3 {
+	if c := sum.A.DoDClosed["agy"]; c.Closed != 1 || c.Ambiguous != 0 || c.Of != 3 {
 		t.Errorf("dod_closed = %+v, want closed 1 of 3", c)
 	}
 	if sum.A.Verifier["PASS"] != 1 || sum.A.ReviewFindings["high"] != 1 || sum.A.ReviewFindings["low"] != 2 ||
@@ -144,11 +144,11 @@ func TestSubdirectorySessionsBelongToTheProject(t *testing.T) {
 	s.db.QueryRow(`SELECT project_root FROM sessions WHERE id = 'S1'`).Scan(&root)
 	sub := filepath.Join(root, ".agents")
 	s.db.Exec(`UPDATE sessions SET project_root = ? WHERE id = 'S1'`, sub)
-	s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('U', 'claude', ?, 1, 2)`,
+	s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('U', 'agy', ?, 1, 2)`,
 		strings.ToUpper(root)+"/sub") // another directory on a case-sensitive file system
 	sibling := root + "x"
 	os.MkdirAll(sibling, 0o755)
-	s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('X', 'claude', ?, 1, 2)`, sibling)
+	s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('X', 'agy', ?, 1, 2)`, sibling)
 	if _, err := s.joinEvents(home); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +165,8 @@ func TestSubdirectorySessionsBelongToTheProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.Sessions["claude"] != 3 {
-		t.Errorf("--project %s selected %d sessions, want 3 (S1 in a subdirectory, S2, S3; not the sibling)", root, sum.Sessions["claude"])
+	if sum.Sessions["agy"] != 3 {
+		t.Errorf("--project %s selected %d sessions, want 3 (S1 in a subdirectory, S2, S3; not the sibling)", root, sum.Sessions["agy"])
 	}
 }
 

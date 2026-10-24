@@ -1,6 +1,7 @@
 // Package metrics keeps the metrics store, ~/.config/sh-agent/metrics.db: the
-// shape of every ingested Claude Code and Antigravity session (R4, ADR-055,
-// spec .agents/docs/specs/sh-agent/metrics.md). Unlike the search index it is
+// shape of every ingested Antigravity session, and of the Claude Code
+// sessions an ingest before ADR-062 read, kept as history (R4, ADR-055, plan
+// fyr D7, spec .agents/docs/specs/sh-agent/metrics.md). Unlike the search index it is
 // a store of record, the only copy once a transcript expires: it migrates
 // forward and is never deleted or rebuilt here.
 package metrics
@@ -47,7 +48,8 @@ var migrations = []string{
 		PRIMARY KEY(session_id, kind, ref));
 	CREATE TABLE ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGER);`,
 	// 2: the context a model call saw, where the CLI records it (Antigravity's
-	// gen_metadata, plan D3a); Claude's is computed from usage at read time.
+	// gen_metadata, plan D3a); a historical claude row's is computed from
+	// usage at read time.
 	`ALTER TABLE steps ADD COLUMN context INTEGER;`,
 }
 

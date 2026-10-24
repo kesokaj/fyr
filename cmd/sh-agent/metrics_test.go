@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,23 +12,67 @@ import (
 	"testing"
 )
 
-// TestMetricsVerb: ingest reads <home>/.claude/projects under --home even with
-// CLAUDE_CONFIG_DIR pointing elsewhere (D9, R6), prints its summary line, and
-// export writes the store and refuses to overwrite.
+// agyHome writes one Antigravity conversation, id, in the workspace /p under
+// home: a run_command of `git status` on 2026-10-08 and one model call whose
+// context is 5 tokens, in the shapes internal/metrics reads.
+func agyHome(t *testing.T, home, id string) {
+	t.Helper()
+	pb := func(n int, b []byte) []byte {
+		out := binary.AppendUvarint(nil, uint64(n<<3|2))
+		return append(binary.AppendUvarint(out, uint64(len(b))), b...)
+	}
+	pv := func(n int, v uint64) []byte { return binary.AppendUvarint(binary.AppendUvarint(nil, uint64(n<<3)), v) }
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(path string, stmts ...string) *sql.DB {
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range stmts {
+			if _, err := db.Exec(q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+		return db
+	}
+	exec(filepath.Join(dir, "conversation_summaries.db"),
+		"CREATE TABLE conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
+		`INSERT INTO conversation_summaries(conversation_id, last_modified_time, workspace_uris) VALUES ('`+id+`', '2026-10-08 10:05:00+00:00', '["file:///p"]')`).Close()
+	db := exec(filepath.Join(dir, "conversations", id+".db"),
+		"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
+		"CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0)")
+	defer db.Close()
+	const t0 = 1791453600 // 2026-10-08 10:00:00Z
+	meta := append(pb(1, pv(1, t0)), pb(4, append(pb(2, []byte("run_command")), pb(3, []byte(`{"CommandLine":"git status"}`))...))...)
+	gen := pb(1, append(pb(4, append(pv(2, 5), pv(3, 1)...)), pb(9, pb(10, pv(1, 5)))...))
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO steps(idx, step_type, status, metadata) VALUES (0, 132, 3, ?)`, []any{meta}},
+		{`INSERT INTO gen_metadata(idx, data) VALUES (0, ?)`, []any{gen}},
+	} {
+		if _, err := db.Exec(q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestMetricsVerb: ingest reads the Antigravity CLI's conversations under
+// --home, never the real home's (R6), prints its summary line, and export
+// writes the store and refuses to overwrite.
 func TestMetricsVerb(t *testing.T) {
 	home := t.TempDir()
-	dir := filepath.Join(home, ".claude", "projects", "-p")
-	os.MkdirAll(dir, 0o755)
-	line := `{"type":"assistant","sessionId":"S1","cwd":"/p","timestamp":"2026-10-08T10:00:00Z","message":{"id":"m1","usage":{"input_tokens":5},"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git status"}}]}}` + "\n"
-	os.WriteFile(filepath.Join(dir, "S1.jsonl"), []byte(line), 0o600)
-
-	decoy := filepath.Join(t.TempDir(), "decoy")
-	os.MkdirAll(filepath.Join(decoy, "projects", "-q"), 0o755)
-	os.WriteFile(filepath.Join(decoy, "projects", "-q", "D.jsonl"), []byte(strings.ReplaceAll(line, "S1", "DECOY")), 0o600)
-	t.Setenv("CLAUDE_CONFIG_DIR", decoy)
+	agyHome(t, home, "S1")
+	decoy := t.TempDir()
+	agyHome(t, decoy, "DECOY")
+	t.Setenv("HOME", decoy)
 
 	var out bytes.Buffer
-	if err := run([]string{"metrics", "ingest", "--home", home, "--vendor", "claude"}, &out); err != nil {
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
 		t.Fatalf("ingest: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), "metrics: 1 sessions, 2 steps") {
@@ -45,7 +91,7 @@ func TestMetricsVerb(t *testing.T) {
 	}
 	// The context target: 300000 unless --context-target says otherwise; the
 	// one session (peak 5) is under the default and over a target of 3.
-	if !strings.Contains(out.String(), `"context_target": 300000`) || !strings.Contains(out.String(), `"claude": 0`) {
+	if !strings.Contains(out.String(), `"context_target": 300000`) || !strings.Contains(out.String(), `"agy": 0`) {
 		t.Fatalf("show --json lacks the default context target or the over-target count:\n%s", out.String())
 	}
 	out.Reset()
@@ -62,7 +108,7 @@ func TestMetricsVerb(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.B.ContextTarget != 3 || got.B.Over["claude"] == nil || *got.B.Over["claude"] != 1 || got.B.Over["agy"] != nil || len(got.B.Peaks["claude"]) != 1 {
+	if got.B.ContextTarget != 3 || got.B.Over["agy"] == nil || *got.B.Over["agy"] != 1 || len(got.B.Peaks["agy"]) != 1 {
 		t.Fatalf("show --json --context-target 3 printed:\n%s", out.String())
 	}
 	// --until closes the window: a window that ends before the session has

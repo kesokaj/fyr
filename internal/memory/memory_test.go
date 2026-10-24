@@ -264,16 +264,18 @@ func TestIndexMatchIsTheLinkTarget(t *testing.T) {
 	}
 }
 
+// TestShow: the index and nothing else — no hint line about another CLI's
+// own memory follows it (plan fyr Phase 2).
 func TestShow(t *testing.T) {
 	dir := repo(t)
-	got, err := Show(dir, false)
+	got, err := Show(dir)
 	if err != nil || got != "" {
 		t.Fatalf("empty store: %q, %v", got, err)
 	}
 	if _, err := add(dir, "one", "first", "x\n"); err != nil {
 		t.Fatal(err)
 	}
-	got, err = Show(dir, false)
+	got, err = Show(dir)
 	if err != nil || got != "- [one](one.md) — first\n" {
 		t.Errorf("show = %q, %v", got, err)
 	}
@@ -288,7 +290,7 @@ func TestShowCaps(t *testing.T) {
 		fmt.Fprintf(&b, "- [m%d](m%d.md) — x\n", i, i)
 	}
 	os.WriteFile(filepath.Join(store, "MEMORY.md"), []byte(b.String()), 0o600)
-	got, _ := Show(dir, false)
+	got, _ := Show(dir)
 	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
 	if len(lines) != 201 || !strings.Contains(lines[200], "30 more lines") {
 		t.Errorf("got %d lines, last %q", len(lines), lines[len(lines)-1])
@@ -301,46 +303,13 @@ func TestShowRefusesTrackedStore(t *testing.T) {
 	os.MkdirAll(store, 0o700)
 	os.WriteFile(filepath.Join(store, "MEMORY.md"), []byte("- [x](x.md) — planted\n"), 0o600)
 	git(t, dir, "add", "-f", ".agents/memory/MEMORY.md")
-	if _, err := Show(dir, false); !IsRefusal(err) {
+	if _, err := Show(dir); !IsRefusal(err) {
 		t.Fatalf("err = %v, want a refusal", err)
 	}
 }
 
-func TestShowRolloutHint(t *testing.T) {
-	const hint = "Claude Code's native memory is still on here"
-	cases := map[string]struct {
-		settings        string // "" = no file
-		claudeInstalled bool
-		wantHint        bool
-	}{
-		"agy only, no file":        {"", false, false},
-		"claude, no file":          {"", true, true},
-		"claude, directory only":   {`{"autoMemoryDirectory": "/x"}`, true, true},
-		"claude, enabled true":     {`{"autoMemoryEnabled": true}`, true, true},
-		"claude, switched off":     {`{"autoMemoryDirectory": "/x", "autoMemoryEnabled": false}`, true, false},
-		"agy only, stray file":     {`{"autoMemoryDirectory": "/x"}`, false, true},
-		"claude, unparseable file": {`{not json`, true, true},
-	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			dir := repo(t)
-			if c.settings != "" {
-				os.MkdirAll(filepath.Join(dir, ".claude"), 0o755)
-				os.WriteFile(filepath.Join(dir, ".claude", "settings.local.json"), []byte(c.settings), 0o600)
-			}
-			got, err := Show(dir, c.claudeInstalled)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(got, hint) != c.wantHint {
-				t.Errorf("hint = %v, want %v: %q", !c.wantHint, c.wantHint, got)
-			}
-		})
-	}
-}
-
 func TestShowOutsideACheckoutRefuses(t *testing.T) {
-	if _, err := Show(t.TempDir(), false); !IsRefusal(err) {
+	if _, err := Show(t.TempDir()); !IsRefusal(err) {
 		t.Fatalf("err = %v, want a refusal", err)
 	}
 }
@@ -391,7 +360,7 @@ func TestSymlinkedIndexRefused(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(store, "MEMORY.md")); err != nil {
 		t.Skip("no symlinks here")
 	}
-	if _, err := Show(root, false); err == nil || !IsRefusal(err) {
+	if _, err := Show(root); err == nil || !IsRefusal(err) {
 		t.Errorf("Show followed a symlinked index: %v", err)
 	}
 	if _, err := add(root, "x", "x", "x"); err == nil || !IsRefusal(err) {

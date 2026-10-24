@@ -21,18 +21,21 @@ func TestUsageErrorsExit2(t *testing.T) {
 		args []string
 		want string
 	}{
-		"dream --vendor bogus":             {[]string{"dream", "--all", "--vendor", "bogus", "--home", home}, "unknown vendor"},
-		"memory show --vendor bogus":       {[]string{"memory", "show", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"search without words":             {[]string{"search", "--home", home}, "give words"},
 		"search --limit -1":                {[]string{"search", "--limit", "-1", "--home", home, "x"}, "--limit must be"},
 		"adopt without a name":             {[]string{"adopt", "--repo", "../..", "--home", home}, "usage: sh-agent adopt"},
 		"update --from-zip without a file": {[]string{"update", "--from-zip", "--dry-run", "--home", home}, "--from-zip needs a file"},
 		"install --from-zip":               {[]string{"install", "--from-zip", "x.zip", "--home", home}, "--from-zip belongs to update"},
-		// --vendor is every verb's flag, checked once before the verb runs:
-		// status exited 1 and uninstall took any word (BUG-171).
-		"status --vendor bogus":              {[]string{"status", "--repo", "../..", "--vendor", "bogus", "--home", home}, "unknown vendor"},
-		"uninstall --dry-run --vendor bogus": {[]string{"uninstall", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
-		"metrics show --context-target 0":    {[]string{"metrics", "show", "--context-target", "0", "--home", home}, "--context-target takes a token count above 0"},
+		// --vendor left with the second vendor (plan fyr Phase 2): a once-valid
+		// value is refused like any undefined flag, before the verb runs, on
+		// every verb that took it (BUG-171's rule).
+		"install --vendor agy":             {[]string{"install", "--dry-run", "--repo", "../..", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"status --vendor agy":              {[]string{"status", "--repo", "../..", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"uninstall --dry-run --vendor agy": {[]string{"uninstall", "--dry-run", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"dream --vendor agy":               {[]string{"dream", "--all", "--dry-run", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"memory show --vendor agy":         {[]string{"memory", "show", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"metrics ingest --vendor agy":      {[]string{"metrics", "ingest", "--vendor", "agy", "--home", home}, "flag provided but not defined: -vendor"},
+		"metrics show --context-target 0":  {[]string{"metrics", "show", "--context-target", "0", "--home", home}, "--context-target takes a token count above 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -114,30 +117,18 @@ func TestMainExitStatus(t *testing.T) {
 	}
 }
 
-// An explicit `--vendor all` reaches the install a rebuild or an update runs,
-// so it overrides a narrower vendor the home's state recorded; the shared
-// pass-through dropped it (review of the 2026-10-09 fixes, round 1).
-func TestInstallPassArgsForwardsAnExplicitVendor(t *testing.T) {
+// The install a rebuild or an update runs gets the home it was told to use
+// and nothing else: the vendor an older manifest recorded is never forwarded,
+// so the child, which has no --vendor, never refuses it (plan fyr Phase 2).
+func TestInstallPassArgsForwardsTheHomeOnly(t *testing.T) {
 	home := t.TempDir()
-	if err := harness.SaveState(home, harness.State{Vendor: harness.VendorClaude}); err != nil {
+	if err := harness.SaveState(home, harness.State{Vendor: "all"}); err != nil {
 		t.Fatal(err)
 	}
-	for name, tc := range map[string]struct {
-		vendorFlag string
-		want       string
-	}{
-		"explicit all":   {"all", "--vendor all"},
-		"explicit agy":   {"agy", "--vendor antigravity"},
-		"from the state": {"", "--vendor claude"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			args, err := installPassArgs("", home, tc.vendorFlag)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := strings.Join(args, " "); got != tc.want {
-				t.Errorf("installPassArgs(vendor %q) = %q, want %q", tc.vendorFlag, got, tc.want)
-			}
-		})
+	if got := installPassArgs("", home); len(got) != 0 {
+		t.Errorf("no --home: %q, want nothing", got)
+	}
+	if got, want := strings.Join(installPassArgs(home, home), " "), "--home "+home; got != want {
+		t.Errorf("--home: %q, want %q", got, want)
 	}
 }

@@ -9,14 +9,11 @@ import (
 	"github.com/kesokaj/styrman-harness/internal/harness"
 )
 
-// TestInitProjectVendorCheckMatchesManifest: /init-project skips every
-// `.claude/` write on a machine where sh-agent is installed for Antigravity
-// alone, and /dream then takes the store without the setting it would have
-// read there; both tell that machine from the install manifest with one grep.
-// The grep's needle and the manifest SaveState writes must agree: the needle
-// matches the antigravity manifest and no other, or an Antigravity-only
-// project gets a `.claude/` directory again, /dream finds no store there, or a
-// Claude Code project loses its links.
+// TestInitProjectVendorCheckMatchesManifest: /init-project and /dream tell an
+// Antigravity-only machine from the install manifest with one grep. Every
+// install now writes that manifest (plan fyr Phase 2), so the grep's needle
+// must match what SaveState writes for the one vendor, or both skills read
+// the machine as the other kind until their text loses the check.
 func TestInitProjectVendorCheckMatchesManifest(t *testing.T) {
 	const needle = `"vendor": "antigravity"`
 	for _, path := range []string{"skills/init-project/SKILL.md", "skills/dream/SKILL.md"} {
@@ -28,17 +25,15 @@ func TestInitProjectVendorCheckMatchesManifest(t *testing.T) {
 			t.Errorf("%s lacks the vendor check %s", path, want)
 		}
 	}
-	for _, vendor := range []string{harness.VendorAntigravity, harness.VendorAll, harness.VendorClaude} {
-		home := t.TempDir()
-		if err := harness.SaveState(home, harness.State{Vendor: vendor}); err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(filepath.Join(home, ".config", "sh-agent", "state.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got, want := strings.Contains(string(data), needle), vendor == harness.VendorAntigravity; got != want {
-			t.Errorf("vendor %s: manifest matches %s = %v, want %v:\n%s", vendor, needle, got, want, data)
-		}
+	home := t.TempDir()
+	if err := harness.SaveState(home, harness.State{Vendor: harness.VendorAntigravity}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".config", "sh-agent", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), needle) {
+		t.Errorf("the manifest does not match %s:\n%s", needle, data)
 	}
 }

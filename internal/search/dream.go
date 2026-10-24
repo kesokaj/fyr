@@ -201,8 +201,8 @@ func conversationText(src, id, tmp string) (string, error) {
 	}
 	defer db.Close()
 	// Only the user's input (14) and the model's replies (15): a tool step
-	// (132) holds file and command output, which the Claude Code reader never
-	// sends either (security review 2026-09-30; the D8 probe's step types).
+	// (132) holds file and command output, which never leaves the machine
+	// (security review 2026-09-30; the D8 probe's step types).
 	rows, err := db.Query(`SELECT step_payload FROM steps WHERE step_type IN (14, 15) ORDER BY idx`)
 	if err != nil {
 		return "", fmt.Errorf("reading conversation %s: %w", id, err)

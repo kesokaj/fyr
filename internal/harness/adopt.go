@@ -11,13 +11,12 @@ import (
 
 // Adopt copies a skill installed somewhere else — by hand, or by
 // `npx skills add -g` into ~/.agents/skills — into the repo's skills/, so it
-// is versioned and deployed to both CLIs on the next install. src is a path
-// or a bare skill name looked up in the usual global locations.
+// is versioned and deployed on the next install. src is a path or a bare
+// skill name looked up in the usual global locations.
 func Adopt(repo, home, src string, force bool) (string, error) {
 	candidates := []string{
 		src,
 		filepath.Join(home, ".agents", "skills", src),
-		filepath.Join(home, ClaudeRoot, "skills", src),
 		filepath.Join(home, AgyRoot, "skills", src),
 	}
 	var from string

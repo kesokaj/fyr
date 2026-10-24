@@ -114,15 +114,15 @@ func TestAdoptStripsGroupAndOtherWrite(t *testing.T) {
 func TestDiffUsesTheHomeNotTmp(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	files, err := Plan(DirSource(repo), nil, VendorAll)
+	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	victim := filepath.Join(home, ClaudeRoot, "skills", "alpha", "SKILL.md")
+	victim := filepath.Join(home, AgyRoot, "skills", "alpha", "SKILL.md")
 	if err := os.WriteFile(victim, []byte("drifted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -189,12 +189,12 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			files, err := Plan(DirSource(repo), nil, VendorAll)
+			files, err := Plan(DirSource(repo), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+			if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 				t.Fatal(err)
 			}
 			info, err := os.Stat(cfg)
@@ -217,12 +217,12 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if err := os.MkdirAll(cfg, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		files, err := Plan(DirSource(repo), nil, VendorAll)
+		files, err := Plan(DirSource(repo), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := Install(DirSource(repo), home, files, VendorAll, true, &out); err != nil {
+		if err := Install(DirSource(repo), home, files, true, &out); err != nil {
 			t.Fatal(err)
 		}
 		if !strings.Contains(out.String(), "mode    ~/.config/sh-agent (0755 -> 0700)") {
@@ -245,12 +245,12 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if err := os.Symlink(target, filepath.Join(home, ".config", "sh-agent")); err != nil {
 			t.Fatal(err)
 		}
-		files, err := Plan(DirSource(repo), nil, VendorAll)
+		files, err := Plan(DirSource(repo), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		if err := Install(DirSource(repo), home, files, VendorAll, false, &out); err != nil {
+		if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 			t.Fatal(err)
 		}
 		if info, _ := os.Stat(target); info.Mode().Perm() != 0o755 {

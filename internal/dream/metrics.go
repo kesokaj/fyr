@@ -72,7 +72,15 @@ var metricsSummary = func(home, root string, since, now time.Time) (string, erro
 	if err != nil {
 		return "", err
 	}
-	if cur.Sessions["claude"]+cur.Sessions["agy"]+prev.Sessions["claude"]+prev.Sessions["agy"] == 0 {
+	// Every column counts, the historical one too: its sessions are the
+	// project's record as much as the agy ones (plan fyr D7).
+	n := 0
+	for _, m := range []map[string]int{cur.Sessions, prev.Sessions} {
+		for _, c := range m {
+			n += c
+		}
+	}
+	if n == 0 {
 		return "", nil
 	}
 	b, err := json.MarshalIndent(map[string]any{

@@ -92,19 +92,16 @@ func (o Options) realRun() error {
 	if err != nil {
 		return fail(err.Error())
 	}
-	argv := command(o.Vendor)
+	argv := command()
 	if _, err := exec.LookPath(argv[0]); err != nil {
-		return fail(fmt.Sprintf("no %s on PATH: the dream job runs the CLI the manifest names (--vendor)", argv[0]))
+		return fail(fmt.Sprintf("no %s on PATH: the dream job runs the Antigravity CLI", argv[0]))
 	}
-	var env []string
-	if argv[0] == "agy" {
-		home, cleanup, err := agyHome(conf, runtime.GOOS)
-		if err != nil {
-			return fail(err.Error())
-		}
-		defer cleanup()
-		env = withHome(os.Environ(), home)
+	agyHomeDir, cleanup, err := agyHome(conf, runtime.GOOS)
+	if err != nil {
+		return fail(err.Error())
 	}
+	defer cleanup()
+	env := withHome(os.Environ(), agyHomeDir)
 	work := filepath.Join(conf, "dream-work")
 	if err := os.MkdirAll(work, 0o700); err != nil {
 		return fail(err.Error())
@@ -117,7 +114,7 @@ func (o Options) realRun() error {
 			logf(p.Root + " skip " + why)
 			continue
 		}
-		c, err := collect(o.Home, o.Vendor, p, o.since(st, p.Root), maxPrompt)
+		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
 		if err != nil {
 			failed++
 			logf(p.Root + " fail " + scrub(err.Error(), o.Home))
@@ -138,7 +135,7 @@ func (o Options) realRun() error {
 			logf(p.Root + " fail " + reason)
 			continue
 		}
-		text, aerr := answer(argv[0], stdout)
+		text, aerr := answer(stdout)
 		resp, ok := parse(text)
 		if aerr != nil || !ok {
 			failed++
@@ -181,10 +178,9 @@ func (o Options) realRun() error {
 	return nil
 }
 
-// call runs the CLI in work with the prompt on stdin: plain text for Claude
-// Code, one stream-json message for Antigravity. env replaces the child's
-// environment when set (agy's private HOME); otherwise the child keeps
-// sh-agent's own, so it authenticates as the operator's CLI does.
+// call runs the CLI in work with the prompt on stdin as one stream-json
+// message. env replaces the child's environment when set (agy's private
+// HOME); otherwise the child keeps sh-agent's own.
 func call(argv []string, prompt, work string, env []string) (string, string, error) {
 	return callWithin(argv, prompt, work, env, cliTimeout, killGrace)
 }
@@ -195,14 +191,11 @@ func call(argv []string, prompt, work string, env []string) (string, string, err
 func callWithin(argv []string, prompt, work string, env []string, timeout, grace time.Duration) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	stdin := prompt
-	if argv[0] == "agy" {
-		msg, err := json.Marshal(map[string]any{"event": "user", "message": map[string]string{"content": prompt}})
-		if err != nil {
-			return "", "", err
-		}
-		stdin = string(msg) + "\n"
+	msg, err := json.Marshal(map[string]any{"event": "user", "message": map[string]string{"content": prompt}})
+	if err != nil {
+		return "", "", err
 	}
+	stdin := string(msg) + "\n"
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = work
 	cmd.Env = env
@@ -245,7 +238,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 		})
 		close(relayed)
 	}()
-	err := cmd.Wait()
+	err = cmd.Wait()
 	signal.Stop(sigs) // before waited closes: a signal in between still reaches the goroutine
 	close(waited)
 	<-relayed // a signal taken at the end is acted on before the next project starts
@@ -281,13 +274,10 @@ func relay(sigs <-chan os.Signal, waited <-chan struct{}, onSignal func(os.Signa
 	}
 }
 
-// answer is the model's text: Claude Code prints it; Antigravity's
-// stream-json ends with a result event that carries it as "response". A
-// result that names denied actions is no answer.
-func answer(cli, stdout string) (string, error) {
-	if cli != "agy" {
-		return stdout, nil
-	}
+// answer is the model's text: Antigravity's stream-json ends with a result
+// event that carries it as "response". A result that names denied actions is
+// no answer.
+func answer(stdout string) (string, error) {
 	sc := bufio.NewScanner(strings.NewReader(stdout))
 	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for sc.Scan() {

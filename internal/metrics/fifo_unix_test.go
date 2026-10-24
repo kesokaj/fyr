@@ -11,29 +11,6 @@ import (
 
 func syscallMkfifo(p string) error { return syscall.Mkfifo(p, 0o600) }
 
-func TestReadSmallRegularRefusesFIFO(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "x.meta.json")
-	if err := syscallMkfifo(p); err != nil {
-		t.Skip("no FIFOs here")
-	}
-	done := make(chan bool)
-	go func() { _, ok := readSmallRegular(p, 1024); done <- ok }()
-	select {
-	case ok := <-done:
-		if ok {
-			t.Fatal("a FIFO was read as a regular file")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("readSmallRegular blocked on a FIFO")
-	}
-	// The race the Lstat check cannot close: the open itself must not block.
-	f, err := openNonBlocking(p)
-	if err != nil {
-		t.Fatalf("non-blocking open of a FIFO: %v", err)
-	}
-	f.Close()
-}
-
 // openRegular is the one way ingest opens a transcript, a trail file or a
 // .meta.json: a FIFO at the path returns at once, refused (security review
 // of v2.6.0, part 1, round 4: the check-then-open race, every site).

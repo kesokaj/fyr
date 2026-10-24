@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// TestShowBothCLIs: the Claude and Antigravity fixtures in one store give
-// per-vendor numbers, and what Antigravity cannot record is null, not 0.
-func TestShowBothCLIs(t *testing.T) {
-	chome, _ := claudeFixture(t)
-	ahome, _ := agyFixture(t)
+// TestShowHistoricalColumn: an Antigravity ingest and the rows an older
+// ingest left from Claude Code give a number per column, the historical one
+// second; what Antigravity cannot record is null, not 0 (plan fyr D7).
+func TestShowHistoricalColumn(t *testing.T) {
+	ahome, root := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-	ingestT(t, s, Options{Home: chome, HomeGiven: true, Vendor: "claude"})
-	ingestT(t, s, Options{Home: ahome, HomeGiven: true, Vendor: "agy"})
+	historicalRows(t, s, root)
+	ingestT(t, s, Options{Home: ahome})
 
 	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)})
 	if err != nil {
@@ -85,11 +85,48 @@ func TestShowBothCLIs(t *testing.T) {
 	if !strings.Contains(strings.Join(sum.Notes, "\n"), "agy: cost is not exposed") {
 		t.Errorf("notes do not name agy's missing cost: %q", sum.Notes)
 	}
+	if strings.Join(sum.Columns, ",") != "agy,claude" {
+		t.Errorf("columns %v, want agy then the historical claude", sum.Columns)
+	}
 	var text bytes.Buffer
 	sum.WriteText(&text)
-	for _, w := range []string{"A. outcome", "B. efficiency", "C. process adherence", "D. reliability", "n/a"} {
+	for _, w := range []string{"A. outcome", "B. efficiency", "C. process adherence", "D. reliability", "n/a", "claude (historical)"} {
 		if !strings.Contains(text.String(), w) {
 			t.Errorf("text output lacks %q", w)
+		}
+	}
+	if i, j := strings.Index(text.String(), " agy"), strings.Index(text.String(), "claude (historical)"); i < 0 || j < i {
+		t.Errorf("the agy column does not come first:\n%s", text.String())
+	}
+}
+
+// TestShowAgyOnly: a store with no historical rows has the one agy column;
+// no claude key reaches the JSON and no claude column the text.
+func TestShowAgyOnly(t *testing.T) {
+	ahome, _ := agyFixture(t)
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: ahome})
+	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(sum.Columns, ",") != "agy" {
+		t.Errorf("columns %v, want agy alone", sum.Columns)
+	}
+	var j, text bytes.Buffer
+	if err := sum.WriteJSON(&j); err != nil {
+		t.Fatal(err)
+	}
+	sum.WriteText(&text)
+	if strings.Contains(j.String(), `"claude"`) || strings.Contains(text.String(), "claude") {
+		t.Errorf("an agy-only store shows a claude column:\n%s\n%s", j.String(), text.String())
+	}
+	if sum.Sessions["agy"] != 1 || sum.B.ToolCalls["agy"] != 4 {
+		t.Errorf("sessions %v, tool calls %v; want 1 and 4", sum.Sessions, sum.B.ToolCalls)
+	}
+	for k := range sum.Numbers() {
+		if strings.HasSuffix(k, ".claude") {
+			t.Errorf("Numbers carries %s for an agy-only store", k)
 		}
 	}
 }
@@ -97,16 +134,16 @@ func TestShowBothCLIs(t *testing.T) {
 // Labelled sandbox sessions are out of the default view, in with their label
 // or --all-labels, and give pass^k.
 func TestShowLabels(t *testing.T) {
-	chome, _ := claudeFixture(t)
+	ahome, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-	ingestT(t, s, Options{Source: chome, Label: "arm=lean", Outcome: "pass", Vendor: "claude"})
+	ingestT(t, s, Options{Source: ahome, Label: "arm=lean", Outcome: "pass"})
 	o := ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}
-	if sum, _ := s.Show(o); sum.Sessions["claude"] != 0 {
+	if sum, _ := s.Show(o); sum.Sessions["agy"] != 0 {
 		t.Errorf("default view shows labelled sessions: %v", sum.Sessions)
 	}
 	o.Label = "arm=lean"
 	sum, _ := s.Show(o)
-	if sum.Sessions["claude"] != 1 || sum.A.PassK["arm=lean"] != (PassK{K: 1, Passed: 1, PassK: 1}) {
+	if sum.Sessions["agy"] != 1 || sum.A.PassK["arm=lean"] != (PassK{K: 1, Passed: 1, PassK: 1}) {
 		t.Errorf("label view: sessions %v pass_k %v", sum.Sessions, sum.A.PassK)
 	}
 }
@@ -139,14 +176,14 @@ func TestShowActiveTimeMainOnly(t *testing.T) {
 	}
 }
 
-// A resumed or forked Claude session replays earlier history into a new
+// A resumed or forked session replays earlier history into a new
 // transcript: a tool call or a message seen under one id is counted once,
 // whichever sessions repeat it (release verification of v2.6.0).
 func TestShowCountsReplayedHistoryOnce(t *testing.T) {
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	for _, q := range []string{
-		`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('A', 'claude', ?, ?), ('B', 'claude', ?, ?)`,
+		`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('A', 'agy', ?, ?), ('B', 'agy', ?, ?)`,
 	} {
 		if _, err := s.db.Exec(q, base, base+60000, base+120000, base+180000); err != nil {
 			t.Fatal(err)
@@ -161,8 +198,8 @@ func TestShowCountsReplayedHistoryOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.B.ToolCalls["claude"] != 2 || sum.B.Tokens["claude"].In != 100 {
-		t.Fatalf("tool calls %d, tokens in %d; want 2 and 100 (replayed history counted once)", sum.B.ToolCalls["claude"], sum.B.Tokens["claude"].In)
+	if sum.B.ToolCalls["agy"] != 2 || sum.B.Tokens["agy"].In != 100 {
+		t.Fatalf("tool calls %d, tokens in %d; want 2 and 100 (replayed history counted once)", sum.B.ToolCalls["agy"], sum.B.Tokens["agy"].In)
 	}
 }
 
@@ -174,10 +211,10 @@ func TestShowReplayDedupeStaysWithinALabel(t *testing.T) {
 	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
 	// The sandbox session starts first, so without the label in the key it
 	// would claim the shared ids and the real session's steps would vanish.
-	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, label, started_at, ended_at) VALUES ('sbx', 'claude', 'arm=x', ?, ?)`, base, base+60000); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, label, started_at, ended_at) VALUES ('sbx', 'agy', 'arm=x', ?, ?)`, base, base+60000); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('real', 'claude', ?, ?)`, base+120000, base+180000); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('real', 'agy', ?, ?)`, base+120000, base+180000); err != nil {
 		t.Fatal(err)
 	}
 	for _, sid := range []string{"sbx", "real"} {
@@ -187,8 +224,8 @@ func TestShowReplayDedupeStaysWithinALabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.B.ToolCalls["claude"] != 2 {
-		t.Fatalf("tool calls %d; want 2 (one per label)", sum.B.ToolCalls["claude"])
+	if sum.B.ToolCalls["agy"] != 2 {
+		t.Fatalf("tool calls %d; want 2 (one per label)", sum.B.ToolCalls["agy"])
 	}
 }
 
@@ -199,13 +236,13 @@ func TestShowAdjacentWindowsShareNoSession(t *testing.T) {
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	day := func(d, h int) int64 { return time.Date(2026, 10, d, h, 0, 0, 0, time.UTC).UnixMilli() }
 	s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES
-		('across', 'claude', ?, ?), ('boundary', 'claude', ?, ?), ('early', 'claude', ?, ?)`,
+		('across', 'agy', ?, ?), ('boundary', 'agy', ?, ?), ('early', 'agy', ?, ?)`,
 		day(4, 23), day(5, 1), day(5, 0), day(5, 2), day(3, 10), day(3, 11))
 	split := time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)
 	before, _ := s.Show(ShowOptions{Since: split.AddDate(0, 0, -3), Now: split})
 	after, _ := s.Show(ShowOptions{Since: split, Now: split.AddDate(0, 0, 3)})
-	if before.Sessions["claude"] != 2 || after.Sessions["claude"] != 1 {
-		t.Fatalf("before %d, after %d; want 2 (early, across) and 1 (boundary)", before.Sessions["claude"], after.Sessions["claude"])
+	if before.Sessions["agy"] != 2 || after.Sessions["agy"] != 1 {
+		t.Fatalf("before %d, after %d; want 2 (early, across) and 1 (boundary)", before.Sessions["agy"], after.Sessions["agy"])
 	}
 }
 
@@ -215,10 +252,12 @@ func TestShowAdjacentWindowsShareNoSession(t *testing.T) {
 // left out; replayed history counts under the session that first had it; a
 // vendor with no main session carrying a context value in the window is null
 // with a note, never 0; n in "k of n" is the sessions that have a peak.
+// The claude rows are historical: their context is computed from usage at
+// read time, the path only such rows take (plan fyr D7).
 func TestShowContextTarget(t *testing.T) {
 	ahome, _ := agyFixture(t) // C1: main, peak 42000; C2: a subagent
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-	ingestT(t, s, Options{Home: ahome, HomeGiven: true, Vendor: "agy"})
+	ingestT(t, s, Options{Home: ahome})
 	base := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC).UnixMilli()
 	for _, q := range []struct {
 		sql  string

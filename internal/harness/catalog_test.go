@@ -662,7 +662,7 @@ func TestCatalogInstallsClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Plan(DirSource(repo), nil, VendorAll); err != nil {
+	if _, err := Plan(DirSource(repo), nil); err != nil {
 		t.Fatalf("the checkout does not install: %v", err)
 	}
 }

@@ -39,7 +39,7 @@ func Snapshot(path, tmp string) (*Store, error) {
 func (s *Summary) Numbers() map[string]float64 {
 	n := map[string]float64{}
 	put := func(k string, v float64) { n[k] = v }
-	for _, v := range vendors {
+	for _, v := range s.columns() {
 		put("sessions."+v, float64(s.Sessions[v]))
 		sub := 0
 		for _, c := range s.Subagents[v] {

@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
 	"github.com/kesokaj/styrman-harness/internal/memory"
 	"github.com/kesokaj/styrman-harness/internal/metrics"
 	"github.com/kesokaj/styrman-harness/internal/search"
@@ -27,7 +26,6 @@ const maxPrompt = 256 * 1024
 // Options is one run.
 type Options struct {
 	Home     string // sh-agent's home (--home); the child CLI keeps the real environment
-	Vendor   string // the resolved --vendor: claude, antigravity or all
 	All      bool
 	Project  string // --project <dir>
 	DryRun   bool
@@ -127,16 +125,13 @@ func (o Options) since(st state, root string) time.Time {
 // advances nothing.
 func (o Options) dryRun(projects []search.Project, st state) error {
 	fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
-	cli := command(o.Vendor)
-	if o.Vendor == harness.VendorAntigravity {
-		cli = append(cli, "(prompt on stdin as one stream-json message; HOME a private copy with no grants)")
-	}
+	cli := append(command(), "(prompt on stdin as one stream-json message; HOME a private copy with no grants)")
 	for _, p := range projects {
 		if why := skipReason(p); why != "" {
 			fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", p.Root, why)
 			continue
 		}
-		c, err := collect(o.Home, o.Vendor, p, o.since(st, p.Root), maxPrompt)
+		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
 		if err != nil {
 			fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
 			continue
@@ -164,18 +159,14 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 	return nil
 }
 
-// command is the tool-free headless call for the vendor (D4, D7b, D28).
-// Claude Code: no built-in tools, no MCP servers, no user or project settings
-// (so no hooks), no saved session. Antigravity has no no-tools flag: it runs
-// in plan mode from a private HOME whose settings grant nothing, so any tool
-// call is refused, and the prompt's opening warning keeps it from trying; the
-// prompt goes on stdin as one stream-json message, never on the command line
-// (Linux caps one argument at 128 KiB, and argv is readable in /proc).
-func command(vendor string) []string {
-	if vendor == harness.VendorAntigravity {
-		return []string{"agy", "--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "-p", ""}
-	}
-	return []string{"claude", "-p", "--tools", "", "--strict-mcp-config", "--setting-sources", "local", "--no-session-persistence", "--output-format", "text"}
+// command is the tool-free headless call (D4, D7b, D28). Antigravity has no
+// no-tools flag: it runs in plan mode from a private HOME whose settings
+// grant nothing, so any tool call is refused, and the prompt's opening
+// warning keeps it from trying; the prompt goes on stdin as one stream-json
+// message, never on the command line (Linux caps one argument at 128 KiB,
+// and argv is readable in /proc).
+func command() []string {
+	return []string{"agy", "--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "-p", ""}
 }
 
 // ExitError is a run's exit status: 1 when a project failed, 2 when the run

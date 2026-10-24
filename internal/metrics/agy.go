@@ -15,8 +15,9 @@ import (
 	"github.com/kesokaj/styrman-harness/internal/search"
 )
 
-// agyTools maps Antigravity's tool names to the common vocabulary, which is
-// Claude Code's (spec § Shared tool vocabulary). An unmapped name is kept as
+// agyTools maps Antigravity's tool names to the store's vocabulary, the
+// names the summary counts by (Bash, Read, Grep; spec § Shared tool
+// vocabulary), which the historical rows share. An unmapped name is kept as
 // agy:<name>.
 var agyTools = map[string]string{
 	"run_command": "Bash", "view_file": "Read", "write_to_file": "Write",

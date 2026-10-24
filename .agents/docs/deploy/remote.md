@@ -1,6 +1,6 @@
 ---
 owner: main
-date: 2026-09-17
+date: 2026-10-24
 target: remote
 ---
 # Deploy — other machines
@@ -16,7 +16,7 @@ go run ./cmd/sh-agent install
 sh-agent status
 ```
 
-`install` writes the `attribution` and `autoCompactWindow` keys on this machine when they are absent; check `sh-agent status` prints no note.
+`install` writes only under `~/.gemini/config` and `~/.local/bin`; it never touches `~/.claude/settings.json` (ADR-062). Check `sh-agent status` ends with "drift none".
 
 On a machine that installs from a RELEASE BINARY instead, the download is verified before it is moved and the install is verified after it — two different checks, and skipping the second is what BUG-078 cost:
 

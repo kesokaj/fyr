@@ -22,19 +22,26 @@ type ShowOptions struct {
 	ContextTarget int64
 }
 
-// DefaultContextTarget is the context target when none is given: one number,
-// shared with the auto-compact backstop (plan session-sized-work D4, D27).
+// DefaultContextTarget is the context target when none is given (plan
+// session-sized-work D4). It was the auto-compact window the installer wrote
+// into Claude Code's settings until ADR-062; the number stays.
 const DefaultContextTarget = 300000
 
 // activeGap is the longest pause still counted as active time (spec B2).
 const activeGap = 5 * time.Minute
 
-var vendors = []string{"claude", "agy"}
+// historical is the column of the rows an ingest before ADR-062 read from
+// Claude Code: kept in the store and shown only when the window holds them
+// (plan fyr D7).
+const historical = "claude"
 
-// Summary is `show --json` (spec § Output). A metric one CLI cannot produce
-// is nil for that CLI and named in Notes, never 0.
+// Summary is `show --json` (spec § Output). A metric the CLI cannot produce
+// is nil for its column and named in Notes, never 0.
 type Summary struct {
-	Window    map[string]string         `json:"window"`
+	Window map[string]string `json:"window"`
+	// Columns are the summary's columns: "agy", then "claude" only when the
+	// window holds historical rows.
+	Columns   []string                  `json:"columns"`
 	Sessions  map[string]int            `json:"sessions"`
 	Subagents map[string]map[string]int `json:"subagents"`
 	A         Outcome                   `json:"A"`
@@ -258,7 +265,7 @@ func (s *Store) stepsOf(id string) ([]stp, error) {
 
 func newSummary(since, now time.Time) *Summary {
 	vi := func() map[string]int { return map[string]int{} }
-	vm := func() map[string]map[string]int { return map[string]map[string]int{"claude": {}, "agy": {}} }
+	vm := func() map[string]map[string]int { return map[string]map[string]int{"agy": {}} }
 	return &Summary{
 		Window:    map[string]string{"since": since.UTC().Format("2006-01-02"), "until": now.UTC().Format("2006-01-02")},
 		Sessions:  vi(),
@@ -311,8 +318,32 @@ func isGrepVerb(v string) bool {
 	return p == "grep" || p == "rg"
 }
 
+// columns are s.Columns, or the agy column alone for a summary not yet
+// finished.
+func (s *Summary) columns() []string {
+	if len(s.Columns) == 0 {
+		return []string{"agy"}
+	}
+	return s.Columns
+}
+
+// label is a column's name in a table.
+func label(v string) string {
+	if v == historical {
+		return historical + " (historical)"
+	}
+	return v
+}
+
 func (s *Summary) add(x sess, steps []stp) {
 	v := x.vendor
+	// A column's count maps exist before anything counts into them: newSummary
+	// makes agy's, and the historical column's are made on its first row.
+	for _, m := range []map[string]map[string]int{s.Subagents, s.B.ToolCallsByTool, s.C.Skills, s.D.SubagentToolCalls} {
+		if m[v] == nil {
+			m[v] = map[string]int{}
+		}
+	}
 	a := s.acc(v)
 	main := x.parent == ""
 	if main {
@@ -370,7 +401,7 @@ func (s *Summary) add(x sess, steps []stp) {
 		tk.CacheRead += st.cr
 		tk.CacheWrite += st.cw
 		ctx := st.ctx
-		if v == "claude" && st.kind == "assistant" {
+		if v == historical && st.kind == "assistant" {
 			ctx = st.in + st.cr + st.cw
 		}
 		s.B.PeakContext[v] = max(s.B.PeakContext[v], ctx)
@@ -573,7 +604,11 @@ func (s *Summary) finish(all []sess) {
 		}
 		s.A.PassK[l] = *p
 	}
-	for _, v := range vendors {
+	s.Columns = []string{"agy"}
+	if s.Sessions[historical] > 0 || len(s.Subagents[historical]) > 0 {
+		s.Columns = append(s.Columns, historical)
+	}
+	for _, v := range s.Columns {
 		s.finishContext(v)
 		a := s.acc(v)
 		if s.Sessions[v] == 0 && len(s.Subagents[v]) == 0 {
@@ -589,18 +624,18 @@ func (s *Summary) finish(all []sess) {
 			r := float64(a.sqlite) / float64(a.grep)
 			s.C.SearchGrepRatio[v] = &r
 		}
-		if v == "claude" {
+		if v == historical {
 			d, i, c := a.denials, a.interrupts, a.compactions
 			s.D.Denials[v], s.D.Interrupts[v], s.B.Compactions[v] = &d, &i, &c
+			if s.B.CostUSD[v] == nil {
+				s.Notes = append(s.Notes, label(v)+": no session in the window has ended with a cost line")
+			}
 		} else {
 			s.D.Denials[v], s.D.Interrupts[v], s.B.Compactions[v] = nil, nil, nil
-			s.Notes = append(s.Notes, "agy: denials, interrupts and compactions are not recorded by the CLI (R10 known difference)")
+			s.Notes = append(s.Notes, "agy: denials, interrupts and compactions are not recorded by the CLI")
 			if s.B.CostUSD[v] == nil {
-				s.Notes = append(s.Notes, "agy: cost is not exposed by the CLI (R10 known difference)")
+				s.Notes = append(s.Notes, "agy: cost is not exposed by the CLI")
 			}
-		}
-		if v == "claude" && s.B.CostUSD[v] == nil {
-			s.Notes = append(s.Notes, "claude: no session in the window has ended with a cost line yet")
 		}
 	}
 	sort.Slice(s.Daily, func(i, j int) bool { return s.Daily[i].Date < s.Daily[j].Date })
@@ -668,20 +703,25 @@ func safeMap(m map[string]int) map[string]int {
 }
 
 // WriteText prints the summary as one short table per catalogue group, a
-// column per CLI; "n/a" is a metric the CLI cannot produce.
+// column per Columns entry; "n/a" is a metric the CLI cannot produce.
 func (s *Summary) WriteText(w io.Writer) {
 	fmt.Fprintf(w, "metrics %s .. %s\n", s.Window["since"], s.Window["until"])
+	cols := s.columns()
+	width := 14
+	for _, v := range cols {
+		width = max(width, len(label(v)))
+	}
 	row := func(name string, f func(v string) string) {
 		fmt.Fprintf(w, "  %-28s", name)
-		for _, v := range vendors {
-			fmt.Fprintf(w, " %14s", f(v))
+		for _, v := range cols {
+			fmt.Fprintf(w, " %*s", width, f(v))
 		}
 		fmt.Fprintln(w)
 	}
 	head := func(title string) {
 		fmt.Fprintf(w, "\n%s\n  %-28s", title, "")
-		for _, v := range vendors {
-			fmt.Fprintf(w, " %14s", v)
+		for _, v := range cols {
+			fmt.Fprintf(w, " %*s", width, label(v))
 		}
 		fmt.Fprintln(w)
 	}
@@ -749,9 +789,9 @@ func (s *Summary) WriteText(w io.Writer) {
 	row("grep/rg/Grep", n(s.C.GrepCalls))
 	row("search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
 	fmt.Fprintf(w, "  forbidden shapes %v\n  first reads %v\n", safeMap(s.C.Forbidden), safeMap(s.C.FirstReads))
-	for _, v := range vendors {
+	for _, v := range cols {
 		if len(s.C.Skills[v]) > 0 {
-			fmt.Fprintf(w, "  skills (%s) %v\n", v, safeMap(s.C.Skills[v]))
+			fmt.Fprintf(w, "  skills (%s) %v\n", label(v), safeMap(s.C.Skills[v]))
 		}
 	}
 	head("D. reliability")
@@ -759,9 +799,9 @@ func (s *Summary) WriteText(w io.Writer) {
 	row("denials", pi(s.D.Denials))
 	row("interrupts", pi(s.D.Interrupts))
 	row("retry loops", n(s.D.RetryLoops))
-	for _, v := range vendors {
+	for _, v := range cols {
 		if len(s.D.SubagentToolCalls[v]) > 0 {
-			fmt.Fprintf(w, "  subagent tool calls (%s) %v\n", v, safeMap(s.D.SubagentToolCalls[v]))
+			fmt.Fprintf(w, "  subagent tool calls (%s) %v\n", label(v), safeMap(s.D.SubagentToolCalls[v]))
 		}
 	}
 	for _, note := range s.Notes {

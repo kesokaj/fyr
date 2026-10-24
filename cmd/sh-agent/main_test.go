@@ -2,10 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +11,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/kesokaj/styrman-harness/internal/harness"
@@ -25,7 +22,6 @@ func allFlags() *flag.FlagSet {
 	c := &ctx{fs: flag.NewFlagSet("all", flag.ContinueOnError)}
 	c.fs.StringVar(&c.repoFlag, "repo", "", "")
 	c.fs.StringVar(&c.homeFlag, "home", "", "")
-	c.fs.StringVar(&c.vendorFlag, "vendor", "", "")
 	for _, v := range verbs {
 		if v.flags == nil {
 			continue
@@ -47,7 +43,6 @@ func TestReorder(t *testing.T) {
 	cases := map[string][]string{
 		// BUG-002: the flag package stops at the first positional argument.
 		"adopt my-skill --home /x":          {"--home", "/x", "adopt", "my-skill"},
-		"--vendor agy install":              {"--vendor", "agy", "install"},
 		"adopt a --force":                   {"--force", "adopt", "a"},
 		"adopt -- --looks-like-a-flag":      {"--", "adopt", "--looks-like-a-flag"}, // one marker, before every positional: the flag package stops there
 		"--repo r --home h adopt x --force": {"--repo", "r", "--home", "h", "--force", "adopt", "x"},
@@ -61,28 +56,6 @@ func TestReorder(t *testing.T) {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {
 			t.Errorf("reorder(%q) = %q, want %q", in, got, want)
 		}
-	}
-}
-
-func TestResolveVendor(t *testing.T) {
-	home := t.TempDir()
-	if v, err := resolveVendor("", home); err != nil || v != harness.VendorAll {
-		t.Errorf("no flag, no manifest: %q, %v; want all", v, err)
-	}
-	if v, err := resolveVendor("agy", home); err != nil || v != harness.VendorAntigravity {
-		t.Errorf("flag agy: %q, %v", v, err)
-	}
-	if _, err := resolveVendor("vscode", home); err == nil {
-		t.Error("unknown vendor should fail")
-	}
-	if err := harness.SaveState(home, harness.State{Vendor: harness.VendorClaude}); err != nil {
-		t.Fatal(err)
-	}
-	if v, err := resolveVendor("", home); err != nil || v != harness.VendorClaude {
-		t.Errorf("manifest vendor: %q, %v; want claude", v, err)
-	}
-	if v, err := resolveVendor("all", home); err != nil || v != harness.VendorAll {
-		t.Errorf("flag beats manifest: %q, %v", v, err)
 	}
 }
 
@@ -188,7 +161,7 @@ func TestRunInstallStatusUninstall(t *testing.T) {
 	}
 	// The vendor roots themselves are kept on purpose (pruneEmptyDirs stops
 	// there); everything the manifest listed under them is gone.
-	for _, rel := range []string{filepath.Join(harness.ClaudeRoot, "AGENTS.md"), filepath.Join(harness.ClaudeRoot, "skills"), filepath.Join(harness.AgyRoot, "agents"), harness.BinPath} {
+	for _, rel := range []string{filepath.Join(harness.AgyRoot, "rules", "AGENTS.md"), filepath.Join(harness.AgyRoot, "skills"), filepath.Join(harness.AgyRoot, "agents"), harness.BinPath} {
 		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
 			t.Errorf("~/%s should be gone after uninstall, stat err = %v", rel, err)
 		}
@@ -254,7 +227,7 @@ func TestDryRunNeverBuilds(t *testing.T) {
 	// Reinstall removes its build directory itself, so its absence proves
 	// nothing; what a rebuild would leave is an installed binary and a
 	// child's output, and a dry run must leave neither.
-	for _, rel := range []string{harness.BinPath, ".claude", ".config"} {
+	for _, rel := range []string{harness.BinPath, ".gemini", ".config"} {
 		if _, err := os.Stat(filepath.Join(home, rel)); !os.IsNotExist(err) {
 			t.Errorf("dry run wrote ~/%s: stat err = %v", rel, err)
 		}
@@ -358,360 +331,50 @@ func TestPlainCopyNeverRebuilds(t *testing.T) {
 	}
 }
 
-// A hand-written ~/.claude/CLAUDE.md survives install, and status names it
-// with where its content belongs, so the one-line import can replace it (R2).
-func TestStatusNamesForeignClaudeMD(t *testing.T) {
+// TestInstallLeavesClaudeCodeAlone: the files an operator keeps under
+// ~/.claude — the settings an install before ADR-062 wrote two keys into, a
+// hand-written CLAUDE.md — are read by no verb: install and status leave
+// their bytes as they are, write nothing beside them, and print no line about
+// them (plan fyr Phase 2, D2).
+func TestInstallLeavesClaudeCodeAlone(t *testing.T) {
 	t.Setenv(harness.ChildEnv, "1")
 	home := t.TempDir()
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	claudeMD := filepath.Join(home, harness.ClaudeRoot, "CLAUDE.md")
-	if err := os.MkdirAll(filepath.Dir(claudeMD), 0o755); err != nil {
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(claudeMD, []byte("my own notes\n"), 0o644); err != nil {
-		t.Fatal(err)
+	mine := map[string]string{
+		"settings.json": `{"attribution": {"commit": ""}, "autoCompactWindow": 300000, "theme": "dark"}` + "\n",
+		"CLAUDE.md":     "my own notes\n",
+	}
+	for name, body := range mine {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var out bytes.Buffer
-	if err := run([]string{"install", "--repo", repo, "--home", home}, &out); err != nil {
-		t.Fatalf("install: %v\n%s", err, out.String())
+	for _, args := range [][]string{{"install"}, {"status"}} {
+		if err := run(append(args, "--repo", repo, "--home", home), &out); err != nil {
+			t.Fatalf("%s: %v\n%s", args[0], err, out.String())
+		}
 	}
-	out.Reset()
-	if err := run([]string{"status", "--repo", repo, "--home", home}, &out); err != nil {
-		t.Fatalf("status: %v\n%s", err, out.String())
+	for name, body := range mine {
+		if got, _ := os.ReadFile(filepath.Join(dir, name)); string(got) != body {
+			t.Errorf("~/.claude/%s changed: %q", name, got)
+		}
 	}
-	want := "note       ~/.claude/CLAUDE.md is yours; move only rules meant for every machine into a rule file under rules/ in the harness repo — rules/ ships to every install on every machine, never credentials or personal or host-specific notes"
-	if !strings.Contains(out.String(), want) {
-		t.Errorf("status missing %q:\n%s", want, out.String())
+	if entries, _ := os.ReadDir(dir); len(entries) != len(mine) {
+		t.Errorf("a verb wrote under ~/.claude: %v", entries)
 	}
-}
-
-// Claude Code adds a Co-Authored-By trailer to every commit unless its own
-// attribution setting is off; the context's Git rule alone did not stop it in
-// the sandbox (three of three commits). install and status say so until the
-// setting is there (settings.json is the operator's file: never written).
-func TestAttributionNote(t *testing.T) {
-	t.Setenv(harness.ChildEnv, "1")
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// %s is the settings.json path under the scratch home: the note names the file it read.
-	const body = `%s does not set "attribution": {"commit": ""}; Claude Code adds a Co-Authored-By trailer to every commit until it does (context § Git)`
-	prefix := map[string]string{"install": "note: ", "status": "note       "}
-	cases := []struct {
-		name     string
-		settings string // "" means no file; "DIR" makes settings.json a directory, unreadable as a file
-		vendor   string // extra --vendor flag, "" for the default (all)
-		want     string // the note body expected after the command's prefix; "" means no note line at all
-	}{
-		// install writes the key when it is absent (attributionSet), so the note is never printed for these two
-		{"no settings file", "", "", ""},
-		{"trailer switched off", `{"attribution": {"commit": "", "pr": ""}}` + "\n", "", ""},
-		{"trailer switched off with false", `{"attribution": {"commit": false}}` + "\n", "", ""},
-		{"custom trailer", `{"attribution": {"commit": "Co-Authored-By: me"}}` + "\n", "", body},
-		{"other settings only", `{"permissions": {"allow": ["Bash(git:*)"]}}` + "\n", "", ""},
-		{"antigravity only never notes", "", "agy", ""},
-		{"malformed json is advisory, no echo", `{"attribution": ` + "\n", "", "%s is not valid JSON, so the settings the harness owns could not be checked; Claude Code adds"},
-		{"a directory is advisory", "DIR", "", "%s is not a regular file, so the settings the harness owns could not be checked"},
-		{"a fifo is advisory and never opened", "FIFO", "", "%s is not a regular file, so the settings the harness owns could not be checked"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			home := t.TempDir()
-			settingsPath := filepath.Join(home, harness.ClaudeRoot, "settings.json")
-			if c.settings != "" {
-				dir := filepath.Join(home, harness.ClaudeRoot)
-				if err := os.MkdirAll(dir, 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if c.settings == "DIR" {
-					if err := os.Mkdir(filepath.Join(dir, "settings.json"), 0o755); err != nil {
-						t.Fatal(err)
-					}
-				} else if c.settings == "FIFO" {
-					// opening a FIFO with no writer blocks forever: the Stat guard must keep the command from opening it
-					if err := syscall.Mkfifo(filepath.Join(dir, "settings.json"), 0o600); err != nil {
-						t.Fatal(err)
-					}
-				} else if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(c.settings), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			for _, cmd := range []string{"install", "status"} {
-				args := []string{cmd, "--repo", repo, "--home", home}
-				if c.vendor != "" {
-					args = append(args, "--vendor", c.vendor)
-				}
-				var out bytes.Buffer
-				if err := run(args, &out); err != nil {
-					t.Fatalf("%s: %v\n%s", cmd, err, out.String())
-				}
-				noted := strings.Contains(out.String(), prefix[cmd]+settingsPath)
-				if c.want == "" && noted {
-					t.Errorf("%s: unexpected settings.json note:\n%s", cmd, out.String())
-				}
-				want := prefix[cmd] + fmt.Sprintf(c.want, settingsPath)
-				if c.want != "" && !strings.Contains(out.String(), want) {
-					t.Errorf("%s: missing note %q:\n%s", cmd, want, out.String())
-				}
-				if strings.Contains(out.String(), "invalid character") || strings.Contains(out.String(), "unexpected end") {
-					t.Errorf("%s: the note echoes the JSON error:\n%s", cmd, out.String())
-				}
-			}
-		})
+	if strings.Contains(out.String(), ".claude") || strings.Contains(out.String(), "settings") {
+		t.Errorf("install or status printed a line about ~/.claude:\n%s", out.String())
 	}
 }
 
-// install writes the settings the harness owns when their keys are absent —
-// Claude Code's attribution (ADR-025) and auto-compact window (ADR-060): the
-// file is created when missing, every other byte of an existing file stays, a
-// present key of any value is left alone, and nothing about the file fails the
-// install.
-func TestAttributionSet(t *testing.T) {
-	t.Setenv(harness.ChildEnv, "1")
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	const fragment = `"attribution": {"commit": "", "pr": ""}`
-	const autoCompactFragment = `"autoCompactWindow": 300000`
-	pretty := "{\n  \"model\": \"claude-fable-5-1[1m]\",\n  \"theme\": \"dark\",\n  \"autoMode\": {\n    \"environment\": [\"**Repository visibility**: Not queryable here — assume private\"]\n  }\n}\n"
-	run1 := func(t *testing.T, home string, args ...string) string {
-		t.Helper()
-		var out bytes.Buffer
-		if err := run(append([]string{"install", "--repo", repo, "--home", home}, args...), &out); err != nil {
-			t.Fatalf("install: %v\n%s", err, out.String())
-		}
-		return out.String()
-	}
-	write := func(t *testing.T, home, content string, mode os.FileMode) string {
-		t.Helper()
-		dir := filepath.Join(home, harness.ClaudeRoot)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		p := filepath.Join(dir, "settings.json")
-		if err := os.WriteFile(p, []byte(content), mode); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	keys := func(t *testing.T, data []byte) map[string]json.RawMessage {
-		t.Helper()
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("not a JSON object: %v\n%s", err, data)
-		}
-		return m
-	}
-
-	t.Run("missing file is created with the two keys", func(t *testing.T) {
-		home := t.TempDir()
-		out := run1(t, home)
-		p := filepath.Join(home, harness.ClaudeRoot, "settings.json")
-		if !strings.Contains(out, "settings: "+p+" created with "+fragment) {
-			t.Errorf("missing settings line:\n%s", out)
-		}
-		if strings.Contains(out, "note: "+p) {
-			t.Errorf("note printed although the key was just written:\n%s", out)
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		m := keys(t, data)
-		if len(m) != 2 || string(m["attribution"]) != `{"commit": "", "pr": ""}` || string(m["autoCompactWindow"]) != "300000" {
-			t.Errorf("file holds %s", data)
-		}
-		if !strings.Contains(out, "settings: "+p+" — "+autoCompactFragment+" added; other keys untouched") {
-			t.Errorf("missing auto-compact settings line:\n%s", out)
-		}
-		if again := run1(t, home); strings.Contains(again, "settings:") {
-			t.Errorf("second install wrote again:\n%s", again)
-		}
-	})
-
-	t.Run("other keys, formatting and mode stay", func(t *testing.T) {
-		home := t.TempDir()
-		p := write(t, home, pretty, 0o600)
-		out := run1(t, home)
-		if !strings.Contains(out, "settings: "+p+" — "+fragment+" added; other keys untouched") {
-			t.Errorf("missing settings line:\n%s", out)
-		}
-		data, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		// everything before the closing brace of the original object is untouched, byte for byte
-		prefix := strings.TrimRight(strings.TrimSuffix(strings.TrimRight(pretty, "\n"), "}"), " \n")
-		if !strings.HasPrefix(string(data), prefix) {
-			t.Errorf("original bytes changed:\n%s", data)
-		}
-		before, after := keys(t, []byte(pretty)), keys(t, data)
-		for k, v := range before {
-			if string(after[k]) != string(v) {
-				t.Errorf("key %q changed: %s -> %s", k, v, after[k])
-			}
-		}
-		if len(after) != len(before)+2 || string(after["attribution"]) != `{"commit": "", "pr": ""}` || string(after["autoCompactWindow"]) != "300000" {
-			t.Errorf("the two keys not added exactly once each: %s", data)
-		}
-		if !strings.HasSuffix(string(data), "}\n") {
-			t.Errorf("trailing newline lost: %q", data[len(data)-3:])
-		}
-		info, err := os.Stat(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != 0o600 {
-			t.Errorf("mode changed to %v", info.Mode().Perm())
-		}
-	})
-
-	t.Run("crlf file keeps its line endings", func(t *testing.T) {
-		home := t.TempDir()
-		p := write(t, home, "{\r\n  \"model\": \"x\"\r\n}\r\n", 0o644)
-		run1(t, home)
-		data, _ := os.ReadFile(p)
-		if strings.Count(string(data), "\n") != strings.Count(string(data), "\r\n") {
-			t.Errorf("mixed line endings: %q", data)
-		}
-		if m := keys(t, data); string(m["model"]) != `"x"` || m["attribution"] == nil {
-			t.Errorf("file holds %s", data)
-		}
-	})
-
-	t.Run("empty object", func(t *testing.T) {
-		home := t.TempDir()
-		p := write(t, home, "{}\n", 0o644)
-		run1(t, home)
-		data, _ := os.ReadFile(p)
-		m := keys(t, data)
-		if len(m) != 2 || m["attribution"] == nil || m["autoCompactWindow"] == nil {
-			t.Errorf("file holds %s", data)
-		}
-	})
-
-	// Each file already holds the auto-compact key, so the attribution key is
-	// the only one install could write; the per-key cases are the harness
-	// package's (TestSettingSetAutoCompact).
-	for _, c := range []struct{ name, content, line string }{
-		{"custom value is left alone", `{"attribution": {"commit": "Co-Authored-By: me"}, ` + autoCompactFragment + `}` + "\n", "note: "},
-		{"off value is left alone", `{"attribution": {"commit": ""}, ` + autoCompactFragment + `}` + "\n", ""},
-		{"malformed is left alone", `{"attribution": ` + "\n", "note: "},
-		{"not an object is left alone", `["x"]` + "\n", "note: "},
-		{"null is left alone", "null\n", "note: "},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			home := t.TempDir()
-			p := write(t, home, c.content, 0o644)
-			out := run1(t, home)
-			data, _ := os.ReadFile(p)
-			if string(data) != c.content {
-				t.Errorf("file changed:\n%s", data)
-			}
-			if strings.Contains(out, "settings: "+p+" —") || strings.Contains(out, "created with") {
-				t.Errorf("a write was reported:\n%s", out)
-			}
-			if c.line != "" && !strings.Contains(out, c.line+p) {
-				t.Errorf("expected a %q line for %s:\n%s", c.line, p, out)
-			}
-			if c.line == "" && strings.Contains(out, p) {
-				t.Errorf("unexpected line about the file:\n%s", out)
-			}
-		})
-	}
-
-	t.Run("a file over the read bound is left alone", func(t *testing.T) {
-		home := t.TempDir()
-		big := `{"pad": "` + strings.Repeat("x", 1<<20) + `"}` + "\n"
-		p := write(t, home, big, 0o644)
-		out := run1(t, home)
-		// One bound, in readSettings: install reports it through the same
-		// note status prints, not a settings: line of its own (audit 2026-09-18).
-		if !strings.Contains(out, p+" is larger than 1 MiB") {
-			t.Errorf("missing size line:\n%s", out)
-		}
-		data, _ := os.ReadFile(p)
-		if string(data) != big {
-			t.Errorf("file changed (len %d)", len(data))
-		}
-	})
-
-	t.Run("a symlinked settings.json is never written through", func(t *testing.T) {
-		home := t.TempDir()
-		target := filepath.Join(t.TempDir(), "dotfiles-settings.json")
-		if err := os.WriteFile(target, []byte("{}\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		dir := filepath.Join(home, harness.ClaudeRoot)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		p := filepath.Join(dir, "settings.json")
-		if err := os.Symlink(target, p); err != nil {
-			t.Fatal(err)
-		}
-		out := run1(t, home)
-		if !strings.Contains(out, "settings: "+p+" is a symlink; add the key to its target by hand") {
-			t.Errorf("missing symlink line:\n%s", out)
-		}
-		if info, err := os.Lstat(p); err != nil || info.Mode()&os.ModeSymlink == 0 {
-			t.Errorf("the symlink was replaced: %v %v", info, err)
-		}
-		if data, _ := os.ReadFile(target); string(data) != "{}\n" {
-			t.Errorf("the target was written: %s", data)
-		}
-	})
-
-	t.Run("dry run writes nothing", func(t *testing.T) {
-		home := t.TempDir()
-		out := run1(t, home, "--dry-run")
-		p := filepath.Join(home, harness.ClaudeRoot, "settings.json")
-		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("dry run created %s", p)
-		}
-		if !strings.Contains(out, "[dry-run] would create "+p) {
-			t.Errorf("missing dry-run line:\n%s", out)
-		}
-	})
-
-	t.Run("antigravity only writes nothing", func(t *testing.T) {
-		home := t.TempDir()
-		out := run1(t, home, "--vendor", "agy")
-		if _, err := os.Stat(filepath.Join(home, harness.ClaudeRoot, "settings.json")); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("settings.json created for the agy vendor")
-		}
-		if strings.Contains(out, "settings:") {
-			t.Errorf("settings line for the agy vendor:\n%s", out)
-		}
-	})
-
-	t.Run("status alone keeps the note", func(t *testing.T) {
-		home := t.TempDir()
-		run1(t, home) // a full install writes the key …
-		p := filepath.Join(home, harness.ClaudeRoot, "settings.json")
-		if err := os.Remove(p); err != nil { // … and an operator can delete the file again
-			t.Fatal(err)
-		}
-		var out bytes.Buffer
-		if err := run([]string{"status", "--repo", repo, "--home", home}, &out); err != nil {
-			t.Fatalf("status: %v\n%s", err, out.String())
-		}
-		if !strings.Contains(out.String(), "note       "+filepath.Join(home, harness.ClaudeRoot, "settings.json")+" does not set") {
-			t.Errorf("status lost the note:\n%s", out.String())
-		}
-	})
-}
-
-// gitCleanEnv strips the caller's git environment. GIT_DIR or GIT_WORK_TREE
-// set in the parent would point every fixture command at the operator's own
-// checkout — the shape of BUG-045, where a probe's commands fell through to
-// the real repository — and GIT_CONFIG_* would let their config decide what
-// the fixture does.
 func gitCleanEnv() []string {
 	var env []string
 	for _, kv := range os.Environ() {
@@ -810,9 +473,10 @@ func advanceOrigin(t *testing.T, repo string) {
 // `update --vendor bogus` checked the vendor only after it had fetched and
 // pulled the checkout, exiting 1; on --from-zip it exited 1 and under
 // --dry-run not at all (the release gate's review of v2.6.2..13c5bde,
-// BUG-171). A bad vendor is a usage error: exit 2 before update does
-// anything, on every path.
-func TestUpdateRefusesABadVendorFirst(t *testing.T) {
+// BUG-171). The flag is gone with the second vendor (plan fyr Phase 2), and
+// any --vendor, a once-valid value too, is a usage error: exit 2 before update
+// does anything, on every path.
+func TestUpdateRefusesTheVendorFlagFirst(t *testing.T) {
 	repo, marker := gitFixture(t)
 	// run() resolves --repo as a harness checkout, which needs skills/.
 	if err := os.MkdirAll(filepath.Join(repo, "skills", "x"), 0o755); err != nil {
@@ -838,21 +502,21 @@ func TestUpdateRefusesABadVendorFirst(t *testing.T) {
 	}
 	before := head()
 	for name, args := range map[string][]string{
-		"checkout": {"update", "--repo", repo, "--vendor", "bogus"},
-		"dry run":  {"update", "--dry-run", "--repo", repo, "--vendor", "bogus"},
-		"zip":      {"update", "--from-zip", filepath.Join(t.TempDir(), "x.zip"), "--vendor", "bogus"},
+		"checkout": {"update", "--repo", repo, "--vendor", "agy"},
+		"dry run":  {"update", "--dry-run", "--repo", repo, "--vendor", "agy"},
+		"zip":      {"update", "--from-zip", filepath.Join(t.TempDir(), "x.zip"), "--vendor", "agy"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
 			err := run(append(args, "--home", t.TempDir()), &out)
 			var code exitCode
-			if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "unknown vendor") {
-				t.Errorf("err = %v, want exit 2 naming the vendor\n%s", err, out.String())
+			if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "flag provided but not defined: -vendor") {
+				t.Errorf("err = %v, want exit 2 naming the flag\n%s", err, out.String())
 			}
 		})
 	}
 	if got := head(); got != before {
-		t.Errorf("the checkout moved from %s to %s before the vendor was checked", before, got)
+		t.Errorf("the checkout moved from %s to %s before the flag was refused", before, got)
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("an install ran")
@@ -880,7 +544,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 	t.Run("clean and up to date installs", func(t *testing.T) {
 		repo, marker := gitFixture(t)
 		var out bytes.Buffer
-		if err := update(repo, t.TempDir(), false, "", "", &out); err != nil {
+		if err := update(repo, t.TempDir(), false, "", &out); err != nil {
 			t.Fatalf("clean update: %v\n%s", err, out.String())
 		}
 		if !installed(marker) {
@@ -892,7 +556,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		repo, marker := gitFixture(t)
 		dirty(t, repo)
 		var out bytes.Buffer
-		err := update(repo, t.TempDir(), false, "", "", &out)
+		err := update(repo, t.TempDir(), false, "", &out)
 		if err == nil {
 			t.Fatal("a dirty checkout must not be installed")
 		}
@@ -910,7 +574,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		behind(t, repo)
 		dirty(t, repo)
 		var out bytes.Buffer
-		err := update(repo, t.TempDir(), false, "", "", &out)
+		err := update(repo, t.TempDir(), false, "", &out)
 		if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
 			t.Fatalf("dirty and behind must refuse, got %v", err)
 		}
@@ -930,7 +594,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		behind(t, repo)
 		dirty(t, repo)
 		var out bytes.Buffer
-		err := update(repo, t.TempDir(), true, "", "", &out)
+		err := update(repo, t.TempDir(), true, "", &out)
 		var code exitCode
 		if err == nil || errors.As(err, &code) || !strings.Contains(err.Error(), "uncommitted changes") {
 			t.Fatalf("--check on a dirty checkout must refuse with the real run's message, got %v", err)
@@ -944,7 +608,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		repo, _ := gitFixture(t)
 		behind(t, repo)
 		var out bytes.Buffer
-		err := update(repo, t.TempDir(), true, "", "", &out)
+		err := update(repo, t.TempDir(), true, "", &out)
 		var code exitCode
 		if !errors.As(err, &code) || code != 2 {
 			t.Fatalf("--check clean and behind: %v, want exit 2", err)
@@ -956,7 +620,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		before := harness.Inspect(repo).Commit
 		behind(t, repo)
 		var out bytes.Buffer
-		if err := update(repo, t.TempDir(), false, "", "", &out); err != nil {
+		if err := update(repo, t.TempDir(), false, "", &out); err != nil {
 			t.Fatalf("clean and behind: %v\n%s", err, out.String())
 		}
 		if after := harness.Inspect(repo).Commit; after == before {
@@ -974,7 +638,7 @@ func TestUpdateNeverInstallsDirtyTree(t *testing.T) {
 		repo, marker := gitFixture(t)
 		dirty(t, repo)
 		var out bytes.Buffer
-		err := update(repo, t.TempDir(), true, "", "", &out)
+		err := update(repo, t.TempDir(), true, "", &out)
 		if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
 			t.Fatalf("--check on a dirty tree must refuse with the real run's message, got %v", err)
 		}
@@ -1005,7 +669,7 @@ func TestUpdateRefusesWhenStatusIsUnknown(t *testing.T) {
 		t.Skip("this git reports a readable status without its object store; the branch is covered in internal/harness")
 	}
 	var out bytes.Buffer
-	err := update(repo, t.TempDir(), false, "", "", &out)
+	err := update(repo, t.TempDir(), false, "", &out)
 	if err == nil {
 		t.Fatal("a checkout whose status git cannot report must not be installed")
 	}
@@ -1072,7 +736,7 @@ func TestReleaseBinaryWithoutCheckout(t *testing.T) {
 	if err := run([]string{"install", "--home", home}, &out); err == nil || !strings.Contains(err.Error(), "harness repo not found") {
 		t.Fatalf("development build, no tree: err = %v, want harness repo not found", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, harness.ClaudeRoot)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".gemini")); !os.IsNotExist(err) {
 		t.Fatalf("a refused install wrote into home: %v", err)
 	}
 
@@ -1441,14 +1105,14 @@ func TestCheckoutUpdateNamesTheBinaryItRanFrom(t *testing.T) {
 	want := "note: this update ran from " + byName + ", not from the installed binary " + installed
 
 	var out bytes.Buffer
-	if err := update(repo, home, true, "", "", &out); err != nil {
+	if err := update(repo, home, true, "", &out); err != nil {
 		t.Fatalf("update --check: %v\n%s", err, out.String())
 	}
 	if strings.Contains(out.String(), "not from the installed binary") {
 		t.Errorf("--check, which changes nothing, described a replacement:\n%s", out.String())
 	}
 	out.Reset()
-	if err := update(repo, home, false, "", "", &out); err != nil {
+	if err := update(repo, home, false, "", &out); err != nil {
 		t.Fatalf("update: %v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), want) {
@@ -1617,7 +1281,7 @@ func TestDiffVerbShowsDrift(t *testing.T) {
 	if err := run([]string{"install", "--repo", repo, "--home", home}, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
-	victim := filepath.Join(home, harness.ClaudeRoot, "AGENTS.md")
+	victim := filepath.Join(home, harness.AgyRoot, "rules", "AGENTS.md")
 	if err := os.WriteFile(victim, []byte("drifted\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1646,38 +1310,6 @@ func TestRelativeHomeResolvesAgainstTheInvokingDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "rel-home")); err == nil {
 		t.Errorf("a rel-home directory appeared inside the repository (the child install resolved it against cmd.Dir)")
-	}
-}
-
-// Finding 11: one bound on the settings file, so status warns about an
-// oversized one the way install does.
-func TestStatusWarnsOnOversizedSettings(t *testing.T) {
-	t.Setenv(harness.ChildEnv, "1")
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := t.TempDir()
-	var out bytes.Buffer
-	if err := run([]string{"install", "--repo", repo, "--home", home}, &out); err != nil {
-		t.Fatalf("install: %v\n%s", err, out.String())
-	}
-	settings := filepath.Join(home, harness.ClaudeRoot, "settings.json")
-	big := make([]byte, 1<<20+1)
-	copy(big, []byte("{"))
-	for i := 1; i < len(big)-1; i++ {
-		big[i] = ' '
-	}
-	big[len(big)-1] = '}'
-	if err := os.WriteFile(settings, big, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	if err := run([]string{"status", "--repo", repo, "--home", home}, &out); err != nil {
-		t.Fatalf("status: %v\n%s", err, out.String())
-	}
-	if !strings.Contains(out.String(), "larger than 1 MiB") {
-		t.Errorf("status did not warn about an oversized settings file:\n%s", out.String())
 	}
 }
 

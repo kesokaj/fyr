@@ -1,13 +1,13 @@
 ---
 owner: main
-date: 2026-10-08
+date: 2026-10-24
 status: agreed
 ---
 # Spec — sh-agent: the metrics store   (2026-10-08)
 
 ## Purpose
 
-`sh-agent metrics` keeps the **shape** of every Claude Code and Antigravity session in `~/.config/sh-agent/metrics.db`. Shape means:
+`sh-agent metrics` keeps the **shape** of every Antigravity session in `~/.config/sh-agent/metrics.db`. Shape means:
 - the tools each session called;
 - the normalised command verbs;
 - tokens, timings and errors;
@@ -26,10 +26,10 @@ Decisions: ADR-055. Plan: `plans/2026-10-08-metrics-store.md`.
 
 ### Verbs
 
-The verbs reuse the global `--home` and `--vendor` flags.
+The verbs reuse the global `--home` flag. `--vendor` does not exist (a usage error, exit 2): `ingest` reads Antigravity only (ADR-062, plan `2026-10-24-fyr-agy-only.md` D7).
 
 ```
-sh-agent metrics ingest [--home H] [--vendor claude|agy|all] [--source DIR --label KEY=VALUE [--outcome pass|fail]]
+sh-agent metrics ingest [--home H] [--source DIR --label KEY=VALUE [--outcome pass|fail]]
 sh-agent metrics show   [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]
 sh-agent metrics report [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]
 sh-agent metrics export [--home H] FILE
@@ -37,8 +37,7 @@ sh-agent metrics export [--home H] FILE
 
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
-| `--vendor` | `claude`, `agy`, `all` | `all` (not the manifest's) | Which CLI's sessions `ingest` reads. |
-| `--source` | directory | none | A sandbox home: `DIR/.claude/projects` and `DIR/.gemini/antigravity-cli`. Requires `--label`. |
+| `--source` | directory | none | A sandbox home: `DIR/.gemini/antigravity-cli`. Requires `--label`. |
 | `--label` | `KEY=VALUE` | none | On `ingest`: stamped on every session added from `--source`. On `show`/`report`: shows only that label. |
 | `--outcome` | `pass`, `fail` | none | The run's acceptance result, supplied by the kit, used for pass^k. Given after the run (a second ingest of the same `--source` and `--label`), it stamps every session of the label that has no outcome yet, even when no transcript changed; an earlier run keeps the outcome it was stamped with. |
 | `--all-labels` | bool | false | Include labelled (sandbox) sessions. Without it, and without `--label`, they are excluded. |
@@ -53,9 +52,10 @@ sh-agent metrics export [--home H] FILE
 
 The first rule that applies wins:
 1. `--source DIR`
-2. `--home H` → `H/.claude/projects`, `H/.gemini/antigravity-cli`
-3. `CLAUDE_CONFIG_DIR`, only when neither flag is given
-4. the real home
+2. `--home H` → `H/.gemini/antigravity-cli`
+3. the real home
+
+`~/.claude/projects` is never read, and `CLAUDE_CONFIG_DIR` is ignored.
 
 ### `ingest` output and exit status
 
@@ -121,9 +121,9 @@ A program name longer than 32 characters is content and is dropped.
 
 ### Shared tool vocabulary
 
-Vendor tool names map to one common name. Unknown names are kept as `<vendor>:<name>`.
+Antigravity tool names map to a common name. Unknown names are kept as `agy:<name>`. The Claude Code column maps nothing new: it names the tools of the historical rows an older ingest stored, which are kept and read, never written.
 
-| Common | Claude Code | Antigravity |
+| Common | Claude Code (historical) | Antigravity |
 |---|---|---|
 | Bash | `Bash` | `run_command` |
 | Read | `Read` | `view_file` |
@@ -137,21 +137,18 @@ Vendor tool names map to one common name. Unknown names are kept as `<vendor>:<n
 
 The Antigravity names come from the spike over the local conversation databases (plan D35). `manage_subagents` and any other name not in this table are kept as `agy:<name>`.
 
-**Where each CLI's shape is read:**
-- Claude Code: the tool name is the `tool_use` block's `name`. A Bash command is its `input.command`. A path is `input.file_path`.
-- Antigravity: the tool name is at `steps.metadata` 4→2 and the arguments JSON at 4→3, which gives `CommandLine` and `AbsolutePath`. The step time is at `metadata` 1→1, in seconds. An error is status 7. A subagent is its own conversation; `conversation_summaries.agent_name` and `parent_conversation_id` give its type and parent. Usage, the model and the context are in `gen_metadata`: 1→4→2/3/5, 1→19 and 1→9→10→1.
+**Where the shape is read:** Antigravity: the tool name is at `steps.metadata` 4→2 and the arguments JSON at 4→3, which gives `CommandLine` and `AbsolutePath`. The step time is at `metadata` 1→1, in seconds. An error is status 7. A subagent is its own conversation; `conversation_summaries.agent_name` and `parent_conversation_id` give its type and parent. Usage, the model and the context are in `gen_metadata`: 1→4→2/3/5, 1→19 and 1→9→10→1.
 
-A **skill load** is:
-- on Claude Code, a `Skill` call (its `skill` value is stored);
-- on Antigravity, a read of `skills/<name>/SKILL.md` (only `<name>` is stored).
+A **skill load** is a read of `skills/<name>/SKILL.md` (only `<name>` is stored). A historical Claude Code row's `Skill` call stays as stored.
 
 ### Output (`show --json`)
 
-Keys are snake_case. Every metric is split by vendor (`claude`, `agy`). A metric one CLI cannot produce is `null` and is named in `notes`, never shown as 0. The shape is the Go type `metrics.Summary`:
+Keys are snake_case. Every metric is keyed by vendor, and `columns` lists the vendors present: `["agy"]`, or `["agy","claude"]` when the window holds sessions with vendor `claude` that an older ingest stored (historical rows: kept, never written again, plan D7). The `claude` keys appear only then; the example below shows that case. A metric the CLI cannot produce is `null` and is named in `notes`, never shown as 0. The shape is the Go type `metrics.Summary`:
 
 ```json
 {
   "window": {"since": "2026-09-08", "until": "2026-10-08"},
+  "columns": ["agy", "claude"],
   "sessions": {"claude": 16, "agy": 11},
   "subagents": {"claude": {"reviewer": 9}, "agy": {"explorer": 2}},
   "A": {"dod_closed": {"claude": {"closed": 3, "ambiguous": 1, "of": 16}},
@@ -170,11 +167,11 @@ Keys are snake_case. Every metric is split by vendor (`claude`, `agy`). A metric
         "interrupts": {"claude": 2, "agy": null}, "retry_loops": {}, "subagent_tool_calls": {"claude": {"reviewer": 391}}},
   "daily": [{"date": "2026-10-07", "sessions": {}, "tool_calls": {}, "tokens": {}, "cost_usd": {},
              "sqlite_verbs": {}, "grep_calls": {}, "errors": {}}],
-  "notes": ["agy: cost is not exposed by the CLI (R10 known difference)"]
+  "notes": ["agy: cost is not exposed by the CLI", "agy: denials, interrupts and compactions are not recorded by the CLI"]
 }
 ```
 
-The values above illustrate the shape. They are not fixtures. `daily` holds one entry per UTC day of the window, and the report's trend charts read it. `session_peaks` lists main sessions only, largest peak first, one list per vendor that has a session with a context value in the window; `sessions_over_context_target` counts the entries of that list past `context_target` and is `null`, named in `notes`, for a vendor with no such session (never 0). A session's id and start day are the only identifiers carried: no project path, no content (plan D6, D16).
+The values above illustrate the shape. They are not fixtures. In text, `show` prints one `agy` column, plus `claude (historical)` as a second one only when the window holds such rows. `daily` holds one entry per UTC day of the window, and the report's trend charts read it. `session_peaks` lists main sessions only, largest peak first, one list per vendor that has a session with a context value in the window; `sessions_over_context_target` counts the entries of that list past `context_target` and is `null`, named in `notes`, for a vendor with no such session (never 0). A session's id and start day are the only identifiers carried: no project path, no content (plan D6, D16).
 
 ### Report (`metrics report`)
 
@@ -185,9 +182,9 @@ The values above illustrate the shape. They are not fixtures. `daily` holds one 
 - no `<script>`, no URL to any host, no `@import` or `url(`;
 - light and dark through `prefers-color-scheme`.
 
-**Colours.** Colour follows the CLI and never its rank: Claude Code is categorical slot 1, blue (`#2a78d6` light / `#3987e5` dark); Antigravity is slot 2, orange (`#eb6834` / `#d95926`). That pair is the dataviz reference palette's first two slots, validated in both modes. Colours are set by CSS classes, because html/template sanitises a CSS variable in a `style` attribute.
+**Colours.** Colour follows the CLI and never its rank: Antigravity keeps categorical slot 2, orange (`#eb6834` / `#d95926`); the historical column, "Claude Code (historical)" in the report, is slot 1, blue (`#2a78d6` light / `#3987e5` dark), drawn only when the window holds historical rows. That pair is the dataviz reference palette's first two slots, validated in both modes. Colours are set by CSS classes, because html/template sanitises a CSS variable in a `style` attribute.
 
-**Hover and identity.** Hover values are SVG `<title>` elements, which browsers show without script. Identity never rests on colour alone: the legend names both CLIs, each line is labelled where it ends, and every chart has its numbers as a table.
+**Hover and identity.** Hover values are SVG `<title>` elements, which browsers show without script. Identity never rests on colour alone: the legend names each CLI drawn, each line is labelled where it ends, and every chart has its numbers as a table.
 
 **Charts:**
 - tool calls, tokens, cost, the search:grep ratio and tool errors per day, one line per CLI;
@@ -217,7 +214,7 @@ Tables show those values as `n/a`.
 | A5 | Corrections | `feedback.jsonl` entries in the window whose project is the session's root. |
 | A6 | pass^k | Per label, 1 when all k `--outcome` runs passed. k and the pass count are shown. |
 | — | Replayed history | A resumed or forked Claude session copies earlier messages into a new transcript. `show` counts a tool step, an assistant message or a generation once per CLI and label by its id, under the first session in the query's window that holds it, so replayed tool calls, tokens, verbs and errors are not counted twice. User turns, interrupts and compactions are not deduplicated, and a replay whose original session lies outside the window still counts once inside it. The label is part of the key, so a sandbox run that reuses real ids never hides a real session's steps under `--all-labels`. |
-| B1 | Tokens and cost | Claude: the maximum of each usage field per message id, summed. Cost and duration come from the session's last `cost-state` line. Antigravity: `gen_metadata` usage. |
+| B1 | Tokens and cost | Antigravity: `gen_metadata` usage; cost is not exposed. Historical Claude rows keep what an older ingest stored (usage per message id, cost from the session's last `cost-state` line). |
 | B2 | Time and volume | Wall time = `ended_at - started_at` of main sessions. Active time = the sum of gaps under 5 min between a main session's steps. A subagent runs inside its parent's time and is counted in neither. Also turns (typed user turns) and tool calls (main and subagent). |
 | B3 | Context | Peak context = max(input + cache read + cache write) of one message (Claude); the `gen_metadata` context of one generation (Antigravity). Also the number of compactions. Also the sessions whose peak passed the context target, default 300K, and each main session's peak: the peak follows the replayed-history rule above, so a fork's copy of an earlier session's messages counts under the session that first had them, and a subagent's peak belongs to no session (it runs inside its parent's time). |
 | B4 | Subagents | Count by type, the tool calls of each, and SendMessage resumes. |
@@ -250,10 +247,8 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 ### Invariants
 
 - **Identity.**
-  - Claude: one `steps` row per assistant message (`ext_id` = message id) and one per tool call (`ext_id` = `tool_use.id`).
-  - A tool result sets `is_error` and `denied` on its tool row. It never gets a row of its own.
-  - A user turn's `ext_id` is the line's `uuid`.
   - Antigravity: `ext_id` = `<conversation id>:<step idx>`.
+  - Rows with vendor `claude` (`ext_id` = message id, `tool_use.id` or a line `uuid`) come from an older ingest. They are kept and read, never written: no code path inserts one, and nothing deletes them (plan D7).
   - Re-ingesting anything adds no rows.
 - **Path columns.** Only `sessions.project_root` and `ingest_state.source` may hold a path. No column holds an argument or prose.
 - **Identifiers.** `steps.skill`, `sessions.agent_type` and the `git add .` verb are the only identifiers taken from a tool's input.
@@ -270,9 +265,9 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 
 - **`cmd_hash`** = `hex(sha256(salt || command))[:16]`. It supports equality checks only.
 - **Fixed markers.**
-  - `denied`: a tool result starting with one of Claude Code's permission-refusal prefixes, or an Antigravity step status the spike names.
+  - `denied`: an Antigravity step status the spike names (none observed; the CLI does not record denials). Historical Claude rows keep the marker an older ingest set.
   - `interrupt`: a user line starting `[Request interrupted by user`.
-  - `compaction`: Claude's compact-boundary line.
+  - `compaction`: not recorded by Antigravity; historical Claude rows keep the compact-boundary count an older ingest stored.
 - **Antigravity sources.** Antigravity databases are read only from copies. `step_payload` is never read; tool names and command lines come from `steps.metadata`.
 - **Export.** `export` writes every row but the `salt`: with it, an export would let anyone confirm a guessed command against `cmd_hash`.
 - **git in project roots.** Every git call into a session's project root goes through `internal/trail`: `--no-optional-locks -c core.fsmonitor=false -c log.showSignature=false`, `GIT_NO_LAZY_FETCH=1`, and `--no-show-signature` on `log`. Only commands that read objects and files run there (`log`, `ls-tree`, `ls-files`, `hash-object --no-filters`, `rev-parse`, `check-ignore`, `config --get`), never `status`, which runs the repository's clean filters (BUG-164). This closes the program-starting config keys those commands honour (signature programs, clean filters, fsmonitor, a lazy fetch's ssh command); it does not make the repository's config trusted. A partial clone (`extensions.partialClone` set, or any remote marked `promisor`) is not read at all, because a git older than 2.44 ignores `GIT_NO_LAZY_FETCH`. Its sessions get no commit or trail events, and its trail files keep their mtimes in the dreamer. A toplevel is accepted only when it is the session's directory or a parent of it, so a repository's `core.worktree` cannot file a session under another project. Sessions are grouped by their git toplevel (`trail.Toplevel`), so a session started in a subdirectory joins its project's events.
@@ -308,7 +303,7 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 
 ## Open questions
 
-- The Antigravity field numbers for tool name, command line, subagent link, compaction and denial. Default: unknown items are R10 known differences, listed in `specs/sh-agent/memory-loop.md` § Known differences (Phase 3 spike).
+- The Antigravity field numbers for tool name, command line, subagent link, compaction and denial. Default: unknown items stay null and are named in `notes`; REQUIREMENTS.md § Known limits holds the compaction row (Phase 3 spike).
 
 ## Verification
 
@@ -316,12 +311,12 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 |---|---|
 | Store, migrations, refusals | `internal/metrics/store_test.go` (`-run 'Store\|Migrat'`) |
 | `Verb` | `verb_test.go` (`-run Verb`) |
-| Claude ingest, idempotence, transcript root, canary with its must-fail control | `claude_test.go` over `testdata/claude/` |
-| Antigravity ingest from copies (read-only source directory) | `agy_test.go` over `testdata/agy/` |
-| Shared vocabulary on both vendors | `tools_test.go` |
+| Antigravity ingest from copies (read-only source directory), idempotence, transcript root, canary with its must-fail control | `agy_test.go` over `testdata/agy/` |
+| Historical `claude` rows kept, shown as a second column only when present, never written; `columns` | `historical_test.go` |
+| Shared vocabulary (Antigravity names, and the historical Claude names) | `tools_test.go` |
 | Events and A-group definitions | `events_test.go` over a git fixture in `t.TempDir()` |
 | `show --json` keys and values | `show_test.go` golden |
 | Report: no script, no host, numbers equal to `show` | `report_test.go` golden, plus a browser check (plan Phase 6) |
 | `uninstall` keeps the store | `internal/harness` `-run TestUninstallKeepsMetricsStore` |
 | Dream ingests inside the lock, never in a dry run | `internal/dream` `-run Ingest` |
-| E2E on both CLIs | testing guide § 4 runs, plan § Sandbox tests |
+| E2E on Antigravity | testing guide § 4 runs, plan § Sandbox tests |

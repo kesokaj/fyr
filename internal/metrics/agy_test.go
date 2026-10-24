@@ -5,11 +5,24 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+const canary = "SECRETCANARY123"
+
+func ingestT(t *testing.T, s *Store, o Options) Result {
+	t.Helper()
+	r, err := Ingest(s, o, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
 
 func pbV(n int, v uint64) []byte {
 	return binary.AppendUvarint(binary.AppendUvarint(nil, uint64(n<<3)), v)
@@ -122,7 +135,7 @@ func TestAgyIngestShape(t *testing.T) {
 
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
-	r := ingestT(t, s, Options{Home: home, HomeGiven: true, Vendor: "agy"})
+	r := ingestT(t, s, Options{Home: home})
 	if r.Sessions != 2 || len(r.Failed) != 0 {
 		t.Fatalf("result %+v, want 2 sessions, none failed", r)
 	}
@@ -161,7 +174,7 @@ func TestAgyIngestShape(t *testing.T) {
 		}
 	}
 
-	if r2 := ingestT(t, s, Options{Home: home, HomeGiven: true, Vendor: "agy"}); r2.Sessions+r2.Steps != 0 {
+	if r2 := ingestT(t, s, Options{Home: home}); r2.Sessions+r2.Steps != 0 {
 		t.Fatalf("second ingest added %+v", r2)
 	}
 	exp := filepath.Join(dir, "export.jsonl")
@@ -191,7 +204,7 @@ func TestIngestSweepsStaleCopies(t *testing.T) {
 	}
 	past := time.Now().Add(-2 * time.Hour)
 	os.Chtimes(old, past, past)
-	ingestT(t, s, Options{Home: home, HomeGiven: true, Vendor: "agy"})
+	ingestT(t, s, Options{Home: home})
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Error("a stale copy was kept")
 	}
@@ -206,7 +219,7 @@ func TestIngestSweepsStaleCopies(t *testing.T) {
 func TestAgyStepUpdatedOnReingest(t *testing.T) {
 	home, _ := agyFixture(t)
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
-	o := Options{Home: home, HomeGiven: true, Vendor: "agy"}
+	o := Options{Home: home}
 	ingestT(t, s, o)
 	src := filepath.Join(home, ".gemini", "antigravity-cli")
 	db, _ := sql.Open("sqlite", filepath.Join(src, "conversations", "C1.db"))
@@ -220,5 +233,113 @@ func TestAgyStepUpdatedOnReingest(t *testing.T) {
 	s.db.QueryRow(`SELECT is_error FROM steps WHERE ext_id = 'C1:2'`).Scan(&e)
 	if e != 1 {
 		t.Fatalf("is_error = %d after the step failed, want 1", e)
+	}
+}
+
+// agyRunCopy is the Antigravity fixture as another run's home: the same
+// shape under conversation ids R1 and R2, as a sandbox run's own
+// conversations would be.
+func agyRunCopy(t *testing.T) string {
+	t.Helper()
+	home, _ := agyFixture(t)
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
+		`UPDATE conversation_summaries SET parent_conversation_id = 'R1' WHERE parent_conversation_id = 'C1'`,
+		`UPDATE conversation_summaries SET conversation_id = 'R' || substr(conversation_id, 2) WHERE conversation_id IN ('C1', 'C2')`)
+	for _, id := range []string{"1", "2"} {
+		if err := os.Rename(filepath.Join(dir, "conversations", "C"+id+".db"), filepath.Join(dir, "conversations", "R"+id+".db")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return home
+}
+
+func TestSourceLabelAndOutcome(t *testing.T) {
+	home, _ := agyFixture(t)
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: "/nonexistent", Source: home, Label: "arm=lean", Outcome: "pass"})
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM sessions WHERE label='arm=lean' AND outcome='pass'`).Scan(&n)
+	if n != 2 {
+		t.Fatalf("labelled sessions = %d, want 2", n)
+	}
+	for _, o := range []Options{{Source: "x"}, {Label: "nokv"}, {Outcome: "maybe", Source: "x", Label: "a=b"}, {Outcome: "pass"}, {Label: "a=b"}} {
+		if o.Validate() == nil {
+			t.Errorf("Validate(%+v) accepted", o)
+		}
+	}
+}
+
+// The kit ingests a run first and learns its outcome later: a second ingest
+// with --outcome stamps the label's sessions that have none, even though no
+// conversation changed, and leaves an earlier run's outcome alone.
+func TestOutcomeStampedAfterTheRun(t *testing.T) {
+	run1, _ := agyFixture(t)
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Source: run1, Label: "arm=x", Outcome: "fail"})
+
+	run2 := agyRunCopy(t) // a second run of the same arm: other conversation ids
+	ingestT(t, s, Options{Source: run2, Label: "arm=x"})
+	ingestT(t, s, Options{Source: run2, Label: "arm=x", Outcome: "pass"})
+	got := map[string]string{}
+	rows, _ := s.db.Query(`SELECT id, COALESCE(outcome, '') FROM sessions WHERE parent_id IS NULL`)
+	for rows.Next() {
+		var id, o string
+		rows.Scan(&id, &o)
+		got[id] = o
+	}
+	rows.Close()
+	if got["C1"] != "fail" || got["R1"] != "pass" {
+		t.Fatalf("outcomes %v, want C1 fail (kept) and R1 pass (stamped late)", got)
+	}
+}
+
+// An agent name or a model is stored only when it is name-shaped: a
+// prompt-injected session cannot put escape bytes or prose into the store or
+// onto the operator's terminal (security review of v2.6.0, part 1).
+func TestAgyIdentifiersAreNameShaped(t *testing.T) {
+	home, _ := agyFixture(t)
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
+		`UPDATE conversation_summaries SET agent_name = 'rev' || char(27) || 'viewer free text' WHERE conversation_id = 'C2'`)
+	sqliteT(t, filepath.Join(dir, "conversations", "C1.db"), `DELETE FROM gen_metadata`)
+	db, _ := sql.Open("sqlite", filepath.Join(dir, "conversations", "C1.db"))
+	db.Exec(`INSERT INTO gen_metadata VALUES (0, ?, 0)`, pbB(1, pbB(19, []byte("x\x1b[31mred"))))
+	db.Close()
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: home})
+	var agent, model sql.NullString
+	s.db.QueryRow(`SELECT agent_type FROM sessions WHERE id = 'C2'`).Scan(&agent)
+	s.db.QueryRow(`SELECT model FROM sessions WHERE id = 'C1'`).Scan(&model)
+	var good int
+	s.db.QueryRow(`SELECT count(*) FROM steps WHERE skill = 'golang'`).Scan(&good)
+	if agent.Valid || model.Valid || good != 1 {
+		t.Fatalf("agent %v, model %v, golang %d; want NULL, NULL, 1", agent, model, good)
+	}
+}
+
+// BUG-152's rule: what ingest prints is filtered by Unicode class: a control
+// byte, a bidi override or a line separator in a conversation id never
+// reaches the terminal (release review of v2.6.0, round 4).
+func TestIngestPrintsNoControlOrFormatCharacters(t *testing.T) {
+	for _, id := range []string{"bad\x1b]0;t\x07", "bad\u202eevil\u2028next"} {
+		home, _ := agyFixture(t)
+		dir := filepath.Join(home, ".gemini", "antigravity-cli")
+		sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
+			`INSERT INTO conversation_summaries VALUES ('`+id+`', '2026-10-08 10:05:00+00:00', '[]', '', '')`)
+		// Not a database: the copy opens and the read fails, which is printed.
+		os.WriteFile(filepath.Join(dir, "conversations", id+".db"), []byte("not a database"), 0o600)
+		s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+		var out bytes.Buffer
+		r, err := Ingest(s, Options{Home: home}, &out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.Failed) == 0 {
+			t.Fatalf("the unreadable conversation did not fail, so nothing was printed to check: %q", out.String())
+		}
+		if strings.ContainsAny(out.String(), "\x1b\x07\u202e\u2028") {
+			t.Fatalf("ingest printed a control, format or separator character:\n%q", out.String())
+		}
 	}
 }

@@ -101,7 +101,7 @@ func TestUpdateFromZip(t *testing.T) {
 	if !strings.Contains(out.String(), "UNVERIFIED") || !strings.Contains(out.String(), "nothing in the zip replaces") || !strings.Contains(out.String(), "sha256") {
 		t.Errorf("output does not say what was installed and that the binary stays:\n%s", out.String())
 	}
-	ctx, err := os.ReadFile(filepath.Join(home, harness.ClaudeRoot, "AGENTS.md"))
+	ctx, err := os.ReadFile(filepath.Join(home, harness.AgyRoot, "rules", "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,6 @@
 ---
 owner: verifier
-date: 2026-09-17
+date: 2026-10-24
 ---
 # Verification guide — sh-agent
 
@@ -18,7 +18,7 @@ go test -race -timeout 30m ./...   # -timeout 30m: on a one-CPU box (nproc = 1) 
                                    # past Go's 10-minute default per-package timeout (a larger machine: ~62 s)
 ```
 
-The suite does not depend on the caller's environment: every test package drops `GIT_*` variables in a `TestMain` (git exports them inside a hook, and they would aim a fixture's git at another repository), and the dream package's also clears `CLAUDE_CONFIG_DIR`. A check for that, when a test helper that runs git or reads a CLI's directory changes: `GIT_DIR=/nonexistent CLAUDE_CONFIG_DIR=/nonexistent go test ./...`.
+The suite does not depend on the caller's environment: every test package drops `GIT_*` variables in a `TestMain` (git exports them inside a hook, and they would aim a fixture's git at another repository), and no code reads `CLAUDE_CONFIG_DIR` any more. A check for that, when a test helper that runs git changes: `GIT_DIR=/nonexistent go test ./...`.
 
 ## 2. Harness self-check (every change to `context/`, `agents/`, or `skills/`)
 
@@ -43,7 +43,7 @@ rm -rf .agents/scratch/<slug>-home
 mkdir -p .agents/scratch/<slug>-home
 go run ./cmd/sh-agent install --home .agents/scratch/<slug>-home
 go run ./cmd/sh-agent status --home .agents/scratch/<slug>-home   # must report "drift none"
-cat .agents/scratch/<slug>-home/.claude/settings.json              # vendor all or claude: both owned keys, "attribution": {"commit": "", "pr": ""} and "autoCompactWindow": 300000 (ADR-025, ADR-060), and status prints no note about the file
+test ! -e .agents/scratch/<slug>-home/.claude                      # nothing is written under ~/.claude, and status prints no settings note (ADR-062)
 ```
 
 Confirm every `agents/*.md` and its derived Antigravity `agent.md` under
@@ -135,9 +135,9 @@ go test -race -timeout 30m ./internal/memory ./internal/dream ./internal/search 
 go test -race -timeout 30m ./internal/metrics ./internal/trail ./internal/dream ./internal/search ./cmd/sh-agent
 ```
 
-- **No content in the store.** The fixtures place `SECRETCANARY123` in every field that carries content, on both CLIs. A change to the ingesters or to `Verb` keeps the canary tests (`TestClaudeIngestStoresNoContent`, `TestAgyIngestShape`, `TestVerbDropsContent`) and re-runs their must-fail control on a copy: `Verb` patched to keep positional words must turn them red.
-- **Real data, from copies only.** Copy `~/.claude/projects` and `~/.gemini/antigravity-cli` into `.agents/scratch/metrics-home/`. Run `env -u CLAUDE_CONFIG_DIR sh-agent metrics ingest --home .agents/scratch/metrics-home` twice; the second run must add 0. Then check:
-  - `metrics show --json --all-labels` `B.tool_calls_by_tool` equals an independent count of `tool_use` ids (Claude) and of type-132 steps (Antigravity) over the same copy;
+- **No content in the store.** The fixtures place `SECRETCANARY123` in every field that carries content. A change to the ingester or to `Verb` keeps the canary tests (`TestAgyIngestShape`, `TestVerbDropsContent`) and re-runs their must-fail control on a copy: `Verb` patched to keep positional words must turn them red.
+- **Real data, from copies only.** Copy `~/.gemini/antigravity-cli` into `.agents/scratch/metrics-home/.gemini/`. Run `sh-agent metrics ingest --home .agents/scratch/metrics-home` twice; the second run must add 0. Then check:
+  - `metrics show --json --all-labels` `B.tool_calls_by_tool` equals an independent count of type-132 steps over the same copy;
   - every program and flag in `step_verbs` is name-shaped (spec § Normalised verb).
 
   Delete the copy after: it may hold secrets. Never ingest the real home in development (R6); the operator's first real ingest is theirs.

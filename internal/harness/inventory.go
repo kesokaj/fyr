@@ -49,8 +49,8 @@ type Inventory struct {
 }
 
 // validName is the parse boundary for a frontmatter `name:` — the value
-// `plan.go` joins into ~/.claude/skills/<name>/…, ~/.claude/agents/<name>.md
-// and the agy mirrors. A name is ONE path segment: nothing that filepath.Join
+// `plan.go` joins into ~/.gemini/config/skills/<name>/… and
+// ~/.gemini/config/agents/<name>/agent.md. A name is ONE path segment: nothing that filepath.Join
 // would carry out of the install root (`../x`, an absolute path), and no
 // separator at all (`a/b` would nest a skill inside another's directory),
 // and only the characters an identifier needs (`[A-Za-z0-9._-]`, leading

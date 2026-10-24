@@ -251,11 +251,11 @@ func TestInstallRecordsZipOrigin(t *testing.T) {
 	home := t.TempDir()
 	src := DirSource(repo)
 	src.Origin = ZipPrefix + "sha256:abc123"
-	files, err := Plan(src, []byte("#!/bin/sh\n"), VendorAll)
+	files, err := Plan(src, []byte("#!/bin/sh\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Install(src, home, files, VendorAll, false, &bytes.Buffer{}); err != nil {
+	if err := Install(src, home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	st, found, err := LoadState(home)

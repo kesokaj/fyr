@@ -84,7 +84,7 @@ func linuxServicePath(home string) string {
 
 // renderSystemd returns the service and timer unit texts. PATH is the one of
 // the shell that ran --install-timer: the user manager's own PATH lacks
-// ~/.local/bin, where claude and agy live (cold read r1).
+// ~/.local/bin, where agy lives (cold read r1).
 func renderSystemd(bin, home, path string) (string, string) {
 	// systemd expands %-specifiers inside quotes too; %% is a literal %.
 	bin, home, path = strings.ReplaceAll(bin, "%", "%%"), strings.ReplaceAll(home, "%", "%%"), strings.ReplaceAll(path, "%", "%%")

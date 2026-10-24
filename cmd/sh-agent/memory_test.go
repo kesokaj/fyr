@@ -43,7 +43,7 @@ func TestMemoryVerb(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := run([]string{"memory", "show", "--home", home, "--vendor", "agy"}, &out); err != nil {
+	if err := run([]string{"memory", "show", "--home", home}, &out); err != nil {
 		t.Fatalf("memory show: %v", err)
 	}
 	if got := out.String(); got != "- [deploy-day](deploy-day.md) — we deploy on Fridays\n" {
@@ -76,7 +76,7 @@ func TestDreamVerb(t *testing.T) {
 		t.Errorf("a usage error wrote %v", entries)
 	}
 	var out bytes.Buffer
-	if err := run([]string{"dream", "--all", "--dry-run", "--home", home, "--vendor", "claude"}, &out); err != nil {
+	if err := run([]string{"dream", "--all", "--dry-run", "--home", home}, &out); err != nil {
 		t.Fatalf("--all --dry-run on an empty home: %v", err)
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
@@ -265,7 +265,7 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 func TestMemoryUsageErrorExits2(t *testing.T) {
 	for _, args := range [][]string{{}, {"forget"}, {"add", "extra"}} {
 		var out bytes.Buffer
-		err := memoryCmd(args, memory.Entry{}, t.TempDir(), "", &out)
+		err := memoryCmd(args, memory.Entry{}, &out)
 		var code exitCode
 		if !errors.As(err, &code) || code != 2 {
 			t.Errorf("memory %v: want exit 2, got %v", args, err)

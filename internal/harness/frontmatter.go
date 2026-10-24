@@ -1,5 +1,5 @@
 // Package harness installs the sh-agent harness (global context, skills,
-// subagents) into Claude Code and the Antigravity CLI, and reports drift
+// subagents) into the Antigravity CLI, and reports drift
 // between the repo and what is deployed.
 package harness
 
