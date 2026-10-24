@@ -43,6 +43,7 @@ rm -rf .agents/scratch/<slug>-home
 mkdir -p .agents/scratch/<slug>-home
 go run ./cmd/sh-agent install --home .agents/scratch/<slug>-home
 go run ./cmd/sh-agent status --home .agents/scratch/<slug>-home   # must report "drift none"
+cat .agents/scratch/<slug>-home/.claude/settings.json              # vendor all or claude: both owned keys, "attribution": {"commit": "", "pr": ""} and "autoCompactWindow": 300000 (ADR-025, ADR-060), and status prints no note about the file
 ```
 
 Confirm every `agents/*.md` and its derived Antigravity `agent.md` under

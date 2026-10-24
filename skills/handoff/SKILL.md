@@ -23,7 +23,7 @@ Write a structured handoff document summarising the current conversation so a fr
 
 Cross-repo work gets its handoff in the project that owns the next step; there is no global handoff location.
 
-When the context is compacted instead of handed off, preserve the active plan path, the modified files, the test commands and the open findings; afterwards re-read that plan and `git status` and restate status and next step before the next edit. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name is `date +%F-%H%M` run in the same tool call that writes the file, never typed. (Moved from the global context 2026-10-01.)
+What a compaction must keep is the global context's `# Compact instructions` section, which Claude Code applies to its own summary when it compacts (measured 2026-10-24: 3 of 3 summaries, control 0 of 9; `testing/2026-10-24-verify-autocompact.md`); Antigravity reads the section as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name is `date +%F-%H%M` run in the same tool call that writes the file, never typed. (Moved from the global context 2026-10-01; the compaction clause moved back under its heading on 2026-10-24, plan session-sized-work D26.)
 
 ## Step 1: Scan the Session
 

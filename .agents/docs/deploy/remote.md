@@ -16,7 +16,7 @@ go run ./cmd/sh-agent install
 sh-agent status
 ```
 
-`install` writes the `attribution` key on this machine; check `sh-agent status` prints no note.
+`install` writes the `attribution` and `autoCompactWindow` keys on this machine when they are absent; check `sh-agent status` prints no note.
 
 On a machine that installs from a RELEASE BINARY instead, the download is verified before it is moved and the install is verified after it — two different checks, and skipping the second is what BUG-078 cost:
 

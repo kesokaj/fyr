@@ -808,7 +808,8 @@ func runAdopt(c *ctx) error {
 }
 
 // installFiles plans the source with the running binary and installs it,
-// then the PATH and attribution notes every install prints.
+// then the PATH note and the settings the harness owns (attribution, the
+// auto-compact window) every install writes when absent.
 func installFiles(src harness.Source, home, vendor string, dryRun bool, out io.Writer) error {
 	self, err := selfExecutable()
 	if err != nil {
@@ -827,8 +828,10 @@ func installFiles(src harness.Source, home, vendor string, dryRun bool, out io.W
 		pathHint(home, out)
 	}
 	if vendor == harness.VendorAll || vendor == harness.VendorClaude {
-		harness.AttributionSet(home, dryRun, out)
-		harness.AttributionHint(home, "note: ", out)
+		for _, s := range harness.OwnedSettings {
+			harness.SettingSet(home, s, dryRun, out)
+		}
+		harness.SettingsHint(home, "note: ", out)
 	}
 	return nil
 }
@@ -1054,7 +1057,7 @@ func status(src harness.Source, home, vendorFlag string, out io.Writer) error {
 		fmt.Fprintln(out, "note       ~/.claude/CLAUDE.md is yours; move only rules meant for every machine into a rule file under rules/ in the harness repo — rules/ ships to every install on every machine, never credentials or personal or host-specific notes — then remove it and run install to write the one-line import")
 	}
 	if vendor == harness.VendorAll || vendor == harness.VendorClaude {
-		harness.AttributionHint(home, "note       ", out)
+		harness.SettingsHint(home, "note       ", out)
 	}
 	if !report.Drift() {
 		fmt.Fprintf(out, "drift      none — %d files match the repo\n", report.Counts["ok"])

@@ -414,9 +414,9 @@ func TestAttributionNote(t *testing.T) {
 		{"custom trailer", `{"attribution": {"commit": "Co-Authored-By: me"}}` + "\n", "", body},
 		{"other settings only", `{"permissions": {"allow": ["Bash(git:*)"]}}` + "\n", "", ""},
 		{"antigravity only never notes", "", "agy", ""},
-		{"malformed json is advisory, no echo", `{"attribution": ` + "\n", "", "%s is not valid JSON, so the attribution setting could not be checked; Claude Code adds"},
-		{"a directory is advisory", "DIR", "", "%s is not a regular file, so the attribution setting could not be checked"},
-		{"a fifo is advisory and never opened", "FIFO", "", "%s is not a regular file, so the attribution setting could not be checked"},
+		{"malformed json is advisory, no echo", `{"attribution": ` + "\n", "", "%s is not valid JSON, so the settings the harness owns could not be checked; Claude Code adds"},
+		{"a directory is advisory", "DIR", "", "%s is not a regular file, so the settings the harness owns could not be checked"},
+		{"a fifo is advisory and never opened", "FIFO", "", "%s is not a regular file, so the settings the harness owns could not be checked"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -465,10 +465,11 @@ func TestAttributionNote(t *testing.T) {
 	}
 }
 
-// install writes Claude Code's attribution setting when the key is absent —
-// the one vendor setting the harness owns (R4, ADR-025): the file is created
-// when missing, every other byte of an existing file stays, a present key of
-// any value is left alone, and nothing about the file fails the install.
+// install writes the settings the harness owns when their keys are absent —
+// Claude Code's attribution (ADR-025) and auto-compact window (ADR-060): the
+// file is created when missing, every other byte of an existing file stays, a
+// present key of any value is left alone, and nothing about the file fails the
+// install.
 func TestAttributionSet(t *testing.T) {
 	t.Setenv(harness.ChildEnv, "1")
 	repo, err := filepath.Abs("../..")
@@ -476,6 +477,7 @@ func TestAttributionSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	const fragment = `"attribution": {"commit": "", "pr": ""}`
+	const autoCompactFragment = `"autoCompactWindow": 300000`
 	pretty := "{\n  \"model\": \"claude-fable-5-1[1m]\",\n  \"theme\": \"dark\",\n  \"autoMode\": {\n    \"environment\": [\"**Repository visibility**: Not queryable here — assume private\"]\n  }\n}\n"
 	run1 := func(t *testing.T, home string, args ...string) string {
 		t.Helper()
@@ -506,7 +508,7 @@ func TestAttributionSet(t *testing.T) {
 		return m
 	}
 
-	t.Run("missing file is created with only the key", func(t *testing.T) {
+	t.Run("missing file is created with the two keys", func(t *testing.T) {
 		home := t.TempDir()
 		out := run1(t, home)
 		p := filepath.Join(home, harness.ClaudeRoot, "settings.json")
@@ -521,8 +523,11 @@ func TestAttributionSet(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := keys(t, data)
-		if len(m) != 1 || string(m["attribution"]) != `{"commit": "", "pr": ""}` {
+		if len(m) != 2 || string(m["attribution"]) != `{"commit": "", "pr": ""}` || string(m["autoCompactWindow"]) != "300000" {
 			t.Errorf("file holds %s", data)
+		}
+		if !strings.Contains(out, "settings: "+p+" — "+autoCompactFragment+" added; other keys untouched") {
+			t.Errorf("missing auto-compact settings line:\n%s", out)
 		}
 		if again := run1(t, home); strings.Contains(again, "settings:") {
 			t.Errorf("second install wrote again:\n%s", again)
@@ -551,8 +556,8 @@ func TestAttributionSet(t *testing.T) {
 				t.Errorf("key %q changed: %s -> %s", k, v, after[k])
 			}
 		}
-		if len(after) != len(before)+1 || string(after["attribution"]) != `{"commit": "", "pr": ""}` {
-			t.Errorf("attribution not added exactly once: %s", data)
+		if len(after) != len(before)+2 || string(after["attribution"]) != `{"commit": "", "pr": ""}` || string(after["autoCompactWindow"]) != "300000" {
+			t.Errorf("the two keys not added exactly once each: %s", data)
 		}
 		if !strings.HasSuffix(string(data), "}\n") {
 			t.Errorf("trailing newline lost: %q", data[len(data)-3:])
@@ -585,14 +590,17 @@ func TestAttributionSet(t *testing.T) {
 		run1(t, home)
 		data, _ := os.ReadFile(p)
 		m := keys(t, data)
-		if len(m) != 1 || m["attribution"] == nil {
+		if len(m) != 2 || m["attribution"] == nil || m["autoCompactWindow"] == nil {
 			t.Errorf("file holds %s", data)
 		}
 	})
 
+	// Each file already holds the auto-compact key, so the attribution key is
+	// the only one install could write; the per-key cases are the harness
+	// package's (TestSettingSetAutoCompact).
 	for _, c := range []struct{ name, content, line string }{
-		{"custom value is left alone", `{"attribution": {"commit": "Co-Authored-By: me"}}` + "\n", "note: "},
-		{"off value is left alone", `{"attribution": {"commit": ""}}` + "\n", ""},
+		{"custom value is left alone", `{"attribution": {"commit": "Co-Authored-By: me"}, ` + autoCompactFragment + `}` + "\n", "note: "},
+		{"off value is left alone", `{"attribution": {"commit": ""}, ` + autoCompactFragment + `}` + "\n", ""},
 		{"malformed is left alone", `{"attribution": ` + "\n", "note: "},
 		{"not an object is left alone", `["x"]` + "\n", "note: "},
 		{"null is left alone", "null\n", "note: "},

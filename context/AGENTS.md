@@ -6,9 +6,9 @@ Operator: fullstack software engineer, Go + TypeScript, macOS (Apple Silicon) or
 
 ## Resume, then checkpoint
 
-Start every session in an existing project by reading, in order: `AGENTS.md` → newest `docs/handoffs/` → `ROADMAP.md` "Now" → the active plan in `docs/plans/` (unticked boxes are the remaining work; `recon-*`/`research-*` files are briefs) → three newest `docs/changes/` → `docs/bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show` (the `project-memory` skill saves to it). A verb that refuses because the project is not scaffolded is reported, then `/init-project` offered. Open `REQUIREMENTS.md` before any significant change. State status and next step before editing. Newest handoff wins on conflict, except an open plan that postdates it; name missing files; never guess intent.
+Start every session in an existing project by reading, in order: `AGENTS.md` → newest `docs/handoffs/` → `ROADMAP.md` "Now" → the active plan in `docs/plans/` (unticked boxes are the remaining work; `recon-*`/`research-*` files are briefs) → three newest `docs/changes/` → `docs/bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show`. A verb that refuses because the project is not scaffolded is reported, then `/init-project` offered. Open `REQUIREMENTS.md` before any significant change. State status and next step before editing. Newest handoff wins on conflict, except an open plan that postdates it; name missing files; never guess intent.
 
-Checkpoints are what resume reads, written at fixed moments: after every plan phase (Checkpoint box, `changes/` entry, commit, push); before the context gets long or the session may end (`/handoff`); after a structural decision (ADR); after an escaped failure (bug record). Progress that lives only in chat or a compaction summary is lost: write it to the trail file that owns it (what a compaction must preserve: `handoff` § Usage).
+Checkpoints are what resume reads, written at fixed moments: after every plan phase (Checkpoint box, `changes/` entry, commit, push); before the context gets long or the session may end (`/handoff`); after a structural decision (ADR); after an escaped failure (bug record). Progress that lives only in chat or a compaction summary is lost: write it to the trail file that owns it.
 
 ## Definition of Done, in this order
 
@@ -30,7 +30,7 @@ Once per task over the whole change; the detail of an agent's reply lives in its
 - **Search first:** `sh-agent search <words>` ranks files and trail records; `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep stays for exact strings, regex, past revisions.
 - An unattended Claude Code run sets a `/goal` naming the check that must pass; a print-mode run (`claude -p`, `agy -p`) ends only after every dispatched agent's artifact is on disk — on Antigravity never end the turn to await a subagent or a background command: give a long command a large `WaitMsBeforeAsync`, else poll `manage_subagents`/`manage_task` `list`, `sleep 30` between, until idle (else: `handoff` § Usage).
 
-Every failure that reached a commit, a deploy or the user gets a number (what counts: `bug` skill Step 0): `docs/bugs/BUG-NNN-*.md` with a prevention rule and the `INDEX.md` row, updated when a fix lands. A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `.agents/rules/` file, the project's `AGENTS.md` — and its row moves to the Graduated table.
+Every failure that reached a commit, a deploy or the user gets a number: `docs/bugs/BUG-NNN-*.md` with a prevention rule and the `INDEX.md` row, updated when a fix lands. A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `.agents/rules/` file, the project's `AGENTS.md` — and its row moves to the Graduated table.
 
 Skill = knowledge the main thread loads while working. Subagent = judgement independent of the author (`reviewer`, `security`, `verifier`, `dreamer`), recon (`explorer`), or a large record written outside the main context (`changelog`, `bugs`, `documentation`); it gets the artifact, never the conversation. An agent's artifact is trail, not a change: "change nothing" covers source, config and tests, never the artifact. A dispatch names a tool-call budget below the agent's `maxTurns` and repeats every duty the agent must not skip, the artifact first; the artifact's name and format are the agent's own: a dispatch may repeat them, never change them. An agent that reported while its task still runs is stopped (`TaskStop`, or the CLI's own stop) once its artifact is on disk. After any dispatch that can write, `git status --short --untracked-files=all`, `git log @{u}..HEAD` and `git tag`: an unnamed path, commit or tag is a stop sign.
 
@@ -40,7 +40,7 @@ Global is this harness, deployed by `sh-agent install`; a skill found elsewhere 
 
 ## Learning loop
 
-`feedback-log` logs corrections to `~/.config/sh-agent/feedback.jsonl` and saves them as memory. Run `/retro` at the end of a session with two or more corrections (cadence: `retro` § When to Suggest); `/distill` on the third repeat of a procedure. A proposal targets the project (applied there) or the harness (queued in `~/.config/sh-agent/proposals/` for `/retro --harness` in the harness checkout); every retro, distill and dream leaves a record in `docs/retros/`.
+`feedback-log` logs corrections to `~/.config/sh-agent/feedback.jsonl` and saves them as memory. Run `/retro` at the end of a session with two or more corrections; `/distill` on the third repeat of a procedure. A proposal targets the project (applied there) or the harness (queued in `~/.config/sh-agent/proposals/` for `/retro --harness` in the harness checkout); every retro, distill and dream leaves a record in `docs/retros/`.
 
 ## Git
 
@@ -62,3 +62,7 @@ Backup and versioning only: no CI, no hooks, ever. Commit and push to the curren
 ## Project layout
 
 Root: `AGENTS.md` alone — no `CLAUDE.md`, no `GEMINI.md`; a one-line `@AGENTS.md` stub in `CLAUDE.md` only where Claude Code cannot read `AGENTS.md` (the init-project skill lists them); then `REQUIREMENTS.md`, `TODO.md`, `ROADMAP.md`, `README.md`; the trail is `docs/`, scaffolded by `/init-project`. Every `docs/` artifact starts with frontmatter `owner:` and `date:`; `changes/` and `DECISIONS.md` are append-only; `handoffs/` and `changes/` files are named `$(date +%F-%H%M)-<slug>.md`; comments say why, not what.
+
+# Compact instructions
+
+Keep the active plan path, the modified files, the test commands and the open findings; afterwards re-read that plan and `git status` and restate status and next step before the next edit.
