@@ -17,7 +17,7 @@ In fyr Phase 3a's behavioural rows (`testing/2026-10-24-verify-fyr-agents.md`), 
 The context says: "After any dispatch that can write, `git status --short --untracked-files=all`, `git log @{u}..HEAD` and `git tag`". It names three commands but does not say "each its own command", and the model on agy 1.4.6 joins them. The 2026-10-07 rows on agy 1.2.14 passed with the same sentence (`testing/2026-10-07-verify-agy-release-rows.md`). Not determined: whether the CLI or its model changed. A `command(<name>)` grant does not cover a compound command line (BUG-141's store; guide § 4).
 
 ## Fix
-Open. Options for the operator: (a) the context line says the three are run as three separate commands (a `context/` change; it re-runs the canary and every dispatch row); (b) the kits grant `command(*)` on dispatch rows, which hides the defect a real place would hit; (c) leave it, so an Antigravity print-mode run that dispatches keeps failing about half the time.
+Chosen 2026-10-25: (a), by the operator ("Go all approved"; plan D25), landing in fyr Phase 3b; status stays open until its rows pass. The options were: (a) the context line says the three are run as three separate commands (a `context/` change; it re-runs the canary and every dispatch row); (b) the kits grant `command(*)` on dispatch rows, which hides the defect a real place would hit; (c) leave it, so an Antigravity print-mode run that dispatches keeps failing about half the time.
 
 ## Prevention
 An instruction that names several shell commands says that each is its own call, because the grant store allows simple commands only. A kit's auto-deny count is read per attempt and diagnosed from the conversation database before any grant is widened (BUG-141).
