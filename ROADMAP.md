@@ -6,6 +6,7 @@ Last reviewed: 2026-10-24
 
 ## Now
 
+- `.agents/docs/plans/2026-10-24-fyr-agy-only.md` — fyr: Antigravity only, the report path removed, the rename; approved 2026-10-24; its Phase 0 closes the plan below at Phase 2b (D6)
 - `.agents/docs/plans/2026-10-23-session-sized-work.md` — session-sized work: the always-on rule, the handoff kickoff, phase sizing, the peak-context metric, then the EGM deltas as its first phases
 
 ## Next
