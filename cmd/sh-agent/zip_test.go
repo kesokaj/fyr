@@ -70,7 +70,7 @@ func markedZip(t *testing.T) string {
 }
 
 // isolate cuts a test's reach: no git or gh on PATH and a scratch working
-// directory, so a regression that falls through to a real update or report
+// directory, so a regression that falls through to a real update
 // cannot fetch, pull or push (BUG-094).
 func isolate(t *testing.T) {
 	t.Helper()
@@ -278,13 +278,13 @@ func TestUpdateFromZipRefusedZipWritesNothing(t *testing.T) {
 }
 
 // --from-zip belongs to update: every other command refuses it before doing
-// anything — uninstall must not uninstall, report must not report.
+// anything — uninstall must not uninstall.
 func TestFromZipRefusedOnOtherCommands(t *testing.T) {
-	// No git and no gh on PATH: if the refusal ever regresses, report cannot
+	// No git and no gh on PATH: if the refusal ever regresses, nothing can
 	// reach the network. A red run of this test before the refusal existed
-	// pushed a real report (BUG-094).
+	// pushed a real report, through the verb ADR-062 removed (BUG-094).
 	isolate(t)
-	for _, cmd := range []string{"install", "uninstall", "report", "status", "diff", "list", "render", "version"} {
+	for _, cmd := range []string{"install", "uninstall", "status", "diff", "list", "render", "version"} {
 		home := t.TempDir()
 		var out bytes.Buffer
 		err := run([]string{cmd, "--from-zip", "x.zip", "--home", home}, &out)
@@ -349,8 +349,8 @@ func TestUpdateFromZipSweepsStaleDirs(t *testing.T) {
 	home := t.TempDir()
 	cfg := filepath.Join(home, ".config", "sh-agent")
 	old, fresh := filepath.Join(cfg, "zip-old"), filepath.Join(cfg, "zip-fresh")
-	// An old directory that is not an unpack directory (the feedback clone
-	// older versions kept, say) is never the sweep's to remove.
+	// An old directory that is not an unpack directory (a feedback clone an
+	// old version kept, say) is never the sweep's to remove.
 	notOurs := filepath.Join(cfg, "feedback-old")
 	for _, d := range []string{old, fresh, notOurs} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
@@ -384,8 +384,7 @@ func TestUpdateFromZipSweepsStaleDirs(t *testing.T) {
 }
 
 // update --dry-run on a release binary changes nothing: it never downloads,
-// never replaces the binary, never sheds the kept clone. It says what a real
-// update would do.
+// never replaces the binary. It says what a real update would do.
 func TestReleaseUpdateDryRunChangesNothing(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh")

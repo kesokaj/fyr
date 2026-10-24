@@ -125,7 +125,7 @@ kit_cred_paths='/\.aws/credentials$|/\.docker/config\.json$'
 kit_cred_text='gh[opsur]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|"refresh_token"|ya29\.[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{35}|glpat-[A-Za-z0-9_-]{20,}'
 # AWS access keys are checked apart: AWS's published example key is
 # documentation, not a credential, and an agent that reads a test holding it
-# (internal/harness/report_test.go) leaves it in its transcripts. Only that
+# (internal/redact/redact_test.go) leaves it in its transcripts. Only that
 # exact key is set aside; any other AWS key, or any match of kit_cred_text, in
 # the same file still fails the run.
 kit_cred_aws='AKIA[A-Z0-9]{16}'

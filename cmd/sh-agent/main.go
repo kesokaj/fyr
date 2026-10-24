@@ -11,7 +11,6 @@
 //	sh-agent list                    print the skill and agent inventory
 //	sh-agent render                  print the assembled context file
 //	sh-agent adopt <name|path>       copy a skill from elsewhere into the repo
-//	sh-agent report [--dry-run]      send this machine's learning-loop files and its metrics record (report.json) to the feedback repo, keeping nothing
 //	sh-agent search <words>          ranked search of this checkout's files and trail, reconciled against git first
 //	sh-agent index [--rebuild]       reconcile (or rebuild) the search index and print its counts
 //	sh-agent dream --all|--project DIR [--dry-run]  propose rules and skills from every project's memory, trail, feedback and transcripts
@@ -55,7 +54,6 @@ Commands:
   list                    print the skill and agent inventory
   render                  print the assembled context file
   adopt <name|path>       copy a skill installed elsewhere into the repo's skills/ (--force to replace)
-  report [--feedback-repo DIR] [--dry-run]  send a redacted copy of ~/.config/sh-agent and a metrics record to the feedback repo (through a throwaway clone holding only this machine's reports, removed after the push; --feedback-repo names a checkout to write into instead)
   search [--limit N] [--kind K] [--global] <words...>  ranked search of every file and trail record in this git checkout: path:line, kind, record status, snippet; the index (.agents/scratch/search.db) is reconciled against git first, so it never answers from another branch
   search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]  every record naming an ID, a file or a directory (trailing /), with the ID's own status
   search --open [--kind K] [--global]  open bugs and plans with unticked boxes
@@ -109,7 +107,7 @@ type ctx struct {
 	repoFlag, homeFlag, vendorFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
 	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer bool
-	feedbackRepo, fromZip, kind, refs, memType, memName, memDesc, dreamProject              string
+	fromZip, kind, refs, memType, memName, memDesc, dreamProject                            string
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut   string
 	metricsUntil                                                                            string
 	metricsContextTarget                                                                    int64
@@ -155,10 +153,6 @@ type verb struct {
 var verbs = map[string]verb{
 	"version":   {run: runVersion},
 	"uninstall": {flags: (*ctx).dryRunFlag, run: runUninstall},
-	"report": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.feedbackRepo, "feedback-repo", "", "report: feedback checkout (never cloned into)")
-		c.dryRunFlag()
-	}, run: runReport},
 	"memory": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.memType, "type", "", "memory add: user, feedback, project or reference")
 		c.fs.StringVar(&c.memName, "name", "", "memory add: the memory's slug")
@@ -222,9 +216,8 @@ func run(args []string, out io.Writer) error {
 	}
 	// A zip place (R8, ADR-038): the operator named the archive, so no tree is
 	// resolved and no other verb runs — `uninstall --from-zip` must not
-	// uninstall, `report --from-zip` must not report. Refused before the
-	// FlagSet sees it, so the refusal names the right verb rather than an
-	// undefined flag.
+	// uninstall. Refused before the FlagSet sees it, so the refusal names the
+	// right verb rather than an undefined flag.
 	if cmd != "update" && hasFlag(rest, "from-zip") {
 		fmt.Fprintln(out, "sh-agent "+cmd+": --from-zip belongs to update: sh-agent update --from-zip <file>")
 		return exitCode(2)
@@ -272,7 +265,7 @@ func run(args []string, out io.Writer) error {
 	// --vendor is every verb's flag, so a bad value is a usage error before
 	// any verb does anything: update checked it after the fetch and the pull
 	// and exited 1, under --dry-run not at all, status exited 1, and
-	// uninstall and report took any word (BUG-171).
+	// uninstall took any word (BUG-171).
 	if c.vendorFlag != "" {
 		if _, err := c.vendor(); err != nil {
 			return err
@@ -366,12 +359,6 @@ func otherSystemTimerNote(c *ctx) {
 	if files := dream.OtherSystemTimerFiles(c.home, runtime.GOOS); len(files) > 0 {
 		fmt.Fprintln(c.out, "a dream timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
 	}
-}
-
-// runReport needs no harness tree: a machine with no checkout must still be
-// able to report, so the source is resolved leniently (IN7).
-func runReport(c *ctx) error {
-	return report(c.repoFlag, c.feedbackRepo, c.home, c.dryRun, c.out)
 }
 
 // runMemory needs no harness tree (R10).
@@ -718,7 +705,7 @@ func runDiff(c *ctx) error {
 
 func runUpdate(c *ctx) error {
 	// A dry run of update is its --check: it reports, and changes nothing —
-	// no download, no binary replaced, no kept clone shed, no pull. It says
+	// no download, no binary replaced, no pull. It says
 	// what a real update would do instead.
 	dry := c.dryRun
 	check := c.check || dry
@@ -729,11 +716,6 @@ func runUpdate(c *ctx) error {
 		args, err := installPassArgs(c.homeFlag, c.home, c.vendorFlag)
 		if err != nil {
 			return err
-		}
-		// Both kinds of place shed the clone earlier versions kept (D9), never
-		// under --check, which changes nothing (BUG-070).
-		if !check {
-			shedKeptClone(c.home, c.out)
 		}
 		// The BUG-079 note, when this run wrote the installed binary, is
 		// printed by UpdateFromRelease itself: only there is "replaced" known.
@@ -832,28 +814,6 @@ func installFiles(src harness.Source, home, vendor string, dryRun bool, out io.W
 			harness.SettingSet(home, s, dryRun, out)
 		}
 		harness.SettingsHint(home, "note: ", out)
-	}
-	return nil
-}
-
-func report(repoFlag, feedbackFlag, home string, dryRun bool, out io.Writer) error {
-	// `report` READS a source, it never installs one: a release binary reports
-	// the harness built into it, a development build what it finds, a machine
-	// with none reports without one (IN7; BUG-077's shape was a record with a
-	// null harness).
-	src, note := harness.ResolveSourceLenient(repoFlag, home, buildVersion())
-	if note != "" {
-		fmt.Fprintln(out, note)
-	}
-	host, err := os.Hostname()
-	if err != nil {
-		host = ""
-	}
-	if err := harness.SendReport(harness.ReportRun{
-		Home: home, Source: src, Feedback: feedbackFlag, URL: harness.FeedbackURL,
-		Host: host, Now: time.Now(), DryRun: dryRun,
-	}, out); err != nil {
-		return fmt.Errorf("report: %w", err)
 	}
 	return nil
 }
@@ -1098,8 +1058,6 @@ func update(repo, home string, checkOnly bool, homeFlag, vendorFlag string, out 
 		}
 		return exitCode(2)
 	}
-	// Below every `--check` return: that mode reports and changes nothing.
-	shedKeptClone(home, out)
 	if behind > 0 {
 		if err := harness.Pull(repo, out); err != nil {
 			return err
@@ -1117,16 +1075,6 @@ func update(repo, home string, checkOnly bool, homeFlag, vendorFlag string, out 
 	// may be another file (BUG-079).
 	harness.NoteRunningElsewhere(home, out)
 	return nil
-}
-
-// shedKeptClone removes the full clone of the feedback repository that earlier
-// versions kept in this home, so no machine holds another machine's reports
-// (D9). `report` keeps nothing now; update is where the old one goes. Reported,
-// never fatal: it is not what update came to do.
-func shedKeptClone(home string, out io.Writer) {
-	if err := harness.RemoveKeptClone(home, harness.FeedbackURL, out); err != nil {
-		fmt.Fprintf(out, "note: could not remove the kept feedback clone: %v\n", err)
-	}
 }
 
 // installPassArgs are the flags an update or a rebuilding install hands to
@@ -1215,7 +1163,7 @@ func binaryOlder(rev, commit string) bool {
 // `sh-agent adopt my-skill --home /tmp/x` parses; the flag package stops at
 // the first positional argument otherwise. Which flags take a value is read
 // from the FlagSet itself, so a value flag can never be missing from a
-// hand-kept list and swallow the next argument (BUG-002: `report
+// hand-kept list and swallow the next argument (BUG-002: the removed `report
 // --feedback-repo /x --dry-run` once parsed --dry-run as the path).
 func reorder(fs *flag.FlagSet, args []string) []string {
 	valueFlags := map[string]bool{}

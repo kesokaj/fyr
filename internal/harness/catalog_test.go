@@ -1647,7 +1647,7 @@ func TestKitPreambleRefusesLeftoverCredentials(t *testing.T) {
 		})
 	}
 	// A public key is not a credential, and an executable is not scanned: the
-	// installed sh-agent carries the report redaction patterns as text.
+	// installed sh-agent carries the redaction patterns as text.
 	if code, out := run(`mkdir -p "$KIT_HOME/.ssh" && : > "$KIT_HOME/.ssh/id_ed25519.pub"`); code != 0 {
 		t.Errorf("a public key alone: want exit 0, got %d\n%s", code, out)
 	}

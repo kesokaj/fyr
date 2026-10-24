@@ -60,7 +60,7 @@ A plain copy with no `.git` — an unpacked bundle — still installs, and `upda
 
 Nothing else carries the harness: no copy vendored inside a project, no per-project copy, no service. A project that wants the harness installs it with `sh-agent` into a home. That home receives installed FILES — `sh-agent install` writes the context, skills, agents, commands and rules and creates no repository. That alone does not stop a change flowing back: changing the harness takes a credential that can push to this repository, not a checkout, and anything that reaches the operator's SSH key or `gh` login can clone and push. A home seeded for agents is therefore read-only only when it reaches no such credential — no forwarded ssh-agent, no `gh` token, no readable key. This repository names no consumer project and depends on none (R8).
 
-Experience flows back the one way too: each place runs `sh-agent report`, which sends a redacted copy of its feedback log, retro proposals (the dreamer's harness-target proposals included, which are model-written from any indexed project's redacted content) and index under `~/.config/sh-agent/` — never the project's own memory store (written by `sh-agent memory`; Claude Code's own auto memory is switched off per project), which lives inside the project at `.agents/memory/` and is never sent — and a metrics record to the private `styrman-harness-feedback` repository through a throwaway clone holding only that place's own folder, removed after the push — so no place holds any other place's reports (`local.md` § Report back).
+Nothing flows back: a place's feedback log, retro proposals and index stay under `~/.config/sh-agent/` on that place, and the project's own memory store stays inside the project at `.agents/memory/`; the one thing that leaves a place is the dreamer's redacted prompt (ADR-062; `local.md` § What stays on this machine).
 
 ## The resync loop
 
@@ -213,7 +213,7 @@ Standing by-hand procedures, never pending items (those live in the newest hando
 
 - On the Mac after a push from the Linux box: `sh-agent update`, `sh-agent status`, then the three smoke checks on each CLI (`.agents/docs/testing/2026-09-03-verify-real-home.md`; the Mac procedure is `2026-09-04-verify-mac-real-home.md`).
 - After any change to `context/`, `skills/`, or `agents/` is pushed: `sh-agent update` at each of the four places, when the operator decides to. Nothing else needs refreshing.
-- At a place that has been in use: read the originals under `~/.config/sh-agent/` (the dry run shows what is caught, never what is missed), `sh-agent report --dry-run`, then `sh-agent report` (`local.md` § Report back). Every place reports the same way, the work Mac included (plan D12).
+- At a place that has been in use, before its harness-target proposals can matter here: run `/retro --harness` in a harness checkout on that place, which reads its own queue under `~/.config/sh-agent/` (nothing carries a queue between places, ADR-062).
 - On a new machine, `gh auth status` must pass before that machine cuts a release; no key is needed (ADR-053).
 - Go upgrades on the Mac: `brew upgrade go`. On the Linux box the distribution had nothing newer, so it runs a user-level SDK on PATH ahead of `/usr/bin/go` — the procedure is in `local.md` § Operator steps, and it needs no root.
 

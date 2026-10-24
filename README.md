@@ -47,7 +47,6 @@ Two things to know about your home directory. `install` writes two keys into `~/
 | `sh-agent memory add` / `show` | The project memory store (`.agents/memory/`), written and read the same way on both CLIs; `show` is what a session loads at start. |
 | `sh-agent metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/sh-agent/metrics.db`, summarises it per CLI (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Never arguments, prose or tool output. |
 | `sh-agent dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to a CLI with no tools; the proposals land under `~/.config/sh-agent/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |
-| `sh-agent report` | Sends a redacted copy of this machine's feedback log, retro index and proposals to the private feedback repository, through a throwaway clone that keeps nothing. `--dry-run` shows every file and every redaction first. |
 | `sh-agent adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `sh-agent version` | The build version. |
 
@@ -55,7 +54,7 @@ Two things to know about your home directory. `install` writes two keys into `~/
 
 ## How it works
 
-This map is the contract for how the harness reaches a machine and how experience comes back. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
+This map is the contract for how the harness reaches a machine and for what leaves one: nothing but the dreamer's redacted prompt. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
 
 ```mermaid
 flowchart LR
@@ -64,12 +63,10 @@ flowchart LR
         ship["gofmt, vet, test -race<br/>commit and push main"]
         preflight["/preflight vX.Y.Z<br/>tag, binaries and zip, no key"]
         retroHarness["/retro --harness<br/>applies the proposals queued on this machine"]
-        readReports["Read reports/HOST/RUN/<br/>by hand: not built yet"]
     end
     subgraph githubLane["GitHub, private"]
         harnessRepo[("styrman-harness<br/>main: what checkout places follow<br/>tags: release markers")]
         releases[("Releases<br/>platform binaries + release zip + SHA256SUMS")]
-        feedbackRepo[("styrman-harness-feedback<br/>reports/HOST/RUN/")]
     end
     subgraph placeLane["Each place"]
         checkoutPlace["Checkout<br/>the normal path"]
@@ -78,9 +75,8 @@ flowchart LR
         installer["sh-agent install / sh-agent update"]
         homeFiles["~/.claude and ~/.gemini/config<br/>installed files, no repository"]
         sessions["Claude Code and Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
-        configDir["~/.config/sh-agent/<br/>feedback.jsonl, retros.jsonl, proposals/, state.json, search.db (a cache, never sent), metrics.db (session shape, never sent)"]
+        configDir["~/.config/sh-agent/<br/>feedback.jsonl, retros.jsonl, proposals/, state.json, search.db, metrics.db<br/>stays on this machine"]
         dreamer["sh-agent dream --all<br/>nightly user timer, a CLI with no tools"]
-        reporter["sh-agent report<br/>throwaway clone, pushed, then removed"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -97,11 +93,7 @@ flowchart LR
     installer -- "writes files" --> homeFiles
     homeFiles -- "read at session start" --> sessions
     sessions -- "logs" --> configDir
-    configDir -- "copy and redact" --> reporter
-    reporter -- "git push" --> feedbackRepo
-    feedbackRepo -.-> readReports
     configDir -. "same machine only" .-> retroHarness
-    readReports -.-> edit
     retroHarness --> edit
     sessions -- "memory, trail, transcripts" --> dreamer
     dreamer -- "proposals/dream/, metrics.db" --> configDir
@@ -109,13 +101,13 @@ flowchart LR
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
     linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
-    linkStyle 14,15,16,17,18,19,20 stroke:#A8660F,stroke-width:2px
-    linkStyle 21,22,23 stroke:#5B7F1E,stroke-width:2px
+    linkStyle 14,15,16 stroke:#A8660F,stroke-width:2px
+    linkStyle 17,18,19 stroke:#5B7F1E,stroke-width:2px
 ```
 
-Teal is **update**, indigo **install**, amber **report back**, plum **release**, olive **learn** (the nightly dreamer: on the machine, neither a way in nor a way back; its one dashed line is what it sends off the machine, a redacted prompt to the CLI's model provider, ADR-049). A dashed line is a gap: done by hand, or limited to one machine.
+Teal is **update**, indigo **install**, amber **the loop on this machine** (corrections and proposals stay in `~/.config/sh-agent/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them; ADR-062), plum **release**, olive **learn** (the nightly dreamer: on the machine, not a way in; its one dashed line is the only thing that leaves the machine, a redacted prompt to the CLI's model provider, ADR-049). A dashed line is a gap: done by hand, or limited to one machine.
 
-In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `sh-agent update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `.agents/docs/specs/sh-agent/delivery.md` § The model. Experience comes back one way: `sh-agent report`, which you run yourself after reading what it will send. A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, nightly, and it only proposes.
+In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `sh-agent update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `.agents/docs/specs/sh-agent/delivery.md` § The model. Nothing comes back: experience stays on the machine that logged it (ADR-062). A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, nightly, and it only proposes.
 
 ## Install without cloning
 

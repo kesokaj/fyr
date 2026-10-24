@@ -76,29 +76,15 @@ Then confirm the checkout path still rebuilds with
 `<built binary> install --repo <this checkout> --home .agents/scratch/<slug>/home3 --dry-run`
 → `[dry-run] the binary would be rebuilt from <checkout>`.
 
-## 3b. `report`, the feedback loop back (change to `internal/harness/report.go`, `cmd/sh-agent/main.go`'s report wiring, or `reorder`, which derives the value-taking flags from the verb's FlagSet)
+## 3b. The redactor (change to `internal/redact`, or to what `internal/dream` passes through it)
 
-Never run `report` without `--dry-run` from a dev or verification session — it pushes
-to the real feedback repository (`git@github.com:kesokaj/styrman-harness-feedback.git`)
-and never touch the real `$HOME`.
-
-```bash
-go run ./cmd/sh-agent report --dry-run --home .agents/scratch/<slug>-home
-```
-
-Must print the destination, the collected/absent files, and the redaction list (what was
-caught — it cannot show a miss), and write nothing (`git status` in a real feedback checkout stays byte-identical before and
-after). `go test ./cmd/... -run TestReorder` covers a new value-flag registered on
-a verb's FlagSet (reorder derives the value-taking set from it); `-run TestReport` alone does NOT run every report test (`TestSendReport`,
-`TestResolveFeedbackFailures`, `TestSendReportRefusesRedirectsAndLinks`,
-`TestSendReportPushesOnlyToFeedbackURL` don't match that prefix) — use
-`go test ./internal/... -run 'TestReport|TestSendReport|TestResolveFeedback'` for
-collection, redaction, and the git side, against local bare repositories under
-`.agents/scratch/` or Go's own `t.TempDir()`, never the real remote, and confirm with
-`go test ./internal/... -list 'TestReport|TestSendReport|TestResolveFeedback'` that it
-lists every one of them.
-A real end-to-end run against the feedback repository is an e2e-tier check the main
-agent runs and logs, not a bare `verifier` dispatch.
+`report` and the feedback repository are gone (ADR-062); the redactor stays, because the
+dreamer's prompt is the one thing that leaves the machine. `go test -race ./internal/redact`
+runs every shape, over-redaction and benign near-miss (`TestRedactShapes`: a new needle adds
+its near-miss there, project `AGENTS.md`), and `go test ./internal/dream -run 'Redact|Secret'`
+the dream's use of it on feedback lines and transcripts. A new value flag registered on a
+verb's FlagSet is covered by `go test ./cmd/... -run TestReorder` (reorder derives the
+value-taking set from it).
 
 ## 3c. Verb × place-kind matrix (change to `cmd/sh-agent` or `internal/harness` that touches a verb's behavior or a refusal message)
 
@@ -108,8 +94,8 @@ local build, each from a fresh scratch home, driven by `.agents/scratch/matrix/r
 (gitignored; `git clone` of the checkout for the checkout kind, `go build ./cmd/sh-agent`
 for the development binary both the checkout and plain-copy kinds run,
 `go build -trimpath -ldflags "-X main.version=vX.Y.Y"` for the release-shaped binary,
-`git archive HEAD | tar -x` for the plain copy). `report` runs only `--dry-run`; `update`
-runs with a PATH holding no `gh`, so nothing reaches the network.
+`git archive HEAD | tar -x` for the plain copy). `update` runs with a PATH holding no
+`gh`, so nothing reaches the network.
 
 Run it, then update the matrix file's table and its "How the cells were run" line (tree
 SHA and date) in the same change. Every cell is `exercised` (ran, output logged),

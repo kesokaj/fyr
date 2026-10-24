@@ -18,7 +18,7 @@ The operator queries the store for agent evaluations (`show`, `report`). The nig
 It is not:
 - a transcript archive: it holds no arguments and no prose;
 - a cache: it is the only copy once a transcript expires (R4);
-- the "metrics record" that `report` sends (R8), which is a different thing.
+- sent anywhere: it stays on the machine (ADR-062).
 
 Decisions: ADR-055. Plan: `plans/2026-10-08-metrics-store.md`.
 
@@ -147,7 +147,7 @@ A **skill load** is:
 
 ### Output (`show --json`)
 
-Keys are snake_case, like `report.json`. Every metric is split by vendor (`claude`, `agy`). A metric one CLI cannot produce is `null` and is named in `notes`, never shown as 0. The shape is the Go type `metrics.Summary`:
+Keys are snake_case. Every metric is split by vendor (`claude`, `agy`). A metric one CLI cannot produce is `null` and is named in `notes`, never shown as 0. The shape is the Go type `metrics.Summary`:
 
 ```json
 {
@@ -302,7 +302,7 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 ## Non-goals
 
 - Storing or sending arguments, prose, file contents or tool output.
-- Sending metrics through `report`. Feedback leaves only as dream or retro proposals (ADR-055).
+- Sending metrics off the machine. Feedback reaches the harness only as dream or retro proposals, applied by hand (ADR-055, ADR-062).
 - A server, a live dashboard or a JavaScript chart library.
 - Rebuilding the store from transcripts that no longer exist.
 
@@ -322,6 +322,6 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 | Events and A-group definitions | `events_test.go` over a git fixture in `t.TempDir()` |
 | `show --json` keys and values | `show_test.go` golden |
 | Report: no script, no host, numbers equal to `show` | `report_test.go` golden, plus a browser check (plan Phase 6) |
-| `report` never sends the store; `uninstall` keeps it | `internal/harness` `-run 'Report\|Uninstall'` |
+| `uninstall` keeps the store | `internal/harness` `-run TestUninstallKeepsMetricsStore` |
 | Dream ingests inside the lock, never in a dry run | `internal/dream` `-run Ingest` |
 | E2E on both CLIs | testing guide § 4 runs, plan § Sandbox tests |

@@ -70,9 +70,9 @@ func SaveState(home string, s State) error {
 }
 
 // ConfigDir returns ~/.config/sh-agent, created 0700 when absent: the
-// feedback log, the retro proposals, the global search index (search.db, a
-// cache `report` never sends) and, briefly, a clone of the private feedback
-// repository live there. An existing directory is left as it is
+// feedback log, the retro proposals, the global search index (search.db) and
+// the metrics store live there, and none of it leaves the machine (ADR-062).
+// An existing directory is left as it is
 // here — every install used to create it 0755 on the way to state.json, and
 // TightenConfigDir, run by install alone, is what corrects that (security
 // review of the 2026-09-18 audit, rounds 2 and 3; the operator's option 1).

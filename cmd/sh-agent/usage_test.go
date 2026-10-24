@@ -29,10 +29,9 @@ func TestUsageErrorsExit2(t *testing.T) {
 		"update --from-zip without a file": {[]string{"update", "--from-zip", "--dry-run", "--home", home}, "--from-zip needs a file"},
 		"install --from-zip":               {[]string{"install", "--from-zip", "x.zip", "--home", home}, "--from-zip belongs to update"},
 		// --vendor is every verb's flag, checked once before the verb runs:
-		// status exited 1 and uninstall and report took any word (BUG-171).
+		// status exited 1 and uninstall took any word (BUG-171).
 		"status --vendor bogus":              {[]string{"status", "--repo", "../..", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"uninstall --dry-run --vendor bogus": {[]string{"uninstall", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
-		"report --dry-run --vendor bogus":    {[]string{"report", "--dry-run", "--vendor", "bogus", "--home", home}, "unknown vendor"},
 		"metrics show --context-target 0":    {[]string{"metrics", "show", "--context-target", "0", "--home", home}, "--context-target takes a token count above 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -86,6 +85,8 @@ func TestMainExitStatus(t *testing.T) {
 		"version":         {"version", 0, "sh-agent ", ""},
 		"usage error":     {"list --no-such-flag", 2, "", ""},
 		"unknown command": {"no-such-verb", 1, "", "sh-agent: unknown command"},
+		// The report path left with ADR-062: the word is no verb at all.
+		"report is gone": {"report --dry-run", 1, "", `sh-agent: unknown command "report"`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := exec.Command(os.Args[0], "-test.run=^TestHelperMain$")

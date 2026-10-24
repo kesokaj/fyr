@@ -52,10 +52,10 @@ func TestReorder(t *testing.T) {
 		"adopt -- --looks-like-a-flag":      {"--", "adopt", "--looks-like-a-flag"}, // one marker, before every positional: the flag package stops there
 		"--repo r --home h adopt x --force": {"--repo", "r", "--home", "h", "--force", "adopt", "x"},
 		// A value flag reorder does not know swallows the next argument:
-		// --feedback-repo would take "--dry-run" as its value and the run
-		// would push when a dry run was asked (BUG-002's shape).
-		"report --feedback-repo /x --dry-run": {"--feedback-repo", "/x", "--dry-run", "report"},
-		"report --dry-run":                    {"--dry-run", "report"},
+		// --project would take "--dry-run" as its value and the run would
+		// call the model when a dry run was asked (BUG-002's shape).
+		"dream --project /x --dry-run": {"--project", "/x", "--dry-run", "dream"},
+		"dream --dry-run":              {"--dry-run", "dream"},
 	}
 	for in, want := range cases {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {
@@ -859,68 +859,6 @@ func TestUpdateRefusesABadVendorFirst(t *testing.T) {
 	}
 }
 
-// TestUpdateKeptCloneCleanupOnlyWhenUpdating: `update` removes the feedback
-// clone older versions kept in this home (D9), but `--check` reports and
-// changes NOTHING — the cleanup sat above its returns, so the read-only mode
-// deleted files (security review 2026-09-17, finding 2).
-func TestUpdateKeptCloneCleanupOnlyWhenUpdating(t *testing.T) {
-	repo, marker := gitFixture(t)
-	home := t.TempDir()
-
-	// A clone that passes RemoveKeptClone's checks without a network: a local
-	// repository whose origin URL is set to the feedback URL it verifies.
-	plant := func(t *testing.T) string {
-		t.Helper()
-		base := t.TempDir()
-		origin := filepath.Join(base, "feedback.git")
-		kept := filepath.Join(home, ".config", "sh-agent", "feedback")
-		_ = os.RemoveAll(kept)
-		if err := os.MkdirAll(filepath.Dir(kept), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, args := range [][]string{
-			{"init", "--quiet", "--bare", "-b", "main", origin},
-			{"clone", "--quiet", origin, kept},
-			{"-C", kept, "remote", "set-url", "origin", harness.FeedbackURL},
-		} {
-			cmd := exec.Command("git", args...)
-			cmd.Dir = base
-			cmd.Env = append(gitCleanEnv(), "GIT_CONFIG_GLOBAL="+filepath.Join(base, "gitconfig"), "GIT_CONFIG_NOSYSTEM=1")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("git %v: %v\n%s", args, err, out)
-			}
-		}
-		return kept
-	}
-
-	kept := plant(t)
-	var out bytes.Buffer
-	if err := update(repo, home, true, "", "", &out); err != nil {
-		t.Fatalf("update --check: %v\n%s", err, out.String())
-	}
-	if _, err := os.Stat(kept); err != nil {
-		t.Errorf("--check removed the kept clone: %v\n%s", err, out.String())
-	}
-	if strings.Contains(out.String(), "removed the kept feedback clone") {
-		t.Errorf("--check reported a removal:\n%s", out.String())
-	}
-
-	// The same update without --check does remove it.
-	out.Reset()
-	if err := update(repo, home, false, "", "", &out); err != nil {
-		t.Fatalf("update: %v\n%s", err, out.String())
-	}
-	if _, err := os.Stat(kept); !os.IsNotExist(err) {
-		t.Errorf("update did not remove the kept clone: %v\n%s", err, out.String())
-	}
-	if !strings.Contains(out.String(), "removed the kept feedback clone") {
-		t.Errorf("the removal was silent:\n%s", out.String())
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Errorf("the install did not run: %v", err)
-	}
-}
-
 // TestUpdateNeverInstallsDirtyTree is BUG-046: `update` deploys the working
 // tree, not the commit it fetched, so a dirty checkout must not be installed
 // on EITHER path. Pull already refused it when behind; the up-to-date path
@@ -1076,26 +1014,6 @@ func TestUpdateRefusesWhenStatusIsUnknown(t *testing.T) {
 	}
 }
 
-// TestReportWithoutCheckout: report runs before ResolveSource, so a machine that
-// installed from an unpacked bundle — no checkout anywhere — still reports.
-// A dry run with the default feedback path absent clones nothing.
-func TestReportWithoutCheckout(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
-	home, notRepo := t.TempDir(), t.TempDir()
-	var out bytes.Buffer
-	if err := run([]string{"report", "--repo", notRepo, "--home", home, "--dry-run"}, &out); err != nil {
-		t.Fatalf("report --dry-run with no checkout: %v\n%s", err, out.String())
-	}
-	for _, want := range []string{"not a harness checkout", "harness_commit, drift, skills and agents are null", "[dry-run] would clone", "report.json"} {
-		if !strings.Contains(out.String(), want) {
-			t.Errorf("output lacks %q:\n%s", want, out.String())
-		}
-	}
-	if entries, _ := os.ReadDir(home); len(entries) != 0 {
-		t.Errorf("dry run wrote into home: %v", entries)
-	}
-}
-
 // An embedded install's manifest records a release, not a path: knownCheckout
 // says so and never resolves it as one (security review 2026-09-17).
 func TestKnownCheckoutRefusesEmbeddedManifest(t *testing.T) {
@@ -1115,115 +1033,6 @@ func TestKnownCheckoutRefusesEmbeddedManifest(t *testing.T) {
 	// Named explicitly, it is the operator's decision, as for any checkout.
 	if err := knownCheckout(repo, home, repo); err != nil {
 		t.Errorf("knownCheckout with --repo: %v", err)
-	}
-}
-
-// TestReleaseBinaryUpdateShedsKeptClone: a place with no checkout sheds the
-// full feedback clone earlier versions kept, exactly as a checkout place does
-// (plan § Old kept clone cleanup: "update, both kinds of place"). Only the
-// checkout path did it, so the machine that prompted this whole feature — a
-// Mac installed from a release binary — would have kept holding every other
-// place's reports (found 2026-09-18). Not under --check.
-func TestReleaseBinaryUpdateShedsKeptClone(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	t.Setenv("SH_AGENT_REPO", "")
-	t.Chdir(t.TempDir())
-	defer func(v string) { version = v }(version)
-	version = "v1.0.0"
-
-	// A gh that answers the one call --check and the up-to-date path make.
-	bin := t.TempDir()
-	script := "#!/bin/sh" + "\n" + "printf " + "'v1.0.0" + "\\n" + "'" + "\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// PATH holds this directory alone, so the real gh is unreachable — but
-	// RemoveKeptClone runs git, so git is linked in beside the fake gh rather
-	// than adding a system directory that would bring the real gh with it
-	// (the mistake caught on 2026-09-17).
-	gitBin, err := exec.LookPath("git")
-	if err != nil {
-		t.Skip("git not installed")
-	}
-	if err := os.Symlink(gitBin, filepath.Join(bin, "git")); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-
-	plant := func(t *testing.T, home string) string {
-		t.Helper()
-		base := t.TempDir()
-		origin := filepath.Join(base, "feedback.git")
-		kept := filepath.Join(home, ".config", "sh-agent", "feedback")
-		if err := os.MkdirAll(filepath.Dir(kept), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for _, args := range [][]string{
-			{"init", "--quiet", "--bare", "-b", "main", origin},
-			{"clone", "--quiet", origin, kept},
-			{"-C", kept, "remote", "set-url", "origin", harness.FeedbackURL},
-		} {
-			cmd := exec.Command(gitBin, args...)
-			cmd.Dir = base
-			cmd.Env = append(gitCleanEnv(), "GIT_CONFIG_GLOBAL="+filepath.Join(base, "gitconfig"), "GIT_CONFIG_NOSYSTEM=1")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("git %v: %v\n%s", args, err, out)
-			}
-		}
-		return kept
-	}
-
-	// --check changes nothing, here as on the checkout path.
-	home := t.TempDir()
-	kept := plant(t, home)
-	var out bytes.Buffer
-	if err := run([]string{"update", "--check", "--home", home}, &out); err != nil {
-		t.Fatalf("update --check: %v\n%s", err, out.String())
-	}
-	if _, err := os.Stat(kept); err != nil {
-		t.Errorf("--check removed the kept clone: %v\n%s", err, out.String())
-	}
-
-	// The real update sheds it, even when the release is already current.
-	out.Reset()
-	if err := run([]string{"update", "--home", home}, &out); err != nil {
-		t.Fatalf("update: %v\n%s", err, out.String())
-	}
-	if !strings.Contains(out.String(), "up to date (v1.0.0)") {
-		t.Errorf("expected the up-to-date path:\n%s", out.String())
-	}
-	if _, err := os.Stat(kept); !os.IsNotExist(err) {
-		t.Errorf("a binary-only place did not shed the kept clone: %v\n%s", err, out.String())
-	}
-	if !strings.Contains(out.String(), "removed the kept feedback clone") {
-		t.Errorf("the removal was silent:\n%s", out.String())
-	}
-}
-
-// TestReportOnReleaseBinaryIgnoresRepoFlags: `report` reads a source, never
-// installs one, so a release binary reports the harness it carries even when
-// $SH_AGENT_REPO is exported — otherwise the refusal ResolveSource owes
-// `install` would send a record with harness_version, drift, skills and agents
-// all null, which is the useless-record shape BUG-077 was about (security
-// review 2026-09-18).
-func TestReportOnReleaseBinaryIgnoresRepoFlags(t *testing.T) {
-	t.Chdir(t.TempDir())
-	defer func(v string) { version = v }(version)
-	version = "v9.9.9"
-	t.Setenv("SH_AGENT_REPO", t.TempDir()) // exported in a shell profile, say
-
-	home := t.TempDir()
-	var out bytes.Buffer
-	// A feedback path that is not a checkout stops it before any network use;
-	// the record's notes are printed before that.
-	_ = run([]string{"report", "--home", home, "--dry-run", "--feedback-repo", t.TempDir()}, &out)
-	if strings.Contains(out.String(), "is refused") {
-		t.Errorf("report refused over an exported $SH_AGENT_REPO:\n%s", out.String())
-	}
-	if !strings.Contains(out.String(), "release binary v9.9.9") {
-		t.Errorf("the record does not name the release binary as its harness:\n%s", out.String())
 	}
 }
 
@@ -1353,13 +1162,6 @@ func TestReleaseBinaryWithoutCheckout(t *testing.T) {
 			t.Errorf("update with no gh: err = %v, want the gh refusal", err)
 		}
 	}()
-	out.Reset()
-	// The record's notes print before the feedback checkout is resolved, so
-	// they show whether or not this non-checkout feedback path is refused.
-	_ = run([]string{"report", "--home", home, "--dry-run", "--feedback-repo", t.TempDir()}, &out)
-	if !strings.Contains(out.String(), "release binary v9.9.9") {
-		t.Errorf("report does not say the harness is a release binary:\n%s", out.String())
-	}
 }
 
 // TestReleaseBinaryUpdateCheckExitsTwo: on a release binary, `update --check`
@@ -1392,10 +1194,11 @@ func TestReleaseBinaryUpdateCheckExitsTwo(t *testing.T) {
 }
 
 // TestHarnessMap pins the map in README.md § How it works to the binary: the
-// map is the contract for install, update, report back and release (R9), so it
-// must exist, name only verbs the binary has, and carry the three verbs those
-// procedures run through. A verb renamed or removed fails here, not silently in
-// a picture nobody re-reads.
+// map is the contract for install, update and release (R9), so it must exist,
+// name only verbs the binary has, and carry the verbs those procedures and the
+// dream run through. A verb renamed or removed fails here, not silently in a
+// picture nobody re-reads. Nothing sends experience off the machine any more
+// (ADR-062), so `report` is neither a verb nor on the map.
 func TestHarnessMap(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
@@ -1418,10 +1221,16 @@ func TestHarnessMap(t *testing.T) {
 			t.Errorf("the map names `sh-agent %s`, which the binary does not have", m[1])
 		}
 	}
-	for _, verb := range []string{"install", "update", "report", "dream"} {
+	for _, verb := range []string{"install", "update", "dream"} {
 		if !seen[verb] {
 			t.Errorf("the map does not show `sh-agent %s`", verb)
 		}
+	}
+	if seen["report"] || strings.Contains(block, "styrman-harness-feedback") {
+		t.Error("the map still draws the report path back to the feedback repository")
+	}
+	if _, ok := verbs["report"]; ok {
+		t.Error("the binary still has a `report` verb")
 	}
 }
 

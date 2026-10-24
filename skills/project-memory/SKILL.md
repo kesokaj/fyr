@@ -5,7 +5,7 @@ description: "Save and load the project's memory the same way on Claude Code and
 
 # Project memory
 
-A project's memory is small notes about the user and the project that a new session should know. It lives in `.agents/memory/` at the main checkout's root: one file per memory plus the index `MEMORY.md`. The store is gitignored, per machine, and never committed. It is not private from the model, though: where the nightly dream job is installed (`sh-agent dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses, and proposals drawn from it can leave through `sh-agent report`. So save nothing you would not show that model. Both CLIs write it and read it only through `sh-agent`, so a memory taken on one CLI is the same memory on the other. Claude Code's own auto memory is switched off per project by `/init-project` (R10).
+A project's memory is small notes about the user and the project that a new session should know. It lives in `.agents/memory/` at the main checkout's root: one file per memory plus the index `MEMORY.md`. The store is gitignored, per machine, and never committed. It is not private from the model, though: where the nightly dream job is installed (`sh-agent dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Both CLIs write it and read it only through `sh-agent`, so a memory taken on one CLI is the same memory on the other. Claude Code's own auto memory is switched off per project by `/init-project` (R10).
 
 ## Load at session start
 

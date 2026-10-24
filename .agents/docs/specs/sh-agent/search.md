@@ -85,7 +85,7 @@ References are record IDs (`BUG-NNN`, `ADR-NNN`) and path-shaped tokens on every
 | A copied project directory that brings its own `search.db` | trusted as it is: an index is only as trusted as the folder it sits in, and whoever can plant one can plant `AGENTS.md` and trail files there too; after copying a project in, run `sh-agent index --rebuild` (known limit, the operator's choice at the v1.13.0 gate) | 0 |
 | Network filesystem | not supported: SQLite's WAL needs one host's shared memory; the SQLite error is printed | 1 |
 
-`sh-agent report` never collects `search.db`; its dry run lists it as skipped. `sh-agent uninstall` leaves `~/.config/sh-agent/search.db`, which is not in the install manifest; delete it by hand if wanted.
+`search.db` never leaves the machine (ADR-062). `sh-agent uninstall` leaves `~/.config/sh-agent/search.db`, which is not in the install manifest; delete it by hand if wanted.
 
 ## Measured (this repository, 2026-09-29, Linux amd64)
 

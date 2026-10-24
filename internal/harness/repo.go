@@ -96,27 +96,6 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 	return Source{}, fmt.Errorf("%sharness repo not found and %s: run from inside the checkout, pass --repo, set SH_AGENT_REPO, or install from a release binary (README § Install without cloning)", zipNote, built)
 }
 
-// ResolveSourceLenient is ResolveSource for a verb that only READS the
-// harness and must run on a machine with none: `report`. A release binary
-// reports the files built into it, with a note when --repo was also given
-// (the record would otherwise carry a null harness, BUG-077's shape); a
-// development build takes what ResolveSource finds, and when it finds
-// nothing the zero Source is returned with the reason as the note. The note
-// is for the caller's writer; it is never an error.
-func ResolveSourceLenient(explicit, home, version string) (src Source, note string) {
-	if IsReleaseVersion(version) {
-		if explicit != "" {
-			note = "report: --repo is not used here; this release binary reports the harness built into it"
-		}
-		return EmbeddedSource(version), note
-	}
-	src, err := ResolveSource(explicit, home, version)
-	if err != nil {
-		return Source{}, "report: " + err.Error()
-	}
-	return src, ""
-}
-
 // OriginKind classifies what a manifest's repo value names.
 type OriginKind int
 
@@ -333,15 +312,6 @@ func Reinstall(repo string, args []string, out io.Writer) error {
 
 func gitOut(repo string, args ...string) (string, error) {
 	return gitRun(exec.Command("git", append([]string{"-C", repo}, args...)...), args)
-}
-
-// gitOutC is gitOut with git's messages forced to C, for the one caller that
-// has to RECOGNISE a message: a rejected push, which report retries. Git runs
-// in the operator's own environment everywhere else on purpose.
-func gitOutC(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	return gitRun(cmd, args)
 }
 
 func gitRun(cmd *exec.Cmd, args []string) (string, error) {

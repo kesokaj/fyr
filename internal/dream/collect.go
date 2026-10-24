@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/styrman-harness/internal/harness"
 	"github.com/kesokaj/styrman-harness/internal/memory"
+	"github.com/kesokaj/styrman-harness/internal/redact"
 	"github.com/kesokaj/styrman-harness/internal/search"
 	"github.com/kesokaj/styrman-harness/internal/trail"
 )
@@ -151,10 +152,10 @@ func linked(root, docs, dir string) bool {
 	return false
 }
 
-// scrub is what every input passes before it leaves sh-agent: report's
-// redaction, and the home path written as ~.
+// scrub is what every input passes before it leaves sh-agent: the
+// redactor's needles (internal/redact), and the home path written as ~.
 func scrub(text, home string) string {
-	text = harness.Redact(text)
+	text = redact.Redact(text)
 	if home != "" && home != "/" {
 		text = strings.ReplaceAll(text, strings.TrimSuffix(home, "/"), "~")
 	}
@@ -249,9 +250,9 @@ func feedback(home, root string, since time.Time) []entry {
 		if err != nil || !ts.After(since) {
 			continue
 		}
-		// Redacted as a JSON line, so an escaped secret is caught the way
-		// report catches it; scrub runs the raw needles again later.
-		out = append(out, entry{ts: ts, text: strings.TrimRight(harness.RedactJSONL(sc.Text()+"\n"), "\n")})
+		// Redacted as a JSON line, so a secret behind a JSON escape is caught
+		// on the decoded line; scrub runs the raw needles again later.
+		out = append(out, entry{ts: ts, text: strings.TrimRight(redact.RedactJSONL(sc.Text()+"\n"), "\n")})
 	}
 	return out
 }

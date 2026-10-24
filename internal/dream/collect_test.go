@@ -522,8 +522,8 @@ func TestSessionTextSkipsMetaLines(t *testing.T) {
 	}
 }
 
-// A secret hidden behind a JSON escape in feedback.jsonl is redacted the way
-// report redacts it: on the decoded line (v2.0.0 gate, security code slice).
+// A secret hidden behind a JSON escape in feedback.jsonl is redacted on the
+// decoded line (v2.0.0 gate, security code slice).
 func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 	f := newFixture(t)
 	path := filepath.Join(f.home, ".config", "sh-agent", "feedback.jsonl")

@@ -109,37 +109,6 @@ func TestAdoptStripsGroupAndOtherWrite(t *testing.T) {
 	}
 }
 
-// Finding 13: the throwaway clone's parent is created 0700, like the
-// release download's.
-func TestThrowawayParentIsPrivate(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root's umask makes mode assertions meaningless")
-	}
-	home := t.TempDir()
-	cfg := filepath.Join(home, ".config", "sh-agent")
-	_, err := cloneThrowaway(home, filepath.Join(t.TempDir(), "no-such-repo.git"), "host")
-	if err == nil {
-		t.Fatal("cloning a missing repository succeeded")
-	}
-	info, err := os.Stat(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		t.Errorf("throwaway parent is %o, want 0700", info.Mode().Perm())
-	}
-	// An existing loose dir is install's to tighten (with a `mode` line),
-	// never report's: report changes nothing on the machine but the clone
-	// it removes (D1 of the plan's option 1, 2026-09-18).
-	if err := os.Chmod(cfg, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, _ = cloneThrowaway(home, filepath.Join(t.TempDir(), "no-such-repo.git"), "host")
-	if info, _ := os.Stat(cfg); info.Mode().Perm() != 0o755 {
-		t.Errorf("report changed the runtime dir's mode to %o", info.Mode().Perm())
-	}
-}
-
 // Finding 14 and the 0% body: Diff renders the source copy into a temp file
 // under the home's own runtime directory, never the system temp dir.
 func TestDiffUsesTheHomeNotTmp(t *testing.T) {
@@ -204,9 +173,8 @@ func TestYamlQuoteEscapesControlCharacters(t *testing.T) {
 	}
 }
 
-// Finding 5, second round: the runtime directory holds the feedback log,
-// the proposals and, briefly, a clone of the private feedback repository;
-// it is 0700 after every install, whatever it was before.
+// Finding 5, second round: the runtime directory holds the feedback log
+// and the proposals; it is 0700 after every install, whatever it was before.
 func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root's umask makes mode assertions meaningless")

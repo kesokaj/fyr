@@ -18,7 +18,7 @@ an empty project name made every project share one memory folder	.agents/docs/bu
 a verification run passed while the files were still being edited underneath it	.agents/docs/bugs/BUG-072-verifier-run-on-moving-tree.md
 where claude tool names are translated for antigravity subagents	internal/harness/derive.go
 where files that look like secrets are refused during install	internal/harness/plan.go
-how report scrubs personal data from the feedback log before sending	internal/harness/report.go
+how the dream scrubs credentials from the feedback log before sending	internal/redact/redact.go
 code that unpacks a downloaded archive and refuses entries that escape the target folder	internal/harness/zip.go
 test that keeps the deployed context under the antigravity size limit	internal/harness/size_test.go
 why lifecycle hooks were rejected for the harness	.agents/docs/plans/2026-09-03-research-hooks.md,.agents/docs/architecture/DECISIONS.md
