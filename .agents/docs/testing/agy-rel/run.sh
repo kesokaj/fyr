@@ -5,7 +5,7 @@
 #   rows: scaffold, dispatch-bugs, dispatch-changelog, dispatch-documentation, agents-security.
 # Fixture: ${AGY_REL:-~/sandbox/agy-rel}/fixture (the demo service; `scaffold` commits the /init-project tree
 # into it). Each row: a fresh clone under runs/<row>, its own sandbox home homes/<row> beside runs/
-# installed from this checkout with --vendor agy, the agy token LINKED (not copied: a refresh lands in the real
+# installed from this checkout (Antigravity, the one target), the agy token LINKED (not copied: a refresh lands in the real
 # file) and removed by name before kit-preamble.sh's exit check, settings.json per skill-matrix.md § Procedure
 # with trustedWorkspaces = the clone, and the CLI started from `env -i` with an allowlist and this box's
 # credential broker off (testing/guide.md § 4). That keeps operator tokens out of the agent's ENVIRONMENT; it is
@@ -90,7 +90,7 @@ esac
 [ -n "$prompt" ] && [ -n "$check" ] || { echo "run.sh: row $row has no prompt or check" >&2; exit 2; }
 
 . "$REPO/.agents/docs/testing/kit-preamble.sh"
-go run -C "${INSTALL_FROM:-$REPO}" ./cmd/sh-agent install --home "$KIT_HOME" --vendor agy > "$RUN/install.log" 2>&1
+go run -C "${INSTALL_FROM:-$REPO}" ./cmd/sh-agent install --home "$KIT_HOME" > "$RUN/install.log" 2>&1
 [ -z "$wide" ] || echo "run.sh: row $row runs with command(*) in its throwaway clone (skill-matrix.md § Procedure): $wide"
 python3 -I - "$KIT_HOME/.gemini/antigravity-cli/settings.json" "$KIT_CLONE" "$wide" <<'PY'
 import json, sys

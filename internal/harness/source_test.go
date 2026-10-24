@@ -32,7 +32,7 @@ func fsHarness() map[string]string {
 		"skills/alpha/assets/.gitkeep":     "",
 		"skills/VENDORED.md":               "not a skill\n",
 		"skills/notaskill/README.md":       "no SKILL.md here\n",
-		"agents/reviewer.md":               "---\nname: reviewer\ndescription: Reviews diffs\ntools: Read, Grep\n---\nbody\n",
+		"agents/reviewer/agent.md":         "---\nname: reviewer\ndescription: \"Reviews diffs\"\nsubagent: true\nmainAgent: false\ntools: [view_file, grep_search]\n---\nbody\n",
 		"commands/deploy.md":               "---\ndescription: Deploy the thing\n---\nSteps\n",
 		"workflows/ship.md":                "# Ship it\n",
 		"rules/go-style.md":                "# Go style\n",
@@ -76,7 +76,7 @@ func TestPlanFromFSSource(t *testing.T) {
 		t.Errorf("notes.md mode = %v, want 0644", notes.Mode)
 	}
 	ctx := string(byRel[filepath.FromSlash(".gemini/config/rules/AGENTS.md")].Data)
-	for _, part := range []string{Marker, "Be honest.", "## Environment", "Skills (1): `alpha`", "`reviewer` (inherit)", "`/deploy`", "`go-style`"} {
+	for _, part := range []string{Marker, "Be honest.", "## Environment", "Skills (1): `alpha`", "Subagents (1): `reviewer`\n", "`/deploy`", "`go-style`"} {
 		if !strings.Contains(ctx, part) {
 			t.Errorf("rendered context lacks %q", part)
 		}
@@ -95,9 +95,10 @@ func TestFSSourceRefusals(t *testing.T) {
 		{"skill without description", map[string]string{"skills/alpha/SKILL.md": "---\nname: alpha\n---\nbody\n"}, []string{"alpha", "no description"}},
 		{"secret-shaped file", map[string]string{"skills/alpha/.env": "TOKEN=x\n"}, []string{"skills/alpha/.env", "secret-shaped"}},
 		{"duplicate skill name", map[string]string{"skills/alpha-copy/SKILL.md": "---\nname: alpha\ndescription: \"again\"\n---\nbody\n"}, []string{"alpha-copy", "two skills"}},
-		{"bad agent name", map[string]string{"agents/reviewer.md": "---\nname: ../x\ndescription: \"x\"\n---\nbody\n"}, []string{"reviewer.md", "single local path segment"}},
+		{"bad agent name", map[string]string{"agents/reviewer/agent.md": "---\nname: ../x\ndescription: \"x\"\nsubagent: true\nmainAgent: false\n---\nbody\n"}, []string{"reviewer/agent.md", "single local path segment"}},
 		{"unquoted hash", map[string]string{"commands/deploy.md": "---\ndescription: deploy #now\n---\nbody\n"}, []string{"quote the value"}},
-		{"unmapped tool", map[string]string{"agents/reviewer.md": "---\nname: reviewer\ndescription: \"x\"\ntools: Teleport\n---\nbody\n"}, []string{"Teleport"}},
+		{"unknown tool", map[string]string{"agents/reviewer/agent.md": "---\nname: reviewer\ndescription: \"x\"\nsubagent: true\nmainAgent: false\ntools: Teleport\n---\nbody\n"}, []string{"Teleport"}},
+		{"flat agent file", map[string]string{"agents/old.md": "---\nname: old\ndescription: \"x\"\ntools: Read\n---\nbody\n"}, []string{"agents/old.md", "agents/<name>/agent.md"}},
 		{"command in both dirs", map[string]string{"workflows/deploy.md": "# again\n"}, []string{"commands/deploy.md", "workflows/deploy.md"}},
 		{"rule named AGENTS", map[string]string{"rules/AGENTS.md": "# no\n"}, []string{"AGENTS.md"}},
 	} {

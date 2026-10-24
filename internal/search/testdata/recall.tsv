@@ -16,7 +16,7 @@ check phrase did not match text that said the same thing in other words	.agents/
 consolidation agent only looked at the latest rows of the bug table and missed a candidate	.agents/docs/bugs/BUG-100-dreamer-sampled-bugs-index.md
 an empty project name made every project share one memory folder	.agents/docs/bugs/BUG-103-empty-slug-shared-root-store.md
 a verification run passed while the files were still being edited underneath it	.agents/docs/bugs/BUG-072-verifier-run-on-moving-tree.md
-where claude tool names are translated for antigravity subagents	internal/harness/derive.go
+where the tool names an antigravity subagent may list are checked	internal/harness/inventory.go
 where files that look like secrets are refused during install	internal/harness/plan.go
 how the dream scrubs credentials from the feedback log before sending	internal/redact/redact.go
 code that unpacks a downloaded archive and refuses entries that escape the target folder	internal/harness/zip.go
@@ -25,9 +25,9 @@ why lifecycle hooks were rejected for the harness	.agents/docs/plans/2026-09-03-
 research on antigravity knowledge items as a memory feature	.agents/docs/plans/2026-09-29-research-memory-and-prompt-audit.md
 how release tags are signed with an ssh key and checked before pushing	.agents/docs/deploy/remote.md
 drift: every living file that says update will not run on a checkout with local changes	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,REQUIREMENTS.md
-drift: every living file that states the byte budget of the deployed context	.agents/docs/testing/guide.md,AGENTS.md,README.md,REQUIREMENTS.md,agents/bugs.md,internal/harness/size_test.go
-drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer.md,agents/reviewer.md,agents/security.md,agents/verifier.md,context/AGENTS.md,skills/preflight/SKILL.md,skills/retro/SKILL.md,skills/review/SKILL.md
-drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs.md,agents/changelog.md,agents/documentation.md,agents/explorer.md,agents/reviewer.md,agents/security.md,agents/verifier.md,context/AGENTS.md
+drift: every living file that states the byte budget of the deployed context	.agents/docs/testing/guide.md,AGENTS.md,README.md,REQUIREMENTS.md,agents/bugs/agent.md,internal/harness/size_test.go
+drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md,skills/preflight/SKILL.md,skills/retro/SKILL.md,skills/review/SKILL.md
+drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs/agent.md,agents/changelog/agent.md,agents/documentation/agent.md,agents/explorer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md
 refs ADR-040: records that mention ADR-040	.agents/docs/architecture/DECISIONS.md,REQUIREMENTS.md,.agents/docs/changes/2026-09-28-2010-unverified-flag.md,.agents/docs/changes/2026-09-28-2044-zip-accepts.md,.agents/docs/retros/2026-09-28-retro.md
 refs internal/harness/zip.go: bugs and plans that name internal/harness/zip.go	.agents/docs/plans/2026-09-28-signed-zip.md,.agents/docs/plans/2026-09-28-update-from-zip.md
 open bug: bugs that are still open	.agents/docs/bugs/BUG-139-documentation-agent-roadmap-lane-held-5-of-6.md

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -20,7 +21,8 @@ type Skill struct {
 	SlashOnly   bool   // disable-model-invocation: the user types /name
 }
 
-// Agent is one Claude Code subagent definition under agents/.
+// Agent is one Antigravity subagent, agents/<name>/agent.md, installed as
+// written (ADR-062).
 type Agent struct {
 	Name        string
 	Description string
@@ -43,7 +45,7 @@ type Doc struct {
 // drop a file into it and the next install deploys it — no code changes.
 type Inventory struct {
 	Skills   []Skill // skills/<name>/SKILL.md
-	Agents   []Agent // agents/<name>.md
+	Agents   []Agent // agents/<name>/agent.md
 	Commands []Doc   // commands/<name>.md and workflows/<name>.md
 	Rules    []Doc   // rules/<name>.md
 }
@@ -222,40 +224,63 @@ func LoadSkills(src Source) ([]Skill, error) {
 	return skills, nil
 }
 
-// agentKeys is every frontmatter key a harness agent may set. Claude Code
-// ships an agent file byte for byte, so a key it honours outside this list
-// (hooks, permissionMode, mcpServers, memory, initialPrompt, and whatever a
-// vendor adds next) would act on every place unreviewed: an allow-list
-// refuses the next one by default (ADR-056). disallowedTools is not on it:
-// the Antigravity agent DeriveAgy writes drops it, so the restriction would
-// hold on one CLI only (ADR-056a).
-var agentKeys = []string{"name", "description", "tools", "model", "maxTurns", "skills", "effort", "color"}
+// agentKeys is every frontmatter key a harness agent may set: the keys the
+// derivation wrote until ADR-062. An agent file
+// ships byte for byte, so a key the CLI honours outside this list (hooks,
+// permissionMode, mcpServers, and whatever a vendor adds next) would act on
+// every place unreviewed: an allow-list refuses the next one by default
+// (ADR-056). disallowedTools is not on it: a restriction the CLI drops would
+// read as one and hold nowhere (ADR-056a). The old format's own keys
+// (maxTurns, effort, skills, color) are refused with it: a file carrying one
+// was written for another CLI.
+var agentKeys = []string{"name", "description", "subagent", "mainAgent", "model", "tools"}
 
-// LoadAgents reads every agents/*.md in Claude Code's subagent format.
+// knownTools is every tool name an agent may list. An unknown name fails the
+// install rather than passing through: Antigravity hangs a subagent whose
+// tools list names something it does not recognise.
+var knownTools = []string{"view_file", "grep_search", "find_by_name", "run_command", "write_to_file", "replace_file_content"}
+
+// LoadAgents reads every agents/<name>/agent.md, in Antigravity's format. A
+// flat agents/<name>.md, the format before ADR-062, is refused, not skipped:
+// skipped, the agent would vanish from every place without a word (F6).
 func LoadAgents(src Source) ([]Agent, error) {
-	paths, err := fs.Glob(src.FS, "agents/*.md")
+	entries, err := fs.ReadDir(src.FS, "agents")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	var agents []Agent
-	for _, p := range paths {
-		raw, err := fs.ReadFile(src.FS, p)
+	for _, e := range entries {
+		if e.Name() == ".DS_Store" {
+			continue
+		}
+		if !e.IsDir() {
+			return nil, fmt.Errorf("%s: an agent is agents/<name>/agent.md in Antigravity's format; a flat agents/<name>.md is the format before ADR-062", src.path(path.Join("agents", e.Name())))
+		}
+		p := path.Join("agents", e.Name(), "agent.md")
+		shown := e.Name() + "/agent.md"
+		raw, err := src.readRegular(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("%s has no agent.md", src.path(path.Join("agents", e.Name())))
+		}
 		if err != nil {
 			return nil, err
 		}
 		front, body, err := Split(string(raw))
 		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", path.Base(p), err)
+			return nil, fmt.Errorf("agent %s: %w", shown, err)
 		}
 		fm, err := ParseStrict(front)
 		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", path.Base(p), err)
+			return nil, fmt.Errorf("agent %s: %w", shown, err)
 		}
 		name := fm["name"]
 		if name == "" {
-			name = strings.TrimSuffix(path.Base(p), ".md")
+			name = e.Name()
 		}
-		if err := validName("agent", path.Base(p), name); err != nil {
+		if err := validName("agent", shown, name); err != nil {
 			return nil, err
 		}
 		if fm["description"] == "" {
@@ -275,6 +300,17 @@ func LoadAgents(src Source) ([]Agent, error) {
 				return nil, fmt.Errorf("agent %s: description names %q, a mechanism that no longer exists", name, banned)
 			}
 		}
+		// What the derivation guaranteed, now the author's: a subagent, never
+		// a main agent.
+		if fm["subagent"] != "true" || fm["mainAgent"] != "false" {
+			return nil, fmt.Errorf("agent %s: a harness agent sets subagent: true and mainAgent: false", name)
+		}
+		for _, t := range SplitList(fm["tools"]) {
+			if !slices.Contains(knownTools, t) {
+				return nil, fmt.Errorf("agent %s: tool %q is not one the harness knows (%s)", name, t, strings.Join(knownTools, ", "))
+			}
+		}
+
 		agents = append(agents, Agent{Name: name, Description: fm["description"], Path: src.path(p), Front: fm, Body: body, Raw: raw})
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
@@ -354,11 +390,8 @@ func RenderInventory(inv Inventory) string {
 	}
 	fmt.Fprintf(&b, "\n### Subagents (%d)\n\n| Agent | Model | Does |\n|---|---|---|\n", len(inv.Agents))
 	for _, a := range inv.Agents {
-		model := a.Front["model"]
-		if model == "" {
-			model = "inherit"
-		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", a.Name, model, cell(a.Description, 160))
+		// The model key as written; none means the CLI's default.
+		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", a.Name, a.Front["model"], cell(a.Description, 160))
 	}
 	if len(inv.Commands) > 0 {
 		fmt.Fprintf(&b, "\n### Commands (%d)\n\n| Command | Does |\n|---|---|\n", len(inv.Commands))
@@ -393,11 +426,11 @@ func RenderInventoryCompact(inv Inventory) string {
 	fmt.Fprintf(&b, "- Skills (%d): %s\n", len(inv.Skills), strings.Join(skills, ", "))
 	var agents []string
 	for _, a := range inv.Agents {
-		model := a.Front["model"]
-		if model == "" {
-			model = "inherit"
+		if model := a.Front["model"]; model != "" {
+			agents = append(agents, "`"+a.Name+"` ("+model+")")
+		} else {
+			agents = append(agents, "`"+a.Name+"`")
 		}
-		agents = append(agents, "`"+a.Name+"` ("+model+")")
 	}
 	fmt.Fprintf(&b, "- Subagents (%d): %s\n", len(inv.Agents), strings.Join(agents, ", "))
 	if len(inv.Commands) > 0 {

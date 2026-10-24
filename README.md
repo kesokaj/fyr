@@ -14,7 +14,7 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 |---|---|
 | One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
 | Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
-| Subagents | 8, written once in Claude Code's format; the Antigravity flavour is derived at install |
+| Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, and one session per task or phase) |
 | The binary | `sh-agent`: install, update, status, uninstall; `search` over a project's files and trail records; `memory`; `metrics`; the nightly `dream` |
 
@@ -203,7 +203,7 @@ Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [
 
 ```
 context/      AGENTS.md (the global context) and dev-setup.md (environment, stack, GCP rule)
-agents/       subagents in Claude Code format, the single source; Antigravity's flavour is derived at install
+agents/       one directory per subagent (agent.md, in Antigravity's format, installed as written)
 skills/       one directory per skill (SKILL.md, references/, assets/)
 rules/        always-on or path-scoped rules
 commands/     markdown prompts invoked as /name (empty; prefer skills)

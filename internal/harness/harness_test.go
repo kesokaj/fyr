@@ -40,7 +40,7 @@ func newRepo(t *testing.T) string {
 	write("skills/VENDORED.md", "not a skill\n")
 	write("commands/deploy.md", "---\ndescription: Deploy the thing\n---\nSteps\n")
 	write("rules/go-style.md", "# Go style\n\nUse slog.\n")
-	write("agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews diffs\ntools: Read, Grep, Bash\nmodel: opus\nskills: review-standards\neffort: high\nmaxTurns: 40\n---\nLoad ~/.claude/skills/review-standards first.\n")
+	write("agents/reviewer/agent.md", reviewerAgent)
 	return repo
 }
 
@@ -128,43 +128,6 @@ func TestSplitRejectsMissingFrontmatter(t *testing.T) {
 	}
 }
 
-func TestDeriveAgy(t *testing.T) {
-	repo := newRepo(t)
-	agents, err := LoadAgents(DirSource(repo))
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := DeriveAgy(agents[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := string(out)
-	for _, want := range []string{
-		"name: reviewer\n",
-		"description: \"Reviews diffs\"\n",
-		"subagent: true\n",
-		"mainAgent: false\n",
-		"model: pro\n",
-		"tools: [view_file, grep_search, run_command]\n",
-		"~/.gemini/config/skills/review-standards",
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("derived agent missing %q:\n%s", want, s)
-		}
-	}
-	for _, unwanted := range []string{"effort:", "skills:", "maxTurns:", "~/.claude/"} {
-		if strings.Contains(s, unwanted) {
-			t.Errorf("derived agent should not contain %q:\n%s", unwanted, s)
-		}
-	}
-
-	bad := agents[0]
-	bad.Front = Frontmatter{"tools": "Read, WebSearch"}
-	if _, err := DeriveAgy(bad); err == nil {
-		t.Fatal("unmapped tool should be an error")
-	}
-}
-
 func TestInventoryAndRender(t *testing.T) {
 	repo := newRepo(t)
 	skills, err := LoadSkills(DirSource(repo))
@@ -195,7 +158,7 @@ func TestInventoryAndRender(t *testing.T) {
 	if !strings.HasPrefix(s, Marker+"\n# AGENTS.md") {
 		t.Errorf("context should start with the marker and AGENTS.md:\n%s", s[:80])
 	}
-	for _, want := range []string{"## Environment & Stack", "`alpha`", "`/beta`", "`reviewer` (opus)", "`/deploy`", "`go-style`"} {
+	for _, want := range []string{"## Environment & Stack", "`alpha`", "`/beta`", "`reviewer` (pro)", "`/deploy`", "`go-style`"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("context missing %q", want)
 		}
@@ -209,7 +172,7 @@ func TestInventoryAndRender(t *testing.T) {
 		t.Errorf("context should end with the canary line %q, ends with %q", Canary, s[max(0, len(s)-80):])
 	}
 	full := RenderInventory(inv)
-	for _, want := range []string{"| `alpha` | auto |", "| `beta` | `/beta` |", "| `reviewer` | opus |", "| `/deploy` |", "| `go-style` |", "Beta: slash only"} {
+	for _, want := range []string{"| `alpha` | auto |", "| `beta` | `/beta` |", "| `reviewer` | pro |", "| `/deploy` |", "| `go-style` |", "Beta: slash only"} {
 		if !strings.Contains(full, want) {
 			t.Errorf("full inventory missing %q", want)
 		}
@@ -2297,12 +2260,12 @@ func TestResyncSkipsLink(t *testing.T) {
 // 2026-09-30, AG12). Until now only inspection enforced it.
 func TestAgentDescriptionRules(t *testing.T) {
 	for name, front := range map[string]string{
-		"two lines":       "name: x\ndescription: |\n  first line\n  second line\ntools: Read\n",
-		"dispatch prompt": "name: x\ndescription: \"the dispatch prompt names the file\"\ntools: Read\n",
-		"harness binary":  "name: x\ndescription: \"run by the harness binary\"\ntools: Read\n",
+		"two lines":       "name: x\ndescription: |\n  first line\n  second line\nsubagent: true\nmainAgent: false\n",
+		"dispatch prompt": "name: x\ndescription: \"the dispatch prompt names the file\"\nsubagent: true\nmainAgent: false\n",
+		"harness binary":  "name: x\ndescription: \"run by the harness binary\"\nsubagent: true\nmainAgent: false\n",
 	} {
 		repo := newRepo(t)
-		os.WriteFile(filepath.Join(repo, "agents", "x.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)
+		writeAgent(t, repo, "x", "---\n"+front+"---\nbody\n")
 		if _, err := LoadAgents(DirSource(repo)); err == nil {
 			t.Errorf("%s: LoadAgents accepted the description", name)
 		}
@@ -2345,34 +2308,6 @@ func TestLintDescriptionLimit(t *testing.T) {
 	if _, err := ParseStrict(block); err != nil {
 		t.Errorf("a block description under the limit was refused: %v", err)
 	}
-}
-
-// TestDeriveAgyRealReviewer: the derived Antigravity reviewer names the
-// review-standards skill by its agy path, because its Claude body names the
-// Claude path (audit 2026-09-30, AG5: the fixture test proved a rewrite the
-// real file never exercised).
-func TestDeriveAgyRealReviewer(t *testing.T) {
-	agents, err := LoadAgents(DirSource(filepath.Join("..", "..")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range agents {
-		if a.Name != "reviewer" {
-			continue
-		}
-		out, err := DeriveAgy(a)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(out), "~/.gemini/config/skills/review-standards/SKILL.md") {
-			t.Errorf("the derived reviewer does not name the review-standards skill by its Antigravity path")
-		}
-		if strings.Contains(string(out), "~/.claude/") {
-			t.Errorf("the derived reviewer still names a Claude path")
-		}
-		return
-	}
-	t.Fatal("no reviewer agent in the checkout")
 }
 
 // TestLintRefusesAllowedTools: a skill's frontmatter is a permission surface;
@@ -2432,11 +2367,11 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 	}
 	agent := func(front string) error {
 		repo := newRepo(t)
-		os.WriteFile(filepath.Join(repo, "agents", "x.md"), []byte("---\nname: x\ndescription: an agent\ntools: Read\n"+front+"---\nbody\n"), 0o644)
+		writeAgent(t, repo, "x", "---\nname: x\ndescription: an agent\nsubagent: true\nmainAgent: false\ntools: [view_file]\n"+front+"---\nbody\n")
 		_, err := LoadAgents(DirSource(repo))
 		return err
 	}
-	// mcpServers: an inline MCP server is a command line Claude Code starts
+	// mcpServers: an inline MCP server is a command line the CLI starts
 	// when the agent is used, outside the permission mode (project review
 	// 2026-10-09, security row 1; left open by the 2026-10-01 gate).
 	// An agent key outside the allow-list is refused, whatever it does:
@@ -2445,15 +2380,17 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 	// (ADR-056).
 	for _, front := range []string{"permissionMode: bypassPermissions\n", "hooks:\n  Stop: []\n", "mcpServers:\n  x:\n    command: sh\n", "mcpServers: {x: {command: sh}}\n",
 		"memory: project\n", "initialPrompt: run the tests\n", "\"memory\": user\n", "isolation: worktree\n", "futureKey: x\n",
-		// Antigravity's derived agent drops it, so an agent relying on it
-		// would be unrestricted there (the release gate's security review,
-		// round 2; ADR-056a).
-		"disallowedTools: Write\n"} {
+		// A restriction Antigravity does not honour would leave the agent
+		// unrestricted while reading as restricted (ADR-056a).
+		"disallowedTools: Write\n",
+		// The old format's keys: Antigravity has no equivalent, so a file
+		// carrying one was written for another CLI (ADR-062, F6).
+		"maxTurns: 10\n", "skills: [golang]\n", "effort: high\n", "color: blue\n"} {
 		if err := agent(front); err == nil {
 			t.Errorf("agent with %q loaded", front)
 		}
 	}
-	for _, front := range []string{"model: sonnet\n", "maxTurns: 10\n", "skills: [golang]\n", "effort: high\n", "color: blue\n"} {
+	for _, front := range []string{"model: pro\n", "model: flash\n"} {
 		if err := agent(front); err != nil {
 			t.Errorf("agent with %q refused: %v", front, err)
 		}
@@ -2578,9 +2515,9 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			_, err := LoadSkills(DirSource(repo))
 			return err
 		}},
-		"agent": {[]string{"name: x", "description: d", "tools: Read"}, [3]string{"color", "skills", ""}, func(front string) error {
+		"agent": {[]string{"name: x", "description: d", "subagent: true", "mainAgent: false"}, [3]string{"model", "", ""}, func(front string) error {
 			repo := newRepo(t)
-			os.WriteFile(filepath.Join(repo, "agents", "x.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)
+			writeAgent(t, repo, "x", "---\n"+front+"---\nbody\n")
 			_, err := LoadAgents(DirSource(repo))
 			return err
 		}},
@@ -2645,7 +2582,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			"a tab inside a value": plain + value + ": MIT\tor Apache\n",
 			"a tab-only line":      plain + "\t\n" + value + ": MIT\n",
 		} {
-			if nested == "" && name == "a nested map" {
+			if nested == "" && name == "a nested map" || list == "" && name == "an indented list" {
 				continue
 			}
 			if err := k.load(front); err != nil {

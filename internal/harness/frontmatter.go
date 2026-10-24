@@ -304,30 +304,3 @@ func SplitList(s string) []string {
 	}
 	return out
 }
-
-// yamlQuote renders a string as a double-quoted YAML scalar so that colons,
-// hashes, and quotes inside a description can never change its meaning.
-func yamlQuote(s string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for _, r := range s {
-		switch {
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '"':
-			b.WriteString(`\"`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			// A raw control character ends a double-quoted YAML scalar for a
-			// strict parser (security review 2026-09-18).
-			fmt.Fprintf(&b, `\u%04x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
-}

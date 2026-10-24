@@ -157,22 +157,6 @@ func TestCellIsRuneSafe(t *testing.T) {
 	}
 }
 
-// Finding 16: a control character in a description must not break the YAML
-// DeriveAgy renders.
-func TestYamlQuoteEscapesControlCharacters(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain":      `"plain"`,
-		`a"b\c`:      `"a\"b\\c"`,
-		"a\x01b":     "\"a\\u0001b\"",
-		"line\nnext": `"line\nnext"`,
-		"tab\there":  `"tab\there"`,
-	} {
-		if got := yamlQuote(in); got != want {
-			t.Errorf("yamlQuote(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
 // Finding 5, second round: the runtime directory holds the feedback log
 // and the proposals; it is 0700 after every install, whatever it was before.
 func TestInstallMakesTheConfigDirPrivate(t *testing.T) {

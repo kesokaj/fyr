@@ -103,7 +103,7 @@ func TestUnpackZipGitHubTopFolder(t *testing.T) {
 	if !strings.HasPrefix(tree, parent+string(filepath.Separator)) {
 		t.Errorf("tree %s is not under the parent %s", tree, parent)
 	}
-	for _, rel := range []string{"skills/alpha/references/notes.md", "agents/reviewer.md", "commands/deploy.md", "rules/go-style.md", "context/dev-setup.md"} {
+	for _, rel := range []string{"skills/alpha/references/notes.md", "agents/reviewer/agent.md", "commands/deploy.md", "rules/go-style.md", "context/dev-setup.md"} {
 		if _, err := os.Stat(filepath.Join(tree, rel)); err != nil {
 			t.Errorf("%s not unpacked: %v", rel, err)
 		}

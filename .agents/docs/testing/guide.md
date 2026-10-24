@@ -4,7 +4,7 @@ date: 2026-10-24
 ---
 # Verification guide — sh-agent
 
-The standing procedure for this repo. Written under the rule in `agents/verifier.md`
+The standing procedure for this repo. Written under the rule in `agents/verifier/agent.md`
 ("What to run"): the first run under a new project writes this guide; later runs cite
 it and record outcomes only. Update this file in the same run that changes the steps.
 
@@ -46,9 +46,9 @@ go run ./cmd/sh-agent status --home .agents/scratch/<slug>-home   # must report 
 test ! -e .agents/scratch/<slug>-home/.claude                      # nothing is written under ~/.claude, and status prints no settings note (ADR-062)
 ```
 
-Confirm every `agents/*.md` and its derived Antigravity `agent.md` under
-`.gemini/config/agents/<name>/agent.md` in the scratch home carry the same
-`## Records` section (exactly one each) when an agent definition changed.
+Confirm every `agents/<name>/agent.md` is byte-equal to its installed copy under
+`.gemini/config/agents/<name>/agent.md` in the scratch home (`cmp`) when an agent
+definition changed: install copies it as written (ADR-062).
 
 ## 3a. Plain-copy install (change touching checkout-vs-mirror rebuild logic)
 
@@ -175,7 +175,7 @@ A vendor setting the session cannot write, such as a project's `.claude/settings
 reaches Claude Code through `claude -p --settings '<json>'` instead. Kit and first use:
 `testing/2026-09-30-verify-parity-memory-dream-phase-2.md`.
 
-### Behavioural runs (a change to `agents/*.md` or to a `context/` rule that changes what the main agent does)
+### Behavioural runs (a change to `agents/<name>/agent.md` or to a `context/` rule that changes what the main agent does)
 
 Moved here from `AGENTS.md` § Testing on 2026-10-01 (plan audit-fix, C17); the project file points at this section.
 

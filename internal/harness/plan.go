@@ -30,12 +30,12 @@ type File struct {
 // one place under the Antigravity CLI's directory, so a file dropped into the
 // repo deploys without a code change:
 //
-//	context/*.md          → .gemini/config/rules/AGENTS.md
-//	skills/<name>/**      → .gemini/config/skills/<name>/**
-//	agents/<name>.md      → .gemini/config/agents/<name>/agent.md (derived)
-//	commands/<name>.md    → .gemini/config/workflows/<name>.md
-//	workflows/<name>.md   → same as commands/
-//	rules/<name>.md       → .gemini/config/rules/<name>.md
+//	context/*.md           → .gemini/config/rules/AGENTS.md
+//	skills/<name>/**       → .gemini/config/skills/<name>/**
+//	agents/<name>/agent.md → .gemini/config/agents/<name>/agent.md (as written)
+//	commands/<name>.md     → .gemini/config/workflows/<name>.md
+//	workflows/<name>.md    → same as commands/
+//	rules/<name>.md        → .gemini/config/rules/<name>.md
 //
 // src is the checkout, plain copy, or embedded files to read.
 // selfExe is the running binary, copied to ~/.local/bin so `sh-agent update`
@@ -103,11 +103,7 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 	}
 
 	for _, a := range inv.Agents {
-		derived, err := DeriveAgy(a)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, File{Rel: filepath.Join(AgyRoot, "agents", a.Name, "agent.md"), Data: derived, Mode: 0o644})
+		files = append(files, File{Rel: filepath.Join(AgyRoot, "agents", a.Name, "agent.md"), Data: a.Raw, Mode: 0o644})
 	}
 
 	// A command is a markdown prompt invoked as /name, which Antigravity calls

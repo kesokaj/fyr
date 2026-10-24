@@ -1,0 +1,138 @@
+package harness
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// reviewerAgent is newRepo's agent, in the Antigravity format the harness
+// authors natively (ADR-062): the keys DeriveAgy wrote until Phase 3a.
+const reviewerAgent = "---\nname: reviewer\ndescription: \"Reviews diffs\"\nsubagent: true\nmainAgent: false\nmodel: pro\ntools: [view_file, grep_search, run_command]\n---\nLoad ~/.gemini/config/skills/review-standards first.\n"
+
+// writeAgent writes agents/<dir>/agent.md under repo.
+func writeAgent(t *testing.T, repo, dir, content string) {
+	t.Helper()
+	p := filepath.Join(repo, "agents", dir, "agent.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAgentsInstallAsWritten: an agent is authored as agents/<name>/agent.md
+// and install copies it unchanged — nothing is derived (D3).
+func TestAgentsInstallAsWritten(t *testing.T) {
+	repo := newRepo(t)
+	agents, err := LoadAgents(DirSource(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Name != "reviewer" || agents[0].Front["model"] != "pro" || string(agents[0].Raw) != reviewerAgent {
+		t.Fatalf("agents = %+v", agents)
+	}
+	files, err := Plan(DirSource(repo), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f.Rel == filepath.Join(AgyRoot, "agents", "reviewer", "agent.md") {
+			if string(f.Data) != reviewerAgent {
+				t.Errorf("installed agent differs from the source:\n%s", f.Data)
+			}
+			return
+		}
+	}
+	t.Fatal("the plan has no agents/reviewer/agent.md")
+}
+
+// TestLintRefusesOldFormatAgent: an agent in the format before ADR-062 — a
+// flat agents/<name>.md, its tool names, its keys — is refused with the file
+// named, never installed half-read (F6).
+func TestLintRefusesOldFormatAgent(t *testing.T) {
+	const native = "name: x\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n"
+	for name, tc := range map[string]struct {
+		file, content string
+		want          []string
+	}{
+		"a flat agents/x.md": {"agents/x.md", "---\nname: x\ndescription: Reviews diffs\ntools: Read, Grep, Bash\nmodel: opus\nmaxTurns: 40\n---\nbody\n", []string{"agents/x.md", "agents/<name>/agent.md"}},
+		"an old tool name":   {"agents/x/agent.md", "---\n" + native + "tools: Read, Grep\n---\nbody\n", []string{"x", `"Read"`}},
+		"an unknown tool":    {"agents/x/agent.md", "---\n" + native + "tools: [view_file, Teleport]\n---\nbody\n", []string{"x", `"Teleport"`}},
+		"an old key":         {"agents/x/agent.md", "---\n" + native + "maxTurns: 40\n---\nbody\n", []string{"x", "maxTurns"}},
+
+		"no subagent key": {"agents/x/agent.md", "---\nname: x\ndescription: \"an agent\"\nmainAgent: false\n---\nbody\n", []string{"x", "subagent: true"}},
+		"a main agent":    {"agents/x/agent.md", "---\nname: x\ndescription: \"an agent\"\nsubagent: true\nmainAgent: true\n---\nbody\n", []string{"x", "mainAgent: false"}},
+		"no agent.md":     {"agents/x/README.md", "an agent directory without its file\n", []string{"agents/x", "agent.md"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := newRepo(t)
+			p := filepath.Join(repo, filepath.FromSlash(tc.file))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Plan(DirSource(repo), nil)
+			if err == nil {
+				t.Fatal("the plan accepted the agent")
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("err = %v, want it to name %q", err, w)
+				}
+			}
+		})
+	}
+	// The native shape with every allowed key loads.
+	repo := newRepo(t)
+	writeAgent(t, repo, "x", "---\n"+native+"model: flash\ntools: [view_file, grep_search, find_by_name, run_command, write_to_file, replace_file_content]\n---\nbody\n")
+	if _, err := Plan(DirSource(repo), nil); err != nil {
+		t.Errorf("a native agent was refused: %v", err)
+	}
+}
+
+// TestKnownToolsAreTheDerivedNames: knownTools is the set of tool names
+// DeriveAgy's toolMap produced at the Phase 3a base commit (D17), so no agent
+// that installed before loses a tool and none gains an unvetted one.
+func TestKnownToolsAreTheDerivedNames(t *testing.T) {
+	got := slices.Clone(knownTools)
+	sort.Strings(got)
+	want := []string{"find_by_name", "grep_search", "replace_file_content", "run_command", "view_file", "write_to_file"}
+	if !slices.Equal(got, want) {
+		t.Errorf("knownTools = %v, want %v", got, want)
+	}
+}
+
+// TestCheckoutAgentsAreNative: the checkout's eight agents load in the native
+// format, and the reviewer names the review-standards skill by the path
+// Antigravity installs it at (audit 2026-09-30, AG5, kept from the derivation
+// test it replaces).
+func TestCheckoutAgentsAreNative(t *testing.T) {
+	agents, err := LoadAgents(DirSource(filepath.Join("..", "..")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, a := range agents {
+		names = append(names, a.Name)
+		if a.Path != filepath.Join("..", "..", "agents", a.Name, "agent.md") {
+			t.Errorf("agent %s read from %s", a.Name, a.Path)
+		}
+		if a.Name == "reviewer" && !strings.Contains(a.Body, "~/.gemini/config/skills/review-standards/SKILL.md") {
+			t.Errorf("the reviewer does not name the review-standards skill by its Antigravity path")
+		}
+	}
+	want := []string{"bugs", "changelog", "documentation", "dreamer", "explorer", "reviewer", "security", "verifier"}
+	if !slices.Equal(names, want) {
+		t.Errorf("agents = %v, want %v", names, want)
+	}
+	if flat, _ := filepath.Glob(filepath.Join("..", "..", "agents", "*.md")); len(flat) > 0 {
+		t.Errorf("flat agent files left from the format before ADR-062: %v", flat)
+	}
+}

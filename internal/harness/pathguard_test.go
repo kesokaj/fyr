@@ -42,16 +42,16 @@ func TestSkillAndAgentNamesMustBeOneLocalSegment(t *testing.T) {
 		repo := t.TempDir()
 		writeFile(t, filepath.Join(repo, "skills", "dir", "SKILL.md"),
 			"---\nname: "+tc.name+"\ndescription: \"a skill\"\n---\nbody\n")
-		writeFile(t, filepath.Join(repo, "agents", "file.md"),
-			"---\nname: "+tc.name+"\ndescription: \"an agent\"\n---\nbody\n")
+		writeFile(t, filepath.Join(repo, "agents", "file", "agent.md"),
+			"---\nname: "+tc.name+"\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n---\nbody\n")
 		_, serr := LoadSkills(DirSource(repo))
 		_, aerr := LoadAgents(DirSource(repo))
 		if tc.bad {
 			if serr == nil || !strings.Contains(serr.Error(), "dir/SKILL.md") {
 				t.Errorf("name %q: skills loader err = %v, want a refusal naming dir/SKILL.md", tc.name, serr)
 			}
-			if aerr == nil || !strings.Contains(aerr.Error(), "file.md") {
-				t.Errorf("name %q: agents loader err = %v, want a refusal naming file.md", tc.name, aerr)
+			if aerr == nil || !strings.Contains(aerr.Error(), "file/agent.md") {
+				t.Errorf("name %q: agents loader err = %v, want a refusal naming file/agent.md", tc.name, aerr)
 			}
 			continue
 		}
@@ -135,7 +135,7 @@ func TestSkillFilesAndAdoptCopiesRefuseSymlinks(t *testing.T) {
 func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {
 	valid := map[string]string{
 		"context":   "# extra\n\nbytes that must not be deployed\n",
-		"agents":    "---\nname: shadow\ndescription: \"an agent\"\n---\nbody\n",
+		"agents":    "---\nname: shadow\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n---\nbody\n",
 		"rules":     "---\ndescription: \"a rule\"\n---\nbody\n",
 		"commands":  "---\ndescription: \"a command\"\n---\nbody\n",
 		"workflows": "---\ndescription: \"a workflow\"\n---\nbody\n",
@@ -143,7 +143,8 @@ func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {
 	for _, tc := range []struct{ dir, file string }{
 		{"context", "extra.md"},
 		{"context", "AGENTS.md"},
-		{"agents", "shadow.md"},
+		{"agents", "shadow/agent.md"},
+		{"agents", "shadow"},
 		{"rules", "rule.md"},
 		{"commands", "cmd.md"},
 		{"workflows", "flow.md"},
