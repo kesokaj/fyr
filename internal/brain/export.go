@@ -76,7 +76,9 @@ func openTrail(top string) (f *os.File, ok bool, err error) {
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, refuse("%s: %v (the trail must be the project's own regular file)", p, err)
+		// ELOOP (a symlink swapped in after the guard) and every other
+		// open error: the load cannot read the project's own file.
+		return nil, false, refuse("%s: %v", p, err)
 	}
 	fi, err := f.Stat()
 	switch {
@@ -100,10 +102,9 @@ type capped struct {
 	left int64
 }
 
+// Read asks for at most one byte past the cap, so left never goes below -1
+// and a call after the refusal reads nothing and refuses again.
 func (c *capped) Read(p []byte) (int, error) {
-	if c.left < 0 {
-		return 0, refuse("trail.jsonl is over %d bytes; refusing to load it", maxTrail)
-	}
 	if int64(len(p)) > c.left+1 {
 		p = p[:c.left+1]
 	}
@@ -367,7 +368,7 @@ func (s *session) exportLocked(c *sql.Conn) error {
 		return err
 	}
 	if !ok || current != sum(data) {
-		// Checked again right before the write: readTrail's guard ran on
+		// Checked again right before the write: hashTrail's guard ran on
 		// an earlier read. A link that appears between this check and the
 		// rename is not closed here, as in the search index: whoever can race
 		// it already writes to the checkout.
