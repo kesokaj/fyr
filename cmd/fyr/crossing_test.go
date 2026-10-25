@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,9 +80,10 @@ func runOld(t *testing.T, bin string, args ...string) string {
 // TestCrossingFromV270 is E2E criterion 2's local half: a home installed by
 // v2.7.0 — state dir, binary, manifest, a dream unit — is moved to fyr by
 // one `fyr install`. The migration runs before the resync, which reads the
-// old manifest from the moved directory and removes its ~/.claude files and
-// ~/.local/bin/sh-agent by today's rule, leaving a symlinked entry (F2); the
-// dream unit is replaced under its new name (plan fyr D13, D14).
+// old manifest from the moved directory, removes ~/.local/bin/sh-agent by
+// today's rule and keeps every ~/.claude file byte for byte, a symlinked
+// entry included (F2, D32: fyr never removes Claude Code's files); the dream
+// unit is replaced under its new name (plan fyr D13, D14).
 func TestCrossingFromV270(t *testing.T) {
 	t.Setenv(harness.ChildEnv, "1")
 	t.Setenv("FYR_REPO", "")
@@ -135,6 +137,14 @@ func TestCrossingFromV270(t *testing.T) {
 	if err := os.Remove(calls); err != nil {
 		t.Fatal(err)
 	}
+	before := map[string]string{}
+	for _, rel := range claudeFiles[1:] {
+		b, err := os.ReadFile(filepath.Join(home, rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[rel] = string(b)
+	}
 
 	var out bytes.Buffer
 	if err := run([]string{"install", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
@@ -160,9 +170,12 @@ func TestCrossingFromV270(t *testing.T) {
 		}
 	}
 	for _, rel := range claudeFiles[1:] {
-		if _, err := os.Lstat(filepath.Join(home, rel)); !os.IsNotExist(err) {
-			t.Errorf("~/%s left by the resync: %v", rel, err)
+		if b, err := os.ReadFile(filepath.Join(home, rel)); err != nil || string(b) != before[rel] {
+			t.Errorf("~/%s removed or changed by the crossing: %v", rel, err)
 		}
+	}
+	if !strings.Contains(got, fmt.Sprintf("keep    ~/.claude: %d files", len(claudeFiles))) {
+		t.Errorf("install does not name the %d kept ~/.claude files:\n%.2000s", len(claudeFiles), got)
 	}
 	if fi, err := os.Lstat(linked); err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("the symlinked entry was removed or replaced: %v", err)

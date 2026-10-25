@@ -39,7 +39,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 |---|---|
 | `fyr status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer, and a note for a `PATH` shadow. Exit 1 on drift. |
 | `fyr update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. |
-| `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has. Idempotent; `--dry-run` prints without changing. |
+| `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has, except the Claude Code files an install before fyr wrote under `~/.claude`, which it keeps and stops managing (`.agents/docs/deploy/remote.md` § Crossing to fyr). Idempotent; `--dry-run` prints without changing. |
 | `fyr diff` | A unified diff of every drifted file. |
 | `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. |
 | `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |

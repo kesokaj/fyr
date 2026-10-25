@@ -328,13 +328,14 @@ func TestPlanAntigravityOnly(t *testing.T) {
 	}
 }
 
-// TestResyncShedsOldClaudeFiles: a manifest from an install before ADR-062
-// lists files under ~/.claude. The next install's resync removes each one
-// and names it, by the one rule it applies to any file the plan no longer
-// holds: a symlink, or a file under a linked directory, is the operator's and
-// stays; ~/.claude itself and a file the manifest never listed stay; the
-// vendor the old manifest recorded is ignored (plan fyr Phase 2, D14, D17).
-func TestResyncShedsOldClaudeFiles(t *testing.T) {
+// TestResyncKeepsOldClaudeFiles: a manifest from an install before ADR-062
+// lists files under ~/.claude. fyr never removes them (plan fyr D32: the
+// operator keeps Claude Code's files where they still use it): the resync
+// leaves each one as it is, drops it from fyr's manifest and says so in one
+// line, while a stale entry outside ~/.claude still goes by the one rule.
+// The next install is silent about them, and uninstall, before or after the
+// first fyr install, never touches them either.
+func TestResyncKeepsOldClaudeFiles(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
 	put := func(rel, body string) {
@@ -347,46 +348,65 @@ func TestResyncShedsOldClaudeFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	old := []string{
+	claude := []string{
 		".claude/AGENTS.md", ".claude/CLAUDE.md", ".claude/skills/alpha/SKILL.md",
 		".claude/agents/reviewer.md", ".claude/commands/deploy.md", ".claude/rules/go-style.md",
-		".claude/rules/linked.md",
 	}
-	for _, rel := range old[:6] {
-		put(rel, Marker+"\nold\n")
+	for _, rel := range claude {
+		put(rel, Marker+"\nold "+rel+"\n")
 	}
 	put(".claude/settings.json", "{}\n") // the operator's, never in a manifest
-	put("dotfiles/linked.md", "mine\n")
-	if err := os.Symlink(filepath.Join(home, "dotfiles", "linked.md"), filepath.Join(home, ".claude", "rules", "linked.md")); err != nil {
-		t.Fatal(err)
-	}
+	put(".local/bin/sh-agent", "#!/bin/sh\n")
+	// A hand-edited manifest may spell an entry unclean: it names the same
+	// file under ~/.claude and is kept too (security review of Phase 5b).
+	put(".claude/rules/unclean-a.md", "a\n")
+	put(".claude/rules/unclean-b.md", "b\n")
+	old := append(append([]string{}, claude...), ".local/bin/sh-agent", "./.claude/rules/unclean-a.md", ".gemini/../.claude/rules/unclean-b.md")
 	if err := SaveState(home, State{Repo: repo, Vendor: "all", Files: old}); err != nil {
 		t.Fatal(err)
 	}
+	kept := func(t *testing.T, when string) {
+		t.Helper()
+		for _, rel := range claude {
+			if got, err := os.ReadFile(filepath.Join(home, rel)); err != nil || string(got) != Marker+"\nold "+rel+"\n" {
+				t.Errorf("%s: ~/%s removed or changed: %q, %v", when, rel, got, err)
+			}
+		}
+		for _, rel := range []string{".claude/settings.json", ".claude/rules/unclean-a.md", ".claude/rules/unclean-b.md"} {
+			if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
+				t.Errorf("%s: ~/%s: %v", when, rel, err)
+			}
+		}
+	}
+
+	// uninstall straight after the migration, before any fyr install: the
+	// manifest is still the old one, and its ~/.claude entries stay.
+	var out bytes.Buffer
+	if err := Uninstall(home, true, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "remove  ~/.claude") || !strings.Contains(out.String(), "keep    ~/.claude: 8 files") {
+		t.Errorf("uninstall --dry-run over an old manifest:\n%s", out.String())
+	}
+	kept(t, "uninstall --dry-run")
 
 	files, err := Plan(DirSource(repo), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out bytes.Buffer
+	out.Reset()
 	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range old[:6] {
-		if _, err := os.Lstat(filepath.Join(home, rel)); !os.IsNotExist(err) {
-			t.Errorf("~/%s was kept: %v", rel, err)
-		}
-		if !strings.Contains(out.String(), "remove  ~/"+rel+" (no longer in the source)") {
-			t.Errorf("the removal of ~/%s is not reported:\n%s", rel, out.String())
-		}
+	kept(t, "install")
+	if strings.Contains(out.String(), "remove  ~/.claude") {
+		t.Errorf("install reports removing a ~/.claude file:\n%s", out.String())
 	}
-	for _, rel := range []string{".claude", ".claude/settings.json", ".claude/rules/linked.md", "dotfiles/linked.md"} {
-		if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
-			t.Errorf("~/%s must stay: %v", rel, err)
-		}
+	if n := strings.Count(out.String(), "~/.claude"); n != 1 || !strings.Contains(out.String(), "keep    ~/.claude: 8 files") {
+		t.Errorf("install should name the kept ~/.claude files in one line (%d mentions):\n%s", n, out.String())
 	}
-	if !strings.Contains(out.String(), "6 removed") {
-		t.Errorf("install should count six removals:\n%s", out.String())
+	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "sh-agent")); !os.IsNotExist(err) {
+		t.Errorf("~/.local/bin/sh-agent, a stale entry outside ~/.claude, was kept: %v", err)
 	}
 	st, _, err := LoadState(home)
 	if err != nil {
@@ -399,6 +419,75 @@ func TestResyncShedsOldClaudeFiles(t *testing.T) {
 	}
 	if st.Vendor != VendorAntigravity {
 		t.Errorf("state vendor = %q, want %q", st.Vendor, VendorAntigravity)
+	}
+
+	out.Reset()
+	if err := Install(DirSource(repo), home, files, false, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), ".claude") {
+		t.Errorf("the second install still talks about ~/.claude:\n%s", out.String())
+	}
+	out.Reset()
+	if err := Uninstall(home, false, &out); err != nil {
+		t.Fatal(err)
+	}
+	kept(t, "uninstall")
+}
+
+// TestInstallFailureKeepsClaudeFilesOutOfTheManifest: a write that fails
+// midway saves the manifest as (old entries still on disk) ∪ (written so
+// far), the IN2 rule; the old ~/.claude entries are not put back into it,
+// and none of them is removed (plan fyr D32, security review of Phase 5b).
+func TestInstallFailureKeepsClaudeFilesOutOfTheManifest(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory modes")
+	}
+	repo := newRepo(t)
+	home := t.TempDir()
+	files, err := Plan(DirSource(repo), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ := LoadState(home)
+	claude := filepath.Join(".claude", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, claude), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st.Files = append(st.Files, claude)
+	if err := SaveState(home, st); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo, "skills", "alpha", "SKILL.md"), []byte("---\nname: alpha\ndescription: changed\n---\nnew body\n"), 0o644)
+	alphaDir := filepath.Join(home, AgyRoot, "skills", "alpha")
+	if err := os.Chmod(alphaDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(alphaDir, 0o755) })
+	if files, err = Plan(DirSource(repo), nil); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := Install(DirSource(repo), home, files, false, &out); err == nil {
+		t.Fatalf("install did not fail on the unwritable directory:\n%s", out.String())
+	}
+	after, _, err := LoadState(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range after.Files {
+		if strings.HasPrefix(rel, ".claude") {
+			t.Errorf("the manifest saved on failure lists ~/%s", rel)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(home, claude)); err != nil || string(b) != "old\n" {
+		t.Errorf("~/%s removed or changed: %q, %v", claude, b, err)
 	}
 }
 

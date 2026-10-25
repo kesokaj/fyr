@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -17,10 +18,12 @@ import (
 // install wrote that the plan no longer contains, and records the manifest.
 // Writing is idempotent: an unchanged file is neither rewritten nor reported.
 //
-// The resync is also how an install from before ADR-062 sheds its Claude Code
-// files: the old manifest lists ~/.claude/AGENTS.md, the CLAUDE.md stub and
-// the skills, agents, commands and rules under ~/.claude, this plan names
-// none of them, and each is removed by the one rule below.
+// An install from before ADR-062 listed Claude Code's files under ~/.claude
+// (AGENTS.md, the CLAUDE.md stub, skills, agents, commands, rules). This plan
+// names none of them, and the resync keeps every one where it is: they leave
+// fyr's manifest and are never removed (plan fyr D32: the operator keeps
+// Claude Code's files where they still use it). Any other stale entry, the
+// old ~/.local/bin/sh-agent among them, goes by the one rule below.
 func Install(src Source, home string, files []File, dryRun bool, out io.Writer) error {
 	old, _, err := LoadState(home)
 	if err != nil {
@@ -45,7 +48,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		}
 		union := append([]string(nil), manifest...)
 		for _, rel := range old.Files {
-			if fi, err := os.Lstat(filepath.Join(home, rel)); err == nil && !listed[rel] && fi.Mode()&os.ModeSymlink == 0 && !underLink(home, rel) {
+			if fi, err := os.Lstat(filepath.Join(home, rel)); err == nil && !listed[rel] && fi.Mode()&os.ModeSymlink == 0 && !underLink(home, rel) && !claudeFile(home, rel) {
 				union = append(union, rel)
 			}
 		}
@@ -122,8 +125,13 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 	for _, rel := range manifest {
 		planned[rel] = true
 	}
+	claudeKept := 0
 	for _, rel := range old.Files {
 		if planned[rel] {
+			continue
+		}
+		if claudeFile(home, rel) {
+			claudeKept++
 			continue
 		}
 		dest := filepath.Join(home, rel)
@@ -143,6 +151,10 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 			return saveOnError(fmt.Errorf("removing stale %s: %w", dest, err))
 		}
 		pruneEmptyDirs(home, filepath.Dir(dest))
+	}
+	if claudeKept > 0 {
+		counts["kept"] += claudeKept
+		fmt.Fprintln(out, keepClaudeLine(claudeKept))
 	}
 
 	sort.Strings(manifest)
@@ -311,8 +323,12 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 		fmt.Fprintln(out, "nothing installed (no manifest at ~/.config/fyr/state.json)")
 		return nil
 	}
-	removed := 0
+	removed, claudeKept := 0, 0
 	for _, rel := range st.Files {
+		if claudeFile(home, rel) {
+			claudeKept++
+			continue
+		}
 		dest := filepath.Join(home, rel)
 		fi, err := os.Lstat(dest)
 		if err != nil {
@@ -334,6 +350,9 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 		}
 		pruneEmptyDirs(home, filepath.Dir(dest))
 	}
+	if claudeKept > 0 {
+		fmt.Fprintln(out, keepClaudeLine(claudeKept))
+	}
 	if dryRun {
 		fmt.Fprintf(out, "[dry-run] would remove %d files and the manifest\n", removed)
 		return nil
@@ -343,6 +362,26 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "removed %d files and the manifest\n", removed)
 	return nil
+}
+
+// claudeFile reports whether rel, an entry of a manifest an install before
+// ADR-062 wrote, is one of Claude Code's files under ~/.claude that is still
+// there. fyr never removes one (plan fyr D32); a file already gone is not
+// counted. The entry is judged as the path it removes, cleaned (a hand-edited
+// `./.claude/x` or `.gemini/../.claude/x` is the same file), and the first
+// element without case, since a case-insensitive file system makes
+// `.Claude` the same directory; on another, keeping it errs safe.
+func claudeFile(home, rel string) bool {
+	first, _, nested := strings.Cut(filepath.ToSlash(filepath.Clean(rel)), "/")
+	if !nested || !strings.EqualFold(first, ".claude") {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(home, rel))
+	return err == nil
+}
+
+func keepClaudeLine(n int) string {
+	return fmt.Sprintf("keep    ~/.claude: %d files an install before fyr wrote for Claude Code; fyr never removes them, and they leave its manifest", n)
 }
 
 // WriteAtomic writes through a temp file and rename, so a half-written
