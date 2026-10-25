@@ -47,7 +47,7 @@ EOF
 
 - `--name` is a short kebab-case slug, the file's name: `^[a-z0-9][a-z0-9-]{0,63}$`.
 - `--description` is one line: what a future session scans in the index to decide whether to open the file.
-- The body is one fact. For `feedback` and `project`, follow it with a `**Why:**` line and a `**How to apply:**` line. Write dates as `YYYY-MM-DD` from `date +%F`, never "next week".
+- The body is one fact. For `feedback` and `project`, follow it with a `**Why:**` line and a `**How to apply:**` line. Write dates as `YYYY-MM-DD`, never "next week": run `date +%F` as its own command first and type the date it printed into the body. The save is the one `sh-agent memory add` command above, nothing joined to it and no `$( )` inside it, because a headless permission check refuses a command substitution.
 - Saving under an existing slug replaces that memory and its index line. Update a memory rather than adding a second one on the same fact; `sh-agent memory show` lists what exists.
 - The verb exits 2 with one line when it refuses: outside a git checkout, a symlinked or git-tracked store, a symlinked `MEMORY.md`, a path git would commit (run `/init-project` first), or an index of 200 lines (run `/dream`). Say the reason to the user and go on without the memory.
 

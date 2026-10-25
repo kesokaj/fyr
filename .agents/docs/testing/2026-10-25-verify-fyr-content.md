@@ -94,3 +94,18 @@ Not exempt and edited:
 - `feedback` and `review`/`preflight` under named grants only: they need `command(*)` by the matrix procedure, so their shell steps are not proven under the narrow grants.
 - Whether agy 1.4.6 → 1.4.7 or its model changed what the store refuses: BUG-174 and BUG-175 were both read on 1.4.7 only.
 - The `@{u}` denial outside print mode: an interactive session prompts instead.
+
+## Addendum — 2026-10-25: BUG-175 fixed, `project-memory` re-run
+
+**Status after the addendum: PASS.** On the final tree, 13 of 13 rows pass.
+
+- **Change:** `skills/project-memory/SKILL.md:50` (plan D27). Run `date +%F` as its own command, type the date it printed into the body, and make the save the one `sh-agent memory add` command, with nothing joined and no `$( )`.
+- **Kit:** `.agents/scratch/fyr/kit3c/run.sh project-memory`, with named grants (no `command(*)`). Tags `3d` and `3e`, agy 1.4.7, run from homes installed from the tree with this edit.
+
+| Row | Covers | Result (n of N) | Evidence |
+|---|---|---|---|
+| `project-memory` | `project-memory`, BUG-175 | **PASS 2/2** | Both attempts, from the conversation store: `date +%F` ran as its own step, then `sh-agent memory add --type project --name deploy-on-fridays …`. Every step has status 3 and none has `error_details`. `MEMORY.md`'s line is `- [deploy-on-fridays](deploy-on-fridays.md) — deploys happen on Fridays`, and there is no `originSessionId`. The `**Why:**` line carries 2026-10-25. Session 2 answered "Friday" with the store present. The preamble printed its three clean lines (42 s, 43 s). |
+
+- **Row totals across the phase:** `project-memory` is 2 of 4. The two failures are the earlier BUG-175 attempts, on the old line.
+- **Tests:** the full suite, run after this edit: `.agents/scratch/fyr/go-test-bug175.txt` (its result is in this range's `changes/` entry).
+- **Not checked:** `feedback-log` rule 7 saving a memory under named grants. The `feedback` row runs with `command(*)`.
