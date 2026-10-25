@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // docsFixture is an unmigrated project: a committed .agents/docs tree with
@@ -318,7 +320,7 @@ func TestMemoryShowCapsLines(t *testing.T) {
 
 func TestImportGlobal(t *testing.T) {
 	home := t.TempDir()
-	conf := filepath.Join(home, ".config", "fyr")
+	conf := filepath.Join(home, harness.StateDir)
 	os.MkdirAll(filepath.Join(conf, "proposals", "dream", "harness"), 0o700)
 	os.WriteFile(filepath.Join(conf, "feedback.jsonl"), []byte(
 		`{"ts":"2026-10-25T13:40:00+02:00","project":"/p/one","session":"abc","category":"style","signal":"correction","original":"o","corrected":"use tables not lists","user_quote":"tables!","rule_ref":null}`+"\n"+

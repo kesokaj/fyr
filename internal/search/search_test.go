@@ -302,11 +302,12 @@ func TestChunkMarkdownHeadingsAndWindows(t *testing.T) {
 }
 
 func TestRecordsBugADRPlan(t *testing.T) {
-	real, err := os.ReadFile(filepath.Join("..", "..", ".agents", "docs", "bugs", "BUG-049-dirty-check-untracked-files-config.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rs := parseRecords("bugs/BUG-049-dirty-check-untracked-files-config.md", string(real))
+	// The head of a real bug file as the old docs trail held it (BUG-049,
+	// before the brain migration): the file parser still reads an
+	// unmigrated project's trail (brain plan D16).
+	real := "---\nowner: bugs\ndate: 2026-09-16\nid: BUG-049\nstatus: fixed\narea: internal/harness (dirty check)\n---\n" +
+		"# BUG-049: the BUG-046 dirty-checkout guard trusted git's configurable default\n\n## Symptom\nThe dirty-checkout guard used a bare `git\nstatus --porcelain`.\n"
+	rs := parseRecords("bugs/BUG-049-dirty-check-untracked-files-config.md", real)
 	if len(rs) != 1 || rs[0].id != "BUG-049" || rs[0].status == "" || rs[0].date == "" || rs[0].title == "" {
 		t.Errorf("real bug record: %+v", rs)
 	}
