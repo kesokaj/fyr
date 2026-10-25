@@ -822,10 +822,8 @@ func readMemoryStore(root string, b *budget) ([]Imported, []string, []string, er
 		}
 		r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
 			Body: "type: " + typ + "\n\n" + body, Updated: updated})
-		if err := checkRecord(r); err != nil {
-			problems = append(problems, rel+": "+err.Error()+"; not imported")
-			continue
-		}
+		// Every field is valid by here (the slug, a real day, a normalized
+		// title and body); insertNew checks the record once more.
 		files = append(files, rel)
 		recs = append(recs, Imported{ID: r.ID, Kind: "memory", Status: "closed", Path: rel, rec: r})
 	}
@@ -876,7 +874,7 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 	res := &ImportResult{}
 	b := newBudget()
 	var recs []Record
-	used := map[string]int{}
+	used := map[string]bool{}
 	failed := map[string]bool{} // sources with a problem: kept, never listed for removal
 	problem := func(source, msg string) {
 		failed[source] = true
@@ -884,10 +882,16 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 	}
 	add := func(r Record, source string) {
 		r = normalize(r)
-		used[r.ID]++
-		if n := used[r.ID]; n > 1 {
-			r.ID = fmt.Sprintf("%s-%d", r.ID, n)
+		// A -N suffix is tried until it names no ID this import already
+		// gave: FOO.md, foo-2.md and foo.md are three records (round 2,
+		// finding 1).
+		if used[r.ID] {
+			base := r.ID
+			for n := 2; used[r.ID]; n++ {
+				r.ID = fmt.Sprintf("%s-%d", base, n)
+			}
 		}
+		used[r.ID] = true
 		if err := checkRecord(r); err != nil {
 			problem(source, fmt.Sprintf("%s: %v; not imported", source, err))
 			return
@@ -935,13 +939,11 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 				}
 				title = corrected
 			}
-			var pretty bytes.Buffer
-			if json.Indent(&pretty, []byte(l), "", "  ") != nil || pretty.Len() > maxBody {
-				pretty.Reset()
-				pretty.WriteString(l)
-			}
+			// The line as written: indenting it first could multiply a
+			// nested line's size before any cap is checked (round 2,
+			// finding 2).
 			add(Record{ID: fmt.Sprintf("%s-%s-%s", prefixes[log.kind], t.Format("2006-01-02-1504"), slugify(title)), Kind: log.kind,
-				Status: "closed", Date: t.Format("2006-01-02"), Title: title, Body: pretty.String(),
+				Status: "closed", Date: t.Format("2006-01-02"), Title: title, Body: l,
 				Project: projectKey(project), Updated: t.UTC().Format(time.RFC3339)}, log.file)
 		}
 	}

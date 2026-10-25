@@ -171,10 +171,10 @@ func TestImportGlobalBadEntriesAreProblems(t *testing.T) {
 	long := `{"ts":"2026-10-25T13:41:00+02:00","project":"/p/one","corrected":"` + strings.Repeat("a", maxLine+10) + `"}`
 	nested := `{"ts":"2026-10-25T13:42:00+02:00","corrected":"n","x":` + strings.Repeat("[", 300000) + strings.Repeat("]", 300000) + `}`
 	os.WriteFile(filepath.Join(conf, "feedback.jsonl"), []byte(good+"\n"+long+"\n"+nested+"\n"), 0o600)
-	name := strings.Repeat("p", 140)
-	os.WriteFile(filepath.Join(conf, "proposals", name+".md"), []byte("# one\n\nx\n"), 0o600)
-	os.MkdirAll(filepath.Join(conf, "proposals", "dream"), 0o700)
-	os.WriteFile(filepath.Join(conf, "proposals", "dream", name+".md"), []byte("# two\n\ny\n"), 0o600)
+	// Two names equal past the slug's cut: the second gets -2, which must
+	// still fit an ID.
+	os.WriteFile(filepath.Join(conf, "proposals", strings.Repeat("p", 130)+"a.md"), []byte("# one\n\nx\n"), 0o600)
+	os.WriteFile(filepath.Join(conf, "proposals", strings.Repeat("p", 130)+"b.md"), []byte("# two\n\ny\n"), 0o600)
 	o := Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return fixed }}
 	res, err := ImportGlobal(o, false)
 	if err != nil {
@@ -258,5 +258,50 @@ func TestImportCustomDocsRoot(t *testing.T) {
 	}
 	if got := importedIDs(res); len(got) != 2 {
 		t.Errorf("want the open plan and the log it cites, got %v", keys(got))
+	}
+}
+
+// Round 2, finding 1: a -N suffix never lands on an ID another entry holds.
+func TestImportGlobalSuffixNeverCollides(t *testing.T) {
+	home := t.TempDir()
+	conf := filepath.Join(home, harness.StateDir, "proposals")
+	os.MkdirAll(conf, 0o700)
+	for _, n := range []string{"FOO", "foo-2", "foo"} {
+		os.WriteFile(filepath.Join(conf, n+".md"), []byte("# "+n+"\n\nbody "+n+"\n"), 0o600)
+	}
+	o := Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return fixed }}
+	res, err := ImportGlobal(o, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Records) != 3 || res.Skipped != 0 {
+		t.Errorf("three proposals, three records: got %d stored, %d skipped", len(res.Records), res.Skipped)
+	}
+}
+
+// Round 2, finding 2: a feedback line is stored as written, never expanded.
+func TestImportGlobalStoresTheLineAsWritten(t *testing.T) {
+	home := t.TempDir()
+	conf := filepath.Join(home, harness.StateDir)
+	os.MkdirAll(conf, 0o700)
+	line := `{"ts":"2026-10-25T13:40:00+02:00","corrected":"x","a":[[[[[[[[1]]]]]]]]}`
+	os.WriteFile(filepath.Join(conf, "feedback.jsonl"), []byte(line+"\n"), 0o600)
+	o := Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return fixed }}
+	res, err := ImportGlobal(o, false)
+	if err != nil || len(res.Records) != 1 {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if got := res.Records[0].rec.Body; got != line {
+		t.Errorf("the body is %d bytes, not the %d-byte line", len(got), len(line))
+	}
+}
+
+// Round 2: the file-count half of the read cap.
+func TestImportCapsFileCount(t *testing.T) {
+	old := maxImportFiles
+	maxImportFiles = 5
+	defer func() { maxImportFiles = old }()
+	if _, err := Import(opts(docsFixture(t), t.TempDir()), "", true); !IsRefusal(err) || !strings.Contains(err.Error(), "files") {
+		t.Fatalf("an import past the file cap must be refused, got %v", err)
 	}
 }

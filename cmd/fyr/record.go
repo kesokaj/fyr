@@ -133,7 +133,8 @@ func runRecord(c *ctx) error {
 
 // printImport is what an import did, and every file the caller removes by
 // name afterwards (D13): the import itself removes nothing. Each path is one
-// shell word (brain.ShellQuote): the lists are pasted into `git rm`.
+// shell word (brain.ShellQuote), and git is told to read them literally: a
+// tracked name can hold a glob or start with a dash.
 func printImport(c *ctx, res *brain.ImportResult) {
 	p := func(format string, a ...any) { fmt.Fprintln(c.out, search.Printable(fmt.Sprintf(format, a...))) }
 	head := "import"
@@ -152,7 +153,7 @@ func printImport(c *ctx, res *brain.ImportResult) {
 		p("problem  %s", s)
 	}
 	if len(res.Remove) > 0 {
-		p("remove with git rm by name, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
+		p("remove with git rm --literal-pathspecs -- and these paths, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
 		for _, f := range res.Remove {
 			p("%s", brain.ShellQuote(f))
 		}
