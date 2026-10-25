@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -81,6 +83,9 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		return nil, err
 	}
 	defer tx.Rollback()
+	if err := rewriteFileRefs(tx); err != nil {
+		return nil, err
+	}
 	put := func(sid, kind, ref, value string, ts int64) error {
 		_, err := tx.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(session_id, kind, ref) DO UPDATE SET value = excluded.value, ts = excluded.ts`, sid, ts, kind, ref, value)
@@ -145,7 +150,7 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		}
 		for _, rel := range trailFiles(root, docs, "handoffs", "*.md") {
 			for _, id := range owners(at(rel)) {
-				if err := put(id, "handoff", filepath.Base(rel), "", at(rel)); err != nil {
+				if err := put(id, "handoff", fileRef("handoff", rel), "", at(rel)); err != nil {
 					return nil, err
 				}
 			}
@@ -156,7 +161,7 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 				continue
 			}
 			for _, id := range owners(at(rel)) {
-				if err := put(id, "verifier", filepath.Base(rel), m[1], at(rel)); err != nil {
+				if err := put(id, "verifier", fileRef("testing", rel), m[1], at(rel)); err != nil {
 					return nil, err
 				}
 			}
@@ -168,7 +173,7 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 			}
 			v := "high=" + strconv.Itoa(n["high"]) + ",medium=" + strconv.Itoa(n["medium"]) + ",low=" + strconv.Itoa(n["low"])
 			for _, id := range owners(at(rel)) {
-				if err := put(id, "review", filepath.Base(rel), v, at(rel)); err != nil {
+				if err := put(id, "review", fileRef("review", rel), v, at(rel)); err != nil {
 					return nil, err
 				}
 			}
@@ -189,6 +194,63 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		}
 	}
 	return notes, tx.Commit()
+}
+
+// refKinds is each trail event's record kind: the kind whose ID its ref is.
+var refKinds = map[string]string{"handoff": "handoff", "verifier": "testing", "review": "review"}
+
+// fileRef is a trail file's event reference: the ID the import gives it, so
+// the same item keeps one reference before and after the project migrates.
+func fileRef(kind, rel string) string {
+	return brain.ImportedID(kind, strings.TrimSuffix(filepath.Base(rel), ".md"))
+}
+
+// rewriteFileRefs turns the file-name references an older ingest stored
+// into ID form, inside the join's transaction. A row whose ID form the
+// session already holds is a duplicate and is deleted. A ref already in ID
+// form is left alone even when it ends in .md (notes.md.md imports as
+// HANDOFF-notes.md), so a later run changes nothing.
+func rewriteFileRefs(tx *sql.Tx) error {
+	type row struct{ sid, kind, ref string }
+	rows, err := tx.Query(`SELECT session_id, kind, ref FROM events
+		WHERE kind IN ('handoff', 'verifier', 'review') AND ref GLOB '*.md'`)
+	if err != nil {
+		return err
+	}
+	var old []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.sid, &r.kind, &r.ref); err != nil {
+			rows.Close()
+			return err
+		}
+		old = append(old, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range old {
+		// ImportedID(kind, "") is the kind's prefix and dash; a ref that is
+		// that prefix plus a slug the rule leaves as it is is an ID already.
+		k := refKinds[r.kind]
+		if tail, ok := strings.CutPrefix(r.ref, brain.ImportedID(k, "")); ok && brain.ImportedID(k, tail) == r.ref {
+			continue
+		}
+		res, err := tx.Exec(`UPDATE OR IGNORE events SET ref = ? WHERE session_id = ? AND kind = ? AND ref = ?`,
+			fileRef(k, r.ref), r.sid, r.kind, r.ref)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			if _, err := tx.Exec(`DELETE FROM events WHERE session_id = ? AND kind = ? AND ref = ?`, r.sid, r.kind, r.ref); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // commitsIn lists root's commits between the earliest window start and the

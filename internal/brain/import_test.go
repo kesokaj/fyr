@@ -435,3 +435,50 @@ func TestImportRemovesGitkeeps(t *testing.T) {
 		t.Errorf("both .gitkeep files are removed and none imported: %d listed, %d records", n, len(res.Records))
 	}
 }
+
+// TestImportedID pins the metrics join's reference rule to the import: each
+// fixture file, kept through a README reference to its expected ID, imports
+// under exactly that ID (plan 2026-10-25-1754, Phase 1).
+func TestImportedID(t *testing.T) {
+	cases := []struct{ dir, kind, stem, want string }{
+		{"handoffs", "handoff", "2026-10-25-1812-plain", "HANDOFF-2026-10-25-1812-plain"},
+		{"handoffs", "handoff", "2026-10-25-1813-Upper Case", "HANDOFF-2026-10-25-1813-upper-case"},
+		{"testing", "testing", "2026-10-25-verify-a+b", "TEST-2026-10-25-verify-a-b"},
+		{"testing", "testing", "2026-10-25-verify-trailing.", "TEST-2026-10-25-verify-trailing"},
+		{"reviews", "review", "2026-10-25-1900-Review  of+X.", "REVIEW-2026-10-25-1900-review-of-x"},
+	}
+	dir := repo(t)
+	var readme strings.Builder
+	for _, c := range cases {
+		if got := ImportedID(c.kind, c.stem); got != c.want {
+			t.Errorf("ImportedID(%q, %q) = %q, want %q", c.kind, c.stem, got, c.want)
+		}
+		p := filepath.Join(dir, ".agents", "docs", c.dir, c.stem+".md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("# "+c.stem+"\n\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		readme.WriteString("See " + c.want + ".\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte(readme.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "fixture")
+	res, err := Import(opts(dir, t.TempDir()), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := map[string]string{}
+	for _, r := range res.Records {
+		byPath[r.Path] = r.ID
+	}
+	for _, c := range cases {
+		rel := filepath.ToSlash(filepath.Join(".agents", "docs", c.dir, c.stem+".md"))
+		if got := byPath[rel]; got != c.want {
+			t.Errorf("the import gives %s the ID %q, want %q (records: %v)", rel, got, c.want, byPath)
+		}
+	}
+}

@@ -310,6 +310,13 @@ func section(body, name string) string {
 	return strings.TrimSpace(strings.Join(lines[start:], "\n"))
 }
 
+// ImportedID is the ID the import gives the trail file with this stem (its
+// base name without .md) in this kind's directory: the kind's prefix, a
+// dash, slugOf(stem). The metrics join keys its events to it, so a project's
+// migration adds no duplicate (plan 2026-10-25-1754 D10). A -N suffix a
+// later collision adds is not reproduced.
+func ImportedID(kind, stem string) string { return prefixes[kind] + "-" + slugOf(stem) }
+
 func slugOf(stem string) string {
 	s := strings.Trim(slugBad.ReplaceAllString(strings.ToLower(stem), "-"), "-._")
 	// 120, not the 128 an ID's slug may hold: room for a -N a collision adds.
@@ -463,7 +470,7 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 				// specs/<app>/<topic>.md is SPEC-<app>-<topic>.
 				stem = strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(f.rel, "specs/"), ".md"), "/", "-")
 			}
-			r := Record{ID: prefixes[kind] + "-" + slugOf(stem), Kind: kind}
+			r := Record{ID: ImportedID(kind, stem), Kind: kind}
 			switch kind {
 			case "plan":
 				r.Status = planStatus(body)

@@ -91,14 +91,14 @@ func TestJoinEvents(t *testing.T) {
 	}
 	rows.Close()
 	want := map[string]string{
-		"S1 commit " + sha1:                  "",
-		"S1 handoff 2026-10-08-1015-x.md":    "",
-		"S1 verifier 2026-10-08-verify-x.md": "PASS",
-		"S1 review 2026-10-08-review-x.md":   "high=1,medium=0,low=2",
-		"S1 bug BUG-007":                     sha1,
-		"S1 correction 2026-10-08T10:05:00Z": "",
-		"S2 commit other":                    "ambiguous",
-		"S3 commit other":                    "ambiguous",
+		"S1 commit " + sha1:                    "",
+		"S1 handoff HANDOFF-2026-10-08-1015-x": "",
+		"S1 verifier TEST-2026-10-08-verify-x": "PASS",
+		"S1 review REVIEW-2026-10-08-review-x": "high=1,medium=0,low=2",
+		"S1 bug BUG-007":                       sha1,
+		"S1 correction 2026-10-08T10:05:00Z":   "",
+		"S2 commit other":                      "ambiguous",
+		"S3 commit other":                      "ambiguous",
 	}
 	for k, v := range want {
 		if gv, ok := got[k]; !ok || gv != v {
@@ -118,6 +118,117 @@ func TestJoinEvents(t *testing.T) {
 	s.db.QueryRow(`SELECT count(*) FROM events`).Scan(&again)
 	if again != n {
 		t.Fatalf("second join: %d events, want %d", again, n)
+	}
+}
+
+// events is every stored event as "session kind ref=value", sorted.
+func events(t *testing.T, s *Store) []string {
+	t.Helper()
+	rows, err := s.db.Query(`SELECT session_id, kind, ref, value FROM events ORDER BY 1, 2, 3`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var sid, kind, ref, value string
+		if err := rows.Scan(&sid, &kind, &ref, &value); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, sid+" "+kind+" "+ref+"="+value)
+	}
+	return out
+}
+
+// The file join keys a handoff, verifier log and review to the ID the
+// import gives the file (plan 2026-10-25-1754 D10), so a stem the import
+// slugs is stored slugged.
+func TestJoinFilesRefs(t *testing.T) {
+	s, home, _ := eventsFixture(t)
+	var root string
+	s.db.QueryRow(`SELECT project_root FROM sessions WHERE id = 'S1'`).Scan(&root)
+	day := time.Date(2026, 10, 8, 10, 12, 0, 0, time.UTC)
+	os.WriteFile(filepath.Join(root, ".agents", "docs", "handoffs", "2026-10-08-1012-Upper Case+x.md"), []byte("handoff\n"), 0o644)
+	gitT(t, root, day, "add", ".agents")
+	gitT(t, root, day, "commit", "-q", "-m", "second handoff")
+	if _, err := s.joinEvents(home); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id = 'S1' AND kind = 'handoff' AND ref = 'HANDOFF-2026-10-08-1012-upper-case-x'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("the slugged handoff is not stored by its ID: %v", events(t, s))
+	}
+	s.db.QueryRow(`SELECT count(*) FROM events WHERE ref LIKE '%.md'`).Scan(&n)
+	if n != 0 {
+		t.Errorf("the file join stored %d file-name refs: %v", n, events(t, s))
+	}
+}
+
+// The rewrite turns an older ingest's file-name refs into ID form, drops the
+// one a session already holds in ID form, leaves every other kind alone, and
+// is a no-op the second time.
+func TestRefRewrite(t *testing.T) {
+	s, home, _ := eventsFixture(t)
+	for _, e := range [][4]string{
+		{"S1", "handoff", "2026-10-08-1015-x.md", ""}, // what an older ingest stored for the fixture's own handoff
+		{"S2", "handoff", "Lone Handoff.md", ""},
+		{"S2", "verifier", "2026-01-01-verify-y.md", "FAIL"},
+		{"S2", "review", "R+1.md", "high=0,medium=1,low=0"},
+		{"S3", "handoff", "dup.md", "old"},
+		{"S3", "handoff", "HANDOFF-dup", "new"},
+		{"S3", "handoff", "HANDOFF-notes.md", ""}, // already an ID: a file notes.md.md imports as this
+		{"S3", "commit", "c.md", ""},
+		{"S3", "bug", "BUG-010.md", "abc"},
+		{"S3", "correction", "x.md", ""},
+	} {
+		if _, err := s.db.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, 1, ?, ?, ?)`, e[0], e[1], e[2], e[3]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.joinEvents(home); err != nil {
+		t.Fatal(err)
+	}
+	got := events(t, s)
+	has := map[string]bool{}
+	for _, e := range got {
+		has[e] = true
+	}
+	for _, want := range []string{
+		"S1 handoff HANDOFF-2026-10-08-1015-x=",
+		"S2 handoff HANDOFF-lone-handoff=",
+		"S2 verifier TEST-2026-01-01-verify-y=FAIL",
+		"S2 review REVIEW-r-1=high=0,medium=1,low=0",
+		"S3 handoff HANDOFF-dup=new",
+		"S3 handoff HANDOFF-notes.md=",
+		"S3 commit c.md=",
+		"S3 bug BUG-010.md=abc",
+		"S3 correction x.md=",
+	} {
+		if !has[want] {
+			t.Errorf("missing %q in %v", want, got)
+		}
+	}
+	for _, e := range got {
+		for _, gone := range []string{"S1 handoff 2026-10-08-1015-x.md", "S3 handoff dup.md"} {
+			if strings.HasPrefix(e, gone) {
+				t.Errorf("left behind: %q", e)
+			}
+		}
+		if f := strings.Fields(e); (f[1] == "handoff" || f[1] == "verifier" || f[1] == "review") && strings.Contains(f[2], ".md=") && f[2] != "HANDOFF-notes.md=" {
+			t.Errorf("a file-name ref survived: %q", e)
+		}
+	}
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id = 'S1' AND kind = 'handoff'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("S1 holds %d handoff events for one file, want 1", n)
+	}
+	if _, err := s.joinEvents(home); err != nil {
+		t.Fatal(err)
+	}
+	if again := events(t, s); strings.Join(again, "\n") != strings.Join(got, "\n") {
+		t.Errorf("a second join changed the store:\n%v\nwant\n%v", again, got)
 	}
 }
 
