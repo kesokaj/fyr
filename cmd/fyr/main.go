@@ -55,8 +55,8 @@ Commands:
   render                  print the assembled context file
   adopt <name|path>       copy a skill installed elsewhere into the repo's skills/ (--force to replace)
   search [--limit N] [--kind K] [--global] <words...>  ranked search of the brain store's records (this project's and the global ones; --global every scope), printed first as ID, kind, status, date, title and snippet, then of every file and trail record in this git checkout: path:line, kind, record status, snippet; the index (.agents/scratch/search.db) is reconciled against git first, so it never answers from another branch
-  search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]  every record naming an ID, a file or a directory (trailing /), with the ID's own status
-  search --open [--kind K] [--global]  open bugs and plans with unticked boxes
+  search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]  every record naming an ID, a file or a directory (trailing /), with the ID's own status: the brain store's records first, then the files
+  search --open [--kind K] [--global]  open bugs and plans with unticked boxes: the brain store's open records first (also current specs, deploy docs and guides, queued proposals), then the files
       --global searches the global search index (~/.config/fyr/search.db): ~/.config/fyr's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory; --limit 1-50, default 10, for the records and the files each
   index [--global] [--rebuild]  reconcile the search index, or delete and rebuild it, and print its counts
   memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, as the record MEMORY-SLUG in this project's scope of the brain store, replacing one of the same name; never exported (T: user, feedback, project or reference); every session writes memory this way (R10, D14)
@@ -705,9 +705,7 @@ func runSearch(c *ctx) error {
 	if c.cmd == "index" {
 		err = search.Index(o, c.out)
 	} else if err = search.Validate(o); err == nil {
-		if len(o.Words) > 0 {
-			recordHits(c, o)
-		}
+		recordHits(c, o)
 		err = search.Search(o, c.out)
 	}
 	if search.IsUsage(err) {

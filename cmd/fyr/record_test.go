@@ -278,3 +278,21 @@ func TestRecordImport(t *testing.T) {
 		t.Errorf("import --open must be a usage error: %v %q", err, out)
 	}
 }
+
+// D30: search --refs and --open print the records first, as a words search
+// does.
+func TestSearchRefsAndOpenPrintRecords(t *testing.T) {
+	recordRepo(t)
+	home := t.TempDir()
+	if out, err := recordCmd(t, "Broke in `cmd/fyr/zebra.go`.\n", "record", "add", "bug", "--title", "zebra broke", "--home", home); err != nil {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	out, err := recordCmd(t, "", "search", "--refs", "cmd/fyr/zebra.go", "--kind", "bug", "--home", home)
+	if err != nil || !strings.Contains(out, "BUG-001") || !strings.Contains(out, "records: 1 naming") {
+		t.Errorf("search --refs: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "search", "--open", "--home", home)
+	if err != nil || !strings.Contains(out, "BUG-001") || !strings.Contains(out, "records: 1 open") {
+		t.Errorf("search --open: %q %v", out, err)
+	}
+}
