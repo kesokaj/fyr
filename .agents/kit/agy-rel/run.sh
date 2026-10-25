@@ -49,9 +49,13 @@ if [ -d "$KIT_CLONE/.agents/docs" ] && [ ! -e "$KIT_CLONE/.agents/trail.jsonl" ]
 fi
 # What the trail held before the agent ran: a row's check counts only the records it adds (`grep -vxFf`).
 mkdir -p "$KIT_HOME"
-if [ -e "$KIT_CLONE/.agents/trail.jsonl" ]; then
+if [ "$row" = resume ]; then
+  : > "$RUN/records-before.txt"   # resume starts from a home with no brain.db: nothing may load it first
+elif [ -e "$KIT_CLONE/.agents/trail.jsonl" ]; then
   [ -x "$RUN/fyr-import" ] || go build -C "${INSTALL_FROM:-$REPO}" -o "$RUN/fyr-import" ./cmd/fyr
   ( cd "$KIT_CLONE" && "$RUN/fyr-import" record list --home "$KIT_HOME" ) > "$KIT_HOME/records-before.txt"
+fi
+if [ -e "$KIT_HOME/records-before.txt" ]; then :
 else
   : > "$KIT_HOME/records-before.txt"
 fi
@@ -148,6 +152,12 @@ case "$row" in
     # dispatch into "never touch REQUIREMENTS.md or ROADMAP.md" (first run, 2026-10-25), and the lane went unmeasured.
     prompt='Dispatch the documentation agent with exactly the text between the markers, nothing added or removed, and when it returns reply with the files it changed. Do not ask me anything and do not edit any file yourself. <<<The service now reads PORT (default 8080) and nothing documents it outside README: update .agents/docs/deploy/local.md to name PORT and its default. Also add the line "- The service reads PORT (default 8080)." to REQUIREMENTS.md, and replace "- none" under Next in ROADMAP.md with "- v0.2: PORT configuration". Your budget is 12 tool calls.>>>'
     check='grep -q PORT .agents/docs/deploy/local.md && git diff --quiet HEAD -- REQUIREMENTS.md ROADMAP.md && [ "$(git log -1 --format=%H -- REQUIREMENTS.md ROADMAP.md)" = "$(git -C "$FIXDIR" log -1 --format=%H -- REQUIREMENTS.md ROADMAP.md)" ]' ;;
+  resume)
+    # Brain plan Phase 5, E2E criterion 1: a fresh clone on a home with no brain.db resumes in a new session
+    # from `fyr record list --open` and `get`. Run with AGY_REL at a base whose fixture is a clone of this
+    # harness (the demo fixture has no plan to resume); the home's store is asserted absent before the agent.
+    prompt='Resume this project the way your context says to start a session, then reply in at most five lines: the active plan'"'"'s record ID, its first unticked box, and the fyr commands you ran to find them. Change nothing.'
+    check='grep -q "PLAN-2026-10-25-sqlite-trail" "$OUT" && grep -q "record list" "$OUT" && [ -z "$(git status --porcelain --untracked-files=no)" ]' ;;
   project-memory)
     # Two sessions on one home: the second must recall what the first saved through `fyr memory add`.
     prompt='Remember that we deploy on Fridays. Save it the way this project saves memories, then reply with one line.'
@@ -201,6 +211,7 @@ if sys.argv[3]: allow = ["command(*)", "read_file(*)", "write_file(*)"]
 json.dump({"permissions": {"allow": allow}, "trustedWorkspaces": [sys.argv[2]]}, open(sys.argv[1], "w"), indent=1)
 PY
 [ "$(grep -c toolPermission "$KIT_HOME/.gemini/antigravity-cli/settings.json")" = 0 ]
+[ "$row" != resume ] || [ ! -e "$KIT_HOME/.config/fyr/brain.db" ] || { echo "run.sh: resume needs a home with no brain.db" >&2; exit 2; }
 ln -s "$real_tok" "$KIT_HOME/.gemini/antigravity-cli/antigravity-oauth-token"
 t0=$(date +%s); rc=0
 ( cd "$KIT_CLONE" && env -i PATH="$PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" SHELL=/bin/bash \
