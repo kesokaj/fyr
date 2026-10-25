@@ -33,13 +33,10 @@ id_ed25519
 id_ecdsa
 id_dsa
 
-# Claude Code's view of the repo's own skills, created by `npx skills add` (symlinks into .agents/skills).
-/.claude/
 /agent/
 
 
 # Agent scratch space: generated and temporary files, never committed.
 .agents/scratch/*
 !.agents/scratch/.gitkeep
-.claude/settings.local.json
 .agents/memory

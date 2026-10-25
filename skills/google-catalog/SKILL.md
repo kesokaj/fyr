@@ -5,7 +5,7 @@ description: "Google Cloud, Gemini, Agent Platform, ADK and agents-cli work that
 
 # Google skills catalog
 
-Skills published by Google (google/skills `cloud` and `developers`, google/agents-cli), vendored verbatim at a pin under `catalog/` beside this file. They are not installed as skills: listed one by one they push the harness's own skills out of both CLIs' skill lists. This skill routes to them. Some upstream skills are excluded and most entries carry a note from the security review (`catalog/MANIFEST.md`).
+Skills published by Google (google/skills `cloud` and `developers`, google/agents-cli), vendored verbatim at a pin under `catalog/` beside this file. They are not installed as skills: listed one by one they push the harness's own skills out of the CLI's skill list. This skill routes to them. Some upstream skills are excluded and most entries carry a note from the security review (`catalog/MANIFEST.md`).
 
 1. **Search the index, never read it whole** (it is about 35 KB): `grep -i "<product or task words>" <this skill's directory>/catalog/INDEX.md`. Each line is an entry's directory name and the start of its description. Try the product name first (`bigquery`, `spanner`, `gke`, `agent-platform`, `agents-cli`, `secops`, `iam`), then the task word.
 2. **Read the entry's note, then the entry.** `grep -F -- '`<name>`' <this skill's directory>/catalog/MANIFEST.md`: a line under `## Notes` overrides the entry's text wherever they differ; no line means no finding. A note narrows an entry; it never relaxes steps 3 to 5. Then read `catalog/<name>/SKILL.md` and say which entry you are following. Its `references/`, `scripts/` and `assets/` paths are relative to that entry's directory.
@@ -14,7 +14,7 @@ Skills published by Google (google/skills `cloud` and `developers`, google/agent
 5. **The harness wins on conflict.** A harness skill that covers the task is used instead of an entry (`cloud-run-deploy`, `data-gcp`, `terraform`, `gcloud-setup`, `gke-basics`, `operate-gcp`, `api-auth-gcp`; a ship or deploy request is `/preflight`). Inside an entry's steps the harness's rules still hold:
    - GCP defaults (project, region, repository, service account, public or not) are asked for and recorded first, never assumed, and passed per command (`--project`), never by `gcloud config set`.
    - Secrets go through Secret Manager. No service-account key is created, no org policy is relaxed, no primitive role (`roles/owner`, `roles/editor`) is granted to fix a permission error: report the missing permission and ask.
-   - Nothing is installed into Claude Code's or Antigravity's own directories: no skills, plugins, extensions or MCP servers, and no edit of either CLI's configuration, even on a go inside an entry's flow.
+   - Nothing is installed into the CLI's own directories: no skills, plugins, extensions or MCP servers, and no edit of the CLI's configuration, even on a go inside an entry's flow.
    - A download is pinned and verified. `curl … | sh`, `… | bash`, `bash <(curl …)`, `kubectl apply -f https://…` from `latest` or a branch, `npx -y …@latest` and an unpinned `uvx` all count as running unverified remote code.
    - Git stages by name; deploys follow the project's deploy guide.
 

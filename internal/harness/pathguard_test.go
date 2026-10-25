@@ -129,7 +129,7 @@ func TestSkillFilesAndAdoptCopiesRefuseSymlinks(t *testing.T) {
 
 // context/, agents/, rules/, commands/ and workflows/ are read with
 // os.ReadFile, which follows a link and would deploy the TARGET'S bytes into
-// every consumer home — and for context/ into the AGENTS.md both CLIs send to
+// every consumer home — and for context/ into the AGENTS.md the CLI sends to
 // the model. The skill walk and adopt's copy already refuse links; these
 // readers must too (BUG-036).
 func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {

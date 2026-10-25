@@ -36,6 +36,6 @@ drift: every file that says to stage files one by one by name instead of adding 
 drift: every file that says commits carry no co-author trailer	README.md,cmd/sh-agent/main.go,context/AGENTS.md
 drift: every file that says the deployed context ends with a check word so truncation shows	.agents/docs/testing/guide.md,AGENTS.md,README.md,internal/harness/render.go
 drift: every file that says the update check only reports and signals when the install is behind	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,cmd/sh-agent/main.go
-drift: every file that says install sets exactly one claude code setting	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,REQUIREMENTS.md,cmd/sh-agent/main.go
+drift: every file that says install edits no vendor setting	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,REQUIREMENTS.md,cmd/sh-agent/main.go
 refs BUG-049: records that mention BUG-049	.agents/docs/architecture/DECISIONS.md,.agents/docs/bugs/BUG-046-update-installs-dirty-tree.md,.agents/docs/bugs/BUG-049-dirty-check-untracked-files-config.md,.agents/docs/bugs/INDEX.md,.agents/docs/deploy/remote.md,.agents/docs/handoffs/2026-09-16-board-cleared.md,.agents/docs/plans/2026-09-16-clear-the-board.md,.agents/docs/reviews/2026-09-16-review-4aa19be-HEAD-docs.md
 open plan: plans with unticked boxes	.agents/docs/plans/2026-09-30-audit-fix.md

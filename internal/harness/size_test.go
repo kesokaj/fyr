@@ -86,7 +86,7 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 	t.Logf("hand-written context is %d bytes (render %d with the inventory), target %d", len(written), len(ctx), renderedContextTargetBytes)
 }
 
-// TestSkillListingBudget pins what both CLIs must list at session start: the
+// TestSkillListingBudget pins what the CLI must list at session start: the
 // names and descriptions of every model-invocable skill. Claude Code shows
 // descriptions for about 19,800 bytes of them and bare names beyond that
 // (measured 2026-10-01 with 173 skills installed: descriptions stopped after

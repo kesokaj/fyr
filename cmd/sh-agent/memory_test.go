@@ -14,8 +14,8 @@ import (
 	"testing"
 )
 
-// TestMemoryVerb runs `memory add` then `memory show` the way a session on
-// either CLI calls them: flags after the subcommand, a description with
+// TestMemoryVerb runs `memory add` then `memory show` the way a session
+// calls them: flags after the subcommand, a description with
 // spaces, the body on stdin.
 func TestMemoryVerb(t *testing.T) {
 	root := t.TempDir()

@@ -22,7 +22,7 @@ This skill is the only writer of that log — there is no hook behind it — so 
 Append an entry when ANY of these occur:
 
 1. **Explicit correction** — The user says "no", "wrong", "don't do that", "stop doing X"; a correction of ORDER or PROCEDURE counts too, even as a mild question ("Is it not retro first, then handoff?")
-2. **Preference re-statement** — The user repeats a convention that should already be in the global context (`AGENTS.md`, deployed as `~/.claude/AGENTS.md` and `~/.gemini/config/rules/AGENTS.md`) or a skill
+2. **Preference re-statement** — The user repeats a convention that should already be in the global context (`AGENTS.md`, deployed as `~/.gemini/config/rules/AGENTS.md`) or a skill
 3. **Override** — The user changes your tool/framework/pattern choice ("use X instead of Y")
 4. **Format correction** — The user asks you to restructure or reformat output
 5. **Knowledge gap** — You had to ask about something the harness should have told you
@@ -87,7 +87,7 @@ Append one JSON object per line to `~/.config/sh-agent/feedback.jsonl`. If the d
 4. **Keep `user_quote` short.** Extract the key phrase, not the full paragraph.
 5. **Set `rule_ref` accurately, in the vocabulary above.** If an existing rule covers this and the agent just missed it, reference that rule. If no rule exists, set to `null`.
 6. **One entry per correction.** If the user makes three corrections in one message, write three entries.
-7. **Also save it as a memory, on every CLI.** When this skill logs a correction or a re-stated preference, also save it with `sh-agent memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. Claude Code's own auto memory is switched off per project (R10), so this verb is the one writer on both CLIs; the `project-memory` skill covers memories that are not corrections. When the verb refuses (an untrusted store, a path git would commit), say why in one line and go on: the log entry above is already written.
+7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `sh-agent memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (an untrusted store, a path git would commit), say why in one line and go on: the log entry above is already written.
 
 ## Where the loop's outputs land
 

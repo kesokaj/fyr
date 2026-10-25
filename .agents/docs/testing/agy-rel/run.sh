@@ -94,7 +94,7 @@ go run -C "${INSTALL_FROM:-$REPO}" ./cmd/sh-agent install --home "$KIT_HOME" > "
 [ -z "$wide" ] || echo "run.sh: row $row runs with command(*) in its throwaway clone (skill-matrix.md § Procedure): $wide"
 python3 -I - "$KIT_HOME/.gemini/antigravity-cli/settings.json" "$KIT_CLONE" "$wide" <<'PY'
 import json, sys
-allow = ["command(%s)" % c for c in "git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff sh-agent chmod readlink bash python3 sleep".split()] + ["read_file(*)", "write_file(*)"]
+allow = ["command(%s)" % c for c in "git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff sh-agent chmod readlink bash python3 sleep govulncheck".split()] + ["read_file(*)", "write_file(*)"]
 if sys.argv[3]: allow = ["command(*)", "read_file(*)", "write_file(*)"]
 json.dump({"permissions": {"allow": allow}, "trustedWorkspaces": [sys.argv[2]]}, open(sys.argv[1], "w"), indent=1)
 PY

@@ -55,7 +55,7 @@ The first rule that applies wins:
 2. `--home H` → `H/.gemini/antigravity-cli`
 3. the real home
 
-`~/.claude/projects` is never read, and `CLAUDE_CONFIG_DIR` is ignored.
+Ingest reads only the Antigravity CLI's directory; there is no other source.
 
 ### `ingest` output and exit status
 

@@ -1,1 +1,0 @@
-This is a new project. Set it up and work exactly the way your global context says you work on a real project (scaffold it, then follow your normal workflow and Definition of Done for a feature). There is no git remote: skip pushing.

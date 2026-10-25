@@ -61,7 +61,7 @@ keeps the value in the work clones, and writes
 `INDEX.md` and
 `CHECKSUMS` through the Go tests, which then pin the tree both ways (`TestCatalogMatchesChecksums`,
 `TestCatalogIndexMatchesEntries`, `TestCatalogFilesAreCarryable`). Installed as global skills
-these skills push the harness's own out of both CLIs' skill lists
+these skills push the harness's own out of the CLI's skill list
 (`.agents/docs/plans/2026-10-01-research-google-skills-catalog.md`), so they stay behind the
 `google-catalog` router. A refresh's diff gets a security review before it is committed.
 
@@ -69,8 +69,8 @@ Notes:
 
 - `grill-me` (a launcher for `grilling`) and `skill-repair` (repairs a `skills`-CLI manifest the
   harness does not use) were pruned 2026-09-03 after the sandbox matrix: `/grilling` does the same
-  job on both CLIs, and `sh-agent adopt` replaced the manifest repair.
-- `grilling` says "dispatch a sub-agent" to find a fact and names none; on both CLIs that agent is
+  job, and `sh-agent adopt` replaced the manifest repair.
+- `grilling` says "dispatch a sub-agent" to find a fact and names none; that agent is
   `explorer` (read-only recon), and the `--prompts` lens does not flag the vendored line for it.
 - `find-skills` is verbatim again at `435076e` (restored 2026-09-28). Its old local Step 6 edit, which routed installs into this repository, now lives in the global context's § Global vs project.
 - The UIZZE UI skill (uizze.com, v1.2.13, formerly a row above) and the Python skill were removed on
@@ -88,5 +88,5 @@ Notes:
   in `skills/` through the `.agents/skills` symlink), or copy any directory holding a `SKILL.md`
   into `skills/`, then `sh-agent install`. Add a row above. `sh-agent install` deploys exactly
   the repo's skills and removes only what it installed itself, so a skill installed by hand
-  into `~/.claude/skills` survives but is neither versioned nor deployed to Antigravity —
+  into `~/.gemini/config/skills` or `~/.agents/skills` survives but is not versioned —
   `sh-agent adopt <skill>` moves it in here.

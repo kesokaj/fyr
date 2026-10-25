@@ -23,7 +23,7 @@ Write a structured handoff document summarising the current conversation so a fr
 
 Cross-repo work gets its handoff in the project that owns the next step; there is no global handoff location.
 
-What a compaction must keep is the global context's `# Compact instructions` section, which Claude Code applies to its own summary when it compacts (measured 2026-10-24: 3 of 3 summaries, control 0 of 9; `testing/2026-10-24-verify-autocompact.md`); Antigravity reads the section as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name is `date +%F-%H%M` run in the same tool call that writes the file, never typed. (Moved from the global context 2026-10-01; the compaction clause moved back under its heading on 2026-10-24, plan session-sized-work D26.)
+What a compaction must keep is the global context's `# Compact instructions` section; Antigravity reads it as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name is `date +%F-%H%M` run in the same tool call that writes the file, never typed. (Moved from the global context 2026-10-01; the compaction clause moved back under its heading on 2026-10-24, plan session-sized-work D26.)
 
 ## Step 1: Scan the Session
 
@@ -77,7 +77,7 @@ date: YYYY-MM-DD
 ---
 # Handoff — YYYY-MM-DD — <topic>
 
-Session ID: <conversation-id>        (same machine: `claude --resume <id>` or `agy --conversation <id>`; matches the feedback log's session field)
+Session ID: <conversation-id>        (same machine: `agy --conversation <id>`; matches the feedback log's session field)
 Project: <absolute path to project root — the only absolute path in the file>
 Branch: <current git branch>
 
@@ -164,7 +164,7 @@ Reading side: the Resume Protocol in the global context tells every fresh sessio
 
 ### Cold-reader check — before the handoff counts as finished
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a tool-call budget below its `maxTurns`; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a tool-call budget the dispatch names; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file that does not exist.
@@ -188,7 +188,7 @@ Stage the handoff and anything Step 3 wrote, by name, then `git commit -m "Hando
 After saving, tell the user:
 
 1. Where the handoff document was saved (absolute path)
-2. "Run `/clear` (Claude Code) or start a new conversation (Antigravity), then paste:" followed by the Kickoff block verbatim (the nothing-queued line when that is the case). The paste is the whole path: no command prints the block (ADR-058a). Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
+2. "Start a new conversation, then paste:" followed by the Kickoff block verbatim (the nothing-queued line when that is the case). The paste is the whole path: no command prints the block (ADR-058a). Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
 3. A 1-sentence summary of the handoff content
 
 ## Cross-References

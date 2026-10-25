@@ -87,7 +87,7 @@ func validName(kind, file, name string) error {
 // own bytes: each managed directory, and every entry directly inside the flat
 // ones. os.DirFS follows a directory link on ReadDir and Glob and a file link
 // on ReadFile, so either deploys bytes from outside the repo into every
-// consumer home — and for context/ into the AGENTS.md both CLIs send to the
+// consumer home — and for context/ into the AGENTS.md the CLI sends to the
 // model (BUG-036). One check at the boundary, so no reader can forget it. It
 // runs only for a tree on disk: the embedded files hold no link.
 func checkManagedTree(src Source) error {
@@ -149,7 +149,7 @@ func LoadInventory(src Source) (Inventory, error) {
 
 // LoadSkills reads every skills/<name>/SKILL.md. A directory without a
 // SKILL.md is ignored; one with a SKILL.md but no description is an error,
-// because the description is the only thing either CLI shows the model.
+// because the description is the only thing the CLI shows the model.
 func LoadSkills(src Source) ([]Skill, error) {
 	entries, err := fs.ReadDir(src.FS, "skills")
 	if err != nil {
@@ -409,7 +409,7 @@ func RenderInventory(inv Inventory) string {
 }
 
 // RenderInventoryCompact is the form embedded in the deployed context: names
-// only. Both CLIs inject every skill's description at session start anyway,
+// only. The CLI injects every skill's description at session start anyway,
 // so repeating descriptions there would spend tokens on what is already
 // present; `sh-agent list` prints the full table.
 func RenderInventoryCompact(inv Inventory) string {

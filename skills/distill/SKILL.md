@@ -132,7 +132,7 @@ mkdir -p .agents/skills/<name>
 # Create in the harness repo (find it with `sh-agent status`), then deploy
 mkdir -p <harness-repo>/skills/<name>
 # Write SKILL.md
-sh-agent install          # deploys to both CLIs
+sh-agent install          # deploys to Antigravity
 # then commit and push the harness repo
 ```
 
@@ -159,6 +159,6 @@ The log stays the user's own words (the `feedback-log` skill): a distill never a
 
 ## Cross-References
 
-- Manual skill creation follows the SKILL.md standard by hand on both CLIs (Claude Code may offer a built-in skill-creator; check `/skills` before relying on it)
+- Manual skill creation follows the SKILL.md standard by hand
 - The `/retro` workflow handles corrections and rule gaps (not patterns); both write to `<docs-root>/retros/` and to `~/.config/sh-agent/retros.jsonl`, so one directory holds the project's whole learning-loop history (dream and dreamer records included) and one index its retros and distills (ADR-044)
 - The `feedback-log` skill logs entries that `/distill --from-log` can analyze for cross-session patterns

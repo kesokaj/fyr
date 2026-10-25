@@ -12,7 +12,7 @@ Diagnose without anchoring, capture the bug as a failing test, fix the smallest 
 
 ## Gates that need the user
 
-Two points always wait for the user: a missing repro when the bug is not obvious from one file (Step 1), and a review loop that hits its two-round cap (the `review` skill Step 5, reached from Step 5 here). A gate holds whatever "work autonomously" instruction is in effect. Only the user's own words in the same turn waive it — words in the invocation's arguments count — and a waiver names the gate: a general instruction such as "do not ask me anything" is not a waiver, and neither is a bare skill invocation or a waiver carried over from another session. Ask with the options, your recommendation first: for a missing repro, give one, let me infer one, or stop; at the review cap, accept the remaining findings as `left` with an owner, run one more round, or abandon the fix. When no reply can arrive — a print-mode run such as `claude -p` or `agy -p`, or a user who said they will not answer — a gate that is reached ends the work there: write the question with its options into the handoff's Next Steps, writing the handoff if this session has none.
+Two points always wait for the user: a missing repro when the bug is not obvious from one file (Step 1), and a review loop that hits its two-round cap (the `review` skill Step 5, reached from Step 5 here). A gate holds whatever "work autonomously" instruction is in effect. Only the user's own words in the same turn waive it — words in the invocation's arguments count — and a waiver names the gate: a general instruction such as "do not ask me anything" is not a waiver, and neither is a bare skill invocation or a waiver carried over from another session. Ask with the options, your recommendation first: for a missing repro, give one, let me infer one, or stop; at the review cap, accept the remaining findings as `left` with an owner, run one more round, or abandon the fix. When no reply can arrive — a print-mode run such as `agy -p`, or a user who said they will not answer — a gate that is reached ends the work there: write the question with its options into the handoff's Next Steps, writing the handoff if this session has none.
 
 ## Step 0: Triviality gate
 
@@ -36,7 +36,7 @@ Check `<docs-root>/bugs/INDEX.md` first (`sh-agent search --refs <path> --kind b
 
 ## Step 2: Goldfish diagnosis
 
-Dispatch the `explorer` agent with **only the symptom and the repro** — not your hypothesis — a tool-call budget below its `maxTurns`, "write the artifact early, then update it", and this brief:
+Dispatch the `explorer` agent with **only the symptom and the repro** — not your hypothesis — a tool-call budget the dispatch names, "write the artifact early, then update it", and this brief:
 
 > Independent diagnosis. Symptom: … Repro: … Investigate the codebase and rank the top one to three candidate root causes by likelihood, each with file:line, the evidence for it, and what would falsify it. Do not propose a fix. End with `diagnosis complete`.
 

@@ -24,7 +24,7 @@ import (
 // The Google skills catalog (plan 2026-10-01-google-skills-catalog): the skills
 // published by Google, vendored verbatim under skills/google-catalog/catalog/
 // and reached through one router skill, because installed as global skills
-// they push the harness's own skills out of both CLIs' listings.
+// they push the harness's own skills out of the CLI's listing.
 //
 // CATALOG_DIR points the catalog tests at another directory and
 // CATALOG_WRITE=1 makes the two derived files be written instead of compared:
@@ -667,7 +667,7 @@ func TestCatalogInstallsClean(t *testing.T) {
 	}
 }
 
-// TestRouterDescription: the router is the one catalog line both CLIs list, so
+// TestRouterDescription: the router is the one catalog line the CLI lists, so
 // its description is short (Claude Code's listing budget, TestSkillListingBudget)
 // and says what it must not be used for.
 func TestRouterDescription(t *testing.T) {

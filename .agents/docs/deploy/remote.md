@@ -16,7 +16,7 @@ go run ./cmd/sh-agent install
 sh-agent status
 ```
 
-`install` writes only under `~/.gemini/config` and `~/.local/bin`; it never touches `~/.claude/settings.json` (ADR-062). Check `sh-agent status` ends with "drift none".
+`install` writes only under `~/.gemini/config` and `~/.local/bin` and edits no vendor setting (REQUIREMENTS.md § Non-goals, ADR-062). Check `sh-agent status` ends with "drift none".
 
 On a machine that installs from a RELEASE BINARY instead, the download is verified before it is moved and the install is verified after it — two different checks, and skipping the second is what BUG-078 cost:
 
@@ -50,7 +50,7 @@ which -a sh-agent                     # every candidate, in PATH order
 
 ## The four places
 
-The operator installs the harness in four places: the work Mac (Antigravity only), the home Mac (both CLIs), and two Linux hosts where they work on other projects (both CLIs). Every one is reached on the operator's own SSH key and `gh` login — there are no deploy keys and no per-machine credentials, because the operator authenticates as themselves everywhere and a key would restrict nothing (ADR-030 D1). A place gets the harness one of three ways, named in `.agents/docs/specs/sh-agent/delivery.md` § The model:
+The operator installs the harness in four places: the work Mac, the home Mac, and two Linux hosts where they work on other projects; at each the harness serves the Antigravity CLI. Every one is reached on the operator's own SSH key and `gh` login — there are no deploy keys and no per-machine credentials, because the operator authenticates as themselves everywhere and a key would restrict nothing (ADR-030 D1). A place gets the harness one of three ways, named in `.agents/docs/specs/sh-agent/delivery.md` § The model:
 
 - **A checkout the operator owns** — the normal path. First install as above; after that, `sh-agent update` whenever the operator decides the harness has changed. A timer (§ The resync loop) is a convenience a machine may add, not the mechanism.
 - **A release binary** — one downloaded `sh-agent` with `context/`, `skills/`, `agents/`, `commands/` and `rules/` built into it, for a place that only USES the harness and should not have a checkout of it sitting beside its projects. `sh-agent install` installs what the binary carries and copies the binary itself; `sh-agent status` shows `source embedded vX.Y.Z`; `sh-agent update` downloads the newest release, checks it against its `SHA256SUMS` and replaces `~/.local/bin/sh-agent`, so the place changes only when a release is cut. `sh-agent adopt` needs a checkout and says so. See `README.md` § Install without cloning and `local.md` § Update a release-binary install.
@@ -173,7 +173,7 @@ mkdir -p ../zipcheck232 && ../sh-agent-v2.3.2 update --from-zip styrman-harness-
 grep -q "VERIFIED against the signed SHA256SUMS of release v2.4.0" ../zipcheck232.out   # exit 0: a v2.3.2 place accepts v2.4.0
 ```
 
-The release notes are built as § Release notes below says. Before this repository is ever made public, read the trail for what it names (this box's login-shell credential broker, `/etc/profile.d/zz-styrman-credentials.sh`, is described in `bugs/BUG-160-*.md` § Addendum and the 2026-10-07 security reviews under `reviews/`): `.agents/docs/` carries hostnames (`spgo-mac.roam.internal`, `devbox`), machine paths (`/opt/devbox/deploy/harness`), links to the operator's private claude.ai artifacts (the "Harness Delivery Map" page, in the 2026-10-09 handoff and changes entry), and a report record's contents, all of which are fine inside a private repository and are internal identifiers outside one. There is no secret in them — that is checked every release — but publication is a separate decision from releasing, and this is the paragraph that says so (security review 2026-09-18).
+The release notes are built as § Release notes below says. Before this repository is ever made public, read the trail for what it names (this box's login-shell credential broker, `/etc/profile.d/zz-styrman-credentials.sh`, is described in `bugs/BUG-160-*.md` § Addendum and the 2026-10-07 security reviews under `reviews/`): `.agents/docs/` carries hostnames (`spgo-mac.roam.internal`, `devbox`), machine paths (`/opt/devbox/deploy/harness`), links to the operator's private web artifacts (the "Harness Delivery Map" page, in the 2026-10-09 handoff and changes entry), and a report record's contents, all of which are fine inside a private repository and are internal identifiers outside one. There is no secret in them — that is checked every release — but publication is a separate decision from releasing, and this is the paragraph that says so (security review 2026-09-18).
 
 Publishing a release changes NOTHING about the repository's visibility: `styrman-harness` stays private, the release page is readable only by accounts that can already read the repository, and every asset download needs that credential — which is what README § Install without cloning depends on. `gh repo view github.com/kesokaj/styrman-harness --json visibility` after the upload is the check; only a deliberate change in the repository's settings makes anything public.
 
@@ -205,7 +205,7 @@ Version: MINOR for anything an installed place gains (a new or changed skill, ag
 
 ## Verify
 
-Same as `local.md`: `sh-agent version` unqualified matching what was installed, `sh-agent status` with no drift and no `shadowed` line, then one start of each CLI. On the Mac, additionally confirm the Antigravity paths — passed 2026-09-04 (`.agents/docs/testing/2026-09-04-verify-mac-real-home.md`); re-run after a change that touches Antigravity-specific behavior and record the result there.
+Same as `local.md`: `sh-agent version` unqualified matching what was installed, `sh-agent status` with no drift and no `shadowed` line, then one start of the CLI. On the Mac, additionally confirm the Antigravity paths — passed 2026-09-04 (`.agents/docs/testing/2026-09-04-verify-mac-real-home.md`); re-run after a change that touches Antigravity-specific behavior and record the result there.
 
 ## Operator steps
 

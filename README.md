@@ -31,7 +31,7 @@ sh-agent status                   # ends with "drift none"
 
 Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search` and `metrics`.
 
-Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/sh-agent`); it never reads or writes `~/.claude`. A machine an older version installed for Claude Code keeps its `~/.claude/settings.json` keys (`attribution`, `autoCompactWindow`) as yours; the first install after the upgrade removes the `~/.claude` files that older install listed in its manifest, and nothing else there (ADR-062). And the harness's own state lives in `~/.config/sh-agent/` (feedback log, retro proposals, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
+Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/sh-agent`) and edits no vendor setting (ADR-062). And the harness's own state lives in `~/.config/sh-agent/` (feedback log, retro proposals, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
 
 ## Daily commands
 
@@ -45,7 +45,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `sh-agent list` / `render` | The skill and agent inventory; the assembled context as deployed. |
 | `sh-agent search <words>` | Ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `sh-agent index` maintains the index. |
 | `sh-agent memory add` / `show` | The project memory store (`.agents/memory/`), `show` prints the index a session loads at start. |
-| `sh-agent metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/sh-agent/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest reads Antigravity only; rows an older version stored for Claude Code are kept and shown as a historical column. Never arguments, prose or tool output. |
+| `sh-agent metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/sh-agent/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
 | `sh-agent dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals land under `~/.config/sh-agent/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |
 | `sh-agent adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `sh-agent version` | The build version. |
@@ -177,12 +177,12 @@ Every customization is a file in a directory: drop it in, run `sh-agent install`
 | Put it in | What it is | Antigravity gets |
 |---|---|---|
 | `skills/<name>/SKILL.md` | a skill (Agent Skills standard); loaded when its description matches, typed as `/name` | `~/.gemini/config/skills/<name>/` |
-| `agents/<name>.md` | a subagent in Claude Code's format (`name`, `description`, `tools`, `model`, …) | `~/.gemini/config/agents/<name>/agent.md`, tools and model translated |
+| `agents/<name>/agent.md` | a subagent in Antigravity's `agent.md` format (`name`, `description`, `subagent`, `mainAgent`, `model`, `tools`) | `~/.gemini/config/agents/<name>/agent.md`, as written |
 | `rules/<name>.md` | an always-on or path-scoped rule; it shares the context's 24,000-byte rules block | `~/.gemini/config/rules/<name>.md` |
 | `commands/<name>.md` | a plain markdown prompt invoked as `/name` (prefer a skill) | `~/.gemini/config/workflows/<name>.md` |
 | `context/<name>.md` | more global context, appended after `AGENTS.md` | part of `~/.gemini/config/rules/AGENTS.md` |
 
-The installer refuses what would grant a permission behind your back: a skill without a `description`, a skill or rule that sets `allowed-tools` or `hooks`, an agent with a key outside its allow-list, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity cannot map (an unknown name hangs its subagent). `AGENTS.md` § Rules for working here lists each refusal and why.
+The installer refuses what would grant a permission behind your back: a skill without a `description`, a skill or rule that sets `allowed-tools` or `hooks`, an agent with a key outside its allow-list, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `AGENTS.md` § Rules for working here lists each refusal and why.
 
 Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [skills.sh](https://skills.sh), `npx skills@<version> add <owner/repo> -s <skill>` lands in `skills/` through the `.agents/skills` symlink, then `sh-agent install` and commit. A skill you already installed globally comes in with `sh-agent adopt <name>`.
 

@@ -34,7 +34,7 @@ go vet ./...
 
 ## Project-Specific Standards
 
-<!-- Only list standards that DIFFER from the global context (~/.claude/AGENTS.md / ~/.gemini/config/rules/AGENTS.md). -->
+<!-- Only list standards that DIFFER from the global context (~/.gemini/config/rules/AGENTS.md). -->
 <!-- If nothing differs, delete this section. -->
 
 ## Testing
