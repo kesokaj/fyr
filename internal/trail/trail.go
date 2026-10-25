@@ -26,7 +26,9 @@ import (
 // Dates is, for every tracked file under docs, the time of its newest
 // commit (paths relative to root, slash-separated), and the set of those
 // tracked files whose working copy differs from HEAD. Both are empty when
-// git is absent or root is no checkout: every file then keeps its mtime.
+// git is absent, root is no checkout, or root is a partial clone this
+// machine's git cannot read safely (Readable): every file then keeps its
+// mtime.
 //
 // A working copy is compared by its raw bytes (`hash-object --no-filters`)
 // with HEAD's blob, so no clean filter runs: a file the repository filters
@@ -65,7 +67,7 @@ func Dates(root, docs string) (dates map[string]time.Time, modified map[string]b
 // answer, and the caller then treats every record as changed.
 func changed(root, docs string) (out map[string]bool, ok bool) {
 	out = map[string]bool{}
-	if PartialClone(root) {
+	if !Readable(root) {
 		return nil, false
 	}
 	tree, err := Command(root, "ls-tree", "-r", "-z", "--full-tree", "HEAD", "--", docs).Output()
@@ -130,7 +132,7 @@ func DocsRoot(root string) string {
 // (BUG-164), and GIT_NO_LAZY_FETCH, so a partial clone fails instead of
 // fetching through its own core.sshCommand (security review 2026-10-08,
 // round 2) on a git of 2.44 or later; an older git ignores the variable,
-// which is why a partial clone is not read at all (PartialClone). Every git
+// which is why a partial clone is read only on a newer git (Readable). Every git
 // call into a project repository (dream, metrics, search, memory) is built
 // here (BUG-165); internal/harness runs git only in the harness's own
 // checkout, which is the operator's.
@@ -144,17 +146,30 @@ func Command(root string, args ...string) *exec.Cmd {
 // Log runs `git log` in root with the hardened options and
 // --no-show-signature, and returns its stdout.
 func Log(root string, args ...string) ([]byte, error) {
-	if PartialClone(root) {
+	if !Readable(root) {
 		return nil, errPartialClone
 	}
 	return Command(root, append([]string{"log", "--no-show-signature"}, args...)...).Output()
 }
 
-var errPartialClone = errors.New("a partial clone is not read: git could fetch through its own config")
+var errPartialClone = errors.New("a partial clone is not read on a git older than 2.44: git could fetch through its own config")
+
+// Readable reports whether root may be read at all: any checkout that is not
+// a partial clone, and a partial clone only when this machine's git honours
+// GIT_NO_LAZY_FETCH, so a missing object fails instead of being fetched. It
+// is the policy search applies (search.md § Freshness). Until audit
+// 2026-10-25 SD17 every partial clone was refused here, so the dreamer dated
+// such a clone's whole trail by mtime, the SD4 case.
+func Readable(root string) bool {
+	return !PartialClone(root) || lazyFetchSafe()
+}
+
+// lazyFetchSafe is LazyFetchSafe, a variable so a test can take either side.
+var lazyFetchSafe = LazyFetchSafe
 
 // PartialClone reports whether root is a partial clone: extensions.partialClone
-// set, or any remote marked promisor. Such a repository is
-// not read at all: a git older than 2.44 ignores GIT_NO_LAZY_FETCH, and a
+// set, or any remote marked promisor. Such a repository is not read on a
+// git older than 2.44 (Readable): that git ignores GIT_NO_LAZY_FETCH, and a
 // missing object would be fetched through the repository's own
 // core.sshCommand (security review 2026-10-08, round 3). Reading config
 // starts no program.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 var (
@@ -261,6 +262,68 @@ func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 	}
 }
 
+// fit rendered the whole prompt again for every input it dropped, 34 renders
+// of ~260 KB a project a night on one box (audit 2026-10-25, SD-S1). It now
+// keeps the size by arithmetic: one render a project, for the prompt that
+// is sent, and the same inputs dropped as the render-per-drop loop dropped.
+func TestFitRendersOnce(t *testing.T) {
+	base := func() Collected {
+		c := Collected{Name: "p", Dropped: []string{"memory: a\tlabel  with   runs >>>> of <<< fences"}}
+		c.Inputs = append(c.Inputs, Input{Kind: kindMemory, Label: "memory/a.md", Text: "m"})
+		for i := 0; i < 30; i++ {
+			c.Inputs = append(c.Inputs, Input{Kind: kindTranscript, Label: fmt.Sprintf("antigravity\n%02d >>> x", i), Text: strings.Repeat("t>>>", 50+i), Time: now.Add(time.Duration(i) * time.Minute)})
+		}
+		for i := 0; i < 5; i++ {
+			c.Inputs = append(c.Inputs, Input{Kind: kindTrail, Label: fmt.Sprintf("bugs/B-%d.md", i), Text: strings.Repeat("b", 300), Time: now.Add(time.Duration(i) * time.Hour)})
+		}
+		c.Inputs = append(c.Inputs, Input{Kind: kindMetrics, Label: "metrics", Text: strings.Repeat("9", 100)})
+		return c
+	}
+	// The loop fit was, rendering once per drop.
+	reference := func(c Collected, limit int) (Collected, error) {
+		for _, kind := range []string{kindMetrics, kindTranscript, kindTrail, kindFeedback, kindSkill} {
+			for len(prompt(c)) > limit {
+				i := oldest(c.Inputs, kind)
+				if i < 0 {
+					break
+				}
+				c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (over the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
+				c.Inputs = append(c.Inputs[:i:i], c.Inputs[i+1:]...)
+			}
+		}
+		if len(prompt(c)) > limit {
+			return c, errors.New("memory over cap")
+		}
+		return c, nil
+	}
+	saved := render
+	t.Cleanup(func() { render = saved })
+	full := len(prompt(base()))
+	for _, limit := range []int{full, full - 1, full - 500, full - 4000, full - 12000, 2048, 10} {
+		want, wantErr := reference(base(), limit)
+		renders := 0
+		render = func(c Collected) string { renders++; return prompt(c) }
+		c := base()
+		err := c.fit(limit)
+		if err == nil {
+			c.Prompt = render(c)
+		}
+		render = saved
+		if (err == nil) != (wantErr == nil) {
+			t.Fatalf("limit %d: err %v, the loop's %v", limit, err, wantErr)
+		}
+		if err == nil && renders != 1 {
+			t.Errorf("limit %d: %d renders, want 1", limit, renders)
+		}
+		if labels(c) != labels(want) || strings.Join(c.Dropped, "|") != strings.Join(want.Dropped, "|") {
+			t.Errorf("limit %d: kept or dropped other inputs than the loop:\n%s\nwant\n%s", limit, labels(c), labels(want))
+		}
+		if err == nil && len(c.Prompt) > limit {
+			t.Errorf("limit %d: prompt %d bytes", limit, len(c.Prompt))
+		}
+	}
+}
+
 func TestDryRunWritesNothing(t *testing.T) {
 	f := newFixture(t)
 	var out bytes.Buffer
@@ -405,6 +468,41 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 	}
 }
 
+// A dry run printed one `left out:` line per dropped input, 34 on one box; it
+// prints the count and the first few (audit 2026-10-25, SD-S2).
+func TestDryRunSummarisesDropped(t *testing.T) {
+	f := newFixture(t)
+	for i := 0; i < 12; i++ {
+		write(t, filepath.Join(f.root, ".agents", "docs", "bugs", fmt.Sprintf("BUG-%03d-big.md", i)), strings.Repeat("a long bug record line. ", 1700), fresh.Add(time.Duration(i)*time.Second))
+	}
+	c, err := collect(f.home, project(f), now.Add(-firstLook), maxPrompt) // the dry run's first look
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Dropped) <= shownDropped {
+		t.Fatalf("the fixture drops %d inputs, not more than %d, so it proves nothing", len(c.Dropped), shownDropped)
+	}
+	var out bytes.Buffer
+	o := Options{Home: f.home, Project: f.root, DryRun: true, Out: &out, Now: func() time.Time { return now },
+		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
+	if err := Run(o); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(l, "[dry-run]   left out:") {
+			lines = append(lines, l)
+		}
+	}
+	want := fmt.Sprintf("[dry-run]   left out: %d inputs, the first %d below", len(c.Dropped), shownDropped)
+	if len(lines) != shownDropped+2 || lines[0] != want || !strings.HasSuffix(lines[len(lines)-1], fmt.Sprintf("and %d more", len(c.Dropped)-shownDropped)) {
+		t.Errorf("left-out lines:\n%s\nwant %q, %d records and the rest counted", strings.Join(lines, "\n"), want, shownDropped)
+	}
+	if !strings.Contains(out.String(), "[dry-run]   left out: "+oneLine(c.Dropped[0])+"\n") {
+		t.Errorf("the first dropped input is not listed:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
 func TestReadState(t *testing.T) {
 	home := t.TempDir()
 	if st, err := readState(home); err != nil || st.Projects == nil || len(st.Projects) != 0 {
@@ -526,6 +624,42 @@ func TestTrailDateFromGit(t *testing.T) {
 	}
 	if !strings.Contains(c.Prompt, "edited today") {
 		t.Errorf("a modified tracked record was not sent:\n%s", labels(c))
+	}
+}
+
+// TestTrailDateFromGitInPartialClone: trail.Log refused every partial
+// clone, so trail.Dates returned no dates and collect fell back to the mtime,
+// the SD4 case, on a clone the search index reads (audit 2026-10-25, SD17).
+// On a git that honours GIT_NO_LAZY_FETCH a partial clone is dated by git
+// like any checkout.
+func TestTrailDateFromGitInPartialClone(t *testing.T) {
+	if !trail.LazyFetchSafe() {
+		t.Skip("this git ignores GIT_NO_LAZY_FETCH: a partial clone is not read, and keeps its mtime")
+	}
+	f := newFixture(t)
+	rel := filepath.Join(".agents", "docs", "bugs", "BUG-001-old.md")
+	write(t, filepath.Join(f.root, rel), "an old bug record\n", old)
+	run(t, f.root, "git", "-c", "user.email=t@t", "-c", "user.name=t", "add", rel)
+	cmd := exec.Command("git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "old")
+	cmd.Dir = f.root
+	stamp := old.Format(time.RFC3339)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+stamp, "GIT_COMMITTER_DATE="+stamp)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	run(t, f.root, "git", "config", "remote.origin.promisor", "true")
+	if !trail.PartialClone(f.root) {
+		t.Fatal("the fixture is not a partial clone, so it proves nothing")
+	}
+	if err := os.Chtimes(filepath.Join(f.root, rel), fresh, fresh); err != nil {
+		t.Fatal(err)
+	}
+	c, err := collect(f.home, project(f), since, maxPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(c.Prompt, "an old bug record") {
+		t.Errorf("a partial clone's trail file committed before the watermark was sent by its fresh mtime:\n%s", labels(c))
 	}
 }
 

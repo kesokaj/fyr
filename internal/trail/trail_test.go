@@ -162,19 +162,46 @@ func TestCommandsNeverLazyFetch(t *testing.T) {
 	}
 }
 
-// A partial clone is not read at all: a git older than 2.44 ignores
+// A partial clone is not read on a git older than 2.44: that git ignores
 // GIT_NO_LAZY_FETCH and would fetch through the repository's own
-// core.sshCommand (security review round 3).
-func TestPartialCloneIsNotRead(t *testing.T) {
+// core.sshCommand (security review round 3). On a newer git it is read like
+// any checkout, the policy search applies: refusing it there dated the
+// dreamer's whole trail by mtime (audit 2026-10-25, SD17).
+func TestPartialCloneIsReadOnlyOnANewGit(t *testing.T) {
 	root, _ := filterRepo(t)
 	if out, err := exec.Command("git", "-C", root, "config", "extensions.partialClone", "origin").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
+	saved := lazyFetchSafe
+	t.Cleanup(func() { lazyFetchSafe = saved })
+
+	lazyFetchSafe = func() bool { return false }
 	if dates, _ := Dates(root, ".agents/docs"); len(dates) != 0 {
-		t.Fatalf("a partial clone was read: %v", dates)
+		t.Fatalf("a partial clone was read on an old git: %v", dates)
 	}
 	if out, err := Log(root, "--oneline"); err == nil {
-		t.Fatalf("Log ran in a partial clone: %q", out)
+		t.Fatalf("Log ran in a partial clone on an old git: %q", out)
+	}
+
+	lazyFetchSafe = func() bool { return true }
+	dates, modified := Dates(root, ".agents/docs")
+	if len(dates) == 0 {
+		t.Fatal("a partial clone on a git that honours GIT_NO_LAZY_FETCH got no commit dates")
+	}
+	if kept := ".agents/docs/handoffs/kept.md"; modified[kept] {
+		t.Errorf("%s, unedited, reads as modified in a partial clone", kept)
+	}
+	if edited := ".agents/docs/handoffs/edited.md"; !modified[edited] {
+		t.Errorf("%s, edited, is not reported modified in a partial clone", edited)
+	}
+	if _, err := Log(root, "--oneline"); err != nil {
+		t.Fatalf("Log refused a partial clone on a new git: %v", err)
+	}
+	// A plain checkout is read whatever the git.
+	lazyFetchSafe = func() bool { return false }
+	plain, _ := filterRepo(t)
+	if !Readable(plain) {
+		t.Error("a checkout that is no partial clone reads as unreadable")
 	}
 }
 

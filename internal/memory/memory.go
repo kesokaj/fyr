@@ -60,16 +60,35 @@ func IsRefusal(err error) bool {
 
 // Root is the main worktree's top level for the checkout that holds dir, so
 // every worktree of a repository shares one store (D26).
+//
+// In the main worktree that is git's own toplevel, never the common dir's
+// parent: in a submodule (.git/modules/x) or a --separate-git-dir checkout
+// the common dir lies outside the work tree (audit 2026-10-25, SD16). The
+// toplevel must be dir or a parent of it, because a repository's
+// core.worktree can name any directory (trail.Toplevel's rule). A linked
+// worktree's store is the main worktree's, the common dir's parent, as
+// before. A bare repository has no toplevel and is refused.
 func Root(dir string) (string, error) {
-	out, err := trail.Command(dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := trail.Command(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir", "--show-toplevel").Output()
 	if err != nil {
 		return "", refuse("not a git checkout: %s", dir)
 	}
-	common := strings.TrimSpace(string(out))
-	if common == "" {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 3 || lines[0] == "" || lines[1] == "" || lines[2] == "" {
 		return "", refuse("not a git checkout: %s", dir)
 	}
-	return filepath.Dir(common), nil
+	common, gitDir, top := filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
+	if gitDir != common {
+		return filepath.Dir(common), nil
+	}
+	real := filepath.Clean(dir)
+	if r, err := filepath.EvalSymlinks(real); err == nil {
+		real = r
+	}
+	if rel, err := filepath.Rel(top, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", refuse("git names %s as the work tree of %s, which is not a parent of it", top, dir)
+	}
+	return top, nil
 }
 
 // trusted returns the store path of root after the checks every command
