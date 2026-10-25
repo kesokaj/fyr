@@ -7,11 +7,13 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -249,8 +251,8 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 }
 
 // agyTool stores one tool step's shape: the common tool name, and from its
-// arguments only a command's verbs and hash, a path's trail kind and a
-// skill's name.
+// arguments only a command's verbs and hash, a path's trail kind, a record
+// verb's kind (recordRead) and a skill's name.
 func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields) {
 	name := f.text(4, 2)
 	tool := agyTools[name]
@@ -272,6 +274,9 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields)
 	}
 	if tool == "Bash" && args.CommandLine != "" {
 		hash = w.hash(args.CommandLine)
+		if k := recordRead(args.CommandLine); k != "" {
+			kind = k
+		}
 	}
 	// A conversation is re-read whole when it changes: a step first seen
 	// while running gets its final status and time (review 2026-10-08).
@@ -285,6 +290,64 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields)
 			w.exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`, c.id, ext, n, v)
 		}
 	}
+}
+
+// recordRead is the trail kind a command line reads through the record
+// verbs, for first reads (C3, plan D8, D16): the kind of the ID `fyr record
+// get` names, `record` when its prefix is unknown or no ID follows, `list`
+// for `fyr record list`, and "" for anything else. Only the first segment
+// whose program is fyr (or `go run ./cmd/fyr`) is read; nothing but the kind
+// leaves this function (R4).
+func recordRead(cmd string) string {
+	for _, seg := range segments(stripHeredocs(cmd)) {
+		i := programAt(seg)
+		if i < 0 {
+			continue
+		}
+		words := seg[i:]
+		switch {
+		case path.Base(words[0]) == "fyr":
+			words = words[1:]
+		case words[0] == "go" && len(words) >= 3 && words[1] == "run" && path.Clean(words[2]) == "cmd/fyr":
+			words = words[3:]
+		default:
+			continue
+		}
+		words = recordWords(words)
+		if len(words) == 0 || words[0] != "record" {
+			return ""
+		}
+		words = recordWords(words[1:])
+		if len(words) == 0 {
+			return ""
+		}
+		switch words[0] {
+		case "list":
+			return "list"
+		case "get":
+			if ids := recordWords(words[1:]); len(ids) > 0 {
+				if k := brain.KindOfID(ids[0]); k != "" {
+					return k
+				}
+			}
+			return "record"
+		}
+		return ""
+	}
+	return ""
+}
+
+// recordWords drops the flags at the front of words: --home and --repo with
+// their value when it is not glued on with =, any other flag alone.
+func recordWords(words []string) []string {
+	for len(words) > 0 && strings.HasPrefix(words[0], "-") {
+		name, _, glued := strings.Cut(strings.TrimLeft(words[0], "-"), "=")
+		words = words[1:]
+		if (name == "home" || name == "repo") && !glued && len(words) > 0 {
+			words = words[1:]
+		}
+	}
+	return words
 }
 
 // sweepCopies removes metrics-agy-* directories older than an hour under dir:

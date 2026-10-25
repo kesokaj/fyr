@@ -458,7 +458,9 @@ func (s *Summary) add(x sess, steps []stp) {
 					s.day(st.ts).GrepCalls[v]++
 				}
 			}
-			if main && st.kindOf != "" && reads < 3 && st.tool == "Read" {
+			// A Bash step carries a kind only when it is a record verb
+			// (recordRead): a migrated session reads its trail that way.
+			if main && st.kindOf != "" && reads < 3 && (st.tool == "Read" || st.tool == "Bash") {
 				s.C.FirstReads[st.kindOf]++
 				reads++
 			}

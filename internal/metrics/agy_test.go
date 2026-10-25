@@ -343,3 +343,90 @@ func TestIngestPrintsNoControlOrFormatCharacters(t *testing.T) {
 		}
 	}
 }
+
+// TestRecordRead pins C3's record verbs (plan D8, D16): the kind of the ID
+// `fyr record get` names, `list` for `fyr record list`, `record` for an
+// unknown prefix or no ID, and nothing for another program or verb.
+func TestRecordRead(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"fyr record get HANDOFF-2026-10-25-1908-handoff-x":                 "handoff",
+		"fyr --home /x record get --global FEEDBACK-2026-10-21-1439-x":     "feedback",
+		"fyr record --home=/x get --repo /r TEST-2026-10-25-1900-verify-x": "testing",
+		"go run ./cmd/fyr record get BUG-001":                              "bug",
+		".agents/scratch/bin/fyr record get PROPOSAL-x":                    "proposal",
+		"cd x && fyr record list --open":                                   "list",
+		"FYR_X=1 env -u Y fyr record list":                                 "list",
+		"fyr record get FOO-1":                                             "record",
+		"fyr record get":                                                   "record",
+		"fyr record get --home /x":                                         "record",
+		"fyr-bin record get BUG-001":                                       "",
+		"fyr search x":                                                     "",
+		"echo fyr record get BUG-001":                                      "",
+		"fyr record add handoff --title T":                                 "",
+		"fyr index && fyr record get BUG-001":                              "",
+		"go run ./cmd/other record get BUG-001":                            "",
+		"cat <<EOF\nfyr record get BUG-001\nEOF":                           "",
+		"git log | fyr record get ADR-063":                                 "adr",
+	} {
+		if got := recordRead(cmd); got != want {
+			t.Errorf("recordRead(%q) = %q, want %q", cmd, got, want)
+		}
+	}
+}
+
+// TestFirstReadsRecords: a main session's first three trail reads count a
+// record verb run through Bash by its kind, beside a Read's file kind; a Bash
+// step that is no record verb carries no kind and takes no slot (D17).
+func TestFirstReadsRecords(t *testing.T) {
+	home, root := agyFixture(t)
+	p := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "C1.db")
+	db, err := sql.Open("sqlite", p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const t0 = 1791367200
+	steps := [][]any{
+		{14, 3, agyStepMeta(t0, "", nil)},
+		{132, 3, agyStepMeta(t0+1, "run_command", map[string]string{"CommandLine": "fyr record list --open"})},
+		{132, 3, agyStepMeta(t0+2, "run_command", map[string]string{"CommandLine": "ls"})},
+		{132, 3, agyStepMeta(t0+3, "run_command", map[string]string{"CommandLine": "fyr record get HANDOFF-2026-10-25-1908-" + canary})},
+		{132, 3, agyStepMeta(t0+4, "view_file", map[string]string{"AbsolutePath": filepath.Join(root, "AGENTS.md")})},
+		{132, 3, agyStepMeta(t0+5, "view_file", map[string]string{"AbsolutePath": filepath.Join(root, ".agents", "docs", "plans", "p.md")})},
+		{15, 3, agyStepMeta(t0+6, "", nil)},
+	}
+	if _, err := db.Exec(`DELETE FROM steps`); err != nil {
+		t.Fatal(err)
+	}
+	for i, st := range steps {
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, ?, ?, NULL, NULL)`, i, st[0], st[1], st[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: home})
+	sum, err := s.Show(ShowOptions{Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"list": 1, "handoff": 1, "doc": 1}
+	if len(sum.C.FirstReads) != len(want) {
+		t.Errorf("first_reads %v, want %v", sum.C.FirstReads, want)
+	}
+	for k, n := range want {
+		if sum.C.FirstReads[k] != n {
+			t.Errorf("first_reads %v, want %v", sum.C.FirstReads, want)
+			break
+		}
+	}
+	var n int
+	s.db.QueryRow(`SELECT count(*) FROM steps WHERE tool = 'Bash' AND target_kind IS NOT NULL`).Scan(&n)
+	if n != 2 {
+		t.Errorf("%d Bash steps carry a kind, want 2 (the two record verbs)", n)
+	}
+	var raw string
+	s.db.QueryRow(`SELECT group_concat(COALESCE(target_kind, ''), ',') FROM steps`).Scan(&raw)
+	if strings.Contains(raw, canary) || strings.Contains(raw, "HANDOFF-") {
+		t.Errorf("a target_kind holds the command's ID: %q", raw)
+	}
+}

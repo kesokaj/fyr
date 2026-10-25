@@ -65,3 +65,18 @@ func TestForMetrics(t *testing.T) {
 		}
 	}
 }
+
+// TestKindOfID: every kind's prefix maps back to its kind (TEST is testing);
+// a word with no known prefix and dash is no kind.
+func TestKindOfID(t *testing.T) {
+	for k, p := range prefixes {
+		if got := KindOfID(p + "-2026-10-25-1900-x"); got != k {
+			t.Errorf("KindOfID(%s-…) = %q, want %q", p, got, k)
+		}
+	}
+	for _, id := range []string{"FOO-1", "HANDOFF", "handoff-x", "", "-x", "TESTING-x"} {
+		if got := KindOfID(id); got != "" {
+			t.Errorf("KindOfID(%q) = %q, want none", id, got)
+		}
+	}
+}

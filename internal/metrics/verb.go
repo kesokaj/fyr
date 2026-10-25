@@ -259,6 +259,15 @@ func (t *tokenizer) swallow(rs []rune, i int, open, close rune) int {
 }
 
 func segmentVerb(words []string) string {
+	if i := programAt(words); i >= 0 {
+		return verbFrom(words[i:])
+	}
+	return ""
+}
+
+// programAt is the index of the segment's program, past keywords, wrappers
+// and their flags, assignments and leading redirections; -1 when none is left.
+func programAt(words []string) int {
 	i := 0
 	for i < len(words) {
 		w := words[i]
@@ -276,10 +285,10 @@ func segmentVerb(words []string) string {
 				i++ // and the value it takes
 			}
 		default:
-			return verbFrom(words[i:])
+			return i
 		}
 	}
-	return ""
+	return -1
 }
 
 func verbFrom(words []string) string {

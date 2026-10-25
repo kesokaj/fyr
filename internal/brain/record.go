@@ -68,6 +68,17 @@ func Kinds() []string {
 
 func knownKind(k string) bool { _, ok := prefixes[k]; return ok }
 
+// KindOfID is the kind whose prefix and dash open id (HANDOFF-… is handoff,
+// TEST-… is testing), or "" when no kind's does. Only the prefix is read.
+func KindOfID(id string) string {
+	for k, p := range prefixes {
+		if strings.HasPrefix(id, p+"-") {
+			return k
+		}
+	}
+	return ""
+}
+
 var (
 	// At most nine digits: a number fits an int, and a thousand-fold
 	// growth of the trail is still covered.
