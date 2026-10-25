@@ -41,6 +41,8 @@ type Options struct {
 	// when it has been idle for idleFor (D22); nil is the real check
 	// (activity), a test replaces it.
 	Active func(home string, p search.Project, now time.Time) string
+
+	brainHome string // where the brain store is read: Home, or a dry run's copy
 }
 
 // idleFor is how long a project must have been left alone before a dream
@@ -77,8 +79,23 @@ func Run(o Options) error {
 	if o.Scopes == nil {
 		o.Scopes = brain.Scopes
 	}
+	if o.DryRun && o.brainHome == "" {
+		// A dry run reads a copy of the brain store: opening the live one
+		// migrates it, loads trail.jsonl into it, or creates it (security
+		// review of the dream over records, finding 5).
+		tmp, cleanup, err := brainCopy(o.Home)
+		if err != nil {
+			return &ExitError{2, "fyr dream: " + err.Error()}
+		}
+		defer cleanup()
+		o.brainHome = tmp
+	}
+	if o.brainHome == "" {
+		o.brainHome = o.Home
+	}
 	if o.Active == nil {
-		o.Active = activity
+		bh := o.brainHome
+		o.Active = func(home string, p search.Project, now time.Time) string { return activityIn(home, bh, p, now) }
 	}
 	// A usage mistake is refused before anything is locked, logged or read.
 	switch {
@@ -130,17 +147,24 @@ func (o Options) targets() ([]search.Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One checkout, however reached (a linked worktree's path, a symlinked
+	// parent), is one target: its records would otherwise be sent twice
+	// (security review of the dream over records, finding 6).
 	seen := map[string]bool{}
+	var out []search.Project
 	for _, p := range projects {
-		seen[p.Root] = true
-	}
-	for _, s := range scopes {
-		if !seen[s] {
-			seen[s] = true
-			projects = append(projects, search.Project{Root: s, Name: filepath.Base(s)})
+		if k := projectKey(p.Root); !seen[k] {
+			seen[k] = true
+			out = append(out, p)
 		}
 	}
-	return projects, nil
+	for _, s := range scopes {
+		if k := projectKey(s); !seen[k] {
+			seen[k] = true
+			out = append(out, search.Project{Root: s, Name: filepath.Base(s)})
+		}
+	}
+	return out, nil
 }
 
 // inUse is why p is not idle yet under --all, "" when it is (or when the
@@ -156,8 +180,17 @@ func (o Options) inUse(p search.Project) string {
 // checkout's last commit, its scope's last record update and its newest
 // Antigravity conversation, when that is within idleFor of now.
 func activity(home string, p search.Project, now time.Time) string {
+	return activityIn(home, home, p, now)
+}
+
+// activityIn is activity with the brain store read from brainHome. A
+// record dated after now is clock skew or a planted line, never a sign of
+// use (security review of the dream over records, finding 4). The commit
+// is read through trail.Log, which refuses a partial clone on a git that
+// would fetch through the clone's own config (finding 2).
+func activityIn(home, brainHome string, p search.Project, now time.Time) string {
 	cut := now.Add(-idleFor)
-	if out, err := trail.Command(p.Root, "log", "-1", "--format=%ct").Output(); err == nil {
+	if out, err := trail.Log(p.Root, "-1", "--format=%ct"); err == nil {
 		if sec, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {
 			if t := time.Unix(sec, 0); t.After(cut) {
 				return "a commit at " + t.UTC().Format(time.RFC3339)
@@ -165,7 +198,7 @@ func activity(home string, p search.Project, now time.Time) string {
 		}
 	}
 	if migrated(p.Root) {
-		if in, err := forDream(home, p.Root, now); err == nil && in.Last.After(cut) {
+		if in, err := forDream(brainHome, p.Root, now); err == nil && in.Last.After(cut) && !in.Last.After(now) {
 			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
 		}
 	}
@@ -220,7 +253,7 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 			fmt.Fprintf(o.Out, "[dry-run] %s: skip (in use within %s: %s)\n", p.Root, idleFor, why)
 			continue
 		}
-		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
+		c, err := collectIn(o.Home, o.brainHome, p, o.since(st, p.Root), maxPrompt)
 		if err != nil {
 			fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
 			continue
@@ -319,4 +352,46 @@ func linuxTimerPath(home string) string {
 func macPlistPath(home string) string {
 	_, plist := UnitFor(home)
 	return filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
+}
+
+// projectKey is the checkout a path names: the main worktree's root when it
+// is one, else the path with its links resolved.
+func projectKey(root string) string {
+	if main, _, err := trail.Roots(root); err == nil {
+		return main
+	}
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		return r
+	}
+	return filepath.Clean(root)
+}
+
+// brainCopy is a private copy of home's brain store for a dry run: a
+// directory laid out as a home, its brain.db and companions copied in (under
+// ~/.config/fyr beside the live one, swept by removeCopies when a run dies;
+// in the system's temporary directory when there is no store yet), removed
+// by cleanup.
+func brainCopy(home string) (string, func(), error) {
+	live := brain.Path(home)
+	parent := ""
+	if _, err := os.Lstat(live); err == nil {
+		parent = filepath.Dir(live)
+	}
+	tmp, err := os.MkdirTemp(parent, "dream-brain-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(tmp) }
+	if parent != "" {
+		dst := filepath.Dir(brain.Path(tmp))
+		if err := os.MkdirAll(dst, 0o700); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		if _, err := search.CopyDB(parent, filepath.Base(live), dst); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+	return tmp, cleanup, nil
 }

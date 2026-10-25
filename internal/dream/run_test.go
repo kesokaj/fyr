@@ -102,7 +102,7 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 	if len(recs) != 3 {
 		t.Fatalf("want two proposal records and one for the draft skills, got %d: %+v", len(recs), recs)
 	}
-	vet, ok := titled(recs, "Dream — Vet before tag")
+	vet, ok := titled(recs, "Dream, project — Vet before tag")
 	if !ok || vet.Status != "queued" || vet.Project != f.root {
 		t.Fatalf("the project proposal: %+v", vet)
 	}
@@ -111,14 +111,14 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 			t.Errorf("the project proposal lacks %q:\n%s", want, vet.Body)
 		}
 	}
-	if rel, ok := titled(recs, "Dream — Release skill"); !ok || !strings.Contains(rel.Body, "Target: harness") {
+	if rel, ok := titled(recs, "Dream, harness — Release skill"); !ok || !strings.Contains(rel.Body, "Target: harness") {
 		t.Errorf("the harness proposal: %+v", rel)
 	}
 	draft := read(t, filepath.Join(dir, "drafts", "2026-09-30-"+name+"-release-steps", "SKILL.md"))
 	if !strings.HasPrefix(draft, "---\nname: release-steps\ndescription: \"cut a release\"\n---\n") {
 		t.Errorf("draft:\n%s", draft)
 	}
-	ds, ok := titled(recs, "Dream — draft skills for ")
+	ds, ok := titled(recs, "Dream, harness — draft skills for ")
 	if !ok || !strings.Contains(ds.Body, "release-steps/SKILL.md") || !strings.Contains(ds.Body, "../escape") || !strings.Contains(ds.Body, "dropped") {
 		t.Errorf("the draft skills record does not name the draft and the dropped name: %+v", ds)
 	}

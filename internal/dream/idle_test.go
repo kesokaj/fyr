@@ -2,6 +2,7 @@ package dream
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,5 +114,104 @@ func TestCollectReadsRecords(t *testing.T) {
 	}
 	if !c.Changed || !strings.Contains(c.Prompt, "deploy on Thursdays") {
 		t.Errorf("changed %v, prompt holds the records' text: %v", c.Changed, strings.Contains(c.Prompt, "Thursdays"))
+	}
+}
+
+// Security review of the dream over records, finding 1: a feedback record's
+// body is a JSON line and is redacted as one.
+func TestFeedbackRecordsAreRedactedAsJSON(t *testing.T) {
+	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
+	g := brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return now.Add(-26 * time.Hour) }}
+	// json.Marshal writes & as \u0026: the raw needles miss the signature,
+	// the decoded line's catch it (the security probe's shape).
+	raw, _ := json.Marshal(map[string]string{"ts": "2026-09-29T10:00:00Z", "project": root, "original": "see https://h.example/api?x=1&sig=AbCdEfGhIjKlMnOpQrSt123"})
+	line := string(raw)
+	if _, err := brain.Add(g, brain.AddInput{Kind: "feedback", Title: "a link", Project: root, Body: strings.NewReader(line)}); err != nil {
+		t.Fatal(err)
+	}
+	c, err := collect(home, search.Project{Root: root, Name: filepath.Base(root)}, now.Add(-72*time.Hour), maxPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(labels(c), "feedback:FEEDBACK-") || strings.Contains(c.Prompt, "AbCdEfGhIjKlMnOpQrSt123") {
+		t.Errorf("the signature behind a JSON escape reached the prompt")
+	}
+}
+
+// Finding 4: a record dated after now never keeps a project in use.
+func TestFutureRecordIsNotUse(t *testing.T) {
+	home, root := recordsProject(t, now.Add(48*time.Hour), now.Add(-48*time.Hour))
+	if why := activity(home, search.Project{Root: root}, now); why != "" {
+		t.Errorf("a future-dated record made the project in use: %q", why)
+	}
+}
+
+// Finding 5: a dry run creates, migrates and loads no brain store.
+func TestDryRunLeavesTheBrainStore(t *testing.T) {
+	src, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
+	_ = src
+	home := t.TempDir() // no brain.db here; the project's trail.jsonl is committed
+	st := state{Projects: map[string]time.Time{root: now.Add(-72 * time.Hour)}}
+	if err := saveState(home, st); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	o := Options{Home: home, Project: root, DryRun: true, Out: &out, Now: func() time.Time { return now }}
+	if err := Run(o); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), root+": would dream") {
+		t.Errorf("the dry run read the project's records from a copy:\n%s", out.String())
+	}
+	if _, err := os.Lstat(brain.Path(home)); !os.IsNotExist(err) {
+		t.Errorf("the dry run created the brain store: %v", err)
+	}
+	// With a store: its files are byte-identical after the dry run.
+	o.Home = src
+	saveState(src, st)
+	before, _ := os.ReadFile(brain.Path(src))
+	if err := Run(o); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(brain.Path(src))
+	if !bytes.Equal(before, after) {
+		t.Error("the dry run wrote the live brain store")
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(brain.Path(src)), "dream-brain-*")); len(left) != 0 {
+		t.Errorf("the copy was left behind: %v", left)
+	}
+}
+
+// Finding 6: one checkout reached two ways is one target.
+func TestTargetsDedupeOneCheckout(t *testing.T) {
+	_, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	o := Options{All: true, Projects: func(string) ([]search.Project, error) { return []search.Project{{Root: link}}, nil },
+		Scopes: func(string) ([]string, error) { return []string{root}, nil }}
+	got, err := o.targets()
+	if err != nil || len(got) != 1 {
+		t.Errorf("one checkout, two paths: %+v, %v", got, err)
+	}
+}
+
+// Finding 7: a project's proposals are stored together or not at all.
+func TestProposalsStoredTogether(t *testing.T) {
+	home := t.TempDir()
+	ps := []brain.Proposal{{Title: "one", Body: "a"}, {Title: "two", Body: "b"}}
+	ids, err := brain.ProposeAll(home, "/p/x", ps, now)
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("%v %v", ids, err)
+	}
+	// A body the store refuses (over 1 MiB) fails the whole batch.
+	big := strings.Repeat("x", 1<<20+1)
+	if _, err := brain.ProposeAll(home, "/p/x", []brain.Proposal{{Title: "three", Body: "c"}, {Title: "four", Body: big}}, now); err == nil {
+		t.Fatal("an oversize body was stored")
+	}
+	recs, _ := brain.List(brain.Options{Home: home, Dir: t.TempDir(), Global: true}, brain.ListFilter{Kind: "proposal"})
+	if len(recs) != 2 {
+		t.Errorf("a failed batch stored part of itself: %d records", len(recs))
 	}
 }

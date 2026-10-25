@@ -1,8 +1,9 @@
 package brain
 
 import (
+	"context"
+	"database/sql"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -73,32 +74,82 @@ func ForDream(home, root string, since time.Time) (DreamInput, error) {
 		}
 		return out, rows.Err()
 	}
-	after := since.UTC().Format(time.RFC3339)
+	// Times are compared parsed, never as text: a loaded line may carry any
+	// RFC 3339 offset (security review of the dream, finding 4).
+	after := func(recs []Record) []Record {
+		var out []Record
+		for _, r := range recs {
+			if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(since) {
+				out = append(out, r)
+			}
+		}
+		return out
+	}
 	if in.Memory, err = read(`scope = ? AND kind = 'memory' AND status = 'closed'`, scope); err != nil {
 		return in, err
 	}
-	if in.Trail, err = read(`scope = ? AND kind IN ('bug', 'review', 'retro', 'change', 'handoff') AND updated > ?`, scope, after); err != nil {
+	trail, err := read(`scope = ? AND kind IN ('bug', 'review', 'retro', 'change', 'handoff')`, scope)
+	if err != nil {
 		return in, err
 	}
-	if in.Feedback, err = read(`scope = '' AND kind = 'feedback' AND project = ? AND updated > ?`, scope, after); err != nil {
+	in.Trail = after(trail)
+	fb, err := read(`scope = '' AND kind = 'feedback' AND project = ?`, scope)
+	if err != nil {
 		return in, err
 	}
-	var last string
-	if err := st.db.QueryRow(`SELECT coalesce(max(updated), '') FROM records WHERE scope = ?`, scope).Scan(&last); err != nil {
+	in.Feedback = after(fb)
+	all, err := read(`scope = ?`, scope)
+	if err != nil {
 		return in, err
 	}
-	if t, err := time.Parse(time.RFC3339, last); err == nil {
-		in.Last = t
+	for _, r := range all {
+		if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(in.Last) {
+			in.Last = t
+		}
 	}
 	return in, nil
 }
 
-// Propose stores one dream proposal as a global, queued `proposal` record
-// about project (D15) and returns its ID. The model wrote the title and the
-// body, so both are normalized first (a control character as "?", the title
-// cut to one line of maxTitle bytes): a stray byte never costs the proposal.
-func Propose(home, project, title, body string, now time.Time) (string, error) {
-	r := normalize(Record{Title: title, Body: body})
-	return Add(Options{Home: home, Global: true, Now: func() time.Time { return now }},
-		AddInput{Kind: "proposal", Title: r.Title, Project: project, Body: strings.NewReader(r.Body)})
+// Proposal is one dream proposal to store.
+type Proposal struct{ Title, Body string }
+
+// ProposeAll stores a project's dream proposals as global, queued `proposal`
+// records about project (D15), all in one transaction, so a failure part-way
+// stores none and the next run never duplicates the first ones (security
+// review of the dream, finding 7). The model wrote titles and bodies, so
+// each is normalized first (a control character as "?", the title cut to
+// one line of maxTitle bytes): a stray byte never costs a proposal.
+func ProposeAll(home, project string, ps []Proposal, now time.Time) ([]string, error) {
+	if len(ps) == 0 {
+		return nil, nil
+	}
+	st, err := openStore(home)
+	if err != nil {
+		return nil, err
+	}
+	defer st.close()
+	s := &session{st: st}
+	project = canonicalProject(project)
+	var ids []string
+	err = st.tx(func(c *sql.Conn) error {
+		ids = nil
+		for _, p := range ps {
+			r := normalize(Record{Title: p.Title, Body: p.Body})
+			id, err := s.allocate(c, "proposal", r.Title, now)
+			if err != nil {
+				return err
+			}
+			r.ID, r.Kind, r.Status, r.Date, r.Updated = id, "proposal", "queued", now.Format("2006-01-02"), now.UTC().Format(time.RFC3339)
+			if err := checkRecord(r); err != nil {
+				return refuse("proposal %q: %v", r.Title, err)
+			}
+			if _, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
+				VALUES ('', ?, 'proposal', 'queued', ?, ?, ?, ?, ?)`, id, now.Format("2006-01-02"), r.Title, r.Body, project, now.UTC().Format(time.RFC3339)); err != nil {
+				return err
+			}
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	return ids, err
 }

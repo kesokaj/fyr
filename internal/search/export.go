@@ -36,6 +36,11 @@ func AgyTime(v any) (time.Time, bool) { return agyTime(v) }
 // (BUG-152).
 func Printable(s string) string { return printable(s) }
 
+// CopyDB copies a SQLite database and its -wal and -shm files from dir into
+// tmp and returns the copy's path: the dream's dry run reads the brain store
+// from such a copy, never the live file.
+func CopyDB(dir, name, tmp string) (string, error) { return copyDB(dir, name, tmp) }
+
 // CleanSnippet folds an FTS5 snippet (match marks \x01 and \x02) into one
 // printable line of at most 200 characters, the marks shown as »«; the
 // brain store's record hits print through it (ADR-063).

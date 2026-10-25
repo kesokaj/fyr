@@ -2,6 +2,7 @@ package dream
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,12 @@ var trailDirs = []string{"bugs", "reviews", "retros", "changes", "handoffs"}
 // project still on files is read as before. Changed is true when anything
 // but the skills is newer than since.
 func collect(home string, p search.Project, since time.Time, limit int) (Collected, error) {
+	return collectIn(home, home, p, since, limit)
+}
+
+// collectIn is collect with the brain store read from brainHome: the live
+// one (home) in a run, a copy in a dry run, which writes nothing.
+func collectIn(home, brainHome string, p search.Project, since time.Time, limit int) (Collected, error) {
 	// The name is the checkout's base name, which may hold a line break: it
 	// is folded once here, for the prompt, the proposals header and the file
 	// names alike (audit 2026-10-25, SD15).
@@ -65,7 +72,7 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 	}
 
 	if migrated(p.Root) {
-		in, err := forDream(home, p.Root, since)
+		in, err := forDream(brainHome, p.Root, since)
 		if err != nil {
 			return *c, fmt.Errorf("reading the brain store: %w", err)
 		}
@@ -73,7 +80,11 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 			add(kindMemory, r.ID, r.Title+"\n"+r.Body, recordTime(r))
 		}
 		for _, r := range in.Feedback {
-			add(kindFeedback, r.ID, r.Body, recordTime(r))
+			// A feedback record's body is the old log's JSON line: redacted as
+			// one, so a secret behind a JSON escape (`\u0026sig=`) is caught on
+			// the decoded line, as the log's lines are (security review of the
+			// dream over records, finding 1).
+			add(kindFeedback, r.ID, redactFeedback(r.Body), recordTime(r))
 		}
 		for _, r := range in.Trail {
 			add(kindTrail, r.ID, r.Title+"\n"+r.Body, recordTime(r))
@@ -347,4 +358,14 @@ var forDream = brain.ForDream
 func recordTime(r brain.Record) time.Time {
 	t, _ := time.Parse(time.RFC3339, r.Updated)
 	return t
+}
+
+// redactFeedback redacts a feedback record's body as the JSON line it holds;
+// an indented body is compacted to one line first.
+func redactFeedback(body string) string {
+	var b bytes.Buffer
+	if json.Compact(&b, []byte(body)) == nil {
+		body = b.String()
+	}
+	return strings.TrimRight(redact.RedactJSONL(body+"\n"), "\n")
 }

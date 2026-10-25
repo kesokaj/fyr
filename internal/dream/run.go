@@ -455,7 +455,7 @@ func removeCopies(conf string, now time.Time) {
 		// metrics-agy-* (Antigravity conversation copies) and dream-metrics-*
 		// (a copy of the metrics store) hold the same kind of content.
 		if !e.IsDir() || !(strings.HasPrefix(n, "dream-agy-") || strings.HasPrefix(n, "dream-projects-") ||
-			strings.HasPrefix(n, "metrics-agy-") || strings.HasPrefix(n, "dream-metrics-")) {
+			strings.HasPrefix(n, "metrics-agy-") || strings.HasPrefix(n, "dream-metrics-") || strings.HasPrefix(n, "dream-brain-")) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > time.Hour {
@@ -520,22 +520,26 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 		draftLines = append(draftLines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(n)))
 	}
 	head := o.header(c, cli, day)
+	var ps []brain.Proposal
 	for _, p := range r.Proposals {
-		if _, err := propose(o.Home, c.Root, "Dream — "+o.line(p.Title), head+o.section(p), t0); err != nil {
-			return err
+		// The target leads the title, so /retro tells a project's proposals
+		// from the harness's without opening each (security review of the
+		// dream over records, finding 3).
+		target := "project"
+		if p.Target == "harness" {
+			target = "harness"
 		}
+		ps = append(ps, brain.Proposal{Title: "Dream, " + target + " — " + o.line(p.Title), Body: head + o.section(p)})
 	}
 	if len(draftLines) > 0 {
-		body := head + strings.Join(draftLines, "\n") + "\n"
-		if _, err := propose(o.Home, c.Root, "Dream — draft skills for "+c.Name, body, t0); err != nil {
-			return err
-		}
+		ps = append(ps, brain.Proposal{Title: "Dream, harness — draft skills for " + c.Name, Body: head + strings.Join(draftLines, "\n") + "\n"})
 	}
-	return nil
+	_, err := propose(o.Home, c.Root, ps, t0)
+	return err
 }
 
-// propose is brain.Propose; a test replaces it.
-var propose = brain.Propose
+// propose is brain.ProposeAll; a test replaces it.
+var propose = brain.ProposeAll
 
 // header is what every proposal of one project's dream carries: where it came
 // from and what the model read.
