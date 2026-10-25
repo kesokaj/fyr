@@ -77,7 +77,7 @@ References are record IDs (`BUG-NNN`, `ADR-NNN`) and path-shaped tokens on every
 | `search.db`, `search.db-wal` or `search.db-shm` is a symlink or any other non-regular file (either index) | `search: <path>: <file> is not a regular file; refusing to open or write through it`; nothing is written through it | 1 |
 | Another process holds the write lock past 10 s | `search: index busy (another fyr is indexing); retry, or use grep`; no answer printed | 1 |
 | Unreadable database, or a schema other than 1 | `note: index at <path> was unreadable (or an older schema); rebuilt`, then the answer | 0 |
-| Argument errors (`--limit` out of range, unknown `--kind`, two modes at once, no mode) | `search: <what is wrong>; see fyr help` | 1 |
+| Argument errors (`--limit` out of range, unknown `--kind`, two modes at once, no mode) | `search: <what is wrong>; see fyr help` | 2 |
 | Global: a registered checkout is gone, or lost its `.agents/docs` | `note: dropped <root> (no longer a git checkout)`, or `(no longer has .agents/docs)` | 0 |
 | Global rebuild | `note: N project registrations dropped; each returns on its next search` | 0 |
 | Global: a registered checkout's check cannot run (for example `.agents` unreadable) | `note: skipped <root> this time (<error>)`; the registration stays | 0 |
@@ -93,7 +93,7 @@ References are record IDs (`BUG-NNN`, `ADR-NNN`) and path-shaped tokens on every
 |---|---|
 | Full build, 1,351 files (2026-10-01; 1,080 on 2026-09-29) | 2.1 s on 2026-10-01; 1.7 s (2.2 s before the inserts were prepared once and reference parsing skipped lines that cannot match) |
 | Warm `search`, nothing changed, end to end | 23–67 ms |
-| Recall@10 on 41 questions from this repository's history (`testing/2026-09-29-search-recall.md`; re-measured 2026-10-01 in `testing/2026-10-01-verify-audit-fix-phase-9.md` after the two "open" questions were repointed at records open on that day) | 0.633 (2026-10-01; 0.653 on 2026-09-29), against 0.296 for one grep pass |
+| Recall@10 on 41 questions from this repository's history (`testing/2026-09-29-search-recall.md`; re-measured 2026-10-25 on go1.24.4 in `testing/2026-10-25-search-recall.md`, after the "open plan" gold was re-pinned and "open bug", with no bug open, became a refs question) | 0.505 (2026-10-25; 0.633 on 2026-10-01 and 0.653 on 2026-09-29 on the old fixture), against 0.237 for one grep pass; words 0.538 against 0.115, drift 0.170 against 0.172 |
 | Warm `--refs` / `--open`, end to end | 47–60 ms / 20 ms |
 | Database size | 21.7 MB (10,560 chunks, 40,850 references); 24.1 MB before the unused `refs(oid)` index was dropped |
 | Binary size, linux/amd64 | 13.7 MB |

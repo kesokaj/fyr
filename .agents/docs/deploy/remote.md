@@ -46,14 +46,14 @@ type fyr                              # when the version is wrong: the path the 
 which -a fyr                          # every candidate, in PATH order
 ```
 
-`fyr version` unqualified is the one that matters, and `hash -r` comes first because a shell caches where it last found `fyr`: `update` replaces `~/.local/bin/fyr` and nothing else, so a shell that once resolved the name to a copy elsewhere keeps running that copy whatever PATH says — devbox stayed on v1.2.1 this way after a successful update to v1.2.2 (BUG-079); `update` now says when it ran from such a copy — but only when the update ran against the real home (never a `--home` elsewhere), and only when the copy it ran from was actually written; the remedy is `ln -sfn` to the installed binary when that copy is yours, or, when it belongs to someone else, removing it with the rights that own it, or leaving it and running the installed one by its path. A binary moved into a system path is not installed if an earlier `PATH` entry holds another `fyr`: that one runs, installs whatever source it resolves, and reports `drift none` about it. It tells stale from fresh, never genuine from forged — it is the suspect binary's own output; authenticity is the signature and checksum on the file, before the move. `install` and `status` name such a binary now (a `warning:` line and a `shadowed` line), and a symlink from the earlier entry to the installed binary settles it — it runs the same file, so it is not a shadow. `--clobber` matters for the same class of reason: without it a leftover file from an earlier attempt makes the download refuse, and the stale file is what gets moved.
+`fyr version` unqualified is the one that matters, and `hash -r` comes first because a shell caches where it last found `fyr`: `update` replaces `~/.local/bin/fyr` and nothing else, so a shell that once resolved the name to a copy elsewhere keeps running that copy whatever PATH says — devbox stayed on v1.2.1 this way after a successful update to v1.2.2 (BUG-079); `update` now says when it ran from such a copy — but only when the update ran against the real home (never a `--home` elsewhere), and only when the copy it ran from was actually written; the remedy is `ln -sfn` to the installed binary when that copy is yours, or, when it belongs to someone else, removing it with the rights that own it, or leaving it and running the installed one by its path. A binary moved into a system path is not installed if an earlier `PATH` entry holds another `fyr`: that one runs, installs whatever source it resolves, and reports `drift none` about it. It tells stale from fresh, never genuine from forged — it is the suspect binary's own output; what you can check is the checksum on the file, before the move, and it proves integrity only (ADR-053). `install` and `status` name such a binary now (a `warning:` line and a `shadowed` line), and a symlink from the earlier entry to the installed binary settles it — it runs the same file, so it is not a shadow. `--clobber` matters for the same class of reason: without it a leftover file from an earlier attempt makes the download refuse, and the stale file is what gets moved.
 
 ## The four places
 
 The operator installs the harness in four places: the work Mac, the home Mac, and two Linux hosts where they work on other projects; at each the harness serves the Antigravity CLI. Every one is reached on the operator's own SSH key and `gh` login — there are no deploy keys and no per-machine credentials, because the operator authenticates as themselves everywhere and a key would restrict nothing (ADR-030 D1). A place gets the harness one of three ways, named in `.agents/docs/specs/fyr/delivery.md` § The model:
 
 - **A checkout the operator owns** — the normal path. First install as above; after that, `fyr update` whenever the operator decides the harness has changed. A timer (§ The resync loop) is a convenience a machine may add, not the mechanism.
-- **A release binary** — one downloaded `fyr` with `context/`, `skills/`, `agents/`, `commands/` and `rules/` built into it, for a place that only USES the harness and should not have a checkout of it sitting beside its projects. `fyr install` installs what the binary carries and copies the binary itself; `fyr status` shows `source embedded vX.Y.Z`; `fyr update` downloads the newest release, checks it against its `SHA256SUMS` and replaces `~/.local/bin/fyr`, so the place changes only when a release is cut. `fyr adopt` needs a checkout and says so. See `README.md` § Install without cloning and `local.md` § Update a release-binary install.
+- **A release binary** — one downloaded `fyr` with `context/`, `skills/`, `agents/`, `commands/` and `rules/` built into it, for a place that only USES the harness and should not have a checkout of it sitting beside its projects. `fyr install` installs what the binary carries and copies the binary itself; `fyr status` shows `source embedded vX.Y.Z`; `fyr update` downloads the newest release, checks it against its `SHA256SUMS` and replaces `~/.local/bin/fyr` (which place gets what from a tag: `specs/fyr/delivery.md` § The model). `fyr adopt` needs a checkout and says so. See `README.md` § Install without cloning and `local.md` § Update a release-binary install.
 - **A zip place** — a repository zip downloaded by hand, unpacked and installed with the running binary by `fyr update --from-zip <file>`, which then deletes the unpacked copy; nothing is fetched and nothing in the zip replaces the binary, so the operator moves it forward by repeating the download and `--from-zip`. See `README.md` § Install from a zip (no SSH, no gh).
 
 A plain copy with no `.git` — an unpacked bundle — still installs, and `update` refuses it, naming `install` still deploying it as it is and the alternatives above (`local.md` § From a plain copy); it is not one of the ways in, it is the fallback when none of the three can reach GitHub, and it differs from a zip place in what is kept — a plain copy is a tree someone unpacked and left on disk, while a zip place keeps no tree at all.
@@ -194,23 +194,8 @@ gh release create vX.Y.Z --repo github.com/kesokaj/fyr --verify-tag --title "fyr
 for a in SHA256SUMS fyr-linux-amd64 fyr-darwin-arm64 fyr-linux-arm64 fyr-vX.Y.Z.zip; do
   gh release upload vX.Y.Z --repo github.com/kesokaj/fyr "$a" --clobber || echo "retry $a by hand"
 done
-gh release view vX.Y.Z --repo github.com/kesokaj/fyr --json assets --jq '.assets[].name'   # all five (six for v2.4.0, with the bridge's SHA256SUMS.sig)
+gh release view vX.Y.Z --repo github.com/kesokaj/fyr --json assets --jq '.assets[].name'   # all five
 cd -
-```
-
-**The bridge, v2.4.0 only (ADR-053).** Every binary up to v2.3.2 refuses a release without a `SHA256SUMS.sig` signed by the old key, so v2.4.0 — the first release whose binary needs none — carries one, made once with that key, and is the last release that does. Run this after step 2, in the same directory, and add `SHA256SUMS.sig` to step 4's upload list:
-```bash
-RETIRED=<path of the old private key file>                        # it exists only for this block
-test -n "$RETIRED" && test -f "$RETIRED" && test "$(ssh-keygen -y -f "$RETIRED" | ssh-keygen -lf - | cut -d' ' -f2)" = SHA256:5HpYQJjpG+yE1xXBTOIZPsTkbkgkVnV8z0eG8hBawyU   # exit 0: RETIRED is set, is a file, and its PRIVATE half is the old key (a .pub beside it is not read) — nothing else is used, or deleted below
-ssh-keygen -Y sign -f "$RETIRED" -n sh-agent-release SHA256SUMS
-printf '%s\n' 'ostling.simon@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBkx0BICH1xG18f0a0F/02Vw0OvBTfSOVNXkPkO62NCR' > allowed_signers
-ssh-keygen -Y verify -f allowed_signers -I ostling.simon@gmail.com -n sh-agent-release -s SHA256SUMS.sig < SHA256SUMS   # exit 0: what a v2.3.2 place checks
-rm -f allowed_signers "$RETIRED" && test ! -e "$RETIRED"           # exit 0: the old key is off the disk
-# a v2.3.2 binary, built from its own tag, accepts the release
-mkdir -p ../v232src && git -C "$(git rev-parse --show-toplevel)" archive v2.3.2 | tar -x -C ../v232src   # -C: from a subdirectory, a bare git archive packs only that subdirectory
-(cd ../v232src && CGO_ENABLED=0 GOTOOLCHAIN=local go build -trimpath -ldflags "-X main.version=v2.3.2" -o ../sh-agent-v2.3.2 ./cmd/sh-agent)
-mkdir -p ../zipcheck232 && ../sh-agent-v2.3.2 update --from-zip styrman-harness-v2.4.0.zip --home ../zipcheck232 --dry-run > ../zipcheck232.out   # into a file, never a pipe (BUG-086)
-grep -q "VERIFIED against the signed SHA256SUMS of release v2.4.0" ../zipcheck232.out   # exit 0: a v2.3.2 place accepts v2.4.0
 ```
 
 The release notes are built as § Release notes below says. Before this repository is ever made public, read the trail for what it names (this box's login-shell credential broker, `/etc/profile.d/zz-styrman-credentials.sh`, is described in `bugs/BUG-160-*.md` § Addendum and the 2026-10-07 security reviews under `reviews/`): `.agents/docs/` carries hostnames (`spgo-mac.roam.internal`, `devbox`), machine paths (`/opt/devbox/deploy/harness`), links to the operator's private web artifacts (the "Harness Delivery Map" page, in the 2026-10-09 handoff and changes entry), and a report record's contents, all of which are fine inside a private repository and are internal identifiers outside one. There is no secret in them — that is checked every release — but publication is a separate decision from releasing, and this is the paragraph that says so (security review 2026-09-18).
@@ -221,7 +206,7 @@ Upload the assets one call at a time, not all of them on `gh release create`: a 
 
 Since the Google skills catalog (plan `2026-10-01-google-skills-catalog`) each binary embeds it, about 6 MB more (linux/amd64: 19.9 MB), and the zip of the tree is about 7 MB with some 2,575 entries, inside the 5,000 entries `update --from-zip` accepts; the uploads take correspondingly longer, nothing else in the procedure changes.
 
-After the upload: `gh release view vX.Y.Z --repo github.com/kesokaj/fyr --json assets --jq '.assets[].name'` lists the five assets (six for v2.4.0), and nothing further is pushed anywhere — a binary-only place picks the release up the next time the operator runs `fyr update` there.
+After the upload: `gh release view vX.Y.Z --repo github.com/kesokaj/fyr --json assets --jq '.assets[].name'` lists the five assets, and nothing further is pushed anywhere — a binary-only place picks the release up the next time the operator runs `fyr update` there.
 
 ### Release notes
 
@@ -251,7 +236,7 @@ Same as `local.md`: `fyr version` unqualified matching what was installed, `fyr 
 
 Standing by-hand procedures, never pending items (those live in the newest handoff):
 
-- On the Mac after a push from the Linux box: `fyr update`, `fyr status`, then the three smoke checks on each CLI (`.agents/docs/testing/2026-09-03-verify-real-home.md`; the Mac procedure is `2026-09-04-verify-mac-real-home.md`).
+- On the Mac after a push from the Linux box: `fyr update`, `fyr status`, then the three smoke checks on Antigravity (`.agents/docs/testing/2026-09-03-verify-real-home.md`; the Mac procedure is `2026-09-04-verify-mac-real-home.md`).
 - After any change to `context/`, `skills/`, or `agents/` is pushed: `fyr update` at each of the four places, when the operator decides to. Nothing else needs refreshing.
 - At a place that has been in use, before its harness-target proposals can matter here: run `/retro --harness` in a harness checkout on that place, which reads its own queue under `~/.config/fyr/` (nothing carries a queue between places, ADR-062).
 - On a new machine, `gh auth status` must pass before that machine cuts a release; no key is needed (ADR-053).

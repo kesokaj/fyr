@@ -21,3 +21,5 @@ Two instructions disagreed about the same lines. The CLI's reminder came later i
 
 ## Prevention
 Before every push, `git log --format=%B --branches --not --remotes` is read for `Claude-Session:` and `Co-Authored-By:` lines, and a hit is amended before the push. A commit message is written from the context's § Git, never from a CLI's reminder.
+
+Graduated 2026-10-25 (plan `plans/2026-10-25-harness-audit-fix.md` D4, D13): the read is the script `skills/handoff/scripts/check-trailers.sh`, which `handoff` Step 6 and `preflight` Step 6.4 run before the push. It exits non-zero on a `Claude-Session:` or `Co-Authored-By:` line in `git log @{u}..HEAD --format=%B`, and a Go test runs it against a fixture that must fail and one that must pass. It is a script a skill runs, not a git hook (R3).

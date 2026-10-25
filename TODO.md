@@ -1,5 +1,5 @@
 # TODO
 
-Items the active plan will consume. Empty when the work is done; anything the operator must do (other than a standing procedure the deploy guide records), or an idea worth keeping, goes in the newest handoff's Next Steps.
+Items the active plan will consume (the rule: global context § Definition of Done, step 4).
 
 <!-- Format: - [ ] Description (added YYYY-MM-DD) -->

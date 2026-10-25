@@ -32,3 +32,6 @@ BUG-168's fix (`3bffdcf`) had made usage errors exit 2 at seven sites. It missed
 
 ## Prevention
 A flag registered on every verb is validated once, before the verb dispatch, not where each verb first reads it. A usage check that sits after a side effect (a fetch, a pull, a write) is a bug even when its exit code is right, and the read-only mode of a verb resolves the same check (review-standards § 8).
+
+## Since
+2026-10-25: `--vendor` left with the second vendor (plan `2026-10-24-fyr-agy-only.md`), and `TestUpdateRefusesABadVendorFirst` left with it. `TestUpdateRefusesTheVendorFlagFirst` (`cmd/fyr/main_test.go`) holds the same order: any `--vendor` is a usage error, exit 2, before `update` fetches or pulls, on the checkout, dry-run and zip paths. `TestUsageErrorsExit2` covers the other verbs (audit TR12).
