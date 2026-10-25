@@ -71,7 +71,10 @@ func Open(path string) (*Store, error) {
 	if err := search.PrepareDBFiles(path); err != nil {
 		return nil, fmt.Errorf("metrics: %w", err)
 	}
-	db, err := sql.Open("sqlite", search.DSN(path))
+	// _txlock=immediate: every transaction here writes, and the join's opens
+	// with reads; a deferred one would fail at its first write, without
+	// waiting, when another ingest committed in between.
+	db, err := sql.Open("sqlite", search.DSN(path)+"&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}

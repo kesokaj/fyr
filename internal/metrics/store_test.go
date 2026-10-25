@@ -3,6 +3,7 @@ package metrics
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -219,5 +220,33 @@ func TestExportOmitsSalt(t *testing.T) {
 	}
 	if !bytes.Contains(b, []byte(`"schema"`)) {
 		t.Error("the export lost its schema row")
+	}
+}
+
+// TestTxTakesWriteLockAtBegin pins the store's transactions to BEGIN
+// IMMEDIATE: the join opens with reads (the ref rewrites), and a deferred
+// transaction that reads first fails at its first write, without waiting,
+// when another ingest committed in between (review of 811442c..33c652a,
+// finding 1). Here a second connection that never waits must find the
+// store locked while the first transaction is open, before it wrote.
+func TestTxTakesWriteLockAtBegin(t *testing.T) {
+	p := Path(t.TempDir())
+	s := openT(t, p)
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM events`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	other, err := sql.Open("sqlite", "file:"+p+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if _, err := other.Exec(`INSERT INTO meta(key, value) VALUES ('probe', 'x')`); err == nil {
+		t.Fatal("a second connection wrote while the store's transaction was open: the transaction is deferred")
 	}
 }
