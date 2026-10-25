@@ -39,7 +39,10 @@ var trailDirs = []string{"bugs", "reviews", "retros", "changes", "handoffs"}
 // feedback, trail and transcripts after since, with the installed skills.
 // Changed is true when anything but the skills is newer than since.
 func collect(home string, p search.Project, since time.Time, limit int) (Collected, error) {
-	c := Collected{Root: p.Root, Name: p.Name}
+	// The name is the checkout's base name, which may hold a line break: it
+	// is folded once here, for the prompt, the proposals header and the file
+	// names alike (audit 2026-10-25, SD15).
+	c := Collected{Root: p.Root, Name: oneLine(p.Name)}
 	add := func(kind, label, text string, t time.Time) {
 		if strings.TrimSpace(text) == "" {
 			return
@@ -125,7 +128,7 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 	if err := c.fit(limit); err != nil {
 		return c, err
 	}
-	c.Prompt = prompt(c)
+	c.Prompt = render(c)
 	return c, nil
 }
 
@@ -157,18 +160,31 @@ func scrub(text, home string) string {
 // then transcripts oldest first, then trail files oldest first, then
 // feedback, then skills (D21, ADR-055a). A
 // project whose memory alone is over the limit fails.
+//
+// The prompt's size is counted from its parts once and then kept by
+// subtracting each dropped block and re-measuring the short left-out line,
+// never by rendering the prompt again (audit 2026-10-25, SD-S1).
 func (c *Collected) fit(limit int) error {
+	sizes := make([]int, len(c.Inputs))
+	size := len(head(*c)) + len(leftOut(c.Dropped))
+	for i, in := range c.Inputs {
+		sizes[i] = len(block(in))
+		size += sizes[i]
+	}
 	for _, kind := range []string{kindMetrics, kindTranscript, kindTrail, kindFeedback, kindSkill} {
-		for len(prompt(*c)) > limit {
+		for size > limit {
 			i := oldest(c.Inputs, kind)
 			if i < 0 {
 				break
 			}
+			before := len(leftOut(c.Dropped))
 			c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (over the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
+			size += len(leftOut(c.Dropped)) - before - sizes[i]
 			c.Inputs = append(c.Inputs[:i], c.Inputs[i+1:]...)
+			sizes = append(sizes[:i], sizes[i+1:]...)
 		}
 	}
-	if len(prompt(*c)) > limit {
+	if size > limit {
 		return errors.New("memory over cap")
 	}
 	return nil

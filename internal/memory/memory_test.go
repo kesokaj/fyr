@@ -211,6 +211,79 @@ func TestWorktreeSharesTheMainStore(t *testing.T) {
 	}
 }
 
+// Root was the git common dir's parent: in a submodule (.git/modules/x) or a
+// --separate-git-dir checkout that is no work tree, so the store pointed into
+// git's own directory (audit 2026-10-25, SD16). It is the work tree's top.
+func TestRootIsTheWorkTreeTop(t *testing.T) {
+	same := func(a, b string) bool {
+		ra, _ := filepath.EvalSymlinks(a)
+		rb, _ := filepath.EvalSymlinks(b)
+		return ra == rb
+	}
+
+	t.Run("separate git dir", func(t *testing.T) {
+		work := t.TempDir()
+		git(t, work, "init", "-q", "--separate-git-dir", filepath.Join(t.TempDir(), "repo.git"))
+		sub := filepath.Join(work, "pkg")
+		os.MkdirAll(sub, 0o755)
+		got, err := Root(sub)
+		if err != nil || !same(got, work) {
+			t.Errorf("Root = %q, %v; want the work tree %s", got, err, work)
+		}
+	})
+
+	t.Run("submodule", func(t *testing.T) {
+		inner := repo(t)
+		git(t, inner, "add", ".gitignore")
+		git(t, inner, "commit", "-q", "-m", "inner")
+		super := repo(t)
+		git(t, super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "mod")
+		mod := filepath.Join(super, "mod")
+		if common := git(t, mod, "rev-parse", "--path-format=absolute", "--git-common-dir"); !strings.Contains(common, filepath.Join(".git", "modules")) {
+			t.Fatalf("the fixture's common dir is %s, not under .git/modules, so it proves nothing", common)
+		}
+		got, err := Root(mod)
+		if err != nil || !same(got, mod) {
+			t.Errorf("Root = %q, %v; want the submodule's work tree %s", got, err, mod)
+		}
+	})
+
+	t.Run("linked worktree keeps the main store", func(t *testing.T) {
+		dir := repo(t)
+		git(t, dir, "add", ".gitignore")
+		git(t, dir, "commit", "-q", "-m", "init")
+		wt := filepath.Join(t.TempDir(), "wt")
+		git(t, dir, "worktree", "add", "-q", wt)
+		got, err := Root(wt)
+		if err != nil || !same(got, dir) {
+			t.Errorf("Root = %q, %v; want the main worktree %s", got, err, dir)
+		}
+	})
+
+	// A repository's core.worktree can name any directory: a store there
+	// would be another project's (trail.Toplevel's rule).
+	t.Run("core.worktree outside is refused", func(t *testing.T) {
+		dir := repo(t)
+		elsewhere := t.TempDir()
+		git(t, dir, "config", "core.worktree", elsewhere)
+		if got := git(t, dir, "rev-parse", "--show-toplevel"); !same(got, elsewhere) {
+			t.Fatalf("the fixture's toplevel is %s, not %s, so it proves nothing", got, elsewhere)
+		}
+		got, err := Root(dir)
+		if err == nil && same(got, elsewhere) {
+			t.Errorf("Root followed core.worktree to %s", got)
+		}
+	})
+
+	t.Run("bare repository is refused", func(t *testing.T) {
+		bare := t.TempDir()
+		git(t, bare, "init", "-q", "--bare")
+		if got, err := Root(bare); !IsRefusal(err) {
+			t.Errorf("Root = %q, %v; want a refusal", got, err)
+		}
+	})
+}
+
 func samePath(a, b string) bool {
 	ra, _ := filepath.EvalSymlinks(filepath.Dir(a))
 	rb, _ := filepath.EvalSymlinks(filepath.Dir(b))

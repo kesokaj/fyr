@@ -121,6 +121,10 @@ func (o Options) since(st state, root string) time.Time {
 	return o.Now().Add(-firstLook)
 }
 
+// shownDropped is how many dropped inputs a dry run lists by name; the rest
+// are counted (audit 2026-10-25, SD-S2: 34 lines on one box).
+const shownDropped = 5
+
 // dryRun prints what a run would collect and run, and writes, locks and
 // advances nothing.
 func (o Options) dryRun(projects []search.Project, st state) error {
@@ -149,8 +153,16 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 			parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
 		}
 		fmt.Fprintf(o.Out, "[dry-run] %s: %s; %d bytes; would run: %s\n", p.Root, strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
-		for _, d := range c.Dropped {
+		shown := c.Dropped
+		if len(shown) > shownDropped {
+			fmt.Fprintf(o.Out, "[dry-run]   left out: %d inputs, the first %d below\n", len(shown), shownDropped)
+			shown = shown[:shownDropped]
+		}
+		for _, d := range shown {
 			fmt.Fprintf(o.Out, "[dry-run]   left out: %s\n", oneLine(d))
+		}
+		if rest := len(c.Dropped) - len(shown); rest > 0 {
+			fmt.Fprintf(o.Out, "[dry-run]   left out: and %d more\n", rest)
 		}
 		if o.Project != "" {
 			fmt.Fprintf(o.Out, "[dry-run] prompt:\n%s\n", c.Prompt)

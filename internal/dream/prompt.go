@@ -39,27 +39,48 @@ func oneLine(label string) string {
 	return fenceRun.ReplaceAllStringFunc(strings.Join(strings.Fields(label), " "), spaced)
 }
 
+// render is prompt, a variable so a test can count the renders: a prompt is
+// ~260 KB, and fit once rendered it again for every input it dropped
+// (audit 2026-10-25, SD-S1).
+var render = prompt
+
 // prompt is the instructions and every input, each fenced and labelled as
 // data, plus what the cap dropped.
+// Its length is always len(head(c)) + len(leftOut(c.Dropped)) plus every
+// block's, which is what fit counts with instead of rendering.
 func prompt(c Collected) string {
 	var b strings.Builder
-	b.WriteString(instructions)
-	fmt.Fprintf(&b, "\n\nProject: %s\n", c.Name)
-	if len(c.Dropped) > 0 {
-		// Dropped labels are folded like every label: a file name holding a
-		// newline forged a fence line here too (security review round 3).
-		b.WriteString("Left out of this prompt: " + oneLine(strings.Join(c.Dropped, "; ")) + "\n")
-	}
+	b.WriteString(head(c))
+	b.WriteString(leftOut(c.Dropped))
 	for _, kind := range promptOrder {
 		for _, in := range c.Inputs {
-			if in.Kind != kind {
-				continue
+			if in.Kind == kind {
+				b.WriteString(block(in))
 			}
-			// An input holding the closing fence is escaped, so it cannot end
-			// its own block (audit 2026-09-30, SD8).
-			text := fenceRun.ReplaceAllStringFunc(strings.TrimRight(in.Text, "\n"), spaced)
-			fmt.Fprintf(&b, "\n<<<data %s: %s\n%s\n>>>\n", in.Kind, oneLine(in.Label), text)
 		}
 	}
 	return b.String()
+}
+
+// head is the instructions and the project line.
+func head(c Collected) string {
+	return instructions + "\n\nProject: " + c.Name + "\n"
+}
+
+// leftOut is the line naming what the cap dropped, or "" when nothing was.
+func leftOut(dropped []string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	// Dropped labels are folded like every label: a file name holding a
+	// newline forged a fence line here too (security review round 3).
+	return "Left out of this prompt: " + oneLine(strings.Join(dropped, "; ")) + "\n"
+}
+
+// block is one input, fenced and labelled as data.
+func block(in Input) string {
+	// An input holding the closing fence is escaped, so it cannot end its
+	// own block (audit 2026-09-30, SD8).
+	text := fenceRun.ReplaceAllStringFunc(strings.TrimRight(in.Text, "\n"), spaced)
+	return fmt.Sprintf("\n<<<data %s: %s\n%s\n>>>\n", in.Kind, oneLine(in.Label), text)
 }
