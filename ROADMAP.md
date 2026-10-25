@@ -7,7 +7,7 @@ Last reviewed: 2026-10-25
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-25-2024-plan-fyr-check-docs-freshness-and-drift-2026-10` — roadmap item 3 (`fyr check`: docs freshness and drift): approved 2026-10-25 (D24–D27; O3, O5 answered as D30, D31), Phases 1 and 2 done, Phase 3 next; O1, O7 and A3's Open row answered (D35–D38)
+- `PLAN-2026-10-25-2024-plan-fyr-check-docs-freshness-and-drift-2026-10` — roadmap item 3 (`fyr check`: docs freshness and drift): approved 2026-10-25 (D24–D27; O3, O5 answered as D30, D31), Phases 1 to 3 done (O1, O7 and A3's Open row answered as D35–D38); the Done section next: reviewer and security over the feature, then the verifier
 
 ## Next
 

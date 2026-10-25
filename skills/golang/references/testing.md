@@ -8,7 +8,7 @@ A test is evidence only when it has been seen red for the right reason. A new te
 
 Run from the module root, bare, and read the exit status: `go vet ./... && go test -race ./...`. Useful flags: `-run 'Name'`, `-count=1` (no cache), `-shuffle=on`, `-timeout` (default 10m), `-cover` (`-covermode=atomic` is implied under `-race`), `-v` only when reading a failure.
 
-Every Go block below compiles beside the first block's `greet.go` (one package, `internal/greet`); the blocks that name another package say which file they sit in.
+Every Go block below compiles beside the first block's `greet.go` (one package, `<project>/internal/greet`); the blocks that name another package say which file they sit in.
 
 ## Table-driven tests
 

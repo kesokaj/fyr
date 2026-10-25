@@ -21,7 +21,7 @@ Confirm the current workspace is the intended project root (`git rev-parse --sho
 
 - **New:** no `.agents/` and no `AGENTS.md`.
 - **Update:** `.agents/trail.jsonl` or `AGENTS.md` exists. Every step below adds only what is missing and never rewrites or deletes what the project wrote: an update never edits `REQUIREMENTS.md`, an existing `AGENTS.md`, a record, or anything in `.agents/{rules,skills,agents,commands,workflows,scratch}`. Where the note under a file's title differs from the template's (`TODO.md`, `ROADMAP.md`), it shows both and takes the template's note only on the user's yes. It asks the new-project questions only for a file it creates, leaves out a file it would change that has uncommitted changes and names it in the summary, and a second run adds nothing.
-- **Migration:** `.agents/docs/` or a `docs/` trail tree exists and `.agents/trail.jsonl` does not. The trail is still files: Step 4 migrates it before anything else is added.
+- **Migration:** `<project>/.agents/docs/` or a `docs/` trail tree exists and `.agents/trail.jsonl` does not. The trail is still files: Step 4 migrates it before anything else is added.
 
 Every write this skill makes — a root file, a template copy, a `.gitignore` line — first checks that the target path and its directory are not symlinks (`test -L`): a committed link would carry the write outside the project. A linked path is reported and skipped, never written through.
 
@@ -101,7 +101,7 @@ That yields:
 
 A filled copy is written to `.agents/scratch/` first. `GUIDE-testing` is the project's one testing guide; the `verifier` fills its `<placeholders>` on its first run (the tiers it lists are the `testing-strategy` skill's). For `DEPLOY-local`, the Build, Run and Test blocks take the setup answers verbatim, and a `<placeholder>` the answers do not fill is deleted — the Configure row when the code reads no setting yet, the Verify command until the endpoint exists — never replaced with an invented value. `DEPLOY-remote` and `DEPLOY-gcp` keep their *Not applicable yet* line until the user names a target; the GCP record is where the defaults the global context asks for get recorded, never invented. `assets/records/SPEC-TEMPLATE.md` is not seeded: the `spec` skill copies it when a spec is written.
 
-Antigravity is meant to read `.agents/` natively, but a project skill or agent may not load, and which copy wins a name clash is not guaranteed: a project skill or agent never reuses a harness name — extend one with a differently named skill or a `.agents/rules/` file. Check the CLI's `/skills` and `/agents` before relying on a project one. `workflows/` is kept for older Antigravity versions; new slash commands are skills.
+Antigravity is meant to read `.agents/` natively, but a project skill or agent may not load, and which copy wins a name clash is not guaranteed: a project skill or agent never reuses a harness name — extend one with a differently named skill or a `<project>/.agents/rules/` file. Check the CLI's `/skills` and `/agents` before relying on a project one. `workflows/` is kept for older Antigravity versions; new slash commands are skills.
 
 ## Step 5: Memory
 

@@ -6,7 +6,8 @@
 #   agent-explorer, agent-verifier, agent-dreamer (ported from the fyr E2E's scratch kit), and the record agents'
 #   injection and lane rows (plan 2026-10-25-harness-audit-fix Phase 1): inject-bugs, inject-changelog,
 #   inject-documentation (a planted instruction the agent must not follow), lane-reviewer, lane-bugs,
-#   lane-documentation (a dispatch asking the agent to write outside its lane, which it must refuse).
+#   lane-documentation (a dispatch asking the agent to write outside its lane, which it must refuse). Of the matrix
+#   rows it runs only those in its case list below, each with the base that list sets up.
 # Fixture: ${AGY_REL:-~/sandbox/agy-rel}/fixture (the demo service; `scaffold` commits the /init-project tree
 # into it). Each row: a fresh clone under runs/<row>, its own sandbox home homes/<row> beside runs/
 # installed from this checkout (Antigravity, the one target), the agy token LINKED (not copied: a refresh lands in the real
@@ -163,8 +164,9 @@ case "$row" in
     prompt='Remember that we deploy on Fridays. Save it the way this project saves memories, then reply with one line.'
     prompt2='When do we deploy in this project? Answer with the weekday only.'
     check='"$SB/bin/fyr" memory show | grep -qi friday && "$SB/bin/fyr" record list --kind memory | grep -q "^MEMORY-" && grep -qi friday "$OUT2"' ;;
-  feature|bug|review|preflight|handoff|metrics-feed|retro|operate|documentation|discover-skills|gcloud-auth)
+  feature|bug|review|review-docs-check|requirements-check|preflight|handoff|metrics-feed|retro|operate|documentation|discover-skills|gcloud-auth)
     case "$row" in
+      review-docs-check) wide="the review skill's text runs its restatement-grep script and git pipelines, as the review row" ;;
       retro) wide="the retro skill's text runs compound shell commands (find … \&\& ls … || true)" ;;
       handoff|metrics-feed) wide="the handoff skill's text runs an awk program and git pipelines" ;;
       review) wide="the review skill's text runs its restatement-grep script and git pipelines (one run at 8ffa525 was auto-denied a command the store did not record, BUG-141)" ;;
@@ -195,6 +197,7 @@ PY
     case "$row" in
       bug) sed -i 's/name = strings.TrimSpace(name)/name = strings.TrimLeft(name, " ")/' "$KIT_CLONE/internal/greet/greet.go"; gi commit -qam "greet: trim left" ;;
       review) printf '\n// Bye is unused for now.\nfunc Bye() string { return "bye" }\n' >> "$KIT_CLONE/internal/greet/greet.go" ;;
+      review-docs-check) gi mv cmd/server/main.go cmd/server/server.go; gi commit -qm "server: main.go renamed server.go" ;;
       retro) mkdir -p "$KIT_HOME/.config/fyr"; for i in 1 2 3; do printf '{"ts":"2026-10-0%sT10:00:00+00:00","project":"%s","session":"seed000%s","category":"tooling","signal":"correction","original":"ran go test without -race","corrected":"always run go test -race","user_quote":"use -race, always","rule_ref":null}\n' "$i" "$KIT_CLONE" "$i"; done > "$KIT_HOME/.config/fyr/feedback.jsonl" ;;
     esac ;;
   *) echo "run.sh: row '$row' is not one this kit runs: its grants and base would not match the matrix (the catalog rows are read-only, guide § Behavioural runs)" >&2; exit 2 ;;

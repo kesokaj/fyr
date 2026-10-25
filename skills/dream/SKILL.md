@@ -25,7 +25,7 @@ The first line of the reply is always `memory: <root> (<n> memories)`. When `n` 
 
 ## Step 2: Orientation
 
-Read every memory in full (`fyr record get MEMORY-<name>`; its body's first line is `type: <user|feedback|project|reference>`). Then read, for the checks below: the project's `AGENTS.md` and `.agents/rules/`, the global context (`~/.gemini/config/rules/AGENTS.md`) and the global rule files (the other `~/.gemini/config/rules/*.md`), the skills and agents the project and the harness install, the `bug` and `adr` records (`fyr record list --kind bug`, `--kind adr`), the newest `handoff` record and the three newest `change` records, and this project's global `feedback` records (`fyr record list --global --kind feedback --project <root>`). A record or file you cannot read is noted, and the checks that needed it resolve to `keep` (Step 3).
+Read every memory in full (`fyr record get MEMORY-<name>`; its body's first line is `type: <user|feedback|project|reference>`). Then read, for the checks below: the project's `AGENTS.md` and `<project>/.agents/rules/`, the global context (`~/.gemini/config/rules/AGENTS.md`) and the global rule files (the other `~/.gemini/config/rules/*.md`), the skills and agents the project and the harness install, the `bug` and `adr` records (`fyr record list --kind bug`, `--kind adr`), the newest `handoff` record and the three newest `change` records, and this project's global `feedback` records (`fyr record list --global --kind feedback --project <root>`). A record or file you cannot read is noted, and the checks that needed it resolve to `keep` (Step 3).
 
 ## Step 3: One verdict per memory
 
@@ -34,7 +34,7 @@ Every memory gets exactly one verdict, with a one-line why that cites `file:line
 | Verdict | Test | Edit |
 |---|---|---|
 | `keep` | Still true; recorded nowhere the session already loads. | none |
-| `graduated` | Its rule now lives in the global context or a global rule file, the project `AGENTS.md`, `.agents/rules/`, a skill, or a bug's prevention rule — found by one `grep` over the memory's key words and one `fyr search` over them for other wording, each hit read in full. | retire it |
+| `graduated` | Its rule now lives in the global context or a global rule file, the project `AGENTS.md`, `<project>/.agents/rules/`, a skill, or a bug's prevention rule — found by one `grep` over the memory's key words and one `fyr search` over them for other wording, each hit read in full. | retire it |
 | `stale` | A `project` memory whose work the newest handoff or a `change` record shows done; a `reference` whose target is gone. | retire it |
 | `broken` | Names a file, function, flag or command that no longer exists (`ls`, `grep`); or carries a relative date ("last week", "next month"). | rewrite it to the current name and an absolute date (`fyr memory add` under its name), or retire it when nothing current matches |
 | `merge` | Two or more memories on one fact. | rewrite the one with the older name to hold the fact (the newer `updated` wins a contradiction), retire the others |

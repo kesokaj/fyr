@@ -10,7 +10,7 @@
 <!-- The project is wrong without these. Numbered R1…; a later edit keeps the numbers (a struck item stays as "R3 — struck <date>: <why>"). -->
 
 - **R1** — <one sentence>.
-  <!-- provenance: <who>, <date>; enforced by: <test | rule | guide path> -->
+  <!-- provenance: <who>, <date>; enforced by: <path[:N] | TestName | record ID>, … -->
 - **R2** — <one sentence>.
   <!-- provenance: …; enforced by: … -->
 
@@ -40,5 +40,5 @@
 - <one line> — <source>.
 
 <!-- Targets a service must meet (concurrency, p99 latency, data volume) are Must or Should items like any other,
-     one sentence each with the number in it and the test or dashboard that measures it as "enforced by";
+     one sentence each with the number in it and the test, or the path or record of the dashboard, that measures it as "enforced by";
      a table is added only when there are five or more. A CLI, a library or a tool has none. -->

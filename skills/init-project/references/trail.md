@@ -4,7 +4,7 @@ The one statement of where a project's trail lives and how an agent's artifact r
 
 ## Records
 
-A project's trail is records in `fyr`'s brain store (`~/.config/fyr/brain.db`): plans, reviews, test logs (`testing`), changes, handoffs, bugs, ADRs, retros, learnings, specs, deploy docs and guides. They are written and read with `fyr record add|get|edit|list`, searched with `fyr search`, and exported on every write to one committed file, `.agents/trail.jsonl`, which nobody edits by hand except to resolve a git conflict (one record per line). A project whose trail is still a `docs/` or `.agents/docs/` tree is migrated with `fyr record import` first.
+A project's trail is records in `fyr`'s brain store (`~/.config/fyr/brain.db`): plans, reviews, test logs (`testing`), changes, handoffs, bugs, ADRs, retros, learnings, specs, deploy docs and guides. They are written and read with `fyr record add|get|edit|list`, searched with `fyr search`, and exported on every write to one committed file, `.agents/trail.jsonl`, which nobody edits by hand except to resolve a git conflict (one record per line). A project whose trail is still a `docs/` or `<project>/.agents/docs/` tree is migrated with `fyr record import` first.
 
 Reading: `fyr record list [--kind K] [--open]` (newest first), `fyr record get <ID>`, `fyr search <words>`, `fyr search --refs <ID|path>`.
 

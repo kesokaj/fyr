@@ -8,13 +8,13 @@ here; never edit vendored content in place (fork it into a differently-named ski
 instead). The second table lists the forks: `gke-basics`, the one that predates that rule and
 keeps its upstream name, and `discover-skills`, forked from `find-skills` under a new name. The third table lists
 vendored catalogs: a subtree of third-party skills inside a harness skill, reached through that
-skill and never installed as skills themselves.
+skill and never installed as skills themselves. A path in a Source cell is written `<upstream>/…`: it is in the upstream repository, not in this checkout.
 
 | Skill | Source | Pin | License | Vendored | Update via |
 |-------|--------|-----|---------|----------|------------|
-| grilling | github.com/mattpocock/skills (`skills/productivity/grilling`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s grilling` |
-| codebase-design | github.com/mattpocock/skills (`skills/engineering/codebase-design`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s codebase-design` |
-| prompt-audit reference (one file, not a skill: `review-standards/references/prompt-audit/prompt-audit.md`, with `LICENSE.txt` beside it) | github.com/anthropics/skills (`skills/claude-api/shared/prompt-audit.md`) | 8a1541c (sha256:c33200da…1878f2) | Apache-2.0 | 2026-09-29 | `curl -sL https://raw.githubusercontent.com/anthropics/skills/<sha>/skills/claude-api/shared/prompt-audit.md`, then bump the pin and digest here |
+| grilling | github.com/mattpocock/skills (`<upstream>/skills/productivity/grilling`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s grilling` |
+| codebase-design | github.com/mattpocock/skills (`<upstream>/skills/engineering/codebase-design`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s codebase-design` |
+| prompt-audit reference (one file, not a skill: `review-standards/references/prompt-audit/prompt-audit.md`, with `LICENSE.txt` beside it) | github.com/anthropics/skills (`<upstream>/skills/claude-api/shared/prompt-audit.md`) | 8a1541c (sha256:c33200da…1878f2) | Apache-2.0 | 2026-09-29 | `curl -sL https://raw.githubusercontent.com/anthropics/skills/<sha>/skills/claude-api/shared/prompt-audit.md`, then bump the pin and digest here |
 
 ## Forks
 
@@ -34,14 +34,14 @@ removed.
 on 2026-10-25 (plan `2026-10-25-harness-audit-fix`, TS30, D18). The verbatim copy's Step 6 installed
 with the global and skip-prompt flags of an unpinned CLI, against this harness's install rule,
 and a note here never reaches the model that loads the skill. The vendored copy was diffed
-against upstream's `skills/find-skills/SKILL.md` at `435076e` before the fork (identical, the
+against `<upstream>/skills/find-skills/SKILL.md` at `435076e` before the fork (identical, the
 one file the directory held) and removed. A re-fetch from the pin is a diff to read, never a
 copy to apply.
 
 | Skill | Publisher / author | Derived from | Pin | Local changes | License |
 |-------|--------------------|--------------|-----|---------------|---------|
-| gke-basics | Google Cloud | github.com/google/skills (`skills/cloud/gke-basics`, the one skill it was before upstream split it into `gke-*` sub-skills at 5d9d054 on 2026-06-23) | 6f0b877 (2026-04-23; the tree is unchanged upstream through 2026-05-10) | `SKILL.md` only: the description rewritten with this harness's cross-references (`cloud-run-deploy`, `docker`), a "When NOT to use" line added, the closing pointer to the Developer Knowledge MCP replaced by the GKE docs URL; a Harness overrides paragraph in SKILL.md (gcloud over MCP, one project question, the two dangling asset paths named, the lab-only `deletion_protection`); `references/` and `assets/` verbatim; the Quick Start takes `$PROJECT_ID` and `$REGION` with `--project` and `--region`, the `~/.claude` asset path dropped, and the references' `us-central1` values named as samples (plan `2026-10-25-harness-audit-fix`, TS33, TS34) | Apache-2.0 |
-| discover-skills | Vercel (vercel-labs) | github.com/vercel-labs/skills (`skills/find-skills`, upstream name `find-skills`) | 435076e | `SKILL.md` rewritten from upstream's: renamed; the CLI pinned (`npx skills@1.7.2`) on every call; Step 6 installs into the harness checkout's `skills/` without the global, skip-prompt or all flags, then a `VENDORED.md` row and `fyr install`; a check of the skills installed here first; the text check and telemetry switch added; the structure and the quality checks kept | MIT |
+| gke-basics | Google Cloud | github.com/google/skills (`<upstream>/skills/cloud/gke-basics`, the one skill it was before upstream split it into `gke-*` sub-skills at 5d9d054 on 2026-06-23) | 6f0b877 (2026-04-23; the tree is unchanged upstream through 2026-05-10) | `SKILL.md` only: the description rewritten with this harness's cross-references (`cloud-run-deploy`, `docker`), a "When NOT to use" line added, the closing pointer to the Developer Knowledge MCP replaced by the GKE docs URL; a Harness overrides paragraph in SKILL.md (gcloud over MCP, one project question, the two dangling asset paths named, the lab-only `deletion_protection`); `references/` and `assets/` verbatim; the Quick Start takes `$PROJECT_ID` and `$REGION` with `--project` and `--region`, the `~/.claude` asset path dropped, and the references' `us-central1` values named as samples (plan `2026-10-25-harness-audit-fix`, TS33, TS34) | Apache-2.0 |
+| discover-skills | Vercel (vercel-labs) | github.com/vercel-labs/skills (`<upstream>/skills/find-skills`, upstream name `find-skills`) | 435076e | `SKILL.md` rewritten from upstream's: renamed; the CLI pinned (`npx skills@1.7.2`) on every call; Step 6 installs into the harness checkout's `skills/` without the global, skip-prompt or all flags, then a `VENDORED.md` row and `fyr install`; a check of the skills installed here first; the text check and telemetry switch added; the structure and the quality checks kept | MIT |
 
 Apache-2.0 and MIT permit redistribution with attribution, which the table above provides.
 Both also ask that the licence text travel with the work: this repository is not
@@ -52,7 +52,7 @@ published, and if that changes, add a `LICENSE` file for `gke-basics` and one fo
 
 | Catalog | Source | Pin | License | Vendored | Update via |
 |---------|--------|-----|---------|----------|------------|
-| google-catalog/catalog | github.com/google/agents-cli (`skills/`, `extensions/langchain/template/.agents/skills`) and github.com/google/skills (`skills/cloud`, `skills/developers`); entry counts per source, exclusions and per-entry security notes in `google-catalog/catalog/MANIFEST.md` | 2c39459 and d5d9052 | Apache-2.0 | 2026-10-01 | `bash skills/google-catalog/scripts/refresh-catalog.sh <agents-cli pin> <google-skills pin>`, then `git add skills/google-catalog && go test ./...` |
+| google-catalog/catalog | github.com/google/agents-cli (`<upstream>/skills/`, `<upstream>/extensions/langchain/template/.agents/skills`) and github.com/google/skills (`<upstream>/skills/cloud`, `<upstream>/skills/developers`); entry counts per source, exclusions and per-entry security notes in `google-catalog/catalog/MANIFEST.md` | 2c39459 and d5d9052 | Apache-2.0 | 2026-10-01 | `bash skills/google-catalog/scripts/refresh-catalog.sh <agents-cli pin> <google-skills pin>`, then `git add skills/google-catalog && go test ./...` |
 
 A catalog is vendored by its refresh script, never by hand and never by `npx skills add`: the
 script copies the entries byte for byte at the two pins (file modes aside: no executable bit; a pin is a full 40-digit commit id, since git would check a tag or branch named like a shorter one out first; the short ids in the row above are for reading),

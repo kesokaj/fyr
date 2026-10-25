@@ -47,7 +47,7 @@ gcloud run services add-iam-policy-binding "${SERVICE}" --region "${REGION}" \
   --role="roles/run.invoker"
 ```
 
-What the app checks on every request, in `internal/iapauth` (the compiling sample is
+What the app checks on every request, in `<project>/internal/iapauth` (the compiling sample is
 [references/go-samples.md](references/go-samples.md) § IAP middleware):
 
 1. The header `x-goog-iap-jwt-assertion` is present; a missing header is 401 (the request
