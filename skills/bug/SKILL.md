@@ -8,7 +8,7 @@ argument-hint: "[symptom, repro, or #issue]"
 
 Diagnose without anchoring, capture the bug as a failing test, fix the smallest thing, record it so it is not repeated.
 
-**Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/` if it exists, else create `.agents/docs`. Dates from `date +%F`.
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported to `.agents/trail.jsonl`. Dates from `date +%F`.
 
 ## Gates that need the user
 
@@ -32,7 +32,7 @@ PROBLEM
 - Fixed means: <the test that passes / the behavior / the output>
 ```
 
-Check `<docs-root>/bugs/INDEX.md` first (`fyr search --refs <path> --kind bug` lists the records naming each file involved): if the area has a record, read it — the prevention rule may already name the cause. If there is no repro and the bug is not obvious from one file, **ask the user for one** (steps, URL, log line, failing test; a gate, above). Never invent a repro on your own: one is inferred only when the user picks that option at the gate, and it is printed before Step 2 runs, because a wrong-shaped guess wastes the diagnosis.
+Check the `bug` records first (`fyr record list --kind bug`; `fyr search --refs <path> --kind bug` lists the records naming each file involved): if the area has a record, read it — the prevention rule may already name the cause. If there is no repro and the bug is not obvious from one file, **ask the user for one** (steps, URL, log line, failing test; a gate, above). Never invent a repro on your own: one is inferred only when the user picks that option at the gate, and it is printed before Step 2 runs, because a wrong-shaped guess wastes the diagnosis.
 
 ## Step 2: Goldfish diagnosis
 

@@ -5,11 +5,11 @@ description: "Save and load the project's memory through `fyr memory add` and `f
 
 # Project memory
 
-A project's memory is small notes about the user and the project that a new session should know. It lives in `.agents/memory/` at the main checkout's root: one file per memory plus the index `MEMORY.md`. The store is gitignored, per machine, and never committed. It is not private from the model, though: where the nightly dream job is installed (`fyr dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
+A project's memory is small notes about the user and the project that a new session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where the nightly dream job is installed (`fyr dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
 
 ## Load at session start
 
-Run `fyr memory show` once, as the resume step says. It prints the index: one line per memory, `- [slug](slug.md) — description`. Read a memory's file (`.agents/memory/<slug>.md`) only when its line is relevant to the task.
+Run `fyr memory show` once, as the resume step says. It prints the index: one line per memory, `- <slug> (<type>) — description`. Read a memory in full (`fyr record get MEMORY-<slug>`) only when its line is relevant to the task.
 
 A memory is what was true when it was written. Before acting on one that names a file, a function or a flag, check that the thing still exists.
 
@@ -45,12 +45,12 @@ Integration tests hit a real database, never a mock.
 EOF
 ```
 
-- `--name` is a short kebab-case slug, the file's name: `^[a-z0-9][a-z0-9-]{0,63}$`.
-- `--description` is one line: what a future session scans in the index to decide whether to open the file.
+- `--name` is a short kebab-case slug, the record's name (`MEMORY-<slug>`): `^[a-z0-9][a-z0-9-]{0,63}$`.
+- `--description` is one line of at most 512 bytes: what a future session scans in the index to decide whether to open the memory.
 - The body is one fact. For `feedback` and `project`, follow it with a `**Why:**` line and a `**How to apply:**` line. Write dates as `YYYY-MM-DD`, never "next week": run `date +%F` as its own command first and type the date it printed into the body. The save is the one `fyr memory add` command above, nothing joined to it and no `$( )` inside it, because a headless permission check refuses a command substitution.
-- Saving under an existing slug replaces that memory and its index line. Update a memory rather than adding a second one on the same fact; `fyr memory show` lists what exists.
-- The verb exits 2 with one line when it refuses: outside a git checkout, a symlinked or git-tracked store, a symlinked `MEMORY.md`, a path git would commit (run `/init-project` first), or an index of 200 lines (run `/dream`). Say the reason to the user and go on without the memory.
+- Saving under an existing slug replaces that memory. Update a memory rather than adding a second one on the same fact; `fyr memory show` lists what exists.
+- The verb exits 2 with one line when it refuses: outside a git checkout, a description that is not one line of at most 512 bytes, an empty body, or a busy store. Say the reason to the user and go on without the memory. `fyr memory show` prints at most 200 memories; past that, run `/dream`.
 
 ## Tidying
 
-`/dream` consolidates the store interactively: stale, duplicate and graduated memories, with a gate before anything is deleted. The nightly `fyr dream` job only proposes, into `~/.config/fyr/proposals/dream/`. Never delete or rewrite a memory file by hand outside `/dream`.
+`/dream` consolidates the memory interactively: stale, duplicate and graduated memories, with a gate before anything is retired. The nightly `fyr dream` job only proposes, as global `proposal` records. Never retire or rewrite a memory outside `/dream`.

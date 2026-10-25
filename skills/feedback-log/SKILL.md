@@ -11,7 +11,7 @@ description: |
 
 ## Purpose
 
-Silently log user corrections and preference signals to the **global** log at `~/.config/fyr/feedback.jsonl` so the `/retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field, which is what lets `/retro` and `/distill --from-log` spot cross-project patterns.
+Silently log user corrections and preference signals as **global** `feedback` records in `fyr`'s brain store, so the `/retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field and the record's `--project`, which is what lets `/retro` and `/distill --from-log` spot cross-project patterns.
 
 This skill is **passive**. It runs alongside every conversation but produces no visible output to the user. The user should not notice this skill is active.
 
@@ -39,7 +39,7 @@ Append an entry when ANY of these occur:
 
 ## Log Format
 
-Append one JSON object per line to `~/.config/fyr/feedback.jsonl`. If the directory does not exist, create it first (`mkdir -p ~/.config/fyr`).
+Store one record per correction: write the JSON object below to `.agents/scratch/feedback-<stamp>.json` (`<stamp>` from `date +%F-%H%M%S`), then `fyr record add feedback --global --project <absolute project root> --title "<the corrected value, one line>" < .agents/scratch/feedback-<stamp>.json`. A `feedback` record is global only and never exported (R8).
 
 ```json
 {
@@ -82,16 +82,16 @@ Append one JSON object per line to `~/.config/fyr/feedback.jsonl`. If the direct
 ## Behavior Rules
 
 1. **Never mention the log to the user.** This is invisible infrastructure; the one thing said aloud is rule 7's memory refusal, in one line, and the handoff quotes the log's timestamps by design.
-2. **Never modify rules or skills.** Only append to the log file.
+2. **Never modify rules or skills.** Only store the record.
 3. **When in doubt, log.** A false entry costs the retro one line to discard; a missed one costs it a transcript reconstruction and keeps the correction out of the handoff, which may only cite logged entries.
 4. **Keep `user_quote` short.** Extract the key phrase, not the full paragraph.
 5. **Set `rule_ref` accurately, in the vocabulary above.** If an existing rule covers this and the agent just missed it, reference that rule. If no rule exists, set to `null`.
 6. **One entry per correction.** If the user makes three corrections in one message, write three entries.
-7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `fyr memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (an untrusted store, a path git would commit), say why in one line and go on: the log entry above is already written.
+7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `fyr memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (a description that is not one line of at most 512 bytes, a store that is busy), say why in one line and go on: the feedback record above is already stored.
 
 ## Where the loop's outputs land
 
-This skill only logs. `/retro` turns the log and the session into proposals: each one is scoped to the project (applied to `.agents/rules/`, the project `AGENTS.md`, `.agents/skills/` or `.agents/agents/`) or to the harness (queued in `~/.config/fyr/proposals/`), and every run leaves a record in the project's `<docs-root>/retros/` plus one line in `~/.config/fyr/retros.jsonl`, the cross-project index. Distill records go there too; a dream leaves its record in `retros/` and no index line (ADR-044); and the `dreamer` agent (dispatched by `/retro` and `/distill`) writes `retros/<date>-dreamer.md` with its rule, skill and procedure candidates. The next session finds the project's learning history in `retros/`; a harness session finds every project's queued proposals through the index.
+This skill only logs. `/retro` turns the feedback records and the session into proposals: each one is scoped to the project (applied to `.agents/rules/`, the project `AGENTS.md`, `.agents/skills/` or `.agents/agents/`) or to the harness (a global `proposal` record, queued), and every run leaves a `retro` record in the project plus a global `retro` index record, the cross-project index. Distill records go there too; a dream leaves a project `retro` record and no index record (ADR-044); and the `dreamer` agent (dispatched by `/retro` and `/distill`) drafts its rule, skill and procedure candidates, stored as a `retro` record. The next session finds the project's learning history in `fyr record list --kind retro`; a harness session finds every project's queued proposals with `fyr record list --global --kind proposal --open`.
 
 ## Cross-References
 

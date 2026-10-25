@@ -1018,7 +1018,13 @@ func status(src harness.Source, home string, out io.Writer) error {
 	for _, old := range harness.OldBinariesOnPath(os.Getenv("PATH")) {
 		fmt.Fprintf(out, "leftover   %s is the binary from before the rename to fyr; remove it by hand, and any unit or profile line that runs it\n", old)
 	}
-	if last, ok := harness.LastRetro(home); ok {
+	// The newest of the old files and the brain store's global retro
+	// records (D32): a machine may hold either until its logs are imported.
+	last, ok := harness.LastRetro(home)
+	if b, bok := brain.LastRetro(home); bok && (!ok || b.After(last)) {
+		last, ok = b, true
+	}
+	if ok {
 		days := int(time.Since(last).Hours() / 24)
 		hint := ""
 		if days > 14 {

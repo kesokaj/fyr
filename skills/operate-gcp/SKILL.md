@@ -8,7 +8,7 @@ description: "Operate a Cloud Run service that is already deployed: the runbook 
 This skill decides what to do when a deployed service misbehaves and what the project keeps
 in place so that moment is short: a runbook, a log query, a probe, an alert, and the habit of
 turning every incident into a numbered bug. The project's values (project, region, service,
-the last good revision) come from `<docs-root>/deploy/gcp.md`; the runbook's home is that
+the last good revision) come from the `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`); the runbook's home is that
 file's § Operate.
 
 **When NOT to use this skill:** shipping a new revision or cutting a version (`preflight`,
@@ -19,7 +19,7 @@ callers (`api-auth-gcp`); a defect in the code once the incident is contained (`
 ## Runbook — rollback first, then look
 
 ```bash
-export PROJECT=… REGION=… SERVICE=…           # from docs/deploy/gcp.md, never guessed
+export PROJECT=… REGION=… SERVICE=…           # from DEPLOY-gcp, never guessed
 # 1. what is serving, and what served before
 gcloud run revisions list --service "${SERVICE}" --region "${REGION}"
 gcloud run services describe "${SERVICE}" --region "${REGION}" --format 'value(status.traffic)'
@@ -73,14 +73,14 @@ operator; an SLO (99.5 % availability, a burn-rate alert) is the next step and l
 console or Terraform, since gcloud has no verb for it. Commands and the policy JSON:
 [references/alerts.md](references/alerts.md). The notification channel is created once
 (`gcloud beta monitoring channels create --type=email …`, beta only) and its id recorded in
-`docs/deploy/gcp.md` § Operate.
+`DEPLOY-gcp` § Operate.
 
 ## Incident → bug record
 
 Every incident gets a number (the global rule: a failure that reached a commit, a deploy or the user — an incident always has). While the service
 serves the last good revision, write the incident note — the revision, the time window, the
 log query that shows it and the counts it returns (never raw entries), the user-visible effect, what was done — into
-`docs/bugs/BUG-NNN-*.md` with a prevention rule (yourself, or the `bugs` agent when you lack the evidence). The prevention
+a `bug` record (`fyr record add bug`) with a prevention rule (yourself, or the `bugs` agent when you lack the evidence). The prevention
 rule becomes a mechanism when it can: a startup probe path, an alerting policy on the metric
 that would have fired, a test. The code fix then runs under the `bug` skill, ships through
 `preflight`, and the record is closed when the fix lands.
@@ -107,7 +107,7 @@ release or in a dated `testing/` log.
 | `--max-instances` | 100 | set to the number the database's `max_connections` can take (`data-gcp`) |
 
 Each change goes through `cloud-run-deploy`'s flags table and is recorded in
-`docs/deploy/gcp.md` with its reason; `billable_instance_time` shows what it did.
+`DEPLOY-gcp` with its reason; `billable_instance_time` shows what it did.
 
 ## Background work
 
@@ -126,6 +126,6 @@ non-2xx reply means a retry: handlers for these routes are idempotent.
 ## When gcloud cannot run here
 
 The runbook's commands need credentials and a project. When they are denied, or
-`docs/deploy/gcp.md` records no defaults, print the exact commands with the recorded values
+`DEPLOY-gcp` records no defaults, print the exact commands with the recorded values
 (or the placeholders named) for the operator to run, say what each shows or changes, and
 stop — never guess a revision name to roll back to.

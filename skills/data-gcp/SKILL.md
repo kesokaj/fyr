@@ -7,7 +7,7 @@ description: "Cloud SQL PostgreSQL for a Go service on Cloud Run: create the ins
 
 This skill decides how the one database of a Cloud Run service is created, reached,
 migrated and kept correct. The project's defaults (project, region, instance name) come
-from `<docs-root>/deploy/gcp.md`; this skill never invents them.
+from the `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`); this skill never invents them.
 
 **When NOT to use this skill:** the `google_sql_database_instance` and secret HCL
 (`terraform`); the HTTP service and its pgx code shape (`golang`, whose
@@ -188,7 +188,7 @@ is faster; the proxy is for reading production data or a one-off migration check
 
 ## Operations the project records
 
-`<docs-root>/deploy/gcp.md` holds the instance's `PROJECT:REGION:INSTANCE`, the edition
+The `DEPLOY-gcp` record holds the instance's `PROJECT:REGION:INSTANCE`, the edition
 and tier with the reason, whether IAM authN is on, the backup window, and the role model
 (one role, or owner + runtime). Rollback of a bad migration is the `operate-gcp` runbook
 (restore from PITR to a new instance, then point the service at it); `data-gcp` only says

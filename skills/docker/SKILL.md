@@ -120,7 +120,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 | Problem | Fix |
 |---|---|
-| `Cannot connect to the Docker daemon` | macOS: `colima start`. Linux needs a root step: run `sudo -n systemctl start docker` yourself only when the operator asked for it AND the project's `docs/deploy/local.md` § Operator steps records the standing permission, and record the command plus its verification in the change entry; otherwise hand that exact command back to them (`context/dev-setup.md`) |
+| `Cannot connect to the Docker daemon` | macOS: `colima start`. Linux needs a root step: run `sudo -n systemctl start docker` yourself only when the operator asked for it AND the project's `DEPLOY-local.md` § Operator steps records the standing permission, and record the command plus its verification in the change entry; otherwise hand that exact command back to them (`context/dev-setup.md`) |
 | `exec format error` on Cloud Run | arm64 image was pushed — rebuild with `--platform linux/amd64 --load` |
 | buildx complains about the builder | `docker buildx create --use` once, then retry |
 | amd64 build slow on Apple Silicon | Expected: QEMU emulation. `CGO_ENABLED=0` keeps it a pure Go cross-compile in practice |

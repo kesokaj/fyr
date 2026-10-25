@@ -1,8 +1,3 @@
----
-owner: documentation
-date: YYYY-MM-DD
-target: gcp
----
 # Deploy — GCP
 
 Cloud Run first (`cloud-run-deploy` skill); GKE or Compute Engine only when Cloud Run does not fit. GCP is the only cloud. Nothing here runs unless the user says to deploy.
@@ -28,7 +23,7 @@ Asked once, per the global context, never invented or copied from another projec
 
 ## Rollout and network
 
-Decided once, each with its reason; the `cloud-run-deploy` skill reads the first five rows (its § What `docs/deploy/gcp.md` records) and the `terraform` skill the last; a row not yet decided stays empty, never guessed.
+Decided once, each with its reason; the `cloud-run-deploy` skill reads the first five rows (its § What `DEPLOY-gcp` records) and the `terraform` skill the last; a row not yet decided stays empty, never guessed.
 
 | Row | Value |
 |---|---|

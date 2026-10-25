@@ -13,7 +13,7 @@ Analyze the current session (or multiple recent sessions) to detect repeated pat
 ```
 /distill                     # Analyze current session, propose project-specific skill
 /distill --global            # Propose as a global harness skill instead
-/distill --from-log          # Also scan ~/.config/fyr/feedback.jsonl for cross-session patterns
+/distill --from-log          # Also scan the global feedback records for cross-session patterns
 ```
 
 ## When to Suggest
@@ -35,9 +35,9 @@ Do NOT suggest `/distill` for:
 
 ## Step 1: Identify Candidate Patterns
 
-First, when `retros/<today>-dreamer.md` already exists (a `/retro` ran this session), reuse it instead of dispatching again; otherwise dispatch the `dreamer` agent — `Store: <the project's memory store, `<root>/.agents/memory`, as the dream skill's Step 1 names it>. Docs root: <docs-root>. Since: <the date of the newest `retros/*-retro*.md` record, or all — never a dreamer or dream record>. Promoted: none.` plus "Write your artifact with `write_to_file`; report only means no source edits." and a 30-call budget, with "write the artifact early, then update it" — and take its skill and procedure candidates (`<docs-root>/retros/<date>-dreamer.md`, the Candidates table) as the first entries of the candidate list, with their evidence and draft paths. Then read the session transcript and add only patterns the artifact does not already name (same name or same steps), so a pattern appears once. Look for:
+First, when a dreamer's `retro` record was stored this session (a `/retro` ran), reuse it instead of dispatching again; otherwise dispatch the `dreamer` agent — `Project: <root>. Since: <the date of the newest retro record titled "Retro —", or all — never a dreamer or dream record>. Promoted: none.` plus "Write your draft with `write_to_file` under .agents/scratch/agents/; report only means no source edits." and a 30-call budget, with "write the draft early, then update it"; store its draft with `fyr record add retro --title "Dreamer — <project> (<date>)" < <path>` — and take its skill and procedure candidates (that record, the Candidates table) as the first entries of the candidate list, with their evidence and draft paths. Then read the session transcript and add only patterns the artifact does not already name (same name or same steps), so a pattern appears once. Look for:
 
-Under `--from-log`, also read `~/.config/fyr/feedback.jsonl` (the `feedback-log` skill's log; every entry carries a `project` field): the entries for this project — every project under `--global` — whose `signal` is `gap` or whose `category` repeats three times or more are pattern evidence, quoted by timestamp in Step 2's draft. Without the flag the log is not read.
+Under `--from-log`, also read the global `feedback` records (the `feedback-log` skill's; `fyr record list --global --kind feedback --project <root>`, or without `--project` under `--global`, each read with `fyr record get --global <ID>`): those whose `signal` is `gap` or whose `category` repeats three times or more are pattern evidence, quoted by ID in Step 2's draft. Without the flag they are not read.
 
 ### Pattern Types
 
@@ -145,20 +145,20 @@ After installation:
 
 ## Step 6: Record the extraction — in the project, then the global index
 
-**Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/` if it exists, else create `.agents/docs`. Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`). Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
 
-1. Write `<docs-root>/retros/<date>-distill-<name>.md` (same day, same name again: `-2`, `-3`; never overwrite) with frontmatter `owner: main`, `date:`, `session:` (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
-2. Append one compact JSON line to `~/.config/fyr/retros.jsonl` — the cross-project index the `retro` skill shares — with exactly one entry in `proposals`:
+1. Store a `retro` record, `fyr record add retro --title "Distill — <name> (<date>)" < <draft in .agents/scratch/>` (a record is never overwritten), its body a `Session:` line (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
+2. Store one global `retro` index record — the cross-project index the `retro` skill shares — `fyr record add retro --global --project <absolute project path> --title "Distill index — <name> (<date>)"`, its body this compact JSON with exactly one entry in `proposals`:
 
 ```json
-{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"distill","record":"<absolute path of the record>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
+{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"distill","record":"<the distill record's ID>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
 ```
 
-`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If `~/.config/fyr/` is denied, say so, print the `cat >> ~/.config/fyr/retros.jsonl <<'EOF' … EOF` command for the user, and continue.
-The log stays the user's own words (the `feedback-log` skill): a distill never appends to `feedback.jsonl`; the `retros.jsonl` line above is its index entry.
+`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If the global `fyr record add` is refused or denied, say so, print the command with its draft path for the user, and continue.
+The log stays the user's own words (the `feedback-log` skill): a distill never stores a `feedback` record; the global retro record above is its index entry.
 
 ## Cross-References
 
 - Manual skill creation follows the SKILL.md standard by hand
-- The `/retro` workflow handles corrections and rule gaps (not patterns); both write to `<docs-root>/retros/` and to `~/.config/fyr/retros.jsonl`, so one directory holds the project's whole learning-loop history (dream and dreamer records included) and one index its retros and distills (ADR-044)
+- The `/retro` workflow handles corrections and rule gaps (not patterns); both store `retro` records in the project and a global `retro` index record, so the project's `retro` records hold its whole learning-loop history (dream and dreamer records included) and the global ones index its retros and distills (ADR-044)
 - The `feedback-log` skill logs entries that `/distill --from-log` can analyze for cross-session patterns

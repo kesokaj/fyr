@@ -10,7 +10,7 @@
 <test command>       # e.g. go vet ./... && go test -race ./...
 ```
 
-The same commands are the contract in `AGENTS.md` § Setup commands; `.agents/docs/testing/guide.md` has the tiers behind them.
+The same commands are the contract in `AGENTS.md` § Setup commands; the `GUIDE-testing` record (`fyr record get GUIDE-testing`) has the tiers behind them.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ The same commands are the contract in `AGENTS.md` § Setup commands; `.agents/do
 cmd/<app>/        # the binary: flags, wiring, listener
 internal/         # the packages, one responsibility each
 web/              # the TanStack Start frontend, when there is one (built into the binary)
-.agents/docs/     # the trail: plans, changes, decisions, specs, testing, deploy guides, bugs
+.agents/trail.jsonl  # the trail, as records: plans, changes, decisions, specs, testing, deploy guides, bugs (read with fyr record)
 ```
 
 ## Configuration
@@ -33,8 +33,8 @@ Flags and environment variables, with their defaults; a runtime data path (a dat
 
 ## Deploy
 
-How it runs here, on a remote box and on GCP is `.agents/docs/deploy/{local,remote,gcp}.md`; a release goes through `/preflight`.
+How it runs here, on a remote box and on GCP is the `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` records; a release goes through `/preflight`.
 
 ## Where things are
 
-Decisions: `.agents/docs/architecture/DECISIONS.md`. What changed: `.agents/docs/changes/`. What went wrong and the rule that came out of it: `.agents/docs/bugs/INDEX.md`. The next session starts from the newest `.agents/docs/handoffs/` entry.
+Decisions: `fyr record list --kind adr`. What changed: `--kind change`. What went wrong and the rule that came out of it: `--kind bug`. The next session starts from the newest handoff, `fyr record list --kind handoff`.

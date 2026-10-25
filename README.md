@@ -39,7 +39,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 |---|---|
 | `fyr status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer, and a note for a `PATH` shadow. Exit 1 on drift. |
 | `fyr update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. |
-| `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has, except the Claude Code files an install before fyr wrote under `~/.claude`, which it keeps and stops managing (`.agents/docs/deploy/remote.md` § Crossing to fyr). Idempotent; `--dry-run` prints without changing. |
+| `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has, except the Claude Code files an install before fyr wrote under `~/.claude`, which it keeps and stops managing (`DEPLOY-remote` § Crossing to fyr). Idempotent; `--dry-run` prints without changing. |
 | `fyr diff` | A unified diff of every drifted file. |
 | `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. |
 | `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |
@@ -108,7 +108,7 @@ flowchart LR
 
 Teal is **update**, indigo **install**, amber **the loop on this machine** (corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them; ADR-062), plum **release**, olive **learn** (the nightly dreamer: on the machine, not a way in; its one dashed line is the only thing that leaves the machine, a redacted prompt to the CLI's model provider, ADR-049). A dashed line is a gap: done by hand, or limited to one machine.
 
-In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `fyr update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `.agents/docs/specs/fyr/delivery.md` § The model. Nothing comes back: experience stays on the machine that logged it (ADR-062). A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, nightly, and it only proposes.
+In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `fyr update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model. Nothing comes back: experience stays on the machine that logged it (ADR-062). A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, nightly, and it only proposes.
 
 ## Install without cloning
 
@@ -128,7 +128,7 @@ V=vX.Y.Z \
 && mv fyr-linux-amd64 ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
-A machine on v2.7.0 or earlier crosses once by `.agents/docs/deploy/remote.md` § Crossing to fyr, not by this block alone.
+A machine on v2.7.0 or earlier crosses once by `DEPLOY-remote` § Crossing to fyr, not by this block alone.
 
 With `go install`, for v3.0.0 or newer. The module path is an https URL and the repository is private, so git is told to fetch over SSH for this one command; this route trusts your SSH connection and git's object hashes, not a checksum file, so use it where you already trust the repository:
 
@@ -213,7 +213,7 @@ rules/        always-on or path-scoped rules
 commands/     markdown prompts invoked as /name (empty; prefer skills)
 cmd/fyr  the binary; internal/harness the installer, internal/search, internal/memory, internal/metrics, internal/dream the second-brain verbs, internal/trail the git reads they share
 embed.go      the go:embed of the five content directories, pinned to what git tracks
-.agents/      this repository's own trail (docs/: plans, decisions, bugs, changes, handoffs, testing, specs, deploy guides) and scratch/ (gitignored)
+.agents/      this repository's own trail, trail.jsonl (records: plans, decisions, bugs, changes, handoffs, testing, specs, deploy guides; read with fyr record), the kit/ scripts, and scratch/ (gitignored)
 ```
 
 ## Working on the harness
@@ -225,4 +225,4 @@ go run ./cmd/fyr install --home .agents/scratch/home                         # n
 
 Two tests pin the deployed context's size (`internal/harness/size_test.go`): the hand-written context under 15,000 bytes, and the whole rendered block, skill inventory included, under 22,000 bytes, inside Antigravity's 24,000-byte limit. `govulncheck` has two known, unreachable advisories (`AGENTS.md` § Setup commands).
 
-Where to read more: `AGENTS.md` for the rules of this repository and how the harness works; `REQUIREMENTS.md` for what must never drift; `.agents/docs/specs/fyr/` for each verb's exact behaviour and `delivery.md` for what a release delivers to each kind of place; `.agents/docs/deploy/remote.md` for the machines, the resync loop and the release procedure (`/preflight vX.Y.Z`, no key); `.agents/docs/architecture/DECISIONS.md` for every decision and why.
+Where to read more: `AGENTS.md` for the rules of this repository and how the harness works; `REQUIREMENTS.md` for what must never drift; the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`) for each verb's exact behaviour and `SPEC-fyr-delivery` for what a release delivers to each kind of place; `DEPLOY-remote` for the machines, the resync loop and the release procedure (`/preflight vX.Y.Z`, no key); the `adr` records (`fyr record list --kind adr`) for every decision and why.

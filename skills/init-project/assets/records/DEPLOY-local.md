@@ -1,8 +1,3 @@
----
-owner: documentation
-date: YYYY-MM-DD
-target: local
----
 # Deploy — local
 
 How to build, configure, and run this project on the machine in front of you. `/init-project` fills it from the setup answers; the Definition of Done's docs step keeps it current (step 3) whenever the build, run, or configuration path changes. The `verifier` follows it when its dispatch names a local smoke test.

@@ -20,7 +20,7 @@ Quick-reference for configuring `gcloud` CLI authentication and project settings
 | Problem | Fix |
 |---------|-----|
 | ADC not found | `gcloud auth application-default login` |
-| Project not set | Pass `--project PROJECT_ID` on the command, the ID from the project's `docs/deploy/gcp.md`; a default project is only for the one-person setup below |
+| Project not set | Pass `--project PROJECT_ID` on the command, the ID from the project's `DEPLOY-gcp` record; a default project is only for the one-person setup below |
 | Permission denied (403 with an account listed) | `gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' --filter='bindings.members:ACCOUNT' --format='value(bindings.role)'` shows the roles the account holds; compare with the role the call needs |
 | Token expired | `gcloud auth application-default login` (re-run) |
 | Quota exceeded | `gcloud compute project-info describe --project PROJECT_ID --format='yaml(quotas)'` for Compute quotas; other APIs: `gcloud services quota list --service=SERVICE.googleapis.com --consumer=projects/PROJECT_ID` (check `--help` for the exact verb on the installed version) |
@@ -81,7 +81,7 @@ gcloud run services list --project "$PROJECT_ID" --region "$REGION"
 ```
 
 `--project` on each command is the rule, the same one the `google-catalog` router gives. The
-project ID comes from the project's `docs/deploy/gcp.md`, or from the operator when that file
+project ID comes from the project's `DEPLOY-gcp` record, or from the operator when that record
 does not exist yet. A default in `gcloud config` is machine-wide state in `~/.config/gcloud`.
 Every shell and every agent session on the machine shares it, so a command that leans on it
 can act on whichever project was set last.
@@ -113,7 +113,7 @@ gcloud services list --enabled --limit=5 --project "$PROJECT_ID"
 
 ### Region and zone
 
-The region is the operator's to give, never assumed and never carried over from another project (`context/dev-setup.md`); a project records its own in `docs/deploy/gcp.md`. Pass it per command, like the project: `--region "$REGION"` (Cloud Run, Artifact Registry), `--zone "$REGION-a"` (Compute Engine). A default region in `gcloud config` falls under the one-person rule above.
+The region is the operator's to give, never assumed and never carried over from another project (`context/dev-setup.md`); a project records its own in its `DEPLOY-gcp` record. Pass it per command, like the project: `--region "$REGION"` (Cloud Run, Artifact Registry), `--zone "$REGION-a"` (Compute Engine). A default region in `gcloud config` falls under the one-person rule above.
 
 ### Artifact Registry Authentication
 
@@ -128,7 +128,7 @@ gcloud auth configure-docker REGION-docker.pkg.dev
 2. Never fix credentials by code or alternative tools; the user runs `gcloud auth login` and `gcloud auth application-default login` in their own terminal.
 3. After they confirm, `gcloud auth list` again, then continue the original task.
 
-The project ID is never discovered from `gcloud config` or `.env`: the global context has the agent ask for the project's GCP defaults once and record them in the project's `docs/deploy/gcp.md`.
+The project ID is never discovered from `gcloud config` or `.env`: the global context has the agent ask for the project's GCP defaults once and record them in the project's `DEPLOY-gcp` record.
 
 ## Troubleshooting
 

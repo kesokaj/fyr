@@ -1,8 +1,3 @@
----
-owner: documentation
-date: YYYY-MM-DD
-target: remote
----
 # Deploy — remote machine
 
 A Linux box or VM reached over SSH, used only on the user's explicit request. Access details (host, user, key) come from the user and are never assumed, guessed, or committed; record aliases here, never credentials.

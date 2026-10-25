@@ -1,10 +1,12 @@
 package brain
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/kesokaj/fyr/internal/search"
@@ -323,4 +325,24 @@ func FormatHit(h Hit) string {
 		kind += " " + h.Status
 	}
 	return search.Printable(strings.Join([]string{h.Label, kind, h.Date, h.Title}, "  "))
+}
+
+// LastRetro is when the learning loop last ran by the brain store: the newest
+// update of a global retro record (each /retro and /distill stores one as the
+// cross-project index), false with none. It creates no store (D32).
+func LastRetro(home string) (time.Time, bool) {
+	if _, err := os.Lstat(Path(home)); err != nil {
+		return time.Time{}, false
+	}
+	st, err := openStore(home)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer st.close()
+	var updated sql.NullString
+	if err := st.db.QueryRow(`SELECT max(updated) FROM records WHERE scope = '' AND kind = 'retro'`).Scan(&updated); err != nil || !updated.Valid {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, updated.String)
+	return t, err == nil
 }

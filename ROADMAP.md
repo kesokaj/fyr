@@ -1,13 +1,13 @@
 # Roadmap — fyr
 
-<!-- Division of labor: ROADMAP.md = the active plan while one is in progress; TODO.md = items the active plan will consume; .agents/docs/plans/ = how. "Now" names the active plan only while one is open and is empty otherwise; "Next" holds at most three scheduled milestones; ideas live in the newest handoff's Next Steps, never here. -->
+<!-- Division of labor: ROADMAP.md = the active plan while one is in progress; TODO.md = items the active plan will consume; the plan records = how. "Now" names the active plan only while one is open and is empty otherwise; "Next" holds at most three scheduled milestones; ideas live in the newest handoff's Next Steps, never here. -->
 
 Last reviewed: 2026-10-25
 
 ## Now
 
-- `.agents/docs/plans/2026-10-25-sqlite-trail.md` — the brain store (ADR-063); requirements approved 2026-10-25; next Phase 1
-- `.agents/docs/plans/2026-10-24-fyr-agy-only.md` — open at Phase 6, the operator's
+- `PLAN-2026-10-25-sqlite-trail` — the brain store (ADR-063); Phases 0–2 done (this repository's trail is records), next Phase 3 (skills, agents, context)
+- `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
 
 ## Next
 

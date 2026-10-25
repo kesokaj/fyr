@@ -1,7 +1,3 @@
----
-owner: verifier
-date: YYYY-MM-DD
----
 # Testing guide — <project>
 
 <!-- The one guide per project. /init-project copies this template; the verifier fills every <placeholder> on its first run and updates § 1 when the commands change; documentation maintains it when behaviour or interfaces change. The tiers and when each is owed: the testing-strategy skill. -->
@@ -36,4 +32,4 @@ The exact verification commands, the ones `AGENTS.md` § Setup lists; run each b
 
 ## 5. Log format
 
-Every verification run writes `<docs-root>/testing/<date>-verify-<slug>.md` with frontmatter `owner:` (`verifier` for the verifier agent's runs, `main` for a run the main agent makes itself, such as a behavioural or sandbox run: the release gate counts a command as run only from a verifier's log), `date:`, a `Range reviewed: <range or working tree>` line, `## Status: PASS | FAIL | BLOCKED` (IN PROGRESS only while running), a `Scope:` line, the commands run with their exit status (a main-agent run gives each row as n of N against the row's own pass criterion, and its heading is PASS only when every row met it), and a `## Not examined` section naming what did not run.
+Every verification run is a `testing` record titled `Verification — <slug>`, from the verifier's draft (or the main agent's own, for a behavioural or sandbox run: the release gate counts a command as run only from a verifier's log), with a `Range reviewed: <range or working tree>` line, `## Status: PASS | FAIL | BLOCKED` (IN PROGRESS only while running), a `Scope:` line, the commands run with their exit status (a main-agent run gives each row as n of N against the row's own pass criterion, and its heading is PASS only when every row met it), and a `## Not examined` section naming what did not run.

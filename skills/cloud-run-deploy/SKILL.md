@@ -18,9 +18,9 @@ Registry only when explicitly requested. Every flag below was checked against
 
 ## Pre-flight
 
-1. **Defaults:** read the project's `docs/deploy/gcp.md` (`.agents/docs/` or `docs/`):
+1. **Defaults:** read the project's `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`):
    project ID, region, Artifact Registry repo, service name, the service account it
-   runs as, visibility, and the rollout and network rows (§ What `docs/deploy/gcp.md`
+   runs as, visibility, and the rollout and network rows (§ What `DEPLOY-gcp`
    records). If it is missing or empty, ask the user for the six defaults and write
    them there before anything else. Never guess a project; `gcloud config get project` and `deploy/gcp.md` are
    cross-checks, not sources.
@@ -38,7 +38,7 @@ Registry only when explicitly requested. Every flag below was checked against
    `roles/cloudsql.client` when `--add-cloudsql-instances` is used; every caller of an
    IAM-gated service (another service's SA, Scheduler, Tasks, Pub/Sub) holds
    `roles/run.invoker` on it. The operator names the SA with the other defaults
-   (`docs/deploy/gcp.md`); never fall back to the default compute account.
+   (`DEPLOY-gcp`); never fall back to the default compute account.
 
 ## Build — dual architecture
 
@@ -84,7 +84,7 @@ is archived. The service must listen on `$PORT` (Cloud Run injects it, default 8
 and bind `0.0.0.0`, not localhost.
 
 Flags — apply deliberately, not by default; a project-specific flag and its reason go in
-`docs/deploy/gcp.md`:
+`DEPLOY-gcp`:
 
 | Flag | Use |
 |---|---|
@@ -136,7 +136,7 @@ explicit `--to-revisions`), then `--remove-tags canary`. Rolling the canary back
 ```bash
 URL=$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format 'value(status.url)')
 # during a canary, test the tagged URL first: gcloud run services describe ... --format 'value(status.traffic)' lists it
-# public service (docs/deploy/gcp.md says Public: yes):
+# public service (DEPLOY-gcp says Public: yes):
 curl -fsS "${URL}/healthz"
 # IAM-gated service (the default): a bare curl MUST 403 (that is the gate's proof), then the authenticated probe
 curl -fsS -H "Authorization: Bearer $(gcloud auth print-identity-token)" "${URL}/healthz"
@@ -165,7 +165,7 @@ Because images are tagged by git SHA, the previous revision's image is always
 recoverable; `update-traffic` is instant and does not rebuild anything. A rollback
 outside a release is recorded in `changes/` and never re-tagged as a release.
 
-## What `docs/deploy/gcp.md` records
+## What `DEPLOY-gcp` records
 
 The project's guide holds the six defaults (project, region, repository, service,
 public yes/no, service account) and, once decided, these rows, each with its reason:

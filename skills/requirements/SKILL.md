@@ -8,7 +8,7 @@ argument-hint: "[area or question]"
 
 Requirements are the sentences the project is wrong without. This skill gets them out of the user's head, writes them in the template's tiers, ties each to the place that enforces it, and hands the user a draft to approve. It never approves anything itself.
 
-**Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/`. Dates from `date +%F`. The file is `REQUIREMENTS.md` at the repository root (global context § Project layout).
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`). Dates from `date +%F`. The file is `REQUIREMENTS.md` at the repository root (global context § Project layout).
 
 ## Usage
 
@@ -23,7 +23,7 @@ From the global context § Hard rules: "`REQUIREMENTS.md` is immutable without t
 
 ## Step 1: Read what exists
 
-`REQUIREMENTS.md` as it is (a fresh scaffold holds the init-project skill's template, `REQUIREMENTS.md` under that skill's assets directory, found as its Step 2 finds it); `README.md`, `ROADMAP.md`, the newest handoff, `<docs-root>/architecture/DECISIONS.md` and `fyr search --open` — a requirement often already lives as an ADR, a rule or a test and only needs tracing. List what is already enforced and where; those become items with their "enforced by" filled in.
+`REQUIREMENTS.md` as it is (a fresh scaffold holds the init-project skill's template, `REQUIREMENTS.md` under that skill's assets directory, found as its Step 2 finds it); `README.md`, `ROADMAP.md`, the newest handoff, the `adr` records (`fyr record list --kind adr`) and `fyr record list --open` — a requirement often already lives as an ADR, a rule or a test and only needs tracing. List what is already enforced and where; those become items with their "enforced by" filled in.
 
 ## Step 2: Elicit the gaps
 
@@ -51,7 +51,7 @@ Show the draft in chat as the exact text (the file's diff when REQUIREMENTS.md a
 
 ## Step 5: Write on approval only
 
-On the user's yes to the exact text: append the ADR (`<docs-root>/architecture/DECISIONS.md`, the `feature` skill's § Decisions shape, Context = the elicitation, Decision = the tiers written, with the user's words quoted), write `REQUIREMENTS.md`, point `ROADMAP.md` at what the requirements now schedule, and commit the three together (global Definition of Done steps 4 and 5: `changes/` entry, commit, push). Without the yes, the draft stays in scratch and the handoff's Next Steps names it as awaiting approval ("Requirements edits awaiting approval: <the exact sentences>", the handoff template's line).
+On the user's yes to the exact text: store the ADR (`fyr record add adr`, the `feature` skill's § Decisions shape, Context = the elicitation, Decision = the tiers written, with the user's words quoted), write `REQUIREMENTS.md`, point `ROADMAP.md` at what the requirements now schedule, and commit the three together (global Definition of Done steps 4 and 5: `change` record, commit, push). Without the yes, the draft stays in scratch and the handoff's Next Steps names it as awaiting approval ("Requirements edits awaiting approval: <the exact sentences>", the handoff template's line).
 
 ## Keeping it traced
 

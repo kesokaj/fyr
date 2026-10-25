@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -86,5 +87,25 @@ func TestSearchPrefersTheNewerOfNearEqualRecords(t *testing.T) {
 	hits, _ = Search(o, []string{"okapi"}, "", 10)
 	if len(hits) == 0 || hits[0].ID != c {
 		t.Errorf("a clearly better older match still ranks first: %q", ids(hits))
+	}
+}
+
+// D32: `fyr status` dates the last retro from the global retro records too;
+// with no store it creates none.
+func TestLastRetro(t *testing.T) {
+	home := t.TempDir()
+	if _, ok := LastRetro(home); ok {
+		t.Fatal("no store, no retro")
+	}
+	if _, err := os.Lstat(Path(home)); !os.IsNotExist(err) {
+		t.Fatalf("LastRetro created a store: %v", err)
+	}
+	g := Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return fixed }}
+	if _, err := Add(g, AddInput{Kind: "retro", Title: "Retro index — x (2026-10-25)", Project: "/p/x", Body: strings.NewReader("{}")}); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := LastRetro(home)
+	if !ok || got.Format("2006-01-02") != "2026-10-25" {
+		t.Errorf("LastRetro = %v, %v", got, ok)
 	}
 }

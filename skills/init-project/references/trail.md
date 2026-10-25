@@ -1,11 +1,30 @@
-# The docs root
+# The trail: records, and an agent's draft
 
-The one statement of how an agent finds a project's trail. The seven agents that write under it point here (`~/.gemini/config/skills/init-project/references/docs-root.md` as installed) instead of carrying their own copy; this skill scaffolds the tree it names.
+The one statement of where a project's trail lives and how an agent's artifact reaches it. The eight agents point here (`~/.gemini/config/skills/init-project/references/trail.md` as installed) instead of carrying their own copy.
 
-Resolve it from the project root (an agent with a shell: `git rev-parse --show-toplevel`; one without: the directory the project's `AGENTS.md` sits in), before the first write:
+## Records
 
-1. `.agents/docs/` if that tree exists;
-2. else a bare `docs/` at the project root if it exists (some repos still use one);
-3. else create `.agents/docs/`.
+A project's trail is records in `fyr`'s brain store (`~/.config/fyr/brain.db`): plans, reviews, test logs (`testing`), changes, handoffs, bugs, ADRs, retros, learnings, specs, deploy docs and guides. They are written and read with `fyr record add|get|edit|list`, searched with `fyr search`, and exported on every write to one committed file, `.agents/trail.jsonl`, which nobody edits by hand except to resolve a git conflict (one record per line). A project whose trail is still a `docs/` or `.agents/docs/` tree is migrated with `fyr record import` first.
 
-Never create both trees. Create any missing directory under the resolved root (`bugs/`, `changes/`, `reviews/`, `testing/`, `plans/`) on first use. Every path written as `<docs-root>/…` in an agent definition means this root.
+Reading: `fyr record list [--kind K] [--open]` (newest first), `fyr record get <ID>`, `fyr search <words>`, `fyr search --refs <ID|path>`.
+
+## An agent's artifact: a draft in scratch
+
+An agent never runs `fyr record add`. It writes its artifact as a draft file and the main thread stores it (brain plan D12):
+
+1. From the project root (`git rev-parse --show-toplevel`; without a shell, the directory the project's `AGENTS.md` sits in), `mkdir -p .agents/scratch/agents`.
+2. Write the draft EARLY to `.agents/scratch/agents/<agent>-<stamp>.md`, `<stamp>` from `date +%F-%H%M` (never memory), with `Status: IN PROGRESS`; update it as you go. A draft cut off at a turn limit survives there.
+3. The draft's first line is its title as a `# ` heading; no frontmatter (a record carries its own kind, status and date).
+4. Reply with the draft's path, named only after the `write_to_file` call succeeded.
+
+The main thread then stores it: `fyr record add <kind> --title "<title>" < .agents/scratch/agents/<agent>-<stamp>.md`, and cites the ID it prints.
+
+| Agent | Kind it drafts |
+|---|---|
+| reviewer, security | `review` |
+| verifier | `testing` (and, when it writes or fills the testing guide, a second draft for `GUIDE-testing`) |
+| explorer | `plan` (a recon brief: no checkboxes, so it is stored closed) |
+| bugs | `bug` |
+| changelog | `change` |
+| dreamer | `retro` |
+| documentation | edits files; a spec, deploy doc or guide that is a record gets a draft of its new body, stored with `fyr record edit <ID> --body < <path>` |

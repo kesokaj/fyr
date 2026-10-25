@@ -1,11 +1,8 @@
----
-owner: main
-date: YYYY-MM-DD
-status: draft
----
 # Spec — <app>: <topic>   (YYYY-MM-DD)
 
-<!-- status: draft (being written) | agreed (the user said yes to this text) | superseded (a newer spec names it) -->
+Status: draft
+
+<!-- Status: draft (being written) | agreed (the user said yes to this text). The record's own status is current; a spec no longer true is retired (`fyr record edit <ID> --status retired`). -->
 <!-- One topic per file: an integration, a storage format, a CLI surface, a protocol. Keep it to what a reader needs to build or check the thing; the plan holds the phases, the ADR holds the why. -->
 
 ## Purpose

@@ -5,7 +5,7 @@ description: "Per-language code-excellence standards for Go and TypeScript, load
 
 # Review Standards
 
-A standards **library**, not an actor. Whoever is reviewing (the `reviewer` agent, or `/preflight` reading a diff below the reviewer threshold itself; `/review` never reviews by itself) loads this file and judges the diff against criteria 1–6 below and the rules in §§ 7–8. Every finding gets a severity (high / medium / low) and a confidence level, and lands in the docs root under `reviews/` — never chat-only. Docs root: `.agents/docs/` if it exists, else `docs/` if it exists, else create `.agents/docs/`.
+A standards **library**, not an actor. Whoever is reviewing (the `reviewer` agent, or `/preflight` reading a diff below the reviewer threshold itself; `/review` never reviews by itself) loads this file and judges the diff against criteria 1–6 below and the rules in §§ 7–8. Every finding gets a severity (high / medium / low) and a confidence level, and lands in a `review` record (the reviewer's draft, stored by the main thread) — never chat-only.
 
 Language deep-dives (load only for the languages present in the diff):
 

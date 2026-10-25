@@ -77,7 +77,7 @@ docker compose ps                    # db should be "healthy"
 DATABASE_URL=postgres://app:app@localhost:5432/app?sslmode=disable go run ./cmd/<app>
 ```
 
-Then the container smoke test from `SKILL.md` §4, and `docs/deploy/local.md` records
+Then the container smoke test from `SKILL.md` §4, and `DEPLOY-local` records
 the exact commands for the next session.
 
 ## Optional: the app in compose too

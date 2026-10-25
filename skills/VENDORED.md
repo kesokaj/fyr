@@ -72,7 +72,7 @@ keeps the value in the work clones, and writes
 `CHECKSUMS` through the Go tests, which then pin the tree both ways (`TestCatalogMatchesChecksums`,
 `TestCatalogIndexMatchesEntries`, `TestCatalogFilesAreCarryable`). Installed as global skills
 these skills push the harness's own out of the CLI's skill list
-(`.agents/docs/plans/2026-10-01-research-google-skills-catalog.md`), so they stay behind the
+(`PLAN-2026-10-01-research-google-skills-catalog`, `fyr record get`), so they stay behind the
 `google-catalog` router. A refresh's diff gets a security review before it is committed.
 
 Notes:

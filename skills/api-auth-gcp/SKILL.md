@@ -118,7 +118,7 @@ test shape, never a production caller).
 
 ## A scheduler route on a public service
 
-When `docs/deploy/gcp.md` says Public: yes (`--allow-unauthenticated`, or
+When `DEPLOY-gcp` says Public: yes (`--allow-unauthenticated`, or
 `invoker_iam_disabled = true` in Terraform), Cloud Run checks no token, so `/tick` is callable
 by anyone — and `idtoken.Validate` with the service URL as audience is NOT enough, because any
 service account in any project can mint a token for that public URL. The handler checks four
@@ -146,6 +146,6 @@ design, when the project allows it, is an IAM-gated service with no public route
 ## When gcloud cannot run here
 
 The commands above need a project and credentials. When they are denied or no project is
-recorded in `docs/deploy/gcp.md`, write the exact commands with the project's values filled
+recorded in `DEPLOY-gcp`, write the exact commands with the project's values filled
 in for the operator to run, say which binding each one creates, and stop: never guess a
 project number or an audience.

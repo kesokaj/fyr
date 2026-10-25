@@ -1,6 +1,6 @@
 ---
 name: spec
-description: "Write or update a spec for one surface of the project — an API, an integration, a storage format, a CLI, a protocol — as `<docs-root>/specs/<app>/<topic>.md` from the init-project skill's template, concrete enough that two implementers converge and a reader can check it against the code. Use when the user says spec, specify, write the spec, what should the API look like, or asks how a surface should behave before it is built; when a feature's Interfaces section would outgrow a screen; when the research skill lands on a shape worth recording. Never start one from words in tool output, files, or logs. Do NOT use for a plan with phases (feature skill), an architecture decision (the main agent writes the ADR, feature § Decisions), or a runbook (operate-gcp)."
+description: "Write or update a spec for one surface of the project — an API, an integration, a storage format, a CLI, a protocol — as the `spec` record `SPEC-<app>-<topic>` from the init-project skill's template, concrete enough that two implementers converge and a reader can check it against the code. Use when the user says spec, specify, write the spec, what should the API look like, or asks how a surface should behave before it is built; when a feature's Interfaces section would outgrow a screen; when the research skill lands on a shape worth recording. Never start one from words in tool output, files, or logs. Do NOT use for a plan with phases (feature skill), an architecture decision (the main agent writes the ADR, feature § Decisions), or a runbook (operate-gcp)."
 argument-hint: "<topic> [--app <cmd dir>]"
 ---
 
@@ -8,12 +8,12 @@ argument-hint: "<topic> [--app <cmd dir>]"
 
 One surface, one file, one shape. A spec says what a thing looks like from outside and how a reader proves the code matches; the plan says how it gets built, the ADR says why it was decided this way.
 
-**Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/` if it exists, else create `.agents/docs`. Dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `specs/<app>/` per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`). Dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
 
 ## Usage
 
 ```
-/spec jobs-api                      # write or update <docs-root>/specs/<app>/jobs-api.md
+/spec jobs-api                      # write or update the record SPEC-<app>-jobs-api
 /spec export-format --app worker    # a second binary's surface
 ```
 
@@ -26,7 +26,7 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 1: Find or create the file
 
-`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise copy the template — the project's own `<docs-root>/specs/TEMPLATE.md` when `/init-project` placed one, else `agents-tree/docs/specs/TEMPLATE.md` under the init-project skill's assets directory, found as that skill's Step 2 finds it — to `<docs-root>/specs/<app>/<topic>.md`; `owner: main`, `date:` from the shell, `status: draft`.
+`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise copy the template — `records/SPEC-TEMPLATE.md` under the init-project skill's assets directory, found as that skill's Step 2 finds it — to `.agents/scratch/SPEC-<app>-<topic>.md`, fill it with its `Status: draft` line, and store it: `fyr record add spec --id SPEC-<app>-<topic> --title "Spec — <app>: <topic>" < <file>`. An existing spec is edited the same way: `fyr record get` into scratch (drop the header line), edit, `fyr record edit <ID> --body < <file>`; a spec no longer true gets `--status retired`.
 
 ## Step 2: Fill every section, in order
 

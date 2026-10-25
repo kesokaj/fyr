@@ -1,13 +1,13 @@
 ---
 name: testing-strategy
-description: "Decide which tests a change owes and how the project's testing guide is structured: the test tiers for this stack (unit with -race, integration against a real dependency in compose, API with httptest or curl, browser e2e with Playwright against the Go binary, container smoke, cloud smoke inside /preflight), when each tier is owed, fixtures, what covered means, and who maintains docs/testing/guide.md. Use when the user asks for a test strategy, which tests to write, how we should test this, what coverage means here, or to write or update the testing guide; load it before planning a feature's Verification section. Do NOT use to write the test itself (golang, typescript), to run the tiers (dispatch the verifier agent), or for the release gate (preflight)."
+description: "Decide which tests a change owes and how the project's testing guide is structured: the test tiers for this stack (unit with -race, integration against a real dependency in compose, API with httptest or curl, browser e2e with Playwright against the Go binary, container smoke, cloud smoke inside /preflight), when each tier is owed, fixtures, what covered means, and who maintains the GUIDE-testing record. Use when the user asks for a test strategy, which tests to write, how we should test this, what coverage means here, or to write or update the testing guide; load it before planning a feature's Verification section. Do NOT use to write the test itself (golang, typescript), to run the tiers (dispatch the verifier agent), or for the release gate (preflight)."
 ---
 
 # Testing strategy
 
 Which tests a change owes, in which tier, against which fixture, and how the project records it. The test itself is the `golang` or `typescript` skill's job (`golang/references/testing.md`, `typescript/references/testing.md`); running the tiers is the `verifier` agent's; the release gate is `preflight`. This skill decides what is owed and writes it down so the next session does not re-decide.
 
-**Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/`.
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`).
 
 ## The tiers for this stack
 
@@ -18,7 +18,7 @@ Which tests a change owes, in which tier, against which fixture, and how the pro
 | API | `httptest` in Go; `curl` against `go run ./cmd/<app>` | the wire shape (status, body per `json-api-style`, headers) | the browser |
 | Browser e2e | Playwright against the Go binary that embeds the SPA (`typescript/references/testing.md` § E2E; `reuseExistingServer: false`) | the golden path and one edge case as a person sees them | load, the container |
 | Container smoke | `docker build`, `docker run -p 127.0.0.1:8080:8080`, `curl /healthz` on the container you started (`docker` skill § 4) | the image starts, listens on `PORT`, answers | the cloud's IAM and network |
-| Cloud smoke | inside `/preflight` only, by `<docs-root>/deploy/gcp.md` | the revision serves on Cloud Run | nothing here runs outside the gate |
+| Cloud smoke | inside `/preflight` only, by the `DEPLOY-gcp` record | the revision serves on Cloud Run | nothing here runs outside the gate |
 
 One tier never stands in for another: a green unit suite says nothing about the container, and a container that answers says nothing about the SQL.
 
@@ -49,7 +49,7 @@ A test is evidence once it has failed for the right reason: written first and ru
 
 ## The project's testing guide
 
-`<docs-root>/testing/guide.md` is the one guide per project. Its shape is the init-project template (`init-project/assets/agents-tree/docs/testing/guide.md`): § 1 Commands (the exact commands from `AGENTS.md` § Setup), § 2 Tiers (this skill's table filled for the project), § 3 Fixtures and environment, § 4 What is not covered, § 5 Log format. `/init-project` copies the template when the project has no guide; the `verifier` fills its placeholders on its first run and updates the commands when they change; `documentation` maintains it when behaviour or interfaces change. Every verification run writes `testing/<date>-verify-<slug>.md` with a `Range reviewed:` line and a `## Status:` of PASS, FAIL or BLOCKED, and names what it did not exercise.
+`GUIDE-testing` is the one guide per project, a `guide` record. Its shape is the init-project template (`init-project/assets/records/GUIDE-testing.md`): § 1 Commands (the exact commands from `AGENTS.md` § Setup), § 2 Tiers (this skill's table filled for the project), § 3 Fixtures and environment, § 4 What is not covered, § 5 Log format. `/init-project` stores the template when the project has no guide; the `verifier` drafts its placeholders on its first run and the commands when they change; `documentation` maintains it when behaviour or interfaces change. Every verification run is a `testing` record titled `Verification — <slug>`, with a `Range reviewed:` line and a `## Status:` of PASS, FAIL or BLOCKED, and names what it did not exercise.
 
 ## When NOT to use this skill
 

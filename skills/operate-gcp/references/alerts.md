@@ -1,7 +1,7 @@
 # Uptime check, notification channel, alerting policy
 
 Three commands and one JSON file, created once per service and recorded in
-`<docs-root>/deploy/gcp.md` § Operate. Flags were checked against gcloud 587
+the `DEPLOY-gcp` record § Operate. Flags were checked against gcloud 587
 (`uptime create` and `policies create` are GA; `channels create` exists in the beta component
 only, `gcloud components install beta`, or as an apt package on Linux).
 
@@ -60,7 +60,7 @@ so a rejected field is read from the error and fixed, never guessed.
   ],
   "notificationChannels": ["projects/PROJECT/notificationChannels/CHANNEL_ID"],
   "documentation": {
-    "content": "Runbook: docs/deploy/gcp.md § Operate — roll back first (cloud-run-deploy § Rollback), then logs read --log-filter 'severity>=ERROR'.",
+    "content": "Runbook: DEPLOY-gcp § Operate — roll back first (cloud-run-deploy § Rollback), then logs read --log-filter 'severity>=ERROR'.",
     "mimeType": "text/markdown"
   }
 }
@@ -69,10 +69,10 @@ so a rejected field is read from the error and fixed, never guessed.
 `ALIGN_RATE` on a counter gives requests per second; 0.0833/s is five per minute. A second
 policy worth having: `run.googleapis.com/container/instance_count` with
 `metric.labels.state="active"` below 1 for ten minutes on a service with `--min-instances 1`
-(a dead service). Replace `SERVICE`, `PROJECT` and `CHANNEL_ID` from `docs/deploy/gcp.md`;
+(a dead service). Replace `SERVICE`, `PROJECT` and `CHANNEL_ID` from `DEPLOY-gcp`;
 the file never carries anything secret.
 
-## What to record in `docs/deploy/gcp.md` § Operate
+## What to record in `DEPLOY-gcp` § Operate
 
 The runbook's five steps with the project's values; the uptime check name; the channel id;
 the policy display names; the last good revision after every release (the `preflight` deploy
