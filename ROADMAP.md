@@ -7,7 +7,7 @@ Last reviewed: 2026-10-25
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-25-1754-plan-metrics-fed-at-every-checkpoint-joined-to-r` — roadmap item 2 (metrics fed at every checkpoint, joined to records): planned and cold-read, awaiting the operator's approval before Phase 1
+- `PLAN-2026-10-25-1754-plan-metrics-fed-at-every-checkpoint-joined-to-r` — roadmap item 2 (metrics fed at every checkpoint, joined to records): approved 2026-10-25, Phase 1 next
 
 ## Next
 
