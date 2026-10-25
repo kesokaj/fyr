@@ -20,7 +20,8 @@ The operator, in their own turn on 2026-10-25: "When you are done finish with a 
   - TR9;
   - G16, G17;
   - the remaining lows as their area's phase reaches them.
-- **In, once the operator chooses** (table rows 8, 9, 11, 12, 16): SD12, TS31, TR10, TR8, TR11.
+- **In, once the operator chooses** (table rows 8, 9, 12, 16): SD12, TS31, TR8, TR11.
+- **In, chosen:** TR10 (row 11, D1).
 - **Out (`defer`):** C26 (Phase 6 of plan `2026-10-24-fyr-agy-only.md`), G15 and G18–G25, TS35–TS37 (dated versions, re-checked at the next frontend change), SD-S1, IN-S3, AG23 and AG24.
 - **Rejected:** none yet. A `strike` the operator chooses becomes a `Rejected:` row here, with its reason.
 
@@ -50,7 +51,7 @@ The operator, in their own turn on 2026-10-25: "When you are done finish with a 
 
 ## Phases
 ### Phase 0 — The operator's answers
-- [ ] The operator answers the numbered table of `reviews/2026-10-25-harness-audit.md` (rows 8, 9, 11, 12 and 16 are theirs; the rest are recommendations to approve or amend) — who: user — expect: a D-row per answer
+- [ ] The operator answers the numbered table of `reviews/2026-10-25-harness-audit.md` (rows 8, 9, 12 and 16 are theirs; row 11 is answered by D1; the rest are recommendations to approve or amend) — who: user — expect: a D-row per answer
 - [ ] Cold-reader check of this plan — who: AI (`reviewer`) — expect: findings answered by D-rows
 ### Phase 1 — Agents (AG16–AG19)
 - [ ] Tests first where a test can see it (`TestCheckoutAgentsAreNative`-style: each record agent carries the data and write-first clauses; `changelog`'s tools hold no `replace_file_content`) — who: AI — expect: red, then green
@@ -76,4 +77,4 @@ The operator, in their own turn on 2026-10-25: "When you are done finish with a 
 - go1.27.2 is missing on this box, so govulncheck and the recall re-measure run on go1.24.4 until the operator restores the SDK.
 
 ## Decisions
-None yet; Phase 0 writes them.
+D1 — 2026-10-25 — Table row 11 (TR10), the date rule: "Amend the context (Recommended)". The `context/AGENTS.md:52` line becomes: dates and time stamps come from the shell (`date +%F`, `date +%F-%H%M`), never memory; where a CLI refuses a joined command, run it alone and type its output. It lands in Phase 5, inside both size pins — by: the operator (2026-10-25, asked in the session that wrote this plan).
