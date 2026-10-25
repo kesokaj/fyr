@@ -2,21 +2,21 @@
 owner: main
 date: 2026-09-29
 ---
-# `sh-agent search` and `sh-agent index`
+# `fyr search` and `fyr index`
 
 Status: the project index and the global search index built 2026-09-29 (plan `plans/2026-09-29-search-index.md`, Phases 1 and 2). Requirement: R4 (one dependency, `modernc.org/sqlite`), ADR-045.
 
 ## What it is
 
-A derived SQLite index the agent queries instead of reading whole files. Git and the files in `~/.config/sh-agent/` stay the source of truth: the index is a cache, never committed, never sent by `report`, and deleting it loses nothing but the next query's rebuild time (about two seconds for this repository: 2.1 s for 1,351 files on 2026-10-01).
+A derived SQLite index the agent queries instead of reading whole files. Git and the files in `~/.config/fyr/` stay the source of truth: the index is a cache, never committed, never sent by `report`, and deleting it loses nothing but the next query's rebuild time (about two seconds for this repository: 2.1 s for 1,351 files on 2026-10-01).
 
 ## Commands
 
 ```
-sh-agent search [--limit N] [--kind K] [--global] <words...>
-sh-agent search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]
-sh-agent search --open [--kind K] [--global]
-sh-agent index [--global] [--rebuild]
+fyr search [--limit N] [--kind K] [--global] <words...>
+fyr search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]
+fyr search --open [--kind K] [--global]
+fyr index [--global] [--rebuild]
 ```
 
 - **Words** are each quoted for FTS5, so `BUG-049`, `a.go` or `NOT` are searched as text, never as query syntax. Chunks holding every word rank first; the remaining slots are filled with chunks holding any of them (a chunk matching both rounds is printed once and counted once against `--limit` and the per-file cap), and the header line says how many had every word (`search: 10 hits for "…", 2 with every word (…)`). Porter stemming: `verify` finds `verifies`. Hits are ranked by BM25 with a heading weighted twice the body, at most 2 per file, `--limit` (1–50, default 10) in all.
@@ -32,10 +32,10 @@ Exit status: 0 with hits or without; 1 on a refusal or an error; 2 on a usage er
 
 | Index | Path | Covers |
 |---|---|---|
-| Project | `<checkout>/.agents/scratch/search.db` (+ `-wal`, `-shm`) | every tracked, modified and untracked-not-ignored file (except what lies under a directory holding a `.sh-agent-noindex` file: data the project carries, such as the harness's `skills/google-catalog/catalog/`, is not the project's own text; the header of a words search and of `--open` then ends `; left out by .sh-agent-noindex: <dir>/, <dir>/` (sorted, the checkout's root as `./`; here `skills/google-catalog/catalog/`; `--refs`, `index` and `--global` print no list; `TestHeaderNamesLeftOutDirectories`), the marker counts committed, staged or not yet added, one at the checkout's root leaves the whole checkout out of the project index and of the global one, and a reconcile drops what was indexed before it appeared) under 1 MiB with no NUL byte in its first 8 KiB; symlinks, submodules and secret-shaped names (the installer's list, matched in any case: `.env`, `.env.*`, `*.env`, `*.pem`, `*.key`, token and credential files, …) skipped; a secret inside an ordinarily named file is indexed |
-| Global search index | `~/.config/sh-agent/search.db` (+ `-wal`, `-shm`), under `--home` when given; the directory is created 0700. Both indexes' files are mode 0600 (an older 0644 file is tightened on open): they hold the text of every file read, whatever that file's own mode | `feedback.jsonl`, `retros.jsonl`, `proposals/*.md`, and the `.agents/docs` trail of every checkout that has one and has run `search` or `index` |
+| Project | `<checkout>/.agents/scratch/search.db` (+ `-wal`, `-shm`) | every tracked, modified and untracked-not-ignored file (except what lies under a directory holding a `.fyr-noindex` file, or one under its name before the rename, `.sh-agent-noindex`, honoured the same way (plan `2026-10-24-fyr-agy-only.md` D12; `TestOldNoIndexMarkerStillCounts`): data the project carries, such as the harness's `skills/google-catalog/catalog/`, is not the project's own text; the header of a words search and of `--open` then ends `; left out by a noindex marker: <dir>/, <dir>/` (sorted, the checkout's root as `./`; here `skills/google-catalog/catalog/`; `--refs`, `index` and `--global` print no list; `TestHeaderNamesLeftOutDirectories`), the marker counts committed, staged or not yet added, one at the checkout's root leaves the whole checkout out of the project index and of the global one, and a reconcile drops what was indexed before it appeared) under 1 MiB with no NUL byte in its first 8 KiB; symlinks, submodules and secret-shaped names (the installer's list, matched in any case: `.env`, `.env.*`, `*.env`, `*.pem`, `*.key`, token and credential files, …) skipped; a secret inside an ordinarily named file is indexed |
+| Global search index | `~/.config/fyr/search.db` (+ `-wal`, `-shm`), under `--home` when given; the directory is created 0700. Both indexes' files are mode 0600 (an older 0644 file is tightened on open): they hold the text of every file read, whatever that file's own mode | `feedback.jsonl`, `retros.jsonl`, `proposals/*.md`, and the `.agents/docs` trail of every checkout that has one and has run `search` or `index` |
 
-The global file is named "the global search index", never "cross-project index": R7 already gives that name to `retros.jsonl`. A checkout with an `.agents/docs` directory registers itself on any `search` or `index` run inside it, `--global` included, at most once a day (a third-party clone with a plain `docs/` never registers, so it cannot answer `--global` queries or feed `/retro`); `--global` then reconciles `~/.config/sh-agent/` and each registered checkout's docs root (as `<name>:<path>`, `name~2` for a second checkout with the same base name), and drops a registration whose root is no longer a git checkout or no longer has `.agents/docs` (a plain `docs/` is never served in its place). Run outside a checkout, `--global` still answers. The registry lives in the database, so `index --global --rebuild` drops it, with a note; each checkout returns on its next search.
+The global file is named "the global search index", never "cross-project index": R7 already gives that name to `retros.jsonl`. A checkout with an `.agents/docs` directory registers itself on any `search` or `index` run inside it, `--global` included, at most once a day (a third-party clone with a plain `docs/` never registers, so it cannot answer `--global` queries or feed `/retro`); `--global` then reconciles `~/.config/fyr/` and each registered checkout's docs root (as `<name>:<path>`, `name~2` for a second checkout with the same base name), and drops a registration whose root is no longer a git checkout or no longer has `.agents/docs` (a plain `docs/` is never served in its place). Run outside a checkout, `--global` still answers. The registry lives in the database, so `index --global --rebuild` drops it, with a note; each checkout returns on its next search.
 
 ## Freshness: reconcile before every answer
 
@@ -75,17 +75,17 @@ References are record IDs (`BUG-NNN`, `ADR-NNN`) and path-shaped tokens on every
 | `.agents/scratch/search.db` not gitignored | `search: .agents/scratch/search.db is not gitignored; add ".agents/scratch/*" to .gitignore (/init-project does)`; nothing created | 1 |
 | `.agents` or `.agents/scratch` is a symlink | `search: .agents/scratch is a symlink; refusing to write through it` | 1 |
 | `search.db`, `search.db-wal` or `search.db-shm` is a symlink or any other non-regular file (either index) | `search: <path>: <file> is not a regular file; refusing to open or write through it`; nothing is written through it | 1 |
-| Another process holds the write lock past 10 s | `search: index busy (another sh-agent is indexing); retry, or use grep`; no answer printed | 1 |
+| Another process holds the write lock past 10 s | `search: index busy (another fyr is indexing); retry, or use grep`; no answer printed | 1 |
 | Unreadable database, or a schema other than 1 | `note: index at <path> was unreadable (or an older schema); rebuilt`, then the answer | 0 |
-| Argument errors (`--limit` out of range, unknown `--kind`, two modes at once, no mode) | `search: <what is wrong>; see sh-agent help` | 1 |
+| Argument errors (`--limit` out of range, unknown `--kind`, two modes at once, no mode) | `search: <what is wrong>; see fyr help` | 1 |
 | Global: a registered checkout is gone, or lost its `.agents/docs` | `note: dropped <root> (no longer a git checkout)`, or `(no longer has .agents/docs)` | 0 |
 | Global rebuild | `note: N project registrations dropped; each returns on its next search` | 0 |
 | Global: a registered checkout's check cannot run (for example `.agents` unreadable) | `note: skipped <root> this time (<error>)`; the registration stays | 0 |
 | A file edited and then restored while `search` waits for the write lock | the edit stays indexed for that blob until `index --rebuild` (known limit, plan D35) | 0 |
-| A copied project directory that brings its own `search.db` | trusted as it is: an index is only as trusted as the folder it sits in, and whoever can plant one can plant `AGENTS.md` and trail files there too; after copying a project in, run `sh-agent index --rebuild` (known limit, the operator's choice at the v1.13.0 gate) | 0 |
+| A copied project directory that brings its own `search.db` | trusted as it is: an index is only as trusted as the folder it sits in, and whoever can plant one can plant `AGENTS.md` and trail files there too; after copying a project in, run `fyr index --rebuild` (known limit, the operator's choice at the v1.13.0 gate) | 0 |
 | Network filesystem | not supported: SQLite's WAL needs one host's shared memory; the SQLite error is printed | 1 |
 
-`search.db` never leaves the machine (ADR-062). `sh-agent uninstall` leaves `~/.config/sh-agent/search.db`, which is not in the install manifest; delete it by hand if wanted.
+`search.db` never leaves the machine (ADR-062). `fyr uninstall` leaves `~/.config/fyr/search.db`, which is not in the install manifest; delete it by hand if wanted.
 
 ## Measured (this repository, 2026-09-29, Linux amd64)
 

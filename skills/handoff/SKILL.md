@@ -33,7 +33,7 @@ Read the conversation transcript and identify:
 2. **What got done** — Completed changes, files modified, commands run
 3. **What's still open** — the active plan's first unticked box with its in-progress note, then its Follow-ups and `Open:` rows, then unfinished work, known issues, blocked items
 4. **Key decisions** — the active plan's `## Decisions` rows first, then architecture choices, trade-offs made, rejected alternatives from the transcript
-5. **Corrections** — Only what the user actually corrected, each backed by a `~/.config/sh-agent/feedback.jsonl` entry (quote the user's words and the entry's timestamp). Anything the agent inferred is not a correction: it goes under `## Agent notes (unverified)`, never into Corrections — the Resume Protocol gives the newest handoff the win on conflict (only an open plan that postdates it outranks it), so an inferred rule here silently outranks the global context
+5. **Corrections** — Only what the user actually corrected, each backed by a `~/.config/fyr/feedback.jsonl` entry (quote the user's words and the entry's timestamp). Anything the agent inferred is not a correction: it goes under `## Agent notes (unverified)`, never into Corrections — the Resume Protocol gives the newest handoff the win on conflict (only an open plan that postdates it outranks it), so an inferred rule here silently outranks the global context
 6. **Environment state** — Running processes, branches checked out, pending commits, dirty working tree
 
 ## Step 2: Identify Relevant Artifacts
@@ -51,7 +51,7 @@ Do NOT duplicate content that already exists elsewhere. Instead, reference these
 | Deferred work | the active plan's Follow-ups, or the handoff's Next Steps when no plan is active |
 | Requirements | `REQUIREMENTS.md` |
 | Retro, distill and dream records (project scope) | `.agents/docs/retros/` |
-| Harness-scope retro proposals (queue) | `~/.config/sh-agent/proposals/` |
+| Harness-scope retro proposals (queue) | `~/.config/fyr/proposals/` |
 | Commits | Reference by short SHA |
 | PRs / Issues | Reference by `#number` or URL |
 
@@ -164,12 +164,12 @@ Reading side: the Resume Protocol in the global context tells every fresh sessio
 
 ### Cold-reader check — before the handoff counts as finished
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a tool-call budget the dispatch names; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a tool-call budget the dispatch names; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `fyr search --open` → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file that does not exist.
 3. Any contradiction between the handoff, `ROADMAP.md`, `TODO.md` and the plan.
-4. Any plan with an unticked box outside its fenced blocks that `ROADMAP.md` Now does not name: `sh-agent search --open --kind plan`, or, when search refuses, the program below.
+4. Any plan with an unticked box outside its fenced blocks that `ROADMAP.md` Now does not name: `fyr search --open --kind plan`, or, when search refuses, the program below.
 5. Any commit since the previous handoff that changed paths outside `<docs-root>` with no `changes/` entry covering it.
 6. Anything still left to guess.
 
@@ -193,8 +193,8 @@ After saving, tell the user:
 
 ## Cross-References
 
-- The `/retro` workflow turns corrections into proposals scoped to the project (applied there, recorded in `.agents/docs/retros/`) or to the harness (queued in `~/.config/sh-agent/proposals/`)
+- The `/retro` workflow turns corrections into proposals scoped to the project (applied there, recorded in `.agents/docs/retros/`) or to the harness (queued in `~/.config/fyr/proposals/`)
 - The `/distill` workflow captures repeated patterns as reusable skills
 - The `dreamer` agent, dispatched by `/retro` and `/distill`, proposes rules, skills and procedures from the memory store and the trail in `.agents/docs/retros/<date>-dreamer.md`; the `dream` skill consolidates the store itself
-- The `feedback-log` skill passively logs corrections to `~/.config/sh-agent/feedback.jsonl`
+- The `feedback-log` skill passively logs corrections to `~/.config/fyr/feedback.jsonl`
 - `.agents/docs/changes/` entries (written by the main agent or the `changelog` subagent) — reference these, don't duplicate them

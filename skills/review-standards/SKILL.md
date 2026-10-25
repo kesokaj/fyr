@@ -48,7 +48,7 @@ Installers count as callers. A change that an installer, updater or converge ste
 - [ ] Where this file and a language skill overlap, the language skill wins for idiom; this file wins for review scope and severity.
 - [ ] Formatting/lint gates already automated (gofmt, vet, eslint) are verified as run, not re-litigated line-by-line.
 - [ ] Comments, doc-comments, test names and spec rows that name behaviour the diff changed still describe it — the global context's describing-text rule; a stale one is a finding, not a comment request.
-- [ ] A rule, ban, threshold or trigger the diff changes has every other restatement of it in the repository changed too: grep its subject nouns (not only its old wording) across `context/`, `skills/*/SKILL.md`, `agents/`, `README.md`; a restatement left standing is a finding naming both file:line. Beside the grep, `sh-agent search <subject nouns>` ranks restatements worded differently (working tree only: a past revision stays with `git grep <rev>`).
+- [ ] A rule, ban, threshold or trigger the diff changes has every other restatement of it in the repository changed too: grep its subject nouns (not only its old wording) across `context/`, `skills/*/SKILL.md`, `agents/`, `README.md`; a restatement left standing is a finding naming both file:line. Beside the grep, `fyr search <subject nouns>` ranks restatements worded differently (working tree only: a past revision stays with `git grep <rev>`).
 
 ## 4. Directory layout
 

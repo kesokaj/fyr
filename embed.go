@@ -1,6 +1,6 @@
-// Package styrman carries the harness's own files inside the binary, so a
+// Package fyr carries the harness's own files inside the binary, so a
 // release binary installs without a checkout (ADR-033).
-package styrman
+package fyr
 
 import "embed"
 

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func openT(t *testing.T, path string) *Store {
@@ -25,7 +27,7 @@ func openT(t *testing.T, path string) *Store {
 func TestStorePathAndMode(t *testing.T) {
 	home := t.TempDir()
 	p := Path(home)
-	if want := filepath.Join(home, ".config", "sh-agent", "metrics.db"); p != want {
+	if want := filepath.Join(home, harness.StateDir, "metrics.db"); p != want {
 		t.Fatalf("Path = %q, want %q", p, want)
 	}
 	openT(t, p)
@@ -126,7 +128,7 @@ func TestNewerSchemaRefusedUntouched(t *testing.T) {
 		s2.Close()
 		t.Fatal("Open accepted a store with a newer schema")
 	}
-	if !errors.Is(err, ErrNewerSchema) || !strings.Contains(err.Error(), "update sh-agent") {
+	if !errors.Is(err, ErrNewerSchema) || !strings.Contains(err.Error(), "update fyr") {
 		t.Fatalf("error = %v, want ErrNewerSchema naming the fix", err)
 	}
 	after, _ := os.ReadFile(p)

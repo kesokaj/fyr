@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // zipOfTree writes tree's files into a zip under one top folder, the way
@@ -74,14 +74,14 @@ func markedZip(t *testing.T) string {
 // cannot fetch, pull or push (BUG-094).
 func isolate(t *testing.T) {
 	t.Helper()
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 }
 
 func noZipDirsUnder(t *testing.T, home string) {
 	t.Helper()
-	left, _ := filepath.Glob(filepath.Join(home, ".config", "sh-agent", "zip-*"))
+	left, _ := filepath.Glob(filepath.Join(home, harness.StateDir, "zip-*"))
 	if len(left) != 0 {
 		t.Errorf("unpack directories left behind: %v", left)
 	}
@@ -230,7 +230,7 @@ func TestKnownCheckoutZip(t *testing.T) {
 	}
 }
 
-// A refused zip writes nothing under the home, not even ~/.config/sh-agent.
+// A refused zip writes nothing under the home, not even ~/.config/fyr.
 func TestUpdateFromZipRefusedZipWritesNothing(t *testing.T) {
 	isolate(t)
 	zp := markedZip(t)
@@ -297,7 +297,7 @@ func TestFromZipRefusedOnOtherCommands(t *testing.T) {
 		if entries, _ := os.ReadDir(home); len(entries) != 0 {
 			t.Errorf("%s --from-zip wrote %d entries before refusing", cmd, len(entries))
 		}
-		if want := "sh-agent " + cmd + ": --from-zip belongs to update: sh-agent update --from-zip <file>\n"; out.String() != want {
+		if want := "fyr " + cmd + ": --from-zip belongs to update: fyr update --from-zip <file>\n"; out.String() != want {
 			t.Errorf("%s --from-zip printed before refusing, or not the refusal:\n%s", cmd, out.String())
 		}
 	}
@@ -347,7 +347,7 @@ func TestUpdateFromZipSweepsStaleDirs(t *testing.T) {
 	isolate(t)
 	zp := markedZip(t)
 	home := t.TempDir()
-	cfg := filepath.Join(home, ".config", "sh-agent")
+	cfg := filepath.Join(home, harness.StateDir)
 	old, fresh := filepath.Join(cfg, "zip-old"), filepath.Join(cfg, "zip-fresh")
 	// An old directory that is not an unpack directory (a feedback clone an
 	// old version kept, say) is never the sweep's to remove.
@@ -389,7 +389,7 @@ func TestReleaseUpdateDryRunChangesNothing(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh")
 	}
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Chdir(t.TempDir())
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
@@ -450,7 +450,7 @@ func TestUpdateFromZipSweepWithGlobCharsInHome(t *testing.T) {
 	past := time.Now().Add(-2 * time.Hour)
 	var mine, theirs string
 	for _, h := range []string{home, other} {
-		d := filepath.Join(h, ".config", "sh-agent", "zip-old")
+		d := filepath.Join(h, harness.StateDir, "zip-old")
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -474,7 +474,7 @@ func TestUpdateFromZipSweepWithGlobCharsInHome(t *testing.T) {
 	}
 }
 
-// A dry run on a fresh home (no ~/.config/sh-agent yet) unpacks beside the
+// A dry run on a fresh home (no ~/.config/fyr yet) unpacks beside the
 // zip, never under the system temp directory, and removes that directory
 // again: the zip's folder and TMPDIR hold nothing new afterwards.
 func TestUpdateFromZipDryRunCleansTempDir(t *testing.T) {
@@ -505,7 +505,7 @@ func TestUpdateFromZipDryRunCleansTempDir(t *testing.T) {
 // update --dry-run on a checkout that is behind reports and changes nothing:
 // no pull, no rebuild, no install.
 func TestCheckoutUpdateDryRunChangesNothing(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	repo, marker := gitFixture(t)
 	base := filepath.Dir(repo)
 	other := filepath.Join(base, "other")
@@ -556,7 +556,7 @@ func TestCheckoutUpdateDryRunChangesNothing(t *testing.T) {
 func TestUpdateFromZipRefusedRunSweepsNothing(t *testing.T) {
 	isolate(t)
 	home := t.TempDir()
-	stale := filepath.Join(home, ".config", "sh-agent", "zip-old")
+	stale := filepath.Join(home, harness.StateDir, "zip-old")
 	if err := os.MkdirAll(stale, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +606,7 @@ func TestUpdateFromZipInstallRefusalSweepsNothing(t *testing.T) {
 	}
 	zp := zipOfTree(t, tree)
 	home := t.TempDir()
-	stale := filepath.Join(home, ".config", "sh-agent", "zip-old")
+	stale := filepath.Join(home, harness.StateDir, "zip-old")
 	if err := os.MkdirAll(stale, 0o700); err != nil {
 		t.Fatal(err)
 	}

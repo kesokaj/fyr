@@ -1,4 +1,4 @@
-// Package harness installs the sh-agent harness (global context, skills,
+// Package harness installs the fyr harness (global context, skills,
 // subagents) into the Antigravity CLI, and reports drift
 // between the repo and what is deployed.
 package harness

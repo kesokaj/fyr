@@ -31,7 +31,7 @@ func timerHome(t *testing.T) string {
 	prev := userHomeDir
 	userHomeDir = func() (string, error) { return home, nil }
 	t.Cleanup(func() { userHomeDir = prev })
-	write(t, filepath.Join(home, ".local", "bin", "sh-agent"), "#!/bin/sh\n", fresh)
+	write(t, filepath.Join(home, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 	return home
 }
 
@@ -48,8 +48,8 @@ func callsOf(t *testing.T, path string) string {
 }
 
 func TestRenderSystemdUnits(t *testing.T) {
-	service, timer := renderSystemd("/h/.local/bin/sh-agent", "/h", "/h/.local/bin:/usr/bin")
-	for _, want := range []string{"Type=oneshot", `Environment="PATH=/h/.local/bin:/usr/bin"`, `ExecStart="/h/.local/bin/sh-agent" dream --all --home "/h"`} {
+	service, timer := renderSystemd("/h/.local/bin/fyr", "/h", "/h/.local/bin:/usr/bin")
+	for _, want := range []string{"Type=oneshot", `Environment="PATH=/h/.local/bin:/usr/bin"`, `ExecStart="/h/.local/bin/fyr" dream --all --home "/h"`} {
 		if !strings.Contains(service, want) {
 			t.Errorf("service lacks %q:\n%s", want, service)
 		}
@@ -62,8 +62,8 @@ func TestRenderSystemdUnits(t *testing.T) {
 }
 
 func TestRenderLaunchdPlist(t *testing.T) {
-	plist := renderLaunchd("com.styrman.sh-agent-dream", "/Users/o & p/.local/bin/sh-agent", "/Users/o & p", "/usr/bin")
-	for _, want := range []string{"<string>com.styrman.sh-agent-dream</string>", "<string>/Users/o &amp; p/.local/bin/sh-agent</string>", "<string>dream</string>", "<string>--all</string>", "<string>--home</string><string>/Users/o &amp; p</string>", "<key>Hour</key><integer>3</integer>", "<key>PATH</key><string>/usr/bin</string>"} {
+	plist := renderLaunchd("com.styrman.sh-agent-dream", "/Users/o & p/.local/bin/fyr", "/Users/o & p", "/usr/bin")
+	for _, want := range []string{"<string>com.styrman.sh-agent-dream</string>", "<string>/Users/o &amp; p/.local/bin/fyr</string>", "<string>dream</string>", "<string>--all</string>", "<string>--home</string><string>/Users/o &amp; p</string>", "<key>Hour</key><integer>3</integer>", "<key>PATH</key><string>/usr/bin</string>"} {
 		if !strings.Contains(plist, want) {
 			t.Errorf("plist lacks %q:\n%s", want, plist)
 		}
@@ -78,7 +78,7 @@ func TestInstallTimerLinux(t *testing.T) {
 	}
 	unitDir := filepath.Join(home, ".config", "systemd", "user")
 	service := read(t, filepath.Join(unitDir, "sh-agent-dream.service"))
-	if !strings.Contains(service, `ExecStart="`+filepath.Join(home, ".local", "bin", "sh-agent")+`" dream --all`) || !strings.Contains(service, `PATH=/p:/q`) {
+	if !strings.Contains(service, `ExecStart="`+filepath.Join(home, ".local", "bin", "fyr")+`" dream --all`) || !strings.Contains(service, `PATH=/p:/q`) {
 		t.Errorf("service:\n%s", service)
 	}
 	if got := callsOf(t, calls); got != "--user daemon-reload\n--user enable --now sh-agent-dream.timer\n" {
@@ -110,7 +110,7 @@ func TestInstallTimerRefusals(t *testing.T) {
 	var ee *ExitError
 	// No binary at BinPath.
 	fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(t.TempDir(), "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "sh-agent") {
+	if err := InstallTimer(t.TempDir(), "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "fyr") {
 		t.Errorf("no binary: %v", err)
 	}
 	// No systemctl on PATH.
@@ -197,8 +197,8 @@ func TestInstallTimerRefusesUnsafePaths(t *testing.T) {
 	if !strings.Contains(ee.Msg, "run it from a shell whose PATH") {
 		t.Errorf("the refusal names no alternative: %s", ee.Msg)
 	}
-	service, _ := renderSystemd("/h/100%/sh-agent", "/h/100%", "/p%n")
-	if !strings.Contains(service, "/h/100%%/sh-agent") || !strings.Contains(service, "PATH=/p%%n") || !strings.Contains(service, `--home "/h/100%%"`) {
+	service, _ := renderSystemd("/h/100%/fyr", "/h/100%", "/p%n")
+	if !strings.Contains(service, "/h/100%%/fyr") || !strings.Contains(service, "PATH=/p%%n") || !strings.Contains(service, `--home "/h/100%%"`) {
 		t.Errorf("a %% was not escaped:\n%s", service)
 	}
 }
@@ -219,7 +219,7 @@ func TestInstallTimerRefusesEveryControlCharacter(t *testing.T) {
 		}
 		// The home is in the binary's path and in --home.
 		home = filepath.Join(t.TempDir(), "h"+c+"o")
-		write(t, filepath.Join(home, ".local", "bin", "sh-agent"), "#!/bin/sh\n", fresh)
+		write(t, filepath.Join(home, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 		if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
 			t.Errorf("home with a %s: %v", name, err)
 		}
@@ -234,7 +234,7 @@ func TestInstallTimerRefusesEveryControlCharacter(t *testing.T) {
 func TestInstallTimerChecksTheHomeItself(t *testing.T) {
 	fakeManager(t, "systemctl", 0)
 	base := t.TempDir()
-	write(t, filepath.Join(base, ".local", "bin", "sh-agent"), "#!/bin/sh\n", fresh)
+	write(t, filepath.Join(base, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 	home := base + string(filepath.Separator) + `"x` + string(filepath.Separator) + ".."
 	var ee *ExitError
 	if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 {
@@ -276,7 +276,7 @@ func TestUnitNamesPerHome(t *testing.T) {
 	if u2, _ := UnitFor(t.TempDir()); u2 == unit {
 		t.Fatal("two homes share a unit name")
 	}
-	write(t, filepath.Join(other, ".local", "bin", "sh-agent"), "#!/bin/sh\n", fresh)
+	write(t, filepath.Join(other, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 	calls := fakeManager(t, "systemctl", 0)
 	if err := InstallTimer(other, "/p", "linux"); err != nil {
 		t.Fatal(err)
@@ -364,8 +364,8 @@ func TestAccountHomeNeverFallsBackToHOME(t *testing.T) {
 // TestRenderSystemdEscapesDollar: systemd expands $VAR and ${VAR} in
 // ExecStart, inside quotes too; $$ is a literal dollar sign.
 func TestRenderSystemdEscapesDollar(t *testing.T) {
-	service, _ := renderSystemd("/h/a$b/sh-agent", "/h/${X}", "/p")
-	if !strings.Contains(service, `ExecStart="/h/a$$b/sh-agent" dream --all --home "/h/$${X}"`) {
+	service, _ := renderSystemd("/h/a$b/fyr", "/h/${X}", "/p")
+	if !strings.Contains(service, `ExecStart="/h/a$$b/fyr" dream --all --home "/h/$${X}"`) {
 		t.Errorf("a $ in ExecStart was not escaped:\n%s", service)
 	}
 }
@@ -416,7 +416,7 @@ func TestLegacyTimerFilesAreNamedNotRemoved(t *testing.T) {
 		t.Errorf("the service manager was called for a legacy unit:\n%s", c)
 	}
 	linux := LegacyTimerNotice(other, "linux")
-	for _, want := range []string{timerFile, "FragmentPath", "systemctl --user disable --now " + unitName + ".timer", "daemon-reload", "v2.0.0", "sh-agent dream --install-timer --home '" + other + "'"} {
+	for _, want := range []string{timerFile, "FragmentPath", "systemctl --user disable --now " + unitName + ".timer", "daemon-reload", "v2.0.0", "fyr dream --install-timer --home '" + other + "'"} {
 		if !strings.Contains(linux, want) {
 			t.Errorf("the linux notice lacks %q:\n%s", want, linux)
 		}
@@ -430,7 +430,7 @@ func TestLegacyTimerFilesAreNamedNotRemoved(t *testing.T) {
 	// The advice is a dry run with this home named: the bare command would
 	// remove the timer of whatever home it defaults to, the real one included
 	// (code review of v2.1.0..a62eb9d).
-	if got := StatusLine(other); !strings.HasSuffix(got, "; legacy timer files under "+other+": sh-agent dream --remove-timer --dry-run --home '"+other+"' prints the cleanup steps") {
+	if got := StatusLine(other); !strings.HasSuffix(got, "; legacy timer files under "+other+": fyr dream --remove-timer --dry-run --home '"+other+"' prints the cleanup steps") {
 		t.Errorf("StatusLine does not name the legacy files: %q", got)
 	}
 	// A scratch home that shares the real home's .config through a link sees

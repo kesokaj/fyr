@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
-	"github.com/kesokaj/styrman-harness/internal/memory"
-	"github.com/kesokaj/styrman-harness/internal/redact"
-	"github.com/kesokaj/styrman-harness/internal/search"
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/memory"
+	"github.com/kesokaj/fyr/internal/redact"
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // The kinds, in prompt order. The metrics summary is dropped first when the
@@ -143,7 +143,7 @@ func linked(root, docs, dir string) bool {
 	return false
 }
 
-// scrub is what every input passes before it leaves sh-agent: the
+// scrub is what every input passes before it leaves fyr: the
 // redactor's needles (internal/redact), and the home path written as ~.
 func scrub(text, home string) string {
 	text = redact.Redact(text)
@@ -221,7 +221,7 @@ type entry struct {
 // feedback is the feedback log's lines for root after since, each as it is
 // in the file.
 func feedback(home, root string, since time.Time) []entry {
-	f, err := os.Open(filepath.Join(home, ".config", "sh-agent", "feedback.jsonl"))
+	f, err := os.Open(filepath.Join(home, harness.StateDir, "feedback.jsonl"))
 	if err != nil {
 		return nil
 	}

@@ -14,10 +14,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// Options are the flags of `sh-agent search` and `sh-agent index`.
+// Options are the flags of `fyr search` and `fyr index`.
 type Options struct {
 	Dir     string   // working directory the command runs in
 	Home    string   // home directory (--home), for the global search index
@@ -57,7 +58,7 @@ type scope struct {
 	files    int
 	changed  int
 	elapsed  time.Duration
-	leftOut  []string // directories a .sh-agent-noindex marker takes out (project scope only)
+	leftOut  []string // directories a noindex marker takes out (project scope only)
 }
 
 func (sc *scope) close() {
@@ -95,7 +96,7 @@ func validate(o *Options, verb string) error {
 		o.Limit = defaultLimit
 	}
 	if o.Limit < 1 || o.Limit > maxLimit {
-		return usageError{fmt.Sprintf("search: --limit must be between 1 and %d; see sh-agent help", maxLimit)}
+		return usageError{fmt.Sprintf("search: --limit must be between 1 and %d; see fyr help", maxLimit)}
 	}
 	if o.Kind != "" {
 		ok := false
@@ -103,7 +104,7 @@ func validate(o *Options, verb string) error {
 			ok = ok || k == o.Kind
 		}
 		if !ok {
-			return usageError{fmt.Sprintf("search: --kind must be one of: %s; see sh-agent help", strings.Join(kinds, " "))}
+			return usageError{fmt.Sprintf("search: --kind must be one of: %s; see fyr help", strings.Join(kinds, " "))}
 		}
 	}
 	// index takes no words and none of search's modes, and search no
@@ -119,9 +120,9 @@ func validate(o *Options, verb string) error {
 	}
 	switch {
 	case modes > 1:
-		return usageError{"search: words, --refs and --open exclude each other; see sh-agent help"}
+		return usageError{"search: words, --refs and --open exclude each other; see fyr help"}
 	case modes == 0:
-		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path> or --open; see sh-agent help"}
+		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path> or --open; see fyr help"}
 	}
 	return nil
 }
@@ -132,7 +133,7 @@ func projectDB(root string) string {
 }
 
 func globalDB(home string) string {
-	return filepath.Join(home, ".config", "sh-agent", "search.db")
+	return filepath.Join(home, harness.StateDir, "search.db")
 }
 
 // guardProject refuses what the index must not write through or leave
@@ -260,7 +261,7 @@ func register(home, root, docs string, out io.Writer) error {
 }
 
 // reconcileGlobal brings the global search index up to date: the files of
-// ~/.config/sh-agent/, then the trail of every registered checkout, dropping
+// ~/.config/fyr/, then the trail of every registered checkout, dropping
 // any that is gone.
 func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
 	path := globalDB(o.Home)
@@ -447,7 +448,7 @@ func (sc *scope) status() string {
 	s := fmt.Sprintf("index current: %d files, reconciled %d changed in %d ms", sc.files, sc.changed, sc.elapsed.Milliseconds())
 	if len(sc.leftOut) > 0 {
 		// The names are the project's own text: printable, like every hit.
-		s += "; left out by " + noIndexMarker + ": " + printable(strings.Join(sc.leftOut, ", "))
+		s += "; left out by a noindex marker: " + printable(strings.Join(sc.leftOut, ", "))
 	}
 	return s
 }

@@ -1,6 +1,6 @@
 // Package memory is a project's memory store, .agents/memory/ at the
 // repository root: one file per memory plus the MEMORY.md index. The CLI
-// writes and reads it through `sh-agent memory`, so a memory is taken the
+// writes and reads it through `fyr memory`, so a memory is taken the
 // same way on every machine (R10, plan 2026-09-30-parity-memory-dream).
 package memory
 
@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // The index caps: what `memory show` prints of MEMORY.md, so a session loads
@@ -94,7 +94,7 @@ func trusted(root string) (string, error) {
 }
 
 // Store returns root's store path after the trust checks every reader
-// makes; `sh-agent dream` reads a project's memory through it.
+// makes; `fyr dream` reads a project's memory through it.
 func Store(root string) (string, error) { return trusted(root) }
 
 // Add writes or replaces the memory e.Name with body, and its index line.
@@ -274,7 +274,7 @@ func lock(path string) (func(), error) {
 		}
 		if time.Now().After(deadline) {
 			f.Close()
-			return nil, refuse("the memory store is busy: another sh-agent memory holds %s", path)
+			return nil, refuse("the memory store is busy: another fyr memory holds %s", path)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

@@ -246,7 +246,7 @@ func parseRefs(text string) []ref {
 	return out
 }
 
-// Kinds a path can have, in the order `sh-agent help` lists them.
+// Kinds a path can have, in the order `fyr help` lists them.
 var kinds = []string{"bug", "adr", "plan", "change", "handoff", "review", "testing", "retro", "spec", "deploy", "trail", "code", "doc", "feedback", "proposal"}
 
 var trailKinds = map[string]string{
@@ -263,7 +263,7 @@ func init() {
 	}
 }
 
-// configProject is the global index's name for ~/.config/sh-agent/.
+// configProject is the global index's name for ~/.config/fyr/.
 const configProject = "~config"
 
 // kindOf classifies a path; docsRoot is the project's docs root.

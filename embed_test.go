@@ -1,4 +1,4 @@
-package styrman
+package fyr
 
 import (
 	"bytes"

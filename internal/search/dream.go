@@ -1,6 +1,6 @@
 package search
 
-// The two reads `sh-agent dream` makes with the SQLite driver, kept in this
+// The two reads `fyr dream` makes with the SQLite driver, kept in this
 // package because it imports the driver (AGENTS.md; R4's
 // dream clause, ADR-047a): the global index's project list, and Antigravity's
 // conversation databases, both read-only.
@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // Project is one checkout the global search index knows.
@@ -91,7 +93,7 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 	if _, err := os.Stat(filepath.Join(src, "conversation_summaries.db")); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
-	conf := filepath.Join(home, ".config", "sh-agent")
+	conf := filepath.Join(home, harness.StateDir)
 	_, statErr := os.Stat(conf)
 	created := errors.Is(statErr, os.ErrNotExist)
 	if err := os.MkdirAll(conf, 0o700); err != nil {
@@ -296,7 +298,7 @@ func copyFileImpl(from, to string) error {
 }
 
 // removeIfEmpty removes dir only when nothing is in it, so a run that had to
-// create ~/.config/sh-agent for its temp copies leaves no empty directory.
+// create ~/.config/fyr for its temp copies leaves no empty directory.
 func removeIfEmpty(dir string) {
 	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
 		os.Remove(dir)

@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-// The delivery claim's one home (AGENTS.md rule 6), specs/sh-agent/delivery.md
+// The delivery claim's one home (AGENTS.md rule 6), specs/fyr/delivery.md
 // § Where things stand, names the newest tag and every verb the binary ships.
 // It said v2.4.1 and left out `metrics` while the repository was at v2.6.2
 // (project review 2026-10-09, row 3, BUG-167). The newest tag is the newest
 // release entry under changes/, which the release commit writes together with
 // this paragraph (deploy/remote.md § Releases).
 func TestDeliverySpecCurrent(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", ".agents", "docs", "specs", "sh-agent", "delivery.md"))
+	data, err := os.ReadFile(filepath.Join("..", "..", ".agents", "docs", "specs", "fyr", "delivery.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

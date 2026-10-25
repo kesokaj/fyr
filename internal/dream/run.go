@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 const (
@@ -51,14 +51,14 @@ type draft struct {
 func (o Options) realRun() error {
 	conf, err := harness.ConfigDir(o.Home)
 	if err != nil {
-		return &ExitError{2, "sh-agent dream: " + err.Error()}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	unlock, held, err := lock(filepath.Join(conf, "dream.lock"))
 	if err != nil {
-		return &ExitError{2, "sh-agent dream: " + err.Error()}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	if held {
-		fmt.Fprintln(o.Out, "sh-agent dream: already running")
+		fmt.Fprintln(o.Out, "fyr dream: already running")
 		return nil
 	}
 	defer unlock()
@@ -69,7 +69,7 @@ func (o Options) realRun() error {
 	if err != nil {
 		// The state is not rewritten: that would erase the watermarks.
 		logf("- run 0 projects, 0 proposals, error " + err.Error())
-		return &ExitError{2, "sh-agent dream: " + err.Error()}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	finish := func(n, proposals int, runErr string) error {
 		st.LastRun = lastRun{At: t0, Projects: n, Proposals: proposals, Error: runErr}
@@ -82,7 +82,7 @@ func (o Options) realRun() error {
 	}
 	fail := func(msg string) error {
 		finish(0, 0, msg)
-		return &ExitError{2, "sh-agent dream: " + msg}
+		return &ExitError{2, "fyr dream: " + msg}
 	}
 
 	removeCopies(conf, o.Now())
@@ -170,17 +170,17 @@ func (o Options) realRun() error {
 		stateErr = err
 	}
 	if stateErr != nil {
-		return &ExitError{2, "sh-agent dream: the watermarks could not be saved, so the next run re-sends this one: " + stateErr.Error()}
+		return &ExitError{2, "fyr dream: the watermarks could not be saved, so the next run re-sends this one: " + stateErr.Error()}
 	}
 	if failed > 0 {
-		return &ExitError{1, fmt.Sprintf("sh-agent dream: %d project(s) failed; see %s", failed, filepath.Join(conf, "dream.log"))}
+		return &ExitError{1, fmt.Sprintf("fyr dream: %d project(s) failed; see %s", failed, filepath.Join(conf, "dream.log"))}
 	}
 	return nil
 }
 
 // call runs the CLI in work with the prompt on stdin as one stream-json
 // message. env replaces the child's environment when set (agy's private
-// HOME); otherwise the child keeps sh-agent's own.
+// HOME); otherwise the child keeps fyr's own.
 func call(argv []string, prompt, work string, env []string) (string, string, error) {
 	return callWithin(argv, prompt, work, env, cliTimeout, killGrace)
 }
@@ -208,7 +208,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	// kept them open past the kill and held Run, and so dream.lock, for as
 	// long as it lived (BUG-169); the same helper after a clean exit turned
 	// the run into a failure, and Ctrl-C stopped reaching a CLI outside
-	// sh-agent's own group (the fix's review).
+	// fyr's own group (the fix's review).
 	cmd.WaitDelay = grace
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	killGroup := func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -219,7 +219,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	// A hangup or interrupt the parent ignored (nohup, a background job) stays
 	// ignored: Notify would take it over, kill the group on it, and the
 	// re-raise after Reset would find it ignored again, so the project failed
-	// and sh-agent ran on. Go keeps only these two of an inherited ignore.
+	// and fyr ran on. Go keeps only these two of an inherited ignore.
 	watched := []os.Signal{syscall.SIGTERM, syscall.SIGQUIT}
 	for _, s := range []os.Signal{os.Interrupt, syscall.SIGHUP} {
 		if !signal.Ignored(s) {
@@ -232,7 +232,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	go func() {
 		relay(sigs, waited, func(sig os.Signal) {
 			killGroup()
-			// Then die of the signal, as sh-agent did before the group existed.
+			// Then die of the signal, as fyr did before the group existed.
 			signal.Reset(sig)
 			syscall.Kill(os.Getpid(), sig.(syscall.Signal))
 		})
@@ -550,7 +550,7 @@ func (o Options) render(dir, day string, c Collected, cli string, ps []proposal,
 		inputs = append(inputs, fmt.Sprintf("%s %d", k, counts[k]))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nowner: sh-agent dream\ndate: %s\nproject: %s\ncli: %s\ninputs: %s\n", day, o.line(c.Root), cli, strings.Join(inputs, ", "))
+	fmt.Fprintf(&b, "---\nowner: fyr dream\ndate: %s\nproject: %s\ncli: %s\ninputs: %s\n", day, o.line(c.Root), cli, strings.Join(inputs, ", "))
 	if len(c.Dropped) > 0 {
 		fmt.Fprintf(&b, "left out: %q\n", o.line(strings.Join(c.Dropped, "; ")))
 	}

@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-// ResolveSource locates the harness: an explicit path, then $SH_AGENT_REPO,
+// ResolveSource locates the harness: an explicit path, then $FYR_REPO,
 // then the working directory and its parents, then the path the last install
-// recorded — so `sh-agent update` works from anywhere once installed — and
+// recorded — so `fyr update` works from anywhere once installed — and
 // last, in a release binary only, the files built into it (D14). A path the
 // operator named is used or refused, never silently replaced by one the walk
 // finds or by the embedded files (D15): install builds and runs the
@@ -36,26 +36,26 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 	if IsReleaseVersion(version) {
 		for _, from := range []struct{ origin, path string }{
 			{"--repo", explicit},
-			{"$SH_AGENT_REPO", os.Getenv("SH_AGENT_REPO")},
+			{"$FYR_REPO", os.Getenv("FYR_REPO")},
 		} {
 			if from.path != "" {
-				// Name WHERE the path came from: an exported $SH_AGENT_REPO in
+				// Name WHERE the path came from: an exported $FYR_REPO in
 				// a shell profile makes every command on the machine fail, and
 				// "drop it" is unactionable without knowing which one to drop
 				// (BUG-076).
-				return Source{}, fmt.Errorf("this is the release binary %s: it installs the harness built into it and never a tree on disk, so %s=%s is refused — unset it, or build sh-agent from that tree and run that build's install", version, from.origin, from.path)
+				return Source{}, fmt.Errorf("this is the release binary %s: it installs the harness built into it and never a tree on disk, so %s=%s is refused — unset it, or build fyr from that tree and run that build's install", version, from.origin, from.path)
 			}
 		}
 		return EmbeddedSource(version), nil
 	}
 
 	// A development build has nothing of its own to install, so it looks for a
-	// tree: an explicit path, then $SH_AGENT_REPO, then the working directory
+	// tree: an explicit path, then $FYR_REPO, then the working directory
 	// and its parents, then the path the last install recorded. A path the
 	// operator named is used or refused, never silently replaced by one the
 	// walk finds (D15): install builds and runs the checkout's code, so a typo
 	// must not hand that to whatever harness-shaped tree the shell is in.
-	for _, named := range []string{explicit, os.Getenv("SH_AGENT_REPO")} {
+	for _, named := range []string{explicit, os.Getenv("FYR_REPO")} {
 		if named == "" {
 			continue
 		}
@@ -79,7 +79,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 	if st, found, err := LoadState(home); err == nil && found {
 		switch o := st.Origin(); o.Kind {
 		case OriginZip:
-			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s); a development build needs a checkout or --repo — or run `sh-agent update --from-zip <file>` again. ", o.ShortSum())
+			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s); a development build needs a checkout or --repo — or run `fyr update --from-zip <file>` again. ", o.ShortSum())
 		case OriginPath:
 			candidates = append(candidates, o.Path)
 		}
@@ -93,7 +93,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 	if version != "" && version != "unknown" {
 		built = fmt.Sprintf("this build is %s, a development build rather than a vX.Y.Z release, so it has no harness built in", version)
 	}
-	return Source{}, fmt.Errorf("%sharness repo not found and %s: run from inside the checkout, pass --repo, set SH_AGENT_REPO, or install from a release binary (README § Install without cloning)", zipNote, built)
+	return Source{}, fmt.Errorf("%sharness repo not found and %s: run from inside the checkout, pass --repo, set FYR_REPO, or install from a release binary (README § Install without cloning)", zipNote, built)
 }
 
 // OriginKind classifies what a manifest's repo value names.
@@ -182,7 +182,7 @@ func IsRepo(dir string) bool {
 	return err == nil && info.IsDir()
 }
 
-// RepoInfo is the git state `sh-agent status` shows.
+// RepoInfo is the git state `fyr status` shows.
 type RepoInfo struct {
 	Branch string
 	Commit string
@@ -254,7 +254,7 @@ func Pull(repo string, out io.Writer) error {
 	// pulled over and never deployed, and an unreadable status counts as
 	// dirty rather than clean.
 	if info := Inspect(repo); info.Dirty || info.StatusUnknown {
-		return errors.New("the harness repo has uncommitted changes, or git could not report its state; commit or stash them before `sh-agent update`")
+		return errors.New("the harness repo has uncommitted changes, or git could not report its state; commit or stash them before `fyr update`")
 	}
 	cmd := exec.Command("git", "-C", repo, "pull", "--ff-only", "--quiet")
 	cmd.Stdout, cmd.Stderr = out, out
@@ -266,7 +266,7 @@ func Pull(repo string, out io.Writer) error {
 
 // ChildEnv marks the process Reinstall spawns from a fresh build, so that
 // process does the plain install instead of rebuilding again.
-const ChildEnv = "SH_AGENT_CHILD"
+const ChildEnv = "FYR_CHILD"
 
 // Reinstall builds the binary from the repo's source and runs that build's
 // install. It is the only path that changes the deployed binary: `go run`
@@ -275,16 +275,16 @@ const ChildEnv = "SH_AGENT_CHILD"
 // directory per process, and is removed afterwards.
 func Reinstall(repo string, args []string, out io.Writer) error {
 	if _, err := exec.LookPath("go"); err != nil {
-		return errors.New("go is not on PATH; install Go to rebuild sh-agent")
+		return errors.New("go is not on PATH; install Go to rebuild fyr")
 	}
-	dir := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("sh-agent-build-%d", os.Getpid()))
+	dir := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("fyr-build-%d", os.Getpid()))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating build directory: %w", err)
 	}
 	defer os.RemoveAll(dir)
-	bin := filepath.Join(dir, "sh-agent")
-	fmt.Fprintf(out, "building sh-agent from %s\n", repo)
-	build := exec.Command("go", "build", "-o", bin, "./cmd/sh-agent")
+	bin := filepath.Join(dir, "fyr")
+	fmt.Fprintf(out, "building fyr from %s\n", repo)
+	build := exec.Command("go", "build", "-o", bin, "./cmd/fyr")
 	build.Dir = repo
 	// GOTOOLCHAIN=local, always, and not because of anything in go.mod —
 	// the toolchain directive that prompted this was withdrawn in ADR-029.
@@ -298,14 +298,14 @@ func Reinstall(repo string, args []string, out io.Writer) error {
 	build.Env = append(os.Environ(), "GOTOOLCHAIN=local")
 	build.Stdout, build.Stderr = out, out
 	if err := build.Run(); err != nil {
-		return fmt.Errorf("go build ./cmd/sh-agent: %w", err)
+		return fmt.Errorf("go build ./cmd/fyr: %w", err)
 	}
 	cmd := exec.Command(bin, append([]string{"install", "--repo", repo}, args...)...)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), ChildEnv+"=1")
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("sh-agent install: %w", err)
+		return fmt.Errorf("fyr install: %w", err)
 	}
 	return nil
 }

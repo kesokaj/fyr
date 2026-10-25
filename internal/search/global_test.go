@@ -6,14 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// globalHome makes a home whose ~/.config/sh-agent holds a feedback line, a
+// globalHome makes a home whose ~/.config/fyr holds a feedback line, a
 // retro line and a proposal.
 func globalHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	dir := filepath.Join(home, ".config", "sh-agent")
+	dir := filepath.Join(home, harness.StateDir)
 	writeFile(t, dir, "feedback.jsonl", `{"rule_ref":"scratch","note":"the operator corrected a jackalope mistake"}`+"\n")
 	writeFile(t, dir, "retros.jsonl", `{"kind":"retro","summary":"a quetzal pattern recurred"}`+"\n")
 	writeFile(t, dir, "proposals/2026-09-29-x.md", "# Proposal\n\nadd a rule about the ocelot\n")
@@ -87,7 +89,7 @@ func TestGlobalIndexesFeedbackRetrosProposals(t *testing.T) {
 		t.Errorf("--kind feedback let a proposal through:\n%s", out)
 	}
 	// An edited log is re-read on the next query.
-	writeFile(t, filepath.Join(home, ".config", "sh-agent"), "feedback.jsonl", `{"note":"now a kinkajou"}`+"\n")
+	writeFile(t, filepath.Join(home, harness.StateDir), "feedback.jsonl", `{"note":"now a kinkajou"}`+"\n")
 	out = mustSearch(t, Options{Dir: dir, Home: home, Global: true, Words: []string{"kinkajou"}})
 	if !strings.Contains(out, "feedback.jsonl:1") {
 		t.Errorf("edited feedback log not re-read:\n%s", out)
@@ -159,7 +161,7 @@ func TestGlobalRebuildDropsRegistry(t *testing.T) {
 // from the config path, which a `[` in the path would turn into a class
 // (BUG-109's class; the golang skill's rule).
 func TestConfigViewListsProposalsByName(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "c[1]", ".config", "sh-agent")
+	dir := filepath.Join(t.TempDir(), "c[1]", harness.StateDir)
 	if err := os.MkdirAll(filepath.Join(dir, "proposals"), 0o755); err != nil {
 		t.Fatal(err)
 	}

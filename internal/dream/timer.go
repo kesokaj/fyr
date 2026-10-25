@@ -1,6 +1,6 @@
 package dream
 
-// The nightly timer: R3's exception runs `sh-agent dream --all` from an OS
+// The nightly timer: R3's exception runs `fyr dream --all` from an OS
 // user timer that `--install-timer` installs and `--remove-timer` or
 // `uninstall` removes (R4). The timer is not in the install manifest: the
 // next `install` would delete a listed unit as stale (plan D12).
@@ -18,7 +18,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 const (
@@ -92,7 +92,7 @@ func renderSystemd(bin, home, path string) (string, string) {
 	// literal dollar sign. Environment= expands nothing, so path keeps its own.
 	bin, home = strings.ReplaceAll(bin, "$", "$$"), strings.ReplaceAll(home, "$", "$$")
 	service := fmt.Sprintf(`[Unit]
-Description=sh-agent dream: the nightly background dreamer (R3)
+Description=fyr dream: the nightly background dreamer (R3)
 
 [Service]
 Type=oneshot
@@ -100,7 +100,7 @@ Environment="PATH=%s"
 ExecStart="%s" dream --all --home "%s"
 `, path, bin, home)
 	timer := `[Unit]
-Description=Run sh-agent dream nightly
+Description=Run fyr dream nightly
 
 [Timer]
 OnCalendar=*-*-* 03:00
@@ -153,7 +153,7 @@ func renderLaunchd(label, bin, home, path string) string {
 func InstallTimer(home, path, goos string) error {
 	bin := filepath.Join(home, harness.BinPath)
 	if info, err := os.Stat(bin); err != nil || !info.Mode().IsRegular() {
-		return &ExitError{2, fmt.Sprintf("sh-agent dream --install-timer: no binary at %s: run sh-agent install first", bin)}
+		return &ExitError{2, fmt.Sprintf("fyr dream --install-timer: no binary at %s: run fyr install first", bin)}
 	}
 	path = absolutePath(path)
 	// A quote, a backslash or a line break would end the unit's quoted value
@@ -165,7 +165,7 @@ func InstallTimer(home, path, goos string) error {
 	// in a component `..` cancels was gone from bin and still in --home
 	// (the release gate's security review of v2.6.2..13c5bde).
 	if raw := bin + home + path; strings.ContainsAny(raw, "\"\\") || strings.ContainsFunc(raw, unicode.IsControl) {
-		return &ExitError{2, "sh-agent dream --install-timer: the binary path or PATH holds a quote, a backslash or a control character; the timer's unit cannot carry it safely: run it from a shell whose PATH, and for a --home whose path, holds none of them"}
+		return &ExitError{2, "fyr dream --install-timer: the binary path or PATH holds a quote, a backslash or a control character; the timer's unit cannot carry it safely: run it from a shell whose PATH, and for a --home whose path, holds none of them"}
 	}
 	unit, label := UnitFor(home)
 	var files map[string]string
@@ -182,10 +182,10 @@ func InstallTimer(home, path, goos string) error {
 		manager = "launchctl"
 		start = [][]string{{"bootstrap", "gui/" + strconv.Itoa(os.Getuid()), macPlistPath(home)}}
 	default:
-		return &ExitError{2, "sh-agent dream --install-timer: no user timer on " + goos + " (systemd on Linux, launchd on macOS)"}
+		return &ExitError{2, "fyr dream --install-timer: no user timer on " + goos + " (systemd on Linux, launchd on macOS)"}
 	}
 	if _, err := exec.LookPath(manager); err != nil {
-		return &ExitError{2, fmt.Sprintf("sh-agent dream --install-timer: no %s on PATH: the timer needs the user service manager", manager)}
+		return &ExitError{2, fmt.Sprintf("fyr dream --install-timer: no %s on PATH: the timer needs the user service manager", manager)}
 	}
 	// A unit on disk with other text is the operator's or an older install's:
 	// kept and named, never overwritten.
@@ -193,20 +193,20 @@ func InstallTimer(home, path, goos string) error {
 	for p, text := range files {
 		paths = append(paths, p)
 		if data, err := os.ReadFile(p); err == nil && string(data) != text {
-			return &ExitError{2, fmt.Sprintf("sh-agent dream --install-timer: %s exists with other text (another PATH, or edited by hand); kept. Run sh-agent dream --remove-timer first", p)}
+			return &ExitError{2, fmt.Sprintf("fyr dream --install-timer: %s exists with other text (another PATH, or edited by hand); kept. Run fyr dream --remove-timer first", p)}
 		}
 	}
 	for p, text := range files {
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return &ExitError{2, "sh-agent dream --install-timer: " + err.Error()}
+			return &ExitError{2, "fyr dream --install-timer: " + err.Error()}
 		}
 		if err := harness.WriteAtomic(p, []byte(text), 0o644); err != nil {
-			return &ExitError{2, "sh-agent dream --install-timer: " + err.Error()}
+			return &ExitError{2, "fyr dream --install-timer: " + err.Error()}
 		}
 	}
 	for _, args := range start {
 		if out, err := exec.Command(manager, args...).CombinedOutput(); err != nil {
-			return &ExitError{2, fmt.Sprintf("sh-agent dream --install-timer: %s %s: %v %s; the unit files are left in place: %s",
+			return &ExitError{2, fmt.Sprintf("fyr dream --install-timer: %s %s: %v %s; the unit files are left in place: %s",
 				manager, strings.Join(args, " "), err, strings.TrimSpace(string(out)), strings.Join(paths, ", "))}
 		}
 	}
@@ -262,7 +262,7 @@ func RemoveTimer(home, goos string) (bool, error) {
 	}
 	for _, p := range files {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return false, &ExitError{2, "sh-agent dream --remove-timer: " + err.Error()}
+			return false, &ExitError{2, "fyr dream --remove-timer: " + err.Error()}
 		}
 	}
 	if len(stop) > 1 {
@@ -384,6 +384,6 @@ func LegacyTimerNotice(home, goos string) string {
 		fmt.Fprintf(&b, "If it is one of the files above: systemctl --user disable --now %s.timer\n", unitName)
 		b.WriteString("Then delete the files above and run: systemctl --user daemon-reload\n")
 	}
-	fmt.Fprintf(&b, "If this home should keep a nightly timer, install it again afterwards: sh-agent dream --install-timer --home %s", shellQuote(home))
+	fmt.Fprintf(&b, "If this home should keep a nightly timer, install it again afterwards: fyr dream --install-timer --home %s", shellQuote(home))
 	return b.String()
 }

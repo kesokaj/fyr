@@ -10,7 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/metrics"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // toolConversation adds one Antigravity conversation with a run_command
@@ -46,7 +47,7 @@ func TestRunIngestsMetricsFirst(t *testing.T) {
 		t.Fatalf("the dream did not ingest: tool calls %v", sum.B.ToolCalls)
 	}
 	// Five: the fixture's four conversations and S9.
-	if log := read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")); !strings.Contains(log, "metrics: 5 sessions") {
+	if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, "metrics: 5 sessions") {
 		t.Errorf("dream.log lacks the ingest line:\n%s", log)
 	}
 }
@@ -90,7 +91,7 @@ func TestIngestFailureDoesNotFailDream(t *testing.T) {
 	if st.LastRun.Error != "" {
 		t.Errorf("last_run.error = %q, want empty", st.LastRun.Error)
 	}
-	if log := read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")); !strings.Contains(log, "metrics ingest failed: disk on fire") {
+	if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, "metrics ingest failed: disk on fire") {
 		t.Errorf("dream.log lacks the failure:\n%s", log)
 	}
 }

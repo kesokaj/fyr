@@ -30,7 +30,7 @@ func TestRedactJSONL(t *testing.T) {
 	}
 	// A matching line goes whole, and in a JSONL file its marker is itself a
 	// JSON object, so every redacted line parses — the malformed one included.
-	for i, want := range []string{marker("[redacted by sh-agent: 1 lines]", true), marker(redactedValue, true), marker(redactedValue, true)} {
+	for i, want := range []string{marker("[redacted by fyr: 1 lines]", true), marker(redactedValue, true), marker(redactedValue, true)} {
 		if lines[i] != want || !json.Valid([]byte(lines[i])) {
 			t.Errorf("line %d = %q, want %q", i+1, lines[i], want)
 		}
@@ -345,7 +345,7 @@ func TestRedactCleanIsByteIdentical(t *testing.T) {
 func TestRedactLines(t *testing.T) {
 	in := "# Proposal\n\nbefore\n" + pem + "\nafter password=hunter2\nlast\n"
 	out, recs := redactLines([]byte(in), false)
-	want := "# Proposal\n\nbefore\n[redacted by sh-agent: 4 lines]\n" + redactedValue + "\nlast\n"
+	want := "# Proposal\n\nbefore\n[redacted by fyr: 4 lines]\n" + redactedValue + "\nlast\n"
 	if string(out) != want {
 		t.Errorf("got:\n%s\nwant:\n%s", out, want)
 	}
@@ -355,7 +355,7 @@ func TestRedactLines(t *testing.T) {
 
 	unterminated := "keep\n-----BEGIN OPENSSH PRIVATE KEY-----\nbody\nbody"
 	out, recs = redactLines([]byte(unterminated), false)
-	if string(out) != "keep\n[redacted by sh-agent: 3 lines]" || len(recs) != 1 || !recs[0].Unterminated || recs[0].Lines != 3 {
+	if string(out) != "keep\n[redacted by fyr: 3 lines]" || len(recs) != 1 || !recs[0].Unterminated || recs[0].Lines != 3 {
 		t.Errorf("unterminated: out=%q recs=%+v", out, recs)
 	}
 }
@@ -368,7 +368,7 @@ func TestRedactKeyHit(t *testing.T) {
 	}
 }
 
-// TestRedactText: the exported Redact (sh-agent dream) removes every shape
+// TestRedactText: the exported Redact (fyr dream) removes every shape
 // in shapeSecrets, and leaves clean text byte-identical.
 func TestRedactText(t *testing.T) {
 	for _, sec := range shapeSecrets {

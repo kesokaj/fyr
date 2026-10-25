@@ -13,7 +13,7 @@ Analyze the current session (or multiple recent sessions) to detect repeated pat
 ```
 /distill                     # Analyze current session, propose project-specific skill
 /distill --global            # Propose as a global harness skill instead
-/distill --from-log          # Also scan ~/.config/sh-agent/feedback.jsonl for cross-session patterns
+/distill --from-log          # Also scan ~/.config/fyr/feedback.jsonl for cross-session patterns
 ```
 
 ## When to Suggest
@@ -37,7 +37,7 @@ Do NOT suggest `/distill` for:
 
 First, when `retros/<today>-dreamer.md` already exists (a `/retro` ran this session), reuse it instead of dispatching again; otherwise dispatch the `dreamer` agent — `Store: <the project's memory store, `<root>/.agents/memory`, as the dream skill's Step 1 names it>. Docs root: <docs-root>. Since: <the date of the newest `retros/*-retro*.md` record, or all — never a dreamer or dream record>. Promoted: none.` plus "Write your artifact with the Write tool; report only means no source edits." and a 30-call budget, with "write the artifact early, then update it" — and take its skill and procedure candidates (`<docs-root>/retros/<date>-dreamer.md`, the Candidates table) as the first entries of the candidate list, with their evidence and draft paths. Then read the session transcript and add only patterns the artifact does not already name (same name or same steps), so a pattern appears once. Look for:
 
-Under `--from-log`, also read `~/.config/sh-agent/feedback.jsonl` (the `feedback-log` skill's log; every entry carries a `project` field): the entries for this project — every project under `--global` — whose `signal` is `gap` or whose `category` repeats three times or more are pattern evidence, quoted by timestamp in Step 2's draft. Without the flag the log is not read.
+Under `--from-log`, also read `~/.config/fyr/feedback.jsonl` (the `feedback-log` skill's log; every entry carries a `project` field): the entries for this project — every project under `--global` — whose `signal` is `gap` or whose `category` repeats three times or more are pattern evidence, quoted by timestamp in Step 2's draft. Without the flag the log is not read.
 
 ### Pattern Types
 
@@ -97,7 +97,7 @@ Present the user with a clear recommendation:
 
 | Scope | When | Location |
 |---|---|---|
-| **Project-specific** (default) | Pattern is unique to this project | `.agents/skills/<name>/SKILL.md` (never a harness skill's name; see `sh-agent list`) |
+| **Project-specific** (default) | Pattern is unique to this project | `.agents/skills/<name>/SKILL.md` (never a harness skill's name; see `fyr list`) |
 | **Global** (`--global`) | Pattern applies across all your projects | `<harness-repo>/skills/<name>/SKILL.md` |
 
 Use project-specific as the default. Only suggest global if:
@@ -129,14 +129,14 @@ mkdir -p .agents/skills/<name>
 
 ### Global skill
 ```bash
-# Create in the harness repo (find it with `sh-agent status`), then deploy
+# Create in the harness repo (find it with `fyr status`), then deploy
 mkdir -p <harness-repo>/skills/<name>
 # Write SKILL.md
-sh-agent install          # deploys to Antigravity
+fyr install               # deploys to Antigravity
 # then commit and push the harness repo
 ```
 
-If you drafted it project-locally first, `sh-agent adopt <name>` copies it from `.agents/skills/<name>` into the harness repo.
+If you drafted it project-locally first, `fyr adopt <name>` copies it from `.agents/skills/<name>` into the harness repo.
 
 After installation:
 - Verify the skill YAML frontmatter is valid
@@ -148,17 +148,17 @@ After installation:
 **Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/` if it exists, else create `.agents/docs`. Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
 
 1. Write `<docs-root>/retros/<date>-distill-<name>.md` (same day, same name again: `-2`, `-3`; never overwrite) with frontmatter `owner: main`, `date:`, `session:` and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
-2. Append one compact JSON line to `~/.config/sh-agent/retros.jsonl` — the cross-project index the `retro` skill shares — with exactly one entry in `proposals`:
+2. Append one compact JSON line to `~/.config/fyr/retros.jsonl` — the cross-project index the `retro` skill shares — with exactly one entry in `proposals`:
 
 ```json
 {"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<id>","kind":"distill","record":"<absolute path of the record>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
 ```
 
-`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If `~/.config/sh-agent/` is denied, say so, print the `cat >> ~/.config/sh-agent/retros.jsonl <<'EOF' … EOF` command for the user, and continue.
+`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If `~/.config/fyr/` is denied, say so, print the `cat >> ~/.config/fyr/retros.jsonl <<'EOF' … EOF` command for the user, and continue.
 The log stays the user's own words (the `feedback-log` skill): a distill never appends to `feedback.jsonl`; the `retros.jsonl` line above is its index entry.
 
 ## Cross-References
 
 - Manual skill creation follows the SKILL.md standard by hand
-- The `/retro` workflow handles corrections and rule gaps (not patterns); both write to `<docs-root>/retros/` and to `~/.config/sh-agent/retros.jsonl`, so one directory holds the project's whole learning-loop history (dream and dreamer records included) and one index its retros and distills (ADR-044)
+- The `/retro` workflow handles corrections and rule gaps (not patterns); both write to `<docs-root>/retros/` and to `~/.config/fyr/retros.jsonl`, so one directory holds the project's whole learning-loop history (dream and dreamer records included) and one index its retros and distills (ADR-044)
 - The `feedback-log` skill logs entries that `/distill --from-log` can analyze for cross-session patterns

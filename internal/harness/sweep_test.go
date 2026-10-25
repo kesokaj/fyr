@@ -18,8 +18,8 @@ func TestSweepStaleDirsStaysInParent(t *testing.T) {
 	root := t.TempDir()
 	// `u[1]` as a glob matches `u1` and not itself: the old code swept the
 	// sibling and skipped its own home.
-	base := filepath.Join(root, "u[1]", ".config", "sh-agent")
-	sibling := filepath.Join(root, "u1", ".config", "sh-agent", "release-keep")
+	base := filepath.Join(root, "u[1]", StateDir)
+	sibling := filepath.Join(root, "u1", StateDir, "release-keep")
 	for _, d := range []string{filepath.Join(base, "release-old"), filepath.Join(base, "release-new"), sibling} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)

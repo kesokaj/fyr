@@ -51,7 +51,7 @@ exit 1
 // The release binary this fixture ships: a script that records the arguments
 // it was installed with, so the test can tell that the NEW binary ran.
 const fakeReleaseBinary = `#!/bin/sh
-printf 'install %s\n' "$*" >> "$SH_AGENT_FAKE_MARKER"
+printf 'install %s\n' "$*" >> "$FYR_FAKE_MARKER"
 `
 
 type release struct {
@@ -123,7 +123,7 @@ func TestUpdateFromReleaseReplacesAndInstalls(t *testing.T) {
 	home := t.TempDir()
 	dest := installedBinary(t, home)
 	marker := filepath.Join(home, "installed.txt")
-	t.Setenv("SH_AGENT_FAKE_MARKER", marker)
+	t.Setenv("FYR_FAKE_MARKER", marker)
 
 	var out bytes.Buffer
 	// The process running this update is not the file it installs — the
@@ -133,7 +133,7 @@ func TestUpdateFromReleaseReplacesAndInstalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	elsewhere := t.TempDir()
-	byName := filepath.Join(elsewhere, "sh-agent")
+	byName := filepath.Join(elsewhere, "fyr")
 	if err := os.Symlink(self, byName); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestUpdateFromReleaseReplacesAndInstalls(t *testing.T) {
 		}
 	}
 	// The download directory is gone, whatever happened.
-	left, _ := filepath.Glob(filepath.Join(home, ".config", "sh-agent", "release-*"))
+	left, _ := filepath.Glob(filepath.Join(home, StateDir, "release-*"))
 	if len(left) != 0 {
 		t.Errorf("left behind: %v", left)
 	}
@@ -294,7 +294,7 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 				t.Fatal(err)
 			}
 			marker := filepath.Join(home, "installed.txt")
-			t.Setenv("SH_AGENT_FAKE_MARKER", marker)
+			t.Setenv("FYR_FAKE_MARKER", marker)
 
 			var out bytes.Buffer
 			err = UpdateFromRelease(home, "v1.0.0", false, nil, &out)
@@ -310,7 +310,7 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 			if _, err := os.Stat(marker); err == nil {
 				t.Error("an install ran although the release failed its checks")
 			}
-			left, _ := filepath.Glob(filepath.Join(home, ".config", "sh-agent", "release-*"))
+			left, _ := filepath.Glob(filepath.Join(home, StateDir, "release-*"))
 			if len(left) != 0 {
 				t.Errorf("left behind: %v", left)
 			}
@@ -389,7 +389,7 @@ func TestUpdateFromReleaseNeverGoesBackwards(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(home, "installed.txt")
-	t.Setenv("SH_AGENT_FAKE_MARKER", marker)
+	t.Setenv("FYR_FAKE_MARKER", marker)
 
 	for _, checkOnly := range []bool{false, true} {
 		var out bytes.Buffer
@@ -446,10 +446,10 @@ func TestUpdateFromReleaseSweepStaysInHome(t *testing.T) {
 	r.env(t, true)
 	root := t.TempDir()
 	home := filepath.Join(root, "u[1]")
-	own := filepath.Join(home, ".config", "sh-agent", "release-old")
-	sibling := filepath.Join(root, "u1", ".config", "sh-agent", "release-keep")
+	own := filepath.Join(home, StateDir, "release-old")
+	sibling := filepath.Join(root, "u1", StateDir, "release-keep")
 	// Younger than the hour the sweep waits: a second update may own it.
-	young := filepath.Join(home, ".config", "sh-agent", "release-young")
+	young := filepath.Join(home, StateDir, "release-young")
 	for _, d := range []string{own, sibling, young} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
@@ -463,7 +463,7 @@ func TestUpdateFromReleaseSweepStaysInHome(t *testing.T) {
 		}
 	}
 	installedBinary(t, home)
-	t.Setenv("SH_AGENT_FAKE_MARKER", filepath.Join(home, "installed.txt"))
+	t.Setenv("FYR_FAKE_MARKER", filepath.Join(home, "installed.txt"))
 	var out bytes.Buffer
 	if err := UpdateFromRelease(home, "v1.0.0", false, []string{"--home", home}, &out); err != nil {
 		t.Fatalf("update: %v\n%s", err, out.String())
@@ -486,7 +486,7 @@ func TestUpdateFromReleasePinsTheHost(t *testing.T) {
 	r.env(t, true)
 	home := t.TempDir()
 	installedBinary(t, home)
-	t.Setenv("SH_AGENT_FAKE_MARKER", filepath.Join(home, "installed.txt"))
+	t.Setenv("FYR_FAKE_MARKER", filepath.Join(home, "installed.txt"))
 	t.Setenv("GH_HOST", "example.invalid")
 	log := filepath.Join(t.TempDir(), "gh-args")
 	t.Setenv("GH_ARGS_LOG", log)

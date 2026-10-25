@@ -3,14 +3,14 @@ package main
 import (
 	"bytes"
 	"errors"
-	"github.com/kesokaj/styrman-harness/internal/dream"
+	"github.com/kesokaj/fyr/internal/dream"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	"github.com/kesokaj/styrman-harness/internal/memory"
+	"github.com/kesokaj/fyr/internal/memory"
 	"testing"
 )
 
@@ -96,7 +96,7 @@ func TestDreamVerb(t *testing.T) {
 	}
 	out.Reset()
 	run([]string{"dream", "--home", home}, &out)
-	if !strings.Contains(out.String(), "sh-agent dream") {
+	if !strings.Contains(out.String(), "fyr dream") {
 		t.Errorf("a bare dream's usage message is not on the writer: %q", out.String())
 	}
 }
@@ -270,7 +270,7 @@ func TestMemoryUsageErrorExits2(t *testing.T) {
 		if !errors.As(err, &code) || code != 2 {
 			t.Errorf("memory %v: want exit 2, got %v", args, err)
 		}
-		if !strings.Contains(out.String(), "usage: sh-agent memory") {
+		if !strings.Contains(out.String(), "usage: fyr memory") {
 			t.Errorf("memory %v: usage line missing from the writer: %q", args, out.String())
 		}
 	}

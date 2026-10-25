@@ -120,7 +120,7 @@ func TestReportDrawsNoMissingValues(t *testing.T) {
 	if strings.Contains(section("Cost per day"), "<title>Antigravity") {
 		t.Error("the cost chart draws Antigravity, which exposes no cost")
 	}
-	if strings.Contains(section("sh-agent search : grep"), "<title>Antigravity") {
+	if strings.Contains(section("fyr search : grep"), "<title>Antigravity") {
 		t.Error("the ratio chart draws Antigravity days that have no grep call")
 	}
 }

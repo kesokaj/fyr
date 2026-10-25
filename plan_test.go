@@ -1,11 +1,11 @@
-package styrman_test
+package fyr_test
 
 import (
 	"bytes"
 	"testing"
 
-	styrman "github.com/kesokaj/styrman-harness"
-	"github.com/kesokaj/styrman-harness/internal/harness"
+	fyr "github.com/kesokaj/fyr"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // TestEmbeddedPlanEqualsCheckout: a release binary installs exactly what a
@@ -19,7 +19,7 @@ func TestEmbeddedPlanEqualsCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan from the tree: %v", err)
 	}
-	fromEmbed, err := harness.Plan(harness.Source{FS: styrman.Files}, nil)
+	fromEmbed, err := harness.Plan(harness.Source{FS: fyr.Files}, nil)
 	if err != nil {
 		t.Fatalf("Plan from the embedded files: %v", err)
 	}

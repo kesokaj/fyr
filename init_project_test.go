@@ -1,4 +1,4 @@
-package styrman_test
+package fyr_test
 
 import (
 	"os"

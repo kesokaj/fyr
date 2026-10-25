@@ -24,7 +24,10 @@ func init() {
 		"npm":       "audit ci exec init install ls pack publish run start test uninstall update version",
 		"npx":       "",
 		"terraform": "apply console destroy fmt graph import init output plan providers show state validate workspace",
-		"sh-agent":  "adopt diff dream help index install list memory metrics render report search status sync uninstall update version",
+		"fyr":       "adopt diff dream help index install list memory metrics render search status sync uninstall update version",
+		// The binary's name before the rename: transcripts and stored rows
+		// from before it carry `sh-agent search` and its kin (fyr D7, D20).
+		"sh-agent": "adopt diff dream help index install list memory metrics render report search status sync uninstall update version",
 	} {
 		set := map[string]bool{}
 		for _, w := range strings.Fields(words) {
@@ -52,7 +55,7 @@ func skipGitGlobals(rest []string) []string {
 	return rest
 }
 
-// shAgentSub are sh-agent's second-level verbs, kept after the subcommand.
+// shAgentSub are fyr's second-level verbs, and sh-agent's before the rename, kept after the subcommand.
 var shAgentSub = map[string]bool{"ingest": true, "show": true, "report": true, "export": true, "add": true}
 
 // goStyle programs take long flags behind a single dash (`go test -race
@@ -287,7 +290,7 @@ func verbFrom(words []string) string {
 	rest := words[1:]
 	if prog == "go" && len(rest) >= 2 && rest[0] == "run" {
 		// The target counts as the program only when it is a tool the
-		// allowlist knows (`go run ./cmd/sh-agent`); any other target is
+		// allowlist knows (`go run ./cmd/fyr`); any other target is
 		// content, and the verb is `go run` (security review of v2.6.0).
 		if target := path.Base(strings.TrimSuffix(rest[1], "/")); subcommands[target] != nil {
 			prog, rest = target, rest[2:]
@@ -312,9 +315,10 @@ func verbFrom(words []string) string {
 		parts = append(parts, rest[0])
 		rest = rest[1:]
 	}
-	// sh-agent's own second-level verbs (`metrics show`, `memory add`) are
+	// fyr's own second-level verbs (`metrics show`, `memory add`), under
+	// either name, are
 	// identifiers from a fixed list; any other second word stays a positional.
-	if prog == "sh-agent" && len(parts) == 2 && len(rest) > 0 && shAgentSub[rest[0]] {
+	if (prog == "fyr" || prog == "sh-agent") && len(parts) == 2 && len(rest) > 0 && shAgentSub[rest[0]] {
 		parts = append(parts, rest[0])
 		rest = rest[1:]
 	}

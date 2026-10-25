@@ -309,8 +309,15 @@ func (s *Summary) day(ts int64) *Day {
 	return &s.Daily[len(s.Daily)-1]
 }
 
+// isSQLiteVerb counts the binary's search verbs under its name and, for the
+// sessions from before the rename, under sh-agent (fyr D7, D20).
 func isSQLiteVerb(v string) bool {
-	return strings.HasPrefix(v, "sh-agent search") || strings.HasPrefix(v, "sh-agent index")
+	for _, p := range []string{"fyr search", "fyr index", "sh-agent search", "sh-agent index"} {
+		if strings.HasPrefix(v, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func isGrepVerb(v string) bool {
@@ -785,7 +792,7 @@ func (s *Summary) WriteText(w io.Writer) {
 	row(fmt.Sprintf("over context target %d", s.B.ContextTarget), s.overTarget)
 	row("compactions", pi(s.B.Compactions))
 	head("C. process adherence")
-	row("sh-agent search|index", n(s.C.SQLiteVerbs))
+	row("fyr search|index", n(s.C.SQLiteVerbs))
 	row("grep/rg/Grep", n(s.C.GrepCalls))
 	row("search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
 	fmt.Fprintf(w, "  forbidden shapes %v\n  first reads %v\n", safeMap(s.C.Forbidden), safeMap(s.C.FirstReads))

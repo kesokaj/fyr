@@ -69,7 +69,7 @@ Notes:
 
 - `grill-me` (a launcher for `grilling`) and `skill-repair` (repairs a `skills`-CLI manifest the
   harness does not use) were pruned 2026-09-03 after the sandbox matrix: `/grilling` does the same
-  job, and `sh-agent adopt` replaced the manifest repair.
+  job, and `fyr adopt` replaced the manifest repair.
 - `grilling` says "dispatch a sub-agent" to find a fact and names none; that agent is
   `explorer` (read-only recon), and the `--prompts` lens does not flag the vendored line for it.
 - `find-skills` is verbatim again at `435076e` (restored 2026-09-28). Its old local Step 6 edit, which routed installs into this repository, now lives in the global context's § Global vs project.
@@ -86,7 +86,7 @@ Notes:
   rather than re-fetching over these edits.
 - To add a skill: run `npx skills@<version> add <owner/repo> -s <skill>` from the repo root (pin the CLI's version and read its prompt; never `-y`) (it lands
   in `skills/` through the `.agents/skills` symlink), or copy any directory holding a `SKILL.md`
-  into `skills/`, then `sh-agent install`. Add a row above. `sh-agent install` deploys exactly
+  into `skills/`, then `fyr install`. Add a row above. `fyr install` deploys exactly
   the repo's skills and removes only what it installed itself, so a skill installed by hand
   into `~/.gemini/config/skills` or `~/.agents/skills` survives but is not versioned —
-  `sh-agent adopt <skill>` moves it in here.
+  `fyr adopt <skill>` moves it in here.

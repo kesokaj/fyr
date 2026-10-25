@@ -182,7 +182,7 @@ func TestInventoryAndRender(t *testing.T) {
 func TestInstallStatusResyncUninstall(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
-	self := []byte("#!/bin/sh\necho sh-agent\n")
+	self := []byte("#!/bin/sh\necho fyr\n")
 
 	// A file the operator keeps under ~/.claude is not the installer's: it
 	// survives install and uninstall, and no file is written beside it.
@@ -210,8 +210,8 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 		".gemini/config/agents/reviewer/agent.md",
 		".gemini/config/workflows/deploy.md",
 		".gemini/config/rules/go-style.md",
-		".local/bin/sh-agent",
-		".config/sh-agent/state.json",
+		".local/bin/fyr",
+		StateDir + "/state.json",
 	} {
 		if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
 			t.Errorf("expected %s after install: %v", rel, err)
@@ -289,7 +289,7 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 	if err := Uninstall(home, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{".gemini/config/skills", ".gemini/config/rules", ".gemini/config/agents", ".local/bin/sh-agent", ".config/sh-agent"} {
+	for _, rel := range []string{".gemini/config/skills", ".gemini/config/rules", ".gemini/config/agents", ".local/bin/fyr", StateDir} {
 		if _, err := os.Lstat(filepath.Join(home, rel)); err == nil {
 			t.Errorf("%s should be gone after uninstall", rel)
 		}
@@ -456,7 +456,7 @@ func gitInit(t *testing.T, dir string) {
 }
 
 func TestResolveSource(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	// The walk starts at the working directory, so a temp directory INSIDE a
@@ -553,18 +553,25 @@ func TestResolveSource(t *testing.T) {
 	// A named path is REFUSED, not ignored: doing something other than what
 	// was typed is what D15 exists to prevent.
 	// The refusal names WHICH input carried the path: an exported
-	// $SH_AGENT_REPO makes every command on the machine fail, and "unset it"
+	// $FYR_REPO makes every command on the machine fail, and "unset it"
 	// is unactionable without knowing which one (code review 2026-09-18).
 	if _, err := ResolveSource(checkout, home, "v1.2.3"); err == nil ||
 		!strings.Contains(err.Error(), "release binary") || !strings.Contains(err.Error(), "--repo="+checkout) {
 		t.Errorf("--repo on a release binary: err = %v, want a refusal naming --repo and the path", err)
 	}
-	t.Setenv("SH_AGENT_REPO", checkout)
+	t.Setenv("FYR_REPO", checkout)
 	if _, err := ResolveSource("", home, "v1.2.3"); err == nil ||
-		!strings.Contains(err.Error(), "release binary") || !strings.Contains(err.Error(), "$SH_AGENT_REPO="+checkout) {
-		t.Errorf("$SH_AGENT_REPO on a release binary: err = %v, want a refusal naming the variable", err)
+		!strings.Contains(err.Error(), "release binary") || !strings.Contains(err.Error(), "$FYR_REPO="+checkout) {
+		t.Errorf("$FYR_REPO on a release binary: err = %v, want a refusal naming the variable", err)
 	}
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
+	os.Unsetenv("FYR_REPO")
+	// The old name is not read (plan fyr D15): set, it is neither used nor
+	// refused; main names it on stderr instead.
+	t.Setenv("SH_AGENT_REPO", checkout)
+	if src, err := ResolveSource("", home, "v1.2.3"); err != nil || src.Dir != "" {
+		t.Errorf("$SH_AGENT_REPO on a release binary: %+v, %v — want it ignored and the embedded files", src, err)
+	}
 	os.Unsetenv("SH_AGENT_REPO")
 	t.Chdir(cwd)
 	if err := SaveState(home, State{Repo: repo}); err != nil {
@@ -713,7 +720,7 @@ func TestLastRetro(t *testing.T) {
 	if _, ok := LastRetro(home); ok {
 		t.Fatal("no proposals yet")
 	}
-	dir := filepath.Join(home, ".config", "sh-agent", "proposals")
+	dir := filepath.Join(home, StateDir, "proposals")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -726,7 +733,7 @@ func TestLastRetro(t *testing.T) {
 	}
 	// A project-level retro appends to the index without a proposal file;
 	// that counts as a retro too, and its newer mtime wins.
-	index := filepath.Join(home, ".config", "sh-agent", "retros.jsonl")
+	index := filepath.Join(home, StateDir, "retros.jsonl")
 	if err := os.WriteFile(index, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -741,7 +748,7 @@ func TestLastRetro(t *testing.T) {
 	// name, never through a pattern built from the home (BUG-109's class;
 	// the golang skill's rule).
 	odd := filepath.Join(t.TempDir(), "u[1]")
-	oddDir := filepath.Join(odd, ".config", "sh-agent", "proposals")
+	oddDir := filepath.Join(odd, StateDir, "proposals")
 	if err := os.MkdirAll(oddDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -788,22 +795,22 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(outb))
 }
 
-// An explicit --repo or $SH_AGENT_REPO is used or refused, never replaced by
+// An explicit --repo or $FYR_REPO is used or refused, never replaced by
 // the embedded files, even in a release binary (D15).
 func TestResolveSourceRefusesNamedNonRepo(t *testing.T) {
 	home := t.TempDir()
 	bogus := filepath.Join(t.TempDir(), "not-a-checkout")
 	for _, v := range []string{"", "v1.2.3"} {
-		t.Setenv("SH_AGENT_REPO", "")
+		t.Setenv("FYR_REPO", "")
 		if _, err := ResolveSource(bogus, home, v); err == nil {
 			t.Errorf("version %q: an explicit path that is not a checkout must be an error, not a fallback", v)
 		}
-		t.Setenv("SH_AGENT_REPO", bogus)
+		t.Setenv("FYR_REPO", bogus)
 		if _, err := ResolveSource("", home, v); err == nil {
-			t.Errorf("version %q: $SH_AGENT_REPO pointing at a non-checkout must be an error, not a fallback", v)
+			t.Errorf("version %q: $FYR_REPO pointing at a non-checkout must be an error, not a fallback", v)
 		}
 	}
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	repo := newRepo(t)
 	if got, err := ResolveSource(repo, home, ""); err != nil || got.Dir != repo {
 		t.Errorf("explicit checkout: %+v, %v", got, err)
@@ -879,9 +886,9 @@ func TestReinstallBuildsAndInstalls(t *testing.T) {
 		t.Errorf("installed binary is unstamped: %q", v)
 	}
 	// Reinstall names its build directory after this process's pid (repo.go), so
-	// only that path is ours to check: a glob over sh-agent-build-* also sees a
+	// only that path is ours to check: a glob over fyr-build-* also sees a
 	// concurrent `go test` process's in-flight build and flakes (v1.12.0 gate).
-	own := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("sh-agent-build-%d", os.Getpid()))
+	own := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("fyr-build-%d", os.Getpid()))
 	if _, err := os.Stat(own); err == nil {
 		t.Errorf("build directory left behind: %s", own)
 	}
@@ -1111,7 +1118,7 @@ func TestWriteAtomicIsAtomicAndDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".sh-agent-") {
+		if strings.HasPrefix(e.Name(), ".fyr-") {
 			t.Errorf("temp file %s left beside the destination", e.Name())
 		}
 	}
@@ -1440,7 +1447,7 @@ func TestReinstallNeverNeedsToDownloadAToolchain(t *testing.T) {
 	}
 	// A toolchain that will never exist locally, so auto must try to fetch it.
 	write("go.mod", "module fixture\n\ngo 1.24.4\n\ntoolchain go1.99.0\n")
-	write("cmd/sh-agent/main.go", "package main\n\nfunc main() {}\n")
+	write("cmd/fyr/main.go", "package main\n\nfunc main() {}\n")
 	// A real repository: IsCheckout needs .git, and `go build` stamps VCS
 	// information, which fails on a .git that is not one.
 	for _, args := range [][]string{
@@ -1463,7 +1470,7 @@ func TestReinstallNeverNeedsToDownloadAToolchain(t *testing.T) {
 
 	// Must-fail: the same build under the default auto.
 	t.Setenv("GOTOOLCHAIN", "auto")
-	probe := exec.Command("go", "build", "-o", filepath.Join(t.TempDir(), "probe"), "./cmd/sh-agent")
+	probe := exec.Command("go", "build", "-o", filepath.Join(t.TempDir(), "probe"), "./cmd/fyr")
 	probe.Dir = repo
 	if out, err := probe.CombinedOutput(); err == nil {
 		t.Skipf("this environment resolved go1.99.0, so the failure cannot be staged: %s", out)
@@ -1605,7 +1612,7 @@ func TestInstallNamesEveryChange(t *testing.T) {
 	}
 	plan := func() []File {
 		t.Helper()
-		files, err := Plan(DirSource(repo), []byte("#!/bin/sh\necho sh-agent\n"))
+		files, err := Plan(DirSource(repo), []byte("#!/bin/sh\necho fyr\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1814,7 +1821,7 @@ func TestAbandonNamesATempFileItCouldNotRemove(t *testing.T) {
 		t.Skip("root ignores the directory permissions this test relies on")
 	}
 	dir := t.TempDir()
-	tmp, err := os.CreateTemp(dir, ".sh-agent-*")
+	tmp, err := os.CreateTemp(dir, ".fyr-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1829,7 +1836,7 @@ func TestAbandonNamesATempFileItCouldNotRemove(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	tmp2, err := os.CreateTemp(dir, ".sh-agent-*")
+	tmp2, err := os.CreateTemp(dir, ".fyr-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2000,7 +2007,7 @@ func TestInstallDoesNotFollowLinkedDest(t *testing.T) {
 	if got, _ := os.ReadFile(other); string(got) != "the operator's own file\n" {
 		t.Errorf("the target of %s was written through: %q", rels[1], got)
 	}
-	if n := strings.Count(out.String(), "(a symlink; sh-agent never writes through a link)"); n != 2 {
+	if n := strings.Count(out.String(), "(a symlink; fyr never writes through a link)"); n != 2 {
 		t.Errorf("want two keep lines for links, got %d:\n%s", n, out.String())
 	}
 	st, _, _ := LoadState(home)
@@ -2065,7 +2072,7 @@ func TestUninstallAndLinkedDirs(t *testing.T) {
 	if string(after) != string(before) {
 		t.Errorf("install wrote through the linked skills directory")
 	}
-	if !strings.Contains(out.String(), "keep    ~/"+rels[0]+" (a symlink; sh-agent never writes through a link)") {
+	if !strings.Contains(out.String(), "keep    ~/"+rels[0]+" (a symlink; fyr never writes through a link)") {
 		t.Errorf("no keep line for a file under a linked directory:\n%s", out.String())
 	}
 	// Uninstall removes nothing under the link and keeps the link.
@@ -2094,7 +2101,7 @@ func TestUninstallKeepsMetricsStore(t *testing.T) {
 	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	store := filepath.Join(home, ".config", "sh-agent", "metrics.db")
+	store := filepath.Join(home, StateDir, "metrics.db")
 	if err := os.WriteFile(store, []byte("rows"), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -2,9 +2,11 @@
 owner: main
 date: 2026-09-18
 ---
-# sh-agent — every verb on every kind of place
+# fyr — every verb on every kind of place
 
 The verb × place-kind matrix of `plans/2026-09-18-sh-agent-works-everywhere.md` (Phase 3 on this box; Phase 5 on real machines). A cell is `exercised` (ran, output logged), `refused` (a message naming the cause and the alternative), `n/a` (the verb has no meaning there), or `remainder` (no machine here can run it). Nothing is blank.
+
+The binary was `sh-agent` until plan `2026-10-24-fyr-agy-only.md` Phase 4a (2026-10-25) renamed it `fyr`, with its state directory `~/.config/fyr/`. A cell recorded before then quotes what the binary printed at the time, old name and paths included; the verbs are the same under the new name. A new run is recorded with `fyr`.
 
 ## How the cells were run (this box, 2026-09-18, tree 3209cf3, re-run at e7fec88)
 
@@ -42,7 +44,7 @@ The verb × place-kind matrix of `plans/2026-09-18-sh-agent-works-everywhere.md`
 | `search --global zip` | exercised: the checkout registered itself; 873 trail files, `checkout:.agents/docs/plans/…` | exercised: answers outside a checkout, `0 hits` from a fresh home (nothing registered) | exercised: same as the checkout |
 
 | `memory add` / `memory show` (added 2026-09-30, plan `2026-09-30-parity-memory-dream`) | exercised: a build of the tree wrote `.agents/memory/prefer-tables.md` and its line, 0600 in a 0700 store, and `show` printed it with the rollout hint; outside a checkout, exit 2 (`testing/2026-09-30-verify-parity-memory-dream-phase-1.md`) | not run: the verb runs before the harness tree is resolved (`main.go`, the `memory` case), so the place kind never reaches it | not run: the same |
-| `memory show` / `memory add` on a symlinked index | setup: a store whose `MEMORY.md` is a symlink to a file elsewhere; command: `sh-agent memory show`; expect: exit 2, "is a symlink: the index must be the store's own file", the link target unchanged; test: `TestSymlinkedIndexRefused` (`internal/memory`) | not run: the same verb-before-tree path as the row above | not run: the same |
+| `memory show` / `memory add` on a symlinked index | setup: a store whose `MEMORY.md` is a symlink to a file elsewhere; command: `fyr memory show`; expect: exit 2, "is a symlink: the index must be the store's own file", the link target unchanged; test: `TestSymlinkedIndexRefused` (`internal/memory`) | not run: the same verb-before-tree path as the row above | not run: the same |
 | `dream --all --dry-run` / `dream --project DIR --dry-run` | exercised: two indexed fixture projects listed with their input counts and the CLI command, the home's file list identical before and after (`…-phase-3.md`, re-run in `…-phase-4-5.md`) | not run: runs before the tree is resolved (the `dream` case) | not run: the same |
 | `dream --all` (real CLI) | exercised: agy-only 3 of 3 after D7b (`…-phase-4.md`; an earlier run over two seeded projects is in `git show 9174cca:.agents/docs/testing/sh-agent-matrix.md`) | not run: as above | not run: as above |
 | `dream --install-timer` / `--remove-timer` | exercised against a fake `systemctl` on PATH into a scratch home; `systemd-analyze verify` exit 0; the real user manager is the operator's step (`…-phase-4-5.md`, the plan's Phase 5) | not run: as above | not run: as above |

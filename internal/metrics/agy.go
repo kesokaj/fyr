@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // agyTools maps Antigravity's tool names to the store's vocabulary, the

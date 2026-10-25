@@ -19,7 +19,7 @@ Trigger for you: write the findings file as soon as the first file of the range 
 
 ## Scope — the diff and its blast radius
 
-Establish the diff (`git diff`, `git diff --staged`, `git diff <base>...HEAD`), run `sh-agent search --refs <path> --kind bug` for each changed file, with its full path (past failures there), then follow it outward: everything the changed code can reach — callers, the data it parses, the trust boundaries it crosses, the config it reads. A one-line change to a parser has the parser's whole input surface as blast radius. Name the range on a `Range reviewed:` line in the file.
+Establish the diff (`git diff`, `git diff --staged`, `git diff <base>...HEAD`), run `fyr search --refs <path> --kind bug` for each changed file, with its full path (past failures there), then follow it outward: everything the changed code can reach — callers, the data it parses, the trust boundaries it crosses, the config it reads. A one-line change to a parser has the parser's whole input surface as blast radius. Name the range on a `Range reviewed:` line in the file.
 
 ## What to check
 

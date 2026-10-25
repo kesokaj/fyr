@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 var (
@@ -43,7 +43,7 @@ func newFixture(t *testing.T) fixture {
 		b, _ := json.Marshal(map[string]string{"ts": ts.Format(time.RFC3339), "project": project, "original": text})
 		return string(b) + "\n"
 	}
-	write(t, filepath.Join(f.home, ".config", "sh-agent", "feedback.jsonl"),
+	write(t, filepath.Join(f.home, harness.StateDir, "feedback.jsonl"),
 		fb(fresh, f.root, "fresh feedback for this project")+fb(old, f.root, "old feedback")+fb(fresh, "/elsewhere", "another project's feedback"), fresh)
 	// The root's conversation is older than the subdirectory's, so the cap
 	// drops it first, and long enough that dropping it frees more than the
@@ -533,7 +533,7 @@ func TestTrailDateFromGit(t *testing.T) {
 // decoded line (v2.0.0 gate, security code slice).
 func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 	f := newFixture(t)
-	path := filepath.Join(f.home, ".config", "sh-agent", "feedback.jsonl")
+	path := filepath.Join(f.home, harness.StateDir, "feedback.jsonl")
 	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatal(err)

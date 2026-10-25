@@ -42,12 +42,12 @@ func TestNonCanonicalTagNeverReachesTheDownload(t *testing.T) {
 	if after, _ := os.ReadFile(dest); !bytes.Equal(before, after) {
 		t.Errorf("the installed binary changed")
 	}
-	if left, _ := filepath.Glob(filepath.Join(home, ".config", "sh-agent", "release-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(home, StateDir, "release-*")); len(left) != 0 {
 		t.Errorf("a download directory exists: %v", left)
 	}
 }
 
-// Finding 7: the BUG-079 note is about the shell that runs `sh-agent` from
+// Finding 7: the BUG-079 note is about the shell that runs `fyr` from
 // the real home; a --home elsewhere is a scratch or test place and gets no
 // advice to relink anything. And "point it at the installed binary" is only
 // offered for a file the caller owns.
@@ -57,7 +57,7 @@ func TestNoteRunningElsewhereOnlyForTheRealHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	elsewhere := t.TempDir()
-	if err := os.Symlink(self, filepath.Join(elsewhere, "sh-agent")); err != nil {
+	if err := os.Symlink(self, filepath.Join(elsewhere, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", elsewhere)
@@ -128,7 +128,7 @@ func TestDiffUsesTheHomeNotTmp(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does-not-exist"))
 	// diff inspects; it never tightens the runtime dir (security round 2).
-	if err := os.Chmod(filepath.Join(home, ".config", "sh-agent"), 0o755); err != nil {
+	if err := os.Chmod(filepath.Join(home, StateDir), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
@@ -138,10 +138,10 @@ func TestDiffUsesTheHomeNotTmp(t *testing.T) {
 	if !strings.Contains(out.String(), "-drifted") || !strings.Contains(out.String(), "skills/alpha/SKILL.md") {
 		t.Errorf("Diff printed no hunk for the drifted file:\n%s", out.String())
 	}
-	if left, _ := filepath.Glob(filepath.Join(home, ".config", "sh-agent", "sh-agent-diff-*")); len(left) != 0 {
+	if left, _ := filepath.Glob(filepath.Join(home, StateDir, "fyr-diff-*")); len(left) != 0 {
 		t.Errorf("Diff left temp files: %v", left)
 	}
-	if info, _ := os.Stat(filepath.Join(home, ".config", "sh-agent")); info.Mode().Perm() != 0o755 {
+	if info, _ := os.Stat(filepath.Join(home, StateDir)); info.Mode().Perm() != 0o755 {
 		t.Errorf("diff changed the runtime dir's mode to %o", info.Mode().Perm())
 	}
 }
@@ -167,7 +167,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 	for _, pre := range []string{"absent", "0755"} {
 		t.Run(pre, func(t *testing.T) {
 			home := t.TempDir()
-			cfg := filepath.Join(home, ".config", "sh-agent")
+			cfg := filepath.Join(home, StateDir)
 			if pre == "0755" {
 				if err := os.MkdirAll(cfg, 0o755); err != nil {
 					t.Fatal(err)
@@ -188,7 +188,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 			if info.Mode().Perm()&0o077 != 0 {
 				t.Errorf("after install, %s is %o, want 0700", cfg, info.Mode().Perm())
 			}
-			line := "mode    ~/.config/sh-agent (0755 -> 0700)"
+			line := "mode    ~/.config/fyr (0755 -> 0700)"
 			if has := strings.Contains(out.String(), line); has != (pre == "0755") {
 				t.Errorf("mode line printed=%v for a %s dir:\n%s", has, pre, out.String())
 			}
@@ -197,7 +197,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 
 	t.Run("dry run names it and leaves it", func(t *testing.T) {
 		home := t.TempDir()
-		cfg := filepath.Join(home, ".config", "sh-agent")
+		cfg := filepath.Join(home, StateDir)
 		if err := os.MkdirAll(cfg, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +209,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if err := Install(DirSource(repo), home, files, true, &out); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), "mode    ~/.config/sh-agent (0755 -> 0700)") {
+		if !strings.Contains(out.String(), "mode    ~/.config/fyr (0755 -> 0700)") {
 			t.Errorf("dry run did not name the mode change:\n%s", out.String())
 		}
 		if info, _ := os.Stat(cfg); info.Mode().Perm() != 0o755 {
@@ -226,7 +226,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(target, filepath.Join(home, ".config", "sh-agent")); err != nil {
+		if err := os.Symlink(target, filepath.Join(home, StateDir)); err != nil {
 			t.Fatal(err)
 		}
 		files, err := Plan(DirSource(repo), nil)
@@ -240,10 +240,10 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if info, _ := os.Stat(target); info.Mode().Perm() != 0o755 {
 			t.Errorf("install chmodded the target of a symlinked runtime dir to %o", info.Mode().Perm())
 		}
-		if strings.Contains(out.String(), "mode    ~/.config/sh-agent") {
+		if strings.Contains(out.String(), "mode    ~/.config/fyr") {
 			t.Errorf("install claimed a mode change through a symlink:\n%s", out.String())
 		}
-		if !strings.Contains(out.String(), "note: ~/.config/sh-agent is a symlink; its target's mode is yours to set") {
+		if !strings.Contains(out.String(), "note: ~/.config/fyr is a symlink; its target's mode is yours to set") {
 			t.Errorf("install did not name the symlink it left alone:\n%s", out.String())
 		}
 	})
@@ -257,7 +257,7 @@ func TestNoteRunningElsewhereThroughASymlinkedHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	elsewhere := t.TempDir()
-	if err := os.Symlink(self, filepath.Join(elsewhere, "sh-agent")); err != nil {
+	if err := os.Symlink(self, filepath.Join(elsewhere, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", elsewhere)

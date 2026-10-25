@@ -11,7 +11,7 @@ description: |
 
 ## Purpose
 
-Silently log user corrections and preference signals to the **global** log at `~/.config/sh-agent/feedback.jsonl` so the `/retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field, which is what lets `/retro` and `/distill --from-log` spot cross-project patterns.
+Silently log user corrections and preference signals to the **global** log at `~/.config/fyr/feedback.jsonl` so the `/retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field, which is what lets `/retro` and `/distill --from-log` spot cross-project patterns.
 
 This skill is **passive**. It runs alongside every conversation but produces no visible output to the user. The user should not notice this skill is active.
 
@@ -39,7 +39,7 @@ Append an entry when ANY of these occur:
 
 ## Log Format
 
-Append one JSON object per line to `~/.config/sh-agent/feedback.jsonl`. If the directory does not exist, create it first (`mkdir -p ~/.config/sh-agent`).
+Append one JSON object per line to `~/.config/fyr/feedback.jsonl`. If the directory does not exist, create it first (`mkdir -p ~/.config/fyr`).
 
 ```json
 {
@@ -87,11 +87,11 @@ Append one JSON object per line to `~/.config/sh-agent/feedback.jsonl`. If the d
 4. **Keep `user_quote` short.** Extract the key phrase, not the full paragraph.
 5. **Set `rule_ref` accurately, in the vocabulary above.** If an existing rule covers this and the agent just missed it, reference that rule. If no rule exists, set to `null`.
 6. **One entry per correction.** If the user makes three corrections in one message, write three entries.
-7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `sh-agent memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (an untrusted store, a path git would commit), say why in one line and go on: the log entry above is already written.
+7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `fyr memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (an untrusted store, a path git would commit), say why in one line and go on: the log entry above is already written.
 
 ## Where the loop's outputs land
 
-This skill only logs. `/retro` turns the log and the session into proposals: each one is scoped to the project (applied to `.agents/rules/`, the project `AGENTS.md`, `.agents/skills/` or `.agents/agents/`) or to the harness (queued in `~/.config/sh-agent/proposals/`), and every run leaves a record in the project's `<docs-root>/retros/` plus one line in `~/.config/sh-agent/retros.jsonl`, the cross-project index. Distill records go there too; a dream leaves its record in `retros/` and no index line (ADR-044); and the `dreamer` agent (dispatched by `/retro` and `/distill`) writes `retros/<date>-dreamer.md` with its rule, skill and procedure candidates. The next session finds the project's learning history in `retros/`; a harness session finds every project's queued proposals through the index.
+This skill only logs. `/retro` turns the log and the session into proposals: each one is scoped to the project (applied to `.agents/rules/`, the project `AGENTS.md`, `.agents/skills/` or `.agents/agents/`) or to the harness (queued in `~/.config/fyr/proposals/`), and every run leaves a record in the project's `<docs-root>/retros/` plus one line in `~/.config/fyr/retros.jsonl`, the cross-project index. Distill records go there too; a dream leaves its record in `retros/` and no index line (ADR-044); and the `dreamer` agent (dispatched by `/retro` and `/distill`) writes `retros/<date>-dreamer.md` with its rule, skill and procedure candidates. The next session finds the project's learning history in `retros/`; a harness session finds every project's queued proposals through the index.
 
 ## Cross-References
 

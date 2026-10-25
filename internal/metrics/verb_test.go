@@ -17,9 +17,9 @@ func TestVerb(t *testing.T) {
 		{"git add internal/x.go", []string{"git add"}},
 		{"gofmt -l cmd internal | head", []string{"gofmt -l", "head"}},
 		{"FOO=1 BAR=x sudo -n go test -race -count=1 ./...", []string{"go test -race -count"}},
-		{"go run ./cmd/sh-agent search --refs internal/x.go --kind bug", []string{"sh-agent search --refs --kind"}},
-		{"sh-agent search --refs x 2>/dev/null", []string{"sh-agent search --refs"}},
-		{"env -u SH_AGENT_REPO sh-agent metrics ingest --home h", []string{"sh-agent metrics ingest --home"}},
+		{"go run ./cmd/fyr search --refs internal/x.go --kind bug", []string{"fyr search --refs --kind"}},
+		{"fyr search --refs x 2>/dev/null", []string{"fyr search --refs"}},
+		{"env -u FYR_REPO fyr metrics ingest --home h", []string{"fyr metrics ingest --home"}},
 		{"echo 'a; b && c' ; ls -la", []string{"echo", "ls -la"}},
 		{"git push --force-with-lease=origin/main", []string{"git push --force-with-lease"}},
 		{"cat > f.md <<'EOF'\nsecret line one\nrm -rf everything\nEOF\ngit diff", []string{"cat", "git diff"}},
@@ -40,9 +40,13 @@ func TestVerb(t *testing.T) {
 		{"case $k in a) git status;; b|c) ls;; esac", []string{"git status", "ls"}},
 		{"# just a comment\ngit log --oneline # trailing", []string{"git log --oneline"}},
 		{"git push -f origin main", []string{"git push -f"}},
-		{"sh-agent metrics show --json --since 2026-10-01", []string{"sh-agent metrics show --json --since"}},
-		{"sh-agent memory add --type user < x", []string{"sh-agent memory add --type"}},
-		{"sh-agent metrics secretword --json", []string{"sh-agent metrics --json"}},
+		{"fyr metrics show --json --since 2026-10-01", []string{"fyr metrics show --json --since"}},
+		{"fyr memory add --type user < x", []string{"fyr memory add --type"}},
+		{"fyr metrics secretword --json", []string{"fyr metrics --json"}},
+		// A session from before the rename names the old binary.
+		{"sh-agent search --refs x", []string{"sh-agent search --refs"}},
+		{"go run ./cmd/sh-agent metrics show --json", []string{"sh-agent metrics show --json"}},
+		{"fyr report --dry-run", []string{"fyr --dry-run"}},
 		{">/dev/null git status; > out.txt ls; 2>err cat f", []string{"git status", "ls", "cat"}},
 		{"", nil},
 	}
@@ -156,7 +160,7 @@ func TestVerbAllowlists(t *testing.T) {
 		{"git notarealcmd", []string{"git"}},
 		{"go test -race -RACE ./...", []string{"go test -race"}},
 		{"docker compose up -d", []string{"docker compose -d"}},
-		{"sh-agent metrics show --json", []string{"sh-agent metrics show --json"}},
+		{"fyr metrics show --json", []string{"fyr metrics show --json"}},
 	}
 	for _, c := range cases {
 		if got := Verb(c.cmd); !reflect.DeepEqual(got, c.want) {
@@ -175,7 +179,7 @@ func TestVerbRound4(t *testing.T) {
 	}{
 		{"go run hunter2pass", []string{"go run"}},
 		{"go run ./AKIAIOSFODNN7EXAMPLE --x", []string{"go run --x"}},
-		{"go run ./cmd/sh-agent search --refs x", []string{"sh-agent search --refs"}},
+		{"go run ./cmd/fyr search --refs x", []string{"fyr search --refs"}},
 		{"cat <<END!\nEND\nsecretword --flag\nEND!\nls", []string{"cat", "ls"}},
 		{"cat <<$END\nsecretword\n$END\nls", []string{"cat", "ls"}},
 		{"cat <<EOF;\nsecretword\nEOF\nls", []string{"cat", "ls"}},
@@ -197,6 +201,20 @@ func TestVerbMixedQuoteDelimiter(t *testing.T) {
 	} {
 		if got := Verb(cmd); !reflect.DeepEqual(got, []string{"cat"}) {
 			t.Errorf("Verb(%q) = %q, want [cat]", cmd, got)
+		}
+	}
+}
+
+// The search:grep ratio counts the binary's search verbs under both names: a
+// session from before the rename ran `sh-agent search` (fyr D7, D20).
+func TestSQLiteVerbBothNames(t *testing.T) {
+	for v, want := range map[string]bool{
+		"fyr search --refs": true, "fyr index --rebuild": true,
+		"sh-agent search": true, "sh-agent index": true,
+		"fyr memory show": false, "sh-agent metrics show": false, "grep -rn": false,
+	} {
+		if got := isSQLiteVerb(v); got != want {
+			t.Errorf("isSQLiteVerb(%q) = %v, want %v", v, got, want)
 		}
 	}
 }

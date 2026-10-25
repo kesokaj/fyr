@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestReorderSearchFlags(t *testing.T) {
@@ -73,7 +75,7 @@ func TestSearchVerb(t *testing.T) {
 	if err := run([]string{"search", "--global", "marmot", "--home", home}, &out); err != nil {
 		t.Fatalf("search --global: %v\n%s", err, out.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent", "search.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "search.db")); err != nil {
 		t.Errorf("global search index not created: %v", err)
 	}
 	if st, _ := exec.Command("git", "-C", root, "status", "--porcelain").Output(); strings.Contains(string(st), ".agents") {
@@ -89,7 +91,7 @@ func TestUsageMatchesDocComment(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^//\tsh-agent ([a-z]+)`).FindAllStringSubmatch(string(src), -1) {
+	for _, m := range regexp.MustCompile(`(?m)^//\tfyr ([a-z]+)`).FindAllStringSubmatch(string(src), -1) {
 		doc[m[1]] = true
 	}
 	use := map[string]bool{}

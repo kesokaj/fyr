@@ -12,7 +12,7 @@ import (
 // ~/.gemini/config.
 const (
 	AgyRoot = ".gemini/config"
-	BinPath = ".local/bin/sh-agent"
+	BinPath = ".local/bin/fyr"
 )
 
 // VendorAntigravity is the one vendor, recorded in the manifest so a reader
@@ -38,7 +38,7 @@ type File struct {
 //	rules/<name>.md        → .gemini/config/rules/<name>.md
 //
 // src is the checkout, plain copy, or embedded files to read.
-// selfExe is the running binary, copied to ~/.local/bin so `sh-agent update`
+// selfExe is the running binary, copied to ~/.local/bin so `fyr update`
 // works from any directory; pass nil to skip it.
 func Plan(src Source, selfExe []byte) ([]File, error) {
 	inv, err := LoadInventory(src)

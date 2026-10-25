@@ -3,11 +3,11 @@ owner: main
 date: 2026-10-24
 status: agreed
 ---
-# Spec — sh-agent: the metrics store   (2026-10-08)
+# Spec — fyr: the metrics store   (2026-10-08)
 
 ## Purpose
 
-`sh-agent metrics` keeps the **shape** of every Antigravity session in `~/.config/sh-agent/metrics.db`. Shape means:
+`fyr metrics` keeps the **shape** of every Antigravity session in `~/.config/fyr/metrics.db`. Shape means:
 - the tools each session called;
 - the normalised command verbs;
 - tokens, timings and errors;
@@ -29,10 +29,10 @@ Decisions: ADR-055. Plan: `plans/2026-10-08-metrics-store.md`.
 The verbs reuse the global `--home` flag. `--vendor` does not exist (a usage error, exit 2): `ingest` reads Antigravity only (ADR-062, plan `2026-10-24-fyr-agy-only.md` D7).
 
 ```
-sh-agent metrics ingest [--home H] [--source DIR --label KEY=VALUE [--outcome pass|fail]]
-sh-agent metrics show   [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]
-sh-agent metrics report [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]
-sh-agent metrics export [--home H] FILE
+fyr metrics ingest [--home H] [--source DIR --label KEY=VALUE [--outcome pass|fail]]
+fyr metrics show   [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]
+fyr metrics report [--home H] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]
+fyr metrics export [--home H] FILE
 ```
 
 | Flag | Type | Default | Meaning |
@@ -46,7 +46,7 @@ sh-agent metrics export [--home H] FILE
 | `--project` | directory | all | Only sessions whose `project_root` is this directory or under it (a session started in a subdirectory is the project's; a sibling that only shares the name's prefix is not). |
 | `--context-target` | token count above 0 | 300000 | The peak context a main session should stay under (`show`, `report`). B3 counts the main sessions whose peak passed it; the value is a flag, not a pin, so `/retro` can tune phase sizing against it without a rebuild (plan `2026-10-23-session-sized-work.md` D4, D15). |
 | `--json` | bool | false | Print the `## Output` object instead of tables. |
-| `--out` | file | `~/.config/sh-agent/reports/<YYYY-MM-DD-HHMM>-metrics.html` | Where the report is written. An existing file is refused. |
+| `--out` | file | `~/.config/fyr/reports/<YYYY-MM-DD-HHMM>-metrics.html` | Where the report is written. An existing file is refused. |
 
 ### Where transcripts are read from
 
@@ -92,7 +92,7 @@ metrics: N sessions, M steps, K events added; U lines skipped (unknown shape); F
 **The program:**
 - It is the basename of the first remaining word. For `go run <target>`, see the `go run` rule below.
 - It must match `^[A-Za-z_][A-Za-z0-9_.+-]*$`; any other word in command position (a glob, an expansion, a quoted path) yields no verb.
-- A subcommand is kept only from a fixed allowlist per tool (`subcommands` in `internal/metrics/verb.go`): git, go, gh, docker, gcloud, kubectl, npm, terraform and sh-agent. An unlisted word is dropped and the verb is the program alone, because that position can hold a short secret (`gh hunter2pass`). npx's package is never kept. git's global options (`-C dir`, `-c k=v`) are skipped before the subcommand. After sh-agent's subcommand, one more word is kept when it is one of `ingest show report export add` (operator, 2026-10-09: allowlists).
+- A subcommand is kept only from a fixed allowlist per tool (`subcommands` in `internal/metrics/verb.go`): git, go, gh, docker, gcloud, kubectl, npm, terraform and fyr. An unlisted word is dropped and the verb is the program alone, because that position can hold a short secret (`gh hunter2pass`). npx's package is never kept. git's global options (`-C dir`, `-c k=v`) are skipped before the subcommand. After fyr's subcommand, one more word is kept when it is one of `ingest show report export add` (operator, 2026-10-09: allowlists).
 
 **Flag names:**
 - A long flag `--name[=v]` is kept as `--name` only when the name is lowercase letters, digits and dashes, at most 24 characters (`--sk_live_…`, `--Authorization` are dropped).
@@ -107,7 +107,7 @@ metrics: N sessions, M steps, K events added; U lines skipped (unknown shape); F
 - A delimiter is read literally, as bash does. A quoted one runs to its closing quote (`<<'END!'`, `<<"$D"`). An unquoted one is the whole word up to a shell metacharacter (`<<END!`, `<<$END`). The body ends only at a line equal to it.
 - A here-doc with no delimiter word cannot be matched, so nothing after its line is read.
 
-**`go run`:** the target counts as the program only when it is a tool the subcommand allowlist knows (`go run ./cmd/sh-agent search` is `sh-agent search`). Any other target is content, and the verb is `go run` plus its flag names.
+**`go run`:** the target counts as the program only when it is a tool the subcommand allowlist knows (`go run ./cmd/fyr search` is `fyr search`). Any other target is content, and the verb is `go run` plus its flag names.
 
 A program name longer than 32 characters is content and is dropped.
 
@@ -175,7 +175,7 @@ The values above illustrate the shape. They are not fixtures. In text, `show` pr
 
 ### Report (`metrics report`)
 
-`metrics report` writes one HTML file, mode 0600. An existing file is refused. The default path is `~/.config/sh-agent/reports/<YYYY-MM-DD-HHMM>-metrics.html`.
+`metrics report` writes one HTML file, mode 0600. An existing file is refused. The default path is `~/.config/fyr/reports/<YYYY-MM-DD-HHMM>-metrics.html`.
 
 **How it is built:**
 - `html/template` with SVG drawn in Go;
@@ -218,7 +218,7 @@ Tables show those values as `n/a`.
 | B2 | Time and volume | Wall time = `ended_at - started_at` of main sessions. Active time = the sum of gaps under 5 min between a main session's steps. A subagent runs inside its parent's time and is counted in neither. Also turns (typed user turns) and tool calls (main and subagent). |
 | B3 | Context | Peak context = max(input + cache read + cache write) of one message (Claude); the `gen_metadata` context of one generation (Antigravity). Also the number of compactions. Also the sessions whose peak passed the context target, default 300K, and each main session's peak: the peak follows the replayed-history rule above, so a fork's copy of an earlier session's messages counts under the session that first had them, and a subagent's peak belongs to no session (it runs inside its parent's time). |
 | B4 | Subagents | Count by type, the tool calls of each, and SendMessage resumes. |
-| C1 | Search vs grep | `sh-agent search\|index` verb segments divided by `grep`/`rg` segments plus Grep tool calls. |
+| C1 | Search vs grep | `fyr search\|index` verb segments divided by `grep`/`rg` segments plus Grep tool calls. |
 | C2 | Forbidden shapes | `git add -A`, `git add .`, `git push --force\|-f`, `--no-verify`, and `git commit` in the same Bash call as `go test`. |
 | C3 | First reads | The trail kind of a session's first three Read targets. |
 | C4 | Skills | Skill loads per session. |
@@ -228,7 +228,7 @@ Tables show those values as `n/a`.
 
 ## Data
 
-`~/.config/sh-agent/metrics.db` has mode 0600 in a 0700 directory. A database or companion file that is a symlink, or any other non-regular file, is refused, as in the search index. The directory itself may be a symlink. It uses WAL with a 10 s busy timeout. Every time is stored as unix milliseconds, UTC. Writer: `internal/metrics` only.
+`~/.config/fyr/metrics.db` has mode 0600 in a 0700 directory. A database or companion file that is a symlink, or any other non-regular file, is refused, as in the search index. The directory itself may be a symlink. It uses WAL with a 10 s busy timeout. Every time is stored as unix milliseconds, UTC. Writer: `internal/metrics` only.
 
 ```sql
 meta(key TEXT PRIMARY KEY, value TEXT)            -- 'schema', 'salt' (32 random hex)
@@ -279,7 +279,7 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 | Trigger | Observable |
 |---|---|
 | `metrics.db`, `-wal` or `-shm` is a symlink or another non-regular file | `metrics: <name> is not a regular file; refusing to open or write through it`, exit 1 |
-| The store's schema is newer than the binary's | `metrics.db schema N is newer than this binary (M); update sh-agent`, exit 1, store unchanged (`ingest`, `show`, `report`, `export`) |
+| The store's schema is newer than the binary's | `metrics.db schema N is newer than this binary (M); update fyr`, exit 1, store unchanged (`ingest`, `show`, `report`, `export`) |
 | A transcript line is not JSON or has an unknown shape | Skipped and counted in U, exit 0 |
 | A file shrank or was replaced | Re-read from offset 0, with no duplicate rows |
 | An Antigravity copy or read fails | That conversation is named and counted in F; the others are ingested; exit 1 |
@@ -287,7 +287,7 @@ ingest_state(source TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, offset INTEGE
 | A project root is gone or not git | Session rows are still written; no commit events; `ingest` prints `metrics: note: project root gone: <root>` or `no git history: <root>` |
 | Two main sessions overlap in one root | Commits in the overlap are `ambiguous`; A1/A4 are shown as `n (ambiguous m)` and excluded from rates |
 | Still locked after the 10 s busy timeout | The source counts as failed (`database is locked`), exit 1; the next run picks it up |
-| `show`, `report` or `export` on a home with no store (never ingested) | `sh-agent metrics: no metrics store at <path>; run \`sh-agent metrics ingest\` first`, exit 1; nothing is created |
+| `show`, `report` or `export` on a home with no store (never ingested) | `fyr metrics: no metrics store at <path>; run \`fyr metrics ingest\` first`, exit 1; nothing is created |
 | `export FILE` or `report --out FILE` exists | `refusing to overwrite FILE`, exit 1 |
 | `--source` without `--label`, or any metrics flag the subcommand does not read (`ingest --json`, `export --label`, `show --out`, `ingest --context-target`) | Usage error naming the flag, exit 2 |
 | `--context-target 0` or a negative value | `--context-target takes a token count above 0`, exit 2 |

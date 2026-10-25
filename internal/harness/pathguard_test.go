@@ -250,13 +250,13 @@ func TestManagedDirsRefuseSymlinks(t *testing.T) {
 	}
 }
 
-// binAt writes an executable named sh-agent into dir and returns its path.
+// binAt writes an executable named fyr into dir and returns its path.
 func binAt(t *testing.T, dir string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(dir, "sh-agent")
+	p := filepath.Join(dir, "fyr")
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -285,14 +285,14 @@ func TestPathShadows(t *testing.T) {
 	if err := os.Mkdir(linkDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(bin, filepath.Join(linkDir, "sh-agent")); err != nil {
+	if err := os.Symlink(bin, filepath.Join(linkDir, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	hardDir := filepath.Join(root, "hard")
 	if err := os.Mkdir(hardDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Link(bin, filepath.Join(hardDir, "sh-agent")); err != nil {
+	if err := os.Link(bin, filepath.Join(hardDir, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	dirLink := filepath.Join(root, "bin-alias") // ~/bin -> ~/.local/bin, the round-2 repro
@@ -303,7 +303,7 @@ func TestPathShadows(t *testing.T) {
 	if err := os.Mkdir(plainDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(plainDir, "sh-agent"), []byte("x"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(plainDir, "fyr"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -319,7 +319,7 @@ func TestPathShadows(t *testing.T) {
 		{"a symlink to the installed binary is not a shadow", joinPath(linkDir, binDir), nil, true},
 		{"a hard link to the installed binary is not a shadow", joinPath(hardDir, binDir), nil, true},
 		{"a repeated PATH entry is reported once", joinPath(a, a, a, binDir), []string{aBin}, true},
-		{"a directory that holds no sh-agent is skipped", joinPath(empty, a, binDir), []string{aBin}, true},
+		{"a directory that holds no fyr is skipped", joinPath(empty, a, binDir), []string{aBin}, true},
 		{"a file with no execute bit is not a binary", joinPath(plainDir, a, binDir), []string{aBin}, true},
 		{"the installed dir absent from PATH: every candidate wins, onPath false", joinPath(a, b), []string{aBin, bBin}, false},
 		{"a trailing slash on the installed dir still matches", joinPath(binDir+"/", a), nil, true},
@@ -348,17 +348,17 @@ func TestPathShadows(t *testing.T) {
 
 	t.Run("an installed binary that does not exist: nothing reaches it, every candidate is a shadow", func(t *testing.T) {
 		missingDir := filepath.Join(root, "nowhere", ".local", "bin")
-		got, onPath := PathShadows(joinPath(a, missingDir), filepath.Join(missingDir, "sh-agent"))
+		got, onPath := PathShadows(joinPath(a, missingDir), filepath.Join(missingDir, "fyr"))
 		if onPath || len(got) != 1 || got[0] != aBin {
 			t.Fatalf("shadows = %v, onPath = %v; want [%s], false", got, onPath, aBin)
 		}
 	})
 
-	t.Run("an empty PATH entry is the working directory and prints as ./sh-agent", func(t *testing.T) {
+	t.Run("an empty PATH entry is the working directory and prints as ./fyr", func(t *testing.T) {
 		t.Chdir(a)
 		got, onPath := PathShadows(joinPath("", binDir), bin)
-		if !onPath || len(got) != 1 || got[0] != "./sh-agent" {
-			t.Fatalf("shadows = %v, onPath = %v; want [./sh-agent], true", got, onPath)
+		if !onPath || len(got) != 1 || got[0] != "./fyr" {
+			t.Fatalf("shadows = %v, onPath = %v; want [./fyr], true", got, onPath)
 		}
 	})
 }
@@ -407,7 +407,7 @@ func TestExecutableAt(t *testing.T) {
 	}
 }
 
-// `update` replaces ~/.local/bin/sh-agent and nothing else; a process running
+// `update` replaces ~/.local/bin/fyr and nothing else; a process running
 // from another path a shell can reach by name has updated a file it is not
 // (BUG-079).
 func TestRunningElsewhere(t *testing.T) {
@@ -420,18 +420,18 @@ func TestRunningElsewhere(t *testing.T) {
 	if err := os.Mkdir(linkDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(installed, filepath.Join(linkDir, "sh-agent")); err != nil {
+	if err := os.Symlink(installed, filepath.Join(linkDir, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	hidden := binAt(t, filepath.Join(root, "not-on-path"))
 	// PATH reaches the running system copy only through a link under another
-	// name — /opt/devbox/bin/sh-agent -> /usr/local/bin/sh-agent on devbox —
+	// name — /opt/devbox/bin/fyr -> /usr/local/bin/fyr on devbox —
 	// so the spelling a shell uses is not the spelling the process runs from.
 	aliasDir := filepath.Join(root, "alias")
 	if err := os.Mkdir(aliasDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(sysBin, filepath.Join(aliasDir, "sh-agent")); err != nil {
+	if err := os.Symlink(sysBin, filepath.Join(aliasDir, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -443,18 +443,18 @@ func TestRunningElsewhere(t *testing.T) {
 		ok   bool
 	}{
 		{"running the installed file itself", joinPath(binDir, sysDir), installed, "", false},
-		{"running a link to the installed file", joinPath(linkDir), filepath.Join(linkDir, "sh-agent"), "", false},
+		{"running a link to the installed file", joinPath(linkDir), filepath.Join(linkDir, "fyr"), "", false},
 		{"running a system copy a shell reaches by name", joinPath(binDir, sysDir), sysBin, sysBin, true},
 		{"reported at the PATH entry, whichever order", joinPath(sysDir, binDir), sysBin, sysBin, true},
-		{"running a file no PATH entry reaches: nobody's sh-agent", joinPath(binDir, sysDir), hidden, "", false},
-		{"reached only through a link: reported at the PATH entry, not the exe path", joinPath(binDir, aliasDir), sysBin, filepath.Join(aliasDir, "sh-agent"), true},
+		{"running a file no PATH entry reaches: nobody's fyr", joinPath(binDir, sysDir), hidden, "", false},
+		{"reached only through a link: reported at the PATH entry, not the exe path", joinPath(binDir, aliasDir), sysBin, filepath.Join(aliasDir, "fyr"), true},
 		{"installed file missing: nothing to be behind, silent", joinPath(sysDir), sysBin, "", false},
 		{"exe missing", joinPath(binDir), filepath.Join(root, "gone"), "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			binPath := installed
 			if tc.name == "installed file missing: nothing to be behind, silent" {
-				binPath = filepath.Join(root, "nowhere", "sh-agent")
+				binPath = filepath.Join(root, "nowhere", "fyr")
 			}
 			got, ok := RunningElsewhere(tc.path, binPath, tc.exe)
 			if ok != tc.ok || got != tc.want {

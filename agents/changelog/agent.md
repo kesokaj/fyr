@@ -22,7 +22,7 @@ In order:
 1. Use the stamp given in the dispatch prompt (`YYYY-MM-DD-HHMM`): its first ten characters are the date, and the whole stamp starts the file name. A dispatch that gives only a date gets a date-only file name, flagged in your reply.
 2. If absent, derive the date from filesystem context only when unambiguous — a sibling artifact from this same task already stamped today. Otherwise write `DATE-UNKNOWN` in the heading and the frontmatter and flag it in your reply; never guess a date.
 
-When the dispatch carries `sh-agent search --refs` output for the changed paths, cite the bug and ADR IDs it lists that the change touches, and name the ADR a new decision supersedes.
+When the dispatch carries `fyr search --refs` output for the changed paths, cite the bug and ADR IDs it lists that the change touches, and name the ADR a new decision supersedes.
 
 ## Your lane
 

@@ -574,7 +574,7 @@ func TestArgumentErrors(t *testing.T) {
 		{Dir: root, Refs: "BUG-001", Open: true},
 		{Dir: root},
 	} {
-		if _, err := runSearch(t, o); err == nil || !strings.Contains(err.Error(), "see sh-agent help") {
+		if _, err := runSearch(t, o); err == nil || !strings.Contains(err.Error(), "see fyr help") {
 			t.Errorf("%+v: got %v", o, err)
 		}
 	}
@@ -644,7 +644,7 @@ func TestNoDuplicateHitAcrossRounds(t *testing.T) {
 	}
 }
 
-// A directory holding a `.sh-agent-noindex` file is left out of the index,
+// A directory holding a `.fyr-noindex` file is left out of the index,
 // files below it included, tracked or not: vendored data a project
 // carries (the harness's Google skills catalog) would otherwise crowd the
 // project's own files out of the hits (recall 0.633 -> 0.596 on the fixture,
@@ -653,7 +653,7 @@ func TestNoIndexMarkerSkipsTheDirectory(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
-	writeFile(t, root, "vendor/data/.sh-agent-noindex", "")
+	writeFile(t, root, "vendor/data/.fyr-noindex", "")
 	writeFile(t, root, "vendor/data/a/entry.md", "an ocelot in vendored data\n")
 	writeFile(t, root, "vendor/beside.md", "an ocelot beside the marked directory\n")
 	commitAll(t, root, "add")
@@ -670,14 +670,14 @@ func TestNoIndexMarkerSkipsTheDirectory(t *testing.T) {
 	}
 	// A marker that is not committed yet counts too, and a reconcile drops
 	// what was indexed before it appeared.
-	writeFile(t, root, "docs/.sh-agent-noindex", "")
+	writeFile(t, root, "docs/.fyr-noindex", "")
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
 	if strings.Contains(out, "docs/own.md") || !strings.Contains(out, "vendor/beside.md:") {
 		t.Errorf("an uncommitted marker did not take docs/ out of the index:\n%s", out)
 	}
 	// A marker at the root of the checkout is a directory like any other:
 	// nothing of the project is indexed.
-	writeFile(t, root, ".sh-agent-noindex", "")
+	writeFile(t, root, ".fyr-noindex", "")
 	var buf bytes.Buffer
 	Search(Options{Dir: root, Home: home, Words: []string{"ocelot"}}, &buf) // no hit is an error here; the output is what matters
 	if strings.Contains(buf.String(), "vendor/beside.md") || strings.Contains(buf.String(), "docs/own.md") {
@@ -702,14 +702,14 @@ func TestNoIndexMarkerDeletedCountsNoMore(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
 	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
-	writeFile(t, root, "vendor/data/.sh-agent-noindex", "")
+	writeFile(t, root, "vendor/data/.fyr-noindex", "")
 	writeFile(t, root, "vendor/data/entry.md", "an ocelot in vendored data\n")
 	commitAll(t, root, "add")
 	out := mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
 	if strings.Contains(out, "\nvendor/data/") {
 		t.Fatalf("the marked directory is in the index before the marker is removed:\n%s", out)
 	}
-	if err := os.Remove(filepath.Join(root, "vendor/data/.sh-agent-noindex")); err != nil {
+	if err := os.Remove(filepath.Join(root, "vendor/data/.fyr-noindex")); err != nil {
 		t.Fatal(err)
 	}
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
@@ -732,20 +732,20 @@ func TestHeaderNamesLeftOutDirectories(t *testing.T) {
 	if strings.Contains(out, "left out") {
 		t.Errorf("no marker, yet the header names one:\n%s", out)
 	}
-	writeFile(t, root, "vendor/data/.sh-agent-noindex", "")
+	writeFile(t, root, "vendor/data/.fyr-noindex", "")
 	writeFile(t, root, "vendor/data/entry.md", "an ocelot in vendored data\n")
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
-	if !strings.Contains(out, "; left out by .sh-agent-noindex: vendor/data/)") {
+	if !strings.Contains(out, "; left out by a noindex marker: vendor/data/)") {
 		t.Errorf("one marker: the header does not name it:\n%s", out)
 	}
-	writeFile(t, root, "attic/.sh-agent-noindex", "")
+	writeFile(t, root, "attic/.fyr-noindex", "")
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
-	if !strings.Contains(out, "; left out by .sh-agent-noindex: attic/, vendor/data/)") {
+	if !strings.Contains(out, "; left out by a noindex marker: attic/, vendor/data/)") {
 		t.Errorf("two markers: want them sorted in the header:\n%s", out)
 	}
 	var buf bytes.Buffer
 	Search(Options{Dir: root, Home: home, Open: true}, &buf)
-	if !strings.Contains(buf.String(), "left out by .sh-agent-noindex: attic/, vendor/data/") {
+	if !strings.Contains(buf.String(), "left out by a noindex marker: attic/, vendor/data/") {
 		t.Errorf("--open: the header does not name the markers:\n%s", buf.String())
 	}
 	buf.Reset()
@@ -756,7 +756,7 @@ func TestHeaderNamesLeftOutDirectories(t *testing.T) {
 	// A directory name is the project's own text: control characters in it
 	// must not reach the terminal or forge a line of output (code review of
 	// v2.1.0..a62eb9d).
-	writeFile(t, root, "ev\x1bil\nfake-hit.md:1/.sh-agent-noindex", "")
+	writeFile(t, root, "ev\x1bil\nfake-hit.md:1/.fyr-noindex", "")
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
 	if strings.Contains(out, "\x1b") || strings.Contains(out, "\nfake-hit.md:1/") || !strings.Contains(out, "ev?il?fake-hit.md:1/") {
 		t.Errorf("a marked directory's name reached the header raw:\n%q", out)
@@ -764,10 +764,10 @@ func TestHeaderNamesLeftOutDirectories(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(root, "ev\x1bil\nfake-hit.md:1")); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, root, ".sh-agent-noindex", "")
+	writeFile(t, root, ".fyr-noindex", "")
 	buf.Reset()
 	Search(Options{Dir: root, Home: home, Words: []string{"ocelot"}}, &buf) // no hit is an error here; the header is what matters
-	if !strings.Contains(buf.String(), "left out by .sh-agent-noindex: ./, attic/, vendor/data/") {
+	if !strings.Contains(buf.String(), "left out by a noindex marker: ./, attic/, vendor/data/") {
 		t.Errorf("a root marker: want ./ first in the header:\n%s", buf.String())
 	}
 }
@@ -808,5 +808,33 @@ func TestPrintableDropsLineAndDirectionControls(t *testing.T) {
 		if got := printable(in); got != want {
 			t.Errorf("printable(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The marker's old name, from before the rename, still takes its directory
+// out (plan fyr F8, D12): it is a privacy control the operator placed, and
+// nothing renames the operator's files, so a directory holding only
+// `.sh-agent-noindex` stays out of every index the dream reads.
+func TestOldNoIndexMarkerStillCounts(t *testing.T) {
+	if oldNoIndexMarker != ".sh-agent-noindex" || noIndexMarker != ".fyr-noindex" {
+		t.Fatalf("markers %q and %q, want .fyr-noindex and .sh-agent-noindex", noIndexMarker, oldNoIndexMarker)
+	}
+	root := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, root, "docs/own.md", "the ocelot lives here\n")
+	writeFile(t, root, "vendor/old/.sh-agent-noindex", "")
+	writeFile(t, root, "vendor/old/entry.md", "an ocelot under the old marker\n")
+	writeFile(t, root, "vendor/new/.fyr-noindex", "")
+	writeFile(t, root, "vendor/new/entry.md", "an ocelot under the new marker\n")
+	commitAll(t, root, "add")
+	out := mustSearch(t, Options{Dir: root, Home: home, Words: []string{"ocelot"}})
+	if !strings.Contains(out, "docs/own.md:") {
+		t.Errorf("a file outside both marked directories is missing:\n%s", out)
+	}
+	if strings.Contains(out, "\nvendor/old/") || strings.Contains(out, "\nvendor/new/") {
+		t.Errorf("a marked directory is in the index:\n%s", out)
+	}
+	if !strings.Contains(out, "; left out by a noindex marker: vendor/new/, vendor/old/)") {
+		t.Errorf("the header does not name both directories:\n%s", out)
 	}
 }

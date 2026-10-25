@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // agyHome writes one Antigravity conversation, id, in the workspace /p under
@@ -78,7 +80,7 @@ func TestMetricsVerb(t *testing.T) {
 	if !strings.Contains(out.String(), "metrics: 1 sessions, 2 steps") {
 		t.Fatalf("ingest printed %q", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent", "metrics.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "metrics.db")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,7 +189,7 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 			t.Errorf("%q: err = %v, want exit 2", args, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent", "metrics.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "metrics.db")); !os.IsNotExist(err) {
 		t.Errorf("a usage error created the store: %v", err)
 	}
 	// Each verb's own usage line names every flag it takes (security review
@@ -218,7 +220,7 @@ func TestMetricsWithoutStore(t *testing.T) {
 			t.Errorf("%q: err %v, out %q; want exit 1 naming the missing store", args, err, out.String())
 		}
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent", "metrics.db")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "metrics.db")); !os.IsNotExist(err) {
 		t.Errorf("a read verb created the store: %v", err)
 	}
 }

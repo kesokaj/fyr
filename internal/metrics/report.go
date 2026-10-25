@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // The report is one self-contained HTML file: inline SVG drawn here, no
@@ -53,7 +55,7 @@ const (
 
 // ReportPath is the default report file under home, stamped to the minute.
 func ReportPath(home string, now time.Time) string {
-	return filepath.Join(home, ".config", "sh-agent", "reports", now.Format("2006-01-02-1504")+"-metrics.html")
+	return filepath.Join(home, harness.StateDir, "reports", now.Format("2006-01-02-1504")+"-metrics.html")
 }
 
 // WriteReport renders sum to file (mode 0600); an existing file is refused.
@@ -102,7 +104,7 @@ func RenderReport(w io.Writer, sum *Summary, now time.Time) error {
 		// A CLI that exposes no cost has no line, never a line at 0.
 		return d.CostUSD[v], sum.B.CostUSD[v] != nil
 	}, "%.2f")
-	day("sh-agent search : grep per day", "searches of the index divided by grep, rg and Grep calls; a day with no grep call has no point", func(d Day, v string) (float64, bool) {
+	day("fyr search : grep per day", "searches of the index divided by grep, rg and Grep calls; a day with no grep call has no point", func(d Day, v string) (float64, bool) {
 		if d.GrepCalls[v] == 0 {
 			return 0, false
 		}
@@ -379,7 +381,7 @@ func outcomeTable(s *Summary, series []serie) table {
 	row("cost USD", pf(s.B.CostUSD, "%.2f"))
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	row(fmt.Sprintf("sessions over context target (%d)", s.B.ContextTarget), s.overTarget)
-	row("sh-agent search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
+	row("fyr search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
 	row("tool error rate", pf(s.D.ToolErrorRate, "%.3f"))
 	row("denials", pi(s.D.Denials))
 	row("interrupts", pi(s.D.Interrupts))
@@ -389,7 +391,7 @@ func outcomeTable(s *Summary, series []serie) table {
 
 var reportTmpl = template.Must(template.New("report").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sh-agent metrics {{.Sum.Window.since}} – {{.Sum.Window.until}}</title>
+<title>fyr metrics {{.Sum.Window.since}} – {{.Sum.Window.until}}</title>
 <style>
 :root{color-scheme:light;--surface:#fcfcfb;--card:#ffffff;--ink:#0b0b0b;--ink-2:#52514e;--ink-3:#8a8984;--rule:#e6e5e0;--series-1:#2a78d6;--series-2:#eb6834}
 @media (prefers-color-scheme:dark){:root{color-scheme:dark;--surface:#1a1a19;--card:#232321;--ink:#ffffff;--ink-2:#c3c2b7;--ink-3:#8f8e86;--rule:#3a3a37;--series-1:#3987e5;--series-2:#d95926}}
@@ -420,7 +422,7 @@ details{margin-top:8px}summary{color:var(--ink-2);cursor:pointer}
 ul.notes{color:var(--ink-2);padding-left:18px}
 </style></head><body><main>
 <h1>Agent metrics</h1>
-<p class="sub">{{.Sum.Window.since}} to {{.Sum.Window.until}} · generated {{.Generated}} by <code>sh-agent metrics report</code> from the local metrics store</p>
+<p class="sub">{{.Sum.Window.since}} to {{.Sum.Window.until}} · generated {{.Generated}} by <code>fyr metrics report</code> from the local metrics store</p>
 <div class="legend">{{range .Series}}<span><span class="sw {{.Class}}"></span>{{.Label}}</span>{{end}}</div>
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>

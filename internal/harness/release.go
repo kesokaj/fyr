@@ -66,7 +66,7 @@ func latestRelease() (string, error) {
 	return tag, nil
 }
 
-// UpdateFromRelease is `sh-agent update` on a place that has no checkout: the
+// UpdateFromRelease is `fyr update` on a place that has no checkout: the
 // newest release is downloaded, the binary is checked against the release's
 // SHA256SUMS, and only then does the binary get replaced and its install run. Nothing is replaced when any check fails, and the download
 // directory is removed on every path out.

@@ -1,9 +1,9 @@
-// Package dream is `sh-agent dream`: the background job that reads every
+// Package dream is `fyr dream`: the background job that reads every
 // indexed project's memory, trail, feedback, a numbers-only summary of its
 // metrics and the Antigravity transcripts (after ingesting every session's shape
 // into the metrics store), asks
 // a CLI with no tools what should become a rule, a skill or a memory, and
-// writes the answer as proposals under ~/.config/sh-agent/proposals/dream/
+// writes the answer as proposals under ~/.config/fyr/proposals/dream/
 // (R3's exception, R10, plan 2026-09-30-parity-memory-dream).
 package dream
 
@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/memory"
-	"github.com/kesokaj/styrman-harness/internal/metrics"
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/memory"
+	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // maxPrompt caps what one project sends to the CLI (the plan's Interfaces).
@@ -25,7 +25,7 @@ const maxPrompt = 256 * 1024
 
 // Options is one run.
 type Options struct {
-	Home     string // sh-agent's home (--home); the child CLI keeps the real environment
+	Home     string // fyr's home (--home); the child CLI keeps the real environment
 	All      bool
 	Project  string // --project <dir>
 	DryRun   bool
@@ -52,7 +52,7 @@ type Collected struct {
 // firstLook is how far back a project's first dream reads.
 const firstLook = 14 * 24 * time.Hour
 
-// Run is `sh-agent dream`.
+// Run is `fyr dream`.
 func Run(o Options) error {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -63,20 +63,20 @@ func Run(o Options) error {
 	// A usage mistake is refused before anything is locked, logged or read.
 	switch {
 	case o.All && o.Project != "":
-		return &ExitError{2, "sh-agent dream: --all or --project <dir>, not both"}
+		return &ExitError{2, "fyr dream: --all or --project <dir>, not both"}
 	case !o.All && o.Project == "":
-		return &ExitError{2, "usage: sh-agent dream --all | --project <dir> [--dry-run] | --install-timer | --remove-timer"}
+		return &ExitError{2, "usage: fyr dream --all | --project <dir> [--dry-run] | --install-timer | --remove-timer"}
 	}
 	if !o.DryRun {
 		return o.realRun()
 	}
 	projects, err := o.targets()
 	if err != nil {
-		return &ExitError{2, "sh-agent dream: " + err.Error()}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	st, err := readState(o.Home)
 	if err != nil {
-		return &ExitError{2, "sh-agent dream: " + err.Error()}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	return o.dryRun(projects, st)
 }
@@ -178,7 +178,7 @@ type ExitError struct {
 
 func (e *ExitError) Error() string { return e.Msg }
 
-// StatusLine is `sh-agent status`'s dream line.
+// StatusLine is `fyr status`'s dream line.
 func StatusLine(home string) string {
 	timer := "timer not installed"
 	if TimerInstalled(home) {
@@ -188,7 +188,7 @@ func StatusLine(home string) string {
 	if len(LegacyTimerFiles(home)) > 0 {
 		// A dry run, with this home named: the bare command removes the
 		// timer of the home it defaults to, which is the real one.
-		timer += "; legacy timer files under " + home + ": sh-agent dream --remove-timer --dry-run --home " + shellQuote(home) + " prints the cleanup steps"
+		timer += "; legacy timer files under " + home + ": fyr dream --remove-timer --dry-run --home " + shellQuote(home) + " prints the cleanup steps"
 	}
 	st, err := readState(home)
 	if err != nil {

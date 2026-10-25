@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestListProjectsMissingDBIsEmpty(t *testing.T) {
@@ -179,9 +181,9 @@ func TestAgyConversationText(t *testing.T) {
 	if strings.Contains(text, "7863135a") {
 		t.Errorf("text %q keeps an id run", text)
 	}
-	// home had no ~/.config/sh-agent before: the run leaves none behind.
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent")); !os.IsNotExist(err) {
-		t.Errorf("~/.config/sh-agent left behind: %v", err)
+	// home had no ~/.config/fyr before: the run leaves none behind.
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir)); !os.IsNotExist(err) {
+		t.Errorf("~/.config/fyr left behind: %v", err)
 	}
 }
 
@@ -386,15 +388,15 @@ func TestCopyDBNeverOpensSource(t *testing.T) {
 	}
 }
 
-// TestAgyCorpusLeaves is a measurement, not a gate: with SH_AGENT_CORPUS set
+// TestAgyCorpusLeaves is a measurement, not a gate: with FYR_CORPUS set
 // to a directory of copied Antigravity conversation databases, it counts the
 // prose leaves the reader keeps and how many carry a tool-argument key. The
 // D30 measurement (2026-09-30) was 971 leaves, 0 with a key; the SD1 fix is
 // re-measured the same way (guide § 3e).
 func TestAgyCorpusLeaves(t *testing.T) {
-	dir := os.Getenv("SH_AGENT_CORPUS")
+	dir := os.Getenv("FYR_CORPUS")
 	if dir == "" {
-		t.Skip("measurement, not a gate: set SH_AGENT_CORPUS=<dir of db copies> to run it")
+		t.Skip("measurement, not a gate: set FYR_CORPUS=<dir of db copies> to run it")
 	}
 	names, _ := filepath.Glob(filepath.Join(dir, "*.db"))
 	var leaves, withKey, dbs int

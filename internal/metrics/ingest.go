@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // Options are one ingest's inputs (spec § Verbs). Ingest reads the

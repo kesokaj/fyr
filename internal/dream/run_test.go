@@ -13,7 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // fakeCLI puts an executable named name first on PATH. It records its
@@ -69,9 +70,9 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 		t.Fatalf("run: %v\n%s", err, out.String())
 	}
 	name := project(f).Name
-	dir := filepath.Join(f.home, ".config", "sh-agent", "proposals", "dream")
+	dir := filepath.Join(f.home, harness.StateDir, "proposals", "dream")
 	proj := read(t, filepath.Join(dir, "2026-09-30-"+name+".md"))
-	for _, want := range []string{"owner: sh-agent dream", "project: " + f.root, "cli: agy", "### 1. Vet before tag", "**Status:** queued", "**Target:** project", "Run go vet before every tag."} {
+	for _, want := range []string{"owner: fyr dream", "project: " + f.root, "cli: agy", "### 1. Vet before tag", "**Status:** queued", "**Target:** project", "Run go vet before every tag."} {
 		if !strings.Contains(proj, want) {
 			t.Errorf("project file lacks %q:\n%s", want, proj)
 		}
@@ -97,14 +98,14 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 	if !strings.Contains(args, "--mode\nplan\n") || !strings.Contains(args, "--input-format\nstream-json\n") {
 		t.Errorf("agy called without plan mode and stream-json input:\n%s", args)
 	}
-	if cwd := strings.TrimSpace(read(t, filepath.Join(rec, "cwd"))); !sameDir(cwd, filepath.Join(f.home, ".config", "sh-agent", "dream-work")) {
+	if cwd := strings.TrimSpace(read(t, filepath.Join(rec, "cwd"))); !sameDir(cwd, filepath.Join(f.home, harness.StateDir, "dream-work")) {
 		t.Errorf("cwd = %s, want dream-work", cwd)
 	}
 	st, _ := readState(f.home)
 	if !st.Projects[f.root].Equal(now) || st.LastRun.Projects != 1 || st.LastRun.Proposals != 2 || st.LastRun.Error != "" {
 		t.Errorf("state = %+v", st)
 	}
-	log := read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log"))
+	log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log"))
 	if !strings.Contains(log, f.root+" ok 2 proposals") || !strings.Contains(log, "- run 1 projects, 2 proposals") {
 		t.Errorf("log:\n%s", log)
 	}
@@ -116,7 +117,7 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rec, "stdin")); !os.IsNotExist(err) {
 		t.Error("an unchanged project called the CLI")
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), f.root+" unchanged") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), f.root+" unchanged") {
 		t.Error("unchanged not logged")
 	}
 }
@@ -196,13 +197,13 @@ func TestRunAgyPrivateHomeAndStdin(t *testing.T) {
 		t.Error("the private HOME was left behind")
 	}
 	// Zero proposals: no file, watermark advanced, logged.
-	if _, err := os.Stat(filepath.Join(f.home, ".config", "sh-agent", "proposals")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(f.home, harness.StateDir, "proposals")); !os.IsNotExist(err) {
 		t.Error("zero proposals wrote a file")
 	}
 	if st, _ := readState(f.home); !st.Projects[f.root].Equal(now) {
 		t.Errorf("watermark not advanced: %+v", st)
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), "ok 0 proposals") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), "ok 0 proposals") {
 		t.Error("zero proposals not logged")
 	}
 }
@@ -245,7 +246,7 @@ func TestRunPreProjectFailureIsExit2AndRecorded(t *testing.T) {
 	if !strings.Contains(st.LastRun.Error, "unreadable") {
 		t.Errorf("last_run.error = %q", st.LastRun.Error)
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), "error search.db is unreadable") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), "error search.db is unreadable") {
 		t.Error("not logged")
 	}
 }
@@ -271,7 +272,7 @@ func TestRunRemovesLeftoverCopies(t *testing.T) {
 	f := newFixture(t)
 	scaffold(t, f)
 	fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
-	conf := filepath.Join(f.home, ".config", "sh-agent")
+	conf := filepath.Join(f.home, harness.StateDir)
 	write(t, filepath.Join(conf, "dream-agy-home-123", ".gemini", "antigravity-cli", "antigravity-oauth-token"), "token", old)
 	write(t, filepath.Join(conf, "dream-projects-9", "search.db"), "db", old)
 	// A left-over macOS private HOME links the real Keychains folder: the
@@ -307,7 +308,7 @@ func TestRenderFoldsLineBreaks(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatal(err)
 	}
-	got := read(t, filepath.Join(f.home, ".config", "sh-agent", "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
+	got := read(t, filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
 	// /retro reads a Status LINE; text inside a folded title is not one.
 	if strings.Count(got, "\n**Status:**") != 1 || strings.Contains(got, "\n### 9.") {
 		t.Errorf("a title opened a second Status line or section:\n%s", got)
@@ -332,7 +333,7 @@ func TestRunInvalidOutputKeepsRawAndWatermark(t *testing.T) {
 	if !strings.Contains(st.LastRun.Error, "failed") {
 		t.Errorf("last_run.error = %q after a failed project: status would read the run as clean", st.LastRun.Error)
 	}
-	failed := filepath.Join(f.home, ".config", "sh-agent", "dream-failed")
+	failed := filepath.Join(f.home, harness.StateDir, "dream-failed")
 	entries, _ := os.ReadDir(failed)
 	if len(entries) == 0 {
 		t.Fatal("raw output not kept")
@@ -341,7 +342,7 @@ func TestRunInvalidOutputKeepsRawAndWatermark(t *testing.T) {
 	if !strings.Contains(raw, "no json here") || strings.Contains(raw, "FAKEVALUE") {
 		t.Errorf("kept raw output unredacted or missing:\n%s", raw)
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), "fail invalid output") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), "fail invalid output") {
 		t.Error("failure not logged")
 	}
 }
@@ -373,7 +374,7 @@ func TestRunNoCLIFailsBeforeProjects(t *testing.T) {
 	if !strings.Contains(st.LastRun.Error, "no agy on PATH") {
 		t.Errorf("last_run.error = %q", st.LastRun.Error)
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), "error") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), "error") {
 		t.Error("pre-project failure not logged")
 	}
 }
@@ -382,7 +383,7 @@ func TestRunLock(t *testing.T) {
 	f := newFixture(t)
 	scaffold(t, f)
 	rec := fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
-	path := filepath.Join(f.home, ".config", "sh-agent", "dream.lock")
+	path := filepath.Join(f.home, harness.StateDir, "dream.lock")
 	write(t, path, "", fresh)
 	held, err := os.OpenFile(path, os.O_RDWR, 0o600)
 	if err != nil {
@@ -411,7 +412,7 @@ func TestRunPrunesOldFailures(t *testing.T) {
 	f := newFixture(t)
 	scaffold(t, f)
 	fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
-	failed := filepath.Join(f.home, ".config", "sh-agent", "dream-failed")
+	failed := filepath.Join(f.home, harness.StateDir, "dream-failed")
 	write(t, filepath.Join(failed, "2026-08-01-x.txt"), "old", now.Add(-40*24*time.Hour))
 	write(t, filepath.Join(failed, "2026-09-29-y.txt"), "recent", now.Add(-24*time.Hour))
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
@@ -459,7 +460,7 @@ func TestRunAgyReadErrorKeepsWatermark(t *testing.T) {
 	if st, _ := readState(f.home); !st.Projects[f.root].IsZero() {
 		t.Error("watermark advanced past unread conversations")
 	}
-	if !strings.Contains(read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")), "fail reading Antigravity") {
+	if !strings.Contains(read(t, filepath.Join(f.home, harness.StateDir, "dream.log")), "fail reading Antigravity") {
 		t.Error("the read error is not logged")
 	}
 }
@@ -524,7 +525,7 @@ func TestTextFieldCannotForgeASection(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatal(err)
 	}
-	got := read(t, filepath.Join(f.home, ".config", "sh-agent", "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
+	got := read(t, filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
 	if strings.Count(got, "\n**Status:**") != 1 || strings.Contains(got, "\n### 9.") {
 		t.Errorf("the text opened a second section or Status line:\n%s", got)
 	}
@@ -544,7 +545,7 @@ func TestAnswerToleratesExtraKeys(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatalf("an extra key failed the run: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(f.home, ".config", "sh-agent", "proposals", "dream", "2026-09-30-"+project(f).Name+".md")); err != nil {
+	if _, err := os.Stat(filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md")); err != nil {
 		t.Error("proposal not written")
 	}
 }
@@ -713,7 +714,7 @@ func TestRunAgyAuthFailureNamed(t *testing.T) {
 		if err := Run(runOpts(f, &out)); err == nil {
 			t.Fatalf("exit %d: a run with no login succeeded", code)
 		}
-		if log := read(t, filepath.Join(f.home, ".config", "sh-agent", "dream.log")); !strings.Contains(log, "not logged in inside the dream job's private HOME") {
+		if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, "not logged in inside the dream job's private HOME") {
 			t.Errorf("exit %d: dream.log lacks the login hint:\n%s", code, log)
 		}
 	}
@@ -803,10 +804,10 @@ func TestHelperCall(t *testing.T) {
 	callWithin([]string{filepath.Join(dir, "holder")}, "", dir, append(os.Environ(), "PIDFILE="+filepath.Join(dir, "pid")), time.Minute, time.Second)
 }
 
-// Ctrl-C on a hand-run `sh-agent dream` reached the CLI while it shared
-// sh-agent's process group; in its own group it ran on as an orphan with
+// Ctrl-C on a hand-run `fyr dream` reached the CLI while it shared
+// fyr's process group; in its own group it ran on as an orphan with
 // the operator's credentials (review of the BUG-169 fix, round 1). An
-// interrupt or a termination kills the group, then sh-agent dies as before.
+// interrupt or a termination kills the group, then fyr dies as before.
 func TestCallKillsTheGroupOnInterrupt(t *testing.T) {
 	for name, sig := range map[string]os.Signal{"interrupt": os.Interrupt, "hangup": syscall.SIGHUP, "terminate": syscall.SIGTERM} {
 		t.Run(name, func(t *testing.T) { callKilledBy(t, sig) })
@@ -848,10 +849,10 @@ func callKilledBy(t *testing.T, sig os.Signal) {
 	}
 }
 
-// `nohup sh-agent dream --all &` ignores the hangup, and a background job
+// `nohup fyr dream --all &` ignores the hangup, and a background job
 // of a non-interactive shell the interrupt. Notify took the ignored signal
 // over, killed the group on it, and the re-raise after Reset found it
-// ignored again: the project in flight failed and sh-agent ran on (the gate
+// ignored again: the project in flight failed and fyr ran on (the gate
 // security review of v2.6.2..66f3412, finding 1). An ignored signal now
 // leaves the CLI alone.
 func TestCallLeavesTheGroupOnAnIgnoredSignal(t *testing.T) {
@@ -907,7 +908,7 @@ func callIgnoring(t *testing.T, trap string, sig os.Signal) {
 	}
 	select {
 	case <-exited:
-		t.Errorf("sh-agent exited on the ignored %v", sig)
+		t.Errorf("fyr exited on the ignored %v", sig)
 	default:
 	}
 }

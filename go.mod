@@ -1,4 +1,4 @@
-module github.com/kesokaj/styrman-harness
+module github.com/kesokaj/fyr
 
 go 1.24.4
 

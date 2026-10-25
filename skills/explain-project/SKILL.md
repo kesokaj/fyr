@@ -17,7 +17,7 @@ Three sections and a list, each claim with a file:line or a path; nothing from m
 
 1. **What it does and for whom** — the purpose in two sentences, the users, the one or two external systems it talks to (from README, REQUIREMENTS and the specs; when they disagree, say so and cite both).
 2. **How it is built** — the entry points (`cmd/*`), every package with its one-line purpose, the data flow of the main request as a numbered path (listener → handler → service → store → response, each step file:line), where configuration comes from (flags, env vars, their defaults and which live outside the repository), what is embedded (`embed.go`, migrations, the SPA), and the test layout by tier.
-3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`AGENTS.md` → newest handoff → `ROADMAP.md` → the active plan → changes → bugs → `sh-agent search --open` → `sh-agent memory show`), where decisions live (`architecture/DECISIONS.md`), where failures are recorded (`bugs/INDEX.md`), and how a change is finished (the Definition of Done in the global context).
+3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`AGENTS.md` → newest handoff → `ROADMAP.md` → the active plan → changes → bugs → `fyr search --open` → `fyr memory show`), where decisions live (`architecture/DECISIONS.md`), where failures are recorded (`bugs/INDEX.md`), and how a change is finished (the Definition of Done in the global context).
 4. **What I could not determine** — every question the code and the trail did not answer, as a list for the operator; never a guess dressed as a fact.
 
 Under 200 lines. A diagram only when the flow has a branch worth seeing (`mermaid-syntax` skill).

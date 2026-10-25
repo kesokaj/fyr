@@ -83,18 +83,18 @@ PY
     case "$row" in
       bug) sed -i 's/name = strings.TrimSpace(name)/name = strings.TrimLeft(name, " ")/' "$KIT_CLONE/internal/greet/greet.go"; gi commit -qam "greet: trim left" ;;
       review) printf '\n// Bye is unused for now.\nfunc Bye() string { return "bye" }\n' >> "$KIT_CLONE/internal/greet/greet.go" ;;
-      retro) mkdir -p "$KIT_HOME/.config/sh-agent"; for i in 1 2 3; do printf '{"ts":"2026-10-0%sT10:00:00+00:00","project":"%s","session":"seed000%s","category":"tooling","signal":"correction","original":"ran go test without -race","corrected":"always run go test -race","user_quote":"use -race, always","rule_ref":null}\n' "$i" "$KIT_CLONE" "$i"; done > "$KIT_HOME/.config/sh-agent/feedback.jsonl" ;;
+      retro) mkdir -p "$KIT_HOME/.config/fyr"; for i in 1 2 3; do printf '{"ts":"2026-10-0%sT10:00:00+00:00","project":"%s","session":"seed000%s","category":"tooling","signal":"correction","original":"ran go test without -race","corrected":"always run go test -race","user_quote":"use -race, always","rule_ref":null}\n' "$i" "$KIT_CLONE" "$i"; done > "$KIT_HOME/.config/fyr/feedback.jsonl" ;;
     esac ;;
   *) echo "run.sh: row '$row' is not one this kit runs: its grants and base would not match the matrix (the catalog rows are read-only, guide § Behavioural runs)" >&2; exit 2 ;;
 esac
 [ -n "$prompt" ] && [ -n "$check" ] || { echo "run.sh: row $row has no prompt or check" >&2; exit 2; }
 
 . "$REPO/.agents/docs/testing/kit-preamble.sh"
-go run -C "${INSTALL_FROM:-$REPO}" ./cmd/sh-agent install --home "$KIT_HOME" > "$RUN/install.log" 2>&1
+go run -C "${INSTALL_FROM:-$REPO}" ./cmd/fyr install --home "$KIT_HOME" > "$RUN/install.log" 2>&1
 [ -z "$wide" ] || echo "run.sh: row $row runs with command(*) in its throwaway clone (skill-matrix.md § Procedure): $wide"
 python3 -I - "$KIT_HOME/.gemini/antigravity-cli/settings.json" "$KIT_CLONE" "$wide" <<'PY'
 import json, sys
-allow = ["command(%s)" % c for c in "git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff sh-agent chmod readlink bash python3 sleep govulncheck".split()] + ["read_file(*)", "write_file(*)"]
+allow = ["command(%s)" % c for c in "git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff fyr chmod readlink bash python3 sleep govulncheck".split()] + ["read_file(*)", "write_file(*)"]
 if sys.argv[3]: allow = ["command(*)", "read_file(*)", "write_file(*)"]
 json.dump({"permissions": {"allow": allow}, "trustedWorkspaces": [sys.argv[2]]}, open(sys.argv[1], "w"), indent=1)
 PY

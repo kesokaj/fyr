@@ -1,8 +1,8 @@
 # macOS
 .DS_Store
 
-# Build output of `go build -o sh-agent ./cmd/sh-agent`; the binary is never committed.
-/sh-agent
+# Build output of `go build -o fyr ./cmd/fyr`; the binary is never committed.
+/fyr
 
 # Secret-shaped paths never belong here (the global git rule stops the commit; this stops the add).
 # Kept in step with secretShaped() in internal/harness/plan.go — that function

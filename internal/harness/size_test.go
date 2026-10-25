@@ -22,7 +22,7 @@ const antigravityRulesBlockBytes = 24000
 const renderedContextBudgetBytes = 22000
 
 // TestRenderedContextFitsAntigravityBlock renders THIS checkout the way
-// `sh-agent install` does and measures the whole block Antigravity would
+// `fyr install` does and measures the whole block Antigravity would
 // build: the rendered context plus every rules/<name>.md, which deploys
 // beside it. It reads the repository at ../.. like TestHarnessMap, so it
 // fails — never skips — when run from anywhere else.

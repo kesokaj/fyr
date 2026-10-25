@@ -12,7 +12,7 @@ import (
 )
 
 // State is the install manifest. It is the only thing uninstall trusts: a
-// path not listed here is not sh-agent's to delete, whatever directory it
+// path not listed here is not fyr's to delete, whatever directory it
 // sits in.
 type State struct {
 	Repo        string `json:"repo"`
@@ -25,8 +25,15 @@ type State struct {
 	Files  []string `json:"files"` // relative to $HOME, sorted
 }
 
+// StateDir is the state directory under a home: the manifest, the feedback
+// and retro logs, the proposals, the search index, the metrics store and the
+// dream's state. Every path into it is built from this one constant (plan
+// fyr D22): a literal missed would split a machine's state across two
+// directories (TestStateDirHasOneHome).
+const StateDir = ".config/fyr"
+
 func statePath(home string) string {
-	return filepath.Join(home, ".config", "sh-agent", "state.json")
+	return filepath.Join(home, StateDir, "state.json")
 }
 
 // LoadState reads the manifest. A missing file is not an error: it means
@@ -69,7 +76,7 @@ func SaveState(home string, s State) error {
 	return WriteAtomic(statePath(home), append(data, '\n'), 0o644)
 }
 
-// ConfigDir returns ~/.config/sh-agent, created 0700 when absent: the
+// ConfigDir returns ~/.config/fyr, created 0700 when absent: the
 // feedback log, the retro proposals, the global search index (search.db) and
 // the metrics store live there, and none of it leaves the machine (ADR-062).
 // An existing directory is left as it is
@@ -77,7 +84,7 @@ func SaveState(home string, s State) error {
 // TightenConfigDir, run by install alone, is what corrects that (security
 // review of the 2026-09-18 audit, rounds 2 and 3; the operator's option 1).
 func ConfigDir(home string) (string, error) {
-	dir := filepath.Join(home, ".config", "sh-agent")
+	dir := filepath.Join(home, StateDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -90,10 +97,10 @@ func ConfigDir(home string) (string, error) {
 // a chmod that fails is a note, never a failed install — the first version
 // aborted after every file was written, leaving no manifest. A symlinked
 // directory (a dotfiles arrangement) and one the caller does not own are
-// left alone: the first is not sh-agent's to reach through, the second is
+// left alone: the first is not fyr's to reach through, the second is
 // not its to change.
 func TightenConfigDir(home string, dryRun bool, out io.Writer) {
-	dir := filepath.Join(home, ".config", "sh-agent")
+	dir := filepath.Join(home, StateDir)
 	info, err := os.Lstat(dir)
 	if err != nil {
 		return
@@ -101,22 +108,22 @@ func TightenConfigDir(home string, dryRun bool, out io.Writer) {
 	// Names what it declines to touch, as install's `keep` line does
 	// (security review of the audit, round 3).
 	if info.Mode()&os.ModeSymlink != 0 {
-		fmt.Fprintf(out, "note: ~/.config/sh-agent is a symlink; its target's mode is yours to set (0700 keeps the feedback log private)\n")
+		fmt.Fprintf(out, "note: ~/.config/fyr is a symlink; its target's mode is yours to set (0700 keeps the feedback log private)\n")
 		return
 	}
 	if !info.IsDir() || info.Mode().Perm()&0o077 == 0 {
 		return
 	}
 	if !ownedByCaller(info) {
-		fmt.Fprintf(out, "note: ~/.config/sh-agent is not yours to tighten (mode %04o); ask its owner for 0700 — the feedback log lives there\n", info.Mode().Perm())
+		fmt.Fprintf(out, "note: ~/.config/fyr is not yours to tighten (mode %04o); ask its owner for 0700 — the feedback log lives there\n", info.Mode().Perm())
 		return
 	}
-	fmt.Fprintf(out, "mode    ~/.config/sh-agent (%04o -> 0700)\n", info.Mode().Perm())
+	fmt.Fprintf(out, "mode    ~/.config/fyr (%04o -> 0700)\n", info.Mode().Perm())
 	if dryRun {
 		return
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		fmt.Fprintf(out, "note: could not correct the mode of ~/.config/sh-agent (%v)\n", err)
+		fmt.Fprintf(out, "note: could not correct the mode of ~/.config/fyr (%v)\n", err)
 	}
 }
 
@@ -125,19 +132,19 @@ func RemoveState(home string) error {
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	// The directory is sh-agent's own; drop it when empty.
+	// The directory is fyr's own; drop it when empty.
 	_ = os.Remove(filepath.Dir(p))
 	return nil
 }
 
 // LastRetro returns when the learning loop last ran: the newest of the
-// harness proposal files under ~/.config/sh-agent/proposals/ and the
-// cross-project index ~/.config/sh-agent/retros.jsonl, which a project-level
+// harness proposal files under ~/.config/fyr/proposals/ and the
+// cross-project index ~/.config/fyr/retros.jsonl, which a project-level
 // /retro or /distill appends to even when it proposes nothing for the harness.
 func LastRetro(home string) (time.Time, bool) {
 	// Listed by name, never through a pattern built from the home path: a
 	// `[` in it would be read as a character class (the golang rule).
-	dir := filepath.Join(home, ".config", "sh-agent", "proposals")
+	dir := filepath.Join(home, StateDir, "proposals")
 	var paths []string
 	if entries, err := os.ReadDir(dir); err == nil {
 		for _, e := range entries {
@@ -146,7 +153,7 @@ func LastRetro(home string) (time.Time, bool) {
 			}
 		}
 	}
-	paths = append(paths, filepath.Join(home, ".config", "sh-agent", "retros.jsonl"))
+	paths = append(paths, filepath.Join(home, StateDir, "retros.jsonl"))
 	var newest time.Time
 	for _, p := range paths {
 		if info, err := os.Stat(p); err == nil && info.ModTime().After(newest) {

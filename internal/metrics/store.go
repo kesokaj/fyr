@@ -1,7 +1,7 @@
-// Package metrics keeps the metrics store, ~/.config/sh-agent/metrics.db: the
+// Package metrics keeps the metrics store, ~/.config/fyr/metrics.db: the
 // shape of every ingested Antigravity session, and of the Claude Code
 // sessions an ingest before ADR-062 read, kept as history (R4, ADR-055, plan
-// fyr D7, spec .agents/docs/specs/sh-agent/metrics.md). Unlike the search index it is
+// fyr D7, spec .agents/docs/specs/fyr/metrics.md). Unlike the search index it is
 // a store of record, the only copy once a transcript expires: it migrates
 // forward and is never deleted or rebuilt here.
 package metrics
@@ -19,7 +19,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // Store is one open metrics store.
@@ -57,13 +58,13 @@ var migrations = []string{
 var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state"}
 
 // Path is the store's location under home.
-func Path(home string) string { return filepath.Join(home, ".config", "sh-agent", "metrics.db") }
+func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }
 
 // Open opens or creates the store at path and migrates it forward. A store
 // whose schema is newer than this binary's is refused before anything is
 // written to it.
 func Open(path string) (*Store, error) {
-	// 0700: ~/.config/sh-agent holds the feedback log (search.tryOpen).
+	// 0700: ~/.config/fyr holds the feedback log (search.tryOpen).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (s *Store) migrate() error {
 		have = n
 	}
 	if have > len(migrations) {
-		return fmt.Errorf("metrics.db schema %d is newer than this binary (%d); update sh-agent: %w", have, len(migrations), ErrNewerSchema)
+		return fmt.Errorf("metrics.db schema %d is newer than this binary (%d); update fyr: %w", have, len(migrations), ErrNewerSchema)
 	}
 	for i := have; i < len(migrations); i++ {
 		tx, err := s.db.Begin()

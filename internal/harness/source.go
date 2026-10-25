@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	styrman "github.com/kesokaj/styrman-harness"
+	fyr "github.com/kesokaj/fyr"
 )
 
 // Source is where the harness's own files are read from: a tree on disk (a
@@ -40,7 +40,7 @@ func DirSource(dir string) Source {
 // EmbeddedSource reads the files built into this binary, which is the
 // release named by version.
 func EmbeddedSource(version string) Source {
-	return Source{FS: styrman.Files, Version: version}
+	return Source{FS: fyr.Files, Version: version}
 }
 
 // EmbeddedPrefix marks a manifest's repo value written by an install from the

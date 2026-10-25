@@ -13,12 +13,12 @@
 #                      KIT_CLONE; every pattern must match its file (optional)
 #   KIT_ASSERT_COMMIT  one commit SHA (7 to 40 hex digits, never a ref name)
 #                      that must be in the clone's history (optional)
-#   KIT_BIN            the sh-agent build to wrap (default: a fresh `go build` of the
+#   KIT_BIN            the fyr build to wrap (default: a fresh `go build` of the
 #                      harness checkout this file lives in, run from any cwd)
 # Effects: asserts the fixture, refuses a clone that sits inside another git
-# checkout (BUG-106), lists ~/.config/sh-agent before the run and traps EXIT to
+# checkout (BUG-106), lists ~/.config/fyr before the run and traps EXIT to
 # list it after (BUG-107, BUG-123), and puts a wrapper first on PATH that pins
-# `--home "$KIT_HOME"` on every sh-agent call the agent makes (BUG-107). At exit
+# `--home "$KIT_HOME"` on every fyr call the agent makes (BUG-107). At exit
 # it also fails the run when any credential is still in KIT_HOME (BUG-160): a
 # kit deletes what it copied before it ends, and this check proves it did.
 # The exit check (processes left by the run, the real config, credentials) is that EXIT trap and nothing else: a kit never sets an EXIT
@@ -81,7 +81,7 @@ if [ -n "${KIT_ASSERT_COMMIT:-}" ]; then
   esac
   git -C "$KIT_CLONE" merge-base --is-ancestor "$kit_full" HEAD 2>/dev/null || { echo "kit: commit $KIT_ASSERT_COMMIT not in the clone's log" >&2; exit 2; }
 fi
-# The real ~/.config/sh-agent before and after: a run that changes a name or
+# The real ~/.config/fyr before and after: a run that changes a name or
 # a file's contents there fails the kit. The fingerprint covers names and
 # contents, so an appended line to an existing file changes it; a names-only
 # listing did not (docs-lens review 2026-10-01). It does not see: a rewrite
@@ -90,7 +90,7 @@ fi
 # a subdirectory that is itself a symlink.
 # The real home is remembered here: a kit overrides HOME for the CLI it runs,
 # and the exit check must still look at the operator's own directory.
-kit_real_config="$HOME/.config/sh-agent"
+kit_real_config="$HOME/.config/fyr"
 # Both tolerate a home that has no such directory yet: under pipefail a
 # failing `ls` ended the preamble with status 2 and no message (BUG-158).
 # The fingerprint is every path plus a checksum of every file, by tools macOS
@@ -115,8 +115,8 @@ kit_before=$(kit_fingerprint)
 # own check errors). By NAME: the kinds a kit copies or a CLI logs in to. By
 # CONTENT: a token or private key a CLI wrote anywhere — Antigravity dumped
 # GH_TOKEN into a terminal log — read in binary files too (a conversation
-# database), except executables: the installed sh-agent carries the report
-# redaction patterns as text, as does the kit's own bin/sh-agent.real. A link
+# database), except executables: the installed fyr carries the
+# redaction patterns as text, as does the kit's own bin/fyr.real. A link
 # to a file is read through; a link to a directory is reported, never walked
 # (it could lead anywhere on the machine); KIT_HOME itself may be a link.
 # Paths only, never the text.
@@ -214,7 +214,7 @@ kit_on_exit() {
   kit_process_leftovers || failed=1
   echo "kit: real $kit_real_config after the run:"; kit_list_real_config
   if [ "$kit_before" != "$(kit_fingerprint)" ]; then
-    echo "kit: FAIL the real ~/.config/sh-agent changed during the run (BUG-107, BUG-123); the run does not count" >&2
+    echo "kit: FAIL the real ~/.config/fyr changed during the run (BUG-107, BUG-123); the run does not count" >&2
     failed=1
   else
     # Said in so many words: a run whose output holds neither this line nor
@@ -233,18 +233,18 @@ kit_on_exit() {
   exit "$rc"
 }
 trap kit_on_exit EXIT
-# A wrapper first on PATH pins --home for every sh-agent call the agent makes.
+# A wrapper first on PATH pins --home for every fyr call the agent makes.
 mkdir -p "$KIT_HOME/bin"
 # Built fresh every run (the build cache makes it cheap): a stale binary from
 # an earlier kit measured the wrong code (docs-lens review 2026-10-01). A kit
 # that must use a given binary sets KIT_BIN.
 if [ -z "${KIT_BIN:-}" ]; then
-  KIT_BIN="$KIT_HOME/bin/sh-agent.real"
+  KIT_BIN="$KIT_HOME/bin/fyr.real"
   kit_repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-  go build -C "$kit_repo" -o "$KIT_BIN" ./cmd/sh-agent || { echo "kit: go build of sh-agent in $kit_repo failed; set KIT_BIN to a build" >&2; exit 2; }
+  go build -C "$kit_repo" -o "$KIT_BIN" ./cmd/fyr || { echo "kit: go build of fyr in $kit_repo failed; set KIT_BIN to a build" >&2; exit 2; }
 fi
-printf '#!/usr/bin/env bash\nexec %q "$1" --home %q "${@:2}"\n' "$KIT_BIN" "$KIT_HOME" > "$KIT_HOME/bin/sh-agent"
-chmod 0755 "$KIT_HOME/bin/sh-agent"
+printf '#!/usr/bin/env bash\nexec %q "$1" --home %q "${@:2}"\n' "$KIT_BIN" "$KIT_HOME" > "$KIT_HOME/bin/fyr"
+chmod 0755 "$KIT_HOME/bin/fyr"
 export PATH="$KIT_HOME/bin:$PATH"
 hash -r
-echo "kit: preamble ok — clone $KIT_CLONE, home $KIT_HOME, sh-agent wrapper first on PATH"
+echo "kit: preamble ok — clone $KIT_CLONE, home $KIT_HOME, fyr wrapper first on PATH"

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func gitT(t *testing.T, dir string, when time.Time, args ...string) string {
@@ -55,8 +57,8 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 	gitT(t, root, at(14, 0), "add", ".agents")
 	gitT(t, root, at(14, 0), "commit", "-q", "-m", "bug record") // after every window
 
-	os.MkdirAll(filepath.Join(home, ".config", "sh-agent"), 0o700)
-	os.WriteFile(filepath.Join(home, ".config", "sh-agent", "feedback.jsonl"),
+	os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)
+	os.WriteFile(filepath.Join(home, harness.StateDir, "feedback.jsonl"),
 		[]byte(`{"ts":"2026-10-08T10:05:00Z","project":"`+root+`","rule":"x"}`+"\n"+`{"ts":"2026-10-08T15:00:00Z","project":"`+root+`"}`+"\n"), 0o600)
 
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))

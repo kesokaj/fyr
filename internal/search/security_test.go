@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // Findings of reviews/2026-09-29-security-search-index.md, one test each.
@@ -87,12 +89,12 @@ func TestGlobalDirIsPrivate(t *testing.T) {
 	commitAll(t, root, "trail")
 	home := t.TempDir()
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"plan"}})
-	fi, err := os.Stat(filepath.Join(home, ".config", "sh-agent"))
+	fi, err := os.Stat(filepath.Join(home, harness.StateDir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fi.Mode().Perm() != 0o700 {
-		t.Errorf("~/.config/sh-agent created %04o, want 0700", fi.Mode().Perm())
+		t.Errorf("~/.config/fyr created %04o, want 0700", fi.Mode().Perm())
 	}
 }
 
@@ -256,8 +258,8 @@ func TestRefuseSymlinkedDatabase(t *testing.T) {
 	home := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "victim")
 	os.WriteFile(outside, nil, 0o644)
-	os.MkdirAll(filepath.Join(home, ".config", "sh-agent"), 0o700)
-	if err := os.Symlink(outside, filepath.Join(home, ".config", "sh-agent", "search.db")); err != nil {
+	os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)
+	if err := os.Symlink(outside, filepath.Join(home, harness.StateDir, "search.db")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"x"}}); err == nil || !strings.Contains(err.Error(), "not a regular file") {

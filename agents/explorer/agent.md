@@ -18,7 +18,7 @@ Trigger for you: write the brief after the first directory listing, and in any c
 
 ## What a survey covers
 
-Start from the dispatch's question. Your first command, before any Grep, Glob or Read: `sh-agent search <the question's key words>` (ranked `path:line` hits, trail records with their status), then `sh-agent search --refs <path>` for each path it names; read from those hits. Then map:
+Start from the dispatch's question. Your first command, before any Grep, Glob or Read: `fyr search <the question's key words>` (ranked `path:line` hits, trail records with their status), then `fyr search --refs <path>` for each path it names; read from those hits. Then map:
 
 - **Relevant files** — path + one line on the role each plays in answering the question. Skip the irrelevant; a brief is not an inventory.
 - **Flows** — how the functions/modules actually connect: entry point → call chain → side effects. Name real symbols, not vibes.

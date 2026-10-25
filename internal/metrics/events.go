@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // closeSlack is how long after a session's last step its handoff and commit
@@ -254,7 +255,7 @@ func readSmall(p string) string {
 // and the entry's ts as its reference. Nothing else is taken from a line.
 func readFeedback(home string) map[string][]stamped {
 	out := map[string][]stamped{}
-	f, err := os.Open(filepath.Join(home, ".config", "sh-agent", "feedback.jsonl"))
+	f, err := os.Open(filepath.Join(home, harness.StateDir, "feedback.jsonl"))
 	if err != nil {
 		return out
 	}

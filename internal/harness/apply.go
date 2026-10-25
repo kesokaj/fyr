@@ -33,7 +33,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 	counts := map[string]int{}
 	var manifest []string
 	// On a failed write the manifest is saved once as (every old entry still
-	// on disk) ∪ (files written or seen so far), so nothing sh-agent wrote
+	// on disk) ∪ (files written or seen so far), so nothing fyr wrote
 	// is left unlisted for uninstall (audit 2026-09-30, IN2).
 	saveOnError := func(werr error) error {
 		if dryRun {
@@ -64,7 +64,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		// 2026-09-30, IN3; security review of the fix).
 		if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
 			counts["kept"]++
-			fmt.Fprintf(out, "keep    ~/%s (a symlink; sh-agent never writes through a link)\n", f.Rel)
+			fmt.Fprintf(out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", f.Rel)
 			continue
 		}
 		existing, readErr := os.ReadFile(dest)
@@ -72,7 +72,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		case readErr == nil && bytes.Equal(existing, f.Data):
 			counts["unchanged"]++
 			// Same bytes is not the same file: a deployed copy that someone
-			// (or an older sh-agent) left group- or world-writable stays that
+			// (or an older fyr) left group- or world-writable stays that
 			// way forever on this branch, because nothing rewrites it. The
 			// machine that HAS the problem is exactly the one that never gets
 			// the fix (security review of v1.0.0, round 2, measured on a real
@@ -129,7 +129,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		dest := filepath.Join(home, rel)
 		fi, err := os.Lstat(dest)
 		if err != nil || fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel) {
-			// Gone, or the operator's link now: not sh-agent's to remove.
+			// Gone, or the operator's link now: not fyr's to remove.
 			continue
 		}
 		counts["removed"]++
@@ -188,7 +188,7 @@ type Entry struct {
 	State string // ok | missing | differs | foreign | stale
 }
 
-// Report is what `sh-agent status` prints.
+// Report is what `fyr status` prints.
 type Report struct {
 	Entries []Entry
 	Counts  map[string]int
@@ -277,7 +277,7 @@ func Diff(home string, files []File, out io.Writer) error {
 // system diff; the temp file goes on every path, including a failed write
 // (reviews of the 2026-09-18 audit).
 func diffOne(f File, dest, tmpDir string, out io.Writer) error {
-	tmp, err := os.CreateTemp(tmpDir, "sh-agent-diff-*")
+	tmp, err := os.CreateTemp(tmpDir, "fyr-diff-*")
 	if err != nil {
 		return err
 	}
@@ -308,7 +308,7 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 		return err
 	}
 	if !found {
-		fmt.Fprintln(out, "nothing installed (no manifest at ~/.config/sh-agent/state.json)")
+		fmt.Fprintln(out, "nothing installed (no manifest at ~/.config/fyr/state.json)")
 		return nil
 	}
 	removed := 0
@@ -320,8 +320,8 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 		}
 		if fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel) {
 			// An old manifest may name a path that is the operator's link
-			// now, or sits under one: never sh-agent's to remove (IN3).
-			fmt.Fprintf(out, "keep    ~/%s (a symlink; sh-agent never writes through a link)\n", rel)
+			// now, or sits under one: never fyr's to remove (IN3).
+			fmt.Fprintf(out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", rel)
 			continue
 		}
 		removed++
@@ -346,13 +346,13 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 }
 
 // WriteAtomic writes through a temp file and rename, so a half-written
-// context file is never visible and a running sh-agent binary can be
+// context file is never visible and a running fyr binary can be
 // replaced on Linux, where opening it for writing would fail with ETXTBSY.
 func WriteAtomic(dest string, data []byte, mode fs.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".sh-agent-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".fyr-*")
 	if err != nil {
 		return err
 	}

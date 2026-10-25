@@ -23,7 +23,7 @@ From the global context § Hard rules: "`REQUIREMENTS.md` is immutable without t
 
 ## Step 1: Read what exists
 
-`REQUIREMENTS.md` as it is (a fresh scaffold holds the init-project skill's template, `skills/init-project/assets/REQUIREMENTS.md` in the harness checkout); `README.md`, `ROADMAP.md`, the newest handoff, `<docs-root>/architecture/DECISIONS.md` and `sh-agent search --open` — a requirement often already lives as an ADR, a rule or a test and only needs tracing. List what is already enforced and where; those become items with their "enforced by" filled in.
+`REQUIREMENTS.md` as it is (a fresh scaffold holds the init-project skill's template, `skills/init-project/assets/REQUIREMENTS.md` in the harness checkout); `README.md`, `ROADMAP.md`, the newest handoff, `<docs-root>/architecture/DECISIONS.md` and `fyr search --open` — a requirement often already lives as an ADR, a rule or a test and only needs tracing. List what is already enforced and where; those become items with their "enforced by" filled in.
 
 ## Step 2: Elicit the gaps
 

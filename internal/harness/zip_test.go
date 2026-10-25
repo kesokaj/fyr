@@ -85,7 +85,7 @@ func TestUnpackZipGitHubTopFolder(t *testing.T) {
 	entries := harnessEntries(t, "styrman-harness-main/")
 	entries = append(entries,
 		zipEntry{name: "styrman-harness-main/README.md", body: "readme\n"},
-		zipEntry{name: "styrman-harness-main/cmd/sh-agent/main.go", body: "package main\n"},
+		zipEntry{name: "styrman-harness-main/cmd/fyr/main.go", body: "package main\n"},
 		// This repository's own tracked symlink: GitHub's zip keeps it as a
 		// symlink entry, and it sits outside the five trees (D6).
 		zipEntry{name: "styrman-harness-main/.agents/skills", body: "../skills", mode: fs.ModeSymlink | 0o777},
@@ -268,7 +268,7 @@ func TestInstallRecordsZipOrigin(t *testing.T) {
 }
 
 func TestResolveSourceSkipsZipManifest(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	if _, err := ResolveSource("", t.TempDir(), ""); err == nil {
@@ -347,7 +347,7 @@ func TestUnpackZipLateRefusalCreatesNoParent(t *testing.T) {
 			zp := filepath.Join(t.TempDir(), "late.zip")
 			writeZip(t, zp, append(harnessEntries(t, "top/"), c.entry))
 			home := t.TempDir()
-			parent := filepath.Join(home, ".config", "sh-agent")
+			parent := filepath.Join(home, StateDir)
 			if _, _, err := UnpackZip(zp, parent, nil); err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err = %v, want the %q refusal", err, c.want)
 			}

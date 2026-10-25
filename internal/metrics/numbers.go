@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // Snapshot opens a read-only copy of the store at path, made in tmp: a dry
@@ -27,7 +27,7 @@ func Snapshot(path, tmp string) (*Store, error) {
 	}
 	if v != fmt.Sprint(len(migrations)) {
 		db.Close()
-		return nil, fmt.Errorf("metrics.db schema %s, this binary reads %d; run sh-agent metrics ingest first", v, len(migrations))
+		return nil, fmt.Errorf("metrics.db schema %s, this binary reads %d; run fyr metrics ingest first", v, len(migrations))
 	}
 	return s, nil
 }

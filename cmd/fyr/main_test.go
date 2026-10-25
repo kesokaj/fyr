@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // allFlags is a FlagSet holding the global flags and every verb's flags, for
@@ -178,7 +178,7 @@ func TestKnownCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	if err := knownCheckout("", home, repo); err != nil {
 		t.Errorf("first install (no manifest) must pass: %v", err)
 	}
@@ -195,9 +195,9 @@ func TestKnownCheckout(t *testing.T) {
 	if err := knownCheckout(other, home, other); err != nil {
 		t.Errorf("explicit --repo must pass: %v", err)
 	}
-	t.Setenv("SH_AGENT_REPO", other)
+	t.Setenv("FYR_REPO", other)
 	if err := knownCheckout("", home, other); err != nil {
-		t.Errorf("$SH_AGENT_REPO must pass: %v", err)
+		t.Errorf("$FYR_REPO must pass: %v", err)
 	}
 }
 
@@ -232,7 +232,7 @@ func TestDryRunNeverBuilds(t *testing.T) {
 			t.Errorf("dry run wrote ~/%s: stat err = %v", rel, err)
 		}
 	}
-	if strings.Contains(out.String(), "building sh-agent from") {
+	if strings.Contains(out.String(), "building fyr from") {
 		t.Errorf("dry run ran a build:\n%s", out.String())
 	}
 }
@@ -307,7 +307,7 @@ func TestPlainCopyNeverRebuilds(t *testing.T) {
 	if err := run([]string{"install", "--repo", copyDir, "--home", home}, &out); err != nil {
 		t.Fatalf("install from a plain copy: %v\n%s", err, out.String())
 	}
-	for _, never := range []string{"building sh-agent from", "would be rebuilt", "warning: go is not on PATH"} {
+	for _, never := range []string{"building fyr from", "would be rebuilt", "warning: go is not on PATH"} {
 		if strings.Contains(out.String(), never) {
 			t.Errorf("install from a plain copy printed %q:\n%s", never, out.String())
 		}
@@ -393,7 +393,7 @@ func gitCleanEnv() []string {
 }
 
 // gitFixture builds a real checkout with an upstream: a bare origin, a clone
-// with a trivial cmd/sh-agent that records that it ran, and a first commit
+// with a trivial cmd/fyr that records that it ran, and a first commit
 // pushed. Behind() needs a real remote, and Reinstall() needs something to
 // build, so the guard under test is exercised on the path it actually
 // guards. Returns the work tree and the marker path the built binary writes.
@@ -434,7 +434,7 @@ func gitFixture(t *testing.T) (repo, marker string) {
 	}
 	write("go.mod", "module fixture\n\ngo 1.24\n")
 	// Stands in for the real installer: records that an install ran at all.
-	write("cmd/sh-agent/main.go", "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.WriteFile(os.Getenv(\"FIXTURE_MARKER\"), []byte(\"installed\"), 0o644)\n}\n")
+	write("cmd/fyr/main.go", "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.WriteFile(os.Getenv(\"FIXTURE_MARKER\"), []byte(\"installed\"), 0o644)\n}\n")
 	write("context/AGENTS.md", "# AGENTS.md\n")
 	run(repo, "git", "add", "-A")
 	run(repo, "git", "commit", "--quiet", "-m", "fixture")
@@ -681,7 +681,7 @@ func TestUpdateRefusesWhenStatusIsUnknown(t *testing.T) {
 // An embedded install's manifest records a release, not a path: knownCheckout
 // says so and never resolves it as one (security review 2026-09-17).
 func TestKnownCheckoutRefusesEmbeddedManifest(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	home := t.TempDir()
 	if err := harness.SaveState(home, harness.State{Repo: harness.EmbeddedPrefix + "v1.2.3"}); err != nil {
 		t.Fatal(err)
@@ -727,7 +727,7 @@ func TestReleaseFromInfo(t *testing.T) {
 // per-command table in the release-binary plan (D13, D14, D15, D17). A
 // development build in the same place keeps today's error.
 func TestReleaseBinaryWithoutCheckout(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Setenv(harness.ChildEnv, "")
 	t.Chdir(t.TempDir())
 	home := t.TempDir()
@@ -832,7 +832,7 @@ func TestReleaseBinaryWithoutCheckout(t *testing.T) {
 // reports a newer release and exits 2, the same code a checkout that is behind
 // gives (plan § Per command with an embedded source).
 func TestReleaseBinaryUpdateCheckExitsTwo(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Chdir(t.TempDir())
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
@@ -879,15 +879,15 @@ func TestHarnessMap(t *testing.T) {
 	}
 	block, _, _ = strings.Cut(block, "```")
 	seen := map[string]bool{}
-	for _, m := range regexp.MustCompile(`sh-agent ([a-z]+)`).FindAllStringSubmatch(block, -1) {
+	for _, m := range regexp.MustCompile(`fyr ([a-z]+)`).FindAllStringSubmatch(block, -1) {
 		seen[m[1]] = true
 		if !strings.Contains(usage, "\n  "+m[1]+" ") {
-			t.Errorf("the map names `sh-agent %s`, which the binary does not have", m[1])
+			t.Errorf("the map names `fyr %s`, which the binary does not have", m[1])
 		}
 	}
 	for _, verb := range []string{"install", "update", "dream"} {
 		if !seen[verb] {
-			t.Errorf("the map does not show `sh-agent %s`", verb)
+			t.Errorf("the map does not show `fyr %s`", verb)
 		}
 	}
 	if seen["report"] || strings.Contains(block, "styrman-harness-feedback") {
@@ -899,7 +899,7 @@ func TestHarnessMap(t *testing.T) {
 }
 
 // A verified release binary was installed to /usr/local/bin and then ignored,
-// because two earlier PATH entries held other sh-agents; install said it
+// because two earlier PATH entries held other fyr binaries; install said it
 // succeeded and status said drift none, both about a binary that was not the
 // one the shell ran (BUG-078). install warns and status carries a `shadowed`
 // line, and both go quiet when the earlier entry is a link to the same file.
@@ -912,9 +912,9 @@ func TestInstallAndStatusNameAPathShadow(t *testing.T) {
 	home := t.TempDir()
 	installedBin := filepath.Join(home, harness.BinPath)
 
-	// An earlier PATH entry holding a different sh-agent.
+	// An earlier PATH entry holding a different fyr.
 	earlier := t.TempDir()
-	other := filepath.Join(earlier, "sh-agent")
+	other := filepath.Join(earlier, "fyr")
 	if err := os.WriteFile(other, []byte("#!/bin/sh\necho not-the-installed-one\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -924,7 +924,7 @@ func TestInstallAndStatusNameAPathShadow(t *testing.T) {
 	if err := run([]string{"install", "--repo", repo, "--home", home}, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
-	wantInstall := "warning: " + other + " comes before " + installedBin + " on PATH, so `sh-agent` runs that one"
+	wantInstall := "warning: " + other + " comes before " + installedBin + " on PATH, so `fyr` runs that one"
 	if !strings.Contains(out.String(), wantInstall) {
 		t.Errorf("install missing %q:\n%s", wantInstall, out.String())
 	}
@@ -933,7 +933,7 @@ func TestInstallAndStatusNameAPathShadow(t *testing.T) {
 	if err := run([]string{"status", "--repo", repo, "--home", home}, &out); err != nil {
 		t.Fatalf("status: %v\n%s", err, out.String())
 	}
-	wantStatus := "shadowed   " + other + " comes first on PATH, so `sh-agent` runs that, not the binary above"
+	wantStatus := "shadowed   " + other + " comes first on PATH, so `fyr` runs that, not the binary above"
 	if !strings.Contains(out.String(), wantStatus) {
 		t.Errorf("status missing %q:\n%s", wantStatus, out.String())
 	}
@@ -969,7 +969,7 @@ func TestOffPathInstallNamesWhatAnswersAndDoesNotWarnTwice(t *testing.T) {
 	binDir := filepath.Join(home, filepath.Dir(harness.BinPath))
 
 	elsewhere := t.TempDir()
-	other := filepath.Join(elsewhere, "sh-agent")
+	other := filepath.Join(elsewhere, "fyr")
 	if err := os.WriteFile(other, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -979,7 +979,7 @@ func TestOffPathInstallNamesWhatAnswersAndDoesNotWarnTwice(t *testing.T) {
 	if err := run([]string{"install", "--repo", repo, "--home", home}, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
-	want := "note: " + binDir + " is not on PATH, so `sh-agent` runs " + other + " instead; put " + binDir + " ahead of it"
+	want := "note: " + binDir + " is not on PATH, so `fyr` runs " + other + " instead; put " + binDir + " ahead of it"
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("install missing %q:\n%s", want, out.String())
 	}
@@ -1008,15 +1008,15 @@ func TestOffPathInstallNamesWhatAnswersAndDoesNotWarnTwice(t *testing.T) {
 	}
 	// The bin-dir phrases only: PATH here is one directory, so install rightly
 	// warns that `go` is not on it, and that warning is not what this pins.
-	for _, claim := range []string{"add it so `sh-agent` is available everywhere", "so `sh-agent` runs", "comes before"} {
+	for _, claim := range []string{"add it so `fyr` is available everywhere", "so `fyr` runs", "comes before"} {
 		if strings.Contains(out.String(), claim) {
 			t.Errorf("install --dry-run made a PATH claim about a binary it did not write (%q):\n%s", claim, out.String())
 		}
 	}
 }
 
-// `update` replaces ~/.local/bin/sh-agent and nothing else. On devbox it was
-// run by /usr/local/bin/sh-agent (v1.2.1), which stayed v1.2.1 while
+// `update` replaces ~/.local/bin/fyr and nothing else. On devbox it was
+// run by /usr/local/bin/fyr (v1.2.1), which stayed v1.2.1 while
 // ~/.local/bin became v1.2.2, and bash's command hash kept running the old
 // file (BUG-079). UpdateFromRelease prints the note itself when it REPLACED
 // the binary (its positive case is beside it, in internal/harness). An update
@@ -1025,7 +1025,7 @@ func TestOffPathInstallNamesWhatAnswersAndDoesNotWarnTwice(t *testing.T) {
 // older-release branch the running file is the newer one (security review
 // 2026-09-18, round 2).
 func TestUpToDateUpdateSaysNothingAboutTheRunningBinary(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Chdir(t.TempDir())
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
@@ -1036,14 +1036,14 @@ func TestUpToDateUpdateSaysNothingAboutTheRunningBinary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ghDir, "gh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// A PATH directory whose sh-agent IS this process's executable — the
-	// shape of /usr/local/bin/sh-agent on devbox.
+	// A PATH directory whose fyr IS this process's executable — the
+	// shape of /usr/local/bin/fyr on devbox.
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	elsewhere := t.TempDir()
-	if err := os.Symlink(self, filepath.Join(elsewhere, "sh-agent")); err != nil {
+	if err := os.Symlink(self, filepath.Join(elsewhere, "fyr")); err != nil {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
@@ -1074,7 +1074,7 @@ func TestUpToDateUpdateSaysNothingAboutTheRunningBinary(t *testing.T) {
 }
 
 // The checkout path of update has the same shape: Reinstall writes
-// ~/.local/bin/sh-agent, and the process that ran update — a copy at a
+// ~/.local/bin/fyr, and the process that ran update — a copy at a
 // system path, or a `go run` build — is not that file (BUG-079).
 func TestCheckoutUpdateNamesTheBinaryItRanFrom(t *testing.T) {
 	repo, _ := gitFixture(t)
@@ -1084,7 +1084,7 @@ func TestCheckoutUpdateNamesTheBinaryItRanFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	elsewhere := t.TempDir()
-	byName := filepath.Join(elsewhere, "sh-agent")
+	byName := filepath.Join(elsewhere, "fyr")
 	if err := os.Symlink(self, byName); err != nil {
 		t.Fatal(err)
 	}
@@ -1093,7 +1093,7 @@ func TestCheckoutUpdateNamesTheBinaryItRanFrom(t *testing.T) {
 	t.Setenv("PATH", os.Getenv("PATH")+string(os.PathListSeparator)+elsewhere)
 	t.Setenv("HOME", home) // the note is for the real home only
 	installed := filepath.Join(home, harness.BinPath)
-	// The fixture's built binary writes a marker, not ~/.local/bin/sh-agent;
+	// The fixture's built binary writes a marker, not ~/.local/bin/fyr;
 	// the note requires an installed file to be behind, so plant one — a
 	// different file from this process, as after any real install.
 	if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
@@ -1218,7 +1218,7 @@ func TestAdoptOnPlainCopySaysWhereToCommit(t *testing.T) {
 }
 
 func TestAdoptOnReleaseBinaryNamesTheAlternative(t *testing.T) {
-	t.Setenv("SH_AGENT_REPO", "")
+	t.Setenv("FYR_REPO", "")
 	t.Chdir(t.TempDir())
 	defer func(v string) { version = v }(version)
 	version = "v9.9.9"
@@ -1265,7 +1265,7 @@ func TestSyncIsInstall(t *testing.T) {
 	if !strings.Contains(out.String(), "files managed") {
 		t.Errorf("sync did not install:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "sh-agent", "state.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "state.json")); err != nil {
 		t.Errorf("sync wrote no manifest: %v", err)
 	}
 }
@@ -1305,7 +1305,7 @@ func TestRelativeHomeResolvesAgainstTheInvokingDirectory(t *testing.T) {
 	if err := run([]string{"install", "--repo", repo, "--home", "rel-home"}, &out); err != nil {
 		t.Fatalf("install: %v\n%s", err, out.String())
 	}
-	if _, err := os.Stat(filepath.Join(want, ".config", "sh-agent", "state.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(want, harness.StateDir, "state.json")); err != nil {
 		t.Errorf("the install did not land under the invoking directory's rel-home: %v\n%s", err, out.String())
 	}
 	if _, err := os.Stat(filepath.Join(repo, "rel-home")); err == nil {

@@ -18,7 +18,7 @@ import (
 // symlinked directory) made a lexical "on PATH" disagree with the file
 // identity and hid a real shadow. One identity, one walk.
 //
-// An empty shadows result with onPath true means an unqualified `sh-agent`
+// An empty shadows result with onPath true means an unqualified `fyr`
 // runs the binary the install just wrote; anything else means a shadow runs
 // instead while every command reports success and `status` reports drift
 // none, since drift is measured against the source the running binary
@@ -79,7 +79,7 @@ func executableAt(p string) (os.FileInfo, bool) {
 // just updated a file it is not running, and a shell that resolved the name
 // to that path keeps running it whatever PATH says, because the shell caches
 // the lookup (BUG-079). A process no PATH entry reaches by name — a test
-// binary, a `go run` build — is nobody's `sh-agent` and is not reported.
+// binary, a `go run` build — is nobody's `fyr` and is not reported.
 func RunningElsewhere(pathEnv, binPath, exe string) (string, bool) {
 	self, err := os.Stat(exe)
 	if err != nil {
@@ -102,7 +102,7 @@ func RunningElsewhere(pathEnv, binPath, exe string) (string, bool) {
 // NoteRunningElsewhere says, after an update wrote the installed binary, when
 // the process that ran the update is not that binary and a shell can reach the
 // process's file by name: that file stays as it is, and a shell that already
-// resolved `sh-agent` to it keeps running it (BUG-079). Called only after a
+// resolved `fyr` to it keeps running it (BUG-079). Called only after a
 // binary was actually written: an up-to-date or older-release run installs
 // nothing, and on the older-release branch the running file is the NEWER one
 // (security review 2026-09-18).
@@ -136,5 +136,5 @@ func NoteRunningElsewhere(home string, out io.Writer) {
 	if info, err := os.Stat(filepath.Dir(from)); err == nil && !ownedByCaller(info) {
 		remedy = "it is not yours to relink — remove it, with the rights that own its directory, or leave it and run the installed one by its path"
 	}
-	fmt.Fprintf(out, "note: this update ran from %s, not from the installed binary %s; update replaces only the installed one, so the file it ran from stays as it is. A shell that has already resolved `sh-agent` to that path keeps running it until `hash -r` (bash) or `rehash` (zsh); %s\n", from, installed, remedy)
+	fmt.Fprintf(out, "note: this update ran from %s, not from the installed binary %s; update replaces only the installed one, so the file it ran from stays as it is. A shell that has already resolved `fyr` to that path keeps running it until `hash -r` (bash) or `rehash` (zsh); %s\n", from, installed, remedy)
 }

@@ -1,5 +1,5 @@
 // Package redact removes credentials from text before it leaves the machine:
-// `sh-agent dream` passes every project input through it before the prompt
+// `fyr dream` passes every project input through it before the prompt
 // goes to the model of the CLI it runs (R7, ADR-062). It is the one place
 // the needle lists live.
 package redact
@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const redactedValue = "[redacted by sh-agent]"
+const redactedValue = "[redacted by fyr]"
 
 // Needles LOCATE a credential; they never define how much is removed. AKIA is
 // a prefix and a PEM body carries no needle at all, so replacing the matched
@@ -279,7 +279,7 @@ func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
 			end, closed := blockEnd(lines, i)
 			rec := redaction{Line: i + 1, Pattern: "-----BEGIN", Lines: end - i + 1, Unterminated: !closed}
 			last := lines[end]
-			out.WriteString(marker(fmt.Sprintf("[redacted by sh-agent: %d lines]", rec.Lines), jsonl))
+			out.WriteString(marker(fmt.Sprintf("[redacted by fyr: %d lines]", rec.Lines), jsonl))
 			out.WriteString(last[len(strings.TrimSuffix(last, "\n")):])
 			recs = append(recs, rec)
 			i = end
@@ -300,7 +300,7 @@ func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
 }
 
 // Redact removes from text every line that carries a needle and every key
-// block, for `sh-agent dream`, which sends project text to a CLI; clean text
+// block, for `fyr dream`, which sends project text to a CLI; clean text
 // comes back byte-identical.
 func Redact(text string) string {
 	out, _ := redactLines([]byte(text), false)
@@ -308,7 +308,7 @@ func Redact(text string) string {
 }
 
 // RedactJSONL is Redact for JSON Lines: a needle hidden behind a JSON escape
-// (`\u003d`, `\"`) is matched on the decoded line, as `sh-agent dream`
+// (`\u003d`, `\"`) is matched on the decoded line, as `fyr dream`
 // reads feedback.jsonl and a transcript (security review of the v2.0.0 gate).
 func RedactJSONL(text string) string {
 	out, _ := redactLines([]byte(text), true)

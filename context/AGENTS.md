@@ -1,12 +1,12 @@
 # AGENTS.md — global agent context
 
-> Global context on the [agents.md](https://agents.md) standard, deployed by `sh-agent` to the Antigravity CLI; a project's own `AGENTS.md` overrides it. No hooks, gates, or scripts stand behind these rules; they hold because they are read. `docs/` in this file means the project's docs root, `.agents/docs/`.
+> Global context on the [agents.md](https://agents.md) standard, deployed by `fyr` to the Antigravity CLI; a project's own `AGENTS.md` overrides it. No hooks, gates, or scripts stand behind these rules; they hold because they are read. `docs/` in this file means the project's docs root, `.agents/docs/`.
 
 Operator: fullstack software engineer, Go + TypeScript, macOS (Apple Silicon) or Linux. They decide every architectural choice themselves and want to be asked often. A reply that reports, proposes or asks opens with a one-line explanation and a one-line recommendation, then ONE NUMBERED TABLE, highest priority first — `#`, the problem in one line, your recommendation (`fix`, `defer`, `strike`, or the solution in a few words) — then how to proceed; each item's full version in one file under `.agents/scratch/`, shown only when asked for by number. Nothing proposed runs until they approve it in their own turn (`go all approved`, `go approved 1-3, skip 5`), and only that; a question about an item gets an answer, never work. A direct instruction in the operator's own turn is its own approval; unattended runs and subagents follow their dispatch.
 
 ## Resume, then checkpoint
 
-Start every session in an existing project by reading, in order: `AGENTS.md` → newest `docs/handoffs/` → `ROADMAP.md` "Now" → the active plan in `docs/plans/` (unticked boxes are the remaining work; `recon-*`/`research-*` files are briefs) → three newest `docs/changes/` → `docs/bugs/INDEX.md` → `TODO.md` → `sh-agent search --open` → `sh-agent memory show`. A verb that refuses because the project is not scaffolded is reported, then `/init-project` offered. Open `REQUIREMENTS.md` before any significant change. State status and next step before editing. Newest handoff wins on conflict, except an open plan that postdates it; name missing files; never guess intent.
+Start every session in an existing project by reading, in order: `AGENTS.md` → newest `docs/handoffs/` → `ROADMAP.md` "Now" → the active plan in `docs/plans/` (unticked boxes are the remaining work; `recon-*`/`research-*` files are briefs) → three newest `docs/changes/` → `docs/bugs/INDEX.md` → `TODO.md` → `fyr search --open` → `fyr memory show`. A verb that refuses because the project is not scaffolded is reported, then `/init-project` offered. Open `REQUIREMENTS.md` before any significant change. State status and next step before editing. Newest handoff wins on conflict, except an open plan that postdates it; name missing files; never guess intent.
 
 Checkpoints are what resume reads, written at fixed moments: after every plan phase (Checkpoint box, `changes/` entry, commit, push); before the context gets long or the session may end (`/handoff`); after a structural decision (ADR); after an escaped failure (bug record). Progress that lives only in chat or a compaction summary is lost: write it to the trail file that owns it.
 
@@ -27,7 +27,7 @@ Once per task over the whole change; the detail of an agent's reply lives in its
 - **Feature** (new behavior or surface, any design question): load the `feature` skill and work under its gates.
 - **Bug** (anything broken): load the `bug` skill.
 - **Unscaffolded project** (no `docs/` root): run Trivial and Task only — no verifier log, no changes entry, no handoff; commit and push close the task; offer `/init-project` once per session.
-- **Search first:** `sh-agent search <words>` ranks files and trail records; `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep stays for exact strings, regex, past revisions.
+- **Search first:** `fyr search <words>` ranks files and trail records; `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep stays for exact strings, regex, past revisions.
 - A print-mode run (`agy -p`) ends only after every dispatched agent's artifact is on disk: never end the turn to await a subagent or a background command — give a long command a large `WaitMsBeforeAsync`, else poll `manage_subagents`/`manage_task` `list`, `sleep 30` between, until idle (else: `handoff` § Usage).
 
 Every failure that reached a commit, a deploy or the user gets a number: `docs/bugs/BUG-NNN-*.md` with a prevention rule and the `INDEX.md` row, updated when a fix lands. A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `.agents/rules/` file, the project's `AGENTS.md` — and its row moves to the Graduated table.
@@ -36,11 +36,11 @@ Skill = knowledge the main thread loads while working. Subagent = judgement inde
 
 ## Global vs project
 
-Global is this harness, deployed by `sh-agent install`; a skill found elsewhere goes into the harness checkout's `skills/` (`sh-agent adopt <skill>`), then `sh-agent install`, never only into a vendor directory. Project is `.agents/{skills,agents,commands,rules,workflows}`, committed with the project. A project skill or agent never reuses a harness name; project-specific verbs, rules and checklists go in the project.
+Global is this harness, deployed by `fyr install`; a skill found elsewhere goes into the harness checkout's `skills/` (`fyr adopt <skill>`), then `fyr install`, never only into a vendor directory. Project is `.agents/{skills,agents,commands,rules,workflows}`, committed with the project. A project skill or agent never reuses a harness name; project-specific verbs, rules and checklists go in the project.
 
 ## Learning loop
 
-`feedback-log` logs corrections to `~/.config/sh-agent/feedback.jsonl` and saves them as memory. Run `/retro` at the end of a session with two or more corrections; `/distill` on the third repeat of a procedure. A proposal targets the project (applied there) or the harness (queued in `~/.config/sh-agent/proposals/` for `/retro --harness` in the harness checkout); every retro, distill and dream leaves a record in `docs/retros/`.
+`feedback-log` logs corrections to `~/.config/fyr/feedback.jsonl` and saves them as memory. Run `/retro` at the end of a session with two or more corrections; `/distill` on the third repeat of a procedure. A proposal targets the project (applied there) or the harness (queued in `~/.config/fyr/proposals/` for `/retro --harness` in the harness checkout); every retro, distill and dream leaves a record in `docs/retros/`.
 
 ## Git
 

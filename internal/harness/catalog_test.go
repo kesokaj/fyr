@@ -34,7 +34,7 @@ import (
 
 // catalogHarnessFiles are written by the harness, not vendored: CHECKSUMS does
 // not cover them.
-var catalogHarnessFiles = map[string]bool{"INDEX.md": true, "MANIFEST.md": true, "CHECKSUMS": true, ".sh-agent-noindex": true}
+var catalogHarnessFiles = map[string]bool{"INDEX.md": true, "MANIFEST.md": true, "CHECKSUMS": true, ".fyr-noindex": true}
 
 const catalogIndexHeader = "# Google skills catalog — index\n\nOne line per entry: the directory name under `catalog/`, then the start of its description. Grep this file for the product or task words, then read `catalog/<name>/SKILL.md`.\n\n"
 
@@ -247,10 +247,10 @@ func TestCatalogIndexMatchesEntries(t *testing.T) {
 func TestCatalogFilesAreCarryable(t *testing.T) {
 	dir := catalogDir(t)
 	catalogEntries(t, dir)
-	// The search marker travels with the catalog: without it `sh-agent search`
+	// The search marker travels with the catalog: without it `fyr search`
 	// indexes the entries and the checkout's own files drop in the hits.
-	if _, err := os.Stat(filepath.Join(dir, ".sh-agent-noindex")); err != nil {
-		t.Errorf("the catalog has no .sh-agent-noindex marker: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, ".fyr-noindex")); err != nil {
+		t.Errorf("the catalog has no .fyr-noindex marker: %v", err)
 	}
 	root := dir
 	if os.Getenv("CATALOG_DIR") == "" {
@@ -865,7 +865,7 @@ func TestRefreshCatalogScript(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(dest, "gamma", "scripts", "run.sh")); err != nil || info.Mode()&0o111 != 0 {
 		t.Errorf("the executable bit was not cleared: %v %v", info, err)
 	}
-	if _, err := os.Stat(filepath.Join(dest, ".sh-agent-noindex")); err != nil {
+	if _, err := os.Stat(filepath.Join(dest, ".fyr-noindex")); err != nil {
 		t.Errorf("the search marker was not written: %v", err)
 	}
 	if !strings.Contains(out, "next: git add") {
@@ -1647,11 +1647,11 @@ func TestKitPreambleRefusesLeftoverCredentials(t *testing.T) {
 		})
 	}
 	// A public key is not a credential, and an executable is not scanned: the
-	// installed sh-agent carries the redaction patterns as text.
+	// installed fyr carries the redaction patterns as text.
 	if code, out := run(`mkdir -p "$KIT_HOME/.ssh" && : > "$KIT_HOME/.ssh/id_ed25519.pub"`); code != 0 {
 		t.Errorf("a public key alone: want exit 0, got %d\n%s", code, out)
 	}
-	if code, out := run(`mkdir -p "$KIT_HOME/.local/bin" && printf '\177ELF-----BEGIN RSA PRIVATE KEY-----' > "$KIT_HOME/.local/bin/sh-agent"`); code != 0 {
+	if code, out := run(`mkdir -p "$KIT_HOME/.local/bin" && printf '\177ELF-----BEGIN RSA PRIVATE KEY-----' > "$KIT_HOME/.local/bin/fyr"`); code != 0 {
 		t.Errorf("an ELF binary naming the PEM header: want exit 0, got %d\n%s", code, out)
 	}
 	// AWS's published example key is documentation, not a credential: an agent
@@ -1666,7 +1666,7 @@ func TestKitPreambleRefusesLeftoverCredentials(t *testing.T) {
 	// fails the exit check (security review of v2.6.1).
 	// The preamble's own wrapper is removed so the example's file is the only
 	// one, and the scan's status is asked directly.
-	if code, out := run(`printf 'SQLite\000%s\000' "` + awsExample + `" > "$KIT_HOME/conv.db"; rm "$KIT_HOME/bin/sh-agent"; if kit_credential_leftovers >/dev/null; then echo "scan status 0"; fi`); code != 0 || !strings.Contains(out, "scan status 0") || !strings.Contains(out, "kit: no credentials left in KIT_HOME") {
+	if code, out := run(`printf 'SQLite\000%s\000' "` + awsExample + `" > "$KIT_HOME/conv.db"; rm "$KIT_HOME/bin/fyr"; if kit_credential_leftovers >/dev/null; then echo "scan status 0"; fi`); code != 0 || !strings.Contains(out, "scan status 0") || !strings.Contains(out, "kit: no credentials left in KIT_HOME") {
 		t.Errorf("one file holding only AWS's example key: want exit 0 and the no-credentials line, got exit %d\n%s", code, out)
 	}
 	if err := os.RemoveAll(kitHome); err != nil {
@@ -1776,11 +1776,11 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 			t.Errorf("%s (%q): want exit %d saying %q, got exit %d\n%s", c.name, c.value, c.want, c.say, code, out)
 		}
 	}
-	// The cases above ran in a home with no ~/.config/sh-agent at all, which
+	// The cases above ran in a home with no ~/.config/fyr at all, which
 	// once ended the preamble with status 2 and no message (BUG-158). With
 	// the directory there: a run that leaves it alone passes, and a run that
 	// appends to a file in it, or adds one, fails the kit.
-	conf := filepath.Join(home, ".config", "sh-agent")
+	conf := filepath.Join(home, StateDir)
 	if err := os.MkdirAll(conf, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1791,17 +1791,17 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 		t.Errorf("a run that leaves the real config alone: want exit 0, got %d\n%s", code, out)
 	}
 	for name, then := range map[string]string{
-		"an appended line": `printf '{}\n' >> "$HOME/.config/sh-agent/feedback.jsonl"`,
-		"a new file":       `: > "$HOME/.config/sh-agent/state.json"`,
+		"an appended line": `printf '{}\n' >> "$HOME/.config/fyr/feedback.jsonl"`,
+		"a new file":       `: > "$HOME/.config/fyr/state.json"`,
 	} {
 		if code, out := runThen("", then); code != 1 || !strings.Contains(out, "changed during the run") {
 			t.Errorf("a run that writes the real config (%s): want exit 1 and the kit's FAIL line, got exit %d\n%s", name, code, out)
 		}
 	}
-	// The same when ~/.config/sh-agent is a symlink to a directory (a
+	// The same when ~/.config/fyr is a symlink to a directory (a
 	// dotfiles setup): `find` without -H stops at the link, and the
 	// fingerprint was one constant line.
-	real := filepath.Join(tmp, "dotfiles-sh-agent")
+	real := filepath.Join(tmp, "dotfiles-fyr")
 	if err := os.Rename(conf, real); err != nil {
 		t.Fatal(err)
 	}
@@ -1811,12 +1811,12 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 	if code, out := runThen("", ":"); code != 0 {
 		t.Errorf("a symlinked config left alone: want exit 0, got %d\n%s", code, out)
 	}
-	if code, out := runThen("", `: > "$HOME/.config/sh-agent/through-the-link"`); code != 1 || !strings.Contains(out, "changed during the run") {
+	if code, out := runThen("", `: > "$HOME/.config/fyr/through-the-link"`); code != 1 || !strings.Contains(out, "changed during the run") {
 		t.Errorf("a write through a symlinked config directory: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
 	}
 	// A new empty directory through the link: only the names pass sees it
-	// (sh-agent itself makes `proposals/` and `feedback/` there).
-	if code, out := runThen("", `mkdir "$HOME/.config/sh-agent/made-through-the-link"`); code != 1 || !strings.Contains(out, "changed during the run") {
+	// (fyr itself makes `proposals/` and `feedback/` there).
+	if code, out := runThen("", `mkdir "$HOME/.config/fyr/made-through-the-link"`); code != 1 || !strings.Contains(out, "changed during the run") {
 		t.Errorf("a new directory through a symlinked config directory: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
 	}
 	// A link to something that never ends (a device, a fifo) is in some
@@ -1862,7 +1862,7 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 	if err := os.Symlink(d1, filepath.Join(real, "sub")); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := runThen("", `ln -sfn "`+d2+`" "$HOME/.config/sh-agent/sub"`); code != 1 || !strings.Contains(out, "changed during the run") {
+	if code, out := runThen("", `ln -sfn "`+d2+`" "$HOME/.config/fyr/sub"`); code != 1 || !strings.Contains(out, "changed during the run") {
 		t.Errorf("a link re-pointed at another directory: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
 	}
 	// A run that leaves everything alone says so in a line of its own: a kit
@@ -1872,7 +1872,7 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 	}
 	// A new symlink that loops back to the directory is a new name too, and
 	// following it must neither hide it nor run away.
-	if code, out := runThen("", `ln -s . "$HOME/.config/sh-agent/loop"`); code != 1 || !strings.Contains(out, "changed during the run") {
+	if code, out := runThen("", `ln -s . "$HOME/.config/fyr/loop"`); code != 1 || !strings.Contains(out, "changed during the run") {
 		t.Errorf("a new looping symlink in the real config: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
 	}
 	// And a file in it that is itself a symlink: its target's content counts.
@@ -1883,7 +1883,7 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(real, "linked.jsonl")); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := runThen("", `printf '{}\n' >> "$HOME/.config/sh-agent/linked.jsonl"`); code != 1 || !strings.Contains(out, "changed during the run") {
+	if code, out := runThen("", `printf '{}\n' >> "$HOME/.config/fyr/linked.jsonl"`); code != 1 || !strings.Contains(out, "changed during the run") {
 		t.Errorf("an append to a symlinked file in the real config: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
 	}
 }

@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kesokaj/styrman-harness/internal/search"
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // writer turns parsed lines into rows inside one transaction; the first

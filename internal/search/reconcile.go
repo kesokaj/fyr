@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/harness"
-	"github.com/kesokaj/styrman-harness/internal/trail"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // maxFileBytes is the largest file indexed; larger files, and files with a
@@ -156,14 +156,25 @@ func indexStats(root string) (map[string]indexStat, time.Time) {
 }
 
 // noIndexMarker names the file that takes its directory out of the index.
-const noIndexMarker = ".sh-agent-noindex"
+// oldNoIndexMarker is its name from before the rename, honoured the same
+// way: it is a privacy control the operator placed, and nothing renames
+// their files (plan fyr D12, F8).
+const (
+	noIndexMarker    = ".fyr-noindex"
+	oldNoIndexMarker = ".sh-agent-noindex"
+)
+
+func isNoIndexMarker(p string) bool {
+	b := path.Base(p)
+	return b == noIndexMarker || b == oldNoIndexMarker
+}
 
 // gitView lists the checkout's current files: the index entries of
 // `git ls-files -s`, each marked modified when its bytes are not the index's
 // blob, plus the untracked files of `git ls-files --others` (blob IDs
 // computed from their bytes; no `git status`, BUG-165), minus deleted paths,
 // symlinks, submodules, secret-shaped names and every path under a
-// directory that holds a noIndexMarker file. A file's content is read
+// directory that holds a noindex marker file. A file's content is read
 // again when its blob is indexed: a file edited and restored between the two
 // reads is indexed with the edit until `index --rebuild` (a known limit; the
 // operator's choice at the security review's cap, plan D35).
@@ -196,7 +207,7 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 	markers := map[string]bool{}
 	for _, rec := range strings.Split(string(out), "\x00") {
 		meta, p, ok := strings.Cut(rec, "\t")
-		if ok && path.Base(p) == noIndexMarker {
+		if ok && isNoIndexMarker(p) {
 			markers[p] = true
 		}
 		if !ok || !under(p) {
@@ -269,7 +280,7 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if path.Base(p) == noIndexMarker {
+		if isNoIndexMarker(p) {
 			markers[p] = true // a marker not yet added counts at once
 		}
 		if !under(p) || fi.Size() > maxFileBytes {
@@ -284,7 +295,7 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		}
 		view[p] = entry{path: p, oid: blobID(data), state: "untracked"}
 	}
-	// A directory holding a noIndexMarker is data the project carries, not its
+	// A directory holding a noindex marker is data the project carries, not its
 	// own text: nothing below it is indexed. The marker counts in every state
 	// git reports it in (committed, staged, not yet added): the first search
 	// after the marker is written must already leave the directory out.
@@ -342,7 +353,7 @@ func blobID(data []byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// configView lists the global index's own sources in ~/.config/sh-agent/,
+// configView lists the global index's own sources in ~/.config/fyr/,
 // keyed by their SHA-256 since git does not hold them.
 func configView(dir string) ([]entry, error) {
 	names := []string{"feedback.jsonl", "retros.jsonl"}
@@ -358,7 +369,7 @@ func configView(dir string) ([]entry, error) {
 		sort.Strings(props)
 		names = append(names, props...)
 	}
-	// Plain reads: ~/.config/sh-agent is the operator's own state, and a
+	// Plain reads: ~/.config/fyr is the operator's own state, and a
 	// dotfiles arrangement may symlink its proposals directory.
 	var out []entry
 	for _, n := range names {

@@ -16,7 +16,7 @@ import (
 // The recall test measures how well a retrieval arm finds the files a
 // question is about, over this repository's own history (plan
 // 2026-09-29-search-index.md, Phase 0 and Phase 4). It is a measurement, not a
-// pass/fail gate, so it runs only when SH_AGENT_RECALL=1 and prints its
+// pass/fail gate, so it runs only when FYR_RECALL=1 and prints its
 // numbers; the recall log under .agents/docs/testing/ records them.
 //
 // testdata/recall.tsv holds one question per line: `question<TAB>gold,gold…`.
@@ -246,8 +246,8 @@ func printedPaths(out string) []string {
 var recallArms = []recallArm{{"grep", grepArm}, {"index", indexArm}}
 
 func TestRecall(t *testing.T) {
-	if os.Getenv("SH_AGENT_RECALL") != "1" {
-		t.Skip("measurement, not a gate: set SH_AGENT_RECALL=1 to run it")
+	if os.Getenv("FYR_RECALL") != "1" {
+		t.Skip("measurement, not a gate: set FYR_RECALL=1 to run it")
 	}
 	root := repoRoot(t)
 	qs := loadRecallQuestions(t)

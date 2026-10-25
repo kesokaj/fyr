@@ -1,22 +1,22 @@
-// Command sh-agent installs, resyncs, inspects, and removes the sh-agent
+// Command fyr installs, resyncs, inspects, and removes the fyr
 // harness — global context, skills, and subagents — for the Antigravity CLI.
 //
-//	sh-agent install [--dry-run]     deploy the repo into ~/.gemini/config
-//	sh-agent status                  show drift between the repo and what is installed
-//	sh-agent diff                    unified diff of every drifted file
-//	sh-agent update [--check|--dry-run]  checkout: git pull and reinstall; release binary: download and verify the newest release
-//	sh-agent update --from-zip FILE  zip place: install the harness in a repository zip with the running binary
-//	sh-agent uninstall [--dry-run]   remove exactly what install wrote, and the dream timer
-//	sh-agent list                    print the skill and agent inventory
-//	sh-agent render                  print the assembled context file
-//	sh-agent adopt <name|path>       copy a skill from elsewhere into the repo
-//	sh-agent search <words>          ranked search of this checkout's files and trail, reconciled against git first
-//	sh-agent index [--rebuild]       reconcile (or rebuild) the search index and print its counts
-//	sh-agent dream --all|--project DIR [--dry-run]  propose rules and skills from every project's memory, trail, feedback and transcripts
-//	sh-agent dream --install-timer|--remove-timer [--dry-run]  install or remove the nightly timer
-//	sh-agent metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
-//	sh-agent memory add|show         write one memory (body on stdin) or print the index of this project's .agents/memory/
-//	sh-agent version
+//	fyr install [--dry-run]     deploy the repo into ~/.gemini/config
+//	fyr status                  show drift between the repo and what is installed
+//	fyr diff                    unified diff of every drifted file
+//	fyr update [--check|--dry-run]  checkout: git pull and reinstall; release binary: download and verify the newest release
+//	fyr update --from-zip FILE  zip place: install the harness in a repository zip with the running binary
+//	fyr uninstall [--dry-run]   remove exactly what install wrote, and the dream timer
+//	fyr list                    print the skill and agent inventory
+//	fyr render                  print the assembled context file
+//	fyr adopt <name|path>       copy a skill from elsewhere into the repo
+//	fyr search <words>          ranked search of this checkout's files and trail, reconciled against git first
+//	fyr index [--rebuild]       reconcile (or rebuild) the search index and print its counts
+//	fyr dream --all|--project DIR [--dry-run]  propose rules and skills from every project's memory, trail, feedback and transcripts
+//	fyr dream --install-timer|--remove-timer [--dry-run]  install or remove the nightly timer
+//	fyr metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
+//	fyr memory add|show         write one memory (body on stdin) or print the index of this project's .agents/memory/
+//	fyr version
 package main
 
 import (
@@ -34,14 +34,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/dream"
-	"github.com/kesokaj/styrman-harness/internal/harness"
-	"github.com/kesokaj/styrman-harness/internal/memory"
-	"github.com/kesokaj/styrman-harness/internal/metrics"
-	"github.com/kesokaj/styrman-harness/internal/search"
+	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/memory"
+	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
-const usage = `sh-agent — lifecycle tool for the sh-agent harness
+const usage = `fyr — lifecycle tool for the fyr harness
 
 Commands:
   install [--dry-run]     deploy context, skills, and agents into ~/.gemini/config (alias: sync)
@@ -56,20 +56,20 @@ Commands:
   search [--limit N] [--kind K] [--global] <words...>  ranked search of every file and trail record in this git checkout: path:line, kind, record status, snippet; the index (.agents/scratch/search.db) is reconciled against git first, so it never answers from another branch
   search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]  every record naming an ID, a file or a directory (trailing /), with the ID's own status
   search --open [--kind K] [--global]  open bugs and plans with unticked boxes
-      --global searches the global search index (~/.config/sh-agent/search.db): ~/.config/sh-agent's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal; --limit 1-50, default 10
+      --global searches the global search index (~/.config/fyr/search.db): ~/.config/fyr's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal; --limit 1-50, default 10
   index [--global] [--rebuild]  reconcile the search index, or delete and rebuild it, and print its counts
   memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, into this project's .agents/memory/ and its MEMORY.md line (T: user, feedback, project or reference); every session writes memory this way (R10)
   dream --install-timer | --remove-timer [--dry-run]  install (systemd user timer on Linux, launchd agent on macOS) or remove the nightly "dream --all", run with the PATH of the installing shell; uninstall removes it too
-  dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and its Antigravity conversations, redacted, to agy with no tool it may use, and write the proposals and draft skills it returns under ~/.config/sh-agent/proposals/dream/ (R3's exception)
-  metrics ingest [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/sh-agent/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; conversations come from --source, else this home
-  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, an agy column (and a claude (historical) column only when the store holds rows an older ingest read from Claude Code): outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (sh-agent search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
-  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/sh-agent/reports/<date-time>-metrics.html, 0600, an existing file refused
+  dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and its Antigravity conversations, redacted, to agy with no tool it may use, and write the proposals and draft skills it returns under ~/.config/fyr/proposals/dream/ (R3's exception)
+  metrics ingest [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/fyr/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; conversations come from --source, else this home
+  metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, an agy column (and a claude (historical) column only when the store holds rows an older ingest read from Claude Code): outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (fyr search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
+  metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/fyr/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
   memory show             print this project's memory index, capped at what a session loads
   version                 print the build version
 
 Flags accepted by every command:
-  --repo DIR        harness checkout, for a build made from one (default: --repo, $SH_AGENT_REPO, the working directory or its parents, then the last install). A release binary installs the harness built into it and refuses --repo (ADR-034)
+  --repo DIR        harness checkout, for a build made from one (default: --repo, $FYR_REPO, the working directory or its parents, then the last install). A release binary installs the harness built into it and refuses --repo (ADR-034)
   --home DIR        install under DIR instead of $HOME (for testing)
 `
 
@@ -78,13 +78,30 @@ Flags accepted by every command:
 var version string
 
 func main() {
+	if os.Getenv(harness.ChildEnv) != "1" {
+		oldEnvNotices(os.Environ(), os.Stderr)
+	}
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		var code exitCode
 		if errors.As(err, &code) {
 			os.Exit(int(code))
 		}
-		fmt.Fprintln(os.Stderr, "sh-agent:", err)
+		fmt.Fprintln(os.Stderr, "fyr:", err)
 		os.Exit(1)
+	}
+}
+
+// oldEnvNotices names each SH_AGENT_* variable still set: fyr reads FYR_*
+// only, and an old SH_AGENT_REPO ignored in silence would change which tree
+// an install takes (plan fyr D15). An empty one changes nothing and is not
+// named; the rebuilt child of an install inherits the parent's environment
+// and stays quiet, so each variable is named once.
+func oldEnvNotices(environ []string, w io.Writer) {
+	for _, kv := range environ {
+		k, v, _ := strings.Cut(kv, "=")
+		if name, ok := strings.CutPrefix(k, "SH_AGENT_"); ok && v != "" {
+			fmt.Fprintf(w, "fyr: $%s is set but no longer read; rename it $FYR_%s\n", k, name)
+		}
 	}
 }
 
@@ -161,7 +178,7 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "metrics show: include labelled (sandbox) sessions")
 		c.fs.BoolVar(&c.metricsJSON, "json", false, "metrics show: print the summary as JSON")
 		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "metrics show, report: the peak context, in tokens, a main session should stay under (default 300000)")
-		c.fs.StringVar(&c.metricsOut, "out", "", "metrics report: the HTML file to write (default ~/.config/sh-agent/reports/<date-time>-metrics.html)")
+		c.fs.StringVar(&c.metricsOut, "out", "", "metrics report: the HTML file to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
 	"search": {flags: func(c *ctx) {
 		c.fs.IntVar(&c.limit, "limit", 0, "search: hits to print, 1-50 (default 10)")
@@ -205,7 +222,7 @@ func run(args []string, out io.Writer) error {
 	// uninstall. Refused before the FlagSet sees it, so the refusal names the
 	// right verb rather than an undefined flag.
 	if cmd != "update" && hasFlag(rest, "from-zip") {
-		fmt.Fprintln(out, "sh-agent "+cmd+": --from-zip belongs to update: sh-agent update --from-zip <file>")
+		fmt.Fprintln(out, "fyr "+cmd+": --from-zip belongs to update: fyr update --from-zip <file>")
 		return exitCode(2)
 	}
 
@@ -261,10 +278,10 @@ func run(args []string, out io.Writer) error {
 		case c.fromZip == "" || strings.HasPrefix(c.fromZip, "-"):
 			// A value that looks like a flag was a flag: `--from-zip --dry-run`
 			// must not read --dry-run as the file and run a real update.
-			fmt.Fprintln(out, "sh-agent update: --from-zip needs a file: sh-agent update --from-zip <file>")
+			fmt.Fprintln(out, "fyr update: --from-zip needs a file: fyr update --from-zip <file>")
 			return exitCode(2)
 		case c.check || c.repoFlag != "":
-			fmt.Fprintln(out, "sh-agent update: --from-zip installs the named zip; --check/--repo do not apply to it")
+			fmt.Fprintln(out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
 			return exitCode(2)
 		}
 		return updateFromZip(c.fromZip, c.home, c.dryRun, out)
@@ -299,7 +316,7 @@ func hasFlag(args []string, name string) bool {
 }
 
 func runVersion(c *ctx) error {
-	fmt.Fprintln(c.out, "sh-agent", buildVersion())
+	fmt.Fprintln(c.out, "fyr", buildVersion())
 	return nil
 }
 
@@ -348,12 +365,12 @@ func runDream(c *ctx) error {
 	case c.installTimer && c.removeTimer:
 		// A usage error exits 2 like every other dream usage error, and says
 		// why on the caller's writer (IN12, IN13).
-		fmt.Fprintln(c.out, "sh-agent dream: --install-timer or --remove-timer, not both")
+		fmt.Fprintln(c.out, "fyr dream: --install-timer or --remove-timer, not both")
 		return exitCode(2)
 	case (c.installTimer || c.removeTimer) && c.dryRun:
 		// A new side effect goes below the read-only mode (context § Hard
 		// rules): the dry run names what would change and calls nothing.
-		what := "install the nightly dream timer (sh-agent dream --all at 03:00)"
+		what := "install the nightly dream timer (fyr dream --all at 03:00)"
 		if c.removeTimer {
 			what = "remove the nightly dream timer"
 		}
@@ -367,7 +384,7 @@ func runDream(c *ctx) error {
 	case c.installTimer:
 		err = dream.InstallTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
 		if err == nil {
-			fmt.Fprintln(c.out, "dream timer installed: sh-agent dream --all runs nightly at 03:00")
+			fmt.Fprintln(c.out, "dream timer installed: fyr dream --all runs nightly at 03:00")
 		}
 	case c.removeTimer:
 		var removed bool
@@ -400,7 +417,7 @@ func runDream(c *ctx) error {
 func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 	o, err := c.metricsShowOptions()
 	if err != nil {
-		fmt.Fprintln(c.out, "sh-agent metrics "+sub+": "+err.Error())
+		fmt.Fprintln(c.out, "fyr metrics "+sub+": "+err.Error())
 		return nil, exitCode(2)
 	}
 	s, err := c.existingMetricsStore()
@@ -412,18 +429,18 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 }
 
 // runMetrics serves `metrics ingest`, `show`, `report` and `export` (spec
-// .agents/docs/specs/sh-agent/metrics.md).
+// .agents/docs/specs/fyr/metrics.md).
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {
-		fmt.Fprintln(c.out, "sh-agent metrics: ingest | show | report | export FILE")
+		fmt.Fprintln(c.out, "fyr metrics: ingest | show | report | export FILE")
 		return exitCode(2)
 	}
 	sub, args := args[0], args[1:]
 	switch sub {
 	case "ingest":
 		if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
-			fmt.Fprintf(c.out, "sh-agent metrics ingest: --%s belongs to show or report\n", bad)
+			fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show or report\n", bad)
 			return exitCode(2)
 		}
 		if len(args) > 0 {
@@ -432,7 +449,7 @@ func runMetrics(c *ctx) error {
 		}
 		o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
 		if err := o.Validate(); err != nil {
-			fmt.Fprintln(c.out, "sh-agent metrics ingest: "+err.Error())
+			fmt.Fprintln(c.out, "fyr metrics ingest: "+err.Error())
 			return exitCode(2)
 		}
 		s, err := metrics.Open(metrics.Path(c.home))
@@ -465,7 +482,7 @@ func runMetrics(c *ctx) error {
 		return nil
 	case "report":
 		if len(args) > 0 || c.metricsJSON {
-			fmt.Fprintln(c.out, "sh-agent metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
+			fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
 			return exitCode(2)
 		}
 		sum, err := c.metricsSummary("report")
@@ -484,11 +501,11 @@ func runMetrics(c *ctx) error {
 		return nil
 	case "export":
 		if bad := c.metricsFlagsOutside(); bad != "" {
-			fmt.Fprintf(c.out, "sh-agent metrics export: --%s does not apply to export\n", bad)
+			fmt.Fprintf(c.out, "fyr metrics export: --%s does not apply to export\n", bad)
 			return exitCode(2)
 		}
 		if len(args) != 1 {
-			fmt.Fprintln(c.out, "sh-agent metrics export FILE")
+			fmt.Fprintln(c.out, "fyr metrics export FILE")
 			return exitCode(2)
 		}
 		s, err := c.existingMetricsStore()
@@ -502,7 +519,7 @@ func runMetrics(c *ctx) error {
 		fmt.Fprintln(c.out, "metrics: exported to "+args[0])
 		return nil
 	}
-	fmt.Fprintf(c.out, "sh-agent metrics: unknown subcommand %q (ingest, show, report, export)\n", sub)
+	fmt.Fprintf(c.out, "fyr metrics: unknown subcommand %q (ingest, show, report, export)\n", sub)
 	return exitCode(2)
 }
 
@@ -530,7 +547,7 @@ func (c *ctx) metricsFlagsOutside(allowed ...string) string {
 func (c *ctx) existingMetricsStore() (*metrics.Store, error) {
 	path := metrics.Path(c.home)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		fmt.Fprintf(c.out, "sh-agent metrics: no metrics store at %s; run `sh-agent metrics ingest` first\n", path)
+		fmt.Fprintf(c.out, "fyr metrics: no metrics store at %s; run `fyr metrics ingest` first\n", path)
 		return nil, exitCode(1)
 	}
 	return metrics.Open(path)
@@ -600,7 +617,7 @@ func runSearch(c *ctx) error {
 		err = search.Search(o, c.out)
 	}
 	if search.IsUsage(err) {
-		fmt.Fprintln(c.out, "sh-agent", err)
+		fmt.Fprintln(c.out, "fyr", err)
 		return exitCode(2)
 	}
 	return err
@@ -642,7 +659,7 @@ func runInstall(c *ctx) error {
 	} else if !own {
 		fmt.Fprintln(c.out, "plain copy, not its own git checkout: the running binary is installed as is")
 	} else if goErr != nil {
-		fmt.Fprintln(c.out, "warning: go is not on PATH; the running binary was copied, not rebuilt — install Go and run `sh-agent update`")
+		fmt.Fprintln(c.out, "warning: go is not on PATH; the running binary was copied, not rebuilt — install Go and run `fyr update`")
 	}
 	return installFiles(c.src, c.home, c.dryRun, c.out)
 }
@@ -724,7 +741,7 @@ func runRender(c *ctx) error {
 
 func runAdopt(c *ctx) error {
 	if c.fs.NArg() != 1 {
-		fmt.Fprintln(c.out, "usage: sh-agent adopt <skill-name-or-path> [--force]")
+		fmt.Fprintln(c.out, "usage: fyr adopt <skill-name-or-path> [--force]")
 		return exitCode(2)
 	}
 	repo := c.repo()
@@ -741,7 +758,7 @@ func runAdopt(c *ctx) error {
 		// until it is copied into a checkout.
 		next = "copy it into your harness checkout and commit there — this tree is a plain copy with no repository"
 	}
-	fmt.Fprintf(c.out, "adopted into %s\nnext: review it, run `sh-agent install`, then %s\n", dest, next)
+	fmt.Fprintf(c.out, "adopted into %s\nnext: review it, run `fyr install`, then %s\n", dest, next)
 	return nil
 }
 
@@ -776,7 +793,7 @@ var stdin io.Reader = os.Stdin
 func memoryCmd(args []string, e memory.Entry, out io.Writer) error {
 	if len(args) != 1 || (args[0] != "add" && args[0] != "show") {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
-		fmt.Fprintln(out, "usage: sh-agent memory add --type T --name SLUG --description TEXT (body on stdin) | sh-agent memory show")
+		fmt.Fprintln(out, "usage: fyr memory add --type T --name SLUG --description TEXT (body on stdin) | fyr memory show")
 		return exitCode(2)
 	}
 	wd, err := os.Getwd()
@@ -793,7 +810,7 @@ func memoryCmd(args []string, e memory.Entry, out io.Writer) error {
 		text, err = memory.Show(wd)
 	}
 	if memory.IsRefusal(err) {
-		fmt.Fprintln(out, "sh-agent memory:", err) // on the caller's writer, where a test reads it (IN13)
+		fmt.Fprintln(out, "fyr memory:", err) // on the caller's writer, where a test reads it (IN13)
 		return exitCode(2)
 	}
 	if err != nil {
@@ -840,7 +857,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 	}
 
 	if !found {
-		fmt.Fprintln(out, "installed  nothing — run `sh-agent install`")
+		fmt.Fprintln(out, "installed  nothing — run `fyr install`")
 		return exitCode(1)
 	}
 	from := "commit " + st.Commit
@@ -853,7 +870,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 			from += " (" + origin.Trust + ")"
 		}
 	}
-	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/sh-agent/state.json)\n", st.InstalledAt, from, len(st.Files))
+	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/fyr/state.json)\n", st.InstalledAt, from, len(st.Files))
 	// The line describes the installed file, not this process: status may
 	// run from `go run` or from a build outside ~/.local/bin.
 	binaryLine := "binary     unknown (installed file has no build info)"
@@ -868,19 +885,19 @@ func status(src harness.Source, home string, out io.Writer) error {
 			// No checkout commit to compare against.
 		case !binaryOlder(rev, info.Commit):
 		case rev == "(devel)" || rev == "unknown":
-			binaryLine += " — no build stamp; run `sh-agent update`"
+			binaryLine += " — no build stamp; run `fyr update`"
 		default:
-			binaryLine += fmt.Sprintf(" — older than the repo (%s); run `sh-agent update`", info.Commit)
+			binaryLine += fmt.Sprintf(" — older than the repo (%s); run `fyr update`", info.Commit)
 		}
 	}
 	fmt.Fprintln(out, binaryLine)
 	// The line above describes the installed file; these say when that file is
-	// not the one an unqualified `sh-agent` runs (BUG-078). Only when PATH
+	// not the one an unqualified `fyr` runs (BUG-078). Only when PATH
 	// reaches the installed file at all: for a scratch home it never does, and
 	// the operator's own home is the one where the distinction bites.
 	if shadows, onPath := harness.PathShadows(os.Getenv("PATH"), filepath.Join(home, harness.BinPath)); onPath {
 		for _, s := range shadows {
-			fmt.Fprintf(out, "shadowed   %s comes first on PATH, so `sh-agent` runs that, not the binary above\n", s)
+			fmt.Fprintf(out, "shadowed   %s comes first on PATH, so `fyr` runs that, not the binary above\n", s)
 		}
 	}
 	if last, ok := harness.LastRetro(home); ok {
@@ -937,7 +954,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 		fmt.Fprintf(out, "drift      none — %d files match the repo\n", report.Counts["ok"])
 		return nil
 	}
-	fmt.Fprintf(out, "drift      %d missing, %d differ, %d stale — run `sh-agent diff`, then `sh-agent install`\n",
+	fmt.Fprintf(out, "drift      %d missing, %d differ, %d stale — run `fyr diff`, then `fyr install`\n",
 		report.Counts["missing"], report.Counts["differs"], report.Counts["stale"])
 	return exitCode(1)
 }
@@ -964,7 +981,7 @@ func update(repo, home string, checkOnly bool, homeFlag string, out io.Writer) e
 		if info.StatusUnknown {
 			what = "could not be checked for uncommitted changes (git did not report its status)"
 		}
-		return fmt.Errorf("%s %s and `update` installs the working tree, not the fetched commit; commit or stash them, or run `sh-agent install` to deploy them deliberately", repo, what)
+		return fmt.Errorf("%s %s and `update` installs the working tree, not the fetched commit; commit or stash them, or run `fyr install` to deploy them deliberately", repo, what)
 	}
 	if checkOnly {
 		if behind == 0 {
@@ -981,7 +998,7 @@ func update(repo, home string, checkOnly bool, homeFlag string, out io.Writer) e
 	if err := harness.Reinstall(repo, installPassArgs(homeFlag, home), out); err != nil {
 		return err
 	}
-	// Reinstall wrote ~/.local/bin/sh-agent; the process running this update
+	// Reinstall wrote ~/.local/bin/fyr; the process running this update
 	// may be another file (BUG-079).
 	harness.NoteRunningElsewhere(home, out)
 	return nil
@@ -1000,9 +1017,9 @@ func installPassArgs(homeFlag, home string) []string {
 // discovered by walking up from the working directory when a different
 // checkout is already installed: building runs that tree's code and deploys
 // its context everywhere, so standing in a harness-shaped directory must not
-// be enough. An explicit --repo or $SH_AGENT_REPO, or a first install, is.
+// be enough. An explicit --repo or $FYR_REPO, or a first install, is.
 func knownCheckout(repoFlag, home, repo string) error {
-	if repoFlag != "" || os.Getenv("SH_AGENT_REPO") != "" {
+	if repoFlag != "" || os.Getenv("FYR_REPO") != "" {
 		return nil
 	}
 	st, found, err := harness.LoadState(home)
@@ -1060,7 +1077,7 @@ func binaryOlder(rev, commit string) bool {
 }
 
 // reorder moves flags in front of positional arguments so that
-// `sh-agent adopt my-skill --home /tmp/x` parses; the flag package stops at
+// `fyr adopt my-skill --home /tmp/x` parses; the flag package stops at
 // the first positional argument otherwise. Which flags take a value is read
 // from the FlagSet itself, so a value flag can never be missing from a
 // hand-kept list and swallow the next argument (BUG-002: the removed `report
@@ -1115,7 +1132,7 @@ func selfExecutable() ([]byte, error) {
 	return os.ReadFile(p)
 }
 
-// pathHint says, after an install, whether the next unqualified `sh-agent`
+// pathHint says, after an install, whether the next unqualified `fyr`
 // runs the binary just written — one message per situation. PATH reaching the
 // file but only after an earlier entry is the BUG-078 case: install reports
 // success and `status` reports drift none, both about a binary the next
@@ -1129,17 +1146,17 @@ func pathHint(home string, out io.Writer) {
 	switch {
 	case onPath:
 		for _, s := range shadows {
-			fmt.Fprintf(out, "warning: %s comes before %s on PATH, so `sh-agent` runs that one\n", s, bin)
+			fmt.Fprintf(out, "warning: %s comes before %s on PATH, so `fyr` runs that one\n", s, bin)
 		}
 	case len(shadows) > 0:
-		fmt.Fprintf(out, "note: %s is not on PATH, so `sh-agent` runs %s instead; put %s ahead of it\n", binDir, shadows[0], binDir)
+		fmt.Fprintf(out, "note: %s is not on PATH, so `fyr` runs %s instead; put %s ahead of it\n", binDir, shadows[0], binDir)
 	default:
-		fmt.Fprintf(out, "note: %s is not on PATH; add it so `sh-agent` is available everywhere\n", binDir)
+		fmt.Fprintf(out, "note: %s is not on PATH; add it so `fyr` is available everywhere\n", binDir)
 	}
 }
 
-// buildVersion describes the running process, for `sh-agent version`.
-// `sh-agent status` reads the installed file instead (see status).
+// buildVersion describes the running process, for `fyr version`.
+// `fyr status` reads the installed file instead (see status).
 func buildVersion() string {
 	if version != "" {
 		return version
@@ -1192,10 +1209,10 @@ func versionFromInfo(info *debug.BuildInfo) string {
 // copy (R8, R9's zip place; ADR-038). Nothing is fetched, and nothing in the
 // zip replaces the binary: the running one is installed as in every install.
 func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error) {
-	// A dry run writes nothing, so it never creates ~/.config/sh-agent: when
+	// A dry run writes nothing, so it never creates ~/.config/fyr: when
 	// that directory is absent the unpack goes beside the zip instead, never
 	// the system temp directory (IN10).
-	parent := filepath.Join(home, ".config", "sh-agent")
+	parent := filepath.Join(home, harness.StateDir)
 	if dryRun {
 		if _, err := os.Stat(parent); err != nil {
 			parent = ""

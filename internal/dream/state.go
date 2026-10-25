@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// state is ~/.config/sh-agent/dream-state.json: each project's watermark and
+// state is ~/.config/fyr/dream-state.json: each project's watermark and
 // the last run (D9; never in search.db, which is a cache).
 type state struct {
 	Projects map[string]time.Time `json:"projects"`
@@ -24,7 +26,7 @@ type lastRun struct {
 }
 
 func statePath(home string) string {
-	return filepath.Join(home, ".config", "sh-agent", "dream-state.json")
+	return filepath.Join(home, harness.StateDir, "dream-state.json")
 }
 
 // readState reads the state. A missing file is a first run; a file that

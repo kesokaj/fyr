@@ -1,7 +1,7 @@
-// Package search keeps the derived SQLite indexes behind `sh-agent search`
-// and `sh-agent index`: one per git checkout at .agents/scratch/search.db and
-// the global search index at ~/.config/sh-agent/search.db. Both are caches of
-// files git or ~/.config/sh-agent/ already holds (R4, ADR-045): every query
+// Package search keeps the derived SQLite indexes behind `fyr search`
+// and `fyr index`: one per git checkout at .agents/scratch/search.db and
+// the global search index at ~/.config/fyr/search.db. Both are caches of
+// files git or ~/.config/fyr/ already holds (R4, ADR-045): every query
 // first reconciles the index against git, so an answer never comes from
 // another branch or a stale tree, and deleting a database loses nothing.
 //
@@ -35,7 +35,7 @@ var busyTimeoutMS = 10000
 // nowFunc is the clock, replaceable in tests (garbage collection by age).
 var nowFunc = time.Now
 
-var errBusy = errors.New("search: index busy (another sh-agent is indexing); retry, or use grep")
+var errBusy = errors.New("search: index busy (another fyr is indexing); retry, or use grep")
 
 const schemaSQL = `
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
@@ -177,7 +177,7 @@ type staleSchemaError struct{ found string }
 func (e staleSchemaError) Error() string { return "schema " + e.found }
 
 func tryOpen(path string) (*store, error) {
-	// 0700: ~/.config/sh-agent holds the feedback log (ConfigDir).
+	// 0700: ~/.config/fyr holds the feedback log (ConfigDir).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}

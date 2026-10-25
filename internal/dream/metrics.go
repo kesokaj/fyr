@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/kesokaj/styrman-harness/internal/metrics"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // ingestMetrics reads every session's shape into the metrics store before
