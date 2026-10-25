@@ -38,11 +38,23 @@ var globalOnly = map[string]bool{"feedback": true, "proposal": true}
 // unexported kinds never reach trail.jsonl (D14, R4).
 var unexported = map[string]bool{"memory": true, "feedback": true, "proposal": true}
 
-// unexportedSQL is the same set as SQL, for the export and the load.
-const unexportedSQL = `('memory', 'feedback', 'proposal')`
+// unexportedSQL is the same set as SQL, for the export and the load: built
+// from the map, so the two cannot drift (security review 2026-10-25,
+// finding 7).
+var unexportedSQL = func() string {
+	var ks []string
+	for k := range unexported {
+		ks = append(ks, "'"+k+"'")
+	}
+	sort.Strings(ks)
+	return "(" + strings.Join(ks, ", ") + ")"
+}()
 
 // maxBody is the largest body a record takes.
 const maxBody = 1 << 20
+
+// maxTitle is the longest title, in bytes: one line a list or a hit prints.
+const maxTitle = 512
 
 // Kinds is every kind, sorted, for usage messages.
 func Kinds() []string {
@@ -195,13 +207,35 @@ func cleanTitle(t string) (string, error) {
 	switch {
 	case t == "":
 		return "", usage("--title is required")
-	case strings.ContainsAny(t, "\r\n\x00"):
+	case strings.ContainsAny(t, "\r\n"):
 		return "", usage("--title must be one line")
 	case !utf8.ValidString(t):
 		return "", usage("--title is not UTF-8 text")
+	case !titleText(t):
+		return "", usage("--title holds a control character")
+	case len(t) > maxTitle:
+		return "", usage("--title is over %d bytes", maxTitle)
 	}
 	return t, nil
 }
+
+// bodyText reports whether s is text a body may hold: UTF-8 with no control
+// character but tab and newline. \x01 and \x02 above all, which a search
+// snippet uses as its match marks (security review 2026-10-25, finding 5).
+func bodyText(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if (r < 0x20 && r != '\t' && r != '\n') || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// titleText is bodyText for one line: no newline and no tab either.
+func titleText(s string) bool { return bodyText(s) && !strings.ContainsAny(s, "\t\n") }
 
 // idLess orders IDs by prefix, then by number when both carry one (BUG-999
 // before BUG-1000, ADR-047 before ADR-047a), else as text.

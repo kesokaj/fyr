@@ -97,11 +97,17 @@ func TestRecordVerb(t *testing.T) {
 	}
 }
 
-// get prints through printable: a record cannot drive the terminal.
+// get prints through printable: a record cannot drive the terminal. A C0
+// control is refused on the way in (security review 2026-10-25, finding
+// 5); what text may hold and a terminal still acts on (a C1 CSI, a line
+// separator, a bidi override) is filtered on the way out.
 func TestRecordGetIsPrintable(t *testing.T) {
 	recordRepo(t)
 	home := t.TempDir()
-	if out, err := recordCmd(t, "evil \x1b[2J\x1b]0;pwned\x07 body\n", "record", "add", "learning", "--title", "t‮itle", "--home", home); err != nil {
+	if out, err := recordCmd(t, "evil \x1b[2J\x1b]0;pwned\x07 body\n", "record", "add", "learning", "--title", "t", "--home", home); exitOf(err) != 1 {
+		t.Fatalf("a body with ESC must be refused: %q %v", out, err)
+	}
+	if out, err := recordCmd(t, "evil \u009b2J \u2028 body\n", "record", "add", "learning", "--title", "t‮itle", "--home", home); err != nil {
 		t.Fatalf("add: %q %v", out, err)
 	}
 	list, _ := recordCmd(t, "", "record", "list", "--home", home)
@@ -110,7 +116,7 @@ func TestRecordGetIsPrintable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.ContainsAny(out, "\x1b\x07‮") {
+	if strings.ContainsAny(out, "\x1b\x07‮\u009b\u2028") {
 		t.Errorf("get printed control characters: %q", out)
 	}
 }
@@ -212,5 +218,19 @@ func TestHelpListsRecord(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help lacks %q", want)
 		}
+	}
+}
+
+// Security review 2026-10-25, finding 8: an error that is not a refusal
+// (an os error carrying a checkout path) is filtered like every other line
+// fyr prints from the trail.
+func TestRecordErrFiltersOtherErrors(t *testing.T) {
+	var out bytes.Buffer
+	err := recordErr(&ctx{out: &out}, errors.New("open /x/\x1b[31mevil/.agents: permission denied"))
+	if err == nil || strings.ContainsRune(err.Error(), 0x1b) {
+		t.Fatalf("a non-refusal error reached main unfiltered: %q", err)
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("the filter dropped the reason: %q", err)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -123,7 +124,10 @@ func recordErr(c *ctx, err error) error {
 		fmt.Fprintln(c.out, search.Printable("fyr record: "+err.Error()))
 		return exitCode(1)
 	}
-	return err
+	// Any other error can carry a checkout's path, which a hand-extracted
+	// archive can fill with escape bytes: filtered too (security review
+	// 2026-10-25, finding 8).
+	return errors.New(search.Printable(err.Error()))
 }
 
 // recordHits prints the brain store's hits for a words search, before the

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/search"
@@ -121,8 +120,9 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 }
 
 // label is the scope prefix of a hit's ID: none for the project's own
-// records, "global:" for the global scope, and with --global the base name
-// of any other project's root, as file hits print it.
+// records, "global:" for the global scope, and any other project's full
+// root: two clones of one base name must not print alike (security review
+// 2026-10-25, finding 6).
 func label(scope, project string, global bool) string {
 	switch {
 	case scope == "":
@@ -130,7 +130,7 @@ func label(scope, project string, global bool) string {
 	case scope == project && !global:
 		return ""
 	}
-	return filepath.Base(scope) + ":"
+	return scope + ":"
 }
 
 // FormatHit is a record hit's line, `ID  kind status  date  title`, as a file

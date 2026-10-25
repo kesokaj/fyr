@@ -239,3 +239,16 @@ The scope root is resolved the way `memory.Root` resolves it today (`internal/me
   - **One file per record (D5):** the many files the operator asked to remove.
   - **JSONL as the only store:** not searchable without loading it in full.
 - **D23 — 2026-10-25 — The requirements text in Phase 0 is approved and applied word for word, plus that one comma** — by: the operator ("approve requirements as written").
+- **D24 — Phase 1's build decisions, recorded at its checkpoint** — by: the AI (the Phase 1 agent proposed them; the spec `specs/fyr/record.md` states each):
+  - A linked worktree writes its own checkout's `trail.jsonl`, the one its branch commits; the scope stays the main worktree's.
+  - A missing `trail.jsonl` loads nothing and keeps the rows; the next write writes the file again.
+  - The export is written inside the write's transaction, before the commit, so the file and `meta.export_sha` describe one state.
+  - While `trail.jsonl` does not parse, reads refuse too: the store would answer from rows the file no longer holds.
+  - The FTS table keys on an integer `rid`, not the composite key, whose implicit rowid `VACUUM` may renumber.
+  - The global scope refuses only `memory`; every other non-global-only kind is accepted there.
+  - `--project` needs `--global`.
+  - Record hits appear only in a words search; `--refs` and `--open` print file results.
+  - Opening a new store retries `SQLITE_BUSY` for 10 s, the busy timeout, because the WAL switch race does not wait on it.
+- **D25 — An ID given with `--id` may be the kind's prefix and any lowercase slug (`SPEC-fyr-record`, `TEST-2026-09-03-verify-real-home`); an ID `fyr` generates always carries the stamp.** The import and R7's Known-limits IDs need the short form; the stamp only makes a generated ID unique — by: the AI, settling the handoff's first contradiction.
+- **D26 — Global-only kinds are exactly `feedback` and `proposal` (D10).** `memory` is project-only (D14); every other kind may be global, a `learning` by the agent's choice (D4) and a `retro` by `import --global` — by: the AI, settling the second contradiction.
+- **D27 — The unmigrated refusal names `fyr record import` before Phase 2 builds it.** The refusal states the one way out, and Phase 2 makes the command exist; no release is cut between the two (no tag is approved) — by: the AI, settling the third contradiction.

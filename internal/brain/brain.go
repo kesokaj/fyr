@@ -130,7 +130,7 @@ func openSession(o Options, writing bool) (*session, error) {
 // export or load. The SHA is compared without the lock first, so a read of
 // an unchanged trail takes no write lock.
 func (s *session) sync() error {
-	data, ok, err := readTrail(s.top)
+	sha, ok, err := hashTrail(s.top)
 	if err != nil || !ok {
 		return err
 	}
@@ -139,7 +139,7 @@ func (s *session) sync() error {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if have.String == sum(data) {
+	if have.String == sha {
 		return nil
 	}
 	return s.st.tx(s.loadLocked)
@@ -185,6 +185,9 @@ func readBody(r io.Reader) (string, error) {
 		return "", refuse("the body on stdin is not UTF-8 text")
 	}
 	text := strings.TrimRight(strings.ReplaceAll(string(raw), "\r\n", "\n"), " \t\r\n")
+	if !bodyText(text) {
+		return "", refuse("the body on stdin holds a control character other than tab and newline")
+	}
 	for {
 		line, rest, found := strings.Cut(text, "\n")
 		if !found || strings.TrimSpace(line) != "" {
