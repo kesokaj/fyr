@@ -27,6 +27,10 @@ var (
 	finding    = regexp.MustCompile(`\*\*\[(high|medium|low)\b`)
 	bugName    = regexp.MustCompile(`^(BUG-[0-9]+)`)
 	hexRun     = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	// A record's time is the minute its ID was stamped with (plan
+	// 2026-10-25-1754 D3); verifyTitle is the verifier's own title (D12).
+	recordStamp = regexp.MustCompile(`^[A-Z]+-(\d{4}-\d{2}-\d{2})-(\d{4})(-|$)`)
+	verifyTitle = regexp.MustCompile(`^Verif(ication|y)\b`)
 )
 
 type window struct {
@@ -39,8 +43,14 @@ type stamped struct {
 	ref string
 }
 
+// putFunc stores one event, keyed by (session, kind, ref).
+type putFunc func(sid, kind, ref, value string, ts int64) error
+
 // joinEvents derives every main session's events from git, the trail and
-// the feedback log (spec § Data, events payloads). It is idempotent: each
+// the feedback (spec § Data, events payloads): a migrated project's trail
+// from its records, an unmigrated one's from its files, never both (plan
+// 2026-10-25-1754 D4); corrections from the global feedback records and
+// feedback.jsonl for every root (D11). It is idempotent: each
 // event's key is (session, kind, ref), and an event whose value changes (a
 // commit that became ambiguous when an overlapping session arrived) is
 // updated in place. A project root that is gone or is not git gets no
@@ -86,6 +96,9 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 	if err := rewriteFileRefs(tx); err != nil {
 		return nil, err
 	}
+	if err := rewriteCorrectionRefs(tx); err != nil {
+		return nil, err
+	}
 	put := func(sid, kind, ref, value string, ts int64) error {
 		_, err := tx.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT(session_id, kind, ref) DO UPDATE SET value = excluded.value, ts = excluded.ts`, sid, ts, kind, ref, value)
@@ -102,7 +115,13 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 			}
 			return ids
 		}
-		for _, f := range feedback[root] {
+		// A records read that fails costs this run the root's record events
+		// only: its stored events stay, and feedback.jsonl still counts.
+		in, rerr := brain.ForMetrics(home, root)
+		if rerr != nil {
+			notes = append(notes, "records not read: "+root+": "+rerr.Error())
+		}
+		for _, f := range append(feedback[root], feedbackRecords(in.Feedback)...) {
 			for _, id := range owners(f.ts) {
 				if err := put(id, "correction", f.ref, "", f.ts); err != nil {
 					return nil, err
@@ -133,6 +152,14 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 					sessionOf[c.ref] = id
 				}
 			}
+		}
+		if in.Migrated {
+			if rerr == nil {
+				if err := joinRecords(in.Trail, ws, sessionOf, put); err != nil {
+					return nil, err
+				}
+			}
+			continue
 		}
 		docs := trail.DocsRoot(root)
 		if docs == "" {
@@ -167,11 +194,7 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 			}
 		}
 		for _, rel := range trailFiles(root, docs, "reviews", "*.md") {
-			n := map[string]int{}
-			for _, m := range finding.FindAllStringSubmatch(readSmall(filepath.Join(root, rel)), -1) {
-				n[m[1]]++
-			}
-			v := "high=" + strconv.Itoa(n["high"]) + ",medium=" + strconv.Itoa(n["medium"]) + ",low=" + strconv.Itoa(n["low"])
+			v := findings(readSmall(filepath.Join(root, rel)))
 			for _, id := range owners(at(rel)) {
 				if err := put(id, "review", fileRef("review", rel), v, at(rel)); err != nil {
 					return nil, err
@@ -194,6 +217,83 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		}
 	}
 	return notes, tx.Commit()
+}
+
+// joinRecords derives a migrated project's handoff, verifier, review and bug
+// events from its records (plan 2026-10-25-1754, § The join). A handoff,
+// verifier log or review belongs to every session whose window overlaps the
+// minute stamped in its ID; one with no valid stamp gives no event. A bug
+// belongs to the session that owns the first commit its body cites. Only
+// patterns are taken from a body, never its text.
+func joinRecords(recs []brain.Record, ws []window, sessionOf map[string]string, put putFunc) error {
+	for _, r := range recs {
+		if r.Kind == "bug" {
+			ts := int64(0)
+			if t, err := time.ParseInLocation("2006-01-02", r.Date, time.Local); err == nil {
+				ts = t.UnixMilli()
+			}
+			for _, h := range hexRun.FindAllString(r.Body, -1) {
+				if sha, id := matchCommit(h, sessionOf); id != "" {
+					if err := put(id, "bug", r.ID, sha, ts); err != nil {
+						return err
+					}
+					break
+				}
+			}
+			continue
+		}
+		ts, ok := recordTime(r.ID)
+		if !ok {
+			continue
+		}
+		var kind, value string
+		switch r.Kind {
+		case "handoff":
+			kind = "handoff"
+		case "testing":
+			m := statusLine.FindStringSubmatch(r.Body)
+			if m == nil || !verifyTitle.MatchString(r.Title) {
+				continue
+			}
+			kind, value = "verifier", m[1]
+		case "review":
+			kind, value = "review", findings(r.Body)
+		default:
+			continue
+		}
+		for _, w := range ws {
+			// The window [start, end] against the stamp's minute [ts, ts+60s).
+			if w.start < ts+60_000 && ts <= w.end {
+				if err := put(w.id, kind, r.ID, value, ts); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// recordTime is the minute stamped in a record's ID, read in the machine's
+// zone (D15); a date-only ID or an impossible minute has none.
+func recordTime(id string) (int64, bool) {
+	m := recordStamp.FindStringSubmatch(id)
+	if m == nil {
+		return 0, false
+	}
+	t, err := time.ParseInLocation("2006-01-02 1504", m[1]+" "+m[2], time.Local)
+	if err != nil {
+		return 0, false
+	}
+	return t.UnixMilli(), true
+}
+
+// findings is a review's value: its findings counted by severity.
+func findings(body string) string {
+	n := map[string]int{}
+	for _, m := range finding.FindAllStringSubmatch(body, -1) {
+		n[m[1]]++
+	}
+	return "high=" + strconv.Itoa(n["high"]) + ",medium=" + strconv.Itoa(n["medium"]) + ",low=" + strconv.Itoa(n["low"])
 }
 
 // refKinds is each trail event's record kind: the kind whose ID its ref is.
@@ -237,18 +337,58 @@ func rewriteFileRefs(tx *sql.Tx) error {
 		if tail, ok := strings.CutPrefix(r.ref, brain.ImportedID(k, "")); ok && brain.ImportedID(k, tail) == r.ref {
 			continue
 		}
-		res, err := tx.Exec(`UPDATE OR IGNORE events SET ref = ? WHERE session_id = ? AND kind = ? AND ref = ?`,
-			fileRef(k, r.ref), r.sid, r.kind, r.ref)
-		if err != nil {
+		if err := rekey(tx, r.sid, r.kind, r.ref, fileRef(k, r.ref)); err != nil {
 			return err
 		}
-		if n, err := res.RowsAffected(); err != nil {
+	}
+	return nil
+}
+
+// rewriteCorrectionRefs turns a correction ref stored as its feedback
+// entry's ts, in any offset, into the UTC form the join now writes (D11),
+// so one correction read from both the log and a record counts once. A ref
+// that is not a time is left alone.
+func rewriteCorrectionRefs(tx *sql.Tx) error {
+	type row struct{ sid, ref string }
+	rows, err := tx.Query(`SELECT session_id, ref FROM events WHERE kind = 'correction'`)
+	if err != nil {
+		return err
+	}
+	var old []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.sid, &r.ref); err != nil {
+			rows.Close()
 			return err
-		} else if n == 0 {
-			if _, err := tx.Exec(`DELETE FROM events WHERE session_id = ? AND kind = ? AND ref = ?`, r.sid, r.kind, r.ref); err != nil {
+		}
+		old = append(old, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, r := range old {
+		if _, ref, ok := correctionRef(r.ref); ok && ref != r.ref {
+			if err := rekey(tx, r.sid, "correction", r.ref, ref); err != nil {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// rekey moves one event to a new ref; when the session already holds an
+// event of that kind under the new ref, the old row is a duplicate and goes.
+func rekey(tx *sql.Tx, sid, kind, from, to string) error {
+	res, err := tx.Exec(`UPDATE OR IGNORE events SET ref = ? WHERE session_id = ? AND kind = ? AND ref = ?`, to, sid, kind, from)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		_, err = tx.Exec(`DELETE FROM events WHERE session_id = ? AND kind = ? AND ref = ?`, sid, kind, from)
+		return err
 	}
 	return nil
 }
@@ -313,6 +453,35 @@ func readSmall(p string) string {
 	return string(b)
 }
 
+// correctionRef is a feedback entry's time and its event reference: the ts
+// in UTC, so an entry written +02:00 in the log and Z elsewhere is one
+// correction (D11).
+func correctionRef(ts string) (int64, string, bool) {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return 0, "", false
+	}
+	return t.UnixMilli(), t.UTC().Format(time.RFC3339Nano), true
+}
+
+// feedbackRecords is the global feedback records' times and references; a
+// body that is not JSON or has no RFC 3339 ts is skipped.
+func feedbackRecords(recs []brain.Record) []stamped {
+	var out []stamped
+	for _, r := range recs {
+		var e struct {
+			TS string `json:"ts"`
+		}
+		if json.Unmarshal([]byte(r.Body), &e) != nil {
+			continue
+		}
+		if ts, ref, ok := correctionRef(e.TS); ok {
+			out = append(out, stamped{ts: ts, ref: ref})
+		}
+	}
+	return out
+}
+
 // readFeedback is the feedback log's entries by project root: their times,
 // and the entry's ts as its reference. Nothing else is taken from a line.
 func readFeedback(home string) map[string][]stamped {
@@ -332,8 +501,8 @@ func readFeedback(home string) map[string][]stamped {
 		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Project == "" {
 			continue
 		}
-		if t, err := time.Parse(time.RFC3339, e.TS); err == nil {
-			out[filepath.Clean(e.Project)] = append(out[filepath.Clean(e.Project)], stamped{ts: t.UnixMilli(), ref: e.TS})
+		if ts, ref, ok := correctionRef(e.TS); ok {
+			out[filepath.Clean(e.Project)] = append(out[filepath.Clean(e.Project)], stamped{ts: ts, ref: ref})
 		}
 	}
 	return out

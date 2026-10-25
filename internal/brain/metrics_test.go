@@ -1,0 +1,67 @@
+package brain
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"testing"
+)
+
+// ForMetrics gives the metrics join a migrated checkout's handoff, testing,
+// review and bug records, and for every root, migrated, unmigrated or gone,
+// the global feedback about it alone (plan 2026-10-25-1754 S1, D11). With no
+// store and no trail.jsonl it gives nothing and creates nothing.
+func TestForMetrics(t *testing.T) {
+	home := t.TempDir()
+	migrated, unmigrated := repo(t), repo(t)
+	os.MkdirAll(filepath.Join(unmigrated, ".agents", "docs", "handoffs"), 0o755)
+	gone := filepath.Join(t.TempDir(), "gone")
+
+	// No brain.db yet: an unmigrated checkout and a gone root read nothing.
+	for _, root := range []string{unmigrated, gone} {
+		in, err := ForMetrics(home, root)
+		if err != nil || in.Migrated || in.Trail != nil || in.Feedback != nil {
+			t.Errorf("%s with no store: %+v %v, want an empty input", root, in, err)
+		}
+	}
+	if _, err := os.Lstat(Path(home)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ForMetrics created the store: %v", err)
+	}
+
+	o := opts(migrated, home)
+	for _, kind := range []string{"handoff", "testing", "review", "bug", "change"} {
+		add(t, o, kind, kind+" record", "body")
+	}
+	g := opts(t.TempDir(), home)
+	g.Global = true
+	for _, p := range []string{migrated, unmigrated, gone, repo(t)} {
+		add(t, g, "feedback", "about "+filepath.Base(p), `{"ts":"2026-10-25T14:30:00Z"}`, "project", p)
+	}
+
+	in, err := ForMetrics(home, migrated)
+	if err != nil || !in.Migrated {
+		t.Fatalf("migrated: %+v %v", in, err)
+	}
+	var kinds []string
+	for _, r := range in.Trail {
+		kinds = append(kinds, r.Kind)
+	}
+	sort.Strings(kinds)
+	if len(kinds) != 4 || kinds[0] != "bug" || kinds[1] != "handoff" || kinds[2] != "review" || kinds[3] != "testing" {
+		t.Errorf("migrated trail kinds %v, want bug handoff review testing", kinds)
+	}
+	if len(in.Feedback) != 1 || in.Feedback[0].Title != "about "+filepath.Base(migrated) {
+		t.Errorf("migrated feedback %+v, want its own one", in.Feedback)
+	}
+
+	for _, root := range []string{unmigrated, gone} {
+		in, err := ForMetrics(home, root)
+		if err != nil || in.Migrated || in.Trail != nil {
+			t.Errorf("%s: %+v %v, want not migrated and no trail", root, in, err)
+		}
+		if len(in.Feedback) != 1 || in.Feedback[0].Title != "about "+filepath.Base(root) {
+			t.Errorf("%s feedback %+v, want its own one", root, in.Feedback)
+		}
+	}
+}

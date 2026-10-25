@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"os"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // Scopes is every project scope the store holds records for: the roots the
@@ -58,22 +60,7 @@ func ForDream(home, root string, since time.Time) (DreamInput, error) {
 	if scope == "" {
 		return in, nil
 	}
-	read := func(q string, args ...any) ([]Record, error) {
-		rows, err := st.db.Query(`SELECT `+recordCols+` FROM records WHERE `+q+` ORDER BY updated, id`, args...)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		var out []Record
-		for rows.Next() {
-			r, err := scanRecord(rows)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, r)
-		}
-		return out, rows.Err()
-	}
+	read := func(q string, args ...any) ([]Record, error) { return st.records(q, args...) }
 	// Times are compared parsed, never as text: a loaded line may carry any
 	// RFC 3339 offset (security review of the dream, finding 4).
 	after := func(recs []Record) []Record {
@@ -108,6 +95,71 @@ func ForDream(home, root string, since time.Time) (DreamInput, error) {
 		}
 	}
 	return in, nil
+}
+
+// records is every record matching the WHERE clause q, oldest update first.
+func (st *store) records(q string, args ...any) ([]Record, error) {
+	rows, err := st.db.Query(`SELECT `+recordCols+` FROM records WHERE `+q+` ORDER BY updated, id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Record
+	for rows.Next() {
+		r, err := scanRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MetricsInput is what the metrics join reads about one project.
+type MetricsInput struct {
+	Migrated bool     // the checkout at root holds .agents/trail.jsonl
+	Trail    []Record // Migrated only: the scope's handoff, testing, review and bug records, every status
+	Feedback []Record // global feedback records about the main worktree root of root (root itself when gone)
+}
+
+// ForMetrics reads root's records for the metrics join (plan
+// 2026-10-25-1754 S1). The global feedback is read for every root, migrated
+// or not, and for a root that is gone (D11). The trail is read only for a
+// migrated checkout, through the file-wins load, as ForDream does. With no
+// brain.db and no trail.jsonl the input is empty and no store is created.
+// On an error Migrated is still set, so the caller knows whether the root
+// had trail records to miss.
+func ForMetrics(home, root string) (MetricsInput, error) {
+	var in MetricsInput
+	if _, top, err := trail.Roots(root); err == nil {
+		_, err := os.Lstat(trailPath(top))
+		in.Migrated = err == nil
+	}
+	var st *store
+	if in.Migrated {
+		s, scope, err := openForSearch(Options{Home: home, Dir: root})
+		if err != nil || s == nil {
+			return in, err
+		}
+		st = s
+		defer st.close()
+		if in.Trail, err = st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope); err != nil {
+			return in, err
+		}
+	} else {
+		if _, err := os.Lstat(Path(home)); err != nil {
+			return in, nil
+		}
+		s, err := openStore(home)
+		if err != nil {
+			return in, err
+		}
+		st = s
+		defer st.close()
+	}
+	var err error
+	in.Feedback, err = st.records(`scope = '' AND kind = 'feedback' AND project = ?`, canonicalProject(root))
+	return in, err
 }
 
 // Proposal is one dream proposal to store.
