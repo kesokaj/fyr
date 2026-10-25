@@ -132,7 +132,8 @@ func runRecord(c *ctx) error {
 }
 
 // printImport is what an import did, and every file the caller removes by
-// name afterwards (D13): the import itself removes nothing.
+// name afterwards (D13): the import itself removes nothing. Each path is one
+// shell word (brain.ShellQuote): the lists are pasted into `git rm`.
 func printImport(c *ctx, res *brain.ImportResult) {
 	p := func(format string, a ...any) { fmt.Fprintln(c.out, search.Printable(fmt.Sprintf(format, a...))) }
 	head := "import"
@@ -153,19 +154,19 @@ func printImport(c *ctx, res *brain.ImportResult) {
 	if len(res.Remove) > 0 {
 		p("remove with git rm by name, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
 		for _, f := range res.Remove {
-			p("%s", f)
+			p("%s", brain.ShellQuote(f))
 		}
 	}
 	if len(res.Memory) > 0 {
 		p("remove with rm by name, untracked memory store files (%d):", len(res.Memory))
 		for _, f := range res.Memory {
-			p("%s", f)
+			p("%s", brain.ShellQuote(f))
 		}
 	}
 	if len(res.Sources) > 0 {
 		p("read from ~/.config/fyr; remove by name once the records are checked (%d):", len(res.Sources))
 		for _, f := range res.Sources {
-			p("%s", f)
+			p("%s", brain.ShellQuote(f))
 		}
 	}
 }

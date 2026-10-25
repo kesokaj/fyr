@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -25,6 +26,7 @@ type MemoryEntry struct {
 const (
 	memoryMaxLines = 200
 	memoryMaxBytes = 25 * 1024
+	memoryMaxLine  = maxTitle + 128
 )
 
 var (
@@ -56,10 +58,13 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 		return "", refuse("--type must be user, feedback, project or reference, not %q", e.Type)
 	case !memorySlug.MatchString(e.Name):
 		return "", refuse("--name must match %s, not %q", memorySlug, e.Name)
-	case strings.TrimSpace(e.Description) == "":
-		return "", refuse("--description is required")
-	case strings.ContainsAny(e.Description, "\r\n\x00"):
-		return "", refuse("--description must be one line")
+	}
+	// The description is the record's title: the title rules hold (security
+	// review of the import, finding 5); a refusal here, as `fyr memory`'s
+	// refusals always were.
+	title, err := cleanTitle(e.Description)
+	if err != nil {
+		return "", refuse("%s", strings.Replace(err.Error(), "--title", "--description", 1))
 	}
 	text, err := readBody(body)
 	if err != nil {
@@ -73,7 +78,6 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 	id := "MEMORY-" + e.Name
 	now := o.now()
 	full := "type: " + e.Type + "\n\n" + text
-	title := strings.TrimSpace(e.Description)
 	err = s.st.tx(func(c *sql.Conn) error {
 		ctx := context.Background()
 		taken, err := exists(c, s.scope, id)
@@ -118,7 +122,14 @@ func MemoryShow(o Options) (string, error) {
 		if m := memoryType.FindStringSubmatch(body); m != nil {
 			typ = m[1]
 		}
-		lines = append(lines, search.Printable(fmt.Sprintf("- %s (%s) — %s", strings.TrimPrefix(id, "MEMORY-"), typ, title)))
+		l := search.Printable(fmt.Sprintf("- %s (%s) — %s", strings.TrimPrefix(id, "MEMORY-"), typ, title))
+		// One line is bounded, so a long title (stored before the title rules,
+		// or by another writer) cannot crowd every other memory out.
+		for len(l) > memoryMaxLine {
+			_, size := utf8.DecodeLastRuneInString(l)
+			l = l[:len(l)-size]
+		}
+		lines = append(lines, l)
 	}
 	if err := rows.Err(); err != nil {
 		return "", err

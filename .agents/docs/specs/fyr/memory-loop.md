@@ -33,7 +33,7 @@ Status: built 2026-09-29 (plan `plans/2026-09-29-dreamer-memory-loop.md`); writi
 | Agent cut at its turn limit | a partial artifact with `Status: IN PROGRESS` (its early-write rule); the caller says so |
 | `git clean -fdx`, a fresh clone, a deleted checkout | the memory stays: it is in `~/.config/fyr/brain.db`, keyed by the checkout's root, not in the checkout |
 | `brain.db` lost | the memory is lost with it; there is no second copy (R4) |
-| an old `.agents/memory` that is a symlink | `fyr record import` refuses it; nothing else reads that directory any more |
+| an old `.agents/memory` that is a symlink, or one git tracks anything under | `fyr record import` refuses it; until brain plan Phase 4 moves the dream to records, `fyr dream` still reads the old directory (with the same refusals), so a memory written with `fyr memory add` since Phase 2 does not reach the dream yet |
 
 ## Known differences (R10)
 

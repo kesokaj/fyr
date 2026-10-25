@@ -322,14 +322,12 @@ func (s *session) loadLocked(c *sql.Conn) error {
 	if _, err := c.ExecContext(ctx, `DELETE FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, s.scope); err != nil {
 		return err
 	}
+	// The rows left beside the file's are unexported kinds, whose IDs carry
+	// their own prefixes (MEMORY-, FEEDBACK-, PROPOSAL-) that parseLine never
+	// accepts on an exported line: no insert can collide with them.
 	for _, r := range recs {
 		if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
 			VALUES (?, ?, ?, ?, ?, ?, ?, '', ?)`, s.scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Updated); err != nil {
-			if isConstraint(err) {
-				// A memory row already holds the ID: the file's line cannot be
-				// loaded beside it.
-				return refuse("trail.jsonl: %s is already a local memory record's id", r.ID)
-			}
 			return err
 		}
 	}

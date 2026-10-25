@@ -357,3 +357,27 @@ func TestImportGlobal(t *testing.T) {
 		t.Errorf("a re-run skips what is stored: %+v %v", again, err)
 	}
 }
+
+// A file outside the trail's directories is left as a file: reported, and
+// never on the list of paths to remove (a plain docs/ can hold a project's
+// own documentation beside an old trail).
+func TestImportLeavesUnknownFilesOffTheRemoveList(t *testing.T) {
+	dir, home := docsFixture(t), t.TempDir()
+	p := filepath.Join(dir, ".agents", "docs", "website", "index.md")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte("# Our site\n"), 0o644)
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "site")
+	res, err := Import(opts(dir, home), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res.Remove {
+		if strings.Contains(r, "website/") {
+			t.Errorf("%s is not a trail file but is listed for git rm", r)
+		}
+	}
+	if len(res.Remove) != 19 || len(res.Problems) != 1 || !strings.Contains(res.Problems[0], "website/index.md") {
+		t.Errorf("remove %d (want 19), problems %v", len(res.Remove), res.Problems)
+	}
+}

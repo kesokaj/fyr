@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ type Imported struct {
 // but could not take.
 type ImportResult struct {
 	Records  []Imported
-	Remove   []string // every tracked file under the docs root, for `git rm`
+	Remove   []string // every tracked trail file under the docs root, for `git rm`; a file left as a file is not on it
 	Memory   []string // the old memory stores' files, for `rm` by name (gitignored, never tracked)
 	Sources  []string // ~/.config/fyr files a global import read, relative to it, for `rm` by name
 	Skipped  int      // records the scope already holds
@@ -68,6 +69,105 @@ var (
 	idRef   = regexp.MustCompile(`\b(?:PLAN|REVIEW|TEST|CHANGE|HANDOFF|RETRO|SPEC|DEPLOY|GUIDE)-[a-z0-9][a-z0-9._-]*[a-z0-9]`)
 	slugBad = regexp.MustCompile(`[^a-z0-9._-]+`)
 )
+
+// The import's read caps, over the docs tree, the files that reference it
+// and the old memory stores together: far above this repository's (16 MB,
+// 1,700 files). Variables so a test can lower them (security review of the
+// import, 2026-10-25, finding 6).
+var (
+	maxImportBytes int64 = 256 << 20
+	maxImportFiles       = 50000
+)
+
+// budget is what one import may still read.
+type budget struct {
+	bytes int64
+	files int
+}
+
+func newBudget() *budget { return &budget{bytes: maxImportBytes, files: maxImportFiles} }
+
+func (b *budget) take(n int, what string) error {
+	b.bytes -= int64(n)
+	b.files--
+	if b.bytes < 0 || b.files < 0 {
+		return refuse("the import is over %d bytes or %d files (at %s); import a smaller docs root", maxImportBytes, maxImportFiles, what)
+	}
+	return nil
+}
+
+// readRegular reads a file whole, opened without following a link or
+// blocking on a FIFO (openNonBlocking), refusing what is not a regular file
+// or is over max bytes, by its size and while reading: a file swapped after
+// a check is never read through (security review of the import, finding 7).
+func readRegular(path string, max int64) ([]byte, error) {
+	f, err := openNonBlocking(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, refuse("%s is not a regular file", path)
+	}
+	if fi.Size() > max {
+		return nil, refuse("%s is over %d bytes", path, max)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, refuse("%s is over %d bytes", path, max)
+	}
+	return data, nil
+}
+
+var shellPlain = regexp.MustCompile(`^[A-Za-z0-9._/@%+=:,][A-Za-z0-9._/@%+=:,-]*$`)
+
+// ShellQuote is s as one shell word: as it is when it is plain, else in
+// single quotes. The import prints paths a caller pastes into `git rm`, and
+// git tracks names like `$(x).md` or `-rf` (security review of the import,
+// finding 4).
+func ShellQuote(s string) string {
+	if shellPlain.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// checkRecord refuses a record the store's own rules would not take back:
+// an exported kind goes through the load's parser itself, so the import's
+// check and the load's are one function (security review of the import,
+// finding 1); the others get the same field rules by hand.
+func checkRecord(r Record) error {
+	if !unexported[r.Kind] {
+		line, err := encodeTrail([]Record{r})
+		if err != nil {
+			return err
+		}
+		_, err = parseLine(bytes.TrimSuffix(line, []byte("\n")), 1)
+		return err
+	}
+	_, derr := time.Parse("2006-01-02", r.Date)
+	_, uerr := time.Parse(time.RFC3339, r.Updated)
+	switch {
+	case !validID(r.Kind, r.ID):
+		return refuse("id %q is not a %s id", r.ID, r.Kind)
+	case !allowed(r.Kind, r.Status):
+		return refuse("status %q is not one a %s takes", r.Status, r.Kind)
+	case derr != nil || uerr != nil:
+		return refuse("date %q or updated %q is not a date", r.Date, r.Updated)
+	case r.Title == "" || len(r.Title) > maxTitle || !titleText(r.Title):
+		return refuse("the title is not one line of text of at most %d bytes", maxTitle)
+	case len(r.Body) > maxBody || !bodyText(r.Body):
+		return refuse("the body is over 1 MiB or not text")
+	}
+	return nil
+}
 
 // guides are testing/ files that describe how to test, not one run.
 var guides = map[string]string{"testing/guide.md": "GUIDE-testing"}
@@ -105,7 +205,7 @@ func docsRootOf(dir, top, arg string) (string, error) {
 // readDocs reads every file git tracks under root. A file that is not
 // markdown is refused (D17: a script is not a record; move it first), as is
 // a symlink.
-func readDocs(top, root string) ([]docFile, error) {
+func readDocs(top, root string, b *budget) ([]docFile, error) {
 	relRoot, _ := filepath.Rel(top, root)
 	out, err := trail.Command(top, "ls-files", "-z", "--", filepath.ToSlash(relRoot)).Output()
 	if err != nil {
@@ -132,11 +232,14 @@ func readDocs(top, root string) ([]docFile, error) {
 			notMD = append(notMD, p)
 			continue
 		}
-		if fi.Size() > maxBody {
-			return nil, refuse("%s is over 1 MiB; a record body is at most that", p)
-		}
-		data, err := os.ReadFile(abs)
+		data, err := readRegular(abs, maxBody)
 		if err != nil {
+			if IsRefusal(err) {
+				return nil, refuse("%s: %v; a record body is at most 1 MiB of a regular file", p, err)
+			}
+			return nil, err
+		}
+		if err := b.take(len(data), p); err != nil {
 			return nil, err
 		}
 		rel, _ := filepath.Rel(root, abs)
@@ -198,22 +301,29 @@ func section(body, name string) string {
 
 func slugOf(stem string) string {
 	s := strings.Trim(slugBad.ReplaceAllString(strings.ToLower(stem), "-"), "-._")
-	if len(s) > 128 {
-		s = strings.TrimRight(s[:128], "-._")
+	// 120, not the 128 an ID's slug may hold: room for a -N a collision adds.
+	if len(s) > 120 {
+		s = strings.TrimRight(s[:120], "-._")
 	}
 	return s
 }
 
 // docDate is a file's day: its frontmatter date, else its name's stamp,
-// else the fallback.
+// else the fallback; a date that is not a real day (2026-02-30) is skipped,
+// never exported (security review of the import, finding 1).
 func docDate(meta map[string]string, base, fallback string) string {
-	if d := meta["date"]; dateRe.MatchString(d) {
+	if d := meta["date"]; realDay(d) {
 		return d
 	}
-	if m := stampPrefix.FindStringSubmatch(base); m != nil {
+	if m := stampPrefix.FindStringSubmatch(base); m != nil && realDay(m[1]) {
 		return m[1]
 	}
 	return fallback
+}
+
+func realDay(d string) bool {
+	_, err := time.Parse("2006-01-02", d)
+	return err == nil && dateRe.MatchString(d)
 }
 
 // bugIndex is INDEX.md read for what a bug file may not say: its row's
@@ -262,11 +372,13 @@ func bugStatus(raw string) string {
 // candidate is a record an old tree would import, before D8 decides.
 type candidate struct {
 	rec  Record
-	path string
-	root bool // kept whatever references it (D8's first list)
+	path string // relative to the checkout
+	rel  string // relative to the docs root, as trail text cites it
+	root bool   // kept whatever references it (D8's first list)
 }
 
-// classify turns the tree into candidates. bugs/INDEX.md is folded into the
+// classify turns the tree into candidates, and returns the paths it leaves
+// as files (outside every trail directory). bugs/INDEX.md is folded into the
 // bugs; DECISIONS.md gives one ADR per section.
 func classify(files []docFile, today string) ([]candidate, []string, error) {
 	var ix bugIndex
@@ -276,7 +388,7 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 		}
 	}
 	var out []candidate
-	var problems []string
+	var left []string
 	newestHandoff := -1
 	for _, f := range files {
 		meta, body := frontmatter(f.text)
@@ -294,7 +406,7 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 		case f.rel == "bugs/INDEX.md":
 			continue
 		case f.rel == "architecture/DECISIONS.md":
-			adrs, err := splitADRs(body, f.path)
+			adrs, err := splitADRs(body, f.path, today)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -356,14 +468,14 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 				newestHandoff = len(out)
 			}
 		default:
-			problems = append(problems, f.path+": not in a trail directory this import knows; left as a file")
+			left = append(left, f.path)
 			continue
 		}
 		if !validID(c.rec.Kind, c.rec.ID) {
 			return nil, nil, refuse("%s: %q is not a valid %s id", f.path, c.rec.ID, c.rec.Kind)
 		}
 		c.rec.Date, c.rec.Title, c.rec.Body, c.rec.Updated = date, oneLine(title), body, updated
-		c.path = f.path
+		c.path, c.rel = f.path, f.rel
 		out = append(out, c)
 	}
 	if newestHandoff >= 0 {
@@ -376,7 +488,7 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 		}
 		seen[c.rec.ID] = c.path
 	}
-	return out, problems, nil
+	return out, left, nil
 }
 
 func oneLine(s string) string {
@@ -389,7 +501,7 @@ func oneLine(s string) string {
 
 // splitADRs makes one record per "## ADR-NNN: Title (date) — Status"
 // section of DECISIONS.md; the preamble before the first is dropped.
-func splitADRs(body, path string) ([]candidate, error) {
+func splitADRs(body, path, today string) ([]candidate, error) {
 	locs := adrHead.FindAllStringSubmatchIndex(body, -1)
 	var out []candidate
 	for i, loc := range locs {
@@ -399,10 +511,12 @@ func splitADRs(body, path string) ([]candidate, error) {
 		}
 		id := body[loc[2]:loc[3]]
 		head := body[loc[4]:loc[5]]
-		date := "1970-01-01"
+		date := today
 		title := head
 		if m := adrDate.FindStringSubmatchIndex(head); m != nil {
-			date = head[m[2]:m[3]]
+			if d := head[m[2]:m[3]]; realDay(d) {
+				date = d
+			}
 			title = head[:m[0]]
 		}
 		status := "accepted"
@@ -412,41 +526,36 @@ func splitADRs(body, path string) ([]candidate, error) {
 		out = append(out, candidate{
 			rec: Record{ID: id, Kind: "adr", Status: status, Date: date, Title: oneLine(title),
 				Body: strings.TrimSpace(body[loc[0]:end]), Updated: date + "T00:00:00Z"},
-			path: path, root: true,
+			path: path, rel: "architecture/DECISIONS.md", root: true,
 		})
 	}
 	return out, nil
 }
 
 // outsideText is what D8's closure starts from besides the kept records:
-// the project's own files that stay files.
-func outsideText(top string) []string {
-	var out []string
-	read := func(p string) {
-		fi, err := os.Lstat(p)
-		if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxBody {
-			return
-		}
-		if b, err := os.ReadFile(p); err == nil {
-			out = append(out, string(b))
-		}
+// the project's own files that stay files, as git tracks them (an ignored or
+// untracked file is not the project's text), each read without following a
+// link and within the import's budget.
+func outsideText(top string, b *budget) ([]string, error) {
+	out, err := trail.Command(top, "ls-files", "-z", "--", "REQUIREMENTS.md", "AGENTS.md", "README.md", "context", "skills", "agents", "rules").Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-files: %w", err)
 	}
-	for _, f := range []string{"REQUIREMENTS.md", "AGENTS.md", "README.md"} {
-		read(filepath.Join(top, f))
-	}
-	for _, d := range []string{"context", "skills", "agents", "rules"} {
-		root := filepath.Join(top, d)
-		if fi, err := os.Lstat(root); err != nil || !fi.IsDir() {
+	var texts []string
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p == "" {
 			continue
 		}
-		filepath.WalkDir(root, func(p string, e fs.DirEntry, err error) error {
-			if err == nil && e.Type().IsRegular() {
-				read(p)
-			}
-			return nil
-		})
+		data, err := readRegular(filepath.Join(top, filepath.FromSlash(p)), maxBody)
+		if err != nil {
+			continue // a link, a FIFO or a large asset: no reference is read from it
+		}
+		if err := b.take(len(data), p); err != nil {
+			return nil, err
+		}
+		texts = append(texts, string(data))
 	}
-	return out
+	return texts, nil
 }
 
 // keep applies D8: the roots, then everything they or the outside files
@@ -455,12 +564,7 @@ func keep(cands []candidate, outside []string) []candidate {
 	byKey := map[string]int{}
 	for i, c := range cands {
 		byKey[c.rec.ID] = i
-		// The path relative to the docs root, as trail text cites it.
-		if j := strings.Index(c.path, "/docs/"); j >= 0 {
-			byKey[c.path[j+len("/docs/"):]] = i
-		} else if r, ok := strings.CutPrefix(c.path, "docs/"); ok {
-			byKey[r] = i
-		}
+		byKey[c.rel] = i
 	}
 	kept := make([]bool, len(cands))
 	var queue []string
@@ -492,9 +596,9 @@ func keep(cands []candidate, outside []string) []candidate {
 }
 
 // Import migrates a project's old docs tree into its scope (D8, D13): it
-// stores what D8 keeps, exports, and returns every tracked file under the
-// docs root for the caller to `git rm` by name, plus the old memory store's
-// files. A dry run reads and decides the same and writes nothing.
+// stores what D8 keeps, exports, and returns every trail file under the docs
+// root for the caller to `git rm` by name, plus the old memory store's files
+// it took. A dry run reads, decides and checks the same and writes nothing.
 func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 	if o.Global {
 		return nil, usage("a project import takes no --global; the global logs are `fyr record import --global`")
@@ -519,22 +623,34 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 			return nil, refuse("the tree has uncommitted changes: commit or stash them first, so the import's removals are the only change")
 		}
 	}
-	files, err := readDocs(top, root)
+	b := newBudget()
+	files, err := readDocs(top, root, b)
 	if err != nil {
 		return nil, err
 	}
 	now := o.now()
-	cands, problems, err := classify(files, now.Format("2006-01-02"))
+	cands, left, err := classify(files, now.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
-	kept := keep(cands, outsideText(top))
-	res := &ImportResult{Problems: problems}
+	outside, err := outsideText(top, b)
+	if err != nil {
+		return nil, err
+	}
+	kept := keep(cands, outside)
+	res := &ImportResult{}
+	leftAlone := map[string]bool{}
+	for _, p := range left {
+		leftAlone[p] = true
+		res.Problems = append(res.Problems, p+": not in a trail directory this import knows; left as a file")
+	}
 	for _, f := range files {
-		res.Remove = append(res.Remove, f.path)
+		if !leftAlone[f.path] {
+			res.Remove = append(res.Remove, f.path)
+		}
 	}
 	res.Dropped = len(cands) - len(kept)
-	mems, memFiles, memProblems, err := readMemoryStore(scope)
+	mems, memFiles, memProblems, err := readMemoryStore(scope, b)
 	if err != nil {
 		return nil, err
 	}
@@ -543,8 +659,14 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 
 	var recs []Record
 	for _, c := range kept {
-		r := c.rec
+		r := normalize(c.rec)
 		r.Scope = scope
+		// Checked before anything is written, in a dry run too: a record the
+		// load would refuse fails the import here, never a fresh home later
+		// (security review of the import, finding 1).
+		if err := checkRecord(r); err != nil {
+			return nil, refuse("%s (%s): %v", c.path, r.ID, err)
+		}
 		recs = append(recs, r)
 		res.Records = append(res.Records, Imported{ID: r.ID, Kind: r.Kind, Status: r.Status, Path: c.path, rec: r})
 	}
@@ -571,19 +693,24 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 	return res, nil
 }
 
+// storedKey is a record's key in the store: two projects may each hold
+// MEMORY-x.
+func storedKey(scope, id string) string { return scope + "\x00" + id }
+
 func filterStored(all []Imported, stored map[string]bool) []Imported {
 	var out []Imported
 	for _, r := range all {
-		if stored[r.ID] {
+		if stored[storedKey(r.rec.Scope, r.ID)] {
 			out = append(out, r)
 		}
 	}
 	return out
 }
 
-// insertNew stores every record whose ID the scope does not hold yet, in
-// one transaction, and exports when export is set; it returns the IDs it
-// stored.
+// insertNew stores every record whose ID its scope does not hold yet, in one
+// transaction, and exports when export is set; it returns the keys
+// (storedKey) it stored. The caller checked every record; the check runs
+// again here as the last guard before the store.
 func (s *session) insertNew(recs []Record, export bool) (map[string]bool, error) {
 	stored := map[string]bool{}
 	write := s.st.tx
@@ -593,9 +720,8 @@ func (s *session) insertNew(recs []Record, export bool) (map[string]bool, error)
 	err := write(func(c *sql.Conn) error {
 		ctx := context.Background()
 		for _, r := range recs {
-			r = normalize(r)
-			if !validID(r.Kind, r.ID) || !allowed(r.Kind, r.Status) || !dateRe.MatchString(r.Date) || len(r.Body) > maxBody {
-				return fmt.Errorf("brain: import built a record the load would refuse: %s %s %q %s", r.Kind, r.ID, r.Status, r.Date)
+			if err := checkRecord(r); err != nil {
+				return fmt.Errorf("brain: import built a record the load would refuse: %s: %w", r.ID, err)
 			}
 			taken, err := exists(c, r.Scope, r.ID)
 			if err != nil {
@@ -608,7 +734,7 @@ func (s *session) insertNew(recs []Record, export bool) (map[string]bool, error)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Project, r.Updated); err != nil {
 				return err
 			}
-			stored[r.ID] = true
+			stored[storedKey(r.Scope, r.ID)] = true
 		}
 		return nil
 	})
@@ -616,9 +742,16 @@ func (s *session) insertNew(recs []Record, export bool) (map[string]bool, error)
 }
 
 // readMemoryStore reads the old memory store at <root>/.agents/memory (the
-// main worktree's, which every worktree shared) as memory records. No store
-// is no records; a symlinked store or file is refused.
-func readMemoryStore(root string) ([]Imported, []string, []string, error) {
+// main worktree's, which every worktree shared) as memory records, with the
+// trust checks the store always had (ADR-043): a symlinked or non-directory
+// .agents or store is refused, and so is a store git tracks anything under (a
+// committed memory is the repository's text, not the operator's). No store
+// is no records. A file it cannot take is a problem, and only the files it
+// took, with the store's index and lock, are listed for removal.
+func readMemoryStore(root string, b *budget) ([]Imported, []string, []string, error) {
+	if err := guardExportPath(root); err != nil {
+		return nil, nil, nil, err
+	}
 	store := filepath.Join(root, ".agents", "memory")
 	fi, err := os.Lstat(store)
 	if errors.Is(err, os.ErrNotExist) {
@@ -630,6 +763,13 @@ func readMemoryStore(root string) ([]Imported, []string, []string, error) {
 	if !fi.IsDir() {
 		return nil, nil, nil, refuse("%s is not a directory (a symlinked store is refused)", store)
 	}
+	tracked, err := trail.Command(root, "ls-files", "--", ".agents/memory").Output()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("git ls-files .agents/memory: %w", err)
+	}
+	if len(bytes.TrimSpace(tracked)) > 0 {
+		return nil, nil, nil, refuse("git tracks files under %s: a committed memory is the repository's text, never the operator's; not imported", store)
+	}
 	entries, err := os.ReadDir(store)
 	if err != nil {
 		return nil, nil, nil, err
@@ -638,53 +778,55 @@ func readMemoryStore(root string) ([]Imported, []string, []string, error) {
 	var files, problems []string
 	for _, e := range entries {
 		rel := filepath.ToSlash(filepath.Join(".agents", "memory", e.Name()))
-		if !e.Type().IsRegular() {
-			if e.Name() != ".lock" {
-				problems = append(problems, rel+": not a regular file; left alone")
+		if e.Name() == "MEMORY.md" || e.Name() == ".lock" {
+			if e.Type().IsRegular() {
+				files = append(files, rel)
 			}
 			continue
 		}
-		files = append(files, rel)
-		if e.Name() == "MEMORY.md" || !strings.HasSuffix(e.Name(), ".md") {
+		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".md") {
+			problems = append(problems, rel+": not a memory file; left alone")
 			continue
 		}
-		info, err := e.Info()
-		if err != nil || info.Size() > maxBody {
-			problems = append(problems, rel+": unreadable or over 1 MiB; not imported")
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(store, e.Name()))
+		data, err := readRegular(filepath.Join(store, e.Name()), maxBody)
 		if err != nil {
+			problems = append(problems, rel+": "+err.Error()+"; not imported")
+			continue
+		}
+		if err := b.take(len(data), rel); err != nil {
 			return nil, nil, nil, err
 		}
-		meta, body := frontmatter(strings.ReplaceAll(string(data), "\r\n", "\n"))
+		text := strings.ReplaceAll(string(data), "\r\n", "\n")
+		meta, body := frontmatter(text)
 		name := strings.TrimSuffix(e.Name(), ".md")
-		typ := "project"
-		for _, l := range strings.Split(string(data), "\n") {
-			if t, ok := strings.CutPrefix(strings.TrimSpace(l), "type: "); ok && memoryTypes[t] {
+		typ, modified := "project", ""
+		for _, l := range strings.Split(text, "\n") {
+			l = strings.TrimSpace(l)
+			if t, ok := strings.CutPrefix(l, "type: "); ok && memoryTypes[t] {
 				typ = t
-				break
 			}
-		}
-		body = strings.TrimSpace(body)
-		desc := oneLine(meta["description"])
-		if !memorySlug.MatchString(name) || body == "" || !utf8Text(body) {
-			problems = append(problems, rel+": not a memory the store takes (name, empty or binary body); not imported")
-			continue
-		}
-		modified := meta["modified"]
-		day := info.ModTime().UTC().Format("2006-01-02")
-		updated := info.ModTime().UTC().Format(time.RFC3339)
-		for _, l := range strings.Split(string(data), "\n") {
-			if t, ok := strings.CutPrefix(strings.TrimSpace(l), "modified: "); ok {
+			if t, ok := strings.CutPrefix(l, "modified: "); ok {
 				modified = t
 			}
 		}
+		body = strings.TrimSpace(body)
+		if !memorySlug.MatchString(name) || body == "" {
+			problems = append(problems, rel+": not a memory the store takes (its name, or an empty body); not imported")
+			continue
+		}
+		day, updated := "", ""
 		if t, err := time.Parse(time.RFC3339, modified); err == nil {
 			day, updated = t.UTC().Format("2006-01-02"), t.UTC().Format(time.RFC3339)
+		} else if info, err := e.Info(); err == nil {
+			day, updated = info.ModTime().UTC().Format("2006-01-02"), info.ModTime().UTC().Format(time.RFC3339)
 		}
-		r := Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: desc,
-			Body: "type: " + typ + "\n\n" + body, Updated: updated}
+		r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
+			Body: "type: " + typ + "\n\n" + body, Updated: updated})
+		if err := checkRecord(r); err != nil {
+			problems = append(problems, rel+": "+err.Error()+"; not imported")
+			continue
+		}
+		files = append(files, rel)
 		recs = append(recs, Imported{ID: r.ID, Kind: "memory", Status: "closed", Path: rel, rec: r})
 	}
 	return recs, files, problems, nil
@@ -723,51 +865,65 @@ func utf8Text(s string) bool {
 // feedback.jsonl as feedback records, retros.jsonl as retro records,
 // proposals/**/*.md as proposal records, each with the project it is about;
 // and every indexed project's old memory store into that project's scope. A
-// line or file it cannot take is reported, never fatal. Records already
-// stored are skipped, so it can run again after the logs grew.
+// line, file or store it cannot take is a problem, never fatal, and a source
+// with a problem is not listed for removal. Records already stored are
+// skipped, so it can run again after the logs grew.
 func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 	if !o.Global {
 		return nil, usage("import --global migrates ~/.config/fyr's logs")
 	}
 	conf := filepath.Join(o.Home, harness.StateDir)
 	res := &ImportResult{}
+	b := newBudget()
 	var recs []Record
 	used := map[string]int{}
-	uniq := func(id string) string {
-		used[id]++
-		if n := used[id]; n > 1 {
-			return fmt.Sprintf("%s-%d", id, n)
+	failed := map[string]bool{} // sources with a problem: kept, never listed for removal
+	problem := func(source, msg string) {
+		failed[source] = true
+		res.Problems = append(res.Problems, msg)
+	}
+	add := func(r Record, source string) {
+		r = normalize(r)
+		used[r.ID]++
+		if n := used[r.ID]; n > 1 {
+			r.ID = fmt.Sprintf("%s-%d", r.ID, n)
 		}
-		return id
-	}
-	addRec := func(r Record, path string) {
-		r.ID = uniq(r.ID)
+		if err := checkRecord(r); err != nil {
+			problem(source, fmt.Sprintf("%s: %v; not imported", source, err))
+			return
+		}
 		recs = append(recs, r)
-		res.Records = append(res.Records, Imported{ID: r.ID, Kind: r.Kind, Status: r.Status, Path: path, Project: r.Project, rec: r})
+		res.Records = append(res.Records, Imported{ID: r.ID, Kind: r.Kind, Status: r.Status, Path: source, Project: r.Project, rec: r})
 	}
+	var sources []string
 
 	for _, log := range []struct{ file, kind string }{{"feedback.jsonl", "feedback"}, {"retros.jsonl", "retro"}} {
-		lines, err := readLogLines(filepath.Join(conf, log.file))
+		lines, long, err := readLogLines(filepath.Join(conf, log.file))
 		if err != nil {
-			return nil, err
+			problem(log.file, log.file+": "+err.Error()+"; not imported")
+			continue
 		}
 		if lines == nil {
 			continue
 		}
-		res.Sources = append(res.Sources, log.file)
+		sources = append(sources, log.file)
+		for _, n := range long {
+			problem(log.file, fmt.Sprintf("%s line %d: over %d bytes; not imported", log.file, n, maxLine))
+		}
 		for i, l := range lines {
 			if strings.TrimSpace(l) == "" {
 				continue
 			}
+			src := fmt.Sprintf("%s line %d", log.file, i+1)
 			var e map[string]any
 			if err := json.Unmarshal([]byte(l), &e); err != nil {
-				res.Problems = append(res.Problems, fmt.Sprintf("%s line %d: not one JSON object; not imported", log.file, i+1))
+				problem(log.file, src+": not one JSON object; not imported")
 				continue
 			}
 			ts, _ := e["ts"].(string)
 			t, err := time.Parse(time.RFC3339, ts)
 			if err != nil {
-				res.Problems = append(res.Problems, fmt.Sprintf("%s line %d: ts %q is not RFC 3339; not imported", log.file, i+1, ts))
+				problem(log.file, fmt.Sprintf("%s: ts %q is not RFC 3339; not imported", src, ts))
 				continue
 			}
 			project, _ := e["project"].(string)
@@ -777,15 +933,15 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 				if corrected == "" {
 					corrected, _ = e["user_quote"].(string)
 				}
-				title = oneLine(corrected)
-			}
-			if len(title) > 200 {
-				title = strings.ToValidUTF8(title[:200], "") + "…"
+				title = corrected
 			}
 			var pretty bytes.Buffer
-			json.Indent(&pretty, []byte(l), "", "  ")
-			addRec(Record{ID: fmt.Sprintf("%s-%s-%s", prefixes[log.kind], t.Format("2006-01-02-1504"), slugify(title)), Kind: log.kind,
-				Status: "closed", Date: t.Format("2006-01-02"), Title: oneLine(title), Body: pretty.String(),
+			if json.Indent(&pretty, []byte(l), "", "  ") != nil || pretty.Len() > maxBody {
+				pretty.Reset()
+				pretty.WriteString(l)
+			}
+			add(Record{ID: fmt.Sprintf("%s-%s-%s", prefixes[log.kind], t.Format("2006-01-02-1504"), slugify(title)), Kind: log.kind,
+				Status: "closed", Date: t.Format("2006-01-02"), Title: title, Body: pretty.String(),
 				Project: projectKey(project), Updated: t.UTC().Format(time.RFC3339)}, log.file)
 		}
 	}
@@ -797,15 +953,15 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 				return nil
 			}
 			rel, _ := filepath.Rel(conf, p)
-			info, err := e.Info()
-			if err != nil || info.Size() > maxBody {
-				res.Problems = append(res.Problems, rel+": unreadable or over 1 MiB; not imported")
+			rel = filepath.ToSlash(rel)
+			data, err := readRegular(p, maxBody)
+			if err != nil {
+				problem(rel, rel+": "+err.Error()+"; not imported")
 				return nil
 			}
-			data, err := os.ReadFile(p)
-			if err != nil || !utf8Text(string(data)) {
-				res.Problems = append(res.Problems, rel+": not text; not imported")
-				return nil
+			if err := b.take(len(data), rel); err != nil {
+				problem(rel, rel+": "+err.Error())
+				return filepath.SkipAll
 			}
 			meta, body := frontmatter(strings.ReplaceAll(string(data), "\r\n", "\n"))
 			body = strings.TrimSpace(body)
@@ -816,15 +972,19 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 			if base == "SKILL" {
 				base = filepath.Base(filepath.Dir(p))
 			}
-			date := docDate(meta, base, info.ModTime().Format("2006-01-02"))
+			fallback := time.Now().Format("2006-01-02")
+			if info, err := e.Info(); err == nil {
+				fallback = info.ModTime().Format("2006-01-02")
+			}
+			date := docDate(meta, base, fallback)
 			title := heading(body)
 			if title == "" {
 				title = "proposal " + base
 			}
-			res.Sources = append(res.Sources, filepath.ToSlash(rel))
-			addRec(Record{ID: "PROPOSAL-" + slugOf(strings.ReplaceAll(strings.TrimPrefix(filepath.ToSlash(strings.TrimSuffix(rel, ".md")), "proposals/"), "/", "-")),
-				Kind: "proposal", Status: "queued", Date: date, Title: oneLine(title), Body: body,
-				Project: projectKey(meta["project"]), Updated: date + "T00:00:00Z"}, filepath.ToSlash(rel))
+			sources = append(sources, rel)
+			add(Record{ID: "PROPOSAL-" + slugOf(strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(rel, ".md"), "proposals/"), "/", "-")),
+				Kind: "proposal", Status: "queued", Date: date, Title: title, Body: body,
+				Project: projectKey(meta["project"]), Updated: date + "T00:00:00Z"}, rel)
 			return nil
 		})
 	}
@@ -838,7 +998,7 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 		if err != nil {
 			continue
 		}
-		mems, files, problems, err := readMemoryStore(scope)
+		mems, files, problems, err := readMemoryStore(scope, b)
 		if err != nil {
 			res.Problems = append(res.Problems, scope+": "+err.Error())
 			continue
@@ -854,9 +1014,9 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 			res.Records = append(res.Records, m)
 		}
 	}
-	for _, r := range recs {
-		if !validID(r.Kind, r.ID) {
-			return nil, fmt.Errorf("brain: import built an invalid id %q", r.ID)
+	for _, src := range sources {
+		if !failed[src] {
+			res.Sources = append(res.Sources, src)
 		}
 	}
 	if dryRun {
@@ -886,34 +1046,54 @@ func projectKey(p string) string {
 	return canonicalProject(p)
 }
 
-// readLogLines reads a JSONL log; nil when there is none. A symlinked log
-// is refused, as ~/.config/fyr's other files are.
-func readLogLines(p string) ([]string, error) {
-	fi, err := os.Lstat(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+// readLogLines reads a JSONL log, opened as readRegular opens a file; nil
+// when there is none. A line over maxLine is not kept: its number is
+// returned in long and its place left empty, so the other lines keep their
+// numbers and the import goes on (security review of the import, finding 8).
+func readLogLines(p string) (lines []string, long []int, err error) {
+	if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
 	}
+	f, err := openNonBlocking(p)
 	if err != nil {
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, refuse("%s is not a regular file", p)
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
-	var out []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), maxBody)
-	for sc.Scan() {
-		out = append(out, sc.Text())
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() {
+		return nil, nil, refuse("%s is not a regular file", p)
 	}
-	if out == nil {
-		out = []string{}
+	br := bufio.NewReaderSize(&capped{r: f, left: maxTrail}, 64<<10)
+	lines = []string{}
+	for n := 1; ; n++ {
+		var line []byte
+		tooLong := false
+		for {
+			chunk, err := br.ReadSlice('\n')
+			if !tooLong {
+				if len(line)+len(chunk) > maxLine {
+					tooLong, line = true, nil
+				} else {
+					line = append(line, chunk...)
+				}
+			}
+			if errors.Is(err, bufio.ErrBufferFull) {
+				continue
+			}
+			if err != nil && !errors.Is(err, io.EOF) {
+				return nil, nil, err
+			}
+			if tooLong {
+				long = append(long, n)
+				lines = append(lines, "")
+			} else if len(line) > 0 {
+				lines = append(lines, strings.TrimRight(string(line), "\r\n"))
+			}
+			if errors.Is(err, io.EOF) {
+				return lines, long, nil
+			}
+			break
+		}
 	}
-	return out, sc.Err()
 }
 
 // ImportSummary counts the records by kind, sorted, for the CLI.

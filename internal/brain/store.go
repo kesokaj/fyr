@@ -202,8 +202,6 @@ func isBusy(err error) bool {
 	return c == sqlite3.SQLITE_BUSY || c == sqlite3.SQLITE_LOCKED
 }
 
-func isConstraint(err error) bool { return sqliteCode(err) == sqlite3.SQLITE_CONSTRAINT }
-
 // refusal is input or state the store will not take: the CLI prints it and
 // exits 1.
 type refusal struct{ msg string }
