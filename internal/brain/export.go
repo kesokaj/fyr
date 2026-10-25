@@ -95,6 +95,23 @@ func openTrail(top string) (f *os.File, ok bool, err error) {
 	return f, true, nil
 }
 
+// ReadTrail parses root's .agents/trail.jsonl through the export's path guard
+// and line rules, without opening brain.db: the read of a command that must
+// change nothing (fyr check, ADR-064). ok is false when there is no file; a
+// bad line is a refusal naming it, as the load's is.
+func ReadTrail(root string) (recs []Record, ok bool, err error) {
+	f, ok, err := openTrail(root)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	defer f.Close()
+	recs, err = readRecords(&capped{r: f, left: maxTrail})
+	if err != nil {
+		return nil, false, err
+	}
+	return recs, true, nil
+}
+
 // capped reads at most maxTrail bytes of r and fails past them: a file that
 // grew after its size was checked is refused, never read without end.
 type capped struct {

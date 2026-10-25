@@ -7,7 +7,7 @@ Last reviewed: 2026-10-25
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-25-2024-plan-fyr-check-docs-freshness-and-drift-2026-10` — roadmap item 3 (`fyr check`: docs freshness and drift): planned and cold-read (REVIEW-2026-10-25-2036), awaiting the operator's approval and Open O1–O7 before Phase 1
+- `PLAN-2026-10-25-2024-plan-fyr-check-docs-freshness-and-drift-2026-10` — roadmap item 3 (`fyr check`: docs freshness and drift): approved 2026-10-25 (D24–D27), Phase 1 done, Phase 2 next; Open O1, O3, O5, O7 asked before the phase each shapes
 
 ## Next
 

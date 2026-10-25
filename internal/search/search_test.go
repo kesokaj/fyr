@@ -817,8 +817,10 @@ func TestPrintableDropsLineAndDirectionControls(t *testing.T) {
 // nothing renames the operator's files, so a directory holding only
 // `.sh-agent-noindex` stays out of every index the dream reads.
 func TestOldNoIndexMarkerStillCounts(t *testing.T) {
-	if oldNoIndexMarker != ".sh-agent-noindex" || noIndexMarker != ".fyr-noindex" {
-		t.Fatalf("markers %q and %q, want .fyr-noindex and .sh-agent-noindex", noIndexMarker, oldNoIndexMarker)
+	for _, m := range []string{".fyr-noindex", ".sh-agent-noindex"} {
+		if !isNoIndexMarker("vendor/" + m) {
+			t.Fatalf("%s is not a noindex marker to search", m)
+		}
 	}
 	root := newRepo(t)
 	home := t.TempDir()

@@ -155,19 +155,9 @@ func indexStats(root string) (map[string]indexStat, time.Time) {
 	return stats, ifi.ModTime()
 }
 
-// noIndexMarker names the file that takes its directory out of the index.
-// oldNoIndexMarker is its name from before the rename, honoured the same
-// way: it is a privacy control the operator placed, and nothing renames
-// their files (plan fyr D12, F8).
-const (
-	noIndexMarker    = ".fyr-noindex"
-	oldNoIndexMarker = ".sh-agent-noindex"
-)
-
-func isNoIndexMarker(p string) bool {
-	b := path.Base(p)
-	return b == noIndexMarker || b == oldNoIndexMarker
-}
+// isNoIndexMarker reports a file that takes its directory out of the index;
+// the names live in trail, which fyr check reads too (plan fyr-check D20).
+func isNoIndexMarker(p string) bool { return trail.IsNoIndexMarker(p) }
 
 // gitView lists the checkout's current files: the index entries of
 // `git ls-files -s`, each marked modified when its bytes are not the index's

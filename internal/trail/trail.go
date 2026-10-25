@@ -17,12 +17,31 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// NoIndexMarkers are the file names that take a directory out of the search
+// index and out of fyr check's docs set. The second is the marker's name from
+// before the rename, honoured the same way: it is a privacy control the
+// operator placed, and nothing renames their files (plan fyr D12, F8).
+var NoIndexMarkers = []string{".fyr-noindex", ".sh-agent-noindex"}
+
+// IsNoIndexMarker reports whether the slash-separated path p names one of
+// NoIndexMarkers.
+func IsNoIndexMarker(p string) bool {
+	b := path.Base(p)
+	for _, m := range NoIndexMarkers {
+		if b == m {
+			return true
+		}
+	}
+	return false
+}
 
 // Dates is, for every tracked file under docs, the time of its newest
 // commit (paths relative to root, slash-separated), and the set of those

@@ -17,6 +17,7 @@
 //	fyr metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
 //	fyr memory add|show         write one memory record (body on stdin) or print this project's memory index (the brain store, D14)
 //	fyr record add|get|edit|list|import  the brain store: this project's trail records (exported to .agents/trail.jsonl) and the global ones
+//	fyr check                   read-only drift check of this checkout's docs against the binary and the tree
 //	fyr version
 package main
 
@@ -31,6 +32,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -74,6 +76,7 @@ Commands:
   record import [--dry-run] [<docs-root>]  migrate this project's old trail (default .agents/docs/, else docs/) and its old .agents/memory/ store into records: open plans, the newest handoff, every ADR and bug (a closed bug trimmed to its title and prevention rule), specs, deploy docs and guides, and every trail file those, REQUIREMENTS.md, AGENTS.md, README.md, context/, skills/, agents/ or rules/ name; the rest is dropped (git history keeps it); refuses a dirty tree and a non-markdown file under the docs root; removes nothing, and prints every file to remove by name afterwards
   record import --global [--dry-run]  migrate ~/.config/fyr's feedback.jsonl, retros.jsonl and proposals/ into global records, and every indexed project's old .agents/memory/ store into its memory records; a bad line is reported, records already stored are skipped
       a project's records other than memory are exported on every write to .agents/trail.jsonl (commit it); when that file changes under the store (a pull, checkout or merge) it replaces the project's records before the next record or search call, and a bad line or a duplicate ID is refused with its line number; in a project whose trail is still files (docs/ or .agents/docs/ and no .agents/trail.jsonl) record refuses until it is migrated with fyr record import; exit 0 with or without output, 1 a refusal, 2 a usage error
+  check                   read-only drift check of the working directory's git checkout, writing nothing (no index, no brain store): every fyr verb, subverb and flag named in code (inline spans and fences) by its tracked Markdown files and its current spec, guide and deploy records in .agents/trail.jsonl, and every path or path:line of the checkout named in an inline span, against the running binary and the tree; ROADMAP.md, TODO.md, vendored skills and noindex directories are left out; prints "<where>:<line>  <rule>  <text>" per finding, a "note:" line per part not checked, then "check: N findings (docs D, specs S, requirements R); fyr <version>"; exit 0 clean, 1 with findings, 1 with no summary line and "check: <reason>" on stderr for a refusal (not a checkout, a trail.jsonl that does not parse)
   version                 print the build version
 
 Flags accepted by every command:
@@ -234,6 +237,20 @@ var verbs = map[string]verb{
 	}, source: true, positional: true, run: runAdopt},
 }
 
+// newCtx is a verb's ctx with its FlagSet: the two global flags and the
+// verb's own. run parses it; the check vocabulary reads it (plan fyr-check
+// D14), so the vocabulary is the flags the verb really takes.
+func newCtx(cmd string, v verb, out io.Writer) *ctx {
+	c := &ctx{cmd: cmd, out: out, fs: flag.NewFlagSet(cmd, flag.ContinueOnError)}
+	c.fs.SetOutput(out)
+	c.fs.StringVar(&c.repoFlag, "repo", "", "harness checkout")
+	c.fs.StringVar(&c.homeFlag, "home", "", "install under this directory instead of $HOME")
+	if v.flags != nil {
+		v.flags(c)
+	}
+	return c
+}
+
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprint(out, usage)
@@ -255,13 +272,7 @@ func run(args []string, out io.Writer) error {
 		return exitCode(2)
 	}
 
-	c := &ctx{cmd: cmd, out: out, fs: flag.NewFlagSet(cmd, flag.ContinueOnError)}
-	c.fs.SetOutput(out)
-	c.fs.StringVar(&c.repoFlag, "repo", "", "harness checkout")
-	c.fs.StringVar(&c.homeFlag, "home", "", "install under this directory instead of $HOME")
-	if v.flags != nil {
-		v.flags(c)
-	}
+	c := newCtx(cmd, v, out)
 	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			// Help is a successful ask: the FlagSet has printed the verb's
@@ -521,10 +532,16 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 
 // runMetrics serves `metrics ingest`, `show`, `report` and `export` (spec
 // the record SPEC-fyr-metrics).
+// metricsSubverbs is what runMetrics dispatches, in its order: its refusal
+// texts are built from it and the check vocabulary reads it, and a test pins
+// it against the switch (plan fyr-check D14). export comes last, since the
+// bare-verb usage line ends in its FILE.
+var metricsSubverbs = []string{"ingest", "show", "report", "export"}
+
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {
-		fmt.Fprintln(c.out, "fyr metrics: ingest | show | report | export FILE")
+		fmt.Fprintln(c.out, "fyr metrics: "+strings.Join(metricsSubverbs, " | ")+" FILE")
 		return exitCode(2)
 	}
 	sub, args := args[0], args[1:]
@@ -610,7 +627,7 @@ func runMetrics(c *ctx) error {
 		fmt.Fprintln(c.out, "metrics: exported to "+args[0])
 		return nil
 	}
-	fmt.Fprintf(c.out, "fyr metrics: unknown subcommand %q (ingest, show, report, export)\n", sub)
+	fmt.Fprintf(c.out, "fyr metrics: unknown subcommand %q (%s)\n", sub, strings.Join(metricsSubverbs, ", "))
 	return exitCode(2)
 }
 
@@ -902,8 +919,12 @@ var stdin io.Reader = os.Stdin
 // memoryCmd runs `memory add` and `memory show` in the checkout holding the
 // working directory: an alias over the brain store's memory records (D14).
 // A refusal prints its reason and exits 2.
+// memorySubverbs is what memoryCmd accepts; the check vocabulary reads it,
+// and a test pins it against the dispatcher (plan fyr-check D14).
+var memorySubverbs = []string{"add", "show"}
+
 func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) error {
-	if len(args) != 1 || (args[0] != "add" && args[0] != "show") {
+	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
 		fmt.Fprintln(out, "usage: fyr memory add --type T --name SLUG --description TEXT (body on stdin) | fyr memory show")
 		return exitCode(2)

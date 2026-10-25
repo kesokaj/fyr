@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // BUG-165: search reconciled through `git status`, which runs a clean filter
@@ -120,11 +122,11 @@ func TestGitViewDeletedMarkerOutsidePrefix(t *testing.T) {
 	}
 	os.MkdirAll(filepath.Join(root, ".agents", "docs"), 0o755)
 	os.WriteFile(filepath.Join(root, ".agents", "docs", "h.md"), []byte("h\n"), 0o644)
-	os.WriteFile(filepath.Join(root, noIndexMarker), nil, 0o644)
+	os.WriteFile(filepath.Join(root, trail.NoIndexMarkers[0]), nil, 0o644)
 	run("init", "-q")
 	run("add", ".")
 	run("commit", "-q", "-m", "marked")
-	os.Remove(filepath.Join(root, noIndexMarker))
+	os.Remove(filepath.Join(root, trail.NoIndexMarkers[0]))
 	entries, _, err := gitView(root, ".agents/docs/")
 	if err != nil {
 		t.Fatal(err)

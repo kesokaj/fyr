@@ -328,3 +328,20 @@ func TestDocsRoot(t *testing.T) {
 		})
 	}
 }
+
+// Both marker names count, the old one kept for trees from before the
+// rename; any other base name does not (plan fyr-check D20).
+func TestNoIndexMarkers(t *testing.T) {
+	for p, want := range map[string]bool{
+		".fyr-noindex":               true,
+		"vendor/.sh-agent-noindex":   true,
+		"a/b/.fyr-noindex":           true,
+		"fyr-noindex":                false,
+		".fyr-noindex/x.md":          false,
+		"docs/.sh-agent-noindex.bak": false,
+	} {
+		if got := IsNoIndexMarker(p); got != want {
+			t.Errorf("IsNoIndexMarker(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
