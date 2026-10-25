@@ -5,7 +5,8 @@ Skills in the first table are vendored verbatim from the open skills.sh ecosyste
 send code or project data to an external service (a "register", "publish" or telemetry
 step); such a step is scoped to public or OSS work only, or the skill is not kept (BUG-022). Update by re-fetching from the pinned source and bumping the entry
 here; never edit vendored content in place (fork it into a differently-named skill
-instead). The second table lists the one fork that predates that rule. The third table lists
+instead). The second table lists the forks: `gke-basics`, the one that predates that rule and
+keeps its upstream name, and `discover-skills`, forked from `find-skills` under a new name. The third table lists
 vendored catalogs: a subtree of third-party skills inside a harness skill, reached through that
 skill and never installed as skills themselves.
 
@@ -13,10 +14,9 @@ skill and never installed as skills themselves.
 |-------|--------|-----|---------|----------|------------|
 | grilling | github.com/mattpocock/skills (`skills/productivity/grilling`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s grilling` |
 | codebase-design | github.com/mattpocock/skills (`skills/engineering/codebase-design`) | 6654f6b | MIT | 2026-08-31 | `npx skills@<version> add mattpocock/skills -s codebase-design` |
-| find-skills | github.com/vercel-labs/skills (`skills/find-skills`) | 435076e | MIT | 2026-08-31 | `npx skills@<version> add vercel-labs/skills -s find-skills` |
 | prompt-audit reference (one file, not a skill: `review-standards/references/prompt-audit/prompt-audit.md`, with `LICENSE.txt` beside it) | github.com/anthropics/skills (`skills/claude-api/shared/prompt-audit.md`) | 8a1541c (sha256:c33200da…1878f2) | Apache-2.0 | 2026-09-29 | `curl -sL https://raw.githubusercontent.com/anthropics/skills/<sha>/skills/claude-api/shared/prompt-audit.md`, then bump the pin and digest here |
 
-## Apache-2.0 skills — forks, kept under their upstream names
+## Forks
 
 `gke-basics` is NOT verbatim: it was rewritten here from an upstream base and keeps the
 upstream name. Its provenance was "not recorded when vendored" until the project review
@@ -30,13 +30,23 @@ audit-fix D8a, D22) and is the harness's own skill with no upstream text left; a
 2026-09-13 — its three rules paraphrased under "Before asking the user to log in" — and
 removed.
 
+`discover-skills` is a fork of `find-skills` (vercel-labs/skills, MIT) under a new name, made
+on 2026-10-25 (plan `2026-10-25-harness-audit-fix`, TS30, D18). The verbatim copy's Step 6 installed
+with the global and skip-prompt flags of an unpinned CLI, against this harness's install rule,
+and a note here never reaches the model that loads the skill. The vendored copy was diffed
+against upstream's `skills/find-skills/SKILL.md` at `435076e` before the fork (identical, the
+one file the directory held) and removed. A re-fetch from the pin is a diff to read, never a
+copy to apply.
+
 | Skill | Publisher / author | Derived from | Pin | Local changes | License |
 |-------|--------------------|--------------|-----|---------------|---------|
-| gke-basics | Google Cloud | github.com/google/skills (`skills/cloud/gke-basics`, the one skill it was before upstream split it into `gke-*` sub-skills at 5d9d054 on 2026-06-23) | 6f0b877 (2026-04-23; the tree is unchanged upstream through 2026-05-10) | `SKILL.md` only: the description rewritten with this harness's cross-references (`cloud-run-deploy`, `docker`), a "When NOT to use" line added, the closing pointer to the Developer Knowledge MCP replaced by the GKE docs URL; a Harness overrides paragraph in SKILL.md (gcloud over MCP, one project question, the two dangling asset paths named, the lab-only `deletion_protection`); `references/` and `assets/` verbatim | Apache-2.0 |
+| gke-basics | Google Cloud | github.com/google/skills (`skills/cloud/gke-basics`, the one skill it was before upstream split it into `gke-*` sub-skills at 5d9d054 on 2026-06-23) | 6f0b877 (2026-04-23; the tree is unchanged upstream through 2026-05-10) | `SKILL.md` only: the description rewritten with this harness's cross-references (`cloud-run-deploy`, `docker`), a "When NOT to use" line added, the closing pointer to the Developer Knowledge MCP replaced by the GKE docs URL; a Harness overrides paragraph in SKILL.md (gcloud over MCP, one project question, the two dangling asset paths named, the lab-only `deletion_protection`); `references/` and `assets/` verbatim; the Quick Start takes `$PROJECT_ID` and `$REGION` with `--project` and `--region`, the `~/.claude` asset path dropped, and the references' `us-central1` values named as samples (plan `2026-10-25-harness-audit-fix`, TS33, TS34) | Apache-2.0 |
+| discover-skills | Vercel (vercel-labs) | github.com/vercel-labs/skills (`skills/find-skills`, upstream name `find-skills`) | 435076e | `SKILL.md` rewritten from upstream's: renamed; the CLI pinned (`npx skills@1.7.2`) on every call; Step 6 installs into the harness checkout's `skills/` without the global, skip-prompt or all flags, then a `VENDORED.md` row and `fyr install`; a check of the skills installed here first; the text check and telemetry switch added; the structure and the quality checks kept | MIT |
 
-Apache-2.0 permits redistribution with attribution, which the table above provides.
-It also asks that a copy of the licence travel with the work: this repository is not
-published, and if that changes, add a `LICENSE` file for `gke-basics` before it does.
+Apache-2.0 and MIT permit redistribution with attribution, which the table above provides.
+Both also ask that the licence text travel with the work: this repository is not
+published, and if that changes, add a `LICENSE` file for `gke-basics` and one for
+`discover-skills` (upstream's MIT notice) before it does.
 
 ## Vendored catalogs
 
@@ -72,7 +82,7 @@ Notes:
   job, and `fyr adopt` replaced the manifest repair.
 - `grilling` says "dispatch a sub-agent" to find a fact and names none; that agent is
   `explorer` (read-only recon), and the `--prompts` lens does not flag the vendored line for it.
-- `find-skills` is verbatim again at `435076e` (restored 2026-09-28). Its old local Step 6 edit, which routed installs into this repository, now lives in the global context's § Global vs project.
+- `find-skills` was vendored verbatim at `435076e` from 2026-09-28 until 2026-10-25, when it became the fork `discover-skills` (second table). Its routing of installs into this repository lives in the global context's § Global vs project, and the fork's Step 6 now says the same.
 - The UIZZE UI skill (uizze.com, v1.2.13, formerly a row above) and the Python skill were removed on
   2026-10-01 (plan audit-fix D28, operator's strike): the first duplicated `frontend` and needed a paid
   MCP, and its LICENSE file carried Apache-2.0 text under an MIT label; the stack has no Python.

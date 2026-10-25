@@ -299,7 +299,7 @@ jobs:
           submodules: true  # for bats helpers
 
       - name: Install tools
-        run: |
+        run: |   # example only: these sudo installs run on a CI runner; the harness runs no CI and never runs them
           sudo apt-get update
           sudo apt-get install -y shellcheck
           sudo apt-get install -y bats

@@ -16,7 +16,7 @@ Language-level standards for all TypeScript code. Framework and UI conventions l
 
 ## Compiler Baseline
 
-- TypeScript 7.0 (the native compiler; `latest` since 2026-07) with 6.0's defaults: `strict: true`, `module: esnext`, `types: []`. Removed options (`moduleResolution: node`/`classic`, `baseUrl`, `esModuleInterop: false`, `target: es5`) fail the build; do not carry them over.
+- TypeScript 7.0 (the native compiler; `latest` since 2026-07, 7.0.2 still `latest` on the npm registry on 2026-10-25) with 6.0's defaults: `strict: true`, `module: esnext`, `types: []`. Removed options (`moduleResolution: node`/`classic`, `baseUrl`, `esModuleInterop: false`, `target: es5`) fail the build; do not carry them over.
 - The app config: `moduleResolution: bundler`, `verbatimModuleSyntax`, `moduleDetection: force`, `erasableSyntaxOnly`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `types: ["vite/client"]`, `noEmit`. Vite transpiles without type checking, so `tsc -b` is the type gate: `npm run build` = `vite build && tsc -b` (Vite first; it generates the route tree `tsc` needs). The copy-paste `tsconfig.json` + `tsconfig.app.json` + `tsconfig.node.json` and a line per flag: `./references/tsconfig.md`.
 - **Plain V8:** shipped JS runs in the browser with no Node. Nothing under `src/` imports `node:*`, `fs`, `path`, `process`, `Buffer` or `__dirname`; `types: ["vite/client"]` in the app project makes that a compile error, and `@types/node` lives only in `tsconfig.node.json` for `vite.config.ts`, the one Node file. The reasoning is in `./references/tsconfig.md` § The plain-V8 rule.
 - One config per package; extend a shared base instead of copying options.

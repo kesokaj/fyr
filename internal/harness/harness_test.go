@@ -1014,7 +1014,7 @@ func vendoredSkills(t *testing.T, repo string) map[string]bool {
 
 // isVendoredPath reports whether rel, a slash-separated path relative to
 // skills/, is a vendored key of VENDORED.md or lies under one: a skill
-// vendored whole (`find-skills`) or a vendored subtree inside a harness skill
+// vendored whole (`grilling`) or a vendored subtree inside a harness skill
 // (`google-catalog/catalog`), whose prose is upstream's and is not checked.
 func isVendoredPath(vendored map[string]bool, rel string) bool {
 	for key := range vendored {

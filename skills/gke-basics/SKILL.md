@@ -19,15 +19,16 @@ This skill is a fork of Google's `gke-basics` kept under its upstream name (`ski
 
 - **gcloud and kubectl are the tools.** The references' "MCP tools > gcloud > kubectl" preference (`cli-reference.md`, `gke-golden-path.md`, `mcp-usage.md`) does not apply: no GKE MCP server is configured here, and the harness runs no MCP for infrastructure. Read `mcp-usage.md` as documentation of a tool that is absent.
 - **The project is asked for once.** `gke-golden-path.md` says never to ask for a project ID and `gke-cluster-creation.md` says ALWAYS ask; the global context's GCP rule settles it: the operator gives the project ID, region and the other defaults once and they are recorded in `docs/deploy/gcp.md`, which the next session reads instead of asking again. Never `gcloud config get-value project` as a source.
-- **Two paths in the references are known-dangling.** `gke-security.md` applies `skills/gke/assets/default-deny-netpol.yaml`: the file is `skills/gke-basics/assets/default-deny-netpol.yaml` (installed at `~/.claude/skills/gke-basics/assets/` or `~/.gemini/config/skills/gke-basics/assets/`). `assets/golden-path-autopilot.yaml` cites `resources/recommended-ap.yaml`, an upstream export that was never vendored; the YAML in the asset is the whole of what exists.
-- **Samples are illustrative, not copy-paste.** `iac-usage.md`'s `deletion_protection = false` is for a lab cluster only; production keeps the default `true`. `client-library-usage.md`'s Go sample discards every error and passes `context.TODO` uncalled; real code checks each `err` and passes a `context.Context` (the `golang` skill). `gke-app-onboarding.md`'s Dockerfile pins an old Go minor in its `FROM golang:` line: use `golang:<major.minor of the go.mod go line>` (the `docker` skill).
+- **Two paths in the references are known-dangling.** `gke-security.md` applies `skills/gke/assets/default-deny-netpol.yaml`: the file is `skills/gke-basics/assets/default-deny-netpol.yaml` (installed at `~/.gemini/config/skills/gke-basics/assets/`). `assets/golden-path-autopilot.yaml` cites `resources/recommended-ap.yaml`, an upstream export that was never vendored; the YAML in the asset is the whole of what exists.
+- **Samples are illustrative, not copy-paste.** `iac-usage.md`'s `deletion_protection = false` is for a lab cluster only; production keeps the default `true`. `client-library-usage.md`'s Go sample discards every error and passes `context.TODO` uncalled; real code checks each `err` and passes a `context.Context` (the `golang` skill). Every `us-central1` in the references is a sample value, never a default: `iac-usage.md:23` (`location`), `gke-compute-classes.md:96-97` (zones), `gke-golden-path.md:19`, and `gke-reliability.md:11,32`. The region is the operator's, from `docs/deploy/gcp.md`, and every `gcloud` command carries `--project` and `--region`, as the Quick Start does. `gke-app-onboarding.md`'s Dockerfile pins an old Go minor in its `FROM golang:` line: use `golang:<major.minor of the go.mod go line>` (the `docker` skill).
 
 ## Quick Start
 
 ```bash
-gcloud services enable container.googleapis.com
-gcloud container clusters create-auto my-cluster --region=us-central1
-gcloud container clusters get-credentials my-cluster --region=us-central1
+# PROJECT_ID and REGION come from the project's docs/deploy/gcp.md, never assumed
+gcloud services enable container.googleapis.com --project="$PROJECT_ID"
+gcloud container clusters create-auto my-cluster --project="$PROJECT_ID" --region="$REGION"
+gcloud container clusters get-credentials my-cluster --project="$PROJECT_ID" --region="$REGION"
 kubectl create deployment hello-server \
   --image=us-docker.pkg.dev/google-samples/containers/gke/hello-app:1.0
 ```
