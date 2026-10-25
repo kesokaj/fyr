@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os/exec"
 	"path"
@@ -140,7 +139,9 @@ func (k *checker) pathCandidate(where string, c chunk) (candidate, bool) {
 }
 
 // splitLine parts a path token from the :N or :N-M it may end in, and
-// drops a leading ./ and a trailing /.
+// drops a leading ./ and every trailing /: a trailing slash after a symlink
+// escapes os.Root on a Go before 1.25.12 (GO-2026-4970, security review
+// 2026-10-25), so none reaches it.
 func splitLine(tok string) (p string, n, m int, hasLine bool) {
 	p = tok
 	if sm := lineSuffixRe.FindStringSubmatch(tok); sm != nil {
@@ -151,7 +152,7 @@ func splitLine(tok string) (p string, n, m int, hasLine bool) {
 		}
 		hasLine = true
 	}
-	return strings.TrimSuffix(strings.TrimPrefix(p, "./"), "/"), n, m, hasLine
+	return strings.TrimRight(strings.TrimPrefix(p, "./"), "/"), n, m, hasLine
 }
 
 // checkPath gives a candidate's finding, or none (D19): existence through
@@ -174,10 +175,6 @@ func (k *checker) checkPath(c candidate) (Finding, bool) {
 	if fi.IsDir() {
 		return Finding{c.where, c.line, "line", fmt.Sprintf("`%s`: %s is a directory", c.token, c.p)}, true
 	}
-	lfi, err := k.root.Lstat(name)
-	if err != nil || !lfi.Mode().IsRegular() || lfi.Size() > maxLineRead {
-		return Finding{}, false
-	}
 	n, ok := k.lineCount(name)
 	if !ok {
 		return Finding{}, false
@@ -189,20 +186,17 @@ func (k *checker) checkPath(c candidate) (Finding, bool) {
 }
 
 // lineCount is a text file's line count, cached; false for a binary file
-// (a NUL in the first 8 KiB) or one that cannot be read.
+// (a NUL in the first 8 KiB) or one readFile refuses: a symlink, a FIFO or
+// anything else not a regular file of at most maxLineRead bytes.
 func (k *checker) lineCount(name string) (int, bool) {
 	if n, ok := k.lines[name]; ok {
 		return n, n >= 0
 	}
 	n := -1
-	if f, err := k.root.Open(name); err == nil {
-		data, err := io.ReadAll(io.LimitReader(f, maxLineRead+1))
-		f.Close()
-		if err == nil && len(data) <= maxLineRead && !bytes.Contains(data[:min(len(data), 8<<10)], []byte{0}) {
-			n = bytes.Count(data, []byte("\n"))
-			if len(data) > 0 && data[len(data)-1] != '\n' {
-				n++
-			}
+	if data, err := k.readFile(name); err == nil && !bytes.Contains(data[:min(len(data), 8<<10)], []byte{0}) {
+		n = bytes.Count(data, []byte("\n"))
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			n++
 		}
 	}
 	k.lines[name] = n

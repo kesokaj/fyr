@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -27,16 +28,20 @@ func (k *checker) historyNote() string {
 // whose code was committed to after the commit that carries its current
 // trail line is stale; one naming no code is unlinked. Ancestry, not
 // clocks: a commit carrying both the code and the spec's update is not
-// counted, and an uncommitted spec edit is not stale.
-func (k *checker) specsRule(specs []brain.Record) []Finding {
-	var out []Finding
+// counted, and an uncommitted spec edit is not stale. A git call that fails
+// leaves a note, never a silent pass (code review 2026-10-25, finding 2).
+func (k *checker) specsRule(specs []brain.Record) (out []Finding, notes []string) {
 	for _, r := range specs {
 		code := k.specCode(r)
 		if len(code) == 0 {
 			out = append(out, Finding{r.ID, 0, "spec-unlinked", "names no code: no existing path but *.md files and .agents/trail.jsonl"})
 			continue
 		}
-		commit := k.specCommit(r)
+		commit, err := k.specCommit(r)
+		if err != nil {
+			notes = append(notes, r.ID+": git log failed: spec not checked")
+			continue
+		}
 		if commit == "" {
 			continue
 		}
@@ -49,6 +54,7 @@ func (k *checker) specsRule(specs []brain.Record) []Finding {
 		args = append(args, ":(glob,exclude)**/*.md")
 		data, err := k.git(args...).Output()
 		if err != nil {
+			notes = append(notes, r.ID+": git rev-list failed: spec not checked")
 			continue
 		}
 		if n, _ := strconv.Atoi(strings.TrimSpace(string(data))); n > 0 {
@@ -59,7 +65,7 @@ func (k *checker) specsRule(specs []brain.Record) []Finding {
 			out = append(out, Finding{r.ID, 0, "spec-stale", fmt.Sprintf("%d %s to %s since %.12s", n, noun, strings.Join(code, " "), commit)})
 		}
 	}
-	return out
+	return out, notes
 }
 
 // specCode is a spec's code (D10): the path candidates its spans name that
@@ -93,29 +99,18 @@ func (k *checker) specCode(r brain.Record) []string {
 
 // specCommit is the oldest commit whose trail.jsonl diff adds r's current
 // line, matched on its id and its updated stamp, which the export writes in
-// that order; "" when no commit carries it yet.
-func (k *checker) specCommit(r brain.Record) string {
-	pat := `"id":"` + breQuote(r.ID) + `".*"updated":"` + breQuote(r.Updated) + `"`
+// that order; "" when no commit carries it yet. -G compiles an extended
+// regular expression, whose specials regexp.QuoteMeta escapes, so the `+` of
+// a `+02:00` stamp is literal (code and security review 2026-10-25).
+func (k *checker) specCommit(r brain.Record) (string, error) {
+	pat := `"id":"` + regexp.QuoteMeta(r.ID) + `".*"updated":"` + regexp.QuoteMeta(r.Updated) + `"`
 	out, err := trail.Log(k.top, "-G", pat, "--format=%H", "--", ".agents/trail.jsonl")
 	if err != nil {
-		return ""
+		return "", err
 	}
 	hs := strings.Fields(string(out))
 	if len(hs) == 0 {
-		return ""
+		return "", nil
 	}
-	return hs[len(hs)-1]
-}
-
-// breQuote escapes the characters a POSIX basic regular expression, git's
-// -G default, treats as special.
-func breQuote(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if strings.ContainsRune(`\.[]*^$`, r) {
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
+	return hs[len(hs)-1], nil
 }

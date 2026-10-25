@@ -115,7 +115,9 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	if note := k.historyNote(); note != "" {
 		rep.Notes = append(rep.Notes, note)
 	} else {
-		rep.Findings = append(rep.Findings, k.specsRule(specs)...)
+		fs, notes := k.specsRule(specs)
+		rep.Findings = append(rep.Findings, fs...)
+		rep.Notes = append(rep.Notes, notes...)
 	}
 	reqs, notes := k.requirementsRule(recs)
 	rep.Findings = append(rep.Findings, reqs...)
@@ -160,12 +162,31 @@ func (k *checker) readFile(name string) ([]byte, error) {
 	if !fi.Mode().IsRegular() || fi.Size() > maxLineRead {
 		return nil, fmt.Errorf("%s: not a regular file of at most %d bytes", name, maxLineRead)
 	}
-	f, err := k.root.Open(name)
+	f, err := k.openRegular(name)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	return io.ReadAll(io.LimitReader(f, maxLineRead))
+}
+
+// openRegular opens name without blocking and checks the opened file, not
+// the name: what was swapped in after readFile's Lstat is refused unless it
+// is a regular file of at most maxLineRead bytes.
+func (k *checker) openRegular(name string) (*os.File, error) {
+	f, err := k.root.OpenFile(name, os.O_RDONLY|nonBlock, 0)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err == nil && (!fi.Mode().IsRegular() || fi.Size() > maxLineRead) {
+		err = fmt.Errorf("%s: not a regular file of at most %d bytes", name, maxLineRead)
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func (k *checker) git(args ...string) *exec.Cmd { return trail.Command(k.top, args...) }

@@ -122,35 +122,42 @@ func indentedCode(l string) bool {
 }
 
 // spans is every inline code span on one line: a run of N backticks closed
-// by the next run of exactly N; a run with no closer is literal text.
+// by the next run of exactly N; a run with no closer is literal text. Each
+// run's closer is found once, from the end of the line back, so a line of
+// unclosed runs costs one pass, not one per run (security review
+// 2026-10-25, finding 4).
 func spans(l string, n int) []chunk {
-	var out []chunk
-	i := 0
-	for i < len(l) {
+	type run struct{ at, k, next int }
+	var runs []run
+	for i := 0; i < len(l); {
 		if l[i] != '`' {
 			i++
 			continue
 		}
 		k := tickRun(l, i)
-		closeAt := -1
-		for j := i + k; j < len(l); {
-			if l[j] != '`' {
-				j++
-				continue
-			}
-			m := tickRun(l, j)
-			if m == k {
-				closeAt = j
-				break
-			}
-			j += m
+		runs = append(runs, run{at: i, k: k})
+		i += k
+	}
+	if len(runs) < 2 {
+		return nil
+	}
+	after := map[int]int{} // run length -> index of the nearest later run of it
+	for r := len(runs) - 1; r >= 0; r-- {
+		runs[r].next = -1
+		if c, ok := after[runs[r].k]; ok {
+			runs[r].next = c
 		}
-		if closeAt < 0 {
-			i += k
+		after[runs[r].k] = r
+	}
+	var out []chunk
+	for r := 0; r < len(runs); {
+		c := runs[r].next
+		if c < 0 {
+			r++
 			continue
 		}
-		out = append(out, chunk{line: n, text: strings.TrimSpace(l[i+k : closeAt])})
-		i = closeAt + k
+		out = append(out, chunk{line: n, text: strings.TrimSpace(l[runs[r].at+runs[r].k : runs[c].at])})
+		r = c + 1
 	}
 	return out
 }

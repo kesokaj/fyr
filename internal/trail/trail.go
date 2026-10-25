@@ -163,13 +163,17 @@ func Command(root string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// Log runs `git log` in root with the hardened options and
-// --no-show-signature, and returns its stdout.
+// Log runs `git log` in root with the hardened options, --no-show-signature,
+// and --no-textconv, so a content diff (-G, -S, -p) never starts a textconv
+// program that the checkout's own .gitattributes picks (security review
+// 2026-10-25, finding 1), and returns its stdout. git log runs an external
+// diff only when asked with --ext-diff, which no caller passes; a caller's
+// own --textconv or --ext-diff would undo the hardening.
 func Log(root string, args ...string) ([]byte, error) {
 	if !Readable(root) {
 		return nil, errPartialClone
 	}
-	return Command(root, append([]string{"log", "--no-show-signature"}, args...)...).Output()
+	return Command(root, append([]string{"log", "--no-show-signature", "--no-textconv"}, args...)...).Output()
 }
 
 var errPartialClone = errors.New("a partial clone is not read on a git older than 2.44: git could fetch through its own config")

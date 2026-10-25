@@ -345,3 +345,60 @@ func TestNoIndexMarkers(t *testing.T) {
 		}
 	}
 }
+
+// textconvRepo is a repository whose tracked .gitattributes routes f.txt
+// through a textconv driver its own config defines; the driver writes
+// marker. Two commits change f.txt.
+func textconvRepo(t *testing.T) (root, marker string) {
+	t.Helper()
+	root = t.TempDir()
+	marker = filepath.Join(t.TempDir(), "textconv-ran")
+	prog := filepath.Join(t.TempDir(), "fake-conv")
+	if err := os.WriteFile(prog, []byte("#!/bin/sh\ntouch '"+marker+"'\ncat \"$1\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("f.txt diff=probe\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "f.txt"), []byte("one\n"), 0o644)
+	git("add", "-A")
+	git("commit", "-q", "-m", "one")
+	os.WriteFile(filepath.Join(root, "f.txt"), []byte("two\n"), 0o644)
+	git("commit", "-q", "-a", "-m", "two")
+	git("config", "diff.probe.textconv", prog)
+	// The fixture must trip the marker with the very arguments the code
+	// passes, minus the hardening (silence is not evidence).
+	for _, args := range [][]string{{"log", "-G", "two", "--format=%H", "--", "f.txt"}, {"log", "-p", "-1", "--", "f.txt"}} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("plain git %v: %v\n%s", args, err, out)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("the fixture does not run its driver on a plain git %v, so it proves nothing: %v", args, err)
+		}
+		os.Remove(marker)
+	}
+	return root, marker
+}
+
+// Log never starts a textconv program the checkout picks, for either
+// content diff a caller asks for (security review 2026-10-25, finding 1:
+// fyr check's -G).
+func TestLogRunsNoTextconv(t *testing.T) {
+	root, marker := textconvRepo(t)
+	for _, args := range [][]string{{"-G", "two", "--format=%H", "--", "f.txt"}, {"-p", "-1", "--", "f.txt"}} {
+		out, err := Log(root, args...)
+		if err != nil || len(out) == 0 {
+			t.Fatalf("Log %v: %v, %q", args, err, out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("Log %v ran the checkout's textconv driver", args)
+		}
+	}
+}
