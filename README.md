@@ -51,7 +51,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `fyr adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `fyr version` | The build version. |
 
-`fyr` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. The global flags are `--repo DIR` and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in `.agents/docs/specs/fyr/`.
+`fyr` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. The global flags are `--repo DIR` and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
 
 ## How it works
 

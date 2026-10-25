@@ -520,7 +520,7 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 }
 
 // runMetrics serves `metrics ingest`, `show`, `report` and `export` (spec
-// .agents/docs/specs/fyr/metrics.md).
+// the record SPEC-fyr-metrics).
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {

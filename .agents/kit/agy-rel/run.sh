@@ -36,9 +36,28 @@ mkdir -p "$RUN" "$KIT_HOME/.gemini/antigravity-cli"
 git clone -q "$FIX" "$KIT_CLONE"
 [ "$(git -C "$KIT_CLONE" rev-parse --show-toplevel)" = "$KIT_CLONE" ] || { echo "run.sh: $KIT_CLONE is not its own repository" >&2; exit 2; }
 gi() { git -C "$KIT_CLONE" -c user.name=fixture -c user.email=f@localhost "$@"; }
+# The fixture's trail is still files: each clone is migrated to records first (brain plan Phase 3), the way
+# /init-project migrates a project, so the skills under test find `.agents/trail.jsonl` and the records in
+# KIT_HOME's store. The fixture itself is never touched.
+if [ -d "$KIT_CLONE/.agents/docs" ] && [ ! -e "$KIT_CLONE/.agents/trail.jsonl" ]; then
+  go build -C "${INSTALL_FROM:-$REPO}" -o "$RUN/fyr-import" ./cmd/fyr
+  ( cd "$KIT_CLONE" && "$RUN/fyr-import" record import --home "$KIT_HOME" > "$RUN/import.txt" )
+  gi add .agents/trail.jsonl && gi commit -qm "trail: imported into records"
+  awk '/^remove with git /{f=1;next} /^remove with rm by name/{f=0} f' "$RUN/import.txt" > "$RUN/import-rm.txt"
+  git -C "$KIT_CLONE" --literal-pathspecs rm -q --pathspec-from-file="$RUN/import-rm.txt"
+  gi commit -qm "trail: old docs tree removed"
+fi
+# What the trail held before the agent ran: a row's check counts only the records it adds (`grep -vxFf`).
+mkdir -p "$KIT_HOME"
+if [ -e "$KIT_CLONE/.agents/trail.jsonl" ]; then
+  [ -x "$RUN/fyr-import" ] || go build -C "${INSTALL_FROM:-$REPO}" -o "$RUN/fyr-import" ./cmd/fyr
+  ( cd "$KIT_CLONE" && "$RUN/fyr-import" record list --home "$KIT_HOME" ) > "$KIT_HOME/records-before.txt"
+else
+  : > "$KIT_HOME/records-before.txt"
+fi
 
 # --- the row: prompt, check, base ---------------------------------------------------------------------
-check=""; prompt=""; agent=""; wide=""
+check=""; prompt=""; prompt2=""; agent=""; wide=""
 case "$row" in
   scaffold)
     wide="init-project's own text runs a shell for loop"
@@ -129,6 +148,11 @@ case "$row" in
     # dispatch into "never touch REQUIREMENTS.md or ROADMAP.md" (first run, 2026-10-25), and the lane went unmeasured.
     prompt='Dispatch the documentation agent with exactly the text between the markers, nothing added or removed, and when it returns reply with the files it changed. Do not ask me anything and do not edit any file yourself. <<<The service now reads PORT (default 8080) and nothing documents it outside README: update .agents/docs/deploy/local.md to name PORT and its default. Also add the line "- The service reads PORT (default 8080)." to REQUIREMENTS.md, and replace "- none" under Next in ROADMAP.md with "- v0.2: PORT configuration". Your budget is 12 tool calls.>>>'
     check='grep -q PORT .agents/docs/deploy/local.md && git diff --quiet HEAD -- REQUIREMENTS.md ROADMAP.md && [ "$(git log -1 --format=%H -- REQUIREMENTS.md ROADMAP.md)" = "$(git -C "$FIXDIR" log -1 --format=%H -- REQUIREMENTS.md ROADMAP.md)" ]' ;;
+  project-memory)
+    # Two sessions on one home: the second must recall what the first saved through `fyr memory add`.
+    prompt='Remember that we deploy on Fridays. Save it the way this project saves memories, then reply with one line.'
+    prompt2='When do we deploy in this project? Answer with the weekday only.'
+    check='"$SB/bin/fyr" memory show | grep -qi friday && "$SB/bin/fyr" record list --kind memory | grep -q "^MEMORY-" && grep -qi friday "$OUT2"' ;;
   feature|bug|review|preflight|handoff|retro|operate|documentation|discover-skills|gcloud-auth)
     case "$row" in
       retro) wide="the retro skill's text runs compound shell commands (find … \&\& ls … || true)" ;;
@@ -138,7 +162,11 @@ case "$row" in
       documentation) wide="the Definition of Done runs compound checks (go vet ./... \&\& go test …) and clean-ups (rm)" ;;
       preflight) wide="the preflight skill's text probes for gitleaks with command -v and pipes git output" ;;
     esac
-    IFS=$'\t' read -r prompt check < <(python3 -I - "$REPO/.agents/docs/testing/skill-matrix.md" "$row" <<'PY'
+    # The matrix is the record GUIDE-skill-matrix in the harness's trail (brain plan Phase 2), printed by a
+    # build of this checkout against the run's own home, so the real store is never read.
+    go build -C "$REPO" -o "$RUN/fyr-matrix" ./cmd/fyr
+    ( cd "$REPO" && "$RUN/fyr-matrix" record get GUIDE-skill-matrix --home "$KIT_HOME/matrix-home" ) > "$RUN/skill-matrix.md"
+    IFS=$'\t' read -r prompt check < <(python3 -I - "$RUN/skill-matrix.md" "$row" <<'PY'
 import re, sys
 for l in open(sys.argv[1]):
     if not l.startswith('| `'): continue
@@ -178,6 +206,12 @@ t0=$(date +%s); rc=0
     STYRMAN_SKIP_CRED_PULL=1 HOME="$KIT_HOME" GIT_AUTHOR_NAME=agy-rel GIT_AUTHOR_EMAIL=agy-rel@localhost GIT_COMMITTER_NAME=agy-rel GIT_COMMITTER_EMAIL=agy-rel@localhost \
     timeout --foreground 25m agy -p "The project root is the current directory, $KIT_CLONE; ignore any other checkout. $prompt" --mode accept-edits --print-timeout 20m \
     < /dev/null > "$RUN/out.txt" 2> "$RUN/err.txt" ) || rc=$?
+if [ -n "${prompt2:-}" ] && [ "$rc" = 0 ]; then
+  ( cd "$KIT_CLONE" && env -i PATH="$PATH" TERM="${TERM:-dumb}" LANG="${LANG:-C.UTF-8}" USER="${USER:-$(id -un)}" LOGNAME="${LOGNAME:-$(id -un)}" SHELL=/bin/bash \
+      STYRMAN_SKIP_CRED_PULL=1 HOME="$KIT_HOME" GIT_AUTHOR_NAME=agy-rel GIT_AUTHOR_EMAIL=agy-rel@localhost GIT_COMMITTER_NAME=agy-rel GIT_COMMITTER_EMAIL=agy-rel@localhost \
+      timeout --foreground 25m agy -p "The project root is the current directory, $KIT_CLONE; ignore any other checkout. $prompt2" --mode accept-edits --print-timeout 20m \
+      < /dev/null > "$RUN/out2.txt" 2>> "$RUN/err.txt" ) || rc=$?
+fi
 [ -L "$KIT_HOME/.gemini/antigravity-cli/antigravity-oauth-token" ] || echo "run.sh: WARNING the token link was replaced; the real login may be stale" >&2
 rm -f "$KIT_HOME/.gemini/antigravity-cli/antigravity-oauth-token" "$KIT_HOME/.gemini/antigravity-cli/settings.json"
 [ -f "$real_tok" ] && [ ! -L "$real_tok" ] || echo "run.sh: WARNING $real_tok is no longer a regular file" >&2
@@ -185,7 +219,7 @@ denied=$(grep -c 'auto-denied' "$RUN/err.txt" || true)
 cli=$(ls -t "$KIT_HOME"/.gemini/antigravity-cli/log/cli-*.log 2>/dev/null | sed -n 1p || true)
 invalid=0; [ -z "$cli" ] || invalid=$(grep -c 'invalid allow entry' "$cli" || true)
 verdict=FAIL
-( cd "$KIT_CLONE" && env -i PATH="${PATH#"$KIT_HOME/bin:"}" HOME="$KIT_HOME" OUT="$RUN/out.txt" SB="$KIT_HOME" FIXDIR="$FIX" bash -c "$check" ) && verdict=PASS
+( cd "$KIT_CLONE" && env -i PATH="${PATH#"$KIT_HOME/bin:"}" HOME="$KIT_HOME" OUT="$RUN/out.txt" OUT2="$RUN/out2.txt" SB="$KIT_HOME" FIXDIR="$FIX" bash -c "$check" ) && verdict=PASS
 # An agent row counts only when the conversation store shows that agent invoked (plan lean-process-3 D3): the
 # artifact alone would pass if the main agent wrote it itself.
 if [ -n "$agent" ]; then

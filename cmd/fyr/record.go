@@ -30,7 +30,7 @@ var recordFlags = map[string]map[string]bool{
 }
 
 // runRecord serves `record add|get|edit|list` (spec
-// .agents/docs/specs/fyr/record.md); it needs no harness tree. Exit 0 with
+// the record SPEC-fyr-record); it needs no harness tree. Exit 0 with
 // or without output, 1 a refusal, 2 a usage error, the reason on the writer.
 func runRecord(c *ctx) error {
 	args := c.fs.Args()

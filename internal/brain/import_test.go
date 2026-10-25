@@ -411,3 +411,27 @@ func TestMemoryRetire(t *testing.T) {
 		t.Errorf("memory takes closed or retired only: %v", err)
 	}
 }
+
+// A scaffolded trail holds .gitkeep placeholders: they are removed with the
+// tree, never refused as scripts nor imported.
+func TestImportRemovesGitkeeps(t *testing.T) {
+	dir := docsFixture(t)
+	for _, d := range []string{"reviews", "handoffs"} {
+		os.WriteFile(filepath.Join(dir, ".agents", "docs", d, ".gitkeep"), nil, 0o644)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "gitkeep")
+	res, err := Import(opts(dir, t.TempDir()), "", true)
+	if err != nil {
+		t.Fatalf("a .gitkeep is not a script: %v", err)
+	}
+	n := 0
+	for _, p := range res.Remove {
+		if strings.HasSuffix(p, "/.gitkeep") {
+			n++
+		}
+	}
+	if n != 2 || len(res.Records) != 14 {
+		t.Errorf("both .gitkeep files are removed and none imported: %d listed, %d records", n, len(res.Records))
+	}
+}

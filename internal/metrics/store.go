@@ -1,7 +1,7 @@
 // Package metrics keeps the metrics store, ~/.config/fyr/metrics.db: the
 // shape of every ingested Antigravity session, and of the Claude Code
 // sessions an ingest before ADR-062 read, kept as history (R4, ADR-055, plan
-// fyr D7, spec .agents/docs/specs/fyr/metrics.md). Unlike the search index it is
+// fyr D7, spec SPEC-fyr-metrics). Unlike the search index it is
 // a store of record, the only copy once a transcript expires: it migrates
 // forward and is never deleted or rebuilt here.
 package metrics

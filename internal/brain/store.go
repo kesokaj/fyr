@@ -1,7 +1,7 @@
 // Package brain is the brain store, ~/.config/fyr/brain.db: every record of
 // every project's trail, with its metadata, plus the global records (feedback,
 // proposals) and each project's memory, behind `fyr record` and the record
-// hits of `fyr search` (R4, R7, ADR-063, spec .agents/docs/specs/fyr/record.md).
+// hits of `fyr search` (R4, R7, ADR-063, spec SPEC-fyr-record).
 //
 // Like the metrics store it is a store of record: it migrates forward and is
 // never deleted or rebuilt here. A project's exported records are also

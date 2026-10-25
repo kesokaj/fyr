@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -204,15 +205,16 @@ func docsRootOf(dir, top, arg string) (string, error) {
 
 // readDocs reads every file git tracks under root. A file that is not
 // markdown is refused (D17: a script is not a record; move it first), as is
-// a symlink.
-func readDocs(top, root string, b *budget) ([]docFile, error) {
+// a symlink; an empty `.gitkeep` placeholder (every /init-project scaffold
+// has them) is returned apart, to be removed with the tree.
+func readDocs(top, root string, b *budget) ([]docFile, []string, error) {
 	relRoot, _ := filepath.Rel(top, root)
 	out, err := trail.Command(top, "ls-files", "-z", "--", filepath.ToSlash(relRoot)).Output()
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files %s: %w", relRoot, err)
+		return nil, nil, fmt.Errorf("git ls-files %s: %w", relRoot, err)
 	}
 	var files []docFile
-	var notMD []string
+	var notMD, keeps []string
 	for _, p := range strings.Split(string(out), "\x00") {
 		if p == "" {
 			continue
@@ -223,10 +225,14 @@ func readDocs(top, root string, b *budget) ([]docFile, error) {
 			continue // deleted in the work tree; the dirty check refuses a real run
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !fi.Mode().IsRegular() {
-			return nil, refuse("%s is not a regular file", p)
+			return nil, nil, refuse("%s is not a regular file", p)
+		}
+		if path.Base(p) == ".gitkeep" && fi.Size() == 0 {
+			keeps = append(keeps, p)
+			continue
 		}
 		if !strings.HasSuffix(p, ".md") {
 			notMD = append(notMD, p)
@@ -235,20 +241,20 @@ func readDocs(top, root string, b *budget) ([]docFile, error) {
 		data, err := readRegular(abs, maxBody)
 		if err != nil {
 			if IsRefusal(err) {
-				return nil, refuse("%s: %v; a record body is at most 1 MiB of a regular file", p, err)
+				return nil, nil, refuse("%s: %v; a record body is at most 1 MiB of a regular file", p, err)
 			}
-			return nil, err
+			return nil, nil, err
 		}
 		if err := b.take(len(data), p); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		rel, _ := filepath.Rel(root, abs)
 		files = append(files, docFile{rel: filepath.ToSlash(rel), path: p, text: strings.ReplaceAll(string(data), "\r\n", "\n")})
 	}
 	if len(notMD) > 0 {
-		return nil, refuse("not a record (D17: move scripts out of the trail first): %s", strings.Join(notMD, ", "))
+		return nil, nil, refuse("not a record (D17: move scripts out of the trail first): %s", strings.Join(notMD, ", "))
 	}
-	return files, nil
+	return files, keeps, nil
 }
 
 // frontmatter splits a leading --- block into its key: value lines and the
@@ -624,7 +630,7 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 		}
 	}
 	b := newBudget()
-	files, err := readDocs(top, root, b)
+	files, keeps, err := readDocs(top, root, b)
 	if err != nil {
 		return nil, err
 	}
@@ -649,6 +655,7 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 			res.Remove = append(res.Remove, f.path)
 		}
 	}
+	res.Remove = append(res.Remove, keeps...)
 	res.Dropped = len(cands) - len(kept)
 	mems, memFiles, memProblems, err := readMemoryStore(scope, b)
 	if err != nil {
