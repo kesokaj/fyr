@@ -122,6 +122,8 @@ Each item's full version is in `.agents/scratch/harness-audit/2026-10-25/choices
 | 18 | Coverage gaps G15–G25 | defer, except G16 (`feature` checks `REQUIREMENTS.md`) and G17 (a trust-boundary row in the plan template): fix |
 | 19 | The other lows and the 17 simplifications | fix per area in the action plan's phases; simplifications only where they shorten without moving a rule |
 
+The operator answered every row on 2026-10-25; the answers are D1–D9 of `plans/2026-10-25-harness-audit-fix.md`. Row 3 was amended there (D6: a number at each dispatch site, no context default).
+
 ## What was not examined
 
 - **TS.** About 12 of the catalog's 136 entry notes and no entry bodies (the ten-entry sample was not done). terraform, operate-gcp, api-auth-gcp, json-api-style, codebase-design, mermaid-syntax, typescript and bash got grep-level checks only, and no `references/` directory was read whole. Vendored pins were not diffed against upstream.
