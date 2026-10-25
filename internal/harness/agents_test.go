@@ -29,7 +29,7 @@ func writeAgent(t *testing.T, repo, dir, content string) {
 // and install copies it unchanged — nothing is derived (D3).
 func TestAgentsInstallAsWritten(t *testing.T) {
 	repo := newRepo(t)
-	agents, err := LoadAgents(DirSource(repo))
+	agents, err := loadAgents(DirSource(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestKnownToolsAreTheDerivedNames(t *testing.T) {
 // Antigravity installs it at (audit 2026-09-30, AG5, kept from the derivation
 // test it replaces).
 func TestCheckoutAgentsAreNative(t *testing.T) {
-	agents, err := LoadAgents(DirSource(filepath.Join("..", "..")))
+	agents, err := loadAgents(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)
 	}

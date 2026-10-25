@@ -50,7 +50,7 @@ func RenderContext(src Source, inv Inventory) ([]byte, error) {
 		b.Write(data)
 	}
 	b.WriteString("\n")
-	b.WriteString(RenderInventoryCompact(inv))
+	b.WriteString(renderInventoryCompact(inv))
 	b.WriteString("\n" + Canary + "\n")
 	return []byte(b.String()), nil
 }

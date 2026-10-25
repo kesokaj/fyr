@@ -40,7 +40,7 @@ func TestSourceOriginString(t *testing.T) {
 	if got := DirSource("/tree").OriginString(); got != "/tree" {
 		t.Errorf("tree: %q", got)
 	}
-	if got := EmbeddedSource("v1.2.3").OriginString(); got != EmbeddedPrefix+"v1.2.3" {
+	if got := embeddedSource("v1.2.3").OriginString(); got != EmbeddedPrefix+"v1.2.3" {
 		t.Errorf("embedded: %q", got)
 	}
 	zip := Source{Dir: "/unpacked", Origin: ZipOrigin("ff00", "v1.2.3")}
@@ -48,7 +48,7 @@ func TestSourceOriginString(t *testing.T) {
 		t.Errorf("zip: %q", got)
 	}
 	// and the round trip: Install's record is read back as the same kind
-	for _, src := range []Source{DirSource("/tree"), EmbeddedSource("v1.2.3"), zip} {
+	for _, src := range []Source{DirSource("/tree"), embeddedSource("v1.2.3"), zip} {
 		o := ParseOrigin(src.OriginString())
 		switch {
 		case src.Origin != "" && o.Kind != OriginZip,

@@ -96,7 +96,7 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 // Antigravity's budget is larger (about 44,000) and drops the longest first.
 func TestSkillListingBudget(t *testing.T) {
 	const budget = 19500
-	skills, err := LoadSkills(DirSource(filepath.Join("..", "..")))
+	skills, err := loadSkills(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)
 	}

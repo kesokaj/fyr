@@ -44,8 +44,8 @@ func TestSkillAndAgentNamesMustBeOneLocalSegment(t *testing.T) {
 			"---\nname: "+tc.name+"\ndescription: \"a skill\"\n---\nbody\n")
 		writeFile(t, filepath.Join(repo, "agents", "file", "agent.md"),
 			"---\nname: "+tc.name+"\ndescription: \"an agent\"\nsubagent: true\nmainAgent: false\n---\nbody\n")
-		_, serr := LoadSkills(DirSource(repo))
-		_, aerr := LoadAgents(DirSource(repo))
+		_, serr := loadSkills(DirSource(repo))
+		_, aerr := loadAgents(DirSource(repo))
 		if tc.bad {
 			if serr == nil || !strings.Contains(serr.Error(), "dir/SKILL.md") {
 				t.Errorf("name %q: skills loader err = %v, want a refusal naming dir/SKILL.md", tc.name, serr)
@@ -172,7 +172,7 @@ func TestContextAgentsAndDocsRefuseSymlinks(t *testing.T) {
 }
 
 // A symlinked skills/<name>/SKILL.md is refused where it is read: plan.go's
-// walk only visits skills LoadSkills returned, so swallowing the read error
+// walk only visits skills loadSkills returned, so swallowing the read error
 // would drop the skill silently instead of refusing the link (BUG-036).
 func TestSymlinkedSkillMdIsRefused(t *testing.T) {
 	repo := t.TempDir()
@@ -186,8 +186,8 @@ func TestSymlinkedSkillMdIsRefused(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(dir, "SKILL.md")); err != nil {
 		t.Skip("symlinks unavailable here")
 	}
-	if _, err := LoadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "symlink") {
-		t.Errorf("LoadSkills err = %v, want a symlink refusal", err)
+	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("loadSkills err = %v, want a symlink refusal", err)
 	}
 	if _, err := Plan(DirSource(repo), nil); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Errorf("Plan err = %v, want a symlink refusal", err)
@@ -203,9 +203,9 @@ func TestSkillDirWithoutSkillMdIsSkipped(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, "skills", "notaskill"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	skills, err := LoadSkills(DirSource(repo))
+	skills, err := loadSkills(DirSource(repo))
 	if err != nil {
-		t.Fatalf("LoadSkills: %v", err)
+		t.Fatalf("loadSkills: %v", err)
 	}
 	if len(skills) != 1 || skills[0].Name != "real" {
 		t.Errorf("skills = %+v, want only real", skills)
@@ -456,9 +456,9 @@ func TestRunningElsewhere(t *testing.T) {
 			if tc.name == "installed file missing: nothing to be behind, silent" {
 				binPath = filepath.Join(root, "nowhere", "fyr")
 			}
-			got, ok := RunningElsewhere(tc.path, binPath, tc.exe)
+			got, ok := runningElsewhere(tc.path, binPath, tc.exe)
 			if ok != tc.ok || got != tc.want {
-				t.Fatalf("RunningElsewhere = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
+				t.Fatalf("runningElsewhere = %q, %v; want %q, %v", got, ok, tc.want, tc.ok)
 			}
 		})
 	}

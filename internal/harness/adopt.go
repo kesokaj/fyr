@@ -67,7 +67,7 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 	// Staging lives in .agents/scratch, NOT beside dest inside skills/: a
 	// process killed between the copy and the rename would otherwise leave a
 	// directory holding a complete SKILL.md whose frontmatter name matches
-	// the real skill, and LoadSkills would then carry two entries of the same
+	// the real skill, and loadSkills would then carry two entries of the same
 	// name into every install, status and diff (code review 2026-09-16). It
 	// also means no real skill directory can ever collide with the staging
 	// name. Same filesystem as skills/, so the rename stays atomic.
@@ -157,7 +157,7 @@ func copyTree(src, dest string) error {
 		// and pushed, and the install-time refusal would then fire on every
 		// consumer rather than here, after the secret had already been
 		// published (security review of v1.0.0, round 2).
-		if secretShaped(d.Name()) {
+		if SecretShaped(d.Name()) {
 			return fmt.Errorf("%s is a secret-shaped file — adopt refuses to copy it into the repo; remove it from the skill first", path)
 		}
 		info, err := d.Info()

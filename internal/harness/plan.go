@@ -74,7 +74,7 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 			// they can sit in a skill directory unnoticed; install is the one
 			// step that would spread them (security review 2026-09-16). The
 			// names match the context's Git rule.
-			if secretShaped(d.Name()) {
+			if SecretShaped(d.Name()) {
 				return fmt.Errorf("%s is a secret-shaped file — install refuses to deploy it; move it out of the skill", src.path(p))
 			}
 			rel := filepath.FromSlash(strings.TrimPrefix(p, s.Dir+"/"))
@@ -130,17 +130,13 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 	return files, nil
 }
 
-// SecretShaped reports whether a file name looks like a secret (.env, a
-// key, a token file). The search index skips such files too.
-func SecretShaped(name string) bool { return secretShaped(name) }
-
-// secretShaped reports whether a filename matches the credential shapes the
+// SecretShaped reports whether a filename matches the credential shapes the
 // context's Git rule stops a commit for. install deploys a skill's files to
 // the vendor directory on every machine, so one that slipped past
 // .gitignore into a skill directory would be spread rather than caught. The
 // match ignores case (`.ENV` is `.env`; security review of the search
-// index, round 2).
-func secretShaped(name string) bool {
+// index, round 2). The search index skips such files too (internal/search).
+func SecretShaped(name string) bool {
 	name = strings.ToLower(name)
 	for _, pattern := range []string{
 		".env", ".env.*", "*.env", ".envrc", ".netrc", ".npmrc", ".pypirc",

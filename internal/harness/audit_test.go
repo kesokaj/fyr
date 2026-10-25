@@ -109,8 +109,9 @@ func TestAdoptStripsGroupAndOtherWrite(t *testing.T) {
 	}
 }
 
-// Finding 14 and the 0% body: Diff renders the source copy into a temp file
-// under the home's own runtime directory, never the system temp dir.
+// Finding 14 and the 0% body: Diff never uses the system temp dir. Since
+// IN24 it writes no temp file at all (the plan reaches diff on stdin), so an
+// unusable temp dir changes nothing and the runtime dir gains no file.
 func TestDiffUsesTheHomeNotTmp(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()

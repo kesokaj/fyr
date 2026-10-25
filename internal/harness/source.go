@@ -37,9 +37,9 @@ func DirSource(dir string) Source {
 	return Source{FS: os.DirFS(dir), Dir: dir}
 }
 
-// EmbeddedSource reads the files built into this binary, which is the
+// embeddedSource reads the files built into this binary, which is the
 // release named by version.
-func EmbeddedSource(version string) Source {
+func embeddedSource(version string) Source {
 	return Source{FS: fyr.Files, Version: version}
 }
 

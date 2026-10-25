@@ -133,9 +133,9 @@ func TestFSSourceSkillMdMustBeRegular(t *testing.T) {
 	}
 	delete(m, "skills/alpha/SKILL.md")
 	m["skills/alpha/SKILL.md/inner"] = &fstest.MapFile{Data: []byte("x"), Mode: 0o444}
-	_, err := LoadSkills(Source{FS: m})
+	_, err := loadSkills(Source{FS: m})
 	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Errorf("LoadSkills err = %v, want a not-a-regular-file refusal", err)
+		t.Errorf("loadSkills err = %v, want a not-a-regular-file refusal", err)
 	}
 }
 
@@ -197,8 +197,8 @@ func TestDirSourceFollowsLinkedSkillDir(t *testing.T) {
 	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), filepath.Join(repo, "skills", "dangling")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "dangling") {
-		t.Errorf("LoadSkills err = %v, want a refusal naming the dangling link", err)
+	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "dangling") {
+		t.Errorf("loadSkills err = %v, want a refusal naming the dangling link", err)
 	}
 }
 
