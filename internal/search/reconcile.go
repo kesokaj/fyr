@@ -181,7 +181,11 @@ func isNoIndexMarker(p string) bool {
 // prefix limits it to one directory. The second result is the directories a
 // marker takes out, from the whole checkout whatever the prefix.
 func gitView(root, prefix string) ([]entry, []string, error) {
-	under := func(p string) bool { return prefix == "" || strings.HasPrefix(p, prefix) }
+	// The brain's export is searched as records from brain.db (internal/brain):
+	// indexed as a file too, every record printed twice (brain plan Phase 2).
+	under := func(p string) bool {
+		return p != trailExport && (prefix == "" || strings.HasPrefix(p, prefix))
+	}
 	// Every read goes through an os.Root: a path that leaves the checkout
 	// through `..` or a symlinked directory is refused by the standard
 	// library, whatever git lists (security check of the v1.13.0 gate fixes).
@@ -503,6 +507,9 @@ func (s *store) current(project string) (map[string]string, map[string]bool, err
 	}
 	return files, blobs, rows.Err()
 }
+
+// trailExport is the brain store's committed export, relative to a checkout.
+const trailExport = ".agents/trail.jsonl"
 
 // wanted is the view minus paths whose blob is known to be skipped.
 func wanted(view []entry, blobs map[string]bool) map[string]entry {

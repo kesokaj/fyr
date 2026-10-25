@@ -76,7 +76,7 @@ Every row below ran with the checkout kind's development build (`--repo` the clo
 
 ## Antigravity rows (kit)
 
-The context these cells deploy was read by the CLI, on agy, from sandbox homes the kit installed from this worktree with the Phase 5 context. The kit is a scratch copy of `testing/agy-rel/run.sh` with the `canary` row (kit5) and `ctx-deploy` (from `skill-matrix.md`), at `.agents/scratch/p5/kit/run.sh`, run with `AGY_TAG=p5`. **2 of 2 PASS**. Each row has the preamble's three clean lines: no processes left, real config unchanged, no credentials left in KIT_HOME.
+The context these cells deploy was read by the CLI, on agy, from sandbox homes the kit installed from this worktree with the Phase 5 context. The kit is a scratch copy of `.agents/kit/agy-rel/run.sh` with the `canary` row (kit5) and `ctx-deploy` (from `skill-matrix.md`), at `.agents/scratch/p5/kit/run.sh`, run with `AGY_TAG=p5`. **2 of 2 PASS**. Each row has the preamble's three clean lines: no processes left, real config unchanged, no credentials left in KIT_HOME.
 
 | Row | Result | Evidence (`~/sandbox/agy-rel/runs/<row>-p5/out.txt`) |
 |---|---|---|

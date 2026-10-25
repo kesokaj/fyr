@@ -8,11 +8,11 @@ Status: built 2026-09-29 (plan `plans/2026-09-29-dreamer-memory-loop.md`); writi
 
 ## The store
 
-- **Path:** `<repository root>/.agents/memory/`, inside the project and gitignored — one store per checkout (the operator's choice, "Option 2", 2026-09-29, over a harness-owned directory under `~/.config/fyr/`). Never committed (personal and unreviewed content) — though with the dream timer installed every memory file goes nightly, redacted, to the model provider of the CLI the manifest names (`specs/fyr/dream.md`), the one thing that leaves the machine (ADR-062).
-- **Layout:** `MEMORY.md` (the index: one line per memory, `- [Title](file.md) — hook`; `add` refuses the 201st line, and `show` prints at most 200 lines and 25 KB) and one file per memory with the frontmatter `fyr memory add` writes (`name`, `description`, `metadata.node_type: memory`, `metadata.type` in `user` / `feedback` / `project` / `reference`, `metadata.modified`).
-- **Who writes:** `fyr memory add` (`internal/memory`; serialised by a flock on `.agents/memory/.lock`, kernel-released), called by the `project-memory` skill (the four types and when to save) and by `feedback-log` rule 7 (a correction or re-stated preference). A file the verb writes carries no `originSessionId` (no CLI gives a shell its session id); `/dream`'s promote test counts it as one session. The root is the main worktree's top level, so worktrees share one store: git's `--show-toplevel` in the main worktree (so a submodule or a `--separate-git-dir` checkout gets its own work tree, never git's directory; SD16), refused when that toplevel is not the working directory or a parent of it (a repository's `core.worktree` can name any directory), and the common dir's parent from a linked worktree. A bare repository is refused.
-- **Who reads:** every session runs `fyr memory show` at the end of the resume order (context § Resume, then checkpoint); it prints `MEMORY.md` capped at 200 lines and 25 KB and nothing else. `/dream` consolidates the store; its store is always `<root>/.agents/memory`. The `dreamer` agent reads it.
-- **Set up by** `/init-project`, new and update paths (Step 5): add `.agents/memory` (no trailing slash, so the line also covers a symlink) to `.gitignore` before the store exists, then create the store (mode 700). Nothing else is written for memory. The store must be the project's own directory: a symlinked `.agents` or `.agents/memory`, or anything git tracks under it, stops `/init-project` and is refused by `/dream`, the `dreamer` and the capture rule.
+- **Where:** `memory` records in the brain store, `~/.config/fyr/brain.db`, in the project's scope (the main worktree's root, so every worktree shares one; `specs/fyr/record.md` § Memory). Never exported to `.agents/trail.jsonl`, never committed, local to the machine (brain plan D14, ADR-063). Since brain plan Phase 2 (2026-10-25) it replaces the old per-checkout `.agents/memory/` directory, which `fyr record import` (project) and `import --global` (every indexed project) migrate.
+- **Shape:** one record per memory, ID `MEMORY-<name>`, the description as its title, the body `type: <user|feedback|project|reference>`, a blank line, then the text.
+- **Who writes:** `fyr memory add --type T --name SLUG --description TEXT` (body on stdin; the same name replaces), called by the `project-memory` skill and by `feedback-log` rule 7. Serialised by the store's write transaction.
+- **Who reads:** every session runs `fyr memory show` at the end of the resume order; it prints one line per memory, capped at 200 lines and 25 KB. `fyr record get MEMORY-<name>` prints one in full. `/dream` consolidates them; the `dreamer` agent reads them.
+- **Lost:** with `brain.db`. Memory has no second copy, as before (R4, R7).
 
 ## The `dreamer` agent
 
@@ -31,8 +31,9 @@ Status: built 2026-09-29 (plan `plans/2026-09-29-dreamer-memory-loop.md`); writi
 | No store, or an empty one | `/dream` and the `dreamer` say so in one line; the resume clause reads nothing |
 | `~/.config/fyr/` denied to the session | the reader says so; the `dreamer` artifact still writes into the project trail |
 | Agent cut at its turn limit | a partial artifact with `Status: IN PROGRESS` (its early-write rule); the caller says so |
-| `git clean -fdx`, a fresh clone, a deleted checkout | the store is gone with them, like scratch; there is no second copy — the operator's choice (ADR-043) |
-| `.agents` or `.agents/memory` is a symlink, or git tracks something under it | `/init-project` stops and reports; `fyr memory add` and `show` (exit 2), `/dream` and the `dreamer` refuse the store. A symlinked `MEMORY.md` itself (the index must be the store's own file; `readLines`) is refused by `fyr memory add` and `show` only. |
+| `git clean -fdx`, a fresh clone, a deleted checkout | the memory stays: it is in `~/.config/fyr/brain.db`, keyed by the checkout's root, not in the checkout |
+| `brain.db` lost | the memory is lost with it; there is no second copy (R4) |
+| an old `.agents/memory` that is a symlink | `fyr record import` refuses it; nothing else reads that directory any more |
 
 ## Known differences (R10)
 

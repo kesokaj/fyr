@@ -4,7 +4,7 @@ date: 2026-10-25
 ---
 # `fyr record` — the brain store
 
-Status: Phase 1 built 2026-10-25 (plan `plans/2026-10-25-sqlite-trail.md`, ADR-063): the store, `add`, `get`, `edit` and `list`, the export and the load, and record hits in `fyr search`. `record import` and the `fyr memory` alias are Phase 2 and do not exist yet. Requirements: R4 (the brain store is a store of record), R7 (the trail is records), R8 (`feedback` and `proposal` are global only). Code: `internal/brain`, `cmd/fyr/record.go`.
+Status: built 2026-10-25 (plan `plans/2026-10-25-sqlite-trail.md`, ADR-063): Phase 1 the store, `add`, `get`, `edit` and `list`, the export and the load, and record hits in `fyr search`; Phase 2 `record import` and the `fyr memory` alias. Requirements: R4 (the brain store is a store of record), R7 (the trail is records), R8 (`feedback` and `proposal` are global only). Code: `internal/brain`, `cmd/fyr/record.go`.
 
 ## What it is
 
@@ -19,6 +19,10 @@ fyr record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT
 fyr record get <id>... [--global]
 fyr record edit <id> [--status S] [--title T] [--body] [--global]                     [< body]
 fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]
+fyr record import [--dry-run] [<docs-root>]
+fyr record import --global [--dry-run]
+fyr memory add --type T --name SLUG --description TEXT                               < body
+fyr memory show
 ```
 
 - **Scope.** Without `--global` a verb works in the project scope of the git checkout holding the working directory. The scope key is the main worktree's top level, resolved by `trail.Roots` exactly as `memory.Root` resolves it (git's `--show-toplevel` in the main worktree, which must be the working directory or a parent of it; from a linked worktree the common dir's parent, and only when the common dir registers that worktree; a bare repository refused). Every worktree of a repository therefore shares one scope. `--global` selects the global scope, which needs no checkout.
@@ -27,6 +31,22 @@ fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]
 - **`edit`** changes the status, the title or, with `--body`, the body read from stdin. Without `--body` the body is kept (D9). At least one of the three is required. A plan's status follows its new body.
 - **`list`** prints `ID  kind  status  date  title`, newest first (by date, then by last update, then by ID), with `-` for a handoff's empty status. `--kind` filters by kind and `--open` keeps the open records (table below). `--project ROOT` (with `--global` only) keeps the global records about that project: `fyr record list --global --kind proposal --project <root>` is how `/retro` lists a project's proposals. `--all` lists every scope, each line ending in `  [<scope root>]` or `  [global]`; it cannot be combined with `--global`.
 - A flag the subverb does not take is a usage error (for example `record add --open`), never parsed and ignored.
+
+## Import (D8, D13, D16)
+
+`fyr record import [--dry-run] [<docs-root>]` migrates a project whose trail is still files. The docs root is the argument (relative to the working directory, inside the checkout, not a symlink), else `.agents/docs/`, else `docs/`. It reads the files git tracks there and refuses a file that is not markdown (D17: a script is not a record; move it first), a symlink and a file over 1 MiB. A real run refuses a tree with uncommitted changes, so the import's removals are the only change; a dry run reads and decides the same and writes nothing.
+
+- **Kinds and IDs.** `plans/` plan, `reviews/` review, `testing/` testing (`TEST-`), `changes/` change, `handoffs/` handoff, `retros/` retro, `deploy/` deploy, each `<PREFIX>-<file stem>` lowercased; `specs/<app>/<topic>.md` is `SPEC-<app>-<topic>`; `testing/guide.md` is `GUIDE-testing` and a `testing/*-matrix.md` with no date `GUIDE-<stem>`; `bugs/BUG-NNN-*.md` keeps `BUG-NNN`; `architecture/DECISIONS.md` gives one `adr` record per `## ADR-NNN: Title (date) — Status` section (status `superseded:ADR-NNN` when the heading ends `Superseded by ADR-NNN`, else `accepted`); `bugs/INDEX.md` is folded into the bugs (a row's status when the file has none, its prevention when the file has no `## Prevention`, and the Graduated table as status `graduated` plus a `Graduated to:` line). A file elsewhere is reported as a problem and left as a file.
+- **Title, date, body.** The title is the first `# ` heading (a bug's without its `BUG-NNN:` prefix), else the stem; the date the frontmatter `date:`, else the stem's leading date; the body the text after the frontmatter. Every imported record is normalized to what the load takes back: a control character but tab and newline becomes `?`, the title one line of at most 512 bytes.
+- **What is kept (D8).** The roots: open plans (status derived from the body), the newest handoff (by file name), every ADR, every bug, specs, deploy docs and guides. Then, transitively, every trail file a kept record, `REQUIREMENTS.md`, `AGENTS.md`, `README.md` or a file under `context/`, `skills/`, `agents/` or `rules/` names, by path relative to the docs root (`testing/2026-09-03-verify-real-home.md`, `.agents/docs/…` included) or by the ID it imports as (`TEST-2026-09-03-verify-real-home`). A closed bug is trimmed to its heading and its `## Prevention` section. Everything else is dropped; git history keeps it.
+- **The old memory store.** `<main worktree root>/.agents/memory/*.md` (not `MEMORY.md`) become `memory` records `MEMORY-<name>`, the description as the title and `type: <type>` heading the body.
+- **Writes and output.** One transaction stores every record the scope does not hold yet (a record already stored is skipped and counted, so a second run adds nothing) and exports. Nothing is removed (D13): the command prints a summary (`plan 3, …; N records, M dropped, K already stored`), one `record  ID  kind  status  path` line per record, a `problem` line per file or line left out, then every tracked file under the docs root (to `git rm` by name after committing `.agents/trail.jsonl`) and the old memory store's files (untracked; `rm` by name).
+
+`fyr record import --global [--dry-run]` migrates `~/.config/fyr`: each `feedback.jsonl` line as a `feedback` record (title the `corrected` text, else the `user_quote`; body the line as indented JSON; `project` the line's project), each `retros.jsonl` line as a global `retro` record, each `proposals/**/*.md` as a `queued` `proposal` record (`project` from its frontmatter), and the old memory store of every project in the global search index into that project's memory records. A line that is not JSON or has no RFC 3339 `ts` is reported by number and skipped. Records already stored are skipped, so it can run again after the logs grew. It prints the files it read, to remove by name once the records are checked.
+
+## Memory (D14)
+
+`fyr memory add --type T --name SLUG --description TEXT` stores the body on stdin as the `memory` record `MEMORY-<SLUG>` in the project's scope, replacing one of the same name; `T` is `user`, `feedback`, `project` or `reference`, the slug `[a-z0-9][a-z0-9-]{0,63}`, the description one line of at most 512 bytes (the record's title); the body is `type: T`, a blank line, then the text. It prints `saved MEMORY-<SLUG>`. `fyr memory show` prints one line per memory record, `- <name> (<type>) — <description>`, sorted by name, capped at 200 lines and 25 KB with a last line naming how many more. Memory is never exported, so neither verb loads or writes `trail.jsonl`, and both work in an unmigrated project. A refusal exits 2, as `fyr memory` always did.
 
 ## Kinds
 

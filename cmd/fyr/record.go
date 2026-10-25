@@ -15,16 +15,18 @@ import (
 const recordUsage = "usage: fyr record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]] (body on stdin)" +
 	" | fyr record get <id>... [--global]" +
 	" | fyr record edit <id> [--status S] [--title T] [--body] [--global]" +
-	" | fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]"
+	" | fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]" +
+	" | fyr record import [--dry-run] [<docs-root>] | fyr record import --global [--dry-run]"
 
 // recordFlags is the flags each record subverb takes, besides --home and
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
 var recordFlags = map[string]map[string]bool{
-	"add":  {"title": true, "status": true, "id": true, "project": true, "global": true},
-	"get":  {"global": true},
-	"edit": {"status": true, "title": true, "body": true, "global": true},
-	"list": {"kind": true, "open": true, "project": true, "all": true, "global": true},
+	"add":    {"title": true, "status": true, "id": true, "project": true, "global": true},
+	"get":    {"global": true},
+	"edit":   {"status": true, "title": true, "body": true, "global": true},
+	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true},
+	"import": {"dry-run": true, "global": true},
 }
 
 // runRecord serves `record add|get|edit|list` (spec
@@ -106,9 +108,66 @@ func runRecord(c *ctx) error {
 			fmt.Fprintln(c.out, brain.FormatLine(r, c.recAll))
 		}
 		return recordErr(c, err)
+	case "import":
+		if len(rest) > 1 || (c.global && len(rest) != 0) {
+			break
+		}
+		var res *brain.ImportResult
+		if c.global {
+			res, err = brain.ImportGlobal(o, c.dryRun)
+		} else {
+			docs := ""
+			if len(rest) == 1 {
+				docs = rest[0]
+			}
+			res, err = brain.Import(o, docs, c.dryRun)
+		}
+		if err == nil {
+			printImport(c, res)
+		}
+		return recordErr(c, err)
 	}
 	fmt.Fprintln(c.out, recordUsage)
 	return exitCode(2)
+}
+
+// printImport is what an import did, and every file the caller removes by
+// name afterwards (D13): the import itself removes nothing.
+func printImport(c *ctx, res *brain.ImportResult) {
+	p := func(format string, a ...any) { fmt.Fprintln(c.out, search.Printable(fmt.Sprintf(format, a...))) }
+	head := "import"
+	if c.dryRun {
+		head = "import (dry run: nothing written)"
+	}
+	p("%s: %s; %d records, %d dropped (git history keeps them), %d already stored", head, brain.ImportSummary(res), len(res.Records), res.Dropped, res.Skipped)
+	for _, r := range res.Records {
+		st := r.Status
+		if st == "" {
+			st = "-"
+		}
+		p("record  %s  %s  %s  %s", r.ID, r.Kind, st, r.Path)
+	}
+	for _, s := range res.Problems {
+		p("problem  %s", s)
+	}
+	if len(res.Remove) > 0 {
+		p("remove with git rm by name, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
+		for _, f := range res.Remove {
+			p("%s", f)
+		}
+	}
+	if len(res.Memory) > 0 {
+		p("remove with rm by name, untracked memory store files (%d):", len(res.Memory))
+		for _, f := range res.Memory {
+			p("%s", f)
+		}
+	}
+	if len(res.Sources) > 0 {
+		p("read from ~/.config/fyr; remove by name once the records are checked (%d):", len(res.Sources))
+		for _, f := range res.Sources {
+			p("%s", f)
+		}
+	}
 }
 
 // recordErr prints a refusal (exit 1) or a usage error (exit 2) on the

@@ -838,3 +838,22 @@ func TestOldNoIndexMarkerStillCounts(t *testing.T) {
 		t.Errorf("the header does not name both directories:\n%s", out)
 	}
 }
+
+// The brain's export is searched as records (internal/brain), never as a
+// file: indexing it too printed every record twice (brain plan Phase 2).
+func TestTrailExportIsNotAFile(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, ".agents/trail.jsonl", `{"date":"2026-10-25","id":"BUG-001","kind":"bug","status":"open","title":"zebrafinch","updated":"2026-10-25T00:00:00Z","body":"zebrafinch"}`+"\n")
+	writeFile(t, root, "notes.md", "zebrafinch\n")
+	commitAll(t, root, "trail")
+	out := mustSearch(t, Options{Dir: root, Words: []string{"zebrafinch"}})
+	if strings.Contains(out, "trail.jsonl") || !strings.Contains(out, "notes.md") {
+		t.Errorf("trail.jsonl is listed as a file hit:\n%s", out)
+	}
+	// Untracked, it is skipped too.
+	root = newRepo(t)
+	writeFile(t, root, ".agents/trail.jsonl", "zebrafinch\n")
+	if out := mustSearch(t, Options{Dir: root, Words: []string{"zebrafinch"}}); strings.Contains(out, "trail.jsonl") {
+		t.Errorf("an untracked trail.jsonl is listed:\n%s", out)
+	}
+}

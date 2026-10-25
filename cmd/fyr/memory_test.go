@@ -10,20 +10,18 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/kesokaj/fyr/internal/memory"
+	"github.com/kesokaj/fyr/internal/brain"
 	"testing"
 )
 
 // TestMemoryVerb runs `memory add` then `memory show` the way a session
 // calls them: flags after the subcommand, a description with
-// spaces, the body on stdin.
+// spaces, the body on stdin. The memory is a record in the brain store
+// under --home (D14), and nothing is written into the checkout.
 func TestMemoryVerb(t *testing.T) {
 	root := t.TempDir()
 	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
-	}
-	if err := os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".agents/memory\n"), 0o644); err != nil {
-		t.Fatal(err)
 	}
 	t.Chdir(root)
 	home := t.TempDir()
@@ -35,18 +33,18 @@ func TestMemoryVerb(t *testing.T) {
 	if err := run(args, &out); err != nil {
 		t.Fatalf("memory add: %v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), "deploy-day.md") {
+	if out.String() != "saved MEMORY-deploy-day\n" {
 		t.Errorf("add printed %q", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "memory", "deploy-day.md")); err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(filepath.Join(root, ".agents")); !os.IsNotExist(err) {
+		t.Errorf("memory add wrote into the checkout: %v", err)
 	}
 
 	out.Reset()
 	if err := run([]string{"memory", "show", "--home", home}, &out); err != nil {
 		t.Fatalf("memory show: %v", err)
 	}
-	if got := out.String(); got != "- [deploy-day](deploy-day.md) — we deploy on Fridays\n" {
+	if got := out.String(); got != "- deploy-day (project) — we deploy on Fridays\n" {
 		t.Errorf("show = %q", got)
 	}
 }
@@ -265,7 +263,7 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 func TestMemoryUsageErrorExits2(t *testing.T) {
 	for _, args := range [][]string{{}, {"forget"}, {"add", "extra"}} {
 		var out bytes.Buffer
-		err := memoryCmd(args, memory.Entry{}, &out)
+		err := memoryCmd(args, brain.MemoryEntry{}, t.TempDir(), &out)
 		var code exitCode
 		if !errors.As(err, &code) || code != 2 {
 			t.Errorf("memory %v: want exit 2, got %v", args, err)

@@ -234,3 +234,47 @@ func TestRecordErrFiltersOtherErrors(t *testing.T) {
 		t.Errorf("the filter dropped the reason: %q", err)
 	}
 }
+
+// record import end to end: the dry run prints the records and the paths
+// to remove and writes nothing; the real run stores them and prints the
+// same list, which the caller removes by name (D13).
+func TestRecordImport(t *testing.T) {
+	root := recordRepo(t)
+	home := t.TempDir()
+	for rel, text := range map[string]string{
+		".agents/docs/plans/2026-01-01-open.md":     "# Open plan\n\n- [ ] left\n",
+		".agents/docs/changes/2026-01-01-1000-c.md": "# Change\n\ndone\n",
+	} {
+		p := filepath.Join(root, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(text), 0o644)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-qm", "docs"}} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	out, err := recordCmd(t, "", "record", "import", "--dry-run", "--home", home)
+	if err != nil {
+		t.Fatalf("dry run: %v\n%s", err, out)
+	}
+	for _, want := range []string{"dry run", "plan 1", "PLAN-2026-01-01-open", "1 dropped", "git rm", ".agents/docs/plans/2026-01-01-open.md", ".agents/docs/changes/2026-01-01-1000-c.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run output lacks %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("the dry run wrote trail.jsonl")
+	}
+	out, err = recordCmd(t, "", "record", "import", "--home", home)
+	if err != nil || strings.Contains(out, "dry run") {
+		t.Fatalf("import: %v\n%s", err, out)
+	}
+	list, _ := recordCmd(t, "", "record", "list", "--open", "--home", home)
+	if !strings.Contains(list, "PLAN-2026-01-01-open") {
+		t.Errorf("after the import, list --open shows the plan: %q", list)
+	}
+	if out, err := recordCmd(t, "", "record", "import", "--open", "--home", home); exitOf(err) != 2 {
+		t.Errorf("import --open must be a usage error: %v %q", err, out)
+	}
+}

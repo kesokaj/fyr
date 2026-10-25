@@ -653,7 +653,7 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	var scripts []string
-	for _, pat := range []string{"skills/*/scripts/*.sh", ".agents/docs/testing/*.sh"} {
+	for _, pat := range []string{"skills/*/scripts/*.sh", ".agents/kit/*.sh", ".agents/kit/*/*.sh"} {
 		m, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pat)))
 		if err != nil {
 			t.Fatal(err)
@@ -1677,7 +1677,7 @@ func TestKitPreambleRefusesLeftoverCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preamble := filepath.Join(root, ".agents", "docs", "testing", "kit-preamble.sh")
+	preamble := filepath.Join(root, ".agents", "kit", "kit-preamble.sh")
 	tmp := t.TempDir()
 	if out, err := exec.Command("git", "-C", tmp, "rev-parse", "--git-dir").CombinedOutput(); err == nil {
 		t.Skipf("the test's temporary directory is inside a git checkout (%s): the preamble refuses that by design", strings.TrimSpace(string(out)))
@@ -1826,7 +1826,7 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preamble := filepath.Join(root, ".agents", "docs", "testing", "kit-preamble.sh")
+	preamble := filepath.Join(root, ".agents", "kit", "kit-preamble.sh")
 	tmp := t.TempDir()
 	if out, err := exec.Command("git", "-C", tmp, "rev-parse", "--git-dir").CombinedOutput(); err == nil {
 		t.Skipf("the test's temporary directory is inside a git checkout (%s): the preamble refuses that by design", strings.TrimSpace(string(out)))
@@ -2056,7 +2056,7 @@ func TestKitPreambleKillsLeftoverProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preamble := filepath.Join(root, ".agents", "docs", "testing", "kit-preamble.sh")
+	preamble := filepath.Join(root, ".agents", "kit", "kit-preamble.sh")
 	tmp := t.TempDir()
 	if out, err := exec.Command("git", "-C", tmp, "rev-parse", "--git-dir").CombinedOutput(); err == nil {
 		t.Skipf("the test's temporary directory is inside a git checkout (%s): the preamble refuses that by design", strings.TrimSpace(string(out)))

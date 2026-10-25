@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run.sh — one Antigravity release row (AGENTS.md § Release: one run of each changed skill and agent on
-# Antigravity), plan 2026-10-07-lean-process-3. usage: bash .agents/docs/testing/agy-rel/run.sh <row>
+# Antigravity), plan 2026-10-07-lean-process-3. usage: bash .agents/kit/agy-rel/run.sh <row>
 #   <row> is a skill-matrix.md id (prompt and check read from that table, `\|` unescaped) or one of this kit's
 #   rows: scaffold, dispatch-bugs, dispatch-changelog, dispatch-documentation, agents-security, agent-reviewer,
 #   agent-explorer, agent-verifier, agent-dreamer (ported from the fyr E2E's scratch kit), and the record agents'
@@ -24,7 +24,7 @@ set -euo pipefail
 # Inherited GIT_* variables (GIT_DIR, GIT_WORK_TREE, …) would point the fixture's git at another repository.
 for v in $(compgen -e | grep '^GIT_' || true); do unset "$v"; done
 row=${1:?usage: run.sh <row>}
-KIT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); REPO=$(cd "$KIT/../../../.." && pwd)
+KIT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd); REPO=$(cd "$KIT/../../.." && pwd)
 REAL_HOME=$HOME; BASE=${AGY_REL:-$REAL_HOME/sandbox/agy-rel}; FIX=$BASE/fixture
 tag=$row${AGY_TAG:+-$AGY_TAG}   # AGY_TAG: a second run of one row beside the first (an old-tree comparison)
 RUN=$BASE/runs/$tag
@@ -162,7 +162,7 @@ PY
 esac
 [ -n "$prompt" ] && [ -n "$check" ] || { echo "run.sh: row $row has no prompt or check" >&2; exit 2; }
 
-. "$REPO/.agents/docs/testing/kit-preamble.sh"
+. "$REPO/.agents/kit/kit-preamble.sh"
 go run -C "${INSTALL_FROM:-$REPO}" ./cmd/fyr install --home "$KIT_HOME" > "$RUN/install.log" 2>&1
 [ -z "$wide" ] || echo "run.sh: row $row runs with command(*) in its throwaway clone (skill-matrix.md § Procedure): $wide"
 python3 -I - "$KIT_HOME/.gemini/antigravity-cli/settings.json" "$KIT_CLONE" "$wide" <<'PY'
@@ -182,7 +182,7 @@ t0=$(date +%s); rc=0
 rm -f "$KIT_HOME/.gemini/antigravity-cli/antigravity-oauth-token" "$KIT_HOME/.gemini/antigravity-cli/settings.json"
 [ -f "$real_tok" ] && [ ! -L "$real_tok" ] || echo "run.sh: WARNING $real_tok is no longer a regular file" >&2
 denied=$(grep -c 'auto-denied' "$RUN/err.txt" || true)
-cli=$(ls -t "$KIT_HOME"/.gemini/antigravity-cli/log/cli-*.log 2>/dev/null | head -1 || true)
+cli=$(ls -t "$KIT_HOME"/.gemini/antigravity-cli/log/cli-*.log 2>/dev/null | sed -n 1p || true)
 invalid=0; [ -z "$cli" ] || invalid=$(grep -c 'invalid allow entry' "$cli" || true)
 verdict=FAIL
 ( cd "$KIT_CLONE" && env -i PATH="${PATH#"$KIT_HOME/bin:"}" HOME="$KIT_HOME" OUT="$RUN/out.txt" SB="$KIT_HOME" FIXDIR="$FIX" bash -c "$check" ) && verdict=PASS

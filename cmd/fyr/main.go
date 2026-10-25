@@ -15,8 +15,8 @@
 //	fyr dream --all|--project DIR [--dry-run]  propose rules and skills from every project's memory, trail, feedback and transcripts
 //	fyr dream --install-timer|--remove-timer [--dry-run]  install or remove the nightly timer
 //	fyr metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
-//	fyr memory add|show         write one memory (body on stdin) or print the index of this project's .agents/memory/
-//	fyr record add|get|edit|list  the brain store: this project's trail records (exported to .agents/trail.jsonl) and the global ones
+//	fyr memory add|show         write one memory record (body on stdin) or print this project's memory index (the brain store, D14)
+//	fyr record add|get|edit|list|import  the brain store: this project's trail records (exported to .agents/trail.jsonl) and the global ones
 //	fyr version
 package main
 
@@ -35,9 +35,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/memory"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -59,18 +59,20 @@ Commands:
   search --open [--kind K] [--global]  open bugs and plans with unticked boxes
       --global searches the global search index (~/.config/fyr/search.db): ~/.config/fyr's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory; --limit 1-50, default 10, for the records and the files each
   index [--global] [--rebuild]  reconcile the search index, or delete and rebuild it, and print its counts
-  memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, into this project's .agents/memory/ and its MEMORY.md line (T: user, feedback, project or reference); every session writes memory this way (R10)
+  memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, as the record MEMORY-SLUG in this project's scope of the brain store, replacing one of the same name; never exported (T: user, feedback, project or reference); every session writes memory this way (R10, D14)
   dream --install-timer | --remove-timer [--dry-run]  install (systemd user timer on Linux, launchd agent on macOS) or remove the nightly "dream --all", run with the PATH of the installing shell; uninstall removes it too
   dream --all | --project DIR [--dry-run]  the background dreamer: first ingest every session's shape into the metrics store; then for every indexed project (or one) that changed since its last dream, send its memory, new trail, feedback, a numbers-only summary of its metrics and its Antigravity conversations, redacted, to agy with no tool it may use, and write the proposals and draft skills it returns under ~/.config/fyr/proposals/dream/ (R3's exception)
   metrics ingest [--source DIR --label KEY=VALUE [--outcome pass|fail]]  read the shape of every Antigravity session (tools, command verbs, tokens, timings; never arguments or prose) into ~/.config/fyr/metrics.db, the metrics store; --source reads a sandbox home and stamps its sessions with the label; conversations come from --source, else this home
   metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--json]  the agent-evaluation summary of the metrics store, an agy column (and a claude (historical) column only when the store holds rows an older ingest read from Claude Code): outcome (DoD closure, verifier status, review findings, escaped bugs, corrections, pass^k per label), efficiency (tool calls, turns, tokens, cost, wall and active time, peak context, the main sessions whose peak passed the context target — N tokens, default 300000 — and each main session's peak in --json, compactions), process adherence (fyr search vs grep, forbidden command shapes, first reads, skills) and reliability (tool error rate, denials, interrupts, retry loops, subagent tool calls); n/a is a metric that CLI cannot produce; sandbox (labelled) sessions are left out unless named
   metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/fyr/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
-  memory show             print this project's memory index, capped at what a session loads
+  memory show             print this project's memory index, one line per memory record, capped at what a session loads (200 lines, 25 KB)
   record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]]  store one record, its body on stdin (empty or over 1 MiB refused), in this project's scope of the brain store (~/.config/fyr/brain.db; every worktree of a repository shares one) or with --global the global scope, and print its ID (BUG-NNN, ADR-NNN, else KIND-YYYY-MM-DD-HHMM-slug); kinds: plan review testing change handoff bug adr retro learning spec deploy guide memory, and feedback and proposal, which are --global only; --project names the project a global record is about
   record get <id>... [--global]  print each record's line and its body, through the same printable filter as search
   record edit <id> [--status S] [--title T] [--body] [--global]  change a record; --body reads the new body on stdin, without it only the metadata changes; a plan's status follows its body (open while it has an unticked "- [ ]")
   record list [--kind K] [--open] [--global [--project ROOT]] [--all]  ID  kind  status  date  title, newest first; --open: open plans and bugs, current specs, deploy docs and guides, queued proposals; --all: every scope, each line ending in its scope
+  record import [--dry-run] [<docs-root>]  migrate this project's old trail (default .agents/docs/, else docs/) and its old .agents/memory/ store into records: open plans, the newest handoff, every ADR and bug (a closed bug trimmed to its title and prevention rule), specs, deploy docs and guides, and every trail file those, REQUIREMENTS.md, AGENTS.md, README.md, context/, skills/, agents/ or rules/ name; the rest is dropped (git history keeps it); refuses a dirty tree and a non-markdown file under the docs root; removes nothing, and prints every file to remove by name afterwards
+  record import --global [--dry-run]  migrate ~/.config/fyr's feedback.jsonl, retros.jsonl and proposals/ into global records, and every indexed project's old .agents/memory/ store into its memory records; a bad line is reported, records already stored are skipped
       a project's records other than memory are exported on every write to .agents/trail.jsonl (commit it); when that file changes under the store (a pull, checkout or merge) it replaces the project's records before the next record or search call, and a bad line or a duplicate ID is refused with its line number; in a project whose trail is still files (docs/ or .agents/docs/ and no .agents/trail.jsonl) record refuses until it is migrated with fyr record import; exit 0 with or without output, 1 a refusal, 2 a usage error
   version                 print the build version
 
@@ -203,6 +205,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.kind, "kind", "", "record list: only records of this kind")
 		c.fs.BoolVar(&c.openRecords, "open", false, "record list: only open records")
 		c.fs.BoolVar(&c.recAll, "all", false, "record list: every scope")
+		c.dryRunFlag()
 	}, positional: true, run: runRecord},
 	"search": {flags: func(c *ctx) {
 		c.fs.IntVar(&c.limit, "limit", 0, "search: hits to print, 1-50 (default 10)")
@@ -442,7 +445,7 @@ func otherSystemTimerNote(c *ctx) {
 
 // runMemory needs no harness tree (R10).
 func runMemory(c *ctx) error {
-	return memoryCmd(c.fs.Args(), memory.Entry{Type: c.memType, Name: c.memName, Description: c.memDesc}, c.out)
+	return memoryCmd(c.fs.Args(), brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc}, c.home, c.out)
 }
 
 // runDream needs no harness tree (R3's exception).
@@ -899,8 +902,9 @@ func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) e
 var stdin io.Reader = os.Stdin
 
 // memoryCmd runs `memory add` and `memory show` in the checkout holding the
-// working directory. A refusal prints its reason and exits 2.
-func memoryCmd(args []string, e memory.Entry, out io.Writer) error {
+// working directory: an alias over the brain store's memory records (D14).
+// A refusal prints its reason and exits 2.
+func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) error {
 	if len(args) != 1 || (args[0] != "add" && args[0] != "show") {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
 		fmt.Fprintln(out, "usage: fyr memory add --type T --name SLUG --description TEXT (body on stdin) | fyr memory show")
@@ -910,21 +914,22 @@ func memoryCmd(args []string, e memory.Entry, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	o := brain.Options{Home: home, Dir: wd}
 	var text string
 	if args[0] == "add" {
-		text, err = memory.Add(wd, e, stdin, time.Now())
+		text, err = brain.MemoryAdd(o, e, stdin)
 		if err == nil {
 			text = "saved " + text + "\n"
 		}
 	} else {
-		text, err = memory.Show(wd)
+		text, err = brain.MemoryShow(o)
 	}
-	if memory.IsRefusal(err) {
-		fmt.Fprintln(out, "fyr memory:", err) // on the caller's writer, where a test reads it (IN13)
+	if brain.IsRefusal(err) || brain.IsUsage(err) {
+		fmt.Fprintln(out, search.Printable("fyr memory: "+err.Error())) // on the caller's writer, where a test reads it (IN13)
 		return exitCode(2)
 	}
 	if err != nil {
-		return err
+		return errors.New(search.Printable(err.Error()))
 	}
 	fmt.Fprint(out, text)
 	return nil

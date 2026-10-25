@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kit-preamble.sh — sourced first by every behavioural or sandbox run kit built
-# from guide.md § 4 (`. .agents/docs/testing/kit-preamble.sh` at the top of the
+# from guide.md § 4 (`. .agents/kit/kit-preamble.sh` at the top of the
 # kit script in scratch). A run proves its setup before its output counts
 # (BUG-087, 090, 091, 106, 107, 115, 116, 123): this file is that proof, in
 # one place, so a kit cannot skip a step by forgetting it. Sourced, never
@@ -42,7 +42,7 @@ kit_root_clone=$(cd "$KIT_CLONE" 2>/dev/null && pwd -P) || { echo "kit: $KIT_CLO
 if [ -d "$KIT_HOME" ]; then kit_root_home=$(cd "$KIT_HOME" && pwd -P)
 else kit_root_home=$(cd "$(dirname "$KIT_HOME")" 2>/dev/null && pwd -P)/$(basename "$KIT_HOME") || { echo "kit: the parent of $KIT_HOME does not exist" >&2; exit 2; }; fi
 kit_real_home=$(cd "$HOME" && pwd -P)
-kit_repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)
+kit_repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 for kit_r in "$kit_root_clone" "$kit_root_home"; do
   case "$kit_real_home/" in "$kit_r"/*) echo "kit: $kit_r is the real home or a parent of it; refusing" >&2; exit 2;; esac
   case "$kit_repo_root/" in "$kit_r"/*) echo "kit: $kit_r is the harness checkout or a parent of it; refusing" >&2; exit 2;; esac
@@ -245,7 +245,7 @@ mkdir -p "$KIT_HOME/bin"
 # that must use a given binary sets KIT_BIN.
 if [ -z "${KIT_BIN:-}" ]; then
   KIT_BIN="$KIT_HOME/bin/fyr.real"
-  kit_repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+  kit_repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
   go build -C "$kit_repo" -o "$KIT_BIN" ./cmd/fyr || { echo "kit: go build of fyr in $kit_repo failed; set KIT_BIN to a build" >&2; exit 2; }
 fi
 printf '#!/usr/bin/env bash\nexec %q "$1" --home %q "${@:2}"\n' "$KIT_BIN" "$KIT_HOME" > "$KIT_HOME/bin/fyr"
