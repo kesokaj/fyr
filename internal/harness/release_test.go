@@ -64,7 +64,7 @@ type release struct {
 func newRelease(t *testing.T, tag string) release {
 	t.Helper()
 	dir := t.TempDir()
-	asset := AssetName(runtime.GOOS, runtime.GOARCH)
+	asset := assetName(runtime.GOOS, runtime.GOARCH)
 	writeFile(t, filepath.Join(dir, asset), fakeReleaseBinary)
 	writeSums(t, dir, asset, tag)
 	return release{assets: dir, tag: tag}
@@ -213,7 +213,7 @@ func TestUpdateFromReleaseUpToDateAndCheck(t *testing.T) {
 // leaves the installed binary exactly as it was, names the check that failed,
 // and keeps nothing (plan § Failure modes).
 func TestUpdateFromReleaseRefusals(t *testing.T) {
-	asset := AssetName(runtime.GOOS, runtime.GOARCH)
+	asset := assetName(runtime.GOOS, runtime.GOARCH)
 	for _, tc := range []struct {
 		name    string
 		want    string
@@ -335,8 +335,8 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 // The names a v3.0.0 release publishes and a release binary fetches: one
 // asset set, one repository (plan fyr D5a, Interfaces § The crossing).
 func TestReleaseNames(t *testing.T) {
-	if got := AssetName("linux", "amd64"); got != "fyr-linux-amd64" {
-		t.Errorf("AssetName = %s, want fyr-linux-amd64", got)
+	if got := assetName("linux", "amd64"); got != "fyr-linux-amd64" {
+		t.Errorf("assetName = %s, want fyr-linux-amd64", got)
 	}
 	if ReleaseRepo != "github.com/kesokaj/fyr" {
 		t.Errorf("ReleaseRepo = %s, want github.com/kesokaj/fyr", ReleaseRepo)

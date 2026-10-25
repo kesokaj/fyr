@@ -50,16 +50,8 @@ type Inventory struct {
 	Rules    []Doc   // rules/<name>.md
 }
 
-// validName is the parse boundary for a frontmatter `name:` — the value
-// `plan.go` joins into ~/.gemini/config/skills/<name>/… and
-// ~/.gemini/config/agents/<name>/agent.md. A name is ONE path segment: nothing that filepath.Join
-// would carry out of the install root (`../x`, an absolute path), and no
-// separator at all (`a/b` would nest a skill inside another's directory),
-// and only the characters an identifier needs (`[A-Za-z0-9._-]`, leading
-// alphanumeric): the same value is rendered verbatim into the consumer's
-// AGENTS.md, so a backtick or a newline in it would inject prose into the
-// global context (security review 2026-09-14).
-// Refused with the file named, so an author sees it at `fyr install`
+// identLike reports whether name holds only the characters an identifier
+// needs: `[A-Za-z0-9._-]`, with an alphanumeric first.
 func identLike(name string) bool {
 	for i, r := range name {
 		switch {
@@ -72,7 +64,19 @@ func identLike(name string) bool {
 	return true
 }
 
-// time rather than finding a file written beside their home.
+// validName is the parse boundary for a customization's name — a skill's or
+// an agent's frontmatter `name:`, a command's or a rule's file name — the
+// value `plan.go` joins into ~/.gemini/config/skills/<name>/…,
+// ~/.gemini/config/agents/<name>/agent.md, workflows/<name>.md and
+// rules/<name>.md. A name is ONE path segment: nothing that filepath.Join
+// would carry out of the install root (`../x`, an absolute path), and no
+// separator at all (`a/b` would nest a skill inside another's directory),
+// and only the characters identLike allows: the same value is rendered
+// verbatim into the consumer's AGENTS.md, so a backtick or a newline in it
+// would inject prose into the global context (security review 2026-09-14;
+// commands and rules since IN25). Refused with the file named, so an author
+// sees it at `fyr install` time rather than finding a file written beside
+// their home.
 func validName(kind, file, name string) error {
 	switch {
 	case name == "", name == ".", name == "..":
@@ -132,25 +136,25 @@ func LoadInventory(src Source) (Inventory, error) {
 		return inv, err
 	}
 	var err error
-	if inv.Skills, err = LoadSkills(src); err != nil {
+	if inv.Skills, err = loadSkills(src); err != nil {
 		return inv, err
 	}
-	if inv.Agents, err = LoadAgents(src); err != nil {
+	if inv.Agents, err = loadAgents(src); err != nil {
 		return inv, err
 	}
-	if inv.Commands, err = loadDocs(src, "commands", "workflows"); err != nil {
+	if inv.Commands, err = loadDocs(src, "command", commandKeys, "commands", "workflows"); err != nil {
 		return inv, err
 	}
-	if inv.Rules, err = loadDocs(src, "rules"); err != nil {
+	if inv.Rules, err = loadDocs(src, "rule", ruleKeys, "rules"); err != nil {
 		return inv, err
 	}
 	return inv, nil
 }
 
-// LoadSkills reads every skills/<name>/SKILL.md. A directory without a
+// loadSkills reads every skills/<name>/SKILL.md. A directory without a
 // SKILL.md is ignored; one with a SKILL.md but no description is an error,
 // because the description is the only thing the CLI shows the model.
-func LoadSkills(src Source) ([]Skill, error) {
+func loadSkills(src Source) ([]Skill, error) {
 	entries, err := fs.ReadDir(src.FS, "skills")
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", src.path("skills"), err)
@@ -189,7 +193,7 @@ func LoadSkills(src Source) ([]Skill, error) {
 		if err != nil {
 			return nil, fmt.Errorf("skill %s: %w", e.Name(), err)
 		}
-		fm, err := ParseStrict(front)
+		fm, err := parseStrict(front)
 		if err != nil {
 			return nil, fmt.Errorf("skill %s: %w", e.Name(), err)
 		}
@@ -203,11 +207,8 @@ func LoadSkills(src Source) ([]Skill, error) {
 		if fm["description"] == "" {
 			return nil, fmt.Errorf("skill %s: SKILL.md has no description", e.Name())
 		}
-		// A skill's frontmatter is a permission surface: allowed-tools lets every
-		// named tool run unprompted while the skill is active, so the operator's
-		// permission mode decides, never a skill (BUG-143).
-		if k := permissionKey(front, "allowed-tools", "hooks"); k != "" {
-			return nil, fmt.Errorf("skill %s: %s is never set in a harness skill; the operator's permission mode decides what runs unprompted (BUG-143)", name, k)
+		if k := unlistedKey(front, skillKeys); k != "" {
+			return nil, fmt.Errorf("skill %s: %s is not a key a harness skill sets (%s); a new one is added to skillKeys by a D-row, and a key that grants a permission never is — the operator's permission mode decides what runs unprompted (IN23, BUG-143)", name, k, strings.Join(skillKeys, ", "))
 		}
 		if first, dup := byName[name]; dup {
 			return nil, fmt.Errorf("two skills are named %q: skills/%s and skills/%s — one install destination, so one would silently overwrite the other", name, first, e.Name())
@@ -235,15 +236,30 @@ func LoadSkills(src Source) ([]Skill, error) {
 // was written for another CLI.
 var agentKeys = []string{"name", "description", "subagent", "mainAgent", "model", "tools"}
 
+// skillKeys, commandKeys and ruleKeys are the same allow list for the other
+// kinds (IN23, plan audit-fix D7). A skill's, command's or rule's frontmatter
+// is a permission surface too: allowed-tools lets every named tool run
+// unprompted while a skill is active, and a vendor key nobody listed
+// (permissionMode, mcpServers, a respelt Allowed-Tools) would act on every
+// place unreviewed, so the next one is refused by default (BUG-143). Each
+// list is the keys the tree carries, plus disable-model-invocation, which the
+// loader reads (SlashOnly). A vendored skill is never edited, so one that
+// needs a new key grows its list by a D-row; a permission key never joins.
+var (
+	skillKeys   = []string{"name", "description", "license", "metadata", "argument-hint", "disable-model-invocation"}
+	commandKeys = []string{"description"}
+	ruleKeys    = []string{"description", "trigger"}
+)
+
 // knownTools is every tool name an agent may list. An unknown name fails the
 // install rather than passing through: Antigravity hangs a subagent whose
 // tools list names something it does not recognise.
 var knownTools = []string{"view_file", "grep_search", "find_by_name", "run_command", "write_to_file", "replace_file_content"}
 
-// LoadAgents reads every agents/<name>/agent.md, in Antigravity's format. A
+// loadAgents reads every agents/<name>/agent.md, in Antigravity's format. A
 // flat agents/<name>.md, the format before ADR-062, is refused, not skipped:
 // skipped, the agent would vanish from every place without a word (F6).
-func LoadAgents(src Source) ([]Agent, error) {
+func loadAgents(src Source) ([]Agent, error) {
 	entries, err := fs.ReadDir(src.FS, "agents")
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -272,7 +288,7 @@ func LoadAgents(src Source) ([]Agent, error) {
 		if err != nil {
 			return nil, fmt.Errorf("agent %s: %w", shown, err)
 		}
-		fm, err := ParseStrict(front)
+		fm, err := parseStrict(front)
 		if err != nil {
 			return nil, fmt.Errorf("agent %s: %w", shown, err)
 		}
@@ -305,7 +321,7 @@ func LoadAgents(src Source) ([]Agent, error) {
 		if fm["subagent"] != "true" || fm["mainAgent"] != "false" {
 			return nil, fmt.Errorf("agent %s: a harness agent sets subagent: true and mainAgent: false", name)
 		}
-		for _, t := range SplitList(fm["tools"]) {
+		for _, t := range splitList(fm["tools"]) {
 			if !slices.Contains(knownTools, t) {
 				return nil, fmt.Errorf("agent %s: tool %q is not one the harness knows (%s)", name, t, strings.Join(knownTools, ", "))
 			}
@@ -317,9 +333,10 @@ func LoadAgents(src Source) ([]Agent, error) {
 	return agents, nil
 }
 
-// loadDocs reads every *.md directly under the named source directories.
-// Missing directories are fine; the same name in two of them is not.
-func loadDocs(src Source, dirs ...string) ([]Doc, error) {
+// loadDocs reads every *.md directly under the named source directories as
+// one kind, whose frontmatter may set only allowed. Missing directories are
+// fine; the same name in two of them is not.
+func loadDocs(src Source, kind string, allowed []string, dirs ...string) ([]Doc, error) {
 	seen := map[string]string{}
 	var docs []Doc
 	for _, dir := range dirs {
@@ -334,6 +351,9 @@ func loadDocs(src Source, dirs ...string) ([]Doc, error) {
 			}
 			shown := src.path(p)
 			name := strings.TrimSuffix(path.Base(p), ".md")
+			if err := validName(kind, shown, name); err != nil {
+				return nil, err
+			}
 			if prev, dup := seen[name]; dup {
 				return nil, fmt.Errorf("%s and %s both define %q", prev, shown, name)
 			}
@@ -341,12 +361,12 @@ func loadDocs(src Source, dirs ...string) ([]Doc, error) {
 			desc := ""
 			text := string(raw)
 			if front, body, err := Split(text); err == nil {
-				fm, err := ParseStrict(front)
+				fm, err := parseStrict(front)
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", shown, err)
 				}
-				if k := permissionKey(front, "allowed-tools", "hooks"); k != "" {
-					return nil, fmt.Errorf("%s: %s is never set in a harness command or rule; the operator's permission mode decides (BUG-143)", shown, k)
+				if k := unlistedKey(front, allowed); k != "" {
+					return nil, fmt.Errorf("%s: %s is not a key a harness %s sets (%s); a new one is added by a D-row, and a key that grants a permission never is — the operator's permission mode decides (IN23, BUG-143)", shown, k, kind, strings.Join(allowed, ", "))
 				}
 				desc = fm["description"]
 				text = body
@@ -408,11 +428,11 @@ func RenderInventory(inv Inventory) string {
 	return b.String()
 }
 
-// RenderInventoryCompact is the form embedded in the deployed context: names
+// renderInventoryCompact is the form embedded in the deployed context: names
 // only. The CLI injects every skill's description at session start anyway,
 // so repeating descriptions there would spend tokens on what is already
 // present; `fyr list` prints the full table.
-func RenderInventoryCompact(inv Inventory) string {
+func renderInventoryCompact(inv Inventory) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Installed\n\nGenerated by `fyr`; `fyr list` prints the descriptions.%s\n\n", slashNote(inv))
 	var skills []string

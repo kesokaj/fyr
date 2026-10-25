@@ -46,7 +46,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 				return Source{}, fmt.Errorf("this is the release binary %s: it installs the harness built into it and never a tree on disk, so %s=%s is refused — unset it, or build fyr from that tree and run that build's install", version, from.origin, from.path)
 			}
 		}
-		return EmbeddedSource(version), nil
+		return embeddedSource(version), nil
 	}
 
 	// A development build has nothing of its own to install, so it looks for a
@@ -59,7 +59,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 		if named == "" {
 			continue
 		}
-		if !IsRepo(named) {
+		if !isRepo(named) {
 			return Source{}, fmt.Errorf("%s is not a harness checkout (no context/AGENTS.md and skills/)", named)
 		}
 		return absSource(named)
@@ -85,7 +85,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 		}
 	}
 	for _, c := range candidates {
-		if c != "" && IsRepo(c) {
+		if c != "" && isRepo(c) {
 			return absSource(c)
 		}
 	}
@@ -173,8 +173,8 @@ func absSource(dir string) (Source, error) {
 	return DirSource(abs), nil
 }
 
-// IsRepo reports whether dir looks like the harness repo.
-func IsRepo(dir string) bool {
+// isRepo reports whether dir looks like the harness repo.
+func isRepo(dir string) bool {
 	if _, err := os.Stat(filepath.Join(dir, "context", "AGENTS.md")); err != nil {
 		return false
 	}

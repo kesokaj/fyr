@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -52,17 +53,40 @@ func LoadState(home string) (State, bool, error) {
 	}
 	// The manifest is a file under the user's home: its entries are paths
 	// every reader (install's resync, uninstall, status) joins under the
-	// install root and may Lstat or remove, so a non-local entry (`../x`, an
-	// absolute path) is dropped HERE, once, never followed by any caller
-	// (security review 2026-09-14).
+	// install root and may Lstat or remove, so an entry that is not local
+	// (`../x`, an absolute path) or lies outside the roots fyr manages
+	// (`.ssh/authorized_keys`, `.`) is dropped HERE, once, never followed by
+	// any caller (security review 2026-09-14; IN26).
 	kept := s.Files[:0]
 	for _, rel := range s.Files {
-		if filepath.IsLocal(rel) {
+		if filepath.IsLocal(rel) && managedEntry(rel) {
 			kept = append(kept, rel)
 		}
 	}
 	s.Files = kept
 	return s, true, nil
+}
+
+// managedBinaries are the binaries an install of fyr, or of it under an
+// earlier name, wrote: BinPath now, and the names before the renames, which a
+// resync removes (plan fyr Interfaces § Migration).
+var managedBinaries = []string{BinPath, ".local/bin/sh-agent", ".local/bin/styrman"}
+
+// managedEntry reports whether a manifest entry lies under a root fyr
+// manages: a file below ~/.gemini/config, one of managedBinaries, or a file
+// below ~/.claude that an install before ADR-062 wrote and the resync keeps
+// (claudeFile's rule, first element without case). It is judged as the path
+// it removes, cleaned, so `.gemini/../.ssh/x` is `.ssh/x`.
+func managedEntry(rel string) bool {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if slices.Contains(managedBinaries, clean) {
+		return true
+	}
+	if strings.HasPrefix(clean, AgyRoot+"/") {
+		return true
+	}
+	first, _, nested := strings.Cut(clean, "/")
+	return nested && strings.EqualFold(first, ".claude")
 }
 
 func SaveState(home string, s State) error {
@@ -81,7 +105,7 @@ func SaveState(home string, s State) error {
 // the metrics store live there, and none of it leaves the machine (ADR-062).
 // An existing directory is left as it is
 // here — every install used to create it 0755 on the way to state.json, and
-// TightenConfigDir, run by install alone, is what corrects that (security
+// tightenConfigDir, run by install alone, is what corrects that (security
 // review of the 2026-09-18 audit, rounds 2 and 3; the operator's option 1).
 func ConfigDir(home string) (string, error) {
 	dir := filepath.Join(home, StateDir)
@@ -91,7 +115,7 @@ func ConfigDir(home string) (string, error) {
 	return dir, nil
 }
 
-// TightenConfigDir corrects the runtime directory's mode to 0700 at the start
+// tightenConfigDir corrects the runtime directory's mode to 0700 at the start
 // of an install, the way install corrects a deployed file's mode: it names
 // the change with a `mode` line, a dry run names it and touches nothing, and
 // a chmod that fails is a note, never a failed install — the first version
@@ -99,7 +123,7 @@ func ConfigDir(home string) (string, error) {
 // directory (a dotfiles arrangement) and one the caller does not own are
 // left alone: the first is not fyr's to reach through, the second is
 // not its to change.
-func TightenConfigDir(home string, dryRun bool, out io.Writer) {
+func tightenConfigDir(home string, dryRun bool, out io.Writer) {
 	dir := filepath.Join(home, StateDir)
 	info, err := os.Lstat(dir)
 	if err != nil {
@@ -127,7 +151,7 @@ func TightenConfigDir(home string, dryRun bool, out io.Writer) {
 	}
 }
 
-func RemoveState(home string) error {
+func removeState(home string) error {
 	p := statePath(home)
 	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

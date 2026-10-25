@@ -52,7 +52,7 @@ var zipTrees = map[string]bool{"context": true, "skills": true, "agents": true, 
 // stripped; entries outside the five trees are never written. On any error
 // the directory this call made is removed.
 func UnpackZip(zipPath, parent string, check func(sum string) error) (dir, sum string, err error) {
-	data, err := ReadCapped(zipPath, maxZipArchiveBytes)
+	data, err := readCapped(zipPath, maxZipArchiveBytes)
 	if err != nil {
 		return "", "", fmt.Errorf("%s: reading the archive: %w", zipPath, err)
 	}
@@ -121,7 +121,7 @@ func UnpackZip(zipPath, parent string, check func(sum string) error) (dir, sum s
 			return "", "", fmt.Errorf("%s: more than %d bytes in total under the harness trees", zipPath, maxZipTotalBytes)
 		}
 	}
-	if !IsRepo(tmp) {
+	if !isRepo(tmp) {
 		return "", "", fmt.Errorf("%s: not a harness zip: the unpacked tree has no context/AGENTS.md or skills/", zipPath)
 	}
 	return tmp, sum, nil
@@ -310,4 +310,55 @@ func zipRoot(files []*zip.File) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// ErrZipNoSums: no SHA256SUMS beside a zip — a zip of a branch, which no
+// release lists, or a release zip downloaded alone. The caller installs it
+// marked UNVERIFIED (R9, ADR-041, ADR-053).
+var ErrZipNoSums = errors.New("no SHA256SUMS beside the zip")
+
+// VerifyZipSums checks a release zip against the SHA256SUMS beside it: the
+// zip's own line, by its file name, against sum. It returns the release the
+// file names. No SHA256SUMS is ErrZipNoSums; anything else that fails is a
+// refusal (plan D7).
+func VerifyZipSums(zipPath, sum string) (string, error) {
+	dir := filepath.Dir(zipPath)
+	// Only "does not exist" means there are none. Any other error (a folder
+	// that cannot be read, say) is a refusal: an unreadable checksum file is
+	// not the absence of one.
+	if _, err := os.Stat(filepath.Join(dir, "SHA256SUMS")); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", ErrZipNoSums
+		}
+		return "", fmt.Errorf("cannot check for checksums beside %s: %w", filepath.Base(zipPath), err)
+	}
+	what := filepath.Base(zipPath)
+	sums, tag, err := readSums(dir, what)
+	if err != nil {
+		return "", err
+	}
+	want, err := checksumFor(string(sums), what)
+	if err != nil {
+		return "", fmt.Errorf("the SHA256SUMS beside it are release %s's and do not list %s: %w — release %s publishes %s: if that is the release you want, download that file from its assets (GitHub's \"Source code\" archive is a different file); otherwise put this zip in a folder with its own release's SHA256SUMS", tag, what, err, tag, zipNamesIn(sums))
+	}
+	if want != sum {
+		return "", fmt.Errorf("checksum mismatch for %s against the SHA256SUMS of %s: the zip is not the one that release published — download %s from the release's assets again (GitHub's \"Source code\" archive is a different file)", what, tag, zipNamesIn(sums))
+	}
+	return tag, nil
+}
+
+// zipNamesIn lists the .zip files a SHA256SUMS names, for a refusal that has
+// to say which file the release actually published.
+func zipNamesIn(sums []byte) string {
+	var names []string
+	for _, line := range strings.Split(string(sums), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 && strings.HasSuffix(f[1], ".zip") {
+			names = append(names, strings.TrimPrefix(f[1], "*"))
+		}
+	}
+	if len(names) == 0 {
+		return "no zip"
+	}
+	return strings.Join(names, ", ")
 }

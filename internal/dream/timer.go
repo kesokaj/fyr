@@ -240,16 +240,42 @@ func absolutePath(path string) string {
 	return strings.Join(keep, string(filepath.ListSeparator))
 }
 
-// RemoveTimer stops and removes the dream timer of this home, for goos, and
-// reports whether there was one: absent is fine, but the caller says which
-// it was (a removal that found nothing once printed "removed").
+// RemoveTimer stops and removes the dream timer of this home, for goos, under
+// the fyr name and under the name before the rename (OldTimerHere: a home
+// that never ran install since keeps that one, and uninstall or
+// --remove-timer must not leave it running; TR9), and reports whether there
+// was one: absent is fine, but the caller says which it was (a removal that
+// found nothing once printed "removed").
 func RemoveTimer(home, goos string) (bool, error) {
-	unit, plist := UnitFor(home)
+	removed := false
+	for _, namesOf := range []func(string) (string, string){UnitFor, oldUnitFor} {
+		unit, plist := namesOf(home)
+		u, ok := unitOn(home, goos, unit, plist)
+		if !ok || !u.present() {
+			continue
+		}
+		if err := u.remove(); err != nil {
+			return removed, err
+		}
+		removed = true
+	}
+	return removed, nil
+}
+
+// OldTimerHere names this home's unit under the name before the rename
+// (oldUnitFor) when its files are on disk for goos, and "" otherwise: what
+// RemoveTimer removes beside the fyr unit. The bare old name under a home
+// that is not the real one is LegacyTimerFiles', never this one's.
+func OldTimerHere(home, goos string) string {
+	unit, plist := oldUnitFor(home)
 	u, ok := unitOn(home, goos, unit, plist)
 	if !ok || !u.present() {
-		return false, nil
+		return ""
 	}
-	return true, u.remove()
+	if goos == "darwin" {
+		return plist
+	}
+	return unit
 }
 
 // timerUnit is one home's unit on one system under one name: its files, its

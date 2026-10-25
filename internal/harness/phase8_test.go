@@ -123,7 +123,7 @@ func TestUnpackZipEmptyParentUnpacksBesideTheZip(t *testing.T) {
 	assertEmpty(t, watched, "the system temp directory after a refused unpack")
 }
 
-// ReadCapped is the one capped file read: it refuses a file over the cap
+// readCapped is the one capped file read: it refuses a file over the cap
 // before reading it and returns a smaller one whole.
 func TestReadCappedRefusesOversize(t *testing.T) {
 	dir := t.TempDir()
@@ -134,33 +134,33 @@ func TestReadCappedRefusesOversize(t *testing.T) {
 	if err := os.WriteFile(big, make([]byte, 33), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadCapped(small, 32)
+	got, err := readCapped(small, 32)
 	if err != nil || string(got) != "ok" {
-		t.Fatalf("ReadCapped(small) = %q, %v", got, err)
+		t.Fatalf("readCapped(small) = %q, %v", got, err)
 	}
-	if _, err := ReadCapped(big, 32); err == nil || !strings.Contains(err.Error(), "larger than") {
-		t.Fatalf("ReadCapped(big) err = %v, want a refusal naming the cap", err)
+	if _, err := readCapped(big, 32); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("readCapped(big) err = %v, want a refusal naming the cap", err)
 	}
-	if _, err := ReadCapped(filepath.Join(dir, "missing"), 32); err == nil {
+	if _, err := readCapped(filepath.Join(dir, "missing"), 32); err == nil {
 		t.Fatal("a missing file read")
 	}
 }
 
-// ParseStrict lints and parses in one pass over the block: the frontmatter
+// parseStrict lints and parses in one pass over the block: the frontmatter
 // a lenient parse would return, or the lint error.
 func TestParseStrict(t *testing.T) {
 	good := "name: x\ndescription: \"a: b\"\n"
-	fm, err := ParseStrict(good)
+	fm, err := parseStrict(good)
 	if err != nil {
-		t.Fatalf("ParseStrict(good): %v", err)
+		t.Fatalf("parseStrict(good): %v", err)
 	}
 	if want := Parse(good); fm["description"] != want["description"] || fm["name"] != want["name"] {
-		t.Errorf("ParseStrict = %v, Parse = %v", fm, want)
+		t.Errorf("parseStrict = %v, Parse = %v", fm, want)
 	}
 	bad := "name: x\ndescription: a #b\n"
-	_, strictErr := ParseStrict(bad)
+	_, strictErr := parseStrict(bad)
 	if strictErr == nil || !strings.Contains(strictErr.Error(), "#") {
-		t.Fatalf("ParseStrict(bad) err = %v, want the comment refusal", strictErr)
+		t.Fatalf("parseStrict(bad) err = %v, want the comment refusal", strictErr)
 	}
 }
 
@@ -225,7 +225,7 @@ func TestReadCappedRefusesOversizeStream(t *testing.T) {
 		w.Write([]byte(strings.Repeat("x", max+1)))
 		w.Close()
 	}()
-	if _, err := ReadCapped(fifo, max); err == nil {
+	if _, err := readCapped(fifo, max); err == nil {
 		t.Fatal("a stream one byte past the cap was read in full")
 	}
 }

@@ -467,6 +467,97 @@ func earlyExitPipeProblem(script string) string {
 	return ""
 }
 
+// loopTailTest is a statement `[ … ] && cmd`, `[[ … ]] && cmd` or
+// `test … && cmd` with no `||` to catch the false test.
+var loopTailTest = regexp.MustCompile(`^(\[\[?|test)\s.*&&`)
+
+// loopTailTestProblem is the first statement of a shell script that ends the
+// body of a loop which is a pipeline stage in `test && cmd` (BUG-148, TR13).
+// When the last test is false the loop returns 1, and under pipefail and
+// `set -e` the script ends there with no message; the same loop fed by a
+// redirection does not end the script, since bash exempts the && list. A
+// static check with limits: statements split on `;` and lines outside
+// quotes, loops matched by their keywords, and a loop reached through a
+// function or a here-document is not seen.
+func loopTailTestProblem(script string) string {
+	script = strings.ReplaceAll(script, "\\\n", " ")
+	script = regexp.MustCompile(`([^|])\|[ \t]*\n`).ReplaceAllString(script, "$1| ")
+	var stmts []string
+	for _, line := range strings.Split(script, "\n") {
+		var quote byte
+		start := 0
+		for i := 0; i < len(line); i++ {
+			c := line[i]
+			switch {
+			case quote != 0:
+				if c == quote {
+					quote = 0
+				}
+			case c == '\'' || c == '"':
+				quote = c
+			case c == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+				stmts = append(stmts, line[start:i])
+				start = len(line)
+				i = len(line)
+			case c == ';':
+				stmts = append(stmts, line[start:i])
+				start = i + 1
+			}
+		}
+		if start < len(line) {
+			stmts = append(stmts, line[start:])
+		}
+	}
+	keyword := func(s string) bool {
+		for _, k := range []string{"while ", "until ", "for "} {
+			if strings.HasPrefix(s, k) {
+				return true
+			}
+		}
+		return false
+	}
+	var piped []bool // one per open loop: is it a pipeline stage
+	last := ""
+	for _, s := range stmts {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if s == "do" {
+			continue
+		}
+		s = strings.TrimSpace(strings.TrimPrefix(s, "do "))
+		if s == "done" || strings.HasPrefix(s, "done ") {
+			if n := len(piped); n > 0 {
+				if piped[n-1] && loopTailTest.MatchString(last) && !strings.Contains(last, "||") {
+					return last
+				}
+				piped = piped[:n-1]
+			}
+			last = s
+			continue
+		}
+		if keyword(s) {
+			piped = append(piped, false)
+			continue
+		}
+		// pipeStages returns what follows each pipe, so a loop found there
+		// is a pipeline stage.
+		opened := false
+		for _, stage := range pipeStages(s) {
+			if keyword(strings.TrimSpace(stage)) {
+				piped = append(piped, true)
+				opened = true
+				break
+			}
+		}
+		if !opened {
+			last = s
+		}
+	}
+	return ""
+}
+
 // TestScriptsHaveNoEarlyExitPipe pins that rule on the shell scripts the
 // repository tracks that run under pipefail (the skills' scripts and the run
 // kits' preamble), and proves the check on both states first.
@@ -530,6 +621,33 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 			t.Errorf("the check refuses %q", good)
 		}
 	}
+	// BUG-148's shape: a loop that is a pipeline stage whose body ends in
+	// `test && cmd` returns 1 when the last test is false, and pipefail ends
+	// the script with no message (TR13). The same loop fed by a redirection
+	// does not end the script (bash exempts the && list), so it passes.
+	for _, bad := range []string{
+		"producer | while read -r x; do\n  [ -d \"$x\" ] && rm -rf -- \"$x\"\ndone\n",
+		"producer |\n  while read -r x; do\n    test -d \"$x\" && rm -rf -- \"$x\"\n  done\n",
+		"producer | while read -r x; do [ -d \"$x\" ] && rm -rf -- \"$x\"; done\n",
+		"producer | sort | for x in a; do\n  [[ -n $x ]] && echo \"$x\"\ndone\n",
+		"producer | while read -r x; do\n  case $x in\n    a) continue ;;\n  esac\n  [ -d \"$x\" ] && rm -rf -- \"$x\"  # the last name\ndone\n",
+	} {
+		if loopTailTestProblem(bad) == "" {
+			t.Errorf("the loop-tail check passes %q", bad)
+		}
+	}
+	for _, good := range []string{
+		"while read -r x; do\n  [ -d \"$x\" ] && rm -rf -- \"$x\"\ndone < f\n",
+		"producer | while read -r x; do\n  if [ -d \"$x\" ]; then rm -rf -- \"$x\"; fi\ndone\n",
+		"producer | while read -r x; do\n  [ -z \"$x\" ] && continue\n  echo \"$x\"\ndone\n",
+		"producer | while read -r x; do\n  [ -d \"$x\" ] && rm -rf -- \"$x\" || true\ndone\n",
+		"producer | while read -r x; do\n  [ -d \"$x\" ] || continue\ndone\n",
+		"producer | while read -r x; do\n  for y in a; do\n    [ -d \"$y\" ] && echo\n  done < f\n  echo ok\ndone\n",
+	} {
+		if got := loopTailTestProblem(good); got != "" {
+			t.Errorf("the loop-tail check refuses %q (%s)", good, got)
+		}
+	}
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
@@ -555,6 +673,9 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 		}
 		if l := earlyExitPipeProblem(string(b)); l != "" {
 			t.Errorf("%s pipes into a consumer that exits early, without a guard (BUG-155): %s", filepath.Base(f), l)
+		}
+		if l := loopTailTestProblem(string(b)); l != "" {
+			t.Errorf("%s ends a piped loop's body in `test && cmd` (BUG-148): %s", filepath.Base(f), l)
 		}
 	}
 }

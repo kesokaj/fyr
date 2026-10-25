@@ -41,6 +41,19 @@ func PathShadows(pathEnv, binPath string) (shadows []string, onPath bool) {
 	return shadows, false
 }
 
+// OldBinariesOnPath lists every executable `sh-agent` PATH finds, in PATH
+// order: the binary from before the rename, which a crossing leaves when its
+// removal was refused or the old manifest never listed it (plan fyr F2, F4).
+func OldBinariesOnPath(pathEnv string) []string {
+	var found []string
+	for _, cand := range pathCandidates(pathEnv, "sh-agent") {
+		if _, ok := executableAt(cand); ok {
+			found = append(found, cand)
+		}
+	}
+	return found
+}
+
 // pathCandidates is the one PATH walk: the file a shell would try for name in
 // each PATH entry, in PATH order, without repeats. An empty entry is the
 // working directory (POSIX), printed as ./name so it reads as a file, not a
@@ -73,14 +86,14 @@ func executableAt(p string) (os.FileInfo, bool) {
 	return info, true
 }
 
-// RunningElsewhere reports where a shell finds the binary at exe by the name
+// runningElsewhere reports where a shell finds the binary at exe by the name
 // of binPath, when exe is NOT the file at binPath. `update` replaces the file
 // at binPath and nothing else, so a process started from another path has
 // just updated a file it is not running, and a shell that resolved the name
 // to that path keeps running it whatever PATH says, because the shell caches
 // the lookup (BUG-079). A process no PATH entry reaches by name — a test
 // binary, a `go run` build — is nobody's `fyr` and is not reported.
-func RunningElsewhere(pathEnv, binPath, exe string) (string, bool) {
+func runningElsewhere(pathEnv, binPath, exe string) (string, bool) {
 	self, err := os.Stat(exe)
 	if err != nil {
 		return "", false
@@ -125,7 +138,7 @@ func NoteRunningElsewhere(home string, out io.Writer) {
 		return
 	}
 	installed := filepath.Join(home, BinPath)
-	from, ok := RunningElsewhere(os.Getenv("PATH"), installed, exe)
+	from, ok := runningElsewhere(os.Getenv("PATH"), installed, exe)
 	if !ok {
 		return
 	}

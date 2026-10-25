@@ -86,11 +86,14 @@ func TestMainExitStatus(t *testing.T) {
 		stdout string
 		stderr string
 	}{
-		"version":         {"version", 0, "fyr ", ""},
-		"usage error":     {"list --no-such-flag", 2, "", ""},
-		"unknown command": {"no-such-verb", 1, "", "fyr: unknown command"},
+		"version":     {"version", 0, "fyr ", ""},
+		"usage error": {"list --no-such-flag", 2, "", ""},
+		// A usage error like every other: exit 2, the reason on stdout (IN16).
+		"unknown command": {"no-such-verb", 2, `unknown command "no-such-verb"`, ""},
 		// The report path left with ADR-062: the word is no verb at all.
-		"report is gone": {"report --dry-run", 1, "", `fyr: unknown command "report"`},
+		"report is gone": {"report --dry-run", 2, `unknown command "report"`, ""},
+		// Help is a successful ask (IN15).
+		"list -h": {"list -h", 0, "-home", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := exec.Command(os.Args[0], "-test.run=^TestHelperMain$")

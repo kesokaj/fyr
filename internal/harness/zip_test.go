@@ -97,7 +97,7 @@ func TestUnpackZipGitHubTopFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UnpackZip: %v", err)
 	}
-	if !IsRepo(tree) {
+	if !isRepo(tree) {
 		t.Fatalf("%s is not harness-shaped after unpacking", tree)
 	}
 	if !strings.HasPrefix(tree, parent+string(filepath.Separator)) {
@@ -124,7 +124,7 @@ func TestUnpackZipRootLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UnpackZip: %v", err)
 	}
-	if !IsRepo(tree) {
+	if !isRepo(tree) {
 		t.Fatalf("%s is not harness-shaped", tree)
 	}
 }
@@ -287,7 +287,7 @@ func TestResolveSourceSkipsZipManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(decoy, "context", "AGENTS.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !IsRepo(origin) {
+	if !isRepo(origin) {
 		t.Fatalf("fixture: %s must look like a harness tree relative to %s", origin, cwd)
 	}
 	home := t.TempDir()
@@ -407,8 +407,8 @@ func TestUnpackZipRefusesOversizedArchive(t *testing.T) {
 // one is refused like a key file.
 func TestSecretShapedCLITokenFiles(t *testing.T) {
 	for _, name := range []string{"antigravity-oauth-token", ".credentials.json"} {
-		if !secretShaped(name) {
-			t.Errorf("secretShaped(%q) = false, want true", name)
+		if !SecretShaped(name) {
+			t.Errorf("SecretShaped(%q) = false, want true", name)
 		}
 	}
 }

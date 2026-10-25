@@ -93,7 +93,7 @@ func TestCrossingFromV270(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> \""+calls+"\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+pathWithout(os.Getenv("PATH"), "sh-agent"))
 
 	home := t.TempDir()
 	runOld(t, bin, "install", "--repo", src, "--home", home)

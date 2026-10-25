@@ -47,8 +47,8 @@ Commands:
   install [--dry-run]     deploy context, skills, and agents into ~/.gemini/config (alias: sync)
   status                  show what is installed and whether it drifted from the repo (exit 1 on drift)
   diff                    unified diff of every drifted file
-  update [--check|--dry-run]  checkout: git fetch, pull --ff-only and reinstall when behind; release binary: download the newest release, check it against its SHA256SUMS, replace the binary and reinstall (--check only reports, exit 2 when behind; --dry-run reports what update would do and changes nothing)
-  update --from-zip FILE [--dry-run]  zip place: unpack a repository zip you downloaded, install its harness and the running binary (nothing in the zip replaces the binary), delete the unpacked copy; with the release's SHA256SUMS beside it the zip is checked against it, otherwise it is installed marked UNVERIFIED
+  update [--check|--dry-run]  checkout: git fetch, pull --ff-only and reinstall when behind; release binary: download the newest release, check it against its SHA256SUMS, replace the binary and reinstall (--check only reports, exit 2 when behind; --dry-run reports what update would do and changes nothing in the tree or the home; at a checkout both still run git fetch, which moves the remote-tracking refs)
+  update --from-zip FILE [--dry-run]  zip place: unpack a repository zip you downloaded, install its harness and the running binary (nothing in the zip replaces the binary), delete the unpacked copy; with the release's SHA256SUMS beside it the zip is checked against it, otherwise it is installed marked UNVERIFIED; the unpacked copy is a zip-* directory under ~/.config/fyr, or, on a --dry-run with no ~/.config/fyr, beside the zip, removed before the command returns
   uninstall [--dry-run]   remove exactly the files install wrote, and the dream timer when one is installed; nothing else
   list                    print the skill and agent inventory
   render                  print the assembled context file
@@ -220,7 +220,9 @@ func run(args []string, out io.Writer) error {
 	cmd, rest := args[0], args[1:]
 	v, ok := verbs[cmd]
 	if !ok {
-		return fmt.Errorf("unknown command %q\n\n%s", cmd, usage)
+		// A usage error like every other: exit 2, said on the writer (IN16).
+		fmt.Fprintf(out, "fyr: unknown command %q\n\n%s", cmd, usage)
+		return exitCode(2)
 	}
 	// A zip place (R8, ADR-038): the operator named the archive, so no tree is
 	// resolved and no other verb runs — `uninstall --from-zip` must not
@@ -240,7 +242,9 @@ func run(args []string, out io.Writer) error {
 	}
 	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return err
+			// Help is a successful ask: the FlagSet has printed the verb's
+			// flags on the writer (IN15).
+			return nil
 		}
 		// The flag package has named the flag on the writer; a usage error
 		// exits 2 like every other usage error here.
@@ -310,9 +314,15 @@ func run(args []string, out io.Writer) error {
 	return v.run(c)
 }
 
-// writesState reports whether this invocation writes under the state
+// writesState reports whether this invocation may write under the state
 // directory, and so moves the old one first (plan fyr D13). A dry run, a
-// --check and a verb or subcommand that only reads answer false.
+// --check and a verb or subcommand that only reads answer false. The table is
+// by verb, so it errs early on purpose: adopt (which writes into the repo), a
+// project-local search or index (which writes .agents/scratch/search.db) and
+// dream --install-timer or --remove-timer write nothing there, yet migrate
+// too. Moving the old directory early is harmless — one rename, refused for
+// a symlink, and both directories present are left alone — and a verb that
+// starts writing there later needs no change here (IN18).
 func (c *ctx) writesState() bool {
 	switch c.cmd {
 	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
@@ -367,15 +377,17 @@ func runUninstall(c *ctx) error {
 	// The dream timer is not in the manifest (the next install would delete
 	// it as stale); uninstall removes it by R4's dream clause, also when no
 	// manifest is left, and a dry run only says so.
-	if dream.TimerInstalledHere(c.home, runtime.GOOS) {
+	// The unit under the name before the rename goes too (TR9).
+	old := dream.OldTimerHere(c.home, runtime.GOOS)
+	if dream.TimerInstalledHere(c.home, runtime.GOOS) || old != "" {
 		if c.dryRun {
-			fmt.Fprintln(c.out, "[dry-run] would remove the dream timer")
+			fmt.Fprintln(c.out, "[dry-run] would remove the dream timer"+oldTimerNote(old))
 		} else if removed, err := dream.RemoveTimer(c.home, runtime.GOOS); err != nil {
 			return err
 		} else if removed {
 			// Said only when a unit was removed; the guard above already
-			// counts this system's unit alone (TimerInstalledHere).
-			fmt.Fprintln(c.out, "removed the dream timer")
+			// counts this system's units alone.
+			fmt.Fprintln(c.out, "removed the dream timer"+oldTimerNote(old))
 		}
 	}
 	err := harness.Uninstall(c.home, c.dryRun, c.out)
@@ -386,6 +398,15 @@ func runUninstall(c *ctx) error {
 	}
 	otherSystemTimerNote(c)
 	return err
+}
+
+// oldTimerNote names this home's unit under the name before the rename in a
+// removal line, or says nothing when there is none.
+func oldTimerNote(old string) string {
+	if old == "" {
+		return ""
+	}
+	return " (with " + old + ", its unit from before the rename to fyr)"
 }
 
 // otherSystemTimerNote names unit files of the operating system this binary
@@ -415,7 +436,7 @@ func runDream(c *ctx) error {
 		// rules): the dry run names what would change and calls nothing.
 		what := "install the nightly dream timer (fyr dream --all at 03:00)"
 		if c.removeTimer {
-			what = "remove the nightly dream timer"
+			what = "remove the nightly dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
 		}
 		fmt.Fprintln(c.out, "[dry-run] would "+what+"; installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
 		if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); c.removeTimer && notice != "" {
@@ -431,10 +452,11 @@ func runDream(c *ctx) error {
 		}
 	case c.removeTimer:
 		var removed bool
+		old := dream.OldTimerHere(c.home, runtime.GOOS)
 		removed, err = dream.RemoveTimer(c.home, runtime.GOOS)
 		if err == nil {
 			if removed {
-				fmt.Fprintln(c.out, "dream timer removed")
+				fmt.Fprintln(c.out, "dream timer removed"+oldTimerNote(old))
 			} else {
 				fmt.Fprintln(c.out, "no dream timer found for "+c.home+" on this system")
 			}
@@ -962,6 +984,11 @@ func status(src harness.Source, home string, out io.Writer) error {
 			fmt.Fprintf(out, "shadowed   %s comes first on PATH, so `fyr` runs that, not the binary above\n", s)
 		}
 	}
+	// A crossing whose removal of the old binary was refused, or whose old
+	// manifest never listed it, leaves it on PATH (plan fyr F2, F4; TR9).
+	for _, old := range harness.OldBinariesOnPath(os.Getenv("PATH")) {
+		fmt.Fprintf(out, "leftover   %s is the binary from before the rename to fyr; remove it by hand, and any unit or profile line that runs it\n", old)
+	}
 	if last, ok := harness.LastRetro(home); ok {
 		days := int(time.Since(last).Hours() / 24)
 		hint := ""
@@ -1008,9 +1035,13 @@ func status(src harness.Source, home string, out io.Writer) error {
 		return err
 	}
 	for _, e := range report.Entries {
-		if e.State != "ok" {
+		if e.State != "ok" && e.State != "kept" {
 			fmt.Fprintf(out, "  %-8s ~/%s\n", e.State, e.Rel)
 		}
+	}
+	if n := report.Counts["kept"]; n > 0 {
+		// Not drift: no install changes them (plan fyr D32, IN32).
+		fmt.Fprintf(out, "kept       %d files under ~/.claude that an install before fyr wrote for Claude Code; fyr never removes them, and the next install drops them from its manifest\n", n)
 	}
 	if !report.Drift() {
 		fmt.Fprintf(out, "drift      none — %d files match the repo\n", report.Counts["ok"])
@@ -1271,9 +1302,11 @@ func versionFromInfo(info *debug.BuildInfo) string {
 // copy (R8, R9's zip place; ADR-038). Nothing is fetched, and nothing in the
 // zip replaces the binary: the running one is installed as in every install.
 func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error) {
-	// A dry run writes nothing, so it never creates ~/.config/fyr: when
-	// that directory is absent the unpack goes beside the zip instead, never
-	// the system temp directory (IN10).
+	// A dry run installs nothing and never creates ~/.config/fyr: when that
+	// directory is absent the unpack goes into a zip-* directory beside the
+	// zip instead, never the system temp directory (IN10), and that directory
+	// is removed before this returns, as on a real run; the usage says so
+	// (IN21).
 	parent := filepath.Join(home, harness.StateDir)
 	if dryRun {
 		if _, err := os.Stat(parent); err != nil {

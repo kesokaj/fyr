@@ -184,7 +184,7 @@ Every customization is a file in a directory: drop it in, run `fyr install`, com
 | `commands/<name>.md` | a plain markdown prompt invoked as `/name` (prefer a skill) | `~/.gemini/config/workflows/<name>.md` |
 | `context/<name>.md` | more global context, appended after `AGENTS.md` | part of `~/.gemini/config/rules/AGENTS.md` |
 
-The installer refuses what would grant a permission behind your back: a skill without a `description`, a skill or rule that sets `allowed-tools` or `hooks`, an agent with a key outside its allow-list, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `AGENTS.md` § Rules for working here lists each refusal and why.
+The installer refuses what would grant a permission behind your back: a skill without a `description`, a skill, command, rule or agent with a frontmatter key outside its kind's allow list (so `allowed-tools`, `hooks` or any other permission key), a command or rule whose file name is not one plain name, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `AGENTS.md` § Rules for working here lists each refusal and why.
 
 Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [skills.sh](https://skills.sh), `npx skills@<version> add <owner/repo> -s <skill>` lands in `skills/` through the `.agents/skills` symlink, then `fyr install` and commit. A skill you already installed globally comes in with `fyr adopt <name>`.
 

@@ -64,11 +64,11 @@ func TestParseFrontmatter(t *testing.T) {
 	if _, ok := fm["metadata"]; ok {
 		t.Errorf("nested map should be skipped, got %q", fm["metadata"])
 	}
-	if got := SplitList("[Read, Grep]"); strings.Join(got, ",") != "Read,Grep" {
-		t.Errorf("SplitList brackets = %v", got)
+	if got := splitList("[Read, Grep]"); strings.Join(got, ",") != "Read,Grep" {
+		t.Errorf("splitList brackets = %v", got)
 	}
-	if got := SplitList("Read Grep"); strings.Join(got, ",") != "Read,Grep" {
-		t.Errorf("SplitList spaces = %v", got)
+	if got := splitList("Read Grep"); strings.Join(got, ",") != "Read,Grep" {
+		t.Errorf("splitList spaces = %v", got)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestLintRejectsUnquotedComment(t *testing.T) {
 		"name: x\ndescription: \"quoted\" # trailing\n",
 	}
 	for _, front := range bad {
-		if _, err := ParseStrict(front); err == nil {
+		if _, err := parseStrict(front); err == nil {
 			t.Errorf("Lint accepted %q", front)
 		} else if !strings.Contains(err.Error(), "#") {
 			t.Errorf("error should name the marker: %v", err)
@@ -98,7 +98,7 @@ func TestLintRejectsUnquotedComment(t *testing.T) {
 		"name: x\ntools: [Read, Grep]\ncolor: \"#ff0000\"\n",
 	}
 	for _, front := range good {
-		if _, err := ParseStrict(front); err != nil {
+		if _, err := parseStrict(front); err != nil {
 			t.Errorf("Lint rejected %q: %v", front, err)
 		}
 	}
@@ -113,9 +113,9 @@ func TestLoadSkillsRejectsUnquotedComment(t *testing.T) {
 	if err := os.WriteFile(p, []byte("---\nname: gamma\ndescription: Gamma\nargument-hint: [topic or #issue]\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadSkills(DirSource(repo))
+	_, err := loadSkills(DirSource(repo))
 	if err == nil || !strings.Contains(err.Error(), "gamma") || !strings.Contains(err.Error(), "argument-hint") {
-		t.Fatalf("LoadSkills should name the skill and the key, got %v", err)
+		t.Fatalf("loadSkills should name the skill and the key, got %v", err)
 	}
 }
 
@@ -130,7 +130,7 @@ func TestSplitRejectsMissingFrontmatter(t *testing.T) {
 
 func TestInventoryAndRender(t *testing.T) {
 	repo := newRepo(t)
-	skills, err := LoadSkills(DirSource(repo))
+	skills, err := loadSkills(DirSource(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -766,7 +766,7 @@ func TestNestedCopyIsNotACheckout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nested, "context", "AGENTS.md"), []byte("# copy\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !IsRepo(nested) {
+	if !isRepo(nested) {
 		t.Fatal("fixture: nested copy should look like a harness")
 	}
 
@@ -856,13 +856,13 @@ func TestSlashNoteOnlyWhenSomeSkillIsSlashOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	const marked = "Skills marked `/name` are typed by the user"
-	if !strings.Contains(RenderInventoryCompact(inv), marked) || !strings.Contains(RenderInventory(inv), marked) {
+	if !strings.Contains(renderInventoryCompact(inv), marked) || !strings.Contains(RenderInventory(inv), marked) {
 		t.Errorf("fixture has a slash-only skill; the note should be printed")
 	}
 	for i := range inv.Skills {
 		inv.Skills[i].SlashOnly = false
 	}
-	for _, out := range []string{RenderInventoryCompact(inv), RenderInventory(inv)} {
+	for _, out := range []string{renderInventoryCompact(inv), RenderInventory(inv)} {
 		if strings.Contains(out, marked) {
 			t.Errorf("no slash-only skill; the note must not be printed:\n%s", out)
 		}
@@ -1346,7 +1346,7 @@ func TestAdoptFailedCopyKeepsTheExistingSkill(t *testing.T) {
 	assertSkillsClean(t, repo, "after a successful adopt")
 
 	// The staging directory lives in .agents/scratch and is removed either
-	// way; if one survived there with a complete SKILL.md, LoadSkills would
+	// way; if one survived there with a complete SKILL.md, loadSkills would
 	// not see it (it walks skills/ only), which is the point of the move.
 	leftovers, _ := filepath.Glob(filepath.Join(repo, ".agents", "scratch", "adopt-*"))
 	if len(leftovers) != 0 {
@@ -1372,9 +1372,9 @@ func assertSkillsClean(t *testing.T, repo, when string) {
 			t.Errorf("%s: skills/ holds %q, which is not a skill", when, e.Name())
 		}
 	}
-	skills, err := LoadSkills(DirSource(repo))
+	skills, err := loadSkills(DirSource(repo))
 	if err != nil {
-		t.Fatalf("%s: LoadSkills: %v", when, err)
+		t.Fatalf("%s: loadSkills: %v", when, err)
 	}
 	seen := map[string]bool{}
 	for _, s := range skills {
@@ -1400,7 +1400,7 @@ func TestLoadSkillsRefusesDuplicateNames(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dup, "SKILL.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := LoadSkills(DirSource(repo))
+	_, err := loadSkills(DirSource(repo))
 	if err == nil {
 		t.Fatal("two skills named alpha must be refused")
 	}
@@ -2362,15 +2362,15 @@ func TestAgentDescriptionRules(t *testing.T) {
 	} {
 		repo := newRepo(t)
 		writeAgent(t, repo, "x", "---\n"+front+"---\nbody\n")
-		if _, err := LoadAgents(DirSource(repo)); err == nil {
-			t.Errorf("%s: LoadAgents accepted the description", name)
+		if _, err := loadAgents(DirSource(repo)); err == nil {
+			t.Errorf("%s: loadAgents accepted the description", name)
 		}
 	}
 	// The fixture's own agent (one line, plain words) and the real agents pass.
-	if _, err := LoadAgents(DirSource(newRepo(t))); err != nil {
+	if _, err := loadAgents(DirSource(newRepo(t))); err != nil {
 		t.Errorf("the fixture's agents: %v", err)
 	}
-	if _, err := LoadAgents(DirSource(filepath.Join("..", ".."))); err != nil {
+	if _, err := loadAgents(DirSource(filepath.Join("..", ".."))); err != nil {
 		t.Errorf("the checkout's agents: %v", err)
 	}
 }
@@ -2381,17 +2381,17 @@ func TestAgentDescriptionRules(t *testing.T) {
 // 2026-09-30, D19).
 func TestLintDescriptionLimit(t *testing.T) {
 	long := strings.Repeat("word ", 206) // 1,029 characters after the trailing space is trimmed
-	if _, err := ParseStrict("name: x\ndescription: \"" + long + "\"\n"); err == nil {
+	if _, err := parseStrict("name: x\ndescription: \"" + long + "\"\n"); err == nil {
 		t.Error("a 1,025-character description passed Lint")
 	}
 	block := "name: x\ndescription: |\n"
 	for i := 0; i < 11; i++ {
 		block += "  " + strings.Repeat("word ", 20) + "\n" // 11 × 100 = 1,100 joined
 	}
-	if _, err := ParseStrict(block); err == nil {
+	if _, err := parseStrict(block); err == nil {
 		t.Error("a 1,100-character block description passed Lint")
 	}
-	if _, err := ParseStrict("name: x\ndescription: \"" + strings.Repeat("word ", 204) + "\"\n"); err != nil {
+	if _, err := parseStrict("name: x\ndescription: \"" + strings.Repeat("word ", 204) + "\"\n"); err != nil {
 		t.Errorf("a 1,020-character description was refused: %v", err)
 	}
 	// A block of exactly 1,023 joined characters passes: the `|` indicator
@@ -2401,7 +2401,7 @@ func TestLintDescriptionLimit(t *testing.T) {
 		block += "  " + strings.Repeat("word ", 20) + "\n"
 	}
 	block += "  " + strings.Repeat("w", 13) + "\n" // 10 × 99 (joined by spaces) + 1 + 13 = 1,004 + 19 → under the limit
-	if _, err := ParseStrict(block); err != nil {
+	if _, err := parseStrict(block); err != nil {
 		t.Errorf("a block description under the limit was refused: %v", err)
 	}
 }
@@ -2415,14 +2415,14 @@ func TestLintRefusesAllowedTools(t *testing.T) {
 	dir := filepath.Join(repo, "skills", "x")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\ndescription: a skill\nallowed-tools: Bash\n---\nbody\n"), 0o644)
-	if _, err := LoadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "allowed-tools") {
+	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "allowed-tools") {
 		t.Errorf("a skill with allowed-tools passed: %v", err)
 	}
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\ndescription: a skill\n---\nbody\n"), 0o644)
-	if _, err := LoadSkills(DirSource(repo)); err != nil {
+	if _, err := loadSkills(DirSource(repo)); err != nil {
 		t.Errorf("the same skill without the key was refused: %v", err)
 	}
-	if _, err := LoadSkills(DirSource(filepath.Join("..", ".."))); err != nil {
+	if _, err := loadSkills(DirSource(filepath.Join("..", ".."))); err != nil {
 		t.Errorf("the checkout's skills: %v", err)
 	}
 }
@@ -2437,7 +2437,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 		dir := filepath.Join(repo, "skills", "x")
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\ndescription: a skill\n"+front+"---\nbody\n"), 0o644)
-		_, err := LoadSkills(DirSource(repo))
+		_, err := loadSkills(DirSource(repo))
 		return err
 	}
 	for name, front := range map[string]string{
@@ -2455,7 +2455,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 		"metadata map":  "metadata:\n  version: \"1.0\"\n",
 		"license":       "license: Apache-2.0\n",
 		"comment line":  "# a comment\n",
-		"column-0 list": "compatibility:\n- agy\n- gemini\n",
+		"column-0 list": "metadata:\n- agy\n- gemini\n",
 	} {
 		if err := skill(front); err != nil {
 			t.Errorf("skill with %s refused: %v", name, err)
@@ -2464,7 +2464,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 	agent := func(front string) error {
 		repo := newRepo(t)
 		writeAgent(t, repo, "x", "---\nname: x\ndescription: an agent\nsubagent: true\nmainAgent: false\ntools: [view_file]\n"+front+"---\nbody\n")
-		_, err := LoadAgents(DirSource(repo))
+		_, err := loadAgents(DirSource(repo))
 		return err
 	}
 	// mcpServers: an inline MCP server is a command line the CLI starts
@@ -2569,7 +2569,7 @@ func TestSplitFenceIsOneLine(t *testing.T) {
 	dir := filepath.Join(repo, "skills", "x")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\ndescription: a skill\n---\r\r\nallowed-tools: Bash\n---\nbody\n"), 0o644)
-	if _, err := LoadSkills(DirSource(repo)); err == nil {
+	if _, err := loadSkills(DirSource(repo)); err == nil {
 		t.Error("a skill with a permission key behind a two-carriage-return fence loaded")
 	} else if !strings.Contains(err.Error(), "line break") || strings.Contains(err.Error(), "quoted or spaced key") {
 		// The refusal names the real problem (a line break that is not a
@@ -2579,7 +2579,7 @@ func TestSplitFenceIsOneLine(t *testing.T) {
 	// A `---` with a trailing space is not a fence to Split either; inside
 	// the block it is refused as a fence that is not one.
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: x\ndescription: a skill\n--- \nallowed-tools: Bash\n---\nbody\n"), 0o644)
-	if _, err := LoadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "not a fence") {
+	if _, err := loadSkills(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "not a fence") {
 		t.Errorf("a skill with a spaced fence inside its block: want the not-a-fence refusal, got %v", err)
 	}
 }
@@ -2595,36 +2595,35 @@ func TestSplitFenceIsOneLine(t *testing.T) {
 // whatever else the file gets right.
 func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 	const hidden = "allowed-tools: Bash(*)"
-	// An agent sets only the keys of its allow-list (ADR-056), so its
-	// keep-loading shapes use them; none of them holds a map.
-	other := [3]string{"license", "compatibility", "metadata"}
+	// Every kind sets only the keys of its allow-list (ADR-056, IN23), so its
+	// keep-loading shapes use them; only a skill's holds a list or a map.
 	kinds := map[string]struct {
 		keys  []string  // the kind's own required lines
 		extra [3]string // a key the kind loads with a value, a list and a map ("" for none)
 		load  func(front string) error
 	}{
-		"skill": {[]string{"name: x", "description: d"}, other, func(front string) error {
+		"skill": {[]string{"name: x", "description: d"}, [3]string{"license", "metadata", "metadata"}, func(front string) error {
 			repo := newRepo(t)
 			dir := filepath.Join(repo, "skills", "x")
 			os.MkdirAll(dir, 0o755)
 			os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)
-			_, err := LoadSkills(DirSource(repo))
+			_, err := loadSkills(DirSource(repo))
 			return err
 		}},
 		"agent": {[]string{"name: x", "description: d", "subagent: true", "mainAgent: false"}, [3]string{"model", "", ""}, func(front string) error {
 			repo := newRepo(t)
 			writeAgent(t, repo, "x", "---\n"+front+"---\nbody\n")
-			_, err := LoadAgents(DirSource(repo))
+			_, err := loadAgents(DirSource(repo))
 			return err
 		}},
-		"command": {[]string{"description: d"}, other, func(front string) error {
+		"command": {[]string{"description: d"}, [3]string{"description", "", ""}, func(front string) error {
 			repo := newRepo(t)
 			os.MkdirAll(filepath.Join(repo, "commands"), 0o755)
 			os.WriteFile(filepath.Join(repo, "commands", "x.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)
 			_, err := LoadInventory(DirSource(repo))
 			return err
 		}},
-		"rule": {[]string{"description: d"}, other, func(front string) error {
+		"rule": {[]string{"description: d"}, [3]string{"trigger", "", ""}, func(front string) error {
 			repo := newRepo(t)
 			os.MkdirAll(filepath.Join(repo, "rules"), 0o755)
 			os.WriteFile(filepath.Join(repo, "rules", "x.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)
@@ -2668,15 +2667,27 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 		}
 		// What must keep loading: a nested map, a list, a CRLF file.
 		value, list, nested := k.extra[0], k.extra[1], k.extra[2]
+		// The required lines without the value key's own, so a kind whose
+		// only allowed key is required still gets the value shapes.
+		var rest []string
+		for _, l := range k.keys {
+			if !strings.HasPrefix(l, value+":") {
+				rest = append(rest, l)
+			}
+		}
+		base := ""
+		if len(rest) > 0 {
+			base = strings.Join(rest, "\n") + "\n"
+		}
 		for name, front := range map[string]string{
 			"a nested map":     plain + nested + ":\n  version: \"1.0\"\n",
 			"an indented list": plain + list + ":\n  - agy\n",
-			"a CRLF file":      strings.ReplaceAll(plain, "\n", "\r\n") + value + ": MIT\r\n",
+			"a CRLF file":      strings.ReplaceAll(base, "\n", "\r\n") + value + ": MIT\r\n",
 			"a comment first":  "# a comment\n" + plain,
 			// A tab inside a value, and a line that is only a tab, are not
 			// tab indentation.
-			"a tab inside a value": plain + value + ": MIT\tor Apache\n",
-			"a tab-only line":      plain + "\t\n" + value + ": MIT\n",
+			"a tab inside a value": base + value + ": MIT\tor Apache\n",
+			"a tab-only line":      base + "\t\n" + value + ": MIT\n",
 		} {
 			if nested == "" && name == "a nested map" || list == "" && name == "an indented list" {
 				continue

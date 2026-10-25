@@ -1,12 +1,12 @@
 package harness
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +28,9 @@ const ReleaseRepo = "github.com/kesokaj/fyr"
 // checksums are never taken for another's (security review 2026-09-17).
 // `sha256sum -c` ignores a line starting with '#', so the file stays readable
 // by it. One marker, `# fyr vX.Y.Z`, since v3.0.0: no release this binary
-// takes was published under the name before the rename (plan fyr D5a).
+// takes was published under the name before the rename (plan fyr D5a). It is
+// matched on any line, and a file whose markers name two releases is refused
+// (readSums, IN28).
 //
 // The checksums are not signed (ADR-053): they say a download is whole and is
 // the file the release lists, not who made the release. That rests on the
@@ -47,8 +49,8 @@ var (
 // that is behind.
 var ErrNewerRelease = errors.New("a newer release is available")
 
-// AssetName is the binary asset's name for one platform.
-func AssetName(goos, goarch string) string {
+// assetName is the binary asset's name for one platform.
+func assetName(goos, goarch string) string {
 	return fmt.Sprintf("fyr-%s-%s", goos, goarch)
 }
 
@@ -124,7 +126,7 @@ func UpdateFromRelease(home, version string, checkOnly bool, installArgs []strin
 	}
 	defer os.RemoveAll(dir)
 
-	asset := AssetName(runtime.GOOS, runtime.GOARCH)
+	asset := assetName(runtime.GOOS, runtime.GOARCH)
 	data, err := downloadRelease(dir, tag, asset, out)
 	if err != nil {
 		return err
@@ -150,7 +152,9 @@ func UpdateFromRelease(home, version string, checkOnly bool, installArgs []strin
 	cmd := exec.Command(dest, append([]string{"install"}, installArgs...)...)
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s install: %w", dest, err)
+		// The binary is already replaced; the harness deployed is still the
+		// old one's, which status then shows as drift (IN29).
+		return fmt.Errorf("%s install: %w — %s %s is already in place at %s, but the harness it carries was not installed; run `fyr install` to finish", dest, err, asset, tag, dest)
 	}
 	NoteRunningElsewhere(home, out)
 	return nil
@@ -178,7 +182,7 @@ func downloadRelease(dir, tag, asset string, out io.Writer) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("release %s has no %s", tag, asset)
 	}
-	data, err := ReadCapped(path, maxAssetBytes)
+	data, err := readCapped(path, maxAssetBytes)
 	if err != nil {
 		return nil, fmt.Errorf("release %s: %s is not usable: %w", tag, asset, err)
 	}
@@ -217,15 +221,22 @@ func readSums(sumsDir, what string) (sums []byte, tag string, err error) {
 	if _, err := os.Stat(sumsPath); err != nil {
 		return nil, "", fmt.Errorf("%s has no SHA256SUMS", what)
 	}
-	sums, err = ReadCapped(sumsPath, maxSumsBytes)
+	sums, err = readCapped(sumsPath, maxSumsBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("%s: SHA256SUMS is not usable: %w", what, err)
 	}
-	marker := sumsVersionMarker.FindSubmatch(sums)
-	if marker == nil {
+	markers := sumsVersionMarker.FindAllSubmatch(sums, -1)
+	if markers == nil {
 		return nil, "", fmt.Errorf("the SHA256SUMS of %s names no release version; it cannot be told apart from another release's", what)
 	}
-	return sums, string(marker[1]), nil
+	// The marker may stand on any line; a second one naming another release
+	// is refused, never settled by which comes first (IN28).
+	for _, m := range markers[1:] {
+		if !bytes.Equal(m[1], markers[0][1]) {
+			return nil, "", fmt.Errorf("the SHA256SUMS of %s names two releases, %s and %s; it belongs to one", what, markers[0][1], m[1])
+		}
+	}
+	return sums, string(markers[0][1]), nil
 }
 
 // checksumFor reads one file's hash out of a sha256sum-format listing, in
@@ -257,10 +268,10 @@ func checksumFor(sums, name string) (string, error) {
 	return found, nil
 }
 
-// ReadCapped is the one capped file read: it refuses a file over max bytes
+// readCapped is the one capped file read: it refuses a file over max bytes
 // before reading it (a release asset, a settings file, a checksum file), so no
 // caller streams an unbounded file into memory.
-func ReadCapped(path string, max int64) ([]byte, error) {
+func readCapped(path string, max int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -322,55 +333,4 @@ func firstLineOfError(err error) string {
 
 func firstStderrLine(s string) string {
 	return strings.TrimSpace(strings.SplitN(s, "\n", 2)[0])
-}
-
-// ErrZipNoSums: no SHA256SUMS beside a zip — a zip of a branch, which no
-// release lists, or a release zip downloaded alone. The caller installs it
-// marked UNVERIFIED (R9, ADR-041, ADR-053).
-var ErrZipNoSums = errors.New("no SHA256SUMS beside the zip")
-
-// VerifyZipSums checks a release zip against the SHA256SUMS beside it: the
-// zip's own line, by its file name, against sum. It returns the release the
-// file names. No SHA256SUMS is ErrZipNoSums; anything else that fails is a
-// refusal (plan D7).
-func VerifyZipSums(zipPath, sum string) (string, error) {
-	dir := filepath.Dir(zipPath)
-	// Only "does not exist" means there are none. Any other error (a folder
-	// that cannot be read, say) is a refusal: an unreadable checksum file is
-	// not the absence of one.
-	if _, err := os.Stat(filepath.Join(dir, "SHA256SUMS")); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", ErrZipNoSums
-		}
-		return "", fmt.Errorf("cannot check for checksums beside %s: %w", filepath.Base(zipPath), err)
-	}
-	what := filepath.Base(zipPath)
-	sums, tag, err := readSums(dir, what)
-	if err != nil {
-		return "", err
-	}
-	want, err := checksumFor(string(sums), what)
-	if err != nil {
-		return "", fmt.Errorf("the SHA256SUMS beside it are release %s's and do not list %s: %w — release %s publishes %s: if that is the release you want, download that file from its assets (GitHub's \"Source code\" archive is a different file); otherwise put this zip in a folder with its own release's SHA256SUMS", tag, what, err, tag, zipNamesIn(sums))
-	}
-	if want != sum {
-		return "", fmt.Errorf("checksum mismatch for %s against the SHA256SUMS of %s: the zip is not the one that release published — download %s from the release's assets again (GitHub's \"Source code\" archive is a different file)", what, tag, zipNamesIn(sums))
-	}
-	return tag, nil
-}
-
-// zipNamesIn lists the .zip files a SHA256SUMS names, for a refusal that has
-// to say which file the release actually published.
-func zipNamesIn(sums []byte) string {
-	var names []string
-	for _, line := range strings.Split(string(sums), "\n") {
-		f := strings.Fields(line)
-		if len(f) == 2 && strings.HasSuffix(f[1], ".zip") {
-			names = append(names, strings.TrimPrefix(f[1], "*"))
-		}
-	}
-	if len(names) == 0 {
-		return "no zip"
-	}
-	return strings.Join(names, ", ")
 }

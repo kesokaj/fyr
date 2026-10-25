@@ -76,10 +76,10 @@ func entries(front string) []entry {
 // Parse reads the top-level keys of a frontmatter block, leniently.
 func Parse(front string) Frontmatter { return parseEntries(entries(front)) }
 
-// ParseStrict lints and parses the block in one pass over its entries: the
+// parseStrict lints and parses the block in one pass over its entries: the
 // installer's form, so a file is read once and a value a strict YAML parser
 // would read differently is refused before it is used.
-func ParseStrict(front string) (Frontmatter, error) {
+func parseStrict(front string) (Frontmatter, error) {
 	// Three shapes hide a key from the grammar below while a YAML reader
 	// still reads it, or may; each is refused before anything is parsed.
 	if strings.ContainsAny(strings.ReplaceAll(front, "\r\n", "\n"), "\r\u0085\u2028\u2029") {
@@ -116,7 +116,7 @@ func ParseStrict(front string) (Frontmatter, error) {
 func unreadLine(front string) (string, bool) {
 	for _, l := range strings.Split(front, "\n") {
 		// One carriage return is the line ending (a second one was refused
-		// by ParseStrict's line-break check before this runs).
+		// by parseStrict's line-break check before this runs).
 		l = strings.TrimSuffix(l, "\r")
 		if l == "" || l[0] == ' ' || l[0] == '\t' || l[0] == '#' || l == "-" || strings.HasPrefix(l, "- ") {
 			continue
@@ -160,9 +160,9 @@ func indentedBeforeKey(front string) (string, bool) {
 	return "", false
 }
 
-// Keys are the top-level keys of a frontmatter block, whatever their values'
+// keysOf are the top-level keys of a frontmatter block, whatever their values'
 // shape: a nested map or a list is a key here though Parse drops its value.
-func Keys(front string) []string {
+func keysOf(front string) []string {
 	var out []string
 	for _, e := range entries(front) {
 		out = append(out, e.key)
@@ -170,22 +170,10 @@ func Keys(front string) []string {
 	return out
 }
 
-// permissionKey is the first key of front that grants a permission the
-// operator's own mode must decide: named per file kind by the caller.
-func permissionKey(front string, refused ...string) string {
-	for _, k := range Keys(front) {
-		for _, r := range refused {
-			if k == r {
-				return k
-			}
-		}
-	}
-	return ""
-}
-
-// unlistedKey is the first key of front that allowed does not name.
+// unlistedKey is the first key of front that allowed does not name: every
+// kind's lint is an allow list (agentKeys, skillKeys, commandKeys, ruleKeys).
 func unlistedKey(front string, allowed []string) string {
-	for _, k := range Keys(front) {
+	for _, k := range keysOf(front) {
 		if !slices.Contains(allowed, k) {
 			return k
 		}
@@ -202,7 +190,7 @@ func parseEntries(es []entry) Frontmatter {
 			fm[key] = strings.Join(cont, " ")
 		case val == "" && len(cont) > 0 && strings.HasPrefix(cont[0], "- "):
 			// A block list such as `skills:\n  - a\n  - b`, normalised to the
-			// flow form so SplitList reads both spellings the same way.
+			// flow form so splitList reads both spellings the same way.
 			var items []string
 			for _, c := range cont {
 				items = append(items, unquote(strings.TrimSpace(strings.TrimPrefix(c, "- "))))
@@ -229,7 +217,7 @@ const descriptionLimit = 1024
 // "#" or containing "#" after a space or tab, which YAML reads as a comment
 // (the Antigravity CLI then drops the skill, BUG-004), and a description
 // over the Agent Skills limit. Quoting the value fixes the first for every
-// reader. ParseStrict is its one caller: it lints and parses in one pass.
+// reader. parseStrict is its one caller: it lints and parses in one pass.
 func lintEntries(es []entry) error {
 	for _, e := range es {
 		if e.key == "description" {
@@ -287,8 +275,8 @@ func unquote(v string) string {
 	return v
 }
 
-// SplitList reads a YAML list written either as `[a, b]`, `a, b`, or `a b`.
-func SplitList(s string) []string {
+// splitList reads a YAML list written either as `[a, b]`, `a, b`, or `a b`.
+func splitList(s string) []string {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "[")
 	s = strings.TrimSuffix(s, "]")

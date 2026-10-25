@@ -31,7 +31,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 	}
 	// Before any file is written, so a mode problem is seen first and never
 	// interrupts a deployment (security review of the audit, round 2).
-	TightenConfigDir(home, dryRun, out)
+	tightenConfigDir(home, dryRun, out)
 
 	counts := map[string]int{}
 	var manifest []string
@@ -48,7 +48,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		}
 		union := append([]string(nil), manifest...)
 		for _, rel := range old.Files {
-			if fi, err := os.Lstat(filepath.Join(home, rel)); err == nil && !listed[rel] && fi.Mode()&os.ModeSymlink == 0 && !underLink(home, rel) && !claudeFile(home, rel) {
+			if !listed[rel] && fyrOwns(home, rel) == owned {
 				union = append(union, rel)
 			}
 		}
@@ -70,7 +70,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 			fmt.Fprintf(out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", f.Rel)
 			continue
 		}
-		existing, readErr := os.ReadFile(dest)
+		existing, readErr := readPlain(dest)
 		switch {
 		case readErr == nil && bytes.Equal(existing, f.Data):
 			counts["unchanged"]++
@@ -130,16 +130,15 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		if planned[rel] {
 			continue
 		}
-		if claudeFile(home, rel) {
+		switch fyrOwns(home, rel) {
+		case keptClaude:
 			claudeKept++
 			continue
-		}
-		dest := filepath.Join(home, rel)
-		fi, err := os.Lstat(dest)
-		if err != nil || fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel) {
+		case gone, linked:
 			// Gone, or the operator's link now: not fyr's to remove.
 			continue
 		}
+		dest := filepath.Join(home, rel)
 		counts["removed"]++
 		fmt.Fprintf(out, "remove  ~/%s (no longer in the source)\n", rel)
 		if dryRun {
@@ -197,7 +196,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 // Entry is the state of one deployed path.
 type Entry struct {
 	Rel   string
-	State string // ok | missing | differs | foreign | stale
+	State string // ok | missing | differs | foreign | stale | kept
 }
 
 // Report is what `fyr status` prints.
@@ -221,19 +220,23 @@ func Status(home string, files []File) (Report, error) {
 	planned := map[string]bool{}
 	for _, f := range files {
 		planned[f.Rel] = true
-		fi, lerr := os.Lstat(filepath.Join(home, f.Rel))
-		existing, err := os.ReadFile(filepath.Join(home, f.Rel))
 		state := "ok"
-		switch {
-		case lerr == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel):
+		// The link is looked at before anything is read: a link's target is
+		// not fyr's to read, and one to a FIFO blocked the read (IN27).
+		if fi, err := os.Lstat(filepath.Join(home, f.Rel)); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
 			state = "foreign" // the operator's link, or a file under one (IN3)
-		case errors.Is(err, os.ErrNotExist):
-			state = "missing"
-		case err != nil:
-			return Report{}, err
-		case bytes.Equal(existing, f.Data):
-		default:
-			state = "differs"
+		} else {
+			existing, err := readPlain(filepath.Join(home, f.Rel))
+			switch {
+			case errors.Is(err, os.ErrNotExist):
+				state = "missing"
+			case errors.Is(err, errNotRegular):
+				state = "differs"
+			case err != nil:
+				return Report{}, err
+			case !bytes.Equal(existing, f.Data):
+				state = "differs"
+			}
 		}
 		r.Counts[state]++
 		r.Entries = append(r.Entries, Entry{Rel: f.Rel, State: state})
@@ -244,7 +247,14 @@ func Status(home string, files []File) (Report, error) {
 		if planned[rel] || rel == BinPath {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(home, rel)); err == nil {
+		switch fyrOwns(home, rel) {
+		case gone:
+		case keptClaude:
+			// Kept by every install and never removed (plan fyr D32): no
+			// drift, since no install would change it (IN32).
+			r.Counts["kept"]++
+			r.Entries = append(r.Entries, Entry{Rel: rel, State: "kept"})
+		default:
 			r.Counts["stale"]++
 			r.Entries = append(r.Entries, Entry{Rel: rel, State: "stale"})
 		}
@@ -252,56 +262,60 @@ func Status(home string, files []File) (Report, error) {
 	return r, nil
 }
 
+// errNotRegular is readPlain's answer for a FIFO, a device or a directory.
+var errNotRegular = errors.New("not a regular file")
+
+// readPlain reads a deployed path only when it is a regular file: a FIFO
+// would block the read and a device would stream, so neither is opened
+// (IN27). A missing path is fs.ErrNotExist, as from os.ReadFile.
+func readPlain(p string) ([]byte, error) {
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	return os.ReadFile(p)
+}
+
 // Diff prints a unified diff for every file that differs, using the system
-// diff so the output looks like every other diff the operator reads.
+// diff so the output looks like every other diff the operator reads. It
+// writes nothing anywhere, under the home or the system temp dir: the plan
+// is compared in memory, and a file that differs reaches diff on its stdin
+// (IN24, plan audit-fix D8).
 func Diff(home string, files []File, out io.Writer) error {
 	for _, f := range files {
 		dest := filepath.Join(home, f.Rel)
 		if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
 			continue // the operator's link, or a file under one, is compared by no one (IN3)
 		}
-		existing, err := os.ReadFile(dest)
-		if errors.Is(err, os.ErrNotExist) {
+		existing, err := readPlain(dest)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
 			fmt.Fprintf(out, "missing ~/%s\n", f.Rel)
 			continue
-		}
-		if err != nil {
+		case errors.Is(err, errNotRegular):
+			fmt.Fprintf(out, "differs ~/%s (not a regular file; install replaces it)\n", f.Rel)
+			continue
+		case err != nil:
 			return err
-		}
-		if bytes.Equal(existing, f.Data) {
+		case bytes.Equal(existing, f.Data):
 			continue
 		}
-		// Under the home's own runtime directory, never the system temp dir:
-		// the rendered harness is the operator's, and this project keeps
-		// generated files out of /tmp (security audit 2026-09-18).
-		tmpDir, err := ConfigDir(home)
-		if err != nil {
-			return err
-		}
-		if err := diffOne(f, dest, tmpDir, out); err != nil {
+		if err := diffOne(f, dest, out); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// diffOne renders one source file beside its installed copy and runs the
-// system diff; the temp file goes on every path, including a failed write
-// (reviews of the 2026-09-18 audit).
-func diffOne(f File, dest, tmpDir string, out io.Writer) error {
-	tmp, err := os.CreateTemp(tmpDir, "fyr-diff-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	_, werr := tmp.Write(f.Data)
-	if cerr := tmp.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return werr
-	}
-	cmd := exec.Command("diff", "-u", "-L", "installed ~/"+f.Rel, "-L", "repo ~/"+f.Rel, dest, tmp.Name())
+// diffOne runs the system diff of the installed file against the plan's
+// bytes, which it reads on stdin: no diff algorithm is written here, and no
+// temp file either.
+func diffOne(f File, dest string, out io.Writer) error {
+	cmd := exec.Command("diff", "-u", "-L", "installed ~/"+f.Rel, "-L", "repo ~/"+f.Rel, dest, "-")
+	cmd.Stdin = bytes.NewReader(f.Data)
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
@@ -325,21 +339,19 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 	}
 	removed, claudeKept := 0, 0
 	for _, rel := range st.Files {
-		if claudeFile(home, rel) {
+		switch fyrOwns(home, rel) {
+		case keptClaude:
 			claudeKept++
 			continue
-		}
-		dest := filepath.Join(home, rel)
-		fi, err := os.Lstat(dest)
-		if err != nil {
+		case gone:
 			continue
-		}
-		if fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel) {
+		case linked:
 			// An old manifest may name a path that is the operator's link
 			// now, or sits under one: never fyr's to remove (IN3).
 			fmt.Fprintf(out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", rel)
 			continue
 		}
+		dest := filepath.Join(home, rel)
 		removed++
 		if dryRun {
 			fmt.Fprintf(out, "remove  ~/%s\n", rel)
@@ -357,7 +369,7 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 		fmt.Fprintf(out, "[dry-run] would remove %d files and the manifest\n", removed)
 		return nil
 	}
-	if err := RemoveState(home); err != nil {
+	if err := removeState(home); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "removed %d files and the manifest\n", removed)
@@ -378,6 +390,33 @@ func claudeFile(home, rel string) bool {
 	}
 	_, err := os.Lstat(filepath.Join(home, rel))
 	return err == nil
+}
+
+// ownership is what fyr may do with a path a manifest lists.
+type ownership int
+
+const (
+	owned      ownership = iota // on disk and fyr's: removed when no longer planned
+	gone                        // not on disk
+	linked                      // a symlink, or under a linked directory: the operator's (IN3)
+	keptClaude                  // a ~/.claude file an install before ADR-062 wrote: kept (plan fyr D32)
+)
+
+// fyrOwns is the one judgement of a manifest entry, shared by install's
+// resync and its save on error, uninstall and status, which each repeated
+// the same three-way condition before (IN-S1).
+func fyrOwns(home, rel string) ownership {
+	if claudeFile(home, rel) {
+		return keptClaude
+	}
+	fi, err := os.Lstat(filepath.Join(home, rel))
+	switch {
+	case err != nil:
+		return gone
+	case fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel):
+		return linked
+	}
+	return owned
 }
 
 func keepClaudeLine(n int) string {
