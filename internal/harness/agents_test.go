@@ -145,7 +145,7 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 // reading, and documentation keeps a progress file. The changelog is
 // append-only, so it holds no in-place edit tool (AG19).
 func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
-	agents, err := LoadAgents(DirSource(filepath.Join("..", "..")))
+	agents, err := loadAgents(DirSource(filepath.Join("..", "..")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
 		if !strings.Contains(a.Body, clause) {
 			t.Errorf("agent %s lacks its write-first clause %q", a.Name, clause)
 		}
-		if a.Name == "changelog" && slices.Contains(SplitList(a.Front["tools"]), "replace_file_content") {
+		if a.Name == "changelog" && slices.Contains(splitList(a.Front["tools"]), "replace_file_content") {
 			t.Errorf("changelog is append-only but lists replace_file_content")
 		}
 	}

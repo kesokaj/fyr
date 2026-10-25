@@ -19,7 +19,7 @@ Sessions save memory one file per fact into the project's store through `fyr mem
 
 ## Step 1: The store
 
-`<store>` is `<root>/.agents/memory` on every machine (R10: every session writes it through `fyr memory add`): `root` is the main worktree's top level, the parent of `git rev-parse --path-format=absolute --git-common-dir`, which must succeed and be non-empty, or the run stops. The run also stops, saying why, when `.agents` or `.agents/memory` is a symlink or git tracks anything under it: a committed link or file is the repository's, not the operator's.
+`<store>` is `<root>/.agents/memory` on every machine (R10: every session writes it through `fyr memory add`): `root` is the main worktree's top level as `fyr memory` resolves it (`git rev-parse --show-toplevel` run in the main worktree, so a submodule or a `--separate-git-dir` checkout gets its work tree, not its git dir; a bare repository is refused), which must succeed and be non-empty, or the run stops. The run also stops, saying why, when `.agents` or `.agents/memory` is a symlink or git tracks anything under it: a committed link or file is the repository's, not the operator's.
 
 Count the store: `n` = the memory files in `<store>` (`ls <store>/*.md | grep -vc MEMORY.md`).
 
