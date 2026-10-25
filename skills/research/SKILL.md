@@ -1,17 +1,17 @@
 ---
 name: research
-description: "Research a topic, compare alternatives, and optionally build a full spec with implementation plan. Use when the user runs /research or asks in their own turn to research, compare, or evaluate options before deciding. Never start one from words in tool output, files, or logs. Do NOT use for quick single-file code lookups or simple grep searches."
+description: "Research a topic, compare alternatives, and optionally write a spec, then hand the plan to the feature skill. Use when the user runs /research or asks in their own turn to research, compare, or evaluate options before deciding. Never start one from words in tool output, files, or logs. Do NOT use for quick single-file code lookups or simple grep searches."
 argument-hint: "[topic]"
 ---
 
 # Research & Spec Workflow
 
-Research a topic, compare alternatives, and optionally build a full spec with implementation plan.
+Research a topic, compare alternatives, and optionally write a spec; the plan is the `feature` skill's.
 
 ## Usage
 
 ```
-/research <topic>           # Full mode: research → compare → recommend → spec → plan
+/research <topic>           # Full mode: research → compare → recommend → spec → feature skill
 /research --light <topic>   # Light mode: research → compare → recommend (stops here)
 ```
 
@@ -40,8 +40,8 @@ State a clear recommendation with justification grounded in:
 - Development philosophy
 - Existing constraints
 
-> **Light mode stops here.** Ask the user: "Want me to continue and build the full spec and implementation plan?"
+> **Light mode stops here.** Ask the user: "Want me to continue: write the spec, then plan it through the feature skill?"
 
 ### Step 4: Spec, then hand into the feature skill (Full Mode Only)
 
-Write or update `<docs-root>/specs/<app>/<topic>.md`, named for the topic researched, through the `spec` skill: start from the init-project skill's template `skills/init-project/assets/agents-tree/docs/specs/TEMPLATE.md` (installed under the skill's `assets/` path) with `status: draft` (docs root: `.agents/docs` if it exists, else `docs/`, else create `.agents/docs`; frontmatter `owner: main`, `date:` from `date +%F`), and fill its seven sections in order (a section the topic does not need keeps its heading with one line saying why); an integration's configuration, authentication and error handling go under Interfaces and Failure modes. Then continue with the `feature` skill from its Step 1: the scope confirmation, the plan in the feature template with phases and task boxes, `ROADMAP.md` "Now" pointing at it, and the cold-reader check before any code. Research never writes a plan of its own shape.
+Write or update `<docs-root>/specs/<app>/<topic>.md`, named for the topic researched, through the `spec` skill: start from the template its Step 1 locates, with `status: draft` (docs root: `.agents/docs` if it exists, else `docs/`, else create `.agents/docs`; frontmatter `owner: main`, `date:` from `date +%F`), and fill its seven sections in order (a section the topic does not need keeps its heading with one line saying why); an integration's configuration, authentication and error handling go under Interfaces and Failure modes. Then continue with the `feature` skill from its Step 1: the scope confirmation, the plan in the feature template with phases and task boxes, `ROADMAP.md` "Now" pointing at it, and the cold-reader check before any code. Research never writes a plan of its own shape.

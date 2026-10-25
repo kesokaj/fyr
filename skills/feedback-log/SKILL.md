@@ -45,7 +45,7 @@ Append one JSON object per line to `~/.config/fyr/feedback.jsonl`. If the direct
 {
   "ts": "2026-05-25T13:40:00+02:00",
   "project": "/absolute/path/to/project/root",
-  "session": "first-8-chars-of-conversation-id",
+  "session": "<first 8 chars of the conversation id>",
   "category": "architecture|tooling|style|output|convention|knowledge",
   "signal": "correction|override|restatement|format|gap|redirection",
   "original": "What the agent did or would have done",
