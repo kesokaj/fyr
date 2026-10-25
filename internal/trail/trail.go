@@ -14,6 +14,7 @@ package trail
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,6 +213,72 @@ func Toplevel(dir string) string {
 		return clean
 	}
 	return top
+}
+
+// ErrNotCheckout is dir outside any git work tree, or in a bare repository.
+var ErrNotCheckout = errors.New("not a git checkout")
+
+// Roots returns, for the checkout that holds dir, the main worktree's top
+// level (main), so every worktree of a repository shares one memory store and
+// one brain scope (D26 of the memory plan, ADR-063), and this checkout's own
+// top level (top), where its committed files are. They differ only in a
+// linked worktree.
+//
+// In the main worktree that is git's own toplevel, never the common dir's
+// parent: in a submodule (.git/modules/x) or a --separate-git-dir checkout
+// the common dir lies outside the work tree (audit 2026-10-25, SD16). The
+// toplevel must be dir or a parent of it, because a repository's
+// core.worktree can name any directory (Toplevel's rule). A linked
+// worktree's main root is the common dir's parent. A bare repository has no
+// toplevel and is refused. memory.Root and internal/brain both resolve
+// through here.
+func Roots(dir string) (main, top string, err error) {
+	out, err := Command(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir", "--show-toplevel").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) != 3 || lines[0] == "" || lines[1] == "" || lines[2] == "" {
+		return "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
+	}
+	common, gitDir, top := filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
+	real := filepath.Clean(dir)
+	if r, err := filepath.EvalSymlinks(real); err == nil {
+		real = r
+	}
+	if rel, err := filepath.Rel(top, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("git names %s as the work tree of %s, which is not a parent of it", top, dir)
+	}
+	if gitDir != common {
+		// A linked worktree counts only when the common dir registers it:
+		// its git dir is <common>/worktrees/<name>, whose gitdir file names
+		// this work tree's .git. A planted git dir with a commondir file
+		// would otherwise borrow another project's store (audit-fix
+		// checkpoint security review, finding 1).
+		if !sameDir(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
+			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
+		}
+		back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+		if err != nil || !sameDir(filepath.Dir(strings.TrimSpace(string(back))), top) {
+			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
+		}
+		return filepath.Dir(common), top, nil
+	}
+	return top, top, nil
+}
+
+// sameDir compares two paths after resolving symlinks, so a temp directory
+// reached through /tmp and its real path match.
+func sameDir(a, b string) bool {
+	ra, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		ra = filepath.Clean(a)
+	}
+	rb, err := filepath.EvalSymlinks(b)
+	if err != nil {
+		rb = filepath.Clean(b)
+	}
+	return ra == rb
 }
 
 // LazyFetchSafe reports whether this machine's git honours GIT_NO_LAZY_FETCH

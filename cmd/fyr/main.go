@@ -16,6 +16,7 @@
 //	fyr dream --install-timer|--remove-timer [--dry-run]  install or remove the nightly timer
 //	fyr metrics ingest|show|report|export  read every session's shape into the metrics store, summarise it for agent evaluation (text, JSON or an HTML report with charts), or back it up as JSONL
 //	fyr memory add|show         write one memory (body on stdin) or print the index of this project's .agents/memory/
+//	fyr record add|get|edit|list  the brain store: this project's trail records (exported to .agents/trail.jsonl) and the global ones
 //	fyr version
 package main
 
@@ -53,10 +54,10 @@ Commands:
   list                    print the skill and agent inventory
   render                  print the assembled context file
   adopt <name|path>       copy a skill installed elsewhere into the repo's skills/ (--force to replace)
-  search [--limit N] [--kind K] [--global] <words...>  ranked search of every file and trail record in this git checkout: path:line, kind, record status, snippet; the index (.agents/scratch/search.db) is reconciled against git first, so it never answers from another branch
+  search [--limit N] [--kind K] [--global] <words...>  ranked search of the brain store's records (this project's and the global ones; --global every scope), printed first as ID, kind, status, date, title and snippet, then of every file and trail record in this git checkout: path:line, kind, record status, snippet; the index (.agents/scratch/search.db) is reconciled against git first, so it never answers from another branch
   search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]  every record naming an ID, a file or a directory (trailing /), with the ID's own status
   search --open [--kind K] [--global]  open bugs and plans with unticked boxes
-      --global searches the global search index (~/.config/fyr/search.db): ~/.config/fyr's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal; --limit 1-50, default 10
+      --global searches the global search index (~/.config/fyr/search.db): ~/.config/fyr's logs and proposals and the .agents/docs trail of every harness-scaffolded checkout that has run search; --kind is one of bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory; --limit 1-50, default 10, for the records and the files each
   index [--global] [--rebuild]  reconcile the search index, or delete and rebuild it, and print its counts
   memory add --type T --name SLUG --description TEXT  save one memory, its body on stdin, into this project's .agents/memory/ and its MEMORY.md line (T: user, feedback, project or reference); every session writes memory this way (R10)
   dream --install-timer | --remove-timer [--dry-run]  install (systemd user timer on Linux, launchd agent on macOS) or remove the nightly "dream --all", run with the PATH of the installing shell; uninstall removes it too
@@ -66,6 +67,11 @@ Commands:
   metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/fyr/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
   memory show             print this project's memory index, capped at what a session loads
+  record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]]  store one record, its body on stdin (empty or over 1 MiB refused), in this project's scope of the brain store (~/.config/fyr/brain.db; every worktree of a repository shares one) or with --global the global scope, and print its ID (BUG-NNN, ADR-NNN, else KIND-YYYY-MM-DD-HHMM-slug); kinds: plan review testing change handoff bug adr retro learning spec deploy guide memory, and feedback and proposal, which are --global only; --project names the project a global record is about
+  record get <id>... [--global]  print each record's line and its body, through the same printable filter as search
+  record edit <id> [--status S] [--title T] [--body] [--global]  change a record; --body reads the new body on stdin, without it only the metadata changes; a plan's status follows its body (open while it has an unticked "- [ ]")
+  record list [--kind K] [--open] [--global [--project ROOT]] [--all]  ID  kind  status  date  title, newest first; --open: open plans and bugs, current specs, deploy docs and guides, queued proposals; --all: every scope, each line ending in its scope
+      a project's records other than memory are exported on every write to .agents/trail.jsonl (commit it); when that file changes under the store (a pull, checkout or merge) it replaces the project's records before the next record or search call, and a bad line or a duplicate ID is refused with its line number; in a project whose trail is still files (docs/ or .agents/docs/ and no .agents/trail.jsonl) record refuses until it is migrated with fyr record import; exit 0 with or without output, 1 a refusal, 2 a usage error
   version                 print the build version
 
 Flags accepted by every command:
@@ -132,6 +138,8 @@ type ctx struct {
 	metricsUntil                                                                            string
 	metricsContextTarget                                                                    int64
 	metricsAllLabels, metricsJSON                                                           bool
+	recTitle, recStatus, recID, recProject                                                  string
+	recBody, recAll                                                                         bool
 	limit                                                                                   int
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
@@ -185,6 +193,17 @@ var verbs = map[string]verb{
 		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "metrics show, report: the peak context, in tokens, a main session should stay under (default 300000)")
 		c.fs.StringVar(&c.metricsOut, "out", "", "metrics report: the HTML file to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
+	"record": {flags: func(c *ctx) {
+		c.fs.StringVar(&c.recTitle, "title", "", "record add, edit: the record's one-line title")
+		c.fs.StringVar(&c.recStatus, "status", "", "record add, edit: the status (per kind; see fyr help)")
+		c.fs.StringVar(&c.recID, "id", "", "record add: the ID to use instead of the next one")
+		c.fs.StringVar(&c.recProject, "project", "", "record add, list with --global: the project a global record is about")
+		c.fs.BoolVar(&c.global, "global", false, "record: the global scope")
+		c.fs.BoolVar(&c.recBody, "body", false, "record edit: read the new body on stdin")
+		c.fs.StringVar(&c.kind, "kind", "", "record list: only records of this kind")
+		c.fs.BoolVar(&c.openRecords, "open", false, "record list: only open records")
+		c.fs.BoolVar(&c.recAll, "all", false, "record list: every scope")
+	}, positional: true, run: runRecord},
 	"search": {flags: func(c *ctx) {
 		c.fs.IntVar(&c.limit, "limit", 0, "search: hits to print, 1-50 (default 10)")
 		c.fs.StringVar(&c.kind, "kind", "", "search: only hits of this kind")
@@ -327,6 +346,10 @@ func (c *ctx) writesState() bool {
 	switch c.cmd {
 	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
 		return !c.dryRun
+	case "record":
+		// Every record verb may write the brain store: a read loads a
+		// trail.jsonl that changed under it (ADR-063, D21).
+		return true
 	case "update":
 		return !c.dryRun && !c.check
 	case "memory":
@@ -678,7 +701,10 @@ func runSearch(c *ctx) error {
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild}
 	if c.cmd == "index" {
 		err = search.Index(o, c.out)
-	} else {
+	} else if err = search.Validate(o); err == nil {
+		if len(o.Words) > 0 {
+			recordHits(c, o)
+		}
 		err = search.Search(o, c.out)
 	}
 	if search.IsUsage(err) {

@@ -1,8 +1,9 @@
 package search
 
-// Exported for internal/metrics, the second package that opens a SQLite
-// database (R4, ADR-055): the same open rules and the same read-from-a-copy
-// discipline, so a security fix lands once.
+// Exported for internal/metrics and internal/brain, the other packages that
+// open a SQLite database (R4, ADR-055, ADR-063): the same open rules, the
+// same read-from-a-copy discipline and the same printable output, so a
+// security fix lands once.
 
 import (
 	"database/sql"
@@ -17,6 +18,11 @@ func PrepareDBFiles(path string) error { return prepareFiles(path) }
 // DSN is the escaped read-write DSN with WAL and the busy timeout.
 func DSN(path string) string { return dsn(path) }
 
+// Validate is the check Search makes of its options before it opens
+// anything: `fyr search` runs it before it prints the record hits, so a usage
+// error still prints nothing but its reason (BUG-168).
+func Validate(o Options) error { return validate(&o, "search") }
+
 // OpenCopy copies name (and its -wal, -shm) from dir into tmp and opens the
 // copy read-only; the live file is never opened.
 func OpenCopy(dir, name, tmp string) (*sql.DB, error) { return openCopy(dir, name, tmp) }
@@ -29,6 +35,31 @@ func AgyTime(v any) (time.Time, bool) { return agyTime(v) }
 // format, line- and paragraph-separator characters, by Unicode class
 // (BUG-152).
 func Printable(s string) string { return printable(s) }
+
+// CleanSnippet folds an FTS5 snippet (match marks \x01 and \x02) into one
+// printable line of at most 200 characters, the marks shown as »«; the
+// brain store's record hits print through it (ADR-063).
+func CleanSnippet(s string) string { return cleanSnippet(s) }
+
+// FTSQuery quotes each word as an FTS5 string joined with op (" " for AND,
+// " OR "), so no character of a word is query syntax.
+func FTSQuery(words []string, op string) string { return ftsQuery(words, op) }
+
+// Unticked counts a plan's unticked boxes (a line starting "- [ ]") outside
+// fenced blocks: the rule that makes a plan open, here and in the brain store.
+func Unticked(text string) int {
+	n := 0
+	var f fence
+	for _, l := range splitLines(text) {
+		if f.step(l) || f.inside() {
+			continue
+		}
+		if unticked.MatchString(l) {
+			n++
+		}
+	}
+	return n
+}
 
 // KindOf classifies a project-relative, slash-separated path against the
 // project's docs root (bug, adr, plan, …, code, doc).

@@ -59,61 +59,14 @@ func IsRefusal(err error) bool {
 }
 
 // Root is the main worktree's top level for the checkout that holds dir, so
-// every worktree of a repository shares one store (D26).
-//
-// In the main worktree that is git's own toplevel, never the common dir's
-// parent: in a submodule (.git/modules/x) or a --separate-git-dir checkout
-// the common dir lies outside the work tree (audit 2026-10-25, SD16). The
-// toplevel must be dir or a parent of it, because a repository's
-// core.worktree can name any directory (trail.Toplevel's rule). A linked
-// worktree's store is the main worktree's, the common dir's parent, as
-// before. A bare repository has no toplevel and is refused.
+// every worktree of a repository shares one store (D26). The resolution and
+// its checks are trail.Roots'; here a failure is a refusal.
 func Root(dir string) (string, error) {
-	out, err := trail.Command(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir", "--show-toplevel").Output()
+	main, _, err := trail.Roots(dir)
 	if err != nil {
-		return "", refuse("not a git checkout: %s", dir)
+		return "", refuse("%s", err)
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != 3 || lines[0] == "" || lines[1] == "" || lines[2] == "" {
-		return "", refuse("not a git checkout: %s", dir)
-	}
-	common, gitDir, top := filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
-	real := filepath.Clean(dir)
-	if r, err := filepath.EvalSymlinks(real); err == nil {
-		real = r
-	}
-	if rel, err := filepath.Rel(top, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", refuse("git names %s as the work tree of %s, which is not a parent of it", top, dir)
-	}
-	if gitDir != common {
-		// A linked worktree counts only when the common dir registers it:
-		// its git dir is <common>/worktrees/<name>, whose gitdir file names
-		// this work tree's .git. A planted git dir with a commondir file
-		// would otherwise borrow another project's store.
-		if !sameDir(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
-			return "", refuse("%s is not a worktree the repository at %s registers", top, common)
-		}
-		back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
-		if err != nil || !sameDir(filepath.Dir(strings.TrimSpace(string(back))), top) {
-			return "", refuse("%s is not a worktree the repository at %s registers", top, common)
-		}
-		return filepath.Dir(common), nil
-	}
-	return top, nil
-}
-
-// sameDir compares two paths after resolving symlinks, so a temp directory
-// reached through /tmp and its real path match.
-func sameDir(a, b string) bool {
-	ra, err := filepath.EvalSymlinks(a)
-	if err != nil {
-		ra = filepath.Clean(a)
-	}
-	rb, err := filepath.EvalSymlinks(b)
-	if err != nil {
-		rb = filepath.Clean(b)
-	}
-	return ra == rb
+	return main, nil
 }
 
 // trusted returns the store path of root after the checks every command

@@ -1,10 +1,10 @@
 ---
 owner: main
-date: 2026-09-29
+date: 2026-10-25
 ---
 # `fyr search` and `fyr index`
 
-Status: the project index and the global search index built 2026-09-29 (plan `plans/2026-09-29-search-index.md`, Phases 1 and 2). Requirement: R4 (one dependency, `modernc.org/sqlite`), ADR-045.
+Status: the project index and the global search index built 2026-09-29 (plan `plans/2026-09-29-search-index.md`, Phases 1 and 2). Requirement: R4 (one dependency, `modernc.org/sqlite`), ADR-045. Since 2026-10-25 a words search prints the brain store's record hits before the file hits (ADR-063, `specs/fyr/record.md` § Search).
 
 ## What it is
 
@@ -19,11 +19,12 @@ fyr search --open [--kind K] [--global]
 fyr index [--global] [--rebuild]
 ```
 
+- **Records first.** A words search first prints the brain store's hits (`~/.config/fyr/brain.db`, `specs/fyr/record.md`): a `records: N hits for "…"` header, then per record `ID  kind status  date  title` and a snippet line, from the project's scope and the global scope (`global:ID`), or with `--global` from every scope (`<name>:ID` for another project's). They are ranked by BM25 over title (weighted twice) and body, every word first and then any word, up to `--limit` records; the file hits that follow keep their own `--limit`. A changed `.agents/trail.jsonl` is loaded first. With no records found nothing is printed, and with no `brain.db` and no `trail.jsonl` nothing is created. A `trail.jsonl` that does not parse prints `records: not searched: <reason>` and the file hits still follow. The usage check runs before the records, so a usage error prints only its reason. `--refs` and `--open` do not print records yet.
 - **Words** are each quoted for FTS5, so `BUG-049`, `a.go` or `NOT` are searched as text, never as query syntax. Chunks holding every word rank first; the remaining slots are filled with chunks holding any of them (a chunk matching both rounds is printed once and counted once against `--limit` and the per-file cap), and the header line says how many had every word (`search: 10 hits for "…", 2 with every word (…)`). Porter stemming: `verify` finds `verifies`. Hits are ranked by BM25 with a heading weighted twice the body, at most 2 per file, `--limit` (1–50, default 10) in all.
 - **Each hit** prints `path:line  kind[ ID status][  date]` and a one-line snippet (at most 200 characters, matched terms in `»«`). Control characters in indexed text, and Unicode's format characters, line separators and paragraph separators (classes Cf, Zl, Zp, and the default-ignorable characters outside them: zero-width and tag characters, direction marks, the byte-order mark, variation selectors, fillers), print as `?`, so a file cannot drive the terminal, forge a line or carry text nobody sees; the cost is that a zero-width joiner or a variation selector in an emoji sequence shows as `?` too. The line is the first line of the chunk holding a matched term.
 - **`--refs X`** prints the ID's own record (`ADR-040  <path>:<line>  Superseded by ADR-041  <date>  <title>`, or `no record`), or a path's state (`tracked`, `modified`, `untracked`, `absent`, or `directory` for a trailing `/`), then `referenced by N:` and one entry per file and record that names X, newest record date first, with `×N` when it names X more than once. A path matches as written and relative to the docs root (the trail writes `plans/x.md` for `.agents/docs/plans/x.md`); no basename matching, but a bare file name that matches no path prints `hint: did you mean --refs <path>` for up to five tracked paths ending in it.
 - **`--open`** lists bugs with `status: open` and plans with an unticked `- [ ]` outside fenced blocks, newest first.
-- **`--kind`** is one of `bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal` and filters every mode by the kind of the printed path. `trail` is everything under the docs root; `feedback` and `proposal` exist only in the global search index.
+- **`--kind`** is one of `bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory` and filters every mode by the kind of the printed path, and the record hits by the record's kind. `trail` is everything under the docs root, and every record; `code` and `doc` take no record; `feedback` and `proposal` exist only in the global search index and as global records; `learning`, `guide` and `memory` exist only as records.
 - **`index`** prints `files`, `chunks`, `records`, `refs`, `changed` (by this reconcile), `bytes` (database and WAL) and `ms`. `--rebuild` deletes the database and builds it again.
 
 Exit status: 0 with hits or without; 1 on a refusal or an error; 2 on a usage error (a flag the verb does not define, a stray argument, a `--limit` outside 1..50, an unknown `--kind`, no mode or two modes at once, `--rebuild` given to `search`; the reason on stdout, BUG-168), as every verb since 2026-10-01.

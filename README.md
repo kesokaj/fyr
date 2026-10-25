@@ -16,7 +16,7 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 | Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, and one session per task or phase) |
-| The binary | `fyr`: install, update, status, uninstall; `search` over a project's files and trail records; `memory`; `metrics`; the nightly `dream` |
+| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the nightly `dream` |
 
 ## Quick start
 
@@ -29,7 +29,7 @@ go run ./cmd/fyr install          # builds the binary, installs it to ~/.local/b
 fyr status                        # ends with "drift none"
 ```
 
-Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search` and `metrics`.
+Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search`, `record` and `metrics`.
 
 Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/fyr`) and edits no vendor setting (ADR-062). And the harness's own state lives in `~/.config/fyr/` (feedback log, retro proposals, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
 
@@ -43,7 +43,8 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `fyr diff` | A unified diff of every drifted file. |
 | `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. |
 | `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |
-| `fyr search <words>` | Ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `fyr index` maintains the index. |
+| `fyr record add` / `get` / `edit` / `list` | The brain store, `~/.config/fyr/brain.db`: this project's trail records (plans, bugs, ADRs, reviews, handoffs, specs, …) and the global ones (`--global`: feedback, proposals), each with an ID and a status; the body comes on stdin. Every write in a project also rewrites `.agents/trail.jsonl`, the committed export, and a changed export (a pull) is loaded back before the next call. `list --open` is what is still open. |
+| `fyr search <words>` | Prints the matching brain-store records first, then a ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `fyr index` maintains the index. |
 | `fyr memory add` / `show` | The project memory store (`.agents/memory/`), `show` prints the index a session loads at start. |
 | `fyr metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/fyr/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
 | `fyr dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals land under `~/.config/fyr/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |

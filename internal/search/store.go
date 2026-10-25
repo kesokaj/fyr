@@ -5,9 +5,9 @@
 // first reconciles the index against git, so an answer never comes from
 // another branch or a stale tree, and deleting a database loses nothing.
 //
-// This package and internal/metrics (the metrics store, ADR-055) are the two
-// that import the SQLite driver; the installer in
-// internal/harness never does.
+// This package, internal/metrics (the metrics store, ADR-055) and
+// internal/brain (the brain store, ADR-063) are the three that import the
+// SQLite driver; the installer in internal/harness never does.
 package search
 
 import (
