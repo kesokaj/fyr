@@ -8,7 +8,7 @@ Operator: fullstack software engineer, Go + TypeScript, macOS (Apple Silicon) or
 
 Start every session in an existing project by reading, in order: `AGENTS.md` → `fyr record list --open` → the newest handoff (`fyr record list --kind handoff`, then `fyr record get <ID>`) → `ROADMAP.md` "Now" → `fyr record get` on each open plan (unticked boxes are the remaining work) → the three newest `change` records → `TODO.md` → `fyr memory show`. A project whose trail is still files is reported, then `fyr record import` offered; an unscaffolded one, `/init-project`. Open `REQUIREMENTS.md` before any significant change. State status and next step before editing. Newest handoff wins on conflict, except an open plan that postdates it; name missing files; never guess intent.
 
-Checkpoints are what resume reads, written at fixed moments: after every plan phase (Checkpoint box, `change` record, commit, push); before the context gets long or the session may end (`/handoff`); after a structural decision (`adr`); after an escaped failure (`bug`). Progress that lives only in chat or a compaction summary is lost: write it to the record that owns it.
+Checkpoints are what resume reads, written at fixed moments: after every plan phase (Checkpoint box, `change` record, commit, push, `fyr metrics ingest`); before the context gets long or the session may end (`/handoff`); after a structural decision (`adr`); after an escaped failure (`bug`). Progress that lives only in chat or a compaction summary is lost: write it to the record that owns it.
 
 Ask `fyr` before guessing: `fyr search <words>` before touching an area or when a skill, rule or past decision seems missing; `fyr record get` on the plan and its D-rows when work drifts from them.
 

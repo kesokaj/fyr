@@ -163,10 +163,10 @@ case "$row" in
     prompt='Remember that we deploy on Fridays. Save it the way this project saves memories, then reply with one line.'
     prompt2='When do we deploy in this project? Answer with the weekday only.'
     check='"$SB/bin/fyr" memory show | grep -qi friday && "$SB/bin/fyr" record list --kind memory | grep -q "^MEMORY-" && grep -qi friday "$OUT2"' ;;
-  feature|bug|review|preflight|handoff|retro|operate|documentation|discover-skills|gcloud-auth)
+  feature|bug|review|preflight|handoff|metrics-feed|retro|operate|documentation|discover-skills|gcloud-auth)
     case "$row" in
       retro) wide="the retro skill's text runs compound shell commands (find … \&\& ls … || true)" ;;
-      handoff) wide="the handoff skill's text runs an awk program and git pipelines" ;;
+      handoff|metrics-feed) wide="the handoff skill's text runs an awk program and git pipelines" ;;
       review) wide="the review skill's text runs its restatement-grep script and git pipelines (one run at 8ffa525 was auto-denied a command the store did not record, BUG-141)" ;;
       bug) wide="the bug skill's Definition of Done builds and removes binaries (go build, rm) and runs compound checks" ;;
       documentation) wide="the Definition of Done runs compound checks (go vet ./... \&\& go test …) and clean-ups (rm)" ;;

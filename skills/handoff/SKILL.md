@@ -175,13 +175,16 @@ Fix what comes back at the source (plan, `ROADMAP.md`, `TODO.md`, the dispatches
 
 Stage `.agents/trail.jsonl` (the handoff and every record Step 3 stored) and anything else Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"`. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push. A handoff that is not pushed does not exist on the other machine.
 
+The session's last call, after the push (or after the commit, when there is no remote to push to), is `fyr metrics ingest`: the checkpoint feed of the metrics store, so `/retro` and `fyr metrics show` see this session without waiting for the nightly dream. Its summary line (`metrics: N sessions, M steps, K events added; …`), or its error and exit status, goes in the report. A failed ingest never edits the handoff (immutable) and never stops the session from ending: the next ingest — the next handoff, `/retro`, or the nightly dream — joins every session again.
+
 ## Step 7: Report to User
 
 After saving, tell the user:
 
 1. The handoff record's ID
 2. A 1-sentence summary of the handoff content
-3. Last, "Start a new conversation, then paste:" followed by the Kickoff block in full, in a fenced block in the reply, ready to paste (the nothing-queued line when that is the case). Never a pointer to the file in its place ("paste the Kickoff from the handoff"): the paste is the whole path, and no command prints the block (ADR-058a).
+3. The `fyr metrics ingest` line from Step 6, or its error and exit status
+4. Last, "Start a new conversation, then paste:" followed by the Kickoff block in full, in a fenced block in the reply, ready to paste (the nothing-queued line when that is the case). Never a pointer to the file in its place ("paste the Kickoff from the handoff"): the paste is the whole path, and no command prints the block (ADR-058a).
 
 Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
 
