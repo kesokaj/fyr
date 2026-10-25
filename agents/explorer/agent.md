@@ -30,7 +30,7 @@ Check `AGENTS.md`, `REQUIREMENTS.md`, and `ROADMAP.md` first when they exist —
 
 ## Brief — on disk, never chat-only
 
-Resolve the docs root from the repo root (`git rev-parse --show-toplevel`), date from `date +%F` — never memory:
+Resolve the docs root as `~/.gemini/config/skills/init-project/references/docs-root.md` says, from the repo root (`git rev-parse --show-toplevel`), date from `date +%F` — never memory:
 
 ```bash
 if [ -d .agents/docs ]; then docs_root=.agents/docs

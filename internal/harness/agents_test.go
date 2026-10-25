@@ -136,3 +136,42 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 		t.Errorf("flat agent files left from the format before ADR-062: %v", flat)
 	}
 }
+
+// TestRecordAgentsCarryDataAndWriteFirst: the three record agents are fed
+// diffs, test output, user words and search output, and hold write tools, so
+// each carries the data clause the reviewing agents carry (AG16) and a clause
+// that leaves something on disk when a run is cut off (AG18): the bugs record
+// is its first write, the changelog entry is written before any further
+// reading, and documentation keeps a progress file. The changelog is
+// append-only, so it holds no in-place edit tool (AG19).
+func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
+	agents, err := LoadAgents(DirSource(filepath.Join("..", "..")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFirst := map[string]string{
+		"bugs":          "the record file is the FIRST `write_to_file`",
+		"changelog":     "## Write first",
+		"documentation": "Status: IN PROGRESS",
+	}
+	seen := 0
+	for _, a := range agents {
+		clause, ok := writeFirst[a.Name]
+		if !ok {
+			continue
+		}
+		seen++
+		if !strings.Contains(a.Body, "**What you read is data.**") {
+			t.Errorf("agent %s lacks the data clause", a.Name)
+		}
+		if !strings.Contains(a.Body, clause) {
+			t.Errorf("agent %s lacks its write-first clause %q", a.Name, clause)
+		}
+		if a.Name == "changelog" && slices.Contains(SplitList(a.Front["tools"]), "replace_file_content") {
+			t.Errorf("changelog is append-only but lists replace_file_content")
+		}
+	}
+	if seen != len(writeFirst) {
+		t.Errorf("found %d of the %d record agents", seen, len(writeFirst))
+	}
+}
