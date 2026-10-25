@@ -855,10 +855,6 @@ func normalize(r Record) Record {
 	return r
 }
 
-func utf8Text(s string) bool {
-	return !strings.ContainsRune(s, 0) && strings.ToValidUTF8(s, "�") == s
-}
-
 // ImportGlobal migrates ~/.config/fyr's logs into the global scope:
 // feedback.jsonl as feedback records, retros.jsonl as retro records,
 // proposals/**/*.md as proposal records, each with the project it is about;
