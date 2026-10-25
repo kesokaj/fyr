@@ -266,18 +266,10 @@ func Status(home string, files []File) (Report, error) {
 var errNotRegular = errors.New("not a regular file")
 
 // readPlain reads a deployed path only when it is a regular file: a FIFO
-// would block the read and a device would stream, so neither is opened
-// (IN27). A missing path is fs.ErrNotExist, as from os.ReadFile.
-func readPlain(p string) ([]byte, error) {
-	fi, err := os.Lstat(p)
-	if err != nil {
-		return nil, err
-	}
-	if !fi.Mode().IsRegular() {
-		return nil, errNotRegular
-	}
-	return os.ReadFile(p)
-}
+// would block the read and a device would stream, so neither is read
+// (IN27). It judges the opened file, not the name (openPlain). A missing
+// path is fs.ErrNotExist, as from os.ReadFile.
+func readPlain(p string) ([]byte, error) { return openPlain(p) }
 
 // Diff prints a unified diff for every file that differs, using the system
 // diff so the output looks like every other diff the operator reads. It

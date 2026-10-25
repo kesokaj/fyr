@@ -42,7 +42,7 @@ func TestStateDirHasOneHome(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() && (p == ".agents" || p == "skills" || p == ".git") {
+		if d.IsDir() && (p == ".agents" || p == "skills" || p == ".git" || p == ".claude") {
 			return filepath.SkipDir
 		}
 		if d.IsDir() || !strings.HasSuffix(p, ".go") || p == self {

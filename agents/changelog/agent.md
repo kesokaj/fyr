@@ -83,7 +83,7 @@ Use absolute dates. Never edit a past changelog file — always create a new one
 - Read the diff the dispatch hands you (its `git log --stat <range>` output and the hunks or a scratch path holding them; you have no shell) before writing — record reality, not assumptions. Every factual claim traces to the dispatch or the diff: nothing filled in from older ADRs or other repositories, no decision the dispatch did not state, no line-number citations, and in a repository that names no consumer project, none named.
 - Commits: for every SHA you name, say what it IS (fix / docs / handoff) from the `git log --stat` the dispatch carries; a SHA the dispatch did not describe is named as such. The range's HEAD is not "the change".
 - Don't duplicate: if a changelog entry already exists for this task, say so in your reply rather than creating a conflicting entry.
-- Keep an entry under ~80 lines: what changed, why, files, verification, requirements. Finding-by-finding narratives and remediation rounds belong in `reviews/` or `testing/` — link them, never inline them. The Resume Protocol reads the three newest entries at every session start, so length here is a per-session tax.
+- Keep an entry under ~80 lines: what changed, why, files, verification, requirements. Finding-by-finding narratives and remediation rounds belong in `reviews/` or `testing/` — link them, never inline them. The resume order (context § Resume, then checkpoint) reads the three newest entries at every session start, so length here is a per-session tax.
 
 ## Records
 

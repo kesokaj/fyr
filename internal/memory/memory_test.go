@@ -275,6 +275,31 @@ func TestRootIsTheWorkTreeTop(t *testing.T) {
 		}
 	})
 
+	// A planted checkout whose own git dir carries a commondir file naming
+	// another project's .git resolved to that project's store (security
+	// review 2026-10-25, finding 1): a linked worktree counts only when the
+	// common dir registers it.
+	t.Run("forged commondir is refused", func(t *testing.T) {
+		victim := repo(t)
+		git(t, victim, "add", ".gitignore")
+		git(t, victim, "commit", "-q", "-m", "init")
+		planted := t.TempDir()
+		fake := filepath.Join(planted, "fakegit")
+		if err := os.MkdirAll(fake, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(fake, "commondir"), []byte(filepath.Join(victim, ".git")+"\n"), 0o644)
+		os.WriteFile(filepath.Join(fake, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644)
+		os.WriteFile(filepath.Join(planted, ".git"), []byte("gitdir: "+fake+"\n"), 0o644)
+		if common := git(t, planted, "rev-parse", "--path-format=absolute", "--git-common-dir"); !same(common, filepath.Join(victim, ".git")) {
+			t.Fatalf("the fixture's common dir is %s, not the victim's, so it proves nothing", common)
+		}
+		got, err := Root(planted)
+		if err == nil && same(got, victim) {
+			t.Errorf("Root followed a forged commondir to %s", got)
+		}
+	})
+
 	t.Run("bare repository is refused", func(t *testing.T) {
 		bare := t.TempDir()
 		git(t, bare, "init", "-q", "--bare")
