@@ -327,7 +327,7 @@ func TestFitRendersOnce(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	f := newFixture(t)
 	var out bytes.Buffer
-	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
 		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
 	before := tree(t, f.home)
 	if err := Run(o); err != nil {
@@ -370,6 +370,12 @@ func TestTargets(t *testing.T) {
 	if got, err := o.targets(); err != nil || len(got) != 2 {
 		t.Errorf("--all: %+v, %v", got, err)
 	}
+	// A project of records is found by its brain scope too, once.
+	o.Scopes = func(string) ([]string, error) { return []string{"/p/two", "/p/three"}, nil }
+	if got, err := o.targets(); err != nil || len(got) != 3 || got[2].Root != "/p/three" {
+		t.Errorf("--all with scopes: %+v, %v", got, err)
+	}
+	o.Scopes = nil
 	o.Project = t.TempDir() // not a checkout
 	if _, err := o.targets(); err == nil {
 		t.Error("--project outside a checkout was accepted")
@@ -413,14 +419,14 @@ func TestDryRunLines(t *testing.T) {
 	later := now.Add(time.Hour)
 	write(t, statePath(f.home), `{"projects":{"`+calm.root+`":"`+later.Format(time.RFC3339)+`"}}`, old)
 	var out bytes.Buffer
-	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
 		Projects: func(string) ([]search.Project, error) {
 			return []search.Project{project(f), project(calm), {Root: filepath.Join(f.root, "gone")}}, nil
 		}}
 	if err := Run(o); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{f.root + ": memory", "would run: agy --input-format stream-json", calm.root + ": unchanged since", "gone: skip (gone)"} {
+	for _, want := range []string{f.root + ": would dream (idle 24h0m0s, changed since", "would run: agy --input-format stream-json", calm.root + ": idle, unchanged since", "gone: skip (gone)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("dry run lacks %q:\n%s", want, out.String())
 		}
@@ -441,7 +447,7 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 	big := strings.Repeat("a memory line that fills the store. ", 8000) // ~290 KB
 	write(t, filepath.Join(f.root, ".agents", "memory", "huge.md"), big, fresh)
 	var out bytes.Buffer
-	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
 		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
 	if err := Run(o); err != nil {
 		t.Fatal(err)
@@ -709,3 +715,5 @@ func TestSkillsReadsBlockScalarDescription(t *testing.T) {
 		t.Errorf("description = %q, want the folded text", d)
 	}
 }
+
+func noScopes(string) ([]string, error) { return nil, nil }

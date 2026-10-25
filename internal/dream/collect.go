@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/memory"
 	"github.com/kesokaj/fyr/internal/redact"
@@ -35,14 +36,18 @@ var promptOrder = []string{kindMemory, kindFeedback, kindTrail, kindSkill, kindM
 // trailDirs are the records a dream reads under a project's docs root.
 var trailDirs = []string{"bugs", "reviews", "retros", "changes", "handoffs"}
 
-// collect gathers what project p would send: every memory file, and the
-// feedback, trail and transcripts after since, with the installed skills.
-// Changed is true when anything but the skills is newer than since.
+// collect gathers what project p would send: its memory, and the feedback,
+// trail and transcripts after since, with the installed skills. A project
+// whose trail is records (`.agents/trail.jsonl`) is read from the brain
+// store: its memory records, its bug, review, retro, change and handoff
+// records and the global feedback records about it (brain plan Phase 4); a
+// project still on files is read as before. Changed is true when anything
+// but the skills is newer than since.
 func collect(home string, p search.Project, since time.Time, limit int) (Collected, error) {
 	// The name is the checkout's base name, which may hold a line break: it
 	// is folded once here, for the prompt, the proposals header and the file
 	// names alike (audit 2026-10-25, SD15).
-	c := Collected{Root: p.Root, Name: oneLine(p.Name)}
+	c := &Collected{Root: p.Root, Name: oneLine(p.Name)}
 	add := func(kind, label, text string, t time.Time) {
 		if strings.TrimSpace(text) == "" {
 			return
@@ -55,6 +60,27 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 		}
 	}
 
+	for _, e := range feedback(home, p.Root, since) {
+		add(kindFeedback, "feedback.jsonl", e.text, e.ts)
+	}
+
+	if migrated(p.Root) {
+		in, err := forDream(home, p.Root, since)
+		if err != nil {
+			return *c, fmt.Errorf("reading the brain store: %w", err)
+		}
+		for _, r := range in.Memory {
+			add(kindMemory, r.ID, r.Title+"\n"+r.Body, recordTime(r))
+		}
+		for _, r := range in.Feedback {
+			add(kindFeedback, r.ID, r.Body, recordTime(r))
+		}
+		for _, r := range in.Trail {
+			add(kindTrail, r.ID, r.Title+"\n"+r.Body, recordTime(r))
+		}
+		return c.finish(home, p, since, limit, add)
+	}
+
 	if store, err := memory.Store(p.Root); err != nil {
 		c.Dropped = append(c.Dropped, "memory: "+err.Error())
 	} else {
@@ -62,10 +88,6 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 			body, t := readFile(f)
 			add(kindMemory, "memory/"+filepath.Base(f), body, t)
 		}
-	}
-
-	for _, e := range feedback(home, p.Root, since) {
-		add(kindFeedback, "feedback.jsonl", e.text, e.ts)
 	}
 
 	docs := docsOf(p)
@@ -95,6 +117,13 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 		}
 	}
 
+	return c.finish(home, p, since, limit, add)
+}
+
+// finish adds what every project sends whatever its trail — the skills, the
+// metrics summary and the Antigravity conversations — then scrubs, fits and
+// renders the prompt.
+func (c *Collected) finish(home string, p search.Project, since time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
 	for _, s := range skills(home) {
 		add(kindSkill, "skill "+s.name, s.name+": "+s.description, time.Time{})
 	}
@@ -113,7 +142,7 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 	// (code review 2026-09-30).
 	agy, err := search.AgyConversationText(home, p.Root, since)
 	if err != nil {
-		return c, fmt.Errorf("reading Antigravity's conversations: %w", err)
+		return *c, fmt.Errorf("reading Antigravity's conversations: %w", err)
 	}
 	for _, a := range agy {
 		add(kindTranscript, "antigravity "+a.ID, a.Text, a.Modified)
@@ -126,10 +155,10 @@ func collect(home string, p search.Project, since time.Time, limit int) (Collect
 		c.Dropped[i] = scrub(c.Dropped[i], home)
 	}
 	if err := c.fit(limit); err != nil {
-		return c, err
+		return *c, err
 	}
-	c.Prompt = render(c)
-	return c, nil
+	c.Prompt = render(*c)
+	return *c, nil
 }
 
 // linked reports whether any directory from root down to docs/dir is a
@@ -301,4 +330,21 @@ func skills(home string) []skill {
 		}
 	}
 	return out
+}
+
+// migrated reports whether root's trail is records: a committed
+// `.agents/trail.jsonl` (brain plan D16's line; an Lstat, so a link counts and
+// the brain store refuses it when read).
+func migrated(root string) bool {
+	_, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl"))
+	return err == nil
+}
+
+// forDream is brain.ForDream; a test replaces it.
+var forDream = brain.ForDream
+
+// recordTime is when a record last changed.
+func recordTime(r brain.Record) time.Time {
+	t, _ := time.Parse(time.RFC3339, r.Updated)
+	return t
 }

@@ -163,7 +163,7 @@ gcloud run services update-traffic "${SERVICE}" --region "${REGION}" --remove-ta
 
 Because images are tagged by git SHA, the previous revision's image is always
 recoverable; `update-traffic` is instant and does not rebuild anything. A rollback
-outside a release is recorded in `changes/` and never re-tagged as a release.
+outside a release is recorded as a `change` record and never re-tagged as a release.
 
 ## What `DEPLOY-gcp` records
 

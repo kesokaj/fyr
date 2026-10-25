@@ -3,8 +3,9 @@
 // metrics and the Antigravity transcripts (after ingesting every session's shape
 // into the metrics store), asks
 // a CLI with no tools what should become a rule, a skill or a memory, and
-// writes the answer as proposals under ~/.config/fyr/proposals/dream/
-// (R3's exception, R10, plan 2026-09-30-parity-memory-dream).
+// stores the answer as global `proposal` records (R3's exception, R10, plan
+// 2026-09-30-parity-memory-dream; brain plan Phase 4: only projects idle for
+// a day, read from their records).
 package dream
 
 import (
@@ -12,12 +13,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/memory"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // maxPrompt caps what one project sends to the CLI (the plan's Interfaces).
@@ -32,7 +36,17 @@ type Options struct {
 	Out      io.Writer
 	Now      func() time.Time
 	Projects func(home string) ([]search.Project, error) // search.ListProjects; a test replaces it
+	Scopes   func(home string) ([]string, error)         // brain.Scopes: projects whose trail is records; a test replaces it
+	// Active says why a project is in use and is not dreamt over yet, ""
+	// when it has been idle for idleFor (D22); nil is the real check
+	// (activity), a test replaces it.
+	Active func(home string, p search.Project, now time.Time) string
 }
+
+// idleFor is how long a project must have been left alone before a dream
+// reads it (brain plan D22): no commit, no record update, no Antigravity
+// session in that window.
+const idleFor = 24 * time.Hour
 
 // Input is one piece of what a project sends.
 type Input struct {
@@ -60,6 +74,12 @@ func Run(o Options) error {
 	if o.Projects == nil {
 		o.Projects = search.ListProjects
 	}
+	if o.Scopes == nil {
+		o.Scopes = brain.Scopes
+	}
+	if o.Active == nil {
+		o.Active = activity
+	}
 	// A usage mistake is refused before anything is locked, logged or read.
 	switch {
 	case o.All && o.Project != "":
@@ -81,8 +101,10 @@ func Run(o Options) error {
 	return o.dryRun(projects, st)
 }
 
-// targets is --project's one checkout, or every indexed project for --all;
-// Run has already refused both and neither.
+// targets is --project's one checkout, or for --all every project the file
+// index registered (a trail still on files) and every project scope the
+// brain store holds (a trail of records: such a checkout no longer registers
+// in the file index); Run has already refused both and neither.
 func (o Options) targets() ([]search.Project, error) {
 	switch {
 	case o.Project != "":
@@ -96,7 +118,61 @@ func (o Options) targets() ([]search.Project, error) {
 		}
 		return []search.Project{{Root: root, Name: filepath.Base(root), DocsRoot: ".agents/docs"}}, nil
 	}
-	return o.Projects(o.Home)
+	projects, err := o.Projects(o.Home)
+	if err != nil {
+		return nil, err
+	}
+	scopesOf := o.Scopes
+	if scopesOf == nil {
+		scopesOf = brain.Scopes
+	}
+	scopes, err := scopesOf(o.Home)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, p := range projects {
+		seen[p.Root] = true
+	}
+	for _, s := range scopes {
+		if !seen[s] {
+			seen[s] = true
+			projects = append(projects, search.Project{Root: s, Name: filepath.Base(s)})
+		}
+	}
+	return projects, nil
+}
+
+// inUse is why p is not idle yet under --all, "" when it is (or when the
+// run names one project).
+func (o Options) inUse(p search.Project) string {
+	if !o.All {
+		return ""
+	}
+	return o.Active(o.Home, p, o.Now())
+}
+
+// activity is the real check behind Options.Active: the newest of the
+// checkout's last commit, its scope's last record update and its newest
+// Antigravity conversation, when that is within idleFor of now.
+func activity(home string, p search.Project, now time.Time) string {
+	cut := now.Add(-idleFor)
+	if out, err := trail.Command(p.Root, "log", "-1", "--format=%ct").Output(); err == nil {
+		if sec, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err == nil {
+			if t := time.Unix(sec, 0); t.After(cut) {
+				return "a commit at " + t.UTC().Format(time.RFC3339)
+			}
+		}
+	}
+	if migrated(p.Root) {
+		if in, err := forDream(home, p.Root, now); err == nil && in.Last.After(cut) {
+			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
+		}
+	}
+	if convs, err := search.AgyConversationText(home, p.Root, cut); err == nil && len(convs) > 0 {
+		return "an Antigravity session at " + convs[0].Modified.UTC().Format(time.RFC3339)
+	}
+	return ""
 }
 
 // skipReason says why a project is not dreamt over, or "" when it is.
@@ -106,6 +182,9 @@ func skipReason(p search.Project) string {
 	}
 	if _, err := memory.Root(p.Root); err != nil {
 		return "not a git checkout"
+	}
+	if migrated(p.Root) {
+		return ""
 	}
 	docs := docsOf(p)
 	if info, err := os.Stat(filepath.Join(p.Root, docs)); err != nil || !info.IsDir() {
@@ -135,13 +214,19 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 			fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", p.Root, why)
 			continue
 		}
+		// The idle rule is the nightly run's (--all); a dream asked for one
+		// project runs now.
+		if why := o.inUse(p); why != "" {
+			fmt.Fprintf(o.Out, "[dry-run] %s: skip (in use within %s: %s)\n", p.Root, idleFor, why)
+			continue
+		}
 		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
 		if err != nil {
 			fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
 			continue
 		}
 		if !c.Changed {
-			fmt.Fprintf(o.Out, "[dry-run] %s: unchanged since %s\n", p.Root, o.since(st, p.Root).Format(time.RFC3339))
+			fmt.Fprintf(o.Out, "[dry-run] %s: idle, unchanged since %s\n", p.Root, o.since(st, p.Root).Format(time.RFC3339))
 			continue
 		}
 		counts := map[string]int{}
@@ -152,7 +237,7 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 		for _, k := range promptOrder {
 			parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
 		}
-		fmt.Fprintf(o.Out, "[dry-run] %s: %s; %d bytes; would run: %s\n", p.Root, strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
+		fmt.Fprintf(o.Out, "[dry-run] %s: would dream (idle %s, changed since %s): %s; %d bytes; would run: %s\n", p.Root, idleFor, o.since(st, p.Root).Format(time.RFC3339), strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
 		shown := c.Dropped
 		if len(shown) > shownDropped {
 			fmt.Fprintf(o.Out, "[dry-run]   left out: %d inputs, the first %d below\n", len(shown), shownDropped)

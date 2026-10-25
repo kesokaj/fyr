@@ -230,9 +230,14 @@ func readDocs(top, root string, b *budget) ([]docFile, []string, error) {
 		if !fi.Mode().IsRegular() {
 			return nil, nil, refuse("%s is not a regular file", p)
 		}
-		if path.Base(p) == ".gitkeep" && fi.Size() == 0 {
-			keeps = append(keeps, p)
-			continue
+		if path.Base(p) == ".gitkeep" && fi.Size() <= 64 {
+			// An empty or whitespace-only placeholder (the old template's
+			// hold one newline) is removed with the tree; one with text is
+			// refused below like any other file that is not markdown.
+			if data, err := readRegular(abs, 64); err == nil && strings.TrimSpace(string(data)) == "" {
+				keeps = append(keeps, p)
+				continue
+			}
 		}
 		if !strings.HasSuffix(p, ".md") {
 			notMD = append(notMD, p)

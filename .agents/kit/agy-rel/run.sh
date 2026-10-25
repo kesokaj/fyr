@@ -163,9 +163,10 @@ case "$row" in
       preflight) wide="the preflight skill's text probes for gitleaks with command -v and pipes git output" ;;
     esac
     # The matrix is the record GUIDE-skill-matrix in the harness's trail (brain plan Phase 2), printed by a
-    # build of this checkout against the run's own home, so the real store is never read.
+    # build of this checkout against a home under the run directory: the real store is never read, and the
+    # harness trail (which quotes example credential shapes) stays out of KIT_HOME, which the exit scan checks.
     go build -C "$REPO" -o "$RUN/fyr-matrix" ./cmd/fyr
-    ( cd "$REPO" && "$RUN/fyr-matrix" record get GUIDE-skill-matrix --home "$KIT_HOME/matrix-home" ) > "$RUN/skill-matrix.md"
+    ( cd "$REPO" && "$RUN/fyr-matrix" record get GUIDE-skill-matrix --home "$RUN/matrix-home" ) > "$RUN/skill-matrix.md"
     IFS=$'\t' read -r prompt check < <(python3 -I - "$RUN/skill-matrix.md" "$row" <<'PY'
 import re, sys
 for l in open(sys.argv[1]):

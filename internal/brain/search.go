@@ -66,7 +66,7 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 		// fading linearly over a year: of two near-equal matches the newer
 		// record, the trail's current state, comes first; a clearly better
 		// older match still wins (D31).
-		sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0) * (1 + 0.1 * max(0, 1 - (julianday(?) - julianday(r.date)) / 365.0)), r.id`
+		sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0) * (1 + 0.1 * min(1, max(0, 1 - (julianday(?) - julianday(r.date)) / 365.0))), r.id`
 		args = append(args, o.now().Format("2006-01-02"))
 		rows, err := st.db.Query(sqlq, args...)
 		if err != nil {
@@ -200,7 +200,7 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 	words := strings.FieldsFunc(ref, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 	q := search.FTSQuery(words, " ")
 	if q == "" {
-		return nil, nil
+		return hits, nil
 	}
 	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project, r.title || char(10) || r.body
 		FROM records_fts JOIN records r ON r.rid = records_fts.rowid WHERE records_fts MATCH ?`
@@ -248,7 +248,9 @@ func naming(text, ref string) (string, bool) {
 			return "", false
 		}
 		at, end := i+j, i+j+len(ref)
-		before := at == 0 || !pathChar(text[at-1])
+		// A "./" in front is the same path written relative (`./cmd/x.go`).
+		dotSlash := at >= 2 && text[at-2:at] == "./" && (at == 2 || !pathChar(text[at-3]))
+		before := at == 0 || !pathChar(text[at-1]) || dotSlash
 		// A trailing "." or ":" ends a sentence or starts a line number.
 		after := dir || end == len(text) || !pathChar(text[end]) ||
 			((text[end] == '.' || text[end] == ':') && (end+1 == len(text) || !pathChar(text[end+1]) || text[end] == ':'))

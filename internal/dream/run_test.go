@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -52,7 +53,33 @@ trailing words`
 
 func runOpts(f fixture, out *bytes.Buffer) Options {
 	return Options{Home: f.home, All: true, Out: out, Now: func() time.Time { return now },
-		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
+		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil },
+		Scopes:   func(string) ([]string, error) { return nil, nil },
+		Active:   idle}
+}
+
+// idle is Options.Active for a test about something else: every project
+// counts as idle (the idle rule's own tests use the real check).
+func idle(string, search.Project, time.Time) string { return "" }
+
+// dreamProposals is every proposal record the dream stored in home, newest
+// first, bodies included.
+func dreamProposals(t *testing.T, home string) []brain.Record {
+	t.Helper()
+	recs, err := brain.List(brain.Options{Home: home, Dir: t.TempDir(), Global: true}, brain.ListFilter{Kind: "proposal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return recs
+}
+
+func titled(recs []brain.Record, prefix string) (brain.Record, bool) {
+	for _, r := range recs {
+		if strings.HasPrefix(r.Title, prefix) {
+			return r, true
+		}
+	}
+	return brain.Record{}, false
 }
 
 func scaffold(t *testing.T, f fixture) {
@@ -71,25 +98,29 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 	}
 	name := project(f).Name
 	dir := filepath.Join(f.home, harness.StateDir, "proposals", "dream")
-	proj := read(t, filepath.Join(dir, "2026-09-30-"+name+".md"))
-	for _, want := range []string{"owner: fyr dream", "project: " + f.root, "cli: agy", "### 1. Vet before tag", "**Status:** queued", "**Target:** project", "Run go vet before every tag."} {
-		if !strings.Contains(proj, want) {
-			t.Errorf("project file lacks %q:\n%s", want, proj)
+	recs := dreamProposals(t, f.home)
+	if len(recs) != 3 {
+		t.Fatalf("want two proposal records and one for the draft skills, got %d: %+v", len(recs), recs)
+	}
+	vet, ok := titled(recs, "Dream — Vet before tag")
+	if !ok || vet.Status != "queued" || vet.Project != f.root {
+		t.Fatalf("the project proposal: %+v", vet)
+	}
+	for _, want := range []string{"Dream of " + f.root, "by agy", "Target: project", "Run go vet before every tag."} {
+		if !strings.Contains(vet.Body, want) {
+			t.Errorf("the project proposal lacks %q:\n%s", want, vet.Body)
 		}
 	}
-	if strings.Contains(proj, "Release skill") {
-		t.Error("a harness proposal landed in the project file (D23)")
-	}
-	harn := read(t, filepath.Join(dir, "harness", "2026-09-30-"+name+".md"))
-	if !strings.Contains(harn, "### 1. Release skill") || !strings.Contains(harn, "**Target:** harness") {
-		t.Errorf("harness file:\n%s", harn)
+	if rel, ok := titled(recs, "Dream — Release skill"); !ok || !strings.Contains(rel.Body, "Target: harness") {
+		t.Errorf("the harness proposal: %+v", rel)
 	}
 	draft := read(t, filepath.Join(dir, "drafts", "2026-09-30-"+name+"-release-steps", "SKILL.md"))
 	if !strings.HasPrefix(draft, "---\nname: release-steps\ndescription: \"cut a release\"\n---\n") {
 		t.Errorf("draft:\n%s", draft)
 	}
-	if !strings.Contains(proj, "../escape") || !strings.Contains(proj, "dropped") {
-		t.Error("the invalid draft name is not listed as dropped")
+	ds, ok := titled(recs, "Dream — draft skills for ")
+	if !ok || !strings.Contains(ds.Body, "release-steps/SKILL.md") || !strings.Contains(ds.Body, "../escape") || !strings.Contains(ds.Body, "dropped") {
+		t.Errorf("the draft skills record does not name the draft and the dropped name: %+v", ds)
 	}
 	if strings.Contains(read(t, filepath.Join(rec, "stdin")), "FAKEVALUE") {
 		t.Error("a secret reached the CLI")
@@ -196,9 +227,12 @@ func TestRunAgyPrivateHomeAndStdin(t *testing.T) {
 	if _, err := os.Stat(childHome); !os.IsNotExist(err) {
 		t.Error("the private HOME was left behind")
 	}
-	// Zero proposals: no file, watermark advanced, logged.
+	// Zero proposals: no record, no file, watermark advanced, logged.
 	if _, err := os.Stat(filepath.Join(f.home, harness.StateDir, "proposals")); !os.IsNotExist(err) {
 		t.Error("zero proposals wrote a file")
+	}
+	if _, err := os.Stat(brain.Path(f.home)); !os.IsNotExist(err) {
+		t.Error("zero proposals created the brain store")
 	}
 	if st, _ := readState(f.home); !st.Projects[f.root].Equal(now) {
 		t.Errorf("watermark not advanced: %+v", st)
@@ -308,10 +342,10 @@ func TestRenderFoldsLineBreaks(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatal(err)
 	}
-	got := read(t, filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
-	// /retro reads a Status LINE; text inside a folded title is not one.
-	if strings.Count(got, "\n**Status:**") != 1 || strings.Contains(got, "\n### 9.") {
-		t.Errorf("a title opened a second Status line or section:\n%s", got)
+	recs := dreamProposals(t, f.home)
+	// A record's title is one line: a title holding line breaks is folded.
+	if len(recs) != 1 || strings.ContainsAny(recs[0].Title, "\r\n") || !strings.Contains(recs[0].Title, "### 9. fake") {
+		t.Errorf("the title was not folded into one line: %+v", recs)
 	}
 }
 
@@ -353,16 +387,21 @@ func TestProjectNameIsFolded(t *testing.T) {
 		return nil
 	})
 	if len(names) == 0 {
-		t.Fatal("the run wrote no proposals")
+		t.Fatal("the run wrote no draft")
 	}
 	for _, n := range names {
 		if strings.ContainsAny(n, "\r\n") {
 			t.Errorf("a written path holds a line break: %q", n)
 		}
 	}
-	got := read(t, filepath.Join(dir, "2026-09-30-proj **Status:** queued ### 9. forged > > >.md"))
-	if strings.Count(got, "\n**Status:**") != 1 || strings.Contains(got, "\n### 9.") {
-		t.Errorf("the name opened a second Status line or section:\n%s", got)
+	recs := dreamProposals(t, f.home)
+	if len(recs) != 2 {
+		t.Fatalf("want the proposal and the draft skills record, got %+v", recs)
+	}
+	for _, r := range recs {
+		if strings.ContainsAny(r.Title, "\r\n") || strings.Contains(r.Body, "\n### 9.") {
+			t.Errorf("the name forged a line: %+v", r)
+		}
 	}
 }
 
@@ -576,9 +615,15 @@ func TestTextFieldCannotForgeASection(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatal(err)
 	}
-	got := read(t, filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md"))
-	if strings.Count(got, "\n**Status:**") != 1 || strings.Contains(got, "\n### 9.") {
-		t.Errorf("the text opened a second section or Status line:\n%s", got)
+	recs := dreamProposals(t, f.home)
+	if len(recs) != 1 {
+		t.Fatalf("one proposal, one record: %+v", recs)
+	}
+	got := recs[0].Body
+	// The model's text is indented, so none of its lines reads as a field or
+	// a heading of the record.
+	if strings.Contains(got, "\n### 9.") || strings.Count(got, "\nTarget: ") != 1 || strings.Contains(got, "\n**Target:**") {
+		t.Errorf("the text opened a second section or field:\n%s", got)
 	}
 	if !strings.Contains(got, "rm -rf everything") {
 		t.Errorf("the text itself was lost:\n%s", got)
@@ -596,8 +641,8 @@ func TestAnswerToleratesExtraKeys(t *testing.T) {
 	if err := Run(runOpts(f, &bytes.Buffer{})); err != nil {
 		t.Fatalf("an extra key failed the run: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(f.home, harness.StateDir, "proposals", "dream", "2026-09-30-"+project(f).Name+".md")); err != nil {
-		t.Error("proposal not written")
+	if len(dreamProposals(t, f.home)) != 1 {
+		t.Error("proposal not stored")
 	}
 }
 

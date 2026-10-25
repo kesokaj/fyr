@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -112,6 +113,10 @@ func (o Options) realRun() error {
 	for _, p := range projects {
 		if why := skipReason(p); why != "" {
 			logf(p.Root + " skip " + why)
+			continue
+		}
+		if why := o.inUse(p); why != "" {
+			logf(p.Root + " skip in use (" + why + ")")
 			continue
 		}
 		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
@@ -479,20 +484,13 @@ func parse(out string) (response, bool) {
 	return response{}, false
 }
 
-// write renders the proposals: project targets to the project's file,
-// harness targets to proposals/dream/harness/ (D23), every valid draft skill
-// to its own directory; the model's text is scrubbed again first.
+// write stores each proposal as a global, queued `proposal` record about
+// the project (brain plan D15), and every valid draft skill in its own
+// directory under proposals/dream/drafts/, which a record names; the model's
+// text is scrubbed again first.
 func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) error {
 	day := t0.Format("2006-01-02")
 	dir := filepath.Join(conf, "proposals", "dream")
-	var projectP, harnessP []proposal
-	for _, p := range r.Proposals {
-		if p.Target == "harness" {
-			harnessP = append(harnessP, p)
-		} else {
-			projectP = append(projectP, p)
-		}
-	}
 	var drafts []draft
 	var dropped []string
 	for _, d := range r.Skills {
@@ -502,6 +500,7 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 			dropped = append(dropped, d.Name)
 		}
 	}
+	var draftLines []string
 	for _, d := range drafts {
 		path, err := unique(filepath.Join(dir, "drafts"), day+"-"+c.Name+"-"+d.Name, "")
 		if err != nil {
@@ -515,32 +514,32 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 		if err := harness.WriteAtomic(filepath.Join(path, "SKILL.md"), []byte(body), 0o600); err != nil {
 			return err
 		}
+		draftLines = append(draftLines, "Draft skill: "+filepath.Join(dir, "drafts", filepath.Base(path), "SKILL.md"))
 	}
-	if len(projectP) > 0 || len(drafts) > 0 || len(dropped) > 0 {
-		var extra []string
-		for _, d := range drafts {
-			extra = append(extra, "Draft skill: drafts/"+day+"-"+c.Name+"-"+d.Name+"/SKILL.md")
-		}
-		for _, n := range dropped {
-			extra = append(extra, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", n))
-		}
-		if err := o.render(dir, day, c, cli, projectP, extra); err != nil {
+	for _, n := range dropped {
+		draftLines = append(draftLines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(n)))
+	}
+	head := o.header(c, cli, day)
+	for _, p := range r.Proposals {
+		if _, err := propose(o.Home, c.Root, "Dream — "+o.line(p.Title), head+o.section(p), t0); err != nil {
 			return err
 		}
 	}
-	if len(harnessP) > 0 {
-		if err := o.render(filepath.Join(dir, "harness"), day, c, cli, harnessP, nil); err != nil {
+	if len(draftLines) > 0 {
+		body := head + strings.Join(draftLines, "\n") + "\n"
+		if _, err := propose(o.Home, c.Root, "Dream — draft skills for "+c.Name, body, t0); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (o Options) render(dir, day string, c Collected, cli string, ps []proposal, extra []string) error {
-	path, err := unique(dir, day+"-"+c.Name, ".md")
-	if err != nil {
-		return err
-	}
+// propose is brain.Propose; a test replaces it.
+var propose = brain.Propose
+
+// header is what every proposal of one project's dream carries: where it came
+// from and what the model read.
+func (o Options) header(c Collected, cli, day string) string {
 	counts := map[string]int{}
 	for _, in := range c.Inputs {
 		counts[in.Kind]++
@@ -550,30 +549,24 @@ func (o Options) render(dir, day string, c Collected, cli string, ps []proposal,
 		inputs = append(inputs, fmt.Sprintf("%s %d", k, counts[k]))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nowner: fyr dream\ndate: %s\nproject: %s\ncli: %s\ninputs: %s\n", day, o.line(c.Root), cli, strings.Join(inputs, ", "))
+	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tools, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
 	if len(c.Dropped) > 0 {
-		fmt.Fprintf(&b, "left out: %q\n", o.line(strings.Join(c.Dropped, "; ")))
+		fmt.Fprintf(&b, "Left out: %s\n", o.line(strings.Join(c.Dropped, "; ")))
 	}
-	fmt.Fprintf(&b, "---\n# Dream proposals — %s   (%s)\n", c.Name, day)
-	for i, p := range ps {
-		target := "project"
-		if p.Target == "harness" {
-			target = "harness"
-		}
-		// The text is indented four spaces, line by line: /retro reads the
-		// file by its `### N.` and `**Status:**` lines, and an unfenced
-		// text could open a queued section the model never proposed
-		// (audit 2026-09-30, SD3).
-		fmt.Fprintf(&b, "\n### %d. %s\n**Status:** queued\n**Target:** %s   **Kind:** %s   **File:** %s\n\n%s\n\nEvidence: %s\n",
-			i+1, o.line(p.Title), target, o.line(p.Kind), o.line(p.File), indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
+	b.WriteString("\n")
+	return b.String()
+}
+
+// section is one proposal's text. The model's text is indented four spaces,
+// line by line, so it reads as quoted data, never as headings or fields of
+// the record (audit 2026-09-30, SD3).
+func (o Options) section(p proposal) string {
+	target := "project"
+	if p.Target == "harness" {
+		target = "harness"
 	}
-	for _, e := range extra {
-		b.WriteString("\n" + e + "\n")
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	return harness.WriteAtomic(path, []byte(b.String()), 0o600)
+	return fmt.Sprintf("Target: %s   Kind: %s   File: %s\n\n%s\n\nEvidence: %s\n",
+		target, o.line(p.Kind), o.line(p.File), indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
 }
 
 func (o Options) clean(s string) string { return scrub(s, o.Home) }

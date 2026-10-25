@@ -33,9 +33,21 @@ func TestRefsFindsRecordsNamingAPathOrID(t *testing.T) {
 	if got := ids(hits); got != b1+" "+c {
 		t.Errorf("refs of %s: %q", b1, got)
 	}
+	// Whole names only: a longer neighbour is not the ref, a "./" prefix and
+	// a line number are.
+	d := add(t, o, "bug", "neighbours", "See internal/brain/export.go.bak and cmd/internal/brain/export.go, and "+b1+"0 too.")
+	e := add(t, o, "bug", "dot slash", "Broke in ./internal/brain/export.go:12 again.")
+	hits, _ = Refs(o, "internal/brain/export.go", "bug", 10)
+	if got := ids(hits); strings.Contains(got, d) || !strings.Contains(got, e) {
+		t.Errorf("whole-name matching: %q (neighbours %s must not match, ./ %s must)", got, d, e)
+	}
+	hits, _ = Refs(o, b1, "", 10)
+	if strings.Contains(ids(hits), d) {
+		t.Errorf("%s matched %s0: %q", b1, b1, ids(hits))
+	}
 	// A directory with a trailing slash matches every path under it.
 	hits, _ = Refs(o, "internal/brain/", "", 10)
-	if len(hits) != 3 {
+	if len(hits) != 5 {
 		t.Errorf("refs of a directory: %q", ids(hits))
 	}
 }
@@ -107,5 +119,20 @@ func TestLastRetro(t *testing.T) {
 	got, ok := LastRetro(home)
 	if !ok || got.Format("2006-01-02") != "2026-10-25" {
 		t.Errorf("LastRetro = %v, %v", got, ok)
+	}
+}
+
+// D31's weight is at most 10%: a record dated after now gets no more.
+func TestRecencyWeightIsCapped(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	future := opts(dir, home)
+	future.Now = func() time.Time { return time.Now().AddDate(5, 0, 0) }
+	o := opts(dir, home)
+	o.Now = time.Now
+	f := add(t, future, "bug", "gnu gnu gnu", "a long body that names the gnu once among many other words of no interest")
+	g := add(t, o, "bug", "gnu gnu gnu gnu", "gnu gnu gnu gnu gnu gnu")
+	hits, _ := Search(o, []string{"gnu"}, "", 10)
+	if len(hits) != 2 || hits[0].ID != g {
+		t.Errorf("a future-dated weaker match outranked the better one: %q (future %s)", ids(hits), f)
 	}
 }

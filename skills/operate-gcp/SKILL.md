@@ -24,7 +24,7 @@ export PROJECT=… REGION=… SERVICE=…           # from DEPLOY-gcp, never gue
 gcloud run revisions list --service "${SERVICE}" --region "${REGION}"
 gcloud run services describe "${SERVICE}" --region "${REGION}" --format 'value(status.traffic)'
 # 2. stop the bleeding: 100 % to the last good revision (the full procedure: cloud-run-deploy § Rollback) — first read
-#    the changes/ entries between GOOD and the serving revision: a rollback across a security fix, a service-account
+#    the change records between GOOD and the serving revision: a rollback across a security fix, a service-account
 #    change or a secret rotation is the operator's call, and a rotated secret version is disabled, not re-enabled
 gcloud run services update-traffic "${SERVICE}" --region "${REGION}" --to-revisions "${GOOD}=100"
 # 3. what the bad revision said
@@ -35,7 +35,7 @@ gcloud run services logs read "${SERVICE}" --region "${REGION}" --limit 100 \
 ```
 
 Rollback is step 2, not step 5: a service that serves the last good revision buys the time the
-other steps need. A rollback outside a release is recorded in `changes/` as what it is (traffic
+other steps need. A rollback outside a release is recorded as a `change` record, as what it is (traffic
 moved to revision X at time T, why), never re-tagged as a release; the fix ships through
 `preflight` later. When a canary tag is still set, `--remove-tags canary` after the
 rollback (`cloud-run-deploy` § Canary).
@@ -93,7 +93,7 @@ fixed by raising the Go toolchain, never pinned away), `npm audit --omit=dev` in
 and a check that the Docker base images are current (`golang:<major.minor>` tracks the
 patch; the distroless digest is bumped deliberately, `docker` skill rule 1). A finding that
 touches a shipped artifact is a `bug` with a PATCH release; one that touches only a dev
-dependency is ordinary work. Record the date and the result in the `changes/` entry of the
+dependency is ordinary work. Record the date and the result in the `change` record of the
 release or in a dated `testing/` log.
 
 ## Cost knobs

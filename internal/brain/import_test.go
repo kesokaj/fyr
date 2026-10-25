@@ -416,9 +416,9 @@ func TestMemoryRetire(t *testing.T) {
 // tree, never refused as scripts nor imported.
 func TestImportRemovesGitkeeps(t *testing.T) {
 	dir := docsFixture(t)
-	for _, d := range []string{"reviews", "handoffs"} {
-		os.WriteFile(filepath.Join(dir, ".agents", "docs", d, ".gitkeep"), nil, 0o644)
-	}
+	// The old template's handoffs/ and reviews/ placeholders hold one newline.
+	os.WriteFile(filepath.Join(dir, ".agents", "docs", "reviews", ".gitkeep"), nil, 0o644)
+	os.WriteFile(filepath.Join(dir, ".agents", "docs", "handoffs", ".gitkeep"), []byte("\n"), 0o644)
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-qm", "gitkeep")
 	res, err := Import(opts(dir, t.TempDir()), "", true)

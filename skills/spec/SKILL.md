@@ -44,11 +44,11 @@ Numbered-table gaps: when the request leaves several things open (who calls it, 
 
 ## Step 3: Agree and hand over
 
-Show the file's path and its Interfaces section in chat. The user's yes sets `status: agreed`; until then it is a draft and the plan that depends on it does not start Phase 1. After the first write the `documentation` agent owns `specs/<app>/*.md` and keeps it matching the code (its lane); a later change to the surface goes through that agent with `fyr search --refs <spec path>` output in the dispatch, and a spec a newer one replaces gets `status: superseded` and one line naming its successor, never a deletion.
+Show the record's ID and its Interfaces section in chat. The user's yes sets the body's `Status: agreed` line; until then it is a draft and the plan that depends on it does not start Phase 1. After the first write the `documentation` agent owns the `SPEC-<app>-*` records and keeps them matching the code (its lane); a later change to the surface goes through that agent with `fyr search --refs <spec path>` output in the dispatch, and a spec a newer one replaces gets `status: superseded` and one line naming its successor, never a deletion.
 
 ## Definition of Done
 
-A spec on its own is a docs change: `changes/` entry (or the feature's entry names it), commit, push. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec path instead of restating shapes.
+A spec on its own is a docs change: a `change` record (or the feature's names it), commit `.agents/trail.jsonl`, push. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec path instead of restating shapes.
 
 ## Cross-references
 

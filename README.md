@@ -45,9 +45,9 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |
 | `fyr record add` / `get` / `edit` / `list` | The brain store, `~/.config/fyr/brain.db`: this project's trail records (plans, bugs, ADRs, reviews, handoffs, specs, …) and the global ones (`--global`: feedback, proposals), each with an ID and a status; the body comes on stdin. Every write in a project also rewrites `.agents/trail.jsonl`, the committed export, and a changed export (a pull) is loaded back before the next call. `list --open` is what is still open. |
 | `fyr search <words>` | Prints the matching brain-store records first, then a ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `fyr index` maintains the index. |
-| `fyr memory add` / `show` | The project memory store (`.agents/memory/`), `show` prints the index a session loads at start. |
+| `fyr memory add` / `show` | The project's memory, `memory` records in the brain store (never exported); `show` prints the index a session loads at start. |
 | `fyr metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/fyr/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
-| `fyr dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals land under `~/.config/fyr/proposals/dream/` for `/retro` to apply. `--remove-timer` undoes it. |
+| `fyr dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project idle for a day that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals are stored as global `proposal` records for `/retro` to apply. `--remove-timer` undoes it. |
 | `fyr adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `fyr version` | The build version. |
 
@@ -97,7 +97,7 @@ flowchart LR
     configDir -. "same machine only" .-> retroHarness
     retroHarness --> edit
     sessions -- "memory, trail, transcripts" --> dreamer
-    dreamer -- "proposals/dream/, metrics.db" --> configDir
+    dreamer -- "proposal records, metrics.db" --> configDir
     dreamer -. "redacted prompt, no tools" .-> provider[("the CLI's model provider")]
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
