@@ -163,8 +163,8 @@ The scope root is resolved the way `memory.Root` resolves it today (`internal/me
   - **R8, after "no verb sends the machine's corrections, proposals, memory or metrics anywhere":**
     > "; `feedback` and `proposal` records are global only, `memory` records are never exported, and `fyr record` refuses the first two in a project"
   - **Known limits and Non-goals:** the three `.agents/docs/...` paths become `TEST-2026-09-03-verify-real-home`, `TEST-2026-09-04-verify-mac-real-home` and `PLAN-2026-09-03-research-hooks`, read with `fyr record get`. D8 keeps them.
-- [ ] ADR-063: the brain store. It names the schema, the export, the load rule, the scopes, the agent rule, the dream's idle rule and the rejected alternatives — who: AI — expect: present
-- [ ] `REQUIREMENTS.md`, `ROADMAP.md` (Now: this plan; Next: items 2–4) and the ADR, in one commit — who: AI — expect: `git show --stat` lists exactly those three files
+- [x] ADR-063: the brain store. It names the schema, the export, the load rule, the scopes, the agent rule, the dream's idle rule and the rejected alternatives — who: AI — expect: present
+- [x] `REQUIREMENTS.md`, `ROADMAP.md` (Now: this plan; Next: items 2–4) and the ADR, in one commit — who: AI — expect: `git show --stat` lists exactly those three files — done: 0aaaf0a
 
 ### Phase 1 — The store and the verbs
 - [ ] Tests first (§ Unit, all but import, memory alias and dream) — who: AI — expect: red, then green
