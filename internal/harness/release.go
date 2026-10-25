@@ -21,18 +21,19 @@ import (
 // gh takes the host from GH_HOST when --repo names none, and with no signature
 // on a release the host is the whole of where a binary comes from (security
 // review 2026-10-05, ADR-053).
-const ReleaseRepo = "github.com/kesokaj/styrman-harness"
+const ReleaseRepo = "github.com/kesokaj/fyr"
 
 // sumsVersionMarker is the line `/preflight` writes at the top of
 // SHA256SUMS, naming the release those hashes belong to, so one release's
 // checksums are never taken for another's (security review 2026-09-17).
 // `sha256sum -c` ignores a line starting with '#', so the file stays readable
-// by it.
+// by it. One marker, `# fyr vX.Y.Z`, since v3.0.0: no release this binary
+// takes was published under the name before the rename (plan fyr D5a).
 //
 // The checksums are not signed (ADR-053): they say a download is whole and is
 // the file the release lists, not who made the release. That rests on the
 // operator's GitHub credential and HTTPS, as a checkout place's pull does.
-var sumsVersionMarker = regexp.MustCompile(`(?m)^#\s*styrman-harness\s+(v[0-9]+\.[0-9]+\.[0-9]+)\s*$`)
+var sumsVersionMarker = regexp.MustCompile(`(?m)^#\s*fyr\s+(v[0-9]+\.[0-9]+\.[0-9]+)\s*$`)
 
 // maxAssetBytes and maxSumsBytes bound what a release can make this process
 // read into memory. Variables so a test can lower them.
@@ -48,7 +49,7 @@ var ErrNewerRelease = errors.New("a newer release is available")
 
 // AssetName is the binary asset's name for one platform.
 func AssetName(goos, goarch string) string {
-	return fmt.Sprintf("sh-agent-%s-%s", goos, goarch)
+	return fmt.Sprintf("fyr-%s-%s", goos, goarch)
 }
 
 // latestRelease asks gh for the newest release's tag. gh carries the

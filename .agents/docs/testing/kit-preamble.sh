@@ -16,8 +16,9 @@
 #   KIT_BIN            the fyr build to wrap (default: a fresh `go build` of the
 #                      harness checkout this file lives in, run from any cwd)
 # Effects: asserts the fixture, refuses a clone that sits inside another git
-# checkout (BUG-106), lists ~/.config/fyr before the run and traps EXIT to
-# list it after (BUG-107, BUG-123), and puts a wrapper first on PATH that pins
+# checkout (BUG-106), lists ~/.config/fyr and ~/.config/sh-agent before the
+# run and traps EXIT to list them after (BUG-107, BUG-123; both until every
+# place has crossed, plan fyr D29), and puts a wrapper first on PATH that pins
 # `--home "$KIT_HOME"` on every fyr call the agent makes (BUG-107). At exit
 # it also fails the run when any credential is still in KIT_HOME (BUG-160): a
 # kit deletes what it copied before it ends, and this check proves it did.
@@ -81,8 +82,11 @@ if [ -n "${KIT_ASSERT_COMMIT:-}" ]; then
   esac
   git -C "$KIT_CLONE" merge-base --is-ancestor "$kit_full" HEAD 2>/dev/null || { echo "kit: commit $KIT_ASSERT_COMMIT not in the clone's log" >&2; exit 2; }
 fi
-# The real ~/.config/fyr before and after: a run that changes a name or
-# a file's contents there fails the kit. The fingerprint covers names and
+# The real ~/.config/fyr and ~/.config/sh-agent before and after: a run that
+# changes a name or a file's contents in either fails the kit. Both, until
+# every place has crossed to fyr (plan fyr D29, Phase 6): before its crossing
+# a box's real state is the old directory, and an old binary or a migration
+# reaching it from a run is the same leak. The fingerprint covers names and
 # contents, so an appended line to an existing file changes it; a names-only
 # listing did not (docs-lens review 2026-10-01). It does not see: a rewrite
 # with the same bytes, a `touch` or a `chmod`; a file made and removed again
@@ -91,12 +95,13 @@ fi
 # The real home is remembered here: a kit overrides HOME for the CLI it runs,
 # and the exit check must still look at the operator's own directory.
 kit_real_config="$HOME/.config/fyr"
+kit_old_config="$HOME/.config/sh-agent"
 # Both tolerate a home that has no such directory yet: under pipefail a
 # failing `ls` ended the preamble with status 2 and no message (BUG-158).
 # The fingerprint is every path plus a checksum of every file, by tools macOS
 # has too: `ls --time-style` and `md5sum` are GNU's, and without them the
 # fingerprint was the same empty value before and after, proving nothing.
-kit_list_real_config() { { ls -la "$kit_real_config/" 2>/dev/null || true; } | sed 's/^/  /'; }
+kit_list_real_config() { { ls -la "$kit_real_config/" "$kit_old_config/" 2>/dev/null || true; } | sed 's/^/  /'; }
 kit_fingerprint() {
   # -H: the directory itself may be a symlink (a dotfiles setup), and find
   # would otherwise stop at it. Links inside are listed by name, never
@@ -104,11 +109,11 @@ kit_fingerprint() {
   # that points at a regular file is read through, so that file's content
   # counts; any other link gives the path it points at, so re-pointing it
   # shows, and a link to a device or a fifo, which never ends, is not read.
-  { find -H "$kit_real_config" -print 2>/dev/null || true
-    find -H "$kit_real_config" -type f -exec cksum {} + 2>/dev/null || true
-    find -H "$kit_real_config" -type l -exec sh -c 'for p; do if [ -f "$p" ]; then cksum "$p"; else printf "%s -> %s\n" "$p" "$(readlink "$p")"; fi; done' sh {} + 2>/dev/null || true; } | LC_ALL=C sort | cksum | cut -d' ' -f1
+  { find -H "$kit_real_config" "$kit_old_config" -print 2>/dev/null || true
+    find -H "$kit_real_config" "$kit_old_config" -type f -exec cksum {} + 2>/dev/null || true
+    find -H "$kit_real_config" "$kit_old_config" -type l -exec sh -c 'for p; do if [ -f "$p" ]; then cksum "$p"; else printf "%s -> %s\n" "$p" "$(readlink "$p")"; fi; done' sh {} + 2>/dev/null || true; } | LC_ALL=C sort | cksum | cut -d' ' -f1
 }
-echo "kit: real $kit_real_config before the run:"; kit_list_real_config
+echo "kit: real $kit_real_config and $kit_old_config before the run:"; kit_list_real_config
 kit_before=$(kit_fingerprint)
 # Credentials left in the sandbox home (BUG-160). It FAILS CLOSED: a path it
 # cannot read is reported, never passed over (a guard keeps the data when its
@@ -212,9 +217,9 @@ kit_on_exit() {
   local rc=$? failed=0 left
   cd / || true   # the check's own subshells must not sit in the clone (plan 2026-10-08 D4)
   kit_process_leftovers || failed=1
-  echo "kit: real $kit_real_config after the run:"; kit_list_real_config
+  echo "kit: real $kit_real_config and $kit_old_config after the run:"; kit_list_real_config
   if [ "$kit_before" != "$(kit_fingerprint)" ]; then
-    echo "kit: FAIL the real ~/.config/fyr changed during the run (BUG-107, BUG-123); the run does not count" >&2
+    echo "kit: FAIL the real ~/.config/fyr or ~/.config/sh-agent changed during the run (BUG-107, BUG-123); the run does not count" >&2
     failed=1
   else
     # Said in so many words: a run whose output holds neither this line nor

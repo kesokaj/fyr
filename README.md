@@ -118,57 +118,59 @@ With `gh`, one chained command, so a failed check stops the move (on macOS repla
 ```bash
 V=vX.Y.Z \
 && D=$(mktemp -d) && cd "$D" \
-&& gh release download "$V" --repo github.com/kesokaj/styrman-harness --clobber \
-     --pattern 'sh-agent-linux-amd64' --pattern 'SHA256SUMS' --dir "$D" \
-&& grep -qxF "# styrman-harness $V" SHA256SUMS \
+&& gh release download "$V" --repo github.com/kesokaj/fyr --clobber \
+     --pattern 'fyr-linux-amd64' --pattern 'SHA256SUMS' --dir "$D" \
+&& grep -qxF "# fyr $V" SHA256SUMS \
 && grep -v '^#' SHA256SUMS | sha256sum -c - --ignore-missing \
-&& chmod +x sh-agent-linux-amd64 \
-&& test "$(./sh-agent-linux-amd64 version)" = "sh-agent $V" \
-&& mv sh-agent-linux-amd64 ~/.local/bin/sh-agent && cd ~ && rm -r "$D"
+&& chmod +x fyr-linux-amd64 \
+&& test "$(./fyr-linux-amd64 version)" = "fyr $V" \
+&& mv fyr-linux-amd64 ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
-With `go install`, for v1.1.0 or newer. The module path is an https URL and the repository is private, so git is told to fetch over SSH for this one command; this route trusts your SSH connection and git's object hashes, not a checksum file, so use it where you already trust the repository:
+A machine on v2.7.0 or earlier crosses once by `.agents/docs/deploy/remote.md` § Crossing to fyr, not by this block alone.
+
+With `go install`, for v3.0.0 or newer. The module path is an https URL and the repository is private, so git is told to fetch over SSH for this one command; this route trusts your SSH connection and git's object hashes, not a checksum file, so use it where you already trust the repository:
 
 ```bash
 GOPRIVATE='github.com/kesokaj/*' \
   GIT_CONFIG_COUNT=1 \
   GIT_CONFIG_KEY_0='url.git@github.com:.insteadOf' GIT_CONFIG_VALUE_0='https://github.com/' \
-  go install github.com/kesokaj/styrman-harness/cmd/sh-agent@v1.1.0
+  go install github.com/kesokaj/fyr/cmd/fyr@v3.0.0
 ```
 
 From the Releases page in a browser, shown for a Mac (on Linux use `sha256sum -c -` and drop the `xattr` line, which lifts the browser quarantine that would otherwise stop the binary from running):
 
 ```bash
 V=vX.Y.Z \
-&& ls ~/Downloads/sh-agent-darwin-arm64 ~/Downloads/SHA256SUMS >/dev/null \
-&& D=$(mktemp -d) && mv ~/Downloads/sh-agent-darwin-arm64 ~/Downloads/SHA256SUMS "$D" && cd "$D" \
-&& grep -qxF "# styrman-harness $V" SHA256SUMS \
+&& ls ~/Downloads/fyr-darwin-arm64 ~/Downloads/SHA256SUMS >/dev/null \
+&& D=$(mktemp -d) && mv ~/Downloads/fyr-darwin-arm64 ~/Downloads/SHA256SUMS "$D" && cd "$D" \
+&& grep -qxF "# fyr $V" SHA256SUMS \
 && grep -v '^#' SHA256SUMS | shasum -a 256 -c - --ignore-missing \
-&& chmod +x sh-agent-darwin-arm64 && { xattr -d com.apple.quarantine sh-agent-darwin-arm64 2>/dev/null || true; } \
-&& test "$(./sh-agent-darwin-arm64 version)" = "sh-agent $V" \
-&& mv sh-agent-darwin-arm64 ~/.local/bin/sh-agent && cd ~ && rm -r "$D"
+&& chmod +x fyr-darwin-arm64 && { xattr -d com.apple.quarantine fyr-darwin-arm64 2>/dev/null || true; } \
+&& test "$(./fyr-darwin-arm64 version)" = "fyr $V" \
+&& mv fyr-darwin-arm64 ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
 Then, in this order:
 
 ```bash
-sh-agent version     # first, unqualified: the version you just downloaded, or another sh-agent on PATH is winning
-sh-agent install     # installs the harness built into the binary
-sh-agent status      # "source embedded vX.Y.Z" and "drift none"
+fyr version     # first, unqualified: the version you just downloaded, or another fyr on PATH is winning
+fyr install     # installs the harness built into the binary
+fyr status      # "source embedded vX.Y.Z" and "drift none"
 ```
 
-`version` comes first on purpose: an earlier `PATH` entry holding another `sh-agent` would run instead and report success about the wrong tree (BUG-078). `install` and `status` warn about such a shadow; if `version` names the wrong build, `hash -r` (bash) or `rehash` (zsh) first, then `which -a sh-agent` to find the earlier copy and point it at this binary or remove it. The assets are `sh-agent-linux-amd64`, `sh-agent-darwin-arm64` and `sh-agent-linux-arm64`, beside `SHA256SUMS`. To move such a machine forward later, `sh-agent update` there: it needs `gh` on `PATH`, accepts only a canonical `vX.Y.Z` tag newer than what is installed, checks the binary against the release's checksums, and only then replaces itself and reinstalls.
+`version` comes first on purpose: an earlier `PATH` entry holding another `fyr` would run instead and report success about the wrong tree (BUG-078). `install` and `status` warn about such a shadow; if `version` names the wrong build, `hash -r` (bash) or `rehash` (zsh) first, then `which -a fyr` to find the earlier copy and point it at this binary or remove it. The assets are `fyr-linux-amd64`, `fyr-darwin-arm64` and `fyr-linux-arm64`, beside `SHA256SUMS`. To move such a machine forward later, `fyr update` there: it needs `gh` on `PATH`, accepts only a canonical `vX.Y.Z` tag newer than what is installed, checks the binary against the release's checksums, and only then replaces itself and reinstalls.
 
 ## Install from a zip (no SSH, no gh)
 
-A machine that can neither hold your SSH key nor run `gh` still gets the harness: download a release's `styrman-harness-vX.Y.Z.zip` and `SHA256SUMS` from the Releases page into one folder, together with its `sh-agent` binary (verified as above), and run:
+A machine that can neither hold your SSH key nor run `gh` still gets the harness: download a release's `fyr-vX.Y.Z.zip` and `SHA256SUMS` from the Releases page into one folder, together with its `fyr` binary (verified as above), and run:
 
 ```bash
-sh-agent update --from-zip ~/Downloads/styrman-harness-vX.Y.Z.zip   # SHA256SUMS beside it: the zip is checked first
-sh-agent status                                                      # "installed … from zip sha256:<hex> (verified vX.Y.Z)"
+fyr update --from-zip ~/Downloads/fyr-vX.Y.Z.zip   # SHA256SUMS beside it: the zip is checked first
+fyr status                                         # "installed … from zip sha256:<hex> (verified vX.Y.Z)"
 ```
 
-A zip of `main` ("Code → Download ZIP") works too, but no release lists it, so it installs marked unverified. The zip is unpacked into a temporary directory under `~/.config/sh-agent/`, installed, and the directory removed; nothing of the zip is kept. To move forward, download the next zip and repeat.
+A zip of `main` ("Code → Download ZIP") works too, but no release lists it, so it installs marked unverified. The zip is unpacked into a temporary directory under `~/.config/fyr/`, installed, and the directory removed; nothing of the zip is kept. To move forward, download the next zip and repeat.
 
 ## Adding your own skills, agents and rules
 

@@ -82,7 +82,7 @@ func writeSums(t *testing.T, dir, asset, tag string) {
 	sum := sha256.Sum256(data)
 	// The marker /preflight writes, naming the release (plan D26).
 	writeFile(t, filepath.Join(dir, "SHA256SUMS"),
-		"# styrman-harness "+tag+"\n"+hex.EncodeToString(sum[:])+"  "+asset+"\n")
+		"# fyr "+tag+"\n"+hex.EncodeToString(sum[:])+"  "+asset+"\n")
 }
 
 // env puts the fake gh on PATH and points it at this release; withGh false
@@ -160,7 +160,7 @@ func TestUpdateFromReleaseReplacesAndInstalls(t *testing.T) {
 	if err != nil || !strings.Contains(string(ran), "install --home "+home) {
 		t.Errorf("the new binary's install did not run: %q %v", ran, err)
 	}
-	for _, want := range []string{"downloading sh-agent-", "verified and installed sh-agent-", "v9.9.9"} {
+	for _, want := range []string{"downloading fyr-", "verified and installed fyr-", "v9.9.9"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}
@@ -227,7 +227,7 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 			prepare: func(t *testing.T, _ release) { t.Setenv("GH_FAIL_VIEW", "1") },
 		},
 		{
-			name: "no asset for this platform", want: "has no sh-agent-",
+			name: "no asset for this platform", want: "has no fyr-",
 			gh: true,
 			prepare: func(t *testing.T, r release) {
 				if err := os.Remove(filepath.Join(r.assets, asset)); err != nil {
@@ -238,18 +238,18 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 		{
 			// The asset changes AFTER the checksums were written: only the hash
 			// catches it.
-			name: "binary does not match its checksum", want: "checksum mismatch for sh-agent-",
+			name: "binary does not match its checksum", want: "checksum mismatch for fyr-",
 			gh: true,
 			prepare: func(t *testing.T, r release) {
 				writeFile(t, filepath.Join(r.assets, asset), "#!/bin/sh\necho not the binary that was listed\n")
 			},
 		},
 		{
-			name: "SHA256SUMS altered", want: "checksum mismatch for sh-agent-",
+			name: "SHA256SUMS altered", want: "checksum mismatch for fyr-",
 			gh: true,
 			prepare: func(t *testing.T, r release) {
 				writeFile(t, filepath.Join(r.assets, "SHA256SUMS"),
-					"# styrman-harness "+r.tag+"\n"+strings.Repeat("0", 64)+"  "+asset+"\n")
+					"# fyr "+r.tag+"\n"+strings.Repeat("0", 64)+"  "+asset+"\n")
 			},
 		},
 		{
@@ -269,6 +269,20 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 				}
 				sum := sha256.Sum256(data)
 				writeFile(t, filepath.Join(r.assets, "SHA256SUMS"), hex.EncodeToString(sum[:])+"  "+asset+"\n")
+			},
+		},
+		{
+			// One marker since v3.0.0 (plan fyr D5a): the name before the
+			// rename is no release this binary takes.
+			name: "checksums under the old marker", want: "names no release version",
+			gh: true,
+			prepare: func(t *testing.T, r release) {
+				data, err := os.ReadFile(filepath.Join(r.assets, asset))
+				if err != nil {
+					t.Fatal(err)
+				}
+				sum := sha256.Sum256(data)
+				writeFile(t, filepath.Join(r.assets, "SHA256SUMS"), "# styrman-harness "+r.tag+"\n"+hex.EncodeToString(sum[:])+"  "+asset+"\n")
 			},
 		},
 		{
@@ -318,12 +332,37 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 	}
 }
 
+// The names a v3.0.0 release publishes and a release binary fetches: one
+// asset set, one repository (plan fyr D5a, Interfaces § The crossing).
+func TestReleaseNames(t *testing.T) {
+	if got := AssetName("linux", "amd64"); got != "fyr-linux-amd64" {
+		t.Errorf("AssetName = %s, want fyr-linux-amd64", got)
+	}
+	if ReleaseRepo != "github.com/kesokaj/fyr" {
+		t.Errorf("ReleaseRepo = %s, want github.com/kesokaj/fyr", ReleaseRepo)
+	}
+	for sums, want := range map[string]string{
+		"# fyr v3.0.0\n":             "v3.0.0",
+		"#fyr v3.0.0 \n":             "v3.0.0",
+		"# styrman-harness v3.0.0\n": "",
+		"# fyrx v3.0.0\n":            "",
+	} {
+		got := ""
+		if m := sumsVersionMarker.FindStringSubmatch(sums); m != nil {
+			got = m[1]
+		}
+		if got != want {
+			t.Errorf("marker of %q = %q, want %q", sums, got, want)
+		}
+	}
+}
+
 func TestChecksumFor(t *testing.T) {
-	sums := "# styrman-harness v1.2.3\n" +
-		strings.Repeat("a", 64) + "  sh-agent-linux-amd64\n" +
-		strings.Repeat("B", 64) + " *sh-agent-darwin-arm64\n" +
+	sums := "# fyr v1.2.3\n" +
+		strings.Repeat("a", 64) + "  fyr-linux-amd64\n" +
+		strings.Repeat("B", 64) + " *fyr-darwin-arm64\n" +
 		"not-a-line\n" +
-		"deadbeef  sh-agent-linux-arm64\n" +
+		"deadbeef  fyr-linux-arm64\n" +
 		strings.Repeat("c", 64) + "  twice\n" +
 		strings.Repeat("d", 64) + "  twice\n" +
 		strings.Repeat("e", 64) + "  same\n" +
@@ -331,12 +370,12 @@ func TestChecksumFor(t *testing.T) {
 	for _, tc := range []struct {
 		name, want, wantErr string
 	}{
-		{name: "sh-agent-linux-amd64", want: strings.Repeat("a", 64)},
+		{name: "fyr-linux-amd64", want: strings.Repeat("a", 64)},
 		// A binary-mode '*' and an upper-case hash are both sha256sum's own
 		// spellings.
-		{name: "sh-agent-darwin-arm64", want: strings.Repeat("b", 64)},
-		{name: "sh-agent-linux-arm64", wantErr: "does not carry a SHA-256"},
-		{name: "sh-agent-windows-amd64", wantErr: "no line names"},
+		{name: "fyr-darwin-arm64", want: strings.Repeat("b", 64)},
+		{name: "fyr-linux-arm64", wantErr: "does not carry a SHA-256"},
+		{name: "fyr-windows-amd64", wantErr: "no line names"},
 		// A file that says two things about one name is a reason to stop, not
 		// to take the first.
 		{name: "twice", wantErr: "two different hashes"},
@@ -503,7 +542,7 @@ func TestUpdateFromReleasePinsTheHost(t *testing.T) {
 		t.Fatalf("gh was called %d times, want view and download:\n%s", len(calls), data)
 	}
 	for _, c := range calls {
-		if !strings.Contains(c, "--repo github.com/kesokaj/styrman-harness") {
+		if !strings.Contains(c, "--repo github.com/kesokaj/fyr") {
 			t.Errorf("a gh call does not pin the host: %s", c)
 		}
 	}

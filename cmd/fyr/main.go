@@ -73,6 +73,11 @@ Flags accepted by every command:
   --home DIR        install under DIR instead of $HOME (for testing)
 `
 
+// stderr is where a read-only verb names the state directory from before the
+// rename: its stdout is data (render, list, metrics show --json); a test
+// replaces it.
+var stderr io.Writer = os.Stderr
+
 // version is set by a release build, -ldflags "-X main.version=vX.Y.Z"; empty
 // otherwise, and buildVersion reads the build info instead.
 var version string
@@ -284,9 +289,17 @@ func run(args []string, out io.Writer) error {
 			fmt.Fprintln(out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
 			return exitCode(2)
 		}
+		if err := c.migrateStateDir(); err != nil {
+			return err
+		}
 		return updateFromZip(c.fromZip, c.home, c.dryRun, out)
 	}
 
+	// Before the source is resolved: it falls back to the last install's
+	// manifest, which a migration moves.
+	if err := c.migrateStateDir(); err != nil {
+		return err
+	}
 	if v.source {
 		src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
 		if err != nil {
@@ -295,6 +308,36 @@ func run(args []string, out io.Writer) error {
 		c.src = src
 	}
 	return v.run(c)
+}
+
+// writesState reports whether this invocation writes under the state
+// directory, and so moves the old one first (plan fyr D13). A dry run, a
+// --check and a verb or subcommand that only reads answer false.
+func (c *ctx) writesState() bool {
+	switch c.cmd {
+	case "install", "sync", "uninstall", "adopt", "index", "search", "dream":
+		return !c.dryRun
+	case "update":
+		return !c.dryRun && !c.check
+	case "memory":
+		return c.fs.Arg(0) == "add"
+	case "metrics":
+		return c.fs.Arg(0) == "ingest"
+	}
+	return false
+}
+
+// migrateStateDir moves ~/.config/sh-agent to ~/.config/fyr for a verb that
+// writes there, and names it on stderr for one that only reads, which reads
+// nothing from it.
+func (c *ctx) migrateStateDir() error {
+	if c.writesState() {
+		return harness.MigrateStateDir(c.home, c.out)
+	}
+	if notice := harness.StateDirNotice(c.home); notice != "" {
+		fmt.Fprintln(stderr, "fyr: "+notice)
+	}
+	return nil
 }
 
 // hasFlag reports whether args carry the named flag, as `-name`, `--name`,
@@ -776,6 +819,21 @@ func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) e
 	}
 	if err := harness.Install(src, home, files, dryRun, out); err != nil {
 		return err
+	}
+	// After the binary is written: the fyr-dream unit runs it. The PATH is the
+	// installing shell's, as --install-timer's is.
+	old, err := dream.ReplaceOldTimer(home, os.Getenv("PATH"), runtime.GOOS, dryRun)
+	switch {
+	case err != nil:
+		return err
+	case old != "" && dryRun:
+		fmt.Fprintf(out, "[dry-run] the dream timer %s would be replaced by its fyr name\n", old)
+	case old != "":
+		unit, plist := dream.UnitFor(home)
+		if runtime.GOOS == "darwin" {
+			unit = plist
+		}
+		fmt.Fprintf(out, "replaced the dream timer %s with %s\n", old, unit)
 	}
 	// A dry run wrote no binary, so no statement about how PATH reaches it is
 	// true.

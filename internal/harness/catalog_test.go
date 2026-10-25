@@ -1798,6 +1798,33 @@ func TestKitPreambleAssertsCommit(t *testing.T) {
 			t.Errorf("a run that writes the real config (%s): want exit 1 and the kit's FAIL line, got exit %d\n%s", name, code, out)
 		}
 	}
+	// The old state directory too, until every place has crossed (plan fyr
+	// D29): a run that creates it, writes in it or moves it to the new name
+	// fails the kit.
+	old := filepath.Join(home, OldStateDir)
+	if code, out := runThen("", `mkdir -p "$HOME/.config/sh-agent"`); code != 1 || !strings.Contains(out, "changed during the run") {
+		t.Errorf("a run that creates the real ~/.config/sh-agent: want exit 1 and the kit's FAIL line, got exit %d\n%s", code, out)
+	}
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "feedback.jsonl"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runThen("", ":"); code != 0 || !strings.Contains(out, "kit: real config unchanged") {
+		t.Errorf("a run that leaves both real state dirs alone: want exit 0, got %d\n%s", code, out)
+	}
+	for name, then := range map[string]string{
+		"an appended line": `printf '{}\n' >> "$HOME/.config/sh-agent/feedback.jsonl"`,
+		"a new file":       `: > "$HOME/.config/sh-agent/state.json"`,
+	} {
+		if code, out := runThen("", then); code != 1 || !strings.Contains(out, "changed during the run") {
+			t.Errorf("a run that writes the real ~/.config/sh-agent (%s): want exit 1 and the kit's FAIL line, got exit %d\n%s", name, code, out)
+		}
+	}
+	if err := os.RemoveAll(old); err != nil {
+		t.Fatal(err)
+	}
 	// The same when ~/.config/fyr is a symlink to a directory (a
 	// dotfiles setup): `find` without -H stops at the link, and the
 	// fingerprint was one constant line.

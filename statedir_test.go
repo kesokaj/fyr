@@ -15,7 +15,7 @@ import (
 // touched every path into it, and one literal missed would split a machine's
 // state across two directories without a word (plan fyr D22). A string
 // literal naming the directory, old name or new, anywhere in the Go tree but
-// the constant's own line fails here, tests included.
+// the lines of StateDir and OldStateDir fails here, tests included.
 func TestStateDirHasOneHome(t *testing.T) {
 	if harness.StateDir != ".config/fyr" {
 		t.Errorf("StateDir = %q, want .config/fyr", harness.StateDir)
@@ -53,7 +53,9 @@ func TestStateDirHasOneHome(t *testing.T) {
 			return err
 		}
 		for i, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "StateDir = ") || strings.HasPrefix(strings.TrimSpace(line), "const StateDir = ") {
+			// The two constants' own lines; OldStateDir is the name the
+			// migration moves from (plan fyr D13).
+			if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "StateDir = ") || strings.HasPrefix(trimmed, "const StateDir = ") || strings.HasPrefix(trimmed, "const OldStateDir = ") {
 				continue
 			}
 			for _, n := range needles {

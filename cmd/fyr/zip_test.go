@@ -628,7 +628,7 @@ func TestUpdateFromZipWrongChecksumRefused(t *testing.T) {
 	isolate(t)
 	zp := markedZip(t)
 	dir := filepath.Dir(zp)
-	sums := "# styrman-harness v9.9.9\n" + strings.Repeat("0", 64) + "  " + filepath.Base(zp) + "\n"
+	sums := "# fyr v9.9.9\n" + strings.Repeat("0", 64) + "  " + filepath.Base(zp) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte(sums), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +689,7 @@ func TestUpdateFromZipVerifiedAndTampered(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	src := markedZip(t)
 	dir := t.TempDir()
-	zp := filepath.Join(dir, "styrman-harness-v1.2.3.zip")
+	zp := filepath.Join(dir, "fyr-v1.2.3.zip")
 	data, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatal(err)
@@ -698,7 +698,7 @@ func TestUpdateFromZipVerifiedAndTampered(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(data)
-	if err := os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte("# styrman-harness v1.2.3\n"+hex.EncodeToString(sum[:])+"  styrman-harness-v1.2.3.zip\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte("# fyr v1.2.3\n"+hex.EncodeToString(sum[:])+"  fyr-v1.2.3.zip\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer

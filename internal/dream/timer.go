@@ -22,8 +22,14 @@ import (
 )
 
 const (
-	unitName  = "sh-agent-dream"
-	plistName = "com.styrman.sh-agent-dream"
+	unitName  = "fyr-dream"
+	plistName = "com.fyr.dream"
+	// The names before the rename (plan fyr D13): install replaces this
+	// home's unit under them (ReplaceOldTimer), and their bare form under a
+	// home that is not the real one is what v2.0.0 or earlier wrote there
+	// (LegacyTimerFiles).
+	oldUnitName  = "sh-agent-dream"
+	oldPlistName = "com.styrman.sh-agent-dream"
 )
 
 // userHomeDir is the real home; a test seam, since the tests' homes are
@@ -60,21 +66,29 @@ var lookupAccount = func() (*user.User, error) { return user.LookupId(strconv.It
 // hash of its path, so a scratch `--install-timer`, `--remove-timer` or
 // `uninstall` never touches the operator's own timer through the shared user
 // service manager (R6; security review of the v2.0.0 gate).
-func UnitFor(home string) (unit, plist string) {
+func UnitFor(home string) (unit, plist string) { return namesFor(home, unitName, plistName) }
+
+// oldUnitFor is UnitFor under the names before the rename, with the same
+// per-home suffix: what v2.0.1 to v2.7.0 installed for this home.
+func oldUnitFor(home string) (unit, plist string) {
+	return namesFor(home, oldUnitName, oldPlistName)
+}
+
+func namesFor(home, unit, plist string) (string, string) {
 	if real, err := userHomeDir(); err == nil {
 		if filepath.Clean(real) == filepath.Clean(home) {
-			return unitName, plistName
+			return unit, plist
 		}
 		// A symlinked spelling of the real home is the real home (review 2026-10-01).
 		if ri, err := os.Stat(real); err == nil {
 			if hi, err := os.Stat(home); err == nil && os.SameFile(ri, hi) {
-				return unitName, plistName
+				return unit, plist
 			}
 		}
 	}
 	sum := sha256.Sum256([]byte(filepath.Clean(home)))
 	suffix := "-" + hex.EncodeToString(sum[:4])
-	return unitName + suffix, plistName + suffix
+	return unit + suffix, plist + suffix
 }
 
 func linuxServicePath(home string) string {
@@ -230,31 +244,49 @@ func absolutePath(path string) string {
 // reports whether there was one: absent is fine, but the caller says which
 // it was (a removal that found nothing once printed "removed").
 func RemoveTimer(home, goos string) (bool, error) {
-	unit, _ := UnitFor(home)
-	var files []string
-	var manager string
-	var stop [][]string
+	unit, plist := UnitFor(home)
+	u, ok := unitOn(home, goos, unit, plist)
+	if !ok || !u.present() {
+		return false, nil
+	}
+	return true, u.remove()
+}
+
+// timerUnit is one home's unit on one system under one name: its files, its
+// service manager and the calls that stop it.
+type timerUnit struct {
+	files   []string
+	manager string
+	stop    [][]string
+}
+
+func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
 	switch goos {
 	case "linux":
-		files = []string{linuxTimerPath(home), linuxServicePath(home)}
-		manager = "systemctl"
-		stop = [][]string{{"--user", "disable", "--now", unit + ".timer"}, {"--user", "daemon-reload"}}
+		dir := filepath.Join(home, ".config", "systemd", "user")
+		return timerUnit{
+			files:   []string{filepath.Join(dir, unit+".timer"), filepath.Join(dir, unit+".service")},
+			manager: "systemctl",
+			stop:    [][]string{{"--user", "disable", "--now", unit + ".timer"}, {"--user", "daemon-reload"}},
+		}, true
 	case "darwin":
-		files = []string{macPlistPath(home)}
-		manager = "launchctl"
-		stop = [][]string{{"bootout", "gui/" + strconv.Itoa(os.Getuid()), macPlistPath(home)}}
-	default:
-		return false, nil
+		p := filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
+		return timerUnit{files: []string{p}, manager: "launchctl", stop: [][]string{{"bootout", "gui/" + strconv.Itoa(os.Getuid()), p}}}, true
 	}
-	present := false
-	for _, p := range files {
+	return timerUnit{}, false
+}
+
+func (u timerUnit) present() bool {
+	for _, p := range u.files {
 		if _, err := os.Lstat(p); err == nil {
-			present = true
+			return true
 		}
 	}
-	if !present {
-		return false, nil
-	}
+	return false
+}
+
+func (u timerUnit) remove() error {
+	manager, files, stop := u.manager, u.files, u.stop
 	if _, err := exec.LookPath(manager); err == nil {
 		// The first stop call may fail when the unit was never loaded; the
 		// files are still removed, and the reload runs after.
@@ -262,7 +294,7 @@ func RemoveTimer(home, goos string) (bool, error) {
 	}
 	for _, p := range files {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return false, &ExitError{2, "fyr dream --remove-timer: " + err.Error()}
+			return &ExitError{2, "fyr dream --remove-timer: " + err.Error()}
 		}
 	}
 	if len(stop) > 1 {
@@ -270,7 +302,33 @@ func RemoveTimer(home, goos string) (bool, error) {
 			exec.Command(manager, stop[1]...).Run()
 		}
 	}
-	return true, nil
+	return nil
+}
+
+// ReplaceOldTimer is install's half of the rename for the dream timer: when
+// this home has its unit under the old name, the fyr unit is installed with
+// path first, and only then is the old one stopped and removed, so a refused
+// install keeps the old timer as it was. It returns the old unit's name, ""
+// when there is none; a dry run finds it and changes nothing. A bare old
+// name under a home that is not the real one is not this home's
+// (LegacyTimerFiles) and is never touched here.
+func ReplaceOldTimer(home, path, goos string, dryRun bool) (string, error) {
+	unit, plist := oldUnitFor(home)
+	old, ok := unitOn(home, goos, unit, plist)
+	if !ok || !old.present() {
+		return "", nil
+	}
+	name := unit
+	if goos == "darwin" {
+		name = plist
+	}
+	if dryRun {
+		return name, nil
+	}
+	if err := InstallTimer(home, path, goos); err != nil {
+		return name, fmt.Errorf("the dream timer %s was kept, because its fyr replacement was refused: %w", name, err)
+	}
+	return name, old.remove()
 }
 
 // OtherSystemTimerFiles lists this home's unit files that belong to the
@@ -331,12 +389,14 @@ func LegacyTimerFiles(home string) []string {
 	if unit, _ := UnitFor(home); unit == unitName {
 		return nil
 	}
+	// The bare names v2.0.0 or earlier wrote: no release has written a bare
+	// fyr name under a home that is not the real one.
 	real, realErr := userHomeDir()
 	var found []string
 	for _, rel := range []string{
-		filepath.Join(".config", "systemd", "user", unitName+".service"),
-		filepath.Join(".config", "systemd", "user", unitName+".timer"),
-		filepath.Join("Library", "LaunchAgents", plistName+".plist"),
+		filepath.Join(".config", "systemd", "user", oldUnitName+".service"),
+		filepath.Join(".config", "systemd", "user", oldUnitName+".timer"),
+		filepath.Join("Library", "LaunchAgents", oldPlistName+".plist"),
 	} {
 		p := filepath.Join(home, rel)
 		if _, err := os.Lstat(p); err != nil {
@@ -376,12 +436,12 @@ func LegacyTimerNotice(home, goos string) string {
 	b.WriteString("They are not removed or stopped here: a stop by name ends whichever unit the service manager loaded, which may be another home's.\n")
 	if goos == "darwin" {
 		uid := strconv.Itoa(os.Getuid())
-		fmt.Fprintf(&b, "Check which file is loaded: launchctl print gui/%s/%s (its path line)\n", uid, plistName)
+		fmt.Fprintf(&b, "Check which file is loaded: launchctl print gui/%s/%s (its path line)\n", uid, oldPlistName)
 		fmt.Fprintf(&b, "If it is one of the files above: launchctl bootout gui/%s <that plist>\n", uid)
 		b.WriteString("Then delete the files above.\n")
 	} else {
-		fmt.Fprintf(&b, "Check which file is loaded: systemctl --user show -p FragmentPath %s.timer\n", unitName)
-		fmt.Fprintf(&b, "If it is one of the files above: systemctl --user disable --now %s.timer\n", unitName)
+		fmt.Fprintf(&b, "Check which file is loaded: systemctl --user show -p FragmentPath %s.timer\n", oldUnitName)
+		fmt.Fprintf(&b, "If it is one of the files above: systemctl --user disable --now %s.timer\n", oldUnitName)
 		b.WriteString("Then delete the files above and run: systemctl --user daemon-reload\n")
 	}
 	fmt.Fprintf(&b, "If this home should keep a nightly timer, install it again afterwards: fyr dream --install-timer --home %s", shellQuote(home))

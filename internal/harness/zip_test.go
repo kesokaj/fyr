@@ -418,9 +418,9 @@ func TestSecretShapedCLITokenFiles(t *testing.T) {
 func releaseZipDir(t *testing.T, tag string) (dir, zipPath string) {
 	t.Helper()
 	dir = t.TempDir()
-	name := "styrman-harness-" + tag + ".zip"
+	name := "fyr-" + tag + ".zip"
 	zipPath = filepath.Join(dir, name)
-	writeZip(t, zipPath, harnessEntries(t, "styrman-harness-"+tag+"/"))
+	writeZip(t, zipPath, harnessEntries(t, "fyr-"+tag+"/"))
 	writeSums(t, dir, name, tag)
 	return dir, zipPath
 }
@@ -466,8 +466,8 @@ func TestVerifyZipSums(t *testing.T) {
 	})
 	t.Run("stale sums of another release", func(t *testing.T) {
 		dir, _ := releaseZipDir(t, "v1.2.3")
-		newer := filepath.Join(dir, "styrman-harness-v1.3.0.zip")
-		writeZip(t, newer, harnessEntries(t, "styrman-harness-v1.3.0/"))
+		newer := filepath.Join(dir, "fyr-v1.3.0.zip")
+		writeZip(t, newer, harnessEntries(t, "fyr-v1.3.0/"))
 		_, err := VerifyZipSums(newer, zipSum(t, newer))
 		if err == nil || !strings.Contains(err.Error(), "v1.2.3") || !strings.Contains(err.Error(), "its own release") {
 			t.Errorf("err = %v, want it to say the sums are v1.2.3's and to pair the zip with its own release's", err)
@@ -520,7 +520,7 @@ func TestVerifyZipSums(t *testing.T) {
 	})
 	t.Run("renamed zip", func(t *testing.T) {
 		dir, zp := releaseZipDir(t, "v1.2.3")
-		renamed := filepath.Join(dir, "styrman-harness-v1.2.3 (1).zip")
+		renamed := filepath.Join(dir, "fyr-v1.2.3 (1).zip")
 		if err := os.Rename(zp, renamed); err != nil {
 			t.Fatal(err)
 		}
@@ -533,18 +533,18 @@ func TestVerifyZipSums(t *testing.T) {
 	// checksum mismatch, so both refusals name the file the release published.
 	t.Run("github source archive", func(t *testing.T) {
 		dir, _ := releaseZipDir(t, "v1.2.3")
-		src := filepath.Join(dir, "styrman-harness-1.2.3.zip")
-		writeZip(t, src, harnessEntries(t, "styrman-harness-1.2.3/"))
+		src := filepath.Join(dir, "fyr-1.2.3.zip")
+		writeZip(t, src, harnessEntries(t, "fyr-1.2.3/"))
 		_, err := VerifyZipSums(src, zipSum(t, src))
-		if err == nil || !strings.Contains(err.Error(), "publishes styrman-harness-v1.2.3.zip") {
+		if err == nil || !strings.Contains(err.Error(), "publishes fyr-v1.2.3.zip") {
 			t.Errorf("err = %v, want it to name the zip the release publishes", err)
 		}
-		renamed := filepath.Join(dir, "styrman-harness-v1.2.3.zip")
+		renamed := filepath.Join(dir, "fyr-v1.2.3.zip")
 		if err := os.Rename(src, renamed); err != nil {
 			t.Fatal(err)
 		}
 		_, err = VerifyZipSums(renamed, zipSum(t, renamed))
-		if err == nil || !strings.Contains(err.Error(), "checksum mismatch") || !strings.Contains(err.Error(), "download styrman-harness-v1.2.3.zip from the release's assets") {
+		if err == nil || !strings.Contains(err.Error(), "checksum mismatch") || !strings.Contains(err.Error(), "download fyr-v1.2.3.zip from the release's assets") {
 			t.Errorf("err = %v, want a mismatch that names the release's own zip", err)
 		}
 		if err != nil && strings.Contains(strings.ToLower(err.Error()), "unverified") {
