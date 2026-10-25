@@ -108,9 +108,9 @@ func TestSkillLinksResolve(t *testing.T) {
 	}
 }
 
-// forkSkills reads VENDORED.md's second table (the forks kept under their upstream
-// names, headed "Publisher / author"): their SKILL.md is the harness's own text and
-// is link-checked; their references/ and assets/ are not.
+// forkSkills reads VENDORED.md's second table (the forks, under their upstream names
+// or a new one, headed "Publisher / author"): their SKILL.md is the harness's own text
+// and is link-checked; their references/ and assets/ are not.
 func forkSkills(t *testing.T, repo string) map[string]bool {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(repo, "skills", "VENDORED.md"))

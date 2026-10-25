@@ -20,7 +20,7 @@ Quick-reference for configuring `gcloud` CLI authentication and project settings
 | Problem | Fix |
 |---------|-----|
 | ADC not found | `gcloud auth application-default login` |
-| Project not set | `gcloud config set project PROJECT_ID` |
+| Project not set | Pass `--project PROJECT_ID` on the command, the ID from the project's `docs/deploy/gcp.md`; a default project is only for the one-person setup below |
 | Permission denied (403 with an account listed) | `gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' --filter='bindings.members:ACCOUNT' --format='value(bindings.role)'` shows the roles the account holds; compare with the role the call needs |
 | Token expired | `gcloud auth application-default login` (re-run) |
 | Quota exceeded | `gcloud compute project-info describe --project PROJECT_ID --format='yaml(quotas)'` for Compute quotas; other APIs: `gcloud services quota list --service=SERVICE.googleapis.com --consumer=projects/PROJECT_ID` (check `--help` for the exact verb on the installed version) |
@@ -39,10 +39,21 @@ Linux (Debian/Ubuntu), the apt package — a root step under the standing-permis
 (`context/dev-setup.md`), otherwise handed back with these exact commands:
 
 ```bash
-curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+curl -fsSLo cloud-google.asc https://packages.cloud.google.com/apt/doc/apt-key.gpg   # the key URL on Google's install page
+gpg --show-keys cloud-google.asc     # prints the fingerprint and the uid: read them before going on
+sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg cloud-google.asc
 echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
 sudo apt-get update && sudo apt-get install google-cloud-cli
 ```
+
+The key is fetched to a file and read before it reaches a root-owned keyring, never piped
+straight into `sudo`. Take the key URL from Google's install page
+(https://cloud.google.com/sdk/docs/install-sdk, the "Import the Google Cloud public key" step)
+at the time you run it, not from this file. Compare the fingerprint `gpg --show-keys` prints
+with the one that page shows; where the page shows none, compare it with
+`gpg --show-keys /usr/share/keyrings/cloud.google.gpg` on a machine that already trusts the
+key, and stop when they differ. No fingerprint is written here, because Google rotates the key
+and a copy here would go stale.
 
 The component manager is disabled in the apt package: extras are apt packages
 (`google-cloud-cli-kubectl`, …), not `gcloud components install`. The no-root path is the
@@ -59,18 +70,34 @@ gcloud auth login
 gcloud auth application-default login
 ```
 
-### 3. Set Default Project
+### 3. Pass the project on every command
 
 ```bash
 # List available projects
 gcloud projects list
 
-# Set default project
-gcloud config set project YOUR_PROJECT_ID
-
-# Verify
-gcloud config get project
+# Every command names its project (and its region, where it takes one)
+gcloud run services list --project "$PROJECT_ID" --region "$REGION"
 ```
+
+`--project` on each command is the rule, the same one the `google-catalog` router gives. The
+project ID comes from the project's `docs/deploy/gcp.md`, or from the operator when that file
+does not exist yet. A default in `gcloud config` is machine-wide state in `~/.config/gcloud`.
+Every shell and every agent session on the machine shares it, so a command that leans on it
+can act on whichever project was set last.
+
+**One-person interactive setup, and only that.** On your own machine, typing in your own
+terminal, a default project saves typing. The agent never runs these, and never relies on
+them in place of `--project`:
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+gcloud config set compute/region "$REGION"      # e.g. europe-north1 — ask, do not guess
+gcloud config get project                       # verify
+```
+
+Named configurations (`gcloud config configurations create|activate|list`) are the same
+machine-wide state, one set per name, and fall under the same rule.
 
 ### 4. Verify Setup
 
@@ -78,39 +105,15 @@ gcloud config get project
 # Check authenticated accounts (* = active)
 gcloud auth list
 
-# Check current project
-gcloud config get project
-
-# Test API access
-gcloud services list --enabled --limit=5
+# Test API access, on the project named
+gcloud services list --enabled --limit=5 --project "$PROJECT_ID"
 ```
 
 ## Common Configurations
 
-### Set Default Region/Zone
+### Region and zone
 
-The region is the operator's to give, never assumed and never carried over from another project (`context/dev-setup.md`); a project records its own in `docs/deploy/gcp.md`.
-
-```bash
-gcloud config set compute/region "$REGION"      # e.g. europe-north1 — ask, do not guess
-gcloud config set compute/zone "$REGION-a"
-```
-
-### Multiple Configurations (Named Profiles)
-
-```bash
-# Create a named config for a different project
-gcloud config configurations create my-staging
-gcloud config set project staging-project-id
-gcloud config set compute/region europe-west1
-
-# Switch between configs
-gcloud config configurations activate default
-gcloud config configurations activate my-staging
-
-# List all configs
-gcloud config configurations list
-```
+The region is the operator's to give, never assumed and never carried over from another project (`context/dev-setup.md`); a project records its own in `docs/deploy/gcp.md`. Pass it per command, like the project: `--region "$REGION"` (Cloud Run, Artifact Registry), `--zone "$REGION-a"` (Compute Engine). A default region in `gcloud config` falls under the one-person rule above.
 
 ### Artifact Registry Authentication
 

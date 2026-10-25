@@ -1,6 +1,6 @@
 # tsconfig for a TanStack Start app that ships to plain V8
 
-Reference file for the typescript skill. Copy-paste shapes, verified on 2026-10-01 with TypeScript 7.0.2 (`tsc -b` exit 0 on a TanStack Start 1.168 + Vite 8.3 app under Node 22.21).
+Reference file for the typescript skill. Copy-paste shapes, verified on 2026-10-01 with TypeScript 7.0.2 (`tsc -b` exit 0 on a TanStack Start 1.168 + Vite 8.3 app under Node 22.21), and again on 2026-10-25 (TypeScript 7.0.2, TanStack Start 1.169, Vite 8.3.5, `node:24-alpine` with Node 24.22.1).
 
 ## The shape: one root, two projects
 

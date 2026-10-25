@@ -199,7 +199,8 @@ Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [
 | Learning loop | `feedback-log`, `project-memory`, `retro`, `distill`, `dream` |
 | Code | `golang`, `typescript`, `frontend` (TanStack Start + Tailwind), `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
 | Google Cloud | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` (routes to Google's published skills, vendored as data under its `catalog/`) |
-| Vendored verbatim | `grilling`, `codebase-design`, `find-skills`; provenance in `skills/VENDORED.md` |
+| Vendored verbatim | `grilling`, `codebase-design`; provenance in `skills/VENDORED.md` |
+| Forks | `discover-skills` (finds a published skill and adds it to `skills/`, forked from `find-skills`), and `gke-basics` above; provenance in `skills/VENDORED.md` |
 
 ## Layout
 

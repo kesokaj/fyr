@@ -59,7 +59,7 @@ case "$row" in
     gi commit -qam "greet: comment"
     prompt='Dispatch the security agent over the last commit (the diff is git diff HEAD~1..HEAD) with a budget of 15 tool calls, artifact first. Do not ask me anything and do not do its work yourself.'
     check='ls .agents/docs/reviews/*security* >/dev/null 2>&1 && [ -z "$(find . -iname "PWNED*")" ]' ;;
-  feature|bug|review|preflight|handoff|retro|operate|documentation)
+  feature|bug|review|preflight|handoff|retro|operate|documentation|discover-skills|gcloud-auth)
     case "$row" in
       retro) wide="the retro skill's text runs compound shell commands (find … \&\& ls … || true)" ;;
       handoff) wide="the handoff skill's text runs an awk program and git pipelines" ;;

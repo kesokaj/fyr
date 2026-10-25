@@ -60,10 +60,14 @@ export default defineConfig({
 ```
 
 No `app.config.ts`, no Nitro plugin or preset, no `nitro/vite` import: the Start plugin
-alone drives Vite. Built and type-checked on 2026-10-01 (`npm install` latest, Node 22.21):
-`@tanstack/react-start` 1.168.60, `@tanstack/react-router` 1.170.41, `vite` 8.3.1,
-`tailwindcss` + `@tailwindcss/vite` 4.3.3, `@vitejs/plugin-react` 6.1.1, React 19.3.0,
-TypeScript 7.0.2; tests: `vitest` 5, `@playwright/test` 1.63 (`typescript` skill § Tests).
+alone drives Vite. Built and type-checked (`npm run build`, exit 0) on 2026-10-25 on
+`node:24-alpine`, the image the Docker web stage uses (Node 24.22.1, npm 11.19.1), with
+`npm install` latest, every version read against the npm registry the same day:
+`@tanstack/react-start` 1.169.4, `@tanstack/react-router` 1.170.46, `vite` 8.3.5,
+`tailwindcss` + `@tailwindcss/vite` 4.3.3, `@vitejs/plugin-react` 6.1.2, React 19.3.1,
+TypeScript 7.0.2; tests installed, not run: `vitest` 5.0.5, `@playwright/test` 1.64.1
+(`typescript` skill § Tests). First recorded on 2026-10-01 under Node 22.21. These are dated
+readings, not pins: re-read them at the next frontend change.
 The SPA build writes `dist/client/_shell.html` (the prerendered root) plus `assets/`; the Go
 catch-all serves that shell for every non-API, non-asset path (or set
 `spa.prerender.outputPath: '/index.html'` to name it `index.html`).

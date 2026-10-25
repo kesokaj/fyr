@@ -153,7 +153,8 @@ driver's no-transaction marker, and never sits beside other statements.
 ## Local
 
 ```bash
-brew install cloud-sql-proxy                       # macOS; Linux: the release binary with its checksum, see below
+brew install cloud-sql-proxy                       # macOS; unpinned: brew installs the formula's current version (2.26.3 on 2026-10-25)
+cloud-sql-proxy --version                          # read the version brew gave you; Linux: the release binary with its checksum, see below
 cloud-sql-proxy --auto-iam-authn --port 5432 "${PROJECT}:${REGION}:${APP}-db"
 # the one-time grant (§ Roles step 1) and a person's SELECT grant run as the built-in `postgres` user instead:
 #   gcloud sql users set-password postgres --instance "${APP}-db" --prompt-for-password   # once, typed at the prompt
