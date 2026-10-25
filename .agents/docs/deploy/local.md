@@ -31,7 +31,7 @@ The normal way a checkout moves forward, run whenever the operator decides the h
 
 ## Update a release-binary install
 
-A place installed from a release binary (README § Install without cloning) has no checkout and nothing to build from, so `update` moves it to the newest RELEASE instead:
+A place installed from a release binary (README § Install without cloning) has no checkout and nothing to build from, so `update` moves it to the newest RELEASE instead (which place gets what from a tag: `specs/fyr/delivery.md` § The model):
 
 ```bash
 fyr update --check         # only reports; exit 2 when a newer release exists
@@ -76,7 +76,7 @@ fyr dream --remove-timer         # stop and remove it (uninstall does too)
 
 ## Configure
 
-Nothing to configure. The global flags are `--repo` and `--home`; `--vendor` is gone and any use of it is a usage error on every verb, exit 2 (`flag provided but not defined: -vendor`). The manifest still records `"vendor": "antigravity"`; an older value is read and ignored. `--repo DIR` overrides where the checkout is; `$SH_AGENT_REPO` does the same persistently. Without either, install and update discover the checkout by walking up from the working directory, then fall back to the path recorded at the last install; when that discovery finds a checkout OTHER than the one already on record — an unpacked copy, a second clone sitting in a harness-shaped directory — the build is refused rather than run and deployed: `"checkout %s is not the installed one (%s); pass --repo %s to build and install from it"`, or, on a release-binary install, `"this home was installed from the release binary %s, not from a checkout; pass --repo %s to build and install from it"`. `--home DIR` installs elsewhere and is what every development run uses (a scratch home under `.agents/scratch/`, never `/tmp`). From its own git checkout, `install` rebuilds the binary with `go build` first; the running binary is installed as is when `go` is missing (with a warning) or when the tree is a plain copy with no `.git` — an unpacked bundle (BUG-015).
+Nothing to configure. The global flags are `--repo` and `--home`; `--vendor` is gone and any use of it is a usage error on every verb, exit 2 (`flag provided but not defined: -vendor`). The manifest still records `"vendor": "antigravity"`; an older value is read and ignored. `--repo DIR` overrides where the checkout is; `$FYR_REPO` does the same persistently (an `SH_AGENT_*` variable is ignored, with a notice on stderr). Without either, install and update discover the checkout by walking up from the working directory, then fall back to the path recorded at the last install; when that discovery finds a checkout OTHER than the one already on record — an unpacked copy, a second clone sitting in a harness-shaped directory — the build is refused rather than run and deployed: `"checkout %s is not the installed one (%s); pass --repo %s to build and install from it"`, or, on a release-binary install, `"this home was installed from the release binary %s, not from a checkout; pass --repo %s to build and install from it"`. `--home DIR` installs elsewhere and is what every development run uses (a scratch home under `.agents/scratch/`, never `/tmp`). From its own git checkout, `install` rebuilds the binary with `go build` first; the running binary is installed as is when `go` is missing (with a warning) or when the tree is a plain copy with no `.git` — an unpacked bundle (BUG-015).
 
 ## Verify
 

@@ -56,7 +56,8 @@ func TestRenderedContextFitsAntigravityBlock(t *testing.T) {
 // found the context 94 bytes from that pin, so no rule could be added and no
 // rules/ file deployed (plan audit-fix, C1, D2b). Adherence tracks the number
 // of distinct instructions, not bytes, so the cut moved whole rules into the
-// skill or agent that acts on them. Goal 14,500; this test fails above 15,000.
+// skill or agent that acts on them. This test fails above 15,000, the only
+// ceiling for the hand-written part (plan 2026-10-25-harness-audit-fix D10).
 const renderedContextTargetBytes = 15000
 
 func TestRenderedContextUnderTarget(t *testing.T) {
@@ -81,7 +82,7 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 		written = written[:i]
 	}
 	if len(written) > renderedContextTargetBytes {
-		t.Fatalf("hand-written context is %d bytes, target %d (goal 14,500): move a whole rule into the skill or agent that acts on it, never shorten a sentence", len(written), renderedContextTargetBytes)
+		t.Fatalf("hand-written context is %d bytes, target %d: move a whole rule into the skill or agent that acts on it, never shorten a sentence", len(written), renderedContextTargetBytes)
 	}
 	t.Logf("hand-written context is %d bytes (render %d with the inventory), target %d", len(written), len(ctx), renderedContextTargetBytes)
 }

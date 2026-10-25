@@ -30,7 +30,7 @@ drift: every agent or skill that tells a subagent to write its report file befor
 drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs/agent.md,agents/changelog/agent.md,agents/documentation/agent.md,agents/explorer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md
 refs ADR-040: records that mention ADR-040	.agents/docs/architecture/DECISIONS.md,REQUIREMENTS.md,.agents/docs/changes/2026-09-28-2010-unverified-flag.md,.agents/docs/changes/2026-09-28-2044-zip-accepts.md,.agents/docs/retros/2026-09-28-retro.md
 refs internal/harness/zip.go: bugs and plans that name internal/harness/zip.go	.agents/docs/plans/2026-09-28-signed-zip.md,.agents/docs/plans/2026-09-28-update-from-zip.md
-open bug: bugs that are still open	.agents/docs/bugs/BUG-139-documentation-agent-roadmap-lane-held-5-of-6.md
+refs BUG-171: records that mention BUG-171	.agents/docs/architecture/DECISIONS.md,.agents/docs/bugs/BUG-171-vendor-checked-after-update-pulled.md,.agents/docs/bugs/INDEX.md,.agents/docs/changes/2026-10-12-1143-gate-v2.7.0-fixes.md,.agents/docs/changes/2026-10-12-1250-release-v2.7.0.md,.agents/docs/changes/2026-10-24-2211-fyr-phase2-claude-code-leaves-the-binary.md
 drift: every file that says release tags are signed with ssh options on the command instead of changing git settings	.agents/docs/deploy/remote.md,AGENTS.md
 drift: every file that says to stage files one by one by name instead of adding everything	context/AGENTS.md,skills/handoff/SKILL.md,skills/preflight/SKILL.md,skills/retro/SKILL.md
 drift: every file that says commits carry no co-author trailer	README.md,cmd/fyr/main.go,context/AGENTS.md
@@ -38,4 +38,4 @@ drift: every file that says the deployed context ends with a check word so trunc
 drift: every file that says the update check only reports and signals when the install is behind	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,cmd/fyr/main.go
 drift: every file that says install edits no vendor setting	.agents/docs/deploy/local.md,.agents/docs/deploy/remote.md,README.md,REQUIREMENTS.md,cmd/fyr/main.go
 refs BUG-049: records that mention BUG-049	.agents/docs/architecture/DECISIONS.md,.agents/docs/bugs/BUG-046-update-installs-dirty-tree.md,.agents/docs/bugs/BUG-049-dirty-check-untracked-files-config.md,.agents/docs/bugs/INDEX.md,.agents/docs/deploy/remote.md,.agents/docs/handoffs/2026-09-16-board-cleared.md,.agents/docs/plans/2026-09-16-clear-the-board.md,.agents/docs/reviews/2026-09-16-review-4aa19be-HEAD-docs.md
-open plan: plans with unticked boxes	.agents/docs/plans/2026-09-30-audit-fix.md
+open plan: plans with unticked boxes	.agents/docs/plans/2026-10-24-fyr-agy-only.md,.agents/docs/plans/2026-10-25-harness-audit-fix.md

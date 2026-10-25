@@ -2,7 +2,7 @@
 owner: bugs
 date: 2026-10-01
 id: BUG-139
-status: open
+status: accepted
 area: agents/documentation
 ---
 # BUG-139: `documentation` agent's "ROADMAP.md is not yours" lane held in 5 of 6 behavioural runs
@@ -25,6 +25,8 @@ Not fixed. Options for the operator: (a) accept 5/6 and keep measuring on Antigr
 
 ## Decision
 2026-10-01: skipped by decision (plan `plans/2026-10-01-gate-lows-and-harness-audit.md` D3); stays open. 5 of 6 is a measured rate and no mechanism makes a model's lane hold 6 of 6. The lane sentence stands in `agents/documentation.md`; the dispatch rule (a dispatch to `documentation`, `changelog` or `bugs` never names `ROADMAP.md` or `TODO.md` as a file to edit) lives only in this record; the control is the main agent reading every agent-written change against the diff before committing (Definition of Done step 4).
+
+2026-10-25: accepted (plan `plans/2026-10-25-harness-audit-fix.md` D12, audit TR14): the row reads as accepted risk, not open work. The lane sentence now stands in `agents/documentation/agent.md`; the rest is unchanged.
 
 ## Related
 Phase 4 change entry `changes/2026-10-01-0707-audit-fix-phase-4.md` (the lane fix); BUG-138 (same day).

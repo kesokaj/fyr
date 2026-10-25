@@ -2,6 +2,8 @@
 
 Append-only. To reverse a decision, append a new ADR and mark the old one `Superseded by ADR-NNN` — never rewrite it. The ADRs of the previous design (a hook-driven Go harness) were removed with it in commits 09fc5cc and 20a5abd; they remain readable in git history.
 
+Numbers are not in date order: ADR-049 sits before ADR-048, ADR-056a after ADR-057, and ADR-061 (2026-10-23) before ADR-060 (2026-10-24); ADR-059 was reserved and stays unused (ADR-062). The next ADR takes one past the highest number in this file.
+
 ## ADR-001: The harness is context, skills, and subagents — no hooks, no gates     (2026-09-03) — Accepted
 
 **Context:** The previous harness enforced its Definition of Done with lifecycle hooks, a commit gate, scope digests, and a dispatch ledger. It was reverted the same day it was finished: the machinery cost more attention than the rules it enforced were worth for a solo operator.
@@ -194,7 +196,7 @@ Append-only. To reverse a decision, append a new ADR and mark the old one `Super
 
 **Consequences:** `skills/preflight/SKILL.md` Step 4 loses the rebuttal carry-forward, and Step 5's blocking list loses its docs clause, so the gate keeps no state across runs for docs findings. A release can ship with a recorded docs gap; the task-time docs review is the docs gate. This supersedes ADR-023.
 
-## ADR-025: `install` writes Claude Code's attribution setting, the one vendor setting the harness touches     (2026-09-16) — Accepted
+## ADR-025: `install` writes Claude Code's attribution setting, the one vendor setting the harness touches     (2026-09-16) — Accepted — Superseded by ADR-062
 
 **Context:** BUG-039 — the context's Git rule forbids the `Co-Authored-By` trailer, yet three of three headless Claude Code commits carried it. The trailer is the CLI's own `attribution` setting, and prose cannot switch a vendor setting off. Since commit 7b8743f, `install` and `status` have printed an advisory note asking the operator to set `"attribution": {"commit": ""}` by hand. The operator asked the installer to write it instead (2026-09-16) and approved the one-sentence change to R4 that this requires.
 
@@ -246,7 +248,7 @@ Append-only. To reverse a decision, append a new ADR and mark the old one `Super
 
 **Consequences:** `REQUIREMENTS.md` gains R8, approved by the operator on 2026-09-17, which also reconciles R7 — the originals stay in `~/.config/sh-agent/`, and a copy leaving for the operator's own private index is not a second home for that state. The accepted downside is the operator's own: "if I don't login in with ssh or gh I can't get updates", with the unpacked bundle as the documented fallback. Versioned release bundles are a follow-up with their own plan, not this one; they would formalise the zip the operator already uses for major remodelling and can be built locally by the release gate with cross-compiles, so they need no CI, but they do not remove the credential requirement while the repository is private. The plan carries an open question, defaulting to private, on whether that should change. The design was cold-read three times and ended at the cap; twelve blocking findings, each verified against the code before acceptance, four of which changed the design.
 
-## ADR-031: The four procedures are set in stone — Install, Update, Report back, Release     (2026-09-17) — Accepted
+## ADR-031: The four procedures are set in stone — Install, Update, Report back, Release     (2026-09-17) — Accepted — amended by ADR-062 (R9 has three procedures; Report back left)
 
 **Context:** ADR-030 made `sh-agent` the only delivery channel. On 2026-09-17 the operator asked for a diagram of how the project works from a user's perspective; it was built as an interactive page (a private claude.ai artifact, outside this repository). Reviewing it, they asked for it in `README.md` and for strict rules, then said: "The Install, Update, Report back, Release needs to be set it stone. This is vital how you work with this project. If we follow this procedure this is rock solid." R9 was proposed as exact text and approved as written.
 
@@ -564,7 +566,7 @@ Append-only. To reverse a decision, append a new ADR and mark the old one `Super
 
 **Consequences.** A records-only change: nothing embedded moves, no path on the map moves, and the 22,000-byte pin stays the guard. It needs no release of its own; the v2.4.0 tag still goes on `caa37d6`.
 
-## ADR-052: Release signer rotated; the release key lives in an SSH agent, never at a default key path     (2026-10-05) — Accepted
+## ADR-052: Release signer rotated; the release key lives in an SSH agent, never at a default key path     (2026-10-05) — Accepted — Superseded by ADR-053
 
 **Context.** On 2026-10-05 the v2.4.0 tag could not be cut: the Linux box's `~/.ssh/id_ed25519`, which the procedure read, had been replaced by machine setup with an unrelated key. The release key's only copy was on dave, where it was ALSO dave's GitHub login key (`gh ssh-key list`: `dave`, id 161370382). The operator pasted its unencrypted private half into a Claude Code session, which put it in that session's transcript on disk and sent it to the model provider. No misuse is known; an exposed private key is rotated regardless. The operator chose rotation in their own turn ("1") and asked to be able to cut a release from any machine.
 
@@ -575,7 +577,7 @@ Append-only. To reverse a decision, append a new ADR and mark the old one `Super
 
 **Consequences.** A place still on v2.3.2 or older trusts the retired key until it updates, so every place should run `sh-agent update` soon after v2.4.0 lands. Manual verification of v2.4.0's download (README § Install without cloning) uses the retired key's line; later releases the new one. The `dave` GitHub login key must be removed and the retired private key deleted from dave and from this box's scratch copy. No path on the map moves (project AGENTS.md rule 3 does not apply); `TestReleaseSignerMatchesTheDeployGuide` pins code and guide together (mutation-checked: it fails with the old line in the code).
 
-## ADR-052a: The bridge's edges, and its steps in the procedure     (2026-10-05) — Accepted, amends ADR-052
+## ADR-052a: The bridge's edges, and its steps in the procedure     (2026-10-05) — Accepted, amends ADR-052 — Superseded by ADR-053
 
 **Context.** The code and docs reviews of ADR-052 (`reviews/2026-10-05-review-signer-rotation-code.md`, `reviews/2026-10-05-review-b549d71-a0a54b4-docs.md`) found that `deploy/remote.md` § Releases, run as written, would sign v2.4.0 with the new key, which no v2.3.2 place accepts; and that ADR-052 named only binary-only places. A zip place installs with its RUNNING binary, so a v2.3.2 binary refuses every zip signed by the new key; a binary-only place moves to the newest release only, so one that skips v2.4.0 is refused by the next.
 
@@ -715,7 +717,7 @@ The operator's own transcripts showed the same pattern: a release session with 2
 
 **Consequences.** An agent restricts itself with `tools:`, which both CLIs honour. A key comes back on the list only with a derivation that carries it to Antigravity, or a reason it needs none.
 
-## ADR-061: sh-agent is the second brain of both CLIs, consulted at named moments     (2026-10-23) — Accepted
+## ADR-061: sh-agent is the second brain of both CLIs, consulted at named moments     (2026-10-23) — Accepted — amended by ADR-062 (R0 names one CLI)
 **Context:** the binary had grown consult verbs (search, memory, metrics, dream; kickoff planned) and the context named the moments the CLIs call them, but README, the project AGENTS.md and REQUIREMENTS still described an installer. The operator stated the purpose on 2026-10-23: "The point with styrman-harness is to be the secondary brain for agy and claude. It should keep metrics, evals, skills, context, memory, dreaming, database etc. Claude and Agy should ask sh-agent for help if they need." ADR-058 to ADR-060 are reserved by the open plan `2026-10-23-session-sized-work.md`; this ADR takes the next free number.
 **Decision:** R0 records the purpose with two constraints: the brain grows in the binary and its specs, one clause per consult moment in the context (the hand-written context is at 14,929 of 15,000 bytes); and it is pull-only — "ask if they need" holds only as moments the context names, because a model cannot tell when it needs help and nothing runs between turns (R3). Evals are a later feature (ROADMAP Next); the two SQLite files are the database (R4), and no general store is added. The operator approved the R0 text verbatim on 2026-10-23 ("approved").
 **Consequences:** README line 3 and AGENTS.md § What this repo is each point at R0 in one sentence. A proposal to add a consult moment is judged against R0: a verb and a clause, not a context paragraph. Supersedes nothing.
@@ -730,7 +732,7 @@ The operator's own transcripts showed the same pattern: a release session with 2
 **Decision:** ADR-058 (3) is withdrawn: no `sh-agent` verb reads the handoff; the handoff skill's Step 7 gives the Kickoff block to paste and nothing else; the headless loop one-liner, the `agy -i` form and the prose fallback (plan D28, D29, D32, D33) go with it, and the plan's D3 ("no verb") stands again. `cmd/sh-agent/kickoff.go`, its tests, the verb-table entry, the `local` field and its global-flag refusal, the four usage rows, the README verbs row, the delivery spec's clause and the `sh-agent-matrix.md` row are removed in the one commit with this ADR; the skill-matrix `session-sizing` check reads the newest handoff's `## Kickoff` section with awk instead. ADR-058 (1), (2), (4) and (5) — the rule, the handoff's `## Kickoff`, the phase sizing and the context target — stand unchanged; the rule's text only loses the parenthesis that named the verb.
 **Consequences:** the verb was never in a tag, so no place loses a command and the README map is as it was (ADR-058 drew no line for it). The verb-table comment returns to its pre-ADR-058 wording; a later consult verb under R0 re-states the "draws no line" reading when it comes. The `/review --resume` lens and the rule's behavioural row still judge the Kickoff by reading the handoff, as the kit's `check.sh` now does.
 
-## ADR-060: `install` writes Claude Code's `autoCompactWindow`, the harness's auto-compact backstop     (2026-10-24) — Accepted
+## ADR-060: `install` writes Claude Code's `autoCompactWindow`, the harness's auto-compact backstop     (2026-10-24) — Accepted — Superseded by ADR-062
 
 **Context:** The session-sizing rule (ADR-058) ends a session at a structural boundary because the model cannot observe its own context; on this box 33 of 54 main Claude Code sessions since 2026-09-01 passed 300,000 tokens (plan `2026-10-23-session-sized-work.md`, Phase 2's metric). The operator declined to run the knobs by hand (2026-10-23: "I dont want to run compact myself. I want something in this harness to monitor this and trigger"). Hooks are refused (R3); no CLI accepts `/compact` or `/clear` from outside a session; a harness process watching transcripts could observe but never trigger. Claude Code's own compaction runs at the window its settings name: the top-level `autoCompactWindow` key (any settings file, 100,000 to 1,000,000 tokens), overridden for one model by the value `/autocompact` saves under `modelSettings` (v2.1.288 and later), by `--autocompact` for one launch, and by `CLAUDE_CODE_AUTO_COMPACT_WINDOW` over all of them (vendor docs, model-config § Set the auto-compact window, read 2026-10-24; the installed 2.1.310 binary carries both keys and the variable). Antigravity exposes no compaction control that was found (research-session-sizing, 2026-10-23).
 
