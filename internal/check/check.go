@@ -77,6 +77,7 @@ type checker struct {
 	topFiles map[string]bool
 	lines    map[string]int
 	links    map[string]bool
+	tests    map[string]bool // Go tests declared in tracked *_test.go, read once
 }
 
 // Run checks the checkout that holds dir against v. It writes nothing.
@@ -101,14 +102,24 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	if !ok {
 		rep.Notes = append(rep.Notes, "no .agents/trail.jsonl: records, specs not checked")
 	}
-	var living []brain.Record
+	var living, specs []brain.Record
 	for _, r := range recs {
 		if livingKinds[r.Kind] && r.Status == "current" {
 			living = append(living, r)
+			if r.Kind == "spec" {
+				specs = append(specs, r)
+			}
 		}
 	}
 	rep.Findings = k.docsRule(k.docsFiles(), living, v)
-	rep.Notes = append(rep.Notes, "rules (b) specs and (c) requirements are not built yet (plan Phase 2)")
+	if note := k.historyNote(); note != "" {
+		rep.Notes = append(rep.Notes, note)
+	} else {
+		rep.Findings = append(rep.Findings, k.specsRule(specs)...)
+	}
+	reqs, notes := k.requirementsRule(recs)
+	rep.Findings = append(rep.Findings, reqs...)
+	rep.Notes = append(rep.Notes, notes...)
 	sortFindings(rep.Findings)
 	return rep, nil
 }

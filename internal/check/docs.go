@@ -123,17 +123,8 @@ func (k *checker) pathCandidate(where string, c chunk) (candidate, bool) {
 		return candidate{}, false
 	}
 	cand := candidate{where: where, line: c.line, token: tok}
-	p := tok
-	if m := lineSuffixRe.FindStringSubmatch(tok); m != nil {
-		p = m[1]
-		cand.n, _ = strconv.Atoi(m[2])
-		if m[3] != "" {
-			cand.m, _ = strconv.Atoi(m[3])
-		}
-		cand.hasLine = true
-	}
-	p = strings.TrimPrefix(p, "./")
-	p = strings.TrimSuffix(p, "/")
+	p, n, m, hasLine := splitLine(tok)
+	cand.n, cand.m, cand.hasLine = n, m, hasLine
 	if p == "" || p == "." {
 		return candidate{}, false
 	}
@@ -146,6 +137,21 @@ func (k *checker) pathCandidate(where string, c chunk) (candidate, bool) {
 	}
 	cand.p = p
 	return cand, true
+}
+
+// splitLine parts a path token from the :N or :N-M it may end in, and
+// drops a leading ./ and a trailing /.
+func splitLine(tok string) (p string, n, m int, hasLine bool) {
+	p = tok
+	if sm := lineSuffixRe.FindStringSubmatch(tok); sm != nil {
+		p = sm[1]
+		n, _ = strconv.Atoi(sm[2])
+		if sm[3] != "" {
+			m, _ = strconv.Atoi(sm[3])
+		}
+		hasLine = true
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(p, "./"), "/"), n, m, hasLine
 }
 
 // checkPath gives a candidate's finding, or none (D19): existence through

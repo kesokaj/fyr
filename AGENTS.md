@@ -48,7 +48,7 @@ internal/search        `fyr search` and `index`: the SQLite index (one of the th
 internal/memory        `fyr memory add|show`: the project memory store every session uses (R10)
 internal/redact        the credential redactor (needles, key blocks) `fyr dream` runs on every input before its prompt leaves the machine; stdlib only
 internal/trail         the git reads every package makes into a project root (`trail.Command`, `Dates`, `Log`, `DocsRoot`) and the noindex marker names (`NoIndexMarkers`), shared by search, memory, dream, metrics and check so neither imports another; no SQLite
-internal/check         `fyr check`: the read-only drift check of a checkout's docs against the binary and the tree (ADR-064, spec SPEC-fyr-check); reads the trail through `brain.ReadTrail` and opens no store or SQLite database (it imports no driver itself)
+internal/check         `fyr check`: the read-only drift check of a checkout's docs, specs and requirements against the binary and the tree (ADR-064, spec SPEC-fyr-check); reads the trail through `brain.ReadTrail` and opens no store or SQLite database (it imports no driver itself)
 internal/dream         `fyr dream`: the background dreamer, its state, lock, log and nightly timer (R3's exception)
 internal/metrics       `fyr metrics`: the metrics store, ~/.config/fyr/metrics.db, a store of record of every session's shape (R4, ADR-055)
 internal/brain         `fyr record` and search's record hits: the brain store, ~/.config/fyr/brain.db, every project's trail records and the global ones, exported per project to .agents/trail.jsonl (R4, R7, ADR-063; spec SPEC-fyr-record)
