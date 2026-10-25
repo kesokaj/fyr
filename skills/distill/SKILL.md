@@ -147,11 +147,11 @@ After installation:
 
 **Docs root** (`<docs-root>`): `.agents/docs` if it exists, else `docs/` if it exists, else create `.agents/docs`. Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
 
-1. Write `<docs-root>/retros/<date>-distill-<name>.md` (same day, same name again: `-2`, `-3`; never overwrite) with frontmatter `owner: main`, `date:`, `session:` and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
+1. Write `<docs-root>/retros/<date>-distill-<name>.md` (same day, same name again: `-2`, `-3`; never overwrite) with frontmatter `owner: main`, `date:`, `session:` (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
 2. Append one compact JSON line to `~/.config/fyr/retros.jsonl` — the cross-project index the `retro` skill shares — with exactly one entry in `proposals`:
 
 ```json
-{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<id>","kind":"distill","record":"<absolute path of the record>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
+{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"distill","record":"<absolute path of the record>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
 ```
 
 `scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If `~/.config/fyr/` is denied, say so, print the `cat >> ~/.config/fyr/retros.jsonl <<'EOF' … EOF` command for the user, and continue.

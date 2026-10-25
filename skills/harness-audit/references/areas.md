@@ -25,8 +25,8 @@ One block per area. A dispatch carries the block of its area and nothing else fr
 
 ## AG — subagents and their dispatch
 
-- **Reads:** `agents/*.md`; `internal/harness/derive.go` (the tool map); every place a skill or the context dispatches an agent.
-- **Baseline:** none beyond Step 0's scratch-home install: the derived Antigravity definitions are in the baseline's scratch home under `.gemini/config/agents/<agent>/agent.md`.
+- **Reads:** `agents/*/agent.md`; `internal/harness/inventory.go` (`knownTools`, `agentKeys`: what an agent may name); every place a skill or the context dispatches an agent.
+- **Baseline:** none beyond Step 0's scratch-home install: the agents are installed as written (ADR-062), so the baseline's scratch home holds each one byte for byte under `.gemini/config/agents/<agent>/agent.md`.
 - **Counts:** each agent's `tools:` against what its body tells it to do (a "run" with no shell, a "write" with no Write); the lane rules that have a measured hold rate (n of N in `.agents/docs/testing/`) and those that are a sentence only.
 - **Asks:** Does each agent have one lane, stated, and does any other agent or the main thread share it? Does a definition say what the agent never does, and what its one artifact is? Is the artifact written first? Can an agent be told by its input to edit source, leave its lane, or trust a file's instructions? Do the dispatch prompts in the skills repeat the duties the agent must not skip?
 

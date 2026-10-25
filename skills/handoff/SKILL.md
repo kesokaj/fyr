@@ -23,7 +23,9 @@ Write a structured handoff document summarising the current conversation so a fr
 
 Cross-repo work gets its handoff in the project that owns the next step; there is no global handoff location.
 
-What a compaction must keep is the global context's `# Compact instructions` section; Antigravity reads it as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name is `date +%F-%H%M` run in the same tool call that writes the file, never typed. (Moved from the global context 2026-10-01; the compaction clause moved back under its heading on 2026-10-24, plan session-sized-work D26.)
+What a compaction must keep is the global context's `# Compact instructions` section; Antigravity reads it as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's file name comes from `date +%F-%H%M`, never memory; where the CLI refuses a joined command, run it alone and type its output.
+
+A print-mode run (`agy -p`) cannot end its turn to wait: the turn's end is the run's end, and a subagent or background command still running is cut off. Give a long shell command a large `WaitMsBeforeAsync` so it returns inside the turn; poll a dispatched subagent, or a command that went async, with `manage_subagents` or `manage_task` (`list`), `sleep 30` between polls, until each is idle and its artifact is on disk. A run that must end first names, in its output and in the handoff, each agent still running and its artifact path.
 
 ## Step 1: Scan the Session
 
@@ -33,7 +35,7 @@ Read the conversation transcript and identify:
 2. **What got done** — Completed changes, files modified, commands run
 3. **What's still open** — the active plan's first unticked box with its in-progress note, then its Follow-ups and `Open:` rows, then unfinished work, known issues, blocked items
 4. **Key decisions** — the active plan's `## Decisions` rows first, then architecture choices, trade-offs made, rejected alternatives from the transcript
-5. **Corrections** — Only what the user actually corrected, each backed by a `~/.config/fyr/feedback.jsonl` entry (quote the user's words and the entry's timestamp). Anything the agent inferred is not a correction: it goes under `## Agent notes (unverified)`, never into Corrections — the Resume Protocol gives the newest handoff the win on conflict (only an open plan that postdates it outranks it), so an inferred rule here silently outranks the global context
+5. **Corrections** — Only what the user actually corrected, each backed by a `~/.config/fyr/feedback.jsonl` entry (quote the user's words and the entry's timestamp). Anything the agent inferred is not a correction: it goes under `## Agent notes (unverified)`, never into Corrections — the global context's § Resume, then checkpoint gives the newest handoff the win on conflict (only an open plan that postdates it outranks it), so an inferred rule here silently outranks the global context
 6. **Environment state** — Running processes, branches checked out, pending commits, dirty working tree
 
 ## Step 2: Identify Relevant Artifacts
@@ -77,7 +79,8 @@ date: YYYY-MM-DD
 ---
 # Handoff — YYYY-MM-DD — <topic>
 
-Session ID: <conversation-id>        (same machine: `agy --conversation <id>`; matches the feedback log's session field)
+Session: <first 8 chars of the conversation id>   (the feedback log's `session` field)
+Conversation: <full conversation id>   (same machine: `agy --conversation <id>`)
 Project: <absolute path to project root — the only absolute path in the file>
 Branch: <current git branch>
 
@@ -155,16 +158,16 @@ Resolve the docs root first: `.agents/docs` if it exists, else `docs/` if it exi
 DOCS_ROOT=.agents/docs
 [ -d "$DOCS_ROOT" ] || { [ -d docs ] && DOCS_ROOT=docs; } || true
 mkdir -p "$DOCS_ROOT/handoffs"
-# Save as: $DOCS_ROOT/handoffs/$(date +%F-%H%M)-<topic>.md — the stamp is run in the same call that writes the file
+# Save as: $DOCS_ROOT/handoffs/$(date +%F-%H%M)-<topic>.md — the stamp from the shell, never memory; where the CLI refuses a joined command, run date alone and type its output
 ```
 
 Handoffs are dated and **immutable** — never overwrite a previous handoff; a new session gets a new file.
 
-Reading side: the Resume Protocol in the global context tells every fresh session, on either vendor, to read the newest handoff.
+Reading side: the global context's § Resume, then checkpoint tells every fresh session to read the newest handoff.
 
 ### Cold-reader check — before the handoff counts as finished
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a tool-call budget the dispatch names; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `fyr search --open` → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → this handoff → `ROADMAP.md` Now → the active plan's unticked boxes → the three newest `changes/` → `bugs/INDEX.md` → `TODO.md` → `fyr search --open` → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file that does not exist.
@@ -181,15 +184,17 @@ Fix what comes back at the source (plan, `ROADMAP.md`, `TODO.md`, the dispatches
 
 ## Step 6: Commit and push
 
-Stage the handoff and anything Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"` and push. A handoff that is not pushed does not exist on the other machine.
+Stage the handoff and anything Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"`. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push. A handoff that is not pushed does not exist on the other machine.
 
 ## Step 7: Report to User
 
 After saving, tell the user:
 
 1. Where the handoff document was saved (absolute path)
-2. "Start a new conversation, then paste:" followed by the Kickoff block verbatim (the nothing-queued line when that is the case). The paste is the whole path: no command prints the block (ADR-058a). Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
-3. A 1-sentence summary of the handoff content
+2. A 1-sentence summary of the handoff content
+3. Last, "Start a new conversation, then paste:" followed by the Kickoff block in full, in a fenced block in the reply, ready to paste (the nothing-queued line when that is the case). Never a pointer to the file in its place ("paste the Kickoff from the handoff"): the paste is the whole path, and no command prints the block (ADR-058a).
+
+Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
 
 ## Cross-References
 

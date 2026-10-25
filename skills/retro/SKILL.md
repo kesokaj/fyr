@@ -29,7 +29,7 @@ At the end of any session where you detected **two or more** of the following:
 - The user said something like "no, always do X" or "we don't use Y"
 - You had to be told the same thing twice
 
-Also suggest it whenever `fyr status` shows more than 14 days since the last retro, and when a bug's prevention rule recurs (recurring prevention rules are retro input). `/dream` tidies the project's memory store; this skill reads it first (Step 1 § 7) and dispatches `dreamer` for what should become a rule, skill or procedure. When a session ends with both, `/retro` runs BEFORE `/handoff`, and one push covers both. Every retro and distill leaves one line in `~/.config/fyr/retros.jsonl` (a dream leaves none); a rule seen in two projects is promoted to the harness (Step 2's promotion check). (Moved from the global context 2026-10-01.)
+Also suggest it whenever `fyr status` shows more than 14 days since the last retro, and when a bug's prevention rule recurs (recurring prevention rules are retro input). `/dream` tidies the project's memory store; this skill reads it first (Step 1 § 7) and dispatches `dreamer` for what should become a rule, skill or procedure. When a session ends with both, `/retro` runs BEFORE `/handoff`, and one push covers both. Every retro and distill leaves one line in `~/.config/fyr/retros.jsonl` (a dream leaves none); a rule seen in two projects is promoted to the harness (Step 2's promotion check).
 
 Suggest it naturally: *"I noticed a few corrections this session. Want me to run `/retro` to capture those?"* Do NOT suggest `/retro` if the session was smooth and correction-free.
 
@@ -69,7 +69,7 @@ Read the conversation transcript, plus every entry in `~/.config/fyr/feedback.js
 | Environment / stack / GCP | `AGENTS.md` § Deploy, `.agents/docs/deploy/*.md` | `context/dev-setup.md` |
 | Skill knowledge or workflow | `.agents/skills/<name>/SKILL.md` (never a harness skill's name; see `fyr list`) | `skills/<name>/SKILL.md` |
 | Skill reference | `.agents/skills/<name>/references/<topic>.md` | `skills/<name>/references/<topic>.md` |
-| Subagent behavior | `.agents/agents/<name>.md` (never a harness agent's name) | `agents/<name>.md` |
+| Subagent behavior | `.agents/agents/<name>/agent.md` (never a harness agent's name) | `agents/<name>/agent.md` (ADR-062; the flat `<name>.md` is refused) |
 | Output format preference | `AGENTS.md` § | `context/AGENTS.md` (Hard rules) |
 | Rule that only retells a fixed bug, or duplicates a skill | delete from `AGENTS.md` §, or merge into the project skill | delete from `context/AGENTS.md`; merge into `skills/<name>/SKILL.md` |
 
@@ -105,7 +105,7 @@ Write `<docs-root>/retros/<date>-retro.md` (a second record the same day: `-2`, 
 ---
 owner: main
 date: YYYY-MM-DD
-session: <conversation id>
+session: <first 8 chars of the conversation id>
 ---
 # Retro — <project name>   (<date>)
 
@@ -141,7 +141,7 @@ Trigger / Current behavior / Expected behavior / diff / Rationale     ← projec
 - One line appended to `~/.config/fyr/retros.jsonl`, compact JSON:
 
 ```json
-{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<id>","kind":"retro","record":"<absolute path of the record>","proposals":[{"title":"…","scope":"project","target":".agents/rules/verify-bare.md","status":"proposed"}]}
+{"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"retro","record":"<absolute path of the record>","proposals":[{"title":"…","scope":"project","target":".agents/rules/verify-bare.md","status":"proposed"}]}
 ```
 
 If `~/.config/fyr/` is denied (a headless run may refuse it), the record still stands: say so, print the exact `mkdir -p ~/.config/fyr/proposals && cat >> ~/.config/fyr/proposals/<date>-retro.md <<'EOF' … EOF` and `cat >> ~/.config/fyr/retros.jsonl <<'EOF' … EOF` commands for the user, and continue.

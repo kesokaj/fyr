@@ -6,7 +6,7 @@ argument-hint: "[--area <ids>] [--reaudit [<recon brief>]]"
 
 # Harness audit
 
-Find what is wrong, weak or missing in the harness, with evidence, and hand the operator two things: a **report** and an **action plan**. The audit edits no source and starts no fix. It is the procedure behind the audits of 2026-09-30 and 2026-10-01 (143 findings, 113 fixed, the rest struck or left by decision), written down so the next one costs a command.
+Find what is wrong, weak or missing in the harness, with evidence, and hand the operator two things: a **report** and an **action plan**. The audit edits no source and starts no fix.
 
 **Docs root** (`<docs-root>`): `.agents/docs`. Dates from `date +%F` in the call that writes them. Scratch is `.agents/scratch/`.
 

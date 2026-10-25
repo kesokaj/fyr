@@ -9,7 +9,7 @@ Write the explanation a new person needs on day one, from the code and the trail
 
 ## Step 1: Survey
 
-Count the Go files (`git ls-files '*.go' | wc -l`). At 10 or more, dispatch the `explorer` agent ("write the artifact early, then update it") with "Recon for an onboarding document: entry points under `cmd/`, every package under `internal/` with its one-line purpose, the data flow of the main request from the listener to the store and back, where configuration is read (flags, env vars, files), the test layout; cite file:line" and a tool-call budget the dispatch names; read its brief (`<docs-root>/plans/<date>-recon-<slug>.md`). Below 10, read the files yourself. Either way, read `README.md`, `REQUIREMENTS.md`, `AGENTS.md` § Setup, `<docs-root>/specs/`, the three newest `changes/`, `architecture/DECISIONS.md` and `bugs/INDEX.md` before writing.
+Count the Go files (`git ls-files '*.go' | wc -l`). At 10 or more, dispatch the `explorer` agent ("write the artifact early, then update it") with "Recon for an onboarding document: entry points under `cmd/`, every package under `internal/` with its one-line purpose, the data flow of the main request from the listener to the store and back, where configuration is read (flags, env vars, files), the test layout; cite file:line" and a budget of 30 tool calls; read its brief (`<docs-root>/plans/<date>-recon-<slug>.md`). Below 10, read the files yourself. Either way, read `README.md`, `REQUIREMENTS.md`, `AGENTS.md` § Setup, `<docs-root>/specs/`, the three newest `changes/`, `architecture/DECISIONS.md` and `bugs/INDEX.md` before writing.
 
 ## Step 2: Write `onboarding.md`
 

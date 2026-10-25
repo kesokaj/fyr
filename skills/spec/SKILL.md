@@ -26,7 +26,7 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 1: Find or create the file
 
-`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise copy the init-project skill's template, `skills/init-project/assets/agents-tree/docs/specs/TEMPLATE.md` in the harness checkout, installed at `~/.gemini/config/skills/init-project/assets/agents-tree/docs/specs/TEMPLATE.md` (the project's own copy under `<docs-root>/specs/TEMPLATE.md` when `/init-project` placed one), to `<docs-root>/specs/<app>/<topic>.md`; `owner: main`, `date:` from the shell, `status: draft`.
+`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise copy the template — the project's own `<docs-root>/specs/TEMPLATE.md` when `/init-project` placed one, else `agents-tree/docs/specs/TEMPLATE.md` under the init-project skill's assets directory, found as that skill's Step 2 finds it — to `<docs-root>/specs/<app>/<topic>.md`; `owner: main`, `date:` from the shell, `status: draft`.
 
 ## Step 2: Fill every section, in order
 
