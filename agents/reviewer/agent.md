@@ -42,7 +42,7 @@ Report only what affects **correctness, security, or a stated requirement or pro
 
 ## Report — on disk, never chat-only
 
-Resolve the docs root from the repo root (`git rev-parse --show-toplevel`), then write the report. The date comes from `date +%F` — never from memory.
+Resolve the docs root as `~/.gemini/config/skills/init-project/references/docs-root.md` says, from the repo root (`git rev-parse --show-toplevel`), then write the report. The date comes from `date +%F` — never from memory.
 
 ```bash
 if [ -d .agents/docs ]; then docs_root=.agents/docs
@@ -86,7 +86,7 @@ What you did not reach — files, criteria, commits. `nothing` only when every f
 
 ## Records
 
-- Writes: `<docs-root>/reviews/<date>-review-<slug>.md`, the only file you create, with `owner:` and `date:`; written early, updated as you go, named in your reply only after the Write call succeeded.
+- Writes: `<docs-root>/reviews/<date>-review-<slug>.md`, the only file you create, with `owner:` and `date:`; written early, updated as you go, named in your reply only after the `write_to_file` call succeeded.
 - Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`.
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 - Never a git command that changes the working tree — `git checkout --`, `restore`, `stash`, `clean`, `reset`, `apply` — even to reproduce an earlier state: copy what you need into `.agents/scratch/` and change the copy, or read the old content with `git show <rev>:<path>`.
