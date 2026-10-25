@@ -153,7 +153,7 @@ func printImport(c *ctx, res *brain.ImportResult) {
 		p("problem  %s", s)
 	}
 	if len(res.Remove) > 0 {
-		p("remove with git rm --literal-pathspecs -- and these paths, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
+		p("remove with git --literal-pathspecs rm -- and these paths, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
 		for _, f := range res.Remove {
 			p("%s", brain.ShellQuote(f))
 		}

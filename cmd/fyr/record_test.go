@@ -258,7 +258,7 @@ func TestRecordImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
-	for _, want := range []string{"dry run", "plan 1", "PLAN-2026-01-01-open", "1 dropped", "git rm --literal-pathspecs --", ".agents/docs/plans/2026-01-01-open.md", ".agents/docs/changes/2026-01-01-1000-c.md"} {
+	for _, want := range []string{"dry run", "plan 1", "PLAN-2026-01-01-open", "1 dropped", "git --literal-pathspecs rm --", ".agents/docs/plans/2026-01-01-open.md", ".agents/docs/changes/2026-01-01-1000-c.md"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dry run output lacks %q:\n%s", want, out)
 		}

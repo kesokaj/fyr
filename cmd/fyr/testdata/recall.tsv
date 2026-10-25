@@ -1,0 +1,41 @@
+installer kept deploying an old copy of itself instead of rebuilding from source	BUG-006
+gemini cli silently dropped two skills because of a hash sign in their yaml metadata	BUG-004
+verifier could not see uncommitted work because it ran in a separate worktree	BUG-005
+piping the installer output into head killed it before it finished	BUG-086
+antigravity cut off the end of the global rules file	BUG-085
+update deployed a checkout that had local edits	BUG-046
+new files that git does not track yet were ignored by the clean-tree check	BUG-049
+a relative home directory flag ended up inside the repository	BUG-080
+headless commits carried a co-author line the instructions said to leave out	BUG-039
+security reviewer called the standard library random generator homemade cryptography	BUG-041
+a project agent with the same name as a harness agent replaced the independent reviewer	BUG-033
+release binary quietly installed an old plain copy and still reported no drift	BUG-077
+formatting check walked into the scratch folder	BUG-048
+report leaked a home path through a json key name	BUG-054
+check phrase did not match text that said the same thing in other words	BUG-097
+consolidation agent only looked at the latest rows of the bug table and missed a candidate	BUG-100
+an empty project name made every project share one memory folder	BUG-103
+a verification run passed while the files were still being edited underneath it	BUG-072
+where the tool names an antigravity subagent may list are checked	internal/harness/inventory.go
+where files that look like secrets are refused during install	internal/harness/plan.go
+how the dream scrubs credentials from the feedback log before sending	internal/redact/redact.go
+code that unpacks a downloaded archive and refuses entries that escape the target folder	internal/harness/zip.go
+test that keeps the deployed context under the antigravity size limit	internal/harness/size_test.go
+why lifecycle hooks were rejected for the harness	PLAN-2026-09-03-research-hooks
+research on antigravity knowledge items as a memory feature	PLAN-2026-09-29-research-memory-and-prompt-audit
+how release tags are signed with an ssh key and checked before pushing	DEPLOY-remote
+drift: every living file that says update will not run on a checkout with local changes	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md
+drift: every living file that states the byte budget of the deployed context	GUIDE-testing,AGENTS.md,README.md,REQUIREMENTS.md,agents/bugs/agent.md,internal/harness/size_test.go
+drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md,skills/preflight/SKILL.md,skills/retro/SKILL.md,skills/review/SKILL.md
+drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs/agent.md,agents/changelog/agent.md,agents/documentation/agent.md,agents/explorer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md
+refs ADR-040: records that mention ADR-040	ADR-040,REQUIREMENTS.md,RETRO-2026-09-28-retro
+refs internal/harness/zip.go: bugs and plans that name internal/harness/zip.go	PLAN-2026-09-28-signed-zip,PLAN-2026-09-28-update-from-zip
+refs BUG-171: records that mention BUG-171	BUG-171,CHANGE-2026-10-12-1143-gate-v2.7.0-fixes,CHANGE-2026-10-24-2211-fyr-phase2-claude-code-leaves-the-binary
+drift: every file that says release tags are signed with ssh options on the command instead of changing git settings	DEPLOY-remote,AGENTS.md
+drift: every file that says to stage files one by one by name instead of adding everything	context/AGENTS.md,skills/handoff/SKILL.md,skills/preflight/SKILL.md,skills/retro/SKILL.md
+drift: every file that says commits carry no co-author trailer	README.md,cmd/fyr/main.go,context/AGENTS.md
+drift: every file that says the deployed context ends with a check word so truncation shows	GUIDE-testing,AGENTS.md,README.md,internal/harness/render.go
+drift: every file that says the update check only reports and signals when the install is behind	DEPLOY-local,DEPLOY-remote,README.md,cmd/fyr/main.go
+drift: every file that says install edits no vendor setting	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md,cmd/fyr/main.go
+refs BUG-049: records that mention BUG-049	BUG-046,BUG-049,DEPLOY-remote
+open plan: plans with unticked boxes	PLAN-2026-10-24-fyr-agy-only,PLAN-2026-10-25-sqlite-trail

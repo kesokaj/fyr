@@ -60,7 +60,12 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 			sqlq += ` AND r.kind = ?`
 			args = append(args, kind)
 		}
-		sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0), r.id`
+		// BM25 (negative: lower is better) weighted up to 10% by recency,
+		// fading linearly over a year: of two near-equal matches the newer
+		// record, the trail's current state, comes first; a clearly better
+		// older match still wins (D31).
+		sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0) * (1 + 0.1 * max(0, 1 - (julianday(?) - julianday(r.date)) / 365.0)), r.id`
+		args = append(args, o.now().Format("2006-01-02"))
 		rows, err := st.db.Query(sqlq, args...)
 		if err != nil {
 			return nil, fmt.Errorf("brain: %w", err)

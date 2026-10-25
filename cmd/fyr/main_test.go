@@ -1433,10 +1433,16 @@ func TestUpdateFromZipDecidedByParsedFlags(t *testing.T) {
 func TestOneRepositoryName(t *testing.T) {
 	_, name, _ := strings.Cut(harness.ReleaseRepo, "/")
 	want := "git@github.com:" + name + ".git"
-	for _, rel := range []string{"README.md", ".agents/docs/deploy/remote.md", "cmd/fyr/main.go", "internal/harness/repo.go"} {
-		data, err := os.ReadFile(filepath.Join("..", "..", rel))
-		if err != nil {
-			t.Fatal(err)
+	for _, rel := range []string{"README.md", "DEPLOY-remote", "cmd/fyr/main.go", "internal/harness/repo.go"} {
+		var data []byte
+		if rel == "DEPLOY-remote" {
+			// The deploy guide is a record since the trail's migration.
+			data = []byte(trailRecord(t, rel))
+		} else {
+			var err error
+			if data, err = os.ReadFile(filepath.Join("..", "..", rel)); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if strings.Contains(string(data), "kesokaj/styrman-harness") {
 			t.Errorf("%s names kesokaj/styrman-harness, the repository before the rename", rel)

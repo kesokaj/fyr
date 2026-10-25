@@ -3,6 +3,7 @@ package brain
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // D30: `fyr search --refs` and `--open` answer from records too, since the
@@ -64,4 +65,26 @@ func ids(hits []Hit) string {
 		out = append(out, h.ID)
 	}
 	return strings.Join(out, " ")
+}
+
+// D31: among near-equal matches the newer record ranks first; a clearly
+// better older match still wins.
+func TestSearchPrefersTheNewerOfNearEqualRecords(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	old := opts(dir, home)
+	old.Now = func() time.Time { return time.Now().AddDate(0, -2, 0) }
+	o := opts(dir, home)
+	o.Now = time.Now
+	a := add(t, old, "bug", "zebra crossing broke", "the zebra crossing broke again")
+	b := add(t, o, "bug", "zebra crossing broke", "the zebra crossing broke again")
+	hits, err := Search(o, []string{"zebra", "crossing"}, "", 10)
+	if err != nil || len(hits) != 2 || hits[0].ID != b {
+		t.Fatalf("the newer of two equal records first: %q %v (old %s, new %s)", ids(hits), err, a, b)
+	}
+	c := add(t, old, "bug", "okapi okapi okapi", "okapi okapi okapi okapi okapi")
+	add(t, o, "bug", "something else", "a long body that mentions an okapi once among many other words of no interest at all here")
+	hits, _ = Search(o, []string{"okapi"}, "", 10)
+	if len(hits) == 0 || hits[0].ID != c {
+		t.Errorf("a clearly better older match still ranks first: %q", ids(hits))
+	}
 }
