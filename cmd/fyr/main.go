@@ -789,7 +789,7 @@ func runAdopt(c *ctx) error {
 	}
 	repo := c.repo()
 	if repo == "" {
-		return errors.New("adopt needs a harness checkout (`git clone git@github.com:kesokaj/styrman-harness.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into")
+		return errors.New("adopt needs a harness checkout (`git clone git@github.com:kesokaj/fyr.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into")
 	}
 	dest, err := harness.Adopt(repo, c.home, c.fs.Arg(0), c.force)
 	if err != nil {
@@ -822,10 +822,14 @@ func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) e
 	}
 	// After the binary is written: the fyr-dream unit runs it. The PATH is the
 	// installing shell's, as --install-timer's is.
-	old, err := dream.ReplaceOldTimer(home, os.Getenv("PATH"), runtime.GOOS, dryRun)
+	old, replaced, err := dream.ReplaceOldTimer(home, os.Getenv("PATH"), runtime.GOOS, dryRun)
 	switch {
 	case err != nil:
 		return err
+	case old != "" && !replaced && dryRun:
+		fmt.Fprintf(out, "[dry-run] the dream timer %s is turned off: its files would be removed and no fyr timer installed\n", old)
+	case old != "" && !replaced:
+		fmt.Fprintf(out, "removed the dream timer %s, which was turned off; no fyr timer installed (fyr dream --install-timer turns one on)\n", old)
 	case old != "" && dryRun:
 		fmt.Fprintf(out, "[dry-run] the dream timer %s would be replaced by its fyr name\n", old)
 	case old != "":

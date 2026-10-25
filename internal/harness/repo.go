@@ -194,7 +194,7 @@ type RepoInfo struct {
 }
 
 // errPlainCopy is returned by Behind and Pull for a tree git cannot update.
-var errPlainCopy = errors.New("not its own git checkout; a plain copy cannot be updated with git — `install` still deploys it as it is; to move forward, use a checkout (`git clone git@github.com:kesokaj/styrman-harness.git`) or a release binary (README § Install without cloning)")
+var errPlainCopy = errors.New("not its own git checkout; a plain copy cannot be updated with git — `install` still deploys it as it is; to move forward, use a checkout (`git clone git@github.com:kesokaj/fyr.git`) or a release binary (README § Install without cloning)")
 
 // IsCheckout reports whether repo is the top of its own git checkout: a
 // `.git` entry sits directly in it (a directory, or the file a worktree

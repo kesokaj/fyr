@@ -24,6 +24,20 @@ func fakeManager(t *testing.T, name string, code int) (calls string) {
 	return calls
 }
 
+// fakeManagerOff is fakeManager whose probe call (systemctl is-enabled,
+// launchctl print) prints answer and exits 1, and every other call succeeds.
+func fakeManagerOff(t *testing.T, name, probe, answer string) (calls string) {
+	t.Helper()
+	bin := t.TempDir()
+	calls = filepath.Join(t.TempDir(), "calls")
+	script := "#!/bin/sh\necho \"$*\" >> \"" + calls + "\"\ncase \"$*\" in *" + probe + "*) echo '" + answer + "'; exit 1 ;; esac\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+"/usr/bin:/bin")
+	return calls
+}
+
 func timerHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -494,15 +508,15 @@ func TestReplaceOldTimer(t *testing.T) {
 		home := timerHome(t)
 		calls := fakeManager(t, "systemctl", 0)
 		plant(t, home)
-		old, err := ReplaceOldTimer(home, "/p", "linux", false)
-		if err != nil || old != "sh-agent-dream" {
-			t.Fatalf("old %q, err %v", old, err)
+		old, replaced, err := ReplaceOldTimer(home, "/p", "linux", false)
+		if err != nil || old != "sh-agent-dream" || !replaced {
+			t.Fatalf("old %q, replaced %v, err %v", old, replaced, err)
 		}
 		gone(t, oldFiles(home)...)
 		if !TimerInstalledHere(home, "linux") || !strings.Contains(read(t, linuxServicePath(home)), `/.local/bin/fyr" dream --all`) {
 			t.Error("the fyr-dream unit is not installed")
 		}
-		want := "--user daemon-reload\n--user enable --now fyr-dream.timer\n--user disable --now sh-agent-dream.timer\n--user daemon-reload\n"
+		want := "--user is-enabled sh-agent-dream.timer\n--user daemon-reload\n--user enable --now fyr-dream.timer\n--user disable --now sh-agent-dream.timer\n--user daemon-reload\n"
 		if got := callsOf(t, calls); got != want {
 			t.Errorf("systemctl calls:\n%s\nwant:\n%s", got, want)
 		}
@@ -519,7 +533,7 @@ func TestReplaceOldTimer(t *testing.T) {
 		if !strings.HasPrefix(oldUnit, "sh-agent-dream-") || strings.TrimPrefix(oldUnit, oldUnitName) != strings.TrimPrefix(newUnit, unitName) {
 			t.Fatalf("old %s and new %s do not share the per-home suffix", oldUnit, newUnit)
 		}
-		old, err := ReplaceOldTimer(other, "/p", "linux", false)
+		old, _, err := ReplaceOldTimer(other, "/p", "linux", false)
 		if err != nil || old != oldUnit {
 			t.Fatalf("old %q, err %v", old, err)
 		}
@@ -533,8 +547,8 @@ func TestReplaceOldTimer(t *testing.T) {
 		home := timerHome(t)
 		calls := fakeManager(t, "systemctl", 0)
 		plant(t, home)
-		old, err := ReplaceOldTimer(home, "/p", "linux", true)
-		if err != nil || old != "sh-agent-dream" {
+		old, replaced, err := ReplaceOldTimer(home, "/p", "linux", true)
+		if err != nil || old != "sh-agent-dream" || !replaced {
 			t.Fatalf("old %q, err %v", old, err)
 		}
 		for _, p := range oldFiles(home) {
@@ -542,15 +556,16 @@ func TestReplaceOldTimer(t *testing.T) {
 				t.Errorf("a dry run removed %s", p)
 			}
 		}
-		if TimerInstalledHere(home, "linux") || callsOf(t, calls) != "" {
-			t.Error("a dry run installed or called the manager")
+		// The one call a dry run makes is the read-only probe.
+		if got := callsOf(t, calls); TimerInstalledHere(home, "linux") || got != "--user is-enabled sh-agent-dream.timer\n" {
+			t.Errorf("a dry run installed or changed the manager's state; calls:\n%s", got)
 		}
 	})
 
 	t.Run("no old unit: nothing", func(t *testing.T) {
 		home := timerHome(t)
 		calls := fakeManager(t, "systemctl", 0)
-		if old, err := ReplaceOldTimer(home, "/p", "linux", false); err != nil || old != "" {
+		if old, _, err := ReplaceOldTimer(home, "/p", "linux", false); err != nil || old != "" {
 			t.Fatalf("old %q, err %v", old, err)
 		}
 		if TimerInstalledHere(home, "linux") || callsOf(t, calls) != "" {
@@ -563,7 +578,7 @@ func TestReplaceOldTimer(t *testing.T) {
 		calls := fakeManager(t, "systemctl", 0)
 		plant(t, home)
 		write(t, linuxServicePath(home), "edited by hand\n", fresh)
-		if _, err := ReplaceOldTimer(home, "/p", "linux", false); err == nil || !strings.Contains(err.Error(), "sh-agent-dream") {
+		if _, _, err := ReplaceOldTimer(home, "/p", "linux", false); err == nil || !strings.Contains(err.Error(), "sh-agent-dream") {
 			t.Fatalf("err %v, want a refusal naming the old unit it kept", err)
 		}
 		for _, p := range oldFiles(home) {
@@ -583,11 +598,69 @@ func TestReplaceOldTimer(t *testing.T) {
 		calls := fakeManager(t, "systemctl", 0)
 		legacy := filepath.Join(other, ".config", "systemd", "user", oldUnitName+".timer")
 		write(t, legacy, "x", fresh)
-		if old, err := ReplaceOldTimer(other, "/p", "linux", false); err != nil || old != "" {
+		if old, _, err := ReplaceOldTimer(other, "/p", "linux", false); err != nil || old != "" {
 			t.Fatalf("old %q, err %v", old, err)
 		}
 		if _, err := os.Lstat(legacy); err != nil || callsOf(t, calls) != "" {
 			t.Errorf("a legacy file was touched (%v) or the manager called", err)
+		}
+	})
+
+	// The operator turned the old timer off and left its files: install
+	// must not turn the nightly prompt to the model provider back on
+	// (security review of v2.7.0..881389a, 2026-10-25).
+	t.Run("old unit turned off: its files go, no fyr timer", func(t *testing.T) {
+		for _, c := range []struct{ goos, manager, probe, answer string }{
+			{"linux", "systemctl", "is-enabled", "disabled"},
+			{"linux", "systemctl", "is-enabled", "masked"},
+			{"darwin", "launchctl", "print", `Could not find service "com.styrman.sh-agent-dream" in domain for user gui: 501`},
+		} {
+			home := timerHome(t)
+			calls := fakeManagerOff(t, c.manager, c.probe, c.answer)
+			unit, plist := oldUnitFor(home)
+			paths := oldFiles(home)
+			if c.goos == "darwin" {
+				paths = []string{filepath.Join(home, "Library", "LaunchAgents", plist+".plist")}
+				unit = plist
+			}
+			for _, p := range paths {
+				write(t, p, "x\n", fresh)
+			}
+			old, replaced, err := ReplaceOldTimer(home, "/p", c.goos, true)
+			if err != nil || old != unit || replaced {
+				t.Fatalf("%s dry run: old %q, replaced %v, err %v", c.goos, old, replaced, err)
+			}
+			for _, p := range paths {
+				if _, err := os.Lstat(p); err != nil {
+					t.Errorf("%s: a dry run removed %s", c.goos, p)
+				}
+			}
+			old, replaced, err = ReplaceOldTimer(home, "/p", c.goos, false)
+			if err != nil || old != unit || replaced {
+				t.Fatalf("%s: old %q, replaced %v, err %v", c.goos, old, replaced, err)
+			}
+			gone(t, paths...)
+			got := callsOf(t, calls)
+			if TimerInstalledHere(home, c.goos) || strings.Contains(got, "enable --now") || strings.Contains(got, "bootstrap") {
+				t.Errorf("%s: a turned-off timer was replaced by a running one; calls:\n%s", c.goos, got)
+			}
+		}
+	})
+
+	// A probe that fails without saying "off" (no user bus over SSH, a
+	// container) cannot tell: the old unit is treated as on and replaced as
+	// before the probe existed, never deleted as turned off (security
+	// review round 2, 2026-10-25).
+	t.Run("probe cannot tell: replaced as on", func(t *testing.T) {
+		home := timerHome(t)
+		fakeManagerOff(t, "systemctl", "is-enabled", "Failed to connect to bus: No medium found")
+		plant(t, home)
+		old, replaced, err := ReplaceOldTimer(home, "/p", "linux", false)
+		if err != nil || old != "sh-agent-dream" || !replaced {
+			t.Fatalf("old %q, replaced %v, err %v; want it replaced as on", old, replaced, err)
+		}
+		if !TimerInstalledHere(home, "linux") {
+			t.Error("the fyr-dream unit is not installed")
 		}
 	})
 
@@ -597,7 +670,7 @@ func TestReplaceOldTimer(t *testing.T) {
 		_, oldPlist := oldUnitFor(home)
 		oldPath := filepath.Join(home, "Library", "LaunchAgents", oldPlist+".plist")
 		write(t, oldPath, "<plist/>\n", fresh)
-		old, err := ReplaceOldTimer(home, "/p", "darwin", false)
+		old, _, err := ReplaceOldTimer(home, "/p", "darwin", false)
 		if err != nil || old != "com.styrman.sh-agent-dream" {
 			t.Fatalf("old %q, err %v", old, err)
 		}

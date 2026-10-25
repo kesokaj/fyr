@@ -34,7 +34,7 @@ AGENTS.md                             # root: the project's Setup commands and D
                                       # docs/testing/guide.md, which Setup points at (G13).
 ```
 
-`<app>` in `specs/<app>/` is the single `cmd/<app>` directory (a Glob for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `specs/<app>/` per binary, as the `spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in a path you write.
+`<app>` in `specs/<app>/` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `specs/<app>/` per binary, as the `spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in a path you write.
 
 Shared seam: the `verifier` creates or fills `testing/guide.md`, the project's one guide, whenever it runs a project's procedure and finds the guide absent or still the init-project template, and updates it when the steps change — its dated verify logs in `testing/` are its own; the guide is otherwise yours.
 

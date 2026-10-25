@@ -18,7 +18,7 @@ Trigger for you: write the brief after the first directory listing, and in any c
 
 ## What a survey covers
 
-Start from the dispatch's question. Your first command, before any Grep, Glob or Read: `fyr search <the question's key words>` (ranked `path:line` hits, trail records with their status), then `fyr search --refs <path>` for each path it names; read from those hits. Then map:
+Start from the dispatch's question. Your first command, before any `grep_search`, `find_by_name` or `view_file`: `fyr search <the question's key words>` (ranked `path:line` hits, trail records with their status), then `fyr search --refs <path>` for each path it names; read from those hits. Then map:
 
 - **Relevant files** — path + one line on the role each plays in answering the question. Skip the irrelevant; a brief is not an inventory.
 - **Flows** — how the functions/modules actually connect: entry point → call chain → side effects. Name real symbols, not vibes.
@@ -64,7 +64,7 @@ What this survey was asked to answer.
 
 ## Records
 
-- Writes: `<docs-root>/plans/<date>-recon-<slug>.md`, the only file you create, with `owner:` and `date:`, written with the Write tool early and updated as you go; name its path in your reply only after that call succeeded — never report a file you did not write. The brief is trail, not a change to the project: write it even when the dispatch says read-only, change nothing, or report only; those words apply to source.
+- Writes: `<docs-root>/plans/<date>-recon-<slug>.md`, the only file you create, with `owner:` and `date:`, written with `write_to_file` early and updated as you go; name its path in your reply only after that call succeeded — never report a file you did not write. The brief is trail, not a change to the project: write it even when the dispatch says read-only, change nothing, or report only; those words apply to source.
 - Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`.
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 - Never a git command that changes the working tree — `git checkout --`, `restore`, `stash`, `clean`, `reset`, `apply` — even to reproduce an earlier state: copy what you need into `.agents/scratch/` and change the copy, or read the old content with `git show <rev>:<path>`.

@@ -107,7 +107,7 @@ and `status` reports drift none from a fresh home on each of the three place kin
 
 ```bash
 go test -race -timeout 30m ./internal/search ./cmd/fyr         # unit tests: reconcile, parsing, queries, refusals, the global search index
-SH_AGENT_RECALL=1 go test ./internal/search -run 'TestRecall$' -v   # recall measurement over testdata/recall.tsv: prints per-question recall and the means; not a gate
+FYR_RECALL=1 go test ./internal/search -run 'TestRecall$' -v   # recall measurement over testdata/recall.tsv: prints per-question recall and the means; not a gate
 go build -o .agents/scratch/fyr ./cmd/fyr
 .agents/scratch/fyr index --rebuild --home .agents/scratch/s        # this checkout: under 10 s
 .agents/scratch/fyr search --home .agents/scratch/s <words>         # warm, nothing changed: under 100 ms end to end
@@ -124,7 +124,7 @@ go test -race -timeout 30m ./internal/memory ./internal/dream ./internal/search 
 - The unit tests put fake `agy`, `systemctl` and `launchctl` on PATH; nothing calls a real CLI or manager.
 - A real `fyr dream` run in development goes against a scratch `--home` (under `.agents/scratch/`) whose search.db indexes only fixture projects — never `--all` against the real home: a real run sends redacted project content and transcripts to a model provider.
 - The timer is verified by `systemd-analyze verify` on units rendered through a fake manager. The real `--install-timer` is the operator's step (R6).
-- Corpus measurement of the Antigravity reader (a change to `internal/search/dream.go`): `SH_AGENT_CORPUS=<dir of copied Antigravity conversation databases> go test ./internal/search -run TestAgyCorpusLeaves -count=1 -v` prints `corpus: N databases, L prose leaves kept, K with a tool-argument key`. K must be 0; that is the invariant. L is the box's own corpus and is recorded, never compared across boxes: 971 over 95 databases on 2026-09-30 (before and after the reader change), 197 over 23 on another box on 2026-10-09. The test is a measurement with no assertion: it is read, not passed. The copies live under `.agents/scratch/` and are deleted after.
+- Corpus measurement of the Antigravity reader (a change to `internal/search/dream.go`): `FYR_CORPUS=<dir of copied Antigravity conversation databases> go test ./internal/search -run TestAgyCorpusLeaves -count=1 -v` prints `corpus: N databases, L prose leaves kept, K with a tool-argument key`. K must be 0; that is the invariant. L is the box's own corpus and is recorded, never compared across boxes: 971 over 95 databases on 2026-09-30 (before and after the reader change), 197 over 23 on another box on 2026-10-09. The test is a measurement with no assertion: it is read, not passed. The copies live under `.agents/scratch/` and are deleted after.
 - The kit is in `testing/2026-09-30-verify-parity-memory-dream-phase-4.md`.
 - The Antigravity login differs per OS and the unit tests only fake it (`TestAgyHomeMacKeychain`): a change to how `agyHome` finds the login, or to the agy command line, owes one real `fyr dream --all` on a macOS place with Antigravity before the release that carries it, and its `dream.log` line read for every project (`ok N proposals` or `unchanged`, never `not logged in` or `invalid output`), and the interactive agy still answers afterwards (`agy -p "Reply with the word OK"`): on macOS the dream job shares its Keychain login. v2.6.1 shipped a dream job that could not log in on macOS because only Linux had run it (BUG-166).
 

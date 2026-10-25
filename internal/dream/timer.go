@@ -253,11 +253,14 @@ func RemoveTimer(home, goos string) (bool, error) {
 }
 
 // timerUnit is one home's unit on one system under one name: its files, its
-// service manager and the calls that stop it.
+// service manager, the calls that stop it, the read-only call that asks the
+// manager about it, and the answers to that call that mean it is turned off.
 type timerUnit struct {
 	files   []string
 	manager string
 	stop    [][]string
+	probe   []string
+	off     []string
 }
 
 func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
@@ -268,10 +271,13 @@ func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
 			files:   []string{filepath.Join(dir, unit+".timer"), filepath.Join(dir, unit+".service")},
 			manager: "systemctl",
 			stop:    [][]string{{"--user", "disable", "--now", unit + ".timer"}, {"--user", "daemon-reload"}},
+			probe:   []string{"--user", "is-enabled", unit + ".timer"},
+			off:     []string{"disabled", "masked"},
 		}, true
 	case "darwin":
 		p := filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
-		return timerUnit{files: []string{p}, manager: "launchctl", stop: [][]string{{"bootout", "gui/" + strconv.Itoa(os.Getuid()), p}}}, true
+		uid := "gui/" + strconv.Itoa(os.Getuid())
+		return timerUnit{files: []string{p}, manager: "launchctl", stop: [][]string{{"bootout", uid, p}}, probe: []string{"print", uid + "/" + plist}, off: []string{"Could not find service"}}, true
 	}
 	return timerUnit{}, false
 }
@@ -283,6 +289,27 @@ func (u timerUnit) present() bool {
 		}
 	}
 	return false
+}
+
+// on reports whether the unit may be turned on: false only when the manager
+// says it is off. A manager that is missing, or a probe that fails any other
+// way (no user bus over SSH, a container), cannot tell, and the unit counts
+// as on: the replacement then runs as it did before the probe, and a refusal
+// keeps the old unit as it was (security review round 2, 2026-10-25).
+func (u timerUnit) on() bool {
+	if _, err := exec.LookPath(u.manager); err != nil {
+		return true
+	}
+	out, err := exec.Command(u.manager, u.probe...).CombinedOutput()
+	if err == nil {
+		return true
+	}
+	for _, off := range u.off {
+		if strings.Contains(string(out), off) {
+			return false
+		}
+	}
+	return true
 }
 
 func (u timerUnit) remove() error {
@@ -308,27 +335,37 @@ func (u timerUnit) remove() error {
 // ReplaceOldTimer is install's half of the rename for the dream timer: when
 // this home has its unit under the old name, the fyr unit is installed with
 // path first, and only then is the old one stopped and removed, so a refused
-// install keeps the old timer as it was. It returns the old unit's name, ""
-// when there is none; a dry run finds it and changes nothing. A bare old
-// name under a home that is not the real one is not this home's
-// (LegacyTimerFiles) and is never touched here.
-func ReplaceOldTimer(home, path, goos string, dryRun bool) (string, error) {
+// install keeps the old timer as it was. An old unit the operator turned off
+// (files left, not enabled or not loaded) only has its files removed: no fyr
+// timer is turned on in its place, since the nightly run sends redacted
+// project content to the model provider (security review 2026-10-25). It
+// returns the old unit's name, "" when there is none, and whether a fyr
+// timer replaced it; a dry run finds it, asks the manager, and changes
+// nothing. A bare old name under a home that is not the real one is not this
+// home's (LegacyTimerFiles) and is never touched here.
+func ReplaceOldTimer(home, path, goos string, dryRun bool) (name string, replaced bool, err error) {
 	unit, plist := oldUnitFor(home)
 	old, ok := unitOn(home, goos, unit, plist)
 	if !ok || !old.present() {
-		return "", nil
+		return "", false, nil
 	}
-	name := unit
+	name = unit
 	if goos == "darwin" {
 		name = plist
 	}
+	if !old.on() {
+		if dryRun {
+			return name, false, nil
+		}
+		return name, false, old.remove()
+	}
 	if dryRun {
-		return name, nil
+		return name, true, nil
 	}
 	if err := InstallTimer(home, path, goos); err != nil {
-		return name, fmt.Errorf("the dream timer %s was kept, because its fyr replacement was refused: %w", name, err)
+		return name, false, fmt.Errorf("the dream timer %s was kept, because its fyr replacement was refused: %w", name, err)
 	}
-	return name, old.remove()
+	return name, true, old.remove()
 }
 
 // OtherSystemTimerFiles lists this home's unit files that belong to the

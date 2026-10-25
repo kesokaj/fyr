@@ -23,8 +23,8 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 You need Go 1.24 or newer and git. The repository is private, so clone with your own SSH key or `gh` login.
 
 ```bash
-git clone git@github.com:kesokaj/styrman-harness.git ~/workspace/styrman-harness
-cd ~/workspace/styrman-harness
+git clone git@github.com:kesokaj/fyr.git ~/workspace/fyr
+cd ~/workspace/fyr
 go run ./cmd/fyr install          # builds the binary, installs it to ~/.local/bin/fyr, deploys everything
 fyr status                        # ends with "drift none"
 ```
@@ -65,7 +65,7 @@ flowchart LR
         retroHarness["/retro --harness<br/>applies the proposals queued on this machine"]
     end
     subgraph githubLane["GitHub, private"]
-        harnessRepo[("styrman-harness<br/>main: what checkout places follow<br/>tags: release markers")]
+        harnessRepo[("fyr<br/>main: what checkout places follow<br/>tags: release markers")]
         releases[("Releases<br/>platform binaries + release zip + SHA256SUMS")]
     end
     subgraph placeLane["Each place"]

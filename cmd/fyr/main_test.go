@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -813,7 +815,7 @@ func TestReleaseBinaryWithoutCheckout(t *testing.T) {
 		t.Errorf("render: %v\n%.200s", err, out.String())
 	}
 	out.Reset()
-	if err := run([]string{"adopt", "anything", "--home", home}, &out); err == nil || err.Error() != "adopt needs a harness checkout (`git clone git@github.com:kesokaj/styrman-harness.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into" {
+	if err := run([]string{"adopt", "anything", "--home", home}, &out); err == nil || err.Error() != "adopt needs a harness checkout (`git clone git@github.com:kesokaj/fyr.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into" {
 		t.Errorf("adopt: err = %v", err)
 	}
 	// `update` on a release binary goes to the release flow (Phase 4). PATH is
@@ -1422,5 +1424,77 @@ func TestUpdateFromZipDecidedByParsedFlags(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nowhere.zip") && !strings.Contains(out.String(), "nowhere.zip") {
 		t.Fatalf("the zip branch did not run: err %v, output %q", err, out.String())
+	}
+}
+
+// TestOneRepositoryName: the clone URL a reader is told to use names the
+// repository a release binary updates from (harness.ReleaseRepo), never the
+// name before the rename (code review of v2.7.0..881389a, 2026-10-25).
+func TestOneRepositoryName(t *testing.T) {
+	_, name, _ := strings.Cut(harness.ReleaseRepo, "/")
+	want := "git@github.com:" + name + ".git"
+	for _, rel := range []string{"README.md", ".agents/docs/deploy/remote.md", "cmd/fyr/main.go", "internal/harness/repo.go"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "kesokaj/styrman-harness") {
+			t.Errorf("%s names kesokaj/styrman-harness, the repository before the rename", rel)
+		}
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s does not give the clone URL %s", rel, want)
+		}
+	}
+}
+
+// TestInstallSaysATurnedOffTimerStaysOff: install finds this home's dream
+// unit under the old name but turned off; the dry run and the install each
+// say so, the old files go, and no fyr timer is turned on (security review
+// of v2.7.0..881389a, 2026-10-25; plan fyr D31).
+func TestInstallSaysATurnedOffTimerStaysOff(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the systemd half; the launchd half is TestReplaceOldTimer's")
+	}
+	t.Setenv(harness.ChildEnv, "1")
+	t.Setenv("FYR_REPO", "")
+	fakeBin := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "calls")
+	script := "#!/bin/sh\necho \"$*\" >> \"" + calls + "\"\ncase \"$*\" in *is-enabled*) echo disabled; exit 1 ;; esac\n"
+	if err := os.WriteFile(filepath.Join(fakeBin, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	home := t.TempDir()
+	unit, _ := dream.UnitFor(home)
+	old := strings.Replace(unit, "fyr-dream", "sh-agent-dream", 1)
+	unitDir := filepath.Join(home, ".config", "systemd", "user")
+	if err := os.MkdirAll(unitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, ext := range []string{".service", ".timer"} {
+		if err := os.WriteFile(filepath.Join(unitDir, old+ext), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := run([]string{"install", "--dry-run", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
+		t.Fatalf("install --dry-run: %v\n%s", err, out.String())
+	}
+	if want := "[dry-run] the dream timer " + old + " is turned off: its files would be removed and no fyr timer installed\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("the dry run does not say %q:\n%s", want, out.String())
+	}
+	out.Reset()
+	if err := run([]string{"install", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
+		t.Fatalf("install: %v\n%s", err, out.String())
+	}
+	if want := "removed the dream timer " + old + ", which was turned off; no fyr timer installed (fyr dream --install-timer turns one on)\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("install does not say %q:\n%s", want, out.String())
+	}
+	if left, _ := filepath.Glob(filepath.Join(unitDir, "*-dream-*")); len(left) != 0 {
+		t.Errorf("unit files left or written: %v", left)
+	}
+	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "enable --now") {
+		t.Errorf("a timer was turned on:\n%s", b)
 	}
 }

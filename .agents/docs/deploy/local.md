@@ -14,7 +14,7 @@ Go 1.24+ and git. `~/.local/bin` on `PATH`. The Antigravity CLI (`agy`) installe
 ## Build and install
 
 ```bash
-cd ~/workspace/styrman-harness
+cd ~/workspace/fyr   # the checkout; a place cloned before the rename keeps its directory name
 gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...   # before deploying anything; gofmt takes the source dirs, not `.` (it walks .agents/scratch, BUG-048); -timeout 30m for a one-CPU box (cmd/fyr ~13 min under -race)
 go run ./cmd/fyr install                             # builds the binary from this checkout, writes ~/.gemini/config, installs the build to ~/.local/bin/fyr
 fyr status                                           # must end with "drift none"

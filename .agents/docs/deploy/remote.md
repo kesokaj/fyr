@@ -10,8 +10,8 @@ The harness reaches a machine one way: `fyr` (R8, R9, ADR-030, ADR-033); what ea
 ## First install on a machine
 
 ```bash
-git clone git@github.com:kesokaj/styrman-harness.git ~/workspace/styrman-harness
-cd ~/workspace/styrman-harness
+git clone git@github.com:kesokaj/fyr.git ~/workspace/fyr
+cd ~/workspace/fyr
 go run ./cmd/fyr install
 fyr status
 ```
@@ -86,8 +86,8 @@ go run ./cmd/fyr install --repo "$PWD"
 
 - The state dir moves first, before anything opens it, in every verb that writes under it (`install`, `sync`, `update` without `--check` or `--dry-run`, `uninstall`, `adopt`, `index`, `search`, `memory add`, `metrics ingest`, `dream` without `--dry-run`). With `~/.config/fyr` absent and `~/.config/sh-agent` a plain directory, one `os.Rename` moves it and the verb prints `migrated ~/.config/sh-agent → ~/.config/fyr`. With both present neither is touched: one line says `fyr` reads `~/.config/fyr` and leaves `~/.config/sh-agent` for the operator to merge or remove. With `~/.config/sh-agent` a symlink (and `~/.config/fyr` absent) the verb is refused: move what it points to to `~/.config/fyr` (or point a `~/.config/fyr` link at it) and run again.
 - Read-only verbs and modes never migrate (`status`, `diff`, `list`, `render`, `version`, `memory show`, `metrics show|report|export`, every `--dry-run`, `update --check`): with the old dir present they print one stderr line, `run fyr install to migrate ~/.config/sh-agent`, and read nothing from it.
-- The resync reads the old manifest from the moved dir and removes every file it lists that the new plan does not: the Claude Code files (`~/.claude/AGENTS.md`, the `CLAUDE.md` stub, `~/.claude/{agents,skills,rules}/*`) and `~/.local/bin/sh-agent`. A symlink, or a path under a linked directory, stays (the operator's). A removal error stops the install: remove the file by hand and run `fyr install` again. `~/.claude` itself and `~/.claude/settings.json` stay; the two keys v2.7.0 wrote there (`attribution`, `autoCompactWindow`) are the operator's to remove by hand.
-- After the files and the binary are written, a dream timer installed under the old name for this home is replaced by `fyr-dream` / `com.fyr.dream`: the new unit is installed first, with the installing shell's PATH, then the old one is stopped and its files removed. It prints `replaced the dream timer <old> with <new>` (`install --dry-run`: `[dry-run] the dream timer <old> would be replaced by its fyr name`). If the new unit is refused (a `fyr-dream` unit with other text exists), the old one stays as it was and install exits non-zero naming it. A bare old-named unit under a home that is not the real one is a legacy file from v2.0.0 or earlier: never touched (`specs/fyr/dream.md`, `local.md`).
+- The resync reads the old manifest from the moved dir and removes every file it lists that the new plan does not: the Claude Code files (`~/.claude/AGENTS.md`, the `CLAUDE.md` stub, `~/.claude/{agents,skills,rules}/*`) and `~/.local/bin/sh-agent`. No content is compared: an edit to one of those files since the last install is lost, as the next v2.7.0 install would have overwritten it (a `CLAUDE.md` that lost its first, generated line was the operator's to v2.7.0 and is not in the manifest, so it stays). A symlink, or a path under a linked directory, stays (the operator's). A removal error stops the install: remove the file by hand and run `fyr install` again. `~/.claude` itself and `~/.claude/settings.json` stay; the two keys v2.7.0 wrote there (`attribution`, `autoCompactWindow`) are the operator's to remove by hand.
+- After the files and the binary are written, a dream timer installed under the old name for this home is replaced by `fyr-dream` / `com.fyr.dream`: the new unit is installed first, with the installing shell's PATH, then the old one is stopped and its files removed. It prints `replaced the dream timer <old> with <new>` (`install --dry-run`: `[dry-run] the dream timer <old> would be replaced by its fyr name`). An old unit the operator turned off (files left, and `systemctl --user is-enabled` answers `disabled` or `masked`, or `launchctl print` cannot find it; a manager that cannot be asked counts as on) only has its files removed and no fyr timer is turned on: it prints `removed the dream timer <old>, which was turned off; no fyr timer installed (fyr dream --install-timer turns one on)`. If the new unit is refused (a `fyr-dream` unit with other text exists), the old one stays as it was and install exits non-zero naming it. A bare old-named unit under a home that is not the real one is a legacy file from v2.0.0 or earlier: never touched (`specs/fyr/dream.md`, `local.md`).
 - Not done: `fyr status` does not name a leftover `~/.local/bin/sh-agent` on PATH; check it by hand below.
 
 **After the crossing, at every place:**
@@ -118,7 +118,7 @@ fyr update --check    # only reports; exit 2 when behind, 0 when current; on a d
 # ~/.config/systemd/user/fyr-update.service  — with the matching hourly .timer
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/fyr update --repo %h/workspace/styrman-harness
+ExecStart=%h/.local/bin/fyr update --repo %h/workspace/fyr
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ```
 
