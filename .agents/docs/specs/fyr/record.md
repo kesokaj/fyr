@@ -76,6 +76,7 @@ The prefix is the kind in capitals, except `testing`, whose prefix is `TEST`. `a
 | adr | `accepted`, `superseded:ADR-NNN[a-z]` | never | `accepted` |
 | spec, deploy, guide | `current` `retired` | `current` | `current` |
 | proposal | `queued`, `applied:<commit>` (7–40 lowercase hex), `rejected` | `queued` | `queued` |
+| memory | `closed`, `retired` (D28: how `/dream` drops one; `memory show` lists only `closed`, and `memory add` under a retired name makes it `closed` again) | never | `closed` |
 | handoff | none (the newest is the live one) | never | none |
 | everything else | `closed` | never | `closed` |
 

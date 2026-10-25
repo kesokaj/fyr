@@ -85,7 +85,8 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 			return err
 		}
 		if taken {
-			_, err = c.ExecContext(ctx, `UPDATE records SET title = ?, body = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+			// Saving a retired name brings it back (D28).
+			_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
 				title, full, now.UTC().Format(time.RFC3339), s.scope, id)
 			return err
 		}
@@ -107,7 +108,7 @@ func MemoryShow(o Options) (string, error) {
 		return "", err
 	}
 	defer s.close()
-	rows, err := s.st.db.Query(`SELECT id, title, body FROM records WHERE scope = ? AND kind = 'memory' ORDER BY id`, s.scope)
+	rows, err := s.st.db.Query(`SELECT id, title, body FROM records WHERE scope = ? AND kind = 'memory' AND status = 'closed' ORDER BY id`, s.scope)
 	if err != nil {
 		return "", err
 	}

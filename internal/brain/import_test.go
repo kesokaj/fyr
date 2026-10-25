@@ -381,3 +381,33 @@ func TestImportLeavesUnknownFilesOffTheRemoveList(t *testing.T) {
 		t.Errorf("remove %d (want 19), problems %v", len(res.Remove), res.Problems)
 	}
 }
+
+// D28: a retired memory leaves `memory show`, and adding its name again
+// brings it back.
+func TestMemoryRetire(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+	for _, n := range []string{"keep", "stale"} {
+		if _, err := MemoryAdd(o, MemoryEntry{Type: "user", Name: n, Description: n + " fact"}, strings.NewReader("b")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	retired := "retired"
+	if err := Edit(o, EditInput{ID: "MEMORY-stale", Status: &retired}); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+	show, _ := MemoryShow(o)
+	if strings.Contains(show, "stale") || !strings.Contains(show, "keep") {
+		t.Errorf("show after retiring: %q", show)
+	}
+	if _, err := MemoryAdd(o, MemoryEntry{Type: "user", Name: "stale", Description: "back again"}, strings.NewReader("b")); err != nil {
+		t.Fatal(err)
+	}
+	if show, _ := MemoryShow(o); !strings.Contains(show, "back again") {
+		t.Errorf("a re-added memory is shown again: %q", show)
+	}
+	bogus := "open"
+	if err := Edit(o, EditInput{ID: "MEMORY-keep", Status: &bogus}); !IsUsage(err) {
+		t.Errorf("memory takes closed or retired only: %v", err)
+	}
+}

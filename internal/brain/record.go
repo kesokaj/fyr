@@ -125,6 +125,9 @@ func allowed(kind, status string) bool {
 		return status == "current" || status == "retired"
 	case "proposal":
 		return status == "queued" || status == "rejected" || applied.MatchString(status)
+	case "memory":
+		// Retired is how /dream drops a memory: records are never deleted (D28).
+		return status == "closed" || status == "retired"
 	}
 	return status == "closed"
 }
@@ -139,6 +142,8 @@ func statusGrammar(kind string) string {
 		return "current or retired"
 	case "proposal":
 		return "queued, rejected or applied:<commit>"
+	case "memory":
+		return "closed or retired"
 	}
 	return "closed"
 }
