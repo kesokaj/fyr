@@ -236,3 +236,19 @@ func TestCredsLinkProblems(t *testing.T) {
 		t.Errorf("an oversized file already in the baseline passes: %v", got)
 	}
 }
+
+// Gate review of v3.0.0: a directory link the baseline held unchanged is
+// skipped only while it leads inside the scanned tree; one that leads out
+// is never walked, so a credential written through it would go unseen, and
+// it counts.
+func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
+	h, elsewhere := t.TempDir(), t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(h, "out")); err != nil {
+		t.Fatal(err)
+	}
+	base := scanCreds(h)
+	got := newCreds(base, scanCreds(h))
+	if len(got) != 1 || got[0] != "out (a link to a directory, not walked)" {
+		t.Errorf("a baseline link out of the tree passes: %v", got)
+	}
+}

@@ -94,8 +94,14 @@ func readMemoryStore(root string, b *budget) ([]Imported, []string, []string, er
 		}
 		r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
 			Body: "type: " + typ + "\n\n" + body, Updated: updated})
-		// Every field is valid by here (the slug, a real day, a normalized
-		// title and body); insertNew checks the record once more.
+		// A file the store would refuse is reported and skipped here: left to
+		// insertNew it would roll back the whole import, every project's under
+		// --global (a body the type line pushes past maxBody, a day no clock
+		// gave).
+		if err := checkRecord(r); err != nil {
+			problems = append(problems, rel+": "+err.Error()+"; not imported")
+			continue
+		}
 		files = append(files, rel)
 		recs = append(recs, Imported{ID: r.ID, Kind: "memory", Status: "closed", Path: rel, rec: r})
 	}

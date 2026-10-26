@@ -198,7 +198,7 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 		}
 	}
 	if migrated(p.Root) {
-		if in, err := forDream(brainHome, p.Root, now); err == nil && in.Last.After(cut) && !in.Last.After(now) {
+		if in, err := forDream(brainHome, p.Root, now, now); err == nil && in.Last.After(cut) {
 			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
 		}
 	}

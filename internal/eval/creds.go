@@ -48,6 +48,7 @@ type credFinding struct {
 	kinds   map[string]int
 	problem string
 	target  string
+	outside bool // a directory link that resolves outside the scanned tree
 }
 
 // maxScan bounds the bytes read from one file: a larger file is a problem,
@@ -82,11 +83,28 @@ func scanCreds(dir string) map[string]credFinding {
 			return nil
 		}
 		if f, ok := scanEntry(p, d); ok {
+			f.outside = f.problem == dirLink && !resolvesUnder(root, p)
 			out[rel] = f
 		}
 		return nil
 	})
 	return out
+}
+
+const dirLink = "a link to a directory, not walked"
+
+// resolvesUnder says whether link p, followed to the end, lands inside root.
+func resolvesUnder(root, p string) bool {
+	r, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	t, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(r, t)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
@@ -96,7 +114,7 @@ func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
 		target, _ := os.Readlink(p)
 		switch {
 		case err == nil && st.IsDir():
-			return credFinding{problem: "a link to a directory, not walked", target: target}, true
+			return credFinding{problem: dirLink, target: target}, true
 		case err != nil:
 			return credFinding{problem: "a dangling link", target: target}, true
 		}
@@ -156,14 +174,17 @@ func isExecutable(b []byte) bool {
 // newCreds lists the paths of after that are new against the baseline: a
 // path the baseline lacks, a kind it lacks, or a kind whose count grew. A
 // problem counts unless it is a link the baseline held with the same
-// target; an unreadable or oversized file always counts, since it could
-// hold anything (D17, fail closed). Each line is the path and why, never
+// target and, for a directory link, whose target lies inside the scanned
+// tree, where the walk reads it under its own path; one that leads out is
+// unread, so it always counts (gate review of v3.0.0). An unreadable or
+// oversized file always counts, since it could hold anything (D17, fail
+// closed). Each line is the path and why, never
 // content.
 func newCreds(baseline, after map[string]credFinding) []string {
 	var out []string
 	for rel, f := range after {
 		if f.problem != "" {
-			if b, ok := baseline[rel]; ok && f.target != "" && b.problem == f.problem && b.target == f.target {
+			if b, ok := baseline[rel]; ok && f.target != "" && b.problem == f.problem && b.target == f.target && !f.outside {
 				continue
 			}
 			out = append(out, rel+" ("+f.problem+")")

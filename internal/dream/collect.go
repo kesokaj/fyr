@@ -72,7 +72,7 @@ func collectIn(home, brainHome string, p search.Project, since time.Time, limit 
 	}
 
 	if migrated(p.Root) {
-		in, err := forDream(brainHome, p.Root, since)
+		in, err := forDream(brainHome, p.Root, since, time.Now())
 		if err != nil {
 			return *c, fmt.Errorf("reading the brain store: %w", err)
 		}

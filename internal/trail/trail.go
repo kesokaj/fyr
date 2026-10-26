@@ -282,7 +282,13 @@ func Roots(dir string) (main, top string, err error) {
 			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
 		back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
-		if err != nil || !sameDir(filepath.Dir(strings.TrimSpace(string(back))), top) {
+		// git 2.48's worktree.useRelativePaths writes the path relative to
+		// the git dir; resolved against fyr's cwd it named nothing.
+		named := strings.TrimSpace(string(back))
+		if !filepath.IsAbs(named) {
+			named = filepath.Join(gitDir, named)
+		}
+		if err != nil || !sameDir(filepath.Dir(named), top) {
 			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
 		return filepath.Dir(common), top, nil

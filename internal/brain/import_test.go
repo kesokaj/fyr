@@ -482,3 +482,39 @@ func TestImportedID(t *testing.T) {
 		}
 	}
 }
+
+// Gate review of v3.0.0 (security finding 1): a memory file the store would
+// refuse is a problem line, never the end of the import. A body the type
+// line pushes past maxBody would otherwise roll back the files beside it
+// (every project's under --global). A missing description is not such a
+// file: normalize titles it "untitled", and it is imported.
+func TestImportSkipsAMemoryTheStoreRefuses(t *testing.T) {
+	dir, home := docsFixture(t), t.TempDir()
+	store := filepath.Join(dir, ".agents", "memory")
+	os.MkdirAll(store, 0o700)
+	os.WriteFile(filepath.Join(store, "keep-x.md"), []byte("---\nname: keep-x\ndescription: \"keep x in mind\"\n---\n\nThe fact.\n"), 0o600)
+	os.WriteFile(filepath.Join(store, "no-desc.md"), []byte("---\nname: no-desc\n---\n\nA fact with no description.\n"), 0o600)
+	os.WriteFile(filepath.Join(store, "huge.md"), []byte(strings.Repeat("a", maxBody)), 0o600)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(".agents/memory\n"), 0o644)
+	git(t, dir, "add", ".gitignore")
+	git(t, dir, "commit", "-qm", "ignore")
+	res, err := Import(opts(dir, home), "", false)
+	if err != nil {
+		t.Fatalf("one refused memory ended the import: %v", err)
+	}
+	if len(res.Problems) != 1 || !strings.Contains(res.Problems[0], "huge.md") || !strings.Contains(res.Problems[0], "not imported") {
+		t.Errorf("want huge.md alone reported as not imported, got %q", res.Problems)
+	}
+	for _, m := range res.Memory {
+		if strings.HasSuffix(m, "huge.md") {
+			t.Error("huge.md is listed for removal though it was not imported")
+		}
+	}
+	show, err := MemoryShow(opts(dir, home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(show, "keep x in mind") || !strings.Contains(show, "no-desc (project) — untitled") || strings.Contains(show, "huge") {
+		t.Errorf("want keep-x and no-desc stored, huge not: %q", show)
+	}
+}

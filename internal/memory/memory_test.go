@@ -85,6 +85,30 @@ func TestRootIsTheWorkTreeTop(t *testing.T) {
 		}
 	})
 
+	// git 2.48+ with worktree.useRelativePaths writes the registration's
+	// gitdir relative to the worktree's git dir: still the main store, not
+	// a refusal (gate review of v3.0.0). Written by hand, as this git may
+	// predate the option.
+	t.Run("linked worktree registered by a relative path", func(t *testing.T) {
+		dir := repo(t)
+		git(t, dir, "add", ".gitignore")
+		git(t, dir, "commit", "-q", "-m", "init")
+		wt := filepath.Join(t.TempDir(), "wt")
+		git(t, dir, "worktree", "add", "-q", wt)
+		gd := git(t, wt, "rev-parse", "--path-format=absolute", "--git-dir")
+		rel, err := filepath.Rel(gd, filepath.Join(wt, ".git"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(gd, "gitdir"), []byte(rel+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Root(wt)
+		if err != nil || !same(got, dir) {
+			t.Errorf("Root = %q, %v; want the main worktree %s", got, err, dir)
+		}
+	})
+
 	// A repository's core.worktree can name any directory: a store there
 	// would be another project's (trail.Toplevel's rule).
 	t.Run("core.worktree outside is refused", func(t *testing.T) {

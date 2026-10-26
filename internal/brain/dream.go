@@ -42,15 +42,16 @@ type DreamInput struct {
 	Memory   []Record  // the project's memory records that are not retired
 	Trail    []Record  // its bug, review, retro, change and handoff records updated after since
 	Feedback []Record  // global feedback records about it, updated after since
-	Last     time.Time // the newest update of any record in its scope (zero with none)
+	Last     time.Time // the newest update not after now of any record in its scope (zero with none)
 }
 
 // ForDream reads project root's records for the dream: its checkout's
 // trail.jsonl is loaded first when it changed (the file wins, D21), then the
 // memory, the trail records and the global feedback after since. A project
 // with neither records nor a trail.jsonl gives an empty input and creates no
-// store.
-func ForDream(home, root string, since time.Time) (DreamInput, error) {
+// store. A record updated after now is clock skew or a planted line: it is
+// neither news nor the newest update (gate review of v3.0.0, finding 2).
+func ForDream(home, root string, since, now time.Time) (DreamInput, error) {
 	var in DreamInput
 	st, scope, err := openForSearch(Options{Home: home, Dir: root})
 	if err != nil || st == nil {
@@ -66,7 +67,7 @@ func ForDream(home, root string, since time.Time) (DreamInput, error) {
 	after := func(recs []Record) []Record {
 		var out []Record
 		for _, r := range recs {
-			if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(since) {
+			if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(since) && !t.After(now) {
 				out = append(out, r)
 			}
 		}
@@ -90,7 +91,7 @@ func ForDream(home, root string, since time.Time) (DreamInput, error) {
 		return in, err
 	}
 	for _, r := range all {
-		if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(in.Last) {
+		if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(in.Last) && !t.After(now) {
 			in.Last = t
 		}
 	}
