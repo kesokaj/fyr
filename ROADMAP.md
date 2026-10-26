@@ -7,7 +7,7 @@ Last reviewed: 2026-10-26
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-26-0659-plan-fyr-eval-the-antigravity-run-kit-as-a-verb` — roadmap item 4, `fyr eval`: approved; Phases 1–3 done (the verb, ADR-065, R8, the kit deleted), the Done section next
+- `PLAN-2026-10-26-modularity` — `rules/code-modularity.md` (ADR-066): the files over the rule's ceilings split by moves, one phase per file; approved, the cold read next
 
 ## Next
 
