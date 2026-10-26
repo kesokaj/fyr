@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -55,8 +56,9 @@ const (
 	ReasonInvalid     = "invalid allow entry"
 	ReasonProcs       = "processes left"
 	ReasonRealConfig  = "real config changed"
-	ReasonCredentials = "credentials left in the sandbox home"
+	ReasonCredentials = "credentials left in the sandbox"
 	ReasonInterrupted = "interrupted"
+	ReasonReplaced    = "sandbox replaced"
 )
 
 // ReasonAgent is the FAIL reason of an agent row whose agent the
@@ -82,6 +84,16 @@ var namedGrants = func() []string {
 	}
 	return append(out, "read_file(*)", "write_file(*)")
 }()
+
+// wrapperScript is SB/bin/fyr, given SB and the installed binary. fyr's
+// flags are last-wins, so a --home of the agent's own would override the one
+// pinned here: the wrapper refuses it rather than pass it on.
+const wrapperScript = `#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in --home|--home=*|-home|-home=*) echo "fyr: this sandbox pins --home to "%[1]s >&2; exit 2 ;; esac
+done
+exec %[2]s "$1" --home %[1]s "${@:2}"
+`
 
 // SandboxRoot is where eval makes its sandboxes under fyr's home (D8).
 func SandboxRoot(home string) string { return filepath.Join(home, harness.StateDir, "eval") }
@@ -169,7 +181,11 @@ type row struct {
 	realBefore   map[string]string
 	credsBefore  map[string]credFinding
 	linked       bool
-	stamp        string // {{STAMP}}: the row\'s start, %F-%H%M
+	stamp        string // {{STAMP}}: the row's start, %F-%H%M
+	// resolved holds dir, app and sb as guard a approved them. The agent can
+	// write in dir, so every later step that follows those paths first checks
+	// they still resolve here (intact), and check e matches these strings.
+	resolved map[string]string
 }
 
 func (w *row) fail(reason string) { w.reasons = append(w.reasons, reason) }
@@ -260,6 +276,15 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonSetup)
 		return false
 	}
+	w.resolved = map[string]string{}
+	for _, p := range []string{w.dir, w.app, w.sb} {
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			w.fail(ReasonSetup)
+			return false
+		}
+		w.resolved[p] = r
+	}
 	// Step 4: what the trail held before the agent ran; a check counts only
 	// the records the run adds (run.sh:52-62).
 	before := filepath.Join(w.sb, "records-before.txt")
@@ -312,7 +337,7 @@ func (w *row) prepare(ctx context.Context) bool {
 		return false
 	}
 	bin := filepath.Join(w.sb, "bin")
-	wrapper := fmt.Sprintf("#!/usr/bin/env bash\nexec %s \"$1\" --home %s \"${@:2}\"\n", shellQuote(filepath.Join(w.sb, filepath.FromSlash(harness.BinPath))), shellQuote(w.sb))
+	wrapper := fmt.Sprintf(wrapperScript, shellQuote(w.sb), shellQuote(filepath.Join(w.sb, filepath.FromSlash(harness.BinPath))))
 	if err := os.MkdirAll(bin, 0o700); err != nil || os.WriteFile(filepath.Join(bin, "fyr"), []byte(wrapper), 0o755) != nil {
 		w.fail(ReasonInstall)
 		return false
@@ -333,8 +358,10 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonSettings)
 		return false
 	}
-	// Step 8b: the credential baseline, before the token is linked (D17).
-	w.credsBefore = scanCreds(w.sb)
+	// Step 8b: the credential baseline, before the token is linked (D17),
+	// over the whole sandbox directory: the clone, the CLI's output and the
+	// logs are kept as long as the home is.
+	w.credsBefore = scanCreds(w.dir)
 	return ctx.Err() == nil
 }
 
@@ -366,8 +393,9 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	cmd.Dir = w.app
 	cmd.Env = w.agyEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	out, err := os.Create(outPath)
+	out, err := openRegular(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
+		w.note("%v", err)
 		return -1
 	}
 	defer out.Close()
@@ -375,8 +403,9 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	if appendErr {
 		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 	}
-	errf, err := os.OpenFile(errPath, flags, 0o600)
+	errf, err := openRegular(errPath, flags)
 	if err != nil {
+		w.note("%v", err)
 		return -1
 	}
 	defer errf.Close()
@@ -416,8 +445,12 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	return -1
 }
 
-// afterSession is steps 11-14.
+// afterSession is steps 11-14. A sandbox the session replaced is not
+// followed: no removal through it, no check run in it.
 func (w *row) afterSession(ctx context.Context, tok string) {
+	if !w.intact() {
+		return
+	}
 	w.unlink(tok)
 	// Step 12: a denial or a grant the CLI did not take fails the row.
 	if n := countLines(filepath.Join(w.dir, "err.txt"), "auto-denied"); n > 0 {
@@ -446,14 +479,14 @@ func (w *row) afterSession(ctx context.Context, tok string) {
 // unlink is step 11: warn when the token link was replaced or the real token
 // changed kind, and remove the link and settings.json by name.
 func (w *row) unlink(tok string) {
-	link := filepath.Join(w.sb, tokenRel)
-	if w.linked {
-		if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
+	if root, err := w.sandboxRoot(); err == nil && w.linked {
+		if st, err := root.Lstat(filepath.FromSlash(tokenRel)); err != nil || st.Mode()&os.ModeSymlink == 0 {
 			w.note("WARNING the token link was replaced; the real login may be stale")
 		}
+		root.Close()
 	}
-	os.Remove(link)
-	os.Remove(filepath.Join(w.sb, ".gemini", "antigravity-cli", "settings.json"))
+	w.removeInSandbox(tokenRel)
+	w.removeInSandbox(".gemini/antigravity-cli/settings.json")
 	if st, err := os.Lstat(tok); err != nil || !st.Mode().IsRegular() {
 		w.note("WARNING %s is no longer a regular file", tok)
 	}
@@ -462,14 +495,19 @@ func (w *row) unlink(tok string) {
 // exitChecks is step 15: leftover processes, then the real config, then new
 // credentials, and last a SIGKILL to every agy group as a sweep.
 func (w *row) exitChecks() {
-	if w.linked {
-		os.Remove(filepath.Join(w.sb, tokenRel)) // gone even when a step after 9 returned early
+	intact := w.resolved == nil || w.intact()
+	if w.linked && intact {
+		w.removeInSandbox(tokenRel) // gone even when a step after 9 returned early
 	}
 	if _, err := os.Stat(w.app); err == nil {
+		// The approved strings, never a fresh resolution: a clone the agent
+		// turned into a link to the real home must not aim the SIGTERM there.
 		roots := []string{}
 		for _, p := range []string{w.app, w.sb} {
-			if r, err := filepath.EvalSymlinks(p); err == nil {
+			if r, ok := w.resolved[p]; ok {
 				roots = append(roots, r)
+			} else if r, err := filepath.EvalSymlinks(p); err == nil {
+				roots = append(roots, r) // before step 2b: no agent has run
 			}
 		}
 		if found := leftoverProcs(w.out, w.sb, roots...); len(found) > 0 {
@@ -479,13 +517,13 @@ func (w *row) exitChecks() {
 	}
 	if w.realBefore != nil {
 		if changed := changedPaths(w.realBefore, fingerprint(w.o.RealHome)); len(changed) > 0 {
-			w.note("the real ~/.config/fyr or ~/.config/sh-agent changed (BUG-107, BUG-123): %s", strings.Join(changed, ", "))
+			w.note("the real home's watched config changed (BUG-107, BUG-123): %s", strings.Join(changed, ", "))
 			w.fail(ReasonRealConfig)
 		}
 	}
-	if w.credsBefore != nil {
-		if left := newCreds(w.credsBefore, scanCreds(w.sb)); len(left) > 0 {
-			w.note("credentials left in the sandbox home (BUG-160): %s", strings.Join(left, ", "))
+	if w.credsBefore != nil && intact {
+		if left := newCreds(w.credsBefore, scanCreds(w.dir)); len(left) > 0 {
+			w.note("credentials left in the sandbox (BUG-160): %s", strings.Join(left, ", "))
 			w.fail(ReasonCredentials)
 		}
 	}
@@ -494,14 +532,70 @@ func (w *row) exitChecks() {
 	}
 }
 
+// intact reports whether the sandbox directory, the clone and the sandbox
+// home still resolve to what guard a approved, and fails the row once when
+// they do not: the agent can replace any of them with a link to the real
+// home, and eval removes, scans and ingests through them.
+func (w *row) intact() bool {
+	for p, want := range w.resolved {
+		st, err := os.Lstat(p)
+		got, rerr := filepath.EvalSymlinks(p)
+		if err != nil || rerr != nil || !st.IsDir() || got != want {
+			if !w.has(ReasonReplaced) {
+				w.note("%s no longer resolves to %s; nothing is removed, run or scanned through it", p, want)
+				w.fail(ReasonReplaced)
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// sandboxRoot opens the sandbox home as an os.Root, which refuses a path
+// that a link leads out of the home (the real token sits at the other end of
+// one).
+func (w *row) sandboxRoot() (*os.Root, error) { return os.OpenRoot(w.sb) }
+
+// removeInSandbox removes rel inside the sandbox home, never through a link
+// that leads out of it; one that does fails the row sandbox replaced.
+func (w *row) removeInSandbox(rel string) {
+	root, err := w.sandboxRoot()
+	if err == nil {
+		err = root.Remove(filepath.FromSlash(rel))
+		root.Close()
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		w.note("not removed: %s: %v", rel, err)
+		if !w.has(ReasonReplaced) {
+			w.fail(ReasonReplaced)
+		}
+	}
+}
+
+// openRegular opens path with flag, refusing a link (O_NOFOLLOW) and
+// anything that is not a regular file, without blocking on a FIFO the agent
+// left at a name eval reads or writes.
+func openRegular(path string, flag int) (*os.File, error) {
+	f, err := os.OpenFile(path, flag|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		f.Close()
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return f, nil
+}
+
 // bash runs a setup or check script in the clone with env, its output to
 // logName in the sandbox directory, and reports exit 0.
 func (w *row) bash(ctx context.Context, script string, env []string, logName string) bool {
 	cmd := exec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Dir = w.app
 	cmd.Env = env
-	log, err := os.Create(filepath.Join(w.dir, logName))
+	log, err := openRegular(filepath.Join(w.dir, logName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
+		w.note("%v", err)
 		return false
 	}
 	defer log.Close()
@@ -573,7 +667,7 @@ func envOr(k, def string) string {
 
 // countLines is grep -c: the lines of path holding s.
 func countLines(path, s string) int {
-	f, err := os.Open(path)
+	f, err := openRegular(path, os.O_RDONLY)
 	if err != nil {
 		return 0
 	}

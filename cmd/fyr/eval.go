@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -29,6 +28,9 @@ const suiteID = "GUIDE-eval"
 // evalSelf is the fyr each sandbox installs and lists records with; a test
 // replaces it, since the test binary is not a fyr.
 var evalSelf = os.Executable
+
+// evalRun is eval.Run; a test wraps it to land a signal before the first row.
+var evalRun = eval.Run
 
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
@@ -117,13 +119,21 @@ func runEval(c *ctx) error {
 		return refuse("%v", err)
 	}
 
-	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// A hangup too: its default would kill fyr before the token link is
+	// removed, and agy, in its own process group, would run on unattended.
+	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
-	results, err := eval.Run(sig, o, rows)
+	results, err := evalRun(sig, o, rows)
 	if err != nil {
 		return refuse("%v", err)
 	}
 	stop()
+	if len(results) == 0 {
+		// Interrupted before the first row: nothing ran, so nothing is
+		// recorded, and the export stays as the operator left it.
+		fmt.Fprintln(c.out, "eval: interrupted before the first row; no record written")
+		return exitCode(1)
+	}
 
 	failed := false
 	// After the verdict, never before: the store stamps a label's outcome
@@ -209,10 +219,11 @@ func findRecord(recs []brain.Record, id string) (brain.Record, bool) {
 // ingestRow reads one sandbox home into the metrics store under the label
 // eval=<row>, its verdict as the outcome. A row that failed before its
 // sandbox home existed has nothing to read; a sandbox that already existed is
-// another invocation's and is never read as this one's.
+// another invocation's and is never read as this one's; a sandbox the agent
+// replaced may lead anywhere, the real home included.
 func ingestRow(home string, r eval.Result) error {
 	sb := filepath.Join(r.Dir, "home")
-	if st, err := os.Stat(sb); err != nil || !st.IsDir() || slices.Contains(r.Reasons, eval.ReasonExists) {
+	if st, err := os.Stat(sb); err != nil || !st.IsDir() || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) {
 		return nil
 	}
 	outcome := "pass"
@@ -256,7 +267,7 @@ func evalBody(root string, o eval.Options, src harness.Source, results []eval.Re
 	fmt.Fprintf(&b, "- fixture: %s at %s\n", fixture, gitShort(fixture))
 	fmt.Fprintf(&b, "- install source: %s\n", source)
 	fmt.Fprintf(&b, "- agy: %s\n", agyVersion())
-	if runtime.GOOS != "linux" {
+	if !eval.ProcsChecked {
 		b.WriteString("- the leftover-process check did not run: no /proc here (plan fyr-eval O1)\n")
 	}
 	b.WriteString("\n| row | verdict | reasons | agy exit | seconds | sandbox |\n|---|---|---|---|---|---|\n")

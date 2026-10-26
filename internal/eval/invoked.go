@@ -2,6 +2,7 @@ package eval
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -17,9 +18,21 @@ func invoked(sb, agent string) bool {
 	files, _ := filepath.Glob(filepath.Join(sb, ".gemini", "antigravity-cli", "conversations", "*.db"))
 	needle := []byte(`"TypeName":"` + agent + `"`)
 	for _, f := range files {
-		if b, err := os.ReadFile(f); err == nil && bytes.Contains(b, needle) {
+		if readsNeedle(f, needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// readsNeedle reports whether the regular file at path holds needle; a link
+// or a FIFO the agent left in place of a database is not read.
+func readsNeedle(path string, needle []byte) bool {
+	f, err := openRegular(path, os.O_RDONLY)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	b, err := io.ReadAll(f)
+	return err == nil && bytes.Contains(b, needle)
 }

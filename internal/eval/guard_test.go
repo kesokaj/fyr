@@ -105,6 +105,34 @@ func TestGuardOutsideCheckout(t *testing.T) {
 	}
 }
 
+// TestGuardOutsideCheckoutFailsClosed: only git's own "not a git
+// repository" is outside. A directory git cannot enter is inside, and a
+// translated git message still reads as git's English.
+func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
+	tmp := outsideTemp(t)
+	if os.Geteuid() != 0 {
+		shut := filepath.Join(tmp, "shut")
+		if err := os.Mkdir(shut, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(shut, 0o755) })
+		if err := outsideCheckout(shut); err == nil {
+			t.Errorf("a directory git cannot enter counts as outside every checkout")
+		}
+	}
+	probe := exec.Command("git", "-C", tmp, "rev-parse", "--git-dir")
+	probe.Env = append(withoutGit(os.Environ()), "LC_ALL=en_US.UTF-8", "LANGUAGE=de")
+	if out, _ := probe.CombinedOutput(); strings.Contains(string(out), "not a git repository") {
+		t.Log("git prints no German here; the translated case is not exercised")
+		return
+	}
+	t.Setenv("LC_ALL", "en_US.UTF-8")
+	t.Setenv("LANGUAGE", "de")
+	if err := outsideCheckout(tmp); err != nil {
+		t.Errorf("under a German locale, %s outside every checkout: %v", tmp, err)
+	}
+}
+
 // TestGuardPreflight: a root that is no checkout and a home inside a
 // checkout (the BUG-106 message) are refused before anything is created.
 func TestGuardPreflight(t *testing.T) {
@@ -135,9 +163,10 @@ func TestGuardPreflight(t *testing.T) {
 }
 
 // TestGuardFingerprint is check c: a change of content, mode, name or link
-// target under the real ~/.config/fyr or ~/.config/sh-agent changes the
-// fingerprint and names the path; the eval/ directory does not count; a
-// home with neither directory is no error (BUG-158).
+// target under a watched path (the real ~/.config/fyr, ~/.config/sh-agent,
+// ~/.gemini/config and the CLI's settings.json) changes the fingerprint and
+// names the path; the eval/ directory, the token and the conversations do
+// not count; a home with none of them is no error (BUG-158).
 func TestGuardFingerprint(t *testing.T) {
 	tmp := outsideTemp(t)
 	real := filepath.Join(tmp, "real")
@@ -157,6 +186,10 @@ func TestGuardFingerprint(t *testing.T) {
 	write(filepath.Join(fyr, "brain.db"), "store")
 	write(filepath.Join(fyr, "sub", "notes"), "a")
 	write(filepath.Join(old, "feedback.jsonl"), "{}\n")
+	cli := filepath.Join(real, ".gemini", "antigravity-cli")
+	write(filepath.Join(real, ".gemini", "config", "rules", "AGENTS.md"), "rules")
+	write(filepath.Join(cli, "settings.json"), `{"permissions":{}}`)
+	write(filepath.Join(cli, "antigravity-oauth-token"), "token")
 	write(filepath.Join(tmp, "elsewhere"), "linked")
 	if err := os.Symlink(filepath.Join(tmp, "elsewhere"), filepath.Join(fyr, "link")); err != nil {
 		t.Fatal(err)
@@ -168,16 +201,20 @@ func TestGuardFingerprint(t *testing.T) {
 		change func()
 		path   string
 	}{
-		"a line appended":         {func() { write(filepath.Join(fyr, "brain.db"), "store\nmore") }, "fyr/brain.db"},
-		"the same size rewritten": {func() { write(filepath.Join(fyr, "sub", "notes"), "b") }, "fyr/sub/notes"},
-		"a chmod":                 {func() { os.Chmod(filepath.Join(fyr, "brain.db"), 0o600) }, "fyr/brain.db"},
-		"a new file":              {func() { write(filepath.Join(fyr, "metrics.db"), "") }, "fyr/metrics.db"},
-		"a removed file":          {func() { os.Remove(filepath.Join(old, "feedback.jsonl")) }, "sh-agent/feedback.jsonl"},
-		"a linked file changed":   {func() { write(filepath.Join(tmp, "elsewhere"), "LINKED") }, "fyr/link"},
+		"a line appended":                      {func() { write(filepath.Join(fyr, "brain.db"), "store\nmore") }, harness.StateDir + "/brain.db"},
+		"the same size rewritten":              {func() { write(filepath.Join(fyr, "sub", "notes"), "b") }, harness.StateDir + "/sub/notes"},
+		"a chmod":                              {func() { os.Chmod(filepath.Join(fyr, "brain.db"), 0o600) }, harness.StateDir + "/brain.db"},
+		"a new file":                           {func() { write(filepath.Join(fyr, "metrics.db"), "") }, harness.StateDir + "/metrics.db"},
+		"a removed file":                       {func() { os.Remove(filepath.Join(old, "feedback.jsonl")) }, harness.OldStateDir + "/feedback.jsonl"},
+		"a linked file changed":                {func() { write(filepath.Join(tmp, "elsewhere"), "LINKED") }, harness.StateDir + "/link"},
+		"a rule written into the CLI's config": {func() { write(filepath.Join(real, ".gemini", "config", "rules", "AGENTS.md"), "rules and more") }, ".gemini/config/rules/AGENTS.md"},
+		"a grant written into the CLI's settings": {func() {
+			write(filepath.Join(cli, "settings.json"), `{"permissions":{"allow":["command(*)"]}}`)
+		}, ".gemini/antigravity-cli/settings.json"},
 		"a link re-pointed": {func() {
 			os.Remove(filepath.Join(fyr, "dirlink"))
 			os.Symlink(real, filepath.Join(fyr, "dirlink"))
-		}, "fyr/dirlink"},
+		}, harness.StateDir + "/dirlink"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			before := fingerprint(real)
@@ -192,6 +229,14 @@ func TestGuardFingerprint(t *testing.T) {
 	write(filepath.Join(fyr, "eval", "2026-10-26-080000", "row", "home", "x"), "a run writes here")
 	if got := changedPaths(before, fingerprint(real)); len(got) != 0 {
 		t.Errorf("a write under eval/ counts as a real-config change: %v", got)
+	}
+	// The token a sandboxed session refreshes through its link, and the
+	// conversations the operator's own sessions write, are not watched.
+	before = fingerprint(real)
+	write(filepath.Join(cli, "antigravity-oauth-token"), "refreshed")
+	write(filepath.Join(cli, "conversations", "c.db"), "a session")
+	if got := changedPaths(before, fingerprint(real)); len(got) != 0 {
+		t.Errorf("the token or a conversation counts as a real-config change: %v", got)
 	}
 	// The directory itself a link (a dotfiles setup) is followed.
 	moved := filepath.Join(tmp, "dotfiles-fyr")

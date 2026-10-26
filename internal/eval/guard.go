@@ -99,15 +99,25 @@ func checkRoots(realHome, source string, roots ...string) error {
 var errInsideCheckout = errors.New("inside a git checkout")
 
 // outsideCheckout is safety check b (preamble :54-58): git run in dir must
-// find no repository. A repository git refuses for its owner is still one.
+// find no repository. It fails closed: only git's own "not a git repository",
+// in the C locale so the words are git's English, counts as outside; a
+// repository git refuses for its owner, a directory it cannot enter or any
+// other error is inside. Discovery crosses mounts, because the CLI's loading
+// of an ancestor AGENTS.md does (BUG-106).
 func outsideCheckout(dir string) error {
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
-	cmd.Env = withoutGit(os.Environ())
-	out, err := cmd.CombinedOutput()
-	if err == nil || strings.Contains(string(out), "dubious ownership") {
-		return fmt.Errorf("%s is %w", dir, errInsideCheckout)
+	env := []string{"LC_ALL=C", "GIT_DISCOVERY_ACROSS_FILESYSTEM=1"}
+	for _, kv := range withoutGit(os.Environ()) {
+		if k, _, _ := strings.Cut(kv, "="); k != "LC_ALL" && k != "LANGUAGE" {
+			env = append(env, kv)
+		}
 	}
-	return nil
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	if err != nil && strings.Contains(string(out), "not a git repository") {
+		return nil
+	}
+	return fmt.Errorf("%s is %w", dir, errInsideCheckout)
 }
 
 // withoutGit drops every GIT_* variable: an inherited GIT_DIR or
@@ -122,17 +132,24 @@ func withoutGit(env []string) []string {
 	return out
 }
 
+// watched are the real home's paths check c fingerprints: fyr's state (its
+// eval/ directory left out, every row writes there, D8), the old state
+// directory, and the CLI's installed customizations and settings, which a
+// grant written there would outlive the run in. The token and the CLI's
+// conversations are not watched: a sandboxed session refreshes the one
+// through its link, and the operator's own sessions write the other.
+var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", ".gemini/antigravity-cli/settings.json"}
+
 // fingerprint is safety check c (preamble :85-117, BUG-107, 123, 158): every
-// entry under the real ~/.config/fyr, its eval/ directory left out because
-// every row writes there (D8), and ~/.config/sh-agent, as relative path →
-// type, mode, size and a SHA-256 of a file's content or a link's target. A
-// link to a regular file is read through; no link is walked. A directory
-// that does not exist is no entry (BUG-158).
+// entry under the watched paths, as path relative to the home → type, mode,
+// size and a SHA-256 of a file's content or a link's target. A link to a
+// regular file is read through; no link is walked. A path that does not
+// exist is no entry (BUG-158).
 func fingerprint(realHome string) map[string]string {
 	fp := map[string]string{}
-	for _, dir := range []string{harness.StateDir, harness.OldStateDir} {
-		name := filepath.Base(dir)
-		top := filepath.Join(realHome, dir)
+	for _, dir := range watched {
+		name := filepath.FromSlash(dir)
+		top := filepath.Join(realHome, name)
 		root := top
 		if r, err := filepath.EvalSymlinks(top); err == nil {
 			root = r // the directory itself may be a link (a dotfiles setup)

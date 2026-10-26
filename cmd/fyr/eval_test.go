@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -13,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // evalAgy is the CLI the verb tests drive. Session n (counted across the
@@ -180,7 +183,19 @@ var recordIDLine = regexp.MustCompile(`(?m)^eval: (\d+) of (\d+) PASS; record (T
 
 func (r *evalRig) passK(label string) (k, passed int) {
 	r.t.Helper()
-	out := r.mustRun(nil, "metrics", "show", "--label", label, "--since", "2026-10-01", "--json", "--home", r.home)
+	return passK(r.t, r.home, label)
+}
+
+func passK(t *testing.T, home, label string) (k, passed int) {
+	t.Helper()
+	if _, err := os.Stat(metrics.Path(home)); os.IsNotExist(err) {
+		return 0, 0 // nothing was ever ingested into this home
+	}
+	var buf bytes.Buffer
+	if err := run([]string{"metrics", "show", "--label", label, "--since", "2026-10-01", "--json", "--home", home}, &buf); err != nil {
+		t.Fatalf("metrics show: %v\n%s", err, buf.String())
+	}
+	out := buf.String()
 	var sum struct {
 		A struct {
 			PassK map[string]struct {
@@ -190,7 +205,7 @@ func (r *evalRig) passK(label string) (k, passed int) {
 		} `json:"A"`
 	}
 	if err := json.Unmarshal([]byte(out), &sum); err != nil {
-		r.t.Fatalf("metrics show --json: %v\n%s", err, out)
+		t.Fatalf("metrics show --json: %v\n%s", err, out)
 	}
 	p := sum.A.PassK[label]
 	return p.K, p.Passed
@@ -222,6 +237,9 @@ func TestEvalVerb(t *testing.T) {
 	}
 	if strings.Contains(got, "agy says ok") {
 		t.Errorf("the CLI's output reached the record:\n%s", got)
+	}
+	if named := strings.Contains(got, "the leftover-process check did not run"); named == eval.ProcsChecked {
+		t.Errorf("the record names the skipped process check: %v, want %v (eval.ProcsChecked %v):\n%s", named, !eval.ProcsChecked, eval.ProcsChecked, got)
 	}
 	if k, passed := r.passK("eval=ok"); k != 1 || passed != 1 {
 		t.Errorf("pass^k of eval=ok: k %d passed %d, want 1 and 1", k, passed)
@@ -316,6 +334,12 @@ func TestEvalVerbRecordFails(t *testing.T) {
 // SIGINT during a row: the row FAILs interrupted, the rows after it do not
 // run, and the started one is still ingested and recorded (D22).
 func TestEvalVerbInterrupted(t *testing.T) {
+	for _, s := range []syscall.Signal{syscall.SIGINT, syscall.SIGHUP} {
+		t.Run(s.String(), func(t *testing.T) { evalInterrupted(t, s) })
+	}
+}
+
+func evalInterrupted(t *testing.T, s syscall.Signal) {
 	r := newEvalRig(t, evalSuite, true)
 	if err := os.WriteFile(filepath.Join(r.ctl, "hang"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -323,7 +347,7 @@ func TestEvalVerbInterrupted(t *testing.T) {
 	go func() {
 		for i := 0; i < 600; i++ {
 			if _, err := os.Stat(filepath.Join(r.rec, "started")); err == nil {
-				syscall.Kill(os.Getpid(), syscall.SIGINT)
+				syscall.Kill(os.Getpid(), s)
 				return
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -344,6 +368,60 @@ func TestEvalVerbInterrupted(t *testing.T) {
 	}
 	if strings.Contains(out, "ingest:") {
 		t.Errorf("the interrupted row's ingest failed:\n%s", out)
+	}
+}
+
+// TestEvalIngestSkipsReplaced: a sandbox whose home the agent replaced with
+// a link (to the real home, here a home holding one conversation) is never
+// ingested; the same arrangement without that reason is, which shows the
+// link would have been read.
+func TestEvalIngestSkipsReplaced(t *testing.T) {
+	tmp := t.TempDir()
+	home, real, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "real"), filepath.Join(tmp, "sandbox")
+	agyHome(t, real, "C1")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(dir, "home")); err != nil {
+		t.Fatal(err)
+	}
+	replaced := eval.Result{Row: "x", Verdict: "FAIL", Reasons: []string{eval.ReasonReplaced}, Dir: dir}
+	if err := ingestRow(home, replaced); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := passK(t, home, "eval=x"); k != 0 {
+		t.Errorf("a replaced sandbox was ingested: k %d", k)
+	}
+	if err := ingestRow(home, eval.Result{Row: "ctl", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := passK(t, home, "eval=ctl"); k != 1 {
+		t.Errorf("the control was not ingested: k %d", k)
+	}
+}
+
+// A signal that lands after the refusals and before the first row starts
+// runs nothing, so it writes no record: exit 1, the export unchanged.
+func TestEvalVerbInterruptedBeforeFirstRow(t *testing.T) {
+	r := newEvalRig(t, evalSuite, true)
+	export := filepath.Join(r.project, ".agents", "trail.jsonl")
+	before, err := os.ReadFile(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := evalRun
+	evalRun = func(ctx context.Context, o eval.Options, rows []eval.Row) ([]eval.Result, error) {
+		syscall.Kill(os.Getpid(), syscall.SIGINT)
+		<-ctx.Done()
+		return eval.Run(ctx, o, rows)
+	}
+	t.Cleanup(func() { evalRun = old })
+	out, code := r.eval("ok")
+	if code != 1 || !strings.Contains(out, "eval: interrupted before the first row; no record written") || recordIDLine.MatchString(out) {
+		t.Fatalf("exit %d, want 1 with no row run and no record:\n%s", code, out)
+	}
+	if after, err := os.ReadFile(export); err != nil || !bytes.Equal(after, before) {
+		t.Errorf("the export changed (err %v):\n%s", err, after)
 	}
 }
 
