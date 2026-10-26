@@ -317,7 +317,7 @@ chmod 644 "$build/LICENSE-agents-cli" "$build/LICENSE-google-skills"
 # entry without frontmatter name and description fails here, before the swap.
 if ! (cd "$repo" && CATALOG_DIR="$build" CATALOG_WRITE=1 go test ./internal/harness \
     -run '^TestCatalog(MatchesChecksums|IndexMatchesEntries|FilesAreCarryable)$' -count=1 > "$work/writer.log" 2>&1); then
-  grep -E 'catalog_test|catalog entry|FAIL' "$work/writer.log" | head -20 >&2 || true
+  grep -E 'catalog_[a-z_]*test\.go|catalog entry|FAIL' "$work/writer.log" | head -20 >&2 || true
   fail "the catalog built from these pins is refused (lines above; --exclude the entry named)"
 fi
 
