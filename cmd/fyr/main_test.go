@@ -1433,7 +1433,7 @@ func TestUpdateFromZipDecidedByParsedFlags(t *testing.T) {
 func TestOneRepositoryName(t *testing.T) {
 	_, name, _ := strings.Cut(harness.ReleaseRepo, "/")
 	want := "git@github.com:" + name + ".git"
-	for _, rel := range []string{"README.md", "DEPLOY-remote", "cmd/fyr/main.go", "internal/harness/repo.go"} {
+	for _, rel := range []string{"README.md", "DEPLOY-remote", "cmd/fyr/verb_install.go", "internal/harness/repo.go"} {
 		var data []byte
 		if rel == "DEPLOY-remote" {
 			// The deploy guide is a record since the trail's migration.

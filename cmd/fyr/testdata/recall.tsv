@@ -35,7 +35,7 @@ drift: every file that says release tags are signed with ssh options on the comm
 drift: every file that says to stage files one by one by name instead of adding everything	context/AGENTS.md,skills/handoff/SKILL.md,skills/preflight/SKILL.md,skills/retro/SKILL.md
 drift: every file that says commits carry no co-author trailer	README.md,cmd/fyr/main.go,context/AGENTS.md
 drift: every file that says the deployed context ends with a check word so truncation shows	GUIDE-testing,AGENTS.md,README.md,internal/harness/render.go
-drift: every file that says the update check only reports and signals when the install is behind	DEPLOY-local,DEPLOY-remote,README.md,cmd/fyr/main.go
-drift: every file that says install edits no vendor setting	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md,cmd/fyr/main.go
+drift: every file that says the update check only reports and signals when the install is behind	DEPLOY-local,DEPLOY-remote,README.md,cmd/fyr/ctx_verbs.go,cmd/fyr/main.go
+drift: every file that says install edits no vendor setting	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md,cmd/fyr/verb_install.go
 refs BUG-049: records that mention BUG-049	BUG-046,BUG-049,DEPLOY-remote
 open plan: plans with unticked boxes	PLAN-2026-10-24-fyr-agy-only,PLAN-2026-10-25-sqlite-trail
