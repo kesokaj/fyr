@@ -132,6 +132,15 @@ func TestSuiteHarness(t *testing.T) {
 		"requirements-check": {"", false}, "preflight": {"", true}, "handoff": {"", true}, "metrics-feed": {"", true},
 		"retro": {"", true}, "operate": {"", false}, "documentation": {"", true}, "discover-skills": {"", false},
 		"gcloud-auth": {"", false},
+		// Ported from GUIDE-skill-matrix for the v3.0.0 gate's per-skill runs.
+		"api-auth": {"", false}, "bash": {"", false}, "cloud-run": {"", false}, "data": {"", false},
+		"distill": {"", true}, "docker": {"", false}, "dream": {"", true}, "explain-project": {"", false},
+		"feedback": {"", false}, "frontend": {"", false}, "gke": {"", false}, "golang": {"", false},
+		"harness-audit-elsewhere": {"", false}, "research": {"", false}, "review-standards": {"", false},
+		"spec": {"", false}, "terraform": {"", false}, "testing-strategy": {"", false}, "typescript": {"", false},
+		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},
+		"catalog-route-3": {"", false}, "catalog-route-4": {"", false}, "catalog-route-5": {"", false},
+		"catalog-route-6": {"", false}, "catalog-precedence": {"", false},
 	}
 	got := map[string]Row{}
 	for _, r := range rows {
