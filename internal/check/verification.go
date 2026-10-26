@@ -44,10 +44,27 @@ func (k *checker) verificationFindings(specs []brain.Record) []Finding {
 
 // verificationLines is the 1-based line range [from, to) of a body's
 // `## Verification` section, up to the next level-two heading; 0, 0 when
-// the body has none.
+// the body has none. A heading inside a fence is not one: the fence rule is
+// scan's (same character, a run at least as long, nothing after it).
 func verificationLines(body string) (from, to int) {
+	var fenceChar byte
+	fenceLen := 0
 	for i, l := range strings.Split(body, "\n") {
 		n := i + 1
+		l = strings.TrimSuffix(l, "\r")
+		if c, k, rest, ok := fenceMarker(l); ok {
+			if fenceLen == 0 && (c != '`' || !strings.Contains(rest, "`")) {
+				fenceChar, fenceLen = c, k
+				continue
+			}
+			if fenceLen > 0 && c == fenceChar && k >= fenceLen && strings.TrimSpace(rest) == "" {
+				fenceLen = 0
+				continue
+			}
+		}
+		if fenceLen > 0 {
+			continue
+		}
 		switch {
 		case from == 0 && strings.HasPrefix(l, "## Verification"):
 			from = n + 1

@@ -7,7 +7,8 @@ import (
 
 // A bare Go file name in a current spec's Verification section must be a
 // tracked file's base name; a :N on it is not checked; the same name outside
-// the section, in a fence, or in a retired spec, is not read.
+// the section, in a fence, or in a retired spec, is not read, and a `## `
+// line inside a fence does not end the section.
 func TestVerificationFileNames(t *testing.T) {
 	body := strings.Join([]string{
 		"Code: `internal/a/a.go`.",
@@ -23,7 +24,9 @@ func TestVerificationFileNames(t *testing.T) {
 		"| c | `internal/a/a_test.go` |",
 		"```",
 		"go test ./... # fenced_test.go",
+		"## a shell comment, not a heading",
 		"```",
+		"| d | `after_fence_test.go` |",
 		"",
 		"## After",
 		"",
@@ -37,8 +40,8 @@ func TestVerificationFileNames(t *testing.T) {
 		"internal/a/a_test.go": "package a\n",
 	})
 	rep := run(t, dir)
-	same(t, rep.Findings, "SPEC-a:10 path")
-	if len(rep.Findings) == 1 && !strings.Contains(rep.Findings[0].Text, "no tracked file is named tools_test.go") {
+	same(t, rep.Findings, "SPEC-a:10 path", "SPEC-a:16 path")
+	if len(rep.Findings) > 0 && !strings.Contains(rep.Findings[0].Text, "no tracked file is named tools_test.go") {
 		t.Errorf("text %q", rep.Findings[0].Text)
 	}
 }
