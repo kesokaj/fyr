@@ -1,0 +1,223 @@
+// Package eval runs a project's behavioural rows against the Antigravity CLI,
+// each in its own sandbox: a clone of the fixture, a throwaway HOME with the
+// harness installed and the operator's login linked in, and every check the
+// run kit's preamble made around the run (plan
+// 2026-10-26-0659-plan-fyr-eval-the-antigravity-run-kit-as-a-verb). It
+// imports no SQLite driver (D10): the suite comes in as a record body, and
+// the stores are written by cmd/fyr after Run returns.
+package eval
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+// Row is one scenario of the suite: a setup, one or two prompts, a check,
+// and optionally an agent the conversation store must show invoked.
+type Row struct{ ID, Setup, Prompt, Prompt2, Check, Agent, Grants string }
+
+// Wide reports whether the row runs with command(*), and why.
+func (r Row) Wide() (reason string, ok bool) {
+	return strings.CutPrefix(r.Grants, "wide: ")
+}
+
+var suiteHeader = []string{"id", "setup", "prompt", "prompt2", "check", "agent", "grants"}
+
+var (
+	// An id names a sandbox directory and a metrics label, so it is one path
+	// element of plain characters.
+	validID    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	validAgent = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	leadingID  = regexp.MustCompile("^`([^`]+)`")
+	// Any {{NAME}} in a prompt: the four eval fills, or a typo refused at parse.
+	placeholder = regexp.MustCompile(`\{\{[^{}]*\}\}`)
+)
+
+// Placeholders are the names a prompt may carry as {{NAME}}; eval fills them
+// itself, never through a shell, so a prompt is never code (D21).
+var Placeholders = []string{"CLONE", "SB", "FIXDIR", "STAMP"}
+
+// ParseSuite reads the one table of GUIDE-eval's body whose header is
+// `| id | setup | prompt | prompt2 | check | agent | grants |`. Any prose may
+// surround it. A table that does not parse is refused with its line number.
+func ParseSuite(body string) ([]Row, error) {
+	lines := strings.Split(body, "\n")
+	start := -1
+	for i, l := range lines {
+		if cells, ok := splitCells(l); ok && equalCells(cells, suiteHeader) {
+			if start >= 0 {
+				return nil, fmt.Errorf("GUIDE-eval line %d: a second suite table (the first is at line %d)", i+1, start+1)
+			}
+			start = i
+		}
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("GUIDE-eval has no table with the header | %s |", strings.Join(suiteHeader, " | "))
+	}
+	var rows []Row
+	seen := map[string]int{}
+	for i := start + 1; i < len(lines); i++ {
+		l := strings.TrimRight(lines[i], "\r")
+		if !strings.HasPrefix(l, "|") {
+			break
+		}
+		n := i + 1
+		if isSeparator(l) {
+			continue
+		}
+		if !strings.HasPrefix(l, "| `") {
+			return nil, fmt.Errorf("GUIDE-eval line %d: a row starts with | `id`", n)
+		}
+		cells, _ := splitCells(l)
+		if len(cells) != len(suiteHeader) {
+			return nil, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), len(suiteHeader), strings.Join(suiteHeader, ", "))
+		}
+		m := leadingID.FindStringSubmatch(cells[0])
+		if m == nil || !validID.MatchString(m[1]) {
+			return nil, fmt.Errorf("GUIDE-eval line %d: the id is not one backticked name of a-z, 0-9, '.', '_' or '-'", n)
+		}
+		r := Row{
+			ID:      m[1],
+			Setup:   codeCell(cells[1]),
+			Prompt:  textCell(cells[2]),
+			Prompt2: textCell(cells[3]),
+			Check:   codeCell(cells[4]),
+			Agent:   textCell(cells[5]),
+			Grants:  textCell(cells[6]),
+		}
+		if first, dup := seen[r.ID]; dup {
+			return nil, fmt.Errorf("GUIDE-eval line %d: duplicate id %s (first at line %d)", n, r.ID, first)
+		}
+		seen[r.ID] = n
+		if r.Prompt == "" {
+			return nil, fmt.Errorf("GUIDE-eval line %d: row %s has no prompt", n, r.ID)
+		}
+		if r.Check == "" {
+			return nil, fmt.Errorf("GUIDE-eval line %d: row %s has no check", n, r.ID)
+		}
+		if r.Agent != "" && !validAgent.MatchString(r.Agent) {
+			return nil, fmt.Errorf("GUIDE-eval line %d: row %s: agent %q is not an agent name", n, r.ID, r.Agent)
+		}
+		if reason, wide := r.Wide(); !(r.Grants == "named" || wide && strings.TrimSpace(reason) != "") {
+			return nil, fmt.Errorf("GUIDE-eval line %d: row %s: grants is %q, want named or wide: <reason>", n, r.ID, r.Grants)
+		}
+		for _, p := range []string{r.Prompt, r.Prompt2} {
+			for _, ph := range placeholder.FindAllString(p, -1) {
+				if !known(ph) {
+					return nil, fmt.Errorf("GUIDE-eval line %d: row %s: unknown placeholder %s (known: {{%s}})", n, r.ID, ph, strings.Join(Placeholders, "}}, {{"))
+				}
+			}
+		}
+		rows = append(rows, r)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("GUIDE-eval line %d: the suite table has no rows", start+1)
+	}
+	return rows, nil
+}
+
+// SelectRows returns the named rows in the order named; an unknown or a
+// repeated name is refused before anything runs (D20).
+func SelectRows(suite []Row, names []string) ([]Row, error) {
+	byID := map[string]Row{}
+	for _, r := range suite {
+		byID[r.ID] = r
+	}
+	var out []Row
+	picked := map[string]bool{}
+	for _, n := range names {
+		r, ok := byID[n]
+		if !ok {
+			return nil, fmt.Errorf("no row %q in GUIDE-eval", n)
+		}
+		if picked[n] {
+			return nil, fmt.Errorf("row %s is named twice", n)
+		}
+		picked[n] = true
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// Expand fills a prompt's placeholders from vars (keyed by name, without
+// braces). It is plain substitution: nothing in a value is interpreted.
+func Expand(prompt string, vars map[string]string) string {
+	var pairs []string
+	for _, name := range Placeholders {
+		pairs = append(pairs, "{{"+name+"}}", vars[name])
+	}
+	return strings.NewReplacer(pairs...).Replace(prompt)
+}
+
+func known(ph string) bool {
+	for _, name := range Placeholders {
+		if ph == "{{"+name+"}}" {
+			return true
+		}
+	}
+	return false
+}
+
+// splitCells splits a table line on every | that is not escaped as \| and
+// drops the empty cells outside the first and last bar; each cell is trimmed
+// and its \| unescaped.
+func splitCells(l string) ([]string, bool) {
+	l = strings.TrimSpace(l)
+	if !strings.HasPrefix(l, "|") || !strings.HasSuffix(l, "|") || len(l) < 2 {
+		return nil, false
+	}
+	var cells []string
+	var cur strings.Builder
+	for i := 1; i < len(l); i++ {
+		switch {
+		case l[i] == '\\' && i+1 < len(l) && l[i+1] == '|':
+			cur.WriteByte('|')
+			i++
+		case l[i] == '|':
+			cells = append(cells, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(l[i])
+		}
+	}
+	return cells, true
+}
+
+func equalCells(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func isSeparator(l string) bool {
+	return strings.Trim(strings.TrimSpace(l), "|-: ") == ""
+}
+
+// textCell strips one pair of backticks that wraps the whole cell and
+// nothing more: `a` and `b` stays as written.
+func textCell(c string) string {
+	if len(c) >= 2 && c[0] == '`' && c[len(c)-1] == '`' && !strings.Contains(c[1:len(c)-1], "`") {
+		return c[1 : len(c)-1]
+	}
+	return c
+}
+
+// codeCell is a setup or check cell: when it starts with a backticked span,
+// only that span is kept, so a note after the check ("(changed …)") never
+// reaches bash, where its backticks would run as a command substitution
+// (run.sh:190-192, D23).
+func codeCell(c string) string {
+	if strings.HasPrefix(c, "`") {
+		if end := strings.IndexByte(c[1:], '`'); end >= 0 {
+			return c[1 : 1+end]
+		}
+	}
+	return c
+}
