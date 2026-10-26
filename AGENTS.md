@@ -41,7 +41,7 @@ context/dev-setup.md   environment, stack, GCP defaults — appended to the cont
 agents/<name>/agent.md subagents in Antigravity's agent.md format, installed as written (nothing derived, ADR-062)
 skills/<name>/         skills; .agents/skills is a symlink here so `npx skills add` lands in skills/
 skills/google-catalog/catalog/  Google-published skills vendored at a pin (counts, exclusions, notes: its MANIFEST.md), reached through the google-catalog router, never installed as skills
-commands/, rules/      markdown prompts invoked as /name, and always-on rules; both deploy verbatim (workflows/ and rules/ under ~/.gemini/config), and rules share the Antigravity block (commands/ empty by design, operator 2026-09-30; rules/ holds critical-thinking.md (ADR-050) and session-sizing.md (ADR-058))
+commands/, rules/      markdown prompts invoked as /name, and always-on rules; both deploy verbatim (workflows/ and rules/ under ~/.gemini/config), and rules share the Antigravity block (commands/ empty by design, operator 2026-09-30; rules/ holds critical-thinking.md (ADR-050), session-sizing.md (ADR-058) and code-modularity.md (ADR-066))
 cmd/fyr, internal/harness   the binary and its tests
 embed.go, *_test.go    package `fyr` at the root: the `go:embed` of the five content directories (it cannot reach a parent, so it sits here) and the tests of the tree beside it (the embed pinned both ways to git, the init-project assets, the plan)
 internal/search        `fyr search` and `index`: the SQLite index (one of the three packages that import the driver, with `internal/metrics` and `internal/brain`); also the dream job's two read-only SQLite reads (the global index's project list, Antigravity's conversation databases, from copies)
