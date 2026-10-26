@@ -52,6 +52,11 @@ var migrations = []string{
 	// gen_metadata, plan D3a); a historical claude row's is computed from
 	// usage at read time.
 	`ALTER TABLE steps ADD COLUMN context INTEGER;`,
+	// 3: Go's zero time stored before BUG-181 (a conversation Antigravity
+	// never dated) is no time; mtime 0 matches what ingest now reads for it.
+	`UPDATE sessions SET started_at = NULL WHERE started_at < 0;
+	UPDATE sessions SET ended_at = NULL WHERE ended_at < 0;
+	UPDATE ingest_state SET mtime = 0 WHERE mtime < 0;`,
 }
 
 // tables is every table export writes, in dependency order.

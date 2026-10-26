@@ -430,3 +430,28 @@ func TestFirstReadsRecords(t *testing.T) {
 		t.Errorf("a target_kind holds the command's ID: %q", raw)
 	}
 }
+
+// A conversation Antigravity dated with Go's zero time and that has no steps
+// is stored with no end time and a zero ingest mtime, never the zero time's
+// negative milliseconds (BUG-181).
+func TestAgyZeroTimeIsNoTime(t *testing.T) {
+	home, root := agyFixture(t)
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	sqliteT(t, filepath.Join(dir, "conversation_summaries.db"),
+		`INSERT INTO conversation_summaries VALUES ('C3', '0001-01-01 00:00:00+00:00', '["file://`+root+`"]', '', '')`)
+	sqliteT(t, filepath.Join(dir, "conversations", "C3.db"),
+		"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
+		"CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0)")
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ingestT(t, s, Options{Home: home})
+	var ended, mtime any
+	if err := s.db.QueryRow(`SELECT ended_at FROM sessions WHERE id = 'C3'`).Scan(&ended); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT mtime FROM ingest_state WHERE source LIKE '%C3.db'`).Scan(&mtime); err != nil {
+		t.Fatal(err)
+	}
+	if ended != nil || mtime != int64(0) {
+		t.Fatalf("ended_at %v, mtime %v; want NULL and 0", ended, mtime)
+	}
+}

@@ -203,6 +203,29 @@ func TestMigrationOneToCurrent(t *testing.T) {
 	}
 }
 
+// A store at schema 2 that holds Go's zero time from before BUG-181 is
+// repaired by the upgrade: the time columns become NULL and the ingest mtime
+// 0, so the conversation is not re-read into a zero end time.
+func TestMigrationRepairsZeroTimes(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "metrics.db")
+	saved := migrations
+	t.Cleanup(func() { migrations = saved })
+	migrations = saved[:2]
+	s := openT(t, p)
+	const zero = -62135596800000
+	s.db.Exec(`INSERT INTO sessions(id, vendor, started_at, ended_at) VALUES ('z', 'agy', ?, ?), ('ok', 'agy', 5, 7)`, zero, zero)
+	s.db.Exec(`INSERT INTO ingest_state(source, size, mtime, offset) VALUES ('z.db', 1, ?, 0)`, zero)
+	s.Close()
+
+	migrations = saved
+	s2 := openT(t, p)
+	var got string
+	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM sessions WHERE id = 'z' AND started_at IS NULL AND ended_at IS NULL) || ',' ||
+		(SELECT ended_at FROM sessions WHERE id = 'ok') || ',' || (SELECT mtime FROM ingest_state WHERE source = 'z.db')`).Scan(&got); err != nil || got != "1,7,0" {
+		t.Fatalf("after upgrade: %q, %v; want 1,7,0", got, err)
+	}
+}
+
 // The export leaves out the cmd_hash salt: with the salt, anyone holding an
 // export could confirm a guessed low-entropy command (security review
 // 2026-10-08). The schema row stays, so an export names its schema.
