@@ -110,6 +110,18 @@ func TestGuardOutsideCheckout(t *testing.T) {
 // translated git message still reads as git's English.
 func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
 	tmp := outsideTemp(t)
+	// A .git file whose gitdir is gone (a stale worktree): git says "not a
+	// git repository: <path>", which is not its discovery failure.
+	stale := filepath.Join(tmp, "stale")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, ".git"), []byte("gitdir: "+filepath.Join(tmp, "gone")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := outsideCheckout(stale); err == nil {
+		t.Errorf("a stale worktree's .git file counts as outside every checkout")
+	}
 	if os.Geteuid() != 0 {
 		shut := filepath.Join(tmp, "shut")
 		if err := os.Mkdir(shut, 0o000); err != nil {

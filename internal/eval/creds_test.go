@@ -3,6 +3,7 @@ package eval
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,7 +149,8 @@ func TestCredsNotCredentials(t *testing.T) {
 			}
 		})
 	}
-	// The home itself a link: followed, as find -H did.
+	// The directory itself a link: reported, never followed (the scan only
+	// ever gets eval's own sandbox directory).
 	tmp := t.TempDir()
 	real := filepath.Join(tmp, "real-home")
 	put(t, filepath.Join(real, ".ssh", "id_ed25519"), "", 0o600)
@@ -156,8 +158,8 @@ func TestCredsNotCredentials(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	if left := newCreds(nil, scanCreds(link)); len(left) != 1 {
-		t.Errorf("a linked home holding a key: %v", left)
+	if left := newCreds(nil, scanCreds(link)); len(left) != 1 || left[0] != ". (a link, not followed)" {
+		t.Errorf("a linked directory holding a key: %v", left)
 	}
 	// A home that is a dangling link is reported, never passed.
 	if err := os.Symlink(filepath.Join(tmp, "gone"), filepath.Join(tmp, "dangling")); err != nil {
@@ -199,5 +201,38 @@ func TestCredsBaseline(t *testing.T) {
 		if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "unreadable") {
 			t.Errorf("an unreadable file already in the baseline passes: %v", got)
 		}
+	}
+}
+
+// TestCredsLinkProblems: a link problem the baseline held with the same
+// target is the fixture's; the same path re-pointed, or a new one, counts;
+// an unreadable or oversized file counts baseline or not.
+func TestCredsLinkProblems(t *testing.T) {
+	h := t.TempDir()
+	put(t, filepath.Join(h, "sub", "f"), "x", 0o644)
+	if err := os.Symlink("sub", filepath.Join(h, "dirlink")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("gone", filepath.Join(h, "stale")); err != nil {
+		t.Fatal(err)
+	}
+	base := scanCreds(h)
+	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+		t.Errorf("unchanged links are reported: %v", got)
+	}
+	os.Remove(filepath.Join(h, "dirlink"))
+	if err := os.Symlink(h, filepath.Join(h, "dirlink")); err != nil {
+		t.Fatal(err)
+	}
+	if got := newCreds(base, scanCreds(h)); len(got) != 1 || got[0] != "dirlink (a link to a directory, not walked)" {
+		t.Errorf("a re-pointed directory link: %v", got)
+	}
+	old := maxScan
+	maxScan = 4
+	t.Cleanup(func() { maxScan = old })
+	put(t, filepath.Join(h, "big"), "more than four bytes", 0o644)
+	base = scanCreds(h)
+	if got := newCreds(base, scanCreds(h)); !slices.Contains(got, "big (larger than 4 bytes, not read)") {
+		t.Errorf("an oversized file already in the baseline passes: %v", got)
 	}
 }

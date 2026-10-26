@@ -28,6 +28,10 @@ type row struct {
 	// write in dir, so every later step that follows those paths first checks
 	// they still resolve here (intact), and check e matches these strings.
 	resolved map[string]string
+	// root is SB, opened once guard a approved it. A held handle follows the
+	// directory through a rename, so the token link is removed from the home
+	// it was made in, whatever the path leads to by then.
+	root *os.Root
 }
 
 func (w *row) fail(reason string) { w.reasons = append(w.reasons, reason) }
@@ -54,34 +58,47 @@ func (w *row) intact() bool {
 		st, err := os.Lstat(p)
 		got, rerr := filepath.EvalSymlinks(p)
 		if err != nil || rerr != nil || !st.IsDir() || got != want {
-			if !w.has(ReasonReplaced) {
-				w.note("%s no longer resolves to %s; nothing is removed, run or scanned through it", p, want)
-				w.fail(ReasonReplaced)
-			}
+			w.replaced("%s no longer resolves to %s; nothing is removed, run or scanned through it", p, want)
 			return false
 		}
 	}
 	return true
 }
 
-// sandboxRoot opens the sandbox home as an os.Root, which refuses a path
-// that a link leads out of the home (the real token sits at the other end of
-// one).
-func (w *row) sandboxRoot() (*os.Root, error) { return os.OpenRoot(w.sb) }
+// replaced notes what the agent changed and fails the row sandbox replaced,
+// once.
+func (w *row) replaced(format string, a ...any) {
+	w.note(format, a...)
+	if !w.has(ReasonReplaced) {
+		w.fail(ReasonReplaced)
+	}
+}
+
+// sandboxRoot is the held os.Root on SB, or one opened now when prepare did
+// not get that far. An os.Root refuses a path that a link leads out of the
+// home (the real token sits at the other end of one). done closes only a
+// root opened here.
+func (w *row) sandboxRoot() (root *os.Root, done func(), err error) {
+	if w.root != nil {
+		return w.root, func() {}, nil
+	}
+	root, err = os.OpenRoot(w.sb)
+	if err != nil {
+		return nil, nil, err
+	}
+	return root, func() { root.Close() }, nil
+}
 
 // removeInSandbox removes rel inside the sandbox home, never through a link
 // that leads out of it; one that does fails the row sandbox replaced.
 func (w *row) removeInSandbox(rel string) {
-	root, err := w.sandboxRoot()
+	root, done, err := w.sandboxRoot()
 	if err == nil {
 		err = root.Remove(filepath.FromSlash(rel))
-		root.Close()
+		done()
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		w.note("not removed: %s: %v", rel, err)
-		if !w.has(ReasonReplaced) {
-			w.fail(ReasonReplaced)
-		}
+		w.replaced("not removed: %s: %v", rel, err)
 	}
 }
 

@@ -7,7 +7,7 @@ description: "Code modularity: file and function size limits, split before growi
 
 Enforce strict code modularity and file-size boundaries across all programming languages:
 
-1. **Line Limits:** Target 100–350 LOC per file (hard ceiling: 600 LOC; UI components: 400 LOC; functions/methods: 50 LOC with max cyclomatic complexity of 10; test files: 600 LOC). Machine-generated files (`*.pb.*`, `*_gen.*`, migrations, lockfiles) are exempt and must never be edited.
+1. **Line Limits:** Target 100–350 LOC per file (hard ceiling: 600 LOC; UI components: 400 LOC; functions/methods: 50 LOC with max cyclomatic complexity of 10; test files: 600 LOC). Machine-generated files (`*.pb.*`, `*_gen.*`, migrations, lockfiles) and vendored third-party files are exempt and must never be edited.
 2. **Pre-Edit Check:** Before adding code to any file > 400 LOC, place new logic in a new, cohesively named file and wire it via composition or imports. When editing a legacy file > 600 LOC, extract the touched functional cluster into a dedicated file first.
 3. **Paradigm-Aware Splitting:**
    - **Package-Scoped (Go, Rust):** Keep primary types/constructors in `<entity>.go`/`.rs` and split large method sets into `<entity>_<concern>.go` or child submodules without widening public visibility.

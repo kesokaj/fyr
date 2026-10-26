@@ -2,6 +2,7 @@ package eval
 
 import (
 	"bytes"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -39,23 +40,35 @@ var (
 
 // credFinding is what the scan saw at one path: a count per credential
 // kind, or a problem ("unreadable", "a link to a directory, not walked"),
-// which fails closed.
+// which fails closed. A link's problem carries its target: a link the
+// baseline held, unchanged, is the fixture's (a tracked directory link),
+// while an unreadable file always fails, since its content cannot be
+// compared.
 type credFinding struct {
 	kinds   map[string]int
 	problem string
+	target  string
 }
 
-// scanCreds walks home (itself followed when it is a link) and returns its
-// findings by path relative to home. It never returns content.
-func scanCreds(home string) map[string]credFinding {
+// maxScan bounds the bytes read from one file: a larger file is a problem,
+// not a read of its whole into memory. A variable so a test can lower it.
+var maxScan int64 = 64 << 20
+
+// scanCreds walks dir and returns its findings by path relative to dir. It
+// never returns content. dir is eval's own sandbox directory; a dir that is
+// itself a link is reported, never followed.
+func scanCreds(dir string) map[string]credFinding {
 	out := map[string]credFinding{}
-	root, err := filepath.EvalSymlinks(home)
+	st, err := os.Lstat(dir)
 	if err != nil {
-		if _, lerr := os.Lstat(home); lerr == nil {
-			out["."] = credFinding{problem: "a dangling link"}
-		}
 		return out
 	}
+	if st.Mode()&fs.ModeSymlink != 0 {
+		target, _ := os.Readlink(dir)
+		out["."] = credFinding{problem: "a link, not followed", target: target}
+		return out
+	}
+	root := dir
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		rel, _ := filepath.Rel(root, p)
 		if err != nil {
@@ -79,8 +92,14 @@ func scanCreds(home string) map[string]credFinding {
 func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
 	link := d.Type()&fs.ModeSymlink != 0
 	st, err := os.Stat(p)
-	if link && err == nil && st.IsDir() {
-		return credFinding{problem: "a link to a directory, not walked"}, true
+	if link {
+		target, _ := os.Readlink(p)
+		switch {
+		case err == nil && st.IsDir():
+			return credFinding{problem: "a link to a directory, not walked", target: target}, true
+		case err != nil:
+			return credFinding{problem: "a dangling link", target: target}, true
+		}
 	}
 	if err != nil {
 		return credFinding{problem: "unreadable"}, true
@@ -90,6 +109,9 @@ func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
 	}
 	if !st.Mode().IsRegular() {
 		return credFinding{}, false // a device or a fifo is never read
+	}
+	if st.Size() > maxScan {
+		return credFinding{problem: fmt.Sprintf("larger than %d bytes, not read", maxScan)}, true
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
@@ -133,12 +155,17 @@ func isExecutable(b []byte) bool {
 
 // newCreds lists the paths of after that are new against the baseline: a
 // path the baseline lacks, a kind it lacks, or a kind whose count grew. A
-// problem always counts, baseline or not: an unreadable file could hold
-// anything (D17, fail closed). Each line is the path and why, never content.
+// problem counts unless it is a link the baseline held with the same
+// target; an unreadable or oversized file always counts, since it could
+// hold anything (D17, fail closed). Each line is the path and why, never
+// content.
 func newCreds(baseline, after map[string]credFinding) []string {
 	var out []string
 	for rel, f := range after {
 		if f.problem != "" {
+			if b, ok := baseline[rel]; ok && f.target != "" && b.problem == f.problem && b.target == f.target {
+				continue
+			}
 			out = append(out, rel+" ("+f.problem+")")
 			continue
 		}

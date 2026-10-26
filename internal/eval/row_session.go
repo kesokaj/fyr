@@ -29,7 +29,9 @@ func (w *row) session(ctx context.Context, agy, tok string) int {
 	vars := map[string]string{"CLONE": w.app, "SB": w.sb, "FIXDIR": w.o.Fixture, "STAMP": w.stamp}
 	errPath := filepath.Join(w.dir, "err.txt")
 	rc := w.agy(ctx, agy, Expand(w.r.Prompt, vars), filepath.Join(w.dir, "out.txt"), errPath, false)
-	if w.r.Prompt2 != "" && rc == 0 && ctx.Err() == nil {
+	// The first session may have replaced the sandbox: the second opens its
+	// output through the same paths, so it runs only on an intact one.
+	if w.r.Prompt2 != "" && rc == 0 && ctx.Err() == nil && w.intact() {
 		rc = w.agy(ctx, agy, Expand(w.r.Prompt2, vars), filepath.Join(w.dir, "out2.txt"), errPath, true)
 	}
 	return rc
@@ -45,9 +47,11 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	cmd.Dir = w.app
 	cmd.Env = w.agyEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A file eval writes that is not a regular file was put there by the run
+	// (a session cannot start without it): the sandbox was replaced.
 	out, err := openRegular(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
-		w.note("%v", err)
+		w.replaced("%v", err)
 		return -1
 	}
 	defer out.Close()
@@ -57,7 +61,7 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	}
 	errf, err := openRegular(errPath, flags)
 	if err != nil {
-		w.note("%v", err)
+		w.replaced("%v", err)
 		return -1
 	}
 	defer errf.Close()

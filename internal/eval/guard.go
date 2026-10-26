@@ -99,8 +99,11 @@ func checkRoots(realHome, source string, roots ...string) error {
 var errInsideCheckout = errors.New("inside a git checkout")
 
 // outsideCheckout is safety check b (preamble :54-58): git run in dir must
-// find no repository. It fails closed: only git's own "not a git repository",
-// in the C locale so the words are git's English, counts as outside; a
+// find no repository. It fails closed: only git's discovery failure, "not a
+// git repository (or any of the parent directories)" in the C locale so the
+// words are git's English, counts as outside; a .git file whose gitdir is
+// gone (a stale worktree) says only "not a git repository: <path>" and is
+// inside, since the CLI still loads that checkout's AGENTS.md; a
 // repository git refuses for its owner, a directory it cannot enter or any
 // other error is inside. Discovery crosses mounts, because the CLI's loading
 // of an ancestor AGENTS.md does (BUG-106).
@@ -114,7 +117,7 @@ func outsideCheckout(dir string) error {
 	}
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
-	if err != nil && strings.Contains(string(out), "not a git repository") {
+	if err != nil && strings.Contains(string(out), "not a git repository (or any of the parent directories)") {
 		return nil
 	}
 	return fmt.Errorf("%s is %w", dir, errInsideCheckout)

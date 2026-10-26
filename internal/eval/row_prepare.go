@@ -73,6 +73,12 @@ func (w *row) prepare(ctx context.Context) bool {
 		}
 		w.resolved[p] = r
 	}
+	root, err := os.OpenRoot(w.sb)
+	if err != nil {
+		w.fail(ReasonSetup)
+		return false
+	}
+	w.root = root
 	// Step 4: what the trail held before the agent ran; a check counts only
 	// the records the run adds (run.sh:52-62).
 	before := filepath.Join(w.sb, "records-before.txt")
