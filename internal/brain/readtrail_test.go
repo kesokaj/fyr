@@ -1,8 +1,10 @@
 package brain
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,4 +75,48 @@ func TestReadTrailRefusals(t *testing.T) {
 			t.Fatalf("a bad line: ok %v, %v, want a refusal naming line 2", ok, err)
 		}
 	})
+}
+
+// ParseTrail gives ReadTrail's records on the same bytes, and its refusals:
+// a bad line named, a duplicate ID, and bytes past the cap (plan fyr-eval
+// D28).
+func TestParseTrail(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+	add(t, o, "bug", "one", "first")
+	add(t, o, "guide", "two", "second", "id", "GUIDE-x")
+	want, ok, err := ReadTrail(dir)
+	if err != nil || !ok {
+		t.Fatalf("ReadTrail: ok %v, err %v", ok, err)
+	}
+	data, err := os.ReadFile(trailFile(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseTrail(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("ParseTrail: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ParseTrail %+v\nReadTrail %+v", got, want)
+	}
+
+	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
+	for _, c := range []struct{ name, in, want string }{
+		{"bad line", good + "\n{\"id\": \n", "line 2"},
+		{"duplicate", good + "\n" + good + "\n", "duplicate ID BUG-001"},
+	} {
+		if _, err := ParseTrail(strings.NewReader(c.in)); !IsRefusal(err) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want a refusal naming %q", c.name, err, c.want)
+		}
+	}
+	old := maxTrail
+	maxTrail = int64(len(good) + 1)
+	defer func() { maxTrail = old }()
+	if _, err := ParseTrail(strings.NewReader(good + "\n")); err != nil {
+		t.Errorf("exactly the cap parses: %v", err)
+	}
+	if _, err := ParseTrail(strings.NewReader(good + "\n\n")); !IsRefusal(err) || !strings.Contains(err.Error(), "over") {
+		t.Errorf("one byte past the cap: %v, want the over-size refusal", err)
+	}
 }

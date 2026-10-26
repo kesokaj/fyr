@@ -16,7 +16,8 @@ import (
 
 // agyHome writes one Antigravity conversation, id, in the workspace /p under
 // home: a run_command of `git status` on 2026-10-08 and one model call whose
-// context is 5 tokens, in the shapes internal/metrics reads.
+// context is 5 tokens, in the shapes internal/metrics reads. Called again
+// on the same home it adds another conversation beside the first.
 func agyHome(t *testing.T, home, id string) {
 	t.Helper()
 	pb := func(n int, b []byte) []byte {
@@ -41,7 +42,7 @@ func agyHome(t *testing.T, home, id string) {
 		return db
 	}
 	exec(filepath.Join(dir, "conversation_summaries.db"),
-		"CREATE TABLE conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
+		"CREATE TABLE IF NOT EXISTS conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
 		`INSERT INTO conversation_summaries(conversation_id, last_modified_time, workspace_uris) VALUES ('`+id+`', '2026-10-08 10:05:00+00:00', '["file:///p"]')`).Close()
 	db := exec(filepath.Join(dir, "conversations", id+".db"),
 		"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",

@@ -49,6 +49,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `fyr metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/fyr/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest runs at every checkpoint (the `handoff` skill's last call, `/retro` before its numbers, a phase end) and in the nightly dream, and reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
 | `fyr dream --install-timer` | A nightly job (systemd or launchd user timer) that ingests metrics and, for every project idle for a day that changed, sends its memory, new trail and transcripts, redacted, to `agy` in plan mode; the proposals are stored as global `proposal` records for `/retro` to apply. `--remove-timer` undoes it. |
 | `fyr check` | A read-only drift check of the current checkout: every `fyr` verb, subverb and flag its Markdown and current spec, guide and deploy records name in code, and every path or `path:line` they name in an inline span, against the running binary and the tree; every current spec whose code was committed to since the spec's own last update, or that names no code; and every Must and Should item of `REQUIREMENTS.md` whose `enforced by:` is missing or does not resolve (a file with no `enforced by:` field at all is noted, not checked). Prints one line per finding and a summary; exit 1 on findings. Writes nothing (`SPEC-fyr-check`). `/review --docs` and the `requirements` skill run it. |
+| `fyr eval <row>...` | Runs the named rows of this checkout's suite, the `GUIDE-eval` record, against the Antigravity CLI, one at a time, each in its own sandbox under `~/.config/fyr/eval/` (a clone of the fixture, `--fixture DIR` or this checkout, and a throwaway HOME with the harness installed and your login linked in for the run), with the run kit's safety checks around it. Prints one line per row, writes one `testing` record, and ingests each sandbox into the metrics store under the label `eval=<row>`, so `fyr metrics show --label eval=<row>` compares runs over time. What the agent reads goes to the CLI's model, as in any session (R8). Sandboxes stay for inspection, and `fyr uninstall` leaves them. `--list` prints the rows. A `--home` inside a git checkout is refused. Exit 1 when a row fails (`SPEC-fyr-eval`). |
 | `fyr adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `fyr version` | The build version. |
 
@@ -56,7 +57,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 
 ## How it works
 
-This map is the contract for how the harness reaches a machine and for what leaves one: nothing but the dreamer's redacted prompt. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
+This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt and the operator's `fyr eval` runs. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
 
 ```mermaid
 flowchart LR
@@ -79,6 +80,7 @@ flowchart LR
         sessions["Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
         configDir["~/.config/fyr/<br/>feedback.jsonl, retros.jsonl, proposals/, state.json, search.db, metrics.db<br/>stays on this machine"]
         dreamer["fyr dream --all<br/>nightly user timer, a CLI with no tools"]
+        evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -100,14 +102,16 @@ flowchart LR
     sessions -- "memory, trail, transcripts" --> dreamer
     dreamer -- "proposal records, metrics.db" --> configDir
     dreamer -. "redacted prompt, no tools" .-> provider[("the CLI's model provider")]
+    evalRun -- "testing record, metrics.db" --> configDir
+    evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
     linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
     linkStyle 14,15,16 stroke:#A8660F,stroke-width:2px
-    linkStyle 17,18,19 stroke:#5B7F1E,stroke-width:2px
+    linkStyle 17,18,19,20,21 stroke:#5B7F1E,stroke-width:2px
 ```
 
-Teal is **update**, indigo **install**, amber **the loop on this machine** (corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them; ADR-062), plum **release**, olive **learn** (the nightly dreamer: on the machine, not a way in; its one dashed line is the only thing that leaves the machine, a redacted prompt to the CLI's model provider, ADR-049). A dashed line is a gap: done by hand, or limited to one machine.
+Teal is **update**, indigo **install**, amber **the loop on this machine** (corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them; ADR-062), plum **release**, olive **learn** (the nightly dreamer and `fyr eval`: on the machine, not ways in; their two dashed lines are the only things that leave the machine, both to the CLI's model provider: the dreamer's redacted prompt, ADR-049, and the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session, ADR-065). A dashed line is a gap: done by hand, or limited to one machine.
 
 In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `fyr update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model. Nothing comes back: experience stays on the machine that logged it (ADR-062). A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, nightly, and it only proposes.
 

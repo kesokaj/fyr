@@ -105,11 +105,19 @@ func ReadTrail(root string) (recs []Record, ok bool, err error) {
 		return nil, ok, err
 	}
 	defer f.Close()
-	recs, err = readRecords(&capped{r: f, left: maxTrail})
+	recs, err = ParseTrail(f)
 	if err != nil {
 		return nil, false, err
 	}
 	return recs, true, nil
+}
+
+// ParseTrail parses a trail.jsonl from r under ReadTrail's cap and line
+// rules, for an export that is not a file in the checkout: `fyr eval` reads
+// HEAD's from `git show` and compares its suite with the working one (plan
+// fyr-eval D3, D28).
+func ParseTrail(r io.Reader) ([]Record, error) {
+	return readRecords(&capped{r: r, left: maxTrail})
 }
 
 // capped reads at most maxTrail bytes of r and fails past them: a file that

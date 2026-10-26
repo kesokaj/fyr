@@ -18,6 +18,7 @@
 //	fyr memory add|show         write one memory record (body on stdin) or print this project's memory index (the brain store, D14)
 //	fyr record add|get|edit|list|import  the brain store: this project's trail records (exported to .agents/trail.jsonl) and the global ones
 //	fyr check                   read-only drift check of this checkout's docs against the binary and the tree
+//	fyr eval [--fixture DIR] <row>...  run the project's GUIDE-eval rows against the Antigravity CLI, each in its own sandbox
 //	fyr version
 package main
 
@@ -77,6 +78,8 @@ Commands:
   record import --global [--dry-run]  migrate ~/.config/fyr's feedback.jsonl, retros.jsonl and proposals/ into global records, and every indexed project's old .agents/memory/ store into its memory records; a bad line is reported, records already stored are skipped
       a project's records other than memory are exported on every write to .agents/trail.jsonl (commit it); when that file changes under the store (a pull, checkout or merge) it replaces the project's records before the next record or search call, and a bad line or a duplicate ID is refused with its line number; in a project whose trail is still files (docs/ or .agents/docs/ and no .agents/trail.jsonl) record refuses until it is migrated with fyr record import; exit 0 with or without output, 1 a refusal, 2 a usage error
   check                   read-only drift check of the working directory's git checkout, writing nothing (no index, no brain store): every fyr verb, subverb and flag named in code (inline spans and fences) by its tracked Markdown files and its current spec, guide and deploy records in .agents/trail.jsonl, and every path or path:line of the checkout named in an inline span, against the running binary and the tree; every current spec record whose code (the existing non-Markdown paths it names) was committed to after the commit carrying its current trail line, or that names none, skipped with a note on a shallow or partial clone; every Must and Should item of REQUIREMENTS.md whose enforced by: comment is missing, empty, the template's placeholder, not yet enforced, or names a path, Go test or record that does not exist, with a note when the file has no enforced by: field; ROADMAP.md, TODO.md, vendored skills and noindex directories are left out; prints "<where>:<line>  <rule>  <text>" per finding, a "note:" line per part not checked, then "check: N findings (docs D, specs S, requirements R); fyr <version>"; exit 0 clean, 1 with findings, 1 with no summary line and "check: <reason>" on stderr for a refusal (not a checkout, a trail.jsonl that does not parse)
+  eval [--fixture DIR] <row>...  run the named rows of this checkout's suite, the GUIDE-eval record (its committed copy: a suite that differs from HEAD's is refused), against the Antigravity CLI, one at a time, each in its own sandbox under <home>/.config/fyr/eval/<stamp>/<row>/ (a clone of the fixture, default this checkout, and a throwaway HOME with the harness installed as install would and your Antigravity login linked in for the run); the agent's prompts and the files it reads go to the CLI's model, unredacted, as in any session (R8, ADR-065); a row PASSes when its check passes, the agent it names was invoked, nothing was auto-denied, and the run left no process, no new credential in the sandbox home and no change to the real ~/.config/fyr; prints one line per row, then writes one testing record and ingests each sandbox into the metrics store with the label eval=<row> (fyr metrics show --label eval=<row> compares runs); the sandboxes stay, and uninstall leaves them; a --home inside a git checkout is refused (BUG-106); exit 0 every row passed, 1 any failed, 2 a refusal before any row ran
+  eval --list             print the suite's rows: id, agent or -, named or wide
   version                 print the build version
 
 Flags accepted by every command:
@@ -145,6 +148,8 @@ type ctx struct {
 	metricsAllLabels, metricsJSON                                                           bool
 	recTitle, recStatus, recID, recProject                                                  string
 	recBody, recAll                                                                         bool
+	evalFixture                                                                             string
+	evalList                                                                                bool
 	limit                                                                                   int
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
@@ -370,6 +375,9 @@ func (c *ctx) writesState() bool {
 		return c.fs.Arg(0) == "add"
 	case "metrics":
 		return c.fs.Arg(0) == "ingest"
+	case "eval":
+		// Sandboxes, the metrics store and the testing record; --list reads.
+		return !c.evalList
 	}
 	return false
 }
