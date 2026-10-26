@@ -6,7 +6,7 @@ Last reviewed: 2026-10-26
 
 ## Now
 
-- `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
+- none
 
 ## Next
 
