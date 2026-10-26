@@ -7,7 +7,7 @@ Last reviewed: 2026-10-26
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-26-0659-plan-fyr-eval-the-antigravity-run-kit-as-a-verb` — roadmap item 4, `fyr eval`: approved; Phases 1 and 2 done (the verb, ADR-065, R8), Phase 3 next
+- `PLAN-2026-10-26-0659-plan-fyr-eval-the-antigravity-run-kit-as-a-verb` — roadmap item 4, `fyr eval`: approved; Phases 1–3 done (the verb, ADR-065, R8, the kit deleted), the Done section next
 
 ## Next
 
