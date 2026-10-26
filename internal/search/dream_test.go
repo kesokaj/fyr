@@ -206,7 +206,9 @@ func TestAgyTime(t *testing.T) {
 			t.Errorf("%s: %v, %v", name, got, ok)
 		}
 	}
-	for _, v := range []any{"yesterday", 42, nil} {
+	// Go's zero time, as Antigravity writes it for a conversation it never
+	// dated, and any time before 1970 are no time (BUG-181).
+	for _, v := range []any{"yesterday", 42, nil, time.Time{}, "0001-01-01 00:00:00+00:00", "1969-12-31T23:59:59Z"} {
 		if _, ok := agyTime(v); ok {
 			t.Errorf("%v parsed", v)
 		}

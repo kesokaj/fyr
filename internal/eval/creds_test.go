@@ -28,10 +28,12 @@ func put(t *testing.T, p, s string, mode os.FileMode) {
 }
 
 // TestCredsLeftovers ports the kit test of the preamble's credential scan
-// (catalog_test.go:1719-1748): each planted credential is found against an
-// empty baseline, by name or by content, and the report names paths only.
-// Dropped, with no Go equivalent (D15): a shell function shadowing grep,
-// find or od; a grep that cannot read for -o; bash -x.
+// (the run kit's TestKitPreambleRefusesLeftoverCredentials, in
+// internal/harness/catalog_test.go at 8374f9c): each planted credential is
+// found against an empty baseline, by name or by content, and the report
+// names paths only.
+// Dropped, with no Go equivalent (D15): a shell function shadowing grep, find
+// or od; a grep that cannot read for -o; bash -x.
 func TestCredsLeftovers(t *testing.T) {
 	for name, plant := range map[string]func(t *testing.T, h string){
 		"an SSH key copied in": func(t *testing.T, h string) { put(t, filepath.Join(h, ".ssh", "id_ed25519"), "", 0o600) },

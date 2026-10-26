@@ -112,6 +112,7 @@ func Run(dir string, v Vocabulary) (Report, error) {
 		}
 	}
 	rep.Findings = k.docsRule(k.docsFiles(), living, v)
+	rep.Findings = append(rep.Findings, k.verificationFindings(specs)...)
 	if note := k.historyNote(); note != "" {
 		rep.Notes = append(rep.Notes, note)
 	} else {

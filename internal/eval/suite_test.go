@@ -141,6 +141,7 @@ func TestSuiteHarness(t *testing.T) {
 		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},
 		"catalog-route-3": {"", false}, "catalog-route-4": {"", false}, "catalog-route-5": {"", false},
 		"catalog-route-6": {"", false}, "catalog-precedence": {"", false},
+		"rule-code-modularity": {"", true}, "build-cli": {"", true}, "build-api": {"", true}, "build-fullstack": {"", true},
 	}
 	got := map[string]Row{}
 	for _, r := range rows {

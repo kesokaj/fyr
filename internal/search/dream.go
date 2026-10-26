@@ -150,15 +150,16 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 }
 
 // agyTime reads last_modified_time: the driver returns a datetime column as
-// a time.Time when it parses, else the stored text.
+// a time.Time when it parses, else the stored text. A time before 1970, Go's
+// zero time among them, is no time (BUG-181).
 func agyTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
-		return t, true
+		return t, t.Unix() >= 0
 	case string:
 		for _, layout := range []string{agyTimeLayout, time.RFC3339Nano} {
 			if parsed, err := time.Parse(layout, t); err == nil {
-				return parsed, true
+				return agyTime(parsed)
 			}
 		}
 	case []byte:
