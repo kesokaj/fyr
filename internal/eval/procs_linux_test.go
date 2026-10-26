@@ -41,11 +41,13 @@ func (p planted) exited(d time.Duration) bool {
 	}
 }
 
-// TestProcsLeftovers ports the kit test of the preamble's process check
-// (catalog_test.go:2107-2127, BUG-163): a process whose cwd or executable is
-// under the clone, or whose environment holds exactly HOME=<sandbox home>,
-// is reported and sent SIGTERM; a HOME that only starts with it, and an
-// unrelated process, are left alone; eval itself is never matched.
+// TestProcsLeftovers ports the kit test of the preamble's process check (the
+// run kit's TestKitPreambleKillsLeftoverProcesses, in
+// internal/harness/catalog_test.go at 8374f9c; BUG-163): a process whose cwd
+// or executable is under the clone, or whose environment holds exactly
+// HOME=<sandbox home>, is reported and sent SIGTERM; a HOME that only starts
+// with it, and an unrelated process, are left alone; eval itself is never
+// matched.
 func TestProcsLeftovers(t *testing.T) {
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {

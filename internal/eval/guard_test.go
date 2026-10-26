@@ -35,9 +35,11 @@ func gitInit(t *testing.T, dir string) {
 }
 
 // TestGuardRefusedRoots ports the kit test of the preamble's refused roots
-// (catalog_test.go:2140-2170): a root resolving to /, the real home or a
-// parent of it, or the install source or a parent of it, is refused, and so
-// is a relative one; a refused root is never created.
+// (the refused-roots part of the run kit's
+// TestKitPreambleKillsLeftoverProcesses, in internal/harness/catalog_test.go
+// at 8374f9c): a root resolving to /, the real home or a parent of it, or the
+// install source or a parent of it, is refused, and so is a relative one; a
+// refused root is never created.
 func TestGuardRefusedRoots(t *testing.T) {
 	tmp := outsideTemp(t)
 	home, src := filepath.Join(tmp, "home"), filepath.Join(tmp, "src", "harness")
