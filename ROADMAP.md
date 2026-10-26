@@ -7,7 +7,7 @@ Last reviewed: 2026-10-26
 ## Now
 
 - `PLAN-2026-10-24-fyr-agy-only` — open at Phase 6, the operator's
-- `PLAN-2026-10-26-modularity` — `rules/code-modularity.md` (ADR-066): the files over the rule's ceilings split by moves, one phase per file (Phase 7 as 7a–7e); approved, cold read done (`REVIEW-2026-10-26-1135`), Phase 1 done (1f1be8c), Phase 2 next
+- `PLAN-2026-10-26-modularity` — `rules/code-modularity.md` (ADR-066): the files over the rule's ceilings split by moves, one phase per file (Phase 7 as 7a–7e); approved, cold read done (`REVIEW-2026-10-26-1135`), Phase 1 done (1f1be8c), Phase 2 done (824b231), Phase 3 next
 
 ## Next
 
