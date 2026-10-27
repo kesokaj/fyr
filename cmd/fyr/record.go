@@ -102,11 +102,14 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 	return set, true
 }
 
-// recordAdd serves `record add`: the new record's ID.
+// recordAdd serves `record add`: the new record's ID, and the redactor
+// warning when the stored title or body would trip it.
 func recordAdd(c *ctx, o brain.Options, kind string) error {
-	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: stdin})
+	var seen strings.Builder
+	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: teeBody(&seen)})
 	if err == nil {
 		fmt.Fprintln(c.out, id)
+		warnRedactable(c.recTitle, seen.String())
 	}
 	return recordErr(c, err)
 }
@@ -132,7 +135,8 @@ func recordGet(c *ctx, o brain.Options, ids []string) error {
 	return recordErr(c, err)
 }
 
-// recordEdit serves `record edit`: only what the command line set changes.
+// recordEdit serves `record edit`: only what the command line set changes;
+// a new title or body gets the redactor warning, a kept one does not.
 func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 	in := brain.EditInput{ID: id}
 	if set["status"] {
@@ -141,10 +145,19 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 	if set["title"] {
 		in.Title = &c.recTitle
 	}
+	var seen strings.Builder
 	if c.recBody {
-		in.Body = stdin
+		in.Body = teeBody(&seen)
 	}
-	return recordErr(c, brain.Edit(o, in))
+	err := brain.Edit(o, in)
+	if err == nil {
+		title := ""
+		if in.Title != nil {
+			title = *in.Title
+		}
+		warnRedactable(title, seen.String())
+	}
+	return recordErr(c, err)
 }
 
 // recordImport serves `record import`: the project's trail, or with

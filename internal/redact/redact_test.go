@@ -162,6 +162,21 @@ var shapeSecrets = []string{
 	"keytool -importkeystore -srcstorepass FAKEVALUE", "lftp -u user,FAKEVALUE sftp://h",
 	// Its round 2: OpenSSL's pass: inside quotes.
 	`openssl pkcs12 -passin "pass:FAKEVALUE"`, "openssl rsa -passin 'pass:FAKEVALUE'",
+	// SD41 of the 2026-10-27 audit: Docker access tokens, HCP Terraform API
+	// tokens and Slack app-level tokens, bare, with no keyword on the line.
+	"dckr_pat_FAKEVALUE", "dckr_oat_FAKEVALUE", "FAKEVALUE.atlasv1.FAKEVALUEFAKEVALUE",
+	"xapp-1-FAKEVALUE", "xoxe.xapp-1-FAKEVALUE",
+}
+
+// TestVendorDocExamples: the redactor takes each vendor's own documented
+// example of the SD41 kinds, so a needle tightened past the documented shape
+// fails here (none of them carries FAKEVALUE, so they are not shapeSecrets).
+func TestVendorDocExamples(t *testing.T) {
+	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz"} {
+		if out := Redact("note: " + ex + "\n"); out != redactedValue+"\n" {
+			t.Errorf("%q: got %q, want the line redacted", ex, out)
+		}
+	}
 }
 
 func TestRedactShapes(t *testing.T) {
@@ -261,6 +276,9 @@ func TestRedactShapes(t *testing.T) {
 		// user:password after it, and each new client without a password.
 		`a literal \n-u is the user flag`, "mongosh --host h", "sqlcmd -S server -d db", "ldapsearch -W -H ldap://h",
 		"openssl pkcs12 -passin env:PW", "openssl rsa -passin file:pw.txt", "keytool -storepass:env PW", "lftp -u user sftp://h",
+		// SD41's kinds: the prefix with no token after it, the marker with no
+		// ID in front, and a word too short to be a token.
+		"the dckr_pat_ prefix", "a dckr_pat_short one", "the .atlasv1. marker", "abcdef.atlasv1.short", "xapp-level tokens",
 	} {
 		// "ASIAN" contains the ASIA prefix: accepted over-redaction, pinned
 		// here so a change to it is deliberate.

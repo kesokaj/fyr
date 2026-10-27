@@ -57,9 +57,9 @@ Commands:
   metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]  write show's summary as one self-contained HTML file with charts (per-day tool calls, tokens, cost, search:grep and errors, one line per column; tool calls by tool; subagent tool calls by type; pass^k per sandbox label) and the summary table, with the sessions over the context target as k of n, inline SVG, no script, light and dark; default ~/.config/fyr/reports/<date-time>-metrics.html, 0600, an existing file refused
   metrics export FILE     write every row of the metrics store but its cmd_hash salt to FILE as JSONL (0600; an existing FILE is refused): its only backup, since the store is the one copy once a transcript expires
   memory show             print this project's memory index, one line per memory record, capped at what a session loads (200 lines, 25 KB)
-  record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]]  store one record, its body on stdin (empty or over 1 MiB refused), in this project's scope of the brain store (~/.config/fyr/brain.db; every worktree of a repository shares one) or with --global the global scope, and print its ID (BUG-NNN, ADR-NNN, else KIND-YYYY-MM-DD-HHMM-slug); kinds: plan review testing change handoff bug adr retro learning spec deploy guide memory, and feedback and proposal, which are --global only; --project names the project a global record is about
+  record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]]  store one record, its body on stdin (empty or over 1 MiB refused), in this project's scope of the brain store (~/.config/fyr/brain.db; every worktree of a repository shares one) or with --global the global scope, and print its ID (BUG-NNN, ADR-NNN, else KIND-YYYY-MM-DD-HHMM-slug); a title or body the dream's redactor would change is stored with a warning on stderr, never its text; kinds: plan review testing change handoff bug adr retro learning spec deploy guide memory, and feedback and proposal, which are --global only; --project names the project a global record is about
   record get <id>... [--global]  print each record's line and its body, through the same printable filter as search
-  record edit <id> [--status S] [--title T] [--body] [--global]  change a record; --body reads the new body on stdin, without it only the metadata changes; a plan's status follows its body (open while it has an unticked "- [ ]")
+  record edit <id> [--status S] [--title T] [--body] [--global]  change a record; --body reads the new body on stdin; a new title or body gets add's redactor warning; without it only the metadata changes; a plan's status follows its body (open while it has an unticked "- [ ]")
   record list [--kind K] [--open] [--global [--project ROOT]] [--all]  ID  kind  status  date  title, newest first; --open: open plans and bugs, current specs, deploy docs and guides, queued proposals; --all: every scope, each line ending in its scope
   record import [--dry-run] [<docs-root>]  migrate this project's old trail (default .agents/docs/, else docs/) and its old .agents/memory/ store into records: open plans, the newest handoff, every ADR and bug (a closed bug trimmed to its title and prevention rule), specs, deploy docs and guides, and every trail file those, REQUIREMENTS.md, AGENTS.md, README.md, context/, skills/, agents/ or rules/ name; the rest is dropped (git history keeps it); refuses a dirty tree and a non-markdown file under the docs root; removes nothing, and prints every file to remove by name afterwards
   record import --global [--dry-run]  migrate ~/.config/fyr's feedback.jsonl, retros.jsonl and proposals/ into global records, and every indexed project's old .agents/memory/ store into its memory records; a bad line is reported, records already stored are skipped
@@ -75,8 +75,9 @@ Flags accepted by every command:
 `
 
 // stderr is where a read-only verb names the state directory from before the
-// rename: its stdout is data (render, list, metrics show --json); a test
-// replaces it.
+// rename, and where `record add` and `record edit` print the redactor
+// warning: their stdout is data (render, list, metrics show --json, a new
+// record's ID); a test replaces it.
 var stderr io.Writer = os.Stderr
 
 // version is set by a release build, -ldflags "-X main.version=vX.Y.Z"; empty
