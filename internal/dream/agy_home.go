@@ -5,10 +5,48 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// checkAgy is every refusal a run makes about the Antigravity CLI before
+// it creates anything: agy on PATH, then findLogin's. The dry run calls it
+// too, so it refuses what the run refuses (SD27 of the 2026-10-27 audit,
+// plan D17).
+func checkAgy(goos string) error {
+	if name := command()[0]; !onPath(name) {
+		return fmt.Errorf("no %s on PATH: the dream job runs the Antigravity CLI", name)
+	}
+	_, _, err := findLogin(goos)
+	return err
+}
+
+// findLogin finds the operator's Antigravity login under the real $HOME,
+// never --home: the CLI's directory, and on macOS the Keychain folder agy
+// finds the login through ("" elsewhere). It reads and creates nothing else.
+func findLogin(goos string) (src, keychains string, err error) {
+	real := os.Getenv("HOME")
+	if !filepath.IsAbs(real) {
+		return "", "", fmt.Errorf("HOME is %q, not an absolute path: the dream job reads the Antigravity login from it", real)
+	}
+	src = filepath.Join(real, ".gemini", "antigravity-cli")
+	token := filepath.Join(src, "antigravity-oauth-token")
+	_, tokenErr := os.Stat(token)
+	if goos == "darwin" {
+		if info, err := os.Stat(filepath.Join(real, "Library", "Keychains")); err == nil && info.IsDir() {
+			keychains = filepath.Join(real, "Library", "Keychains")
+		}
+	}
+	if tokenErr != nil && keychains == "" {
+		if goos == "darwin" {
+			return "", "", fmt.Errorf("no Antigravity login: neither %s nor a Keychain folder at %s: run agy once and log in", token, filepath.Join(real, "Library", "Keychains"))
+		}
+		return "", "", fmt.Errorf("no Antigravity login at %s: run agy once and log in", token)
+	}
+	return src, keychains, nil
+}
 
 // agyHome is a private HOME for one run's Antigravity child: a copy of the
 // operator's login and a settings file that grants nothing, so a tool call is
@@ -18,24 +56,9 @@ import (
 // login in the Keychain and finds it only through $HOME/Library/Keychains, so
 // that folder is linked in and the token file is optional (BUG-166).
 func agyHome(conf, goos string) (string, func(), error) {
-	real := os.Getenv("HOME")
-	if !filepath.IsAbs(real) {
-		return "", nil, fmt.Errorf("HOME is %q, not an absolute path: the dream job reads the Antigravity login from it", real)
-	}
-	src := filepath.Join(real, ".gemini", "antigravity-cli")
-	token := filepath.Join(src, "antigravity-oauth-token")
-	_, tokenErr := os.Stat(token)
-	keychains := ""
-	if goos == "darwin" {
-		if info, err := os.Stat(filepath.Join(real, "Library", "Keychains")); err == nil && info.IsDir() {
-			keychains = filepath.Join(real, "Library", "Keychains")
-		}
-	}
-	if tokenErr != nil && keychains == "" {
-		if goos == "darwin" {
-			return "", nil, fmt.Errorf("no Antigravity login: neither %s nor a Keychain folder at %s: run agy once and log in", token, filepath.Join(real, "Library", "Keychains"))
-		}
-		return "", nil, fmt.Errorf("no Antigravity login at %s: run agy once and log in", token)
+	src, keychains, err := findLogin(goos)
+	if err != nil {
+		return "", nil, err
 	}
 	home, err := os.MkdirTemp(conf, "dream-agy-home-")
 	if err != nil {
@@ -151,4 +174,10 @@ func removeCopies(conf string, now time.Time) {
 			os.RemoveAll(filepath.Join(conf, n))
 		}
 	}
+}
+
+// onPath reports whether name resolves on PATH.
+func onPath(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
 }

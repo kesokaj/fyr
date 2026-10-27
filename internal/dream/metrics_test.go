@@ -113,7 +113,7 @@ func TestPromptCarriesMetricsNumbersOnly(t *testing.T) {
 	s.Close()
 	before, _ := os.ReadDir(filepath.Dir(metrics.Path(f.home)))
 
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}

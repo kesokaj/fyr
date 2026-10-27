@@ -102,7 +102,7 @@ func TestCollectReadsRecords(t *testing.T) {
 	if _, err := brain.Add(g, brain.AddInput{Kind: "feedback", Title: "use Thursdays", Project: root, Body: strings.NewReader(`{"corrected":"deploy on Thursdays"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(home, search.Project{Root: root, Name: filepath.Base(root)}, now.Add(-72*time.Hour), maxPrompt)
+	c, err := collect(home, search.Project{Root: root, Name: filepath.Base(root)}, now.Add(-72*time.Hour), time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFeedbackRecordsAreRedactedAsJSON(t *testing.T) {
 	if _, err := brain.Add(g, brain.AddInput{Kind: "feedback", Title: "a link", Project: root, Body: strings.NewReader(line)}); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(home, search.Project{Root: root, Name: filepath.Base(root)}, now.Add(-72*time.Hour), maxPrompt)
+	c, err := collect(home, search.Project{Root: root, Name: filepath.Base(root)}, now.Add(-72*time.Hour), time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}

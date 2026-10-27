@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -123,8 +124,7 @@ func Run(o Options) error {
 // brain store holds (a trail of records: such a checkout no longer registers
 // in the file index); Run has already refused both and neither.
 func (o Options) targets() ([]search.Project, error) {
-	switch {
-	case o.Project != "":
+	if o.Project != "" {
 		abs, err := filepath.Abs(o.Project)
 		if err != nil {
 			return nil, err
@@ -240,6 +240,9 @@ const shownDropped = 5
 // dryRun prints what a run would collect and run, and writes, locks and
 // advances nothing.
 func (o Options) dryRun(projects []search.Project, st state) error {
+	if err := checkAgy(runtime.GOOS); err != nil {
+		return &ExitError{2, "fyr dream: " + err.Error()}
+	}
 	fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
 	cli := append(command(), "(prompt on stdin as one stream-json message; HOME a private copy with no grants)")
 	for _, p := range projects {
@@ -253,7 +256,7 @@ func (o Options) dryRun(projects []search.Project, st state) error {
 			fmt.Fprintf(o.Out, "[dry-run] %s: skip (in use within %s: %s)\n", p.Root, idleFor, why)
 			continue
 		}
-		c, err := collectIn(o.Home, o.brainHome, p, o.since(st, p.Root), maxPrompt)
+		c, err := collectIn(o.Home, o.brainHome, p, o.since(st, p.Root), o.Now(), maxPrompt)
 		if err != nil {
 			fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
 			continue

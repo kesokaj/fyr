@@ -44,13 +44,14 @@ var trailDirs = []string{"bugs", "reviews", "retros", "changes", "handoffs"}
 // records and the global feedback records about it (brain plan Phase 4); a
 // project still on files is read as before. Changed is true when anything
 // but the skills is newer than since.
-func collect(home string, p search.Project, since time.Time, limit int) (Collected, error) {
-	return collectIn(home, home, p, since, limit)
+func collect(home string, p search.Project, since, now time.Time, limit int) (Collected, error) {
+	return collectIn(home, home, p, since, now, limit)
 }
 
 // collectIn is collect with the brain store read from brainHome: the live
-// one (home) in a run, a copy in a dry run, which writes nothing.
-func collectIn(home, brainHome string, p search.Project, since time.Time, limit int) (Collected, error) {
+// one (home) in a run, a copy in a dry run, which writes nothing. now is
+// the run's clock.
+func collectIn(home, brainHome string, p search.Project, since, now time.Time, limit int) (Collected, error) {
 	// The name is the checkout's base name, which may hold a line break: it
 	// is folded once here, for the prompt, the proposals header and the file
 	// names alike (audit 2026-10-25, SD15).
@@ -72,7 +73,9 @@ func collectIn(home, brainHome string, p search.Project, since time.Time, limit 
 	}
 
 	if migrated(p.Root) {
-		in, err := forDream(brainHome, p.Root, since, time.Now())
+		// The run's clock, not the wall's, so a test clock reaches "never a
+		// record dated after now" (SD32 of the 2026-10-27 audit).
+		in, err := forDream(brainHome, p.Root, since, now)
 		if err != nil {
 			return *c, fmt.Errorf("reading the brain store: %w", err)
 		}
@@ -159,8 +162,11 @@ func (c *Collected) finish(home string, p search.Project, since time.Time, limit
 		add(kindTranscript, "antigravity "+a.ID, a.Text, a.Modified)
 	}
 
+	// Labels too: a trail file's name is project text and can hold a
+	// secret's shape (SD31 of the 2026-10-27 audit).
 	for i := range c.Inputs {
 		c.Inputs[i].Text = scrub(c.Inputs[i].Text, home)
+		c.Inputs[i].Label = scrub(c.Inputs[i].Label, home)
 	}
 	for i := range c.Dropped {
 		c.Dropped[i] = scrub(c.Dropped[i], home)
@@ -218,7 +224,7 @@ func (c *Collected) fit(limit int) error {
 				break
 			}
 			before := len(leftOut(c.Dropped))
-			c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (over the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
+			c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (dropped to fit the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
 			size += len(leftOut(c.Dropped)) - before - sizes[i]
 			c.Inputs = append(c.Inputs[:i], c.Inputs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)

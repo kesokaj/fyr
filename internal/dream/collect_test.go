@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 func TestCollectInputs(t *testing.T) {
 	f := newFixture(t)
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestCollectInputs(t *testing.T) {
 func TestCollectUnchanged(t *testing.T) {
 	f := newFixture(t)
 	later := now.Add(time.Hour)
-	c, err := collect(f.home, project(f), later, maxPrompt)
+	c, err := collect(f.home, project(f), later, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +60,7 @@ func TestCollectSkillAloneIsNoChange(t *testing.T) {
 	f := newFixture(t)
 	later := now.Add(time.Hour)
 	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert, updated\"\n---\n", now.Add(2*time.Hour))
-	c, err := collect(f.home, project(f), later, maxPrompt)
+	c, err := collect(f.home, project(f), later, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +72,7 @@ func TestCollectSkillAloneIsNoChange(t *testing.T) {
 func TestCollectRedactsAndHidesHome(t *testing.T) {
 	f := newFixture(t)
 	write(t, filepath.Join(f.root, ".agents", "memory", "leak.md"), "token = FAKEVALUE\nstored under "+f.home+"/x\n", fresh)
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,13 +86,13 @@ func TestCollectRedactsAndHidesHome(t *testing.T) {
 
 func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 	f := newFixture(t)
-	full, err := collect(f.home, project(f), since, maxPrompt)
+	full, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Room for everything but the transcript.
 	small := len(full.Prompt) - 40
-	c, err := collect(f.home, project(f), since, small)
+	c, err := collect(f.home, project(f), since, time.Now(), small)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
 		t.Errorf("dropped = %v, want the transcript named", c.Dropped)
 	}
 	// Room for less than memory alone: the project fails.
-	if _, err := collect(f.home, project(f), since, 10); err == nil || !strings.Contains(err.Error(), "memory over cap") {
+	if _, err := collect(f.home, project(f), since, time.Now(), 10); err == nil || !strings.Contains(err.Error(), "memory over cap") {
 		t.Errorf("err = %v, want memory over cap", err)
 	}
 }
@@ -115,7 +117,7 @@ func TestCollectDoesNotFollowLinkedTrail(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents", "docs", "reviews")); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +145,7 @@ func TestCollectDoesNotFollowALinkedAgentsDir(t *testing.T) {
 	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents")); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +167,7 @@ func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 	// query-string needle matches only the decoded line (the gate's measurement).
 	fmt.Fprintf(fh, `{"ts":%q,"project":%q,"original":"see https://h.example/p?x=1\u0026sig=0123456789abcdef0123456789abcdef"}`+"\n", fresh.Format(time.RFC3339), f.root)
 	fh.Close()
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,5 +198,46 @@ func TestSkillsReadsBlockScalarDescription(t *testing.T) {
 	}
 	if d := got[0].description; strings.Contains(d, ">") || !strings.Contains(d, "one line") || !strings.Contains(d, "and two") {
 		t.Errorf("description = %q, want the folded text", d)
+	}
+}
+
+// A secret-shaped label (here a trail file's name) is redacted with the
+// texts before the prompt leaves fyr (SD31 of the 2026-10-27 audit).
+func TestCollectRedactsLabels(t *testing.T) {
+	f := newFixture(t)
+	token := "ghp_" + strings.Repeat("A1b2C3d4E5", 4)[:36]
+	write(t, filepath.Join(f.root, ".agents", "docs", "changes", "2026-10-01-0000-"+token+".md"), "a change entry\n", fresh)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(c.Prompt, token) {
+		t.Error("the prompt carries a secret-shaped label")
+	}
+	for _, in := range c.Inputs {
+		if strings.Contains(in.Label, token) {
+			t.Errorf("label %q is not redacted", in.Label)
+		}
+	}
+}
+
+// The brain read takes the run's clock, not the wall's (SD32 of the
+// 2026-10-27 audit).
+func TestCollectUsesTheRunsClock(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, ".agents", "trail.jsonl"), "", old)
+	var got time.Time
+	saved := forDream
+	t.Cleanup(func() { forDream = saved })
+	forDream = func(home, root string, since, now time.Time) (brain.DreamInput, error) {
+		got = now
+		return brain.DreamInput{}, nil
+	}
+	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := collect(t.TempDir(), search.Project{Root: root, Name: "p"}, since, clock, maxPrompt); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(clock) {
+		t.Errorf("forDream got now %v, want the run's %v", got, clock)
 	}
 }

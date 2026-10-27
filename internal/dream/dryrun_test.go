@@ -38,7 +38,7 @@ func TestFitRendersOnce(t *testing.T) {
 				if i < 0 {
 					break
 				}
-				c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (over the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
+				c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (dropped to fit the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
 				c.Inputs = append(c.Inputs[:i:i], c.Inputs[i+1:]...)
 			}
 		}
@@ -162,7 +162,7 @@ func TestDryRunSummarisesDropped(t *testing.T) {
 	for i := 0; i < 12; i++ {
 		write(t, filepath.Join(f.root, ".agents", "docs", "bugs", fmt.Sprintf("BUG-%03d-big.md", i)), strings.Repeat("a long bug record line. ", 1700), fresh.Add(time.Duration(i)*time.Second))
 	}
-	c, err := collect(f.home, project(f), now.Add(-firstLook), maxPrompt) // the dry run's first look
+	c, err := collect(f.home, project(f), now.Add(-firstLook), time.Now(), maxPrompt) // the dry run's first look
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,5 +187,40 @@ func TestDryRunSummarisesDropped(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "[dry-run]   left out: "+oneLine(c.Dropped[0])+"\n") {
 		t.Errorf("the first dropped input is not listed:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// A dry run refuses what the real run refuses before its first project: no
+// agy on PATH, no login, a relative HOME (SD27 of the 2026-10-27 audit, plan
+// D17), and writes nothing while it does.
+func TestDryRunRefusesWhatTheRunRefuses(t *testing.T) {
+	f := newFixture(t)
+	o := func(out *bytes.Buffer) Options {
+		return Options{Home: f.home, All: true, DryRun: true, Out: out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
+			Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
+	}
+	cases := []struct {
+		name  string
+		setup func(t *testing.T)
+		want  string
+	}{
+		{"no agy", func(t *testing.T) { agyLogin(t); t.Setenv("PATH", t.TempDir()) }, "no agy on PATH"},
+		{"no login", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", t.TempDir()) }, "no Antigravity login"},
+		{"relative HOME", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", "relative/home") }, "not an absolute path"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.setup(t)
+			var out bytes.Buffer
+			before := tree(t, f.home)
+			err := Run(o(&out))
+			var ee *ExitError
+			if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, c.want) {
+				t.Errorf("err %v, want exit 2 naming %q", err, c.want)
+			}
+			if after := tree(t, f.home); after != before {
+				t.Errorf("a refused dry run wrote:\nbefore %s\nafter  %s", before, after)
+			}
+		})
 	}
 }

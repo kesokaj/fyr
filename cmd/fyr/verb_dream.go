@@ -19,20 +19,27 @@ func runDream(c *ctx) error {
 		// why on the caller's writer (IN12, IN13).
 		fmt.Fprintln(c.out, "fyr dream: --install-timer or --remove-timer, not both")
 		return exitCode(2)
-	case (c.installTimer || c.removeTimer) && c.dryRun:
+	case (c.installTimer || c.removeTimer) && (c.dreamAll || c.dreamProject != ""):
+		// The timer always dreams --all over its home; a scope given with it
+		// was silently ignored (SD33 of the 2026-10-27 audit, plan D18).
+		fmt.Fprintln(c.out, "fyr dream: --install-timer and --remove-timer take no --all or --project")
+		return exitCode(2)
+	case c.installTimer && c.dryRun:
+		// The dry run makes every refusal the real run makes, then names what
+		// would change and calls nothing (review-standards § 8; SD26).
+		err = dream.CheckTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
+		if err == nil {
+			fmt.Fprintln(c.out, "[dry-run] would install the nightly dream timer (fyr dream --all at 03:00); installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
+		}
+	case c.removeTimer && c.dryRun:
 		// A new side effect goes below the read-only mode (context § Hard
 		// rules): the dry run names what would change and calls nothing.
-		what := "install the nightly dream timer (fyr dream --all at 03:00)"
-		if c.removeTimer {
-			what = "remove the nightly dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
-		}
+		what := "remove the nightly dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
 		fmt.Fprintln(c.out, "[dry-run] would "+what+"; installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
-		if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); c.removeTimer && notice != "" {
+		if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); notice != "" {
 			fmt.Fprintln(c.out, notice)
 		}
-		if c.removeTimer {
-			otherSystemTimerNote(c)
-		}
+		otherSystemTimerNote(c)
 	case c.installTimer:
 		err = dream.InstallTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
 		if err == nil {

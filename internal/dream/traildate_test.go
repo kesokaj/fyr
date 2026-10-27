@@ -32,7 +32,7 @@ func TestTrailDateFromGit(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(f.root, rel), fresh, fresh); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestTrailDateFromGit(t *testing.T) {
 	// the `git status` read, whose misplaced global option once made it fail
 	// silently — security review round 2, 2026-10-01).
 	write(t, filepath.Join(f.root, rel), "an old bug record, edited today\n", fresh)
-	c, err = collect(f.home, project(f), since, maxPrompt)
+	c, err = collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestTrailDateFromGitInPartialClone(t *testing.T) {
 	if err := os.Chtimes(filepath.Join(f.root, rel), fresh, fresh); err != nil {
 		t.Fatal(err)
 	}
-	c, err := collect(f.home, project(f), since, maxPrompt)
+	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}

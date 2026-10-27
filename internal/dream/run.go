@@ -3,7 +3,6 @@ package dream
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -66,8 +65,8 @@ func (o Options) realRun() error {
 		return fail(err.Error())
 	}
 	argv := command()
-	if _, err := exec.LookPath(argv[0]); err != nil {
-		return fail(fmt.Sprintf("no %s on PATH: the dream job runs the Antigravity CLI", argv[0]))
+	if err := checkAgy(runtime.GOOS); err != nil {
+		return fail(err.Error())
 	}
 	agyHomeDir, cleanup, err := agyHome(conf, runtime.GOOS)
 	if err != nil {
@@ -91,7 +90,7 @@ func (o Options) realRun() error {
 			logf(p.Root + " skip in use (" + why + ")")
 			continue
 		}
-		c, err := collect(o.Home, p, o.since(st, p.Root), maxPrompt)
+		c, err := collect(o.Home, p, o.since(st, p.Root), o.Now(), maxPrompt)
 		if err != nil {
 			failed++
 			logf(p.Root + " fail " + scrub(err.Error(), o.Home))

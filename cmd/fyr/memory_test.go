@@ -73,6 +73,9 @@ func TestDreamVerb(t *testing.T) {
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("a usage error wrote %v", entries)
 	}
+	// The dry run checks for agy and a login as the real run does (SD27 of
+	// the 2026-10-27 audit): give it both, outside the real home.
+	dreamAgy(t)
 	var out bytes.Buffer
 	if err := run([]string{"dream", "--all", "--dry-run", "--home", home}, &out); err != nil {
 		t.Fatalf("--all --dry-run on an empty home: %v", err)
@@ -142,17 +145,53 @@ func TestDreamTimerDryRun(t *testing.T) {
 		os.WriteFile(filepath.Join(bin, m), []byte("#!/bin/sh\necho \"$*\" >> \""+calls+"\"\n"), 0o755)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// With no binary to point the unit at, the dry run refuses as the real
+	// run does (SD26 of the 2026-10-27 audit, plan D17).
+	var refused bytes.Buffer
+	err := run([]string{"dream", "--install-timer", "--dry-run", "--home", home}, &refused)
+	var code exitCode
+	if !errors.As(err, &code) || code != 2 || !strings.Contains(refused.String(), "no binary at") {
+		t.Errorf("--install-timer --dry-run with no binary: %v, %q; want exit 2 naming the binary", err, refused.String())
+	}
+	binPath := filepath.Join(home, ".local", "bin", "fyr")
+	os.MkdirAll(filepath.Dir(binPath), 0o755)
+	os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755)
 	for _, flag := range []string{"--install-timer", "--remove-timer"} {
 		var out bytes.Buffer
 		if err := run([]string{"dream", flag, "--dry-run", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "[dry-run] would") {
 			t.Errorf("%s --dry-run: %v, %q", flag, err, out.String())
 		}
 	}
-	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+	if entries, _ := os.ReadDir(home); len(entries) != 1 || entries[0].Name() != ".local" {
 		t.Errorf("a dry run wrote %v", entries)
 	}
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
 		t.Error("a dry run called the service manager")
+	}
+}
+
+// TestDreamTimerTakesNoScope: the timer flags with --all or --project are a
+// usage error, not silently ignored (SD33 of the 2026-10-27 audit, D18), and
+// so are --all with --project.
+func TestDreamTimerTakesNoScope(t *testing.T) {
+	home := t.TempDir()
+	for _, args := range [][]string{
+		{"--install-timer", "--all"},
+		{"--remove-timer", "--project", "."},
+		{"--install-timer", "--dry-run", "--all"},
+	} {
+		var out bytes.Buffer
+		err := run(append(append([]string{"dream"}, args...), "--home", home), &out)
+		var code exitCode
+		if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "take no --all or --project") {
+			t.Errorf("%v: %v, %q; want exit 2", args, err, out.String())
+		}
+	}
+	var out bytes.Buffer
+	err := run([]string{"dream", "--all", "--project", ".", "--dry-run", "--home", home}, &out)
+	var code exitCode
+	if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "not both") {
+		t.Errorf("--all with --project: %v, %q; want exit 2", err, out.String())
 	}
 }
 
@@ -272,4 +311,17 @@ func TestMemoryUsageErrorExits2(t *testing.T) {
 			t.Errorf("memory %v: usage line missing from the writer: %q", args, out.String())
 		}
 	}
+}
+
+// dreamAgy puts an `agy` on PATH and an Antigravity login under a temporary
+// HOME, for a dream dry run that must pass its agy checks on any box.
+func dreamAgy(t *testing.T) {
+	t.Helper()
+	home, bin := t.TempDir(), t.TempDir()
+	token := filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
+	os.MkdirAll(filepath.Dir(token), 0o700)
+	os.WriteFile(token, []byte("token"), 0o600)
+	os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
