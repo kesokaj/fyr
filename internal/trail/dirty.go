@@ -35,8 +35,29 @@ func Dirty(root string) (bool, error) {
 		return false, err
 	}
 	defer fsRoot.Close()
-	inHead := map[string]string{} // path → "<mode> <blob>"
-	var paths, blobs []string
+	inHead, paths, blobs, dirty, err := headEntries(root, fsRoot, tree)
+	if err != nil || dirty {
+		return dirty, err
+	}
+	differ, err := hashesDiffer(root, paths, blobs)
+	if err != nil || len(differ) > 0 {
+		return len(differ) > 0, err
+	}
+	if dirty, err := indexDiffers(root, inHead); err != nil || dirty {
+		return dirty, err
+	}
+	untracked, err := Command(root, "ls-files", "-z", "-o", "--exclude-standard").Output()
+	if err != nil {
+		return false, fmt.Errorf("git ls-files: %w", err)
+	}
+	return len(untracked) > 0, nil
+}
+
+// headEntries reads ls-tree's output: every HEAD path with its "<mode>
+// <blob>", the regular files left to hash, and dirty when a symlink, a
+// missing path or a type change already decides it.
+func headEntries(root string, fsRoot *os.Root, tree []byte) (inHead map[string]string, paths, blobs []string, dirty bool, err error) {
+	inHead = map[string]string{}
 	for _, rec := range strings.Split(string(tree), "\x00") {
 		meta, p, cut := strings.Cut(rec, "\t")
 		f := strings.Fields(meta)
@@ -51,27 +72,29 @@ func Dirty(root string) (bool, error) {
 		// the outside is refused, so nothing outside the checkout is read.
 		info, err := fsRoot.Lstat(filepath.FromSlash(p))
 		if err != nil {
-			return true, nil // removed, or no longer reachable inside root
+			return nil, nil, nil, true, nil // removed, or no longer reachable inside root
 		}
 		if f[0] == "120000" {
 			same, err := linkMatches(root, p, f[2], info)
 			if err != nil || !same {
-				return true, err
+				return nil, nil, nil, true, err
 			}
 			continue
 		}
 		if !info.Mode().IsRegular() {
-			return true, nil
+			return nil, nil, nil, true, nil
 		}
 		paths, blobs = append(paths, p), append(blobs, f[2])
 	}
-	differ, err := hashesDiffer(root, paths, blobs)
-	if err != nil || len(differ) > 0 {
-		return len(differ) > 0, err
-	}
-	// The index against HEAD, by mode and blob: a staged change whose work
-	// tree was restored, a staged new file, a conflict (security review of
-	// the 2026-10-27 fix, finding 3). Plumbing only, no filter runs.
+	return inHead, paths, blobs, false, nil
+}
+
+// indexDiffers compares the index with HEAD by mode and blob: a staged
+// change whose work tree was restored, a staged new file, a conflict, or a
+// staged removal, which no other read sees when the file is ignored
+// (security review of the 2026-10-27 fix, finding 3 and round 2). Plumbing
+// only, no filter runs.
+func indexDiffers(root string, inHead map[string]string) (bool, error) {
 	index, err := Command(root, "ls-files", "-z", "-s").Output()
 	if err != nil {
 		return false, fmt.Errorf("git ls-files: %w", err)
@@ -88,17 +111,7 @@ func Dirty(root string) (bool, error) {
 		}
 		indexed++
 	}
-	// Every index entry matched one of HEAD's, so fewer entries is a staged
-	// removal, which no other read sees when the file is ignored (security
-	// review of the fix, round 2).
-	if indexed != len(inHead) {
-		return true, nil
-	}
-	untracked, err := Command(root, "ls-files", "-z", "-o", "--exclude-standard").Output()
-	if err != nil {
-		return false, fmt.Errorf("git ls-files: %w", err)
-	}
-	return len(untracked) > 0, nil
+	return indexed != len(inHead), nil
 }
 
 // linkMatches reports whether the tracked symlink p still points where the
