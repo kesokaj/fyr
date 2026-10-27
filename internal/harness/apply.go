@@ -9,9 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 )
 
 // Install writes the planned files under home, removes files a previous
@@ -33,157 +31,17 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 	// interrupts a deployment (security review of the audit, round 2).
 	tightenConfigDir(home, dryRun, out)
 
-	counts := map[string]int{}
-	var manifest []string
-	// On a failed write the manifest is saved once as (every old entry still
-	// on disk) ∪ (files written or seen so far), so nothing fyr wrote
-	// is left unlisted for uninstall (audit 2026-09-30, IN2).
-	saveOnError := func(werr error) error {
-		if dryRun {
-			return werr
-		}
-		listed := map[string]bool{}
-		for _, rel := range manifest {
-			listed[rel] = true
-		}
-		union := append([]string(nil), manifest...)
-		for _, rel := range old.Files {
-			if !listed[rel] && fyrOwns(home, rel) == owned {
-				union = append(union, rel)
-			}
-		}
-		sort.Strings(union)
-		old.Files = union
-		if err := SaveState(home, old); err != nil {
-			return fmt.Errorf("%w (and the manifest could not be saved: %v)", werr, err)
-		}
-		return werr
-	}
+	r := &installRun{home: home, dryRun: dryRun, out: out, old: old, counts: map[string]int{}}
 	for _, f := range files {
-		dest := filepath.Join(home, f.Rel)
-		// A symlinked destination, or one under a linked directory, is never
-		// read through, chmodded or replaced: it is the operator's, kept and
-		// left out of the manifest, so uninstall never removes it (audit
-		// 2026-09-30, IN3; security review of the fix).
-		if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
-			counts["kept"]++
-			fmt.Fprintf(out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", f.Rel)
-			continue
+		if err := r.writeFile(f); err != nil {
+			return err
 		}
-		existing, readErr := readPlain(dest)
-		switch {
-		case readErr == nil && bytes.Equal(existing, f.Data):
-			counts["unchanged"]++
-			// Same bytes is not the same file: a deployed copy that someone
-			// (or an older fyr) left group- or world-writable stays that
-			// way forever on this branch, because nothing rewrites it. The
-			// machine that HAS the problem is exactly the one that never gets
-			// the fix (security review of v1.0.0, round 2, measured on a real
-			// install). Correct the mode in place; the contents are already
-			// right, and a chmod that fails is not worth failing an install
-			// over — the next run with changed bytes will set it. The probe
-			// runs on a dry run too, so it names the same `mode` line the
-			// real run would (plan sh-agent-works-everywhere, D7, D8).
-			if info, statErr := os.Stat(dest); statErr == nil && info.Mode().Perm() != f.Mode.Perm() {
-				fmt.Fprintf(out, "mode    ~/%s (%04o -> %04o)\n", f.Rel, info.Mode().Perm(), f.Mode.Perm())
-				if !dryRun {
-					if err := os.Chmod(dest, f.Mode.Perm()); err != nil {
-						fmt.Fprintf(out, "note: could not correct the mode of ~/%s (%v)\n", f.Rel, err)
-					}
-				}
-			}
-		default:
-			counts["written"]++
-			// Every run names what it changes, not only --dry-run: a file that
-			// was not there is an `add`; one with other bytes an `update`; one
-			// that exists but could not be read is written over as before and
-			// the line says why (D6). The line prints AFTER the write, so a
-			// write that fails — a directory at the path, which the rename
-			// cannot replace — leaves no line claiming a change that did not
-			// happen (review of Phase 1).
-			line := "update  ~/" + f.Rel
-			switch {
-			case errors.Is(readErr, fs.ErrNotExist):
-				line = "add     ~/" + f.Rel
-			case readErr != nil:
-				line = fmt.Sprintf("update  ~/%s (previous file unreadable: %v)", f.Rel, readErr)
-			}
-			if !dryRun {
-				if err := WriteAtomic(dest, f.Data, f.Mode); err != nil {
-					return saveOnError(fmt.Errorf("writing %s: %w", dest, err))
-				}
-			} else if err := dirInTheWay(dest); err != nil {
-				return fmt.Errorf("writing %s: %w", dest, err)
-			}
-			fmt.Fprintln(out, line)
-		}
-		manifest = append(manifest, f.Rel)
 	}
-
-	// Resync: anything the previous install wrote that this one does not is
-	// stale — a renamed skill, a deleted agent — and goes away, so the
-	// deployed set is always exactly the repo's set.
-	planned := map[string]bool{}
-	for _, rel := range manifest {
-		planned[rel] = true
+	if err := r.resync(); err != nil {
+		return err
 	}
-	claudeKept := 0
-	for _, rel := range old.Files {
-		if planned[rel] {
-			continue
-		}
-		switch fyrOwns(home, rel) {
-		case keptClaude:
-			claudeKept++
-			continue
-		case gone, linked:
-			// Gone, or the operator's link now: not fyr's to remove.
-			continue
-		}
-		dest := filepath.Join(home, rel)
-		counts["removed"]++
-		fmt.Fprintf(out, "remove  ~/%s (no longer in the source)\n", rel)
-		if dryRun {
-			continue
-		}
-		if err := os.Remove(dest); err != nil {
-			// The IN2 rule holds here too: the files written above stay
-			// listed (code review round 2, 2026-10-01).
-			return saveOnError(fmt.Errorf("removing stale %s: %w", dest, err))
-		}
-		pruneEmptyDirs(home, filepath.Dir(dest))
-	}
-	if claudeKept > 0 {
-		counts["kept"] += claudeKept
-		fmt.Fprintln(out, keepClaudeLine(claudeKept))
-	}
-
-	sort.Strings(manifest)
-	// An embedded install records the release it came with and runs no git
-	// command (D17); a tree on disk records its path and commit; a zip install
-	// records the archive, never the unpack directory (ADR-038). One reader
-	// of that value: OriginString (IN6).
-	repo, commit := src.OriginString(), ""
-	var info RepoInfo
-	if src.Dir != "" && src.Origin == "" {
-		info = Inspect(src.Dir) // empty for a plain copy: no commit of another repo is recorded
-		commit = info.Commit
-	}
-	switch {
-	case commit == "":
-	case info.StatusUnknown:
-		// Never record a bare commit for a tree git could not describe: the
-		// files came from a working tree of unknown state, and the manifest
-		// is what every later `status` compares against.
-		commit += "+status-unknown"
-	case info.Dirty:
-		commit += "+dirty" // the files came from the working tree, not from this commit
-	}
-	st := State{Repo: repo, Commit: commit, InstalledAt: time.Now().Format(time.RFC3339), Vendor: VendorAntigravity, Files: manifest}
-	if !dryRun {
-		if err := SaveState(home, st); err != nil {
-			return fmt.Errorf("saving manifest: %w", err)
-		}
+	if err := r.record(src); err != nil {
+		return err
 	}
 
 	prefix := ""
@@ -191,7 +49,7 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 		prefix = "[dry-run] "
 	}
 	fmt.Fprintf(out, "%s%d written, %d unchanged, %d removed, %d kept — %d files managed\n",
-		prefix, counts["written"], counts["unchanged"], counts["removed"], counts["kept"], len(manifest))
+		prefix, r.counts["written"], r.counts["unchanged"], r.counts["removed"], r.counts["kept"], len(r.manifest))
 	return nil
 }
 

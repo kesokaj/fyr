@@ -65,23 +65,7 @@ func UnpackZip(zipPath, parent string, check func(sum string) error) (dir, sum s
 			return "", "", err
 		}
 	}
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
-	if err != nil {
-		return "", "", fmt.Errorf("%s: not a readable zip: %w", zipPath, err)
-	}
-	if len(zr.File) > maxZipEntries {
-		return "", "", fmt.Errorf("%s: %d entries, more than the %d allowed", zipPath, len(zr.File), maxZipEntries)
-	}
-	for _, f := range zr.File {
-		if err := zipNameSafe(f.Name); err != nil {
-			return "", "", fmt.Errorf("%s: entry %q would escape the unpack directory: %v", zipPath, f.Name, err)
-		}
-	}
-	prefix, ok := zipRoot(zr.File)
-	if !ok {
-		return "", "", fmt.Errorf("%s: not a harness zip: no context/AGENTS.md at its root or under one top folder", zipPath)
-	}
-	plan, err := checkZipTrees(zipPath, zr.File, prefix)
+	plan, err := planZip(zipPath, data)
 	if err != nil {
 		return "", "", err
 	}
@@ -104,27 +88,59 @@ func UnpackZip(zipPath, parent string, check func(sum string) error) (dir, sum s
 			}
 		}
 	}()
+	if err := writeZipPlan(zipPath, tmp, plan); err != nil {
+		return "", "", err
+	}
+	return tmp, sum, nil
+}
+
+// planZip parses the archive in data and checks it whole before anything is
+// written: the entry count, every entry's name, where the harness sits, and
+// the five trees. It returns what to write.
+func planZip(zipPath string, data []byte) ([]zipItem, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("%s: not a readable zip: %w", zipPath, err)
+	}
+	if len(zr.File) > maxZipEntries {
+		return nil, fmt.Errorf("%s: %d entries, more than the %d allowed", zipPath, len(zr.File), maxZipEntries)
+	}
+	for _, f := range zr.File {
+		if err := zipNameSafe(f.Name); err != nil {
+			return nil, fmt.Errorf("%s: entry %q would escape the unpack directory: %v", zipPath, f.Name, err)
+		}
+	}
+	prefix, ok := zipRoot(zr.File)
+	if !ok {
+		return nil, fmt.Errorf("%s: not a harness zip: no context/AGENTS.md at its root or under one top folder", zipPath)
+	}
+	return checkZipTrees(zipPath, zr.File, prefix)
+}
+
+// writeZipPlan writes plan's entries under tmp, counting what is written, and
+// refuses a result that is not a harness tree.
+func writeZipPlan(zipPath, tmp string, plan []zipItem) error {
 	var total int64
 	for _, e := range plan {
 		dest := filepath.Join(tmp, filepath.FromSlash(e.rel))
 		if e.file == nil {
 			if err := os.MkdirAll(dest, 0o755); err != nil {
-				return "", "", err
+				return err
 			}
 			continue
 		}
 		n, err := unpackFile(e.file, dest)
 		if err != nil {
-			return "", "", fmt.Errorf("%s: entry %q: %w", zipPath, e.file.Name, err)
+			return fmt.Errorf("%s: entry %q: %w", zipPath, e.file.Name, err)
 		}
 		if total += n; total > maxZipTotalBytes {
-			return "", "", fmt.Errorf("%s: more than %d bytes in total under the harness trees", zipPath, maxZipTotalBytes)
+			return fmt.Errorf("%s: more than %d bytes in total under the harness trees", zipPath, maxZipTotalBytes)
 		}
 	}
 	if !isRepo(tmp) {
-		return "", "", fmt.Errorf("%s: not a harness zip: the unpacked tree has no context/AGENTS.md or skills/", zipPath)
+		return fmt.Errorf("%s: not a harness zip: the unpacked tree has no context/AGENTS.md or skills/", zipPath)
 	}
-	return tmp, sum, nil
+	return nil
 }
 
 // zipItem is one entry to write: a directory when file is nil.

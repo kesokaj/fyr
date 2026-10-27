@@ -53,53 +53,11 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 	files := []File{{Rel: filepath.Join(AgyRoot, "rules", "AGENTS.md"), Data: context, Mode: 0o644}}
 
 	for _, s := range inv.Skills {
-		err := fs.WalkDir(src.FS, s.Dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			// A link is refused, not followed: reading it would deploy the
-			// TARGET'S bytes under the LINK'S mode (d.Info reports the link, and
-			// `|0o600` on a link's 0777 ships a world-writable file into
-			// ~/.gemini/config) — an arbitrary-file read into every consumer home
-			// (security review 2026-09-14). A skill ships regular files only.
-			if d.Type()&fs.ModeSymlink != 0 {
-				return fmt.Errorf("%s is a symlink — a skill ships regular files only", src.path(p))
-			}
-			if d.IsDir() || d.Name() == ".DS_Store" {
-				return nil
-			}
-			// A secret-shaped file is refused rather than copied into the
-			// vendor directory on every machine. The repo's .gitignore
-			// keeps these out of git, which means review never sees them and
-			// they can sit in a skill directory unnoticed; install is the one
-			// step that would spread them (security review 2026-09-16). The
-			// names match the context's Git rule.
-			if SecretShaped(d.Name()) {
-				return fmt.Errorf("%s is a secret-shaped file — install refuses to deploy it; move it out of the skill", src.path(p))
-			}
-			rel := filepath.FromSlash(strings.TrimPrefix(p, s.Dir+"/"))
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			data, err := fs.ReadFile(src.FS, p)
-			if err != nil {
-				return err
-			}
-			// Mask off group and other WRITE before deploying. A repo file
-			// that is 0664 or 0666 — a loose umask, a copied archive —
-			// would otherwise land group-writable in ~/.gemini/config, where its
-			// contents are instructions every session reads: another local
-			// account could rewrite the harness without touching the repo
-			// (security review of v1.0.0). Read and execute bits are kept.
-			mode := info.Mode().Perm()&0o755 | 0o600
-			// A copy, never a link: a copy has no dangling-symlink failure mode.
-			files = append(files, File{Rel: filepath.Join(AgyRoot, "skills", s.Name, rel), Data: data, Mode: mode})
-			return nil
-		})
+		skill, err := skillFiles(src, s)
 		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", s.Name, err)
+			return nil, err
 		}
+		files = append(files, skill...)
 	}
 
 	for _, a := range inv.Agents {
@@ -128,6 +86,68 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 		}
 	}
 	return files, nil
+}
+
+// skillFiles walks one skill's directory into the files install writes for it.
+func skillFiles(src Source, s Skill) ([]File, error) {
+	var files []File
+	err := fs.WalkDir(src.FS, s.Dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// A link is refused, not followed: reading it would deploy the
+		// TARGET'S bytes under the LINK'S mode (d.Info reports the link, and
+		// `|0o600` on a link's 0777 ships a world-writable file into
+		// ~/.gemini/config) — an arbitrary-file read into every consumer home
+		// (security review 2026-09-14). A skill ships regular files only.
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symlink — a skill ships regular files only", src.path(p))
+		}
+		if d.IsDir() || d.Name() == ".DS_Store" {
+			return nil
+		}
+		// A secret-shaped file is refused rather than copied into the
+		// vendor directory on every machine. The repo's .gitignore
+		// keeps these out of git, which means review never sees them and
+		// they can sit in a skill directory unnoticed; install is the one
+		// step that would spread them (security review 2026-09-16). The
+		// names match the context's Git rule.
+		if SecretShaped(d.Name()) {
+			return fmt.Errorf("%s is a secret-shaped file — install refuses to deploy it; move it out of the skill", src.path(p))
+		}
+		f, err := skillFile(src, s, p, d)
+		if err != nil {
+			return err
+		}
+		files = append(files, f)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skill %s: %w", s.Name, err)
+	}
+	return files, nil
+}
+
+// skillFile reads one regular file of a skill into the File install writes.
+func skillFile(src Source, s Skill, p string, d fs.DirEntry) (File, error) {
+	rel := filepath.FromSlash(strings.TrimPrefix(p, s.Dir+"/"))
+	info, err := d.Info()
+	if err != nil {
+		return File{}, err
+	}
+	data, err := fs.ReadFile(src.FS, p)
+	if err != nil {
+		return File{}, err
+	}
+	// Mask off group and other WRITE before deploying. A repo file
+	// that is 0664 or 0666 — a loose umask, a copied archive —
+	// would otherwise land group-writable in ~/.gemini/config, where its
+	// contents are instructions every session reads: another local
+	// account could rewrite the harness without touching the repo
+	// (security review of v1.0.0). Read and execute bits are kept.
+	mode := info.Mode().Perm()&0o755 | 0o600
+	// A copy, never a link: a copy has no dangling-symlink failure mode.
+	return File{Rel: filepath.Join(AgyRoot, "skills", s.Name, rel), Data: data, Mode: mode}, nil
 }
 
 // SecretShaped reports whether a filename matches the credential shapes the

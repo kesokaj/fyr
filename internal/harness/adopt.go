@@ -14,6 +14,32 @@ import (
 // is versioned and deployed on the next install. src is a path or a bare
 // skill name looked up in the usual global locations.
 func Adopt(repo, home, src string, force bool) (string, error) {
+	from, err := findSkill(home, src)
+	if err != nil {
+		return "", err
+	}
+	name, dest, err := adoptDest(repo, src, from, force)
+	if err != nil {
+		return "", err
+	}
+	staging, err := stageAdopt(repo, name, from)
+	if err != nil {
+		return "", err
+	}
+	// NO `defer os.RemoveAll(staging)`: on every failure path below the
+	// prepared copy is what the operator is told to recover from, so deleting
+	// it on the way out would make each of those messages name a path that no
+	// longer exists (round-2 release review). staging is removed only when it
+	// has been renamed into place, which is when it no longer exists anyway.
+	if err := swapIn(dest, staging); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// findSkill resolves src, a path or a bare skill name looked up in the usual
+// global locations, to the absolute directory holding its SKILL.md.
+func findSkill(home, src string) (string, error) {
 	candidates := []string{
 		src,
 		filepath.Join(home, ".agents", "skills", src),
@@ -37,17 +63,19 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 	// EvalSymlinks leaves a relative path relative, so ".", ".." and
 	// "skills/<name>" reached Base unchanged and named the deletion root
 	// itself, or the source (BUG-037).
-	from, err := filepath.Abs(from)
-	if err != nil {
-		return "", err
-	}
-	name := filepath.Base(from)
+	return filepath.Abs(from)
+}
+
+// adoptDest names the skill and its destination in the repo's skills/, and
+// refuses a destination that overlaps the source or exists without force.
+func adoptDest(repo, src, from string, force bool) (name, dest string, err error) {
+	name = filepath.Base(from)
 	if err := validName("skill", src, name); err != nil {
-		return "", err
+		return "", "", err
 	}
-	dest, err := filepath.Abs(filepath.Join(repo, "skills", name))
+	dest, err = filepath.Abs(filepath.Join(repo, "skills", name))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	// from is resolved, so dest is compared resolved too: through a linked
 	// repo the two would never share a prefix and --force could replace a
@@ -57,15 +85,20 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 		cmp = filepath.Join(rs, name)
 	}
 	if within(from, cmp) || within(cmp, from) {
-		return "", fmt.Errorf("%s and %s overlap; adopt copies a skill directory from outside the repo's skills/", from, dest)
+		return "", "", fmt.Errorf("%s and %s overlap; adopt copies a skill directory from outside the repo's skills/", from, dest)
 	}
 	_, err = os.Stat(dest)
 	switch {
 	case err == nil && !force:
-		return "", fmt.Errorf("%s already exists; pass --force to replace it", dest)
+		return "", "", fmt.Errorf("%s already exists; pass --force to replace it", dest)
 	case err != nil && !errors.Is(err, os.ErrNotExist):
-		return "", err
+		return "", "", err
 	}
+	return name, dest, nil
+}
+
+// stageAdopt copies from into a fresh staging directory and returns it.
+func stageAdopt(repo, name, from string) (string, error) {
 	// Copy into a staging directory and rename it into place, so a copy that
 	// fails part-way — a symlink refused mid-walk, a read error, a full disk
 	// — leaves the existing skill untouched instead of a half-written one.
@@ -86,16 +119,16 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 	if err := os.RemoveAll(staging); err != nil {
 		return "", err
 	}
-	// NO `defer os.RemoveAll(staging)`: on every failure path below the
-	// prepared copy is what the operator is told to recover from, so deleting
-	// it on the way out would make each of those messages name a path that no
-	// longer exists (round-2 release review). staging is removed only when it
-	// has been renamed into place, which is when it no longer exists anyway.
 	if err := copyTree(from, staging); err != nil {
 		// Nothing has been moved yet, so a partial copy is the only debris.
 		os.RemoveAll(staging)
 		return "", err
 	}
+	return staging, nil
+}
+
+// swapIn renames staging into dest, moving an existing dest aside first.
+func swapIn(dest, staging string) error {
 	// Move the existing skill aside rather than deleting it, and put it back
 	// if the replacement cannot be moved into place. The earlier shape —
 	// RemoveAll(dest) then Rename, with RemoveAll(staging) on the error path
@@ -106,26 +139,26 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 	hadPrevious := false
 	if _, err := os.Stat(dest); err == nil {
 		if err := os.RemoveAll(backup); err != nil {
-			return "", err
+			return err
 		}
 		if err := os.Rename(dest, backup); err != nil {
-			return "", fmt.Errorf("could not move the existing %s aside: %w; it is untouched and the prepared copy is at %s", dest, err, staging)
+			return fmt.Errorf("could not move the existing %s aside: %w; it is untouched and the prepared copy is at %s", dest, err, staging)
 		}
 		hadPrevious = true
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", err
+		return err
 	}
 	if err := os.Rename(staging, dest); err != nil {
 		if hadPrevious {
 			if restoreErr := os.Rename(backup, dest); restoreErr != nil {
-				return "", fmt.Errorf("could not install %s (%v) and could not put the previous skill back (%v); the previous copy is at %s and the new one at %s — move one of them into place by hand", dest, err, restoreErr, backup, staging)
+				return fmt.Errorf("could not install %s (%v) and could not put the previous skill back (%v); the previous copy is at %s and the new one at %s — move one of them into place by hand", dest, err, restoreErr, backup, staging)
 			}
-			return "", fmt.Errorf("could not install %s: %w; the previous skill is back in place and the prepared copy is at %s", dest, err, staging)
+			return fmt.Errorf("could not install %s: %w; the previous skill is back in place and the prepared copy is at %s", dest, err, staging)
 		}
-		return "", fmt.Errorf("could not install %s: %w; there was no previous skill of that name and the prepared copy is at %s", dest, err, staging)
+		return fmt.Errorf("could not install %s: %w; there was no previous skill of that name and the prepared copy is at %s", dest, err, staging)
 	}
 	os.RemoveAll(backup)
-	return dest, nil
+	return nil
 }
 
 // within reports whether child is parent itself or lies inside it. Adopt

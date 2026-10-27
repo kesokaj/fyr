@@ -20,33 +20,8 @@ import (
 // checkout's code, so a typo must not hand that to whatever harness-shaped
 // tree the shell happens to be in. version is the running binary's.
 func ResolveSource(explicit, home, version string) (Source, error) {
-	// A RELEASE binary installs the harness built into it — the published
-	// repository at the tagged commit, checked against its SHA256SUMS on the way in — and
-	// `update` replaces the whole binary to change them. The one tree it
-	// installs is a zip the operator names with `update --from-zip`, which
-	// never passes through here (ADR-038). Otherwise no tree on this machine
-	// takes part: not the working
-	// directory, not the one the last install recorded, not one named on the
-	// command line. A recorded plain copy silently winning is what stranded a
-	// box on months-old content while reporting no drift (ADR-034, the
-	// operator: "the binary should only use the published git repo in github
-	// always and only"). A named path is REFUSED rather than ignored, because
-	// silently doing something other than what the operator typed is the
-	// habit D15 exists to prevent.
 	if IsReleaseVersion(version) {
-		for _, from := range []struct{ origin, path string }{
-			{"--repo", explicit},
-			{"$FYR_REPO", os.Getenv("FYR_REPO")},
-		} {
-			if from.path != "" {
-				// Name WHERE the path came from: an exported $FYR_REPO in
-				// a shell profile makes every command on the machine fail, and
-				// "drop it" is unactionable without knowing which one to drop
-				// (BUG-076).
-				return Source{}, fmt.Errorf("this is the release binary %s: it installs the harness built into it and never a tree on disk, so %s=%s is refused — unset it, or build fyr from that tree and run that build's install", version, from.origin, from.path)
-			}
-		}
-		return embeddedSource(version), nil
+		return releaseSource(explicit, version)
 	}
 
 	// A development build has nothing of its own to install, so it looks for a
@@ -64,26 +39,7 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 		}
 		return absSource(named)
 	}
-	var candidates []string
-	if wd, err := os.Getwd(); err == nil {
-		for dir := wd; ; dir = filepath.Dir(dir) {
-			candidates = append(candidates, dir)
-			if filepath.Dir(dir) == dir {
-				break
-			}
-		}
-	}
-	// An embedded install records a release and a zip install an archive's
-	// hash, never a path (EmbeddedPrefix, ZipPrefix): neither is a candidate.
-	zipNote := ""
-	if st, found, err := LoadState(home); err == nil && found {
-		switch o := st.Origin(); o.Kind {
-		case OriginZip:
-			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s); a development build needs a checkout or --repo — or run `fyr update --from-zip <file>` again. ", o.ShortSum())
-		case OriginPath:
-			candidates = append(candidates, o.Path)
-		}
-	}
+	candidates, zipNote := sourceCandidates(home)
 	for _, c := range candidates {
 		if c != "" && isRepo(c) {
 			return absSource(c)
@@ -94,6 +50,61 @@ func ResolveSource(explicit, home, version string) (Source, error) {
 		built = fmt.Sprintf("this build is %s, a development build rather than a vX.Y.Z release, so it has no harness built in", version)
 	}
 	return Source{}, fmt.Errorf("%sharness repo not found and %s: run from inside the checkout, pass --repo, set FYR_REPO, or install from a release binary (README § Install without cloning)", zipNote, built)
+}
+
+// releaseSource is ResolveSource for a release binary.
+func releaseSource(explicit, version string) (Source, error) {
+	// A RELEASE binary installs the harness built into it — the published
+	// repository at the tagged commit, checked against its SHA256SUMS on the way in — and
+	// `update` replaces the whole binary to change them. The one tree it
+	// installs is a zip the operator names with `update --from-zip`, which
+	// never passes through here (ADR-038). Otherwise no tree on this machine
+	// takes part: not the working
+	// directory, not the one the last install recorded, not one named on the
+	// command line. A recorded plain copy silently winning is what stranded a
+	// box on months-old content while reporting no drift (ADR-034, the
+	// operator: "the binary should only use the published git repo in github
+	// always and only"). A named path is REFUSED rather than ignored, because
+	// silently doing something other than what the operator typed is the
+	// habit D15 exists to prevent.
+	for _, from := range []struct{ origin, path string }{
+		{"--repo", explicit},
+		{"$FYR_REPO", os.Getenv("FYR_REPO")},
+	} {
+		if from.path != "" {
+			// Name WHERE the path came from: an exported $FYR_REPO in
+			// a shell profile makes every command on the machine fail, and
+			// "drop it" is unactionable without knowing which one to drop
+			// (BUG-076).
+			return Source{}, fmt.Errorf("this is the release binary %s: it installs the harness built into it and never a tree on disk, so %s=%s is refused — unset it, or build fyr from that tree and run that build's install", version, from.origin, from.path)
+		}
+	}
+	return embeddedSource(version), nil
+}
+
+// sourceCandidates is a development build's walk after the named paths: the
+// working directory and its parents, then the tree the last install recorded.
+// zipNote explains a home installed from a zip, which records no tree.
+func sourceCandidates(home string) (candidates []string, zipNote string) {
+	if wd, err := os.Getwd(); err == nil {
+		for dir := wd; ; dir = filepath.Dir(dir) {
+			candidates = append(candidates, dir)
+			if filepath.Dir(dir) == dir {
+				break
+			}
+		}
+	}
+	// An embedded install records a release and a zip install an archive's
+	// hash, never a path (EmbeddedPrefix, ZipPrefix): neither is a candidate.
+	if st, found, err := LoadState(home); err == nil && found {
+		switch o := st.Origin(); o.Kind {
+		case OriginZip:
+			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s); a development build needs a checkout or --repo — or run `fyr update --from-zip <file>` again. ", o.ShortSum())
+		case OriginPath:
+			candidates = append(candidates, o.Path)
+		}
+	}
+	return candidates, zipNote
 }
 
 // OriginKind classifies what a manifest's repo value names.

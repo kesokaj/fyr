@@ -57,3 +57,16 @@ func TestUnpackZipNoSkillsTree(t *testing.T) {
 	}
 	noZipDirs(t, parent)
 }
+
+// The check sees the sum before the archive is parsed: a file that is not a
+// zip at all is refused for its sum, never for its format (ADR-039).
+func TestUnpackZipChecksBeforeParsing(t *testing.T) {
+	zp := filepath.Join(t.TempDir(), "h.zip")
+	writeFile(t, zp, "not a zip")
+	refused := errors.New("checksum refused")
+	parent := t.TempDir()
+	if _, _, err := UnpackZip(zp, parent, func(string) error { return refused }); !errors.Is(err, refused) {
+		t.Errorf("err = %v, want the check's refusal", err)
+	}
+	noZipDirs(t, parent)
+}

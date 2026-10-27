@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -168,58 +167,18 @@ func loadSkills(src Source) ([]Skill, error) {
 	// (code review 2026-09-16).
 	byName := map[string]string{}
 	for _, e := range entries {
-		dir := path.Join("skills", e.Name())
-		// fs.Stat follows a link, so a skills/<name> link to a directory is a
-		// skill and a dangling one is refused out loud.
-		info, err := fs.Stat(src.FS, dir)
+		s, ok, err := readSkill(src, e.Name())
 		if err != nil {
-			return nil, fmt.Errorf("resolving skill %s: %w", e.Name(), err)
+			return nil, err
 		}
-		if !info.IsDir() {
+		if !ok {
 			continue
 		}
-		data, err := src.readRegular(path.Join(dir, "SKILL.md"))
-		if err != nil {
-			// No SKILL.md means the directory is not a skill. Any other
-			// error, a symlinked SKILL.md above all, is refused out loud:
-			// plan.go's walk only visits skills this loader returned, so a
-			// silent skip would drop the refusal altogether (BUG-036).
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return nil, err
+		if first, dup := byName[s.Name]; dup {
+			return nil, fmt.Errorf("two skills are named %q: skills/%s and skills/%s — one install destination, so one would silently overwrite the other", s.Name, first, e.Name())
 		}
-		front, _, err := Split(string(data))
-		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", e.Name(), err)
-		}
-		fm, err := parseStrict(front)
-		if err != nil {
-			return nil, fmt.Errorf("skill %s: %w", e.Name(), err)
-		}
-		name := fm["name"]
-		if name == "" {
-			name = e.Name()
-		}
-		if err := validName("skill", e.Name()+"/SKILL.md", name); err != nil {
-			return nil, err
-		}
-		if fm["description"] == "" {
-			return nil, fmt.Errorf("skill %s: SKILL.md has no description", e.Name())
-		}
-		if k := unlistedKey(front, skillKeys); k != "" {
-			return nil, fmt.Errorf("skill %s: %s is not a key a harness skill sets (%s); a new one is added to skillKeys by a D-row, and a key that grants a permission never is — the operator's permission mode decides what runs unprompted (IN23, BUG-143)", name, k, strings.Join(skillKeys, ", "))
-		}
-		if first, dup := byName[name]; dup {
-			return nil, fmt.Errorf("two skills are named %q: skills/%s and skills/%s — one install destination, so one would silently overwrite the other", name, first, e.Name())
-		}
-		byName[name] = e.Name()
-		skills = append(skills, Skill{
-			Name:        name,
-			Description: fm["description"],
-			Dir:         dir,
-			SlashOnly:   fm["disable-model-invocation"] == "true",
-		})
+		byName[s.Name] = e.Name()
+		skills = append(skills, s)
 	}
 	sort.Slice(skills, func(i, j int) bool { return skills[i].Name < skills[j].Name })
 	return skills, nil
@@ -275,59 +234,11 @@ func loadAgents(src Source) ([]Agent, error) {
 		if !e.IsDir() {
 			return nil, fmt.Errorf("%s: an agent is agents/<name>/agent.md in Antigravity's format; a flat agents/<name>.md is the format before ADR-062", src.path(path.Join("agents", e.Name())))
 		}
-		p := path.Join("agents", e.Name(), "agent.md")
-		shown := e.Name() + "/agent.md"
-		raw, err := src.readRegular(p)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%s has no agent.md", src.path(path.Join("agents", e.Name())))
-		}
+		a, err := readAgent(src, e.Name())
 		if err != nil {
 			return nil, err
 		}
-		front, body, err := Split(string(raw))
-		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", shown, err)
-		}
-		fm, err := parseStrict(front)
-		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", shown, err)
-		}
-		name := fm["name"]
-		if name == "" {
-			name = e.Name()
-		}
-		if err := validName("agent", shown, name); err != nil {
-			return nil, err
-		}
-		if fm["description"] == "" {
-			return nil, fmt.Errorf("agent %s: no description", name)
-		}
-		// One line, dispatch-worthy, and free of the two phrases that
-		// described a mechanism that no longer exists (AGENTS.md § Rules;
-		// until 2026-10-01 only inspection enforced this).
-		if descriptionIsMultiLine(front) {
-			return nil, fmt.Errorf("agent %s: description must be one line", name)
-		}
-		if k := unlistedKey(front, agentKeys); k != "" {
-			return nil, fmt.Errorf("agent %s: %s is not a key a harness agent sets (%s); a new one is added to agentKeys by hand, and a key that grants a permission never is (ADR-056, BUG-143)", name, k, strings.Join(agentKeys, ", "))
-		}
-		for _, banned := range []string{"dispatch prompt", "harness binary"} {
-			if strings.Contains(strings.ToLower(fm["description"]), banned) {
-				return nil, fmt.Errorf("agent %s: description names %q, a mechanism that no longer exists", name, banned)
-			}
-		}
-		// What the derivation guaranteed, now the author's: a subagent, never
-		// a main agent.
-		if fm["subagent"] != "true" || fm["mainAgent"] != "false" {
-			return nil, fmt.Errorf("agent %s: a harness agent sets subagent: true and mainAgent: false", name)
-		}
-		for _, t := range splitList(fm["tools"]) {
-			if !slices.Contains(knownTools, t) {
-				return nil, fmt.Errorf("agent %s: tool %q is not one the harness knows (%s)", name, t, strings.Join(knownTools, ", "))
-			}
-		}
-
-		agents = append(agents, Agent{Name: name, Description: fm["description"], Path: src.path(p), Front: fm, Body: body, Raw: raw})
+		agents = append(agents, a)
 	}
 	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
 	return agents, nil

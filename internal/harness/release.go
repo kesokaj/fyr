@@ -77,37 +77,9 @@ func latestRelease() (string, error) {
 // version is the running binary's; installArgs are passed to the new
 // binary's install.
 func UpdateFromRelease(home, version string, checkOnly bool, installArgs []string, out io.Writer) error {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return errors.New("this install has no checkout; install gh and run gh auth login, or download a newer release by hand (README § Install without cloning)")
-	}
-	tag, err := latestRelease()
-	if err != nil {
+	tag, err := newerRelease(version, checkOnly, out)
+	if err != nil || tag == "" {
 		return err
-	}
-	// The tag comes from the GitHub API, which is not signed: it reaches argv
-	// as a positional argument and decides which release is installed, so it
-	// must look like a release before either happens (a `-`-leading tag would
-	// be read by gh as a flag).
-	if !IsReleaseVersion(tag) {
-		return fmt.Errorf("the newest release is tagged %q, which is not a vX.Y.Z release; nothing installed", tag)
-	}
-	switch {
-	case tag == version:
-		fmt.Fprintf(out, "up to date (%s)\n", version)
-		return nil
-	// Never sideways or backwards: a deleted or re-pointed release would
-	// otherwise install a genuine binary the operator has moved past
-	// (security review 2026-09-17).
-	case !IsReleaseVersion(version):
-		fmt.Fprintf(out, "this binary reports version %q, which is not a release; leaving it alone — download %s by hand (README § Install without cloning)\n", version, tag)
-		return nil
-	case compareRelease(tag, version) <= 0:
-		fmt.Fprintf(out, "the newest release %s is not newer than this binary %s; nothing installed\n", tag, version)
-		return nil
-	}
-	if checkOnly {
-		fmt.Fprintf(out, "newer release %s available\n", tag)
-		return ErrNewerRelease
 	}
 
 	// A random directory, and one whose siblings from an interrupted earlier
@@ -134,7 +106,51 @@ func UpdateFromRelease(home, version string, checkOnly bool, installArgs []strin
 	if err := verifyRelease(dir, tag, asset, data); err != nil {
 		return err
 	}
+	return installRelease(home, tag, asset, data, installArgs, out)
+}
 
+// newerRelease returns the newest release's tag when it is newer than the
+// running binary's version, and "" when there is nothing to install; with
+// checkOnly a newer release is ErrNewerRelease.
+func newerRelease(version string, checkOnly bool, out io.Writer) (string, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return "", errors.New("this install has no checkout; install gh and run gh auth login, or download a newer release by hand (README § Install without cloning)")
+	}
+	tag, err := latestRelease()
+	if err != nil {
+		return "", err
+	}
+	// The tag comes from the GitHub API, which is not signed: it reaches argv
+	// as a positional argument and decides which release is installed, so it
+	// must look like a release before either happens (a `-`-leading tag would
+	// be read by gh as a flag).
+	if !IsReleaseVersion(tag) {
+		return "", fmt.Errorf("the newest release is tagged %q, which is not a vX.Y.Z release; nothing installed", tag)
+	}
+	switch {
+	case tag == version:
+		fmt.Fprintf(out, "up to date (%s)\n", version)
+		return "", nil
+	// Never sideways or backwards: a deleted or re-pointed release would
+	// otherwise install a genuine binary the operator has moved past
+	// (security review 2026-09-17).
+	case !IsReleaseVersion(version):
+		fmt.Fprintf(out, "this binary reports version %q, which is not a release; leaving it alone — download %s by hand (README § Install without cloning)\n", version, tag)
+		return "", nil
+	case compareRelease(tag, version) <= 0:
+		fmt.Fprintf(out, "the newest release %s is not newer than this binary %s; nothing installed\n", tag, version)
+		return "", nil
+	}
+	if checkOnly {
+		fmt.Fprintf(out, "newer release %s available\n", tag)
+		return "", ErrNewerRelease
+	}
+	return tag, nil
+}
+
+// installRelease replaces the installed binary with the verified one and runs
+// the new binary's install.
+func installRelease(home, tag, asset string, data []byte, installArgs []string, out io.Writer) error {
 	// Replaced through a temporary file in the destination's own directory
 	// and a rename, so an interrupted update leaves the old binary whole
 	// rather than a half-written one.
