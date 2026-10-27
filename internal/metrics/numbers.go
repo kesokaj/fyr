@@ -40,50 +40,7 @@ func (s *Summary) Numbers() map[string]float64 {
 	n := map[string]float64{}
 	put := func(k string, v float64) { n[k] = v }
 	for _, v := range s.columns() {
-		put("sessions."+v, float64(s.Sessions[v]))
-		sub := 0
-		for _, c := range s.Subagents[v] {
-			sub += c
-		}
-		put("subagents."+v, float64(sub))
-		c := s.A.DoDClosed[v]
-		put("A.dod_closed."+v, float64(c.Closed))
-		put("A.dod_ambiguous."+v, float64(c.Ambiguous))
-		put("A.dod_of."+v, float64(c.Of))
-		put("B.tool_calls."+v, float64(s.B.ToolCalls[v]))
-		put("B.turns."+v, float64(s.B.Turns[v]))
-		if t := s.B.Tokens[v]; t != nil {
-			put("B.tokens_in."+v, float64(t.In))
-			put("B.tokens_out."+v, float64(t.Out))
-			put("B.cache_read."+v, float64(t.CacheRead))
-		}
-		if p := s.B.CostUSD[v]; p != nil {
-			put("B.cost_usd."+v, *p)
-		}
-		put("B.wall_min."+v, s.B.WallMin[v])
-		put("B.active_min."+v, s.B.ActiveMin[v])
-		put("B.peak_context."+v, float64(s.B.PeakContext[v]))
-		if p := s.B.SessionsOverContextTarget[v]; p != nil {
-			put("B.sessions_over_context_target."+v, float64(*p))
-		}
-		if p := s.B.Compactions[v]; p != nil {
-			put("B.compactions."+v, float64(*p))
-		}
-		put("C.sqlite_verbs."+v, float64(s.C.SQLiteVerbs[v]))
-		put("C.grep_calls."+v, float64(s.C.GrepCalls[v]))
-		if p := s.C.SearchGrepRatio[v]; p != nil {
-			put("C.search_grep_ratio."+v, *p)
-		}
-		if p := s.D.ToolErrorRate[v]; p != nil {
-			put("D.tool_error_rate."+v, *p)
-		}
-		if p := s.D.Denials[v]; p != nil {
-			put("D.denials."+v, float64(*p))
-		}
-		if p := s.D.Interrupts[v]; p != nil {
-			put("D.interrupts."+v, float64(*p))
-		}
-		put("D.retry_loops."+v, float64(s.D.RetryLoops[v]))
+		s.putColumn(put, v)
 	}
 	for _, st := range []string{"PASS", "FAIL", "BLOCKED"} {
 		put("A.verifier."+st, float64(s.A.Verifier[st]))
@@ -98,6 +55,55 @@ func (s *Summary) Numbers() map[string]float64 {
 		put("C.forbidden."+k[1], float64(s.C.Forbidden[k[0]]))
 	}
 	return n
+}
+
+// putColumn puts column v's metrics, each key suffixed with the column's
+// name; a metric the column's CLI cannot produce is not put.
+func (s *Summary) putColumn(put func(string, float64), v string) {
+	put("sessions."+v, float64(s.Sessions[v]))
+	sub := 0
+	for _, c := range s.Subagents[v] {
+		sub += c
+	}
+	put("subagents."+v, float64(sub))
+	c := s.A.DoDClosed[v]
+	put("A.dod_closed."+v, float64(c.Closed))
+	put("A.dod_ambiguous."+v, float64(c.Ambiguous))
+	put("A.dod_of."+v, float64(c.Of))
+	put("B.tool_calls."+v, float64(s.B.ToolCalls[v]))
+	put("B.turns."+v, float64(s.B.Turns[v]))
+	if t := s.B.Tokens[v]; t != nil {
+		put("B.tokens_in."+v, float64(t.In))
+		put("B.tokens_out."+v, float64(t.Out))
+		put("B.cache_read."+v, float64(t.CacheRead))
+	}
+	if p := s.B.CostUSD[v]; p != nil {
+		put("B.cost_usd."+v, *p)
+	}
+	put("B.wall_min."+v, s.B.WallMin[v])
+	put("B.active_min."+v, s.B.ActiveMin[v])
+	put("B.peak_context."+v, float64(s.B.PeakContext[v]))
+	if p := s.B.SessionsOverContextTarget[v]; p != nil {
+		put("B.sessions_over_context_target."+v, float64(*p))
+	}
+	if p := s.B.Compactions[v]; p != nil {
+		put("B.compactions."+v, float64(*p))
+	}
+	put("C.sqlite_verbs."+v, float64(s.C.SQLiteVerbs[v]))
+	put("C.grep_calls."+v, float64(s.C.GrepCalls[v]))
+	if p := s.C.SearchGrepRatio[v]; p != nil {
+		put("C.search_grep_ratio."+v, *p)
+	}
+	if p := s.D.ToolErrorRate[v]; p != nil {
+		put("D.tool_error_rate."+v, *p)
+	}
+	if p := s.D.Denials[v]; p != nil {
+		put("D.denials."+v, float64(*p))
+	}
+	if p := s.D.Interrupts[v]; p != nil {
+		put("D.interrupts."+v, float64(*p))
+	}
+	put("D.retry_loops."+v, float64(s.D.RetryLoops[v]))
 }
 
 // forbiddenKeys maps each forbidden shape to its key in Numbers.

@@ -64,40 +64,56 @@ func heredocDelims(line string) (ds []heredoc, unparsed bool) {
 		line = strings.TrimPrefix(line, "-")
 		line = strings.TrimLeft(line, " \t")
 		if strings.HasPrefix(line, "'") || strings.HasPrefix(line, "\"") {
-			// A quoted delimiter is the literal text up to the closing quote:
-			// <<'END!' ends only at a line END! (security review of v2.6.0).
-			q := line[:1]
-			k := strings.Index(line[1:], q)
-			if k <= 0 {
-				return ds, true // no closing quote, or an empty delimiter
-			}
-			ds = append(ds, heredoc{line[1 : 1+k], tabs})
-			line = line[k+2:]
-			if line != "" && !strings.ContainsRune(" \t;&|<>()`", rune(line[0])) {
-				// "E"ND: more delimiter text after the closing quote, a mix
-				// that is not modelled; nothing after this line is read.
-				return ds, true
-			}
-			continue
+			ds, line, unparsed = quotedDelim(ds, line, tabs)
+		} else {
+			ds, line, unparsed = unquotedDelim(ds, line, tabs)
 		}
-		if strings.HasPrefix(line, "\\") {
-			line = line[1:] // <<\EOF: a quoted delimiter, the same here-doc
+		if unparsed {
+			return ds, true
 		}
-		// An unquoted delimiter is the whole word up to a shell
-		// metacharacter, taken literally ($END included), as bash does.
-		end := strings.IndexFunc(line, func(r rune) bool {
-			return strings.ContainsRune(" \t;&|<>()`'\"", r)
-		})
-		if end > 0 && strings.ContainsRune(`'"`, rune(line[end])) {
-			return ds, true // E'ND': a delimiter mixing quoted and unquoted parts is not modelled
-		}
-		if end < 0 {
-			end = len(line)
-		}
-		if end == 0 {
-			return ds, true // no delimiter word at all
-		}
-		ds = append(ds, heredoc{line[:end], tabs})
-		line = line[end:]
 	}
+}
+
+// quotedDelim reads the quoted delimiter line starts with into ds and
+// returns the rest of line; unparsed when the delimiter is not modelled.
+func quotedDelim(ds []heredoc, line string, tabs bool) ([]heredoc, string, bool) {
+	// A quoted delimiter is the literal text up to the closing quote:
+	// <<'END!' ends only at a line END! (security review of v2.6.0).
+	q := line[:1]
+	k := strings.Index(line[1:], q)
+	if k <= 0 {
+		return ds, line, true // no closing quote, or an empty delimiter
+	}
+	ds = append(ds, heredoc{line[1 : 1+k], tabs})
+	line = line[k+2:]
+	if line != "" && !strings.ContainsRune(" \t;&|<>()`", rune(line[0])) {
+		// "E"ND: more delimiter text after the closing quote, a mix
+		// that is not modelled; nothing after this line is read.
+		return ds, line, true
+	}
+	return ds, line, false
+}
+
+// unquotedDelim reads the unquoted (or backslash-quoted) delimiter line
+// starts with into ds and returns the rest of line; unparsed when there is
+// no delimiter word or it is not modelled.
+func unquotedDelim(ds []heredoc, line string, tabs bool) ([]heredoc, string, bool) {
+	if strings.HasPrefix(line, "\\") {
+		line = line[1:] // <<\EOF: a quoted delimiter, the same here-doc
+	}
+	// An unquoted delimiter is the whole word up to a shell
+	// metacharacter, taken literally ($END included), as bash does.
+	end := strings.IndexFunc(line, func(r rune) bool {
+		return strings.ContainsRune(" \t;&|<>()`'\"", r)
+	})
+	if end > 0 && strings.ContainsRune(`'"`, rune(line[end])) {
+		return ds, line, true // E'ND': a delimiter mixing quoted and unquoted parts is not modelled
+	}
+	if end < 0 {
+		end = len(line)
+	}
+	if end == 0 {
+		return ds, line, true // no delimiter word at all
+	}
+	return append(ds, heredoc{line[:end], tabs}), line[end:], false
 }

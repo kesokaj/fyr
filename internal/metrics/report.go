@@ -160,81 +160,13 @@ func esc(s string) string { return template.HTMLEscapeString(s) }
 // name at the line's end, and the same numbers as a table.
 func lineChart(title, note string, series []serie, days []Day, get func(Day, string) (float64, bool), format string) chart {
 	c := chart{Title: title, Note: note, Table: table{Head: head("day", series)}}
-	var max float64
-	for _, d := range days {
-		row := []string{d.Date}
-		for _, s := range series {
-			v, ok := get(d, s.Key)
-			if !ok {
-				row = append(row, "n/a")
-				continue
-			}
-			max = math.Max(max, v)
-			row = append(row, fmt.Sprintf(format, v))
-		}
-		c.Table.Rows = append(c.Table.Rows, row)
-	}
-	top := niceMax(max)
-	iw, ih := chartW-padL-padR, chartH-padT-padB
-	x := func(i int) float64 {
-		if len(days) < 2 {
-			return padL + iw/2
-		}
-		return padL + iw*float64(i)/float64(len(days)-1)
-	}
-	y := func(v float64) float64 { return padT + ih - ih*v/top }
+	rows, max := lineRows(series, days, get, format)
+	c.Table.Rows = rows
+	p := newPlot(len(days), niceMax(max))
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="%s">`, chartW, chartH, esc(title))
-	for i := 0; i <= 4; i++ {
-		v := top * float64(i) / 4
-		fmt.Fprintf(&b, `<line class="grid" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, padL, chartW-padR, y(v), y(v))
-		fmt.Fprintf(&b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="end">%s</text>`, padL-6, y(v)+4, esc(short(v)))
-	}
-	for i, d := range days {
-		if len(days) <= 8 || i == 0 || i == len(days)-1 || i%(len(days)/4+1) == 0 {
-			fmt.Fprintf(&b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, x(i), chartH-8, esc(d.Date[5:]))
-		}
-	}
-	// End labels: one per drawn line, nudged apart so two lines ending close
-	// together keep readable names.
-	type endLabel struct {
-		y     float64
-		x     float64
-		label string
-	}
-	var ends []endLabel
-	var dots strings.Builder // markers over every line
-	for _, s := range series {
-		var pts []string
-		var lastX, lastY float64
-		drawn := false
-		for i, d := range days {
-			v, ok := get(d, s.Key)
-			if !ok {
-				continue
-			}
-			pts = append(pts, fmt.Sprintf("%.1f,%.1f", x(i), y(v)))
-			fmt.Fprintf(&dots, `<circle class="dot %s" cx="%.1f" cy="%.1f" r="4"><title>%s, %s: %s</title></circle>`,
-				s.Class, x(i), y(v), esc(s.Label), esc(d.Date), esc(fmt.Sprintf(format, v)))
-			lastX, lastY, drawn = x(i), y(v), true
-		}
-		if len(pts) > 1 {
-			fmt.Fprintf(&b, `<polyline class="line %s" points="%s"/>`, s.Class, strings.Join(pts, " "))
-		}
-		if drawn {
-			ends = append(ends, endLabel{lastY + 4, lastX + 8, s.Label})
-		}
-	}
-	b.WriteString(dots.String())
-	sort.Slice(ends, func(i, j int) bool { return ends[i].y < ends[j].y })
-	for i := 1; i < len(ends); i++ {
-		if ends[i].y-ends[i-1].y < 13 {
-			ends[i].y = ends[i-1].y + 13
-		}
-	}
-	for _, e := range ends {
-		fmt.Fprintf(&b, `<text class="direct" x="%.1f" y="%.1f">%s</text>`, e.x, e.y, esc(e.label))
-	}
+	p.grid(&b, days)
+	placeEndLabels(&b, p.lines(&b, series, days, get, format))
 	b.WriteString(`</svg>`)
 	c.SVG = template.HTML(b.String())
 	return c

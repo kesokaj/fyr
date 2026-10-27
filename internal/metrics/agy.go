@@ -128,33 +128,9 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 		}
 	}()
 
-	type step struct {
-		idx, typ, status int
-		meta             []byte
-	}
-	var steps []step
-	rows, err := db.Query(`SELECT idx, step_type, status, metadata FROM steps ORDER BY idx`)
+	steps, gens, err := readAgySteps(db)
 	if err != nil {
 		return err
-	}
-	for rows.Next() {
-		var st step
-		if err := rows.Scan(&st.idx, &st.typ, &st.status, &st.meta); err != nil {
-			rows.Close()
-			return err
-		}
-		steps = append(steps, st)
-	}
-	rows.Close()
-	var gens [][]byte
-	if rows, err := db.Query(`SELECT data FROM gen_metadata ORDER BY idx`); err == nil {
-		for rows.Next() {
-			var b []byte
-			if rows.Scan(&b) == nil {
-				gens = append(gens, b)
-			}
-		}
-		rows.Close()
 	}
 
 	salt := s.salt()
@@ -164,64 +140,9 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 	}
 	defer tx.Rollback()
 	w := writer{tx: tx, salt: salt, label: o.Label, outcome: o.Outcome}
-	w.exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, label, outcome, ended_at)
-		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0))
-		ON CONFLICT(id) DO UPDATE SET
-			project_root = COALESCE(sessions.project_root, excluded.project_root),
-			parent_id = COALESCE(sessions.parent_id, excluded.parent_id),
-			agent_type = COALESCE(sessions.agent_type, excluded.agent_type),
-			label = COALESCE(sessions.label, excluded.label),
-			outcome = COALESCE(sessions.outcome, excluded.outcome),
-			ended_at = MAX(COALESCE(sessions.ended_at, 0), COALESCE(excluded.ended_at, 0))`,
-		c.id, c.root, c.parent, identifier(c.agent), w.label, w.outcome, c.modified)
-
-	var replyTimes []int64
-	for _, st := range steps {
-		f := fieldMap(st.meta)
-		ts := int64(f.varint(1, 1)) * 1000
-		ext := fmt.Sprintf("%s:%d", c.id, st.idx)
-		switch st.typ {
-		case agyUser:
-			w.step(c.id, ext, ts, "user")
-		case agyReply:
-			w.step(c.id, ext, ts, "assistant")
-			replyTimes = append(replyTimes, ts)
-		case agyTool:
-			w.agyTool(c, ext, ts, st.status == agyFailed, f)
-		default:
-			continue
-		}
-		if ts > 0 {
-			w.exec(`UPDATE sessions SET started_at = MIN(COALESCE(started_at, ?), ?), ended_at = MAX(COALESCE(ended_at, ?), ?) WHERE id = ?`,
-				ts, ts, ts, ts, c.id)
-		}
-	}
-	for i, g := range gens {
-		f := fieldMap(g)
-		var ts any
-		if i < len(replyTimes) && replyTimes[i] > 0 {
-			ts = replyTimes[i]
-		}
-		var ctx any
-		if used := f.varint(1, 9, 10, 1); used > 0 {
-			ctx = used
-		}
-		w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tok_in, tok_out, cache_read, context)
-			VALUES (?, ?, ?, 'generation', ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
-				ts = excluded.ts, tok_in = excluded.tok_in, tok_out = excluded.tok_out,
-				cache_read = excluded.cache_read, context = excluded.context`,
-			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5), ctx)
-		if m := identifier(f.text(1, 19)); m != "" {
-			w.exec(`UPDATE sessions SET model = COALESCE(model, ?) WHERE id = ?`, m, c.id)
-		}
-	}
-	fi, _ := os.Stat(source)
-	var size int64
-	if fi != nil {
-		size = fi.Size()
-	}
-	w.exec(`INSERT INTO ingest_state(source, size, mtime, offset) VALUES (?, ?, ?, 0)
-		ON CONFLICT(source) DO UPDATE SET size = excluded.size, mtime = excluded.mtime`, source, size, c.modified)
+	w.agySession(c)
+	w.agyGens(c, gens, w.agySteps(c, steps))
+	w.agyIngestState(source, c.modified)
 	if w.err != nil {
 		return w.err
 	}

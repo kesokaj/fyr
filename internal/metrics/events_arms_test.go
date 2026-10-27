@@ -74,6 +74,34 @@ func TestJoinEventsSessionReadErrors(t *testing.T) {
 	}
 }
 
+// A session's root that is gone, or is not a git checkout, gives the join a
+// note naming it and no commit events (pinned after the Phase 3 review, its
+// finding 2).
+func TestJoinEventsRootNotes(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	plain := t.TempDir()
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	for i, root := range []string{gone, plain} {
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, 1, 2)`,
+			"S"+string(rune('1'+i)), root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notes, err := s.joinEvents(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(notes, "\n")
+	for _, want := range []string{"project root gone: " + gone, "no git history: " + plain} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("notes %q, want one %q", notes, want)
+		}
+	}
+	if n := len(events(t, s)); n != 0 {
+		t.Errorf("%d events, want 0", n)
+	}
+}
+
 // The file join's quieter arms: a project with no docs root reads no trail
 // files, an untracked trail file is timed by its mtime, a verifier log with
 // no status line and a bug file with no BUG-N name give no event.

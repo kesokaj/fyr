@@ -162,75 +162,16 @@ func (t *tokenizer) flushSeg() {
 func segments(cmd string) [][]string {
 	t := &tokenizer{}
 	rs := []rune(cmd)
-	at := func(i int, r rune) bool { return i < len(rs) && rs[i] == r }
 	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		switch {
-		case r == '\'' || r == '"':
-			// a quoted run is part of the current word; its content is never split
-			q := r
-			t.inWord = true
-			for i++; i < len(rs) && rs[i] != q; i++ {
-				if q == '"' && rs[i] == '\\' && i+1 < len(rs) {
-					i++
-				}
-				t.cur.WriteRune(rs[i])
-			}
-		case r == '\\' && i+1 < len(rs):
-			i++
-			if rs[i] != '\n' {
-				t.cur.WriteRune(rs[i])
-				t.inWord = true
-			}
-		case r == '$' && at(i+1, '{'):
-			i = t.swallow(rs, i+1, '{', '}')
-		case r == '$' && at(i+1, '(') && at(i+2, '('):
-			i = t.swallow(rs, i+1, '(', ')')
-		case r == '$' && at(i+1, '('):
-			t.flushSeg()
-			t.parenDepth++
-			i++
-		case r == '#' && !t.inWord:
-			for i+1 < len(rs) && rs[i+1] != '\n' {
-				i++
-			}
-		case r == '&' && (i > 0 && (rs[i-1] == '>' || rs[i-1] == '<') || at(i+1, '>')):
-			t.cur.WriteRune(r) // a redirection (2>&1, &>f), never a separator
-			t.inWord = true
-		case r == ';' && at(i+1, ';'):
-			i++
-			t.flushSeg()
-			if t.caseDepth > 0 {
-				t.wantPattern = true
-			}
-		case r == '|' && t.wantPattern:
-			t.flushWord() // an alternative in a case pattern
-		case r == ';' || r == '\n' || r == '|' || r == '&' || r == '`':
-			if (r == '|' || r == '&') && at(i+1, r) {
-				i++
-			}
-			t.flushSeg()
-		case r == '(':
-			t.flushSeg()
-			t.parenDepth++
-		case r == ')':
-			switch {
-			case t.wantPattern || t.parenDepth == 0:
-				// the end of a case pattern: its words are content
-				t.flushWord()
-				t.words = nil
-				t.wantPattern = false
-			default:
-				t.parenDepth--
-				t.flushSeg()
-			}
-		case (r == '{' || r == '}') && !t.inWord:
-			t.flushSeg()
-		case r == ' ' || r == '\t':
-			t.flushWord()
+		// The three scans keep the order of one switch: quotes and escapes
+		// first, then expansions, then everything else.
+		switch r := rs[i]; {
+		case r == '\'' || r == '"' || r == '\\' && i+1 < len(rs):
+			i = t.scanQuoted(rs, i)
+		case r == '$' && (runeAt(rs, i+1, '{') || runeAt(rs, i+1, '(')):
+			i = t.scanDollar(rs, i)
 		default:
-			t.cur.WriteRune(r)
-			t.inWord = true
+			i = t.scanOperator(rs, i)
 		}
 	}
 	t.flushSeg()

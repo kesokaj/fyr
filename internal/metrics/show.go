@@ -40,6 +40,33 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	if since.IsZero() {
 		since = now.AddDate(0, 0, -30)
 	}
+	all, err := s.sessionsIn(showQuery(o, since, now))
+	if err != nil {
+		return nil, err
+	}
+
+	sum := newSummary(since, now)
+	sum.B.ContextTarget = o.ContextTarget
+	if sum.B.ContextTarget <= 0 {
+		sum.B.ContextTarget = DefaultContextTarget
+	}
+	for _, x := range all {
+		steps, err := s.stepsOf(x.id)
+		if err != nil {
+			return nil, err
+		}
+		sum.add(x, steps)
+		if err := s.addEvents(sum, x); err != nil {
+			return nil, err
+		}
+	}
+	sum.finish(all)
+	return sum, nil
+}
+
+// showQuery is the query of the sessions in the window [since, now) that
+// pass the options' label and project filters, with its arguments.
+func showQuery(o ShowOptions, since, now time.Time) (string, []any) {
 	q := `SELECT id, vendor, COALESCE(project_root,''), COALESCE(parent_id,''), COALESCE(agent_type,''),
 		COALESCE(label,''), COALESCE(outcome,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
 		FROM sessions WHERE COALESCE(started_at, ended_at, 0) >= ? AND COALESCE(started_at, ended_at, 0) < ?`
@@ -62,7 +89,12 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 		q += ` AND (project_root = ? OR substr(project_root, 1, length(?)) = ?)`
 		args = append(args, p, p+"/", p+"/")
 	}
-	rows, err := s.db.Query(q+` ORDER BY started_at`, args...)
+	return q + ` ORDER BY started_at`, args
+}
+
+// sessionsIn runs a sessions query and reads its rows.
+func (s *Store) sessionsIn(q string, args []any) ([]sess, error) {
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,24 +108,7 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 		all = append(all, x)
 	}
 	rows.Close()
-
-	sum := newSummary(since, now)
-	sum.B.ContextTarget = o.ContextTarget
-	if sum.B.ContextTarget <= 0 {
-		sum.B.ContextTarget = DefaultContextTarget
-	}
-	for _, x := range all {
-		steps, err := s.stepsOf(x.id)
-		if err != nil {
-			return nil, err
-		}
-		sum.add(x, steps)
-		if err := s.addEvents(sum, x); err != nil {
-			return nil, err
-		}
-	}
-	sum.finish(all)
-	return sum, nil
+	return all, nil
 }
 
 func (s *Store) stepsOf(id string) ([]stp, error) {

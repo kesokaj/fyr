@@ -6,6 +6,43 @@ import (
 )
 
 func (s *Summary) add(x sess, steps []stp) {
+	s.addSession(x)
+	r := &stepRun{x: x, main: x.parent == "", a: s.acc(x.vendor), tk: s.B.Tokens[x.vendor]}
+	if s.seen == nil {
+		s.seen = map[string]bool{}
+	}
+	for _, st := range steps {
+		s.addStep(r, st)
+	}
+	// A main session with at least one model call has a peak; a subagent runs
+	// inside its parent's window and is not a session of its own here.
+	if r.main && r.peak > 0 {
+		s.B.SessionPeaks[x.vendor] = append(s.B.SessionPeaks[x.vendor], SessionPeak{Session: x.id, Date: sessionDay(x), Peak: r.peak})
+	}
+}
+
+// stepRun is one session's state while add walks its steps.
+type stepRun struct {
+	x          sess
+	main       bool
+	a          *acc
+	tk         *Tokens
+	last, peak int64
+	lastHash   string
+	reads      int
+}
+
+// agentType is a subagent's type, "unknown" when it has none.
+func agentType(x sess) string {
+	if x.agent == "" {
+		return "unknown"
+	}
+	return x.agent
+}
+
+// addSession counts the session itself: a main session's count, day and
+// wall time or a subagent's type, its cost, and its column's maps.
+func (s *Summary) addSession(x sess) {
 	v := x.vendor
 	// A column's count maps exist before anything counts into them: newSummary
 	// makes agy's, and the historical column's are made on its first row.
@@ -14,9 +51,7 @@ func (s *Summary) add(x sess, steps []stp) {
 			m[v] = map[string]int{}
 		}
 	}
-	a := s.acc(v)
-	main := x.parent == ""
-	if main {
+	if x.parent == "" {
 		s.Sessions[v]++
 		if x.start > 0 {
 			s.day(x.start).Sessions[v]++
@@ -25,11 +60,7 @@ func (s *Summary) add(x sess, steps []stp) {
 			s.B.WallMin[v] += float64(x.end-x.start) / 60000
 		}
 	} else {
-		t := x.agent
-		if t == "" {
-			t = "unknown"
-		}
-		s.Subagents[v][t]++
+		s.Subagents[v][agentType(x)]++
 	}
 	if x.cost != nil {
 		c := *x.cost
@@ -44,103 +75,99 @@ func (s *Summary) add(x sess, steps []stp) {
 	if s.B.Tokens[v] == nil {
 		s.B.Tokens[v] = &Tokens{}
 	}
-	tk := s.B.Tokens[v]
-	var last, peak int64
-	var lastHash string
-	reads := 0
-	if s.seen == nil {
-		s.seen = map[string]bool{}
-	}
-	for _, st := range steps {
-		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
-			key := v + "\x00" + x.label + "\x00" + st.ext // within one label: a sandbox never hides real steps
-			if s.seen[key] {
-				continue // replayed history, counted under the session that first had it
-			}
-			s.seen[key] = true
+}
+
+func (s *Summary) addStep(r *stepRun, st stp) {
+	v := r.x.vendor
+	if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
+		key := v + "\x00" + r.x.label + "\x00" + st.ext // within one label: a sandbox never hides real steps
+		if s.seen[key] {
+			return // replayed history, counted under the session that first had it
 		}
+		s.seen[key] = true
+	}
+	if st.ts > 0 {
+		// main sessions only, as wall time: a subagent runs inside its parent
+		if r.main && r.last > 0 && st.ts-r.last < activeGap.Milliseconds() {
+			s.B.ActiveMin[v] += float64(st.ts-r.last) / 60000
+		}
+		r.last = st.ts
+	}
+	s.addTokens(r, st)
+	switch st.kind {
+	case "user":
+		s.B.Turns[v]++
+	case "interrupt":
+		r.a.interrupts++
+	case "compaction":
+		r.a.compactions++
+	case "tool":
+		s.addTool(r, st)
+	}
+}
+
+func (s *Summary) addTokens(r *stepRun, st stp) {
+	v := r.x.vendor
+	r.tk.In += st.in
+	r.tk.Out += st.out
+	r.tk.CacheRead += st.cr
+	r.tk.CacheWrite += st.cw
+	ctx := st.ctx
+	if v == historical && st.kind == "assistant" {
+		ctx = st.in + st.cr + st.cw
+	}
+	s.B.PeakContext[v] = max(s.B.PeakContext[v], ctx)
+	r.peak = max(r.peak, ctx)
+	if st.ts > 0 && st.in+st.out+st.cr+st.cw > 0 {
+		s.day(st.ts).Tokens[v] += st.in + st.out + st.cr + st.cw
+	}
+}
+
+func (s *Summary) addTool(r *stepRun, st stp) {
+	if st.tool == "" {
+		return // a result whose call was never seen
+	}
+	v, a := r.x.vendor, r.a
+	a.tools++
+	s.B.ToolCalls[v]++
+	s.B.ToolCallsByTool[v][st.tool]++
+	if !r.main {
+		s.D.SubagentToolCalls[v][agentType(r.x)]++
+	}
+	if st.ts > 0 {
+		s.day(st.ts).ToolCalls[v]++
+	}
+	if st.isErr {
+		a.errs++
 		if st.ts > 0 {
-			// main sessions only, as wall time: a subagent runs inside its parent
-			if main && last > 0 && st.ts-last < activeGap.Milliseconds() {
-				s.B.ActiveMin[v] += float64(st.ts-last) / 60000
-			}
-			last = st.ts
-		}
-		tk.In += st.in
-		tk.Out += st.out
-		tk.CacheRead += st.cr
-		tk.CacheWrite += st.cw
-		ctx := st.ctx
-		if v == historical && st.kind == "assistant" {
-			ctx = st.in + st.cr + st.cw
-		}
-		s.B.PeakContext[v] = max(s.B.PeakContext[v], ctx)
-		peak = max(peak, ctx)
-		if st.ts > 0 && st.in+st.out+st.cr+st.cw > 0 {
-			s.day(st.ts).Tokens[v] += st.in + st.out + st.cr + st.cw
-		}
-		switch st.kind {
-		case "user":
-			s.B.Turns[v]++
-		case "interrupt":
-			a.interrupts++
-		case "compaction":
-			a.compactions++
-		case "tool":
-			if st.tool == "" {
-				continue // a result whose call was never seen
-			}
-			a.tools++
-			s.B.ToolCalls[v]++
-			s.B.ToolCallsByTool[v][st.tool]++
-			if !main {
-				t := x.agent
-				if t == "" {
-					t = "unknown"
-				}
-				s.D.SubagentToolCalls[v][t]++
-			}
-			if st.ts > 0 {
-				s.day(st.ts).ToolCalls[v]++
-			}
-			if st.isErr {
-				a.errs++
-				if st.ts > 0 {
-					s.day(st.ts).Errors[v]++
-				}
-			}
-			if st.denied {
-				a.denials++
-			}
-			if st.skill != "" {
-				s.C.Skills[v][st.skill]++
-			}
-			if st.tool == "Grep" {
-				a.grep++
-				if st.ts > 0 {
-					s.day(st.ts).GrepCalls[v]++
-				}
-			}
-			// A Bash step carries a kind only when it is a record verb
-			// (recordRead): a migrated session reads its trail that way.
-			if main && st.kindOf != "" && reads < 3 && (st.tool == "Read" || st.tool == "Bash") {
-				s.C.FirstReads[st.kindOf]++
-				reads++
-			}
-			if st.hash != "" && st.hash == lastHash {
-				s.D.RetryLoops[v]++
-			}
-			if st.tool == "Bash" {
-				lastHash = st.hash
-			}
-			s.verbs(v, st)
+			s.day(st.ts).Errors[v]++
 		}
 	}
-	// A main session with at least one model call has a peak; a subagent runs
-	// inside its parent's window and is not a session of its own here.
-	if main && peak > 0 {
-		s.B.SessionPeaks[v] = append(s.B.SessionPeaks[v], SessionPeak{Session: x.id, Date: sessionDay(x), Peak: peak})
+	if st.denied {
+		a.denials++
 	}
+	if st.skill != "" {
+		s.C.Skills[v][st.skill]++
+	}
+	if st.tool == "Grep" {
+		a.grep++
+		if st.ts > 0 {
+			s.day(st.ts).GrepCalls[v]++
+		}
+	}
+	// A Bash step carries a kind only when it is a record verb
+	// (recordRead): a migrated session reads its trail that way.
+	if r.main && st.kindOf != "" && r.reads < 3 && (st.tool == "Read" || st.tool == "Bash") {
+		s.C.FirstReads[st.kindOf]++
+		r.reads++
+	}
+	if st.hash != "" && st.hash == r.lastHash {
+		s.D.RetryLoops[v]++
+	}
+	if st.tool == "Bash" {
+		r.lastHash = st.hash
+	}
+	s.verbs(v, st)
 }
 
 func (s *Summary) verbs(v string, st stp) {
