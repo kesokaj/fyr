@@ -233,11 +233,23 @@ func TestCollectUsesTheRunsClock(t *testing.T) {
 		got = now
 		return brain.DreamInput{}, nil
 	}
+	// The metrics summary takes the same clock (the 2026-10-27 re-audit,
+	// SD59a: it still read the wall's).
+	var gotMetrics time.Time
+	savedM := metricsSummary
+	t.Cleanup(func() { metricsSummary = savedM })
+	metricsSummary = func(home, root string, since, now time.Time) (string, error) {
+		gotMetrics = now
+		return "", nil
+	}
 	clock := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if _, err := collect(t.TempDir(), search.Project{Root: root, Name: "p"}, since, clock, maxPrompt); err != nil {
 		t.Fatal(err)
 	}
 	if !got.Equal(clock) {
 		t.Errorf("forDream got now %v, want the run's %v", got, clock)
+	}
+	if !gotMetrics.Equal(clock) {
+		t.Errorf("metricsSummary got now %v, want the run's %v", gotMetrics, clock)
 	}
 }

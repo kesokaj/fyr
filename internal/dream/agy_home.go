@@ -100,14 +100,9 @@ func agyHome(conf, goos string) (string, func(), error) {
 }
 
 func copyPrivate(from, to string) error {
-	info, err := os.Lstat(from)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", from)
-	}
-	in, err := os.Open(from)
+	// The regular-file check is on the opened file: a FIFO swapped in after
+	// a check would block the open (SD60b of the 2026-10-27 re-audit).
+	in, err := openRegular(from, false)
 	if err != nil {
 		return err
 	}

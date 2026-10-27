@@ -68,7 +68,11 @@ func collectIn(home, brainHome string, p search.Project, since, now time.Time, l
 		}
 	}
 
-	for _, e := range feedback(home, p.Root, since) {
+	fb, fbNote := feedback(home, p.Root, since)
+	if fbNote != "" {
+		c.Dropped = append(c.Dropped, fbNote)
+	}
+	for _, e := range fb {
 		add(kindFeedback, "feedback.jsonl", e.text, e.ts)
 	}
 
@@ -92,7 +96,7 @@ func collectIn(home, brainHome string, p search.Project, since, now time.Time, l
 		for _, r := range in.Trail {
 			add(kindTrail, r.ID, r.Title+"\n"+r.Body, recordTime(r))
 		}
-		return c.finish(home, p, since, limit, add)
+		return c.finish(home, p, since, now, limit, add)
 	}
 
 	if store, err := memory.Store(p.Root); err != nil {
@@ -131,13 +135,13 @@ func collectIn(home, brainHome string, p search.Project, since, now time.Time, l
 		}
 	}
 
-	return c.finish(home, p, since, limit, add)
+	return c.finish(home, p, since, now, limit, add)
 }
 
 // finish adds what every project sends whatever its trail — the skills, the
 // metrics summary and the Antigravity conversations — then scrubs, fits and
 // renders the prompt.
-func (c *Collected) finish(home string, p search.Project, since time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
+func (c *Collected) finish(home string, p search.Project, since, now time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
 	for _, s := range skills(home) {
 		add(kindSkill, "skill "+s.name, s.name+": "+s.description, time.Time{})
 	}
@@ -145,7 +149,7 @@ func (c *Collected) finish(home string, p search.Project, since time.Time, limit
 	// The project's agent metrics, numbers only, for this window and the one
 	// before it (R3's addendum, ADR-055a). A store that cannot be read is
 	// named as left out; it never fails the project.
-	if sum, err := metricsSummary(home, p.Root, since, time.Now()); err != nil {
+	if sum, err := metricsSummary(home, p.Root, since, now); err != nil {
 		c.Dropped = append(c.Dropped, "metrics: "+err.Error())
 	} else {
 		add(kindMetrics, "metrics", sum, time.Time{})
@@ -282,16 +286,21 @@ type entry struct {
 
 // feedback is the feedback log's lines for root after since, each as it is
 // in the file.
-func feedback(home, root string, since time.Time) []entry {
-	f, err := os.Open(filepath.Join(home, harness.StateDir, "feedback.jsonl"))
+func feedback(home, root string, since time.Time) ([]entry, string) {
+	f, err := openRegular(filepath.Join(home, harness.StateDir, "feedback.jsonl"), true)
 	if err != nil {
-		return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ""
+		}
+		return nil, "feedback.jsonl: " + err.Error()
 	}
 	defer f.Close()
 	var out []entry
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	n := 0
 	for sc.Scan() {
+		n++
 		var e struct {
 			TS      string `json:"ts"`
 			Project string `json:"project"`
@@ -307,7 +316,12 @@ func feedback(home, root string, since time.Time) []entry {
 		// on the decoded line; scrub runs the raw needles again later.
 		out = append(out, entry{ts: ts, text: strings.TrimRight(redact.RedactJSONL(sc.Text()+"\n"), "\n")})
 	}
-	return out
+	// An overlong line ends the read: the prompt names it as left out, so
+	// the later corrections are not dropped in silence (SD59b).
+	if err := sc.Err(); err != nil {
+		return out, fmt.Sprintf("feedback.jsonl: line %d and after (%v)", n+1, err)
+	}
+	return out, ""
 }
 
 // docsOf is the project's docs root as the index recorded it, or the
