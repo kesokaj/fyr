@@ -157,6 +157,24 @@ func TestDirtyCannotAnswer(t *testing.T) {
 	}
 }
 
+// A tracked name opening with '"' is C-unquoted by hash-object's
+// --stdin-paths, which then hashes another path: `"a"` hashes a. With both
+// committed holding the same bytes and a unchanged, a modified `"a"` read
+// clean. Dirty says it cannot answer instead (the v3.1.0 gate's security
+// review).
+func TestDirtyCannotAnswerQuotedName(t *testing.T) {
+	root, git := cleanRepo(t)
+	os.WriteFile(filepath.Join(root, "a"), []byte("a\n"), 0o644)
+	os.WriteFile(filepath.Join(root, `"a"`), []byte("a\n"), 0o644)
+	git("add", ".")
+	git("commit", "-q", "-m", "quoted")
+	os.WriteFile(filepath.Join(root, `"a"`), []byte("changed, and longer\n"), 0o644)
+	got, err := Dirty(root)
+	if err == nil {
+		t.Errorf("Dirty answered %v for a tree holding a tracked name opening with a quote", got)
+	}
+}
+
 // A GIT_DIR (or another repository-locating variable) in fyr's own
 // environment, as inside a git hook or `git rebase -x`, never redirects a
 // read from the root it names (SD24 of the 2026-10-27 audit, D20).

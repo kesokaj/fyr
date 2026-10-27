@@ -140,8 +140,11 @@ func linkMatches(root, p, blob string, info os.FileInfo) (bool, error) {
 	return string(want) == target, nil
 }
 
-// errUnhashable is a tracked name hash-object's --stdin-paths cannot take.
-var errUnhashable = errors.New("a tracked name holds a newline: git cannot hash it by path")
+// errUnhashable is a tracked name hash-object's --stdin-paths cannot take:
+// a newline or CR splits it, and a leading '"' is C-unquoted into another
+// path, whose hash would then stand for this one (the v3.1.0 gate's
+// security review).
+var errUnhashable = errors.New(`a tracked name holds a newline or opens with '"': git cannot hash it by path`)
 
 // hashesDiffer hashes paths, relative to root, with `hash-object
 // --no-filters` (no clean filter runs) and returns those whose hash is not
@@ -152,7 +155,7 @@ func hashesDiffer(root string, paths, blobs []string) (map[string]bool, error) {
 		return out, nil
 	}
 	for _, p := range paths {
-		if strings.ContainsAny(p, "\n\r") {
+		if strings.ContainsAny(p, "\n\r") || strings.HasPrefix(p, `"`) {
 			return nil, errUnhashable
 		}
 	}
