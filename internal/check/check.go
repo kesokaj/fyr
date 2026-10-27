@@ -202,6 +202,30 @@ func (k *checker) git(args ...string) *exec.Cmd { return trail.Command(k.top, ar
 // tracked *.md, minus a directory holding a noindex marker (tracked or
 // not) and the vendored skills and catalogs skills/VENDORED.md names.
 func (k *checker) docsFiles() []string {
+	skip := k.vendoredSkips()
+	isMarked := k.noIndexed()
+	var files []string
+next:
+	for _, p := range k.tracked {
+		if !strings.HasSuffix(p, ".md") {
+			continue
+		}
+		for _, s := range skip {
+			if strings.HasPrefix(p, s) {
+				continue next
+			}
+		}
+		if isMarked(path.Dir(p)) {
+			continue
+		}
+		files = append(files, p)
+	}
+	return files
+}
+
+// vendoredSkips is the skills/<name>/ prefix of every vendored skill and
+// catalog skills/VENDORED.md names.
+func (k *checker) vendoredSkips() []string {
 	var skip []string
 	if data, err := k.readFile(filepath.Join("skills", "VENDORED.md")); err == nil {
 		for _, l := range strings.Split(string(data), "\n") {
@@ -210,13 +234,19 @@ func (k *checker) docsFiles() []string {
 			}
 		}
 	}
+	return skip
+}
+
+// noIndexed returns the check of whether a directory or one above it holds
+// a noindex marker, tracked or not; each answer is kept.
+func (k *checker) noIndexed() func(dir string) bool {
 	marked := map[string]bool{}
 	for _, p := range k.tracked {
 		if trail.IsNoIndexMarker(p) {
 			marked[path.Dir(p)] = true
 		}
 	}
-	isMarked := func(dir string) bool {
+	return func(dir string) bool {
 		for d := dir; ; d = path.Dir(d) {
 			if _, seen := marked[d]; !seen {
 				m := false
@@ -235,23 +265,6 @@ func (k *checker) docsFiles() []string {
 			}
 		}
 	}
-	var files []string
-next:
-	for _, p := range k.tracked {
-		if !strings.HasSuffix(p, ".md") {
-			continue
-		}
-		for _, s := range skip {
-			if strings.HasPrefix(p, s) {
-				continue next
-			}
-		}
-		if isMarked(path.Dir(p)) {
-			continue
-		}
-		files = append(files, p)
-	}
-	return files
 }
 
 // docsRule is rule (a) over the files and the living records: every `fyr`

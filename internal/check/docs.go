@@ -41,28 +41,8 @@ func verbFindings(where string, c chunk, v Vocabulary) []Finding {
 	}
 	for _, seg := range strings.Split(split.Replace(text), "\n") {
 		w := strings.Fields(seg)
-		i := 0
-		for i < len(w) && (w[i] == "$" || envWordRe.MatchString(w[i])) {
-			i++
-		}
-		switch {
-		case i < len(w) && (w[i] == "fyr" || w[i] == "./fyr" || strings.HasSuffix(w[i], "/bin/fyr")):
-			i++
-		case i+2 < len(w) && w[i] == "go" && w[i+1] == "run" && w[i+2] == "./cmd/fyr":
-			i += 3
-		default:
-			continue
-		}
-		for i < len(w) {
-			if w[i] == "--home" || w[i] == "--repo" {
-				i += 2
-			} else if strings.HasPrefix(w[i], "--home=") || strings.HasPrefix(w[i], "--repo=") {
-				i++
-			} else {
-				break
-			}
-		}
-		if i >= len(w) || !wordRe.MatchString(w[i]) {
+		i, ok := verbAt(w)
+		if !ok {
 			continue
 		}
 		name := w[i]
@@ -73,20 +53,9 @@ func verbFindings(where string, c chunk, v Vocabulary) []Finding {
 		}
 		takes, cmd := spec.Flags, "fyr "+name
 		if spec.Subverbs != nil {
-			for _, s := range w[i+1:] {
-				if strings.HasPrefix(s, "-") {
-					continue
-				}
-				if wordRe.MatchString(s) {
-					sub, ok := spec.Subverbs[s]
-					if !ok {
-						out = append(out, Finding{where, c.line, "subverb", fmt.Sprintf("`fyr %s %s`: %s has no subverb %s", name, s, name, s)})
-						takes = nil
-					} else {
-						takes, cmd = sub, cmd+" "+s
-					}
-				}
-				break
+			var f *Finding
+			if takes, cmd, f = subverbOf(where, c.line, name, spec, w[i+1:]); f != nil {
+				out = append(out, *f)
 			}
 		}
 		if takes == nil {
@@ -99,6 +68,59 @@ func verbFindings(where string, c chunk, v Vocabulary) []Finding {
 		}
 	}
 	return out
+}
+
+// verbAt finds the verb in a command's words: after a `$` prompt and
+// VAR=value words, the program word (fyr, ./fyr, a path ending /bin/fyr, or
+// `go run ./cmd/fyr`), then --home and --repo with their values. ok is false
+// when the words are not a fyr command or name no verb.
+func verbAt(w []string) (int, bool) {
+	i := 0
+	for i < len(w) && (w[i] == "$" || envWordRe.MatchString(w[i])) {
+		i++
+	}
+	switch {
+	case i < len(w) && (w[i] == "fyr" || w[i] == "./fyr" || strings.HasSuffix(w[i], "/bin/fyr")):
+		i++
+	case i+2 < len(w) && w[i] == "go" && w[i+1] == "run" && w[i+2] == "./cmd/fyr":
+		i += 3
+	default:
+		return 0, false
+	}
+	for i < len(w) {
+		if w[i] == "--home" || w[i] == "--repo" {
+			i += 2
+		} else if strings.HasPrefix(w[i], "--home=") || strings.HasPrefix(w[i], "--repo=") {
+			i++
+		} else {
+			break
+		}
+	}
+	if i >= len(w) || !wordRe.MatchString(w[i]) {
+		return 0, false
+	}
+	return i, true
+}
+
+// subverbOf reads the subverb in rest, the words after verb name: the flags
+// it takes and the command it names, or a finding and nil flags for a
+// subverb name does not have.
+func subverbOf(where string, line int, name string, spec VerbSpec, rest []string) (map[string]bool, string, *Finding) {
+	takes, cmd := spec.Flags, "fyr "+name
+	for _, s := range rest {
+		if strings.HasPrefix(s, "-") {
+			continue
+		}
+		if wordRe.MatchString(s) {
+			sub, ok := spec.Subverbs[s]
+			if !ok {
+				return nil, cmd, &Finding{where, line, "subverb", fmt.Sprintf("`fyr %s %s`: %s has no subverb %s", name, s, name, s)}
+			}
+			takes, cmd = sub, cmd+" "+s
+		}
+		break
+	}
+	return takes, cmd, nil
 }
 
 // candidate is a span that may name a path of the checkout: p without a

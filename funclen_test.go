@@ -21,11 +21,7 @@ const funcLimit = 50
 // longFuncs is the allowlist: key "path:Name" or "path:Recv.Name" (path from
 // the module root, slash-separated, Recv without '*'), value the function's
 // length when it was listed. Each phase deletes its rows; empty at Done.
-var longFuncs = map[string]int{
-	"internal/check/check.go:checker.docsFiles": 52,
-	"internal/check/docs.go:verbFindings":       68,
-	"internal/check/scan.go:scan":               57,
-}
+var longFuncs = map[string]int{}
 
 // TestFunctionLength is the regrowth guard of PLAN-2026-10-27-funclen: no
 // non-test function in a tracked .go file may pass funcLimit unless

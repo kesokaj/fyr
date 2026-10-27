@@ -9,12 +9,14 @@ import (
 // the split (PLAN-2026-10-27-funclen Phase 9, D13).
 
 // A --home=… or --repo=… word before the verb is skipped, and a flag before
-// a subverb does not hide the subverb.
+// a subverb does not hide the subverb; an unknown subverb is the one
+// finding, its flags not checked.
 func TestVerbFindingsFlagForms(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
 		{"fyr --home=/tmp/h nope", "`fyr nope`: fyr has no verb nope"},
 		{"fyr --repo=. --home=x nope", "`fyr nope`: fyr has no verb nope"},
 		{"fyr record --global frob", "`fyr record frob`: record has no subverb frob"},
+		{"fyr record frob --bogus", "`fyr record frob`: record has no subverb frob"},
 	} {
 		fs := verbFindings("f.md", chunk{line: 1, text: c.text}, vocab)
 		var got []string

@@ -17,61 +17,76 @@ type chunk struct {
 // left open; inline spans of N backticks closed by the next run of exactly N
 // on the same line. Indented code blocks and prose are not read.
 func scan(text string) []chunk {
-	lines := strings.Split(text, "\n")
-	var out []chunk
-	var fenceChar byte
-	fenceLen := 0
-	inFence, inIndented, prevBlank := false, false, true
-	var joined strings.Builder
-	joinedAt := 0
-	flush := func() {
-		if joinedAt > 0 {
-			out = append(out, chunk{line: joinedAt, text: joined.String(), fence: true})
-			joined.Reset()
-			joinedAt = 0
-		}
+	s := &scanner{prevBlank: true}
+	for i, l := range strings.Split(text, "\n") {
+		s.line(strings.TrimSuffix(l, "\r"), i+1)
 	}
-	for i, l := range lines {
-		n := i + 1
-		l = strings.TrimSuffix(l, "\r")
-		if inFence {
-			if c, k, rest, ok := fenceMarker(l); ok && c == fenceChar && k >= fenceLen && strings.TrimSpace(rest) == "" {
-				flush()
-				inFence = false
-				prevBlank = false
-				continue
-			}
-			if joinedAt == 0 {
-				joinedAt = n
-			} else {
-				joined.WriteByte(' ')
-			}
-			if s, cont := strings.CutSuffix(l, `\`); cont {
-				joined.WriteString(s)
-				continue
-			}
-			joined.WriteString(l)
-			flush()
-			continue
-		}
-		if c, k, rest, ok := fenceMarker(l); ok && (c != '`' || !strings.Contains(rest, "`")) {
-			inFence, fenceChar, fenceLen, inIndented = true, c, k, false
-			continue
-		}
-		blank := strings.TrimSpace(l) == ""
-		if !blank && indentedCode(l) && (prevBlank || inIndented) {
-			inIndented = true
-			prevBlank = false
-			continue
-		}
-		if !blank {
-			inIndented = false
-		}
-		prevBlank = blank
-		out = append(out, spans(l, n)...)
+	s.flush()
+	return s.out
+}
+
+// scanner is scan's state between lines.
+type scanner struct {
+	out                            []chunk
+	fenceChar                      byte
+	fenceLen                       int
+	inFence, inIndented, prevBlank bool
+	joined                         strings.Builder
+	joinedAt                       int
+}
+
+// flush ends the fence's logical line being joined, if any.
+func (s *scanner) flush() {
+	if s.joinedAt > 0 {
+		s.out = append(s.out, chunk{line: s.joinedAt, text: s.joined.String(), fence: true})
+		s.joined.Reset()
+		s.joinedAt = 0
 	}
-	flush()
-	return out
+}
+
+// line reads line l, numbered n.
+func (s *scanner) line(l string, n int) {
+	if s.inFence {
+		s.fenceLine(l, n)
+		return
+	}
+	if c, k, rest, ok := fenceMarker(l); ok && (c != '`' || !strings.Contains(rest, "`")) {
+		s.inFence, s.fenceChar, s.fenceLen, s.inIndented = true, c, k, false
+		return
+	}
+	blank := strings.TrimSpace(l) == ""
+	if !blank && indentedCode(l) && (s.prevBlank || s.inIndented) {
+		s.inIndented = true
+		s.prevBlank = false
+		return
+	}
+	if !blank {
+		s.inIndented = false
+	}
+	s.prevBlank = blank
+	s.out = append(s.out, spans(l, n)...)
+}
+
+// fenceLine reads a line inside a fence: its closing marker, or one more
+// piece of a logical line, a line ending in `\` joined to the next.
+func (s *scanner) fenceLine(l string, n int) {
+	if c, k, rest, ok := fenceMarker(l); ok && c == s.fenceChar && k >= s.fenceLen && strings.TrimSpace(rest) == "" {
+		s.flush()
+		s.inFence = false
+		s.prevBlank = false
+		return
+	}
+	if s.joinedAt == 0 {
+		s.joinedAt = n
+	} else {
+		s.joined.WriteByte(' ')
+	}
+	if rest, cont := strings.CutSuffix(l, `\`); cont {
+		s.joined.WriteString(rest)
+		return
+	}
+	s.joined.WriteString(l)
+	s.flush()
 }
 
 // fenceMarker reads a fence line: up to three spaces of indent, then three
