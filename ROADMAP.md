@@ -10,5 +10,6 @@ Last reviewed: 2026-10-27
 
 ## Next
 
-- **Release v3.1.0** — the 2026-10-27 audit fix, cut by `/preflight v3.1.0` from the operator's own turn (the gate's § 3c, § 3e, § 3h items and a macOS run are owed). Scheduled by the operator's approval of the audit session's row 5, 2026-10-27.
-- **The audit's operator choices** — rows 2–4 and 6–21 of the 2026-10-27 audit session's closing table, approved as recommended ("go all approved"): a Feature with its own plan and cold read; rows 2, 6 and 8 need an ADR, and row 2 an R3 wording check first. The approved answers are HANDOFF-2026-10-27-1042-handoff-2026-10-27-every-audit-session-row-appro's Key Decisions.
+- **Release v3.1.0** — the 2026-10-27 audit fix, cut by `/preflight v3.1.0` from the operator's own turn (the gate's § 3c, § 3e, § 3h items and a macOS run are owed). Scheduled by the operator's approval of the audit session's row 5, 2026-10-27. It runs first, before funclen Phase 2.
+- **`PLAN-2026-10-27-audit-choices`** — the audit's operator choices (rows 2–4, 6–10 and 13–21 of the audit session's closing table, approved "go all approved", 2026-10-27): opt-in registration, allow-listed child environments, eval script hashes, the redactor, `stress-test`, the map; 11 phases and Done, after funclen. Phase 1 waits for O1 (the R3 wording) and Phase 5 (SD28) for O2.
+- **`PLAN-2026-10-27-audit-cleanup`** — the deferred audit lows, G26/G27/G29/G30/G33, WS49 and row 20's re-triage; its Phase 1 re-triages with the operator after the audit-choices plan closes.
