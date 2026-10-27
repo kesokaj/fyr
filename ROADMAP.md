@@ -6,7 +6,7 @@ Last reviewed: 2026-10-27
 
 ## Now
 
-- `PLAN-2026-10-27-funclen` — functions over 50 lines: extract-function splits of the 56 and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Scope approved 2026-10-27; the plan awaits its cold read and the operator's approval.
+- `PLAN-2026-10-27-funclen` — functions over 50 lines: extract-function splits of the 56 and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Scope approved 2026-10-27; cold read answered (D12–D22); awaits the operator's approval.
 
 ## Next
 
