@@ -17,6 +17,8 @@ GKE is a managed Kubernetes platform on Google Cloud for deploying, scaling, and
 
 This skill is a fork of Google's `gke-basics` kept under its upstream name (`skills/VENDORED.md`, second table); only this file carries local text, the references and assets are verbatim. Where they say otherwise, these rules win:
 
+- **`get-credentials` writes machine-wide state.** It sets `~/.kube/config`'s current context, which every later `kubectl` reads: run it as `KUBECONFIG=.agents/scratch/kubeconfig gcloud container clusters get-credentials …` (and pass that `KUBECONFIG` to `kubectl`), or ask the operator first.
+- **Installs are pinned.** `client-library-usage.md`'s `go get …@latest` takes a pinned `@vX.Y.Z`, and its `pip install` does not apply: the stack has no Python.
 - **gcloud and kubectl are the tools.** The references' "MCP tools > gcloud > kubectl" preference (`cli-reference.md`, `gke-golden-path.md`, `mcp-usage.md`) does not apply: no GKE MCP server is configured here, and the harness runs no MCP for infrastructure. Read `mcp-usage.md` as documentation of a tool that is absent.
 - **The project is asked for once.** `gke-golden-path.md` says never to ask for a project ID and `gke-cluster-creation.md` says ALWAYS ask; the global context's GCP rule settles it: the operator gives the project ID, region and the other defaults once and they are recorded in the project's `DEPLOY-gcp` record, which the next session reads instead of asking again. Never `gcloud config get-value project` as a source.
 - **Two paths in the references are known-dangling.** `gke-security.md` applies `skills/gke/assets/default-deny-netpol.yaml`: the file is `skills/gke-basics/assets/default-deny-netpol.yaml` (installed at `~/.gemini/config/skills/gke-basics/assets/`). `assets/golden-path-autopilot.yaml` cites `resources/recommended-ap.yaml`, an upstream export that was never vendored; the YAML in the asset is the whole of what exists.
@@ -28,6 +30,7 @@ This skill is a fork of Google's `gke-basics` kept under its upstream name (`ski
 # PROJECT_ID and REGION come from the project's DEPLOY-gcp record (fyr record get DEPLOY-gcp), never assumed
 gcloud services enable container.googleapis.com --project="$PROJECT_ID"
 gcloud container clusters create-auto my-cluster --project="$PROJECT_ID" --region="$REGION"
+export KUBECONFIG=.agents/scratch/kubeconfig   # get-credentials writes it: never ~/.kube/config (Harness overrides)
 gcloud container clusters get-credentials my-cluster --project="$PROJECT_ID" --region="$REGION"
 kubectl create deployment hello-server \
   --image=us-docker.pkg.dev/google-samples/containers/gke/hello-app:1.0

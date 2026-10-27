@@ -13,6 +13,10 @@ Status: draft
 
 <!-- Request and response shapes, flags, config keys, environment variables — concrete enough that two implementers converge. One fenced block per shape; a table for flags and keys (name, type, default, meaning). -->
 
+## Compatibility
+
+<!-- Who consumes this surface today, and whether a change to it is additive; a breaking change names its migration. -->
+
 ## Data
 
 <!-- Schemas, tables, files, and the invariants that must hold (uniqueness, ordering, what is immutable). Name the migration or the writer that owns each. -->

@@ -34,11 +34,12 @@ A section that does not apply to this surface keeps its heading with one line sa
 
 1. **Purpose** — two or three sentences; who calls it, for what, what it is not.
 2. **Interfaces** — every shape as a fenced block (JSON per the `json-api-style` skill, Go signatures, a flag table). Settle each ambiguity with ONE shape; alternatives go to Open questions, never into the spec as a second shape.
-3. **Data** — schemas and the invariants that hold; which writer owns each.
-4. **Failure modes** — trigger → what the caller observes (status and error body, exit code, log line).
-5. **Non-goals** — what the surface will not do.
-6. **Open questions** — one line each, ending in the default taken until answered.
-7. **Verification** — the test or command that pins each interface and failure mode. A section that nothing can check is design, not spec: move it to the plan or an ADR.
+3. **Compatibility** — who consumes this surface today, and whether a change is additive; a breaking change names its migration.
+4. **Data** — schemas and the invariants that hold; which writer owns each.
+5. **Failure modes** — trigger → what the caller observes (status and error body, exit code, log line).
+6. **Non-goals** — what the surface will not do.
+7. **Open questions** — one line each, ending in the default taken until answered.
+8. **Verification** — the test or command that pins each interface and failure mode. A section that nothing can check is design, not spec: move it to the plan or an ADR.
 
 Numbered-table gaps: when the request leaves several things open (who calls it, what the error looks like, a limit), ask them as ONE numbered table in chat — `#`, the gap in one line, your recommended answer — per the global context, and write the answers in; an unanswered gap stays an Open question with its default.
 

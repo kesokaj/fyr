@@ -1,7 +1,7 @@
 ---
 name: discover-skills
 license: MIT
-description: "Find a published agent skill for a task ('is there a skill for X', 'find a skill that...', 'how do I do X' where a skill may exist) on skills.sh with a pinned skills CLI, check its quality, and add it to the harness checkout's skills/, then fyr install. Do NOT use for a skill already installed here."
+description: "Find a published agent skill for a task ('is there a skill for X', 'find a skill that...') on skills.sh with a pinned skills CLI, check its quality, and add it to the harness checkout's skills/, then fyr install. Do NOT use for a skill already installed here."
 ---
 
 # Discover Skills
@@ -15,7 +15,6 @@ upstream text installs with flags this harness forbids; provenance and local cha
 
 The user:
 
-- asks "how do I do X" where X might be a common task with an existing skill;
 - says "find a skill for X" or "is there a skill for X";
 - asks "can you do X" where X is a specialised capability;
 - wants templates, workflows or domain help (design, testing, deployment, ...) that a skill might hold.

@@ -42,6 +42,10 @@ How to build, configure, and run this project on the machine in front of you. `/
 
 <!-- `colima status || colima start`, native-arch build and run for local testing; the amd64 build belongs in gcp.md. -->
 
+## Dependency cadence
+
+<!-- `govulncheck ./...`, `npm audit --omit=dev`, and the base image when there is one: before every release and monthly; the last run's date. -->
+
 ## Operator steps
 
 <!-- What the operator does by hand on this target: standing procedures, never pending items (those live in the newest handoff). A standing root-step permission ("the agent may run `sudo -n systemctl start docker` here when asked") is recorded here, the vendor-neutral home the global context reads. -->

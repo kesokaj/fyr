@@ -31,6 +31,10 @@ ssh <host> 'mv <install path>/server.new <install path>/server && sudo systemctl
 
 <!-- Health check from outside, the log line that proves the new build is serving, the version it reports. -->
 
+## Dependency cadence
+
+<!-- `govulncheck ./...`, `npm audit --omit=dev`, and the base image when there is one: before every release and monthly; the last run's date. -->
+
 ## Operator steps
 
 <!-- What the operator does by hand on this target: standing procedures, never pending items (those live in the newest handoff). -->

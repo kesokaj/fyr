@@ -53,4 +53,4 @@ EOF
 
 ## Tidying
 
-`/dream` consolidates the memory interactively: stale, duplicate and graduated memories, with a gate before anything is retired. The nightly `fyr dream` job only proposes, as global `proposal` records. Never retire or rewrite a memory outside `/dream`.
+`/dream` consolidates the memory interactively: stale, duplicate and graduated memories, with a gate before anything is retired. The nightly `fyr dream` job only proposes, as global `proposal` records. Never retire a memory outside `/dream`; updating one by its name is a save, not a rewrite.
