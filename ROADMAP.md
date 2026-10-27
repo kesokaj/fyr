@@ -6,7 +6,7 @@ Last reviewed: 2026-10-27
 
 ## Now
 
-- `PLAN-2026-10-27-funclen` — functions over 50 lines (54 today): extract-function splits and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Approved by the operator 2026-10-27 ("go all approved", D26); Phase 1 (the guard) done 2026-10-27, 54 rows; Phase 2 (`internal/brain`) done 2026-10-27, 44 rows left; Phase 3 (`internal/metrics`) done 2026-10-27, 34 rows left; Phase 4 (`internal/search`) done 2026-10-27, 25 rows left; Phase 5 (`internal/harness`) done 2026-10-27, 17 rows left; Phase 6 (`cmd/fyr`) done 2026-10-27, 10 rows left; Phase 7 (`internal/dream`) done 2026-10-27, 7 rows left; Phase 8 (`internal/eval`) done 2026-10-27, 3 rows left; Phase 9 (`internal/check`) is next.
+- `PLAN-2026-10-27-funclen` — functions over 50 lines (54 today): extract-function splits and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Approved by the operator 2026-10-27 ("go all approved", D26); Phase 1 (the guard) done 2026-10-27, 54 rows; Phase 2 (`internal/brain`) done 2026-10-27, 44 rows left; Phase 3 (`internal/metrics`) done 2026-10-27, 34 rows left; Phase 4 (`internal/search`) done 2026-10-27, 25 rows left; Phase 5 (`internal/harness`) done 2026-10-27, 17 rows left; Phase 6 (`cmd/fyr`) done 2026-10-27, 10 rows left; Phase 7 (`internal/dream`) done 2026-10-27, 7 rows left; Phase 8 (`internal/eval`) done 2026-10-27, 3 rows left; Phase 9 (`internal/check`) done 2026-10-27, `longFuncs` empty; Phase 10 (`TestRefreshCatalogScript`) is next.
 
 ## Next
 
