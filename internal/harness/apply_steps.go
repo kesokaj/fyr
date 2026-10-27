@@ -116,12 +116,16 @@ func (r *installRun) write(f File, dest string, readErr error) error {
 	case readErr != nil:
 		line = fmt.Sprintf("update  ~/%s (previous file unreadable: %v)", f.Rel, readErr)
 	}
+	if err := dirInTheWay(dest); err != nil {
+		if r.dryRun {
+			return fmt.Errorf("writing %s: %w", dest, err)
+		}
+		return r.saveOnError(fmt.Errorf("writing %s: %w", dest, err))
+	}
 	if !r.dryRun {
 		if err := WriteAtomic(dest, f.Data, f.Mode); err != nil {
 			return r.saveOnError(fmt.Errorf("writing %s: %w", dest, err))
 		}
-	} else if err := dirInTheWay(dest); err != nil {
-		return fmt.Errorf("writing %s: %w", dest, err)
 	}
 	fmt.Fprintln(r.out, line)
 	return nil
