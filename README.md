@@ -15,7 +15,7 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 | One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
 | Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
-| Rules | always-on rules under `rules/` (today: critical thinking, and one session per task or phase) |
+| Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, and code modularity) |
 | The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the nightly `dream` |
 
 ## Quick start
@@ -38,12 +38,12 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | Command | What it does |
 |---|---|
 | `fyr status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer, and a note for a `PATH` shadow. Exit 1 on drift. |
-| `fyr update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. |
+| `fyr update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. `--dry-run` names what would change and writes nothing. |
 | `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has, except the Claude Code files an install before fyr wrote under `~/.claude`, which it keeps and stops managing (`DEPLOY-remote` § Crossing to fyr). Idempotent; `--dry-run` prints without changing. |
 | `fyr diff` | A unified diff of every drifted file. |
-| `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. |
+| `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. `--dry-run` names what would go. |
 | `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |
-| `fyr record add` / `get` / `edit` / `list` | The brain store, `~/.config/fyr/brain.db`: this project's trail records (plans, bugs, ADRs, reviews, handoffs, specs, …) and the global ones (`--global`: feedback, proposals), each with an ID and a status; the body comes on stdin. Every write in a project also rewrites `.agents/trail.jsonl`, the committed export, and a changed export (a pull) is loaded back before the next call. `list --open` is what is still open. |
+| `fyr record add` / `get` / `edit` / `list` / `import` | The brain store, `~/.config/fyr/brain.db`: this project's trail records (plans, bugs, ADRs, reviews, handoffs, specs, …) and the global ones (`--global`: feedback, proposals), each with an ID and a status; the body comes on stdin. Every write in a project also rewrites `.agents/trail.jsonl`, the committed export, and a changed export (a pull) is loaded back before the next call. `list --open` is what is still open. `import` migrates a project whose trail is still Markdown files into records, once; `import --global` takes the old logs under `~/.config/fyr`. |
 | `fyr search <words>` | Prints the matching brain-store records first, then a ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `fyr index` maintains the index. |
 | `fyr memory add` / `show` | The project's memory, `memory` records in the brain store (never exported); `show` prints the index a session loads at start. |
 | `fyr metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/fyr/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest runs at every checkpoint (the `handoff` skill's last call, `/retro` before its numbers, a phase end) and in the nightly dream, and reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
@@ -216,7 +216,7 @@ agents/       one directory per subagent (agent.md, in Antigravity's format, ins
 skills/       one directory per skill (SKILL.md, references/, assets/)
 rules/        always-on or path-scoped rules
 commands/     markdown prompts invoked as /name (empty; prefer skills)
-cmd/fyr  the binary; internal/harness the installer, internal/search, internal/memory, internal/metrics, internal/dream the second-brain verbs, internal/trail the git reads they share
+cmd/fyr       the binary; internal/ its packages, each named in AGENTS.md § Layout
 embed.go      the go:embed of the five content directories, pinned to what git tracks
 .agents/      this repository's own trail, trail.jsonl (records: plans, decisions, bugs, changes, handoffs, testing, specs, deploy guides; read with fyr record), and scratch/ (gitignored)
 ```

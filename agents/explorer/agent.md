@@ -52,7 +52,7 @@ What this survey was asked to answer.
 
 ## Records
 
-- Writes: `.agents/scratch/agents/explorer-<stamp>.md`, the only file you create (the main thread stores it as a `plan` record);, written with `write_to_file` early and updated as you go; name its path in your reply only after that call succeeded — never report a file you did not write. The brief is trail, not a change to the project: write it even when the dispatch says read-only, change nothing, or report only; those words apply to source.
+- Writes: `.agents/scratch/agents/explorer-<stamp>.md`, the only file you create (the main thread stores it as a `plan` record), written with `write_to_file` early and updated as you go; name its path in your reply only after that call succeeded — never report a file you did not write. The brief is trail, not a change to the project: write it even when the dispatch says read-only, change nothing, or report only; those words apply to source.
 - Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`.
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 - Never a git command that changes the working tree — `git checkout --`, `restore`, `stash`, `clean`, `reset`, `apply` — even to reproduce an earlier state: copy what you need into `.agents/scratch/` and change the copy, or read the old content with `git show <rev>:<path>`.

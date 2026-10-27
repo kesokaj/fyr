@@ -167,8 +167,10 @@ func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
 		if !strings.Contains(a.Body, clause) {
 			t.Errorf("agent %s lacks its write-first clause %q", a.Name, clause)
 		}
-		if a.Name == "changelog" && slices.Contains(splitList(a.Front["tools"]), "replace_file_content") {
-			t.Errorf("changelog is append-only but lists replace_file_content")
+		// The draft agents rewrite their one draft whole with write_to_file;
+		// none edits a file in place (AG19, and AG27 of the 2026-10-27 audit).
+		if (a.Name == "changelog" || a.Name == "bugs") && slices.Contains(splitList(a.Front["tools"]), "replace_file_content") {
+			t.Errorf("%s writes one draft but lists replace_file_content", a.Name)
 		}
 	}
 	if seen != len(writeFirst) {
