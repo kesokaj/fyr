@@ -43,17 +43,9 @@ var Placeholders = []string{"CLONE", "SB", "FIXDIR", "STAMP"}
 // surround it. A table that does not parse is refused with its line number.
 func ParseSuite(body string) ([]Row, error) {
 	lines := strings.Split(body, "\n")
-	start := -1
-	for i, l := range lines {
-		if cells, ok := splitCells(l); ok && equalCells(cells, suiteHeader) {
-			if start >= 0 {
-				return nil, fmt.Errorf("GUIDE-eval line %d: a second suite table (the first is at line %d)", i+1, start+1)
-			}
-			start = i
-		}
-	}
-	if start < 0 {
-		return nil, fmt.Errorf("GUIDE-eval has no table with the header | %s |", strings.Join(suiteHeader, " | "))
+	start, err := suiteStart(lines)
+	if err != nil {
+		return nil, err
 	}
 	var rows []Row
 	seen := map[string]int{}
@@ -66,48 +58,16 @@ func ParseSuite(body string) ([]Row, error) {
 		if isSeparator(l) {
 			continue
 		}
-		if !strings.HasPrefix(l, "| `") {
-			return nil, fmt.Errorf("GUIDE-eval line %d: a row starts with | `id`", n)
-		}
-		cells, _ := splitCells(l)
-		if len(cells) != len(suiteHeader) {
-			return nil, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), len(suiteHeader), strings.Join(suiteHeader, ", "))
-		}
-		m := leadingID.FindStringSubmatch(cells[0])
-		if m == nil || !validID.MatchString(m[1]) {
-			return nil, fmt.Errorf("GUIDE-eval line %d: the id is not one backticked name of a-z, 0-9, '.', '_' or '-'", n)
-		}
-		r := Row{
-			ID:      m[1],
-			Setup:   codeCell(cells[1]),
-			Prompt:  textCell(cells[2]),
-			Prompt2: textCell(cells[3]),
-			Check:   codeCell(cells[4]),
-			Agent:   textCell(cells[5]),
-			Grants:  textCell(cells[6]),
+		r, err := parseRow(l, n)
+		if err != nil {
+			return nil, err
 		}
 		if first, dup := seen[r.ID]; dup {
 			return nil, fmt.Errorf("GUIDE-eval line %d: duplicate id %s (first at line %d)", n, r.ID, first)
 		}
 		seen[r.ID] = n
-		if r.Prompt == "" {
-			return nil, fmt.Errorf("GUIDE-eval line %d: row %s has no prompt", n, r.ID)
-		}
-		if r.Check == "" {
-			return nil, fmt.Errorf("GUIDE-eval line %d: row %s has no check", n, r.ID)
-		}
-		if r.Agent != "" && !validAgent.MatchString(r.Agent) {
-			return nil, fmt.Errorf("GUIDE-eval line %d: row %s: agent %q is not an agent name", n, r.ID, r.Agent)
-		}
-		if reason, wide := r.Wide(); !(r.Grants == "named" || wide && strings.TrimSpace(reason) != "") {
-			return nil, fmt.Errorf("GUIDE-eval line %d: row %s: grants is %q, want named or wide: <reason>", n, r.ID, r.Grants)
-		}
-		for _, p := range []string{r.Prompt, r.Prompt2} {
-			for _, ph := range placeholder.FindAllString(p, -1) {
-				if !known(ph) {
-					return nil, fmt.Errorf("GUIDE-eval line %d: row %s: unknown placeholder %s (known: {{%s}})", n, r.ID, ph, strings.Join(Placeholders, "}}, {{"))
-				}
-			}
+		if err := checkRow(r, n); err != nil {
+			return nil, err
 		}
 		rows = append(rows, r)
 	}
@@ -115,6 +75,74 @@ func ParseSuite(body string) ([]Row, error) {
 		return nil, fmt.Errorf("GUIDE-eval line %d: the suite table has no rows", start+1)
 	}
 	return rows, nil
+}
+
+// suiteStart is the index of the suite table's header line, the one table
+// with suiteHeader.
+func suiteStart(lines []string) (int, error) {
+	start := -1
+	for i, l := range lines {
+		if cells, ok := splitCells(l); ok && equalCells(cells, suiteHeader) {
+			if start >= 0 {
+				return 0, fmt.Errorf("GUIDE-eval line %d: a second suite table (the first is at line %d)", i+1, start+1)
+			}
+			start = i
+		}
+	}
+	if start < 0 {
+		return 0, fmt.Errorf("GUIDE-eval has no table with the header | %s |", strings.Join(suiteHeader, " | "))
+	}
+	return start, nil
+}
+
+// parseRow reads table line l, line n of the body, into a Row.
+func parseRow(l string, n int) (Row, error) {
+	if !strings.HasPrefix(l, "| `") {
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: a row starts with | `id`", n)
+	}
+	cells, _ := splitCells(l)
+	if len(cells) != len(suiteHeader) {
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), len(suiteHeader), strings.Join(suiteHeader, ", "))
+	}
+	m := leadingID.FindStringSubmatch(cells[0])
+	if m == nil || !validID.MatchString(m[1]) {
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: the id is not one backticked name of a-z, 0-9, '.', '_' or '-'", n)
+	}
+	return Row{
+		ID:      m[1],
+		Setup:   codeCell(cells[1]),
+		Prompt:  textCell(cells[2]),
+		Prompt2: textCell(cells[3]),
+		Check:   codeCell(cells[4]),
+		Agent:   textCell(cells[5]),
+		Grants:  textCell(cells[6]),
+	}, nil
+}
+
+// checkRow refuses a row with no prompt or check, an agent that is not a
+// name, grants that are neither named nor a reasoned wide, or a placeholder
+// eval does not fill.
+func checkRow(r Row, n int) error {
+	if r.Prompt == "" {
+		return fmt.Errorf("GUIDE-eval line %d: row %s has no prompt", n, r.ID)
+	}
+	if r.Check == "" {
+		return fmt.Errorf("GUIDE-eval line %d: row %s has no check", n, r.ID)
+	}
+	if r.Agent != "" && !validAgent.MatchString(r.Agent) {
+		return fmt.Errorf("GUIDE-eval line %d: row %s: agent %q is not an agent name", n, r.ID, r.Agent)
+	}
+	if reason, wide := r.Wide(); !(r.Grants == "named" || wide && strings.TrimSpace(reason) != "") {
+		return fmt.Errorf("GUIDE-eval line %d: row %s: grants is %q, want named or wide: <reason>", n, r.ID, r.Grants)
+	}
+	for _, p := range []string{r.Prompt, r.Prompt2} {
+		for _, ph := range placeholder.FindAllString(p, -1) {
+			if !known(ph) {
+				return fmt.Errorf("GUIDE-eval line %d: row %s: unknown placeholder %s (known: {{%s}})", n, r.ID, ph, strings.Join(Placeholders, "}}, {{"))
+			}
+		}
+	}
+	return nil
 }
 
 // SelectRows returns the named rows in the order named; an unknown or a

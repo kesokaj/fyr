@@ -4,7 +4,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -157,5 +159,76 @@ func TestAgySessionArms(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("an agy that ignores SIGTERM was never killed")
+	}
+}
+
+// Who a session's end reaches: on the run's end the whole group (SIGTERM,
+// then SIGKILL after stopGrace), at the timeout agy alone, so what it started
+// stays for check e.
+func TestAgyProcessGroup(t *testing.T) {
+	old := stopGrace
+	stopGrace = 100 * time.Millisecond
+	t.Cleanup(func() { stopGrace = old })
+	for _, c := range []struct {
+		name, trap string
+		timeout    bool
+		childLives bool
+	}{
+		{"cancel, agy dies of SIGTERM", "", false, false},
+		{"cancel, agy and child ignore SIGTERM", "trap '' TERM\n", false, false},
+		{"timeout", "", true, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			w := r.prepRow("p")
+			if !w.prepare(context.Background()) {
+				t.Fatalf("prepare: %v", w.reasons)
+			}
+			pidFile, started := filepath.Join(r.rec, "child.pid"), filepath.Join(r.rec, "group.started")
+			script := filepath.Join(r.bin, "grouped")
+			put(t, script, "#!/bin/bash\n"+c.trap+"sleep 300 &\necho $! > "+shellQuote(pidFile)+"\ntouch "+shellQuote(started)+"\nwait\n", 0o755)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if c.timeout {
+				oldT := agyTimeout
+				agyTimeout = 300 * time.Millisecond
+				t.Cleanup(func() { agyTimeout = oldT })
+			} else {
+				go func() {
+					for i := 0; i < 500; i++ {
+						if _, err := os.Stat(started); err == nil {
+							break
+						}
+						time.Sleep(10 * time.Millisecond)
+					}
+					cancel()
+				}()
+			}
+			done := make(chan int, 1)
+			go func() {
+				done <- w.agy(ctx, script, "p", filepath.Join(w.dir, "out.txt"), filepath.Join(w.dir, "err.txt"), false)
+			}()
+			select {
+			case <-done:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the session never ended")
+			}
+			b, err := os.ReadFile(pidFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+			alive := true
+			for i := 0; i < 100 && alive; i++ {
+				alive = syscall.Kill(pid, 0) == nil
+				if alive {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			if alive != c.childLives {
+				t.Errorf("child alive %v, want %v", alive, c.childLives)
+			}
+		})
 	}
 }

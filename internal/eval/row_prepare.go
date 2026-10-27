@@ -35,6 +35,31 @@ exec %[2]s "$1" --home %[1]s "${@:2}"
 // prepare is steps 2-8 of SPEC-fyr-eval § One row; false means the row has
 // failed and no CLI runs.
 func (w *row) prepare(ctx context.Context) bool {
+	if !w.cloneApp(ctx) || !w.openSandbox() || !w.recordsBefore(ctx) {
+		return false
+	}
+	// Step 4: the real config, before setup and before anything installs,
+	// so a setup that writes it is seen (IN50 of the 2026-10-27 audit).
+	w.realBefore = fingerprint(w.o.RealHome)
+	// Step 5: the row's setup, in the clone.
+	if w.r.Setup != "" {
+		if !w.bash(ctx, w.r.Setup, w.setupEnv(), "setup.log") {
+			w.fail(ReasonSetup)
+			return false
+		}
+	}
+	if !w.installHarness(ctx) || !w.writeSettings() {
+		return false
+	}
+	// Step 8: the credential baseline, before the token is linked (D17),
+	// over the whole sandbox directory: the clone, the CLI's output and the
+	// logs are kept as long as the home is.
+	w.credsBefore = scanCreds(w.dir)
+	return ctx.Err() == nil
+}
+
+// cloneApp is step 2.
+func (w *row) cloneApp(ctx context.Context) bool {
 	// Step 2: the clone, its own toplevel, outside every checkout.
 	// The clone stays a plain git call: it has no -C root for trail.Command
 	// and clones the operator's own fixture into a fresh directory (plan
@@ -65,6 +90,12 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonClone)
 		return false
 	}
+	return true
+}
+
+// openSandbox makes SB's CLI directory, records where the row directory,
+// the clone and SB resolve, as the guards approved them, and holds SB open.
+func (w *row) openSandbox() bool {
 	if err := os.MkdirAll(filepath.Join(w.sb, ".gemini", "antigravity-cli"), 0o700); err != nil {
 		w.fail(ReasonSetup)
 		return false
@@ -84,6 +115,11 @@ func (w *row) prepare(ctx context.Context) bool {
 		return false
 	}
 	w.root = root
+	return true
+}
+
+// recordsBefore is step 3.
+func (w *row) recordsBefore(ctx context.Context) bool {
 	// Step 3: what the trail held before the agent ran; a check counts only
 	// the records the run adds (run.sh:52-62).
 	before := filepath.Join(w.sb, "records-before.txt")
@@ -104,16 +140,11 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonRecords)
 		return false
 	}
-	// Step 4: the real config, before setup and before anything installs,
-	// so a setup that writes it is seen (IN50 of the 2026-10-27 audit).
-	w.realBefore = fingerprint(w.o.RealHome)
-	// Step 5: the row's setup, in the clone.
-	if w.r.Setup != "" {
-		if !w.bash(ctx, w.r.Setup, w.setupEnv(), "setup.log") {
-			w.fail(ReasonSetup)
-			return false
-		}
-	}
+	return true
+}
+
+// installHarness is step 6.
+func (w *row) installHarness(ctx context.Context) bool {
 	// Step 6: the harness, as `fyr install` gives it to a place (D16), and
 	// the wrapper that pins --home on every fyr call the agent makes.
 	args := []string{"install", "--home", w.sb}
@@ -142,6 +173,11 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonInstall)
 		return false
 	}
+	return true
+}
+
+// writeSettings is step 7.
+func (w *row) writeSettings() bool {
 	// Step 7: the grants, and trust in the clone only.
 	allow := namedGrants
 	if reason, wide := w.r.Wide(); wide {
@@ -158,9 +194,5 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonSettings)
 		return false
 	}
-	// Step 8: the credential baseline, before the token is linked (D17),
-	// over the whole sandbox directory: the clone, the CLI's output and the
-	// logs are kept as long as the home is.
-	w.credsBefore = scanCreds(w.dir)
-	return ctx.Err() == nil
+	return true
 }

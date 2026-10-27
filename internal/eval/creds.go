@@ -183,6 +183,16 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	if isExecutable(b) {
 		return credFinding{}, false // the installed fyr carries the redaction patterns as text
 	}
+	kinds := credKinds(b)
+	if len(kinds) == 0 {
+		return credFinding{}, false
+	}
+	return credFinding{kinds: kinds}, true
+}
+
+// credKinds counts each credential kind in b; AWS's documented example key
+// is not one.
+func credKinds(b []byte) map[string]int {
 	kinds := map[string]int{}
 	for _, c := range credText {
 		if n := len(c.re.FindAllIndex(b, -1)); n > 0 {
@@ -198,10 +208,7 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	if n > 0 {
 		kinds["aws-key"] = n
 	}
-	if len(kinds) == 0 {
-		return credFinding{}, false
-	}
-	return credFinding{kinds: kinds}, true
+	return kinds
 }
 
 // isExecutable is the ELF and Mach-O magic skip of the preamble (:161-162).

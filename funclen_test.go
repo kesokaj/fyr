@@ -25,10 +25,6 @@ var longFuncs = map[string]int{
 	"internal/check/check.go:checker.docsFiles": 52,
 	"internal/check/docs.go:verbFindings":       68,
 	"internal/check/scan.go:scan":               57,
-	"internal/eval/creds.go:scanEntry":          59,
-	"internal/eval/row_prepare.go:row.prepare":  130,
-	"internal/eval/row_session.go:row.agy":      59,
-	"internal/eval/suite.go:ParseSuite":         75,
 }
 
 // TestFunctionLength is the regrowth guard of PLAN-2026-10-27-funclen: no

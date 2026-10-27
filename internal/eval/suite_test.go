@@ -54,20 +54,21 @@ func TestSuiteGrammar(t *testing.T) {
 func TestSuiteRefusals(t *testing.T) {
 	row := func(cells string) string { return header + cells + "\n" }
 	for name, c := range map[string]struct{ body, want string }{
-		"no table":            {"# nothing here\n", "no table with the header"},
-		"no rows":             {header, "has no rows"},
-		"a missing column":    {row("| `a` |  | p |  | true |  | "), "columns, want 7"},
-		"an extra column":     {row("| `a` |  | p |  | true |  | named | x |"), "columns, want 7"},
-		"an empty prompt":     {row("| `a` |  |  |  | true |  | named |"), "has no prompt"},
-		"an empty check":      {row("| `a` |  | p |  |  |  | named |"), "has no check"},
-		"a duplicate id":      {header + "| `a` |  | p |  | true |  | named |\n| `a` |  | q |  | true |  | named |\n", "duplicate id a (first at line 3)"},
-		"unknown grants":      {row("| `a` |  | p |  | true |  | all |"), "want named or wide: <reason>"},
-		"wide with no reason": {row("| `a` |  | p |  | true |  | wide:  |"), "want named or wide: <reason>"},
-		"a row with no id":    {row("| a |  | p |  | true |  | named |"), "a row starts with | `id`"},
-		"an id with a slash":  {row("| `../x` |  | p |  | true |  | named |"), "the id is not one backticked name"},
-		"a bad agent name":    {row("| `a` |  | p |  | true | Re viewer | named |"), "is not an agent name"},
-		"a typo placeholder":  {row("| `a` |  | in {{CLONES}} |  | true |  | named |"), "unknown placeholder {{CLONES}}"},
-		"a second table":      {header + "| `a` |  | p |  | true |  | named |\n\n" + header + "| `b` |  | p |  | true |  | named |\n", "a second suite table"},
+		"no table":                          {"# nothing here\n", "no table with the header"},
+		"no rows":                           {header, "has no rows"},
+		"a missing column":                  {row("| `a` |  | p |  | true |  | "), "columns, want 7"},
+		"an extra column":                   {row("| `a` |  | p |  | true |  | named | x |"), "columns, want 7"},
+		"an empty prompt":                   {row("| `a` |  |  |  | true |  | named |"), "has no prompt"},
+		"an empty check":                    {row("| `a` |  | p |  |  |  | named |"), "has no check"},
+		"a duplicate id":                    {header + "| `a` |  | p |  | true |  | named |\n| `a` |  | q |  | true |  | named |\n", "duplicate id a (first at line 3)"},
+		"a duplicate before its own faults": {header + "| `a` |  | p |  | true |  | named |\n| `a` |  |  |  | true |  | named |\n", "duplicate id a (first at line 3)"},
+		"unknown grants":                    {row("| `a` |  | p |  | true |  | all |"), "want named or wide: <reason>"},
+		"wide with no reason":               {row("| `a` |  | p |  | true |  | wide:  |"), "want named or wide: <reason>"},
+		"a row with no id":                  {row("| a |  | p |  | true |  | named |"), "a row starts with | `id`"},
+		"an id with a slash":                {row("| `../x` |  | p |  | true |  | named |"), "the id is not one backticked name"},
+		"a bad agent name":                  {row("| `a` |  | p |  | true | Re viewer | named |"), "is not an agent name"},
+		"a typo placeholder":                {row("| `a` |  | in {{CLONES}} |  | true |  | named |"), "unknown placeholder {{CLONES}}"},
+		"a second table":                    {header + "| `a` |  | p |  | true |  | named |\n\n" + header + "| `b` |  | p |  | true |  | named |\n", "a second suite table"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseSuite(c.body)

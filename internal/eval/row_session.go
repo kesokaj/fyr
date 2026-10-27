@@ -47,23 +47,12 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	cmd.Dir = w.app
 	cmd.Env = w.agyEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// A file eval writes that is not a regular file was put there by the run
-	// (a session cannot start without it): the sandbox was replaced.
-	out, err := openRegular(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
+	out, errf, err := agyOutputs(outPath, errPath, appendErr)
 	if err != nil {
 		w.replaced("%v", err)
 		return -1
 	}
 	defer out.Close()
-	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	if appendErr {
-		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	}
-	errf, err := openRegular(errPath, flags)
-	if err != nil {
-		w.replaced("%v", err)
-		return -1
-	}
 	defer errf.Close()
 	cmd.Stdout, cmd.Stderr = out, errf
 	if err := cmd.Start(); err != nil {
@@ -72,10 +61,38 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	}
 	pgid := cmd.Process.Pid
 	w.pgids = append(w.pgids, pgid)
+	return agyExit(w.waitAgy(ctx, cmd, pgid))
+}
+
+// agyOutputs opens the session's output and error files, the error file
+// appended to for a second session.
+func agyOutputs(outPath, errPath string, appendErr bool) (out, errf *os.File, err error) {
+	// A file eval writes that is not a regular file was put there by the run
+	// (a session cannot start without it): the sandbox was replaced.
+	out, err = openRegular(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
+	if err != nil {
+		return nil, nil, err
+	}
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if appendErr {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+	errf, err = openRegular(errPath, flags)
+	if err != nil {
+		out.Close()
+		return nil, nil, err
+	}
+	return out, errf, nil
+}
+
+// waitAgy waits for the started session: at agyTimeout agy alone is
+// killed; on ctx's end its group gets SIGTERM, then SIGKILL after stopGrace.
+func (w *row) waitAgy(ctx context.Context, cmd *exec.Cmd, pgid int) error {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	timer := time.NewTimer(agyTimeout)
 	defer timer.Stop()
+	var err error
 	select {
 	case err = <-done:
 	case <-timer.C:
@@ -91,6 +108,11 @@ func (w *row) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 			err = <-done
 		}
 	}
+	return err
+}
+
+// agyExit is a session's exit status: -1 for one that did not exit.
+func agyExit(err error) int {
 	if err == nil {
 		return 0
 	}
