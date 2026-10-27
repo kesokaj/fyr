@@ -34,63 +34,14 @@ func run(args []string, out io.Writer) error {
 	}
 
 	c := newCtx(cmd, v, out)
-	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			// Help is a successful ask: the FlagSet has printed the verb's
-			// flags on the writer (IN15).
-			return nil
-		}
-		// The flag package has named the flag on the writer; a usage error
-		// exits 2 like every other usage error here.
-		return exitCode(2)
+	if stop, err := c.parse(v, rest); stop {
+		return err
 	}
-	if !v.positional && c.fs.NArg() > 0 {
-		// A stray argument is never ignored: `list - --check` and `update --
-		// --from-zip x` would otherwise run the verb as if nothing had been said.
-		fmt.Fprintf(out, "%s takes no arguments: %q\n", cmd, c.fs.Args())
-		return exitCode(2)
+	if err := c.resolveHome(); err != nil {
+		return err
 	}
-
-	c.home = c.homeFlag
-	if c.home == "" {
-		h, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		c.home = h
-	}
-	// Absolute before anything runs: the checkout path rebuilds and runs the
-	// build's install with cmd.Dir = repo, so a relative --home would land
-	// inside the repository on a real install and under the invoking
-	// directory on --dry-run (BUG-080).
-	if abs, err := filepath.Abs(c.home); err == nil {
-		c.home = abs
-	}
-
-	fromZipSet := false
-	c.fs.Visit(func(f *flag.Flag) { fromZipSet = fromZipSet || f.Name == "from-zip" })
-	// The parsed FlagSet decides, never a scan of the raw arguments: `--home --`
-	// makes `--` a value, and a scan that stopped there would skip this branch
-	// and run a normal update (security review 2026-10-01, round 2).
-	if cmd == "update" && fromZipSet {
-		// Every refusal comes before any command runs, and an empty value is
-		// refused rather than read as no flag — that would fall through to a
-		// normal update, which on a release binary downloads and replaces the
-		// binary.
-		switch {
-		case c.fromZip == "" || strings.HasPrefix(c.fromZip, "-"):
-			// A value that looks like a flag was a flag: `--from-zip --dry-run`
-			// must not read --dry-run as the file and run a real update.
-			fmt.Fprintln(out, "fyr update: --from-zip needs a file: fyr update --from-zip <file>")
-			return exitCode(2)
-		case c.check || c.repoFlag != "":
-			fmt.Fprintln(out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
-			return exitCode(2)
-		}
-		if err := c.migrateStateDir(); err != nil {
-			return err
-		}
-		return updateFromZip(c.fromZip, c.home, c.dryRun, out)
+	if zip, err := c.updateFromZipFlag(); zip {
+		return err
 	}
 
 	// Before the source is resolved: it falls back to the last install's
@@ -106,6 +57,79 @@ func run(args []string, out io.Writer) error {
 		c.src = src
 	}
 	return v.run(c)
+}
+
+// parse parses the verb's flags and arguments; stop says run ends here, with
+// err as its result.
+func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
+	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			// Help is a successful ask: the FlagSet has printed the verb's
+			// flags on the writer (IN15).
+			return true, nil
+		}
+		// The flag package has named the flag on the writer; a usage error
+		// exits 2 like every other usage error here.
+		return true, exitCode(2)
+	}
+	if !v.positional && c.fs.NArg() > 0 {
+		// A stray argument is never ignored: `list - --check` and `update --
+		// --from-zip x` would otherwise run the verb as if nothing had been said.
+		fmt.Fprintf(c.out, "%s takes no arguments: %q\n", c.cmd, c.fs.Args())
+		return true, exitCode(2)
+	}
+	return false, nil
+}
+
+// resolveHome sets c.home: --home, else the user's home, made absolute.
+func (c *ctx) resolveHome() error {
+	c.home = c.homeFlag
+	if c.home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		c.home = h
+	}
+	// Absolute before anything runs: the checkout path rebuilds and runs the
+	// build's install with cmd.Dir = repo, so a relative --home would land
+	// inside the repository on a real install and under the invoking
+	// directory on --dry-run (BUG-080).
+	if abs, err := filepath.Abs(c.home); err == nil {
+		c.home = abs
+	}
+	return nil
+}
+
+// updateFromZipFlag runs `update --from-zip`; zip is false when this is not
+// that command line.
+func (c *ctx) updateFromZipFlag() (zip bool, err error) {
+	fromZipSet := false
+	c.fs.Visit(func(f *flag.Flag) { fromZipSet = fromZipSet || f.Name == "from-zip" })
+	// The parsed FlagSet decides, never a scan of the raw arguments: `--home --`
+	// makes `--` a value, and a scan that stopped there would skip this branch
+	// and run a normal update (security review 2026-10-01, round 2).
+	if c.cmd != "update" || !fromZipSet {
+		return false, nil
+	}
+	// Every refusal comes before any command runs, and an empty value is
+	// refused rather than read as no flag — that would fall through to a
+	// normal update, which on a release binary downloads and replaces the
+	// binary.
+	switch {
+	case c.fromZip == "" || strings.HasPrefix(c.fromZip, "-"):
+		// A value that looks like a flag was a flag: `--from-zip --dry-run`
+		// must not read --dry-run as the file and run a real update.
+		fmt.Fprintln(c.out, "fyr update: --from-zip needs a file: fyr update --from-zip <file>")
+		return true, exitCode(2)
+	case c.check || c.repoFlag != "":
+		fmt.Fprintln(c.out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
+		return true, exitCode(2)
+	}
+	if err := c.migrateStateDir(); err != nil {
+		return true, err
+	}
+	return true, updateFromZip(c.fromZip, c.home, c.dryRun, c.out)
 }
 
 // writesState reports whether this invocation may write under the state

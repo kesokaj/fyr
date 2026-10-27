@@ -33,28 +33,18 @@ var recordFlags = map[string]map[string]bool{
 // the record SPEC-fyr-record); it needs no harness tree. Exit 0 with
 // or without output, 1 a refusal, 2 a usage error, the reason on the writer.
 func runRecord(c *ctx) error {
-	args := c.fs.Args()
-	if len(args) == 0 {
-		fmt.Fprintln(c.out, recordUsage)
-		return exitCode(2)
+	var sub string
+	rest := c.fs.Args()
+	if len(rest) > 0 {
+		sub, rest = rest[0], rest[1:]
 	}
-	sub, rest := args[0], args[1:]
-	takes, ok := recordFlags[sub]
+	takes, ok := recordFlags[sub] // no subcommand is not one of them
 	if !ok {
 		fmt.Fprintln(c.out, recordUsage)
 		return exitCode(2)
 	}
-	set := map[string]bool{}
-	var stray []string
-	c.fs.Visit(func(f *flag.Flag) {
-		set[f.Name] = true
-		if f.Name != "home" && f.Name != "repo" && !takes[f.Name] {
-			stray = append(stray, "--"+f.Name)
-		}
-	})
-	if len(stray) > 0 {
-		sort.Strings(stray)
-		fmt.Fprintf(c.out, "fyr record %s does not take %s\n%s\n", sub, strings.Join(stray, ", "), recordUsage)
+	set, ok := recordFlagsSet(c, sub, takes)
+	if !ok {
 		return exitCode(2)
 	}
 	wd, err := os.Getwd()
@@ -67,68 +57,114 @@ func runRecord(c *ctx) error {
 		if len(rest) != 1 {
 			break
 		}
-		id, err := brain.Add(o, brain.AddInput{Kind: rest[0], Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: stdin})
-		if err == nil {
-			fmt.Fprintln(c.out, id)
-		}
-		return recordErr(c, err)
+		return recordAdd(c, o, rest[0])
 	case "get":
 		if len(rest) == 0 {
 			break
 		}
-		recs, _, err := brain.Get(o, rest)
-		for i, r := range recs {
-			if i > 0 {
-				fmt.Fprintln(c.out)
-			}
-			fmt.Fprint(c.out, brain.FormatGet(r))
-		}
-		return recordErr(c, err)
+		return recordGet(c, o, rest)
 	case "edit":
 		if len(rest) != 1 {
 			break
 		}
-		in := brain.EditInput{ID: rest[0]}
-		if set["status"] {
-			in.Status = &c.recStatus
-		}
-		if set["title"] {
-			in.Title = &c.recTitle
-		}
-		if c.recBody {
-			in.Body = stdin
-		}
-		return recordErr(c, brain.Edit(o, in))
+		return recordEdit(c, o, rest[0], set)
 	case "list":
 		if len(rest) != 0 {
 			break
 		}
-		recs, err := brain.List(o, brain.ListFilter{Kind: c.kind, Open: c.openRecords, Project: c.recProject, All: c.recAll})
-		for _, r := range recs {
-			fmt.Fprintln(c.out, brain.FormatLine(r, c.recAll))
-		}
-		return recordErr(c, err)
+		return recordList(c, o)
 	case "import":
 		if len(rest) > 1 || (c.global && len(rest) != 0) {
 			break
 		}
-		var res *brain.ImportResult
-		if c.global {
-			res, err = brain.ImportGlobal(o, c.dryRun)
-		} else {
-			docs := ""
-			if len(rest) == 1 {
-				docs = rest[0]
-			}
-			res, err = brain.Import(o, docs, c.dryRun)
-		}
-		if err == nil {
-			printImport(c, res)
-		}
-		return recordErr(c, err)
+		return recordImport(c, o, rest)
 	}
 	fmt.Fprintln(c.out, recordUsage)
 	return exitCode(2)
+}
+
+// recordFlagsSet returns the flags set on the command line; a flag sub does
+// not take is a usage error, said on the writer (ok false).
+func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool, bool) {
+	set := map[string]bool{}
+	var stray []string
+	c.fs.Visit(func(f *flag.Flag) {
+		set[f.Name] = true
+		if f.Name != "home" && f.Name != "repo" && !takes[f.Name] {
+			stray = append(stray, "--"+f.Name)
+		}
+	})
+	if len(stray) > 0 {
+		sort.Strings(stray)
+		fmt.Fprintf(c.out, "fyr record %s does not take %s\n%s\n", sub, strings.Join(stray, ", "), recordUsage)
+		return nil, false
+	}
+	return set, true
+}
+
+// recordAdd serves `record add`: the new record's ID.
+func recordAdd(c *ctx, o brain.Options, kind string) error {
+	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: stdin})
+	if err == nil {
+		fmt.Fprintln(c.out, id)
+	}
+	return recordErr(c, err)
+}
+
+// recordList serves `record list`: one line per record.
+func recordList(c *ctx, o brain.Options) error {
+	recs, err := brain.List(o, brain.ListFilter{Kind: c.kind, Open: c.openRecords, Project: c.recProject, All: c.recAll})
+	for _, r := range recs {
+		fmt.Fprintln(c.out, brain.FormatLine(r, c.recAll))
+	}
+	return recordErr(c, err)
+}
+
+// recordGet serves `record get`: each record, a blank line between.
+func recordGet(c *ctx, o brain.Options, ids []string) error {
+	recs, _, err := brain.Get(o, ids)
+	for i, r := range recs {
+		if i > 0 {
+			fmt.Fprintln(c.out)
+		}
+		fmt.Fprint(c.out, brain.FormatGet(r))
+	}
+	return recordErr(c, err)
+}
+
+// recordEdit serves `record edit`: only what the command line set changes.
+func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
+	in := brain.EditInput{ID: id}
+	if set["status"] {
+		in.Status = &c.recStatus
+	}
+	if set["title"] {
+		in.Title = &c.recTitle
+	}
+	if c.recBody {
+		in.Body = stdin
+	}
+	return recordErr(c, brain.Edit(o, in))
+}
+
+// recordImport serves `record import`: the project's trail, or with
+// --global the home's old logs.
+func recordImport(c *ctx, o brain.Options, rest []string) error {
+	var res *brain.ImportResult
+	var err error
+	if c.global {
+		res, err = brain.ImportGlobal(o, c.dryRun)
+	} else {
+		docs := ""
+		if len(rest) == 1 {
+			docs = rest[0]
+		}
+		res, err = brain.Import(o, docs, c.dryRun)
+	}
+	if err == nil {
+		printImport(c, res)
+	}
+	return recordErr(c, err)
 }
 
 // printImport is what an import did, and every file the caller removes by

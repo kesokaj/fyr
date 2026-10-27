@@ -22,13 +22,6 @@ const funcLimit = 50
 // the module root, slash-separated, Recv without '*'), value the function's
 // length when it was listed. Each phase deletes its rows; empty at Done.
 var longFuncs = map[string]int{
-	"cmd/fyr/eval.go:runEval":                   126,
-	"cmd/fyr/record.go:runRecord":               98,
-	"cmd/fyr/run_dispatch.go:run":               95,
-	"cmd/fyr/status.go:status":                  153,
-	"cmd/fyr/update_zip.go:updateFromZip":       75,
-	"cmd/fyr/verb_dream.go:runDream":            59,
-	"cmd/fyr/verb_metrics.go:runMetrics":        92,
 	"internal/check/check.go:checker.docsFiles": 52,
 	"internal/check/docs.go:verbFindings":       68,
 	"internal/check/scan.go:scan":               57,

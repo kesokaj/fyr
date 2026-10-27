@@ -24,6 +24,24 @@ func runDream(c *ctx) error {
 		// was silently ignored (SD33 of the 2026-10-27 audit, plan D18).
 		fmt.Fprintln(c.out, "fyr dream: --install-timer and --remove-timer take no --all or --project")
 		return exitCode(2)
+	case c.installTimer || c.removeTimer:
+		err = c.dreamTimer()
+	default:
+		err = dream.Run(dream.Options{Home: c.home, All: c.dreamAll, Project: c.dreamProject, DryRun: c.dryRun, Out: c.out})
+	}
+	var ee *dream.ExitError
+	if errors.As(err, &ee) {
+		fmt.Fprintln(c.out, ee.Msg)
+		return exitCode(ee.Code)
+	}
+	return err
+}
+
+// dreamTimer serves --install-timer and --remove-timer, each with or without
+// --dry-run.
+func (c *ctx) dreamTimer() error {
+	var err error
+	switch {
 	case c.installTimer && c.dryRun:
 		// The dry run makes every refusal the real run makes, then names what
 		// would change and calls nothing (review-standards § 8; SD26).
@@ -60,13 +78,6 @@ func runDream(c *ctx) error {
 			}
 			otherSystemTimerNote(c)
 		}
-	default:
-		err = dream.Run(dream.Options{Home: c.home, All: c.dreamAll, Project: c.dreamProject, DryRun: c.dryRun, Out: c.out})
-	}
-	var ee *dream.ExitError
-	if errors.As(err, &ee) {
-		fmt.Fprintln(c.out, ee.Msg)
-		return exitCode(ee.Code)
 	}
 	return err
 }

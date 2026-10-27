@@ -34,12 +34,14 @@ func TestRecordGetEditArms(t *testing.T) {
 	if err != nil || strings.Count(out, "\n\n") != 1 {
 		t.Errorf("get of two: %v\n%q", err, out)
 	}
+	before, _ := recordCmd(t, "", "record", "get", both[0], "--home", home)
+	_, body, _ := strings.Cut(before, "\n")
 	if _, err := recordCmd(t, "", "record", "edit", both[0], "--title", "renamed", "--home", home); err != nil {
 		t.Fatal(err)
 	}
 	out, _ = recordCmd(t, "", "record", "get", both[0], "--home", home)
-	if !strings.Contains(out, "renamed") {
-		t.Errorf("edit --title: %q", out)
+	if !strings.Contains(out, "renamed") || !strings.HasSuffix(out, body) || !strings.Contains(body, " body") {
+		t.Errorf("edit --title: %q, body before %q", out, body)
 	}
 	for _, args := range [][]string{{"edit"}, {"list", "x"}, {"import", "a", "b"}, {"import", "a", "--global"}} {
 		if out, err := recordCmd(t, "", append(append([]string{"record"}, args...), "--home", home)...); exitOf(err) != 2 || !strings.HasPrefix(out, "usage: ") {

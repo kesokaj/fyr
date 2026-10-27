@@ -47,19 +47,8 @@ func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error)
 	// its SHA256SUMS beside it is checked before a byte is written, and refused
 	// if that check fails; without it, it is installed marked UNVERIFIED (R9,
 	// ADR-053: the checksums are not signed, so the check is of integrity).
-	verifiedTag := ""
-	check := func(sum string) error {
-		tag, err := harness.VerifyZipSums(zipPath, sum)
-		if errors.Is(err, harness.ErrZipNoSums) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		verifiedTag = tag
-		return nil
-	}
-	dir, sum, err := harness.UnpackZip(zipPath, parent, check)
+	verdict := &zipVerdict{zipPath: zipPath}
+	dir, sum, err := harness.UnpackZip(zipPath, parent, verdict.check)
 	if err != nil {
 		return err
 	}
@@ -68,6 +57,30 @@ func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error)
 			fmt.Fprintf(out, "warning: could not remove the unpacked copy %s: %v\n", dir, rerr)
 		}
 	}()
+	return installZip(zipPath, dir, sum, verdict.tag, parent, home, dryRun, out)
+}
+
+// zipVerdict is a zip's check against the SHA256SUMS beside it; tag is the
+// release that file names once the check has passed.
+type zipVerdict struct {
+	zipPath, tag string
+}
+
+func (v *zipVerdict) check(sum string) error {
+	tag, err := harness.VerifyZipSums(v.zipPath, sum)
+	if errors.Is(err, harness.ErrZipNoSums) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	v.tag = tag
+	return nil
+}
+
+// installZip installs the unpacked tree in dir, with the running binary, and
+// on a real run sweeps the stale unpack directories under parent.
+func installZip(zipPath, dir, sum, verifiedTag, parent, home string, dryRun bool, out io.Writer) error {
 	prefix := ""
 	if dryRun {
 		prefix = "[dry-run] "

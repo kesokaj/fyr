@@ -27,6 +27,34 @@ func status(src harness.Source, home string, out io.Writer) error {
 	if fromZip {
 		zipNote = "; this home was installed from a zip — run update --from-zip <file> again to change it"
 	}
+	info := sourceLine(src, zipNote, out)
+
+	if !found {
+		fmt.Fprintln(out, "installed  nothing — run `fyr install`")
+		return exitCode(1)
+	}
+	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/fyr/state.json)\n", st.InstalledAt, installedFrom(st, origin), len(st.Files))
+	binaryLines(home, repo, info, out)
+	retroLine(home, out)
+	fmt.Fprintln(out, "dream      "+dream.StatusLine(home))
+
+	inv, err := harness.LoadInventory(src)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "repo has   %d skills, %d agents, %d commands, %d rules\n", len(inv.Skills), len(inv.Agents), len(inv.Commands), len(inv.Rules))
+	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
+
+	if fromZip {
+		return zipDrift(home, st, out)
+	}
+	return driftLines(src, home, out)
+}
+
+// sourceLine prints where the harness comes from and returns the
+// checkout's git state, empty for the embedded files.
+func sourceLine(src harness.Source, zipNote string, out io.Writer) harness.RepoInfo {
+	repo := src.Dir
 	var info harness.RepoInfo
 	switch {
 	case repo == "":
@@ -48,11 +76,11 @@ func status(src harness.Source, home string, out io.Writer) error {
 			fmt.Fprintf(out, "repo       %s (%s @ %s, %s%s)\n", repo, info.Branch, info.Commit, dirty, zipNote)
 		}
 	}
+	return info
+}
 
-	if !found {
-		fmt.Fprintln(out, "installed  nothing — run `fyr install`")
-		return exitCode(1)
-	}
+// installedFrom names what the manifest says the home was installed from.
+func installedFrom(st harness.State, origin harness.Origin) string {
 	from := "commit " + st.Commit
 	switch origin.Kind {
 	case harness.OriginRelease:
@@ -63,7 +91,12 @@ func status(src harness.Source, home string, out io.Writer) error {
 			from += " (" + origin.Trust + ")"
 		}
 	}
-	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/fyr/state.json)\n", st.InstalledAt, from, len(st.Files))
+	return from
+}
+
+// binaryLines prints the installed binary's build and whether it is the one
+// an unqualified `fyr` runs.
+func binaryLines(home, repo string, info harness.RepoInfo, out io.Writer) {
 	// The line describes the installed file, not this process: status may
 	// run from `go run` or from a build outside ~/.local/bin.
 	binaryLine := "binary     unknown (installed file has no build info)"
@@ -98,6 +131,10 @@ func status(src harness.Source, home string, out io.Writer) error {
 	for _, old := range harness.OldBinariesOnPath(os.Getenv("PATH")) {
 		fmt.Fprintf(out, "leftover   %s is the binary from before the rename to fyr; remove it by hand, and any unit or profile line that runs it\n", old)
 	}
+}
+
+// retroLine prints when the last retro proposal was made.
+func retroLine(home string, out io.Writer) {
 	// The newest of the old files and the brain store's global retro
 	// records (D32): a machine may hold either until its logs are imported.
 	last, ok := harness.LastRetro(home)
@@ -114,33 +151,31 @@ func status(src harness.Source, home string, out io.Writer) error {
 	} else {
 		fmt.Fprintln(out, "retro      none yet — run /retro at the end of a session with corrections")
 	}
-	fmt.Fprintln(out, "dream      "+dream.StatusLine(home))
+}
 
-	inv, err := harness.LoadInventory(src)
-	if err != nil {
-		return err
+// zipDrift is status's drift check of a home installed from a zip.
+func zipDrift(home string, st harness.State, out io.Writer) error {
+	// The zip is not kept, so its content cannot be compared; say so and
+	// check what can be checked — every file the install wrote is there.
+	var missing []string
+	for _, rel := range st.Files {
+		if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
+			missing = append(missing, rel)
+		}
 	}
-	fmt.Fprintf(out, "repo has   %d skills, %d agents, %d commands, %d rules\n", len(inv.Skills), len(inv.Agents), len(inv.Commands), len(inv.Rules))
-	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
+	fmt.Fprintf(out, "drift      not compared — installed from a zip that is not kept; %d of %d manifest files present\n", len(st.Files)-len(missing), len(st.Files))
+	for _, rel := range missing {
+		fmt.Fprintf(out, "  missing  ~/%s\n", rel)
+	}
+	if len(missing) > 0 {
+		return exitCode(1)
+	}
+	return nil
+}
 
-	if fromZip {
-		// The zip is not kept, so its content cannot be compared; say so and
-		// check what can be checked — every file the install wrote is there.
-		var missing []string
-		for _, rel := range st.Files {
-			if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
-				missing = append(missing, rel)
-			}
-		}
-		fmt.Fprintf(out, "drift      not compared — installed from a zip that is not kept; %d of %d manifest files present\n", len(st.Files)-len(missing), len(st.Files))
-		for _, rel := range missing {
-			fmt.Fprintf(out, "  missing  ~/%s\n", rel)
-		}
-		if len(missing) > 0 {
-			return exitCode(1)
-		}
-		return nil
-	}
+// driftLines compares the home against the plan of src and prints what
+// differs; drift is exit 1.
+func driftLines(src harness.Source, home string, out io.Writer) error {
 	files, err := harness.Plan(src, nil)
 	if err != nil {
 		return err

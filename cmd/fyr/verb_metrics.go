@@ -46,88 +46,110 @@ func runMetrics(c *ctx) error {
 	sub, args := args[0], args[1:]
 	switch sub {
 	case "ingest":
-		if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
-			fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show or report\n", bad)
-			return exitCode(2)
-		}
-		if len(args) > 0 {
-			fmt.Fprintf(c.out, "metrics ingest takes no arguments: %q\n", args)
-			return exitCode(2)
-		}
-		o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
-		if err := o.Validate(); err != nil {
-			fmt.Fprintln(c.out, "fyr metrics ingest: "+err.Error())
-			return exitCode(2)
-		}
-		s, err := metrics.Open(metrics.Path(c.home))
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		r, err := metrics.Ingest(s, o, c.out)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(c.out, r.Line())
-		if len(r.Failed) > 0 {
-			return exitCode(1)
-		}
-		return nil
+		return c.metricsIngest(args)
 	case "show":
-		if len(args) > 0 {
-			fmt.Fprintf(c.out, "metrics show takes no arguments: %q\n", args)
-			return exitCode(2)
-		}
-		sum, err := c.metricsSummary("show")
-		if err != nil {
-			return err
-		}
-		if c.metricsJSON {
-			return sum.WriteJSON(c.out)
-		}
-		sum.WriteText(c.out)
-		return nil
+		return c.metricsShow(args)
 	case "report":
-		if len(args) > 0 || c.metricsJSON {
-			fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
-			return exitCode(2)
-		}
-		sum, err := c.metricsSummary("report")
-		if err != nil {
-			return err
-		}
-		now := time.Now()
-		file := c.metricsOut
-		if file == "" {
-			file = metrics.ReportPath(c.home, now)
-		}
-		if err := metrics.WriteReport(sum, file, now); err != nil {
-			return err
-		}
-		fmt.Fprintln(c.out, "metrics: report written to "+file)
-		return nil
+		return c.metricsReport(args)
 	case "export":
-		if bad := c.metricsFlagsOutside(); bad != "" {
-			fmt.Fprintf(c.out, "fyr metrics export: --%s does not apply to export\n", bad)
-			return exitCode(2)
-		}
-		if len(args) != 1 {
-			fmt.Fprintln(c.out, "fyr metrics export FILE")
-			return exitCode(2)
-		}
-		s, err := c.existingMetricsStore()
-		if err != nil {
-			return err
-		}
-		defer s.Close()
-		if err := s.Export(args[0]); err != nil {
-			return err
-		}
-		fmt.Fprintln(c.out, "metrics: exported to "+args[0])
-		return nil
+		return c.metricsExport(args)
 	}
 	fmt.Fprintf(c.out, "fyr metrics: unknown subcommand %q (%s)\n", sub, strings.Join(metricsSubverbs, ", "))
 	return exitCode(2)
+}
+
+// metricsIngest serves `metrics ingest`: a failed source is exit 1 after
+// the summary line.
+func (c *ctx) metricsIngest(args []string) error {
+	if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
+		fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show or report\n", bad)
+		return exitCode(2)
+	}
+	if len(args) > 0 {
+		fmt.Fprintf(c.out, "metrics ingest takes no arguments: %q\n", args)
+		return exitCode(2)
+	}
+	o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
+	if err := o.Validate(); err != nil {
+		fmt.Fprintln(c.out, "fyr metrics ingest: "+err.Error())
+		return exitCode(2)
+	}
+	s, err := metrics.Open(metrics.Path(c.home))
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	r, err := metrics.Ingest(s, o, c.out)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(c.out, r.Line())
+	if len(r.Failed) > 0 {
+		return exitCode(1)
+	}
+	return nil
+}
+
+// metricsShow serves `metrics show`, as text or --json.
+func (c *ctx) metricsShow(args []string) error {
+	if len(args) > 0 {
+		fmt.Fprintf(c.out, "metrics show takes no arguments: %q\n", args)
+		return exitCode(2)
+	}
+	sum, err := c.metricsSummary("show")
+	if err != nil {
+		return err
+	}
+	if c.metricsJSON {
+		return sum.WriteJSON(c.out)
+	}
+	sum.WriteText(c.out)
+	return nil
+}
+
+// metricsReport serves `metrics report`: the HTML file, at --out or the
+// default path.
+func (c *ctx) metricsReport(args []string) error {
+	if len(args) > 0 || c.metricsJSON {
+		fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
+		return exitCode(2)
+	}
+	sum, err := c.metricsSummary("report")
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	file := c.metricsOut
+	if file == "" {
+		file = metrics.ReportPath(c.home, now)
+	}
+	if err := metrics.WriteReport(sum, file, now); err != nil {
+		return err
+	}
+	fmt.Fprintln(c.out, "metrics: report written to "+file)
+	return nil
+}
+
+// metricsExport serves `metrics export FILE`.
+func (c *ctx) metricsExport(args []string) error {
+	if bad := c.metricsFlagsOutside(); bad != "" {
+		fmt.Fprintf(c.out, "fyr metrics export: --%s does not apply to export\n", bad)
+		return exitCode(2)
+	}
+	if len(args) != 1 {
+		fmt.Fprintln(c.out, "fyr metrics export FILE")
+		return exitCode(2)
+	}
+	s, err := c.existingMetricsStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	if err := s.Export(args[0]); err != nil {
+		return err
+	}
+	fmt.Fprintln(c.out, "metrics: exported to "+args[0])
+	return nil
 }
 
 // metricsFlagsOutside names the first metrics flag set on the command line

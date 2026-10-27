@@ -55,68 +55,20 @@ func runEval(c *ctx) error {
 		fmt.Fprintln(c.out, "usage: fyr eval [--fixture DIR] <row>...  |  fyr eval --list")
 		return exitCode(2)
 	}
-	refuse := func(format string, a ...any) error {
-		fmt.Fprintln(c.out, search.Printable("eval: "+fmt.Sprintf(format, a...)))
-		return exitCode(2)
-	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 	_, root, err := trail.Roots(wd)
 	if err != nil {
-		return refuse("%s is not a git checkout", wd)
+		return c.evalRefuse("%s is not a git checkout", wd)
 	}
 	if c.evalList {
-		suite, err := readSuite(root, false)
-		if err != nil {
-			return refuse("%v", err)
-		}
-		for _, r := range suite {
-			agent, grants := r.Agent, "named"
-			if agent == "" {
-				agent = "-"
-			}
-			if _, wide := r.Wide(); wide {
-				grants = "wide"
-			}
-			fmt.Fprintln(c.out, search.Printable(r.ID+"  "+agent+"  "+grants))
-		}
-		return nil
+		return listEval(c, root)
 	}
-
-	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
+	o, src, rows, err := evalSetup(c, root, names)
 	if err != nil {
-		return refuse("%v", err)
-	}
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		return refuse("no home directory: %v", err)
-	}
-	self, err := evalSelf()
-	if err != nil {
-		return refuse("the running fyr: %v", err)
-	}
-	fixture := c.evalFixture
-	if fixture != "" {
-		if fixture, err = filepath.Abs(fixture); err != nil {
-			return refuse("--fixture: %v", err)
-		}
-		if err := trail.Command(fixture, "rev-parse", "--git-dir").Run(); err != nil {
-			return refuse("--fixture %s is not a git repository", fixture)
-		}
-	}
-	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Out: c.out}
-	if err := eval.Preflight(o); err != nil {
-		return refuse("%v", err)
-	}
-	suite, err := readSuite(root, true)
-	if err != nil {
-		return refuse("%v", err)
-	}
-	rows, err := eval.SelectRows(suite, names)
-	if err != nil {
-		return refuse("%v", err)
+		return err
 	}
 
 	// A hangup too: its default would kill fyr before the token link is
@@ -125,7 +77,7 @@ func runEval(c *ctx) error {
 	defer stop()
 	results, err := evalRun(sig, o, rows)
 	if err != nil {
-		return refuse("%v", err)
+		return c.evalRefuse("%v", err)
 	}
 	stop()
 	if len(results) == 0 {
@@ -134,7 +86,80 @@ func runEval(c *ctx) error {
 		fmt.Fprintln(c.out, "eval: interrupted before the first row; no record written")
 		return exitCode(1)
 	}
+	return recordEval(c, root, o, src, rows, results)
+}
 
+// evalRefuse prints an eval refusal and returns exit 2.
+func (c *ctx) evalRefuse(format string, a ...any) error {
+	fmt.Fprintln(c.out, search.Printable("eval: "+fmt.Sprintf(format, a...)))
+	return exitCode(2)
+}
+
+// listEval serves `fyr eval --list`: the working export's rows.
+func listEval(c *ctx, root string) error {
+	suite, err := readSuite(root, false)
+	if err != nil {
+		return c.evalRefuse("%v", err)
+	}
+	for _, r := range suite {
+		agent, grants := r.Agent, "named"
+		if agent == "" {
+			agent = "-"
+		}
+		if _, wide := r.Wide(); wide {
+			grants = "wide"
+		}
+		fmt.Fprintln(c.out, search.Printable(r.ID+"  "+agent+"  "+grants))
+	}
+	return nil
+}
+
+// evalSetup makes every refusal that comes before a row runs, in the plan's
+// step-0 order, and returns the run's options, its install source and its
+// rows.
+func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Source, []eval.Row, error) {
+	fail := func(err error) (eval.Options, harness.Source, []eval.Row, error) {
+		return eval.Options{}, harness.Source{}, nil, err
+	}
+	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
+	if err != nil {
+		return fail(c.evalRefuse("%v", err))
+	}
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		return fail(c.evalRefuse("no home directory: %v", err))
+	}
+	self, err := evalSelf()
+	if err != nil {
+		return fail(c.evalRefuse("the running fyr: %v", err))
+	}
+	fixture := c.evalFixture
+	if fixture != "" {
+		if fixture, err = filepath.Abs(fixture); err != nil {
+			return fail(c.evalRefuse("--fixture: %v", err))
+		}
+		if err := trail.Command(fixture, "rev-parse", "--git-dir").Run(); err != nil {
+			return fail(c.evalRefuse("--fixture %s is not a git repository", fixture))
+		}
+	}
+	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Out: c.out}
+	if err := eval.Preflight(o); err != nil {
+		return fail(c.evalRefuse("%v", err))
+	}
+	suite, err := readSuite(root, true)
+	if err != nil {
+		return fail(c.evalRefuse("%v", err))
+	}
+	rows, err := eval.SelectRows(suite, names)
+	if err != nil {
+		return fail(c.evalRefuse("%v", err))
+	}
+	return o, src, rows, nil
+}
+
+// recordEval ingests every row's sandbox, then writes the testing record and
+// the summary line; any failed row, ingest or unrun row is exit 1.
+func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []eval.Row, results []eval.Result) error {
 	failed := false
 	// After the verdict, never before: the store stamps a label's outcome
 	// first-write-wins (D6), and an interrupted invocation still ingests the
