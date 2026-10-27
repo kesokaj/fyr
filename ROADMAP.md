@@ -6,7 +6,7 @@ Last reviewed: 2026-10-27
 
 ## Now
 
-- `PLAN-2026-10-27-audit-choices` — the audit's operator choices (rows 2–4, 6–10 and 13–21 of the audit session's closing table, approved "go all approved", 2026-10-27): opt-in registration, allow-listed child environments, eval script hashes, the redactor, the map; approved 2026-10-27 with O1 and O2 answered (D32, D33) and cut to 8 sessions (D34–D37: Phases 2+3 and 8+10 merged, Phase 9 `stress-test` struck, Phase 11 moved to the cleanup plan). Next: Phase 1. (`PLAN-2026-10-27-funclen` closed 2026-10-27: no non-test function over 50 lines, `TestFunctionLength` guards it.)
+- `PLAN-2026-10-27-audit-choices` — the audit's operator choices (rows 2–4, 6–10 and 13–21 of the audit session's closing table, approved "go all approved", 2026-10-27): opt-in registration, allow-listed child environments, eval script hashes, the redactor, the map; approved 2026-10-27 with O1 and O2 answered (D32, D33), then cut after a value check (D34–D43): Phase 7 (redactor, record warning) and Phase 8 (retro/distill/audit skills, the map, deploy docs) run next; the dream phases (1, 2, 4, 5) wait for O4 (does the nightly dream run on the Mac?); Phase 6, the git allow-list, row 14, TS39 and G28 struck. Next: Phase 7. (`PLAN-2026-10-27-funclen` closed 2026-10-27: no non-test function over 50 lines, `TestFunctionLength` guards it.)
 
 ## Next
 
