@@ -110,3 +110,22 @@ func TestCollectBrainReadError(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// Skills and the metrics summary never make a project changed; anything
+// else after since does, and nothing blank is added.
+func TestAdderChangedOnlyByNews(t *testing.T) {
+	since := now.Add(-time.Hour)
+	c := &Collected{}
+	add := c.adder(since)
+	add(kindSkill, "skill", "s", now)
+	add(kindMetrics, "metrics", "9", now)
+	add(kindMemory, "memory/old.md", "m", since.Add(-time.Hour))
+	add(kindMemory, "memory/blank.md", "  \n", now)
+	if c.Changed || len(c.Inputs) != 3 {
+		t.Fatalf("changed %v with %d inputs, want unchanged with 3", c.Changed, len(c.Inputs))
+	}
+	add(kindMemory, "memory/new.md", "m", now)
+	if !c.Changed {
+		t.Error("a memory after since did not mark the project changed")
+	}
+}

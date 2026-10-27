@@ -27,17 +27,10 @@ func call(argv []string, prompt, work string, env []string) (string, string, err
 func callWithin(argv []string, prompt, work string, env []string, timeout, grace time.Duration) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	msg, err := json.Marshal(map[string]any{"event": "user", "message": map[string]string{"content": prompt}})
+	cmd, out, errb, err := cliCommand(ctx, argv, prompt, work, env)
 	if err != nil {
 		return "", "", err
 	}
-	stdin := string(msg) + "\n"
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = work
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader(stdin)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
 	// The CLI gets its own process group, killed whole at the deadline, on an
 	// interrupt, and once the CLI itself is done; Wait gives up on the output
 	// pipes after grace. A helper the CLI started (a language or MCP server)
@@ -52,18 +45,8 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	if err := cmd.Start(); err != nil {
 		return "", "", fmt.Errorf("%s: %v", argv[0], err)
 	}
-	// A hangup or interrupt the parent ignored (nohup, a background job) stays
-	// ignored: Notify would take it over, kill the group on it, and the
-	// re-raise after Reset would find it ignored again, so the project failed
-	// and fyr ran on. Go keeps only these two of an inherited ignore.
-	watched := []os.Signal{syscall.SIGTERM, syscall.SIGQUIT}
-	for _, s := range []os.Signal{os.Interrupt, syscall.SIGHUP} {
-		if !signal.Ignored(s) {
-			watched = append(watched, s)
-		}
-	}
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, watched...)
+	signal.Notify(sigs, watchedSignals()...)
 	waited, relayed := make(chan struct{}), make(chan struct{})
 	go func() {
 		relay(sigs, waited, func(sig os.Signal) {
@@ -79,17 +62,55 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	close(waited)
 	<-relayed // a signal taken at the end is acted on before the next project starts
 	killGroup()
-	if ctx.Err() == context.DeadlineExceeded {
-		return out.String(), errb.String(), fmt.Errorf("%s timed out after %s", argv[0], timeout)
+	return cliResult(argv[0], timeout, ctx.Err(), out.String(), errb.String(), err)
+}
+
+// cliCommand is the CLI's command, with the prompt on its stdin as one
+// stream-json message and its output captured.
+func cliCommand(ctx context.Context, argv []string, prompt, work string, env []string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
+	msg, err := json.Marshal(map[string]any{"event": "user", "message": map[string]string{"content": prompt}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	stdin := string(msg) + "\n"
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = work
+	cmd.Env = env
+	cmd.Stdin = strings.NewReader(stdin)
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	return cmd, &out, &errb, nil
+}
+
+// watchedSignals are the signals callWithin relays to the CLI's group.
+func watchedSignals() []os.Signal {
+	// A hangup or interrupt the parent ignored (nohup, a background job) stays
+	// ignored: Notify would take it over, kill the group on it, and the
+	// re-raise after Reset would find it ignored again, so the project failed
+	// and fyr ran on. Go keeps only these two of an inherited ignore.
+	watched := []os.Signal{syscall.SIGTERM, syscall.SIGQUIT}
+	for _, s := range []os.Signal{os.Interrupt, syscall.SIGHUP} {
+		if !signal.Ignored(s) {
+			watched = append(watched, s)
+		}
+	}
+	return watched
+}
+
+// cliResult is callWithin's answer once the CLI's group is gone: a timeout,
+// a failure, or the output.
+func cliResult(name string, timeout time.Duration, ctxErr error, out, errb string, err error) (string, string, error) {
+	if ctxErr == context.DeadlineExceeded {
+		return out, errb, fmt.Errorf("%s timed out after %s", name, timeout)
 	}
 	if errors.Is(err, exec.ErrWaitDelay) {
 		// The CLI exited 0; only a helper it left behind kept the pipes.
 		err = nil
 	}
 	if err != nil {
-		return out.String(), errb.String(), fmt.Errorf("%s: %v", argv[0], err)
+		return out, errb, fmt.Errorf("%s: %v", name, err)
 	}
-	return out.String(), errb.String(), nil
+	return out, errb, nil
 }
 
 // relay hands the first signal to onSignal, or returns when the CLI is done.

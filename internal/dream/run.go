@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 const (
@@ -35,121 +36,154 @@ func (o Options) realRun() error {
 	}
 	defer unlock()
 
-	t0 := o.Now()
-	logf := logger(filepath.Join(conf, "dream.log"), o.Now)
-	st, err := readState(o.Home)
-	if err != nil {
+	r := &dreamRun{o: o, conf: conf, t0: o.Now(), logf: logger(filepath.Join(conf, "dream.log"), o.Now)}
+	if r.st, err = readState(o.Home); err != nil {
 		// The state is not rewritten: that would erase the watermarks.
-		logf("- run 0 projects, 0 proposals, error " + err.Error())
+		r.logf("- run 0 projects, 0 proposals, error " + err.Error())
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
-	finish := func(n, proposals int, runErr string) error {
-		st.LastRun = lastRun{At: t0, Projects: n, Proposals: proposals, Error: runErr}
-		line := fmt.Sprintf("- run %d projects, %d proposals", n, proposals)
-		if runErr != "" {
-			line += ", error " + runErr
-		}
-		logf(line)
-		return saveState(o.Home, st)
-	}
-	fail := func(msg string) error {
-		finish(0, 0, msg)
-		return &ExitError{2, "fyr dream: " + msg}
-	}
-
 	removeCopies(conf, o.Now())
-	prune(filepath.Join(conf, "dream-failed"), t0)
-	o.ingestFirst(logf)
+	prune(filepath.Join(conf, "dream-failed"), r.t0)
+	o.ingestFirst(r.logf)
 	projects, err := o.targets()
 	if err != nil {
-		return fail(err.Error())
+		return r.fail(err.Error())
 	}
-	argv := command()
+	r.argv = command()
 	if err := checkAgy(runtime.GOOS); err != nil {
-		return fail(err.Error())
+		return r.fail(err.Error())
 	}
 	agyHomeDir, cleanup, err := agyHome(conf, runtime.GOOS)
 	if err != nil {
-		return fail(err.Error())
+		return r.fail(err.Error())
 	}
 	defer cleanup()
-	env := withHome(os.Environ(), agyHomeDir)
-	work := filepath.Join(conf, "dream-work")
-	if err := os.MkdirAll(work, 0o700); err != nil {
-		return fail(err.Error())
+	r.env = withHome(os.Environ(), agyHomeDir)
+	r.work = filepath.Join(conf, "dream-work")
+	if err := os.MkdirAll(r.work, 0o700); err != nil {
+		return r.fail(err.Error())
 	}
-
-	failed, total := 0, 0
-	var stateErr error
 	for _, p := range projects {
-		if why := skipReason(p); why != "" {
-			logf(p.Root + " skip " + why)
-			continue
-		}
-		if why := o.inUse(p); why != "" {
-			logf(p.Root + " skip in use (" + why + ")")
-			continue
-		}
-		c, err := collect(o.Home, p, o.since(st, p.Root), o.Now(), maxPrompt)
-		if err != nil {
-			failed++
-			logf(p.Root + " fail " + scrub(err.Error(), o.Home))
-			continue
-		}
-		if !c.Changed {
-			logf(p.Root + " unchanged")
-			continue
-		}
-		stdout, stderr, err := call(argv, c.Prompt, work, env)
-		if err != nil {
-			failed++
-			o.keepFailure(conf, c, t0, stdout, stderr)
-			reason := err.Error()
-			if hint := agyAuthHint(stdout, stderr); hint != "" {
-				reason += ": " + hint
-			}
-			logf(p.Root + " fail " + reason)
-			continue
-		}
-		text, aerr := answer(stdout)
-		resp, ok := parse(text)
-		if aerr != nil || !ok {
-			failed++
-			o.keepFailure(conf, c, t0, stdout, stderr)
-			reason := "invalid output"
-			if aerr != nil {
-				reason = aerr.Error()
-			}
-			if hint := agyAuthHint(stdout, stderr); hint != "" {
-				reason += ": " + hint
-			}
-			logf(p.Root + " fail " + reason)
-			continue
-		}
-		if err := o.write(conf, c, resp, argv[0], t0); err != nil {
-			failed++
-			logf(p.Root + " fail " + err.Error())
-			continue
-		}
-		st.Projects[p.Root] = t0
-		if err := saveState(o.Home, st); err != nil && stateErr == nil {
-			stateErr = err
-		}
-		total += len(resp.Proposals)
-		logf(fmt.Sprintf("%s ok %d proposals", p.Root, len(resp.Proposals)))
+		r.project(p)
 	}
+	return r.result(len(projects))
+}
+
+// dreamRun is one run's state across its projects.
+type dreamRun struct {
+	o         Options
+	conf      string
+	t0        time.Time
+	logf      func(string)
+	st        state
+	argv, env []string
+	work      string
+	failed    int   // projects that failed
+	total     int   // proposals written
+	stateErr  error // the first state write that failed
+}
+
+// finish records the run in the state and the log.
+func (r *dreamRun) finish(n, proposals int, runErr string) error {
+	r.st.LastRun = lastRun{At: r.t0, Projects: n, Proposals: proposals, Error: runErr}
+	line := fmt.Sprintf("- run %d projects, %d proposals", n, proposals)
+	if runErr != "" {
+		line += ", error " + runErr
+	}
+	r.logf(line)
+	return saveState(r.o.Home, r.st)
+}
+
+// fail ends a run that failed before its first project: exit 2.
+func (r *dreamRun) fail(msg string) error {
+	r.finish(0, 0, msg)
+	return &ExitError{2, "fyr dream: " + msg}
+}
+
+// project dreams over one project and writes what the CLI proposes.
+func (r *dreamRun) project(p search.Project) {
+	if why := skipReason(p); why != "" {
+		r.logf(p.Root + " skip " + why)
+		return
+	}
+	if why := r.o.inUse(p); why != "" {
+		r.logf(p.Root + " skip in use (" + why + ")")
+		return
+	}
+	c, err := collect(r.o.Home, p, r.o.since(r.st, p.Root), r.o.Now(), maxPrompt)
+	if err != nil {
+		r.failed++
+		r.logf(p.Root + " fail " + scrub(err.Error(), r.o.Home))
+		return
+	}
+	if !c.Changed {
+		r.logf(p.Root + " unchanged")
+		return
+	}
+	resp, ok := r.ask(p, c)
+	if !ok {
+		return
+	}
+	if err := r.o.write(r.conf, c, resp, r.argv[0], r.t0); err != nil {
+		r.failed++
+		r.logf(p.Root + " fail " + err.Error())
+		return
+	}
+	r.st.Projects[p.Root] = r.t0
+	if err := saveState(r.o.Home, r.st); err != nil && r.stateErr == nil {
+		r.stateErr = err
+	}
+	r.total += len(resp.Proposals)
+	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, len(resp.Proposals)))
+}
+
+// ask calls the CLI with the project's prompt and returns its answer; a
+// failed call or an answer that does not parse fails the project.
+func (r *dreamRun) ask(p search.Project, c Collected) (response, bool) {
+	stdout, stderr, err := call(r.argv, c.Prompt, r.work, r.env)
+	if err != nil {
+		r.failed++
+		r.o.keepFailure(r.conf, c, r.t0, stdout, stderr)
+		reason := err.Error()
+		if hint := agyAuthHint(stdout, stderr); hint != "" {
+			reason += ": " + hint
+		}
+		r.logf(p.Root + " fail " + reason)
+		return response{}, false
+	}
+	text, aerr := answer(stdout)
+	resp, ok := parse(text)
+	if aerr != nil || !ok {
+		r.failed++
+		r.o.keepFailure(r.conf, c, r.t0, stdout, stderr)
+		reason := "invalid output"
+		if aerr != nil {
+			reason = aerr.Error()
+		}
+		if hint := agyAuthHint(stdout, stderr); hint != "" {
+			reason += ": " + hint
+		}
+		r.logf(p.Root + " fail " + reason)
+		return response{}, false
+	}
+	return resp, true
+}
+
+// result records the run and returns its exit: 2 when the watermarks could
+// not be saved, 1 when a project failed.
+func (r *dreamRun) result(n int) error {
 	runErr := ""
-	if failed > 0 {
-		runErr = fmt.Sprintf("%d project(s) failed", failed) // so `status` never reads a run with failures as clean
+	if r.failed > 0 {
+		runErr = fmt.Sprintf("%d project(s) failed", r.failed) // so `status` never reads a run with failures as clean
 	}
-	if err := finish(len(projects), total, runErr); err != nil && stateErr == nil {
-		stateErr = err
+	if err := r.finish(n, r.total, runErr); err != nil && r.stateErr == nil {
+		r.stateErr = err
 	}
-	if stateErr != nil {
-		return &ExitError{2, "fyr dream: the watermarks could not be saved, so the next run re-sends this one: " + stateErr.Error()}
+	if r.stateErr != nil {
+		return &ExitError{2, "fyr dream: the watermarks could not be saved, so the next run re-sends this one: " + r.stateErr.Error()}
 	}
-	if failed > 0 {
-		return &ExitError{1, fmt.Sprintf("fyr dream: %d project(s) failed; see %s", failed, filepath.Join(conf, "dream.log"))}
+	if r.failed > 0 {
+		return &ExitError{1, fmt.Sprintf("fyr dream: %d project(s) failed; see %s", r.failed, filepath.Join(r.conf, "dream.log"))}
 	}
 	return nil
 }
