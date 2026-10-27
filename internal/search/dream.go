@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -196,7 +195,10 @@ func conversationText(src, id, tmp string) (string, error) {
 		return "", nil
 	}
 	db, err := openCopy(filepath.Join(src, "conversations"), id+".db", tmp)
-	if errors.Is(err, os.ErrNotExist) {
+	// A missing database, or one (or its -wal, -shm) that is not a regular
+	// file, is skipped: one planted FIFO must not fail a project's dream
+	// (plan 2026-10-27-harness-audit-fix D8).
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrNotRegular) {
 		return "", nil
 	}
 	if err != nil {
@@ -279,23 +281,6 @@ func openCopy(dir, name, tmp string) (*sql.DB, error) {
 		}
 	}
 	return nil, err
-}
-
-func copyFileImpl(from, to string) error {
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 // removeIfEmpty removes dir only when nothing is in it, so a run that had to

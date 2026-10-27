@@ -8,12 +8,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // resolve returns p with every symlink resolved, for a path that may not
@@ -108,7 +108,9 @@ var errInsideCheckout = errors.New("inside a git checkout")
 // other error is inside. Discovery crosses mounts, because the CLI's loading
 // of an ancestor AGENTS.md does (BUG-106).
 func outsideCheckout(dir string) error {
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	// trail.Command for its hardened options (SD43 of the 2026-10-27 audit);
+	// the env below replaces its own, which is stricter (plan D13).
+	cmd := trail.Command(dir, "rev-parse", "--git-dir")
 	env := []string{"LC_ALL=C", "GIT_DISCOVERY_ACROSS_FILESYSTEM=1"}
 	for _, kv := range withoutGit(os.Environ()) {
 		if k, _, _ := strings.Cut(kv, "="); k != "LC_ALL" && k != "LANGUAGE" {

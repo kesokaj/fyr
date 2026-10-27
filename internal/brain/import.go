@@ -1,7 +1,6 @@
 package brain
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -78,11 +77,13 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 		return nil, err
 	}
 	if !dryRun {
-		out, err := trail.Command(top, "status", "--porcelain").Output()
+		// trail.Dirty, never `git status`, which runs the checkout's own
+		// clean filters (SD38 of the 2026-10-27 audit).
+		dirty, err := trail.Dirty(top)
 		if err != nil {
-			return nil, fmt.Errorf("git status: %w", err)
+			return nil, fmt.Errorf("checking for uncommitted changes: %w", err)
 		}
-		if len(bytes.TrimSpace(out)) > 0 {
+		if dirty {
 			return nil, refuse("the tree has uncommitted changes: commit or stash them first, so the import's removals are the only change")
 		}
 	}

@@ -145,6 +145,9 @@ func TestLoadRefusals(t *testing.T) {
 		"memory exported": {strings.Replace(strings.Replace(good, `"bug"`, `"memory"`, 1), `BUG-001`, `MEMORY-2026-10-24-1000-x`, 1) + "\n", []string{"line 1"}},
 		"bad status":      {strings.Replace(good, `"open"`, `"maybe"`, 1) + "\n", []string{"line 1", "maybe"}},
 		"bad id":          {strings.Replace(good, `BUG-001`, `ADR-001`, 1) + "\n", []string{"line 1"}},
+		// An impossible day sorts first in every search (SD39 of the 2026-10-27 audit).
+		"impossible date": {strings.Replace(good, `"2026-10-24","id"`, `"9999-99-99","id"`, 1) + "\n", []string{"line 1", "9999-99-99"}},
+		"no such day":     {strings.Replace(good, `"2026-10-24","id"`, `"2026-02-30","id"`, 1) + "\n", []string{"line 1", "2026-02-30"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, home := repo(t), t.TempDir()

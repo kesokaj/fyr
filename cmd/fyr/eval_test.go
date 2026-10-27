@@ -392,7 +392,43 @@ func TestEvalIngestSkipsReplaced(t *testing.T) {
 	if k, _ := passK(t, home, "eval=x"); k != 0 {
 		t.Errorf("a replaced sandbox was ingested: k %d", k)
 	}
-	if err := ingestRow(home, eval.Result{Row: "ctl", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: dir}); err != nil {
+	// Without the reason, a linked home is still not followed (IN35 of the
+	// 2026-10-27 audit): only a real directory is a sandbox home.
+	if err := ingestRow(home, eval.Result{Row: "link", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := passK(t, home, "eval=link"); k != 0 {
+		t.Errorf("a linked sandbox home was ingested without the replaced reason: k %d", k)
+	}
+	// A link one component down, home/.gemini to the real home's, is not
+	// followed either (security review of the fix, finding 2).
+	deep := filepath.Join(tmp, "deep")
+	if err := os.MkdirAll(filepath.Join(deep, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(real, ".gemini"), filepath.Join(deep, "home", ".gemini")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ingestRow(home, eval.Result{Row: "deep", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: deep}); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := passK(t, home, "eval=deep"); k != 0 {
+		t.Errorf("a sandbox whose .gemini links to the real home was ingested: k %d", k)
+	}
+	// A row that left processes is not read: one that ignored SIGTERM could
+	// swap a directory after the check (security review of the fix, round 2).
+	procs := filepath.Join(tmp, "procs")
+	agyHome(t, filepath.Join(procs, "home"), "C3")
+	if err := ingestRow(home, eval.Result{Row: "procs", Verdict: "FAIL", Reasons: []string{eval.ReasonProcs}, Dir: procs}); err != nil {
+		t.Fatal(err)
+	}
+	if k, _ := passK(t, home, "eval=procs"); k != 0 {
+		t.Errorf("a row that left processes was ingested: k %d", k)
+	}
+	// The control: the same conversation under a real home directory is read.
+	ctl := filepath.Join(tmp, "control")
+	agyHome(t, filepath.Join(ctl, "home"), "C2")
+	if err := ingestRow(home, eval.Result{Row: "ctl", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: ctl}); err != nil {
 		t.Fatal(err)
 	}
 	if k, _ := passK(t, home, "eval=ctl"); k != 1 {
@@ -506,5 +542,15 @@ func TestEvalVerbList(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.home, harness.StateDir, "eval")); !os.IsNotExist(err) {
 		t.Errorf("--list created the sandbox root: %v", err)
+	}
+}
+
+// An install source Dirty cannot read is labelled unknown, never shown as a
+// clean tree (security review of the 2026-10-27 fix).
+func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
+	notRepo := t.TempDir()
+	body := evalBody(t.TempDir(), eval.Options{}, harness.Source{Dir: notRepo}, nil)
+	if !strings.Contains(body, notRepo+" (dirty: unknown") {
+		t.Errorf("source line not labelled unknown:\n%s", body)
 	}
 }

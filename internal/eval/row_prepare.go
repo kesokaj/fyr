@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // namedGrants is the allow list of a named row (run.sh:212).
@@ -34,6 +35,9 @@ exec %[2]s "$1" --home %[1]s "${@:2}"
 // prepare is steps 2-8b; false means the row has failed and no CLI runs.
 func (w *row) prepare(ctx context.Context) bool {
 	// Step 2: the clone, its own toplevel, outside every checkout.
+	// The clone stays a plain git call: it has no -C root for trail.Command
+	// and clones the operator's own fixture into a fresh directory (plan
+	// 2026-10-27-harness-audit-fix D13).
 	clone := exec.CommandContext(ctx, "git", "clone", "-q", "--no-hardlinks", "--", w.o.Fixture, w.app)
 	clone.Env = withoutGit(os.Environ())
 	if out, err := clone.CombinedOutput(); err != nil {
@@ -41,7 +45,7 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonClone)
 		return false
 	}
-	top := exec.Command("git", "-C", w.app, "rev-parse", "--show-toplevel")
+	top := trail.Command(w.app, "rev-parse", "--show-toplevel")
 	top.Env = withoutGit(os.Environ())
 	gotTop, err := top.Output()
 	wantTop, rerr := filepath.EvalSymlinks(w.app)

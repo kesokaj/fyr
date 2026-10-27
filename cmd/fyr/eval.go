@@ -220,10 +220,16 @@ func findRecord(recs []brain.Record, id string) (brain.Record, bool) {
 // eval=<row>, its verdict as the outcome. A row that failed before its
 // sandbox home existed has nothing to read; a sandbox that already existed is
 // another invocation's and is never read as this one's; a sandbox the agent
-// replaced may lead anywhere, the real home included.
+// replaced may lead anywhere, the real home included; a link in place of
+// the home, or of a directory on the way to its conversations, is never
+// followed, whatever the reasons say (IN35 of the 2026-10-27 audit, and the
+// security review of its fix).
 func ingestRow(home string, r eval.Result) error {
 	sb := filepath.Join(r.Dir, "home")
-	if st, err := os.Stat(sb); err != nil || !st.IsDir() || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) {
+	// A row that left processes running is not read either: one that ignored
+	// SIGTERM could swap a directory between this check and the ingest
+	// (security review of the fix, round 2).
+	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || slices.Contains(r.Reasons, eval.ReasonProcs) || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) {
 		return nil
 	}
 	outcome := "pass"
@@ -257,7 +263,11 @@ func evalBody(root string, o eval.Options, src harness.Source, results []eval.Re
 	source := "embedded " + src.Version
 	if src.Dir != "" {
 		source = src.Dir
-		if out, err := trail.Command(src.Dir, "status", "--porcelain").Output(); err == nil && len(bytes.TrimSpace(out)) > 0 {
+		// A tree Dirty cannot read is labelled so, never shown as clean
+		// (security review of the 2026-10-27 fix).
+		if dirty, err := trail.Dirty(src.Dir); err != nil {
+			source += " (dirty: unknown, " + search.Printable(err.Error()) + ")"
+		} else if dirty {
 			source += " (dirty)"
 		}
 	}
@@ -304,4 +314,24 @@ func agyVersion() string {
 	}
 	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	return line
+}
+
+// realDirs reports whether dir, and each of parts below it in turn, is a
+// directory and not a link. A missing part below dir is fine: there is
+// nothing to read there, and ingest finds nothing.
+func realDirs(dir string, parts ...string) bool {
+	if st, err := os.Lstat(dir); err != nil || !st.IsDir() {
+		return false
+	}
+	for _, p := range parts {
+		dir = filepath.Join(dir, p)
+		st, err := os.Lstat(dir)
+		if errors.Is(err, os.ErrNotExist) {
+			return true
+		}
+		if err != nil || !st.IsDir() {
+			return false
+		}
+	}
+	return true
 }

@@ -12,7 +12,6 @@
 package trail
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -116,20 +115,12 @@ func changed(root, docs string) (out map[string]bool, ok bool) {
 		}
 		paths, blobs = append(paths, path), append(blobs, f[2])
 	}
-	if len(paths) == 0 {
-		return out, true
-	}
-	cmd := Command(root, "hash-object", "--no-filters", "--stdin-paths")
-	cmd.Stdin = strings.NewReader(strings.Join(paths, "\n") + "\n")
-	hashed, err := cmd.Output()
-	got := strings.Fields(string(bytes.TrimSpace(hashed)))
-	if err != nil || len(got) != len(paths) {
+	differ, err := hashesDiffer(root, paths, blobs)
+	if err != nil {
 		return nil, false
 	}
-	for i, p := range paths {
-		if got[i] != blobs[i] {
-			out[p] = true
-		}
+	for p := range differ {
+		out[p] = true
 	}
 	return out, true
 }
@@ -155,12 +146,34 @@ func DocsRoot(root string) string {
 // which is why a partial clone is read only on a newer git (Readable). Every git
 // call into a project repository (dream, metrics, search, memory) is built
 // here (BUG-165); internal/harness runs git only in the harness's own
-// checkout, which is the operator's.
+// checkout, which is the operator's. The child drops fyr's own
+// repository-locating variables (repoVars), so -C root decides.
 func Command(root string, args ...string) *exec.Cmd {
 	full := append([]string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "log.showSignature=false", "-C", root}, args...)
 	cmd := exec.Command("git", full...)
-	cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1")
+	cmd.Env = append(withoutRepoVars(os.Environ()), "GIT_NO_LAZY_FETCH=1")
 	return cmd
+}
+
+// repoVars are the variables that locate a repository. One exported by a
+// git hook or `git rebase -x` that runs fyr would make a read answer for
+// that repository instead of root (SD24 of the 2026-10-27 audit, plan
+// D20); the config variables are the operator's own and pass.
+var repoVars = []string{"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=", "GIT_ALTERNATE_OBJECT_DIRECTORIES=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=",
+	"GIT_QUARANTINE_PATH=", "GIT_SHALLOW_FILE=", "GIT_REPLACE_REF_BASE=", "GIT_NO_REPLACE_OBJECTS="}
+
+func withoutRepoVars(env []string) []string {
+	out := env[:0:0]
+next:
+	for _, kv := range env {
+		for _, v := range repoVars {
+			if strings.HasPrefix(kv, v) {
+				continue next
+			}
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 // Log runs `git log` in root with the hardened options, --no-show-signature,

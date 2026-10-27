@@ -305,3 +305,36 @@ func TestImportCapsFileCount(t *testing.T) {
 		t.Fatalf("an import past the file cap must be refused, got %v", err)
 	}
 }
+
+// The import's dirty check runs no clean filter the checkout's own config
+// defines: `git status` would (SD38 of the 2026-10-27 audit, BUG-164).
+func TestImportRunsNoCleanFilter(t *testing.T) {
+	dir, home := docsFixture(t), t.TempDir()
+	marker := filepath.Join(t.TempDir(), "filter-ran")
+	prog := filepath.Join(t.TempDir(), "fake-clean")
+	if err := os.WriteFile(prog, []byte("#!/bin/sh\ntouch '"+marker+"'\ncat\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.md filter=x\n"), 0o644)
+	git(t, dir, "add", ".gitattributes")
+	git(t, dir, "commit", "-qm", "attributes")
+	git(t, dir, "config", "filter.x.clean", prog)
+	var md string
+	filepath.WalkDir(filepath.Join(dir, ".agents", "docs"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && md == "" && !d.IsDir() && strings.HasSuffix(p, ".md") {
+			md = p
+		}
+		return nil
+	})
+	if md == "" {
+		t.Fatal("the fixture holds no .md file")
+	}
+	later := time.Now().Add(time.Hour)
+	os.Chtimes(md, later, later)
+	if _, err := Import(opts(dir, home), "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the import ran the checkout's clean filter")
+	}
+}

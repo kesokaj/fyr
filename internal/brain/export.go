@@ -272,7 +272,9 @@ func parseLine(l []byte, n int) (Record, error) {
 		return Record{}, refuse("trail.jsonl line %d: id %q is not a %s id (%s)", n, r.ID, r.Kind, idGrammar(r.Kind))
 	case !allowed(r.Kind, r.Status):
 		return Record{}, refuse("trail.jsonl line %d: status %q is not one a %s takes", n, r.Status, r.Kind)
-	case !dateRe.MatchString(r.Date):
+	case !realDay(r.Date):
+		// A day that does not exist sorts first in every search, where
+		// julianday is NULL (SD39 of the 2026-10-27 audit).
 		return Record{}, refuse("trail.jsonl line %d: date %q is not YYYY-MM-DD", n, r.Date)
 	case r.Title == "" || len(r.Title) > maxTitle || !titleText(r.Title):
 		return Record{}, refuse("trail.jsonl line %d: the title must be one non-empty line of text, at most %d bytes", n, maxTitle)

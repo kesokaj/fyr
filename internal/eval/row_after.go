@@ -36,8 +36,14 @@ func (w *row) afterSession(ctx context.Context, tok string) {
 		w.fail(ReasonCheck)
 	}
 	// Step 14: the agent the row names was invoked.
-	if w.r.Agent != "" && !invoked(w.sb, w.r.Agent) {
-		w.fail(ReasonAgent(w.r.Agent))
+	if w.r.Agent != "" {
+		ok, notes := invokedNotes(w.sb, w.r.Agent)
+		for _, n := range notes {
+			w.note("%s", n)
+		}
+		if !ok {
+			w.fail(ReasonAgent(w.r.Agent))
+		}
 	}
 }
 
