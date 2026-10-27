@@ -192,8 +192,9 @@ func TestImportGlobalUnreadableProjectList(t *testing.T) {
 	}
 }
 
-// A store that cannot be opened, or is busy, ends the import with its
-// error, and no record is reported stored.
+// A store that cannot be opened, or is busy, ends the import with its error,
+// and no record is reported stored. A busy write waits out the driver's
+// 10 s busy timeout, which no test variable shortens.
 func TestImportGlobalStoreErrors(t *testing.T) {
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, filepath.Dir(harness.StateDir)), 0o700)
@@ -221,9 +222,6 @@ func TestImportGlobalStoreErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer holder.Exec(`ROLLBACK`)
-	old := openWait
-	openWait = 100 * time.Millisecond
-	t.Cleanup(func() { openWait = old })
 	if res, err := ImportGlobal(globalOpts(home, t), false); err == nil || res != nil {
 		t.Errorf("a busy store must fail the import: %+v %v", res, err)
 	}

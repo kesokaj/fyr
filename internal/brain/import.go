@@ -62,30 +62,9 @@ func ShellQuote(s string) string {
 // root for the caller to `git rm` by name, plus the old memory store's files
 // it took. A dry run reads, decides and checks the same and writes nothing.
 func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
-	if o.Global {
-		return nil, usage("a project import takes no --global; the global logs are `fyr record import --global`")
-	}
-	scope, top, err := resolveProject(o.Dir)
+	scope, top, root, err := importTarget(o, docsArg, dryRun)
 	if err != nil {
 		return nil, err
-	}
-	if err := guardExportPath(top); err != nil {
-		return nil, err
-	}
-	root, err := docsRootOf(o.Dir, top, docsArg)
-	if err != nil {
-		return nil, err
-	}
-	if !dryRun {
-		// trail.Dirty, never `git status`, which runs the checkout's own
-		// clean filters (SD38 of the 2026-10-27 audit).
-		dirty, err := trail.Dirty(top)
-		if err != nil {
-			return nil, fmt.Errorf("checking for uncommitted changes: %w", err)
-		}
-		if dirty {
-			return nil, refuse("the tree has uncommitted changes: commit or stash them first, so the import's removals are the only change")
-		}
 	}
 	b := newBudget()
 	files, keeps, err := readDocs(top, root, b)
@@ -102,6 +81,62 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 		return nil, err
 	}
 	kept := keep(cands, outside)
+	res := removeList(files, left, keeps)
+	res.Dropped = len(cands) - len(kept)
+	mems, memFiles, memProblems, err := readMemoryStore(scope, b)
+	if err != nil {
+		return nil, err
+	}
+	res.Problems = append(res.Problems, memProblems...)
+	res.Memory = memFiles
+	recs, err := projectRecords(res, kept, mems, scope)
+	if err != nil {
+		return nil, err
+	}
+	if dryRun {
+		return res, nil
+	}
+	if err := storeImported(o.Home, scope, top, res, recs, true); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// importTarget resolves a project import's checkout and docs root, and
+// refuses --global, a checkout whose .agents the export may not write
+// through, and (unless dryRun) a tree with uncommitted changes.
+func importTarget(o Options, docsArg string, dryRun bool) (scope, top, root string, err error) {
+	if o.Global {
+		return "", "", "", usage("a project import takes no --global; the global logs are `fyr record import --global`")
+	}
+	scope, top, err = resolveProject(o.Dir)
+	if err != nil {
+		return "", "", "", err
+	}
+	if err := guardExportPath(top); err != nil {
+		return "", "", "", err
+	}
+	root, err = docsRootOf(o.Dir, top, docsArg)
+	if err != nil {
+		return "", "", "", err
+	}
+	if !dryRun {
+		// trail.Dirty, never `git status`, which runs the checkout's own
+		// clean filters (SD38 of the 2026-10-27 audit).
+		dirty, err := trail.Dirty(top)
+		if err != nil {
+			return "", "", "", fmt.Errorf("checking for uncommitted changes: %w", err)
+		}
+		if dirty {
+			return "", "", "", refuse("the tree has uncommitted changes: commit or stash them first, so the import's removals are the only change")
+		}
+	}
+	return scope, top, root, nil
+}
+
+// removeList is a result whose Remove lists every docs file but those left
+// as files, then the placeholders; each one left is a problem.
+func removeList(files []docFile, left, keeps []string) *ImportResult {
 	res := &ImportResult{}
 	leftAlone := map[string]bool{}
 	for _, p := range left {
@@ -114,14 +149,12 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 		}
 	}
 	res.Remove = append(res.Remove, keeps...)
-	res.Dropped = len(cands) - len(kept)
-	mems, memFiles, memProblems, err := readMemoryStore(scope, b)
-	if err != nil {
-		return nil, err
-	}
-	res.Problems = append(res.Problems, memProblems...)
-	res.Memory = memFiles
+	return res
+}
 
+// projectRecords makes the records of the kept candidates and the memories
+// in scope, adding each to res.Records.
+func projectRecords(res *ImportResult, kept []candidate, mems []Imported, scope string) ([]Record, error) {
 	var recs []Record
 	for _, c := range kept {
 		r := normalize(c.rec)
@@ -140,22 +173,26 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 		recs = append(recs, m.rec)
 		res.Records = append(res.Records, m)
 	}
-	if dryRun {
-		return res, nil
-	}
-	st, err := openStore(o.Home)
+	return recs, nil
+}
+
+// storeImported stores recs into the store under home, in scope (exporting
+// to top's trail.jsonl when export is set), and leaves in res.Records only
+// the records it stored, counting the rest as skipped.
+func storeImported(home, scope, top string, res *ImportResult, recs []Record, export bool) error {
+	st, err := openStore(home)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	s := &session{st: st, scope: scope, top: top}
 	defer s.close()
-	stored, err := s.insertNew(recs, true)
+	stored, err := s.insertNew(recs, export)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	res.Skipped = len(res.Records) - len(stored)
 	res.Records = filterStored(res.Records, stored)
-	return res, nil
+	return nil
 }
 
 // storedKey is a record's key in the store: two projects may each hold

@@ -55,3 +55,16 @@ func TestSearchAndRefsWithNoWords(t *testing.T) {
 		t.Errorf("Refs of no word: %v %v", hits, err)
 	}
 }
+
+// Review of funclen Phase 2, finding 3: a query the store cannot run is an
+// error, wrapped as the brain's.
+func TestOwnHitsQueryError(t *testing.T) {
+	st, err := openStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.close()
+	if hits, _, err := ownHits(st, Options{Global: true}, "", "BUG-001", "", 10); err == nil || hits != nil || !strings.HasPrefix(err.Error(), "brain: ") {
+		t.Errorf("%v %v, want a brain: error and no hits", hits, err)
+	}
+}

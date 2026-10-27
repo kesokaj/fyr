@@ -115,104 +115,137 @@ func classify(files []docFile, today string) ([]candidate, []string, error) {
 	var left []string
 	newestHandoff := -1
 	for _, f := range files {
-		meta, body := frontmatter(f.text)
-		body = strings.TrimSpace(body)
-		base := strings.TrimSuffix(filepath.Base(f.rel), ".md")
-		dir, _, _ := strings.Cut(f.rel, "/")
-		date := docDate(meta, base, today)
-		title := heading(body)
-		if title == "" {
-			title = base
+		cs, isLeft, err := classifyFile(f, ix, today)
+		if err != nil {
+			return nil, nil, err
 		}
-		updated := date + "T00:00:00Z"
-		var c candidate
-		switch {
-		case f.rel == "bugs/INDEX.md":
-			continue
-		case f.rel == "architecture/DECISIONS.md":
-			adrs, err := splitADRs(body, f.path, today)
-			if err != nil {
-				return nil, nil, err
-			}
-			out = append(out, adrs...)
-			continue
-		case bugFile.MatchString(f.rel):
-			id := bugFile.FindStringSubmatch(f.rel)[1]
-			status := bugStatus(meta["status"])
-			if s, ok := ix.status[id]; ok && meta["status"] == "" {
-				status = bugStatus(s)
-			}
-			if _, ok := ix.graduated[id]; ok {
-				status = "graduated"
-			}
-			title = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(title, id), ":"))
-			if title == "" {
-				title = id
-			}
-			if status != "open" {
-				// A closed bug keeps its title and prevention rule (D8): it is
-				// the learning.
-				prev := section(body, "Prevention")
-				if prev == "" && ix.prevention[id] != "" {
-					prev = "## Prevention\n" + ix.prevention[id]
-				}
-				body = "# " + id + ": " + title
-				if prev != "" {
-					body += "\n\n" + prev
-				}
-			}
-			if g, ok := ix.graduated[id]; ok {
-				body += "\n\nGraduated to: " + g
-			}
-			c = candidate{rec: Record{ID: id, Kind: "bug", Status: status}, root: true}
-		case guides[f.rel] != "":
-			c = candidate{rec: Record{ID: guides[f.rel], Kind: "guide", Status: "current"}, root: true}
-		case dir == "testing" && strings.HasSuffix(base, "-matrix") && !stampPrefix.MatchString(base):
-			c = candidate{rec: Record{ID: "GUIDE-" + slugOf(base), Kind: "guide", Status: "current"}, root: true}
-		case dirKinds[dir] != "":
-			kind := dirKinds[dir]
-			stem := base
-			if kind == "spec" {
-				// specs/<app>/<topic>.md is SPEC-<app>-<topic>.
-				stem = strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(f.rel, "specs/"), ".md"), "/", "-")
-			}
-			r := Record{ID: ImportedID(kind, stem), Kind: kind}
-			switch kind {
-			case "plan":
-				r.Status = planStatus(body)
-			case "handoff":
-				r.Status = ""
-			case "spec", "deploy":
-				r.Status = "current"
-			default:
-				r.Status = "closed"
-			}
-			c = candidate{rec: r, root: kind == "spec" || kind == "deploy" || (kind == "plan" && r.Status == "open")}
-			if kind == "handoff" && (newestHandoff < 0 || base > strings.TrimSuffix(filepath.Base(out[newestHandoff].path), ".md")) {
-				newestHandoff = len(out)
-			}
-		default:
+		if isLeft {
 			left = append(left, f.path)
 			continue
 		}
-		if !validID(c.rec.Kind, c.rec.ID) {
-			return nil, nil, refuse("%s: %q is not a valid %s id", f.path, c.rec.ID, c.rec.Kind)
+		for _, c := range cs {
+			if c.rec.Kind == "handoff" && (newestHandoff < 0 || fileStem(c.path) > fileStem(out[newestHandoff].path)) {
+				newestHandoff = len(out)
+			}
+			out = append(out, c)
 		}
-		c.rec.Date, c.rec.Title, c.rec.Body, c.rec.Updated = date, oneLine(title), body, updated
-		c.path, c.rel = f.path, f.rel
-		out = append(out, c)
 	}
 	if newestHandoff >= 0 {
 		out[newestHandoff].root = true
 	}
+	if err := uniqueIDs(out); err != nil {
+		return nil, nil, err
+	}
+	return out, left, nil
+}
+
+// fileStem is a path's base name without .md.
+func fileStem(p string) string { return strings.TrimSuffix(filepath.Base(p), ".md") }
+
+// classifyFile is one file's candidates: none for INDEX.md, one per ADR for
+// DECISIONS.md, else one; left reports a file outside every trail directory.
+func classifyFile(f docFile, ix bugIndex, today string) (cs []candidate, left bool, err error) {
+	meta, body := frontmatter(f.text)
+	body = strings.TrimSpace(body)
+	base := fileStem(f.rel)
+	dir, _, _ := strings.Cut(f.rel, "/")
+	date := docDate(meta, base, today)
+	title := heading(body)
+	if title == "" {
+		title = base
+	}
+	var c candidate
+	switch {
+	case f.rel == "bugs/INDEX.md":
+		return nil, false, nil
+	case f.rel == "architecture/DECISIONS.md":
+		adrs, err := splitADRs(body, f.path, today)
+		return adrs, false, err
+	case bugFile.MatchString(f.rel):
+		c, title, body = bugCandidate(f.rel, meta, title, body, ix)
+	case guides[f.rel] != "":
+		c = candidate{rec: Record{ID: guides[f.rel], Kind: "guide", Status: "current"}, root: true}
+	case dir == "testing" && strings.HasSuffix(base, "-matrix") && !stampPrefix.MatchString(base):
+		c = candidate{rec: Record{ID: "GUIDE-" + slugOf(base), Kind: "guide", Status: "current"}, root: true}
+	case dirKinds[dir] != "":
+		c = dirCandidate(dirKinds[dir], f.rel, base, body)
+	default:
+		return nil, true, nil
+	}
+	if !validID(c.rec.Kind, c.rec.ID) {
+		return nil, false, refuse("%s: %q is not a valid %s id", f.path, c.rec.ID, c.rec.Kind)
+	}
+	c.rec.Date, c.rec.Title, c.rec.Body, c.rec.Updated = date, oneLine(title), body, date+"T00:00:00Z"
+	c.path, c.rel = f.path, f.rel
+	return []candidate{c}, false, nil
+}
+
+// bugCandidate is a bug file's candidate, with the title and body it keeps:
+// INDEX.md gives the status the file does not, and graduation; a closed bug
+// keeps only its title and prevention rule.
+func bugCandidate(rel string, meta map[string]string, title, body string, ix bugIndex) (candidate, string, string) {
+	id := bugFile.FindStringSubmatch(rel)[1]
+	status := bugStatus(meta["status"])
+	if s, ok := ix.status[id]; ok && meta["status"] == "" {
+		status = bugStatus(s)
+	}
+	if _, ok := ix.graduated[id]; ok {
+		status = "graduated"
+	}
+	title = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(title, id), ":"))
+	if title == "" {
+		title = id
+	}
+	if status != "open" {
+		// A closed bug keeps its title and prevention rule (D8): it is
+		// the learning.
+		prev := section(body, "Prevention")
+		if prev == "" && ix.prevention[id] != "" {
+			prev = "## Prevention\n" + ix.prevention[id]
+		}
+		body = "# " + id + ": " + title
+		if prev != "" {
+			body += "\n\n" + prev
+		}
+	}
+	if g, ok := ix.graduated[id]; ok {
+		body += "\n\nGraduated to: " + g
+	}
+	return candidate{rec: Record{ID: id, Kind: "bug", Status: status}, root: true}, title, body
+}
+
+// dirCandidate is the candidate of a file in kind's directory; a spec,
+// a deploy guide and an open plan are kept as roots.
+func dirCandidate(kind, rel, base, body string) candidate {
+	stem := base
+	if kind == "spec" {
+		// specs/<app>/<topic>.md is SPEC-<app>-<topic>.
+		stem = strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(rel, "specs/"), ".md"), "/", "-")
+	}
+	r := Record{ID: ImportedID(kind, stem), Kind: kind}
+	switch kind {
+	case "plan":
+		r.Status = planStatus(body)
+	case "handoff":
+		r.Status = ""
+	case "spec", "deploy":
+		r.Status = "current"
+	default:
+		r.Status = "closed"
+	}
+	return candidate{rec: r, root: kind == "spec" || kind == "deploy" || (kind == "plan" && r.Status == "open")}
+}
+
+// uniqueIDs refuses two candidates of one ID.
+func uniqueIDs(out []candidate) error {
 	seen := map[string]string{}
 	for _, c := range out {
 		if p, dup := seen[c.rec.ID]; dup {
-			return nil, nil, refuse("%s and %s both import as %s; rename one", p, c.path, c.rec.ID)
+			return refuse("%s and %s both import as %s; rename one", p, c.path, c.rec.ID)
 		}
 		seen[c.rec.ID] = c.path
 	}
-	return out, left, nil
+	return nil
 }
 
 func oneLine(s string) string {

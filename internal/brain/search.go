@@ -49,25 +49,7 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 		if q == "" {
 			break
 		}
-		sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project,
-				snippet(records_fts, 1, char(1), char(2), '…', 24)
-			FROM records_fts JOIN records r ON r.rid = records_fts.rowid
-			WHERE records_fts MATCH ?`
-		args := []any{q}
-		if !o.Global {
-			sqlq += ` AND r.scope IN (?, '')`
-			args = append(args, project)
-		}
-		if kind != "" && kind != "trail" {
-			sqlq += ` AND r.kind = ?`
-			args = append(args, kind)
-		}
-		// BM25 (negative: lower is better) weighted up to 10% by recency,
-		// fading linearly over a year: of two near-equal matches the newer
-		// record, the trail's current state, comes first; a clearly better
-		// older match still wins (D31).
-		sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0) * (1 + 0.1 * min(1, max(0, 1 - (julianday(?) - julianday(r.date)) / 365.0))), r.id`
-		args = append(args, o.now().Format("2006-01-02"))
+		sqlq, args := searchQuery(o, q, kind, project)
 		rows, err := st.db.Query(sqlq, args...)
 		if err != nil {
 			return nil, fmt.Errorf("brain: %w", err)
@@ -95,6 +77,28 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 		}
 	}
 	return hits, nil
+}
+
+// searchQuery is one ranking pass's SQL and arguments: q over the
+// project's and the global scope (every scope with Global), of one kind
+// when kind is a record kind.
+func searchQuery(o Options, q, kind, project string) (string, []any) {
+	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project,
+				snippet(records_fts, 1, char(1), char(2), '…', 24)
+			FROM records_fts JOIN records r ON r.rid = records_fts.rowid
+			WHERE records_fts MATCH ?`
+	args := []any{q}
+	var f string
+	f, args = scopeFilter(o, project, args)
+	sqlq += f
+	f, args = kindFilter(kind, args)
+	sqlq += f
+	// BM25 (negative: lower is better) weighted up to 10% by recency,
+	// fading linearly over a year: of two near-equal matches the newer
+	// record, the trail's current state, comes first; a clearly better
+	// older match still wins (D31).
+	sqlq += ` ORDER BY bm25(records_fts, 2.0, 1.0) * (1 + 0.1 * min(1, max(0, 1 - (julianday(?) - julianday(r.date)) / 365.0))), r.id`
+	return sqlq, append(args, o.now().Format("2006-01-02"))
 }
 
 // openForSearch opens the store for a search from o.Dir, loading the
@@ -172,31 +176,11 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 		return nil, err
 	}
 	defer st.close()
-	var hits []Hit
-	seen := map[int64]bool{}
 	// The ID's own record first; its text need not name itself.
-	own := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project FROM records r WHERE r.id = ?`
-	oargs := []any{ref}
-	var f string
-	f, oargs = scopeFilter(o, project, oargs)
-	own += f
-	f, oargs = kindFilter(kind, oargs)
-	orows, err := st.db.Query(own+f+` ORDER BY r.scope`, oargs...)
+	hits, seen, err := ownHits(st, o, project, ref, kind, limit)
 	if err != nil {
-		return nil, fmt.Errorf("brain: %w", err)
+		return nil, err
 	}
-	for orows.Next() && len(hits) < limit {
-		var h Hit
-		var rid int64
-		if err := orows.Scan(&rid, &h.Scope, &h.ID, &h.Kind, &h.Status, &h.Date, &h.Title, &h.Project); err != nil {
-			orows.Close()
-			return nil, err
-		}
-		seen[rid] = true
-		h.Label = label(h.Scope, project, o.Global) + h.ID
-		hits = append(hits, h)
-	}
-	orows.Close()
 	words := strings.FieldsFunc(ref, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 	q := search.FTSQuery(words, " ")
 	if q == "" {
@@ -205,7 +189,7 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project, r.title || char(10) || r.body
 		FROM records_fts JOIN records r ON r.rid = records_fts.rowid WHERE records_fts MATCH ?`
 	args := []any{q}
-	f, args = scopeFilter(o, project, args)
+	f, args := scopeFilter(o, project, args)
 	sqlq += f
 	f, args = kindFilter(kind, args)
 	sqlq += f + ` ORDER BY r.date DESC, r.id`
@@ -230,6 +214,35 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 		hits = append(hits, h)
 	}
 	return hits, rows.Err()
+}
+
+// ownHits is the record whose ID is ref, in each scope Refs searches, and
+// the row IDs it returned.
+func ownHits(st *store, o Options, project, ref, kind string, limit int) ([]Hit, map[int64]bool, error) {
+	var hits []Hit
+	seen := map[int64]bool{}
+	own := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project FROM records r WHERE r.id = ?`
+	oargs := []any{ref}
+	var f string
+	f, oargs = scopeFilter(o, project, oargs)
+	own += f
+	f, oargs = kindFilter(kind, oargs)
+	orows, err := st.db.Query(own+f+` ORDER BY r.scope`, oargs...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("brain: %w", err)
+	}
+	defer orows.Close()
+	for orows.Next() && len(hits) < limit {
+		var h Hit
+		var rid int64
+		if err := orows.Scan(&rid, &h.Scope, &h.ID, &h.Kind, &h.Status, &h.Date, &h.Title, &h.Project); err != nil {
+			return nil, nil, err
+		}
+		seen[rid] = true
+		h.Label = label(h.Scope, project, o.Global) + h.ID
+		hits = append(hits, h)
+	}
+	return hits, seen, nil
 }
 
 // pathChar is a character a path or an ID can hold, so a match of ref

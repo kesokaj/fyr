@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -107,9 +106,9 @@ func TestClassifyArms(t *testing.T) {
 // A name that makes no ID, and two names that make one, are refused.
 func TestClassifyRefusals(t *testing.T) {
 	for name, files := range map[string][]docFile{
-		"no ID":   {{rel: "plans/!!!.md", path: "d/plans/!!!.md", text: "# x\n"}},
-		"one ID":  {{rel: "plans/Same.md", path: "d/plans/Same.md", text: "# a\n"}, {rel: "plans/same.md", path: "d/plans/same.md", text: "# b\n"}},
-		"ADR ids": {{rel: "architecture/DECISIONS.md", path: "d/a/D.md", text: "## ADR-001: a (2026-01-01) — Accepted\n\nx\n"}, {rel: "bugs/BUG-001-x.md", path: "d/b.md", text: "# x\n"}},
+		"no ID":        {{rel: "plans/!!!.md", path: "d/plans/!!!.md", text: "# x\n"}},
+		"one ID":       {{rel: "plans/Same.md", path: "d/plans/Same.md", text: "# a\n"}, {rel: "plans/same.md", path: "d/plans/same.md", text: "# b\n"}},
+		"distinct IDs": {{rel: "architecture/DECISIONS.md", path: "d/a/D.md", text: "## ADR-001: a (2026-01-01) — Accepted\n\nx\n"}, {rel: "bugs/BUG-001-x.md", path: "d/b.md", text: "# x\n"}},
 	} {
 		_, _, err := classify(files, "2026-10-27")
 		switch name {
@@ -209,7 +208,8 @@ func TestReadMemoryStoreArms(t *testing.T) {
 }
 
 // A store that cannot be opened, or is busy, ends a project import with its
-// error, and no record is reported stored.
+// error, and no record is reported stored. A busy write waits out the
+// driver's 10 s busy timeout, which no test variable shortens.
 func TestImportStoreErrors(t *testing.T) {
 	dir, home := docsFixture(t), t.TempDir()
 	os.MkdirAll(filepath.Join(home, filepath.Dir(harness.StateDir)), 0o700)
@@ -234,10 +234,39 @@ func TestImportStoreErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer holder.Exec(`ROLLBACK`)
-	old := openWait
-	openWait = 100 * time.Millisecond
-	t.Cleanup(func() { openWait = old })
 	if res, err := Import(opts(dir, home), "", false); err == nil || res != nil {
 		t.Errorf("a busy store must fail the import: %+v %v", res, err)
+	}
+}
+
+// Review of funclen Phase 2, finding 1: a dirty check that cannot run fails
+// the import closed, with its error and no result, in an unborn repository
+// and over a corrupt index alike.
+func TestImportFailsClosedWhenTheDirtyCheckFails(t *testing.T) {
+	unborn := repo(t)
+	p := filepath.Join(unborn, ".agents", "docs", "plans", "p.md")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte("# P\n\n- [ ] x\n"), 0o644)
+	corrupt := docsFixture(t)
+	os.WriteFile(filepath.Join(corrupt, ".git", "index"), []byte("garbage"), 0o644)
+	for name, dir := range map[string]string{"unborn": unborn, "corrupt index": corrupt} {
+		res, err := Import(opts(dir, t.TempDir()), "", false)
+		if err == nil || IsRefusal(err) || res != nil || !strings.Contains(err.Error(), "checking for uncommitted changes") {
+			t.Errorf("%s: %+v %v, want the dirty check's error and no result", name, res, err)
+		}
+	}
+}
+
+// Review of funclen Phase 2, finding 2: a tracked-files check that cannot
+// run refuses the memory store, never reads it as untracked.
+func TestReadMemoryStoreFailsClosedOnACorruptIndex(t *testing.T) {
+	dir := repo(t)
+	store := filepath.Join(dir, ".agents", "memory")
+	os.MkdirAll(store, 0o700)
+	os.WriteFile(filepath.Join(store, "keep-x.md"), []byte("---\ndescription: d\n---\n\nThe fact.\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, ".git", "index"), []byte("garbage"), 0o644)
+	recs, files, problems, err := readMemoryStore(dir, newBudget())
+	if err == nil || !strings.Contains(err.Error(), "git ls-files .agents/memory") || recs != nil || files != nil || problems != nil {
+		t.Errorf("%v %q %q %v, want the ls-files error and nothing read", recs, files, problems, err)
 	}
 }

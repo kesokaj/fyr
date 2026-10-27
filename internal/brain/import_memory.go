@@ -21,29 +21,8 @@ import (
 // is no records. A file it cannot take is a problem, and only the files it
 // took, with the store's index and lock, are listed for removal.
 func readMemoryStore(root string, b *budget) ([]Imported, []string, []string, error) {
-	if err := guardExportPath(root); err != nil {
-		return nil, nil, nil, err
-	}
-	store := filepath.Join(root, ".agents", "memory")
-	fi, err := os.Lstat(store)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	if !fi.IsDir() {
-		return nil, nil, nil, refuse("%s is not a directory (a symlinked store is refused)", store)
-	}
-	tracked, err := trail.Command(root, "ls-files", "--", ".agents/memory").Output()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("git ls-files .agents/memory: %w", err)
-	}
-	if len(bytes.TrimSpace(tracked)) > 0 {
-		return nil, nil, nil, refuse("git tracks files under %s: a committed memory is the repository's text, never the operator's; not imported", store)
-	}
-	entries, err := os.ReadDir(store)
-	if err != nil {
+	store, entries, err := memoryEntries(root)
+	if err != nil || store == "" {
 		return nil, nil, nil, err
 	}
 	var recs []Imported
@@ -68,44 +47,84 @@ func readMemoryStore(root string, b *budget) ([]Imported, []string, []string, er
 		if err := b.take(len(data), rel); err != nil {
 			return nil, nil, nil, err
 		}
-		text := strings.ReplaceAll(string(data), "\r\n", "\n")
-		meta, body := frontmatter(text)
-		name := strings.TrimSuffix(e.Name(), ".md")
-		typ, modified := "project", ""
-		for _, l := range strings.Split(text, "\n") {
-			l = strings.TrimSpace(l)
-			if t, ok := strings.CutPrefix(l, "type: "); ok && memoryTypes[t] {
-				typ = t
-			}
-			if t, ok := strings.CutPrefix(l, "modified: "); ok {
-				modified = t
-			}
-		}
-		body = strings.TrimSpace(body)
-		if !memorySlug.MatchString(name) || body == "" {
-			problems = append(problems, rel+": not a memory the store takes (its name, or an empty body); not imported")
-			continue
-		}
-		day, updated := "", ""
-		if t, err := time.Parse(time.RFC3339, modified); err == nil {
-			day, updated = t.UTC().Format("2006-01-02"), t.UTC().Format(time.RFC3339)
-		} else if info, err := e.Info(); err == nil {
-			day, updated = info.ModTime().UTC().Format("2006-01-02"), info.ModTime().UTC().Format(time.RFC3339)
-		}
-		r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
-			Body: "type: " + typ + "\n\n" + body, Updated: updated})
-		// A file the store would refuse is reported and skipped here: left to
-		// insertNew it would roll back the whole import, every project's under
-		// --global (a body the type line pushes past maxBody, a day no clock
-		// gave).
-		if err := checkRecord(r); err != nil {
-			problems = append(problems, rel+": "+err.Error()+"; not imported")
+		r, problem := memoryRecord(e, data)
+		if problem != "" {
+			problems = append(problems, rel+": "+problem+"; not imported")
 			continue
 		}
 		files = append(files, rel)
 		recs = append(recs, Imported{ID: r.ID, Kind: "memory", Status: "closed", Path: rel, rec: r})
 	}
 	return recs, files, problems, nil
+}
+
+// memoryEntries is the store's directory and its entries, after the trust
+// checks; "" when there is no store.
+func memoryEntries(root string) (string, []os.DirEntry, error) {
+	if err := guardExportPath(root); err != nil {
+		return "", nil, err
+	}
+	store := filepath.Join(root, ".agents", "memory")
+	fi, err := os.Lstat(store)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil, nil
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	if !fi.IsDir() {
+		return "", nil, refuse("%s is not a directory (a symlinked store is refused)", store)
+	}
+	tracked, err := trail.Command(root, "ls-files", "--", ".agents/memory").Output()
+	if err != nil {
+		return "", nil, fmt.Errorf("git ls-files .agents/memory: %w", err)
+	}
+	if len(bytes.TrimSpace(tracked)) > 0 {
+		return "", nil, refuse("git tracks files under %s: a committed memory is the repository's text, never the operator's; not imported", store)
+	}
+	entries, err := os.ReadDir(store)
+	if err != nil {
+		return "", nil, err
+	}
+	return store, entries, nil
+}
+
+// memoryRecord is one memory file's record, or why the store would not
+// take it.
+func memoryRecord(e os.DirEntry, data []byte) (Record, string) {
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	meta, body := frontmatter(text)
+	name := strings.TrimSuffix(e.Name(), ".md")
+	typ, modified := "project", ""
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if t, ok := strings.CutPrefix(l, "type: "); ok && memoryTypes[t] {
+			typ = t
+		}
+		if t, ok := strings.CutPrefix(l, "modified: "); ok {
+			modified = t
+		}
+	}
+	body = strings.TrimSpace(body)
+	if !memorySlug.MatchString(name) || body == "" {
+		return Record{}, "not a memory the store takes (its name, or an empty body)"
+	}
+	day, updated := "", ""
+	if t, err := time.Parse(time.RFC3339, modified); err == nil {
+		day, updated = t.UTC().Format("2006-01-02"), t.UTC().Format(time.RFC3339)
+	} else if info, err := e.Info(); err == nil {
+		day, updated = info.ModTime().UTC().Format("2006-01-02"), info.ModTime().UTC().Format(time.RFC3339)
+	}
+	r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
+		Body: "type: " + typ + "\n\n" + body, Updated: updated})
+	// A file the store would refuse is reported and skipped here: left to
+	// insertNew it would roll back the whole import, every project's under
+	// --global (a body the type line pushes past maxBody, a day no clock
+	// gave).
+	if err := checkRecord(r); err != nil {
+		return Record{}, err.Error()
+	}
+	return r, ""
 }
 
 // normalize makes an imported record one the load takes back: control

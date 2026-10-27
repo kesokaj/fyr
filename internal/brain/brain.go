@@ -269,31 +269,9 @@ func (s *session) allocate(c *sql.Conn, kind, title string, now time.Time) (stri
 // Add stores one record and returns its ID; in a project it exports at once.
 func Add(o Options, in AddInput) (string, error) {
 	kind := in.Kind
-	if !knownKind(kind) {
-		return "", usage("unknown kind %q: one of %s", kind, strings.Join(Kinds(), " "))
-	}
-	title, err := cleanTitle(in.Title)
+	title, err := checkAdd(o, in)
 	if err != nil {
 		return "", err
-	}
-	if in.Project != "" && !o.Global {
-		return "", usage("--project names the project a global record is about: it needs --global")
-	}
-	if in.ID != "" && !validID(kind, in.ID) {
-		return "", usage("--id %q is not a %s id (%s)", in.ID, kind, idGrammar(kind))
-	}
-	// A given status is checked before stdin is read; a plan's is derived
-	// from the body below.
-	if in.Status != "" || kind == "handoff" {
-		if _, err := resolveStatus(kind, in.Status, ""); err != nil {
-			return "", err
-		}
-	}
-	switch {
-	case o.Global && kind == "memory":
-		return "", refuse("memory records are project-scoped (D14): drop --global")
-	case !o.Global && globalOnly[kind]:
-		return "", refuse("%s records are global only (R8): add --global, and --project <root> for the project it is about", kind)
 	}
 	body, err := readBody(in.Body)
 	if err != nil {
@@ -374,27 +352,9 @@ func Get(o Options, ids []string) ([]Record, []string, error) {
 // Edit changes a record's status, title or body (D9: without a body only the
 // metadata changes); a plan's status follows its new body.
 func Edit(o Options, in EditInput) error {
-	if in.Status == nil && in.Title == nil && in.Body == nil {
-		return usage("usage: fyr record edit <id> [--status S] [--title T] [--body] needs at least one of them")
-	}
-	if in.Status != nil && *in.Status == "" {
-		return usage("--status needs a value")
-	}
-	var title string
-	if in.Title != nil {
-		t, err := cleanTitle(*in.Title)
-		if err != nil {
-			return err
-		}
-		title = t
-	}
-	var body string
-	if in.Body != nil {
-		b, err := readBody(in.Body)
-		if err != nil {
-			return err
-		}
-		body = b
+	title, body, err := editFields(in)
+	if err != nil {
+		return err
 	}
 	s, err := openSession(o, true)
 	if err != nil {
@@ -433,13 +393,8 @@ func Edit(o Options, in EditInput) error {
 
 // List returns the scope's records, newest first: with All every scope's.
 func List(o Options, f ListFilter) ([]Record, error) {
-	switch {
-	case f.Kind != "" && !knownKind(f.Kind):
-		return nil, usage("unknown kind %q: one of %s", f.Kind, strings.Join(Kinds(), " "))
-	case f.Project != "" && !o.Global:
-		return nil, usage("--project lists the global records about a project: it needs --global")
-	case f.All && o.Global:
-		return nil, usage("--all already covers every scope: drop --global")
+	if err := checkList(o, f); err != nil {
+		return nil, err
 	}
 	var s *session
 	var err error
@@ -452,24 +407,7 @@ func List(o Options, f ListFilter) ([]Record, error) {
 		return nil, err
 	}
 	defer s.close()
-	q := `SELECT ` + recordCols + ` FROM records WHERE 1 = 1`
-	var args []any
-	if !f.All {
-		q += ` AND scope = ?`
-		args = append(args, s.scope)
-	}
-	if f.Kind != "" {
-		q += ` AND kind = ?`
-		args = append(args, f.Kind)
-	}
-	if f.Open {
-		q += ` AND ` + openSQL
-	}
-	if f.Project != "" {
-		q += ` AND project = ?`
-		args = append(args, canonicalProject(f.Project))
-	}
-	q += ` ORDER BY date DESC, updated DESC, id DESC`
+	q, args := listQuery(f, s.scope)
 	rows, err := s.st.db.Query(q, args...)
 	if err != nil {
 		return nil, err

@@ -75,36 +75,52 @@ func readDocs(top, root string, b *budget) ([]docFile, []string, error) {
 		if !fi.Mode().IsRegular() {
 			return nil, nil, refuse("%s is not a regular file", p)
 		}
-		if path.Base(p) == ".gitkeep" && fi.Size() <= 64 {
-			// An empty or whitespace-only placeholder (the old template's
-			// hold one newline) is removed with the tree; one with text is
-			// refused below like any other file that is not markdown.
-			if data, err := readRegular(abs, 64); err == nil && strings.TrimSpace(string(data)) == "" {
-				keeps = append(keeps, p)
-				continue
-			}
+		if placeholder(p, abs, fi) {
+			keeps = append(keeps, p)
+			continue
 		}
 		if !strings.HasSuffix(p, ".md") {
 			notMD = append(notMD, p)
 			continue
 		}
-		data, err := readRegular(abs, maxBody)
+		f, err := readDoc(root, p, abs, b)
 		if err != nil {
-			if IsRefusal(err) {
-				return nil, nil, refuse("%s: %v; a record body is at most 1 MiB of a regular file", p, err)
-			}
 			return nil, nil, err
 		}
-		if err := b.take(len(data), p); err != nil {
-			return nil, nil, err
-		}
-		rel, _ := filepath.Rel(root, abs)
-		files = append(files, docFile{rel: filepath.ToSlash(rel), path: p, text: strings.ReplaceAll(string(data), "\r\n", "\n")})
+		files = append(files, f)
 	}
 	if len(notMD) > 0 {
 		return nil, nil, refuse("not a record (D17: move scripts out of the trail first): %s", strings.Join(notMD, ", "))
 	}
 	return files, keeps, nil
+}
+
+// placeholder reports an empty or whitespace-only `.gitkeep` (the old
+// template's hold one newline), removed with the tree; one with text is
+// refused like any other file that is not markdown.
+func placeholder(p, abs string, fi os.FileInfo) bool {
+	if path.Base(p) != ".gitkeep" || fi.Size() > 64 {
+		return false
+	}
+	data, err := readRegular(abs, 64)
+	return err == nil && strings.TrimSpace(string(data)) == ""
+}
+
+// readDoc reads one tracked record of the docs tree, within the body cap
+// and the import's read budget.
+func readDoc(root, p, abs string, b *budget) (docFile, error) {
+	data, err := readRegular(abs, maxBody)
+	if err != nil {
+		if IsRefusal(err) {
+			return docFile{}, refuse("%s: %v; a record body is at most 1 MiB of a regular file", p, err)
+		}
+		return docFile{}, err
+	}
+	if err := b.take(len(data), p); err != nil {
+		return docFile{}, err
+	}
+	rel, _ := filepath.Rel(root, abs)
+	return docFile{rel: filepath.ToSlash(rel), path: p, text: strings.ReplaceAll(string(data), "\r\n", "\n")}, nil
 }
 
 // frontmatter splits a leading --- block into its key: value lines and the

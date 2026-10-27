@@ -28,128 +28,168 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 	if !o.Global {
 		return nil, usage("import --global migrates ~/.config/fyr's logs")
 	}
-	conf := filepath.Join(o.Home, harness.StateDir)
-	res := &ImportResult{}
-	b := newBudget()
-	var recs []Record
-	used := map[string]bool{}
-	failed := map[string]bool{} // sources with a problem: kept, never listed for removal
-	problem := func(source, msg string) {
-		failed[source] = true
-		res.Problems = append(res.Problems, msg)
-	}
-	add := func(r Record, source string) {
-		r = normalize(r)
-		// A -N suffix is tried until it names no ID this import already
-		// gave: FOO.md, foo-2.md and foo.md are three records (round 2,
-		// finding 1).
-		if used[r.ID] {
-			base := r.ID
-			for n := 2; used[r.ID]; n++ {
-				r.ID = fmt.Sprintf("%s-%d", base, n)
-			}
-		}
-		used[r.ID] = true
-		if err := checkRecord(r); err != nil {
-			problem(source, fmt.Sprintf("%s: %v; not imported", source, err))
-			return
-		}
-		recs = append(recs, r)
-		res.Records = append(res.Records, Imported{ID: r.ID, Kind: r.Kind, Status: r.Status, Path: source, Project: r.Project, rec: r})
-	}
-	var sources []string
-
+	g := &globalImport{conf: filepath.Join(o.Home, harness.StateDir), res: &ImportResult{}, b: newBudget(),
+		used: map[string]bool{}, failed: map[string]bool{}}
 	for _, log := range []struct{ file, kind string }{{"feedback.jsonl", "feedback"}, {"retros.jsonl", "retro"}} {
-		lines, long, err := readLogLines(filepath.Join(conf, log.file))
-		if err != nil {
-			problem(log.file, log.file+": "+err.Error()+"; not imported")
-			continue
-		}
-		if lines == nil {
-			continue
-		}
-		sources = append(sources, log.file)
-		for _, n := range long {
-			problem(log.file, fmt.Sprintf("%s line %d: over %d bytes; not imported", log.file, n, maxLine))
-		}
-		for i, l := range lines {
-			if strings.TrimSpace(l) == "" {
-				continue
-			}
-			src := fmt.Sprintf("%s line %d", log.file, i+1)
-			var e map[string]any
-			if err := json.Unmarshal([]byte(l), &e); err != nil {
-				problem(log.file, src+": not one JSON object; not imported")
-				continue
-			}
-			ts, _ := e["ts"].(string)
-			t, err := time.Parse(time.RFC3339, ts)
-			if err != nil {
-				problem(log.file, fmt.Sprintf("%s: ts %q is not RFC 3339; not imported", src, ts))
-				continue
-			}
-			project, _ := e["project"].(string)
-			title := log.kind + " " + filepath.Base(project)
-			if log.kind == "feedback" {
-				corrected, _ := e["corrected"].(string)
-				if corrected == "" {
-					corrected, _ = e["user_quote"].(string)
-				}
-				title = corrected
-			}
-			// The line as written: indenting it first could multiply a
-			// nested line's size before any cap is checked (round 2,
-			// finding 2).
-			add(Record{ID: fmt.Sprintf("%s-%s-%s", prefixes[log.kind], t.Format("2006-01-02-1504"), slugify(title)), Kind: log.kind,
-				Status: "closed", Date: t.Format("2006-01-02"), Title: title, Body: l,
-				Project: projectKey(project), Updated: t.UTC().Format(time.RFC3339)}, log.file)
+		g.readLog(log.file, log.kind)
+	}
+	g.readProposals()
+	g.readMemories(o.Home)
+	res := g.res
+	for _, src := range g.sources {
+		if !g.failed[src] {
+			res.Sources = append(res.Sources, src)
 		}
 	}
+	if dryRun {
+		return res, nil
+	}
+	if err := storeImported(o.Home, "", "", res, g.recs, false); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
 
-	props := filepath.Join(conf, "proposals")
+// globalImport is one ImportGlobal run: what it read, and what it found.
+type globalImport struct {
+	conf    string // ~/.config/fyr
+	res     *ImportResult
+	b       *budget
+	recs    []Record
+	used    map[string]bool
+	failed  map[string]bool // sources with a problem: kept, never listed for removal
+	sources []string
+}
+
+func (g *globalImport) problem(source, msg string) {
+	g.failed[source] = true
+	g.res.Problems = append(g.res.Problems, msg)
+}
+
+func (g *globalImport) add(r Record, source string) {
+	r = normalize(r)
+	// A -N suffix is tried until it names no ID this import already
+	// gave: FOO.md, foo-2.md and foo.md are three records (round 2,
+	// finding 1).
+	if g.used[r.ID] {
+		base := r.ID
+		for n := 2; g.used[r.ID]; n++ {
+			r.ID = fmt.Sprintf("%s-%d", base, n)
+		}
+	}
+	g.used[r.ID] = true
+	if err := checkRecord(r); err != nil {
+		g.problem(source, fmt.Sprintf("%s: %v; not imported", source, err))
+		return
+	}
+	g.recs = append(g.recs, r)
+	g.res.Records = append(g.res.Records, Imported{ID: r.ID, Kind: r.Kind, Status: r.Status, Path: source, Project: r.Project, rec: r})
+}
+
+// readLog takes one JSONL log, a record of kind per line.
+func (g *globalImport) readLog(file, kind string) {
+	lines, long, err := readLogLines(filepath.Join(g.conf, file))
+	if err != nil {
+		g.problem(file, file+": "+err.Error()+"; not imported")
+		return
+	}
+	if lines == nil {
+		return
+	}
+	g.sources = append(g.sources, file)
+	for _, n := range long {
+		g.problem(file, fmt.Sprintf("%s line %d: over %d bytes; not imported", file, n, maxLine))
+	}
+	for i, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			g.readLogLine(file, kind, i+1, l)
+		}
+	}
+}
+
+func (g *globalImport) readLogLine(file, kind string, n int, l string) {
+	src := fmt.Sprintf("%s line %d", file, n)
+	var e map[string]any
+	if err := json.Unmarshal([]byte(l), &e); err != nil {
+		g.problem(file, src+": not one JSON object; not imported")
+		return
+	}
+	ts, _ := e["ts"].(string)
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		g.problem(file, fmt.Sprintf("%s: ts %q is not RFC 3339; not imported", src, ts))
+		return
+	}
+	project, _ := e["project"].(string)
+	title := kind + " " + filepath.Base(project)
+	if kind == "feedback" {
+		corrected, _ := e["corrected"].(string)
+		if corrected == "" {
+			corrected, _ = e["user_quote"].(string)
+		}
+		title = corrected
+	}
+	// The line as written: indenting it first could multiply a
+	// nested line's size before any cap is checked (round 2,
+	// finding 2).
+	g.add(Record{ID: fmt.Sprintf("%s-%s-%s", prefixes[kind], t.Format("2006-01-02-1504"), slugify(title)), Kind: kind,
+		Status: "closed", Date: t.Format("2006-01-02"), Title: title, Body: l,
+		Project: projectKey(project), Updated: t.UTC().Format(time.RFC3339)}, file)
+}
+
+// readProposals takes proposals/**/*.md, a proposal record each.
+func (g *globalImport) readProposals() {
+	props := filepath.Join(g.conf, "proposals")
 	if fi, err := os.Lstat(props); err == nil && fi.IsDir() {
-		filepath.WalkDir(props, func(p string, e fs.DirEntry, err error) error {
-			if err != nil || !e.Type().IsRegular() || !strings.HasSuffix(p, ".md") {
-				return nil
-			}
-			rel, _ := filepath.Rel(conf, p)
-			rel = filepath.ToSlash(rel)
-			data, err := readRegular(p, maxBody)
-			if err != nil {
-				problem(rel, rel+": "+err.Error()+"; not imported")
-				return nil
-			}
-			if err := b.take(len(data), rel); err != nil {
-				problem(rel, rel+": "+err.Error())
-				return filepath.SkipAll
-			}
-			meta, body := frontmatter(strings.ReplaceAll(string(data), "\r\n", "\n"))
-			body = strings.TrimSpace(body)
-			if body == "" {
-				return nil
-			}
-			base := strings.TrimSuffix(filepath.Base(p), ".md")
-			if base == "SKILL" {
-				base = filepath.Base(filepath.Dir(p))
-			}
-			fallback := time.Now().Format("2006-01-02")
-			if info, err := e.Info(); err == nil {
-				fallback = info.ModTime().Format("2006-01-02")
-			}
-			date := docDate(meta, base, fallback)
-			title := heading(body)
-			if title == "" {
-				title = "proposal " + base
-			}
-			sources = append(sources, rel)
-			add(Record{ID: "PROPOSAL-" + slugOf(strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(rel, ".md"), "proposals/"), "/", "-")),
-				Kind: "proposal", Status: "queued", Date: date, Title: title, Body: body,
-				Project: projectKey(meta["project"]), Updated: date + "T00:00:00Z"}, rel)
-			return nil
-		})
+		filepath.WalkDir(props, g.readProposal)
 	}
+}
 
-	projects, err := search.ListProjects(o.Home)
+func (g *globalImport) readProposal(p string, e fs.DirEntry, err error) error {
+	if err != nil || !e.Type().IsRegular() || !strings.HasSuffix(p, ".md") {
+		return nil
+	}
+	rel, _ := filepath.Rel(g.conf, p)
+	rel = filepath.ToSlash(rel)
+	data, err := readRegular(p, maxBody)
+	if err != nil {
+		g.problem(rel, rel+": "+err.Error()+"; not imported")
+		return nil
+	}
+	if err := g.b.take(len(data), rel); err != nil {
+		g.problem(rel, rel+": "+err.Error())
+		return filepath.SkipAll
+	}
+	meta, body := frontmatter(strings.ReplaceAll(string(data), "\r\n", "\n"))
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil
+	}
+	base := strings.TrimSuffix(filepath.Base(p), ".md")
+	if base == "SKILL" {
+		base = filepath.Base(filepath.Dir(p))
+	}
+	fallback := time.Now().Format("2006-01-02")
+	if info, err := e.Info(); err == nil {
+		fallback = info.ModTime().Format("2006-01-02")
+	}
+	date := docDate(meta, base, fallback)
+	title := heading(body)
+	if title == "" {
+		title = "proposal " + base
+	}
+	g.sources = append(g.sources, rel)
+	g.add(Record{ID: "PROPOSAL-" + slugOf(strings.ReplaceAll(strings.TrimPrefix(strings.TrimSuffix(rel, ".md"), "proposals/"), "/", "-")),
+		Kind: "proposal", Status: "queued", Date: date, Title: title, Body: body,
+		Project: projectKey(meta["project"]), Updated: date + "T00:00:00Z"}, rel)
+	return nil
+}
+
+// readMemories takes every indexed project's old memory store into that
+// project's scope.
+func (g *globalImport) readMemories(home string) {
+	res := g.res
+	projects, err := search.ListProjects(home)
 	if err != nil {
 		res.Problems = append(res.Problems, "the global index's project list: "+err.Error())
 	}
@@ -158,7 +198,7 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 		if err != nil {
 			continue
 		}
-		mems, files, problems, err := readMemoryStore(scope, b)
+		mems, files, problems, err := readMemoryStore(scope, g.b)
 		if err != nil {
 			res.Problems = append(res.Problems, scope+": "+err.Error())
 			continue
@@ -170,31 +210,10 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 		for _, m := range mems {
 			m.rec.Scope = scope
 			m.Path = filepath.Join(scope, m.Path)
-			recs = append(recs, m.rec)
+			g.recs = append(g.recs, m.rec)
 			res.Records = append(res.Records, m)
 		}
 	}
-	for _, src := range sources {
-		if !failed[src] {
-			res.Sources = append(res.Sources, src)
-		}
-	}
-	if dryRun {
-		return res, nil
-	}
-	st, err := openStore(o.Home)
-	if err != nil {
-		return nil, err
-	}
-	s := &session{st: st}
-	defer s.close()
-	stored, err := s.insertNew(recs, false)
-	if err != nil {
-		return nil, err
-	}
-	res.Skipped = len(res.Records) - len(stored)
-	res.Records = filterStored(res.Records, stored)
-	return res, nil
 }
 
 // projectKey is a log's project as a global record keys it: the main
