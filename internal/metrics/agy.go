@@ -9,24 +9,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
 )
-
-// agyTools maps Antigravity's tool names to the store's vocabulary, the
-// names the summary counts by (Bash, Read, Grep; spec § Shared tool
-// vocabulary), which the historical rows share. An unmapped name is kept as
-// agy:<name>.
-var agyTools = map[string]string{
-	"run_command": "Bash", "view_file": "Read", "write_to_file": "Write",
-	"replace_file_content": "Edit", "multi_replace_file_content": "Edit",
-	"grep_search": "Grep", "find_by_name": "Glob", "list_dir": "LS",
-	"invoke_subagent": "Agent", "send_message": "SendMessage",
-}
 
 // Antigravity step types and statuses (plan D35).
 const (
@@ -35,16 +23,6 @@ const (
 	agyTool   = 132
 	agyFailed = 7
 )
-
-// skillPath is a read of an installed skill's SKILL.md; only the name is kept.
-var skillPath = regexp.MustCompile(`/skills/([A-Za-z0-9_.-]+)/SKILL\.md$`)
-
-// agyArgs is the only part of a tool call's arguments read, in memory: a
-// command line (normalised, hashed) and a path (classified). D28.
-type agyArgs struct {
-	CommandLine  string `json:"CommandLine"`
-	AbsolutePath string `json:"AbsolutePath"`
-}
 
 type agyConv struct {
 	id, root, agent, parent string
@@ -262,14 +240,14 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields)
 	var args agyArgs
 	json.Unmarshal(f.bytes(4, 3), &args)
 	var skill, kind, hash any
-	if args.AbsolutePath != "" {
-		if m := skillPath.FindStringSubmatch(filepath.ToSlash(args.AbsolutePath)); m != nil && tool == "Read" {
+	if p := args.path(); p != "" {
+		if m := skillPath.FindStringSubmatch(filepath.ToSlash(p)); m != nil && tool == "Read" {
 			if id := identifier(m[1]); id != "" {
 				skill = id
 			}
 		}
 		if tool == "Read" || tool == "Write" || tool == "Edit" {
-			kind = w.targetKind(c.root, args.AbsolutePath)
+			kind = w.targetKind(c.root, p)
 		}
 	}
 	if tool == "Bash" && args.CommandLine != "" {

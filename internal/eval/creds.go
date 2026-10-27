@@ -70,6 +70,7 @@ func scanCreds(dir string) map[string]credFinding {
 		return out
 	}
 	root := dir
+	var locked []string // installed node_modules trees, read by name only
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		rel, _ := filepath.Rel(root, p)
 		if err != nil {
@@ -80,9 +81,16 @@ func scanCreds(dir string) map[string]credFinding {
 			return nil
 		}
 		if d.IsDir() {
+			if p != root && lockedModules(p, d) {
+				locked = append(locked, p+string(filepath.Separator))
+			}
 			return nil
 		}
-		if f, ok := scanEntry(p, d); ok {
+		// A link out of the tree is read even inside an install: what it
+		// leads to is not third-party code the walk reaches on its own.
+		link := d.Type()&fs.ModeSymlink != 0
+		read := !underAny(p, locked) || link && !resolvesUnder(root, p)
+		if f, ok := scanEntry(p, d, read); ok {
 			f.outside = f.problem == dirLink && !resolvesUnder(root, p)
 			out[rel] = f
 		}
@@ -92,6 +100,33 @@ func scanCreds(dir string) map[string]credFinding {
 }
 
 const dirLink = "a link to a directory, not walked"
+
+// lockfiles are the package managers' lockfiles: a node_modules directory
+// beside one is that manager's install, third-party code that carries
+// credential-shaped strings of its own (prettier's flow plugin, an
+// AKIA-shaped string; BUG-185). Its files are scanned by name, not read.
+var lockfiles = []string{"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"}
+
+func lockedModules(p string, d fs.DirEntry) bool {
+	if d.Name() != "node_modules" {
+		return false
+	}
+	for _, l := range lockfiles {
+		if st, err := os.Lstat(filepath.Join(filepath.Dir(p), l)); err == nil && st.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
+}
+
+func underAny(p string, dirs []string) bool {
+	for _, d := range dirs {
+		if strings.HasPrefix(p, d) {
+			return true
+		}
+	}
+	return false
+}
 
 // resolvesUnder says whether link p, followed to the end, lands inside root.
 func resolvesUnder(root, p string) bool {
@@ -107,7 +142,9 @@ func resolvesUnder(root, p string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
+// scanEntry reads p's content only when read is set; a name, a link and an
+// unreadable file are checked either way, and a size only matters to a read.
+func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	link := d.Type()&fs.ModeSymlink != 0
 	st, err := os.Stat(p)
 	if link {
@@ -127,6 +164,14 @@ func scanEntry(p string, d fs.DirEntry) (credFinding, bool) {
 	}
 	if !st.Mode().IsRegular() {
 		return credFinding{}, false // a device or a fifo is never read
+	}
+	if !read {
+		f, err := os.Open(p)
+		if err != nil {
+			return credFinding{problem: "unreadable"}, true
+		}
+		f.Close()
+		return credFinding{}, false
 	}
 	if st.Size() > maxScan {
 		return credFinding{problem: fmt.Sprintf("larger than %d bytes, not read", maxScan)}, true

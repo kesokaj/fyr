@@ -254,3 +254,72 @@ func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
 		t.Errorf("a baseline link out of the tree passes: %v", got)
 	}
 }
+
+// TestCredsLockedModules: a node_modules beside a regular lockfile is a
+// package manager's install, whose files are not read (BUG-185: prettier's
+// flow plugin holds an AKIA-shaped string), while the name scan, links out of
+// the tree and unreadable files still count inside it; a node_modules with
+// no lockfile or a linked one, a sibling whose name only starts with
+// node_modules, the lockfile itself, a plain file named node_modules and a
+// scan root named node_modules are read as before.
+func TestCredsLockedModules(t *testing.T) {
+	h := t.TempDir()
+	base := scanCreds(h)
+	outside := filepath.Join(t.TempDir(), "token.txt")
+	put(t, outside, ghToken, 0o600)
+	web := filepath.Join(h, "app", "web")
+	put(t, filepath.Join(web, "package-lock.json"), "{}", 0o644)
+	put(t, filepath.Join(web, "node_modules", "prettier", "plugins", "flow.js"), "x="+awsKey, 0o644)
+	put(t, filepath.Join(web, "node_modules", "a", "node_modules", "b", "i.js"), ghToken, 0o644)
+	put(t, filepath.Join(web, "node_modules", "a", "id_rsa"), "", 0o600)
+	if err := os.MkdirAll(filepath.Join(web, "node_modules", ".bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{"inside": filepath.Join("..", "prettier", "plugins", "flow.js"), "outside": outside} {
+		if err := os.Symlink(target, filepath.Join(web, "node_modules", ".bin", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, filepath.Join(web, "node_modules.bak", "k.js"), awsKey, 0o644)
+	for _, lock := range []string{"npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"} {
+		put(t, filepath.Join(h, "app", lock, lock), ghToken, 0o644)
+		put(t, filepath.Join(h, "app", lock, "node_modules", "z.js"), awsKey, 0o644)
+	}
+	put(t, filepath.Join(h, "app", "loose", "node_modules", "y.js"), awsKey, 0o644)
+	put(t, filepath.Join(h, "app", "linked", "real-lock"), "{}", 0o644)
+	if err := os.Symlink("real-lock", filepath.Join(h, "app", "linked", "package-lock.json")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(h, "app", "linked", "node_modules", "y.js"), awsKey, 0o644)
+	put(t, filepath.Join(h, "app", "file", "pnpm-lock.yaml"), "", 0o644)
+	put(t, filepath.Join(h, "app", "file", "node_modules"), ghToken, 0o644)
+	want := []string{
+		filepath.Join("app", "file", "node_modules") + " (github-token)",
+		filepath.Join("app", "linked", "node_modules", "y.js") + " (aws-key)",
+		filepath.Join("app", "loose", "node_modules", "y.js") + " (aws-key)",
+		filepath.Join("app", "web", "node_modules", ".bin", "outside") + " (github-token)",
+		filepath.Join("app", "web", "node_modules", "a", "id_rsa") + " (name)",
+		filepath.Join("app", "web", "node_modules.bak", "k.js") + " (aws-key)",
+	}
+	for _, lock := range []string{"bun.lock", "bun.lockb", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"} {
+		want = append(want, filepath.Join("app", lock, lock)+" (github-token)")
+	}
+	if os.Geteuid() != 0 {
+		put(t, filepath.Join(web, "node_modules", "locked.js"), "", 0o000)
+		want = append(want, filepath.Join("app", "web", "node_modules", "locked.js")+" (unreadable)")
+	}
+	slices.Sort(want)
+	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+		t.Errorf("findings\n got %q\nwant %q", got, want)
+	}
+
+	// The scan root is never an install, even named node_modules beside a
+	// lockfile: the lockfile lies outside the tree.
+	top := t.TempDir()
+	put(t, filepath.Join(top, "package-lock.json"), "{}", 0o644)
+	nm := filepath.Join(top, "node_modules")
+	put(t, filepath.Join(nm, "x.js"), awsKey, 0o644)
+	if got := newCreds(nil, scanCreds(nm)); !slices.Equal(got, []string{"x.js (aws-key)"}) {
+		t.Errorf("a scan root named node_modules: %q", got)
+	}
+}
