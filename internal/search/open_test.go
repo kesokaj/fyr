@@ -2,12 +2,15 @@ package search
 
 import (
 	"bytes"
+	"database/sql"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpen(t *testing.T) {
@@ -171,4 +174,38 @@ func TestArgumentErrors(t *testing.T) {
 			t.Errorf("%+v: got %v", o, err)
 		}
 	}
+}
+
+// The first open of a new index waits for a lock another connection holds,
+// as every later open does. Switching a new file to WAL upgrades a read
+// transaction to a write, and SQLite answers that upgrade SQLITE_BUSY at
+// once, without its busy handler: two first runs on one checkout failed
+// "index busy" after 0.01 s (TestConcurrentReconcile, about 1 run in 9).
+func TestFirstOpenWaitsForALock(t *testing.T) {
+	old := busyTimeoutMS
+	busyTimeoutMS = 5000
+	t.Cleanup(func() { busyTimeoutMS = old })
+	path := filepath.Join(t.TempDir(), "search.db")
+	holder, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	holder.SetMaxOpenConns(1)
+	// The condition must hold: a file not yet in WAL mode, and a write lock
+	// held on it.
+	var mode string
+	if err := holder.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "delete" {
+		t.Fatalf("journal mode %q, %v", mode, err)
+	}
+	if _, err := holder.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(300*time.Millisecond, func() { holder.Exec(`ROLLBACK`) })
+	began := time.Now()
+	s, err := openStore(path, io.Discard)
+	if err != nil {
+		t.Fatalf("after %v: %v", time.Since(began), err)
+	}
+	s.close()
 }

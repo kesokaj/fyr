@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -76,6 +77,25 @@ func Open(path string) (*Store, error) {
 	if err := search.PrepareDBFiles(path); err != nil {
 		return nil, fmt.Errorf("metrics: %w", err)
 	}
+	// Two processes opening a new store at once race to switch it to WAL,
+	// and SQLite answers that race with SQLITE_BUSY without waiting on the
+	// busy timeout: the open is retried for as long as that timeout, as the
+	// brain store and the search index do (BUG-187).
+	deadline := time.Now().Add(openWait)
+	for {
+		s, err := open(path)
+		if err == nil || !search.IsBusy(err) || time.Now().After(deadline) {
+			return s, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// openWait is how long a busy open is retried.
+var openWait = 10 * time.Second
+
+// open is one attempt of Open.
+func open(path string) (*Store, error) {
 	// _txlock=immediate: every transaction here writes, and the join's opens
 	// with reads; a deferred one would fail at its first write, without
 	// waiting, when another ingest committed in between.

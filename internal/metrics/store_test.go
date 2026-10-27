@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -272,4 +273,33 @@ func TestTxTakesWriteLockAtBegin(t *testing.T) {
 	if _, err := other.Exec(`INSERT INTO meta(key, value) VALUES ('probe', 'x')`); err == nil {
 		t.Fatal("a second connection wrote while the store's transaction was open: the transaction is deferred")
 	}
+}
+
+// The first open of a new store waits for a lock another connection holds:
+// switching a new file to WAL upgrades a read transaction to a write, and
+// SQLite answers that upgrade SQLITE_BUSY at once, without its busy handler.
+func TestFirstOpenWaitsForALock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metrics.db")
+	holder, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	holder.SetMaxOpenConns(1)
+	// The condition must hold: a file not yet in WAL mode, and a write lock
+	// held on it.
+	var mode string
+	if err := holder.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode != "delete" {
+		t.Fatalf("journal mode %q, %v", mode, err)
+	}
+	if _, err := holder.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(300*time.Millisecond, func() { holder.Exec(`ROLLBACK`) })
+	began := time.Now()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("after %v: %v", time.Since(began), err)
+	}
+	s.Close()
 }

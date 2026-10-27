@@ -87,6 +87,10 @@ func sqliteCode(err error) int {
 	return 0
 }
 
+// IsBusy reports whether err is SQLite's busy or locked answer, for the
+// metrics store, which opens its database through DSN.
+func IsBusy(err error) bool { return isBusy(err) }
+
 func isBusy(err error) bool {
 	c := sqliteCode(err)
 	return c == sqlite3.SQLITE_BUSY || c == sqlite3.SQLITE_LOCKED
@@ -111,7 +115,7 @@ func removeDB(path string) error {
 // openStore opens or creates the index at path. An unreadable file or an
 // older schema is deleted and rebuilt with a note on out: it is a cache.
 func openStore(path string, out io.Writer) (*store, error) {
-	s, err := tryOpen(path)
+	s, err := tryOpenWaiting(path)
 	if err == nil {
 		return s, nil
 	}
@@ -126,7 +130,7 @@ func openStore(path string, out io.Writer) (*store, error) {
 		return nil, fmt.Errorf("search: removing the unreadable index %s: %w", path, err)
 	}
 	fmt.Fprintln(out, printable(fmt.Sprintf("note: index at %s was unreadable (or an older schema); rebuilt", path)))
-	s, err = tryOpen(path)
+	s, err = tryOpenWaiting(path)
 	if err != nil {
 		if isBusy(err) {
 			return nil, errBusy
@@ -175,6 +179,21 @@ func prepareFiles(path string) error {
 type staleSchemaError struct{ found string }
 
 func (e staleSchemaError) Error() string { return "schema " + e.found }
+
+// tryOpenWaiting is tryOpen, retried while it fails busy, for as long as the
+// busy timeout. Two processes opening a new index at once race to switch it
+// to WAL, and SQLite answers that race with SQLITE_BUSY without waiting on
+// the busy timeout (BUG-187; the brain store's openStore retries the same way).
+func tryOpenWaiting(path string) (*store, error) {
+	deadline := time.Now().Add(time.Duration(busyTimeoutMS) * time.Millisecond)
+	for {
+		s, err := tryOpen(path)
+		if err == nil || !isBusy(err) || time.Now().After(deadline) {
+			return s, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
 
 func tryOpen(path string) (*store, error) {
 	// 0700: ~/.config/fyr holds the feedback log (ConfigDir).
