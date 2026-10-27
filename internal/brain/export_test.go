@@ -148,6 +148,8 @@ func TestLoadRefusals(t *testing.T) {
 		// An impossible day sorts first in every search (SD39 of the 2026-10-27 audit).
 		"impossible date": {strings.Replace(good, `"2026-10-24","id"`, `"9999-99-99","id"`, 1) + "\n", []string{"line 1", "9999-99-99"}},
 		"no such day":     {strings.Replace(good, `"2026-10-24","id"`, `"2026-02-30","id"`, 1) + "\n", []string{"line 1", "2026-02-30"}},
+		// The spec's RFC 3339 rule had no row (SD45 of the 2026-10-27 audit).
+		"bad updated": {strings.Replace(good, `"2026-10-24T10:00:00Z"`, `"yesterday"`, 1) + "\n", []string{"line 1", "yesterday"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, home := repo(t), t.TempDir()

@@ -79,10 +79,6 @@ func prepare(o Options, out io.Writer) (*scope, error) {
 			st.close()
 			return nil, err
 		}
-		if _, err := st.db.Exec(`INSERT OR IGNORE INTO projects(root, name, docs_root, last_seen) VALUES (?, ?, ?, ?)`, root, filepath.Base(root), docs, nowFunc().Unix()); err != nil {
-			st.close()
-			return nil, err
-		}
 		sc.changed += n
 		p := proj{key: root, name: filepath.Base(root), docsRoot: docs}
 		if !o.Global {

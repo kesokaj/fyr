@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"bufio"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -81,7 +79,10 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 	}
 	rows.Close()
 
-	feedback := readFeedback(home)
+	feedback, fbNote := readFeedback(home)
+	if fbNote != "" {
+		notes = append(notes, fbNote)
+	}
 	roots := make([]string, 0, len(byRoot))
 	for r := range byRoot {
 		roots = append(roots, r)
@@ -477,32 +478,6 @@ func feedbackRecords(recs []brain.Record) []stamped {
 		}
 		if ts, ref, ok := correctionRef(e.TS); ok {
 			out = append(out, stamped{ts: ts, ref: ref})
-		}
-	}
-	return out
-}
-
-// readFeedback is the feedback log's entries by project root: their times,
-// and the entry's ts as its reference. Nothing else is taken from a line.
-func readFeedback(home string) map[string][]stamped {
-	out := map[string][]stamped{}
-	f, err := os.Open(filepath.Join(home, harness.StateDir, "feedback.jsonl"))
-	if err != nil {
-		return out
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		var e struct {
-			TS      string `json:"ts"`
-			Project string `json:"project"`
-		}
-		if json.Unmarshal(sc.Bytes(), &e) != nil || e.Project == "" {
-			continue
-		}
-		if ts, ref, ok := correctionRef(e.TS); ok {
-			out[filepath.Clean(e.Project)] = append(out[filepath.Clean(e.Project)], stamped{ts: ts, ref: ref})
 		}
 	}
 	return out

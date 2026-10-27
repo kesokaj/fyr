@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -336,5 +337,31 @@ func TestImportRunsNoCleanFilter(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the import ran the checkout's clean filter")
+	}
+}
+
+// A write while another connection holds the store's write lock is refused
+// as busy, the spec's exit-1 refusal, never a raw SQLite error (SD45 of the
+// 2026-10-27 audit: the refusal had no test).
+func TestAddRefusesABusyStore(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+	add(t, o, "bug", "first", "b")
+	holder, err := sql.Open("sqlite", "file:"+Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Close()
+	holder.SetMaxOpenConns(1)
+	if _, err := holder.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Exec(`ROLLBACK`)
+	old := openWait
+	openWait = 100 * time.Millisecond
+	t.Cleanup(func() { openWait = old })
+	_, err = Add(o, AddInput{Kind: "bug", Title: "second", Body: strings.NewReader("b")})
+	if !IsRefusal(err) || !strings.Contains(err.Error(), "brain store is busy") {
+		t.Errorf("Add under a held write lock: %v, want the busy refusal", err)
 	}
 }

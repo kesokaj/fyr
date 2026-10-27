@@ -22,14 +22,16 @@ type Options struct {
 
 // Result counts one ingest.
 type Result struct {
-	Sessions, Steps, Events, Skipped int
-	Failed                           []string
+	Sessions, Steps, Events int
+	Failed                  []string
 }
 
 // Line is the summary ingest prints.
 func (r Result) Line() string {
-	return fmt.Sprintf("metrics: %d sessions, %d steps, %d events added; %d lines skipped (unknown shape); %d sources failed",
-		r.Sessions, r.Steps, r.Events, r.Skipped, len(r.Failed))
+	// No skipped-lines count: it belonged to the removed transcript-line
+	// reader and was never incremented (SD50 of the 2026-10-27 audit).
+	return fmt.Sprintf("metrics: %d sessions, %d steps, %d events added; %d sources failed",
+		r.Sessions, r.Steps, r.Events, len(r.Failed))
 }
 
 // Validate is the usage check: exit 2 when it fails.

@@ -87,7 +87,9 @@ func (s *Summary) WriteText(w io.Writer) {
 		safeMap(s.A.Verifier), safeMap(s.A.ReviewFindings), s.A.EscapedBugs, s.A.Corrections)
 	for _, l := range sortedKeys(s.A.PassK) {
 		p := s.A.PassK[l]
-		fmt.Fprintf(w, "  pass^k %s: %d of %d passed, pass^%d = %d\n", l, p.Passed, p.K, p.K, p.PassK)
+		// A label is any KEY=VALUE, and fyr eval's comes from the suite
+		// file: printed through the filter, as every other key (SD55).
+		fmt.Fprintf(w, "  pass^k %s: %d of %d passed, pass^%d = %d\n", printable(l), p.Passed, p.K, p.K, p.PassK)
 	}
 	head("B. efficiency")
 	row("tool calls", n(s.B.ToolCalls))

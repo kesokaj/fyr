@@ -34,8 +34,6 @@ func git(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// snapshot lists every path under the store with its size, so a refusal that
-// writes anything shows up.
 // Root was the git common dir's parent: in a submodule (.git/modules/x) or a
 // --separate-git-dir checkout that is no work tree, so the store pointed into
 // git's own directory (audit 2026-10-25, SD16). It is the work tree's top.
@@ -164,10 +162,6 @@ func samePath(a, b string) bool {
 	return ra == rb && filepath.Base(a) == filepath.Base(b)
 }
 
-// TestIndexMatchIsTheLinkTarget: a description that mentions another file's
-// name never makes its line the one replaced.
-// TestShow: the index and nothing else — no hint line about another CLI's
-// own memory follows it (plan fyr Phase 2).
 // The store check runs in every indexed project at 03:00: it must hold no
 // index lock and run no fsmonitor hook (v2.0.0 gate, security code slice).
 func TestStoreTrackedArgs(t *testing.T) {
@@ -203,8 +197,45 @@ func TestStoreRunsNoProjectHook(t *testing.T) {
 	}
 }
 
-// A symlinked MEMORY.md is never read or rewritten: the index is the store's
-// own file (v2.0.0 gate, security code slice).
-// Add's check-ignore runs no project hook either: `git check-ignore` reads
-// the index and starts core.fsmonitor unless it is turned off (security
-// review of BUG-165's fix, 2026-10-09).
+// trusted's refusals, in their own package (SD22 of the 2026-10-27 audit:
+// they were covered only through dream and brain): a symlinked .agents, a
+// symlinked store, a store git tracks, and git unable to answer.
+func TestTrustedRefusals(t *testing.T) {
+	elsewhere := t.TempDir()
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{"symlinked .agents", func(t *testing.T, root string) {
+			os.MkdirAll(filepath.Join(elsewhere, "memory"), 0o700)
+			os.Symlink(elsewhere, filepath.Join(root, ".agents"))
+		}, "is a symlink"},
+		{"symlinked store", func(t *testing.T, root string) {
+			os.MkdirAll(filepath.Join(root, ".agents"), 0o755)
+			os.Symlink(elsewhere, filepath.Join(root, ".agents", "memory"))
+		}, "is a symlink"},
+		{"tracked store", func(t *testing.T, root string) {
+			os.MkdirAll(filepath.Join(root, ".agents", "memory"), 0o755)
+			os.WriteFile(filepath.Join(root, ".agents", "memory", "m.md"), []byte("m"), 0o644)
+			git(t, root, "add", "-f", ".agents/memory/m.md")
+		}, "git tracks"},
+		{"git cannot answer", func(t *testing.T, root string) {
+			os.RemoveAll(filepath.Join(root, ".git"))
+		}, "cannot ask git"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := repo(t)
+			c.setup(t, root)
+			_, err := Store(root)
+			if !IsRefusal(err) || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Store: %v, want a refusal naming %q", err, c.want)
+			}
+		})
+	}
+	root := repo(t)
+	if _, err := Store(root); err != nil {
+		t.Errorf("the project's own store: %v", err)
+	}
+}

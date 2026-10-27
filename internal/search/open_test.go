@@ -88,6 +88,32 @@ func TestBusyRefusesNotStale(t *testing.T) {
 	holder.Exec(`ROLLBACK`)
 }
 
+// A search of an unchanged tree takes no write lock, so it answers while
+// another connection holds one (SPEC-fyr-search § Freshness 6; SD20 of the
+// 2026-10-27 audit: a per-query insert into the project database's
+// projects table, which nothing reads, took the lock).
+func TestUnchangedSearchTakesNoWriteLock(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
+	old := busyTimeoutMS
+	busyTimeoutMS = 200
+	t.Cleanup(func() { busyTimeoutMS = old })
+	holder := openDB(t, root)
+	holder.SetMaxOpenConns(1)
+	if _, err := holder.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Exec(`ROLLBACK`)
+	out, err := runSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
+	if err != nil {
+		t.Fatalf("an unchanged search under a held write lock: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "README.md") {
+		t.Errorf("no answer:\n%s", out)
+	}
+}
+
 // TestHelperIndex is not a test: TestConcurrentReconcile runs this binary as
 // a subprocess with SEARCH_HELPER_DIR set.
 func TestHelperIndex(t *testing.T) {

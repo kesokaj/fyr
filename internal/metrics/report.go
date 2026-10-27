@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"html/template"
@@ -59,7 +60,13 @@ func ReportPath(home string, now time.Time) string {
 }
 
 // WriteReport renders sum to file (mode 0600); an existing file is refused.
+// The page is rendered in memory first, so a render that fails leaves no
+// partial file for the rerun to refuse (SD57 of the 2026-10-27 audit).
 func WriteReport(sum *Summary, file string, now time.Time) error {
+	var page bytes.Buffer
+	if err := renderReport(&page, sum, now); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return err
 	}
@@ -70,12 +77,16 @@ func WriteReport(sum *Summary, file string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := RenderReport(f, sum, now); err != nil {
+	if _, err := f.Write(page.Bytes()); err != nil {
 		f.Close()
+		os.Remove(file)
 		return err
 	}
 	return f.Close()
 }
+
+// renderReport is RenderReport; a test replaces it with one that fails.
+var renderReport = RenderReport
 
 type chart struct {
 	Title, Note string

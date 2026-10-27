@@ -64,6 +64,11 @@ var shapeSecrets = []string{
 	"github_pat_FAKEVALUE", "ghp_FAKEVALUE", "sk-ant-FAKEVALUE", "aws_secret_access_key = FAKEVALUE",
 	"ASIAFAKEVALUE", "postgres://app:FAKEVALUE@db/x", "token = FAKEVALUE", "xoxb-FAKEVALUE",
 	"GOCSPX-FAKEVALUE", "api_key=FAKEVALUE", "API-KEY: FAKEVALUE",
+	// A positive row for every prefix needle (SD40 of the 2026-10-27 audit;
+	// TestEveryNeedleHasAShapeAndANearMiss keeps the list complete).
+	"-----BEGIN PRIVATE KEY-----FAKEVALUE-----END PRIVATE KEY-----", "PRIVATE KEY: FAKEVALUE", "AKIAFAKEVALUE", "AIzaFAKEVALUE", "ya29.FAKEVALUE",
+	"gho_FAKEVALUE", "ghs_FAKEVALUE", "ghu_FAKEVALUE", "glpat-FAKEVALUE", "sk-proj-FAKEVALUE",
+	"xoxp-FAKEVALUE", "xoxa-FAKEVALUE", "xoxs-FAKEVALUE",
 	// Round 2, finding 8: an empty URL user, and a non-Bearer scheme.
 	"redis://:FAKEVALUE@localhost:6379/0", "Authorization: Basic FAKEVALUE",
 	// Round 3, finding 3: the header name quoted, as code and JSON write it.
