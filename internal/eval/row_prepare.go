@@ -32,7 +32,8 @@ done
 exec %[2]s "$1" --home %[1]s "${@:2}"
 `
 
-// prepare is steps 2-8b; false means the row has failed and no CLI runs.
+// prepare is steps 2-8 of SPEC-fyr-eval § One row; false means the row has
+// failed and no CLI runs.
 func (w *row) prepare(ctx context.Context) bool {
 	// Step 2: the clone, its own toplevel, outside every checkout.
 	// The clone stays a plain git call: it has no -C root for trail.Command
@@ -83,7 +84,7 @@ func (w *row) prepare(ctx context.Context) bool {
 		return false
 	}
 	w.root = root
-	// Step 4: what the trail held before the agent ran; a check counts only
+	// Step 3: what the trail held before the agent ran; a check counts only
 	// the records the run adds (run.sh:52-62).
 	before := filepath.Join(w.sb, "records-before.txt")
 	var list []byte
@@ -103,6 +104,9 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonRecords)
 		return false
 	}
+	// Step 4: the real config, before setup and before anything installs,
+	// so a setup that writes it is seen (IN50 of the 2026-10-27 audit).
+	w.realBefore = fingerprint(w.o.RealHome)
 	// Step 5: the row's setup, in the clone.
 	if w.r.Setup != "" {
 		if !w.bash(ctx, w.r.Setup, w.setupEnv(), "setup.log") {
@@ -110,9 +114,7 @@ func (w *row) prepare(ctx context.Context) bool {
 			return false
 		}
 	}
-	// Step 6: the real config, before anything installs.
-	w.realBefore = fingerprint(w.o.RealHome)
-	// Step 7: the harness, as `fyr install` gives it to a place (D16), and
+	// Step 6: the harness, as `fyr install` gives it to a place (D16), and
 	// the wrapper that pins --home on every fyr call the agent makes.
 	args := []string{"install", "--home", w.sb}
 	if w.o.Repo != "" {
@@ -140,7 +142,7 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonInstall)
 		return false
 	}
-	// Step 8: the grants, and trust in the clone only.
+	// Step 7: the grants, and trust in the clone only.
 	allow := namedGrants
 	if reason, wide := w.r.Wide(); wide {
 		w.note("runs with command(*) in its throwaway clone: %s", reason)
@@ -156,7 +158,7 @@ func (w *row) prepare(ctx context.Context) bool {
 		w.fail(ReasonSettings)
 		return false
 	}
-	// Step 8b: the credential baseline, before the token is linked (D17),
+	// Step 8: the credential baseline, before the token is linked (D17),
 	// over the whole sandbox directory: the clone, the CLI's output and the
 	// logs are kept as long as the home is.
 	w.credsBefore = scanCreds(w.dir)

@@ -71,6 +71,8 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"update", "--dry-run", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip, "--dry-run"},
 		{"dream", "--remove-timer", "--dry-run"},
+		// A record dry run says it writes nothing (IN33 of the 2026-10-27 audit).
+		{"record", "import", "--dry-run"},
 	}
 	for _, args := range writing {
 		t.Run("writes "+strings.Join(args[:min(2, len(args))], " "), func(t *testing.T) {

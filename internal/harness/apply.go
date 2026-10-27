@@ -112,6 +112,8 @@ func Install(src Source, home string, files []File, dryRun bool, out io.Writer) 
 				if err := WriteAtomic(dest, f.Data, f.Mode); err != nil {
 					return saveOnError(fmt.Errorf("writing %s: %w", dest, err))
 				}
+			} else if err := dirInTheWay(dest); err != nil {
+				return fmt.Errorf("writing %s: %w", dest, err)
 			}
 			fmt.Fprintln(out, line)
 		}

@@ -8,7 +8,7 @@ import (
 )
 
 // ProcsChecked reports whether safety check e runs on this system: not
-// without /proc (O1). The final group kill of step 15 still runs, and the
+// without /proc (O1). The final group kill of step 14 still runs, and the
 // record names the gap.
 const ProcsChecked = false
 

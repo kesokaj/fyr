@@ -123,8 +123,9 @@ func (c *ctx) writesState() bool {
 		return !c.dryRun
 	case "record":
 		// Every record verb may write the brain store: a read loads a
-		// trail.jsonl that changed under it (ADR-063, D21).
-		return true
+		// trail.jsonl that changed under it (ADR-063, D21). Only import takes
+		// --dry-run, which writes nothing (IN33 of the 2026-10-27 audit).
+		return !c.dryRun
 	case "update":
 		return !c.dryRun && !c.check
 	case "memory":

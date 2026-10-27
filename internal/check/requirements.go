@@ -163,11 +163,24 @@ func (k *checker) resolves(tok string, ids map[string]bool) bool {
 	}
 	c := candidate{where: "REQUIREMENTS.md", token: tok}
 	c.p, c.n, c.m, c.hasLine = splitLine(tok)
-	if c.p == "" || c.p == "." {
+	if c.p == "" || c.p == "." || !k.isTracked(c.p) {
 		return false
 	}
 	_, bad := k.checkPath(c)
 	return !bad
+}
+
+// isTracked reports whether git tracks p, or p is a directory holding a
+// tracked file: an ignored local file resolves nothing on another checkout
+// (IN54 of the 2026-10-27 audit).
+func (k *checker) isTracked(p string) bool {
+	p = strings.TrimSuffix(filepath.ToSlash(p), "/")
+	for _, t := range k.tracked {
+		if t == p || strings.HasPrefix(t, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // testDeclared reports whether `func <name>(` opens a line of a tracked
@@ -181,6 +194,7 @@ func (k *checker) testDeclared(name string) bool {
 			}
 			data, err := k.readFile(filepath.FromSlash(p))
 			if err != nil {
+				k.skipped = append(k.skipped, p)
 				continue
 			}
 			for _, m := range testDeclRe.FindAllStringSubmatch(string(data), -1) {

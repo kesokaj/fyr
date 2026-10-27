@@ -35,7 +35,7 @@ type Result struct {
 	Dir          string // the sandbox
 }
 
-// The fixed reason strings of a FAIL (Interfaces § Steps, step 16).
+// The fixed reason strings of a FAIL (SPEC-fyr-eval § One row, step 15).
 const (
 	ReasonExists      = "sandbox exists"
 	ReasonClone       = "clone"
@@ -65,7 +65,7 @@ const tokenRel = ".gemini/antigravity-cli/antigravity-oauth-token"
 // SandboxRoot is where eval makes its sandboxes under fyr's home (D8).
 func SandboxRoot(home string) string { return filepath.Join(home, harness.StateDir, "eval") }
 
-// Preflight is the part of step 0 that comes before the suite is read
+// Preflight is the refusals before step 1 that come before the suite is read
 // (D20): root is a checkout, and the sandbox root passes guards a and b on
 // its nearest existing ancestor. cmd calls it first; Run calls it again.
 func Preflight(o Options) error {
@@ -137,8 +137,9 @@ func resultLine(r Result) string {
 	return printable(fmt.Sprintf("eval: %s  %s  agy exit %d  %ds  %s", r.Row, v, r.AgyExit, r.Seconds, r.Dir))
 }
 
-// runRow is steps 1-16 for one row. A failure inside steps 1-8 skips 9-14
-// and still runs 15 once the sandbox is eval's own.
+// runRow is steps 1-15 of SPEC-fyr-eval § One row for one row. A failure
+// inside steps 1-8 skips 9-13 and still runs 14 once the sandbox is eval's
+// own (the comments follow the spec's numbers, IN52 of the 2026-10-27 audit).
 func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result {
 	t0 := time.Now()
 	w := &row{o: o, r: r, dir: dir, app: filepath.Join(dir, "app"), sb: filepath.Join(dir, "home"), out: o.Out, stamp: o.Now().Format("2006-01-02-1504")}

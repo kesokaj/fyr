@@ -39,8 +39,10 @@ func statePath(home string) string {
 
 // LoadState reads the manifest. A missing file is not an error: it means
 // nothing has been installed into this home yet.
+// It is read as every deployed file is (openPlain): no link followed, and a
+// FIFO refused at once instead of blocking (IN43 of the 2026-10-27 audit).
 func LoadState(home string) (State, bool, error) {
-	data, err := os.ReadFile(statePath(home))
+	data, err := openPlain(statePath(home))
 	if errors.Is(err, os.ErrNotExist) {
 		return State{}, false, nil
 	}

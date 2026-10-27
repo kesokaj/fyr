@@ -296,3 +296,24 @@ func TestDocsRuleIgnoreSurvivesASymlinkedParent(t *testing.T) {
 	}
 	same(t, run(t, dir).Findings, "README.md:1 path")
 }
+
+// A tracked doc the check cannot read (a link, here) is named in a note,
+// not skipped in silence (IN53 of the 2026-10-27 audit).
+func TestSkippedDocIsNoted(t *testing.T) {
+	dir := repo(t, map[string]string{"README.md": "x\n", ".agents/trail.jsonl": trailLine(t, "ADR-063", "adr", "accepted", "x")})
+	if err := os.Symlink("README.md", filepath.Join(dir, "LINK.md")); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "LINK.md")
+	git(t, dir, "commit", "-q", "-m", "link")
+	rep := run(t, dir)
+	found := false
+	for _, n := range rep.Notes {
+		if strings.Contains(n, "skipped") && strings.Contains(n, "LINK.md") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("notes %q do not name the skipped LINK.md", rep.Notes)
+	}
+}

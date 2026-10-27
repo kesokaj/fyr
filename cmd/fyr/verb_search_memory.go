@@ -41,13 +41,13 @@ func runSearch(c *ctx) error {
 // stdin is where `memory add` reads the body; a test replaces it.
 var stdin io.Reader = os.Stdin
 
-// memoryCmd runs `memory add` and `memory show` in the checkout holding the
-// working directory: an alias over the brain store's memory records (D14).
-// A refusal prints its reason and exits 2.
 // memorySubverbs is what memoryCmd accepts; the check vocabulary reads it,
 // and a test pins it against the dispatcher (plan fyr-check D14).
 var memorySubverbs = []string{"add", "show"}
 
+// memoryCmd runs `memory add` and `memory show` in the checkout holding the
+// working directory: an alias over the brain store's memory records (D14).
+// A refusal prints its reason and exits 2.
 func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) error {
 	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).

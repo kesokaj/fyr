@@ -55,6 +55,16 @@ func TestRunExitChecks(t *testing.T) {
 	})
 }
 
+// A setup that writes the real config is seen: the fingerprint is taken
+// before setup runs (IN50 of the 2026-10-27 audit).
+func TestRunSetupThatTouchesTheRealConfig(t *testing.T) {
+	r := newRig(t)
+	row := named("s", "p", "true")
+	row.Setup = "mkdir -p '" + filepath.Join(r.real, harness.StateDir) + "' && echo x > '" + filepath.Join(r.real, harness.StateDir, "brain.db") + "'"
+	x := one(t, r.run(row))
+	wantVerdict(t, x, "FAIL", ReasonRealConfig)
+}
+
 // TestRunSandboxReplaced: the agent replaces the clone and the sandbox home
 // with links to the real home. Nothing is removed, scanned or signalled
 // through them: the real token stays, a credential-shaped file of the real

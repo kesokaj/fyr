@@ -111,3 +111,31 @@ func TestRequirementsRuleNotes(t *testing.T) {
 		t.Errorf("symlink notes %q", notes(rep))
 	}
 }
+
+// An `enforced by:` path resolves only when git tracks it (or a directory of
+// tracked files): an ignored local file proves nothing on another checkout
+// (IN54 of the 2026-10-27 audit).
+func TestRequirementsResolveTrackedPathsOnly(t *testing.T) {
+	reqs := strings.Join([]string{
+		"# Requirements — x",
+		"",
+		"## Must — non-negotiable",
+		"",
+		"- **R1** — a tracked file.",
+		"  <!-- enforced by: tracked.txt -->",
+		"- **R2** — a tracked directory.",
+		"  <!-- enforced by: internal -->",
+		"- **R3** — an ignored local file.",
+		"  <!-- enforced by: local.txt -->",
+	}, "\n")
+	dir := repo(t, map[string]string{
+		"REQUIREMENTS.md":     reqs,
+		"tracked.txt":         "x\n",
+		"internal/a.go":       "package a\n",
+		".gitignore":          "local.txt\n",
+		".agents/trail.jsonl": trailLine(t, "ADR-063", "adr", "accepted", "x"),
+	})
+	os.WriteFile(filepath.Join(dir, "local.txt"), []byte("x\n"), 0o644)
+	rep := run(t, dir)
+	same(t, rep.Findings, "REQUIREMENTS.md:9 requirement")
+}

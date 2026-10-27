@@ -78,6 +78,7 @@ type checker struct {
 	lines    map[string]int
 	links    map[string]bool
 	tests    map[string]bool // Go tests declared in tracked *_test.go, read once
+	skipped  []string        // tracked docs and tests readFile refused, for one note (IN53)
 }
 
 // Run checks the checkout that holds dir against v. It writes nothing.
@@ -123,6 +124,11 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	reqs, notes := k.requirementsRule(recs)
 	rep.Findings = append(rep.Findings, reqs...)
 	rep.Notes = append(rep.Notes, notes...)
+	// A drift check that read fewer files than it names says so: a clean
+	// result is otherwise no sign (IN53 of the 2026-10-27 audit).
+	if n := len(k.skipped); n > 0 {
+		rep.Notes = append(rep.Notes, fmt.Sprintf("%d tracked files skipped (unreadable, a link or over 16 MiB), first %s", n, k.skipped[0]))
+	}
 	sortFindings(rep.Findings)
 	return rep, nil
 }
@@ -260,6 +266,7 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 		}
 		data, err := k.readFile(filepath.FromSlash(p))
 		if err != nil {
+			k.skipped = append(k.skipped, p)
 			continue
 		}
 		docs = append(docs, doc{p, string(data)})

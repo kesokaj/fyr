@@ -49,7 +49,14 @@ func Adopt(repo, home, src string, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if within(from, dest) || within(dest, from) {
+	// from is resolved, so dest is compared resolved too: through a linked
+	// repo the two would never share a prefix and --force could replace a
+	// skill with its own subdirectory (IN42 of the 2026-10-27 audit).
+	cmp := dest
+	if rs, err := filepath.EvalSymlinks(filepath.Dir(dest)); err == nil {
+		cmp = filepath.Join(rs, name)
+	}
+	if within(from, cmp) || within(cmp, from) {
 		return "", fmt.Errorf("%s and %s overlap; adopt copies a skill directory from outside the repo's skills/", from, dest)
 	}
 	_, err = os.Stat(dest)

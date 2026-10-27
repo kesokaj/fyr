@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-// afterSession is steps 11-14. A sandbox the session replaced is not
+// afterSession is steps 11-13. A sandbox the session replaced is not
 // followed: no removal through it, no check run in it.
 func (w *row) afterSession(ctx context.Context, tok string) {
 	w.unlink(tok) // through the held root, whatever the paths lead to now
@@ -35,7 +35,7 @@ func (w *row) afterSession(ctx context.Context, tok string) {
 	if !w.bash(ctx, w.r.Check, w.checkEnv(), "check.log") {
 		w.fail(ReasonCheck)
 	}
-	// Step 14: the agent the row names was invoked.
+	// Step 13, check f: the agent the row names was invoked.
 	if w.r.Agent != "" {
 		ok, notes := invokedNotes(w.sb, w.r.Agent)
 		for _, n := range notes {
@@ -63,7 +63,7 @@ func (w *row) unlink(tok string) {
 	}
 }
 
-// exitChecks is step 15: leftover processes, then the real config, then new
+// exitChecks is step 14: leftover processes, then the real config, then new
 // credentials, and last a SIGKILL to every agy group as a sweep.
 func (w *row) exitChecks() {
 	if w.root != nil {
@@ -75,7 +75,7 @@ func (w *row) exitChecks() {
 	// The approved strings, never a fresh resolution, and whether or not the
 	// clone still exists: a clone the agent turned into a link to the real
 	// home must not aim the SIGTERM there, and one it deleted must not skip
-	// the check. Before step 2b no agent has run, so a fresh resolution is
+	// the check. Before step 2's resolution no agent has run, so a fresh resolution is
 	// the clone eval just made.
 	roots := []string{}
 	for _, p := range []string{w.app, w.sb} {
