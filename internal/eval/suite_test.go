@@ -143,6 +143,8 @@ func TestSuiteHarness(t *testing.T) {
 		"catalog-route-3": {"", false}, "catalog-route-4": {"", false}, "catalog-route-5": {"", false},
 		"catalog-route-6": {"", false}, "catalog-precedence": {"", false},
 		"rule-code-modularity": {"", true}, "build-cli": {"", true}, "build-api": {"", true}, "build-fullstack": {"", true},
+		// The sandbox form of GUIDE-testing § 5's context check (the v3.1.0 gate).
+		"smoke": {"", false},
 	}
 	got := map[string]Row{}
 	for _, r := range rows {
