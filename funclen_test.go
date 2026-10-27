@@ -20,14 +20,17 @@ const funcLimit = 50
 
 // longFuncs is the allowlist: key "path:Name" or "path:Recv.Name" (path from
 // the module root, slash-separated, Recv without '*'), value the function's
-// length when it was listed. Each phase deletes its rows; empty at Done.
+// length when it was listed. PLAN-2026-10-27-funclen emptied it: every
+// function is at most funcLimit lines. A row added here is an exception to
+// rules/code-modularity.md item 1, which the ratchet then holds.
 var longFuncs = map[string]int{}
 
 // TestFunctionLength is the regrowth guard of PLAN-2026-10-27-funclen: no
-// non-test function in a tracked .go file may pass funcLimit unless
-// longFuncs lists it, a listed one may not grow, and a row whose function is
-// gone or back under the limit is stale and fails, so the list only empties.
-// Untracked files are not read; the plan's lister covers them (D16).
+// non-test function in a .go file git lists, tracked or untracked but not
+// ignored, may pass funcLimit unless longFuncs lists it, a listed one may not
+// grow, and a row whose function is gone or back under the limit is stale and
+// fails, so the list only empties. An untracked file is read too, so a new
+// file is guarded before it is staged (D29, superseding D16's clause).
 func TestFunctionLength(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -37,14 +40,12 @@ func TestFunctionLength(t *testing.T) {
 	}
 	files := guardedGoFiles(t)
 	if len(files) == 0 {
-		t.Fatal("git tracks no non-test .go files; the test ran in the wrong directory")
+		t.Fatal("git lists no non-test .go files; the test ran in the wrong directory")
 	}
 	long := map[string]int{}
 	for _, f := range files {
-		for k, n := range funcLengths(t, f) {
-			if n > funcLimit {
-				long[k] = n
-			}
+		for k, n := range overLimit(funcLengths(t, f)) {
+			long[k] = n
 		}
 	}
 	for _, msg := range funcLengthFindings(long, longFuncs) {
@@ -52,11 +53,12 @@ func TestFunctionLength(t *testing.T) {
 	}
 }
 
-// guardedGoFiles lists the tracked non-test .go files the guard reads: no
-// generated file, nothing under skills/, and no tracked file deleted on disk.
+// guardedGoFiles lists the non-test .go files the guard reads, tracked or
+// untracked but not ignored: no generated file, nothing under skills/, and no
+// tracked file deleted on disk.
 func guardedGoFiles(t *testing.T) []string {
 	t.Helper()
-	out, err := exec.Command("git", "ls-files", "-z", "--", "*.go").Output()
+	out, err := exec.Command("git", "ls-files", "-z", "-co", "--exclude-standard", "--", "*.go").Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
@@ -136,6 +138,17 @@ func funcKeyName(fd *ast.FuncDecl) string {
 	return fd.Name.Name
 }
 
+// overLimit keeps the lengths over funcLimit.
+func overLimit(lengths map[string]int) map[string]int {
+	long := map[string]int{}
+	for k, n := range lengths {
+		if n > funcLimit {
+			long[k] = n
+		}
+	}
+	return long
+}
+
 // funcLengthFindings compares the functions over the limit with the
 // allowlist and returns one message per offender, sorted: too long and not
 // listed, grown past its listed length, or listed but no longer over.
@@ -208,5 +221,53 @@ func TestFunctionLengthFiles(t *testing.T) {
 	defer os.Chmod(path.Dir(locked), 0o700)
 	if got, err := filterGoFiles([]string{keep, locked}); err == nil {
 		t.Errorf("filterGoFiles over an unreadable directory = %v, nil; want an error naming %s", got, locked)
+	}
+}
+
+// TestFunctionLengthBites proves the guard fires with its allowlist empty: a
+// function of funcLimit+1 lines is over and one of funcLimit is not, and each
+// of the three findings is made: too long and not listed, grown, stale.
+func TestFunctionLengthBites(t *testing.T) {
+	body := func(name string, lines int) string {
+		return "func " + name + "() {\n" + strings.Repeat("\t_ = 0\n", lines-2) + "}\n"
+	}
+	file := t.TempDir() + "/p.go"
+	src := "package p\n\n" + body("Fifty", funcLimit) + body("FiftyOne", funcLimit+1)
+	if err := os.WriteFile(file, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := overLimit(funcLengths(t, file))
+	if len(long) != 1 || long[file+":FiftyOne"] != funcLimit+1 {
+		t.Fatalf("over the limit: %v, want only FiftyOne at %d", long, funcLimit+1)
+	}
+	got := funcLengthFindings(map[string]int{"a.go:Long": 60, "b.go:Grew": 55, "c.go:Kept": 52}, map[string]int{"b.go:Grew": 54, "c.go:Kept": 53, "d.go:Gone": 70})
+	want := []string{
+		"a.go:Long is 60 lines, over 50 (rules/code-modularity.md item 1): split it",
+		"b.go:Grew grew to 55 lines, listed at 54: a listed function may shrink, never grow",
+		"d.go:Gone is listed in longFuncs but no function by that key is over 50 lines: stale, delete its row",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("findings:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// TestFunctionLengthReadsUntracked: a new file is guarded before it is
+// staged, and an ignored one is not read (D29).
+func TestFunctionLengthReadsUntracked(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	for name, body := range map[string]string{"new.go": "package p\n", ".gitignore": "ignored.go\n", "ignored.go": "package p\n"} {
+		if err := os.WriteFile(dir+"/"+name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(dir)
+	if got := guardedGoFiles(t); len(got) != 1 || got[0] != "new.go" {
+		t.Errorf("guardedGoFiles = %v, want [new.go]", got)
 	}
 }
