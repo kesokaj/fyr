@@ -7,7 +7,6 @@ package search
 
 import (
 	"database/sql"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -111,6 +109,24 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 		}
 	}()
 
+	out, err := listConversations(src, tmp, root, since)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		text, err := conversationText(src, out[i].ID, tmp)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Text = text
+	}
+	return out, nil
+}
+
+// listConversations reads the conversation list from a copy in tmp: the
+// conversations of root or under it modified after since, without their
+// text. The copy is closed before it returns.
+func listConversations(src, tmp, root string, since time.Time) ([]AgyConversation, error) {
 	db, err := openCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
 		return nil, err
@@ -137,14 +153,6 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 	}
 	rows.Close()
 	db.Close()
-
-	for i := range out {
-		text, err := conversationText(src, out[i].ID, tmp)
-		if err != nil {
-			return nil, err
-		}
-		out[i].Text = text
-	}
 	return out, nil
 }
 
@@ -289,103 +297,4 @@ func removeIfEmpty(dir string) {
 	if entries, err := os.ReadDir(dir); err == nil && len(entries) == 0 {
 		os.Remove(dir)
 	}
-}
-
-// maxDepth bounds the nesting the decoder follows.
-const maxDepth = 32
-
-// proseLeaves decodes one step's protobuf payload by its wire format, with no
-// schema, and returns its prose: every length-delimited field that is
-// printable UTF-8 with three spaces or more, except JSON, which is a tool
-// call's arguments (a command, a file written) and goes whole. A field that
-// is not text is tried as a nested message. Decoding replaces a scan for byte
-// runs, which leaked argument pieces glued to a printable length byte or split
-// at a multi-byte character (security review of the release range, D30).
-func proseLeaves(msg []byte) []string {
-	var out []string
-	walk(msg, 0, &out)
-	return out
-}
-
-// walk appends msg's prose leaves to out and reports whether msg parsed as a
-// whole message.
-func walk(msg []byte, depth int, out *[]string) bool {
-	if depth > maxDepth {
-		return false
-	}
-	var leaves []string
-	for len(msg) > 0 {
-		key, n := binary.Uvarint(msg)
-		if n <= 0 || key>>3 == 0 {
-			return false
-		}
-		msg = msg[n:]
-		switch key & 7 {
-		case 0: // varint
-			if _, n := binary.Uvarint(msg); n <= 0 {
-				return false
-			} else {
-				msg = msg[n:]
-			}
-		case 1: // 64-bit
-			if len(msg) < 8 {
-				return false
-			}
-			msg = msg[8:]
-		case 5: // 32-bit
-			if len(msg) < 4 {
-				return false
-			}
-			msg = msg[4:]
-		case 2: // length-delimited: text, or a nested message
-			l, n := binary.Uvarint(msg)
-			if n <= 0 || l > uint64(len(msg)-n) {
-				return false
-			}
-			field := msg[n : n+int(l)]
-			msg = msg[n+int(l):]
-			// A field that parses as a whole message IS one: tried as text
-			// first, a string-only sub-message (a tool call's arguments)
-			// passed as prose with its key and length bytes glued in front,
-			// which the JSON guard cannot see (audit 2026-09-30, SD1).
-			var nested []string
-			if walk(field, depth+1, &nested) {
-				leaves = append(leaves, nested...)
-				continue
-			}
-			if text, ok := textField(field); ok && prose(text) {
-				leaves = append(leaves, text)
-			}
-		default: // groups and unknown wire types: not a message here
-			return false
-		}
-	}
-	*out = append(*out, leaves...)
-	return true
-}
-
-// textField is field as text when it is valid UTF-8 with no control
-// character other than a newline or a tab.
-func textField(field []byte) (string, bool) {
-	if len(field) == 0 || !utf8.Valid(field) {
-		return "", false
-	}
-	for _, r := range string(field) {
-		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
-			return "", false
-		}
-	}
-	return string(field), true
-}
-
-// prose is a text leaf worth sending: three spaces or more, and not JSON.
-func prose(text string) bool {
-	t := strings.TrimSpace(text)
-	if strings.Count(t, " ") < 3 || len(t) < 20 {
-		return false
-	}
-	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") || json.Valid([]byte(t)) {
-		return false
-	}
-	return true
 }

@@ -69,10 +69,11 @@ func TestAgyConversationListErrors(t *testing.T) {
 }
 
 // walk refuses a message whose varint, 64-bit or 32-bit field runs past its
-// end, and steps over a whole 32-bit field to the prose after it.
+// end, and steps over a whole 64-bit or 32-bit field to the prose after it.
 func TestWalkFixedAndVarintFields(t *testing.T) {
 	text := []byte("the operator asked for a smaller split")
 	fixed32 := append(binary.AppendUvarint(nil, 1<<3|5), 0, 0, 0, 0)
+	fixed64 := append(binary.AppendUvarint(nil, 1<<3|1), 0, 0, 0, 0, 0, 0, 0, 0)
 	for _, c := range []struct {
 		name   string
 		msg    []byte
@@ -83,6 +84,7 @@ func TestWalkFixedAndVarintFields(t *testing.T) {
 		{"short 64-bit", append(binary.AppendUvarint(nil, 1<<3|1), 1, 2, 3, 4, 5, 6, 7), false, 0},
 		{"short 32-bit", append(binary.AppendUvarint(nil, 1<<3|5), 1, 2, 3), false, 0},
 		{"32-bit then prose", append(fixed32, pb(2, text)...), true, 1},
+		{"64-bit then prose", append(fixed64, pb(2, text)...), true, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var out []string

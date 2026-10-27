@@ -37,13 +37,7 @@ func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int) (
 	if q == "" || len(hits) >= o.Limit {
 		return hits, nil
 	}
-	// Keyed by chunk, never by line: the every-word round shifts a hit's
-	// line to its matched term, so the any-word round saw the same chunk
-	// at its first line as new and printed it twice (audit 2026-09-30, SD2).
-	have := map[int64]bool{}
-	for _, h := range hits {
-		have[h.id] = true
-	}
+	have := chunkIDs(hits)
 	first := len(hits)
 	// Snippets are made only for the hits that are printed, below.
 	// The full-text match runs once, first: joined directly, the planner
@@ -79,18 +73,38 @@ func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int) (
 		return nil, err
 	}
 	rows.Close()
+	if err := sc.snippets(q, hits[first:], ids); err != nil {
+		return nil, err
+	}
+	return hits, nil
+}
+
+// chunkIDs is the set of chunks hits already holds. Keyed by chunk, never
+// by line: the every-word round shifts a hit's line to its matched term, so
+// the any-word round saw the same chunk at its first line as new and
+// printed it twice (audit 2026-09-30, SD2).
+func chunkIDs(hits []hit) map[int64]bool {
+	have := map[int64]bool{}
+	for _, h := range hits {
+		have[h.id] = true
+	}
+	return have
+}
+
+// snippets sets each new hit's snippet and moves its line to the snippet's
+// first matched term; ids[i] is the chunk of hits[i].
+func (sc *scope) snippets(q string, hits []hit, ids []int64) error {
 	for i, id := range ids {
-		i += first
 		var body, snip string
 		err := sc.st.db.QueryRow(`SELECT c.body, snippet(chunks_fts, 1, char(1), char(2), '…', 24)
 			FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ? AND chunks_fts.rowid = ?`, q, id).Scan(&body, &snip)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		hits[i].line += matchOffset(body, snip)
 		hits[i].snippet = cleanSnippet(snip)
 	}
-	return hits, nil
+	return nil
 }
 
 // matchOffset is the 0-based line of body holding the snippet's first

@@ -143,11 +143,29 @@ func (s *store) applyLocked(src source, now int64) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Index every blob the database has not seen, parsed by the first path
-	// it appears at in the view (D14). Reads go through an os.Root.
-	fsRoot, err := os.OpenRoot(src.dir)
+	if err := s.indexBlobs(src, blobs, now); err != nil {
+		return 0, err
+	}
+	n, err := s.writeFiles(src, files, wanted(src.view, blobs))
 	if err != nil {
 		return 0, err
+	}
+	if _, err := s.db.Exec(`UPDATE blobs SET last_seen = ? WHERE oid IN (SELECT oid FROM files WHERE project = ?)`, now, src.project); err != nil {
+		return 0, err
+	}
+	if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "touched:"+src.project, now); err != nil {
+		return 0, err
+	}
+	return n, s.gc(now)
+}
+
+// indexBlobs indexes every blob the database has not seen, parsed by the
+// first path it appears at in the view (D14), and marks it in blobs. Reads
+// go through an os.Root.
+func (s *store) indexBlobs(src source, blobs map[string]bool, now int64) error {
+	fsRoot, err := os.OpenRoot(src.dir)
+	if err != nil {
+		return err
 	}
 	defer fsRoot.Close()
 	var in *inserter
@@ -157,7 +175,7 @@ func (s *store) applyLocked(src source, now int64) (int, error) {
 		}
 		text, ok := readIndexable(fsRoot, filepath.FromSlash(e.path))
 		if _, err := s.db.Exec(`INSERT INTO blobs(oid, last_seen, skipped) VALUES (?, ?, ?)`, e.oid, now, boolInt(!ok)); err != nil {
-			return 0, err
+			return err
 		}
 		blobs[e.oid] = !ok
 		if !ok {
@@ -165,15 +183,21 @@ func (s *store) applyLocked(src source, now int64) (int, error) {
 		}
 		if in == nil {
 			if in, err = s.newInserter(); err != nil {
-				return 0, err
+				return err
 			}
 			defer in.close()
 		}
 		if err := in.content(e, text, src.docsRoot); err != nil {
-			return 0, err
+			return err
 		}
 	}
-	w := wanted(src.view, blobs)
+	return nil
+}
+
+// writeFiles brings the project's files rows from files to w and returns
+// how many paths were added or removed; a path whose blob is unchanged only
+// has its state updated.
+func (s *store) writeFiles(src source, files map[string]string, w map[string]entry) (int, error) {
 	n := 0
 	for p, oid := range files {
 		if e, ok := w[p]; !ok || e.oid != oid {
@@ -197,11 +221,5 @@ func (s *store) applyLocked(src source, now int64) (int, error) {
 			return 0, err
 		}
 	}
-	if _, err := s.db.Exec(`UPDATE blobs SET last_seen = ? WHERE oid IN (SELECT oid FROM files WHERE project = ?)`, now, src.project); err != nil {
-		return 0, err
-	}
-	if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "touched:"+src.project, now); err != nil {
-		return 0, err
-	}
-	return n, s.gc(now)
+	return n, nil
 }

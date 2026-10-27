@@ -6,7 +6,7 @@ Last reviewed: 2026-10-27
 
 ## Now
 
-- `PLAN-2026-10-27-funclen` — functions over 50 lines (54 today): extract-function splits and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Approved by the operator 2026-10-27 ("go all approved", D26); Phase 1 (the guard) done 2026-10-27, 54 rows; Phase 2 (`internal/brain`) done 2026-10-27, 44 rows left; Phase 3 (`internal/metrics`) done 2026-10-27, 34 rows left; Phase 4 (`internal/search`) is next.
+- `PLAN-2026-10-27-funclen` — functions over 50 lines (54 today): extract-function splits and `TestRefreshCatalogScript`, behind the `TestFunctionLength` guard. Approved by the operator 2026-10-27 ("go all approved", D26); Phase 1 (the guard) done 2026-10-27, 54 rows; Phase 2 (`internal/brain`) done 2026-10-27, 44 rows left; Phase 3 (`internal/metrics`) done 2026-10-27, 34 rows left; Phase 4 (`internal/search`) done 2026-10-27, 25 rows left; Phase 5 (`internal/harness`) is next.
 
 ## Next
 

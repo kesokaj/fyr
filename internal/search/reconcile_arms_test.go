@@ -47,8 +47,9 @@ func armEntry(t *testing.T, dir, name, state string) entry {
 	return entry{path: name, oid: blobID(data), state: state}
 }
 
-// Every failing write of applyLocked's blob and files passes fails the
-// apply, whichever statement it is.
+// Every failing write of applyLocked fails the apply, whichever statement
+// it is: the blob and files passes, the last-seen update and the touched
+// mark.
 func TestApplyLockedWriteErrors(t *testing.T) {
 	for _, c := range []struct {
 		name, op, table string
@@ -60,6 +61,8 @@ func TestApplyLockedWriteErrors(t *testing.T) {
 		{"file insert", "INSERT", "files", false, nil},
 		{"file delete", "DELETE", "files", true, func(string) []entry { return nil }},
 		{"file state update", "UPDATE", "files", true, nil},
+		{"last-seen update", "UPDATE", "blobs", false, nil},
+		{"touched mark", "INSERT", "meta", false, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			st, dir := armStore(t)

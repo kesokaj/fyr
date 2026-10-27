@@ -109,11 +109,26 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	order, view, markers := trackedView(out, under)
+	dropGoneMarkers(fsRoot, markers)
+	refreshTracked(root, fsRoot, order, view)
+	out, err = git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, nil, err
+	}
+	order = addUntracked(fsRoot, out, under, order, view, markers)
+	marked := markedDirs(markers)
+	return keptEntries(order, view, marked), leftOutDirs(marked), nil
+}
+
+// trackedView reads `git ls-files -s -z`: the index entries under the
+// prefix, in index order, and the noindex markers. Markers are collected
+// from the whole checkout, not only under prefix: a marker above the prefix
+// covers it (a checkout marked at its root has no docs trail for the global
+// index either).
+func trackedView(out []byte, under func(string) bool) ([]string, map[string]entry, map[string]bool) {
 	var order []string
 	view := map[string]entry{}
-	// Markers are collected from the whole checkout, not only under prefix:
-	// a marker above the prefix covers it (a checkout marked at its root has
-	// no docs trail for the global index either).
 	markers := map[string]bool{}
 	for _, rec := range strings.Split(string(out), "\x00") {
 		meta, p, ok := strings.Cut(rec, "\t")
@@ -133,21 +148,31 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		view[p] = entry{path: p, oid: f[1], state: "tracked"}
 		order = append(order, p)
 	}
-	// No `git status`: it runs the clean filters and the fsmonitor hook the
-	// checkout's own .gitattributes and config name (BUG-165). A tracked
-	// file is compared by its own bytes with the index's blob; untracked
-	// files come from ls-files, which reads ignore rules only. A file the
-	// checkout filters reads as modified and is indexed from its bytes.
-	// A tracked marker deleted from the work tree no longer counts, wherever
-	// it sits: the loop below sees only paths under prefix.
+	return order, view, markers
+}
+
+// dropGoneMarkers forgets a tracked marker deleted from the work tree, so
+// it no longer counts, wherever it sits: refreshTracked sees only paths
+// under the prefix.
+func dropGoneMarkers(fsRoot *os.Root, markers map[string]bool) {
 	for p := range markers {
 		if _, err := fsRoot.Lstat(filepath.FromSlash(p)); err != nil {
 			delete(markers, p)
 		}
 	}
-	// The index's own stat data spares the hash of a file git would also call
-	// unchanged: same size, same mtime to the nanosecond, and not racily clean
-	// (written within the second the index was). Reading it runs nothing.
+}
+
+// refreshTracked compares each tracked file of order by its own bytes with
+// the index's blob, marking it modified, and drops one that is gone, no
+// longer a regular file, too large or unreadable. No `git status`: it runs
+// the clean filters and the fsmonitor hook the checkout's own
+// .gitattributes and config name (BUG-165). A file the checkout filters
+// reads as modified and is indexed from its bytes.
+//
+// The index's own stat data spares the hash of a file git would also call
+// unchanged: same size, same mtime to the nanosecond, and not racily clean
+// (written within the second the index was). Reading it runs nothing.
+func refreshTracked(root string, fsRoot *os.Root, order []string, view map[string]entry) {
 	stats, indexTime := indexStats(root)
 	for _, p := range append([]string(nil), order...) {
 		// A plain stat for the comparison (an os.Root walk per file cost
@@ -178,10 +203,13 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 			view[p] = entry{path: p, oid: oid, state: "modified"}
 		}
 	}
-	out, err = git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return nil, nil, err
-	}
+}
+
+// addUntracked adds the untracked files `git ls-files --others` listed in
+// out to the view, blob IDs computed from their bytes, and returns order
+// with the new paths. Untracked files come from ls-files, which reads
+// ignore rules only.
+func addUntracked(fsRoot *os.Root, out []byte, under func(string) bool, order []string, view map[string]entry, markers map[string]bool) []string {
 	for _, p := range strings.Split(string(out), "\x00") {
 		if p == "" {
 			continue
@@ -205,10 +233,16 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		}
 		view[p] = entry{path: p, oid: blobID(data), state: "untracked"}
 	}
-	// A directory holding a noindex marker is data the project carries, not its
-	// own text: nothing below it is indexed. The marker counts in every state
-	// git reports it in (committed, staged, not yet added): the first search
-	// after the marker is written must already leave the directory out.
+	return order
+}
+
+// markedDirs is the directory of each marker, with its trailing slash, ""
+// for the root. A directory holding a noindex marker is data the project
+// carries, not its own text: nothing below it is indexed. The marker counts
+// in every state git reports it in (committed, staged, not yet added): the
+// first search after the marker is written must already leave the
+// directory out.
+func markedDirs(markers map[string]bool) []string {
 	var marked []string
 	for p := range markers {
 		dir := path.Dir(p) + "/"
@@ -217,6 +251,12 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		}
 		marked = append(marked, dir)
 	}
+	return marked
+}
+
+// keptEntries is the view in order, less secret-shaped names and every
+// path under a marked directory.
+func keptEntries(order []string, view map[string]entry, marked []string) []entry {
 	noIndex := func(p string) bool {
 		for _, dir := range marked {
 			if strings.HasPrefix(p, dir) {
@@ -238,9 +278,13 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 			delete(view, p) // an unmerged path appears once
 		}
 	}
-	// The marked directories go back to the caller, sorted, the root as
-	// "./": the search header names them, so an empty answer is not read
-	// as "nothing there".
+	return entries
+}
+
+// leftOutDirs is the marked directories as they go back to the caller:
+// sorted, the root as "./". The search header names them, so an empty
+// answer is not read as "nothing there".
+func leftOutDirs(marked []string) []string {
 	leftOut := make([]string, 0, len(marked))
 	for _, dir := range marked {
 		if dir == "" {
@@ -249,7 +293,7 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 		leftOut = append(leftOut, dir)
 	}
 	sort.Strings(leftOut)
-	return entries, leftOut, nil
+	return leftOut
 }
 
 // blobID is the git blob ID of data under SHA-1 ("blob <len>\x00" + data).

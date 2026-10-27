@@ -13,89 +13,134 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 	x := strings.TrimPrefix(strings.TrimSpace(o.Refs), "./")
 	isID := idPattern.MatchString(x)
 	isDir := !isID && strings.HasSuffix(x, "/")
-	var where string
-	var args []any
+	where, args := sc.refsWhere(x, isID, isDir)
+	// The first line: the ID's own record, or the path's state.
+	var err error
 	switch {
 	case isID:
-		where, args = `r.target = ?`, []any{x}
+		err = sc.recordLine(x, out)
+	case isDir:
+		fmt.Fprintf(out, "%s  directory\n", x)
+	default:
+		err = sc.pathLine(x, out)
+	}
+	if err != nil {
+		return err
+	}
+	raw, err := sc.refRows(o, where, args)
+	if err != nil {
+		return err
+	}
+	groups := sc.groupRefs(raw)
+	fmt.Fprintf(out, "referenced by %d:\n", len(groups))
+	for _, g := range groups {
+		times := ""
+		if g.count > 1 {
+			times = fmt.Sprintf("  ×%d", g.count)
+		}
+		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.project, g.path, g.oid, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
+	}
+	return nil
+}
+
+// refsWhere is the condition on r.target that --refs x matches, with its
+// arguments: x itself and, for a path under a project's docs root, the
+// path relative to that root as well.
+func (sc *scope) refsWhere(x string, isID, isDir bool) (string, []any) {
+	switch {
+	case isID:
+		return `r.target = ?`, []any{x}
 	case isDir:
 		base := strings.TrimSuffix(x, "/")
-		where = `(r.target = ? OR r.target = ? OR r.target LIKE ? ESCAPE '\')`
-		args = []any{base, x, likeEscape(x) + "%"}
+		where := `(r.target = ? OR r.target = ? OR r.target LIKE ? ESCAPE '\')`
+		args := []any{base, x, likeEscape(x) + "%"}
 		for _, p := range sc.projects {
 			if rel, ok := docsRelative(base, p.docsRoot); ok {
 				where = strings.TrimSuffix(where, ")") + ` OR r.target = ? OR r.target LIKE ? ESCAPE '\')`
 				args = append(args, rel, likeEscape(rel+"/")+"%")
 			}
 		}
-	default:
-		where, args = `r.target = ?`, []any{x}
-		for _, p := range sc.projects {
-			if rel, ok := docsRelative(x, p.docsRoot); ok {
-				where = `(` + where + ` OR r.target = ?)`
-				args = append(args, rel)
-			}
+		return where, args
+	}
+	where, args := `r.target = ?`, []any{x}
+	for _, p := range sc.projects {
+		if rel, ok := docsRelative(x, p.docsRoot); ok {
+			where = `(` + where + ` OR r.target = ?)`
+			args = append(args, rel)
 		}
 	}
-	// The first line: the ID's own record, or the path's state.
-	switch {
-	case isID:
-		rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.line, r.status, r.date, r.title FROM records r JOIN files f ON f.oid = r.oid
-			WHERE r.id = ? AND f.project IN `+sc.in()+` ORDER BY f.project, f.path`, append([]any{x}, sc.keys()...)...)
-		if err != nil {
-			return err
-		}
-		found := false
-		for rows.Next() {
-			var project, path, status, date, title string
-			var line int
-			if err := rows.Scan(&project, &path, &line, &status, &date, &title); err != nil {
-				rows.Close()
-				return err
-			}
-			found = true
-			fmt.Fprintln(out, printable(fmt.Sprintf("%s  %s:%d  %s  %s  %s", x, sc.display(project, path), line, status, date, title)))
-		}
-		rows.Close()
-		if !found {
-			fmt.Fprintf(out, "%s  no record\n", x)
-		}
-	case isDir:
-		fmt.Fprintf(out, "%s  directory\n", x)
-	default:
-		state := "absent"
-		err := sc.st.db.QueryRow(`SELECT state FROM files WHERE path = ? AND project IN `+sc.in()+` LIMIT 1`, append([]any{x}, sc.keys()...)...).Scan(&state)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		fmt.Fprintf(out, "%s  %s\n", x, state)
-		if state == "absent" && !strings.Contains(x, "/") {
-			// A bare file name matches nothing (no basename matching, D-row in
-			// the plan): name the tracked paths it could mean instead.
-			hints, err := sc.sameName(x)
-			if err != nil {
-				return err
-			}
-			for _, h := range hints {
-				fmt.Fprintln(out, printable("hint: did you mean --refs "+h))
-			}
-		}
-	}
-	rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.oid, r.line, r.target FROM refs r JOIN files f ON f.oid = r.oid
-		WHERE `+where+` AND f.project IN `+sc.in()+` ORDER BY f.project, f.path, r.line`, append(args, sc.keys()...)...)
+	return where, args
+}
+
+// recordLine prints the record x names, once per file that holds it, or
+// that there is none.
+func (sc *scope) recordLine(x string, out io.Writer) error {
+	rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.line, r.status, r.date, r.title FROM records r JOIN files f ON f.oid = r.oid
+		WHERE r.id = ? AND f.project IN `+sc.in()+` ORDER BY f.project, f.path`, append([]any{x}, sc.keys()...)...)
 	if err != nil {
 		return err
 	}
-	type row struct {
-		project, path, oid, target string
-		line                       int
-	}
-	var raw []row
+	found := false
 	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.project, &r.path, &r.oid, &r.line, &r.target); err != nil {
+		var project, path, status, date, title string
+		var line int
+		if err := rows.Scan(&project, &path, &line, &status, &date, &title); err != nil {
 			rows.Close()
 			return err
+		}
+		found = true
+		fmt.Fprintln(out, printable(fmt.Sprintf("%s  %s:%d  %s  %s  %s", x, sc.display(project, path), line, status, date, title)))
+	}
+	rows.Close()
+	if !found {
+		fmt.Fprintf(out, "%s  no record\n", x)
+	}
+	return nil
+}
+
+// pathLine prints the state of path x and, when a bare file name matches
+// nothing, the tracked paths it could mean.
+func (sc *scope) pathLine(x string, out io.Writer) error {
+	state := "absent"
+	err := sc.st.db.QueryRow(`SELECT state FROM files WHERE path = ? AND project IN `+sc.in()+` LIMIT 1`, append([]any{x}, sc.keys()...)...).Scan(&state)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	fmt.Fprintf(out, "%s  %s\n", x, state)
+	if state == "absent" && !strings.Contains(x, "/") {
+		// A bare file name matches nothing (no basename matching, D-row in
+		// the plan): name the tracked paths it could mean instead.
+		hints, err := sc.sameName(x)
+		if err != nil {
+			return err
+		}
+		for _, h := range hints {
+			fmt.Fprintln(out, printable("hint: did you mean --refs "+h))
+		}
+	}
+	return nil
+}
+
+// refRow is one reference: the file and line that hold it, and its target.
+type refRow struct {
+	project, path, oid, target string
+	line                       int
+}
+
+// refRows reads the references matching where that --kind keeps. Its rows
+// are closed before it returns: groupRefs queries again.
+func (sc *scope) refRows(o Options, where string, args []any) ([]refRow, error) {
+	rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.oid, r.line, r.target FROM refs r JOIN files f ON f.oid = r.oid
+		WHERE `+where+` AND f.project IN `+sc.in()+` ORDER BY f.project, f.path, r.line`, append(args, sc.keys()...)...)
+	if err != nil {
+		return nil, err
+	}
+	var raw []refRow
+	for rows.Next() {
+		var r refRow
+		if err := rows.Scan(&r.project, &r.path, &r.oid, &r.line, &r.target); err != nil {
+			rows.Close()
+			return nil, err
 		}
 		if sc.kindMatches(o, r.project, r.path) {
 			raw = append(raw, r)
@@ -103,19 +148,26 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return err
+		return nil, err
 	}
 	rows.Close()
-	// Grouped per file and record, after the rows are closed (the store has
-	// one connection, and a query inside an open row loop waits forever):
-	// in DECISIONS.md, ADR-041's "supersedes ADR-040" is its own line, not
-	// folded into ADR-040's own heading.
-	type group struct {
-		project, path, oid, target, date string
-		line, count                      int
-	}
-	var groups []*group
-	index := map[string]*group{}
+	return raw, nil
+}
+
+// refGroup is the references of one file and record, counted.
+type refGroup struct {
+	project, path, oid, target, date string
+	line, count                      int
+}
+
+// groupRefs groups raw per file and record, the newest record first. It
+// runs after the rows are closed (the store has one connection, and a query
+// inside an open row loop waits forever): in DECISIONS.md, ADR-041's
+// "supersedes ADR-040" is its own line, not folded into ADR-040's own
+// heading.
+func (sc *scope) groupRefs(raw []refRow) []*refGroup {
+	var groups []*refGroup
+	index := map[string]*refGroup{}
 	for _, r := range raw {
 		recID, date := "", ""
 		if rec := sc.recordAt(r.oid, r.line); rec != nil {
@@ -126,7 +178,7 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 			prev.count++
 			continue
 		}
-		g := &group{project: r.project, path: r.path, oid: r.oid, target: r.target, date: date, line: r.line, count: 1}
+		g := &refGroup{project: r.project, path: r.path, oid: r.oid, target: r.target, date: date, line: r.line, count: 1}
 		index[key] = g
 		groups = append(groups, g)
 	}
@@ -136,15 +188,7 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 		}
 		return groups[i].path < groups[j].path
 	})
-	fmt.Fprintf(out, "referenced by %d:\n", len(groups))
-	for _, g := range groups {
-		times := ""
-		if g.count > 1 {
-			times = fmt.Sprintf("  ×%d", g.count)
-		}
-		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.project, g.path, g.oid, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
-	}
-	return nil
+	return groups
 }
 
 // sameName lists up to five current paths whose last element is name.

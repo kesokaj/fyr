@@ -55,47 +55,8 @@ func prepare(o Options, out io.Writer) (*scope, error) {
 	}
 	sc := &scope{byKey: map[string]proj{}}
 	if rootErr == nil {
-		if err := guardProject(root); err != nil {
+		if err := sc.prepareProject(o, root, out); err != nil {
 			return nil, err
-		}
-		path := projectDB(root)
-		if o.Rebuild && !o.Global {
-			if err := removeDB(path); err != nil {
-				return nil, fmt.Errorf("search: %w", err)
-			}
-		}
-		st, err := openStore(path, out)
-		if err != nil {
-			return nil, err
-		}
-		docs := docsRootOf(root)
-		view, leftOut, err := gitView(root, "")
-		if err != nil {
-			st.close()
-			return nil, fmt.Errorf("search: %w", err)
-		}
-		n, err := st.apply(source{project: root, dir: root, docsRoot: docs, view: view})
-		if err != nil {
-			st.close()
-			return nil, err
-		}
-		sc.changed += n
-		p := proj{key: root, name: filepath.Base(root), docsRoot: docs}
-		if !o.Global {
-			sc.st, sc.projects = st, []proj{p}
-			sc.leftOut = leftOut
-			sc.byKey[root] = p
-		} else {
-			st.close()
-		}
-		// Only a checkout the harness scaffolded registers: a third-party
-		// clone's docs/ would otherwise answer every --global query and
-		// feed /retro's cross-project evidence (security review, finding 2).
-		if fi, err := os.Stat(filepath.Join(root, ".agents", "docs")); err == nil && fi.IsDir() {
-			if err := register(o.Home, root, docs, out); err != nil {
-				sc.close()
-				return nil, err
-			}
 		}
 	}
 	if o.Global {
@@ -115,6 +76,55 @@ func prepare(o Options, out io.Writer) (*scope, error) {
 	}
 	sc.elapsed = time.Since(start)
 	return sc, nil
+}
+
+// prepareProject reconciles the checkout's own index: into sc when the
+// query is the checkout's, closed again under --global; then registers the
+// checkout in the global search index.
+func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
+	if err := guardProject(root); err != nil {
+		return err
+	}
+	path := projectDB(root)
+	if o.Rebuild && !o.Global {
+		if err := removeDB(path); err != nil {
+			return fmt.Errorf("search: %w", err)
+		}
+	}
+	st, err := openStore(path, out)
+	if err != nil {
+		return err
+	}
+	docs := docsRootOf(root)
+	view, leftOut, err := gitView(root, "")
+	if err != nil {
+		st.close()
+		return fmt.Errorf("search: %w", err)
+	}
+	n, err := st.apply(source{project: root, dir: root, docsRoot: docs, view: view})
+	if err != nil {
+		st.close()
+		return err
+	}
+	sc.changed += n
+	p := proj{key: root, name: filepath.Base(root), docsRoot: docs}
+	if !o.Global {
+		sc.st, sc.projects = st, []proj{p}
+		sc.leftOut = leftOut
+		sc.byKey[root] = p
+	} else {
+		st.close()
+	}
+	// Only a checkout the harness scaffolded registers: a third-party
+	// clone's docs/ would otherwise answer every --global query and
+	// feed /retro's cross-project evidence (security review, finding 2).
+	if fi, err := os.Stat(filepath.Join(root, ".agents", "docs")); err == nil && fi.IsDir() {
+		if err := register(o.Home, root, docs, out); err != nil {
+			sc.close()
+			return err
+		}
+	}
+	return nil
 }
 
 // register records a checkout in the global search index, at most once a

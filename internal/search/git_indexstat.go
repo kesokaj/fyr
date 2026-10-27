@@ -38,6 +38,12 @@ func indexStats(root string) (map[string]indexStat, time.Time) {
 	if err != nil {
 		return nil, time.Time{}
 	}
+	return parseIndexStats(out), ifi.ModTime()
+}
+
+// parseIndexStats reads `ls-files -s --debug` output: an entry's stat
+// counts only when both its mtime and its size parsed.
+func parseIndexStats(out []byte) map[string]indexStat {
 	stats := map[string]indexStat{}
 	cur, seen := "", 0
 	var st indexStat
@@ -75,5 +81,5 @@ func indexStats(root string) (map[string]indexStat, time.Time) {
 		}
 	}
 	flush()
-	return stats, ifi.ModTime()
+	return stats
 }
