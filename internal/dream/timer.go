@@ -95,7 +95,10 @@ func linuxServicePath(home string) string {
 
 // renderSystemd returns the service and timer unit texts. PATH is the one of
 // the shell that ran --install-timer: the user manager's own PATH lacks
-// ~/.local/bin, where agy lives (cold read r1).
+// ~/.local/bin, where agy lives (cold read r1). A oneshot has no start
+// timeout by default, and a Persistent= timer does not start a unit that is
+// still active, so TimeoutStartSec ends a run hung past the per-project kill
+// and the next night runs (SD36; plan 2026-10-27-ledger D2).
 func renderSystemd(bin, home, path string) (string, string) {
 	// systemd expands %-specifiers inside quotes too; %% is a literal %.
 	bin, home, path = strings.ReplaceAll(bin, "%", "%%"), strings.ReplaceAll(home, "%", "%%"), strings.ReplaceAll(path, "%", "%%")
@@ -107,6 +110,7 @@ Description=fyr dream: the nightly background dreamer (R3)
 
 [Service]
 Type=oneshot
+TimeoutStartSec=2h
 Environment="PATH=%s"
 ExecStart="%s" dream --all --home "%s"
 `, path, bin, home)

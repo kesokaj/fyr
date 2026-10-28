@@ -14,8 +14,8 @@ import (
 )
 
 // fakeCLI puts an executable named name first on PATH. It records its
-// arguments, working directory and stdin under rec, prints out and exits
-// with code.
+// arguments, working directory, stdin and environment under rec, prints out
+// and exits with code.
 func fakeCLI(t *testing.T, name, out string, code int) (rec string) {
 	t.Helper()
 	bin := t.TempDir()
@@ -28,6 +28,7 @@ func fakeCLI(t *testing.T, name, out string, code int) (rec string) {
 		"pwd > \"" + rec + "/cwd\"\n" +
 		"cat > \"" + rec + "/stdin\"\n" +
 		"printf '%s' \"$HOME\" > \"" + rec + "/home\"\n" +
+		"env > \"" + rec + "/env\"\n" +
 		"cp \"$HOME/.gemini/antigravity-cli/settings.json\" \"" + rec + "/settings\" 2>/dev/null\n" +
 		"ls \"$HOME/.gemini/antigravity-cli\" > \"" + rec + "/agyfiles\" 2>/dev/null\n" +
 		"cat \"" + rec + "/out\"\n" +

@@ -194,3 +194,33 @@ func TestInstallTimerKeepsOnlyAbsolutePath(t *testing.T) {
 		t.Errorf("service:\n%s", service)
 	}
 }
+
+// TestInstallTimerOlderUnitNamed: a unit an older fyr wrote, without
+// TimeoutStartSec, is kept and the refusal names that case and the way out;
+// --remove-timer then --install-timer writes the current unit (SD36).
+func TestInstallTimerOlderUnitNamed(t *testing.T) {
+	home := timerHome(t)
+	fakeManager(t, "systemctl", 0)
+	if err := InstallTimer(home, "/p", "linux"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".config", "systemd", "user", "fyr-dream.service")
+	older := strings.Replace(read(t, path), "TimeoutStartSec=2h\n", "", 1)
+	if err := os.WriteFile(path, []byte(older), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := InstallTimer(home, "/p", "linux")
+	var ee *ExitError
+	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "an older fyr") || !strings.Contains(ee.Msg, "--remove-timer") {
+		t.Errorf("an older unit: %v", err)
+	}
+	if read(t, path) != older {
+		t.Error("the older unit was overwritten")
+	}
+	if _, err := RemoveTimer(home, "linux"); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallTimer(home, "/p", "linux"); err != nil || !strings.Contains(read(t, path), "TimeoutStartSec=2h") {
+		t.Errorf("reinstall: %v\n%s", err, read(t, path))
+	}
+}

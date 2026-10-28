@@ -97,7 +97,7 @@ func planTimer(home, path, goos string) (timerPlan, error) {
 	for f, text := range p.files {
 		p.paths = append(p.paths, f)
 		if data, err := os.ReadFile(f); err == nil && string(data) != text {
-			return p, &ExitError{2, fmt.Sprintf("fyr dream --install-timer: %s exists with other text (another PATH, or edited by hand); kept. Run fyr dream --remove-timer first", f)}
+			return p, &ExitError{2, fmt.Sprintf("fyr dream --install-timer: %s exists with other text (another PATH, an older fyr, or edited by hand); kept. Run fyr dream --remove-timer first", f)}
 		}
 	}
 	return p, nil

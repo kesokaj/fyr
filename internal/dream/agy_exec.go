@@ -15,8 +15,8 @@ import (
 )
 
 // call runs the CLI in work with the prompt on stdin as one stream-json
-// message. env replaces the child's environment when set (agy's private
-// HOME); otherwise the child keeps fyr's own.
+// message, in env alone: the run passes childEnv, the allow-list and agy's
+// private HOME (ADR-067).
 func call(argv []string, prompt, work string, env []string) (string, string, error) {
 	return callWithin(argv, prompt, work, env, cliTimeout, killGrace)
 }
@@ -68,6 +68,10 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 // cliCommand is the CLI's command, with the prompt on its stdin as one
 // stream-json message and its output captured.
 func cliCommand(ctx context.Context, argv []string, prompt, work string, env []string) (*exec.Cmd, *bytes.Buffer, *bytes.Buffer, error) {
+	if env == nil {
+		// exec would hand the child fyr's whole environment.
+		return nil, nil, nil, errors.New("the CLI's environment is unset")
+	}
 	msg, err := json.Marshal(map[string]any{"event": "user", "message": map[string]string{"content": prompt}})
 	if err != nil {
 		return nil, nil, nil, err

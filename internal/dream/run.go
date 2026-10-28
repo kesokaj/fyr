@@ -58,7 +58,7 @@ func (o Options) realRun() error {
 		return r.fail(err.Error())
 	}
 	defer cleanup()
-	r.env = withHome(os.Environ(), agyHomeDir)
+	r.env = childEnv(os.Environ(), agyHomeDir)
 	r.work = filepath.Join(conf, "dream-work")
 	if err := os.MkdirAll(r.work, 0o700); err != nil {
 		return r.fail(err.Error())

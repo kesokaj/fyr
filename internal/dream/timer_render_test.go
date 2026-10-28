@@ -7,7 +7,7 @@ import (
 
 func TestRenderSystemdUnits(t *testing.T) {
 	service, timer := renderSystemd("/h/.local/bin/fyr", "/h", "/h/.local/bin:/usr/bin")
-	for _, want := range []string{"Type=oneshot", `Environment="PATH=/h/.local/bin:/usr/bin"`, `ExecStart="/h/.local/bin/fyr" dream --all --home "/h"`} {
+	for _, want := range []string{"Type=oneshot", "TimeoutStartSec=2h", `Environment="PATH=/h/.local/bin:/usr/bin"`, `ExecStart="/h/.local/bin/fyr" dream --all --home "/h"`} {
 		if !strings.Contains(service, want) {
 			t.Errorf("service lacks %q:\n%s", want, service)
 		}

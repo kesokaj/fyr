@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // checkAgy is every refusal a run makes about the Antigravity CLI before
@@ -136,15 +138,21 @@ func agyAuthHint(stdout, stderr string) string {
 	return "agy is not logged in inside the dream job's private HOME (run agy once and log in; on macOS the login Keychain must be unlocked, so the Mac's user must be logged in)"
 }
 
-// withHome is env with HOME replaced.
-func withHome(env []string, home string) []string {
-	out := make([]string, 0, len(env)+1)
-	for _, e := range env {
-		if !strings.HasPrefix(e, "HOME=") {
-			out = append(out, e)
-		}
-	}
-	return append(out, "HOME="+home)
+// agyEnv is every variable agy gets from fyr's environment, HOME aside: it
+// reads text fyr did not write, so a credential in the operator's shell
+// stays out of its process (ADR-067). A name joins only after a run shows
+// agy needs it, and only by the operator (plan audit-choices D8).
+var agyEnv = []string{"PATH", "LANG", "TERM", "TMPDIR", "TZ",
+	// The locale names, not LC_*: Debian's sshd accepts any LC_ variable a
+	// client sends (AcceptEnv LANG LC_*), so the prefix carries arbitrary values.
+	"LC_ALL", "LC_CTYPE", "LC_COLLATE", "LC_MESSAGES", "LC_MONETARY", "LC_NUMERIC", "LC_TIME",
+	"LC_ADDRESS", "LC_IDENTIFICATION", "LC_MEASUREMENT", "LC_NAME", "LC_PAPER", "LC_TELEPHONE",
+	"http_proxy", "https_proxy", "no_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+	"SSL_CERT_FILE", "SSL_CERT_DIR"}
+
+// childEnv is agy's environment: agyEnv's names from env, then HOME.
+func childEnv(env []string, home string) []string {
+	return append(trail.AllowEnv(env, agyEnv...), "HOME="+home)
 }
 
 // removeCopies removes what a killed run left in conf: a private agy HOME
