@@ -8,4 +8,4 @@ Last reviewed: 2026-10-28
 
 ## Next
 
-- **`/preflight`** for the next version (the ledger, `PLAN-2026-10-27-ledger`, closed 2026-10-28 at its Done), typed by the operator, with the macOS `fyr dream --all` run first (ledger A2, D8; audit-choices D47).
+(nothing scheduled: v4.0.0 shipped 2026-10-28; what is left is the operator's, in the newest handoff's Next Steps)
