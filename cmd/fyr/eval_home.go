@@ -15,8 +15,9 @@ import (
 // a run writes its sandboxes, its eval=<row> sessions and its testing record
 // under --home, so a missing one, the real home, or a home that reaches the
 // real state through a link would put them in the operator's own stores.
-// writesState asks it too, so a refused run never migrates the real
-// ~/.config/sh-agent on its way to the refusal.
+// writesState asks it too, so a refused run never moves the real home's old
+// state directory, ~/.config/sh-agent, to ~/.config/fyr on its way to the
+// refusal.
 func evalHomeRefused(homeFlag, home string) string {
 	if homeFlag == "" {
 		return "--home is required: a run writes its sandboxes, metrics and testing record there; pass a home outside every checkout, never the real one"
