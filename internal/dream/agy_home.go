@@ -33,6 +33,12 @@ func findLogin(goos string) (src, keychains string, err error) {
 	if !filepath.IsAbs(real) {
 		return "", "", fmt.Errorf("HOME is %q, not an absolute path: the dream job reads the Antigravity login from it", real)
 	}
+	return loginIn(goos, real)
+}
+
+// loginIn is findLogin's rule under any home: the visible branch asks it of
+// --home, where the login is used in place (plan D12).
+func loginIn(goos, real string) (src, keychains string, err error) {
 	src = filepath.Join(real, ".gemini", "antigravity-cli")
 	token := filepath.Join(src, "antigravity-oauth-token")
 	_, tokenErr := os.Stat(token)

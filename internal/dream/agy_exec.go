@@ -31,6 +31,13 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	if err != nil {
 		return "", "", err
 	}
+	err = runGroup(cmd, grace)
+	return cliResult(argv[0], timeout, ctx.Err(), out.String(), errb.String(), err)
+}
+
+// runGroup runs cmd, made with exec.CommandContext, in its own process
+// group and returns Wait's error, or Start's.
+func runGroup(cmd *exec.Cmd, grace time.Duration) error {
 	// The CLI gets its own process group, killed whole at the deadline, on an
 	// interrupt, and once the CLI itself is done; Wait gives up on the output
 	// pipes after grace. A helper the CLI started (a language or MCP server)
@@ -43,7 +50,7 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 	killGroup := func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Cancel = func() error { killGroup(); return nil }
 	if err := cmd.Start(); err != nil {
-		return "", "", fmt.Errorf("%s: %v", argv[0], err)
+		return err
 	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, watchedSignals()...)
@@ -57,12 +64,12 @@ func callWithin(argv []string, prompt, work string, env []string, timeout, grace
 		})
 		close(relayed)
 	}()
-	err = cmd.Wait()
+	err := cmd.Wait()
 	signal.Stop(sigs) // before waited closes: a signal in between still reaches the goroutine
 	close(waited)
 	<-relayed // a signal taken at the end is acted on before the next project starts
 	killGroup()
-	return cliResult(argv[0], timeout, ctx.Err(), out.String(), errb.String(), err)
+	return err
 }
 
 // cliCommand is the CLI's command, with the prompt on its stdin as one
