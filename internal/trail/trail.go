@@ -269,21 +269,29 @@ var ErrNotCheckout = errors.New("not a git checkout")
 // toplevel and is refused. memory.Root and internal/brain both resolve
 // through here.
 func Roots(dir string) (main, top string, err error) {
+	_, main, top, err = roots(dir)
+	return main, top, err
+}
+
+// roots is Roots, plus the absolute git common directory, where the
+// registration marker lives (register.go).
+func roots(dir string) (common, main, top string, err error) {
 	out, err := Command(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--absolute-git-dir", "--show-toplevel").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
+		return "", "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) != 3 || lines[0] == "" || lines[1] == "" || lines[2] == "" {
-		return "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
+		return "", "", "", fmt.Errorf("%w: %s", ErrNotCheckout, dir)
 	}
-	common, gitDir, top := filepath.Clean(lines[0]), filepath.Clean(lines[1]), filepath.Clean(lines[2])
+	gitDir := filepath.Clean(lines[1])
+	common, top = filepath.Clean(lines[0]), filepath.Clean(lines[2])
 	real := filepath.Clean(dir)
 	if r, err := filepath.EvalSymlinks(real); err == nil {
 		real = r
 	}
 	if rel, err := filepath.Rel(top, real); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Errorf("git names %s as the work tree of %s, which is not a parent of it", top, dir)
+		return "", "", "", fmt.Errorf("git names %s as the work tree of %s, which is not a parent of it", top, dir)
 	}
 	if gitDir != common {
 		// A linked worktree counts only when the common dir registers it:
@@ -292,7 +300,7 @@ func Roots(dir string) (main, top string, err error) {
 		// would otherwise borrow another project's store (audit-fix
 		// checkpoint security review, finding 1).
 		if !sameDir(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
-			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
+			return "", "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
 		back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
 		// git 2.48's worktree.useRelativePaths writes the path relative to
@@ -302,11 +310,11 @@ func Roots(dir string) (main, top string, err error) {
 			named = filepath.Join(gitDir, named)
 		}
 		if err != nil || !sameDir(filepath.Dir(named), top) {
-			return "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
+			return "", "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
-		return filepath.Dir(common), top, nil
+		return common, filepath.Dir(common), top, nil
 	}
-	return top, top, nil
+	return common, top, top, nil
 }
 
 // sameDir compares two paths after resolving symlinks, so a temp directory

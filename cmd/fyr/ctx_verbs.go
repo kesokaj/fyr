@@ -35,6 +35,7 @@ type ctx struct {
 	evalFixture                                                                             string
 	evalList                                                                                bool
 	limit                                                                                   int
+	register                                                                                bool
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
@@ -109,6 +110,7 @@ var verbs = map[string]verb{
 	"index": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.global, "global", false, "search, index: the global search index")
 		c.fs.BoolVar(&c.rebuild, "rebuild", false, "index: delete and rebuild the index")
+		c.fs.BoolVar(&c.register, "register", false, "index: register this checkout (the operator's consent, ADR-068) so it joins the global search index, then index it")
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},

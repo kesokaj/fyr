@@ -46,7 +46,7 @@ func guardProject(root string) error {
 
 // prepare opens and reconciles the index a query reads: the checkout's
 // own, or with --global the global search index, after registering the
-// checkout (when there is one) there.
+// checkout there when it carries the operator's marker and .agents/docs.
 func prepare(o Options, out io.Writer) (*scope, error) {
 	start := time.Now()
 	root, rootErr := checkoutRoot(o.Dir)
@@ -80,7 +80,8 @@ func prepare(o Options, out io.Writer) (*scope, error) {
 
 // prepareProject reconciles the checkout's own index: into sc when the
 // query is the checkout's, closed again under --global; then registers the
-// checkout in the global search index.
+// checkout in the global search index when it carries the operator's marker
+// and .agents/docs (ADR-068, ledger D11).
 func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
 	if err := guardProject(root); err != nil {
 		return err
@@ -115,10 +116,13 @@ func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
 	} else {
 		st.close()
 	}
-	// Only a checkout the harness scaffolded registers: a third-party
-	// clone's docs/ would otherwise answer every --global query and
-	// feed /retro's cross-project evidence (security review, finding 2).
-	if fi, err := os.Stat(filepath.Join(root, ".agents", "docs")); err == nil && fi.IsDir() {
+	// Only a checkout the operator registered (`fyr index --register`, a
+	// marker no clone carries) joins the global index: a third-party
+	// clone's trail would otherwise answer every --global query and feed
+	// /retro's cross-project evidence (ADR-068; security review, finding 2).
+	// It also needs .agents/docs, the one trail the global index reads,
+	// which dropReason would drop it for lacking (ledger D11).
+	if fi, err := os.Stat(filepath.Join(root, ".agents", "docs")); err == nil && fi.IsDir() && trail.Registered(filepath.Join(o.Home, harness.StateDir), root) {
 		if err := register(o.Home, root, docs, out); err != nil {
 			sc.close()
 			return err

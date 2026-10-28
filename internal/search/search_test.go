@@ -7,6 +7,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // newRepo makes a git checkout whose .gitignore ignores .agents/scratch/*,
@@ -22,6 +26,16 @@ func newRepo(t *testing.T) string {
 	writeFile(t, root, "README.md", "# demo\n\nA small demo project.\n")
 	commitAll(t, root, "init")
 	return root
+}
+
+// markRegistered writes root's registration marker, as `fyr index
+// --register` does: without it a checkout never joins the global index
+// (ADR-068).
+func markRegistered(t *testing.T, home, root string) {
+	t.Helper()
+	if _, err := trail.Register(filepath.Join(home, harness.StateDir), root, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func gitT(t *testing.T, dir string, args ...string) string {

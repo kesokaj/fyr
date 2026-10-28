@@ -33,6 +33,12 @@ func TestGlobalRegistersProject(t *testing.T) {
 	if out := mustSearch(t, Options{Dir: b, Home: home, Global: true, Words: []string{"heron"}}); strings.Contains(out, "BUG-001") {
 		t.Fatalf("unregistered project answered:\n%s", out)
 	}
+	// A search in a leaves it out until the operator registers it.
+	mustSearch(t, Options{Dir: a, Home: home, Words: []string{"demo"}})
+	if out := mustSearch(t, Options{Dir: b, Home: home, Global: true, Words: []string{"heron"}}); strings.Contains(out, "BUG-001") {
+		t.Fatalf("a searched but unregistered project answered:\n%s", out)
+	}
+	markRegistered(t, home, a)
 	mustSearch(t, Options{Dir: a, Home: home, Words: []string{"demo"}})
 	out := mustSearch(t, Options{Dir: b, Home: home, Global: true, Words: []string{"heron"}})
 	name := filepath.Base(a)
@@ -42,10 +48,11 @@ func TestGlobalRegistersProject(t *testing.T) {
 	if strings.Contains(out, "src/heron.go") {
 		t.Errorf("the global search index holds only trails, not code:\n%s", out)
 	}
-	// A first run that is --global registers its own checkout too.
+	// A first run that is --global registers its own registered checkout too.
 	c := newRepo(t)
 	writeFile(t, c, ".agents/docs/plans/p.md", "# the egret plan\n- [ ] one\n")
 	commitAll(t, c, "add")
+	markRegistered(t, home, c)
 	out = mustSearch(t, Options{Dir: c, Home: home, Global: true, Words: []string{"egret"}})
 	if !strings.Contains(out, filepath.Base(c)+":.agents/docs/plans/p.md") {
 		t.Errorf("a first --global run left its own checkout out:\n%s", out)
@@ -108,6 +115,7 @@ func TestGlobalDropsVanishedProject(t *testing.T) {
 	}
 	writeFile(t, a, ".agents/docs/bugs/BUG-002-kiwi.md", "---\nid: BUG-002\nstatus: open\n---\n# kiwi\n")
 	commitAll(t, a, "add")
+	markRegistered(t, home, a)
 	mustSearch(t, Options{Dir: a, Home: home, Words: []string{"kiwi"}})
 	if err := os.RemoveAll(a); err != nil {
 		t.Fatal(err)
@@ -132,6 +140,7 @@ func TestGlobalNameCollision(t *testing.T) {
 		}
 		writeFile(t, p, ".agents/docs/plans/p.md", "# the stoat plan\n")
 		commitAll(t, p, "add")
+		markRegistered(t, home, p)
 		mustSearch(t, Options{Dir: p, Home: home, Words: []string{"stoat"}})
 		roots = append(roots, p)
 	}
@@ -144,8 +153,9 @@ func TestGlobalNameCollision(t *testing.T) {
 func TestGlobalRebuildDropsRegistry(t *testing.T) {
 	home := globalHome(t)
 	a := newRepo(t)
-	writeFile(t, a, ".agents/docs/plans/p.md", "# plan\n") // only a harness project registers
+	writeFile(t, a, ".agents/docs/plans/p.md", "# plan\n") // only a registered harness project registers
 	commitAll(t, a, "trail")
+	markRegistered(t, home, a)
 	mustSearch(t, Options{Dir: a, Home: home, Words: []string{"demo"}})
 	var out strings.Builder
 	if err := Index(Options{Dir: t.TempDir(), Home: home, Global: true, Rebuild: true}, &out); err != nil {
@@ -192,6 +202,7 @@ func TestGlobalSkipsUnsafePartialClone(t *testing.T) {
 	a := newRepo(t)
 	writeFile(t, a, ".agents/docs/bugs/BUG-003-tern.md", "---\nid: BUG-003\nstatus: open\n---\n# tern\n")
 	commitAll(t, a, "add")
+	markRegistered(t, home, a)
 	mustSearch(t, Options{Dir: a, Home: home, Words: []string{"tern"}})
 	if out, err := exec.Command("git", "-C", a, "config", "remote.origin.promisor", "true").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)

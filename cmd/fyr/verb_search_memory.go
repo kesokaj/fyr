@@ -25,7 +25,9 @@ func runSearch(c *ctx) error {
 	}
 	o := search.Options{Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild}
-	if c.cmd == "index" {
+	if c.cmd == "index" && c.register {
+		return runRegister(c, o)
+	} else if c.cmd == "index" {
 		err = search.Index(o, c.out)
 	} else if err = search.Validate(o); err == nil {
 		recordHits(c, o)

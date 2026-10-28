@@ -26,12 +26,13 @@ func globalStore(t *testing.T, home string) *store {
 }
 
 // registered is a checkout with a trail, registered in home's global index
-// by a search from it.
+// by its marker and a search from it.
 func registered(t *testing.T, home string) string {
 	t.Helper()
 	root := newRepo(t)
 	writeFile(t, root, ".agents/docs/bugs/BUG-001-heron.md", "---\nid: BUG-001\nstatus: open\n---\n# BUG-001: the heron\n")
 	commitAll(t, root, "trail")
+	markRegistered(t, home, root)
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"heron"}})
 	return root
 }
@@ -166,6 +167,7 @@ func TestPrepareProjectErrors(t *testing.T) {
 		writeFile(t, root, ".agents/docs/x.md", "# x\n")
 		commitAll(t, root, "docs")
 		home := t.TempDir()
+		markRegistered(t, home, root)
 		if err := os.MkdirAll(globalDB(home), 0o700); err != nil {
 			t.Fatal(err)
 		}

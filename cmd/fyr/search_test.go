@@ -70,7 +70,8 @@ func TestSearchVerb(t *testing.T) {
 	if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "--limit") {
 		t.Errorf("--limit 99: err = %v, out = %q, want exit 2 naming --limit", err, out.String())
 	}
-	// The checkout registered itself in the global search index.
+	// --global runs from an unregistered checkout and creates the global
+	// search index (registration is TestIndexRegisterWritesMarkerThenIndexes').
 	out.Reset()
 	if err := run([]string{"search", "--global", "marmot", "--home", home}, &out); err != nil {
 		t.Fatalf("search --global: %v\n%s", err, out.String())
