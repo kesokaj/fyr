@@ -76,7 +76,7 @@ Use this template (its outer fence is four backticks so the Kickoff's inner fenc
 # Handoff — YYYY-MM-DD — <topic>
 
 Session: <first 8 chars of the conversation id>   (a feedback record's `session` field)
-Conversation: <full conversation id>   (same machine: `agy --conversation <id>`)
+Conversation: <first 8 chars of the conversation id>…   (elided: the full ID is in the operator's own session list, for `agy --conversation <id>` on the same machine)
 Project: <absolute path to project root — the only absolute path in the file>
 Branch: <current git branch>
 
