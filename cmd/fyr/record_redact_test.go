@@ -91,7 +91,7 @@ func TestRecordImportWarnsOnRedactable(t *testing.T) {
 		// The ID comes from the file name (the phase's security review,
 		// round 1), and slugging can hide it from the redactor, so the path
 		// is judged too (round 2): the first and fifth records in path order.
-		".agents/docs/plans/2026-01-01-xoxb-fakevalue.md":           "# Named plan\n\n- [ ] left\n",
+		".agents/docs/plans/2026-01-01-whsec_fakevalue.md":          "# Named plan\n\n- [ ] left\n",
 		".agents/docs/plans/2026-01-01-api_key=0123456789abcdef.md": "# Keyed plan\n\n- [ ] left\n",
 	} {
 		p := filepath.Join(root, rel)
@@ -126,7 +126,7 @@ func TestRecordImportWarnsOnRedactable(t *testing.T) {
 		if got, want := errOut.String(), wantWarn(tc.tail); got != want {
 			t.Errorf("%v: stderr\n%q\nwant\n%q", tc.args, got, want)
 		}
-		for _, leak := range []string{"xoxb-", "0123456789abcdef", "Plan for"} {
+		for _, leak := range []string{"whsec_", "0123456789abcdef", "Plan for"} {
 			if strings.Contains(errOut.String(), leak) {
 				t.Errorf("%v: %q reached stderr", tc.args, leak)
 			}

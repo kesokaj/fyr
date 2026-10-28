@@ -24,13 +24,7 @@ const redactedValue = "[redacted by fyr]"
 var prefixNeedles = []string{
 	"-----BEGIN", "PRIVATE KEY", "AKIA", "ASIA", "AIza", "ya29.", "GOCSPX-",
 	"ghp_", "gho_", "ghs_", "ghu_", "ghr_", "github_pat_", "glpat-", "gldt-", "glrt-", "glptt-",
-	"sk-ant-", "sk-proj-", "xoxb-", "xoxp-", "xoxa-", "xoxs-",
-	// Slack refresh tokens (`xoxe-1-…`, docs.slack.dev/authentication/
-	// using-token-rotation; a rotated access token, `xoxe.xoxb-`, carries its
-	// own prefix after the dot) and workflow tokens (`xwfp-`, docs.slack.dev/
-	// authentication/tokens). `xoxc-` and `xoxd-`, the browser session
-	// token and cookie, are not added: Slack documents neither (ledger item 46).
-	"xoxe-", "xwfp-",
+	"sk-ant-", "sk-proj-",
 	// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3;
 	// every PyPI token opens with the base64 of its macaroon location); the
 	// Stripe keys are a keyword needle below, because `sk_test_` sits inside
@@ -113,9 +107,6 @@ var keywordNeedles = []struct {
 	// kind, not one per instance: an instance list is always one shape short
 	// (BUG-110).
 	{"url token", regexp.MustCompile(`://[^/\s:@]{16,}:?@`), nil},
-	// Every Slack webhook host and path (services, workflows, triggers, a
-	// port, a gov domain), any case.
-	{"slack webhook", regexp.MustCompile(`(?i)hooks\.slack`), nil},
 	// The families the v1.14.0 gate named as not covered, one rule per kind
 	// (a JWT's payload may be as short as `e30`, an empty object).
 	{"jwt short", regexp.MustCompile(`eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*\.[A-Za-z0-9_-]{8,}`), nil},
@@ -128,19 +119,16 @@ var keywordNeedles = []struct {
 	// and `-bench . -b 3` are not cookies (audit 2026-09-30, IN1).
 	{"cookie header", regexp.MustCompile(`(?i)(set-)?cookie["']?\s*:\s*\S|(^|\s)(-b|--cookie)[ =]["']?\S+=\S|document\.cookie\s*=`), nil},
 	{"vault token", regexp.MustCompile(`hv[sbr]\.[A-Za-z0-9_-]{20,}`), nil},
-	// Three kinds the 2026-10-27 audit named (SD41), each shape from the
+	// Two kinds the 2026-10-27 audit named (SD41), each shape from the
 	// vendor's own documentation, the lengths from its shortest example:
 	// - Docker personal and organization access tokens, `dckr_pat_` and
 	//   `dckr_oat_` (the Docker Hub API spec, docs.docker.com/reference/api/
 	//   hub/latest.yaml, gives `dckr_pat_124509ugsdjga93`);
 	// - HCP Terraform and Terraform Enterprise API tokens, an ID, `.atlasv1.`
 	//   and the secret (the CLI configuration page, developer.hashicorp.com/
-	//   terraform/cli/config/config-file, gives `xxxxxx.atlasv1.zzzzzzzzzzzzz`);
-	// - Slack app-level tokens, `xapp-` and dash-separated sections, rotating
-	//   ones as `xoxe.xapp-` (docs.slack.dev/authentication/tokens).
+	//   terraform/cli/config/config-file, gives `xxxxxx.atlasv1.zzzzzzzzzzzzz`).
 	{"docker access token", regexp.MustCompile(`dckr_(?:pat|oat)_[A-Za-z0-9_-]{8,}`), nil},
 	{"terraform api token", regexp.MustCompile(`[A-Za-z0-9]{6,}\.atlasv1\.[A-Za-z0-9_=-]{13,}`), nil},
-	{"slack app token", regexp.MustCompile(`xapp-[A-Za-z0-9-]{8,}`), nil},
 	// Three kinds the project review of 2026-10-09 named (security row 9,
 	// each approved by the operator), one rule per kind and nothing anchored
 	// in front (a quote, a backtick, a path or a literal `\n` may precede

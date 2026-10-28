@@ -62,25 +62,23 @@ var shapeSecrets = []string{
 	"export GITHUB_TOKEN=FAKEVALUE", "DB_PASSWORD=FAKEVALUE", "password: FAKEVALUE",
 	`config was {"password": "FAKEVALUE"}`, "Authorization: Bearer FAKEVALUE",
 	"github_pat_FAKEVALUE", "ghp_FAKEVALUE", "sk-ant-FAKEVALUE", "aws_secret_access_key = FAKEVALUE",
-	"ASIAFAKEVALUE", "postgres://app:FAKEVALUE@db/x", "token = FAKEVALUE", "xoxb-FAKEVALUE",
+	"ASIAFAKEVALUE", "postgres://app:FAKEVALUE@db/x", "token = FAKEVALUE",
 	"GOCSPX-FAKEVALUE", "api_key=FAKEVALUE", "API-KEY: FAKEVALUE",
 	// A positive row for every prefix needle (SD40 of the 2026-10-27 audit;
 	// TestEveryNeedleHasAShapeAndANearMiss keeps the list complete).
 	"-----BEGIN PRIVATE KEY-----FAKEVALUE-----END PRIVATE KEY-----", "PRIVATE KEY: FAKEVALUE", "AKIAFAKEVALUE", "AIzaFAKEVALUE", "ya29.FAKEVALUE",
 	"gho_FAKEVALUE", "ghs_FAKEVALUE", "ghu_FAKEVALUE", "glpat-FAKEVALUE", "sk-proj-FAKEVALUE",
-	"xoxp-FAKEVALUE", "xoxa-FAKEVALUE", "xoxs-FAKEVALUE",
 	// Round 2, finding 8: an empty URL user, and a non-Bearer scheme.
 	"redis://:FAKEVALUE@localhost:6379/0", "Authorization: Basic FAKEVALUE",
 	// Round 3, finding 3: the header name quoted, as code and JSON write it.
 	`headers: {"Authorization": "Basic FAKEVALUE"}`, `requests.get(u, headers={'Authorization': 'Basic FAKEVALUE'})`,
 	// Project review 2026-09-30, security finding 3: token shapes with no
 	// keyword on the line — Stripe, PyPI (every token opens with the same
-	// macaroon location), a Slack webhook, a JWT, an OpenAI key, an npm
+	// macaroon location), a JWT, an OpenAI key, an npm
 	// token, a Hugging Face token, and a URL whose userinfo is a bare
 	// token with no password.
 	"sk_live_FAKEVALUEFAKEVALUE", "rk_live_FAKEVALUEFAKEVALUE", "whsec_FAKEVALUE",
 	"pypi-AgEIcHlwaS5vcmcFAKEVALUE",
-	"https://hooks.slack.com/services/T0/B0/FAKEVALUE",
 	"eyJhbGciOiJIUzI1NiJ9.eyJFAKEVALUEx.FAKEVALUE",
 	"sk-FAKEVALUEFAKEVALUEFAKEVALUEFAKEVALUE",
 	"npm_FAKEVALUEFAKEVALUEFAKEVALUEFAKEVALUE",
@@ -93,7 +91,7 @@ var shapeSecrets = []string{
 	`x\tnpm_FAKEVALUEFAKEVALUEFAKEVALUEFAKEVALUE`, `_hf_FAKEVALUEFAKEVALUEFAKEVALUEFAKEVALUE`,
 	"pypi-AgENdGVzdC5weXBpLm9yZwFAKEVALUE",
 	// Round 2 of the check: test-mode keys, service and admin keys, a
-	// workflow webhook, a percent-escaped userinfo token.
+	// percent-escaped userinfo token.
 	"sk_test_FAKEVALUEFAKEVALUE", "rk_test_FAKEVALUEFAKEVALUE", "sk-svcacct-FAKEVALUE", "sk-admin-FAKEVALUE",
 	// v1.13.1 gate: the GitHub refresh token and GitLab deploy, runner
 	// and pipeline-trigger tokens the guide's vendor list implied.
@@ -132,15 +130,11 @@ var shapeSecrets = []string{
 	"https://discord.com/api/v10/webhooks/1/FAKEVALUE", "https://x.logic.azure.com/w?api-version=1&sig=FAKEVALUEFAKEVALUE",
 	"SharedAccessKey=FAKEVALUE", "AZURE_STORAGE_KEY=FAKEVALUE", "curl -b sid=FAKEVALUE h", "curl --cookie sid=FAKEVALUE h",
 	"document.cookie = 'sid=FAKEVALUE'", "eyJhbGciOiJIUzI1NiJ9..FAKEVALUEFAKEVALUE", "AGE-SECRET-KEY-PQ-1FAKEVALUE",
-	"https://hooks.slack.com/workflows/T0/A0/FAKEVALUE", "https://FAKEVALUE%2FFAKEVALUE%3DFAKE@host/r",
-	// Round 3, one rule per kind: any Slack webhook path in any case, a
-	// userinfo token of sixteen characters, a padded one, an sk-None key.
-	"https://HOOKS.SLACK.COM/services/T0/B0/FAKEVALUE", "https://hooks.slack.com/triggers/T0/FAKEVALUE",
+	"https://FAKEVALUE%2FFAKEVALUE%3DFAKE@host/r",
+	// Round 3, one rule per kind: a userinfo token of sixteen characters,
+	// a padded one, an sk-None key.
 	"https://FAKEVALUE1234567@host/r", "https://FAKEVALUEFAKEVAL==@host/r", "sk-None-FAKEVALUE",
-	// The security check of that rule: a webhook host with a port, a
-	// trailing dot or a gov domain, an encoded path, an empty password.
-	"https://hooks.slack.com:443/services/T0/B0/FAKEVALUE", "https://hooks.slack.com./services/FAKEVALUE",
-	"https://hooks.slack-gov.com/services/FAKEVALUE", "https://hooks.slack.com%2Fservices%2FFAKEVALUE",
+	// The security check of the url-token rule: an empty password.
 	"https://FAKEVALUEFAKEVALUE:@host/r",
 	// The gate security review of v2.6.2..66f3412, finding 2: the flag after
 	// a quote or a backtick, not only after whitespace.
@@ -162,21 +156,16 @@ var shapeSecrets = []string{
 	"keytool -importkeystore -srcstorepass FAKEVALUE", "lftp -u user,FAKEVALUE sftp://h",
 	// Its round 2: OpenSSL's pass: inside quotes.
 	`openssl pkcs12 -passin "pass:FAKEVALUE"`, "openssl rsa -passin 'pass:FAKEVALUE'",
-	// SD41 of the 2026-10-27 audit: Docker access tokens, HCP Terraform API
-	// tokens and Slack app-level tokens, bare, with no keyword on the line.
+	// SD41 of the 2026-10-27 audit: Docker access tokens and HCP Terraform
+	// API tokens, bare, with no keyword on the line.
 	"dckr_pat_FAKEVALUE", "dckr_oat_FAKEVALUE", "FAKEVALUE.atlasv1.FAKEVALUEFAKEVALUE",
-	"xapp-1-FAKEVALUE", "xoxe.xapp-1-FAKEVALUE",
-	// Ledger item 46: Slack refresh and workflow tokens, bare.
-	"xoxe-1-FAKEVALUE", "xwfp-FAKEVALUE",
 }
 
 // TestVendorDocExamples: the redactor takes each vendor's own documented
 // example of the SD41 kinds, so a needle tightened past the documented shape
 // fails here (none of them carries FAKEVALUE, so they are not shapeSecrets).
 func TestVendorDocExamples(t *testing.T) {
-	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz",
-		// Slack's token rotation page; it gives no workflow token example.
-		"xoxe-1-Your-Refresh-Token"} {
+	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz"} {
 		if out := Redact("note: " + ex + "\n"); out != redactedValue+"\n" {
 			t.Errorf("%q: got %q, want the line redacted", ex, out)
 		}
@@ -238,7 +227,7 @@ func TestRedactShapes(t *testing.T) {
 		// The shapes above, too short or too plain to be a token.
 		"npm_config_registry=https://r.example", "ssh://git@github.com/o/r.git", "sk-1234 is a short id",
 		"the eyJ prefix marks base64 JSON", "hf_hub is the client library", "a whsec is a webhook secret",
-		"https://deploy-bot@host/r", "see slack.com/apps for hooks",
+		"https://deploy-bot@host/r",
 		"task_test_helper ran", "network_test_case 3 passed",
 		"the SG. prefix marks SendGrid keys", "see discord.com/channels/1/2", "the age tool encrypts files",
 		"cookies are set per host", "1/2 of the users", "hvs is the Vault token prefix",
@@ -258,7 +247,7 @@ func TestRedactShapes(t *testing.T) {
 		// the vendor prefixes one character off (case, a dash for an
 		// underscore, the trailing mark missing).
 		"token type: bearer", "authorization is required for the admin routes", "redis://host:6379/0 has no password",
-		"akia keys start with AKI", "the ghp- prefix", "a glpat_ token", "xoxb tokens", "ya29 tokens carry no dot",
+		"akia keys start with AKI", "the ghp- prefix", "a glpat_ token", "ya29 tokens carry no dot",
 		"GOCSPX keys", "github_pat tokens", "a dop_v2_ shape", "AGE-SECRET keys", "sk-ant keys", "the AIz prefix",
 		"gldt tokens", "a pypi-AgEIcHlwaS5vcm prefix cut short", "a private key file",
 		// The three kinds of row 9, a near-miss per alternation.
@@ -282,9 +271,7 @@ func TestRedactShapes(t *testing.T) {
 		"openssl pkcs12 -passin env:PW", "openssl rsa -passin file:pw.txt", "keytool -storepass:env PW", "lftp -u user sftp://h",
 		// SD41's kinds: the prefix with no token after it, the marker with no
 		// ID in front, and a word too short to be a token.
-		"the dckr_pat_ prefix", "a dckr_pat_short one", "the .atlasv1. marker", "abcdef.atlasv1.short", "xapp-level tokens",
-		// Ledger item 46's kinds, the dash missing.
-		"xoxe tokens rotate", "xwfp tokens expire",
+		"the dckr_pat_ prefix", "a dckr_pat_short one", "the .atlasv1. marker", "abcdef.atlasv1.short",
 	} {
 		// "ASIAN" contains the ASIA prefix: accepted over-redaction, pinned
 		// here so a change to it is deliberate.

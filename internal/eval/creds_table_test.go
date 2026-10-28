@@ -43,8 +43,8 @@ func TestCredsEveryPattern(t *testing.T) {
 			t.Errorf("%s: near-miss %q counted: %+v", c.kind, c.miss, f)
 		}
 		// IN48: what the eval refuses to carry, the dream's redactor removes
-		// too. One direction only: a needle with no eval kind (Slack's, for
-		// one) is not pinned here.
+		// too. One direction only: a needle with no eval kind is not pinned
+		// here.
 		if redact.Redact(c.hit) == c.hit {
 			t.Errorf("%s: hit %q passes redact.Redact unchanged", c.kind, c.hit)
 		}
