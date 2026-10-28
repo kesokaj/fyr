@@ -6,7 +6,7 @@ Last reviewed: 2026-10-28
 
 ## Now
 
-- `PLAN-2026-10-27-ledger` — the only list of remaining work: every unfinished item of the trail kept, struck or deferred (75 rows), answered by the operator 2026-10-28 ("Go with your recommendations", D8). Phases 1–9 run one session each, in order: the dreamer's child environment and `TimeoutStartSec` (1), opt-in registration (2–3; ADR-068 and the R3 narrowing landed 2026-10-28, before Phase 2's code), the dream cap (4), retro/distill through `/retro --harness` (5), agents and eval rows (6), the redactor and record import (7), small code and test gaps (8), the map, ADRs and docs (9); Phase 10 only on the operator's yes to A1 (D9); then Done. `PLAN-2026-10-27-audit-choices` and `PLAN-2026-10-27-audit-cleanup` closed 2026-10-28, absorbed into it.
+- `PLAN-2026-10-27-ledger` — the only list of remaining work: every unfinished item of the trail kept, struck or deferred (75 rows), answered by the operator 2026-10-28 ("Go with your recommendations", D8). Phases 1–9 run one session each, in order: the dreamer's child environment and `TimeoutStartSec` (1), opt-in registration (2–3; ADR-068 and the R3 narrowing landed 2026-10-28, before Phase 2's code), the dream cap (4), retro/distill through `/retro --harness` (5), agents and eval rows (6), the redactor and record import (7), Slack handling removed from the redactor (7a, D32), small code and test gaps (8), the visible dream's research and requirements proposal (8a, D32), the map, ADRs and docs (9); Phase 10 only on the operator's yes to A1 (D9); then Done. `PLAN-2026-10-27-audit-choices` and `PLAN-2026-10-27-audit-cleanup` closed 2026-10-28, absorbed into it.
 
 ## Next
 
