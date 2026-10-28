@@ -31,7 +31,7 @@ import (
 // events; that is a known limit there, not a failed ingest, which would make
 // every run exit 1 (the phase's security review, rounds 1 and 2).
 func registerClone(home, sandbox string, procsChecked bool) error {
-	if real, err := os.UserHomeDir(); err == nil && (samePath(home, real) || samePath(filepath.Join(home, harness.StateDir), filepath.Join(real, harness.StateDir))) {
+	if real, shared := sharesRealState(home); shared {
 		return fmt.Errorf("--home is the real home %s, or shares its state directory; eval registers a clone only under a separate home", real)
 	}
 	if !procsChecked {

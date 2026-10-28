@@ -172,8 +172,9 @@ func (c *ctx) writesState() bool {
 	case "metrics":
 		return c.fs.Arg(0) == "ingest"
 	case "eval":
-		// Sandboxes, the metrics store and the testing record; --list reads.
-		return !c.evalList
+		// Sandboxes, the metrics store and the testing record; --list reads,
+		// and a refused --home is refused before anything moves (D37).
+		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
 	}
 	return false
 }

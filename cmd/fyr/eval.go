@@ -40,8 +40,9 @@ func init() {
 }
 
 // runEval serves `fyr eval` (spec SPEC-fyr-eval, ADR-065). Every refusal
-// comes before anything is created, in the plan's step-0 order (D20): not a
-// checkout, no install source, the sandbox root, the suite and its HEAD copy,
+// comes before anything is created, in the plan's step-0 order (D20); the
+// --home refusal (ledger D37) comes right after the usage errors, before
+// every refusal that reads the tree: not a checkout, no install source, the sandbox root, the suite and its HEAD copy,
 // the rows, then the login and agy (inside eval.Run). The install source is
 // resolved here rather than by the verb table's source flag, so its error is
 // a refusal like the others (exit 2) and --list needs none.
@@ -53,6 +54,9 @@ func runEval(c *ctx) error {
 		return exitCode(2)
 	case !c.evalList && len(names) == 0:
 		return usageErr(c.out, "eval", "")
+	}
+	if why := evalHomeRefused(c.homeFlag, c.home); why != "" && !c.evalList {
+		return c.evalRefuse("%s", why)
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -178,6 +182,12 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []
 			pass++
 		}
 	}
+	// Asked again here: a row's agent ran for minutes with command(*) and
+	// could have linked --home's state to the real one (D37's security review).
+	if why := evalHomeRefused(c.homeFlag, c.home); why != "" {
+		fmt.Fprintln(c.out, search.Printable("eval: record: not written: "+why))
+		return exitCode(1)
+	}
 	head := gitShort(root)
 	body := evalBody(root, o, src, results)
 	id, err := brain.Add(brain.Options{Home: c.home, Dir: root}, brain.AddInput{
@@ -249,6 +259,11 @@ func findRecord(recs []brain.Record, id string) (brain.Record, bool) {
 // followed, whatever the reasons say (IN35 of the 2026-10-27 audit, and the
 // security review of its fix).
 func ingestRow(home string, r eval.Result) error {
+	// Before any store opens: the row may have linked --home's state to the
+	// real one since the start check (D37's security review).
+	if real, shared := sharesRealState(home); shared {
+		return fmt.Errorf("not ingested: --home now shares the real state of %s", real)
+	}
 	sb := filepath.Join(r.Dir, "home")
 	// A row that left processes running is not read either: one that ignored
 	// SIGTERM could swap a directory between this check and the ingest
