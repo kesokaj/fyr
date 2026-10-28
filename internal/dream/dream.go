@@ -221,11 +221,12 @@ func (o Options) since(st state, root string) time.Time {
 }
 
 // command is the tool-free headless call (D4, D7b, D28). Antigravity has no
-// no-tools flag: it runs in plan mode from a private HOME whose settings
-// grant nothing, so any tool call is refused, and the prompt's opening
-// warning keeps it from trying; the prompt goes on stdin as one stream-json
-// message, never on the command line (Linux caps one argument at 128 KiB,
-// and argv is readable in /proc).
+// no-tools flag: it runs in plan mode from a HOME whose settings grant no
+// tool without review, the operator's own when the oracle shows that, else a
+// private one that grants nothing (branchFor), so any tool call is refused,
+// and the prompt's warning keeps it from trying; the prompt goes on stdin
+// as one stream-json message, never on the command line (Linux caps one
+// argument at 128 KiB, and argv is readable in /proc).
 func command() []string {
 	return []string{"agy", "--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "-p", ""}
 }

@@ -2,7 +2,6 @@ package dream
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
@@ -20,11 +19,11 @@ func (o Options) dryRun(projects []search.Project, skips []skipped, st state) er
 	if err := o.drySession(); err != nil {
 		return err
 	}
-	if err := checkAgy(runtime.GOOS); err != nil {
+	if err := checkAgy(); err != nil {
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
-	cli := append(command(), "(prompt on stdin as one stream-json message; HOME a private copy with no grants)")
+	cli := append(command(), "(prompt on stdin as one stream-json message; HOME the branch's, the line below)")
 	for _, s := range skips {
 		fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", s.root, s.why)
 	}
@@ -51,6 +50,7 @@ func (o Options) dryRun(projects []search.Project, skips []skipped, st state) er
 			parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
 		}
 		fmt.Fprintf(o.Out, "[dry-run] %s: would dream (idle %s, changed since %s): %s; %d bytes; would run: %s\n", p.Root, idleFor, o.since(st, p.Root).Format(time.RFC3339), strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
+		fmt.Fprintf(o.Out, "[dry-run] %s: %s\n", p.Root, o.dryBranch())
 		o.printDropped(c.Dropped)
 		if o.Project != "" {
 			fmt.Fprintf(o.Out, "[dry-run] prompt:\n%s\n", c.Prompt)

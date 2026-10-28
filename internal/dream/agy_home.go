@@ -13,16 +13,16 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// checkAgy is every refusal a run makes about the Antigravity CLI before
-// it creates anything: agy on PATH, then findLogin's. The dry run calls it
-// too, so it refuses what the run refuses (SD27 of the 2026-10-27 audit,
-// plan D17).
-func checkAgy(goos string) error {
+// checkAgy is the one refusal a run makes about the Antigravity CLI before
+// it creates anything: agy on PATH. The login belongs to the branch (the
+// visible one reads it under --home, the private one under $HOME, plan
+// D12), so a missing one fails a project, not the run. The dry run calls it
+// too, so it refuses what the run refuses (SD27 of the 2026-10-27 audit).
+func checkAgy() error {
 	if name := command()[0]; !onPath(name) {
 		return fmt.Errorf("no %s on PATH: the dream job runs the Antigravity CLI", name)
 	}
-	_, _, err := findLogin(goos)
-	return err
+	return nil
 }
 
 // findLogin finds the operator's Antigravity login under the real $HOME,
@@ -127,10 +127,10 @@ func copyPrivate(from, to string) error {
 }
 
 // agyAuthHint names the one failure "invalid output" hides: agy found no
-// login in the private HOME and asked for a browser login nobody can give.
-// Only agy's own lines count: a stream-json event (a "{" line) carries model
-// text, which may quote the phrase from a transcript.
-func agyAuthHint(stdout, stderr string) string {
+// login in where, the branch's home, and asked for a browser login nobody
+// can give. Only agy's own lines count: a stream-json event (a "{" line)
+// carries model text, which may quote the phrase from a transcript.
+func agyAuthHint(stdout, stderr, where string) string {
 	found := false
 	for _, line := range strings.Split(stdout+"\n"+stderr, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "{") && strings.Contains(line, "Authentication required") {
@@ -141,7 +141,7 @@ func agyAuthHint(stdout, stderr string) string {
 	if !found {
 		return ""
 	}
-	return "agy is not logged in inside the dream job's private HOME (run agy once and log in; on macOS the login Keychain must be unlocked, so the Mac's user must be logged in)"
+	return "agy is not logged in inside " + where + " (run agy once and log in; on macOS the login Keychain must be unlocked, so the Mac's user must be logged in)"
 }
 
 // agyEnv is every variable agy gets from fyr's environment, HOME aside: it

@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// fakeOracle is an agy that answers -p /permissions and -p /config with the
+// fakeOracle is an agy that answers -p /permissions, /config and /hooks with the
 // files the test put under $HOME/oracle, so a report only reaches it under
 // the home it was given; $HOME/oracle/mode makes it sleep or fail instead.
 // It records its working directory and environment under rec.
@@ -53,7 +54,32 @@ func oracleHome(t *testing.T, variant string) (home, work string) {
 		}
 		write(t, filepath.Join(home, "oracle", c+".json"), string(b), fresh)
 	}
+	// The one /hooks report the sandbox saw: none (plan D24).
+	write(t, filepath.Join(home, "oracle", "hooks.json"), read(t, filepath.Join("testdata", "oracle", "hooks.json")), fresh)
 	return home, work
+}
+
+// configReport is the saved "none" /config report with set applied: a
+// value replaces the key's, nil removes the key.
+func configReport(t *testing.T, set map[string]any) string {
+	t.Helper()
+	var r map[string]any
+	if err := json.Unmarshal([]byte(read(t, filepath.Join("testdata", "oracle", "none.config.json"))), &r); err != nil {
+		t.Fatal(err)
+	}
+	cfg := r["command"].(map[string]any)["data"].(map[string]any)["config"].(map[string]any)
+	for k, v := range set {
+		if v == nil {
+			delete(cfg, k)
+		} else {
+			cfg[k] = v
+		}
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // TestVisibleHomeVariants is each settings.json variant the sandbox ran
@@ -92,6 +118,7 @@ func TestVisibleHomeShapes(t *testing.T) {
 	argv0, _ := fakeOracle(t)
 	cfg := func(home, body string) { write(t, filepath.Join(home, "oracle", "config.json"), body, fresh) }
 	perms := func(home, body string) { write(t, filepath.Join(home, "oracle", "permissions.json"), body, fresh) }
+	hooks := func(home, body string) { write(t, filepath.Join(home, "oracle", "hooks.json"), body, fresh) }
 	report := func(name, data string) string {
 		return `{"status":"SUCCESS","command":{"name":"` + name + `","data":` + data + `}}`
 	}
@@ -132,17 +159,41 @@ func TestVisibleHomeShapes(t *testing.T) {
 		{"no data", `the oracle /config: report of an unknown shape (status "SUCCESS")`, func(h string) {
 			cfg(h, report("config", `null`))
 		}},
-		{"field missing", "the oracle /config: no toolPermission of the known type", func(h string) {
-			cfg(h, report("config", `{"config":{"agentMode":"","allowNonWorkspaceAccess":false,"trustedWorkspaces":null,"permissions":null}}`))
+		{"field missing", "the oracle /config: no toolPermission", func(h string) {
+			cfg(h, configReport(t, map[string]any{"toolPermission": nil}))
+		}},
+		{"harmless key missing", "the oracle /config: no showTips", func(h string) {
+			cfg(h, configReport(t, map[string]any{"showTips": nil}))
+		}},
+		{"key added", `the oracle /config: an unknown key "autoApprove"`, func(h string) {
+			cfg(h, configReport(t, map[string]any{"autoApprove": true}))
 		}},
 		{"field retyped", "the oracle /config: no allowNonWorkspaceAccess of the known type", func(h string) {
-			cfg(h, report("config", `{"config":{"toolPermission":"strict","agentMode":"","allowNonWorkspaceAccess":"no","trustedWorkspaces":null,"permissions":null}}`))
+			cfg(h, configReport(t, map[string]any{"allowNonWorkspaceAccess": "no"}))
 		}},
 		{"settings allow", "an allow rule in the settings (command(go))", func(h string) {
-			cfg(h, report("config", `{"config":{"toolPermission":"strict","agentMode":"","allowNonWorkspaceAccess":false,"trustedWorkspaces":null,"permissions":{"allow":["command(go)"]}}}`))
+			cfg(h, configReport(t, map[string]any{"permissions": map[string]any{"allow": []string{"command(go)"}}}))
+		}},
+		{"permissions key added", `the oracle /config: an unknown permissions key "grant"`, func(h string) {
+			cfg(h, configReport(t, map[string]any{"permissions": map[string]any{"deny": []string{}, "grant": []string{"x"}}}))
+		}},
+		{"artifact policy", "artifact review policy always-proceed is not asks-for-review", func(h string) {
+			cfg(h, configReport(t, map[string]any{"artifactReviewPolicy": "always-proceed"}))
 		}},
 		{"relative trust", "a trusted workspace covers dream-work (~/x)", func(h string) {
-			cfg(h, report("config", `{"config":{"toolPermission":"strict","agentMode":"","allowNonWorkspaceAccess":false,"trustedWorkspaces":["~/x"],"permissions":null}}`))
+			cfg(h, configReport(t, map[string]any{"trustedWorkspaces": []string{"~/x"}}))
+		}},
+		{"a hook", "1 hook(s) loaded, which can approve a tool", func(h string) {
+			hooks(h, report("hooks", `{"hooks":[{"event":"PreToolUse","command":"approve.sh"}]}`))
+		}},
+		{"hooks of another shape", "the oracle /hooks: report of an unknown shape", func(h string) {
+			hooks(h, report("hooks", `{"hooks":null}`))
+		}},
+		{"hooks key added", "the oracle /hooks: report of an unknown shape", func(h string) {
+			hooks(h, report("hooks", `{"hooks":[],"plugins":[]}`))
+		}},
+		{"hooks not reported", "the oracle /hooks: output is not a report: EOF", func(h string) {
+			hooks(h, "")
 		}},
 		{"exit 1", "the oracle /permissions: exit status 1", func(h string) {
 			write(t, filepath.Join(h, "oracle", "mode"), "exit1", fresh)
@@ -164,7 +215,9 @@ func TestVisibleHomeShapes(t *testing.T) {
 func TestVisibleHomeTrustBelow(t *testing.T) {
 	argv0, _ := fakeOracle(t)
 	home, work := oracleHome(t, "none")
-	write(t, filepath.Join(home, "oracle", "config.json"), `{"status":"SUCCESS","command":{"name":"config","data":{"config":{"toolPermission":"request-review","agentMode":"","allowNonWorkspaceAccess":false,"trustedWorkspaces":["`+work+`-other","`+filepath.Join(home, "src")+`"],"permissions":{"deny":["command(rm)"]}}}}}`, fresh)
+	write(t, filepath.Join(home, "oracle", "config.json"), configReport(t, map[string]any{
+		"trustedWorkspaces": []string{work + "-other", filepath.Join(home, "src")},
+		"permissions":       map[string]any{"deny": []string{"command(rm)"}}}), fresh)
 	if ok, why := visibleHome(argv0, home, work, os.Environ()); !ok {
 		t.Errorf("visibleHome = false, %q; want true", why)
 	}

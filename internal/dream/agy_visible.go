@@ -61,7 +61,29 @@ func visibleHome(argv0, home, work string, env []string) (ok bool, why string) {
 	if why := configGrants(conf, work); why != "" {
 		return false, why
 	}
+	hooks, err := oracle(argv0, "hooks", work, env)
+	if err != nil {
+		return false, err.Error()
+	}
+	if why := hooksAny(hooks); why != "" {
+		return false, why
+	}
 	return true, ""
+}
+
+// hooksAny says why /hooks reports a hook, or a report of a shape fyr does
+// not know, or "": a pre-tool hook can return a permission decision the
+// other reports never show, so a home with any hook runs private (plan D26).
+func hooksAny(data json.RawMessage) string {
+	var d map[string]json.RawMessage
+	var hooks []json.RawMessage
+	if err := json.Unmarshal(data, &d); err != nil || len(d) != 1 || json.Unmarshal(d["hooks"], &hooks) != nil || d["hooks"][0] != '[' {
+		return "the oracle /hooks: report of an unknown shape"
+	}
+	if len(hooks) > 0 {
+		return fmt.Sprintf("%d hook(s) loaded, which can approve a tool", len(hooks))
+	}
+	return ""
 }
 
 // workAlone says why work would bring more than the operator's own setup
@@ -178,12 +200,7 @@ func permissionsGrant(data json.RawMessage) string {
 			return "the oracle /permissions: a scope without a name"
 		}
 		global = global || scope == "global"
-		keys := make([]string, 0, len(e))
-		for k := range e {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(e) {
 			if why := ruleGrants(scope, k, e[k]); why != "" {
 				return why
 			}
@@ -215,16 +232,27 @@ func ruleGrants(scope, key string, v json.RawMessage) string {
 
 // oracleConfig is what /config reports that the verdict reads.
 type oracleConfig struct {
-	mode, agent string
-	outside     bool
-	trusted     []string
-	perms       *struct {
-		Allow []string `json:"allow"`
-	}
+	mode, agent, artifacts string
+	outside                bool
+	trusted                []string
+	perms                  map[string][]string
 }
 
+// configKeys are the 36 settings agy 1.4.9's /config reports (plan D24): a
+// key added or gone is a report fyr has not seen, which fails closed, so a
+// new approval setting in an agy upgrade sends the dream private until fyr
+// learns it (plan D6, D26).
+var configKeys = []string{"agentMode", "allowNonWorkspaceAccess", "altScreenMode", "artifactReviewPolicy",
+	"clearScrollbackOnResize", "colorScheme", "contextWindow", "copyOnSelect", "customModelsConfig",
+	"disableSlashCommands", "editor", "editorMode", "enableTerminalSandbox", "gcp", "hideActiveItems",
+	"historySize", "model", "modelProvider", "notifications", "permissions", "pickerGrouping",
+	"queuedMessages", "runningLightSpeed", "sandboxProxy", "seasonalThemesOff", "seasonalThemesOptIn",
+	"showFeedbackSurvey", "showTips", "statusLine", "title", "toolPermission", "trustedWorkspaces",
+	"useG1Credits", "useTerminalCursor", "verbosity", "vimInsertFirst"}
+
 // readConfig is /config's fields, or why the report is of a shape fyr does
-// not know: a field missing or of another type.
+// not know: a key outside configKeys or missing from it, a field of another
+// type, or a permissions key other than allow, deny and ask.
 func readConfig(data json.RawMessage) (oracleConfig, string) {
 	var d struct {
 		Config map[string]json.RawMessage `json:"config"`
@@ -233,16 +261,42 @@ func readConfig(data json.RawMessage) (oracleConfig, string) {
 	if err := json.Unmarshal(data, &d); err != nil {
 		return c, "the oracle /config: report of an unknown shape: " + err.Error()
 	}
+	known := map[string]bool{}
+	for _, k := range configKeys {
+		known[k] = true
+		if _, ok := d.Config[k]; !ok {
+			return c, "the oracle /config: no " + k
+		}
+	}
+	for _, k := range sortedKeys(d.Config) {
+		if !known[k] {
+			return c, fmt.Sprintf("the oracle /config: an unknown key %q", k)
+		}
+	}
 	for _, f := range []struct {
 		key string
 		to  any
-	}{{"toolPermission", &c.mode}, {"agentMode", &c.agent}, {"allowNonWorkspaceAccess", &c.outside}, {"trustedWorkspaces", &c.trusted}, {"permissions", &c.perms}} {
-		raw, ok := d.Config[f.key]
-		if !ok || json.Unmarshal(raw, f.to) != nil {
+	}{{"toolPermission", &c.mode}, {"agentMode", &c.agent}, {"artifactReviewPolicy", &c.artifacts}, {"allowNonWorkspaceAccess", &c.outside}, {"trustedWorkspaces", &c.trusted}, {"permissions", &c.perms}} {
+		if json.Unmarshal(d.Config[f.key], f.to) != nil {
 			return c, "the oracle /config: no " + f.key + " of the known type"
 		}
 	}
+	for _, k := range sortedKeys(c.perms) {
+		if k != "allow" && k != "deny" && k != "ask" {
+			return c, fmt.Sprintf("the oracle /config: an unknown permissions key %q", k)
+		}
+	}
 	return c, ""
+}
+
+// sortedKeys is m's keys in order, so the first reason named is stable.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // configGrants says which setting /config reports that grants a tool, or
@@ -259,10 +313,13 @@ func configGrants(data json.RawMessage, work string) string {
 		return "tool permission " + c.mode + " approves tools without review"
 	case !plainModes[c.agent]:
 		return "agent mode " + c.agent + " approves tools without review"
+	case c.artifacts != "asks-for-review":
+		// The one value seen; another lets a plan proceed on its own.
+		return "artifact review policy " + c.artifacts + " is not asks-for-review"
 	case c.outside:
 		return "access outside the workspace is allowed"
-	case c.perms != nil && len(c.perms.Allow) > 0:
-		return "an allow rule in the settings (" + c.perms.Allow[0] + ")"
+	case len(c.perms["allow"]) > 0:
+		return "an allow rule in the settings (" + c.perms["allow"][0] + ")"
 	}
 	return trustCovers(c.trusted, work)
 }

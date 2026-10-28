@@ -62,9 +62,11 @@ func prompt(c Collected) string {
 	return b.String()
 }
 
-// head is the instructions and the project line.
+// head is the first line, which names the conversation in /resume (plan
+// D14; Name is folded to one line, SD15), then the instructions and the
+// project line.
 func head(c Collected) string {
-	return instructions + "\n\nProject: " + c.Name + "\n"
+	return "dreaming: " + c.Name + "\n\n" + instructions + "\n\nProject: " + c.Name + "\n"
 }
 
 // leftOut is the line naming what the cap dropped, or "" when nothing was.

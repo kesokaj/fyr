@@ -35,7 +35,7 @@ func TestRunAgyPrivateHomeAndStdin(t *testing.T) {
 			Content string `json:"content"`
 		} `json:"message"`
 	}
-	if err := json.Unmarshal([]byte(read(t, filepath.Join(rec, "stdin"))), &msg); err != nil || msg.Event != "user" || !strings.HasPrefix(msg.Message.Content, "IMPORTANT: every tool call") {
+	if err := json.Unmarshal([]byte(read(t, filepath.Join(rec, "stdin"))), &msg); err != nil || msg.Event != "user" || !strings.HasPrefix(msg.Message.Content, "dreaming: "+filepath.Base(f.root)+"\n\nIMPORTANT: every tool call") {
 		t.Errorf("stdin is not one user message with the prompt: %v %+v", err, msg)
 	}
 	childHome := read(t, filepath.Join(rec, "home"))
@@ -80,14 +80,26 @@ func TestRunAgyDeniedToolIsNoAnswer(t *testing.T) {
 	}
 }
 
-func TestRunAgyWithoutLoginFailsBeforeProjects(t *testing.T) {
+// TestRunAgyWithoutLoginFailsTheProject: with no login under $HOME the
+// private home cannot be built, which fails the project that needed it,
+// exit 1, never the run (plan D12), and no call is made.
+func TestRunAgyWithoutLoginFailsTheProject(t *testing.T) {
 	f := newFixture(t)
 	scaffold(t, f)
 	t.Setenv("HOME", t.TempDir())
-	fakeCLI(t, "agy", agyResult(`{"proposals":[],"skills":[]}`, false), 0)
+	rec := fakeCLI(t, "agy", agyResult(`{"proposals":[],"skills":[]}`, false), 0)
 	var ee *ExitError
-	if err := Run(runOpts(f, &bytes.Buffer{})); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "no Antigravity login") {
-		t.Fatalf("err = %v, want exit 2 naming the login", err)
+	if err := Run(runOpts(f, &bytes.Buffer{})); !errors.As(err, &ee) || ee.Code != 1 {
+		t.Fatalf("err = %v, want exit 1", err)
+	}
+	if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, f.root+" fail no Antigravity login") {
+		t.Errorf("dream.log does not fail the project on the login:\n%s", log)
+	}
+	if _, err := os.Stat(filepath.Join(rec, "stdin")); !os.IsNotExist(err) {
+		t.Error("agy was called without a home to run in")
+	}
+	if st, _ := readState(f.home); !st.Attempts[f.root].IsZero() {
+		t.Error("a project that never reached the call counts as attempted")
 	}
 }
 
@@ -158,20 +170,23 @@ func TestAgyHomeMacKeychain(t *testing.T) {
 	}
 }
 
-// TestAgyAuthHint: an agy that asks for a browser login in the private HOME
-// (a locked macOS Keychain, an expired login) says so in the failure reason,
-// not just "invalid output".
+// TestAgyAuthHint: an agy that asks for a browser login in the branch's
+// home (a locked macOS Keychain, an expired login) says so in the failure
+// reason, naming that home, not just "invalid output".
 func TestAgyAuthHint(t *testing.T) {
-	if h := agyAuthHint("", "Authentication required. Please visit the URL to log in:"); !strings.Contains(h, "not logged in") || !strings.Contains(h, "Keychain") {
+	if h := agyAuthHint("", "Authentication required. Please visit the URL to log in:", privateWhere); !strings.Contains(h, "not logged in inside "+privateWhere) || !strings.Contains(h, "Keychain") {
 		t.Errorf("hint = %q", h)
 	}
-	if h := agyAuthHint(`{"event":"result"}`, "authenticated fine"); h != "" {
+	if h := agyAuthHint("", "Authentication required.", visibleWhere); !strings.Contains(h, "not logged in inside the operator's Antigravity home") {
+		t.Errorf("visible hint = %q", h)
+	}
+	if h := agyAuthHint(`{"event":"result"}`, "authenticated fine", privateWhere); h != "" {
 		t.Errorf("hint on a normal run = %q", h)
 	}
-	if h := agyAuthHint(`{"event":"result","result":{"response":"the log said Authentication required"}}`+"\n", ""); h != "" {
+	if h := agyAuthHint(`{"event":"result","result":{"response":"the log said Authentication required"}}`+"\n", "", privateWhere); h != "" {
 		t.Errorf("hint from model text quoting the phrase = %q", h)
 	}
-	if h := agyAuthHint("Authentication required. Please visit the URL to log in:\n{\"event\":\"init\"}\n", ""); h == "" {
+	if h := agyAuthHint("Authentication required. Please visit the URL to log in:\n{\"event\":\"init\"}\n", "", privateWhere); h == "" {
 		t.Error("no hint when agy prints the prompt on stdout")
 	}
 }

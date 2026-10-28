@@ -99,3 +99,48 @@ func TestDryRunSessionLine(t *testing.T) {
 		t.Errorf("a dry run whose check errors: %v, want exit 2 as the real run", err)
 	}
 }
+
+// TestNoSessionSweepsKilledRun: an --all run that stops for want of a
+// session still removes a killed run's private home (it holds a login copy)
+// once it is over an hour old, keeps a younger one, and writes no log or
+// state; with the lock held by a live run it removes nothing. That it
+// creates no state directory where there is none is TestRunAllNeedsASession.
+func TestNoSessionSweepsKilledRun(t *testing.T) {
+	none := func(string) ([]search.Project, error) { return nil, nil }
+	home := t.TempDir()
+	conf := filepath.Join(home, harness.StateDir)
+	stale, young := filepath.Join(conf, "dream-agy-home-stale"), filepath.Join(conf, "dream-agy-home-young")
+	for _, d := range []string{stale, young} {
+		write(t, filepath.Join(d, ".gemini", "antigravity-cli", "antigravity-oauth-token"), "token", fresh)
+	}
+	ago := time.Now().Add(-2 * time.Hour)
+	os.Chtimes(stale, ago, ago)
+	o := Options{Home: home, All: true, Out: &bytes.Buffer{}, Projects: none, Scopes: noScopes, Active: idle, Session: session(false, nil)}
+
+	unlock, held, err := lock(filepath.Join(conf, "dream.lock"))
+	if err != nil || held {
+		t.Fatalf("lock: %v %v", held, err)
+	}
+	if err := Run(o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Error("a run swept while another held the lock")
+	}
+	unlock()
+
+	if err := Run(o); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("the stale private home was left")
+	}
+	if _, err := os.Stat(young); err != nil {
+		t.Error("a private home under an hour old was swept")
+	}
+	for _, f := range []string{"dream.log", "dream-state.json"} {
+		if _, err := os.Stat(filepath.Join(conf, f)); !os.IsNotExist(err) {
+			t.Errorf("a run with no session wrote %s", f)
+		}
+	}
+}

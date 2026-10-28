@@ -15,8 +15,8 @@ import (
 )
 
 // call runs the CLI in work with the prompt on stdin as one stream-json
-// message, in env alone: the run passes childEnv, the allow-list and agy's
-// private HOME (ADR-067).
+// message, in env alone: the run passes childEnv, the allow-list and the
+// branch's HOME (ADR-067).
 func call(argv []string, prompt, work string, env []string) (string, string, error) {
 	return callWithin(argv, prompt, work, env, cliTimeout, killGrace)
 }

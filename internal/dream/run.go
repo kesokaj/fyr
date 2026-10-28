@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -22,9 +21,11 @@ const (
 // the first project is a run log line, last_run.error where the state can be
 // written, and exit 2 (the plan's Interfaces, code review 2026-09-30). An
 // --all run with no agy session stops first, before ConfigDir creates the
-// directory: the hourly timer's no-op leaves nothing behind (plan D2).
+// directory: the hourly timer's no-op leaves nothing behind (plan D2), but
+// sweeps what a killed run left (sweepIdle).
 func (o Options) realRun() error {
 	if stop, err := o.noSession(); stop {
+		o.sweepIdle()
 		return err
 	}
 	conf, err := harness.ConfigDir(o.Home)
@@ -57,11 +58,10 @@ func (o Options) realRun() error {
 	for _, s := range skips {
 		r.logf(s.root + " skip " + s.why)
 	}
-	cleanup, err := r.prepareAgy()
-	if err != nil {
+	if err := r.prepareAgy(); err != nil {
 		return r.fail(err.Error())
 	}
-	defer cleanup()
+	defer r.removePrivate()
 	for _, p := range projects {
 		r.project(p)
 	}
@@ -85,38 +85,49 @@ func (o Options) noSession() (bool, error) {
 	return !on, nil
 }
 
-// prepareAgy checks the CLI, builds its private HOME and the empty working
-// directory, and returns the HOME's cleanup.
-func (r *dreamRun) prepareAgy() (func(), error) {
+// sweepIdle is the sweep of a run that stops for want of a session: a
+// killed run's private home holds a login copy, and an hourly timer with
+// no session would otherwise keep it for days. It runs only in a
+// ~/.config/fyr that exists, under the lock, so it creates no directory
+// and never sweeps a live run's copies.
+func (o Options) sweepIdle() {
+	conf := filepath.Join(o.Home, harness.StateDir)
+	if info, err := os.Lstat(conf); err != nil || !info.IsDir() {
+		return
+	}
+	unlock, held, err := lock(filepath.Join(conf, "dream.lock"))
+	if err != nil || held {
+		return
+	}
+	defer unlock()
+	removeCopies(conf, o.Now())
+}
+
+// prepareAgy checks the CLI and makes the empty working directory; each
+// project's HOME is its branch's (branchFor).
+func (r *dreamRun) prepareAgy() error {
 	r.argv = command()
-	if err := checkAgy(runtime.GOOS); err != nil {
-		return nil, err
+	if err := checkAgy(); err != nil {
+		return err
 	}
-	agyHomeDir, cleanup, err := agyHome(r.conf, runtime.GOOS)
-	if err != nil {
-		return nil, err
-	}
-	r.env = childEnv(os.Environ(), agyHomeDir)
 	r.work = harness.DreamWork(r.o.Home)
-	if err := os.MkdirAll(r.work, 0o700); err != nil {
-		cleanup()
-		return nil, err
-	}
-	return cleanup, nil
+	return os.MkdirAll(r.work, 0o700)
 }
 
 // dreamRun is one run's state across its projects.
 type dreamRun struct {
-	o         Options
-	conf      string
-	t0        time.Time
-	logf      func(string)
-	st        state
-	argv, env []string
-	work      string
-	failed    int   // projects that failed
-	total     int   // proposals written
-	stateErr  error // the first state write that failed
+	o           Options
+	conf        string
+	t0          time.Time
+	logf        func(string)
+	st          state
+	argv        []string
+	work        string
+	private     string // the private home, once a project needed it
+	dropPrivate func() // its cleanup
+	failed      int    // projects that failed
+	total       int    // proposals written
+	stateErr    error  // the first state write that failed
 }
 
 // finish records the run in the state and the log.
@@ -160,7 +171,11 @@ func (r *dreamRun) project(p search.Project) {
 		r.logf(p.Root + " unchanged")
 		return
 	}
-	resp, ok := r.ask(p, c)
+	b, ok := r.branchFor(p)
+	if !ok {
+		return
+	}
+	resp, ok := r.ask(p, c, b)
 	if !ok {
 		return
 	}
@@ -177,18 +192,18 @@ func (r *dreamRun) project(p search.Project) {
 	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, len(resp.Proposals)))
 }
 
-// ask calls the CLI with the project's prompt and returns its answer; a
-// failed call or an answer that does not parse fails the project.
-func (r *dreamRun) ask(p search.Project, c Collected) (response, bool) {
+// ask calls the CLI with the project's prompt in its branch and returns its
+// answer; a failed call or an answer that does not parse fails the project.
+func (r *dreamRun) ask(p search.Project, c Collected, b branch) (response, bool) {
 	// Stored before the call, so a run killed mid-call still counts it.
 	r.st.Attempts[p.Root] = r.o.Now()
 	r.save()
-	stdout, stderr, err := call(r.argv, c.Prompt, r.work, r.env)
+	stdout, stderr, err := call(r.argv, c.Prompt, r.work, b.env)
 	if err != nil {
 		r.failed++
 		r.o.keepFailure(r.conf, c, r.t0, stdout, stderr)
 		reason := err.Error()
-		if hint := agyAuthHint(stdout, stderr); hint != "" {
+		if hint := agyAuthHint(stdout, stderr, b.where); hint != "" {
 			reason += ": " + hint
 		}
 		r.logf(p.Root + " fail " + reason)
@@ -203,7 +218,7 @@ func (r *dreamRun) ask(p search.Project, c Collected) (response, bool) {
 		if aerr != nil {
 			reason = aerr.Error()
 		}
-		if hint := agyAuthHint(stdout, stderr); hint != "" {
+		if hint := agyAuthHint(stdout, stderr, b.where); hint != "" {
 			reason += ": " + hint
 		}
 		r.logf(p.Root + " fail " + reason)

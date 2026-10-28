@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -187,9 +188,10 @@ func TestDryRunSummarisesDropped(t *testing.T) {
 	}
 }
 
-// A dry run refuses what the real run refuses before its first project: no
-// agy on PATH, no login, a relative HOME (SD27 of the 2026-10-27 audit, plan
-// D17), and writes nothing while it does.
+// A dry run refuses what the real run refuses before its first project, no
+// agy on PATH (SD27 of the 2026-10-27 audit), and writes nothing while it
+// does. No login and a relative HOME fail only a project the private branch
+// would take (plan D12): the dry run says so on that project's branch line.
 func TestDryRunRefusesWhatTheRunRefuses(t *testing.T) {
 	f := newFixture(t)
 	o := func(out *bytes.Buffer) Options {
@@ -200,10 +202,14 @@ func TestDryRunRefusesWhatTheRunRefuses(t *testing.T) {
 		name  string
 		setup func(t *testing.T)
 		want  string
+		code  int
 	}{
-		{"no agy", func(t *testing.T) { agyLogin(t); t.Setenv("PATH", t.TempDir()) }, "no agy on PATH"},
-		{"no login", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", t.TempDir()) }, "no Antigravity login"},
-		{"relative HOME", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", "relative/home") }, "not an absolute path"},
+		{"no agy", func(t *testing.T) { agyLogin(t); t.Setenv("PATH", t.TempDir()) }, "no agy on PATH", 2},
+		{"no login", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", t.TempDir()) }, "would fail: no Antigravity login", 0},
+		{"relative HOME", func(t *testing.T) { fakeCLI(t, "agy", "", 0); t.Setenv("HOME", "relative/home") }, "would fail: HOME is \"relative/home\", not an absolute path", 0},
+	}
+	if err := os.MkdirAll(harness.DreamWork(f.home), 0o700); err != nil {
+		t.Fatal(err)
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -212,8 +218,13 @@ func TestDryRunRefusesWhatTheRunRefuses(t *testing.T) {
 			before := tree(t, f.home)
 			err := Run(o(&out))
 			var ee *ExitError
-			if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, c.want) {
-				t.Errorf("err %v, want exit 2 naming %q", err, c.want)
+			switch {
+			case c.code == 0 && err != nil:
+				t.Errorf("err %v, want exit 0", err)
+			case c.code == 0 && (!strings.Contains(out.String(), "[dry-run] "+f.root+": agy home private (no Antigravity login in ") || !strings.Contains(out.String(), c.want)):
+				t.Errorf("no private branch line that %s:\n%s", c.want, out.String())
+			case c.code != 0 && (!errors.As(err, &ee) || ee.Code != c.code || !strings.Contains(ee.Msg, c.want)):
+				t.Errorf("err %v, want exit %d naming %q", err, c.code, c.want)
 			}
 			if after := tree(t, f.home); after != before {
 				t.Errorf("a refused dry run wrote:\nbefore %s\nafter  %s", before, after)
