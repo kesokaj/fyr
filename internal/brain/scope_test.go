@@ -76,6 +76,7 @@ func TestSearchRecords(t *testing.T) {
 	a, b := repo(t), repo(t)
 	add(t, opts(a, home), "bug", "trailer co-authored slipped in", "Rule: no trailer.")
 	add(t, opts(b, home), "bug", "other project trailer", "x")
+	markRegistered(t, home, b) // --global reads another project only when registered
 	g := opts(a, home)
 	g.Global = true
 	add(t, g, "feedback", "trailer feedback", "no co-authored lines")

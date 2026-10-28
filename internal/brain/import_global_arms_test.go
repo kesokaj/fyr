@@ -134,9 +134,10 @@ func writeProjects(t *testing.T, home string, roots ...string) {
 	}
 }
 
-// Every indexed project's memory store is read: a root that is no longer a
-// checkout is passed over, a store the checks refuse is a problem, and a
-// memory is a record of its project's scope. A dry run stores nothing.
+// Every indexed project's memory store is read when the project is
+// registered: a root that is no longer a checkout is passed over, a store
+// the checks refuse and an unregistered project are problems, and a memory
+// is a record of its project's scope. A dry run stores nothing.
 func TestImportGlobalReadsEveryProjectsMemory(t *testing.T) {
 	home := t.TempDir()
 	good, bad := repo(t), repo(t)
@@ -144,7 +145,12 @@ func TestImportGlobalReadsEveryProjectsMemory(t *testing.T) {
 	os.WriteFile(filepath.Join(good, ".agents", "memory", "keep-x.md"), []byte("---\nname: keep-x\ndescription: keep x\n---\n\nThe fact.\n"), 0o600)
 	os.MkdirAll(filepath.Join(bad, ".agents"), 0o700)
 	os.WriteFile(filepath.Join(bad, ".agents", "memory"), []byte("not a store"), 0o600)
-	writeProjects(t, home, filepath.Join(t.TempDir(), "gone"), good, bad)
+	stranger := repo(t) // indexed but never registered (ADR-068)
+	os.MkdirAll(filepath.Join(stranger, ".agents", "memory"), 0o700)
+	os.WriteFile(filepath.Join(stranger, ".agents", "memory", "keep-y.md"), []byte("---\nname: keep-y\ndescription: keep y\n---\n\nNot mine.\n"), 0o600)
+	markRegistered(t, home, good)
+	markRegistered(t, home, bad)
+	writeProjects(t, home, filepath.Join(t.TempDir(), "gone"), good, bad, stranger)
 	res, err := ImportGlobal(globalOpts(home, t), true)
 	if err != nil {
 		t.Fatal(err)
@@ -161,8 +167,12 @@ func TestImportGlobalReadsEveryProjectsMemory(t *testing.T) {
 	if len(res.Memory) != 1 || res.Memory[0] != want {
 		t.Errorf("the memory file is listed for removal by its full path: %q", res.Memory)
 	}
-	if len(res.Problems) != 1 || !strings.HasPrefix(res.Problems[0], badScope+": ") || !strings.Contains(res.Problems[0], "not a directory") {
+	if len(res.Problems) != 2 || !strings.HasPrefix(res.Problems[0], badScope+": ") || !strings.Contains(res.Problems[0], "not a directory") {
 		t.Errorf("a refused store is a problem naming its project: %q", res.Problems)
+	}
+	strangerScope, _, _ := trail.Roots(stranger)
+	if want := strangerScope + ": not registered (fyr index --register); its memory store is not imported"; len(res.Problems) != 2 || res.Problems[1] != want {
+		t.Errorf("an unregistered project's store is a problem: %q, want %q", res.Problems, want)
 	}
 	if _, err := os.Lstat(Path(home)); !os.IsNotExist(err) {
 		t.Errorf("a dry run created the brain store: %v", err)

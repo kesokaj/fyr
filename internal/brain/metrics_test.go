@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// ForMetrics gives the metrics join a migrated checkout's handoff, testing,
-// review and bug records, and for every root, migrated, unmigrated or gone,
+// ForMetrics gives the metrics join a registered migrated checkout's
+// handoff, testing, review and bug records, and for every root, migrated, unmigrated or gone,
 // the global feedback about it alone (plan 2026-10-25-1754 S1, D11). With no
 // store and no trail.jsonl it gives nothing and creates nothing.
 func TestForMetrics(t *testing.T) {
@@ -33,6 +33,7 @@ func TestForMetrics(t *testing.T) {
 	for _, kind := range []string{"handoff", "testing", "review", "bug", "change"} {
 		add(t, o, kind, kind+" record", "body")
 	}
+	markRegistered(t, home, migrated)
 	g := opts(t.TempDir(), home)
 	g.Global = true
 	for _, p := range []string{migrated, unmigrated, gone, repo(t)} {
@@ -78,5 +79,31 @@ func TestKindOfID(t *testing.T) {
 		if got := KindOfID(id); got != "" {
 			t.Errorf("KindOfID(%q) = %q, want none", id, got)
 		}
+	}
+}
+
+// An unregistered checkout holding .agents/trail.jsonl reads as not
+// migrated: its trail is not loaded, so no scope of it appears in the store,
+// and its feedback is still read; registered, it joins (audit-choices SD49).
+func TestForMetricsUnregisteredReadsNoTrail(t *testing.T) {
+	home, src := t.TempDir(), t.TempDir()
+	stranger := repo(t)
+	add(t, opts(stranger, src), "handoff", "a stranger's handoff", "body") // another home's add writes its trail.jsonl
+	if _, err := os.Lstat(trailPath(stranger)); err != nil {
+		t.Fatal(err)
+	}
+	g := opts(t.TempDir(), home)
+	g.Global = true
+	add(t, g, "feedback", "about the stranger", `{"ts":"2026-10-25T14:30:00Z"}`, "project", stranger)
+	in, err := ForMetrics(home, stranger)
+	if err != nil || in.Migrated || in.Trail != nil || len(in.Feedback) != 1 {
+		t.Errorf("unregistered: %+v %v, want not migrated, no trail, its feedback", in, err)
+	}
+	if scopes, err := Scopes(home); err != nil || len(scopes) != 0 {
+		t.Errorf("an unregistered trail.jsonl became a scope: %q %v", scopes, err)
+	}
+	markRegistered(t, home, stranger)
+	if in, err := ForMetrics(home, stranger); err != nil || !in.Migrated || len(in.Trail) != 1 {
+		t.Errorf("registered: %+v %v, want its handoff", in, err)
 	}
 }

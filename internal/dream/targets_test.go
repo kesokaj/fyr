@@ -12,30 +12,43 @@ import (
 )
 
 func TestTargets(t *testing.T) {
-	f := newFixture(t)
-	sub := filepath.Join(f.root, "sub")
+	f := newFixture(t) // registered under f.home
+	other := t.TempDir()
+	run(t, other, "git", "init", "-q")
+	sub := filepath.Join(other, "sub")
 	os.MkdirAll(sub, 0o755)
-	listed := []search.Project{{Root: "/p/one"}, {Root: "/p/two"}}
+	gone := filepath.Join(f.root, "gone")
+	listed := []search.Project{project(f), {Root: other}, {Root: gone}}
 	o := Options{Home: f.home, Projects: func(string) ([]search.Project, error) { return listed, nil }}
 
+	// --project needs no marker (audit-choices D16).
 	o.Project = sub
-	got, err := o.targets()
-	if err != nil || len(got) != 1 || !sameDir(got[0].Root, f.root) || got[0].DocsRoot != ".agents/docs" {
-		t.Errorf("--project from a subdirectory: %+v, %v", got, err)
+	got, skips, err := o.targets()
+	if err != nil || len(got) != 1 || !sameDir(got[0].Root, other) || got[0].DocsRoot != ".agents/docs" || len(skips) != 0 {
+		t.Errorf("--project from a subdirectory: %+v, %+v, %v", got, skips, err)
 	}
 	// Both and neither are refused by Run before targets (TestRunUsage).
 	o.Project, o.All = "", true
-	if got, err := o.targets(); err != nil || len(got) != 2 {
+	got, skips, err = o.targets()
+	if err != nil || len(got) != 1 || got[0].Root != f.root {
 		t.Errorf("--all: %+v, %v", got, err)
 	}
-	// A project of records is found by its brain scope too, once.
-	o.Scopes = func(string) ([]string, error) { return []string{"/p/two", "/p/three"}, nil }
-	if got, err := o.targets(); err != nil || len(got) != 3 || got[2].Root != "/p/three" {
-		t.Errorf("--all with scopes: %+v, %v", got, err)
+	want := []skipped{{other, notRegistered}, {gone, "gone"}}
+	if len(skips) != len(want) || skips[0] != want[0] || skips[1] != want[1] {
+		t.Errorf("--all skipped %+v, want %+v", skips, want)
+	}
+	// A project of records is found by its brain scope too, once, and only
+	// when registered.
+	recs := t.TempDir()
+	run(t, recs, "git", "init", "-q")
+	markRegistered(t, f.home, recs)
+	o.Scopes = func(string) ([]string, error) { return []string{f.root, recs, other}, nil }
+	if got, skips, err := o.targets(); err != nil || len(got) != 2 || got[1].Root != recs || len(skips) != 2 {
+		t.Errorf("--all with scopes: %+v, %+v, %v", got, skips, err)
 	}
 	o.Scopes = nil
 	o.Project = t.TempDir() // not a checkout
-	if _, err := o.targets(); err == nil {
+	if _, _, err := o.targets(); err == nil {
 		t.Error("--project outside a checkout was accepted")
 	}
 }

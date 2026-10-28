@@ -70,7 +70,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.memDesc, "description", "", "memory add: one line")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.dreamAll, "all", false, "dream: every project in the global search index")
+		c.fs.BoolVar(&c.dreamAll, "all", false, "dream: every project registered with index --register")
 		c.fs.StringVar(&c.dreamProject, "project", "", "dream: one checkout")
 		c.fs.BoolVar(&c.installTimer, "install-timer", false, "dream: install the nightly user timer")
 		c.fs.BoolVar(&c.removeTimer, "remove-timer", false, "dream: remove the nightly user timer")
@@ -110,7 +110,7 @@ var verbs = map[string]verb{
 	"index": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.global, "global", false, "search, index: the global search index")
 		c.fs.BoolVar(&c.rebuild, "rebuild", false, "index: delete and rebuild the index")
-		c.fs.BoolVar(&c.register, "register", false, "index: register this checkout (the operator's consent, ADR-068) so it joins the global search index, then index it")
+		c.fs.BoolVar(&c.register, "register", false, "index: register this checkout (the operator's consent, ADR-068) so the cross-project reads take it (search --global, dream --all), then index it")
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},

@@ -42,8 +42,10 @@ func roDSN(path string) string {
 }
 
 // ListProjects returns the checkouts in the global search index, in the order
-// they were first registered. No index is no projects: the file is never
-// created here.
+// they were first registered, raw: a row may predate ADR-068 or have lost its
+// marker, so each consumer (the dream, import --global) checks
+// trail.Registered itself (audit-choices D15). No index is no projects: the
+// file is never created here.
 func ListProjects(home string) ([]Project, error) {
 	path := globalDB(home)
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {

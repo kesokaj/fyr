@@ -7,11 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // reconcileGlobal brings the global search index up to date: the files of
-// ~/.config/fyr/, then the trail of every registered checkout, dropping
-// any that is gone.
+// ~/.config/fyr/, then the trail of every checkout in its projects table,
+// dropping any that is gone or no longer carries this home's registration
+// marker (ADR-068, ADR-068a).
 func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
 	path := globalDB(o.Home)
 	if o.Rebuild {
@@ -43,7 +47,7 @@ func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
 	projects := []proj{{key: configProject, name: configProject}}
 	names := map[string]int{configProject: 1}
 	for _, r := range regs {
-		n, searched, err := reconcileRegistered(st, r.root, out)
+		n, searched, err := reconcileRegistered(st, o.Home, r.root, out)
 		if err != nil {
 			return fail(err)
 		}
@@ -77,7 +81,7 @@ func rebuildGlobal(path string, out io.Writer) error {
 		return fmt.Errorf("search: %w", err)
 	}
 	if dropped > 0 {
-		fmt.Fprintf(out, "note: %d project registrations dropped; each returns on its next search\n", dropped) // numbers only
+		fmt.Fprintf(out, "note: %d project registrations dropped; each registered one returns on its next search\n", dropped) // numbers only
 	}
 	return nil
 }
@@ -108,8 +112,14 @@ func registrations(st *store) ([]registration, error) {
 // reconcileRegistered brings one registered checkout's trail up to date
 // and reports whether the query searches it: a checkout dropped, or
 // skipped this time, is not, and a note on out says why.
-func reconcileRegistered(st *store, root string, out io.Writer) (int, bool, error) {
+func reconcileRegistered(st *store, home, root string, out io.Writer) (int, bool, error) {
 	reason, err := dropReason(root)
+	if err == nil && reason == "" && !trail.Registered(filepath.Join(home, harness.StateDir), root) {
+		// A row is a cache entry the checkout's own search writes again once
+		// it is registered, so a marker that does not check out drops it: a
+		// row from before ADR-068, a clone's, a moved checkout's (D4).
+		reason = "not registered: fyr index --register"
+	}
 	if err != nil {
 		// A check that errors keeps the registration (context § Hard
 		// rules): skip this checkout for this query and say why.

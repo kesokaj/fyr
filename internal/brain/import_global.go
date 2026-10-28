@@ -20,7 +20,8 @@ import (
 // ImportGlobal migrates ~/.config/fyr's logs into the global scope:
 // feedback.jsonl as feedback records, retros.jsonl as retro records,
 // proposals/**/*.md as proposal records, each with the project it is about;
-// and every indexed project's old memory store into that project's scope. A
+// and every indexed project's old memory store into that project's scope
+// when the project is registered (ADR-068). A
 // line, file or store it cannot take is a problem, never fatal, and a source
 // with a problem is not listed for removal. Records already stored are
 // skipped, so it can run again after the logs grew.
@@ -185,8 +186,10 @@ func (g *globalImport) readProposal(p string, e fs.DirEntry, err error) error {
 	return nil
 }
 
-// readMemories takes every indexed project's old memory store into that
-// project's scope.
+// readMemories takes the old memory store of every indexed project the
+// operator registered under this home into that project's scope; an
+// unregistered one is a problem, its store left where it is (ADR-068,
+// audit-choices D15).
 func (g *globalImport) readMemories(home string) {
 	res := g.res
 	projects, err := search.ListProjects(home)
@@ -196,6 +199,10 @@ func (g *globalImport) readMemories(home string) {
 	for _, p := range projects {
 		scope, _, err := trail.Roots(p.Root)
 		if err != nil {
+			continue
+		}
+		if !trail.Registered(g.conf, scope) {
+			res.Problems = append(res.Problems, scope+": not registered (fyr index --register); its memory store is not imported")
 			continue
 		}
 		mems, files, problems, err := readMemoryStore(scope, g.b)

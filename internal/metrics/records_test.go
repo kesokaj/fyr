@@ -66,6 +66,7 @@ func recordsFixture(t *testing.T) (s *Store, home, root, sha1 string) {
 	gitT(t, root, at(10, 10), "add", "f")
 	gitT(t, root, at(10, 10), "commit", "-q", "-m", "s1 work")
 	sha1 = gitT(t, root, at(10, 10), "rev-parse", "HEAD")
+	markRegistered(t, home, root) // the join reads a registered checkout's trail only (ADR-068)
 
 	o := brain.Options{Home: home, Dir: root, Now: func() time.Time { return at(14, 0) }}
 	day := stamp(recordsDay)[:10]

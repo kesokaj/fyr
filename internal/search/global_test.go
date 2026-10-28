@@ -161,7 +161,7 @@ func TestGlobalRebuildDropsRegistry(t *testing.T) {
 	if err := Index(Options{Dir: t.TempDir(), Home: home, Global: true, Rebuild: true}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "note: 1 project registrations dropped; each returns on its next search") {
+	if !strings.Contains(out.String(), "note: 1 project registrations dropped; each registered one returns on its next search") {
 		t.Errorf("rebuild note:\n%s", out.String())
 	}
 }

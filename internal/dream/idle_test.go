@@ -21,6 +21,7 @@ func recordsProject(t *testing.T, recordAt, commitAt time.Time) (home, root stri
 	t.Helper()
 	home, root = t.TempDir(), t.TempDir()
 	run(t, root, "git", "init", "-q")
+	markRegistered(t, home, root)
 	o := brain.Options{Home: home, Dir: root, Now: func() time.Time { return recordAt }}
 	if _, err := brain.Add(o, brain.AddInput{Kind: "bug", Title: "the deploy broke on a Friday", Body: strings.NewReader("Prevention: deploy on Thursdays.")}); err != nil {
 		t.Fatal(err)
@@ -184,15 +185,15 @@ func TestDryRunLeavesTheBrainStore(t *testing.T) {
 
 // Finding 6: one checkout reached two ways is one target.
 func TestTargetsDedupeOneCheckout(t *testing.T) {
-	_, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
+	home, root := recordsProject(t, now.Add(-30*time.Hour), now.Add(-48*time.Hour))
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(root, link); err != nil {
 		t.Fatal(err)
 	}
-	o := Options{All: true, Projects: func(string) ([]search.Project, error) { return []search.Project{{Root: link}}, nil },
+	o := Options{Home: home, All: true, Projects: func(string) ([]search.Project, error) { return []search.Project{{Root: link}}, nil },
 		Scopes: func(string) ([]string, error) { return []string{root}, nil }}
-	got, err := o.targets()
-	if err != nil || len(got) != 1 {
+	got, skips, err := o.targets()
+	if err != nil || len(got) != 1 || len(skips) != 0 {
 		t.Errorf("one checkout, two paths: %+v, %v", got, err)
 	}
 }

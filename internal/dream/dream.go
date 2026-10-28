@@ -1,5 +1,5 @@
 // Package dream is `fyr dream`: the background job that reads every
-// indexed project's memory, trail, feedback, a numbers-only summary of its
+// registered project's memory, trail, feedback, a numbers-only summary of its
 // metrics and the Antigravity transcripts (after ingesting every session's shape
 // into the metrics store), asks
 // a CLI with no tools what should become a rule, a skill or a memory, and
@@ -106,7 +106,7 @@ func Run(o Options) error {
 	if !o.DryRun {
 		return o.realRun()
 	}
-	projects, err := o.targets()
+	projects, skips, err := o.targets()
 	if err != nil {
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
@@ -114,55 +114,7 @@ func Run(o Options) error {
 	if err != nil {
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
-	return o.dryRun(projects, st)
-}
-
-// targets is --project's one checkout, or for --all every project the file
-// index registered (a trail still on files) and every project scope the
-// brain store holds (a trail of records: such a checkout no longer registers
-// in the file index); Run has already refused both and neither.
-func (o Options) targets() ([]search.Project, error) {
-	if o.Project != "" {
-		abs, err := filepath.Abs(o.Project)
-		if err != nil {
-			return nil, err
-		}
-		root, err := memory.Root(abs)
-		if err != nil {
-			return nil, err
-		}
-		return []search.Project{{Root: root, Name: filepath.Base(root), DocsRoot: ".agents/docs"}}, nil
-	}
-	projects, err := o.Projects(o.Home)
-	if err != nil {
-		return nil, err
-	}
-	scopesOf := o.Scopes
-	if scopesOf == nil {
-		scopesOf = brain.Scopes
-	}
-	scopes, err := scopesOf(o.Home)
-	if err != nil {
-		return nil, err
-	}
-	// One checkout, however reached (a linked worktree's path, a symlinked
-	// parent), is one target: its records would otherwise be sent twice
-	// (security review of the dream over records, finding 6).
-	seen := map[string]bool{}
-	var out []search.Project
-	for _, p := range projects {
-		if k := projectKey(p.Root); !seen[k] {
-			seen[k] = true
-			out = append(out, p)
-		}
-	}
-	for _, s := range scopes {
-		if k := projectKey(s); !seen[k] {
-			seen[k] = true
-			out = append(out, search.Project{Root: s, Name: filepath.Base(s)})
-		}
-	}
-	return out, nil
+	return o.dryRun(projects, skips, st)
 }
 
 // inUse is why p is not idle yet under --all, "" when it is (or when the
@@ -208,11 +160,8 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 
 // skipReason says why a project is not dreamt over, or "" when it is.
 func skipReason(p search.Project) string {
-	if info, err := os.Stat(p.Root); err != nil || !info.IsDir() {
-		return "gone"
-	}
-	if _, err := memory.Root(p.Root); err != nil {
-		return "not a git checkout"
+	if why := absent(p); why != "" {
+		return why
 	}
 	if migrated(p.Root) {
 		return ""
@@ -220,6 +169,18 @@ func skipReason(p search.Project) string {
 	docs := docsOf(p)
 	if info, err := os.Stat(filepath.Join(p.Root, docs)); err != nil || !info.IsDir() {
 		return "no " + docs
+	}
+	return ""
+}
+
+// absent says why p is no checkout to dream over at all, or "" when it is
+// one.
+func absent(p search.Project) string {
+	if info, err := os.Stat(p.Root); err != nil || !info.IsDir() {
+		return "gone"
+	}
+	if _, err := memory.Root(p.Root); err != nil {
+		return "not a git checkout"
 	}
 	return ""
 }

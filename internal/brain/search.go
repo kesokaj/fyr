@@ -21,7 +21,8 @@ type Hit struct {
 }
 
 // Search ranks records by BM25 over title (weighted twice) and body: the
-// project's and the global scope's, or with Global every scope. Records
+// project's and the global scope's, with Global also every registered
+// project's (searchScopes). Records
 // holding every word rank first, then the remaining slots go to records
 // holding any of them, as `fyr search` does for files. kind is a search
 // --kind: a record kind filters, "trail" or "" takes every record, and a
@@ -34,7 +35,7 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 	if kind != "" && kind != "trail" && !knownKind(kind) {
 		return nil, nil
 	}
-	st, project, err := openForSearch(o)
+	st, project, scopes, err := openScopes(o)
 	if err != nil || st == nil {
 		return nil, err
 	}
@@ -49,7 +50,7 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 		if q == "" {
 			break
 		}
-		sqlq, args := searchQuery(o, q, kind, project)
+		sqlq, args := searchQuery(o, q, kind, scopes)
 		rows, err := st.db.Query(sqlq, args...)
 		if err != nil {
 			return nil, fmt.Errorf("brain: %w", err)
@@ -79,17 +80,16 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 	return hits, nil
 }
 
-// searchQuery is one ranking pass's SQL and arguments: q over the
-// project's and the global scope (every scope with Global), of one kind
-// when kind is a record kind.
-func searchQuery(o Options, q, kind, project string) (string, []any) {
+// searchQuery is one ranking pass's SQL and arguments: q over scopes, of
+// one kind when kind is a record kind.
+func searchQuery(o Options, q, kind string, scopes []string) (string, []any) {
 	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project,
 				snippet(records_fts, 1, char(1), char(2), '…', 24)
 			FROM records_fts JOIN records r ON r.rid = records_fts.rowid
 			WHERE records_fts MATCH ?`
 	args := []any{q}
 	var f string
-	f, args = scopeFilter(o, project, args)
+	f, args = scopeFilter(scopes, args)
 	sqlq += f
 	f, args = kindFilter(kind, args)
 	sqlq += f
@@ -143,25 +143,10 @@ func openForSearch(o Options) (*store, string, error) {
 	return st, project, nil
 }
 
-// scopeFilter is the SQL that keeps a search to the project's and the global
-// scope, or with Global every scope; kindFilter keeps one record kind.
-func scopeFilter(o Options, project string, args []any) (string, []any) {
-	if o.Global {
-		return "", args
-	}
-	return ` AND r.scope IN (?, '')`, append(args, project)
-}
-
-func kindFilter(kind string, args []any) (string, []any) {
-	if kind == "" || kind == "trail" {
-		return "", args
-	}
-	return ` AND r.kind = ?`, append(args, kind)
-}
-
 // Refs returns the records that name ref as written — a record ID, a path,
 // or a directory when it ends in "/" — the ID's own record first, from the
-// project's and the global scope, or every scope with Global (D30: the
+// project's and the global scope, with Global also every registered
+// project's (searchScopes; D30: the
 // trail is records, and the skills ask `fyr search --refs <path> --kind bug`
 // before they touch an area). FTS narrows the candidates; the exact text
 // decides: a path is matched only where no path character stands before
@@ -171,13 +156,13 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 	if ref == "" || (kind != "" && kind != "trail" && !knownKind(kind)) {
 		return nil, nil
 	}
-	st, project, err := openForSearch(o)
+	st, project, scopes, err := openScopes(o)
 	if err != nil || st == nil {
 		return nil, err
 	}
 	defer st.close()
 	// The ID's own record first; its text need not name itself.
-	hits, seen, err := ownHits(st, o, project, ref, kind, limit)
+	hits, seen, err := ownHits(st, o, project, scopes, ref, kind, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +174,7 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project, r.title || char(10) || r.body
 		FROM records_fts JOIN records r ON r.rid = records_fts.rowid WHERE records_fts MATCH ?`
 	args := []any{q}
-	f, args := scopeFilter(o, project, args)
+	f, args := scopeFilter(scopes, args)
 	sqlq += f
 	f, args = kindFilter(kind, args)
 	sqlq += f + ` ORDER BY r.date DESC, r.id`
@@ -218,13 +203,13 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 
 // ownHits is the record whose ID is ref, in each scope Refs searches, and
 // the row IDs it returned.
-func ownHits(st *store, o Options, project, ref, kind string, limit int) ([]Hit, map[int64]bool, error) {
+func ownHits(st *store, o Options, project string, scopes []string, ref, kind string, limit int) ([]Hit, map[int64]bool, error) {
 	var hits []Hit
 	seen := map[int64]bool{}
 	own := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project FROM records r WHERE r.id = ?`
 	oargs := []any{ref}
 	var f string
-	f, oargs = scopeFilter(o, project, oargs)
+	f, oargs = scopeFilter(scopes, oargs)
 	own += f
 	f, oargs = kindFilter(kind, oargs)
 	orows, err := st.db.Query(own+f+` ORDER BY r.scope`, oargs...)
@@ -284,12 +269,13 @@ func naming(text, ref string) (string, bool) {
 }
 
 // OpenRecords returns the open records (the status table's "Open when"):
-// the project's and the global scope's, or every scope with Global (D30).
+// the project's and the global scope's, with Global also every registered
+// project's (searchScopes; D30).
 func OpenRecords(o Options, kind string, limit int) ([]Hit, error) {
 	if kind != "" && kind != "trail" && !knownKind(kind) {
 		return nil, nil
 	}
-	st, project, err := openForSearch(o)
+	st, project, scopes, err := openScopes(o)
 	if err != nil || st == nil {
 		return nil, err
 	}
@@ -297,7 +283,7 @@ func OpenRecords(o Options, kind string, limit int) ([]Hit, error) {
 	sqlq := `SELECT r.scope, r.id, r.kind, r.status, r.date, r.title, r.project FROM records r WHERE ` + strings.ReplaceAll(openSQL, "kind", "r.kind")
 	var args []any
 	var f string
-	f, args = scopeFilter(o, project, args)
+	f, args = scopeFilter(scopes, args)
 	sqlq += f
 	f, args = kindFilter(kind, args)
 	sqlq += f + ` ORDER BY r.date DESC, r.id`

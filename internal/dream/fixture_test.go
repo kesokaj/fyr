@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 var (
@@ -30,6 +31,7 @@ func newFixture(t *testing.T) fixture {
 	t.Helper()
 	f := fixture{home: t.TempDir(), root: t.TempDir()}
 	run(t, f.root, "git", "init", "-q")
+	markRegistered(t, f.home, f.root)
 	write(t, filepath.Join(f.root, ".gitignore"), ".agents/memory\n.agents/scratch/*\n", old)
 	write(t, filepath.Join(f.root, ".agents", "memory", "MEMORY.md"), "- [deploy-day](deploy-day.md) — fridays\n", old)
 	write(t, filepath.Join(f.root, ".agents", "memory", "deploy-day.md"), "---\nname: deploy-day\n---\n\nWe deploy on Fridays.\n", old)
@@ -148,6 +150,15 @@ func run(t *testing.T, dir string, name string, args ...string) {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+	}
+}
+
+// markRegistered is `fyr index --register` in root under home, so --all
+// takes it (ADR-068).
+func markRegistered(t *testing.T, home, root string) {
+	t.Helper()
+	if _, err := trail.Register(filepath.Join(home, harness.StateDir), root, now); err != nil {
+		t.Fatal(err)
 	}
 }
 

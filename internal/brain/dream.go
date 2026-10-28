@@ -4,14 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // Scopes is every project scope the store holds records for: the roots the
-// dream visits besides the checkouts the file index registered (brain plan
-// Phase 4). It creates no store.
+// dream considers besides the file index's checkouts (brain plan Phase 4),
+// raw; the dream takes only the registered ones (ADR-068, audit-choices
+// D15). It creates no store.
 func Scopes(home string) ([]string, error) {
 	if _, err := os.Lstat(Path(home)); err != nil {
 		return nil, nil
@@ -126,13 +129,16 @@ type MetricsInput struct {
 // ForMetrics reads root's records for the metrics join (plan
 // 2026-10-25-1754 S1). The global feedback is read for every root, migrated
 // or not, and for a root that is gone (D11). The trail is read only for a
-// migrated checkout, through the file-wins load, as ForDream does. With no
+// migrated checkout the operator registered under this home, through the
+// file-wins load, as ForDream does: an unregistered one reads as not
+// migrated, so its trail.jsonl never becomes a brain scope that the dream
+// and --global would then read (ADR-068, audit-choices SD49). With no
 // brain.db and no trail.jsonl the input is empty and no store is created.
 // On an error Migrated is still set, so the caller knows whether the root
 // had trail records to miss.
 func ForMetrics(home, root string) (MetricsInput, error) {
 	var in MetricsInput
-	if _, top, err := trail.Roots(root); err == nil {
+	if _, top, err := trail.Roots(root); err == nil && trail.Registered(filepath.Join(home, harness.StateDir), root) {
 		_, err := os.Lstat(trailPath(top))
 		in.Migrated = err == nil
 	}

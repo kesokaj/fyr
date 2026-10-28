@@ -64,7 +64,7 @@ func TestOwnHitsQueryError(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.close()
-	if hits, _, err := ownHits(st, Options{Global: true}, "", "BUG-001", "", 10); err == nil || hits != nil || !strings.HasPrefix(err.Error(), "brain: ") {
+	if hits, _, err := ownHits(st, Options{Global: true}, "", []string{""}, "BUG-001", "", 10); err == nil || hits != nil || !strings.HasPrefix(err.Error(), "brain: ") {
 		t.Errorf("%v %v, want a brain: error and no hits", hits, err)
 	}
 }

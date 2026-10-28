@@ -16,12 +16,15 @@ const shownDropped = 5
 
 // dryRun prints what a run would collect and run, and writes, locks and
 // advances nothing.
-func (o Options) dryRun(projects []search.Project, st state) error {
+func (o Options) dryRun(projects []search.Project, skips []skipped, st state) error {
 	if err := checkAgy(runtime.GOOS); err != nil {
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
 	cli := append(command(), "(prompt on stdin as one stream-json message; HOME a private copy with no grants)")
+	for _, s := range skips {
+		fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", s.root, s.why)
+	}
 	for _, p := range projects {
 		if why := skipReason(p); why != "" {
 			fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", p.Root, why)

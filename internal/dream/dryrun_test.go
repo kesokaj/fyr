@@ -97,6 +97,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestDryRunLines(t *testing.T) {
 	f := newFixture(t)
 	calm := newFixture(t)
+	markRegistered(t, f.home, calm.root)
 	later := now.Add(time.Hour)
 	write(t, statePath(f.home), `{"projects":{"`+calm.root+`":"`+later.Format(time.RFC3339)+`"}}`, old)
 	var out bytes.Buffer
@@ -140,6 +141,7 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 	// A store that refuses to be read is left out and named, and the run
 	// goes on with the rest.
 	g := newFixture(t)
+	markRegistered(t, f.home, g.root)
 	store := filepath.Join(g.root, ".agents", "memory")
 	os.RemoveAll(store)
 	if err := os.Symlink(t.TempDir(), store); err != nil {

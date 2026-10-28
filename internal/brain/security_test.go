@@ -162,6 +162,7 @@ func TestGlobalLabelsTellScopesApart(t *testing.T) {
 		git(t, d, "init", "-q")
 		add(t, opts(d, home), "bug", "zebra crossing", "zebra")
 	}
+	markRegistered(t, home, b)
 	o := opts(a, home)
 	o.Global = true
 	hits, err := Search(o, []string{"zebra"}, "", 10)
