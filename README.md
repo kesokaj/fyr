@@ -78,7 +78,7 @@ flowchart LR
         installer["fyr install / fyr update"]
         homeFiles["~/.gemini/config<br/>installed files, no repository"]
         sessions["Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
-        configDir["~/.config/fyr/<br/>feedback.jsonl, retros.jsonl, proposals/, state.json, search.db, metrics.db<br/>stays on this machine"]
+        configDir["~/.config/fyr/<br/>brain.db, metrics.db, search.db, state.json<br/>stays on this machine"]
         dreamer["fyr dream --all<br/>nightly user timer, a CLI with no tools"]
         evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
     end
