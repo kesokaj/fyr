@@ -53,7 +53,7 @@ Two things to know about your home directory. `install` writes only under `~/.ge
 | `fyr adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
 | `fyr version` | The build version. |
 
-`fyr` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. The global flags are `--repo DIR` and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
+`fyr` with no verb prints the usage. A flag a verb does not know is a usage error, exit 2. The global flags are `--repo DIR`, the harness checkout to build and install from (by default `$FYR_REPO`, then the working directory or its parents, then the tree the last install recorded; a release binary installs the harness built into it and refuses `--repo` and `$FYR_REPO`, ADR-034), and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
 
 ## How it works
 
