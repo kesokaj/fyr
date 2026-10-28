@@ -53,8 +53,7 @@ var memorySubverbs = []string{"add", "show"}
 func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) error {
 	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
-		fmt.Fprintln(out, "usage: fyr memory add --type T --name SLUG --description TEXT (body on stdin) | fyr memory show")
-		return exitCode(2)
+		return usageErr(out, "memory", "")
 	}
 	wd, err := os.Getwd()
 	if err != nil {

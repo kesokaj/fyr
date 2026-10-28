@@ -33,15 +33,13 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 // the record SPEC-fyr-metrics).
 // metricsSubverbs is what runMetrics dispatches, in its order: its refusal
 // texts are built from it and the check vocabulary reads it, and a test pins
-// it against the switch (plan fyr-check D14). export comes last, since the
-// bare-verb usage line ends in its FILE.
+// it against the switch (plan fyr-check D14).
 var metricsSubverbs = []string{"ingest", "show", "report", "export"}
 
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
 	if len(args) == 0 {
-		fmt.Fprintln(c.out, "fyr metrics: "+strings.Join(metricsSubverbs, " | ")+" FILE")
-		return exitCode(2)
+		return usageErr(c.out, "metrics", "")
 	}
 	sub, args := args[0], args[1:]
 	switch sub {
@@ -54,8 +52,7 @@ func runMetrics(c *ctx) error {
 	case "export":
 		return c.metricsExport(args)
 	}
-	fmt.Fprintf(c.out, "fyr metrics: unknown subcommand %q (%s)\n", sub, strings.Join(metricsSubverbs, ", "))
-	return exitCode(2)
+	return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics: unknown subcommand %q (%s)", sub, strings.Join(metricsSubverbs, ", ")))
 }
 
 // metricsIngest serves `metrics ingest`: a failed source is exit 1 after

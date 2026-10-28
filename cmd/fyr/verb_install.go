@@ -92,8 +92,7 @@ func runRender(c *ctx) error {
 
 func runAdopt(c *ctx) error {
 	if c.fs.NArg() != 1 {
-		fmt.Fprintln(c.out, "usage: fyr adopt <skill-name-or-path> [--force]")
-		return exitCode(2)
+		return usageErr(c.out, "adopt", "")
 	}
 	repo := c.repo()
 	if repo == "" {

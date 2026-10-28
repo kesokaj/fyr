@@ -208,13 +208,20 @@ func TestSearchRanksARecordAboveAFile(t *testing.T) {
 	}
 }
 
-// fyr help lists the verb and its four subverbs.
+// fyr help lists the verb, and its page its subverbs.
 func TestHelpListsRecord(t *testing.T) {
 	var out bytes.Buffer
 	if err := run([]string{"help"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\n  record add ", "\n  record get ", "\n  record edit ", "\n  record list "} {
+	if !strings.Contains(out.String(), "\n  record ") {
+		t.Error("help lacks record")
+	}
+	out.Reset()
+	if err := run([]string{"help", "record"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"usage: fyr record add ", "\n       fyr record get ", "\n       fyr record edit ", "\n       fyr record list ", "\n       fyr record import "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help lacks %q", want)
 		}

@@ -73,11 +73,12 @@ func TestVocabularySubverbListsMatchDispatchers(t *testing.T) {
 		run(append(args, "--home", home), &out)
 		return out.String()
 	}
+	metricsSynopsis := strings.Join(pages["metrics"].synopsis, "\n") + "\n"
 	const metricsUnknown = `fyr metrics: unknown subcommand "frob" (ingest, show, report, export)` + "\n"
-	if got := call("metrics", "frob"); got != metricsUnknown {
-		t.Errorf("metrics frob: %q, want %q", got, metricsUnknown)
+	if got := call("metrics", "frob"); !strings.HasPrefix(got, metricsUnknown+metricsSynopsis) || !strings.HasSuffix(got, "run 'fyr help metrics' for its flags\n") {
+		t.Errorf("metrics frob: %q, want the reason, the synopsis and the hint", got)
 	}
-	if got := call("metrics"); got != "fyr metrics: ingest | show | report | export FILE\n" {
+	if got := call("metrics"); !strings.HasPrefix(got, "usage: fyr metrics") {
 		t.Errorf("bare metrics: %q", got)
 	}
 	for _, sub := range metricsSubverbs {
@@ -85,12 +86,12 @@ func TestVocabularySubverbListsMatchDispatchers(t *testing.T) {
 			t.Errorf("metrics %s does not reach its case: %q", sub, got)
 		}
 	}
-	const memoryUsage = "usage: fyr memory add --type T --name SLUG --description TEXT (body on stdin) | fyr memory show\n"
-	if got := call("memory", "frob"); got != memoryUsage {
-		t.Errorf("memory frob: %q, want %q", got, memoryUsage)
+	memorySynopsis := strings.Join(pages["memory"].synopsis, "\n") + "\n"
+	if got := call("memory", "frob"); !strings.HasPrefix(got, memorySynopsis) || !strings.HasSuffix(got, "run 'fyr help memory' for its flags\n") {
+		t.Errorf("memory frob: %q, want the synopsis and the hint", got)
 	}
 	for _, sub := range memorySubverbs {
-		if got := call("memory", sub); got == memoryUsage {
+		if got := call("memory", sub); strings.HasPrefix(got, memorySynopsis) {
 			t.Errorf("memory %s does not reach its case", sub)
 		}
 	}

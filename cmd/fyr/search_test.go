@@ -84,7 +84,7 @@ func TestSearchVerb(t *testing.T) {
 	}
 }
 
-// TestUsageMatchesDocComment: every verb the usage text lists is in the
+// TestUsageMatchesDocComment: every verb the short page lists is in the
 // package doc comment, and back.
 func TestUsageMatchesDocComment(t *testing.T) {
 	src, err := os.ReadFile("main.go")
@@ -96,8 +96,7 @@ func TestUsageMatchesDocComment(t *testing.T) {
 		doc[m[1]] = true
 	}
 	use := map[string]bool{}
-	commands := usage[strings.Index(usage, "Commands:"):strings.Index(usage, "Flags accepted")]
-	for _, m := range regexp.MustCompile(`(?m)^  ([a-z]+) `).FindAllStringSubmatch(commands, -1) {
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-z]+) `).FindAllStringSubmatch(shortPage, -1) {
 		use[m[1]] = true
 	}
 	keys := func(m map[string]bool) []string {

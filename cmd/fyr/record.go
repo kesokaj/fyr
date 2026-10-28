@@ -12,12 +12,6 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-const recordUsage = "usage: fyr record add <kind> --title T [--status S] [--id ID] [--global [--project ROOT]] (body on stdin)" +
-	" | fyr record get <id>... [--global]" +
-	" | fyr record edit <id> [--status S] [--title T] [--body] [--global]" +
-	" | fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]" +
-	" | fyr record import [--dry-run] [<docs-root>] | fyr record import --global [--dry-run]"
-
 // recordFlags is the flags each record subverb takes, besides --home and
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
@@ -40,12 +34,11 @@ func runRecord(c *ctx) error {
 	}
 	takes, ok := recordFlags[sub] // no subcommand is not one of them
 	if !ok {
-		fmt.Fprintln(c.out, recordUsage)
-		return exitCode(2)
+		return usageErr(c.out, "record", unknownRecordSub(sub))
 	}
-	set, ok := recordFlagsSet(c, sub, takes)
-	if !ok {
-		return exitCode(2)
+	set, err := recordFlagsSet(c, sub, takes)
+	if err != nil {
+		return err
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -79,13 +72,21 @@ func runRecord(c *ctx) error {
 		}
 		return recordImport(c, o, rest)
 	}
-	fmt.Fprintln(c.out, recordUsage)
-	return exitCode(2)
+	return usageErr(c.out, "record", "")
+}
+
+// unknownRecordSub is the reason line for a subverb record does not have; a
+// bare `fyr record` has none (the operator's reading, plan ledger D24).
+func unknownRecordSub(sub string) string {
+	if sub == "" {
+		return ""
+	}
+	return fmt.Sprintf("fyr record: unknown subcommand %q", sub)
 }
 
 // recordFlagsSet returns the flags set on the command line; a flag sub does
-// not take is a usage error, said on the writer (ok false).
-func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool, bool) {
+// not take is a usage error, said on the writer.
+func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool, error) {
 	set := map[string]bool{}
 	var stray []string
 	c.fs.Visit(func(f *flag.Flag) {
@@ -96,10 +97,9 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 	})
 	if len(stray) > 0 {
 		sort.Strings(stray)
-		fmt.Fprintf(c.out, "fyr record %s does not take %s\n%s\n", sub, strings.Join(stray, ", "), recordUsage)
-		return nil, false
+		return nil, usageErr(c.out, "record", fmt.Sprintf("fyr record %s does not take %s", sub, strings.Join(stray, ", ")))
 	}
-	return set, true
+	return set, nil
 }
 
 // recordAdd serves `record add`: the new record's ID, and the redactor

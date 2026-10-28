@@ -246,7 +246,7 @@ func parseRefs(text string) []ref {
 	return out
 }
 
-// Kinds a path can have, in the order `fyr help` lists them.
+// Kinds a path can have, in the order `fyr help search` lists them.
 // kinds are the --kind values. learning, guide and memory exist only as
 // brain records (ADR-063): a file hit is never of those kinds.
 var kinds = []string{"bug", "adr", "plan", "change", "handoff", "review", "testing", "retro", "spec", "deploy", "trail", "code", "doc", "feedback", "proposal", "learning", "guide", "memory"}

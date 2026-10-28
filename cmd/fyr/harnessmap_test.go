@@ -32,7 +32,7 @@ func TestHarnessMap(t *testing.T) {
 	seen := map[string]bool{}
 	for _, m := range regexp.MustCompile(`fyr ([a-z]+)`).FindAllStringSubmatch(block, -1) {
 		seen[m[1]] = true
-		if !strings.Contains(usage, "\n  "+m[1]+" ") {
+		if !strings.Contains(shortPage, "\n  "+m[1]+" ") {
 			t.Errorf("the map names `fyr %s`, which the binary does not have", m[1])
 		}
 	}

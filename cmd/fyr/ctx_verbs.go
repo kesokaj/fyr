@@ -65,66 +65,66 @@ var verbs = map[string]verb{
 	"version":   {run: runVersion},
 	"uninstall": {flags: (*ctx).dryRunFlag, run: runUninstall},
 	"memory": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.memType, "type", "", "memory add: user, feedback, project or reference")
-		c.fs.StringVar(&c.memName, "name", "", "memory add: the memory's slug")
-		c.fs.StringVar(&c.memDesc, "description", "", "memory add: one line")
+		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: user, feedback, project or reference")
+		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
+		c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.dreamAll, "all", false, "dream: every project registered with index --register")
-		c.fs.StringVar(&c.dreamProject, "project", "", "dream: one checkout")
-		c.fs.BoolVar(&c.installTimer, "install-timer", false, "dream: install the nightly user timer")
-		c.fs.BoolVar(&c.removeTimer, "remove-timer", false, "dream: remove the nightly user timer")
+		c.fs.BoolVar(&c.dreamAll, "all", false, "every project registered with index --register")
+		c.fs.StringVar(&c.dreamProject, "project", "", "one checkout, `DIR`, registered or not")
+		c.fs.BoolVar(&c.installTimer, "install-timer", false, "install the nightly user timer")
+		c.fs.BoolVar(&c.removeTimer, "remove-timer", false, "remove the nightly user timer")
 		c.dryRunFlag()
 	}, run: runDream},
 	"metrics": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.metricsSource, "source", "", "metrics ingest: a sandbox home to read instead of this one")
-		c.fs.StringVar(&c.metricsLabel, "label", "", "metrics ingest: KEY=VALUE stamped on every --source session; show: only that label")
-		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "metrics ingest: pass or fail, the --source run's acceptance result")
-		c.fs.StringVar(&c.metricsSince, "since", "", "metrics show: start of the window, YYYY-MM-DD (default 30 days ago)")
-		c.fs.StringVar(&c.metricsUntil, "until", "", "metrics show: end of the window, YYYY-MM-DD, exclusive (default now)")
-		c.fs.StringVar(&c.metricsProject, "project", "", "metrics show: only sessions in this project root")
-		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "metrics show: include labelled (sandbox) sessions")
-		c.fs.BoolVar(&c.metricsJSON, "json", false, "metrics show: print the summary as JSON")
-		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "metrics show, report: the peak context, in tokens, a main session should stay under (default 300000)")
-		c.fs.StringVar(&c.metricsOut, "out", "", "metrics report: the HTML file to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
+		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
+		c.fs.StringVar(&c.metricsLabel, "label", "", "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label")
+		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail`")
+		c.fs.StringVar(&c.metricsSince, "since", "", "show, report: the window's start, `YYYY-MM-DD` (default 30 days ago)")
+		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report: the window's end, `YYYY-MM-DD`, exclusive (default now)")
+		c.fs.StringVar(&c.metricsProject, "project", "", "show, report: only sessions in the project root `DIR`")
+		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "show, report: include labelled (sandbox) sessions")
+		c.fs.BoolVar(&c.metricsJSON, "json", false, "show: print the summary as JSON")
+		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "show, report: the peak context, `N` tokens, a main session should stay under (default 300000)")
+		c.fs.StringVar(&c.metricsOut, "out", "", "report: the HTML file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
 	"record": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.recTitle, "title", "", "record add, edit: the record's one-line title")
-		c.fs.StringVar(&c.recStatus, "status", "", "record add, edit: the status (per kind; see fyr help)")
-		c.fs.StringVar(&c.recID, "id", "", "record add: the ID to use instead of the next one")
-		c.fs.StringVar(&c.recProject, "project", "", "record add, list with --global: the project a global record is about")
-		c.fs.BoolVar(&c.global, "global", false, "record: the global scope")
-		c.fs.BoolVar(&c.recBody, "body", false, "record edit: read the new body on stdin")
-		c.fs.StringVar(&c.kind, "kind", "", "record list: only records of this kind")
-		c.fs.BoolVar(&c.openRecords, "open", false, "record list: only open records")
-		c.fs.BoolVar(&c.recAll, "all", false, "record list: every scope")
+		c.fs.StringVar(&c.recTitle, "title", "", "add, edit: the record's one-line title, `T`")
+		c.fs.StringVar(&c.recStatus, "status", "", "add, edit: the status `S`; each kind takes its own, and a status it does not take is refused with the kind's list")
+		c.fs.StringVar(&c.recID, "id", "", "add: the `ID` to use instead of the next one")
+		c.fs.StringVar(&c.recProject, "project", "", "add, list with --global: the project `ROOT` a global record is about")
+		c.fs.BoolVar(&c.global, "global", false, "the global scope instead of this project's")
+		c.fs.BoolVar(&c.recBody, "body", false, "edit: read the new body on stdin")
+		c.fs.StringVar(&c.kind, "kind", "", "list: only records of kind `K`")
+		c.fs.BoolVar(&c.openRecords, "open", false, "list: only open records (open plans and bugs, current specs, deploy docs and guides, queued proposals)")
+		c.fs.BoolVar(&c.recAll, "all", false, "list: every scope, each line ending in its scope")
 		c.dryRunFlag()
 	}, positional: true, run: runRecord},
 	"search": {flags: func(c *ctx) {
-		c.fs.IntVar(&c.limit, "limit", 0, "search: hits to print, 1-50 (default 10)")
-		c.fs.StringVar(&c.kind, "kind", "", "search: only hits of this kind")
-		c.fs.StringVar(&c.refs, "refs", "", "search: records naming this ID or path")
-		c.fs.BoolVar(&c.openRecords, "open", false, "search: open bugs and plans with unticked boxes")
-		c.fs.BoolVar(&c.global, "global", false, "search, index: the global search index")
+		c.fs.IntVar(&c.limit, "limit", 0, "print at most `N` records and as many files, 1-50 (default 10)")
+		c.fs.StringVar(&c.kind, "kind", "", "only hits of kind `K`: bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory")
+		c.fs.StringVar(&c.refs, "refs", "", "every record naming `REF`: an ID, a file, or a directory (trailing /)")
+		c.fs.BoolVar(&c.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
+		c.fs.BoolVar(&c.global, "global", false, "also every project registered with index --register, and the global search index, ~/.config/fyr/search.db")
 	}, positional: true, run: runSearch},
 	"index": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.global, "global", false, "search, index: the global search index")
-		c.fs.BoolVar(&c.rebuild, "rebuild", false, "index: delete and rebuild the index")
-		c.fs.BoolVar(&c.register, "register", false, "index: register this checkout (the operator's consent, ADR-068) so the cross-project reads take it (search --global, dream --all), then index it")
+		c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
+		c.fs.BoolVar(&c.rebuild, "rebuild", false, "delete the index and build it again")
+		c.fs.BoolVar(&c.register, "register", false, "register this checkout (the operator's consent, ADR-068) so the cross-project reads take it (search --global, dream --all), then index it")
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"status":  {source: true, run: func(c *ctx) error { return status(c.src, c.home, c.out) }},
 	"diff":    {source: true, run: runDiff},
 	"update": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.check, "check", false, "update: only report whether the repo is behind")
-		c.fs.StringVar(&c.fromZip, "from-zip", "", "update: install the harness in this repository zip with the running binary")
+		c.fs.BoolVar(&c.check, "check", false, "only report whether this place is behind; exit 2 when it is")
+		c.fs.StringVar(&c.fromZip, "from-zip", "", "install the harness in the repository zip `FILE` with the running binary")
 		c.dryRunFlag()
 	}, source: true, run: runUpdate},
 	"list":   {source: true, run: runList},
 	"render": {source: true, run: runRender},
 	"adopt": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.force, "force", false, "adopt: replace an existing skill")
+		c.fs.BoolVar(&c.force, "force", false, "replace a skill of the same name already in skills/")
 	}, source: true, positional: true, run: runAdopt},
 }
 
@@ -134,8 +134,11 @@ var verbs = map[string]verb{
 func newCtx(cmd string, v verb, out io.Writer) *ctx {
 	c := &ctx{cmd: cmd, out: out, fs: flag.NewFlagSet(cmd, flag.ContinueOnError)}
 	c.fs.SetOutput(out)
-	c.fs.StringVar(&c.repoFlag, "repo", "", "harness checkout")
-	c.fs.StringVar(&c.homeFlag, "home", "", "install under this directory instead of $HOME")
+	// The verb's page is help's to print (parse); the flag package prints
+	// only its one reason line for a flag error (plan ledger D21 3).
+	c.fs.Usage = func() {}
+	c.fs.StringVar(&c.repoFlag, "repo", "", "the harness checkout `DIR`")
+	c.fs.StringVar(&c.homeFlag, "home", "", "install under `DIR` instead of $HOME")
 	if v.flags != nil {
 		v.flags(c)
 	}

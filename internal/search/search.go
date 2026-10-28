@@ -51,7 +51,7 @@ func validate(o *Options, verb string) error {
 		o.Limit = defaultLimit
 	}
 	if o.Limit < 1 || o.Limit > maxLimit {
-		return usageError{fmt.Sprintf("search: --limit must be between 1 and %d; see fyr help", maxLimit)}
+		return usageError{fmt.Sprintf("search: --limit must be between 1 and %d; see fyr help search", maxLimit)}
 	}
 	if o.Kind != "" {
 		ok := false
@@ -59,7 +59,7 @@ func validate(o *Options, verb string) error {
 			ok = ok || k == o.Kind
 		}
 		if !ok {
-			return usageError{fmt.Sprintf("search: --kind must be one of: %s; see fyr help", strings.Join(kinds, " "))}
+			return usageError{fmt.Sprintf("search: --kind must be one of: %s; see fyr help search", strings.Join(kinds, " "))}
 		}
 	}
 	// index takes no words and none of search's modes, and search no
@@ -75,9 +75,9 @@ func validate(o *Options, verb string) error {
 	}
 	switch {
 	case modes > 1:
-		return usageError{"search: words, --refs and --open exclude each other; see fyr help"}
+		return usageError{"search: words, --refs and --open exclude each other; see fyr help search"}
 	case modes == 0:
-		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path> or --open; see fyr help"}
+		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path> or --open; see fyr help search"}
 	}
 	return nil
 }

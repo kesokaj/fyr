@@ -34,8 +34,8 @@ var evalRun = eval.Run
 
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
-		c.fs.StringVar(&c.evalFixture, "fixture", "", "eval: the git repository each row clones (default: this checkout)")
-		c.fs.BoolVar(&c.evalList, "list", false, "eval: print the suite's rows, run nothing")
+		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
+		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide) and run nothing")
 	}, positional: true, run: runEval}
 }
 
@@ -52,8 +52,7 @@ func runEval(c *ctx) error {
 		fmt.Fprintln(c.out, "fyr eval: --list takes no row")
 		return exitCode(2)
 	case !c.evalList && len(names) == 0:
-		fmt.Fprintln(c.out, "usage: fyr eval [--fixture DIR] <row>...  |  fyr eval --list")
-		return exitCode(2)
+		return usageErr(c.out, "eval", "")
 	}
 	wd, err := os.Getwd()
 	if err != nil {

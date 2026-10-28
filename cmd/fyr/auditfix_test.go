@@ -29,7 +29,8 @@ func TestListHelpExitsZero(t *testing.T) {
 }
 
 // TestUnknownCommandExits2OnTheWriter: an unknown command is a usage error
-// like every other, exit 2 with the reason and the usage on the writer (IN16).
+// like every other, exit 2 with the reason and a pointer to fyr help on the
+// writer (IN16), never the short page (plan ledger D19 4).
 func TestUnknownCommandExits2OnTheWriter(t *testing.T) {
 	var out bytes.Buffer
 	err := run([]string{"no-such-verb"}, &out)
@@ -37,8 +38,8 @@ func TestUnknownCommandExits2OnTheWriter(t *testing.T) {
 	if !errors.As(err, &code) || code != 2 {
 		t.Fatalf("err = %v, want exit 2", err)
 	}
-	if !strings.Contains(out.String(), `unknown command "no-such-verb"`) || !strings.Contains(out.String(), "Commands:") {
-		t.Errorf("the reason and the usage are not on the writer:\n%s", out.String())
+	if !strings.Contains(out.String(), `unknown command "no-such-verb"`) || !strings.Contains(out.String(), "run 'fyr help' for the commands") || strings.Contains(out.String(), "Commands:") {
+		t.Errorf("the reason and the hint are not on the writer, or the page is:\n%s", out.String())
 	}
 }
 

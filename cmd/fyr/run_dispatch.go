@@ -13,16 +13,19 @@ import (
 )
 
 func run(args []string, out io.Writer) error {
-	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(out, usage)
+	if len(args) == 0 {
+		fmt.Fprint(out, shortPage)
 		return nil
 	}
 	cmd, rest := args[0], args[1:]
+	if cmd == "help" || cmd == "-h" || cmd == "-help" || cmd == "--help" {
+		return runHelp(rest, out)
+	}
 	v, ok := verbs[cmd]
 	if !ok {
-		// A usage error like every other: exit 2, said on the writer (IN16).
-		fmt.Fprintf(out, "fyr: unknown command %q\n\n%s", cmd, usage)
-		return exitCode(2)
+		// A usage error like every other: exit 2, said on the writer (IN16),
+		// pointing at the short page rather than printing it (D19 4).
+		return usageErr(out, "", fmt.Sprintf("fyr: unknown command %q", cmd))
 	}
 	// A zip place (R8, ADR-038): the operator named the archive, so no tree is
 	// resolved and no other verb runs — `uninstall --from-zip` must not
@@ -64,19 +67,18 @@ func run(args []string, out io.Writer) error {
 func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
 	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			// Help is a successful ask: the FlagSet has printed the verb's
-			// flags on the writer (IN15).
+			// Help is a successful ask: the verb's page, on the writer (IN15).
+			fmt.Fprint(c.out, verbHelp(c.cmd))
 			return true, nil
 		}
 		// The flag package has named the flag on the writer; a usage error
 		// exits 2 like every other usage error here.
-		return true, exitCode(2)
+		return true, usageErr(c.out, c.cmd, "")
 	}
 	if !v.positional && c.fs.NArg() > 0 {
 		// A stray argument is never ignored: `list - --check` and `update --
 		// --from-zip x` would otherwise run the verb as if nothing had been said.
-		fmt.Fprintf(c.out, "%s takes no arguments: %q\n", c.cmd, c.fs.Args())
-		return true, exitCode(2)
+		return true, usageErr(c.out, c.cmd, fmt.Sprintf("%s takes no arguments: %q", c.cmd, c.fs.Args()))
 	}
 	return false, nil
 }

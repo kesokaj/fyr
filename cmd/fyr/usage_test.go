@@ -92,8 +92,9 @@ func TestMainExitStatus(t *testing.T) {
 		"unknown command": {"no-such-verb", 2, `unknown command "no-such-verb"`, ""},
 		// The report path left with ADR-062: the word is no verb at all.
 		"report is gone": {"report --dry-run", 2, `unknown command "report"`, ""},
-		// Help is a successful ask (IN15).
-		"list -h": {"list -h", 0, "-home", ""},
+		// Help is a successful ask (IN15): the verb's page, which ends with
+		// the global flags line.
+		"list -h": {"list -h", 0, "\n\n" + helpLast + "\n", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := exec.Command(os.Args[0], "-test.run=^TestHelperMain$")
