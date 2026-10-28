@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -17,6 +18,7 @@ const (
 	whyNested  = "its workspace is a nested checkout, not this project"
 	whyOutside = "it also has a workspace outside this project"
 	whyUnread  = "its workspace's checkout could not be read"
+	whyDream   = "a fyr dream conversation"
 )
 
 // workspaces judges, for one dream target, whether a conversation is the
@@ -26,10 +28,14 @@ const (
 type workspaces struct {
 	root, main string
 	mains      map[string]string // a directory -> its main root, "" when unreadable
+	dream      []string          // the dream's working directory, every form (harness.DreamWorkPaths)
 }
 
-func newWorkspaces(root string) *workspaces {
-	w := &workspaces{root: filepath.Clean(root), mains: map[string]string{}}
+// newWorkspaces judges for root; a conversation with a workspace in exclude
+// is the dream's own and never root's, even when root holds the config
+// directory (a checkout at $HOME; visible dream plan D5).
+func newWorkspaces(root string, exclude []string) *workspaces {
+	w := &workspaces{root: filepath.Clean(root), mains: map[string]string{}, dream: exclude}
 	w.main = w.mainOf(w.root)
 	return w
 }
@@ -40,13 +46,15 @@ func newWorkspaces(root string) *workspaces {
 // file URI under the root, and the nearest directory of it still on disk must
 // resolve to the target's main root: a workspace since deleted is judged by
 // the directory above it, so a nested checkout removed after its session
-// reads as the target's own (a known limit).
+// reads as the target's own (a known limit). A conversation with a workspace
+// in the dream's working directory is never kept, and is named only when a
+// workspace of it is under the root.
 func (w *workspaces) judge(uris string) (keep bool, why string) {
 	var list []string
 	if json.Unmarshal([]byte(uris), &list) != nil {
 		return false, ""
 	}
-	under, outside := 0, false
+	under, outside, dream := 0, false, false
 	for _, u := range list {
 		p, err := url.Parse(u)
 		if err != nil || p.Scheme != "file" {
@@ -57,6 +65,9 @@ func (w *workspaces) judge(uris string) (keep bool, why string) {
 			continue
 		}
 		ws := filepath.Clean(p.Path)
+		if harness.InDreamWork(ws, w.dream) {
+			dream = true
+		}
 		if ws != w.root && !strings.HasPrefix(ws, w.root+string(filepath.Separator)) {
 			outside = true
 			continue
@@ -72,6 +83,8 @@ func (w *workspaces) judge(uris string) (keep bool, why string) {
 	switch {
 	case under == 0:
 		return false, ""
+	case dream:
+		return false, whyDream
 	case why != "":
 		return false, why
 	case outside:

@@ -22,7 +22,7 @@ func TestWorkspacesJudge(t *testing.T) {
 	}
 	gitT(t, nested, "init", "-q")
 	u := func(p string) string { return `"file://` + p + `"` }
-	w := newWorkspaces(root)
+	w := newWorkspaces(root, nil)
 	for _, c := range []struct {
 		uris string
 		keep bool
@@ -48,7 +48,7 @@ func TestWorkspacesJudge(t *testing.T) {
 	}
 	// A root that is not a checkout keeps nothing under it.
 	plain := t.TempDir()
-	if keep, why := newWorkspaces(plain).judge("[" + u(plain) + "]"); keep || why != whyUnread {
+	if keep, why := newWorkspaces(plain, nil).judge("[" + u(plain) + "]"); keep || why != whyUnread {
 		t.Errorf("a plain directory as root: keep %v why %q", keep, why)
 	}
 }

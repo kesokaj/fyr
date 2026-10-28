@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -59,6 +60,17 @@ func (o Options) agyRoot() string {
 		return filepath.Join(o.Source, ".gemini", "antigravity-cli")
 	}
 	return filepath.Join(o.Home, ".gemini", "antigravity-cli")
+}
+
+// dreamWork is the dream's working directory in every form for the home
+// whose store is read and for --home, when they differ: a conversation there
+// is the dream's own, never a session (visible dream plan D5, D15).
+func (o Options) dreamWork() []string {
+	out := harness.DreamWorkPaths(o.Home)
+	if o.Source != "" {
+		out = append(out, harness.DreamWorkPaths(o.Source)...)
+	}
+	return out
 }
 
 // Ingest reads every transcript the options name into s. A source that fails

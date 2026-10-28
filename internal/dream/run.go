@@ -97,7 +97,7 @@ func (r *dreamRun) prepareAgy() (func(), error) {
 		return nil, err
 	}
 	r.env = childEnv(os.Environ(), agyHomeDir)
-	r.work = filepath.Join(r.conf, "dream-work")
+	r.work = harness.DreamWork(r.o.Home)
 	if err := os.MkdirAll(r.work, 0o700); err != nil {
 		cleanup()
 		return nil, err

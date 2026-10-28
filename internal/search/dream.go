@@ -84,7 +84,8 @@ const agyTimeLayout = "2006-01-02 15:04:05.999999999-07:00"
 
 // AgyConversationText returns the text of every Antigravity conversation
 // that is root's own (workspaces.judge: every workspace under root, in root's
-// checkout, not a nested one) and that was modified after since, and names
+// checkout, not a nested one, and not the dream's own in
+// harness.DreamWork(home)) and that was modified after since, and names
 // each conversation under root that was left out ("<id> (<why>)"). The
 // databases are copied first and the copies opened, never the live files
 // Antigravity may be writing (D24, D27); the copies are removed after.
@@ -112,7 +113,7 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 		}
 	}()
 
-	out, leftOut, err := listConversations(src, tmp, root, since)
+	out, leftOut, err := listConversations(src, tmp, newWorkspaces(root, harness.DreamWorkPaths(home)), since)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,10 +127,11 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 	return out, leftOut, nil
 }
 
-// listConversations reads the conversation list from a copy in tmp: root's
-// own conversations modified after since, without their text, and the names
-// of those under root it left out. The copy is closed before it returns.
-func listConversations(src, tmp, root string, since time.Time) ([]AgyConversation, []string, error) {
+// listConversations reads the conversation list from a copy in tmp: the
+// conversations ws keeps modified after since, without their text, and the
+// names of those under its root it left out. The copy is closed before it
+// returns.
+func listConversations(src, tmp string, ws *workspaces, since time.Time) ([]AgyConversation, []string, error) {
 	db, err := openCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
 		return nil, nil, err
@@ -139,7 +141,6 @@ func listConversations(src, tmp, root string, since time.Time) ([]AgyConversatio
 		db.Close()
 		return nil, nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
 	}
-	ws := newWorkspaces(root)
 	var out []AgyConversation
 	var leftOut []string
 	for rows.Next() {

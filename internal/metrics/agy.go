@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -49,7 +50,7 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 	}
 	defer os.RemoveAll(tmp)
 
-	convs, err := agyConversations(src, tmp)
+	convs, err := agyConversations(src, tmp, o.dreamWork())
 	if err != nil {
 		fail(filepath.Join(src, "conversation_summaries.db"), err)
 		return
@@ -67,7 +68,10 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 	}
 }
 
-func agyConversations(src, tmp string) ([]agyConv, error) {
+// agyConversations lists the conversations in src's summaries, without the
+// dream's own: one whose first workspace is in exclude is no project's
+// session and gets no ingest_state row (visible dream plan D5).
+func agyConversations(src, tmp string, exclude []string) ([]agyConv, error) {
 	db, err := search.OpenCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
 		return nil, err
@@ -93,6 +97,9 @@ func agyConversations(src, tmp string) ([]agyConv, error) {
 			c.modified = t.UnixMilli()
 		}
 		c.root = firstWorkspace(uris)
+		if c.root != "" && harness.InDreamWork(c.root, exclude) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
