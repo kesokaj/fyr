@@ -35,7 +35,7 @@ Do NOT suggest `/distill` for:
 
 ## Step 1: Identify Candidate Patterns
 
-First, when a dreamer's `retro` record was stored this session (a `/retro` ran), reuse it instead of dispatching again; otherwise dispatch the `dreamer` agent — `Project: <root>. Since: <the date of the newest retro record titled "Retro —", or all — never a dreamer or dream record>. Promoted: none.` plus "Write your draft with `write_to_file` under .agents/scratch/agents/; report only means no source edits." and a 30-call budget, with "write the draft early, then update it"; store its draft with `fyr record add retro --title "Dreamer — <project> (<date>)" < <path>` — and take its skill and procedure candidates (that record, the Candidates table) as the first entries of the candidate list, with their evidence and draft paths. Then read the session transcript and add only patterns the artifact does not already name (same name or same steps), so a pattern appears once. Look for:
+First, when a dreamer's `retro` record was stored this session (a `/retro` ran), reuse it instead of dispatching again; otherwise dispatch the `dreamer` agent exactly as the `retro` skill's Step 1 source 8 writes it out (its prompt, artifact sentence, budget and storing), with `Promoted: none.`, and dispatch it even when the project has no memory — and take its skill and procedure candidates (that record, the Candidates table) as the first entries of the candidate list, with their evidence and draft paths. Then read the session transcript and add only patterns the artifact does not already name (same name or same steps), so a pattern appears once. Look for:
 
 Under `--from-log`, also read the global `feedback` records (the `feedback-log` skill's; `fyr record list --global --kind feedback --project <root>`, or without `--project` under `--global`, each read with `fyr record get --global <ID>`): those whose `signal` is `gap` or whose `category` repeats three times or more are pattern evidence, quoted by ID in Step 2's draft. Without the flag they are not read.
 
@@ -98,7 +98,7 @@ Present the user with a clear recommendation:
 | Scope | When | Location |
 |---|---|---|
 | **Project-specific** (default) | Pattern is unique to this project | `.agents/skills/<name>/SKILL.md` (never a harness skill's name; see `fyr list`) |
-| **Global** (`--global`) | Pattern applies across all your projects | `<harness-repo>/skills/<name>/SKILL.md` |
+| **Global** (`--global`) | Pattern applies across all your projects | a global `proposal` record holding the draft, for `/retro --harness` (ADR-070); `skills/<name>/SKILL.md` only when run in the harness checkout itself |
 
 Use project-specific as the default. Only suggest global if:
 - The pattern doesn't reference any project-specific code, APIs, or conventions
@@ -114,7 +114,7 @@ Show the user:
 3. **Scope recommendation** — Project or global, with reasoning
 4. **Trigger evaluation** — 3-4 example prompts that should trigger the skill, and 2-3 that should not
 
-Ask: *"Here's a draft skill based on the pattern I observed. Want me to install it, or do you want to adjust it first?"*
+Ask: *"Here's a draft skill based on the pattern I observed. Want me to install it, or do you want to adjust it first?"* For a global skill from another project, ask instead whether to queue it for `/retro --harness`.
 
 ## Step 5: Install
 
@@ -128,17 +128,14 @@ mkdir -p .agents/skills/<name>
 ```
 
 ### Global skill
+From another project, never write the harness checkout (ADR-070): no `skills/<name>/`, no `fyr install`, no `fyr adopt`, no commit there. Queue the draft for `/retro --harness`:
 ```bash
-# Create in the harness repo (find it with `fyr status`), then deploy
-mkdir -p <harness-repo>/skills/<name>
-# Write SKILL.md
-fyr install               # deploys to Antigravity
-# then commit and push the harness repo
+# write the full SKILL.md to .agents/scratch/distill-<name>.md first: it is the proposal's body; it starts queued
+fyr record add proposal --global --project <absolute project path> --title "Distill — skill <name>" < .agents/scratch/distill-<name>.md
 ```
+Its ID goes in Step 6's records. In the harness checkout itself (`fyr status` first line names it and `test -f context/AGENTS.md` passes), write `skills/<name>/SKILL.md` there instead, under that repo's own rules (`fyr install`, its `AGENTS.md` Testing section, a `change` record, commit, push).
 
-If you drafted it project-locally first, `fyr adopt <name>` copies it from `.agents/skills/<name>` into the harness repo.
-
-After installation:
+After installation (a queued skill is not installed: say it waits for `/retro --harness` in the harness checkout, and skip these):
 - Verify the skill YAML frontmatter is valid
 - Confirm the description triggers correctly by mentally testing against the example prompts
 - Suggest the user try the skill in their next related task
@@ -147,14 +144,14 @@ After installation:
 
 **The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`). Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
 
-1. Store a `retro` record, `fyr record add retro --title "Distill — <name> (<date>)" < <draft in .agents/scratch/>` (a record is never overwritten), its body a `Session:` line (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
+1. Store a `retro` record, `fyr record add retro --title "Distill — <name> (<date>)" < <draft in .agents/scratch/>` (a record is never overwritten), its body a `Session:` line (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "queued as <PROPOSAL-ID>" / "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
 2. Store one global `retro` index record — the cross-project index the `retro` skill shares — `fyr record add retro --global --project <absolute project path> --title "Distill index — <name> (<date>)"`, its body this compact JSON with exactly one entry in `proposals`:
 
 ```json
 {"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"distill","record":"<the distill record's ID>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}
 ```
 
-`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, or `rejected`. If the global `fyr record add` is refused or denied, say so, print the command with its draft path for the user, and continue.
+`scope` is `project` or `harness` (a `--global` skill; `target` is then `skills/<name>/SKILL.md` in the harness checkout); `status` is `installed`, `proposed`, `queued (<PROPOSAL-ID>)` (a `--global` skill from another project), or `rejected`. If the global `fyr record add` is refused or denied, say so, print the command with its draft path for the user, and continue.
 The log stays the user's own words (the `feedback-log` skill): a distill never stores a `feedback` record; the global retro record above is its index entry.
 
 ## Cross-References
