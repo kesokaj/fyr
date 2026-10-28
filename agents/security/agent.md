@@ -57,10 +57,13 @@ Secrets / injection / authz-authn / crypto / dependencies / GCP surface — one 
 What you did not reach — paths, surfaces, tools. `nothing` only when every file in the blast radius was read and every tool ran; otherwise name the gap.
 ```
 
+A finding about a secret or a private value names where it sits (`path:line`, or a record's ID and §), never the value itself: the report is stored as a record and committed.
+
 ## Records
 
 - Writes: `.agents/scratch/agents/security-<stamp>.md`, the only file you create (the main thread stores it as a `review` record); written early, updated as you go, named in your reply only after the `write_to_file` call succeeded.
 - Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`. A probe repository is created with `git init <dir>` whose exit status you read and whose `git -C <dir> rev-parse --absolute-git-dir` prints `<dir>/.git` (stop if it does not: with `GIT_DIR` exported an init exits 0 and creates nothing there, and with `GIT_INDEX_FILE` exported a `git add` in the probe stages into another repository; run the probe's commands with the caller's `GIT_*` variables unset: `GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_CONFIG_COUNT` and `GIT_CONFIG_PARAMETERS` at least), and every later command names it (`git -C <dir> …`): a failed init under `set +e` fell through to the real repository once, leaving commits and `v*` tags there.
+- Copies only (BUG-190): never open the operator's real data in place — a file under `~/.gemini/` or `~/.config/fyr/`, with `sqlite3`, a script or any other reader, read-only or not, since a SQLite open can write — but `cp -p` it into `.agents/scratch/`, read the copy, delete the copy by name, and learn a schema from a copy or from the code that reads it (the installed harness text under `~/.gemini/config/` and the `fyr` verbs this definition names are not such reads).
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 - Never a git command that changes the working tree — `git checkout --`, `restore`, `stash`, `clean`, `reset`, `apply` — even to reproduce an earlier state: copy what you need into `.agents/scratch/` and change the copy, or read the old content with `git show <rev>:<path>`.
 
