@@ -166,13 +166,17 @@ var shapeSecrets = []string{
 	// tokens and Slack app-level tokens, bare, with no keyword on the line.
 	"dckr_pat_FAKEVALUE", "dckr_oat_FAKEVALUE", "FAKEVALUE.atlasv1.FAKEVALUEFAKEVALUE",
 	"xapp-1-FAKEVALUE", "xoxe.xapp-1-FAKEVALUE",
+	// Ledger item 46: Slack refresh and workflow tokens, bare.
+	"xoxe-1-FAKEVALUE", "xwfp-FAKEVALUE",
 }
 
 // TestVendorDocExamples: the redactor takes each vendor's own documented
 // example of the SD41 kinds, so a needle tightened past the documented shape
 // fails here (none of them carries FAKEVALUE, so they are not shapeSecrets).
 func TestVendorDocExamples(t *testing.T) {
-	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz"} {
+	for _, ex := range []string{"dckr_pat_124509ugsdjga93", "dckr_oat_7awgM4jG5SQvxcvmNzhKj8PQjxo", "xxxxxx.atlasv1.zzzzzzzzzzzzz",
+		// Slack's token rotation page; it gives no workflow token example.
+		"xoxe-1-Your-Refresh-Token"} {
 		if out := Redact("note: " + ex + "\n"); out != redactedValue+"\n" {
 			t.Errorf("%q: got %q, want the line redacted", ex, out)
 		}
@@ -279,6 +283,8 @@ func TestRedactShapes(t *testing.T) {
 		// SD41's kinds: the prefix with no token after it, the marker with no
 		// ID in front, and a word too short to be a token.
 		"the dckr_pat_ prefix", "a dckr_pat_short one", "the .atlasv1. marker", "abcdef.atlasv1.short", "xapp-level tokens",
+		// Ledger item 46's kinds, the dash missing.
+		"xoxe tokens rotate", "xwfp tokens expire",
 	} {
 		// "ASIAN" contains the ASIA prefix: accepted over-redaction, pinned
 		// here so a change to it is deliberate.

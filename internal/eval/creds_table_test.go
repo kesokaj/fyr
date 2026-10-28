@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 // Every content kind and every name and path pattern of the credential scan
@@ -39,6 +41,12 @@ func TestCredsEveryPattern(t *testing.T) {
 		}
 		if f, ok := got["miss.txt"]; ok {
 			t.Errorf("%s: near-miss %q counted: %+v", c.kind, c.miss, f)
+		}
+		// IN48: what the eval refuses to carry, the dream's redactor removes
+		// too. One direction only: a needle with no eval kind (Slack's, for
+		// one) is not pinned here.
+		if redact.Redact(c.hit) == c.hit {
+			t.Errorf("%s: hit %q passes redact.Redact unchanged", c.kind, c.hit)
 		}
 	}
 	if len(kinds) != 0 {

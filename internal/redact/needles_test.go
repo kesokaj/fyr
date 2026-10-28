@@ -17,6 +17,7 @@ var needleNearMiss = map[string]string{
 	"github_pat_": "github_pat tokens", "glpat-": "a glpat_ token", "gldt-": "gldt tokens", "glrt-": "glrt tokens", "glptt-": "glptt tokens",
 	"sk-ant-": "sk-ant keys", "sk-proj-": "sk-proj keys",
 	"xoxb-": "xoxb tokens", "xoxp-": "xoxp tokens", "xoxa-": "xoxa tokens", "xoxs-": "xoxs tokens",
+	"xoxe-": "xoxe tokens rotate", "xwfp-": "xwfp tokens expire",
 	"whsec_":                      "a whsec is a webhook secret",
 	"pypi-AgEIcHlwaS5vcmc":        "a pypi-AgEIcHlwaS5vcm prefix cut short",
 	"pypi-AgENdGVzdC5weXBpLm9yZw": "a pypi-AgENdGVzdC5weXBpLm9yZ prefix cut short",

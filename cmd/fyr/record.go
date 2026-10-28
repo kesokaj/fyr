@@ -176,6 +176,7 @@ func recordImport(c *ctx, o brain.Options, rest []string) error {
 	}
 	if err == nil {
 		printImport(c, res)
+		warnImportRedactable(res, c.dryRun)
 	}
 	return recordErr(c, err)
 }

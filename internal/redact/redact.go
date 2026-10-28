@@ -25,6 +25,12 @@ var prefixNeedles = []string{
 	"-----BEGIN", "PRIVATE KEY", "AKIA", "ASIA", "AIza", "ya29.", "GOCSPX-",
 	"ghp_", "gho_", "ghs_", "ghu_", "ghr_", "github_pat_", "glpat-", "gldt-", "glrt-", "glptt-",
 	"sk-ant-", "sk-proj-", "xoxb-", "xoxp-", "xoxa-", "xoxs-",
+	// Slack refresh tokens (`xoxe-1-…`, docs.slack.dev/authentication/
+	// using-token-rotation; a rotated access token, `xoxe.xoxb-`, carries its
+	// own prefix after the dot) and workflow tokens (`xwfp-`, docs.slack.dev/
+	// authentication/tokens). `xoxc-` and `xoxd-`, the browser session
+	// token and cookie, are not added: Slack documents neither (ledger item 46).
+	"xoxe-", "xwfp-",
 	// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3;
 	// every PyPI token opens with the base64 of its macaroon location); the
 	// Stripe keys are a keyword needle below, because `sk_test_` sits inside

@@ -18,6 +18,10 @@ type Imported struct {
 	rec                    Record
 }
 
+// Text is the title and body the import stores, for the caller's redactor
+// warning (ledger item 47); brain itself never judges text.
+func (i Imported) Text() (title, body string) { return i.rec.Title, i.rec.Body }
+
 // ImportResult is what an import did: the records, the source files to
 // remove by name (D13: the import removes nothing itself), and what it read
 // but could not take.
