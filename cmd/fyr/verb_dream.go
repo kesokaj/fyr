@@ -13,19 +13,23 @@ import (
 // runDream needs no harness tree (R3's exception).
 func runDream(c *ctx) error {
 	var err error
+	// Every usage error goes through usageErr, as every other verb's does:
+	// its reason, dream's synopsis and the hint, exit 2 on the caller's writer
+	// (IN12, IN13; ledger item 86). All four are refused before anything is
+	// locked, logged or read.
 	switch {
 	case c.installTimer && c.removeTimer:
-		// A usage error exits 2 like every other dream usage error, and says
-		// why on the caller's writer (IN12, IN13).
-		fmt.Fprintln(c.out, "fyr dream: --install-timer or --remove-timer, not both")
-		return exitCode(2)
+		return usageErr(c.out, "dream", "fyr dream: --install-timer or --remove-timer, not both")
 	case (c.installTimer || c.removeTimer) && (c.dreamAll || c.dreamProject != ""):
 		// The timer always dreams --all over its home; a scope given with it
 		// was silently ignored (SD33 of the 2026-10-27 audit, plan D18).
-		fmt.Fprintln(c.out, "fyr dream: --install-timer and --remove-timer take no --all or --project")
-		return exitCode(2)
+		return usageErr(c.out, "dream", "fyr dream: --install-timer and --remove-timer take no --all or --project")
 	case c.installTimer || c.removeTimer:
 		err = c.dreamTimer()
+	case c.dreamAll && c.dreamProject != "":
+		return usageErr(c.out, "dream", "fyr dream: --all or --project <dir>, not both")
+	case !c.dreamAll && c.dreamProject == "":
+		return usageErr(c.out, "dream", "")
 	default:
 		err = dream.Run(dream.Options{Home: c.home, All: c.dreamAll, Project: c.dreamProject, DryRun: c.dryRun, Out: c.out})
 	}

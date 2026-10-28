@@ -54,6 +54,7 @@ type verb struct {
 	flags      func(c *ctx) // registers the verb's own flags; nil for none
 	source     bool         // resolve the harness source before run
 	positional bool         // takes positional arguments (search words, adopt's name, memory's subverb); every other verb refuses a stray one
+	readsRepo  bool         // reads --repo itself without source (eval resolves its install source after its own refusals)
 	run        func(c *ctx) error
 }
 

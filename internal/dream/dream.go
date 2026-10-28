@@ -70,7 +70,10 @@ type Collected struct {
 // firstLook is how far back a project's first dream reads.
 const firstLook = 14 * 24 * time.Hour
 
-// Run is `fyr dream`.
+// Run is `fyr dream`. Exactly one of All and Project is set: cmd/fyr refuses
+// any other command line as a usage error, with dream's synopsis, before Run
+// is called (ledger item 86); the guard below only keeps another caller from
+// a run that would lock, log or write first.
 func Run(o Options) error {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -99,12 +102,8 @@ func Run(o Options) error {
 		bh := o.brainHome
 		o.Active = func(home string, p search.Project, now time.Time) string { return activityIn(home, bh, p, now) }
 	}
-	// A usage mistake is refused before anything is locked, logged or read.
-	switch {
-	case o.All && o.Project != "":
-		return &ExitError{2, "fyr dream: --all or --project <dir>, not both"}
-	case !o.All && o.Project == "":
-		return &ExitError{2, "usage: fyr dream --all | --project <dir> [--dry-run] | --install-timer | --remove-timer"}
+	if o.All == (o.Project != "") {
+		return &ExitError{2, "fyr dream: exactly one of --all and --project"}
 	}
 	if !o.DryRun {
 		return o.realRun()
@@ -155,7 +154,7 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
 		}
 	}
-	if convs, err := search.AgyConversationText(home, p.Root, cut); err == nil && len(convs) > 0 {
+	if convs, _, err := search.AgyConversationText(home, p.Root, cut); err == nil && len(convs) > 0 {
 		return "an Antigravity session at " + convs[0].Modified.UTC().Format(time.RFC3339)
 	}
 	return ""

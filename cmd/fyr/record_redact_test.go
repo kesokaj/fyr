@@ -60,6 +60,17 @@ func TestRecordRedactorWarning(t *testing.T) {
 	step("edit --title with a token", "", titleWarn, "record", "edit", "BUG-002", "--title", "now "+token)
 	step("edit --title clean", "", "", "record", "edit", "BUG-002", "--title", "clean")
 
+	// An ID given with --id is judged too (ledger D31 3b): the warning never
+	// repeats it, while stdout prints it as add's output; a generated ID is
+	// never judged.
+	const idWarn = "fyr record: warning: the ID holds text the redactor would change; stored as written\n"
+	const hotID = "SPEC-dckr_pat_fakevaluefakevalue"
+	errOut.Reset()
+	if out, err := recordCmd(t, "clean\n", "record", "add", "spec", "--title", "w", "--id", hotID, "--home", home); exitOf(err) != 0 || out != hotID+"\n" || errOut.String() != idWarn {
+		t.Errorf("add --id with a token: exit %d, out %q, stderr %q; want 0, the ID, and %q", exitOf(err), out, errOut.String(), idWarn)
+	}
+	step("add --id clean", "clean\n", "", "record", "add", "spec", "--title", "w", "--id", "SPEC-fyr-clean")
+
 	// A refused body carrying the token prints nothing on stderr: the warning
 	// follows the store, never the read.
 	for _, args := range [][]string{{"record", "add", "bug", "--title", "v"}, {"record", "edit", "BUG-002", "--body"}} {

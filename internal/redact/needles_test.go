@@ -55,3 +55,43 @@ func TestEveryNeedleHasAShapeAndANearMiss(t *testing.T) {
 		}
 	}
 }
+
+// needlesIn names every needle, prefix or keyword, that fires on s; needleIn
+// stops at the first.
+func needlesIn(s string) []string {
+	var hit []string
+	for _, n := range prefixNeedles {
+		if strings.Contains(s, n) {
+			hit = append(hit, n)
+		}
+	}
+	for _, k := range keywordNeedles {
+		for _, m := range k.re.FindAllStringSubmatch(s, -1) {
+			if k.accept == nil || k.accept(m) {
+				hit = append(hit, k.pattern)
+				break
+			}
+		}
+	}
+	return hit
+}
+
+// TestEveryKeywordNeedleBinds: every keyword needle has a shapeSecrets row
+// that no other needle catches, so deleting any one of them fails
+// TestRedactShapes (ledger D33 1; the Phase 7a security review's finding 2:
+// `jwt short` caught every `jwt` row, and the `jwt` rule could be deleted
+// with the suite green).
+func TestEveryKeywordNeedleBinds(t *testing.T) {
+	for _, k := range keywordNeedles {
+		bound := false
+		for _, s := range shapeSecrets {
+			if hit := needlesIn(s); len(hit) == 1 && hit[0] == k.pattern {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			t.Errorf("keyword needle %q has no shapeSecrets row only it catches", k.pattern)
+		}
+	}
+}

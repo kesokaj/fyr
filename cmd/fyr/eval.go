@@ -36,7 +36,7 @@ func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
 		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide) and run nothing")
-	}, positional: true, run: runEval}
+	}, positional: true, readsRepo: true, run: runEval}
 }
 
 // runEval serves `fyr eval` (spec SPEC-fyr-eval, ADR-065). Every refusal
@@ -260,6 +260,9 @@ func ingestRow(home string, r eval.Result) error {
 	if r.Verdict != "PASS" {
 		outcome = "fail"
 	}
+	// An unregistered clone still has its sessions ingested, without record
+	// events; the refusal is said after the ingest, as a failed ingest.
+	regErr := registerClone(home, r.Dir, eval.ProcsChecked)
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
 		return err
@@ -272,6 +275,9 @@ func ingestRow(home string, r eval.Result) error {
 	}
 	if len(res.Failed) > 0 {
 		return fmt.Errorf("%s failed: %s", strings.Join(res.Failed, ", "), strings.TrimSpace(log.String()))
+	}
+	if regErr != nil {
+		return fmt.Errorf("the clone was not registered, so its sessions have no record events: %w", regErr)
 	}
 	return nil
 }

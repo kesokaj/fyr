@@ -139,3 +139,40 @@ func TestKnownCheckoutRefusesEmbeddedManifest(t *testing.T) {
 		t.Errorf("knownCheckout with --repo: %v", err)
 	}
 }
+
+// TestRepoFlagWarnsOnVerbWithoutSource pins IN36 of the 2026-10-27 audit:
+// every FlagSet accepts --repo, and a verb that never reads it says so on
+// stderr and still runs with its exit status unchanged; a verb that reads it
+// stays quiet. The table is the set of verbs that ignore it, so a verb added
+// without source fails here until it is placed.
+func TestRepoFlagWarnsOnVerbWithoutSource(t *testing.T) {
+	want := map[string]bool{"version": true, "uninstall": true, "memory": true, "dream": true,
+		"metrics": true, "record": true, "search": true, "index": true, "check": true}
+	for name, v := range verbs {
+		if ignores := !v.source && !v.readsRepo; ignores != want[name] {
+			t.Errorf("%s: ignores --repo = %v, want %v", name, ignores, want[name])
+		}
+	}
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		args []string
+		warn string
+	}{
+		{[]string{"version", "--repo", repo}, "fyr: warning: --repo is ignored by version\n"},
+		{[]string{"uninstall", "--dry-run", "--repo", repo, "--home", t.TempDir()}, "fyr: warning: --repo is ignored by uninstall\n"},
+		{[]string{"list", "--repo", repo, "--home", t.TempDir()}, ""},
+		{[]string{"version"}, ""},
+	}
+	for _, tc := range cases {
+		var o, e bytes.Buffer
+		stderr = &e
+		err := run(tc.args, &o)
+		stderr = os.Stderr
+		if exitOf(err) != 0 || e.String() != tc.warn {
+			t.Errorf("%q: exit %d, stderr %q, want exit 0 and %q (out %q)", tc.args, exitOf(err), e.String(), tc.warn, o.String())
+		}
+	}
+}

@@ -33,7 +33,8 @@ import (
 )
 
 // stderr is where a read-only verb names the state directory from before the
-// rename, and where `record add` and `record edit` print the redactor
+// rename, where a verb that does not read --repo says it ignored it, and
+// where `record add` and `record edit` print the redactor
 // warning: their stdout is data (render, list, metrics show --json, a new
 // record's ID); a test replaces it.
 var stderr io.Writer = os.Stderr

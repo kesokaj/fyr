@@ -22,7 +22,14 @@ import (
 // one moment: a concurrent writer in the checkout can change a file between
 // the os.Root Lstat and git's read of it, which static repository content
 // cannot do (accepted, security review of the fix).
+//
+// root must be the checkout's top level: the HEAD listing is full-tree while
+// the os.Root reads relative to root, so a subdirectory would read every
+// file as deleted (ledger item 57).
 func Dirty(root string) (bool, error) {
+	if err := isTopLevel(root); err != nil {
+		return false, err
+	}
 	if !Readable(root) {
 		return false, errPartialClone
 	}
@@ -175,4 +182,27 @@ func hashesDiffer(root string, paths, blobs []string) (map[string]bool, error) {
 		}
 	}
 	return out, nil
+}
+
+// isTopLevel refuses a root that is not its checkout's top level, comparing
+// both paths with their links resolved, as git reports the top level.
+func isTopLevel(root string) error {
+	_, top, err := Roots(root)
+	if err != nil {
+		return err
+	}
+	real, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	if r, err := filepath.EvalSymlinks(real); err == nil {
+		real = r
+	}
+	if t, err := filepath.EvalSymlinks(top); err == nil {
+		top = t
+	}
+	if real != top {
+		return fmt.Errorf("trail: Dirty: %s is not the checkout's top level", root)
+	}
+	return nil
 }

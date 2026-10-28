@@ -7,7 +7,6 @@ package search
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -84,23 +83,25 @@ func ListProjects(home string) ([]Project, error) {
 const agyTimeLayout = "2006-01-02 15:04:05.999999999-07:00"
 
 // AgyConversationText returns the text of every Antigravity conversation
-// whose workspace is root or under it and that was modified after since. The
+// that is root's own (workspaces.judge: every workspace under root, in root's
+// checkout, not a nested one) and that was modified after since, and names
+// each conversation under root that was left out ("<id> (<why>)"). The
 // databases are copied first and the copies opened, never the live files
 // Antigravity may be writing (D24, D27); the copies are removed after.
-func AgyConversationText(home, root string, since time.Time) ([]AgyConversation, error) {
+func AgyConversationText(home, root string, since time.Time) ([]AgyConversation, []string, error) {
 	src := filepath.Join(home, ".gemini", "antigravity-cli")
 	if _, err := os.Stat(filepath.Join(src, "conversation_summaries.db")); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	conf := filepath.Join(home, harness.StateDir)
 	_, statErr := os.Stat(conf)
 	created := errors.Is(statErr, os.ErrNotExist)
 	if err := os.MkdirAll(conf, 0o700); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tmp, err := os.MkdirTemp(conf, "dream-agy-")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The copies go first, then the directory, and only when this call made
 	// it: one deferred function, so the order cannot be inverted.
@@ -111,51 +112,59 @@ func AgyConversationText(home, root string, since time.Time) ([]AgyConversation,
 		}
 	}()
 
-	out, err := listConversations(src, tmp, root, since)
+	out, leftOut, err := listConversations(src, tmp, root, since)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for i := range out {
 		text, err := conversationText(src, out[i].ID, tmp)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out[i].Text = text
 	}
-	return out, nil
+	return out, leftOut, nil
 }
 
-// listConversations reads the conversation list from a copy in tmp: the
-// conversations of root or under it modified after since, without their
-// text. The copy is closed before it returns.
-func listConversations(src, tmp, root string, since time.Time) ([]AgyConversation, error) {
+// listConversations reads the conversation list from a copy in tmp: root's
+// own conversations modified after since, without their text, and the names
+// of those under root it left out. The copy is closed before it returns.
+func listConversations(src, tmp, root string, since time.Time) ([]AgyConversation, []string, error) {
 	db, err := openCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rows, err := db.Query(`SELECT conversation_id, last_modified_time, workspace_uris FROM conversation_summaries`)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
+		return nil, nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
 	}
+	ws := newWorkspaces(root)
 	var out []AgyConversation
+	var leftOut []string
 	for rows.Next() {
 		var id, uris string
 		var modified any
 		if err := rows.Scan(&id, &modified, &uris); err != nil {
 			rows.Close()
 			db.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		t, ok := agyTime(modified)
-		if !ok || !t.After(since) || !inWorkspace(uris, root) {
+		if !ok || !t.After(since) {
+			continue
+		}
+		if keep, why := ws.judge(uris); !keep {
+			if why != "" {
+				leftOut = append(leftOut, Printable(id)+" ("+why+")")
+			}
 			continue
 		}
 		out = append(out, AgyConversation{ID: id, Modified: t})
 	}
 	rows.Close()
 	db.Close()
-	return out, nil
+	return out, leftOut, nil
 }
 
 // agyTime reads last_modified_time: the driver returns a datetime column as
@@ -175,27 +184,6 @@ func agyTime(v any) (time.Time, bool) {
 		return agyTime(string(t))
 	}
 	return time.Time{}, false
-}
-
-// inWorkspace reports whether one of the conversation's workspace URIs is
-// root or a directory under it.
-func inWorkspace(uris, root string) bool {
-	var list []string
-	if json.Unmarshal([]byte(uris), &list) != nil {
-		return false
-	}
-	root = filepath.Clean(root)
-	for _, u := range list {
-		p, err := url.Parse(u)
-		if err != nil || p.Scheme != "file" {
-			continue
-		}
-		w := filepath.Clean(p.Path)
-		if w == root || strings.HasPrefix(w, root+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
 }
 
 // conversationText is the prose of one conversation's steps, in step order,

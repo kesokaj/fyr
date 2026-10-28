@@ -57,7 +57,7 @@ func TestAgyConversationListErrors(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
 			c.setup(t, home)
-			got, err := AgyConversationText(home, "/p/one", time.Time{})
+			got, _, err := AgyConversationText(home, "/p/one", time.Time{})
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("AgyConversationText: %v, %d conversations; want %q", err, len(got), c.want)
 			}

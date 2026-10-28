@@ -94,12 +94,17 @@ func (c *Collected) finish(home string, p search.Project, since, now time.Time, 
 	// An Antigravity read error fails the project, so its watermark stays and
 	// the conversations are read again next time, never skipped for good
 	// (code review 2026-09-30).
-	agy, err := search.AgyConversationText(home, p.Root, since)
+	agy, leftOut, err := search.AgyConversationText(home, p.Root, since)
 	if err != nil {
 		return *c, fmt.Errorf("reading Antigravity's conversations: %w", err)
 	}
 	for _, a := range agy {
 		add(kindTranscript, "antigravity "+a.ID, a.Text, a.Modified)
+	}
+	// A conversation under the root that is not the project's own, a nested
+	// checkout's above all, is named and never sent (ledger item 77).
+	for _, l := range leftOut {
+		c.Dropped = append(c.Dropped, kindTranscript+" antigravity "+l)
 	}
 
 	// Labels too: a trail file's name is project text and can hold a

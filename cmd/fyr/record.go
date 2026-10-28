@@ -103,13 +103,13 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 }
 
 // recordAdd serves `record add`: the new record's ID, and the redactor
-// warning when the stored title or body would trip it.
+// warning when the given ID, the stored title or the body would trip it.
 func recordAdd(c *ctx, o brain.Options, kind string) error {
 	var seen strings.Builder
 	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: teeBody(&seen)})
 	if err == nil {
 		fmt.Fprintln(c.out, id)
-		warnRedactable(c.recTitle, seen.String())
+		warnRedactable(c.recID, c.recTitle, seen.String())
 	}
 	return recordErr(c, err)
 }
@@ -155,7 +155,7 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 		if in.Title != nil {
 			title = *in.Title
 		}
-		warnRedactable(title, seen.String())
+		warnRedactable("", title, seen.String())
 	}
 	return recordErr(c, err)
 }

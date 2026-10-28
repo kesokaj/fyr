@@ -20,6 +20,12 @@ import (
 // on the same home it adds another conversation beside the first.
 func agyHome(t *testing.T, home, id string) {
 	t.Helper()
+	agyHomeIn(t, home, id, "/p")
+}
+
+// agyHomeIn is agyHome with the conversation's workspace at ws.
+func agyHomeIn(t *testing.T, home, id, ws string) {
+	t.Helper()
 	pb := func(n int, b []byte) []byte {
 		out := binary.AppendUvarint(nil, uint64(n<<3|2))
 		return append(binary.AppendUvarint(out, uint64(len(b))), b...)
@@ -43,7 +49,7 @@ func agyHome(t *testing.T, home, id string) {
 	}
 	exec(filepath.Join(dir, "conversation_summaries.db"),
 		"CREATE TABLE IF NOT EXISTS conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
-		`INSERT INTO conversation_summaries(conversation_id, last_modified_time, workspace_uris) VALUES ('`+id+`', '2026-10-08 10:05:00+00:00', '["file:///p"]')`).Close()
+		`INSERT INTO conversation_summaries(conversation_id, last_modified_time, workspace_uris) VALUES ('`+id+`', '2026-10-08 10:05:00+00:00', '["file://`+ws+`"]')`).Close()
 	db := exec(filepath.Join(dir, "conversations", id+".db"),
 		"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
 		"CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0)")

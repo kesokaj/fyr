@@ -13,14 +13,19 @@ import (
 // seen, so the warning judges exactly the body that was offered.
 func teeBody(seen *strings.Builder) io.Reader { return io.TeeReader(stdin, seen) }
 
-// warnRedactable names on stderr, after the store, a title or body that holds
-// text the redactor would change: a project's records are exported to the
-// committed trail.jsonl, and the operator chose a warning over a refusal (SD42
-// of the 2026-10-27 audit). The record stays stored and the exit status is
-// kept. The text itself is never printed: for the body, only its first line,
-// as read from stdin, where the redacted body differs. A field that was not
-// set is passed as "" and never warns.
-func warnRedactable(title, body string) {
+// warnRedactable names on stderr, after the store, an ID given with --id, a
+// title or a body that holds text the redactor would change: a project's
+// records are exported to the committed trail.jsonl, and the operator chose a
+// warning over a refusal (SD42 of the 2026-10-27 audit; the ID, ledger D31
+// 3b). The record stays stored and the exit status is kept. The text itself
+// is never printed, the ID's neither (stdout still prints it, as add's
+// output): for the body, only its first line, as read from stdin, where the
+// redacted body differs. A field that was not set is passed as "" and never
+// warns.
+func warnRedactable(id, title, body string) {
+	if redact.Redact(id) != id {
+		fmt.Fprintln(stderr, "fyr record: warning: the ID holds text the redactor would change; stored as written")
+	}
 	if redact.Redact(title) != title {
 		fmt.Fprintln(stderr, "fyr record: warning: the title holds text the redactor would change; stored as written")
 	}

@@ -48,15 +48,15 @@ func TestCopyFileRefusesNonRegular(t *testing.T) {
 // One conversation whose database is a FIFO is skipped; the others are read
 // and the project's dream does not fail (plan 2026-10-27-harness-audit-fix D8).
 func TestAgyConversationTextSkipsAFIFO(t *testing.T) {
-	home := t.TempDir()
+	home, root := t.TempDir(), newRepo(t)
 	type conv = struct {
 		workspace string
 		modified  string
 		payloads  [][]byte
 	}
 	agyFixture(t, home, map[string]conv{
-		"good": {"/p/one", "2026-09-30 16:14:07.567153506+00:00", [][]byte{blob("a prompt that stays readable here")}},
-		"bad":  {"/p/one", "2026-09-30 16:00:00.000000000+00:00", [][]byte{blob("this one becomes a pipe")}},
+		"good": {root, "2026-09-30 16:14:07.567153506+00:00", [][]byte{blob("a prompt that stays readable here")}},
+		"bad":  {root, "2026-09-30 16:00:00.000000000+00:00", [][]byte{blob("this one becomes a pipe")}},
 	})
 	db := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "bad.db")
 	os.Remove(db)
@@ -67,7 +67,7 @@ func TestAgyConversationTextSkipsAFIFO(t *testing.T) {
 	var got []AgyConversation
 	var err error
 	go func() {
-		got, err = AgyConversationText(home, "/p/one", time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
+		got, _, err = AgyConversationText(home, root, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC))
 		close(done)
 	}()
 	select {

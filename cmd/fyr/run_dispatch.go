@@ -40,6 +40,7 @@ func run(args []string, out io.Writer) error {
 	if stop, err := c.parse(v, rest); stop {
 		return err
 	}
+	c.warnIgnoredRepo(v)
 	if err := c.resolveHome(); err != nil {
 		return err
 	}
@@ -81,6 +82,16 @@ func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
 		return true, usageErr(c.out, c.cmd, fmt.Sprintf("%s takes no arguments: %q", c.cmd, c.fs.Args()))
 	}
 	return false, nil
+}
+
+// warnIgnoredRepo says on stderr that --repo was ignored: every FlagSet
+// accepts it, and only the verbs that resolve the harness tree read it. Said,
+// never silently dropped, and the verb still runs (IN36 of the 2026-10-27
+// audit).
+func (c *ctx) warnIgnoredRepo(v verb) {
+	if c.repoFlag != "" && !v.source && !v.readsRepo {
+		fmt.Fprintf(stderr, "fyr: warning: --repo is ignored by %s\n", c.cmd)
+	}
 }
 
 // resolveHome sets c.home: --home, else the user's home, made absolute.
@@ -136,7 +147,9 @@ func (c *ctx) updateFromZipFlag() (zip bool, err error) {
 
 // writesState reports whether this invocation may write under the state
 // directory, and so moves the old one first (plan fyr D13). A dry run, a
-// --check and a verb or subcommand that only reads answer false. The table is
+// --check and a verb or subcommand that only reads answer false, except
+// record: every record verb but a dry-run import answers true, get and list
+// included, because a read loads a changed trail.jsonl. The table is
 // by verb, so it errs early on purpose: adopt (which writes into the repo), a
 // project-local search or index (which writes .agents/scratch/search.db) and
 // dream --install-timer or --remove-timer write nothing there, yet migrate

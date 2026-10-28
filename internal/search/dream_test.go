@@ -129,14 +129,14 @@ func blob(parts ...string) []byte {
 }
 
 func TestAgyConversationText(t *testing.T) {
-	home := t.TempDir()
+	home, root := t.TempDir(), newRepo(t)
 	type conv = struct {
 		workspace string
 		modified  string
 		payloads  [][]byte
 	}
 	agyFixture(t, home, map[string]conv{
-		"new-here": {"/p/one", "2026-09-30 16:14:07.567153506+00:00", [][]byte{
+		"new-here": {root, "2026-09-30 16:14:07.567153506+00:00", [][]byte{
 			blob("b$7863135a-0a35-4648-9cef-f196af3f2197", "Remember that we deploy on Fridays please."),
 			blob("Remember that we deploy on Fridays please.", "Saved: deploys happen on Fridays, noted for later."),
 			blob("TOOL OUTPUT: the contents of a private file read by a tool"),
@@ -146,12 +146,12 @@ func TestAgyConversationText(t *testing.T) {
 			// (code review of the release range).
 			blob(`{"AbsolutePath":"/p/one/secret.env","toolAction":"Reading a file"}`, `{"Action":"list","Query":"find all the tokens here"}`),
 		}},
-		"old-here":  {"/p/one", "2026-09-01 10:00:00.000000000+00:00", [][]byte{blob("this is an old conversation text")}},
+		"old-here":  {root, "2026-09-01 10:00:00.000000000+00:00", [][]byte{blob("this is an old conversation text")}},
 		"new-other": {"/p/two", "2026-09-30 16:00:00.000000000+00:00", [][]byte{blob("another project entirely, not ours")}},
-		"new-under": {"/p/one/sub", "2026-09-30 15:00:00.000000000+00:00", [][]byte{blob("started in a subdirectory of the root")}},
+		"new-under": {filepath.Join(root, "sub"), "2026-09-30 15:00:00.000000000+00:00", [][]byte{blob("started in a subdirectory of the root")}},
 	})
 	since := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
-	got, err := AgyConversationText(home, "/p/one", since)
+	got, leftOut, err := AgyConversationText(home, root, since)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +161,9 @@ func TestAgyConversationText(t *testing.T) {
 	}
 	if len(ids) != 2 || ids["new-here"] == "" || ids["new-under"] == "" {
 		t.Fatalf("conversations %v, want new-here and new-under only", ids)
+	}
+	if len(leftOut) != 0 {
+		t.Errorf("left out %q, want none: /p/two is another project's, never named", leftOut)
 	}
 	text := ids["new-here"]
 	if !strings.Contains(text, "Remember that we deploy on Fridays please.") || !strings.Contains(text, "Saved: deploys happen on Fridays") {
@@ -188,7 +191,7 @@ func TestAgyConversationText(t *testing.T) {
 }
 
 func TestAgyConversationTextNoAntigravity(t *testing.T) {
-	got, err := AgyConversationText(t.TempDir(), "/p/one", time.Time{})
+	got, _, err := AgyConversationText(t.TempDir(), "/p/one", time.Time{})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("got %v, %v; want none, nil", got, err)
 	}
@@ -211,21 +214,6 @@ func TestAgyTime(t *testing.T) {
 	for _, v := range []any{"yesterday", 42, nil, time.Time{}, "0001-01-01 00:00:00+00:00", "1969-12-31T23:59:59Z"} {
 		if _, ok := agyTime(v); ok {
 			t.Errorf("%v parsed", v)
-		}
-	}
-}
-
-func TestInWorkspace(t *testing.T) {
-	for uris, want := range map[string]bool{
-		`["file:///p/one"]`:             true,
-		`["file:///p/one/sub"]`:         true,
-		`["file:///p/one-other"]`:       false,
-		`["https:///p/one"]`:            false,
-		`not json`:                      false,
-		`["file:///x","file:///p/one"]`: true,
-	} {
-		if got := inWorkspace(uris, "/p/one"); got != want {
-			t.Errorf("%s: %v, want %v", uris, got, want)
 		}
 	}
 }

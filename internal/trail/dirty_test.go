@@ -194,3 +194,26 @@ func TestCommandIgnoresRepositoryVariables(t *testing.T) {
 		t.Errorf("git dir %s, want %s", got, want)
 	}
 }
+
+// Dirty refuses a root that is not the checkout's top level, rather than
+// reading every file as deleted and answering dirty for a clean tree (ledger
+// item 57; cmd/fyr's eval passes a resolved source directory).
+func TestDirtyRefusesSubdir(t *testing.T) {
+	root, _ := cleanRepo(t)
+	if dirty, err := Dirty(root); err != nil || dirty {
+		t.Fatalf("the clean fixture at its top level: dirty %v, err %v", dirty, err)
+	}
+	sub := filepath.Join(root, "dir")
+	dirty, err := Dirty(sub)
+	if err == nil || !strings.Contains(err.Error(), "trail: Dirty: "+sub+" is not the checkout's top level") {
+		t.Errorf("Dirty(%s): dirty %v, err %v; want the top-level refusal", sub, dirty, err)
+	}
+	// Through a link to the top level, the same checkout is accepted.
+	link := filepath.Join(t.TempDir(), "via")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	if dirty, err := Dirty(link); err != nil || dirty {
+		t.Errorf("Dirty through a link to the top level: dirty %v, err %v", dirty, err)
+	}
+}

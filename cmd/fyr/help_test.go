@@ -206,6 +206,10 @@ func TestUsageErrSites(t *testing.T) {
 		"bare metrics":           {[]string{"metrics"}, "metrics", ""},
 		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, export)`},
 		"sync with a stray word": {[]string{"sync", "x", "--repo", "../.."}, "sync", `sync takes no arguments: ["x"]`},
+		"dream both timers":      {[]string{"dream", "--install-timer", "--remove-timer"}, "dream", "fyr dream: --install-timer or --remove-timer, not both"},
+		"dream timer and scope":  {[]string{"dream", "--remove-timer", "--project", "x"}, "dream", "fyr dream: --install-timer and --remove-timer take no --all or --project"},
+		"dream all and project":  {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
+		"bare dream":             {[]string{"dream"}, "dream", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, code := helpRun(t, append(tc.args, "--home", home)...)

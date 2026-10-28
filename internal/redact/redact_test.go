@@ -159,6 +159,11 @@ var shapeSecrets = []string{
 	// SD41 of the 2026-10-27 audit: Docker access tokens and HCP Terraform
 	// API tokens, bare, with no keyword on the line.
 	"dckr_pat_FAKEVALUE", "dckr_oat_FAKEVALUE", "FAKEVALUE.atlasv1.FAKEVALUEFAKEVALUE",
+	// Ledger D33 1, a row each needle alone catches (TestEveryKeywordNeedleBinds):
+	// a bearer token with no Authorization name on the line, as a client log
+	// prints it, and an unsigned JWT (alg none), whose empty signature
+	// `jwt short` does not match.
+	"Bearer FAKEVALUE", "eyJhbGciOiJub25lIn0.eyJFAKEVALUEx.",
 }
 
 // TestVendorDocExamples: the redactor takes each vendor's own documented
