@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -159,8 +160,18 @@ func oracle(argv0, name, work string, env []string) (json.RawMessage, error) {
 	return data, nil
 }
 
+// envelopeKeys and commandKeys are the keys of agy 1.4.9's report around
+// the data, at each level (plan D24): a key added at any level is a report fyr has not seen
+// and fails closed, as configKeys does inside /config (security review of
+// Phase 5, finding 2).
+var (
+	envelopeKeys = []string{"command", "conversation_id", "duration_seconds", "num_turns", "response", "status", "usage"}
+	commandKeys  = []string{"data", "name"}
+)
+
 // oracleData is the data of a report that is exactly one JSON object with
-// status SUCCESS and the command asked for.
+// status SUCCESS and the command asked for, each level holding only the
+// keys agy 1.4.9 reported and the data only the key named for the command.
 func oracleData(out []byte, name string) (json.RawMessage, error) {
 	var r struct {
 		Status  string `json:"status"`
@@ -179,7 +190,31 @@ func oracleData(out []byte, name string) (json.RawMessage, error) {
 	if r.Status != "SUCCESS" || r.Command == nil || r.Command.Name != name || len(r.Command.Data) == 0 || string(r.Command.Data) == "null" {
 		return nil, fmt.Errorf("report of an unknown shape (status %q)", r.Status)
 	}
+	env, err := onlyKeys(out, envelopeKeys)
+	if err == nil {
+		var cmd map[string]json.RawMessage
+		if cmd, err = onlyKeys(env["command"], commandKeys); err == nil {
+			_, err = onlyKeys(cmd["data"], []string{name})
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
 	return r.Command.Data, nil
+}
+
+// onlyKeys is raw's object, or why it holds a key outside allowed.
+func onlyKeys(raw json.RawMessage, allowed []string) (map[string]json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, errors.New("report of an unknown shape: " + err.Error())
+	}
+	for _, k := range sortedKeys(m) {
+		if !slices.Contains(allowed, k) {
+			return nil, fmt.Errorf("report of an unknown shape (key %q)", k)
+		}
+	}
+	return m, nil
 }
 
 // permissionsGrant says which rule /permissions reports that grants a

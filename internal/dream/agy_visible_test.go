@@ -189,11 +189,23 @@ func TestVisibleHomeShapes(t *testing.T) {
 		{"hooks of another shape", "the oracle /hooks: report of an unknown shape", func(h string) {
 			hooks(h, report("hooks", `{"hooks":null}`))
 		}},
-		{"hooks key added", "the oracle /hooks: report of an unknown shape", func(h string) {
+		{"hooks key added", `the oracle /hooks: report of an unknown shape (key "plugins")`, func(h string) {
 			hooks(h, report("hooks", `{"hooks":[],"plugins":[]}`))
 		}},
 		{"hooks not reported", "the oracle /hooks: output is not a report: EOF", func(h string) {
 			hooks(h, "")
+		}},
+		{"envelope key added", `the oracle /permissions: report of an unknown shape (key "grants")`, func(h string) {
+			perms(h, `{"status":"SUCCESS","grants":["command(ls)"],"command":{"name":"permissions","data":{"permissions":[{"scope":"global"}]}}}`)
+		}},
+		{"command key added", `the oracle /config: report of an unknown shape (key "session")`, func(h string) {
+			cfg(h, strings.Replace(configReport(t, nil), `"command":{`, `"command":{"session":{"allow":["command(ls)"]},`, 1))
+		}},
+		{"permissions data key added", `the oracle /permissions: report of an unknown shape (key "session")`, func(h string) {
+			perms(h, report("permissions", `{"permissions":[{"scope":"global"}],"session":[{"allow":["command(ls)"]}]}`))
+		}},
+		{"config data key added", `the oracle /config: report of an unknown shape (key "overrides")`, func(h string) {
+			cfg(h, strings.Replace(configReport(t, nil), `"data":{`, `"data":{"overrides":{"toolPermission":"always-proceed"},`, 1))
 		}},
 		{"exit 1", "the oracle /permissions: exit status 1", func(h string) {
 			write(t, filepath.Join(h, "oracle", "mode"), "exit1", fresh)

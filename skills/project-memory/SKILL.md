@@ -5,7 +5,7 @@ description: "Save and load the project's memory through `fyr memory add` and `f
 
 # Project memory
 
-A project's memory is small notes about the user and the project that a new session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where the nightly dream job is installed (`fyr dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
+A project's memory is small notes about the user and the project that a new session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where the hourly dream job is installed (`fyr dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
 
 ## Load at session start
 
@@ -53,4 +53,4 @@ EOF
 
 ## Tidying
 
-`/dream` consolidates the memory interactively: stale, duplicate and graduated memories, with a gate before anything is retired. The nightly `fyr dream` job only proposes, as global `proposal` records. Never retire a memory outside `/dream`; updating one by its name is a save, not a rewrite.
+`/dream` consolidates the memory interactively: stale, duplicate and graduated memories, with a gate before anything is retired. The hourly `fyr dream` job only proposes, as global `proposal` records. Never retire a memory outside `/dream`; updating one by its name is a save, not a rewrite.

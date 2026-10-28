@@ -14,7 +14,8 @@ import (
 const shownDropped = 5
 
 // dryRun prints what a run would collect and run, and writes, locks and
-// advances nothing.
+// advances nothing of fyr's; once a real run has made dream-work it asks
+// the oracle as that run does, and agy keeps its own log in that home.
 func (o Options) dryRun(projects []search.Project, skips []skipped, st state) error {
 	if err := o.drySession(); err != nil {
 		return err
