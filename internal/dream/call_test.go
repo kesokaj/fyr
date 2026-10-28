@@ -13,7 +13,7 @@ import (
 
 // A grandchild of the CLI that kept the output pipes (a language or MCP
 // server it started) held cmd.Run past the deadline with dream.lock held, so
-// every later nightly run said "already running" and exited 0 (project
+// every later run said "already running" and exited 0 (project
 // review 2026-10-09, row 2, BUG-169). The CLI runs in its own process group,
 // which the deadline kills whole; a grandchild that left the group is cut
 // loose after the grace period.

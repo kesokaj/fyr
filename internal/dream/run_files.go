@@ -65,7 +65,7 @@ func saveState(home string, st state) error {
 
 // lock takes an exclusive flock on path without waiting: held is true when
 // another run has it. The kernel releases it when that run ends, however it
-// ends, so no stale lock can stop the nightly job (code review 2026-09-30).
+// ends, so no stale lock can stop the timer's job (code review 2026-09-30).
 func lock(path string) (unlock func(), held bool, err error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {

@@ -217,7 +217,7 @@ func TestReplaceOldTimer(t *testing.T) {
 	})
 
 	// The operator turned the old timer off and left its files: install
-	// must not turn the nightly prompt to the model provider back on
+	// must not turn the timer's prompt to the model provider back on
 	// (security review of v2.7.0..881389a, 2026-10-25).
 	t.Run("old unit turned off: its files go, no fyr timer", func(t *testing.T) {
 		for _, c := range []struct{ goos, manager, probe, answer string }{

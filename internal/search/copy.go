@@ -9,7 +9,7 @@ import (
 
 // ErrNotRegular is a source that is not a regular file: a FIFO, a device, a
 // directory or a symlink. It is refused before a byte is read, so a FIFO
-// planted at a conversation path cannot hang ingest, eval or the nightly
+// planted at a conversation path cannot hang ingest, eval or the timer's
 // dream (SD48 of the 2026-10-27 audit).
 var ErrNotRegular = errors.New("not a regular file")
 

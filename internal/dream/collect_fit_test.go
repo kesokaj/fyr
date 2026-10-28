@@ -151,7 +151,10 @@ func TestTwoRunsSendEveryCappedInput(t *testing.T) {
 		os.Remove(filepath.Join(rec, "stdin"))
 		var out bytes.Buffer
 		o := runOpts(f, &out)
-		o.Now = func() time.Time { return now.Add(time.Duration(run) * time.Minute) }
+		// The second run comes a day later: --all tries a project once in
+		// 24 hours (the cooldown), so the rest waits a day, as it did under
+		// the old once-a-night timer.
+		o.Now = func() time.Time { return now.Add(time.Duration(run-1)*cooldown + time.Duration(run)*time.Minute) }
 		if err := Run(o); err != nil {
 			t.Fatalf("run %d: %v\n%s", run, err, out.String())
 		}
@@ -192,7 +195,7 @@ func TestFitUntimedDatedHoldsNothing(t *testing.T) {
 // sendRuns fits inputs run after run, each run taking the inputs newer than
 // the last watermark, as collect does, until none is left. It returns the
 // labels each run sent, and fails a test that stalls (code review, Phase 4:
-// a group of one time split by the cap was dropped again every night).
+// a group of one time split by the cap was dropped again on every run).
 func sendRuns(t *testing.T, inputs []Input, limit int) (sent [][]string, lost []string) {
 	t.Helper()
 	var since time.Time
@@ -247,7 +250,7 @@ func roomFor(n int) int {
 // Nine inputs of one time (one commit) with room for five: a time
 // watermark cannot split them, so the run sends five and names the other
 // four as not sent again, and the next run has nothing; it never sends the
-// same five every night.
+// same five on every run.
 func TestFitTieGroupNeverStalls(t *testing.T) {
 	ts := day(2)
 	sent, lost := sendRuns(t, trailInputs(ts, ts, ts, ts, ts, ts, ts, ts, ts), roomFor(5))

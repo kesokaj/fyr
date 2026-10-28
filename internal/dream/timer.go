@@ -1,6 +1,6 @@
 package dream
 
-// The nightly timer: R3's exception runs `fyr dream --all` from an OS
+// The hourly timer: R3's exception runs `fyr dream --all` from an OS
 // user timer that `--install-timer` installs and `--remove-timer` or
 // `uninstall` removes (R4). The timer is not in the install manifest: the
 // next `install` would delete a listed unit as stale (plan D12).
@@ -98,7 +98,8 @@ func linuxServicePath(home string) string {
 // ~/.local/bin, where agy lives (cold read r1). A oneshot has no start
 // timeout by default, and a Persistent= timer does not start a unit that is
 // still active, so TimeoutStartSec ends a run hung past the per-project kill
-// and the next night runs (SD36; plan 2026-10-27-ledger D2).
+// and a later hour runs (SD36; plan 2026-10-27-ledger D2). The run itself
+// does nothing unless an agy session runs (ADR-073).
 func renderSystemd(bin, home, path string) (string, string) {
 	// systemd expands %-specifiers inside quotes too; %% is a literal %.
 	bin, home, path = strings.ReplaceAll(bin, "%", "%%"), strings.ReplaceAll(home, "%", "%%"), strings.ReplaceAll(path, "%", "%%")
@@ -106,7 +107,7 @@ func renderSystemd(bin, home, path string) (string, string) {
 	// literal dollar sign. Environment= expands nothing, so path keeps its own.
 	bin, home = strings.ReplaceAll(bin, "$", "$$"), strings.ReplaceAll(home, "$", "$$")
 	service := fmt.Sprintf(`[Unit]
-Description=fyr dream: the nightly background dreamer (R3)
+Description=fyr dream: the hourly background dreamer, while an agy session runs (R3)
 
 [Service]
 Type=oneshot
@@ -115,10 +116,10 @@ Environment="PATH=%s"
 ExecStart="%s" dream --all --home "%s"
 `, path, bin, home)
 	timer := `[Unit]
-Description=Run fyr dream nightly
+Description=Run fyr dream hourly
 
 [Timer]
-OnCalendar=*-*-* 03:00
+OnCalendar=hourly
 Persistent=true
 
 [Install]
@@ -155,15 +156,15 @@ func renderLaunchd(label, bin, home, path string) string {
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>%s</string></dict>
   <key>StartCalendarInterval</key>
-  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+  <dict><key>Minute</key><integer>0</integer></dict>
 </dict>
 </plist>
 `, label, x(bin), x(home), x(path))
 }
 
 // absolutePath keeps PATH's absolute entries: a relative one (".", "bin", an
-// empty one) would resolve against the unit's working directory at 03:00,
-// not where the installing shell was (security review round 2).
+// empty one) would resolve against the unit's working directory when the
+// timer fires, not where the installing shell was (security review round 2).
 func absolutePath(path string) string {
 	var keep []string
 	for _, e := range filepath.SplitList(path) {
@@ -297,7 +298,7 @@ func (u timerUnit) remove() error {
 // path first, and only then is the old one stopped and removed, so a refused
 // install keeps the old timer as it was. An old unit the operator turned off
 // (files left, not enabled or not loaded) only has its files removed: no fyr
-// timer is turned on in its place, since the nightly run sends redacted
+// timer is turned on in its place, since the timer's run sends redacted
 // project content to the model provider (security review 2026-10-25). It
 // returns the old unit's name, "" when there is none, and whether a fyr
 // timer replaced it; a dry run finds it, asks the manager, and changes
@@ -441,6 +442,6 @@ func LegacyTimerNotice(home, goos string) string {
 		fmt.Fprintf(&b, "If it is one of the files above: systemctl --user disable --now %s.timer\n", oldUnitName)
 		b.WriteString("Then delete the files above and run: systemctl --user daemon-reload\n")
 	}
-	fmt.Fprintf(&b, "If this home should keep a nightly timer, install it again afterwards: fyr dream --install-timer --home %s", shellQuote(home))
+	fmt.Fprintf(&b, "If this home should keep a dream timer, install it again afterwards: fyr dream --install-timer --home %s", shellQuote(home))
 	return b.String()
 }

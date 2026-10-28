@@ -38,7 +38,7 @@ Records and search
   index        reconcile the search index; --register opts in
 
 Background and measurement
-  dream        the nightly dreamer and its timer
+  dream        the hourly dreamer and its timer
   metrics      session shapes: ingest, show, report, export
   eval         run behavioural rows against the CLI
   check        read-only drift check of this checkout's docs
@@ -199,9 +199,10 @@ var pages = map[string]verbPage{
 			"last dream, sends its memory, new trail, feedback, a numbers-only metrics",
 			"summary and its conversations, redacted, to agy with no tool, and stores",
 			"each proposal as a global queued proposal record. --all logs every other",
-			"project as skipped; --project needs no registration. --install-timer runs",
-			"dream --all nightly (a systemd user timer on Linux, a launchd agent on",
-			"macOS) with the installing shell's PATH; uninstall removes it too.",
+			"project as skipped; --project needs no registration. --all does nothing",
+			"without an interactive agy session of this user, and tries a project",
+			"once in 24 hours. --install-timer runs dream --all hourly (systemd or",
+			"launchd) with this shell's PATH; uninstall removes it too.",
 		},
 	},
 	"metrics": {

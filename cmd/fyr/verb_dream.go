@@ -51,12 +51,12 @@ func (c *ctx) dreamTimer() error {
 		// would change and calls nothing (review-standards § 8; SD26).
 		err = dream.CheckTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
 		if err == nil {
-			fmt.Fprintln(c.out, "[dry-run] would install the nightly dream timer (fyr dream --all at 03:00); installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
+			fmt.Fprintln(c.out, "[dry-run] would install the hourly dream timer (fyr dream --all every hour, while an agy session runs); installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
 		}
 	case c.removeTimer && c.dryRun:
 		// A new side effect goes below the read-only mode (context § Hard
 		// rules): the dry run names what would change and calls nothing.
-		what := "remove the nightly dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
+		what := "remove the dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
 		fmt.Fprintln(c.out, "[dry-run] would "+what+"; installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
 		if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); notice != "" {
 			fmt.Fprintln(c.out, notice)
@@ -65,7 +65,7 @@ func (c *ctx) dreamTimer() error {
 	case c.installTimer:
 		err = dream.InstallTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
 		if err == nil {
-			fmt.Fprintln(c.out, "dream timer installed: fyr dream --all runs nightly at 03:00")
+			fmt.Fprintln(c.out, "dream timer installed: fyr dream --all runs hourly while an agy session runs")
 		}
 	case c.removeTimer:
 		var removed bool

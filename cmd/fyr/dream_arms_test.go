@@ -33,7 +33,7 @@ func TestDreamInstallTimer(t *testing.T) {
 	os.MkdirAll(filepath.Dir(binPath), 0o755)
 	os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755)
 	out.Reset()
-	if err := run([]string{"dream", "--install-timer", "--home", home}, &out); err != nil || out.String() != "dream timer installed: fyr dream --all runs nightly at 03:00\n" {
+	if err := run([]string{"dream", "--install-timer", "--home", home}, &out); err != nil || out.String() != "dream timer installed: fyr dream --all runs hourly while an agy session runs\n" {
 		t.Errorf("install: %v, %q", err, out.String())
 	}
 	if b, err := os.ReadFile(calls); err != nil || len(b) == 0 {

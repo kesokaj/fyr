@@ -71,7 +71,7 @@ func parse(out string) (response, bool) {
 	for i := strings.IndexByte(out, '{'); i >= 0; {
 		var r response
 		// Unknown keys are ignored: one extra key from a chatty model made
-		// the answer invalid and the project retried nightly with the same
+		// the answer invalid and the project retried every run with the same
 		// prompt (audit 2026-09-30, SD5). The fields used are validated below.
 		dec := json.NewDecoder(strings.NewReader(out[i:]))
 		if dec.Decode(&r) == nil && (r.Proposals != nil || r.Skills != nil) {

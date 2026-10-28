@@ -181,8 +181,9 @@ func TestInstallTimerChecksTheHomeItself(t *testing.T) {
 }
 
 // TestInstallTimerKeepsOnlyAbsolutePath: a relative PATH entry (".", "bin",
-// an empty one) would resolve against the unit's working directory at 03:00,
-// not where the operator's shell was; only absolute entries are frozen in.
+// an empty one) would resolve against the unit's working directory when the
+// timer fires, not where the operator's shell was; only absolute entries are
+// frozen in.
 func TestInstallTimerKeepsOnlyAbsolutePath(t *testing.T) {
 	home := timerHome(t)
 	fakeManager(t, "systemctl", 0)

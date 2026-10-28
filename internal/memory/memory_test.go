@@ -162,8 +162,9 @@ func samePath(a, b string) bool {
 	return ra == rb && filepath.Base(a) == filepath.Base(b)
 }
 
-// The store check runs in every registered project at 03:00: it must hold no
-// index lock and run no fsmonitor hook (v2.0.0 gate, security code slice).
+// The store check runs in every registered project from the dream timer: it
+// must hold no index lock and run no fsmonitor hook (v2.0.0 gate, security
+// code slice).
 func TestStoreTrackedArgs(t *testing.T) {
 	got := strings.Join(storeTracked("/r").Args[1:], " ")
 	want := "--no-optional-locks -c core.fsmonitor=false -c log.showSignature=false -C /r ls-files -- .agents/memory"

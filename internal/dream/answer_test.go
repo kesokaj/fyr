@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func TestStatusLine(t *testing.T) {
 	st.LastRun.Error = "no agy on PATH"
 	b, _ = json.Marshal(st)
 	write(t, statePath(home), string(b), fresh)
-	write(t, linuxTimerPath(home), "x", fresh)
+	installed(t, home, runtime.GOOS) // today's render: an older one is TestStatusLineOlderSchedule's
 	if got := StatusLine(home); got != "last run 2026-09-30 failed: no agy on PATH; timer installed" {
 		t.Errorf("failed: %q", got)
 	}
@@ -149,7 +150,7 @@ func TestTextFieldCannotForgeASection(t *testing.T) {
 }
 
 // TestAnswerToleratesExtraKeys: one key the schema does not name made the
-// whole answer invalid and the project retried nightly with the same prompt
+// whole answer invalid and the project retried every run with the same prompt
 // (audit of 2026-09-30, SD5); unknown keys are ignored, the fields used are
 // validated as before.
 func TestAnswerToleratesExtraKeys(t *testing.T) {

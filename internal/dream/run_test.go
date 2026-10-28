@@ -67,9 +67,12 @@ func TestRunWritesProposalsDraftsAndState(t *testing.T) {
 	if !strings.Contains(log, f.root+" ok 2 proposals") || !strings.Contains(log, "- run 1 projects, 2 proposals") {
 		t.Errorf("log:\n%s", log)
 	}
-	// A second run on the same day with no change calls nothing.
+	// A second run a day later (past the cooldown) with no change calls
+	// nothing.
 	os.Remove(filepath.Join(rec, "stdin"))
-	if err := Run(runOpts(f, &out)); err != nil {
+	later := runOpts(f, &out)
+	later.Now = func() time.Time { return now.Add(cooldown + time.Minute) }
+	if err := Run(later); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(rec, "stdin")); !os.IsNotExist(err) {

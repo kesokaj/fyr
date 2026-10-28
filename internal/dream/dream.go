@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,10 @@ type Options struct {
 	// when it has been idle for idleFor (D22); nil is the real check
 	// (activity), a test replaces it.
 	Active func(home string, p search.Project, now time.Time) string
+	// Session reports whether an interactive agy session of the operator's
+	// runs, which an --all run needs before it does anything (plan D2, D9);
+	// nil is the real check (agySession), a test replaces it.
+	Session func() (bool, error)
 
 	brainHome string // where the brain store is read: Home, or a dry run's copy
 }
@@ -48,6 +53,12 @@ type Options struct {
 // reads it (brain plan D22): no commit, no record update, no Antigravity
 // session in that window.
 const idleFor = 24 * time.Hour
+
+// cooldown is how long an --all run leaves a project alone after its CLI
+// call started, success or failure (visible-dream plan D10): a failed
+// project keeps its watermark, so an hourly timer would otherwise try it
+// every hour, each a call of up to cliTimeout.
+const cooldown = 24 * time.Hour
 
 // Input is one piece of what a project sends.
 type Input struct {
@@ -104,6 +115,9 @@ func Run(o Options) error {
 	}
 	if o.All == (o.Project != "") {
 		return &ExitError{2, "fyr dream: exactly one of --all and --project"}
+	}
+	if o.Session == nil {
+		o.Session = func() (bool, error) { return agySession(runtime.GOOS, os.Getuid()) }
 	}
 	if !o.DryRun {
 		return o.realRun()
@@ -187,6 +201,18 @@ func absent(p search.Project) string {
 	return ""
 }
 
+// attempted is when an --all run last started root's CLI call, when that is
+// within cooldown of now, and zero otherwise; --project, which the operator
+// asked for, ignores it. An attempt dated after now (a clock set back) holds
+// until the clock passes it plus cooldown, toward not dreaming.
+func (o Options) attempted(st state, root string) time.Time {
+	t, ok := st.Attempts[root]
+	if !o.All || !ok || !t.After(o.Now().Add(-cooldown)) {
+		return time.Time{}
+	}
+	return t
+}
+
 func (o Options) since(st state, root string) time.Time {
 	if t, ok := st.Projects[root]; ok {
 		return t
@@ -216,7 +242,16 @@ func (e *ExitError) Error() string { return e.Msg }
 // StatusLine is `fyr status`'s dream line.
 func StatusLine(home string) string {
 	timer := "timer not installed"
-	if TimerInstalled(home) {
+	switch {
+	case timerStale(home, runtime.GOOS):
+		// Named with --home under a home that is not the real one: the bare
+		// commands act on the home they default to (BUG-149's class).
+		flag := ""
+		if unit, _ := UnitFor(home); unit != unitName {
+			flag = " --home " + shellQuote(home)
+		}
+		timer = "timer installed, older schedule: fyr dream --remove-timer" + flag + ", then fyr dream --install-timer" + flag
+	case TimerInstalled(home):
 		timer = "timer installed"
 	}
 	// Every branch below ends in timer, so the legacy note reaches them all.

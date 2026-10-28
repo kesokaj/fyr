@@ -18,7 +18,7 @@ var datedKinds = []string{kindTranscript, kindTrail, kindFeedback}
 // A drop holds Through only while an input strictly older than it is kept:
 // a dated input too big to be sent beside memory and the skills (choices
 // D33), and one of the oldest time left, are dropped for good and named,
-// since holding the watermark for either would stop it there every night.
+// since holding the watermark for either would stop it there on every run.
 // A project whose memory alone is over the limit fails.
 //
 // The prompt's size is counted from its parts once and then kept by

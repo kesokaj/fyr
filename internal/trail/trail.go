@@ -1,5 +1,5 @@
 // Package trail answers when a project's trail records changed, from git:
-// the nightly dreamer's watermark and the metrics store's events both need
+// the dreamer's watermark and the metrics store's events both need
 // it, and neither imports the other (plan 2026-10-08-metrics-store D31). It
 // imports no SQLite driver.
 //

@@ -67,7 +67,7 @@ func trusted(root string) (string, error) {
 func Store(root string) (string, error) { return trusted(root) }
 
 // storeTracked is the git call that asks what the repository tracks under
-// .agents/memory. The nightly dream runs it in every registered project, so it
+// .agents/memory. The dream timer runs it in every registered project, so it
 // goes through trail.Command: no index lock, no fsmonitor hook, no signature
 // program, no lazy fetch (security review of the v2.0.0 gate, 2026-10-01;
 // BUG-164, BUG-165).

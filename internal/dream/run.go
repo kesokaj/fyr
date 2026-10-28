@@ -20,8 +20,13 @@ const (
 // realRun takes the lock, then reads the state and the projects, dreams over
 // every changed project and writes what the CLI proposes. Every failure before
 // the first project is a run log line, last_run.error where the state can be
-// written, and exit 2 (the plan's Interfaces, code review 2026-09-30).
+// written, and exit 2 (the plan's Interfaces, code review 2026-09-30). An
+// --all run with no agy session stops first, before ConfigDir creates the
+// directory: the hourly timer's no-op leaves nothing behind (plan D2).
 func (o Options) realRun() error {
+	if stop, err := o.noSession(); stop {
+		return err
+	}
 	conf, err := harness.ConfigDir(o.Home)
 	if err != nil {
 		return &ExitError{2, "fyr dream: " + err.Error()}
@@ -52,24 +57,52 @@ func (o Options) realRun() error {
 	for _, s := range skips {
 		r.logf(s.root + " skip " + s.why)
 	}
-	r.argv = command()
-	if err := checkAgy(runtime.GOOS); err != nil {
-		return r.fail(err.Error())
-	}
-	agyHomeDir, cleanup, err := agyHome(conf, runtime.GOOS)
+	cleanup, err := r.prepareAgy()
 	if err != nil {
 		return r.fail(err.Error())
 	}
 	defer cleanup()
-	r.env = childEnv(os.Environ(), agyHomeDir)
-	r.work = filepath.Join(conf, "dream-work")
-	if err := os.MkdirAll(r.work, 0o700); err != nil {
-		return r.fail(err.Error())
-	}
 	for _, p := range projects {
 		r.project(p)
 	}
 	return r.result(len(projects))
+}
+
+// noSession is an --all run's first step: true when no agy session of the
+// operator's runs, after saying so, or when the check errors, with exit 2.
+// --project never asks.
+func (o Options) noSession() (bool, error) {
+	if !o.All {
+		return false, nil
+	}
+	on, err := o.Session()
+	if err != nil {
+		return true, &ExitError{2, "fyr dream: " + err.Error()}
+	}
+	if !on {
+		fmt.Fprintln(o.Out, "fyr dream: no agy session of this user; nothing to do")
+	}
+	return !on, nil
+}
+
+// prepareAgy checks the CLI, builds its private HOME and the empty working
+// directory, and returns the HOME's cleanup.
+func (r *dreamRun) prepareAgy() (func(), error) {
+	r.argv = command()
+	if err := checkAgy(runtime.GOOS); err != nil {
+		return nil, err
+	}
+	agyHomeDir, cleanup, err := agyHome(r.conf, runtime.GOOS)
+	if err != nil {
+		return nil, err
+	}
+	r.env = childEnv(os.Environ(), agyHomeDir)
+	r.work = filepath.Join(r.conf, "dream-work")
+	if err := os.MkdirAll(r.work, 0o700); err != nil {
+		cleanup()
+		return nil, err
+	}
+	return cleanup, nil
 }
 
 // dreamRun is one run's state across its projects.
@@ -109,6 +142,10 @@ func (r *dreamRun) project(p search.Project) {
 		r.logf(p.Root + " skip " + why)
 		return
 	}
+	if t := r.o.attempted(r.st, p.Root); !t.IsZero() {
+		r.logf(p.Root + " skip attempted " + t.UTC().Format(time.RFC3339))
+		return
+	}
 	if why := r.o.inUse(p); why != "" {
 		r.logf(p.Root + " skip in use (" + why + ")")
 		return
@@ -135,9 +172,7 @@ func (r *dreamRun) project(p search.Project) {
 	// Short of the run's start when the cap dropped news: the next run
 	// offers it again (ADR-069).
 	r.st.Projects[p.Root] = watermark(c, r.t0)
-	if err := saveState(r.o.Home, r.st); err != nil && r.stateErr == nil {
-		r.stateErr = err
-	}
+	r.save()
 	r.total += len(resp.Proposals)
 	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, len(resp.Proposals)))
 }
@@ -145,6 +180,9 @@ func (r *dreamRun) project(p search.Project) {
 // ask calls the CLI with the project's prompt and returns its answer; a
 // failed call or an answer that does not parse fails the project.
 func (r *dreamRun) ask(p search.Project, c Collected) (response, bool) {
+	// Stored before the call, so a run killed mid-call still counts it.
+	r.st.Attempts[p.Root] = r.o.Now()
+	r.save()
 	stdout, stderr, err := call(r.argv, c.Prompt, r.work, r.env)
 	if err != nil {
 		r.failed++
@@ -172,6 +210,13 @@ func (r *dreamRun) ask(p search.Project, c Collected) (response, bool) {
 		return response{}, false
 	}
 	return resp, true
+}
+
+// save writes the state, keeping the first error for result.
+func (r *dreamRun) save() {
+	if err := saveState(r.o.Home, r.st); err != nil && r.stateErr == nil {
+		r.stateErr = err
+	}
 }
 
 // result records the run and returns its exit: 2 when the watermarks could

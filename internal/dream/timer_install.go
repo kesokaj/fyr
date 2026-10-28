@@ -29,8 +29,8 @@ func CheckTimer(home, path, goos string) error {
 	return err
 }
 
-// InstallTimer installs and starts the nightly dream timer for goos, with
-// ExecStart at home's BinPath, `--home home` so the nightly run is scoped to
+// InstallTimer installs and starts the hourly dream timer for goos, with
+// ExecStart at home's BinPath, `--home home` so the timer's run is scoped to
 // that home (a scratch timer never dreams over the real home, R6), and PATH
 // as given.
 func InstallTimer(home, path, goos string) error {

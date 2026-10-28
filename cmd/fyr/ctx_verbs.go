@@ -73,8 +73,8 @@ var verbs = map[string]verb{
 	"dream": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.dreamAll, "all", false, "every project registered with index --register")
 		c.fs.StringVar(&c.dreamProject, "project", "", "one checkout, `DIR`, registered or not")
-		c.fs.BoolVar(&c.installTimer, "install-timer", false, "install the nightly user timer")
-		c.fs.BoolVar(&c.removeTimer, "remove-timer", false, "remove the nightly user timer")
+		c.fs.BoolVar(&c.installTimer, "install-timer", false, "install the hourly user timer")
+		c.fs.BoolVar(&c.removeTimer, "remove-timer", false, "remove the dream's user timer")
 		c.dryRunFlag()
 	}, run: runDream},
 	"metrics": {flags: func(c *ctx) {

@@ -14,7 +14,7 @@ import (
 )
 
 // fit rendered the whole prompt again for every input it dropped, 34 renders
-// of ~260 KB a project a night on one box (audit 2026-10-25, SD-S1). It now
+// of ~260 KB a project a run on one box (audit 2026-10-25, SD-S1). It now
 // keeps the size by arithmetic: one render a project, for the prompt that
 // is sent, and the same inputs dropped, with the same Through, as the same
 // fit measuring by a render after every drop. The wording of the left-out

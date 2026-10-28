@@ -11,10 +11,12 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// state is ~/.config/fyr/dream-state.json: each project's watermark and
+// state is ~/.config/fyr/dream-state.json: each project's watermark, when
+// its last CLI call started (the cooldown, visible-dream plan D10, D18) and
 // the last run (D9; never in search.db, which is a cache).
 type state struct {
 	Projects map[string]time.Time `json:"projects"`
+	Attempts map[string]time.Time `json:"attempts,omitempty"`
 	LastRun  lastRun              `json:"last_run"`
 }
 
@@ -34,7 +36,7 @@ func statePath(home string) string {
 // watermark, which would re-send two weeks of every project (code review
 // 2026-09-30).
 func readState(home string) (state, error) {
-	st := state{Projects: map[string]time.Time{}}
+	st := state{Projects: map[string]time.Time{}, Attempts: map[string]time.Time{}}
 	data, err := os.ReadFile(statePath(home))
 	if errors.Is(err, os.ErrNotExist) {
 		return st, nil
@@ -47,6 +49,9 @@ func readState(home string) (state, error) {
 	}
 	if st.Projects == nil {
 		st.Projects = map[string]time.Time{}
+	}
+	if st.Attempts == nil { // a file an older fyr wrote
+		st.Attempts = map[string]time.Time{}
 	}
 	return st, nil
 }

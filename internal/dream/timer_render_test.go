@@ -12,7 +12,7 @@ func TestRenderSystemdUnits(t *testing.T) {
 			t.Errorf("service lacks %q:\n%s", want, service)
 		}
 	}
-	for _, want := range []string{"OnCalendar=*-*-* 03:00", "Persistent=true", "WantedBy=timers.target"} {
+	for _, want := range []string{"OnCalendar=hourly", "Persistent=true", "WantedBy=timers.target"} {
 		if !strings.Contains(timer, want) {
 			t.Errorf("timer lacks %q:\n%s", want, timer)
 		}
@@ -21,10 +21,14 @@ func TestRenderSystemdUnits(t *testing.T) {
 
 func TestRenderLaunchdPlist(t *testing.T) {
 	plist := renderLaunchd("com.fyr.dream", "/Users/o & p/.local/bin/fyr", "/Users/o & p", "/usr/bin")
-	for _, want := range []string{"<string>com.fyr.dream</string>", "<string>/Users/o &amp; p/.local/bin/fyr</string>", "<string>dream</string>", "<string>--all</string>", "<string>--home</string><string>/Users/o &amp; p</string>", "<key>Hour</key><integer>3</integer>", "<key>PATH</key><string>/usr/bin</string>"} {
+	for _, want := range []string{"<string>com.fyr.dream</string>", "<string>/Users/o &amp; p/.local/bin/fyr</string>", "<string>dream</string>", "<string>--all</string>", "<string>--home</string><string>/Users/o &amp; p</string>", "<key>StartCalendarInterval</key>\n  <dict><key>Minute</key><integer>0</integer></dict>", "<key>PATH</key><string>/usr/bin</string>"} {
 		if !strings.Contains(plist, want) {
 			t.Errorf("plist lacks %q:\n%s", want, plist)
 		}
+	}
+	// Minute alone: an Hour key would make the agent run once a day.
+	if strings.Contains(plist, "<key>Hour</key>") {
+		t.Errorf("plist names an hour:\n%s", plist)
 	}
 }
 
