@@ -62,6 +62,9 @@ type Collected struct {
 	Inputs     []Input
 	Dropped    []string
 	Prompt     string
+	// Through is just before the oldest dated input the cap dropped, or zero
+	// when it dropped none: the watermark a successful run stores (ADR-069).
+	Through time.Time
 }
 
 // firstLook is how far back a project's first dream reads.

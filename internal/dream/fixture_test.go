@@ -45,8 +45,8 @@ func newFixture(t *testing.T) fixture {
 	write(t, filepath.Join(f.home, harness.StateDir, "feedback.jsonl"),
 		fb(fresh, f.root, "fresh feedback for this project")+fb(old, f.root, "old feedback")+fb(fresh, "/elsewhere", "another project's feedback"), fresh)
 	// The root's conversation is older than the subdirectory's, so the cap
-	// drops it first, and long enough that dropping it frees more than the
-	// line naming it costs (TestCollectCapDropsTranscriptThenTrail).
+	// drops the subdirectory's first and keeps the root's
+	// (TestCollectCapDropsNewestNewsFirst).
 	agyConversations(t, f.home, map[string]agyConv{
 		"at-root":   {f.root, fresh.Add(-10 * time.Minute), []agyStep{{typ: 14, text: "please remember the deploy day"}, {typ: 15, text: "noted: the deploy day is Friday, and every release waits for it"}, {typ: 132, text: "TOOL OUTPUT that is not prose at all"}}},
 		"under":     {filepath.Join(f.root, "sub"), fresh, []agyStep{{typ: 15, text: "noted from a subdirectory"}}},

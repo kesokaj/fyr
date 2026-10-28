@@ -19,8 +19,8 @@ import (
 )
 
 // The kinds, in prompt order. The metrics summary is dropped first when the
-// prompt is over the cap (ADR-055a), then transcripts, then the trail, then
-// feedback, then skills; memory is always sent whole (D21).
+// prompt is over the cap (ADR-055a), then the dated kinds together, newest
+// first (ADR-069), then skills; memory is always sent whole (D21).
 const (
 	kindMemory     = "memory"
 	kindFeedback   = "feedback"
@@ -140,50 +140,6 @@ func scrub(text, home string) string {
 		text = strings.ReplaceAll(text, strings.TrimSuffix(home, "/"), "~")
 	}
 	return text
-}
-
-// fit drops inputs until the prompt is under limit: the metrics summary,
-// then transcripts oldest first, then trail files oldest first, then
-// feedback, then skills (D21, ADR-055a). A
-// project whose memory alone is over the limit fails.
-//
-// The prompt's size is counted from its parts once and then kept by
-// subtracting each dropped block and re-measuring the short left-out line,
-// never by rendering the prompt again (audit 2026-10-25, SD-S1).
-func (c *Collected) fit(limit int) error {
-	sizes := make([]int, len(c.Inputs))
-	size := len(head(*c)) + len(leftOut(c.Dropped))
-	for i, in := range c.Inputs {
-		sizes[i] = len(block(in))
-		size += sizes[i]
-	}
-	for _, kind := range []string{kindMetrics, kindTranscript, kindTrail, kindFeedback, kindSkill} {
-		for size > limit {
-			i := oldest(c.Inputs, kind)
-			if i < 0 {
-				break
-			}
-			before := len(leftOut(c.Dropped))
-			c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (dropped to fit the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
-			size += len(leftOut(c.Dropped)) - before - sizes[i]
-			c.Inputs = append(c.Inputs[:i], c.Inputs[i+1:]...)
-			sizes = append(sizes[:i], sizes[i+1:]...)
-		}
-	}
-	if size > limit {
-		return errors.New("memory over cap")
-	}
-	return nil
-}
-
-func oldest(in []Input, kind string) int {
-	best := -1
-	for i, x := range in {
-		if x.Kind == kind && (best < 0 || x.Time.Before(in[best].Time)) {
-			best = i
-		}
-	}
-	return best
 }
 
 // mdFiles lists the .md files directly in dir, by name, never through a

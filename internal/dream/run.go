@@ -132,7 +132,9 @@ func (r *dreamRun) project(p search.Project) {
 		r.logf(p.Root + " fail " + err.Error())
 		return
 	}
-	r.st.Projects[p.Root] = r.t0
+	// Short of the run's start when the cap dropped news: the next run
+	// offers it again (ADR-069).
+	r.st.Projects[p.Root] = watermark(c, r.t0)
 	if err := saveState(r.o.Home, r.st); err != nil && r.stateErr == nil {
 		r.stateErr = err
 	}

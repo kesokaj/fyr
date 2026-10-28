@@ -84,23 +84,28 @@ func TestCollectRedactsAndHidesHome(t *testing.T) {
 	}
 }
 
-func TestCollectCapDropsTranscriptThenTrail(t *testing.T) {
+// Over the cap the newest news goes first, whatever its kind: the oldest
+// conversation stays, the newer one and the trail row of the same time are
+// dropped and named, and Through stops just before them (ADR-069).
+func TestCollectCapDropsNewestNewsFirst(t *testing.T) {
 	f := newFixture(t)
 	full, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Room for everything but the transcript.
 	small := len(full.Prompt) - 40
 	c, err := collect(f.home, project(f), since, time.Now(), small)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(c.Prompt, "please remember the deploy day") || !strings.Contains(c.Prompt, "fresh bug row") {
-		t.Errorf("the transcript should go first and the trail stay:\n%s", labels(c))
+	if !strings.Contains(c.Prompt, "please remember the deploy day") || strings.Contains(c.Prompt, "noted from a subdirectory") {
+		t.Errorf("the newer conversation should go first and the older stay:\n%s", labels(c))
 	}
-	if len(c.Dropped) == 0 || !strings.Contains(strings.Join(c.Dropped, " "), "transcript") {
-		t.Errorf("dropped = %v, want the transcript named", c.Dropped)
+	if !strings.Contains(strings.Join(c.Dropped, " "), "transcript antigravity under (dropped to fit") {
+		t.Errorf("dropped = %v, want the newer conversation named", c.Dropped)
+	}
+	if !c.Through.Equal(fresh.Add(-time.Nanosecond)) {
+		t.Errorf("Through = %v, want just before %v", c.Through, fresh)
 	}
 	// Room for less than memory alone: the project fails.
 	if _, err := collect(f.home, project(f), since, time.Now(), 10); err == nil || !strings.Contains(err.Error(), "memory over cap") {

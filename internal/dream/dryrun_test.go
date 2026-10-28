@@ -16,7 +16,9 @@ import (
 // fit rendered the whole prompt again for every input it dropped, 34 renders
 // of ~260 KB a project a night on one box (audit 2026-10-25, SD-S1). It now
 // keeps the size by arithmetic: one render a project, for the prompt that
-// is sent, and the same inputs dropped as the render-per-drop loop dropped.
+// is sent, and the same inputs dropped, with the same Through, as the same
+// fit measuring by a render after every drop. The wording of the left-out
+// lines is pinned by TestFitWording, never copied here (SD60a).
 func TestFitRendersOnce(t *testing.T) {
 	base := func() Collected {
 		c := Collected{Name: "p", Dropped: []string{"memory: a\tlabel  with   runs >>>> of <<< fences"}}
@@ -27,30 +29,23 @@ func TestFitRendersOnce(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			c.Inputs = append(c.Inputs, Input{Kind: kindTrail, Label: fmt.Sprintf("bugs/B-%d.md", i), Text: strings.Repeat("b", 300), Time: now.Add(time.Duration(i) * time.Hour)})
 		}
-		c.Inputs = append(c.Inputs, Input{Kind: kindMetrics, Label: "metrics", Text: strings.Repeat("9", 100)})
+		c.Inputs = append(c.Inputs,
+			Input{Kind: kindTrail, Label: "changes/big.md", Text: strings.Repeat("c", 3000), Time: now.Add(-time.Hour)},
+			Input{Kind: kindFeedback, Label: "FEEDBACK-1", Text: strings.Repeat("f", 120), Time: now.Add(2 * time.Minute)},
+			Input{Kind: kindSkill, Label: "skill golang", Text: "golang: Go"},
+			Input{Kind: kindMetrics, Label: "metrics", Text: strings.Repeat("9", 100)})
 		return c
 	}
-	// The loop fit was, rendering once per drop.
 	reference := func(c Collected, limit int) (Collected, error) {
-		for _, kind := range []string{kindMetrics, kindTranscript, kindTrail, kindFeedback, kindSkill} {
-			for len(prompt(c)) > limit {
-				i := oldest(c.Inputs, kind)
-				if i < 0 {
-					break
-				}
-				c.Dropped = append(c.Dropped, fmt.Sprintf("%s %s (dropped to fit the %d KB cap)", c.Inputs[i].Kind, c.Inputs[i].Label, limit/1024))
-				c.Inputs = append(c.Inputs[:i:i], c.Inputs[i+1:]...)
-			}
-		}
-		if len(prompt(c)) > limit {
-			return c, errors.New("memory over cap")
-		}
-		return c, nil
+		f := newFitter(&c, limit)
+		f.over = func() bool { return len(prompt(c)) > limit }
+		err := f.run()
+		return c, err
 	}
 	saved := render
 	t.Cleanup(func() { render = saved })
 	full := len(prompt(base()))
-	for _, limit := range []int{full, full - 1, full - 500, full - 4000, full - 12000, 2048, 10} {
+	for _, limit := range []int{full, full - 1, full - 500, full - 4000, full - 12000, 4096, 2048, 10} {
 		want, wantErr := reference(base(), limit)
 		renders := 0
 		render = func(c Collected) string { renders++; return prompt(c) }
@@ -61,13 +56,13 @@ func TestFitRendersOnce(t *testing.T) {
 		}
 		render = saved
 		if (err == nil) != (wantErr == nil) {
-			t.Fatalf("limit %d: err %v, the loop's %v", limit, err, wantErr)
+			t.Fatalf("limit %d: err %v, the rendering fit's %v", limit, err, wantErr)
 		}
 		if err == nil && renders != 1 {
 			t.Errorf("limit %d: %d renders, want 1", limit, renders)
 		}
-		if labels(c) != labels(want) || strings.Join(c.Dropped, "|") != strings.Join(want.Dropped, "|") {
-			t.Errorf("limit %d: kept or dropped other inputs than the loop:\n%s\nwant\n%s", limit, labels(c), labels(want))
+		if labels(c) != labels(want) || strings.Join(c.Dropped, "|") != strings.Join(want.Dropped, "|") || !c.Through.Equal(want.Through) {
+			t.Errorf("limit %d: kept or dropped other inputs than the rendering fit:\n%s\nwant\n%s", limit, labels(c), labels(want))
 		}
 		if err == nil && len(c.Prompt) > limit {
 			t.Errorf("limit %d: prompt %d bytes", limit, len(c.Prompt))
