@@ -7,18 +7,17 @@
 
 ## Now
 
-Phase 3 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): the `fyr work` verb for one Kickoff, with its ADR, the PRD edits and the map in one commit. Phase 2 (`internal/work`, one worker with no verb) is done at `b3b0e1a`. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Re-plan `PLAN-2026-10-29-workers` after the operator's addendum (D48–D53): the feature skill's Step 1 again, the scope restated in the numbered form with the rows of the plan's § Re-plan, then the operator's approval line before any phase. Phases 1–2 are built (`b3b0e1a`); Phase 3 waits for the re-plan. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] `cmd/fyr/verb_work.go`: flags, exit statuses (D34), eval's signal handling; exactly one file; `--repo` as eval's
-- [ ] The path's ADR and its restatements (AGENTS.md rule 3), written by `documentation`: the ADR, `PRD.md` R8, Non-goals and Known limits (D27), README map's node and olive line, the rest of the list
-- [ ] The first real worker on `~/sandbox/fyr-work/fixture`: `trustedWorkspaces` honoured under `work/`, branch fetched, PASS
-- [ ] Checkpoint: ONE commit for the verb, the ADR, the PRD, the map and the docs
+- [ ] The restated scope, put to the operator; the approval line recorded
+- [ ] The plan updated in place (Steps 2–3) for D48–D53 and the answers, a cold read of the changed parts, every item answered
+- [ ] Checkpoint: the plan committed and pushed, the handoff whose Kickoff starts the next phase
 
 ## Next
 
+- Workers Phase 3, as the re-plan leaves it: the `fyr work` verb, its ADR, the PRD edits and the map in one commit.
 - Workers Phase 4: several Kickoffs, `--max-workers`, `--kill`.
-- Workers Phase 5: the `work` skill, the feature skill's `after:`/`files:`, the handoff skill's `Files:` line, `.gitattributes`.
-- Then, in order: workers Phase 6 (the E2E, a lead session you start), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- Then, in order: workers Phase 5 (the `work` skill and the feature skill's workers decision), Phase 6 (the E2E), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
 ## Backlog
 
