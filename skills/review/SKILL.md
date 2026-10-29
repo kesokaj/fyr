@@ -79,7 +79,7 @@ Each dispatch gets the scope text, today's date, its slug, its brief, the senten
 
 "You are a fresh session with no prior context. Read § Cold-reader check of the `handoff` skill's SKILL.md (`~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): run its resume order with the newest `handoff` record (`fyr record list --kind handoff`) as "this handoff", and answer its six numbered questions as that reader, each with file:line or `none`, listing every instance where a question says "any". Write what you find as your brief. Read only; the brief is the only file you write."
 
-The main agent fixes what the resume brief returns at the source (plan, `ROADMAP.md`, `TODO.md`, the handoff while it is still this session's) and says so in chat; `--fix` adds nothing to this lens.
+The main agent fixes what the resume brief returns at the source (plan, `TODO.md`, the handoff while it is still this session's) and says so in chat; `--fix` adds nothing to this lens.
 
 Each agent writes its draft to `.agents/scratch/agents/<agent>-<stamp>.md` and replies with the path; you store each one: `fyr record add review` for the reviewer and security, `testing` for the verifier, `plan` for the explorer, with the draft's `# ` title. An agent cut at its turn limit leaves a partial draft (its early-write rule); its record says so.
 

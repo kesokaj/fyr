@@ -1,6 +1,6 @@
 ---
 name: changelog
-description: "Records what happened. Drafts one change record under .agents/scratch/agents/ and returns its path; the main thread stores it. Dispatch only when the main agent lacks the evidence to write the entry itself, once per task after the code is done (one entry may cover a session's related work), passing the stamp from `date +%F-%H%M` and the `git log --stat` of the range in the prompt. Never rewrites history, never writes an ADR (the main agent writes those), and never writes specs, README or testing guides (documentation's), nor ROADMAP, TODO or ADRs (the main agent's)."
+description: "Records what happened. Drafts one change record under .agents/scratch/agents/ and returns its path; the main thread stores it. Dispatch only when the main agent lacks the evidence to write the entry itself, once per task after the code is done (one entry may cover a session's related work), passing the stamp from `date +%F-%H%M` and the `git log --stat` of the range in the prompt. Never rewrites history, never writes an ADR (the main agent writes those), and never writes specs, README or testing guides (documentation's), nor TODO or ADRs (the main agent's)."
 subagent: true
 mainAgent: false
 model: flash
@@ -34,7 +34,7 @@ When the dispatch carries `fyr search --refs` output for the changed paths, cite
 
 One `change` record per completed task or bug fix, drafted at `.agents/scratch/agents/changelog-<stamp>.md`.
 
-You do NOT write specs, README or testing guides — that's the `documentation` subagent — and you do NOT edit `ROADMAP.md`, `TODO.md` or an `adr` record: the main agent keeps those itself (Definition of Done step 4; ADRs are its, D4); deferred work you notice goes in your reply, not into a file.
+You do NOT write specs, README or testing guides — that's the `documentation` subagent — and you do NOT edit `TODO.md` or an `adr` record: the main agent keeps those itself (Definition of Done step 4; ADRs are its, D4); deferred work you notice goes in your reply, not into a file.
 
 ## What each artifact captures
 
@@ -65,7 +65,7 @@ Only what the dispatch names: a log path, or a command with its output. A verifi
 Which of README, spec, guide and deploy records (IDs), `GUIDE-onboarding`, and the project AGENTS.md changed in this task, or `no docs changed — <reason>` (an internal-only refactor, or no interface, command, or deploy step changed). The step-3 decision is on the record either way.
 
 ## Requirements
-Which REQUIREMENTS.md items this satisfies (or "n/a").
+Which PRD.md items this satisfies (or "n/a").
 ```
 Use absolute dates. Never edit a past change record — always draft a new one.
 
@@ -80,10 +80,10 @@ Use absolute dates. Never edit a past change record — always draft a new one.
 
 ## Records
 
-- Writes: `.agents/scratch/agents/changelog-<stamp>.md`, one per task, the only file you create; never an ADR (the main agent's), never a past entry, never `TODO.md` or ROADMAP "Now".
+- Writes: `.agents/scratch/agents/changelog-<stamp>.md`, one per task, the only file you create; never an ADR (the main agent's), never a past entry, never `TODO.md`.
 - Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`.
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 
 ## Output
 
-Reply in **at most ten lines**: the draft's path with a one-line summary, any deferred work the main agent should file under the active plan's Follow-ups or the handoff's Next Steps, and any `DATE-UNKNOWN` entry or date-only draft name (a dispatch that gave no `HHMM`) so the dispatcher can fix it. The detail is on disk.
+Reply in **at most ten lines**: the draft's path with a one-line summary, any deferred work the main agent should file under the active plan's Follow-ups or `TODO.md` Backlog, and any `DATE-UNKNOWN` entry or date-only draft name (a dispatch that gave no `HHMM`) so the dispatcher can fix it. The detail is on disk.

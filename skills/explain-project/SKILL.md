@@ -9,15 +9,15 @@ Write the explanation a new person needs on day one, from the code and the trail
 
 ## Step 1: Survey
 
-Count the Go files (`git ls-files '*.go' | wc -l`). At 10 or more, dispatch the `explorer` agent ("write the artifact early, then update it") with "Recon for an onboarding document: entry points under `cmd/`, every package under `internal/` with its one-line purpose, the data flow of the main request from the listener to the store and back, where configuration is read (flags, env vars, files), the test layout; cite file:line" and a budget of 30 tool calls; read its brief (stored as a `plan` record from its draft). Below 10, read the files yourself. Either way, read `README.md`, `REQUIREMENTS.md`, `AGENTS.md` § Setup, the `spec` records, the three newest `change` records, the `adr` records and the `bug` records (`fyr record list --kind <kind>`, then `fyr record get`) before writing.
+Count the Go files (`git ls-files '*.go' | wc -l`). At 10 or more, dispatch the `explorer` agent ("write the artifact early, then update it") with "Recon for an onboarding document: entry points under `cmd/`, every package under `internal/` with its one-line purpose, the data flow of the main request from the listener to the store and back, where configuration is read (flags, env vars, files), the test layout; cite file:line" and a budget of 30 tool calls; read its brief (stored as a `plan` record from its draft). Below 10, read the files yourself. Either way, read `README.md`, `PRD.md`, `AGENTS.md` § Setup, the `spec` records, the three newest `change` records, the `adr` records and the `bug` records (`fyr record list --kind <kind>`, then `fyr record get`) before writing.
 
 ## Step 2: Write `GUIDE-onboarding`
 
 Three sections and a list, each claim with a file:line or a path; nothing from memory of how such projects usually work:
 
-1. **What it does and for whom** — the purpose in two sentences, the users, the one or two external systems it talks to (from README, REQUIREMENTS and the specs; when they disagree, say so and cite both).
+1. **What it does and for whom** — the purpose in two sentences, the users, the one or two external systems it talks to (from README, the PRD and the specs; when they disagree, say so and cite both).
 2. **How it is built** — the entry points (`cmd/*`), every package with its one-line purpose, the data flow of the main request as a numbered path (listener → handler → service → store → response, each step file:line), where configuration comes from (flags, env vars, their defaults and which live outside the repository), what is embedded (`embed.go`, migrations, the SPA), and the test layout by tier.
-3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`AGENTS.md` → `fyr record list --open` → newest handoff → `ROADMAP.md` → the open plans → the newest `change` records → `fyr memory show`), where decisions live (`adr` records), where failures are recorded (`bug` records), and how a change is finished (the Definition of Done in the global context).
+3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`AGENTS.md` → `fyr record list --open` → newest handoff → `TODO.md` Now → the open plans → the newest `change` records → `fyr memory show`), where decisions live (`adr` records), where failures are recorded (`bug` records), and how a change is finished (the Definition of Done in the global context).
 4. **What I could not determine** — every question the code and the trail did not answer, as a list for the operator; never a guess dressed as a fact.
 
 Under 200 lines. A diagram only when the flow has a branch worth seeing (`mermaid-syntax` skill).

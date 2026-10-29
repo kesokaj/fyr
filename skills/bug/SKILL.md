@@ -48,7 +48,7 @@ Write the test that captures the bug at the right tier (unit beside the code; in
 
 ## Step 4: Smallest fix
 
-Change the least that turns the test green and satisfies "fixed means". No adjacent refactors (note what you saw under the active plan's Follow-ups, or the handoff's Next Steps when no plan is active), no defensive code for cases the bug did not show, no feature flags. When the root cause is a CLASS — a call, a pattern, a shape of check — the smallest fix covers every site of that class, which is not an adjacent refactor: `git grep` the same call across the tree before the fix is called done, fix every site that has the defect in the same change, and name the sites in the bug record; a class fixed at one site is the next review's finding. Re-run the test: green, or the bug is not fixed — do not rewrite the test. Re-run the original repro once more.
+Change the least that turns the test green and satisfies "fixed means". No adjacent refactors (note what you saw under the active plan's Follow-ups, or `TODO.md` Backlog when no plan is active), no defensive code for cases the bug did not show, no feature flags. When the root cause is a CLASS — a call, a pattern, a shape of check — the smallest fix covers every site of that class, which is not an adjacent refactor: `git grep` the same call across the tree before the fix is called done, fix every site that has the defect in the same change, and name the sites in the bug record; a class fixed at one site is the next review's finding. Re-run the test: green, or the bug is not fixed — do not rewrite the test. Re-run the original repro once more.
 
 ## Step 5: Definition of Done and the record
 

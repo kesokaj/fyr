@@ -76,9 +76,9 @@ The `plan` record `Plan — harness audit fix (<date>)`, in the `feature` skill'
 
 - **Why** quotes the operator's request for the audit. **Scope In** is every ID recommended `fix`; **Out** is every `defer`; each `strike` is a `Rejected:` row with its reason.
 - **Phases** in dependency order: measurements and research first (every `unverified: needs <source>` and every finding that needs a fact gets a research box, one brief per topic; every finding marked for a security judgement gets a `security` task); then the binary; then the context and its size budget; then the agents; then the skills; then the docs and the trail; then the sandbox tiers; last a **re-audit** phase (`/harness-audit --reaudit`). Every task names the IDs it closes and a verify clause with an `expect:`; every phase ends in a Checkpoint.
-- A finding that changes `REQUIREMENTS.md`, a line of the README map, or what a release delivers is not a task: it is a row in the operator's table, because those need the operator and an ADR first.
+- A finding that changes `PRD.md`, a line of the README map, or what a release delivers is not a task: it is a row in the operator's table, because those need the operator and an ADR first.
 
-Point `ROADMAP.md` "Now" at the plan only when the operator says to start. The plan then runs under `/feature`: its scope confirmation is the operator's answer to the numbered table, and its cold-reader check comes before any code. The briefs, the report and the plan are trail: stage them by name, commit and push them (the global git rule). This skill ends here. Report in chat: the commit, findings by severity, the three highest, the table of choices, and the three paths.
+Point `TODO.md` Now at the plan only when the operator says to start. The plan then runs under `/feature`: its scope confirmation is the operator's answer to the numbered table, and its cold-reader check comes before any code. The briefs, the report and the plan are trail: stage them by name, commit and push them (the global git rule). This skill ends here. Report in chat: the commit, findings by severity, the three highest, the table of choices, and the three paths.
 
 ## The re-audit (`--reaudit`)
 

@@ -68,7 +68,7 @@ Every candidate carries evidence a reader can open. A candidate with one source 
 ## Records
 
 - Writes: `.agents/scratch/agents/dreamer-<stamp>.md`, written early and updated, which the main thread stores as a `retro` record; skill drafts under `.agents/scratch/dreamer/<date>/`; nothing else. Name the draft's path in your reply only after the `write_to_file` call succeeded.
-- Never: source, config, rules, skills, agents, the context, memory, any record, `REQUIREMENTS.md`. "Report only" from the caller already describes you.
+- Never: source, config, rules, skills, agents, the context, memory, any record, `PRD.md`. "Report only" from the caller already describes you.
 - Never a git command that changes the working tree.
 
 ## Output

@@ -57,7 +57,7 @@ A rule that recurs graduates into a mechanism — a test, a script a skill runs,
 - Record every dispatched failure, even small ones: the pattern shows up across records, not within one.
 - Keep a record under 40 lines: `fyr record list --kind bug` prints its title, and the body is read on demand.
 - If three records share a prevention rule, say so in the newest one under Related and recommend where the rule should live permanently (the project's `AGENTS.md`, a `<project>/.agents/rules/` file, a skill, an agent definition, or a test), and say whether the rule is actionable (a specific check would catch it) and generalizable (it applies beyond this file or session) — information for whoever approves it, never a reason to withhold the recommendation. You do not write that rule; the main agent or `/retro` does.
-- The deployed context is size-pinned (REQUIREMENTS § Known limits), so a recommended permanent home in `context/AGENTS.md` or `context/dev-setup.md` names, under Related, the existing sentence the rule would replace or merge into to pay for its bytes; a rule with nothing to replace is recommended to the skill that owns the topic.
+- The deployed context is size-pinned (PRD § Known limits), so a recommended permanent home in `context/AGENTS.md` or `context/dev-setup.md` names, under Related, the existing sentence the rule would replace or merge into to pay for its bytes; a rule with nothing to replace is recommended to the skill that owns the topic.
 - Never soften: a wrong approach that was abandoned is a bug record with root cause "chose X because …, should have …".
 
 ## Records

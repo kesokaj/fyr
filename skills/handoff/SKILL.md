@@ -50,8 +50,8 @@ Do NOT duplicate content that already exists elsewhere. Instead, reference these
 | Implementation plans | `plan` records (`fyr record list --open --kind plan`) |
 | Testing guide | `GUIDE-testing` |
 | Deploy guides | `DEPLOY-local`, `DEPLOY-remote`, `DEPLOY-gcp` |
-| Deferred work | the active plan's Follow-ups, or the handoff's Next Steps when no plan is active |
-| Requirements | `REQUIREMENTS.md` |
+| Deferred work | the active plan's Follow-ups, or `TODO.md` Backlog when no plan is active |
+| Requirements | `PRD.md` |
 | Retro, distill and dream records (project scope) | `retro` records |
 | Harness-scope retro proposals (queue) | global `proposal` records (`fyr record list --global --kind proposal --open`) |
 | Commits | Reference by short SHA |
@@ -65,7 +65,7 @@ The handoff records the remainder — it is never a substitute for rows already 
 
 1. Run `date +%F` and use that date everywhere below, and `date +%F-%H%M` for the handoff's draft name (Step 5) — never a date from memory.
 2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, in the `changelog` agent definition's format; the agent only when you lack the evidence).
-3. Bring `ROADMAP.md` and `TODO.md` current yourself (Definition of Done step 4): `TODO.md` is empty at every checkpoint, not just at Done — a ticked line is deleted in the commit that ticks it, and between checkpoints it holds only items the active plan will consume; `ROADMAP.md` holds "Now" (the active plan, while one is open) and "Next" (at most three scheduled milestones). Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — and any deferred idea worth keeping, goes in this handoff's Next Steps, not in those files. The dispatches above record; they do not own those two lines.
+3. Bring `TODO.md` current yourself (Definition of Done step 4): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`. The dispatches above record; they do not own that file.
 4. Only then write the handoff (Step 4).
 
 ## Step 4: Write the Handoff Document
@@ -92,7 +92,7 @@ Branch: <current git branch>
 
 - <bullet list of unfinished work>
 - <include any error messages or blockers>
-- Requirements edits awaiting approval: <the exact replacement sentence for `REQUIREMENTS.md`, or `none`>
+- Requirements edits awaiting approval: <the exact replacement sentence for `PRD.md`, or `none`>
 
 ## Key Decisions
 
@@ -160,16 +160,16 @@ Reading side: the global context's § Resume, then checkpoint tells every fresh 
 
 ### Cold-reader check — before the handoff counts as finished
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `ROADMAP.md` Now → the open plans' unticked boxes → the three newest `change` records → `TODO.md` → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `TODO.md` Now → the open plans' unticked boxes → the three newest `change` records → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file or record ID that does not exist (`fyr record get` refuses it).
-3. Any contradiction between the handoff, `ROADMAP.md`, `TODO.md` and the plan.
-4. Any open plan (`fyr record list --open --kind plan`: a plan is open while it holds an unticked box outside its fenced blocks) that `ROADMAP.md` Now does not name.
+3. Any contradiction between the handoff, `TODO.md` and the plan.
+4. Any open plan (`fyr record list --open --kind plan`: a plan is open while it holds an unticked box outside its fenced blocks) that `TODO.md` Now does not name.
 5. Any commit since the previous handoff that changed paths other than `.agents/trail.jsonl` with no `change` record covering it.
 6. Anything still left to guess.
 
-Fix what comes back at the source (plan, `ROADMAP.md`, `TODO.md`, the dispatches above) and in the handoff itself while it is still this session's; then report.
+Fix what comes back at the source (plan, `TODO.md`, the dispatches above) and in the handoff itself while it is still this session's; then report.
 
 ## Step 6: Commit and push
 

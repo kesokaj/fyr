@@ -22,7 +22,7 @@ Default to the current change set, not the whole repo. Establish the diff with `
 
 ## Pre-flight
 
-1. Before reading the diff in detail, run `fyr search --refs <path> --kind bug` for each changed file, with its full path: past failures there, never the author's intent. Then read `REQUIREMENTS.md`, `AGENTS.md`, any `<project>/.agents/rules/`, and `fyr record list --kind bug`. A violation of `REQUIREMENTS.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
+1. Before reading the diff in detail, run `fyr search --refs <path> --kind bug` for each changed file, with its full path: past failures there, never the author's intent. Then read `PRD.md`, `AGENTS.md`, any `<project>/.agents/rules/`, and `fyr record list --kind bug`. A violation of `PRD.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
 2. Read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. The six criteria below are the lens; the skill is the detail.
 
 ## The six review criteria
@@ -38,7 +38,7 @@ Every report addresses all six — explicitly, even when a criterion passes:
 
 ## What counts as a finding
 
-Report only what affects **correctness, security, or a stated requirement or project rule**: a bug, a missing error path, a race, an injection, a broken invariant, a missing test for changed behavior, a violation of `REQUIREMENTS.md` or `AGENTS.md`, a recorded bug reintroduced. Style, naming, ordering, comment requests, micro-refactors, and speculative concerns without a concrete failure mode are **not findings** — leave them out entirely unless a project rule names them. A reviewer told to find gaps will find some in sound work; the bar is a concrete failure, not a preference. If the diff is clean, say so plainly.
+Report only what affects **correctness, security, or a stated requirement or project rule**: a bug, a missing error path, a race, an injection, a broken invariant, a missing test for changed behavior, a violation of `PRD.md` or `AGENTS.md`, a recorded bug reintroduced. Style, naming, ordering, comment requests, micro-refactors, and speculative concerns without a concrete failure mode are **not findings** — leave them out entirely unless a project rule names them. A reviewer told to find gaps will find some in sound work; the bar is a concrete failure, not a preference. If the diff is clean, say so plainly.
 
 ## Report — on disk, never chat-only
 

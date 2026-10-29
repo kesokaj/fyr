@@ -21,6 +21,7 @@ Confirm the current workspace is the intended project root (`git rev-parse --sho
 
 - **New:** no `.agents/` and no `AGENTS.md`.
 - **Update:** `.agents/trail.jsonl` or `AGENTS.md` exists. Every step below adds only what is missing and never rewrites or deletes what the project wrote without the user's yes to Step 3's migration line: an update never edits `PRD.md`, an existing `AGENTS.md`, a record, or anything in `.agents/{rules,skills,agents,commands,workflows,scratch}`. Where the note under a file's title differs from the template's (`TODO.md`), it shows both and takes the template's note only on the user's yes. It asks the new-project questions only for a file it creates, leaves out a file it would change that has uncommitted changes and names it in the summary, and a second run adds nothing.
+- **Legacy root:** `REQUIREMENTS.md` or `ROADMAP.md` at the root — an update whose Step 3 offers the migration line (its last paragraph covers a `PRD.md` already there); a session that finds `PRD.md` missing at resume names it (global context § Resume, then checkpoint); this update is the fix.
 - **Migration:** `<project>/.agents/docs/` or a `docs/` trail tree exists and `.agents/trail.jsonl` does not. The trail is still files: Step 4 migrates it before anything else is added.
 
 Every write this skill makes — a root file, a template copy, a `.gitignore` line — first checks that the target path and its directory are not symlinks (`test -L`): a committed link would carry the write outside the project. A linked path is reported and skipped, never written through.

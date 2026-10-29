@@ -26,7 +26,7 @@ Start from the dispatch's question. Your first command, before any `grep_search`
 - **Risks** — fragile seams, duplicated logic, load-bearing hacks, places where the planned change will hurt.
 - **Open questions** — what you could not determine from the code alone. Say so plainly rather than guessing.
 
-Check `AGENTS.md`, `REQUIREMENTS.md`, and `ROADMAP.md` first when they exist — the brief must not contradict the recorded intent.
+Check `AGENTS.md`, `PRD.md`, and `TODO.md` first when they exist — the brief must not contradict the recorded intent.
 
 ## Brief — on disk, never chat-only
 
