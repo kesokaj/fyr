@@ -8,53 +8,6 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 - **Sessions forget.** A CLI session ends and its lessons go with it. The harness writes them down in the project's own trail (handoffs, decisions, bugs, plans) and in a memory store the CLI reads at the start of the next session.
 - **A CLI cannot measure itself.** `fyr metrics` records the shape of every session (tools, tokens, errors, never your prose), so you can see where the work goes and tune the harness from numbers instead of impressions.
 
-## What you get
-
-| | |
-|---|---|
-| One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
-| Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
-| Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
-| Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, and code modularity) |
-| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs |
-
-## Quick start
-
-You need Go 1.24 or newer and git. The repository is private, so clone with your own SSH key or `gh` login.
-
-```bash
-git clone git@github.com:kesokaj/fyr.git ~/workspace/fyr
-cd ~/workspace/fyr
-go run ./cmd/fyr install          # builds the binary, installs it to ~/.local/bin/fyr, deploys everything
-fyr status                        # ends with "drift none"
-```
-
-Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search`, `record` and `metrics`.
-
-Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/fyr`) and edits no vendor setting (ADR-062). And the harness's own state lives in `~/.config/fyr/` (the brain store `brain.db` with the global feedback, proposal and retro records, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
-
-## Daily commands
-
-| Command | What it does |
-|---|---|
-| `fyr status` | What is installed, from which commit, the binary's build, drift against the repository, the dream timer (and when its unit is an older fyr's, the two commands that replace it), and a note for a `PATH` shadow. Exit 1 on drift. |
-| `fyr update` | At a checkout: fetch, refuse a dirty tree, fast-forward, rebuild, reinstall. At a release-binary install: download the newest release, check it against its `SHA256SUMS`, replace the binary, reinstall. `--check` only reports (exit 2 when behind). `--from-zip FILE` installs a downloaded repository zip. `--dry-run` names what would change and writes nothing. |
-| `fyr install` (or `sync`) | Deploys the repository (or the harness built into a release binary) and removes files a previous install wrote that the repository no longer has, except the Claude Code files an install before fyr wrote under `~/.claude`, which it keeps and stops managing (`DEPLOY-remote` § Crossing to fyr). Idempotent; `--dry-run` prints without changing. |
-| `fyr diff` | A unified diff of every drifted file. |
-| `fyr uninstall` | Removes exactly what it installed, the dream timer included; the metrics store stays. `--dry-run` names what would go. |
-| `fyr list` / `render` | The skill and agent inventory; the assembled context as deployed. |
-| `fyr record add` / `get` / `edit` / `list` / `import` | The brain store, `~/.config/fyr/brain.db`: this project's trail records (plans, bugs, ADRs, reviews, handoffs, specs, …) and the global ones (`--global`: feedback, proposals, retros), each with an ID and a status; the body comes on stdin, and a title or body the dream's redactor would change is stored with a warning on stderr. Every write in a project also rewrites `.agents/trail.jsonl`, the committed export, and a changed export (a pull) is loaded back before the next call. `list --open` is what is still open. `import` migrates a project whose trail is still Markdown files into records, once; `import --global` takes the old logs under `~/.config/fyr`. |
-| `fyr search <words>` | Prints the matching brain-store records first, then a ranked full-text search over the current project's files and trail records (bugs, decisions, plans, changes), with each record's id and status; `--refs BUG-NNN` finds everything that cites one; `--open` lists what is still open. `fyr index` maintains the index; `fyr index --register` is the operator's consent that the project is read across projects — the global search index and record hits (`--global`), `fyr dream --all`, `record import --global` and the metrics join — a marker under `.git/` sealed to this checkout's path and this home, which no clone or copy carries (ADR-068, ADR-068a). |
-| `fyr memory add` / `show` | The project's memory, `memory` records in the brain store (never exported); `show` prints the index a session loads at start. |
-| `fyr metrics ingest` / `show` / `report` / `export` | Reads every session's shape into `~/.config/fyr/metrics.db`, summarises it (outcome, efficiency, process adherence, reliability; `--json`), renders it as one HTML page with charts, backs it up as JSONL. Ingest runs at every checkpoint (the `handoff` skill's last call, `/retro` before its numbers, a phase end) and in each dream run, and reads Antigravity only; rows an older version stored for another CLI are kept and shown as a historical column. Never arguments, prose or tool output. |
-| `fyr dream --install-timer` | An hourly job (systemd or launchd user timer) that does nothing unless an interactive `agy` session of yours runs; then it ingests metrics and, for every project registered with `fyr index --register` that has been idle for a day and changed (each tried at most once a day), sends its memory, new trail and transcripts, redacted, to `agy` headless in plan mode with no tools: in your own Antigravity home when agy's own reports show it grants no tool without review and loads no hook, and nothing but your own setup sits above the dream's empty working directory (no git checkout or other `.agents`), so each project's dream is a conversation `/resume` lists, otherwise in a private home as before; the proposals are stored as global `proposal` records for `/retro` to apply. `--remove-timer` undoes it. A timer an older fyr installed keeps its nightly schedule, at which, with the session check, it almost never dreams, until you run `fyr dream --remove-timer`, then `fyr dream --install-timer`; `fyr status` names it. |
-| `fyr check` | A read-only drift check of the current checkout: every `fyr` verb, subverb and flag its Markdown and current spec, guide and deploy records name in code, and every path or `path:line` they name in an inline span, against the running binary and the tree; every current spec whose code was committed to since the spec's own last update, or that names no code; and every Must and Should item of `PRD.md` (`REQUIREMENTS.md` in a project without one) whose `enforced by:` is missing or does not resolve (a file with no `enforced by:` field at all is noted, not checked). Prints one line per finding and a summary; exit 1 on findings. Writes nothing (`SPEC-fyr-check`). `/review --docs` and the `requirements` skill run it. |
-| `fyr eval --home DIR <row>...` | Runs the named rows of this checkout's suite, the `GUIDE-eval` record, against the Antigravity CLI, one at a time, each in its own sandbox under `<home>/.config/fyr/eval/` (a clone of the fixture, `--fixture DIR` or this checkout, and a throwaway HOME with the harness installed and your login linked in for the run), with its safety checks around it. Prints one line per row, writes one `testing` record, and ingests each sandbox into the metrics store under the label `eval=<row>`, so `fyr metrics show --label eval=<row>` compares runs over time. What the agent reads goes to the CLI's model, as in any session (R8). Sandboxes stay for inspection, and `fyr uninstall` leaves them. `--list` prints the rows. `--home` is required: a missing one, the real home, a home that reaches the real state through a link, and a `--home` inside a git checkout are refused with exit 2 before anything is written. Exit 1 when a row fails (`SPEC-fyr-eval`). |
-| `fyr adopt <name>` | Copies a skill installed elsewhere (for example by `npx skills add -g`) into `skills/`. |
-| `fyr version` | The build version. |
-
-`fyr` and `fyr help` print the short page, one line per command; `fyr help <verb>` or `fyr <verb> --help` prints that verb's page: its synopsis, what it does, and its flags. A flag a verb does not know is a usage error, exit 2, which prints the verb's synopsis. The global flags are `--repo DIR`, the harness checkout to build and install from (by default `$FYR_REPO`, then the working directory or its parents, then the tree the last install recorded; a release binary installs the harness built into it and refuses `--repo` and `$FYR_REPO`, ADR-034; a verb that does not read it, every verb but `install`, `sync`, `status`, `diff`, `update`, `list`, `render`, `adopt` and `eval`, says on stderr that it ignored it and runs), and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
-
 ## How it works
 
 This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt and the operator's `fyr eval` runs. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
@@ -112,9 +65,64 @@ flowchart LR
     linkStyle 17,18,19,20,21,22 stroke:#5B7F1E,stroke-width:2px
 ```
 
-Teal is **update**, indigo **install**, amber **the loop on this machine** (corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them; ADR-062), plum **release**, olive **learn** (the dreamer, hourly while an `agy` session of yours runs, and `fyr eval`: on the machine, not ways in; their two dashed lines to the CLI's model provider are the only things that leave the machine: the dreamer's redacted prompt, ADR-049, and the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session, ADR-065; the dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid, ADR-073). A dashed line is a gap: done by hand or limited to one machine.
+| Colour | Path | What it carries |
+|---|---|---|
+| Teal | **update** | a place moving forward |
+| Indigo | **install** | a place writing the installed files |
+| Amber | **the loop on this machine** | corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them (ADR-062) |
+| Plum | **release** | `/preflight` tagging `main` and publishing the release |
+| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, and `fyr eval`: on the machine, not ways in. Their two dashed lines to the CLI's model provider are the only things that leave the machine: the dreamer's redacted prompt (ADR-049), and the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065). The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
 
-In words: you edit this repository and push `main`. A machine gets the harness one of three ways, a checkout it keeps current with `fyr update`, a release binary with the harness built in (§ Install without cloning), or a repository zip you downloaded by hand (§ Install from a zip). Nothing is ever pushed to a machine; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model. Nothing comes back: experience stays on the machine that logged it (ADR-062). A release is `/preflight vX.Y.Z` from your own turn: it gates the tree, tags `main`, and publishes the tag's binaries, a zip of its tree and their `SHA256SUMS`; no signing key is involved, so any machine where you are logged in to GitHub can cut one. The dreamer is the one thing that runs on its own, hourly while an `agy` session of yours runs, and it only proposes; each project's dream is a conversation you can open with `/resume`.
+A dashed line is a gap: done by hand or limited to one machine. The design around the map is `SDD.md` § Deployment; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
+
+## What you get
+
+| | |
+|---|---|
+| One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
+| Skills | 36 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
+| Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
+| Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, and code modularity) |
+| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs |
+
+## Quick start
+
+You need Go 1.24 or newer and git. The repository is private, so clone with your own SSH key or `gh` login.
+
+```bash
+git clone git@github.com:kesokaj/fyr.git ~/workspace/fyr
+cd ~/workspace/fyr
+go run ./cmd/fyr install          # builds the binary, installs it to ~/.local/bin/fyr, deploys everything
+fyr status                        # ends with "drift none"
+```
+
+Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search`, `record` and `metrics`.
+
+Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/fyr`) and edits no vendor setting (ADR-062). And the harness's own state lives in `~/.config/fyr/` (the brain store `brain.db` with the global feedback, proposal and retro records, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
+
+No checkout on this machine? § Install without cloning and § Install from a zip, below.
+
+## Daily commands
+
+| Command | What it does |
+|---|---|
+| `fyr status` | What is installed, from which commit, and any drift; exit 1 on drift |
+| `fyr update` | Moves this place forward: a checkout pulls, a release binary downloads the newest release, a zip place passes the zip with `--from-zip` |
+| `fyr install` (or `sync`) | Deploys the harness and removes what the repository no longer has |
+| `fyr diff` | A unified diff of every drifted file |
+| `fyr uninstall` | Removes exactly what it installed; the metrics store stays |
+| `fyr list` / `render` | The skill and agent inventory; the context as deployed |
+| `fyr record add` / `get` / `edit` / `list` / `import` | The brain store: this project's trail records and the global ones |
+| `fyr search <words>` | Matching records first, then a ranked search of the project's files |
+| `fyr memory add` / `show` | The project memory a session loads at start |
+| `fyr metrics ingest` / `show` / `report` / `export` | The shape of every session: stored, summarised, charted, backed up |
+| `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
+| `fyr check` | A read-only drift check of the docs, specs and `PRD.md` against the binary and the tree |
+| `fyr eval --home DIR <row>...` | The behavioural suite against the Antigravity CLI, each row in its own sandbox |
+| `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
+| `fyr version` | The build version |
+
+`fyr help <verb>` prints a verb's page. Each verb's full behaviour and the global flags are `TDD.md` § T5; the exact contract of each is its `SPEC-fyr-*` record (`fyr record list --kind spec`, then `fyr record get`).
 
 ## Install without cloning
 
@@ -212,6 +220,11 @@ Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [
 ## Layout
 
 ```
+PRD.md        what the harness is for and what must never drift (R0–R10)
+SDD.md        how the parts fit: components M1–M15, the main flows, the decisions
+TDD.md        how each part is built: a section T1–T15 per component, and its tests
+TODO.md       Now, Next and Backlog; the active plan record wins
+AGENTS.md     the rules of this repository, for agents
 context/      AGENTS.md (the global context) and dev-setup.md (environment, stack, GCP rule)
 agents/       one directory per subagent (agent.md, in Antigravity's format, installed as written)
 skills/       one directory per skill (SKILL.md, references/, assets/)
@@ -220,6 +233,14 @@ commands/     markdown prompts invoked as /name (empty; prefer skills)
 cmd/fyr       the binary; internal/ its packages, each named in AGENTS.md § Layout
 embed.go      the go:embed of the five content directories, pinned to what git tracks
 .agents/      this repository's own trail, trail.jsonl (records: plans, decisions, bugs, changes, handoffs, testing, specs, deploy guides; read with fyr record), and scratch/ (gitignored)
+```
+
+```mermaid
+flowchart LR
+  prd["PRD.md<br/>requirements R0 to R10"] --> sdd["SDD.md<br/>components M1 to M15"]
+  sdd --> tdd["TDD.md<br/>sections T1 to T15 and their tests"]
+  tdd --> todo["TODO.md<br/>tasks name a T section"]
+  tdd --> records[("SPEC and ADR records<br/>the detail")]
 ```
 
 ## Working on the harness
@@ -231,4 +252,4 @@ go run ./cmd/fyr install --home .agents/scratch/home                         # n
 
 Two tests pin the deployed context's size (`internal/harness/size_test.go`): the hand-written context under 15,000 bytes, and the whole rendered block, skill inventory included, under 22,000 bytes, inside Antigravity's 24,000-byte limit. `govulncheck` has two known, unreachable advisories (`AGENTS.md` § Setup commands).
 
-Where to read more: `AGENTS.md` for the rules of this repository and how the harness works; `PRD.md` for what must never drift; the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`) for each verb's exact behaviour and `SPEC-fyr-delivery` for what a release delivers to each kind of place; `DEPLOY-remote` for the machines, the resync loop and the release procedure (`/preflight vX.Y.Z`, no key); the `adr` records (`fyr record list --kind adr`) for every decision and why.
+Where to read more: `AGENTS.md` for the rules of this repository; `PRD.md`, `SDD.md` and `TDD.md` for what the harness must do, how it fits and how it is built; `DEPLOY-remote` for the machines, the resync loop and the release procedure (`/preflight vX.Y.Z`, no key); the `adr` records (`fyr record list --kind adr`) for every decision and why.

@@ -88,6 +88,7 @@ Releases are annotated `vX.Y.Z` tags on `main`, cut only by `/preflight vX.Y.Z` 
 | `internal/harness/plan.go` | What gets installed where |
 | `internal/harness/inventory.go` | The lint: what a skill, agent, command or rule may set |
 | `PRD.md` | Non-negotiables for the harness: problem, goals, requirements R0–R10, known limits |
+| `SDD.md`, `TDD.md` | How the parts fit (components M#, traced from R#) and how each is built (sections T#, traced to tests) |
 | `DEPLOY-remote` | The four places, the resync loop, and the release procedure, with no key (ADR-030, ADR-033, ADR-053) |
 | `SPEC-fyr-delivery` | The delivery model, end to end, and what stays on the machine |
 | `internal/redact/redact.go` | The redactor every dream input passes before the prompt leaves the machine |

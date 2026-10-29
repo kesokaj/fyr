@@ -12,8 +12,8 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// Every usage error exits 2 with its reason on the verb's writer, as README
-// § Daily commands, specs/fyr/delivery.md and dream.md state. These
+// Every usage error exits 2 with its reason on the verb's writer, as TDD.md
+// § T5 (moved from README § Daily commands), specs/fyr/delivery.md and dream.md state. These
 // sites returned a plain error instead — exit 1, the message on stderr —
 // until the project review of 2026-10-09 (row 4, BUG-168).
 func TestUsageErrorsExit2(t *testing.T) {

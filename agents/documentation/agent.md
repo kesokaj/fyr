@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: "Maintains the how-it-works docs (README, the project AGENTS.md setup and deploy sections, and the spec, guide and deploy records, edited as drafts the main thread stores back) and returns what it updated. Dispatch when behavior, interfaces, the plan, or a deploy path changed and the edit is over 30 lines (the main agent writes smaller ones). Never triggered by internal-only refactors, and never writes changelogs (those belong to changelog) or ADRs (the main agent's) or TODO.md (the main agent keeps it)."
+description: "Maintains the how-it-works docs (README, SDD.md and TDD.md, the project AGENTS.md setup and deploy sections, and the spec, guide and deploy records, edited as drafts the main thread stores back) and returns what it updated. Dispatch when behavior, interfaces, the plan, or a deploy path changed and the edit is over 30 lines (the main agent writes smaller ones). Never triggered by internal-only refactors, and never writes changelogs (those belong to changelog) or ADRs (the main agent's) or TODO.md (the main agent keeps it)."
 subagent: true
 mainAgent: false
 tools: [view_file, grep_search, find_by_name, replace_file_content, write_to_file]
@@ -32,6 +32,8 @@ GUIDE-testing                         # the app's verification procedure (Shared
 DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # how it runs here, on a remote box, on GCP; /preflight deploys by these; each with an Operator steps section
 GUIDE-onboarding                      # the explanation for a new person, first written by the explain-project skill; stale when behavior or layout changes
 README.md                             # root file: name, quick start, architecture, config, deploy
+SDD.md, TDD.md                        # root files: the system design (components M#, flows, the R→M trace) and
+                                      # the technical design (a section T# per component, the M→T→test trace)
 AGENTS.md                             # root file: the project's Setup commands and Deploy sections only.
                                       # Setup stays the few commands a contributor runs before claiming
                                       # something works — the ones the verifier reads. A tier list
@@ -50,12 +52,13 @@ AGENTS.md                             # root file: the project's Setup commands 
 1. **Read before writing.** Inspect the actual code and the existing doc. A task isn't done until docs match the code exactly. When the dispatch carries `fyr search` output for a changed command, flag or path, read every record and file it lists: each one still describing the old behaviour is yours to update (ask for the drafts of records the dispatch did not export).
 2. **Specs are live.** Keep every `SPEC-<app>-*` record matching the code: `integration-spec.md` its public APIs, schemas, configs, auth and errors; a topic spec the behaviour it describes.
 3. **README is written for a human reader first** — what it is, why, how to start, where the detail lives; the reference detail stays in the guides it links. **README stays copy-pasteable.** Quick-start commands are the ones `AGENTS.md` § Setup names, copied exactly; you have no shell to run them, so a command you cannot find there is a question in your reply, never an invention.
-4. **TODO.md is not yours.** The main agent keeps Now, Next and Backlog; when a change re-sequences the plan, say so in your reply and leave the file.
-5. **Comments in source are not yours**; where a spec or guide explains a mechanism, it says *why*, not *what*.
-6. **PRD.md is immutable** without explicit user approval — never edit it.
-7. Convert relative dates to absolute.
-8. **No frontmatter**: a record carries its own kind, status and date, and the root files (`README.md`, `PRD.md`, `TODO.md`) carry none.
-9. **Deploy guides are live.** `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` match how the project is actually built, run, and deployed, with the exact commands; a target that does not exist says *Not applicable yet* rather than nothing. `/preflight` deploys only by them, so a stale guide is a wrong deploy. Each deploy guide carries an `## Operator steps` section: the standing by-hand procedures for that target (installs, updates, smoke checks, upgrades), never pending items — those live in the newest handoff.
+4. **SDD.md and TDD.md summarise and link.** A component row or a T# section points at its `SPEC-` and `adr` records and never restates them; a component added, removed or renamed updates both traces in the same change, and a test the trace names must exist.
+5. **TODO.md is not yours.** The main agent keeps Now, Next and Backlog; when a change re-sequences the plan, say so in your reply and leave the file.
+6. **Comments in source are not yours**; where a spec or guide explains a mechanism, it says *why*, not *what*.
+7. **PRD.md is immutable** without explicit user approval — never edit it.
+8. Convert relative dates to absolute.
+9. **No frontmatter**: a record carries its own kind, status and date, and the root files (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`) carry none.
+10. **Deploy guides are live.** `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` match how the project is actually built, run, and deployed, with the exact commands; a target that does not exist says *Not applicable yet* rather than nothing. `/preflight` deploys only by them, so a stale guide is a wrong deploy. Each deploy guide carries an `## Operator steps` section: the standing by-hand procedures for that target (installs, updates, smoke checks, upgrades), never pending items — those live in the newest handoff.
 
 ## Records
 
