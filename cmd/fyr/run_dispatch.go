@@ -178,6 +178,9 @@ func (c *ctx) writesState() bool {
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
+	case "work":
+		// Its sandboxes, under the state directory's work/.
+		return true
 	}
 	return false
 }

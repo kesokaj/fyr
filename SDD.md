@@ -46,7 +46,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M18
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
 | M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it, M18 its workers | R6, R8 |
-| M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 40 lines; no verb yet (`PLAN-2026-10-29-workers` Phase 3) | R8 |
+| M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 39 lines per worker; `fyr work` (M5) runs one Kickoff file (`SPEC-fyr-work`, ADR-076) | R8 |
 
 ## Flows
 
@@ -149,7 +149,7 @@ One line each; the record holds the context, the alternatives and the operator's
 
 ## Cross-cutting
 
-- **Security:** two things leave the machine, the dreamer's redacted prompt (M12) and the operator's `fyr eval` runs (R8); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token, and scopes the token's cookie to a per-run path so no other local port receives it (ADR-075, ADR-075a).
+- **Security:** three things leave the machine, the dreamer's redacted prompt (M12), the operator's `fyr eval` runs and the operator's `fyr work` workers, whose clone has no remote (R8, ADR-076); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token, and scopes the token's cookie to a per-run path so no other local port receives it (ADR-075, ADR-075a).
 - **Privacy:** memory, metrics and the global records stay in `~/.config/fyr/` on the machine that wrote them (R7); the metrics store keeps no arguments, prose or tool output (R4).
 - **Observability:** `fyr status` names drift, the binary's build and the dream timer; `fyr metrics show` and `fyr metrics report` summarise every session's shape.
 - **Cost:** no service and no cloud; the only model calls are the dream's, hourly while a session already runs, and the evals the operator starts.

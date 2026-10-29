@@ -53,6 +53,8 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"dream", "--remove-timer"},
 		{"update", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip},
+		// Its sandboxes go under the state directory, whatever it refuses.
+		{"work", "absent.md"},
 	}
 	readOnly := [][]string{
 		{"status", "--repo", repo},

@@ -10,10 +10,11 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// TestGuardFingerprintSkipStores is D45 of PLAN-2026-10-29-workers: under
-// SkipStores a write to the session-written stores at the top of the state
-// directory changes nothing, every other watched path still does, and
-// without it (eval's check c) a store write is still seen.
+// TestGuardFingerprintSkipStores is D45 of PLAN-2026-10-29-workers, as D64
+// and D70 amend it: under SkipStores a write to what the sessions, the
+// metrics ingest and the dream write at the top of the state directory
+// changes nothing, state.json and every other watched path still do, and
+// without it (eval's check c) each of those writes is still seen.
 func TestGuardFingerprintSkipStores(t *testing.T) {
 	real := filepath.Join(outsideTemp(t), "real")
 	write := func(rel string) {
@@ -30,7 +31,7 @@ func TestGuardFingerprintSkipStores(t *testing.T) {
 		f.Close()
 	}
 	state := harness.StateDir + "/"
-	for _, rel := range []string{"brain.db", "metrics.db", "search.db", "state.json", "sub/brain.db"} {
+	for _, rel := range []string{"brain.db", "metrics.db", "search.db", "state.json", "sub/brain.db", "dream.log", "dream-agy-123/s.json", "proposals/dream/p.md"} {
 		write(state + rel)
 	}
 	write(".gemini/config/rules/x.md")
@@ -46,14 +47,41 @@ func TestGuardFingerprintSkipStores(t *testing.T) {
 		{state + "metrics.db-wal", true, false},
 		{state + "search.db", true, false},
 		{state + "search.db-shm", true, false},
-		{state + "state.json", true, false},
+		{state + "brain.db-journal", true, false},
+		{state + "dream.log", true, false},
+		{state + "dream.lock", true, false},
+		{state + "dream-state.json", true, false},
+		{state + "dream-agy-123/s.json", true, false},
+		{state + "dream-agy-home-123/.gemini/s.json", true, false},
+		{state + "dream-projects-123/x", true, false},
+		{state + "dream-metrics-123/x", true, false},
+		{state + "dream-brain-123/x", true, false},
+		{state + "dream-failed/x", true, false},
+		{state + "dream-work/x", true, false},
+		{state + "metrics-agy-123/s.json", true, false},
+		{state + ".fyr-123", true, false},
+		{state + "proposals/dream/p.md", true, false},
+		// Exact writer names, never a bare prefix (the Phase 3 security
+		// review, finding 4): a later file named like one is still seen.
+		{state + "state.json", true, true},
 		{state + "sub/brain.db", true, true},
 		{state + "brain.db.bak", true, true},
+		{state + "metrics.json", true, true},
+		{state + "dream-config.json", true, true},
+		{state + "dream-agy-x/s.json", true, true},
+		{state + ".fyr-noindex", true, true},
+		{state + ".fyr-456/x", true, true},
+		{state + "proposals.bak", true, true},
 		{state + "other.json", true, true},
+		{state + "xdream.log", true, true},
 		{".gemini/config/rules/x.md", true, true},
 		{state + "brain.db", false, true},
 		{state + "state.json", false, true},
 		{state + "metrics.db-wal", false, true},
+		{state + "dream.lock", false, true},
+		{state + "dream-agy-123/s.json", false, true},
+		{state + ".fyr-123", false, true},
+		{state + "proposals/dream/p.md", false, true},
 	} {
 		before := fingerprint(real, c.skip)
 		write(c.rel)

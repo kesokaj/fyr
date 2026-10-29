@@ -41,6 +41,7 @@ Background and measurement
   dream        the hourly dreamer and its timer
   metrics      session shapes: ingest, show, report, export
   eval         run behavioural rows against the CLI
+  work         run one Kickoff as a sandboxed agy worker
   check        read-only drift check of this checkout's docs
   serve        a local page of status, records, memory and metrics
   version      print the build version
@@ -245,6 +246,20 @@ var pages = map[string]verbPage{
 			"--home is required, and refused when it is the real home, reaches its",
 			"state directory through a link, or lies inside a git checkout.",
 			"Exit 0 every row passed, 1 any failed, 2 a refusal before any row ran.",
+		},
+	},
+	"work": {
+		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--keep] <kickoff-file>"},
+		about: []string{
+			"Runs one Kickoff file as a worker: an unattended agy session in its own",
+			"sandbox under --home's .config/fyr/work/, on a clone of this checkout's",
+			"HEAD with no remote, on the branch work/<file name>. What the agent reads",
+			"goes to the CLI's model, as in any session (R8). Then it fetches the",
+			"branch back into this checkout by path, checks it stayed inside the",
+			"file's Files: line, copies its drafts, and prints the result contract:",
+			"the result line, the handoff's sections and the change records, at most",
+			"39 lines. It never pushes or merges. Refused on a dirty tree. The default",
+			"--home is your own. Exit 0 PASS, 1 FAIL, 2 a refusal before anything ran.",
 		},
 	},
 	"check": {

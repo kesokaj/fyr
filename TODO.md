@@ -9,9 +9,9 @@
 
 Workers Phase 3 of `PLAN-2026-10-29-workers`: the `fyr work` verb for one Kickoff, with its ADR, the PRD edits and the map in one commit. The re-plan after the operator's addendum is approved (D54–D69) and its cold read is answered (D70–D90). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] `cmd/fyr/verb_work.go`: flags `--home --repo --timeout --model --keep`, one file, exit statuses, signals (D89)
-- [ ] The path's ADR and its restatements (PRD R8, Non-goals, Known limits; the README map; AGENTS.md rules 1 and 4)
-- [ ] `Config.SkipStores` by prefix, `state.json` fingerprinted again, the contract's 39 lines (D70, D85)
+- [x] `cmd/fyr/verb_work.go`: flags `--home --repo --timeout --model --keep`, one file, exit statuses, signals (D89)
+- [x] The path's ADR and its restatements (PRD R8, Non-goals, Known limits; the README map; AGENTS.md rules 1 and 4): ADR-076
+- [x] `Config.SkipStores` by exact writer name, `state.json` fingerprinted again, the contract's 39 lines (D70, D85)
 - [ ] `SPEC-fyr-work` accepted on the operator's word after reading D47 (who: user; not a Checkpoint condition, D69)
 - [ ] The first real worker on `~/sandbox/fyr-work/fixture`
 - [ ] Checkpoint: one commit for the verb, the ADR, the PRD, the map and the docs; push; the real-home install on dave; handoff

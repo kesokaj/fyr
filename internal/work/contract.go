@@ -11,7 +11,7 @@ import (
 // The contract's bounds: lines per worker (D4), notes kept of them, and
 // bytes per line, so one long line cannot carry a transcript.
 const (
-	maxLines    = 40
+	maxLines    = 39 // under 40 (D4), so two workers and the stamp line fit 80 (D85)
 	maxNotes    = 10
 	maxLineSize = 1000
 )

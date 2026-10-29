@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -150,24 +151,40 @@ var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", 
 // sandboxDirs are the state directory's children check c skips: Root's verbs.
 var sandboxDirs = []string{"eval", "work"}
 
-// storeFiles are the state directory's top-level files any session of the
-// operator's writes, which Config.SkipStores leaves out (D45 of
-// PLAN-2026-10-29-workers): a worker that runs for an hour beside the
-// operator's own sessions and the dream timer would otherwise fail check c
-// falsely.
-var storeFiles = func() []string {
-	var out []string
-	for _, f := range []string{"brain.db", "metrics.db", "search.db", "state.json"} {
-		out = append(out, f, f+"-wal", f+"-shm")
+// storeFile, storeNames, storeTemps and atomicTemp are the state
+// directory's top-level entries the operator's own sessions, the metrics
+// ingest and the dream write, which Config.SkipStores leaves out (D45 of PLAN-2026-10-29-workers,
+// as D64 and D70 amend it): a worker that runs for an hour beside those
+// writers would otherwise fail check c falsely. Each is a writer's exact
+// name, never a bare prefix, so a file added later under a similar name is
+// still watched (the Phase 3 security review, finding 4). state.json is not
+// one of them: only an install writes it, and the lead installs nothing while
+// workers run.
+var (
+	// the three stores and their SQLite companions
+	storeFile = regexp.MustCompile(`^(brain|search|metrics)\.db(-wal|-shm|-journal)?$`)
+	// the dream's log, lock and state, and the directories it writes
+	storeNames = []string{"dream.log", "dream.lock", "dream-state.json", "dream-failed", "dream-work", "proposals"}
+	// os.MkdirTemp's and WriteAtomic's names: a writer's prefix, then digits
+	storeTemps = regexp.MustCompile(`^(dream-agy-home-|dream-agy-|dream-projects-|dream-metrics-|dream-brain-|metrics-agy-)[0-9]+$`)
+	atomicTemp = regexp.MustCompile(`^\.fyr-[0-9]+$`)
+)
+
+// storeEntry reports whether rel, relative to the state directory, is one
+// of the entries SkipStores leaves out: top-level names only, and
+// WriteAtomic's temporary names as files only.
+func storeEntry(rel string, dir bool) bool {
+	if strings.ContainsRune(rel, filepath.Separator) {
+		return false
 	}
-	return out
-}()
+	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (!dir && atomicTemp.MatchString(rel))
+}
 
 // fingerprint is safety check c (preamble :85-117, BUG-107, 123, 158): every
 // entry under the watched paths, as path relative to the home → type, mode,
 // size and a SHA-256 of a file's content or a link's target. A link to a
 // regular file is read through; no link is walked. A path that does not
-// exist is no entry (BUG-158). skipStores leaves out storeFiles.
+// exist is no entry (BUG-158). skipStores leaves out every storeEntry.
 func fingerprint(realHome string, skipStores bool) map[string]string {
 	fp := map[string]string{}
 	for _, dir := range watched {
@@ -189,7 +206,10 @@ func fingerprint(realHome string, skipStores bool) map[string]string {
 			if dir == harness.StateDir && d.IsDir() && slices.Contains(sandboxDirs, rel) {
 				return filepath.SkipDir
 			}
-			if dir == harness.StateDir && skipStores && !d.IsDir() && slices.Contains(storeFiles, rel) {
+			if dir == harness.StateDir && skipStores && storeEntry(rel, d.IsDir()) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			fp[key] = entryPrint(p, d)

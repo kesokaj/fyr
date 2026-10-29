@@ -10,7 +10,7 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 
 ## How it works
 
-This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt and the operator's `fyr eval` runs. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
+This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs and the operator's `fyr work` workers. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
 
 ```mermaid
 flowchart LR
@@ -34,6 +34,7 @@ flowchart LR
         configDir["~/.config/fyr/<br/>brain.db, metrics.db, search.db, state.json<br/>stays on this machine"]
         dreamer["fyr dream --all<br/>hourly user timer, while agy runs<br/>a CLI with no tools"]
         evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
+        workRun["fyr work Kickoff file<br/>typed by you, a sandboxed clone with no remote and HOME"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -58,11 +59,12 @@ flowchart LR
     dreamer -. "one conversation per project, in /resume" .-> sessions
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
+    workRun -. "a worker's prompts and the files its agent reads, unredacted" .-> provider
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
     linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
     linkStyle 14,15,16 stroke:#A8660F,stroke-width:2px
-    linkStyle 17,18,19,20,21,22 stroke:#5B7F1E,stroke-width:2px
+    linkStyle 17,18,19,20,21,22,23 stroke:#5B7F1E,stroke-width:2px
 ```
 
 | Colour | Path | What it carries |
@@ -71,7 +73,7 @@ flowchart LR
 | Indigo | **install** | a place writing the installed files |
 | Amber | **the loop on this machine** | corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them (ADR-062) |
 | Plum | **release** | `/preflight` tagging `main` and publishing the release |
-| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, and `fyr eval`: on the machine, not ways in. Their two dashed lines to the CLI's model provider are the only things that leave the machine: the dreamer's redacted prompt (ADR-049), and the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065). The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
+| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, `fyr eval` and `fyr work`: on the machine, not ways in. Their three dashed lines to the CLI's model provider are the only things that leave the machine: the dreamer's redacted prompt (ADR-049); the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065); and the same for a `fyr work` worker you started, whose clone has no remote, so nothing it holds goes anywhere but to that model (ADR-076). The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
 
 A dashed line is a gap: done by hand or limited to one machine. The design around the map is `SDD.md` § Deployment; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
 
@@ -120,6 +122,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr check` | A read-only drift check of the docs, specs and `PRD.md` against the binary and the tree |
 | `fyr serve` | Read-only pages of this project and this home on `127.0.0.1:3000` until Ctrl-C; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR <row>...` | The behavioural suite against the Antigravity CLI, each row in its own sandbox |
+| `fyr work [--timeout D] [--model M] [--keep] <kickoff-file>` | One Kickoff run as an unattended worker in its own sandbox, on a clone of this checkout with no remote; its branch is fetched back by path and a result contract of at most 39 lines is printed; it never pushes or merges |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | The build version |
 

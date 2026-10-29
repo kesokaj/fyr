@@ -18,6 +18,7 @@
 //	fyr dream       the hourly dreamer and its timer
 //	fyr metrics     session shapes: ingest, show, report, export
 //	fyr eval        run behavioural rows against the CLI
+//	fyr work        run one Kickoff as a sandboxed agy worker
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr serve       a local page of status, records, memory and metrics
 //	fyr version     print the build version

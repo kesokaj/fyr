@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -34,6 +35,9 @@ type ctx struct {
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
+	workTimeout                                                                             time.Duration
+	workModel                                                                               string
+	workKeep                                                                                bool
 	limit, port                                                                             int
 	register                                                                                bool
 	// src is the harness, resolved before run for the verbs that mark source

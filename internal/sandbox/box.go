@@ -31,7 +31,7 @@ type Config struct {
 	GitEmail     string        //
 	Model        string        // agy --model; "" passes none
 	Timeout      time.Duration // agy alone is killed after this
-	SkipStores   bool          // check c leaves out storeFiles (work only, D45)
+	SkipStores   bool          // check c leaves out every storeEntry (work only, D45, D64, D70)
 	PrintTimeout string        // agy --print-timeout, as "<n>m"
 	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is 5s
 	Prefix       string        // every note starts "<Prefix>: "

@@ -60,7 +60,8 @@ func TestBlockLines(t *testing.T) {
 	}
 }
 
-// TestBlockCutOrder is D39: over 40 lines the Kickoff section goes first,
+// TestBlockCutOrder is D39: over 39 lines (under 40, D85) the Kickoff
+// section goes first,
 // then Open / In Progress, then the change lines, and Next Steps last, each
 // from its end; a heading left alone goes with it; the cut line counts what
 // went.
@@ -71,18 +72,18 @@ func TestBlockCutOrder(t *testing.T) {
 		cut              int
 	}{
 		{2, 2, 2, []string{"## Open", "## Next", "## Kickoff"}, 0},
-		{10, 10, 13, []string{"## Open", "## Next", "## Kickoff"}, 0}, // 2+1+1 fixed, 11+11+14: 40
-		{10, 10, 14, []string{"## Open", "## Next", "## Kickoff"}, 2}, // 41: the cut line and one more
-		{20, 15, 10, []string{"## Open", "## Next"}, 13},              // the Kickoff whole, then two of Open
+		{10, 10, 12, []string{"## Open", "## Next", "## Kickoff"}, 0}, // 2+1+1 fixed, 11+11+13: 39
+		{10, 10, 13, []string{"## Open", "## Next", "## Kickoff"}, 2}, // 40: the cut line and one more
+		{20, 15, 10, []string{"## Open", "## Next"}, 14},              // the Kickoff whole, then three of Open
 		{3, 33, 3, []string{"## Next"}, 8},                            // Open's heading would be left alone
-		{3, 60, 3, []string{"## Next"}, 4 + 4 + 1 + 25},               // then the change line, then Next from its end
+		{3, 60, 3, []string{"## Next"}, 4 + 4 + 1 + 26},               // then the change line, then Next from its end
 	} {
 		r := fetchedResult()
 		r.Handoff = handoffOf(c.open, c.next, c.kick)
 		b := r.Block()
 		joined := strings.Join(b, "\n")
-		if len(b) > maxLines {
-			t.Errorf("%v: %d lines", c, len(b))
+		if len(b) > 39 {
+			t.Errorf("%v: %d lines, over 39", c, len(b))
 		}
 		for _, h := range []string{"## Open", "## Next", "## Kickoff"} {
 			if in := strings.Contains(joined, "\nwork: fix-a | "+h); in != contains(c.keep, h) {
@@ -93,8 +94,8 @@ func TestBlockCutOrder(t *testing.T) {
 		if c.cut == 0 && strings.Contains(joined, ": cut ") || c.cut > 0 && b[len(b)-1] != cutLine {
 			t.Errorf("%v: last line %q, want %q", c, b[len(b)-1], cutLine)
 		}
-		if c.cut > 0 && len(b) < maxLines-1 {
-			t.Errorf("%v: %d lines after a cut, want %d or one less", c, len(b), maxLines)
+		if c.cut > 0 && len(b) < 38 {
+			t.Errorf("%v: %d lines after a cut, want 39 or one less", c, len(b))
 		}
 		if !strings.Contains(joined, "Next Steps line 1") {
 			t.Errorf("%v: the first Next Steps line was cut", c)
@@ -115,8 +116,8 @@ func TestBlockBounds(t *testing.T) {
 	r.Handoff = handoffOf(1, 1, 1)
 	r.Handoff.Body = strings.Replace(r.Handoff.Body, "Next Steps line 1", "Next\x1b[2J"+strings.Repeat("é", 800), 1)
 	b := r.Block()
-	if len(b) != maxLines {
-		t.Fatalf("%d lines", len(b))
+	if len(b) != 39 {
+		t.Fatalf("%d lines, want 39", len(b))
 	}
 	joined := strings.Join(b, "\n")
 	if strings.Contains(joined, "note 10") || !strings.Contains(joined, "note 9") || strings.Contains(joined, "\x1b") {
