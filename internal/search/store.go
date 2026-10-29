@@ -196,7 +196,7 @@ func tryOpenWaiting(path string) (*store, error) {
 }
 
 func tryOpen(path string) (*store, error) {
-	// 0700: ~/.config/fyr holds the feedback log (ConfigDir).
+	// 0700: ~/.config/fyr holds the brain store's global feedback (ConfigDir).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}

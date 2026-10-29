@@ -26,9 +26,9 @@ type State struct {
 	Files  []string `json:"files"` // relative to $HOME, sorted
 }
 
-// StateDir is the state directory under a home: the manifest, the feedback
-// and retro logs, the proposals, the search index, the metrics store and the
-// dream's state. Every path into it is built from this one constant (plan
+// StateDir is the state directory under a home: the manifest, the brain
+// store, the search index, the metrics store and the dream's state, plus the
+// logs from before the brain until `record import --global` migrates them. Every path into it is built from this one constant (plan
 // fyr D22): a literal missed would split a machine's state across two
 // directories (TestStateDirHasOneHome).
 const StateDir = ".config/fyr"
@@ -102,9 +102,9 @@ func SaveState(home string, s State) error {
 	return WriteAtomic(statePath(home), append(data, '\n'), 0o644)
 }
 
-// ConfigDir returns ~/.config/fyr, created 0700 when absent: the
-// feedback log, the retro proposals, the global search index (search.db) and
-// the metrics store live there, and none of it leaves the machine (ADR-062).
+// ConfigDir returns ~/.config/fyr, created 0700 when absent: the brain
+// store (brain.db), the global search index (search.db) and the metrics
+// store live there, and none of it leaves the machine (ADR-062).
 // An existing directory is left as it is
 // here — every install used to create it 0755 on the way to state.json, and
 // tightenConfigDir, run by install alone, is what corrects that (security
@@ -134,14 +134,14 @@ func tightenConfigDir(home string, dryRun bool, out io.Writer) {
 	// Names what it declines to touch, as install's `keep` line does
 	// (security review of the audit, round 3).
 	if info.Mode()&os.ModeSymlink != 0 {
-		fmt.Fprintf(out, "note: ~/.config/fyr is a symlink; its target's mode is yours to set (0700 keeps the feedback log private)\n")
+		fmt.Fprintf(out, "note: ~/.config/fyr is a symlink; its target's mode is yours to set (0700 keeps the brain store's global feedback private)\n")
 		return
 	}
 	if !info.IsDir() || info.Mode().Perm()&0o077 == 0 {
 		return
 	}
 	if !ownedByCaller(info) {
-		fmt.Fprintf(out, "note: ~/.config/fyr is not yours to tighten (mode %04o); ask its owner for 0700 — the feedback log lives there\n", info.Mode().Perm())
+		fmt.Fprintf(out, "note: ~/.config/fyr is not yours to tighten (mode %04o); ask its owner for 0700 — the brain store's global feedback lives there\n", info.Mode().Perm())
 		return
 	}
 	fmt.Fprintf(out, "mode    ~/.config/fyr (%04o -> 0700)\n", info.Mode().Perm())

@@ -70,7 +70,7 @@ func Path(home string) string { return filepath.Join(home, harness.StateDir, "me
 // whose schema is newer than this binary's is refused before anything is
 // written to it.
 func Open(path string) (*Store, error) {
-	// 0700: ~/.config/fyr holds the feedback log (search.tryOpen).
+	// 0700: ~/.config/fyr holds the brain store's global feedback (search.tryOpen).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}

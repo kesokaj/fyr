@@ -92,8 +92,9 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 			fmt.Fprintln(log, printable(fmt.Sprintf("metrics: outcome: %v", err)))
 		}
 	}
-	// Events come from the real home's projects and feedback log, also for a
-	// --source run: its sessions' project roots are where git and the trail are.
+	// Events come from the real home's projects, its global feedback records
+	// and the old feedback log, also for a --source run: its sessions' project
+	// roots are where git and the trail are.
 	notes, err := s.joinEvents(o.Home)
 	if err != nil {
 		r.Failed = append(r.Failed, "events")

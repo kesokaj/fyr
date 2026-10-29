@@ -74,7 +74,7 @@ type store struct {
 // A store a newer binary wrote is refused before anything is written to it.
 func openStore(home string) (*store, error) {
 	path := Path(home)
-	// 0700: ~/.config/fyr holds the feedback log and the stores (search.tryOpen).
+	// 0700: ~/.config/fyr holds this store's global feedback and the other stores (search.tryOpen).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}

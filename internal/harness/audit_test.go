@@ -158,8 +158,9 @@ func TestCellIsRuneSafe(t *testing.T) {
 	}
 }
 
-// Finding 5, second round: the runtime directory holds the feedback log
-// and the proposals; it is 0700 after every install, whatever it was before.
+// Finding 5, second round: the runtime directory holds the brain store's
+// global feedback and proposals; it is 0700 after every install, whatever it
+// was before.
 func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root's umask makes mode assertions meaningless")
@@ -244,7 +245,7 @@ func TestInstallMakesTheConfigDirPrivate(t *testing.T) {
 		if strings.Contains(out.String(), "mode    ~/.config/fyr") {
 			t.Errorf("install claimed a mode change through a symlink:\n%s", out.String())
 		}
-		if !strings.Contains(out.String(), "note: ~/.config/fyr is a symlink; its target's mode is yours to set") {
+		if !strings.Contains(out.String(), "note: ~/.config/fyr is a symlink; its target's mode is yours to set (0700 keeps the brain store's global feedback private)") {
 			t.Errorf("install did not name the symlink it left alone:\n%s", out.String())
 		}
 	})
