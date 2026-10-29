@@ -7,15 +7,16 @@
 
 ## Now
 
-Workers Phase 5a of `PLAN-2026-10-29-workers`: the `work` skill. Phase 4 is done (several Kickoffs, `--max-workers`, `--kill`, commit `140bd34`). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 5b of `PLAN-2026-10-29-workers`: the workers decision, the worker template and the lead exception, in one commit. Phase 5a is done (the `work` skill; D93). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] Risk check first: whether an interactive `agy` session's background `run_command` survives the end of the lead's turn (who: both: the session ends its turn after starting it, and the operator sends any message after two minutes)
-- [ ] `skills/work/SKILL.md`: the standing approvals, the judgement rule, the closed set, the loop's eleven steps, `/work PLAN-ID` as the resume
-- [ ] Checkpoint: full test command, `reviewer` with `/review --docs`, `verifier` log, change record, commit, push, the real-home install on dave, handoff
+- [ ] The feature skill: the `after:` and `files:` lines, the fifth cold-read question, the workers decision, the "ends here" exception, the gate rule's sentence, Step 3's cold-read gate in a session that may lead, `planner` and `lead` in the `by:` list
+- [ ] The handoff skill: the optional `Files:` line, the worker-mode Kickoff, the worker-mode paragraph
+- [ ] The lead exception: the `rules/session-sizing.md` clause, the ADR amending ADR-058 (1) and (4), `SDD.md`:146, `AGENTS.md` § Rules' dave sentence, `.gitattributes`
+- [ ] Behavioural runs: `fyr eval` rows `feature` and `handoff`, n of N in a `testing` record
+- [ ] Checkpoint: full test command, `reviewer` with `/review --docs`, `verifier` log, change record, ONE commit, push, the real-home install on dave, handoff
 
 ## Next
 
-- Workers Phase 5b (the feature skill's workers decision, the worker template, the session-sizing clause and its ADR).
 - Workers Phase 6 (the E2E, a planning session that becomes the lead), then Phase 7 (`--runner docker`).
 - Then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
