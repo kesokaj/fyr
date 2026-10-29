@@ -176,7 +176,7 @@ func section(body, name string) string {
 // untracked file is not the project's text), each read without following a
 // link and within the import's budget.
 func outsideText(top string, b *budget) ([]string, error) {
-	out, err := trail.Command(top, "ls-files", "-z", "--", "REQUIREMENTS.md", "AGENTS.md", "README.md", "context", "skills", "agents", "rules").Output()
+	out, err := trail.Command(top, "ls-files", "-z", "--", "PRD.md", "SDD.md", "TDD.md", "REQUIREMENTS.md", "AGENTS.md", "README.md", "context", "skills", "agents", "rules").Output()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
 	}

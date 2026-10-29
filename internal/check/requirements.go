@@ -21,20 +21,27 @@ var (
 const enforcedBy = "enforced by:"
 
 // requirementsRule is rule (c) (plan D8, D22, D30, D31): every Must and
-// Should item of REQUIREMENTS.md names, in its comment, an `enforced by:`
-// site that resolves. A file with no such field anywhere is not checked; a
-// note says so.
+// Should item of the requirements file names, in its comment, an `enforced
+// by:` site that resolves. The file is PRD.md, or REQUIREMENTS.md in a
+// project not yet migrated (PLAN-2026-10-29-root-docs-and-fyr-serve D6). A
+// file with no such field anywhere is not checked; a note says so.
 func (k *checker) requirementsRule(recs []brain.Record) ([]Finding, []string) {
-	data, err := k.readFile("REQUIREMENTS.md")
+	name, notes := "PRD.md", []string(nil)
+	if _, err := k.root.Lstat(name); errors.Is(err, fs.ErrNotExist) {
+		name = "REQUIREMENTS.md"
+	} else if _, err := k.root.Lstat("REQUIREMENTS.md"); !errors.Is(err, fs.ErrNotExist) {
+		notes = append(notes, "REQUIREMENTS.md beside PRD.md: not read")
+	}
+	data, err := k.readFile(name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, []string{"no REQUIREMENTS.md: requirements not checked"}
+		return nil, append(notes, "no PRD.md or REQUIREMENTS.md: requirements not checked")
 	}
 	if err != nil {
-		return nil, []string{"REQUIREMENTS.md is not a regular file of at most 16 MiB: requirements not checked"}
+		return nil, append(notes, name+" is not a regular file of at most 16 MiB: requirements not checked")
 	}
 	text := string(data)
 	if !strings.Contains(text, enforcedBy) {
-		return nil, []string{"REQUIREMENTS.md has no enforced-by field: not checked"}
+		return nil, append(notes, name+" has no enforced-by field: not checked")
 	}
 	ids := map[string]bool{}
 	for _, r := range recs {
@@ -42,12 +49,12 @@ func (k *checker) requirementsRule(recs []brain.Record) ([]Finding, []string) {
 	}
 	var out []Finding
 	for _, it := range requirementItems(text) {
-		why := k.unenforced(it.block, ids)
+		why := k.unenforced(name, it.block, ids)
 		if why != "" {
-			out = append(out, Finding{"REQUIREMENTS.md", it.line, "requirement", it.id + ": " + why})
+			out = append(out, Finding{name, it.line, "requirement", it.id + ": " + why})
 		}
 	}
-	return out, nil
+	return out, notes
 }
 
 // item is one Must or Should item that is not struck: its ID, its line and
@@ -94,9 +101,9 @@ func requirementItems(text string) []item {
 	return out
 }
 
-// unenforced is why an item's block names no enforcement site that
-// resolves, or "".
-func (k *checker) unenforced(block string, ids map[string]bool) string {
+// unenforced is why an item's block in the file where names no enforcement
+// site that resolves, or "".
+func (k *checker) unenforced(where, block string, ids map[string]bool) string {
 	value, ok := "", false
 	for rest := block; ; {
 		_, after, open := strings.Cut(rest, "<!--")
@@ -123,7 +130,7 @@ func (k *checker) unenforced(block string, ids map[string]bool) string {
 	var bad []string
 	for _, part := range strings.Split(value, ",") {
 		tok := siteToken(part)
-		if tok != "" && !k.resolves(tok, ids) {
+		if tok != "" && !k.resolves(where, tok, ids) {
 			bad = append(bad, "`"+tok+"`")
 		}
 	}
@@ -150,8 +157,8 @@ func siteToken(part string) string {
 
 // resolves reports whether a site token names a Go test declared in a
 // tracked *_test.go, a record of the trail, or a path of the checkout (with
-// the path rule's existence and :N checks).
-func (k *checker) resolves(tok string, ids map[string]bool) bool {
+// the path rule's existence and :N checks); where is the file that names it.
+func (k *checker) resolves(where, tok string, ids map[string]bool) bool {
 	if testNameRe.MatchString(tok) {
 		return k.testDeclared(tok)
 	}
@@ -161,7 +168,7 @@ func (k *checker) resolves(tok string, ids map[string]bool) bool {
 	if strings.HasPrefix(tok, "/") || strings.Contains(tok, "..") {
 		return false
 	}
-	c := candidate{where: "REQUIREMENTS.md", token: tok}
+	c := candidate{where: where, token: tok}
 	c.p, c.n, c.m, c.hasLine = splitLine(tok)
 	if c.p == "" || c.p == "." || !k.isTracked(c.p) {
 		return false

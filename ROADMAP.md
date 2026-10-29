@@ -6,6 +6,6 @@ Last reviewed: 2026-10-29
 
 ## Now
 
-`PLAN-2026-10-29-root-docs-and-fyr-serve`: its § Order of work is the source of truth; row 1 done; next is Row 2 (Phase 2: the templates), with the operator's answers to row 1's approval table or the plan's defaults.
+`PLAN-2026-10-29-root-docs-and-fyr-serve`: its § Order of work is the source of truth; rows 1 and 2 done; next is Row 3 (Phase 3: context, skills and agents re-pointed); row 1's approval table still awaits the operator (defaults taken, D24).
 
 ## Next

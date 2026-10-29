@@ -97,7 +97,7 @@ func TestRequirementsRuleNotes(t *testing.T) {
 	}
 	rep = run(t, repo(t, map[string]string{"a.txt": "x\n"}))
 	same(t, rep.Findings)
-	if !strings.Contains(notes(rep), "no REQUIREMENTS.md") {
+	if !strings.Contains(notes(rep), "no PRD.md or REQUIREMENTS.md") {
 		t.Errorf("notes %q", notes(rep))
 	}
 	// A symlinked file is not read, and the note does not call it absent.
@@ -138,4 +138,52 @@ func TestRequirementsResolveTrackedPathsOnly(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "local.txt"), []byte("x\n"), 0o644)
 	rep := run(t, dir)
 	same(t, rep.Findings, "REQUIREMENTS.md:9 requirement")
+}
+
+// Rule (c) reads PRD.md, falls back to REQUIREMENTS.md, and with both reads
+// PRD.md only and says so; every finding and note names the file read
+// (PLAN-2026-10-29-root-docs-and-fyr-serve D6).
+func TestRequirementsRuleReadsPRD(t *testing.T) {
+	item := "## Must\n\n- **R1** — x.\n  <!-- enforced by: TestGone -->\n"
+	other := "# t\n\n## Must\n\n- **R9** — y.\n  <!-- enforced by: TestAlsoGone -->\n"
+	for _, tc := range []struct {
+		name, note, notNote string
+		files               map[string]string
+		want                []string
+	}{
+		{"PRD only", "", "REQUIREMENTS", map[string]string{"PRD.md": item}, []string{"PRD.md:3 requirement"}},
+		{"REQUIREMENTS only", "", "PRD", map[string]string{"REQUIREMENTS.md": item}, []string{"REQUIREMENTS.md:3 requirement"}},
+		{"both", "REQUIREMENTS.md beside PRD.md: not read", "", map[string]string{"PRD.md": item, "REQUIREMENTS.md": other}, []string{"PRD.md:3 requirement"}},
+		{"neither", "no PRD.md or REQUIREMENTS.md: requirements not checked", "", map[string]string{"a.txt": "x\n"}, nil},
+		{"PRD without the field", "PRD.md has no enforced-by field: not checked", "", map[string]string{"PRD.md": "## Must\n\n- **R1** — x.\n"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rep := run(t, repo(t, tc.files))
+			same(t, rep.Findings, tc.want...)
+			if tc.note != "" && !strings.Contains(notes(rep), tc.note) {
+				t.Errorf("notes %q, want %q", notes(rep), tc.note)
+			}
+			if tc.notNote != "" && strings.Contains(notes(rep), tc.notNote) {
+				t.Errorf("notes %q name %s", notes(rep), tc.notNote)
+			}
+		})
+	}
+}
+
+// The init-project PRD template is in the shape rule (c) reads: each of its
+// Must and Should items is found, and found as the template's placeholder.
+func TestRequirementsRuleReadsThePRDTemplate(t *testing.T) {
+	tmpl, err := os.ReadFile(filepath.Join("..", "..", "skills", "init-project", "assets", "PRD.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := run(t, repo(t, map[string]string{"PRD.md": string(tmpl)}))
+	if len(rep.Findings) < 2 {
+		t.Fatalf("%d findings on the template, want one per Must and Should item: %+v", len(rep.Findings), rep.Findings)
+	}
+	for _, f := range rep.Findings {
+		if f.Where != "PRD.md" || !strings.HasSuffix(f.Text, "`enforced by:` is the template's placeholder") {
+			t.Errorf("finding %+v, want PRD.md and the placeholder", f)
+		}
+	}
 }

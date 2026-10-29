@@ -254,9 +254,10 @@ var pages = map[string]verbPage{
 			"Markdown and the current spec, guide and deploy records name in code, and",
 			"every path they name, against this binary and the tree; every current",
 			"spec whose code changed after it, or that names none; and every Must and",
-			"Should item of REQUIREMENTS.md whose enforced by: does not resolve. Prints",
-			"one line per finding, then a summary. Exit 0 clean, 1 with findings, or",
-			"1 for a refusal with its reason on stderr.",
+			"Should item of PRD.md (REQUIREMENTS.md in a project without one) whose",
+			"enforced by: does not resolve. Prints one line per finding, then a",
+			"summary. Exit 0 clean, 1 with findings, or 1 for a refusal with its reason",
+			"on stderr.",
 		},
 	},
 	"version": {

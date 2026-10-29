@@ -55,5 +55,8 @@ Local only — see `DEPLOY-local` (`fyr record get DEPLOY-local`).
 | Path | Purpose |
 |------|---------|
 | `cmd/<app>/main.go` | Application entry point |
-| `REQUIREMENTS.md` | Non-negotiable project requirements |
+| `PRD.md` | What and why: problem, goals, the non-negotiable requirements |
+| `SDD.md` | How the parts fit: components, flows, decisions |
+| `TDD.md` | How each part is built and tested |
+| `TODO.md` | The active phase's tasks, the next phases, the backlog |
 | `.agents/trail.jsonl` | The trail as records (plans, changes, ADRs, specs, guides, bugs), written only by `fyr record` |
