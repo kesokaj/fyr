@@ -7,15 +7,12 @@
 
 ## Now
 
-Row 6 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Release 1; its § Order of work is the source of truth): `/preflight`, the agent's call (D37), after the behavioural runs the handoffs list (D12).
-
-- [ ] The operator's `fyr eval` runs of the changed skills and agents, or their quoted waiver
-- [ ] `/preflight vX.Y.Z`, the agent's call (D37)
+Row 7 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S1, `fyr serve` design; its § Order of work is the source of truth). Release 1 shipped as v4.1.0 (row 6, D38). Row 7 asks the operator for the maintenance actions for S3 and whether to build Phase 5; its boxes are in the plan record.
 
 ## Next
 
-- Row 7 of the same plan: `fyr serve` design (S1).
 - Row 8 of the same plan: `fyr serve` read-only pages (S2).
+- Row 9 of the same plan: `fyr serve` maintenance actions (S3).
 
 ## Backlog
 
