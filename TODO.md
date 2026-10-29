@@ -7,10 +7,10 @@
 
 ## Now
 
-Row 6 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Release 1; its § Order of work is the source of truth): `/preflight`, on the operator's word, after the behavioural runs the handoffs list (D12).
+Row 6 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Release 1; its § Order of work is the source of truth): `/preflight`, the agent's call (D37), after the behavioural runs the handoffs list (D12).
 
 - [ ] The operator's `fyr eval` runs of the changed skills and agents, or their quoted waiver
-- [ ] `/preflight vX.Y.Z` from the operator's own turn
+- [ ] `/preflight vX.Y.Z`, the agent's call (D37)
 
 ## Next
 
