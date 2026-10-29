@@ -78,26 +78,21 @@ func runOld(t *testing.T, bin string, args ...string) string {
 }
 
 // TestCrossingFromV270 is E2E criterion 2's local half: a home installed by
-// v2.7.0 — state dir, binary, manifest, a dream unit — is moved to fyr by
-// one `fyr install`. The migration runs before the resync, which reads the
-// old manifest from the moved directory, removes ~/.local/bin/sh-agent by
+// v2.7.0 — state dir, binary, manifest — is moved to fyr by one `fyr
+// install`. The migration runs before the resync, which reads the old
+// manifest from the moved directory, removes ~/.local/bin/sh-agent by
 // today's rule and keeps every ~/.claude file byte for byte, a symlinked
-// entry included (F2, D32: fyr never removes Claude Code's files); the dream
-// unit is replaced under its new name (plan fyr D13, D14).
+// entry included (F2, D32: fyr never removes Claude Code's files; plan fyr
+// D14). The old dream unit's replacement went with the crossing (ledger
+// Phase 10, A1).
 func TestCrossingFromV270(t *testing.T) {
 	t.Setenv(harness.ChildEnv, "1")
 	t.Setenv("FYR_REPO", "")
 	bin, src := oldRelease(t)
-	fakeBin := t.TempDir()
-	calls := filepath.Join(t.TempDir(), "calls")
-	if err := os.WriteFile(filepath.Join(fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> \""+calls+"\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+pathWithout(os.Getenv("PATH"), "sh-agent"))
+	t.Setenv("PATH", pathWithout(os.Getenv("PATH"), "sh-agent"))
 
 	home := t.TempDir()
 	runOld(t, bin, "install", "--repo", src, "--home", home)
-	runOld(t, bin, "dream", "--install-timer", "--home", home)
 	oldDir := filepath.Join(home, harness.OldStateDir)
 	if err := os.WriteFile(filepath.Join(oldDir, "feedback.jsonl"), []byte(`{"kept":true}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -121,20 +116,12 @@ func TestCrossingFromV270(t *testing.T) {
 	if !listed[".local/bin/sh-agent"] || len(claudeFiles) == 0 {
 		t.Fatalf("fixture: the v2.7.0 manifest lists sh-agent %v and %d ~/.claude files; want both", listed[".local/bin/sh-agent"], len(claudeFiles))
 	}
-	unitDir := filepath.Join(home, ".config", "systemd", "user")
-	units, _ := filepath.Glob(filepath.Join(unitDir, "sh-agent-dream-*"))
-	if len(units) != 2 {
-		t.Fatalf("fixture: v2.7.0 --install-timer left %v, want its .service and .timer", units)
-	}
 	// F2: an entry the operator has since made a symlink is theirs and stays.
 	linked := filepath.Join(home, claudeFiles[0])
 	if err := os.Remove(linked); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(t.TempDir(), "mine"), linked); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(calls); err != nil {
 		t.Fatal(err)
 	}
 	before := map[string]string{}
@@ -191,24 +178,12 @@ func TestCrossingFromV270(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
 		t.Errorf("~/.claude/settings.json touched: %v", err)
 	}
-	if left, _ := filepath.Glob(filepath.Join(unitDir, "sh-agent-dream-*")); len(left) != 0 {
-		t.Errorf("old dream units left: %v", left)
-	}
-	if fresh, _ := filepath.Glob(filepath.Join(unitDir, "fyr-dream-*")); len(fresh) != 2 {
-		t.Errorf("fyr-dream units: %v, want the .service and .timer", fresh)
-	}
-	if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "enable --now fyr-dream-") || !strings.Contains(string(b), "disable --now sh-agent-dream-") {
-		t.Errorf("systemctl calls:\n%s", b)
-	}
-	if !strings.Contains(got, "dream timer sh-agent-dream-") {
-		t.Errorf("install did not say it replaced the dream timer:\n%s", got)
-	}
 
 	out.Reset()
 	if err := run([]string{"status", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
 		t.Fatalf("status after the crossing: %v\n%s", err, out.String())
 	}
-	if s := out.String(); !strings.Contains(s, "drift      none") || !strings.Contains(s, "timer installed") || strings.Contains(s, "sh-agent") {
+	if s := out.String(); !strings.Contains(s, "drift      none") || strings.Contains(s, "sh-agent") {
 		t.Errorf("status after the crossing:\n%s", s)
 	}
 }

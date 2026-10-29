@@ -6,11 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -40,61 +38,6 @@ func TestUnknownCommandExits2OnTheWriter(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `unknown command "no-such-verb"`) || !strings.Contains(out.String(), "run 'fyr help' for the commands") || strings.Contains(out.String(), "Commands:") {
 		t.Errorf("the reason and the hint are not on the writer, or the page is:\n%s", out.String())
-	}
-}
-
-// TestUninstallAndRemoveTimerRemoveTheOldNamedUnit: this home's dream timer
-// under the name before the rename (sh-agent-dream, with the home's suffix)
-// is removed by uninstall and by dream --remove-timer, as the fyr-named one
-// is (plan 2026-10-24-fyr-agy-only.md:21; Phase 4b report item 2, TR9).
-func TestUninstallAndRemoveTimerRemoveTheOldNamedUnit(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("the systemd half")
-	}
-	for _, args := range [][]string{{"uninstall"}, {"dream", "--remove-timer"}} {
-		t.Run(args[0], func(t *testing.T) {
-			fakeBin := t.TempDir()
-			calls := filepath.Join(t.TempDir(), "calls")
-			if err := os.WriteFile(filepath.Join(fakeBin, "systemctl"), []byte("#!/bin/sh\necho \"$*\" >> \""+calls+"\"\n"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-			home := t.TempDir()
-			unit, _ := dream.UnitFor(home)
-			old := strings.Replace(unit, "fyr-dream", "sh-agent-dream", 1)
-			unitDir := filepath.Join(home, ".config", "systemd", "user")
-			for _, ext := range []string{".service", ".timer"} {
-				if err := os.MkdirAll(unitDir, 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(unitDir, old+ext), []byte("x\n"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-			var out bytes.Buffer
-			if err := run(append(args, "--dry-run", "--home", home), &out); err != nil {
-				t.Fatalf("%v --dry-run: %v\n%s", args, err, out.String())
-			}
-			if left, _ := filepath.Glob(filepath.Join(unitDir, old+".*")); len(left) != 2 {
-				t.Fatalf("the dry run removed files: %v", left)
-			}
-			if !strings.Contains(out.String(), "would remove") {
-				t.Errorf("the dry run does not say it would remove the old unit:\n%s", out.String())
-			}
-			out.Reset()
-			if err := run(append(args, "--home", home), &out); err != nil {
-				t.Fatalf("%v: %v\n%s", args, err, out.String())
-			}
-			if left, _ := filepath.Glob(filepath.Join(unitDir, old+".*")); len(left) != 0 {
-				t.Errorf("%v left the old-named unit: %v\n%s", args, left, out.String())
-			}
-			if b, _ := os.ReadFile(calls); !strings.Contains(string(b), "disable --now "+old+".timer") {
-				t.Errorf("%v did not stop %s:\n%s", args, old, b)
-			}
-			if !strings.Contains(out.String(), old) {
-				t.Errorf("%v does not name %s:\n%s", args, old, out.String())
-			}
-		})
 	}
 }
 

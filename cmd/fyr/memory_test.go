@@ -196,10 +196,8 @@ func TestDreamTimerTakesNoScope(t *testing.T) {
 }
 
 // TestDreamTimerSaysWhatItFound: --remove-timer says when it found nothing,
-// and it, uninstall and status name a unit that v2.0.0 or earlier wrote under
-// the bare name in a home that now gets a suffixed one, without touching it
-// (the v2.1.0 gate's L1). The temporary home is not the account's home, so
-// its own unit name is suffixed and the bare-named file is legacy.
+// and never claims a removal then (the v2.1.0 gate's L1); with a unit there,
+// --remove-timer and uninstall each say they removed it.
 func TestDreamTimerSaysWhatItFound(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
@@ -212,41 +210,53 @@ func TestDreamTimerSaysWhatItFound(t *testing.T) {
 	if err := run([]string{"dream", "--remove-timer", "--home", home}, &out); err != nil {
 		t.Fatalf("--remove-timer with nothing installed: %v", err)
 	}
-	if got := out.String(); !strings.Contains(got, "no dream timer found for "+home+" on this system") || strings.Contains(got, "dream timer removed") || strings.Contains(got, "legacy") {
+	if got := out.String(); !strings.Contains(got, "no dream timer found for "+home+" on this system") || strings.Contains(got, "dream timer removed") {
 		t.Errorf("nothing installed: %q", got)
-	}
-	legacy := filepath.Join(home, ".config", "systemd", "user", "sh-agent-dream.timer")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacy, []byte("[Timer]\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{
-		{"dream", "--remove-timer", "--home", home},
-		{"dream", "--remove-timer", "--dry-run", "--home", home},
-		{"uninstall", "--dry-run", "--home", home},
-		{"uninstall", "--home", home},
-	} {
-		out.Reset()
-		if err := run(args, &out); err != nil {
-			t.Errorf("%v: %v", args, err)
-		}
-		got := out.String()
-		if !strings.Contains(got, legacy) || !strings.Contains(got, "not removed or stopped here") {
-			t.Errorf("%v does not name the legacy unit:\n%s", args, got)
-		}
-		if strings.Contains(got, "dream timer removed") || strings.Contains(got, "removed the dream timer") {
-			t.Errorf("%v claims a removal:\n%s", args, got)
-		}
-		if _, err := os.Stat(legacy); err != nil {
-			t.Fatalf("%v removed the legacy unit: %v", args, err)
-		}
 	}
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
 		data, _ := os.ReadFile(calls)
-		t.Errorf("the service manager was called for a legacy unit:\n%s", data)
+		t.Errorf("the service manager was called with nothing installed:\n%s", data)
 	}
+	// With this home's unit on disk, each verb says it removed it, and did.
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"dream", "--remove-timer", "--home", home}, "dream timer removed\n"},
+		{[]string{"uninstall", "--home", home}, "removed the dream timer\n"},
+	} {
+		files := timerFilesFor(t, home)
+		out.Reset()
+		if err := run(c.args, &out); err != nil || !strings.Contains(out.String(), c.want) {
+			t.Errorf("%v: %v, %q; want %q", c.args, err, out.String(), c.want)
+		}
+		for _, f := range files {
+			if _, err := os.Lstat(f); !os.IsNotExist(err) {
+				t.Errorf("%v left %s", c.args, f)
+			}
+		}
+	}
+}
+
+// timerFilesFor writes this home's dream unit files for the running system
+// and returns their paths.
+func timerFilesFor(t *testing.T, home string) []string {
+	t.Helper()
+	unit, plist := dream.UnitFor(home)
+	files := []string{filepath.Join(home, "Library", "LaunchAgents", plist+".plist")}
+	if runtime.GOOS != "darwin" {
+		dir := filepath.Join(home, ".config", "systemd", "user")
+		files = []string{filepath.Join(dir, unit+".service"), filepath.Join(dir, unit+".timer")}
+	}
+	for _, f := range files {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return files
 }
 
 // TestTimerOfAnotherSystemIsNamed: a home copied between a Mac and a Linux

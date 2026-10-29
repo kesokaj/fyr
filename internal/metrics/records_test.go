@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // recordsDay is the records fixtures' day; at is a time on it, in UTC.
@@ -49,7 +48,8 @@ func sessionsAt(t *testing.T, root string) *Store {
 
 // recordsFixture is a migrated project: its trail is records in a scratch
 // home, its one commit (10:10) is S1's, and a leftover docs root holds a
-// handoff file the join must not read (D4).
+// handoff file, which no join reads (D4; an unmigrated root's file is
+// TestJoinUnmigratedGivesNoTrailEvents').
 func recordsFixture(t *testing.T) (s *Store, home, root, sha1 string) {
 	t.Helper()
 	// A zone that is not UTC on every machine, so a stamp read in the wrong
@@ -181,9 +181,8 @@ func TestJoinRecordsBrokenTrail(t *testing.T) {
 }
 
 // Corrections come from the global feedback records for every root,
-// migrated, unmigrated or gone, and from feedback.jsonl; one correction
-// written +02:00 in the log and Z in a record, or stored +02:00 by an older
-// ingest, is one event (D11).
+// migrated, unmigrated or gone; one correction stored +02:00 by an older
+// ingest from the feedback log and Z in a record is one event (D11).
 func TestCorrections(t *testing.T) {
 	type tc struct {
 		name string
@@ -195,11 +194,10 @@ func TestCorrections(t *testing.T) {
 			return s, home, root
 		}},
 		{"unmigrated", func(t *testing.T) (*Store, string, string) {
-			s, home, _ := eventsFixture(t)
-			os.Remove(filepath.Join(home, harness.StateDir, "feedback.jsonl"))
-			var root string
-			s.db.QueryRow(`SELECT project_root FROM sessions WHERE id = 'S1'`).Scan(&root)
-			return s, home, root
+			root := filepath.Join(t.TempDir(), "proj")
+			os.MkdirAll(root, 0o755)
+			gitT(t, root, at(9, 0), "init", "-q", "-b", "main")
+			return sessionsAt(t, root), t.TempDir(), root
 		}},
 		{"gone", func(t *testing.T) (*Store, string, string) {
 			root := filepath.Join(t.TempDir(), "gone")
@@ -218,10 +216,8 @@ func TestCorrections(t *testing.T) {
 				addRecord(t, g, brain.AddInput{Kind: "feedback", Title: "fb", Project: root}, body)
 			}
 			addRecord(t, g, brain.AddInput{Kind: "feedback", Title: "fb", Project: filepath.Join(t.TempDir(), "other")}, `{"ts":"2026-10-08T10:06:00Z"}`)
-			os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)
-			os.WriteFile(filepath.Join(home, harness.StateDir, "feedback.jsonl"),
-				[]byte(`{"ts":"2026-10-08T12:05:00+02:00","project":"`+root+`"}`+"\n"), 0o600)
-			// What an older ingest stored for the log's line: its ts as written.
+			// What an older ingest stored for a feedback log line about the
+			// record's correction: its ts as written, +02:00.
 			if _, err := s.db.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES ('S1', 1, 'correction', '2026-10-08T12:05:00+02:00', '')`); err != nil {
 				t.Fatal(err)
 			}
@@ -243,5 +239,31 @@ func TestCorrections(t *testing.T) {
 				t.Errorf("corrections\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}
 		})
+	}
+}
+
+// An unmigrated project gives commits and corrections only: a handoff file
+// in its docs root, inside S1's window, is not joined, since the file join
+// went with the crossing (plan 2026-10-27-ledger Phase 10, item 66).
+func TestJoinUnmigratedGivesNoTrailEvents(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(t.TempDir(), "proj")
+	handoffs := filepath.Join(root, ".agents", "docs", "handoffs")
+	os.MkdirAll(handoffs, 0o755)
+	gitT(t, root, at(9, 0), "init", "-q", "-b", "main")
+	gitT(t, root, at(9, 0), "config", "commit.gpgsign", "false")
+	os.WriteFile(filepath.Join(handoffs, "2026-10-08-1015-file.md"), []byte("handoff\n"), 0o644)
+	gitT(t, root, at(10, 10), "add", ".agents")
+	gitT(t, root, at(10, 10), "commit", "-q", "-m", "s1 work")
+	sha1 := gitT(t, root, at(10, 10), "rev-parse", "HEAD")
+	g := brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return at(14, 0) }}
+	addRecord(t, g, brain.AddInput{Kind: "feedback", Title: "fb", Project: root}, `{"ts":"2026-10-08T10:05:00Z"}`)
+	s := sessionsAt(t, root)
+	if _, err := s.joinEvents(home); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"S1 commit " + sha1 + "=", "S1 correction 2026-10-08T10:05:00Z="}
+	if got := events(t, s); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("events\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

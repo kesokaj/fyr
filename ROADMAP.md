@@ -8,4 +8,4 @@ Last reviewed: 2026-10-29
 
 ## Next
 
-1. `PLAN-2026-10-27-ledger` Phase 10, the crossing's removals (items 12, 66): A1 answered yes (D40).
+1. The root-docs Feature (PRD, SDD, TDD, TODO; ROADMAP removed), Phase 1: the plan record, the ADR and the REQUIREMENTS edit proposed for approval (the operator's decisions of 2026-10-29, drafted in `.agents/scratch/root-docs-audit-2026-10-29.md`).

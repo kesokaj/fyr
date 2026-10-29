@@ -3,7 +3,6 @@ package metrics
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -92,9 +91,9 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 			fmt.Fprintln(log, printable(fmt.Sprintf("metrics: outcome: %v", err)))
 		}
 	}
-	// Events come from the real home's projects, its global feedback records
-	// and the old feedback log, also for a --source run: its sessions' project
-	// roots are where git and the trail are.
+	// Events come from the real home's projects and its global feedback
+	// records, also for a --source run: its sessions' project roots are where
+	// git and the trail are.
 	notes, err := s.joinEvents(o.Home)
 	if err != nil {
 		r.Failed = append(r.Failed, "events")
@@ -126,20 +125,3 @@ func (s *Store) counts() ([3]int, error) {
 // or a project root ingest prints comes from transcripts, which a --source
 // sandbox writes.
 func printable(s string) string { return search.Printable(s) }
-
-// openRegular opens p without blocking and checks on the opened file that it
-// is a regular file: the one way ingest opens a conversation file or a trail
-// file, so a FIFO swapped in after any earlier check neither hangs nor
-// is read (security review of v2.6.0, part 1, round 4).
-func openRegular(p string) (*os.File, os.FileInfo, error) {
-	f, err := openNonBlocking(p)
-	if err != nil {
-		return nil, nil, err
-	}
-	fi, err := f.Stat()
-	if err != nil || !fi.Mode().IsRegular() {
-		f.Close()
-		return nil, nil, fmt.Errorf("%s: not a regular file", filepath.Base(p))
-	}
-	return f, fi, nil
-}

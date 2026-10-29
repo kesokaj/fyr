@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/brain"
 )
 
 func gitT(t *testing.T, dir string, when time.Time, args ...string) string {
@@ -24,28 +24,28 @@ func gitT(t *testing.T, dir string, when time.Time, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// eventsFixture: a project with three main sessions. S1 (10:00-10:20) commits
-// once and writes a handoff, a PASS verifier log and a review; S2
-// (12:00-12:10) and S3 (12:05-12:30) overlap, and the one commit between them
-// is ambiguous. A bug record cites S1's commit; one feedback entry falls in
-// S1's window.
+// eventsFixture: a migrated project with three main sessions. S1
+// (10:00-10:20) commits once, and its trail records a handoff, a PASS
+// verifier log and a review stamped inside it; S2 (12:00-12:10) and S3
+// (12:05-12:30) overlap, and the one commit between them is ambiguous. A bug
+// record cites S1's commit; one global feedback record falls in S1's window.
 func eventsFixture(t *testing.T) (*Store, string, string) {
 	t.Helper()
+	// The IDs below carry their minute in UTC, the zone the join reads them
+	// in here. No test here runs in parallel.
+	local := time.Local
+	time.Local = time.UTC
+	t.Cleanup(func() { time.Local = local })
 	home := t.TempDir()
 	root := filepath.Join(t.TempDir(), "proj")
-	docs := filepath.Join(root, ".agents", "docs")
-	for _, d := range []string{"handoffs", "testing", "reviews", "bugs"} {
-		os.MkdirAll(filepath.Join(docs, d), 0o755)
-	}
+	os.MkdirAll(root, 0o755)
 	day := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	at := func(h, m int) time.Time { return day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute) }
 	gitT(t, root, at(9, 0), "init", "-q", "-b", "main")
 	gitT(t, root, at(9, 0), "config", "commit.gpgsign", "false")
 
-	os.WriteFile(filepath.Join(docs, "handoffs", "2026-10-08-1015-x.md"), []byte("handoff\n"), 0o644)
-	os.WriteFile(filepath.Join(docs, "testing", "2026-10-08-verify-x.md"), []byte("# V\n\n## Status: PASS\n"), 0o644)
-	os.WriteFile(filepath.Join(docs, "reviews", "2026-10-08-review-x.md"), []byte("- **[high / confidence: high]** a\n- **[low / confidence: low]** b\n- **[low / confidence: high]** c\n"), 0o644)
-	gitT(t, root, at(10, 10), "add", ".agents")
+	os.WriteFile(filepath.Join(root, "w"), []byte("x\n"), 0o644)
+	gitT(t, root, at(10, 10), "add", "w")
 	gitT(t, root, at(10, 10), "commit", "-q", "-m", "s1 work")
 	sha1 := gitT(t, root, at(10, 10), "rev-parse", "HEAD")
 
@@ -53,13 +53,22 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 	gitT(t, root, at(12, 7), "add", "f")
 	gitT(t, root, at(12, 7), "commit", "-q", "-m", "s2 or s3")
 
-	os.WriteFile(filepath.Join(docs, "bugs", "BUG-007-broke.md"), []byte("Introduced in "+sha1[:9]+".\n"), 0o644)
+	markRegistered(t, home, root) // the join reads a registered checkout's trail only (ADR-068)
+	o := brain.Options{Home: home, Dir: root, Now: func() time.Time { return at(14, 0) }}
+	for _, r := range [][4]string{
+		{"handoff", "HANDOFF-2026-10-08-1015-x", "Handoff — x", "handoff\n"},
+		{"testing", "TEST-2026-10-08-1016-verify-x", "Verification — x", "# V\n\n## Status: PASS\n"},
+		{"review", "REVIEW-2026-10-08-1017-review-x", "Review — x", "- **[high / confidence: high]** a\n- **[low / confidence: low]** b\n- **[low / confidence: high]** c\n"},
+		{"bug", "BUG-007", "broke", "Introduced in " + sha1[:9] + ".\n"},
+	} {
+		addRecord(t, o, brain.AddInput{Kind: r[0], ID: r[1], Title: r[2]}, r[3])
+	}
 	gitT(t, root, at(14, 0), "add", ".agents")
-	gitT(t, root, at(14, 0), "commit", "-q", "-m", "bug record") // after every window
+	gitT(t, root, at(14, 0), "commit", "-q", "-m", "trail") // after every window
 
-	os.MkdirAll(filepath.Join(home, harness.StateDir), 0o700)
-	os.WriteFile(filepath.Join(home, harness.StateDir, "feedback.jsonl"),
-		[]byte(`{"ts":"2026-10-08T10:05:00Z","project":"`+root+`","rule":"x"}`+"\n"+`{"ts":"2026-10-08T15:00:00Z","project":"`+root+`"}`+"\n"), 0o600)
+	g := brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return at(14, 0) }}
+	addRecord(t, g, brain.AddInput{Kind: "feedback", Title: "fb", Project: root}, `{"ts":"2026-10-08T10:05:00Z","rule":"x"}`)
+	addRecord(t, g, brain.AddInput{Kind: "feedback", Title: "fb", Project: root}, `{"ts":"2026-10-08T15:00:00Z"}`)
 
 	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
 	for _, x := range []struct {
@@ -91,14 +100,14 @@ func TestJoinEvents(t *testing.T) {
 	}
 	rows.Close()
 	want := map[string]string{
-		"S1 commit " + sha1:                    "",
-		"S1 handoff HANDOFF-2026-10-08-1015-x": "",
-		"S1 verifier TEST-2026-10-08-verify-x": "PASS",
-		"S1 review REVIEW-2026-10-08-review-x": "high=1,medium=0,low=2",
-		"S1 bug BUG-007":                       sha1,
-		"S1 correction 2026-10-08T10:05:00Z":   "",
-		"S2 commit other":                      "ambiguous",
-		"S3 commit other":                      "ambiguous",
+		"S1 commit " + sha1:                         "",
+		"S1 handoff HANDOFF-2026-10-08-1015-x":      "",
+		"S1 verifier TEST-2026-10-08-1016-verify-x": "PASS",
+		"S1 review REVIEW-2026-10-08-1017-review-x": "high=1,medium=0,low=2",
+		"S1 bug BUG-007":                            sha1,
+		"S1 correction 2026-10-08T10:05:00Z":        "",
+		"S2 commit other":                           "ambiguous",
+		"S3 commit other":                           "ambiguous",
 	}
 	for k, v := range want {
 		if gv, ok := got[k]; !ok || gv != v {
@@ -138,31 +147,6 @@ func events(t *testing.T, s *Store) []string {
 		out = append(out, sid+" "+kind+" "+ref+"="+value)
 	}
 	return out
-}
-
-// The file join keys a handoff, verifier log and review to the ID the
-// import gives the file (plan 2026-10-25-1754 D10), so a stem the import
-// slugs is stored slugged.
-func TestJoinFilesRefs(t *testing.T) {
-	s, home, _ := eventsFixture(t)
-	var root string
-	s.db.QueryRow(`SELECT project_root FROM sessions WHERE id = 'S1'`).Scan(&root)
-	day := time.Date(2026, 10, 8, 10, 12, 0, 0, time.UTC)
-	os.WriteFile(filepath.Join(root, ".agents", "docs", "handoffs", "2026-10-08-1012-Upper Case+x.md"), []byte("handoff\n"), 0o644)
-	gitT(t, root, day, "add", ".agents")
-	gitT(t, root, day, "commit", "-q", "-m", "second handoff")
-	if _, err := s.joinEvents(home); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id = 'S1' AND kind = 'handoff' AND ref = 'HANDOFF-2026-10-08-1012-upper-case-x'`).Scan(&n)
-	if n != 1 {
-		t.Errorf("the slugged handoff is not stored by its ID: %v", events(t, s))
-	}
-	s.db.QueryRow(`SELECT count(*) FROM events WHERE ref LIKE '%.md'`).Scan(&n)
-	if n != 0 {
-		t.Errorf("the file join stored %d file-name refs: %v", n, events(t, s))
-	}
 }
 
 // The rewrite turns an older ingest's file-name refs into ID form, drops the
@@ -272,7 +256,7 @@ func TestSubdirectorySessionsBelongToTheProject(t *testing.T) {
 	}
 	s.db.QueryRow(`SELECT count(*) FROM events WHERE session_id = 'S1' AND kind = 'handoff'`).Scan(&n)
 	if n != 1 {
-		t.Errorf("the subdirectory session's handoff did not join (the docs root is the toplevel's)")
+		t.Errorf("the subdirectory session's handoff did not join (the trail is the toplevel's)")
 	}
 	sum, err := s.Show(ShowOptions{Since: time.Unix(0, 0), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC), Project: root})
 	if err != nil {
@@ -280,23 +264,5 @@ func TestSubdirectorySessionsBelongToTheProject(t *testing.T) {
 	}
 	if sum.Sessions["agy"] != 3 {
 		t.Errorf("--project %s selected %d sessions, want 3 (S1 in a subdirectory, S2, S3; not the sibling)", root, sum.Sessions["agy"])
-	}
-}
-
-// readSmall stops at 1 MiB: a trail file grown past it (a pasted log) is read
-// only that far, so a pattern beyond the cap is never seen (the verifier's
-// coverage note of 2026-10-09: the cap had no fixture).
-func TestReadSmallStopsAtOneMiB(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "big.md")
-	body := strings.Repeat("a", 1<<20) + "PAST THE CAP"
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	got := readSmall(p)
-	if len(got) != 1<<20 || strings.Contains(got, "PAST THE CAP") {
-		t.Errorf("readSmall read %d bytes (want %d), past the cap: %v", len(got), 1<<20, strings.Contains(got, "PAST THE CAP"))
-	}
-	if readSmall(filepath.Join(t.TempDir(), "missing.md")) != "" {
-		t.Error("a missing file reads as text")
 	}
 }

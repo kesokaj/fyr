@@ -56,11 +56,7 @@ func (c *ctx) dreamTimer() error {
 	case c.removeTimer && c.dryRun:
 		// A new side effect goes below the read-only mode (context § Hard
 		// rules): the dry run names what would change and calls nothing.
-		what := "remove the dream timer" + oldTimerNote(dream.OldTimerHere(c.home, runtime.GOOS))
-		fmt.Fprintln(c.out, "[dry-run] would "+what+"; installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
-		if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); notice != "" {
-			fmt.Fprintln(c.out, notice)
-		}
+		fmt.Fprintln(c.out, "[dry-run] would remove the dream timer; installed now: "+strconv.FormatBool(dream.TimerInstalledHere(c.home, runtime.GOOS)))
 		otherSystemTimerNote(c)
 	case c.installTimer:
 		err = dream.InstallTimer(c.home, os.Getenv("PATH"), runtime.GOOS)
@@ -69,16 +65,12 @@ func (c *ctx) dreamTimer() error {
 		}
 	case c.removeTimer:
 		var removed bool
-		old := dream.OldTimerHere(c.home, runtime.GOOS)
 		removed, err = dream.RemoveTimer(c.home, runtime.GOOS)
 		if err == nil {
 			if removed {
-				fmt.Fprintln(c.out, "dream timer removed"+oldTimerNote(old))
+				fmt.Fprintln(c.out, "dream timer removed")
 			} else {
 				fmt.Fprintln(c.out, "no dream timer found for "+c.home+" on this system")
-			}
-			if notice := dream.LegacyTimerNotice(c.home, runtime.GOOS); notice != "" {
-				fmt.Fprintln(c.out, notice)
 			}
 			otherSystemTimerNote(c)
 		}

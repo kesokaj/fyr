@@ -21,12 +21,6 @@ import (
 const (
 	unitName  = "fyr-dream"
 	plistName = "com.fyr.dream"
-	// The names before the rename (plan fyr D13): install replaces this
-	// home's unit under them (ReplaceOldTimer), and their bare form under a
-	// home that is not the real one is what v2.0.0 or earlier wrote there
-	// (LegacyTimerFiles).
-	oldUnitName  = "sh-agent-dream"
-	oldPlistName = "com.styrman.sh-agent-dream"
 )
 
 // userHomeDir is the real home; a test seam, since the tests' homes are
@@ -64,12 +58,6 @@ var lookupAccount = func() (*user.User, error) { return user.LookupId(strconv.It
 // `uninstall` never touches the operator's own timer through the shared user
 // service manager (R6; security review of the v2.0.0 gate).
 func UnitFor(home string) (unit, plist string) { return namesFor(home, unitName, plistName) }
-
-// oldUnitFor is UnitFor under the names before the rename, with the same
-// per-home suffix: what v2.0.1 to v2.7.0 installed for this home.
-func oldUnitFor(home string) (unit, plist string) {
-	return namesFor(home, oldUnitName, oldPlistName)
-}
 
 func namesFor(home, unit, plist string) (string, string) {
 	if real, err := userHomeDir(); err == nil {
@@ -175,53 +163,27 @@ func absolutePath(path string) string {
 	return strings.Join(keep, string(filepath.ListSeparator))
 }
 
-// RemoveTimer stops and removes the dream timer of this home, for goos, under
-// the fyr name and under the name before the rename (OldTimerHere: a home
-// that never ran install since keeps that one, and uninstall or
-// --remove-timer must not leave it running; TR9), and reports whether there
-// was one: absent is fine, but the caller says which it was (a removal that
-// found nothing once printed "removed").
+// RemoveTimer stops and removes the dream timer of this home, for goos, and
+// reports whether there was one: absent is fine, but the caller says which it
+// was (a removal that found nothing once printed "removed").
 func RemoveTimer(home, goos string) (bool, error) {
-	removed := false
-	for _, namesOf := range []func(string) (string, string){UnitFor, oldUnitFor} {
-		unit, plist := namesOf(home)
-		u, ok := unitOn(home, goos, unit, plist)
-		if !ok || !u.present() {
-			continue
-		}
-		if err := u.remove(); err != nil {
-			return removed, err
-		}
-		removed = true
-	}
-	return removed, nil
-}
-
-// OldTimerHere names this home's unit under the name before the rename
-// (oldUnitFor) when its files are on disk for goos, and "" otherwise: what
-// RemoveTimer removes beside the fyr unit. The bare old name under a home
-// that is not the real one is LegacyTimerFiles', never this one's.
-func OldTimerHere(home, goos string) string {
-	unit, plist := oldUnitFor(home)
+	unit, plist := UnitFor(home)
 	u, ok := unitOn(home, goos, unit, plist)
 	if !ok || !u.present() {
-		return ""
+		return false, nil
 	}
-	if goos == "darwin" {
-		return plist
+	if err := u.remove(); err != nil {
+		return false, err
 	}
-	return unit
+	return true, nil
 }
 
-// timerUnit is one home's unit on one system under one name: its files, its
-// service manager, the calls that stop it, the read-only call that asks the
-// manager about it, and the answers to that call that mean it is turned off.
+// timerUnit is one home's unit on one system: its files, its service
+// manager, and the calls that stop it.
 type timerUnit struct {
 	files   []string
 	manager string
 	stop    [][]string
-	probe   []string
-	off     []string
 }
 
 func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
@@ -232,13 +194,11 @@ func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
 			files:   []string{filepath.Join(dir, unit+".timer"), filepath.Join(dir, unit+".service")},
 			manager: "systemctl",
 			stop:    [][]string{{"--user", "disable", "--now", unit + ".timer"}, {"--user", "daemon-reload"}},
-			probe:   []string{"--user", "is-enabled", unit + ".timer"},
-			off:     []string{"disabled", "masked"},
 		}, true
 	case "darwin":
 		p := filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
 		uid := "gui/" + strconv.Itoa(os.Getuid())
-		return timerUnit{files: []string{p}, manager: "launchctl", stop: [][]string{{"bootout", uid, p}}, probe: []string{"print", uid + "/" + plist}, off: []string{"Could not find service"}}, true
+		return timerUnit{files: []string{p}, manager: "launchctl", stop: [][]string{{"bootout", uid, p}}}, true
 	}
 	return timerUnit{}, false
 }
@@ -250,27 +210,6 @@ func (u timerUnit) present() bool {
 		}
 	}
 	return false
-}
-
-// on reports whether the unit may be turned on: false only when the manager
-// says it is off. A manager that is missing, or a probe that fails any other
-// way (no user bus over SSH, a container), cannot tell, and the unit counts
-// as on: the replacement then runs as it did before the probe, and a refusal
-// keeps the old unit as it was (security review round 2, 2026-10-25).
-func (u timerUnit) on() bool {
-	if _, err := exec.LookPath(u.manager); err != nil {
-		return true
-	}
-	out, err := exec.Command(u.manager, u.probe...).CombinedOutput()
-	if err == nil {
-		return true
-	}
-	for _, off := range u.off {
-		if strings.Contains(string(out), off) {
-			return false
-		}
-	}
-	return true
 }
 
 func (u timerUnit) remove() error {
@@ -291,42 +230,6 @@ func (u timerUnit) remove() error {
 		}
 	}
 	return nil
-}
-
-// ReplaceOldTimer is install's half of the rename for the dream timer: when
-// this home has its unit under the old name, the fyr unit is installed with
-// path first, and only then is the old one stopped and removed, so a refused
-// install keeps the old timer as it was. An old unit the operator turned off
-// (files left, not enabled or not loaded) only has its files removed: no fyr
-// timer is turned on in its place, since the timer's run sends redacted
-// project content to the model provider (security review 2026-10-25). It
-// returns the old unit's name, "" when there is none, and whether a fyr
-// timer replaced it; a dry run finds it, asks the manager, and changes
-// nothing. A bare old name under a home that is not the real one is not this
-// home's (LegacyTimerFiles) and is never touched here.
-func ReplaceOldTimer(home, path, goos string, dryRun bool) (name string, replaced bool, err error) {
-	unit, plist := oldUnitFor(home)
-	old, ok := unitOn(home, goos, unit, plist)
-	if !ok || !old.present() {
-		return "", false, nil
-	}
-	name = unit
-	if goos == "darwin" {
-		name = plist
-	}
-	if !old.on() {
-		if dryRun {
-			return name, false, nil
-		}
-		return name, false, old.remove()
-	}
-	if dryRun {
-		return name, true, nil
-	}
-	if err := InstallTimer(home, path, goos); err != nil {
-		return name, false, fmt.Errorf("the dream timer %s was kept, because its fyr replacement was refused: %w", name, err)
-	}
-	return name, true, old.remove()
 }
 
 // OtherSystemTimerFiles lists this home's unit files that belong to the
@@ -375,73 +278,4 @@ func TimerInstalledHere(home, goos string) bool {
 // paste: a space, a `$` or a quote in a home path must not change the command.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// LegacyTimerFiles lists the bare-named unit files under a home whose own
-// unit name is suffixed: what v2.0.0 or earlier wrote there before names were
-// per home (BUG-144), or what a home of an account the database does not
-// list holds since BUG-149. They are not this home's unit any more, so
-// install, remove and the installed check never see them; this is how the
-// operator still learns of them. The real home's bare-named unit is its own.
-func LegacyTimerFiles(home string) []string {
-	if unit, _ := UnitFor(home); unit == unitName {
-		return nil
-	}
-	// The bare names v2.0.0 or earlier wrote: no release has written a bare
-	// fyr name under a home that is not the real one.
-	real, realErr := userHomeDir()
-	var found []string
-	for _, rel := range []string{
-		filepath.Join(".config", "systemd", "user", oldUnitName+".service"),
-		filepath.Join(".config", "systemd", "user", oldUnitName+".timer"),
-		filepath.Join("Library", "LaunchAgents", oldPlistName+".plist"),
-	} {
-		p := filepath.Join(home, rel)
-		if _, err := os.Lstat(p); err != nil {
-			continue
-		}
-		// A home that shares a directory with the real one through a link
-		// (a scratch home whose .config points at the real .config) sees the
-		// real home's own unit here: that file is not legacy, and the notice
-		// must never tell the operator to delete it.
-		if realErr == nil {
-			if ri, err := os.Stat(filepath.Join(real, rel)); err == nil {
-				if hi, err := os.Stat(p); err == nil && os.SameFile(ri, hi) {
-					continue
-				}
-			}
-		}
-		found = append(found, p)
-	}
-	return found
-}
-
-// LegacyTimerNotice is what remove, uninstall and status tell the operator
-// about LegacyTimerFiles: the paths and the steps. Nothing here stops or
-// deletes them, because the service manager is shared by every home of the
-// account and a stop by name ends whichever unit it loaded, which may be
-// the real home's.
-func LegacyTimerNotice(home, goos string) string {
-	files := LegacyTimerFiles(home)
-	if len(files) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "legacy dream timer files under %s, written by v2.0.0 or earlier under the name every home shared:\n", home)
-	for _, f := range files {
-		fmt.Fprintf(&b, "  %s\n", f)
-	}
-	b.WriteString("They are not removed or stopped here: a stop by name ends whichever unit the service manager loaded, which may be another home's.\n")
-	if goos == "darwin" {
-		uid := strconv.Itoa(os.Getuid())
-		fmt.Fprintf(&b, "Check which file is loaded: launchctl print gui/%s/%s (its path line)\n", uid, oldPlistName)
-		fmt.Fprintf(&b, "If it is one of the files above: launchctl bootout gui/%s <that plist>\n", uid)
-		b.WriteString("Then delete the files above.\n")
-	} else {
-		fmt.Fprintf(&b, "Check which file is loaded: systemctl --user show -p FragmentPath %s.timer\n", oldUnitName)
-		fmt.Fprintf(&b, "If it is one of the files above: systemctl --user disable --now %s.timer\n", oldUnitName)
-		b.WriteString("Then delete the files above and run: systemctl --user daemon-reload\n")
-	}
-	fmt.Fprintf(&b, "If this home should keep a dream timer, install it again afterwards: fyr dream --install-timer --home %s", shellQuote(home))
-	return b.String()
 }

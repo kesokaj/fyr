@@ -6,9 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 
-	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -126,25 +124,6 @@ func installFiles(src harness.Source, home string, dryRun bool, out io.Writer) e
 	}
 	if err := harness.Install(src, home, files, dryRun, out); err != nil {
 		return err
-	}
-	// After the binary is written: the fyr-dream unit runs it. The PATH is the
-	// installing shell's, as --install-timer's is.
-	old, replaced, err := dream.ReplaceOldTimer(home, os.Getenv("PATH"), runtime.GOOS, dryRun)
-	switch {
-	case err != nil:
-		return err
-	case old != "" && !replaced && dryRun:
-		fmt.Fprintf(out, "[dry-run] the dream timer %s is turned off: its files would be removed and no fyr timer installed\n", old)
-	case old != "" && !replaced:
-		fmt.Fprintf(out, "removed the dream timer %s, which was turned off; no fyr timer installed (fyr dream --install-timer turns one on)\n", old)
-	case old != "" && dryRun:
-		fmt.Fprintf(out, "[dry-run] the dream timer %s would be replaced by its fyr name\n", old)
-	case old != "":
-		unit, plist := dream.UnitFor(home)
-		if runtime.GOOS == "darwin" {
-			unit = plist
-		}
-		fmt.Fprintf(out, "replaced the dream timer %s with %s\n", old, unit)
 	}
 	// A dry run wrote no binary, so no statement about how PATH reaches it is
 	// true.

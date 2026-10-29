@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // The ingest line carries no skipped-lines count: it was never incremented
@@ -62,26 +60,5 @@ func TestWriteReportLeavesNoFileOnAFailedRender(t *testing.T) {
 	}
 	if _, err := os.Stat(f); !os.IsNotExist(err) {
 		t.Errorf("a failed render left %s: %v", f, err)
-	}
-}
-
-// A feedback line over the cap ends the read with a note, never silently
-// (SD58 of the 2026-10-27 audit); the lines before it are kept.
-func TestReadFeedbackNotesAnOverlongLine(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, harness.StateDir)
-	os.MkdirAll(dir, 0o700)
-	good := `{"ts":"2026-10-01T10:00:00Z","project":"/p"}` + "\n"
-	long := `{"ts":"2026-10-01T11:00:00Z","project":"/p","original":"` + strings.Repeat("x", maxFeedbackLine) + `"}` + "\n"
-	os.WriteFile(filepath.Join(dir, "feedback.jsonl"), []byte(good+long+good), 0o600)
-	got, note := readFeedback(home)
-	if len(got["/p"]) != 1 {
-		t.Errorf("entries %v, want the one before the long line", got)
-	}
-	if !strings.Contains(note, "line 2 over 4 MiB") {
-		t.Errorf("note %q, want it to name line 2", note)
-	}
-	if _, note := readFeedback(t.TempDir()); note != "" {
-		t.Errorf("no feedback file gave the note %q", note)
 	}
 }

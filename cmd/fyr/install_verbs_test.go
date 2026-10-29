@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -167,57 +165,5 @@ func TestRelativeHomeResolvesAgainstTheInvokingDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "rel-home")); err == nil {
 		t.Errorf("a rel-home directory appeared inside the repository (the child install resolved it against cmd.Dir)")
-	}
-}
-
-// TestInstallSaysATurnedOffTimerStaysOff: install finds this home's dream
-// unit under the old name but turned off; the dry run and the install each
-// say so, the old files go, and no fyr timer is turned on (security review
-// of v2.7.0..881389a, 2026-10-25; plan fyr D31).
-func TestInstallSaysATurnedOffTimerStaysOff(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("the systemd half; the launchd half is TestReplaceOldTimer's")
-	}
-	t.Setenv(harness.ChildEnv, "1")
-	t.Setenv("FYR_REPO", "")
-	fakeBin := t.TempDir()
-	calls := filepath.Join(t.TempDir(), "calls")
-	script := "#!/bin/sh\necho \"$*\" >> \"" + calls + "\"\ncase \"$*\" in *is-enabled*) echo disabled; exit 1 ;; esac\n"
-	if err := os.WriteFile(filepath.Join(fakeBin, "systemctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	home := t.TempDir()
-	unit, _ := dream.UnitFor(home)
-	old := strings.Replace(unit, "fyr-dream", "sh-agent-dream", 1)
-	unitDir := filepath.Join(home, ".config", "systemd", "user")
-	if err := os.MkdirAll(unitDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, ext := range []string{".service", ".timer"} {
-		if err := os.WriteFile(filepath.Join(unitDir, old+ext), []byte("x\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	var out bytes.Buffer
-	if err := run([]string{"install", "--dry-run", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
-		t.Fatalf("install --dry-run: %v\n%s", err, out.String())
-	}
-	if want := "[dry-run] the dream timer " + old + " is turned off: its files would be removed and no fyr timer installed\n"; !strings.Contains(out.String(), want) {
-		t.Errorf("the dry run does not say %q:\n%s", want, out.String())
-	}
-	out.Reset()
-	if err := run([]string{"install", "--repo", checkoutRoot, "--home", home}, &out); err != nil {
-		t.Fatalf("install: %v\n%s", err, out.String())
-	}
-	if want := "removed the dream timer " + old + ", which was turned off; no fyr timer installed (fyr dream --install-timer turns one on)\n"; !strings.Contains(out.String(), want) {
-		t.Errorf("install does not say %q:\n%s", want, out.String())
-	}
-	if left, _ := filepath.Glob(filepath.Join(unitDir, "*-dream-*")); len(left) != 0 {
-		t.Errorf("unit files left or written: %v", left)
-	}
-	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "enable --now") {
-		t.Errorf("a timer was turned on:\n%s", b)
 	}
 }

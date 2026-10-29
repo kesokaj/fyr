@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -50,16 +48,17 @@ func owners(ws []window, ts int64) []string {
 }
 
 // joinRoot writes one project root's events: its corrections, then, when the
-// root is a git checkout, its commits and its trail's events. A root that
-// could not give some of them returns a note saying which.
-func joinRoot(home, root string, ws []window, feedback []stamped, put putFunc) (notes []string, err error) {
+// root is a git checkout, its commits and its trail records' events. A root
+// that could not give some of them returns a note saying which. A root whose
+// checkout holds no trail records gives commits and corrections only.
+func joinRoot(home, root string, ws []window, put putFunc) (notes []string, err error) {
 	// A records read that fails costs this run the root's record events
-	// only: its stored events stay, and feedback.jsonl still counts.
+	// only: its stored events stay.
 	in, rerr := brain.ForMetrics(home, root)
 	if rerr != nil {
 		notes = append(notes, "records not read: "+root+": "+rerr.Error())
 	}
-	for _, f := range append(feedback, feedbackRecords(in.Feedback)...) {
+	for _, f := range feedbackRecords(in.Feedback) {
 		for _, id := range owners(ws, f.ts) {
 			if err := put(id, "correction", f.ref, "", f.ts); err != nil {
 				return nil, err
@@ -77,10 +76,7 @@ func joinRoot(home, root string, ws []window, feedback []stamped, put putFunc) (
 	if err != nil {
 		return nil, err
 	}
-	if !in.Migrated {
-		return notes, joinFiles(root, ws, sessionOf, put)
-	}
-	if rerr == nil {
+	if in.Migrated && rerr == nil {
 		if err := joinRecords(in.Trail, ws, sessionOf, put); err != nil {
 			return nil, err
 		}
@@ -109,80 +105,4 @@ func joinCommits(commits []stamped, ws []window, put putFunc) (map[string]string
 		}
 	}
 	return sessionOf, nil
-}
-
-// fileTimes is a trail file's time: the one git gives it while its working
-// copy is unchanged, else its mtime, else 0.
-type fileTimes struct {
-	root     string
-	dates    map[string]time.Time
-	modified map[string]bool
-}
-
-func (f fileTimes) at(rel string) int64 {
-	if t, ok := f.dates[rel]; ok && !f.modified[rel] {
-		return t.UnixMilli()
-	}
-	if fi, err := os.Stat(filepath.Join(f.root, rel)); err == nil {
-		return fi.ModTime().UnixMilli()
-	}
-	return 0
-}
-
-// joinFiles derives an unmigrated project's handoff, verifier, review and
-// bug events from its trail files; a root with no docs directory has none.
-func joinFiles(root string, ws []window, sessionOf map[string]string, put putFunc) error {
-	docs := trail.DocsRoot(root)
-	if docs == "" {
-		return nil
-	}
-	dates, modified := trail.Dates(root, docs)
-	ft := fileTimes{root, dates, modified}
-	for _, rel := range trailFiles(root, docs, "handoffs", "*.md") {
-		for _, id := range owners(ws, ft.at(rel)) {
-			if err := put(id, "handoff", fileRef("handoff", rel), "", ft.at(rel)); err != nil {
-				return err
-			}
-		}
-	}
-	for _, rel := range trailFiles(root, docs, "testing", "*-verify-*.md") {
-		m := statusLine.FindStringSubmatch(readSmall(filepath.Join(root, rel)))
-		if m == nil {
-			continue
-		}
-		for _, id := range owners(ws, ft.at(rel)) {
-			if err := put(id, "verifier", fileRef("testing", rel), m[1], ft.at(rel)); err != nil {
-				return err
-			}
-		}
-	}
-	for _, rel := range trailFiles(root, docs, "reviews", "*.md") {
-		v := findings(readSmall(filepath.Join(root, rel)))
-		for _, id := range owners(ws, ft.at(rel)) {
-			if err := put(id, "review", fileRef("review", rel), v, ft.at(rel)); err != nil {
-				return err
-			}
-		}
-	}
-	return joinFileBugs(root, docs, ft, sessionOf, put)
-}
-
-// joinFileBugs gives a BUG-N file to the session that owns the first commit
-// its body cites.
-func joinFileBugs(root, docs string, ft fileTimes, sessionOf map[string]string, put putFunc) error {
-	for _, rel := range trailFiles(root, docs, "bugs", "BUG-*.md") {
-		m := bugName.FindStringSubmatch(filepath.Base(rel))
-		if m == nil {
-			continue
-		}
-		for _, h := range hexRun.FindAllString(readSmall(filepath.Join(root, rel)), -1) {
-			if sha, id := matchCommit(h, sessionOf); id != "" {
-				if err := put(id, "bug", m[1], sha, ft.at(rel)); err != nil {
-					return err
-				}
-				break
-			}
-		}
-	}
-	return nil
 }

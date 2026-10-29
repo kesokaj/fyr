@@ -3,8 +3,6 @@ package metrics
 import (
 	"database/sql"
 	"encoding/json"
-	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -23,7 +21,6 @@ const closeSlack = 30 * time.Minute
 var (
 	statusLine = regexp.MustCompile(`(?m)^## Status:\s*(PASS|FAIL|BLOCKED|IN PROGRESS)\b`)
 	finding    = regexp.MustCompile(`\*\*\[(high|medium|low)\b`)
-	bugName    = regexp.MustCompile(`^(BUG-[0-9]+)`)
 	hexRun     = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 	// A record's time is the minute its ID was stamped with (plan
 	// 2026-10-25-1754 D3); verifyTitle is the verifier's own title (D12).
@@ -46,9 +43,9 @@ type putFunc func(sid, kind, ref, value string, ts int64) error
 
 // joinEvents derives every main session's events from git, the trail and
 // the feedback (spec § Data, events payloads): a migrated project's trail
-// from its records, an unmigrated one's from its files, never both (plan
-// 2026-10-25-1754 D4); corrections from the global feedback records and
-// feedback.jsonl for every root (D11). It is idempotent: each
+// from its records, and nothing from an unmigrated one's files, whose join
+// went with the crossing (plan 2026-10-27-ledger Phase 10); corrections from
+// the global feedback records for every root (D11). It is idempotent: each
 // event's key is (session, kind, ref), and an event whose value changes (a
 // commit that became ambiguous when an overlapping session arrived) is
 // updated in place. A project root that is gone or is not git gets no
@@ -57,10 +54,6 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 	byRoot, err := s.mainWindows()
 	if err != nil {
 		return nil, err
-	}
-	feedback, fbNote := readFeedback(home)
-	if fbNote != "" {
-		notes = append(notes, fbNote)
 	}
 	roots := make([]string, 0, len(byRoot))
 	for r := range byRoot {
@@ -85,7 +78,7 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		return err
 	}
 	for _, root := range roots {
-		rootNotes, err := joinRoot(home, root, byRoot[root], feedback[root], put)
+		rootNotes, err := joinRoot(home, root, byRoot[root], put)
 		if err != nil {
 			return nil, err
 		}
@@ -221,8 +214,9 @@ func rewriteFileRefs(tx *sql.Tx) error {
 
 // rewriteCorrectionRefs turns a correction ref stored as its feedback
 // entry's ts, in any offset, into the UTC form the join now writes (D11),
-// so one correction read from both the log and a record counts once. A ref
-// that is not a time is left alone.
+// so a correction an older ingest stored from the feedback log as written
+// and the record of the same entry count once. A ref that is not a time is
+// left alone.
 func rewriteCorrectionRefs(tx *sql.Tx) error {
 	type row struct{ sid, ref string }
 	rows, err := tx.Query(`SELECT session_id, ref FROM events WHERE kind = 'correction'`)
@@ -303,33 +297,8 @@ func matchCommit(prefix string, sessionOf map[string]string) (string, string) {
 	return "", ""
 }
 
-// trailFiles lists docs/<dir>/<pattern> relative to root, slash-separated.
-func trailFiles(root, docs, dir, pattern string) []string {
-	matches, _ := filepath.Glob(filepath.Join(root, docs, dir, pattern))
-	var out []string
-	for _, m := range matches {
-		if fi, err := os.Lstat(m); err == nil && fi.Mode().IsRegular() {
-			rel, _ := filepath.Rel(root, m)
-			out = append(out, filepath.ToSlash(rel))
-		}
-	}
-	return out
-}
-
-// readSmall reads up to 1 MiB of a trail file; only patterns are taken from
-// it, never its text.
-func readSmall(p string) string {
-	f, _, err := openRegular(p)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	b, _ := io.ReadAll(io.LimitReader(f, 1<<20))
-	return string(b)
-}
-
 // correctionRef is a feedback entry's time and its event reference: the ts
-// in UTC, so an entry written +02:00 in the log and Z elsewhere is one
+// in UTC, so an entry written +02:00 in one place and Z in another is one
 // correction (D11).
 func correctionRef(ts string) (int64, string, bool) {
 	t, err := time.Parse(time.RFC3339, ts)
