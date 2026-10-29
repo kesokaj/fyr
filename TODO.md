@@ -7,17 +7,15 @@
 
 ## Now
 
-Workers Phase 4 of `PLAN-2026-10-29-workers`: several Kickoffs, `--max-workers`, `--kill`. Phase 3 is done (`fyr work` for one Kickoff, ADR-076, commit `4dccb7a`). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 5a of `PLAN-2026-10-29-workers`: the `work` skill. Phase 4 is done (several Kickoffs, `--max-workers`, `--kill`, commit `140bd34`). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [x] Risk check first: two `agy -p` sessions at once on one linked token both finish logged in (yes, on dave; D92)
-- [x] Several files, `--max-workers` counted machine-wide (D30), refusals 5 and 6, waiting files, results in file order
-- [x] `--kill <stamp>` with the pid file and its lock (D33)
-- [ ] Checkpoint: full test command, `reviewer` and `security`, `verifier` log, change record, commit, push, the real-home install on dave, handoff
-- [ ] The Mac: `go test -race ./internal/sandbox ./internal/work ./cmd/fyr` (who: user; not a Checkpoint condition)
+- [ ] Risk check first: whether an interactive `agy` session's background `run_command` survives the end of the lead's turn (who: both: the session ends its turn after starting it, and the operator sends any message after two minutes)
+- [ ] `skills/work/SKILL.md`: the standing approvals, the judgement rule, the closed set, the loop's eleven steps, `/work PLAN-ID` as the resume
+- [ ] Checkpoint: full test command, `reviewer` with `/review --docs`, `verifier` log, change record, commit, push, the real-home install on dave, handoff
 
 ## Next
 
-- Workers Phase 5a (the `work` skill), then 5b (the feature skill's workers decision, the worker template, the session-sizing clause and its ADR).
+- Workers Phase 5b (the feature skill's workers decision, the worker template, the session-sizing clause and its ADR).
 - Workers Phase 6 (the E2E, a planning session that becomes the lead), then Phase 7 (`--runner docker`).
 - Then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
