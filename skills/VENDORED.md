@@ -9,6 +9,7 @@ instead). The second table lists the forks: `gke-basics`, the one that predates 
 keeps its upstream name, and `discover-skills`, forked from `find-skills` under a new name. The third table lists
 vendored catalogs: a subtree of third-party skills inside a harness skill, reached through that
 skill and never installed as skills themselves. A path in a Source cell is written `<upstream>/…`: it is in the upstream repository, not in this checkout.
+A Pin is written only after `git archive <pin> <path> | tar -x` into scratch and `diff -r` against the directory: the diff is the row's "Local changes", an empty diff is what "verbatim" means, and a pin chosen from a date is a guess (BUG-111; `TestVendoredRowsCarryAPin` refuses a row with no repository or pin, not a wrong one).
 
 | Skill | Source | Pin | License | Vendored | Update via |
 |-------|--------|-----|---------|----------|------------|

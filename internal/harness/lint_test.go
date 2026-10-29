@@ -8,7 +8,7 @@ import (
 )
 
 // TestAgentDescriptionRules: an agent's description is one line and names
-// neither "dispatch prompt" nor "harness binary" (AGENTS.md § Rules; audit
+// neither "dispatch prompt" nor "harness binary" (TDD.md § T6; audit
 // 2026-09-30, AG12). Until now only inspection enforced it.
 func TestAgentDescriptionRules(t *testing.T) {
 	for name, front := range map[string]string{

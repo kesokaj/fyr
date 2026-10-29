@@ -7,17 +7,15 @@
 
 ## Now
 
-Row 5 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Phase 6; its § Order of work is the source of truth): the project `AGENTS.md` trimmed to ≤ 12,000 bytes (PRD G2).
+Row 6 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Release 1; its § Order of work is the source of truth): `/preflight`, on the operator's word, after the behavioural runs the handoffs list (D12).
 
-- [ ] An audit table first: every section, its bytes, and its new home
-- [ ] `AGENTS.md` rewritten from the table to ≤ 12,000 bytes
-- [ ] Nothing lost: `reviewer` given the old and new file and the table only
-- [ ] Checkpoint
+- [ ] The operator's `fyr eval` runs of the changed skills and agents, or their quoted waiver
+- [ ] `/preflight vX.Y.Z` from the operator's own turn
 
 ## Next
 
-- Row 6 of the same plan: Release 1, on the operator's word.
 - Row 7 of the same plan: `fyr serve` design (S1).
+- Row 8 of the same plan: `fyr serve` read-only pages (S2).
 
 ## Backlog
 

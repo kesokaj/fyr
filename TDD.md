@@ -10,19 +10,20 @@ Status: current · Last updated: 2026-10-29 · Requirements: [PRD.md](PRD.md) ·
 
 ## T1 — Global context and rules
 
-Implements: M1 · Spec: none (the files are their own spec; the size limits are `AGENTS.md` § Setup commands and ADR-035)
+Implements: M1 · Spec: none (the files are their own spec; the size limits below and ADR-035)
 
-- **Interfaces:** `context/AGENTS.md`, then `context/dev-setup.md`, rendered by `fyr render` into one file, plus each `rules/*.md` file, all in Antigravity's rules directory.
+- **Interfaces:** `context/AGENTS.md`, then `context/dev-setup.md`, rendered by `fyr render` into one file (`~/.gemini/config/rules/AGENTS.md`), plus each `rules/*.md` file — `critical-thinking.md` (ADR-050), `session-sizing.md` (ADR-058), `code-modularity.md` (ADR-066) — all in Antigravity's rules directory.
 - **Errors:** a context over its size pin fails `go test ./internal/harness`; a rule with a frontmatter key outside its allow list fails the install's lint.
 - **Configuration:** none; the canary word ends the rendered context.
+- **Size pins** (`internal/harness/size_test.go`): `TestRenderedContextUnderTarget`, the hand-written context (the render before its generated `## Installed` inventory) under 15,000 bytes, the harness's own ceiling and the only one; `TestRenderedContextFitsAntigravityBlock`, the whole render under 22,000 bytes inside Antigravity's 24,000-byte block (ADR-035), which the inventory, growing with every skill, counts toward. A limit is never raised.
 
 ## T2 — Skills and commands
 
 Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored provenance in `skills/VENDORED.md`, the catalog's in `skills/google-catalog/catalog/MANIFEST.md`)
 
-- **Interfaces:** `skills/<name>/SKILL.md` with a `description`, loaded when it matches and typed as `/name`; `commands/<name>.md`, empty by design.
+- **Interfaces:** `skills/<name>/SKILL.md` with a `description`, loaded when it matches and typed as `/name`; `commands/<name>.md`, deployed to `~/.gemini/config/workflows/`, empty by design (the operator, 2026-09-30).
 - **Errors:** the lint refuses a skill without `SKILL.md` or a description, a description over 1,024 characters, a key outside the allow list, and a value a YAML reader would read as a comment.
-- **Configuration:** the listing budget, 19,500 bytes over every model-invoked skill's name and description.
+- **Configuration:** the listing budget, `TestSkillListingBudget`: 19,500 bytes over the name and description of every skill without `disable-model-invocation: true`; past Claude Code's budget a skill is a bare name nothing triggers, so catalog entries never become global skills.
 
 ## T3 — Subagents
 
@@ -35,7 +36,7 @@ Implements: M3 · Spec: none (Antigravity's `agent.md` format; the allow-list is
 
 Implements: M4 · Spec: `SPEC-fyr-delivery`
 
-- **Interfaces:** `embed.go`, package `fyr` at the root, embeds `context/`, `skills/`, `agents/`, `commands/` and `rules/`; a release binary installs from it and refuses `--repo` (ADR-034).
+- **Interfaces:** `embed.go`, package `fyr` at the root (a `go:embed` cannot reach a parent directory), embeds `context/`, `skills/`, `agents/`, `commands/` and `rules/`; a release binary installs from it and refuses `--repo` (ADR-034).
 - **Errors:** an embedded file git does not track, or a tracked one the embed misses, fails `go test .`.
 
 ## T5 — The CLI
@@ -72,9 +73,11 @@ The verb table below moved here whole from README § Daily commands on 2026-10-2
 
 ## T6 — The installer
 
-Implements: M6 · Spec: `SPEC-fyr-delivery`; the rules are `AGENTS.md` § Rules for working here
+Implements: M6 · Spec: `SPEC-fyr-delivery`; the working rules are `AGENTS.md` § Rules for working here
 
 - **Interfaces:** `internal/harness/plan.go` says what is installed where; `internal/harness/inventory.go` holds the lint; the manifest is `~/.config/fyr/state.json`.
+- **Rebuild or copy:** `fyr install` rebuilds the binary from its own git checkout with `go build` and lets that build install (BUG-006); it copies the running binary only when `go` is missing, when the tree is a plain copy with no `.git` (its binary was built from that tree, which may be read-only to the installing user, BUG-015), or when the source is the harness embedded in a release binary (ADR-033, D13).
+- **Lint refusals** (`inventory.go`, each with its bug in `TestLint*` and `TestAgentDescriptionRules`): the flat `agents/<name>.md` format from before ADR-062; a skill without `SKILL.md` and its `description`; a description over 1,024 characters, or in an agent one that is not one line or names "dispatch prompt" or "harness binary"; a frontmatter value a strict YAML parser reads as a comment (BUG-004: quote it); in every kind a key outside its allow list (`agentKeys`, `skillKeys`, `commandKeys`, `ruleKeys`; IN23), a permission key (`allowed-tools`, `hooks`, `permissionMode`, `mcpServers`) above all; a command or rule whose file name fails `validName`; a frontmatter block a YAML reader could read differently from the lint's line grammar (BUG-143, BUG-153).
 - **Errors:** every lint refusal names the file and the rule; a failed write keeps the manifest complete; `update` refuses a dirty checkout and an unknown status.
 - **Configuration:** `--home DIR` for every development run (R6); `--repo DIR` or `$FYR_REPO` for the checkout.
 - **Dependencies:** git and `go` for a checkout's rebuild; `gh` for a release binary's update.
@@ -92,7 +95,7 @@ Implements: M7 · Spec: `SPEC-fyr-record`
 Implements: M8 · Spec: `SPEC-fyr-search`
 
 - **Interfaces:** `fyr search` (records first, then files), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
-- **Data:** the indexes are caches, rebuilt when deleted (R4).
+- **Data:** the indexes are caches, rebuilt when deleted (R4). The dream job's two read-only SQLite reads live here too: the global index's project list and Antigravity's conversation databases, both from copies.
 
 ## T9 — Memory
 
@@ -121,6 +124,7 @@ Implements: M11 · Spec: `SPEC-fyr-dream`
 Implements: M12 · Spec: none (internal; `SPEC-fyr-dream` names where it runs, and its tests pin every needle)
 
 - **Interfaces:** one function over text, one over JSON lines; stdlib only.
+- **Needles:** a needle matched against raw text has no `\b` in front: a literal `\n` or an underscore is a word character and hides the token.
 - **Errors:** over-redaction is the safe direction and is pinned, never argued (`AGENTS.md` § Rules for working here).
 
 ## T13 — Eval
@@ -129,7 +133,7 @@ Implements: M13 · Spec: `SPEC-fyr-eval`; the rows are the `GUIDE-eval` record
 
 - **Interfaces:** `fyr eval --home DIR <row>...` and `fyr eval --list`.
 - **Errors:** a missing `--home`, the real home, or a home inside a git checkout is refused with exit 2 before anything is written.
-- **Data:** one `testing` record per run, and metrics under the label `eval=<row>`.
+- **Data:** one `testing` record per run, and metrics under the label `eval=<row>`; the package imports no SQLite driver: `cmd/fyr` writes the record and the metrics rows.
 
 ## T14 — Drift check
 
@@ -137,12 +141,13 @@ Implements: M14 · Spec: `SPEC-fyr-check`
 
 - **Interfaces:** `fyr check`, read-only: rule (a) docs, (b) specs, (c) requirements.
 - **Errors:** exit 1 with findings; a trail that does not parse is a refusal, never a partial run.
+- **Dependencies:** the trail through `brain.ReadTrail`; it opens no store or SQLite database and imports no driver.
 
 ## T15 — Trail git reads
 
 Implements: M15 · Spec: none (internal; shared by M7–M11 and M14 so that none imports another)
 
-- **Interfaces:** `trail.Command`, which runs git with the repository variables dropped; the registration marker that `fyr index --register` writes.
+- **Interfaces:** `trail.Command`, which runs git with the repository variables dropped, with `Dates`, `Log` and `DocsRoot`; `NoIndexMarkers`; the registration marker that `fyr index --register` writes. No SQLite.
 
 ## Data model
 
@@ -156,7 +161,7 @@ Implements: M15 · Spec: none (internal; shared by M7–M11 and M14 so that none
 
 ## Testing strategy
 
-`go test` only: unit tests with `-race`, the size pins, the lint tests, and three pins in the root package (`TestFunctionLength`, `TestGitTestPackagesDropGitVariables`, `TestAreasRunPatternsExist`). Behavioural runs against the Antigravity CLI are `fyr eval` rows. The procedure is the `GUIDE-testing` record (`fyr record get GUIDE-testing`); the commands are `AGENTS.md` § Setup commands.
+`go test` only: unit tests with `-race`, the size pins, the lint tests, and three pins in the root package: `TestFunctionLength` (a non-test function over 50 lines, `rules/code-modularity.md` item 1, unless `longFuncs` names it), `TestGitTestPackagesDropGitVariables` (a test package that names the git binary needs a `TestMain` dropping `GIT_*`) and `TestAreasRunPatternsExist` (every `-run` pattern in `skills/harness-audit/references/areas.md` names a test, WS53). Behavioural runs against the Antigravity CLI are `fyr eval` rows. The procedure is the `GUIDE-testing` record (`fyr record get GUIDE-testing`); the commands are `AGENTS.md` § Setup commands.
 
 ## Build, run and deploy
 

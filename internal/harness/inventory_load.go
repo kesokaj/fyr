@@ -107,7 +107,7 @@ func checkAgent(name, front string, fm Frontmatter) error {
 		return fmt.Errorf("agent %s: no description", name)
 	}
 	// One line, dispatch-worthy, and free of the two phrases that
-	// described a mechanism that no longer exists (AGENTS.md § Rules;
+	// described a mechanism that no longer exists (TDD.md § T6;
 	// until 2026-10-01 only inspection enforced this).
 	if descriptionIsMultiLine(front) {
 		return fmt.Errorf("agent %s: description must be one line", name)
