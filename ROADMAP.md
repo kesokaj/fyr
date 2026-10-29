@@ -8,4 +8,4 @@ Last reviewed: 2026-10-29
 
 ## Next
 
-1. The root-docs Feature (PRD, SDD, TDD, TODO; ROADMAP removed), Phase 1: the plan record, the ADR and the REQUIREMENTS edit proposed for approval (the operator's decisions of 2026-10-29, drafted in `.agents/scratch/root-docs-audit-2026-10-29.md`).
+1. Row 1 of the approved order (`.agents/scratch/root-docs-audit-2026-10-29.md` § Order of work): Phase 0 + Phase 1 of the root-docs Feature, with `fyr serve` in the same plan record; the plan record, the ADR and the REQUIREMENTS edit proposed for approval.
