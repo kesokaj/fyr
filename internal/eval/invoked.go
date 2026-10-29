@@ -6,7 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
+
+// maxScan bounds the bytes read from one conversation database. A variable
+// so a test can lower it.
+var maxScan int64 = 64 << 20
 
 // invokedNotes is safety check f (run.sh:240-248, plan lean-process-3 D3): an
 // agent row counts only when some conversation database of the sandbox holds
@@ -38,7 +44,7 @@ func invokedNotes(sb, agent string) (bool, []string) {
 // whether it was left unread for being over maxScan; a link or a FIFO the
 // agent left in place of a database is not read.
 func readsNeedle(path string, needle []byte) (found, big bool) {
-	f, err := openRegular(path, os.O_RDONLY)
+	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
 		return false, false
 	}

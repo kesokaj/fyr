@@ -9,9 +9,9 @@
 
 Phase 1 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): `internal/sandbox` extracted from `internal/eval`, with eval unchanged. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50); the planning session and its cold read are done (D9–D45). The plan record wins on a conflict.
 
-- [ ] Baseline: `fyr eval --list` saved, `go test -race ./internal/eval ./cmd/fyr`
-- [ ] `internal/sandbox` per the plan's Interfaces; `watched` skips `eval/` and `work/` (D10)
-- [ ] Eval unchanged: `--list` byte-identical, one real row with its last verdict
+- [x] Baseline: `fyr eval --list` saved, `go test -race ./internal/eval ./cmd/fyr`
+- [x] `internal/sandbox` per the plan's Interfaces; `watched` skips `eval/` and `work/` (D10)
+- [x] Eval unchanged: `--list` byte-identical, one real row with its last verdict
 - [ ] Checkpoint
 
 ## Next

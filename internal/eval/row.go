@@ -1,167 +1,160 @@
 package eval
 
 import (
-	"errors"
-	"fmt"
-	"io"
-	"io/fs"
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"unicode"
+	"time"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
-// row is one sandbox's state as the steps fill it.
-type row struct {
-	o            Options
-	r            Row
-	dir, app, sb string
-	out          io.Writer
-	reasons      []string
-	pgids        []int
-	realBefore   map[string]string
-	credsBefore  map[string]credFinding
-	linked       bool
-	stamp        string // {{STAMP}}: the row's start, %F-%H%M
-	// resolved holds dir, app and sb as guard a approved them. The agent can
-	// write in dir, so every later step that follows those paths first checks
-	// they still resolve here (intact), and check e matches these strings.
-	resolved map[string]string
-	// root is SB, opened once guard a approved it. A held handle follows the
-	// directory through a rename, so the token link is removed from the home
-	// it was made in, whatever the path leads to by then.
-	root *os.Root
-}
+// Bounds of one CLI session, variables so a test can shorten them: agy's own
+// --print-timeout is 20m, and 25m is the kit's `timeout --foreground` around it.
+var (
+	agyTimeout = 25 * time.Minute
+	stopGrace  = 5 * time.Second
+)
 
-func (w *row) fail(reason string) { w.reasons = append(w.reasons, reason) }
-
-func (w *row) note(format string, a ...any) {
-	fmt.Fprintln(w.out, printable(fmt.Sprintf("eval: "+w.r.ID+": "+format, a...)))
-}
-
-func (w *row) has(reason string) bool {
-	for _, r := range w.reasons {
-		if r == reason {
-			return true
-		}
+// namedGrants is the allow list of a named row (run.sh:212).
+var namedGrants = func() []string {
+	var out []string
+	for _, c := range strings.Fields("git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff fyr chmod readlink bash python3 sleep govulncheck") {
+		out = append(out, "command("+c+")")
 	}
-	return false
+	return append(out, "read_file(*)", "write_file(*)")
+}()
+
+// row is one row's sandbox and what eval adds to it: the row's setup, check
+// and agent, and the records baseline.
+type row struct {
+	o     Options
+	r     Row
+	b     *sandbox.Box
+	stamp string // {{STAMP}}: the row's start, %F-%H%M
 }
 
-// intact reports whether the sandbox directory, the clone and the sandbox
-// home still resolve to what guard a approved, and fails the row once when
-// they do not: the agent can replace any of them with a link to the real
-// home, and eval removes, scans and ingests through them.
-func (w *row) intact() bool {
-	for p, want := range w.resolved {
-		st, err := os.Lstat(p)
-		got, rerr := filepath.EvalSymlinks(p)
-		if err != nil || rerr != nil || !st.IsDir() || got != want {
-			w.replaced("%s no longer resolves to %s; nothing is removed, run or scanned through it", p, want)
+// newRow is row r's sandbox at dir, as Run builds one.
+func newRow(o Options, r Row, dir, stamp string) *row {
+	grants := namedGrants
+	if _, wide := r.Wide(); wide {
+		grants = []string{"command(*)", "read_file(*)", "write_file(*)"}
+	}
+	b := sandbox.New(sandbox.Config{
+		Dir: dir, Source: o.Fixture, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
+		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
+		Timeout: agyTimeout, PrintTimeout: "20m", StopGrace: stopGrace,
+		Prefix: "eval: " + r.ID, Out: o.Out,
+	})
+	return &row{o: o, r: r, b: b, stamp: stamp}
+}
+
+// prepare is steps 2-8 of SPEC-fyr-eval § One row; false means the row has
+// failed and no CLI runs.
+func (w *row) prepare(ctx context.Context) bool {
+	if !w.b.Clone(ctx) || !w.recordsBefore(ctx) {
+		return false
+	}
+	w.b.Fingerprint()
+	// Step 5: the row's setup, in the clone.
+	if w.r.Setup != "" {
+		if !w.b.Bash(ctx, w.r.Setup, w.setupEnv(), "setup.log") {
+			w.b.Fail(ReasonSetup)
 			return false
 		}
+	}
+	if !w.b.Install(ctx) {
+		return false
+	}
+	if reason, wide := w.r.Wide(); wide {
+		w.b.Note("runs with command(*) in its throwaway clone: %s", reason)
+	}
+	if !w.b.Settings() {
+		return false
+	}
+	w.b.Baseline()
+	return ctx.Err() == nil
+}
+
+// recordsBefore is step 3.
+func (w *row) recordsBefore(ctx context.Context) bool {
+	// Step 3: what the trail held before the agent ran; a check counts only
+	// the records the run adds (run.sh:52-62).
+	before := filepath.Join(w.b.Home(), "records-before.txt")
+	var list []byte
+	if _, err := os.Stat(filepath.Join(w.b.App(), ".agents", "trail.jsonl")); err == nil {
+		cmd := exec.CommandContext(ctx, w.o.Self, "record", "list", "--home", w.b.Home())
+		cmd.Dir = w.b.App()
+		cmd.Env = sandbox.FyrEnv()
+		var errb strings.Builder
+		cmd.Stderr = &errb
+		if list, err = cmd.Output(); err != nil {
+			w.b.Note("record list: %v: %s", err, strings.TrimSpace(errb.String()))
+			w.b.Fail(ReasonRecords)
+			return false
+		}
+	}
+	if err := os.WriteFile(before, list, 0o600); err != nil {
+		w.b.Fail(ReasonRecords)
+		return false
 	}
 	return true
 }
 
-// replaced notes what the agent changed and fails the row sandbox replaced,
-// once.
-func (w *row) replaced(format string, a ...any) {
-	w.note(format, a...)
-	if !w.has(ReasonReplaced) {
-		w.fail(ReasonReplaced)
+// session is steps 9-10: prompt, then prompt2 after a clean first exit. It
+// returns the last agy exit status (-1: none, killed).
+func (w *row) session(ctx context.Context, agy, tok string) int {
+	vars := map[string]string{"CLONE": w.b.App(), "SB": w.b.Home(), "FIXDIR": w.o.Fixture, "STAMP": w.stamp}
+	rc := w.b.Session(ctx, agy, tok, Expand(w.r.Prompt, vars), "out.txt")
+	// The first session may have replaced the sandbox: the second opens its
+	// output through the same paths, so it runs only on an intact one.
+	if w.r.Prompt2 != "" && rc == 0 && ctx.Err() == nil && w.b.Intact() {
+		rc = w.b.Session(ctx, agy, tok, Expand(w.r.Prompt2, vars), "out2.txt")
 	}
+	return rc
 }
 
-// sandboxRoot is the held os.Root on SB, or one opened now when prepare did
-// not get that far. An os.Root refuses a path that a link leads out of the
-// home (the real token sits at the other end of one). done closes only a
-// root opened here.
-func (w *row) sandboxRoot() (root *os.Root, done func(), err error) {
-	if w.root != nil {
-		return w.root, func() {}, nil
+// afterSession is steps 11-13. A sandbox the session replaced is not
+// followed: no removal through it, no check run in it.
+func (w *row) afterSession(ctx context.Context) {
+	if !w.b.After() || ctx.Err() != nil {
+		return
 	}
-	root, err = os.OpenRoot(w.sb)
-	if err != nil {
-		return nil, nil, err
+	// Step 13: the row's check.
+	if !w.b.Bash(ctx, w.r.Check, w.checkEnv(), "check.log") {
+		w.b.Fail(ReasonCheck)
 	}
-	return root, func() { root.Close() }, nil
-}
-
-// removeInSandbox removes rel inside the sandbox home, never through a link
-// that leads out of it; one that does fails the row sandbox replaced.
-func (w *row) removeInSandbox(rel string) {
-	root, done, err := w.sandboxRoot()
-	if err == nil {
-		err = root.Remove(filepath.FromSlash(rel))
-		done()
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		w.replaced("not removed: %s: %v", rel, err)
-	}
-}
-
-// openRegular opens path with flag, refusing a link (O_NOFOLLOW) and
-// anything that is not a regular file, without blocking on a FIFO the agent
-// left at a name eval reads or writes. A write open also refuses a file of
-// more than one link, before anything is truncated: an agent's hard link to
-// an operator file at check.log would otherwise empty that file (IN49 of the
-// 2026-10-27 audit, plan D15); O_TRUNC is applied only after the check.
-func openRegular(path string, flag int) (*os.File, error) {
-	trunc := flag&os.O_TRUNC != 0
-	f, err := os.OpenFile(path, flag&^os.O_TRUNC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
-		f.Close()
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
-	// The descriptor's inode must be the name's only link and still the one
-	// the name holds: a leftover process that unlinks its own name between
-	// the open and this check would otherwise drop the count to 1 (security
-	// review of the 2026-10-27 fix, finding 1).
-	if flag&(os.O_WRONLY|os.O_RDWR) != 0 && !soleLink(path, st) {
-		f.Close()
-		return nil, fmt.Errorf("%s: has other hard links, or changed while it was opened", path)
-	}
-	if trunc {
-		if err := f.Truncate(0); err != nil {
-			f.Close()
-			return nil, err
+	// Step 13, check f: the agent the row names was invoked.
+	if w.r.Agent != "" {
+		ok, notes := invokedNotes(w.b.Home(), w.r.Agent)
+		for _, n := range notes {
+			w.b.Note("%s", n)
+		}
+		if !ok {
+			w.b.Fail(ReasonAgent(w.r.Agent))
 		}
 	}
-	return f, nil
 }
 
-// soleLink reports whether opened, the Stat of an open descriptor, has one
-// link and is the inode path names now.
-func soleLink(path string, opened os.FileInfo) bool {
-	fd, ok := opened.Sys().(*syscall.Stat_t)
-	named, err := os.Lstat(path)
-	if !ok || err != nil {
-		return false
+// checkEnv is run.sh's check environment (:237): env -i, eval's own PATH
+// (the wrapper directory is never on it), HOME=SB, and the row's paths.
+func (w *row) checkEnv() []string {
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + w.b.Home(),
+		"SB=" + w.b.Home(),
+		"OUT=" + filepath.Join(w.b.Dir(), "out.txt"),
+		"OUT2=" + filepath.Join(w.b.Dir(), "out2.txt"),
+		"FIXDIR=" + w.o.Fixture,
+		"CLONE=" + w.b.App(),
 	}
-	nd, ok := named.Sys().(*syscall.Stat_t)
-	// Both counts: a process that unlinks the name before the descriptor's
-	// stat and links it to the operator's file again before the Lstat leaves
-	// the Lstat's count at 2 (security review of the fix, round 2).
-	return ok && fd.Nlink == 1 && nd.Nlink == 1 && fd.Dev == nd.Dev && fd.Ino == nd.Ino
 }
 
-// printable is search.Printable's filter, which eval cannot import (D10):
-// control and format characters, the line separators and the ignorables
-// become '?', so a row id or a path never forges a line. A test pins the two
-// equal.
-func printable(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) ||
-			unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) || unicode.Is(unicode.Cf, r) ||
-			unicode.Is(unicode.Variation_Selector, r) || unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r) {
-			return '?'
-		}
-		return r
-	}, s)
+// setupEnv is the check's, plus the git identity run.sh's gi() used.
+func (w *row) setupEnv() []string {
+	return append(w.checkEnv(),
+		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@localhost",
+		"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=f@localhost")
 }

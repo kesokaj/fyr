@@ -1,4 +1,4 @@
-package eval
+package sandbox
 
 import (
 	"os"
@@ -135,7 +135,7 @@ func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
 		}
 	}
 	probe := exec.Command("git", "-C", tmp, "rev-parse", "--git-dir")
-	probe.Env = append(withoutGit(os.Environ()), "LC_ALL=en_US.UTF-8", "LANGUAGE=de")
+	probe.Env = append(WithoutGit(os.Environ()), "LC_ALL=en_US.UTF-8", "LANGUAGE=de")
 	if out, _ := probe.CombinedOutput(); strings.Contains(string(out), "not a git repository") {
 		t.Log("git prints no German here; the translated case is not exercised")
 		return
@@ -144,35 +144,6 @@ func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
 	t.Setenv("LANGUAGE", "de")
 	if err := outsideCheckout(tmp); err != nil {
 		t.Errorf("under a German locale, %s outside every checkout: %v", tmp, err)
-	}
-}
-
-// TestGuardPreflight: a root that is no checkout and a home inside a
-// checkout (the BUG-106 message) are refused before anything is created.
-func TestGuardPreflight(t *testing.T) {
-	tmp := outsideTemp(t)
-	project, real := filepath.Join(tmp, "project"), filepath.Join(tmp, "real")
-	gitInit(t, project)
-	if err := os.MkdirAll(real, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	o := Options{Root: project, Home: filepath.Join(tmp, "home"), RealHome: real}
-	if err := Preflight(o); err != nil {
-		t.Errorf("a checkout and a home outside it: %v", err)
-	}
-	inside := o
-	inside.Home = filepath.Join(project, ".agents", "scratch", "home")
-	err := Preflight(inside)
-	if err == nil || !strings.Contains(err.Error(), "is inside a git checkout (BUG-106); use a --home outside every checkout") {
-		t.Errorf("a home inside a checkout: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(project, ".agents")); !os.IsNotExist(err) {
-		t.Error("the refused pre-flight created the home")
-	}
-	notRepo := o
-	notRepo.Root = real
-	if err := Preflight(notRepo); err == nil || !strings.Contains(err.Error(), "is not a git checkout") {
-		t.Errorf("a root that is no checkout: %v", err)
 	}
 }
 
@@ -264,5 +235,41 @@ func TestGuardFingerprint(t *testing.T) {
 	write(filepath.Join(moved, "brain.db"), "changed through the link")
 	if got := changedPaths(before, fingerprint(real)); len(got) != 1 {
 		t.Errorf("a change inside a linked config directory: %v", got)
+	}
+}
+
+// TestGuardFingerprintSkipsSandboxRoots is D10 of PLAN-2026-10-29-workers:
+// a write under the state directory's eval/ or work/ (every sandbox of
+// either verb lives there) leaves check c's fingerprint unchanged, and one
+// anywhere else under the state directory changes it. The work/ side fails
+// on a watched that skips eval/ alone; the eval/ side guards the regression.
+func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
+	real := filepath.Join(outsideTemp(t), "real")
+	fyr := filepath.Join(real, harness.StateDir)
+	write := func(rel string) {
+		t.Helper()
+		p := filepath.Join(fyr, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(rel), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("brain.db")
+	for _, c := range []struct {
+		rel     string
+		changes bool
+	}{
+		{"work/2026-10-29-120000-42/fix-a/home/x", false},
+		{"eval/2026-10-29-120000/row/home/x", false},
+		{"worker/x", true},
+		{"sub/work/x", true},
+	} {
+		before := fingerprint(real)
+		write(c.rel)
+		if got := changedPaths(before, fingerprint(real)); (len(got) > 0) != c.changes {
+			t.Errorf("a write at %s: changed paths %v, want a change %v", c.rel, got, c.changes)
+		}
 	}
 }

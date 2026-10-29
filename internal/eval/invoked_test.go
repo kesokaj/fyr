@@ -2,6 +2,7 @@ package eval
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,4 +34,22 @@ func TestInvoked(t *testing.T) {
 func invokedOK(sb, agent string) bool {
 	ok, _ := invokedNotes(sb, agent)
 	return ok
+}
+
+// A conversation database over the scan cap is not read, and says so,
+// instead of passing or silently failing check f (IN51, plan D16).
+func TestInvokedSkipsAnOversizedDatabase(t *testing.T) {
+	sb := t.TempDir()
+	conv := filepath.Join(sb, ".gemini", "antigravity-cli", "conversations")
+	put(t, filepath.Join(conv, "big.db"), "SQLite format 3\x00{\"TypeName\":\"reviewer\"}\x00", 0o600)
+	orig := maxScan
+	maxScan = 8
+	t.Cleanup(func() { maxScan = orig })
+	ok, notes := invokedNotes(sb, "reviewer")
+	if ok {
+		t.Error("a database over the cap was read")
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "big.db") || !strings.Contains(notes[0], "not read") {
+		t.Errorf("notes %q, want one naming big.db", notes)
+	}
 }

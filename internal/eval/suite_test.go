@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
 const header = "| id | setup | prompt | prompt2 | check | agent | grants |\n|---|---|---|---|---|---|---|\n"
@@ -181,16 +180,6 @@ func TestSuiteHarness(t *testing.T) {
 			if out, err := exec.Command("bash", "-n", "-c", s).CombinedOutput(); err != nil {
 				t.Errorf("row %s: the %s does not parse as bash: %v\n%s", r.ID, what, err, out)
 			}
-		}
-	}
-}
-
-// TestPrintableMatchesSearch pins eval's copy of the printable filter to
-// search.Printable, which eval cannot import (D10).
-func TestPrintableMatchesSearch(t *testing.T) {
-	for _, s := range []string{"plain", "a\nb\rc\x1b[31m", "\u2028\u2029", "x\u202ey", "\ufe0f\u034f\u115f", "é ok", "\x7f\u0085"} {
-		if got, want := printable(s), search.Printable(s); got != want {
-			t.Errorf("printable(%q) = %q, search.Printable = %q", s, got, want)
 		}
 	}
 }

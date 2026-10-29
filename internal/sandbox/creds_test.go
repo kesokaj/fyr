@@ -1,4 +1,4 @@
-package eval
+package sandbox
 
 import (
 	"os"
@@ -40,7 +40,7 @@ func TestCredsLeftovers(t *testing.T) {
 		"gcloud credentials": func(t *testing.T, h string) {
 			put(t, filepath.Join(h, ".config", "gcloud", "credentials.db"), "", 0o600)
 		},
-		"an Antigravity token": func(t *testing.T, h string) { put(t, filepath.Join(h, tokenRel), "", 0o600) },
+		"an Antigravity token": func(t *testing.T, h string) { put(t, filepath.Join(h, TokenRel), "", 0o600) },
 		"a token in a terminal log": func(t *testing.T, h string) {
 			put(t, filepath.Join(h, ".gemini", "brain", "term1.env"), "declare -x GH_TOKEN="+ghToken+"\n", 0o644)
 		},

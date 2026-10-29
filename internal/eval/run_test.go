@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 type rig struct {
@@ -45,7 +46,7 @@ func newRig(t *testing.T) *rig {
 	r.git("commit", "-qm", "fixture")
 	put(t, filepath.Join(r.real, tokenRel), "token", 0o600)
 	put(t, filepath.Join(r.real, harness.StateDir, "brain.db"), "store", 0o600)
-	sub := strings.NewReplacer("@CTL@", shellQuote(r.ctl), "@REC@", shellQuote(r.rec))
+	sub := strings.NewReplacer("@CTL@", sandbox.ShellQuote(r.ctl), "@REC@", sandbox.ShellQuote(r.rec))
 	put(t, filepath.Join(r.bin, "agy"), sub.Replace(fakeAgy), 0o755)
 	r.self = filepath.Join(tmp, "self")
 	put(t, r.self, sub.Replace(fakeSelf), 0o755)

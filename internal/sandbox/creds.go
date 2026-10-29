@@ -1,4 +1,4 @@
-package eval
+package sandbox
 
 import (
 	"bytes"
@@ -56,7 +56,7 @@ type credFinding struct {
 var maxScan int64 = 64 << 20
 
 // scanCreds walks dir and returns its findings by path relative to dir. It
-// never returns content. dir is eval's own sandbox directory; a dir that is
+// never returns content. dir is the box's own sandbox directory; a dir that is
 // itself a link is reported, never followed.
 func scanCreds(dir string) map[string]credFinding {
 	out := map[string]credFinding{}

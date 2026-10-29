@@ -25,7 +25,7 @@ flowchart LR
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M16) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M17) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
@@ -41,10 +41,11 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M16
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |
 | M12 | `internal/redact` | The credential redactor every dream input passes before it leaves the machine | R3, R8 |
-| M13 | `internal/eval` | `fyr eval`: the behavioural suite, its sandbox and its safety checks | R6, R8 |
+| M13 | `internal/eval` | `fyr eval`: the behavioural suite, its rows' setup and checks, run in M17's sandbox | R6, R8 |
 | M14 | `internal/check` | `fyr check`: the read-only drift check of docs, specs and requirements | R0 |
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
+| M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it | R6, R8 |
 
 ## Flows
 
@@ -177,8 +178,8 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 | R3 | M1, M6, M11, M12, M16 |
 | R4 | M5, M6, M7, M8, M10, M16 |
 | R5 | M2, M3, M6 |
-| R6 | M5, M6, M13 |
+| R6 | M5, M6, M13, M17 |
 | R7 | M7, M9, M15, M16 |
-| R8 | M4, M5, M11, M12, M13, M16 |
+| R8 | M4, M5, M11, M12, M13, M16, M17 |
 | R9 | M4, M5, M6 |
 | R10 | M5, M6, M16 |

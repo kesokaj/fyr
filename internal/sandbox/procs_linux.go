@@ -1,4 +1,4 @@
-package eval
+package sandbox
 
 import (
 	"bytes"
@@ -17,11 +17,11 @@ const ProcsChecked = true
 
 // leftoverProcs is safety check e (preamble :179-215, BUG-163): a process of
 // this uid whose cwd or executable lies under one of roots, or whose
-// environment holds exactly HOME=<home>, outlived the CLI. eval itself and
+// environment holds exactly HOME=<home>, outlived the CLI. The verb itself and
 // its ancestors are never matched. Each match gets SIGTERM, is reported as
 // "pid (kind) name" with the executable's name sanitised (argv can carry a
 // token), and fails the row. Every /proc read tolerates a vanished process.
-func leftoverProcs(w io.Writer, home string, roots ...string) []string {
+func leftoverProcs(w io.Writer, verb, home string, roots ...string) []string {
 	skip := map[int]bool{}
 	for p := os.Getpid(); p > 1 && !skip[p]; p = ppid(p) {
 		skip[p] = true

@@ -1,4 +1,4 @@
-package eval
+package sandbox
 
 import (
 	"crypto/sha256"
@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -112,7 +113,7 @@ func outsideCheckout(dir string) error {
 	// the env below replaces its own, which is stricter (plan D13).
 	cmd := trail.Command(dir, "rev-parse", "--git-dir")
 	env := []string{"LC_ALL=C", "GIT_DISCOVERY_ACROSS_FILESYSTEM=1"}
-	for _, kv := range withoutGit(os.Environ()) {
+	for _, kv := range WithoutGit(os.Environ()) {
 		if k, _, _ := strings.Cut(kv, "="); k != "LC_ALL" && k != "LANGUAGE" {
 			env = append(env, kv)
 		}
@@ -125,9 +126,9 @@ func outsideCheckout(dir string) error {
 	return fmt.Errorf("%s is %w", dir, errInsideCheckout)
 }
 
-// withoutGit drops every GIT_* variable: an inherited GIT_DIR or
+// WithoutGit drops every GIT_* variable: an inherited GIT_DIR or
 // GIT_WORK_TREE would point git at another repository (run.sh:26).
-func withoutGit(env []string) []string {
+func WithoutGit(env []string) []string {
 	var out []string
 	for _, kv := range env {
 		if k, _, _ := strings.Cut(kv, "="); !strings.HasPrefix(k, "GIT_") {
@@ -138,12 +139,16 @@ func withoutGit(env []string) []string {
 }
 
 // watched are the real home's paths check c fingerprints: fyr's state (its
-// eval/ directory left out, every row writes there, D8), the old state
+// eval/ and work/ directories left out, every sandbox of either verb is
+// written there, D8 and PLAN-2026-10-29-workers D10), the old state
 // directory, and the CLI's installed customizations and settings, which a
 // grant written there would outlive the run in. The token and the CLI's
 // conversations are not watched: a sandboxed session refreshes the one
 // through its link, and the operator's own sessions write the other.
 var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", ".gemini/antigravity-cli/settings.json"}
+
+// sandboxDirs are the state directory's children check c skips: Root's verbs.
+var sandboxDirs = []string{"eval", "work"}
 
 // fingerprint is safety check c (preamble :85-117, BUG-107, 123, 158): every
 // entry under the watched paths, as path relative to the home → type, mode,
@@ -168,7 +173,7 @@ func fingerprint(realHome string) map[string]string {
 				fp[key] = "unreadable: " + err.Error()
 				return nil
 			}
-			if dir == harness.StateDir && rel == "eval" && d.IsDir() {
+			if dir == harness.StateDir && d.IsDir() && slices.Contains(sandboxDirs, rel) {
 				return filepath.SkipDir
 			}
 			fp[key] = entryPrint(p, d)

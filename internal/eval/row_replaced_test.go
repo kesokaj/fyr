@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // afterAgy wraps the rig's fake agy: the fake runs first, then script, with
@@ -18,8 +20,8 @@ func (r *rig) afterAgy(script string) {
 	if err := os.Rename(fake, orig); err != nil {
 		r.t.Fatal(err)
 	}
-	put(r.t, fake, "#!/bin/bash\n"+shellQuote(orig)+" \"$@\"; rc=$?\nn=$(cat "+shellQuote(filepath.Join(r.rec, "agy.n"))+
-		")\nsbdir=$(dirname \"$HOME\")\nREAL="+shellQuote(r.real)+"; REC="+shellQuote(r.rec)+"\n"+script+"\nexit $rc\n", 0o755)
+	put(r.t, fake, "#!/bin/bash\n"+sandbox.ShellQuote(orig)+" \"$@\"; rc=$?\nn=$(cat "+sandbox.ShellQuote(filepath.Join(r.rec, "agy.n"))+
+		")\nsbdir=$(dirname \"$HOME\")\nREAL="+sandbox.ShellQuote(r.real)+"; REC="+sandbox.ShellQuote(r.rec)+"\n"+script+"\nexit $rc\n", 0o755)
 }
 
 func runOne(t *testing.T, r *rig, row Row) Result {

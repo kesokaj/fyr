@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -180,8 +181,8 @@ func TestRunRealFyrBaseline(t *testing.T) {
 		t.Errorf("the install did not name the checkout as its source:\n%s", b)
 	}
 	// The positive control: the store does hold the header the baseline absorbed.
-	if f := scanCreds(filepath.Join(x.Dir, "home"))[filepath.Join(harness.StateDir, "brain.db")]; f.kinds["private-key"] == 0 {
-		t.Fatalf("the sandbox's brain.db holds no key header, so the case proves nothing: %+v", f)
+	if b, _ := os.ReadFile(filepath.Join(x.Dir, "home", harness.StateDir, "brain.db")); !keyHeader.Match(b) {
+		t.Fatal("the sandbox's brain.db holds no key header, so the case proves nothing")
 	}
 	r.on("leak", "gh"+"o_"+strings.Repeat("C", 36))
 	res, err = Run(context.Background(), o, []Row{named("a5-leak", "p", "true")})
@@ -191,3 +192,7 @@ func TestRunRealFyrBaseline(t *testing.T) {
 	r.clean(res)
 	wantVerdict(t, one(t, res), "FAIL", ReasonCredentials)
 }
+
+// keyHeader is the credential scan's private-key shape (internal/sandbox
+// creds.go), which this package no longer reaches.
+var keyHeader = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)

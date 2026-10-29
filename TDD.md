@@ -135,6 +135,7 @@ Implements: M13 · Spec: `SPEC-fyr-eval`; the rows are the `GUIDE-eval` record
 - **Interfaces:** `fyr eval --home DIR <row>...` and `fyr eval --list`.
 - **Errors:** a missing `--home`, the real home, or a home inside a git checkout is refused with exit 2 before anything is written.
 - **Data:** one `testing` record per run, and metrics under the label `eval=<row>`; the package imports no SQLite driver: `cmd/fyr` writes the record and the metrics rows.
+- **Dependencies:** M17 runs steps 1, 2, 4, 6–12 and 14 of `SPEC-fyr-eval` § One row; eval keeps steps 3, 5, 13 and 15 and calls M17 in the spec's order, its notes still prefixed `eval: <row>`.
 
 ## T14 — Drift check
 
@@ -158,6 +159,15 @@ Implements: M16 · Spec: `SPEC-fyr-serve` · Decision: ADR-075, ADR-075a · Code
 - **Security:** bound to `127.0.0.1`; the `Host` header checked; a cross-site or same-site `Sec-Fetch-Site` refused; a per-run session token (URL once, then a cookie scoped to a per-run path prefix, `/s/<P>`, so no other port of `127.0.0.1` receives it, ADR-075a) and a separate CSRF token in every form's body; no script, a `default-src 'none'` CSP.
 - **Errors:** a refusal is 403 with no detail; a store that will not open fails only its page; a busy port exits 1.
 - **Dependencies:** M7, M8, M9, M10, M11 and M14 through their functions; the status, render and check printers and the two actions passed in from M5, which registers the verb in `init()`. Stdlib `net/http`, `html/template`, `go:embed`; no SQLite import of its own.
+
+## T17 — The sandbox
+
+Implements: M17 · Spec: `SPEC-fyr-eval` § One row (the steps) and § Safety checks · Plan: `PLAN-2026-10-29-workers` § Interfaces
+
+- **Interfaces:** `sandbox.New(Config)` and a `Box` whose methods are the steps (`Make`, `Clone`, `Fingerprint`, `Install`, `Settings`, `Baseline`, `Session`, `After`, `ExitChecks`), with `Intact`, `TimedOut`, the reasons and `Note`; `CheckRoot` and `OutsideCheckout` for a verb's refusals; `Root(home, verb)` is `<home>/.config/fyr/<verb>`.
+- **Errors:** a failed step adds a fixed reason string and returns false; the steps after it are the caller's to skip. A timeout is `TimedOut`, never a reason.
+- **Data:** writes only under its `Dir`; check c's fingerprint skips the state directory's `eval/` and `work/` (D10).
+- **Dependencies:** `internal/harness` and `internal/trail`; no SQLite driver (`TestNoSQLiteDriver`), so `internal/eval` keeps none.
 
 ## Data model
 
@@ -199,3 +209,4 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M14 | T14 | `TestDocsRuleVerbs`, `TestSpecRuleStaleness`, `TestRequirementsRuleReadsPRD` |
 | M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot` |
 | M16 | T16 | `TestRefusals`, `TestCookieScopedToPrefix`, `TestTokenSetsCookieAndRedirects`, `TestPagesWriteNothing`, `TestServeSecondSignal` |
+| M17 | T17 | `TestBoxSession`, `TestGuardFingerprintSkipsSandboxRoots`, `TestNoSQLiteDriver` |

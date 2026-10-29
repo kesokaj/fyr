@@ -1,6 +1,6 @@
 //go:build !linux
 
-package eval
+package sandbox
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 // record names the gap.
 const ProcsChecked = false
 
-func leftoverProcs(w io.Writer, home string, roots ...string) []string {
-	fmt.Fprintln(w, "eval: no /proc here: the leftover-process check did not run")
+func leftoverProcs(w io.Writer, verb, home string, roots ...string) []string {
+	fmt.Fprintln(w, verb+": no /proc here: the leftover-process check did not run")
 	return nil
 }
