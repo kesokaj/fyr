@@ -19,6 +19,7 @@
 //	fyr metrics     session shapes: ingest, show, report, export
 //	fyr eval        run behavioural rows against the CLI
 //	fyr check       read-only drift check of this checkout's docs
+//	fyr serve       a local page of status, records, memory and metrics
 //	fyr version     print the build version
 package main
 

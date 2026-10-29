@@ -40,7 +40,7 @@ skills/<name>/         skills; .agents/skills links here, so `npx skills add` la
 skills/google-catalog/catalog/  Google skills at a pin, reached through the router, never installed
 commands/, rules/      deployed verbatim; rules share the context's block; commands/ empty by design
 cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), search, memory, redact,
-                       trail, check, dream, metrics, brain, eval
+                       trail, check, dream, metrics, brain, eval, serve
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories, the tree's tests
 .agents/trail.jsonl    this repo's trail, written and read with `fyr record`
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
@@ -51,7 +51,7 @@ Each package, what it holds and imports: `SDD.md` § Components, then its `TDD.m
 ## Rules for working here
 
 - The installer never runs against the operator's real `$HOME` in development (`--home .agents/scratch/<name>` for every test); deploying there is the operator's job, except on dave, where a session's checkpoint ends with `fyr install` into the real home from a clean, pushed tree (`DEPLOY-local` § Operator steps; the operator, 2026-10-29).
-- Every `fyr` verb that writes state (`record`, `memory add`, `index`, `search`, `metrics ingest`, `dream`, `eval`) carries `--home .agents/scratch/<name>` in development and in every Kickoff and handoff command line: without it the verb writes the real `~/.config/fyr` (BUG-006, 091, 094, 098, 107, 115, 144, 149, 162, 179, 182; the 2026-10-27 audit, TR16). Two exceptions take a home outside every checkout: `fyr eval` (`GUIDE-testing` § 4), and a visible `fyr dream` run (§ 3e), its path approved in the plan.
+- Every `fyr` verb that writes state (`record`, `memory add`, `index`, `search`, `metrics ingest`, `dream`, `eval`, `serve`) carries `--home .agents/scratch/<name>` in development and in every Kickoff and handoff command line: without it the verb writes the real `~/.config/fyr` (BUG-006, 091, 094, 098, 107, 115, 144, 149, 162, 179, 182; the 2026-10-27 audit, TR16). Two exceptions take a home outside every checkout: `fyr eval` (`GUIDE-testing` § 4), and a visible `fyr dream` run (§ 3e), its path approved in the plan.
 - When `fyr install` rebuilds or copies the binary: `TDD.md` § T6. After a change under `cmd/` or `internal/`, an install is done only when `fyr status` from the target home shows a `binary` line without a warning.
 - Adding a tool to an agent's `tools:` list means adding it to `knownTools` (`internal/harness/inventory.go`): an unknown tool fails the install on purpose, because Antigravity hangs such a subagent.
 - The installer lints every skill, agent, command and rule before deploying (the refusals: `TDD.md` § T6, each pinned by a `TestLint*` test or `TestAgentDescriptionRules`). A new frontmatter key joins an allow list by hand under a D-row, also for a vendored skill, which is never edited; never a permission key nor a restriction the CLI drops, such as `disallowedTools` (ADR-056, ADR-056a): the operator's permission mode decides what runs unprompted.
@@ -63,7 +63,7 @@ Each package, what it holds and imports: `SDD.md` § Components, then its `TDD.m
 
 ## Testing
 
-`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3h by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `GUIDE-eval`, verb `SPEC-fyr-eval`). A `GUIDE-eval` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, so a changed row changes its `want` entry in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
+`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3i by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `GUIDE-eval`, verb `SPEC-fyr-eval`). A `GUIDE-eval` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, so a changed row changes its `want` entry in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
 
 ## Release
 

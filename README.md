@@ -118,6 +118,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr metrics ingest` / `show` / `report` / `export` | The shape of every session: stored, summarised, charted, backed up |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
 | `fyr check` | A read-only drift check of the docs, specs and `PRD.md` against the binary and the tree |
+| `fyr serve` | Read-only pages of this project and this home on `127.0.0.1:3000` until Ctrl-C; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR <row>...` | The behavioural suite against the Antigravity CLI, each row in its own sandbox |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | The build version |

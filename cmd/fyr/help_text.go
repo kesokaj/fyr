@@ -42,6 +42,7 @@ Background and measurement
   metrics      session shapes: ingest, show, report, export
   eval         run behavioural rows against the CLI
   check        read-only drift check of this checkout's docs
+  serve        a local page of status, records, memory and metrics
   version      print the build version
 
 ` + helpLast + "\n"
@@ -258,6 +259,18 @@ var pages = map[string]verbPage{
 			"enforced by: does not resolve. Prints one line per finding, then a",
 			"summary. Exit 0 clean, 1 with findings, or 1 for a refusal with its reason",
 			"on stderr.",
+		},
+	},
+	"serve": {
+		synopsis: []string{"usage: fyr serve [--port N]"},
+		about: []string{
+			"Serves read-only pages of this checkout and this home on",
+			"http://127.0.0.1:N/ until Ctrl-C: status, the context, records, search,",
+			"memory, metrics, eval results, the dream log and fyr check. Prints the",
+			"URL with this run's path and token once; open it by pasting it into the",
+			"address bar. Listens on 127.0.0.1 only and opens no browser. A request without",
+			"the token, from another host name or from another site is refused. A",
+			"second Ctrl-C while it stops exits 1 at once. A busy port exits 1.",
 		},
 	},
 	"version": {

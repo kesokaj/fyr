@@ -34,7 +34,7 @@ type ctx struct {
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
-	limit                                                                                   int
+	limit, port                                                                             int
 	register                                                                                bool
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
