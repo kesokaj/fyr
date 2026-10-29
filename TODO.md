@@ -7,18 +7,17 @@
 
 ## Now
 
-Phase 1 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): `internal/sandbox` extracted from `internal/eval`, with eval unchanged. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50); the planning session and its cold read are done (D9–D45). The plan record wins on a conflict.
+Phase 2 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): `internal/work`, one worker with no verb yet. Phase 1 (`internal/sandbox` extracted from `internal/eval`) is done at `d66d7cf`. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [x] Baseline: `fyr eval --list` saved, `go test -race ./internal/eval ./cmd/fyr`
-- [x] `internal/sandbox` per the plan's Interfaces; `watched` skips `eval/` and `work/` (D10)
-- [x] Eval unchanged: `--list` byte-identical, one real row with its last verdict
+- [ ] `agy --version` and `agy --help`: `--model`, `--mode`, `--print-timeout` still listed
+- [ ] `internal/work`: Kickoff parse, name and `Files:` rules, refusals 1–4 and 7–10, steps 1–9 for one worker, scope check, drafts copy, lead-checkout check, result contract, `Config.SkipStores` (D45); tests first, with a fake agy
 - [ ] Checkpoint
 
 ## Next
 
-- Workers Phase 2: `internal/work`, one worker with no verb yet.
 - Workers Phase 3: the `fyr work` verb, its ADR, the PRD R8 edits and the README map line in one commit; the first real worker.
-- Then, in order: workers Phase 4 (`--max-workers`, `--kill`), Phase 5 (the `work` skill), Phase 6 (the E2E, a lead session you start), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- Workers Phase 4: several Kickoffs, `--max-workers`, `--kill`.
+- Then, in order: workers Phase 5 (the `work` skill), Phase 6 (the E2E, a lead session you start), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
 ## Backlog
 
