@@ -5,7 +5,7 @@ Project rules for this repo. They override the global context, which this repo i
 ## What this repo is
 
 The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `fyr`, the Go binary that installs them into the Antigravity CLI. No hooks, no gates, no CI.
-`fyr` is also the second brain the Antigravity CLI consults at the moments the context names (search, memory, metrics, dream): the purpose and its two constraints are `REQUIREMENTS.md` R0.
+`fyr` is also the second brain the Antigravity CLI consults at the moments the context names (search, memory, metrics, dream): the purpose and its two constraints are `PRD.md` R0.
 
 ## How the harness works
 
@@ -87,7 +87,7 @@ Releases are annotated `vX.Y.Z` tags on `main`, cut only by `/preflight vX.Y.Z` 
 | `context/AGENTS.md` | The global context every session reads |
 | `internal/harness/plan.go` | What gets installed where |
 | `internal/harness/inventory.go` | The lint: what a skill, agent, command or rule may set |
-| `REQUIREMENTS.md` | Non-negotiables for the harness |
+| `PRD.md` | Non-negotiables for the harness: problem, goals, requirements R0–R10, known limits |
 | `DEPLOY-remote` | The four places, the resync loop, and the release procedure, with no key (ADR-030, ADR-033, ADR-053) |
 | `SPEC-fyr-delivery` | The delivery model, end to end, and what stays on the machine |
 | `internal/redact/redact.go` | The redactor every dream input passes before the prompt leaves the machine |

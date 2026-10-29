@@ -24,11 +24,11 @@ test that keeps the deployed context under the antigravity size limit	internal/h
 why lifecycle hooks were rejected for the harness	PLAN-2026-09-03-research-hooks
 research on antigravity knowledge items as a memory feature	PLAN-2026-09-29-research-memory-and-prompt-audit
 how release tags are signed with an ssh key and checked before pushing	DEPLOY-remote
-drift: every living file that says update will not run on a checkout with local changes	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md
-drift: every living file that states the byte budget of the deployed context	GUIDE-testing,AGENTS.md,README.md,REQUIREMENTS.md,agents/bugs/agent.md,internal/harness/size_test.go
+drift: every living file that says update will not run on a checkout with local changes	DEPLOY-local,DEPLOY-remote,README.md,PRD.md
+drift: every living file that states the byte budget of the deployed context	GUIDE-testing,AGENTS.md,README.md,PRD.md,agents/bugs/agent.md,internal/harness/size_test.go
 drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md,skills/preflight/SKILL.md,skills/retro/SKILL.md,skills/review/SKILL.md
 drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs/agent.md,agents/changelog/agent.md,agents/documentation/agent.md,agents/explorer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md
-refs ADR-040: records that mention ADR-040	ADR-040,REQUIREMENTS.md,RETRO-2026-09-28-retro
+refs ADR-040: records that mention ADR-040	ADR-040,PRD.md,RETRO-2026-09-28-retro
 refs internal/harness/zip.go: bugs and plans that name internal/harness/zip.go	PLAN-2026-09-28-signed-zip,PLAN-2026-09-28-update-from-zip
 refs BUG-171: records that mention BUG-171	BUG-171,CHANGE-2026-10-12-1143-gate-v2.7.0-fixes,CHANGE-2026-10-24-2211-fyr-phase2-claude-code-leaves-the-binary
 drift: every file that says release tags are signed with ssh options on the command instead of changing git settings	DEPLOY-remote,AGENTS.md
@@ -36,6 +36,6 @@ drift: every file that says to stage files one by one by name instead of adding 
 drift: every file that says commits carry no co-author trailer	README.md,cmd/fyr/main.go,context/AGENTS.md
 drift: every file that says the deployed context ends with a check word so truncation shows	GUIDE-testing,AGENTS.md,README.md,internal/harness/render.go
 drift: every file that says the update check only reports and signals when the install is behind	DEPLOY-local,DEPLOY-remote,README.md,cmd/fyr/ctx_verbs.go,cmd/fyr/main.go
-drift: every file that says install edits no vendor setting	DEPLOY-local,DEPLOY-remote,README.md,REQUIREMENTS.md,cmd/fyr/verb_install.go
+drift: every file that says install edits no vendor setting	DEPLOY-local,DEPLOY-remote,README.md,PRD.md,cmd/fyr/verb_install.go
 refs BUG-049: records that mention BUG-049	BUG-046,BUG-049,DEPLOY-remote
 open plan: plans with unticked boxes	PLAN-2026-10-24-fyr-agy-only,PLAN-2026-10-25-sqlite-trail

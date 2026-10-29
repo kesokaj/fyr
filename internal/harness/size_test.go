@@ -18,7 +18,7 @@ const antigravityRulesBlockBytes = 24000
 // renderedContextBudgetBytes is the ceiling this repo pins itself to: an 8%
 // margin under the observed cap (ADR-035). It is never raised by an
 // implementer; a rule that does not fit is paid for by a deletion or a
-// merge, or lives in a skill (REQUIREMENTS § Known limits).
+// merge, or lives in a skill (PRD § Known limits).
 const renderedContextBudgetBytes = 22000
 
 // TestRenderedContextFitsAntigravityBlock renders THIS checkout the way

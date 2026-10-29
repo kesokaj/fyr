@@ -1,44 +1,91 @@
-# Requirements — fyr
+# PRD — fyr
+
+What `fyr` and the harness are for, who they serve, and what must never drift.
+Status: current · Owner: the operator · Last updated: 2026-10-29 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
-## R0 — Purpose: the second brain of the Antigravity CLI
+## Problem
+
+An Antigravity CLI session starts with no memory of the last one and carries only what fits in its 24,000-byte rules block (Known limits). Without a harness, the operator re-explains the stack every session, decisions and past mistakes are lost between conversations, and context copied by hand into each machine's vendor directories drifts from machine to machine.
+
+## Users
+
+- **The operator:** one fullstack engineer (Go and TypeScript) who works across several projects on a Linux box and a Mac, and decides every architectural choice.
+- **The sessions:** the Antigravity CLI and its subagents, which read the context, load the skills and write the trail on the operator's behalf.
+
+## Goals
+
+| # | Goal | Metric | Baseline (2026-10-29) | Target |
+|---|---|---|---|---|
+| G1 | The context every session carries stays small | hand-written context bytes (`TestRenderedContextUnderTarget`) | 14,876 | ≤ 15,000, always |
+| G2 | The project rules every session in this repository reads stay small | `wc -c AGENTS.md` | 21,422 | ≤ 12,000 |
+| G3 | The docs agree with the binary | `fyr check` findings on `main` | 2 | 0 at every release |
+
+## Non-goals
+
+- Hooks of any kind. Researched and rejected 2026-09-03 (ADR-007, `PLAN-2026-09-03-research-hooks`); the harness is enforced by reading, not by gates.
+- Plugin or marketplace packaging: a namespace would rename every skill and agent.
+- Editing any vendor setting of a real home: the harness is files in the customization directories, nothing else; the one vendor file `fyr` writes is the `settings.json` of a `fyr eval` sandbox, a throwaway HOME under `~/.config/fyr/eval/`, never the operator's (ADR-062, ADR-065).
+- Symlinking the customization directory to the checkout or a shared store: a copy has no dangling-symlink failure mode, and a release-binary place has no checkout to link to.
+
+## Requirements
+
+Each requirement below is one section; the table is its index.
+
+| ID | Requirement |
+|---|---|
+| R0 | Purpose: the second brain of the Antigravity CLI |
+| R1 | One source, one vendor |
+| R2 | Standards, not vendor formats |
+| R3 | No hooks, no gates, no CI |
+| R4 | One binary, one dependency, easy on and off |
+| R5 | Hand-added customizations are first class |
+| R6 | Development never touches the real home |
+| R7 | Projects remember and stay resumable |
+| R8 | One delivery channel, and it is `fyr` |
+| R9 | Three procedures, set in stone |
+| R10 | One behaviour on every place |
+
+How each requirement is met and verified is traced in [SDD.md](SDD.md) (requirement → component) and [TDD.md](TDD.md) (component → tests).
+
+### R0 — Purpose: the second brain of the Antigravity CLI
 
 `fyr` is the second brain of the Antigravity CLI. It keeps what a session cannot hold on its own: the context, skills, rules and agents (`install`); every record of every project's trail, with its metadata, in one store the CLI searches when it needs to (`record`, `search`), and the project memory in the same store (`memory`); the shape of every session (`metrics`); and the consolidation of idle projects (`dream`). The CLI asks it for help at the moments the context names: resume, before touching an area, at a phase end, when a skill or context seems missing, and when work starts drifting. It grows to evaluate projects and catch drift in the binary and its specs, never in the context, whose hand-written part stays under its size pin. The brain is consulted, never consulting: nothing in `fyr` acts on a CLI session between its turns, and a session learns only what it asks for; the one conversation `fyr` starts is the visible dream (R3), a conversation of its own that no session is sent into. (ADR-061, ADR-062, ADR-063, ADR-073.)
 
-## R1 — One source, one vendor
+### R1 — One source, one vendor
 
 `context/AGENTS.md` (plus `context/*.md`) is the single global context, deployed to the Antigravity CLI and to no other CLI. Subagents are authored in Antigravity's format as `agents/<name>/agent.md` and installed unchanged; nothing is derived, and nothing generated is committed. (ADR-062.)
 
-## R2 — Standards, not vendor formats
+### R2 — Standards, not vendor formats
 
 The context follows the agents.md standard and is named `AGENTS.md` at every level; a project has `AGENTS.md` at its root and no vendor-named copy of it. A template `AGENTS.md` never sits beside source. Skills follow the Agent Skills `SKILL.md` standard so that anything from skills.sh or any other source drops into `skills/` unchanged.
 
-## R3 — No hooks, no gates, no CI
+### R3 — No hooks, no gates, no CI
 
 The harness is context, skills, and subagents. Behaviour comes from what is written in them, not from lifecycle hooks, commit gates, or pipelines. Git is backup and versioning only. One exception: `fyr dream --all`, run hourly by an OS user timer that `fyr dream --install-timer` installs and `fyr dream --remove-timer` or `uninstall` removes, acts only while an Antigravity CLI process of the operator's runs (a process check when the timer fires, no daemon), over the projects the operator registered with `fyr index --register` (a marker inside the checkout's `.git/`, which no clone carries) that are idle for at least a day and have something new since their last dream. It reads those projects' records and memory and the global feedback records and the Antigravity CLI's conversations, and a numbers-only summary of the metrics store (its metric keys and values for each project's window and the window before, never a tool, skill, agent, label or path), first ingests those conversations into the metrics store (R4), and runs the CLI headless in plan mode with no tools over what it read: in the operator's own Antigravity home, from an empty working directory under `~/.config/fyr/`, when that home's settings grant no tool without review, so each project's dream is one conversation the operator can open with `/resume`, and otherwise in a private home that grants none, never with `--dangerously-skip-permissions`. It writes only under `~/.config/fyr/`, its proposals as global `proposal` records, beside the conversation the CLI itself keeps; it never edits a project, a skill, a rule or the context, and a proposal takes effect only through `/retro`. (ADR-047a, ADR-062, ADR-068, ADR-073.)
 
-## R4 — One binary, one dependency, easy on and off
+### R4 — One binary, one dependency, easy on and off
 
 `fyr` is a single Go binary. Its one dependency is `modernc.org/sqlite`, a pure-Go SQLite driver used only by the search index, the metrics store and the brain store, pinned in `go.mod` and `go.sum` and not vendored; `fyr dream` also opens Antigravity's conversation databases with it, read-only; any other dependency, and any driver that needs cgo, is a requirements change. The search indexes (`.agents/scratch/search.db` in a project, `~/.config/fyr/search.db`) are caches derived from files git or `~/.config/fyr/` already holds: never committed, rebuilt when deleted. The metrics store (`~/.config/fyr/metrics.db`) is not a cache: it holds the shape of every ingested session (tools, normalised command verbs, tokens, timings, never arguments or prose, and no path but each session's project root and the transcript files it read), including the Claude Code sessions ingested before ADR-062, kept as history, and is the only copy once a transcript expires, so it is migrated forward and never rebuilt or deleted by the binary, never committed, and `uninstall` leaves it. The brain store (`~/.config/fyr/brain.db`) is a store of record like the metrics store: project records are also exported to each project's `.agents/trail.jsonl`, which git holds and from which they are restored; memory, feedback and proposal records exist only in the store; `uninstall` leaves it. `install` is idempotent and overwrites only files it manages; `uninstall` removes exactly what its manifest lists, and the dream timer when one is installed (R3); `update` pulls the repo from git and reinstalls. `update` refuses a checkout with uncommitted changes on every path, because it deploys the working tree rather than the commit it fetched; `install` stays the deliberate way to deploy a dirty tree. `install` writes no vendor setting (Non-goals). (ADR-045, ADR-047a, ADR-062.)
 
-## R5 — Hand-added customizations are first class
+### R5 — Hand-added customizations are first class
 
 Adding a skill, subagent, command, or rule is: put the file in `skills/`, `agents/`, `commands/`, or `rules/` (by hand, by `npx skills add` from the repo root, or by `fyr adopt`), then `fyr install`. No registration, no manifest edits, no code. The installer maps each directory to its place under `~/.gemini/config/`.
 
-## R6 — Development never touches the real home
+### R6 — Development never touches the real home
 
 Every test and every development run of the installer uses `--home` with a scratch directory. Deploying to the operator's real `$HOME` is the operator's action.
 
-## R7 — Projects remember and stay resumable
+### R7 — Projects remember and stay resumable
 
 Every project keeps its scratch in `.agents/scratch/` (gitignored) and its trail as records in the brain store: plans with task checkboxes, reviews, test logs, changes, handoffs, numbered bugs, ADRs, retros, learnings, specs, deploy and testing guides. They are written and read through `fyr record`, searched with `fyr search`, and exported to one committed file, `.agents/trail.jsonl`, so a zero-context session on any machine can resume and does not repeat a mistake. Its memory is `memory` records in the same store, local to the machine and never exported. The harness's own state (manifest, the brain store, the global search index, the metrics store) lives in `~/.config/fyr/` and nowhere else. (ADR-015, ADR-063.)
 
-## R8 — One delivery channel, and it is `fyr`
+### R8 — One delivery channel, and it is `fyr`
 
 The harness reaches a machine one of three ways: a checkout the operator owns; a release's `fyr` binary with the harness built in; or a zip of the repository that the operator downloads with their own credential and passes to `fyr update --from-zip <file>`. Each is kept current with `fyr update`: the checkout and the binary as today, and a zip place by the operator repeating the download and `--from-zip`. There is no other channel — no vendored mirror inside a consumer project, no per-project copy, no service. A project that wants the harness uses `fyr`; this repository names no consumer project and depends on none. Nothing flows back: no verb sends the machine's corrections, proposals, memory or metrics anywhere; `feedback` and `proposal` records are global only, `memory` records are never exported, and `fyr record` refuses the first two in a project, and two things leave it, both to the model of the CLI the machine already uses: the dreamer's redacted prompt (R3), and `fyr eval`'s runs, which only the operator starts and which send a sandboxed clone's prompts and the files its agent reads, unredacted, as any session of that CLI does (ADR-065). Experience reaches the harness only through the operator's own hands in their checkout. (ADR-030, ADR-033, ADR-038, ADR-062.)
 
-## R9 — Three procedures, set in stone
+### R9 — Three procedures, set in stone
 
 The harness is operated by three procedures and no others, drawn in `README.md` § How it works:
 
@@ -49,7 +96,7 @@ The harness is operated by three procedures and no others, drawn in `README.md` 
 
 The three procedures and the map change together, only with the operator's explicit approval, an ADR, and one commit carrying the code, the docs and the map. (ADR-031, ADR-033, ADR-038, ADR-039, ADR-040, ADR-041, ADR-053, ADR-062; each quotes the operator's approval of its text.)
 
-## R10 — One behaviour on every place
+### R10 — One behaviour on every place
 
 Every harness feature is set up and runs the same at every place, whichever of the three ways in (R8) it came by, and on every operating system the operator runs it on (Linux, macOS). What only the Antigravity CLI's own runtime controls, and neither the context nor `fyr` can reach, is a Known limit below. (ADR-047, ADR-062.)
 
@@ -61,9 +108,6 @@ Every harness feature is set up and runs the same at every place, whichever of t
 - **Antigravity IDE is out of scope.** Only the `agy` CLI is targeted; the IDE's global paths are unverified.
 - **Antigravity has no compaction window a file can set.** A session compacts when the CLI decides; the session-sizing rule (`rules/session-sizing.md`, ADR-058) is the only mechanism that ends a session at its checkpoint.
 
-## Non-goals
+## Open questions
 
-- Hooks of any kind. Researched and rejected 2026-09-03 (ADR-007, `PLAN-2026-09-03-research-hooks`); the harness is enforced by reading, not by gates.
-- Plugin or marketplace packaging: a namespace would rename every skill and agent.
-- Editing any vendor setting of a real home: the harness is files in the customization directories, nothing else; the one vendor file `fyr` writes is the `settings.json` of a `fyr eval` sandbox, a throwaway HOME under `~/.config/fyr/eval/`, never the operator's (ADR-062, ADR-065).
-- Symlinking the customization directory to the checkout or a shared store: a copy has no dangling-symlink failure mode, and a release-binary place has no checkout to link to.
+- Whether `fyr check` verifies the R → M → T traces between PRD, SDD and TDD (asked in PLAN-2026-10-29-root-docs-and-fyr-serve row 7).
