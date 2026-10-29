@@ -7,16 +7,21 @@
 
 ## Now
 
-Row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S3, the `fyr serve` maintenance actions `index` and `metrics ingest`, D39; its § Order of work is the source of truth). Row 8 built the read pages under a per-run path prefix (ADR-075a). Row 9's boxes are in the plan record.
+Phase 1 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): `internal/sandbox` extracted from `internal/eval`, with eval unchanged. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50); the planning session and its cold read are done (D9–D45). The plan record wins on a conflict.
+
+- [ ] Baseline: `fyr eval --list` saved, `go test -race ./internal/eval ./cmd/fyr`
+- [ ] `internal/sandbox` per the plan's Interfaces; `watched` skips `eval/` and `work/` (D10)
+- [ ] Eval unchanged: `--list` byte-identical, one real row with its last verdict
+- [ ] Checkpoint
 
 ## Next
 
-- Row 10 of the same plan: `fyr check` verifies R → M → T (D40).
-- Row 11 of the same plan: Release 2.
+- Workers Phase 2: `internal/work`, one worker with no verb yet.
+- Workers Phase 3: the `fyr work` verb, its ADR, the PRD R8 edits and the README map line in one commit; the first real worker.
+- Then, in order: workers Phase 4 (`--max-workers`, `--kill`), Phase 5 (the `work` skill), Phase 6 (the E2E, a lead session you start), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
 ## Backlog
 
-- Workers: the lead session runs sandboxed `agy -p` workers through a `fyr work` verb; the operator's brief is stored verbatim as `PLAN-2026-10-29-workers` (not yet planned). The next session places it in the order of work and asks the operator (added 2026-10-29, the operator)
 - Find why `fyr check` takes 3–4 minutes of CPU in this checkout (3m22s with the pre-row-8 binary, 99e4a0c), which `fyr serve`'s `/check` waits on (added 2026-10-29, row 8's manual walk and security review)
 - Thin `TDD.md` § T5's verb rows to one line and a spec link each, once every row's claims live in its `SPEC-fyr-*` record or `cmd/fyr/help_text.go` (added 2026-10-29, the row 4b review)
 - Fix `GUIDE-testing` § 5's stale claim that the canary word is written in this repo's README and AGENTS.md (neither holds it) (added 2026-10-29, the row 5 report, item 3, operator: "go all approved")
