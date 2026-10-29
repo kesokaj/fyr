@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -21,9 +24,10 @@ const workAgy = `#!/bin/bash
 CTL=@CTL@
 if [ -e "$CTL/hang" ]; then touch "$CTL/started"; exec sleep 300; fi
 [ -e "$CTL/nocommit" ] && { echo "agy says ok"; exit 0; }
-echo work >> a.txt; git add a.txt; git commit -qm "work on a.txt"
+f=a.txt; me=$(basename "$(dirname "$HOME")"); [ -e "$CTL/file-$me" ] && f=$(cat "$CTL/file-$me")
+echo work >> "$f"; git add "$f"; git commit -qm "work on $f"
 mkdir -p .agents
-printf '%s\n' '{"date":"2026-10-29","id":"HANDOFF-2026-10-29-1800-verb","kind":"handoff","status":"","title":"Handoff","updated":"2026-10-29T18:00:00Z","body":"# Handoff\n\n## Next Steps\n\n1. next\n"}' >> .agents/trail.jsonl
+printf '%s\n' '{"date":"2026-10-29","id":"HANDOFF-2026-10-29-1800-'"$me"'","kind":"handoff","status":"","title":"Handoff","updated":"2026-10-29T18:00:00Z","body":"# Handoff\n\n## Next Steps\n\n1. next\n"}' >> .agents/trail.jsonl
 git add .agents/trail.jsonl; git commit -qm records
 echo "agy says ok"
 `
@@ -107,9 +111,12 @@ func (r *workRig) git(args ...string) string {
 }
 
 // kickoff writes the Kickoff file name.md, its scope a.txt.
-func (r *workRig) kickoff(name string) string {
+func (r *workRig) kickoff(name string) string { return r.kickoffFiles(name, "a.txt") }
+
+// kickoffFiles writes the Kickoff file name.md with the Files: line files.
+func (r *workRig) kickoffFiles(name, files string) string {
 	p := filepath.Join(r.kick, name+".md")
-	writeTestFile(r.t, p, "Project: this clone. Do the phase.\nFiles: a.txt\nStanding approvals: commit.\n")
+	writeTestFile(r.t, p, "Project: this clone. Do the phase.\nFiles: "+files+"\nStanding approvals: commit.\n")
 	return p
 }
 
@@ -142,7 +149,7 @@ func TestWorkVerbPass(t *testing.T) {
 	r := newWorkRig(t)
 	out, code := r.work(r.kickoff("fix-a"))
 	if code != 0 || !strings.HasPrefix(out, "work: stamp ") || !strings.Contains(out, "\nwork: fix-a  PASS  agy exit 0  ") ||
-		!strings.Contains(out, "work: fix-a: handoff HANDOFF-2026-10-29-1800-verb") {
+		!strings.Contains(out, "work: fix-a: handoff HANDOFF-2026-10-29-1800-fix-a") {
 		t.Fatalf("exit %d, want 0 with the stamp, the PASS line and the handoff:\n%s", code, out)
 	}
 	if got := r.git("log", "-1", "--format=%s", "work/fix-a"); got != "records" {
@@ -161,14 +168,20 @@ func TestWorkVerbFail(t *testing.T) {
 }
 
 // TestWorkVerbRefusals: every refusal and usage error exits 2 before any
-// sandbox exists, the second file among them (one file until Phase 4, D89).
+// sandbox exists: two files sharing a path, a --max-workers outside 1 to 8,
+// and --kill with a file among them.
 func TestWorkVerbRefusals(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup func(r *workRig) []string
 		want  string
 	}{
-		"no file":     {func(r *workRig) []string { return nil }, "usage: fyr work"},
-		"second file": {func(r *workRig) []string { return []string{r.kickoff("fix-a"), r.kickoff("fix-b")} }, "work: one Kickoff file at a time"},
+		"no file":      {func(r *workRig) []string { return nil }, "usage: fyr work"},
+		"shared scope": {func(r *workRig) []string { return []string{r.kickoff("fix-a"), r.kickoff("fix-b")} }, "share scope: a.txt and a.txt"},
+		"max 9":        {func(r *workRig) []string { return []string{"--max-workers", "9", r.kickoff("fix-a")} }, "--max-workers 9: give 1 to 8"},
+		"max 0":        {func(r *workRig) []string { return []string{"--max-workers", "0", r.kickoff("fix-a")} }, "--max-workers 0: give 1 to 8"},
+		"kill a file":  {func(r *workRig) []string { return []string{"--kill", "2026-10-29-170000-42", r.kickoff("fix-a")} }, "--kill takes a stamp and no Kickoff file"},
+		"kill no run":  {func(r *workRig) []string { return []string{"--kill", "2026-10-29-170000-42"} }, "work: no run 2026-10-29-170000-42"},
+		"kill a path":  {func(r *workRig) []string { return []string{"--kill", "../x"} }, "not a stamp"},
 		"dirty tree": {func(r *workRig) []string {
 			writeTestFile(r.t, filepath.Join(r.project, "new.txt"), "x\n")
 			return []string{r.kickoff("fix-a")}
@@ -228,5 +241,80 @@ func TestWorkVerbSignals(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestWorkVerbSeveral: two Kickoffs with disjoint Files: lines both run,
+// exit 0, and their blocks print in the order given.
+func TestWorkVerbSeveral(t *testing.T) {
+	r := newWorkRig(t)
+	writeTestFile(t, filepath.Join(r.ctl, "file-fix-b"), "b.txt")
+	out, code := r.work("--max-workers", "2", r.kickoff("fix-a"), r.kickoffFiles("fix-b", "b.txt"))
+	if code != 0 || !strings.Contains(out, "  2 workers  ") {
+		t.Fatalf("exit %d, want 0 with two workers:\n%s", code, out)
+	}
+	i, j := strings.Index(out, "\nwork: fix-a  PASS"), strings.Index(out, "\nwork: fix-b  PASS")
+	if i < 0 || j < i {
+		t.Fatalf("the blocks are not both PASS in file order:\n%s", out)
+	}
+	for _, b := range []string{"work/fix-a", "work/fix-b"} {
+		r.git("rev-parse", "--verify", b)
+	}
+}
+
+// workHolderEnv makes the test binary a live run's stand-in for --kill: it
+// makes <root>/<stamp>/pid with its own pid in the stamp, holds the file's
+// exclusive flock, prints the stamp and exits 3 on SIGTERM. Never the go
+// test process itself (D33).
+const workHolderEnv = "FYR_WORK_VERB_HOLDER"
+
+func workHolder(root string) int {
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
+	stamp := fmt.Sprintf("2026-10-29-170000-%d", os.Getpid())
+	dir := filepath.Join(root, stamp)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return 1
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "pid"), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil || syscall.Flock(int(f.Fd()), syscall.LOCK_EX) != nil {
+		return 1
+	}
+	fmt.Fprintf(f, "%d 1\n", os.Getpid())
+	fmt.Println(stamp)
+	select {
+	case <-term:
+		return 3
+	case <-time.After(2 * time.Minute):
+		return 4
+	}
+}
+
+// TestWorkVerbKill: --kill sends SIGTERM to the live run its stamp names,
+// exit 0; the same stamp once the run is gone is a stale pid file, exit 2.
+func TestWorkVerbKill(t *testing.T) {
+	r := newWorkRig(t)
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), workHolderEnv+"="+sandbox.Root(r.home, "work"))
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Process.Kill()
+	line, _ := bufio.NewReader(pipe).ReadString('\n')
+	stamp := strings.TrimSpace(line)
+	out, code := r.work("--kill", stamp)
+	if code != 0 || !strings.Contains(out, fmt.Sprintf("work: SIGTERM sent to %d, the run %s", cmd.Process.Pid, stamp)) {
+		t.Fatalf("exit %d, want 0 naming the pid:\n%s", code, out)
+	}
+	var exit *exec.ExitError
+	if err := cmd.Wait(); !errors.As(err, &exit) || exit.ExitCode() != 3 {
+		t.Fatalf("the stand-in ended %v, want exit 3 on SIGTERM", err)
+	}
+	if out, code := r.work("--kill", stamp); code != 2 || !strings.Contains(out, "is stale: no run holds it") {
+		t.Errorf("exit %d, want 2 on the stale pid file:\n%s", code, out)
 	}
 }

@@ -13,7 +13,15 @@ import (
 )
 
 func runWith(o Options, file string) (Result, error) {
-	return Run(context.Background(), o, file)
+	return first(Run(context.Background(), o, file))
+}
+
+// first is a one-file run's result.
+func first(res []Result, err error) (Result, error) {
+	if err != nil {
+		return Result{}, err
+	}
+	return res[0], nil
 }
 
 // TestRunSafetyKeepsSandbox is D38 and D35: a worker a safety reason
@@ -104,7 +112,7 @@ func TestRunKilled(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}()
-	res, err := Run(ctx, r.opts(), r.kickoff("stop", "src/a.txt"))
+	res, err := first(Run(ctx, r.opts(), r.kickoff("stop", "src/a.txt")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +238,7 @@ func TestRunEveryCommitInScope(t *testing.T) {
 }
 
 // TestRunDraftsStampExists: a <stamp> directory that is a real directory,
-// as Phase 4's other workers of one invocation leave it, is used; only
+// as the other workers of one run leave it, is used; only
 // <name> must be new.
 func TestRunDraftsStampExists(t *testing.T) {
 	r := newRig(t)

@@ -120,8 +120,8 @@ func readDraft(dir *os.Root, e os.DirEntry) ([]byte, bool) {
 
 // draftsDest makes .agents/scratch/work/<stamp>/<name> in the lead's
 // checkout through an os.Root on it: .agents, scratch, work and <stamp> are
-// each an existing directory that is not a link (Phase 4's workers share
-// <stamp>), or are made; <name> is made here, so nothing the session
+// each an existing directory that is not a link (the workers of one run
+// share <stamp>), or are made; <name> is made here, so nothing the session
 // planted there is written through.
 func draftsDest(root, stamp, name string) (*os.Root, error) {
 	lead, err := os.OpenRoot(root)

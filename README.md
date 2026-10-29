@@ -122,7 +122,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr check` | A read-only drift check of the docs, specs and `PRD.md` against the binary and the tree |
 | `fyr serve` | Read-only pages of this project and this home on `127.0.0.1:3000` until Ctrl-C; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR <row>...` | The behavioural suite against the Antigravity CLI, each row in its own sandbox |
-| `fyr work [--timeout D] [--model M] [--keep] <kickoff-file>` | One Kickoff run as an unattended worker in its own sandbox, on a clone of this checkout with no remote; its branch is fetched back by path and a result contract of at most 39 lines is printed; it never pushes or merges |
+| `fyr work [--timeout D] [--model M] [--max-workers N] [--keep] <kickoff-file>...`, `fyr work --kill <stamp>` | Each Kickoff run as an unattended worker in its own sandbox, on a clone of this checkout with no remote, up to N at once across the machine (default 4, at most 8); each branch is fetched back by path and a result contract of at most 39 lines per worker is printed, in file order; `--kill` ends the run whose stamp line printed `<stamp>`; it never pushes or merges |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | The build version |
 

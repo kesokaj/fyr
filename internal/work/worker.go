@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
@@ -49,8 +50,9 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 
 // run is steps 1-9 of § Interfaces § One worker. A failure inside the
 // setup skips the session and still runs the exit checks once the sandbox
-// is the worker's own.
-func (w *worker) run(ctx context.Context) Result {
+// is the worker's own. collect is held over steps 6-8, so one worker at a
+// time fetches into the lead and checks it.
+func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 	t0 := time.Now()
 	if w.b.Make() {
 		if w.prepare(ctx) {
@@ -65,10 +67,25 @@ func (w *worker) run(ctx context.Context) Result {
 		if ctx.Err() != nil {
 			w.b.Fail(ReasonKilled)
 		}
+		collect.Lock()
 		w.collect()
+		collect.Unlock()
 		w.remove()
 	}
 	w.res.Seconds = int(time.Since(t0).Seconds())
+	return w.result()
+}
+
+// unstarted is the result of a worker that never got a slot: no sandbox,
+// failed reason.
+func (w *worker) unstarted(reason string) Result {
+	w.b.Fail(reason)
+	w.res.Dir = ""
+	return w.result()
+}
+
+// result is the Result from the box's reasons and notes.
+func (w *worker) result() Result {
 	w.res.Reasons = w.b.Reasons()
 	w.res.Verdict = "PASS"
 	if len(w.res.Reasons) > 0 {

@@ -12,10 +12,14 @@ import (
 // goEnv is the go tool's caches, read before any test moves HOME.
 var goEnv []string
 
-// TestMain drops every GIT_* variable before the package's tests run, as
+// TestMain runs as a live run's stand-in when holderEnv is set, else drops
+// every GIT_* variable before the package's tests run, as
 // the other packages that run git in a fixture do, and reads the go tool's
 // cache paths for the fyr the rig builds.
 func TestMain(m *testing.M) {
+	if work := os.Getenv(holderEnv); work != "" {
+		os.Exit(holdRun(work))
+	}
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)

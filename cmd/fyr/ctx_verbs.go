@@ -38,6 +38,8 @@ type ctx struct {
 	workTimeout                                                                             time.Duration
 	workModel                                                                               string
 	workKeep                                                                                bool
+	workMax                                                                                 int
+	workKill                                                                                string
 	limit, port                                                                             int
 	register                                                                                bool
 	// src is the harness, resolved before run for the verbs that mark source

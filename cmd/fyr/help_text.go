@@ -41,7 +41,7 @@ Background and measurement
   dream        the hourly dreamer and its timer
   metrics      session shapes: ingest, show, report, export
   eval         run behavioural rows against the CLI
-  work         run one Kickoff as a sandboxed agy worker
+  work         run Kickoffs as sandboxed agy workers
   check        read-only drift check of this checkout's docs
   serve        a local page of status, records, memory and metrics
   version      print the build version
@@ -249,17 +249,19 @@ var pages = map[string]verbPage{
 		},
 	},
 	"work": {
-		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--keep] <kickoff-file>"},
+		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--max-workers N] [--keep]",
+			"                <kickoff-file>...",
+			"       fyr work --kill <stamp>"},
 		about: []string{
-			"Runs one Kickoff file as a worker: an unattended agy session in its own",
+			"Runs each Kickoff file as a worker: an unattended agy session in its own",
 			"sandbox under --home's .config/fyr/work/, on a clone of this checkout's",
-			"HEAD with no remote, on the branch work/<file name>. What the agent reads",
-			"goes to the CLI's model, as in any session (R8). Then it fetches the",
-			"branch back into this checkout by path, checks it stayed inside the",
-			"file's Files: line, copies its drafts, and prints the result contract:",
-			"the result line, the handoff's sections and the change records, at most",
-			"39 lines. It never pushes or merges. Refused on a dirty tree. The default",
-			"--home is your own. Exit 0 PASS, 1 FAIL, 2 a refusal before anything ran.",
+			"HEAD with no remote, on the branch work/<file name>, at most N at once",
+			"across the machine (default 4, at most 8); files sharing a path are",
+			"refused. What the agent reads goes to the CLI's model (R8). Each branch",
+			"is fetched back, checked against its Files: line, and reported in at most",
+			"39 lines, in file order. It never pushes or merges. Refused on a dirty",
+			"tree. --kill ends the run whose first line printed <stamp>, under the",
+			"same --home. Exit 0 every worker PASS, 1 any FAIL, 2 a refusal.",
 		},
 	},
 	"check": {

@@ -23,12 +23,23 @@ on() { [ -e "$CTL/$1" ]; }
 val() { cat "$CTL/$1"; }
 printf '%s\n' "$@" > "$CTL/args"; env > "$CTL/env"; pwd > "$CTL/cwd"
 git rev-parse --abbrev-ref HEAD > "$CTL/branch"; git remote > "$CTL/remotes"
+box=$(dirname "$HOME"); me=$(basename "$box")
+if on peers; then
+  ls "$CTL" | grep -c '^running-' > "$CTL/others-$me"; touch "$CTL/running-$me" "$CTL/up-$me"
+  # up- files stay: neither worker leaves this loop before both are up, so
+  # the one up first is still here when the other comes up. apart counts
+  # the running- files instead, for workers that must never overlap.
+  pat=up-; on apart && pat=running-
+  on together && for i in $(seq 1 "$(val together)0"); do [ "$(ls "$CTL" | grep -c "^$pat")" -ge 2 ] && { touch "$CTL/met-$me"; break; }; sleep 0.1; done
+  cp "$(dirname "$box")/pid" "$CTL/pid-$me"
+fi
 on lead && echo stray > "$(val lead)/stray.txt"
 on realconfig && echo x >> "$(val realconfig)"
 on store && echo x >> "$(val store)"
 on leak && printf 'GH_TOKEN=%s\n' "$(val leak)" > "$HOME/.gemini/term.log"
 if ! on nocommit; then
-  f=src/a.txt; on outside && f=outside.txt
+  f=src/a.txt; on outside && f=outside.txt; on "file-$me" && f=$(val "file-$me")
+  mkdir -p "$(dirname "$f")"
   echo work >> "$f"; git add "$f"; git commit -qm "work on $f"
 fi
 on edit-record && fyr record edit "$(val edit-record)" --title "Edited by the worker" >/dev/null
@@ -56,7 +67,9 @@ if on plant; then
 fi
 on many-drafts && { mkdir -p .agents/scratch/agents; for i in $(seq -w 1 51); do echo "$i" > ".agents/scratch/agents/d$i.md"; done; }
 on delete-branch && { git checkout -q --detach; git branch -q -D "$(cat "$CTL/branch")"; }
-on hang && { touch "$CTL/started"; exec sleep 300; }
+on hang && { touch "$CTL/started" "$CTL/started-$me"; exec sleep 300; }
+on "slow-$me" && sleep "$(val "slow-$me")"
+on peers && rm -f "$CTL/running-$me"
 echo "agy says ok"
 exit "$(cat "$CTL/exit" 2>/dev/null || echo 0)"
 `
@@ -144,7 +157,7 @@ func (r *rig) kickoff(name, files string) string {
 // run is Run on a Kickoff, failing the test on a refusal.
 func (r *rig) run(file string) Result {
 	r.t.Helper()
-	res, err := Run(context.Background(), r.opts(), file)
+	res, err := first(Run(context.Background(), r.opts(), file))
 	if err != nil {
 		r.t.Fatalf("refused: %v", err)
 	}

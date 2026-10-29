@@ -1,6 +1,7 @@
-// Package work runs one Kickoff as a worker: an unattended agy session in
-// its own sandbox, on its own clone and branch, fetched back into the lead's
-// checkout by path and reported as the result contract
+// Package work runs Kickoffs as workers, several at once up to a
+// machine-wide limit: each an unattended agy session in its own sandbox, on
+// its own clone and branch, fetched back into the lead's checkout by path
+// and reported as the result contract
 // (PLAN-2026-10-29-workers § Interfaces § fyr work; SPEC-fyr-work). It
 // never opens a sandbox's brain store: records travel only through the
 // branch's committed trail.jsonl (ADR-063).
@@ -8,11 +9,13 @@ package work
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
@@ -21,17 +24,20 @@ import (
 
 // Options is one invocation.
 type Options struct {
-	Root      string        // the lead's checkout, its top level
-	Home      string        // fyr's home: the sandboxes are under sandbox.Root(Home, "work")
-	RealHome  string        // $HOME: the token, check c's fingerprint
-	Self      string        // the fyr that installs (os.Executable)
-	Repo      string        // the install source; "" is the harness embedded in Self
-	Timeout   time.Duration // agy is killed after this; 0 is DefaultTimeout
-	Model     string        // agy --model; "" passes none
-	Keep      bool          // keep the sandbox of a fetched worker too
-	Out       io.Writer
-	Now       func() time.Time
-	StopGrace time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
+	Root     string        // the lead's checkout, its top level
+	Home     string        // fyr's home: the sandboxes are under sandbox.Root(Home, "work")
+	RealHome string        // $HOME: the token, check c's fingerprint
+	Self     string        // the fyr that installs (os.Executable)
+	Repo     string        // the install source; "" is the harness embedded in Self
+	Timeout  time.Duration // agy is killed after this; 0 is DefaultTimeout
+	Model    string        // agy --model; "" passes none
+	Keep     bool          // keep the sandbox of a fetched worker too
+	// MaxWorkers is the machine-wide limit, 1 to MaxMaxWorkers; 0 is
+	// DefaultMaxWorkers (D30)
+	MaxWorkers int
+	Out        io.Writer
+	Now        func() time.Time
+	StopGrace  time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
 }
 
 // DefaultTimeout is --timeout's default (D45).
@@ -78,37 +84,130 @@ type Result struct {
 	Notes         []string // the sandbox's notes, each a printable line
 }
 
-// Run refuses (an error, nothing made) or runs the Kickoff at file as one
-// worker, printing the stamp line first and the result contract last.
-func Run(ctx context.Context, o Options, file string) (Result, error) {
+// Run refuses (an error, nothing made) or runs the Kickoff files as
+// workers, at most MaxWorkers at once across the machine (D30): it prints
+// the stamp line first, then each worker's result contract whole, in the
+// order of files, as soon as it and every file before it ended (D19). The
+// results are in that order too.
+func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	if o.Timeout == 0 {
 		o.Timeout = DefaultTimeout
 	}
+	if o.MaxWorkers == 0 {
+		o.MaxWorkers = DefaultMaxWorkers
+	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.MaxWorkers < 1 || o.MaxWorkers > MaxMaxWorkers {
+		return nil, fmt.Errorf("--max-workers %d: give 1 to %d", o.MaxWorkers, MaxMaxWorkers)
+	}
+	if len(files) == 0 {
+		return nil, errors.New("no Kickoff file")
 	}
 	// Once, so the fetch (git -C Root) and the drafts copy (os.Root) read
 	// the same clone (security review of Phase 2, finding 8).
 	for _, p := range []*string{&o.Root, &o.Home, &o.RealHome} {
 		abs, err := filepath.Abs(*p)
 		if err != nil {
-			return Result{}, err
+			return nil, err
 		}
 		*p = abs
 	}
-	p, err := preflight(o, file)
+	ps, err := preflight(o, files)
 	if err != nil {
-		return Result{}, err
+		return nil, err
 	}
 	stamp := fmt.Sprintf("%s-%d", o.Now().Format("2006-01-02-150405"), os.Getpid())
-	root := filepath.Join(sandbox.Root(o.Home, "work"), stamp)
-	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  1 workers  %s/", stamp, root)))
-	w := newWorker(o, p, stamp, filepath.Join(root, p.k.Name))
-	res := w.run(ctx)
-	for _, l := range res.Block() {
-		fmt.Fprintln(o.Out, l)
+	work := sandbox.Root(o.Home, "work")
+	r, err := openRun(work, stamp, o.MaxWorkers)
+	if err != nil {
+		return nil, fmt.Errorf("the run's pid file: %v", err)
 	}
-	return res, nil
+	defer r.close()
+	root := filepath.Join(work, stamp)
+	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/", stamp, len(ps), root)))
+	ws := make([]*worker, len(ps))
+	for i, p := range ps {
+		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name))
+	}
+	return dispatch(ctx, r, ws, o.Out), nil
+}
+
+// dispatch starts each worker as a slot frees, in file order, and prints
+// the result contracts in that order. Once ctx ends, the workers still
+// waiting never start and fail killed.
+func dispatch(ctx context.Context, r *run, ws []*worker, out io.Writer) []Result {
+	type ended struct {
+		i   int
+		res Result
+	}
+	var (
+		collect sync.Mutex // one worker at a time fetches into the lead
+		results = make([]*Result, len(ws))
+		done    = make(chan ended)
+		stop    = ctx.Done() // nil once handled; never closes for a Background ctx
+		stopped bool
+		tick    = time.NewTicker(slotPoll)
+	)
+	defer tick.Stop()
+	next, printed := 0, 0
+	for printed < len(ws) {
+		// ctx.Err too: a select may take a worker's end over ctx's.
+		for next < len(ws) && !stopped && ctx.Err() == nil {
+			ok, err := r.take()
+			if err != nil {
+				// No slot can be counted, so none is taken: fail closed.
+				ws[next].b.Note("the worker limit: %v", err)
+				res := ws[next].unstarted(sandbox.ReasonSetup)
+				results[next] = &res
+				next++
+				continue
+			}
+			if !ok {
+				break
+			}
+			go func(i int) { done <- ended{i, ws[i].run(ctx, &collect)} }(next)
+			next++
+		}
+		select {
+		case e := <-done:
+			r.give()
+			results[e.i] = &e.res
+		case <-stop:
+			stop, stopped = nil, true
+			next = neverStarted(ws, results, next)
+		case <-tick.C:
+		}
+		printed = printReady(out, results, printed)
+	}
+	all := make([]Result, len(ws))
+	for i, res := range results {
+		all[i] = *res
+	}
+	return all
+}
+
+// neverStarted fails killed every worker from next on, still waiting for
+// a slot when the run ended, and returns len(ws).
+func neverStarted(ws []*worker, results []*Result, next int) int {
+	for ; next < len(ws); next++ {
+		ws[next].b.Note("the run ended while it waited for a slot; never started")
+		res := ws[next].unstarted(ReasonKilled)
+		results[next] = &res
+	}
+	return next
+}
+
+// printReady prints the blocks from printed on whose worker, and every
+// one before it, ended, and returns the next to print.
+func printReady(out io.Writer, results []*Result, printed int) int {
+	for ; printed < len(results) && results[printed] != nil; printed++ {
+		for _, l := range results[printed].Block() {
+			fmt.Fprintln(out, l)
+		}
+	}
+	return printed
 }
 
 // head is HEAD's commit in root.

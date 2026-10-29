@@ -179,8 +179,8 @@ func (c *ctx) writesState() bool {
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
 	case "work":
-		// Its sandboxes, under the state directory's work/.
-		return true
+		// Its sandboxes, under the state directory's work/; --kill reads.
+		return c.workKill == ""
 	}
 	return false
 }
