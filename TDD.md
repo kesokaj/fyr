@@ -149,6 +149,15 @@ Implements: M15 · Spec: none (internal; shared by M7–M11 and M14 so that none
 
 - **Interfaces:** `trail.Command`, which runs git with the repository variables dropped, with `Dates`, `Log` and `DocsRoot`; `NoIndexMarkers`; the registration marker that `fyr index --register` writes. No SQLite.
 
+## T16 — The local page
+
+Implements: M16 · Spec: `SPEC-fyr-serve` (status draft until row 8 builds it) · Decision: ADR-075
+
+- **Interfaces:** the serve verb with `--port` (default 3000) and `--home`; a printed URL holding the run's token; read routes for status, context, records, search, memory, metrics, evals, dream and the drift check; two POST actions, the index and the metrics ingest, each the verb's own function.
+- **Security:** bound to `127.0.0.1`; the `Host` header checked; a cross-site or same-site `Sec-Fetch-Site` refused; a per-run session token (URL once, then a cookie) and a separate CSRF token in every form's body; no script, a `default-src 'none'` CSP.
+- **Errors:** a refusal is 403 with no detail; a store that will not open fails only its page; a busy port exits 1.
+- **Dependencies:** M7, M8, M9, M10, M11 and M14 through their functions; the status, render and check printers and the two actions passed in from M5, which registers the verb in `init()`. Stdlib `net/http`, `html/template`, `go:embed`; no SQLite import of its own.
+
 ## Data model
 
 | Store | Kind | Holds | Spec |
@@ -188,3 +197,4 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M13 | T13 | `TestSuiteHarness`, `TestEvalRefusesItsHome` |
 | M14 | T14 | `TestDocsRuleVerbs`, `TestSpecRuleStaleness`, `TestRequirementsRuleReadsPRD` |
 | M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot` |
+| M16 | T16 | none yet: row 8 writes the tests `SPEC-fyr-serve` § Verification names |

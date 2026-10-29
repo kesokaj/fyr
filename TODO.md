@@ -7,12 +7,13 @@
 
 ## Now
 
-Row 7 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S1, `fyr serve` design; its § Order of work is the source of truth). Release 1 shipped as v4.1.0 (row 6, D38). Row 7 asks the operator for the maintenance actions for S3 and whether to build Phase 5; its boxes are in the plan record.
+Row 8 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S2, `fyr serve` read-only pages; its § Order of work is the source of truth). Row 7 designed it: `SPEC-fyr-serve`, ADR-075, `SDD.md` M16, `TDD.md` T16; the operator's answers are D39–D42. Until row 8 builds the verb, `fyr check` reports the spec's 14 names of it and its files (D43). Row 8's boxes are in the plan record.
 
 ## Next
 
-- Row 8 of the same plan: `fyr serve` read-only pages (S2).
-- Row 9 of the same plan: `fyr serve` maintenance actions (S3).
+- Row 9 of the same plan: `fyr serve` maintenance actions, `index` and `metrics ingest` (S3, D39).
+- Row 10 of the same plan: `fyr check` verifies R → M → T (D40).
+- Row 11 of the same plan: Release 2.
 
 ## Backlog
 

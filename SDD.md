@@ -25,7 +25,7 @@ flowchart LR
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M15) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M16) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
@@ -44,6 +44,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M15
 | M13 | `internal/eval` | `fyr eval`: the behavioural suite, its sandbox and its safety checks | R6, R8 |
 | M14 | `internal/check` | `fyr check`: the read-only drift check of docs, specs and requirements | R0 |
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
+| M16 | the serve verb's package (designed, built in the plan's row 8) | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
 
 ## Flows
 
@@ -142,10 +143,11 @@ One line each; the record holds the context, the alternatives and the operator's
 - A harness agent's frontmatter is an allow-list — ADR-056, ADR-056a.
 - A session is one Task or one plan phase — ADR-058.
 - The root documents are PRD, SDD, TDD and TODO — ADR-074.
+- The local page runs in the foreground on loopback behind a per-run token — rejected: a background server, a wider bind — ADR-075.
 
 ## Cross-cutting
 
-- **Security:** two things leave the machine, the dreamer's redacted prompt (M12) and the operator's `fyr eval` runs (R8); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6).
+- **Security:** two things leave the machine, the dreamer's redacted prompt (M12) and the operator's `fyr eval` runs (R8); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token (ADR-075).
 - **Privacy:** memory, metrics and the global records stay in `~/.config/fyr/` on the machine that wrote them (R7); the metrics store keeps no arguments, prose or tool output (R4).
 - **Observability:** `fyr status` names drift, the binary's build and the dream timer; `fyr metrics show` and `fyr metrics report` summarise every session's shape.
 - **Cost:** no service and no cloud; the only model calls are the dream's, hourly while a session already runs, and the evals the operator starts.
@@ -169,14 +171,14 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 
 | Requirement | Components |
 |---|---|
-| R0 | M1, M7, M8, M9, M10, M11, M14 |
+| R0 | M1, M7, M8, M9, M10, M11, M14, M16 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
-| R3 | M1, M6, M11, M12 |
-| R4 | M5, M6, M7, M8, M10 |
+| R3 | M1, M6, M11, M12, M16 |
+| R4 | M5, M6, M7, M8, M10, M16 |
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13 |
-| R7 | M7, M9, M15 |
-| R8 | M4, M5, M11, M12, M13 |
+| R7 | M7, M9, M15, M16 |
+| R8 | M4, M5, M11, M12, M13, M16 |
 | R9 | M4, M5, M6 |
-| R10 | M5, M6 |
+| R10 | M5, M6, M16 |
