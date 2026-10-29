@@ -16,6 +16,7 @@ Row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S3, the `fyr serve` maintena
 
 ## Backlog
 
+- Workers: the lead session runs sandboxed `agy -p` workers through a `fyr work` verb; the operator's brief is stored verbatim as `PLAN-2026-10-29-workers` (not yet planned). The next session places it in the order of work and asks the operator (added 2026-10-29, the operator)
 - Find why `fyr check` takes 3–4 minutes of CPU in this checkout (3m22s with the pre-row-8 binary, 99e4a0c), which `fyr serve`'s `/check` waits on (added 2026-10-29, row 8's manual walk and security review)
 - Thin `TDD.md` § T5's verb rows to one line and a spec link each, once every row's claims live in its `SPEC-fyr-*` record or `cmd/fyr/help_text.go` (added 2026-10-29, the row 4b review)
 - Fix `GUIDE-testing` § 5's stale claim that the canary word is written in this repo's README and AGENTS.md (neither holds it) (added 2026-10-29, the row 5 report, item 3, operator: "go all approved")
