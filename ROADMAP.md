@@ -6,6 +6,6 @@ Last reviewed: 2026-10-29
 
 ## Now
 
-## Next
+`PLAN-2026-10-29-root-docs-and-fyr-serve`: its § Order of work is the source of truth; next is Row 1 (Phase 0 + Phase 1).
 
-1. Row 1 of the approved order (`.agents/scratch/root-docs-audit-2026-10-29.md` § Order of work): Phase 0 + Phase 1 of the root-docs Feature, with `fyr serve` in the same plan record; the plan record, the ADR and the REQUIREMENTS edit proposed for approval.
+## Next
