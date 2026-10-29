@@ -9,3 +9,4 @@ Last reviewed: 2026-10-29
 ## Next
 
 1. The root-docs Feature (PRD, SDD, TDD, TODO; ROADMAP removed), Phase 1: the plan record, the ADR and the REQUIREMENTS edit proposed for approval (the operator's decisions of 2026-10-29, drafted in `.agents/scratch/root-docs-audit-2026-10-29.md`).
+2. `fyr serve`, a local control UI (Feature, after the root-docs Feature): Phase 1 is its plan record, with the operator's approved recommendations of 2026-10-29 in `HANDOFF-2026-10-29-0949-ledger-phase-10-done-dave-current` § Key Decisions.
