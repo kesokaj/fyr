@@ -7,20 +7,19 @@
 
 ## Now
 
-Workers Phase 3 of `PLAN-2026-10-29-workers`: the `fyr work` verb for one Kickoff, with its ADR, the PRD edits and the map in one commit. The re-plan after the operator's addendum is approved (D54–D69) and its cold read is answered (D70–D90). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 4 of `PLAN-2026-10-29-workers`: several Kickoffs, `--max-workers`, `--kill`. Phase 3 is done (`fyr work` for one Kickoff, ADR-076, commit `4dccb7a`). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [x] `cmd/fyr/verb_work.go`: flags `--home --repo --timeout --model --keep`, one file, exit statuses, signals (D89)
-- [x] The path's ADR and its restatements (PRD R8, Non-goals, Known limits; the README map; AGENTS.md rules 1 and 4): ADR-076
-- [x] `Config.SkipStores` by exact writer name, `state.json` fingerprinted again, the contract's 39 lines (D70, D85)
-- [ ] `SPEC-fyr-work` accepted on the operator's word after reading D47 (who: user; not a Checkpoint condition, D69)
-- [ ] The first real worker on `~/sandbox/fyr-work/fixture`
-- [ ] Checkpoint: one commit for the verb, the ADR, the PRD, the map and the docs; push; the real-home install on dave; handoff
+- [ ] Risk check first: two `agy -p` sessions at once on one linked token both finish logged in
+- [ ] Several files, `--max-workers` counted machine-wide (D30), refusals 5 and 6, waiting files, results in file order
+- [ ] `--kill <stamp>` with the pid file and its lock (D33)
+- [ ] Checkpoint: full test command, `reviewer` and `security`, `verifier` log, change record, commit, push, the real-home install on dave, handoff
+- [ ] The Mac: `go test -race ./internal/sandbox ./internal/work ./cmd/fyr` (who: user; not a Checkpoint condition)
 
 ## Next
 
-- Workers Phase 4: several Kickoffs, `--max-workers`, `--kill`.
 - Workers Phase 5a (the `work` skill), then 5b (the feature skill's workers decision, the worker template, the session-sizing clause and its ADR).
-- Then, in order: workers Phase 6 (the E2E, a planning session that becomes the lead), Phase 7 (`--runner docker`); then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- Workers Phase 6 (the E2E, a planning session that becomes the lead), then Phase 7 (`--runner docker`).
+- Then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
 ## Backlog
 
