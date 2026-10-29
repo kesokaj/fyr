@@ -39,7 +39,11 @@ func (b *Box) Session(ctx context.Context, agy, tok, prompt, outName string) int
 // SIGKILL after StopGrace.
 func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, appendErr bool) int {
 	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. " + prompt
-	cmd := exec.Command(agy, "-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout)
+	args := []string{"-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout}
+	if b.c.Model != "" {
+		args = append(args, "--model", b.c.Model)
+	}
+	cmd := exec.Command(agy, args...)
 	cmd.Dir = b.app
 	cmd.Env = b.agyEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -55,6 +59,7 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 		b.Note("agy: %v", err)
 		return -1
 	}
+	b.started = true
 	pgid := cmd.Process.Pid
 	b.pgids = append(b.pgids, pgid)
 	return agyExit(b.waitAgy(ctx, cmd, pgid))

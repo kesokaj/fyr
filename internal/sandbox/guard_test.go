@@ -155,7 +155,7 @@ func TestGuardOutsideCheckoutFailsClosed(t *testing.T) {
 func TestGuardFingerprint(t *testing.T) {
 	tmp := outsideTemp(t)
 	real := filepath.Join(tmp, "real")
-	if len(fingerprint(real)) != 0 {
+	if len(fingerprint(real, false)) != 0 {
 		t.Error("a home with no config directory has entries")
 	}
 	fyr, old := filepath.Join(real, harness.StateDir), filepath.Join(real, harness.OldStateDir)
@@ -202,25 +202,25 @@ func TestGuardFingerprint(t *testing.T) {
 		}, harness.StateDir + "/dirlink"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			before := fingerprint(real)
+			before := fingerprint(real, false)
 			c.change()
-			got := changedPaths(before, fingerprint(real))
+			got := changedPaths(before, fingerprint(real, false))
 			if len(got) != 1 || got[0] != filepath.FromSlash(c.path) {
 				t.Errorf("changed paths %v, want [%s]", got, c.path)
 			}
 		})
 	}
-	before := fingerprint(real)
+	before := fingerprint(real, false)
 	write(filepath.Join(fyr, "eval", "2026-10-26-080000", "row", "home", "x"), "a run writes here")
-	if got := changedPaths(before, fingerprint(real)); len(got) != 0 {
+	if got := changedPaths(before, fingerprint(real, false)); len(got) != 0 {
 		t.Errorf("a write under eval/ counts as a real-config change: %v", got)
 	}
 	// The token a sandboxed session refreshes through its link, and the
 	// conversations the operator's own sessions write, are not watched.
-	before = fingerprint(real)
+	before = fingerprint(real, false)
 	write(filepath.Join(cli, "antigravity-oauth-token"), "refreshed")
 	write(filepath.Join(cli, "conversations", "c.db"), "a session")
-	if got := changedPaths(before, fingerprint(real)); len(got) != 0 {
+	if got := changedPaths(before, fingerprint(real, false)); len(got) != 0 {
 		t.Errorf("the token or a conversation counts as a real-config change: %v", got)
 	}
 	// The directory itself a link (a dotfiles setup) is followed.
@@ -231,9 +231,9 @@ func TestGuardFingerprint(t *testing.T) {
 	if err := os.Symlink(moved, fyr); err != nil {
 		t.Fatal(err)
 	}
-	before = fingerprint(real)
+	before = fingerprint(real, false)
 	write(filepath.Join(moved, "brain.db"), "changed through the link")
-	if got := changedPaths(before, fingerprint(real)); len(got) != 1 {
+	if got := changedPaths(before, fingerprint(real, false)); len(got) != 1 {
 		t.Errorf("a change inside a linked config directory: %v", got)
 	}
 }
@@ -266,9 +266,9 @@ func TestGuardFingerprintSkipsSandboxRoots(t *testing.T) {
 		{"worker/x", true},
 		{"sub/work/x", true},
 	} {
-		before := fingerprint(real)
+		before := fingerprint(real, false)
 		write(c.rel)
-		if got := changedPaths(before, fingerprint(real)); (len(got) > 0) != c.changes {
+		if got := changedPaths(before, fingerprint(real, false)); (len(got) > 0) != c.changes {
 			t.Errorf("a write at %s: changed paths %v, want a change %v", c.rel, got, c.changes)
 		}
 	}

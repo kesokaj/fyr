@@ -29,7 +29,9 @@ type Config struct {
 	Grants       []string      // settings.json permissions.allow
 	GitName      string        // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
 	GitEmail     string        //
+	Model        string        // agy --model; "" passes none
 	Timeout      time.Duration // agy alone is killed after this
+	SkipStores   bool          // check c leaves out storeFiles (work only, D45)
 	PrintTimeout string        // agy --print-timeout, as "<n>m"
 	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is 5s
 	Prefix       string        // every note starts "<Prefix>: "
@@ -87,6 +89,7 @@ type Box struct {
 	linked       bool
 	tok          string // the real token, as Session was last given it
 	sessions     int
+	started      bool // agy was started by a session
 	timedOut     bool
 	// resolved holds dir, app and sb as guard a approved them. The agent can
 	// write in dir, so every later step that follows those paths first checks
@@ -109,6 +112,10 @@ func New(c Config) *Box {
 func (b *Box) Dir() string  { return b.dir }
 func (b *Box) App() string  { return b.app }
 func (b *Box) Home() string { return b.sb }
+
+// Started reports that a session started agy: a token link or an exec that
+// failed leaves it false.
+func (b *Box) Started() bool { return b.started }
 
 // TimedOut reports that agy was killed at Config.Timeout: a note, not a
 // reason, so each verb decides what it means.

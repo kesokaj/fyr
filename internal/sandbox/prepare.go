@@ -111,7 +111,7 @@ func (b *Box) openSandbox() bool {
 // Fingerprint is step 4: the real config, before the verb's setup and
 // before anything installs, so a setup that writes it is seen (IN50 of the
 // 2026-10-27 audit).
-func (b *Box) Fingerprint() { b.realBefore = fingerprint(b.c.RealHome) }
+func (b *Box) Fingerprint() { b.realBefore = fingerprint(b.c.RealHome, b.c.SkipStores) }
 
 // Install is step 6: the harness, as `fyr install` gives it to a place
 // (D16), and the wrapper that pins --home on every fyr call the agent makes.

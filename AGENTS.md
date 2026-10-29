@@ -40,7 +40,7 @@ skills/<name>/         skills; .agents/skills links here, so `npx skills add` la
 skills/google-catalog/catalog/  Google skills at a pin, reached through the router, never installed
 commands/, rules/      deployed verbatim; rules share the context's block; commands/ empty by design
 cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), search, memory, redact,
-                       trail, check, dream, metrics, brain, eval, sandbox, serve
+                       trail, check, dream, metrics, brain, eval, sandbox, work, serve
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories, the tree's tests
 .agents/trail.jsonl    this repo's trail, written and read with `fyr record`
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
@@ -63,7 +63,7 @@ Each package, what it holds and imports: `SDD.md` § Components, then its `TDD.m
 
 ## Testing
 
-`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3j by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `GUIDE-eval`, verb `SPEC-fyr-eval`). A `GUIDE-eval` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, so a changed row changes its `want` entry in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
+`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3k by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `GUIDE-eval`, verb `SPEC-fyr-eval`). A `GUIDE-eval` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, so a changed row changes its `want` entry in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
 
 ## Release
 

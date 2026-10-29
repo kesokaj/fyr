@@ -25,7 +25,7 @@ flowchart LR
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M17) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M18) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
@@ -45,7 +45,8 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M17
 | M14 | `internal/check` | `fyr check`: the read-only drift check of docs, specs and requirements | R0 |
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
-| M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it | R6, R8 |
+| M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it, M18 its workers | R6, R8 |
+| M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 40 lines; no verb yet (`PLAN-2026-10-29-workers` Phase 3) | R8 |
 
 ## Flows
 
@@ -180,6 +181,6 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M17 |
 | R7 | M7, M9, M15, M16 |
-| R8 | M4, M5, M11, M12, M13, M16, M17 |
+| R8 | M4, M5, M11, M12, M13, M16, M17, M18 |
 | R9 | M4, M5, M6 |
 | R10 | M5, M6, M16 |

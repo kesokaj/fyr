@@ -9,8 +9,8 @@
 
 Phase 2 of `PLAN-2026-10-29-workers` (`fyr work`: the lead session runs sandboxed `agy -p` workers): `internal/work`, one worker with no verb yet. Phase 1 (`internal/sandbox` extracted from `internal/eval`) is done at `d66d7cf`. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] `agy --version` and `agy --help`: `--model`, `--mode`, `--print-timeout` still listed
-- [ ] `internal/work`: Kickoff parse, name and `Files:` rules, refusals 1–4 and 7–10, steps 1–9 for one worker, scope check, drafts copy, lead-checkout check, result contract, `Config.SkipStores` (D45); tests first, with a fake agy
+- [x] `agy --version` and `agy --help`: `--model`, `--mode`, `--print-timeout` still listed (1.4.10, all three)
+- [x] `internal/work`: Kickoff parse, name and `Files:` rules, refusals 1–4 and 7–10, steps 1–9 for one worker, scope check, drafts copy, lead-checkout check, result contract, `Config.SkipStores` (D45); tests first, with a fake agy
 - [ ] Checkpoint
 
 ## Next

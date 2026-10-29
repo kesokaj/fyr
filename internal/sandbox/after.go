@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bufio"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,7 +76,7 @@ func (b *Box) ExitChecks() {
 		}
 	}
 	if b.realBefore != nil {
-		if changed := changedPaths(b.realBefore, fingerprint(b.c.RealHome)); len(changed) > 0 {
+		if changed := changedPaths(b.realBefore, fingerprint(b.c.RealHome, b.c.SkipStores)); len(changed) > 0 {
 			b.Note("the real home's watched config changed (BUG-107, BUG-123): %s", strings.Join(changed, ", "))
 			b.Fail(ReasonRealConfig)
 		}
@@ -123,4 +124,27 @@ func newestLog(dir string) string {
 		return ""
 	}
 	return logs[0]
+}
+
+// Remove is `fyr work`'s step 9: the sandbox directory removed through the
+// path guard a approved, only while it is intact; os.RemoveAll removes a
+// link inside it, never the link's target. A directory the session left
+// read-only (a Go module cache) is made writable first, never through a
+// link: WalkDir reports a link as a link. False keeps the sandbox: one the
+// session replaced fails sandbox replaced, as Intact does.
+func (b *Box) Remove() bool {
+	if b.resolved == nil || !b.Intact() {
+		return false
+	}
+	_ = filepath.WalkDir(b.resolved[b.dir], func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	if err := os.RemoveAll(b.resolved[b.dir]); err != nil {
+		b.Note("the sandbox was not removed: %v", err)
+		return false
+	}
+	return true
 }

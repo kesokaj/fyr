@@ -168,6 +168,16 @@ Implements: M17 · Spec: `SPEC-fyr-eval` § One row (the steps) and § Safety ch
 - **Errors:** a failed step adds a fixed reason string and returns false; the steps after it are the caller's to skip. A timeout is `TimedOut`, never a reason.
 - **Data:** writes only under its `Dir`; check c's fingerprint skips the state directory's `eval/` and `work/` (D10).
 - **Dependencies:** `internal/harness` and `internal/trail`; no SQLite driver (`TestNoSQLiteDriver`), so `internal/eval` keeps none.
+- **Work's additions:** `Config.Model` (agy `--model`, none when empty) and `Config.SkipStores` (check c leaves out the four session-written stores and their `-wal` and `-shm`, D45); `Box.Started` reports that a session started agy; `Box.Remove` removes an intact sandbox through the path guard a approved, its read-only directories made writable first. Eval sets neither field.
+
+## T18 — The worker
+
+Implements: M18 · Spec: `SPEC-fyr-work` · Plan: `PLAN-2026-10-29-workers` § Interfaces § `fyr work`
+
+- **Interfaces:** `work.Run(ctx, Options, file)` runs one Kickoff file and returns its `Result`, whose `Block()` is the result contract; `ParseKickoff` is the file's parse. There is no verb until Phase 3.
+- **Errors:** a refusal is `Run`'s error and makes nothing. A worker's failure is a FAIL reason on the `Result`: the sandbox's own reasons, plus `timed out`, `killed`, `no commits`, `no handoff`, `more than one handoff`, `changed outside its Files`, `rewrote history`, `lead checkout changed` and `branch`.
+- **Data:** writes the sandbox under `<home>/.config/fyr/work/`. In the lead's checkout it writes only the branch ref and `.agents/scratch/work/<stamp>/<name>/`. It opens no store; the branch's records are decoded from its `trail.jsonl` with `encoding/json` (ADR-063).
+- **Dependencies:** `internal/sandbox` and `internal/trail`; no SQLite driver.
 
 ## Data model
 
@@ -209,4 +219,5 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M14 | T14 | `TestDocsRuleVerbs`, `TestSpecRuleStaleness`, `TestRequirementsRuleReadsPRD` |
 | M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot` |
 | M16 | T16 | `TestRefusals`, `TestCookieScopedToPrefix`, `TestTokenSetsCookieAndRedirects`, `TestPagesWriteNothing`, `TestServeSecondSignal` |
-| M17 | T17 | `TestBoxSession`, `TestGuardFingerprintSkipsSandboxRoots`, `TestNoSQLiteDriver` |
+| M17 | T17 | `TestBoxSession`, `TestGuardFingerprintSkipsSandboxRoots`, `TestGuardFingerprintSkipStores`, `TestBoxRemove`, `TestNoSQLiteDriver` |
+| M18 | T18 | `TestRunPass`, `TestRunRefusals`, `TestRunFailReasons`, `TestRunSafetyKeepsSandbox`, `TestBlockCutOrder`, `TestNoSQLiteDriver` |
