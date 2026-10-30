@@ -111,4 +111,4 @@ Every harness feature is set up and runs the same at every place, whichever of t
 
 ## Open questions
 
-- Whether `fyr check` verifies the R → M → T traces between PRD, SDD and TDD (asked in PLAN-2026-10-29-root-docs-and-fyr-serve row 7).
+- ~~Whether `fyr check` verifies the R → M → T traces between PRD, SDD and TDD (asked in PLAN-2026-10-29-root-docs-and-fyr-serve row 7).~~ Answered 2026-10-29: yes (D40); built in row 10 (D54).
