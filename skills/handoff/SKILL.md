@@ -65,7 +65,7 @@ The handoff records the remainder — it is never a substitute for rows already 
 
 1. Run `date +%F` and use that date everywhere below, and `date +%F-%H%M` for the handoff's draft name (Step 5) — never a date from memory.
 2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, in the `changelog` agent definition's format; the agent only when you lack the evidence).
-3. Bring `TODO.md` current yourself (Definition of Done step 4): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`. The dispatches above record; they do not own that file.
+3. Bring `TODO.md` current yourself (skipped in worker mode, § The worker-mode Kickoff) (Definition of Done step 4): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`. The dispatches above record; they do not own that file.
 4. Only then write the handoff (Step 4).
 
 ## Step 4: Write the Handoff Document
@@ -130,6 +130,7 @@ agent to start with only when one is genuinely the first move.>
 
 ```text
 Project: <absolute path>. Read AGENTS.md, then fyr record get <handoff ID>, then fyr record get <plan ID>; do Phase <n> — <name> only.
+Files: <the phase's files: line, verbatim>
 Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's `change` record, commit and push; the closing handoff. Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
 Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff with the next Kickoff and end the session.
 ```
@@ -137,14 +138,28 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### Writing Rules
 
-- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `.agents/trail.jsonl`, so no handoff record) the same block is printed in chat only, nothing saved.
+- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `.agents/trail.jsonl`, so no handoff record) the same block is printed in chat only, nothing saved.
 - **Be concise.** The whole document should be under 150 lines. A fresh agent needs signal, not noise.
 - **Records by ID, files by repo-relative path**, because the next reader may be on the other machine where the checkout lives elsewhere; the `Project:` line is the only absolute path. A path in another checkout is written as `<repo name>/<relative path>`.
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
 - **Redact sensitive data.** Strip API keys, passwords, tokens, PII, and anything from `~/.zsh_secrets` or `.env` files. Replace with `<REDACTED>`.
 - **Include the branch and commit state.** The next agent needs to know where the code stands.
-- **Next Steps never repeat a standing procedure.** A step the project's deploy record records as a by-hand procedure (its § Operator steps: an update at each place, a smoke check after it) is the guide's and the operator's; listing it reads as a question. Point at the guide once when the release changed what those steps pick up; otherwise say nothing.
+- **Next Steps never repeat a standing procedure.** A step the project's deploy record records as a by-hand procedure (its § Operator steps: an update at each place, a smoke check after it) is the guide's and the operator's; listing it reads as a question. Point at the guide once when the release changed what those steps pick up; otherwise say nothing. A lead's closing handoff (`work` skill) is the exception: it lists the real-home install it deferred, for the final tree, as one line for the operator.
 - **Next Steps never carry an item twice.** An item the previous handoff's Next Steps already held is done in this session, or put to the operator as one line with a recommendation and its answer recorded. A second handoff listing the same open item is a session that left work waiting.
+
+### The worker-mode Kickoff
+
+A lead (`work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt:
+
+```text
+Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
+Files: <the phase's files: line, verbatim>
+Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
+Never: push; tick the plan record or TODO.md; store an adr or bug record (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
+Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
+```
+
+**Worker mode.** When the Kickoff's Never line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the change record, the handoff record, and its commit on the worker's branch.
 
 ## Step 5: Save the Document
 
@@ -173,7 +188,7 @@ Fix what comes back at the source (plan, `TODO.md`, the dispatches above) and in
 
 ## Step 6: Commit and push
 
-Stage `.agents/trail.jsonl` (the handoff and every record Step 3 stored) and anything else Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"`. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push. A handoff that is not pushed does not exist on the other machine.
+Stage `.agents/trail.jsonl` (the handoff and every record Step 3 stored) and anything else Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"`. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push, except in worker mode (§ The worker-mode Kickoff), which neither pushes nor ingests. A handoff that is not pushed does not exist on the other machine.
 
 The session's last call, after the push (or after the commit, when there is no remote to push to), is `fyr metrics ingest`: the checkpoint feed of the metrics store, so `/retro` and `fyr metrics show` see this session without waiting for the next dream. Its summary line (`metrics: N sessions, M steps, K events added; …`), or its error and exit status, goes in the report. A failed ingest never edits the handoff (immutable) and never stops the session from ending: the next ingest — the next handoff, `/retro`, or the next dream — joins every session again.
 

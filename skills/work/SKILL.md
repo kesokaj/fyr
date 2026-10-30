@@ -50,7 +50,7 @@ Each answer is a dated row under the plan's `## Decisions`, `by: lead`, written 
 - it failed twice: two attempts that each ended without a merge, for any reason (a FAIL, a question, a red or conflicting squash), so a question after the second attempt blocks too;
 - it is ready but does not qualify for a worker (step 2).
 
-A blocked phase is never dispatched, and neither is any phase whose `after:` reaches it, directly or through other phases. Every other qualifying phase still runs, and a run in flight completes. **The loop ends** when no phase is left to dispatch and no run is going.
+A blocked phase is never dispatched, and neither is any phase whose `after:` (explicit, or the previous phase by default) reaches it, directly or through other phases. Every other qualifying phase still runs, and a run in flight completes. **The loop ends** when no phase is left to dispatch and no run is going.
 
 **A safety FAIL ends the loop at once**, after the run in flight returns. A safety FAIL is a result whose reasons include `credentials left in the sandbox`, `real config changed`, `processes left`, `sandbox replaced` or `lead checkout changed`. Nothing more is merged, not even that run's PASS results: their branches stay for the operator, beside the kept sandbox the verb names.
 
@@ -70,7 +70,7 @@ Before writing a file, check its name, without `.md`, against `^[a-z0-9][a-z0-9-
    - `.gitattributes` holds `.agents/trail.jsonl merge=union`: add the line when it is missing.
    - The plan record is stored (`fyr record list --kind plan`).
    - Both are committed by name and pushed, so the tree is clean: the verb refuses a dirty one.
-2. **Pick the wave.** A phase qualifies when every box it has left is `who: AI` (a Checkpoint names no `who:`), it depends on no unsettled `Open:` row, and it carries a `files:` line. The wave is the qualifying phases whose `after:` phases are all ticked, with `files:` pairwise disjoint: two entries intersect when they are equal, or when one is a directory ending in `/` that is a prefix of the other. Leave out blocked phases and every phase that depends on one. Take at most the verb's `--max-workers` (4 by default). A ready phase that does not qualify is blocked.
+2. **Pick the wave.** A phase qualifies when every box it has left is `who: AI` (a Checkpoint names no `who:`), it depends on no unsettled `Open:` row, and it carries a `files:` line. The wave is the qualifying phases whose `after:` phases are all ticked (a phase header with no `after:` waits for the previous phase), with `files:` pairwise disjoint: two entries intersect when they are equal, or when one is a directory ending in `/` that is a prefix of the other. Leave out blocked phases and every phase that depends on one. Take at most the verb's `--max-workers` (4 by default). A ready phase that does not qualify is blocked.
 3. **Compose each Kickoff** from the handoff skill's worker-mode Kickoff, filling its fixed text and changing none of it. Its `Files:` line is the phase's `files:` line, verbatim; its Done when is the phase's Checkpoint expect, verbatim.
 4. **Write the Kickoffs** to `.agents/scratch/work/kickoffs/<short>-<phase>[-r2].md`.
 5. **Run `fyr work <file>...`** with every Kickoff of the wave, from the project's root, and wait for it inside the turn: give the command a large `WaitMsBeforeAsync`, and when it goes async anyway, poll it (`manage_task`, `list`) with `sleep 30` between polls until it has exited. Never end the turn while it runs. A worker can take up to the verb's `--timeout` (120 minutes by default).
