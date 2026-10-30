@@ -7,7 +7,7 @@
 
 ## Now
 
-Workers Phase 8 of `PLAN-2026-10-29-workers` (a model per worker; planned before it starts, D103). Phase 7's 7a, 7b-1, 7b-2 and 7c are done (the dave smoke PASS). Left in Phase 7, all the operator's: 7a's box 1 (the Mac's `docker info`, the write probe, a linux-arm64 agy), 7b-2's PRD Known-limits box, and 7d (the Mac smoke). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 8 of `PLAN-2026-10-29-workers` (a model per worker; planned before it starts, D103). Phase 7's 7a, 7b-1, 7b-2 and 7c are done (the dave smoke PASS). Left in Phase 7, all the operator's: 7b-2's PRD Known-limits box, and 7d (the Mac smoke), which waits on a linux agy for the Mac (D111: a linux-arm64 agy, or Rosetta with dave's amd64 one). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
 - [ ] A planning session first: the feature skill's Steps 1–3 for Phase 8 alone, from D103's six items
 - [ ] Checkpoint
