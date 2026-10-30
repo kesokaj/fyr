@@ -19,6 +19,7 @@ type prepared struct {
 	agy, tok         string
 	base             string // the checkout's HEAD at the start, recorded once (D36)
 	gitName, gitMail string
+	docker           *dockerPlan // nil on the host runner
 }
 
 // preflight is refusals 1-10 of § Interfaces before anything is made, for
@@ -57,6 +58,11 @@ func preflight(o Options, files []string) ([]prepared, error) {
 	if err := atLimit(work, o.MaxWorkers); err != nil {
 		return nil, err
 	}
+	switch o.Runner {
+	case "", RunnerHost, RunnerDocker:
+	default:
+		return nil, fmt.Errorf("--runner %q: give %s or %s", o.Runner, RunnerHost, RunnerDocker)
+	}
 	if err := p.session(o); err != nil {
 		return nil, err
 	}
@@ -75,8 +81,11 @@ func (p *prepared) session(o Options) error {
 		return fmt.Errorf("no Antigravity login at %s", p.tok)
 	}
 	var err error
-	if p.agy, err = exec.LookPath("agy"); err != nil {
-		return errors.New("agy not found on PATH")
+	// In docker mode the container's agy is a linux one (dockerRefusals).
+	if o.Runner != RunnerDocker {
+		if p.agy, err = exec.LookPath("agy"); err != nil {
+			return errors.New("agy not found on PATH")
+		}
 	}
 	if strings.HasPrefix(o.Model, "-") {
 		return fmt.Errorf("--model %s: a model name, not a flag", o.Model)
@@ -84,8 +93,10 @@ func (p *prepared) session(o Options) error {
 	if o.Timeout < minTimeout || o.Timeout%timeoutUnit != 0 {
 		return fmt.Errorf("--timeout %s: give whole minutes, at least %s", o.Timeout, minTimeout)
 	}
-	p.base, err = head(o.Root)
-	return err
+	if p.base, err = head(o.Root); err != nil || o.Runner != RunnerDocker {
+		return err
+	}
+	return p.dockerRefusals(o)
 }
 
 // leadClean is refusals 1 and 2: root is a checkout's top level and its

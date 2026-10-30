@@ -169,7 +169,7 @@ func TestWorkVerbFail(t *testing.T) {
 
 // TestWorkVerbRefusals: every refusal and usage error exits 2 before any
 // sandbox exists: two files sharing a path, a --max-workers outside 1 to 8,
-// and --kill with a file among them.
+// --kill with a file among them, and a --runner the verb cannot run.
 func TestWorkVerbRefusals(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup func(r *workRig) []string
@@ -197,6 +197,12 @@ func TestWorkVerbRefusals(t *testing.T) {
 			writeTestFile(r.t, p, "Project: this clone.\n")
 			return []string{p}
 		}, "Files:"},
+		"unknown runner": {func(r *workRig) []string { return []string{"--runner", "podman", r.kickoff("fix-a")} }, `work: --runner "podman": give host or docker`},
+		// A test binary is no installed build: refused before any docker
+		// call, whether or not this machine has docker (D108).
+		"docker from a dev build":  {func(r *workRig) []string { return []string{"--runner", "docker", r.kickoff("fix-a")} }, "work: --runner docker: this fyr is a development build"},
+		"image without docker":     {func(r *workRig) []string { return []string{"--image", "x:1", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
+		"agy-linux without docker": {func(r *workRig) []string { return []string{"--agy-linux", "/x/agy", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
 		"bad install source": {func(r *workRig) []string {
 			return []string{"--repo", r.kick, r.kickoff("fix-a")}
 		}, "work: "},
@@ -316,5 +322,43 @@ func TestWorkVerbKill(t *testing.T) {
 	}
 	if out, code := r.work("--kill", stamp); code != 2 || !strings.Contains(out, "is stale: no run holds it") {
 		t.Errorf("exit %d, want 2 on the stale pid file:\n%s", code, out)
+	}
+}
+
+// fakeVerbDocker has one image, good:1, at version vtest, on a local
+// daemon: enough for the verb's flags to be seen in its refusals.
+const fakeVerbDocker = `#!/bin/bash
+case "$1 $2" in
+"context inspect") echo unix:///var/run/docker.sock ;;
+"image inspect") [ "${@: -1}" = good:1 ] || { echo "Error: No such image" >&2; exit 1; }
+  echo "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef amd64" ;;
+"run --rm") echo "fyr vtest" ;;
+esac
+`
+
+// --image and --agy-linux reach the run: from an installed build, a
+// missing image is refused by the ref given, and a given linux agy by its
+// path.
+func TestWorkVerbDockerFlags(t *testing.T) {
+	r := newWorkRig(t)
+	old := version
+	version = "vtest"
+	t.Cleanup(func() { version = old })
+	bin := t.TempDir()
+	writeTestFile(t, filepath.Join(bin, "docker"), fakeVerbDocker)
+	if err := os.Chmod(filepath.Join(bin, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DOCKER_CONTEXT", "")
+	if out, code := r.work("--runner", "docker", "--image", "other:1", r.kickoff("fix-a")); code != 2 || !strings.Contains(out, "work: --image other:1: not on this machine") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if out, code := r.work("--runner", "docker", "--image", "good:1", "--agy-linux", "/nowhere/agy", r.kickoff("fix-a")); code != 2 || !strings.Contains(out, "--agy-linux /nowhere/agy") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	if len(r.sandboxes()) > 0 {
+		t.Fatalf("a refusal made sandboxes %v", r.sandboxes())
 	}
 }

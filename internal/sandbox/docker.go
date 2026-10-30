@@ -55,7 +55,7 @@ func (b *Box) cidFile() string {
 // entry without '=', which docker would fill from the host's own value.
 func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs []string) ([]string, error) {
 	for _, p := range []string{app, sb, tok, d.Agy} {
-		if err := mountable(p); err != nil {
+		if err := Mountable(p); err != nil {
 			return nil, err
 		}
 	}
@@ -86,9 +86,9 @@ func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs 
 	return append(args, agyArgs...), nil
 }
 
-// mountable refuses what --mount's comma-separated, quote-aware syntax
+// Mountable refuses what --mount's comma-separated, quote-aware syntax
 // would read as another field: a comma, a quote, a control character.
-func mountable(p string) error {
+func Mountable(p string) error {
 	if !filepath.IsAbs(p) {
 		return fmt.Errorf("%s: a mount path must be absolute", p)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -24,6 +25,9 @@ func init() {
 		c.fs.BoolVar(&c.workKeep, "keep", false, "keep the sandbox of a fetched worker too")
 		c.fs.IntVar(&c.workMax, "max-workers", work.DefaultMaxWorkers, "run at most `N` workers at once across the machine, 1 to 8")
 		c.fs.StringVar(&c.workKill, "kill", "", "end the running fyr work whose stamp line printed `STAMP`")
+		c.fs.StringVar(&c.workRunner, "runner", work.RunnerHost, "where each worker's session runs: `R` is host or docker")
+		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "--runner docker's image `REF`, built by SPEC-fyr-work's build line")
+		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "--runner docker's linux agy `PATH` (default: the host's agy, on linux only)")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
@@ -38,12 +42,17 @@ func runWork(c *ctx) error {
 	if c.workKill != "" {
 		return c.workKillRun(files)
 	}
+	imageSet := false
+	c.fs.Visit(func(f *flag.Flag) { imageSet = imageSet || f.Name == "image" })
 	switch {
 	case len(files) == 0:
 		return usageErr(c.out, "work", "")
 	case c.workMax < 1:
 		// internal/work reads 0 as its default and refuses over 8.
 		return c.workRefuse("--max-workers %d: give 1 to %d", c.workMax, work.MaxMaxWorkers)
+	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
+		// Either alone would run every session on the host unasked.
+		return c.workRefuse("--image and --agy-linux need --runner docker")
 	case c.workTimeout <= 0:
 		// internal/work reads 0 as its default; a typed 0 is a mistake.
 		return c.workRefuse("--timeout %s: give whole minutes, at least 10m", c.workTimeout)
@@ -69,7 +78,8 @@ func runWork(c *ctx) error {
 		return c.workRefuse("the running fyr: %v", err)
 	}
 	return c.workRun(work.Options{Root: root, Home: c.home, RealHome: realHome, Self: self, Repo: src.Dir,
-		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: c.workMax, Out: c.out}, files)
+		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: c.workMax, Out: c.out,
+		Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
 }
 
 // workRun runs the files under the verb's signals and maps the results to

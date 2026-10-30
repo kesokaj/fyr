@@ -1,9 +1,11 @@
 # The image `fyr work --runner docker` runs each worker's agy session in
 # (SPEC-fyr-work § The worker image). It carries a linux fyr and the
 # machine's Go toolchain, and no agy: the verb mounts a linux agy read-only.
-# Build it with the line in SPEC-fyr-work (`docker buildx build`, so a
-# missing BuildKit fails instead of falling back to a builder that ignores
-# work.Dockerfile.dockerignore); the verb never builds or pulls it.
+# Build it from the checkout with this line, also in SPEC-fyr-work and
+# printed by fyr work's refusals (TestBuildLinePinned); `docker buildx
+# build`, so a missing BuildKit fails instead of falling back to a builder
+# that ignores work.Dockerfile.dockerignore. The verb never builds or pulls it.
+# Build: docker buildx build --load -f docker/work.Dockerfile --build-arg GO_MINOR="$(go env GOVERSION | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')" --build-arg FYR_VERSION="$(fyr version | cut -d' ' -f2)" -t fyr-work:local .
 #
 # GO_MINOR is the machine's Go major.minor, not the go.mod line's: the
 # worker's own tests need the machine's Go, and the go line is a minimum.

@@ -38,6 +38,10 @@ type Options struct {
 	Out        io.Writer
 	Now        func() time.Time
 	StopGrace  time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
+	Runner     string        // RunnerHost ("" too) or RunnerDocker
+	Image      string        // --runner docker's image ref; "" is DefaultImage
+	AgyLinux   string        // --runner docker's linux agy; "" is the host's own on linux
+	Version    string        // this fyr's build version, which the image must hold
 }
 
 // DefaultTimeout is --timeout's default (D45).
@@ -131,7 +135,9 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	for i, p := range ps {
 		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name))
 	}
-	return dispatch(ctx, r, ws, o.Out), nil
+	res := dispatch(ctx, r, ws, o.Out)
+	o.sweepRun(stamp)
+	return res, nil
 }
 
 // dispatch starts each worker as a slot frees, in file order, and prints

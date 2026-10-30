@@ -32,6 +32,14 @@ type worker struct {
 	res       Result
 }
 
+// dockerConfig is the box's container, nil on the host runner.
+func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
+	if p.docker == nil {
+		return nil
+	}
+	return &sandbox.Docker{Image: p.docker.image, Agy: p.docker.agy, Stamp: stamp, Name: p.k.Name}
+}
+
 func newWorker(o Options, p prepared, stamp, dir string) *worker {
 	w := &worker{o: o, p: p, stamp: stamp}
 	pt := (o.Timeout - 5*time.Minute) / time.Minute
@@ -43,6 +51,7 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: o.Model,
 		Timeout: o.Timeout, SkipStores: true, PrintTimeout: fmt.Sprintf("%dm", pt),
 		StopGrace: o.StopGrace, Prefix: "work: " + p.k.Name, Out: &w.notes,
+		Docker: p.dockerConfig(stamp),
 	})
 	w.res = Result{Name: p.k.Name, AgyExit: -1, Base: p.base, Dir: dir}
 	return w

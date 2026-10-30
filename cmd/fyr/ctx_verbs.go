@@ -40,6 +40,9 @@ type ctx struct {
 	workKeep                                                                                bool
 	workMax                                                                                 int
 	workKill                                                                                string
+	workRunner                                                                              string
+	workImage                                                                               string
+	workAgyLinux                                                                            string
 	limit, port                                                                             int
 	register                                                                                bool
 	// src is the harness, resolved before run for the verbs that mark source

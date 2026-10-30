@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -282,6 +283,17 @@ func Kill(home, stamp string) (int, error) {
 	if h, err := held(f); err != nil {
 		return 0, fmt.Errorf("%s: %v", p, err)
 	} else if !h {
+		// The run's process is gone: what it started in docker mode may not
+		// be. Without docker there is nothing to sweep; a daemon that is not
+		// this machine's is never asked, and the refusal says so.
+		if _, lerr := exec.LookPath("docker"); lerr == nil {
+			if derr := localDaemon(); derr != nil {
+				return 0, fmt.Errorf("%s is stale: no run holds it; its containers were not swept: %v", p, derr)
+			}
+			if n, serr := sweepContainers(stamp); n > 0 || serr != nil {
+				return 0, fmt.Errorf("%s is stale: no run holds it; its containers (label fyr.work=%s): %d removed, error %v", p, stamp, n, serr)
+			}
+		}
 		return 0, fmt.Errorf("%s is stale: no run holds it", p)
 	}
 	pid, _, err := readPid(f, stamp)
