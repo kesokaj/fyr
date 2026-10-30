@@ -106,7 +106,7 @@ Every harness feature is set up and runs the same at every place, whichever of t
 - **Antigravity global rules path.** The CLI's customization root is `~/.gemini/config/`; rules there are documented for the workspace form (`.agents/rules/*.md`) and by analogy for the global one. Verified on the Linux box 2026-09-03 (`TEST-2026-09-03-verify-real-home` (`fyr record get`)): the CLI reads rules, skills, and agents from there. Confirmed on the Mac for Antigravity on 2026-09-04 (`TEST-2026-09-04-verify-mac-real-home`).
 - **Antigravity tool names cannot be enumerated.** An unrecognised name in an agent's `tools:` hangs the subagent, so `fyr install` fails on any tool name it does not know rather than guessing.
 - **Antigravity IDE is out of scope.** Only the `agy` CLI is targeted; the IDE's global paths are unverified.
-- **`fyr work` on macOS has no leftover-process check.** Without /proc the check that a worker left no process does not run; the final process-group kill still does, as for `fyr eval` (ADR-076).
+- **`fyr work` on macOS has no leftover-process check on the host runner.** Without /proc the check that a worker left no process does not run; the final process-group kill still does, as for `fyr eval` (ADR-076). With `--runner docker` the session's processes live in Colima's VM: the check lists the worker's container by its labels and fails the worker on one left running, while the host process scan still does not run (ADR-079).
 - **Antigravity has no compaction window a file can set.** A session compacts when the CLI decides; the session-sizing rule (`rules/session-sizing.md`, ADR-058) is the only mechanism that ends a session at its checkpoint.
 
 ## Open questions
