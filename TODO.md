@@ -7,17 +7,18 @@
 
 ## Now
 
-Workers Phase 5b of `PLAN-2026-10-29-workers`: the workers decision, the worker template and the lead exception, in one commit. Phase 5a is done (the `work` skill; D93). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 6 of `PLAN-2026-10-29-workers`: the E2E, a planning session on the fixture that becomes the lead (one session started by the operator). Phase 5b is done (the workers decision, the worker template and the lead exception; D95, ADR-077). First, outside this plan, the Task refreshing `SPEC-fyr-check`, `SPEC-fyr-eval` and `SPEC-fyr-serve` (workers D94). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [x] The feature skill: the `after:` and `files:` lines, the fifth cold-read question, the workers decision, the "ends here" exception, the gate rule's sentence, Step 3's cold-read gate in a session that may lead, `planner` and `lead` in the `by:` list
-- [x] The handoff skill: the optional `Files:` line, the worker-mode Kickoff, the worker-mode paragraph
-- [x] The lead exception: the `rules/session-sizing.md` clause, the ADR amending ADR-058 (1) and (4), `SDD.md`:146, `AGENTS.md` § Rules' dave sentence, `.gitattributes`
-- [x] Behavioural runs: `fyr eval` rows `feature` and `handoff`, n of N in a `testing` record
-- [ ] Checkpoint: full test command, `reviewer` with `/review --docs`, `verifier` log, change record, ONE commit, push, the real-home install on dave, handoff
+- [ ] The fixture is ready for a lead: its `AGENTS.md` pins `--home ~/sandbox/fyr-work/home`, names no public flag and no storage format; `.gitattributes` only through the lead's step 1; `fyr metrics ingest` finds the agy sessions
+- [ ] The operator starts `agy` on the fixture with the fixed `/feature` request and confirms Step 1 only; the session plans, cold-reads, decides `by: planner` (yes) and leads
+- [ ] The verb-level edges by hand: a timeout and two Kickoffs sharing one file
+- [ ] The measure: the lead's peak context, planning included, against 300,000 tokens
+- [ ] Whether the `work` skill gets a `GUIDE-eval` row
+- [ ] Checkpoint: the E2E's `testing` record, change record, commit, push, handoff
 
 ## Next
 
-- Workers Phase 6 (the E2E, a planning session that becomes the lead), then Phase 7 (`--runner docker`).
+- Workers Phase 7 (`--runner docker`, planned before it starts).
 - Then root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 
 ## Backlog
