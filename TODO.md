@@ -7,16 +7,16 @@
 
 ## Now
 
-Workers Phase 7b-2 of `PLAN-2026-10-29-workers` (`--runner docker`: `internal/work`, `cmd/fyr` and the docs). 7a and 7b-1 are done; 7a's box 1 waits on the operator's Mac answers, and 7d is deferred on them. Phase 8, a model per worker, is placed and unplanned (D103). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 7c of `PLAN-2026-10-29-workers` (the container smoke on dave) is done; its checkpoint closes this session. Left in Phase 7: 7a's box 1 (the operator's Mac answers), 7b-2's PRD Known-limits box (who: user), and 7d (the Mac smoke, deferred on 7a box 1). Phase 8, a model per worker, is placed and unplanned (D103). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [x] The run's container sweep at its end and at `--kill` (D109)
-- [x] `--runner`, `--image`, `--agy-linux` and the docker refusals; the docs
-- [ ] The PRD Known-limits edit, proposed to the operator (who: user)
+- [x] The container smoke on dave
 - [ ] Checkpoint
 
 ## Next
 
 - Root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- `PLAN-2026-10-30-ui-skills`: `frontend-ui-economist` and `frontend-ui-modern` replace `frontend`; Step 1's seven Open items wait for the operator (the zips in `.agents/scratch/ui-skills/`).
+- Parallel dispatch (the operator, 2026-10-30, "Go with your recommendations"): first one agy run that puts two subagent dispatches in one turn, to see if they run at once; if they do, the two bullets go into the feature skill's lead step and the `explorer` description, never `rules/` (the rules block is at 21,032 of 22,000).
 
 ## Backlog
 
