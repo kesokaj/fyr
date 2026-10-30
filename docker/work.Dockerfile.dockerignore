@@ -1,0 +1,40 @@
+# Default-deny: only what `go build ./cmd/fyr` reads enters the context, so
+# .git, .agents/ and every scratch home never reach a layer. The trailing
+# excludes are .gitignore's secret-shaped list, so such a file dropped under
+# an admitted directory stays out too. Pinned by TestImageContextAllowList.
+*
+!go.mod
+!go.sum
+!*.go
+!cmd
+!internal
+!context
+!skills
+!agents
+!commands
+!rules
+**/.env
+**/.env.*
+**/*.env
+**/.envrc
+**/.netrc
+**/.npmrc
+**/.pypirc
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.keystore
+**/*.jks
+**/*.tfvars
+**/*.tfstate
+**/*.tfstate.backup
+**/*credentials*.json
+**/*oauth-token*
+**/.git-credentials
+**/credentials
+**/*-key.json
+**/id_rsa
+**/id_ed25519
+**/id_ecdsa
+**/id_dsa

@@ -42,6 +42,7 @@ commands/, rules/      deployed verbatim; rules share the context's block; comma
 cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), search, memory, redact,
                        trail, check, dream, metrics, brain, eval, sandbox, work, serve
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories, the tree's tests
+docker/                `fyr work --runner docker`'s image: work.Dockerfile and its default-deny ignore file
 .agents/trail.jsonl    this repo's trail, written and read with `fyr record`
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
 ```
