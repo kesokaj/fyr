@@ -1,14 +1,17 @@
 package work
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 // TestParseTrail: the seven keys, one object per line; an unknown key, a
-// second value, a line with no id or a second line of one ID is refused,
-// as fyr record refuses it.
+// second value, a line with no id or a second, different line of one ID is
+// refused, and a byte-identical one read once, as fyr record reads them
+// (BUG-197).
 func TestParseTrail(t *testing.T) {
 	updated := "2026-10-29T17:30:23Z"
 	line := func(id, extra string) string {
@@ -18,11 +21,14 @@ func TestParseTrail(t *testing.T) {
 	if err != nil || len(got) != 2 || got["HANDOFF-1"] != (Record{ID: "HANDOFF-1", Kind: "handoff", Date: "2026-10-29", Title: "T", Updated: "2026-10-29T17:30:23Z", Body: "b"}) {
 		t.Fatalf("parsed %+v, %v", got, err)
 	}
+	if got, err := parseTrail([]byte(line("A-1", "") + "\r\n" + line("B-1", "") + "\n" + line("A-1", "") + "\n")); err != nil || len(got) != 2 {
+		t.Errorf("a byte-identical pair: %+v, %v, want two records", got, err)
+	}
 	for _, c := range []struct{ name, in, want string }{
 		{"unknown key", line("A-1", `,"x":1`), "unknown field"},
 		{"two values", line("A-1", "") + line("A-2", ""), "more than one JSON value"},
 		{"no id", line("", ""), "no id"},
-		{"duplicate", line("A-1", "") + "\n" + line("A-1", ""), "duplicate ID A-1"},
+		{"duplicate", line("A-1", "") + "\n" + strings.Replace(line("A-1", ""), `"b"`, `"c"`, 1), "duplicate ID A-1"},
 		{"conflict marker", "<<<<<<< HEAD", "line 1"},
 		{"missing key", `{"date":"2026-10-29","id":"A-1","kind":"guide","title":"T","updated":"2026-10-29T00:00:00Z","body":"b"}`, `no "status" key`},
 		{"bad date", strings.Replace(line("A-1", ""), "2026-10-29", "2026-13-40", 1), "date"},
@@ -57,6 +63,17 @@ func TestTrailAtFailsClosed(t *testing.T) {
 	}
 	if _, err := trailAt(r.lead, "0123456789abcdef0123456789abcdef01234567"); err == nil {
 		t.Error("an unreadable rev read as an empty trail")
+	}
+	// A base that holds a merge=union squash carries an unchanged line twice
+	// (BUG-197): one record, so the scope check sees nothing changed.
+	trail, err := os.ReadFile(filepath.Join(r.lead, trailRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(r.lead, trailRel), string(trail)+string(trail))
+	r.git("-C", r.lead, "commit", "-qam", "union copy")
+	if got, err := trailAt(r.lead, "HEAD"); err != nil || len(got) != 1 || got[r.guide].Title != "Old guide" {
+		t.Fatalf("a byte-identical copy at HEAD: %+v, %v, want the one guide", got, err)
 	}
 	r.git("-C", r.lead, "rm", "-q", trailRel)
 	r.git("-C", r.lead, "commit", "-qm", "no trail")

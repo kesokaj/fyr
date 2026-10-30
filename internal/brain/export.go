@@ -197,7 +197,7 @@ func parseTrail(data []byte) ([]Record, error) {
 // records, never the line count (security review 2026-10-25, finding 1).
 func readRecords(r io.Reader) ([]Record, error) {
 	var out []Record
-	seen := map[string]int{}
+	seen := map[string]seenLine{}
 	br := bufio.NewReaderSize(r, 64<<10)
 	var long []byte
 	for n := 1; ; n++ {
@@ -224,16 +224,28 @@ func readRecords(r io.Reader) ([]Record, error) {
 			if perr != nil {
 				return nil, perr
 			}
+			// A byte-identical copy is what merge=union makes of an unchanged
+			// line between two branches' new records (BUG-197): it is the
+			// same record, read once, and the next export drops it.
 			if first, dup := seen[rec.ID]; dup {
-				return nil, refuse("trail.jsonl line %d: duplicate ID %s (first at line %d); renumber one of the two lines by hand", n, rec.ID, first)
+				if first.sum != sha256.Sum256(line) {
+					return nil, refuse("trail.jsonl line %d: duplicate ID %s (first at line %d); renumber one of the two lines by hand", n, rec.ID, first.n)
+				}
+				continue
 			}
-			seen[rec.ID] = n
+			seen[rec.ID] = seenLine{n, sha256.Sum256(line)}
 			out = append(out, rec)
 		}
 		if errors.Is(err, io.EOF) {
 			return out, nil
 		}
 	}
+}
+
+// seenLine is where an ID was first read, and the hash of that line.
+type seenLine struct {
+	n   int
+	sum [sha256.Size]byte
 }
 
 // parseLine is one line of trail.jsonl as a record, or a refusal naming

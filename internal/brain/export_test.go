@@ -127,7 +127,8 @@ func TestLostStoreRestoredFromTrail(t *testing.T) {
 	}
 }
 
-// A bad file is refused with its line number — a duplicate ID with both,
+// A bad file is refused with its line number — a duplicate ID whose lines
+// differ with both (a byte-identical pair is one record: BUG-197),
 // a git conflict marker, a line that is not JSON — and every verb refuses
 // until it parses.
 func TestLoadRefusals(t *testing.T) {
@@ -137,7 +138,7 @@ func TestLoadRefusals(t *testing.T) {
 		file string
 		want []string
 	}{
-		"duplicate id":    {good + "\n" + other + "\n" + good + "\n", []string{"line 3", "line 1", "BUG-001"}},
+		"duplicate id":    {good + "\n" + other + "\n" + strings.Replace(good, `"title":"t"`, `"title":"v"`, 1) + "\n", []string{"line 3", "line 1", "BUG-001"}},
 		"conflict marker": {good + "\n<<<<<<< HEAD\n" + other + "\n=======\n>>>>>>> theirs\n", []string{"line 2", "conflict"}},
 		"bad json":        {good + "\n{\"id\": \n", []string{"line 2"}},
 		"unknown key":     {strings.Replace(good, `"body"`, `"extra":1,"body"`, 1) + "\n", []string{"line 1"}},

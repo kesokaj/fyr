@@ -67,11 +67,13 @@ func trailAt(root, rev string) (map[string]Record, error) {
 
 // parseTrail decodes one JSON object per line with exactly the record's
 // seven keys, a real date and an RFC 3339 updated, each line at most
-// maxLine; a second line of one ID is refused. The kind, ID grammar and
-// status tables are internal/brain's, which this package cannot link
+// maxLine; a second line of one ID is refused unless it is byte-identical,
+// as fyr record reads it (BUG-197: a merge=union base). The kind, ID grammar
+// and status tables are internal/brain's, which this package cannot link
 // (ADR-063): the lead's `fyr record list` after the merge checks those.
 func parseTrail(b []byte) (map[string]Record, error) {
 	out := map[string]Record{}
+	lines := map[string][]byte{}
 	for n, l := range bytes.Split(b, []byte("\n")) {
 		if len(bytes.TrimSpace(l)) == 0 {
 			continue
@@ -80,9 +82,14 @@ func parseTrail(b []byte) (map[string]Record, error) {
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %v", n+1, err)
 		}
-		if _, dup := out[r.ID]; dup {
-			return nil, fmt.Errorf("line %d: duplicate ID %s", n+1, r.ID)
+		l = bytes.TrimRight(l, "\r")
+		if first, dup := lines[r.ID]; dup {
+			if !bytes.Equal(first, l) {
+				return nil, fmt.Errorf("line %d: duplicate ID %s", n+1, r.ID)
+			}
+			continue
 		}
+		lines[r.ID] = l
 		out[r.ID] = r
 	}
 	return out, nil

@@ -78,7 +78,7 @@ func TestReadTrailRefusals(t *testing.T) {
 }
 
 // ParseTrail gives ReadTrail's records on the same bytes, and its refusals:
-// a bad line named, a duplicate ID, and bytes past the cap (plan fyr-eval
+// a bad line named, a duplicate ID whose lines differ, and bytes past the cap (plan fyr-eval
 // D28).
 func TestParseTrail(t *testing.T) {
 	dir, home := repo(t), t.TempDir()
@@ -104,7 +104,7 @@ func TestParseTrail(t *testing.T) {
 	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	for _, c := range []struct{ name, in, want string }{
 		{"bad line", good + "\n{\"id\": \n", "line 2"},
-		{"duplicate", good + "\n" + good + "\n", "duplicate ID BUG-001"},
+		{"duplicate", good + "\n" + strings.Replace(good, `"body":"b"`, `"body":"c"`, 1) + "\n", "duplicate ID BUG-001"},
 	} {
 		if _, err := ParseTrail(strings.NewReader(c.in)); !IsRefusal(err) || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want a refusal naming %q", c.name, err, c.want)
