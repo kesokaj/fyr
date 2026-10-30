@@ -38,7 +38,7 @@ The plan's Verification section (the `feature` skill Step 2) names the tiers fro
 
 ## Fixtures
 
-- A real dependency over a mock when the engine's behaviour is the question: Postgres in compose (`docker/references/setup.md` § Step 2), a `testcontainers`-free setup because compose is already there. A fake by hand (`golang/references/testing.md` § Fakes) when the question is the code around the dependency.
+- A real dependency over a mock when the engine's behaviour is the question: Postgres in compose (`skills/docker/references/setup.md` § Step 2), a `testcontainers`-free setup because compose is already there. A fake by hand (`golang/references/testing.md` § Fakes) when the question is the code around the dependency.
 - Fixtures state the condition they create and the test proves it holds before the assertion that depends on it (a seeded row is read back; a denied permission is checked to be denied).
 - No shared mutable fixture across tests: `t.TempDir()`, a schema per test or a transaction rolled back, a fresh `httptest.Server`.
 - Never the production project, never real credentials: compose and emulators locally; the cloud only inside `/preflight`.
