@@ -1,7 +1,7 @@
 # PRD — fyr
 
 What `fyr` and the harness are for, who they serve, and what must never drift.
-Status: current · Owner: the operator · Last updated: 2026-10-29 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Owner: the operator · Last updated: 2026-10-30 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
@@ -75,7 +75,7 @@ Adding a skill, subagent, command, or rule is: put the file in `skills/`, `agent
 
 ### R6 — Development never touches the real home
 
-Every test and every development run of the installer uses `--home` with a scratch directory. Deploying to the operator's real `$HOME` is the operator's action.
+Every test and every development run of the installer uses `--home` with a scratch directory. Deploying to the operator's real `$HOME` is the operator's action, except on a machine whose `DEPLOY-local` record § Operator steps records the operator's standing permission to keep it current: there a session's checkpoint ends with `fyr install` from a clean, pushed checkout into the real home. (ADR-078.)
 
 ### R7 — Projects remember and stay resumable
 
