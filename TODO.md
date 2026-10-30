@@ -7,16 +7,14 @@
 
 ## Now
 
-Workers Phase 8b of `PLAN-2026-10-29-workers` (a model per worker: the skills and their behavioural runs). Phase 8a is done: `fyr work` reads a Kickoff's `Model:` line, checks every named model against `agy models` (refusal 21) and prints `model <ID>|default` on each result line (ADR-080). D115 and D116 kept (D132). Left in Phase 7: 7d, the Mac smoke (D112). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S3: `fyr serve`'s maintenance actions, `index` and `metrics ingest`, each a POST with the CSRF token, D39). `PLAN-2026-10-29-workers` is done but for Phase 7d, the Mac (D112, who: user); whether BUG-198 needs a guard is still the operator's question (D101); D135's two `work` skill findings wait for the operator. The plan record wins on a conflict.
 
-- [ ] The three skills (feature, handoff, work)
-- [ ] A `GUIDE-eval` row `work-kickoff-model`
-- [ ] The behavioural runs
+- [ ] One task per action the operator named in row 7 (`index`, `metrics ingest`)
 - [ ] Checkpoint
 
 ## Next
 
-- Root-docs rows 9 (S3, `fyr serve` actions), 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- Root-docs rows 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
 - `PLAN-2026-10-30-ui-skills`: `frontend-ui-economist` and `frontend-ui-modern` replace `frontend`; Step 1's seven Open items wait for the operator (the zips in `.agents/scratch/ui-skills/`).
 - Parallel dispatch (the operator, 2026-10-30, "Go with your recommendations"): first one agy run that puts two subagent dispatches in one turn, to see if they run at once; if they do, the two bullets go into the feature skill's lead step and the `explorer` description, never `rules/` (the rules block is at 21,032 of 22,000).
 
