@@ -7,6 +7,8 @@
 
 ## Now
 
+First, one Task: fix BUG-196 (the operator, 2026-10-30, workers D94; the newest handoff's Kickoff). Then:
+
 Workers Phase 5b of `PLAN-2026-10-29-workers`: the workers decision, the worker template and the lead exception, in one commit. Phase 5a is done (the `work` skill; D93). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
 - [ ] The feature skill: the `after:` and `files:` lines, the fifth cold-read question, the workers decision, the "ends here" exception, the gate rule's sentence, Step 3's cold-read gate in a session that may lead, `planner` and `lead` in the `by:` list
