@@ -7,10 +7,10 @@
 
 ## Now
 
-Workers Phase 6 of `PLAN-2026-10-29-workers` ran on 2026-10-30 (D96–D98, `TEST-2026-10-30-0956-e2e-workers-phase-6-the-lead-loop-on-the-fixture`): the lead loop worked end to end, but the golden path failed its first squash on BUG-197 (`merge=union` duplicates sorted trail lines), and the lead wrote to its checkout mid-run (BUG-198). The operator chose BUG-197's fix, (a), and deferred BUG-198 to the rerun (D99); BUG-197 was fixed on 2026-10-30 (`CHANGE-2026-10-30-1020-change-bug-197-fixed-a-byte-identical-duplicate`), so box 2 reruns next. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 6 of `PLAN-2026-10-29-workers` ran on 2026-10-30 (D96–D98, `TEST-2026-10-30-0956-e2e-workers-phase-6-the-lead-loop-on-the-fixture`): the lead loop worked end to end, but the golden path failed its first squash on BUG-197 (`merge=union` duplicates sorted trail lines), and the lead wrote to its checkout mid-run (BUG-198). The operator chose BUG-197's fix, (a), and deferred BUG-198 to the rerun (D99); BUG-197 was fixed on 2026-10-30 (`CHANGE-2026-10-30-1020-change-bug-197-fixed-a-byte-identical-duplicate`); box 2 reruns once dave's real-home `fyr` holds the fix. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
 - [x] The fixture is ready for a lead (D96: the sandbox `--home` sentence, `--repo`, the ingest read with `--source ~ --label`)
-- [ ] The operator's `agy` lead on the fixture: the two question edges yes; the golden path no (BUG-197); BUG-197 fixed; reruns next, started by the agent in tmux
+- [ ] The operator's `agy` lead on the fixture: the two question edges yes; the golden path no (BUG-197); BUG-197 fixed; reruns once dave's real-home `fyr` holds the fix, started by the agent in tmux
 - [x] The verb-level edges: timeout (`no commits`, agy exit 0) and shared scope (refused)
 - [x] The measure: 111,386 of 300,000 tokens (D97)
 - [x] Whether the `work` skill gets a `GUIDE-eval` row: no (D98)
