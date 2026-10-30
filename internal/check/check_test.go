@@ -263,14 +263,14 @@ func TestRunRefusesANonCheckout(t *testing.T) {
 // Findings come in rule order, then by place and line.
 func TestFindingsSorted(t *testing.T) {
 	fs := []Finding{
-		{"b.md", 2, "requirement", ""}, {"SPEC-a", 0, "spec-stale", ""}, {"b.md", 1, "path", ""}, {"a.md", 9, "verb", ""},
+		{"PRD.md", 1, "trace", ""}, {"b.md", 2, "requirement", ""}, {"SPEC-a", 0, "spec-stale", ""}, {"b.md", 1, "path", ""}, {"a.md", 9, "verb", ""},
 	}
 	sortFindings(fs)
-	if got := strings.Join(lines(fs), ","); got != "a.md:9 verb,b.md:1 path,SPEC-a:0 spec-stale,b.md:2 requirement" {
+	if got := strings.Join(lines(fs), ","); got != "a.md:9 verb,b.md:1 path,SPEC-a:0 spec-stale,b.md:2 requirement,PRD.md:1 trace" {
 		t.Errorf("order %s", got)
 	}
-	if d, s, r := Counts(fs); d != 2 || s != 1 || r != 1 {
-		t.Errorf("counts %d %d %d", d, s, r)
+	if d, s, r, tr := Counts(fs); d != 2 || s != 1 || r != 1 || tr != 1 {
+		t.Errorf("counts %d %d %d %d", d, s, r, tr)
 	}
 }
 

@@ -1,5 +1,5 @@
 // Package check is `fyr check`: a read-only drift check of a git checkout's
-// docs, specs and requirements against the running binary and the tree
+// docs, specs, requirements and R → M → T traces against the running binary and the tree
 // (ADR-064, spec SPEC-fyr-check). It reads files, git and the checkout's
 // .agents/trail.jsonl, and writes nothing: no index, no brain store, no
 // state directory. It opens no SQLite database: internal/brain is imported
@@ -37,7 +37,7 @@ type Vocabulary map[string]VerbSpec
 type Finding struct {
 	Where string // repo-relative path or record ID
 	Line  int    // 1-based; 0 when the rule has none
-	Rule  string // verb subverb flag path line spec-stale spec-unlinked requirement
+	Rule  string // verb subverb flag path line spec-stale spec-unlinked requirement trace
 	Text  string
 }
 
@@ -121,9 +121,7 @@ func Run(dir string, v Vocabulary) (Report, error) {
 		rep.Findings = append(rep.Findings, fs...)
 		rep.Notes = append(rep.Notes, notes...)
 	}
-	reqs, notes := k.requirementsRule(recs)
-	rep.Findings = append(rep.Findings, reqs...)
-	rep.Notes = append(rep.Notes, notes...)
+	k.rootDocsRules(&rep, recs)
 	// A drift check that read fewer files than it names says so: a clean
 	// result is otherwise no sign (IN53 of the 2026-10-27 audit).
 	if n := len(k.skipped); n > 0 {
@@ -131,6 +129,16 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	}
 	sortFindings(rep.Findings)
 	return rep, nil
+}
+
+// rootDocsRules adds rules (c) and (d), which read the root documents, to rep.
+func (k *checker) rootDocsRules(rep *Report, recs []brain.Record) {
+	reqs, notes := k.requirementsRule(recs)
+	rep.Findings = append(rep.Findings, reqs...)
+	rep.Notes = append(rep.Notes, notes...)
+	traces, notes := k.tracesRule()
+	rep.Findings = append(rep.Findings, traces...)
+	rep.Notes = append(rep.Notes, notes...)
 }
 
 // open lists what git tracks at top and opens the checkout as an os.Root.
@@ -315,8 +323,8 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 	return out
 }
 
-// ruleOrder puts rule (a)'s findings first, then (b)'s, then (c)'s.
-var ruleOrder = map[string]int{"verb": 0, "subverb": 0, "flag": 0, "path": 0, "line": 0, "spec-stale": 1, "spec-unlinked": 1, "requirement": 2}
+// ruleOrder puts rule (a)'s findings first, then (b)'s, (c)'s and (d)'s.
+var ruleOrder = map[string]int{"verb": 0, "subverb": 0, "flag": 0, "path": 0, "line": 0, "spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3}
 
 func sortFindings(fs []Finding) {
 	sort.SliceStable(fs, func(i, j int) bool {
@@ -335,18 +343,20 @@ func sortFindings(fs []Finding) {
 	})
 }
 
-// Counts is how many findings each rule group holds: docs, specs and
-// requirements, for the summary line.
-func Counts(fs []Finding) (docs, specs, reqs int) {
+// Counts is how many findings each rule group holds: docs, specs,
+// requirements and traces, for the summary line.
+func Counts(fs []Finding) (docs, specs, reqs, traces int) {
 	for _, f := range fs {
 		switch ruleOrder[f.Rule] {
 		case 0:
 			docs++
 		case 1:
 			specs++
-		default:
+		case 2:
 			reqs++
+		default:
+			traces++
 		}
 	}
-	return docs, specs, reqs
+	return docs, specs, reqs, traces
 }

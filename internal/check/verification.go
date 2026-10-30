@@ -47,33 +47,19 @@ func (k *checker) verificationFindings(specs []brain.Record) []Finding {
 // the body has none. A heading inside a fence is not one: the fence rule is
 // scan's (same character, a run at least as long, nothing after it).
 func verificationLines(body string) (from, to int) {
-	var fenceChar byte
-	fenceLen := 0
-	for i, l := range strings.Split(body, "\n") {
-		n := i + 1
-		l = strings.TrimSuffix(l, "\r")
-		if c, k, rest, ok := fenceMarker(l); ok {
-			if fenceLen == 0 && (c != '`' || !strings.Contains(rest, "`")) {
-				fenceChar, fenceLen = c, k
-				continue
-			}
-			if fenceLen > 0 && c == fenceChar && k >= fenceLen && strings.TrimSpace(rest) == "" {
-				fenceLen = 0
-				continue
-			}
-		}
-		if fenceLen > 0 {
-			continue
-		}
+	to = 1 << 30
+	unfenced(body, func(n int, l string) bool {
 		switch {
 		case from == 0 && strings.HasPrefix(l, "## Verification"):
 			from = n + 1
 		case from > 0 && strings.HasPrefix(l, "## "):
-			return from, n
+			to = n
+			return false
 		}
-	}
+		return true
+	})
 	if from == 0 {
 		return 0, 0
 	}
-	return from, 1 << 30
+	return from, to
 }

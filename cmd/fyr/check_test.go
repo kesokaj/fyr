@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/check"
 )
 
 // The vocabulary is every verb of the table with the flags its FlagSet
@@ -158,7 +160,7 @@ func TestCheckVerb(t *testing.T) {
 		root := checkRepo(t, map[string]string{"README.md": "run `fyr check` and `fyr record get --global`\n", "internal/a.go": "package a\n"})
 		before := gitStatus(t, root)
 		out, errOut, code := checkCmd(t, "--home", home)
-		if code != 0 || !strings.Contains(out, "check: 0 findings (docs 0, specs 0, requirements 0); fyr ") || errOut != "" {
+		if code != 0 || !strings.Contains(out, "check: 0 findings (docs 0, specs 0, requirements 0, traces 0); fyr ") || errOut != "" {
 			t.Errorf("clean: exit %d, out %q, stderr %q", code, out, errOut)
 		}
 		if after := gitStatus(t, root); after != before {
@@ -170,7 +172,7 @@ func TestCheckVerb(t *testing.T) {
 		before := gitStatus(t, root)
 		out, _, code := checkCmd(t, "--home", home)
 		want := "README.md:2  path  `internal/gone.go`: internal/gone.go does not exist\nREADME.md:2  verb  `fyr frobnicate`: fyr has no verb frobnicate\n"
-		if code != 1 || !strings.HasPrefix(out, want) || !strings.Contains(out, "\ncheck: 2 findings (docs 2, specs 0, requirements 0); fyr ") {
+		if code != 1 || !strings.HasPrefix(out, want) || !strings.Contains(out, "\ncheck: 2 findings (docs 2, specs 0, requirements 0, traces 0); fyr ") {
 			t.Errorf("findings: exit %d, out %q", code, out)
 		}
 		if after := gitStatus(t, root); after != before {
@@ -199,5 +201,19 @@ func TestCheckVerb(t *testing.T) {
 	})
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("check wrote under --home: %v", entries)
+	}
+}
+
+// The summary counts each rule group in its place: one finding of each
+// group but docs gives distinct counts, so a swapped pair is seen.
+func TestPrintCheckSummaryOrder(t *testing.T) {
+	var b bytes.Buffer
+	printCheck(&b, check.Report{Findings: []check.Finding{
+		{Where: "SPEC-a", Rule: "spec-stale"},
+		{Where: "PRD.md", Line: 3, Rule: "requirement"}, {Where: "PRD.md", Line: 4, Rule: "requirement"},
+		{Where: "PRD.md", Line: 5, Rule: "trace"}, {Where: "PRD.md", Line: 6, Rule: "trace"}, {Where: "SDD.md", Line: 7, Rule: "trace"},
+	}})
+	if want := "check: 6 findings (docs 0, specs 1, requirements 2, traces 3); fyr "; !strings.Contains(b.String(), want) {
+		t.Errorf("summary %q, want %q", b.String(), want)
 	}
 }

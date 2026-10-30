@@ -54,8 +54,8 @@ func printCheck(w io.Writer, rep check.Report) {
 	for _, n := range rep.Notes {
 		fmt.Fprintln(w, search.Printable("note: "+n))
 	}
-	d, s, r := check.Counts(rep.Findings)
-	fmt.Fprintln(w, search.Printable(fmt.Sprintf("check: %d findings (docs %d, specs %d, requirements %d); fyr %s", len(rep.Findings), d, s, r, buildVersion())))
+	d, s, r, t := check.Counts(rep.Findings)
+	fmt.Fprintln(w, search.Printable(fmt.Sprintf("check: %d findings (docs %d, specs %d, requirements %d, traces %d); fyr %s", len(rep.Findings), d, s, r, t, buildVersion())))
 }
 
 // vocabulary is the running binary's verbs, subverbs and flags, read from
