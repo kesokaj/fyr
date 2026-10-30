@@ -55,6 +55,24 @@ func TestParseKickoff(t *testing.T) {
 	}
 }
 
+// TestParseKickoffModel: one Model: line at column 0 is the worker's model,
+// trimmed, and stays in the text agy gets; none is ""; a line not at column
+// 0 is not one (D113 item 3).
+func TestParseKickoffModel(t *testing.T) {
+	_, write := writer(t)
+	for _, c := range []struct{ body, want string }{
+		{"Files: a\nModel:  gemini-3.8-flash-low \r\nDone.\n", "gemini-3.8-flash-low"},
+		{"Files: a\nModel: " + strings.Repeat("a", 64) + "\n", strings.Repeat("a", 64)},
+		{"Files: a\nDone.\n", ""},
+		{"Files: a\n  Model: indented, so not the line\n", ""},
+	} {
+		k, err := ParseKickoff(write("m.md", c.body))
+		if err != nil || k.Model != c.want || k.Text != c.body {
+			t.Errorf("%q: model %q, %v; want %q", c.body, k.Model, err, c.want)
+		}
+	}
+}
+
 // TestParseKickoffRefusals is refusal 3 and refusal 4's name rule (D40).
 func TestParseKickoffRefusals(t *testing.T) {
 	_, write := writer(t)
@@ -76,6 +94,12 @@ func TestParseKickoffRefusals(t *testing.T) {
 		{"-x.md", "Files: a\n", "the name"},
 		{strings.Repeat("a", 64) + ".md", "Files: a\n", "the name"},
 		{"big.md", "Files: a\n" + strings.Repeat("x", maxKickoff), "over 64 KiB"},
+		{"two-models.md", "Files: a\nModel: m-a\nModel: m-b\n", "2 Model: lines; give one"},
+		{"empty-model.md", "Files: a\nModel: \n", `the Model: line "" is not a model ID`},
+		{"flag-model.md", "Files: a\nModel: -x\n", `the Model: line "-x" is not a model ID`},
+		{"space-model.md", "Files: a\nModel: m a\n", `the Model: line "m a" is not a model ID`},
+		{"ctl-model.md", "Files: a\nModel: m\x1ba\n", "is not a model ID"},
+		{"long-model.md", "Files: a\nModel: " + strings.Repeat("a", 65) + "\n", "is not a model ID"},
 	} {
 		if _, err := ParseKickoff(write(c.name, c.body)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, want %q", c.name, err, c.want)

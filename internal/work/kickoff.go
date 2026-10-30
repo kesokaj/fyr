@@ -18,6 +18,7 @@ type Kickoff struct {
 	Name  string   // its base name without .md; the branch is work/<Name>
 	Text  string   // the whole file, passed to agy verbatim
 	Files []string // the Files: line's entries, as written
+	Model string   // the Model: line's ID, trimmed; "" when the file has none
 }
 
 // Branch is the worker's branch, in the clone and, once fetched, in the
@@ -32,12 +33,18 @@ const (
 var (
 	nameRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	recordID = regexp.MustCompile(`^[A-Z]+-[0-9A-Za-z-]+$`)
+	// modelRe is what a model ID looks like, for the Model: line and
+	// --model: it refuses a flag, a space and a control character offline,
+	// and agy models is the authority (refusal 21). An agy that lists an ID
+	// outside it widens it here, with its test (D126).
+	modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
 // ParseKickoff reads path as a Kickoff, or refuses it (refusal 3, and
 // refusal 4's name rule): a missing, unreadable or oversized file, no single
 // Files: line, an entry that is neither a repo-relative path nor a record
-// ID, or a name outside the branch alphabet (D40).
+// ID, more than one Model: line or one that is not a model ID, or a name
+// outside the branch alphabet (D40).
 func ParseKickoff(path string) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
 	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
@@ -56,21 +63,47 @@ func ParseKickoff(path string) (Kickoff, error) {
 	if k.Files, err = filesLine(k.Text); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
+	if k.Model, err = modelLine(k.Text); err != nil {
+		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
+	}
 	if !nameRe.MatchString(k.Name) {
 		return k, fmt.Errorf("the Kickoff %s: the name %q is not lower-case letters, digits and '-', at most 63, starting with a letter or digit", path, k.Name)
 	}
 	return k, nil
 }
 
-// filesLine is the entries of the one line that starts "Files:" (D16).
-func filesLine(text string) ([]string, error) {
-	var line string
-	n := 0
+// prefixed is the text after prefix of the lines that start with it, at
+// column 0 (D16).
+func prefixed(text, prefix string) []string {
+	var out []string
 	for _, l := range strings.Split(text, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimRight(l, "\r"), "Files:"); ok {
-			line, n = v, n+1
+		if v, ok := strings.CutPrefix(strings.TrimRight(l, "\r"), prefix); ok {
+			out = append(out, v)
 		}
 	}
+	return out
+}
+
+// modelLine is the ID on the one line that starts "Model:", "" when there
+// is none (PLAN-2026-10-29-workers § Interfaces § A model per worker).
+func modelLine(text string) (string, error) {
+	lines := prefixed(text, "Model:")
+	switch {
+	case len(lines) == 0:
+		return "", nil
+	case len(lines) > 1:
+		return "", fmt.Errorf("%d Model: lines; give one", len(lines))
+	}
+	if m := strings.TrimSpace(lines[0]); modelRe.MatchString(m) {
+		return m, nil
+	}
+	return "", fmt.Errorf("the Model: line %q is not a model ID", strings.TrimSpace(lines[0]))
+}
+
+// filesLine is the entries of the one line that starts "Files:" (D16).
+func filesLine(text string) ([]string, error) {
+	lines := prefixed(text, "Files:")
+	n := len(lines)
 	switch {
 	case n == 0:
 		return nil, errors.New("no Files: line; name the files and records the worker may change")
@@ -78,7 +111,7 @@ func filesLine(text string) ([]string, error) {
 		return nil, fmt.Errorf("%d Files: lines; give one", n)
 	}
 	var out []string
-	for _, e := range strings.Split(line, ",") {
+	for _, e := range strings.Split(lines[0], ",") {
 		e = strings.TrimSpace(e)
 		if err := checkEntry(e); err != nil {
 			return nil, err

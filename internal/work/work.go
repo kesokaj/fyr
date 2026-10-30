@@ -30,7 +30,7 @@ type Options struct {
 	Self     string        // the fyr that installs (os.Executable)
 	Repo     string        // the install source; "" is the harness embedded in Self
 	Timeout  time.Duration // agy is killed after this; 0 is DefaultTimeout
-	Model    string        // agy --model; "" passes none
+	Model    string        // agy --model for a worker whose Kickoff has no Model: line; "" passes none
 	Keep     bool          // keep the sandbox of a fetched worker too
 	// MaxWorkers is the machine-wide limit, 1 to MaxMaxWorkers; 0 is
 	// DefaultMaxWorkers (D30)
@@ -77,6 +77,7 @@ type Result struct {
 	Name, Verdict string // "PASS" | "FAIL"
 	Reasons       []string
 	AgyExit       int
+	Model         string // the model agy ran on, "" its default
 	Seconds       int
 	Base, Head    string // Head is "" when the branch was not fetched
 	Commits       int
@@ -118,7 +119,7 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 		}
 		*p = abs
 	}
-	ps, err := preflight(o, files)
+	ps, err := preflight(ctx, o, files)
 	if err != nil {
 		return nil, err
 	}

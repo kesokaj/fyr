@@ -27,17 +27,18 @@ func handoffOf(open, next, kick int) *Record {
 }
 
 func fetchedResult() Result {
-	return Result{Name: "fix-a", Verdict: "PASS", AgyExit: 0, Seconds: 12, Base: base40, Head: head40, Commits: 2,
+	return Result{Name: "fix-a", Verdict: "PASS", AgyExit: 0, Seconds: 12, Model: "gemini-3.8-flash-low", Base: base40, Head: head40, Commits: 2,
 		Handoff: handoffOf(2, 2, 2), Changes: []Record{{ID: "CHANGE-1", Title: "Did a"}}, Drafts: 1, DraftsDir: ".agents/scratch/work/s/fix-a/"}
 }
 
-// TestBlockLines is each contract line of § Interfaces: the result line,
+// TestBlockLines is each contract line of § Interfaces: the result line
+// (an unfetched worker with no model prints model default),
 // the handoff and its sections in print order, a change line, the drafts
 // line; and an unfetched worker's line names its kept sandbox.
 func TestBlockLines(t *testing.T) {
 	got := strings.Join(fetchedResult().Block(), "\n")
 	want := strings.Join([]string{
-		"work: fix-a  PASS  agy exit 0  12s  work/fix-a 1111111..2222222 (2 commits)",
+		"work: fix-a  PASS  agy exit 0  12s  model gemini-3.8-flash-low  work/fix-a 1111111..2222222 (2 commits)",
 		"work: fix-a: handoff HANDOFF-1",
 		"work: fix-a | ## Open / In Progress", "work: fix-a | Open / In Progress line 1", "work: fix-a | Open / In Progress line 2",
 		"work: fix-a | ## Next Steps", "work: fix-a | Next Steps line 1", "work: fix-a | Next Steps line 2",
@@ -55,7 +56,7 @@ func TestBlockLines(t *testing.T) {
 	}
 	u := Result{Name: "x", Verdict: "FAIL", Reasons: []string{"real config changed", "killed"}, AgyExit: -1, Seconds: 3,
 		Base: base40, Dir: "/h/.config/fyr/work/s/x", Handoff: handoffOf(1, 1, 1), Notes: []string{"work: x: a note"}}
-	if b := u.Block(); strings.Join(b, "\n") != "work: x  FAIL (real config changed; killed)  agy exit -1  3s  work/x not fetched  kept /h/.config/fyr/work/s/x\nwork: x: a note" {
+	if b := u.Block(); strings.Join(b, "\n") != "work: x  FAIL (real config changed; killed)  agy exit -1  3s  model default  work/x not fetched  kept /h/.config/fyr/work/s/x\nwork: x: a note" {
 		t.Errorf("unfetched block:\n%s", strings.Join(b, "\n"))
 	}
 }

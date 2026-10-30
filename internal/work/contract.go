@@ -140,9 +140,13 @@ func sections(body string) [][]string {
 	return out
 }
 
-// line is the result line: the verdict, agy's exit, the time, the branch,
-// and the sandbox when it is kept.
+// line is the result line: the verdict, agy's exit, the time, the model,
+// the branch, and the sandbox when it is kept.
 func (r Result) line() string {
+	model := r.Model
+	if model == "" {
+		model = "default"
+	}
 	v := r.Verdict
 	if len(r.Reasons) > 0 {
 		v += " (" + strings.Join(r.Reasons, "; ") + ")"
@@ -151,7 +155,7 @@ func (r Result) line() string {
 	if r.Head != "" {
 		branch = fmt.Sprintf("work/%s %s..%s (%d commits)", r.Name, short(r.Base), short(r.Head), r.Commits)
 	}
-	l := fmt.Sprintf("work: %s  %s  agy exit %d  %ds  %s", r.Name, v, r.AgyExit, r.Seconds, branch)
+	l := fmt.Sprintf("work: %s  %s  agy exit %d  %ds  model %s  %s", r.Name, v, r.AgyExit, r.Seconds, model, branch)
 	if r.Dir != "" {
 		l += "  kept " + r.Dir
 	}

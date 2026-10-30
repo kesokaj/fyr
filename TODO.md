@@ -7,14 +7,11 @@
 
 ## Now
 
-Workers Phase 8a of `PLAN-2026-10-29-workers` (a model per worker: the verb, its docs and ADR-080). Phase 8 is planned (D113–D131; the cold read `REVIEW-2026-10-30-1432-cold-read-workers-phase-8-a-model-per-worker` answered), split into 8a and 8b (the skills and their behavioural runs, after 8a). D115 and D116 wait for the operator's word (D122). Left in Phase 7: 7d, the Mac smoke (D112). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 8b of `PLAN-2026-10-29-workers` (a model per worker: the skills and their behavioural runs). Phase 8a is done: `fyr work` reads a Kickoff's `Model:` line, checks every named model against `agy models` (refusal 21) and prints `model <ID>|default` on each result line (ADR-080). D115 and D116 kept (D132). Left in Phase 7: 7d, the Mac smoke (D112). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] ADR-080 stored before the code
-- [ ] The `Model:` line and `--model`'s pattern
-- [ ] Refusal 21, `internal/work/models.go`
-- [ ] The worker's model and the contract
-- [ ] The verb's help and the docs
-- [ ] A real worker with a model on dave, two runs
+- [ ] The three skills (feature, handoff, work)
+- [ ] A `GUIDE-eval` row `work-kickoff-model`
+- [ ] The behavioural runs
 - [ ] Checkpoint
 
 ## Next

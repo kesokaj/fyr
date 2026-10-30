@@ -42,18 +42,23 @@ func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
 
 func newWorker(o Options, p prepared, stamp, dir string) *worker {
 	w := &worker{o: o, p: p, stamp: stamp}
+	// The Kickoff's Model: line is this worker's alone (D103 item 1).
+	model := p.k.Model
+	if model == "" {
+		model = o.Model
+	}
 	pt := (o.Timeout - 5*time.Minute) / time.Minute
 	if pt < 1 {
 		pt = 1
 	}
 	w.b = sandbox.New(sandbox.Config{
 		Dir: dir, Source: o.Root, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
-		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: o.Model,
+		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: model,
 		Timeout: o.Timeout, SkipStores: true, PrintTimeout: fmt.Sprintf("%dm", pt),
 		StopGrace: o.StopGrace, Prefix: "work: " + p.k.Name, Out: &w.notes,
 		Docker: p.dockerConfig(stamp),
 	})
-	w.res = Result{Name: p.k.Name, AgyExit: -1, Base: p.base, Dir: dir}
+	w.res = Result{Name: p.k.Name, AgyExit: -1, Model: model, Base: p.base, Dir: dir}
 	return w
 }
 

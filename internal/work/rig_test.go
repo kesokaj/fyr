@@ -21,9 +21,23 @@ const fakeAgy = `#!/bin/bash
 CTL=@CTL@
 on() { [ -e "$CTL/$1" ]; }
 val() { cat "$CTL/$1"; }
+# The model check (refusal 21, D124): before $CTL/args and any git command.
+if [ "$*" = models ]; then
+  echo call >> "$CTL/models-calls"; pwd > "$CTL/models-cwd"
+  # The environment agy was given: bash itself corrects a stale $PWD.
+  [ -r /proc/$$/environ ] && tr '\0' '\n' < /proc/$$/environ | grep -E '^(OLD)?PWD=' > "$CTL/models-pwd"
+  on models-helper && { sleep 30 >/dev/null 2>&1 & echo $! > "$CTL/models-helper-pid"; }
+  on models-bigerr && yes e | head -c 200000 >&2
+  on models-sleep && sleep "$(val models-sleep)"
+  on models-big && { yes aaaaaaaa; exit 1; }  # forever, until its pipe closes
+  on models-exit && { printf 'spinner\n%s\n' "$(val models-err)" >&2; exit "$(val models-exit)"; }
+  if on models-list; then cat "$CTL/models-list"; else printf 'gemini-x\tGemini X\nm-a\tModel A\nm-b\tModel B\n'; fi
+  exit 0
+fi
 printf '%s\n' "$@" > "$CTL/args"; env > "$CTL/env"; pwd > "$CTL/cwd"
 git rev-parse --abbrev-ref HEAD > "$CTL/branch"; git remote > "$CTL/remotes"
 box=$(dirname "$HOME"); me=$(basename "$box")
+printf '%s\n' "$@" > "$CTL/args-$me"
 if on peers; then
   ls "$CTL" | grep -c '^running-' > "$CTL/others-$me"; touch "$CTL/running-$me" "$CTL/up-$me"
   # up- files stay: neither worker leaves this loop before both are up, so

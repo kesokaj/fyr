@@ -21,7 +21,7 @@ var workSelf = os.Executable
 func init() {
 	verbs["work"] = verb{flags: func(c *ctx) {
 		c.fs.DurationVar(&c.workTimeout, "timeout", work.DefaultTimeout, "kill the worker's agy after `D`, whole minutes, at least 10m")
-		c.fs.StringVar(&c.workModel, "model", "", "the agy model `M` the worker runs on (default: agy's own)")
+		c.fs.StringVar(&c.workModel, "model", "", "the agy model `M` a worker without a Model: line runs on, checked against agy models (default: agy's own)")
 		c.fs.BoolVar(&c.workKeep, "keep", false, "keep the sandbox of a fetched worker too")
 		c.fs.IntVar(&c.workMax, "max-workers", work.DefaultMaxWorkers, "run at most `N` workers at once across the machine, 1 to 8")
 		c.fs.StringVar(&c.workKill, "kill", "", "end the running fyr work whose stamp line printed `STAMP`")

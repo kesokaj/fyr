@@ -73,7 +73,20 @@ var refusalCases = []struct {
 	{"model-flag", func(r *rig, o *Options) string {
 		o.Model = "--mode=auto"
 		return r.kickoff("a", "src/a.txt")
-	}, "--model"},
+	}, "--model --mode=auto: not a model ID"},
+	{"model-space", func(r *rig, o *Options) string {
+		o.Model = "a b"
+		return r.kickoff("a", "src/a.txt")
+	}, "--model a b: not a model ID"},
+	{"model-x", func(r *rig, o *Options) string {
+		o.Model = "-x"
+		return r.kickoff("a", "src/a.txt")
+	}, "--model -x: not a model ID"},
+	{"kickoff-bad-model", func(r *rig, o *Options) string {
+		p := filepath.Join(r.kick, "a.md")
+		put(r.t, p, "Files: src/a.txt\nModel: -x\n")
+		return p
+	}, "is not a model ID"},
 	{"part-minute", func(r *rig, o *Options) string {
 		o.Timeout = 10*time.Minute + 30*time.Second
 		return r.kickoff("a", "src/a.txt")

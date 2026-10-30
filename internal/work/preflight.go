@@ -1,6 +1,7 @@
 package work
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -22,21 +23,17 @@ type prepared struct {
 	docker           *dockerPlan // nil on the host runner
 }
 
-// preflight is refusals 1-10 of § Interfaces before anything is made, for
-// every file of the run, in that order but for the limit (5), which is
-// counted after the sandbox root's check (7), so no unapproved root is read.
-func preflight(o Options, files []string) ([]prepared, error) {
+// preflight is refusals 1-21 of SPEC-fyr-work before anything is made,
+// for every file of the run, in that order: the limit after the sandbox
+// root's check, so no unapproved root is read, and the model check last.
+func preflight(ctx context.Context, o Options, files []string) ([]prepared, error) {
 	var p prepared
 	if err := leadClean(o.Root); err != nil {
 		return nil, err
 	}
-	var ks []Kickoff
-	for _, file := range files {
-		k, err := ParseKickoff(file)
-		if err != nil {
-			return nil, err
-		}
-		ks = append(ks, k)
+	ks, err := parseAll(files)
+	if err != nil {
+		return nil, err
 	}
 	if err := branchesFree(o.Root, ks); err != nil {
 		return nil, err
@@ -66,12 +63,29 @@ func preflight(o Options, files []string) ([]prepared, error) {
 	if err := p.session(o); err != nil {
 		return nil, err
 	}
+	// Last, so every offline refusal is made before the one network call.
+	if err := checkModels(ctx, o, ks); err != nil {
+		return nil, err
+	}
 	ps := make([]prepared, len(ks))
 	for i, k := range ks {
 		ps[i] = p
 		ps[i].k = k
 	}
 	return ps, nil
+}
+
+// parseAll is refusal 3 for every file, in order.
+func parseAll(files []string) ([]Kickoff, error) {
+	var ks []Kickoff
+	for _, file := range files {
+		k, err := ParseKickoff(file)
+		if err != nil {
+			return nil, err
+		}
+		ks = append(ks, k)
+	}
+	return ks, nil
 }
 
 // session is refusals 8-10, what the sessions need, then the base.
@@ -87,8 +101,8 @@ func (p *prepared) session(o Options) error {
 			return errors.New("agy not found on PATH")
 		}
 	}
-	if strings.HasPrefix(o.Model, "-") {
-		return fmt.Errorf("--model %s: a model name, not a flag", o.Model)
+	if o.Model != "" && !modelRe.MatchString(o.Model) {
+		return fmt.Errorf("--model %s: not a model ID", o.Model)
 	}
 	if o.Timeout < minTimeout || o.Timeout%timeoutUnit != 0 {
 		return fmt.Errorf("--timeout %s: give whole minutes, at least %s", o.Timeout, minTimeout)
