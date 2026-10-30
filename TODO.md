@@ -7,7 +7,7 @@
 
 ## Now
 
-Workers Phase 6 of `PLAN-2026-10-29-workers`: the E2E, a planning session on the fixture that becomes the lead (one session started by the operator). Phase 5b is done (the workers decision, the worker template and the lead exception; D95, ADR-077). First, outside this plan, the Task refreshing `SPEC-fyr-check`, `SPEC-fyr-eval` and `SPEC-fyr-serve` (workers D94). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 6 of `PLAN-2026-10-29-workers`: the E2E, a planning session on the fixture that becomes the lead (one session started by the operator). Phase 5b is done (the workers decision, the worker template and the lead exception; D95, ADR-077). The Task refreshing `SPEC-fyr-check`, `SPEC-fyr-eval` and `SPEC-fyr-serve` (workers D94) is done, with `SPEC-fyr-search` re-stamped too. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
 - [ ] The fixture is ready for a lead: its `AGENTS.md` pins `--home ~/sandbox/fyr-work/home`, names no public flag and no storage format; `.gitattributes` only through the lead's step 1; `fyr metrics ingest` finds the agy sessions
 - [ ] The operator starts `agy` on the fixture with the fixed `/feature` request and confirms Step 1 only; the session plans, cold-reads, decides `by: planner` (yes) and leads
