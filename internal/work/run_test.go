@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
@@ -200,6 +201,58 @@ func TestRunAddedRecordBounded(t *testing.T) {
 	want := fmt.Sprintf("%q (added, kind %q)", id[:128], kind[:128])
 	if !strings.Contains(notes, want) || strings.Contains(notes, "-end") {
 		t.Errorf("the refused record is not named %s, bounded: %.300s", want, notes)
+	}
+}
+
+// TestRunAddedRecordDates is D139 item 2: an added handoff or change
+// record, written into the trail by hand, whose date or updated falls
+// outside the worker's window fails it as outside its Files, so a
+// worker's record never outranks the lead's own as the newest (the
+// security review of D138, finding 1); so does an updated that is not
+// the UTC form fyr record writes, since the store sorts it as text. The
+// in-window case is the control: the same hand-written line passes when
+// its dates are now's.
+func TestRunAddedRecordDates(t *testing.T) {
+	now := time.Now()
+	for _, c := range []struct {
+		name, kind, date, updated, field string
+	}{
+		{"in-window", "change", "", "", ""},
+		{"future-date", "handoff", "2099-12-31", "", "date"},
+		{"past-date", "handoff", "2000-01-01", "", "date"},
+		{"past-updated", "change", "", "2000-01-01T00:00:00Z", "updated"},
+		{"future-updated", "change", "", now.Add(time.Hour).UTC().Format(time.RFC3339), "updated"},
+		// In the window as instants, but sorted as text after every Z stamp
+		// the lead's fyr writes that day (the security review of D139).
+		{"offset-updated", "change", "", now.In(time.FixedZone("", 14*3600)).Format(time.RFC3339), "updated"},
+		{"fraction-updated", "change", "", now.UTC().Truncate(time.Second).Add(500 * time.Millisecond).Format(time.RFC3339Nano), "updated"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.on("raw-kind", c.kind)
+			r.on("raw-id", strings.ToUpper(c.kind)+"-2026-10-30-0000-raw")
+			if c.kind == "handoff" {
+				r.on("nohandoff", "")
+			}
+			if c.date != "" {
+				r.on("raw-date", c.date)
+			}
+			if c.updated != "" {
+				r.on("raw-updated", c.updated)
+			}
+			res := r.run(r.kickoff("dated", "src/a.txt"))
+			if c.field == "" {
+				wantReasons(t, res)
+				if len(res.Changes) != 1 {
+					t.Errorf("the in-window change is not returned: %+v", res.Changes)
+				}
+				return
+			}
+			wantReasons(t, res, ReasonOutside)
+			if !strings.Contains(strings.Join(res.Notes, "\n"), "(added, "+c.field+" ") {
+				t.Errorf("no note naming the %s: %q", c.field, res.Notes)
+			}
+		})
 	}
 }
 

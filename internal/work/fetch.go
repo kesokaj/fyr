@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -168,8 +169,12 @@ func (w *worker) records(root, ref string) (outside []string) {
 // branch and not at the base. It returns the added records of every other
 // kind, named with it: those reach the trail only through the lead, a
 // worker drafts them, and the squash would carry them past the lead's
-// reading (D138; a review or testing record needs its own D-row).
+// reading (D138; a review or testing record needs its own D-row). It also
+// returns a handoff or change record dated outside the worker's window,
+// or whose updated is not the UTC form fyr record writes: either would
+// rank as newer than the lead's own (D139, D140).
 func (w *worker) added(before, after map[string]Record) (refused []string) {
+	win := window{w.start, time.Now()}
 	var ids []string
 	for id := range after {
 		if _, ok := before[id]; !ok {
@@ -187,6 +192,10 @@ func (w *worker) added(before, after map[string]Record) (refused []string) {
 		default:
 			// Both are the worker's text: quoted, and cut to 128 characters.
 			refused = append(refused, fmt.Sprintf("%.128q (added, kind %.128q)", id, r.Kind))
+			continue
+		}
+		if why := win.outside(after[id]); why != "" {
+			refused = append(refused, fmt.Sprintf("%.128q (added, %s)", id, why))
 		}
 	}
 	switch len(handoffs) {

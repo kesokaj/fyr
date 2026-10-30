@@ -146,6 +146,8 @@ func TestSuiteHarness(t *testing.T) {
 		"smoke": {"", false},
 		// The work skill's model: lines (PLAN-2026-10-29-workers Phase 8b, D128).
 		"work-kickoff-model": {"", false},
+		// The work skill's steps 6-11 after one wave (D138 item 6, D139 item 4).
+		"work-squash-r2": {"", true},
 	}
 	got := map[string]Row{}
 	for _, r := range rows {

@@ -128,3 +128,36 @@ func parseLine(l []byte) (Record, error) {
 	}
 	return r, nil
 }
+
+// clockSkew is how far past the window an added record's updated may lie:
+// the worker's fyr reads this machine's clock on the host runner, and a
+// container's (a VM's on the Mac) on the docker one (D140).
+const clockSkew = time.Minute
+
+// window is one worker's span on the wall clock, from its start to the
+// scope check (D140). The verb sets no zone for the worker, so a date is
+// held when it is the day of an instant of the window in the lead's zone
+// or in UTC, the docker image's.
+type window struct{ from, to time.Time }
+
+// outside names r's updated or date when the window does not hold it, ""
+// when it does; parseLine has checked both. updated must also be the UTC
+// form fyr record writes: the store sorts it as text, so an offset or a
+// fraction in the window would still rank after the lead's own stamps.
+func (w window) outside(r Record) string {
+	from, to := w.from.Add(-clockSkew).Truncate(time.Second), w.to.Add(clockSkew)
+	span := from.UTC().Format(time.RFC3339) + ".." + to.UTC().Format(time.RFC3339)
+	u, err := time.Parse(time.RFC3339, r.Updated)
+	if err != nil || u.UTC().Format(time.RFC3339) != r.Updated {
+		return fmt.Sprintf("updated %.128q not in fyr record's UTC form", r.Updated)
+	}
+	if u.Before(from) || u.After(to) {
+		return fmt.Sprintf("updated %.128q outside %s", r.Updated, span)
+	}
+	for _, z := range []*time.Location{time.Local, time.UTC} {
+		if from.In(z).Format(time.DateOnly) <= r.Date && r.Date <= to.In(z).Format(time.DateOnly) {
+			return ""
+		}
+	}
+	return fmt.Sprintf("date %q not a day of %s, local or UTC", r.Date, span)
+}

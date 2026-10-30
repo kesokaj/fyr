@@ -27,6 +27,7 @@ type worker struct {
 	stamp string
 	notes bytes.Buffer // the box's notes, printed with the result contract
 	ran   bool         // agy was started
+	start time.Time    // run's start on the wall clock: the window's from (D140)
 	// collected: the branch was fetched and the drafts copy did not fail
 	collected bool
 	res       Result
@@ -67,7 +68,7 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 // is the worker's own. collect is held over steps 6-8, so one worker at a
 // time fetches into the lead and checks it.
 func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
-	t0 := time.Now()
+	w.start = time.Now()
 	if w.b.Make() {
 		if w.prepare(ctx) {
 			w.res.AgyExit = w.b.Session(ctx, w.p.agy, w.p.tok, w.p.k.Text, "out.txt")
@@ -86,7 +87,7 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 		collect.Unlock()
 		w.remove()
 	}
-	w.res.Seconds = int(time.Since(t0).Seconds())
+	w.res.Seconds = int(time.Since(w.start).Seconds())
 	return w.result()
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestParseTrail: the seven keys, one object per line; an unknown key, a
@@ -79,5 +80,37 @@ func TestTrailAtFailsClosed(t *testing.T) {
 	r.git("-C", r.lead, "commit", "-qm", "no trail")
 	if got, err := trailAt(r.lead, "HEAD"); err != nil || len(got) != 0 {
 		t.Errorf("a rev without the file: %d records, %v", len(got), err)
+	}
+}
+
+// TestWindowOutside is D140's bounds: updated within a minute of the
+// window either side, in whole seconds, and only in the UTC form fyr record
+// writes, since the store sorts it as text (an offset or a fraction can
+// outrank the lead's same-day stamps); a date
+// held when it is a day of the window in the lead's zone or UTC. The
+// window crosses UTC midnight, and the refused dates are two days off, so
+// no local zone (UTC-12 to UTC+14) holds them.
+func TestWindowOutside(t *testing.T) {
+	w := window{time.Date(2026, 10, 30, 23, 50, 0, 500, time.UTC), time.Date(2026, 10, 31, 0, 10, 0, 0, time.UTC)}
+	for _, c := range []struct{ date, updated, want string }{
+		{"2026-10-30", "2026-10-30T23:49:00Z", ""},
+		{"2026-10-31", "2026-10-31T00:11:00Z", ""},
+		{"2026-10-31", "2026-10-31T02:00:00+02:00", "updated"},
+		{"2026-10-31", "2026-10-31T00:05:00.5Z", "updated"},
+		{"2026-10-30", "2026-10-30T23:48:59Z", "updated"},
+		{"2026-10-31", "2026-10-31T00:11:01Z", "updated"},
+		{"2026-10-31", "2026-10-31T00:11:00-01:00", "updated"},
+		{"2026-10-29", "2026-10-30T23:55:00Z", "date"},
+		{"2026-11-01", "2026-10-30T23:55:00Z", "date"},
+		{"2099-12-31", "2026-10-30T23:55:00Z", "date"},
+	} {
+		got := w.outside(Record{Date: c.date, Updated: c.updated})
+		if c.want == "" && got != "" || c.want != "" && !strings.HasPrefix(got, c.want+" ") {
+			t.Errorf("%s %s: %q, want %q", c.date, c.updated, got, c.want)
+		}
+	}
+	if got, want := w.outside(Record{Date: "2099-12-31", Updated: "2026-10-30T23:55:00Z"}),
+		`date "2099-12-31" not a day of 2026-10-30T23:49:00Z..2026-10-31T00:11:00Z, local or UTC`; got != want {
+		t.Errorf("note %q, want %q", got, want)
 	}
 }

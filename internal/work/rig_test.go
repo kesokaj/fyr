@@ -63,7 +63,9 @@ on nohandoff || fyr record add handoff --title "Handoff one" < "$CTL/handoff" >/
 on twohandoffs && fyr record add handoff --title "Handoff two" < "$CTL/handoff" >/dev/null
 on add-kind && { fyr record add "$(val add-kind)" --title "The worker's own" <<<"its body" >/dev/null 2>"$CTL/add-kind-err" || touch "$CTL/add-kind-failed"; }
 rawid=RAW-2026-10-30-x; on raw-id && rawid=$(val raw-id)
-on raw-kind && printf '{"date":"2026-10-30","id":"%s","kind":"%s","status":"-","title":"raw","updated":"2026-10-30T00:00:00Z","body":"b"}\n' "$rawid" "$(val raw-kind)" >> .agents/trail.jsonl
+rawdate=$(date +%F); on raw-date && rawdate=$(val raw-date)
+rawupd=$(date -u +%Y-%m-%dT%H:%M:%SZ); on raw-updated && rawupd=$(val raw-updated)
+on raw-kind && printf '{"date":"%s","id":"%s","kind":"%s","status":"-","title":"raw","updated":"%s","body":"b"}\n' "$rawdate" "$rawid" "$(val raw-kind)" "$rawupd" >> .agents/trail.jsonl
 if [ -n "$(git status --porcelain -- .agents/trail.jsonl)" ]; then git add .agents/trail.jsonl; git commit -qm records; fi
 on rewrite && git reset -q --hard "$(git commit-tree 'HEAD^{tree}' -m orphan)"
 if on drafts; then

@@ -27,7 +27,8 @@ if [ -e "$CTL/hang" ]; then touch "$CTL/started"; exec sleep 300; fi
 f=a.txt; me=$(basename "$(dirname "$HOME")"); [ -e "$CTL/file-$me" ] && f=$(cat "$CTL/file-$me")
 echo work >> "$f"; git add "$f"; git commit -qm "work on $f"
 mkdir -p .agents
-printf '%s\n' '{"date":"2026-10-29","id":"HANDOFF-2026-10-29-1800-'"$me"'","kind":"handoff","status":"","title":"Handoff","updated":"2026-10-29T18:00:00Z","body":"# Handoff\n\n## Next Steps\n\n1. next\n"}' >> .agents/trail.jsonl
+# Dated now: the verb refuses a record dated outside the worker's run (D140).
+printf '%s\n' '{"date":"'"$(date +%F)"'","id":"HANDOFF-2026-10-29-1800-'"$me"'","kind":"handoff","status":"","title":"Handoff","updated":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","body":"# Handoff\n\n## Next Steps\n\n1. next\n"}' >> .agents/trail.jsonl
 git add .agents/trail.jsonl; git commit -qm records
 echo "agy says ok"
 `

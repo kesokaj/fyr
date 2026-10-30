@@ -156,7 +156,7 @@ Project: this clone, the current directory; never another checkout. Read AGENTS.
 Files: <the phase's files: line, verbatim>
 Model: <the phase's model: line's value, trimmed; the line left out when the phase has none>
 Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
-Never: push; tick the plan record or TODO.md; store an adr or bug record (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
+Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
 Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
 ```
 
