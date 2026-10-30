@@ -20,10 +20,11 @@ type prepared struct {
 	agy, tok         string
 	base             string // the checkout's HEAD at the start, recorded once (D36)
 	gitName, gitMail string
+	zone             zone        // the lead's, the worker's TZ (refusal 22)
 	docker           *dockerPlan // nil on the host runner
 }
 
-// preflight is refusals 1-21 of SPEC-fyr-work before anything is made,
+// preflight is refusals 1-22 of SPEC-fyr-work before anything is made,
 // for every file of the run, in that order: the limit after the sandbox
 // root's check, so no unapproved root is read, and the model check last.
 func preflight(ctx context.Context, o Options, files []string) ([]prepared, error) {
@@ -88,7 +89,8 @@ func parseAll(files []string) ([]Kickoff, error) {
 	return ks, nil
 }
 
-// session is refusals 8-10, what the sessions need, then the base.
+// session is refusals 8-11 and 22, what the sessions need, then the base:
+// 22 is offline, so it comes before every docker call (workers D145, G4).
 func (p *prepared) session(o Options) error {
 	p.tok = filepath.Join(o.RealHome, sandbox.TokenRel)
 	if st, err := os.Lstat(p.tok); err != nil || !st.Mode().IsRegular() {
@@ -106,6 +108,9 @@ func (p *prepared) session(o Options) error {
 	}
 	if o.Timeout < minTimeout || o.Timeout%timeoutUnit != 0 {
 		return fmt.Errorf("--timeout %s: give whole minutes, at least %s", o.Timeout, minTimeout)
+	}
+	if p.zone, err = runZone(o.Runner); err != nil {
+		return err
 	}
 	if p.base, err = head(o.Root); err != nil || o.Runner != RunnerDocker {
 		return err

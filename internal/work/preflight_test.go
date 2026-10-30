@@ -91,6 +91,10 @@ var refusalCases = []struct {
 		o.Timeout = 10*time.Minute + 30*time.Second
 		return r.kickoff("a", "src/a.txt")
 	}, "whole minutes"},
+	{"bad-tz", func(r *rig, o *Options) string {
+		r.t.Setenv("TZ", ":/etc/localtime")
+		return r.kickoff("a", "src/a.txt")
+	}, `TZ=":/etc/localtime": not a zone name fyr work can pass to the worker`},
 }
 
 // TestRunRefusals is one test per refusal of Phase 2 (1-4 and 7-10, and

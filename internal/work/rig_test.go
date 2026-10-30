@@ -158,6 +158,9 @@ func newRig(t *testing.T) *rig {
 	put(t, filepath.Join(r.ctl, "handoff"), handoffBody)
 	t.Setenv("HOME", r.real)
 	t.Setenv("PATH", r.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// A known zone for refusal 22: a developer's TZ=:/etc/localtime would
+	// refuse every run (workers D145, G3); UTC loads without tzdata.
+	t.Setenv("TZ", "UTC")
 	return r
 }
 

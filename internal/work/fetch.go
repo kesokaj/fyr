@@ -174,7 +174,7 @@ func (w *worker) records(root, ref string) (outside []string) {
 // or whose updated is not the UTC form fyr record writes: either would
 // rank as newer than the lead's own (D139, D140).
 func (w *worker) added(before, after map[string]Record) (refused []string) {
-	win := window{w.start, time.Now()}
+	win := window{w.start, time.Now(), w.p.zone.loc}
 	var ids []string
 	for id := range after {
 		if _, ok := before[id]; !ok {

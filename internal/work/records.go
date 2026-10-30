@@ -135,10 +135,13 @@ func parseLine(l []byte) (Record, error) {
 const clockSkew = time.Minute
 
 // window is one worker's span on the wall clock, from its start to the
-// scope check (D140). The verb sets no zone for the worker, so a date is
-// held when it is the day of an instant of the window in the lead's zone
-// or in UTC, the docker image's.
-type window struct{ from, to time.Time }
+// scope check (D140), and the lead's zone, which the worker is given as
+// its TZ (workers D144): a date is held only when it is the day, in loc,
+// of an instant of the window. A nil loc holds no date.
+type window struct {
+	from, to time.Time
+	loc      *time.Location
+}
 
 // outside names r's updated or date when the window does not hold it, ""
 // when it does; parseLine has checked both. updated must also be the UTC
@@ -154,10 +157,11 @@ func (w window) outside(r Record) string {
 	if u.Before(from) || u.After(to) {
 		return fmt.Sprintf("updated %.128q outside %s", r.Updated, span)
 	}
-	for _, z := range []*time.Location{time.Local, time.UTC} {
-		if from.In(z).Format(time.DateOnly) <= r.Date && r.Date <= to.In(z).Format(time.DateOnly) {
-			return ""
-		}
+	if w.loc == nil {
+		return fmt.Sprintf("date %q not checked: the window has no zone", r.Date)
 	}
-	return fmt.Sprintf("date %q not a day of %s, local or UTC", r.Date, span)
+	if from.In(w.loc).Format(time.DateOnly) <= r.Date && r.Date <= to.In(w.loc).Format(time.DateOnly) {
+		return ""
+	}
+	return fmt.Sprintf("date %q not a day of %s in %s", r.Date, span, w.loc)
 }

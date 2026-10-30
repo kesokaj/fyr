@@ -36,6 +36,9 @@ COPY --from=build /out/fyr /usr/local/bin/fyr
 # sandbox's bin directory to exactly this. GOPATH is the sandbox home's, so
 # /go/bin is left out.
 ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# The worker's TZ needs tzdata: a base without it fails here instead of
+# running every worker in UTC unseen (workers D144; TestImageZoneGuard).
+RUN test -f /usr/share/zoneinfo/Etc/UTC
 # Not root by default: the verb passes the operator's --user, and a run
 # without it still drops root.
 USER 65532:65532

@@ -42,6 +42,31 @@ func TestImagePathPinned(t *testing.T) {
 	}
 }
 
+// The final stage checks for tzdata as the build's root, after its ENV
+// PATH and before its USER, so a base without it fails its build instead
+// of running every worker in UTC whatever its TZ (workers D144).
+func TestImageZoneGuard(t *testing.T) {
+	const guard = "RUN test -f /usr/share/zoneinfo/Etc/UTC"
+	lines := strings.Split(readFile(t, "../../docker/work.Dockerfile"), "\n")
+	last, path, user := -1, -1, -1
+	var at []int
+	for i, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "FROM "):
+			last = i
+		case strings.HasPrefix(l, "ENV PATH="):
+			path = i
+		case strings.HasPrefix(l, "USER "):
+			user = i
+		case l == guard:
+			at = append(at, i)
+		}
+	}
+	if len(at) != 1 || at[0] < last || at[0] < path || at[0] > user {
+		t.Fatalf("%q at lines %v; want once in the final stage (FROM at %d), after ENV PATH (%d), before USER (%d)", guard, at, last+1, path+1, user+1)
+	}
+}
+
 // The build context is default-deny, and the build copies by name: the
 // ignore file excludes everything, lets in only the module, the root
 // package's .go files, cmd/, internal/ and the directories embed.go embeds,

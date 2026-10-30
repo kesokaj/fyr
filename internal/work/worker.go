@@ -54,7 +54,7 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 	}
 	w.b = sandbox.New(sandbox.Config{
 		Dir: dir, Source: o.Root, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
-		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: model,
+		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: model, Zone: p.zone.name,
 		Timeout: o.Timeout, SkipStores: true, PrintTimeout: fmt.Sprintf("%dm", pt),
 		StopGrace: o.StopGrace, Prefix: "work: " + p.k.Name, Out: &w.notes,
 		Docker: p.dockerConfig(stamp),

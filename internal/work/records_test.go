@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	_ "time/tzdata" // the named zones load on a builder without tzdata
 )
 
 // TestParseTrail: the seven keys, one object per line; an unknown key, a
@@ -83,34 +84,61 @@ func TestTrailAtFailsClosed(t *testing.T) {
 	}
 }
 
-// TestWindowOutside is D140's bounds: updated within a minute of the
-// window either side, in whole seconds, and only in the UTC form fyr record
-// writes, since the store sorts it as text (an offset or a fraction can
-// outrank the lead's same-day stamps); a date
-// held when it is a day of the window in the lead's zone or UTC. The
-// window crosses UTC midnight, and the refused dates are two days off, so
-// no local zone (UTC-12 to UTC+14) holds them.
+// TestWindowOutside is D140's bounds with workers D144's zone: updated
+// within a minute of the window either side, in whole seconds, and only in
+// the UTC form fyr record writes, since the store sorts it as text (an
+// offset or a fraction can outrank the lead's same-day stamps); a date held
+// only when it is a day, in the lead's zone, of an instant of the window.
+// Each window names its zone, so no row depends on the test machine's. The
+// window crosses UTC midnight: west of UTC that is still the lead's evening,
+// so the UTC day after is refused; east of it the lead's day is the next
+// one, so the UTC day before is refused; a window with no zone refuses
+// every date rather than panic.
 func TestWindowOutside(t *testing.T) {
-	w := window{time.Date(2026, 10, 30, 23, 50, 0, 500, time.UTC), time.Date(2026, 10, 31, 0, 10, 0, 0, time.UTC)}
-	for _, c := range []struct{ date, updated, want string }{
-		{"2026-10-30", "2026-10-30T23:49:00Z", ""},
-		{"2026-10-31", "2026-10-31T00:11:00Z", ""},
-		{"2026-10-31", "2026-10-31T02:00:00+02:00", "updated"},
-		{"2026-10-31", "2026-10-31T00:05:00.5Z", "updated"},
-		{"2026-10-30", "2026-10-30T23:48:59Z", "updated"},
-		{"2026-10-31", "2026-10-31T00:11:01Z", "updated"},
-		{"2026-10-31", "2026-10-31T00:11:00-01:00", "updated"},
-		{"2026-10-29", "2026-10-30T23:55:00Z", "date"},
-		{"2026-11-01", "2026-10-30T23:55:00Z", "date"},
-		{"2099-12-31", "2026-10-30T23:55:00Z", "date"},
+	from, to := time.Date(2026, 10, 30, 23, 50, 0, 500, time.UTC), time.Date(2026, 10, 31, 0, 10, 0, 0, time.UTC)
+	zone := func(name string) *time.Location {
+		loc, err := time.LoadLocation(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loc
+	}
+	utc, la, sthlm := time.UTC, zone("America/Los_Angeles"), zone("Europe/Stockholm")
+	for _, c := range []struct {
+		loc                 *time.Location
+		date, updated, want string
+	}{
+		{utc, "2026-10-30", "2026-10-30T23:49:00Z", ""},
+		{utc, "2026-10-31", "2026-10-31T00:11:00Z", ""},
+		{utc, "2026-10-31", "2026-10-31T02:00:00+02:00", "updated"},
+		{utc, "2026-10-31", "2026-10-31T00:05:00.5Z", "updated"},
+		{utc, "2026-10-30", "2026-10-30T23:48:59Z", "updated"},
+		{utc, "2026-10-31", "2026-10-31T00:11:01Z", "updated"},
+		{utc, "2026-10-31", "2026-10-31T00:11:00-01:00", "updated"},
+		{utc, "2026-10-29", "2026-10-30T23:55:00Z", "date"},
+		{utc, "2026-11-01", "2026-10-30T23:55:00Z", "date"},
+		{utc, "2099-12-31", "2026-10-30T23:55:00Z", "date"},
+		// 16:49 to 17:11 PDT: the lead's day only, never UTC's next one.
+		{la, "2026-10-30", "2026-10-30T23:55:00Z", ""},
+		{la, "2026-10-31", "2026-10-30T23:55:00Z", "date"},
+		// 00:49 to 01:11 CET: the lead's day, not UTC's day before.
+		{sthlm, "2026-10-31", "2026-10-30T23:55:00Z", ""},
+		{sthlm, "2026-10-30", "2026-10-30T23:55:00Z", "date"},
+		{nil, "2026-10-30", "2026-10-30T23:55:00Z", "date"},
+		{nil, "2026-10-31", "2026-10-30T23:55:00Z", "date"},
+		{nil, "2026-10-31", "2026-10-31T00:11:01Z", "updated"},
 	} {
-		got := w.outside(Record{Date: c.date, Updated: c.updated})
+		got := window{from, to, c.loc}.outside(Record{Date: c.date, Updated: c.updated})
 		if c.want == "" && got != "" || c.want != "" && !strings.HasPrefix(got, c.want+" ") {
-			t.Errorf("%s %s: %q, want %q", c.date, c.updated, got, c.want)
+			t.Errorf("%v %s %s: %q, want %q", c.loc, c.date, c.updated, got, c.want)
 		}
 	}
-	if got, want := w.outside(Record{Date: "2099-12-31", Updated: "2026-10-30T23:55:00Z"}),
-		`date "2099-12-31" not a day of 2026-10-30T23:49:00Z..2026-10-31T00:11:00Z, local or UTC`; got != want {
-		t.Errorf("note %q, want %q", got, want)
+	for loc, want := range map[*time.Location]string{
+		utc:   `date "2099-12-31" not a day of 2026-10-30T23:49:00Z..2026-10-31T00:11:00Z in UTC`,
+		sthlm: `date "2099-12-31" not a day of 2026-10-30T23:49:00Z..2026-10-31T00:11:00Z in Europe/Stockholm`,
+	} {
+		if got := (window{from, to, loc}).outside(Record{Date: "2099-12-31", Updated: "2026-10-30T23:55:00Z"}); got != want {
+			t.Errorf("note %q, want %q", got, want)
+		}
 	}
 }

@@ -30,6 +30,7 @@ type Config struct {
 	GitName      string        // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
 	GitEmail     string        //
 	Model        string        // agy --model; "" passes none
+	Zone         string        // agy's TZ, a zone name; "" passes none (work only, workers D144)
 	Timeout      time.Duration // agy alone (in docker mode its container) is killed after this
 	SkipStores   bool          // check c leaves out every storeEntry (work only, D45, D64, D70)
 	PrintTimeout string        // agy --print-timeout, as "<n>m"

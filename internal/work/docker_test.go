@@ -211,6 +211,9 @@ func TestRunDockerRefusals(t *testing.T) {
 			o.RealHome = real
 		}, "cannot hold"},
 		{"comma-home", func(t *testing.T, r *rig, o *Options) { o.Home = filepath.Join(r.tmp, "home,x") }, "cannot hold"},
+		// Refusal 22: a container has no /etc/localtime of the lead's to read.
+		{"no-zone", func(t *testing.T, r *rig, o *Options) { unsetTZ(t); pointLink(t, "file", "") },
+			"--runner docker: the worker needs a zone name, and TZ is unset and /etc/localtime names none; set TZ=<Area/City>"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			linuxOnly(t)
@@ -226,8 +229,9 @@ func TestRunDockerRefusals(t *testing.T) {
 			if r.out.Len() != 0 {
 				t.Errorf("a refusal printed %q", r.out.String())
 			}
-			// The development-build refusal comes before any docker call.
-			if c.name == "devel" || c.name == "unknown" {
+			// The development-build refusal and refusal 22 come before any
+			// docker call.
+			if c.name == "devel" || c.name == "unknown" || c.name == "no-zone" {
 				if calls := r.read("docker.calls"); calls != "" {
 					t.Errorf("docker was called: %q", calls)
 				}

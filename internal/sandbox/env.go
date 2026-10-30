@@ -19,14 +19,15 @@ func FyrEnv() []string {
 	return out
 }
 
-// agyEnv is exactly the allowlist of run.sh:220-222 (D27), with the git
-// identity of Config.
+// agyEnv is the allowlist of run.sh:220-222 (the eval plan's D27), with
+// the git identity of Config, plus TZ when Config.Zone names one (workers
+// D144); for eval, which sets no Zone, it is exactly the allowlist.
 func (b *Box) agyEnv() []string {
 	name := ""
 	if u, err := user.Current(); err == nil {
 		name = u.Username
 	}
-	return []string{
+	env := []string{
 		"PATH=" + filepath.Join(b.sb, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"TERM=" + envOr("TERM", "dumb"),
 		"LANG=" + envOr("LANG", "C.UTF-8"),
@@ -40,6 +41,10 @@ func (b *Box) agyEnv() []string {
 		"GIT_AUTHOR_NAME=" + b.c.GitName, "GIT_AUTHOR_EMAIL=" + b.c.GitEmail,
 		"GIT_COMMITTER_NAME=" + b.c.GitName, "GIT_COMMITTER_EMAIL=" + b.c.GitEmail,
 	}
+	if b.c.Zone != "" {
+		env = append(env, "TZ="+b.c.Zone)
+	}
+	return env
 }
 
 func envOr(k, def string) string {
