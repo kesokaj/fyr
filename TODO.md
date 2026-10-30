@@ -9,7 +9,7 @@
 
 Workers Phase 7b-1 of `PLAN-2026-10-29-workers` (`--runner docker`: `internal/sandbox`). 7a is done but for its box 1, which waits on the operator's Mac answers (`docker info`, the write probe, a linux-arm64 agy); 7d is deferred on them. Phase 8, a model per worker, is placed and unplanned (D103). Whether BUG-198 needs a guard is still the operator's question (D101). The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
-- [ ] `internal/sandbox`: `Config.Docker`, `docker.go`, the wrapper's docker-mode binary, check e's container half, tests first
+- [x] `internal/sandbox`: `Config.Docker`, `docker.go`, the wrapper's docker-mode binary, check e's container half
 - [ ] Checkpoint
 
 ## Next

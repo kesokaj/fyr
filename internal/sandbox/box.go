@@ -30,12 +30,13 @@ type Config struct {
 	GitName      string        // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
 	GitEmail     string        //
 	Model        string        // agy --model; "" passes none
-	Timeout      time.Duration // agy alone is killed after this
+	Timeout      time.Duration // agy alone (in docker mode its container) is killed after this
 	SkipStores   bool          // check c leaves out every storeEntry (work only, D45, D64, D70)
 	PrintTimeout string        // agy --print-timeout, as "<n>m"
 	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is 5s
 	Prefix       string        // every note starts "<Prefix>: "
 	Out          io.Writer
+	Docker       *Docker // nil: the session runs on the host; else in a container (work only)
 }
 
 // The fixed reason strings of the steps this package runs (SPEC-fyr-eval

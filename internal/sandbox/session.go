@@ -36,17 +36,13 @@ func (b *Box) Session(ctx context.Context, agy, tok, prompt, outName string) int
 // agy runs one session in its own process group (D18): at the timeout only
 // agy itself is killed, as `timeout --foreground` did, so what it started
 // stays for check e; on ctx's end the whole group gets SIGTERM, then
-// SIGKILL after StopGrace.
+// SIGKILL after StopGrace. In docker mode the container is killed instead
+// (dockerAgy).
 func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, appendErr bool) int {
-	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. " + prompt
-	args := []string{"-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout}
-	if b.c.Model != "" {
-		args = append(args, "--model", b.c.Model)
+	if b.c.Docker != nil {
+		return b.dockerAgy(ctx, prompt, outPath, errPath, appendErr)
 	}
-	cmd := exec.Command(agy, args...)
-	cmd.Dir = b.app
-	cmd.Env = b.agyEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd := b.hostCmd(agy, prompt)
 	out, errf, err := agyOutputs(outPath, errPath, appendErr)
 	if err != nil {
 		b.replaced("%v", err)
@@ -63,6 +59,27 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	pgid := cmd.Process.Pid
 	b.pgids = append(b.pgids, pgid)
 	return agyExit(b.waitAgy(ctx, cmd, pgid))
+}
+
+// agyArgs is agy's argv after its name, the prompt with its prefix: the
+// same on the host and in a container.
+func (b *Box) agyArgs(prompt string) []string {
+	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. " + prompt
+	args := []string{"-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout}
+	if b.c.Model != "" {
+		args = append(args, "--model", b.c.Model)
+	}
+	return args
+}
+
+// hostCmd is the session on the host: agy in the clone, agyEnv's allowlist,
+// its own process group.
+func (b *Box) hostCmd(agy, prompt string) *exec.Cmd {
+	cmd := exec.Command(agy, b.agyArgs(prompt)...)
+	cmd.Dir = b.app
+	cmd.Env = b.agyEnv()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
 }
 
 // agyOutputs opens the session's output and error files, the error file

@@ -47,8 +47,9 @@ func (b *Box) unlink() {
 	}
 }
 
-// ExitChecks is step 14: leftover processes, then the real config, then new
-// credentials, and last a SIGKILL to every agy group as a sweep.
+// ExitChecks is step 14: leftover processes (a docker-mode session checked
+// its container at its end), then the real config, then new credentials,
+// and last a SIGKILL to every agy group as a sweep.
 func (b *Box) ExitChecks() {
 	if b.root != nil {
 		defer b.root.Close()

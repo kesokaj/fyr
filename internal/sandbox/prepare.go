@@ -137,7 +137,13 @@ func (b *Box) Install(ctx context.Context) bool {
 		return false
 	}
 	bin := filepath.Join(b.sb, "bin")
-	wrapper := fmt.Sprintf(wrapperScript, ShellQuote(b.sb), ShellQuote(filepath.Join(b.sb, filepath.FromSlash(harness.BinPath))))
+	// In a container the installed binary is the host's (a darwin one on
+	// the Mac): the wrapper execs the image's fyr, with the same pin.
+	self := filepath.Join(b.sb, filepath.FromSlash(harness.BinPath))
+	if b.c.Docker != nil {
+		self = ContainerFyr
+	}
+	wrapper := fmt.Sprintf(wrapperScript, ShellQuote(b.sb), ShellQuote(self))
 	if err := os.MkdirAll(bin, 0o700); err != nil || os.WriteFile(filepath.Join(bin, "fyr"), []byte(wrapper), 0o755) != nil {
 		b.Fail(ReasonInstall)
 		return false
