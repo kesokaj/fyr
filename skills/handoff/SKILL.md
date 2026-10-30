@@ -149,7 +149,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### The worker-mode Kickoff
 
-A lead (`work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt:
+A lead (`work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt, whose quoted additions follow the block as the `work` skill's step 3 writes them:
 
 ```text
 Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
