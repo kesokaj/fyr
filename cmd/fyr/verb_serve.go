@@ -11,6 +11,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/serve"
 )
@@ -67,8 +68,9 @@ func watchSignals(sigs <-chan os.Signal, cancel func()) {
 }
 
 // serveOptions builds the run's options: the home, the working directory at
-// start, and cmd/fyr's printers, whose ordinary exit statuses (nothing
-// installed, drift, findings) are the page, not a failure.
+// start, cmd/fyr's printers, whose ordinary exit statuses (nothing
+// installed, drift, findings) are the page, not a failure, and the two
+// actions.
 func serveOptions(c *ctx) (serve.Options, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -80,7 +82,20 @@ func serveOptions(c *ctx) (serve.Options, error) {
 		Status: func(w io.Writer) error { return pageErr(status(src, home, w)) },
 		Render: func(w io.Writer) error { return renderTo(src, w) },
 		Check:  func(w io.Writer) error { return checkTo(wd, w) },
+		Index:  func(w io.Writer) error { return search.Index(search.Options{Dir: wd, Home: home}, w) },
+		Ingest: func(w io.Writer) error { return ingestTo(home, w) },
 	}, nil
+}
+
+// ingestTo is the bare `fyr metrics ingest` (no --source, --label or
+// --outcome, plan D39); a failed source, exit 1 at the terminal, is the
+// action's failure.
+func ingestTo(home string, w io.Writer) error {
+	r, err := ingestInto(metrics.Options{Home: home}, w)
+	if err == nil && len(r.Failed) > 0 {
+		err = fmt.Errorf("%d source(s) failed", len(r.Failed))
+	}
+	return err
 }
 
 // pageErr maps an exitCode, a verb's ordinary non-zero status, to nil.

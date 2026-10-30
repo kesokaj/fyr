@@ -7,14 +7,14 @@
 
 ## Now
 
-Row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (S3: `fyr serve`'s maintenance actions, `index` and `metrics ingest`, each a POST with the CSRF token, D39). `PLAN-2026-10-29-workers` is done but for Phase 7d, the Mac (D112, who: user); whether BUG-198 needs a guard is still the operator's question (D101); D135's two `work` skill findings wait for the operator. The plan record wins on a conflict.
+Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (Phase 5: `fyr check` rule (d) verifies the R → M → T traces; built on the operator's yes, D40). `PLAN-2026-10-29-workers` is done but for Phase 7d, the Mac (D112, who: user); whether BUG-198 needs a guard is still the operator's question (D101); D135's two `work` skill findings wait for the operator. The plan record wins on a conflict.
 
-- [ ] One task per action the operator named in row 7 (`index`, `metrics ingest`)
+- [ ] Rule (d): every Must and Should R# of `PRD.md` in `SDD.md`'s trace, every M# in `TDD.md`'s
 - [ ] Checkpoint
 
 ## Next
 
-- Root-docs rows 10 (`fyr check` R → M → T), 11 (Release 2) and 12 (the smoke checks on dave).
+- Root-docs rows 11 (Release 2) and 12 (the smoke checks on dave).
 - `PLAN-2026-10-30-ui-skills`: `frontend-ui-economist` and `frontend-ui-modern` replace `frontend`; Step 1's seven Open items wait for the operator (the zips in `.agents/scratch/ui-skills/`).
 - Parallel dispatch (the operator, 2026-10-30, "Go with your recommendations"): first one agy run that puts two subagent dispatches in one turn, to see if they run at once; if they do, the two bullets go into the feature skill's lead step and the `explorer` description, never `rules/` (the rules block is at 21,032 of 22,000).
 

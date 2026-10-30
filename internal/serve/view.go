@@ -40,6 +40,7 @@ type block struct {
 	Line    string
 	Link    *link
 	Search  *searchForm
+	Action  *actionForm
 	Records []recordRow
 	Hits    []hitRow
 	Pre     string
@@ -62,6 +63,12 @@ type hitRow struct {
 
 type searchForm struct {
 	Q, Kind string
+}
+
+// actionForm is a POST to an action with the run's csrf (SPEC-fyr-serve
+// § Tokens); the /search form is a GET and carries none.
+type actionForm struct {
+	Href, Label, CSRF string
 }
 
 // nav is the bar on every page, in this order.

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/serve"
 )
 
@@ -78,6 +79,54 @@ func TestServeOptionsMapExit(t *testing.T) {
 	// Another error stays an error.
 	if err := pageErr(errors.New("disk")); err == nil || pageErr(exitCode(1)) != nil {
 		t.Error("pageErr maps the wrong errors")
+	}
+}
+
+// The two actions serveOptions builds are the bare verbs: the index of the
+// checkout serve started in, and an ingest whose failed source, exit 1 at
+// the terminal, is the action's error.
+func TestServeActions(t *testing.T) {
+	harnessTree, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	got := captureServe(t, nil)
+	repo := checkRepo(t, map[string]string{"README.md": "x\n"})
+	if err := run([]string{"serve", "--home", home, "--repo", harnessTree}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	o := (*got)[0]
+	var ix bytes.Buffer
+	if err := o.Index(&ix); err != nil || !strings.Contains(ix.String(), "files    ") {
+		t.Errorf("Index: %v\n%s", err, ix.String())
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".agents", "scratch", "search.db")); err != nil {
+		t.Errorf("Index wrote no index in the checkout: %v", err)
+	}
+	var in bytes.Buffer
+	if err := o.Ingest(&in); err != nil || !strings.Contains(in.String(), "0 sources failed") {
+		t.Errorf("Ingest on an empty home: %v\n%s", err, in.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "metrics.db")); err != nil {
+		t.Errorf("Ingest opened no store in the home: %v", err)
+	}
+
+	// A source that is not a database fails; the verb exits 1 on the same.
+	bad := filepath.Join(home, ".gemini", "antigravity-cli", "conversation_summaries.db")
+	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bad, []byte("not a database\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in.Reset()
+	if err := o.Ingest(&in); err == nil || err.Error() != "1 source(s) failed" || !strings.Contains(in.String(), "1 sources failed") {
+		t.Errorf("Ingest with a failed source: %v\n%s", err, in.String())
+	}
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); exitOf(err) != 1 || !strings.Contains(out.String(), "1 sources failed") {
+		t.Errorf("metrics ingest with a failed source: exit %d\n%s", exitOf(err), out.String())
 	}
 }
 

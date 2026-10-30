@@ -42,9 +42,19 @@ func (r *Run) rel(req *http.Request) string {
 }
 
 // route is step 4: a path outside the prefix or unknown under it is 404
-// whatever the method, a known one with a method it does not take 405.
+// whatever the method, a known one with a method it does not take 405 (a
+// page takes GET and HEAD, an action POST).
 func (r *Run) route(w http.ResponseWriter, req *http.Request) {
 	rel := r.rel(req)
+	if a, ok := actions[rel]; ok {
+		if req.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			plain(w, http.StatusMethodNotAllowed, lineMethod)
+			return
+		}
+		r.act(w, req, a)
+		return
+	}
 	h, ok := pages[rel]
 	if !ok && strings.HasPrefix(rel, "/records/") {
 		if m := idPath.FindStringSubmatch(rel); m != nil {

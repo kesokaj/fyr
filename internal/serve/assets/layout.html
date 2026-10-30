@@ -22,6 +22,7 @@
 <input type="text" name="kind" value="{{.Kind}}" placeholder="kind" aria-label="kind">
 <button type="submit">search</button>
 </form>{{end}}
+{{with .Action}}<form method="post" action="{{.Href}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">{{.Label}}</button></form>{{end}}
 {{if .Records}}<table>
 <thead><tr><th>ID</th><th>kind</th><th>status</th><th>date</th><th>title</th></tr></thead>
 <tbody>{{range .Records}}<tr><td><a href="{{.Href}}">{{.ID}}</a></td><td>{{.Kind}}</td><td>{{.Status}}</td><td>{{.Date}}</td><td>{{.Title}}</td></tr>

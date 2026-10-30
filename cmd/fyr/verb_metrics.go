@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,20 +72,30 @@ func (c *ctx) metricsIngest(args []string) error {
 		fmt.Fprintln(c.out, "fyr metrics ingest: "+err.Error())
 		return exitCode(2)
 	}
-	s, err := metrics.Open(metrics.Path(c.home))
+	r, err := ingestInto(o, c.out)
 	if err != nil {
 		return err
 	}
-	defer s.Close()
-	r, err := metrics.Ingest(s, o, c.out)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(c.out, r.Line())
 	if len(r.Failed) > 0 {
 		return exitCode(1)
 	}
 	return nil
+}
+
+// ingestInto is one ingest into the home's store and its summary line on w:
+// `metrics ingest` and `fyr serve`'s ingest action both run it.
+func ingestInto(o metrics.Options, w io.Writer) (metrics.Result, error) {
+	s, err := metrics.Open(metrics.Path(o.Home))
+	if err != nil {
+		return metrics.Result{}, err
+	}
+	defer s.Close()
+	r, err := metrics.Ingest(s, o, w)
+	if err != nil {
+		return r, err
+	}
+	fmt.Fprintln(w, r.Line())
+	return r, nil
 }
 
 // metricsShow serves `metrics show`, as text or --json.

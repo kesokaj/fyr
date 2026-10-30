@@ -29,11 +29,14 @@ func (r *Run) printed(w http.ResponseWriter, req *http.Request, title string, pr
 	r.page(w, req, http.StatusOK, v)
 }
 
-// home is fyr status, the version, the project and the dream's line.
+// home is fyr status, the version, the project, the dream's line and the
+// two action forms.
 func (r *Run) home(w http.ResponseWriter, req *http.Request) {
 	r.printed(w, req, "status", r.o.Status,
 		block{Line: "fyr " + r.o.Version},
-		block{Line: "dream: " + dream.StatusLine(r.o.Home)})
+		block{Line: "dream: " + dream.StatusLine(r.o.Home)},
+		r.actionForm("/actions/index", "run fyr index"),
+		r.actionForm("/actions/metrics-ingest", "run fyr metrics ingest"))
 }
 
 func (r *Run) context(w http.ResponseWriter, req *http.Request) {
@@ -91,6 +94,7 @@ func (r *Run) metrics(w http.ResponseWriter, req *http.Request) {
 	default:
 		v.Blocks = []block{{Link: &link{Href: r.base + "/metrics/report", Text: "the metrics report (Antigravity sessions, the last 30 days)"}}}
 	}
+	v.Blocks = append(v.Blocks, r.actionForm("/actions/metrics-ingest", "run fyr metrics ingest"))
 	r.page(w, req, http.StatusOK, v)
 }
 

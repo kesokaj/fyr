@@ -283,9 +283,10 @@ var pages = map[string]verbPage{
 	"serve": {
 		synopsis: []string{"usage: fyr serve [--port N]"},
 		about: []string{
-			"Serves read-only pages of this checkout and this home on",
-			"http://127.0.0.1:N/ until Ctrl-C: status, the context, records, search,",
-			"memory, metrics, eval results, the dream log and fyr check. Prints the",
+			"Serves pages of this checkout and this home on http://127.0.0.1:N/",
+			"until Ctrl-C: status, the context, records, search, memory, metrics,",
+			"eval results, the dream log and fyr check, with two buttons that run",
+			"fyr index and fyr metrics ingest, one at a time, no flags. Prints the",
 			"URL with this run's path and token once; open it by pasting it into the",
 			"address bar. Listens on 127.0.0.1 only and opens no browser. A request without",
 			"the token, from another host name or from another site is refused. A",

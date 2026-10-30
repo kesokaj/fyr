@@ -106,7 +106,9 @@ func (f *fix) options(errOut io.Writer) Options {
 	return Options{Home: f.home, Dir: f.repo, Port: port, Out: io.Discard, Err: errOut, Version: "vtest",
 		Status: printer("installed  nothing — run `fyr install`\nsecond\tcolumn \x1b[2J\n", nil),
 		Render: printer("# the context\n", nil),
-		Check:  printer("check: 0 findings\n", nil)}
+		Check:  printer("check: 0 findings\n", nil),
+		Index:  printer("files    1\n", nil),
+		Ingest: printer("metrics: 0 sessions, 0 steps, 0 events added; 0 sources failed\n", nil)}
 }
 
 func (f *fix) run(t *testing.T) *Run {

@@ -149,7 +149,8 @@ func wrongToken(tok string) string {
 func TestRoutesAndMethods(t *testing.T) {
 	r := newFix(t).run(t)
 	for _, m := range []string{"GET", "POST", "PUT", "DELETE"} {
-		for _, p := range []string{"/nope", "/static/", "/static/x.css", "/records/", "/records/bad id", "/records/lower-1", "/records/A-1/x", "/actions/index"} {
+		for _, p := range []string{"/nope", "/static/", "/static/x.css", "/records/", "/records/bad id", "/records/lower-1", "/records/A-1/x",
+			"/actions", "/actions/", "/actions/nope", "/actions/index/", "/actions/check"} {
 			if w := get(t, r, m, (&url.URL{Path: p}).String()); w.Code != 404 || w.Body.String() != lineNotFound+"\n" {
 				t.Errorf("%s %s: %d %q, want 404 not found", m, p, w.Code, w.Body.String())
 			}
@@ -167,6 +168,17 @@ func TestRoutesAndMethods(t *testing.T) {
 			}
 		}
 	}
+	for p := range actions {
+		for _, m := range []string{"GET", "HEAD", "PUT", "DELETE", "PATCH"} {
+			w := get(t, r, m, p)
+			if w.Code != 405 || w.Header().Get("Allow") != "POST" {
+				t.Errorf("%s %s: %d Allow %q, want 405 POST", m, p, w.Code, w.Header().Get("Allow"))
+			}
+		}
+	}
+	if len(actions) != 2 {
+		t.Errorf("%d actions, want the two of plan D39", len(actions))
+	}
 }
 
 func TestSecurityHeaders(t *testing.T) {
@@ -180,19 +192,21 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]*http.Response{
-		"200":   get(t, r, "GET", "/").Result(),
-		"HEAD":  get(t, r, "HEAD", "/").Result(),
-		"303":   serve(r, bare(r, "GET", "/?token="+r.Token())).Result(),
-		"400":   get(t, r, "GET", "/records?kind=nope").Result(),
-		"403":   serve(r, bare(r, "GET", "/")).Result(),
-		"404":   get(t, r, "GET", "/nope").Result(),
-		"404 p": get(t, r, "GET", "/records/NOPE-x").Result(),
-		"405":   get(t, r, "POST", "/").Result(),
-		"500":   get(t, rf, "GET", "/").Result(),
-		"409":   busyCheck(t, f).Result(),
-		"css":   get(t, r, "GET", "/static/style.css").Result(),
+		"200":      get(t, r, "GET", "/").Result(),
+		"HEAD":     get(t, r, "HEAD", "/").Result(),
+		"303":      serve(r, bare(r, "GET", "/?token="+r.Token())).Result(),
+		"400":      get(t, r, "GET", "/records?kind=nope").Result(),
+		"403":      serve(r, bare(r, "GET", "/")).Result(),
+		"404":      get(t, r, "GET", "/nope").Result(),
+		"404 p":    get(t, r, "GET", "/records/NOPE-x").Result(),
+		"405":      get(t, r, "POST", "/").Result(),
+		"500":      get(t, rf, "GET", "/").Result(),
+		"409":      busyCheck(t, f).Result(),
+		"POST":     serve(r, actionReq(r, "/actions/index", "csrf="+r.CSRF())).Result(),
+		"POST 403": serve(r, actionReq(r, "/actions/index", "")).Result(),
+		"css":      get(t, r, "GET", "/static/style.css").Result(),
 	}
-	want := map[string]int{"200": 200, "HEAD": 200, "303": 303, "400": 400, "403": 403, "404": 404, "404 p": 404, "405": 405, "500": 500, "409": 409, "css": 200}
+	want := map[string]int{"200": 200, "HEAD": 200, "303": 303, "400": 400, "403": 403, "404": 404, "404 p": 404, "405": 405, "500": 500, "409": 409, "css": 200, "POST": 200, "POST 403": 403}
 	for name, res := range cases {
 		if res.StatusCode != want[name] {
 			t.Errorf("%s: status %d, want %d", name, res.StatusCode, want[name])

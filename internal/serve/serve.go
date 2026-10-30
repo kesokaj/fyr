@@ -41,6 +41,10 @@ type Options struct {
 	Render func(w io.Writer) error
 	Check  func(w io.Writer) error
 
+	// Actions, from cmd/fyr (row 9): the two verbs a POST runs (plan D39).
+	Index  func(w io.Writer) error
+	Ingest func(w io.Writer) error
+
 	Listen func(network, addr string) (net.Listener, error) // nil: net.Listen
 }
 
@@ -54,6 +58,7 @@ type Run struct {
 	cookie  string     // fyr_serve_<port>
 	base    string     // /s/<P>: every page lives under it, and the cookie is scoped to it
 	checks  sync.Mutex // one /check at a time: each is a full fyr check
+	acting  sync.Mutex // one action at a time, across both
 	root    string     // the main worktree's root; "" with no project
 	noProj  string     // the no-project line, "" with a project
 	errOut  io.Writer
@@ -113,7 +118,7 @@ func (r *Run) Token() string { return r.token }
 // Base is /s/<P>, the path every page lives under.
 func (r *Run) Base() string { return r.base }
 
-// CSRF is C, for tests; row 9's action forms carry it.
+// CSRF is C, for tests; every action form carries it.
 func (r *Run) CSRF() string { return r.csrf }
 
 // projectLine is the start line's and every page's project: its root, or

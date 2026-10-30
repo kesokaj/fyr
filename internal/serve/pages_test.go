@@ -64,6 +64,25 @@ func TestPages(t *testing.T) {
 	if pre := preOf(get(t, r, "GET", "/search?q=quokka").Body.String()); strings.Count(pre, "\n") < 2 {
 		t.Errorf("/search's file hits lost their lines: %q", pre)
 	}
+	// The action forms: both on /, the ingest on /metrics, each a POST with
+	// the run's csrf; the /search form is a GET and carries none (plan D46).
+	csrf := `<input type="hidden" name="csrf" value="` + r.CSRF() + `">`
+	for p, actions := range map[string][]string{"/": {"/actions/index", "/actions/metrics-ingest"}, "/metrics": {"/actions/metrics-ingest"}} {
+		body := get(t, r, "GET", p).Body.String()
+		if n := strings.Count(body, `<form method="post"`); n != len(actions) || strings.Count(body, csrf) != len(actions) {
+			t.Errorf("%s: %d post forms, want %d, each with the csrf\n%s", p, n, len(actions), body)
+		}
+		for _, a := range actions {
+			if !strings.Contains(body, `action="`+r.Base()+a+`"`) {
+				t.Errorf("%s: no form for %s", p, a)
+			}
+		}
+	}
+	for _, p := range f.readPages() {
+		if p != "/" && p != "/metrics" && strings.Contains(get(t, r, "GET", p).Body.String(), r.CSRF()) {
+			t.Errorf("%s carries the csrf", p)
+		}
+	}
 	if body := get(t, r, "GET", "/evals").Body.String(); strings.Contains(body, f.ids["test"]) {
 		t.Errorf("/evals lists a testing record fyr eval did not write")
 	}
@@ -185,6 +204,20 @@ func TestNoProject(t *testing.T) {
 		if w := get(t, r, "GET", p); w.Code != 200 || strings.Contains(w.Body.String(), "<p>"+line+"</p>") {
 			t.Errorf("%s: %d, want it served", p, w.Code)
 		}
+	}
+	// The index needs the project and runs nothing; the ingest is the home's
+	// and runs.
+	var index, ingest atomic.Int32
+	o.Index, o.Ingest = counted(&index, "", nil), counted(&ingest, "", nil)
+	if r, err = NewRun(o); err != nil {
+		t.Fatal(err)
+	}
+	csrf := "csrf=" + r.CSRF()
+	if w := serve(r, actionReq(r, "/actions/index", csrf)); w.Code != 200 || !strings.Contains(w.Body.String(), "<p>"+line+"</p>") || index.Load() != 0 {
+		t.Errorf("POST /actions/index: %d, %d calls, want 200 with the line and none\n%s", w.Code, index.Load(), w.Body.String())
+	}
+	if w := serve(r, actionReq(r, "/actions/metrics-ingest", csrf)); w.Code != 200 || ingest.Load() != 1 {
+		t.Errorf("POST /actions/metrics-ingest: %d, %d calls, want it run", w.Code, ingest.Load())
 	}
 }
 
