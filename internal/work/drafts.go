@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"syscall"
 )
@@ -18,10 +19,15 @@ const (
 	draftsRel = ".agents/scratch/agents"
 )
 
+// draftName is the names copied: the lead puts a draft's path on a shell
+// command line, so no name may hold a quote, a space or a metacharacter, or
+// start like a flag (D138).
+var draftName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,80}\.md$`)
+
 // drafts is step 8: the clone's draft records, gitignored and so not on
 // its branch, copied into the lead's .agents/scratch/work/<stamp>/<name>/:
-// regular files of one link only, at most maxDrafts of at most maxDraft
-// bytes, 0600. Both sides go through an os.Root, so no link leads the copy
+// regular files of one link only, named as draftName says, at most
+// maxDrafts of at most maxDraft bytes, 0600. Both sides go through an os.Root, so no link leads the copy
 // out of the clone or out of the lead's checkout. False means a copy that
 // could not be made: the sandbox, which still holds the drafts, is kept.
 func (w *worker) drafts() bool {
@@ -57,6 +63,10 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 	var dest *os.Root
 	var skipped []string
 	for _, e := range entries {
+		if !draftName.MatchString(e.Name()) {
+			skipped = append(skipped, e.Name())
+			continue
+		}
 		data, ok := readDraft(dir, e)
 		if !ok || w.res.Drafts == maxDrafts {
 			skipped = append(skipped, e.Name())
@@ -79,7 +89,7 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 		w.res.DraftsDir = filepath.ToSlash(filepath.Join(".agents", "scratch", "work", w.stamp, w.p.k.Name)) + "/"
 	}
 	if len(skipped) > 0 {
-		w.b.Note("drafts not copied (not a regular file of one link, over 1 MiB, or past %d): %s", maxDrafts, named(skipped))
+		w.b.Note("drafts not copied (a name not matching %s, not a regular file of one link, over 1 MiB, or past %d): %s", draftName, maxDrafts, named(skipped))
 	}
 	return true
 }

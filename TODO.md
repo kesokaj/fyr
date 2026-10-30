@@ -7,7 +7,7 @@
 
 ## Now
 
-No active phase. Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` is done (`fyr check` rule (d), D54). The `work` skill fix has landed (D136, D137), so row 11, Release 2, waits only on the operator's word (D55). Its behavioural runs, `work-kickoff-model` among them, stay the operator's (D12). The `PRD.md:114` strike is approved, and the Must/Should reshape is to be drafted for approval (D55). `PLAN-2026-10-29-workers` is done except Phase 7d, the Mac (D112, who: user). Whether BUG-198 needs a guard is still the operator's question (D101). D138 approves one hardening Task on the lead's inputs (`internal/work` `added()` and `drafts.go`, plus `work` skill steps 8 and 9 and the squash), next in line; step 7.3's sandbox question and a `work-squash-r2` eval row are deferred. The plan record wins on a conflict.
+No active phase. Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` is done (`fyr check` rule (d), D54). The `work` skill fix has landed (D136, D137), so row 11, Release 2, waits only on the operator's word (D55). Its behavioural runs, `work-kickoff-model` among them, stay the operator's (D12). The `PRD.md:114` strike is approved, and the Must/Should reshape is to be drafted for approval (D55). `PLAN-2026-10-29-workers` is done except Phase 7d, the Mac (D112, who: user). Whether BUG-198 needs a guard is still the operator's question (D101). D138's hardening Task on the lead's inputs has landed (`CHANGE-2026-10-30-1927-change-the-lead-input-hardening-d138-items-2-4-a`); its open items (the worker Kickoff's Never line, a future-dated added record) are the operator's, and step 7.3's sandbox question and a `work-squash-r2` eval row stay deferred. Next in line: the PRD.md Task. The plan record wins on a conflict.
 
 ## Next
 

@@ -82,7 +82,8 @@ func (w *worker) fetch() bool {
 // any of its commits changed is in Files: (a path added and removed again
 // still counts: a non-squash merge carries both commits, security review
 // finding 2), and every record that existed at the base and changed or
-// vanished by the branch's tip is named there; then the records it added.
+// vanished by the branch's tip is named there; then the records it added,
+// handoff and change records only (D138).
 func (w *worker) scope() {
 	root, ref := w.o.Root, "refs/heads/"+w.p.k.Branch()
 	if n, err := leadGit(root, "rev-list", "--count", w.p.base+".."+ref).Output(); err == nil {
@@ -142,8 +143,9 @@ func changedPaths(root, rng string) ([]string, error) {
 }
 
 // records compares the trail at the base and on the branch: it returns the
-// changed or vanished records Files: does not name, and fills the handoff
-// and change records the branch added.
+// changed or vanished records Files: does not name and the added records
+// of a kind added refuses, and fills the handoff and change records the
+// branch added.
 func (w *worker) records(root, ref string) (outside []string) {
 	before, err := trailAt(root, w.p.base)
 	if err == nil {
@@ -154,8 +156,7 @@ func (w *worker) records(root, ref string) (outside []string) {
 					outside = append(outside, id)
 				}
 			}
-			w.added(before, after)
-			return outside
+			return append(outside, w.added(before, after)...)
 		}
 	}
 	w.b.Note("%s: %v", trailRel, err)
@@ -164,8 +165,11 @@ func (w *worker) records(root, ref string) (outside []string) {
 }
 
 // added fills the result's handoff and change records: the IDs on the
-// branch and not at the base.
-func (w *worker) added(before, after map[string]Record) {
+// branch and not at the base. It returns the added records of every other
+// kind, named with it: those reach the trail only through the lead, a
+// worker drafts them, and the squash would carry them past the lead's
+// reading (D138; a review or testing record needs its own D-row).
+func (w *worker) added(before, after map[string]Record) (refused []string) {
 	var ids []string
 	for id := range after {
 		if _, ok := before[id]; !ok {
@@ -180,6 +184,9 @@ func (w *worker) added(before, after map[string]Record) {
 			handoffs = append(handoffs, r)
 		case "change":
 			w.res.Changes = append(w.res.Changes, r)
+		default:
+			// Both are the worker's text: quoted, and cut to 128 characters.
+			refused = append(refused, fmt.Sprintf("%.128q (added, kind %.128q)", id, r.Kind))
 		}
 	}
 	switch len(handoffs) {
@@ -192,6 +199,7 @@ func (w *worker) added(before, after map[string]Record) {
 		w.b.Fail(ReasonTwoHandoffs)
 		w.res.Handoff = &handoffs[len(handoffs)-1]
 	}
+	return refused
 }
 
 // named is a note's list, at most maxNamed entries.

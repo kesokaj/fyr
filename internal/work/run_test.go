@@ -151,6 +151,58 @@ func TestRunRecordScope(t *testing.T) {
 	}
 }
 
+// TestRunAddedRecordKinds is D138: a branch may add handoff and change
+// records only; one of any other kind, stored through fyr record or
+// written into the trail by hand, fails the worker as outside its Files,
+// named with its kind, so the squash never carries it to the lead.
+func TestRunAddedRecordKinds(t *testing.T) {
+	for _, c := range []struct{ ctl, kind string }{
+		{"add-kind", "change"},
+		{"add-kind", "plan"}, {"add-kind", "review"}, {"add-kind", "testing"}, {"add-kind", "bug"},
+		{"add-kind", "adr"}, {"add-kind", "retro"}, {"add-kind", "learning"}, {"add-kind", "spec"},
+		{"add-kind", "deploy"}, {"add-kind", "guide"},
+		{"raw-kind", "memory"}, {"raw-kind", "feedback"}, {"raw-kind", "proposal"},
+		{"raw-kind", "nonsense"}, {"raw-kind", ""},
+	} {
+		t.Run(c.ctl+"-"+c.kind, func(t *testing.T) {
+			r := newRig(t)
+			r.on(c.ctl, c.kind)
+			res := r.run(r.kickoff("kind", "src/a.txt"))
+			if _, err := os.Stat(filepath.Join(r.ctl, "add-kind-failed")); err == nil {
+				t.Fatalf("fyr record add %s failed in the worker: %s", c.kind, r.read("add-kind-err"))
+			}
+			if c.kind == "change" {
+				wantReasons(t, res)
+				return
+			}
+			wantReasons(t, res, ReasonOutside)
+			if want := fmt.Sprintf("kind %q", c.kind); !strings.Contains(strings.Join(res.Notes, "\n"), want) {
+				t.Errorf("no note naming %s: %q", want, res.Notes)
+			}
+			if res.Handoff == nil {
+				t.Errorf("the handoff is not printed beside the refusal")
+			}
+		})
+	}
+}
+
+// TestRunAddedRecordBounded: a refused added record is named by its ID and
+// kind quoted and cut to 128 characters each, so a worker-written ID is
+// never printed raw nor carries a body into the lead's notes.
+func TestRunAddedRecordBounded(t *testing.T) {
+	r := newRig(t)
+	id, kind := "RAW-"+strings.Repeat("x", 4000)+"-end", strings.Repeat("k", 300)+"-end"
+	r.on("raw-id", id)
+	r.on("raw-kind", kind)
+	res := r.run(r.kickoff("long", "src/a.txt"))
+	wantReasons(t, res, ReasonOutside)
+	notes := strings.Join(res.Notes, "\n")
+	want := fmt.Sprintf("%q (added, kind %q)", id[:128], kind[:128])
+	if !strings.Contains(notes, want) || strings.Contains(notes, "-end") {
+		t.Errorf("the refused record is not named %s, bounded: %.300s", want, notes)
+	}
+}
+
 // TestRunNonZeroExit: agy's exit is shown, and a worker that did its work
 // and wrote its handoff still passes (§ Interfaces: PASS is the checks).
 func TestRunNonZeroExit(t *testing.T) {

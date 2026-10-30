@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -152,6 +153,35 @@ func TestRunDrafts(t *testing.T) {
 	}
 	if dirty := r.git("-C", r.lead, "status", "--porcelain"); dirty != "" {
 		t.Errorf("the copy dirtied the lead's tree: %s", dirty)
+	}
+}
+
+// TestRunDraftNames is D138: a draft is copied only under a name the lead
+// can put on a command line as it is, ^[a-z0-9][a-z0-9._-]{0,80}\.md$; any
+// other is skipped and named in the note.
+func TestRunDraftNames(t *testing.T) {
+	long := "a" + strings.Repeat("b", 80) + ".md"
+	good := []string{"0.md", "bug-1.2_x.md", long}
+	bad := []string{"Bug.md", "bug draft.md", "x;id.md", "$(id).md", "`id`.md", "a'b.md", ".hidden.md",
+		"-flag.md", "_x.md", "bug.txt", "bug.md.sh", ".md", "a" + strings.Repeat("b", 81) + ".md", "bug\tx.md", "ü.md"}
+	r := newRig(t)
+	r.on("draft-names", strings.Join(append(append([]string{}, good...), bad...), "\n")+"\n")
+	res := r.run(r.kickoff("names", "src/a.txt"))
+	wantReasons(t, res)
+	got, _ := os.ReadDir(filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir)))
+	var names []string
+	for _, e := range got {
+		names = append(names, e.Name())
+	}
+	sort.Strings(good)
+	if strings.Join(names, ",") != strings.Join(good, ",") || res.Drafts != len(good) {
+		t.Errorf("copied %q (%d), want %q", names, res.Drafts, good)
+	}
+	notes := strings.Join(res.Notes, "\n")
+	for _, n := range bad {
+		if !strings.Contains(notes, sandbox.Printable(n)) {
+			t.Errorf("the note does not name the skipped %q: %s", n, notes)
+		}
 	}
 }
 

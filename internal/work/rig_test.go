@@ -61,6 +61,9 @@ on change && fyr record add change --title "Changed src/a.txt" <<<"the change" >
 on change2 && fyr record add change --title "A second change" <<<"another" >/dev/null
 on nohandoff || fyr record add handoff --title "Handoff one" < "$CTL/handoff" >/dev/null
 on twohandoffs && fyr record add handoff --title "Handoff two" < "$CTL/handoff" >/dev/null
+on add-kind && { fyr record add "$(val add-kind)" --title "The worker's own" <<<"its body" >/dev/null 2>"$CTL/add-kind-err" || touch "$CTL/add-kind-failed"; }
+rawid=RAW-2026-10-30-x; on raw-id && rawid=$(val raw-id)
+on raw-kind && printf '{"date":"2026-10-30","id":"%s","kind":"%s","status":"-","title":"raw","updated":"2026-10-30T00:00:00Z","body":"b"}\n' "$rawid" "$(val raw-kind)" >> .agents/trail.jsonl
 if [ -n "$(git status --porcelain -- .agents/trail.jsonl)" ]; then git add .agents/trail.jsonl; git commit -qm records; fi
 on rewrite && git reset -q --hard "$(git commit-tree 'HEAD^{tree}' -m orphan)"
 if on drafts; then
@@ -79,7 +82,11 @@ if on plant; then
   namedir) mkdir -p "$(val leadpath)/.agents/scratch/work/$stamp/$name" ;;
   esac
 fi
-on many-drafts && { mkdir -p .agents/scratch/agents; for i in $(seq -w 1 51); do echo "$i" > ".agents/scratch/agents/d$i.md"; done; }
+if on draft-names; then
+  d=.agents/scratch/agents; mkdir -p "$d"
+  while IFS= read -r n; do echo x > "$d/$n"; done < "$CTL/draft-names"
+fi
+on many-drafts &&{ mkdir -p .agents/scratch/agents; for i in $(seq -w 1 51); do echo "$i" > ".agents/scratch/agents/d$i.md"; done; }
 on delete-branch && { git checkout -q --detach; git branch -q -D "$(cat "$CTL/branch")"; }
 on hang && { touch "$CTL/started" "$CTL/started-$me"; exec sleep 300; }
 on "slow-$me" && sleep "$(val "slow-$me")"
