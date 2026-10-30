@@ -7,7 +7,7 @@
 
 ## Now
 
-No active phase. Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` is done (`fyr check` rule (d), D54). Row 11, Release 2, waits for the operator's word, and so do its behavioural runs (D12). `PLAN-2026-10-29-workers` is done except Phase 7d, the Mac (D112, who: user). Whether BUG-198 needs a guard is still the operator's question (D101), and D135's two `work` skill findings wait for the operator too. The plan record wins on a conflict.
+No active phase. Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` is done (`fyr check` rule (d), D54). Row 11, Release 2, waits until the `work` skill fix lands (D55), and its behavioural runs stay the operator's (D12). The `PRD.md:114` strike is approved, and the Must/Should reshape is to be drafted for approval (D55). `PLAN-2026-10-29-workers` is done except Phase 7d, the Mac (D112, who: user). Whether BUG-198 needs a guard is still the operator's question (D101). D135's two `work` skill findings and D100's observations are approved as one Task (D136). The plan record wins on a conflict.
 
 ## Next
 
