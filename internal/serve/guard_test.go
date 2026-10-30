@@ -48,6 +48,10 @@ func TestTokenSetsCookieAndRedirects(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	r := newFix(t).run(t)
+	wrong := wrongToken(r.Token())
+	if wrong == r.Token() {
+		t.Fatal("precondition: the wrong token is the real one")
+	}
 	other, err := NewRun(newFix(t).options(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +81,7 @@ func TestRefusals(t *testing.T) {
 		// /s/<P> is refused like one inside, so 403 or 404 tells nothing of P.
 		"no token, outside the prefix": {raw("GET", "/"), 403, lineForbidden},
 		"no token, another prefix":     {raw("GET", "/s/other/records"), 403, lineForbidden},
-		"wrong token":                  {bare(r, "GET", "/?token=x"+r.Token()[1:]), 403, lineForbidden},
+		"wrong token":                  {bare(r, "GET", "/?token="+wrong), 403, lineForbidden},
 		"empty token":                  {bare(r, "GET", "/?token="), 403, lineForbidden},
 		"repeated token":               {bare(r, "GET", "/?token="+r.Token()+"&token="+r.Token()), 403, lineForbidden},
 		"token beside a cookie":        {withCookie(bare(r, "GET", "/?token=x"), r.Token()), 403, lineForbidden},
@@ -113,6 +117,33 @@ func TestRefusals(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A token that starts with the character wrongToken would write is the case
+// BUG-196 hit one run in 64: pinned for both characters it writes, and the
+// old "x".
+func TestWrongTokenIsWrong(t *testing.T) {
+	r := newFix(t).run(t)
+	for _, first := range []string{"x", "a", "b"} {
+		r.token = first + r.Token()[1:]
+		wrong := wrongToken(r.Token())
+		if wrong == r.Token() {
+			t.Errorf("token %s…: the wrong token is the real one", first)
+			continue
+		}
+		if w := serve(r, bare(r, "GET", "/?token="+wrong)); w.Code != 403 {
+			t.Errorf("token %s…: %d, want 403", first, w.Code)
+		}
+	}
+}
+
+// wrongToken is tok with its first character changed, so it differs from tok
+// whatever tok starts with (BUG-196).
+func wrongToken(tok string) string {
+	if tok[0] == 'a' {
+		return "b" + tok[1:]
+	}
+	return "a" + tok[1:]
 }
 
 func TestRoutesAndMethods(t *testing.T) {
