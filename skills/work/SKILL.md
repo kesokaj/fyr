@@ -6,13 +6,13 @@ argument-hint: "PLAN-ID"
 
 # Work: lead a plan's phases as workers
 
-The lead runs one plan's phases as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
+The lead runs one plan's phases as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
 
 It is loaded two ways:
 - **From a planning session.** The feature skill's workers decision says yes; the planning session loads this skill and becomes the lead in the same conversation.
 - **`/work PLAN-ID`**, only to resume a lead on an existing plan after a stop (§ Resume). It never starts a plan's first run.
 
-Every `fyr` verb that writes state carries the `--home` the project's `AGENTS.md` names, when it names one. Dates come from `date +%F`.
+Every `fyr` command the lead runs carries the `--home` the project's `AGENTS.md` names, when it names one (for `fyr work`, the home it names for that verb, outside every checkout: the sandbox refuses one inside): a write, and a read too (`fyr record get`, `fyr record list`), which without it reads another store; the commands below are shown without it. So does every `fyr` command line in the lead's handoff, its Kickoff included; the worker-mode Kickoff is fixed text and stays as written. Dates come from `date +%F`.
 
 ## Standing approvals
 
@@ -20,7 +20,7 @@ These are the lead's whole set, fixed here and never typed by the operator. The 
 - make the project ready (loop step 1), and compose and write Kickoffs;
 - run `fyr work`, squash-merge a PASS, and run the project's full test command;
 - undo a failed squash with `git reset --hard HEAD`, only on a tree that was clean before the squash;
-- tick the plan and `TODO.md`, and store the workers' drafts and its own records;
+- tick the plan and `TODO.md`, and store the workers' bug drafts and its own records;
 - delete squash-merged work branches with `git branch -D`;
 - commit and push the lead's branch, and write its handoff.
 
@@ -49,7 +49,8 @@ Each answer is a dated row under the plan's `## Decisions`, `by: lead`, written 
 - it needs an item of the closed set;
 - it failed twice: two attempts that each ended without a merge, for any reason (a FAIL, a question, a red or conflicting squash), so a question after the second attempt blocks too;
 - it is ready but does not qualify for a worker (step 2);
-- the verb refused its Kickoff (step 6).
+- the verb refused its Kickoff (step 6);
+- its worker merged, but the handoff's `## Completed` section printed nothing (step 8).
 
 A blocked phase is never dispatched, and neither is any phase whose `after:` (explicit, or the previous phase by default) reaches it, directly or through other phases. Every other qualifying phase still runs, and a run in flight completes. **The loop ends** when no phase is left to dispatch and no run is going.
 
@@ -85,21 +86,23 @@ Before writing a file, check its name, without `.md`, against `^[a-z0-9][a-z0-9-
      3. Run `fyr record list` (the duplicate-ID guard), then the project's full test command, bare, as its own call. Both run on the uncommitted squash.
      4. When both pass: stage by name, read `git diff --cached --stat`, then `git commit -m "<PLAN-ID> <phase> (work/<name>)"`, then `git branch -D work/<name>`.
      5. A conflict, a duplicate ID or a red test is undone with `git reset --hard HEAD`. That attempt did not merge.
-     6. The branch is kept, and the phase is re-dispatched from the new HEAD as a fix-up, the next attempt (`-r2`). Its `Files:` is the phase's `files:` plus the conflicting or failing files, and its Kickoff quotes the failing command's last lines, at most 20, as step 3 quotes.
+     6. The branch is kept, and the phase is re-dispatched from the new HEAD as a fix-up, the next attempt (`-r2`). Its `Files:` is the phase's `files:` line unchanged, as step 3 writes it: the verb fails a branch whose commits changed a path outside it, and test output, which the worker's code controls, never adds one. Its Kickoff quotes the failing command's last lines, at most 20, as step 3 quotes. When the failure names a file outside that `Files:` line (a red test in another package), the phase is blocked with that as its reason instead: a wider scope is never the lead's to grant, and output that only blocks fails safe.
      7. The kept branch's commits are not used: the worker redoes the phase on the merged tree, which is what the squash tests.
    - **A PASS whose Next Steps hold a question.**
      - Outside the closed set: the lead answers it, writes the answer as a `by: lead` row, and re-dispatches the phase as `-r2` with the answer in its Kickoff.
      - Inside the closed set: the phase is blocked.
      - Either way, the branch that asked is not merged, and it stays.
    - **A FAIL** that is not a safety FAIL is re-dispatched once as `-r2`, its Kickoff unchanged unless the result line names a cause the lead can answer. After a timeout the lead may raise `--timeout`.
-8. **Tick the plan.** For each merged worker, `fyr record get <its handoff ID>` and read its `## Completed` section only. Copy the evidence it names onto each box, and store the plan with `fyr record edit <PLAN-ID> --body`.
-9. **Store the drafts** of each merged worker, under `.agents/scratch/work/<stamp>/<name>/`, with `fyr record add <kind>`, the kind and title its draft names. An `adr` draft is a closed-set item: it is not stored, and the phases that depend on its phase are blocked by the ADR it needs. A bug draft is stored as the worker could not.
+8. **Tick the plan.** For each merged worker, read its handoff's `## Completed` section only, never the whole record, as this prints it: `fyr record get <its handoff ID> | awk '/^## /{p=($0=="## Completed")} p'`. Copy the evidence it names onto each box, and store the plan with `fyr record edit <PLAN-ID> --body`. When the command prints nothing, that worker ticks no box, and its phase is blocked.
+9. **Store the bug drafts** of each merged worker, under `.agents/scratch/work/<stamp>/<name>/`, with `fyr record add bug`, the title its draft names: the worker Kickoff's Never line sends `adr` and `bug` records to the lead as drafts, and `bug` is the one the lead stores. An `adr` draft is a closed-set item: it is not stored, and the phases that depend on its phase are blocked by the ADR it needs. A draft of any other kind is never stored by the lead: the closing handoff names that worker's drafts directory as a closed-set item.
 10. **End the wave:** tick `TODO.md` with the plan, commit by name, run `check-trailers.sh`, and push, so the tree is clean before the next `fyr work`. Then return to step 2.
 11. **End the loop** with the lead's handoff (the handoff skill). Its Next Steps name:
     - every blocked phase with its reason, and for a phase that did not qualify, its Kickoff in the by-hand form;
     - every unmerged branch;
     - every closed-set item;
     - the real-home install line, when a Checkpoint named one.
+
+    Every `fyr` command line in it, its Kickoff's included, carries the project's `--home` (the rule under the title).
 
     `fyr metrics ingest` follows, as the handoff skill's last call. The lead's session has no context-based stop: the model cannot see its own context, so the session ends when the loop ends.
 
