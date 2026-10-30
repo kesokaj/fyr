@@ -159,3 +159,37 @@ func envLines(env, prefix string) []string {
 	}
 	return out
 }
+
+// TestRunWindowZone: the scope check reads the window in the lead's zone,
+// the one its worker is given. Pacific/Kiritimati (UTC+14) and Etc/GMT+12
+// (UTC-12) are 26 hours apart, so their days always differ, and at any
+// hour one case fails a window read in UTC or the machine's zone: a
+// Kiritimati lead holds its worker's own date (UTC's day is the day before
+// from 10:00 UTC), and a GMT+12 lead refuses a Kiritimati date (UTC's day
+// until 10:00 UTC).
+func TestRunWindowZone(t *testing.T) {
+	r := newRig(t)
+	t.Setenv("TZ", "Pacific/Kiritimati")
+	if res := r.run(r.kickoff("fix-a", "src/a.txt")); res.Verdict != "PASS" {
+		t.Fatalf("a Kiritimati lead: %+v\n%s", res, r.out.String())
+	}
+	// Within minutes of 12:00 UTC a GMT+12 window can reach the Kiritimati day.
+	if now := time.Now().UTC(); now.Hour() == 11 && now.Minute() >= 50 || now.Hour() == 12 && now.Minute() < 10 {
+		t.Skip("within ten minutes of 12:00 UTC, GMT+12's midnight")
+	}
+	kiri, err := time.LoadLocation("Pacific/Kiritimati")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2 := newRig(t)
+	t.Setenv("TZ", "Etc/GMT+12")
+	r2.on("nohandoff", "")
+	r2.on("raw-kind", "handoff")
+	r2.on("raw-id", "HANDOFF-2026-10-30-0000-raw")
+	r2.on("raw-date", time.Now().In(kiri).Format(time.DateOnly))
+	res := r2.run(r2.kickoff("dated", "src/a.txt"))
+	wantReasons(t, res, ReasonOutside)
+	if notes := strings.Join(res.Notes, "\n"); !strings.Contains(notes, " in Etc/GMT+12)") {
+		t.Errorf("no note naming the lead's zone: %q", res.Notes)
+	}
+}

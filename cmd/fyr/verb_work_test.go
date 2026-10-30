@@ -90,6 +90,9 @@ func newWorkRig(t *testing.T) *workRig {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", r.real)
 	t.Setenv("FYR_REPO", "")
+	// A known zone for refusal 22, as internal/work's rig pins it: a
+	// developer's TZ=:/etc/localtime would refuse every run (workers D145, G3).
+	t.Setenv("TZ", "UTC")
 
 	r.git("init", "-q")
 	r.git("config", "user.name", "Lead Person")

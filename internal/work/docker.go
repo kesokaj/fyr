@@ -47,7 +47,7 @@ type dockerPlan struct {
 	image, agy string
 }
 
-// dockerRefusals are refusals 13-20 of SPEC-fyr-work, after refusal 11, for
+// dockerRefusals are refusals 13-20 of SPEC-fyr-work, after refusal 22, for
 // a docker-mode run: this fyr is an installed build (before any docker
 // call), docker is on PATH, the daemon is local, the image ref is one, the
 // image exists at this fyr's version, the linux agy runs on the image's
