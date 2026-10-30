@@ -144,6 +144,8 @@ func TestSuiteHarness(t *testing.T) {
 		"rule-code-modularity": {"", true}, "build-cli": {"", true}, "build-api": {"", true}, "build-fullstack": {"", true},
 		// The sandbox form of GUIDE-testing § 5's context check (the v3.1.0 gate).
 		"smoke": {"", false},
+		// The work skill's model: lines (PLAN-2026-10-29-workers Phase 8b, D128).
+		"work-kickoff-model": {"", false},
 	}
 	got := map[string]Row{}
 	for _, r := range rows {

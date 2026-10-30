@@ -138,7 +138,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### Writing Rules
 
-- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `.agents/trail.jsonl`, so no handoff record) the same block is printed in chat only, nothing saved.
+- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. The by-hand Kickoff has no `Model:` line, even for a phase with a `model:` line: the operator picks the model when starting that session. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `.agents/trail.jsonl`, so no handoff record) the same block is printed in chat only, nothing saved.
 - **Be concise.** The whole document should be under 150 lines. A fresh agent needs signal, not noise.
 - **Records by ID, files by repo-relative path**, because the next reader may be on the other machine where the checkout lives elsewhere; the `Project:` line is the only absolute path. A path in another checkout is written as `<repo name>/<relative path>`.
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
@@ -149,11 +149,12 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### The worker-mode Kickoff
 
-A lead (`work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt:
+A lead (`work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt:
 
 ```text
 Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
 Files: <the phase's files: line, verbatim>
+Model: <the phase's model: line's value, trimmed; the line left out when the phase has none>
 Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
 Never: push; tick the plan record or TODO.md; store an adr or bug record (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
 Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
