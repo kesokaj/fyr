@@ -14,7 +14,7 @@ Workers Phase 6 of `PLAN-2026-10-29-workers` ran on 2026-10-30 (D96–D98, `TEST
 - [x] The verb-level edges: timeout (`no commits`, agy exit 0) and shared scope (refused)
 - [x] The measure: 111,386 of 300,000 tokens (D97)
 - [x] Whether the `work` skill gets a `GUIDE-eval` row: no (D98)
-- [ ] Checkpoint: the E2E's `testing` record, change record, commit, push, handoff
+- [x] Checkpoint: `TEST-2026-10-30-0956-…`, `CHANGE-2026-10-30-0958-…`, commit `3013603`, push, handoff
 
 ## Next
 
