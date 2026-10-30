@@ -7,7 +7,7 @@
 
 ## Now
 
-Workers Phase 6 of `PLAN-2026-10-29-workers` ran on 2026-10-30 (D96–D98, `TEST-2026-10-30-0956-e2e-workers-phase-6-the-lead-loop-on-the-fixture`): the lead loop worked end to end, but the golden path failed its first squash on BUG-197 (`merge=union` duplicates sorted trail lines), and the lead wrote to its checkout mid-run (BUG-198). Both fixes are design questions for the operator; box 2 reruns after BUG-197's. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
+Workers Phase 6 of `PLAN-2026-10-29-workers` ran on 2026-10-30 (D96–D98, `TEST-2026-10-30-0956-e2e-workers-phase-6-the-lead-loop-on-the-fixture`): the lead loop worked end to end, but the golden path failed its first squash on BUG-197 (`merge=union` duplicates sorted trail lines), and the lead wrote to its checkout mid-run (BUG-198). The operator chose BUG-197's fix, (a), and deferred BUG-198 to the rerun (D99); box 2 reruns after BUG-197's fix. The plan runs before row 9 of `PLAN-2026-10-29-root-docs-and-fyr-serve` (workers D1, root-docs D50). The plan record wins on a conflict.
 
 - [x] The fixture is ready for a lead (D96: the sandbox `--home` sentence, `--repo`, the ingest read with `--source ~ --label`)
 - [ ] The operator's `agy` lead on the fixture: the two question edges yes; the golden path no (BUG-197); reruns after BUG-197's fix, started by the agent in tmux
