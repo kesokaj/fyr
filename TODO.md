@@ -7,13 +7,14 @@
 
 ## Now
 
-`PLAN-2026-10-31-0300-plan-eval-metrics-the-standard-set-collected-fro` — eval metrics: the standard set collected from `fyr eval` and `fyr metrics` (planned 2026-10-31 from `PLAN-2026-10-31-research-agent-evals-metrics`). Its cold read is answered (`REVIEW-2026-10-31-0306-…`, D13–D28); Phase 1 (the estimators and the trial unit: migration 4, `RecordTrial`, `--outcome error`, A6 per trial) is done (2026-10-31); Phase 2a (the trial loop: `fyr eval --runs N`, `Result.Status`, the `trials` row per trial) is next, in a fresh session; Phase 4 waits for O1 and the controls for O8, both the operator's. The plan record wins on a conflict.
+`PLAN-2026-10-31-0300-plan-eval-metrics-the-standard-set-collected-fro` — eval metrics: the standard set collected from `fyr eval` and `fyr metrics` (planned 2026-10-31 from `PLAN-2026-10-31-research-agent-evals-metrics`). Its cold read is answered (`REVIEW-2026-10-31-0306-…`, D13–D28); Phase 1 (the estimators and the trial unit: migration 4, `RecordTrial`, `--outcome error`, A6 per trial) is done (2026-10-31); Phase 2a (the trial loop: `fyr eval --runs N`, `Result.Status` with its cause, the `trials` row per trial) is done (2026-10-31); Phase 2b (the trial record and the E2E) is next, after the operator's audit of the remaining tasks; Phase 4 waits for O1 and the controls for O8, both the operator's. The plan record wins on a conflict.
 
 Other open plans: `PLAN-2026-10-29-root-docs-and-fyr-serve` (row 12, the operator's smoke checks on dave, is its last box; the `PRD.md` Must/Should reshape waits for approval, D55 (2)); `PLAN-2026-10-29-workers` (the Mac boxes only, who: user, D112; BUG-198 stays a watch, D101); `PLAN-2026-10-30-ui-skills` (Step 1's seven Open items wait for the operator). The plan audit's items (`REVIEW-2026-10-30-2101-review-plan-audit-of-the-three-open-plans-agains`) wait for the operator's answers.
 
 ## Next
 
-- Eval metrics Phase 2a — the trial loop (`PLAN-2026-10-31-0300-…`; the next session's Kickoff), then 2b (the trial record and the E2E).
+- An audit of every remaining task across the repository's open plans, TODO and Backlog (the operator, 2026-10-31: "audit the plan on all remaining tasks in the entire repo", then the next prompt is decided; the next session's Kickoff).
+- Eval metrics Phase 2b — the trial record and the E2E (`PLAN-2026-10-31-0300-…`).
 - `PLAN-2026-10-30-ui-skills`: `frontend-ui-economist` and `frontend-ui-modern` replace `frontend`; Step 1's seven Open items wait for the operator (the zips in `.agents/scratch/ui-skills/`).
 - Parallel dispatch (the operator, 2026-10-30, "Go with your recommendations"): first one agy run that puts two subagent dispatches in one turn, to see if they run at once; if they do, the two bullets go into the feature skill's lead step and the `explorer` description, never `rules/` (the rules block is at 21,032 of 22,000).
 

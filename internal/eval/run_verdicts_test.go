@@ -21,10 +21,13 @@ func TestRunPass(t *testing.T) {
 	r := newRig(t)
 	x := one(t, r.run(named("ok", "hello {{CLONE}} at {{STAMP}}", `grep -q "agy says ok" "$OUT" && "$SB/bin/fyr" memory show > "$SB/wrapped.txt" && env > "$SB/check.env"`)))
 	wantVerdict(t, x, "PASS")
-	dir := filepath.Join(r.home, harness.StateDir, "eval", "2026-10-26-080000", "ok")
+	dir := filepath.Join(r.home, harness.StateDir, "eval", "2026-10-26-080000", "ok", "1")
 	app, sb := filepath.Join(dir, "app"), filepath.Join(dir, "home")
 	if x.Dir != dir || x.AgyExit != 0 {
 		t.Errorf("Dir %s, agy exit %d; want %s, 0", x.Dir, x.AgyExit, dir)
+	}
+	if x.Trial != 1 || x.Run != "2026-10-26-080000/ok/1" || x.Cause != "" || x.SessionSeconds < 0 || x.SessionSeconds > x.Seconds || x.Started.IsZero() {
+		t.Errorf("trial %d, run %q, cause %q, session %ds of %ds, started %v", x.Trial, x.Run, x.Cause, x.SessionSeconds, x.Seconds, x.Started)
 	}
 	if !regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  ` + regexp.QuoteMeta(dir) + `$`).MatchString(r.out.String()) {
 		t.Errorf("the row line is missing or misshapen:\n%s", r.out.String())
@@ -109,18 +112,19 @@ func TestRunVerdicts(t *testing.T) {
 		verdict     string
 		reasons     []string
 		agyExit     int
+		cause       string
 	}{
-		"the check fails":              {"", "", named("r", "p", "false"), "FAIL", []string{ReasonCheck}, 0},
-		"agy exits 3, the check holds": {"exit", "3", named("r", "p", "true"), "PASS", nil, 3},
-		"the agent invoked":            {"invoke", "reviewer", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "PASS", nil, 0},
-		"another agent invoked":        {"invoke", "bugs", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0},
-		"no agent at all":              {"", "", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0},
-		"an auto-denied call":          {"denied", "", named("r", "p", "true"), "FAIL", []string{ReasonDenied}, 0},
-		"an invalid allow entry":       {"invalid", "", named("r", "p", "true"), "FAIL", []string{ReasonInvalid}, 0},
-		"a credential written":         {"leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0},
-		"a credential printed":         {"print-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0},
-		"a credential in the clone":    {"clone-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0},
-		"the token replaced":           {"replace-token", "", named("r", "p", "true"), "PASS", nil, 0},
+		"the check fails":              {"", "", named("r", "p", "false"), "FAIL", []string{ReasonCheck}, 0, "check"},
+		"agy exits 3, the check holds": {"exit", "3", named("r", "p", "true"), "PASS", nil, 3, ""},
+		"the agent invoked":            {"invoke", "reviewer", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "PASS", nil, 0, ""},
+		"another agent invoked":        {"invoke", "bugs", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
+		"no agent at all":              {"", "", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
+		"an auto-denied call":          {"denied", "", named("r", "p", "true"), "FAIL", []string{ReasonDenied}, 0, "denied"},
+		"an invalid allow entry":       {"invalid", "", named("r", "p", "true"), "FAIL", []string{ReasonInvalid}, 0, "grant"},
+		"a credential written":         {"leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"a credential printed":         {"print-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"a credential in the clone":    {"clone-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"the token replaced":           {"replace-token", "", named("r", "p", "true"), "PASS", nil, 0, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)
@@ -129,6 +133,9 @@ func TestRunVerdicts(t *testing.T) {
 			}
 			x := one(t, r.run(c.row))
 			wantVerdict(t, x, c.verdict, c.reasons...)
+			if x.Cause != c.cause {
+				t.Errorf("cause %q, want %q", x.Cause, c.cause)
+			}
 			if x.AgyExit != c.agyExit {
 				t.Errorf("agy exit %d, want %d", x.AgyExit, c.agyExit)
 			}
@@ -187,7 +194,10 @@ func TestRunSetup(t *testing.T) {
 	wantVerdict(t, one(t, r.run(row)), "PASS")
 	r2 := newRig(t)
 	x := one(t, r2.run(Row{ID: "s", Setup: "exit 1", Prompt: "p", Check: "true", Grants: "named"}))
-	wantVerdict(t, x, "FAIL", ReasonSetup)
+	wantVerdict(t, x, "ERROR", ReasonSetup)
+	if x.Cause != "setup" || x.SessionSeconds != -1 {
+		t.Errorf("cause %q, session %ds; want setup and -1 (no session)", x.Cause, x.SessionSeconds)
+	}
 	if r2.read("agy.n") != "" || strings.Contains(r2.read("self.calls"), "install") {
 		t.Error("the CLI or the install ran after a failed setup")
 	}
@@ -203,7 +213,7 @@ func TestRunEarlyFailures(t *testing.T) {
 		if len(res) != 2 {
 			t.Fatalf("the next row did not run: %+v", res)
 		}
-		wantVerdict(t, res[0], "FAIL", ReasonInstall)
+		wantVerdict(t, res[0], "ERROR", ReasonInstall)
 		if r.read("agy.n") != "" {
 			t.Error("agy ran after a failed install")
 		}
@@ -211,7 +221,7 @@ func TestRunEarlyFailures(t *testing.T) {
 	t.Run("records list", func(t *testing.T) {
 		r := newRig(t)
 		r.on("records-fail", "")
-		wantVerdict(t, one(t, r.run(named("a", "p", "true"))), "FAIL", ReasonRecords)
+		wantVerdict(t, one(t, r.run(named("a", "p", "true"))), "ERROR", ReasonRecords)
 	})
 	t.Run("clone", func(t *testing.T) {
 		r := newRig(t)
@@ -224,7 +234,7 @@ func TestRunEarlyFailures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantVerdict(t, one(t, res), "FAIL", ReasonClone)
+		wantVerdict(t, one(t, res), "ERROR", ReasonClone)
 	})
 	t.Run("sandbox exists", func(t *testing.T) {
 		r := newRig(t)
@@ -233,7 +243,7 @@ func TestRunEarlyFailures(t *testing.T) {
 		put(t, marker, "x", 0o600)
 		// The same clock second: the sandbox is there already.
 		x := one(t, r.run(named("a", "p", "true")))
-		wantVerdict(t, x, "FAIL", ReasonExists)
+		wantVerdict(t, x, "ERROR", ReasonExists)
 		if _, err := os.Stat(marker); err != nil {
 			t.Errorf("the existing sandbox was touched: %v", err)
 		}

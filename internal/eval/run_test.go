@@ -117,8 +117,8 @@ func one(t *testing.T, res []Result) Result {
 
 func wantVerdict(t *testing.T, x Result, verdict string, reasons ...string) {
 	t.Helper()
-	if x.Verdict != verdict || strings.Join(x.Reasons, "; ") != strings.Join(reasons, "; ") {
-		t.Errorf("row %s: %s %v, want %s %v", x.Row, x.Verdict, x.Reasons, verdict, reasons)
+	if x.Status != verdict || strings.Join(x.Reasons, "; ") != strings.Join(reasons, "; ") {
+		t.Errorf("row %s: %s %v, want %s %v", x.Row, x.Status, x.Reasons, verdict, reasons)
 	}
 }
 

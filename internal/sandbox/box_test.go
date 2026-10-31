@@ -113,6 +113,25 @@ func TestBoxMakeAndNote(t *testing.T) {
 	}
 }
 
+// TestBoxMakeTrialPath: Make builds a trial's sandbox <stamp>/<row>/<i>
+// under parents that do not exist yet, a sibling trial beside it, and never
+// reuses either (fyr eval --runs, the eval-metrics plan D4).
+func TestBoxMakeTrialPath(t *testing.T) {
+	r := newRig(t)
+	c1, c2 := r.config(filepath.Join("stamp", "row", "1")), r.config(filepath.Join("stamp", "row", "2"))
+	for _, c := range []Config{c1, c2} {
+		if b := r.box(c); !b.Make() {
+			t.Fatalf("Make %s: %v", c.Dir, b.Reasons())
+		}
+		if st, err := os.Stat(c.Dir); err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
+			t.Errorf("%s: %v %v, want a 0700 directory", c.Dir, st, err)
+		}
+	}
+	if b := r.box(c1); b.Make() || strings.Join(b.Reasons(), "; ") != ReasonExists {
+		t.Errorf("trial 1 again: reasons %v, want [%s]", b.Reasons(), ReasonExists)
+	}
+}
+
 // A token link that cannot be made fails the box token link, and the after
 // steps still check the real token, never an empty path (security review of
 // Phase 1, finding 2).

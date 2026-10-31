@@ -188,8 +188,22 @@ func (r *evalRig) passK(label string) (k, passed int) {
 
 func passK(t *testing.T, home, label string) (k, passed int) {
 	t.Helper()
+	a := a6(t, home, label)
+	return a.K, a.Passed
+}
+
+// a6Row is one label's A6 keys in show --json.
+type a6Row struct {
+	K      int `json:"k"`
+	Passed int `json:"passed"`
+	N      int `json:"n"`
+	Errors int `json:"errors"`
+}
+
+func a6(t *testing.T, home, label string) a6Row {
+	t.Helper()
 	if _, err := os.Stat(metrics.Path(home)); os.IsNotExist(err) {
-		return 0, 0 // nothing was ever ingested into this home
+		return a6Row{} // nothing was ever ingested into this home
 	}
 	var buf bytes.Buffer
 	if err := run([]string{"metrics", "show", "--label", label, "--since", "2026-10-01", "--json", "--home", home}, &buf); err != nil {
@@ -198,17 +212,13 @@ func passK(t *testing.T, home, label string) (k, passed int) {
 	out := buf.String()
 	var sum struct {
 		A struct {
-			PassK map[string]struct {
-				K      int `json:"k"`
-				Passed int `json:"passed"`
-			} `json:"pass_k"`
+			PassK map[string]a6Row `json:"pass_k"`
 		} `json:"A"`
 	}
 	if err := json.Unmarshal([]byte(out), &sum); err != nil {
 		t.Fatalf("metrics show --json: %v\n%s", err, out)
 	}
-	p := sum.A.PassK[label]
-	return p.K, p.Passed
+	return sum.A.PassK[label]
 }
 
 // TestEvalVerb is the golden path: the row's line, one testing record with
@@ -221,7 +231,7 @@ func TestEvalVerb(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("eval ok: exit %d\n%s", code, out)
 	}
-	if !regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval")) + `/\d{4}-\d\d-\d\d-\d{6}/ok$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval")) + `/\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(out) {
 		t.Errorf("the row line is missing or misshapen:\n%s", out)
 	}
 	m := recordIDLine.FindStringSubmatch(out)
@@ -244,10 +254,27 @@ func TestEvalVerb(t *testing.T) {
 	if k, passed := r.passK("eval=ok"); k != 1 || passed != 1 {
 		t.Errorf("pass^k of eval=ok: k %d passed %d, want 1 and 1", k, passed)
 	}
+	trials := exported(t, r.home, "trials")
+	if len(trials) != 1 {
+		t.Fatalf("%d trials rows, want 1: %v", len(trials), trials)
+	}
+	tr := trials[0]
+	wantKey := harnessKey(harness.Source{Dir: r.harness})
+	if !regexp.MustCompile(`^\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(str(tr["run"])) || tr["label"] != "eval=ok" || tr["status"] != "pass" || tr["cause"] != "" ||
+		tr["harness"] != wantKey || tr["cli"] != "agy-fake 9.9" || tr["session_seconds"] == nil || tr["started_at"] == nil {
+		t.Errorf("the trial row: %v (want harness %q)", tr, wantKey)
+	}
+	for _, x := range exported(t, r.home, "sessions") {
+		if x["run"] != tr["run"] {
+			t.Errorf("session %v: run %v, want the trial's %v", x["id"], x["run"], tr["run"])
+		}
+	}
 }
 
 // TestEvalVerbPrompt2 runs a two-session row: both sessions are ingested
-// under the row's label with its outcome, so pass^k counts two (D12).
+// under the row's label with its outcome and one run, the trial's, so
+// pass^k counts one trial, not two (D12 closed for new data; the
+// eval-metrics plan A2).
 func TestEvalVerbPrompt2(t *testing.T) {
 	suite := strings.Replace(evalSuite, "| `two` |  | first |  |", "| `two` |  | first | second |", 1)
 	r := newEvalRig(t, suite, true)
@@ -260,8 +287,18 @@ func TestEvalVerbPrompt2(t *testing.T) {
 	if n := strings.TrimSpace(readFile(t, filepath.Join(r.rec, "agy.n"))); n != "2" {
 		t.Fatalf("agy ran %s times, want 2", n)
 	}
-	if k, passed := r.passK("eval=two"); k != 2 || passed != 2 {
-		t.Errorf("pass^k of eval=two: k %d passed %d, want 2 and 2 (both sessions labelled)", k, passed)
+	if k, passed := r.passK("eval=two"); k != 1 || passed != 1 {
+		t.Errorf("pass^k of eval=two: k %d passed %d, want 1 and 1 (one trial)", k, passed)
+	}
+	trials := exported(t, r.home, "trials")
+	sessions := exported(t, r.home, "sessions")
+	if len(trials) != 1 || len(sessions) != 2 {
+		t.Fatalf("%d trials and %d sessions, want 1 and 2", len(trials), len(sessions))
+	}
+	for _, x := range sessions {
+		if x["run"] != trials[0]["run"] || x["outcome"] != "pass" {
+			t.Errorf("session %v: run %v outcome %v, want %v and pass", x["id"], x["run"], x["outcome"], trials[0]["run"])
+		}
 	}
 }
 
@@ -298,10 +335,16 @@ func TestEvalVerbFail(t *testing.T) {
 	if k, passed := r.passK("eval=bad"); k != 1 || passed != 0 {
 		t.Errorf("pass^k of eval=bad: k %d passed %d, want 1 and 0", k, passed)
 	}
+	for _, tr := range exported(t, r.home, "trials") {
+		want := map[string]string{"eval=ok": "pass/", "eval=bad": "fail/check"}[str(tr["label"])]
+		if str(tr["status"])+"/"+str(tr["cause"]) != want {
+			t.Errorf("the trial row: %v, want %s", tr, want)
+		}
+	}
 }
 
-// An ingest that fails is named and makes the invocation exit 1; the
-// verdict stands and the record is still written.
+// An ingest or a trial write that fails is named and makes the invocation
+// exit 1; the verdict stands and the record is still written.
 func TestEvalVerbIngestFails(t *testing.T) {
 	r := newEvalRig(t, evalSuite, true)
 	if err := os.MkdirAll(filepath.Join(r.home, harness.StateDir, "metrics.db"), 0o700); err != nil {
@@ -310,6 +353,12 @@ func TestEvalVerbIngestFails(t *testing.T) {
 	out, code := r.eval("ok")
 	if code != 1 || !strings.Contains(out, "eval: ok  PASS") || !strings.Contains(out, "eval: ok ingest: ") || recordIDLine.FindString(out) == "" {
 		t.Fatalf("exit %d, want 1 with the PASS line, the ingest error and the record:\n%s", code, out)
+	}
+	// The same store holds the trials: its write fails first and is named
+	// with the trial, and the verdict stands (the eval-metrics plan § Failure
+	// modes).
+	if !strings.Contains(out, "eval: ok#1 trial: ") {
+		t.Errorf("no trial-write error line:\n%s", out)
 	}
 }
 
@@ -331,8 +380,9 @@ func TestEvalVerbRecordFails(t *testing.T) {
 	}
 }
 
-// SIGINT during a row: the row FAILs interrupted, the rows after it do not
-// run, and the started one is still ingested and recorded (D22).
+// SIGINT during a row: the trial is an ERROR (interrupted), the row's other
+// trials and the rows after it do not run, and the started one is still
+// recorded as a trial, ingested and written to the record (D22).
 func TestEvalVerbInterrupted(t *testing.T) {
 	for _, s := range []syscall.Signal{syscall.SIGINT, syscall.SIGHUP} {
 		t.Run(s.String(), func(t *testing.T) { evalInterrupted(t, s) })
@@ -353,9 +403,13 @@ func evalInterrupted(t *testing.T, s syscall.Signal) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}()
-	out, code := r.eval("ok", "bad")
-	if code != 1 || !strings.Contains(out, "eval: ok  FAIL (interrupted)") || strings.Contains(out, "eval: bad ") {
-		t.Fatalf("exit %d, want 1 with ok interrupted and bad not run:\n%s", code, out)
+	out, code := r.eval("--runs", "3", "ok", "bad")
+	if code != 1 || !strings.Contains(out, "eval: ok  ERROR (interrupted)") || strings.Contains(out, "eval: bad ") || strings.Contains(out, "/ok/2") {
+		t.Fatalf("exit %d, want 1 with ok's first trial interrupted, its others and bad not run:\n%s", code, out)
+	}
+	trials := exported(t, r.home, "trials")
+	if len(trials) != 1 || trials[0]["status"] != "error" || trials[0]["cause"] != "interrupted" || !strings.HasSuffix(str(trials[0]["run"]), "/ok/1") {
+		t.Errorf("the trials rows: %v, want one, ok/1 error interrupted", trials)
 	}
 	m := recordIDLine.FindStringSubmatch(out)
 	if m == nil || m[1] != "0" || m[2] != "1" {
@@ -368,71 +422,6 @@ func evalInterrupted(t *testing.T, s syscall.Signal) {
 	}
 	if strings.Contains(out, "ingest:") {
 		t.Errorf("the interrupted row's ingest failed:\n%s", out)
-	}
-}
-
-// TestEvalIngestSkipsReplaced: a sandbox whose home the agent replaced with
-// a link (to the real home, here a home holding one conversation) is never
-// ingested; the same arrangement without that reason is, which shows the
-// link would have been read.
-func TestEvalIngestSkipsReplaced(t *testing.T) {
-	tmp := t.TempDir()
-	home, real, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "real"), filepath.Join(tmp, "sandbox")
-	agyHome(t, real, "C1")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(real, filepath.Join(dir, "home")); err != nil {
-		t.Fatal(err)
-	}
-	replaced := eval.Result{Row: "x", Verdict: "FAIL", Reasons: []string{eval.ReasonReplaced}, Dir: dir}
-	if err := ingestRow(home, replaced); err != nil {
-		t.Fatal(err)
-	}
-	if k, _ := passK(t, home, "eval=x"); k != 0 {
-		t.Errorf("a replaced sandbox was ingested: k %d", k)
-	}
-	// Without the reason, a linked home is still not followed (IN35 of the
-	// 2026-10-27 audit): only a real directory is a sandbox home.
-	if err := ingestRow(home, eval.Result{Row: "link", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: dir}); err != nil {
-		t.Fatal(err)
-	}
-	if k, _ := passK(t, home, "eval=link"); k != 0 {
-		t.Errorf("a linked sandbox home was ingested without the replaced reason: k %d", k)
-	}
-	// A link one component down, home/.gemini to the real home's, is not
-	// followed either (security review of the fix, finding 2).
-	deep := filepath.Join(tmp, "deep")
-	if err := os.MkdirAll(filepath.Join(deep, "home"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(real, ".gemini"), filepath.Join(deep, "home", ".gemini")); err != nil {
-		t.Fatal(err)
-	}
-	if err := ingestRow(home, eval.Result{Row: "deep", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: deep}); err != nil {
-		t.Fatal(err)
-	}
-	if k, _ := passK(t, home, "eval=deep"); k != 0 {
-		t.Errorf("a sandbox whose .gemini links to the real home was ingested: k %d", k)
-	}
-	// A row that left processes is not read: one that ignored SIGTERM could
-	// swap a directory after the check (security review of the fix, round 2).
-	procs := filepath.Join(tmp, "procs")
-	agyHome(t, filepath.Join(procs, "home"), "C3")
-	if err := ingestRow(home, eval.Result{Row: "procs", Verdict: "FAIL", Reasons: []string{eval.ReasonProcs}, Dir: procs}); err != nil {
-		t.Fatal(err)
-	}
-	if k, _ := passK(t, home, "eval=procs"); k != 0 {
-		t.Errorf("a row that left processes was ingested: k %d", k)
-	}
-	// The control: the same conversation under a real home directory is read.
-	ctl := filepath.Join(tmp, "control")
-	agyHome(t, filepath.Join(ctl, "home"), "C2")
-	if err := ingestRow(home, eval.Result{Row: "ctl", Verdict: "FAIL", Reasons: []string{eval.ReasonCheck}, Dir: ctl}); err != nil {
-		t.Fatal(err)
-	}
-	if k, _ := passK(t, home, "eval=ctl"); k != 1 {
-		t.Errorf("the control was not ingested: k %d", k)
 	}
 }
 
@@ -470,11 +459,16 @@ func TestEvalVerbRefusals(t *testing.T) {
 		setup  func(r *evalRig) []string // the arguments after eval's own --repo and --home
 		want   string
 	}{
-		"no row":            {evalSuite, true, func(*evalRig) []string { return nil }, "usage: fyr eval"},
-		"--list with a row": {evalSuite, true, func(*evalRig) []string { return []string{"--list", "ok"} }, "--list takes no row"},
-		"unknown flag":      {evalSuite, true, func(*evalRig) []string { return []string{"--parallel", "2", "ok"} }, "flag provided but not defined: -parallel"},
-		"unknown row":       {evalSuite, true, func(*evalRig) []string { return []string{"ok", "nope"} }, `eval: no row "nope" in GUIDE-eval`},
-		"row named twice":   {evalSuite, true, func(*evalRig) []string { return []string{"ok", "ok"} }, "eval: row ok is named twice"},
+		"no row":              {evalSuite, true, func(*evalRig) []string { return nil }, "usage: fyr eval"},
+		"--list with a row":   {evalSuite, true, func(*evalRig) []string { return []string{"--list", "ok"} }, "--list takes no row"},
+		"unknown flag":        {evalSuite, true, func(*evalRig) []string { return []string{"--parallel", "2", "ok"} }, "flag provided but not defined: -parallel"},
+		"--runs 0":            {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "0", "ok"} }, "fyr eval: --runs 0: want 1 to 25"},
+		"--runs 26":           {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "26", "ok"} }, "fyr eval: --runs 26: want 1 to 25"},
+		"--runs -1":           {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "-1", "ok"} }, "fyr eval: --runs -1: want 1 to 25"},
+		"--runs not a number": {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "two", "ok"} }, `invalid value "two" for flag -runs`},
+		"--list with --runs":  {evalSuite, true, func(*evalRig) []string { return []string{"--list", "--runs", "2"} }, "--list takes no --runs"},
+		"unknown row":         {evalSuite, true, func(*evalRig) []string { return []string{"ok", "nope"} }, `eval: no row "nope" in GUIDE-eval`},
+		"row named twice":     {evalSuite, true, func(*evalRig) []string { return []string{"ok", "ok"} }, "eval: row ok is named twice"},
 		"not a checkout": {evalSuite, true, func(r *evalRig) []string {
 			r.t.Chdir(r.t.TempDir())
 			return []string{"ok"}
@@ -549,7 +543,7 @@ func TestEvalVerbList(t *testing.T) {
 // clean tree (security review of the 2026-10-27 fix).
 func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 	notRepo := t.TempDir()
-	body := evalBody(t.TempDir(), eval.Options{}, harness.Source{Dir: notRepo}, nil)
+	body := evalBody(t.TempDir(), eval.Options{}, harness.Source{Dir: notRepo}, "agy", nil)
 	if !strings.Contains(body, notRepo+" (dirty: unknown") {
 		t.Errorf("source line not labelled unknown:\n%s", body)
 	}

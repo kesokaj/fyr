@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,20 +24,34 @@ type Options struct {
 	Fixture  string // the repository each row clones; "" is Root
 	Self     string // os.Executable(): the fyr that installs and lists
 	Repo     string // the install source tree (D16); "" is the harness embedded in Self
+	Runs     int    // trials per row, 1 to MaxRuns; 0 is 1
 	Out      io.Writer
 	Now      func() time.Time
 }
 
-// Result is one row's outcome.
+// MaxRuns is the most trials of one row an invocation runs (the
+// eval-metrics plan D25).
+const MaxRuns = 25
+
+// Result is one trial's outcome: one run of a row in its own sandbox.
 type Result struct {
-	Row, Verdict string // "PASS" | "FAIL"
-	Reasons      []string
-	AgyExit      int
-	Seconds      int
-	Dir          string // the sandbox
+	Row    string
+	Trial  int    // 1 to Options.Runs
+	Run    string // "<stamp>/<row>/<trial>", the sandbox under SandboxRoot; the trial's key
+	Status string // StatusPass, StatusFail or StatusError
+	Cause  string // classify's closed set; "" for a PASS
+	// Reasons are the fixed reason strings, in the order the steps gave
+	// them; Cause names one of them.
+	Reasons        []string
+	AgyExit        int
+	Started        time.Time // the trial's start
+	Seconds        int       // the whole trial
+	SessionSeconds int       // the agy session(s); -1 when none started
+	Dir            string    // the sandbox
 }
 
-// The fixed reason strings of a FAIL (SPEC-fyr-eval § One row, step 15).
+// The fixed reason strings of a FAIL or an ERROR (SPEC-fyr-eval § One row,
+// step 15); classify maps each to its status and cause.
 // The steps internal/sandbox runs carry its strings; eval's own are records,
 // check, interrupted and ReasonAgent.
 const (
@@ -62,8 +78,11 @@ const ProcsChecked = sandbox.ProcsChecked
 // ReasonAgent is the FAIL reason of an agent row whose agent the
 // conversation store does not show invoked.
 func ReasonAgent(agent string) string {
-	return "no invoke_subagent of " + agent + " in the conversation store"
+	return agentPrefix + agent + " in the conversation store"
 }
+
+// agentPrefix is ReasonAgent's fixed start, which classify matches.
+const agentPrefix = "no invoke_subagent of "
 
 const tokenRel = sandbox.TokenRel
 
@@ -80,10 +99,19 @@ func Preflight(o Options) error {
 	return sandbox.CheckRoot(o.RealHome, o.Repo, SandboxRoot(o.Home))
 }
 
-// Run refuses (error, no row run) or runs every row and returns its results.
-// On ctx's end the current row FAILs interrupted, the rows after it are not
-// run, and the rows started are returned with a nil error (D22).
+// Run refuses (error, no row run) or runs every row Options.Runs times,
+// serially, rows in the order given and trials innermost, and returns one
+// result per trial. On ctx's end the current trial is an ERROR
+// (interrupted), the row's remaining trials and the rows after it are not
+// run, and the trials started are returned with a nil error (D22; the
+// eval-metrics plan D18).
 func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
+	if o.Runs == 0 {
+		o.Runs = 1
+	}
+	if o.Runs < 1 || o.Runs > MaxRuns {
+		return nil, fmt.Errorf("runs %d: want 1 to %d", o.Runs, MaxRuns)
+	}
 	if o.Fixture == "" {
 		o.Fixture = o.Root
 	}
@@ -114,42 +142,48 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if err != nil {
 		return nil, errors.New("agy not found on PATH")
 	}
-	stamp := o.Now().Format("2006-01-02-150405")
+	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
+}
+
+// runTrials runs each row o.Runs times under one stamp, trials innermost,
+// and stops before the next trial once ctx has ended.
+func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
 	var results []Result
 	for _, r := range rows {
-		if ctx.Err() != nil {
-			break
+		for i := 1; i <= o.Runs; i++ {
+			if ctx.Err() != nil {
+				return results
+			}
+			run := path.Join(stamp, r.ID, strconv.Itoa(i))
+			res := runRow(ctx, o, r, agy, tok, filepath.Join(SandboxRoot(o.Home), filepath.FromSlash(run)))
+			res.Trial, res.Run = i, run
+			fmt.Fprintln(o.Out, resultLine(res))
+			results = append(results, res)
 		}
-		res := runRow(ctx, o, r, agy, tok, filepath.Join(SandboxRoot(o.Home), stamp, r.ID))
-		fmt.Fprintln(o.Out, resultLine(res))
-		results = append(results, res)
 	}
-	return results, nil
+	return results
 }
 
 func resultLine(r Result) string {
-	v := r.Verdict
+	v := r.Status
 	if len(r.Reasons) > 0 {
 		v += " (" + strings.Join(r.Reasons, "; ") + ")"
 	}
 	return sandbox.Printable(fmt.Sprintf("eval: %s  %s  agy exit %d  %ds  %s", r.Row, v, r.AgyExit, r.Seconds, r.Dir))
 }
 
-// runRow is steps 1-15 of SPEC-fyr-eval § One row for one row. A failure
+// runRow is steps 1-15 of SPEC-fyr-eval § One row for one trial. A failure
 // inside steps 1-8 skips 9-13 and still runs 14 once the sandbox is eval's
 // own (the comments follow the spec's numbers, IN52 of the 2026-10-27 audit).
 // Steps 1, 2, 4, 6-12 and 14 are internal/sandbox's.
 func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result {
 	t0 := time.Now()
 	w := newRow(o, r, dir, o.Now().Format("2006-01-02-1504"))
-	res := Result{Row: r.ID, AgyExit: -1, Dir: dir}
+	res := Result{Row: r.ID, AgyExit: -1, Started: t0, SessionSeconds: -1, Dir: dir}
 	finish := func() Result {
 		res.Seconds = int(time.Since(t0).Seconds())
 		res.Reasons = w.b.Reasons()
-		res.Verdict = "PASS"
-		if len(res.Reasons) > 0 {
-			res.Verdict = "FAIL"
-		}
+		res.Status, res.Cause = classify(res.Reasons, w.b.TimedOut())
 		return res
 	}
 	// Step 1: a directory of this invocation, never one that already exists.
@@ -157,7 +191,11 @@ func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result 
 		return finish()
 	}
 	if w.prepare(ctx) {
+		s0 := time.Now()
 		res.AgyExit = w.session(ctx, agy, tok)
+		if w.b.Started() {
+			res.SessionSeconds = int(time.Since(s0).Seconds())
+		}
 		w.afterSession(ctx)
 	}
 	w.b.ExitChecks()

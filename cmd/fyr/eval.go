@@ -4,15 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
@@ -36,6 +35,7 @@ func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
 		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide) and run nothing")
+		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 	}, positional: true, readsRepo: true, run: runEval}
 }
 
@@ -48,12 +48,8 @@ func init() {
 // a refusal like the others (exit 2) and --list needs none.
 func runEval(c *ctx) error {
 	names := c.fs.Args()
-	switch {
-	case c.evalList && len(names) > 0:
-		fmt.Fprintln(c.out, "fyr eval: --list takes no row")
-		return exitCode(2)
-	case !c.evalList && len(names) == 0:
-		return usageErr(c.out, "eval", "")
+	if err := evalUsage(c, names); err != nil {
+		return err
 	}
 	if why := evalHomeRefused(c.homeFlag, c.home); why != "" && !c.evalList {
 		return c.evalRefuse("%s", why)
@@ -73,6 +69,9 @@ func runEval(c *ctx) error {
 	if err != nil {
 		return err
 	}
+	// Before the first trial: every trial installs from the source as it is
+	// now, so its key names the harness the trials ran.
+	key := harnessKey(src)
 
 	// A hangup too: its default would kill fyr before the token link is
 	// removed, and agy, in its own process group, would run on unattended.
@@ -89,7 +88,26 @@ func runEval(c *ctx) error {
 		fmt.Fprintln(c.out, "eval: interrupted before the first row; no record written")
 		return exitCode(1)
 	}
-	return recordEval(c, root, o, src, rows, results)
+	return recordEval(c, root, o, src, key, rows, results)
+}
+
+// evalUsage is the usage errors, exit 2, before any other refusal.
+func evalUsage(c *ctx, names []string) error {
+	runsSet := false
+	c.fs.Visit(func(f *flag.Flag) { runsSet = runsSet || f.Name == "runs" })
+	switch {
+	case c.evalList && len(names) > 0:
+		fmt.Fprintln(c.out, "fyr eval: --list takes no row")
+		return exitCode(2)
+	case c.evalList && runsSet:
+		fmt.Fprintln(c.out, "fyr eval: --list takes no --runs")
+		return exitCode(2)
+	case !c.evalList && len(names) == 0:
+		return usageErr(c.out, "eval", "")
+	case c.evalRuns < 1 || c.evalRuns > eval.MaxRuns:
+		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --runs %d: want 1 to %d", c.evalRuns, eval.MaxRuns))
+	}
+	return nil
 }
 
 // evalRefuse prints an eval refusal and returns exit 2.
@@ -145,7 +163,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 			return fail(c.evalRefuse("--fixture %s is not a git repository", fixture))
 		}
 	}
-	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Out: c.out}
+	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Out: c.out}
 	if err := eval.Preflight(o); err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}
@@ -160,15 +178,23 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	return o, src, rows, nil
 }
 
-// recordEval ingests every row's sandbox, then writes the testing record and
-// the summary line; any failed row, ingest or unrun row is exit 1.
-func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []eval.Row, results []eval.Result) error {
+// recordEval stores every trial and ingests its sandbox, then writes the
+// testing record and the summary line; any trial not PASS, failed trial
+// write or ingest, or unrun trial is exit 1.
+func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key string, rows []eval.Row, results []eval.Result) error {
 	failed := false
+	cli := agyVersion()
 	// After the verdict, never before: the store stamps a label's outcome
 	// first-write-wins (D6), and an interrupted invocation still ingests the
-	// rows it started (D22).
+	// trials it started (D22). The trial first, so a trial whose sessions
+	// fail to ingest, or that has none, is still counted (the eval-metrics
+	// plan D13).
 	for _, r := range results {
-		if r.Verdict != "PASS" {
+		if r.Status != eval.StatusPass {
+			failed = true
+		}
+		if err := recordTrial(c.home, trialOf(r, key, cli)); err != nil {
+			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d trial: %v", r.Row, r.Trial, err)))
 			failed = true
 		}
 		if err := ingestRow(c.home, r); err != nil {
@@ -178,7 +204,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []
 	}
 	pass := 0
 	for _, r := range results {
-		if r.Verdict == "PASS" {
+		if r.Status == eval.StatusPass {
 			pass++
 		}
 	}
@@ -189,7 +215,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []
 		return exitCode(1)
 	}
 	head := gitShort(root)
-	body := evalBody(root, o, src, results)
+	body := evalBody(root, o, src, cli, results)
 	id, err := brain.Add(brain.Options{Home: c.home, Dir: root}, brain.AddInput{
 		Kind: "testing", Status: "closed",
 		Title: fmt.Sprintf("Eval — %d of %d PASS at %s", pass, len(results), head),
@@ -200,7 +226,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, rows []
 		return exitCode(1)
 	}
 	fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %d of %d PASS; record %s", pass, len(results), id)))
-	if failed || len(results) < len(rows) {
+	if failed || len(results) < len(rows)*max(o.Runs, 1) {
 		return exitCode(1)
 	}
 	return nil
@@ -250,8 +276,8 @@ func findRecord(recs []brain.Record, id string) (brain.Record, bool) {
 	return brain.Record{}, false
 }
 
-// ingestRow reads one sandbox home into the metrics store under the label
-// eval=<row>, its verdict as the outcome. A row that failed before its
+// ingestRow reads one trial's sandbox home into the metrics store under the
+// label eval=<row>, its status as the outcome and its run on every session. A row that failed before its
 // sandbox home existed has nothing to read; a sandbox that already existed is
 // another invocation's and is never read as this one's; a sandbox the agent
 // replaced may lead anywhere, the real home included; a link in place of
@@ -271,10 +297,7 @@ func ingestRow(home string, r eval.Result) error {
 	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || slices.Contains(r.Reasons, eval.ReasonProcs) || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) {
 		return nil
 	}
-	outcome := "pass"
-	if r.Verdict != "PASS" {
-		outcome = "fail"
-	}
+	outcome := strings.ToLower(r.Status)
 	// An unregistered clone still has its sessions ingested, without record
 	// events; the refusal is said after the ingest, as a failed ingest.
 	regErr := registerClone(home, r.Dir, eval.ProcsChecked)
@@ -284,7 +307,7 @@ func ingestRow(home string, r eval.Result) error {
 	}
 	defer s.Close()
 	var log bytes.Buffer
-	res, err := metrics.Ingest(s, metrics.Options{Home: home, Source: sb, Label: "eval=" + r.Row, Outcome: outcome}, &log)
+	res, err := metrics.Ingest(s, metrics.Options{Home: home, Source: sb, Label: "eval=" + r.Row, Outcome: outcome, Run: r.Run}, &log)
 	if err != nil {
 		return err
 	}
@@ -295,70 +318,6 @@ func ingestRow(home string, r eval.Result) error {
 		return fmt.Errorf("the clone was not registered, so its sessions have no record events: %w", regErr)
 	}
 	return nil
-}
-
-// evalBody is the testing record's body: what ran against what, and one
-// table row per result. No output of the CLI or a check goes in it.
-func evalBody(root string, o eval.Options, src harness.Source, results []eval.Result) string {
-	var b strings.Builder
-	fixture := o.Fixture
-	if fixture == "" {
-		fixture = root
-	}
-	source := "embedded " + src.Version
-	if src.Dir != "" {
-		source = src.Dir
-		// A tree Dirty cannot read is labelled so, never shown as clean
-		// (security review of the 2026-10-27 fix).
-		if dirty, err := trail.Dirty(src.Dir); err != nil {
-			source += " (dirty: unknown, " + search.Printable(err.Error()) + ")"
-		} else if dirty {
-			source += " (dirty)"
-		}
-	}
-	fmt.Fprintf(&b, "# fyr eval — %s\n\n", time.Now().Format("2006-01-02 15:04"))
-	fmt.Fprintf(&b, "- fyr: %s\n", buildVersion())
-	fmt.Fprintf(&b, "- project: %s at %s\n", root, gitShort(root))
-	fmt.Fprintf(&b, "- fixture: %s at %s\n", fixture, gitShort(fixture))
-	fmt.Fprintf(&b, "- install source: %s\n", source)
-	fmt.Fprintf(&b, "- agy: %s\n", agyVersion())
-	if !eval.ProcsChecked {
-		b.WriteString("- the leftover-process check did not run: no /proc here (plan fyr-eval O1)\n")
-	}
-	b.WriteString("\n| row | verdict | reasons | agy exit | seconds | sandbox |\n|---|---|---|---|---|---|\n")
-	for _, r := range results {
-		reasons := strings.Join(r.Reasons, "; ")
-		if reasons == "" {
-			reasons = "-"
-		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %d | %d | `%s` |\n", r.Row, r.Verdict, strings.ReplaceAll(reasons, "|", `\|`), r.AgyExit, r.Seconds, r.Dir)
-	}
-	return b.String()
-}
-
-// gitShort is dir's HEAD as a short hash, or "unknown".
-func gitShort(dir string) string {
-	out, err := trail.Command(dir, "rev-parse", "--short", "HEAD").Output()
-	if err != nil {
-		return "unknown"
-	}
-	return strings.TrimSpace(string(out))
-}
-
-// agyVersion is the first line of `agy --version`, bounded so a CLI that
-// hangs cannot hold the record back.
-func agyVersion() string {
-	cx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(cx, "agy", "--version").Output()
-	if err != nil && len(out) == 0 {
-		if errors.Is(cx.Err(), context.DeadlineExceeded) {
-			return "unknown (agy --version timed out)"
-		}
-		return "unknown"
-	}
-	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-	return line
 }
 
 // realDirs reports whether dir, and each of parts below it in turn, is a

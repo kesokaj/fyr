@@ -72,7 +72,7 @@ func TestEvalIngestJoinsSandboxTrail(t *testing.T) {
 	tmp := t.TempDir()
 	home, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "sandbox")
 	app := evalClone(t, dir)
-	if err := ingestRow(home, eval.Result{Row: "joined", Verdict: "PASS", Dir: dir}); err != nil {
+	if err := ingestRow(home, eval.Result{Row: "joined", Status: eval.StatusPass, Dir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	if !trail.Registered(filepath.Join(home, harness.StateDir), app) {
@@ -101,7 +101,7 @@ func TestEvalIngestRefusesForeignGitDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(app, ".git"), []byte("gitdir: "+other+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := ingestRow(home, eval.Result{Row: "foreign", Verdict: "PASS", Dir: dir})
+	err := ingestRow(home, eval.Result{Row: "foreign", Status: eval.StatusPass, Dir: dir})
 	if err == nil {
 		t.Fatal("a clone whose git directory is elsewhere was registered without a word")
 	}

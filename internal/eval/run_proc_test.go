@@ -26,23 +26,33 @@ func alive(pid string) bool {
 	return true
 }
 
-// TestRunTimeout: at the timeout only agy is killed, the check still runs,
-// and the agy exit is printed but is not a verdict condition.
+// TestRunTimeout: at the timeout only agy is killed, the check still runs
+// and grades the trial, and the agy exit is printed but is not a verdict
+// condition; a check that fails after a timeout is a FAIL with cause
+// timeout, never an ERROR (the eval-metrics plan D6).
 func TestRunTimeout(t *testing.T) {
-	r := newRig(t)
 	old := agyTimeout
 	agyTimeout = time.Second
 	t.Cleanup(func() { agyTimeout = old })
-	r.on("hang", "")
-	x := one(t, r.run(named("slow", "p", "true")))
-	wantVerdict(t, x, "PASS")
-	if x.AgyExit != -1 || !strings.Contains(r.out.String(), "agy timed out after 1s") {
-		t.Errorf("agy exit %d\n%s", x.AgyExit, r.out.String())
+	for _, c := range []struct{ check, status, cause string }{{"true", "PASS", ""}, {"false", "FAIL", "timeout"}} {
+		r := newRig(t)
+		r.on("hang", "")
+		x := one(t, r.run(named("slow", "p", c.check)))
+		if x.Status != c.status || x.Cause != c.cause {
+			t.Errorf("check %s: %s (%s), want %s (%s)", c.check, x.Status, x.Cause, c.status, c.cause)
+		}
+		if x.AgyExit != -1 || !strings.Contains(r.out.String(), "agy timed out after 1s") {
+			t.Errorf("agy exit %d\n%s", x.AgyExit, r.out.String())
+		}
+		if x.SessionSeconds < 1 {
+			t.Errorf("session %ds, want at least the 1s timeout", x.SessionSeconds)
+		}
 	}
 }
 
-// TestRunInterrupted: on ctx's end the row FAILs interrupted, the rows after
-// it never run, and the token link and settings are still removed.
+// TestRunInterrupted: on ctx's end the trial is an ERROR (interrupted), the
+// row's remaining trials and the rows after it never run, and the token
+// link and settings are still removed.
 func TestRunInterrupted(t *testing.T) {
 	r := newRig(t)
 	r.on("hang", "")
@@ -58,18 +68,30 @@ func TestRunInterrupted(t *testing.T) {
 		cancel()
 	}()
 	start := time.Now()
-	res, err := Run(ctx, r.opts(), []Row{named("a", "p", "true"), named("b", "p", "true")})
+	o := r.opts()
+	o.Runs = 3
+	res, err := Run(ctx, o, []Row{named("a", "p", "true"), named("b", "p", "true")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.clean(res)
 	x := one(t, res)
-	wantVerdict(t, x, "FAIL", ReasonInterrupted)
+	wantVerdict(t, x, "ERROR", ReasonInterrupted)
+	if x.Cause != "interrupted" {
+		t.Errorf("cause %q, want interrupted", x.Cause)
+	}
 	if time.Since(start) > 30*time.Second {
 		t.Errorf("the interrupt took %s", time.Since(start))
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(x.Dir), "b")); !os.IsNotExist(err) {
+	// x.Dir is <stamp>/a/1: row b's sandbox would be <stamp>/b.
+	if _, err := os.Stat(filepath.Join(filepath.Dir(filepath.Dir(x.Dir)), "b")); !os.IsNotExist(err) {
 		t.Error("the row after the interrupt ran")
+	}
+	if x.Trial != 1 {
+		t.Errorf("the interrupted trial is %d, want 1", x.Trial)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(x.Dir), "2")); !os.IsNotExist(err) {
+		t.Error("the row's next trial ran after the interrupt")
 	}
 }
 
@@ -173,7 +195,7 @@ func TestRunRealFyrBaseline(t *testing.T) {
 	r.clean(res)
 	x := one(t, res)
 	wantVerdict(t, x, "PASS")
-	if x.Verdict != "PASS" {
+	if x.Status != "PASS" {
 		b, _ := os.ReadFile(filepath.Join(x.Dir, "install.log"))
 		t.Fatalf("output:\n%s\ninstall.log:\n%s", r.out.String(), b)
 	}

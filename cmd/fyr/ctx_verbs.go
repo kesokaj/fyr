@@ -35,6 +35,7 @@ type ctx struct {
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
+	evalRuns                                                                                int
 	workTimeout                                                                             time.Duration
 	workModel                                                                               string
 	workKeep                                                                                bool

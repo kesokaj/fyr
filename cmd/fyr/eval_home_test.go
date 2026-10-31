@@ -204,15 +204,19 @@ func TestEvalRechecksItsHomeBeforeWriting(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "home", ".gemini", "antigravity-cli", "conversations"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := ingestRow(home, eval.Result{Row: "ok", Verdict: "PASS", Dir: dir}); err == nil || !strings.Contains(err.Error(), "not ingested") {
+	if err := ingestRow(home, eval.Result{Row: "ok", Status: eval.StatusPass, Dir: dir}); err == nil || !strings.Contains(err.Error(), "not ingested") {
 		t.Errorf("ingestRow: %v, want the refusal", err)
+	}
+	trial := metrics.Trial{Run: "s/ok/1", Label: "eval=ok", Harness: "k", Status: "pass", StartedAt: time.Now()}
+	if err := recordTrial(home, trial); err == nil || !strings.Contains(err.Error(), "not recorded") {
+		t.Errorf("recordTrial: %v, want the refusal", err)
 	}
 	if _, err := os.Stat(metrics.Path(r.real)); !os.IsNotExist(err) {
 		t.Errorf("the real metrics store was opened: %v", err)
 	}
 	var out bytes.Buffer
 	c := &ctx{home: home, homeFlag: home, out: &out}
-	err := recordEval(c, r.project, eval.Options{}, harness.Source{}, nil, nil)
+	err := recordEval(c, r.project, eval.Options{}, harness.Source{}, "k", nil, nil)
 	var code exitCode
 	if !errors.As(err, &code) || code != 1 || !strings.Contains(out.String(), "eval: record: not written") {
 		t.Errorf("recordEval: %v, want exit 1 and no record:\n%s", err, out.String())
