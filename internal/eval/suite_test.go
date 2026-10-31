@@ -220,6 +220,7 @@ func TestSuiteHarness(t *testing.T) {
 		"distill": {"", true}, "docker": {"", false}, "dream": {"", true}, "explain-project": {"", false},
 		"writes-outside-clone": {"", true},
 		"feedback":             {"", false}, "frontend-ui-economist": {"", false}, "frontend-ui-modern": {"", false}, "gke": {"", false}, "golang": {"", false},
+		"frontend-ui-modern-overrides": {"", false}, "rule-agy-dispatch": {"", true},
 		"harness-audit-elsewhere": {"", false}, "research": {"", false}, "review-standards": {"", false},
 		"spec": {"", false}, "terraform": {"", false}, "testing-strategy": {"", false}, "typescript": {"", false},
 		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},
