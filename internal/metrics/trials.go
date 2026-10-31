@@ -23,8 +23,9 @@ type Trial struct {
 	StartedAt      time.Time
 	Seconds        int64
 	SessionSeconds *int64
-	// The suite's per-row fields, written from the eval-metrics plan's
-	// Phase 5b on; zero means NULL (not known at the run).
+	// The suite's per-row fields, written by fyr eval from ADR-085 on with
+	// the suite's defaults applied; zero means NULL (a trial stored before
+	// then, or not known at the run).
 	RowVersion            int
 	Kind, Cluster, Expect string
 }

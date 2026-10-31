@@ -14,8 +14,15 @@ import (
 )
 
 // Row is one scenario of the suite: a setup, one or two prompts, a check,
-// and optionally an agent the conversation store must show invoked.
-type Row struct{ ID, Setup, Prompt, Prompt2, Check, Agent, Grants string }
+// and optionally an agent the conversation store must show invoked. The
+// last four fields are the long header's optional columns, defaulted when
+// the table or the cell has none (ADR-085); Expect is the entries joined by
+// ",".
+type Row struct {
+	ID, Setup, Prompt, Prompt2, Check, Agent, Grants string
+	Version                                          int
+	Kind, Cluster, Expect                            string
+}
 
 // Wide reports whether the row runs with command(*), and why.
 func (r Row) Wide() (reason string, ok bool) {
@@ -25,9 +32,10 @@ func (r Row) Wide() (reason string, ok bool) {
 var suiteHeader = []string{"id", "setup", "prompt", "prompt2", "check", "agent", "grants"}
 
 var (
-	// An id names a sandbox directory and a metrics label, so it is one path
-	// element of plain characters.
-	validID    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	// An id names a sandbox directory, a metrics label and the default
+	// cluster, so it is one path element of plain characters, at most 64
+	// bytes as the identifier rule allows (ADR-085).
+	validID    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 	validAgent = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 	leadingID  = regexp.MustCompile("^`([^`]+)`")
 	// Any {{NAME}} in a prompt: the four eval fills, or a typo refused at parse.
@@ -38,12 +46,16 @@ var (
 // itself, never through a shell, so a prompt is never code (D21).
 var Placeholders = []string{"CLONE", "SB", "FIXDIR", "STAMP"}
 
+// suiteLongHeader is suiteHeader followed by the four optional columns.
+var suiteLongHeader = append(append([]string{}, suiteHeader...), optionalHeader...)
+
 // ParseSuite reads the one table of GUIDE-eval's body whose header is
-// `| id | setup | prompt | prompt2 | check | agent | grants |`. Any prose may
+// `| id | setup | prompt | prompt2 | check | agent | grants |`, or that
+// followed by `| version | kind | cluster | expect |` (ADR-085). Any prose may
 // surround it. A table that does not parse is refused with its line number.
 func ParseSuite(body string) ([]Row, error) {
 	lines := strings.Split(body, "\n")
-	start, err := suiteStart(lines)
+	start, width, err := suiteStart(lines)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +70,7 @@ func ParseSuite(body string) ([]Row, error) {
 		if isSeparator(l) {
 			continue
 		}
-		r, err := parseRow(l, n)
+		r, err := parseRow(l, n, width)
 		if err != nil {
 			return nil, err
 		}
@@ -78,37 +90,40 @@ func ParseSuite(body string) ([]Row, error) {
 }
 
 // suiteStart is the index of the suite table's header line, the one table
-// with suiteHeader.
-func suiteStart(lines []string) (int, error) {
-	start := -1
+// with suiteHeader or suiteLongHeader, and that header's width.
+func suiteStart(lines []string) (int, int, error) {
+	start, width := -1, 0
 	for i, l := range lines {
-		if cells, ok := splitCells(l); ok && equalCells(cells, suiteHeader) {
-			if start >= 0 {
-				return 0, fmt.Errorf("GUIDE-eval line %d: a second suite table (the first is at line %d)", i+1, start+1)
-			}
-			start = i
+		cells, ok := splitCells(l)
+		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader)) {
+			continue
 		}
+		if start >= 0 {
+			return 0, 0, fmt.Errorf("GUIDE-eval line %d: a second suite table (the first is at line %d)", i+1, start+1)
+		}
+		start, width = i, len(cells)
 	}
 	if start < 0 {
-		return 0, fmt.Errorf("GUIDE-eval has no table with the header | %s |", strings.Join(suiteHeader, " | "))
+		return 0, 0, fmt.Errorf("GUIDE-eval has no table with the header | %s |, or that followed by | %s |", strings.Join(suiteHeader, " | "), strings.Join(optionalHeader, " | "))
 	}
-	return start, nil
+	return start, width, nil
 }
 
-// parseRow reads table line l, line n of the body, into a Row.
-func parseRow(l string, n int) (Row, error) {
+// parseRow reads table line l, line n of the body, into a Row of a table
+// width columns wide.
+func parseRow(l string, n, width int) (Row, error) {
 	if !strings.HasPrefix(l, "| `") {
 		return Row{}, fmt.Errorf("GUIDE-eval line %d: a row starts with | `id`", n)
 	}
 	cells, _ := splitCells(l)
-	if len(cells) != len(suiteHeader) {
-		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), len(suiteHeader), strings.Join(suiteHeader, ", "))
+	if len(cells) != width {
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), width, strings.Join(suiteLongHeader[:width], ", "))
 	}
 	m := leadingID.FindStringSubmatch(cells[0])
 	if m == nil || !validID.MatchString(m[1]) {
-		return Row{}, fmt.Errorf("GUIDE-eval line %d: the id is not one backticked name of a-z, 0-9, '.', '_' or '-'", n)
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: the id is not one backticked name of a-z, 0-9, '.', '_' or '-', at most 64 bytes", n)
 	}
-	return Row{
+	r := Row{
 		ID:      m[1],
 		Setup:   codeCell(cells[1]),
 		Prompt:  textCell(cells[2]),
@@ -116,7 +131,10 @@ func parseRow(l string, n int) (Row, error) {
 		Check:   codeCell(cells[4]),
 		Agent:   textCell(cells[5]),
 		Grants:  textCell(cells[6]),
-	}, nil
+	}
+	cells = append(cells[len(suiteHeader):], "", "", "", "")
+	err := optionalCells(&r, cells, n)
+	return r, err
 }
 
 // checkRow refuses a row with no prompt or check, an agent that is not a

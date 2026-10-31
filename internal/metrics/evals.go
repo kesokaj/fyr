@@ -29,7 +29,7 @@ type EvalRows struct {
 // number; the text prints n/a or -.
 type EvalRow struct {
 	Row      string      `json:"row"`
-	Version  int         `json:"version,omitempty"` // 0: not known at the run (before the suite's version column)
+	Version  int         `json:"version,omitempty"` // 1 for a trial or session stored before the suite's version column (ADR-085)
 	N        int         `json:"n"`
 	C        int         `json:"c"`
 	Errors   int         `json:"errors"`
@@ -153,7 +153,7 @@ func (s *Store) evalTrials() ([]evalTrial, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT label, COALESCE(row_version, 0), run, harness, status, started_at
+	rows, err := s.db.Query(`SELECT label, COALESCE(row_version, 1), run, harness, status, started_at
 		FROM trials WHERE substr(label, 1, length(?)) = ? ORDER BY started_at, run`, evalPrefix, evalPrefix)
 	if err != nil {
 		return nil, err
@@ -186,6 +186,8 @@ func (s *Store) evalTrials() ([]evalTrial, error) {
 		if t.run != "" && claimed[t.run] {
 			continue
 		}
+		// Stored before the suite's version column: the default (ADR-085).
+		t.key.version = 1
 		t.harness = "unknown"
 		out = append(out, t)
 	}

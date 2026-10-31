@@ -534,7 +534,7 @@ func TestEvalVerbList(t *testing.T) {
 	suite := strings.Replace(evalSuite, "| `bad` |  | say ok |  | `false` |  | named |", "| `bad` |  | say ok |  | `false` | reviewer | wide: needs bash |", 1)
 	r := newEvalRig(t, suite, false)
 	out, code := r.eval("--list")
-	if code != 0 || out != "ok  -  named\ntwo  -  named\nbad  reviewer  wide\n" {
+	if code != 0 || out != "ok  -  named  v1  capability\ntwo  -  named  v1  capability\nbad  reviewer  wide  v1  capability\n" {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	if _, err := os.Stat(filepath.Join(r.home, harness.StateDir, "eval")); !os.IsNotExist(err) {

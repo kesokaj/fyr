@@ -34,7 +34,7 @@ var evalRun = eval.Run
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
-		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide) and run nothing")
+		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide, version, kind) and run nothing")
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 	}, positional: true, readsRepo: true, run: runEval}
 }
@@ -116,7 +116,8 @@ func (c *ctx) evalRefuse(format string, a ...any) error {
 	return exitCode(2)
 }
 
-// listEval serves `fyr eval --list`: the working export's rows.
+// listEval serves `fyr eval --list`: the working export's rows, each with
+// its version and kind (ADR-085).
 func listEval(c *ctx, root string) error {
 	suite, err := readSuite(root, false)
 	if err != nil {
@@ -130,7 +131,7 @@ func listEval(c *ctx, root string) error {
 		if _, wide := r.Wide(); wide {
 			grants = "wide"
 		}
-		fmt.Fprintln(c.out, search.Printable(r.ID+"  "+agent+"  "+grants))
+		fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("%s  %s  %s  v%d  %s", r.ID, agent, grants, r.Version, r.Kind)))
 	}
 	return nil
 }

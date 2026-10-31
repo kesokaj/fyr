@@ -101,10 +101,10 @@ func TestEvalRows(t *testing.T) {
 	e.WriteText(&text)
 	want := `evals 2026-10-01 to 2026-10-31
 row    v  n  c  errors  pass@1  pass^3  wilson95      flip  turns  tool calls  tokens in/out/cache  session s  active s  tool err %  retries  peak ctx  last        flags
-broke  -  2  0  1       0.00    n/a     [0.00, 0.66]  0     1.0    1.0         100/10/50            20.0       2.0       0.0         0.0      2k        2026-10-30  broken
-flaky  -  3  3  0       1.00    1.00    [0.44, 1.00]  0     -      -           -                    -          -         -           -        -         2026-10-30  unstable
-old    -  2  2  0       1.00    n/a     [0.34, 1.00]  0     1.0    1.5         100/11/50            20.0       2.5       0.0         0.0      2k        2026-10-30  history
-sat    -  6  6  0       1.00    1.00    [0.61, 1.00]  0     1.0    3.0         100/10/50            20.0       4.0       33.3        1.0      2k        2026-10-30  saturated
+broke  1  2  0  1       0.00    n/a     [0.00, 0.66]  0     1.0    1.0         100/10/50            20.0       2.0       0.0         0.0      2k        2026-10-30  broken
+flaky  1  3  3  0       1.00    1.00    [0.44, 1.00]  0     -      -           -                    -          -         -           -        -         2026-10-30  unstable
+old    1  2  2  0       1.00    n/a     [0.34, 1.00]  0     1.0    1.5         100/11/50            20.0       2.5       0.0         0.0      2k        2026-10-30  history
+sat    1  6  6  0       1.00    1.00    [0.61, 1.00]  0     1.0    3.0         100/10/50            20.0       4.0       33.3        1.0      2k        2026-10-30  saturated
 suite: 4 rows graded, 13 graded trials, 1 error; pass rate 0.75 [0.30, 0.95] over rows; C_out 1.00
 suite: trajectory similarity 0.80 over 3 rows with two or more sessions
 `
@@ -202,5 +202,35 @@ func TestEvalRowsEmpty(t *testing.T) {
 	}
 	if err := e.WriteJSON(&js); err != nil || !strings.Contains(js.String(), `"rows": []`) {
 		t.Errorf("json: %v\n%s", err, js.String())
+	}
+}
+
+// TestEvalRowsVersionDefault: a trial or session stored before the suite's
+// version column (NULL) reads as version 1, so a row's history does not
+// split when fyr eval starts writing the default (ADR-085); another
+// version is its own line.
+func TestEvalRowsVersionDefault(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	day := evalsNow.Add(-24 * time.Hour)
+	for i, v := range []int{0, 1, 2} {
+		if err := s.RecordTrial(Trial{Run: fmt.Sprintf("s/r/%d", i+1), Label: "eval=r", Harness: "aaa1111", Status: "pass",
+			StartedAt: day, Seconds: 30, RowVersion: v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, label, outcome, started_at, ended_at) VALUES ('old', 'agy', 'eval=r', 'pass', ?, ?)`,
+		day.UnixMilli(), day.UnixMilli()+1000); err != nil {
+		t.Fatal(err)
+	}
+	e, err := s.Evals(EvalOptions{Now: evalsNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range e.Rows {
+		got = append(got, fmt.Sprintf("%s v%d n%d", r.Row, r.Version, r.N))
+	}
+	if strings.Join(got, "; ") != "r v1 n3; r v2 n1" {
+		t.Errorf("lines = %q, want r v1 n3; r v2 n1", got)
 	}
 }

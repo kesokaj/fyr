@@ -260,3 +260,55 @@ func TestTrialText(t *testing.T) {
 		t.Errorf("exactly 120 bytes cut to %d", len(got))
 	}
 }
+
+// evalLongSuite is evalSuite under the long header (ADR-085): ok sets all
+// four optional cells, two leaves them empty.
+const evalLongSuite = "The suite of the verb tests.\n\n" +
+	"| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
+	"|---|---|---|---|---|---|---|---|---|---|---|\n" +
+	"| `ok` |  | say ok |  | `grep -q 'agy says ok' \"$OUT\"` |  | named | 2 | regression | greet | Read, fyr record get |\n" +
+	"| `two` |  | first |  | `grep -q 'agy says ok' \"$OUT2\"` |  | named |  |  |  |  |\n"
+
+// TestEvalVerbListLong: --list prints each row's version and kind after its
+// grants, the defaults for an empty cell.
+func TestEvalVerbListLong(t *testing.T) {
+	r := newEvalRig(t, evalLongSuite, false)
+	out, code := r.eval("--list")
+	if code != 0 || out != "ok  -  named  v2  regression\ntwo  -  named  v1  capability\n" {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}
+
+// TestEvalTrialSuiteFields: each trial's row carries its row's version,
+// kind and cluster with the defaults applied, and expect as written or
+// NULL (ADR-085); a seven-column suite stores the defaults.
+func TestEvalTrialSuiteFields(t *testing.T) {
+	for name, c := range map[string]struct {
+		suite string
+		want  map[string][4]any // row → row_version, kind, cluster, expect
+	}{
+		"long": {evalLongSuite, map[string][4]any{
+			"ok": {float64(2), "regression", "greet", "Read,fyr record get"},
+		}},
+		"seven columns": {evalSuite, map[string][4]any{
+			"ok": {float64(1), "capability", "ok", nil},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newEvalRig(t, c.suite, true)
+			r.template("1", "C1")
+			if out, code := r.eval("ok"); code != 0 {
+				t.Fatalf("eval ok: exit %d\n%s", code, out)
+			}
+			trials := exported(t, r.home, "trials")
+			if len(trials) != 1 {
+				t.Fatalf("%d trials rows, want 1: %v", len(trials), trials)
+			}
+			tr, w := trials[0], c.want["ok"]
+			got := [4]any{tr["row_version"], tr["kind"], tr["cluster"], tr["expect"]}
+			if got != w {
+				t.Errorf("row_version, kind, cluster, expect = %v, want %v", got, w)
+			}
+		})
+	}
+}

@@ -56,13 +56,15 @@ func trialText(s string) string {
 	return s[:n]
 }
 
-// trialOf is the trials row of one result, under the run's harness key and
-// the CLI's version line.
-func trialOf(r eval.Result, key, cli string) metrics.Trial {
+// trialOf is the trials row of one result of suite row row, under the run's
+// harness key and the CLI's version line: the row's version, kind and
+// cluster as parsed, defaults applied, and its expect list (ADR-085).
+func trialOf(r eval.Result, row eval.Row, key, cli string) metrics.Trial {
 	t := metrics.Trial{
 		Run: r.Run, Label: "eval=" + r.Row, Harness: key, CLI: trialText(cli),
 		Status: map[string]string{eval.StatusPass: "pass", eval.StatusFail: "fail", eval.StatusError: "error"}[r.Status],
 		Cause:  r.Cause, StartedAt: r.Started, Seconds: int64(r.Seconds),
+		RowVersion: row.Version, Kind: row.Kind, Cluster: row.Cluster, Expect: row.Expect,
 	}
 	if r.SessionSeconds >= 0 {
 		s := int64(r.SessionSeconds)

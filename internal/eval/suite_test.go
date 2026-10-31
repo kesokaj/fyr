@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,15 @@ import (
 )
 
 const header = "| id | setup | prompt | prompt2 | check | agent | grants |\n|---|---|---|---|---|---|---|\n"
+
+const longHeader = "| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n|---|---|---|---|---|---|---|---|---|---|---|\n"
+
+// defaulted is r with the four optional columns at their defaults, as a
+// seven-column suite or an empty cell gives them.
+func defaulted(r Row) Row {
+	r.Version, r.Kind, r.Cluster = 1, KindCapability, r.ID
+	return r
+}
 
 func TestSuiteGrammar(t *testing.T) {
 	body := "# GUIDE-eval\n\nProse before.\n\n| a | b |\n|---|---|\n| `x` | y |\n\n" + header +
@@ -34,9 +44,11 @@ func TestSuiteGrammar(t *testing.T) {
 	if len(rows) != len(want) {
 		t.Fatalf("got %d rows, want %d: %+v", len(rows), len(want), rows)
 	}
+	// A seven-column suite parses as before, the four columns defaulted
+	// (ADR-085).
 	for i := range want {
-		if rows[i] != want[i] {
-			t.Errorf("row %d:\n got %+v\nwant %+v", i, rows[i], want[i])
+		if rows[i] != defaulted(want[i]) {
+			t.Errorf("row %d:\n got %+v\nwant %+v", i, rows[i], defaulted(want[i]))
 		}
 	}
 	if reason, ok := rows[1].Wide(); !ok || reason != "the skill pipes" {
@@ -51,8 +63,49 @@ func TestSuiteGrammar(t *testing.T) {
 	}
 }
 
+// TestSuiteGrammarLong: the long header's four cells, each empty or set
+// (ADR-085).
+func TestSuiteGrammarLong(t *testing.T) {
+	body := "Prose.\n\n" + longHeader +
+		"| `empty` |  | p |  | true |  | named |  |  |  |  |\n" +
+		"| `set` |  | p |  | true |  | named | 3 | `adversarial` | inject | Read, fyr record get ,view_file |\n" +
+		"| `reg` |  | p |  | true |  | named | 12 | regression | catalog |  |\n" +
+		"| `ind` |  | p |  | true |  | named | 1 | indicator |  | grep_search |\n"
+	rows, err := ParseSuite(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Row{
+		defaulted(Row{ID: "empty", Prompt: "p", Check: "true", Grants: "named"}),
+		{ID: "set", Prompt: "p", Check: "true", Grants: "named", Version: 3, Kind: KindAdversarial, Cluster: "inject", Expect: "Read,fyr record get,view_file"},
+		{ID: "reg", Prompt: "p", Check: "true", Grants: "named", Version: 12, Kind: KindRegression, Cluster: "catalog"},
+		{ID: "ind", Prompt: "p", Check: "true", Grants: "named", Version: 1, Kind: KindIndicator, Cluster: "ind", Expect: "grep_search"},
+	}
+	if len(rows) != len(want) {
+		t.Fatalf("got %d rows, want %d: %+v", len(rows), len(want), rows)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("row %d:\n got %+v\nwant %+v", i, rows[i], want[i])
+		}
+	}
+	// A 64-byte id is kept, and is a valid default cluster (the identifier
+	// rule's bound).
+	id := strings.Repeat("a", 64)
+	if rows, err := ParseSuite(longHeader + "| `" + id + "` |  | p |  | true |  | named |  |  |  |  |\n"); err != nil || rows[0].Cluster != id {
+		t.Errorf("a 64-byte id: %+v, %v", rows, err)
+	}
+	// 120 bytes is the trial's bound, so a list of exactly 120 is kept.
+	at := manyEntries(11)
+	rows, err = ParseSuite(longHeader + "| `a` |  | p |  | true |  | named |  |  |  | " + at + " |\n")
+	if err != nil || len(at) != 120 || rows[0].Expect != at {
+		t.Errorf("a 120-byte expect (%d bytes): %+v, %v", len(at), rows, err)
+	}
+}
+
 func TestSuiteRefusals(t *testing.T) {
 	row := func(cells string) string { return header + cells + "\n" }
+	long := func(four string) string { return longHeader + "| `a` |  | p |  | true |  | named | " + four + " |\n" }
 	for name, c := range map[string]struct{ body, want string }{
 		"no table":                          {"# nothing here\n", "no table with the header"},
 		"no rows":                           {header, "has no rows"},
@@ -66,9 +119,29 @@ func TestSuiteRefusals(t *testing.T) {
 		"wide with no reason":               {row("| `a` |  | p |  | true |  | wide:  |"), "want named or wide: <reason>"},
 		"a row with no id":                  {row("| a |  | p |  | true |  | named |"), "a row starts with | `id`"},
 		"an id with a slash":                {row("| `../x` |  | p |  | true |  | named |"), "the id is not one backticked name"},
+		"an id past 64 bytes":               {row("| `" + strings.Repeat("a", 65) + "` |  | p |  | true |  | named |"), "the id is not one backticked name"},
 		"a bad agent name":                  {row("| `a` |  | p |  | true | Re viewer | named |"), "is not an agent name"},
 		"a typo placeholder":                {row("| `a` |  | in {{CLONES}} |  | true |  | named |"), "unknown placeholder {{CLONES}}"},
 		"a second table":                    {header + "| `a` |  | p |  | true |  | named |\n\n" + header + "| `b` |  | p |  | true |  | named |\n", "a second suite table"},
+		"a short and a long table":          {header + "| `a` |  | p |  | true |  | named |\n\n" + longHeader + "| `b` |  | p |  | true |  | named |  |  |  |  |\n", "a second suite table"},
+		"seven cells under the long header": {longHeader + "| `a` |  | p |  | true |  | named |\n", "7 columns, want 11"},
+		"a partial header":                  {"| id | setup | prompt | prompt2 | check | agent | grants | version |\n|---|---|---|---|---|---|---|---|\n| `a` |  | p |  | true |  | named | 1 |\n", "no table with the header"},
+		"version 0":                         {long("0 |  |  | "), "line 3: row a: version \"0\""},
+		"a signed version":                  {long("+1 |  |  | "), "version \"+1\""},
+		"a leading zero":                    {long("01 |  |  | "), "version \"01\""},
+		"a version past nine digits":        {long("1000000000 |  |  | "), "version \"1000000000\""},
+		"a word for a version":              {long("two |  |  | "), "want an integer from 1"},
+		"an unknown kind":                   {long(" | safety |  | "), "kind \"safety\": want capability, regression, adversarial or indicator"},
+		"a kind in capitals":                {long(" | Regression |  | "), "kind \"Regression\""},
+		"a cluster of two words":            {long(" |  | a b | "), "cluster \"a b\""},
+		"a cluster with a slash first":      {long(" |  | /etc | "), "cluster \"/etc\""},
+		"an empty expect entry":             {long(" |  |  | Read,,Grep"), "expect entry 2 is empty"},
+		"a trailing comma":                  {long(" |  |  | Read,"), "expect entry 2 is empty"},
+		"a repeated expect entry":           {long(" |  |  | Read, Read"), "expect entry 2 repeats Read"},
+		"a flag in an expect verb":          {long(" |  |  | fyr --home"), "expect entry 1 \"fyr --home\": each word"},
+		"two spaces in an expect verb":      {long(" |  |  | fyr  record"), "expect entry 1 \"fyr  record\""},
+		"prose in expect":                   {long(" |  |  | read the file; then"), "expect entry 1"},
+		"an expect past 120 bytes":          {long(" |  |  | " + manyEntries(13)), "over 120 bytes"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseSuite(c.body)
@@ -77,6 +150,15 @@ func TestSuiteRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// manyEntries is n distinct ten-byte expect entries joined by commas.
+func manyEntries(n int) string {
+	var e []string
+	for i := range n {
+		e = append(e, fmt.Sprintf("tool_%05d", i))
+	}
+	return strings.Join(e, ",")
 }
 
 func TestSuiteSelectRows(t *testing.T) {

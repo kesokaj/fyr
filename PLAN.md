@@ -302,6 +302,19 @@ D16 — 2026-10-31 — P7, how the fix reads items 53 and 3 where they are silen
 
 — by: implementer, within P7's boxes.
 
+D17 — 2026-10-31 — P8, how the fix reads item 5's Phase 5a where the eval-metrics plan is silent (ADR-085):
+- **An `expect` entry with a space.** The plan says each entry passes the identifier rule, and its Phase 5b example is `fyr record`, which has a space. An entry is words of that rule joined by single spaces, so a normalised verb's program and subcommand fit and prose, a flag name (`--home`) or a doubled space do not. An empty or repeated entry is refused, and the list joined by `,` is at most 120 bytes, the trial's bound, so a parsed row is never refused at the store.
+- **The defaults are stored.** Each trial stores version 1, kind `capability` and cluster the row's id when the cell is empty, and `expect` NULL. A trial stored before P8 has NULL in all four, and P9's view reads NULL as those defaults. Storing NULL for an empty cell would let a later change of a default reinterpret history.
+- **A long table's row has eleven cells.** A seven-cell row under the long header is refused, so a missing cell is never read as an empty one. A header with some of the four columns is not a suite header.
+- **`version`'s shape.** Plain digits from 1 to 999999999, no sign and no leading zero (`strconv.Atoi` alone takes `+1` and `01`).
+- **`--list`** prints `v<version>` and the kind after the grants column.
+- **The identifier rule is copied** into `internal/eval/suite_columns.go`, since `internal/eval` links no SQLite driver and cannot import `internal/metrics`; the comment names the source.
+- **The view reads an unknown version as 1** (P8's review, finding 3). P7's `fyr metrics evals` already keyed its lines on `COALESCE(row_version, 0)`, so once P8 writes the default 1 every row would split into a `-` line and a `1` line. A NULL version and a session no trial claims now read as 1, and the `v` column prints `1` where it printed `-` (`TestEvalRowsVersionDefault`, each of its two triggers mutated). P9 keeps the per-kind rates and the `expect` match.
+- **An id is at most 64 bytes** (P8's security review, finding 2): it is the default cluster, so it falls under the same bound as an explicit one. No row in this repository's suite comes near it.
+- **`parseRow` returns `r` after `optionalCells` has run** (P8's security review, finding 1): `return r, optionalCells(&r, …)` leaves the order of the read and the call to the compiler. gc reads `r` after the call, so no test can fail on it; the fix is the two-statement form.
+
+— by: implementer, within P8's box.
+
 ## Risks
 
 - **The release range grows with every skill P10 and P11 touch.** P13 owes one Antigravity run per changed skill and agent: at least `init-project`, `review`, `frontend-ui-economist` and `frontend-ui-modern`.

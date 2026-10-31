@@ -31,7 +31,7 @@ func TestEvalsTable(t *testing.T) {
 	if table < 0 || recs < 0 || table > recs {
 		t.Errorf("the table is missing or below the records (%d, %d)\n%s", table, recs, body)
 	}
-	if !strings.Contains(preOf(body), "quokka  -  2  1  0       0.50    n/a     [0.09, 0.91]  1") || !strings.Contains(body, "unstable") {
+	if !strings.Contains(preOf(body), "quokka  1  2  1  0       0.50    n/a     [0.09, 0.91]  1") || !strings.Contains(body, "unstable") {
 		t.Errorf("the row:\n%s", body)
 	}
 	rep := get(t, r, "GET", "/metrics/report").Body.String()

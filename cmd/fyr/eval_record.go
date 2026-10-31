@@ -17,6 +17,10 @@ import (
 func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key string, rows []eval.Row, results []eval.Result) error {
 	failed := false
 	cli := agyVersion()
+	byID := map[string]eval.Row{}
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
 	// After the verdict, never before: the store stamps a label's outcome
 	// first-write-wins (D6), and an interrupted invocation still ingests the
 	// trials it started (D22). The trial first, so a trial whose sessions
@@ -26,7 +30,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key str
 		if r.Status != eval.StatusPass {
 			failed = true
 		}
-		if err := recordTrial(c.home, trialOf(r, key, cli)); err != nil {
+		if err := recordTrial(c.home, trialOf(r, byID[r.Row], key, cli)); err != nil {
 			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d trial: %v", r.Row, r.Trial, err)))
 			failed = true
 		}

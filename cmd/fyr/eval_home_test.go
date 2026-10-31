@@ -179,7 +179,7 @@ func TestEvalListNeedsNoHome(t *testing.T) {
 	r := newEvalRig(t, evalSuite, true)
 	before := treeOf(t, r.real)
 	var out bytes.Buffer
-	if err := run([]string{"eval", "--repo", r.harness, "--list"}, &out); err != nil || !strings.HasPrefix(out.String(), "ok  -  named\n") {
+	if err := run([]string{"eval", "--repo", r.harness, "--list"}, &out); err != nil || !strings.HasPrefix(out.String(), "ok  -  named  v1  capability\n") {
 		t.Fatalf("err %v:\n%s", err, out.String())
 	}
 	if treeOf(t, r.real) != before {
