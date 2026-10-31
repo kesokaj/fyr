@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 and P2 done (2026-10-31); P3 is next and waits on the operator's approval of D5. This is the only plan.
+Status: open. P1 and P2 done (2026-10-31); P3 is next (D5 approved). This is the only plan.
 
 ## The operator's words
 
@@ -82,6 +82,8 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 |---|---|---|---|
 | 41 | `SPEC-fyr-serve` and `SPEC-fyr-work` were `spec-stale` after P1's `c89b966`, whose `internal/check` change both name as code; P1's `fyr check` ran before that commit. Re-read against `c29dc47..c89b966` (rule (a)'s `notInRuleA` only, nothing either describes) and re-stamped. P2's own two-line comment in `internal/serve/pages.go` would stale the six specs naming `internal/serve` (`SPEC-fyr-dream`, `-eval`, `-memory-loop`, `-metrics`, `-record`, `-search`; P2's review, finding 1): re-read against that comment and re-stamped in the same commit | fix | P2 |
 | 42 | `leadGit` (`internal/work/fetch.go`) turns off replace refs and grafts but not the commit-graph, which can also rewire parents (P2's second security review, finding 3) | fix: `-c core.commitGraph=false`, with P4's guard work | P4 |
+| 43 | The `agy` audit's #4 and #10 (`REVIEW-2026-10-31-1101-review-antigravity-agy-integration-audit-against`): no real `agy` 1.4.12 output pins the shapes fyr parses (the dream's stream-json is pinned only by a fake, and the oracle's fixtures are from 1.4.9), so an upgrade can break a check silently, and the dream's `-p ""` beside `--input-format stream-json` is untested on 1.4.12. One real dream turn and one oracle run kept as fixtures, and a test that fails loudly on a missing shape; the dream's argv changes only if the real turn fails | fix (D11) | P12b |
+| 44 | The audit's #5: a host `fyr work` or `fyr eval` run is confined by nothing before it runs, and nothing lists what it writes outside the clone (the sandbox HOME's `.gemini/antigravity-cli/scratch` among them). An eval row that lists those writes; `--add-dir <clone>` is passed only if it shows writes there | fix (D11) | P12b |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -99,12 +101,12 @@ Checked against the code (2026-10-31, `afd92b4`):
 The fix (D5):
 1. A table test over every binary kind (release, development) and every place kind (checkout, binary-only, zip), for `status`, `update` and `update --from-zip`. It fails first on the development-build-at-a-zip-place cells (the bug skill: the failing test before the fix; a `bug` record under the next free id, BUG-203 on 2026-10-31, `fyr record add` assigns it; "the borken bug" below). The cells are § Cells below; every cell not listed there keeps `GUIDE-fyr-matrix` as it stands at `260d0b7`, and the test records today's output for those first.
 2. `status` at a zip place reports from the state with no source.
-3. `update` without `--from-zip` at a zip place prints how that place moves (a new zip, or a release binary for the version) and exits 1, a refusal like a plain copy's (`GUIDE-fyr-matrix`); exit 2 already means "behind" for `update --check` and a usage error (proposed, D5).
+3. `update` without `--from-zip` at a zip place prints how that place moves (a new zip, or a release binary for the version) and exits 1, a refusal like a plain copy's (`GUIDE-fyr-matrix`); exit 2 already means "behind" for `update --check` and a usage error (D5, approved).
 4. `update --from-zip` run by a development build at a place whose state records a checkout is refused, naming `fyr update` and `fyr install --repo <path>`. A development build never turns a checkout place into a zip place.
 5. The error that strands a place names `fyr install --repo <checkout>` as the way back. That includes `zipNote` in `internal/harness/repo.go` (`sourceCandidates`), whose "or run `fyr update --from-zip <file>` again" is the advice that stranded borken.
 6. `SPEC-fyr-delivery` § The model, the README map's zip label and `GUIDE-fyr-matrix` change in the same commit (AGENTS.md § How the harness works, rules 3 and 6), with an ADR amending ADR-038.
 
-### Cells (proposed, D5; the operator approves them before P3 starts)
+### Cells (D5; approved by the operator, 2026-10-31)
 
 | Binary | Place | Command | Expect |
 |---|---|---|---|
@@ -135,7 +137,7 @@ Now, by hand on borken, before the fix (Who: user): `git -C ~/workspace/fyr pull
 
 ### P3 — borken's update (items 37 and 40; one session; the `bug` skill)
 
-Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells.
+Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells: met, 2026-10-31 (D5).
 
 - [ ] The borken bug stored (the next free BUG id). The matrix test fails first on the development-build-at-a-zip-place cells. Who: AI.
 - [ ] D5's fixes 2–5 in `cmd/fyr` and `internal/harness`. Verify: the matrix test and `go test -race ./cmd/fyr ./internal/harness`. Expect: pass. Every cell equals § Item 37 § Cells, and every other cell keeps `GUIDE-fyr-matrix` as it stood at `260d0b7`. Who: AI.
@@ -175,10 +177,14 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells.
 - [ ] The eval-metrics plan's Phase 5b boxes, with `TestSuiteHarness`'s `want` in the same commit. Who: AI.
 - [ ] Checkpoint (rule 3). Expect: `go run ./cmd/fyr eval --home .agents/scratch/evalm --list` prints version and kind for every row.
 
-### P10 — the file-era trail goes (items 33 and 34; one session)
-- [ ] The ADR (D4), then the removals of item 33 with their tests, test first where a behaviour changes (a migrated project registers for `--global`, and the dream reads only records). `SPEC-fyr-search`, `SPEC-fyr-dream` and `skills/review/scripts/restatement-grep.sh` are updated. The ADR states the rule that replaces `globalDocsRoot` for `--global` registration (`internal/search/global.go`, `scope_prepare.go`) before any code; the proposed rule is a project with `.agents/trail.jsonl`, which the operator approves (D-row). Verify: the full test command, and `skills/review/scripts/restatement-grep.sh -i -- .agents/docs` across the living docs. Expect: only the import path, `unmigrated()` (`internal/brain`), `trail.DocsRoot` (`internal/trail`), init-project's Migration step and their tests name `.agents/docs`. Who: AI.
-- [ ] Item 34: `fyr record import --global --dry-run` (`internal/brain/import_global.go`) is shown to hold every line of the three legacy stores on dave: no problem listed, and each `feedback.jsonl`, `retros.jsonl` and `proposals/` entry matched to a global record by count and by ID. Then they are deleted on the operator's word, by name. Who: AI (the proof), user (the word).
+### P10a — the file-era trail goes: search and the docs root (item 33, its search half; one session; D9)
+- [ ] The ADR (D4), stating D9's registration rule first: a project with `.agents/trail.jsonl` registers for `--global`, replacing `globalDocsRoot` (`internal/search/global.go`, `scope_prepare.go`). Then item 33's search readers go, with their tests, test first where a behaviour changes (a migrated project registers for `--global`): the global search index's `.agents/docs` and the docs-root fallbacks. `SPEC-fyr-search` is updated. Verify: the full test command. Who: AI.
 - [ ] Checkpoint (rule 3), with `security` (search input paths).
+
+### P10b — the file-era trail goes: the dream and the legacy stores (items 33, its other half, and 34; one session; D9)
+- [ ] The rest of item 33, test first where a behaviour changes (the dream reads only records): the dream's file collector and its `feedback.jsonl` reader, `config_view`'s legacy files, `state.go`'s legacy paths, and `restatement-grep.sh`'s exclusions. `SPEC-fyr-dream` and `skills/review/scripts/restatement-grep.sh` are updated. Verify: the full test command, and `skills/review/scripts/restatement-grep.sh -i -- .agents/docs` across the living docs. Expect: only the import path, `unmigrated()` (`internal/brain`), `trail.DocsRoot` (`internal/trail`), init-project's Migration step and their tests name `.agents/docs`. Who: AI.
+- [ ] Item 34: `fyr record import --global --dry-run` (`internal/brain/import_global.go`) is shown to hold every line of the three legacy stores on dave: no problem listed, and each `feedback.jsonl`, `retros.jsonl` and `proposals/` entry matched to a global record by count and by ID. Then they are deleted on the operator's word, by name. Who: AI (the proof), user (the word).
+- [ ] Checkpoint (rule 3), with `security` (the dream's input paths).
 
 ### P11 — the UI skills (item 28, D3; one session)
 - [ ] Provenance first: the zip's `frontend-ui-modern` is compared with the published `anthropic-skills` copy when one is on this box, with `diff -r` (skills/VENDORED.md's procedure). If they are the same, it is vendored verbatim and listed in `skills/VENDORED.md`, and other descriptions are shortened to fit; if not, both descriptions are shortened. Who: AI.
@@ -190,6 +196,11 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells.
 - [ ] Item 32: `.agents/scratch/` pruned to its keep-set (`workers/`, `agents/`, `evalm/`, `prd-reshape/`, `ui-skills/`, `audit/`, and what a later phase names). It is listed first and deleted by name. Verify: `du -sh .agents/scratch` and `ls .agents/scratch` before and after, in the change record. Expect: only the keep-set is left. Who: AI.
 - [ ] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
 - [ ] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes.
+
+### P12b — `agy` captures and the outside-clone probe (items 43 and 44; one session; D11)
+- [ ] Item 43: one real dream turn and one oracle run on the installed `agy` (1.4.12 or later, named), their output kept as test fixtures beside the fake ones, and a test that fails, naming the missing key or event, when a shape fyr needs is absent. If the dream's `-p ""` with `--input-format stream-json` fails on the real turn, the argv changes with a test. The runs use a home outside every checkout, as `fyr eval` does (`GUIDE-testing` § 4), and need a logged-in `agy`; if it is not, the session asks the operator. Verify: `go test -race ./internal/dream`. Who: AI, with the operator's `agy` login.
+- [ ] Item 44: a `GUIDE-eval` row whose host run lists every path written outside the clone (the sandbox HOME's `.gemini/antigravity-cli/scratch` included), with `TestSuiteHarness`'s `want` updated in the same commit. If it lists writes under `scratch`, `--add-dir <clone>` joins `agyArgs` (`internal/sandbox/session.go`) with an argv test, and `SPEC-fyr-work` and `SPEC-fyr-eval` say so; if not, item 44 is closed by a D-row naming the run. Verify: `fyr eval` of the row, n of N. Who: AI.
+- [ ] Checkpoint (rule 3), with `security` (the sandbox's argv).
 
 ### P13 — release v5.5.0 (item 29; one session, from the operator's own turn)
 - [ ] The behavioural runs owed by the range `v5.0.0..HEAD` (AGENTS.md § Release): one `fyr eval` row per changed skill and agent, plus the real-home smoke of `TEST-2026-09-03-verify-real-home`, stored as `testing` records. The list comes from `git diff --name-only v5.0.0..HEAD -- skills agents context rules` at that time, and § Risks' list is a forecast. Who: AI.
@@ -216,13 +227,19 @@ D3 — 2026-10-31 — The UI plan's Step 1, taken as recommended:
 
 D4 — 2026-10-31 — The file-era trail has one path left: `fyr record import`, `unmigrated()`'s refusal, and init-project's Migration step. Every other reader of `.agents/docs`, `docs/`, `feedback.jsonl`, `retros.jsonl` or `proposals/` goes. An unmigrated project is refused by every record verb and imports first. Its ADR is written in P10. — by: the operator, 2026-10-31 ("clean up old files in the docs folder because we are using fyr instead").
 
-D5 — 2026-10-31 — Item 37's design is as in § Item 37: a matrix test, `status` and `update` working at a zip place with any binary, and a development build never turning a checkout place into a zip place. The zip never replaces the binary (ADR-038 stands). Rejected: building the binary from the zip's source. — by: implementer, as recommended to the operator. Awaiting the operator's approval, with § Item 37 § Cells and fix 3's exit 1, before P3 starts (P1 cold read).
+D5 — 2026-10-31 — Item 37's design is as in § Item 37: a matrix test, `status` and `update` working at a zip place with any binary, and a development build never turning a checkout place into a zip place. The zip never replaces the binary (ADR-038 stands). Rejected: building the binary from the zip's source. — by: implementer, as recommended to the operator; approved with § Item 37 § Cells as drafted and fix 3's exit 1 by the operator, 2026-10-31 ("Approve as drafted").
 
 D6 — 2026-10-31 — From P5 on, `PRD.md`'s `enforced by:` names bind (rule (c) of `fyr check`). A test named there is never renamed or removed by a later phase; its body may change. If one must go, the PRD edit is put to the operator in that session (PRD.md is immutable without approval). Every Checkpoint from P5 on expects `fyr check` to report 0 findings. The alternative was moving P5 after P10; that changes the order, so it is the operator's choice. — by: implementer, answering P1's cold read (the P5/P10 finding).
 
 D7 — 2026-10-31 — P13 keeps its order: the plan closes in the commit that preflight releases. If `/preflight` reports NO-SHIP, the plan reopens: `PLAN.md` is restored from git, the finding goes under § Items found during the run, and the plan record's status goes back to open. borken's box is a post-release check: the closing handoff's Next Steps carry it, and the plan record keeps it as `[-] (handoff Next Steps)`. — by: implementer, answering P1's cold read (the P13 finding).
 
 D8 — 2026-10-31 — P2's hot path was rule (b)'s `git log -G`, one per current spec, each diffing all 399 revisions of the 13 MB `trail.jsonl`: a GIT_TRACE2 run of the pre-fix binary gave 10 such calls and 565 s of the run's git time, all other git calls under 0.1 s, and the Go process used 0.27 s of a 510 s profiled run. That is 5m26s of CPU in P1's `check.log`, and 5m16s in item 21's row, which was the audit's run. The fix finds each spec's commit by bisection over HEAD's first-parent trail commits, each blob read once and indexed for every spec. It descends into a merge's merged side, so a line added on a merged branch keeps that branch's commit, as `-G` found it. A commit that only moves the line still does not reset the count. The history reads and the count run without replace refs, grafts or the commit-graph, refuse a blob over 256 MiB from its size, index each line in one pass, and descend at most 64 merges (P2's security reviews, two rounds). What changes in meaning, in `SPEC-fyr-check` § Known limits: a line removed and added again is found at one of its additions, not always the first, and a revision holding a NUL byte is read where `-G` skipped it as binary. Pre- and post-fix findings, notes and exit codes are identical on this checkout, on the mutated clone `.agents/scratch/prd-reshape/clone` (equal to `check-mutant.txt`), and on a fixture clone with 7 stale specs and a commit that only moves a spec's line (`.agents/scratch/p2-check-speed/`). Rejected: one combined `git log -G -p` (about 55 s; the diff itself is the cost) and a walk over every blob (24 s, growing with history). — by: implementer, within P2's fix box.
+
+D9 — 2026-10-31 — P10's registration rule: a project with `.agents/trail.jsonl` registers for `--global`, replacing `globalDocsRoot`. P10 splits into P10a (search and the docs root) and P10b (the dream and the legacy stores, item 34). — by: the operator, 2026-10-31 ("trail.jsonl + split").
+
+D10 — 2026-10-31 — P5 keeps its place before P10; D6 covers the hazard. — by: the operator, 2026-10-31 ("No, keep the order").
+
+D11 — 2026-10-31 — The `agy` audit (`REVIEW-2026-10-31-1101-review-antigravity-agy-integration-audit-against`), from the operator's four-strategy reference. fyr stays on one-shot `agy -p`, one fresh process per run. Items 43 (the audit's #4 and #10) and 44 (#5) join the plan in P12b. Struck: #1 (a persistent stream-json process), #2 (`agy_acp_server`), #3 (the Python SDK, remote control, community ACP wrappers), #6 (the token link's design), #7 (the borken keyring check), #8 (`modelProvider`), #9 (`--json-schema` for the dream's answer), and the P1 handoff's question 4 (the remote-control daemon's argv). — by: the operator, 2026-10-31 (the audit items selected; the strikes "go in either way").
 
 ## Risks
 
