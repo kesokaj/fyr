@@ -148,6 +148,7 @@ func TestExportRoundTripsEveryTable(t *testing.T) {
 		`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('s1', 'tu1', 0, 'git status')`,
 		`INSERT INTO events(session_id, ts, kind, ref, value) VALUES ('s1', 3, 'commit', 'abc', '')`,
 		`INSERT INTO ingest_state(source, size, mtime, offset) VALUES ('/x.jsonl', 10, 4, 10)`,
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds) VALUES ('s/r/1', 'eval=r', 'abc1234', 'pass', '', 5, 9)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
@@ -175,7 +176,7 @@ func TestExportRoundTripsEveryTable(t *testing.T) {
 		}
 		seen[line.Table]++
 	}
-	for _, tbl := range []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state"} {
+	for _, tbl := range []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials"} {
 		if seen[tbl] == 0 {
 			t.Errorf("export has no %s rows", tbl)
 		}

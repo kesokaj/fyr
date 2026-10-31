@@ -89,7 +89,7 @@ var verbs = map[string]verb{
 	"metrics": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
 		c.fs.StringVar(&c.metricsLabel, "label", "", "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label")
-		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail`")
+		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
 		c.fs.StringVar(&c.metricsSince, "since", "", "show, report: the window's start, `YYYY-MM-DD` (default 30 days ago)")
 		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report: the window's end, `YYYY-MM-DD`, exclusive (default now)")
 		c.fs.StringVar(&c.metricsProject, "project", "", "show, report: only sessions in the project root `DIR`")

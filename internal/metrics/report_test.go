@@ -66,6 +66,43 @@ func TestReportSelfContainedAndConsistent(t *testing.T) {
 	if !strings.Contains(html, "1 of 1 · pass^1 = 1") {
 		t.Error("the pass^k chart does not show the label's run")
 	}
+	// The chart reads c of n with the Wilson interval as a whisker and the
+	// per-trial columns in its table (the eval-metrics plan, Phase 1).
+	for _, want := range []string{`<line class="whisker"`, `Wilson 95 % [0.2065, 1.0000]`, `<th>wilson95</th>`, `<th>errors</th>`, `<td>[0.2065, 1.0000]</td>`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the pass^k chart lacks %q", want)
+		}
+	}
+}
+
+// passKChart's drawing: the bar is c of n, the whisker spans the interval
+// over the track, a label with only error trials has an empty bar and no
+// whisker, errors and flip are written in the value text.
+func TestPassKChartDrawing(t *testing.T) {
+	c := passKChart(map[string]PassK{
+		"eval=flip": {K: 4, Passed: 2, N: 4, C: 2, Errors: 1, Wilson95: [2]float64{0.15, 0.85}, Flip: 1},
+		"eval=err":  {Errors: 2},
+	})
+	svg := string(c.SVG)
+	const left, iw = 150.0, 640.0 - 150 - 150
+	// Rows sort by label: eval=err at y 16, eval=flip at y 40.
+	for _, want := range []string{
+		fmt.Sprintf(`<rect class="bar s1" x="150.0" y="40.0" width="%.1f"`, iw*0.5),
+		fmt.Sprintf(`<line class="whisker" x1="%.1f" x2="%.1f" y1="47.0" y2="47.0"/>`, left+iw*0.15, left+iw*0.85),
+		`2 of 4 · pass^4 = 0 · 1 errors · flip</text>`,
+		`0 of 0 · pass^0 = 0 · 2 errors</text>`,
+		`<rect class="bar s1" x="150.0" y="16.0" width="0.0"`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("chart lacks %q:\n%s", want, svg)
+		}
+	}
+	if n := strings.Count(svg, `class="whisker"`); n != 3 {
+		t.Errorf("%d whisker lines, want 3 (one label with graded trials)", n)
+	}
+	if want := []string{"eval=err", "0", "0", "0", "0", "0", "2", "[0.0000, 0.0000]", "0"}; fmt.Sprint(c.Table.Rows[0]) != fmt.Sprint(want) {
+		t.Errorf("table row %q, want %q", c.Table.Rows[0], want)
+	}
 }
 
 // A label or tool name is text, never markup.

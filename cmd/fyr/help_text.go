@@ -210,7 +210,7 @@ var pages = map[string]verbPage{
 	"metrics": {
 		synopsis: []string{
 			"usage: fyr metrics ingest [--source DIR --label KEY=VALUE",
-			"                          [--outcome pass|fail]]",
+			"                          [--outcome pass|fail|error]]",
 			"       fyr metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
 			"                        [--project DIR] [--label KEY=VALUE | --all-labels]",
 			"                        [--context-target N] [--json]",

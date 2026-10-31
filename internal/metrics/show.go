@@ -44,6 +44,14 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	if err != nil {
 		return nil, err
 	}
+	trials, err := s.trialsIn(o, since, now)
+	if err != nil {
+		return nil, err
+	}
+	claimed, err := s.trialRuns()
+	if err != nil {
+		return nil, err
+	}
 
 	sum := newSummary(since, now)
 	sum.B.ContextTarget = o.ContextTarget
@@ -60,7 +68,7 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 			return nil, err
 		}
 	}
-	sum.finish(all)
+	sum.finish(all, trials, claimed)
 	return sum, nil
 }
 
@@ -68,7 +76,7 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 // pass the options' label and project filters, with its arguments.
 func showQuery(o ShowOptions, since, now time.Time) (string, []any) {
 	q := `SELECT id, vendor, COALESCE(project_root,''), COALESCE(parent_id,''), COALESCE(agent_type,''),
-		COALESCE(label,''), COALESCE(outcome,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
+		COALESCE(label,''), COALESCE(outcome,''), COALESCE(run,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
 		FROM sessions WHERE COALESCE(started_at, ended_at, 0) >= ? AND COALESCE(started_at, ended_at, 0) < ?`
 	// A session belongs to the window it starts in, [since, until): adjacent
 	// windows never share one (retro compares two of them).
@@ -101,7 +109,7 @@ func (s *Store) sessionsIn(q string, args []any) ([]sess, error) {
 	var all []sess
 	for rows.Next() {
 		var x sess
-		if err := rows.Scan(&x.id, &x.vendor, &x.root, &x.parent, &x.agent, &x.label, &x.outcome, &x.start, &x.end, &x.cost); err != nil {
+		if err := rows.Scan(&x.id, &x.vendor, &x.root, &x.parent, &x.agent, &x.label, &x.outcome, &x.run, &x.start, &x.end, &x.cost); err != nil {
 			rows.Close()
 			return nil, err
 		}

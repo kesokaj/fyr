@@ -18,8 +18,12 @@ type writer struct {
 	tx             *sql.Tx
 	salt           string
 	label, outcome string
-	err            error
-	project        map[string]string // project root -> docs root
+	// run is the trial the sessions belong to, written at insert and kept
+	// first-write-wins, never by a label-wide UPDATE, which could stamp
+	// another trial's session (the eval-metrics plan D17).
+	run     string
+	err     error
+	project map[string]string // project root -> docs root
 }
 
 func (w *writer) exec(q string, args ...any) {

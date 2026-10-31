@@ -75,6 +75,16 @@ func TestMetricsIngestFailedSource(t *testing.T) {
 	}
 }
 
+// --outcome error is accepted by the verb end to end, as the help text
+// promises: the empty source gives nothing to read and exit 0.
+func TestMetricsIngestOutcomeError(t *testing.T) {
+	home := t.TempDir()
+	out, err := metricsCmd(t, "ingest", "--source", t.TempDir(), "--label", "a=b", "--outcome", "error", "--home", home)
+	if err != nil || !strings.Contains(out, "metrics: 0 sessions, 0 steps, 0 events added; 0 sources failed") {
+		t.Errorf("--outcome error: %v %q", err, out)
+	}
+}
+
 // A report over an existing file is refused with the error.
 func TestMetricsReportRefusesExistingFile(t *testing.T) {
 	home := t.TempDir()

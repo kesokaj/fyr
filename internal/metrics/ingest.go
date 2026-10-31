@@ -16,8 +16,13 @@ import (
 type Options struct {
 	Home string
 	// Source is a sandbox home; Label (KEY=VALUE) is required with it, and
-	// Outcome ("pass", "fail" or "") is stamped with it (D11).
+	// Outcome ("pass", "fail", "error" or "") is stamped with it (D11).
 	Source, Label, Outcome string
+	// Run is the trial the Source's sessions belong to (trials.run), written
+	// on each session at insert and never changed after; "" leaves it NULL.
+	// A Go field only: the kit's ingest surface has no flag for it (the
+	// eval-metrics plan D17).
+	Run string
 }
 
 // Result counts one ingest.
@@ -45,11 +50,28 @@ func (o Options) Validate() error {
 			return fmt.Errorf("--label %q: want KEY=VALUE", o.Label)
 		}
 	}
-	if o.Outcome != "" && o.Outcome != "pass" && o.Outcome != "fail" {
-		return fmt.Errorf("--outcome %q: want pass or fail", o.Outcome)
+	if o.Outcome != "" && o.Outcome != "pass" && o.Outcome != "fail" && o.Outcome != "error" {
+		return fmt.Errorf("--outcome %q: want pass, fail or error", o.Outcome)
 	}
 	if (o.Outcome != "" || o.Label != "") && o.Source == "" {
 		return fmt.Errorf("--label and --outcome are for a --source run")
+	}
+	return o.validateRun()
+}
+
+// validateRun is the shape a Run must have before it reaches a session:
+// given with a Source only (without one it would stamp the real home's
+// sessions, first-write-wins), printable and short, as a trial's run is
+// (the review of 2026-10-31, finding 2). Ingest checks it too, since the
+// field is set from Go without Validate.
+func (o Options) validateRun() error {
+	switch {
+	case o.Run == "":
+		return nil
+	case o.Source == "":
+		return fmt.Errorf("Run is for a --source run")
+	case printable(o.Run) != o.Run || len(o.Run) > trialText:
+		return fmt.Errorf("Run %q: not printable or over %d bytes", printable(o.Run), trialText)
 	}
 	return nil
 }
@@ -74,9 +96,12 @@ func (o Options) dreamWork() []string {
 
 // Ingest reads every transcript the options name into s. A source that fails
 // is named in Result.Failed and the rest are still read; the error is only for
-// a store that cannot be written at all.
+// a store that cannot be written at all, or a Run that must not reach it.
 func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 	var r Result
+	if err := o.validateRun(); err != nil {
+		return r, fmt.Errorf("metrics: %w", err)
+	}
 	before, err := s.counts()
 	if err != nil {
 		return r, err

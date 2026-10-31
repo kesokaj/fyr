@@ -40,10 +40,23 @@ type Closed struct {
 	Of        int `json:"of"`
 }
 
+// PassK is A6 for one label (spec § Metric definitions): the keys the
+// first consumers read, k, passed and pass_k (1 when all k passed), and
+// per trial (the eval-metrics plan D2, D3) n graded trials, c passed, the
+// error trials, pass@k and pass^k for k in 1, 3, 5 up to n, the Wilson 95 %
+// interval of c of n and flip, 1 when the label both passed and failed.
+// Rates are rounded to four decimals.
 type PassK struct {
-	K      int `json:"k"`
-	Passed int `json:"passed"`
-	PassK  int `json:"pass_k"`
+	K        int                `json:"k"`
+	Passed   int                `json:"passed"`
+	PassK    int                `json:"pass_k"`
+	N        int                `json:"n"`
+	C        int                `json:"c"`
+	Errors   int                `json:"errors"`
+	PassAt   map[string]float64 `json:"pass_at,omitempty"`
+	PassPow  map[string]float64 `json:"pass_pow,omitempty"`
+	Wilson95 [2]float64         `json:"wilson95"`
+	Flip     int                `json:"flip"`
 }
 
 type Tokens struct {
@@ -113,9 +126,9 @@ type Day struct {
 }
 
 type sess struct {
-	id, vendor, root, parent, agent, label, outcome string
-	start, end                                      int64
-	cost                                            *float64
+	id, vendor, root, parent, agent, label, outcome, run string
+	start, end                                           int64
+	cost                                                 *float64
 }
 
 type stp struct {

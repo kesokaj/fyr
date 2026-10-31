@@ -143,8 +143,104 @@ func TestShowLabels(t *testing.T) {
 	}
 	o.Label = "arm=lean"
 	sum, _ := s.Show(o)
-	if sum.Sessions["agy"] != 1 || sum.A.PassK["arm=lean"] != (PassK{K: 1, Passed: 1, PassK: 1}) {
+	p := sum.A.PassK["arm=lean"]
+	if sum.Sessions["agy"] != 1 || p.K != 1 || p.Passed != 1 || p.PassK != 1 {
 		t.Errorf("label view: sessions %v pass_k %v", sum.Sessions, sum.A.PassK)
+	}
+	// A store with no trials row: the session is its own graded trial.
+	if p.N != 1 || p.C != 1 || p.Errors != 0 || p.Flip != 0 || p.Wilson95 != [2]float64{0.2065, 1} || p.PassAt["1"] != 1 || len(p.PassAt) != 1 || p.PassPow["1"] != 1 {
+		t.Errorf("label view: pass_k %+v, want n 1, c 1, wilson95 [0.2065, 1], pass@1 and pass^1 = 1 alone", p)
+	}
+}
+
+// A6 over trials (the eval-metrics plan D2, D13): a trial counts once
+// however many sessions share its run, an error trial is counted apart and
+// never graded, a session no trial claims is a graded trial of its own,
+// and the rates come with pass@k, pass^k up to n, the Wilson interval and
+// flip, each at four decimals; the text line and the JSON carry them.
+func TestShowPassKTrials(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	base := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).UnixMilli()
+	for _, q := range []string{
+		// Label eval=two: trial 1 passed with two sessions (a prompt2 row); trial 2 is an error with no session.
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds) VALUES
+			('s/two/1', 'eval=two', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 60),
+			('s/two/2', 'eval=two', 'abc1234', 'error', 'setup', ` + fmt.Sprint(base+1000) + `, 5)`,
+		`INSERT INTO sessions(id, vendor, label, outcome, run, started_at, ended_at) VALUES
+			('A', 'agy', 'eval=two', 'pass', 's/two/1', ` + fmt.Sprint(base+100) + `, ` + fmt.Sprint(base+200) + `),
+			('B', 'agy', 'eval=two', 'pass', 's/two/1', ` + fmt.Sprint(base+300) + `, ` + fmt.Sprint(base+400) + `)`,
+		// Label eval=old: sessions an older ingest stored, no trials row: two graded trials, one passed.
+		`INSERT INTO sessions(id, vendor, label, outcome, started_at, ended_at) VALUES
+			('O1', 'agy', 'eval=old', 'pass', ` + fmt.Sprint(base+500) + `, ` + fmt.Sprint(base+600) + `),
+			('O2', 'agy', 'eval=old', 'fail', ` + fmt.Sprint(base+700) + `, ` + fmt.Sprint(base+800) + `)`,
+		// Label eval=six: six passed trials, so pass@5 and pass^5 exist.
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds) VALUES
+			('s/six/1', 'eval=six', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 1), ('s/six/2', 'eval=six', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 1),
+			('s/six/3', 'eval=six', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 1), ('s/six/4', 'eval=six', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 1),
+			('s/six/5', 'eval=six', 'abc1234', 'pass', '', ` + fmt.Sprint(base) + `, 1), ('s/six/6', 'eval=six', 'abc1234', 'fail', 'check', ` + fmt.Sprint(base) + `, 1)`,
+		// Label eval=errs: error trials only, nothing graded; eval=none: one failed trial, no flip.
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds) VALUES
+			('s/errs/1', 'eval=errs', 'abc1234', 'error', 'clone', ` + fmt.Sprint(base) + `, 1),
+			('s/none/1', 'eval=none', 'abc1234', 'fail', 'check', ` + fmt.Sprint(base) + `, 1)`,
+		// Label eval=lost: a session whose run names no trial (the trial's write failed): its own graded trial.
+		`INSERT INTO sessions(id, vendor, label, outcome, run, started_at, ended_at) VALUES
+			('L', 'agy', 'eval=lost', 'pass', 's/lost/1', ` + fmt.Sprint(base+900) + `, ` + fmt.Sprint(base+950) + `)`,
+		// A trial outside the window, and a subagent session with an outcome: neither counts.
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds) VALUES ('s/two/9', 'eval=two', 'abc1234', 'fail', 'check', 1, 1)`,
+		`INSERT INTO sessions(id, vendor, label, outcome, parent_id, started_at, ended_at) VALUES ('sub', 'agy', 'eval=old', 'fail', 'O1', ` + fmt.Sprint(base+500) + `, ` + fmt.Sprint(base+600) + `)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	window := ShowOptions{AllLabels: true, Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Now: time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)}
+	sum, err := s.Show(window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]PassK{
+		"eval=two":  {K: 1, Passed: 1, PassK: 1, N: 1, C: 1, Errors: 1, PassAt: map[string]float64{"1": 1}, PassPow: map[string]float64{"1": 1}, Wilson95: [2]float64{0.2065, 1}},
+		"eval=old":  {K: 2, Passed: 1, N: 2, C: 1, PassAt: map[string]float64{"1": 0.5}, PassPow: map[string]float64{"1": 0.5}, Wilson95: [2]float64{0.0945, 0.9055}, Flip: 1},
+		"eval=six":  {K: 6, Passed: 5, N: 6, C: 5, PassAt: map[string]float64{"1": 0.8333, "3": 1, "5": 1}, PassPow: map[string]float64{"1": 0.8333, "3": 0.5, "5": 0.1667}, Wilson95: [2]float64{0.4365, 0.9699}, Flip: 1},
+		"eval=errs": {Errors: 1},
+		"eval=none": {K: 1, N: 1, PassAt: map[string]float64{"1": 0}, PassPow: map[string]float64{"1": 0}, Wilson95: [2]float64{0, 0.7935}},
+		"eval=lost": {K: 1, Passed: 1, PassK: 1, N: 1, C: 1, PassAt: map[string]float64{"1": 1}, PassPow: map[string]float64{"1": 1}, Wilson95: [2]float64{0.2065, 1}},
+	}
+	if len(sum.A.PassK) != len(want) {
+		t.Errorf("labels %v, want %d", sortedKeys(sum.A.PassK), len(want))
+	}
+	for l, w := range want {
+		if got := sum.A.PassK[l]; fmt.Sprintf("%+v", got) != fmt.Sprintf("%+v", w) {
+			t.Errorf("%s:\n got %+v\nwant %+v", l, got, w)
+		}
+	}
+	// A non-number anywhere fails the encoder, which writes nothing: the
+	// error is the check.
+	var j bytes.Buffer
+	if err := sum.WriteJSON(&j); err != nil {
+		t.Fatalf("show --json: %v", err)
+	}
+	for _, w := range []string{`"n": 1`, `"c": 1`, `"errors": 1`, `"pass_at": {`, `"5": 0.1667`, `"wilson95": [`, `0.2065,`, `"flip": 1`} {
+		if !strings.Contains(j.String(), w) {
+			t.Errorf("show --json lacks %s:\n%s", w, j.String())
+		}
+	}
+	var text bytes.Buffer
+	sum.WriteText(&text)
+	if !strings.Contains(text.String(), "pass^k eval=two: 1 of 1 passed, pass^1 = 1; n 1, c 1, errors 1, wilson95 [0.2065, 1.0000], flip 0") {
+		t.Errorf("text lacks the trial line:\n%s", text.String())
+	}
+	// The default view (no label) and --project show no trial: a trial carries a label and belongs to no project root.
+	if plain, _ := s.Show(ShowOptions{Since: window.Since, Now: window.Now}); len(plain.A.PassK) != 0 {
+		t.Errorf("the default view shows pass_k %v", plain.A.PassK)
+	}
+	if proj, _ := s.Show(ShowOptions{AllLabels: true, Project: "/nowhere", Since: window.Since, Now: window.Now}); len(proj.A.PassK) != 0 {
+		t.Errorf("--project shows pass_k %v", proj.A.PassK)
+	}
+	// --label keeps one label's trials.
+	one, _ := s.Show(ShowOptions{Label: "eval=six", Since: window.Since, Now: window.Now})
+	if len(one.A.PassK) != 1 || one.A.PassK["eval=six"].N != 6 {
+		t.Errorf("--label eval=six: pass_k %v", one.A.PassK)
 	}
 }
 

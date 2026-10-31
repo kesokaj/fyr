@@ -43,18 +43,19 @@ func readAgySteps(db *sql.DB) ([]agyStep, [][]byte, error) {
 }
 
 // agySession stores the conversation's session row; a value stored before
-// is kept, and its end only moves later.
+// is kept (the run among them), and its end only moves later.
 func (w *writer) agySession(c agyConv) {
-	w.exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, label, outcome, ended_at)
-		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0))
+	w.exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, label, outcome, ended_at, run)
+		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
 			project_root = COALESCE(sessions.project_root, excluded.project_root),
 			parent_id = COALESCE(sessions.parent_id, excluded.parent_id),
 			agent_type = COALESCE(sessions.agent_type, excluded.agent_type),
 			label = COALESCE(sessions.label, excluded.label),
 			outcome = COALESCE(sessions.outcome, excluded.outcome),
-			ended_at = MAX(COALESCE(sessions.ended_at, 0), COALESCE(excluded.ended_at, 0))`,
-		c.id, c.root, c.parent, identifier(c.agent), w.label, w.outcome, c.modified)
+			ended_at = MAX(COALESCE(sessions.ended_at, 0), COALESCE(excluded.ended_at, 0)),
+			run = COALESCE(sessions.run, excluded.run)`,
+		c.id, c.root, c.parent, identifier(c.agent), w.label, w.outcome, c.modified, w.run)
 }
 
 // agySteps stores the user, reply and tool steps, widening the session to

@@ -146,7 +146,7 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 		return err
 	}
 	defer tx.Rollback()
-	w := writer{tx: tx, salt: salt, label: o.Label, outcome: o.Outcome}
+	w := writer{tx: tx, salt: salt, label: o.Label, outcome: o.Outcome, run: o.Run}
 	w.agySession(c)
 	w.agyGens(c, gens, w.agySteps(c, steps))
 	w.agyIngestState(source, c.modified)

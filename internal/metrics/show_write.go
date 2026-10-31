@@ -111,9 +111,13 @@ func (s *Summary) textOutcome(t textWriter) {
 		p := s.A.PassK[l]
 		// A label is any KEY=VALUE, and fyr eval's comes from the suite
 		// file: printed through the filter, as every other key (SD55).
-		fmt.Fprintf(t.w, "  pass^k %s: %d of %d passed, pass^%d = %d\n", printable(l), p.Passed, p.K, p.K, p.PassK)
+		fmt.Fprintf(t.w, "  pass^k %s: %d of %d passed, pass^%d = %d; n %d, c %d, errors %d, wilson95 %s, flip %d\n",
+			printable(l), p.Passed, p.K, p.K, p.PassK, p.N, p.C, p.Errors, wilsonText(p.Wilson95), p.Flip)
 	}
 }
+
+// wilsonText prints an interval as [lo, hi] at four decimals.
+func wilsonText(w [2]float64) string { return fmt.Sprintf("[%.4f, %.4f]", w[0], w[1]) }
 
 func (s *Summary) textEfficiency(t textWriter) {
 	t.head("B. efficiency")

@@ -221,33 +221,57 @@ func barChart(title, note string, series []serie, keys []string, data map[string
 	return c
 }
 
-// passKChart: per sandbox label, runs passed of k, and whether all passed.
+// passKChart: per sandbox label, graded trials passed of n with the Wilson
+// 95 % interval as a whisker, the error trials, and whether all passed.
 func passKChart(p map[string]PassK) chart {
-	c := chart{Title: "Sandbox runs: passed of k, per label", Note: "pass^k = 1 only when every run of the label passed",
-		Table: table{Head: []string{"label", "passed", "k", "pass^k"}}}
+	c := chart{Title: "Sandbox runs: passed of n, per label",
+		Note:  "pass^k = 1 only when every graded trial of the label passed; the whisker is the Wilson 95 % interval of c of n; error trials are not graded; flip marks a label that both passed and failed",
+		Table: table{Head: []string{"label", "passed", "k", "pass^k", "n", "c", "errors", "wilson95", "flip"}}}
 	labels := sortedKeys(p)
 	const barH, rowGap, left = 14.0, 10.0, 150.0
 	h := padT + float64(len(labels))*(barH+rowGap) + 8
-	iw := chartW - left - 120
+	iw := chartW - left - 150
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg viewBox="0 0 %.0f %.0f" role="img" aria-label="%s">`, chartW, h, esc(c.Title))
 	for i, l := range labels {
 		r := p[l]
-		c.Table.Rows = append(c.Table.Rows, []string{l, fmt.Sprint(r.Passed), fmt.Sprint(r.K), fmt.Sprint(r.PassK)})
-		y := padT + float64(i)*(barH+rowGap)
-		frac := 0.0
-		if r.K > 0 {
-			frac = float64(r.Passed) / float64(r.K)
-		}
-		fmt.Fprintf(&b, `<text class="cat" x="%.1f" y="%.1f" text-anchor="end">%s</text>`, left-8, y+barH-3, esc(l))
-		fmt.Fprintf(&b, `<rect class="track" x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="2"/>`, left, y, iw, barH)
-		fmt.Fprintf(&b, `<rect class="bar s1" x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="2"><title>%s: %d of %d passed</title></rect>`,
-			left, y, iw*frac, barH, esc(l), r.Passed, r.K)
-		fmt.Fprintf(&b, `<text class="value" x="%.1f" y="%.1f">%d of %d · pass^%d = %d</text>`, left+iw+6, y+barH-3, r.Passed, r.K, r.K, r.PassK)
+		c.Table.Rows = append(c.Table.Rows, []string{l, fmt.Sprint(r.Passed), fmt.Sprint(r.K), fmt.Sprint(r.PassK),
+			fmt.Sprint(r.N), fmt.Sprint(r.C), fmt.Sprint(r.Errors), wilsonText(r.Wilson95), fmt.Sprint(r.Flip)})
+		passKRow(&b, l, r, padT+float64(i)*(barH+rowGap), left, iw, barH)
 	}
 	b.WriteString(`</svg>`)
 	c.SVG = template.HTML(b.String())
 	return c
+}
+
+// passKRow draws one label of the pass^k chart: its name, the track, the
+// bar c of n, the whisker from the interval's low to its high end over the
+// bar, and the value text; a label with no graded trial has an empty bar
+// and no whisker.
+func passKRow(b *strings.Builder, l string, r PassK, y, left, iw, barH float64) {
+	frac := 0.0
+	if r.N > 0 {
+		frac = float64(r.C) / float64(r.N)
+	}
+	fmt.Fprintf(b, `<text class="cat" x="%.1f" y="%.1f" text-anchor="end">%s</text>`, left-8, y+barH-3, esc(l))
+	fmt.Fprintf(b, `<rect class="track" x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="2"/>`, left, y, iw, barH)
+	fmt.Fprintf(b, `<rect class="bar s1" x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="2"><title>%s: %d of %d passed, Wilson 95 %% %s</title></rect>`,
+		left, y, iw*frac, barH, esc(l), r.C, r.N, wilsonText(r.Wilson95))
+	if r.N > 0 {
+		lo, hi, mid := left+iw*r.Wilson95[0], left+iw*r.Wilson95[1], y+barH/2
+		fmt.Fprintf(b, `<line class="whisker" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, lo, hi, mid, mid)
+		for _, x := range []float64{lo, hi} {
+			fmt.Fprintf(b, `<line class="whisker" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, x, x, y, y+barH)
+		}
+	}
+	text := fmt.Sprintf("%d of %d · pass^%d = %d", r.Passed, r.K, r.K, r.PassK)
+	if r.Errors > 0 {
+		text += fmt.Sprintf(" · %d errors", r.Errors)
+	}
+	if r.Flip == 1 {
+		text += " · flip"
+	}
+	fmt.Fprintf(b, `<text class="value" x="%.1f" y="%.1f">%s</text>`, left+iw+6, y+barH-3, text)
 }
 
 func short(v float64) string {
@@ -356,6 +380,7 @@ svg{width:100%;height:auto;display:block;overflow:visible}
 .dot.s1,.bar.s1,.sw.s1{fill:var(--series-1);background:var(--series-1)}.dot.s2,.bar.s2,.sw.s2{fill:var(--series-2);background:var(--series-2)}
 .dot{stroke:var(--card);stroke-width:2}
 .track{fill:var(--rule)}
+.whisker{stroke:var(--ink);stroke-width:1.5}
 table{border-collapse:collapse;width:100%;font-size:12px;font-variant-numeric:tabular-nums}
 th,td{text-align:right;padding:3px 8px;border-bottom:1px solid var(--rule)}
 th:first-child,td:first-child{text-align:left}

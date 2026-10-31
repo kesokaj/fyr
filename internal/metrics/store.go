@@ -58,10 +58,19 @@ var migrations = []string{
 	`UPDATE sessions SET started_at = NULL WHERE started_at < 0;
 	UPDATE sessions SET ended_at = NULL WHERE ended_at < 0;
 	UPDATE ingest_state SET mtime = 0 WHERE mtime < 0;`,
+	// 4: the trial, one run of a suite row, as the unit every rate reads
+	// (the eval-metrics plan D13): its row exists whether or not a session
+	// ran, and a session names the trial it belongs to. A session stored
+	// before, or by a kit's ingest, keeps run NULL and counts as one trial
+	// of its own.
+	`CREATE TABLE trials(run TEXT PRIMARY KEY, label TEXT NOT NULL, row_version INTEGER, kind TEXT,
+		cluster TEXT, expect TEXT, harness TEXT NOT NULL, cli TEXT, status TEXT NOT NULL, cause TEXT NOT NULL,
+		started_at INTEGER NOT NULL, seconds INTEGER NOT NULL, session_seconds INTEGER);
+	ALTER TABLE sessions ADD COLUMN run TEXT;`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

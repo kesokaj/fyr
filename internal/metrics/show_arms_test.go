@@ -27,7 +27,7 @@ func TestAddArms(t *testing.T) {
 		{ext: "4", kind: "tool", ts: ms + 4000},
 	})
 	s.add(sub, []stp{{ext: "5", kind: "tool", tool: "Read", ts: ms + 5000}})
-	s.finish([]sess{main, sub})
+	s.finish([]sess{main, sub}, nil, nil)
 
 	for name, c := range map[string][2]int{
 		"subagents unknown":           {s.Subagents["agy"]["unknown"], 1},

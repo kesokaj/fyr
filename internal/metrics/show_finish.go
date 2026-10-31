@@ -2,11 +2,13 @@ package metrics
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 )
 
-func (s *Summary) finish(all []sess) {
-	s.passK(all)
+func (s *Summary) finish(all []sess, trials []trial, claimed map[string]bool) {
+	s.passK(all, trials, claimed)
 	s.Columns = []string{"agy"}
 	if s.Sessions[historical] > 0 || len(s.Subagents[historical]) > 0 {
 		s.Columns = append(s.Columns, historical)
@@ -24,31 +26,75 @@ func (s *Summary) finish(all []sess) {
 	}
 }
 
-// passK is each label's pass^k: of its main sessions with an outcome, how
-// many passed, and 1 when every one did.
-func (s *Summary) passK(all []sess) {
+// passK is each label's A6 over its trials: the trials rows in the window,
+// plus one trial per main session with an outcome that no trial in the
+// store claims (a NULL run: stored before migration 4, or by a kit's
+// ingest; or a run whose trial was never written), under which a prompt2
+// row still counts two (SPEC-fyr-eval § Known limits). A session a trial
+// claims is counted by the trial alone, in the trial's own window.
+func (s *Summary) passK(all []sess, trials []trial, claimed map[string]bool) {
 	labels := map[string]*PassK{}
-	for _, x := range all {
-		if x.parent != "" || x.label == "" || x.outcome == "" {
-			continue
-		}
-		p := labels[x.label]
+	count := func(label, status string) {
+		p := labels[label]
 		if p == nil {
 			p = &PassK{}
-			labels[x.label] = p
+			labels[label] = p
 		}
-		p.K++
-		if x.outcome == "pass" {
-			p.Passed++
+		switch status {
+		case "pass":
+			p.N++
+			p.C++
+		case "fail":
+			p.N++
+		case "error":
+			p.Errors++
+		}
+	}
+	for _, t := range trials {
+		count(t.label, t.status)
+	}
+	for _, x := range all {
+		if x.parent == "" && x.label != "" && x.outcome != "" && !claimed[x.run] {
+			count(x.label, x.outcome)
 		}
 	}
 	for l, p := range labels {
-		if p.Passed == p.K {
-			p.PassK = 1
-		}
+		p.estimate()
 		s.A.PassK[l] = *p
 	}
 }
+
+// estimate fills a label's rates from n and c: the first consumers' keys
+// (all n passed), pass@k and pass^k for k in 1, 3, 5 that n reaches, the
+// Wilson 95 % interval and flip. A k above n is omitted, never a number.
+func (p *PassK) estimate() {
+	p.K, p.Passed = p.N, p.C
+	if p.N > 0 && p.C == p.N {
+		p.PassK = 1
+	}
+	for _, k := range []int{1, 3, 5} {
+		if v, ok := PassAtK(p.N, p.C, k); ok {
+			if p.PassAt == nil {
+				p.PassAt = map[string]float64{}
+			}
+			p.PassAt[strconv.Itoa(k)] = round4(v)
+		}
+		if v, ok := PassPowK(p.N, p.C, k); ok {
+			if p.PassPow == nil {
+				p.PassPow = map[string]float64{}
+			}
+			p.PassPow[strconv.Itoa(k)] = round4(v)
+		}
+	}
+	lo, hi := Wilson(p.N, p.C, 1.96)
+	p.Wilson95 = [2]float64{round4(lo), round4(hi)}
+	if 0 < p.C && p.C < p.N {
+		p.Flip = 1
+	}
+}
+
+// round4 is v at four decimals, the precision a rate is printed with.
+func round4(v float64) float64 { return math.Round(v*1e4) / 1e4 }
 
 // finishColumn turns column v's totals into its rates, and notes what the
 // column's CLI does not record; a column with no session has none.
