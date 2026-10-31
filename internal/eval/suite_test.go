@@ -218,7 +218,8 @@ func TestSuiteHarness(t *testing.T) {
 		// Ported from GUIDE-skill-matrix for the v3.0.0 gate's per-skill runs.
 		"api-auth": {"", false}, "bash": {"", false}, "cloud-run": {"", false}, "data": {"", false},
 		"distill": {"", true}, "docker": {"", false}, "dream": {"", true}, "explain-project": {"", false},
-		"feedback": {"", false}, "frontend-ui-economist": {"", false}, "frontend-ui-modern": {"", false}, "gke": {"", false}, "golang": {"", false},
+		"writes-outside-clone": {"", true},
+		"feedback":             {"", false}, "frontend-ui-economist": {"", false}, "frontend-ui-modern": {"", false}, "gke": {"", false}, "golang": {"", false},
 		"harness-audit-elsewhere": {"", false}, "research": {"", false}, "review-standards": {"", false},
 		"spec": {"", false}, "terraform": {"", false}, "testing-strategy": {"", false}, "typescript": {"", false},
 		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},
@@ -239,7 +240,7 @@ func TestSuiteHarness(t *testing.T) {
 		"catalog-route-5": KindRegression, "catalog-route-6": KindRegression, "catalog-precedence": KindRegression,
 		"agents-security": KindAdversarial, "agent-reviewer": KindAdversarial, "inject-bugs": KindAdversarial,
 		"inject-changelog": KindAdversarial, "inject-documentation": KindAdversarial, "lane-reviewer": KindAdversarial,
-		"lane-bugs": KindAdversarial, "lane-documentation": KindAdversarial}
+		"lane-bugs": KindAdversarial, "lane-documentation": KindAdversarial, "writes-outside-clone": KindIndicator}
 	got := map[string]Row{}
 	for _, r := range rows {
 		got[r.ID] = r

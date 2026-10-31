@@ -20,7 +20,8 @@ import (
 // The oracle: agy's own print-mode reports of the permission state, which
 // start no turn, spend no quota and leave no conversation (since agy
 // 1.1.12). Its fields and their meaning are what agy 1.4.9 showed in the
-// 2026-10-28 sandbox runs (plan D24); anything else fails closed (plan D6).
+// 2026-10-28 sandbox runs (plan D24), unchanged in 1.4.12's capture
+// (testdata/agy-1.4.12); anything else fails closed (plan D6).
 var (
 	oracleTimeout = 30 * time.Second
 	oracleGrace   = 5 * time.Second
