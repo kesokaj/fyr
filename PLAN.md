@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P10b done (2026-10-31); P11 is running. This is the only plan.
+Status: open. P1 to P11 done (2026-10-31); P12 is next. This is the only plan.
 
 ## The operator's words
 
@@ -206,7 +206,7 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 ### P11 — the UI skills (item 28, D3; one session)
 - [x] Provenance first: the zip's `frontend-ui-modern` is compared with the published `anthropic-skills` copy when one is on this box, with `diff -r` (skills/VENDORED.md's procedure). If they are the same, it is vendored verbatim and listed in `skills/VENDORED.md`, and other descriptions are shortened to fit; if not, both descriptions are shortened. Who: AI.
 - [x] The UI plan's Phase 1 box, as written there, with D3's answers. One `GUIDE-eval` row per new skill, with `TestSuiteHarness` updated. D3 Open 5's orphans (rules of `frontend` with no home in the new skills) are put to the operator in this session before `frontend` goes. The `security` agent reads every script the new skills carry. The UI plan's Phase 2 (the behavioural runs) is P13's first box. Verify: `go test ./...` (the lint and `TestSkillListingBudget`). Who: AI, user (the orphans).
-- [ ] Checkpoint (rule 3), with `security` (the new scripts) and `/review --docs`.
+- [x] Checkpoint (rule 3), with `security` (the new scripts) and `/review --docs`. Done 2026-10-31: 1830 pass, 0 fail, 6 skip; `fyr check` 0 findings; `reviewer` and `security` two rounds each.
 
 ### P12 — the docs sweep (items 25, 32, 35, 47 and 52; one session)
 - [ ] Item 25: `TDD.md` § T5 rows thinned, each claim kept in its `SPEC-fyr-*` or `cmd/fyr/help_text.go`. Verify: `fyr check`, and a table in the change record that maps each removed claim to its new home's file:line. Who: AI.
