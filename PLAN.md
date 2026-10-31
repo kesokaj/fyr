@@ -219,7 +219,7 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 
 ### P13 — release v5.5.0 (item 29; one session, from the operator's own turn)
 - [ ] The behavioural runs owed by the range `v5.0.0..HEAD` (AGENTS.md § Release): one `fyr eval` row per changed skill and agent, plus the real-home smoke of `TEST-2026-09-03-verify-real-home`, stored as `testing` records. The list comes from `git diff --name-only v5.0.0..HEAD -- skills agents context rules` at that time, and § Risks' list is a forecast. Who: AI.
-- [ ] This file stored as a closed `plan` record, removed from the root, and AGENTS.md § Layout and `TODO.md` updated, all in one commit (rule 5). Who: AI.
+- [ ] This file stored as a closed `plan` record, removed from the root, and AGENTS.md § Layout and `TODO.md` updated (Now: the auto-mode plan's Phase 0, D18), all in one commit (rule 5). Who: AI.
 - [ ] `/preflight v5.5.0`. Expect: SHIP, the tag pushed, the release published. Who: AI, from the operator's turn.
 - [ ] borken moves to v5.5.0 by its own `fyr update` (`DEPLOY-remote` § Operator steps). This is a post-release check outside the plan's life (D7). Expect: `fyr version` prints `v5.5.0`, or `b<sha>` of the release commit at a checkout place, and `fyr status` exits 0. Who: user.
 
@@ -314,6 +314,8 @@ D17 — 2026-10-31 — P8, how the fix reads item 5's Phase 5a where the eval-me
 - **`parseRow` returns `r` after `optionalCells` has run** (P8's security review, finding 1): `return r, optionalCells(&r, …)` leaves the order of the read and the call to the compiler. gc reads `r` after the call, so no test can fail on it; the fix is the two-statement form.
 
 — by: implementer, within P8's box.
+
+D18 — 2026-10-31 — The operator's auto-mode ask, given during P8, is researched in `PLAN-2026-10-31-1632-research-fyr-auto-mode-idle-time-self-improvemen` and planned in `PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` (approach B). That plan waits for P13: its Phase 0 starts after v5.5.0, and rule 1 still holds until then. The new plan's record stays open meanwhile, and no Kickoff of this file runs it. P13's closing commit points `TODO.md` Now at its Phase 0. The `PRD.md` wording is approved now and applied in that Phase 0 (its D2), so no requirement changes inside this plan's release. — by: the operator, 2026-10-31 ("go all approved", "with your recommendations", "Approach B as you are recommending").
 
 ## Risks
 
