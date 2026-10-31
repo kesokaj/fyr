@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1, P2, P3, P4 and P5 done (2026-10-31); P6 is next. This is the only plan.
+Status: open. P1 to P6 done (2026-10-31); P7 is next. This is the only plan.
 
 ## The operator's words
 
@@ -92,6 +92,7 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 50 | P6's security review, finding 3 (it predates P6): a file system the agent mounts inside the sandbox (FUSE: `/dev/fuse` is world-writable and `fusermount3` setuid on dave) is not detected; `Intact`, `realDirs` and `os.Root` descend into it | fix: a mount under the sandbox is `sandbox replaced` (`st_dev` or mountinfo), test first | P12b |
 | 51 | P6's security review, Low 2: eval's ingest (`cmd/fyr/eval.go` `ingestRow`) skips a sandbox by a hand-kept deny list of reasons, beside `fyr work`'s `safetyReasons`; P6 had to add `sandbox write failed` to both by hand | fix: one integrity-reason list in `internal/sandbox`, read by both, test first | P12b |
 | 52 | The operator's standing rule of 2026-10-31 for every agy dispatch: when scheduling `fyr work`, choose each worker's model by tier (`--model`) and read the quota left (`agy -p "/usage"`) first, state tier, model and quota per dispatch, switch only within a tier, and stop and ask when a tier (in practice its quota pool) is out; the same check precedes every `fyr eval` run. Today it is a project memory and `DEPLOY-local`'s tiers. Its durable home: a global `rules/agy-dispatch.md`, with one-line pointers in `skills/work/SKILL.md` and `GUIDE-testing` § 4 (D15) | fix | P12 |
+| 53 | P6's E2E: the second `fyr eval` run's harness key read `06fe101 (dirty)`, because the first run's testing record changed `.agents/trail.jsonl`, which `fyr install` does not install. Two runs of one harness then land under two keys, which splits the per-harness flags of P7's view | fix: the key's dirty mark looks only at what `fyr install` installs (`context/`, `skills/`, `agents/`, `commands/`, `rules/`), test first, with `SPEC-fyr-eval` § Data | P7 |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -170,10 +171,11 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 
 ### P6 — eval: the trial record (items 1 and 2; one session)
 - [x] Item 1: `replaced` becomes a FAIL in `internal/eval/cause.go` (`errorCauses` and its comment). Tests that assert ERROR today change: `internal/eval/cause_test.go` (`TestClassifyEveryReason`), `internal/eval/row_replaced_test.go` and `TestRunSandboxReplaced` in `internal/eval/run_sandbox_test.go`. The `SPEC-fyr-eval` step 15 and status table change too, and the restatements of "replaced … ERROR" are grepped (`skills/review/scripts/restatement-grep.sh -i -- replaced`). Verify: `go test -race ./internal/eval ./cmd/fyr`. Expect: `TestRunSandboxReplaced` asserts FAIL, and the SPEC table lists `replaced` under FAIL. Who: AI.
-- [ ] Item 2: the boxes of the eval-metrics plan's Phase 2b (`PLAN-2026-10-31-0300-…`, § Phases § Phase 2b), as written there. The shapes are in that record's § Interfaces (`fyr eval --runs N` and the trial record). The two E2E criteria are in its § Verification: the golden path and the edge. The E2E runs under `~/sandbox/fyr-eval/home` (AGENTS.md's eval exception) and needs a logged-in agy on dave. If agy is not logged in, the session asks the operator. Who: AI, with the operator's agy login.
-- [ ] Checkpoint (rule 3). Expect: the full test command exit 0, and the E2E record IDs.
+- [x] Item 2: the boxes of the eval-metrics plan's Phase 2b (`PLAN-2026-10-31-0300-…`, § Phases § Phase 2b), as written there. The shapes are in that record's § Interfaces (`fyr eval --runs N` and the trial record). The two E2E criteria are in its § Verification: the golden path and the edge. The E2E runs under `~/sandbox/fyr-eval/home` (AGENTS.md's eval exception) and needs a logged-in agy on dave. If agy is not logged in, the session asks the operator. Who: AI, with the operator's agy login.
+- [x] Checkpoint (rule 3). Expect: the full test command exit 0, and the E2E record IDs. Done 2026-10-31: exit 0, 15 of 15 packages; E2E `TEST-2026-10-31-1456-eval-3-of-3-pass-at-06fe101-k-3-0-errors` (golden) and `TEST-2026-10-31-1457-eval-0-of-0-pass-at-06fe101-k-2-2-errors` (edge); `CHANGE` record of P6.
 
-### P7 — eval: the per-row view (item 3; one session)
+### P7 — eval: the per-row view (items 3 and 53; one session)
+- [ ] Item 53, first: the harness key's dirty mark over what `fyr install` installs, test first (a run after a run that wrote its testing record keeps the clean key). Verify: `go test -race ./cmd/fyr -run 'TestEval|TestHarnessKey'`. Who: AI.
 - [ ] The eval-metrics plan's Phase 3 boxes, with the new report code in a new file. Who: AI.
 - [ ] Checkpoint (rule 3). Expect: Phase 3's E2E criterion on the eval home.
 
