@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P10a done (2026-10-31); P10b is next. This is the only plan.
+Status: open. P1 to P10b done (2026-10-31); P11 is next. This is the only plan.
 
 ## The operator's words
 
@@ -199,7 +199,7 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security` (search input paths). Done 2026-10-31: verifier 1840 pass, 0 fail at `1b14564`; `fyr check` 0 findings; `reviewer` and `security` two rounds each, findings fixed; BUG-205 (the first verifier run's `TestFunctionLength`).
 
 ### P10b — the file-era trail goes: the dream and the legacy stores (items 33, its other half, and 34; one session; D9)
-- [ ] The rest of item 33, test first where a behaviour changes (the dream reads only records): the dream's file collector and its `feedback.jsonl` reader, `config_view`'s legacy files, `state.go`'s legacy paths, and `restatement-grep.sh`'s exclusions. `SPEC-fyr-dream` and `skills/review/scripts/restatement-grep.sh` are updated. Verify: the full test command, and `skills/review/scripts/restatement-grep.sh -i -- .agents/docs` across the living docs. Expect: only the import path, `unmigrated()` (`internal/brain`), `trail.DocsRoot` (`internal/trail`), init-project's Migration step and their tests name `.agents/docs`. Who: AI.
+- [x] The rest of item 33, test first where a behaviour changes (the dream reads only records): the dream's file collector and its `feedback.jsonl` reader, `config_view`'s legacy files, `state.go`'s legacy paths, and `restatement-grep.sh`'s exclusions. `SPEC-fyr-dream` and `skills/review/scripts/restatement-grep.sh` are updated. Verify: the full test command, and `skills/review/scripts/restatement-grep.sh -i -- .agents/docs` across the living docs. Expect: only the import path, `unmigrated()` (`internal/brain`), `trail.DocsRoot` (`internal/trail`), init-project's Migration step and their tests name `.agents/docs`. Who: AI. Done 2026-10-31 (`bd2d6b4`): ADR-087, D21, items 57, 58; `TestDreamReadsOnlyRecords`, `TestSkipReasonNamesTheImport`, `TestRunSkipsAFileEraProject`, `TestGlobalReadsNoConfigFile`, `TestStatusRetroLine`.
 - [ ] Item 34: `fyr record import --global --dry-run` (`internal/brain/import_global.go`) is shown to hold every line of the three legacy stores on dave: no problem listed, and each `feedback.jsonl`, `retros.jsonl` and `proposals/` entry matched to a global record by count and by ID. Then they are deleted on the operator's word, by name. Who: AI (the proof), user (the word).
 - [ ] Checkpoint (rule 3), with `security` (the dream's input paths).
 
