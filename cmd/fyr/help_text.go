@@ -205,7 +205,7 @@ var pages = map[string]verbPage{
 			"then for each registered project (fyr index --register) that is idle (no",
 			"commit, record or session for 24 hours; --all only) and changed since its",
 			"last dream, sends its memory, new trail, feedback, a numbers-only metrics",
-			"summary and its conversations, redacted, to agy with no tool, and stores",
+			"summary and its conversations, redacted, to agy granting no tool, and stores",
 			"each proposal as a global queued proposal record. --all needs an agy",
 			"session of this user, logs every other project as skipped and tries one",
 			"once in 24 hours; --project needs no registration. --install-timer runs",

@@ -95,18 +95,24 @@ func (c *cappedWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// runBounded is CombinedOutput with a deadline and a bound on the output, in
-// its own process group, which is killed whole at the deadline: upload-pack
-// is cmd's child, and a kill of cmd alone leaves it holding the output pipe.
-// The kill after Wait takes what outlived cmd: a live member pins the group's
-// id, and with none the kill finds nothing, as models.go's does.
+// runBounded is CombinedOutput with a deadline and a bound on the output.
 func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 	var out cappedWriter
 	cmd.Stdout, cmd.Stderr = &out, &out
+	err := runGroup(cmd, limit)
+	return out.kept.Bytes(), err
+}
+
+// runGroup runs cmd in its own process group, which is killed whole at the
+// deadline: upload-pack is cmd's child, and a kill of cmd alone leaves it
+// holding the output pipe. The kill after Wait takes what outlived cmd: a live
+// member pins the group's id, and with none the kill finds nothing, as
+// models.go's does.
+func runGroup(cmd *exec.Cmd, limit time.Duration) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
 	pgid := cmd.Process.Pid
 	var late atomic.Bool
@@ -118,9 +124,9 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 	t.Stop()
 	syscall.Kill(-pgid, syscall.SIGKILL)
 	if late.Load() {
-		return out.kept.Bytes(), fmt.Errorf("timed out after %s", limit)
+		return fmt.Errorf("timed out after %s", limit)
 	}
-	return out.kept.Bytes(), err
+	return err
 }
 
 // lazyFetchSafe is trail.LazyFetchSafe, a variable so a test can take either
@@ -138,26 +144,6 @@ func gitFloor(runner string) error {
 	return nil
 }
 
-// hostMemKiB bounds the address space of the git commands that read what a
-// docker session wrote, in KiB: 8 GiB, the worker container's own --memory.
-var hostMemKiB = 8 << 20
-
-// capMemory runs cmd under that limit under the docker runner, through a sh
-// that exits when it cannot set it, so a limit not set fails the command. A
-// clone's core.bigFileThreshold makes the host's pack-objects hold a blob
-// whole, and fsck in index-pack does so with no config at all, each from a
-// file of a few MiB (the v5.5.0 gate). Children inherit it. A host session
-// runs as the operator already.
-func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
-	if runner != RunnerDocker {
-		return cmd
-	}
-	args := append([]string{"-c", `ulimit -v "$0" && exec "$@"`, strconv.Itoa(hostMemKiB)}, cmd.Args...)
-	c := exec.Command("sh", args...)
-	c.Dir, c.Env = cmd.Dir, cmd.Env
-	return c
-}
-
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
 // Naming .git, and --strict, close upload-pack's fallback lookups: a .git
@@ -166,9 +152,7 @@ func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
 // GitIntact is still honoured.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
-	out, err := runBounded(capMemory(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", "git upload-pack --strict",
-		filepath.Join(w.b.App(), ".git"), ref+":"+ref), w.o.Runner), fetchLimit)
+	out, err := runBounded(fetchCmd(w.o.Root, filepath.Join(w.b.App(), ".git"), ref, w.o.Runner), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))
 		return false
@@ -186,10 +170,10 @@ func (w *worker) fetch() bool {
 // handoff and change records only (D138).
 func (w *worker) scope() {
 	root, ref := w.o.Root, "refs/heads/"+w.p.k.Branch()
-	if n, err := leadGit(root, "rev-list", "--count", w.p.base+".."+ref).Output(); err == nil {
+	if n, err := branchOutput(leadGit(root, "rev-list", "--count", w.p.base+".."+ref), w.o.Runner); err == nil {
 		w.res.Commits, _ = strconv.Atoi(strings.TrimSpace(string(n)))
 	}
-	if leadGit(root, "merge-base", "--is-ancestor", w.p.base, ref).Run() != nil {
+	if _, err := branchOutput(leadGit(root, "merge-base", "--is-ancestor", w.p.base, ref), w.o.Runner); err != nil {
 		w.b.Note("%s does not descend from %s", w.p.k.Branch(), short(w.p.base))
 		w.b.Fail(ReasonRewrote)
 		return
@@ -198,7 +182,7 @@ func (w *worker) scope() {
 		w.b.Fail(ReasonNoCommits)
 		return
 	}
-	paths, err := changedPaths(root, w.p.base+".."+ref)
+	paths, err := changedPaths(root, w.p.base+".."+ref, w.o.Runner)
 	if err != nil {
 		w.b.Note("the branch's commits: %v", err)
 		w.b.Fail(ReasonOutside)
@@ -216,7 +200,7 @@ func (w *worker) scope() {
 		w.b.Note("changed outside its Files (D18): %s", named(outside))
 		w.b.Fail(ReasonOutside)
 	}
-	ls, err := links(root, w.p.base, ref)
+	ls, err := links(root, w.p.base, ref, w.o.Runner)
 	switch {
 	case err != nil:
 		w.b.Note("the branch's links: %v", err)
@@ -235,8 +219,8 @@ func (w *worker) scope() {
 // and a link reaches outside the checkout through a path its Files: may
 // cover (the v5.0.0 gate's security review). --ignore-submodules=none: a
 // .gitmodules entry with ignore = all would hide a gitlink (round 2).
-func links(root, base, ref string) ([]string, error) {
-	raw, err := leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref).Output()
+func links(root, base, ref, runner string) ([]string, error) {
+	raw, err := branchOutput(leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref), runner)
 	if err != nil {
 		return nil, err
 	}
@@ -254,14 +238,14 @@ func links(root, base, ref string) ([]string, error) {
 
 // changedPaths is every path a commit of rng changed against each of its
 // parents, once each, a gitlink that .gitmodules says to ignore included.
-func changedPaths(root, rng string) ([]string, error) {
-	revs, err := leadGit(root, "rev-list", rng).Output()
+func changedPaths(root, rng, runner string) ([]string, error) {
+	revs, err := branchOutput(leadGit(root, "rev-list", rng), runner)
 	if err != nil {
 		return nil, err
 	}
 	cmd := leadGit(root, "diff-tree", "--stdin", "-r", "-m", "--root", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", "--name-only", "-z", "--no-commit-id")
 	cmd.Stdin = bytes.NewReader(revs)
-	names, err := cmd.Output()
+	names, err := branchOutput(cmd, runner)
 	if err != nil {
 		return nil, err
 	}

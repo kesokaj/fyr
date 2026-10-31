@@ -97,8 +97,52 @@ func TestCapMemoryForm(t *testing.T) {
 		t.Errorf("host: %v", got.Args)
 	}
 	host.Dir, host.Env = "/d", []string{"A=1"}
+	host.Stdin = strings.NewReader("in")
 	c := capMemory(host, RunnerDocker)
-	if c.Dir != "/d" || !slices.Equal(c.Env, host.Env) || !strings.Contains(strings.Join(c.Args, " "), `ulimit -v "$0" && exec "$@"`) || c.Args[len(c.Args)-1] != "status" {
+	if c.Dir != "/d" || c.Stdin != host.Stdin || !slices.Equal(c.Env, host.Env) || !strings.Contains(strings.Join(c.Args, " "), `ulimit -v "$0" && exec "$@"`) || c.Args[len(c.Args)-1] != "status" {
 		t.Errorf("docker: %q dir %q env %v", c.Args, c.Dir, c.Env)
+	}
+}
+
+// TestDockerReadsAreCapped pins each read after the session: under a limit
+// no process can start with, each fails under docker and works on the host.
+func TestDockerReadsAreCapped(t *testing.T) {
+	src := memRig(t, 1<<10)
+	reads := map[string]func(runner string) error{
+		"changedPaths": func(r string) error { _, err := changedPaths(src, "HEAD", r); return err },
+		"links":        func(r string) error { _, err := links(src, "HEAD", "HEAD", r); return err },
+		"trailAt":      func(r string) error { _, err := trailAt(src, "HEAD", r); return err },
+	}
+	for name, read := range reads {
+		if err := read(RunnerHost); err != nil {
+			t.Errorf("%s on the host: %v", name, err)
+		}
+		old := hostMemKiB
+		hostMemKiB = 1
+		err := read(RunnerDocker)
+		hostMemKiB = old
+		if err == nil {
+			t.Errorf("%s ran past the limit under docker", name)
+		}
+	}
+	if got := fetchCmd(src, "x/.git", "refs/heads/w", RunnerDocker).Args; got[0] != "sh" || !slices.Contains(got, "fetch") {
+		t.Errorf("the fetch is not capped: %q", got)
+	}
+	if got := blobCmd(src, "abc", RunnerDocker).Args; got[0] != "sh" || !slices.Contains(got, "cat-file") {
+		t.Errorf("the blob read is not capped: %q", got)
+	}
+}
+
+// TestBranchOutputRefusesOverflow: a truncated path list would pass the scope
+// check, so over the bound is an error.
+func TestBranchOutputRefusesOverflow(t *testing.T) {
+	old := maxBranchOutput
+	maxBranchOutput = 4
+	t.Cleanup(func() { maxBranchOutput = old })
+	if _, err := branchOutput(exec.Command("printf", "12345"), RunnerHost); err == nil {
+		t.Error("output past the bound was returned")
+	}
+	if got, err := branchOutput(exec.Command("printf", "1234"), RunnerHost); err != nil || string(got) != "1234" {
+		t.Errorf("at the bound: %q, %v", got, err)
 	}
 }
