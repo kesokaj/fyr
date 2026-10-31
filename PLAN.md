@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P7 done (2026-10-31); P8 is next. This is the only plan.
+Status: open. P1 to P8 done (2026-10-31); P9 is next. This is the only plan.
 
 ## The operator's words
 
@@ -180,8 +180,8 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3). Expect: Phase 3's E2E criterion on the eval home. Done 2026-10-31: the full test command exit 0, 1795 pass, 0 fail (`TEST-2026-10-31-1532-verification-plan-md-p7-1795-pass-0-fail-fyr-che`); `fyr check` 0 findings on `238e7f1`; E2E `TEST-2026-10-31-1532-e2e-plan-md-p7-fyr-metrics-evals-on-the-eval-hom` (0.085 s, no row `unstable`, no unknown-only row flagged but `history`).
 
 ### P8 — eval: the suite grammar (item 5, Phase 5a; one session)
-- [ ] The eval-metrics plan's Phase 5a boxes. Who: AI.
-- [ ] Checkpoint (rule 3), with `security` (the parser).
+- [x] The eval-metrics plan's Phase 5a boxes. Who: AI. Done 2026-10-31 (`e9fad5c`): ADR-085 stored before the code; `internal/eval/suite_columns.go`, `Row`'s four fields, `--list`'s `v<version>  <kind>`, the trial's four fields; `TestSuiteGrammarLong`, `TestSuiteRefusals`, `TestEvalVerbListLong`, `TestEvalTrialSuiteFields`, `TestEvalRowsVersionDefault`; eleven must-fail mutations in the change record (D17).
+- [x] Checkpoint (rule 3), with `security` (the parser). Done 2026-10-31: the full test command exit 0, 15 of 15 packages; verifier 1821 pass, 0 fail (`TEST-2026-10-31-1619-verification-plan-md-p8-at-e9fad5c-1821-pass-0-f`); `security` CLEAR, 2 low fixed (`REVIEW-2026-10-31-1558-security-plan-md-p8-the-suite-parser-s-four-colu`); reviewer rounds 1 and 2; `fyr check` 0 findings after seven re-read stamps.
 
 ### P9 — eval: the suite's rows (item 5, Phase 5b; one session)
 - [ ] The eval-metrics plan's Phase 5b boxes, with `TestSuiteHarness`'s `want` in the same commit. Who: AI.

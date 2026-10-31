@@ -7,7 +7,7 @@
 
 ## Now
 
-`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P7 are done; P8, eval: the suite grammar, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
+`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P8 are done; P9, eval: the suite's rows, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
 
 ## Next
 
