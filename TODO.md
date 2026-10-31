@@ -7,12 +7,12 @@
 
 ## Now
 
-`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P12b are done; P13, the release, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
+`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 0: the first session after v5.5.0 (D18 of the closed `PLAN.md` record).
 
 ## Next
 
-None while `PLAN.md` runs: its phases are the order (its rule 2).
+None.
 
 ## Backlog
 
-None while `PLAN.md` runs: a problem found during the run becomes an item in `PLAN.md` § Items found during the run (its rule 2). Every line that was here on 2026-10-31 is a `PLAN.md` item, fixed or struck.
+None.

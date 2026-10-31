@@ -34,7 +34,6 @@ A change to `context/*.md` or `rules/*.md` must also pass the two size pins in `
 
 ```
 PRD.md SDD.md TDD.md   what and why (R#), how the parts fit (M#), how each is built (T#); TODO.md, README.md
-PLAN.md                the only plan while one is open; stored as a plan record and removed at its end
 context/               the global context, single source (AGENTS.md, then dev-setup.md appended at install)
 agents/<name>/agent.md subagents, installed as written (ADR-062)
 skills/<name>/         skills; .agents/skills links here, so `npx skills add` lands in skills/
