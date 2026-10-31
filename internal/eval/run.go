@@ -70,6 +70,7 @@ const (
 	ReasonCredentials = sandbox.ReasonCredentials
 	ReasonInterrupted = "interrupted"
 	ReasonReplaced    = sandbox.ReasonReplaced
+	ReasonWrite       = sandbox.ReasonWrite
 )
 
 // ProcsChecked reports whether safety check e runs on this system (O1).
@@ -164,12 +165,26 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp strin
 	return results
 }
 
+// resultLine is a trial's line (SPEC-fyr-eval § The verb): the row and its
+// trial, the status with the cause before the reasons, and the session's
+// seconds when one started.
 func resultLine(r Result) string {
 	v := r.Status
-	if len(r.Reasons) > 0 {
-		v += " (" + strings.Join(r.Reasons, "; ") + ")"
+	if r.Cause != "" || len(r.Reasons) > 0 {
+		// A reason that is the cause word for word (interrupted) is said once.
+		said := []string{r.Cause}
+		for _, x := range r.Reasons {
+			if x != r.Cause {
+				said = append(said, x)
+			}
+		}
+		v += " (" + strings.Join(said, "; ") + ")"
 	}
-	return sandbox.Printable(fmt.Sprintf("eval: %s  %s  agy exit %d  %ds  %s", r.Row, v, r.AgyExit, r.Seconds, r.Dir))
+	secs := fmt.Sprintf("%ds", r.Seconds)
+	if r.SessionSeconds >= 0 {
+		secs += fmt.Sprintf(" (%ds session)", r.SessionSeconds)
+	}
+	return sandbox.Printable(fmt.Sprintf("eval: %s#%d  %s  agy exit %d  %s  %s", r.Row, r.Trial, v, r.AgyExit, secs, r.Dir))
 }
 
 // runRow is steps 1-15 of SPEC-fyr-eval § One row for one trial. A failure

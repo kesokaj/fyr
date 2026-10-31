@@ -178,60 +178,6 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	return o, src, rows, nil
 }
 
-// recordEval stores every trial and ingests its sandbox, then writes the
-// testing record and the summary line; any trial not PASS, failed trial
-// write or ingest, or unrun trial is exit 1.
-func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key string, rows []eval.Row, results []eval.Result) error {
-	failed := false
-	cli := agyVersion()
-	// After the verdict, never before: the store stamps a label's outcome
-	// first-write-wins (D6), and an interrupted invocation still ingests the
-	// trials it started (D22). The trial first, so a trial whose sessions
-	// fail to ingest, or that has none, is still counted (the eval-metrics
-	// plan D13).
-	for _, r := range results {
-		if r.Status != eval.StatusPass {
-			failed = true
-		}
-		if err := recordTrial(c.home, trialOf(r, key, cli)); err != nil {
-			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d trial: %v", r.Row, r.Trial, err)))
-			failed = true
-		}
-		if err := ingestRow(c.home, r); err != nil {
-			fmt.Fprintln(c.out, search.Printable("eval: "+r.Row+" ingest: "+err.Error()))
-			failed = true
-		}
-	}
-	pass := 0
-	for _, r := range results {
-		if r.Status == eval.StatusPass {
-			pass++
-		}
-	}
-	// Asked again here: a row's agent ran for minutes with command(*) and
-	// could have linked --home's state to the real one (D37's security review).
-	if why := evalHomeRefused(c.homeFlag, c.home); why != "" {
-		fmt.Fprintln(c.out, search.Printable("eval: record: not written: "+why))
-		return exitCode(1)
-	}
-	head := gitShort(root)
-	body := evalBody(root, o, src, cli, results)
-	id, err := brain.Add(brain.Options{Home: c.home, Dir: root}, brain.AddInput{
-		Kind: "testing", Status: "closed",
-		Title: fmt.Sprintf("Eval — %d of %d PASS at %s", pass, len(results), head),
-		Body:  strings.NewReader(body),
-	})
-	if err != nil {
-		fmt.Fprintln(c.out, search.Printable("eval: record: "+err.Error()))
-		return exitCode(1)
-	}
-	fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %d of %d PASS; record %s", pass, len(results), id)))
-	if failed || len(results) < len(rows)*max(o.Runs, 1) {
-		return exitCode(1)
-	}
-	return nil
-}
-
 // readSuite parses GUIDE-eval from root's trail export. With atHead it also
 // refuses a suite that differs from HEAD's, so a run always names the commit
 // its scenarios came from (D3); a testing record an earlier run wrote leaves
@@ -293,8 +239,10 @@ func ingestRow(home string, r eval.Result) error {
 	sb := filepath.Join(r.Dir, "home")
 	// A row that left processes running is not read either: one that ignored
 	// SIGTERM could swap a directory between this check and the ingest
-	// (security review of the fix, round 2).
-	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || slices.Contains(r.Reasons, eval.ReasonProcs) || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) {
+	// (security review of the fix, round 2). Nor is one the machine could not
+	// write, which read sandbox replaced until PLAN.md item 48.
+	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || slices.Contains(r.Reasons, eval.ReasonProcs) || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) ||
+		slices.Contains(r.Reasons, eval.ReasonWrite) {
 		return nil
 	}
 	outcome := strings.ToLower(r.Status)

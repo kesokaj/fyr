@@ -91,6 +91,29 @@ func TestWilson(t *testing.T) {
 	}
 }
 
+// TestWilsonRate: the interval of a mean rate over n units, which the
+// suite's line uses with each row's c/n as its score, so p need not be a
+// whole count over n; rounding p·n to a count, as Wilson needs, must fail
+// the first case: Wilson(2, 2) is (0.3424, 1).
+func TestWilsonRate(t *testing.T) {
+	cases := []struct {
+		n      int
+		p      float64
+		lo, hi float64
+	}{
+		{2, 0.75, 0.1979, 0.9733},
+		{3, 2.0 / 3, 0.2077, 0.9385},
+		{5, 1, 0.5655, 1},
+		{0, 0.5, 0, 0},
+	}
+	for _, c := range cases {
+		lo, hi := WilsonRate(c.n, c.p, 1.96)
+		if !near(lo, c.lo) || !near(hi, c.hi) {
+			t.Errorf("WilsonRate(%d, %.4f, 1.96) = (%.4f, %.4f), want (%.4f, %.4f)", c.n, c.p, lo, hi, c.lo, c.hi)
+		}
+	}
+}
+
 // C_out: always-pass and always-fail rows are 1, a coin-flip row is 0, the
 // mean over rows, 0 for no rows.
 func TestOutcomeConsistency(t *testing.T) {

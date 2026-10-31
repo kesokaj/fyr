@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -55,6 +56,7 @@ const (
 	ReasonRealConfig  = "real config changed"
 	ReasonCredentials = "credentials left in the sandbox"
 	ReasonReplaced    = "sandbox replaced"
+	ReasonWrite       = "sandbox write failed"
 )
 
 // TokenRel is the CLI's login token under a home.
@@ -172,6 +174,37 @@ func (b *Box) replaced(format string, a ...any) {
 	}
 }
 
+// fileFailed fails the box for a file of its own it could not open or
+// remove: sandbox write failed when the machine is answerable (machineErr)
+// and no session has started, so no agent ran that could have caused it,
+// and eval does not grade it; else sandbox replaced, the graded direction:
+// a planted link, FIFO, directory or hard link is what a run leaves, and
+// after a session the agent, as the operator's uid, can exhaust descriptors
+// or memory or mount a file system of its own (PLAN.md items 1 and 48; P6's
+// security review, finding 1). Once each.
+func (b *Box) fileFailed(err error, format string, a ...any) {
+	if b.started || !machineErr(err) {
+		b.replaced(format, a...)
+		return
+	}
+	b.Note(format, a...)
+	if !b.Has(ReasonWrite) {
+		b.Fail(ReasonWrite)
+	}
+}
+
+// machineErrs are the errors of the machine, not of what is at the path.
+var machineErrs = []error{syscall.ENOSPC, syscall.EDQUOT, syscall.EIO, syscall.EROFS, syscall.EMFILE, syscall.ENFILE, syscall.ENOMEM}
+
+func machineErr(err error) bool {
+	for _, e := range machineErrs {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
 // sandboxRoot is the held os.Root on SB, or one opened now when Clone did
 // not get that far. An os.Root refuses a path that a link leads out of the
 // home (the real token sits at the other end of one). done closes only a
@@ -196,6 +229,6 @@ func (b *Box) removeInSandbox(rel string) {
 		done()
 	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		b.replaced("not removed: %s: %v", rel, err)
+		b.fileFailed(err, "not removed: %s: %v", rel, err)
 	}
 }

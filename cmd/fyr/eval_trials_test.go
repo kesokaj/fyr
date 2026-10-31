@@ -54,7 +54,7 @@ func TestEvalVerbRuns(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("eval --runs 3 ok: exit %d\n%s", code, out)
 	}
-	m := regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  (\S+)/ok/1$`).FindStringSubmatch(out)
+	m := regexp.MustCompile(`(?m)^eval: ok#1  PASS  agy exit 0  \d+s \(\d+s session\)  (\S+)/ok/1$`).FindStringSubmatch(out)
 	if m == nil {
 		t.Fatalf("no line for trial 1:\n%s", out)
 	}
@@ -99,7 +99,7 @@ func TestEvalVerbRuns(t *testing.T) {
 func TestEvalVerbErrorTrial(t *testing.T) {
 	r := newEvalRig(t, evalSuite+"| `err` | `exit 1` | say ok |  | `true` |  | named |\n", true)
 	out, code := r.eval("--runs", "2", "err")
-	if code != 1 || strings.Count(out, "eval: err  ERROR (setup failed)  agy exit -1") != 2 {
+	if code != 1 || strings.Count(out, "  ERROR (setup; setup failed)  agy exit -1  ") != 2 || !strings.Contains(out, "eval: err#2  ") {
 		t.Fatalf("exit %d, want 1 with two ERROR lines:\n%s", code, out)
 	}
 	if n, err := os.ReadFile(filepath.Join(r.rec, "agy.n")); err == nil {

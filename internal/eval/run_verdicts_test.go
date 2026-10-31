@@ -29,7 +29,7 @@ func TestRunPass(t *testing.T) {
 	if x.Trial != 1 || x.Run != "2026-10-26-080000/ok/1" || x.Cause != "" || x.SessionSeconds < 0 || x.SessionSeconds > x.Seconds || x.Started.IsZero() {
 		t.Errorf("trial %d, run %q, cause %q, session %ds of %ds, started %v", x.Trial, x.Run, x.Cause, x.SessionSeconds, x.Seconds, x.Started)
 	}
-	if !regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  ` + regexp.QuoteMeta(dir) + `$`).MatchString(r.out.String()) {
+	if !regexp.MustCompile(`(?m)^eval: ok#1  PASS  agy exit 0  \d+s \(\d+s session\)  ` + regexp.QuoteMeta(dir) + `$`).MatchString(r.out.String()) {
 		t.Errorf("the row line is missing or misshapen:\n%s", r.out.String())
 	}
 	if _, err := os.Stat(filepath.Join(app, "README.md")); err != nil {

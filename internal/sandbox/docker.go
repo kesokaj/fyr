@@ -155,7 +155,7 @@ func (b *Box) dockerAgy(ctx context.Context, prompt, outPath, errPath string, ap
 	}
 	out, errf, err := agyOutputs(outPath, errPath, appendErr)
 	if err != nil {
-		b.replaced("%v", err)
+		b.fileFailed(err, "%v", err)
 		return -1
 	}
 	defer out.Close()

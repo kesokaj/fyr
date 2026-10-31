@@ -218,3 +218,32 @@ func TestIngestOutcomeError(t *testing.T) {
 		t.Errorf("Validate(errored) = %v, want the three values named", err)
 	}
 }
+
+// TestRunModels: the distinct models of the sessions of the named runs,
+// sorted, a session with no model or of another run left out; no run is
+// no model.
+func TestRunModels(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	for _, x := range [][3]any{
+		{"A", "r/x/1", "gemini-b"}, {"B", "r/x/1", "gemini-a"}, {"C", "r/x/2", "gemini-b"},
+		{"D", "r/x/2", nil}, {"E", "other/x/1", "gemini-z"}, {"F", nil, "gemini-y"},
+	} {
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, model, run) VALUES (?, 'agy', ?, ?)`, x[0], x[2], x[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, c := range map[string]struct {
+		runs []string
+		want string
+	}{
+		"two runs":      {[]string{"r/x/1", "r/x/2"}, "gemini-a gemini-b"},
+		"one model":     {[]string{"r/x/2"}, "gemini-b"},
+		"no session":    {[]string{"r/x/3"}, ""},
+		"no run at all": {nil, ""},
+	} {
+		got, err := s.RunModels(c.runs)
+		if err != nil || strings.Join(got, " ") != c.want {
+			t.Errorf("%s: %q, %v; want %q", name, got, err, c.want)
+		}
+	}
+}

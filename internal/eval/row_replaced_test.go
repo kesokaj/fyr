@@ -34,7 +34,7 @@ func runOne(t *testing.T, r *rig, row Row) Result {
 }
 
 // wantReason: x names reason, with the status classify gives it (a
-// replaced sandbox is an ERROR, a safety check a FAIL).
+// replaced sandbox or a safety check is a FAIL, a sandbox step an ERROR).
 func wantReason(t *testing.T, x Result, status, reason string) {
 	t.Helper()
 	if x.Status != status || !slices.Contains(x.Reasons, reason) {
@@ -50,7 +50,7 @@ func TestRunSecondSessionAfterSwap(t *testing.T) {
 	r := newRig(t)
 	r.afterAgy(`if [ "$n" = 1 ]; then cd /; mv "$sbdir" "$sbdir.moved"; ln -s "$REAL" "$sbdir"; fi`)
 	x := runOne(t, r, Row{ID: "s", Prompt: "p", Prompt2: "p2", Check: "true", Grants: "named"})
-	wantReason(t, x, StatusError, ReasonReplaced)
+	wantReason(t, x, StatusFail, ReasonReplaced)
 	if n := strings.TrimSpace(r.read("agy.n")); n != "1" {
 		t.Errorf("agy ran %s sessions, want 1", n)
 	}
@@ -73,7 +73,7 @@ func TestRunPlantedOutput2(t *testing.T) {
 	r := newRig(t)
 	r.afterAgy(`if [ "$n" = 1 ]; then mkfifo "$sbdir/out2.txt"; fi`)
 	x := runOne(t, r, Row{ID: "f", Prompt: "p", Prompt2: "p2", Check: "true", Grants: "named"})
-	wantReason(t, x, StatusError, ReasonReplaced)
+	wantReason(t, x, StatusFail, ReasonReplaced)
 }
 
 // TestRunCloneDeleted: an agent that leaves a process behind and deletes

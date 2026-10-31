@@ -25,6 +25,8 @@ func TestClassify(t *testing.T) {
 		"config before procs":          {[]string{ReasonProcs, ReasonRealConfig}, false, StatusFail, "config"},
 		"grant before denied":          {[]string{ReasonDenied, ReasonInvalid}, false, StatusFail, "grant"},
 		"a leak wins over an error":    {[]string{ReasonReplaced, ReasonProcs}, false, StatusFail, "procs"},
+		"a swap wins over an error":    {[]string{ReasonInterrupted, ReasonReplaced}, false, StatusFail, "replaced"},
+		"a swap wins over a grant":     {[]string{ReasonDenied, ReasonReplaced}, false, StatusFail, "replaced"},
 		"an error wins over a grant":   {[]string{ReasonDenied, ReasonInterrupted}, false, StatusError, "interrupted"},
 		"the first error is named":     {[]string{ReasonSetup, ReasonInterrupted}, false, StatusError, "setup"},
 		"interrupted":                  {[]string{ReasonInterrupted}, false, StatusError, "interrupted"},
@@ -43,16 +45,16 @@ func TestClassifyEveryReason(t *testing.T) {
 	want := map[string][2]string{
 		ReasonExists: {StatusError, "exists"}, ReasonClone: {StatusError, "clone"}, ReasonRecords: {StatusError, "records"},
 		ReasonSetup: {StatusError, "setup"}, ReasonInstall: {StatusError, "install"}, ReasonSettings: {StatusError, "settings"},
-		ReasonToken: {StatusError, "token"}, ReasonReplaced: {StatusError, "replaced"}, ReasonInterrupted: {StatusError, "interrupted"},
+		ReasonToken: {StatusError, "token"}, ReasonWrite: {StatusError, "write"}, ReasonInterrupted: {StatusError, "interrupted"},
 		ReasonCheck: {StatusFail, "check"}, ReasonDenied: {StatusFail, "denied"}, ReasonInvalid: {StatusFail, "grant"},
 		ReasonProcs: {StatusFail, "procs"}, ReasonRealConfig: {StatusFail, "config"}, ReasonCredentials: {StatusFail, "creds"},
-		ReasonAgent("x"): {StatusFail, "agent"},
+		ReasonReplaced: {StatusFail, "replaced"}, ReasonAgent("x"): {StatusFail, "agent"},
 	}
 	// The sandbox's own constants, named here so a new one shows up as a
 	// missing key rather than a silent default.
 	for _, r := range []string{sandbox.ReasonExists, sandbox.ReasonClone, sandbox.ReasonSetup, sandbox.ReasonInstall, sandbox.ReasonSettings,
 		sandbox.ReasonToken, sandbox.ReasonDenied, sandbox.ReasonInvalid, sandbox.ReasonProcs, sandbox.ReasonRealConfig,
-		sandbox.ReasonCredentials, sandbox.ReasonReplaced} {
+		sandbox.ReasonCredentials, sandbox.ReasonReplaced, sandbox.ReasonWrite} {
 		if _, ok := want[r]; !ok {
 			t.Errorf("sandbox reason %q has no cause here", r)
 		}

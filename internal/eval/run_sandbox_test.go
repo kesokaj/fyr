@@ -87,7 +87,7 @@ func TestRunSandboxReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantVerdict(t, one(t, res), "ERROR", ReasonReplaced)
+	wantVerdict(t, one(t, res), "FAIL", ReasonReplaced)
 	if b, err := os.ReadFile(filepath.Join(r.real, tokenRel)); err != nil || string(b) != "token" {
 		t.Errorf("the real token: %q, %v", b, err)
 	}
@@ -128,7 +128,9 @@ func TestRunCLIDirLinked(t *testing.T) {
 }
 
 // TestRunFIFOs: FIFOs the agent left where eval reads err.txt, writes
-// check.log and reads a conversation database never block the run.
+// check.log and reads a conversation database never block the run; the one
+// at check.log, a file eval writes, fails the trial sandbox replaced (P6),
+// and the check does not run, so it fails too.
 func TestRunFIFOs(t *testing.T) {
 	r := newRig(t)
 	r.on("fifo", "")
@@ -139,7 +141,7 @@ func TestRunFIFOs(t *testing.T) {
 	}()
 	select {
 	case res := <-done:
-		wantVerdict(t, one(t, res), "FAIL", ReasonCheck, ReasonAgent("reviewer"))
+		wantVerdict(t, one(t, res), "FAIL", ReasonReplaced, ReasonCheck, ReasonAgent("reviewer"))
 	case <-time.After(60 * time.Second):
 		t.Fatal("Run blocked on a FIFO")
 	}

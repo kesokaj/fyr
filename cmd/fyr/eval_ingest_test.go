@@ -72,3 +72,33 @@ func TestEvalIngestSkipsReplaced(t *testing.T) {
 		t.Errorf("the control was not ingested: k %d", k)
 	}
 }
+
+// TestEvalIngestSkipsWriteFailed: a sandbox the machine could not write is
+// not ingested, as it was not while that failure read sandbox replaced
+// (PLAN.md item 48); the same real home with another reason is, which shows
+// it would have been read.
+func TestEvalIngestSkipsWriteFailed(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "fyr-home")
+	for _, c := range []struct {
+		row, status, reason string
+	}{
+		{"w", eval.StatusError, eval.ReasonWrite},
+		{"c", eval.StatusFail, eval.ReasonCheck},
+	} {
+		dir := filepath.Join(tmp, c.row)
+		agyHome(t, filepath.Join(dir, "home"), "C-"+c.row)
+		if err := ingestRow(home, eval.Result{Row: c.row, Status: c.status, Reasons: []string{c.reason}, Dir: dir}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Sessions, not pass^k: an ERROR trial's session is never graded, so
+	// pass^k would not show it ingested.
+	got := map[string]int{}
+	for _, s := range exported(t, home, "sessions") {
+		got[str(s["label"])]++
+	}
+	if got["eval=w"] != 0 || got["eval=c"] != 1 {
+		t.Errorf("sessions by label %v, want none for eval=w and one for eval=c", got)
+	}
+}

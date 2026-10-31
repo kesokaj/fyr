@@ -44,8 +44,10 @@ func TestRunTrials(t *testing.T) {
 	if n := strings.TrimSpace(r.read("agy.n")); n != "6" {
 		t.Errorf("agy ran %s times, want 6", n)
 	}
-	if got := strings.Count(r.out.String(), "eval: a  PASS"); got != 3 {
-		t.Errorf("%d PASS lines for a, want 3:\n%s", got, r.out.String())
+	for _, i := range []string{"1", "2", "3"} {
+		if got := strings.Count(r.out.String(), "eval: a#"+i+"  PASS"); got != 1 {
+			t.Errorf("%d PASS lines for a#%s, want 1:\n%s", got, i, r.out.String())
+		}
 	}
 }
 

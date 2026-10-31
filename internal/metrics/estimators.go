@@ -49,8 +49,19 @@ func Wilson(n, c int, z float64) (lo, hi float64) {
 	if n <= 0 {
 		return 0, 0
 	}
+	return WilsonRate(n, float64(c)/float64(n), z)
+}
+
+// WilsonRate is the Wilson score interval of a rate p over n units, where p
+// need not be a whole count over n: the suite's interval over rows takes
+// each row's c/n as its score (the eval-metrics plan § Interfaces). p is
+// clamped to [0, 1]; (0, 0) when n is 0.
+func WilsonRate(n int, p, z float64) (lo, hi float64) {
+	if n <= 0 {
+		return 0, 0
+	}
 	nf := float64(n)
-	p := float64(c) / nf
+	p = math.Min(1, math.Max(0, p))
 	z2 := z * z
 	denom := 1 + z2/nf
 	centre := (p + z2/(2*nf)) / denom

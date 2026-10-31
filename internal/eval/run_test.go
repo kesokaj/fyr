@@ -135,3 +135,22 @@ func envMap(s string) map[string]string {
 	}
 	return m
 }
+
+// TestResultLine: a trial's line names its row and trial, its status with
+// the cause first and then every reason but one that repeats the cause,
+// and the session's seconds only when a session started.
+func TestResultLine(t *testing.T) {
+	for want, r := range map[string]Result{
+		"eval: ok#2  PASS  agy exit 0  12s (9s session)  /sb/ok/2": {Row: "ok", Trial: 2, Status: StatusPass, AgyExit: 0, Seconds: 12, SessionSeconds: 9, Dir: "/sb/ok/2"},
+		"eval: bad#1  FAIL (check; check failed; auto-denied)  agy exit 3  40s (30s session)  /sb/bad/1": {Row: "bad", Trial: 1, Status: StatusFail,
+			Cause: "check", Reasons: []string{"check failed", "auto-denied"}, AgyExit: 3, Seconds: 40, SessionSeconds: 30, Dir: "/sb/bad/1"},
+		"eval: err#1  ERROR (setup; setup failed)  agy exit -1  2s  /sb/err/1": {Row: "err", Trial: 1, Status: StatusError,
+			Cause: "setup", Reasons: []string{"setup failed"}, AgyExit: -1, Seconds: 2, SessionSeconds: -1, Dir: "/sb/err/1"},
+		"eval: x#3  ERROR (interrupted)  agy exit -1  5s (4s session)  /sb/x/3": {Row: "x", Trial: 3, Status: StatusError,
+			Cause: "interrupted", Reasons: []string{"interrupted"}, AgyExit: -1, Seconds: 5, SessionSeconds: 4, Dir: "/sb/x/3"},
+	} {
+		if got := resultLine(r); got != want {
+			t.Errorf("resultLine:\n got %q\nwant %q", got, want)
+		}
+	}
+}

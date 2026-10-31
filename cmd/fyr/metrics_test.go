@@ -26,6 +26,12 @@ func agyHome(t *testing.T, home, id string) {
 // agyHomeIn is agyHome with the conversation's workspace at ws.
 func agyHomeIn(t *testing.T, home, id, ws string) {
 	t.Helper()
+	agyHomeModel(t, home, id, ws, "")
+}
+
+// agyHomeModel is agyHomeIn with its model call naming model ("" names none).
+func agyHomeModel(t *testing.T, home, id, ws, model string) {
+	t.Helper()
 	pb := func(n int, b []byte) []byte {
 		out := binary.AppendUvarint(nil, uint64(n<<3|2))
 		return append(binary.AppendUvarint(out, uint64(len(b))), b...)
@@ -56,7 +62,11 @@ func agyHomeIn(t *testing.T, home, id, ws string) {
 	defer db.Close()
 	const t0 = 1791453600 // 2026-10-08 10:00:00Z
 	meta := append(pb(1, pv(1, t0)), pb(4, append(pb(2, []byte("run_command")), pb(3, []byte(`{"CommandLine":"git status"}`))...))...)
-	gen := pb(1, append(pb(4, append(pv(2, 5), pv(3, 1)...)), pb(9, pb(10, pv(1, 5)))...))
+	call := append(pb(4, append(pv(2, 5), pv(3, 1)...)), pb(9, pb(10, pv(1, 5)))...)
+	if model != "" {
+		call = append(call, pb(19, []byte(model))...)
+	}
+	gen := pb(1, call)
 	for _, q := range []struct {
 		sql  string
 		args []any

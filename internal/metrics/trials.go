@@ -150,3 +150,31 @@ func (s *Store) trialsIn(o ShowOptions, since, now time.Time) ([]trial, error) {
 	}
 	return out, rows.Err()
 }
+
+// RunModels is the distinct models of the sessions whose run is among runs,
+// sorted; a session with no model is left out, and no run gives none. The
+// testing record's header names them (SPEC-fyr-eval § The testing record).
+func (s *Store) RunModels(runs []string) ([]string, error) {
+	if len(runs) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(runs))
+	for i, r := range runs {
+		args[i] = r
+	}
+	rows, err := s.db.Query(`SELECT DISTINCT model FROM sessions WHERE model IS NOT NULL AND model != ''
+		AND run IN (?`+strings.Repeat(", ?", len(runs)-1)+`) ORDER BY model`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var models []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		models = append(models, m)
+	}
+	return models, rows.Err()
+}

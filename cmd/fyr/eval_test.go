@@ -160,9 +160,12 @@ func (r *evalRig) eval(args ...string) (string, int) {
 }
 
 // template makes session n's conversations: every id in ids, in one home.
-func (r *evalRig) template(n string, ids ...string) {
+func (r *evalRig) template(n string, ids ...string) { r.templateModel(n, "", ids...) }
+
+// templateModel is template with each conversation's model call naming model.
+func (r *evalRig) templateModel(n, model string, ids ...string) {
 	for _, id := range ids {
-		agyHome(r.t, filepath.Join(r.tpl, n), id)
+		agyHomeModel(r.t, filepath.Join(r.tpl, n), id, "/p", model)
 	}
 	// agyHome writes under <home>/.gemini/antigravity-cli; the fake copies
 	// the template's contents over the sandbox's directory of that name.
@@ -179,7 +182,7 @@ func (r *evalRig) template(n string, ids ...string) {
 	}
 }
 
-var recordIDLine = regexp.MustCompile(`(?m)^eval: (\d+) of (\d+) PASS; record (TEST-\S+)$`)
+var recordIDLine = regexp.MustCompile(`(?m)^eval: (\d+) of (\d+) PASS, \d+ errors?; record (TEST-\S+)$`)
 
 func (r *evalRig) passK(label string) (k, passed int) {
 	r.t.Helper()
@@ -231,7 +234,7 @@ func TestEvalVerb(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("eval ok: exit %d\n%s", code, out)
 	}
-	if !regexp.MustCompile(`(?m)^eval: ok  PASS  agy exit 0  \d+s  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval")) + `/\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^eval: ok#1  PASS  agy exit 0  \d+s \(\d+s session\)  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval")) + `/\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(out) {
 		t.Errorf("the row line is missing or misshapen:\n%s", out)
 	}
 	m := recordIDLine.FindStringSubmatch(out)
@@ -240,7 +243,7 @@ func TestEvalVerb(t *testing.T) {
 	}
 	got := r.mustRun(nil, "record", "get", m[3], "--home", r.home)
 	for _, want := range []string{"Eval — 1 of 1 PASS at ", "testing  closed", "- fyr: ", "- project: " + r.project + " at ", "- fixture: " + r.project + " at ",
-		"- install source: " + r.harness, "- agy: agy-fake 9.9\n", "| row | verdict | reasons | agy exit | seconds | sandbox |", "| `ok` | PASS | - | 0 | "} {
+		"- install source: " + r.harness, "; agy: agy-fake 9.9; harness: ", "| row | trial | status | cause | reasons | agy exit | seconds | session s | sandbox |", "| `ok` | 1 | PASS | - | - | 0 | "} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the record lacks %q:\n%s", want, got)
 		}
@@ -321,7 +324,7 @@ func TestEvalVerbFail(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("eval ok bad: exit %d, want 1\n%s", code, out)
 	}
-	if !strings.Contains(out, "eval: bad  FAIL (check failed)  agy exit 0") {
+	if !strings.Contains(out, "eval: bad#1  FAIL (check; check failed)  agy exit 0") {
 		t.Errorf("no FAIL line for bad:\n%s", out)
 	}
 	m := recordIDLine.FindStringSubmatch(out)
@@ -329,7 +332,7 @@ func TestEvalVerbFail(t *testing.T) {
 		t.Fatalf("summary: want 1 of 2 PASS:\n%s", out)
 	}
 	got := r.mustRun(nil, "record", "get", m[3], "--home", r.home)
-	if !strings.Contains(got, "| `bad` | FAIL | check failed | 0 | ") || !strings.Contains(got, "| `ok` | PASS | - | 0 | ") {
+	if !strings.Contains(got, "| `bad` | 1 | FAIL | check | check failed | 0 | ") || !strings.Contains(got, "| `ok` | 1 | PASS | - | - | 0 | ") {
 		t.Errorf("the record's table:\n%s", got)
 	}
 	if k, passed := r.passK("eval=bad"); k != 1 || passed != 0 {
@@ -351,7 +354,7 @@ func TestEvalVerbIngestFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, code := r.eval("ok")
-	if code != 1 || !strings.Contains(out, "eval: ok  PASS") || !strings.Contains(out, "eval: ok ingest: ") || recordIDLine.FindString(out) == "" {
+	if code != 1 || !strings.Contains(out, "eval: ok#1  PASS") || !strings.Contains(out, "eval: ok#1 ingest: ") || recordIDLine.FindString(out) == "" {
 		t.Fatalf("exit %d, want 1 with the PASS line, the ingest error and the record:\n%s", code, out)
 	}
 	// The same store holds the trials: its write fails first and is named
@@ -375,7 +378,7 @@ func TestEvalVerbRecordFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, code := r.eval("ok")
-	if code != 1 || !strings.Contains(out, "eval: ok  PASS") || !strings.Contains(out, "eval: record: ") {
+	if code != 1 || !strings.Contains(out, "eval: ok#1  PASS") || !strings.Contains(out, "eval: record: ") {
 		t.Fatalf("exit %d, want 1 with the row line and the record error:\n%s", code, out)
 	}
 }
@@ -404,7 +407,7 @@ func evalInterrupted(t *testing.T, s syscall.Signal) {
 		}
 	}()
 	out, code := r.eval("--runs", "3", "ok", "bad")
-	if code != 1 || !strings.Contains(out, "eval: ok  ERROR (interrupted)") || strings.Contains(out, "eval: bad ") || strings.Contains(out, "/ok/2") {
+	if code != 1 || !strings.Contains(out, "eval: ok#1  ERROR (interrupted)  ") || strings.Contains(out, "eval: bad") || strings.Contains(out, "/ok/2") {
 		t.Fatalf("exit %d, want 1 with ok's first trial interrupted, its others and bad not run:\n%s", code, out)
 	}
 	trials := exported(t, r.home, "trials")
@@ -412,8 +415,8 @@ func evalInterrupted(t *testing.T, s syscall.Signal) {
 		t.Errorf("the trials rows: %v, want one, ok/1 error interrupted", trials)
 	}
 	m := recordIDLine.FindStringSubmatch(out)
-	if m == nil || m[1] != "0" || m[2] != "1" {
-		t.Fatalf("summary: want 0 of 1 PASS:\n%s", out)
+	if m == nil || m[1] != "0" || m[2] != "0" || !strings.Contains(m[0], ", 1 error;") {
+		t.Fatalf("summary: want 0 of 0 PASS, 1 error (an ERROR is not graded):\n%s", out)
 	}
 	if k, passed := r.passK("eval=ok"); k != 0 || passed != 0 {
 		// No conversation was written before the hang: nothing to count,
@@ -543,7 +546,7 @@ func TestEvalVerbList(t *testing.T) {
 // clean tree (security review of the 2026-10-27 fix).
 func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 	notRepo := t.TempDir()
-	body := evalBody(t.TempDir(), eval.Options{}, harness.Source{Dir: notRepo}, "agy", nil)
+	body := evalRecord{root: t.TempDir(), src: harness.Source{Dir: notRepo}, cli: "agy"}.body()
 	if !strings.Contains(body, notRepo+" (dirty: unknown") {
 		t.Errorf("source line not labelled unknown:\n%s", body)
 	}

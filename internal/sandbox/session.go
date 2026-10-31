@@ -45,7 +45,7 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	cmd := b.hostCmd(agy, prompt)
 	out, errf, err := agyOutputs(outPath, errPath, appendErr)
 	if err != nil {
-		b.replaced("%v", err)
+		b.fileFailed(err, "%v", err)
 		return -1
 	}
 	defer out.Close()
@@ -86,7 +86,8 @@ func (b *Box) hostCmd(agy, prompt string) *exec.Cmd {
 // appended to for a later session.
 func agyOutputs(outPath, errPath string, appendErr bool) (out, errf *os.File, err error) {
 	// A file the box writes that is not a regular file was put there by the
-	// run (a session cannot start without it): the sandbox was replaced.
+	// run (a session cannot start without it): the sandbox was replaced,
+	// unless the machine failed the open before any session (fileFailed).
 	out, err = OpenRegular(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
 		return nil, nil, err
@@ -144,14 +145,15 @@ func agyExit(err error) int {
 
 // Bash runs a setup or check script in the clone with env, its output to
 // logName in the sandbox directory, and reports exit 0 (eval's steps 5 and
-// 13).
+// 13). A log it cannot open fails the box as fileFailed says, and the
+// script does not run.
 func (b *Box) Bash(ctx context.Context, script string, env []string, logName string) bool {
 	cmd := exec.CommandContext(ctx, "bash", "-c", script)
 	cmd.Dir = b.app
 	cmd.Env = env
 	log, err := OpenRegular(filepath.Join(b.dir, logName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
 	if err != nil {
-		b.Note("%v", err)
+		b.fileFailed(err, "%v", err)
 		return false
 	}
 	defer log.Close()
