@@ -7,7 +7,7 @@
 
 ## Now
 
-`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P9 are done; P10a, the file-era trail goes: search and the docs root, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
+`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P10a are done; P10b, the file-era trail goes: the dream and the legacy stores, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
 
 ## Next
 
