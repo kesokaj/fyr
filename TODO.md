@@ -7,7 +7,7 @@
 
 ## Now
 
-`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P4 are done; P5, the PRD reshape, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
+`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 to P5 are done; P6, eval: the trial record, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
 
 ## Next
 

@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1, P2, P3 and P4 done (2026-10-31); P5 is next. This is the only plan.
+Status: open. P1, P2, P3, P4 and P5 done (2026-10-31); P6 is next. This is the only plan.
 
 ## The operator's words
 
@@ -86,6 +86,7 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 44 | The audit's #5: a host `fyr work` or `fyr eval` run is confined by nothing before it runs, and nothing lists what it writes outside the clone (the sandbox HOME's `.gemini/antigravity-cli/scratch` among them). An eval row that lists those writes; `--add-dir <clone>` is passed only if it shows writes there | fix (D11) | P12b |
 | 45 | P4's security review left one area "not examined": the host-side git calls in the clone whose `.git` a session wrote (fetch's local `upload-pack` reading the clone's `.git/config`, `objects/info/alternates`, or a `.git` file holding `gitdir:`; the sandbox's `After` and `ExitChecks`). This predates P4 and no finding was made | fix: a `security` review of that blast radius, its findings fixed or struck by D-row | P12b |
 | 46 | BUG-204: P4's round-2 `security` agent ran a git probe that rewrote this checkout's `.git/HEAD` to `refs/heads/-x` (restored by the main thread before any commit). Nothing in `agents/security/agent.md` or `agents/reviewer/agent.md` says where a git probe may run | fix: both definitions say a git probe runs only in a repo `git init`ed under a fresh `mktemp -d` outside every checkout, with `git -C` and `GIT_CEILING_DIRECTORIES`; BUG-204 graduates there | P12b |
+| 47 | P5's review: `PRD.md`'s provenance comment says each date is the day the item's title first appears in git (`git log -S`). `git log --all -S"<title>"` reproduces 9 of 11. R8 is stored as 2026-09-17, the day its earlier wording "One delivery channel" appeared (`9222762`), where its full title gives 2026-10-24. R0 is stored as 2026-10-23, where every search gives 2026-10-24 (`ebfc1cb`). Recommended `PRD.md` edit: R0's date becomes 2026-10-24, and the comment adds "or of its earlier wording (R8: `9222762`)" | fix, on the operator's word (a `PRD.md` edit); else strike | P12 |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -159,8 +160,8 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security`.
 
 ### P5 — the PRD reshape (item 10; one session)
-- [ ] The ADR, then `PRD.md` as `.agents/scratch/prd-reshape/PRD.diff` (re-checked with `git apply --check` first), `SPEC-fyr-check`'s `### R0` line, and `SDD.md`'s and `TDD.md`'s traces if they name `### R`. All in one commit. Verify: `fyr check` from a tree binary. Expect: 0 findings and neither PRD note. Who: AI.
-- [ ] Checkpoint (rule 3). From here on D6 applies to every phase.
+- [x] The ADR, then `PRD.md` as `.agents/scratch/prd-reshape/PRD.diff` (re-checked with `git apply --check` first), `SPEC-fyr-check`'s `### R0` line, and `SDD.md`'s and `TDD.md`'s traces if they name `### R`. All in one commit. Verify: `fyr check` from a tree binary. Expect: 0 findings and neither PRD note. Who: AI.
+- [x] Checkpoint (rule 3). From here on D6 applies to every phase.
 
 ### P6 — eval: the trial record (items 1 and 2; one session)
 - [ ] Item 1: `replaced` becomes a FAIL in `internal/eval/cause.go` (`errorCauses` and its comment). Tests that assert ERROR today change: `internal/eval/cause_test.go` (`TestClassifyEveryReason`), `internal/eval/row_replaced_test.go` and `TestRunSandboxReplaced` in `internal/eval/run_sandbox_test.go`. The `SPEC-fyr-eval` step 15 and status table change too, and the restatements of "replaced … ERROR" are grepped (`skills/review/scripts/restatement-grep.sh -i -- replaced`). Verify: `go test -race ./internal/eval ./cmd/fyr`. Expect: `TestRunSandboxReplaced` asserts FAIL, and the SPEC table lists `replaced` under FAIL. Who: AI.
@@ -193,10 +194,11 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [ ] The UI plan's Phase 1 box, as written there, with D3's answers. One `GUIDE-eval` row per new skill, with `TestSuiteHarness` updated. D3 Open 5's orphans (rules of `frontend` with no home in the new skills) are put to the operator in this session before `frontend` goes. The `security` agent reads every script the new skills carry. The UI plan's Phase 2 (the behavioural runs) is P13's first box. Verify: `go test ./...` (the lint and `TestSkillListingBudget`). Who: AI, user (the orphans).
 - [ ] Checkpoint (rule 3), with `security` (the new scripts) and `/review --docs`.
 
-### P12 — the docs sweep (items 25, 32 and 35; one session)
+### P12 — the docs sweep (items 25, 32, 35 and 47; one session)
 - [ ] Item 25: `TDD.md` § T5 rows thinned, each claim kept in its `SPEC-fyr-*` or `cmd/fyr/help_text.go`. Verify: `fyr check`, and a table in the change record that maps each removed claim to its new home's file:line. Who: AI.
 - [ ] Item 32: `.agents/scratch/` pruned to its keep-set (`workers/`, `agents/`, `evalm/`, `prd-reshape/`, `ui-skills/`, `audit/`, and what a later phase names). It is listed first and deleted by name. Verify: `du -sh .agents/scratch` and `ls .agents/scratch` before and after, in the change record. Expect: only the keep-set is left. Who: AI.
 - [ ] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
+- [ ] Item 47: the operator's word on the `PRD.md` provenance edit, asked in that session. On a yes, the edit as item 47 recommends, re-checked with `git log --all -S`; on a no, item 47 is struck by D-row. Verify: `fyr check`. Who: user (the word), AI (the edit).
 - [ ] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes.
 
 ### P12b — `agy` captures, the outside-clone probe and the clone-git review (items 43, 44, 45 and 46; one session; D11)
