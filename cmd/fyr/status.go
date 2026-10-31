@@ -25,7 +25,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 	fromZip := found && origin.Kind == harness.OriginZip
 	zipNote := ""
 	if fromZip {
-		zipNote = "; this home was installed from a zip — run update --from-zip <file> again to change it"
+		zipNote = "; this home was installed from a zip — " + zipAdvice()
 	}
 	info := sourceLine(src, zipNote, out)
 

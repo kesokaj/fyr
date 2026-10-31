@@ -54,13 +54,26 @@ func run(args []string, out io.Writer) error {
 		return err
 	}
 	if v.source {
-		src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
-		if err != nil {
+		if done, err := c.resolveSource(); done {
 			return err
 		}
-		c.src = src
 	}
 	return v.run(c)
+}
+
+// resolveSource sets c.src for a verb that reads the harness; done says the
+// verb ends here, with err as its result: the source did not resolve, or a
+// zip place answered without one (BUG-203).
+func (c *ctx) resolveSource() (done bool, err error) {
+	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
+	if err != nil {
+		if handled, zerr := c.zipPlaceWithoutSource(); handled {
+			return true, zerr
+		}
+		return true, err
+	}
+	c.src = src
+	return false, nil
 }
 
 // parse parses the verb's flags and arguments; stop says run ends here, with
@@ -139,7 +152,12 @@ func (c *ctx) updateFromZipFlag() (zip bool, err error) {
 		fmt.Fprintln(c.out, "fyr update: --from-zip installs the named zip; --check/--repo do not apply to it")
 		return true, exitCode(2)
 	}
+	// After the migration: a real run has moved ~/.config/sh-agent by now, so
+	// the guard reads the manifest the install would.
 	if err := c.migrateStateDir(); err != nil {
+		return true, err
+	}
+	if err := refuseDevelZipOverPath(c.home); err != nil {
 		return true, err
 	}
 	return true, updateFromZip(c.fromZip, c.home, c.dryRun, c.out)

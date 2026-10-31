@@ -56,7 +56,7 @@ func runDiff(c *ctx) error {
 	// binary resolves (its embedded files, a checkout) is not what was
 	// installed (ADR-038).
 	if st, found, err := harness.LoadState(c.home); err == nil && found && st.Origin().Kind == harness.OriginZip {
-		fmt.Fprintln(c.out, "diff       not compared — this home was installed from a zip that is not kept; run update --from-zip <file> again to change it")
+		fmt.Fprintln(c.out, "diff       not compared — this home was installed from a zip that is not kept; "+zipAdvice())
 		return nil
 	}
 	files, err := harness.Plan(c.src, nil)

@@ -27,7 +27,7 @@ flowchart LR
     subgraph placeLane["Each place"]
         checkoutPlace["Checkout<br/>the normal path"]
         binaryPlace["Release binary<br/>harness built in, no repository"]
-        zipPlace["Zip place<br/>repo zip downloaded by hand, no tree kept"]
+        zipPlace["Zip place<br/>repo zip downloaded by hand, no tree kept<br/>a development build leaves by install --repo"]
         installer["fyr install / fyr update"]
         homeFiles["~/.gemini/config<br/>installed files, no repository"]
         sessions["Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
@@ -189,7 +189,7 @@ fyr update --from-zip ~/Downloads/fyr-vX.Y.Z.zip   # SHA256SUMS beside it: the z
 fyr status                                         # "installed … from zip sha256:<hex> (verified vX.Y.Z)"
 ```
 
-A zip of `main` ("Code → Download ZIP") works too, but no release lists it, so it installs marked unverified. The zip is unpacked into a temporary directory under `~/.config/fyr/`, installed, and the directory removed; nothing of the zip is kept. To move forward, download the next zip and repeat.
+A zip of `main` ("Code → Download ZIP") works too, but no release lists it, so it installs marked unverified. The zip is unpacked into a temporary directory under `~/.config/fyr/`, installed, and the directory removed; nothing of the zip is kept. To move forward, download the next zip and repeat. A development build of `fyr` at a zip place: `SPEC-fyr-delivery` § The model.
 
 ## Adding your own skills, agents and rules
 

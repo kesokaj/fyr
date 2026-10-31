@@ -96,6 +96,7 @@ func installZip(zipPath, dir, sum, verifiedTag, parent, home string, dryRun bool
 	if err := installFiles(src, home, dryRun, out); err != nil {
 		return err
 	}
+	develZipNote(prefix, out)
 	// Only after a successful install: a refused or dry run changes nothing,
 	// not even a stale leftover from an interrupted run.
 	if !dryRun {

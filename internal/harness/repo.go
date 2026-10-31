@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ResolveSource locates the harness: an explicit path, then $FYR_REPO,
@@ -99,7 +101,9 @@ func sourceCandidates(home string) (candidates []string, zipNote string) {
 	if st, found, err := LoadState(home); err == nil && found {
 		switch o := st.Origin(); o.Kind {
 		case OriginZip:
-			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s); a development build needs a checkout or --repo — or run `fyr update --from-zip <file>` again. ", o.ShortSum())
+			// Never "run --from-zip again": that keeps this build and this
+			// place as they are, which is how borken was stranded (BUG-203).
+			zipNote = fmt.Sprintf("this home was installed from a zip (sha256 %s), and a development build installs only from a checkout: build fyr in one and run `fyr install --repo <checkout>`, which makes this a checkout place. ", o.ShortSum())
 		case OriginPath:
 			candidates = append(candidates, o.Path)
 		}
@@ -240,7 +244,15 @@ func Behind(repo string) (int, error) {
 		return 0, errPlainCopy
 	}
 	if _, err := gitOut(repo, "fetch", "--quiet"); err != nil {
-		return 0, fmt.Errorf("git fetch: %w", err)
+		// Name the remote: git's text names a host and a port at most, not
+		// which checkout's remote to fix (PLAN.md item 40, borken).
+		remote := "the branch's upstream remote"
+		if url, uerr := gitOut(repo, "ls-remote", "--get-url"); uerr == nil {
+			if shown := remoteForDisplay(url); shown != "" {
+				remote = shown
+			}
+		}
+		return 0, fmt.Errorf("git fetch from %s failed; fyr runs git as you would, so fix it as for `git -C %s fetch` (on GitHub over SSH with port 22 blocked, ssh.github.com port 443 works): %w", remote, ShellArg(repo), err)
 	}
 	n, err := gitOut(repo, "rev-list", "--count", "HEAD..@{upstream}")
 	if err != nil {
@@ -248,6 +260,68 @@ func Behind(repo string) (int, error) {
 	}
 	return strconv.Atoi(n)
 }
+
+// remoteForDisplay is a remote's URL fit for an error, or "" when no part of
+// it can be shown safely. `ls-remote --get-url` prints it as configured or as
+// an insteadOf rule rewrote it, a token included: a URL loses its userinfo,
+// query and fragment, a URL that does not parse is not shown at all, and the
+// scp-like `[user@]host:path` loses its user part. A control character is
+// escaped.
+func remoteForDisplay(remote string) string {
+	shown := remote
+	switch u, err := url.Parse(remote); {
+	case err == nil && u.Scheme != "" && u.Host != "":
+		u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+		shown = u.String()
+	case strings.Contains(remote, "://"):
+		return ""
+	default:
+		// The user part ends at the last @ before the path's first /.
+		host := remote
+		if slash := strings.Index(remote, "/"); slash >= 0 {
+			host = remote[:slash]
+		}
+		if at := strings.LastIndex(host, "@"); at >= 0 {
+			shown = remote[at+1:]
+		}
+	}
+	if strings.IndexFunc(shown, notPrintable) >= 0 {
+		return strconv.Quote(shown)
+	}
+	return shown
+}
+
+// ShellArg quotes s for a command the operator may paste: in single quotes,
+// so a space, a $ or a quote cannot change the command, or, when s holds a
+// control character, in $'…' with that character escaped, which bash and zsh
+// read back as s and a POSIX sh reads as a literal string: never in double
+// quotes, inside which a shell runs $(…).
+func ShellArg(s string) string {
+	if strings.IndexFunc(s, notPrintable) < 0 {
+		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	}
+	var b strings.Builder
+	b.WriteString("$'")
+	for _, r := range s {
+		switch {
+		case r == '\'' || r == '\\':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case notPrintable(r) && r < 0x80:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		case notPrintable(r) && r <= 0xFFFF:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		case notPrintable(r):
+			fmt.Fprintf(&b, `\U%08x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('\'')
+	return b.String()
+}
+
+func notPrintable(r rune) bool { return !unicode.IsPrint(r) }
 
 // Pull fast-forwards to upstream. It refuses a dirty tree: pulling over
 // uncommitted edits to the harness is how local changes get lost. Git runs

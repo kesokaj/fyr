@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 and P2 done (2026-10-31); P3 is next (D5 approved). This is the only plan.
+Status: open. P1, P2 and P3 done (2026-10-31); P4 is next. This is the only plan.
 
 ## The operator's words
 
@@ -74,7 +74,7 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 37 | borken cannot move its version: see § Item 37 | fix | P3 |
 | 38 | A root `PLAN.md` names what is not built yet, so `fyr check` rule (a) would report it. It joins `notInRuleA` beside `TODO.md` (plan D6 of root-docs), with a test | fix | P1 |
 | 39 | AGENTS.md § Layout names `PLAN.md` while it exists | fix | P1 |
-| 40 | If borken's `fyr update` failed in its `git fetch` (on dave on 2026-10-31, ssh to github.com:22 timed out twice and `ssh.github.com:443` worked), the update's fetch error names the way out | fix if P3 confirms it, else strike by D-row | P3 |
+| 40 | If borken's `fyr update` failed in its `git fetch` (on dave on 2026-10-31, ssh to github.com:22 timed out twice and `ssh.github.com:443` worked), the update's fetch error names the way out | fix: confirmed in P3 (D12) | P3 |
 
 ### Items found during the run
 
@@ -139,11 +139,11 @@ Now, by hand on borken, before the fix (Who: user): `git -C ~/workspace/fyr pull
 
 Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells: met, 2026-10-31 (D5).
 
-- [ ] The borken bug stored (the next free BUG id). The matrix test fails first on the development-build-at-a-zip-place cells. Who: AI.
-- [ ] D5's fixes 2–5 in `cmd/fyr` and `internal/harness`. Verify: the matrix test and `go test -race ./cmd/fyr ./internal/harness`. Expect: pass. Every cell equals § Item 37 § Cells, and every other cell keeps `GUIDE-fyr-matrix` as it stood at `260d0b7`. Who: AI.
-- [ ] The ADR amending ADR-038, `SPEC-fyr-delivery`, the README map's label, `GUIDE-fyr-matrix` and `fyr help update`, all in the fix's commit (rules 3 and 6). Verify: `TestHarnessMap`, `/review --code --docs`. Who: AI.
-- [ ] Item 40: reproduce a fetch failure against an unreachable remote in a scratch checkout (the fetch is the `git fetch --quiet` in `internal/harness/repo.go`). Also use the operator's borken output if it was pasted. Expect: the message names the remote URL and quotes git's stderr. If it does not, fix it, test first; else strike item 40 by D-row. Who: AI.
-- [ ] Checkpoint (rule 3), with `security` (update is install behaviour).
+- [x] The borken bug stored (the next free BUG id). The matrix test fails first on the development-build-at-a-zip-place cells. Who: AI.
+- [x] D5's fixes 2–5 in `cmd/fyr` and `internal/harness`. Verify: the matrix test and `go test -race ./cmd/fyr ./internal/harness`. Expect: pass. Every cell equals § Item 37 § Cells, and every other cell keeps `GUIDE-fyr-matrix` as it stood at `260d0b7`. Who: AI.
+- [x] The ADR amending ADR-038, `SPEC-fyr-delivery`, the README map's label, `GUIDE-fyr-matrix` and `fyr help update`, all in the fix's commit (rules 3 and 6). Verify: `TestHarnessMap`, `/review --code --docs`. Who: AI.
+- [x] Item 40: reproduce a fetch failure against an unreachable remote in a scratch checkout (the fetch is the `git fetch --quiet` in `internal/harness/repo.go`). Also use the operator's borken output if it was pasted. Expect: the message names the remote URL and quotes git's stderr. If it does not, fix it, test first; else strike item 40 by D-row. Who: AI.
+- [x] Checkpoint (rule 3), with `security` (update is install behaviour).
 
 ### P4 — `fyr work` guard and container limits (items 12 and 13; one session)
 - [ ] Item 12: the lead's HEAD reflog is read before the run and compared after. If it moved, the run is refused with a line naming the reflog entry, test first. BUG-198's status becomes fixed. `SPEC-fyr-work` is updated. Verify: `go test -race ./internal/work`. Who: AI.
@@ -240,6 +240,21 @@ D9 — 2026-10-31 — P10's registration rule: a project with `.agents/trail.jso
 D10 — 2026-10-31 — P5 keeps its place before P10; D6 covers the hazard. — by: the operator, 2026-10-31 ("No, keep the order").
 
 D11 — 2026-10-31 — The `agy` audit (`REVIEW-2026-10-31-1101-review-antigravity-agy-integration-audit-against`), from the operator's four-strategy reference. fyr stays on one-shot `agy -p`, one fresh process per run. Items 43 (the audit's #4 and #10) and 44 (#5) join the plan in P12b. Struck: #1 (a persistent stream-json process), #2 (`agy_acp_server`), #3 (the Python SDK, remote control, community ACP wrappers), #6 (the token link's design), #7 (the borken keyring check), #8 (`modelProvider`), #9 (`--json-schema` for the dream's answer), and the P1 handoff's question 4 (the remote-control daemon's argv). — by: the operator, 2026-10-31 (the audit items selected; the strikes "go in either way").
+
+D12 — 2026-10-31 — P3, how the fix reads § Item 37 § Cells where the table is silent or cannot hold:
+- **Where a development build gets the zip-place answers.** Only when the source does not resolve. Inside a checkout it resolves that checkout as before. Its `status` then keeps the checkout's source line with the way-back note (`zipAdvice`). Its `update` keeps `knownCheckout`'s refusal, which names `--repo <that checkout>`. `update --check` and `--dry-run` at a zip place are refused like `update`, exit 1, because a read-only mode resolves the guard the real run does.
+- **The "binary did not move" line** is printed by every development build's `--from-zip` that installs, at a binary-only or a fresh place too. Only the zip-place cell names it, but the binary stays at every place, and the line removes nothing.
+- **The refusal of `--from-zip`** covers every place whose manifest records a tree: a checkout, and a plain copy too, since either would lose its tree. It runs after the state directory's migration. A dry run moves nothing, so while `~/.config/sh-agent` waits it cannot read the manifest and refuses. That is stricter than the real run, in the safe direction.
+- **Reviews past the cap.** The two rounds of `reviewer` and `security` ran. Round 2's findings are fixed without a third round, as in P2:
+  - the guard's order, which broke three migration tests;
+  - URLs that do not parse, query tokens and an `@` in an scp path;
+  - `ShellArg`'s double quotes.
+
+  Each fix has a test that fails without it. The review records' Outcomes name them.
+- **§ Cells' "either | zip | `install --repo`".** It holds for a development build only. A release binary still refuses `--repo` (ADR-034, D15), and that refusal already says to build fyr from that tree and run that build's install. `TestPlaceMatrix` pins both.
+- **Item 40.** A scratch checkout whose remote is `ssh://git@127.0.0.1:1/…` gave `git fetch: git fetch --quiet: ssh: connect to host 127.0.0.1 port 1: Connection refused …`. That quotes git but names no remote URL, so the item was fixed, test first (`TestBehindFetchErrorNamesTheRemote`). The message now names the URL from `git ls-remote --get-url`, without its userinfo, query or fragment, and not at all when it does not parse (P3's security reviews: a token in the URL, or one an `insteadOf` rule adds, would print). It names the checkout to fix it in, quoted for pasting (`harness.ShellArg`), says that ssh.github.com port 443 works where port 22 is blocked, and then quotes git. The operator's borken output was not pasted this session.
+
+— by: implementer, within P3's boxes (ADR-082).
 
 ## Risks
 

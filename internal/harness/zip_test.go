@@ -298,8 +298,10 @@ func TestResolveSourceSkipsZipManifest(t *testing.T) {
 	if err == nil {
 		t.Fatalf("ResolveSource returned %+v from a zip manifest value", src)
 	}
-	if !strings.Contains(err.Error(), "installed from a zip (sha256 0123456789ab)") || !strings.Contains(err.Error(), "update --from-zip") {
-		t.Errorf("err = %v, want it to name the zip install and the --from-zip way forward first", err)
+	// The way back, never "--from-zip again": that keeps this build and the
+	// place as they are, which is how borken was stranded (BUG-203).
+	if !strings.Contains(err.Error(), "installed from a zip (sha256 0123456789ab)") || !strings.Contains(err.Error(), "`fyr install --repo <checkout>`") || strings.Contains(err.Error(), "--from-zip") {
+		t.Errorf("err = %v, want it to name the zip install and the install --repo way back first, and no --from-zip", err)
 	}
 	if !strings.Contains(err.Error(), "harness repo not found") {
 		t.Errorf("err = %v, want the existing not-found message kept", err)

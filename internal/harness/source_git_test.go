@@ -212,6 +212,177 @@ func TestBehindAndPull(t *testing.T) {
 	}
 }
 
+// A failed fetch names the remote it fetched from and quotes git: on borken
+// (PLAN.md item 40) ssh to github.com:22 timed out, and git's own text named
+// only a host and a port, not which remote of which checkout to fix.
+func TestBehindFetchErrorNamesTheRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	base := t.TempDir()
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	origin := filepath.Join(base, "origin.git")
+	run(base, "init", "--bare", "-q", "-b", "main", origin)
+	a := filepath.Join(base, "a")
+	run(base, "clone", "-q", origin, a)
+	if err := os.WriteFile(filepath.Join(a, "f"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(a, "add", "f")
+	run(a, "commit", "-q", "-m", "one")
+	run(a, "push", "-q", "-u", "origin", "main")
+	gone := filepath.Join(base, "gone.git")
+	run(a, "remote", "set-url", "origin", gone)
+
+	_, err := Behind(a)
+	if err == nil {
+		t.Fatal("Behind fetched from a remote that does not exist")
+	}
+	for _, want := range []string{"git fetch from " + gone, "does not appear to be a git repository"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	}
+}
+
+// A remote URL is printed without its userinfo: --get-url keeps a password
+// or a token in it, also one a global insteadOf rule adds (P3's security
+// review, finding 1). A control character is escaped, not printed.
+func TestRemoteForDisplay(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://tok3nuser:s3cr3tpw@github.com/kesokaj/fyr.git": "https://github.com/kesokaj/fyr.git",
+		"https://ghp_tok3n@github.com/kesokaj/fyr.git":          "https://github.com/kesokaj/fyr.git",
+		"ssh://git:pw@ssh.github.com:443/kesokaj/fyr.git":       "ssh://ssh.github.com:443/kesokaj/fyr.git",
+		"ssh://git@github.com/kesokaj/fyr.git":                  "ssh://github.com/kesokaj/fyr.git",
+		"git@github.com:kesokaj/fyr.git":                        "github.com:kesokaj/fyr.git",
+		"tok3n:pw@host:repo.git":                                "host:repo.git",
+		"/srv/git/fyr.git":                                      "/srv/git/fyr.git",
+		"https://github.com/kesokaj/fyr.git":                    "https://github.com/kesokaj/fyr.git",
+		"/srv/a\x1b[2Jb.git":                                    `"/srv/a\x1b[2Jb.git"`,
+		// round 2: a query token, a URL url.Parse refuses, an @ in an scp path
+		"https://github.com/x.git?private_token=s3cr3t#frag": "https://github.com/x.git",
+		"https://u:p w@127.0.0.1:1/x.git":                    "",
+		"https://u:p%zz@127.0.0.1:1/x.git":                   "",
+		"https://u:pw@host:port/x.git":                       "",
+		"user:tok@host:path/a@b.git":                         "host:path/a@b.git",
+	} {
+		if got := remoteForDisplay(in); got != want {
+			t.Errorf("remoteForDisplay(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// ShellArg's result, pasted into a shell, is the argument itself and runs
+// nothing: a path with a control character takes $'…' quoting, never Go's
+// double quotes, in which a shell expands $(…) (P3's security review, round 2).
+func TestShellArgRoundTrips(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not installed")
+	}
+	marker := filepath.Join(t.TempDir(), "ran")
+	for _, s := range []string{
+		"/srv/my checkout$x",
+		"/srv/it's",
+		"/srv/a\x1b[2J$(touch " + marker + ")`touch " + marker + "`'b\\c",
+		"/srv/tab\there\nnewline",
+	} {
+		out, err := exec.Command(bash, "-c", "printf %s "+ShellArg(s)).Output()
+		if err != nil || string(out) != s {
+			t.Errorf("ShellArg(%q) = %s: bash printed %q, %v", s, ShellArg(s), out, err)
+		}
+		if strings.ContainsFunc(ShellArg(s), notPrintable) {
+			t.Errorf("ShellArg(%q) = %q holds a control character", s, ShellArg(s))
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a quoted argument ran a command")
+	}
+}
+
+// ShellArg's escapes for a control character above ASCII: \u for the basic
+// plane, \U above it, so no form of the character reaches the terminal.
+func TestShellArgEscapes(t *testing.T) {
+	for in, want := range map[string]string{
+		"/srv/a\u0085b":     `$'/srv/a\u0085b'`,
+		"/srv/a\U000e0001b": `$'/srv/a\U000e0001b'`,
+		"/srv/a\x1bb'c\\d":  `$'/srv/a\x1bb\'c\\d'`,
+		"/srv/plain":        `'/srv/plain'`,
+	} {
+		if got := ShellArg(in); got != want {
+			t.Errorf("ShellArg(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+// An insteadOf rule that adds a token is applied by --get-url; the error
+// still shows none of it.
+func TestBehindFetchErrorHidesInsteadOfToken(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(cfg, []byte("[url \"https://tok3nuser:s3cr3tpw@127.0.0.1:1/\"]\n\tinsteadOf = https://example.invalid/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	a := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "one"},
+		{"remote", "add", "origin", "https://example.invalid/x.git"},
+		{"config", "branch.main.remote", "origin"},
+		{"config", "branch.main.merge", "refs/heads/main"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", a}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	_, err := Behind(a)
+	if err == nil || strings.Contains(err.Error(), "s3cr3tpw") || strings.Contains(err.Error(), "tok3nuser") {
+		t.Errorf("err = %v, want a failure that carries no credential", err)
+	}
+}
+
+// Through Behind: a token in the remote's URL never reaches the error.
+func TestBehindFetchErrorHidesCredentials(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	a := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q", "-b", "main"},
+		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "one"},
+		{"remote", "add", "origin", "https://tok3nuser:s3cr3tpw@127.0.0.1:1/x.git"},
+		{"config", "branch.main.remote", "origin"},
+		{"config", "branch.main.merge", "refs/heads/main"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", a}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	_, err := Behind(a)
+	if err == nil {
+		t.Fatal("Behind fetched from a refused port")
+	}
+	if strings.Contains(err.Error(), "s3cr3tpw") || strings.Contains(err.Error(), "tok3nuser") {
+		t.Errorf("the error carries the URL's credentials: %v", err)
+	}
+	if !strings.Contains(err.Error(), "git fetch from https://127.0.0.1:1/x.git") {
+		t.Errorf("err = %v, want the remote named without its userinfo", err)
+	}
+}
+
 // TestNestedCopyIsNotACheckout: a harness-shaped tree inside another git
 // repository must not inherit that repository's branch, commit, or dirty
 // state, and git-driven update must refuse it.
