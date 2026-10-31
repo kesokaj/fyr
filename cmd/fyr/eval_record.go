@@ -46,6 +46,7 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key str
 		return exitCode(1)
 	}
 	tl := tallyOf(results)
+	tl.fromSuite(byID, trialExpects(c.home, results))
 	runs := max(o.Runs, 1)
 	rec := evalRecord{root: root, o: o, src: src, cli: cli, key: key, model: modelName(trialModels(c.home, results)), runs: runs, results: results, tally: tl}
 	id, err := brain.Add(brain.Options{Home: c.home, Dir: root}, brain.AddInput{
@@ -71,10 +72,13 @@ type tally struct {
 	rows                 []rowTally
 }
 
-// rowTally is one row's n graded trials, c passed, and its errors.
+// rowTally is one row's n graded trials, c passed, and its errors, with the
+// row's kind and its trials' expect match once fromSuite has run.
 type rowTally struct {
 	row          string
 	n, c, errors int
+	kind         string
+	expect       metrics.ExpectMatch
 }
 
 func tallyOf(results []eval.Result) tally {
@@ -104,6 +108,20 @@ func tallyOf(results []eval.Result) tally {
 	return tl
 }
 
+// fromSuite gives each row its kind and pools its trials' expect matches.
+func (tl tally) fromSuite(byID map[string]eval.Row, matches map[string]metrics.ExpectMatch) {
+	for i := range tl.rows {
+		tl.rows[i].kind = byID[tl.rows[i].row].Kind
+	}
+	for row, x := range matches {
+		for i := range tl.rows {
+			if tl.rows[i].row == row {
+				tl.rows[i].expect = x
+			}
+		}
+	}
+}
+
 // interval is the row's Wilson 95 % interval over its graded trials, or
 // n/a when it has none.
 func (rt rowTally) interval() string {
@@ -114,11 +132,12 @@ func (rt rowTally) interval() string {
 }
 
 // suiteInterval is the Wilson 95 % interval over the rows with a graded
-// trial, each scored c/n (the eval-metrics plan § Interfaces), or n/a.
+// trial, each scored c/n (the eval-metrics plan § Interfaces), an indicator
+// row left out of it, or n/a.
 func (tl tally) suiteInterval() string {
 	n, sum := 0, 0.0
 	for _, rt := range tl.rows {
-		if rt.n > 0 {
+		if rt.n > 0 && rt.kind != eval.KindIndicator {
 			n++
 			sum += float64(rt.c) / float64(rt.n)
 		}
@@ -161,6 +180,32 @@ func trialModels(home string, results []eval.Result) []string {
 	defer s.Close()
 	models, _ := s.RunModels(runs)
 	return models
+}
+
+// trialExpects is each row's expect match over the run's trials, pooled; a
+// store that cannot be read matches nothing, and the record prints -.
+func trialExpects(home string, results []eval.Result) map[string]metrics.ExpectMatch {
+	runs := make([]string, 0, len(results))
+	for _, r := range results {
+		runs = append(runs, r.Run)
+	}
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		return nil
+	}
+	defer s.Close()
+	matches, err := s.ExpectMatches(runs)
+	if err != nil {
+		return nil
+	}
+	out := map[string]metrics.ExpectMatch{}
+	for _, r := range results {
+		x := out[r.Row]
+		x.M += matches[r.Run].M
+		x.N += matches[r.Run].N
+		out[r.Row] = x
+	}
+	return out
 }
 
 // modelName is the header's model: the one model the sessions name,

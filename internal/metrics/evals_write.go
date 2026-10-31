@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strings"
 	"text/tabwriter"
 )
 
 // evalHead is the view's columns, in the order of the eval-metrics plan
 // § Interfaces; the report and `fyr serve` show the same table.
-var evalHead = []string{"row", "v", "n", "c", "errors", "pass@1", "pass^3", "wilson95", "flip", "turns", "tool calls",
-	"tokens in/out/cache", "session s", "active s", "tool err %", "retries", "peak ctx", "last", "flags"}
+var evalHead = []string{"row", "v", "kind", "n", "c", "errors", "pass@1", "pass^3", "wilson95", "flip", "turns", "tool calls",
+	"tokens in/out/cache", "session s", "active s", "tool err %", "retries", "peak ctx", "expect", "last", "flags"}
 
 // WriteJSON prints the view as indented JSON: snake_case keys, the numbers
 // of the text, and no key for a rate the row cannot have.
@@ -49,14 +50,18 @@ func (e *EvalRows) WriteText(w io.Writer) {
 func (e *EvalRows) Table() [][]string {
 	out := make([][]string, 0, len(e.Rows))
 	for _, r := range e.Rows {
-		cells := []string{r.Row, fmt.Sprint(r.Version), fmt.Sprint(r.N), fmt.Sprint(r.C), fmt.Sprint(r.Errors),
+		cells := []string{r.Row, fmt.Sprint(r.Version), r.Kind, fmt.Sprint(r.N), fmt.Sprint(r.C), fmt.Sprint(r.Errors),
 			optRate(r.PassAt1), optRate(r.PassPow3), optInterval(r.Wilson95), fmt.Sprint(r.Flip)}
 		cells = append(cells, r.Means.cells()...)
 		flags := "-"
 		if len(r.Flags) > 0 {
 			flags = strings.Join(r.Flags, ",")
 		}
-		out = append(out, append(cells, r.Last, flags))
+		expect := "-"
+		if r.Expect != nil {
+			expect = r.Expect.String()
+		}
+		out = append(out, append(cells, expect, r.Last, flags))
 	}
 	return out
 }
@@ -92,10 +97,19 @@ func (su EvalSuite) lines() []string {
 	if su.Similarity != nil {
 		sim = fmt.Sprintf("trajectory similarity %.2f over %d rows with two or more sessions", *su.Similarity, su.SimilarityOfRows)
 	}
-	return []string{
-		fmt.Sprintf("suite: %s graded, %s, %s; %s", plural(su.Rows, "row"), plural(su.Trials, "graded trial"), plural(su.Errors, "error"), rate),
-		"suite: " + sim,
+	out := []string{fmt.Sprintf("suite: %s graded, %s, %s; %s", plural(su.Rows, "row"), plural(su.Trials, "graded trial"), plural(su.Errors, "error"), rate)}
+	out = append(out, su.Regression.line("regression", ""), su.Adversarial.line("adversarial", ""), su.Indicator.line("indicator", ", left out of the rate above"))
+	out = slices.DeleteFunc(out, func(l string) bool { return l == "" })
+	return append(out, "suite: "+sim)
+}
+
+// line is a kind's suite line, "" with no graded row of the kind.
+func (k *KindRate) line(kind, note string) string {
+	if k == nil {
+		return ""
 	}
+	return fmt.Sprintf("suite: %s: %s, %s; pass rate %.2f %s over rows%s", kind, plural(k.Rows, "row"), plural(k.Trials, "graded trial"),
+		k.PassRate, optInterval(&k.Wilson95), note)
 }
 
 func optRate(p *float64) string {

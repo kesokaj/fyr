@@ -49,10 +49,10 @@ func TestMetricsEvals(t *testing.T) {
 		t.Fatalf("evals: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"broke  1  2  0  1       0.00    n/a     [0.00, 0.66]  0     -",
-		"flaky  1  2  1  0       0.50    n/a     [0.09, 0.91]  1     -",
-		"hist   1  1  1  0       1.00    n/a     [0.21, 1.00]  0     -",
-		"sat    1  6  6  0       1.00    1.00    [0.61, 1.00]  0     -",
+		"broke  1  capability  2  0  1       0.00    n/a     [0.00, 0.66]  0     -",
+		"flaky  1  capability  2  1  0       0.50    n/a     [0.09, 0.91]  1     -",
+		"hist   1  capability  1  1  0       1.00    n/a     [0.21, 1.00]  0     -",
+		"sat    1  capability  6  6  0       1.00    1.00    [0.61, 1.00]  0     -",
 		"suite: 4 rows graded, 11 graded trials, 1 error; pass rate 0.62 [0.22, 0.91] over rows; C_out 0.75",
 	} {
 		if !strings.Contains(out, want) {
@@ -84,7 +84,7 @@ func TestMetricsEvals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evals --harness: %v\n%s", err, only)
 	}
-	if !strings.Contains(only, ", harness bbb\n") || !strings.Contains(only, "sat  1  3  3  0") || strings.Contains(only, "broke") {
+	if !strings.Contains(only, ", harness bbb\n") || !strings.Contains(only, "sat  1  capability  3  3  0") || strings.Contains(only, "broke") {
 		t.Errorf("--harness bbb:\n%s", only)
 	}
 }

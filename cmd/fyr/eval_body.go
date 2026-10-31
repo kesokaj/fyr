@@ -65,9 +65,9 @@ func (e evalRecord) body() string {
 		}
 		fmt.Fprintf(&b, "| `%s` | %d | %s | %s | %s | %d | %d | %s | `%s` |\n", r.Row, r.Trial, r.Status, cause, strings.ReplaceAll(reasons, "|", `\|`), r.AgyExit, r.Seconds, session, r.Dir)
 	}
-	b.WriteString("\n| row | n | c | errors | wilson95 |\n|---|---|---|---|---|\n")
+	b.WriteString("\n| row | n | c | errors | wilson95 | expect |\n|---|---|---|---|---|---|\n")
 	for _, rt := range e.tally.rows {
-		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %s |\n", rt.row, rt.n, rt.c, rt.errors, rt.interval())
+		fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %s | %s |\n", rt.row, rt.n, rt.c, rt.errors, rt.interval(), rt.expect)
 	}
 	return b.String()
 }

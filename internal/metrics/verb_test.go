@@ -44,6 +44,27 @@ func TestVerb(t *testing.T) {
 		{"fyr metrics evals --json --harness abc1234", []string{"fyr metrics evals --json --harness"}},
 		{"fyr memory add --type user < x", []string{"fyr memory add --type"}},
 		{"fyr metrics secretword --json", []string{"fyr metrics --json"}},
+		{"fyr record get PLAN-2026-10-31-x", []string{"fyr record"}},
+		// A quoted word is content however flag-shaped (item 55).
+		{`fyr record add --title "--hunter2pass"`, []string{"fyr record add --title"}},
+		{`git commit -m '--hunter2pass'`, []string{"git commit -m"}},
+		{`fyr record add --title "-ab"`, []string{"fyr record add --title"}},
+		{`git commit -m --"hunter2pass"`, []string{"git commit -m"}},
+		{`git commit -m \--hunter2pass`, []string{"git commit -m"}},
+		{`env "-u" git status`, nil},
+		// The near-misses: a quoted value after `=`, a quoted program, and the
+		// stated residue.
+		{`fyr record add --title="--x" --status=open`, []string{"fyr record add --title --status"}},
+		{`"$SB/bin/fyr" record --kind bug`, []string{"fyr record --kind"}},
+		{"git commit -m --unquoted", []string{"git commit -m --unquoted"}},
+		{`git commit -m"fix"`, []string{"git commit -m"}},
+		{`git commit -m"ab"`, []string{"git commit -m"}},
+		{`git commit -m"a""b" -a`, []string{"git commit -m -a"}},
+		{`git commit --hunter"pass"`, []string{"git commit"}},
+		{`git commit -m"x" --amend`, []string{"git commit -m --amend"}},
+		{`git commit -ab"c"`, []string{"git commit"}},
+		{"fyr record add plan --title x", []string{"fyr record add --title"}},
+		{"\"$SB/bin/fyr\" record list --kind bug | grep -q .", []string{"fyr record --kind", "grep -q"}},
 		// A session from before the rename names the old binary.
 		{"sh-agent search --refs x", []string{"sh-agent search --refs"}},
 		{"go run ./cmd/sh-agent metrics show --json", []string{"sh-agent metrics show --json"}},

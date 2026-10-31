@@ -28,18 +28,20 @@ type EvalRows struct {
 // trial, pass^3 below n = 3, no session behind a mean) is absent, never a
 // number; the text prints n/a or -.
 type EvalRow struct {
-	Row      string      `json:"row"`
-	Version  int         `json:"version,omitempty"` // 1 for a trial or session stored before the suite's version column (ADR-085)
-	N        int         `json:"n"`
-	C        int         `json:"c"`
-	Errors   int         `json:"errors"`
-	PassAt1  *float64    `json:"pass_at_1,omitempty"`
-	PassPow3 *float64    `json:"pass_pow_3,omitempty"`
-	Wilson95 *[2]float64 `json:"wilson95,omitempty"`
-	Flip     int         `json:"flip"`
-	Means    *EvalMeans  `json:"means,omitempty"`
-	Last     string      `json:"last"`  // the UTC day of the newest trial in the window
-	Flags    []string    `json:"flags"` // saturated, broken, unstable or history; empty for none
+	Row      string       `json:"row"`
+	Version  int          `json:"version,omitempty"` // 1 for a trial or session stored before the suite's version column (ADR-085)
+	Kind     string       `json:"kind"`              // the newest counted trial's; capability when it stored none
+	N        int          `json:"n"`
+	C        int          `json:"c"`
+	Errors   int          `json:"errors"`
+	PassAt1  *float64     `json:"pass_at_1,omitempty"`
+	PassPow3 *float64     `json:"pass_pow_3,omitempty"`
+	Wilson95 *[2]float64  `json:"wilson95,omitempty"`
+	Flip     int          `json:"flip"`
+	Means    *EvalMeans   `json:"means,omitempty"`
+	Expect   *ExpectMatch `json:"expect,omitempty"` // pooled over the trials with an expect list and a main session
+	Last     string       `json:"last"`             // the UTC day of the newest trial in the window
+	Flags    []string     `json:"flags"`            // saturated, broken, unstable or history; empty for none
 }
 
 // EvalMeans are the efficiency numbers of a row's trials, each a mean over
@@ -60,11 +62,13 @@ type EvalMeans struct {
 	PeakContext    float64  `json:"peak_context"`
 }
 
-// EvalSuite is the suite over the rows with a graded trial: the pass rate
-// is the mean of each row's c/n with its Wilson 95 % interval over rows,
-// C_out Rabanser 2026's outcome consistency, and the trajectory similarity
-// the mean over rows with two or more main sessions of their pairwise
-// SeqSimilarity.
+// EvalSuite is the suite over the rows with a graded trial, indicator rows
+// left out of every number of its own: the pass rate is the mean of each
+// row's c/n with its Wilson 95 % interval over rows, C_out Rabanser 2026's
+// outcome consistency, and the trajectory similarity the mean over rows
+// with two or more main sessions of their pairwise SeqSimilarity. Regression
+// and adversarial rows count in those and again in their own rate; each
+// kind's rate is absent with no graded row of the kind.
 type EvalSuite struct {
 	Rows             int         `json:"rows"`
 	Trials           int         `json:"trials"`
@@ -74,10 +78,32 @@ type EvalSuite struct {
 	COut             *float64    `json:"c_out,omitempty"`
 	Similarity       *float64    `json:"trajectory_similarity,omitempty"`
 	SimilarityOfRows int         `json:"trajectory_rows"`
+	Regression       *KindRate   `json:"regression,omitempty"`
+	Adversarial      *KindRate   `json:"adversarial,omitempty"`
+	Indicator        *KindRate   `json:"indicator,omitempty"`
+}
+
+// KindRate is one kind's rows with a graded trial: the mean of their c/n
+// with its Wilson 95 % interval over those rows.
+type KindRate struct {
+	Rows     int        `json:"rows"`
+	Trials   int        `json:"trials"`
+	PassRate float64    `json:"pass_rate"`
+	Wilson95 [2]float64 `json:"wilson95"`
 }
 
 // evalPrefix is the label every suite row's trials and sessions carry.
 const evalPrefix = "eval="
+
+// The kinds of row the view tells apart (internal/eval's list, ADR-085;
+// this package reads the stored word and never reads GUIDE-eval, D14 of the
+// eval-metrics plan).
+const (
+	kindCapability  = "capability"
+	kindRegression  = "regression"
+	kindAdversarial = "adversarial"
+	kindIndicator   = "indicator"
+)
 
 // rowKey is a row at one version, the view's line.
 type rowKey struct {
@@ -92,6 +118,7 @@ type evalTrial struct {
 	key          rowKey
 	run, harness string
 	status       string
+	kind         string // "" for an unclaimed session or a trial that stored none
 	start        int64
 	sessionID    string // the unclaimed session, "" for a trial
 }
@@ -128,6 +155,9 @@ func (s *Store) Evals(o EvalOptions) (*EvalRows, error) {
 	if err := s.addSessions(lines); err != nil {
 		return nil, err
 	}
+	if err := s.addExpect(lines); err != nil {
+		return nil, err
+	}
 	keys := make([]rowKey, 0, len(lines))
 	for k := range lines {
 		keys = append(keys, k)
@@ -153,7 +183,7 @@ func (s *Store) evalTrials() ([]evalTrial, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT label, COALESCE(row_version, 1), run, harness, status, started_at
+	rows, err := s.db.Query(`SELECT label, COALESCE(row_version, 1), run, harness, status, started_at, COALESCE(kind, '')
 		FROM trials WHERE substr(label, 1, length(?)) = ? ORDER BY started_at, run`, evalPrefix, evalPrefix)
 	if err != nil {
 		return nil, err
@@ -161,7 +191,7 @@ func (s *Store) evalTrials() ([]evalTrial, error) {
 	var out []evalTrial
 	for rows.Next() {
 		var t evalTrial
-		if err := rows.Scan(&t.key.label, &t.key.version, &t.run, &t.harness, &t.status, &t.start); err != nil {
+		if err := rows.Scan(&t.key.label, &t.key.version, &t.run, &t.harness, &t.status, &t.start, &t.kind); err != nil {
 			rows.Close()
 			return nil, err
 		}

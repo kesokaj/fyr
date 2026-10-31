@@ -100,11 +100,11 @@ func TestEvalRows(t *testing.T) {
 	var text bytes.Buffer
 	e.WriteText(&text)
 	want := `evals 2026-10-01 to 2026-10-31
-row    v  n  c  errors  pass@1  pass^3  wilson95      flip  turns  tool calls  tokens in/out/cache  session s  active s  tool err %  retries  peak ctx  last        flags
-broke  1  2  0  1       0.00    n/a     [0.00, 0.66]  0     1.0    1.0         100/10/50            20.0       2.0       0.0         0.0      2k        2026-10-30  broken
-flaky  1  3  3  0       1.00    1.00    [0.44, 1.00]  0     -      -           -                    -          -         -           -        -         2026-10-30  unstable
-old    1  2  2  0       1.00    n/a     [0.34, 1.00]  0     1.0    1.5         100/11/50            20.0       2.5       0.0         0.0      2k        2026-10-30  history
-sat    1  6  6  0       1.00    1.00    [0.61, 1.00]  0     1.0    3.0         100/10/50            20.0       4.0       33.3        1.0      2k        2026-10-30  saturated
+row    v  kind        n  c  errors  pass@1  pass^3  wilson95      flip  turns  tool calls  tokens in/out/cache  session s  active s  tool err %  retries  peak ctx  expect  last        flags
+broke  1  capability  2  0  1       0.00    n/a     [0.00, 0.66]  0     1.0    1.0         100/10/50            20.0       2.0       0.0         0.0      2k        -       2026-10-30  broken
+flaky  1  capability  3  3  0       1.00    1.00    [0.44, 1.00]  0     -      -           -                    -          -         -           -        -         -       2026-10-30  unstable
+old    1  capability  2  2  0       1.00    n/a     [0.34, 1.00]  0     1.0    1.5         100/11/50            20.0       2.5       0.0         0.0      2k        -       2026-10-30  history
+sat    1  capability  6  6  0       1.00    1.00    [0.61, 1.00]  0     1.0    3.0         100/10/50            20.0       4.0       33.3        1.0      2k        -       2026-10-30  saturated
 suite: 4 rows graded, 13 graded trials, 1 error; pass rate 0.75 [0.30, 0.95] over rows; C_out 1.00
 suite: trajectory similarity 0.80 over 3 rows with two or more sessions
 `

@@ -8,6 +8,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // TestEvalVerbRecord is the trial record's golden path over the fake agy
@@ -56,7 +57,7 @@ func TestEvalVerbRecord(t *testing.T) {
 		"| row | trial | status | cause | reasons | agy exit | seconds | session s | sandbox |\n",
 		"| `ok` | 1 | PASS | - | - | 0 | ",
 		"| `flaky` | 1 | ERROR | setup | setup failed | -1 | ",
-		"| row | n | c | errors | wilson95 |\n|---|---|---|---|---|\n| `ok` | 2 | 2 | 0 | [0.34, 1.00] |\n| `flaky` | 1 | 1 | 1 | [0.21, 1.00] |\n",
+		"| row | n | c | errors | wilson95 | expect |\n|---|---|---|---|---|---|\n| `ok` | 2 | 2 | 0 | [0.34, 1.00] | - |\n| `flaky` | 1 | 1 | 1 | [0.21, 1.00] | - |\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the record lacks %q:\n%s", want, got)
@@ -98,6 +99,77 @@ func TestEvalTally(t *testing.T) {
 	for want, models := range map[string][]string{"unknown": nil, "gemini-a": {"gemini-a"}, "mixed (gemini-a, gemini-b)": {"gemini-a", "gemini-b"}} {
 		if got := modelName(models); got != want {
 			t.Errorf("modelName(%v) = %q, want %q", models, got, want)
+		}
+	}
+}
+
+// TestEvalTallyFromSuite: an indicator row stays in the record's row table
+// but out of the suite's interval, and each row takes its own pooled expect
+// match, printed "m of n"; a row with no match prints -.
+func TestEvalTallyFromSuite(t *testing.T) {
+	res := func(row, status string) eval.Result { return eval.Result{Row: row, Status: status} }
+	tl := tallyOf([]eval.Result{res("a", eval.StatusPass), res("ind", eval.StatusFail)})
+	if got := tl.suiteInterval(); got != "[0.09, 0.91]" {
+		t.Fatalf("before the kinds: %s, want [0.09, 0.91] (two rows, mean 1/2)", got)
+	}
+	tl.fromSuite(map[string]eval.Row{"a": {Kind: eval.KindCapability}, "ind": {Kind: eval.KindIndicator}},
+		map[string]metrics.ExpectMatch{"a": {M: 1, N: 2}})
+	if got := tl.suiteInterval(); got != "[0.21, 1.00]" {
+		t.Errorf("the indicator row counted: %s, want [0.21, 1.00] (one row at 1)", got)
+	}
+	if got := tl.rows[0].expect.String(); got != "1 of 2" {
+		t.Errorf("row a's expect: %s", got)
+	}
+	if got := tl.rows[1].expect.String(); got != "-" {
+		t.Errorf("row ind's expect: %s", got)
+	}
+}
+
+// TestEveryVerbSurvivesTheVerbList: an expect entry names a normalised verb,
+// so every verb the binary has must survive metrics.Verb; one the allowlist
+// lacks reduces to bare fyr and an expect on it can never be found.
+func TestEveryVerbSurvivesTheVerbList(t *testing.T) {
+	for name := range verbs {
+		if got := metrics.Verb("fyr " + name); len(got) != 1 || got[0] != "fyr "+name {
+			t.Errorf("fyr %s normalises to %q", name, got)
+		}
+	}
+}
+
+// TestEvalVerbRecordSuiteColumns: a long-header suite through the whole
+// verb, so what recordEval reads from the suite and the store reaches the
+// record: the expect match of the row's stored session (a run_command of
+// git status, so 2 of 3), - for a row with no list, and an indicator row
+// in the row table but out of the suite's interval and in the title's count.
+func TestEvalVerbRecordSuiteColumns(t *testing.T) {
+	r := newEvalRig(t, "", false)
+	suite := "The suite.\n\n| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n|---|---|---|---|---|---|---|---|---|---|---|\n" +
+		"| `ex` |  | say ok |  | `grep -q 'agy says ok' \"$OUT\"` |  | named |  | regression |  | Bash,git status,Grep |\n" +
+		"| `ind` |  | say ok |  | `false` |  | named |  | indicator |  |  |\n"
+	r.mustRun(strings.NewReader(suite), "record", "add", "guide", "--id", "GUIDE-eval", "--title", "suite", "--home", r.home)
+	r.git("add", "-A")
+	r.git("commit", "-qm", "the suite")
+	r.templateModel("1", "gemini-x", "C1")
+	r.templateModel("2", "gemini-x", "C2")
+	out, code := r.eval("ex", "ind")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 for the FAIL:\n%s", code, out)
+	}
+	m := regexp.MustCompile(`(?m)^eval: 1 of 2 PASS, 0 errors; record (TEST-\S+)$`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("summary:\n%s", out)
+	}
+	got := r.mustRun(nil, "record", "get", m[1], "--home", r.home)
+	for _, want := range []string{"Eval — 1 of 2 PASS at ", "- interval: Wilson 95%, per row below and over rows for the suite: [0.21, 1.00]\n",
+		"| `ex` | 1 | 1 | 0 | [0.21, 1.00] | 2 of 3 |\n", "| `ind` | 1 | 0 | 0 | [0.00, 0.79] | - |\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the record lacks %q:\n%s", want, got)
+		}
+	}
+	view := r.mustRun(nil, "metrics", "evals", "--home", r.home)
+	for _, want := range []string{"2 of 3", "suite: regression: 1 row, 1 graded trial; pass rate 1.00", "suite: indicator: 1 row, 1 graded trial"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the view lacks %q:\n%s", want, view)
 		}
 	}
 }

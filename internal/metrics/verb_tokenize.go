@@ -1,5 +1,27 @@
 package metrics
 
+import "strings"
+
+// quotedMark leads a word that quoting made look like a flag: the shell
+// passes `"--x"` as `--x`, but a flag is written bare, so such a word is
+// content (`--title "--hunter2pass"`). With the mark it starts with no dash,
+// so flagName drops it and it cannot be a wrapper's or git's option.
+const quotedMark = "\x00"
+
+// markQuoted notes a quoted or escaped rune. One after `=` sits in a flag's
+// value (`--title="x"`), which flagName already cuts off. One right after a
+// short flag is that flag's glued value (`-m"fix"`): only the flag is kept.
+func (t *tokenizer) markQuoted() {
+	cur := t.cur.String()
+	switch {
+	case t.glued || strings.Contains(cur, "="):
+	case len(cur) == 2 && cur[0] == '-' && cur[1] != '-':
+		t.glued = true
+	default:
+		t.quoted = true
+	}
+}
+
 // runeAt reports whether rs holds r at index i.
 func runeAt(rs []rune, i int, r rune) bool { return i < len(rs) && rs[i] == r }
 
@@ -10,6 +32,7 @@ func (t *tokenizer) scanQuoted(rs []rune, i int) int {
 	case '\'', '"':
 		// a quoted run is part of the current word; its content is never split
 		t.inWord = true
+		t.markQuoted()
 		for i++; i < len(rs) && rs[i] != q; i++ {
 			if q == '"' && rs[i] == '\\' && i+1 < len(rs) {
 				i++
@@ -19,6 +42,7 @@ func (t *tokenizer) scanQuoted(rs []rune, i int) int {
 	default: // a backslash with a rune after it; a newline continues the line
 		i++
 		if rs[i] != '\n' {
+			t.markQuoted()
 			t.cur.WriteRune(rs[i])
 			t.inWord = true
 		}

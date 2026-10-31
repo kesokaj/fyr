@@ -93,6 +93,8 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 51 | P6's security review, Low 2: eval's ingest (`cmd/fyr/eval.go` `ingestRow`) skips a sandbox by a hand-kept deny list of reasons, beside `fyr work`'s `safetyReasons`; P6 had to add `sandbox write failed` to both by hand | fix: one integrity-reason list in `internal/sandbox`, read by both, test first | P12b |
 | 52 | The operator's standing rule of 2026-10-31 for every agy dispatch: when scheduling `fyr work`, choose each worker's model by tier (`--model`) and read the quota left (`agy -p "/usage"`) first, state tier, model and quota per dispatch, switch only within a tier, and stop and ask when a tier (in practice its quota pool) is out; the same check precedes every `fyr eval` run. Today it is a project memory and `DEPLOY-local`'s tiers. Its durable home: a global `rules/agy-dispatch.md`, with one-line pointers in `skills/work/SKILL.md` and `GUIDE-testing` § 4 (D15) | fix | P12 |
 | 53 | P6's E2E: the second `fyr eval` run's harness key read `06fe101 (dirty)`, because the first run's testing record changed `.agents/trail.jsonl`, which `fyr install` does not install. Two runs of one harness then land under two keys, which splits the per-harness flags of P7's view | fix: the key's dirty mark looks only at what `fyr install` installs (`context/`, `skills/`, `agents/`, `commands/`, `rules/`), test first, with `SPEC-fyr-eval` § Data | P7 |
+| 54 | The verb allowlist (`subcommands` in `internal/metrics/verb.go`) did not hold `fyr`'s `record`, `check`, `eval`, `serve` or `work`, so `fyr record get X` was stored as bare `fyr` and the Phase 5b golden `expect: Read,fyr record` could only ever show `1 of 2` | fix: the five join the list, and a test walks the binary's verbs | P9 |
+| 55 | P9's security review (it predates P9): a quoted value shaped like a flag reached a verb as a flag (`git commit -m "--hunter2pass"` stored `--hunter2pass`, which `fyr metrics export` writes in clear), against `Verb`'s doc comment | fix: a word quoting or an escape made flag-shaped is content; the unquoted form is the stated residue | P9 |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -316,6 +318,20 @@ D17 — 2026-10-31 — P8, how the fix reads item 5's Phase 5a where the eval-me
 — by: implementer, within P8's box.
 
 D18 — 2026-10-31 — The operator's auto-mode ask, given during P8, is researched in `PLAN-2026-10-31-1632-research-fyr-auto-mode-idle-time-self-improvemen` and planned in `PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` (approach B). That plan waits for P13: its Phase 0 starts after v5.5.0, and rule 1 still holds until then. The new plan's record stays open meanwhile, and no Kickoff of this file runs it. P13's closing commit points `TODO.md` Now at its Phase 0. The `PRD.md` wording is approved now and applied in that Phase 0 (its D2), so no requirement changes inside this plan's release. — by: the operator, 2026-10-31 ("go all approved", "with your recommendations", "Approach B as you are recommending").
+
+D19 — 2026-10-31 — P9, how the fix reads the eval-metrics plan's Phase 5b where it is silent:
+- **`m of n`.** n is the entries asked, m the entries found, pooled over a line's trials: three trials of a two-entry list give `5 of 6`. Each trial's own stored list is read, since `expect` can change with no version bump. A trial counts when it is graded, stored a list and has a main session; an ERROR or a trial with no session says nothing about what it used, so it is left out rather than read as `0 of n`.
+- **Which sessions.** A trial's main sessions together, as every other column of the view reads them. A subagent's tools are not the trial's. A row expecting a dispatch names `Agent`.
+- **The match.** An entry equals a tool name or a verb, or leads a verb word by word, since a stored verb keeps its flags (`fyr record` in `fyr record add --title`; never a word cut short). The vocabulary is the store's: `Read`, not `view_file`.
+- **The record too.** The plan's interface says `m of n` is reported in the view and the record, so the testing record's row table gains `expect`, read with the same `ExpectMatches`.
+- **`kind` of a line** is the newest counted trial's, NULL read as `capability` (D17). The view gains a `kind` column, or the suite lines could not be checked against the table.
+- **Where an `indicator` row is left out.** Every number of the first suite line and the trajectory similarity, so the line stays one population, and the record's suite interval. The record's title and the summary count every graded trial: they describe a run, not the suite's rate. A `regression` or `adversarial` row stays in the suite's rate and has its own line too, as the plan's table says. A kind with no graded line prints no line.
+- **`cluster`** stays stored with no reader: its one reader, the cluster-bootstrap line, was removed by the eval-metrics plan's D26, so the kind-dependent view gains nothing from it. `SPEC-fyr-eval` says so.
+- **No `expect` cell is filled.** The box names none, so every row's history gains nothing to read until a row's author writes one. Rows run before P9 stored NULL.
+- **Item 55's edges** (round 2's review). A short flag's glued quoted value keeps the flag (`-m"fix"` is `-m`). A flag quoted before the subcommand now reads as a positional (`git "-C" /x status` is `git`, and `fyr "--home" d record get X` gives `recordRead` nothing): it fails towards keeping less, and nobody quotes a flag, so it stays. The unquoted `--title --x` is the stated residue: it needs a flag table per program.
+- **A stored `fyr` verb is not rewritten** (item 54): a session ingested before P9 keeps bare `fyr`, so an `expect` read over it finds no `fyr record`. Only new trials can store a list, and they ingest under the new list.
+
+— by: implementer, within P9's box.
 
 ## Risks
 

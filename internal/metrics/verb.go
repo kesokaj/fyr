@@ -24,7 +24,7 @@ func init() {
 		"npm":       "audit ci exec init install ls pack publish run start test uninstall update version",
 		"npx":       "",
 		"terraform": "apply console destroy fmt graph import init output plan providers show state validate workspace",
-		"fyr":       "adopt diff dream help index install list memory metrics render search status sync uninstall update version",
+		"fyr":       "adopt check diff dream eval help index install list memory metrics record render search serve status sync uninstall update version work",
 		// The binary's name before the rename: transcripts and stored rows
 		// from before it carry `sh-agent search` and its kin (fyr D7, D20).
 		"sh-agent": "adopt diff dream help index install list memory metrics render report search status sync uninstall update version",
@@ -102,7 +102,9 @@ var (
 // and no comment is kept, except a bare "." after `git add` (D22). Content in
 // the shell constructs the tokenizer models — quotes, here-documents, ${…},
 // $((…)), case patterns, comments — never reaches a verb; a word in command
-// position must look like a command name.
+// position must look like a command name. One residue: an unquoted value
+// shaped like a flag (`--title --x`) reads as a flag, since telling them
+// apart would take a flag table per program.
 func Verb(cmd string) []string {
 	var out []string
 	for _, seg := range segments(stripHeredocs(cmd)) {
@@ -119,6 +121,8 @@ type tokenizer struct {
 	words       []string
 	cur         strings.Builder
 	inWord      bool
+	quoted      bool // the current word holds a quoted or escaped rune; see markQuoted
+	glued       bool // the word is a short flag and its quoted value; see markQuoted
 	parenDepth  int  // open ( and $( subshells
 	caseDepth   int  // open case … esac
 	wantPattern bool // inside a case, before the next pattern's )
@@ -131,6 +135,13 @@ func (t *tokenizer) flushWord() {
 	w := t.cur.String()
 	t.cur.Reset()
 	t.inWord = false
+	switch {
+	case t.glued:
+		w = w[:2]
+	case t.quoted && strings.HasPrefix(w, "-"):
+		w = quotedMark + w
+	}
+	t.quoted, t.glued = false, false
 	if len(t.words) == 0 {
 		switch w {
 		case "case":

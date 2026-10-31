@@ -10,6 +10,8 @@ type rowAcc struct {
 	runs         []string // the counted trials' runs
 	unclaimed    []string // the sessions counted as trials of their own
 	seen         map[string]bool
+	kind         string // the newest counted trial's; trials come oldest first
+	expect       ExpectMatch
 
 	sessions, durN               int
 	turns, tools, errs, retries  int64
@@ -33,6 +35,7 @@ func (a *rowAcc) count(t evalTrial) {
 		a.unclaimed = append(a.unclaimed, t.sessionID)
 	} else {
 		a.runs = append(a.runs, t.run)
+		a.kind = t.kind
 	}
 }
 
@@ -140,10 +143,16 @@ func (a *rowAcc) addSession(start, end int64, steps []stp) {
 
 // row is the line's numbers: absent where the line has none to give.
 func (a *rowAcc) row(k rowKey, flags []string) EvalRow {
-	r := EvalRow{Row: rowName(k.label), Version: k.version, N: a.n, C: a.c, Errors: a.errors, Flags: flags,
+	r := EvalRow{Row: rowName(k.label), Version: k.version, Kind: a.kind, N: a.n, C: a.c, Errors: a.errors, Flags: flags,
 		Last: time.UnixMilli(a.last).UTC().Format("2006-01-02")}
 	if r.Flags == nil {
 		r.Flags = []string{}
+	}
+	if r.Kind == "" {
+		r.Kind = kindCapability
+	}
+	if a.expect.N > 0 {
+		r.Expect = &a.expect
 	}
 	if v, ok := PassAtK(a.n, a.c, 1); ok {
 		r.PassAt1 = ptr(round4(v))
@@ -180,12 +189,16 @@ func (a *rowAcc) means() *EvalMeans {
 	return m
 }
 
-// suiteOf is the suite over the view's rows with a graded trial.
+// suiteOf is the suite over the view's rows with a graded trial, each
+// indicator row left out of its numbers and in its own rate.
 func suiteOf(rows []EvalRow, lines map[rowKey]*rowAcc, keys []rowKey) EvalSuite {
 	var su EvalSuite
 	var ps []float64
 	simSum := 0.0
 	for i, r := range rows {
+		if r.Kind == kindIndicator {
+			continue
+		}
 		su.Errors += r.Errors
 		if r.N > 0 {
 			su.Rows++
@@ -198,12 +211,7 @@ func suiteOf(rows []EvalRow, lines map[rowKey]*rowAcc, keys []rowKey) EvalSuite 
 		}
 	}
 	if len(ps) > 0 {
-		mean := 0.0
-		for _, p := range ps {
-			mean += p
-		}
-		mean /= float64(len(ps))
-		lo, hi := WilsonRate(len(ps), mean, 1.96)
+		mean, lo, hi := rateOver(ps)
 		su.PassRate = ptr(round4(mean))
 		su.Wilson95 = &[2]float64{round4(lo), round4(hi)}
 		su.COut = ptr(round4(OutcomeConsistency(ps)))
@@ -211,7 +219,36 @@ func suiteOf(rows []EvalRow, lines map[rowKey]*rowAcc, keys []rowKey) EvalSuite 
 	if su.SimilarityOfRows > 0 {
 		su.Similarity = ptr(round4(simSum / float64(su.SimilarityOfRows)))
 	}
+	su.Regression, su.Adversarial, su.Indicator = kindRate(rows, kindRegression), kindRate(rows, kindAdversarial), kindRate(rows, kindIndicator)
 	return su
+}
+
+// rateOver is the mean of ps (one or more) with its Wilson 95 % interval
+// over them.
+func rateOver(ps []float64) (mean, lo, hi float64) {
+	for _, p := range ps {
+		mean += p
+	}
+	mean /= float64(len(ps))
+	lo, hi = WilsonRate(len(ps), mean, 1.96)
+	return mean, lo, hi
+}
+
+// kindRate is the rate of kind's rows with a graded trial, nil with none.
+func kindRate(rows []EvalRow, kind string) *KindRate {
+	var ps []float64
+	trials := 0
+	for _, r := range rows {
+		if r.Kind == kind && r.N > 0 {
+			ps = append(ps, float64(r.C)/float64(r.N))
+			trials += r.N
+		}
+	}
+	if len(ps) == 0 {
+		return nil
+	}
+	mean, lo, hi := rateOver(ps)
+	return &KindRate{Rows: len(ps), Trials: trials, PassRate: round4(mean), Wilson95: [2]float64{round4(lo), round4(hi)}}
 }
 
 // pairwise is the mean SeqSimilarity over every pair of seqs (two or more).
