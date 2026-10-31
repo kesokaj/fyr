@@ -12,6 +12,21 @@ import (
 // through esc, and a slot through slotOf too, since a slot lands in a style.
 func TestChartsEscapeInnerHTML(t *testing.T) {
 	js := readSkill(t, "skills/frontend-ui-economist/assets/charts.js")
+	// The definitions, or a call site proves nothing: an identity esc passes
+	// the scan below.
+	for _, want := range []string{
+		"const esc = v => String(v).replace(/[&<>\"']/g, c => `&#${c.charCodeAt(0)};`);",
+		"const slotOf = v => /^--[\\w-]+$/.test(v) ? v : '--s1';",
+	} {
+		if !strings.Contains(js, want) {
+			t.Errorf("charts.js lost %q", want)
+		}
+	}
+	for _, sink := range []string{"innerHTML +=", "outerHTML", "insertAdjacentHTML", "document.write"} {
+		if strings.Contains(js, sink) {
+			t.Errorf("charts.js has a sink this test does not read: %s", sink)
+		}
+	}
 	value := regexp.MustCompile(`\$\{([^}]*)\}`)
 	sinks := 0
 	for _, line := range strings.Split(js, "\n") {
@@ -38,7 +53,7 @@ func TestChartsEscapeInnerHTML(t *testing.T) {
 func TestModernOverrides(t *testing.T) {
 	s := readSkill(t, "skills/frontend-ui-modern/SKILL.md")
 	over := section(t, s, "## Harness overrides")
-	for _, want := range []string{"public or OSS work only", "`npx shadcn@4.23`", "`npx skills add shadcn/ui` is not run", "never an authority"} {
+	for _, want := range []string{"win over every other line of this skill", "`references/`", "public or OSS work only", "`npx shadcn@4.23.0`", "`npx skills add shadcn/ui` is not run", "never an authority"} {
 		if !strings.Contains(over, want) {
 			t.Errorf("Harness overrides lost %q", want)
 		}
