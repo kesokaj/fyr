@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P6 done (2026-10-31); P7 is next. This is the only plan.
+Status: open. P1 to P7 done (2026-10-31); P8 is next. This is the only plan.
 
 ## The operator's words
 
@@ -175,9 +175,9 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3). Expect: the full test command exit 0, and the E2E record IDs. Done 2026-10-31: exit 0, 15 of 15 packages; E2E `TEST-2026-10-31-1456-eval-3-of-3-pass-at-06fe101-k-3-0-errors` (golden) and `TEST-2026-10-31-1457-eval-0-of-0-pass-at-06fe101-k-2-2-errors` (edge); `CHANGE` record of P6.
 
 ### P7 — eval: the per-row view (items 3 and 53; one session)
-- [ ] Item 53, first: the harness key's dirty mark over what `fyr install` installs, test first (a run after a run that wrote its testing record keeps the clean key). Verify: `go test -race ./cmd/fyr -run 'TestEval|TestHarnessKey'`. Who: AI.
-- [ ] The eval-metrics plan's Phase 3 boxes, with the new report code in a new file. Who: AI.
-- [ ] Checkpoint (rule 3). Expect: Phase 3's E2E criterion on the eval home.
+- [x] Item 53, first: the harness key's dirty mark over what `fyr install` installs, test first (a run after a run that wrote its testing record keeps the clean key). Verify: `go test -race ./cmd/fyr -run 'TestEval|TestHarnessKey'`. Who: AI. Done 2026-10-31 (`238e7f1`): `TestHarnessKeyReadsInstalledDirs` and `TestDirtyUnder` failed first, then pass; `harness.ManagedDirs`, `trail.DirtyUnder` (D16).
+- [x] The eval-metrics plan's Phase 3 boxes, with the new report code in a new file. Who: AI. Done 2026-10-31 (`238e7f1`): `fyr metrics evals` (`internal/metrics/evals*.go`, `cmd/fyr/verb_metrics_evals.go`), the report's eval rows (`report_evals.go`; the template moved to `report_template.go`), `/evals` in `fyr serve`; `TestEvalRows`, `TestHistoryFlags`, `TestMetricsEvals`, `TestReportEvalRows`, `TestEvalsTable`; five must-fail mutations in the change record (D16).
+- [x] Checkpoint (rule 3). Expect: Phase 3's E2E criterion on the eval home. Done 2026-10-31: the full test command exit 0, 1795 pass, 0 fail (`TEST-2026-10-31-1532-verification-plan-md-p7-1795-pass-0-fail-fyr-che`); `fyr check` 0 findings on `238e7f1`; E2E `TEST-2026-10-31-1532-e2e-plan-md-p7-fyr-metrics-evals-on-the-eval-hom` (0.085 s, no row `unstable`, no unknown-only row flagged but `history`).
 
 ### P8 — eval: the suite grammar (item 5, Phase 5a; one session)
 - [ ] The eval-metrics plan's Phase 5a boxes. Who: AI.
