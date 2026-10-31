@@ -127,25 +127,31 @@ func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
 	} else {
 		st.close()
 	}
-	// Only a checkout the operator registered (`fyr index --register`, a
-	// marker no clone carries) joins the global index: a third-party
-	// clone's trail would otherwise answer every --global query and feed
-	// /retro's cross-project evidence (ADR-068; security review, finding 2).
-	// It also needs a trail, which dropReason would drop it for lacking; a
-	// check that errors registers nothing this time.
+	if err := registerConsented(o, root, out); err != nil {
+		sc.close()
+		return err
+	}
+	return nil
+}
+
+// registerConsented registers root's checkout when the operator did. Only a
+// checkout the operator registered (`fyr index --register`, a marker no clone
+// carries) joins the global index: a third-party clone's trail would
+// otherwise answer every --global query and feed /retro's cross-project
+// evidence (ADR-068; security review, finding 2). It also needs a trail, which
+// dropReason would drop it for lacking; a check that errors registers nothing
+// this time.
+func registerConsented(o Options, root string, out io.Writer) error {
 	// The marker is read on the checkout that ran: its common directory, and
 	// the seal to its own main path, are what the operator's consent names.
 	if !trail.Registered(filepath.Join(o.Home, harness.StateDir), root) {
 		return nil
 	}
 	row := RegistryRoot(root)
-	if ok, err := HasTrail(row); err == nil && ok {
-		if err := register(o.Home, row, out); err != nil {
-			sc.close()
-			return err
-		}
+	if ok, err := HasTrail(row); err != nil || !ok {
+		return nil
 	}
-	return nil
+	return register(o.Home, row, out)
 }
 
 // RegistryRoot is the root a projects row names for the checkout holding dir:
