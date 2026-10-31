@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Theme Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   SIMULATOR CHROME (neutral; follows the viewer's light/dark)
+   Layout: a thin control bar on top, the themed app fills the rest.
+   ============================================================ */
+:root{
+  --c-bg:#ececea; --c-surface:#ffffff; --c-ink:#1c1c1a; --c-ink2:#66665f; --c-line:#d6d6d1; --c-chip:#f4f4f2; --c-focus:#1c1c1a;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --c-bg:#1a1a19; --c-surface:#262625; --c-ink:#ededea; --c-ink2:#a3a39d; --c-line:#3a3a39; --c-chip:#2f2f2e; --c-focus:#ededea; color-scheme:dark; }
+}
+:root[data-theme="dark"]{ --c-bg:#1a1a19; --c-surface:#262625; --c-ink:#ededea; --c-ink2:#a3a39d; --c-line:#3a3a39; --c-chip:#2f2f2e; --c-focus:#ededea; color-scheme:dark; }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;display:flex;flex-direction:column;background:var(--c-bg);color:var(--c-ink);font:13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.bar{flex:none;background:var(--c-surface);border-bottom:1px solid var(--c-line);padding:8px 14px;display:flex;flex-direction:column;gap:6px}
+.bar-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{font-weight:650;letter-spacing:-.01em;margin-right:4px}
+.brand small{font-weight:400;color:var(--c-ink2);margin-left:6px}
+.group{display:flex;align-items:center;gap:6px}
+.group-label{color:var(--c-ink2);font-size:12px;margin-right:2px}
+.chip{appearance:none;border:1px solid var(--c-line);background:var(--c-chip);color:var(--c-ink);border-radius:999px;padding:4px 11px;font:inherit;font-size:12.5px;cursor:pointer;line-height:1.2}
+.chip:hover{border-color:var(--c-ink2)}
+.chip.is-active{background:var(--c-ink);color:var(--c-surface);border-color:var(--c-ink)}
+.views{display:flex;gap:2px;border:1px solid var(--c-line);border-radius:8px;padding:2px}
+.views a{color:var(--c-ink2);text-decoration:none;padding:4px 10px;border-radius:6px;font-size:12.5px}
+.views a.is-active{background:var(--c-chip);color:var(--c-ink);font-weight:600}
+.wsctl{display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap}
+.wsctl label{color:var(--c-ink2);font-size:12px}
+.wsctl input[type=range]{width:150px;accent-color:var(--c-ink)}
+.readout{font-variant-numeric:tabular-nums;min-width:13em}
+.readout b{font-weight:650}
+.readout .ok{color:#1e7b46}
+.wsctl .cb{display:flex;align-items:center;gap:5px;color:var(--c-ink2);font-size:12px}
+.wsctl .cb input{accent-color:var(--c-ink);margin:0}
+.bar :focus-visible{outline:2px solid var(--c-focus);outline-offset:2px}
+
+/* ============================================================
+   STAGE = the themed app. Everything below reads tokens only.
+   Token contract (same shape for every theme):
+     colour   --bg --surface --surface-2 --ink --ink-2 --ink-3 --line --line-2
+              --accent --accent-ink --accent-soft --good --warn --bad (+ *-bg soft fills)
+              --s1..--s4 chart series (validated), --chart-tab
+     type     --font-display --font-text --font-ui, --fs-* scale, --display-weight/-tracking
+     shape    --radius --radius-s --pill-radius --btn-radius --input-radius
+     panels   --panel-bg --panel-border --panel-top --panel-shadow --table-top --table-head-bg
+     sidebar  --side-* and --nav-*
+     space    --ws (white-space multiplier) -> --u (base unit)
+   ============================================================ */
+.stage{flex:1;min-height:0;position:relative;overflow:auto;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:var(--fs-base);line-height:1.45;--u:calc(8px * var(--ws))}
+.stage :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- Broadsheet: light editorial, Economist-inspired ---------- */
+.stage[data-skin="broadsheet"]{
+  color-scheme:light;
+  --bg:#ffffff; --surface:#ffffff; --surface-2:#f3f3f0;
+  --ink:#111111; --ink-2:#4a4a4a; --ink-3:#7a7a7a;
+  --line:#d3d3ce; --line-2:#e8e8e3;
+  --accent:#d62b1f; --accent-ink:#ffffff; --accent-soft:#fbe9e7; --accent-text:#d62b1f;
+  --good:#1e7b46; --warn:#a5600f; --bad:#b3261e;
+  --good-bg:#e6f3ec; --warn-bg:#fbefdc; --bad-bg:#fbe7e5; --neutral-bg:#efefeb;
+  --s1:#1f5fa6; --s2:#d62b1f; --s3:#0f8f80; --s4:#b58a1c; --chart-tab:var(--accent);
+  --font-display:"Fraunces",Georgia,"Times New Roman",serif;
+  --font-text:"Source Serif 4",Georgia,serif;
+  --font-ui:"Source Sans 3","Helvetica Neue",Arial,sans-serif;
+  --display-weight:600; --display-tracking:-0.01em;
+  --fs-base:15px; --fs-sm:13px; --fs-xs:12px; --fs-h1:30px; --fs-h2:18px; --fs-head:42px; --fs-num:28px; --fs-prose:17px; --prose-lh:1.55;
+  --radius:0; --radius-s:0; --pill-radius:0; --btn-radius:0; --input-radius:0;
+  --panel-bg:transparent; --panel-border:0; --panel-top:2px solid var(--ink); --panel-shadow:none;
+  --table-top:2px solid var(--ink); --table-head-bg:transparent;
+  --input-bg:#ffffff; --input-border:#8a8a8a;
+  --side-w:220px; --side-bg:#ffffff; --side-ink:#111111; --side-ink-2:#4a4a4a; --side-line:#d3d3ce;
+  --nav-active-bg:transparent; --nav-active-ink:#111111; --nav-mark:var(--accent); --nav-mark-w:3px; --nav-radius:0; --nav-ml:calc(var(--u) * -1.5);
+  --swatch-w:12px; --swatch-h:3px; --swatch-r:0;
+  --ws:1;
+  --dialog-shadow:0 0 0 1px var(--ink);
+}
+/* ---------- Ink: dark editorial ---------- */
+.stage[data-skin="ink"]{
+  color-scheme:dark;
+  --bg:#0f1419; --surface:#161c23; --surface-2:#1d242d;
+  --ink:#edebe6; --ink-2:#b3b0a9; --ink-3:#7f7c75;
+  --line:#2c343e; --line-2:#222a33;
+  --accent:#dc3328; --accent-ink:#ffffff; --accent-soft:#3a1d1b; --accent-text:#f0655b;
+  --good:#4cc38a; --warn:#e3a92b; --bad:#ff6b61;
+  --good-bg:rgba(76,195,138,.14); --warn-bg:rgba(227,169,43,.14); --bad-bg:rgba(255,107,97,.14); --neutral-bg:#232b35;
+  --s1:#3f86d6; --s2:#e34b40; --s3:#2aa58f; --s4:#bd8526; --chart-tab:var(--accent);
+  --font-display:"Newsreader",Georgia,serif;
+  --font-text:"Newsreader",Georgia,serif;
+  --font-ui:"Source Sans 3","Helvetica Neue",Arial,sans-serif;
+  --display-weight:500; --display-tracking:-0.005em;
+  --fs-base:15px; --fs-sm:13px; --fs-xs:12px; --fs-h1:30px; --fs-h2:18px; --fs-head:42px; --fs-num:28px; --fs-prose:17.5px; --prose-lh:1.6;
+  --radius:0; --radius-s:0; --pill-radius:0; --btn-radius:0; --input-radius:0;
+  --panel-bg:var(--surface); --panel-border:1px solid var(--line); --panel-top:1px solid var(--line); --panel-shadow:none;
+  --table-top:1px solid var(--ink-3); --table-head-bg:transparent;
+  --input-bg:#121820; --input-border:#3a434e;
+  --side-w:220px; --side-bg:#0f1419; --side-ink:#edebe6; --side-ink-2:#b3b0a9; --side-line:#2c343e;
+  --nav-active-bg:transparent; --nav-active-ink:#edebe6; --nav-mark:var(--accent); --nav-mark-w:3px; --nav-radius:0; --nav-ml:calc(var(--u) * -1.5);
+  --swatch-w:12px; --swatch-h:3px; --swatch-r:0;
+  --ws:1;
+  --dialog-shadow:0 0 0 1px var(--ink-3);
+  --bad-btn:#c73a2e;
+}
+/* ---------- Briefing: data-first editorial, cool and chart-led ---------- */
+.stage[data-skin="briefing"]{
+  color-scheme:light;
+  --bg:#edf0f3; --surface:#ffffff; --surface-2:#f4f6f8;
+  --ink:#0f1b2d; --ink-2:#45536a; --ink-3:#74819a;
+  --line:#d3dae3; --line-2:#e6ebf0;
+  --accent:#1d5a9a; --accent-ink:#ffffff; --accent-soft:#e2ecf7; --accent-text:#1d5a9a; --highlight:#d62b1f;
+  --good:#187045; --warn:#8f5d06; --bad:#b8321f;
+  --good-bg:#e4f2ea; --warn-bg:#faefd9; --bad-bg:#f9e5e1; --neutral-bg:#e9edf2;
+  --s1:#1d5a9a; --s2:#d62b1f; --s3:#4c9bd6; --s4:#b38600; --chart-tab:var(--highlight);
+  --font-display:"Source Serif 4",Georgia,serif;
+  --font-text:"Source Serif 4",Georgia,serif;
+  --font-ui:"IBM Plex Sans","Helvetica Neue",Arial,sans-serif;
+  --display-weight:600; --display-tracking:-0.01em;
+  --fs-base:14px; --fs-sm:13px; --fs-xs:12px; --fs-h1:26px; --fs-h2:17px; --fs-head:36px; --fs-num:26px; --fs-prose:16.5px; --prose-lh:1.55;
+  --radius:2px; --radius-s:2px; --pill-radius:2px; --btn-radius:2px; --input-radius:2px;
+  --panel-bg:#ffffff; --panel-border:0; --panel-top:3px solid var(--accent); --panel-shadow:0 1px 2px rgba(15,27,45,.08);
+  --table-top:1px solid var(--line); --table-head-bg:var(--surface-2);
+  --input-bg:#ffffff; --input-border:#b7c2d0;
+  --side-w:224px; --side-bg:#0f1b2d; --side-ink:#ffffff; --side-ink-2:#aab6c8; --side-line:#0f1b2d;
+  --nav-active-bg:rgba(255,255,255,.08); --nav-active-ink:#ffffff; --nav-mark:var(--highlight); --nav-mark-w:3px; --nav-radius:0; --nav-ml:calc(var(--u) * -1.5);
+  --swatch-w:12px; --swatch-h:3px; --swatch-r:0;
+  --ws:1;
+}
+/* ---------- Airy: Google-inspired, white space is the structure ---------- */
+.stage[data-skin="airy"]{
+  color-scheme:light;
+  --bg:#ffffff; --surface:#ffffff; --surface-2:#f1f3f4;
+  --ink:#202124; --ink-2:#5f6368; --ink-3:#80868b;
+  --line:#dadce0; --line-2:#e8eaed;
+  --accent:#1a73e8; --accent-ink:#ffffff; --accent-soft:#e8f0fe; --accent-text:#1a73e8;
+  --good:#188038; --warn:#b06000; --bad:#c5221f;
+  --good-bg:#e6f4ea; --warn-bg:#fef7e0; --bad-bg:#fce8e6; --neutral-bg:#f1f3f4;
+  --s1:#1a73e8; --s2:#e8710a; --s3:#9334e6; --s4:#0e9aa8; --chart-tab:var(--accent);
+  --font-display:"Figtree",Roboto,system-ui,sans-serif;
+  --font-text:"Figtree",Roboto,system-ui,sans-serif;
+  --font-ui:"Figtree",Roboto,system-ui,sans-serif;
+  --display-weight:600; --display-tracking:-0.01em;
+  --fs-base:14px; --fs-sm:13px; --fs-xs:12px; --fs-h1:28px; --fs-h2:16px; --fs-head:36px; --fs-num:32px; --fs-prose:15px; --prose-lh:1.65;
+  --radius:12px; --radius-s:8px; --pill-radius:999px; --btn-radius:999px; --input-radius:8px;
+  --panel-bg:#ffffff; --panel-border:1px solid var(--line); --panel-top:1px solid var(--line); --panel-shadow:none;
+  --table-top:0; --table-head-bg:transparent;
+  --input-bg:#ffffff; --input-border:#dadce0;
+  --side-w:236px; --side-bg:#ffffff; --side-ink:#202124; --side-ink-2:#5f6368; --side-line:#ffffff;
+  --nav-active-bg:#e8f0fe; --nav-active-ink:#1967d2; --nav-mark:transparent; --nav-mark-w:0px; --nav-radius:0 999px 999px 0; --nav-ml:calc(var(--u) * -1.5);
+  --swatch-w:10px; --swatch-h:10px; --swatch-r:50%;
+  --ws:1.4;
+}
+/* ---------- Instrument: dense operator tool ---------- */
+.stage[data-skin="instrument"]{
+  color-scheme:light;
+  --bg:#f6f6f8; --surface:#ffffff; --surface-2:#f0f0f4;
+  --ink:#15161a; --ink-2:#5a5d68; --ink-3:#8a8d98;
+  --line:#e1e2e8; --line-2:#ebecf0;
+  --accent:#4f46e5; --accent-ink:#ffffff; --accent-soft:#ecebfc; --accent-text:#4f46e5;
+  --good:#15803d; --warn:#a16207; --bad:#d82222;
+  --good-bg:#e7f6ec; --warn-bg:#fdf3dc; --bad-bg:#fdeaea; --neutral-bg:#ededf2;
+  --s1:#4f46e5; --s2:#e5582a; --s3:#0d9488; --s4:#c026d3; --chart-tab:var(--accent);
+  --font-display:"Manrope",system-ui,sans-serif;
+  --font-text:"Manrope",system-ui,sans-serif;
+  --font-ui:"Manrope",system-ui,sans-serif;
+  --display-weight:700; --display-tracking:-0.015em;
+  --fs-base:13px; --fs-sm:12px; --fs-xs:11px; --fs-h1:20px; --fs-h2:14px; --fs-head:26px; --fs-num:22px; --fs-prose:14px; --prose-lh:1.6;
+  --radius:6px; --radius-s:4px; --pill-radius:4px; --btn-radius:5px; --input-radius:5px;
+  --panel-bg:#ffffff; --panel-border:1px solid var(--line); --panel-top:1px solid var(--line); --panel-shadow:0 1px 2px rgba(20,22,30,.04);
+  --table-top:0; --table-head-bg:var(--surface-2);
+  --input-bg:#ffffff; --input-border:#d6d7df;
+  --side-w:200px; --side-bg:#f6f6f8; --side-ink:#15161a; --side-ink-2:#5a5d68; --side-line:#e1e2e8;
+  --nav-active-bg:#e6e6ee; --nav-active-ink:#15161a; --nav-mark:transparent; --nav-mark-w:0px; --nav-radius:4px; --nav-ml:0px;
+  --swatch-w:8px; --swatch-h:8px; --swatch-r:2px;
+  --ws:0.8;
+}
+/* ---------- Graphite: dark-first modern tool ---------- */
+.stage[data-skin="graphite"]{
+  color-scheme:dark;
+  --bg:#15181d; --surface:#1c2027; --surface-2:#242931;
+  --ink:#e7e9ec; --ink-2:#9ba3ae; --ink-3:#6b7380;
+  --line:#2c323b; --line-2:#262c34;
+  --accent:#5563d8; --accent-ink:#ffffff; --accent-soft:rgba(85,99,216,.2); --accent-text:#8b9bff;
+  --good:#3fb950; --warn:#d29922; --bad:#f85149;
+  --good-bg:rgba(63,185,80,.15); --warn-bg:rgba(210,153,34,.15); --bad-bg:rgba(248,81,73,.15); --neutral-bg:#2a3039;
+  --s1:#6b7ae8; --s2:#1aa88c; --s3:#d9671c; --s4:#c84fab; --chart-tab:var(--accent);
+  --font-display:"DM Sans",system-ui,sans-serif;
+  --font-text:"DM Sans",system-ui,sans-serif;
+  --font-ui:"DM Sans",system-ui,sans-serif;
+  --display-weight:600; --display-tracking:-0.01em;
+  --fs-base:13.5px; --fs-sm:12.5px; --fs-xs:11.5px; --fs-h1:22px; --fs-h2:15px; --fs-head:28px; --fs-num:24px; --fs-prose:14.5px; --prose-lh:1.6;
+  --radius:8px; --radius-s:6px; --pill-radius:999px; --btn-radius:6px; --input-radius:6px;
+  --panel-bg:var(--surface); --panel-border:1px solid var(--line); --panel-top:1px solid var(--line); --panel-shadow:none;
+  --table-top:0; --table-head-bg:transparent;
+  --input-bg:#15181d; --input-border:#3a414c;
+  --side-w:216px; --side-bg:#15181d; --side-ink:#e7e9ec; --side-ink-2:#9ba3ae; --side-line:#2c323b;
+  --nav-active-bg:#242931; --nav-active-ink:#e7e9ec; --nav-mark:transparent; --nav-mark-w:0px; --nav-radius:6px; --nav-ml:0px;
+  --swatch-w:10px; --swatch-h:10px; --swatch-r:50%;
+  --ws:1;
+  --bad-btn:#c93434;
+}
+
+/* ============================================================
+   APP LAYOUT
+   ============================================================ */
+.app{display:grid;grid-template-columns:var(--side-w) minmax(0,1fr);min-height:100%}
+.side-col{background:var(--side-bg);border-right:1px solid var(--side-line)}
+.side{position:sticky;top:0;padding:calc(var(--u)*2.5) calc(var(--u)*1.5);color:var(--side-ink);display:flex;flex-direction:column;gap:calc(var(--u)*3)}
+.logo{display:flex;align-items:center;gap:10px;padding:0 calc(var(--u)*1.25);font-family:var(--font-display);font-weight:var(--display-weight);font-size:18px;letter-spacing:var(--display-tracking)}
+.logo i{display:block;width:14px;height:14px;background:var(--accent);border-radius:var(--radius-s);flex:none}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:max(6px,calc(var(--u)*.8)) calc(var(--u)*1.25);color:var(--side-ink-2);text-decoration:none;border-left:var(--nav-mark-w) solid transparent;border-radius:var(--nav-radius);margin-left:var(--nav-ml);padding-left:calc(var(--u)*1.25 + max(0px, var(--nav-ml) * -1) - var(--nav-mark-w));font-weight:500;cursor:pointer}
+.nav a:hover{color:var(--side-ink)}
+.nav a.is-active{background:var(--nav-active-bg);color:var(--nav-active-ink);border-left-color:var(--nav-mark);font-weight:600}
+.nav .count{font-size:var(--fs-xs);font-variant-numeric:tabular-nums;opacity:.8}
+.side-foot{margin-top:auto;padding:0 calc(var(--u)*1.25);font-size:var(--fs-xs);color:var(--side-ink-2);display:flex;align-items:center;gap:8px}
+.avatar{width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:inline-grid;place-items:center;font-size:10px;font-weight:700;flex:none}
+.main{padding:calc(var(--u)*3) calc(var(--u)*4) calc(var(--u)*6);max-width:1240px;min-width:0}
+.view{display:none}
+.view.is-active{display:block}
+
+@media (max-width:760px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .side-col{border-right:0;border-bottom:1px solid var(--side-line);min-width:0}
+  .logo{white-space:nowrap}
+  .side{position:static;flex-direction:row;align-items:center;gap:calc(var(--u)*2);padding:calc(var(--u)*1.5) calc(var(--u)*2);overflow-x:auto}
+  .nav{flex-direction:row}
+  .nav a{margin-left:0;padding-left:calc(var(--u)*1.25);border-left:0;border-bottom:var(--nav-mark-w) solid transparent;border-radius:var(--radius-s);white-space:nowrap}
+  .nav a.is-active{border-bottom-color:var(--nav-mark)}
+  .side-foot{display:none}
+  .main{padding:calc(var(--u)*2) 16px calc(var(--u)*4)}
+}
+
+/* ============================================================
+   SHARED PIECES
+   ============================================================ */
+h1,h2,h3,h4,p,ul,figure{margin:0}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:calc(var(--u)*2);flex-wrap:wrap;margin-bottom:calc(var(--u)*3)}
+.page-head h1{font-family:var(--font-display);font-size:var(--fs-h1);font-weight:var(--display-weight);letter-spacing:var(--display-tracking);line-height:1.1;text-wrap:balance}
+.lede{color:var(--ink-2);margin-top:calc(var(--u)*.75);max-width:60ch}
+.actions{display:flex;gap:calc(var(--u)*1);flex-wrap:wrap}
+
+.btn{font:inherit;font-weight:600;font-size:var(--fs-sm);line-height:1.2;padding:max(7px,calc(var(--u)*1)) max(12px,calc(var(--u)*1.75));border-radius:var(--btn-radius);border:1px solid transparent;background:var(--surface-2);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{filter:brightness(.96)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.secondary{background:transparent;border-color:var(--line);color:var(--ink)}
+.btn.ghost{background:transparent;color:var(--accent-text,var(--accent))}
+.btn.danger{background:var(--bad-btn,var(--bad));color:#fff}
+.btn.sm{padding:max(4px,calc(var(--u)*.6)) max(9px,calc(var(--u)*1.25));font-size:var(--fs-xs)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+
+.panel{background:var(--panel-bg);border:var(--panel-border);border-top:var(--panel-top);border-radius:var(--radius);box-shadow:var(--panel-shadow);padding:calc(var(--u)*2) calc(var(--u)*2.5) calc(var(--u)*2.5)}
+.panel-head{margin-bottom:calc(var(--u)*1.5)}
+.panel-head.row{display:flex;align-items:center;justify-content:space-between;gap:calc(var(--u)*2);flex-wrap:wrap}
+.panel h2{font-family:var(--font-ui);font-size:var(--fs-h2);font-weight:700;letter-spacing:-.005em;line-height:1.2}
+.panel .sub{color:var(--ink-2);font-size:var(--fs-sm);margin-top:2px}
+.tab{display:none;width:22px;height:3px;background:var(--chart-tab);margin-bottom:max(6px,calc(var(--u)*1))}
+.is-editorial .tab{display:block}
+.source{color:var(--ink-3);font-size:var(--fs-xs);margin-top:calc(var(--u)*1.25)}
+
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}
+.tile{background:var(--panel-bg);border:var(--panel-border);border-top:var(--panel-top);border-radius:var(--radius);box-shadow:var(--panel-shadow);padding:calc(var(--u)*1.75) calc(var(--u)*2) calc(var(--u)*1.5);display:grid;grid-template-columns:1fr auto;grid-template-areas:"label label" "value spark" "delta spark";column-gap:12px;align-items:end}
+.tile .label{grid-area:label;color:var(--ink-2);font-size:var(--fs-sm);margin-bottom:max(4px,calc(var(--u)*.75))}
+.tile .value{grid-area:value;font-size:var(--fs-num);font-weight:600;line-height:1;letter-spacing:-.02em}
+.tile .delta{grid-area:delta;font-size:var(--fs-xs);margin-top:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tile .spark{grid-area:spark;width:84px;height:30px;align-self:end}
+.delta.up{color:var(--bad)}.delta.down{color:var(--good)}.delta.flat{color:var(--ink-3)}
+.delta.up.goodway{color:var(--good)}.delta.down.badway{color:var(--bad)}
+
+.grid-2{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:calc(var(--u)*2);margin-bottom:calc(var(--u)*3)}
+@media (max-width:980px){.grid-2{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.tiles{grid-template-columns:1fr}}
+
+.legend{display:flex;gap:calc(var(--u)*2);flex-wrap:wrap;font-size:var(--fs-xs);color:var(--ink-2);margin-bottom:max(6px,calc(var(--u)*1))}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:var(--swatch-w);height:var(--swatch-h);border-radius:var(--swatch-r);background:var(--c)}
+.chart{position:relative;width:100%;height:var(--chart-h,260px)}
+.chart svg{position:absolute;inset:0;display:block;overflow:visible}
+.chart text{font-family:var(--font-ui);font-size:var(--fs-xs);fill:var(--ink-2)}
+.chart .ax{fill:var(--ink-3)}
+.chart .lbl{fill:var(--ink-2);font-weight:600;paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+.chart .grid{stroke:var(--line-2);stroke-width:1}
+.chart .base{stroke:var(--line);stroke-width:1}
+.chart .xh{stroke:var(--ink-3);stroke-width:1}
+.chart .hit{fill:transparent}
+.tip{position:absolute;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--radius-s);padding:6px 9px;font-size:var(--fs-xs);box-shadow:0 2px 8px rgba(0,0,0,.12);white-space:nowrap;display:none;z-index:2}
+.tip b{display:block;margin-bottom:3px}
+.tip div{display:flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.tip i{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c)}
+.tip .v{margin-left:auto;padding-left:10px;font-weight:600}
+
+.brief-panel p{color:var(--ink-2);font-family:var(--font-text);font-size:var(--fs-base);line-height:1.5}
+.list{list-style:none;padding:0;margin-top:calc(var(--u)*1.5);display:flex;flex-direction:column}
+.list li{display:flex;gap:10px;align-items:flex-start;padding:max(6px,calc(var(--u)*1)) 0;border-top:1px solid var(--line-2);font-size:var(--fs-sm)}
+.list li .pill{flex:none;margin-top:1px}
+
+.pill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:var(--pill-radius);font-size:var(--fs-xs);font-weight:600;line-height:1.6;background:var(--neutral-bg);color:var(--ink-2);white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.pill.good{background:var(--good-bg);color:var(--good)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--bad-bg);color:var(--bad)}
+.pill.warn::before{border-radius:1px;transform:rotate(45deg)}
+.pill.bad::before{border-radius:0}
+
+.filters{display:flex;gap:calc(var(--u)*1);flex-wrap:wrap;align-items:center}
+.input,.select,.textarea{font:inherit;font-size:var(--fs-sm);color:var(--ink);background:var(--input-bg);border:1px solid var(--input-border);border-radius:var(--input-radius);padding:max(6px,calc(var(--u)*.9)) max(10px,calc(var(--u)*1.25));min-width:0}
+.input::placeholder{color:var(--ink-3)}
+.textarea{resize:vertical;min-height:72px;width:100%}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:var(--fs-sm);font-weight:600;color:var(--ink)}
+.field .help{font-size:var(--fs-xs);color:var(--ink-3)}
+.field.error .input{border-color:var(--bad)}
+.field.error .help{color:var(--bad)}
+
+.table-wrap{overflow-x:auto}
+.table{width:100%;border-collapse:collapse;border-top:var(--table-top);font-size:var(--fs-sm)}
+.table th{text-align:left;font-weight:600;color:var(--ink-2);font-size:var(--fs-xs);padding:max(6px,calc(var(--u)*1)) calc(var(--u)*1.25);border-bottom:1px solid var(--line);background:var(--table-head-bg);white-space:nowrap}
+.table td{padding:max(5px,calc(var(--u)*1.1)) calc(var(--u)*1.25);border-bottom:1px solid var(--line-2);vertical-align:middle}
+.table .num{text-align:right;font-variant-numeric:tabular-nums}
+.table th.num{text-align:right}
+.table .spark{width:72px;height:20px;display:block}
+.table .muted{color:var(--ink-3)}
+.table tr:hover td{background:var(--surface-2)}
+
+/* ---------- Brief (article) ---------- */
+.article{max-width:72ch}
+.kicker{color:var(--accent-text,var(--accent));font-weight:600;font-size:var(--fs-sm);margin-bottom:calc(var(--u)*1)}
+.headline{font-family:var(--font-display);font-size:var(--fs-head);font-weight:var(--display-weight);letter-spacing:var(--display-tracking);line-height:1.08;text-wrap:balance;max-width:22ch}
+.standfirst{font-family:var(--font-text);font-size:calc(var(--fs-prose) * 1.15);line-height:1.4;color:var(--ink-2);margin-top:calc(var(--u)*1.5);max-width:58ch}
+.byline{color:var(--ink-3);font-size:var(--fs-sm);margin-top:calc(var(--u)*1.5)}
+.article-actions{display:flex;gap:calc(var(--u)*1);margin:calc(var(--u)*2) 0 calc(var(--u)*3);padding:calc(var(--u)*1.5) 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.prose{font-family:var(--font-text);font-size:var(--fs-prose);line-height:var(--prose-lh);max-width:65ch;display:flex;flex-direction:column;gap:1em}
+.has-dropcap .prose .lead::first-letter{float:left;font-family:var(--font-display);font-weight:var(--display-weight);font-size:3.4em;line-height:.78;padding:.1em .12em 0 0}
+.article figure{margin:calc(var(--u)*3) 0}
+.article-foot{margin-top:calc(var(--u)*3);padding-top:calc(var(--u)*2);border-top:1px solid var(--line);font-size:var(--fs-sm);color:var(--ink-2)}
+.article-foot h3{font-family:var(--font-ui);font-size:var(--fs-sm);font-weight:700;color:var(--ink);margin-bottom:6px}
+.article-foot ul{padding-left:1.1em;margin:6px 0 0}
+
+/* ---------- Components gallery ---------- */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:calc(var(--u)*2)}
+.cgroup{background:var(--panel-bg);border:var(--panel-border);border-top:var(--panel-top);border-radius:var(--radius);box-shadow:var(--panel-shadow);padding:calc(var(--u)*2) calc(var(--u)*2.5) calc(var(--u)*2.5);display:flex;flex-direction:column;gap:calc(var(--u)*1.5)}
+.cgroup h3{font-family:var(--font-ui);font-size:var(--fs-h2);font-weight:700}
+.cgroup .row{display:flex;gap:calc(var(--u)*1);flex-wrap:wrap;align-items:center}
+.cgroup .col{display:flex;flex-direction:column;gap:calc(var(--u)*1.25)}
+.check{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm)}
+.check input{accent-color:var(--accent);margin:0;width:15px;height:15px}
+.switch{position:relative;display:inline-flex;align-items:center;gap:8px;font-size:var(--fs-sm);cursor:pointer}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch i{width:34px;height:18px;border-radius:var(--pill-radius);background:var(--ink-3);position:relative;transition:background .15s;flex:none}
+.switch i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:inherit;background:#fff;transition:transform .15s}
+.switch input:checked + i{background:var(--accent)}
+.switch input:checked + i::after{transform:translateX(16px)}
+.switch input:focus-visible + i{outline:2px solid var(--accent);outline-offset:2px}
+.fchip{font:inherit;font-size:var(--fs-xs);font-weight:600;padding:3px 10px;border-radius:var(--pill-radius);border:1px solid var(--line);background:transparent;color:var(--ink-2);cursor:pointer}
+.fchip.is-on{background:var(--accent-soft);border-color:transparent;color:var(--accent-text,var(--accent))}
+.badge{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:var(--pill-radius);background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700}
+.tabs{display:flex;gap:calc(var(--u)*2);border-bottom:1px solid var(--line)}
+.tabs button{font:inherit;font-size:var(--fs-sm);font-weight:600;color:var(--ink-2);background:none;border:0;padding:6px 2px 8px;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.tabs button.is-active{color:var(--ink);border-bottom-color:var(--accent)}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:max(8px,calc(var(--u)*1.25)) calc(var(--u)*1.5);border:1px solid var(--line);border-left:3px solid var(--a);border-radius:var(--radius-s);font-size:var(--fs-sm);background:var(--surface)}
+.alert b{display:block}
+.alert .ic{flex:none;width:16px;height:16px;border-radius:50%;background:var(--a);color:var(--bg);display:grid;place-items:center;font-size:10px;font-weight:800;margin-top:1px}
+.toast{display:inline-flex;align-items:center;gap:14px;padding:8px 12px;border-radius:var(--radius-s);background:var(--ink);color:var(--bg);font-size:var(--fs-sm);box-shadow:0 4px 12px rgba(0,0,0,.18)}
+.toast button{font:inherit;font-weight:700;background:none;border:0;color:inherit;cursor:pointer;opacity:.85}
+.menu{border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface);padding:4px;max-width:240px;font-size:var(--fs-sm);box-shadow:var(--panel-shadow)}
+.menu div{padding:6px 10px;border-radius:var(--radius-s);display:flex;justify-content:space-between}
+.menu div.is-hover{background:var(--surface-2)}
+.menu div.is-sel{background:var(--accent-soft);color:var(--accent-text,var(--accent));font-weight:600}
+.menu .k{color:var(--ink-3);font-size:var(--fs-xs)}
+.dialog-wrap{background:var(--neutral-bg);padding:calc(var(--u)*2);border-radius:var(--radius)}
+.dialog{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:calc(var(--u)*2) calc(var(--u)*2.5);max-width:360px;box-shadow:var(--dialog-shadow,0 8px 24px rgba(0,0,0,.14))}
+.dialog h4{font-family:var(--font-display);font-size:calc(var(--fs-h2) * 1.1);font-weight:var(--display-weight);margin-bottom:6px}
+.dialog p{color:var(--ink-2);font-size:var(--fs-sm)}
+.dialog .row{margin-top:calc(var(--u)*2);justify-content:flex-end}
+.empty{text-align:center;padding:calc(var(--u)*3) calc(var(--u)*2);border:1px dashed var(--line);border-radius:var(--radius);color:var(--ink-2);font-size:var(--fs-sm)}
+.empty b{display:block;color:var(--ink);font-size:var(--fs-base);margin-bottom:4px}
+.empty .btn{margin-top:calc(var(--u)*1.5)}
+.crumbs{display:flex;gap:6px;font-size:var(--fs-sm);color:var(--ink-3)}
+.crumbs a{color:var(--ink-2);text-decoration:none}
+.crumbs b{color:var(--ink);font-weight:600}
+.pager{display:flex;gap:4px;align-items:center}
+.pager button{font:inherit;font-size:var(--fs-xs);min-width:28px;height:28px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:var(--radius-s);cursor:pointer}
+.pager button.is-active{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+
+/* ---------- Tokens sheet ---------- */
+.tokens-intro{max-width:70ch;color:var(--ink-2);margin-bottom:calc(var(--u)*3)}
+.tokens-intro p + p{margin-top:.6em}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:calc(var(--u)*2)}
+.tgrid .wide{grid-column:1 / -1}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:calc(var(--u)*1)}
+.swatch{border:1px solid var(--line);border-radius:var(--radius-s);overflow:hidden;font-size:var(--fs-xs)}
+.swatch i{display:block;height:40px;background:var(--c)}
+.swatch div{padding:6px 8px;line-height:1.3}
+.swatch code{display:block;color:var(--ink-3);font-family:inherit}
+.spec{display:flex;flex-direction:column;gap:calc(var(--u)*1.25)}
+.spec .l{font-size:var(--fs-xs);color:var(--ink-3)}
+.spec .head{font-family:var(--font-display);font-weight:var(--display-weight);letter-spacing:var(--display-tracking);font-size:var(--fs-head);line-height:1.08;text-wrap:balance}
+.spec .h1{font-family:var(--font-display);font-weight:var(--display-weight);font-size:var(--fs-h1);line-height:1.15}
+.spec .h2{font-weight:700;font-size:var(--fs-h2)}
+.spec .text{font-family:var(--font-text);font-size:var(--fs-prose);line-height:var(--prose-lh);max-width:60ch}
+.spec .ui{font-size:var(--fs-base)}
+.spec .num{font-size:var(--fs-num);font-weight:600;letter-spacing:-.02em}
+.spec .tab-num{font-variant-numeric:tabular-nums}
+.shapes{display:flex;gap:calc(var(--u)*1.5);flex-wrap:wrap;align-items:flex-end}
+.shape{width:64px;height:48px;background:var(--accent-soft);border:1px solid var(--accent);display:grid;place-items:center;font-size:var(--fs-xs);color:var(--accent-text,var(--accent))}
+.spaces{display:flex;gap:6px;align-items:flex-end}
+.spaces i{display:block;background:var(--accent);width:calc(var(--u) * var(--n));height:12px}
+pre.code{margin:0;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--surface-2);color:var(--ink);border:1px solid var(--line-2);border-radius:var(--radius-s);padding:calc(var(--u)*1.5);overflow:auto;max-height:420px;white-space:pre}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:calc(var(--u)*2)}
+.notes h4{font-size:var(--fs-sm);font-weight:700;margin-bottom:6px}
+.notes ul{margin:0;padding-left:1.1em;font-size:var(--fs-sm);color:var(--ink-2);display:flex;flex-direction:column;gap:4px}
+.copy-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:calc(var(--u)*1)}
+.copy-row .done{font-size:var(--fs-xs);color:var(--good)}
+
+/* ---------- Ink overlay (white-space estimate) ---------- */
+.ink-overlay{position:absolute;top:0;left:0;pointer-events:none;z-index:5;display:none}
+.ink-overlay.is-on{display:block}
+.ink-overlay i{position:absolute;background:rgba(255,0,110,.28);outline:1px solid rgba(255,0,110,.45)}
+
+@media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<header class="bar" aria-label="Simulator controls">
+  <div class="bar-row">
+    <div class="brand">Theme simulator<small>one tool app, six themes, same token contract</small></div>
+    <div class="group" id="themes-editorial"><span class="group-label">Editorial</span></div>
+    <div class="group" id="themes-tool"><span class="group-label">Tool</span></div>
+  </div>
+  <div class="bar-row">
+    <nav class="views" id="views">
+      <a href="#desk" data-view="desk">Desk</a>
+      <a href="#brief" data-view="brief">Brief</a>
+      <a href="#components" data-view="components">Components</a>
+      <a href="#tokens" data-view="tokens">Tokens</a>
+    </nav>
+    <div class="wsctl">
+      <label for="ws">White space</label>
+      <input type="range" id="ws" min="0.6" max="1.8" step="0.05" value="1">
+      <span class="readout" id="readout">spacing ×1.00 · <b>—</b></span>
+      <label class="cb"><input type="checkbox" id="overlay"> show ink</label>
+    </div>
+  </div>
+</header>
+
+<main class="stage" id="stage" data-skin="broadsheet" style="--ws:1">
+<div class="app" id="app">
+  <div class="side-col">
+    <aside class="side">
+      <div class="logo"><i></i>Indicator desk</div>
+      <nav class="nav" aria-label="App navigation">
+        <a href="#desk" data-nav="desk">Desk</a>
+        <a href="#desk">Watchlist <span class="count">48</span></a>
+        <a href="#brief" data-nav="brief">Briefs <span class="count">5</span></a>
+        <a href="#desk">Alerts <span class="count">3</span></a>
+        <a href="#desk">Sources</a>
+      </nav>
+      <div class="side-foot"><span class="avatar">SO</span><span>Rates desk</span></div>
+    </aside>
+  </div>
+
+  <div class="main">
+
+    <!-- ================= DESK ================= -->
+    <section class="view" id="view-desk">
+      <header class="page-head">
+        <div>
+          <h1>Desk</h1>
+          <p class="lede">Latest readings on the watchlist, updated at 07:30 London. Illustrative data for the theme simulator.</p>
+        </div>
+        <div class="actions"><button class="btn secondary">Export CSV</button><button class="btn primary">New brief</button></div>
+      </header>
+
+      <section class="tiles" aria-label="Headline indicators">
+        <div class="tile"><span class="label">CPI, United States, y/y</span><span class="value">2.8%</span><span class="delta up">+0.1 pt vs Sep</span><svg class="spark" data-spark="2.9,3.0,2.7,2.5,2.6,2.8,2.9,2.7,2.6,2.5,2.6,2.8,2.9,2.8"></svg></div>
+        <div class="tile"><span class="label">CPI, euro area, y/y</span><span class="value">2.1%</span><span class="delta up">+0.1 pt vs Sep</span><svg class="spark" data-spark="2.2,2.1,2.1,1.9,1.8,1.9,2.0,2.1,2.2,2.1,2.0,1.9,2.0,2.1"></svg></div>
+        <div class="tile"><span class="label">CPI, Britain, y/y</span><span class="value">2.5%</span><span class="delta flat">No change vs Sep</span><svg class="spark" data-spark="3.8,3.6,3.4,3.1,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.4,2.5,2.5"></svg></div>
+        <div class="tile"><span class="label">10-year gilt yield</span><span class="value">4.35%</span><span class="delta down goodway">−8 bp on week</span><svg class="spark" data-spark="4.6,4.55,4.5,4.58,4.62,4.5,4.45,4.48,4.4,4.42,4.5,4.43,4.38,4.35"></svg></div>
+      </section>
+
+      <section class="grid-2">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <div class="tab"></div>
+            <h2>Consumer prices</h2>
+            <p class="sub">% change on a year earlier, headline CPI (HICP for the euro area)</p>
+          </div>
+          <div class="legend" id="legend-cpi"></div>
+          <div class="chart" id="chart-cpi"></div>
+          <p class="source">Sources: national statistics offices; desk calculations. Illustrative data, Nov 2024 to Oct 2026.</p>
+        </div>
+        <aside class="panel brief-panel">
+          <div class="panel-head"><div class="tab"></div><h2>Today's brief</h2></div>
+          <p>Euro-area prices are back at target; America and Britain are still sticky. Core PCE is the number to watch before next week's Fed meeting.</p>
+          <ul class="list">
+            <li><span class="pill bad">Alert</span><span>Core PCE at 2.9% sits above the 2.4–2.9% band for a second month.</span></li>
+            <li><span class="pill warn">Watch</span><span>Gilt yields fell 8 bp on the week; the move is now inside the watch range.</span></li>
+            <li><span class="pill">Due</span><span>Flash euro-area CPI for October is due Wednesday; consensus 2.1%.</span></li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="panel-head row">
+          <div><div class="tab"></div><h2>Watchlist</h2><p class="sub">8 of 48 indicators, sorted by signal</p></div>
+          <div class="filters">
+            <input class="input" type="search" placeholder="Filter indicators" aria-label="Filter indicators">
+            <select class="select" aria-label="Economy"><option>All economies</option><option>United States</option><option>Euro area</option><option>Britain</option></select>
+            <button class="btn secondary sm">Edit columns</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Indicator</th><th>Economy</th><th class="num">Latest</th><th class="num">Change</th><th>12 months</th><th>Signal</th></tr></thead>
+          <tbody>
+            <tr><td>Core PCE, y/y</td><td>United States</td><td class="num">2.9%</td><td class="num"><span class="delta up">+0.1</span></td><td><svg class="spark" data-spark="2.8,2.7,2.6,2.6,2.7,2.8,2.8,2.7,2.8,2.9,2.9,2.9"></svg></td><td><span class="pill bad">Alert</span></td></tr>
+            <tr><td>CPI, y/y</td><td>United States</td><td class="num">2.8%</td><td class="num"><span class="delta up">+0.1</span></td><td><svg class="spark" data-spark="2.9,2.7,2.5,2.6,2.8,2.9,2.7,2.6,2.5,2.6,2.8,2.8"></svg></td><td><span class="pill warn">Watch</span></td></tr>
+            <tr><td>Unemployment rate</td><td>United States</td><td class="num">4.3%</td><td class="num"><span class="delta up">+0.1</span></td><td><svg class="spark" data-spark="4.1,4.1,4.2,4.2,4.1,4.2,4.2,4.3,4.2,4.3,4.3,4.3"></svg></td><td><span class="pill warn">Watch</span></td></tr>
+            <tr><td>CPI, y/y</td><td>Britain</td><td class="num">2.5%</td><td class="num"><span class="delta flat">0.0</span></td><td><svg class="spark" data-spark="3.4,3.1,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.4,2.5,2.5"></svg></td><td><span class="pill warn">Watch</span></td></tr>
+            <tr><td>10-year gilt yield</td><td>Britain</td><td class="num">4.35%</td><td class="num"><span class="delta down goodway">−0.08</span></td><td><svg class="spark" data-spark="4.6,4.5,4.58,4.62,4.5,4.45,4.48,4.4,4.42,4.5,4.43,4.35"></svg></td><td><span class="pill warn">Watch</span></td></tr>
+            <tr><td>HICP, y/y</td><td>Euro area</td><td class="num">2.1%</td><td class="num"><span class="delta up">+0.1</span></td><td><svg class="spark" data-spark="2.1,1.9,1.8,1.9,2.0,2.1,2.2,2.1,2.0,1.9,2.0,2.1"></svg></td><td><span class="pill good">On target</span></td></tr>
+            <tr><td>GDP, q/q annualised</td><td>United States</td><td class="num">2.1%</td><td class="num"><span class="delta down badway">−0.4</span></td><td><svg class="spark" data-spark="2.4,1.6,3.0,2.8,2.0,2.3,2.6,2.5,2.1,2.4,2.5,2.1"></svg></td><td><span class="pill good">On target</span></td></tr>
+            <tr><td>Deposit rate</td><td>Euro area</td><td class="num">2.00%</td><td class="num"><span class="muted">—</span></td><td><svg class="spark" data-spark="3.0,2.75,2.5,2.25,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0"></svg></td><td><span class="pill">Hold</span></td></tr>
+          </tbody>
+        </table>
+        </div>
+      </section>
+    </section>
+
+    <!-- ================= BRIEF ================= -->
+    <section class="view" id="view-brief">
+      <article class="article">
+        <p class="kicker">Desk brief</p>
+        <h1 class="headline">Inflation is cooling unevenly across the rich world</h1>
+        <p class="standfirst">Price growth has settled at target in the euro area. America and Britain are proving stickier, and the desk's alert bands now reflect that.</p>
+        <p class="byline">Rates desk, October 30th 2026. Six-minute read.</p>
+        <div class="article-actions"><button class="btn primary sm">Publish</button><button class="btn secondary sm">Edit</button><button class="btn ghost sm">Share</button></div>
+
+        <div class="prose">
+          <p class="lead">Two years after central banks declared the worst of the post-pandemic price surge over, inflation in the rich world has settled into an awkward pattern. In the euro area it has hovered around the 2% target since the spring of 2025. In America and Britain it has refused to get there, drifting between 2.5% and 3% as services prices, rents and wages have cooled only slowly.</p>
+          <p>The divergence matters for the desk because it changes what a surprise means. A 0.1-point miss in Frankfurt is noise; the same miss in Washington feeds straight into the pricing of the next two Federal Reserve meetings. The watchlist bands have been recalibrated accordingly: the euro-area series now trips an alert only outside 1.7–2.3%, while the American and British series use a tighter 2.4–2.9% band around the desk's own forecast.</p>
+          <p>Growth tells a similar story (see chart). America is still expected to expand by close to 2% this year, more than the euro area and Britain combined on a per-head basis, and with less slack in its labour market. That is the main reason the desk expects American core inflation to be the last of the three to return to target.</p>
+        </div>
+
+        <figure class="panel chart-panel">
+          <div class="panel-head">
+            <div class="tab"></div>
+            <h2>Still ahead</h2>
+            <p class="sub">GDP growth, 2026 forecast, %</p>
+          </div>
+          <div class="chart" id="chart-gdp" style="--chart-h:220px"></div>
+          <figcaption class="source">Sources: desk forecasts, October 2026. Illustrative data.</figcaption>
+        </figure>
+
+        <div class="prose">
+          <p>What to watch next week: the October payrolls report on Friday, the Bank of England's decision on Thursday (a hold is priced), and flash euro-area inflation on Wednesday. This brief will be updated after each release.</p>
+        </div>
+
+        <footer class="article-foot">
+          <h3>Related briefs</h3>
+          <ul>
+            <li>Why services inflation is the last to fall</li>
+            <li>Gilt yields and the fiscal arithmetic, revisited</li>
+            <li>What the ECB's pause means for the watchlist</li>
+          </ul>
+        </footer>
+      </article>
+    </section>
+
+    <!-- ================= COMPONENTS ================= -->
+    <section class="view" id="view-components">
+      <header class="page-head">
+        <div><h1>Components</h1><p class="lede">Every control the tool uses, in the current theme. Switch themes above to compare the same pieces.</p></div>
+      </header>
+      <div class="cgrid">
+        <div class="cgroup"><h3>Buttons</h3>
+          <div class="row"><button class="btn primary">Save changes</button><button class="btn secondary">Cancel</button><button class="btn ghost">Learn more</button><button class="btn danger">Delete brief</button></div>
+          <div class="row"><button class="btn primary sm">Save</button><button class="btn secondary sm">Cancel</button><button class="btn primary" disabled>Saving</button></div>
+        </div>
+        <div class="cgroup"><h3>Text fields</h3>
+          <div class="col">
+            <div class="field"><label for="f-name">Indicator name</label><input class="input" id="f-name" value="Core PCE, y/y"><span class="help">Shown in the watchlist and in briefs.</span></div>
+            <div class="field"><label for="f-econ">Economy</label><select class="select" id="f-econ"><option>United States</option><option>Euro area</option><option>Britain</option></select></div>
+            <div class="field error"><label for="f-thr">Alert threshold</label><input class="input" id="f-thr" value="12"><span class="help">Enter a value between 0 and 10.</span></div>
+          </div>
+        </div>
+        <div class="cgroup"><h3>Selection</h3>
+          <div class="col">
+            <label class="check"><input type="checkbox" checked> Email me when a signal changes</label>
+            <label class="check"><input type="checkbox"> Include revised data</label>
+            <label class="check"><input type="radio" name="freq" checked> Daily digest</label>
+            <label class="check"><input type="radio" name="freq"> Weekly digest</label>
+            <label class="switch"><input type="checkbox" checked><i></i>Alerts on</label>
+            <label class="switch"><input type="checkbox"><i></i>Share with team</label>
+          </div>
+        </div>
+        <div class="cgroup"><h3>Chips and badges</h3>
+          <div class="row"><button class="fchip is-on">Inflation</button><button class="fchip">Growth</button><button class="fchip">Rates</button><button class="fchip">Labour</button></div>
+          <div class="row"><span class="pill good">On target</span><span class="pill warn">Watch</span><span class="pill bad">Alert</span><span class="pill">Hold</span><span class="badge">3</span></div>
+        </div>
+        <div class="cgroup"><h3>Tabs and breadcrumbs</h3>
+          <div class="tabs"><button class="is-active">Overview</button><button>Series</button><button>Sources</button><button>History</button></div>
+          <div class="crumbs"><a href="#desk">Watchlist</a><span>/</span><a href="#desk">United States</a><span>/</span><b>Core PCE</b></div>
+          <div class="pager"><button>‹</button><button class="is-active">1</button><button>2</button><button>3</button><button>›</button></div>
+        </div>
+        <div class="cgroup"><h3>Alerts and toasts</h3>
+          <div class="col">
+            <div class="alert" style="--a:var(--accent)"><span class="ic">i</span><div><b>Data revised</b>September CPI for Britain was revised from 2.6% to 2.5%.</div></div>
+            <div class="alert" style="--a:var(--warn)"><span class="ic">!</span><div><b>Source delayed</b>The payrolls release is delayed by one day. Alerts will run on Saturday.</div></div>
+            <div class="alert" style="--a:var(--bad)"><span class="ic">×</span><div><b>Import failed</b>Row 14 has a non-numeric value. Fix it and import again.</div></div>
+            <div><span class="toast">Brief published<button>Undo</button></span></div>
+          </div>
+        </div>
+        <div class="cgroup"><h3>Menu</h3>
+          <div class="menu"><div>Open in new tab<span class="k">⌘↵</span></div><div class="is-hover">Add to brief<span class="k">B</span></div><div class="is-sel">Set alert band</div><div>Download series<span class="k">⌘D</span></div><div style="color:var(--bad)">Remove from watchlist</div></div>
+        </div>
+        <div class="cgroup"><h3>Dialog</h3>
+          <div class="dialog-wrap"><div class="dialog"><h4>Delete this brief?</h4><p>“Inflation is cooling unevenly” will be removed for everyone on the desk. This can't be undone.</p><div class="row"><button class="btn secondary sm">Keep brief</button><button class="btn danger sm">Delete brief</button></div></div></div>
+        </div>
+        <div class="cgroup"><h3>Empty state</h3>
+          <div class="empty"><b>No alerts yet</b>Add an indicator and set a band to start receiving signals.<br><button class="btn primary sm">Add indicator</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TOKENS ================= -->
+    <section class="view" id="view-tokens">
+      <header class="page-head">
+        <div><h1 id="tokens-title">Tokens</h1><p class="lede" id="tokens-blurb"></p></div>
+      </header>
+      <div class="tokens-intro">
+        <p>Every theme fills the same contract, so a skill can swap themes by swapping one block of variables. The values below are read live from the current theme; the chart series colours have passed a colour-vision and contrast check.</p>
+      </div>
+      <div class="tgrid" id="tgrid"></div>
+    </section>
+
+  </div>
+</div>
+<div class="ink-overlay" id="ink-overlay" aria-hidden="true"></div>
+</main>
+
+<script>
+(function(){
+'use strict';
+
+/* ---------------- Theme registry ---------------- */
+const THEMES = {
+  broadsheet:{ name:'Broadsheet', group:'editorial', chart:'editorial', dropcap:true, ws:1.0,
+    blurb:'Light editorial. Ink rules do the structuring; red is spent on exactly one job per screen.',
+    use:['Reading-heavy tools and research desks','Anything where prose is the content and the UI should recede','Reports and briefs people print or share'],
+    signature:['A 2px ink rule on top of every section instead of boxes','One red per view: the active state, the chart tab, or the primary action','Serif display and article text; a sans for UI chrome and numerals','Zero radius, hairlines, no shadows','Chart axis labels on the right, sitting on the gridline'],
+    avoid:['Cards with shadows or tonal fills','More than one red element competing','All-caps labels and tinted blacks','Serif numerals in data (keep numbers in the UI sans)'] },
+  ink:{ name:'Ink', group:'editorial', chart:'editorial', dropcap:true, ws:1.0,
+    blurb:'Dark editorial. Blue-black paper, warm off-white ink, the red brightened one step so it still carries.',
+    use:['Low-light reading and long sessions','A dark sibling for Broadsheet with the same structure','Evening briefings and reader modes'],
+    signature:['Blue-black background, never pure black','Warm off-white text; secondary text drops two steps, not to grey-on-grey','Borders separate panels; no glow, no shadow','Same rules and tab as Broadsheet, so the two can swap at runtime'],
+    avoid:['Pure #000 or #111 backgrounds','Neon or saturated accents on dark','Using the red as a background fill','Inverting the light chart palette instead of re-validating it'] },
+  briefing:{ name:'Briefing', group:'editorial', chart:'editorial', dropcap:false, ws:1.0,
+    blurb:'Data-first editorial. Cool grey canvas, white panels with a blue top bar, a navy sidebar, red only where the data needs a highlight.',
+    use:['Chart-led dashboards and data briefings','Analyst tools where tables and figures outnumber prose','Teams that want editorial tone with a working-tool density'],
+    signature:['3px blue top bar on every panel; the panel is the unit','Navy sidebar against a cool grey page','Red reserved for the chart tab and the one highlighted series','Serif headings over a tabular-numeral sans (Plex)','2px radius: barely softened, still precise'],
+    avoid:['Radius above 2px or pill shapes','Gradients and tonal washes','Colouring text with series colours','Using the blue accent as a series colour and a button colour on the same chart panel'] },
+  airy:{ name:'Airy', group:'tool', chart:'tool', dropcap:false, ws:1.4,
+    blurb:'Google-inspired. White space is the structure; aim for about 60% of the canvas empty, one blue, pill shapes.',
+    use:['Consumer-grade tools and settings-heavy apps','Onboarding and forms','Anything where approachability beats density'],
+    signature:['One family for everything; hierarchy from size and weight only','Pill buttons and a pill nav that bleeds to the sidebar edge','12px outlined cards, no shadows, no tonal stacking','White page, grey only as a hover or selected state','Spacing scale ×1.4; the white-space target is about 60%'],
+    avoid:['Dense tables and 13px body text','A second accent colour','Grey page backgrounds with white cards on top','Borders and shadows on the same element'] },
+  instrument:{ name:'Instrument', group:'tool', chart:'tool', dropcap:false, ws:0.8,
+    blurb:'Dense operator tool. 13px base, tabular numerals, 6px radius, hairline panels, colour only where it means something.',
+    use:['Operator consoles, admin and developer tools','Screens scanned many times a day by the same people','Tables with many rows and numeric columns'],
+    signature:['Density is the feature: spacing scale ×0.8, 32px rows','Tabular numerals everywhere numbers align','Semantic colour lives only in pills and deltas','Grey page with white panels and 1px hairlines','Display sizes stay small; no hero numbers'],
+    avoid:['Hero numbers and headings over 24px','Decorative colour or gradients','Monospace for labels (use tabular sans)','Large paddings that waste the density'] },
+  graphite:{ name:'Graphite', group:'tool', chart:'tool', dropcap:false, ws:1.0,
+    blurb:'Dark-first modern tool. Blue-grey neutrals, a periwinkle accent with white text, elevation by one border step.',
+    use:['Dark-mode-first tools','Long sessions on screens, monitoring and ops','Developer-facing products'],
+    signature:['Blue-grey neutrals, three surface steps, never pure black','Periwinkle accent that keeps white text readable','8px radius, 1px borders as the only elevation','Chart palette validated against the dark surface, not inverted'],
+    avoid:['Pure black, acid green, glows and blurs','Transparency stacks that muddy the surfaces','Light-mode series colours reused on dark','More than three surface steps'] }
+};
+
+const TOKEN_GROUPS = {
+  colour:['--bg','--surface','--surface-2','--ink','--ink-2','--ink-3','--line','--line-2','--accent','--accent-ink','--accent-soft','--accent-text','--good','--warn','--bad'],
+  series:['--s1','--s2','--s3','--s4'],
+  type:['--font-display','--font-text','--font-ui','--display-weight','--display-tracking','--fs-base','--fs-sm','--fs-xs','--fs-h1','--fs-h2','--fs-head','--fs-num','--fs-prose','--prose-lh'],
+  shape:['--radius','--radius-s','--pill-radius','--btn-radius','--input-radius','--panel-bg','--panel-border','--panel-top','--panel-shadow','--table-top','--table-head-bg','--input-bg','--input-border'],
+  sidebar:['--side-w','--side-bg','--side-ink','--side-ink-2','--side-line','--nav-active-bg','--nav-active-ink','--nav-mark','--nav-mark-w','--nav-radius','--nav-ml']
+};
+
+/* ---------------- Data (illustrative) ---------------- */
+const MONTHS = (()=>{ const out=[]; const names=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; let y=2024,m=10; for(let i=0;i<24;i++){ out.push({label:names[m]+' '+y, year:y, month:m}); m++; if(m===12){m=0;y++;} } return out; })();
+const CPI = [
+  {name:'United States', slot:'--s1', values:[2.7,2.9,3.0,2.8,2.4,2.3,2.4,2.7,2.7,2.9,3.0,3.0,2.7,2.5,2.6,2.8,2.9,2.7,2.6,2.5,2.6,2.8,2.9,2.8]},
+  {name:'Britain',       slot:'--s2', values:[2.6,2.5,3.0,2.8,2.6,3.5,3.4,3.6,3.8,3.8,3.8,3.6,3.4,3.1,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.4,2.5,2.5]},
+  {name:'Euro area',     slot:'--s3', values:[2.2,2.4,2.5,2.3,2.2,2.2,1.9,2.0,2.0,2.1,2.2,2.1,2.1,1.9,1.8,1.9,2.0,2.1,2.2,2.1,2.0,1.9,2.0,2.1]}
+];
+const GDP = {labels:['United States','Australia','Canada','Britain','Euro area','Japan'], values:[1.9,2.0,1.4,1.2,1.1,0.8]};
+
+/* ---------------- Helpers ---------------- */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+const NS='http://www.w3.org/2000/svg';
+function mk(tag,attrs,parent){ const el=document.createElementNS(NS,tag); for(const k in attrs) el.setAttribute(k,attrs[k]); if(parent) parent.appendChild(el); return el; }
+function cssVar(name){ return getComputedStyle(els.stage).getPropertyValue(name).trim(); }
+
+const els = { stage:$('#stage'), app:$('#app'), main:$('.main'), overlay:$('#ink-overlay'), ws:$('#ws'), readout:$('#readout'), overlayCb:$('#overlay') };
+const state = { skin:'broadsheet', view:'desk', ws:1, overlay:false };
+
+/* ---------------- Charts ---------------- */
+function sparkline(svg){
+  const vals = svg.dataset.spark.split(',').map(Number);
+  const W = svg.clientWidth || 80, H = svg.clientHeight || 28;
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML='';
+  const min=Math.min(...vals), max=Math.max(...vals), span=(max-min)||1;
+  const x=i=>2+i*(W-6)/(vals.length-1), y=v=>3+(H-7)*(1-(v-min)/span);
+  const pts=vals.map((v,i)=>x(i)+','+y(v));
+  mk('path',{d:'M'+pts.join(' L')+` L${x(vals.length-1)},${H-1} L${x(0)},${H-1} Z`, fill:'var(--ink-3)','fill-opacity':'.1'},svg);
+  mk('path',{d:'M'+pts.join(' L'), fill:'none', stroke:'var(--ink-3)','stroke-width':'1.5','stroke-linejoin':'round','stroke-linecap':'round'},svg);
+  mk('circle',{cx:x(vals.length-1),cy:y(vals[vals.length-1]),r:4,fill:'var(--surface)'},svg);
+  mk('circle',{cx:x(vals.length-1),cy:y(vals[vals.length-1]),r:2.5,fill:'var(--accent)'},svg);
+}
+
+function lineChart(container, legendEl, series, style){
+  container.innerHTML='';
+  const W = container.clientWidth || 600, H = container.clientHeight || 260;
+  const editorial = style==='editorial';
+  const m = editorial ? {t:12,r:30,b:28,l:4} : {t:12,r:44,b:28,l:30};
+  const pw=W-m.l-m.r, ph=H-m.t-m.b;
+  const yMin=0, yMax=4, ticks=[0,1,2,3,4];
+  const n=MONTHS.length;
+  const x=i=>m.l+i*pw/(n-1), y=v=>m.t+ph-(v-yMin)/(yMax-yMin)*ph;
+  const svg=mk('svg',{viewBox:`0 0 ${W} ${H}`, width:W, height:H, role:'img','aria-label':'Consumer prices, % change on a year earlier, three economies'},container);
+
+  // legend (always present for 2+ series)
+  legendEl.innerHTML = series.map(s=>`<span><i style="--c:var(${s.slot})"></i>${s.name}</span>`).join('');
+
+  // gridlines + y labels
+  ticks.forEach(t=>{
+    const yy=y(t);
+    mk('line',{x1:m.l,x2:editorial?W:m.l+pw,y1:yy,y2:yy,class:t===yMin?'base':'grid'},svg);
+    if(editorial){ const tx=mk('text',{x:W,y:yy-4,'text-anchor':'end',class:'ax'},svg); tx.textContent=t; }
+    else { const tx=mk('text',{x:m.l-8,y:yy,'text-anchor':'end','dominant-baseline':'middle',class:'ax'},svg); tx.textContent=t; }
+  });
+  // x labels
+  if(editorial){
+    MONTHS.forEach((mo,i)=>{ if(mo.month===0){ mk('line',{x1:x(i),x2:x(i),y1:y(yMin),y2:y(yMin)+5,class:'base'},svg); const tx=mk('text',{x:x(i)+4,y:H-8,class:'ax'},svg); tx.textContent=mo.year; } });
+  } else {
+    [0,6,12,18,23].forEach(i=>{ const tx=mk('text',{x:x(i),y:H-8,'text-anchor':i===0?'start':(i===23?'end':'middle'),class:'ax'},svg); tx.textContent=MONTHS[i].label; });
+  }
+  // series
+  const last=n-1;
+  series.forEach(s=>{
+    const d=s.values.map((v,i)=>(i?'L':'M')+x(i).toFixed(1)+','+y(v).toFixed(1)).join(' ');
+    mk('path',{d,fill:'none',stroke:`var(${s.slot})`,'stroke-width':2,'stroke-linejoin':'round','stroke-linecap':'round'},svg);
+  });
+  // end markers with surface ring
+  series.forEach(s=>{
+    mk('circle',{cx:x(last),cy:y(s.values[last]),r:6,fill:'var(--surface)'},svg);
+    mk('circle',{cx:x(last),cy:y(s.values[last]),r:4,fill:`var(${s.slot})`},svg);
+  });
+  // direct labels
+  if(editorial){
+    // name label placed where the series is farthest from the others (inside the plot)
+    series.forEach((s,si)=>{
+      let best=-1, bestGap=0;
+      for(let i=4;i<=n-3;i++){
+        let gap=Infinity;
+        series.forEach((o,oi)=>{ if(oi!==si) gap=Math.min(gap, Math.abs(y(o.values[i])-y(s.values[i]))); });
+        if(gap>bestGap+0.5 || (gap>=bestGap-0.5 && i>best)){ bestGap=gap; best=i; }
+      }
+      if(bestGap<16) return; // legend carries it
+      // above if the nearest other series is below, else below
+      let above=true; series.forEach((o,oi)=>{ if(oi!==si && Math.abs(y(o.values[best])-y(s.values[best]))===bestGap) above = y(o.values[best])>y(s.values[best]); });
+      const tx=mk('text',{x:x(best),y:y(s.values[best])+(above?-9:16),'text-anchor':'middle',class:'lbl'},svg); tx.textContent=s.name;
+    });
+  } else {
+    // value at the line end, nudged apart
+    const labels=series.map(s=>({y:y(s.values[last]), text:s.values[last].toFixed(1)+'%'})).sort((a,b)=>a.y-b.y);
+    for(let i=1;i<labels.length;i++){ if(labels[i].y-labels[i-1].y<13) labels[i].y=labels[i-1].y+13; }
+    labels.forEach(l=>{ const tx=mk('text',{x:x(last)+9,y:l.y,'dominant-baseline':'middle',class:'lbl'},svg); tx.textContent=l.text; });
+  }
+  // hover layer
+  const xh=mk('line',{x1:0,x2:0,y1:m.t,y2:y(yMin),class:'xh',style:'display:none'},svg);
+  const hit=mk('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  const tip=document.createElement('div'); tip.className='tip'; container.appendChild(tip);
+  hit.addEventListener('pointermove',e=>{
+    const r=container.getBoundingClientRect(); const px=e.clientX-r.left;
+    const i=Math.max(0,Math.min(n-1,Math.round((px-m.l)/(pw/(n-1)))));
+    xh.setAttribute('x1',x(i)); xh.setAttribute('x2',x(i)); xh.style.display='';
+    tip.innerHTML=`<b>${MONTHS[i].label}</b>`+series.map(s=>`<div><i style="--c:var(${s.slot})"></i>${s.name}<span class="v">${s.values[i].toFixed(1)}%</span></div>`).join('');
+    tip.style.display='block';
+    const tw=tip.offsetWidth; let left=x(i)+12; if(left+tw>W) left=x(i)-tw-12;
+    tip.style.left=left+'px'; tip.style.top=(m.t+4)+'px';
+  });
+  hit.addEventListener('pointerleave',()=>{ xh.style.display='none'; tip.style.display='none'; });
+}
+
+function columnChart(container, style){
+  container.innerHTML='';
+  const W=container.clientWidth||600, H=container.clientHeight||220;
+  const editorial=style==='editorial';
+  const m=editorial?{t:14,r:28,b:30,l:4}:{t:14,r:12,b:30,l:30};
+  const pw=W-m.l-m.r, ph=H-m.t-m.b;
+  const yMax=2.5, ticks=[0,1,2];
+  const n=GDP.labels.length;
+  const slot=pw/n, bw=Math.min(24,slot*.55);
+  const y=v=>m.t+ph-(v/yMax)*ph;
+  const svg=mk('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H,role:'img','aria-label':'GDP growth forecast for 2026 by economy'},container);
+  ticks.forEach(t=>{ const yy=y(t); mk('line',{x1:m.l,x2:editorial?W:m.l+pw,y1:yy,y2:yy,class:t===0?'base':'grid'},svg);
+    if(editorial){ const tx=mk('text',{x:W,y:yy-4,'text-anchor':'end',class:'ax'},svg); tx.textContent=t; }
+    else { const tx=mk('text',{x:m.l-8,y:yy,'text-anchor':'end','dominant-baseline':'middle',class:'ax'},svg); tx.textContent=t; } });
+  const tip=document.createElement('div'); tip.className='tip'; container.appendChild(tip);
+  GDP.labels.forEach((lab,i)=>{
+    const cx=m.l+slot*i+slot/2, top=y(GDP.values[i]), base=y(0), h=base-top, r=Math.min(4,h);
+    const d=`M${cx-bw/2},${base} V${top+r} a${r},${r} 0 0 1 ${r},-${r} H${cx+bw/2-r} a${r},${r} 0 0 1 ${r},${r} V${base} Z`;
+    const bar=mk('path',{d,fill:'var(--s1)'},svg);
+    const vt=mk('text',{x:cx,y:top-6,'text-anchor':'middle',class:'lbl'},svg); vt.textContent=GDP.values[i].toFixed(1);
+    const xl=mk('text',{x:cx,y:H-10,'text-anchor':'middle',class:'ax'},svg); xl.textContent=lab;
+    bar.addEventListener('pointerenter',()=>{ tip.innerHTML=`<b>${lab}</b><div>2026 forecast<span class="v">${GDP.values[i].toFixed(1)}%</span></div>`; tip.style.display='block'; const tw=tip.offsetWidth; tip.style.left=Math.min(W-tw-4,Math.max(0,cx-tw/2))+'px'; tip.style.top=Math.max(0,top-44)+'px'; });
+    bar.addEventListener('pointerleave',()=>{ tip.style.display='none'; });
+  });
+}
+
+function drawCharts(){
+  const style=THEMES[state.skin].chart;
+  if(state.view==='desk'){ lineChart($('#chart-cpi'),$('#legend-cpi'),CPI,style); $$('#view-desk .spark').forEach(sparkline); }
+  if(state.view==='brief'){ columnChart($('#chart-gdp'),style); }
+}
+
+/* ---------------- Tokens sheet ---------------- */
+function tokensCss(){
+  const lines=[];
+  lines.push(`/* ${THEMES[state.skin].name}: ${THEMES[state.skin].blurb} */`);
+  lines.push(`:root[data-theme="${state.skin}"] {`);
+  for(const g in TOKEN_GROUPS){ lines.push(`  /* ${g} */`); TOKEN_GROUPS[g].forEach(t=>lines.push(`  ${t}: ${cssVar(t)};`)); }
+  lines.push(`  /* space: base unit = 8px × white-space multiplier */`);
+  lines.push(`  --ws: ${THEMES[state.skin].ws};`);
+  lines.push(`  --u: calc(8px * var(--ws));`);
+  lines.push('}');
+  return lines.join('\n');
+}
+function tokensNotes(){
+  const t=THEMES[state.skin];
+  return `## ${t.name}\n${t.blurb}\n\n**Use for**\n${t.use.map(x=>'- '+x).join('\n')}\n\n**Signature moves**\n${t.signature.map(x=>'- '+x).join('\n')}\n\n**Avoid**\n${t.avoid.map(x=>'- '+x).join('\n')}\n\nChart style: ${t.chart}. Default spacing multiplier: ${t.ws}.`;
+}
+function renderTokens(){
+  const t=THEMES[state.skin];
+  $('#tokens-title').textContent=t.name+' tokens';
+  $('#tokens-blurb').textContent=t.blurb;
+  const g=$('#tgrid'); g.innerHTML='';
+  const colourTokens=[...TOKEN_GROUPS.colour,...TOKEN_GROUPS.series,'--side-bg','--side-ink'];
+  const sw=document.createElement('div'); sw.className='cgroup wide';
+  sw.innerHTML=`<h3>Colour</h3><div class="swatches">${colourTokens.map(n=>`<div class="swatch"><i style="--c:var(${n})"></i><div>${n.slice(2)}<code>${cssVar(n)}</code></div></div>`).join('')}</div>`;
+  g.appendChild(sw);
+  const ty=document.createElement('div'); ty.className='cgroup';
+  ty.innerHTML=`<h3>Type</h3><div class="spec">
+    <div><div class="l">Display, ${cssVar('--font-display').split(',')[0].replace(/"/g,'')} ${cssVar('--display-weight')} at ${cssVar('--fs-head')}</div><div class="head">Inflation is cooling unevenly</div></div>
+    <div><div class="l">Page heading at ${cssVar('--fs-h1')}</div><div class="h1">Watchlist and briefs</div></div>
+    <div><div class="l">Section heading, UI sans at ${cssVar('--fs-h2')}</div><div class="h2">Consumer prices</div></div>
+    <div><div class="l">Reading text, ${cssVar('--font-text').split(',')[0].replace(/"/g,'')} at ${cssVar('--fs-prose')}, line height ${cssVar('--prose-lh')}</div><div class="text">In the euro area inflation has hovered around the 2% target since the spring of 2025, while in America and Britain it has drifted between 2.5% and 3%.</div></div>
+    <div><div class="l">UI text, ${cssVar('--font-ui').split(',')[0].replace(/"/g,'')} at ${cssVar('--fs-base')}</div><div class="ui">Add an indicator and set a band to start receiving signals.</div></div>
+    <div><div class="l">Figures: proportional for a tile, tabular in columns</div><div class="num">2.8% <span class="tab-num">4.35%</span></div><div class="tab-num">0123456789 +0.12 −8 bp</div></div>
+  </div>`;
+  g.appendChild(ty);
+  const sh=document.createElement('div'); sh.className='cgroup';
+  sh.innerHTML=`<h3>Shape and space</h3><div class="spec">
+    <div><div class="l">Radius: panel ${cssVar('--radius')}, control ${cssVar('--radius-s')}, pill ${cssVar('--pill-radius')}</div><div class="shapes"><div class="shape" style="border-radius:var(--radius)">panel</div><div class="shape" style="border-radius:var(--radius-s)">control</div><div class="shape" style="border-radius:var(--pill-radius)">pill</div></div></div>
+    <div><div class="l">Panel: ${cssVar('--panel-top')} on top; border ${cssVar('--panel-border')||'none'}; shadow ${cssVar('--panel-shadow')}</div></div>
+    <div><div class="l">Spacing unit = 8px × ${state.ws.toFixed(2)} = ${(8*state.ws).toFixed(1)}px (theme default ×${t.ws})</div><div class="spaces"><i style="--n:1"></i><i style="--n:2"></i><i style="--n:3"></i><i style="--n:4"></i><i style="--n:6"></i></div></div>
+    <div><div class="l">Controls</div><div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn primary sm">Primary</button><button class="btn secondary sm">Secondary</button><input class="input" value="Text field" aria-label="Sample text field" style="width:120px"><span class="pill good">On target</span></div></div>
+  </div>`;
+  g.appendChild(sh);
+  const no=document.createElement('div'); no.className='cgroup wide';
+  no.innerHTML=`<div class="copy-row"><h3>Skill notes</h3><button class="btn secondary sm" data-copy="notes">Copy as markdown</button></div><div class="notes">
+    <div><h4>Use for</h4><ul>${t.use.map(x=>`<li>${x}</li>`).join('')}</ul></div>
+    <div><h4>Signature moves</h4><ul>${t.signature.map(x=>`<li>${x}</li>`).join('')}</ul></div>
+    <div><h4>Avoid</h4><ul>${t.avoid.map(x=>`<li>${x}</li>`).join('')}</ul></div></div>`;
+  g.appendChild(no);
+  const cs=document.createElement('div'); cs.className='cgroup wide';
+  cs.innerHTML=`<div class="copy-row"><h3>CSS variables</h3><button class="btn secondary sm" data-copy="css">Copy CSS</button></div><pre class="code" id="css-out"></pre>`;
+  g.appendChild(cs);
+  $('#css-out').textContent=tokensCss();
+  $$('[data-copy]',g).forEach(b=>b.addEventListener('click',()=>{
+    const text=b.dataset.copy==='css'?tokensCss():tokensNotes();
+    const done=()=>{ const old=b.textContent; b.textContent='Copied'; setTimeout(()=>{b.textContent=old;},1400); };
+    try{ navigator.clipboard.writeText(text).then(done,()=>fallback()); }catch(e){ fallback(); }
+    function fallback(){ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ b.textContent='Select the text to copy'; } ta.remove(); }
+  }));
+}
+
+/* ---------------- White-space estimate ---------------- */
+const INK_SEL='button,input,select,textarea,svg,.pill,.badge,.switch i,.avatar,.tab,.swatch i,.spaces i,.shape,.logo i,.toast,.alert .ic';
+function measure(){
+  const stage=els.stage, sr=stage.getBoundingClientRect(), mr=els.main.getBoundingClientRect();
+  // visible part of the content column (the sidebar is a constant strip, so it is left out)
+  const vp={left:Math.max(sr.left,mr.left),top:Math.max(sr.top,mr.top),right:Math.min(sr.right,mr.right),bottom:Math.min(sr.bottom,mr.bottom)}; vp.width=vp.right-vp.left; vp.height=vp.bottom-vp.top;
+  const area=vp.width*vp.height; if(area<=0) return;
+  let ink=0; const boxes=[];
+  const add=(r,f)=>{ const x1=Math.max(r.left,vp.left),y1=Math.max(r.top,vp.top),x2=Math.min(r.right,vp.right),y2=Math.min(r.bottom,vp.bottom); if(x2>x1&&y2>y1){ const w=x2-x1,h=y2-y1; ink+=w*h*f; if(state.overlay) boxes.push({x:x1-sr.left+stage.scrollLeft,y:y1-sr.top+stage.scrollTop+h*(1-f)/2,w,h:h*f}); } };
+  const walk=node=>{
+    if(node.nodeType===3){ if(!node.textContent.trim()) return; const p=node.parentElement; if(!p) return; const rg=document.createRange(); rg.selectNodeContents(node); for(const rect of rg.getClientRects()){ if(rect.width<1||rect.height<1) continue; add(rect,1); } return; }
+    if(node.nodeType!==1) return; const el=node; if(el===els.overlay) return;
+    const cs=getComputedStyle(el); if(cs.display==='none'||cs.visibility==='hidden') return;
+    const r=el.getBoundingClientRect(); if(r.bottom<vp.top||r.top>vp.bottom) return;
+    if(el.matches(INK_SEL)){ add(r,1); return; }
+    for(const c of el.childNodes) walk(c);
+  };
+  walk(els.main);
+  const white=Math.max(0,1-ink/area);
+  const pct=Math.round(white*100);
+  const cls=(pct>=55&&pct<=68)?'ok':'';
+  els.readout.innerHTML=`spacing ×${state.ws.toFixed(2)} · <b class="${cls}">≈${pct}% white space</b> <span style="color:var(--c-ink2)">in the content area (target 60%)</span>`;
+  els.overlay.innerHTML=''; els.overlay.style.width=stage.scrollWidth+'px'; els.overlay.style.height=stage.scrollHeight+'px';
+  if(state.overlay){ const frag=document.createDocumentFragment(); boxes.forEach(b=>{ const i=document.createElement('i'); i.style.cssText=`left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`; frag.appendChild(i); }); els.overlay.appendChild(frag); }
+}
+let mTimer=null;
+function scheduleMeasure(){ clearTimeout(mTimer); mTimer=setTimeout(()=>requestAnimationFrame(measure),140); }
+
+/* ---------------- State and wiring ---------------- */
+function setSkin(skin, resetWs=true){
+  if(!THEMES[skin]) skin='broadsheet';
+  state.skin=skin;
+  els.stage.dataset.skin=skin;
+  els.stage.classList.toggle('is-editorial',THEMES[skin].chart==='editorial');
+  els.stage.classList.toggle('has-dropcap',!!THEMES[skin].dropcap);
+  $$('.chip[data-skin]').forEach(c=>c.classList.toggle('is-active',c.dataset.skin===skin));
+  if(resetWs) setWs(THEMES[skin].ws,false);
+  try{ localStorage.setItem('theme-sim-skin',skin); }catch(e){}
+  drawCharts(); if(state.view==='tokens') renderTokens(); scheduleMeasure();
+}
+function setWs(v,fromInput){
+  state.ws=Math.max(.6,Math.min(1.8,Number(v)||1));
+  els.stage.style.setProperty('--ws',state.ws);
+  if(!fromInput) els.ws.value=state.ws;
+  if(state.view==='tokens') renderTokens();
+  drawCharts(); scheduleMeasure();
+}
+function setView(view){
+  const valid=['desk','brief','components','tokens'];
+  if(!valid.includes(view)) view='desk';
+  state.view=view;
+  $$('.view').forEach(v=>v.classList.toggle('is-active',v.id==='view-'+view));
+  $$('#views a').forEach(a=>a.classList.toggle('is-active',a.dataset.view===view));
+  $$('.nav a[data-nav]').forEach(a=>a.classList.toggle('is-active',a.dataset.nav===view));
+  els.stage.scrollTop=0;
+  if(view==='tokens') renderTokens();
+  drawCharts(); scheduleMeasure();
+}
+
+// theme chips
+Object.keys(THEMES).forEach(k=>{
+  const b=document.createElement('button'); b.className='chip'; b.dataset.skin=k; b.textContent=THEMES[k].name; b.type='button';
+  b.addEventListener('click',()=>setSkin(k));
+  $(THEMES[k].group==='editorial'?'#themes-editorial':'#themes-tool').appendChild(b);
+});
+els.ws.addEventListener('input',()=>setWs(els.ws.value,true));
+els.overlayCb.addEventListener('change',()=>{ state.overlay=els.overlayCb.checked; els.overlay.classList.toggle('is-on',state.overlay); scheduleMeasure(); });
+window.addEventListener('hashchange',()=>setView(location.hash.replace('#','')));
+els.stage.addEventListener('scroll',scheduleMeasure,{passive:true});
+new ResizeObserver(()=>{ drawCharts(); scheduleMeasure(); }).observe(els.stage);
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ drawCharts(); scheduleMeasure(); });
+
+// initial
+let initial='broadsheet'; try{ initial=localStorage.getItem('theme-sim-skin')||initial; }catch(e){}
+setSkin(initial);
+setView(location.hash.replace('#',''));
+})();
+</script>
+</body>
+</html>

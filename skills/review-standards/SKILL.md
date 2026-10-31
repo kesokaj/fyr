@@ -44,7 +44,7 @@ Installers count as callers. A change that an installer, updater or converge ste
 
 ## 3. Standards conformance — the language skills are the authority
 
-- [ ] Go changes conform to the `golang` skill; TypeScript to the `typescript` skill; UI/TanStack Start work to the `frontend` skill. Cite the specific rule when flagging.
+- [ ] Go changes conform to the `golang` skill; TypeScript to the `typescript` skill; UI work to the `frontend-ui-modern` or `frontend-ui-economist` skill. Cite the specific rule when flagging.
 - [ ] Where this file and a language skill overlap, the language skill wins for idiom; this file wins for review scope and severity.
 - [ ] Formatting/lint gates already automated (gofmt, vet, eslint) are verified as run, not re-litigated line-by-line.
 - [ ] Comments, doc-comments, test names and spec rows that name behaviour the diff changed still describe it — the global context's describing-text rule; a stale one is a finding, not a comment request.

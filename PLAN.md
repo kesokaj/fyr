@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P10b done (2026-10-31); P11 is next. This is the only plan.
+Status: open. P1 to P10b done (2026-10-31); P11 is running. This is the only plan.
 
 ## The operator's words
 
@@ -204,8 +204,8 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security` (the dream's input paths). Done 2026-10-31: 1828 pass, 0 fail, 6 skip; `fyr check` 0 findings.
 
 ### P11 — the UI skills (item 28, D3; one session)
-- [ ] Provenance first: the zip's `frontend-ui-modern` is compared with the published `anthropic-skills` copy when one is on this box, with `diff -r` (skills/VENDORED.md's procedure). If they are the same, it is vendored verbatim and listed in `skills/VENDORED.md`, and other descriptions are shortened to fit; if not, both descriptions are shortened. Who: AI.
-- [ ] The UI plan's Phase 1 box, as written there, with D3's answers. One `GUIDE-eval` row per new skill, with `TestSuiteHarness` updated. D3 Open 5's orphans (rules of `frontend` with no home in the new skills) are put to the operator in this session before `frontend` goes. The `security` agent reads every script the new skills carry. The UI plan's Phase 2 (the behavioural runs) is P13's first box. Verify: `go test ./...` (the lint and `TestSkillListingBudget`). Who: AI, user (the orphans).
+- [x] Provenance first: the zip's `frontend-ui-modern` is compared with the published `anthropic-skills` copy when one is on this box, with `diff -r` (skills/VENDORED.md's procedure). If they are the same, it is vendored verbatim and listed in `skills/VENDORED.md`, and other descriptions are shortened to fit; if not, both descriptions are shortened. Who: AI.
+- [x] The UI plan's Phase 1 box, as written there, with D3's answers. One `GUIDE-eval` row per new skill, with `TestSuiteHarness` updated. D3 Open 5's orphans (rules of `frontend` with no home in the new skills) are put to the operator in this session before `frontend` goes. The `security` agent reads every script the new skills carry. The UI plan's Phase 2 (the behavioural runs) is P13's first box. Verify: `go test ./...` (the lint and `TestSkillListingBudget`). Who: AI, user (the orphans).
 - [ ] Checkpoint (rule 3), with `security` (the new scripts) and `/review --docs`.
 
 ### P12 — the docs sweep (items 25, 32, 35, 47 and 52; one session)
@@ -358,6 +358,13 @@ D21 — 2026-10-31 — P10b, how the fix reads item 33's other half where it is 
 - **Item 34's proof ran on a copy.** The stores and `brain.db` were copied under `.agents/scratch/p10b/proof`, so the real home took no write. Item 34 asks for each entry "matched to a global record"; on dave no global record exists (item 60), so the proof is the import into that copy: 33 of 33, 17 of 17 and 6 of 6 by ID, no problem listed. Item 34's `search` in each project is not needed: the projects row reaches only a project's old memory store, none of the three stores.
 
 — by: implementer, within P10b's box.
+
+D22 — 2026-10-31 — P11, item 28. Provenance: the zip's `frontend-ui-modern` is not the published copy (`~/.claude/skills/synced/…/frontend-ui-modern`, `diff -r`: 164 files against 95, `SKILL.md`, `README.md`, `references/workflow.md`, `scripts/mockup.mjs` and `assets/simulation-template.html` differ, and the screenshot sets differ), so D3 Open 1's branch (a) applies: both are the operator's skills, not vendored, and both descriptions are shortened, each body otherwise byte-identical to its zip. The operator's answers, in this session:
+- **Open 5's orphans.** The cold read took 264 rules from `frontend`, 54 covered and 198 left without a full home after an adversarial pass (`.agents/scratch/p11/orphans.txt`). All are dropped, against the recommendation to keep the TanStack Start and accessibility groups in `typescript`: the app wiring (SPA mode, `vite.config.ts`, loaders, `src/lib/api.ts`, the Go catch-all, the dev proxy, `createServerFn`), the forms rule, `accessibility.md`, `theme-system.md`, and the rest ("Drop them", "Drop both", "Drop them"). Git keeps them. The context line still names TanStack Start, and `docker`, `typescript/references/tsconfig.md` and `review-standards` keep what they already said about `web/`.
+- **Open 3 is reversed.** The screenshot folders stay in the skills and the embed ("Keep screenshots instead"), so every pointer in both bodies stays true and no sentence is added. The binary is 44.6 MB here, and an install writes 1,226 files.
+- **The descriptions** are as drafted to the operator: 252 and 247 bytes.
+
+How the fix reads the rest: `testing.md`'s ThemeToggle example stays, as it was verified, with one line saying `frontend-ui-modern`'s dark switch is the `.dark` class; its axe line loses the dead pointer and keeps the gate. `TestInstallLeavesClaudeCodeAlone`'s body looks for `settings.json`, not `settings`, since `frontend-ui-modern` ships `*-settings-*.png`; run both ways. `skills/VENDORED.md:88` stays: it is history. — by: the operator, 2026-10-31, for the three answers; implementer, within P11's boxes, for the rest.
 
 ## Risks
 

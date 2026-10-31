@@ -87,6 +87,8 @@ describe('formatCents', () => {
 
 ## Component test (jsdom + Testing Library)
 
+This toggle writes `data-theme`; on `frontend-ui-modern` the dark switch is the `.dark` class, so assert that instead.
+
 ```tsx
 // src/components/ThemeToggle.test.tsx
 import { render, screen } from '@testing-library/react'
@@ -160,7 +162,7 @@ export default defineConfig({
 })
 ```
 
-The axe gate (`frontend/references/accessibility.md` § Testing) is an ordinary spec in `e2e/`: `@axe-core/playwright` 4.13, `withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])`, run once per theme by setting `localStorage.theme` in `addInitScript`.
+The axe gate is an ordinary spec in `e2e/`: `@axe-core/playwright` 4.13, `withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])`, run once per theme by setting `localStorage.theme` in `addInitScript`.
 
 ## Rules
 

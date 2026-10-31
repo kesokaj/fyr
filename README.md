@@ -82,7 +82,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | | |
 |---|---|
 | One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
-| Skills | 37 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
+| Skills | 38 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, and code modularity) |
 | The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs |
@@ -216,7 +216,7 @@ Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [
 | Work protocols | `feature` (design before code, a plan file, a cold-reader check, phases), `work` (leads a plan's phases as sandboxed `fyr work` workers and merges each PASS), `bug` (diagnose, failing test first, smallest fix, record), `review` (one review command with lenses `--code --security --simplify --docs --prompts --tests --all --resume`), `review-standards` (what the reviewer checks), `preflight` (the release gate), `harness-audit` (audits this repository area by area) |
 | Project shape | `init-project` (scaffold or update a project's trail), `requirements`, `spec`, `testing-strategy`, `explain-project` (onboarding notes for a person), `research`, `handoff` (the session's checkpoint, ending in the Kickoff that starts the next session) |
 | Learning loop | `feedback-log`, `project-memory`, `retro`, `distill`, `dream` |
-| Code | `golang`, `typescript`, `frontend` (TanStack Start + Tailwind), `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
+| Code | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui on Tailwind), `frontend-ui-economist` (plain HTML/CSS), `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
 | Google Cloud | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` (routes to Google's published skills, vendored as data under its `catalog/`) |
 | Vendored verbatim | `grilling`, `codebase-design`; provenance in `skills/VENDORED.md` |
 | Forks | `discover-skills` (finds a published skill and adds it to `skills/`, forked from `find-skills`), and `gke-basics` above; provenance in `skills/VENDORED.md` |

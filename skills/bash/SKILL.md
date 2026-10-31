@@ -1,6 +1,6 @@
 ---
 name: bash
-description: "Bash and shell scripting expert. Use when writing, reviewing, or debugging Bash/Zsh scripts, automating tasks with shell commands, or using CLI tools like jq, rg, fd, fzf, yq. Do NOT use for general application backend code (use golang) or frontend code (use frontend/typescript)."
+description: "Bash and shell scripting expert. Use when writing, reviewing, or debugging Bash/Zsh scripts, automating tasks with shell commands, or using CLI tools like jq, rg, fd, fzf, yq. Do NOT use for general application backend code (use golang) or frontend code (use frontend-ui-modern, typescript)."
 ---
 
 # Bash & Shell Scripting

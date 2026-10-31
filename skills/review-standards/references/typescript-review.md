@@ -1,6 +1,6 @@
 # TypeScript review checklist
 
-Concrete checks for TypeScript diffs. Language authority: the `typescript` skill; UI/TanStack Start conventions: the `frontend` skill. Cite file:line in findings.
+Concrete checks for TypeScript diffs. Language authority: the `typescript` skill; UI conventions: the `frontend-ui-modern` and `frontend-ui-economist` skills. Cite file:line in findings.
 
 ## Typing discipline
 

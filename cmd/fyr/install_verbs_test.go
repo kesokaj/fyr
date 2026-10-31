@@ -101,7 +101,7 @@ func TestInstallLeavesClaudeCodeAlone(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != len(mine) {
 		t.Errorf("a verb wrote under ~/.claude: %v", entries)
 	}
-	if s := strings.ReplaceAll(out.String(), repo, "<repo>"); strings.Contains(s, ".claude") || strings.Contains(s, "settings") { // the repo path of a worktree under .claude/ is not a line about ~/.claude
+	if s := strings.ReplaceAll(out.String(), repo, "<repo>"); strings.Contains(s, ".claude") || strings.Contains(s, "settings.json") { // the repo path of a worktree under .claude/ is not a line about ~/.claude; a skill's *-settings-*.png is not one either
 		t.Errorf("install or status printed a line about ~/.claude:\n%s", out.String())
 	}
 }

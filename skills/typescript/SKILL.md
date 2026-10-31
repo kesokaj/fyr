@@ -6,13 +6,13 @@ description: |
   (Vitest, browser mode, Playwright). Use when writing or reviewing TypeScript code,
   fixing type errors, designing types/interfaces, configuring tsconfig, or setting up
   tests — in any TS codebase, frontend or tooling.
-  Do NOT use for UI, styling, components, or TanStack Start conventions (use frontend),
+  Do NOT use for UI, styling or components (use frontend-ui-modern),
   backend API logic (use golang), or shell automation (use bash).
 ---
 
 # TypeScript
 
-Language-level standards for all TypeScript code. Framework and UI conventions live in the `frontend` skill.
+Language-level standards for all TypeScript code. UI conventions live in the `frontend-ui-modern` and `frontend-ui-economist` skills.
 
 ## Compiler Baseline
 

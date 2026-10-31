@@ -1,13 +1,13 @@
 ---
 name: golang
-description: "Go standards for the services built here (cmd/<app> + internal, log/slog JSON, stdlib first) and two references: service.md (HTTP core, Cloud Logging JSON contract and trace correlation on Cloud Run, Error Reporting, pgx over the Cloud SQL socket, embedded migrations, golangci-lint v2) and testing.md (table tests, hand-written fakes, httptest, -race, synctest.Test, b.Loop). Use whenever writing, reviewing or testing Go code, raising the go line, or choosing a Go dependency. Do NOT use for infrastructure (terraform), Kubernetes manifests (gke-basics), container builds (docker), the deploy itself (cloud-run-deploy), or frontend code (frontend, typescript)."
+description: "Go standards for the services built here (cmd/<app> + internal, log/slog JSON, stdlib first) and two references: service.md (HTTP core, Cloud Logging JSON contract and trace correlation on Cloud Run, Error Reporting, pgx over the Cloud SQL socket, embedded migrations, golangci-lint v2) and testing.md (table tests, hand-written fakes, httptest, -race, synctest.Test, b.Loop). Use whenever writing, reviewing or testing Go code, raising the go line, or choosing a Go dependency. Do NOT use for infrastructure (terraform), Kubernetes manifests (gke-basics), container builds (docker), the deploy itself (cloud-run-deploy), or frontend code (frontend-ui-modern, typescript)."
 ---
 
 # Golang
 
 The rules below apply to every Go file in this environment; the two references hold the patterns. Read `references/service.md` before the first handler of an HTTP service and `references/testing.md` before its first test; read the matching section when its topic comes up (logging, database, lint, concurrency).
 
-**When NOT to use this skill:** frontend-only work (`frontend`, `typescript`), infrastructure-as-code (`terraform`), Kubernetes manifests (`gke-basics`), container builds (`docker`), the deploy mechanics (`cloud-run-deploy`), shell automation (`bash`).
+**When NOT to use this skill:** frontend-only work (`frontend-ui-modern`, `frontend-ui-economist`, `typescript`), infrastructure-as-code (`terraform`), Kubernetes manifests (`gke-basics`), container builds (`docker`), the deploy mechanics (`cloud-run-deploy`), shell automation (`bash`).
 
 ## Coding standards
 

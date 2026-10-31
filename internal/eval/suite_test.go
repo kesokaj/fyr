@@ -218,7 +218,7 @@ func TestSuiteHarness(t *testing.T) {
 		// Ported from GUIDE-skill-matrix for the v3.0.0 gate's per-skill runs.
 		"api-auth": {"", false}, "bash": {"", false}, "cloud-run": {"", false}, "data": {"", false},
 		"distill": {"", true}, "docker": {"", false}, "dream": {"", true}, "explain-project": {"", false},
-		"feedback": {"", false}, "frontend": {"", false}, "gke": {"", false}, "golang": {"", false},
+		"feedback": {"", false}, "frontend-ui-economist": {"", false}, "frontend-ui-modern": {"", false}, "gke": {"", false}, "golang": {"", false},
 		"harness-audit-elsewhere": {"", false}, "research": {"", false}, "review-standards": {"", false},
 		"spec": {"", false}, "terraform": {"", false}, "testing-strategy": {"", false}, "typescript": {"", false},
 		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},

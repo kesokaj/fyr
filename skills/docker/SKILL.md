@@ -62,7 +62,7 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
-RUN npm run build                        # vite build && tsc -b → dist/client (the frontend skill)
+RUN npm run build                        # vite build && tsc -b → dist/client
 
 # Stage 2: the Go binary; the tag is the go.mod go line's MAJOR.MINOR (go 1.27.1 → golang:1.27)
 FROM golang:<major.minor of the go.mod go line> AS build
@@ -98,7 +98,7 @@ CMD ["/app"]
 
 If the Go binary also serves the `web/` frontend, the `node:24-alpine` stage above (the
 only Node image here) runs `npm ci && npm run build` in `web/`, and the Go stage copies
-`web/dist/client` into the build context BEFORE `go build`, because the frontend skill
+`web/dist/client` into the build context BEFORE `go build`, because the binary
 embeds that directory with `go:embed` at compile time; nothing is copied next to the
 binary, and the runtime image stays distroless. `web/dist/` is gitignored and in
 `.dockerignore` (the build makes it, the context never carries it), never committed.

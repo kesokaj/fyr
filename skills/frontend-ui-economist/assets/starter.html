@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starter: themed tool page</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Figtree:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme-kit.css">
+<style>
+  /* Page-level plumbing only. Everything visual comes from theme-kit.css tokens. */
+  html,body{height:100%}
+  body{margin:0;overflow:auto}
+  .switcher{position:fixed;right:12px;bottom:12px;z-index:9;display:flex;gap:8px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-s);padding:6px 8px;font-size:var(--fs-xs);color:var(--ink-2);box-shadow:0 2px 8px rgba(0,0,0,.12)}
+  .switcher select,.switcher input{font:inherit;color:var(--ink);background:var(--input-bg);border:1px solid var(--input-border);border-radius:var(--radius-s);padding:3px 6px}
+</style>
+</head>
+<body class="ui is-editorial" data-theme="broadsheet" style="--ws:1">
+<div class="app">
+  <div class="side-col">
+    <aside class="side">
+      <div class="logo"><i></i>Indicator desk</div>
+      <nav class="nav" aria-label="App navigation">
+        <a href="#" class="is-active">Desk</a>
+        <a href="#">Watchlist <span class="count">48</span></a>
+        <a href="#">Briefs <span class="count">5</span></a>
+        <a href="#">Sources</a>
+      </nav>
+      <div class="side-foot"><span class="avatar">SO</span><span>Rates desk</span></div>
+    </aside>
+  </div>
+  <div class="main">
+    <header class="page-head">
+      <div><h1>Desk</h1><p class="lede">Latest readings on the watchlist, updated at 07:30 London. Illustrative data.</p></div>
+      <div class="actions"><button class="btn secondary">Export CSV</button><button class="btn primary">New brief</button></div>
+    </header>
+
+    <section class="tiles">
+      <div class="tile"><span class="label">CPI, United States, y/y</span><span class="value">2.8%</span><span class="delta up">+0.1 pt vs Sep</span><svg class="spark" data-spark="2.9,3.0,2.7,2.5,2.6,2.8,2.9,2.7,2.6,2.5,2.6,2.8,2.9,2.8"></svg></div>
+      <div class="tile"><span class="label">CPI, euro area, y/y</span><span class="value">2.1%</span><span class="delta up">+0.1 pt vs Sep</span><svg class="spark" data-spark="2.2,2.1,2.1,1.9,1.8,1.9,2.0,2.1,2.2,2.1,2.0,1.9,2.0,2.1"></svg></div>
+      <div class="tile"><span class="label">CPI, Britain, y/y</span><span class="value">2.5%</span><span class="delta flat">No change vs Sep</span><svg class="spark" data-spark="3.8,3.6,3.4,3.1,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.4,2.5,2.5"></svg></div>
+      <div class="tile"><span class="label">10-year gilt yield</span><span class="value">4.35%</span><span class="delta down goodway">−8 bp on week</span><svg class="spark" data-spark="4.6,4.55,4.5,4.58,4.62,4.5,4.45,4.48,4.4,4.42,4.5,4.43,4.38,4.35"></svg></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="panel chart-panel">
+        <div class="panel-head"><div class="tab"></div><h2>Consumer prices</h2><p class="sub">% change on a year earlier</p></div>
+        <div class="legend" id="legend"></div>
+        <div class="chart" id="chart"></div>
+        <p class="source">Source: illustrative data.</p>
+      </div>
+      <aside class="panel">
+        <div class="panel-head"><div class="tab"></div><h2>Today's brief</h2></div>
+        <ul class="list">
+          <li><span class="pill bad">Alert</span><span>Core PCE at 2.9% sits above the band for a second month.</span></li>
+          <li><span class="pill warn">Watch</span><span>Gilt yields fell 8 bp on the week.</span></li>
+          <li><span class="pill good">On target</span><span>Euro-area HICP at 2.1%.</span></li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head row"><div><div class="tab"></div><h2>Watchlist</h2></div>
+        <div class="filters"><input class="input" type="search" placeholder="Filter indicators" aria-label="Filter"><select class="select" aria-label="Economy"><option>All economies</option></select></div></div>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Indicator</th><th>Economy</th><th class="num">Latest</th><th class="num">Change</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td>Core PCE, y/y</td><td>United States</td><td class="num">2.9%</td><td class="num"><span class="delta up">+0.1</span></td><td><span class="pill bad">Alert</span></td></tr>
+          <tr><td>CPI, y/y</td><td>Britain</td><td class="num">2.5%</td><td class="num"><span class="delta flat">0.0</span></td><td><span class="pill warn">Watch</span></td></tr>
+          <tr><td>HICP, y/y</td><td>Euro area</td><td class="num">2.1%</td><td class="num"><span class="delta up">+0.1</span></td><td><span class="pill good">On target</span></td></tr>
+        </tbody>
+      </table></div>
+    </section>
+  </div>
+</div>
+
+<div class="switcher">
+  <label>Theme <select id="theme">
+    <option value="broadsheet">Broadsheet</option><option value="ink">Ink</option><option value="briefing">Briefing</option>
+    <option value="airy">Airy</option><option value="instrument">Instrument</option><option value="graphite">Graphite</option>
+  </select></label>
+  <label>Space <input id="ws" type="range" min="0.6" max="1.8" step="0.05" value="1" style="width:90px"></label>
+</div>
+
+<script src="charts.js"></script>
+<script>
+  const EDITORIAL = { broadsheet: true, ink: true, briefing: true };
+  const DEFAULT_WS = { broadsheet: 1, ink: 1, briefing: 1, airy: 1.4, instrument: 0.8, graphite: 1 };
+  const labels = []; const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; let y = 2024, m = 10;
+  for (let i = 0; i < 24; i++) { labels.push({ text: names[m] + ' ' + y, tick: m === 0 ? String(y) : false }); m++; if (m === 12) { m = 0; y++; } }
+  const series = [
+    { name: 'United States', slot: '--s1', values: [2.7,2.9,3.0,2.8,2.4,2.3,2.4,2.7,2.7,2.9,3.0,3.0,2.7,2.5,2.6,2.8,2.9,2.7,2.6,2.5,2.6,2.8,2.9,2.8] },
+    { name: 'Britain', slot: '--s2', values: [2.6,2.5,3.0,2.8,2.6,3.5,3.4,3.6,3.8,3.8,3.8,3.6,3.4,3.1,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.4,2.5,2.5] },
+    { name: 'Euro area', slot: '--s3', values: [2.2,2.4,2.5,2.3,2.2,2.2,1.9,2.0,2.0,2.1,2.2,2.1,2.1,1.9,1.8,1.9,2.0,2.1,2.2,2.1,2.0,1.9,2.0,2.1] }
+  ];
+  function draw() {
+    const theme = document.body.dataset.theme;
+    Charts.line(document.getElementById('chart'), { labels, series, style: EDITORIAL[theme] ? 'editorial' : 'tool', yMin: 0, yMax: 4, ticks: [0,1,2,3,4], format: v => v.toFixed(1) + '%', legendEl: document.getElementById('legend'), label: 'Consumer prices, three economies' });
+    document.querySelectorAll('.spark').forEach(s => Charts.sparkline(s, s.dataset.spark.split(',').map(Number)));
+  }
+  document.getElementById('theme').addEventListener('change', e => {
+    const t = e.target.value; document.body.dataset.theme = t; document.body.classList.toggle('is-editorial', !!EDITORIAL[t]);
+    document.getElementById('ws').value = DEFAULT_WS[t]; document.body.style.setProperty('--ws', DEFAULT_WS[t]); draw();
+  });
+  document.getElementById('ws').addEventListener('input', e => { document.body.style.setProperty('--ws', e.target.value); draw(); });
+  new ResizeObserver(draw).observe(document.querySelector('.main'));
+  draw();
+</script>
+</body>
+</html>
