@@ -7,11 +7,13 @@
 
 ## Now
 
-No active phase. Release 2 shipped as v5.0.0 (2026-10-31; root-docs row 11, `REVIEW-2026-10-31-0152-preflight-v5-0-0`, `CHANGE-2026-10-31-0152-release-v5-0-0`): `fyr serve`, `fyr work` and the `work` skill, `fyr check` rule (d); the gate's fixes are BUG-200, BUG-201, BUG-202 and ADR-075b. Root-docs row 12, the operator's smoke checks on dave, is the plan's last box (who: user). The Must/Should reshape of `PRD.md` waits for the operator's approval (D55 (2)). `PLAN-2026-10-29-workers` is done except the Mac boxes (Phase 4's and Phase 7d, who: user, D112); BUG-198 stays a watch (D101). The plan audit's items (`REVIEW-2026-10-30-2101-review-plan-audit-of-the-three-open-plans-agains`) wait for the operator's answers. The plan records win on a conflict.
+`PLAN-2026-10-31-0300-plan-eval-metrics-the-standard-set-collected-fro` — eval metrics: the standard set collected from `fyr eval` and `fyr metrics` (planned 2026-10-31 from `PLAN-2026-10-31-research-agent-evals-metrics`). Its cold read is answered (`REVIEW-2026-10-31-0306-…`, D13–D28); Phase 1 (the estimators and the trial unit) is next, in a fresh session; Phase 4 waits for O1 and the controls for O8, both the operator's. The plan record wins on a conflict.
+
+Other open plans: `PLAN-2026-10-29-root-docs-and-fyr-serve` (row 12, the operator's smoke checks on dave, is its last box; the `PRD.md` Must/Should reshape waits for approval, D55 (2)); `PLAN-2026-10-29-workers` (the Mac boxes only, who: user, D112; BUG-198 stays a watch, D101); `PLAN-2026-10-30-ui-skills` (Step 1's seven Open items wait for the operator). The plan audit's items (`REVIEW-2026-10-30-2101-review-plan-audit-of-the-three-open-plans-agains`) wait for the operator's answers.
 
 ## Next
 
-- Evals and metrics: research how agent evals and metrics are best done and plan collecting the standard ones (the operator, 2026-10-31; the release handoff's Kickoff).
+- Eval metrics Phase 1 — the estimators and the trial unit (`PLAN-2026-10-31-0300-…`; the next session's Kickoff).
 - `PLAN-2026-10-30-ui-skills`: `frontend-ui-economist` and `frontend-ui-modern` replace `frontend`; Step 1's seven Open items wait for the operator (the zips in `.agents/scratch/ui-skills/`).
 - Parallel dispatch (the operator, 2026-10-30, "Go with your recommendations"): first one agy run that puts two subagent dispatches in one turn, to see if they run at once; if they do, the two bullets go into the feature skill's lead step and the `explorer` description, never `rules/` (the rules block is at 21,032 of 22,000).
 
