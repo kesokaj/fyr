@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P11 done (2026-10-31); P12 is next. This is the only plan.
+Status: open. P1 to P11 done (2026-10-31); P12 runs. This is the only plan.
 
 ## The operator's words
 
@@ -209,11 +209,11 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security` (the new scripts) and `/review --docs`. Done 2026-10-31: 1830 pass, 0 fail, 6 skip; `fyr check` 0 findings; `reviewer` and `security` two rounds each.
 
 ### P12 — the docs sweep (items 25, 32, 35, 47 and 52; one session)
-- [ ] Item 25: `TDD.md` § T5 rows thinned, each claim kept in its `SPEC-fyr-*` or `cmd/fyr/help_text.go`. Verify: `fyr check`, and a table in the change record that maps each removed claim to its new home's file:line. Who: AI.
-- [ ] Item 32: `.agents/scratch/` pruned to its keep-set (`workers/`, `agents/`, `evalm/`, `prd-reshape/`, `ui-skills/`, `audit/`, and what a later phase names). It is listed first and deleted by name. Verify: `du -sh .agents/scratch` and `ls .agents/scratch` before and after, in the change record. Expect: only the keep-set is left. Who: AI.
+- [x] Item 25: `TDD.md` § T5 rows thinned, each claim kept in its `SPEC-fyr-*` or `cmd/fyr/help_text.go`. Verify: `fyr check`, and a table in the change record that maps each removed claim to its new home's file:line. Who: AI.
+- [x] Item 32: `.agents/scratch/` pruned to its keep-set (`workers/`, `agents/`, `evalm/`, `prd-reshape/`, `ui-skills/`, `audit/`, and what a later phase names). It is listed first and deleted by name. Verify: `du -sh .agents/scratch` and `ls .agents/scratch` before and after, in the change record. Expect: only the keep-set is left. Who: AI.
 - [ ] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
-- [ ] Item 52: `rules/agy-dispatch.md`, the operator's rule as D15 records it, within the size pins of `internal/harness/size_test.go`, with the pointers in `skills/work/SKILL.md` and `GUIDE-testing` § 4, and `/review --docs`; its behavioural run is P13's. Verify: `go test ./...` (the lint and the size pins). Who: AI.
-- [ ] Item 47: the operator's word on the `PRD.md` provenance edit, asked in that session. On a yes, the edit as item 47 recommends, re-checked with `git log --all -S`; on a no, item 47 is struck by D-row. Verify: `fyr check`. Who: user (the word), AI (the edit).
+- [x] Item 52: `rules/agy-dispatch.md`, the operator's rule as D15 records it, within the size pins of `internal/harness/size_test.go`, with the pointers in `skills/work/SKILL.md` and `GUIDE-testing` § 4, and `/review --docs`; its behavioural run is P13's. Verify: `go test ./...` (the lint and the size pins). Who: AI.
+- [x] Item 47: the operator's word on the `PRD.md` provenance edit, asked in that session. On a yes, the edit as item 47 recommends, re-checked with `git log --all -S`; on a no, item 47 is struck by D-row. Verify: `fyr check`. Who: user (the word), AI (the edit).
 - [ ] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes.
 
 ### P12b — `agy` captures, the outside-clone probe, the clone-git review and the sandbox checks (items 43, 44, 45, 46, 49, 50 and 51; one session; D11)
@@ -372,6 +372,15 @@ D23 — 2026-10-31 — P11's security review (no high; 4 medium, 6 low), its fix
 - **The 6 low findings** are accepted as written: reviewing a registry item after its install, `captures.json` and the contact sheet's URL in the repo, a `--custom` palette's escaping, `mockup.mjs`'s `esc` and `--name` path, unpinned Playwright, and Google Fonts in the starter. So are round 2's lows on what stays: `slotOf` is not applied at the `setAttribute` calls (`charts.js:89`, `:93`, `:151`), which reach no HTML parser; a split multi-line sink or raw concatenation is not caught by the test. No third round, as in P2, P3 and P10a.
 
 — by: the operator, 2026-10-31, for the choice; implementer, for the wording.
+
+D24 — 2026-10-31 — P12, how the fix reads items 25, 32, 47, 52 and 59 where they are silent:
+- **Item 25's map.** 278 claims of T5's rows, mapped and then adversarially re-checked by a read-only workflow; 264 had a home. Each of the 14 others is in the change record's table. Ten gained a home (`help_text.go` for install's `~/.claude` exception, `uninstall --dry-run` and memory's "at start"; `SPEC-fyr-eval` and `SPEC-fyr-dream` for the rest). Four are dropped, because the row was history or false: "each record has a status" (a handoff has none), "no copy carries the marker" (a copy may carry it and reads as unregistered, `SPEC-fyr-search`), the private home's "as before", and "a usage error is printed `work: <reason>`" (no file prints the synopsis, `SPEC-fyr-work`). The rows stay as one line and a spec column; the paragraph of global flags stays in T5, the home README points at. "Sandboxes stay for inspection" went to the spec, since eval's help page is at `TestHelpPageShape`'s ten lines, and the pin is not raised.
+- **Item 32's keep-set** gains `.gitkeep` (tracked), `search.db*` (the live index) and `p12/` (this phase's evidence and tree binary). 1024 entries deleted by name, 18 GB to 1.8 GB. Not kept, as the plan lists: `p2-check-speed/`, `p10b/`, `p11/` and `p6/`, so D8's, D21's, D22's and D15's pointers into them now name evidence that is gone; each D-row states its result.
+- **Item 47** carries ADR-088, as the hard rule on a `PRD.md` edit asks. `451381b` also holds R8's earlier wording, but in a plan draft; `9222762` is the requirements commit.
+- **Item 52.** The rule is global, so it names the tiers itself: a global rule cannot point at this repo's `DEPLOY-local`. It left 99 bytes in the rules block. No `GUIDE-eval` row exists for it yet; P13's run adds one.
+- **Item 59.** Every row is re-pathed to records with a `rec` helper in the Procedure, none struck. The new checks have not run: the guide is manual, and its demo fixture is not built this phase. `GUIDE-testing` § 4 still points at it.
+
+— by: implementer, within P12's boxes.
 
 ## Risks
 

@@ -126,7 +126,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | The build version |
 
-`fyr help <verb>` prints a verb's page. Each verb's full behaviour and the global flags are `TDD.md` § T5; the exact contract of each is its `SPEC-fyr-*` record (`fyr record list --kind spec`, then `fyr record get`).
+`fyr help <verb>` prints a verb's page. The global flags are `TDD.md` § T5; each verb's full behaviour is its `SPEC-fyr-*` record (`fyr record list --kind spec`, then `fyr record get`).
 
 ## Install without cloning
 

@@ -31,12 +31,12 @@ An Antigravity CLI session starts with no memory of the last one and carries onl
 
 ## Must — non-negotiable
 
-<!-- Numbered R0…; a later edit keeps the numbers (a struck item stays as "R3 — struck <date>: <why>"). Each item's line is its title; the text under it is the requirement. The provenance date is the day its title first appears in git (`git log -S`); the decisions behind it are the ADRs the text cites. -->
+<!-- Numbered R0…; a later edit keeps the numbers (a struck item stays as "R3 — struck <date>: <why>"). Each item's line is its title; the text under it is the requirement. The provenance date is the day its title, or its earlier wording (R8: `9222762`), first appears in git (`git log -S`); the decisions behind it are the ADRs the text cites. -->
 
 How each requirement is met and verified is traced in [SDD.md](SDD.md) (requirement → component) and [TDD.md](TDD.md) (component → tests).
 
 - **R0** — Purpose: the second brain of the Antigravity CLI.
-  <!-- provenance: the operator, 2026-10-23; enforced by: TestHarnessMap, TestAddGetEditList, TestSearchRanksARecordAboveAFile, TestMemoryVerb, TestRunIngestsMetricsFirst, TestRenderedContextUnderTarget -->
+  <!-- provenance: the operator, 2026-10-24; enforced by: TestHarnessMap, TestAddGetEditList, TestSearchRanksARecordAboveAFile, TestMemoryVerb, TestRunIngestsMetricsFirst, TestRenderedContextUnderTarget -->
 
   `fyr` is the second brain of the Antigravity CLI. It keeps what a session cannot hold on its own: the context, skills, rules and agents (`install`); every record of every project's trail, with its metadata, in one store the CLI searches when it needs to (`record`, `search`), and the project memory in the same store (`memory`); the shape of every session (`metrics`); and the consolidation of idle projects (`dream`). The CLI asks it for help at the moments the context names: resume, before touching an area, at a phase end, when a skill or context seems missing, and when work starts drifting. It grows to evaluate projects and catch drift in the binary and its specs, never in the context, whose hand-written part stays under its size pin. The brain is consulted, never consulting: nothing in `fyr` acts on a CLI session between its turns, and a session learns only what it asks for; the one conversation `fyr` starts is the visible dream (R3), a conversation of its own that no session is sent into. (ADR-061, ADR-062, ADR-063, ADR-073.)
 

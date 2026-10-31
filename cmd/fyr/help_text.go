@@ -66,8 +66,10 @@ var pages = map[string]verbPage{
 			"rules) into ~/.gemini/config and the binary into ~/.local/bin, from the",
 			"harness checkout or from the harness built into a release binary, and",
 			"removes the files a previous install wrote that the harness no longer",
-			"has. It edits no vendor setting. Running it again changes only what",
-			"drifted. sync is an alias of install.",
+			"has, except the Claude Code files an install before fyr wrote under",
+			"~/.claude, which it keeps and stops managing (DEPLOY-remote § Crossing",
+			"to fyr). It edits no vendor setting. Running it again changes only",
+			"what drifted. sync is an alias of install.",
 		},
 	},
 	"update": {
@@ -105,6 +107,7 @@ var pages = map[string]verbPage{
 		about: []string{
 			"Removes exactly the files install wrote, and the dream timer when one is",
 			"installed; nothing else. The metrics store and eval's sandboxes stay.",
+			"--dry-run names what would go.",
 		},
 	},
 	"list": {
@@ -155,7 +158,7 @@ var pages = map[string]verbPage{
 			"add saves one, its body on stdin, as MEMORY-<SLUG> in this project's",
 			"scope, replacing one of the same name; every session writes memory this",
 			"way (R10). show prints the memory index, one line per memory, capped at",
-			"what a session loads (200 lines, 25 KB).",
+			"what a session loads at start (200 lines, 25 KB).",
 		},
 	},
 	"search": {
