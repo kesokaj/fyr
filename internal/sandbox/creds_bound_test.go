@@ -32,3 +32,20 @@ func TestScanBoundsAFileStatSizeHides(t *testing.T) {
 		t.Errorf("problem %q, want the size refusal", got.problem)
 	}
 }
+
+// TestReadBoundedStopsAtTheBound: the read itself stops, whatever the size
+// says: the refusal alone would also pass an unbounded read of a file that
+// ends.
+func TestReadBoundedStopsAtTheBound(t *testing.T) {
+	old := maxScan
+	maxScan = 4
+	t.Cleanup(func() { maxScan = old })
+	p := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(p, []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b, err := readBounded(p)
+	if err != nil || len(b) != 5 {
+		t.Errorf("read %d bytes, %v, want 5", len(b), err)
+	}
+}

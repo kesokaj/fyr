@@ -63,10 +63,10 @@ func TestNoSQLiteDriver(t *testing.T) {
 // rev without the file has none.
 func TestTrailAtFailsClosed(t *testing.T) {
 	r := newRig(t)
-	if got, err := trailAt(r.lead, "HEAD"); err != nil || len(got) != 1 {
+	if got, err := trailAt(r.lead, "HEAD", RunnerHost); err != nil || len(got) != 1 {
 		t.Fatalf("HEAD: %d records, %v", len(got), err)
 	}
-	if _, err := trailAt(r.lead, "0123456789abcdef0123456789abcdef01234567"); err == nil {
+	if _, err := trailAt(r.lead, "0123456789abcdef0123456789abcdef01234567", RunnerHost); err == nil {
 		t.Error("an unreadable rev read as an empty trail")
 	}
 	// A base that holds a merge=union squash carries an unchanged line twice
@@ -77,12 +77,12 @@ func TestTrailAtFailsClosed(t *testing.T) {
 	}
 	put(t, filepath.Join(r.lead, trailRel), string(trail)+string(trail))
 	r.git("-C", r.lead, "commit", "-qam", "union copy")
-	if got, err := trailAt(r.lead, "HEAD"); err != nil || len(got) != 1 || got[r.guide].Title != "Old guide" {
+	if got, err := trailAt(r.lead, "HEAD", RunnerHost); err != nil || len(got) != 1 || got[r.guide].Title != "Old guide" {
 		t.Fatalf("a byte-identical copy at HEAD: %+v, %v, want the one guide", got, err)
 	}
 	r.git("-C", r.lead, "rm", "-q", trailRel)
 	r.git("-C", r.lead, "commit", "-qm", "no trail")
-	if got, err := trailAt(r.lead, "HEAD"); err != nil || len(got) != 0 {
+	if got, err := trailAt(r.lead, "HEAD", RunnerHost); err != nil || len(got) != 0 {
 		t.Errorf("a rev without the file: %d records, %v", len(got), err)
 	}
 }

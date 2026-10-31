@@ -138,19 +138,24 @@ func gitFloor(runner string) error {
 	return nil
 }
 
-// uploadPackMemKiB bounds the address space of the docker fetch's upload-pack
-// and its pack-objects, in KiB: 8 GiB, the worker container's own --memory.
-var uploadPackMemKiB = 8 << 20
+// hostMemKiB bounds the address space of the git commands that read what a
+// docker session wrote, in KiB: 8 GiB, the worker container's own --memory.
+var hostMemKiB = 8 << 20
 
-// uploadPack is the fetch's --upload-pack. Under docker a clone's config can
-// make it hold a blob whole (core.bigFileThreshold, the v5.5.0 gate), so it
-// runs under a limit, and a limit that cannot be set fails the fetch. A host
-// session runs as the operator already.
-func uploadPack(runner string) string {
-	if runner == RunnerDocker {
-		return fmt.Sprintf("ulimit -v %d && exec git upload-pack --strict", uploadPackMemKiB)
+// capMemory runs cmd under that limit under the docker runner, through a sh
+// that exits when it cannot set it, so a limit not set fails the command. A
+// clone's core.bigFileThreshold makes the host's pack-objects hold a blob
+// whole, and fsck in index-pack does so with no config at all, each from a
+// file of a few MiB (the v5.5.0 gate). Children inherit it. A host session
+// runs as the operator already.
+func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
+	if runner != RunnerDocker {
+		return cmd
 	}
-	return "git upload-pack --strict"
+	args := append([]string{"-c", `ulimit -v "$0" && exec "$@"`, strconv.Itoa(hostMemKiB)}, cmd.Args...)
+	c := exec.Command("sh", args...)
+	c.Dir, c.Env = cmd.Dir, cmd.Env
+	return c
 }
 
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
@@ -161,9 +166,9 @@ func uploadPack(runner string) string {
 // GitIntact is still honoured.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
-	out, err := runBounded(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", uploadPack(w.o.Runner),
-		filepath.Join(w.b.App(), ".git"), ref+":"+ref), fetchLimit)
+	out, err := runBounded(capMemory(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
+		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", "git upload-pack --strict",
+		filepath.Join(w.b.App(), ".git"), ref+":"+ref), w.o.Runner), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))
 		return false
@@ -276,10 +281,10 @@ func changedPaths(root, rng string) ([]string, error) {
 // of a kind added refuses, and fills the handoff and change records the
 // branch added.
 func (w *worker) records(root, ref string) (outside []string) {
-	before, err := trailAt(root, w.p.base)
+	before, err := trailAt(root, w.p.base, w.o.Runner)
 	if err == nil {
 		var after map[string]Record
-		if after, err = trailAt(root, ref); err == nil {
+		if after, err = trailAt(root, ref, w.o.Runner); err == nil {
 			for id, r := range before {
 				if a, ok := after[id]; (!ok || a != r) && !w.p.k.names(id) {
 					outside = append(outside, id)

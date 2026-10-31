@@ -2,7 +2,7 @@
 // registered project's memory, trail, feedback, a numbers-only summary of its
 // metrics and the Antigravity transcripts (after ingesting every session's shape
 // into the metrics store), asks
-// a CLI with no tools what should become a rule, a skill or a memory, and
+// a CLI with no tool granted what should become a rule, a skill or a memory, and
 // stores the answer as global `proposal` records (R3's exception, R10, plan
 // 2026-09-30-parity-memory-dream; brain plan Phase 4: only projects idle for
 // a day, read from their records).

@@ -33,7 +33,7 @@ type trailLine struct {
 // file has none, and one git cannot read is an error, so a damaged base
 // never passes the record scope open. The blob is named once, then read
 // with cat-file, which runs no filter or textconv, through a capped reader.
-func trailAt(root, rev string) (map[string]Record, error) {
+func trailAt(root, rev, runner string) (map[string]Record, error) {
 	ls, err := leadGit(root, "ls-tree", "-z", rev, "--", trailRel).Output()
 	if err != nil {
 		return nil, fmt.Errorf("at %s: git ls-tree: %v", short(rev), err)
@@ -46,7 +46,7 @@ func trailAt(root, rev string) (map[string]Record, error) {
 	if len(f) != 3 || f[1] != "blob" || (f[0] != "100644" && f[0] != "100755") {
 		return nil, fmt.Errorf("at %s: %s is not a regular file", short(rev), trailRel)
 	}
-	cmd := leadGit(root, "cat-file", "blob", f[2])
+	cmd := capMemory(leadGit(root, "cat-file", "blob", f[2]), runner)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

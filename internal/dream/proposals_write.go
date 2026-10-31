@@ -83,7 +83,7 @@ func (o Options) header(c Collected, cli, day string) string {
 		inputs = append(inputs, fmt.Sprintf("%s %d", k, counts[k]))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tools, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
+	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tool granted, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
 	if len(c.Dropped) > 0 {
 		fmt.Fprintf(&b, "Left out: %s\n", o.line(strings.Join(c.Dropped, "; ")))
 	}

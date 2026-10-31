@@ -215,7 +215,8 @@ func markTarget(line, target string) string {
 	at := len([]rune(string(r)[:i]))
 	n := len([]rune(target))
 	start := max(0, min(at-(snippetMax-n)/2, len(r)-snippetMax))
-	end := min(len(r), start+snippetMax)
+	start = min(start, at) // a target longer than the snippet starts at itself
+	end := max(min(len(r), start+snippetMax), at+n)
 	out := string(r[start:at]) + "»" + string(r[at:at+n]) + "«" + string(r[at+n:end])
 	if start > 0 {
 		out = "…" + out
