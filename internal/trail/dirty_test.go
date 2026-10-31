@@ -59,6 +59,19 @@ func TestDirty(t *testing.T) {
 			os.Remove(filepath.Join(root, "link"))
 			os.Symlink("elsewhere", filepath.Join(root, "link"))
 		}, true},
+		// Hashed through the root, never outside it (security review of
+		// v2.6.0, part 2, finding 3): the same bytes behind a link still differ.
+		{"tracked directory replaced by a link out, same bytes", func(t *testing.T, root string, _ func(...string)) {
+			outside := t.TempDir()
+			os.WriteFile(filepath.Join(outside, "a.md"), []byte("a\n"), 0o644)
+			os.Remove(filepath.Join(root, "link"))
+			os.Symlink("dir", filepath.Join(root, "link"))
+			os.RemoveAll(filepath.Join(root, "dir"))
+			os.Symlink(outside, filepath.Join(root, "dir"))
+			// Excluded, or `ls-files -o` would report the link and this row
+			// would pass without the read through the root.
+			os.WriteFile(filepath.Join(root, ".git", "info", "exclude"), []byte("dir\n"), 0o644)
+		}, true},
 		{"symlink replaced by a file", func(t *testing.T, root string, _ func(...string)) {
 			os.Remove(filepath.Join(root, "link"))
 			os.WriteFile(filepath.Join(root, "link"), []byte("dir"), 0o644)

@@ -12,45 +12,33 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// reconcileGlobal brings the global search index up to date: the files of
-// ~/.config/fyr/, the only files it holds, then the projects table, dropping
-// any checkout that is gone or no longer carries this home's registration
-// marker (ADR-068, ADR-068a). A checkout's records answer --global from the
-// brain store (ADR-086).
-func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
+// reconcileGlobal brings the global search index up to date: its projects
+// table, dropping any checkout that is gone or no longer carries this home's
+// registration marker (ADR-068, ADR-068a). The index holds no file: --global
+// answers from the brain store (ADR-086, ADR-087).
+func reconcileGlobal(o Options, out io.Writer) (*store, error) {
 	path := globalDB(o.Home)
 	if o.Rebuild {
 		if err := rebuildGlobal(path, out); err != nil {
-			return nil, 0, nil, err
+			return nil, err
 		}
 	}
 	st, err := openStore(path, out)
 	if err != nil {
-		return nil, 0, nil, err
-	}
-	fail := func(err error) (*store, int, []proj, error) {
-		st.close()
-		return nil, 0, nil, err
-	}
-	confDir := filepath.Dir(path)
-	view, err := configView(confDir)
-	if err != nil {
-		return fail(err)
-	}
-	changed, err := st.apply(source{project: configProject, dir: confDir, view: view})
-	if err != nil {
-		return fail(err)
+		return nil, err
 	}
 	roots, err := registrations(st)
 	if err != nil {
-		return fail(err)
+		st.close()
+		return nil, err
 	}
 	for _, root := range roots {
 		if err := checkRegistered(st, o.Home, root, out); err != nil {
-			return fail(err)
+			st.close()
+			return nil, err
 		}
 	}
-	return st, changed, []proj{{key: configProject, name: configProject}}, nil
+	return st, nil
 }
 
 // rebuildGlobal deletes the global index for --rebuild, with a note of how
@@ -171,18 +159,9 @@ func dropReason(root string) (string, error) {
 }
 
 func dropProject(st *store, root string) error {
-	if _, err := st.db.Exec(`BEGIN IMMEDIATE`); err != nil {
-		if isBusy(err) {
-			return errBusy
-		}
-		return err
+	_, err := st.db.Exec(`DELETE FROM projects WHERE root = ?`, root)
+	if isBusy(err) {
+		return errBusy
 	}
-	for _, q := range []string{`DELETE FROM files WHERE project = ?`, `DELETE FROM projects WHERE root = ?`} {
-		if _, err := st.db.Exec(q, root); err != nil {
-			st.db.Exec(`ROLLBACK`)
-			return err
-		}
-	}
-	_, err := st.db.Exec(`COMMIT`)
 	return err
 }

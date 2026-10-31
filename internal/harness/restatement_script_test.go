@@ -83,10 +83,12 @@ func TestRestatementGrepRunsOutsideHarness(t *testing.T) {
 		dir := t.TempDir()
 		git(dir, "init", "-q")
 		for p, body := range map[string]string{
-			"skills/VENDORED.md":     "| Skill | Source |\n|---|---|\n| foo | somewhere |\n",
-			"skills/foo/SKILL.md":    "the vendored word\n",
-			"skills/mine/SKILL.md":   "the living word\n",
-			".agents/docs/changes/x": "the record word\n",
+			"skills/VENDORED.md":   "| Skill | Source |\n|---|---|\n| foo | somewhere |\n",
+			"skills/foo/SKILL.md":  "the vendored word\n",
+			"skills/mine/SKILL.md": "the living word\n",
+			".agents/trail.jsonl":  "the record word\n",
+			// A file under an old docs root is an ordinary file now (ADR-087).
+			".agents/docs/changes/x": "the old word\n",
 		} {
 			if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
 				t.Fatal(err)
@@ -101,7 +103,10 @@ func TestRestatementGrepRunsOutsideHarness(t *testing.T) {
 		if code != 0 || !strings.Contains(out, "skills/mine/SKILL.md:1:") {
 			t.Fatalf("want exit 0 with the living hit, got exit %d:\n%s", code, out)
 		}
-		if strings.Contains(out, "skills/foo/") || strings.Contains(out, ".agents/docs/changes/") {
+		if !strings.Contains(out, ".agents/docs/changes/x:1:") {
+			t.Fatalf("a file under an old docs root is excluded:\n%s", out)
+		}
+		if strings.Contains(out, "skills/foo/") || strings.Contains(out, ".agents/trail.jsonl") {
 			t.Fatalf("vendored or record file reported:\n%s", out)
 		}
 	})

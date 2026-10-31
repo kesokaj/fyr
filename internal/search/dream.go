@@ -20,7 +20,7 @@ import (
 
 // Project is one checkout the global search index knows.
 type Project struct {
-	Root, Name, DocsRoot string
+	Root, Name string
 }
 
 // AgyConversation is the text of one Antigravity conversation.
@@ -62,7 +62,7 @@ func ListProjects(home string) ([]Project, error) {
 		return nil, err
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT root, name, docs_root FROM projects ORDER BY rowid`)
+	rows, err := db.Query(`SELECT root, name FROM projects ORDER BY rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("reading the projects of %s: %w", path, err)
 	}
@@ -70,7 +70,7 @@ func ListProjects(home string) ([]Project, error) {
 	var out []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.Root, &p.Name, &p.DocsRoot); err != nil {
+		if err := rows.Scan(&p.Root, &p.Name); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

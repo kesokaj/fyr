@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -123,7 +124,11 @@ func TestDryRunLines(t *testing.T) {
 func TestDryRunOverCapAndDropped(t *testing.T) {
 	f := newFixture(t)
 	big := strings.Repeat("a memory line that fills the store. ", 8000) // ~290 KB
-	write(t, filepath.Join(f.root, ".agents", "memory", "huge.md"), big, fresh)
+	saved := forDream
+	t.Cleanup(func() { forDream = saved })
+	forDream = func(string, string, time.Time, time.Time) (brain.DreamInput, error) {
+		return brain.DreamInput{Memory: []brain.Record{{ID: "MEMORY-huge", Title: "huge", Body: big}}}, nil
+	}
 	var out bytes.Buffer
 	o := Options{Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now }, Active: idle, Scopes: noScopes,
 		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil }}
@@ -133,24 +138,6 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 	if !strings.Contains(out.String(), "would fail (memory over cap)") {
 		t.Errorf("over-cap memory not reported:\n%s", out.String())
 	}
-
-	// A store that refuses to be read is left out and named, and the run
-	// goes on with the rest.
-	g := newFixture(t)
-	markRegistered(t, f.home, g.root)
-	store := filepath.Join(g.root, ".agents", "memory")
-	os.RemoveAll(store)
-	if err := os.Symlink(t.TempDir(), store); err != nil {
-		t.Fatal(err)
-	}
-	out.Reset()
-	o.Projects = func(string) ([]search.Project, error) { return []search.Project{project(g)}, nil }
-	if err := Run(o); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "left out: memory:") || !strings.Contains(out.String(), "symlink") {
-		t.Errorf("a refused store is not named:\n%s", out.String())
-	}
 }
 
 // A dry run printed one `left out:` line per dropped input, 34 on one box; it
@@ -158,7 +145,8 @@ func TestDryRunOverCapAndDropped(t *testing.T) {
 func TestDryRunSummarisesDropped(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < 12; i++ {
-		write(t, filepath.Join(f.root, ".agents", "docs", "bugs", fmt.Sprintf("BUG-%03d-big.md", i)), strings.Repeat("a long bug record line. ", 1700), fresh.Add(time.Duration(i)*time.Second))
+		when := fresh.Add(time.Duration(i) * time.Second)
+		f.addTrail(t, brain.Options{Home: f.home, Dir: f.root, Now: func() time.Time { return when }}, "bug", fmt.Sprintf("big %d", i), strings.Repeat("a long bug record line. ", 1700))
 	}
 	c, err := collect(f.home, project(f), now.Add(-firstLook), time.Now(), maxPrompt) // the dry run's first look
 	if err != nil {

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -55,8 +54,8 @@ func TestRunAgyPrivateHomeAndStdin(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.home, harness.StateDir, "proposals")); !os.IsNotExist(err) {
 		t.Error("zero proposals wrote a file")
 	}
-	if _, err := os.Stat(brain.Path(f.home)); !os.IsNotExist(err) {
-		t.Error("zero proposals created the brain store")
+	if recs := dreamProposals(t, f.home); len(recs) != 0 {
+		t.Errorf("zero proposals stored %d records", len(recs))
 	}
 	if st, _ := readState(f.home); !st.Projects[f.root].Equal(now) {
 		t.Errorf("watermark not advanced: %+v", st)

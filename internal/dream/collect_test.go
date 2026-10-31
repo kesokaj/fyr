@@ -71,7 +71,7 @@ func TestCollectSkillAloneIsNoChange(t *testing.T) {
 
 func TestCollectRedactsAndHidesHome(t *testing.T) {
 	f := newFixture(t)
-	write(t, filepath.Join(f.root, ".agents", "memory", "leak.md"), "token = FAKEVALUE\nstored under "+f.home+"/x\n", fresh)
+	f.addTrail(t, brain.Options{Home: f.home, Dir: f.root, Now: func() time.Time { return fresh }}, "review", "a leak", "token = FAKEVALUE\nstored under "+f.home+"/x\n")
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
@@ -113,27 +113,6 @@ func TestCollectCapDropsNewestNewsFirst(t *testing.T) {
 	}
 }
 
-// TestCollectDoesNotFollowLinkedTrail: a committed symlink under the docs
-// root is named and not read (security review 2026-09-30).
-func TestCollectDoesNotFollowLinkedTrail(t *testing.T) {
-	f := newFixture(t)
-	elsewhere := t.TempDir()
-	write(t, filepath.Join(elsewhere, "private.md"), "private notes elsewhere\n", fresh)
-	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents", "docs", "reviews")); err != nil {
-		t.Fatal(err)
-	}
-	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(c.Prompt, "private notes elsewhere") {
-		t.Error("a linked record directory was read")
-	}
-	if !strings.Contains(strings.Join(c.Dropped, " "), "reviews: a symlink") {
-		t.Errorf("dropped = %v", c.Dropped)
-	}
-}
-
 func TestCommand(t *testing.T) {
 	agy := strings.Join(command(), " ")
 	if !strings.HasPrefix(agy, "agy --input-format stream-json --output-format stream-json --mode plan -p") {
@@ -145,33 +124,27 @@ func TestCommand(t *testing.T) {
 func TestCollectDoesNotFollowALinkedAgentsDir(t *testing.T) {
 	f := newFixture(t)
 	elsewhere := t.TempDir()
-	write(t, filepath.Join(elsewhere, "docs", "changes", "x.md"), "outside the repository\n", fresh)
+	write(t, filepath.Join(elsewhere, "trail.jsonl"), "outside the repository\n", fresh)
 	os.RemoveAll(filepath.Join(f.root, ".agents"))
 	if err := os.Symlink(elsewhere, filepath.Join(f.root, ".agents")); err != nil {
 		t.Fatal(err)
 	}
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("err = %v, want the brain store's refusal", err)
 	}
 	if strings.Contains(c.Prompt, "outside the repository") {
 		t.Error("a linked .agents was followed")
 	}
 }
 
-// A secret hidden behind a JSON escape in feedback.jsonl is redacted on the
-// decoded line (v2.0.0 gate, security code slice).
+// A secret hidden behind a JSON escape in a feedback record is redacted on
+// the decoded line (v2.0.0 gate, security code slice).
 func TestFeedbackRedactsEscapedSecret(t *testing.T) {
 	f := newFixture(t)
-	path := filepath.Join(f.home, harness.StateDir, "feedback.jsonl")
-	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// json.Marshal writes & as \u0026, so the raw line reads "\u0026sig=…" and the
 	// query-string needle matches only the decoded line (the gate's measurement).
-	fmt.Fprintf(fh, `{"ts":%q,"project":%q,"original":"see https://h.example/p?x=1\u0026sig=0123456789abcdef0123456789abcdef"}`+"\n", fresh.Format(time.RFC3339), f.root)
-	fh.Close()
+	f.addFeedbackBody(t, fresh, f.root, fmt.Sprintf(`{"ts":%q,"project":%q,"original":"see https://h.example/p?x=1\u0026sig=0123456789abcdef0123456789abcdef"}`, fresh.Format(time.RFC3339), f.root))
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)
@@ -206,12 +179,16 @@ func TestSkillsReadsBlockScalarDescription(t *testing.T) {
 	}
 }
 
-// A secret-shaped label (here a trail file's name) is redacted with the
+// A secret-shaped label (here a record's ID) is redacted with the
 // texts before the prompt leaves fyr (SD31 of the 2026-10-27 audit).
 func TestCollectRedactsLabels(t *testing.T) {
 	f := newFixture(t)
 	token := "ghp_" + strings.Repeat("A1b2C3d4E5", 4)[:36]
-	write(t, filepath.Join(f.root, ".agents", "docs", "changes", "2026-10-01-0000-"+token+".md"), "a change entry\n", fresh)
+	saved := forDream
+	t.Cleanup(func() { forDream = saved })
+	forDream = func(string, string, time.Time, time.Time) (brain.DreamInput, error) {
+		return brain.DreamInput{Trail: []brain.Record{{ID: "CHANGE-" + token, Title: "a change", Body: "entry", Updated: fresh.Format(time.RFC3339)}}}, nil
+	}
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)
 	if err != nil {
 		t.Fatal(err)

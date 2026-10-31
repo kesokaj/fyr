@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -32,18 +33,19 @@ func newFixture(t *testing.T) fixture {
 	f := fixture{home: t.TempDir(), root: t.TempDir()}
 	run(t, f.root, "git", "init", "-q")
 	markRegistered(t, f.home, f.root)
-	write(t, filepath.Join(f.root, ".gitignore"), ".agents/memory\n.agents/scratch/*\n", old)
-	write(t, filepath.Join(f.root, ".agents", "memory", "MEMORY.md"), "- [deploy-day](deploy-day.md) — fridays\n", old)
-	write(t, filepath.Join(f.root, ".agents", "memory", "deploy-day.md"), "---\nname: deploy-day\n---\n\nWe deploy on Fridays.\n", old)
-	write(t, filepath.Join(f.root, ".agents", "docs", "bugs", "INDEX.md"), "| BUG-001 | fresh bug row |\n", fresh)
-	write(t, filepath.Join(f.root, ".agents", "docs", "changes", "2026-09-01-0000-old.md"), "an old change entry\n", old)
-	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert\"\n---\n", old)
-	fb := func(ts time.Time, project, text string) string {
-		b, _ := json.Marshal(map[string]string{"ts": ts.Format(time.RFC3339), "project": project, "original": text})
-		return string(b) + "\n"
+	write(t, filepath.Join(f.root, ".gitignore"), ".agents/scratch/*\n", old)
+	at := func(when time.Time) brain.Options {
+		return brain.Options{Home: f.home, Dir: f.root, Now: func() time.Time { return when }}
 	}
-	write(t, filepath.Join(f.home, harness.StateDir, "feedback.jsonl"),
-		fb(fresh, f.root, "fresh feedback for this project")+fb(old, f.root, "old feedback")+fb(fresh, "/elsewhere", "another project's feedback"), fresh)
+	if _, err := brain.MemoryAdd(at(old), brain.MemoryEntry{Type: "project", Name: "deploy-day", Description: "deploy day"}, strings.NewReader("We deploy on Fridays.")); err != nil {
+		t.Fatal(err)
+	}
+	f.addTrail(t, at(fresh), "bug", "fresh bug row", "a bug")
+	f.addTrail(t, at(old), "change", "an old change entry", "done")
+	write(t, filepath.Join(f.home, harness.AgyRoot, "skills", "golang", "SKILL.md"), "---\nname: golang\ndescription: \"Go expert\"\n---\n", old)
+	f.addFeedback(t, fresh, f.root, "fresh feedback for this project")
+	f.addFeedback(t, old, f.root, "old feedback")
+	f.addFeedback(t, fresh, "/elsewhere", "another project's feedback")
 	// The root's conversation is older than the subdirectory's, so the cap
 	// drops the subdirectory's first and keeps the root's
 	// (TestCollectCapDropsNewestNewsFirst).
@@ -54,6 +56,30 @@ func newFixture(t *testing.T) fixture {
 		"elsewhere": {"/elsewhere", fresh, []agyStep{{typ: 14, text: "another project's line of text"}}},
 	})
 	return f
+}
+
+// addTrail stores one trail record in the project.
+func (f fixture) addTrail(t *testing.T, o brain.Options, kind, title, body string) {
+	t.Helper()
+	if _, err := brain.Add(o, brain.AddInput{Kind: kind, Title: title, Body: strings.NewReader(body)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// addFeedback stores one global feedback record about project, its body the
+// JSON line feedback-log writes.
+func (f fixture) addFeedback(t *testing.T, when time.Time, project, text string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"ts": when.Format(time.RFC3339), "project": project, "original": text})
+	f.addFeedbackBody(t, when, project, string(body))
+}
+
+func (f fixture) addFeedbackBody(t *testing.T, when time.Time, project, body string) {
+	t.Helper()
+	g := brain.Options{Home: f.home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return when }}
+	if _, err := brain.Add(g, brain.AddInput{Kind: "feedback", Title: "a correction", Project: project, Body: strings.NewReader(body)}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // agyConv is one Antigravity conversation: its workspace, when it was last
@@ -163,7 +189,11 @@ func markRegistered(t *testing.T, home, root string) {
 }
 
 func project(f fixture) search.Project {
-	return search.Project{Root: f.root, Name: filepath.Base(f.root), DocsRoot: ".agents/docs"}
+	return projectAt(f.root)
+}
+
+func projectAt(root string) search.Project {
+	return search.Project{Root: root, Name: filepath.Base(root)}
 }
 
 func labels(c Collected) string {

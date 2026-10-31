@@ -156,9 +156,8 @@ func parseRefs(text string) []ref {
 }
 
 // Kinds a path can have, in the order `fyr help search` lists them.
-// kinds are the --kind values. A checkout's file is code or doc and a
-// ~config file feedback, retro or proposal; every other kind is answered by
-// brain records alone (ADR-063, ADR-086).
+// kinds are the --kind values. A checkout's file is code or doc; every other
+// kind is answered by brain records alone (ADR-063, ADR-086, ADR-087).
 var kinds = []string{"bug", "adr", "plan", "change", "handoff", "review", "testing", "retro", "spec", "deploy", "trail", "code", "doc", "feedback", "proposal", "learning", "guide", "memory"}
 
 var trailKinds = map[string]string{
@@ -175,22 +174,9 @@ func init() {
 	}
 }
 
-// configProject is the global index's name for ~/.config/fyr/.
-const configProject = "~config"
-
 // kindOf classifies a path. Search passes no docs root; docsRoot is for
 // KindOf, which metrics reads with the project's (ADR-086).
-func kindOf(project, p, docsRoot string) string {
-	if project == configProject {
-		switch {
-		case p == "feedback.jsonl":
-			return "feedback"
-		case p == "retros.jsonl":
-			return "retro"
-		default:
-			return "proposal"
-		}
-	}
+func kindOf(p, docsRoot string) string {
 	if rel, ok := docsRelative(p, docsRoot); ok {
 		dir, _, _ := strings.Cut(rel, "/")
 		if k, ok := trailKinds[dir]; ok && strings.Contains(rel, "/") {

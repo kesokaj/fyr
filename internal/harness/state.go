@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 )
 
 // State is the install manifest. It is the only thing uninstall trusts: a
@@ -161,30 +160,4 @@ func removeState(home string) error {
 	// The directory is fyr's own; drop it when empty.
 	_ = os.Remove(filepath.Dir(p))
 	return nil
-}
-
-// LastRetro returns when the learning loop last ran: the newest of the
-// harness proposal files under ~/.config/fyr/proposals/ and the
-// cross-project index ~/.config/fyr/retros.jsonl, which a project-level
-// /retro or /distill appends to even when it proposes nothing for the harness.
-func LastRetro(home string) (time.Time, bool) {
-	// Listed by name, never through a pattern built from the home path: a
-	// `[` in it would be read as a character class (the golang rule).
-	dir := filepath.Join(home, StateDir, "proposals")
-	var paths []string
-	if entries, err := os.ReadDir(dir); err == nil {
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".md") {
-				paths = append(paths, filepath.Join(dir, e.Name()))
-			}
-		}
-	}
-	paths = append(paths, filepath.Join(home, StateDir, "retros.jsonl"))
-	var newest time.Time
-	for _, p := range paths {
-		if info, err := os.Stat(p); err == nil && info.ModTime().After(newest) {
-			newest = info.ModTime()
-		}
-	}
-	return newest, !newest.IsZero()
 }

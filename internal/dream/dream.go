@@ -174,17 +174,17 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 	return ""
 }
 
+// noTrail is why a project with no records is not dreamt over, whatever
+// files it holds: only `fyr record import` reads a file-era tree (D4).
+const noTrail = "no .agents/trail.jsonl: fyr record import"
+
 // skipReason says why a project is not dreamt over, or "" when it is.
 func skipReason(p search.Project) string {
 	if why := absent(p); why != "" {
 		return why
 	}
-	if migrated(p.Root) {
-		return ""
-	}
-	docs := docsOf(p)
-	if info, err := os.Stat(filepath.Join(p.Root, docs)); err != nil || !info.IsDir() {
-		return "no " + docs
+	if !migrated(p.Root) {
+		return noTrail
 	}
 	return ""
 }

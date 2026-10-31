@@ -117,7 +117,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.kind, "kind", "", "only hits of kind `K`: bug adr plan change handoff review testing retro spec deploy trail code doc feedback proposal learning guide memory")
 		c.fs.StringVar(&c.refs, "refs", "", "every record naming `REF`: an ID, a file, or a directory (trailing /)")
 		c.fs.BoolVar(&c.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
-		c.fs.BoolVar(&c.global, "global", false, "also every project registered with index --register, and the global search index, ~/.config/fyr/search.db")
+		c.fs.BoolVar(&c.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
 	}, positional: true, run: runSearch},
 	"index": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")

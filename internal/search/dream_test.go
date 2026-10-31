@@ -33,8 +33,8 @@ func TestListProjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, q := range []string{
-		`CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, docs_root TEXT, last_seen INTEGER)`,
-		`INSERT INTO projects VALUES('/p/one','one','.agents/docs',1),('/p/two','two','.agents/docs',2)`,
+		`CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, last_seen INTEGER)`,
+		`INSERT INTO projects VALUES('/p/one','one',1),('/p/two','two',2)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -48,7 +48,7 @@ func TestListProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Root != "/p/one" || got[1].Name != "two" || got[1].DocsRoot != ".agents/docs" {
+	if len(got) != 2 || got[0].Root != "/p/one" || got[1].Name != "two" {
 		t.Errorf("got %+v", got)
 	}
 	// A read-only open of a WAL database creates -wal and -shm beside it;

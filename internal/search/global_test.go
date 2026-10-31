@@ -9,8 +9,8 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// globalHome makes a home whose ~/.config/fyr holds a feedback line, a
-// retro line and a proposal.
+// globalHome makes a home whose ~/.config/fyr still holds the old stores: a
+// feedback line, a retro line and a proposal, which search never reads.
 func globalHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -21,6 +21,28 @@ func globalHome(t *testing.T) string {
 	return home
 }
 
+// --global reads no file in ~/.config/fyr, inside a checkout or outside one:
+// the old stores reach the brain store by `fyr record import --global` alone
+// (ADR-087), and the global index holds no file.
+func TestGlobalReadsNoConfigFile(t *testing.T) {
+	home := globalHome(t)
+	dir := trailRepo(t)
+	for _, in := range []string{t.TempDir(), dir} {
+		for _, word := range []string{"jackalope", "quetzal", "ocelot"} {
+			out, err := runSearch(t, Options{Dir: in, Home: home, Global: true, Words: []string{word}})
+			if err != nil {
+				t.Fatalf("--global in %s: %v", in, err)
+			}
+			if strings.Contains(out, "config") || strings.Contains(out, word) && !strings.Contains(out, "0 hits") {
+				t.Errorf("%s answered from a file:\n%s", word, out)
+			}
+		}
+	}
+	if n := countStore(t, globalStore(t, home), `SELECT count(*) FROM files`); n != 0 {
+		t.Errorf("the global index holds %d files, want none", n)
+	}
+}
+
 // A first run that is --global registers its own registered checkout too.
 func TestGlobalRunRegistersItsCheckout(t *testing.T) {
 	home := globalHome(t)
@@ -29,45 +51,6 @@ func TestGlobalRunRegistersItsCheckout(t *testing.T) {
 	mustSearch(t, Options{Dir: c, Home: home, Global: true, Words: []string{"egret"}})
 	if got := projectRoots(t, home); len(got) != 1 || got[0] != c {
 		t.Errorf("projects %v, want the checkout", got)
-	}
-}
-
-func TestGlobalRunsOutsideACheckout(t *testing.T) {
-	home := globalHome(t)
-	out, err := runSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"jackalope"}})
-	if err != nil {
-		t.Fatalf("--global outside a checkout: %v", err)
-	}
-	if !strings.Contains(out, "~config:feedback.jsonl:1  feedback") {
-		t.Errorf("feedback line not found:\n%s", out)
-	}
-}
-
-func TestGlobalIndexesFeedbackRetrosProposals(t *testing.T) {
-	home := globalHome(t)
-	dir := t.TempDir()
-	for word, want := range map[string]string{
-		"jackalope": "~config:feedback.jsonl:1  feedback",
-		"quetzal":   "~config:retros.jsonl:1  retro",
-		"ocelot":    "~config:proposals/2026-09-29-x.md:3  proposal",
-	} {
-		out := mustSearch(t, Options{Dir: dir, Home: home, Global: true, Words: []string{word}})
-		if !strings.Contains(out, want) {
-			t.Errorf("%s: want %q:\n%s", word, want, out)
-		}
-	}
-	out := mustSearch(t, Options{Dir: dir, Home: home, Global: true, Words: []string{"ocelot"}, Kind: "feedback"})
-	if strings.Contains(out, "proposal") {
-		t.Errorf("--kind feedback let a proposal through:\n%s", out)
-	}
-	// An edited log is re-read on the next query.
-	writeFile(t, filepath.Join(home, harness.StateDir), "feedback.jsonl", `{"note":"now a kinkajou"}`+"\n")
-	out = mustSearch(t, Options{Dir: dir, Home: home, Global: true, Words: []string{"kinkajou"}})
-	if !strings.Contains(out, "feedback.jsonl:1") {
-		t.Errorf("edited feedback log not re-read:\n%s", out)
-	}
-	if out := mustSearch(t, Options{Dir: dir, Home: home, Global: true, Words: []string{"jackalope"}}); strings.Contains(out, "feedback.jsonl") {
-		t.Errorf("old feedback text still answered:\n%s", out)
 	}
 }
 
@@ -100,33 +83,5 @@ func TestGlobalRebuildDropsRegistry(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "note: 1 project registrations dropped; each registered one returns on its next search") {
 		t.Errorf("rebuild note:\n%s", out.String())
-	}
-}
-
-// TestConfigViewListsProposalsByName: the proposals directory is listed
-// with ReadDir and matched by suffix, never through a glob pattern built
-// from the config path, which a `[` in the path would turn into a class
-// (BUG-109's class; the golang skill's rule).
-func TestConfigViewListsProposalsByName(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "c[1]", harness.StateDir)
-	if err := os.MkdirAll(filepath.Join(dir, "proposals"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range []string{"feedback.jsonl", "retros.jsonl", "proposals/2026-09-30-retro.md", "proposals/notes.txt"} {
-		if err := os.WriteFile(filepath.Join(dir, f), []byte("x\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	entries, err := configView(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		names = append(names, e.path)
-	}
-	got := strings.Join(names, " ")
-	if !strings.Contains(got, "proposals/2026-09-30-retro.md") || strings.Contains(got, "notes.txt") {
-		t.Errorf("proposals should be listed by name, .md only, got %q", got)
 	}
 }

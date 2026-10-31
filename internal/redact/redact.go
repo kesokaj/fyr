@@ -316,7 +316,7 @@ func Redact(text string) string {
 
 // RedactJSONL is Redact for JSON Lines: a needle hidden behind a JSON escape
 // (`\u003d`, `\"`) is matched on the decoded line, as `fyr dream`
-// reads feedback.jsonl and a transcript (security review of the v2.0.0 gate).
+// reads a feedback record and a transcript (security review of the v2.0.0 gate).
 func RedactJSONL(text string) string {
 	out, _ := redactLines([]byte(text), true)
 	return string(out)

@@ -96,6 +96,10 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 54 | The verb allowlist (`subcommands` in `internal/metrics/verb.go`) did not hold `fyr`'s `record`, `check`, `eval`, `serve` or `work`, so `fyr record get X` was stored as bare `fyr` and the Phase 5b golden `expect: Read,fyr record` could only ever show `1 of 2` | fix: the five join the list, and a test walks the binary's verbs | P9 |
 | 55 | P9's security review (it predates P9): a quoted value shaped like a flag reached a verb as a flag (`git commit -m "--hunter2pass"` stored `--hunter2pass`, which `fyr metrics export` writes in clear), against `Verb`'s doc comment | fix: a word quoting or an escape made flag-shaped is content; the unquoted form is the stated residue | P9 |
 | 56 | P10a's security review (it predates P10a): a clone tracking `.agents/scratch/search.db-wal`, `-shm` or `-journal` passed `guardProject`, and a search deleted the tracked file | fix: `guardProject` refuses each companion git tracks; an untracked one needs no ignore rule | P10a |
+| 57 | P10b: the `retro` and `distill` eval rows seed `feedback.jsonl`, which neither skill reads (each lists `feedback` records), so both rows ran on no feedback; `$SB/bin/fyr` does not exist at setup, before the install | fix: setup gets `FYR`, the running binary (`internal/eval/row.go`, `SPEC-fyr-eval`, `GUIDE-eval`), and both rows store `feedback` records with it; their behavioural runs are P13's | P10b |
+| 58 | P10b: `record import --dry-run` printed `0 already stored` whatever the store held, since a dry run opens no store, which read as "nothing is imported yet" and could not support item 34's proof | fix: the dry run says the store was not read and prints no stored count; the match by ID is `fyr record list --global` | P10b |
+| 59 | P10b: `GUIDE-skill-matrix`'s manual rows still name `.agents/docs/...` paths and `feedback.jsonl`. `fyr search` and the restatement script do not reach the row's meaning, and `GUIDE-eval` already holds the release rows | fix: each row is re-pathed to records or struck with the guide | P12 |
+| 60 | P10b: dave's real `brain.db` holds 0 global `feedback`, `retro` and `proposal` records: `record import --global` never ran there. Since ADR-087 nothing else reads the three stores, so `/retro`, `--global`, the dream and `fyr status`'s retro line see none of the 56 lines until it does | fix: the real import, then item 34's deletion, each on the operator's word | P10b |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -345,6 +349,15 @@ D20 — 2026-10-31 — P10a, how the fix reads item 33's search half where it is
 - **Reviews past the cap.** The two rounds of `reviewer` and `security` ran. Round 2's findings are fixed without a third round, as in P2 and P3: a `.gitignore` naming `search.db` alone refused by round 1's fix, a tracked `search.db-journal`, and the marker read on the main root, which let a worktree of an unmarked bare repository join. Each has a test that fails without it.
 
 — by: implementer, within P10a's box.
+
+D21 — 2026-10-31 — P10b, how the fix reads item 33's other half where it is silent (ADR-087):
+- **The global index holds no file.** `config_view`'s legacy files were its last source, so `configView`, the `~config` kinds and the `--global` file query go, and the index keeps its `projects` table. `--kind feedback`, `retro` and `proposal` answer from records. This amends ADR-086's "the global index holds `~/.config/fyr` only".
+- **`trail.Dates`, `memory.Store` and `harness.LastRetro` go with their last reader.** `TestStoreRunsNoProjectHook` is named by `PRD.md` R3, so by D6 it stays, its body moved to `internal/brain` on the import's read of the old store, the store's one reader. The tests that exercised `trail.changed` keep their cover in `TestDirty` (a new row: a tracked directory replaced by a link out) and `TestPartialCloneIsReadOnlyOnANewGit`.
+- **The schema moves to 3** for `docs_root`, so `projects` empties a second time.
+- **P10b's Expect has two more names.** `internal/search/global_trail_test.go` and `internal/dream/records_only_test.go` name `.agents/docs` as negative pins: each proves the path is NOT read, so they stay. `proposals/dream/drafts/` stays as the dream's write path, and nothing reads it.
+- **Item 34's proof ran on a copy.** The stores and `brain.db` were copied under `.agents/scratch/p10b/proof`, so the real home took no write. Item 34 asks for each entry "matched to a global record"; on dave no global record exists (item 60), so the proof is the import into that copy: 33 of 33, 17 of 17 and 6 of 6 by ID, no problem listed. Item 34's `search` in each project is not needed: the projects row reaches only a project's old memory store, none of the three stores.
+
+— by: implementer, within P10b's box.
 
 ## Risks
 

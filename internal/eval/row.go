@@ -152,9 +152,10 @@ func (w *row) checkEnv() []string {
 	}
 }
 
-// setupEnv is the check's, plus the git identity run.sh's gi() used.
+// setupEnv is the check's, plus the git identity run.sh's gi() used, and FYR,
+// this binary: setup runs before the install, so $SB/bin/fyr is not there yet.
 func (w *row) setupEnv() []string {
-	return append(w.checkEnv(),
+	return append(w.checkEnv(), "FYR="+w.o.Self,
 		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@localhost",
 		"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=f@localhost")
 }

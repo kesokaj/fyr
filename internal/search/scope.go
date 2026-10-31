@@ -6,17 +6,10 @@ import (
 	"time"
 )
 
-// proj is one project a query covers.
-type proj struct {
-	key, name string
-}
-
 // scope is an open, reconciled index and the projects a query reads.
 type scope struct {
 	st       *store
-	projects []proj
-	byKey    map[string]proj
-	global   bool
+	projects []string // the checkout a file query covers; none under --global
 	files    int
 	changed  int
 	elapsed  time.Duration
@@ -32,7 +25,7 @@ func (sc *scope) close() {
 func (sc *scope) keys() []any {
 	out := make([]any, len(sc.projects))
 	for i, p := range sc.projects {
-		out[i] = p.key
+		out[i] = p
 	}
 	return out
 }
@@ -50,15 +43,8 @@ func (sc *scope) status() string {
 	return s
 }
 
-func (sc *scope) display(project, path string) string {
-	if !sc.global {
-		return path
-	}
-	return sc.byKey[project].name + ":" + path
-}
-
 func (sc *scope) kind(project, path string) string {
-	return kindOf(project, path, "")
+	return kindOf(path, "")
 }
 
 func (sc *scope) kindMatches(o Options, project, path string) bool {
@@ -70,5 +56,5 @@ func (sc *scope) label(project, path string, line int) string {
 }
 
 func (sc *scope) rawLabel(project, path string, line int) string {
-	return fmt.Sprintf("%s:%d  %s", sc.display(project, path), line, sc.kind(project, path))
+	return fmt.Sprintf("%s:%d  %s", path, line, sc.kind(project, path))
 }

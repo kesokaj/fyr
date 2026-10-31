@@ -68,7 +68,7 @@ func Unticked(text string) int {
 
 // KindOf classifies a project-relative, slash-separated path against the
 // project's docs root (bug, adr, plan, …, code, doc).
-func KindOf(p, docsRoot string) string { return kindOf("", p, docsRoot) }
+func KindOf(p, docsRoot string) string { return kindOf(p, docsRoot) }
 
 // Field is one protobuf field found by ProtoFields: its path of field
 // numbers from the top message, and its value — Varint for wire type 0,

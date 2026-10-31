@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // NoIndexMarkers are the file names that take a directory out of the search
@@ -42,92 +41,9 @@ func IsNoIndexMarker(p string) bool {
 	return false
 }
 
-// Dates is, for every tracked file under docs, the time of its newest
-// commit (paths relative to root, slash-separated), and the set of those
-// tracked files whose working copy differs from HEAD. Both are empty when
-// git is absent, root is no checkout, or root is a partial clone this
-// machine's git cannot read safely (Readable): every file then keeps its
-// mtime.
-//
-// A working copy is compared by its raw bytes (`hash-object --no-filters`)
-// with HEAD's blob, so no clean filter runs: a file the repository filters
-// reads as modified and keeps its mtime, the safe direction.
-func Dates(root, docs string) (dates map[string]time.Time, modified map[string]bool) {
-	dates, modified = map[string]time.Time{}, map[string]bool{}
-	out, err := Log(root, "--format=%ct", "--name-only", "--no-renames", "--", docs)
-	if err != nil {
-		return dates, modified
-	}
-	var t time.Time
-	for _, line := range strings.Split(string(out), "\n") {
-		if line == "" {
-			continue
-		}
-		if secs, err := strconv.ParseInt(line, 10, 64); err == nil {
-			t = time.Unix(secs, 0)
-			continue
-		}
-		if _, seen := dates[line]; !seen && !t.IsZero() {
-			dates[line] = t
-		}
-	}
-	diff, ok := changed(root, docs)
-	for p := range dates {
-		// Unreadable working state: every record keeps its mtime.
-		if !ok || diff[p] {
-			modified[p] = true
-		}
-	}
-	return dates, modified
-}
-
-// changed lists the tracked files under docs whose working copy is not
-// HEAD's blob byte for byte, or is gone; ok is false when git could not
-// answer, and the caller then treats every record as changed.
-func changed(root, docs string) (out map[string]bool, ok bool) {
-	out = map[string]bool{}
-	if !Readable(root) {
-		return nil, false
-	}
-	tree, err := Command(root, "ls-tree", "-r", "-z", "--full-tree", "HEAD", "--", docs).Output()
-	if err != nil {
-		return nil, false
-	}
-	fsRoot, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, false
-	}
-	defer fsRoot.Close()
-	var paths, blobs []string
-	for _, rec := range strings.Split(string(tree), "\x00") {
-		meta, path, cut := strings.Cut(rec, "\t")
-		f := strings.Fields(meta)
-		if !cut || len(f) != 3 || f[1] != "blob" {
-			continue
-		}
-		// Through an os.Root: a path whose directory became a symlink to the
-		// outside is refused there, so nothing outside the checkout is hashed
-		// (security review of v2.6.0, part 2).
-		info, err := fsRoot.Lstat(filepath.FromSlash(path))
-		if err != nil || !info.Mode().IsRegular() {
-			out[path] = true // removed, outside the checkout, or not a regular file
-			continue
-		}
-		paths, blobs = append(paths, path), append(blobs, f[2])
-	}
-	differ, err := hashesDiffer(root, paths, blobs)
-	if err != nil {
-		return nil, false
-	}
-	for p := range differ {
-		out[p] = true
-	}
-	return out, true
-}
-
 // DocsRoot is the project's docs root relative to root: `.agents/docs` when
-// it is a directory, else `docs`, else "" (one resolver, written three times
-// until the project review of 2026-10-09; search adds its own default).
+// it is a directory, else `docs`, else "". Metrics classifies a file-era
+// project's paths with it; nothing else reads a docs root (ADR-087).
 func DocsRoot(root string) string {
 	for _, d := range []string{".agents/docs", "docs"} {
 		if fi, err := os.Stat(filepath.Join(root, d)); err == nil && fi.IsDir() {

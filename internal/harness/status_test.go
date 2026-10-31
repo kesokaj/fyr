@@ -7,53 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
-
-func TestLastRetro(t *testing.T) {
-	home := t.TempDir()
-	if _, ok := LastRetro(home); ok {
-		t.Fatal("no proposals yet")
-	}
-	dir := filepath.Join(home, StateDir, "proposals")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "2026-09-03-retro.md"), []byte("# retro\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	first, ok := LastRetro(home)
-	if !ok {
-		t.Fatal("proposal should be found")
-	}
-	// A project-level retro appends to the index without a proposal file;
-	// that counts as a retro too, and its newer mtime wins.
-	index := filepath.Join(home, StateDir, "retros.jsonl")
-	if err := os.WriteFile(index, []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	later := first.Add(48 * time.Hour)
-	if err := os.Chtimes(index, later, later); err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := LastRetro(home); !ok || !got.Equal(later) {
-		t.Fatalf("LastRetro = %v, %v; want %v", got, ok, later)
-	}
-	// A home path holding a glob metacharacter: the proposals are listed by
-	// name, never through a pattern built from the home (BUG-109's class;
-	// the golang skill's rule).
-	odd := filepath.Join(t.TempDir(), "u[1]")
-	oddDir := filepath.Join(odd, StateDir, "proposals")
-	if err := os.MkdirAll(oddDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(oddDir, "2026-09-30-retro.md"), []byte("# retro\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := LastRetro(odd); !ok {
-		t.Fatal("a proposal under a home with [ in its path should be found")
-	}
-}
 
 func TestSlashNoteOnlyWhenSomeSkillIsSlashOnly(t *testing.T) {
 	repo := newRepo(t)

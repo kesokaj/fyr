@@ -187,11 +187,13 @@ func recordImport(c *ctx, o brain.Options, rest []string) error {
 // tracked name can hold a glob or start with a dash.
 func printImport(c *ctx, res *brain.ImportResult) {
 	p := func(format string, a ...any) { fmt.Fprintln(c.out, search.Printable(fmt.Sprintf(format, a...))) }
-	head := "import"
 	if c.dryRun {
-		head = "import (dry run: nothing written)"
+		// A dry run opens no store, so it cannot say what the store holds:
+		// its records are what the sources hold (PLAN.md item 58).
+		p("import (dry run: nothing written, the store not read): %s; %d records in the sources, %d dropped (git history keeps them)", brain.ImportSummary(res), len(res.Records), res.Dropped)
+	} else {
+		p("import: %s; %d records, %d dropped (git history keeps them), %d already stored", brain.ImportSummary(res), len(res.Records), res.Dropped, res.Skipped)
 	}
-	p("%s: %s; %d records, %d dropped (git history keeps them), %d already stored", head, brain.ImportSummary(res), len(res.Records), res.Dropped, res.Skipped)
 	for _, r := range res.Records {
 		st := r.Status
 		if st == "" {

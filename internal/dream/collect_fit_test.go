@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -142,7 +143,8 @@ func TestTwoRunsSendEveryCappedInput(t *testing.T) {
 	scaffold(t, f)
 	pad := strings.Repeat("lorem ipsum dolor sit amet ", 1500)
 	for d := 2; d <= 10; d++ {
-		write(t, filepath.Join(f.root, ".agents", "docs", "changes", fmt.Sprintf("c%02d.md", d)), fmt.Sprintf("MARK-%d-DAYS-AGO %s\n", d, pad), day(d))
+		when := day(d)
+		f.addTrail(t, brain.Options{Home: f.home, Dir: f.root, Now: func() time.Time { return when }}, "change", fmt.Sprintf("c%02d", d), fmt.Sprintf("MARK-%d-DAYS-AGO %s\n", d, pad))
 	}
 	rec := fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
 	marks := map[string]bool{}

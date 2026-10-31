@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "2"
+const schemaVersion = "3"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -39,7 +39,7 @@ var errBusy = errors.New("search: index busy (another fyr is indexing); retry, o
 
 const schemaSQL = `
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
-CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, docs_root TEXT, last_seen INTEGER);
+CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, last_seen INTEGER);
 CREATE TABLE files(project TEXT, path TEXT, oid TEXT, state TEXT, PRIMARY KEY(project, path));
 CREATE INDEX files_oid ON files(oid);
 CREATE TABLE blobs(oid TEXT PRIMARY KEY, last_seen INTEGER, skipped INTEGER);

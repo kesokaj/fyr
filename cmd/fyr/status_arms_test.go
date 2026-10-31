@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -107,17 +108,23 @@ func TestStatusPlanAndReadErrors(t *testing.T) {
 	}
 }
 
-// The retro line: the old files' newest time, a brain retro record newer
-// than it, and the 14-day hint.
+// The retro line: the brain store's global retro records alone, the old
+// retros.jsonl beside them never counting (ADR-087), and the 14-day hint.
 func TestStatusRetroLine(t *testing.T) {
 	repo, home := statusHome(t)
-	logPath := filepath.Join(home, harness.StateDir, "retros.jsonl")
-	writeTestFile(t, logPath, "{}\n")
+	writeTestFile(t, filepath.Join(home, harness.StateDir, "retros.jsonl"), "{}\n")
+	writeTestFile(t, filepath.Join(home, harness.StateDir, "proposals", "2026-09-17-retro.md"), "# retro\n")
+	out, _ := statusOut(t, repo, home)
+	if want := "retro      none yet — run /retro"; !strings.Contains(out, want) {
+		t.Errorf("the old files counted; output lacks %q:\n%s", want, out)
+	}
+
 	old := time.Now().Add(-30 * 24 * time.Hour)
-	if err := os.Chtimes(logPath, old, old); err != nil {
+	if _, err := brain.Add(brain.Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return old }},
+		brain.AddInput{Kind: "retro", Title: "old", Body: strings.NewReader("an old retro")}); err != nil {
 		t.Fatal(err)
 	}
-	out, _ := statusOut(t, repo, home)
+	out, _ = statusOut(t, repo, home)
 	want := "retro      last proposal " + old.Format("2006-01-02") + " (30 days ago) — past 14 days, run /retro at the end of the next session\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("output lacks %q:\n%s", want, out)

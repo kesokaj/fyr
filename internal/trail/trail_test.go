@@ -34,15 +34,15 @@ func signedRepo(t *testing.T) (root, marker string) {
 		}
 	}
 	git("init", "-q")
-	os.MkdirAll(filepath.Join(root, ".agents", "docs", "handoffs"), 0o755)
-	os.WriteFile(filepath.Join(root, ".agents", "docs", "handoffs", "h.md"), []byte("h\n"), 0o644)
-	git("add", ".agents")
+	os.MkdirAll(filepath.Join(root, "notes", "handoffs"), 0o755)
+	os.WriteFile(filepath.Join(root, "notes", "handoffs", "h.md"), []byte("h\n"), 0o644)
+	git("add", "notes")
 	git("-c", "gpg.program="+prog, "-c", "user.signingkey=x", "commit", "-q", "-S", "-m", "signed")
 	git("config", "gpg.program", prog)
 	git("config", "log.showSignature", "true")
 	// The fixture must trip the marker with the very format the code asks
 	// for, minus the hardening (silence is not evidence).
-	if out, err := exec.Command("git", "-C", root, "log", "--format=%ct", "--name-only", "--no-renames", "--", ".agents/docs").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", root, "log", "--format=%ct", "--name-only", "--no-renames", "--", "notes").CombinedOutput(); err != nil {
 		t.Fatalf("plain git log: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -50,19 +50,6 @@ func signedRepo(t *testing.T) (root, marker string) {
 	}
 	os.Remove(marker)
 	return root, marker
-}
-
-// Dates runs git log in project roots taken from transcripts: a repository's
-// own config must not make it start a program (security review 2026-10-08).
-func TestDatesRunsNoSignatureProgram(t *testing.T) {
-	root, marker := signedRepo(t)
-	dates, _ := Dates(root, ".agents/docs")
-	if len(dates) == 0 {
-		t.Fatal("Dates read nothing; the test would pass vacuously")
-	}
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("git log ran the repository's gpg.program")
-	}
 }
 
 // Log is the one way the metrics store and the dreamer run git log in a
@@ -98,12 +85,12 @@ func filterRepo(t *testing.T) (root, marker string) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	docs := filepath.Join(root, ".agents", "docs", "handoffs")
+	docs := filepath.Join(root, "notes", "handoffs")
 	os.MkdirAll(docs, 0o755)
 	os.WriteFile(filepath.Join(docs, "kept.md"), []byte("kept\n"), 0o644)
 	os.WriteFile(filepath.Join(docs, "edited.md"), []byte("before\n"), 0o644)
 	git("init", "-q")
-	git("add", ".agents")
+	git("add", "notes")
 	git("commit", "-q", "-m", "records")
 	os.WriteFile(filepath.Join(root, ".gitattributes"), []byte("*.md filter=x\n"), 0o644)
 	git("config", "filter.x.clean", prog)
@@ -115,7 +102,7 @@ func filterRepo(t *testing.T) (root, marker string) {
 	later := time.Now().Add(time.Hour)
 	os.Chtimes(filepath.Join(docs, "kept.md"), later, later)
 	// The fixture must trip the marker with a plain status (silence is not evidence).
-	if out, err := exec.Command("git", "-C", root, "status", "--porcelain", "--", ".agents/docs").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", root, "status", "--porcelain", "--", "notes").CombinedOutput(); err != nil {
 		t.Fatalf("plain git status: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -123,27 +110,6 @@ func filterRepo(t *testing.T) (root, marker string) {
 	}
 	os.Remove(marker)
 	return root, marker
-}
-
-// Dates runs no program the repository's config defines (no clean filter,
-// security review round 2), and still tells an edited record from one as
-// committed.
-func TestDatesRunsNoCleanFilter(t *testing.T) {
-	root, marker := filterRepo(t)
-	dates, modified := Dates(root, ".agents/docs")
-	if _, err := os.Stat(marker); err == nil {
-		t.Fatal("Dates ran the repository's clean filter")
-	}
-	kept, edited := ".agents/docs/handoffs/kept.md", ".agents/docs/handoffs/edited.md"
-	if _, ok := dates[kept]; !ok || modified[kept] {
-		t.Errorf("the record as committed: dated %v, modified %v; want dated and not modified", ok, modified[kept])
-	}
-	if !modified[edited] {
-		t.Error("the edited record is not reported modified")
-	}
-	if _, ok := dates[".agents/docs/handoffs/new.md"]; ok {
-		t.Error("an untracked record got a commit date")
-	}
 }
 
 // Every git call into a project root carries GIT_NO_LAZY_FETCH=1: a partial
@@ -165,8 +131,7 @@ func TestCommandsNeverLazyFetch(t *testing.T) {
 // A partial clone is not read on a git older than 2.44: that git ignores
 // GIT_NO_LAZY_FETCH and would fetch through the repository's own
 // core.sshCommand (security review round 3). On a newer git it is read like
-// any checkout, the policy search applies: refusing it there dated the
-// dreamer's whole trail by mtime (audit 2026-10-25, SD17).
+// any checkout, the policy search applies (audit 2026-10-25, SD17).
 func TestPartialCloneIsReadOnlyOnANewGit(t *testing.T) {
 	root, _ := filterRepo(t)
 	if out, err := exec.Command("git", "-C", root, "config", "extensions.partialClone", "origin").CombinedOutput(); err != nil {
@@ -176,23 +141,16 @@ func TestPartialCloneIsReadOnlyOnANewGit(t *testing.T) {
 	t.Cleanup(func() { lazyFetchSafe = saved })
 
 	lazyFetchSafe = func() bool { return false }
-	if dates, _ := Dates(root, ".agents/docs"); len(dates) != 0 {
-		t.Fatalf("a partial clone was read on an old git: %v", dates)
+	if Readable(root) {
+		t.Fatal("a partial clone reads as readable on an old git")
 	}
 	if out, err := Log(root, "--oneline"); err == nil {
 		t.Fatalf("Log ran in a partial clone on an old git: %q", out)
 	}
 
 	lazyFetchSafe = func() bool { return true }
-	dates, modified := Dates(root, ".agents/docs")
-	if len(dates) == 0 {
-		t.Fatal("a partial clone on a git that honours GIT_NO_LAZY_FETCH got no commit dates")
-	}
-	if kept := ".agents/docs/handoffs/kept.md"; modified[kept] {
-		t.Errorf("%s, unedited, reads as modified in a partial clone", kept)
-	}
-	if edited := ".agents/docs/handoffs/edited.md"; !modified[edited] {
-		t.Errorf("%s, edited, is not reported modified in a partial clone", edited)
+	if !Readable(root) {
+		t.Fatal("a partial clone reads as unreadable on a git that honours GIT_NO_LAZY_FETCH")
 	}
 	if _, err := Log(root, "--oneline"); err != nil {
 		t.Fatalf("Log refused a partial clone on a new git: %v", err)
@@ -209,7 +167,7 @@ func TestPartialCloneIsReadOnlyOnANewGit(t *testing.T) {
 // repository's core.worktree cannot point a session at another project.
 func TestToplevelIsAParent(t *testing.T) {
 	root, _ := filterRepo(t)
-	sub := filepath.Join(root, ".agents", "docs")
+	sub := filepath.Join(root, "notes")
 	if got := Toplevel(sub); got != root {
 		t.Errorf("Toplevel(sub) = %q, want %q", got, root)
 	}
@@ -263,37 +221,6 @@ func TestPartialCloneSeesPromisorRemote(t *testing.T) {
 	exec.Command("git", "-C", root, "config", "remote.origin.promisor", "false").Run()
 	if PartialClone(root) {
 		t.Error("remote.origin.promisor=false read as a partial clone")
-	}
-}
-
-// changed reads files only inside the checkout: a tracked record whose
-// directory became a symlink to the outside is changed, never hashed there
-// (security review of v2.6.0, part 2, finding 3).
-func TestChangedStaysInsideTheCheckout(t *testing.T) {
-	root := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	dir := filepath.Join(root, ".agents", "docs", "handoffs")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "h.md"), []byte("same\n"), 0o644)
-	git("init", "-q")
-	git("add", ".")
-	git("commit", "-q", "-m", "h")
-	outside := t.TempDir()
-	os.WriteFile(filepath.Join(outside, "h.md"), []byte("same\n"), 0o644) // identical bytes outside
-	os.RemoveAll(dir)
-	if err := os.Symlink(outside, dir); err != nil {
-		t.Skip("no symlinks here")
-	}
-	diff, ok := changed(root, ".agents/docs")
-	if !ok || !diff[".agents/docs/handoffs/h.md"] {
-		t.Fatalf("a record behind a symlinked directory read as unchanged (ok=%v): it was hashed outside the checkout", ok)
 	}
 }
 

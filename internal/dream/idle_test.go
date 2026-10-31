@@ -87,11 +87,13 @@ func TestIdleRule(t *testing.T) {
 
 // An Antigravity session within the day keeps a project in use too.
 func TestIdleRuleSeesASession(t *testing.T) {
-	f := newFixture(t) // its conversations were modified an hour before now
-	if why := activity(f.home, project(f), now); !strings.HasPrefix(why, "an Antigravity session at ") {
+	home, root := recordsProject(t, old, old)
+	agyConversations(t, home, map[string]agyConv{"at-root": {root, fresh, []agyStep{{typ: 14, text: "a line"}}}})
+	p := projectAt(root)
+	if why := activity(home, p, now); !strings.HasPrefix(why, "an Antigravity session at ") {
 		t.Errorf("activity = %q", why)
 	}
-	if why := activity(f.home, project(f), now.Add(48*time.Hour)); why != "" {
+	if why := activity(home, p, now.Add(48*time.Hour)); why != "" {
 		t.Errorf("two days later the project is idle, got %q", why)
 	}
 }

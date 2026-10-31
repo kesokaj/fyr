@@ -133,15 +133,10 @@ func binaryLines(home, repo string, info harness.RepoInfo, out io.Writer) {
 	}
 }
 
-// retroLine prints when the last retro proposal was made.
+// retroLine prints when the last retro was stored, by the brain store's
+// global retro records (ADR-087).
 func retroLine(home string, out io.Writer) {
-	// The newest of the old files and the brain store's global retro
-	// records (D32): a machine may hold either until its logs are imported.
-	last, ok := harness.LastRetro(home)
-	if b, bok := brain.LastRetro(home); bok && (!ok || b.After(last)) {
-		last, ok = b, true
-	}
-	if ok {
+	if last, ok := brain.LastRetro(home); ok {
 		days := int(time.Since(last).Hours() / 24)
 		hint := ""
 		if days > 14 {

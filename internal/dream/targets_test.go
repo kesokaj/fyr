@@ -24,7 +24,7 @@ func TestTargets(t *testing.T) {
 	// --project needs no marker (audit-choices D16).
 	o.Project = sub
 	got, skips, err := o.targets()
-	if err != nil || len(got) != 1 || !sameDir(got[0].Root, other) || got[0].DocsRoot != ".agents/docs" || len(skips) != 0 {
+	if err != nil || len(got) != 1 || !sameDir(got[0].Root, other) || len(skips) != 0 {
 		t.Errorf("--project from a subdirectory: %+v, %+v, %v", got, skips, err)
 	}
 	// Both and neither are refused by Run before targets (TestRunUsage).
@@ -55,12 +55,8 @@ func TestTargets(t *testing.T) {
 
 func TestSkipReason(t *testing.T) {
 	f := newFixture(t)
-	if why := skipReason(project(f)); why != "no .agents/docs" && why != "" {
-		t.Fatalf("fixture: %q", why)
-	}
-	os.MkdirAll(filepath.Join(f.root, ".agents", "docs"), 0o755)
 	if why := skipReason(project(f)); why != "" {
-		t.Errorf("a scaffolded checkout skipped: %q", why)
+		t.Errorf("a checkout with records skipped: %q", why)
 	}
 	if why := skipReason(search.Project{Root: filepath.Join(f.root, "gone")}); why != "gone" {
 		t.Errorf("missing root: %q", why)
@@ -68,11 +64,6 @@ func TestSkipReason(t *testing.T) {
 	plain := t.TempDir()
 	if why := skipReason(search.Project{Root: plain}); why != "not a git checkout" {
 		t.Errorf("plain directory: %q", why)
-	}
-	bare := t.TempDir()
-	run(t, bare, "git", "init", "-q")
-	if why := skipReason(search.Project{Root: bare, DocsRoot: "docs"}); why != "no docs" {
-		t.Errorf("no docs root: %q", why)
 	}
 }
 

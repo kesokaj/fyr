@@ -65,22 +65,18 @@ func prepare(o Options, out io.Writer) (*scope, error) {
 	if rootErr != nil && !o.Global {
 		return nil, errNotCheckout
 	}
-	sc := &scope{byKey: map[string]proj{}}
+	sc := &scope{}
 	if rootErr == nil {
 		if err := sc.prepareProject(o, root, out); err != nil {
 			return nil, err
 		}
 	}
 	if o.Global {
-		st, n, projects, err := reconcileGlobal(o, out)
+		st, err := reconcileGlobal(o, out)
 		if err != nil {
 			return nil, err
 		}
-		sc.st, sc.projects, sc.global = st, projects, true
-		sc.changed += n
-		for _, p := range projects {
-			sc.byKey[p.key] = p
-		}
+		sc.st, sc.projects = st, nil
 	}
 	if err := sc.st.db.QueryRow(`SELECT count(*) FROM files WHERE project IN `+sc.in(), sc.keys()...).Scan(&sc.files); err != nil {
 		sc.close()
@@ -119,11 +115,9 @@ func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
 		return err
 	}
 	sc.changed += n
-	p := proj{key: root, name: filepath.Base(root)}
 	if !o.Global {
-		sc.st, sc.projects = st, []proj{p}
+		sc.st, sc.projects = st, []string{root}
 		sc.leftOut = leftOut
-		sc.byKey[root] = p
 	} else {
 		st.close()
 	}
@@ -186,7 +180,7 @@ func register(home, root string, out io.Writer) error {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	_, err = st.db.Exec(`INSERT INTO projects(root, name, docs_root, last_seen) VALUES (?, ?, '', ?)
+	_, err = st.db.Exec(`INSERT INTO projects(root, name, last_seen) VALUES (?, ?, ?)
 		ON CONFLICT(root) DO UPDATE SET last_seen = excluded.last_seen`,
 		root, filepath.Base(root), now)
 	if isBusy(err) {

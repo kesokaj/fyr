@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -20,12 +22,11 @@ func TestAllSkipsUnregistered(t *testing.T) {
 	other := newFixture(t) // registered, but under its own home only
 	clone := filepath.Join(t.TempDir(), "clone")
 	run(t, filepath.Dir(clone), "git", "clone", "-q", f.root, clone)
-	os.MkdirAll(filepath.Join(clone, ".agents", "docs"), 0o755)
 	rec := fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
 	var out bytes.Buffer
 	o := runOpts(f, &out)
 	o.Projects = func(string) ([]search.Project, error) {
-		return []search.Project{project(other), {Root: clone, Name: "clone", DocsRoot: ".agents/docs"}}, nil
+		return []search.Project{project(other), {Root: clone, Name: "clone"}}, nil
 	}
 	o.Scopes = func(string) ([]string, error) { return []string{other.root}, nil } // the same root twice: one line
 
@@ -55,11 +56,15 @@ func TestAllSkipsUnregistered(t *testing.T) {
 
 	o.DryRun = false
 	markRegistered(t, f.home, other.root)
+	g := brain.Options{Home: f.home, Dir: other.root, Now: func() time.Time { return now }}
+	if _, err := brain.Add(g, brain.AddInput{Kind: "bug", Title: "the other checkout's bug", Body: strings.NewReader("a bug")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := Run(o); err != nil {
 		t.Fatal(err)
 	}
 	stdin, err := os.ReadFile(filepath.Join(rec, "stdin"))
-	if err != nil || !strings.Contains(string(stdin), "We deploy on Fridays.") {
+	if err != nil || !strings.Contains(string(stdin), "the other checkout's bug") {
 		t.Errorf("the registered checkout was not sent: %v\n%.300s", err, stdin)
 	}
 }

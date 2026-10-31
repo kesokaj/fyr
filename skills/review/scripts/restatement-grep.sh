@@ -16,9 +16,7 @@
 #   --     ends the options; a word may start with `-` (`--append-system-prompt`)
 #          and any token after the first word is a word too
 # Output: path:line: text, one per hit (`-H`: the path even for a single file), over the LIVING files: `git ls-files`
-# minus the records (`.agents/trail.jsonl`, the brain store's export; and in a
-# project still on files, `.agents/docs/{changes,handoffs,reviews,retros}/`,
-# `bugs/BUG-*`, dated `testing/20*` logs, `architecture/DECISIONS.md`) and
+# minus the records (`.agents/trail.jsonl`, the brain store's export) and
 # minus the vendored skills and vendored catalogs named in skills/VENDORED.md (a
 # first cell may be a path, `google-catalog/catalog`), which are never edited.
 # The kit's scripts ARE living files; the living records (specs, guides, deploy
@@ -45,7 +43,7 @@ cd "$root"
 # that is not the harness (BUG-138).
 vendored=$( { { grep -E '^\| [a-z0-9/-]+ \|' skills/VENDORED.md 2>/dev/null || true; } | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -v -E '^(Skill)$' | sed 's#^#^skills/#; s#$#/#'; } || true )
 mapfile -t files < <(git ls-files -z | tr '\0' '\n' \
-  | grep -v -E '^\.agents/trail\.jsonl$|^\.agents/docs/(changes|handoffs|reviews|retros)/|^\.agents/docs/bugs/BUG-|^\.agents/docs/testing/20[0-9][0-9]-|^\.agents/docs/architecture/DECISIONS\.md$' \
+  | grep -v -x -F '.agents/trail.jsonl' \
   | { if [ -n "$vendored" ]; then grep -v -E "$(printf '%s\n' "$vendored" | paste -sd'|' -)"; else cat; fi; } || true)
 [ ${#files[@]} -gt 0 ] || exit 1
 hits=0

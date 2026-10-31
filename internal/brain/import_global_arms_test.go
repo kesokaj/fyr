@@ -124,11 +124,11 @@ func writeProjects(t *testing.T, home string, roots ...string) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE projects(root TEXT, name TEXT, docs_root TEXT)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE projects(root TEXT, name TEXT)`); err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range roots {
-		if _, err := db.Exec(`INSERT INTO projects VALUES (?, ?, '')`, r, filepath.Base(r)); err != nil {
+		if _, err := db.Exec(`INSERT INTO projects VALUES (?, ?)`, r, filepath.Base(r)); err != nil {
 			t.Fatal(err)
 		}
 	}

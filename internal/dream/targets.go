@@ -34,7 +34,7 @@ func (o Options) targets() ([]search.Project, []skipped, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return []search.Project{{Root: root, Name: filepath.Base(root), DocsRoot: ".agents/docs"}}, nil, nil
+		return []search.Project{{Root: root, Name: filepath.Base(root)}}, nil, nil
 	}
 	projects, err := o.Projects(o.Home)
 	if err != nil {

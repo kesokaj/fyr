@@ -168,7 +168,7 @@ func TestGlobalIndexHoldsNoCheckoutFiles(t *testing.T) {
 	if strings.Contains(out, "plans/p.md") {
 		t.Errorf("--global answered from a checkout's file:\n%s", out)
 	}
-	if n := countStore(t, globalStore(t, home), `SELECT count(*) FROM files WHERE project != '~config'`); n != 0 {
+	if n := countStore(t, globalStore(t, home), `SELECT count(*) FROM files`); n != 0 {
 		t.Errorf("%d checkout files in the global index", n)
 	}
 }

@@ -3,6 +3,7 @@ package brain
 import (
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -268,5 +269,31 @@ func TestReadMemoryStoreFailsClosedOnACorruptIndex(t *testing.T) {
 	recs, files, problems, err := readMemoryStore(dir, newBudget())
 	if err == nil || !strings.Contains(err.Error(), "git ls-files .agents/memory") || recs != nil || files != nil || problems != nil {
 		t.Errorf("%v %q %q %v, want the ls-files error and nothing read", recs, files, problems, err)
+	}
+}
+
+// The old store's git call runs no project hook: a core.fsmonitor hook that
+// writes a marker fires for a plain `git status` (the control) and not for
+// the import's read (v2.0.0 gate, security code slice; it moved here with
+// ADR-087, when this became the store's one reader).
+func TestStoreRunsNoProjectHook(t *testing.T) {
+	root := repo(t)
+	os.MkdirAll(filepath.Join(root, ".agents", "memory"), 0o700)
+	marker := filepath.Join(t.TempDir(), "fired")
+	hook := filepath.Join(t.TempDir(), "hook.sh")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch \""+marker+"\"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "config", "core.fsmonitor", hook)
+	exec.Command("git", "-C", root, "status", "--porcelain").Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("control: this git did not run the core.fsmonitor hook")
+	}
+	os.Remove(marker)
+	if _, _, _, err := readMemoryStore(root, newBudget()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the old store's read ran the project's fsmonitor hook")
 	}
 }

@@ -189,8 +189,8 @@ func TestRunPrompt2(t *testing.T) {
 // row before any CLI runs.
 func TestRunSetup(t *testing.T) {
 	r := newRig(t)
-	row := Row{ID: "s", Setup: `git commit -q --allow-empty -m setup-commit && echo "$CLONE" > "$SB/setup.clone"`, Prompt: "p",
-		Check: `[ "$(git log -1 --format=%an/%s)" = fixture/setup-commit ] && [ "$(cat "$SB/setup.clone")" = "$CLONE" ]`, Grants: "named"}
+	row := Row{ID: "s", Setup: `git commit -q --allow-empty -m setup-commit && echo "$CLONE" > "$SB/setup.clone" && echo "$FYR" > "$SB/setup.fyr"`, Prompt: "p",
+		Check: `[ "$(git log -1 --format=%an/%s)" = fixture/setup-commit ] && [ "$(cat "$SB/setup.clone")" = "$CLONE" ] && [ "$(cat "$SB/setup.fyr")" = "` + r.self + `" ]`, Grants: "named"}
 	wantVerdict(t, one(t, r.run(row)), "PASS")
 	r2 := newRig(t)
 	x := one(t, r2.run(Row{ID: "s", Setup: "exit 1", Prompt: "p", Check: "true", Grants: "named"}))

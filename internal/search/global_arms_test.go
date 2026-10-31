@@ -56,7 +56,7 @@ func TestReconcileGlobalRebuildRemoveError(t *testing.T) {
 func TestReconcileGlobalRegistrationReadErrors(t *testing.T) {
 	for _, c := range []struct{ name, sql, want string }{
 		{"no table", `DROP TABLE projects`, "no such table: projects"},
-		{"null root", `INSERT INTO projects(root, name, docs_root, last_seen) VALUES (NULL, 'x', '', 0)`, "NULL"},
+		{"null root", `INSERT INTO projects(root, name, last_seen) VALUES (NULL, 'x', 0)`, "NULL"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := globalHome(t)
