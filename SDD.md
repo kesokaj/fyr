@@ -36,7 +36,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M18
 | M5 | `cmd/fyr` | The verbs, their flags and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where, the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
 | M7 | `internal/brain` | The brain store, `fyr record`: every project's trail records and the global ones, exported to `.agents/trail.jsonl` | R0, R4, R7 |
-| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text index over records and files; the dream's read-only reads | R0, R4 |
+| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text index over files; the dream's read-only reads | R0, R4 |
 | M9 | `internal/memory` | `fyr memory`: the project memory every session loads | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |

@@ -166,7 +166,7 @@ var pages = map[string]verbPage{
 		},
 		about: []string{
 			"Prints the brain store's matching records first (this project's and the",
-			"global ones), then a ranked search of every file and trail record in this",
+			"global ones), then a ranked search of every file in this",
 			"checkout. The index, .agents/scratch/search.db, is reconciled against git",
 			"first, so it never answers from another branch. --refs finds every record",
 			"naming an ID, a file or a directory (trailing /); --open lists open bugs,",
@@ -184,7 +184,8 @@ var pages = map[string]verbPage{
 			"prints its counts. --register first writes .git/fyr-registered, sealed to",
 			"this checkout's path and this home: the operator's consent that search",
 			"--global, dream --all, record import --global and the metrics join read",
-			"this checkout (ADR-068). A copy, a moved checkout or another home",
+			"this checkout once it has .agents/trail.jsonl (ADR-068, ADR-086). A",
+			"copy, a moved checkout or another home",
 			"registers again; delete the file to opt out. --register exits 2 with",
 			"--global or outside a git checkout.",
 		},

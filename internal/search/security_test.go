@@ -34,11 +34,12 @@ func TestPathWithURISpecialCharacters(t *testing.T) {
 	}
 }
 
-// Only a checkout the operator registered, and that has .agents/docs,
-// joins the global index; a registered one without it is never added only
-// to be dropped by the next --global (ledger D11). A committed .agents/docs alone, the shape of a
-// third party's harness-scaffolded repository, is not consent, and a clone
-// of a registered checkout does not carry its marker (ADR-068, SD19).
+// Only a checkout the operator registered, and that has
+// .agents/trail.jsonl, joins the global index; a registered one without it is
+// never added only to be dropped by the next --global (ledger D11). A
+// committed trail alone, the shape of a third party's harness-scaffolded
+// repository, is not consent, and a clone of a registered checkout does not
+// carry its marker (ADR-068, ADR-086, SD19).
 func TestRegistersOnlyHarnessProjects(t *testing.T) {
 	home := t.TempDir()
 	plain := newRepo(t)
@@ -46,21 +47,17 @@ func TestRegistersOnlyHarnessProjects(t *testing.T) {
 	commitAll(t, plain, "docs")
 	markRegistered(t, home, plain)
 	mustSearch(t, Options{Dir: plain, Home: home, Words: []string{"pelican"}})
-	foreign := newRepo(t)
-	writeFile(t, foreign, ".agents/docs/bugs/b.md", "# the pelican bug\n")
-	commitAll(t, foreign, "trail")
+	foreign := trailRepo(t)
 	mustSearch(t, Options{Dir: foreign, Home: home, Words: []string{"pelican"}})
-	harnessed := newRepo(t)
-	writeFile(t, harnessed, ".agents/docs/plans/p.md", "# the pelican plan\n")
-	commitAll(t, harnessed, "trail")
+	harnessed := trailRepo(t)
 	markRegistered(t, home, harnessed)
 	mustSearch(t, Options{Dir: harnessed, Home: home, Words: []string{"pelican"}})
 	clone := filepath.Join(t.TempDir(), "clone")
 	gitT(t, harnessed, "clone", "-q", harnessed, clone)
 	mustSearch(t, Options{Dir: clone, Home: home, Words: []string{"pelican"}})
 	out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"pelican"}})
-	if strings.Contains(out, "guide.md") || strings.Contains(out, "bugs/b.md") || strings.Contains(out, "clone:") || strings.Contains(out, "dropped") || !strings.Contains(out, "plans/p.md") {
-		t.Errorf("only a registered checkout with .agents/docs registers:\n%s", out)
+	if strings.Contains(out, "dropped") {
+		t.Errorf("a registration was dropped:\n%s", out)
 	}
 	if n := countStore(t, globalStore(t, home), `SELECT count(*) FROM projects`); n != 1 {
 		t.Errorf("%d registrations, want 1 (the registered harness checkout)", n)
@@ -72,26 +69,22 @@ func TestHashesOddNamesItself(t *testing.T) {
 	home := t.TempDir()
 	writeFile(t, root, `"quoted.md`, "a lemming in quotes\n")
 	writeFile(t, root, "cr\r.md", "a lemming with a carriage return\n")
-	writeFile(t, root, ".agents/docs/plans/\"odd\r.md", "# lemming plan\n")
-	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}}) // registers
+	writeFile(t, root, "notes/\"odd\r.md", "# lemming plan\n")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
 	out := mustSearch(t, Options{Dir: root, Home: home, Words: []string{"lemming"}})
 	if !strings.Contains(out, "quoted.md") || !strings.Contains(out, "carriage") {
 		t.Errorf("odd file names not indexed with their own content:\n%s", out)
-	}
-	if _, err := runSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"lemming"}}); err != nil {
-		t.Errorf("an odd name under a registered docs root broke --global: %v", err)
 	}
 }
 
 func TestOutputStripsControlCharacters(t *testing.T) {
 	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/bugs/BUG-001-x.md", "---\nid: BUG-001\nstatus: open\x1b[2J\ndate: 2026-09-01\n---\n# BUG-001: \x1b]0;pwned\x07title\n\nthe \x1b[31mbadger\x1b[0m escaped\n")
+	writeFile(t, root, "notes/x.md", "# BUG-001: \x1b]0;pwned\x07title\n\nthe \x1b[31mbadger\x1b[0m escaped\n")
 	commitAll(t, root, "add")
 	home := t.TempDir()
 	for _, o := range []Options{
 		{Dir: root, Home: home, Words: []string{"badger"}},
 		{Dir: root, Home: home, Refs: "BUG-001"},
-		{Dir: root, Home: home, Open: true},
 	} {
 		out := mustSearch(t, o)
 		if strings.ContainsAny(out, "\x1b\x07") {
@@ -102,12 +95,10 @@ func TestOutputStripsControlCharacters(t *testing.T) {
 
 func TestGlobalDirIsPrivate(t *testing.T) {
 	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/plans/p.md", "# plan\n")
-	commitAll(t, root, "trail")
 	home := t.TempDir()
 	// --global creates the state directory itself; a registration would
 	// create it first (its key) and prove nothing here.
-	mustSearch(t, Options{Dir: root, Home: home, Global: true, Words: []string{"plan"}})
+	mustSearch(t, Options{Dir: root, Home: home, Global: true, Words: []string{"demo"}})
 	fi, err := os.Stat(filepath.Join(home, harness.StateDir))
 	if err != nil {
 		t.Fatal(err)
@@ -131,19 +122,18 @@ func TestSkipsSecretShapedFiles(t *testing.T) {
 
 // Round 2 of the security review.
 
-func TestGlobalDropsCheckoutWithoutAgentsDocs(t *testing.T) {
+func TestGlobalDropsCheckoutWithoutTrail(t *testing.T) {
 	home := t.TempDir()
-	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/plans/p.md", "# plan\n")
+	root := trailRepo(t)
 	writeFile(t, root, "docs/evil.md", "an ocelot planted in docs\n")
-	commitAll(t, root, "both")
+	commitAll(t, root, "docs")
 	markRegistered(t, home, root)
-	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"plan"}})
-	gitT(t, root, "rm", "-q", "-r", ".agents/docs")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
+	gitT(t, root, "rm", "-q", ".agents/trail.jsonl")
 	commitAll(t, root, "drop trail")
 	out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ocelot"}})
-	if strings.Contains(out, "evil.md") || !strings.Contains(out, "(no longer has .agents/docs)") {
-		t.Errorf("a registration without .agents/docs still answered:\n%s", out)
+	if strings.Contains(out, "evil.md") || !strings.Contains(out, "(no longer has .agents/trail.jsonl)") {
+		t.Errorf("a registration without a trail still answered:\n%s", out)
 	}
 }
 
@@ -161,7 +151,7 @@ func TestHintAndNotesArePrintable(t *testing.T) {
 	if err := os.Rename(newRepo(t), gone); err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, gone, ".agents/docs/plans/p.md", "# plan\n")
+	writeFile(t, gone, ".agents/trail.jsonl", trailLine)
 	commitAll(t, gone, "trail")
 	markRegistered(t, home, gone)
 	mustSearch(t, Options{Dir: gone, Home: home, Words: []string{"plan"}})
@@ -196,27 +186,28 @@ func TestRegistrationKeptWhenCheckErrors(t *testing.T) {
 		t.Skip("root reads a mode-000 directory; the check cannot fail here")
 	}
 	home := t.TempDir()
-	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/plans/p.md", "# the tamarin plan\n")
-	commitAll(t, root, "trail")
+	root := trailRepo(t)
 	markRegistered(t, home, root)
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"tamarin"}})
 	agents := filepath.Join(root, ".agents")
 	if err := os.Chmod(agents, 0); err != nil {
 		t.Fatal(err)
 	}
-	// The condition holds: the check cannot read .agents/docs.
-	if _, err := os.Stat(filepath.Join(agents, "docs")); err == nil || os.IsNotExist(err) {
-		t.Fatalf("fixture: want a permission error on .agents/docs, got %v", err)
+	// The condition holds: the check cannot read .agents/trail.jsonl.
+	if _, err := os.Lstat(filepath.Join(agents, "trail.jsonl")); err == nil || os.IsNotExist(err) {
+		t.Fatalf("fixture: want a permission error on .agents/trail.jsonl, got %v", err)
 	}
 	out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"tamarin"}})
 	os.Chmod(agents, 0o755)
 	if strings.Contains(out, "dropped") || !strings.Contains(out, "note: skipped") {
 		t.Errorf("a registration whose check errored was dropped, or skipped silently:\n%s", out)
 	}
+	if got := projectRoots(t, home); len(got) != 1 || got[0] != root {
+		t.Errorf("the registration did not survive the error: %v", got)
+	}
 	out = mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"tamarin"}})
-	if !strings.Contains(out, "plans/p.md") {
-		t.Errorf("the registration did not survive the error:\n%s", out)
+	if strings.Contains(out, "note:") {
+		t.Errorf("the check still fails with the mode restored:\n%s", out)
 	}
 }
 
@@ -295,9 +286,7 @@ func TestRefuseSymlinkedDatabase(t *testing.T) {
 func TestDatabaseIsPrivate(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
-	writeFile(t, root, ".agents/docs/plans/p.md", "# plan\n")
-	commitAll(t, root, "trail")
-	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"plan"}})
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
 	for _, p := range []string{projectDB(root), globalDB(home)} {
 		for _, suffix := range []string{"", "-wal", "-shm"} {
 			fi, err := os.Stat(p + suffix)

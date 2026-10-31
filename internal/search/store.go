@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "1"
+const schemaVersion = "2"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -52,9 +52,6 @@ END;
 CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, heading, body) VALUES ('delete', old.id, old.heading, old.body);
 END;
-CREATE TABLE records(oid TEXT, id TEXT, line INTEGER, title TEXT, status TEXT, date TEXT);
-CREATE INDEX records_id ON records(id);
-CREATE INDEX records_oid ON records(oid);
 CREATE TABLE refs(oid TEXT, line INTEGER, target TEXT);
 CREATE INDEX refs_target ON refs(target);
 `

@@ -8,14 +8,13 @@ import (
 // The arms of refs and find that their splits move into helpers, pinned
 // before the splits (PLAN-2026-10-27-funclen Phase 4, D13).
 
-// refsRepo is a checkout with a trail, indexed once under the home it
+// refsRepo is a checkout with a reference, indexed once under the home it
 // returns; a test then changes the index behind the code's back.
 func refsRepo(t *testing.T) (string, string) {
 	t.Helper()
 	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/bugs/BUG-001-heron.md", "---\nid: BUG-001\nstatus: open\ndate: 2026-09-10\n---\n# BUG-001: the heron\n")
-	writeFile(t, root, ".agents/docs/plans/p.md", "# the plan\n\nSee adr/egret-note.md for the egret.\n")
-	commitAll(t, root, "trail")
+	writeFile(t, root, "notes/p.md", "# the plan\n\nSee adr/egret-note.md for the egret, and BUG-001.\n")
+	commitAll(t, root, "notes")
 	home := t.TempDir()
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
 	return root, home
@@ -31,26 +30,14 @@ func readmeOID(t *testing.T, root string) string {
 	return oid
 }
 
-// A directory under the docs root also matches the references written
-// relative to that root.
-func TestRefsDirDocsRelative(t *testing.T) {
-	root, home := refsRepo(t)
-	out := mustSearch(t, Options{Dir: root, Home: home, Refs: ".agents/docs/adr/"})
-	if !strings.Contains(out, "referenced by 1:") || !strings.Contains(out, "plans/p.md") {
-		t.Errorf("--refs of a docs directory missed its docs-relative reference:\n%s", out)
-	}
-}
-
-// Every read of refs that fails, fails the query: the records table gone,
-// a record, a file state or a reference that does not scan, a pattern too
+// Every read of refs that fails, fails the query: a file state or a
+// reference that does not scan, a pattern too
 // long for SQLite's LIKE.
 func TestRefsReadErrors(t *testing.T) {
 	long := strings.Repeat("a", 50001)
 	for _, c := range []struct {
 		name, sql, refs, want string
 	}{
-		{"records table", `DROP TABLE records`, "BUG-001", "no such table: records"},
-		{"record scan", `INSERT INTO records(oid, id, line, title, status, date) VALUES (?, 'BUG-009', 1, NULL, NULL, NULL)`, "BUG-009", "NULL"},
 		{"state scan", `UPDATE files SET state = NULL WHERE path = 'README.md' AND ? != ''`, "README.md", "NULL"},
 		{"same-name hint", ``, long, "LIKE or GLOB pattern too complex"},
 		{"reference rows", ``, long + "/", "LIKE or GLOB pattern too complex"},

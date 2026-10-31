@@ -13,19 +13,16 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 	x := strings.TrimPrefix(strings.TrimSpace(o.Refs), "./")
 	isID := idPattern.MatchString(x)
 	isDir := !isID && strings.HasSuffix(x, "/")
-	where, args := sc.refsWhere(x, isID, isDir)
-	// The first line: the ID's own record, or the path's state.
-	var err error
+	where, args := refsWhere(x, isDir)
+	// The first line is a path's state; an ID's own record is the brain's.
 	switch {
 	case isID:
-		err = sc.recordLine(x, out)
 	case isDir:
 		fmt.Fprintf(out, "%s  directory\n", x)
 	default:
-		err = sc.pathLine(x, out)
-	}
-	if err != nil {
-		return err
+		if err := sc.pathLine(x, out); err != nil {
+			return err
+		}
 	}
 	raw, err := sc.refRows(o, where, args)
 	if err != nil {
@@ -38,64 +35,19 @@ func (sc *scope) refs(o Options, out io.Writer) error {
 		if g.count > 1 {
 			times = fmt.Sprintf("  ×%d", g.count)
 		}
-		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.project, g.path, g.oid, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
+		fmt.Fprintf(out, "%s%s\n    %s\n", sc.label(g.project, g.path, g.line), times, markTarget(sc.lineText(g.oid, g.line), g.target))
 	}
 	return nil
 }
 
 // refsWhere is the condition on r.target that --refs x matches, with its
-// arguments: x itself and, for a path under a project's docs root, the
-// path relative to that root as well.
-func (sc *scope) refsWhere(x string, isID, isDir bool) (string, []any) {
-	switch {
-	case isID:
-		return `r.target = ?`, []any{x}
-	case isDir:
+// arguments.
+func refsWhere(x string, isDir bool) (string, []any) {
+	if isDir {
 		base := strings.TrimSuffix(x, "/")
-		where := `(r.target = ? OR r.target = ? OR r.target LIKE ? ESCAPE '\')`
-		args := []any{base, x, likeEscape(x) + "%"}
-		for _, p := range sc.projects {
-			if rel, ok := docsRelative(base, p.docsRoot); ok {
-				where = strings.TrimSuffix(where, ")") + ` OR r.target = ? OR r.target LIKE ? ESCAPE '\')`
-				args = append(args, rel, likeEscape(rel+"/")+"%")
-			}
-		}
-		return where, args
+		return `(r.target = ? OR r.target = ? OR r.target LIKE ? ESCAPE '\')`, []any{base, x, likeEscape(x) + "%"}
 	}
-	where, args := `r.target = ?`, []any{x}
-	for _, p := range sc.projects {
-		if rel, ok := docsRelative(x, p.docsRoot); ok {
-			where = `(` + where + ` OR r.target = ?)`
-			args = append(args, rel)
-		}
-	}
-	return where, args
-}
-
-// recordLine prints the record x names, once per file that holds it, or
-// that there is none.
-func (sc *scope) recordLine(x string, out io.Writer) error {
-	rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.line, r.status, r.date, r.title FROM records r JOIN files f ON f.oid = r.oid
-		WHERE r.id = ? AND f.project IN `+sc.in()+` ORDER BY f.project, f.path`, append([]any{x}, sc.keys()...)...)
-	if err != nil {
-		return err
-	}
-	found := false
-	for rows.Next() {
-		var project, path, status, date, title string
-		var line int
-		if err := rows.Scan(&project, &path, &line, &status, &date, &title); err != nil {
-			rows.Close()
-			return err
-		}
-		found = true
-		fmt.Fprintln(out, printable(fmt.Sprintf("%s  %s:%d  %s  %s  %s", x, sc.display(project, path), line, status, date, title)))
-	}
-	rows.Close()
-	if !found {
-		fmt.Fprintf(out, "%s  no record\n", x)
-	}
-	return nil
+	return `r.target = ?`, []any{x}
 }
 
 // pathLine prints the state of path x and, when a bare file name matches
@@ -154,40 +106,27 @@ func (sc *scope) refRows(o Options, where string, args []any) ([]refRow, error) 
 	return raw, nil
 }
 
-// refGroup is the references of one file and record, counted.
+// refGroup is the references of one file, counted.
 type refGroup struct {
-	project, path, oid, target, date string
-	line, count                      int
+	project, path, oid, target string
+	line, count                int
 }
 
-// groupRefs groups raw per file and record, the newest record first. It
-// runs after the rows are closed (the store has one connection, and a query
-// inside an open row loop waits forever): in DECISIONS.md, ADR-041's
-// "supersedes ADR-040" is its own line, not folded into ADR-040's own
-// heading.
+// groupRefs groups raw per file, sorted by path.
 func (sc *scope) groupRefs(raw []refRow) []*refGroup {
 	var groups []*refGroup
 	index := map[string]*refGroup{}
 	for _, r := range raw {
-		recID, date := "", ""
-		if rec := sc.recordAt(r.oid, r.line); rec != nil {
-			recID, date = rec.id, rec.date
-		}
-		key := r.project + "\x00" + r.path + "\x00" + recID
+		key := r.project + "\x00" + r.path
 		if prev, ok := index[key]; ok {
 			prev.count++
 			continue
 		}
-		g := &refGroup{project: r.project, path: r.path, oid: r.oid, target: r.target, date: date, line: r.line, count: 1}
+		g := &refGroup{project: r.project, path: r.path, oid: r.oid, target: r.target, line: r.line, count: 1}
 		index[key] = g
 		groups = append(groups, g)
 	}
-	sort.SliceStable(groups, func(i, j int) bool {
-		if groups[i].date != groups[j].date {
-			return groups[i].date > groups[j].date
-		}
-		return groups[i].path < groups[j].path
-	})
+	sort.SliceStable(groups, func(i, j int) bool { return groups[i].path < groups[j].path })
 	return groups
 }
 
@@ -212,36 +151,4 @@ func (sc *scope) sameName(name string) ([]string, error) {
 
 func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
-}
-
-func (sc *scope) open(o Options, out io.Writer) error {
-	rows, err := sc.st.db.Query(`SELECT f.project, f.path, r.id, r.line, r.status, r.date, r.title FROM records r JOIN files f ON f.oid = r.oid
-		WHERE (r.status = 'open' OR r.status LIKE 'open:%') AND f.project IN `+sc.in()+`
-		ORDER BY r.date DESC, f.project, f.path`, sc.keys()...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	n := 0
-	var lines []string
-	for rows.Next() {
-		var project, path, id, status, date, title string
-		var line int
-		if err := rows.Scan(&project, &path, &id, &line, &status, &date, &title); err != nil {
-			return err
-		}
-		if !sc.kindMatches(o, project, path) {
-			continue
-		}
-		n++
-		lines = append(lines, printable(fmt.Sprintf("%s:%d  %s %s %s %s %s", sc.display(project, path), line, sc.kind(project, path), id, status, date, title)))
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "search: %d open records (%s)\n", n, sc.status())
-	for _, l := range lines {
-		fmt.Fprintln(out, l)
-	}
-	return nil
 }

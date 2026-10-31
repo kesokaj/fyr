@@ -40,5 +40,10 @@ func runRegister(c *ctx, o search.Options) error {
 		return fmt.Errorf("registered %s, but the index failed: %w", main, err)
 	}
 	fmt.Fprintf(c.out, "registered %s\n", main)
+	// The marker is consent, not yet a reader: say so when nothing takes it.
+	root := search.RegistryRoot(o.Dir)
+	if ok, err := search.HasTrail(root); err == nil && !ok {
+		fmt.Fprintln(c.out, search.Printable("note: "+root+" has no .agents/trail.jsonl, so no cross-project read takes it until it has records (fyr record import, or the first fyr record add)"))
+	}
 	return nil
 }

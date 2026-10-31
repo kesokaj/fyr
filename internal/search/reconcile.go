@@ -16,10 +16,9 @@ const (
 
 // source is what apply needs to know about one project.
 type source struct {
-	project  string
-	dir      string // where the view's paths are read from
-	docsRoot string // "" for ~config
-	view     []entry
+	project string
+	dir     string // where the view's paths are read from
+	view    []entry
 }
 
 // apply brings one project's rows up to its current view and returns how
@@ -187,7 +186,7 @@ func (s *store) indexBlobs(src source, blobs map[string]bool, now int64) error {
 			}
 			defer in.close()
 		}
-		if err := in.content(e, text, src.docsRoot); err != nil {
+		if err := in.content(e, text); err != nil {
 			return err
 		}
 	}

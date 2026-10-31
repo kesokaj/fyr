@@ -19,9 +19,8 @@ const notRegistered = "not registered (fyr index --register)"
 type skipped struct{ root, why string }
 
 // targets is --project's one checkout, or for --all every project the file
-// index registered (a trail still on files) and every project scope the
-// brain store holds (a trail of records: such a checkout no longer registers
-// in the file index) whose checkout carries this home's registration marker
+// index registered and every project scope the brain store holds, each
+// checkout once, whose checkout carries this home's registration marker
 // (ADR-068, ADR-068a); the rest come back as skipped, each once. Run has
 // already refused both and neither. --project needs no marker: naming the
 // directory is the operator's opt-in (audit-choices D16).

@@ -31,18 +31,19 @@ func TestGlobalDropsUnregisteredRow(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := globalHome(t)
-			a := newRepo(t)
-			writeFile(t, a, ".agents/docs/bugs/BUG-003-ibis.md", "---\nid: BUG-003\nstatus: open\n---\n# the ibis failure\n")
-			commitAll(t, a, "add")
+			a := trailRepo(t)
 			markRegistered(t, home, a)
 			mustSearch(t, Options{Dir: a, Home: home, Words: []string{"ibis"}})
-			if out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ibis"}}); !strings.Contains(out, "BUG-003") {
-				t.Fatalf("the registered checkout did not answer:\n%s", out)
+			if out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ibis"}}); strings.Contains(out, "dropped") {
+				t.Fatalf("a registered checkout was dropped:\n%s", out)
 			}
 			tc.unreg(t, home, a)
 			out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ibis"}})
-			if !strings.Contains(out, "note: dropped "+a+" (not registered: fyr index --register)") || strings.Contains(out, "BUG-003") {
+			if !strings.Contains(out, "note: dropped "+a+" (not registered: fyr index --register)") {
 				t.Errorf("unregistered row:\n%s", out)
+			}
+			if got := projectRoots(t, home); len(got) != 0 {
+				t.Errorf("projects after the drop: %v", got)
 			}
 			if out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ibis"}}); strings.Contains(out, "dropped") {
 				t.Errorf("dropped twice:\n%s", out)

@@ -122,7 +122,7 @@ var verbs = map[string]verb{
 	"index": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
 		c.fs.BoolVar(&c.rebuild, "rebuild", false, "delete the index and build it again")
-		c.fs.BoolVar(&c.register, "register", false, "register this checkout (the operator's consent, ADR-068) so the cross-project reads take it (search --global, dream --all), then index it")
+		c.fs.BoolVar(&c.register, "register", false, "register this checkout (the operator's consent, ADR-068) so the cross-project reads take it (search --global, dream --all) once it has .agents/trail.jsonl, then index it")
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},

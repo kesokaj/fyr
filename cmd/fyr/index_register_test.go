@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// registerRepo is a checkout with a committed .agents/docs trail and the
+// registerRepo is a checkout with a committed .agents/trail.jsonl and the
 // .gitignore /init-project writes, from which the test runs.
 func registerRepo(t *testing.T) string {
 	t.Helper()
@@ -22,9 +23,9 @@ func registerRepo(t *testing.T) string {
 	if r, err := filepath.EvalSymlinks(root); err == nil {
 		root = r
 	}
-	os.MkdirAll(filepath.Join(root, ".agents", "docs", "plans"), 0o755)
+	os.MkdirAll(filepath.Join(root, ".agents"), 0o755)
 	os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".agents/scratch/*\n"), 0o644)
-	os.WriteFile(filepath.Join(root, ".agents", "docs", "plans", "p.md"), []byte("# the bittern plan\n"), 0o644)
+	os.WriteFile(filepath.Join(root, ".agents", "trail.jsonl"), nil, 0o644)
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "-A"},
@@ -54,9 +55,8 @@ func TestIndexRegisterWritesMarkerThenIndexes(t *testing.T) {
 	if err := run([]string{"search", "bittern", "--home", home}, &out); err != nil {
 		t.Fatalf("search: %v\n%s", err, out.String())
 	}
-	out.Reset()
-	if err := run([]string{"search", "--global", "bittern", "--home", home}, &out); err != nil || strings.Contains(out.String(), "plans/p.md") {
-		t.Fatalf("unregistered: err %v, --global answered from the checkout:\n%s", err, out.String())
+	if ps, err := search.ListProjects(home); err != nil || len(ps) != 0 {
+		t.Fatalf("unregistered: projects %v, %v", ps, err)
 	}
 	stubNow(t, time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC))
 	out.Reset()
@@ -70,9 +70,8 @@ func TestIndexRegisterWritesMarkerThenIndexes(t *testing.T) {
 	if b, err := os.ReadFile(marker); err != nil || !strings.HasPrefix(string(b), "registered 2026-10-28\nseal ") {
 		t.Errorf("marker %q (%v)", b, err)
 	}
-	out.Reset()
-	if err := run([]string{"search", "--global", "bittern", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "plans/p.md") {
-		t.Errorf("registered: err %v, --global did not answer from the checkout:\n%s", err, out.String())
+	if ps, err := search.ListProjects(home); err != nil || len(ps) != 1 || ps[0].Root != root {
+		t.Errorf("registered: projects %v, %v", ps, err)
 	}
 	// A rerun rewrites the date, and --rebuild combines.
 	stubNow(t, time.Date(2026, 10, 30, 9, 0, 0, 0, time.UTC))
@@ -193,5 +192,29 @@ func TestIndexRegisterOtherFailures(t *testing.T) {
 				t.Errorf("a failed registration still indexed or reported:\n%s", out.String())
 			}
 		})
+	}
+}
+
+// A marker on a checkout with no trail is consent nothing reads yet, and the
+// run says so; with a trail it says nothing more.
+func TestIndexRegisterNotesAMissingTrail(t *testing.T) {
+	root := registerRepo(t)
+	home := t.TempDir()
+	var out bytes.Buffer
+	if err := run([]string{"index", "--register", "--home", home}, &out); err != nil {
+		t.Fatalf("index --register: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "note:") {
+		t.Errorf("a note beside a trail:\n%s", out.String())
+	}
+	if err := os.Remove(filepath.Join(root, ".agents", "trail.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"index", "--register", "--home", home}, &out); err != nil {
+		t.Fatalf("index --register: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "note: "+root+" has no .agents/trail.jsonl") {
+		t.Errorf("no note:\n%s", out.String())
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -29,9 +28,7 @@ func globalStore(t *testing.T, home string) *store {
 // by its marker and a search from it.
 func registered(t *testing.T, home string) string {
 	t.Helper()
-	root := newRepo(t)
-	writeFile(t, root, ".agents/docs/bugs/BUG-001-heron.md", "---\nid: BUG-001\nstatus: open\n---\n# BUG-001: the heron\n")
-	commitAll(t, root, "trail")
+	root := trailRepo(t)
 	markRegistered(t, home, root)
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"heron"}})
 	return root
@@ -59,7 +56,7 @@ func TestReconcileGlobalRebuildRemoveError(t *testing.T) {
 func TestReconcileGlobalRegistrationReadErrors(t *testing.T) {
 	for _, c := range []struct{ name, sql, want string }{
 		{"no table", `DROP TABLE projects`, "no such table: projects"},
-		{"null docs root", `INSERT INTO projects(root, name, docs_root, last_seen) VALUES ('/nowhere', 'x', NULL, 0)`, "NULL"},
+		{"null root", `INSERT INTO projects(root, name, docs_root, last_seen) VALUES (NULL, 'x', '', 0)`, "NULL"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := globalHome(t)
@@ -92,37 +89,6 @@ func TestReconcileGlobalDropError(t *testing.T) {
 	if n := countStore(t, st, `SELECT count(*) FROM projects`); n != 1 {
 		t.Errorf("%d registrations after a failed drop, want 1", n)
 	}
-}
-
-// A registered checkout git cannot list, or whose rows cannot be written,
-// fails the global search.
-func TestReconcileGlobalProjectErrors(t *testing.T) {
-	t.Run("git fails", func(t *testing.T) {
-		home := globalHome(t)
-		root := registered(t, home)
-		if err := os.WriteFile(filepath.Join(root, ".git", "index"), []byte("not an index"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"heron"}})
-		if err == nil || !strings.Contains(err.Error(), "search: git ls-files") {
-			t.Fatalf("global search over a broken index: %v, want git's error", err)
-		}
-	})
-	t.Run("apply fails", func(t *testing.T) {
-		home := globalHome(t)
-		root := registered(t, home)
-		st := globalStore(t, home)
-		writeFile(t, root, ".agents/docs/bugs/BUG-002-egret.md", "# BUG-002: the egret\n")
-		// A checkout's rows, not ~config's: its project key is its absolute root.
-		if _, err := st.db.Exec(`CREATE TRIGGER refuse_project BEFORE INSERT ON files WHEN NEW.project LIKE '/%'
-			BEGIN SELECT RAISE(ABORT, 'refused project rows'); END`); err != nil {
-			t.Fatal(err)
-		}
-		_, err := runSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"heron"}})
-		if err == nil || !strings.Contains(err.Error(), "refused project rows") {
-			t.Fatalf("global search: %v, want the refused rows", err)
-		}
-	})
 }
 
 // index --rebuild of a checkout's own index removes the old database first.
@@ -163,9 +129,7 @@ func TestPrepareProjectErrors(t *testing.T) {
 		}
 	})
 	t.Run("register fails", func(t *testing.T) {
-		root := newRepo(t)
-		writeFile(t, root, ".agents/docs/x.md", "# x\n")
-		commitAll(t, root, "docs")
+		root := trailRepo(t)
 		home := t.TempDir()
 		markRegistered(t, home, root)
 		if err := os.MkdirAll(globalDB(home), 0o700); err != nil {

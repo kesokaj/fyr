@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P9 done (2026-10-31); P10a is next. This is the only plan.
+Status: open. P1 to P10a done (2026-10-31); P10b is next. This is the only plan.
 
 ## The operator's words
 
@@ -95,6 +95,7 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 53 | P6's E2E: the second `fyr eval` run's harness key read `06fe101 (dirty)`, because the first run's testing record changed `.agents/trail.jsonl`, which `fyr install` does not install. Two runs of one harness then land under two keys, which splits the per-harness flags of P7's view | fix: the key's dirty mark looks only at what `fyr install` installs (`context/`, `skills/`, `agents/`, `commands/`, `rules/`), test first, with `SPEC-fyr-eval` § Data | P7 |
 | 54 | The verb allowlist (`subcommands` in `internal/metrics/verb.go`) did not hold `fyr`'s `record`, `check`, `eval`, `serve` or `work`, so `fyr record get X` was stored as bare `fyr` and the Phase 5b golden `expect: Read,fyr record` could only ever show `1 of 2` | fix: the five join the list, and a test walks the binary's verbs | P9 |
 | 55 | P9's security review (it predates P9): a quoted value shaped like a flag reached a verb as a flag (`git commit -m "--hunter2pass"` stored `--hunter2pass`, which `fyr metrics export` writes in clear), against `Verb`'s doc comment | fix: a word quoting or an escape made flag-shaped is content; the unquoted form is the stated residue | P9 |
+| 56 | P10a's security review (it predates P10a): a clone tracking `.agents/scratch/search.db-wal`, `-shm` or `-journal` passed `guardProject`, and a search deleted the tracked file | fix: `guardProject` refuses each companion git tracks; an untracked one needs no ignore rule | P10a |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -333,9 +334,21 @@ D19 — 2026-10-31 — P9, how the fix reads the eval-metrics plan's Phase 5b wh
 
 — by: implementer, within P9's box.
 
+D20 — 2026-10-31 — P10a, how the fix reads item 33's search half where it is silent (ADR-086):
+- **"The docs-root fallbacks" is every docs root in `internal/search`, not only `docsRootOf`'s default.** D4 retires every reader but the import path, and P10b's Expect leaves only `trail.DocsRoot` (for `internal/metrics`) naming `.agents/docs`. So the project index reads no docs root, and file records go with it: `parseRecords`, the `records` table, `recordAt`, `recordLine` and the file half of `--open`. `--refs`, `--open` and every kind but `code` and `doc` answer from the brain store. `search.KindOf` keeps its `docsRoot` argument for metrics.
+- **The global index holds `~/.config/fyr` only.** With `.agents/docs` gone, a registered checkout has no file to give it, since `trail.jsonl` is never a file hit. The `projects` row stays as the list `record import --global` and the dream read. The `docs_root` column stays until P10b.
+- **The schema moves to 2.** Each index rebuilds on first open, and `projects` empties until each registered checkout's next `fyr search` or `fyr index`. Until then `record import --global` does not reach it, which P10b's item 34 must allow for by running a search in each project first; the dream's targets do not depend on the row.
+- **What the rule reads** (P10a's reviews). The marker is read on the checkout that ran. The row and the trail it needs are the main root's, whichever linked worktree ran, since the dream keys its target and watermark on the row, and a worktree of a bare repository is its own root. `HasTrail` needs a real `.agents` directory as well as a regular file, mirroring `guardExportPath`.
+- **A drop removes the row only.** While the marker holds, the checkout's records still answer `--global`, so one search can print a hit and `note: dropped`. Consent is the marker's, so this stays and `SPEC-fyr-search` says so.
+- **`index --register` with no trail** still writes the marker, and prints a note that nothing reads it yet.
+- **`harness-audit`'s baseline** read `fyr search --open` for the index header, which no longer prints; `references/areas.md` now names a words search. That puts `harness-audit` in P13's list.
+- **Reviews past the cap.** The two rounds of `reviewer` and `security` ran. Round 2's findings are fixed without a third round, as in P2 and P3: a `.gitignore` naming `search.db` alone refused by round 1's fix, a tracked `search.db-journal`, and the marker read on the main root, which let a worktree of an unmarked bare repository join. Each has a test that fails without it.
+
+— by: implementer, within P10a's box.
+
 ## Risks
 
-- **The release range grows with every skill P10 and P11 touch.** P13 owes one Antigravity run per changed skill and agent: at least `init-project`, `review`, `frontend-ui-economist` and `frontend-ui-modern`.
+- **The release range grows with every skill P10 and P11 touch.** P13 owes one Antigravity run per changed skill and agent: at least `init-project`, `review`, `harness-audit`, `frontend-ui-economist` and `frontend-ui-modern`.
 - **P11 needs the zips in `.agents/scratch/ui-skills/`, which is gitignored.** P12's prune keeps them. Losing them before P11 blocks item 28.
 - **P10 breaks any project still on files.** It must import first. Whether the Mac's projects have migrated is unknown, and the refusal names `fyr record import`.
 - **`fyr check` took about 5 minutes until P2** (5m26s of CPU); 1.5 s since (D8).

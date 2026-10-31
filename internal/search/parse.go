@@ -3,7 +3,6 @@ package search
 import (
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -85,97 +84,7 @@ func chunkText(p, text string) []chunk {
 	return out
 }
 
-type record struct {
-	id, title, status, date string
-	line                    int
-}
-
-var (
-	bugFile    = regexp.MustCompile(`^bugs/(BUG-\d{3})[^/]*\.md$`)
-	adrHeading = regexp.MustCompile(`^## (ADR-\d{3}[a-z]?): (.+?)\s+\((\d{4}-\d{2}-\d{2})\) — (.+)$`)
-	unticked   = regexp.MustCompile(`^- \[ \]`)
-	titleLine  = regexp.MustCompile(`^# (.+)$`)
-)
-
-// frontmatter returns the key: value pairs of a leading --- block.
-func frontmatter(lines []string) map[string]string {
-	fm := map[string]string{}
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return fm
-	}
-	for _, l := range lines[1:] {
-		if strings.TrimSpace(l) == "---" {
-			break
-		}
-		if k, v, ok := strings.Cut(l, ":"); ok {
-			fm[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
-		}
-	}
-	return fm
-}
-
-func firstTitle(lines []string) string {
-	var f fence
-	for _, l := range lines {
-		if f.step(l) || f.inside() {
-			continue
-		}
-		if m := titleLine.FindStringSubmatch(l); m != nil {
-			return strings.TrimSpace(m[1])
-		}
-	}
-	return ""
-}
-
-// parseRecords reads the trail records of one file. docsRel is the path
-// relative to the docs root, or "" for a file outside it (which has none).
-func parseRecords(docsRel, text string) []record {
-	if docsRel == "" {
-		return nil
-	}
-	lines := splitLines(text)
-	fm := frontmatter(lines)
-	switch {
-	case bugFile.MatchString(docsRel):
-		id := fm["id"]
-		if id == "" {
-			id = bugFile.FindStringSubmatch(docsRel)[1]
-		}
-		return []record{{id: id, title: firstTitle(lines), status: fm["status"], date: fm["date"], line: 1}}
-	case docsRel == "architecture/DECISIONS.md":
-		var out []record
-		for i, l := range lines {
-			if m := adrHeading.FindStringSubmatch(l); m != nil {
-				out = append(out, record{id: m[1], title: m[2], date: m[3], status: m[4], line: i + 1})
-			}
-		}
-		return out
-	case strings.HasPrefix(docsRel, "plans/") && strings.HasSuffix(docsRel, ".md"):
-		n, first := 0, 0
-		var f fence
-		for i, l := range lines {
-			if f.step(l) || f.inside() {
-				continue
-			}
-			if unticked.MatchString(l) {
-				if n == 0 {
-					first = i + 1
-				}
-				n++
-			}
-		}
-		status := "closed"
-		if n > 0 {
-			status = "open: " + strconv.Itoa(n) + " unticked"
-		} else {
-			first = 1
-		}
-		return []record{{id: docsRel, title: firstTitle(lines), status: status, date: fm["date"], line: first}}
-	case strings.HasSuffix(docsRel, ".md"):
-		return []record{{id: docsRel, title: firstTitle(lines), date: fm["date"], line: 1}}
-	}
-	return nil
-}
+var unticked = regexp.MustCompile(`^- \[ \]`)
 
 type ref struct {
 	line   int
@@ -247,8 +156,9 @@ func parseRefs(text string) []ref {
 }
 
 // Kinds a path can have, in the order `fyr help search` lists them.
-// kinds are the --kind values. learning, guide and memory exist only as
-// brain records (ADR-063): a file hit is never of those kinds.
+// kinds are the --kind values. A checkout's file is code or doc and a
+// ~config file feedback, retro or proposal; every other kind is answered by
+// brain records alone (ADR-063, ADR-086).
 var kinds = []string{"bug", "adr", "plan", "change", "handoff", "review", "testing", "retro", "spec", "deploy", "trail", "code", "doc", "feedback", "proposal", "learning", "guide", "memory"}
 
 var trailKinds = map[string]string{
@@ -268,7 +178,8 @@ func init() {
 // configProject is the global index's name for ~/.config/fyr/.
 const configProject = "~config"
 
-// kindOf classifies a path; docsRoot is the project's docs root.
+// kindOf classifies a path. Search passes no docs root; docsRoot is for
+// KindOf, which metrics reads with the project's (ADR-086).
 func kindOf(project, p, docsRoot string) string {
 	if project == configProject {
 		switch {

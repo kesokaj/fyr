@@ -54,17 +54,8 @@ func checkoutRoot(dir string) (string, error) {
 	return root, nil
 }
 
-// docsRootOf is the trail's root: .agents/docs when it exists, else docs,
-// else .agents/docs.
-func docsRootOf(root string) string {
-	if d := trail.DocsRoot(root); d != "" {
-		return d
-	}
-	return ".agents/docs"
-}
-
 // errUnsafePartialClone is a partial clone on a git that ignores
-// GIT_NO_LAZY_FETCH: the project search refuses it, the global one skips it.
+// GIT_NO_LAZY_FETCH: the search refuses it.
 var errUnsafePartialClone = errors.New("search: a partial clone on a git older than 2.44, which could fetch through the clone's own config")
 
 // lazyFetchSafe reports whether this git honours GIT_NO_LAZY_FETCH; a
@@ -84,14 +75,8 @@ func isNoIndexMarker(p string) bool { return trail.IsNoIndexMarker(p) }
 // again when its blob is indexed: a file edited and restored between the two
 // reads is indexed with the edit until `index --rebuild` (a known limit; the
 // operator's choice at the security review's cap, plan D35).
-// prefix limits it to one directory. The second result is the directories a
-// marker takes out, from the whole checkout whatever the prefix.
-func gitView(root, prefix string) ([]entry, []string, error) {
-	// The brain's export is searched as records from brain.db (internal/brain):
-	// indexed as a file too, every record printed twice (brain plan Phase 2).
-	under := func(p string) bool {
-		return p != trailExport && (prefix == "" || strings.HasPrefix(p, prefix))
-	}
+// The second result is the directories a marker takes out.
+func gitView(root string) ([]entry, []string, error) {
 	// Every read goes through an os.Root: a path that leaves the checkout
 	// through `..` or a symlinked directory is refused by the standard
 	// library, whatever git lists (security check of the v1.13.0 gate fixes).
@@ -109,24 +94,26 @@ func gitView(root, prefix string) ([]entry, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	order, view, markers := trackedView(out, under)
+	order, view, markers := trackedView(out)
 	dropGoneMarkers(fsRoot, markers)
 	refreshTracked(root, fsRoot, order, view)
 	out, err = git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, nil, err
 	}
-	order = addUntracked(fsRoot, out, under, order, view, markers)
+	order = addUntracked(fsRoot, out, order, view, markers)
 	marked := markedDirs(markers)
 	return keptEntries(order, view, marked), leftOutDirs(marked), nil
 }
 
-// trackedView reads `git ls-files -s -z`: the index entries under the
-// prefix, in index order, and the noindex markers. Markers are collected
-// from the whole checkout, not only under prefix: a marker above the prefix
-// covers it (a checkout marked at its root has no docs trail for the global
-// index either).
-func trackedView(out []byte, under func(string) bool) ([]string, map[string]entry, map[string]bool) {
+// indexed reports a path the view may hold. The brain's export is searched as
+// records from brain.db (internal/brain): indexed as a file too, every record
+// would print twice (brain plan Phase 2).
+func indexed(p string) bool { return p != trailExport }
+
+// trackedView reads `git ls-files -s -z`: the index entries, in index order,
+// and the noindex markers.
+func trackedView(out []byte) ([]string, map[string]entry, map[string]bool) {
 	var order []string
 	view := map[string]entry{}
 	markers := map[string]bool{}
@@ -135,7 +122,7 @@ func trackedView(out []byte, under func(string) bool) ([]string, map[string]entr
 		if ok && isNoIndexMarker(p) {
 			markers[p] = true
 		}
-		if !ok || !under(p) {
+		if !ok || !indexed(p) {
 			continue
 		}
 		f := strings.Fields(meta) // mode oid stage
@@ -152,8 +139,7 @@ func trackedView(out []byte, under func(string) bool) ([]string, map[string]entr
 }
 
 // dropGoneMarkers forgets a tracked marker deleted from the work tree, so
-// it no longer counts, wherever it sits: refreshTracked sees only paths
-// under the prefix.
+// it no longer counts. refreshTracked would only drop it from the view.
 func dropGoneMarkers(fsRoot *os.Root, markers map[string]bool) {
 	for p := range markers {
 		if _, err := fsRoot.Lstat(filepath.FromSlash(p)); err != nil {
@@ -209,7 +195,7 @@ func refreshTracked(root string, fsRoot *os.Root, order []string, view map[strin
 // out to the view, blob IDs computed from their bytes, and returns order
 // with the new paths. Untracked files come from ls-files, which reads
 // ignore rules only.
-func addUntracked(fsRoot *os.Root, out []byte, under func(string) bool, order []string, view map[string]entry, markers map[string]bool) []string {
+func addUntracked(fsRoot *os.Root, out []byte, order []string, view map[string]entry, markers map[string]bool) []string {
 	for _, p := range strings.Split(string(out), "\x00") {
 		if p == "" {
 			continue
@@ -221,7 +207,7 @@ func addUntracked(fsRoot *os.Root, out []byte, under func(string) bool, order []
 		if isNoIndexMarker(p) {
 			markers[p] = true // a marker not yet added counts at once
 		}
-		if !under(p) || fi.Size() > maxFileBytes {
+		if !indexed(p) || fi.Size() > maxFileBytes {
 			continue
 		}
 		data, err := readAll(fsRoot, filepath.FromSlash(p))

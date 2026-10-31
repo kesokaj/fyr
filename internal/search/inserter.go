@@ -4,18 +4,14 @@ import (
 	"database/sql"
 )
 
-// inserter holds the three insert statements, prepared once per reconcile:
+// inserter holds the two insert statements, prepared once per reconcile:
 // a full build runs some fifty thousand inserts.
-type inserter struct{ chunk, record, ref *sql.Stmt }
+type inserter struct{ chunk, ref *sql.Stmt }
 
 func (s *store) newInserter() (*inserter, error) {
 	var in inserter
 	var err error
 	if in.chunk, err = s.db.Prepare(`INSERT INTO chunks(oid, line, heading, body) VALUES (?, ?, ?, ?)`); err != nil {
-		return nil, err
-	}
-	if in.record, err = s.db.Prepare(`INSERT INTO records(oid, id, line, title, status, date) VALUES (?, ?, ?, ?, ?, ?)`); err != nil {
-		in.close()
 		return nil, err
 	}
 	if in.ref, err = s.db.Prepare(`INSERT INTO refs(oid, line, target) VALUES (?, ?, ?)`); err != nil {
@@ -26,22 +22,16 @@ func (s *store) newInserter() (*inserter, error) {
 }
 
 func (in *inserter) close() {
-	for _, st := range []*sql.Stmt{in.chunk, in.record, in.ref} {
+	for _, st := range []*sql.Stmt{in.chunk, in.ref} {
 		if st != nil {
 			st.Close()
 		}
 	}
 }
 
-func (in *inserter) content(e entry, text, docsRoot string) error {
+func (in *inserter) content(e entry, text string) error {
 	for _, c := range chunkText(e.path, text) {
 		if _, err := in.chunk.Exec(e.oid, c.line, c.heading, c.body); err != nil {
-			return err
-		}
-	}
-	rel, _ := docsRelative(e.path, docsRoot)
-	for _, r := range parseRecords(rel, text) {
-		if _, err := in.record.Exec(e.oid, r.id, r.line, r.title, r.status, r.date); err != nil {
 			return err
 		}
 	}
@@ -59,7 +49,7 @@ func (in *inserter) content(e entry, text, docsRoot string) error {
 func (s *store) gc(now int64) error {
 	cut := now - gcAge
 	old := `SELECT oid FROM blobs WHERE last_seen < ? AND oid NOT IN (SELECT oid FROM files)`
-	for _, t := range []string{"chunks", "records", "refs"} {
+	for _, t := range []string{"chunks", "refs"} {
 		if _, err := s.db.Exec(`DELETE FROM `+t+` WHERE oid IN (`+old+`)`, cut); err != nil {
 			return err
 		}

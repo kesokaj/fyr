@@ -8,7 +8,7 @@ import (
 
 // proj is one project a query covers.
 type proj struct {
-	key, name, docsRoot string
+	key, name string
 }
 
 // scope is an open, reconciled index and the projects a query reads.
@@ -58,64 +58,17 @@ func (sc *scope) display(project, path string) string {
 }
 
 func (sc *scope) kind(project, path string) string {
-	return kindOf(project, path, sc.byKey[project].docsRoot)
+	return kindOf(project, path, "")
 }
 
 func (sc *scope) kindMatches(o Options, project, path string) bool {
-	if o.Kind == "" {
-		return true
-	}
-	if o.Kind == "trail" {
-		_, ok := docsRelative(path, sc.byKey[project].docsRoot)
-		return ok && project != configProject
-	}
-	return sc.kind(project, path) == o.Kind
+	return o.Kind == "" || sc.kind(project, path) == o.Kind
 }
 
-// recordAt is the record a hit at line belongs to: a file's only record, or
-// in a file of several (DECISIONS.md) the nearest one at or above the line.
-func (sc *scope) recordAt(oid string, line int) *record {
-	rows, err := sc.st.db.Query(`SELECT id, line, title, status, date FROM records WHERE oid = ? ORDER BY line`, oid)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var all []record
-	for rows.Next() {
-		var r record
-		if rows.Scan(&r.id, &r.line, &r.title, &r.status, &r.date) == nil {
-			all = append(all, r)
-		}
-	}
-	if len(all) == 1 {
-		return &all[0]
-	}
-	var best *record
-	for i := range all {
-		if all[i].line <= line {
-			best = &all[i]
-		}
-	}
-	return best
+func (sc *scope) label(project, path string, line int) string {
+	return printable(sc.rawLabel(project, path, line))
 }
 
-func (sc *scope) label(project, path, oid string, line int) string {
-	return printable(sc.rawLabel(project, path, oid, line))
-}
-
-func (sc *scope) rawLabel(project, path, oid string, line int) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s:%d  %s", sc.display(project, path), line, sc.kind(project, path))
-	if r := sc.recordAt(oid, line); r != nil {
-		if rel, _ := docsRelative(path, sc.byKey[project].docsRoot); r.id != rel {
-			b.WriteString(" " + r.id)
-		}
-		if r.status != "" {
-			b.WriteString(" " + r.status)
-		}
-		if r.date != "" {
-			b.WriteString("  " + r.date)
-		}
-	}
-	return b.String()
+func (sc *scope) rawLabel(project, path string, line int) string {
+	return fmt.Sprintf("%s:%d  %s", sc.display(project, path), line, sc.kind(project, path))
 }

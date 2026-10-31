@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // BUG-165: search reconciled through `git status`, which runs a clean filter
@@ -51,7 +49,7 @@ func TestGitViewRunsNoCleanFilter(t *testing.T) {
 	}
 	os.Remove(marker)
 
-	entries, _, err := gitView(root, "")
+	entries, _, err := gitView(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +94,7 @@ func TestGitViewRacilyCleanEditIsHashed(t *testing.T) {
 	os.WriteFile(f, []byte("bbbb\n"), 0o644) // same size
 	os.Chtimes(f, mt, mt)                    // the index's recorded mtime
 	os.Chtimes(filepath.Join(root, ".git", "index"), mt, mt)
-	entries, _, err := gitView(root, "")
+	entries, _, err := gitView(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,35 +102,6 @@ func TestGitViewRacilyCleanEditIsHashed(t *testing.T) {
 		if e.path == "a.md" && e.state != "modified" {
 			t.Fatalf("a racily clean edit read as %q", e.state)
 		}
-	}
-}
-
-// A tracked marker deleted from the work tree stops counting, whatever the
-// prefix: a root marker gone from disk no longer leaves the checkout out of
-// a prefix-limited view (the global index reads only .agents/docs).
-func TestGitViewDeletedMarkerOutsidePrefix(t *testing.T) {
-	root := t.TempDir()
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	os.MkdirAll(filepath.Join(root, ".agents", "docs"), 0o755)
-	os.WriteFile(filepath.Join(root, ".agents", "docs", "h.md"), []byte("h\n"), 0o644)
-	os.WriteFile(filepath.Join(root, trail.NoIndexMarkers[0]), nil, 0o644)
-	run("init", "-q")
-	run("add", ".")
-	run("commit", "-q", "-m", "marked")
-	os.Remove(filepath.Join(root, trail.NoIndexMarkers[0]))
-	entries, _, err := gitView(root, ".agents/docs/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("view under the prefix has %d entries, want 1: a deleted root marker still counts", len(entries))
 	}
 }
 
@@ -180,7 +149,7 @@ func TestGitViewRunsNoFsmonitor(t *testing.T) {
 		t.Skip("control: this git did not run the core.fsmonitor hook")
 	}
 	os.Remove(marker)
-	if _, _, err := gitView(root, ""); err != nil {
+	if _, _, err := gitView(root); err != nil {
 		t.Fatal(err)
 	}
 	if err := guardProject(root); err != nil && err != errNotIgnored {
@@ -206,11 +175,11 @@ func TestGitViewPartialCloneNeedsNewGit(t *testing.T) {
 	t.Cleanup(func() { lazyFetchSafe = saved })
 
 	lazyFetchSafe = func() bool { return false }
-	if _, _, err := gitView(root, ""); err == nil || !strings.Contains(err.Error(), "partial clone") {
+	if _, _, err := gitView(root); err == nil || !strings.Contains(err.Error(), "partial clone") {
 		t.Fatalf("an old git searched a partial clone: %v", err)
 	}
 	lazyFetchSafe = func() bool { return true }
-	if _, _, err := gitView(root, ""); err != nil {
+	if _, _, err := gitView(root); err != nil {
 		t.Fatalf("a new git refused a partial clone: %v", err)
 	}
 }

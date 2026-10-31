@@ -93,7 +93,7 @@ func Index(o Options, out io.Writer) error {
 	}
 	defer sc.close()
 	counts := map[string]int{}
-	for _, t := range []string{"chunks", "records", "refs"} {
+	for _, t := range []string{"chunks", "refs"} {
 		var n int
 		q := `SELECT count(*) FROM ` + t + ` WHERE oid IN (SELECT oid FROM files WHERE project IN ` + sc.in() + `)`
 		if err := sc.st.db.QueryRow(q, sc.keys()...).Scan(&n); err != nil {
@@ -101,12 +101,14 @@ func Index(o Options, out io.Writer) error {
 		}
 		counts[t] = n
 	}
-	fmt.Fprintf(out, "files    %d\nchunks   %d\nrecords  %d\nrefs     %d\nchanged  %d\nbytes    %d\nms       %d\n",
-		sc.files, counts["chunks"], counts["records"], counts["refs"], sc.changed, sc.st.size(), sc.elapsed.Milliseconds())
+	fmt.Fprintf(out, "files    %d\nchunks   %d\nrefs     %d\nchanged  %d\nbytes    %d\nms       %d\n",
+		sc.files, counts["chunks"], counts["refs"], sc.changed, sc.st.size(), sc.elapsed.Milliseconds())
 	return nil
 }
 
-// Search answers one query: ranked words, --refs or --open.
+// Search answers one query: ranked words or --refs. --open is the brain
+// store's alone (recordHits): a file holds no record, so it prints nothing
+// here, after the same refusals as the other modes.
 func Search(o Options, out io.Writer) error {
 	if err := validate(&o, "search"); err != nil {
 		return err
@@ -120,7 +122,7 @@ func Search(o Options, out io.Writer) error {
 	case o.Refs != "":
 		return sc.refs(o, out)
 	case o.Open:
-		return sc.open(o, out)
+		return nil
 	}
 	return sc.words(o, out)
 }

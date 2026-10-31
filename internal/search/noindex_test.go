@@ -47,16 +47,6 @@ func TestNoIndexMarkerSkipsTheDirectory(t *testing.T) {
 	if strings.Contains(buf.String(), "vendor/beside.md") || strings.Contains(buf.String(), "docs/own.md") {
 		t.Errorf("a root marker left files in the index:\n%s", buf.String())
 	}
-	// A marker above the prefix a caller asks for counts as well: the global
-	// index reads only the docs root, and a checkout marked at its root has
-	// no docs trail to offer either (code review round 2).
-	entries, _, err := gitView(root, "vendor/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("a root marker left %d entries in a prefixed view, first %s", len(entries), entries[0].path)
-	}
 }
 
 // TestNoIndexMarkerDeletedCountsNoMore: a tracked marker removed from the
@@ -108,11 +98,6 @@ func TestHeaderNamesLeftOutDirectories(t *testing.T) {
 		t.Errorf("two markers: want them sorted in the header:\n%s", out)
 	}
 	var buf bytes.Buffer
-	Search(Options{Dir: root, Home: home, Open: true}, &buf)
-	if !strings.Contains(buf.String(), "left out by a noindex marker: attic/, vendor/data/") {
-		t.Errorf("--open: the header does not name the markers:\n%s", buf.String())
-	}
-	buf.Reset()
 	Search(Options{Dir: root, Home: home, Global: true, Words: []string{"ocelot"}}, &buf)
 	if strings.Contains(buf.String(), "left out") {
 		t.Errorf("--global: the header names one project's markers:\n%s", buf.String())

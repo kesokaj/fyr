@@ -13,9 +13,10 @@ import (
 )
 
 // reconcileGlobal brings the global search index up to date: the files of
-// ~/.config/fyr/, then the trail of every checkout in its projects table,
-// dropping any that is gone or no longer carries this home's registration
-// marker (ADR-068, ADR-068a).
+// ~/.config/fyr/, the only files it holds, then the projects table, dropping
+// any checkout that is gone or no longer carries this home's registration
+// marker (ADR-068, ADR-068a). A checkout's records answer --global from the
+// brain store (ADR-086).
 func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
 	path := globalDB(o.Home)
 	if o.Rebuild {
@@ -40,34 +41,17 @@ func reconcileGlobal(o Options, out io.Writer) (*store, int, []proj, error) {
 	if err != nil {
 		return fail(err)
 	}
-	regs, err := registrations(st)
+	roots, err := registrations(st)
 	if err != nil {
 		return fail(err)
 	}
-	projects := []proj{{key: configProject, name: configProject}}
-	names := map[string]int{configProject: 1}
-	for _, r := range regs {
-		n, searched, err := reconcileRegistered(st, o.Home, r.root, out)
-		if err != nil {
+	for _, root := range roots {
+		if err := checkRegistered(st, o.Home, root, out); err != nil {
 			return fail(err)
 		}
-		if !searched {
-			continue
-		}
-		changed += n
-		name := filepath.Base(r.root)
-		names[name]++
-		if names[name] > 1 {
-			name = fmt.Sprintf("%s~%d", name, names[name])
-		}
-		projects = append(projects, proj{key: r.root, name: name, docsRoot: globalDocsRoot})
 	}
-	return st, changed, projects, nil
+	return st, changed, []proj{{key: configProject, name: configProject}}, nil
 }
-
-// globalDocsRoot is the one trail directory the global index reads in a
-// registered checkout: never a plain docs/ (dropReason).
-const globalDocsRoot = ".agents/docs"
 
 // rebuildGlobal deletes the global index for --rebuild, with a note of how
 // many registrations go with it.
@@ -86,33 +70,29 @@ func rebuildGlobal(path string, out io.Writer) error {
 	return nil
 }
 
-// registration is one row of the global index's projects table.
-type registration struct{ root, docs string }
-
 // registrations lists the checkouts registered in st, first registered
 // first.
-func registrations(st *store) ([]registration, error) {
-	rows, err := st.db.Query(`SELECT root, docs_root FROM projects ORDER BY rowid`)
+func registrations(st *store) ([]string, error) {
+	rows, err := st.db.Query(`SELECT root FROM projects ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}
-	var regs []registration
+	var roots []string
 	for rows.Next() {
-		var r registration
-		if err := rows.Scan(&r.root, &r.docs); err != nil {
+		var r string
+		if err := rows.Scan(&r); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		regs = append(regs, r)
+		roots = append(roots, r)
 	}
 	rows.Close()
-	return regs, nil
+	return roots, nil
 }
 
-// reconcileRegistered brings one registered checkout's trail up to date
-// and reports whether the query searches it: a checkout dropped, or
-// skipped this time, is not, and a note on out says why.
-func reconcileRegistered(st *store, home, root string, out io.Writer) (int, bool, error) {
+// checkRegistered drops a registration that no longer holds, with a note on
+// out saying why; one whose check errors stays, with a note.
+func checkRegistered(st *store, home, root string, out io.Writer) error {
 	reason, err := dropReason(root)
 	if err == nil && reason == "" && !trail.Registered(filepath.Join(home, harness.StateDir), root) {
 		// A row is a cache entry the checkout's own search writes again once
@@ -124,36 +104,47 @@ func reconcileRegistered(st *store, home, root string, out io.Writer) (int, bool
 		// A check that errors keeps the registration (context § Hard
 		// rules): skip this checkout for this query and say why.
 		fmt.Fprintln(out, printable(fmt.Sprintf("note: skipped %s this time (%v)", root, err)))
-		return 0, false, nil
+		return nil
 	}
-	if reason != "" {
-		if err := dropProject(st, root); err != nil {
-			return 0, false, err
-		}
-		fmt.Fprintln(out, printable(fmt.Sprintf("note: dropped %s (%s)", root, reason)))
-		return 0, false, nil
+	if reason == "" {
+		return nil
 	}
-	v, _, err := gitView(root, globalDocsRoot+"/") // the global header covers many projects: no left-out list
-	if errors.Is(err, errUnsafePartialClone) {
-		// One checkout this git cannot read safely never stops the rest.
-		fmt.Fprintln(out, printable(fmt.Sprintf("note: skipped %s this time (a partial clone, and this git is older than 2.44)", root)))
-		return 0, false, nil
+	if err := dropProject(st, root); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, printable(fmt.Sprintf("note: dropped %s (%s)", root, reason)))
+	return nil
+}
+
+// HasTrail reports whether root's .agents/trail.jsonl is a regular file in a
+// real .agents directory: a symlink at either name is no trail, as in brain's
+// guardExportPath, and a file at .agents is none either. An error means the
+// check could not run.
+func HasTrail(root string) (bool, error) {
+	fi, err := os.Lstat(filepath.Join(root, ".agents"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("search: %w", err)
+		return false, err
 	}
-	n, err := st.apply(source{project: root, dir: root, docsRoot: globalDocsRoot, view: v})
+	if !fi.IsDir() {
+		return false, nil
+	}
+	fi, err = os.Lstat(filepath.Join(root, filepath.FromSlash(trailExport)))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return 0, false, err
+		return false, err
 	}
-	return n, true, nil
+	return fi.Mode().IsRegular(), nil
 }
 
 // dropReason says why a registration should go, or "" when it stays; an
 // error means the check could not run, and the registration stays. It goes
 // only on positive evidence: the root is gone, git says it is not a
-// checkout (or a different one), or .agents/docs is gone or not a directory
-// (a plain docs/ is never served in its place; security review, rounds 2-3).
+// checkout (or a different one), or it has no trail (ADR-086).
 func dropReason(root string) (string, error) {
 	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 		return "no longer a git checkout", nil
@@ -169,14 +160,12 @@ func dropReason(root string) (string, error) {
 	case got != root:
 		return "no longer a git checkout", nil
 	}
-	fi, err := os.Stat(filepath.Join(root, ".agents", "docs"))
+	ok, err := HasTrail(root)
 	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return "no longer has .agents/docs", nil
 	case err != nil:
 		return "", err
-	case !fi.IsDir():
-		return "no longer has .agents/docs", nil
+	case !ok:
+		return "no longer has .agents/trail.jsonl", nil
 	}
 	return "", nil
 }

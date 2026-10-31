@@ -51,7 +51,7 @@ func CleanSnippet(s string) string { return cleanSnippet(s) }
 func FTSQuery(words []string, op string) string { return ftsQuery(words, op) }
 
 // Unticked counts a plan's unticked boxes (a line starting "- [ ]") outside
-// fenced blocks: the rule that makes a plan open, here and in the brain store.
+// fenced blocks: the rule that makes a plan open in the brain store.
 func Unticked(text string) int {
 	n := 0
 	var f fence

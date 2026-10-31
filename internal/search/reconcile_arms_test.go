@@ -99,17 +99,17 @@ func TestApplyLockedRootError(t *testing.T) {
 	}
 }
 
-// An index whose records table has lost its columns cannot prepare its
+// An index whose refs table has lost its columns cannot prepare its
 // inserter: the apply fails at the first blob that has text. The table
 // keeps oid, so gc's deletes still run and only the inserter can fail.
 func TestApplyLockedInserterError(t *testing.T) {
 	st, dir := armStore(t)
-	if _, err := st.db.Exec(`DROP TABLE records; CREATE TABLE records(oid TEXT)`); err != nil {
+	if _, err := st.db.Exec(`DROP TABLE refs; CREATE TABLE refs(oid TEXT)`); err != nil {
 		t.Fatal(err)
 	}
 	src := source{project: "p", dir: dir, view: []entry{armEntry(t, dir, "a.md", "tracked")}}
-	if _, err := st.apply(src); err == nil || !strings.Contains(err.Error(), "records has no column") {
-		t.Fatalf("apply without a records table: %v, want the inserter's error", err)
+	if _, err := st.apply(src); err == nil || !strings.Contains(err.Error(), "refs has no column") {
+		t.Fatalf("apply without a refs table: %v, want the inserter's error", err)
 	}
 }
 
@@ -125,7 +125,7 @@ func countStore(t *testing.T, st *store, q string) int {
 // viewOf is gitView's entry for p, and whether it has one.
 func viewOf(t *testing.T, root, p string) (entry, int) {
 	t.Helper()
-	view, _, err := gitView(root, "")
+	view, _, err := gitView(root)
 	if err != nil {
 		t.Fatal(err)
 	}

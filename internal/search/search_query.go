@@ -181,7 +181,7 @@ func (sc *scope) words(o Options, out io.Writer) error {
 	header := fmt.Sprintf("search: %d hits for %q, %d with every word (%s)", len(hits), phrase, all, sc.status())
 	fmt.Fprintln(out, header)
 	for _, h := range hits {
-		fmt.Fprintf(out, "%s\n    %s\n", sc.label(h.project, h.path, h.oid, h.line), h.snippet)
+		fmt.Fprintf(out, "%s\n    %s\n", sc.label(h.project, h.path, h.line), h.snippet)
 	}
 	return nil
 }

@@ -13,24 +13,6 @@ import (
 	"time"
 )
 
-func TestOpen(t *testing.T) {
-	root := newRepo(t)
-	home := t.TempDir()
-	writeFile(t, root, ".agents/docs/bugs/BUG-001-a.md", "---\nid: BUG-001\nstatus: open\ndate: 2026-09-02\n---\n# BUG-001: a\n")
-	writeFile(t, root, ".agents/docs/bugs/BUG-002-b.md", "---\nid: BUG-002\nstatus: fixed\ndate: 2026-09-03\n---\n# BUG-002: b\n")
-	writeFile(t, root, ".agents/docs/plans/open.md", "---\ndate: 2026-09-04\n---\n# Open\n- [ ] left\n")
-	writeFile(t, root, ".agents/docs/plans/fenced.md", "# Fenced\n```\n- [ ] template\n```\n")
-	commitAll(t, root, "add")
-	out := mustSearch(t, Options{Dir: root, Home: home, Open: true})
-	if !strings.Contains(out, "BUG-001") || strings.Contains(out, "BUG-002") || !strings.Contains(out, "plans/open.md:5") || strings.Contains(out, "fenced.md") {
-		t.Errorf("--open:\n%s", out)
-	}
-	out = mustSearch(t, Options{Dir: root, Home: home, Open: true, Kind: "plan"})
-	if strings.Contains(out, "BUG-001") || !strings.Contains(out, "open.md") {
-		t.Errorf("--open --kind plan:\n%s", out)
-	}
-}
-
 func TestRefuseOutsideCheckout(t *testing.T) {
 	_, err := runSearch(t, Options{Dir: t.TempDir(), Words: []string{"x"}})
 	if err == nil || err.Error() != "search: not inside a git checkout; use grep" {

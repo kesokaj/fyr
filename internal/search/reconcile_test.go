@@ -13,7 +13,6 @@ func TestReconcileBranchSwitch(t *testing.T) {
 	home := t.TempDir()
 	gitT(t, root, "switch", "-q", "-c", "feature")
 	writeFile(t, root, "notes.md", "# Notes\n\nThe zebrafish decision lives here; see BUG-777.\n")
-	writeFile(t, root, ".agents/docs/bugs/BUG-777-zebra.md", "---\nid: BUG-777\nstatus: open\ndate: 2026-09-29\n---\n# BUG-777: zebra\n")
 	commitAll(t, root, "feature")
 	if out := mustSearch(t, Options{Dir: root, Home: home, Words: []string{"zebrafish"}}); !strings.Contains(out, "notes.md:3") {
 		t.Fatalf("on feature, want notes.md:3:\n%s", out)
@@ -25,10 +24,9 @@ func TestReconcileBranchSwitch(t *testing.T) {
 	for _, o := range []Options{
 		{Dir: root, Home: home, Words: []string{"zebrafish"}},
 		{Dir: root, Home: home, Refs: "BUG-777"},
-		{Dir: root, Home: home, Open: true},
 	} {
 		out := mustSearch(t, o)
-		if strings.Contains(out, "notes.md") || strings.Contains(out, "BUG-777-zebra") {
+		if strings.Contains(out, "notes.md") {
 			t.Errorf("on main, %+v answered from the other branch:\n%s", o, out)
 		}
 	}
@@ -191,12 +189,12 @@ func TestOpenRebuildsCorruptAndOldSchema(t *testing.T) {
 		t.Errorf("corrupt file not rebuilt:\n%s", out)
 	}
 	db := openDB(t, root)
-	if _, err := db.Exec(`UPDATE meta SET value = '2' WHERE key = 'schema'`); err != nil {
+	if _, err := db.Exec(`UPDATE meta SET value = '1' WHERE key = 'schema'`); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
 	if !strings.Contains(out, "rebuilt") || !strings.Contains(out, "README.md") {
-		t.Errorf("schema 2 not rebuilt:\n%s", out)
+		t.Errorf("schema 1 not rebuilt:\n%s", out)
 	}
 }
