@@ -3,7 +3,6 @@ package check
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -31,15 +30,16 @@ func (k *checker) historyNote() string {
 // counted, and an uncommitted spec edit is not stale. A git call that fails
 // leaves a note, never a silent pass (code review 2026-10-25, finding 2).
 func (k *checker) specsRule(specs []brain.Record) (out []Finding, notes []string) {
+	h := k.trailHistory(specs)
 	for _, r := range specs {
 		code := k.specCode(r)
 		if len(code) == 0 {
 			out = append(out, Finding{r.ID, 0, "spec-unlinked", "names no code: no existing path but *.md files and .agents/trail.jsonl"})
 			continue
 		}
-		commit, err := k.specCommit(r)
+		commit, err := h.commitOf(r)
 		if err != nil {
-			notes = append(notes, r.ID+": git log failed: spec not checked")
+			notes = append(notes, r.ID+": trail history unreadable: spec not checked")
 			continue
 		}
 		if commit == "" {
@@ -52,7 +52,7 @@ func (k *checker) specsRule(specs []brain.Record) (out []Finding, notes []string
 		// specCode already dropped .agents and .agents/trail.jsonl, so only a
 		// *.md file below a code directory needs excluding.
 		args = append(args, ":(glob,exclude)**/*.md")
-		data, err := k.git(args...).Output()
+		data, err := h.git(args...).Output()
 		if err != nil {
 			notes = append(notes, r.ID+": git rev-list failed: spec not checked")
 			continue
@@ -95,22 +95,4 @@ func (k *checker) specCode(r brain.Record) []string {
 		}
 	}
 	return code
-}
-
-// specCommit is the oldest commit whose trail.jsonl diff adds r's current
-// line, matched on its id and its updated stamp, which the export writes in
-// that order; "" when no commit carries it yet. -G compiles an extended
-// regular expression, whose specials regexp.QuoteMeta escapes, so the `+` of
-// a `+02:00` stamp is literal (code and security review 2026-10-25).
-func (k *checker) specCommit(r brain.Record) (string, error) {
-	pat := `"id":"` + regexp.QuoteMeta(r.ID) + `".*"updated":"` + regexp.QuoteMeta(r.Updated) + `"`
-	out, err := trail.Log(k.top, "-G", pat, "--format=%H", "--", ".agents/trail.jsonl")
-	if err != nil {
-		return "", err
-	}
-	hs := strings.Fields(string(out))
-	if len(hs) == 0 {
-		return "", nil
-	}
-	return hs[len(hs)-1], nil
 }

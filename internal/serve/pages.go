@@ -43,8 +43,8 @@ func (r *Run) context(w http.ResponseWriter, req *http.Request) {
 	r.printed(w, req, "context", r.o.Render)
 }
 
-// check is fyr check, one at a time: each run takes minutes on a large
-// checkout, and a reload must not stack another (plan D49).
+// check is fyr check, one at a time: a run reads git history and can take
+// a while on a large checkout, and a reload must not stack another (plan D49).
 func (r *Run) check(w http.ResponseWriter, req *http.Request) {
 	if r.noProject(w, req, "check") {
 		return

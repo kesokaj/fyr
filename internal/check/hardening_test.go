@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-// Rule (b)'s git log -G starts no textconv program the checkout's own
-// .gitattributes picks (security review 2026-10-25, finding 1).
+// Rule (b)'s reads of trail.jsonl's history start no textconv program the
+// checkout's own .gitattributes picks (security review 2026-10-25, finding
+// 1); a plain git log -G does, which proves the fixture's driver is live.
 func TestSpecRuleRunsNoTextconv(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "textconv-ran")
 	prog := filepath.Join(t.TempDir(), "fake-conv")
@@ -70,10 +71,12 @@ func TestSpecRuleGitFailureIsANote(t *testing.T) {
 		}
 	}
 	cases := []struct{ name, rev, fails, note string }{
-		// rev-list compares internal/x's trees; git log -G reads only .agents.
+		// rev-list compares internal/x's trees; the trail's history reads
+		// only .agents.
 		{"rev-list", "HEAD:internal/x", "rev-list --count HEAD~1..HEAD -- internal/x/f.go", "SPEC-a: git rev-list failed: spec not checked"},
-		// git log -G reads the first commit's trail.jsonl blob.
-		{"log", "HEAD~1:.agents/trail.jsonl", "log -G SPEC-a --format=%H -- .agents/trail.jsonl", "SPEC-a: git log failed: spec not checked"},
+		// The bisection reads the first commit's trail.jsonl blob, as git log
+		// -G did.
+		{"log", "HEAD~1:.agents/trail.jsonl", "log -G SPEC-a --format=%H -- .agents/trail.jsonl", "SPEC-a: trail history unreadable: spec not checked"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

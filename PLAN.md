@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 done (2026-10-31); P2 is next, and P3 waits on the operator's approval of D5. This is the only plan.
+Status: open. P1 and P2 done (2026-10-31); P3 is next and waits on the operator's approval of D5. This is the only plan.
 
 ## The operator's words
 
@@ -78,7 +78,10 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 
 ### Items found during the run
 
-(none yet)
+| # | Item | Verdict | Phase |
+|---|---|---|---|
+| 41 | `SPEC-fyr-serve` and `SPEC-fyr-work` were `spec-stale` after P1's `c89b966`, whose `internal/check` change both name as code; P1's `fyr check` ran before that commit. Re-read against `c29dc47..c89b966` (rule (a)'s `notInRuleA` only, nothing either describes) and re-stamped. P2's own two-line comment in `internal/serve/pages.go` would stale the six specs naming `internal/serve` (`SPEC-fyr-dream`, `-eval`, `-memory-loop`, `-metrics`, `-record`, `-search`; P2's review, finding 1): re-read against that comment and re-stamped in the same commit | fix | P2 |
+| 42 | `leadGit` (`internal/work/fetch.go`) turns off replace refs and grafts but not the commit-graph, which can also rewire parents (P2's second security review, finding 3) | fix: `-c core.commitGraph=false`, with P4's guard work | P4 |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -126,9 +129,9 @@ Now, by hand on borken, before the fix (Who: user): `git -C ~/workspace/fyr pull
 - [x] Checkpoint (rule 3). Expect: the full test command exit 0, and `fyr check` from a tree binary gives 0 findings.
 
 ### P2 — `fyr check` speed (item 21; one session)
-- [ ] Profile: `go test -cpuprofile` or a `pprof` run of `fyr check` over this checkout, the hot path named with numbers. Verify: the profile's top 10 under `.agents/scratch/`. Who: AI.
-- [ ] Fix the hot path, test first. The test pins a work count, not a time: how many times the hot operation runs over a fixture (a wall-clock bound is flaky). Verify: `go test -race ./internal/check`, then `time fyr check` from a tree binary, three runs. Expect: under 30 s of CPU here (measured, not a test). The findings must match the pre-fix binary's findings on the mutated tree `.agents/scratch/prd-reshape/clone`, with the mutation in `check-mutant.txt`. Who: AI.
-- [ ] Checkpoint (rule 3). `SPEC-fyr-check` names the bound.
+- [x] Profile: `go test -cpuprofile` or a `pprof` run of `fyr check` over this checkout, the hot path named with numbers. Verify: the profile's top 10 under `.agents/scratch/`. Who: AI.
+- [x] Fix the hot path, test first. The test pins a work count, not a time: how many times the hot operation runs over a fixture (a wall-clock bound is flaky). Verify: `go test -race ./internal/check`, then `time fyr check` from a tree binary, three runs. Expect: under 30 s of CPU here (measured, not a test). The findings must match the pre-fix binary's findings on the mutated tree `.agents/scratch/prd-reshape/clone`, with the mutation in `check-mutant.txt`. Who: AI.
+- [x] Checkpoint (rule 3). `SPEC-fyr-check` names the bound.
 
 ### P3 — borken's update (items 37 and 40; one session; the `bug` skill)
 
@@ -219,12 +222,14 @@ D6 — 2026-10-31 — From P5 on, `PRD.md`'s `enforced by:` names bind (rule (c)
 
 D7 — 2026-10-31 — P13 keeps its order: the plan closes in the commit that preflight releases. If `/preflight` reports NO-SHIP, the plan reopens: `PLAN.md` is restored from git, the finding goes under § Items found during the run, and the plan record's status goes back to open. borken's box is a post-release check: the closing handoff's Next Steps carry it, and the plan record keeps it as `[-] (handoff Next Steps)`. — by: implementer, answering P1's cold read (the P13 finding).
 
+D8 — 2026-10-31 — P2's hot path was rule (b)'s `git log -G`, one per current spec, each diffing all 399 revisions of the 13 MB `trail.jsonl`: a GIT_TRACE2 run of the pre-fix binary gave 10 such calls and 565 s of the run's git time, all other git calls under 0.1 s, and the Go process used 0.27 s of a 510 s profiled run. That is 5m26s of CPU in P1's `check.log`, and 5m16s in item 21's row, which was the audit's run. The fix finds each spec's commit by bisection over HEAD's first-parent trail commits, each blob read once and indexed for every spec. It descends into a merge's merged side, so a line added on a merged branch keeps that branch's commit, as `-G` found it. A commit that only moves the line still does not reset the count. The history reads and the count run without replace refs, grafts or the commit-graph, refuse a blob over 256 MiB from its size, index each line in one pass, and descend at most 64 merges (P2's security reviews, two rounds). What changes in meaning, in `SPEC-fyr-check` § Known limits: a line removed and added again is found at one of its additions, not always the first, and a revision holding a NUL byte is read where `-G` skipped it as binary. Pre- and post-fix findings, notes and exit codes are identical on this checkout, on the mutated clone `.agents/scratch/prd-reshape/clone` (equal to `check-mutant.txt`), and on a fixture clone with 7 stale specs and a commit that only moves a spec's line (`.agents/scratch/p2-check-speed/`). Rejected: one combined `git log -G -p` (about 55 s; the diff itself is the cost) and a walk over every blob (24 s, growing with history). — by: implementer, within P2's fix box.
+
 ## Risks
 
 - **The release range grows with every skill P10 and P11 touch.** P13 owes one Antigravity run per changed skill and agent: at least `init-project`, `review`, `frontend-ui-economist` and `frontend-ui-modern`.
 - **P11 needs the zips in `.agents/scratch/ui-skills/`, which is gitignored.** P12's prune keeps them. Losing them before P11 blocks item 28.
 - **P10 breaks any project still on files.** It must import first. Whether the Mac's projects have migrated is unknown, and the refusal names `fyr record import`.
-- **`fyr check` takes about 5 minutes until P2 lands.** Run it in the background to a file.
+- **`fyr check` took about 5 minutes until P2** (5m26s of CPU); 1.5 s since (D8).
 - **The installed `fyr` on dave refuses `metrics.db` schema 4 until P1's install.** Until then, use a tree binary (`go build -o .agents/scratch/p1/fyr ./cmd/fyr`) for `fyr metrics` and `fyr check`, always with `--home .agents/scratch/workers`. `fyr record` works with either binary.
 
 ## Kickoff
