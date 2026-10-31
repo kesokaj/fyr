@@ -137,7 +137,8 @@ func TestScanReadsSpansAndFences(t *testing.T) {
 
 // One finding each for an unknown verb, subverb and flag, in a span and in a
 // fence; none for a placeholder, a program word that is not fyr, prose, a
-// `;` inside a span (D28), or ROADMAP.md (D6).
+// `;` inside a span (D28), or ROADMAP.md, TODO.md and PLAN.md (D6; PLAN.md
+// item 38).
 func TestDocsRuleVerbs(t *testing.T) {
 	dir := repo(t, map[string]string{
 		"README.md": strings.Join([]string{
@@ -156,6 +157,8 @@ func TestDocsRuleVerbs(t *testing.T) {
 			"```",
 		}, "\n"),
 		"ROADMAP.md": "`fyr eval` is next\n",
+		"TODO.md":    "`fyr eval` is next\n",
+		"PLAN.md":    "`fyr eval` and `fyr metrics evals` land in P7\n",
 	})
 	rep := run(t, dir)
 	same(t, rep.Findings,

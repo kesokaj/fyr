@@ -61,8 +61,9 @@ func (r refusal) Is(target error) bool { return target == ErrRefused }
 // while their status is current; every other kind is history.
 var livingKinds = map[string]bool{"spec": true, "guide": true, "deploy": true}
 
-// notInRuleA are root files that name what is not built yet (plan D6).
-var notInRuleA = map[string]bool{"ROADMAP.md": true, "TODO.md": true}
+// notInRuleA are root files that name what is not built yet (plan D6;
+// PLAN.md item 38).
+var notInRuleA = map[string]bool{"ROADMAP.md": true, "TODO.md": true, "PLAN.md": true}
 
 // vendoredRow is a table row of skills/VENDORED.md naming a vendored skill
 // or catalog, read as restatement-grep.sh reads it (plan D5).
