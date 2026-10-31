@@ -34,26 +34,27 @@ func mountsUnder(roots ...string) ([]string, error) {
 	return found, nil
 }
 
-// mountIDs is the id of the mount each of roots lies on: the longest mount
-// point above it, the last of equals, since a later mount stacks on an
-// earlier one. Intact compares them, because a file system mounted on a
-// parent of the sandbox hides it while its paths still resolve as approved
-// (P12b's security review, finding S2).
-func mountIDs(roots ...string) (map[string]string, error) {
+// mountChains is, for each of roots, every mount above it, id and point, in
+// the table's order. Intact compares them, because a file system mounted on
+// any parent of the sandbox hides it while its paths still resolve as
+// approved; the longest mount point alone stays the same under a mount above
+// it (P12b's security review, S2 and round 2's F2). A remount keeps its id.
+func mountChains(roots ...string) (map[string]string, error) {
 	table, err := readMounts()
 	if err != nil {
 		return nil, err
 	}
-	ids := map[string]string{}
+	chains := map[string]string{}
 	for _, r := range roots {
-		best := -1
+		var chain []string
 		for _, m := range table {
-			if within(r, m.point) && len(m.point) >= best {
-				best, ids[r] = len(m.point), m.id
+			if within(r, m.point) {
+				chain = append(chain, m.id+" "+m.point)
 			}
 		}
+		chains[r] = strings.Join(chain, "\n")
 	}
-	return ids, nil
+	return chains, nil
 }
 
 type mount struct{ id, point string }

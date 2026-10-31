@@ -98,7 +98,8 @@ func (c *cappedWriter) Write(p []byte) (int, error) {
 // runBounded is CombinedOutput with a deadline and a bound on the output, in
 // its own process group, which is killed whole at the deadline: upload-pack
 // is cmd's child, and a kill of cmd alone leaves it holding the output pipe.
-// No kill follows Wait: it reaped the leader, so the id may be another's.
+// The kill after Wait takes what outlived cmd: a live member pins the group's
+// id, and with none the kill finds nothing, as models.go's does.
 func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 	var out cappedWriter
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -115,6 +116,7 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 	})
 	err := cmd.Wait()
 	t.Stop()
+	syscall.Kill(-pgid, syscall.SIGKILL)
 	if late.Load() {
 		return out.kept.Bytes(), fmt.Errorf("timed out after %s", limit)
 	}
@@ -138,9 +140,10 @@ func gitFloor(runner string) error {
 
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
-// Naming .git, and --strict, keep upload-pack to the .git GitIntact walked:
-// a .git that is no valid repository makes it look at the clone's top level,
-// or at .git/.git (P12b's security review, finding S1).
+// Naming .git, and --strict, close upload-pack's fallback lookups: a .git
+// that is no valid repository makes it look at the clone's top level, or at
+// .git/.git (P12b's security review, finding S1). A .git changed after
+// GitIntact is still honoured.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
 	out, err := runBounded(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",

@@ -8,6 +8,36 @@ import (
 	"testing"
 )
 
+func appendConfig(t *testing.T, git, s string) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(git, "config"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCloneTakesNoTemplate: an operator's init.templateDir may hold links,
+// which GitIntact would read as the session's (P12b's round 2).
+func TestCloneTakesNoTemplate(t *testing.T) {
+	r := newRig(t)
+	tpl := filepath.Join(r.tmp, "tpl")
+	if err := os.MkdirAll(filepath.Join(tpl, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/bin/true", filepath.Join(tpl, "hooks", "pre-commit")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(r.real, ".gitconfig"), "[init]\n\ttemplateDir = "+tpl+"\n", 0o644)
+	b := r.prepared(r.config("template"))
+	if !b.GitIntact() {
+		t.Errorf("reasons %v\n%s", b.Reasons(), r.out.String())
+	}
+}
+
 // TestGitDirClean is PLAN.md item 45, finding S1: the host's upload-pack
 // reads the clone's .git, so nothing in it may lead elsewhere. Each case
 // names what must be reported.
@@ -40,6 +70,18 @@ func TestGitDirClean(t *testing.T) {
 		{"a ref too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "refs", "heads", "big"), strings.Repeat("0", maxRefFile+1), 0o644)
 		}, "refs/heads/big"},
+		{"an include", func(t *testing.T, git string) {
+			appendConfig(t, git, "[include]\n\tpath = big\n")
+		}, "include.path"},
+		{"a conditional include", func(t *testing.T, git string) {
+			appendConfig(t, git, "[includeIf \"gitdir:/\"]\n\tpath = big\n")
+		}, "includeif."},
+		{"a worktree config", func(t *testing.T, git string) {
+			appendConfig(t, git, "[extensions]\n\tworktreeConfig = true\n")
+		}, "extensions.worktreeconfig"},
+		{"a config git cannot read", func(t *testing.T, git string) {
+			appendConfig(t, git, "[broken\n")
+		}, "config"},
 		{"a config too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "config"), strings.Repeat("#", maxConfigFile+1), 0o644)
 		}, "config"},

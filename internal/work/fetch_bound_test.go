@@ -42,6 +42,25 @@ func TestRunBoundedKillsTheGroup(t *testing.T) {
 	}
 }
 
+// TestRunBoundedLeavesNoGroup: a child that outlives its parent is killed
+// with the group, not only at the deadline (P12b's round 2).
+func TestRunBoundedLeavesNoGroup(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	runBounded(exec.Command("bash", "-c", `sleep 300 >/dev/null 2>&1 & echo $! > "$0"`, pidFile), time.Minute)
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	for i := 0; i < 100 && syscall.Kill(pid, 0) == nil; i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if syscall.Kill(pid, 0) == nil {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Error("the child outlived the fetch")
+	}
+}
+
 func TestRunBoundedOutput(t *testing.T) {
 	out, err := runBounded(exec.Command("bash", "-c", "echo out; echo err >&2"), time.Minute)
 	if err != nil || !strings.Contains(string(out), "out") || !strings.Contains(string(out), "err") {

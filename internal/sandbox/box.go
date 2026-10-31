@@ -116,7 +116,7 @@ type Box struct {
 	// write in dir, so every later step that follows those paths first checks
 	// they still resolve here (intact), and check e matches these strings.
 	resolved map[string]string
-	// mounts is the id of the mount each resolved path lay on at that moment.
+	// mounts is the chain of mounts above each resolved path at that moment.
 	mounts map[string]string
 	// root is SB, opened once guard a approved it. A held handle follows the
 	// directory through a rename, so the token link is removed from the home
@@ -201,13 +201,13 @@ func (b *Box) Intact() bool {
 		b.replaced("a file system is mounted under the sandbox: %s; nothing is removed, run or scanned through it", strings.Join(found, ", "))
 		return false
 	}
-	ids, err := mountIDs(roots...)
+	chains, err := mountChains(roots...)
 	if err != nil {
 		b.replaced("the mount table could not be read: %v; nothing is removed, run or scanned through the sandbox", err)
 		return false
 	}
-	for r, id := range b.mounts {
-		if ids[r] != id {
+	for r, chain := range b.mounts {
+		if chains[r] != chain {
 			b.replaced("a file system is mounted above %s; nothing is removed, run or scanned through it", Printable(r))
 			return false
 		}

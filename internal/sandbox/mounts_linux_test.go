@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,12 +42,12 @@ func TestMountsUnder(t *testing.T) {
 	}
 }
 
-// TestMountID: the covering mount is the longest prefix, the last of equals.
-func TestMountID(t *testing.T) {
-	fakeMounts(t, "1 0 0:1 / / rw - x x rw", "2 1 0:2 / /s rw - x x rw", "3 1 0:3 / /s rw - x x rw", "4 1 0:4 / /s/ab rw - x x rw")
-	ids, err := mountIDs("/s/a", "/s/ab/c", "/t")
-	if err != nil || ids["/s/a"] != "3" || ids["/s/ab/c"] != "4" || ids["/t"] != "1" {
-		t.Errorf("%v, %v", ids, err)
+// TestMountChains: every mount above a root, in the table's order.
+func TestMountChains(t *testing.T) {
+	fakeMounts(t, "1 0 0:1 / / rw - x x rw", "2 1 0:2 / /s rw - x x rw", "4 1 0:4 / /s/ab rw - x x rw")
+	got, err := mountChains("/s/a", "/s/ab/c", "/t")
+	if err != nil || got["/s/a"] != "1 /\n2 /s" || got["/s/ab/c"] != "1 /\n2 /s\n4 /s/ab" || got["/t"] != "1 /" {
+		t.Errorf("%q, %v", got, err)
 	}
 }
 
@@ -63,6 +64,18 @@ func TestIntactParentMount(t *testing.T) {
 	fakeMounts(t, root, "99 1 0:9 / "+filepath.Dir(b.resolved[b.dir])+" rw - fuse.x x rw")
 	if b.Intact() || !b.Has(ReasonReplaced) {
 		t.Errorf("reasons %v, want %s", b.Reasons(), ReasonReplaced)
+	}
+	// Above the covering mount: the longest prefix alone stays the same.
+	dir := filepath.Dir(b.resolved[b.dir])
+	cover := "50 1 0:5 / " + dir + " rw - x x rw"
+	fakeMounts(t, root, cover)
+	r2 := r.box(r.config("ancestor"))
+	if !r2.Make() || !prepare(context.Background(), r2) || !r2.Intact() {
+		t.Fatalf("prepare: %v", r2.Reasons())
+	}
+	fakeMounts(t, root, cover, "98 1 0:8 / "+filepath.Dir(dir)+" rw - x x rw")
+	if r2.Intact() || !r2.Has(ReasonReplaced) {
+		t.Errorf("a mount above the covering mount: reasons %v", r2.Reasons())
 	}
 	if !strings.Contains(r.out.String(), "above") {
 		t.Errorf("the note: %s", r.out.String())

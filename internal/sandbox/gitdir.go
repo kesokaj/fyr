@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -28,8 +29,8 @@ var foreignNames = []string{"objects/info/alternates", "commondir", "gitdir"}
 // or fills the host's memory (PLAN.md item 45, findings S1 and S3). It runs
 // after ExitChecks, so a docker session's own processes are gone; a process
 // that passed check e on the host, or a concurrent run of this uid, can still
-// change the clone after it. The fetch's own arguments are what keep
-// upload-pack to this .git.
+// change the clone after it, and what is then in .git is honoured. The
+// fetch's arguments close only upload-pack's fallback lookups.
 func (b *Box) GitIntact() bool {
 	why := gitDirProblem(filepath.Join(b.app, ".git"))
 	if why == "" {
@@ -85,5 +86,28 @@ func gitDirProblem(git string) string {
 	if why == "" && err != nil {
 		return err.Error()
 	}
+	if why == "" {
+		why = configProblem(filepath.Join(git, "config"))
+	}
 	return why
+}
+
+// configProblem says which key of config leads git to read more files, each
+// whole, on the host: 40 includes of one file are 40 copies in memory, so
+// config's own bound holds only without them (P12b's round 2). A config git
+// cannot list is a problem too; --file reads this file alone.
+func configProblem(config string) string {
+	cmd := exec.Command("git", "config", "--file", config, "--no-includes", "--name-only", "--list")
+	cmd.Env = append(WithoutGit(os.Environ()), "LC_ALL=C")
+	out, err := cmd.Output()
+	if err != nil {
+		return "config cannot be read: " + err.Error()
+	}
+	for _, name := range strings.Split(string(out), "\n") {
+		low := strings.ToLower(name)
+		if strings.HasPrefix(low, "include.") || strings.HasPrefix(low, "includeif.") || low == "extensions.worktreeconfig" {
+			return "config sets " + name
+		}
+	}
+	return ""
 }

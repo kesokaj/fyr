@@ -53,7 +53,7 @@ func (b *Box) cloneApp(ctx context.Context) bool {
 	// The clone stays a plain git call: it has no -C root for trail.Command
 	// and clones the operator's own repository into a fresh directory (plan
 	// 2026-10-27-harness-audit-fix D13).
-	clone := exec.CommandContext(ctx, "git", "clone", "-q", "--no-hardlinks", "--", b.c.Source, b.app)
+	clone := exec.CommandContext(ctx, "git", "clone", "-q", "--template=", "--no-hardlinks", "--", b.c.Source, b.app)
 	clone.Env = WithoutGit(os.Environ())
 	if out, err := clone.CombinedOutput(); err != nil {
 		b.Note("git clone: %v: %s", err, strings.TrimSpace(string(out)))
@@ -103,7 +103,7 @@ func (b *Box) openSandbox() bool {
 	for _, r := range b.resolved {
 		roots = append(roots, r)
 	}
-	mounts, err := mountIDs(roots...)
+	mounts, err := mountChains(roots...)
 	if err != nil {
 		b.Note("the mount table: %v", err)
 		b.Fail(ReasonSetup)
