@@ -40,6 +40,9 @@ func TestGitDirClean(t *testing.T) {
 		{"a ref too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "refs", "heads", "big"), strings.Repeat("0", maxRefFile+1), 0o644)
 		}, "refs/heads/big"},
+		{"a config too big", func(t *testing.T, git string) {
+			put(t, filepath.Join(git, "config"), strings.Repeat("#", maxConfigFile+1), 0o644)
+		}, "config"},
 		{"a HEAD too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "HEAD"), strings.Repeat("0", maxRefFile+1), 0o644)
 		}, "HEAD"},

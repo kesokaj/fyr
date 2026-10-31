@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,11 +80,27 @@ func (w *worker) leadUnchanged() bool {
 // finding S3).
 const fetchLimit = 10 * time.Minute
 
-// runBounded is CombinedOutput with a deadline, in its own process group,
-// which is killed whole at the deadline and once cmd ends: upload-pack is
-// cmd's child, and a kill of cmd alone leaves it holding the output pipe.
+// maxFetchOutput bounds what a fetch's output keeps; the rest is discarded.
+const maxFetchOutput = 64 << 10
+
+// cappedWriter keeps the first maxFetchOutput bytes.
+// Its buffer is a named field: embedded, its ReadFrom would be io.Copy's way
+// around Write.
+type cappedWriter struct{ kept bytes.Buffer }
+
+func (c *cappedWriter) Write(p []byte) (int, error) {
+	if room := maxFetchOutput - c.kept.Len(); room > 0 {
+		c.kept.Write(p[:min(room, len(p))])
+	}
+	return len(p), nil
+}
+
+// runBounded is CombinedOutput with a deadline and a bound on the output, in
+// its own process group, which is killed whole at the deadline: upload-pack
+// is cmd's child, and a kill of cmd alone leaves it holding the output pipe.
+// No kill follows Wait: it reaped the leader, so the id may be another's.
 func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
-	var out bytes.Buffer
+	var out cappedWriter
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 5 * time.Second
@@ -98,11 +115,10 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 	})
 	err := cmd.Wait()
 	t.Stop()
-	syscall.Kill(-pgid, syscall.SIGKILL)
 	if late.Load() {
-		return out.Bytes(), fmt.Errorf("timed out after %s", limit)
+		return out.kept.Bytes(), fmt.Errorf("timed out after %s", limit)
 	}
-	return out.Bytes(), err
+	return out.kept.Bytes(), err
 }
 
 // lazyFetchSafe is trail.LazyFetchSafe, a variable so a test can take either
@@ -122,10 +138,14 @@ func gitFloor(runner string) error {
 
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
+// Naming .git, and --strict, keep upload-pack to the .git GitIntact walked:
+// a .git that is no valid repository makes it look at the clone's top level,
+// or at .git/.git (P12b's security review, finding S1).
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
 	out, err := runBounded(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", w.b.App(), ref+":"+ref), fetchLimit)
+		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", "git upload-pack --strict",
+		filepath.Join(w.b.App(), ".git"), ref+":"+ref), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))
 		return false

@@ -88,3 +88,29 @@ func TestSafetyReasonsHoldIntegrity(t *testing.T) {
 		}
 	}
 }
+
+// TestRunNoFallbackToTheTopLevel is the checkpoint's security finding S1:
+// with .git no valid repository, upload-pack's lookup serves another one
+// GitIntact did not judge as a repository: the clone's top level when the
+// fetch names the clone, a .git/.git without --strict when it names .git.
+func TestRunNoFallbackToTheTopLevel(t *testing.T) {
+	for _, ctl := range []string{"toplevel-repo", "nested-repo"} {
+		t.Run(ctl, func(t *testing.T) {
+			r := newRig(t)
+			r.on(ctl, "")
+			res := r.run(r.kickoff("top", "src/a.txt"))
+			wantReasons(t, res, ReasonNoCommits)
+			if res.Head != "" || r.git("-C", r.lead, "branch", "--list", "work/*") != "" {
+				t.Errorf("a repository beside the clone's .git was fetched: %+v", res)
+			}
+		})
+	}
+}
+
+// TestCappedOutput: a fetch's output is kept to a bound.
+func TestCappedOutput(t *testing.T) {
+	out, err := runBounded(exec.Command("bash", "-c", "head -c 1000000 /dev/zero"), time.Minute)
+	if err != nil || len(out) != maxFetchOutput {
+		t.Errorf("%d bytes, %v", len(out), err)
+	}
+}

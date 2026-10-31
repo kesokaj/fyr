@@ -95,6 +95,8 @@ on many-drafts &&{ mkdir -p .agents/scratch/agents; for i in $(seq -w 1 51); do 
 on alternates && val alternates > "$(git rev-parse --git-dir)/objects/info/alternates"
 on delete-branch && { git checkout -q --detach; git branch -q -D "$(cat "$CTL/branch")"; }
 on hang && { touch "$CTL/started" "$CTL/started-$me"; exec sleep 300; }
+if on toplevel-repo; then cp -r .git/objects .git/refs .git/HEAD .; rm .git/HEAD; fi
+if on nested-repo; then cp -r .git ../nested; rm .git/HEAD; mv ../nested .git/.git; fi
 on "slow-$me" && sleep "$(val "slow-$me")"
 on peers && rm -f "$CTL/running-$me"
 echo "agy says ok"

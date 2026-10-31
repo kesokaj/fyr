@@ -99,6 +99,17 @@ func (b *Box) openSandbox() bool {
 		}
 		b.resolved[p] = r
 	}
+	roots := make([]string, 0, len(b.resolved))
+	for _, r := range b.resolved {
+		roots = append(roots, r)
+	}
+	mounts, err := mountIDs(roots...)
+	if err != nil {
+		b.Note("the mount table: %v", err)
+		b.Fail(ReasonSetup)
+		return false
+	}
+	b.mounts = mounts
 	root, err := os.OpenRoot(b.sb)
 	if err != nil {
 		b.Fail(ReasonSetup)

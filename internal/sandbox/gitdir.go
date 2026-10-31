@@ -9,8 +9,12 @@ import (
 	"strings"
 )
 
-// maxRefFile bounds HEAD and a loose ref: git reads each whole, on the host.
-const maxRefFile = 4096
+// maxRefFile and maxConfigFile bound what git reads whole, on the host:
+// HEAD, a loose ref, and config.
+const (
+	maxRefFile    = 4096
+	maxConfigFile = 1 << 20
+)
 
 // foreignNames lead a repository's reads to another one, relative to .git.
 var foreignNames = []string{"objects/info/alternates", "commondir", "gitdir"}
@@ -22,7 +26,10 @@ var foreignNames = []string{"objects/info/alternates", "commondir", "gitdir"}
 // alternates file, or a ref linked to a file of another repository, brings
 // that repository's objects into the lead; a FIFO or a device hangs the fetch
 // or fills the host's memory (PLAN.md item 45, findings S1 and S3). It runs
-// after ExitChecks, so nothing of the session is left to race it.
+// after ExitChecks, so a docker session's own processes are gone; a process
+// that passed check e on the host, or a concurrent run of this uid, can still
+// change the clone after it. The fetch's own arguments are what keep
+// upload-pack to this .git.
 func (b *Box) GitIntact() bool {
 	why := gitDirProblem(filepath.Join(b.app, ".git"))
 	if why == "" {
@@ -56,15 +63,22 @@ func gitDirProblem(git string) string {
 			why = rel + " is not a regular file"
 			return fs.SkipAll
 		}
-		if rel == "HEAD" || strings.HasPrefix(rel, "refs"+string(filepath.Separator)) {
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			if info.Size() > maxRefFile {
-				why = fmt.Sprintf("%s is %d bytes", rel, info.Size())
-				return fs.SkipAll
-			}
+		limit := int64(0)
+		switch {
+		case rel == "HEAD" || strings.HasPrefix(rel, "refs"+string(filepath.Separator)):
+			limit = maxRefFile
+		case rel == "config":
+			limit = maxConfigFile
+		default:
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > limit {
+			why = fmt.Sprintf("%s is %d bytes", rel, info.Size())
+			return fs.SkipAll
 		}
 		return nil
 	})

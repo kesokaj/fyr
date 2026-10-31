@@ -7,10 +7,6 @@ import (
 	"strings"
 )
 
-// MountsChecked reports whether a mount under the sandbox is seen on this
-// system: not without /proc, as ProcsChecked.
-const MountsChecked = true
-
 // mountInfo is this process's mount table; a test points it at a fixture.
 var mountInfo = "/proc/self/mountinfo"
 
@@ -22,29 +18,67 @@ var mountInfo = "/proc/self/mountinfo"
 // mount inside a namespace of the agent's own is not listed, and is not on
 // the host's paths either.
 func mountsUnder(roots ...string) ([]string, error) {
-	b, err := os.ReadFile(mountInfo)
+	table, err := readMounts()
 	if err != nil {
 		return nil, err
 	}
 	var found []string
-	for _, l := range strings.Split(string(b), "\n") {
-		if l == "" {
-			continue
-		}
-		// mountinfo(5): id, parent, major:minor, root, mount point, ...
-		f := strings.Fields(l)
-		if len(f) < 5 {
-			return nil, fmt.Errorf("%s: a line of an unknown shape", mountInfo)
-		}
-		mp := unescapeMount(f[4])
+	for _, m := range table {
 		for _, r := range roots {
-			if within(mp, r) {
-				found = append(found, mp)
+			if within(m.point, r) {
+				found = append(found, m.point)
 				break
 			}
 		}
 	}
 	return found, nil
+}
+
+// mountIDs is the id of the mount each of roots lies on: the longest mount
+// point above it, the last of equals, since a later mount stacks on an
+// earlier one. Intact compares them, because a file system mounted on a
+// parent of the sandbox hides it while its paths still resolve as approved
+// (P12b's security review, finding S2).
+func mountIDs(roots ...string) (map[string]string, error) {
+	table, err := readMounts()
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]string{}
+	for _, r := range roots {
+		best := -1
+		for _, m := range table {
+			if within(r, m.point) && len(m.point) >= best {
+				best, ids[r] = len(m.point), m.id
+			}
+		}
+	}
+	return ids, nil
+}
+
+type mount struct{ id, point string }
+
+// readMounts is the mount table. Its fields are split on one ASCII space:
+// the kernel escapes that and not a Unicode space, which strings.Fields
+// would split on.
+func readMounts() ([]mount, error) {
+	b, err := os.ReadFile(mountInfo)
+	if err != nil {
+		return nil, err
+	}
+	var table []mount
+	for _, l := range strings.Split(string(b), "\n") {
+		if l == "" {
+			continue
+		}
+		// mountinfo(5): id, parent, major:minor, root, mount point, ...
+		f := strings.Split(l, " ")
+		if len(f) < 5 {
+			return nil, fmt.Errorf("%s: a line of an unknown shape", mountInfo)
+		}
+		table = append(table, mount{f[0], unescapeMount(f[4])})
+	}
+	return table, nil
 }
 
 // unescapeMount undoes the kernel's \ooo escapes (space, tab, newline, \).

@@ -54,7 +54,7 @@ Each answer is a dated row under the plan's `## Decisions`, `by: lead`, written 
 
 A blocked phase is never dispatched, and neither is any phase whose `after:` (explicit, or the previous phase by default) reaches it, directly or through other phases. Every other qualifying phase still runs, and a run in flight completes. **The loop ends** when no phase is left to dispatch and no run is going.
 
-**A safety FAIL ends the loop at once**, after the run in flight returns. A safety FAIL is a result whose reasons include `credentials left in the sandbox`, `real config changed`, `processes left`, `sandbox replaced`, `sandbox write failed` or `lead checkout changed`. Nothing more is merged, not even that run's PASS results: their branches stay for the operator, beside the kept sandbox the verb names.
+**A safety FAIL ends the loop at once**, after the run in flight returns. A safety FAIL is a result whose reasons include `credentials left in the sandbox`, `real config changed`, `processes left`, `sandbox replaced`, `sandbox write failed`, `sandbox exists` or `lead checkout changed`. Nothing more is merged, not even that run's PASS results: their branches stay for the operator, beside the kept sandbox the verb names.
 
 A plan's real-home install is never run by the lead, whatever a Checkpoint says: it is one line in the closing handoff's Next Steps, for the final tree.
 

@@ -2,8 +2,7 @@
 
 package sandbox
 
-// MountsChecked reports whether a mount under the sandbox is seen on this
-// system: not without /proc, as ProcsChecked.
-const MountsChecked = false
-
+// Without /proc no mount is seen; the specs state the gap.
 func mountsUnder(roots ...string) ([]string, error) { return nil, nil }
+
+func mountIDs(roots ...string) (map[string]string, error) { return nil, nil }

@@ -33,10 +33,39 @@ func TestMountsUnderReadsTheRealTable(t *testing.T) {
 }
 
 func TestMountsUnder(t *testing.T) {
-	fakeMounts(t, mountLine("/"), mountLine("/s/box/app/mnt"), mountLine(`/s/box/home/with\040space`), mountLine("/s/box2/app"))
+	nbsp := "36 35 0:50 /a\u00a0b /s/box/app/nb rw - fuse.x x rw"
+	fakeMounts(t, mountLine("/"), mountLine("/s/box/app/mnt"), mountLine(`/s/box/home/with\040space`), mountLine("/s/box2/app"), nbsp, mountLine("/s/box/app/\u00a0n"))
 	got, err := mountsUnder("/s/box")
-	if err != nil || strings.Join(got, ",") != "/s/box/app/mnt,/s/box/home/with space" {
+	if err != nil || strings.Join(got, ",") != "/s/box/app/mnt,/s/box/home/with space,/s/box/app/nb,/s/box/app/\u00a0n" {
 		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+// TestMountID: the covering mount is the longest prefix, the last of equals.
+func TestMountID(t *testing.T) {
+	fakeMounts(t, "1 0 0:1 / / rw - x x rw", "2 1 0:2 / /s rw - x x rw", "3 1 0:3 / /s rw - x x rw", "4 1 0:4 / /s/ab rw - x x rw")
+	ids, err := mountIDs("/s/a", "/s/ab/c", "/t")
+	if err != nil || ids["/s/a"] != "3" || ids["/s/ab/c"] != "4" || ids["/t"] != "1" {
+		t.Errorf("%v, %v", ids, err)
+	}
+}
+
+// TestIntactParentMount is the checkpoint's security finding S2: a file
+// system mounted above the sandbox leaves its paths resolving as approved.
+func TestIntactParentMount(t *testing.T) {
+	root := "1 0 0:1 / / rw - x x rw"
+	fakeMounts(t, root)
+	r := newRig(t)
+	b := r.prepared(r.config("parent"))
+	if !b.Intact() {
+		t.Fatalf("no new mount, yet %v", b.Reasons())
+	}
+	fakeMounts(t, root, "99 1 0:9 / "+filepath.Dir(b.resolved[b.dir])+" rw - fuse.x x rw")
+	if b.Intact() || !b.Has(ReasonReplaced) {
+		t.Errorf("reasons %v, want %s", b.Reasons(), ReasonReplaced)
+	}
+	if !strings.Contains(r.out.String(), "above") {
+		t.Errorf("the note: %s", r.out.String())
 	}
 }
 
