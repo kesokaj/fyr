@@ -7,7 +7,7 @@
 
 ## Now
 
-`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1 and P2 are done; P3, borken's update, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
+`PLAN.md` (the repository root) — clean the project and release v5.5.0: the only plan (the operator, 2026-10-31). P1, P2 and P3 are done; P4, the `fyr work` guard and container limits, is next. Every earlier plan record is closed into it, and `PLAN.md` wins on a conflict.
 
 ## Next
 
