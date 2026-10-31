@@ -23,6 +23,8 @@
     if (parent) parent.appendChild(el);
     return el;
   }
+  const esc = v => String(v).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+  const slotOf = v => /^--[\w-]+$/.test(v) ? v : '--s1';
   function text(parent, x, y, str, attrs) {
     const t = mk('text', Object.assign({ x, y }, attrs || {}), parent);
     t.textContent = str;
@@ -58,7 +60,7 @@
     const x = i => m.l + i * pw / (n - 1), y = v => m.t + ph - (v - yMin) / (yMax - yMin) * ph;
     const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': o.label || '' }, container);
 
-    if (o.legendEl) o.legendEl.innerHTML = series.map(s => `<span><i style="--c:var(${s.slot})"></i>${s.name}</span>`).join('');
+    if (o.legendEl) o.legendEl.innerHTML = series.map(s => `<span><i style="--c:var(${esc(slotOf(s.slot))})"></i>${esc(s.name)}</span>`).join('');
 
     ticks.forEach(t => {
       const yy = y(t);
@@ -119,7 +121,7 @@
       const r = container.getBoundingClientRect(); const px = e.clientX - r.left;
       const i = Math.max(0, Math.min(n - 1, Math.round((px - m.l) / (pw / (n - 1)))));
       xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.style.display = '';
-      tip.innerHTML = `<b>${labels[i].text || labels[i]}</b>` + series.map(s => `<div><i style="--c:var(${s.slot})"></i>${s.name}<span class="v">${fmt(s.values[i])}</span></div>`).join('');
+      tip.innerHTML = `<b>${esc(labels[i].text || labels[i])}</b>` + series.map(s => `<div><i style="--c:var(${esc(slotOf(s.slot))})"></i>${esc(s.name)}<span class="v">${esc(fmt(s.values[i]))}</span></div>`).join('');
       tip.style.display = 'block';
       const tw = tip.offsetWidth; let left = x(i) + 12; if (left + tw > W) left = x(i) - tw - 12;
       tip.style.left = left + 'px'; tip.style.top = (m.t + 4) + 'px';
@@ -150,7 +152,7 @@
       text(svg, cx, top - 6, fmt(o.values[i]), { 'text-anchor': 'middle', class: 'lbl' });
       text(svg, cx, H - 10, lab, { 'text-anchor': 'middle', class: 'ax' });
       bar.addEventListener('pointerenter', () => {
-        tip.innerHTML = `<b>${lab}</b><div>${o.valueName || ''}<span class="v">${fmt(o.values[i])}</span></div>`; tip.style.display = 'block';
+        tip.innerHTML = `<b>${esc(lab)}</b><div>${esc(o.valueName || '')}<span class="v">${esc(fmt(o.values[i]))}</span></div>`; tip.style.display = 'block';
         const tw = tip.offsetWidth; tip.style.left = Math.min(W - tw - 4, Math.max(0, cx - tw / 2)) + 'px'; tip.style.top = Math.max(0, top - 44) + 'px';
       });
       bar.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
