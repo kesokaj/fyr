@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P8 done (2026-10-31); P9 is next. This is the only plan.
+Status: open. P1 to P9 done (2026-10-31); P10a is next. This is the only plan.
 
 ## The operator's words
 
@@ -186,8 +186,8 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security` (the parser). Done 2026-10-31: the full test command exit 0, 15 of 15 packages; verifier 1821 pass, 0 fail (`TEST-2026-10-31-1619-verification-plan-md-p8-at-e9fad5c-1821-pass-0-f`); `security` CLEAR, 2 low fixed (`REVIEW-2026-10-31-1558-security-plan-md-p8-the-suite-parser-s-four-colu`); reviewer rounds 1 and 2; `fyr check` 0 findings after seven re-read stamps.
 
 ### P9 — eval: the suite's rows (item 5, Phase 5b; one session)
-- [ ] The eval-metrics plan's Phase 5b boxes, with `TestSuiteHarness`'s `want` in the same commit. Who: AI.
-- [ ] Checkpoint (rule 3). Expect: `go run ./cmd/fyr eval --home .agents/scratch/evalm --list` prints version and kind for every row.
+- [x] The eval-metrics plan's Phase 5b boxes, with `TestSuiteHarness`'s `want` in the same commit. Who: AI. Done 2026-10-31 (`d66b87e`): `GUIDE-eval` in the long header (9 `regression`, 8 `adversarial`), the view's `kind` and `expect` columns and per-kind suite lines, the record's `expect`; items 54 and 55; D19; the E2E on real agy, version 1 and 2 of `golang` in a throwaway home (`1 of 2`, `1 of 3`).
+- [x] Checkpoint (rule 3). Expect: `go run ./cmd/fyr eval --home .agents/scratch/evalm --list` prints version and kind for every row. Done 2026-10-31: 63 rows, each `v1` and a kind; verifier 1831 pass, 0 fail; `fyr check` 0 findings; `reviewer` APPROVE, docs lens and round 2 APPROVE WITH NITS, `security` one low finding, fixed (item 55).
 
 ### P10a — the file-era trail goes: search and the docs root (item 33, its search half; one session; D9)
 - [ ] The ADR (D4), stating D9's registration rule first: a project with `.agents/trail.jsonl` registers for `--global`, replacing `globalDocsRoot` (`internal/search/global.go`, `scope_prepare.go`). Then item 33's search readers go, with their tests, test first where a behaviour changes (a migrated project registers for `--global`): the global search index's `.agents/docs` and the docs-root fallbacks. `SPEC-fyr-search` is updated. Verify: the full test command. Who: AI.
