@@ -138,6 +138,21 @@ func gitFloor(runner string) error {
 	return nil
 }
 
+// uploadPackMemKiB bounds the address space of the docker fetch's upload-pack
+// and its pack-objects, in KiB: 8 GiB, the worker container's own --memory.
+var uploadPackMemKiB = 8 << 20
+
+// uploadPack is the fetch's --upload-pack. Under docker a clone's config can
+// make it hold a blob whole (core.bigFileThreshold, the v5.5.0 gate), so it
+// runs under a limit, and a limit that cannot be set fails the fetch. A host
+// session runs as the operator already.
+func uploadPack(runner string) string {
+	if runner == RunnerDocker {
+		return fmt.Sprintf("ulimit -v %d && exec git upload-pack --strict", uploadPackMemKiB)
+	}
+	return "git upload-pack --strict"
+}
+
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
 // Naming .git, and --strict, close upload-pack's fallback lookups: a .git
@@ -147,7 +162,7 @@ func gitFloor(runner string) error {
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
 	out, err := runBounded(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", "git upload-pack --strict",
+		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", uploadPack(w.o.Runner),
 		filepath.Join(w.b.App(), ".git"), ref+":"+ref), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))

@@ -220,11 +220,13 @@ func (o Options) since(st state, root string) time.Time {
 	return o.Now().Add(-firstLook)
 }
 
-// command is the tool-free headless call (D4, D7b, D28). Antigravity has no
-// no-tools flag: it runs in plan mode from a HOME whose settings grant no
-// tool without review, the operator's own when the oracle shows that, else a
-// private one that grants nothing (branchFor), so any tool call is refused,
-// and the prompt's warning keeps it from trying; the prompt goes on stdin
+// command is the headless call with no tool granted (D4, D7b, D28; ADR-089).
+// Antigravity has no no-tools flag: it runs in plan mode from a HOME whose
+// settings grant no tool without review, the operator's own when the oracle
+// shows that, else a private one that grants nothing (branchFor). Plan mode
+// still runs write_file for its own plan under brain/ (the 1.4.12 capture):
+// that is not refused, the turn just gives no answer (answer), and the
+// prompt's warning keeps it from trying; the prompt goes on stdin
 // as one stream-json message, never on the command line (Linux caps one
 // argument at 128 KiB, and argv is readable in /proc).
 func command() []string {

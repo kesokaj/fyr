@@ -50,7 +50,7 @@ func (e *EvalRows) WriteText(w io.Writer) {
 func (e *EvalRows) Table() [][]string {
 	out := make([][]string, 0, len(e.Rows))
 	for _, r := range e.Rows {
-		cells := []string{r.Row, fmt.Sprint(r.Version), r.Kind, fmt.Sprint(r.N), fmt.Sprint(r.C), fmt.Sprint(r.Errors),
+		cells := []string{printable(r.Row), fmt.Sprint(r.Version), r.Kind, fmt.Sprint(r.N), fmt.Sprint(r.C), fmt.Sprint(r.Errors),
 			optRate(r.PassAt1), optRate(r.PassPow3), optInterval(r.Wilson95), fmt.Sprint(r.Flip)}
 		cells = append(cells, r.Means.cells()...)
 		flags := "-"

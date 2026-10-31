@@ -104,6 +104,10 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 62 | The same review, S2: below git's `GIT_NO_LAZY_FETCH`, that `upload-pack` could run the promisor the clone configures (one of two verifiers refuted it; no older git tested) | fix: refusal 25, docker only | P12b |
 | 63 | The same review, S3: the fetch has no deadline and holds the collect lock, and a FIFO or device in `.git` hung it or filled host memory | fix: `runBounded`, 10 minutes, group kill; `GitIntact` refuses both shapes and a ref over 4096 bytes | P12b |
 | 64 | The same review, S4: eval's check cells run `git status` in a clone whose `core.fsmonitor` the agent can set | strike: both verifiers refuted it (D25) | — |
+| 65 | The v5.5.0 gate, security S1: `scanEntry`'s only bound is `st.Size()`, so a link a docker session plants to `/proc/self/pagemap` (size 0, no end) reads without bound on the host | fix: `readBounded`, `TestScanBoundsAFileStatSizeHides` | P13 |
+| 66 | The gate, security S2: a clone's `core.bigFileThreshold` makes the host's `pack-objects` hold a loose blob whole, past `GitIntact` and check d (the finding named `packed-refs`; its verifier refuted that route and measured this one) | fix: under docker the fetch's `--upload-pack` runs under `ulimit -v` 8 GiB, `TestUploadPackCapsMemory` | P13 |
+| 67 | The gate: `PRD.md` R3's "no tools" is false for agy's own plan file (the dream's `write_file` in `brain/`) | fix: R3 amended on the operator's word, ADR-089, the restatements | P13 |
+| 68 | The gate's lows in the code: `Behind` printed a URL query from git's text, `ShellArg`'s `$'…'` held a quote dash closes on, `fyr metrics evals` printed a label's control bytes | fix: each with a test run must-fail | P13 |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 

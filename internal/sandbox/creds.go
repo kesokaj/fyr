@@ -3,6 +3,7 @@ package sandbox
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -177,9 +178,12 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	if st.Size() > maxScan {
 		return credFinding{problem: fmt.Sprintf("larger than %d bytes, not read", maxScan)}, true
 	}
-	b, err := os.ReadFile(p)
+	b, err := readBounded(p)
 	if err != nil {
 		return credFinding{problem: "unreadable"}, true
+	}
+	if int64(len(b)) > maxScan {
+		return credFinding{problem: fmt.Sprintf("larger than %d bytes, not read", maxScan)}, true
 	}
 	if isExecutable(b) {
 		return credFinding{}, false // the installed fyr carries the redaction patterns as text
@@ -189,6 +193,18 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 		return credFinding{}, false
 	}
 	return credFinding{kinds: kinds}, true
+}
+
+// readBounded reads at most maxScan+1 bytes of p: a /proc file stats as size
+// 0 and may never end, and a link a docker session plants resolves on the
+// host (the v5.5.0 gate, finding S1).
+func readBounded(p string) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, maxScan+1))
 }
 
 // credKinds counts each credential kind in b; AWS's documented example key

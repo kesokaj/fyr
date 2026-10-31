@@ -45,8 +45,9 @@ func answer(stdout string) (string, error) {
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue
 		}
-		// A tool step that ran, denied or not, means the answer was not
-		// tool-free: no answer (security review of the release range).
+		// A tool step, run or denied, means the answer was not tool-free:
+		// no answer (security review of the release range). The step may
+		// already have run: plan mode writes its plan file (ADR-089).
 		if ev.Event == "step_update" && ev.StepUpdate.StepType == "tool" {
 			return "", nil
 		}

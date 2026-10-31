@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
@@ -252,7 +253,7 @@ func Behind(repo string) (int, error) {
 				remote = shown
 			}
 		}
-		return 0, fmt.Errorf("git fetch from %s failed; fyr runs git as you would, so fix it as for `git -C %s fetch` (on GitHub over SSH with port 22 blocked, ssh.github.com port 443 works): %w", remote, ShellArg(repo), err)
+		return 0, fmt.Errorf("git fetch from %s failed; fyr runs git as you would, so fix it as for `git -C %s fetch` (on GitHub over SSH with port 22 blocked, ssh.github.com port 443 works): %s", remote, ShellArg(repo), urlQuery.ReplaceAllString(err.Error(), "$1"))
 	}
 	n, err := gitOut(repo, "rev-list", "--count", "HEAD..@{upstream}")
 	if err != nil {
@@ -291,11 +292,16 @@ func remoteForDisplay(remote string) string {
 	return shown
 }
 
+// urlQuery is a URL's query in git's own text: git prints it, and it can hold
+// a token.
+var urlQuery = regexp.MustCompile(`(://[^\s'"?]*)\?[^\s'"]*`)
+
 // ShellArg quotes s for a command the operator may paste: in single quotes,
 // so a space, a $ or a quote cannot change the command, or, when s holds a
-// control character, in $'…' with that character escaped, which bash and zsh
-// read back as s and a POSIX sh reads as a literal string: never in double
-// quotes, inside which a shell runs $(…).
+// control character, in $'…' with that character and any quote escaped, which
+// bash and zsh read back as s. A sh without $'…', dash among them, reads it as
+// a literal string, since \x27 leaves no quote inside to close it: never in
+// double quotes, inside which a shell runs $(…).
 func ShellArg(s string) string {
 	if strings.IndexFunc(s, notPrintable) < 0 {
 		return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -304,9 +310,10 @@ func ShellArg(s string) string {
 	b.WriteString("$'")
 	for _, r := range s {
 		switch {
-		case r == '\'' || r == '\\':
-			b.WriteByte('\\')
-			b.WriteRune(r)
+		case r == '\'':
+			b.WriteString(`\x27`)
+		case r == '\\':
+			b.WriteString(`\\`)
 		case notPrintable(r) && r < 0x80:
 			fmt.Fprintf(&b, `\x%02x`, r)
 		case notPrintable(r) && r <= 0xFFFF:

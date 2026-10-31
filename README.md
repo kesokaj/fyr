@@ -32,7 +32,7 @@ flowchart LR
         homeFiles["~/.gemini/config<br/>installed files, no repository"]
         sessions["Antigravity sessions<br/>feedback-log skill logs, /retro queues"]
         configDir["~/.config/fyr/<br/>brain.db, metrics.db, search.db, state.json<br/>stays on this machine"]
-        dreamer["fyr dream --all<br/>hourly user timer, while agy runs<br/>a CLI with no tools"]
+        dreamer["fyr dream --all<br/>hourly user timer, while agy runs<br/>a CLI with no tool granted"]
         evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
         workRun["fyr work Kickoff file<br/>typed by you, a sandboxed clone with no remote and HOME"]
     end
@@ -55,7 +55,7 @@ flowchart LR
     retroHarness --> edit
     sessions -- "memory, trail, transcripts" --> dreamer
     dreamer -- "proposal records, metrics.db" --> configDir
-    dreamer -. "redacted prompt, no tools" .-> provider[("the CLI's model provider")]
+    dreamer -. "redacted prompt, no tool granted" .-> provider[("the CLI's model provider")]
     dreamer -. "one conversation per project, in /resume" .-> sessions
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider

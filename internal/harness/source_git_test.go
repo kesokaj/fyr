@@ -315,7 +315,7 @@ func TestShellArgEscapes(t *testing.T) {
 	for in, want := range map[string]string{
 		"/srv/a\u0085b":     `$'/srv/a\u0085b'`,
 		"/srv/a\U000e0001b": `$'/srv/a\U000e0001b'`,
-		"/srv/a\x1bb'c\\d":  `$'/srv/a\x1bb\'c\\d'`,
+		"/srv/a\x1bb'c\\d":  `$'/srv/a\x1bb\x27c\\d'`,
 		"/srv/plain":        `'/srv/plain'`,
 	} {
 		if got := ShellArg(in); got != want {
@@ -363,7 +363,7 @@ func TestBehindFetchErrorHidesCredentials(t *testing.T) {
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
 		{"-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "one"},
-		{"remote", "add", "origin", "https://tok3nuser:s3cr3tpw@127.0.0.1:1/x.git"},
+		{"remote", "add", "origin", "https://tok3nuser:s3cr3tpw@127.0.0.1:1/x.git?token=qu3rytok"},
 		{"config", "branch.main.remote", "origin"},
 		{"config", "branch.main.merge", "refs/heads/main"},
 	} {
@@ -375,11 +375,28 @@ func TestBehindFetchErrorHidesCredentials(t *testing.T) {
 	if err == nil {
 		t.Fatal("Behind fetched from a refused port")
 	}
-	if strings.Contains(err.Error(), "s3cr3tpw") || strings.Contains(err.Error(), "tok3nuser") {
+	if strings.Contains(err.Error(), "s3cr3tpw") || strings.Contains(err.Error(), "tok3nuser") || strings.Contains(err.Error(), "qu3rytok") {
 		t.Errorf("the error carries the URL's credentials: %v", err)
 	}
 	if !strings.Contains(err.Error(), "git fetch from https://127.0.0.1:1/x.git") {
 		t.Errorf("err = %v, want the remote named without its userinfo", err)
+	}
+}
+
+// TestShellArgHoldsInDash: dash has no $'…', so the form must hold no quote
+// that closes it early (the v5.5.0 gate).
+func TestShellArgHoldsInDash(t *testing.T) {
+	dash, err := exec.LookPath("dash")
+	if err != nil {
+		t.Skip("dash not installed")
+	}
+	marker := filepath.Join(t.TempDir(), "ran")
+	cmd := "printf %s " + ShellArg("/srv/a\x1b'; touch "+marker+" #")
+	if out, err := exec.Command(dash, "-c", cmd).CombinedOutput(); err != nil {
+		t.Logf("dash: %v: %s", err, out)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Errorf("dash ran what followed a quote: %s", cmd)
 	}
 }
 

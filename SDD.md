@@ -121,7 +121,7 @@ sequenceDiagram
   D->>D: pick registered projects idle a day with news
   D->>R: memory, new trail, transcripts
   R-->>D: redacted text
-  D->>P: agy headless, plan mode, no tools
+  D->>P: agy headless, plan mode, no tool granted
   P-->>D: proposals
   D->>B: global proposal records, for /retro
 ```
