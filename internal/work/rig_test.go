@@ -92,6 +92,7 @@ if on draft-names; then
   while IFS= read -r n; do echo x > "$d/$n"; done < "$CTL/draft-names"
 fi
 on many-drafts &&{ mkdir -p .agents/scratch/agents; for i in $(seq -w 1 51); do echo "$i" > ".agents/scratch/agents/d$i.md"; done; }
+on alternates && val alternates > "$(git rev-parse --git-dir)/objects/info/alternates"
 on delete-branch && { git checkout -q --detach; git branch -q -D "$(cat "$CTL/branch")"; }
 on hang && { touch "$CTL/started" "$CTL/started-$me"; exec sleep 300; }
 on "slow-$me" && sleep "$(val "slow-$me")"

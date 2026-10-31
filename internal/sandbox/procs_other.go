@@ -12,7 +12,7 @@ import (
 // record names the gap.
 const ProcsChecked = false
 
-func leftoverProcs(w io.Writer, verb, home string, roots ...string) []string {
+func leftoverProcs(w io.Writer, verb, home string, roots ...string) ([]string, error) {
 	fmt.Fprintln(w, verb+": no /proc here: the leftover-process check did not run")
-	return nil
+	return nil, nil
 }

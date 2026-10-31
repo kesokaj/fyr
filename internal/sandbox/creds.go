@@ -62,6 +62,7 @@ func scanCreds(dir string) map[string]credFinding {
 	out := map[string]credFinding{}
 	st, err := os.Lstat(dir)
 	if err != nil {
+		out["."] = credFinding{problem: "unreadable"}
 		return out
 	}
 	if st.Mode()&fs.ModeSymlink != 0 {

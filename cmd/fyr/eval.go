@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -242,8 +242,7 @@ func ingestRow(home string, r eval.Result) error {
 	// SIGTERM could swap a directory between this check and the ingest
 	// (security review of the fix, round 2). Nor is one the machine could not
 	// write, which read sandbox replaced until PLAN.md item 48.
-	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || slices.Contains(r.Reasons, eval.ReasonProcs) || slices.Contains(r.Reasons, eval.ReasonExists) || slices.Contains(r.Reasons, eval.ReasonReplaced) ||
-		slices.Contains(r.Reasons, eval.ReasonWrite) {
+	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || sandbox.Compromised(r.Reasons) {
 		return nil
 	}
 	outcome := strings.ToLower(r.Status)

@@ -3,9 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // TestEvalIngestSkipsReplaced: a sandbox whose home the agent replaced with
@@ -61,6 +63,18 @@ func TestEvalIngestSkipsReplaced(t *testing.T) {
 	}
 	if k, _ := passK(t, home, "eval=procs"); k != 0 {
 		t.Errorf("a row that left processes was ingested: k %d", k)
+	}
+	// Every reason of the one list is skipped, by that list (PLAN.md item 51).
+	for _, reason := range sandbox.IntegrityReasons {
+		row := "integrity-" + strings.ReplaceAll(reason, " ", "-")
+		d := filepath.Join(tmp, row)
+		agyHome(t, filepath.Join(d, "home"), "C4")
+		if err := ingestRow(home, eval.Result{Row: row, Status: eval.StatusFail, Reasons: []string{reason}, Dir: d}); err != nil {
+			t.Fatal(err)
+		}
+		if k, _ := passK(t, home, "eval="+row); k != 0 {
+			t.Errorf("a row failed %q was ingested: k %d", reason, k)
+		}
 	}
 	// The control: the same conversation under a real home directory is read.
 	ctl := filepath.Join(tmp, "control")

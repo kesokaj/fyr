@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -58,6 +59,22 @@ const (
 	ReasonReplaced    = "sandbox replaced"
 	ReasonWrite       = "sandbox write failed"
 )
+
+// IntegrityReasons say a sandbox cannot be read at all, for the one list
+// eval's ingest and work share (PLAN.md item 51): it is another invocation's,
+// something outlived the run and can still swap it, or it was replaced or
+// never fully written. Work adds its own reasons to fetch nothing.
+var IntegrityReasons = []string{ReasonExists, ReasonProcs, ReasonReplaced, ReasonWrite}
+
+// Compromised reports whether reasons hold one of IntegrityReasons.
+func Compromised(reasons []string) bool {
+	for _, r := range reasons {
+		if slices.Contains(IntegrityReasons, r) {
+			return true
+		}
+	}
+	return false
+}
 
 // TokenRel is the CLI's login token under a home.
 const TokenRel = ".gemini/antigravity-cli/antigravity-oauth-token"
@@ -151,8 +168,9 @@ func (b *Box) verb() string {
 
 // Intact reports whether the sandbox directory, the clone and the sandbox
 // home still resolve to what guard a approved, and fails the box once when
-// they do not: the agent can replace any of them with a link to the real
-// home, and the steps remove, scan and ingest through them.
+// they do not, or when a file system is mounted at or under them: the agent
+// can replace any of them with a link to the real home, or mount over them,
+// and the steps remove, scan and ingest through them.
 func (b *Box) Intact() bool {
 	for p, want := range b.resolved {
 		st, err := os.Lstat(p)
@@ -161,6 +179,25 @@ func (b *Box) Intact() bool {
 			b.replaced("%s no longer resolves to %s; nothing is removed, run or scanned through it", p, want)
 			return false
 		}
+	}
+	if len(b.resolved) == 0 {
+		return true
+	}
+	roots := make([]string, 0, len(b.resolved))
+	for _, want := range b.resolved {
+		roots = append(roots, want)
+	}
+	found, err := mountsUnder(roots...)
+	if err != nil {
+		b.replaced("the mount table could not be read: %v; nothing is removed, run or scanned through the sandbox", err)
+		return false
+	}
+	if len(found) > 0 {
+		for i, m := range found {
+			found[i] = Printable(m)
+		}
+		b.replaced("a file system is mounted under the sandbox: %s; nothing is removed, run or scanned through it", strings.Join(found, ", "))
+		return false
 	}
 	return true
 }

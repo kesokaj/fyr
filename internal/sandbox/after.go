@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bufio"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,17 +19,28 @@ func (b *Box) After() bool {
 		return false
 	}
 	// Step 12: a denial or a grant the CLI did not take fails the box.
-	if n := countLines(filepath.Join(b.dir, "err.txt"), "auto-denied"); n > 0 {
+	if n := b.count(filepath.Join(b.dir, "err.txt"), "auto-denied"); n > 0 {
 		b.Note("auto-denied %d", n)
 		b.Fail(ReasonDenied)
 	}
 	if log := newestLog(filepath.Join(b.sb, ".gemini", "antigravity-cli", "log")); log != "" {
-		if n := countLines(log, "invalid allow entry"); n > 0 {
+		if n := b.count(log, "invalid allow entry"); n > 0 {
 			b.Note("invalid allow entries %d", n)
 			b.Fail(ReasonInvalid)
 		}
 	}
 	return true
+}
+
+// count is countLines for step 12. A file that cannot be read says nothing
+// about what was denied, so it fails the box as fileFailed says (PLAN.md
+// item 49), unless no session ran to write it.
+func (b *Box) count(path, s string) int {
+	n, err := countLines(path, s)
+	if err != nil && (b.started || !errors.Is(err, fs.ErrNotExist)) {
+		b.fileFailed(err, "not read: %v", err)
+	}
+	return n
 }
 
 // unlink is step 11: warn when the token link was replaced or the real token
@@ -71,8 +83,14 @@ func (b *Box) ExitChecks() {
 		}
 	}
 	if len(roots) > 0 {
-		if found := leftoverProcs(b.c.Out, b.verb(), b.sb, roots...); len(found) > 0 {
+		found, err := leftoverProcs(b.c.Out, b.verb(), b.sb, roots...)
+		if len(found) > 0 {
 			b.Note("processes left by the run (BUG-163); each was sent SIGTERM: %s", strings.Join(found, ", "))
+		}
+		if err != nil {
+			b.Note("the leftover-process check could not read /proc: %v", err)
+		}
+		if len(found) > 0 || err != nil {
 			b.Fail(ReasonProcs)
 		}
 	}
@@ -96,10 +114,10 @@ func (b *Box) ExitChecks() {
 }
 
 // countLines is grep -c: the lines of path holding s.
-func countLines(path, s string) int {
+func countLines(path, s string) (int, error) {
 	f, err := OpenRegular(path, os.O_RDONLY)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	defer f.Close()
 	n := 0
@@ -110,7 +128,7 @@ func countLines(path, s string) int {
 			n++
 		}
 	}
-	return n
+	return n, sc.Err()
 }
 
 // newestLog is the newest cli-*.log of dir by mtime, or "".

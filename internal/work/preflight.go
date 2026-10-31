@@ -117,7 +117,10 @@ func (p *prepared) session(o Options) error {
 	if p.base, err = head(o.Root); err != nil {
 		return err
 	}
-	if p.reflog, err = reflogStart(o.Root); err != nil || o.Runner != RunnerDocker {
+	if p.reflog, err = reflogStart(o.Root); err != nil {
+		return err
+	}
+	if err = gitFloor(o.Runner); err != nil || o.Runner != RunnerDocker {
 		return err
 	}
 	return p.dockerRefusals(o)

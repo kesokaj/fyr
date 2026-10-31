@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ var wideGrant = []string{"command(*)", "read_file(*)", "write_file(*)"}
 // is fetched, copied or printed, and the sandbox is kept (D38). A sandbox
 // the machine could not write is among them, as it was while that failure
 // read sandbox replaced (PLAN.md item 48).
-var safetyReasons = []string{sandbox.ReasonCredentials, sandbox.ReasonRealConfig, sandbox.ReasonProcs, sandbox.ReasonReplaced, sandbox.ReasonWrite, ReasonLeadChanged}
+var safetyReasons = append(slices.Clone(sandbox.IntegrityReasons), sandbox.ReasonCredentials, sandbox.ReasonRealConfig, ReasonLeadChanged)
 
 // worker is one Kickoff's sandbox and what work adds to it.
 type worker struct {

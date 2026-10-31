@@ -18,6 +18,13 @@ var refusalCases = []struct {
 	setup func(r *rig, o *Options) string // returns the Kickoff file
 	want  string
 }{
+	{"docker needs a git that honours GIT_NO_LAZY_FETCH", func(r *rig, o *Options) string {
+		old := lazyFetchSafe
+		lazyFetchSafe = func() bool { return false }
+		r.t.Cleanup(func() { lazyFetchSafe = old })
+		o.Runner = RunnerDocker
+		return r.kickoff("floor", "src/a.txt")
+	}, "GIT_NO_LAZY_FETCH"},
 	{"not-a-checkout", func(r *rig, o *Options) string {
 		o.Root = filepath.Join(r.tmp, "plain")
 		mkdir(r.t, o.Root)

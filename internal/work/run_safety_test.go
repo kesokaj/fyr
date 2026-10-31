@@ -38,6 +38,7 @@ func TestRunSafetyKeepsSandbox(t *testing.T) {
 		{"lead", "lead", func(r *rig) string { return r.lead }, ReasonLeadChanged},
 		{"real-config", "realconfig", func(r *rig) string { return filepath.Join(r.real, ".gemini", "config", "rules", "x.md") }, sandbox.ReasonRealConfig},
 		{"leak", "leak", func(*rig) string { return "gh" + "o_" + strings.Repeat("C", 36) }, sandbox.ReasonCredentials},
+		{"alternates", "alternates", func(*rig) string { return "/nowhere/objects" }, sandbox.ReasonReplaced},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t)

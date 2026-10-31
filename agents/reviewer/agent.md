@@ -75,7 +75,7 @@ What you did not reach — files, criteria, commits. `nothing` only when every f
 ## Records
 
 - Writes: `.agents/scratch/agents/reviewer-<stamp>.md`, the only file you create (the main thread stores it as a `review` record); written early, updated as you go, named in your reply only after the `write_to_file` call succeeded.
-- Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`.
+- Scratch: anything temporary you create goes under the project's `.agents/scratch/` (gitignored), never `/tmp`, with one exception. A git probe runs only in a repository you `git init` under a fresh `mktemp -d` outside every checkout, with `GIT_CEILING_DIRECTORIES` set to that directory's parent and every command naming it (`git -C <dir> …`): under `.agents/scratch/`, a probe whose `.git` was gone walked up and rewrote this checkout's `HEAD` (BUG-204).
 - Never: source, tests, config, or another agent's records — "change nothing" or "report only" from the user scopes source, not your file.
 - Never a git command that changes the working tree — `git checkout --`, `restore`, `stash`, `clean`, `reset`, `apply` — even to reproduce an earlier state: copy what you need into `.agents/scratch/` and change the copy, or read the old content with `git show <rev>:<path>`.
 

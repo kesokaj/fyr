@@ -2,12 +2,15 @@ package work
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/trail"
@@ -20,7 +23,7 @@ const maxNamed = 20
 // never started, gets none of them (D38); a timed-out, killed or otherwise
 // failed one is fetched (D26).
 func (w *worker) collect() {
-	if !w.ran || w.unsafe() || !w.b.Intact() {
+	if !w.ran || w.unsafe() || !w.b.Intact() || !w.b.GitIntact() {
 		return
 	}
 	if !w.leadUnchanged() {
@@ -71,12 +74,58 @@ func (w *worker) leadUnchanged() bool {
 	return true
 }
 
+// fetchLimit bounds step 6. It holds the collect lock every other worker
+// waits on, and no session's work takes this long to copy (PLAN.md item 45,
+// finding S3).
+const fetchLimit = 10 * time.Minute
+
+// runBounded is CombinedOutput with a deadline, in its own process group,
+// which is killed whole at the deadline and once cmd ends: upload-pack is
+// cmd's child, and a kill of cmd alone leaves it holding the output pipe.
+func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = 5 * time.Second
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	pgid := cmd.Process.Pid
+	var late atomic.Bool
+	t := time.AfterFunc(limit, func() {
+		late.Store(true)
+		syscall.Kill(-pgid, syscall.SIGKILL)
+	})
+	err := cmd.Wait()
+	t.Stop()
+	syscall.Kill(-pgid, syscall.SIGKILL)
+	if late.Load() {
+		return out.Bytes(), fmt.Errorf("timed out after %s", limit)
+	}
+	return out.Bytes(), err
+}
+
+// lazyFetchSafe is trail.LazyFetchSafe, a variable so a test can take either
+// side.
+var lazyFetchSafe = trail.LazyFetchSafe
+
+// gitFloor is refusal 25: under the docker runner the host's upload-pack
+// reads a clone the container wrote, and a git that does not honour
+// GIT_NO_LAZY_FETCH would run the promisor it configures (PLAN.md item 45,
+// finding S2). A host session runs as the operator already.
+func gitFloor(runner string) error {
+	if runner == RunnerDocker && !lazyFetchSafe() {
+		return errors.New("--runner docker: this git does not honour GIT_NO_LAZY_FETCH, so a fetch from a clone the container wrote could run its config: upgrade git")
+	}
+	return nil
+}
+
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
-	out, err := leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", w.b.App(), ref+":"+ref).CombinedOutput()
+	out, err := runBounded(leadGit(w.o.Root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
+		"--no-recurse-submodules", "--no-write-fetch-head", w.b.App(), ref+":"+ref), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))
 		return false

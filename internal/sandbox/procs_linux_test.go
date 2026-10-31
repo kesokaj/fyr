@@ -72,7 +72,7 @@ func TestProcsLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + other}
-	if found := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
+	if found, _ := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
 		t.Fatalf("a clean run reports %v", found)
 	}
 	for name, c := range map[string]struct {
@@ -86,7 +86,7 @@ func TestProcsLeftovers(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := plant(t, c.bin, c.dir, c.env, 301)
-			found := leftoverProcs(io.Discard, "test", sb, clone, sb)
+			found, _ := leftoverProcs(io.Discard, "test", sb, clone, sb)
 			want := strconv.Itoa(cmd.pid) + " (" + c.kind + ") "
 			if len(found) != 1 || !strings.HasPrefix(found[0], want) {
 				t.Errorf("found %v, want one entry starting %q", found, want)
@@ -102,7 +102,7 @@ func TestProcsLeftovers(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := plant(t, sleep, other, env, 302)
-			if found := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
+			if found, _ := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
 				t.Errorf("found %v", found)
 			}
 			if cmd.exited(300 * time.Millisecond) {
@@ -112,7 +112,7 @@ func TestProcsLeftovers(t *testing.T) {
 	}
 	// eval itself, sitting in a root, is never its own leftover.
 	t.Chdir(clone)
-	if found := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
+	if found, _ := leftoverProcs(io.Discard, "test", sb, clone, sb); len(found) != 0 {
 		t.Errorf("eval matched itself: %v", found)
 	}
 }
