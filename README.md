@@ -117,7 +117,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr record add` / `get` / `edit` / `list` / `import` | The brain store: this project's trail records and the global ones |
 | `fyr search <words>` | Matching records first, then a ranked search of the project's files |
 | `fyr memory add` / `show` | The project memory a session loads at start |
-| `fyr metrics ingest` / `show` / `report` / `export` | The shape of every session: stored, summarised, charted, backed up |
+| `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr serve` | Pages of this project and this home on `127.0.0.1:3000` until Ctrl-C, with buttons for `fyr index` and `fyr metrics ingest`; open the printed URL, which holds the run's path and token |

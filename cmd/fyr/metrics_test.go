@@ -199,6 +199,18 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"metrics", "report", "--context-target", "-1", "--out", filepath.Join(home, "x.html")},
 		{"metrics", "ingest", "--context-target", "1"},
 		{"metrics", "export", "--context-target", "1", filepath.Join(home, "x.jsonl")},
+		{"metrics", "evals", "extra"},
+		{"metrics", "evals", "--project", "."},
+		{"metrics", "evals", "--label", "eval=smoke"},
+		{"metrics", "evals", "--all-labels"},
+		{"metrics", "evals", "--context-target", "1"},
+		{"metrics", "evals", "--out", filepath.Join(home, "x.html")},
+		{"metrics", "evals", "--since", "yesterday"},
+		{"metrics", "evals", "--since", "2026-10-05", "--until", "2026-10-01"},
+		{"metrics", "show", "--harness", "abc1234"},
+		{"metrics", "report", "--harness", "abc1234", "--out", filepath.Join(home, "x.html")},
+		{"metrics", "ingest", "--harness", "abc1234"},
+		{"metrics", "export", "--harness", "abc1234", filepath.Join(home, "x.jsonl")},
 	} {
 		err := run(append(args, "--home", home), &bytes.Buffer{})
 		var code exitCode
@@ -221,7 +233,7 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 	}
 }
 
-// show, report and export on a home that never ingested say so and exit 1;
+// show, report, evals and export on a home that never ingested say so and exit 1;
 // they never create an empty store whose zeros would read as "no sessions".
 func TestMetricsWithoutStore(t *testing.T) {
 	home := t.TempDir()
@@ -229,6 +241,7 @@ func TestMetricsWithoutStore(t *testing.T) {
 		{"metrics", "show"},
 		{"metrics", "report", "--out", filepath.Join(t.TempDir(), "r.html")},
 		{"metrics", "export", filepath.Join(t.TempDir(), "e.jsonl")},
+		{"metrics", "evals"},
 	} {
 		var out bytes.Buffer
 		err := run(append(args, "--home", home), &out)

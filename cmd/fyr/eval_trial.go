@@ -17,11 +17,15 @@ import (
 const trialTextMax = 120
 
 // harnessKey names the harness a run's trials install (the eval-metrics
-// plan D15): the install source's short HEAD with " (dirty)" when its tree
-// has changes, " (dirty: unknown)" when that cannot be read, "unknown" for
+// plan D15): the install source's short HEAD with " (dirty)" when what an
+// install reads (harness.ManagedDirs) has changes, so the trail a run's own
+// testing record writes leaves the key alone (PLAN.md item 53), " (dirty:
+// unknown)" when that cannot be read, "unknown" for
 // a source that is not a git checkout, or "embedded <version>" for the
-// harness built into a release binary ("embedded" when it has none). Two dirty trees at one HEAD share a
-// key, a stated limit.
+// harness built into a release binary ("embedded" when it has none). Two
+// dirty trees at one HEAD share a key, and so do two binaries built from
+// one HEAD with different cmd/ or internal/ edits: stated limits
+// (SPEC-fyr-eval § Known limits).
 func harnessKey(src harness.Source) string {
 	if src.Dir == "" {
 		return trialText(strings.TrimSpace("embedded " + src.Version))
@@ -30,7 +34,7 @@ func harnessKey(src harness.Source) string {
 	if key == "unknown" {
 		return key
 	}
-	if dirty, err := trail.Dirty(src.Dir); err != nil {
+	if dirty, err := trail.DirtyUnder(src.Dir, harness.ManagedDirs); err != nil {
 		key += " (dirty: unknown)"
 	} else if dirty {
 		key += " (dirty)"

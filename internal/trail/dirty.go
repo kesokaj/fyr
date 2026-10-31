@@ -27,6 +27,26 @@ import (
 // the os.Root reads relative to root, so a subdirectory would read every
 // file as deleted (ledger item 57).
 func Dirty(root string) (bool, error) {
+	return dirtyWhere(root, func(string) bool { return true })
+}
+
+// DirtyUnder is Dirty over the paths under the named top-level directories
+// only, by each of the same reads: eval's harness key looks at what `fyr
+// install` installs, not at the trail a run's own testing record changes
+// (PLAN.md item 53).
+func DirtyUnder(root string, dirs []string) (bool, error) {
+	return dirtyWhere(root, func(p string) bool {
+		for _, d := range dirs {
+			if p == d || strings.HasPrefix(p, d+"/") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// dirtyWhere is Dirty over the repository paths keep accepts.
+func dirtyWhere(root string, keep func(string) bool) (bool, error) {
 	if err := isTopLevel(root); err != nil {
 		return false, err
 	}
@@ -42,7 +62,7 @@ func Dirty(root string) (bool, error) {
 		return false, err
 	}
 	defer fsRoot.Close()
-	inHead, paths, blobs, dirty, err := headEntries(root, fsRoot, tree)
+	inHead, paths, blobs, dirty, err := headEntries(root, fsRoot, tree, keep)
 	if err != nil || dirty {
 		return dirty, err
 	}
@@ -50,25 +70,31 @@ func Dirty(root string) (bool, error) {
 	if err != nil || len(differ) > 0 {
 		return len(differ) > 0, err
 	}
-	if dirty, err := indexDiffers(root, inHead); err != nil || dirty {
+	if dirty, err := indexDiffers(root, inHead, keep); err != nil || dirty {
 		return dirty, err
 	}
 	untracked, err := Command(root, "ls-files", "-z", "-o", "--exclude-standard").Output()
 	if err != nil {
 		return false, fmt.Errorf("git ls-files: %w", err)
 	}
-	return len(untracked) > 0, nil
+	for _, p := range strings.Split(string(untracked), "\x00") {
+		if p != "" && keep(p) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // headEntries reads ls-tree's output: every HEAD path with its "<mode>
 // <blob>", the regular files left to hash, and dirty when a symlink, a
-// missing path or a type change already decides it.
-func headEntries(root string, fsRoot *os.Root, tree []byte) (inHead map[string]string, paths, blobs []string, dirty bool, err error) {
+// missing path or a type change already decides it. A path keep refuses is
+// left out.
+func headEntries(root string, fsRoot *os.Root, tree []byte, keep func(string) bool) (inHead map[string]string, paths, blobs []string, dirty bool, err error) {
 	inHead = map[string]string{}
 	for _, rec := range strings.Split(string(tree), "\x00") {
 		meta, p, cut := strings.Cut(rec, "\t")
 		f := strings.Fields(meta)
-		if !cut || len(f) != 3 {
+		if !cut || len(f) != 3 || !keep(p) {
 			continue
 		}
 		inHead[p] = f[0] + " " + f[2]
@@ -100,8 +126,9 @@ func headEntries(root string, fsRoot *os.Root, tree []byte) (inHead map[string]s
 // change whose work tree was restored, a staged new file, a conflict, or a
 // staged removal, which no other read sees when the file is ignored
 // (security review of the 2026-10-27 fix, finding 3 and round 2). Plumbing
-// only, no filter runs.
-func indexDiffers(root string, inHead map[string]string) (bool, error) {
+// only, no filter runs. An index path keep refuses is left out, as
+// headEntries leaves it out of inHead.
+func indexDiffers(root string, inHead map[string]string, keep func(string) bool) (bool, error) {
 	index, err := Command(root, "ls-files", "-z", "-s").Output()
 	if err != nil {
 		return false, fmt.Errorf("git ls-files: %w", err)
@@ -110,7 +137,7 @@ func indexDiffers(root string, inHead map[string]string) (bool, error) {
 	for _, rec := range strings.Split(string(index), "\x00") {
 		meta, p, cut := strings.Cut(rec, "\t")
 		f := strings.Fields(meta)
-		if !cut || len(f) != 3 {
+		if !cut || len(f) != 3 || !keep(p) {
 			continue
 		}
 		if f[2] != "0" || inHead[p] != f[0]+" "+f[1] {

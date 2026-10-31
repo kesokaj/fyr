@@ -131,15 +131,25 @@ func renderMetrics(home string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return metrics.RenderReport(w, sum, time.Now())
+	evals, err := s.Evals(metrics.EvalOptions{})
+	if err != nil {
+		return err
+	}
+	return metrics.RenderReport(w, sum, evals, time.Now())
 }
 
-// evals is the project's testing records that `fyr eval` wrote.
+// evals is the per-row view of this home's trials, then the project's
+// testing records that `fyr eval` wrote.
 func (r *Run) evals(w http.ResponseWriter, req *http.Request) {
 	if r.noProject(w, req, "evals") {
 		return
 	}
 	v := view{Title: "evals"}
+	table, err := r.evalRows()
+	if err != nil {
+		r.fail(w, req, v, err)
+		return
+	}
 	recs, err := brain.List(brain.Options{Home: r.o.Home, Dir: r.o.Dir}, brain.ListFilter{Kind: "testing"})
 	if err != nil {
 		r.fail(w, req, v, storeErr("brain store", err))
@@ -151,8 +161,30 @@ func (r *Run) evals(w http.ResponseWriter, req *http.Request) {
 			rows = append(rows, r.rowOf(rec, false))
 		}
 	}
-	v.Blocks = []block{listBlock(rows, "no eval results: fyr eval writes one testing record per run")}
+	v.Blocks = []block{table, listBlock(rows, "no eval results: fyr eval writes one testing record per run")}
 	r.page(w, req, http.StatusOK, v)
+}
+
+// evalRows is `fyr metrics evals` over the last 30 days of this home's
+// store, as its text in a <pre>, or the line that names a missing store:
+// the trials live in the home fyr eval wrote to (SPEC-fyr-serve).
+func (r *Run) evalRows() (block, error) {
+	line, err := r.metricsLine()
+	if err != nil || line != "" {
+		return block{Line: line}, err
+	}
+	s, err := metrics.Open(metrics.Path(r.o.Home))
+	if err != nil {
+		return block{}, storeErr("metrics store", err)
+	}
+	defer s.Close()
+	e, err := s.Evals(metrics.EvalOptions{})
+	if err != nil {
+		return block{}, storeErr("metrics store", err)
+	}
+	var text bytes.Buffer
+	e.WriteText(&text)
+	return block{Heading: "fyr metrics evals, the last 30 days", Pre: text.String()}, nil
 }
 
 // dream is the dream's status line and the tail of its log.

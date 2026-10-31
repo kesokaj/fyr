@@ -28,7 +28,7 @@ type ctx struct {
 	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer bool
 	fromZip, kind, refs, memType, memName, memDesc, dreamProject                            string
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut   string
-	metricsUntil                                                                            string
+	metricsUntil, metricsHarness                                                            string
 	metricsContextTarget                                                                    int64
 	metricsAllLabels, metricsJSON                                                           bool
 	recTitle, recStatus, recID, recProject                                                  string
@@ -91,12 +91,13 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
 		c.fs.StringVar(&c.metricsLabel, "label", "", "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label")
 		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
-		c.fs.StringVar(&c.metricsSince, "since", "", "show, report: the window's start, `YYYY-MM-DD` (default 30 days ago)")
-		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report: the window's end, `YYYY-MM-DD`, exclusive (default now)")
+		c.fs.StringVar(&c.metricsSince, "since", "", "show, report, evals: the window's start, `YYYY-MM-DD` (default 30 days ago)")
+		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report, evals: the window's end, `YYYY-MM-DD`, exclusive (default now)")
 		c.fs.StringVar(&c.metricsProject, "project", "", "show, report: only sessions in the project root `DIR`")
 		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "show, report: include labelled (sandbox) sessions")
-		c.fs.BoolVar(&c.metricsJSON, "json", false, "show: print the summary as JSON")
+		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, evals: print the summary as JSON")
 		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "show, report: the peak context, `N` tokens, a main session should stay under (default 300000)")
+		c.fs.StringVar(&c.metricsHarness, "harness", "", "evals: only the trials of the harness key `KEY`, exactly")
 		c.fs.StringVar(&c.metricsOut, "out", "", "report: the HTML file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
 	"record": {flags: func(c *ctx) {

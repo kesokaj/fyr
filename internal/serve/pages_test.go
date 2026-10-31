@@ -149,7 +149,7 @@ func TestStoreErrorIsolated(t *testing.T) {
 		write(t, filepath.Join(conf, db), strings.Repeat("not a database ", 20))
 	}
 	r := f.run(t)
-	for p, line := range map[string]string{"/records": "brain store: ", "/memory": "brain store: ", "/metrics/report": "metrics store: "} {
+	for p, line := range map[string]string{"/records": "brain store: ", "/memory": "brain store: ", "/metrics/report": "metrics store: ", "/evals": "metrics store: "} {
 		if w := get(t, r, "GET", p); w.Code != 500 || !strings.Contains(w.Body.String(), line) {
 			t.Errorf("%s: %d, want 500 with %q\n%s", p, w.Code, line, w.Body.String())
 		}
@@ -176,6 +176,9 @@ func TestMetricsAbsentCreatesNothing(t *testing.T) {
 	}
 	if w := get(t, r, "GET", "/metrics/report"); w.Code != 404 || !strings.Contains(w.Body.String(), "no metrics store at") {
 		t.Errorf("/metrics/report: %d\n%s", w.Code, w.Body.String())
+	}
+	if w := get(t, r, "GET", "/evals"); w.Code != 200 || !strings.Contains(w.Body.String(), "no metrics store at "+path) || !strings.Contains(w.Body.String(), f.ids["eval"]) {
+		t.Errorf("/evals: %d, want the missing store's line and the records\n%s", w.Code, w.Body.String())
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a page created the metrics store: %v", err)

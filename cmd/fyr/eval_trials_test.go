@@ -167,10 +167,10 @@ func TestHarnessKey(t *testing.T) {
 		}
 	}
 	git("init", "-q")
-	if err := os.MkdirAll(filepath.Join(repo, "sub"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(repo, "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "sub", "f"), []byte("x\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "skills", "f"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git("add", "-A")
@@ -182,14 +182,67 @@ func TestHarnessKey(t *testing.T) {
 	if got := harnessKey(harness.Source{Dir: repo}); got != short {
 		t.Errorf("clean: %q, want %q", got, short)
 	}
-	if got := harnessKey(harness.Source{Dir: filepath.Join(repo, "sub")}); got != short+" (dirty: unknown)" {
+	if got := harnessKey(harness.Source{Dir: filepath.Join(repo, "skills")}); got != short+" (dirty: unknown)" {
 		t.Errorf("below the top level: %q, want %q", got, short+" (dirty: unknown)")
 	}
-	if err := os.WriteFile(filepath.Join(repo, "sub", "f"), []byte("y\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "skills", "f"), []byte("y\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := harnessKey(harness.Source{Dir: repo}); got != short+" (dirty)" {
 		t.Errorf("dirty: %q, want %q", got, short+" (dirty)")
+	}
+}
+
+// TestHarnessKeyReadsInstalledDirs is PLAN.md item 53: the dirty mark looks
+// only at what `fyr install` installs. A run's testing record changes the
+// checkout's trail, and the next run of the same harness keeps its key; a
+// change under an installed directory, tracked or not, still marks it.
+func TestHarnessKeyReadsInstalledDirs(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git here")
+	}
+	repo := t.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "rev-parse", "--git-dir").CombinedOutput(); err == nil {
+		t.Skipf("the temporary directory is inside a checkout: %s", out)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@localhost"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(rel, s string) {
+		t.Helper()
+		p := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q")
+	write("context/AGENTS.md", "c\n")
+	write("skills/s/SKILL.md", "s\n")
+	write(".agents/trail.jsonl", "{}\n")
+	git("add", "-A")
+	git("commit", "-qm", "c")
+	short := gitShort(repo)
+	write(".agents/trail.jsonl", "{}\n{\"id\":\"TEST-1\"}\n")
+	write("PLAN.md", "untracked\n")
+	if got := harnessKey(harness.Source{Dir: repo}); got != short {
+		t.Errorf("after a run wrote its testing record: %q, want the clean %q", got, short)
+	}
+	for _, rel := range []string{"skills/s/SKILL.md", "rules/new.md", "workflows/w.md"} {
+		write(rel, "changed\n")
+		if got := harnessKey(harness.Source{Dir: repo}); got != short+" (dirty)" {
+			t.Errorf("after writing %s: %q, want %q", rel, got, short+" (dirty)")
+		}
+		if rel == "skills/s/SKILL.md" {
+			write(rel, "s\n")
+		} else if err := os.Remove(filepath.Join(repo, filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

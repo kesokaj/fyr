@@ -13,9 +13,9 @@ import (
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
-// metricsSummary is what show and report share: the show options (a usage
-// error exits 2 with its reason on the writer), the existing store, opened
-// and closed here, and its summary.
+// metricsSummary is what show reads: the show options (a usage error exits
+// 2 with its reason on the writer), the existing store, opened and closed
+// here, and its summary.
 func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 	o, err := c.metricsShowOptions()
 	if err != nil {
@@ -30,12 +30,12 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 	return s.Show(o)
 }
 
-// runMetrics serves `metrics ingest`, `show`, `report` and `export` (spec
-// the record SPEC-fyr-metrics).
+// runMetrics serves `metrics ingest`, `show`, `report`, `evals` and
+// `export` (spec the record SPEC-fyr-metrics).
 // metricsSubverbs is what runMetrics dispatches, in its order: its refusal
 // texts are built from it and the check vocabulary reads it, and a test pins
 // it against the switch (plan fyr-check D14).
-var metricsSubverbs = []string{"ingest", "show", "report", "export"}
+var metricsSubverbs = []string{"ingest", "show", "report", "evals", "export"}
 
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
@@ -50,6 +50,8 @@ func runMetrics(c *ctx) error {
 		return c.metricsShow(args)
 	case "report":
 		return c.metricsReport(args)
+	case "evals":
+		return c.metricsEvals(args)
 	case "export":
 		return c.metricsExport(args)
 	}
@@ -60,7 +62,7 @@ func runMetrics(c *ctx) error {
 // the summary line.
 func (c *ctx) metricsIngest(args []string) error {
 	if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
-		fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show or report\n", bad)
+		fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show, report or evals\n", bad)
 		return exitCode(2)
 	}
 	if len(args) > 0 {
@@ -122,7 +124,21 @@ func (c *ctx) metricsReport(args []string) error {
 		fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
 		return exitCode(2)
 	}
-	sum, err := c.metricsSummary("report")
+	o, err := c.metricsShowOptions()
+	if err != nil {
+		fmt.Fprintln(c.out, "fyr metrics report: "+err.Error())
+		return exitCode(2)
+	}
+	s, err := c.existingMetricsStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	sum, err := s.Show(o)
+	if err != nil {
+		return err
+	}
+	evals, err := reportEvals(s, o)
 	if err != nil {
 		return err
 	}
@@ -131,7 +147,7 @@ func (c *ctx) metricsReport(args []string) error {
 	if file == "" {
 		file = metrics.ReportPath(c.home, now)
 	}
-	if err := metrics.WriteReport(sum, file, now); err != nil {
+	if err := metrics.WriteReport(sum, evals, file, now); err != nil {
 		return err
 	}
 	fmt.Fprintln(c.out, "metrics: report written to "+file)
@@ -164,7 +180,7 @@ func (c *ctx) metricsExport(args []string) error {
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
 func (c *ctx) metricsFlagsOutside(allowed ...string) string {
-	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true}
+	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true}
 	ok := map[string]bool{}
 	for _, a := range allowed {
 		ok[a] = true
@@ -194,28 +210,18 @@ func (c *ctx) existingMetricsStore() (*metrics.Store, error) {
 // each other, and --project is made absolute as the store records roots.
 func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	var o metrics.ShowOptions
-	if c.metricsSince != "" {
-		t, err := time.Parse("2006-01-02", c.metricsSince)
-		if err != nil {
-			return o, fmt.Errorf("--since %q: want YYYY-MM-DD", c.metricsSince)
-		}
-		o.Since = t
-	}
-	if c.metricsUntil != "" {
-		t, err := time.Parse("2006-01-02", c.metricsUntil)
-		if err != nil {
-			return o, fmt.Errorf("--until %q: want YYYY-MM-DD", c.metricsUntil)
-		}
-		if !o.Since.IsZero() && !t.After(o.Since) {
-			return o, errors.New("--until must be after --since")
-		}
-		o.Now = t // exclusive: --since A --until B and --since B never overlap
+	var err error
+	if o.Since, o.Now, err = c.metricsWindow(); err != nil {
+		return o, err
 	}
 	if c.metricsLabel != "" && c.metricsAllLabels {
 		return o, errors.New("--label and --all-labels exclude each other")
 	}
 	if c.metricsSource != "" || c.metricsOutcome != "" {
 		return o, errors.New("--source and --outcome belong to ingest")
+	}
+	if c.metricsHarness != "" {
+		return o, errors.New("--harness belongs to evals")
 	}
 	if c.metricsOut != "" && c.fs.Arg(0) != "report" {
 		return o, errors.New("--out belongs to report")
@@ -237,4 +243,23 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 		o.Project = abs
 	}
 	return o, nil
+}
+
+// metricsWindow reads --since and --until: zero for either not given, and
+// --until exclusive, so --since A --until B and --since B never overlap.
+func (c *ctx) metricsWindow() (since, until time.Time, err error) {
+	if c.metricsSince != "" {
+		if since, err = time.Parse("2006-01-02", c.metricsSince); err != nil {
+			return since, until, fmt.Errorf("--since %q: want YYYY-MM-DD", c.metricsSince)
+		}
+	}
+	if c.metricsUntil != "" {
+		if until, err = time.Parse("2006-01-02", c.metricsUntil); err != nil {
+			return since, until, fmt.Errorf("--until %q: want YYYY-MM-DD", c.metricsUntil)
+		}
+		if !since.IsZero() && !until.After(since) {
+			return since, until, errors.New("--until must be after --since")
+		}
+	}
+	return since, until, nil
 }

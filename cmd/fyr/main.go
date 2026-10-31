@@ -16,7 +16,7 @@
 //	fyr search      ranked search of records and files
 //	fyr index       reconcile the search index; --register opts in
 //	fyr dream       the hourly dreamer and its timer
-//	fyr metrics     session shapes: ingest, show, report, export
+//	fyr metrics     session shapes: ingest, show, report, evals, export
 //	fyr eval        run behavioural rows against the CLI
 //	fyr work        run Kickoffs as agy workers (isolated only with --runner docker)
 //	fyr check       read-only drift check of this checkout's docs

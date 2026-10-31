@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"io"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -72,6 +73,19 @@ func TestHelpShortPageListsEveryVerb(t *testing.T) {
 	}
 	if p, _ := pageOf("sync"); p.synopsis[0] != pages["install"].synopsis[0] {
 		t.Error("sync's page is not install's")
+	}
+	// The metrics line names every subcommand runMetrics serves (P7's
+	// review: evals was missing from it and from main.go's doc comment).
+	line := regexp.MustCompile(`(?m)^  metrics +session shapes: (.*)$`).FindStringSubmatch(shortPage)
+	if line == nil || line[1] != strings.Join(metricsSubverbs, ", ") {
+		t.Errorf("the short page's metrics line %q, want %q", line, strings.Join(metricsSubverbs, ", "))
+	}
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), "fyr metrics     session shapes: "+strings.Join(metricsSubverbs, ", ")+"\n") {
+		t.Errorf("main.go's doc comment does not list %v", metricsSubverbs)
 	}
 }
 
@@ -204,7 +218,7 @@ func TestUsageErrSites(t *testing.T) {
 		"eval without a row":     {[]string{"eval"}, "eval", ""},
 		"memory frob":            {[]string{"memory", "frob"}, "memory", ""},
 		"bare metrics":           {[]string{"metrics"}, "metrics", ""},
-		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, export)`},
+		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, export)`},
 		"sync with a stray word": {[]string{"sync", "x", "--repo", "../.."}, "sync", `sync takes no arguments: ["x"]`},
 		"dream both timers":      {[]string{"dream", "--install-timer", "--remove-timer"}, "dream", "fyr dream: --install-timer or --remove-timer, not both"},
 		"dream timer and scope":  {[]string{"dream", "--remove-timer", "--project", "x"}, "dream", "fyr dream: --install-timer and --remove-timer take no --all or --project"},

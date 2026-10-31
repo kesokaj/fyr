@@ -39,7 +39,7 @@ Records and search
 
 Background and measurement
   dream        the hourly dreamer and its timer
-  metrics      session shapes: ingest, show, report, export
+  metrics      session shapes: ingest, show, report, evals, export
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (isolated only with --runner docker)
   check        read-only drift check of this checkout's docs
@@ -219,17 +219,21 @@ var pages = map[string]verbPage{
 			"       fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
 			"                          [--project DIR] [--label KEY=VALUE | --all-labels]",
 			"                          [--context-target N] [--out FILE]",
+			"       fyr metrics evals [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
+			"                         [--harness KEY] [--json]",
 			"       fyr metrics export FILE",
 		},
 		about: []string{
 			"The metrics store, ~/.config/fyr/metrics.db. ingest reads the shape of",
 			"every Antigravity session (tools, command verbs, tokens, timings; never",
-			"arguments or prose). show summarises the store for agent evaluation:",
-			"outcome, efficiency, process adherence and reliability; labelled",
-			"(sandbox) sessions are left out unless named. report writes that summary",
-			"as one HTML file with charts, 0600, an existing file refused. export",
-			"writes every row but the cmd_hash salt to FILE as JSONL, mode 0600, and",
-			"refuses an existing FILE: it is the store's only backup.",
+			"arguments or prose). show summarises it: outcome, efficiency, adherence,",
+			"reliability; labelled (sandbox) sessions only when named. report writes",
+			"that as one HTML file with charts, 0600, never over a file. evals prints",
+			"a line per fyr eval row (pass rates, Wilson interval, efficiency means,",
+			"a flag from its whole history: saturated, broken, unstable or history)",
+			"and the suite; --harness keeps one key's trials. export writes every row",
+			"but the cmd_hash salt to FILE as JSONL, 0600, an existing FILE refused:",
+			"it is the store's only backup.",
 		},
 	},
 	"eval": {

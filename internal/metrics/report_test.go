@@ -34,7 +34,7 @@ func reportFixture(t *testing.T) *Summary {
 func TestReportSelfContainedAndConsistent(t *testing.T) {
 	sum := reportFixture(t)
 	var buf bytes.Buffer
-	if err := RenderReport(&buf, sum, time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)); err != nil {
+	if err := RenderReport(&buf, sum, nil, time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 	html := buf.String()
@@ -110,7 +110,7 @@ func TestReportEscapesNames(t *testing.T) {
 	sum := reportFixture(t)
 	sum.B.ToolCallsByTool["agy"][`agy:<img src=x onerror=alert(1)>`] = 99
 	var buf bytes.Buffer
-	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(buf.String(), "<img") {
@@ -121,13 +121,13 @@ func TestReportEscapesNames(t *testing.T) {
 func TestWriteReportRefusesOverwrite(t *testing.T) {
 	sum := reportFixture(t)
 	f := filepath.Join(t.TempDir(), "r", "m.html")
-	if err := WriteReport(sum, f, time.Now()); err != nil {
+	if err := WriteReport(sum, nil, f, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Stat(f); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
-	if err := WriteReport(sum, f, time.Now()); err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
+	if err := WriteReport(sum, nil, f, time.Now()); err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 		t.Fatalf("second write: %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func TestWriteReportRefusesOverwrite(t *testing.T) {
 func TestReportDrawsNoMissingValues(t *testing.T) {
 	sum := reportFixture(t)
 	var buf bytes.Buffer
-	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	html := buf.String()
@@ -167,7 +167,7 @@ func TestReportDrawsNoMissingValues(t *testing.T) {
 func TestReportContextTargetRow(t *testing.T) {
 	sum := reportFixture(t)
 	var buf bytes.Buffer
-	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	row := regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>([^<]*)</td><td>([^<]*)</td>`).FindStringSubmatch(buf.String())
@@ -182,7 +182,7 @@ func TestReportContextTargetRow(t *testing.T) {
 	}
 	sum.B.SessionsOverContextTarget["agy"] = nil
 	buf.Reset()
-	RenderReport(&buf, sum, time.Now())
+	RenderReport(&buf, sum, nil, time.Now())
 	if !regexp.MustCompile(`<td>sessions over context target \(300000\)</td><td>n/a</td><td>[^<]*</td>`).MatchString(buf.String()) {
 		t.Error("a vendor with no context value is not drawn as n/a")
 	}
@@ -199,7 +199,7 @@ func TestReportAgyOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := RenderReport(&buf, sum, time.Now()); err != nil {
+	if err := RenderReport(&buf, sum, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	html := buf.String()

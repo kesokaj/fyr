@@ -41,6 +41,7 @@ func TestVerb(t *testing.T) {
 		{"# just a comment\ngit log --oneline # trailing", []string{"git log --oneline"}},
 		{"git push -f origin main", []string{"git push -f"}},
 		{"fyr metrics show --json --since 2026-10-01", []string{"fyr metrics show --json --since"}},
+		{"fyr metrics evals --json --harness abc1234", []string{"fyr metrics evals --json --harness"}},
 		{"fyr memory add --type user < x", []string{"fyr memory add --type"}},
 		{"fyr metrics secretword --json", []string{"fyr metrics --json"}},
 		// A session from before the rename names the old binary.

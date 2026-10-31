@@ -97,7 +97,7 @@ func checkManagedTree(src Source) error {
 	if src.Dir == "" {
 		return nil
 	}
-	for _, dir := range []string{"context", "agents", "commands", "rules", "workflows", "skills"} {
+	for _, dir := range ManagedDirs {
 		p := src.path(dir)
 		info, err := os.Lstat(p)
 		if errors.Is(err, os.ErrNotExist) {

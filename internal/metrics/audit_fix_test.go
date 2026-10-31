@@ -50,12 +50,12 @@ func TestHeredocTabsOnlyForDash(t *testing.T) {
 func TestWriteReportLeavesNoFileOnAFailedRender(t *testing.T) {
 	saved := renderReport
 	t.Cleanup(func() { renderReport = saved })
-	renderReport = func(w io.Writer, sum *Summary, now time.Time) error {
+	renderReport = func(w io.Writer, sum *Summary, _ *EvalRows, now time.Time) error {
 		io.WriteString(w, "<html>half")
 		return errors.New("render failed")
 	}
 	f := filepath.Join(t.TempDir(), "r", "metrics.html")
-	if err := WriteReport(&Summary{}, f, time.Now()); err == nil {
+	if err := WriteReport(&Summary{}, nil, f, time.Now()); err == nil {
 		t.Fatal("a failed render reported success")
 	}
 	if _, err := os.Stat(f); !os.IsNotExist(err) {
