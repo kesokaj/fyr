@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1 to P11 done (2026-10-31); P12 runs. This is the only plan.
+Status: open. P1 to P12 done (2026-10-31); P12b is next. This is the only plan.
 
 ## The operator's words
 
@@ -211,10 +211,10 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 ### P12 — the docs sweep (items 25, 32, 35, 47 and 52; one session)
 - [x] Item 25: `TDD.md` § T5 rows thinned, each claim kept in its `SPEC-fyr-*` or `cmd/fyr/help_text.go`. Verify: `fyr check`, and a table in the change record that maps each removed claim to its new home's file:line. Who: AI.
 - [x] Item 32: `.agents/scratch/` pruned to its keep-set (`workers/`, `agents/`, `evalm/`, `prd-reshape/`, `ui-skills/`, `audit/`, and what a later phase names). It is listed first and deleted by name. Verify: `du -sh .agents/scratch` and `ls .agents/scratch` before and after, in the change record. Expect: only the keep-set is left. Who: AI.
-- [ ] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
+- [x] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
 - [x] Item 52: `rules/agy-dispatch.md`, the operator's rule as D15 records it, within the size pins of `internal/harness/size_test.go`, with the pointers in `skills/work/SKILL.md` and `GUIDE-testing` § 4, and `/review --docs`; its behavioural run is P13's. Verify: `go test ./...` (the lint and the size pins). Who: AI.
 - [x] Item 47: the operator's word on the `PRD.md` provenance edit, asked in that session. On a yes, the edit as item 47 recommends, re-checked with `git log --all -S`; on a no, item 47 is struck by D-row. Verify: `fyr check`. Who: user (the word), AI (the edit).
-- [ ] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes.
+- [x] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes. Done 2026-10-31: verifier 1830 pass, 0 fail, 6 skip at `3278e4f`; `fyr check` 0 findings; `reviewer` two rounds.
 
 ### P12b — `agy` captures, the outside-clone probe, the clone-git review and the sandbox checks (items 43, 44, 45, 46, 49, 50 and 51; one session; D11)
 - [ ] Item 43: one real dream turn and one oracle run on the installed `agy` (1.4.12 or later, named), their output kept as test fixtures beside the fake ones, and a test that fails, naming the missing key or event, when a shape fyr needs is absent. If the dream's `-p ""` with `--input-format stream-json` fails on the real turn, the argv changes with a test. The runs use a home outside every checkout, as `fyr eval` does (`GUIDE-testing` § 4), and need a logged-in `agy`; if it is not, the session asks the operator. Verify: `go test -race ./internal/dream`. Who: AI, with the operator's `agy` login.
