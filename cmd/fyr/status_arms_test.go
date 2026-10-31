@@ -125,7 +125,7 @@ func TestStatusRetroLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ = statusOut(t, repo, home)
-	want := "retro      last proposal " + old.Format("2006-01-02") + " (30 days ago) — past 14 days, run /retro at the end of the next session\n"
+	want := "retro      last proposal " + old.UTC().Format("2006-01-02") + " (30 days ago) — past 14 days, run /retro at the end of the next session\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("output lacks %q:\n%s", want, out)
 	}
@@ -134,7 +134,7 @@ func TestStatusRetroLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, _ = statusOut(t, repo, home)
-	want = "retro      last proposal " + time.Now().Format("2006-01-02") + " (0 days ago)\n"
+	want = "retro      last proposal " + time.Now().UTC().Format("2006-01-02") + " (0 days ago)\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("output lacks %q:\n%s", want, out)
 	}

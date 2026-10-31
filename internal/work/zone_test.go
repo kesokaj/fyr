@@ -141,12 +141,32 @@ func TestRunZone(t *testing.T) {
 	r2 := newRig(t)
 	unsetTZ(t)
 	pointLink(t, "file", "")
+	machineLocal(t)
 	if res := r2.run(r2.kickoff("fix-a", "src/a.txt")); res.Verdict != "PASS" {
 		t.Fatalf("no name: result %+v\n%s", res, r2.out.String())
 	}
 	if tz := envLines(r2.read("env"), "TZ="); len(tz) != 0 {
 		t.Errorf("no name: agy's TZ lines %q, want none", tz)
 	}
+}
+
+// machineLocal makes time.Local what a process started now would read: Go
+// fixed it at its first use, under whatever TZ the process or an earlier test
+// had, and the fake agy's date reads /etc/localtime, so near midnight the two
+// days differ and the record falls outside the window.
+func machineLocal(t *testing.T) {
+	t.Helper()
+	b, err := os.ReadFile("/etc/localtime")
+	if err != nil {
+		t.Skipf("no /etc/localtime: %v", err)
+	}
+	loc, err := time.LoadLocationFromTZData("Local", b)
+	if err != nil {
+		t.Skipf("/etc/localtime: %v", err)
+	}
+	old := time.Local
+	time.Local = loc
+	t.Cleanup(func() { time.Local = old })
 }
 
 // envLines is env's output lines that start with prefix.
