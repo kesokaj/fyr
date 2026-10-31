@@ -23,7 +23,20 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
-	os.Exit(m.Run())
+	// Nor the operator's git config: a global hooksPath or signing key
+	// never reaches a fixture commit (the v5.0.0 gate's security review).
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// A HOME of its own: a page that wrote under the operator's real home
+	// would reach the real store (the v5.0.0 gate's security review).
+	home, err := os.MkdirTemp("", "fyr-serve-home-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", home)
+	code := m.Run()
+	os.RemoveAll(home)
+	os.Exit(code)
 }
 
 const port = 3999

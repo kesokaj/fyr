@@ -176,7 +176,12 @@ func TestAgyProcessGroup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+			// A pid of 0 or below would signal the test's own group, or
+			// every process of the user, at cleanup.
+			pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if err != nil || pid <= 1 {
+				t.Fatalf("child.pid %q: %v", raw, err)
+			}
 			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
 			alive := true
 			for i := 0; i < 100 && alive; i++ {

@@ -130,6 +130,47 @@ func TestRunFailReasons(t *testing.T) {
 	}
 }
 
+// TestRunLinks: a symlink or a gitlink on the branch fails the worker even
+// where its Files: names the path, since the squash would carry a path
+// that reaches outside the checkout into the lead's tree (the v5.0.0
+// gate's security review). A regular file at the same path is the
+// control.
+func TestRunLinks(t *testing.T) {
+	for _, c := range []struct {
+		name, ctl, val string
+		ignored        bool
+	}{
+		{"file", "", "", false},
+		{"symlink", "symlink", "/etc/passwd", false},
+		{"symlink-in-tree", "symlink", "a.txt", false},
+		{"gitlink", "gitlink", "", false},
+		// The base's .gitmodules tells git to ignore the path: diff-tree
+		// would drop it from both checks without --ignore-submodules=none.
+		{"gitlink-ignored", "gitlink", "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			if c.ignored {
+				put(t, filepath.Join(r.lead, ".gitmodules"), "[submodule \"x\"]\n\tpath = src/link\n\turl = ./x\n\tignore = all\n")
+				r.git("-C", r.lead, "add", ".gitmodules")
+				r.git("-C", r.lead, "commit", "-qm", "gitmodules")
+			}
+			if c.ctl != "" {
+				r.on(c.ctl, c.val)
+			}
+			res := r.run(r.kickoff("links", "src/a.txt, src/link"))
+			if c.ctl == "" {
+				wantReasons(t, res)
+				return
+			}
+			wantReasons(t, res, ReasonOutside)
+			if !strings.Contains(strings.Join(res.Notes, "\n"), "symlink or submodule on the branch, whatever its Files: src/link") {
+				t.Errorf("no note naming src/link: %q", res.Notes)
+			}
+		})
+	}
+}
+
 // TestRunRecordScope: a record that existed at the base and changed on the
 // branch must be named in Files:, by its ID.
 func TestRunRecordScope(t *testing.T) {

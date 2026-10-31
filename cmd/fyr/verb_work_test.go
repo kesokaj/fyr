@@ -87,7 +87,16 @@ func newWorkRig(t *testing.T) *workRig {
 	old := workSelf
 	workSelf = func() (string, error) { return self, nil }
 	t.Cleanup(func() { workSelf = old })
+	// A recording fake docker: a --kill's sweep of a stale run never asks
+	// the machine's daemon (the v5.0.0 gate's security review).
+	writeTestFile(t, filepath.Join(bin, "docker"), "#!/bin/bash\nprintf '%s\\n' \"$*\" >> "+
+		sandbox.ShellQuote(filepath.Join(r.ctl, "docker.calls"))+"\n"+strings.TrimPrefix(fakeVerbDocker, "#!/bin/bash\n"))
+	if err := os.Chmod(filepath.Join(bin, "docker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DOCKER_CONTEXT", "")
 	t.Setenv("HOME", r.real)
 	t.Setenv("FYR_REPO", "")
 	// A known zone for refusal 22, as internal/work's rig pins it: a
@@ -326,6 +335,9 @@ func TestWorkVerbKill(t *testing.T) {
 	}
 	if out, code := r.work("--kill", stamp); code != 2 || !strings.Contains(out, "is stale: no run holds it") {
 		t.Errorf("exit %d, want 2 on the stale pid file:\n%s", code, out)
+	}
+	if calls, _ := os.ReadFile(filepath.Join(r.ctl, "docker.calls")); !strings.Contains(string(calls), "label=fyr.work="+stamp) {
+		t.Errorf("the stale sweep did not reach the fake docker: %q", calls)
 	}
 }
 

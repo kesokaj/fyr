@@ -72,6 +72,8 @@ if on drafts; then
   d=.agents/scratch/agents; mkdir -p "$d/sub"; echo adr > "$d/adr-draft.md"; echo bug > "$d/bug-draft.md"
   ln -s "$CTL/handoff" "$d/link.md"; head -c 1048577 /dev/zero > "$d/big.md"; mkfifo "$d/pipe.md"; ln "$CTL/handoff" "$d/hard.md"
 fi
+on symlink && { ln -s "$(val symlink)" src/link; git add src/link; git commit -qm link; }
+on gitlink && { git update-index --add --cacheinfo "160000,$(git rev-parse HEAD),src/link"; git commit -qm sub; }
 if on add-remove; then echo x > outside.txt; git add outside.txt; git commit -qm add; git rm -q outside.txt; git commit -qm remove; fi
 on graft && { mkdir -p "$(val leadpath)/.git/info"; echo "$(git rev-parse HEAD) $(git rev-parse HEAD~4)" > "$(val leadpath)/.git/info/grafts"; }
 on hook && { printf '#!/bin/sh\ntouch %s\n' "$(val hook)" > "$(val leadpath)/.git/hooks/reference-transaction"; chmod +x "$(val leadpath)/.git/hooks/reference-transaction"; }

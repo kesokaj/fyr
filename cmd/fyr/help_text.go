@@ -41,7 +41,7 @@ Background and measurement
   dream        the hourly dreamer and its timer
   metrics      session shapes: ingest, show, report, export
   eval         run behavioural rows against the CLI
-  work         run Kickoffs as sandboxed agy workers
+  work         run Kickoffs as agy workers (isolated only with --runner docker)
   check        read-only drift check of this checkout's docs
   serve        a local page of status, records, memory and metrics
   version      print the build version

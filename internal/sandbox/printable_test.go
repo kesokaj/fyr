@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -21,7 +22,10 @@ func TestPrintableMatchesSearch(t *testing.T) {
 // TestNoSQLiteDriver pins D10: internal/sandbox links no SQLite driver, as
 // internal/eval, its importer, may not.
 func TestNoSQLiteDriver(t *testing.T) {
-	out, err := exec.Command("go", "list", "-deps", ".").Output()
+	// GOPROXY=off: a cold module cache skips rather than fetches.
+	cmd := exec.Command("go", "list", "-deps", ".")
+	cmd.Env = append(os.Environ(), "GOPROXY=off")
+	out, err := cmd.Output()
 	if err != nil {
 		t.Skipf("go list: %v", err)
 	}

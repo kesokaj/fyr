@@ -102,8 +102,11 @@ func TestKill(t *testing.T) {
 
 // TestKillRefusals: a stale pid file (no lock holder), a missing run, a
 // string that is not a stamp, and a pid that is not the stamp's are each
-// refused, and nothing is signalled.
+// refused, and nothing is signalled. The stale file's sweep asks the
+// recording fake docker, never the machine's daemon (the v5.0.0 gate's
+// security review).
 func TestKillRefusals(t *testing.T) {
+	r, _ := dockerRig(t)
 	home := outsideTemp(t)
 	work := sandbox.Root(home, "work")
 	// The stale file names this process, so a Kill that skipped the lock
@@ -118,6 +121,9 @@ func TestKillRefusals(t *testing.T) {
 		if _, err := Kill(home, c.stamp); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("Kill(%q): %v, want %q", c.stamp, err, c.want)
 		}
+	}
+	if calls := r.read("docker.calls"); !strings.Contains(calls, "ps -a --filter label=fyr.work="+stale) {
+		t.Errorf("the stale sweep did not reach the fake docker: %q", calls)
 	}
 	// A live file whose pid is not its stamp's is refused, not signalled.
 	cmd, stamp := startHolder(t, home, 1)

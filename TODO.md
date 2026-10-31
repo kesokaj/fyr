@@ -27,4 +27,6 @@ No active phase. Row 10 of `PLAN-2026-10-29-root-docs-and-fyr-serve` is done (`f
 - agy's `--settings` (session-only settings) in place of a written `settings.json`, for `fyr eval` and `fyr work` (added 2026-10-30, workers § Scope, follow-ups; D20)
 - One strict trail-line parser shared by `internal/brain` and `internal/work`, through a package with no SQLite driver (added 2026-10-30, workers § Scope, follow-ups; D65)
 - A check that `TODO.md` Now mirrors the active plan's boxes (added 2026-10-30, root-docs D9's follow-up, never asked in row 7; D56)
+- Record the agy token's account before a docker worker's session and fail `real config changed` when it differs after; the token is the one writable host file in the container (added 2026-10-31, the v5.0.0 gate's security review, low; D106)
+- A worker's handoff merged into the lead's trail is instruction-shaped text that resume reads: skip worker-mode handoffs in resume, or re-title them on merge (added 2026-10-31, the v5.0.0 gate's security review, low)
 - Watch: whether BUG-198 (the lead committed and reset its checkout during a `fyr work` run) recurs on the next lead loop; a guard is the operator's question (added 2026-10-30, workers D101; the plan audit's item 11)

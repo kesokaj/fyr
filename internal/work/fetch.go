@@ -117,16 +117,50 @@ func (w *worker) scope() {
 		w.b.Note("changed outside its Files (D18): %s", named(outside))
 		w.b.Fail(ReasonOutside)
 	}
+	ls, err := links(root, w.p.base, ref)
+	switch {
+	case err != nil:
+		w.b.Note("the branch's links: %v", err)
+	case len(ls) > 0:
+		w.b.Note("a symlink or submodule on the branch, whatever its Files: %s", named(ls))
+	default:
+		return
+	}
+	if !w.b.Has(ReasonOutside) {
+		w.b.Fail(ReasonOutside)
+	}
+}
+
+// links is every path the branch's tip holds as a symlink or a gitlink
+// that the base did not hold as the same: the lead squash-merges the tip,
+// and a link reaches outside the checkout through a path its Files: may
+// cover (the v5.0.0 gate's security review). --ignore-submodules=none: a
+// .gitmodules entry with ignore = all would hide a gitlink (round 2).
+func links(root, base, ref string) ([]string, error) {
+	raw, err := leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref).Output()
+	if err != nil {
+		return nil, err
+	}
+	// -z raw: ":<old mode> <new mode> <old> <new> <status>" NUL "<path>" NUL.
+	f := strings.Split(string(bytes.TrimRight(raw, "\x00")), "\x00")
+	var out []string
+	for i := 0; i+1 < len(f); i += 2 {
+		if m := strings.Fields(f[i]); len(m) > 1 && (m[1] == "120000" || m[1] == "160000") {
+			out = append(out, f[i+1])
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // changedPaths is every path a commit of rng changed against each of its
-// parents, once each.
+// parents, once each, a gitlink that .gitmodules says to ignore included.
 func changedPaths(root, rng string) ([]string, error) {
 	revs, err := leadGit(root, "rev-list", rng).Output()
 	if err != nil {
 		return nil, err
 	}
-	cmd := leadGit(root, "diff-tree", "--stdin", "-r", "-m", "--root", "--no-renames", "--no-ext-diff", "--name-only", "-z", "--no-commit-id")
+	cmd := leadGit(root, "diff-tree", "--stdin", "-r", "-m", "--root", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", "--name-only", "-z", "--no-commit-id")
 	cmd.Stdin = bytes.NewReader(revs)
 	names, err := cmd.Output()
 	if err != nil {

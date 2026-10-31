@@ -19,13 +19,17 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
+	// Nor the operator's git config: a global hooksPath or signing key
+	// never reaches a fixture commit (the v5.0.0 gate's security review).
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	os.Exit(m.Run())
 }
 
 // TestGitTestPackagesDropGitVariables pins the rule above for every package:
 // one whose test files name the git binary (a literal "git") has a TestMain
 // that drops GIT_* (internal/check had none until the v3.1.0 gate's security
-// review). A package whose tests reach git only through another package's
+// review) and sets GIT_CONFIG_GLOBAL (the v5.0.0 gate's). A package whose tests reach git only through another package's
 // helper, such as trail.Command, is not seen by this pin.
 func TestGitTestPackagesDropGitVariables(t *testing.T) {
 	runsGit, drops := map[string]bool{}, map[string]bool{}
@@ -48,7 +52,7 @@ func TestGitTestPackagesDropGitVariables(t *testing.T) {
 			if strings.Contains(text, `"git"`) {
 				runsGit[dir] = true
 			}
-			if strings.Contains(text, "func TestMain(") && strings.Contains(text, `"GIT_"`) {
+			if strings.Contains(text, "func TestMain(") && strings.Contains(text, `"GIT_"`) && strings.Contains(text, `"GIT_CONFIG_GLOBAL"`) {
 				drops[dir] = true
 			}
 			return nil
@@ -62,7 +66,7 @@ func TestGitTestPackagesDropGitVariables(t *testing.T) {
 	}
 	for dir := range runsGit {
 		if !drops[dir] {
-			t.Errorf("%s: its tests run git, but no TestMain drops the GIT_* variables", dir)
+			t.Errorf("%s: its tests run git, but no TestMain drops the GIT_* variables and sets GIT_CONFIG_GLOBAL", dir)
 		}
 	}
 }

@@ -25,6 +25,10 @@ func TestMain(m *testing.M) {
 			os.Unsetenv(k)
 		}
 	}
+	// Nor the operator's git config: a global hooksPath or signing key
+	// never reaches a fixture commit (the v5.0.0 gate's security review).
+	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	for _, k := range []string{"GOCACHE", "GOMODCACHE", "GOPATH"} {
 		if out, err := exec.Command("go", "env", k).Output(); err == nil {
 			goEnv = append(goEnv, k+"="+strings.TrimSpace(string(out)))
