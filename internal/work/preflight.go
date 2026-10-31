@@ -18,7 +18,8 @@ import (
 type prepared struct {
 	k                Kickoff
 	agy, tok         string
-	base             string // the checkout's HEAD at the start, recorded once (D36)
+	base             string     // the checkout's HEAD at the start, recorded once (D36)
+	reflog           []refEntry // the newest reflog entries of HEAD and its branch then (BUG-198)
 	gitName, gitMail string
 	zone             zone        // the lead's, the worker's TZ (refusal 22)
 	docker           *dockerPlan // nil on the host runner
@@ -89,8 +90,9 @@ func parseAll(files []string) ([]Kickoff, error) {
 	return ks, nil
 }
 
-// session is refusals 8-11 and 22, what the sessions need, then the base:
-// 22 is offline, so it comes before every docker call (workers D145, G4).
+// session is refusals 8-11 and 22, what the sessions need, then the base
+// and refusal 23, its reflog: 22 and 23 are offline, so they come before
+// every docker call (workers D145, G4).
 func (p *prepared) session(o Options) error {
 	p.tok = filepath.Join(o.RealHome, sandbox.TokenRel)
 	if st, err := os.Lstat(p.tok); err != nil || !st.Mode().IsRegular() {
@@ -112,7 +114,10 @@ func (p *prepared) session(o Options) error {
 	if p.zone, err = runZone(o.Runner); err != nil {
 		return err
 	}
-	if p.base, err = head(o.Root); err != nil || o.Runner != RunnerDocker {
+	if p.base, err = head(o.Root); err != nil {
+		return err
+	}
+	if p.reflog, err = reflogStart(o.Root); err != nil || o.Runner != RunnerDocker {
 		return err
 	}
 	return p.dockerRefusals(o)

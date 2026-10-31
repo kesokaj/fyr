@@ -36,25 +36,32 @@ func (w *worker) collect() {
 }
 
 // leadGit is git in the lead's checkout for the steps after the session,
-// which may have written the checkout's .git: no replace refs and no grafts,
-// so the scope check reads the history a push sends, and no hooks (the
-// security review of Phase 2, finding 4 and round 2). The rest of the
+// which may have written the checkout's .git: no replace refs, no grafts
+// and no commit-graph, any of which can rewire a commit's parents, so the
+// scope check reads the history a push sends, and no hooks (the security
+// review of Phase 2, finding 4 and round 2; PLAN.md item 42). The rest of the
 // lead's .git/config is not checked: a session that rewrites it runs as the
 // operator's uid, the threat model eval accepts (GUIDE-testing § 4).
 func leadGit(root string, args ...string) *exec.Cmd {
-	cmd := trail.Command(root, append([]string{"--no-replace-objects", "-c", "core.hooksPath=/dev/null"}, args...)...)
+	cmd := trail.Command(root, append([]string{"--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.commitGraph=false"}, args...)...)
 	cmd.Env = append(cmd.Env, "GIT_GRAFT_FILE="+os.DevNull)
 	return cmd
 }
 
-// leadUnchanged is D35: the lead's HEAD is still the base and its tracked
-// and unignored tree still clean, so the fetch and the drafts land in the
-// checkout the worker was cut from. It does not see .git or ignored paths,
-// and trail.Dirty's own git calls run without leadGit's options: leadGit
-// and the drafts' os.Root narrow what a session can do through those.
+// leadUnchanged is D35: the lead's HEAD is still the base, the reflogs of
+// HEAD and its branch have no entry the run added (a commit and a reset
+// back leave HEAD at the base, BUG-198), and its tracked and unignored tree
+// is still clean, so the fetch and the drafts land in the checkout the
+// worker was cut from. It does not see .git or ignored paths, and
+// trail.Dirty's own git calls run without leadGit's options: leadGit and
+// the drafts' os.Root narrow what a session can do through those.
 func (w *worker) leadUnchanged() bool {
 	if h, err := leadGit(w.o.Root, "rev-parse", "--verify", "-q", "HEAD^{commit}").Output(); err != nil || strings.TrimSpace(string(h)) != w.p.base {
 		w.b.Note("the lead checkout's HEAD moved from %s; nothing is fetched or copied (D35)", short(w.p.base))
+		return false
+	}
+	if why := reflogMoved(w.o.Root, w.p.reflog); why != "" {
+		w.b.Note("%s; nothing is fetched or copied (BUG-198)", why)
 		return false
 	}
 	if dirty, err := trail.Dirty(w.o.Root); err != nil || dirty {

@@ -1,6 +1,6 @@
 # PLAN — clean the project and release v5.5.0   (2026-10-31)
 
-Status: open. P1, P2 and P3 done (2026-10-31); P4 is next. This is the only plan.
+Status: open. P1, P2, P3 and P4 done (2026-10-31); P5 is next. This is the only plan.
 
 ## The operator's words
 
@@ -84,6 +84,8 @@ All verdicts below were approved by the operator on 2026-10-31 ("Lets go with yo
 | 42 | `leadGit` (`internal/work/fetch.go`) turns off replace refs and grafts but not the commit-graph, which can also rewire parents (P2's second security review, finding 3) | fix: `-c core.commitGraph=false`, with P4's guard work | P4 |
 | 43 | The `agy` audit's #4 and #10 (`REVIEW-2026-10-31-1101-review-antigravity-agy-integration-audit-against`): no real `agy` 1.4.12 output pins the shapes fyr parses (the dream's stream-json is pinned only by a fake, and the oracle's fixtures are from 1.4.9), so an upgrade can break a check silently, and the dream's `-p ""` beside `--input-format stream-json` is untested on 1.4.12. One real dream turn and one oracle run kept as fixtures, and a test that fails loudly on a missing shape; the dream's argv changes only if the real turn fails | fix (D11) | P12b |
 | 44 | The audit's #5: a host `fyr work` or `fyr eval` run is confined by nothing before it runs, and nothing lists what it writes outside the clone (the sandbox HOME's `.gemini/antigravity-cli/scratch` among them). An eval row that lists those writes; `--add-dir <clone>` is passed only if it shows writes there | fix (D11) | P12b |
+| 45 | P4's security review left one area "not examined": the host-side git calls in the clone whose `.git` a session wrote (fetch's local `upload-pack` reading the clone's `.git/config`, `objects/info/alternates`, or a `.git` file holding `gitdir:`; the sandbox's `After` and `ExitChecks`). This predates P4 and no finding was made | fix: a `security` review of that blast radius, its findings fixed or struck by D-row | P12b |
+| 46 | BUG-204: P4's round-2 `security` agent ran a git probe that rewrote this checkout's `.git/HEAD` to `refs/heads/-x` (restored by the main thread before any commit). Nothing in `agents/security/agent.md` or `agents/reviewer/agent.md` says where a git probe may run | fix: both definitions say a git probe runs only in a repo `git init`ed under a fresh `mktemp -d` outside every checkout, with `git -C` and `GIT_CEILING_DIRECTORIES`; BUG-204 graduates there | P12b |
 
 ## Item 37 — borken: a development build at a zip place is deadlocked
 
@@ -146,15 +148,15 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [x] Checkpoint (rule 3), with `security` (update is install behaviour).
 
 ### P4 — `fyr work` guard and container limits (items 12 and 13; one session)
-- [ ] Item 12: the lead's HEAD reflog is read before the run and compared after. If it moved, the run is refused with a line naming the reflog entry, test first. BUG-198's status becomes fixed. `SPEC-fyr-work` is updated. Verify: `go test -race ./internal/work`. Who: AI.
-- [ ] Item 13: the limits and the run network in `dockerArgs` (`internal/sandbox/docker.go`), with argv tests.
+- [x] Item 12: the lead's HEAD reflog is read before the run and compared after. If it moved, the run is refused with a line naming the reflog entry, test first. BUG-198's status becomes fixed. `SPEC-fyr-work` is updated. Verify: `go test -race ./internal/work`. Who: AI.
+- [x] Item 13: the limits and the run network in `dockerArgs` (`internal/sandbox/docker.go`), with argv tests.
   - One network per run, labelled `fyr.work=<stamp>` so the existing label sweep (ADR-079) removes it after the run, on `--kill`, and after a killed run.
   - When the network cannot be created, the run is refused; it never falls back to the default bridge.
   - `--pids-limit` goes from 4096 to 1024 as item 13 says. If the real worker's `go test -race ./...` fails on it, the value goes back to the operator.
   - Docs in the same commit: `SPEC-fyr-work` § Docker runner, an ADR amending ADR-079, and `TDD.md` § T17.
 
   Verify: `go test -race ./internal/sandbox`, and one real docker worker on dave (GUIDE-testing § 3k) whose Kickoff runs `go test -race ./...`. Expect: PASS, and `docker network ls --filter label=fyr.work` is empty afterwards. Who: AI.
-- [ ] Checkpoint (rule 3), with `security`.
+- [x] Checkpoint (rule 3), with `security`.
 
 ### P5 — the PRD reshape (item 10; one session)
 - [ ] The ADR, then `PRD.md` as `.agents/scratch/prd-reshape/PRD.diff` (re-checked with `git apply --check` first), `SPEC-fyr-check`'s `### R0` line, and `SDD.md`'s and `TDD.md`'s traces if they name `### R`. All in one commit. Verify: `fyr check` from a tree binary. Expect: 0 findings and neither PRD note. Who: AI.
@@ -197,9 +199,11 @@ Gate: P3 starts only after the operator has approved D5 and § Item 37 § Cells:
 - [ ] Item 35: `~/.claude/AGENTS.md` refreshed on the operator's word, from `fyr render` of the installed harness. Verify: `diff <(fyr render) ~/.claude/AGENTS.md`. Expect: exit 0. Who: AI (the command), user (the word).
 - [ ] Checkpoint (rule 3). Expect: `fyr check` 0 findings and 0 notes.
 
-### P12b — `agy` captures and the outside-clone probe (items 43 and 44; one session; D11)
+### P12b — `agy` captures, the outside-clone probe and the clone-git review (items 43, 44, 45 and 46; one session; D11)
 - [ ] Item 43: one real dream turn and one oracle run on the installed `agy` (1.4.12 or later, named), their output kept as test fixtures beside the fake ones, and a test that fails, naming the missing key or event, when a shape fyr needs is absent. If the dream's `-p ""` with `--input-format stream-json` fails on the real turn, the argv changes with a test. The runs use a home outside every checkout, as `fyr eval` does (`GUIDE-testing` § 4), and need a logged-in `agy`; if it is not, the session asks the operator. Verify: `go test -race ./internal/dream`. Who: AI, with the operator's `agy` login.
 - [ ] Item 44: a `GUIDE-eval` row whose host run lists every path written outside the clone (the sandbox HOME's `.gemini/antigravity-cli/scratch` included), with `TestSuiteHarness`'s `want` updated in the same commit. If it lists writes under `scratch`, `--add-dir <clone>` joins `agyArgs` (`internal/sandbox/session.go`) with an argv test, and `SPEC-fyr-work` and `SPEC-fyr-eval` say so; if not, item 44 is closed by a D-row naming the run. Verify: `fyr eval` of the row, n of N. Who: AI.
+- [ ] Item 46: the probe rule in `agents/security/agent.md` and `agents/reviewer/agent.md` (BUG-204 → graduated), with `/review --docs`; their behavioural runs are P13's. Verify: `go test ./...` (the agent lint). Who: AI.
+- [ ] Item 45: one `security` agent over the host-side git calls in a session-written clone (`internal/work/fetch.go`'s fetch, `internal/sandbox`'s `After` and `ExitChecks`). Each finding is fixed, test first, or struck by D-row. Verify: the review record and `go test -race ./internal/work ./internal/sandbox`. Who: AI.
 - [ ] Checkpoint (rule 3), with `security` (the sandbox's argv).
 
 ### P13 — release v5.5.0 (item 29; one session, from the operator's own turn)
@@ -255,6 +259,16 @@ D12 — 2026-10-31 — P3, how the fix reads § Item 37 § Cells where the table
 - **Item 40.** A scratch checkout whose remote is `ssh://git@127.0.0.1:1/…` gave `git fetch: git fetch --quiet: ssh: connect to host 127.0.0.1 port 1: Connection refused …`. That quotes git but names no remote URL, so the item was fixed, test first (`TestBehindFetchErrorNamesTheRemote`). The message now names the URL from `git ls-remote --get-url`, without its userinfo, query or fragment, and not at all when it does not parse (P3's security reviews: a token in the URL, or one an `insteadOf` rule adds, would print). It names the checkout to fix it in, quoted for pasting (`harness.ShellArg`), says that ssh.github.com port 443 works where port 22 is blocked, and then quotes git. The operator's borken output was not pasted this session.
 
 — by: implementer, within P3's boxes (ADR-082).
+
+D13 — 2026-10-31 — P4, how the fix reads items 12, 13 and 42 where they are silent:
+- **What "the reflog moved" compares.** The newest reflog entry of HEAD and of the branch it points to, each read as `<sha> <ref>@{<date>} <subject>` when the base is recorded, must still be the newest at step 6. The branch's reflog is P4's security review finding 3: a move made from another worktree of the checkout writes only the branch's reflog. The count of entries is not compared, because a `gc --auto` (a worker's own fetch can start one) expires old entries mid-run. The note names how many entries the run added and the first of them.
+- **A checkout with no reflog for HEAD or its branch is refused** (refusal 23), so the guard never passes because there was nothing to compare. Item 12 does not name this refusal; without it the guard would fail open.
+- **A daemon that cannot apply the limits is refused** (refusal 24, `docker info`). Without the cgroup controllers dockerd drops a limit with a warning only, so item 13's limits would silently not apply (the security review, finding 1). `--kill <stamp>` of a stamp with no pid file removes that stamp's networks only, never a container, and nothing while the stamp's pid lives, since a run killed between its network and its pid file leaves only the network (finding 4), and labels span the daemon, so the stamp may be another home's live run (round 2).
+- **The network is made after the refusals and before the stamp line**, so a run refused for its network makes nothing and prints nothing, like every other refusal. The run's own network is removed by the sweep every time, and the sweep line still prints only when a container was removed or something failed.
+- **Item 42** is `-c core.commitGraph=false` in `leadGit`, pinned by `TestLeadGitHistoryOptions`.
+- **`--pids-limit 1024` held.** The real docker worker's `go test -race ./...` on the fixture exited 0, and so did a rerun under the same limits from the host, so the value does not go back to the operator. A large module's `-race` run under these limits was not tried.
+
+— by: implementer, within P4's boxes (ADR-083).
 
 ## Risks
 

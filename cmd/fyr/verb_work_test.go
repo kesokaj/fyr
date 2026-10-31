@@ -342,10 +342,12 @@ func TestWorkVerbKill(t *testing.T) {
 }
 
 // fakeVerbDocker has one image, good:1, at version vtest, on a local
-// daemon: enough for the verb's flags to be seen in its refusals.
+// daemon that applies every limit: enough for the verb's flags to be seen
+// in its refusals.
 const fakeVerbDocker = `#!/bin/bash
 case "$1 $2" in
 "context inspect") echo unix:///var/run/docker.sock ;;
+"info --format") echo "true true true true" ;;
 "image inspect") [ "${@: -1}" = good:1 ] || { echo "Error: No such image" >&2; exit 1; }
   echo "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef amd64" ;;
 "run --rm") echo "fyr vtest" ;;

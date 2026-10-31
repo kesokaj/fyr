@@ -124,9 +124,13 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 		return nil, err
 	}
 	stamp := fmt.Sprintf("%s-%d", o.Now().Format("2006-01-02-150405"), os.Getpid())
+	if err := o.makeNetwork(stamp); err != nil {
+		return nil, err
+	}
 	work := sandbox.Root(o.Home, "work")
 	r, err := openRun(work, stamp, o.MaxWorkers)
 	if err != nil {
+		o.sweepRun(stamp)
 		return nil, fmt.Errorf("the run's pid file: %v", err)
 	}
 	defer r.close()

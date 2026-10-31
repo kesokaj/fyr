@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -19,11 +20,29 @@ import (
 // § --runner docker): the session runs in a container of Image, every other
 // step on the host. A nil Config.Docker is the host path, unchanged.
 type Docker struct {
-	Image string // the image REF the verb checked
-	Agy   string // a linux agy on the host, mounted read-only at ContainerAgy
-	Stamp string // the run's stamp: the label fyr.work
-	Name  string // the worker's name: the label fyr.worker
+	Image   string // the image REF the verb checked
+	Agy     string // a linux agy on the host, mounted read-only at ContainerAgy
+	Stamp   string // the run's stamp: the label fyr.work
+	Name    string // the worker's name: the label fyr.worker
+	Network string // the run's own network, RunNetwork(Stamp), which work makes
 }
+
+// RunNetwork is the network a run's containers share: a bridge with no
+// traffic between its containers, made per run and labelled fyr.work, so
+// the run's sweep removes it (PLAN.md item 13).
+func RunNetwork(stamp string) string { return "fyr-work-" + stamp }
+
+// runNetworkRe is a network RunNetwork names: never docker's bridge, host,
+// none or container:<id>, so a missing network is never the default bridge.
+var runNetworkRe = regexp.MustCompile(`^fyr-work-[0-9A-Za-z][0-9A-Za-z_.-]*$`)
+
+// The container's limits (PLAN.md item 13): what one worker's go test -race
+// needs, so one worker cannot take the machine.
+const (
+	memoryLimit = "8g" // --memory, and --memory-swap at the same value: no swap
+	cpuLimit    = "2"
+	pidsLimit   = "1024"
+)
 
 // ContainerAgy and ContainerFyr are where the session finds agy (mounted)
 // and fyr (the image's own, which the wrapper execs).
@@ -47,12 +66,14 @@ func (b *Box) cidFile() string {
 }
 
 // dockerArgs is the docker run argv of one session: the hardening, the
-// four mounts and the container's environment, then agy and its args. Only
+// limits, the run's network, the four mounts and the container's
+// environment, then agy and its args. Only
 // the clone and the sandbox home are mounted, never the worker directory
 // that holds them: its out.txt and err.txt are the host's evidence of the
 // session. It refuses a mount path the --mount syntax cannot carry as
-// written, an image ref docker would read as a flag, and an environment
-// entry without '=', which docker would fill from the host's own value.
+// written, an image ref docker would read as a flag, a network that is not
+// a run's own, and an environment entry without '=', which docker would
+// fill from the host's own value.
 func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs []string) ([]string, error) {
 	for _, p := range []string{app, sb, tok, d.Agy} {
 		if err := Mountable(p); err != nil {
@@ -61,6 +82,9 @@ func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs 
 	}
 	if d.Image == "" || strings.HasPrefix(d.Image, "-") || strings.IndexFunc(d.Image, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return nil, fmt.Errorf("the image %q is not an image ref", d.Image)
+	}
+	if !runNetworkRe.MatchString(d.Network) {
+		return nil, fmt.Errorf("the network %q is not a run's own; a worker never runs on docker's default bridge", d.Network)
 	}
 	for _, kv := range env {
 		if k, _, ok := strings.Cut(kv, "="); !ok || k == "" {
@@ -71,7 +95,9 @@ func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs 
 		"--name", d.container(), "--label", "fyr.work=" + d.Stamp, "--label", "fyr.worker=" + d.Name,
 		"--cidfile", cid, "--pull", "never",
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init", "--pids-limit", "4096",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init",
+		"--memory", memoryLimit, "--memory-swap", memoryLimit, "--cpus", cpuLimit, "--pids-limit", pidsLimit,
+		"--network", d.Network,
 		"--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
 		"--mount", "type=bind,src=" + app + ",dst=" + app,
 		"--mount", "type=bind,src=" + sb + ",dst=" + sb,

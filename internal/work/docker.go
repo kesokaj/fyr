@@ -47,9 +47,10 @@ type dockerPlan struct {
 	image, agy string
 }
 
-// dockerRefusals are refusals 13-20 of SPEC-fyr-work, after refusal 22, for
-// a docker-mode run: this fyr is an installed build (before any docker
-// call), docker is on PATH, the daemon is local, the image ref is one, the
+// dockerRefusals are refusals 13-20 and 24 of SPEC-fyr-work, after refusal
+// 22, for a docker-mode run: this fyr is an installed build (before any
+// docker call), docker is on PATH, the daemon is local and applies the
+// limits, the image ref is one, the
 // image exists at this fyr's version, the linux agy runs on the image's
 // architecture, and every path the container mounts can be written as a
 // --mount.
@@ -61,6 +62,9 @@ func (p *prepared) dockerRefusals(o Options) error {
 		return errors.New("--runner docker: docker not found on PATH")
 	}
 	if err := localDaemon(); err != nil {
+		return err
+	}
+	if err := daemonLimits(); err != nil {
 		return err
 	}
 	ref := o.Image
@@ -104,6 +108,28 @@ func localDaemon() error {
 	}
 	if h := strings.TrimSpace(out); !strings.HasPrefix(h, "unix://") {
 		return fmt.Errorf("the docker context's endpoint %s: --runner docker needs the local daemon, whose files the mounts name", sandbox.Printable(h))
+	}
+	return nil
+}
+
+// daemonLimits is refusal 24: the daemon applies every limit a worker's
+// container asks for. Without a memory, swap, pids or CPU cgroup controller
+// dockerd drops the flag with a warning only, into the session's err.txt,
+// and the container runs unlimited (the P4 security review, finding 1).
+func daemonLimits() error {
+	out, err := docker("info", "--format", "{{.MemoryLimit}} {{.SwapLimit}} {{.PidsLimit}} {{.CPUCfsQuota}}")
+	if err != nil {
+		return fmt.Errorf("--runner docker: docker info: %v", err)
+	}
+	f := strings.Fields(out)
+	var missing []string
+	for i, name := range []string{"memory", "swap", "pids", "cpu quota"} {
+		if i >= len(f) || f[i] != "true" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 || len(f) != 4 {
+		return fmt.Errorf("--runner docker: the daemon cannot apply the worker's limits (%s; docker info printed %q): give it the cgroup controllers, or use --runner host", strings.Join(missing, ", "), sandbox.Printable(strings.TrimSpace(out)))
 	}
 	return nil
 }
@@ -195,31 +221,69 @@ func linuxAgy(given, arch string) (string, error) {
 	return path, nil
 }
 
+// makeNetwork is a docker-mode run's network, made after the refusals and
+// before the stamp line: a bridge labelled with the stamp, so every sweep
+// removes it, with no traffic between its containers (enable_icc=false), so
+// one worker cannot reach another (PLAN.md item 13). A host run makes none.
+// The run is refused when it cannot be made: never the default bridge.
+func (o Options) makeNetwork(stamp string) error {
+	if o.Runner != RunnerDocker {
+		return nil
+	}
+	name := sandbox.RunNetwork(stamp)
+	if _, err := docker("network", "create", "--driver", "bridge", "--label", "fyr.work="+stamp,
+		"--opt", "com.docker.network.bridge.enable_icc=false", name); err != nil {
+		// A create that failed late may have left it.
+		_, _, serr := sweepStamp(stamp)
+		return fmt.Errorf("--runner docker: the run's network %s: %v; the run is refused, never put on docker's default bridge%s", name, err, sweptNote(serr))
+	}
+	return nil
+}
+
+// sweptNote is a refusal's tail when the sweep after it failed.
+func sweptNote(err error) string {
+	if err == nil {
+		return ""
+	}
+	return fmt.Sprintf("; remove what is labelled fyr.work by hand: %v", err)
+}
+
 // sweepRun is a docker-mode run's last step: each worker removed its own
 // container, so this catches one created after that check, or by a worker
-// whose check never ran. It prints a line only when it removed one or
-// failed; a host run asks docker nothing.
+// whose check never ran, then removes the run's network. It prints a line
+// only when it removed a container or failed; a host run asks docker
+// nothing.
 func (o Options) sweepRun(stamp string) {
 	if o.Runner != RunnerDocker {
 		return
 	}
-	if n, err := sweepContainers(stamp); err != nil || n > 0 {
+	if n, _, err := sweepStamp(stamp); err != nil || n > 0 {
 		fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: the run's container sweep (label fyr.work=%s): %d removed, error %v", stamp, n, err)))
 	}
 }
 
-// sweepContainers removes every container labelled with the run's stamp:
-// the run's last step, and --kill's for a run whose process is gone. It
-// tries every one, whatever fails, and returns how many it removed.
-func sweepContainers(stamp string) (int, error) {
-	out, err := docker("ps", "-a", "--filter", "label=fyr.work="+stamp, "--format", "{{.ID}}")
+// sweepStamp removes every container, then every network, labelled with
+// the run's stamp: the run's last step, and --kill's for a run whose
+// process is gone. A network is removed after its containers, since docker
+// refuses one still in use. It tries every one, whatever fails, and returns
+// how many of each it removed.
+func sweepStamp(stamp string) (containers, networks int, errs error) {
+	containers, errs = removeLabelled([]string{"ps", "-a", "--filter", "label=fyr.work=" + stamp, "--format", "{{.ID}}"}, "rm", "-f")
+	networks, err := removeLabelled([]string{"network", "ls", "-q", "--filter", "label=fyr.work=" + stamp}, "network", "rm")
+	return containers, networks, errors.Join(errs, err)
+}
+
+// removeLabelled lists IDs with list and removes each with rm, trying
+// every one.
+func removeLabelled(list []string, rm ...string) (int, error) {
+	out, err := docker(list...)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	var errs error
 	for _, id := range strings.Fields(out) {
-		if _, err := docker("rm", "-f", id); err != nil {
+		if _, err := docker(append(rm, id)...); err != nil {
 			errs = errors.Join(errs, err)
 			continue
 		}

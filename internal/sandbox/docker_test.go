@@ -80,7 +80,7 @@ func (d *dockerRig) set(name, content string) { put(d.t, filepath.Join(d.ctl, na
 func (d *dockerRig) config(name string) Config {
 	c := d.rig.config(name)
 	c.Dir = filepath.Join(d.tmp, "work", "stamp1", name)
-	c.Docker = &Docker{Image: "fyr-work:local", Agy: d.agy, Stamp: "stamp1", Name: name}
+	c.Docker = &Docker{Image: "fyr-work:local", Agy: d.agy, Stamp: "stamp1", Name: name, Network: RunNetwork("stamp1")}
 	return c
 }
 
@@ -88,11 +88,12 @@ func (d *dockerRig) calls() []string {
 	return strings.Split(strings.TrimSpace(d.read("docker.calls")), "\n")
 }
 
-// The argv is the plan's, flag for flag: every hardening flag, the three
-// mounts and nothing else of the real home, the environment as -e pairs
-// with the sandbox's bin first on PATH, then the image and agy's own args.
+// The argv is the plan's, flag for flag: every hardening flag and limit,
+// the run's network, the four mounts and nothing else of the real home,
+// the environment as -e pairs with the sandbox's bin first on PATH, then
+// the image and agy's own args.
 func TestDockerArgs(t *testing.T) {
-	d := &Docker{Image: "fyr-work:local", Agy: "/opt/agy", Stamp: "s1", Name: "w1"}
+	d := &Docker{Image: "fyr-work:local", Agy: "/opt/agy", Stamp: "s1", Name: "w1", Network: "fyr-work-s1"}
 	got, err := dockerArgs(d, "/h/w/s1/w1/app", "/h/w/s1/w1/home", "/real/.gemini/tok", "/h/w/s1/w1.cid", 1000, 1001,
 		[]string{"PATH=/h/w/s1/w1/home/bin:" + ImagePath, "HOME=/h/w/s1/w1/home"}, []string{"-p", "hi"})
 	if err != nil {
@@ -101,7 +102,9 @@ func TestDockerArgs(t *testing.T) {
 	want := []string{"run",
 		"--name", "fyr-work-s1-w1", "--label", "fyr.work=s1", "--label", "fyr.worker=w1",
 		"--cidfile", "/h/w/s1/w1.cid", "--pull", "never", "--user", "1000:1001",
-		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init", "--pids-limit", "4096",
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init",
+		"--memory", "8g", "--memory-swap", "8g", "--cpus", "2", "--pids-limit", "1024",
+		"--network", "fyr-work-s1",
 		"--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
 		"--mount", "type=bind,src=/h/w/s1/w1/app,dst=/h/w/s1/w1/app",
 		"--mount", "type=bind,src=/h/w/s1/w1/home,dst=/h/w/s1/w1/home",
@@ -113,10 +116,17 @@ func TestDockerArgs(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("argv\n got %q\nwant %q", got, want)
 	}
+	networks := 0
 	for _, a := range got {
-		if strings.Contains(a, "docker.sock") || a == "--privileged" || strings.HasPrefix(a, "--network") || a == "-v" {
+		if strings.Contains(a, "docker.sock") || a == "--privileged" || strings.HasPrefix(a, "--net=") || strings.HasPrefix(a, "--network=") || a == "-v" {
 			t.Fatalf("argv holds %q", a)
 		}
+		if a == "--network" {
+			networks++
+		}
+	}
+	if networks != 1 {
+		t.Fatalf("argv names %d networks, want the run's one", networks)
 	}
 }
 
@@ -125,7 +135,7 @@ func TestDockerArgs(t *testing.T) {
 // split, and an environment entry docker would fill from the host.
 func TestDockerArgsRefuses(t *testing.T) {
 	for _, bad := range []string{"/h/a,b", `/h/a"b`, "/h/a\nb", "rel/dir"} {
-		d := &Docker{Image: "i", Agy: "/opt/agy", Stamp: "s", Name: "n"}
+		d := &Docker{Image: "i", Agy: "/opt/agy", Stamp: "s", Name: "n", Network: "fyr-work-s"}
 		if _, err := dockerArgs(d, bad, "/h/ok/home", "/t", "/c", 1, 1, nil, nil); err == nil {
 			t.Errorf("app %q: no refusal", bad)
 		}
@@ -138,15 +148,22 @@ func TestDockerArgsRefuses(t *testing.T) {
 		}
 	}
 	for _, img := range []string{"", "-v", "--privileged", "a b", "a\tb"} {
-		d := &Docker{Image: img, Agy: "/opt/agy", Stamp: "s", Name: "n"}
+		d := &Docker{Image: img, Agy: "/opt/agy", Stamp: "s", Name: "n", Network: "fyr-work-s"}
 		if _, err := dockerArgs(d, "/h/ok/app", "/h/ok/home", "/t", "/c", 1, 1, nil, nil); err == nil {
 			t.Errorf("image %q: no refusal", img)
 		}
 	}
-	d := &Docker{Image: "i", Agy: "/opt/agy", Stamp: "s", Name: "n"}
+	d := &Docker{Image: "i", Agy: "/opt/agy", Stamp: "s", Name: "n", Network: "fyr-work-s"}
 	for _, kv := range []string{"GH_TOKEN", "=x"} {
 		if _, err := dockerArgs(d, "/h/ok/app", "/h/ok/home", "/t", "/c", 1, 1, []string{kv}, nil); err == nil {
 			t.Errorf("env %q: no refusal", kv)
+		}
+	}
+	// No run network is never docker's default bridge (PLAN.md item 13).
+	for _, net := range []string{"", "bridge", "host", "default", "none", "-x", "a b", "a\nb", "container:x"} {
+		d := &Docker{Image: "i", Agy: "/opt/agy", Stamp: "s", Name: "n", Network: net}
+		if _, err := dockerArgs(d, "/h/ok/app", "/h/ok/home", "/t", "/c", 1, 1, nil, nil); err == nil {
+			t.Errorf("network %q: no refusal", net)
 		}
 	}
 }

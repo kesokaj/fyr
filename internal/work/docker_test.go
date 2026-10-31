@@ -29,6 +29,8 @@ case "$1 $2" in
   echo "$(cat "$CTL/docker-id") $(cat "$CTL/docker-arch")" ;;
 "context inspect")
   cat "$CTL/docker-endpoint" ;;
+"info --format")
+  if [ -e "$CTL/docker-info" ]; then cat "$CTL/docker-info"; else echo "true true true true"; fi ;;
 "run --rm")
   on version-hang && { echo "timed out" >&2; exit 1; }
   echo "fyr $(cat "$CTL/docker-version")" ;;
@@ -51,6 +53,13 @@ run\ *)
   cd "$wd" && exec env -i "${envs[@]}" @AGY@ "$@" ;;
 "rm -f")
   on "rm-fail-$3" && { echo "removal of $3 failed" >&2; exit 1; } ;;
+"network create")
+  on network-fail && { echo "Error response from daemon: could not find an available address pool" >&2; exit 1; }
+  echo net1 ;;
+"network ls")
+  cat "$CTL/docker-net-run" 2>/dev/null ;;
+"network rm")
+  on "net-rm-fail-$3" && { echo "removal of network $3 failed" >&2; exit 1; } ;;
 "ps -aq")
   cat "$CTL/docker-ps-check" 2>/dev/null ;;
 "ps -a")
@@ -117,6 +126,7 @@ func TestRunDockerPass(t *testing.T) {
 	r, o := dockerRig(t)
 	r.on("change", "")
 	r.on("docker-ps-run", "left1\n")
+	r.on("docker-net-run", "net1\n")
 	res, err := runWith(o, r.kickoff("fix-a", "src/a.txt, pkg/"))
 	if err != nil {
 		t.Fatal(err)
@@ -130,13 +140,22 @@ func TestRunDockerPass(t *testing.T) {
 	for _, want := range []string{
 		"image inspect -f {{.Id}} {{.Architecture}} fyr-work:local",
 		"run --rm --pull never --label fyr.work.check=" + fmt.Sprint(os.Getpid()) + " --user " + fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) + " --cap-drop ALL --security-opt no-new-privileges --network none --read-only --pids-limit 64 " + imgID + " fyr version",
+		"network create --driver bridge --label fyr.work=" + stamp + " --opt com.docker.network.bridge.enable_icc=false fyr-work-" + stamp,
 		"--label fyr.work=" + stamp + " --label fyr.worker=fix-a",
+		"--memory 8g --memory-swap 8g --cpus 2 --pids-limit 1024 --network fyr-work-" + stamp + " ",
 		"ps -a --filter label=fyr.work=" + stamp + " --format {{.ID}}",
 		"rm -f left1",
+		"network ls -q --filter label=fyr.work=" + stamp,
+		"network rm net1",
 	} {
 		if !strings.Contains(calls, want) {
 			t.Errorf("no %q in the docker calls:\n%s", want, calls)
 		}
+	}
+	create, session := strings.Index(calls, "network create"), strings.Index(calls, "--name fyr-work-")
+	rmC, rmN := strings.Index(calls, "rm -f left1"), strings.Index(calls, "network rm net1")
+	if create < 0 || session < create || rmN < rmC {
+		t.Errorf("the network is not made before the session and removed after its containers:\n%s", calls)
 	}
 	if got := strings.TrimSpace(r.read("docker-image-ran")); got != imgID {
 		t.Errorf("the session ran %q, not the checked image's ID", got)
@@ -211,6 +230,13 @@ func TestRunDockerRefusals(t *testing.T) {
 			o.RealHome = real
 		}, "cannot hold"},
 		{"comma-home", func(t *testing.T, r *rig, o *Options) { o.Home = filepath.Join(r.tmp, "home,x") }, "cannot hold"},
+		// Refusal 24: a daemon that would drop a limit with a warning only.
+		{"no-swap-limit", func(t *testing.T, r *rig, o *Options) { r.on("docker-info", "true false true true\n") },
+			"the daemon cannot apply the worker's limits (swap; docker info printed \"true false true true\")"},
+		{"no-limits", func(t *testing.T, r *rig, o *Options) { r.on("docker-info", "\n") }, "(memory, swap, pids, cpu quota;"},
+		// No run network, no run: never the default bridge (PLAN.md item 13).
+		{"network-fail", func(t *testing.T, r *rig, o *Options) { r.on("docker-network-fail", "") },
+			"--runner docker: the run's network fyr-work-"},
 		// Refusal 22: a container has no /etc/localtime of the lead's to read.
 		{"no-zone", func(t *testing.T, r *rig, o *Options) { unsetTZ(t); pointLink(t, "file", "") },
 			"--runner docker: the worker needs a zone name, and TZ is unset and /etc/localtime names none; set TZ=<Area/City>"},
@@ -228,6 +254,9 @@ func TestRunDockerRefusals(t *testing.T) {
 			}
 			if r.out.Len() != 0 {
 				t.Errorf("a refusal printed %q", r.out.String())
+			}
+			if strings.Contains(r.read("docker.calls"), "--name fyr-work-") {
+				t.Errorf("a refusal started a session:\n%s", r.read("docker.calls"))
 			}
 			// The development-build refusal and refusal 22 come before any
 			// docker call.
@@ -268,12 +297,39 @@ func TestKillStaleSweeps(t *testing.T) {
 	stale := fmt.Sprintf("2026-10-29-170000-%d", os.Getpid())
 	put(t, filepath.Join(sandbox.Root(r.home, "work"), stale, pidName), fmt.Sprintf("%d 1\n", os.Getpid()))
 	r.on("docker-ps-run", "gone1\ngone2\n")
+	r.on("docker-net-run", "net1\n")
 	_, err := Kill(r.home, stale)
-	if err == nil || !strings.Contains(err.Error(), "is stale: no run holds it; its containers (label fyr.work="+stale+"): 2 removed") {
+	if err == nil || !strings.Contains(err.Error(), "is stale: no run holds it; its containers and network (label fyr.work="+stale+"): 2 containers and 1 network removed") {
 		t.Fatalf("err %v", err)
 	}
-	if calls := r.read("docker.calls"); !strings.Contains(calls, "rm -f gone1") || !strings.Contains(calls, "rm -f gone2") {
+	if calls := r.read("docker.calls"); !strings.Contains(calls, "rm -f gone1") || !strings.Contains(calls, "rm -f gone2") || !strings.Contains(calls, "network rm net1") {
 		t.Fatalf("calls %q", calls)
+	}
+	// A run killed between its network and its pid file left no pid file:
+	// its network is removed, never a container, since the stamp may be a
+	// live run of another home; and nothing while the stamp's pid lives.
+	r.on("docker-ps-run", "other1\n")
+	before := r.read("docker.calls")
+	early := fmt.Sprintf("2026-10-29-160000-%d", deadPid(t))
+	if _, err := Kill(r.home, early); err == nil || !strings.Contains(err.Error(), "no run "+early+": ") || !strings.Contains(err.Error(), "its network (label fyr.work="+early+"): 1 removed") {
+		t.Fatalf("err %v", err)
+	}
+	if calls := strings.TrimPrefix(r.read("docker.calls"), before); strings.Contains(calls, "rm -f") || strings.Contains(calls, "ps -a") {
+		t.Fatalf("a stamp with no pid file touched containers: %q", calls)
+	}
+	before = r.read("docker.calls")
+	live := fmt.Sprintf("2026-10-29-160000-%d", os.Getpid())
+	if _, err := Kill(r.home, live); err == nil || !strings.Contains(err.Error(), fmt.Sprintf("its process %d is alive, so nothing was swept", os.Getpid())) {
+		t.Fatalf("err %v", err)
+	}
+	if calls := strings.TrimPrefix(r.read("docker.calls"), before); calls != "" {
+		t.Fatalf("a live stamp asked docker %q", calls)
+	}
+	r.on("docker-ps-run", "")
+	// A killed run whose containers are gone still leaves its network.
+	r.on("docker-ps-run", "")
+	if _, err := Kill(r.home, stale); err == nil || !strings.Contains(err.Error(), "0 containers and 1 network removed") {
+		t.Fatalf("err %v", err)
 	}
 }
 
@@ -319,17 +375,35 @@ func TestRunSweepQuiet(t *testing.T) {
 	}
 }
 
-// The sweep tries every container whatever fails, and returns the error.
+// The sweep tries every container and network whatever fails, and returns
+// the error.
 func TestSweepContinues(t *testing.T) {
 	r, _ := dockerRig(t)
 	r.on("docker-ps-run", "c1\nc2\n")
 	r.on("docker-rm-fail-c1", "")
-	n, err := sweepContainers("s1")
-	if n != 1 || err == nil || !strings.Contains(err.Error(), "removal of c1 failed") {
-		t.Fatalf("n %d err %v", n, err)
+	r.on("docker-net-run", "n1\nn2\n")
+	r.on("docker-net-rm-fail-n1", "")
+	n, nets, err := sweepStamp("s1")
+	if n != 1 || nets != 1 || err == nil || !strings.Contains(err.Error(), "removal of c1 failed") || !strings.Contains(err.Error(), "removal of network n1 failed") {
+		t.Fatalf("n %d nets %d err %v", n, nets, err)
 	}
-	if !strings.Contains(r.read("docker.calls"), "rm -f c2") {
-		t.Fatal("c2 was not tried")
+	if calls := r.read("docker.calls"); !strings.Contains(calls, "rm -f c2") || !strings.Contains(calls, "network rm n2") {
+		t.Fatalf("c2 or n2 was not tried:\n%s", calls)
+	}
+}
+
+// A run's network that cannot be removed is named on the sweep line, so it
+// is never left unseen.
+func TestRunNetworkLeftIsNamed(t *testing.T) {
+	linuxOnly(t)
+	r, o := dockerRig(t)
+	r.on("docker-net-run", "net1\n")
+	r.on("docker-net-rm-fail-net1", "")
+	if res, err := runWith(o, r.kickoff("fix-a", "src/a.txt")); err != nil || res.Verdict != "PASS" {
+		t.Fatalf("%v %+v\n%s", err, res, r.out.String())
+	}
+	if !strings.Contains(r.out.String(), "removal of network net1 failed") {
+		t.Fatalf("no sweep line names the network:\n%s", r.out.String())
 	}
 }
 
@@ -360,4 +434,37 @@ func TestBuildLinePinned(t *testing.T) {
 	if !strings.Contains(string(b), "\n# Build: "+BuildLine+"\n") {
 		t.Fatalf("docker/work.Dockerfile has no line # Build: %s", BuildLine)
 	}
+}
+
+// A run whose pid file cannot be made is refused, and the network it made
+// first is swept before the refusal.
+func TestRunPidFileFailSweepsNetwork(t *testing.T) {
+	linuxOnly(t)
+	r, o := dockerRig(t)
+	// A work root the run cannot write: the limit's count reads it empty,
+	// and the stamp directory's Mkdir fails.
+	work := sandbox.Root(o.Home, "work")
+	mkdir(t, work)
+	if err := os.Chmod(work, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(work, 0o700) })
+	r.on("docker-net-run", "net1\n")
+	if _, err := runWith(o, r.kickoff("fix-a", "src/a.txt")); err == nil || !strings.Contains(err.Error(), "the run's pid file") {
+		t.Fatalf("err %v", err)
+	}
+	calls := r.read("docker.calls")
+	if !strings.Contains(calls, "network create") || !strings.Contains(calls, "network rm net1") || strings.Contains(calls, "--name fyr-work-") {
+		t.Fatalf("calls:\n%s", calls)
+	}
+}
+
+// deadPid is the pid of a process that has exited and been reaped.
+func deadPid(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
 }

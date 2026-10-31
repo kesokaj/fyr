@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -308,4 +309,53 @@ func TestRunRelativePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantReasons(t, res)
+}
+
+// TestRunLeadReflogMoved is BUG-198: a lead that commits during the run and
+// resets back leaves HEAD at the base and the tree clean, and the reflog
+// still shows it, so the worker is not fetched and the note names the
+// first entry the run added.
+func TestRunLeadReflogMoved(t *testing.T) {
+	r := newRig(t)
+	r.on("lead-reset", r.lead)
+	res := r.run(r.kickoff("reflog", "src/a.txt"))
+	wantReasons(t, res, ReasonLeadChanged)
+	if res.Head != "" || r.git("-C", r.lead, "branch", "--list", "work/*") != "" {
+		t.Errorf("the worker was fetched: %+v", res)
+	}
+	notes := strings.Join(res.Notes, "\n")
+	if !strings.Contains(notes, "HEAD reflog moved during the run: 2 new entries") || !strings.Contains(notes, `"commit: record D5 for p3"`) {
+		t.Errorf("the note does not name the reflog's first new entry:\n%s", notes)
+	}
+}
+
+// TestRunLeadNoReflog: a checkout that keeps no HEAD reflog is refused
+// before anything is made, since step 6's guard reads it (BUG-198).
+func TestRunLeadNoReflog(t *testing.T) {
+	r := newRig(t)
+	r.git("-C", r.lead, "config", "core.logAllRefUpdates", "false")
+	r.git("-C", r.lead, "reflog", "expire", "--expire=all", "--all")
+	_, err := runWith(r.opts(), r.kickoff("noreflog", "src/a.txt"))
+	if err == nil || !strings.Contains(err.Error(), "keeps no HEAD reflog") {
+		t.Fatalf("err %v", err)
+	}
+	if _, serr := os.Stat(sandbox.Root(r.home, "work")); !os.IsNotExist(serr) {
+		t.Errorf("the work root was made: %v", serr)
+	}
+}
+
+// TestLeadGitHistoryOptions: every git call in the lead after the session
+// reads history without replace refs, grafts or the commit-graph, any of
+// which can rewire a commit's parents, and runs no hook (item 42).
+func TestLeadGitHistoryOptions(t *testing.T) {
+	cmd := leadGit("/x", "rev-list", "HEAD")
+	args := strings.Join(cmd.Args, " ")
+	for _, want := range []string{"--no-replace-objects", "-c core.hooksPath=/dev/null", "-c core.commitGraph=false"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("no %q in %q", want, args)
+		}
+	}
+	if !slices.Contains(cmd.Env, "GIT_GRAFT_FILE="+os.DevNull) {
+		t.Errorf("no GIT_GRAFT_FILE in the environment")
+	}
 }

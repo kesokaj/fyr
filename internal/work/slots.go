@@ -266,6 +266,44 @@ func atLimit(work string, max int) error {
 	return errors.New(msg)
 }
 
+// goneSweep is Kill's refusal for a run whose process is gone, which may
+// have left containers and its network in docker mode: they are swept
+// first. Without docker there is nothing to sweep; a daemon that is not
+// this machine's is never asked, and the refusal says so.
+func goneSweep(msg, stamp string) error {
+	if _, lerr := exec.LookPath("docker"); lerr == nil {
+		if derr := localDaemon(); derr != nil {
+			return fmt.Errorf("%s; its containers were not swept: %v", msg, derr)
+		}
+		if n, nets, serr := sweepStamp(stamp); n > 0 || nets > 0 || serr != nil {
+			return fmt.Errorf("%s; its containers and network (label fyr.work=%s): %d containers and %d network removed, error %v", msg, stamp, n, nets, serr)
+		}
+	}
+	return errors.New(msg)
+}
+
+// noPidSweep is Kill's refusal for a stamp with no pid file in this home.
+// A docker-mode run makes its network before its pid file, so one killed
+// in between leaves its network alone (the P4 security review, finding 4).
+// Labels span the daemon, not the home, so the stamp may be a live run of
+// another home: only networks are removed, which docker refuses while a
+// container uses one, and nothing while the stamp's pid lives (round 2).
+func noPidSweep(msg, stamp string) error {
+	if _, lerr := exec.LookPath("docker"); lerr != nil {
+		return errors.New(msg)
+	}
+	if pid, err := strconv.Atoi(stamp[strings.LastIndexByte(stamp, '-')+1:]); err == nil && syscall.Kill(pid, 0) == nil {
+		return fmt.Errorf("%s; its process %d is alive, so nothing was swept", msg, pid)
+	}
+	if derr := localDaemon(); derr != nil {
+		return fmt.Errorf("%s; its network was not swept: %v", msg, derr)
+	}
+	if nets, err := removeLabelled([]string{"network", "ls", "-q", "--filter", "label=fyr.work=" + stamp}, "network", "rm"); nets > 0 || err != nil {
+		return fmt.Errorf("%s; its network (label fyr.work=%s): %d removed, error %v", msg, stamp, nets, err)
+	}
+	return errors.New(msg)
+}
+
 // Kill sends SIGTERM to the run stamp names, which ends its context: every
 // worker fails killed and the run prints its result contract (D26, D33).
 // A pid file no live run holds is stale and refused with its path. It
@@ -276,6 +314,9 @@ func Kill(home, stamp string) (int, error) {
 	}
 	p := filepath.Join(sandbox.Root(home, "work"), stamp, pidName)
 	f, err := sandbox.OpenRegular(p, os.O_RDONLY)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, noPidSweep(fmt.Sprintf("no run %s: %v", stamp, err), stamp)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("no run %s: %v", stamp, err)
 	}
@@ -283,18 +324,7 @@ func Kill(home, stamp string) (int, error) {
 	if h, err := held(f); err != nil {
 		return 0, fmt.Errorf("%s: %v", p, err)
 	} else if !h {
-		// The run's process is gone: what it started in docker mode may not
-		// be. Without docker there is nothing to sweep; a daemon that is not
-		// this machine's is never asked, and the refusal says so.
-		if _, lerr := exec.LookPath("docker"); lerr == nil {
-			if derr := localDaemon(); derr != nil {
-				return 0, fmt.Errorf("%s is stale: no run holds it; its containers were not swept: %v", p, derr)
-			}
-			if n, serr := sweepContainers(stamp); n > 0 || serr != nil {
-				return 0, fmt.Errorf("%s is stale: no run holds it; its containers (label fyr.work=%s): %d removed, error %v", p, stamp, n, serr)
-			}
-		}
-		return 0, fmt.Errorf("%s is stale: no run holds it", p)
+		return 0, goneSweep(p+" is stale: no run holds it", stamp)
 	}
 	pid, _, err := readPid(f, stamp)
 	if err != nil {

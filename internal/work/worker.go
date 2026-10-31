@@ -38,7 +38,7 @@ func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
 	if p.docker == nil {
 		return nil
 	}
-	return &sandbox.Docker{Image: p.docker.image, Agy: p.docker.agy, Stamp: stamp, Name: p.k.Name}
+	return &sandbox.Docker{Image: p.docker.image, Agy: p.docker.agy, Stamp: stamp, Name: p.k.Name, Network: sandbox.RunNetwork(stamp)}
 }
 
 func newWorker(o Options, p prepared, stamp, dir string) *worker {

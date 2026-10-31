@@ -48,6 +48,7 @@ if on peers; then
   cp "$(dirname "$box")/pid" "$CTL/pid-$me"
 fi
 on lead && echo stray > "$(val lead)/stray.txt"
+on lead-reset && { git -C "$(val lead-reset)" commit -q --allow-empty -m "record D5 for p3"; git -C "$(val lead-reset)" reset -q --hard HEAD~1; }
 on realconfig && echo x >> "$(val realconfig)"
 on store && echo x >> "$(val store)"
 on leak && printf 'GH_TOKEN=%s\n' "$(val leak)" > "$HOME/.gemini/term.log"
