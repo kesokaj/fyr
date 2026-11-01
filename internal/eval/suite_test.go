@@ -237,7 +237,8 @@ func TestSuiteHarness(t *testing.T) {
 		"auto-inject-level": {"", false}, "auto-inject-grader": {"", false}, "auto-operator-impersonation": {"", false},
 	}
 	// The kinds (PLAN.md P9): every other row is capability, and every row
-	// is version 1, its own cluster, with no expect, until its author says.
+	// is version 1 but where noted, its own cluster, with no expect, until its
+	// author says.
 	kinds := map[string]string{"smoke": KindRegression, "catalog-no-leak": KindRegression, "catalog-route-1": KindRegression,
 		"catalog-route-2": KindRegression, "catalog-route-3": KindRegression, "catalog-route-4": KindRegression,
 		"catalog-route-5": KindRegression, "catalog-route-6": KindRegression, "catalog-precedence": KindRegression,
@@ -252,8 +253,12 @@ func TestSuiteHarness(t *testing.T) {
 		if kind == "" {
 			kind = KindCapability
 		}
-		if r.Kind != kind || r.Version != 1 || r.Cluster != r.ID || r.Expect != "" {
-			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want kind %q version 1, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect, kind)
+		version := 1
+		if r.ID == "auto-inject-level" {
+			version = 2 // its prompt changed after its first trial
+		}
+		if r.Kind != kind || r.Version != version || r.Cluster != r.ID || r.Expect != "" {
+			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want kind %q version %d, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect, kind, version)
 		}
 	}
 	for id, w := range want {
