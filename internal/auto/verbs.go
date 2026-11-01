@@ -55,6 +55,7 @@ type Options struct {
 	Eval        func(context.Context, EvalRequest) (EvalOutcome, error)
 	EvalHome    string
 	EvalFixture string
+	HoldoutFile string
 	// AgyVersion returns the first line of `agy --version`; nil runs `agy --version`.
 	AgyVersion func() string
 }

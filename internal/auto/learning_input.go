@@ -16,7 +16,7 @@ import (
 
 func isLearningClass(class string) bool {
 	switch class {
-	case ClassMemoryConsolidation, ClassRetroLite, ClassMemoryCandidates, ClassDistill, ClassMissingSkill, ClassContextAdequacy, ClassScaffoldDrift:
+	case ClassMemoryConsolidation, ClassRetroLite, ClassMemoryCandidates, ClassDistill, ClassMissingSkill, ClassContextAdequacy, ClassScaffoldDrift, ClassHarnessEdit:
 		return true
 	}
 	return false
@@ -76,10 +76,10 @@ func (r *run) buildLearningInput(root string, p *Project, t Task) string {
 		}
 	}
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
-	if props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Project: root, Open: true}); err == nil && len(props) > 0 {
+	if props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Open: true}); err == nil && len(props) > 0 {
 		b.WriteString("## Queued proposals\n\n")
 		for _, pr := range props {
-			if b.Len() < learningInputCap {
+			if (pr.ID == t.ID || pr.Project == root || isHarnessTargetProposal(root, pr)) && b.Len() < learningInputCap {
 				fmt.Fprintf(&b, "### %s: %s\n%s\n\n", pr.ID, pr.Title, pr.Body)
 			}
 		}

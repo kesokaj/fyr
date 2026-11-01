@@ -106,6 +106,7 @@ type run struct {
 	workerRan       bool
 	pendingReportID string
 	appliedSHA      string
+	installPending  bool
 }
 
 func (r *run) exit() error {

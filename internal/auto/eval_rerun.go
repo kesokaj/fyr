@@ -60,10 +60,7 @@ func (r *run) currentAgyVersion() string {
 }
 
 func (r *run) triggerEvalRerun(root string, p *Project) *Task {
-	if r.cfg.Level != LevelHarness {
-		return nil
-	}
-	if r.o.Repo != "" && !sameDir(root, r.o.Repo) {
+	if !r.isHarnessCheckout(root) {
 		return nil
 	}
 	suite, err := readCheckoutSuite(root)

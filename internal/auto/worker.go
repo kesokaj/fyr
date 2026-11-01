@@ -200,10 +200,15 @@ func (r *run) recordLearningProgress(p *Project, t Task) {
 	case ClassMemoryCandidates:
 		p.LastMemoryCandidates = now
 		p.PendingMemoryCandidates = 0
+	case ClassMiniAudit:
+		p.LastMiniAudit = now
 	}
 }
 
 func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
+	if t.Outcome == OutcomeEvalGate {
+		return r.evalGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+	}
 	if t.Outcome == OutcomeApplied {
 		if r.o.Apply == nil {
 			return r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)

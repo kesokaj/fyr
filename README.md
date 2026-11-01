@@ -35,7 +35,7 @@ flowchart LR
         dreamer["fyr dream --all<br/>hourly user timer, while agy runs<br/>a CLI with no tool granted"]
         evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
         workRun["fyr work Kickoff file<br/>typed by you, a sandboxed clone with no remote and HOME"]
-        autoRun["fyr auto run<br/>hourly user timer, when turned on<br/>one M18 worker in docker or host"]
+        autoRun["fyr auto run<br/>hourly user timer, when turned on<br/>one M18 worker or eval run, in docker or host"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -61,8 +61,8 @@ flowchart LR
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
     workRun -. "a worker's prompts and the files its agent reads, unredacted" .-> provider
-    autoRun -- "report records, runs.json" --> configDir
-    autoRun -. "a worker's prompts and the files its agent reads, unredacted" .-> provider
+    autoRun -- "report records, runs.json; at level harness, eval-gated local commit" --> configDir
+    autoRun -. "a worker's or eval's prompts and the files its agent reads, unredacted; redacted learning inputs" .-> provider
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
     linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
@@ -74,9 +74,9 @@ flowchart LR
 |---|---|---|
 | Teal | **update** | a place moving forward |
 | Indigo | **install** | a place writing the installed files |
-| Amber | **the loop on this machine** | corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them (ADR-062) |
+| Amber | **the loop on this machine** | corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them (ADR-062), or an eval-gated `fyr auto` commit to this checkout's local branch (R9, ADR-090), which you push |
 | Plum | **release** | `/preflight` tagging `main` and publishing the release |
-| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, `fyr eval`, `fyr work` and `fyr auto`: on the machine, not ways in. Their dashed lines to the CLI's model provider are the only things fyr sends off the machine by design: the dreamer's redacted prompt (ADR-049); the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065); and the same for a `fyr work` worker you started or a `fyr auto` worker started by the timer when you turned auto on (docker when `fyr work`'s docker preflight passes, otherwise on the host; ADR-076, ADR-090): fyr sends nothing else, but its agent runs with `command(*)` and the network, so a misled agent could send what it reads elsewhere; `--runner docker` keeps it off your files but its login token, not off the network. The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
+| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, `fyr eval`, `fyr work` and `fyr auto`: on the machine, not ways in. Their dashed lines to the CLI's model provider are the things fyr sends off the machine by design: the dreamer's redacted prompt (ADR-049); the prompts of an eval sandbox you or `fyr auto` started and the files its agent reads, unredacted as in any session (ADR-065, ADR-090); the same for a `fyr work` worker you started or a `fyr auto` worker started by the timer when you turned auto on (docker when `fyr work`'s docker preflight passes, otherwise on the host; ADR-076, ADR-090), plus a learning worker's redacted conversations, memory, proposals and metric numbers and a missing-skill worker's search on skills.sh and the npm registry: fyr sends nothing else, but its agent runs with `command(*)` and the network, so a misled agent could send what it reads elsewhere; `--runner docker` keeps it off your files but its login token, not off the network. The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
 
 A dashed line is a gap: done by hand or limited to one machine. The design around the map is `SDD.md` § Deployment; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
 
@@ -122,10 +122,10 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
-| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects, files a global `review` record when the findings changed, and past level `observe` starts at most one M18 worker per run (up to 4 a day, 30m each, in docker when `fyr work`'s docker preflight passes, else host) from a fixed-template Kickoff in `~/.config/fyr/auto/kickoffs/`; for an applied class's `PASS`, `fyr` squash-merges `work/<name>` in a detached worktree, runs the base tree's `# auto: test` lines and `fyr check`, fast-forwards the project's local branch by one commit and deletes `work/<name>`, never pushing |
+| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects, files a global `review` record when the findings changed, and past level `observe` starts at most one M18 worker or eval re-run per run (up to 4 a day, 30m each, in docker when `fyr work`'s docker preflight passes, else host) from a fixed-template Kickoff in `~/.config/fyr/auto/kickoffs/`; for an applied class's `PASS` (or a `harness-edit` at level `harness` that passes the eval gate at `k=3` on target, regression and held-out rows within 24 eval sessions), `fyr` squash-merges `work/<name>` in a detached worktree, runs the base tree's `# auto: test` lines and `fyr check`, fast-forwards the project's local branch by one commit and deletes `work/<name>`, never pushing and never installing into a real home (`install pending`) |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr serve` | Pages of this project and this home on `127.0.0.1:3000` until Ctrl-C, with buttons for `fyr index` and `fyr metrics ingest`; open the printed URL, which holds the run's path and token |
-| `fyr eval --home DIR [--runs N] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25), each trial in its own sandbox and stored as a trial in the metrics store |
+| `fyr eval --home DIR [--runs N] [--suite-file PATH] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25), each trial in its own sandbox and stored as a trial in the metrics store |
 | `fyr work [--timeout D] [--model M] [--max-workers N] [--keep] [--runner host\|docker] [--image REF] [--agy-linux PATH] <kickoff-file>...`, `fyr work --kill <stamp>` | Each Kickoff run as an unattended worker in its own sandbox, on a clone of this checkout with no remote, up to N at once across the machine (default 4, at most 8); a Kickoff's `Model:` line overrides `--model` for that worker, and every named model is checked against `agy models` before anything is made; each branch is fetched back by path and a result contract of at most 39 lines per worker is printed, in file order; `--runner docker` runs each worker's agy session in a hardened container of `--image` (default `fyr-work:local`, built by hand with the build line in `SPEC-fyr-work` § The worker image) with a linux agy (`--agy-linux`, required off linux) while every other step stays on the host; `--kill` ends the run whose stamp line printed `<stamp>` and, with docker, removes that stamp's containers; it never pushes or merges |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | The build version |

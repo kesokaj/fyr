@@ -7,14 +7,14 @@
 
 ## Now
 
-`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 7: the harness self-edit (the eval gate, the keep rule, the 24-session stop, the proposal with both scores, the commit via the apply step, the R9 sentence, and E2E (e)). Phase 6 is done: `fyr eval --suite-file PATH` (outside every checkout, labelled `eval=holdout/<id>`) and the `eval-rerun` class in `internal/auto` (`skill-or-agent-changed` at `k=3`, `unstable` at `k=5`, `cli-changed` on `regression` rows at `k=1`, G9 re-read between rows, global `testing` record; D51).
-- [ ] § The eval gate, test first, with a fake `fyr eval`: the keep rule, the 24-session stop, the proposal with both scores, the commit via the apply step, and the install only under the standing permission. The R9 sentence lands with its `enforced by:`.
-- [ ] E2E (e) on a scratch clone of this checkout under `~/sandbox/fyr-auto/`, after the quota read.
-- [ ] Checkpoint, with `security` (a self-modifying path).
+`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 8: the trust ramp (`fyr auto on --level observe` in dave's real home on the operator's word, then reading the report records after a week). Phase 7 is done: the `harness-edit` and `mini-audit` classes, the eval gate (`internal/auto/eval_gate.go`), the R9 sentence (`PRD.md`), and live E2E (e) (`TEST-2026-11-01-1350-e2e-e-fyr-auto-phase-7-eval-gate-on-a-scratch-cl`; D53–D54).
+- [ ] `fyr auto on --level observe` in dave's real home, on the operator's word in that session (R6).
+- [ ] After a week, the report records are read with the operator, and the level is raised on their word or not.
+- [ ] Checkpoint: the plan closes.
 
 ## Next
 
-That plan's Phase 8.
+None after Phase 8.
 
 ## Backlog
 

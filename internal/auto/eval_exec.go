@@ -22,6 +22,7 @@ type EvalRequest struct {
 	Home      string
 	Fixture   string
 	SuiteFile string
+	Commit    string
 	Runs      int
 	Row       string
 }
@@ -42,10 +43,18 @@ func (o Options) evalHome() string {
 	if o.EvalHome != "" {
 		return o.EvalHome
 	}
-	if o.Home != "" && filepath.Clean(o.Home) != filepath.Clean(o.realHome()) && sandbox.OutsideCheckout(o.Home) == nil {
-		return o.Home
-	}
 	return filepath.Join(o.realHome(), "sandbox", "fyr-auto", "eval-home")
+}
+
+func (o Options) evalFixture() string {
+	if o.EvalFixture != "" {
+		return o.EvalFixture
+	}
+	def := filepath.Join(o.realHome(), "sandbox", "fyr-eval", "fixture")
+	if st, err := os.Stat(filepath.Join(def, ".git")); err == nil && st.IsDir() {
+		return def
+	}
+	return ""
 }
 
 type completedRerun struct {
@@ -75,7 +84,7 @@ func (r *run) execEvalRerun(root string, p *Project, t Task) (string, []Finding)
 				break
 			}
 		}
-		out, err := r.runEvalRow(EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.EvalFixture, Runs: rr.Runs, Row: rr.ID})
+		out, err := r.runEvalRow(EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(), Runs: rr.Runs, Row: rr.ID})
 		if err != nil {
 			r.failed = true
 			findings = append(findings, Finding{"eval-rerun", "failed", rr.ID, oneLine(err.Error())})
@@ -172,6 +181,11 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 	if out, err := trail.Command(req.Dir, "clone", "--quiet", "--local", req.Dir, cloneDir).CombinedOutput(); err != nil {
 		return EvalOutcome{}, fmt.Errorf("clone for eval: %v: %s", err, oneLine(string(out)))
 	}
+	if req.Commit != "" {
+		if out, err := applyGit(cloneDir, nil, "checkout", "--detach", req.Commit); err != nil {
+			return EvalOutcome{}, fmt.Errorf("checkout %s for eval: %v: %s", req.Commit, err, oneLine(out))
+		}
+	}
 	argv := []string{"eval", "--home", req.Home, "--runs", strconv.Itoa(max(req.Runs, 1))}
 	if req.Fixture != "" {
 		argv = append(argv, "--fixture", req.Fixture)
@@ -182,7 +196,11 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 	argv = append(argv, req.Row)
 	cmd := exec.CommandContext(ctx, self, argv...)
 	cmd.Dir = cloneDir
-	cmd.Env = sandbox.WithoutGit(os.Environ())
+	for _, kv := range sandbox.WithoutGit(os.Environ()) {
+		if !strings.HasPrefix(kv, "FYR_REPO=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
 	raw, runErr := cmd.CombinedOutput()
 	out := string(raw)
 	m := evalSummaryRe.FindStringSubmatch(out)

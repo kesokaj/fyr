@@ -79,6 +79,10 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, finding
 		}
 	case ClassEvalRerun:
 		return r.triggerEvalRerun(root, p)
+	case ClassHarnessEdit:
+		return r.triggerHarnessEdit(root)
+	case ClassMiniAudit:
+		return r.triggerMiniAudit(root, p)
 	}
 	return nil
 }
