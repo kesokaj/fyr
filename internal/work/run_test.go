@@ -327,3 +327,83 @@ func TestRunModelAndKeep(t *testing.T) {
 		t.Errorf("--keep: %v, line %q", err, res.Block()[0])
 	}
 }
+
+// TestWorkArgsUnchangedByAuto: Options.Auto is additive. Without it, work's
+// agy argv, its refusal of a bare Files: line and its drafts name rule are
+// unchanged; with it, the agy argv stays the same, a bare Files: line is a
+// drafts-only scope that fails any tree change, and auto-drafts.jsonl is
+// copied.
+func TestWorkArgsUnchangedByAuto(t *testing.T) {
+	r := newRig(t)
+	r.on("draft-names", "auto-drafts.jsonl\nok.md\n")
+	if _, err := runWith(r.opts(), r.kickoff("empty-no-auto", "")); err == nil || !strings.Contains(err.Error(), "an empty Files: entry") {
+		t.Fatalf("without Auto, bare Files: = %v", err)
+	}
+	res := r.run(r.kickoff("plain", "src/a.txt"))
+	wantReasons(t, res)
+	plainArgs := r.read("args")
+	if !strings.HasPrefix(plainArgs, "-p\n") || !strings.HasSuffix(plainArgs, "\n--mode\naccept-edits\n--print-timeout\n5m\n") || strings.Contains(plainArgs, "--model") {
+		t.Fatalf("plain agy argv = %q", plainArgs)
+	}
+	if res.Drafts != 1 || !strings.Contains(strings.Join(res.Notes, "\n"), "auto-drafts.jsonl") {
+		t.Errorf("without Auto, drafts = %d, notes = %v", res.Drafts, res.Notes)
+	}
+
+	r = newRig(t)
+	r.on("nocommit", "")
+	r.on("draft-names", "auto-drafts.jsonl\n")
+	o := r.opts()
+	o.Auto = true
+	res, err := runWith(o, r.kickoff("auto-drafts", ""))
+	if err != nil {
+		t.Fatalf("with Auto, bare Files: refused: %v", err)
+	}
+	wantReasons(t, res)
+	autoArgs := r.read("args")
+	if !strings.HasPrefix(autoArgs, "-p\n") || !strings.HasSuffix(autoArgs, "\n--mode\naccept-edits\n--print-timeout\n5m\n") || strings.Contains(autoArgs, "--model") {
+		t.Fatalf("auto agy argv = %q", autoArgs)
+	}
+	if res.Drafts != 1 {
+		t.Errorf("with Auto, drafts = %d, want 1", res.Drafts)
+	}
+
+	r = newRig(t)
+	o = r.opts()
+	o.Auto = true
+	res, err = runWith(o, r.kickoff("auto-outside", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReasons(t, res, ReasonOutside)
+}
+
+func TestAutoFilesLine(t *testing.T) {
+	if _, err := filesLine("Files:\n", false); err == nil {
+		t.Error("filesLine accepted empty Files: with auto=false")
+	}
+	got, err := filesLine("Files:\n", true)
+	if err != nil || len(got) != 0 {
+		t.Errorf("filesLine(auto=true) = %v, %v", got, err)
+	}
+}
+
+func TestAutoDraftsCopy(t *testing.T) {
+	r := newRig(t)
+	r.on("nocommit", "")
+	r.on("draft-names", "auto-drafts.jsonl\n")
+	o := r.opts()
+	o.Auto = true
+	res, err := runWith(o, r.kickoff("auto-copy", ""))
+	if err != nil || res.Drafts != 1 {
+		t.Fatalf("err=%v drafts=%d", err, res.Drafts)
+	}
+}
+
+func TestDockerPreflight(t *testing.T) {
+	r := newRig(t)
+	o := r.opts()
+	o.Version = ""
+	if err := DockerPreflight(o); err == nil || !strings.Contains(err.Error(), "development build") {
+		t.Errorf("DockerPreflight on devel build = %v", err)
+	}
+}

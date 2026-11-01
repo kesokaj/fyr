@@ -36,7 +36,7 @@ func TestHarnessMap(t *testing.T) {
 			t.Errorf("the map names `fyr %s`, which the binary does not have", m[1])
 		}
 	}
-	for _, verb := range []string{"install", "update", "dream"} {
+	for _, verb := range []string{"install", "update", "dream", "auto"} {
 		if !seen[verb] {
 			t.Errorf("the map does not show `fyr %s`", verb)
 		}

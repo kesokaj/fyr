@@ -1,6 +1,7 @@
 package auto
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/work"
 )
 
 // ExitError is a verb's exit status with the text it prints on stdout, as
@@ -35,6 +37,38 @@ type Options struct {
 	Metrics    func() ([]Finding, error)
 	// ReadLimit replaces every read's time limit; a test shortens it.
 	ReadLimit time.Duration
+	RealHome  string
+	Self      string
+	Repo      string
+	Version   string
+	// Work runs one Kickoff file as a worker; nil is work.Run.
+	Work func(context.Context, work.Options, ...string) ([]work.Result, error)
+	// DockerPreflight checks whether work's docker mode can run; nil is work.DockerPreflight.
+	DockerPreflight func(work.Options) error
+	// Apply squashes an applied class's PASS branch onto the checkout (Phase 4); nil keeps the branch.
+	Apply func(root, branch, class string) (bool, error)
+}
+
+func (o Options) realHome() string {
+	if o.RealHome != "" {
+		return o.RealHome
+	}
+	return o.Home
+}
+
+func (o Options) self() string {
+	if o.Self != "" {
+		return o.Self
+	}
+	exe, _ := os.Executable()
+	return exe
+}
+
+func (o Options) workRun() func(context.Context, work.Options, ...string) ([]work.Result, error) {
+	if o.Work != nil {
+		return o.Work
+	}
+	return work.Run
 }
 
 func (o Options) limit(d time.Duration) time.Duration {

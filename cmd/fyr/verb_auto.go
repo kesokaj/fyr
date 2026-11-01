@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 
 	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/harness"
@@ -66,10 +67,7 @@ func runAuto(c *ctx) error {
 	case "status":
 		err = auto.Status(o)
 	case "run":
-		o.Env, o.Vocabulary = autoEnv, vocabulary()
-		o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
-		o.Metrics = func() ([]auto.Finding, error) { return autoMetricsFindings(c.home) }
-		err = auto.Run(o, c.dryRun)
+		err = auto.Run(c.autoRunOptions(o), c.dryRun)
 	}
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
@@ -79,6 +77,23 @@ func runAuto(c *ctx) error {
 		return exitCode(ee.Code)
 	}
 	return err
+}
+
+func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
+	o.Env, o.Vocabulary = autoEnv, vocabulary()
+	o.Version = buildVersion()
+	if src, err := harness.ResolveSource(c.repoFlag, c.home, o.Version); err == nil {
+		o.Repo = src.Dir
+	}
+	if self, err := os.Executable(); err == nil {
+		o.Self = self
+	}
+	if real, err := os.UserHomeDir(); err == nil {
+		o.RealHome = real
+	}
+	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
+	o.Metrics = func() ([]auto.Finding, error) { return autoMetricsFindings(c.home) }
+	return o
 }
 
 // autoRequestError refuses a flag of `on` given empty or out of range: every

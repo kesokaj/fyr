@@ -103,6 +103,7 @@ type run struct {
 	usageRead   bool
 	usageText   string
 	usageErr    error
+	workerRan   bool
 }
 
 func (r *run) exit() error {
@@ -287,11 +288,9 @@ func (r *run) usage() (string, error) {
 	return r.usageText, r.usageErr
 }
 
-// budget is G9. Nothing past it is built yet, so it is read and logged and no
-// worker starts; `/usage` is read only for a project past G8, so the free
-// gates spend no call.
-func (r *run) budget() string {
+// budget is G9: `/usage` is read only for a project past G8, so the free gates
+// spend no call.
+func (r *run) budget() (string, bool) {
 	text, err := r.usage()
-	line, _ := gateBudget(r.st.modelRunsToday(r.o.now()), text, err)
-	return line
+	return gateBudget(r.st.modelRunsToday(r.o.now()), text, err)
 }

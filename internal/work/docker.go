@@ -47,6 +47,32 @@ type dockerPlan struct {
 	image, agy string
 }
 
+// DockerPreflight is the docker-mode refusals of preflight (refusals 13-20,
+// 22, 24 and 25, plus the login token for Mountable), so fyr auto can run on
+// docker when they pass and fall back to the host runner with the reason when
+// they do not (D2, D17).
+func DockerPreflight(o Options) error {
+	for _, p := range []*string{&o.Home, &o.RealHome} {
+		abs, err := filepath.Abs(*p)
+		if err != nil {
+			return err
+		}
+		*p = abs
+	}
+	var p prepared
+	p.tok = filepath.Join(o.RealHome, sandbox.TokenRel)
+	if st, err := os.Lstat(p.tok); err != nil || !st.Mode().IsRegular() {
+		return fmt.Errorf("no Antigravity login at %s", p.tok)
+	}
+	if _, err := runZone(RunnerDocker); err != nil {
+		return err
+	}
+	if err := gitFloor(RunnerDocker); err != nil {
+		return err
+	}
+	return p.dockerRefusals(o)
+}
+
 // dockerRefusals are refusals 13-20 and 24 of SPEC-fyr-work, after refusal
 // 22, for a docker-mode run: this fyr is an installed build (before any
 // docker call), docker is on PATH, the daemon is local and applies the

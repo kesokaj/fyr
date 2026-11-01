@@ -238,7 +238,7 @@ func TestReportLevelReadsTheBudget(t *testing.T) {
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("10%", "90%")}
 	out := reportRun(t, home, e)
-	if !strings.Contains(out, "G9 budget: P 90% of 5h, 10% of week remaining; floors 50/30; no model task is built yet") {
+	if !strings.Contains(out, "G9 budget: P 90% of 5h, 10% of week remaining; floors 50/30") {
 		t.Errorf("%s", out)
 	}
 	if e.usageCalls != 1 {

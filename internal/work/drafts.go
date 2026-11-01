@@ -21,8 +21,10 @@ const (
 
 // draftName is the names copied: the lead puts a draft's path on a shell
 // command line, so no name may hold a quote, a space or a metacharacter, or
-// start like a flag (D138).
+// start like a flag (D138). With Options.Auto, autoDraftsName is copied too.
 var draftName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,80}\.md$`)
+
+const autoDraftsName = "auto-drafts.jsonl"
 
 // drafts is step 8: the clone's draft records, gitignored and so not on
 // its branch, copied into the lead's .agents/scratch/work/<stamp>/<name>/:
@@ -63,7 +65,7 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 	var dest *os.Root
 	var skipped []string
 	for _, e := range entries {
-		if !draftName.MatchString(e.Name()) {
+		if !draftName.MatchString(e.Name()) && !(w.o.Auto && e.Name() == autoDraftsName) {
 			skipped = append(skipped, e.Name())
 			continue
 		}

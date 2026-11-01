@@ -10,7 +10,7 @@ Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in on
 
 ## How it works
 
-This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs and the operator's `fyr work` workers. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
+This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs, the operator's `fyr work` workers and `fyr auto`'s workers. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
 
 ```mermaid
 flowchart LR
@@ -35,6 +35,7 @@ flowchart LR
         dreamer["fyr dream --all<br/>hourly user timer, while agy runs<br/>a CLI with no tool granted"]
         evalRun["fyr eval rows<br/>typed by you, each row a sandboxed clone and HOME"]
         workRun["fyr work Kickoff file<br/>typed by you, a sandboxed clone with no remote and HOME"]
+        autoRun["fyr auto run<br/>hourly user timer, when turned on<br/>one M18 worker in docker or host"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -60,11 +61,13 @@ flowchart LR
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
     workRun -. "a worker's prompts and the files its agent reads, unredacted" .-> provider
+    autoRun -- "report records, runs.json" --> configDir
+    autoRun -. "a worker's prompts and the files its agent reads, unredacted" .-> provider
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
     linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
     linkStyle 14,15,16 stroke:#A8660F,stroke-width:2px
-    linkStyle 17,18,19,20,21,22,23 stroke:#5B7F1E,stroke-width:2px
+    linkStyle 17,18,19,20,21,22,23,24,25 stroke:#5B7F1E,stroke-width:2px
 ```
 
 | Colour | Path | What it carries |
@@ -73,7 +76,7 @@ flowchart LR
 | Indigo | **install** | a place writing the installed files |
 | Amber | **the loop on this machine** | corrections and proposals stay in `~/.config/fyr/` and reach this repository only through `/retro --harness`, run by you on the machine that logged them (ADR-062) |
 | Plum | **release** | `/preflight` tagging `main` and publishing the release |
-| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, `fyr eval` and `fyr work`: on the machine, not ways in. Their three dashed lines to the CLI's model provider are the only things fyr sends off the machine: the dreamer's redacted prompt (ADR-049); the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065); and the same for a `fyr work` worker you started: fyr sends nothing else, but its agent runs with `command(*)` and the network, so a misled agent could send what it reads elsewhere; `--runner docker` keeps it off your files but its login token, not off the network (ADR-076). The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
+| Olive | **learn** | the dreamer, hourly while an `agy` session of yours runs, `fyr eval`, `fyr work` and `fyr auto`: on the machine, not ways in. Their dashed lines to the CLI's model provider are the only things fyr sends off the machine by design: the dreamer's redacted prompt (ADR-049); the prompts of an eval sandbox you started and the files its agent reads, unredacted as in any session (ADR-065); and the same for a `fyr work` worker you started or a `fyr auto` worker started by the timer when you turned auto on (docker when `fyr work`'s docker preflight passes, otherwise on the host; ADR-076, ADR-090): fyr sends nothing else, but its agent runs with `command(*)` and the network, so a misled agent could send what it reads elsewhere; `--runner docker` keeps it off your files but its login token, not off the network. The dreamer's line to the sessions, one conversation per project that `/resume` lists, is dashed because only Linux has run it end to end; the operator's macOS run turns it solid (ADR-073). |
 
 A dashed line is a gap: done by hand or limited to one machine. The design around the map is `SDD.md` § Deployment; what a release delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
 
@@ -119,7 +122,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
-| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects and files a global `review` record when the findings changed; no worker is built yet, so it spends no model and changes no project |
+| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects, files a global `review` record when the findings changed, and past level `observe` starts at most one M18 worker per run (up to 4 a day, 30m each, in docker when `fyr work`'s docker preflight passes, else host) from a fixed-template Kickoff in `~/.config/fyr/auto/kickoffs/`; Phase 4's apply step is not built yet, so a PASS branch stays kept |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr serve` | Pages of this project and this home on `127.0.0.1:3000` until Ctrl-C, with buttons for `fyr index` and `fyr metrics ingest`; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR [--runs N] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25), each trial in its own sandbox and stored as a trial in the metrics store |

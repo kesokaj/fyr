@@ -80,6 +80,17 @@ func checkDir(d string) error {
 	return nil
 }
 
+func ensureSubdir(home, sub string) error {
+	if err := ensureDir(home); err != nil {
+		return err
+	}
+	p := filepath.Join(dir(home), sub)
+	if err := os.Mkdir(p, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return checkDir(p)
+}
+
 // loadState reads runs.json; a missing one is a zero State, found false.
 func loadState(home string) (st State, found bool, err error) {
 	d := dir(home)

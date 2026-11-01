@@ -42,6 +42,7 @@ type Options struct {
 	Image      string        // --runner docker's image ref; "" is DefaultImage
 	AgyLinux   string        // --runner docker's linux agy; "" is the host's own on linux
 	Version    string        // this fyr's build version, which the image must hold
+	Auto       bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
 }
 
 // DefaultTimeout is --timeout's default (D45).

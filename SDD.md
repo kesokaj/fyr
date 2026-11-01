@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-10-29 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-01 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -20,7 +20,7 @@ flowchart LR
   gemini --> agy["agy sessions"]
   agy --> fyr
   fyr --> state[("~/.config/fyr<br/>brain.db, metrics.db, search.db")]
-  fyr -.-> provider[("the CLI's model provider<br/>dream prompt, eval runs")]
+  fyr -.-> provider[("the CLI's model provider<br/>dream prompt, eval runs, work and auto workers")]
 ```
 
 ## Components
@@ -46,8 +46,8 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
 | M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it, M18 its workers, whose session can run in a hardened container instead (`Config.Docker`, Phase 7 of `PLAN-2026-10-29-workers`) | R6, R8 |
-| M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 39 lines per worker; `fyr work` (M5) runs one or several Kickoff files at once, up to `--max-workers` across the machine, and ends a run with `--kill`; a Kickoff's `Model:` line picks its worker's model over `--model`, and `models.go` checks every named model against the host's `agy models` (ADR-080); with `--runner docker` only the session runs in a container (M17's `Config.Docker`), `docker.go` holds the extra refusals and the run's container sweep, and the other steps stay on the host (`SPEC-fyr-work`, ADR-076) | R8 |
-| M19 | `internal/auto` | `fyr auto`, R3's second timer exception: the operator's switch (`auto.json`), its own hourly timer through M11's rendering, and a run that does nothing unless the switch is on. Built through Phase 2 of its plan, the risk rubric (`internal/auto/rubric.go`) and the `auto` skill included: a run reads the gates and runs the free checks, reporting in global `review` records; the workers `SPEC-fyr-auto` names are later phases, and it sends nothing to a model yet | R3, R4 |
+| M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 39 lines per worker; `fyr work` (M5) runs one or several Kickoff files at once, up to `--max-workers` across the machine, and ends a run with `--kill`; a Kickoff's `Model:` line picks its worker's model over `--model`, and `models.go` checks every named model against the host's `agy models` (ADR-080); with `--runner docker` only the session runs in a container (M17's `Config.Docker`), `docker.go` holds the extra refusals (`DockerPreflight`) and the run's container sweep, and the other steps stay on the host; `Options.Auto` lets M19 run a drafts-only Kickoff (`Files:` empty) and collect `auto-drafts.jsonl` (`SPEC-fyr-work`, ADR-076, ADR-090) | R8 |
+| M19 | `internal/auto` | `fyr auto`, R3's second timer exception: the operator's switch (`auto.json`), its own hourly timer through M11's rendering, and a run that does nothing unless the switch is on. Built through Phase 3 of its plan, the risk rubric (`internal/auto/rubric.go`), the `auto` skill and the worker runner (`internal/auto/kickoff.go`, `internal/auto/worker.go`) included: a run reads the gates, runs the free checks, reports in global `review` records, and past level `observe` starts at most one M18 worker per run (up to 4 a day, 30m each, in docker when `work.DockerPreflight` passes, else host) from a fixed-template Kickoff filtered by `AllowedFiles`; Phase 4's apply step is later, so a PASS branch stays kept | R0, R3, R4, R8, R10 |
 
 ## Flows
 
@@ -147,13 +147,14 @@ One line each; the record holds the context, the alternatives and the operator's
 - A session is one Task or one plan phase, or, when the feature skill runs a plan as workers, its planning and dispatch loop — ADR-058, ADR-077.
 - The root documents are PRD, SDD, TDD and TODO — ADR-074.
 - The local page runs in the foreground on loopback behind a per-run token — rejected: a background server, a wider bind — ADR-075.
+- Idle-time self-improvement is an explicit switch with its own timer, nine gates, a risk rubric and M18 workers in docker when preflight passes or on the host — ADR-090.
 
 ## Cross-cutting
 
-- **Security:** three things leave the machine, the dreamer's redacted prompt (M12), the operator's `fyr eval` runs and the operator's `fyr work` workers, whose clone has no remote but whose agent has `command(*)` and the network, and only `--runner docker` keeps it off the operator's files but the login token (R8, ADR-076); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token, and scopes the token's cookie to a per-run path so no other local port receives it (ADR-075, ADR-075a).
+- **Security:** three things are sent by design from the machine, all to the model of the CLI the machine already uses: the dreamer's redacted prompt (M12), the operator's `fyr eval` runs, and the `fyr work` workers started by the operator or by `fyr auto` when turned on (M18, M19), whose clone has no remote and whose runner is docker when `work.DockerPreflight` passes and otherwise host as the operator's uid, while with either runner the worker's agent has `command(*)` and the network, and check c and `auto.json`'s watch are tripwires, not containment (R3, R8, ADR-076, ADR-090); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token, and scopes the token's cookie to a per-run path so no other local port receives it (ADR-075, ADR-075a).
 - **Privacy:** memory, metrics and the global records stay in `~/.config/fyr/` on the machine that wrote them (R7); the metrics store keeps no arguments, prose or tool output (R4).
 - **Observability:** `fyr status` names drift, the binary's build, the dream timer and `fyr auto`'s switch; `fyr metrics show` and `fyr metrics report` summarise every session's shape.
-- **Cost:** no service and no cloud; the only model calls are the dream's, hourly while a session already runs, and the evals the operator starts.
+- **Cost:** no service and no cloud; the only model calls are the dream's, hourly while a session already runs, the evals and workers the operator starts, and `fyr auto`'s workers (at most four 30-minute model runs a day when turned on, gated on 50%/30% remaining quota).
 
 ## Deployment
 
@@ -174,7 +175,7 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 
 | Requirement | Components |
 |---|---|
-| R0 | M1, M7, M8, M9, M10, M11, M14, M16 |
+| R0 | M1, M7, M8, M9, M10, M11, M14, M16, M19 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
 | R3 | M1, M6, M11, M12, M16, M19 |
@@ -182,6 +183,6 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M17 |
 | R7 | M7, M9, M15, M16 |
-| R8 | M4, M5, M11, M12, M13, M16, M17, M18 |
+| R8 | M4, M5, M11, M12, M13, M16, M17, M18, M19 |
 | R9 | M4, M5, M6 |
-| R10 | M5, M6, M16 |
+| R10 | M5, M6, M16, M19 |

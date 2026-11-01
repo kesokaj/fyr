@@ -33,7 +33,7 @@ func preflight(ctx context.Context, o Options, files []string) ([]prepared, erro
 	if err := leadClean(o.Root); err != nil {
 		return nil, err
 	}
-	ks, err := parseAll(files)
+	ks, err := parseAll(files, o.Auto)
 	if err != nil {
 		return nil, err
 	}
@@ -78,10 +78,10 @@ func preflight(ctx context.Context, o Options, files []string) ([]prepared, erro
 }
 
 // parseAll is refusal 3 for every file, in order.
-func parseAll(files []string) ([]Kickoff, error) {
+func parseAll(files []string, auto bool) ([]Kickoff, error) {
 	var ks []Kickoff
 	for _, file := range files {
-		k, err := ParseKickoff(file)
+		k, err := parseKickoff(file, auto)
 		if err != nil {
 			return nil, err
 		}

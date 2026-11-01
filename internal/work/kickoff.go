@@ -46,6 +46,10 @@ var (
 // ID, more than one Model: line or one that is not a model ID, or a name
 // outside the branch alphabet (D40).
 func ParseKickoff(path string) (Kickoff, error) {
+	return parseKickoff(path, false)
+}
+
+func parseKickoff(path string, auto bool) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
 	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
@@ -60,7 +64,7 @@ func ParseKickoff(path string) (Kickoff, error) {
 		return k, fmt.Errorf("the Kickoff %s is over %d KiB", path, maxKickoff>>10)
 	}
 	k.Text = string(b)
-	if k.Files, err = filesLine(k.Text); err != nil {
+	if k.Files, err = filesLine(k.Text, auto); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
 	if k.Model, err = modelLine(k.Text); err != nil {
@@ -100,8 +104,10 @@ func modelLine(text string) (string, error) {
 	return "", fmt.Errorf("the Model: line %q is not a model ID", strings.TrimSpace(lines[0]))
 }
 
-// filesLine is the entries of the one line that starts "Files:" (D16).
-func filesLine(text string) ([]string, error) {
+// filesLine is the entries of the one line that starts "Files:" (D16). When
+// auto is true, a bare "Files:" line with no entry is a drafts-only scope
+// (PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of D37).
+func filesLine(text string, auto bool) ([]string, error) {
 	lines := prefixed(text, "Files:")
 	n := len(lines)
 	switch {
@@ -109,6 +115,9 @@ func filesLine(text string) ([]string, error) {
 		return nil, errors.New("no Files: line; name the files and records the worker may change")
 	case n > 1:
 		return nil, fmt.Errorf("%d Files: lines; give one", n)
+	}
+	if auto && strings.TrimSpace(lines[0]) == "" {
+		return nil, nil
 	}
 	var out []string
 	for _, e := range strings.Split(lines[0], ",") {

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
@@ -13,24 +14,34 @@ import (
 // reportLimit keeps a report readable; the lines past it are counted.
 const reportLimit = 200
 
-// health runs the free checks of one project past G8 and returns its verdict.
-// The class is the only one built so far; at a higher level G9 is read and no
-// model task follows.
+// health runs the free checks of one project past G8 and, at levels project
+// and harness past G9, at most one model task, then returns its verdict.
 func (r *run) health(root string, p *Project, read projectRead) string {
 	if r.dry {
 		return "would run health"
 	}
-	p.LastClass = "health"
+	if p.LastClass == "" {
+		p.LastClass = "health"
+	}
 	r.failed = r.failed || read.failed
-	verdict := r.file(&p.Mark, root, filepath.Base(root), read.findings)
 	if r.cfg.Level == LevelObserve {
-		return verdict
+		p.LastClass = "health"
+		return r.file(&p.Mark, root, filepath.Base(root), read.findings)
 	}
 	// `/usage` rewrites agy's token file, so the machine is read again first.
 	if !r.again(root) {
-		return verdict
+		return r.file(&p.Mark, root, filepath.Base(root), read.findings)
 	}
-	return verdict + "; " + r.budget() + "; no model task is built yet"
+	budget, stop := r.budget()
+	if stop {
+		verdict := r.file(&p.Mark, root, filepath.Base(root), read.findings)
+		return verdict + "; " + budget
+	}
+	taskVerdict, extra := r.runModelTask(root, p, read.findings)
+	all := append(slices.Clone(read.findings), extra...)
+	sortFindings(all)
+	verdict := r.file(&p.Mark, root, filepath.Base(root), all)
+	return verdict + "; " + budget + "; " + taskVerdict
 }
 
 // machineHealth reports what belongs to no project: a global review with no
