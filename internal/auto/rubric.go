@@ -56,7 +56,7 @@ var (
 	}
 	network = []string{
 		"the model provider, through `agy` in a worker and through `/usage`;",
-		"skills.sh's search, in the `missing-skill` class's worker.",
+		"skills.sh's search and the npm registry, in the `missing-skill` class's worker.",
 	}
 )
 

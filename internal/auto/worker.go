@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -47,7 +46,7 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 	if r.workerRan {
 		return "worker already ran in this sweep", nil
 	}
-	t := pickTask(root, r.cfg.Level, p.LastClass, findings)
+	t := r.pickProjectTask(root, p, findings)
 	if t == nil {
 		return "no model task due", nil
 	}
@@ -108,6 +107,11 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	wo := r.workOptions(root)
 	var runnerWhy string
 	wo.Runner, runnerWhy = chooseRunner(wo, r.o.DockerPreflight)
+	if err := r.prepareLearningWorker(root, p, t, k.Path); err != nil {
+		r.failed = true
+		return "worker input error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
+	}
+	defer cleanLearningInput(root)
 	snapBefore, snapErr := takeCheckoutSnapshot(root)
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	resList, runErr := r.o.workRun()(sig, wo, k.Path)
@@ -176,8 +180,23 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 	}
 	cleanProjectDrafts(root, res.DraftsDir)
 	p.LastClass = t.Class
+	r.recordLearningProgress(p, t)
 	v, bf := r.finishPassBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	return v, append(draftFindings, bf...)
+}
+
+func (r *run) recordLearningProgress(p *Project, t Task) {
+	now := r.o.now()
+	switch t.Class {
+	case ClassMemoryConsolidation:
+		p.LastMemoryConsolidation = now
+	case ClassRetroLite:
+		p.LastRetroLite = now
+		p.PendingMemoryCandidates = t.Count
+	case ClassMemoryCandidates:
+		p.LastMemoryCandidates = now
+		p.PendingMemoryCandidates = 0
+	}
 }
 
 func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
@@ -237,31 +256,7 @@ func (r *run) collectAutoDrafts(root, name, class string, res work.Result) ([]Fi
 	if err := harness.WriteAtomic(dest, data, 0o600); err != nil {
 		return nil, err
 	}
-	return extractDraftFindings(data, class), nil
-}
-
-func extractDraftFindings(data []byte, class string) []Finding {
-	var fs []Finding
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || len(line) > 4096 || redact.Redact(line) != line {
-			continue
-		}
-		var d struct {
-			Kind  string `json:"kind"`
-			Body  string `json:"body"`
-			Quote string `json:"quote"`
-		}
-		if json.Unmarshal([]byte(line), &d) != nil || d.Kind != "finding" || strings.TrimSpace(d.Body) == "" {
-			continue
-		}
-		detail := oneLine(d.Body)
-		if strings.TrimSpace(d.Quote) != "" {
-			detail += " (quote: " + oneLine(d.Quote) + ")"
-		}
-		fs = append(fs, Finding{"draft", "finding", class, detail})
-	}
-	return fs
+	return r.processDraftLines(root, class, data), nil
 }
 
 // cleanProjectDrafts removes the .agents/scratch/work/<stamp>/<name> directory
@@ -289,7 +284,7 @@ func verifyAutoDirs(home string) error {
 	if err := ensureDir(home); err != nil {
 		return err
 	}
-	for _, sub := range []string{"kickoffs", "drafts"} {
+	for _, sub := range []string{"kickoffs", "drafts", "inputs"} {
 		p := filepath.Join(dir(home), sub)
 		info, err := os.Lstat(p)
 		if errors.Is(err, fs.ErrNotExist) {

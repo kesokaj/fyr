@@ -314,18 +314,6 @@ func TestClassRotation(t *testing.T) {
 
 func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 	root := idleProject(t)
-	// spec-drift has priority over doc-drift unless spec-drift ran last.
-	fs := []Finding{
-		{Check: "check", Rule: "spec-stale", Where: "SPEC-foo"},
-		{Check: "check", Rule: "verb", Where: "README.md:1"},
-	}
-	if task := pickTask(root, LevelProject, "", fs); task == nil || task.Class != ClassSpecDrift {
-		t.Fatalf("first pick: %+v", task)
-	}
-	if task := pickTask(root, LevelProject, ClassSpecDrift, fs); task == nil || task.Class != ClassDocDrift {
-		t.Fatalf("rotated pick: %+v", task)
-	}
-	// If all targets are rubric-denied (e.g. AGENTS.md), runModelTask files an ask and skips Work.
 	home := t.TempDir()
 	called := false
 	r := &run{
@@ -333,6 +321,18 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		cfg: Config{Level: LevelProject},
 		st:  State{Date: "2026-11-01"},
 	}
+	// spec-drift has priority over doc-drift unless spec-drift ran last.
+	fs := []Finding{
+		{Check: "check", Rule: "spec-stale", Where: "SPEC-foo"},
+		{Check: "check", Rule: "verb", Where: "README.md:1"},
+	}
+	if task := r.pickProjectTask(root, &Project{}, fs); task == nil || task.Class != ClassSpecDrift {
+		t.Fatalf("first pick: %+v", task)
+	}
+	if task := r.pickProjectTask(root, &Project{LastClass: ClassSpecDrift}, fs); task == nil || task.Class != ClassDocDrift {
+		t.Fatalf("rotated pick: %+v", task)
+	}
+	// If all targets are rubric-denied (e.g. AGENTS.md), runModelTask files an ask and skips Work.
 	p := Project{}
 	verdict, extra := r.runModelTask(root, &p, []Finding{{Check: "check", Rule: "verb", Where: "AGENTS.md:3"}})
 	if called || r.st.OpenAsks != 1 || !strings.HasPrefix(verdict, "ask ") || len(extra) != 1 {

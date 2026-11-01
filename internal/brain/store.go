@@ -60,6 +60,8 @@ var migrations = []string{
 		INSERT INTO records_fts(rowid, title, body) VALUES (new.rid, new.title, new.body);
 	END;
 	CREATE TABLE meta(scope TEXT PRIMARY KEY, export_sha TEXT, last_dream TEXT);`,
+	`ALTER TABLE records ADD COLUMN provenance TEXT NOT NULL DEFAULT '';
+	UPDATE records SET provenance = 'unknown' WHERE kind IN ('memory', 'feedback');`,
 }
 
 // Path is the store's location under home.

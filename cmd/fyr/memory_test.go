@@ -49,6 +49,75 @@ func TestMemoryVerb(t *testing.T) {
 	}
 }
 
+// TestMemoryProvenanceFlag checks --provenance on memory add and memory show:
+// operator is the default, derived is accepted, anything else (including
+// unknown or empty) is refused with exit 2, and memory show refuses the flag.
+func TestMemoryProvenanceFlag(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	t.Chdir(root)
+	home := t.TempDir()
+	defer func() { stdin = os.Stdin }()
+
+	var out bytes.Buffer
+	stdin = strings.NewReader("Operator fact.\n")
+	if err := run([]string{"memory", "add", "--type", "user", "--name", "op-fact", "--description", "from operator", "--home", home}, &out); err != nil {
+		t.Fatalf("memory add default: %v\n%s", err, out.String())
+	}
+
+	out.Reset()
+	stdin = strings.NewReader("Derived fact.\n")
+	if err := run([]string{"memory", "add", "--type", "project", "--name", "der-fact", "--description", "from file", "--provenance", "derived", "--home", home}, &out); err != nil {
+		t.Fatalf("memory add --provenance derived: %v\n%s", err, out.String())
+	}
+
+	recs, err := brain.List(brain.Options{Home: home, Dir: root}, brain.ListFilter{Kind: "memory"})
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("brain.List memory: %v %v", recs, err)
+	}
+	gotProv := map[string]string{}
+	for _, r := range recs {
+		gotProv[r.ID] = r.Provenance
+	}
+	if gotProv["MEMORY-op-fact"] != "operator" || gotProv["MEMORY-der-fact"] != "derived" {
+		t.Errorf("provenance map = %v, want MEMORY-op-fact=operator, MEMORY-der-fact=derived", gotProv)
+	}
+
+	for _, bad := range []string{"unknown", "bogus", ""} {
+		out.Reset()
+		stdin = strings.NewReader("Bad fact.\n")
+		err := run([]string{"memory", "add", "--type", "project", "--name", "bad", "--description", "d", "--provenance", bad, "--home", home}, &out)
+		var code exitCode
+		if !errors.As(err, &code) || code != 2 {
+			t.Errorf("memory add --provenance %q: %v (%q), want exit 2", bad, err, out.String())
+		}
+	}
+
+	// A subsequent add without --provenance does not inherit "derived" from the
+	// previous call's FlagSet.
+	stdin = strings.NewReader("operator fact\n")
+	out.Reset()
+	if err := run([]string{"memory", "add", "--type", "user", "--name", "after-derived", "--description", "fresh default", "--home", home}, &out); err != nil {
+		t.Fatalf("memory add after derived: %v (%s)", err, out.String())
+	}
+	out.Reset()
+	if err := run([]string{"record", "get", "MEMORY-after-derived", "--home", home}, &out); err != nil {
+		t.Fatalf("record get MEMORY-after-derived: %v", err)
+	}
+	if !strings.Contains(out.String(), "(provenance operator)") {
+		t.Errorf("record get MEMORY-after-derived = %q, want (provenance operator)", out.String())
+	}
+
+	out.Reset()
+	err = run([]string{"memory", "show", "--provenance", "derived", "--home", home}, &out)
+	var code exitCode
+	if !errors.As(err, &code) || code != 2 {
+		t.Errorf("memory show --provenance: %v (%q), want exit 2", err, out.String())
+	}
+}
+
 // TestMemoryRefusalExitsTwo: a refusal is exit 2, not an error the session
 // would read as a crash.
 func TestMemoryRefusalExitsTwo(t *testing.T) {

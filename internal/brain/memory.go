@@ -3,6 +3,7 @@ package brain
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -19,6 +20,7 @@ type MemoryEntry struct {
 	Type        string // user, feedback, project or reference
 	Name        string // the slug: the record is MEMORY-<name>
 	Description string // one line: the record's title
+	Provenance  string // operator (default) or derived (--provenance)
 }
 
 // The caps of `memory show`: what a session loads at resume, however many
@@ -50,14 +52,28 @@ func memorySession(o Options) (*session, error) {
 	return &session{st: st, scope: scope, top: top}, nil
 }
 
-// MemoryAdd stores the memory e.Name, replacing one of the same name, and
-// returns its ID.
-func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
+func validateMemoryEntry(e MemoryEntry) (string, error) {
+	prov := e.Provenance
+	if prov == "" {
+		prov = "operator"
+	}
 	switch {
 	case !memoryTypes[e.Type]:
 		return "", refuse("--type must be user, feedback, project or reference, not %q", e.Type)
 	case !memorySlug.MatchString(e.Name):
 		return "", refuse("--name must match %s, not %q", memorySlug, e.Name)
+	case prov != "operator" && prov != "derived":
+		return "", refuse("--provenance must be operator or derived, not %q", e.Provenance)
+	}
+	return prov, nil
+}
+
+// MemoryAdd stores the memory e.Name, replacing one of the same name, and
+// returns its ID.
+func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
+	prov, err := validateMemoryEntry(e)
+	if err != nil {
+		return "", err
 	}
 	// The description is the record's title: the title rules hold (security
 	// review of the import, finding 5); a refusal here, as `fyr memory`'s
@@ -78,26 +94,140 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 	id := "MEMORY-" + e.Name
 	now := o.now()
 	full := "type: " + e.Type + "\n\n" + text
-	err = s.st.tx(func(c *sql.Conn) error {
-		ctx := context.Background()
-		taken, err := exists(c, s.scope, id)
-		if err != nil {
-			return err
-		}
-		if taken {
-			// Saving a retired name brings it back (D28).
-			_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
-				title, full, now.UTC().Format(time.RFC3339), s.scope, id)
-			return err
-		}
-		_, err = c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
-			VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', ?)`, s.scope, id, now.Format("2006-01-02"), title, full, now.UTC().Format(time.RFC3339))
-		return err
-	})
-	if err != nil {
+	if err := s.st.tx(func(c *sql.Conn) error {
+		return upsertMemoryRow(c, s.scope, id, title, full, prov, now)
+	}); err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+func upsertMemoryRow(c *sql.Conn, scope, id, title, full, prov string, now time.Time) error {
+	ctx := context.Background()
+	taken, err := exists(c, scope, id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		// Saving a retired name brings it back (D28).
+		_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+			title, full, prov, now.UTC().Format(time.RFC3339), scope, id)
+		return err
+	}
+	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
+		VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', ?, ?)`, scope, id, now.Format("2006-01-02"), title, full, prov, now.UTC().Format(time.RFC3339))
+	return err
+}
+
+// MemoryDraft applies one validated memory draft line from `fyr auto`
+// (action: add, retire or merge) in the project's scope without touching
+// trail.jsonl. What it adds or merges carries provenance "derived"; retiring
+// or merging an ID not in this project, or adding over an operator memory, is
+// refused.
+func MemoryDraft(o Options, action, id, body string) (string, error) {
+	switch action {
+	case "add", "retire", "merge":
+	default:
+		return "", refuse("memory draft action must be add, retire or merge, not %q", action)
+	}
+	slug := strings.TrimPrefix(strings.TrimSpace(id), "MEMORY-")
+	if !memorySlug.MatchString(slug) {
+		return "", refuse("memory draft id must match %s, not %q", memorySlug, id)
+	}
+	recID := "MEMORY-" + slug
+	text, err := readBody(strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	s, err := memorySession(o)
+	if err != nil {
+		return "", err
+	}
+	defer s.close()
+	now := o.now()
+	if err := s.st.tx(func(c *sql.Conn) error {
+		return applyMemoryDraftTx(c, s.scope, action, slug, recID, text, now)
+	}); err != nil {
+		return "", err
+	}
+	return recID, nil
+}
+
+func applyMemoryDraftTx(c *sql.Conn, scope, action, slug, recID, text string, now time.Time) error {
+	ctx := context.Background()
+	stamp := now.UTC().Format(time.RFC3339)
+	var curBody, curProv string
+	qerr := c.QueryRowContext(ctx, `SELECT body, provenance FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, scope, recID).Scan(&curBody, &curProv)
+	existsHere := qerr == nil
+	if qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
+		return qerr
+	}
+	switch action {
+	case "add":
+		return applyMemoryDraftAdd(c, scope, slug, recID, text, curProv, existsHere, now, stamp)
+	case "retire":
+		if !existsHere {
+			return refuse("no memory %s in this project", recID)
+		}
+		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'retired', updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`, stamp, scope, recID)
+		return err
+	case "merge":
+		if !existsHere {
+			return refuse("no memory %s in this project", recID)
+		}
+		full := mergeMemoryBody(text, curBody, curProv)
+		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'closed', body = ?, provenance = 'derived', updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`, full, stamp, scope, recID)
+		return err
+	}
+	return nil
+}
+
+func mergeMemoryBody(text, curBody, curProv string) string {
+	full := ensureMemoryType(text, curBody)
+	prev := strings.TrimSpace(curBody)
+	if prev != "" && !strings.Contains(full, prev) {
+		if curProv == "" {
+			curProv = "unknown"
+		}
+		full += "\n\n---\nPrior (" + curProv + "):\n" + prev
+	}
+	return full
+}
+
+func applyMemoryDraftAdd(c *sql.Conn, scope, slug, recID, text, curProv string, existsHere bool, now time.Time, stamp string) error {
+	if existsHere && curProv == "operator" {
+		return refuse("memory %s has operator provenance", recID)
+	}
+	first, _, _ := strings.Cut(text, "\n")
+	first = strings.TrimSpace(first)
+	if len(first) > maxTitle {
+		first = slug
+	}
+	title, err := cleanTitle(first)
+	if err != nil {
+		title = slug
+	}
+	full := ensureMemoryType(text, "")
+	if existsHere {
+		_, err = c.ExecContext(context.Background(), `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = 'derived', updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+			title, full, stamp, scope, recID)
+		return err
+	}
+	_, err = c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
+		VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', 'derived', ?)`,
+		scope, recID, now.Format("2006-01-02"), title, full, stamp)
+	return err
+}
+
+func ensureMemoryType(text, curBody string) string {
+	if memoryType.MatchString(text) {
+		return text
+	}
+	typ := "project"
+	if m := memoryType.FindStringSubmatch(curBody); m != nil {
+		typ = m[1]
+	}
+	return "type: " + typ + "\n\n" + text
 }
 
 // MemoryShow is the project's memory index, one line per memory, capped at

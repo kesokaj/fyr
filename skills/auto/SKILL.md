@@ -85,7 +85,7 @@ An ask is a `proposal` draft. You never do these yourself:
 Auto is meant to reach only these. On the host runner nothing enforces it, so it binds you:
 
 - the model provider, through `agy` in a worker and through `/usage`;
-- skills.sh's search, in the `missing-skill` class's worker.
+- skills.sh's search and the npm registry, in the `missing-skill` class's worker.
 
 ## Drafts
 

@@ -36,6 +36,7 @@ func (o Options) now() time.Time {
 type AddInput struct {
 	Kind, Title, Status, ID string
 	Project                 string // --project: the project a global record is about
+	Provenance              string // operator, derived or unknown on memory and feedback
 	Body                    io.Reader
 }
 
@@ -281,6 +282,10 @@ func Add(o Options, in AddInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	prov, err := resolveProvenance(kind, in.Provenance)
+	if err != nil {
+		return "", err
+	}
 	s, err := openSession(o, true)
 	if err != nil {
 		return "", err
@@ -304,8 +309,8 @@ func Add(o Options, in AddInput) (string, error) {
 		} else if taken {
 			return refuse("%s already exists in this scope", id)
 		}
-		_, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.scope, id, kind, status, now.Format("2006-01-02"), title, body, project, now.UTC().Format(time.RFC3339))
+		_, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.scope, id, kind, status, now.Format("2006-01-02"), title, body, project, prov, now.UTC().Format(time.RFC3339))
 		return err
 	})
 	if err != nil {
@@ -314,11 +319,40 @@ func Add(o Options, in AddInput) (string, error) {
 	return id, nil
 }
 
-const recordCols = `scope, id, kind, status, date, title, body, project, updated`
+func resolveProvenance(kind, given string) (string, error) {
+	switch kind {
+	case "feedback":
+		if given == "" {
+			return "operator", nil
+		}
+		if given == "operator" || given == "derived" || given == "unknown" {
+			return given, nil
+		}
+		return "", refuse("--provenance must be operator or derived, not %q", given)
+	case "memory":
+		if given == "" {
+			return "unknown", nil
+		}
+		if given == "operator" || given == "derived" || given == "unknown" {
+			return given, nil
+		}
+		return "", refuse("--provenance must be operator or derived, not %q", given)
+	default:
+		if given != "" {
+			return "", refuse("a %s record takes no provenance", kind)
+		}
+		return "", nil
+	}
+}
+
+const recordCols = `scope, id, kind, status, date, title, body, project, provenance, updated`
 
 func scanRecord(sc interface{ Scan(...any) error }) (Record, error) {
 	var r Record
-	err := sc.Scan(&r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Updated)
+	err := sc.Scan(&r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance, &r.Updated)
+	if err == nil && (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
+		r.Provenance = "unknown"
+	}
 	return r, err
 }
 

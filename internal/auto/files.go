@@ -48,10 +48,14 @@ type Mark struct {
 
 // Project is one project's last run, for the gates and `status`.
 type Project struct {
-	LastRun   time.Time `json:"last_run"`
-	LastClass string    `json:"last_class,omitempty"`
-	Verdict   string    `json:"verdict"`
-	Mark      Mark      `json:"mark"`
+	LastRun                 time.Time `json:"last_run"`
+	LastClass               string    `json:"last_class,omitempty"`
+	LastMemoryConsolidation time.Time `json:"last_memory_consolidation,omitempty"`
+	LastRetroLite           time.Time `json:"last_retro_lite,omitempty"`
+	LastMemoryCandidates    time.Time `json:"last_memory_candidates,omitempty"`
+	PendingMemoryCandidates int       `json:"pending_memory_candidates,omitempty"`
+	Verdict                 string    `json:"verdict"`
+	Mark                    Mark      `json:"mark"`
 }
 
 func dir(home string) string { return filepath.Join(home, harness.StateDir, "auto") }

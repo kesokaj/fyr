@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -11,9 +12,34 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+func init() {
+	def := verbs["memory"]
+	prev := def.flags
+	def.flags = func(c *ctx) {
+		prev(c)
+		c.fs.String("provenance", "operator", "add: the memory's provenance `P`: operator or derived")
+	}
+	verbs["memory"] = def
+}
+
 // runMemory needs no harness tree (R10).
 func runMemory(c *ctx) error {
-	return memoryCmd(c.fs.Args(), brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc}, c.home, c.out)
+	given := map[string]bool{}
+	c.fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	args := c.fs.Args()
+	if len(args) == 1 && args[0] == "show" && (given["type"] || given["name"] || given["description"] || given["provenance"]) {
+		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description or --provenance")
+		return exitCode(2)
+	}
+	prov := "operator"
+	if f := c.fs.Lookup("provenance"); f != nil {
+		prov = f.Value.String()
+	}
+	if given["provenance"] && prov == "" {
+		fmt.Fprintln(c.out, `fyr memory: --provenance must be operator or derived, not ""`)
+		return exitCode(2)
+	}
+	return memoryCmd(args, brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov}, c.home, c.out)
 }
 
 // runSearch serves `search` and `index`; neither needs a harness tree, and a

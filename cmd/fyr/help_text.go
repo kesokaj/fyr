@@ -142,7 +142,8 @@ var pages = map[string]verbPage{
 			"(every worktree shares them) and, with --global, the global ones. add",
 			"reads the body on stdin (empty or over 1 MiB refused) and prints the new",
 			"ID; an --id, title or body the dream's redactor would change is stored",
-			"with a warning on stderr. Every write rewrites .agents/trail.jsonl, which you",
+			"with a warning on stderr. get prints each record (with (provenance P) on",
+			"memory and feedback). Every write rewrites .agents/trail.jsonl, which you",
 			"commit, and a changed export (a pull) is loaded back before the next call.",
 			"import migrates a trail that is still files, with that warning for each",
 			"record it stores; until then record refuses.",
@@ -152,14 +153,16 @@ var pages = map[string]verbPage{
 	"memory": {
 		synopsis: []string{
 			"usage: fyr memory add --type T --name SLUG --description TEXT",
+			"                      [--provenance operator|derived]",
 			"       fyr memory show",
 		},
 		about: []string{
 			"This project's memory: memory records in the brain store, never exported.",
 			"add saves one, its body on stdin, as MEMORY-<SLUG> in this project's",
 			"scope, replacing one of the same name; every session writes memory this",
-			"way (R10). show prints the memory index, one line per memory, capped at",
-			"what a session loads at start (200 lines, 25 KB).",
+			"way (R10). --provenance defaults to operator; pass derived when what is",
+			"saved came from a file or tool output. show prints the memory index, one",
+			"line per memory, capped at what a session loads at start (200 lines, 25 KB).",
 		},
 	},
 	"search": {

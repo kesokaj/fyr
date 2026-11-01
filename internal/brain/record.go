@@ -12,15 +12,16 @@ import (
 
 // Record is one row of the store.
 type Record struct {
-	Scope   string // the main worktree's absolute root, or "" for global
-	ID      string
-	Kind    string
-	Status  string
-	Date    string // YYYY-MM-DD, the day it was added
-	Title   string
-	Body    string
-	Project string // a global record's project (feedback, proposal)
-	Updated string // RFC 3339, set by every write
+	Scope      string // the main worktree's absolute root, or "" for global
+	ID         string
+	Kind       string
+	Status     string
+	Date       string // YYYY-MM-DD, the day it was added
+	Title      string
+	Body       string
+	Project    string // a global record's project (feedback, proposal)
+	Provenance string // operator, derived or unknown on memory and feedback; "" otherwise (D12)
+	Updated    string // RFC 3339, set by every write
 }
 
 // prefixes is every kind and the prefix of its IDs (D7, D11). testing is
@@ -319,6 +320,9 @@ func FormatGet(r Record) string {
 	b.WriteString(FormatLine(r, false))
 	if r.Project != "" {
 		b.WriteString(search.Printable("  (project " + r.Project + ")"))
+	}
+	if r.Provenance != "" {
+		b.WriteString(search.Printable("  (provenance " + r.Provenance + ")"))
 	}
 	b.WriteString("\n")
 	for _, l := range strings.Split(r.Body, "\n") {

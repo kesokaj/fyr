@@ -250,31 +250,6 @@ func rotatedClasses(level, lastClass string) []classSpec {
 	return append(out, tail...)
 }
 
-// pickTask selects the highest-priority due class for root after rotating
-// lastClass to the end.
-func pickTask(root, level, lastClass string, findings []Finding) *Task {
-	for _, c := range rotatedClasses(level, lastClass) {
-		if t := triggerClass(root, level, c.Name, findings); t != nil {
-			return t
-		}
-	}
-	return nil
-}
-
-func triggerClass(root, level, class string, findings []Finding) *Task {
-	switch class {
-	case ClassSpecDrift:
-		return triggerSpecDrift(level, findings)
-	case ClassDocDrift:
-		return triggerDocDrift(level, findings)
-	case ClassOnboarding:
-		if n := onboardingAge(root); n > onboardingCommitLimit {
-			return preparedTask(ClassOnboarding, level, []string{"GUIDE-onboarding"}, "", n)
-		}
-	}
-	return nil
-}
-
 func preparedTask(class, level string, entries []string, id string, count int) *Task {
 	t, err := PrepareTask(class, level, entries, id, count)
 	if err != nil {
