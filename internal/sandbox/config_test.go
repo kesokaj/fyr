@@ -172,3 +172,51 @@ func TestBoxRemove(t *testing.T) {
 		t.Errorf("the replaced sandbox was not kept: %v", err)
 	}
 }
+
+// auto/ is a run's data, skipped like eval/ and work/; auto.json beside it is
+// the operator's switch, watched with or without SkipStores (the fyr auto
+// plan's D6), so a worker that turns auto on fails check c.
+func TestFingerprintWatchesAutoConfig(t *testing.T) {
+	real := filepath.Join(outsideTemp(t), "real")
+	state := filepath.Join(real, filepath.FromSlash(harness.StateDir))
+	if err := os.MkdirAll(filepath.Join(state, "auto"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(state, rel), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("auto.json", "off")
+	write("auto/runs.json", "1")
+	for _, skip := range []bool{false, true} {
+		before := fingerprint(real, skip)
+		write("auto/runs.json", "2")
+		write("auto/auto.log", "line")
+		if d := diffPrints(before, fingerprint(real, skip)); d != "" {
+			t.Errorf("skip %v: a write under auto/ was seen: %s", skip, d)
+		}
+		write("auto.json", "on")
+		if d := diffPrints(before, fingerprint(real, skip)); d == "" {
+			t.Errorf("skip %v: a change of auto.json went unseen", skip)
+		}
+		write("auto.json", "off")
+		os.Remove(filepath.Join(state, "auto", "auto.log"))
+	}
+}
+
+func diffPrints(a, b map[string]string) string {
+	var d []string
+	for k, v := range a {
+		if b[k] != v {
+			d = append(d, k)
+		}
+	}
+	for k := range b {
+		if _, ok := a[k]; !ok {
+			d = append(d, k)
+		}
+	}
+	return strings.Join(d, " ")
+}

@@ -199,6 +199,10 @@ func (c *ctx) writesState() bool {
 	case "work":
 		// Its sandboxes, under the state directory's work/; --kill reads.
 		return c.workKill == ""
+	case "auto":
+		// status and a dry run read; the rest write auto.json or auto/.
+		sub := c.fs.Arg(0)
+		return sub == "on" || sub == "off" || (sub == "run" && !c.dryRun)
 	}
 	return false
 }

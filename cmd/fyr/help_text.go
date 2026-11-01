@@ -39,6 +39,7 @@ Records and search
 
 Background and measurement
   dream        the hourly dreamer and its timer
+  auto         idle-time runs: on, off, status, run
   metrics      session shapes: ingest, show, report, evals, export
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (isolated only with --runner docker)
@@ -94,7 +95,7 @@ var pages = map[string]verbPage{
 		synopsis: []string{"usage: fyr status"},
 		about: []string{
 			"Prints what is installed, from which commit, the binary's build, the",
-			"drift against the harness, the dream timer, and a note when another fyr",
+			"drift against the harness, the dream timer, auto, and a note when another fyr",
 			"comes first on PATH. Exit 1 on drift.",
 		},
 	},
@@ -105,9 +106,9 @@ var pages = map[string]verbPage{
 	"uninstall": {
 		synopsis: []string{"usage: fyr uninstall [--dry-run]"},
 		about: []string{
-			"Removes exactly the files install wrote, and the dream timer when one is",
-			"installed; nothing else. The metrics store and eval's sandboxes stay.",
-			"--dry-run names what would go.",
+			"Removes exactly the files install wrote, and the dream timer and the",
+			"auto timer when installed; nothing else. The metrics store, eval's",
+			"sandboxes, auto.json and auto/ stay. --dry-run names what would go.",
 		},
 	},
 	"list": {
@@ -191,6 +192,26 @@ var pages = map[string]verbPage{
 			"copy, a moved checkout or another home",
 			"registers again; delete the file to opt out. --register exits 2 with",
 			"--global or outside a git checkout.",
+		},
+	},
+	"auto": {
+		synopsis: []string{
+			"usage: fyr auto on [--level L] [--project-idle D] [--user-idle D]",
+			"       fyr auto off",
+			"       fyr auto status",
+			"       fyr auto run [--dry-run]",
+		},
+		about: []string{
+			"An hourly run the operator switches: it does nothing unless on writes",
+			"~/.config/fyr/auto.json. on installs its timer, and writes the config",
+			"last; a flag not given keeps its value while auto is on and takes its",
+			"default otherwise, so a raised level never survives an off. off needs",
+			"no lock, replaces a corrupt config, removes the timer, and exits 1 only",
+			"when either failed. status prints the switch, the level, the last run",
+			"and the day's model runs. run is what the timer runs: for now it checks",
+			"the switch and the lock and logs one line to ~/.config/fyr/auto/auto.log.",
+			"--dry-run checks the switch and the state, takes no lock and writes",
+			"nothing. uninstall removes the timer and leaves auto.json and auto/.",
 		},
 	},
 	"dream": {

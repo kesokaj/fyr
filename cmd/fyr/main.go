@@ -16,6 +16,7 @@
 //	fyr search      ranked search of records and files
 //	fyr index       reconcile the search index; --register opts in
 //	fyr dream       the hourly dreamer and its timer
+//	fyr auto        idle-time runs: on, off, status, run
 //	fyr metrics     session shapes: ingest, show, report, evals, export
 //	fyr eval        run behavioural rows against the CLI
 //	fyr work        run Kickoffs as agy workers (isolated only with --runner docker)

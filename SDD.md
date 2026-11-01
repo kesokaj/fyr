@@ -25,7 +25,7 @@ flowchart LR
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M18) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M19) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
@@ -47,6 +47,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M18
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check, and two maintenance actions | R0, R3, R4, R7, R8, R10 |
 | M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home, and its safety checks; M13 runs its rows in it, M18 its workers, whose session can run in a hardened container instead (`Config.Docker`, Phase 7 of `PLAN-2026-10-29-workers`) | R6, R8 |
 | M18 | `internal/work` | One Kickoff as a worker: M17's sandbox on a clone with no remote, on its own branch, fetched back into the lead's checkout by path, checked against the Kickoff's `Files:`, and reported as a result contract of at most 39 lines per worker; `fyr work` (M5) runs one or several Kickoff files at once, up to `--max-workers` across the machine, and ends a run with `--kill`; a Kickoff's `Model:` line picks its worker's model over `--model`, and `models.go` checks every named model against the host's `agy models` (ADR-080); with `--runner docker` only the session runs in a container (M17's `Config.Docker`), `docker.go` holds the extra refusals and the run's container sweep, and the other steps stay on the host (`SPEC-fyr-work`, ADR-076) | R8 |
+| M19 | `internal/auto` | `fyr auto`, R3's second timer exception: the operator's switch (`auto.json`), its own hourly timer through M11's rendering, and a run that does nothing unless the switch is on. Built through Phase 1a of its plan: a run holds at the switch and the lock and logs one line; the gates, checks and workers `SPEC-fyr-auto` names are later phases, and it sends nothing to a model yet | R3, R4 |
 
 ## Flows
 
@@ -151,7 +152,7 @@ One line each; the record holds the context, the alternatives and the operator's
 
 - **Security:** three things leave the machine, the dreamer's redacted prompt (M12), the operator's `fyr eval` runs and the operator's `fyr work` workers, whose clone has no remote but whose agent has `command(*)` and the network, and only `--runner docker` keeps it off the operator's files but the login token (R8, ADR-076); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6); M16 listens on `127.0.0.1` only and refuses a request without its run's token or a POST without its CSRF token, and scopes the token's cookie to a per-run path so no other local port receives it (ADR-075, ADR-075a).
 - **Privacy:** memory, metrics and the global records stay in `~/.config/fyr/` on the machine that wrote them (R7); the metrics store keeps no arguments, prose or tool output (R4).
-- **Observability:** `fyr status` names drift, the binary's build and the dream timer; `fyr metrics show` and `fyr metrics report` summarise every session's shape.
+- **Observability:** `fyr status` names drift, the binary's build, the dream timer and `fyr auto`'s switch; `fyr metrics show` and `fyr metrics report` summarise every session's shape.
 - **Cost:** no service and no cloud; the only model calls are the dream's, hourly while a session already runs, and the evals the operator starts.
 
 ## Deployment
@@ -176,8 +177,8 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 | R0 | M1, M7, M8, M9, M10, M11, M14, M16 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
-| R3 | M1, M6, M11, M12, M16 |
-| R4 | M5, M6, M7, M8, M10, M16 |
+| R3 | M1, M6, M11, M12, M16, M19 |
+| R4 | M5, M6, M7, M8, M10, M16, M19 |
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M17 |
 | R7 | M7, M9, M15, M16 |

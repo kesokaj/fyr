@@ -80,6 +80,15 @@ func vocabulary() check.Vocabulary {
 				}
 				spec.Subverbs[sub] = own
 			}
+		case "auto":
+			spec.Subverbs = map[string]map[string]bool{}
+			for _, sub := range autoSubverbs {
+				own := map[string]bool{"home": true, "repo": true, "help": true}
+				for f := range autoFlags[sub] {
+					own[f] = true
+				}
+				spec.Subverbs[sub] = own
+			}
 		case "metrics":
 			spec.Subverbs = subverbsTaking(metricsSubverbs, flags)
 		case "memory":

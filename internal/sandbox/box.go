@@ -80,7 +80,7 @@ func Compromised(reasons []string) bool {
 const TokenRel = ".gemini/antigravity-cli/antigravity-oauth-token"
 
 // Root is where a verb makes its sandboxes under fyr's home: verb is "eval"
-// or "work", the two directories check c leaves out (D10).
+// or "work", the two sandbox roots check c leaves out (D10).
 func Root(home, verb string) string { return filepath.Join(home, harness.StateDir, verb) }
 
 // CheckRoot is the refusal of a sandbox root before anything is made: guards

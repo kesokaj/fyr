@@ -64,6 +64,7 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 | `fyr memory add` / `show` | The project's memory records and their index | `SPEC-fyr-memory-loop` |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | Session shapes and eval trials: stored, summarised, rendered | `SPEC-fyr-metrics` |
 | `fyr dream --install-timer` | The hourly job that proposes from idle projects; `--remove-timer` undoes it | `SPEC-fyr-dream` |
+| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run, its timer, and the run (§ T19) | `SPEC-fyr-auto` |
 | `fyr check` | A read-only drift check of this checkout; exit 1 on findings | `SPEC-fyr-check` |
 | `fyr serve` | A local page of this checkout and the home's stores | `SPEC-fyr-serve` |
 | `fyr eval --home DIR [--runs N] <row>...` | Behavioural rows against the Antigravity CLI, each in a sandbox | `SPEC-fyr-eval` |
@@ -71,7 +72,7 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` | `fyr help adopt` |
 | `fyr version` | The build version | `fyr help version` |
 
-`fyr` and `fyr help` print the short page, one line per command; `fyr help <verb>` or `fyr <verb> --help` prints that verb's page: its synopsis, what it does, and its flags. A flag a verb does not know is a usage error, exit 2, which prints the verb's synopsis. The global flags are `--repo DIR`, the harness checkout to build and install from (by default `$FYR_REPO`, then the working directory or its parents, then the tree the last install recorded; a release binary installs the harness built into it and refuses `--repo` and `$FYR_REPO`, ADR-034; a verb that does not read it, every verb but `install`, `sync`, `status`, `diff`, `update`, `list`, `render`, `adopt`, `serve` and `eval`, says on stderr that it ignored it and runs), and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
+`fyr` and `fyr help` print the short page, one line per command; `fyr help <verb>` or `fyr <verb> --help` prints that verb's page: its synopsis, what it does, and its flags. A flag a verb does not know is a usage error, exit 2, which prints the verb's synopsis. The global flags are `--repo DIR`, the harness checkout to build and install from (by default `$FYR_REPO`, then the working directory or its parents, then the tree the last install recorded; a release binary installs the harness built into it and refuses `--repo` and `$FYR_REPO`, ADR-034; a verb that does not read it, every verb but `install`, `sync`, `status`, `diff`, `update`, `list`, `render`, `adopt`, `serve`, `eval` and `auto`, says on stderr that it ignored it and runs), and `--home DIR` (install somewhere other than `$HOME`, which the tests use); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
 
 ## T6 — The installer
 
@@ -196,6 +197,19 @@ Implements: M18 · Spec: `SPEC-fyr-work` · Plan: `PLAN-2026-10-29-workers` § I
   - Pinned by `TestRunDockerPass`, `TestRunDockerRefusals`, `TestVersionCheckCleansUp`, `TestRunSweepQuiet`, `TestSweepContinues`, `TestBuildLinePinned`, `TestELFMachines`, `TestKillStaleSweeps`, `TestKillStaleRemoteDaemon`, `TestRunNetworkLeftIsNamed` and `TestRunPidFileFailSweepsNetwork` in `internal/work/docker_test.go` (a fake `docker` on PATH; refusal 22's no-name row among the refusals), `TestLeadZone`, `TestLeadZoneNameChecks`, `TestRunZone` and `TestRunWindowZone` (the lead's zone, workers D144), and `TestWorkVerbRefusals` in `cmd/fyr` (an unknown runner, a development build, `--image` or `--agy-linux` without `--runner docker`) and `TestWorkVerbDockerFlags` (both flags reach the run). A real daemon is Phase 7c's smoke.
 - **Dependencies:** `internal/sandbox` and `internal/trail`; no SQLite driver.
 
+## T19 — Auto
+
+Implements: M19 · Spec: `SPEC-fyr-auto` · Plan: `PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` § Interfaces
+
+Built through Phase 1a: the switch, the files and the timer. G3–G9, the checks, the worker, the apply step and the eval gate are later phases; the spec marks the line.
+
+- **Interfaces:** `auto.On(Options, Request)`, `auto.Off(Options)`, `auto.Status(Options)`, `auto.Run(Options, dryRun)` and `auto.StatusLine(Options)`; `Options` carries the home, the writer and the `Now`, `GOOS` and `Path` seams, and `Request.CheckHarness` is how `cmd/fyr/verb_auto.go` answers whether level `harness` has a checkout, so the package reads no harness source. A verb's failure is an `*auto.ExitError`, its text on stdout.
+- **Config (`config.go`):** `Load` fails closed: one object read key by key, so a repeated key, a key in another case and anything after the value are refused, every key required, unknown keys refused, the level and thresholds validated as the flags are, read through no link, 4 KiB at most, regular files only. `save` is `harness.WriteAtomic` at 0600, whose rename replaces a link instead of following it; that is how `off` takes one out, and why `On` refuses one first. `On` writes `enabled: true` last.
+- **State (`files.go`):** `auto/` is 0700 and refused as a link, and `auto.lock`, `auto.log` and `runs.json` are opened with `O_NOFOLLOW` and `O_NONBLOCK` and must be regular files. `auto.lock` is a `flock` taken without waiting. A corrupt `runs.json`, which includes a null, an unknown key and a date that is no date or is over a day ahead of the clock, stops the run and is kept, because its model count is the budget. `pruneLog` drops dated lines over 30 days old, under the lock.
+- **Timer (`timer.go`):** a `dream.Timer` value; `internal/dream` renders it, installs it and refuses as for the dream, naming `fyr auto on` and `fyr auto off`; a unit path that cannot be read as a regular file is kept and refused, for the dream too. `StrictStop` makes a failed manager stop an error, after the files go; every manager call in a removal has a 30 s limit. `render*`, `UnitFor` and the dream's package functions stay, as wrappers over `dreamTimer`, so its tests are unchanged and pin its text (the plan's D20).
+- **Check c:** `auto` is in `sandboxDirs`, which match a directory by its whole top-level name, so `auto.json` stays watched (`TestFingerprintWatchesAutoConfig`).
+- **Dependencies:** `internal/dream` and `internal/harness`; no SQLite driver of its own, though `internal/dream` imports one.
+
 ## Data model
 
 | Store | Kind | Holds | Spec |
@@ -205,6 +219,8 @@ Implements: M18 · Spec: `SPEC-fyr-work` · Plan: `PLAN-2026-10-29-workers` § I
 | `~/.config/fyr/metrics.db` | store of record | session shape | `SPEC-fyr-metrics` |
 | `.agents/scratch/search.db`, `~/.config/fyr/search.db` | cache | the full-text indexes | `SPEC-fyr-search` |
 | `~/.config/fyr/state.json` | state | the install's manifest | `SPEC-fyr-delivery` |
+| `~/.config/fyr/auto.json` | state | `fyr auto`'s switch, level and thresholds; `on` and `off` write it | `SPEC-fyr-auto` |
+| `~/.config/fyr/auto/` | state | `runs.json`, whose model-run count is the budget, `auto.lock`, `auto.log` | `SPEC-fyr-auto` |
 
 ## Testing strategy
 
@@ -238,3 +254,4 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M16 | T16 | `TestRefusals`, `TestCookieScopedToPrefix`, `TestTokenSetsCookieAndRedirects`, `TestPagesWriteNothing`, `TestServeSecondSignal`, `TestActionCSRF`, `TestActionBusy`, `TestServeActions` |
 | M17 | T17 | `TestBoxSession`, `TestGuardFingerprintSkipsSandboxRoots`, `TestGuardFingerprintSkipStores`, `TestBoxRemove`, `TestNoSQLiteDriver`, `TestDockerArgs`, `TestDockerSession`, `TestContainersLeft`, `TestAgyEnvZone`, `TestImageZoneGuard` |
 | M18 | T18 | `TestWorkVerbPass`, `TestWorkVerbFail`, `TestWorkVerbRefusals`, `TestWorkVerbSignals`, `TestWorkVerbSeveral`, `TestWorkVerbKill`, `TestRunSeveralAtOnce`, `TestRunSeveralWaits`, `TestRunCountsOtherRuns`, `TestRunSeveralRefusals`, `TestRunSeveralKilled`, `TestRunDeadContextStartsNothing`, `TestRunSlotsLockBusy`, `TestLiveRunsFailClosed`, `TestHeldErrorFailsClosed`, `TestLiveRunsGlobChars`, `TestRunRootBeforeLimit`, `TestPidBounds`, `TestKill`, `TestKillRefusals`, `TestRunPass`, `TestRunRefusals`, `TestRunFailReasons`, `TestRunSafetyKeepsSandbox`, `TestBlockCutOrder`, `TestNoSQLiteDriver`, `TestLeadZone`, `TestLeadZoneNameChecks`, `TestRunZone`, `TestRunWindowZone` |
+| M19 | T19 | `TestAutoOnWritesTheConfigAndTheTimer`, `TestAutoOnFromOffStartsAtTheDefaults`, `TestAutoOffNeedsNoLock`, `TestAutoOffReplacesCorruptAndLink`, `TestAutoConfigCorrupt`, `TestAutoRunCorruptFailsClosed`, `TestAutoDryRunWritesNothing`, `TestAutoTimerSystemdText`, `TestAutoTimerPlistText`, `TestAutoVerbUsage`, `TestUninstallRemovesAutoTimerKeepsItsFiles`, `TestFingerprintWatchesAutoConfig` |

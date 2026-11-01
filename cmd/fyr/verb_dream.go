@@ -10,7 +10,7 @@ import (
 	"github.com/kesokaj/fyr/internal/dream"
 )
 
-// runDream needs no harness tree (R3's exception).
+// runDream needs no harness tree (R3's first exception).
 func runDream(c *ctx) error {
 	var err error
 	// Every usage error goes through usageErr, as every other verb's does:

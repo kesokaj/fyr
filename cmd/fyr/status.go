@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
@@ -37,6 +38,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 	binaryLines(home, repo, info, out)
 	retroLine(home, out)
 	fmt.Fprintln(out, "dream      "+dream.StatusLine(home))
+	fmt.Fprintln(out, "auto       "+auto.StatusLine(auto.Options{Home: home}))
 
 	inv, err := harness.LoadInventory(src)
 	if err != nil {

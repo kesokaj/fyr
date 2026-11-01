@@ -85,7 +85,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | Skills | 38 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, code modularity, and agy dispatch) |
-| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs |
+| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs; `auto`, a switch with its own timer, off by default |
 
 ## Quick start
 
@@ -112,13 +112,14 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr update` | Moves this place forward: a checkout pulls, a release binary downloads the newest release, a zip place passes the zip with `--from-zip` |
 | `fyr install` (or `sync`) | Deploys the harness and removes what the repository no longer has |
 | `fyr diff` | A unified diff of every drifted file |
-| `fyr uninstall` | Removes exactly what it installed; the metrics store stays |
+| `fyr uninstall` | Removes exactly what it installed and both timers; the metrics store and `fyr auto`'s config and state stay |
 | `fyr list` / `render` | The skill and agent inventory; the context as deployed |
 | `fyr record add` / `get` / `edit` / `list` / `import` | The brain store: this project's trail records and the global ones |
 | `fyr search <words>` | Matching records first, then a ranked search of the project's files |
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
+| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. For now a run only checks the switch and its lock and logs a line; nothing else is built yet, so it spends no model and changes no project |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr serve` | Pages of this project and this home on `127.0.0.1:3000` until Ctrl-C, with buttons for `fyr index` and `fyr metrics ingest`; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR [--runs N] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25), each trial in its own sandbox and stored as a trial in the metrics store |

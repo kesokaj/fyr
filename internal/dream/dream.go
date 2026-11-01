@@ -281,15 +281,9 @@ func TimerInstalled(home string) bool {
 	return false
 }
 
-func linuxTimerPath(home string) string {
-	unit, _ := UnitFor(home)
-	return filepath.Join(home, ".config", "systemd", "user", unit+".timer")
-}
+func linuxTimerPath(home string) string { return dreamTimer.timerPath(home) }
 
-func macPlistPath(home string) string {
-	_, plist := UnitFor(home)
-	return filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
-}
+func macPlistPath(home string) string { return dreamTimer.plistPath(home) }
 
 // projectKey is the checkout a path names: the main worktree's root when it
 // is one, else the path with its links resolved.

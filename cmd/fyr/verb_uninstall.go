@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -29,8 +30,25 @@ func runUninstall(c *ctx) error {
 			fmt.Fprintln(c.out, "removed the dream timer")
 		}
 	}
+	// Auto's timer goes the same way; auto.json and auto/ stay, as metrics.db
+	// does (R4).
+	var timerErr error
+	if auto.TimerInstalledHere(c.home, runtime.GOOS) {
+		if c.dryRun {
+			fmt.Fprintln(c.out, "[dry-run] would remove the auto timer")
+		} else if removed, err := auto.RemoveTimer(c.home, runtime.GOOS); err != nil {
+			// Its files may be gone with the manager's stop failed; the rest
+			// of the uninstall still runs, and the exit status says so.
+			timerErr = err
+		} else if removed {
+			fmt.Fprintln(c.out, "removed the auto timer")
+		}
+	}
 	err := harness.Uninstall(c.home, c.dryRun, c.out)
 	otherSystemTimerNote(c)
+	if err == nil {
+		err = timerErr
+	}
 	return err
 }
 
@@ -39,5 +57,8 @@ func runUninstall(c *ctx) error {
 func otherSystemTimerNote(c *ctx) {
 	if files := dream.OtherSystemTimerFiles(c.home, runtime.GOOS); len(files) > 0 {
 		fmt.Fprintln(c.out, "a dream timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
+	}
+	if files := auto.OtherSystemTimerFiles(c.home, runtime.GOOS); len(files) > 0 {
+		fmt.Fprintln(c.out, "an auto timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
 	}
 }

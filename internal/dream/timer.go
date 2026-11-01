@@ -1,11 +1,13 @@
 package dream
 
-// The hourly timer: R3's exception runs `fyr dream --all` from an OS
+// The hourly timers: R3's first exception runs `fyr dream --all` from an OS
 // user timer that `--install-timer` installs and `--remove-timer` or
-// `uninstall` removes (R4). The timer is not in the install manifest: the
+// `uninstall` removes (R4); its second, `fyr auto run`, has its own unit
+// through the same code (Timer). A timer is not in the install manifest: the
 // next `install` would delete a listed unit as stale (plan D12).
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -16,12 +18,46 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	unitName  = "fyr-dream"
 	plistName = "com.fyr.dream"
 )
+
+// Timer is one hourly job of `fyr`: what its unit runs and how it is told
+// apart. The extras are appended to their section, so a timer with none
+// renders the dream's text byte for byte. Every field is a constant of the
+// code; none comes from the operator or a file.
+type Timer struct {
+	Unit, Plist      string   // the real home's unit and launchd label
+	Args             []string // fyr's arguments, before --home
+	Description      string   // the service's
+	TimerDescription string
+	Timeout          string   // TimeoutStartSec
+	UnitLines        []string // extra lines of the service's [Unit]
+	ServiceLines     []string // extra lines of [Service], before Environment=
+	TimerLines       []string // extra lines of [Timer]
+	PlistKeys        string   // extra plist keys, one line each, already XML
+	InstallVerb      string   // the verb a refusal to install names
+	RemoveVerb       string   // the verb a failed removal names
+	RemoveHint       string   // what to run when a unit on disk has other text
+	StrictStop       bool     // systemd: a failed stop call is an error, after the files go
+}
+
+// dreamTimer is R3's first exception.
+var dreamTimer = Timer{
+	Unit:             unitName,
+	Plist:            plistName,
+	Args:             []string{"dream", "--all"},
+	Description:      "fyr dream: the hourly background dreamer, while an agy session runs (R3)",
+	TimerDescription: "Run fyr dream hourly",
+	Timeout:          "2h",
+	InstallVerb:      "fyr dream --install-timer",
+	RemoveVerb:       "fyr dream --remove-timer",
+	RemoveHint:       "fyr dream --remove-timer",
+}
 
 // userHomeDir is the real home; a test seam, since the tests' homes are
 // temporary directories that must count as the real one.
@@ -57,7 +93,10 @@ var lookupAccount = func() (*user.User, error) { return user.LookupId(strconv.It
 // hash of its path, so a scratch `--install-timer`, `--remove-timer` or
 // `uninstall` never touches the operator's own timer through the shared user
 // service manager (R6; security review of the v2.0.0 gate).
-func UnitFor(home string) (unit, plist string) { return namesFor(home, unitName, plistName) }
+func UnitFor(home string) (unit, plist string) { return dreamTimer.Names(home) }
+
+// Names is the timer's unit and label for a home, by UnitFor's rule.
+func (t Timer) Names(home string) (unit, plist string) { return namesFor(home, t.Unit, t.Plist) }
 
 func namesFor(home, unit, plist string) (string, string) {
 	if real, err := userHomeDir(); err == nil {
@@ -76,9 +115,29 @@ func namesFor(home, unit, plist string) (string, string) {
 	return unit + suffix, plist + suffix
 }
 
-func linuxServicePath(home string) string {
-	unit, _ := UnitFor(home)
+func linuxServicePath(home string) string { return dreamTimer.servicePath(home) }
+
+func (t Timer) servicePath(home string) string {
+	unit, _ := t.Names(home)
 	return filepath.Join(home, ".config", "systemd", "user", unit+".service")
+}
+
+func (t Timer) timerPath(home string) string {
+	unit, _ := t.Names(home)
+	return filepath.Join(home, ".config", "systemd", "user", unit+".timer")
+}
+
+func (t Timer) plistPath(home string) string {
+	_, plist := t.Names(home)
+	return filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
+}
+
+// unitLines is extra unit lines, each with its line break.
+func unitLines(extra []string) string {
+	if len(extra) == 0 {
+		return ""
+	}
+	return strings.Join(extra, "\n") + "\n"
 }
 
 // renderSystemd returns the service and timer unit texts. PATH is the one of
@@ -89,35 +148,43 @@ func linuxServicePath(home string) string {
 // and a later hour runs (SD36; plan 2026-10-27-ledger D2). The run itself
 // does nothing unless an agy session runs (ADR-073).
 func renderSystemd(bin, home, path string) (string, string) {
+	return dreamTimer.renderSystemd(bin, home, path)
+}
+
+func (t Timer) renderSystemd(bin, home, path string) (string, string) {
 	// systemd expands %-specifiers inside quotes too; %% is a literal %.
 	bin, home, path = strings.ReplaceAll(bin, "%", "%%"), strings.ReplaceAll(home, "%", "%%"), strings.ReplaceAll(path, "%", "%%")
 	// ExecStart also expands $VAR and ${VAR}, inside quotes too; $$ is a
 	// literal dollar sign. Environment= expands nothing, so path keeps its own.
 	bin, home = strings.ReplaceAll(bin, "$", "$$"), strings.ReplaceAll(home, "$", "$$")
 	service := fmt.Sprintf(`[Unit]
-Description=fyr dream: the hourly background dreamer, while an agy session runs (R3)
-
+Description=%s
+%s
 [Service]
 Type=oneshot
-TimeoutStartSec=2h
-Environment="PATH=%s"
-ExecStart="%s" dream --all --home "%s"
-`, path, bin, home)
-	timer := `[Unit]
-Description=Run fyr dream hourly
+TimeoutStartSec=%s
+%sEnvironment="PATH=%s"
+ExecStart="%s" %s --home "%s"
+`, t.Description, unitLines(t.UnitLines), t.Timeout, unitLines(t.ServiceLines), path, bin, strings.Join(t.Args, " "), home)
+	timer := fmt.Sprintf(`[Unit]
+Description=%s
 
 [Timer]
 OnCalendar=hourly
 Persistent=true
-
+%s
 [Install]
 WantedBy=timers.target
-`
+`, t.TimerDescription, unitLines(t.TimerLines))
 	return service, timer
 }
 
 // renderLaunchd returns the launchd agent's plist.
 func renderLaunchd(label, bin, home, path string) string {
+	return dreamTimer.renderLaunchd(label, bin, home, path)
+}
+
+func (t Timer) renderLaunchd(label, bin, home, path string) string {
 	x := func(s string) string {
 		var b strings.Builder
 		for _, r := range s {
@@ -134,20 +201,24 @@ func renderLaunchd(label, bin, home, path string) string {
 		}
 		return b.String()
 	}
+	var args string
+	for _, a := range t.Args {
+		args += "<string>" + x(a) + "</string>"
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key><string>%s</string>
   <key>ProgramArguments</key>
-  <array><string>%s</string><string>dream</string><string>--all</string><string>--home</string><string>%s</string></array>
+  <array><string>%s</string>%s<string>--home</string><string>%s</string></array>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>%s</string></dict>
   <key>StartCalendarInterval</key>
   <dict><key>Minute</key><integer>0</integer></dict>
-</dict>
+%s</dict>
 </plist>
-`, label, x(bin), x(home), x(path))
+`, label, x(bin), args, x(home), x(path), t.PlistKeys)
 }
 
 // absolutePath keeps PATH's absolute entries: a relative one (".", "bin", an
@@ -166,9 +237,15 @@ func absolutePath(path string) string {
 // RemoveTimer stops and removes the dream timer of this home, for goos, and
 // reports whether there was one: absent is fine, but the caller says which it
 // was (a removal that found nothing once printed "removed").
-func RemoveTimer(home, goos string) (bool, error) {
-	unit, plist := UnitFor(home)
+func RemoveTimer(home, goos string) (bool, error) { return dreamTimer.Remove(home, goos) }
+
+// Remove is RemoveTimer for this timer.
+func (t Timer) Remove(home, goos string) (bool, error) {
+	unit, plist := t.Names(home)
 	u, ok := unitOn(home, goos, unit, plist)
+	// launchd's bootout fails on a job that is merely not loaded, so only
+	// systemctl's failure says the manager kept the timer.
+	u.verb, u.strict = t.RemoveVerb, t.StrictStop && u.manager == "systemctl"
 	if !ok || !u.present() {
 		return false, nil
 	}
@@ -184,6 +261,18 @@ type timerUnit struct {
 	files   []string
 	manager string
 	stop    [][]string
+	verb    string // named by a failed removal
+	strict  bool   // Timer.StrictStop
+}
+
+// managerLimit bounds one service manager call: a wedged user bus must not
+// hang a removal, which for auto is its kill switch.
+var managerLimit = 30 * time.Second
+
+func (u timerUnit) call(args []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), managerLimit)
+	defer cancel()
+	return exec.CommandContext(ctx, u.manager, args...).Run()
 }
 
 func unitOn(home, goos, unit, plist string) (timerUnit, bool) {
@@ -214,20 +303,26 @@ func (u timerUnit) present() bool {
 
 func (u timerUnit) remove() error {
 	manager, files, stop := u.manager, u.files, u.stop
+	var stopErr error
 	if _, err := exec.LookPath(manager); err == nil {
 		// The first stop call may fail when the unit was never loaded; the
 		// files are still removed, and the reload runs after.
-		exec.Command(manager, stop[0]...).Run()
+		stopErr = u.call(stop[0])
+	} else {
+		stopErr = err
 	}
 	for _, p := range files {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return &ExitError{2, "fyr dream --remove-timer: " + err.Error()}
+			return &ExitError{2, u.verb + ": " + err.Error()}
 		}
 	}
 	if len(stop) > 1 {
 		if _, err := exec.LookPath(manager); err == nil {
-			exec.Command(manager, stop[1]...).Run()
+			u.call(stop[1])
 		}
+	}
+	if stopErr != nil && u.strict {
+		return &ExitError{2, fmt.Sprintf("%s: %s %s: %v; the unit files are gone, and the manager may still hold the timer: run %s %s from a login shell", u.verb, manager, strings.Join(stop[0], " "), stopErr, manager, strings.Join(stop[1], " "))}
 	}
 	return nil
 }
@@ -239,12 +334,17 @@ func (u timerUnit) remove() error {
 // status and a removal that removed nothing do not contradict each other in
 // silence.
 func OtherSystemTimerFiles(home, goos string) []string {
+	return dreamTimer.OtherSystemFiles(home, goos)
+}
+
+// OtherSystemFiles is OtherSystemTimerFiles for this timer.
+func (t Timer) OtherSystemFiles(home, goos string) []string {
 	var candidates []string
 	switch goos {
 	case "linux":
-		candidates = []string{macPlistPath(home)}
+		candidates = []string{t.plistPath(home)}
 	case "darwin":
-		candidates = []string{linuxServicePath(home), linuxTimerPath(home)}
+		candidates = []string{t.servicePath(home), t.timerPath(home)}
 	}
 	var found []string
 	for _, p := range candidates {
@@ -258,13 +358,16 @@ func OtherSystemTimerFiles(home, goos string) []string {
 // TimerInstalledHere reports whether a unit of this home, for goos, is on
 // disk: what RemoveTimer(home, goos) would remove. TimerInstalled counts the
 // other system's files too, which a removal here never touches.
-func TimerInstalledHere(home, goos string) bool {
+func TimerInstalledHere(home, goos string) bool { return dreamTimer.InstalledHere(home, goos) }
+
+// InstalledHere is TimerInstalledHere for this timer.
+func (t Timer) InstalledHere(home, goos string) bool {
 	var files []string
 	switch goos {
 	case "linux":
-		files = []string{linuxTimerPath(home), linuxServicePath(home)}
+		files = []string{t.timerPath(home), t.servicePath(home)}
 	case "darwin":
-		files = []string{macPlistPath(home)}
+		files = []string{t.plistPath(home)}
 	}
 	for _, p := range files {
 		if _, err := os.Lstat(p); err == nil {

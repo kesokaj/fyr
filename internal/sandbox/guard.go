@@ -141,15 +141,19 @@ func WithoutGit(env []string) []string {
 
 // watched are the real home's paths check c fingerprints: fyr's state (its
 // eval/ and work/ directories left out, every sandbox of either verb is
-// written there, D8 and PLAN-2026-10-29-workers D10), the old state
+// written there, D8 and PLAN-2026-10-29-workers D10, and auto/, a run's data
+// beside those sandboxes, while auto.json above it stays watched: the fyr
+// auto plan's D6), the old state
 // directory, and the CLI's installed customizations and settings, which a
 // grant written there would outlive the run in. The token and the CLI's
 // conversations are not watched: a sandboxed session refreshes the one
 // through its link, and the operator's own sessions write the other.
 var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", ".gemini/antigravity-cli/settings.json"}
 
-// sandboxDirs are the state directory's children check c skips: Root's verbs.
-var sandboxDirs = []string{"eval", "work"}
+// sandboxDirs are the state directory's children check c skips: Root's
+// verbs, and auto's run data. Matched as a whole top-level name, so auto.json
+// is not one of them.
+var sandboxDirs = []string{"eval", "work", "auto"}
 
 // storeFile, storeNames, storeTemps and atomicTemp are the state
 // directory's top-level entries the operator's own sessions, the metrics
