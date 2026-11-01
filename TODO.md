@@ -7,11 +7,11 @@
 
 ## Now
 
-`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 0: the first session after v5.5.0 (D18 of the closed `PLAN.md` record).
+`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 1a: the switch, the files and the timer. Phase 0 is done: ADR-090, ADR-089a, the plan's D18 and D19.
 
 ## Next
 
-None.
+That plan's Phase 1b, then Phase 2, then Phase 3.
 
 ## Backlog
 
