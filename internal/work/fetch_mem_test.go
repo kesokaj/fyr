@@ -67,6 +67,7 @@ func memFetch(t *testing.T, src, runner string, fsck bool) error {
 // The receiving index-pack is the same command's child, under the same limit;
 // no test isolates it, since a blob it holds whole the serving side holds too.
 func TestFetchMemoryLimit(t *testing.T) {
+	linuxOnly(t)
 	if testing.Short() {
 		t.Skip("writes a 1 GiB blob")
 	}
@@ -89,8 +90,9 @@ func TestFetchMemoryLimit(t *testing.T) {
 	}
 }
 
-// TestCapMemoryForm: only docker is wrapped, and the wrapper's && means a
-// limit that cannot be set runs nothing.
+// TestCapMemoryForm: only docker on linux is wrapped, and the wrapper's &&
+// means a limit that cannot be set runs nothing; on darwin, where XNU's sh
+// refuses ulimit -v, docker is left unwrapped too.
 func TestCapMemoryForm(t *testing.T) {
 	host := exec.Command("git", "status")
 	if got := capMemory(host, RunnerHost); got != host {
@@ -98,15 +100,21 @@ func TestCapMemoryForm(t *testing.T) {
 	}
 	host.Dir, host.Env = "/d", []string{"A=1"}
 	host.Stdin = strings.NewReader("in")
+	setHostOS(t, "linux")
 	c := capMemory(host, RunnerDocker)
 	if c.Dir != "/d" || c.Stdin != host.Stdin || !slices.Equal(c.Env, host.Env) || !strings.Contains(strings.Join(c.Args, " "), `ulimit -v "$0" && exec "$@"`) || c.Args[len(c.Args)-1] != "status" {
 		t.Errorf("docker: %q dir %q env %v", c.Args, c.Dir, c.Env)
+	}
+	setHostOS(t, "darwin")
+	if got := capMemory(host, RunnerDocker); got != host {
+		t.Errorf("darwin docker: %v, want unwrapped cmd", got.Args)
 	}
 }
 
 // TestDockerReadsAreCapped pins each read after the session: under a limit
 // no process can start with, each fails under docker and works on the host.
 func TestDockerReadsAreCapped(t *testing.T) {
+	linuxOnly(t)
 	src := memRig(t, 1<<10)
 	reads := map[string]func(runner string) error{
 		"changedPaths": func(r string) error { _, err := changedPaths(src, "HEAD", r); return err },

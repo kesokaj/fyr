@@ -43,19 +43,51 @@ func (b *Box) count(path, s string) int {
 	return n
 }
 
-// unlink is step 11: warn when the token link was replaced or the real token
-// changed kind, and remove the link and settings.json by name.
+// unlink is step 11: warn when a login link was replaced or the real login
+// changed kind, and remove the link(s) and settings.json by name.
 func (b *Box) unlink() {
-	if root, done, err := b.sandboxRoot(); err == nil && b.linked {
-		if st, err := root.Lstat(filepath.FromSlash(TokenRel)); err != nil || st.Mode()&os.ModeSymlink == 0 {
-			b.Note("WARNING the token link was replaced; the real login may be stale")
+	if root, done, err := b.sandboxRoot(); err == nil {
+		if b.tokLinked {
+			if st, err := root.Lstat(filepath.FromSlash(TokenRel)); err != nil || st.Mode()&os.ModeSymlink == 0 {
+				b.Note("WARNING the token link was replaced; the real login may be stale")
+			}
+		}
+		if b.keychainsLinked {
+			if st, err := root.Lstat(filepath.FromSlash(KeychainsRel)); err != nil || st.Mode()&os.ModeSymlink == 0 {
+				b.Note("WARNING the Keychains link was replaced; the real login may be stale")
+			}
 		}
 		done()
 	}
-	b.removeInSandbox(TokenRel)
+	b.removeLinks()
 	b.removeInSandbox(".gemini/antigravity-cli/settings.json")
-	if st, err := os.Lstat(b.tok); err != nil || !st.Mode().IsRegular() {
-		b.Note("WARNING %s is no longer a regular file", b.tok)
+	if b.tok != "" {
+		if st, err := os.Lstat(b.tok); err != nil || !st.Mode().IsRegular() {
+			b.Note("WARNING %s is no longer a regular file", b.tok)
+		}
+	}
+	b.checkKeychains()
+}
+
+func (b *Box) checkKeychains() {
+	if b.keychains == "" {
+		return
+	}
+	if st, err := os.Lstat(b.keychains); err != nil || !st.IsDir() {
+		b.Note("WARNING %s is no longer a directory", b.keychains)
+		return
+	}
+	for _, f := range b.keychainFiles {
+		if st, err := os.Lstat(f); err != nil || !st.Mode().IsRegular() {
+			b.Note("WARNING %s is no longer a regular file", f)
+		}
+	}
+}
+
+func (b *Box) removeLinks() {
+	b.removeInSandbox(TokenRel)
+	if b.keychains != "" || b.keychainsLinked {
+		b.removeInSandbox(KeychainsRel)
 	}
 }
 
@@ -66,8 +98,8 @@ func (b *Box) ExitChecks() {
 	if b.root != nil {
 		defer b.root.Close()
 	}
-	if b.linked {
-		b.removeInSandbox(TokenRel) // gone even when a step after 9 returned early
+	if b.tokLinked || b.keychainsLinked {
+		b.removeLinks() // gone even when a step after 9 returned early
 	}
 	// The approved strings, never a fresh resolution, and whether or not the
 	// clone still exists: a clone the agent turned into a link to the real

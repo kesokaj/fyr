@@ -187,3 +187,117 @@ func TestBoxLaterSessionNeedsIntact(t *testing.T) {
 	b.After()
 	b.ExitChecks()
 }
+
+// On darwin, CheckLogin accepts $HOME/Library/Keychains in host mode when
+// antigravity-oauth-token is absent (BUG-166), still requires the token file
+// when tokenOnly is set, and refuses a symlinked token on every OS.
+func TestCheckLoginMacKeychain(t *testing.T) {
+	real := t.TempDir()
+	tokPath := filepath.Join(real, TokenRel)
+	kcPath := filepath.Join(real, KeychainsRel)
+	put(t, filepath.Join(kcPath, "login.keychain-db"), "keychain", 0o600)
+
+	if _, err := CheckLogin(real, "linux", false); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+		t.Fatalf("linux without token file: %v", err)
+	}
+	if _, err := CheckLogin(real, "darwin", true); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+		t.Fatalf("darwin tokenOnly without token file: %v", err)
+	}
+	if tok, err := CheckLogin(real, "darwin", false); err != nil || tok != "" {
+		t.Fatalf("darwin Keychain-only: tok=%q err=%v", tok, err)
+	}
+	os.MkdirAll(filepath.Dir(tokPath), 0o700)
+	os.Symlink(filepath.Join(kcPath, "login.keychain-db"), tokPath)
+	if _, err := CheckLogin(real, "darwin", false); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+		t.Errorf("symlinked token on darwin: %v", err)
+	}
+	os.Remove(tokPath)
+	os.RemoveAll(filepath.Join(real, "Library"))
+	if _, err := CheckLogin(real, "darwin", false); err == nil || !strings.Contains(err.Error(), "Keychain") || !strings.Contains(err.Error(), "antigravity-oauth-token") {
+		t.Errorf("darwin with neither login: %v", err)
+	}
+}
+
+// On darwin, Session links $HOME/Library/Keychains into the sandbox home (alone
+// or beside the token file) and unlinks it before scanCreds runs.
+func TestBoxSessionMacKeychain(t *testing.T) {
+	old := hostOS
+	hostOS = "darwin"
+	t.Cleanup(func() { hostOS = old })
+
+	r := newRig(t)
+	tokPath, kcPath := filepath.Join(r.real, TokenRel), filepath.Join(r.real, KeychainsRel)
+	if err := os.Remove(tokPath); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(kcPath, "login.keychain-db"), "keychain", 0o600)
+
+	b := r.prepared(r.config("mac-kc"))
+	if rc := b.Session(context.Background(), r.agy, "", "hello", "out.txt"); rc != 0 {
+		t.Fatalf("rc %d\n%s", rc, r.out.String())
+	}
+	if got := strings.TrimSpace(r.read("keychains.1")); got != kcPath || r.read("linked.1") != "" {
+		t.Errorf("keychains=%q token=%q", got, r.read("linked.1"))
+	}
+	if !b.After() {
+		t.Fatal("After: not intact")
+	}
+	b.ExitChecks()
+	if len(b.Reasons()) != 0 {
+		t.Errorf("reasons %v\n%s", b.Reasons(), r.out.String())
+	}
+	if _, err := os.Lstat(filepath.Join(b.Home(), KeychainsRel)); !os.IsNotExist(err) {
+		t.Errorf("Keychains link still in sandbox: %v", err)
+	}
+	put(t, tokPath, "token", 0o600)
+	b2 := r.prepared(r.config("mac-both"))
+	if rc := b2.Session(context.Background(), r.agy, tokPath, "hello", "out.txt"); rc != 0 {
+		t.Fatalf("both rc %d", rc)
+	}
+	if r.read("linked.2") == "" || strings.TrimSpace(r.read("keychains.2")) != kcPath {
+		t.Errorf("want both linked, got token=%q keychains=%q", r.read("linked.2"), r.read("keychains.2"))
+	}
+	b2.After()
+	b2.ExitChecks()
+	if len(b2.Reasons()) != 0 {
+		t.Errorf("both reasons %v", b2.Reasons())
+	}
+}
+
+// On linux, Session never links Library/Keychains even when tok is empty; on
+// darwin, After warns when the Keychains link was replaced or a baseline
+// keychain file in RealHome/Library/Keychains is no longer a regular file.
+func TestBoxSessionKeychainGuards(t *testing.T) {
+	r := newRig(t)
+	kcPath := filepath.Join(r.real, KeychainsRel)
+	kcFile := filepath.Join(kcPath, "login.keychain-db")
+	put(t, kcFile, "keychain", 0o600)
+
+	old := hostOS
+	hostOS = "linux"
+	t.Cleanup(func() { hostOS = old })
+	bLinux := r.prepared(r.config("linux-no-kc"))
+	bLinux.Session(context.Background(), r.agy, "", "hello", "out.txt")
+	if _, err := os.Lstat(filepath.Join(bLinux.Home(), KeychainsRel)); !os.IsNotExist(err) {
+		t.Errorf("linux linked Library/Keychains when tok was empty: %v", err)
+	}
+	bLinux.ExitChecks()
+
+	hostOS = "darwin"
+	r.out.Reset()
+	bWarn := r.prepared(r.config("mac-kc-warn"))
+	if rc := bWarn.Session(context.Background(), r.agy, "", "hello", "out.txt"); rc != 0 {
+		t.Fatalf("rc %d", rc)
+	}
+	os.Remove(filepath.Join(bWarn.Home(), KeychainsRel))
+	os.Remove(kcFile)
+	bWarn.After()
+	bWarn.ExitChecks()
+	out := r.out.String()
+	if !strings.Contains(out, "WARNING the Keychains link was replaced; the real login may be stale") {
+		t.Errorf("missing Keychains link warning in:\n%s", out)
+	}
+	if !strings.Contains(out, "WARNING "+kcFile+" is no longer a regular file") {
+		t.Errorf("missing keychain file warning in:\n%s", out)
+	}
+}

@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
@@ -94,11 +92,11 @@ func parseAll(files []string, auto bool) ([]Kickoff, error) {
 // and refusal 23, its reflog: 22 and 23 are offline, so they come before
 // every docker call (workers D145, G4).
 func (p *prepared) session(o Options) error {
-	p.tok = filepath.Join(o.RealHome, sandbox.TokenRel)
-	if st, err := os.Lstat(p.tok); err != nil || !st.Mode().IsRegular() {
-		return fmt.Errorf("no Antigravity login at %s", p.tok)
-	}
 	var err error
+	p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, o.Runner == RunnerDocker)
+	if err != nil {
+		return err
+	}
 	// In docker mode the container's agy is a linux one (dockerRefusals).
 	if o.Runner != RunnerDocker {
 		if p.agy, err = exec.LookPath("agy"); err != nil {

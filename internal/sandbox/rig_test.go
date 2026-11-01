@@ -31,6 +31,7 @@ printf '%s\n' "$@" > "$REC/agy.args.$n"
 env > "$REC/agy.env.$n"; pwd > "$REC/agy.cwd.$n"
 cp "$HOME/.gemini/antigravity-cli/settings.json" "$REC/settings.$n" 2>/dev/null
 [ -L "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" ] && echo yes > "$REC/linked.$n"
+[ -L "$HOME/Library/Keychains" ] && readlink "$HOME/Library/Keychains" > "$REC/keychains.$n"
 if [ -e "$REC/hang" ]; then exec sleep 300; fi
 echo "stderr $n" >&2
 echo "session $n"

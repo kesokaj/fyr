@@ -42,10 +42,13 @@ cd "$root"
 # down with it — exit 1, indistinguishable from "no hits", in every project
 # that is not the harness (BUG-138).
 vendored=$( { { grep -E '^\| [a-z0-9/-]+ \|' skills/VENDORED.md 2>/dev/null || true; } | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -v -E '^(Skill)$' | sed 's#^#^skills/#; s#$#/#'; } || true )
-mapfile -t files < <(git ls-files -z | tr '\0' '\n' \
+files=()
+while IFS= read -r f; do
+  [ -n "$f" ] && files+=("$f")
+done < <(git ls-files -z | tr '\0' '\n' \
   | grep -v -x -F '.agents/trail.jsonl' \
   | { if [ -n "$vendored" ]; then grep -v -E "$(printf '%s\n' "$vendored" | paste -sd'|' -)"; else cat; fi; } || true)
-[ ${#files[@]} -gt 0 ] || exit 1
+[ -n "${files[0]:-}" ] || exit 1
 hits=0
 if [ "$all" -eq 1 ]; then
   # Every word on the line: chain one grep per word.

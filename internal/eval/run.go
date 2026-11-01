@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +87,9 @@ const agentPrefix = "no invoke_subagent of "
 
 const tokenRel = sandbox.TokenRel
 
+// hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
+var hostOS = runtime.GOOS
+
 // SandboxRoot is where eval makes its sandboxes under fyr's home (D8).
 func SandboxRoot(home string) string { return sandbox.Root(home, "eval") }
 
@@ -135,9 +138,9 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 		}
 		seen[r.ID] = true
 	}
-	tok := filepath.Join(o.RealHome, tokenRel)
-	if st, err := os.Lstat(tok); err != nil || !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("no Antigravity login at %s", tok)
+	tok, err := sandbox.CheckLogin(o.RealHome, hostOS, false)
+	if err != nil {
+		return nil, err
 	}
 	agy, err := exec.LookPath("agy")
 	if err != nil {

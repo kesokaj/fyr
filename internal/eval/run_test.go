@@ -154,3 +154,22 @@ func TestResultLine(t *testing.T) {
 		}
 	}
 }
+
+// On darwin, Run accepts $HOME/Library/Keychains when antigravity-oauth-token
+// is absent (BUG-166), and unlinks Library/Keychains after the session.
+func TestRunDarwinKeychainLogin(t *testing.T) {
+	old := hostOS
+	hostOS = "darwin"
+	t.Cleanup(func() { hostOS = old })
+	t.Cleanup(sandbox.SetHostOS("darwin"))
+	r := newRig(t)
+	if err := os.Remove(filepath.Join(r.real, tokenRel)); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(r.real, sandbox.KeychainsRel, "login.keychain-db"), "keychain", 0o600)
+	x := one(t, r.run(named("ok", "p", "true")))
+	wantVerdict(t, x, StatusPass)
+	if _, err := os.Lstat(filepath.Join(x.Dir, "home", sandbox.KeychainsRel)); !os.IsNotExist(err) {
+		t.Errorf("Library/Keychains still in sandbox: %v", err)
+	}
+}

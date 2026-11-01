@@ -19,9 +19,8 @@ func (b *Box) Session(ctx context.Context, agy, tok, prompt, outName string) int
 	if b.sessions > 0 && !b.Intact() {
 		return -1
 	}
-	b.tok = tok // After checks the real token whether or not the link was made
 	if !b.linked {
-		if err := os.Symlink(tok, filepath.Join(b.sb, TokenRel)); err != nil {
+		if err := b.linkLogin(tok); err != nil {
 			b.Note("linking the token: %v", err)
 			b.Fail(ReasonToken)
 			return -1
@@ -31,6 +30,43 @@ func (b *Box) Session(ctx context.Context, agy, tok, prompt, outName string) int
 	appendErr := b.sessions > 0
 	b.sessions++
 	return b.agy(ctx, agy, prompt, filepath.Join(b.dir, outName), filepath.Join(b.dir, "err.txt"), appendErr)
+}
+
+// linkLogin links the operator's login into the sandbox home: TokenRel when
+// tok is set (or when no Keychain directory is used), and on darwin in host
+// mode KeychainsRel when RealHome holds a Keychain directory (BUG-166).
+func (b *Box) linkLogin(tok string) error {
+	b.tok = tok // After checks the real token whether or not the link was made
+	var kc string
+	if b.c.Docker == nil && hostOS == "darwin" && b.c.RealHome != "" {
+		p := filepath.Join(b.c.RealHome, filepath.FromSlash(KeychainsRel))
+		if st, err := os.Lstat(p); err == nil && st.IsDir() {
+			kc = p
+		}
+	}
+	b.keychains = kc
+	if tok != "" || kc == "" {
+		if err := os.Symlink(tok, filepath.Join(b.sb, filepath.FromSlash(TokenRel))); err != nil {
+			return err
+		}
+		b.tokLinked = true
+	}
+	if kc != "" {
+		entries, _ := os.ReadDir(kc)
+		for _, e := range entries {
+			if e.Type().IsRegular() {
+				b.keychainFiles = append(b.keychainFiles, filepath.Join(kc, e.Name()))
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(b.sb, "Library"), 0o700); err != nil {
+			return err
+		}
+		if err := os.Symlink(kc, filepath.Join(b.sb, filepath.FromSlash(KeychainsRel))); err != nil {
+			return err
+		}
+		b.keychainsLinked = true
+	}
+	return nil
 }
 
 // agy runs one session in its own process group (D18): at the timeout only

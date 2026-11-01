@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -79,6 +80,45 @@ func Compromised(reasons []string) bool {
 // TokenRel is the CLI's login token under a home.
 const TokenRel = ".gemini/antigravity-cli/antigravity-oauth-token"
 
+// KeychainsRel is the macOS Keychain directory under a home, where agy keeps
+// its login on darwin (BUG-166).
+const KeychainsRel = "Library/Keychains"
+
+// hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
+var hostOS = runtime.GOOS
+
+// SetHostOS overrides the host OS seen by Session in tests and returns a
+// function that restores the previous value.
+func SetHostOS(goos string) func() {
+	old := hostOS
+	hostOS = goos
+	return func() { hostOS = old }
+}
+
+// CheckLogin checks the operator's Antigravity login under realHome: a regular
+// file at TokenRel, or, on darwin when tokenOnly is false, a directory at
+// KeychainsRel (BUG-166). When TokenRel exists and is not a regular file, it
+// is refused on every OS. It returns tok, the path to TokenRel when that file
+// exists, or "" when darwin uses Keychains alone.
+func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
+	p := filepath.Join(realHome, filepath.FromSlash(TokenRel))
+	st, err := os.Lstat(p)
+	if err == nil {
+		if !st.Mode().IsRegular() {
+			return "", fmt.Errorf("no Antigravity login at %s", p)
+		}
+		return p, nil
+	}
+	if goos == "darwin" && !tokenOnly && errors.Is(err, fs.ErrNotExist) {
+		kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
+		if info, kerr := os.Lstat(kc); kerr == nil && info.IsDir() {
+			return "", nil
+		}
+		return "", fmt.Errorf("no Antigravity login: neither %s nor a Keychain folder at %s", p, kc)
+	}
+	return "", fmt.Errorf("no Antigravity login at %s", p)
+}
+
 // Root is where a verb makes its sandboxes under fyr's home: verb is "eval"
 // or "work", the two sandbox roots check c leaves out (D10).
 func Root(home, verb string) string { return filepath.Join(home, harness.StateDir, verb) }
@@ -101,17 +141,21 @@ func OutsideCheckout(dir string) error { return outsideCheckout(dir) }
 
 // Box is one sandbox's state as the steps fill it.
 type Box struct {
-	c            Config
-	dir, app, sb string
-	reasons      []string
-	pgids        []int
-	realBefore   map[string]string
-	credsBefore  map[string]credFinding
-	linked       bool
-	tok          string // the real token, as Session was last given it
-	sessions     int
-	started      bool // agy was started by a session
-	timedOut     bool
+	c               Config
+	dir, app, sb    string
+	reasons         []string
+	pgids           []int
+	realBefore      map[string]string
+	credsBefore     map[string]credFinding
+	linked          bool
+	tokLinked       bool
+	keychainsLinked bool
+	tok             string   // the real token, as Session was last given it
+	keychains       string   // the real Keychains directory on darwin, when present
+	keychainFiles   []string // regular files in keychains before Session
+	sessions        int
+	started         bool // agy was started by a session
+	timedOut        bool
 	// resolved holds dir, app and sb as guard a approved them. The agent can
 	// write in dir, so every later step that follows those paths first checks
 	// they still resolve here (intact), and check e matches these strings.

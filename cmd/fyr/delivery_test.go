@@ -74,10 +74,11 @@ func TestDeliverySpecCurrent(t *testing.T) {
 
 // newestVersion is the newest vX.Y.Z among the tags and the release change
 // records in a trail.jsonl (an ID ending -release-vX.Y.Z, or -release-vX-Y-Z
-// as a title's slug gives it).
+// as a title's slug gives it, with an optional trailing -YYYY-MM-DD when the
+// title ends with a date).
 func newestVersion(tags []string, trail []byte) (string, bool) {
 	versions := append([]string(nil), tags...)
-	release := regexp.MustCompile(`"id":"CHANGE-[^"]*-release-v(\d+)[.-](\d+)[.-](\d+)"`)
+	release := regexp.MustCompile(`"id":"CHANGE-[^"]*-release-v(\d+)[.-](\d+)[.-](\d+)(?:-\d{4}-\d{2}-\d{2})?"`)
 	for _, m := range release.FindAllStringSubmatch(string(trail), -1) {
 		versions = append(versions, "v"+m[1]+"."+m[2]+"."+m[3])
 	}
@@ -107,6 +108,10 @@ func TestNewestVersion(t *testing.T) {
 	trail := []byte(`{"date":"2026-10-25","id":"CHANGE-2026-10-25-1200-release-v3-0-0","kind":"change"}` + "\n" + `{"id":"CHANGE-2026-09-18-release-v1.2.3"}`)
 	if got, ok := newestVersion([]string{"v2.7.0", "v2.10.1", "junk"}, trail); !ok || got != "v3.0.0" {
 		t.Errorf("newestVersion = %s %v, want v3.0.0", got, ok)
+	}
+	dated := []byte(`{"id":"CHANGE-2026-11-01-2004-change-release-v6-1-0-2026-11-01"}`)
+	if got, ok := newestVersion([]string{"v6.0.0"}, dated); !ok || got != "v6.1.0" {
+		t.Errorf("dated release record = %s %v, want v6.1.0", got, ok)
 	}
 	if got, _ := newestVersion([]string{"v2.10.1", "v2.9.9"}, nil); got != "v2.10.1" {
 		t.Errorf("tags only = %s, want v2.10.1 (numbers, not text)", got)

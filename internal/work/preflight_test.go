@@ -129,3 +129,23 @@ func TestRunRefusals(t *testing.T) {
 		})
 	}
 }
+
+// On macOS, agy keeps its login in $HOME/Library/Keychains rather than
+// antigravity-oauth-token (BUG-166): a host-mode worker accepts the Keychain
+// folder and links it into the sandbox home for the session.
+func TestRunDarwinKeychainLogin(t *testing.T) {
+	r := newRig(t)
+	setHostOS(t, "darwin")
+	t.Cleanup(sandbox.SetHostOS("darwin"))
+	if err := os.Remove(filepath.Join(r.real, sandbox.TokenRel)); err != nil {
+		t.Fatal(err)
+	}
+	kc := filepath.Join(r.real, "Library", "Keychains")
+	mkdir(t, kc)
+	put(t, filepath.Join(kc, "login.keychain-db"), "keychain")
+	r.on("change", "")
+	res, err := runWith(r.opts(), r.kickoff("a", "src/a.txt"))
+	if err != nil || res.Verdict != "PASS" {
+		t.Fatalf("darwin Keychain login: err=%v res=%+v\n%s", err, res, r.out.String())
+	}
+}

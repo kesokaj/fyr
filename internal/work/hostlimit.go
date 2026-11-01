@@ -13,13 +13,14 @@ import (
 // It is per process, so a fetch's two sides together can hold twice that.
 var hostMemKiB = 8 << 20
 
-// capMemory runs cmd under that limit under the docker runner, through a sh
-// that exits when it cannot set it, so a limit not set fails the command. A
-// clone's config can make the host's pack-objects hold a blob whole, and a
-// few KiB of shared trees make diff-tree list a million paths (the v5.5.0
-// gate). Children inherit it. A host session runs as the operator already.
+// capMemory runs cmd under that limit under the docker runner on linux,
+// through a sh that exits when it cannot set it, so a limit not set fails the
+// command. A clone's config can make the host's pack-objects hold a blob
+// whole, and a few KiB of shared trees make diff-tree list a million paths
+// (the v5.5.0 gate). Children inherit it. A host session runs as the operator
+// already, and on macOS XNU does not enforce RLIMIT_AS and sh refuses ulimit -v.
 func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
-	if runner != RunnerDocker {
+	if runner != RunnerDocker || hostOS != "linux" {
 		return cmd
 	}
 	args := append([]string{"-c", `ulimit -v "$0" && exec "$@"`, strconv.Itoa(hostMemKiB)}, cmd.Args...)

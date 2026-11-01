@@ -77,6 +77,17 @@ func TestRestatementGrepRunsOutsideHarness(t *testing.T) {
 		if code != 1 || out != "" {
 			t.Fatalf("--all miss (words on different lines): want exit 1 and no output, got exit %d stdout %q", code, out)
 		}
+		// macOS ships /bin/bash 3.2 without mapfile/readarray; disable both
+		// via BASH_ENV to prove the script runs under Bash 3.2.
+		noMapfile := filepath.Join(t.TempDir(), "nomapfile.sh")
+		if err := os.WriteFile(noMapfile, []byte("enable -n mapfile readarray\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("BASH_ENV", noMapfile)
+		out, errs, code = run(dir, "-i", "--", "name")
+		if code != 0 || out != "README.md:1:GET /hello?name=<who> greets name.\n" || errs != "" {
+			t.Fatalf("without mapfile: want exit 0 and one prefixed line, got exit %d stdout %q stderr %q", code, out, errs)
+		}
 	})
 
 	t.Run("harness-shaped checkout excludes vendored skills", func(t *testing.T) {
