@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/work"
 )
 
@@ -45,8 +47,46 @@ type Options struct {
 	Work func(context.Context, work.Options, ...string) ([]work.Result, error)
 	// DockerPreflight checks whether work's docker mode can run; nil is work.DockerPreflight.
 	DockerPreflight func(work.Options) error
-	// Apply squashes an applied class's PASS branch onto the checkout (Phase 4); nil keeps the branch.
+	// Apply squashes an applied class's PASS branch onto the checkout (Phase 4); nil runs the apply step.
 	Apply func(root, branch, class string) (bool, error)
+	// TestRunner runs one `# auto: test` command in the apply worktree; nil runs runMarkedTest.
+	TestRunner func(wtDir, runner, cmdLine string) error
+}
+
+func (o Options) testRunner() func(wtDir, runner, cmdLine string) error {
+	if o.TestRunner != nil {
+		return o.TestRunner
+	}
+	return func(wtDir, runner, cmdLine string) error {
+		return runMarkedTest(wtDir, runner, cmdLine, o.limit(workerTimeout))
+	}
+}
+
+func runMarkedTest(wtDir, runner, cmdLine string, timeout time.Duration) error {
+	if runner != work.RunnerDocker {
+		return runShellTest(wtDir, cmdLine, timeout)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
+		"--user", uid, "-v", wtDir+":/work:rw", "-w", "/work", "fyr-work:local", "bash", "-c", cmdLine)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
+	}
+	return nil
+}
+
+func runShellTest(wtDir, cmdLine string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-c", cmdLine)
+	cmd.Dir = wtDir
+	cmd.Env = append(sandbox.WithoutGit(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
+	}
+	return nil
 }
 
 func (o Options) realHome() string {

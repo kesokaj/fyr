@@ -99,11 +99,13 @@ type run struct {
 	failed  bool
 	halted  bool // again stopped the run inside a project
 
-	unknownSaid bool
-	usageRead   bool
-	usageText   string
-	usageErr    error
-	workerRan   bool
+	unknownSaid     bool
+	usageRead       bool
+	usageText       string
+	usageErr        error
+	workerRan       bool
+	pendingReportID string
+	appliedSHA      string
 }
 
 func (r *run) exit() error {

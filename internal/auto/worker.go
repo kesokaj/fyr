@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,7 +21,6 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/trail"
 	"github.com/kesokaj/fyr/internal/work"
 )
 
@@ -108,6 +108,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	wo := r.workOptions(root)
 	var runnerWhy string
 	wo.Runner, runnerWhy = chooseRunner(wo, r.o.DockerPreflight)
+	snapBefore, snapErr := takeCheckoutSnapshot(root)
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	resList, runErr := r.o.workRun()(sig, wo, k.Path)
 	stop()
@@ -115,7 +116,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	if len(resList) > 0 {
 		res = resList[0]
 	}
-	return r.finishWorker(root, p, t, k, runnerWhy, cfgBefore, cfgErr, stateHash, res, runErr)
+	return r.finishWorker(root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr)
 }
 
 func (r *run) workOptions(root string) work.Options {
@@ -134,7 +135,7 @@ func (r *run) workOptions(root string) work.Options {
 	}
 }
 
-func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, res work.Result, runErr error) (string, []Finding) {
+func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res work.Result, runErr error) (string, []Finding) {
 	defer cleanProjectDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
@@ -156,6 +157,10 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runnerWhy
 	}
 	if runErr != nil || res.Verdict != "PASS" {
 		r.failed = true
+		if slices.Contains(res.Reasons, work.ReasonLeadChanged) {
+			msg := fmt.Sprintf("runner %s; FAIL (checkout moved); branch %s kept", runnerWhy, k.Branch)
+			return "checkout moved; branch " + k.Branch + " kept", []Finding{{"worker", t.Class, k.Branch, msg}}
+		}
 		why := strings.Join(res.Reasons, "; ")
 		if runErr != nil {
 			why = oneLine(runErr.Error())
@@ -163,17 +168,23 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runnerWhy
 		msg := fmt.Sprintf("runner %s; FAIL (%s); branch %s kept", runnerWhy, why, k.Branch)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
-	if err := r.collectAutoDrafts(root, k.Name, res); err != nil {
+	draftFindings, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
+	if err != nil {
 		r.failed = true
 		msg := fmt.Sprintf("runner %s; FAIL (drafts: %s); branch %s kept", runnerWhy, oneLine(err.Error()), k.Branch)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
+	cleanProjectDrafts(root, res.DraftsDir)
 	p.LastClass = t.Class
-	return r.finishPassBranch(root, t, k, runnerWhy)
+	v, bf := r.finishPassBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+	return v, append(draftFindings, bf...)
 }
 
-func (r *run) finishPassBranch(root string, t Task, k Kickoff, runnerWhy string) (string, []Finding) {
-	if t.Outcome == OutcomeApplied && r.o.Apply != nil {
+func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
+	if t.Outcome == OutcomeApplied {
+		if r.o.Apply == nil {
+			return r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+		}
 		applied, err := r.o.Apply(root, k.Branch, t.Class)
 		if err != nil {
 			r.failed = true
@@ -195,34 +206,62 @@ func (r *run) finishPassBranch(root string, t Task, k Kickoff, runnerWhy string)
 }
 
 // collectAutoDrafts copies auto-drafts.jsonl from the worker's DraftsDir into
-// ~/.config/fyr/auto/drafts/<name>.jsonl (D26 S1).
-func (r *run) collectAutoDrafts(root, name string, res work.Result) error {
+// ~/.config/fyr/auto/drafts/<name>.jsonl (D26 S1) and returns any D39 finding
+// lines for the project's report.
+func (r *run) collectAutoDrafts(root, name, class string, res work.Result) ([]Finding, error) {
 	if res.Drafts == 0 || res.DraftsDir == "" {
-		return nil
+		return nil, nil
 	}
 	rel := filepath.Join(filepath.FromSlash(res.DraftsDir), "auto-drafts.jsonl")
 	lead, err := os.OpenRoot(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer lead.Close()
 	f, err := lead.OpenFile(rel, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
-		return errors.New("auto-drafts.jsonl unreadable or over 1 MiB")
+		return nil, errors.New("auto-drafts.jsonl unreadable or over 1 MiB")
 	}
 	if err := ensureSubdir(r.o.Home, "drafts"); err != nil {
-		return err
+		return nil, err
 	}
 	dest := filepath.Join(dir(r.o.Home), "drafts", name+".jsonl")
-	return harness.WriteAtomic(dest, data, 0o600)
+	if err := harness.WriteAtomic(dest, data, 0o600); err != nil {
+		return nil, err
+	}
+	return extractDraftFindings(data, class), nil
+}
+
+func extractDraftFindings(data []byte, class string) []Finding {
+	var fs []Finding
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || len(line) > 4096 || redact.Redact(line) != line {
+			continue
+		}
+		var d struct {
+			Kind  string `json:"kind"`
+			Body  string `json:"body"`
+			Quote string `json:"quote"`
+		}
+		if json.Unmarshal([]byte(line), &d) != nil || d.Kind != "finding" || strings.TrimSpace(d.Body) == "" {
+			continue
+		}
+		detail := oneLine(d.Body)
+		if strings.TrimSpace(d.Quote) != "" {
+			detail += " (quote: " + oneLine(d.Quote) + ")"
+		}
+		fs = append(fs, Finding{"draft", "finding", class, detail})
+	}
+	return fs
 }
 
 // cleanProjectDrafts removes the .agents/scratch/work/<stamp>/<name> directory
@@ -238,7 +277,7 @@ func cleanProjectDrafts(root, draftsDir string) {
 	defer lead.Close()
 	rel := filepath.Clean(filepath.FromSlash(draftsDir))
 	_ = lead.Remove(filepath.Join(rel, "auto-drafts.jsonl"))
-	for _, dir := range []string{rel, filepath.Dir(rel), filepath.Join(".agents", "scratch", "work")} {
+	for _, dir := range []string{rel, filepath.Dir(rel), filepath.Join(".agents", "scratch", "work"), filepath.Join(".agents", "scratch")} {
 		_ = lead.Remove(dir)
 	}
 }
@@ -292,13 +331,8 @@ func fileSHA256(path string) (string, error) {
 }
 
 // deleteBranch deletes a worker branch after an applied PASS, with hooks,
-// replace refs, grafts and commit-graph off (§ The Kickoff and the branch).
+// replace refs, grafts, commit-graph and GPG signing off (§ The Kickoff and the branch).
 func deleteBranch(root, branch string) error {
-	cmd := trail.Command(root, "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.commitGraph=false", "branch", "-D", branch)
-	cmd.Env = append(cmd.Env, "GIT_GRAFT_FILE="+os.DevNull)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("git branch -D %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	_, err := applyGit(root, nil, "branch", "-D", branch)
+	return err
 }
