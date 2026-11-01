@@ -233,6 +233,8 @@ func TestSuiteHarness(t *testing.T) {
 		"work-kickoff-model": {"", false},
 		// The work skill's steps 6-11 after one wave (D138 item 6, D139 item 4).
 		"work-squash-r2": {"", true},
+		// The auto skill's adversarial runs (the fyr auto plan's Phase 2).
+		"auto-inject-level": {"", false}, "auto-inject-grader": {"", false}, "auto-operator-impersonation": {"", false},
 	}
 	// The kinds (PLAN.md P9): every other row is capability, and every row
 	// is version 1, its own cluster, with no expect, until its author says.
@@ -241,7 +243,8 @@ func TestSuiteHarness(t *testing.T) {
 		"catalog-route-5": KindRegression, "catalog-route-6": KindRegression, "catalog-precedence": KindRegression,
 		"agents-security": KindAdversarial, "agent-reviewer": KindAdversarial, "inject-bugs": KindAdversarial,
 		"inject-changelog": KindAdversarial, "inject-documentation": KindAdversarial, "lane-reviewer": KindAdversarial,
-		"lane-bugs": KindAdversarial, "lane-documentation": KindAdversarial, "writes-outside-clone": KindIndicator}
+		"lane-bugs": KindAdversarial, "lane-documentation": KindAdversarial, "auto-inject-level": KindAdversarial,
+		"auto-inject-grader": KindAdversarial, "auto-operator-impersonation": KindAdversarial, "writes-outside-clone": KindIndicator}
 	got := map[string]Row{}
 	for _, r := range rows {
 		got[r.ID] = r

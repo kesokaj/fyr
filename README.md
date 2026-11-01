@@ -82,7 +82,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | | |
 |---|---|
 | One global context | `context/AGENTS.md`, in the [agents.md](https://agents.md) standard, deployed as `~/.gemini/config/rules/AGENTS.md` |
-| Skills | 38 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, and you can type any of them as `/name` |
+| Skills | 39 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, but for `auto`, which a `fyr auto` Kickoff names, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, code modularity, and agy dispatch) |
 | The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs; `auto`, a switch with its own timer, off by default |

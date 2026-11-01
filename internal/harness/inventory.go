@@ -406,7 +406,7 @@ func opensFrontmatter(text string) bool {
 func slashNote(inv Inventory) string {
 	for _, s := range inv.Skills {
 		if s.SlashOnly {
-			return " Skills marked `/name` are typed by the user; the rest load when their description matches the task."
+			return " Skills marked `/name` are typed by the user; the rest load when their description matches."
 		}
 	}
 	return " Every skill loads when its description matches the task and can also be typed as `/name`."
