@@ -7,11 +7,11 @@
 
 ## Now
 
-`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 2: the `auto` skill and the rubric. Phase 1b is done: G3–G9, the free checks, the reports; D28–D35.
+`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 3: the runner (`work.Run` from Go, the Kickoff builder, the runner choice, G9's model-run count, the live map path and R0/R8/R10/R3 3.2b). Phase 2 is done: the risk rubric, the `auto` skill, the six skill sentences, the three adversarial `GUIDE-eval` rows; D36–D42.
 
 ## Next
 
-That plan's Phase 3, then Phase 4, then Phase 5.
+That plan's Phase 4, then Phase 5, then Phase 6.
 
 ## Backlog
 
