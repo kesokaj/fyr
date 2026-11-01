@@ -2,7 +2,6 @@ package auto
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,7 +16,6 @@ import (
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -250,51 +248,37 @@ func (r *run) mergeHomeTrials(home, headKey string, ts *trialState) {
 		return
 	}
 	defer os.RemoveAll(tmp)
-	db, err := search.OpenCopy(filepath.Dir(mp), filepath.Base(mp), tmp)
+	s, err := metrics.Snapshot(mp, tmp)
 	if err != nil {
 		return
 	}
-	scanTrialRows(db, headKey, ts)
-	_ = db.Close()
-	_ = os.Remove(filepath.Join(tmp, filepath.Base(mp)))
-	_ = os.Remove(filepath.Join(tmp, filepath.Base(mp)+"-wal"))
-	_ = os.Remove(filepath.Join(tmp, filepath.Base(mp)+"-shm"))
-	if s, err := metrics.Snapshot(mp, tmp); err == nil {
-		if ev, err := s.Evals(metrics.EvalOptions{Now: r.o.now()}); err == nil {
-			for _, row := range ev.Rows {
-				if slices.Contains(row.Flags, "unstable") {
-					ts.unstable[row.Row] = true
-				}
+	defer s.Close()
+	if trials, err := s.SuiteTrials(); err == nil {
+		scanTrialRows(trials, headKey, ts)
+	}
+	if ev, err := s.Evals(metrics.EvalOptions{Now: r.o.now()}); err == nil {
+		for _, row := range ev.Rows {
+			if slices.Contains(row.Flags, "unstable") {
+				ts.unstable[row.Row] = true
 			}
 		}
-		s.Close()
 	}
 }
 
-func scanTrialRows(db *sql.DB, headKey string, ts *trialState) {
-	rows, err := db.Query(`SELECT label, harness, COALESCE(cli, ''), status, started_at
-		FROM trials WHERE substr(label, 1, 5) = 'eval=' ORDER BY started_at ASC, run ASC`)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var label, h, cli, status string
-		var started int64
-		if rows.Scan(&label, &h, &cli, &status, &started) != nil {
+func scanTrialRows(trials []metrics.Trial, headKey string, ts *trialState) {
+	for _, tr := range trials {
+		if tr.CLI != "" {
+			ts.latestCLI = tr.CLI
+		}
+		if tr.Status != "pass" && tr.Status != "fail" {
 			continue
 		}
-		if cli != "" {
-			ts.latestCLI = cli
-		}
-		if status != "pass" && status != "fail" {
-			continue
-		}
-		rowID := strings.TrimPrefix(label, "eval=")
+		rowID := strings.TrimPrefix(tr.Label, "eval=")
+		started := tr.StartedAt.UnixMilli()
 		if prev, ok := ts.latest[rowID]; !ok || started >= prev.startedAt {
-			ts.latest[rowID] = trialMeta{harness: h, cli: cli, startedAt: started}
+			ts.latest[rowID] = trialMeta{harness: tr.Harness, cli: tr.CLI, startedAt: started}
 		}
-		commit, _, _ := strings.Cut(strings.TrimSpace(h), " ")
+		commit, _, _ := strings.Cut(strings.TrimSpace(tr.Harness), " ")
 		if headKey != "" && commit == headKey {
 			ts.gradedOnHead[rowID]++
 		}

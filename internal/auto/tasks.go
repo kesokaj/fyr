@@ -212,33 +212,14 @@ func (r *run) readSessionVerbs(root string) (map[string][]string, []string) {
 		return nil, nil
 	}
 	defer os.RemoveAll(tmp)
-	db, err := search.OpenCopy(filepath.Dir(mp), filepath.Base(mp), tmp)
+	s, err := metrics.Snapshot(mp, tmp)
 	if err != nil {
 		return nil, nil
 	}
-	defer db.Close()
-	p := filepath.Clean(root)
-	rows, err := db.Query(`SELECT s.id, sv.verb FROM sessions s JOIN step_verbs sv ON sv.session_id = s.id
-		WHERE (s.project_root = ? OR substr(s.project_root, 1, length(?)) = ?)
-		ORDER BY COALESCE(s.started_at, s.ended_at, 0) DESC, s.id, sv.ext_id, sv.n`, p, p+"/", p+"/")
+	defer s.Close()
+	bySess, order, err := s.ProjectVerbs(root, 100)
 	if err != nil {
 		return nil, nil
-	}
-	defer rows.Close()
-	var order []string
-	bySess := map[string][]string{}
-	for rows.Next() {
-		var sid, verb string
-		if rows.Scan(&sid, &verb) != nil || strings.TrimSpace(verb) == "" {
-			continue
-		}
-		if _, ok := bySess[sid]; !ok {
-			if len(order) >= 100 {
-				continue
-			}
-			order = append(order, sid)
-		}
-		bySess[sid] = append(bySess[sid], verb)
 	}
 	return bySess, order
 }
@@ -289,52 +270,16 @@ func (r *run) readSessionFrictions(root string) []int {
 		return nil
 	}
 	defer os.RemoveAll(tmp)
-	db, err := search.OpenCopy(filepath.Dir(mp), filepath.Base(mp), tmp)
+	s, err := metrics.Snapshot(mp, tmp)
 	if err != nil {
 		return nil
 	}
-	defer db.Close()
-	p := filepath.Clean(root)
-	since := r.o.now().AddDate(0, 0, -30).UnixMilli()
-	rows, err := db.Query(`SELECT s.id, COALESCE(st.tool, ''), COALESCE(st.cmd_hash, ''), COALESCE(st.denied, 0)
-		FROM sessions s LEFT JOIN steps st ON st.session_id = s.id
-		WHERE COALESCE(s.parent_id, '') = ''
-		  AND (s.project_root = ? OR substr(s.project_root, 1, length(?)) = ?)
-		  AND COALESCE(s.started_at, s.ended_at, 0) >= ?
-		ORDER BY COALESCE(s.started_at, s.ended_at, 0), s.id, st.ts, st.ext_id`, p, p+"/", p+"/", since)
+	defer s.Close()
+	vals, err := s.ProjectFrictions(root, r.o.now().AddDate(0, 0, -30))
 	if err != nil {
 		return nil
-	}
-	defer rows.Close()
-	var order []string
-	friction := map[string]int{}
-	lastHash := map[string]string{}
-	for rows.Next() {
-		var sid, tool, hash string
-		var denied int
-		if rows.Scan(&sid, &tool, &hash, &denied) == nil {
-			order = accumulateFriction(order, friction, lastHash, sid, tool, hash, denied)
-		}
-	}
-	vals := make([]int, 0, len(order))
-	for _, sid := range order {
-		vals = append(vals, friction[sid])
 	}
 	return vals
-}
-
-func accumulateFriction(order []string, friction map[string]int, lastHash map[string]string, sid, tool, hash string, denied int) []string {
-	if _, ok := friction[sid]; !ok {
-		order = append(order, sid)
-		friction[sid] = 0
-	}
-	if denied != 0 || (hash != "" && hash == lastHash[sid]) {
-		friction[sid]++
-	}
-	if tool == "Bash" || hash != "" {
-		lastHash[sid] = hash
-	}
-	return order
 }
 
 func (r *run) uneditedScaffoldCount(root string) int {

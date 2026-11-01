@@ -3,6 +3,7 @@ package auto
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 const testHarnessSuite = "# GUIDE-eval\n\n" +
@@ -110,6 +112,30 @@ func TestEvalRerunTriggers(t *testing.T) {
 		if task.Reruns[0] != (EvalRerunRow{ID: "smoke", Runs: 1, Reason: "cli-changed"}) ||
 			task.Reruns[1] != (EvalRerunRow{ID: "untouched", Runs: 5, Reason: "unstable"}) {
 			t.Errorf("reruns = %+v", task.Reruns)
+		}
+	})
+
+	t.Run("mismatched-schema-ignored", func(t *testing.T) {
+		home := t.TempDir()
+		root, c1 := initHarnessEvalFixture(t, home)
+		seedEvalTrials(t, home,
+			metrics.Trial{Run: "s/smoke/1", Label: "eval=smoke", Harness: c1, CLI: "agy 1.4.11", Status: "pass", StartedAt: runAt.Add(-10 * time.Hour)},
+		)
+		// Bump schema in meta: metrics.Snapshot refuses it, whereas a raw
+		// search.OpenCopy without Snapshot's schema check would still read trials.
+		db, err := sql.Open("sqlite", search.DSN(metrics.Path(home)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE meta SET value = '99' WHERE key = 'schema'`); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		opts := Options{Home: home, RealHome: t.TempDir(), Repo: root, Now: func() time.Time { return runAt }, AgyVersion: func() string { return "agy 1.4.12" }}
+		rHarn := &run{o: opts, cfg: Config{Level: LevelHarness}}
+		var p Project
+		if task := rHarn.pickProjectTask(root, &p, nil); task != nil && task.Class == ClassEvalRerun {
+			t.Fatalf("unexpected eval-rerun on mismatched schema snapshot: %+v", task)
 		}
 	})
 }

@@ -5,7 +5,7 @@ description: "Save and load the project's memory through `fyr memory add` and `f
 
 # Project memory
 
-A project's memory is small notes about the user and the project that a new session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where the hourly dream job is installed (`fyr dream --install-timer`), every memory is sent, redacted, to the model of the CLI the machine uses; nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
+A project's memory is small notes about the user and the project that a new session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where the hourly dream job is installed (`fyr dream --install-timer`) or `fyr auto`'s learning workers run (`fyr auto on`), every memory is sent, redacted, to the model of the CLI the machine uses (`PRD.md` R8); nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
 
 ## Load at session start
 

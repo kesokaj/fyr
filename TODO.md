@@ -15,4 +15,4 @@ None.
 
 ## Backlog
 
-- 2026-11-01 (`REVIEW-2026-11-01-1410-review-worktree-merged` Finding 7, D55): update `skills/project-memory/SKILL.md:8` so its sentence on what sends memory to the model also names `fyr auto`'s learning workers (`PRD.md` R8).
+- 2026-11-01 (BUG-207): add the scratch-deletion prevention rule to `agents/verifier/agent.md` and `agents/reviewer/agent.md` with their behavioural runs.
