@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -70,6 +71,31 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	}
 	sum.finish(all, trials, claimed)
 	return sum, nil
+}
+
+// ProjectRoots returns every distinct non-empty project_root in sessions,
+// cleaned with filepath.Clean and sorted.
+func (s *Store) ProjectRoots() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE COALESCE(project_root, '') != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		p = filepath.Clean(p)
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	sort.Strings(out)
+	return out, rows.Err()
 }
 
 // showQuery is the query of the sessions in the window [since, now) that

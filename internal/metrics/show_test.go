@@ -438,3 +438,19 @@ func TestShowContextTarget(t *testing.T) {
 		t.Errorf("agy has session peaks in a window without agy sessions: %v", only.B.SessionPeaks["agy"])
 	}
 }
+
+func TestProjectRoots(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	for i, root := range []string{"", "/repo/b/", "/repo/a", "/repo/b"} {
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at) VALUES (?, 'agy', ?, 1000)`, fmt.Sprintf("S%d", i), root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.ProjectRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "/repo/a,/repo/b" {
+		t.Fatalf("ProjectRoots = %v, want [/repo/a /repo/b]", got)
+	}
+}

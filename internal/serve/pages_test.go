@@ -1,17 +1,23 @@
 package serve
 
 import (
+	"database/sql"
 	"errors"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 var errBoom = errors.New("boom")
@@ -171,6 +177,9 @@ func TestMetricsAbsentCreatesNothing(t *testing.T) {
 		t.Fatalf("precondition: the store is still there: %v", err)
 	}
 	r := f.run(t)
+	if w := get(t, r, "GET", "/"); w.Code != 200 {
+		t.Errorf("/: %d\n%s", w.Code, w.Body.String())
+	}
 	if w := get(t, r, "GET", "/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), "no metrics store at "+path+"; run fyr metrics ingest") {
 		t.Errorf("/metrics: %d\n%s", w.Code, w.Body.String())
 	}
@@ -183,10 +192,44 @@ func TestMetricsAbsentCreatesNothing(t *testing.T) {
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("a page created the metrics store: %v", err)
 	}
+
+	// An empty home outside a checkout creates neither brain.db nor metrics.db.
+	emptyO := f.options(io.Discard)
+	emptyO.Home, emptyO.Dir = t.TempDir(), t.TempDir()
+	rEmpty, err := NewRun(emptyO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/", "/records", "/records?scope=global", "/memory", "/search?q=quokka", "/evals", "/metrics"} {
+		if w := get(t, rEmpty, "GET", p); w.Code != 200 {
+			t.Errorf("empty home %s: %d\n%s", p, w.Code, w.Body.String())
+		}
+	}
+	if w := get(t, rEmpty, "GET", "/records/NOPE-1?scope=global"); w.Code != 404 {
+		t.Errorf("empty home /records/NOPE-1?scope=global: %d\n%s", w.Code, w.Body.String())
+	}
+	for _, db := range []string{brain.Path(emptyO.Home), metrics.Path(emptyO.Home)} {
+		if _, err := os.Lstat(db); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("a read page created %s: %v", db, err)
+		}
+	}
 }
 
 func TestNoProject(t *testing.T) {
 	f := newFix(t)
+	if _, err := trail.Register(filepath.Join(f.home, harness.StateDir), f.repo, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	repo2 := t.TempDir()
+	git(t, repo2, "init", "-q")
+	write(t, filepath.Join(repo2, "README.md"), "# two\n")
+	git(t, repo2, "add", ".")
+	git(t, repo2, "commit", "-qm", "init")
+	bug2 := f.add(t, brain.Options{Home: f.home, Dir: repo2}, "bug", "Second bug", "body from repo2\n")
+	if bug2 != f.ids["xss"] {
+		t.Fatalf("precondition: expected duplicate bug ID %s, got %s", f.ids["xss"], bug2)
+	}
+
 	o := f.options(nil)
 	o.Dir = t.TempDir()
 	r, err := NewRun(o)
@@ -197,17 +240,36 @@ func TestNoProject(t *testing.T) {
 	if r.projectLine() != line {
 		t.Fatalf("project line %q", r.projectLine())
 	}
-	for _, p := range []string{"/records", "/records/" + f.ids["plan"], "/search?q=quokka", "/memory", "/evals", "/check"} {
+	if w := get(t, r, "GET", "/check"); w.Code != 200 || !strings.Contains(w.Body.String(), "<p>"+line+"</p>") {
+		t.Errorf("/check: %d, want 200 with the line\n%s", w.Code, w.Body.String())
+	}
+	scopeQ := url.Values{"scope": {f.repo}}.Encode()
+	scope2Q := url.Values{"scope": {repo2}}.Encode()
+	for _, p := range []string{"/", "/context", "/metrics", "/metrics/report", "/dream", "/records", "/records?scope=global",
+		"/records?" + scopeQ, "/records/" + f.ids["plan"], "/records/" + f.ids["plan"] + "?" + scopeQ,
+		"/records/" + bug2 + "?" + scope2Q, "/records/" + f.ids["global"] + "?scope=global", "/search?q=quokka", "/memory", "/evals"} {
 		w := get(t, r, "GET", p)
-		if w.Code != 200 || !strings.Contains(w.Body.String(), "<p>"+line+"</p>") {
-			t.Errorf("%s: %d, want 200 with the line\n%s", p, w.Code, w.Body.String())
+		if w.Code != 200 || strings.Contains(w.Body.String(), "<p>"+line+"</p>") {
+			t.Errorf("%s: %d, want 200 without no-project line\n%s", p, w.Code, w.Body.String())
 		}
 	}
-	for _, p := range []string{"/", "/context", "/metrics", "/metrics/report", "/dream", "/records?scope=global", "/records/" + f.ids["global"] + "?scope=global"} {
-		if w := get(t, r, "GET", p); w.Code != 200 || strings.Contains(w.Body.String(), "<p>"+line+"</p>") {
-			t.Errorf("%s: %d, want it served", p, w.Code)
-		}
+	homeBody := get(t, r, "GET", "/").Body.String()
+	if strings.Contains(homeBody, "/actions/index") || !strings.Contains(homeBody, "/actions/metrics-ingest") || !strings.Contains(homeBody, "<h2>projects</h2>") {
+		t.Errorf("outside-project /: want metrics-ingest only and projects table\n%s", homeBody)
 	}
+	if memBody := get(t, r, "GET", "/memory").Body.String(); !strings.Contains(memBody, f.repo+"\n- quokka-fact (project) — quokkas smile") {
+		t.Errorf("outside-project /memory:\n%s", memBody)
+	}
+	if searchBody := get(t, r, "GET", "/search?q=quokka").Body.String(); !strings.Contains(searchBody, f.ids["plan"]) || !strings.Contains(searchBody, f.ids["global"]) {
+		t.Errorf("outside-project /search:\n%s", searchBody)
+	}
+	if w := get(t, r, "GET", "/records/"+bug2); w.Code != 400 || !strings.Contains(w.Body.String(), "ambiguous record "+bug2) {
+		t.Errorf("ambiguous /records/%s: %d\n%s", bug2, w.Code, w.Body.String())
+	}
+	if w := get(t, r, "GET", "/records?scope=/nope"); w.Code != 400 || !strings.Contains(w.Body.String(), "scope must be global or a known project") {
+		t.Errorf("/records?scope=/nope: %d\n%s", w.Code, w.Body.String())
+	}
+
 	// The index needs the project and runs nothing; the ingest is the home's
 	// and runs.
 	var index, ingest atomic.Int32
@@ -221,6 +283,83 @@ func TestNoProject(t *testing.T) {
 	}
 	if w := serve(r, actionReq(r, "/actions/metrics-ingest", csrf)); w.Code != 200 || ingest.Load() != 1 {
 		t.Errorf("POST /actions/metrics-ingest: %d, %d calls, want it run", w.Code, ingest.Load())
+	}
+}
+
+func TestOverviewAndScopedMetrics(t *testing.T) {
+	f := newFix(t)
+	repo2 := t.TempDir()
+	git(t, repo2, "init", "-q")
+	write(t, filepath.Join(repo2, "README.md"), "# two\n")
+	git(t, repo2, "add", ".")
+	git(t, repo2, "commit", "-qm", "init")
+	f.add(t, brain.Options{Home: f.home, Dir: repo2}, "plan", "Plan wombat", "## Phases\n- [ ] one\n")
+
+	repo3 := t.TempDir()
+	git(t, repo3, "init", "-q")
+	write(t, filepath.Join(repo3, ".gitignore"), ".agents/scratch/*\n")
+	write(t, filepath.Join(repo3, ".agents", "trail.jsonl"), "")
+	write(t, filepath.Join(repo3, "README.md"), "# three\n")
+	git(t, repo3, "add", ".")
+	git(t, repo3, "commit", "-qm", "init")
+	if _, err := trail.Register(filepath.Join(f.home, harness.StateDir), repo3, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := search.Index(search.Options{Home: f.home, Dir: repo3}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", metrics.Path(f.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Add(-time.Hour).UnixMilli()
+	for _, row := range []struct {
+		id, root string
+		tok      int64
+	}{
+		{"S1", f.repo, 111},
+		{"S2", filepath.Join(f.repo, "sub"), 222},
+		{"S3", repo2, 9999},
+	} {
+		if _, err := db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`, row.id, row.root, now, now+1000); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO steps(session_id, ext_id, kind, ts, tok_in, tok_out, context) VALUES (?, ?, 'generation', ?, ?, 0, 5000)`, row.id, row.id+"-e1", now, row.tok); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	// Inside f.repo: / and /metrics and /metrics/report show only f.repo (S1 + S2 = 2 sessions, 333 tokens), never repo2 (9999).
+	rIn := f.run(t)
+	inHome := get(t, rIn, "GET", "/").Body.String()
+	if !strings.Contains(inHome, "<h2>project</h2>") || !strings.Contains(inHome, "<td>333</td>") || strings.Contains(inHome, repo2) {
+		t.Errorf("inside-project /:\n%s", inHome)
+	}
+	inMetrics := get(t, rIn, "GET", "/metrics").Body.String()
+	if strings.Contains(inMetrics, "<h2>projects (the last 30 days)</h2>") || !strings.Contains(inMetrics, "333") || strings.Contains(inMetrics, "9999") {
+		t.Errorf("inside-project /metrics:\n%s", inMetrics)
+	}
+	inReport := get(t, rIn, "GET", "/metrics/report").Body.String()
+	if !strings.Contains(inReport, ">2<") || strings.Contains(inReport, "10332") {
+		t.Errorf("inside-project /metrics/report includes other project's sessions:\n%s", inReport)
+	}
+
+	// Outside any project: / and /metrics show both canonical projects (with f.repo/sub rolled into f.repo), and /metrics/report aggregates all 3 sessions (10332 tokens).
+	o := f.options(io.Discard)
+	o.Dir = t.TempDir()
+	rOut, err := NewRun(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outHome := get(t, rOut, "GET", "/").Body.String()
+	if !strings.Contains(outHome, "<h2>projects</h2>") || !strings.Contains(outHome, f.repo) || !strings.Contains(outHome, repo2) || !strings.Contains(outHome, repo3) || strings.Contains(outHome, filepath.Join(f.repo, "sub")) {
+		t.Errorf("outside-project /:\n%s", outHome)
+	}
+	outMetrics := get(t, rOut, "GET", "/metrics").Body.String()
+	if !strings.Contains(outMetrics, "<h2>projects (the last 30 days)</h2>") || !strings.Contains(outMetrics, repo3) || !strings.Contains(outMetrics, "<td>333</td>") || !strings.Contains(outMetrics, "<td>9999</td>") || !strings.Contains(outMetrics, "10332") {
+		t.Errorf("outside-project /metrics:\n%s", outMetrics)
 	}
 }
 

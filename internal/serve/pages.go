@@ -29,14 +29,19 @@ func (r *Run) printed(w http.ResponseWriter, req *http.Request, title string, pr
 	r.page(w, req, http.StatusOK, v)
 }
 
-// home is fyr status, the version, the project, the dream's line and the
-// two action forms.
+// home is fyr status, the version, the project or all-projects overview,
+// the dream's line and the action forms.
 func (r *Run) home(w http.ResponseWriter, req *http.Request) {
-	r.printed(w, req, "status", r.o.Status,
-		block{Line: "fyr " + r.o.Version},
-		block{Line: "dream: " + dream.StatusLine(r.o.Home)},
-		r.actionForm("/actions/index", "run fyr index"),
-		r.actionForm("/actions/metrics-ingest", "run fyr metrics ingest"))
+	head := []block{
+		{Line: "fyr " + r.o.Version},
+		{Line: "dream: " + dream.StatusLine(r.o.Home)},
+		r.overviewBlock(),
+	}
+	if r.root != "" {
+		head = append(head, r.actionForm("/actions/index", "run fyr index"))
+	}
+	head = append(head, r.actionForm("/actions/metrics-ingest", "run fyr metrics ingest"))
+	r.printed(w, req, "status", r.o.Status, head...)
 }
 
 func (r *Run) context(w http.ResponseWriter, req *http.Request) {
@@ -57,12 +62,16 @@ func (r *Run) check(w http.ResponseWriter, req *http.Request) {
 	r.printed(w, req, "check", r.o.Check)
 }
 
-// memory is `fyr memory show` for the project.
+// memory is `fyr memory show` for the project, or active memories across
+// every project scope when started outside a checkout (D5).
 func (r *Run) memory(w http.ResponseWriter, req *http.Request) {
-	if r.noProject(w, req, "memory") {
-		return
+	var text string
+	var err error
+	if r.root != "" {
+		text, err = brain.MemoryShow(brain.Options{Home: r.o.Home, Dir: r.o.Dir})
+	} else {
+		text, err = r.allMemoriesText()
 	}
-	text, err := brain.MemoryShow(brain.Options{Home: r.o.Home, Dir: r.o.Dir})
 	if err != nil {
 		r.fail(w, req, view{Title: "memory"}, storeErr("brain store", err))
 		return
@@ -92,13 +101,14 @@ func (r *Run) metrics(w http.ResponseWriter, req *http.Request) {
 	case line != "":
 		v.Blocks = []block{{Line: line}}
 	default:
-		v.Blocks = []block{{Link: &link{Href: r.base + "/metrics/report", Text: "the metrics report (Antigravity sessions, the last 30 days)"}}}
+		v.Blocks = r.metricsBlocks()
 	}
 	v.Blocks = append(v.Blocks, r.actionForm("/actions/metrics-ingest", "run fyr metrics ingest"))
 	r.page(w, req, http.StatusOK, v)
 }
 
-// metricsReport is the `fyr metrics report` document for the default view,
+// metricsReport is the `fyr metrics report` document: scoped to the project
+// inside a checkout, or across all projects with eval rows outside one,
 // served whole: no layout.
 func (r *Run) metricsReport(w http.ResponseWriter, req *http.Request) {
 	v := view{Title: "metrics report"}
@@ -113,7 +123,7 @@ func (r *Run) metricsReport(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var page bytes.Buffer
-	if err := renderMetrics(r.o.Home, &page); err != nil {
+	if err := renderMetrics(r.o.Home, r.root, &page); err != nil {
 		r.fail(w, req, v, storeErr("metrics store", err))
 		return
 	}
@@ -121,36 +131,41 @@ func (r *Run) metricsReport(w http.ResponseWriter, req *http.Request) {
 	_, _ = w.Write(page.Bytes())
 }
 
-func renderMetrics(home string, w io.Writer) error {
+func renderMetrics(home, project string, w io.Writer) error {
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	sum, err := s.Show(metrics.ShowOptions{})
+	sum, err := s.Show(metrics.ShowOptions{Project: project})
 	if err != nil {
 		return err
 	}
-	evals, err := s.Evals(metrics.EvalOptions{})
-	if err != nil {
-		return err
+	var evals *metrics.EvalRows
+	if project == "" {
+		evals, err = s.Evals(metrics.EvalOptions{})
+		if err != nil {
+			return err
+		}
 	}
 	return metrics.RenderReport(w, sum, evals, time.Now())
 }
 
-// evals is the per-row view of this home's trials, then the project's
-// testing records that `fyr eval` wrote.
+// evals is the per-row view of this home's trials, then the project's (or,
+// outside a checkout, every scope's) testing records that `fyr eval` wrote.
 func (r *Run) evals(w http.ResponseWriter, req *http.Request) {
-	if r.noProject(w, req, "evals") {
-		return
-	}
 	v := view{Title: "evals"}
 	table, err := r.evalRows()
 	if err != nil {
 		r.fail(w, req, v, err)
 		return
 	}
-	recs, err := brain.List(brain.Options{Home: r.o.Home, Dir: r.o.Dir}, brain.ListFilter{Kind: "testing"})
+	var recs []brain.Record
+	if r.root != "" {
+		recs, err = brain.List(brain.Options{Home: r.o.Home, Dir: r.o.Dir}, brain.ListFilter{Kind: "testing"})
+	} else {
+		recs, err = r.listAll(brain.ListFilter{Kind: "testing"})
+	}
 	if err != nil {
 		r.fail(w, req, v, storeErr("brain store", err))
 		return
@@ -158,10 +173,12 @@ func (r *Run) evals(w http.ResponseWriter, req *http.Request) {
 	var rows []recordRow
 	for _, rec := range recs {
 		if strings.HasPrefix(rec.Title, "Eval — ") {
-			rows = append(rows, r.rowOf(rec, false))
+			rows = append(rows, r.rowOf(rec))
 		}
 	}
-	v.Blocks = []block{table, listBlock(rows, "no eval results: fyr eval writes one testing record per run")}
+	b := listBlock(rows, "no eval results: fyr eval writes one testing record per run")
+	b.ShowScope = r.root == ""
+	v.Blocks = []block{table, b}
 	r.page(w, req, http.StatusOK, v)
 }
 

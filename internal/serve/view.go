@@ -36,14 +36,26 @@ type view struct {
 // block is one part of a page; the layout renders each field that is set,
 // in this order.
 type block struct {
-	Heading string
-	Line    string
-	Link    *link
-	Search  *searchForm
-	Action  *actionForm
-	Records []recordRow
-	Hits    []hitRow
-	Pre     string
+	Heading   string
+	Line      string
+	Link      *link
+	Search    *searchForm
+	Action    *actionForm
+	Table     *table
+	Records   []recordRow
+	ShowScope bool
+	Hits      []hitRow
+	Pre       string
+}
+
+type table struct {
+	Head []string
+	Rows [][]cell
+}
+
+type cell struct {
+	Href string
+	Text string
 }
 
 type link struct {
@@ -53,7 +65,7 @@ type link struct {
 }
 
 type recordRow struct {
-	Href, ID, Kind, Status, Date, Title string
+	Href, ID, Kind, Status, Date, Scope, Title string
 }
 
 // hitRow is a record hit as `fyr search` prints it, its ID linked.

@@ -65,6 +65,17 @@ func TestPagesWriteNothing(t *testing.T) {
 			t.Fatalf("%s: %d", p, w.Code)
 		}
 	}
+	oOut := f.options(nil)
+	oOut.Dir = other
+	rOut, err := NewRun(oOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range f.readPages() {
+		if w := get(t, rOut, "GET", p); w.Code != 200 {
+			t.Fatalf("outside %s: %d", p, w.Code)
+		}
+	}
 	scratch := filepath.Join(f.repo, ".agents", "scratch") + string(filepath.Separator)
 	conf := filepath.Join(f.home, harness.StateDir) + string(filepath.Separator)
 	after := map[string][32]byte{}

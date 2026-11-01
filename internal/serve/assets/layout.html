@@ -23,9 +23,14 @@
 <button type="submit">search</button>
 </form>{{end}}
 {{with .Action}}<form method="post" action="{{.Href}}"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">{{.Label}}</button></form>{{end}}
-{{if .Records}}<table>
-<thead><tr><th>ID</th><th>kind</th><th>status</th><th>date</th><th>title</th></tr></thead>
-<tbody>{{range .Records}}<tr><td><a href="{{.Href}}">{{.ID}}</a></td><td>{{.Kind}}</td><td>{{.Status}}</td><td>{{.Date}}</td><td>{{.Title}}</td></tr>
+{{with .Table}}<table>
+<thead><tr>{{range .Head}}<th>{{.}}</th>{{end}}</tr></thead>
+<tbody>{{range .Rows}}<tr>{{range .}}<td>{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table>{{end}}
+{{if .Records}}{{$showScope := .ShowScope}}<table>
+<thead><tr><th>ID</th><th>kind</th><th>status</th><th>date</th>{{if $showScope}}<th>scope</th>{{end}}<th>title</th></tr></thead>
+<tbody>{{range .Records}}<tr><td><a href="{{.Href}}">{{.ID}}</a></td><td>{{.Kind}}</td><td>{{.Status}}</td><td>{{.Date}}</td>{{if $showScope}}<td>{{.Scope}}</td>{{end}}<td>{{.Title}}</td></tr>
 {{end}}</tbody>
 </table>{{end}}
 {{if .Hits}}<ul class="hits">{{range .Hits}}<li><a href="{{.Href}}">{{.Label}}</a>{{.Rest}}{{if .Snippet}}<br><span class="snippet">{{.Snippet}}</span>{{end}}</li>

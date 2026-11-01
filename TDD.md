@@ -111,7 +111,7 @@ Implements: M9 · Spec: `SPEC-fyr-memory-loop`
 
 Implements: M10 · Spec: `SPEC-fyr-metrics`
 
-- **Interfaces:** `fyr metrics ingest`, `show`, `report`, `evals`, `export`.
+- **Interfaces:** `fyr metrics ingest`, `show`, `report`, `evals`, `export`; `(*Store).ProjectRoots` for M16's cross-project views.
 - **Data:** `~/.config/fyr/metrics.db`, a store of record of session shape: never arguments, prose or tool output; `uninstall` leaves it.
 
 ## T11 — The dreamer
@@ -157,9 +157,9 @@ Implements: M15 · Spec: none (internal; shared by M7–M11 and M14 so that none
 
 Implements: M16 · Spec: `SPEC-fyr-serve` · Decision: ADR-075, ADR-075a · Code: `internal/serve`, `cmd/fyr/verb_serve.go` (read pages built in row 8, the two actions in row 9)
 
-- **Interfaces:** the serve verb with `--port` (default 3000) and `--home`; a printed URL holding the run's token; read routes for status, context, records, search, memory, metrics, evals, dream and the drift check; two POST actions, the index and the metrics ingest, each the verb's own function.
-- **Security:** bound to `127.0.0.1`; the `Host` header checked; a cross-site or same-site `Sec-Fetch-Site` refused; a per-run session token (URL once, then a cookie scoped to a per-run path prefix, `/s/<P>`, so no other port of `127.0.0.1` receives it, ADR-075a) and a separate CSRF token in every form's body; no script, a `default-src 'none'` CSP.
-- **Errors:** a refusal is 403 with no detail; a store that will not open fails only its page; a busy port exits 1; a POST while an action runs is 409, and a failed action is 500 with its output and `failed: <error>`.
+- **Interfaces:** the serve verb with `--port` (default 3000) and `--home`; a printed URL holding the run's token; read routes for status, context, records, search, memory, metrics, evals, dream and the drift check (scoped to the checkout when started inside one, or serving the all-projects overview, per-project metrics, records, global search, memory and evals when started outside one); two POST actions, the index and the metrics ingest, each the verb's own function.
+- **Security:** bound to `127.0.0.1`; the `Host` header checked; a cross-site or same-site `Sec-Fetch-Site` refused; a per-run session token (URL once, then a cookie scoped to a per-run path prefix, `/s/<P>`, so no other port of `127.0.0.1` receives it, ADR-075a) and a separate CSRF token in every form's body; no script, a `default-src 'none'` CSP; a project `?scope=` query parameter outside a checkout is matched against `brain.Scopes` in memory and never touches the filesystem.
+- **Errors:** a refusal is 403 with no detail; a store that will not open fails only its page (or renders its error line on `/` and `/metrics` beside the status and action forms); a busy port exits 1; a POST while an action runs is 409, and a failed action is 500 with its output and `failed: <error>`.
 - **Dependencies:** M7, M8, M9, M10, M11 and M14 through their functions; the status, render and check printers and the two actions passed in from M5, which registers the verb in `init()`. Stdlib `net/http`, `html/template`, `go:embed`; no SQLite import of its own.
 
 ## T17 — The sandbox
@@ -247,13 +247,13 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd` |
 | M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves` |
 | M9 | T9 | `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestStoreRunsNoProjectHook` |
-| M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly` |
+| M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestProjectRoots` |
 | M11 | T11 | `TestRunIngestsMetricsFirst`, `TestPromptCarriesMetricsNumbersOnly`, `TestInstallTimerLinux` |
 | M12 | T12 | `TestRedactShapes`, `TestEveryNeedleHasAShapeAndANearMiss` |
 | M13 | T13 | `TestSuiteHarness`, `TestEvalRefusesItsHome`, `TestEvalSuiteFile` |
 | M14 | T14 | `TestDocsRuleVerbs`, `TestSpecRuleStaleness`, `TestRequirementsRuleReadsPRD`, `TestTracesRule` |
 | M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot` |
-| M16 | T16 | `TestRefusals`, `TestCookieScopedToPrefix`, `TestTokenSetsCookieAndRedirects`, `TestPagesWriteNothing`, `TestServeSecondSignal`, `TestActionCSRF`, `TestActionBusy`, `TestServeActions` |
+| M16 | T16 | `TestRefusals`, `TestCookieScopedToPrefix`, `TestTokenSetsCookieAndRedirects`, `TestPagesWriteNothing`, `TestServeSecondSignal`, `TestActionCSRF`, `TestActionBusy`, `TestServeActions`, `TestNoProject`, `TestOverviewAndScopedMetrics` |
 | M17 | T17 | `TestBoxSession`, `TestGuardFingerprintSkipsSandboxRoots`, `TestGuardFingerprintSkipStores`, `TestBoxRemove`, `TestNoSQLiteDriver`, `TestDockerArgs`, `TestDockerSession`, `TestContainersLeft`, `TestAgyEnvZone`, `TestImageZoneGuard` |
 | M18 | T18 | `TestWorkVerbPass`, `TestWorkVerbFail`, `TestWorkVerbRefusals`, `TestWorkVerbSignals`, `TestWorkVerbSeveral`, `TestWorkVerbKill`, `TestRunSeveralAtOnce`, `TestRunSeveralWaits`, `TestRunCountsOtherRuns`, `TestRunSeveralRefusals`, `TestRunSeveralKilled`, `TestRunDeadContextStartsNothing`, `TestRunSlotsLockBusy`, `TestLiveRunsFailClosed`, `TestHeldErrorFailsClosed`, `TestLiveRunsGlobChars`, `TestRunRootBeforeLimit`, `TestPidBounds`, `TestKill`, `TestKillRefusals`, `TestRunPass`, `TestRunRefusals`, `TestRunFailReasons`, `TestRunSafetyKeepsSandbox`, `TestBlockCutOrder`, `TestNoSQLiteDriver`, `TestLeadZone`, `TestLeadZoneNameChecks`, `TestRunZone`, `TestRunWindowZone`, `TestWorkArgsUnchangedByAuto`, `TestAutoFilesLine`, `TestAutoDraftsCopy`, `TestDockerPreflight` |
 | M19 | T19 | `TestAutoOnWritesTheConfigAndTheTimer`, `TestAutoOnFromOffStartsAtTheDefaults`, `TestAutoOffNeedsNoLock`, `TestAutoOffReplacesCorruptAndLink`, `TestAutoConfigCorrupt`, `TestAutoRunCorruptFailsClosed`, `TestAutoDryRunWritesNothing`, `TestAutoTimerSystemdText`, `TestAutoTimerPlistText`, `TestAutoVerbUsage`, `TestUninstallRemovesAutoTimerKeepsItsFiles`, `TestFingerprintWatchesAutoConfig`, `TestKickoffBuilder`, `TestKickoffRubricAndAsks`, `TestRunnerChoice`, `TestWorkerModelRunCountAndCap`, `TestWorkerBranchCleanup`, `TestWorkerConfigTamperDisablesAuto`, `TestWorkerStateTamperRestoredAndDraftsCollected`, `TestClassRotation`, `TestApplyHappyPath`, `TestApplyMovedCheckoutKeepsBranch`, `TestApplyRedMarkedTestKeepsBranch`, `TestApplyNoMarkedTestBecomesProposal`, `TestApplyHooksAndGPGSignOff`, `TestApplyNoPushFetchOrLsRemoteInGitLog`, `TestApplyRubricDeniedPathOnBranchKeepsBranch`, `TestApplyStep1RereadsGatesAndDraftFindings`, `TestDraftsMemoryAddRetireMerge`, `TestDraftsRetireOrMergeOtherProjectRefused`, `TestDraftsTokenShapeRefused`, `TestDraftsFeedbackProposalFindingAndLimits`, `TestTasksKickoffTemplates`, `TestTasksTriggers`, `TestTasksRedactedLearningInput`, `TestEvalRerunTriggers`, `TestEvalRerunExecAndBetweenRowsG9`, `TestEvalRerunSubprocessRunner`, `TestEvalGate` |

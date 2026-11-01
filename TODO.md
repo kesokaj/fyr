@@ -7,7 +7,7 @@
 
 ## Now
 
-None (`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` closed 2026-11-01 with `fyr auto` at level `observe` on `dave`).
+None (`PLAN-2026-11-01-1903-plan-fyr-serve-project-scoped-and-all-projects-o` closed 2026-11-01).
 
 ## Next
 
