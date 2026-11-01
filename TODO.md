@@ -7,11 +7,11 @@
 
 ## Now
 
-`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 1b: the gates and the free checks. Phase 1a is done: `fyr auto` on, off, status and run, its timer, SPEC-fyr-auto; D20–D27.
+`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 2: the `auto` skill and the rubric. Phase 1b is done: G3–G9, the free checks, the reports; D28–D35.
 
 ## Next
 
-That plan's Phase 2, then Phase 3, then Phase 4.
+That plan's Phase 3, then Phase 4, then Phase 5.
 
 ## Backlog
 

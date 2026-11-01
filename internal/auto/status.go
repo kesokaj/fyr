@@ -55,6 +55,9 @@ func Status(o Options) error {
 		fmt.Fprintf(o.Out, "project    %s: %s\n", oneLine(r), oneLine(st.Projects[r].Verdict))
 	}
 	fmt.Fprintf(o.Out, "today      %d of %d model runs\n", st.modelRunsToday(o.now()), modelRunsPerDay)
+	if st.Budget != "" {
+		fmt.Fprintln(o.Out, "quota      "+oneLine(st.Budget))
+	}
 	fmt.Fprintf(o.Out, "asks       %d open\n", st.OpenAsks)
 	return nil
 }

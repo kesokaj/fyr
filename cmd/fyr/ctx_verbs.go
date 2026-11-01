@@ -93,7 +93,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: how long a project is left alone first, `D`, 1h to 7d (default 6h)")
 		c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: how long the operator is away first, `D`, 1m to 24h (default 15m)")
 		c.dryRunFlag()
-	}, positional: true, readsRepo: true, run: runAuto},
+	}, positional: true, readsRepo: true},
 	"metrics": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
 		c.fs.StringVar(&c.metricsLabel, "label", "", "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label")

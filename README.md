@@ -119,7 +119,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
-| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. For now a run only checks the switch and its lock and logs a line; nothing else is built yet, so it spends no model and changes no project |
+| `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects and files a global `review` record when the findings changed; no worker is built yet, so it spends no model and changes no project |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr serve` | Pages of this project and this home on `127.0.0.1:3000` until Ctrl-C, with buttons for `fyr index` and `fyr metrics ingest`; open the printed URL, which holds the run's path and token |
 | `fyr eval --home DIR [--runs N] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25), each trial in its own sandbox and stored as a trial in the metrics store |

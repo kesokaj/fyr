@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/check"
 )
 
 // ExitError is a verb's exit status with the text it prints on stdout, as
@@ -18,14 +20,35 @@ type ExitError struct {
 
 func (e *ExitError) Error() string { return e.Msg }
 
-// Options is what every verb runs with; the zero Now, GOOS and Path are the
-// machine's own.
+// Options is what every verb runs with; the zero Now, GOOS, Path and Env are
+// the machine's own. Vocabulary, Install and Metrics are the checks only the
+// binary can answer; `cmd/fyr` gives them, and a nil one is a check not run.
 type Options struct {
-	Home string
-	Out  io.Writer
-	Now  func() time.Time
-	GOOS string
-	Path string
+	Home       string
+	Out        io.Writer
+	Now        func() time.Time
+	GOOS       string
+	Path       string
+	Env        Env
+	Vocabulary check.Vocabulary
+	Install    func() []Finding
+	Metrics    func() ([]Finding, error)
+	// ReadLimit replaces every read's time limit; a test shortens it.
+	ReadLimit time.Duration
+}
+
+func (o Options) limit(d time.Duration) time.Duration {
+	if o.ReadLimit > 0 {
+		return o.ReadLimit
+	}
+	return d
+}
+
+func (o Options) env() Env {
+	if o.Env != nil {
+		return o.Env
+	}
+	return machine{}
 }
 
 func (o Options) now() time.Time {
@@ -155,79 +178,4 @@ func stateLine(home string, err error) string {
 
 func configLine(err error) string {
 	return "auto: config: " + oneLine(err.Error()) + "; run fyr auto off or on"
-}
-
-// Run is what the timer runs. Until the gates of Phase 1b it holds at G1 and
-// G2 and logs. A dry run resolves the same config and state and refuses what
-// the real run refuses; it takes no lock, creates no directory and writes
-// nothing (review-standards § 8).
-func Run(o Options, dryRun bool) error {
-	now := o.now()
-	say := func(line string) {
-		fmt.Fprintln(o.Out, line)
-		if !dryRun {
-			if err := appendLog(o.Home, now, line); err != nil {
-				fmt.Fprintln(o.Out, "auto: log: "+oneLine(err.Error()))
-			}
-		}
-	}
-	c, found, err := Load(o.Home)
-	switch {
-	case err != nil:
-		say(configLine(err))
-		return &ExitError{Code: 1}
-	case !found || !c.Enabled:
-		say("G1 switch: off")
-		return nil
-	}
-	if dryRun {
-		say("G1 switch: on, level " + c.Level)
-		if _, err := usableState(o.Home, now); err != nil {
-			say(stateLine(o.Home, err))
-			return &ExitError{Code: 1}
-		}
-		say("G2 lock: not taken in a dry run")
-		say("budget: not read in a dry run")
-		return nil
-	}
-	return o.locked(c, now, say)
-}
-
-// locked is a real run past G1.
-func (o Options) locked(c Config, now time.Time, say func(string)) error {
-	if err := ensureDir(o.Home); err != nil {
-		fmt.Fprintln(o.Out, "auto: "+oneLine(err.Error()))
-		return &ExitError{Code: 1}
-	}
-	unlock, held, err := lock(o.Home)
-	if err != nil {
-		say("G2 lock: " + err.Error())
-		return &ExitError{Code: 1}
-	}
-	if held {
-		say("G2 lock: held by another run")
-		return nil
-	}
-	defer unlock()
-	// A corrupt state stops the run and stays: the day's model count in it
-	// is G9's, and starting over would hand the budget back.
-	st, err := usableState(o.Home, now)
-	if err != nil {
-		say(stateLine(o.Home, err))
-		return &ExitError{Code: 1}
-	}
-	// Only a past date is a new day: a state up to a day ahead keeps its count.
-	if today := now.Format("2006-01-02"); st.Date < today {
-		st.Date, st.ModelRuns = today, 0
-	}
-	st.LastRun, st.Verdict = now, "G1 and G2 passed, level "+c.Level
-	if err := saveState(o.Home, st); err != nil {
-		say("auto: state: " + err.Error())
-		return &ExitError{Code: 1}
-	}
-	say(st.Verdict + "; nothing past G2 runs yet")
-	if err := pruneLog(o.Home, now); err != nil {
-		fmt.Fprintln(o.Out, "auto: log: "+oneLine(err.Error()))
-	}
-	return nil
 }

@@ -34,7 +34,16 @@ type State struct {
 	LastRun   time.Time          `json:"last_run"`
 	Verdict   string             `json:"verdict"`
 	OpenAsks  int                `json:"open_asks"`
+	Budget    string             `json:"budget,omitempty"` // the last `/usage` reading's line
+	Machine   Mark               `json:"machine"`
 	Projects  map[string]Project `json:"projects,omitempty"`
+}
+
+// Mark is the last report of one scope: an unchanged set of findings writes no
+// second record, so a finding left open does not file one an hour.
+type Mark struct {
+	Hash   string `json:"hash,omitempty"`
+	Report string `json:"report,omitempty"`
 }
 
 // Project is one project's last run, for the gates and `status`.
@@ -42,6 +51,7 @@ type Project struct {
 	LastRun   time.Time `json:"last_run"`
 	LastClass string    `json:"last_class,omitempty"`
 	Verdict   string    `json:"verdict"`
+	Mark      Mark      `json:"mark"`
 }
 
 func dir(home string) string { return filepath.Join(home, harness.StateDir, "auto") }
@@ -154,6 +164,19 @@ func oneLine(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// lineLimit bounds a quoted line in the log, the state and a report: a tool's
+// output or a project's file is not trusted to be short.
+const lineLimit = 500
+
+// short is oneLine cut to lineLimit runes, which says it was cut.
+func short(s string) string {
+	s = oneLine(s)
+	if r := []rune(s); len(r) > lineLimit {
+		return string(r[:lineLimit]) + "..."
+	}
+	return s
 }
 
 // openRegular creates or opens a file through no link, and refuses anything

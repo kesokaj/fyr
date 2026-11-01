@@ -9,6 +9,18 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
+// auto's run is registered here, not in the verbs literal: a run's check reads
+// the vocabulary, which reads verbs, and the literal would refer to itself.
+func init() {
+	v := verbs["auto"]
+	v.run = runAuto
+	verbs["auto"] = v
+}
+
+// autoEnv is the machine a run reads; a test replaces it, and nil is the real
+// one.
+var autoEnv auto.Env
+
 // autoSubverbs are `fyr auto`'s subcommands, each with the flags it reads:
 // a flag another one owns is a usage error, never one parsed and dropped.
 var autoSubverbs = []string{"on", "off", "status", "run"}
@@ -54,6 +66,9 @@ func runAuto(c *ctx) error {
 	case "status":
 		err = auto.Status(o)
 	case "run":
+		o.Env, o.Vocabulary = autoEnv, vocabulary()
+		o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
+		o.Metrics = func() ([]auto.Finding, error) { return autoMetricsFindings(c.home) }
 		err = auto.Run(o, c.dryRun)
 	}
 	var ee *auto.ExitError

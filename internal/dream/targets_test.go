@@ -2,12 +2,15 @@ package dream
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -100,5 +103,34 @@ func TestRunUsage(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("a usage error wrote %v", entries)
+	}
+}
+
+// Targets reads a copy of the store: a dry run built on it leaves the state
+// directory as it was.
+func TestTargetsLeavesNothing(t *testing.T) {
+	home := t.TempDir()
+	if _, err := brain.Add(brain.Options{Home: home, Global: true}, brain.AddInput{Kind: "feedback", Title: "x", Body: strings.NewReader("y")}); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(home, harness.StateDir)
+	list := func() string {
+		entries, err := os.ReadDir(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, e := range entries {
+			info, _ := e.Info()
+			names = append(names, fmt.Sprint(e.Name(), info.Size(), info.ModTime()))
+		}
+		return strings.Join(names, "\n")
+	}
+	before := list()
+	if _, err := Targets(home); err != nil {
+		t.Fatal(err)
+	}
+	if after := list(); after != before {
+		t.Errorf("before:\n%s\nafter:\n%s", before, after)
 	}
 }

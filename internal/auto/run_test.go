@@ -20,6 +20,7 @@ var runAt = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 func runOpts(home string, out *bytes.Buffer) Options {
 	o := opts(home, out)
 	o.Now = func() time.Time { return runAt }
+	o.Env = &fakeEnv{}
 	return o
 }
 
@@ -101,7 +102,7 @@ func TestAutoRunPassesG1AndG2(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, found, err := loadState(home)
-	if err != nil || !found || st.Date != "2026-11-01" || !st.LastRun.Equal(runAt) || !strings.Contains(st.Verdict, "G1 and G2 passed") {
+	if err != nil || !found || st.Date != "2026-11-01" || !st.LastRun.Equal(runAt) || !strings.Contains(st.Verdict, "0 of 0 projects checked") {
 		t.Fatalf("%+v, %v, %v", st, found, err)
 	}
 	for _, name := range []string{"auto.log", "auto.lock", "runs.json"} {
@@ -112,14 +113,14 @@ func TestAutoRunPassesG1AndG2(t *testing.T) {
 	if info, _ := os.Stat(dir(home)); info.Mode().Perm() != 0o700 {
 		t.Errorf("auto/ is %v", info.Mode())
 	}
-	if strings.Count(logOf(t, home), "\n") != 1 {
-		t.Errorf("not one line: %q", logOf(t, home))
+	if strings.Count(logOf(t, home), "0 of 0 projects checked") != 1 {
+		t.Errorf("no verdict line: %q", logOf(t, home))
 	}
 	// The lock is free again: a second run passes too.
 	if err := Run(runOpts(home, &out), false); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(logOf(t, home), "G1 and G2 passed") != 2 {
+	if strings.Count(logOf(t, home), "0 of 0 projects checked") != 2 {
 		t.Error("the second run held at the first's lock")
 	}
 }
