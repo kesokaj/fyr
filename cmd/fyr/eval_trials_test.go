@@ -312,3 +312,39 @@ func TestEvalTrialSuiteFields(t *testing.T) {
 		})
 	}
 }
+
+// TestEvalSuiteFile pins Phase 6 box 1 (D15): --suite-file reads a suite
+// outside every checkout, refuses one inside a checkout, and labels its
+// trials and ingested sessions eval=holdout/<id>.
+func TestEvalSuiteFile(t *testing.T) {
+	r := newEvalRig(t, evalSuite, true)
+	r.template("1", "C1")
+	suiteBody := "| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
+		"|---|---|---|---|---|---|---|---|---|---|---|\n" +
+		"| `secret` |  | say ok |  | `grep -q 'agy says ok' \"$OUT\"` |  | named | 1 | regression | hold | Read |\n"
+	inside := filepath.Join(r.project, "holdout.md")
+	if err := os.WriteFile(inside, []byte(suiteBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := r.eval("--suite-file", inside, "secret"); code != 2 || !strings.Contains(out, "inside a git checkout") {
+		t.Fatalf("inside checkout: exit %d\n%s", code, out)
+	}
+	outside := filepath.Join(t.TempDir(), "holdout.md")
+	if err := os.WriteFile(outside, []byte(suiteBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := r.eval("--suite-file", outside, "--list"); code != 0 || out != "secret  -  named  v1  regression\n" {
+		t.Fatalf("--list: exit %d\n%s", code, out)
+	}
+	out, code := r.eval("--suite-file", outside, "secret")
+	if code != 0 || !strings.Contains(out, "eval: 1 of 1 PASS, 0 errors; record TEST-") {
+		t.Fatalf("run: exit %d\n%s", code, out)
+	}
+	if k, passed := r.passK("eval=holdout/secret"); k != 1 || passed != 1 {
+		t.Errorf("passK(eval=holdout/secret) = %d, %d; want 1, 1", k, passed)
+	}
+	trials := exported(t, r.home, "trials")
+	if len(trials) != 1 || trials[0]["label"] != "eval=holdout/secret" || trials[0]["cluster"] != "hold" {
+		t.Errorf("trials = %v, want label eval=holdout/secret cluster hold", trials)
+	}
+}

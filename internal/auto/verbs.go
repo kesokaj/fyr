@@ -51,6 +51,12 @@ type Options struct {
 	Apply func(root, branch, class string) (bool, error)
 	// TestRunner runs one `# auto: test` command in the apply worktree; nil runs runMarkedTest.
 	TestRunner func(wtDir, runner, cmdLine string) error
+	// Eval runs one `fyr eval` invocation (Phase 6 and Phase 7); nil runs `<self> eval`.
+	Eval        func(context.Context, EvalRequest) (EvalOutcome, error)
+	EvalHome    string
+	EvalFixture string
+	// AgyVersion returns the first line of `agy --version`; nil runs `agy --version`.
+	AgyVersion func() string
 }
 
 func (o Options) testRunner() func(wtDir, runner, cmdLine string) error {

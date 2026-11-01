@@ -309,3 +309,42 @@ func TestNoSQLiteDriver(t *testing.T) {
 		t.Error("internal/eval depends on modernc.org/sqlite (D10)")
 	}
 }
+
+// TestEvalSuiteFile pins D15: ReadSuiteFile reads a suite in GUIDE-eval's
+// format outside every checkout and refuses a file inside a checkout or a link.
+func TestEvalSuiteFile(t *testing.T) {
+	body := "| id | setup | prompt | prompt2 | check | agent | grants |\n|---|---|---|---|---|---|---|\n| `hold` |  | say hi |  | `true` |  | named |\n"
+	outDir := t.TempDir()
+	valid := filepath.Join(outDir, "holdout.md")
+	if err := os.WriteFile(valid, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ReadSuiteFile(valid)
+	if err != nil || len(rows) != 1 || rows[0].ID != "hold" {
+		t.Fatalf("ReadSuiteFile(valid) = %v, %v", rows, err)
+	}
+	link := filepath.Join(outDir, "link.md")
+	if err := os.Symlink(valid, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSuiteFile(link); err == nil {
+		t.Error("ReadSuiteFile accepted a symlink")
+	}
+	if _, err := ReadSuiteFile("   "); err == nil || !strings.Contains(err.Error(), "empty path") {
+		t.Errorf("ReadSuiteFile(empty) = %v, want empty path", err)
+	}
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	inside := filepath.Join(repo, "holdout.md")
+	if err := os.WriteFile(inside, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSuiteFile(inside); err == nil || !strings.Contains(err.Error(), "inside a git checkout") {
+		t.Errorf("ReadSuiteFile(inside) = %v, want inside a git checkout", err)
+	}
+}

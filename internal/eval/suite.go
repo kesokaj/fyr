@@ -8,10 +8,57 @@
 package eval
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
+
+// suiteFileLimit bounds a --suite-file read so an oversized file cannot exhaust memory.
+const suiteFileLimit = 1 << 20
+
+// ReadSuiteFile reads a suite file in GUIDE-eval's format from path, which must
+// be a regular file (no symlink) outside every git checkout (D15).
+func ReadSuiteFile(path string) ([]Row, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("--suite-file: empty path")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("--suite-file: %v", err)
+	}
+	f, err := sandbox.OpenRegular(abs, os.O_RDONLY)
+	if err != nil {
+		return nil, fmt.Errorf("--suite-file %s: %v", abs, err)
+	}
+	defer f.Close()
+	dir := filepath.Dir(abs)
+	if err := sandbox.OutsideCheckout(dir); err != nil {
+		return nil, fmt.Errorf("--suite-file %s is inside a git checkout; use a file outside every checkout", abs)
+	}
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, fmt.Errorf("--suite-file %s: %v", abs, err)
+	}
+	if resolvedDir != dir {
+		if err := sandbox.OutsideCheckout(resolvedDir); err != nil {
+			return nil, fmt.Errorf("--suite-file %s is inside a git checkout; use a file outside every checkout", abs)
+		}
+	}
+	b, err := io.ReadAll(io.LimitReader(f, suiteFileLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("--suite-file %s: %v", abs, err)
+	}
+	if len(b) > suiteFileLimit {
+		return nil, fmt.Errorf("--suite-file %s: over %d bytes", abs, suiteFileLimit)
+	}
+	return ParseSuite(string(b))
+}
 
 // Row is one scenario of the suite: a setup, one or two prompts, a check,
 // and optionally an agent the conversation store must show invoked. The

@@ -53,6 +53,8 @@ type Project struct {
 	LastMemoryConsolidation time.Time `json:"last_memory_consolidation,omitempty"`
 	LastRetroLite           time.Time `json:"last_retro_lite,omitempty"`
 	LastMemoryCandidates    time.Time `json:"last_memory_candidates,omitempty"`
+	LastEvalRerun           time.Time `json:"last_eval_rerun,omitempty"`
+	LastEvalCLI             string    `json:"last_eval_cli,omitempty"`
 	PendingMemoryCandidates int       `json:"pending_memory_candidates,omitempty"`
 	Verdict                 string    `json:"verdict"`
 	Mark                    Mark      `json:"mark"`

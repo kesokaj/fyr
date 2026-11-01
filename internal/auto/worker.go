@@ -61,6 +61,10 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 		p.LastClass = t.Class
 		return fmt.Sprintf("ask %s (%s needs rubric-denied %s)", askID, t.Class, strings.Join(t.Denied, ", ")), extra
 	}
+	if t.Class == ClassEvalRerun {
+		v, ef := r.execEvalRerun(root, p, *t)
+		return v, append(extra, ef...)
+	}
 	v, wf := r.execWorker(root, p, *t)
 	return v, append(extra, wf...)
 }

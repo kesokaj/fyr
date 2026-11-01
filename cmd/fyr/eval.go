@@ -36,7 +36,36 @@ func init() {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
 		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide, version, kind) and run nothing")
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
+		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
 	}, positional: true, readsRepo: true, run: runEval}
+}
+
+func evalSuiteFile(c *ctx) (string, bool) {
+	set := false
+	c.fs.Visit(func(f *flag.Flag) { set = set || f.Name == "suite-file" })
+	if fn := c.fs.Lookup("suite-file"); fn != nil {
+		return fn.Value.String(), set
+	}
+	return "", set
+}
+
+func loadEvalSuite(c *ctx, root string, atHead bool) ([]eval.Row, error) {
+	if path, set := evalSuiteFile(c); set {
+		return eval.ReadSuiteFile(path)
+	}
+	return readSuite(root, atHead)
+}
+
+func labelHoldout(c *ctx, rows []eval.Row, results []eval.Result) {
+	if _, set := evalSuiteFile(c); !set {
+		return
+	}
+	for i := range rows {
+		rows[i].ID = "holdout/" + rows[i].ID
+	}
+	for i := range results {
+		results[i].Row = "holdout/" + results[i].Row
+	}
 }
 
 // runEval serves `fyr eval` (spec SPEC-fyr-eval, ADR-065). Every refusal
@@ -88,6 +117,7 @@ func runEval(c *ctx) error {
 		fmt.Fprintln(c.out, "eval: interrupted before the first row; no record written")
 		return exitCode(1)
 	}
+	labelHoldout(c, rows, results)
 	return recordEval(c, root, o, src, key, rows, results)
 }
 
@@ -119,7 +149,7 @@ func (c *ctx) evalRefuse(format string, a ...any) error {
 // listEval serves `fyr eval --list`: the working export's rows, each with
 // its version and kind (ADR-085).
 func listEval(c *ctx, root string) error {
-	suite, err := readSuite(root, false)
+	suite, err := loadEvalSuite(c, root, false)
 	if err != nil {
 		return c.evalRefuse("%v", err)
 	}
@@ -168,7 +198,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	if err := eval.Preflight(o); err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}
-	suite, err := readSuite(root, true)
+	suite, err := loadEvalSuite(c, root, true)
 	if err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}

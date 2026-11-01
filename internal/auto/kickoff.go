@@ -27,6 +27,7 @@ const (
 	ClassMissingSkill        = "missing-skill"
 	ClassContextAdequacy     = "context-adequacy"
 	ClassScaffoldDrift       = "scaffold-drift"
+	ClassEvalRerun           = "eval-rerun"
 	ClassHarnessEdit         = "harness-edit"
 	ClassMiniAudit           = "mini-audit"
 )
@@ -36,6 +37,7 @@ const (
 	OutcomeApplied  = "applied"
 	OutcomeDrafts   = "drafts"
 	OutcomeProposal = "proposal"
+	OutcomeEval     = "eval"
 	OutcomeEvalGate = "eval-gate"
 )
 
@@ -59,6 +61,7 @@ var classOrder = []classSpec{
 	{ClassMissingSkill, LevelProject, OutcomeDrafts, false, true},
 	{ClassContextAdequacy, LevelProject, OutcomeDrafts, false, true},
 	{ClassScaffoldDrift, LevelProject, OutcomeDrafts, false, true},
+	{ClassEvalRerun, LevelHarness, OutcomeEval, false, true},
 	{ClassHarnessEdit, LevelHarness, OutcomeEvalGate, true, false},
 	{ClassMiniAudit, LevelHarness, OutcomeDrafts, false, true},
 }
@@ -70,6 +73,7 @@ type Task struct {
 	DraftsOnly                bool
 	Kept, Denied              []string
 	Count                     int
+	Reruns                    []EvalRerunRow
 }
 
 // Kickoff is the file written to ~/.config/fyr/auto/kickoffs/ for work.Run.
@@ -203,6 +207,8 @@ func renderClassTask(t Task) (string, error) {
 		return fmt.Sprintf("Analyze the project's retries and denials (%d session(s) above the 30-day median) and write a context proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassScaffoldDrift:
 		return fmt.Sprintf("Compare the %d unedited scaffold file(s) with init-project's templates and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
+	case ClassEvalRerun:
+		return fmt.Sprintf("Re-run %d due GUIDE-eval row(s) through fyr eval.", t.Count), nil
 	case ClassHarnessEdit:
 		if t.ID == "" {
 			return "", errors.New("harness-edit requires a proposal ID")
