@@ -7,15 +7,12 @@
 
 ## Now
 
-`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` Phase 8: the trust ramp (`fyr auto on --level observe` in dave's real home on the operator's word, then reading the report records after a week). Phase 7 is done: the `harness-edit` and `mini-audit` classes, the eval gate (`internal/auto/eval_gate.go`), the R9 sentence (`PRD.md`), and live E2E (e) (`TEST-2026-11-01-1350-e2e-e-fyr-auto-phase-7-eval-gate-on-a-scratch-cl`; D53–D54).
-- [ ] `fyr auto on --level observe` in dave's real home, on the operator's word in that session (R6).
-- [ ] After a week, the report records are read with the operator, and the level is raised on their word or not.
-- [ ] Checkpoint: the plan closes.
+None (`PLAN-2026-10-31-1636-plan-fyr-auto-mode-idle-time-self-improvement-of` closed 2026-11-01 with `fyr auto` at level `observe` on `dave`).
 
 ## Next
 
-None after Phase 8.
+None.
 
 ## Backlog
 
-None.
+- 2026-11-01 (`REVIEW-2026-11-01-1410-review-worktree-merged` Finding 7, D55): update `skills/project-memory/SKILL.md:8` so its sentence on what sends memory to the model also names `fyr auto`'s learning workers (`PRD.md` R8).
