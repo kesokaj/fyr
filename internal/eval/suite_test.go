@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/kesokaj/fyr/internal/brain"
 )
 
 const header = "| id | setup | prompt | prompt2 | check | agent | grants |\n|---|---|---|---|---|---|---|\n"
@@ -175,130 +173,51 @@ func TestSuiteSelectRows(t *testing.T) {
 	}
 }
 
-// TestSuiteHarness parses this checkout's own GUIDE-eval from its trail
-// export: one row per row of run.sh's case list except resume (D25), with
-// run.sh's agent and wide flags.
+// TestSuiteHarness parses this checkout's tracked suite (ADR-500) and pins
+// exactly its rows: id, agent, grants, kind and version, each its own cluster
+// with no expect. The rows are item 4's of PLAN-2026-11-02-1806-fyr-speed;
+// items 10 and 22 add theirs with their behaviour.
 func TestSuiteHarness(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	recs, ok, err := brain.ReadTrail(root)
-	if err == nil && !ok {
-		recs, ok, err = brain.ReadScope(os.Getenv("HOME"), root)
+	rows, found, err := ReadTrackedSuite(root, false)
+	if err != nil || !found {
+		t.Fatalf("reading %s: found %v, %v", SuitePath, found, err)
 	}
-	if err != nil || !ok {
-		t.Fatalf("reading the trail: ok %v, %v", ok, err)
-	}
-	var body string
-	imported := false // BUG-004 is in every store that imported this trail
-	for _, r := range recs {
-		switch r.ID {
-		case "GUIDE-eval":
-			body = r.Body
-		case "BUG-004":
-			imported = true
-		}
-	}
-	if body == "" {
-		if !imported { // a store that never imported this trail (D1 of PLAN-2026-11-02-1806-fyr-speed)
-			t.Skip("this machine's store never imported this repository's trail (no BUG-004); item 4 of PLAN-2026-11-02-1806-fyr-speed replaces the read with a tracked suite")
-		}
-		t.Fatal("no GUIDE-eval record in .agents/trail.jsonl")
-	}
-	rows, err := ParseSuite(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// run.sh's case list (run.sh:66-204): row → agent, wide.
-	want := map[string]struct {
+	type pin struct {
 		agent string
 		wide  bool
-	}{
-		"scaffold": {"", true}, "dispatch-bugs": {"bugs", false}, "dispatch-changelog": {"changelog", false},
-		"dispatch-documentation": {"documentation", false}, "agents-security": {"security", false},
-		"agent-reviewer": {"reviewer", false}, "agent-explorer": {"explorer", false}, "agent-verifier": {"verifier", false},
-		"agent-dreamer": {"dreamer", false}, "inject-bugs": {"bugs", false}, "inject-changelog": {"changelog", false},
-		"inject-documentation": {"documentation", false}, "lane-reviewer": {"reviewer", false}, "lane-bugs": {"bugs", false},
-		"lane-documentation": {"documentation", false}, "project-memory": {"", false},
-		"feature": {"", false}, "bug": {"", true}, "review": {"", true}, "review-docs-check": {"", true},
-		"requirements-check": {"", false}, "preflight": {"", true}, "handoff": {"", true}, "metrics-feed": {"", true},
-		"retro": {"", true}, "operate": {"", false}, "documentation": {"", true}, "discover-skills": {"", false},
-		"gcloud-auth": {"", false},
-		// Ported from GUIDE-skill-matrix for the v3.0.0 gate's per-skill runs.
-		"api-auth": {"", false}, "bash": {"", false}, "cloud-run": {"", false}, "data": {"", false},
-		"distill": {"", true}, "docker": {"", false}, "dream": {"", true}, "explain-project": {"", false},
-		"writes-outside-clone": {"", true},
-		"feedback":             {"", false}, "frontend-ui-economist": {"", false}, "frontend-ui-modern": {"", false}, "gke": {"", false}, "golang": {"", false},
-		"frontend-ui-modern-overrides": {"", false}, "rule-agy-dispatch": {"", true},
-		"harness-audit-elsewhere": {"", false}, "research": {"", false}, "review-standards": {"", false},
-		"spec": {"", false}, "terraform": {"", false}, "testing-strategy": {"", false}, "typescript": {"", false},
-		"catalog-no-leak": {"", false}, "catalog-route-1": {"", false}, "catalog-route-2": {"", false},
-		"catalog-route-3": {"", false}, "catalog-route-4": {"", false}, "catalog-route-5": {"", false},
-		"catalog-route-6": {"", false}, "catalog-precedence": {"", false},
-		"rule-code-modularity": {"", true}, "build-cli": {"", true}, "build-api": {"", true}, "build-fullstack": {"", true},
-		// The sandbox form of GUIDE-testing § 5's context check (the v3.1.0 gate).
-		"smoke": {"", false},
-		// The work skill's model: lines (PLAN-2026-10-29-workers Phase 8b, D128).
-		"work-kickoff-model": {"", false},
-		// The work skill's steps 6-11 after one wave (D138 item 6, D139 item 4).
-		"work-squash-r2": {"", true},
-		// The auto skill's adversarial runs (the fyr auto plan's Phase 2).
-		"auto-inject-level": {"", false}, "auto-inject-grader": {"", false}, "auto-operator-impersonation": {"", false},
 	}
-	// The kinds (PLAN.md P9): every other row is capability, and every row
-	// is version 1 but where noted, its own cluster, with no expect, until its
-	// author says.
-	kinds := map[string]string{"smoke": KindRegression, "catalog-no-leak": KindRegression, "catalog-route-1": KindRegression,
-		"catalog-route-2": KindRegression, "catalog-route-3": KindRegression, "catalog-route-4": KindRegression,
-		"catalog-route-5": KindRegression, "catalog-route-6": KindRegression, "catalog-precedence": KindRegression,
-		"agents-security": KindAdversarial, "agent-reviewer": KindAdversarial, "inject-bugs": KindAdversarial,
-		"inject-changelog": KindAdversarial, "inject-documentation": KindAdversarial, "lane-reviewer": KindAdversarial,
-		"lane-bugs": KindAdversarial, "lane-documentation": KindAdversarial, "auto-inject-level": KindAdversarial,
-		"auto-inject-grader": KindAdversarial, "auto-operator-impersonation": KindAdversarial, "writes-outside-clone": KindIndicator}
-	got := map[string]Row{}
-	for _, r := range rows {
-		got[r.ID] = r
-		kind := kinds[r.ID]
-		if kind == "" {
-			kind = KindCapability
-		}
-		version := 1
-		if r.ID == "auto-inject-level" || r.ID == "metrics-feed" {
-			version = 2 // its prompt changed after its first trial
-		}
-		if r.Kind != kind || r.Version != version || r.Cluster != r.ID || r.Expect != "" {
-			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want kind %q version %d, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect, kind, version)
-		}
-	}
-	for id, w := range want {
-		r, ok := got[id]
-		if !ok {
-			t.Errorf("row %s is missing", id)
-			continue
-		}
-		if _, wide := r.Wide(); r.Agent != w.agent || wide != w.wide {
-			t.Errorf("row %s: agent %q wide %v, want agent %q wide %v", id, r.Agent, wide, w.agent, w.wide)
-		}
-		// The kit's shell-expanded names are gone (D21).
-		for _, s := range []string{r.Setup, r.Prompt, r.Prompt2, r.Check} {
-			if strings.Contains(s, "KIT_") || strings.Contains(s, "$(date") {
-				t.Errorf("row %s still names a kit variable or a shell date: %q", id, s)
-			}
-		}
-	}
-	if _, ok := got["resume"]; ok {
-		t.Error("the resume row is struck (D25)")
+	want := map[string]pin{
+		"init-project": {"", true}, "feature": {"", false}, "review": {"", true},
+		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
+		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
+		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
+		"preflight": {"", true}, "project-memory": {"", false},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
 	}
-	// Each check and setup is bash that parses.
 	for _, r := range rows {
+		w, ok := want[r.ID]
+		if !ok {
+			t.Errorf("row %s is not pinned", r.ID)
+			continue
+		}
+		if _, wide := r.Wide(); r.Agent != w.agent || wide != w.wide {
+			t.Errorf("row %s: agent %q wide %v, want agent %q wide %v", r.ID, r.Agent, wide, w.agent, w.wide)
+		}
+		if r.Kind != KindCapability || r.Version != 1 || r.Cluster != r.ID || r.Expect != "" {
+			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want capability, version 1, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect)
+		}
+		// Every scenario comes from the tracked fixture, never the clone's
+		// own history.
+		if !strings.HasPrefix(r.Setup, "bash .agents/eval/fixture.sh ") {
+			t.Errorf("row %s: setup %q does not run the fixture", r.ID, r.Setup)
+		}
 		for what, s := range map[string]string{"setup": r.Setup, "check": r.Check} {
-			if s == "" {
-				continue
-			}
 			if out, err := exec.Command("bash", "-n", "-c", s).CombinedOutput(); err != nil {
 				t.Errorf("row %s: the %s does not parse as bash: %v\n%s", r.ID, what, err, out)
 			}

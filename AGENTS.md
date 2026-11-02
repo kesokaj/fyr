@@ -43,7 +43,7 @@ cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), 
                        trail, check, dream, metrics, brain, eval, sandbox, work, serve, auto
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories, the tree's tests
 docker/                `fyr work --runner docker`'s image: work.Dockerfile and its default-deny ignore file
-.agents/               this repo's `.agents/skills` symlink and `.agents/scratch/`; trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.agents/trail.jsonl` on demand)
+.agents/               this repo's `.agents/skills` symlink and `.agents/scratch/`; `.agents/eval/` holds the eval suite (`GUIDE-eval.md`) and its fixture (`fixture.sh`); trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.agents/trail.jsonl` on demand)
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
 ```
 
@@ -64,7 +64,7 @@ Each package, what it holds and imports: `SDD.md` § Components, then its `TDD.m
 
 ## Testing
 
-`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3l by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `GUIDE-eval`, verb `SPEC-fyr-eval`). A `GUIDE-eval` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, so a changed row changes its `want` entry in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
+`go test` only; the three root-package pins are `TDD.md` § Testing strategy. The procedure is `GUIDE-testing`: § 1 for every change, § 3a–3l by the package each names, § 2 and § 4 for `context/`, `agents/` and `skills/` (a behavioural run per changed agent or rule, reported as n of N), § 5 after any real-home install. A behavioural run is `fyr eval <row>...` from this checkout (`GUIDE-testing` § 4 § Behavioural runs; rows `.agents/eval/GUIDE-eval.md`, verb `SPEC-fyr-eval`). A `GUIDE-eval.md` edit is a test change: `TestSuiteHarness` pins every row by id, agent and grant, and `TestSuiteChecks` runs every check against a good and a bad outcome (`internal/eval/suite_outcomes_test.go`), so a changed row changes its `want` entry and its outcomes in the same commit, after `go test ./internal/eval` (BUG-183, BUG-191, ADR-500). A change to `context/`, `agents/` or `skills/` gets `/review --docs` over its range; the living docs include `context/`, `agents/` and every non-vendored skill, searched at `skills/` because `.agents/skills` is a symlink.
 
 ## Release
 

@@ -89,7 +89,12 @@ func sameDir(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
+// readCheckoutSuite is the suite `fyr eval` reads in root: the tracked file
+// when root has one (ADR-500), else the GUIDE-eval record of root's scope.
 func readCheckoutSuite(home, root string) ([]eval.Row, error) {
+	if rows, found, err := eval.ReadTrackedSuite(root, false); found || err != nil {
+		return rows, err
+	}
 	recs, ok, err := brain.ReadScope(home, root)
 	if err != nil || !ok {
 		return nil, fmt.Errorf("no trail in %s", root)

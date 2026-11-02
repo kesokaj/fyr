@@ -41,7 +41,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |
 | M12 | `internal/redact` | The credential redactor every dream input passes before it leaves the machine | R3, R8 |
-| M13 | `internal/eval` | `fyr eval`: the behavioural suite (`GUIDE-eval` or `--suite-file PATH`), its rows' setup and checks, run in M17's sandbox | R6, R8 |
+| M13 | `internal/eval` | `fyr eval`: the behavioural suite (the tracked `.agents/eval/GUIDE-eval.md`, else the `GUIDE-eval` record, or `--suite-file PATH`), its rows' setup and checks, run in M17's sandbox | R6, R8 |
 | M14 | `internal/check` | `fyr check`: the read-only drift check of docs, specs, requirements and the R → M → T traces | R0 |
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check (scoped to the checkout when started inside one, or across every project in the home's stores when started outside one), and two maintenance actions | R0, R3, R4, R7, R8, R10 |

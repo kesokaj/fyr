@@ -209,12 +209,22 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	return o, src, rows, nil
 }
 
-// readSuite parses GUIDE-eval from root's brain store or trail export. With
-// atHead, when .agents/trail.jsonl is present on disk or in HEAD, it also
-// refuses a suite that differs from HEAD's, so a run always names the commit
-// its scenarios came from (D3, D8); --list runs nothing and reads the working
-// records alone (D19).
+// readSuite parses root's tracked suite file, eval.SuitePath, when it exists
+// (ADR-500); else GUIDE-eval from root's brain store or trail export. With
+// atHead it refuses a suite that differs from HEAD's (the file always; the
+// record when .agents/trail.jsonl is present on disk or in HEAD), so a run
+// always names the commit its scenarios came from (D3, D8); --list runs
+// nothing and reads the working file or records alone (D19).
 func readSuite(home, root string, atHead bool) ([]eval.Row, error) {
+	if rows, found, err := eval.ReadTrackedSuite(root, atHead); found || err != nil {
+		return rows, err
+	}
+	return readRecordSuite(home, root, atHead)
+}
+
+// readRecordSuite is readSuite's fallback: the GUIDE-eval record, for a
+// checkout with no tracked suite file.
+func readRecordSuite(home, root string, atHead bool) ([]eval.Row, error) {
 	recs, ok, err := brain.ReadScope(home, root)
 	if err != nil {
 		var terr error
