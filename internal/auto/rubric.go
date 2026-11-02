@@ -14,7 +14,7 @@ var (
 	// in '/'. What judges a run, or holds it in, stays out of its reach (D36,
 	// D42).
 	deniedRoots = []string{
-		"context/", "rules/", ".agents/rules/",
+		"context/", "rules/", ".agents/rules/", ".agents/eval/",
 		"internal/eval/", "internal/auto/", "skills/auto/",
 		"internal/work/", "internal/sandbox/", "internal/redact/", "cmd/fyr/", "docker/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",

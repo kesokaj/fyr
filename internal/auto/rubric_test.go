@@ -19,6 +19,8 @@ func TestRubricDenied(t *testing.T) {
 		"web/.github/workflows/x.yml", ".gitlab/ci.yml", ".circleci/config.yml", "web/cloudbuild.yaml",
 		"cloudbuild.yml", "cloudbuild.json", "azure-pipelines.yml", "azure-pipelines.yaml",
 		"web/.agents/rules/x.md",
+		// The tracked eval suite and its fixture (ADR-500).
+		".agents/eval/", ".agents/eval/GUIDE-eval.md", ".agents/eval/fixture.sh",
 		// What holds a run in.
 		"internal/work/fetch.go", "internal/sandbox/", "internal/redact/redact.go", "cmd/fyr/main.go",
 		"docker/work.Dockerfile", "embed.go",

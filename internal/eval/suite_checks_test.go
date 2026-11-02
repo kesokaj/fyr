@@ -89,7 +89,11 @@ func runOutcome(t *testing.T, self, fixture string, r Row, o outcome) bool {
 	setup := append(append([]string{}, check...), "FYR="+self, "F="+filepath.Join(sb, "bin", "fyr"),
 		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@localhost",
 		"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=f@localhost")
-	for _, s := range []string{"git add -A && git commit -qm 'the checkout'", r.Setup, prelude + o.script} {
+	// The clone's source is on a branch of its own, with a tag: the setup
+	// must leave neither, only the demo history (fixture.sh replace_history).
+	steps := []string{"git add -A && git commit -qm 'the checkout' && git tag v9.9.9 && git checkout -qb harness",
+		r.Setup, noHarnessHistory, prelude + o.script}
+	for _, s := range steps {
 		cmd := exec.Command("bash", "-c", s)
 		cmd.Dir, cmd.Env = clone, setup
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -104,5 +108,8 @@ func runOutcome(t *testing.T, self, fixture string, r Row, o outcome) bool {
 	}
 	return err == nil
 }
+
+// noHarnessHistory fails when the checkout's branch or tag survived a setup.
+const noHarnessHistory = `! git rev-parse -q --verify refs/heads/harness >/dev/null && ! git rev-parse -q --verify refs/tags/v9.9.9 >/dev/null && test "$(git symbolic-ref --short HEAD)" = main`
 
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

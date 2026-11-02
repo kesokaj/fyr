@@ -180,10 +180,14 @@ EOF
 EOF
 }
 
-# replace_history makes the demo branch the only history: main is replaced,
-# every tag and the remote go, so nothing the agent runs reaches this checkout.
+# replace_history makes the demo branch the only history: every other branch
+# and tag and the remote go, so nothing the agent runs reaches this checkout.
 replace_history() {
-  git branch -D main >/dev/null 2>&1 || true
+  local cur b
+  cur=$(git symbolic-ref --short HEAD)
+  git for-each-ref --format='%(refname:short)' refs/heads | while read -r b; do
+    [ "$b" = "$cur" ] || git branch -D "$b" >/dev/null
+  done
   git branch -m main
   git tag -l | while read -r t; do git tag -d "$t" >/dev/null; done
   git remote remove origin 2>/dev/null || true

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -46,9 +47,15 @@ func (o Options) evalHome() string {
 	return filepath.Join(o.realHome(), "sandbox", "fyr-auto", "eval-home")
 }
 
-func (o Options) evalFixture() string {
+// evalFixture is the repository each row clones; "" clones root itself. A
+// root with a tracked suite gets "": its setups run the fixture script in
+// the clone (ADR-500), which another repository does not hold.
+func (o Options) evalFixture(root string) string {
 	if o.EvalFixture != "" {
 		return o.EvalFixture
+	}
+	if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(eval.SuitePath))); err == nil {
+		return ""
 	}
 	def := filepath.Join(o.realHome(), "sandbox", "fyr-eval", "fixture")
 	if st, err := os.Stat(filepath.Join(def, ".git")); err == nil && st.IsDir() {
@@ -84,7 +91,7 @@ func (r *run) execEvalRerun(root string, p *Project, t Task) (string, []Finding)
 				break
 			}
 		}
-		out, err := r.runEvalRow(EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(), Runs: rr.Runs, Row: rr.ID})
+		out, err := r.runEvalRow(EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(root), Runs: rr.Runs, Row: rr.ID})
 		if err != nil {
 			r.failed = true
 			findings = append(findings, Finding{"eval-rerun", "failed", rr.ID, oneLine(err.Error())})

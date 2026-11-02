@@ -51,7 +51,7 @@ In a worker's `Files:`, at any level. A task that needs one of these is an ask.
 
 - `PRD.md`, `REQUIREMENTS.md`, `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `.cursorrules`, at any depth
 - `context/`, `rules/`, `<project>/.agents/rules/`
-- `GUIDE-eval`, `GUIDE-testing`, `SPEC-fyr-eval`, `internal/eval/`: what judges you
+- `GUIDE-eval`, `.agents/eval/`, `GUIDE-testing`, `SPEC-fyr-eval`, `internal/eval/`: what judges you
 - `SPEC-fyr-auto`, `internal/auto/`, `skills/auto/`: your own rules
 - `SPEC-fyr-work`, `internal/work/`, `internal/sandbox/`, `internal/redact/`, `cmd/fyr/`, `docker/`, `embed.go`: what holds you in
 - `internal/harness/size_test.go`, `internal/harness/inventory.go`

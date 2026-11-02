@@ -264,7 +264,7 @@ func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy 
 }
 
 func (r *run) evalPair(root, parentSHA, candSHA string, gr gateRow) (EvalOutcome, EvalOutcome, error) {
-	pReq := EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(), SuiteFile: gr.SuiteFile, Commit: parentSHA, Runs: gateRuns, Row: gr.ID}
+	pReq := EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(root), SuiteFile: gr.SuiteFile, Commit: parentSHA, Runs: gateRuns, Row: gr.ID}
 	pOut, err := r.runEvalRow(pReq)
 	if err != nil {
 		return EvalOutcome{}, EvalOutcome{}, err
