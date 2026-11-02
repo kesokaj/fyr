@@ -7,11 +7,17 @@
 
 ## Now
 
-None (`PLAN-2026-11-02-0750-plan-db-only-brain-store-with-on-demand-export-a` closed 2026-11-02).
+Item 3 — macOS test suite, of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
+
+- [ ] Item 3 — macOS test suite — verify: unit, `gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...`, who: AI — expect: `gofmt -l cmd internal` prints nothing, and `go vet ./...` and `go test -race -timeout 30m ./...` exit 0 on this Mac, in a `verifier` PASS; each real bug has a bug record (numbered from BUG-502) and a test that fails without its fix; `reviewer` read the diff
+
+Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-None.
+- Item 4 — a fresh eval suite in a tracked file (D2) and the v7.0.0 baselines, before any skill or agent edit.
+- Item 9 — worker records reach the `/work` lead (BUG-500); its work-skill edit is measured against item 4's work row.
+- Item 5 — `--body-file` and `--out` for the record and memory verbs, with the handoff's `--id` (BUG-501).
 
 ## Backlog
 
