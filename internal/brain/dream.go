@@ -160,7 +160,7 @@ func (st *store) records(q string, args ...any) ([]Record, error) {
 
 // MetricsInput is what the metrics join reads about one project.
 type MetricsInput struct {
-	Migrated bool     // the checkout at root holds .agents/trail.jsonl
+	Migrated bool     // the checkout at root has records in brain.db or holds .agents/trail.jsonl
 	Trail    []Record // Migrated only: the scope's handoff, testing, review and bug records, every status
 	Feedback []Record // global feedback records about the main worktree root of root (root itself when gone)
 }
@@ -168,11 +168,11 @@ type MetricsInput struct {
 // ForMetrics reads root's records for the metrics join (plan
 // 2026-10-25-1754 S1). The global feedback is read for every root, migrated
 // or not, and for a root that is gone (D11). The trail is read only for a
-// migrated checkout the operator registered under this home, through the
-// file-wins load, as ForDream does: an unregistered one reads as not
-// migrated, so its trail.jsonl never becomes a brain scope that the dream
-// and --global would then read (ADR-068, audit-choices SD49). With no
-// brain.db and no trail.jsonl the input is empty and no store is created.
+// migrated checkout the operator registered under this home, from brain.db
+// first and falling back to .agents/trail.jsonl in memory when brain.db has
+// no exported records for the scope (ADR-091): an unregistered one reads as
+// not migrated (ADR-068, audit-choices SD49). With no brain.db and no
+// trail.jsonl the input is empty and no store is created.
 // On an error Migrated is still set, so the caller knows whether the root
 // had trail records to miss.
 func ForMetrics(home, root string) (MetricsInput, error) {
@@ -207,6 +207,10 @@ func metricsTrail(home, scope, top string) ([]Record, error) {
 	if err := guardExportPath(top); err != nil {
 		return nil, err
 	}
+	trailRecs, hasFile, err := ReadTrail(top)
+	if err != nil {
+		return nil, err
+	}
 	hasDBExported, err := hasScopeDBRecords(home, scope)
 	if err != nil {
 		return nil, err
@@ -219,9 +223,8 @@ func metricsTrail(home, scope, top string) ([]Record, error) {
 		defer st.close()
 		return st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope)
 	}
-	trailRecs, ok, err := ReadTrail(top)
-	if err != nil || !ok {
-		return nil, err
+	if !hasFile {
+		return nil, nil
 	}
 	var out []Record
 	for _, r := range trailRecs {
