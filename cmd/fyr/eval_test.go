@@ -492,7 +492,7 @@ func TestEvalVerbRefusals(t *testing.T) {
 		"no login": {evalSuite, true, func(r *evalRig) []string {
 			os.Remove(filepath.Join(r.real, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
 			return []string{"ok"}
-		}, "eval: no Antigravity login at "},
+		}, "eval: no Antigravity login"}, // darwin adds "neither … nor a Keychain folder"
 		"login is a link": {evalSuite, true, func(r *evalRig) []string {
 			tok := filepath.Join(r.real, ".gemini", "antigravity-cli", "antigravity-oauth-token")
 			os.Rename(tok, tok+".real")

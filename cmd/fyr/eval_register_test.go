@@ -69,6 +69,7 @@ func handoffEvents(t *testing.T, home string) int {
 // holding .agents/trail.jsonl gets its record events again (they were lost
 // when the join began to take registered roots only, ledger D15 1).
 func TestEvalIngestJoinsSandboxTrail(t *testing.T) {
+	skipWithoutProcCheck(t)
 	tmp := t.TempDir()
 	home, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "sandbox")
 	app := evalClone(t, dir)
@@ -91,6 +92,7 @@ func TestEvalIngestJoinsSandboxTrail(t *testing.T) {
 // repository. Its sessions are still ingested, without record events, and
 // the ingest says why.
 func TestEvalIngestRefusesForeignGitDir(t *testing.T) {
+	skipWithoutProcCheck(t)
 	tmp := t.TempDir()
 	home, dir := filepath.Join(tmp, "fyr-home"), filepath.Join(tmp, "sandbox")
 	app := evalClone(t, dir)
@@ -164,5 +166,16 @@ func TestRegisterCloneRefusals(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Errorf("the control wrote no marker: %v", err)
+	}
+}
+
+// skipWithoutProcCheck skips a test of registration on a system where
+// safety check e does not run (O1, no /proc: macOS): registerClone then
+// registers nothing by design, which TestRegisterCloneRefusals'
+// procsChecked=false call pins on every system.
+func skipWithoutProcCheck(t *testing.T) {
+	t.Helper()
+	if !eval.ProcsChecked {
+		t.Skip("safety check e (leftover processes) does not run on this system (O1); registration needs it")
 	}
 }

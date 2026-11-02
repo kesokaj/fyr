@@ -26,7 +26,7 @@ func docsRootOf(dir, top, arg string) (string, error) {
 		if !filepath.IsAbs(arg) {
 			arg = filepath.Join(dir, arg)
 		}
-		cands = []string{filepath.Clean(arg)}
+		cands = []string{resolvedParent(filepath.Clean(arg))}
 	}
 	for _, c := range cands {
 		rel, err := filepath.Rel(top, c)
@@ -46,6 +46,16 @@ func docsRootOf(dir, top, arg string) (string, error) {
 		return c, nil
 	}
 	return "", refuse("no .agents/docs/ or docs/ in %s: nothing to import", top)
+}
+
+// resolvedParent is p with its parent directory's links resolved, as git
+// resolves the top level it is compared with (BUG-503); the last element
+// stays as written, so a docs root that is itself a link is still refused.
+func resolvedParent(p string) string {
+	if r, err := filepath.EvalSymlinks(filepath.Dir(p)); err == nil {
+		return filepath.Join(r, filepath.Base(p))
+	}
+	return p
 }
 
 // readDocs reads every file git tracks under root. A file that is not

@@ -175,8 +175,11 @@ func TestDreamVerb(t *testing.T) {
 // systemctl; the real uninstall removes it, with no manifest left.
 func TestUninstallDryRunLeavesTheTimer(t *testing.T) {
 	home := t.TempDir()
-	unitName, _ := dream.UnitFor(home) // a scratch home gets its own unit name (R6)
+	unitName, plist := dream.UnitFor(home) // a scratch home gets its own unit name (R6)
 	unit := filepath.Join(home, ".config", "systemd", "user", unitName+".timer")
+	if runtime.GOOS == "darwin" { // the timer here is a launchd agent
+		unit = filepath.Join(home, "Library", "LaunchAgents", plist+".plist")
+	}
 	os.MkdirAll(filepath.Dir(unit), 0o755)
 	os.WriteFile(unit, []byte("x"), 0o644)
 	bin := t.TempDir()
@@ -197,7 +200,7 @@ func TestUninstallDryRunLeavesTheTimer(t *testing.T) {
 	}
 	out.Reset()
 	run([]string{"uninstall", "--home", home}, &out)
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" || runtime.GOOS == "darwin" {
 		if _, err := os.Stat(unit); !os.IsNotExist(err) {
 			t.Errorf("uninstall left the timer (no manifest):\n%s", out.String())
 		}

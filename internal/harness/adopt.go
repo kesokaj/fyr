@@ -47,7 +47,14 @@ func findSkill(home, src string) (string, error) {
 	}
 	var from string
 	for _, c := range candidates {
-		resolved, err := filepath.EvalSymlinks(c)
+		// Absolute first: EvalSymlinks leaves a relative path's working
+		// directory unresolved, so through a linked checkout from never
+		// matched adoptDest's resolved destination (BUG-502).
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(abs)
 		if err != nil {
 			continue
 		}

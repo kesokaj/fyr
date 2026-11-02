@@ -191,12 +191,19 @@ func TestSuiteHarness(t *testing.T) {
 		t.Fatalf("reading the trail: ok %v, %v", ok, err)
 	}
 	var body string
+	imported := false // BUG-004 is in every store that imported this trail
 	for _, r := range recs {
-		if r.ID == "GUIDE-eval" {
+		switch r.ID {
+		case "GUIDE-eval":
 			body = r.Body
+		case "BUG-004":
+			imported = true
 		}
 	}
 	if body == "" {
+		if !imported { // a store that never imported this trail (D1 of PLAN-2026-11-02-1806-fyr-speed)
+			t.Skip("this machine's store never imported this repository's trail (no BUG-004); item 4 of PLAN-2026-11-02-1806-fyr-speed replaces the read with a tracked suite")
+		}
 		t.Fatal("no GUIDE-eval record in .agents/trail.jsonl")
 	}
 	rows, err := ParseSuite(body)

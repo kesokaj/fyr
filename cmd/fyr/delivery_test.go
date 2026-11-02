@@ -31,14 +31,35 @@ func trailRecords(t *testing.T) []brain.Record {
 	return recs
 }
 
+// trailSentinel is a record every store that imported this repository's
+// trail holds (a bug record is never deleted). A store without it is one
+// that never imported the trail (D1 of PLAN-2026-11-02-1806-fyr-speed: a
+// second machine), where a missing record is a skip, not a failure; with it,
+// a missing record still fails.
+const trailSentinel = "BUG-004"
+
+// holdsTrail reports whether recs hold the imported trail (trailSentinel).
+func holdsTrail(recs []brain.Record) bool {
+	for _, r := range recs {
+		if r.ID == trailSentinel {
+			return true
+		}
+	}
+	return false
+}
+
 // trailRecord is the body of the record id in this repository's trail
 // (.agents/trail.jsonl when present on disk, else the brain store).
 func trailRecord(t *testing.T, id string) string {
 	t.Helper()
-	for _, r := range trailRecords(t) {
+	recs := trailRecords(t)
+	for _, r := range recs {
 		if r.ID == id {
 			return r.Body
 		}
+	}
+	if !holdsTrail(recs) {
+		t.Skipf("record %s: this machine's store never imported this repository's trail (no %s; item 4 of PLAN-2026-11-02-1806-fyr-speed replaces the read with a tracked fixture)", id, trailSentinel)
 	}
 	t.Fatalf("no record %s in ../..", id)
 	return ""

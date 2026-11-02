@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -21,5 +22,11 @@ func TestMain(m *testing.M) {
 	// never reaches a fixture commit (the v5.0.0 gate's security review).
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// macOS keeps TMPDIR under /var, a link to /private/var: resolved, a
+	// t.TempDir path compares equal to the canonical one git and the code
+	// under test report (PLAN-2026-11-02-1806-fyr-speed item 3).
+	if tmp, err := filepath.EvalSymlinks(os.TempDir()); err == nil {
+		os.Setenv("TMPDIR", tmp)
+	}
 	os.Exit(m.Run())
 }

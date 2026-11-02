@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -345,9 +346,15 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		t.Error("verifyAutoDirs accepted symlinked drafts/")
 	}
 	// A non-ErrNotExist Lstat error (ENAMETOOLONG on auto/kickoffs) also fails closed.
+	// PATH_MAX is 4096 on Linux, 1024 on macOS: the home itself is made, a
+	// child of it is too long.
+	pathMax := 4096
+	if runtime.GOOS == "darwin" {
+		pathMax = 1024
+	}
 	longHome := t.TempDir()
-	for len(dir(longHome)) < 4088 {
-		step := strings.Repeat("a", min(200, 4090-len(dir(longHome))))
+	for len(dir(longHome)) < pathMax-8 {
+		step := strings.Repeat("a", min(200, pathMax-6-len(dir(longHome))))
 		longHome = filepath.Join(longHome, step)
 	}
 	if err := ensureDir(longHome); err != nil {

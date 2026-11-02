@@ -54,7 +54,7 @@ func TestGitDirClean(t *testing.T) {
 		{"commondir", func(t *testing.T, git string) { put(t, filepath.Join(git, "commondir"), "/other\n", 0o644) }, "commondir"},
 		{"gitdir", func(t *testing.T, git string) { put(t, filepath.Join(git, "gitdir"), "/other\n", 0o644) }, "gitdir"},
 		{"a linked ref", func(t *testing.T, git string) {
-			if err := os.Symlink("/other/.git/refs/heads/main", filepath.Join(git, "refs", "heads", "w")); err != nil {
+			if err := os.Symlink("/other/.git/refs/heads/main", filepath.Join(refsHeads(git), "w")); err != nil {
 				t.Fatal(err)
 			}
 		}, "refs/heads/w"},
@@ -68,7 +68,7 @@ func TestGitDirClean(t *testing.T) {
 			}
 		}, "config"},
 		{"a ref too big", func(t *testing.T, git string) {
-			put(t, filepath.Join(git, "refs", "heads", "big"), strings.Repeat("0", maxRefFile+1), 0o644)
+			put(t, filepath.Join(refsHeads(git), "big"), strings.Repeat("0", maxRefFile+1), 0o644)
 		}, "refs/heads/big"},
 		{"an include", func(t *testing.T, git string) {
 			appendConfig(t, git, "[include]\n\tpath = big\n")
@@ -112,6 +112,9 @@ func TestGitDirClean(t *testing.T) {
 			r := newRig(t)
 			b := r.prepared(r.config("gitdir"))
 			c.plant(t, filepath.Join(b.App(), ".git"))
+			if refsHeads(filepath.Join(b.App(), ".git")) != filepath.Join(b.App(), ".git", "refs", "heads") {
+				c.want = strings.Replace(c.want, "refs/heads/", "refs/", 1)
+			}
 			got := b.GitIntact()
 			if c.want == "" {
 				if !got || len(b.Reasons()) != 0 {
@@ -127,4 +130,14 @@ func TestGitDirClean(t *testing.T) {
 			}
 		})
 	}
+}
+
+// refsHeads is where a planted loose ref goes: refs/heads, or refs itself
+// when the clone uses the reftable format, where refs/heads is a stub file
+// (a git whose system config sets feature.experimental, as this Mac's does).
+func refsHeads(git string) string {
+	if fi, err := os.Stat(filepath.Join(git, "refs", "heads")); err == nil && fi.IsDir() {
+		return filepath.Join(git, "refs", "heads")
+	}
+	return filepath.Join(git, "refs")
 }

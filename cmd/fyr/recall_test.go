@@ -341,6 +341,7 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 	for _, r := range recs {
 		ids[r.ID] = true
 	}
+	var absent []string // gold records a store that never imported this trail lacks
 	var drift, structured int
 	for _, q := range qs {
 		if strings.HasPrefix(q.text, "drift: ") {
@@ -352,6 +353,10 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 		for _, g := range q.gold {
 			if recordLine.MatchString(g+"  x") && !strings.Contains(g, "/") {
 				if !ids[g] {
+					if !holdsTrail(recs) {
+						absent = append(absent, g)
+						continue
+					}
 					t.Errorf("gold record %s of %q is not in .agents/trail.jsonl", g, q.text)
 				}
 				continue
@@ -363,5 +368,11 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 	}
 	if len(qs) < 30 || drift < 10 || structured < 5 {
 		t.Errorf("recall.tsv has %d questions, %d drift, %d structured; the plan asks for at least 30, 10 and 5", len(qs), drift, structured)
+	}
+	// A store that never imported this repository's trail (holdsTrail)
+	// cannot check the gold IDs; the checks above still ran, and a failure
+	// among them still fails.
+	if len(absent) > 0 {
+		t.Skipf("%d gold records: this machine's store never imported this repository's trail (no %s; item 4 of PLAN-2026-11-02-1806-fyr-speed tracks it)", len(absent), trailSentinel)
 	}
 }

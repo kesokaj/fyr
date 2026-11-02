@@ -271,11 +271,13 @@ func TestImportCustomDocsRoot(t *testing.T) {
 }
 
 // Round 2, finding 1: a -N suffix never lands on an ID another entry holds.
+// "_foo" slugs to "foo" as "FOO" did, without a second name that a
+// case-insensitive filesystem (macOS APFS) folds into the first.
 func TestImportGlobalSuffixNeverCollides(t *testing.T) {
 	home := t.TempDir()
 	conf := filepath.Join(home, harness.StateDir, "proposals")
 	os.MkdirAll(conf, 0o700)
-	for _, n := range []string{"FOO", "foo-2", "foo"} {
+	for _, n := range []string{"_foo", "foo-2", "foo"} {
 		os.WriteFile(filepath.Join(conf, n+".md"), []byte("# "+n+"\n\nbody "+n+"\n"), 0o600)
 	}
 	o := Options{Home: home, Dir: t.TempDir(), Global: true, Now: func() time.Time { return fixed }}

@@ -90,6 +90,11 @@ func TestGateRereadRightBeforeUsage(t *testing.T) {
 	}
 }
 
+// finishingLimit is the read limit of a test where one read hangs and another
+// must finish: 200ms was too short for a real git read while the whole suite
+// ran under -race on a Mac (PLAN-2026-11-02-1806-fyr-speed item 3).
+const finishingLimit = 3 * time.Second
+
 // A read that hangs is left behind: the run goes on and exits 1.
 func TestGateHungReadIsLeftBehind(t *testing.T) {
 	home := t.TempDir()
@@ -106,7 +111,7 @@ func TestGateHungReadIsLeftBehind(t *testing.T) {
 	}
 	var out bytes.Buffer
 	o := runOpts(home, &out)
-	o.Env, o.ReadLimit = e, 200*time.Millisecond
+	o.Env, o.ReadLimit = e, finishingLimit
 	if exit(Run(o, false)) != 1 {
 		t.Errorf("%s", out.String())
 	}
@@ -122,7 +127,7 @@ func TestChecksHungInstallIsAFinding(t *testing.T) {
 	t.Cleanup(func() { close(release) })
 	var out bytes.Buffer
 	o := runOpts(home, &out)
-	o.Env, o.ReadLimit = &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}, 200*time.Millisecond
+	o.Env, o.ReadLimit = &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}, finishingLimit
 	o.Install = func() []Finding { <-release; return nil }
 	if exit(Run(o, false)) != 1 {
 		t.Errorf("%s", out.String())

@@ -56,6 +56,20 @@ func newMatrixRig(t *testing.T) matrixRig {
 	if err := os.Symlink(gitPath, filepath.Join(bin, "git")); err != nil {
 		t.Fatal(err)
 	}
+	// A git build that keeps its pack helpers beside the binary rather than
+	// in its exec-path (this Mac's /usr/local/git) needs them on the PATH
+	// too, or a local push fails "git-receive-pack: command not found".
+	if real, err := filepath.EvalSymlinks(gitPath); err == nil {
+		for _, helper := range []string{"git-receive-pack", "git-upload-pack"} {
+			p := filepath.Join(filepath.Dir(real), helper)
+			if _, err := os.Stat(p); err != nil {
+				continue
+			}
+			if err := os.Symlink(p, filepath.Join(bin, helper)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	t.Setenv("PATH", bin)
 	t.Chdir(t.TempDir())
 

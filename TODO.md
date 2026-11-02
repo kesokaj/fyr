@@ -7,18 +7,19 @@
 
 ## Now
 
-Item 3 — macOS test suite, of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
+Item 4 — fresh eval suite and baselines, of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
 
-- [ ] Item 3 — macOS test suite — verify: unit, `gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...`, who: AI — expect: `gofmt -l cmd internal` prints nothing, and `go vet ./...` and `go test -race -timeout 30m ./...` exit 0 on this Mac, in a `verifier` PASS; each real bug has a bug record (numbered from BUG-502) and a test that fails without its fix; `reviewer` read the diff
+- [ ] Item 4 — fresh eval suite and baselines — verify: `go test ./internal/eval`, then `fyr eval <rows> --runs 3 --home ~/sandbox/fyr-eval/home` after `agy -p "/usage"`, who: AI — expect: a tracked suite file (D2) holding the rows item 4 names, each check shown to pass and to fail; `TestSuiteHarness` pins exactly those rows; the v7.0.0 baselines stored in a `testing` record; an ADR
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 4 — a fresh eval suite in a tracked file (D2) and the v7.0.0 baselines, before any skill or agent edit.
 - Item 9 — worker records reach the `/work` lead (BUG-500); its work-skill edit is measured against item 4's work row.
 - Item 5 — `--body-file` and `--out` for the record and memory verbs, with the handoff's `--id` (BUG-501).
 
 ## Backlog
 
+- 2026-11-02 (item 3, REVIEW-2026-11-02-1908): a darwin implementation of safety check e (leftover processes, O1), so eval registration runs on macOS.
+- 2026-11-02 (item 3 review, finding 3): gitDirProblem has no size limit on `reftable/` tables for a reftable clone.
 - 2026-11-01 (BUG-207): add the scratch-deletion prevention rule to `agents/verifier/agent.md` and `agents/reviewer/agent.md` with their behavioural runs.
