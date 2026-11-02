@@ -237,7 +237,7 @@ func (r *run) verifyWorktree(wtDir, runner string, tests []string) error {
 		}
 	}
 	if _, err := os.Lstat(filepath.Join(wtDir, "PRD.md")); err == nil {
-		rep, cerr := check.Run(wtDir, r.o.Vocabulary)
+		rep, cerr := check.Run(wtDir, r.o.Vocabulary, r.o.Home)
 		if cerr != nil {
 			return fmt.Errorf("fyr check: %w", cerr)
 		}

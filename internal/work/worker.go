@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -32,8 +36,9 @@ type worker struct {
 	ran   bool         // agy was started
 	start time.Time    // run's start on the wall clock: the window's from (D140)
 	// collected: the branch was fetched and the drafts copy did not fail
-	collected bool
-	res       Result
+	collected   bool
+	baseRecords map[string]Record
+	res         Result
 }
 
 // dockerConfig is the box's container, nil on the host runner.
@@ -125,8 +130,57 @@ func (w *worker) prepare(ctx context.Context) bool {
 	if !w.b.Install(ctx) || !w.b.Settings() {
 		return false
 	}
+	w.seedRecords(ctx)
 	w.b.Baseline()
 	return ctx.Err() == nil
+}
+
+func (w *worker) seedRecords(ctx context.Context) {
+	fyrBin := filepath.Join(w.b.Home(), ".local", "bin", "fyr")
+	trailFile := filepath.Join(w.b.App(), trailRel)
+	if _, err := os.Stat(trailFile); err == nil {
+		cmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
+		cmd.Dir = w.b.App()
+		cmd.Env = sandbox.FyrEnv()
+		_ = cmd.Run()
+		return
+	}
+	for _, h := range []string{w.o.Home, w.o.RealHome} {
+		if h == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(h, harness.StateDir, "brain.db")); err != nil {
+			continue
+		}
+		exp := exec.CommandContext(ctx, fyrBin, "record", "export", "--repo", w.o.Root, "--home", h)
+		exp.Dir = w.b.App()
+		exp.Env = sandbox.FyrEnv()
+		if err := exp.Run(); err != nil {
+			_ = os.Remove(trailFile)
+			_ = os.Remove(filepath.Dir(trailFile))
+			continue
+		}
+		blob, err := os.ReadFile(trailFile)
+		if err != nil {
+			_ = os.Remove(trailFile)
+			_ = os.Remove(filepath.Dir(trailFile))
+			continue
+		}
+		recs, err := parseTrail(blob)
+		if err != nil || len(recs) == 0 {
+			_ = os.Remove(trailFile)
+			_ = os.Remove(filepath.Dir(trailFile))
+			continue
+		}
+		syncCmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
+		syncCmd.Dir = w.b.App()
+		syncCmd.Env = sandbox.FyrEnv()
+		_ = syncCmd.Run()
+		_ = os.Remove(trailFile)
+		_ = os.Remove(filepath.Dir(trailFile))
+		w.baseRecords = recs
+		return
+	}
 }
 
 // branch is step 2: the clone loses its origin, which is the lead's

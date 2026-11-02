@@ -58,7 +58,7 @@ func TestTargets(t *testing.T) {
 
 func TestSkipReason(t *testing.T) {
 	f := newFixture(t)
-	if why := skipReason(project(f)); why != "" {
+	if why := skipReason(project(f), f.home); why != "" {
 		t.Errorf("a checkout with records skipped: %q", why)
 	}
 	if why := skipReason(search.Project{Root: filepath.Join(f.root, "gone")}); why != "gone" {

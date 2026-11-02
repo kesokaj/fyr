@@ -80,7 +80,7 @@ func (o Options) drySession() error {
 
 // drySkip is why the real run would skip p, "" when it would not.
 func (o Options) drySkip(p search.Project, st state) string {
-	if why := skipReason(p); why != "" {
+	if why := skipReason(p, o.Home); why != "" {
 		return why
 	}
 	if t := o.attempted(st, p.Root); !t.IsZero() {

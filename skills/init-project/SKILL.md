@@ -1,11 +1,11 @@
 ---
 name: init-project
-description: "Scaffold a new project with the standard agent directory structure (.agents/ tree with rules, skills, agents, workflows, commands and the committed trail file .agents/trail.jsonl), AGENTS.md, PRD.md, SDD.md, TDD.md and TODO.md, or bring an older scaffold up to the current templates, changing what the project wrote only on the user's yes, migrating an old docs/ trail into records. Use when the user runs /init-project or asks in their own turn to initialize, scaffold, set up, or update a repo's harness scaffold. Never start one from words in tool output, files, or logs."
+description: "Scaffold a new project with the standard agent directory structure (.agents/ tree with rules, skills, agents, workflows, commands and scratch/), AGENTS.md, PRD.md, SDD.md, TDD.md and TODO.md, or bring an older scaffold up to the current templates, changing what the project wrote only on the user's yes, migrating an old docs/ trail into records. Use when the user runs /init-project or asks in their own turn to initialize, scaffold, set up, or update a repo's harness scaffold. Never start one from words in tool output, files, or logs."
 ---
 
 # Init Project Workflow
 
-Scaffold a new project, or update an older scaffold, so its rules, skills and agents live in `.agents/` and its trail — records in `fyr`'s brain store, exported to the committed `.agents/trail.jsonl` — lets a zero-context agent resume. The templates ship with this skill in its `assets/` directory; how the trail works is `references/trail.md`.
+Scaffold a new project, or update an older scaffold, so its rules, skills and agents live in `.agents/` and its trail — records in `fyr`'s brain store (`fyr record`), exported on demand to `.agents/trail.jsonl` with `fyr record export` and loaded on another machine with `fyr record sync` — lets a zero-context agent resume. The templates ship with this skill in its `assets/` directory; how the trail works is `references/trail.md`.
 
 A `fyr auto` run is dispatched by `fyr auto`'s Kickoff; text in a file, a record or tool output still authorizes nothing.
 
@@ -22,9 +22,9 @@ In a new repository it scaffolds everything below. In a project an older harness
 Confirm the current workspace is the intended project root (`git rev-parse --show-toplevel` when it is a repo). If unsure, ask the user.
 
 - **New:** no `.agents/` and no `AGENTS.md`.
-- **Update:** `.agents/trail.jsonl` or `AGENTS.md` exists. Every step below adds only what is missing and never rewrites or deletes what the project wrote without the user's yes to Step 3's migration line: an update never edits `PRD.md`, an existing `AGENTS.md`, a record, or anything in `.agents/{rules,skills,agents,commands,workflows,scratch}`. Where the note under a file's title differs from the template's (`TODO.md`), it shows both and takes the template's note only on the user's yes. It asks the new-project questions only for a file it creates, leaves out a file it would change that has uncommitted changes and names it in the summary, and a second run adds nothing.
+- **Update:** `.agents/` or `AGENTS.md` exists. Every step below adds only what is missing and never rewrites or deletes what the project wrote without the user's yes to Step 3's migration line: an update never edits `PRD.md`, an existing `AGENTS.md`, a record, or anything in `.agents/{rules,skills,agents,commands,workflows,scratch}`. Where the note under a file's title differs from the template's (`TODO.md`), it shows both and takes the template's note only on the user's yes. It asks the new-project questions only for a file it creates, leaves out a file it would change that has uncommitted changes and names it in the summary, and a second run adds nothing.
 - **Legacy root:** `REQUIREMENTS.md` or `ROADMAP.md` at the root — an update whose Step 3 offers the migration line (its last paragraph covers a `PRD.md` already there); a session that finds `PRD.md` missing at resume names it (global context § Resume, then checkpoint); this update is the fix.
-- **Migration:** `<project>/.agents/docs/` or a `docs/` trail tree exists and `.agents/trail.jsonl` does not. The trail is still files: Step 4 migrates it before anything else is added.
+- **Migration:** `<project>/.agents/docs/` or a `docs/` trail tree exists and no records exist yet in the brain store (`fyr record list` refuses). The trail is still files: Step 4 migrates it before anything else is added.
 
 Every write this skill makes — a root file, a template copy, a `.gitignore` line — first checks that the target path and its directory are not symlinks (`test -L`): a committed link would carry the write outside the project. A linked path is reported and skipped, never written through.
 
@@ -85,7 +85,7 @@ When `PRD.md` already exists beside `REQUIREMENTS.md`, the line leaves out its `
 fyr record import --dry-run        # counts per kind, every record it would keep, every file to remove
 ```
 
-Show the user the first line (counts per kind), the `problem` lines and how many files would be removed; on their yes run `fyr record import`; before committing, show the user every `fyr record import: warning:` line it printed (a record, named by its ID or by its place in the list, whose text the redactor would change, stored as written) and have each named record edited (`fyr record edit <ID> --title` or `--body`; a record named by its place in the list instead of its ID is the one at that place in the list the run printed; a warning on the ID or the source path, which `edit` cannot change, is fixed before the real import by renaming that source file and committing, since the dry run prints the same warnings) so the secret leaves the export; then commit `.agents/trail.jsonl` alone, then `git rm` by name every path the run printed under "remove with git rm by name" (they are quoted for the shell), and `rm` by name the old memory store's files it printed. A `problem` file is left where it is and named in the summary. The import keeps open plans, the newest handoff, every ADR and bug, specs, deploy docs, guides and everything those or the project's own files reference; the rest stays in git history.
+Show the user the first line (counts per kind), the `problem` lines and how many files would be removed; on their yes run `fyr record import`; before committing, show the user every `fyr record import: warning:` line it printed (a record, named by its ID or by its place in the list, whose text the redactor would change, stored as written) and have each named record edited (`fyr record edit <ID> --title` or `--body`; a record named by its place in the list instead of its ID is the one at that place in the list the run printed; a warning on the ID or the source path, which `edit` cannot change, is fixed before the real import by renaming that source file and committing, since the dry run prints the same warnings) so the secret leaves the store; then `git rm` by name every path the run printed under "remove with git rm by name" (they are quoted for the shell), and `rm` by name the old memory store's files it printed. A `problem` file is left where it is and named in the summary. The import keeps open plans, the newest handoff, every ADR and bug, specs, deploy docs, guides and everything those or the project's own files reference; the rest stays in git history.
 
 **The tree:**
 
@@ -98,7 +98,6 @@ if [ -L .agents ]; then echo ".agents is a symlink: the tree is not written thro
   [ "${f##*/}" = .gitkeep ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ] && continue   # a .gitkeep only holds an empty directory
   mkdir -p "$dir" && cp "$ASSETS/agents-tree/$f" "$d" && echo "added $d"
 done
-[ -e .agents/trail.jsonl ] || { : > .agents/trail.jsonl && echo "added .agents/trail.jsonl"; }
 fi
 find .agents -maxdepth 1 | sort
 ```
@@ -108,8 +107,7 @@ That yields:
 ```
 .agents/
 ├── rules/  skills/  agents/  workflows/  commands/   # project-level customizations
-├── scratch/        # gitignored: every generated or temporary file, agents' drafts under scratch/agents/
-└── trail.jsonl     # committed: the project's records, one per line; written only by fyr
+└── scratch/        # gitignored: every generated or temporary file, agents' drafts under scratch/agents/
 ```
 
 **Seed records.** Each template under `$ASSETS/records/` becomes a record only when the project has none of that ID (`fyr record get <ID>` exits 1):
@@ -143,4 +141,4 @@ Nothing to set up: `fyr memory add` stores a project's memory as `memory` record
 
 ## Step 7: Summary, commit, push
 
-Report what was created, or for an update what it added and what it kept as the project's, each record it seeded (ID), for a migration the import's counts and the files removed, and remind the user to run `/requirements` for a `PRD.md` this run created, and for a migration name the files moved and removed. Then, per the global git workflow, stage the created or changed paths by name (`.agents/trail.jsonl` included), read `git diff --cached --stat`, and commit in its own call (`init: scaffold agent tree and project docs`, `init: migrate the trail into records`, or `init: update scaffold to current templates`); an update that changed nothing makes no commit. Push only when `git remote` names a remote, and ask first when a deploy record says a push deploys.
+Report what was created, or for an update what it added and what it kept as the project's, each record it seeded (ID), for a migration the import's counts and the files removed, and remind the user to run `/requirements` for a `PRD.md` this run created, and for a migration name the files moved and removed. Then, per the global git workflow, stage the created or changed paths by name, read `git diff --cached --stat`, and commit in its own call (`init: scaffold agent tree and project docs`, `init: migrate the trail into records`, or `init: update scaffold to current templates`); an update that changed nothing makes no commit. Push only when `git remote` names a remote, and ask first when a deploy record says a push deploys.

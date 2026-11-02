@@ -43,13 +43,51 @@ func TestRunPass(t *testing.T) {
 		t.Fatalf("records: handoff %+v, changes %+v", res.Handoff, res.Changes)
 	}
 	wantContract(t, r, res)
-	// The merged trail is what the lead's next fyr record call parses.
+	// The merged trail is what the lead's next fyr record sync + list parses.
 	r.git("-C", r.lead, "merge", "-q", "--no-ff", "-m", "merge", "work/fix-a")
-	list := exec.Command(realFyr(t), "record", "list", "--home", filepath.Join(r.tmp, "lead-home"))
+	leadHome := filepath.Join(r.tmp, "lead-home")
+	syncCmd := exec.Command(realFyr(t), "record", "sync", "--home", leadHome)
+	syncCmd.Dir = r.lead
+	if out, err := syncCmd.CombinedOutput(); err != nil {
+		t.Fatalf("record sync after the merge: %v\n%s", err, out)
+	}
+	list := exec.Command(realFyr(t), "record", "list", "--home", leadHome)
 	list.Dir = r.lead
 	out, err := list.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), res.Handoff.ID) || !strings.Contains(string(out), r.guide) {
 		t.Errorf("record list after the merge: %v\n%s", err, out)
+	}
+}
+
+// TestRunWorkerWithoutTrailExport verifies that in a DB-only checkout (no
+// .agents/trail.jsonl at HEAD), a worker's sandbox brain.db is seeded from the
+// lead's brain.db, a worker calling fyr record add without fyr record export
+// passes ExitChecks and has its handoff and change records collected from its
+// sandbox brain.db, and an ungranted edit to a base record fails with
+// ReasonOutside (D9).
+func TestRunWorkerWithoutTrailExport(t *testing.T) {
+	r := newRig(t)
+	r.git("-C", r.lead, "rm", "-q", ".agents/trail.jsonl")
+	r.git("-C", r.lead, "commit", "-qm", "db-only")
+	r.on("change", "")
+	r.on("noexport", "")
+	res := r.run(r.kickoff("fix-a", "src/a.txt"))
+	wantReasons(t, res)
+	if res.Verdict != "PASS" || res.Commits != 1 || res.Handoff == nil || len(res.Changes) != 1 {
+		t.Fatalf("result %+v\n%s", res, r.out.String())
+	}
+
+	// An ungranted edit to a seeded base record in the sandbox brain.db fails
+	// with ReasonOutside even when .agents/trail.jsonl is absent in git.
+	r2 := newRig(t)
+	r2.git("-C", r2.lead, "rm", "-q", ".agents/trail.jsonl")
+	r2.git("-C", r2.lead, "commit", "-qm", "db-only")
+	r2.on("edit-record", r2.guide)
+	r2.on("noexport", "")
+	res2 := r2.run(r2.kickoff("fix-b", "src/a.txt"))
+	wantReasons(t, res2, ReasonOutside)
+	if !strings.Contains(r2.out.String(), r2.guide) {
+		t.Errorf("ungranted base record edit did not name %s:\n%s", r2.guide, r2.out.String())
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 type Options struct {
 	Home   string           // the home whose ~/.config/fyr holds brain.db (--home)
 	Dir    string           // the working directory: its checkout is the project
+	Repo   string           // optional source checkout whose scope Export reads (--repo)
 	Global bool             // the global scope instead of the project's
 	Now    func() time.Time // the clock; nil is time.Now
 }
@@ -81,9 +82,12 @@ func resolveProject(dir string) (scope, top string, err error) {
 }
 
 // unmigrated refuses a project whose trail is still files (D16): a docs tree
-// and no trail.jsonl.
-func unmigrated(top string) error {
+// and neither trail.jsonl nor exported records in brain.db (ADR-091).
+func unmigrated(home, scope, top string) error {
 	if _, err := os.Lstat(trailPath(top)); err == nil {
+		return nil
+	}
+	if ok, err := hasScopeDBRecords(home, scope); err == nil && ok {
 		return nil
 	}
 	for _, d := range []string{".agents/docs", "docs"} {
@@ -95,10 +99,9 @@ func unmigrated(top string) error {
 }
 
 // openSession opens the store for o's scope. In a project it refuses a
-// symlinked export path and an unmigrated trail first, and a read loads a
-// changed trail.jsonl before it answers; a write loads inside its own
-// transaction instead (write).
-func openSession(o Options, writing bool) (*session, error) {
+// symlinked export path and an unmigrated trail first; reads and writes
+// operate on brain.db directly (ADR-091).
+func openSession(o Options, _ bool) (*session, error) {
 	s := &session{}
 	if !o.Global {
 		scope, top, err := resolveProject(o.Dir)
@@ -108,7 +111,7 @@ func openSession(o Options, writing bool) (*session, error) {
 		if err := guardExportPath(top); err != nil {
 			return nil, err
 		}
-		if err := unmigrated(top); err != nil {
+		if err := unmigrated(o.Home, scope, top); err != nil {
 			return nil, err
 		}
 		s.scope, s.top = scope, top
@@ -118,52 +121,12 @@ func openSession(o Options, writing bool) (*session, error) {
 		return nil, err
 	}
 	s.st = st
-	if s.project() && !writing {
-		if err := s.sync(); err != nil {
-			st.close()
-			return nil, err
-		}
-	}
 	return s, nil
 }
 
-// sync loads the checkout's trail.jsonl when it changed since the last
-// export or load. The SHA is compared without the lock first, so a read of
-// an unchanged trail takes no write lock.
-func (s *session) sync() error {
-	sha, ok, err := hashTrail(s.top)
-	if err != nil || !ok {
-		return err
-	}
-	var have sql.NullString
-	err = s.st.db.QueryRow(`SELECT export_sha FROM meta WHERE scope = ?`, s.scope).Scan(&have)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if have.String == sha {
-		return nil
-	}
-	return s.st.tx(s.loadLocked)
-}
-
-// write runs fn in one transaction: in a project, load a changed
-// trail.jsonl, then fn, then export, so the store and the file agree after
-// every write (D21).
+// write runs fn in one transaction in brain.db (ADR-091).
 func (s *session) write(fn func(c *sql.Conn) error) error {
-	return s.st.tx(func(c *sql.Conn) error {
-		if s.project() {
-			if err := s.loadLocked(c); err != nil {
-				return err
-			}
-		}
-		if err := fn(c); err != nil {
-			return err
-		}
-		if s.project() {
-			return s.exportLocked(c)
-		}
-		return nil
-	})
+	return s.st.tx(fn)
 }
 
 // readBody reads a body from stdin: at most 1 MiB of UTF-8 text with no NUL
@@ -458,26 +421,17 @@ func List(o Options, f ListFilter) ([]Record, error) {
 	return out, rows.Err()
 }
 
-// openAll opens the store for a view of every scope; in a migrated checkout
-// that checkout's trail.jsonl is loaded first, so its rows are current.
+// openAll opens the store for a view of every scope; in a checkout it guards
+// the checkout's export path first.
 func openAll(o Options) (*session, error) {
+	if _, top, err := trail.Roots(o.Dir); err == nil {
+		if err := guardExportPath(top); err != nil {
+			return nil, err
+		}
+	}
 	st, err := openStore(o.Home)
 	if err != nil {
 		return nil, err
 	}
-	s := &session{st: st}
-	if scope, top, err := trail.Roots(o.Dir); err == nil {
-		if err := guardExportPath(top); err != nil {
-			st.close()
-			return nil, err
-		}
-		if unmigrated(top) == nil {
-			p := &session{st: st, scope: scope, top: top}
-			if err := p.sync(); err != nil {
-				st.close()
-				return nil, err
-			}
-		}
-	}
-	return s, nil
+	return &session{st: st}, nil
 }

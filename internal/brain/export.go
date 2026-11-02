@@ -3,9 +3,7 @@ package brain
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,8 +12,6 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // maxTrail caps trail.jsonl: far above any real trail (this repository's
@@ -313,109 +309,4 @@ func encodeTrail(rows []Record) ([]byte, error) {
 		}
 	}
 	return buf.Bytes(), nil
-}
-
-func exportSHA(c *sql.Conn, scope string) (string, error) {
-	var have sql.NullString
-	err := c.QueryRowContext(context.Background(), `SELECT export_sha FROM meta WHERE scope = ?`, scope).Scan(&have)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return have.String, err
-}
-
-func setExportSHA(c *sql.Conn, scope, sha string) error {
-	_, err := c.ExecContext(context.Background(), `INSERT INTO meta(scope, export_sha) VALUES (?, ?)
-		ON CONFLICT(scope) DO UPDATE SET export_sha = excluded.export_sha`, scope, sha)
-	return err
-}
-
-// loadLocked replaces the scope's exported rows with the checkout's
-// trail.jsonl when the file's SHA-256 is not the one the last export or load
-// stored (a pull, checkout or merge changed it): the file wins (D21). It
-// runs under the write lock. No file loads nothing and keeps the rows: a
-// deleted file is restored by the next write, never read as "no records".
-func (s *session) loadLocked(c *sql.Conn) error {
-	sha, ok, err := hashTrail(s.top)
-	if err != nil || !ok {
-		return err
-	}
-	have, err := exportSHA(c, s.scope)
-	if err != nil || have == sha {
-		return err
-	}
-	// Parsed and hashed in one pass, so the stored hash is the hash of the
-	// bytes loaded even when the file changed since the first pass.
-	f, ok, err := openTrail(s.top)
-	if err != nil || !ok {
-		return err
-	}
-	defer f.Close()
-	h := sha256.New()
-	recs, err := readRecords(io.TeeReader(&capped{r: f, left: maxTrail}, h))
-	if err != nil {
-		return err
-	}
-	sha = hex.EncodeToString(h.Sum(nil))
-	ctx := context.Background()
-	if _, err := c.ExecContext(ctx, `DELETE FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, s.scope); err != nil {
-		return err
-	}
-	// The rows left beside the file's are unexported kinds, whose IDs carry
-	// their own prefixes (MEMORY-, FEEDBACK-, PROPOSAL-) that parseLine never
-	// accepts on an exported line: no insert can collide with them.
-	for _, r := range recs {
-		if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, '', ?)`, s.scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Updated); err != nil {
-			return err
-		}
-	}
-	return setExportSHA(c, s.scope, sha)
-}
-
-// exportLocked writes the scope's exported rows to the checkout's
-// trail.jsonl (temp file plus rename; unchanged bytes are not rewritten) and
-// stores their SHA-256, under the same write lock as the write it follows, so
-// the file and meta.export_sha always describe one commit of the store.
-func (s *session) exportLocked(c *sql.Conn) error {
-	rows, err := c.QueryContext(context.Background(), `SELECT id, kind, status, date, title, updated, body
-		FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, s.scope)
-	if err != nil {
-		return err
-	}
-	var recs []Record
-	for rows.Next() {
-		var r Record
-		if err := rows.Scan(&r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Updated, &r.Body); err != nil {
-			rows.Close()
-			return err
-		}
-		recs = append(recs, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	data, err := encodeTrail(recs)
-	if err != nil {
-		return err
-	}
-	current, ok, err := hashTrail(s.top)
-	if err != nil {
-		return err
-	}
-	if !ok || current != sum(data) {
-		// Checked again right before the write: hashTrail's guard ran on
-		// an earlier read. A link that appears between this check and the
-		// rename is not closed here, as in the search index: whoever can race
-		// it already writes to the checkout.
-		if err := guardExportPath(s.top); err != nil {
-			return err
-		}
-		// 0644: a committed file, read by git like any other.
-		if err := harness.WriteAtomic(trailPath(s.top), data, 0o644); err != nil {
-			return err
-		}
-	}
-	return setExportSHA(c, s.scope, sum(data))
 }

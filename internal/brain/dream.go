@@ -3,6 +3,7 @@ package brain
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -48,57 +49,95 @@ type DreamInput struct {
 	Last     time.Time // the newest update not after now of any record in its scope (zero with none)
 }
 
-// ForDream reads project root's records for the dream: its checkout's
-// trail.jsonl is loaded first when it changed (the file wins, D21), then the
-// memory, the trail records and the global feedback after since. A project
+// ForDream reads project root's records for the dream: its memory, trail
+// records and global feedback after since from brain.db, falling back to
+// ReadTrail when brain.db holds no exported records for the scope. A project
 // with neither records nor a trail.jsonl gives an empty input and creates no
 // store. A record updated after now is clock skew or a planted line: it is
 // neither news nor the newest update (gate review of v3.0.0, finding 2).
 func ForDream(home, root string, since, now time.Time) (DreamInput, error) {
 	var in DreamInput
-	st, scope, err := openForSearch(Options{Home: home, Dir: root})
-	if err != nil || st == nil {
-		return in, err
-	}
-	defer st.close()
-	if scope == "" {
+	scope, top, err := trail.Roots(root)
+	if err != nil {
 		return in, nil
 	}
-	read := func(q string, args ...any) ([]Record, error) { return st.records(q, args...) }
-	// Times are compared parsed, never as text: a loaded line may carry any
-	// RFC 3339 offset (security review of the dream, finding 4).
-	after := func(recs []Record) []Record {
-		var out []Record
-		for _, r := range recs {
-			if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(since) && !t.After(now) {
-				out = append(out, r)
+	if err := guardExportPath(top); err != nil {
+		return in, err
+	}
+	trailRecs, all, hasDBExported, err := readDreamStore(home, scope, since, now, &in)
+	if err != nil {
+		return in, err
+	}
+	if !hasDBExported {
+		fileRecs, ok, err := ReadTrail(top)
+		if err != nil {
+			return in, err
+		}
+		if ok {
+			for _, r := range fileRecs {
+				all = append(all, r)
+				switch r.Kind {
+				case "bug", "review", "retro", "change", "handoff":
+					trailRecs = append(trailRecs, r)
+				}
 			}
 		}
-		return out
 	}
-	if in.Memory, err = read(`scope = ? AND kind = 'memory' AND status = 'closed'`, scope); err != nil {
-		return in, err
-	}
-	trail, err := read(`scope = ? AND kind IN ('bug', 'review', 'retro', 'change', 'handoff')`, scope)
-	if err != nil {
-		return in, err
-	}
-	in.Trail = after(trail)
-	fb, err := read(`scope = '' AND kind = 'feedback' AND project = ?`, scope)
-	if err != nil {
-		return in, err
-	}
-	in.Feedback = after(fb)
-	all, err := read(`scope = ?`, scope)
-	if err != nil {
-		return in, err
-	}
+	in.Trail = recordsAfter(trailRecs, since, now)
 	for _, r := range all {
 		if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(in.Last) && !t.After(now) {
 			in.Last = t
 		}
 	}
 	return in, nil
+}
+
+// recordsAfter filters recs to those updated in (since, now]. Times are
+// compared parsed, never as text: a loaded line may carry any RFC 3339 offset
+// (security review of the dream, finding 4).
+func recordsAfter(recs []Record, since, now time.Time) []Record {
+	var out []Record
+	for _, r := range recs {
+		if t, err := time.Parse(time.RFC3339, r.Updated); err == nil && t.After(since) && !t.After(now) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func readDreamStore(home, scope string, since, now time.Time, in *DreamInput) (trailRecs, all []Record, hasDBExported bool, err error) {
+	if _, err := os.Lstat(Path(home)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, false, nil
+		}
+		return nil, nil, false, err
+	}
+	st, err := openStore(home)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	defer st.close()
+	if in.Memory, err = st.records(`scope = ? AND kind = 'memory' AND status = 'closed'`, scope); err != nil {
+		return nil, nil, false, err
+	}
+	if trailRecs, err = st.records(`scope = ? AND kind IN ('bug', 'review', 'retro', 'change', 'handoff')`, scope); err != nil {
+		return nil, nil, false, err
+	}
+	fb, err := st.records(`scope = '' AND kind = 'feedback' AND project = ?`, scope)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	in.Feedback = recordsAfter(fb, since, now)
+	if all, err = st.records(`scope = ?`, scope); err != nil {
+		return nil, nil, false, err
+	}
+	for _, r := range all {
+		if !unexported[r.Kind] {
+			hasDBExported = true
+			break
+		}
+	}
+	return trailRecs, all, hasDBExported, nil
 }
 
 // records is every record matching the WHERE clause q, oldest update first.
@@ -138,35 +177,60 @@ type MetricsInput struct {
 // had trail records to miss.
 func ForMetrics(home, root string) (MetricsInput, error) {
 	var in MetricsInput
-	if _, top, err := trail.Roots(root); err == nil && trail.Registered(filepath.Join(home, harness.StateDir), root) {
-		_, err := os.Lstat(trailPath(top))
-		in.Migrated = err == nil
+	scope, top, rootErr := trail.Roots(root)
+	if rootErr == nil && trail.Registered(filepath.Join(home, harness.StateDir), root) {
+		ok, err := HasRecords(home, top)
+		in.Migrated = err == nil && ok
 	}
-	var st *store
 	if in.Migrated {
-		s, scope, err := openForSearch(Options{Home: home, Dir: root})
-		if err != nil || s == nil {
+		var err error
+		if in.Trail, err = metricsTrail(home, scope, top); err != nil {
 			return in, err
 		}
-		st = s
-		defer st.close()
-		if in.Trail, err = st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope); err != nil {
-			return in, err
-		}
-	} else {
-		if _, err := os.Lstat(Path(home)); err != nil {
+	}
+	if _, err := os.Lstat(Path(home)); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			return in, nil
 		}
-		s, err := openStore(home)
-		if err != nil {
-			return in, err
-		}
-		st = s
-		defer st.close()
+		return in, err
 	}
-	var err error
+	st, err := openStore(home)
+	if err != nil {
+		return in, err
+	}
+	defer st.close()
 	in.Feedback, err = st.records(`scope = '' AND kind = 'feedback' AND project = ?`, canonicalProject(root))
 	return in, err
+}
+
+func metricsTrail(home, scope, top string) ([]Record, error) {
+	if err := guardExportPath(top); err != nil {
+		return nil, err
+	}
+	hasDBExported, err := hasScopeDBRecords(home, scope)
+	if err != nil {
+		return nil, err
+	}
+	if hasDBExported {
+		st, err := openStore(home)
+		if err != nil {
+			return nil, err
+		}
+		defer st.close()
+		return st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope)
+	}
+	trailRecs, ok, err := ReadTrail(top)
+	if err != nil || !ok {
+		return nil, err
+	}
+	var out []Record
+	for _, r := range trailRecs {
+		switch r.Kind {
+		case "handoff", "testing", "review", "bug":
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 // Proposal is one dream proposal to store.

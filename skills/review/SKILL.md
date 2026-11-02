@@ -20,7 +20,7 @@ One command, every lens. The skill decides the scope, hands every agent the same
 /review --high                   # strongest model for reviewer and security
 ```
 
-**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported to `.agents/trail.jsonl`. Dates from `date +%F`. Dispatch through `invoke_subagent`, by agent name.
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported on demand with `fyr record export`. Dates from `date +%F`. Dispatch through `invoke_subagent`, by agent name.
 
 ## Step 1: Parse
 

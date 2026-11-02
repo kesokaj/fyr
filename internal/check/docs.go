@@ -185,6 +185,9 @@ func (k *checker) checkPath(c candidate) (Finding, bool) {
 	name := filepath.FromSlash(c.p)
 	fi, err := k.root.Stat(name)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) && c.p == ".agents/trail.jsonl" && !c.hasLine {
+			return Finding{}, false
+		}
 		why := "does not exist"
 		if !errors.Is(err, fs.ErrNotExist) {
 			why = "does not resolve inside this checkout"

@@ -217,4 +217,19 @@ func TestIndexRegisterNotesAMissingTrail(t *testing.T) {
 	if !strings.Contains(out.String(), "note: "+root+" has no .agents/trail.jsonl") {
 		t.Errorf("no note:\n%s", out.String())
 	}
+	// Once a record exists in brain.db for the checkout, --register notes nothing
+	// and adds the checkout to the global registry without .agents/trail.jsonl.
+	if outStr, err := recordCmd(t, "ok\n", "record", "add", "change", "--title", "first", "--home", home); err != nil {
+		t.Fatalf("record add: %v\n%s", err, outStr)
+	}
+	out.Reset()
+	if err := run([]string{"index", "--register", "--home", home}, &out); err != nil {
+		t.Fatalf("index --register with brain record: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "note:") {
+		t.Errorf("note printed when brain.db has records:\n%s", out.String())
+	}
+	if ps, err := search.ListProjects(home); err != nil || len(ps) != 1 || ps[0].Root != root {
+		t.Errorf("registered with brain record: projects %v, %v", ps, err)
+	}
 }

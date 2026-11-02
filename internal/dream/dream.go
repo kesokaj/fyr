@@ -163,7 +163,7 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 			}
 		}
 	}
-	if migrated(p.Root) {
+	if migrated(brainHome, p.Root) {
 		if in, err := forDream(brainHome, p.Root, now, now); err == nil && in.Last.After(cut) {
 			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
 		}
@@ -179,11 +179,15 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 const noTrail = "no .agents/trail.jsonl: fyr record import"
 
 // skipReason says why a project is not dreamt over, or "" when it is.
-func skipReason(p search.Project) string {
+func skipReason(p search.Project, home ...string) string {
 	if why := absent(p); why != "" {
 		return why
 	}
-	if !migrated(p.Root) {
+	var h string
+	if len(home) > 0 {
+		h = home[0]
+	}
+	if !migrated(h, p.Root) {
 		return noTrail
 	}
 	return ""

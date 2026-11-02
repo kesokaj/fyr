@@ -83,7 +83,7 @@ type checker struct {
 }
 
 // Run checks the checkout that holds dir against v. It writes nothing.
-func Run(dir string, v Vocabulary) (Report, error) {
+func Run(dir string, v Vocabulary, home ...string) (Report, error) {
 	_, top, err := trail.Roots(dir)
 	if err != nil {
 		if errors.Is(err, trail.ErrNotCheckout) {
@@ -97,22 +97,14 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	}
 	defer k.root.Close()
 	var rep Report
-	recs, ok, err := brain.ReadTrail(top)
+	recs, ok, err := brain.ReadScope(firstString(home), top)
 	if err != nil {
 		return Report{}, refusal{err.Error()}
 	}
 	if !ok {
 		rep.Notes = append(rep.Notes, "no .agents/trail.jsonl: records, specs not checked")
 	}
-	var living, specs []brain.Record
-	for _, r := range recs {
-		if livingKinds[r.Kind] && r.Status == "current" {
-			living = append(living, r)
-			if r.Kind == "spec" {
-				specs = append(specs, r)
-			}
-		}
-	}
+	living, specs := livingAndSpecs(recs)
 	rep.Findings = k.docsRule(k.docsFiles(), living, v)
 	rep.Findings = append(rep.Findings, k.verificationFindings(specs)...)
 	if note := k.historyNote(); note != "" {
@@ -130,6 +122,25 @@ func Run(dir string, v Vocabulary) (Report, error) {
 	}
 	sortFindings(rep.Findings)
 	return rep, nil
+}
+
+func firstString(s []string) string {
+	if len(s) > 0 {
+		return s[0]
+	}
+	return ""
+}
+
+func livingAndSpecs(recs []brain.Record) (living, specs []brain.Record) {
+	for _, r := range recs {
+		if livingKinds[r.Kind] && r.Status == "current" {
+			living = append(living, r)
+			if r.Kind == "spec" {
+				specs = append(specs, r)
+			}
+		}
+	}
+	return living, specs
 }
 
 // rootDocsRules adds rules (c) and (d), which read the root documents, to rep.

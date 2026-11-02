@@ -63,6 +63,9 @@ func eventsFixture(t *testing.T) (*Store, string, string) {
 	} {
 		addRecord(t, o, brain.AddInput{Kind: r[0], ID: r[1], Title: r[2]}, r[3])
 	}
+	if _, err := brain.Export(o); err != nil {
+		t.Fatal(err)
+	}
 	gitT(t, root, at(14, 0), "add", ".agents")
 	gitT(t, root, at(14, 0), "commit", "-q", "-m", "trail") // after every window
 

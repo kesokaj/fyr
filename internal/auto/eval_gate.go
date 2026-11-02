@@ -167,7 +167,7 @@ func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy s
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
-	rows, err := collectGateRows(root, r.o.holdoutFile(), changed)
+	rows, err := collectGateRows(r.o.Home, root, r.o.holdoutFile(), changed)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
@@ -199,8 +199,8 @@ func changedHarnessTargets(root, base, ref string) ([]string, error) {
 	return names, nil
 }
 
-func collectGateRows(root, holdoutPath string, changed []string) ([]gateRow, error) {
-	suite, err := readCheckoutSuite(root)
+func collectGateRows(home, root, holdoutPath string, changed []string) ([]gateRow, error) {
+	suite, err := readCheckoutSuite(home, root)
 	if err != nil {
 		return nil, err
 	}

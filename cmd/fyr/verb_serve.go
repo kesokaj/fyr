@@ -81,7 +81,7 @@ func serveOptions(c *ctx) (serve.Options, error) {
 		Home: home, Dir: wd, Port: c.port, Out: c.out, Err: stderr, Version: buildVersion(),
 		Status: func(w io.Writer) error { return pageErr(status(src, home, w)) },
 		Render: func(w io.Writer) error { return renderTo(src, w) },
-		Check:  func(w io.Writer) error { return checkTo(wd, w) },
+		Check:  func(w io.Writer) error { return checkTo(wd, home, w) },
 		Index:  func(w io.Writer) error { return search.Index(search.Options{Dir: wd, Home: home}, w) },
 		Ingest: func(w io.Writer) error { return ingestTo(home, w) },
 	}, nil
@@ -122,8 +122,8 @@ func renderTo(src harness.Source, w io.Writer) error {
 
 // checkTo is `fyr check` in dir, the directory serve started in: its
 // findings and summary, or a refusal's reason (stderr at the terminal) on w.
-func checkTo(dir string, w io.Writer) error {
-	rep, err := check.Run(dir, vocabulary())
+func checkTo(dir, home string, w io.Writer) error {
+	rep, err := check.Run(dir, vocabulary(), home)
 	if errors.Is(err, check.ErrRefused) {
 		fmt.Fprintln(w, search.Printable("check: "+err.Error()))
 		return nil

@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -60,9 +61,16 @@ func (w *row) prepare(ctx context.Context) bool {
 	w.b.Fingerprint()
 	// Step 5: the row's setup, in the clone.
 	if w.r.Setup != "" {
+		trailPath := filepath.Join(w.b.App(), ".agents", "trail.jsonl")
+		beforeTrail, _ := os.ReadFile(trailPath)
 		if !w.b.Bash(ctx, w.r.Setup, w.setupEnv(), "setup.log") {
 			w.b.Fail(ReasonSetup)
 			return false
+		}
+		if afterTrail, err := os.ReadFile(trailPath); err == nil && !bytes.Equal(beforeTrail, afterTrail) {
+			if !w.syncRecords(ctx) {
+				return false
+			}
 		}
 	}
 	if !w.b.Install(ctx) {
@@ -85,6 +93,9 @@ func (w *row) recordsBefore(ctx context.Context) bool {
 	before := filepath.Join(w.b.Home(), "records-before.txt")
 	var list []byte
 	if _, err := os.Stat(filepath.Join(w.b.App(), ".agents", "trail.jsonl")); err == nil {
+		if !w.syncRecords(ctx) {
+			return false
+		}
 		cmd := exec.CommandContext(ctx, w.o.Self, "record", "list", "--home", w.b.Home())
 		cmd.Dir = w.b.App()
 		cmd.Env = sandbox.FyrEnv()
@@ -97,6 +108,20 @@ func (w *row) recordsBefore(ctx context.Context) bool {
 		}
 	}
 	if err := os.WriteFile(before, list, 0o600); err != nil {
+		w.b.Fail(ReasonRecords)
+		return false
+	}
+	return true
+}
+
+func (w *row) syncRecords(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, w.o.Self, "record", "sync", "--home", w.b.Home())
+	cmd.Dir = w.b.App()
+	cmd.Env = sandbox.FyrEnv()
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		w.b.Note("record sync: %v: %s", err, strings.TrimSpace(errb.String()))
 		w.b.Fail(ReasonRecords)
 		return false
 	}

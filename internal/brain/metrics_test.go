@@ -88,7 +88,10 @@ func TestKindOfID(t *testing.T) {
 func TestForMetricsUnregisteredReadsNoTrail(t *testing.T) {
 	home, src := t.TempDir(), t.TempDir()
 	stranger := repo(t)
-	add(t, opts(stranger, src), "handoff", "a stranger's handoff", "body") // another home's add writes its trail.jsonl
+	add(t, opts(stranger, src), "handoff", "a stranger's handoff", "body")
+	if _, err := Export(opts(stranger, src)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Lstat(trailPath(stranger)); err != nil {
 		t.Fatal(err)
 	}

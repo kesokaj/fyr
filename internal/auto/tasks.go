@@ -58,7 +58,7 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, finding
 			return preparedTask(ClassMemoryCandidates, level, nil, "", p.PendingMemoryCandidates)
 		}
 	case ClassOnboarding:
-		if n := onboardingAge(root); n > onboardingCommitLimit {
+		if n := onboardingAge(r.o.Home, root); n > onboardingCommitLimit {
 			return preparedTask(ClassOnboarding, level, []string{"GUIDE-onboarding"}, "", n)
 		}
 	case ClassDistill:

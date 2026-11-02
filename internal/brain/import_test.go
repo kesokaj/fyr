@@ -134,12 +134,18 @@ func TestImportKeepsWhatD8Keeps(t *testing.T) {
 	if h := byID["HANDOFF-2026-01-02-1000-new"]; h.Status != "" {
 		t.Errorf("handoff: %+v", h)
 	}
+	if _, err := os.Lstat(trailFile(dir)); !os.IsNotExist(err) {
+		t.Errorf("import wrote trail.jsonl without Export: %v", err)
+	}
+	if _, err := Export(opts(dir, home)); err != nil {
+		t.Fatal(err)
+	}
 	text := trailText(t, dir)
 	if !strings.Contains(text, `"id":"ADR-047a"`) {
-		t.Errorf("the import exports at once: %s", text)
+		t.Errorf("Export writes ADR-047a: %s", text)
 	}
 	if _, err := parseTrail([]byte(text)); err != nil {
-		t.Errorf("the load refuses what the import wrote: %v", err)
+		t.Errorf("the load refuses what Export wrote: %v", err)
 	}
 }
 
@@ -215,8 +221,6 @@ func TestImportThenRecordVerbsWork(t *testing.T) {
 		t.Errorf("the next bug after an import is BUG-004, got %s", id)
 	}
 	// A second import finds every record stored and adds nothing.
-	git(t, dir, "add", ".agents/trail.jsonl")
-	git(t, dir, "commit", "-qm", "trail")
 	res, err := Import(opts(dir, home), "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -248,6 +252,9 @@ func TestImportTakesTheProjectMemoryStore(t *testing.T) {
 	}
 	if !strings.Contains(show, "keep-x") || !strings.Contains(show, "keep x in mind") {
 		t.Errorf("the imported memory shows: %q", show)
+	}
+	if _, err := Export(opts(dir, home)); err != nil {
+		t.Fatal(err)
 	}
 	if strings.Contains(trailText(t, dir), "The fact.") {
 		t.Error("a memory reached trail.jsonl (D14)")

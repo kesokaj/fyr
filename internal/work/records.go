@@ -6,8 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // maxTrail caps the trail.jsonl a branch may hold: it is agent-written and
@@ -61,6 +66,28 @@ func trailAt(root, rev, runner string) (map[string]Record, error) {
 	}
 	if len(blob) > maxTrail {
 		return nil, fmt.Errorf("at %s: over %d MiB", short(rev), maxTrail>>20)
+	}
+	return parseTrail(blob)
+}
+
+func (w *worker) exportBoxRecords() (map[string]Record, error) {
+	cmd := exec.Command(filepath.Join(w.b.Home(), ".local", "bin", "fyr"), "record", "export", "--home", w.b.Home())
+	cmd.Dir = w.b.App()
+	cmd.Env = sandbox.FyrEnv()
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenInRoot(w.b.App(), trailRel)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	blob, err := io.ReadAll(io.LimitReader(f, maxTrail+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(blob) > maxTrail {
+		return nil, fmt.Errorf("over %d MiB", maxTrail>>20)
 	}
 	return parseTrail(blob)
 }

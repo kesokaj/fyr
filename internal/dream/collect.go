@@ -154,12 +154,15 @@ func skills(home string) []skill {
 	return out
 }
 
-// migrated reports whether root's trail is records: a committed
+// migrated reports whether root's trail is records in brain.db or a committed
 // `.agents/trail.jsonl` (brain plan D16's line; an Lstat, so a link counts and
 // the brain store refuses it when read).
-func migrated(root string) bool {
-	_, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl"))
-	return err == nil
+func migrated(home, root string) bool {
+	if _, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
+		return true
+	}
+	ok, err := brain.HasRecords(home, root)
+	return err == nil && ok
 }
 
 // forDream is brain.ForDream; a test replaces it.

@@ -19,6 +19,9 @@ func TestReadTrail(t *testing.T) {
 		add(t, o, "learning", "two", "second"):              true,
 		add(t, o, "spec", "three", "third", "id", "SPEC-x"): true,
 	}
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	readHome := t.TempDir()
 	t.Setenv("HOME", readHome)
 	recs, ok, err := ReadTrail(dir)
@@ -85,6 +88,9 @@ func TestParseTrail(t *testing.T) {
 	o := opts(dir, home)
 	add(t, o, "bug", "one", "first")
 	add(t, o, "guide", "two", "second", "id", "GUIDE-x")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	want, ok, err := ReadTrail(dir)
 	if err != nil || !ok {
 		t.Fatalf("ReadTrail: ok %v, err %v", ok, err)

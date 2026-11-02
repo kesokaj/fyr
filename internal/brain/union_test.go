@@ -16,15 +16,27 @@ func TestUnionMergeOfSortedExports(t *testing.T) {
 	o := opts(dir, home)
 	os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte(".agents/trail.jsonl merge=union\n"), 0o644)
 	add(t, o, "guide", "the fixture", "g", "id", "GUIDE-fixture")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	git(t, dir, "add", ".gitattributes", ".agents/trail.jsonl")
 	git(t, dir, "commit", "-qm", "base")
 	git(t, dir, "switch", "-qc", "theirs")
 	add(t, o, "change", "p2 change", "c2")
 	add(t, o, "handoff", "p2 handoff", "h2")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	git(t, dir, "commit", "-qam", "p2")
 	git(t, dir, "switch", "-q", "-")
+	if _, err := Sync(o); err != nil {
+		t.Fatal(err)
+	}
 	add(t, o, "change", "p1 change", "c1")
 	add(t, o, "handoff", "p1 handoff", "h1")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	git(t, dir, "commit", "-qam", "p1")
 	git(t, dir, "merge", "-q", "--squash", "theirs")
 	merged, _ := os.ReadFile(trailFile(dir))
@@ -32,6 +44,9 @@ func TestUnionMergeOfSortedExports(t *testing.T) {
 		t.Fatalf("the union carries GUIDE-fixture %d times, want 2 (the repro):\n%s", n, merged)
 	}
 
+	if _, err := Sync(o); err != nil {
+		t.Fatalf("sync after the union merge: %v", err)
+	}
 	list, err := List(o, ListFilter{})
 	if err != nil {
 		t.Fatalf("list after the union merge: %v", err)
@@ -40,6 +55,9 @@ func TestUnionMergeOfSortedExports(t *testing.T) {
 		t.Fatalf("listed %d records, want 5: %+v", len(list), list)
 	}
 	add(t, o, "bug", "the next write", "b")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	got, _ := os.ReadFile(trailFile(dir))
 	if n := strings.Count(string(got), `"id":"GUIDE-fixture"`); n != 1 {
 		t.Errorf("the next export carries GUIDE-fixture %d times, want 1", n)

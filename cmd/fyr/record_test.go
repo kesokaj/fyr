@@ -69,8 +69,8 @@ func TestRecordVerb(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "brain.db")); err != nil {
 		t.Fatalf("brain.db not under --home: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); err != nil {
-		t.Fatalf("no export: %v", err)
+	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("add wrote trail.jsonl without export: %v", err)
 	}
 	out, err = recordCmd(t, "", "record", "edit", "BUG-001", "--status", "fixed", "--home", home)
 	if err != nil {
@@ -91,6 +91,22 @@ func TestRecordVerb(t *testing.T) {
 	out, err = recordCmd(t, "feedback body", "record", "add", "feedback", "--global", "--project", root, "--title", "global fb", "--home", home)
 	if err != nil || !strings.HasPrefix(out, "FEEDBACK-") {
 		t.Fatalf("add --global feedback: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "record", "export", "--home", home)
+	if err != nil || out != "export: 1 records written to .agents/trail.jsonl\n" {
+		t.Fatalf("export: %q %v", out, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); err != nil {
+		t.Fatalf("export did not write trail.jsonl: %v", err)
+	}
+	home2 := t.TempDir()
+	out, err = recordCmd(t, "", "record", "sync", "--home", home2)
+	if err != nil || out != "sync: 1 records loaded from .agents/trail.jsonl\n" {
+		t.Fatalf("sync: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "record", "get", "BUG-001", "--home", home2)
+	if err != nil || !strings.HasPrefix(out, "BUG-001  bug  fixed  ") {
+		t.Fatalf("get after sync: %q %v", out, err)
 	}
 	if entries, _ := os.ReadDir(decoy); len(entries) != 0 {
 		t.Errorf("the real home was touched: %v", entries)
@@ -146,6 +162,11 @@ func TestRecordExitCodes(t *testing.T) {
 		"feedback in a project":       {"b", []string{"record", "add", "feedback", "--title", "t"}, 1, "global"},
 		"get of a missing id":         {"", []string{"record", "get", "BUG-404"}, 1, "BUG-404"},
 		"list on an empty store":      {"", []string{"record", "list"}, 0, ""},
+		"export with extra arg":       {"", []string{"record", "export", "extra"}, 2, "usage"},
+		"export --global":             {"", []string{"record", "export", "--global"}, 2, "--global"},
+		"sync with extra arg":         {"", []string{"record", "sync", "extra"}, 2, "usage"},
+		"sync --global":               {"", []string{"record", "sync", "--global"}, 2, "--global"},
+		"sync without trail.jsonl":    {"", []string{"record", "sync"}, 1, "no .agents/trail.jsonl"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := recordCmd(t, tc.body, append(tc.args, "--home", home)...)
@@ -221,7 +242,7 @@ func TestHelpListsRecord(t *testing.T) {
 	if err := run([]string{"help", "record"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"usage: fyr record add ", "\n       fyr record get ", "\n       fyr record edit ", "\n       fyr record list ", "\n       fyr record import "} {
+	for _, want := range []string{"usage: fyr record add ", "\n       fyr record get ", "\n       fyr record edit ", "\n       fyr record list ", "\n       fyr record export", "\n       fyr record sync", "\n       fyr record import "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("help lacks %q", want)
 		}

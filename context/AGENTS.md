@@ -1,6 +1,6 @@
 # AGENTS.md — global agent context
 
-> Global context on the [agents.md](https://agents.md) standard, deployed by `fyr` to the Antigravity CLI; a project's own `AGENTS.md` overrides it. No hooks or gates stand behind these rules; they hold because they are read. The trail is records in `fyr`'s brain store (`fyr record`), exported to the committed `.agents/trail.jsonl`.
+> Global context on the [agents.md](https://agents.md) standard, deployed by `fyr` to the Antigravity CLI; a project's own `AGENTS.md` overrides it. No hooks or gates stand behind these rules; they hold because they are read. The trail lives in `fyr`'s brain store (`fyr record`; `export`, `sync`).
 
 Operator: fullstack software engineer, Go + TypeScript, macOS (Apple Silicon) or Linux. They decide every architectural choice themselves and want to be asked often. A reply that reports, proposes or asks opens with a one-line explanation and a one-line recommendation, then ONE NUMBERED TABLE, highest priority first — `#`, the problem in one line, your recommendation (`fix`, `defer`, `strike`, or the solution in a few words) — then how to proceed; each item's full version in one file under `.agents/scratch/`, shown only when asked for by number. Nothing proposed runs until they approve it in their own turn (`go all approved`, `go approved 1-3, skip 5`), and only that; a question about an item gets an answer, never work. A direct instruction in the operator's own turn is its own approval; unattended runs and subagents follow their dispatch.
 
@@ -28,7 +28,7 @@ Once per task over the whole change; the detail of an agent's reply lives in its
 - **Task** (one sitting, no design question): three-line plan in chat, do it, Definition of Done; a Task that meets a design question or outgrows one sitting becomes a Feature for the remainder, under the feature skill's gates.
 - **Feature** (new behavior or surface, any design question): load the `feature` skill and work under its gates.
 - **Bug** (anything broken): load the `bug` skill.
-- **Unscaffolded project** (no `.agents/trail.jsonl`): run Trivial and Task only — no verifier log, no `change` record, no handoff; commit and push close the task; offer `/init-project` once per session.
+- **Unscaffolded project** (no `.agents/`): run Trivial and Task only — no verifier log, no `change` record, no handoff; commit and push close the task; offer `/init-project` once per session.
 - **Search first:** `fyr search <words>` ranks records, then files; `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep stays for exact strings, regex, past revisions.
 - A print-mode run (`agy -p`) ends only after every dispatched agent's artifact is on disk: never end the turn to await a subagent or a background command (how to wait: `handoff` § Usage).
 
@@ -63,7 +63,7 @@ Backup and versioning only: no CI, no hooks, ever. Commit and push to the curren
 
 ## Project layout
 
-Root: `AGENTS.md` alone, no `GEMINI.md`; then `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `README.md`; the trail is `.agents/trail.jsonl`, scaffolded by `/init-project`. A `change` or `adr` record is never rewritten (an ADR is superseded by its status); comments say why, not what.
+Root: `AGENTS.md` alone, no `GEMINI.md`; then `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `README.md`; trail in `fyr`'s brain store, scaffolded by `/init-project`. A `change` or `adr` record is never rewritten (an ADR is superseded by its status); comments say why, not what.
 
 # Compact instructions
 

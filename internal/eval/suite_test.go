@@ -184,6 +184,9 @@ func TestSuiteHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	recs, ok, err := brain.ReadTrail(root)
+	if err == nil && !ok {
+		recs, ok, err = brain.ReadScope(os.Getenv("HOME"), root)
+	}
 	if err != nil || !ok {
 		t.Fatalf("reading the trail: ok %v, %v", ok, err)
 	}
@@ -254,7 +257,7 @@ func TestSuiteHarness(t *testing.T) {
 			kind = KindCapability
 		}
 		version := 1
-		if r.ID == "auto-inject-level" {
+		if r.ID == "auto-inject-level" || r.ID == "metrics-feed" {
 			version = 2 // its prompt changed after its first trial
 		}
 		if r.Kind != kind || r.Version != version || r.Cluster != r.ID || r.Expect != "" {

@@ -117,7 +117,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr diff` | A unified diff of every drifted file |
 | `fyr uninstall` | Removes exactly what it installed and both timers; the metrics store and `fyr auto`'s config and state stay |
 | `fyr list` / `render` | The skill and agent inventory; the context as deployed |
-| `fyr record add` / `get` / `edit` / `list` / `import` | The brain store: this project's trail records and the global ones |
+| `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store: this project's trail records and the global ones (`export` writes `.agents/trail.jsonl` on demand; `sync` loads it into `brain.db`) |
 | `fyr search <words>` | Matching records first, then a ranked search of the project's files |
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
@@ -240,7 +240,7 @@ rules/        always-on or path-scoped rules
 commands/     markdown prompts invoked as /name (empty; prefer skills)
 cmd/fyr       the binary; internal/ its packages, each named in AGENTS.md § Layout
 embed.go      the go:embed of the five content directories, pinned to what git tracks
-.agents/      this repository's own trail, trail.jsonl (records: plans, decisions, bugs, changes, handoffs, testing, specs, deploy guides; read with fyr record), and scratch/ (gitignored)
+.agents/      this repository's .agents/skills symlink, scratch/ (gitignored), and optional on-demand trail.jsonl export (records live in ~/.config/fyr/brain.db, read and written with fyr record)
 ```
 
 ```mermaid

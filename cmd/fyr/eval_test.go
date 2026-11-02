@@ -110,6 +110,7 @@ func newEvalRig(t *testing.T, suite string, commit bool) *evalRig {
 	} else {
 		r.mustRun(strings.NewReader("not the suite"), "record", "add", "guide", "--id", "GUIDE-other", "--title", "other", "--home", r.home)
 	}
+	r.mustRun(nil, "record", "export", "--home", r.home)
 	if commit {
 		r.git("add", "-A")
 		r.git("commit", "-qm", "fixture")

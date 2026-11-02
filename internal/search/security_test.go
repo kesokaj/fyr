@@ -234,7 +234,7 @@ func TestDropReasonIgnoresLocale(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LC_ALL", "de_DE.UTF-8")
-	reason, err := dropReason(t.TempDir())
+	reason, err := dropReason("", t.TempDir())
 	if err != nil || reason != "no longer a git checkout" {
 		t.Errorf("under a German locale: reason %q, err %v; want the checkout dropped", reason, err)
 	}

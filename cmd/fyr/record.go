@@ -20,10 +20,12 @@ var recordFlags = map[string]map[string]bool{
 	"get":    {"global": true},
 	"edit":   {"status": true, "title": true, "body": true, "global": true},
 	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true},
+	"export": {},
+	"sync":   {},
 	"import": {"dry-run": true, "global": true},
 }
 
-// runRecord serves `record add|get|edit|list` (spec
+// runRecord serves `record add|get|edit|list|export|sync|import` (spec
 // the record SPEC-fyr-record); it needs no harness tree. Exit 0 with
 // or without output, 1 a refusal, 2 a usage error, the reason on the writer.
 func runRecord(c *ctx) error {
@@ -44,33 +46,39 @@ func runRecord(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	o := brain.Options{Home: c.home, Dir: wd, Global: c.global}
+	return dispatchRecord(c, brain.Options{Home: c.home, Dir: wd, Repo: c.repoFlag, Global: c.global}, sub, rest, set)
+}
+
+func dispatchRecord(c *ctx, o brain.Options, sub string, rest []string, set map[string]bool) error {
 	switch sub {
 	case "add":
-		if len(rest) != 1 {
-			break
+		if len(rest) == 1 {
+			return recordAdd(c, o, rest[0])
 		}
-		return recordAdd(c, o, rest[0])
 	case "get":
-		if len(rest) == 0 {
-			break
+		if len(rest) > 0 {
+			return recordGet(c, o, rest)
 		}
-		return recordGet(c, o, rest)
 	case "edit":
-		if len(rest) != 1 {
-			break
+		if len(rest) == 1 {
+			return recordEdit(c, o, rest[0], set)
 		}
-		return recordEdit(c, o, rest[0], set)
 	case "list":
-		if len(rest) != 0 {
-			break
+		if len(rest) == 0 {
+			return recordList(c, o)
 		}
-		return recordList(c, o)
+	case "export":
+		if len(rest) == 0 {
+			return recordExport(c, o)
+		}
+	case "sync":
+		if len(rest) == 0 {
+			return recordSync(c, o)
+		}
 	case "import":
-		if len(rest) > 1 || (c.global && len(rest) != 0) {
-			break
+		if len(rest) <= 1 && (!c.global || len(rest) == 0) {
+			return recordImport(c, o, rest)
 		}
-		return recordImport(c, o, rest)
 	}
 	return usageErr(c.out, "record", "")
 }
@@ -160,6 +168,27 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 	return recordErr(c, err)
 }
 
+// recordExport serves `record export`: writes the project's exported-kind
+// records from brain.db to .agents/trail.jsonl on demand.
+func recordExport(c *ctx, o brain.Options) error {
+	n, err := brain.Export(o)
+	if err == nil {
+		fmt.Fprintf(c.out, "export: %d records written to .agents/trail.jsonl\n", n)
+	}
+	return recordErr(c, err)
+}
+
+// recordSync serves `record sync`: loads .agents/trail.jsonl into brain.db and
+// its FTS5 index on demand.
+func recordSync(c *ctx, o brain.Options) error {
+	recs, err := brain.Sync(o)
+	if err == nil {
+		fmt.Fprintf(c.out, "sync: %d records loaded from .agents/trail.jsonl\n", len(recs))
+		warnSyncRedactable(recs)
+	}
+	return recordErr(c, err)
+}
+
 // recordImport serves `record import`: the project's trail, or with
 // --global the home's old logs.
 func recordImport(c *ctx, o brain.Options, rest []string) error {
@@ -205,7 +234,7 @@ func printImport(c *ctx, res *brain.ImportResult) {
 		p("problem  %s", s)
 	}
 	if len(res.Remove) > 0 {
-		p("remove with git --literal-pathspecs rm -- and these paths, after committing .agents/trail.jsonl (%d files):", len(res.Remove))
+		p("remove with git --literal-pathspecs rm -- and these paths (%d files):", len(res.Remove))
 		for _, f := range res.Remove {
 			p("%s", brain.ShellQuote(f))
 		}

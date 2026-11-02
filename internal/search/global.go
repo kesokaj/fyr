@@ -1,6 +1,7 @@
 package search
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -81,7 +82,7 @@ func registrations(st *store) ([]string, error) {
 // checkRegistered drops a registration that no longer holds, with a note on
 // out saying why; one whose check errors stays, with a note.
 func checkRegistered(st *store, home, root string, out io.Writer) error {
-	reason, err := dropReason(root)
+	reason, err := dropReason(home, root)
 	if err == nil && reason == "" && !trail.Registered(filepath.Join(home, harness.StateDir), root) {
 		// A row is a cache entry the checkout's own search writes again once
 		// it is registered, so a marker that does not check out drops it: a
@@ -129,11 +130,63 @@ func HasTrail(root string) (bool, error) {
 	return fi.Mode().IsRegular(), nil
 }
 
+// HasScopeRecords reports whether root has project trail records: either a
+// regular .agents/trail.jsonl in a real .agents directory, or exported-kind
+// rows for root's scope in brain.db under home (ADR-091). A symlink or
+// non-regular file at .agents or .agents/trail.jsonl returns false, nil. It
+// never creates brain.db.
+func HasScopeRecords(home, root string) (bool, error) {
+	if fi, err := os.Lstat(filepath.Join(root, ".agents")); err == nil {
+		if !fi.IsDir() {
+			return false, nil
+		}
+		tfi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(trailExport)))
+		if err == nil {
+			return tfi.Mode().IsRegular(), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if home == "" {
+		return false, nil
+	}
+	brainPath := filepath.Join(home, harness.StateDir, "brain.db")
+	if fi, err := os.Lstat(brainPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	} else if !fi.Mode().IsRegular() {
+		return false, nil
+	}
+	scope := root
+	if main, _, err := trail.Roots(root); err == nil {
+		scope = main
+	}
+	db, err := sql.Open("sqlite", DSN(brainPath))
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	var one int
+	err = db.QueryRow(`SELECT 1 FROM records WHERE scope = ? AND kind NOT IN ('memory', 'feedback', 'proposal') LIMIT 1`, scope).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // dropReason says why a registration should go, or "" when it stays; an
 // error means the check could not run, and the registration stays. It goes
 // only on positive evidence: the root is gone, git says it is not a
-// checkout (or a different one), or it has no trail (ADR-086).
-func dropReason(root string) (string, error) {
+// checkout (or a different one), or it has no records (ADR-086, ADR-091).
+func dropReason(home, root string) (string, error) {
 	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 		return "no longer a git checkout", nil
 	} else if err != nil {
@@ -148,7 +201,7 @@ func dropReason(root string) (string, error) {
 	case got != root:
 		return "no longer a git checkout", nil
 	}
-	ok, err := HasTrail(root)
+	ok, err := HasScopeRecords(home, root)
 	switch {
 	case err != nil:
 		return "", err

@@ -59,4 +59,4 @@ Local only — see `DEPLOY-local` (`fyr record get DEPLOY-local`).
 | `SDD.md` | How the parts fit: components, flows, decisions |
 | `TDD.md` | How each part is built and tested |
 | `TODO.md` | The active phase's tasks, the next phases, the backlog |
-| `.agents/trail.jsonl` | The trail as records (plans, changes, ADRs, specs, guides, bugs), written only by `fyr record` |
+| `.agents/` | Project customizations and `scratch/` (trail records live in `fyr`'s brain store; `fyr record export` writes `.agents/trail.jsonl` on demand) |

@@ -142,7 +142,7 @@ func registerConsented(o Options, root string, out io.Writer) error {
 		return nil
 	}
 	row := RegistryRoot(root)
-	if ok, err := HasTrail(row); err != nil || !ok {
+	if ok, err := HasScopeRecords(o.Home, row); err != nil || !ok {
 		return nil
 	}
 	return register(o.Home, row, out)

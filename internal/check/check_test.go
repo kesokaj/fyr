@@ -182,7 +182,7 @@ func TestDocsRulePaths(t *testing.T) {
 		".agents/kit/run.sh": "#!/bin/sh\n",
 		"README.md": strings.Join([]string{
 			"`internal/gone.go` `internal/here.go:4` `internal/here.go:2-9` `internal/here.go:3` `internal:1`",
-			"`web/` `crypto/tls` `internal/trail.Command` `.agents/scratch/x` `<clone>/internal/x.go` `./internal/here.go`",
+			"`web/` `crypto/tls` `internal/trail.Command` `.agents/scratch/x` `<clone>/internal/x.go` `./internal/here.go` `.agents/trail.jsonl`",
 			"`skills/x/SKILL.md` `skills/y/SKILL.md` `internal/` `README.md` `go run ./cmd/fyr` `https://x/internal/a`",
 		}, "\n"),
 	})

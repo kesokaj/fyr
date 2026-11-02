@@ -102,6 +102,9 @@ func TestGlobalOnlyKinds(t *testing.T) {
 		t.Fatalf("list --global --kind proposal --project: %+v %v", list, err)
 	}
 	add(t, o, "learning", "project one", "b")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	if s := trailText(t, dir); strings.Contains(s, "feedback") || strings.Contains(s, "proposal") {
 		t.Errorf("a global record reached the export:\n%s", s)
 	}

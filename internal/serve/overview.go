@@ -28,17 +28,35 @@ var (
 
 // listAll reads every scope's records without creating brain.db when absent.
 func (r *Run) listAll(f brain.ListFilter) ([]brain.Record, error) {
-	if _, err := os.Lstat(brain.Path(r.o.Home)); errors.Is(err, os.ErrNotExist) {
-		if r.root == "" {
-			return nil, nil
+	var recs []brain.Record
+	if _, err := os.Lstat(brain.Path(r.o.Home)); err == nil {
+		var lerr error
+		recs, lerr = brain.List(brain.Options{Home: r.o.Home, Dir: r.o.Dir}, brain.ListFilter{All: true, Kind: f.Kind, Open: f.Open})
+		if lerr != nil {
+			return nil, lerr
 		}
-		if _, terr := os.Lstat(filepath.Join(r.root, ".agents", "trail.jsonl")); terr != nil {
-			return nil, nil
-		}
-	} else if err != nil {
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return brain.List(brain.Options{Home: r.o.Home, Dir: r.o.Dir}, brain.ListFilter{All: true, Kind: f.Kind, Open: f.Open})
+	if r.root != "" {
+		hasRoot := false
+		for _, rec := range recs {
+			if rec.Scope == r.root {
+				hasRoot = true
+				break
+			}
+		}
+		if !hasRoot {
+			if trailRecs, ok, _ := brain.ReadTrail(r.root); ok {
+				for _, rec := range trailRecs {
+					if (f.Kind == "" || rec.Kind == f.Kind) && (!f.Open || rec.Status == "open") {
+						recs = append(recs, rec)
+					}
+				}
+			}
+		}
+	}
+	return recs, nil
 }
 
 // knownProjects returns the sorted canonical union of projects in brain.db,

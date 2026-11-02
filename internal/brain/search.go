@@ -101,11 +101,10 @@ func searchQuery(o Options, q, kind string, scopes []string) (string, []any) {
 	return sqlq, append(args, o.now().Format("2006-01-02"))
 }
 
-// openForSearch opens the store for a search from o.Dir, loading the
-// project's changed trail.jsonl first, and returns the project's scope ("" outside
-// a checkout). A nil store means there is nothing to search: no brain.db and
-// no trail.jsonl (nothing is created), or outside a checkout without
-// --global, where the file search refuses too.
+// openForSearch opens the store for a search from o.Dir and returns the
+// project's scope ("" outside a checkout). A nil store means there is
+// nothing to search: no brain.db (nothing is created), or outside a
+// checkout without --global, where the file search refuses too.
 func openForSearch(o Options) (*store, string, error) {
 	var p *session
 	if scope, top, err := trail.Roots(o.Dir); err == nil {
@@ -113,28 +112,17 @@ func openForSearch(o Options) (*store, string, error) {
 	} else if !o.Global {
 		return nil, "", nil
 	}
-	_, statErr := os.Lstat(Path(o.Home))
-	hasTrail := false
 	if p != nil {
 		if err := guardExportPath(p.top); err != nil {
 			return nil, "", err
 		}
-		_, err := os.Lstat(trailPath(p.top))
-		hasTrail = err == nil
 	}
-	if errors.Is(statErr, os.ErrNotExist) && !hasTrail {
+	if _, err := os.Lstat(Path(o.Home)); errors.Is(err, os.ErrNotExist) {
 		return nil, "", nil
 	}
 	st, err := openStore(o.Home)
 	if err != nil {
 		return nil, "", err
-	}
-	if p != nil && hasTrail {
-		p.st = st
-		if err := p.sync(); err != nil {
-			st.close()
-			return nil, "", err
-		}
 	}
 	project := ""
 	if p != nil {

@@ -21,6 +21,7 @@ func TestEvalVerbRecord(t *testing.T) {
 	mark := filepath.Join(r.ctl, "flaky-once")
 	suite := evalSuite + "| `flaky` | `if test -e '" + mark + "'; then true; else touch '" + mark + "'; exit 1; fi` | say ok |  | `grep -q 'agy says ok' \"$OUT\"` |  | named |\n"
 	r.mustRun(strings.NewReader(suite), "record", "add", "guide", "--id", "GUIDE-eval", "--title", "suite", "--home", r.home)
+	r.mustRun(nil, "record", "export", "--home", r.home)
 	r.git("add", "-A")
 	r.git("commit", "-qm", "the suite")
 	// Sessions 1 and 2 are ok's, 3 is flaky's second trial: the header
@@ -147,6 +148,7 @@ func TestEvalVerbRecordSuiteColumns(t *testing.T) {
 		"| `ex` |  | say ok |  | `grep -q 'agy says ok' \"$OUT\"` |  | named |  | regression |  | Bash,git status,Grep |\n" +
 		"| `ind` |  | say ok |  | `false` |  | named |  | indicator |  |  |\n"
 	r.mustRun(strings.NewReader(suite), "record", "add", "guide", "--id", "GUIDE-eval", "--title", "suite", "--home", r.home)
+	r.mustRun(nil, "record", "export", "--home", r.home)
 	r.git("add", "-A")
 	r.git("commit", "-qm", "the suite")
 	r.templateModel("1", "gemini-x", "C1")

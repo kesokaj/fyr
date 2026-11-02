@@ -303,8 +303,8 @@ func isDocTarget(doc string) bool {
 	return strings.HasSuffix(strings.ToLower(doc), ".md") && validTypedEntry(doc)
 }
 
-func onboardingAge(root string) int {
-	recs, _, err := brain.ReadTrail(root)
+func onboardingAge(home, root string) int {
+	recs, _, err := brain.ReadScope(home, root)
 	if err != nil {
 		return 0
 	}

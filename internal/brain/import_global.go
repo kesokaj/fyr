@@ -45,7 +45,7 @@ func ImportGlobal(o Options, dryRun bool) (*ImportResult, error) {
 	if dryRun {
 		return res, nil
 	}
-	if err := storeImported(o.Home, "", "", res, g.recs, false); err != nil {
+	if err := storeImported(o.Home, "", "", res, g.recs); err != nil {
 		return nil, err
 	}
 	return res, nil

@@ -180,6 +180,11 @@ func TestRunRealFyrBaseline(t *testing.T) {
 	if out, err := add.CombinedOutput(); err != nil {
 		t.Fatalf("record add: %v\n%s", err, out)
 	}
+	exp := exec.Command(self, "record", "export", "--home", filepath.Join(r.tmp, "import-home"))
+	exp.Dir = fixture
+	if out, err := exp.CombinedOutput(); err != nil {
+		t.Fatalf("record export: %v\n%s", err, out)
+	}
 	for _, args := range [][]string{{"add", ".agents/trail.jsonl"}, {"commit", "-qm", "trail"}} {
 		cmd := exec.Command("git", append([]string{"-C", fixture, "-c", "user.name=t", "-c", "user.email=t@localhost"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {

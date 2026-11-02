@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-01 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-02 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -35,7 +35,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M4 | `embed.go` | The five content directories built into the binary, pinned both ways to what git tracks, so a release binary carries the harness | R8, R9 |
 | M5 | `cmd/fyr` | The verbs, their flags and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where, the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
-| M7 | `internal/brain` | The brain store, `fyr record`: every project's trail records and the global ones, exported to `.agents/trail.jsonl` | R0, R4, R7 |
+| M7 | `internal/brain` | The brain store, `fyr record`: every project's trail records and the global ones, with on-demand `.agents/trail.jsonl` export and sync | R0, R4, R7 |
 | M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text index over files; the dream's read-only reads | R0, R4 |
 | M9 | `internal/memory` | `fyr memory`: the project memory every session loads | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
@@ -98,12 +98,14 @@ sequenceDiagram
   participant B as M7 brain store
   participant T as .agents/trail.jsonl
   A->>C: fyr record add plan, body on stdin
-  C->>B: load the export first when it changed, a pull
-  C->>B: allocate the ID, store the record
-  B->>T: rewrite the project's export
+  C->>B: allocate the ID, store the record in brain.db
   C-->>A: the new ID
   A->>C: fyr search words, at resume or before touching an area
   C-->>A: matching records, then ranked files
+  opt moving data between machines
+    A->>C: fyr record export / fyr record sync
+    C->>T: write or load .agents/trail.jsonl on demand
+  end
 ```
 
 ### Dream
@@ -135,7 +137,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - Antigravity only, with no path that sends experience back — rejected: a second CLI and a report verb — ADR-062, ADR-070.
 - The deployed context is one block pinned under 22,000 bytes, pruned rather than split — ADR-035, ADR-051.
 - One dependency, a pure-Go SQLite driver — rejected: cgo drivers and a second dependency — ADR-045.
-- Every trail record lives in one brain store with one committed export per project — rejected: Markdown files per record — ADR-063.
+- Every trail record lives in one brain store, exported to and synced from `.agents/trail.jsonl` only on demand — rejected: Markdown files per record, rewriting `.agents/trail.jsonl` on every record write — ADR-063, ADR-091.
 - A release binary carries the harness, and releases carry checksums but no signature — ADR-033, ADR-034, ADR-053.
 - A third way in, the zip place — ADR-038, ADR-041.
 - The metrics store holds session shape only, never prose — ADR-055, ADR-055a.

@@ -31,8 +31,11 @@ func TestIngestJoinsRegisteredTrailOnly(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
-	other := t.TempDir() // another home's add writes the checkout's trail.jsonl
+	other := t.TempDir() // another home's add+export writes the checkout's trail.jsonl
 	if _, err := brain.Add(brain.Options{Home: other, Dir: root}, brain.AddInput{Kind: "handoff", Title: "a stranger's handoff", Body: strings.NewReader("x")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.Export(brain.Options{Home: other, Dir: root}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl")); err != nil {

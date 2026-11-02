@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
 )
@@ -45,9 +46,9 @@ func hashTree(t *testing.T, root string) map[string][32]byte {
 func TestPagesWriteNothing(t *testing.T) {
 	f := newFix(t)
 	r := f.run(t)
-	trail := filepath.Join(f.repo, ".agents", "trail.jsonl")
+	bdb := brain.Path(f.home)
 	mdb := metrics.Path(f.home)
-	for _, p := range []string{trail, mdb} {
+	for _, p := range []string{bdb, mdb} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("precondition: %s is missing: %v", p, err)
 		}
@@ -98,7 +99,7 @@ func TestPagesWriteNothing(t *testing.T) {
 			t.Errorf("a read page removed %s", p)
 		}
 	}
-	if before[trail] != after[trail] || before[mdb] != after[mdb] {
-		t.Error("trail.jsonl or metrics.db changed")
+	if before[bdb] != after[bdb] || before[mdb] != after[mdb] {
+		t.Error("brain.db or metrics.db changed")
 	}
 }

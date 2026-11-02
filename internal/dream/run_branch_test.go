@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -65,6 +67,7 @@ func branchRun(t *testing.T, n int) (Options, []fixture, *bytes.Buffer) {
 	for len(fs) < n {
 		g := newFixture(t)
 		g.home = fs[0].home
+		g.addTrail(t, brain.Options{Home: g.home, Dir: g.root, Now: func() time.Time { return fresh }}, "bug", "fresh bug row", "a bug")
 		markRegistered(t, g.home, g.root)
 		fs = append(fs, g)
 	}

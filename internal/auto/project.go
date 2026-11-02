@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -29,12 +30,19 @@ func gateIdle(env Env, home, root string, idle time.Duration, now time.Time) str
 	}
 	cut := now.Add(-idle)
 	busy := func(t time.Time) bool { return t.After(cut) }
-	info, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl"))
-	if err != nil {
-		return "G7 idle: unreadable: " + oneLine(err.Error())
+	t, hasDB, dbErr := brain.LastUpdated(home, root)
+	if dbErr != nil {
+		return "G7 idle: unreadable: " + oneLine(dbErr.Error())
 	}
-	if busy(info.ModTime()) {
+	info, statErr := os.Stat(filepath.Join(root, ".agents", "trail.jsonl"))
+	if statErr != nil && !hasDB {
+		return "G7 idle: unreadable: " + oneLine(statErr.Error())
+	}
+	if statErr == nil && busy(info.ModTime()) {
 		return stop("the trail", info.ModTime())
+	}
+	if hasDB && busy(t) {
+		return stop("the trail", t)
 	}
 	last, err := lastReflog(root)
 	if err != nil {

@@ -7,11 +7,13 @@
 
 ## Now
 
-None (`PLAN-2026-11-01-1903-plan-fyr-serve-project-scoped-and-all-projects-o` closed 2026-11-01).
+### Phase 5 — `/preflight` release gate and release (`PLAN-2026-11-02-0750-plan-db-only-brain-store-with-on-demand-export-a`)
+- [ ] Run `/preflight` for the next release version (`v7.0.0`) as instructed by the operator (`"Go all approved and when done preflight next version"`)
+- [ ] Checkpoint
 
 ## Next
 
-None.
+(none)
 
 ## Backlog
 

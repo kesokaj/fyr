@@ -63,6 +63,7 @@ on change2 && fyr record add change --title "A second change" <<<"another" >/dev
 on nohandoff || fyr record add handoff --title "Handoff one" < "$CTL/handoff" >/dev/null
 on twohandoffs && fyr record add handoff --title "Handoff two" < "$CTL/handoff" >/dev/null
 on add-kind && { fyr record add "$(val add-kind)" --title "The worker's own" <<<"its body" >/dev/null 2>"$CTL/add-kind-err" || touch "$CTL/add-kind-failed"; }
+on noexport || fyr record export >/dev/null 2>&1 || true
 rawid=RAW-2026-10-30-x; on raw-id && rawid=$(val raw-id)
 rawdate=$(date +%F); on raw-date && rawdate=$(val raw-date)
 rawupd=$(date -u +%Y-%m-%dT%H:%M:%SZ); on raw-updated && rawupd=$(val raw-updated)
@@ -142,7 +143,7 @@ func newRig(t *testing.T) *rig {
 	put(t, filepath.Join(r.lead, "README.md"), "demo\n")
 	put(t, filepath.Join(r.lead, "src", "a.txt"), "a\n")
 	put(t, filepath.Join(r.lead, "pkg", "b.go"), "b\n")
-	add := exec.Command(fyr, "record", "add", "guide", "--title", "Old guide", "--home", filepath.Join(tmp, "import-home"))
+	add := exec.Command(fyr, "record", "add", "guide", "--title", "Old guide", "--home", r.home)
 	add.Dir, add.Stdin = r.lead, strings.NewReader("the guide\n")
 	var stderr bytes.Buffer
 	add.Stderr = &stderr
@@ -151,6 +152,11 @@ func newRig(t *testing.T) *rig {
 		t.Fatalf("record add: %v\n%s%s", err, stderr.String(), id)
 	}
 	r.guide = strings.TrimSpace(string(id))
+	exp := exec.Command(fyr, "record", "export", "--home", r.home)
+	exp.Dir = r.lead
+	if out, err := exp.CombinedOutput(); err != nil {
+		t.Fatalf("record export: %v\n%s", err, out)
+	}
 	r.git("-C", r.lead, "add", "-A")
 	r.git("-C", r.lead, "commit", "-qm", "base")
 	put(t, filepath.Join(r.real, sandbox.TokenRel), "token")

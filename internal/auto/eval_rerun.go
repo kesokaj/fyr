@@ -61,7 +61,7 @@ func (r *run) triggerEvalRerun(root string, p *Project) *Task {
 	if !r.isHarnessCheckout(root) {
 		return nil
 	}
-	suite, err := readCheckoutSuite(root)
+	suite, err := readCheckoutSuite(r.o.Home, root)
 	if err != nil {
 		return nil
 	}
@@ -89,8 +89,8 @@ func sameDir(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func readCheckoutSuite(root string) ([]eval.Row, error) {
-	recs, ok, err := brain.ReadTrail(root)
+func readCheckoutSuite(home, root string) ([]eval.Row, error) {
+	recs, ok, err := brain.ReadScope(home, root)
 	if err != nil || !ok {
 		return nil, fmt.Errorf("no trail in %s", root)
 	}

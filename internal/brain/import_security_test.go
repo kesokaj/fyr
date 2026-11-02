@@ -25,11 +25,19 @@ func TestImportBadDateLoads(t *testing.T) {
 	os.WriteFile(adr, append(b, []byte("\n## ADR-048: Bad day     (2026-02-30) — Accepted\n\nbody\n")...), 0o644)
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-qm", "typos")
-	if _, err := Import(opts(dir, t.TempDir()), "", false); err != nil {
+	home := t.TempDir()
+	if _, err := Import(opts(dir, home), "", false); err != nil {
 		t.Fatal(err)
 	}
-	// A fresh home loads the committed file from scratch.
-	recs, err := List(opts(dir, t.TempDir()), ListFilter{})
+	if _, err := Export(opts(dir, home)); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh home syncs the exported file from scratch.
+	home2 := t.TempDir()
+	if _, err := Sync(opts(dir, home2)); err != nil {
+		t.Fatalf("a fresh home refuses the imported trail: %v", err)
+	}
+	recs, err := List(opts(dir, home2), ListFilter{})
 	if err != nil {
 		t.Fatalf("a fresh home refuses the imported trail: %v", err)
 	}
@@ -226,10 +234,10 @@ func TestImportStoresSameIDInTwoScopes(t *testing.T) {
 	a, b := r, r
 	a.Scope, b.Scope = "/p/one", "/p/two"
 	// /p/one already holds its MEMORY-x: the second run stores only /p/two's.
-	if _, err := s.insertNew([]Record{a}, false); err != nil {
+	if _, err := s.insertNew([]Record{a}); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := s.insertNew([]Record{a, b}, false)
+	stored, err := s.insertNew([]Record{a, b})
 	if err != nil {
 		t.Fatal(err)
 	}

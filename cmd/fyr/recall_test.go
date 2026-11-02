@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/brain"
 )
 
 // The recall test measures how well a retrieval arm finds the records and
@@ -293,6 +295,14 @@ func TestRecall(t *testing.T) {
 	}
 	root := repoRoot(t)
 	recallHome = t.TempDir()
+	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
+		if _, err := brain.Sync(brain.Options{Home: recallHome, Dir: root}); err != nil {
+			t.Fatal(err)
+		}
+	} else if b, err := os.ReadFile(brain.Path(os.Getenv("HOME"))); err == nil {
+		os.MkdirAll(filepath.Dir(brain.Path(recallHome)), 0o700)
+		os.WriteFile(brain.Path(recallHome), b, 0o600)
+	}
 	qs := loadRecallQuestions(t)
 	for _, arm := range recallArms {
 		sums := map[string]float64{}
@@ -320,13 +330,16 @@ func TestRecall(t *testing.T) {
 func TestRecallQuestionsAreWellFormed(t *testing.T) {
 	root := repoRoot(t)
 	qs := loadRecallQuestions(t)
-	trail, err := os.ReadFile(filepath.Join(root, ".agents", "trail.jsonl"))
-	if err != nil {
-		t.Fatal(err)
+	recs, ok, err := brain.ReadTrail(root)
+	if err == nil && !ok {
+		recs, ok, err = brain.ReadScope(os.Getenv("HOME"), root)
+	}
+	if err != nil || !ok {
+		t.Fatalf("reading trail records for %s: ok=%v, err=%v", root, ok, err)
 	}
 	ids := map[string]bool{}
-	for _, m := range trailID.FindAllStringSubmatch(string(trail), -1) {
-		ids[m[1]] = true
+	for _, r := range recs {
+		ids[r.ID] = true
 	}
 	var drift, structured int
 	for _, q := range qs {

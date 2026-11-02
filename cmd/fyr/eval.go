@@ -53,7 +53,7 @@ func loadEvalSuite(c *ctx, root string, atHead bool) ([]eval.Row, error) {
 	if path, set := evalSuiteFile(c); set {
 		return eval.ReadSuiteFile(path)
 	}
-	return readSuite(root, atHead)
+	return readSuite(c.home, root, atHead)
 }
 
 func labelHoldout(c *ctx, rows []eval.Row, results []eval.Result) {
@@ -209,36 +209,55 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	return o, src, rows, nil
 }
 
-// readSuite parses GUIDE-eval from root's trail export. With atHead it also
+// readSuite parses GUIDE-eval from root's brain store or trail export. With
+// atHead, when .agents/trail.jsonl is present on disk or in HEAD, it also
 // refuses a suite that differs from HEAD's, so a run always names the commit
-// its scenarios came from (D3); a testing record an earlier run wrote leaves
-// the export dirty without blocking the next run. --list runs nothing and
-// reads the working export alone (D19).
-func readSuite(root string, atHead bool) ([]eval.Row, error) {
-	recs, ok, err := brain.ReadTrail(root)
+// its scenarios came from (D3, D8); --list runs nothing and reads the working
+// records alone (D19).
+func readSuite(home, root string, atHead bool) ([]eval.Row, error) {
+	recs, ok, err := brain.ReadScope(home, root)
 	if err != nil {
-		return nil, err
+		var terr error
+		recs, ok, terr = brain.ReadTrail(root)
+		if terr != nil {
+			return nil, terr
+		}
+		if !ok {
+			return nil, err
+		}
 	}
 	work, found := findRecord(recs, suiteID)
+	if !ok || !found {
+		if real, rerr := os.UserHomeDir(); rerr == nil && real != "" && real != home {
+			recs, ok, err = brain.ReadScope(real, root)
+			if err != nil {
+				return nil, err
+			}
+			work, found = findRecord(recs, suiteID)
+		}
+	}
 	if !ok || !found {
 		return nil, fmt.Errorf("no %s record in %s", suiteID, filepath.Join(root, ".agents", "trail.jsonl"))
 	}
 	if atHead {
-		notCommitted := fmt.Errorf("%s is not committed; commit it first", suiteID)
-		out, err := trail.Command(root, "show", "HEAD:.agents/trail.jsonl").Output()
-		if err != nil {
-			return nil, notCommitted
-		}
-		headRecs, err := brain.ParseTrail(bytes.NewReader(out))
-		if err != nil {
-			return nil, fmt.Errorf("HEAD's trail.jsonl: %v", err)
-		}
-		head, found := findRecord(headRecs, suiteID)
-		if !found {
-			return nil, notCommitted
-		}
-		if head.Body != work.Body || head.Updated != work.Updated {
-			return nil, fmt.Errorf("%s has uncommitted changes; commit them first", suiteID)
+		_, diskErr := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl"))
+		out, headErr := trail.Command(root, "show", "HEAD:.agents/trail.jsonl").Output()
+		if diskErr == nil || headErr == nil {
+			notCommitted := fmt.Errorf("%s is not committed; commit it first", suiteID)
+			if headErr != nil {
+				return nil, notCommitted
+			}
+			headRecs, err := brain.ParseTrail(bytes.NewReader(out))
+			if err != nil {
+				return nil, fmt.Errorf("HEAD's trail.jsonl: %v", err)
+			}
+			head, found := findRecord(headRecs, suiteID)
+			if !found {
+				return nil, notCommitted
+			}
+			if head.Body != work.Body || head.Updated != work.Updated {
+				return nil, fmt.Errorf("%s has uncommitted changes; commit them first", suiteID)
+			}
 		}
 	}
 	return eval.ParseSuite(work.Body)

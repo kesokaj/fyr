@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,24 +9,38 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/brain"
 )
 
-// trailRecord is the body of the record id in this repository's committed
-// export, .agents/trail.jsonl (brain plan D21): the trail's specs and guides
-// are records since the migration, read here without a store.
-func trailRecord(t *testing.T, id string) string {
+// trailRecords returns the records in this repository's trail
+// (.agents/trail.jsonl when present on disk, else the brain store).
+func trailRecords(t *testing.T) []brain.Record {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", ".agents", "trail.jsonl"))
+	root := filepath.Join("..", "..")
+	recs, ok, err := brain.ReadTrail(root)
+	if err == nil && !ok {
+		recs, ok, err = brain.ReadScope(os.Getenv("HOME"), root)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, l := range strings.Split(string(data), "\n") {
-		var r struct{ ID, Body string }
-		if json.Unmarshal([]byte(l), &r) == nil && r.ID == id {
+	if !ok {
+		t.Skipf("no trail records in %s", root)
+	}
+	return recs
+}
+
+// trailRecord is the body of the record id in this repository's trail
+// (.agents/trail.jsonl when present on disk, else the brain store).
+func trailRecord(t *testing.T, id string) string {
+	t.Helper()
+	for _, r := range trailRecords(t) {
+		if r.ID == id {
 			return r.Body
 		}
 	}
-	t.Fatalf("no record %s in .agents/trail.jsonl", id)
+	t.Fatalf("no record %s in ../..", id)
 	return ""
 }
 
@@ -60,7 +73,11 @@ func TestDeliverySpecCurrent(t *testing.T) {
 	}
 	trailData, err := os.ReadFile(filepath.Join("..", "..", ".agents", "trail.jsonl"))
 	if err != nil {
-		t.Fatal(err)
+		var sb strings.Builder
+		for _, r := range trailRecords(t) {
+			fmt.Fprintf(&sb, "{\"id\":%q}\n", r.ID)
+		}
+		trailData = []byte(sb.String())
 	}
 	newest, found := newestVersion(versions, trailData)
 	if !found {

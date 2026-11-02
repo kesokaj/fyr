@@ -29,6 +29,9 @@ func recordsProject(t *testing.T, recordAt, commitAt time.Time) (home, root stri
 	if _, err := brain.MemoryAdd(o, brain.MemoryEntry{Type: "project", Name: "deploy-day", Description: "we deploy on Thursdays now"}, strings.NewReader("Thursdays.")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := brain.Export(o); err != nil {
+		t.Fatal(err)
+	}
 	date := commitAt.Format(time.RFC3339)
 	for _, args := range [][]string{{"add", ".agents/trail.jsonl"}, {"commit", "-qm", "trail"}} {
 		cmd := exec.Command("git", append([]string{"-C", root, "-c", "user.name=t", "-c", "user.email=t@e.invalid"}, args...)...)

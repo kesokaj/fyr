@@ -50,7 +50,7 @@ func (o Options) projectFindings(root string) (fs []Finding, failed bool) {
 		failed = true
 		fs = append(fs, Finding{name, "failed", root, oneLine(err.Error())})
 	}
-	rep, err := check.Run(root, o.Vocabulary)
+	rep, err := check.Run(root, o.Vocabulary, o.Home)
 	if err != nil {
 		broken("check", err)
 	}
@@ -61,7 +61,7 @@ func (o Options) projectFindings(root string) (fs []Finding, failed bool) {
 		}
 		fs = append(fs, Finding{"check", f.Rule, where, f.Text})
 	}
-	recs, _, err := brain.ReadTrail(root)
+	recs, _, err := brain.ReadScope(o.Home, root)
 	if err != nil {
 		broken("trail", err)
 	}

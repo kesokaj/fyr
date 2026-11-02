@@ -27,7 +27,7 @@ func TestLoadBoundedMemory(t *testing.T) {
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
-	if _, err := List(o, ListFilter{}); err != nil {
+	if _, err := Sync(o); err != nil {
 		t.Fatal(err)
 	}
 	runtime.ReadMemStats(&after)
@@ -41,7 +41,7 @@ func TestLoadRefusesAnOverlongLine(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	line := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"` + strings.Repeat("a", maxLine) + `"}`
 	os.WriteFile(trailFile(dir), []byte("\n"+line+"\n"), 0o644)
-	_, err := List(opts(dir, home), ListFilter{})
+	_, err := Sync(opts(dir, home))
 	if !IsRefusal(err) || !strings.Contains(err.Error(), "line 2: over") {
 		t.Fatalf("a line over %d bytes is refused with its number before it is decoded, got %v", maxLine, err)
 	}
@@ -56,10 +56,13 @@ func TestLoadTakesALongValidLine(t *testing.T) {
 	long := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"` + body + `"}`
 	bad := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	os.WriteFile(trailFile(dir), []byte(long+"\r\n"+bad), 0o644)
-	if _, err := List(opts(dir, home), ListFilter{}); !IsRefusal(err) || !strings.Contains(err.Error(), "line 2: duplicate ID BUG-001 (first at line 1)") {
+	if _, err := Sync(opts(dir, home)); !IsRefusal(err) || !strings.Contains(err.Error(), "line 2: duplicate ID BUG-001 (first at line 1)") {
 		t.Fatalf("line numbers across a long line: %v", err)
 	}
 	os.WriteFile(trailFile(dir), []byte(long), 0o644)
+	if _, err := Sync(opts(dir, home)); err != nil {
+		t.Fatal(err)
+	}
 	recs, _, err := Get(opts(dir, home), []string{"BUG-001"})
 	if err != nil || recs[0].Body != body {
 		t.Fatalf("a %d KiB line with no final newline loads whole: %v", len(long)>>10, err)
@@ -88,7 +91,7 @@ func TestLoadRefusesAnOversizeFile(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	os.WriteFile(trailFile(dir), []byte(strings.Repeat("\n", 2<<10)), 0o644)
 	// The size check names the file's path; the growth guard (above) does not.
-	if _, err := List(opts(dir, home), ListFilter{}); !IsRefusal(err) || !strings.Contains(err.Error(), trailFile(dir)+" is over") {
+	if _, err := Sync(opts(dir, home)); !IsRefusal(err) || !strings.Contains(err.Error(), trailFile(dir)+" is over") {
 		t.Fatalf("a file over the cap is refused by its size, got %v", err)
 	}
 }
@@ -104,9 +107,10 @@ func TestTitleLimit(t *testing.T) {
 	if _, err := Add(o, AddInput{Kind: "bug", Title: strings.Repeat("a", maxTitle), Body: strings.NewReader("b")}); err != nil {
 		t.Errorf("a title of exactly the cap is taken: %v", err)
 	}
+	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	line := `{"date":"2026-10-24","id":"BUG-009","kind":"bug","status":"open","title":"` + long + `","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	os.WriteFile(trailFile(dir), []byte(line+"\n"), 0o644)
-	if _, err := List(o, ListFilter{}); !IsRefusal(err) || !strings.Contains(err.Error(), "line 1") {
+	if _, err := Sync(o); !IsRefusal(err) || !strings.Contains(err.Error(), "line 1") {
 		t.Errorf("a loaded title over the cap is refused with its line, got %v", err)
 	}
 }
@@ -144,9 +148,10 @@ func TestControlCharactersRefused(t *testing.T) {
 	if _, err := Add(o, AddInput{Kind: "bug", Title: "t", Body: strings.NewReader("tab\there\nnext line\r\n")}); err != nil {
 		t.Errorf("tab, newline and CRLF are text: %v", err)
 	}
+	os.MkdirAll(filepath.Join(dir, ".agents"), 0o755)
 	line := `{"date":"2026-10-24","id":"BUG-009","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"\u0001mark\u0002"}`
 	os.WriteFile(trailFile(dir), []byte(line+"\n"), 0o644)
-	if _, err := List(o, ListFilter{}); !IsRefusal(err) || !strings.Contains(err.Error(), "line 1") {
+	if _, err := Sync(o); !IsRefusal(err) || !strings.Contains(err.Error(), "line 1") {
 		t.Errorf("a loaded body with \\x01 is refused with its line, got %v", err)
 	}
 }
@@ -194,6 +199,9 @@ func TestEveryUnexportedKindStaysOut(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
 	}
 	text := trailText(t, dir)
 	if !strings.Contains(text, "visible") || strings.Contains(text, "secret") {

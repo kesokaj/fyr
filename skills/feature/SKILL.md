@@ -8,7 +8,7 @@ argument-hint: "[feature description or #issue]"
 
 Design before code; let a fresh reader test the design; implement in verifiable phases; prove it end to end. The plan file is the checkpoint that lets any later session continue.
 
-**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported to `.agents/trail.jsonl`. Dates from `date +%F`.
+**The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported on demand with `fyr record export`. Dates from `date +%F`.
 
 ## Gates that need the user
 

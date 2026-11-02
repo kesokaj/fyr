@@ -96,7 +96,7 @@ func (s *store) current(project string) (map[string]string, map[string]bool, err
 	return files, blobs, rows.Err()
 }
 
-// trailExport is the brain store's committed export, relative to a checkout.
+// trailExport is the brain store's on-demand export, relative to a checkout.
 const trailExport = ".agents/trail.jsonl"
 
 // wanted is the view minus paths whose blob is known to be skipped.

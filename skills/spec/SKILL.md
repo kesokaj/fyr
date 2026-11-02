@@ -49,7 +49,7 @@ Show the record's ID and its Interfaces section in chat. The user's yes sets the
 
 ## Definition of Done
 
-A spec on its own is a docs change: a `change` record (or the feature's names it), commit `.agents/trail.jsonl`, push. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec path instead of restating shapes.
+A spec on its own is a docs change: a `change` record (or the feature's names it), `/handoff`. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec path instead of restating shapes.
 
 ## Cross-references
 

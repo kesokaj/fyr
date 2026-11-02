@@ -154,11 +154,6 @@ func TestRecordImportWarnsOnRedactable(t *testing.T) {
 
 	// Once the scope holds them, a dry run still names every record it read,
 	// and a second real import, which stores nothing, names none.
-	for _, args := range [][]string{{"add", ".agents/trail.jsonl"}, {"commit", "-qm", "trail"}} {
-		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
 	errOut.Reset()
 	if _, err := recordCmd(t, "", "record", "import", "--dry-run", "--home", home); exitOf(err) != 0 || errOut.String() != wantWarn("") {
 		t.Errorf("dry run over held records: exit %d, stderr %q", exitOf(err), errOut.String())
@@ -166,5 +161,42 @@ func TestRecordImportWarnsOnRedactable(t *testing.T) {
 	errOut.Reset()
 	if out, err := recordCmd(t, "", "record", "import", "--home", home); exitOf(err) != 0 || !strings.Contains(out, "5 already stored") || errOut.Len() != 0 {
 		t.Errorf("re-import: exit %d, out %q, stderr %q; want 0, 5 already stored and no warning", exitOf(err), out, errOut.String())
+	}
+}
+
+func TestRecordSyncWarnsOnRedactable(t *testing.T) {
+	root := recordRepo(t)
+	srcHome, dstHome := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	var errOut bytes.Buffer
+	stderr = &errOut
+	t.Cleanup(func() { stderr = os.Stderr })
+	const token = "dckr_pat_FAKEVALUEFAKEVALUE"
+	const hotID = "SPEC-dckr_pat_fakevaluefakevalue"
+	if _, err := recordCmd(t, "line one\nlogin with "+token+"\n", "record", "add", "bug", "--title", "clean title", "--home", srcHome); exitOf(err) != 0 {
+		t.Fatalf("add bug: %v", err)
+	}
+	if _, err := recordCmd(t, "clean body\n", "record", "add", "bug", "--title", "leaked "+token, "--home", srcHome); exitOf(err) != 0 {
+		t.Fatalf("add title bug: %v", err)
+	}
+	if _, err := recordCmd(t, "clean body\n", "record", "add", "spec", "--title", "clean spec", "--id", hotID, "--home", srcHome); exitOf(err) != 0 {
+		t.Fatalf("add hot id spec: %v", err)
+	}
+	if _, err := recordCmd(t, "", "record", "export", "--home", srcHome); exitOf(err) != 0 {
+		t.Fatalf("export: %v in %s", err, root)
+	}
+	errOut.Reset()
+	out, err := recordCmd(t, "", "record", "sync", "--home", dstHome)
+	if exitOf(err) != 0 || out != "sync: 3 records loaded from .agents/trail.jsonl\n" {
+		t.Fatalf("sync: exit %d, out %q", exitOf(err), out)
+	}
+	want := "fyr record sync: warning: BUG-001: the body holds text the redactor would change (first at line 2); stored as written\n" +
+		"fyr record sync: warning: record 2 in .agents/trail.jsonl: the title holds text the redactor would change; stored as written\n" +
+		"fyr record sync: warning: record 3 in .agents/trail.jsonl: the ID holds text the redactor would change; stored as written\n"
+	if got := errOut.String(); got != want {
+		t.Errorf("sync stderr:\n%q\nwant:\n%q", got, want)
+	}
+	if strings.Contains(out+errOut.String(), token) || strings.Contains(errOut.String(), hotID) {
+		t.Errorf("secret or hotID leaked in output: %q %q", out, errOut.String())
 	}
 }

@@ -61,6 +61,9 @@ func TestIDs(t *testing.T) {
 		t.Error("a spec given a PLAN id was taken")
 	}
 	// The export orders numbers numerically.
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	var bugs []string
 	for _, l := range strings.Split(strings.TrimSpace(trailText(t, dir)), "\n") {
 		if i := strings.Index(l, `"id":"BUG-`); i >= 0 {
@@ -133,6 +136,9 @@ func TestTwoProcessesAllocateDistinctIDs(t *testing.T) {
 		if id := fmt.Sprintf("BUG-%03d", n); !seen[id] {
 			t.Errorf("%s missing: allocation skipped a number", id)
 		}
+	}
+	if _, err := Export(opts(dir, home)); err != nil {
+		t.Fatal(err)
 	}
 	if lines := strings.Count(trailText(t, dir), "\n"); lines != 2*each {
 		t.Errorf("trail.jsonl has %d lines, want %d: the export lost a concurrent write", lines, 2*each)

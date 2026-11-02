@@ -100,7 +100,7 @@ func Import(o Options, docsArg string, dryRun bool) (*ImportResult, error) {
 	if dryRun {
 		return res, nil
 	}
-	if err := storeImported(o.Home, scope, top, res, recs, true); err != nil {
+	if err := storeImported(o.Home, scope, top, res, recs); err != nil {
 		return nil, err
 	}
 	return res, nil
@@ -180,17 +180,16 @@ func projectRecords(res *ImportResult, kept []candidate, mems []Imported, scope 
 	return recs, nil
 }
 
-// storeImported stores recs into the store under home, in scope (exporting
-// to top's trail.jsonl when export is set), and leaves in res.Records only
-// the records it stored, counting the rest as skipped.
-func storeImported(home, scope, top string, res *ImportResult, recs []Record, export bool) error {
+// storeImported stores recs into the store under home, in scope, and leaves in
+// res.Records only the records it stored, counting the rest as skipped.
+func storeImported(home, scope, top string, res *ImportResult, recs []Record) error {
 	st, err := openStore(home)
 	if err != nil {
 		return err
 	}
 	s := &session{st: st, scope: scope, top: top}
 	defer s.close()
-	stored, err := s.insertNew(recs, export)
+	stored, err := s.insertNew(recs)
 	if err != nil {
 		return err
 	}
@@ -214,16 +213,11 @@ func filterStored(all []Imported, stored map[string]bool) []Imported {
 }
 
 // insertNew stores every record whose ID its scope does not hold yet, in one
-// transaction, and exports when export is set; it returns the keys
-// (storedKey) it stored. The caller checked every record; the check runs
-// again here as the last guard before the store.
-func (s *session) insertNew(recs []Record, export bool) (map[string]bool, error) {
+// transaction; it returns the keys (storedKey) it stored. The caller checked
+// every record; the check runs again here as the last guard before the store.
+func (s *session) insertNew(recs []Record) (map[string]bool, error) {
 	stored := map[string]bool{}
-	write := s.st.tx
-	if export {
-		write = s.write
-	}
-	err := write(func(c *sql.Conn) error {
+	err := s.st.tx(func(c *sql.Conn) error {
 		ctx := context.Background()
 		for _, r := range recs {
 			if err := checkRecord(r); err != nil {

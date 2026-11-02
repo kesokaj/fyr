@@ -15,7 +15,7 @@ func teeBody(seen *strings.Builder) io.Reader { return io.TeeReader(stdin, seen)
 
 // warnRedactable names on stderr, after the store, an ID given with --id, a
 // title or a body that holds text the redactor would change: a project's
-// records are exported to the committed trail.jsonl, and the operator chose a
+// records reach .agents/trail.jsonl when exported, and the operator chose a
 // warning over a refusal (SD42 of the 2026-10-27 audit; the ID, ledger D31
 // 3b). The record stays stored and the exit status is kept. The text itself
 // is never printed, the ID's neither (stdout still prints it, as add's
@@ -66,6 +66,28 @@ func warnImportRedactable(res *brain.ImportResult, dryRun bool) {
 		}
 		if n := firstRedacted(body); n > 0 {
 			warn(name, "the body", fmt.Sprintf(" (first at line %d)", n))
+		}
+	}
+}
+
+// warnSyncRedactable warns on stderr when a record loaded by `record sync`
+// holds text the redactor would change, without printing the text itself.
+func warnSyncRedactable(recs []brain.Record) {
+	for i, r := range recs {
+		idHot := redact.Redact(r.ID) != r.ID
+		titleHot := redact.Redact(r.Title) != r.Title
+		name := r.ID
+		if idHot || titleHot {
+			name = fmt.Sprintf("record %d in .agents/trail.jsonl", i+1)
+		}
+		if idHot {
+			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the ID holds text the redactor would change; stored as written\n", name)
+		}
+		if titleHot {
+			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the title holds text the redactor would change; stored as written\n", name)
+		}
+		if n := firstRedacted(r.Body); n > 0 {
+			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the body holds text the redactor would change (first at line %d); stored as written\n", name, n)
 		}
 	}
 }

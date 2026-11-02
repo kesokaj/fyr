@@ -29,6 +29,12 @@ func TestExportByteStable(t *testing.T) {
 			add(t, o, r.kind, r.title, r.body, "id", r.id)
 		}
 		add(t, o, "memory", "local only", "never exported")
+		if _, err := os.Stat(trailFile(dir)); !os.IsNotExist(err) {
+			t.Fatalf("add wrote trail.jsonl without Export")
+		}
+		if n, err := Export(o); err != nil || n != len(rows) {
+			t.Fatalf("Export: n=%d, err=%v, want %d", n, err, len(rows))
+		}
 		return trailText(t, dir)
 	}
 	a := write([]int{0, 1, 2, 3, 4})
@@ -67,19 +73,25 @@ func TestExportByteStable(t *testing.T) {
 	}
 }
 
-// Load (D21): a file git changed replaces the project's exported rows; the
-// file wins; memory stays.
+// Sync (ADR-091): a file synced on demand replaces the project's exported rows
+// and updates records_fts; memory stays.
 func TestLoadReplacesRowsFromAChangedFile(t *testing.T) {
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "bug", "kept", "b")
 	add(t, o, "bug", "dropped", "b")
 	add(t, o, "memory", "local", "m")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	s := trailText(t, dir)
 	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 	edited := strings.Replace(lines[0], `"title":"kept"`, `"title":"kept, retitled by a pull"`, 1)
 	extra := `{"date":"2026-10-24","id":"ADR-063","kind":"adr","status":"accepted","title":"the brain","updated":"2026-10-24T10:00:00Z","body":"decided"}`
 	if err := os.WriteFile(trailFile(dir), []byte(edited+"\n"+extra+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(o); err != nil {
 		t.Fatal(err)
 	}
 	list, err := List(o, ListFilter{})
@@ -99,24 +111,36 @@ func TestLoadReplacesRowsFromAChangedFile(t *testing.T) {
 	if len(got) != 3 {
 		t.Errorf("rows %v, want BUG-001, ADR-063 and the memory", got)
 	}
-	// The next write numbers from the loaded rows and exports at once.
+	if hits, err := Search(o, []string{"decided"}, "", 10); err != nil || len(hits) != 1 || hits[0].ID != "ADR-063" {
+		t.Errorf("FTS after Sync: %+v %v, want ADR-063", hits, err)
+	}
+	// The next write numbers from the synced rows; Export writes them out.
 	if id := add(t, o, "bug", "after", "b"); id != "BUG-002" {
-		t.Errorf("after load: %s", id)
+		t.Errorf("after sync: %s", id)
+	}
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
 	}
 	if !strings.Contains(trailText(t, dir), "ADR-063") {
-		t.Error("the write after a load dropped a loaded record")
+		t.Error("the export after a sync dropped a synced record")
 	}
 }
 
-// A brain.db lost: the project's records come back from trail.jsonl on the
-// next call (R7, Failure modes).
+// A brain.db lost or moved to another machine: the project's records come back
+// from trail.jsonl via Sync (R7, ADR-091).
 func TestLostStoreRestoredFromTrail(t *testing.T) {
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "plan", "open plan", "- [ ] x")
 	add(t, o, "bug", "a bug", "b")
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []string{Path(home), Path(home) + "-wal", Path(home) + "-shm"} {
 		os.Remove(p)
+	}
+	if _, err := Sync(o); err != nil {
+		t.Fatal(err)
 	}
 	list, err := List(o, ListFilter{Open: true})
 	if err != nil {
@@ -127,10 +151,9 @@ func TestLostStoreRestoredFromTrail(t *testing.T) {
 	}
 }
 
-// A bad file is refused with its line number — a duplicate ID whose lines
-// differ with both (a byte-identical pair is one record: BUG-197),
-// a git conflict marker, a line that is not JSON — and every verb refuses
-// until it parses.
+// A bad file is refused by Sync with its line number — a duplicate ID whose
+// lines differ with both (a byte-identical pair is one record: BUG-197), a git
+// conflict marker, a line that is not JSON — leaving existing records intact.
 func TestLoadRefusals(t *testing.T) {
 	good := `{"date":"2026-10-24","id":"BUG-001","kind":"bug","status":"open","title":"t","updated":"2026-10-24T10:00:00Z","body":"b"}`
 	other := `{"date":"2026-10-24","id":"BUG-002","kind":"bug","status":"open","title":"u","updated":"2026-10-24T10:00:00Z","body":"b"}`
@@ -159,23 +182,23 @@ func TestLoadRefusals(t *testing.T) {
 			if err := os.WriteFile(trailFile(dir), []byte(tc.file), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, err := List(o, ListFilter{})
+			_, err := Sync(o)
 			if !IsRefusal(err) {
-				t.Fatalf("list on a bad file: %v, want a refusal", err)
+				t.Fatalf("sync on a bad file: %v, want a refusal", err)
 			}
 			for _, w := range tc.want {
 				if !strings.Contains(err.Error(), w) {
 					t.Errorf("refusal %q lacks %q", err, w)
 				}
 			}
-			if _, err := Add(o, AddInput{Kind: "bug", Title: "x", Body: strings.NewReader("b")}); !IsRefusal(err) {
-				t.Errorf("a write on a bad file: %v, want a refusal", err)
-			}
 			if got, _ := os.ReadFile(trailFile(dir)); string(got) != tc.file {
-				t.Errorf("a refused load rewrote the file")
+				t.Errorf("a refused sync rewrote the file")
 			}
-			// Fixed by hand, it loads.
+			// Fixed by hand, it syncs.
 			os.WriteFile(trailFile(dir), []byte(good+"\n"), 0o644)
+			if _, err := Sync(o); err != nil {
+				t.Fatalf("sync after fix: %v", err)
+			}
 			if list, err := List(o, ListFilter{}); err != nil || len(list) != 1 {
 				t.Errorf("after the fix: %v %v", list, err)
 			}
@@ -236,5 +259,57 @@ func TestGetOutputPrintable(t *testing.T) {
 	want := "BUG-001  bug  open  2026-10-25  evil?[31m title?\nline one?]0;x?\n\tindented?forged\n"
 	if got != want {
 		t.Errorf("FormatGet = %q, want %q", got, want)
+	}
+}
+
+func TestExportSyncRefusalsAndReadScope(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+
+	// Sync without .agents/trail.jsonl is refused.
+	if _, err := Sync(o); !IsRefusal(err) || !strings.Contains(err.Error(), "no .agents/trail.jsonl") {
+		t.Fatalf("Sync without trail.jsonl: %v, want refusal", err)
+	}
+	// Export and Sync with --global are usage errors.
+	g := o
+	g.Global = true
+	if _, err := Export(g); !IsUsage(err) {
+		t.Errorf("Export --global: %v, want usage error", err)
+	}
+	if _, err := Sync(g); !IsUsage(err) {
+		t.Errorf("Sync --global: %v, want usage error", err)
+	}
+
+	// HasRecords, ReadScope, LastUpdated on an empty project create no store.
+	if ok, err := HasRecords(home, dir); err != nil || ok {
+		t.Errorf("HasRecords empty: %v %v", ok, err)
+	}
+	if recs, ok, err := ReadScope(home, dir); err != nil || ok || len(recs) != 0 {
+		t.Errorf("ReadScope empty: %v %v %v", recs, ok, err)
+	}
+	if _, ok, err := LastUpdated(home, dir); err != nil || ok {
+		t.Errorf("LastUpdated empty: %v %v", ok, err)
+	}
+	if _, err := os.Lstat(Path(home)); !os.IsNotExist(err) {
+		t.Errorf("read-only helpers created brain.db: %v", err)
+	}
+
+	// Memory-only scope does not count as HasRecords.
+	add(t, o, "memory", "local", "m")
+	if ok, err := HasRecords(home, dir); err != nil || ok {
+		t.Errorf("HasRecords memory-only: %v %v, want false", ok, err)
+	}
+
+	// Adding an exported-kind record makes HasRecords, ReadScope, and LastUpdated succeed from brain.db without trail.jsonl.
+	add(t, o, "bug", "db only bug", "body")
+	if ok, err := HasRecords(home, dir); err != nil || !ok {
+		t.Errorf("HasRecords with DB bug: %v %v, want true", ok, err)
+	}
+	recs, ok, err := ReadScope(home, dir)
+	if err != nil || !ok || len(recs) != 1 || recs[0].ID != "BUG-001" {
+		t.Errorf("ReadScope from DB: %+v %v %v", recs, ok, err)
+	}
+	if ts, ok, err := LastUpdated(home, dir); err != nil || !ok || !ts.Equal(fixed) {
+		t.Errorf("LastUpdated from DB: %v %v %v, want %v", ts, ok, err, fixed)
 	}
 }

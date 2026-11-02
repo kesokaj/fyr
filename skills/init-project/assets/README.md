@@ -20,7 +20,7 @@ The same commands are the contract in `AGENTS.md` § Setup commands; the `GUIDE-
 cmd/<app>/        # the binary: flags, wiring, listener
 internal/         # the packages, one responsibility each
 web/              # the TanStack Start frontend, when there is one (built into the binary)
-.agents/trail.jsonl  # the trail, as records: plans, changes, decisions, specs, testing, deploy guides, bugs (read with fyr record)
+.agents/          # project customizations and scratch/ (trail records live in fyr's brain store, read with fyr record)
 ```
 
 ## Configuration

@@ -29,8 +29,14 @@ func TestLinkedWorktreeExportsToItsOwnCheckout(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	git(t, dir, "worktree", "add", "-q", "-b", "side", wt)
 	id := add(t, opts(wt, home), "learning", "from the worktree", "b")
+	if _, err := os.Stat(trailFile(wt)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("add in the linked worktree wrote trail.jsonl without Export")
+	}
+	if _, err := Export(opts(wt, home)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(trailFile(dir)); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("a write in the linked worktree wrote the main worktree's trail.jsonl")
+		t.Errorf("an export in the linked worktree wrote the main worktree's trail.jsonl")
 	}
 	if !strings.Contains(trailText(t, wt), id) {
 		t.Errorf("the linked worktree's trail.jsonl lacks %s", id)

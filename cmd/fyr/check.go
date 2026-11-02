@@ -28,7 +28,7 @@ func runCheck(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	rep, err := check.Run(wd, vocabulary())
+	rep, err := check.Run(wd, vocabulary(), c.home)
 	if errors.Is(err, check.ErrRefused) {
 		fmt.Fprintln(stderr, search.Printable("check: "+err.Error()))
 		return exitCode(1)

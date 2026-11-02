@@ -94,6 +94,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 func TestDryRunLines(t *testing.T) {
 	f := newFixture(t)
 	calm := newFixture(t)
+	calm.addTrail(t, brain.Options{Home: f.home, Dir: calm.root, Now: func() time.Time { return old }}, "change", "an old change entry", "done")
 	markRegistered(t, f.home, calm.root)
 	later := now.Add(time.Hour)
 	write(t, statePath(f.home), `{"projects":{"`+calm.root+`":"`+later.Format(time.RFC3339)+`"}}`, old)

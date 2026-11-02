@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -266,9 +267,12 @@ func changedPaths(root, rng, runner string) ([]string, error) {
 // branch added.
 func (w *worker) records(root, ref string) (outside []string) {
 	before, err := trailAt(root, w.p.base, w.o.Runner)
+	if err == nil && len(before) == 0 && len(w.baseRecords) > 0 {
+		before = w.baseRecords
+	}
 	if err == nil {
 		var after map[string]Record
-		if after, err = trailAt(root, ref, w.o.Runner); err == nil {
+		if after, err = w.afterRecords(root, ref); err == nil {
 			for id, r := range before {
 				if a, ok := after[id]; (!ok || a != r) && !w.p.k.names(id) {
 					outside = append(outside, id)
@@ -280,6 +284,18 @@ func (w *worker) records(root, ref string) (outside []string) {
 	w.b.Note("%s: %v", trailRel, err)
 	w.b.Fail(ReasonNoHandoff)
 	return []string{trailRel}
+}
+
+func (w *worker) afterRecords(root, ref string) (map[string]Record, error) {
+	diff, err := branchOutput(leadGit(root, "diff-tree", "-r", "--name-only", w.p.base, ref, "--", trailRel), w.o.Runner)
+	if err == nil && len(bytes.TrimSpace(diff)) == 0 {
+		if _, err := os.Stat(filepath.Join(w.b.Home(), harness.StateDir, "brain.db")); err == nil {
+			if recs, err := w.exportBoxRecords(); err == nil {
+				return recs, nil
+			}
+		}
+	}
+	return trailAt(root, ref, w.o.Runner)
 }
 
 // added fills the result's handoff and change records: the IDs on the
