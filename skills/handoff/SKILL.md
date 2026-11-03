@@ -165,7 +165,7 @@ For a task list with no plan (the `work` skill's task-list mode), the lead fills
 ```text
 Project: this clone, the current directory; never another checkout. Read AGENTS.md; do this task only, as a worker, with no plan: <the task, one line>.
 Files: <the task's Files: from the lead's table>
-Model: <the task's model from the lead's table>
+Model: <the task's model ID from the lead's table>
 Standing approvals (closed set): the task and the tests Done when names; the change record; commit on the current branch work/<name>[-r2]; the closing handoff.
 Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
 Done when: <the task's Done when from the lead's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.

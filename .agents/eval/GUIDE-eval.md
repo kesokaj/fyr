@@ -44,7 +44,8 @@ its outcomes there.
 - The rows item 22 of `PLAN-2026-11-02-1806-fyr-speed` names are added by
   that item, with the behaviour they test.
 - The `work-tasks` rows test the lead's plan-less mode against a stand-in verb,
-  not real workers: the real verb's run is item 10's real run per runner.
+  not real workers: the real verb's run is item 10's real run per runner. The
+  stand-in checks a `Model:` line's shape, not `agy models`' list.
 - A row tests one path of its skill or agent; the baselines are n of 3 at the
   agy default model.
 

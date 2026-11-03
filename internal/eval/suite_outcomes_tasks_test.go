@@ -8,7 +8,7 @@ import "strings"
 func taskOutcomes() map[string][]outcome {
 	kick := func(name, files, task string) string {
 		return "mkdir -p .agents/scratch/work/kickoffs\n" +
-			"printf 'Project: demo; do this task only, as a worker, with no plan: %s\\nFiles: %s\\nModel: flash\\nNever: push; tick a plan record or TODO.md.\\n' '" +
+			"printf 'Project: demo; do this task only, as a worker, with no plan: %s\\nFiles: %s\\nModel: gemini-3.8-flash-medium\\nNever: push; tick a plan record or TODO.md.\\n' '" +
 			task + "' '" + files + "' >.agents/scratch/work/kickoffs/" + name + ".md\n"
 	}
 	run := func(names ...string) string {
@@ -40,6 +40,12 @@ func taskOutcomes() map[string][]outcome {
 	design := tab + run("greet-tab") + "\n" + land("greet-tab") + routed
 	persist := kick("persist", "internal/store/", "Persist every greeting, choosing between SQLite and Postgres")
 
+	// tier is a whole good outcome with the tier's name where the model ID
+	// goes, as a lead that misread the table would write it, carried on past
+	// every error: only the verb's refusal keeps it from landing.
+	tier := func(s string) string {
+		return "set +e\n" + strings.ReplaceAll(s, "Model: gemini-3.8-flash-medium", "Model: [flash]") + "true\n"
+	}
 	return map[string][]outcome{
 		"work-tasks": {
 			{"one wave, both merged and stored", true, disjoint},
@@ -50,6 +56,7 @@ func taskOutcomes() map[string][]outcome {
 			{"branch kept", false, strings.Replace(disjoint, drop("shout"), "", 1)},
 			{"records not stored", false, strings.Replace(disjoint, store("shout"), "", 1)},
 			{"left dirty", false, disjoint + "echo x >>README.md\n"},
+			{"a tier as the Model: line", false, tier(disjoint)},
 		},
 		"work-tasks-waves": {
 			{"two waves, the second on the first's merge", true, waves},
@@ -57,6 +64,7 @@ func taskOutcomes() map[string][]outcome {
 			{"second wave never run", false, bye + hi + run("goodbye") + "\n" + land("goodbye")},
 			{"second worker's records not stored", false, strings.Replace(waves, store("welcome"), "", 1)},
 			{"second branch kept", false, strings.Replace(waves, drop("welcome"), "", 1)},
+			{"a tier as the Model: line", false, tier(waves)},
 		},
 		"work-tasks-design": {
 			{"design task routed, the other merged", true, design},
@@ -65,6 +73,7 @@ func taskOutcomes() map[string][]outcome {
 			{"not routed to the feature skill", false, tab + run("greet-tab") + "\n" + land("greet-tab")},
 			{"nothing merged", false, routed},
 			{"left dirty", false, design + "echo x >>README.md\n"},
+			{"a tier as the Model: line", false, tier(design)},
 		},
 	}
 }

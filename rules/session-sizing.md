@@ -1,6 +1,6 @@
 ---
 trigger: always_on
-description: "Session sizing: a session is one Task, one plan phase or a lead's plan loop and ends at its checkpoint with a handoff whose Kickoff starts the next session; a second ask waits for its own Kickoff."
+description: "Session sizing: a session is one Task, one plan phase or a lead's work loop and ends at its checkpoint with a handoff whose Kickoff starts the next session; a second ask waits for its own Kickoff."
 ---
 
 # Session sizing

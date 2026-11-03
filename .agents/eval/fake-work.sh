@@ -4,8 +4,9 @@
 # plan-less mode without starting real workers inside a trial. fixture.sh
 # copies it to .agents/scratch/eval/ in the demo. It refuses what the real verb
 # refuses that a lead can get wrong (no Kickoff, a name outside the branch
-# alphabet, not one Files: line, a dirty tree, a branch that exists, two
-# Kickoffs sharing a path), logs each run it accepts with the HEAD it ran on,
+# alphabet, not one Files: line, more than one Model: line or one that is not a
+# model ID (its shape, where the verb asks agy models), a dirty tree, a branch
+# that exists, two Kickoffs sharing a path), logs each run it accepts with the HEAD it ran on,
 # makes each worker's branch with a canned change chosen by the task's words,
 # fails a branch that changed a path outside its Files:, writes the worker's
 # handoff and change records where the real verb writes them, and prints the
@@ -27,6 +28,11 @@ for k in "$@"; do
   [ -f "$k" ] || refuse "the Kickoff $k: no such file"
   [[ $n =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || refuse "the Kickoff $k: the name \"$n\" is not lower-case letters, digits and '-'"
   [ "$(grep -c '^Files:' "$k")" = 1 ] || refuse "the Kickoff $k: give one Files: line"
+  # The real verb takes at most one Model: line and refuses an ID agy models
+  # does not list; a model ID's shape stands in for that list here.
+  [ "$(grep -c '^Model:' "$k")" -le 1 ] || refuse "the Kickoff $k: give one Model: line"
+  m=$(sed -n 's/^Model:[[:space:]]*//p' "$k" | sed 's/[[:space:]]*$//')
+  [ -z "$(grep '^Model:' "$k")" ] || [[ $m =~ ^(gemini|claude|gpt)-[a-z0-9.-]+$ ]] || refuse "the Kickoff $k: the Model: line \"$m\" is not a model ID agy models lists"
   ! git rev-parse -q --verify "refs/heads/work/$n" >/dev/null || refuse "the branch work/$n exists"
 done
 for a in "$@"; do
