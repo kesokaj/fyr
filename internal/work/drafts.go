@@ -76,9 +76,7 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 		}
 		var err error
 		if dest == nil {
-			if dest, err = draftsDest(w.o.Root, w.stamp, w.p.k.Name); err == nil {
-				defer dest.Close()
-			}
+			dest, err = w.leadDir()
 		}
 		if err == nil {
 			err = writeDraft(dest, e.Name(), data)

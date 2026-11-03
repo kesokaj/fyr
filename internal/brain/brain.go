@@ -230,7 +230,8 @@ func (s *session) allocate(c *sql.Conn, kind, title string, now time.Time) (stri
 	}
 }
 
-// Add stores one record and returns its ID; in a project it exports at once.
+// Add stores one record and returns its ID. It writes the store only: a
+// project's trail.jsonl is written on demand by `fyr record export` (ADR-091).
 func Add(o Options, in AddInput) (string, error) {
 	kind := in.Kind
 	title, err := checkAdd(o, in)

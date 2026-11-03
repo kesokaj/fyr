@@ -3,8 +3,11 @@
 // its own clone and branch, fetched back into the lead's checkout by path
 // and reported as the result contract
 // (PLAN-2026-10-29-workers § Interfaces § fyr work; SPEC-fyr-work). It
-// never opens a sandbox's brain store: records travel only through the
-// branch's committed trail.jsonl (ADR-063).
+// never links the brain store (ADR-063): it reads a sandbox's records through
+// `fyr record export`, or the branch's committed trail.jsonl, and writes each
+// handoff and change record a worker added as files under the lead's
+// .agents/scratch/work/<stamp>/<name>/records/, for the lead to store with
+// `fyr record add --title-file` (BUG-500, ADR-501). It writes no store.
 package work
 
 import (
@@ -87,6 +90,8 @@ type Result struct {
 	Changes       []Record // the change records it added, by ID
 	Drafts        int      // files copied to DraftsDir
 	DraftsDir     string   // repo-relative, ending in /
+	Records       int      // handoff and change records written to RecordsDir
+	RecordsDir    string   // repo-relative, ending in /: <ID>.title and <ID>.md each
 	Notes         []string // the sandbox's notes, each a printable line
 }
 

@@ -133,9 +133,8 @@ func TestRunDrafts(t *testing.T) {
 	res := r.run(r.kickoff("drafts", "src/a.txt"))
 	wantReasons(t, res)
 	dir := filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir))
-	got, _ := os.ReadDir(dir)
 	var names []string
-	for _, e := range got {
+	for _, e := range draftFiles(dir) {
 		names = append(names, e.Name())
 		if st, err := os.Lstat(filepath.Join(dir, e.Name())); err != nil || st.Mode() != 0o600 {
 			t.Errorf("%s: %v %v, want a 0600 file", e.Name(), st.Mode(), err)
@@ -170,9 +169,8 @@ func TestRunDraftNames(t *testing.T) {
 	r.on("draft-names", strings.Join(append(append([]string{}, good...), bad...), "\n")+"\n")
 	res := r.run(r.kickoff("names", "src/a.txt"))
 	wantReasons(t, res)
-	got, _ := os.ReadDir(filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir)))
 	var names []string
-	for _, e := range got {
+	for _, e := range draftFiles(filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir))) {
 		names = append(names, e.Name())
 	}
 	sort.Strings(good)
@@ -215,7 +213,7 @@ func TestRunDraftsCap(t *testing.T) {
 	r.on("many-drafts", "")
 	res := r.run(r.kickoff("many", "src/a.txt"))
 	wantReasons(t, res)
-	if got, _ := os.ReadDir(filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir))); res.Drafts != maxDrafts || len(got) != maxDrafts {
+	if got := draftFiles(filepath.Join(r.lead, filepath.FromSlash(res.DraftsDir))); res.Drafts != maxDrafts || len(got) != maxDrafts {
 		t.Errorf("copied %d (%d on disk), want %d", res.Drafts, len(got), maxDrafts)
 	}
 	if !strings.Contains(strings.Join(res.Notes, "\n"), "d51.md") {
@@ -359,4 +357,17 @@ func TestLeadGitHistoryOptions(t *testing.T) {
 	if !slices.Contains(cmd.Env, "GIT_GRAFT_FILE="+os.DevNull) {
 		t.Errorf("no GIT_GRAFT_FILE in the environment")
 	}
+}
+
+// draftFiles is dir's entries without records/, which the verb writes
+// beside the drafts (ADR-501) and TestRecordsReachTheLead checks.
+func draftFiles(dir string) []os.DirEntry {
+	got, _ := os.ReadDir(dir)
+	var out []os.DirEntry
+	for _, e := range got {
+		if e.Name() != recordsSub {
+			out = append(out, e)
+		}
+	}
+	return out
 }

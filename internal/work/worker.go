@@ -35,9 +35,11 @@ type worker struct {
 	notes bytes.Buffer // the box's notes, printed with the result contract
 	ran   bool         // agy was started
 	start time.Time    // run's start on the wall clock: the window's from (D140)
-	// collected: the branch was fetched and the drafts copy did not fail
+	// collected: the branch was fetched and neither the drafts copy nor the
+	// records copy failed (ADR-501)
 	collected   bool
 	baseRecords map[string]Record
+	dest        *os.Root // the lead's .agents/scratch/work/<stamp>/<name>/, once made
 	res         Result
 }
 

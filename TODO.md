@@ -7,9 +7,9 @@
 
 ## Now
 
-Item 9 — worker records reach the `/work` lead (BUG-500), of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
+Item 10 — plan-less `/work`, of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
 
-- [ ] Item 9 — worker records reach the lead (BUG-500) — verify: unit, a fake-agy test that fails before the fix, who: AI — expect: after `fyr work` returns, every handoff and change record a worker stored can be stored in the lead and read with `fyr record get`; an ADR; BUG-500 fixed; the stale comments at work.go:6-7 and brain.go:233 corrected
+- [ ] Item 10 — plan-less `/work` — verify: three new eval rows, n of N; one real run per runner on a generated scratch repo, who: AI — expect: two disjoint tasks merged, two overlapping tasks run in two waves, a design-question task routed to the feature skill; `reviewer`, then `/review --docs`
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
@@ -20,6 +20,7 @@ Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the
 
 ## Backlog
 
+- 2026-11-03 (item 9, ADR-501): an eval row for the `work` skill's duplicate-ID check (two workers delivering one record ID), and the `fyr eval work` run of the item 9 skill change.
 - 2026-11-03 (item 4 baselines, TEST-2026-11-03-0320): preflight made a lightweight tag in 2 of 3 runs; a bug record and a preflight skill fix held to the preflight row.
 - 2026-11-03 (item 4 baselines): the spec row is auto-denied one command in 2 of 3 runs; find the command before any spec-skill edit.
 - 2026-11-02 (item 3, REVIEW-2026-11-02-1908): a darwin implementation of safety check e (leftover processes, O1), so eval registration runs on macOS.

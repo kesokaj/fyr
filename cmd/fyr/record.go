@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
 var recordFlags = map[string]map[string]bool{
-	"add":    {"title": true, "status": true, "id": true, "project": true, "global": true},
+	"add":    {"title": true, "title-file": true, "status": true, "id": true, "project": true, "global": true},
 	"get":    {"global": true},
 	"edit":   {"status": true, "title": true, "body": true, "global": true},
 	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true},
@@ -113,6 +114,16 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 // recordAdd serves `record add`: the new record's ID, and the redactor
 // warning when the given ID, the stored title or the body would trip it.
 func recordAdd(c *ctx, o brain.Options, kind string) error {
+	if c.recTitleFile != "" {
+		if c.recTitle != "" {
+			return usageErr(c.out, "record", "fyr record add takes --title or --title-file, not both")
+		}
+		t, err := readTitleFile(c.recTitleFile)
+		if err != nil {
+			return recordErr(c, err)
+		}
+		c.recTitle = t
+	}
 	var seen strings.Builder
 	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: teeBody(&seen)})
 	if err == nil {
@@ -311,4 +322,29 @@ func recordHits(c *ctx, o search.Options) {
 			fmt.Fprintf(c.out, "    %s\n", h.Snippet)
 		}
 	}
+}
+
+// maxTitleFile caps what --title-file reads: past brain's 512-byte title,
+// so an over-long title is refused by the store's own check, not cut here.
+const maxTitleFile = 4 << 10
+
+// readTitleFile is --title-file's title: the file's text with one trailing
+// newline dropped, so a title the /work lead copies from a worker's
+// records never passes through a shell (ADR-501). Every other check is the
+// store's, as for --title.
+func readTitleFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxTitleFile+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > maxTitleFile {
+		return "", fmt.Errorf("--title-file %s is over %d bytes", path, maxTitleFile)
+	}
+	s := strings.TrimSuffix(string(b), "\n")
+	return strings.TrimSuffix(s, "\r"), nil
 }

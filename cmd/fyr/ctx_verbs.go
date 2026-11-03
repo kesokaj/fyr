@@ -31,7 +31,7 @@ type ctx struct {
 	metricsUntil, metricsHarness                                                            string
 	metricsContextTarget                                                                    int64
 	metricsAllLabels, metricsJSON                                                           bool
-	recTitle, recStatus, recID, recProject                                                  string
+	recTitle, recTitleFile, recStatus, recID, recProject                                    string
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
@@ -109,6 +109,7 @@ var verbs = map[string]verb{
 	}, positional: true, run: runMetrics},
 	"record": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.recTitle, "title", "", "add, edit: the record's one-line title, `T`")
+		c.fs.StringVar(&c.recTitleFile, "title-file", "", "add: read the title from `FILE`, one line, instead of --title")
 		c.fs.StringVar(&c.recStatus, "status", "", "add, edit: the status `S`; each kind takes its own, and a status it does not take is refused with the kind's list")
 		c.fs.StringVar(&c.recID, "id", "", "add: the `ID` to use instead of the next one")
 		c.fs.StringVar(&c.recProject, "project", "", "add, list with --global: the project `ROOT` a global record is about")

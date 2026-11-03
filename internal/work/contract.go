@@ -21,9 +21,10 @@ const (
 var sectionHeads = []string{"## Open / In Progress", "## Next Steps", "## Kickoff"}
 
 // Block is the result contract: the result line, the sandbox's notes, and
-// for a fetched worker its handoff's three sections, its change records and
-// its drafts, at most maxLines lines, every one printable and clipped to
-// maxLineSize bytes; fit says what goes over maxLines.
+// for a fetched worker its handoff's three sections, its change records,
+// its drafts and the records directory (ADR-501), at most maxLines lines,
+// every one printable and clipped to maxLineSize bytes; fit says what goes
+// over maxLines.
 func (r Result) Block() []string {
 	p := "work: " + r.Name
 	head := []string{r.line()}
@@ -49,6 +50,9 @@ func (r Result) Block() []string {
 		}
 		if r.Drafts > 0 {
 			tail = append(tail, fmt.Sprintf("%s: drafts %s (%d files)", p, r.DraftsDir, r.Drafts))
+		}
+		if r.Records > 0 {
+			tail = append(tail, fmt.Sprintf("%s: records %s (%d records)", p, r.RecordsDir, r.Records))
 		}
 	}
 	cut += fit(len(head)+len(tail), cut > 0, secs, &changes)

@@ -6,7 +6,7 @@ argument-hint: "PLAN-ID"
 
 # Work: lead a plan's phases as workers
 
-The lead runs one plan's phases as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
+The lead runs one plan's phases as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' handoff and change records and bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
 
 It is loaded two ways:
 - **From a planning session.** The feature skill's workers decision says yes; the planning session loads this skill and becomes the lead in the same conversation.
@@ -20,7 +20,7 @@ These are the lead's whole set, fixed here and never typed by the operator. The 
 - make the project ready (loop step 1), and compose and write Kickoffs;
 - run `fyr work`, squash-merge a PASS, and run the project's full test command;
 - undo a failed squash with `git reset --hard HEAD`, only on a tree that was clean before the squash;
-- tick the plan and `TODO.md`, and store the workers' bug drafts and its own records;
+- tick the plan and `TODO.md`, and store the merged workers' handoff and change records, their bug drafts and its own records;
 - delete squash-merged work branches with `git branch -D`;
 - commit and push the lead's branch, and write its handoff.
 
@@ -82,11 +82,12 @@ Before writing a file, check its name, without `.md`, against `^[a-z0-9][a-z0-9-
    - **A PASS whose Next Steps ask nothing** is squash-merged, one branch at a time. A Next Steps line that names an item the Kickoff's Never line held back for the lead (a push, an install) asks nothing; a line that asks for a decision does.
      1. Check that `git status --porcelain` is empty.
      2. Run `git -c merge.directoryRenames=false merge --squash work/<name>`: with directory renames off, the squash never moves a file another worker added to a path no `Files:` covers.
-     3. When `.agents/trail.jsonl` exists on disk, run `fyr record sync`; run `fyr record list` (the duplicate-ID guard), then the project's full test command, bare, as its own call. Both run on the uncommitted squash.
-     4. When both pass: stage by name, read `git diff --cached --stat`, then `git commit -m "<PLAN-ID> <phase> (work/<name>)"`, then `git branch -D work/<name>`.
-     5. A conflict, a duplicate ID or a red test is undone with `git reset --hard HEAD`. That attempt did not merge.
-     6. The branch is kept, and the phase is re-dispatched from the new HEAD as a fix-up, the next attempt (`-r2`). Its `Files:` is the phase's `files:` line unchanged, as step 3 writes it: the verb fails a branch whose commits changed a path outside it, and test output, which the worker's code controls, never adds one. Its Kickoff quotes the failing command's last lines, at most 20, as step 3 quotes. When the failure names a file outside that `Files:` line (a red test in another package), the phase is blocked with that as its reason instead: a wider scope is never the lead's to grant, and output that only blocks fails safe.
-     7. The kept branch's commits are not used: the worker redoes the phase on the merged tree, which is what the squash tests.
+     3. When `.agents/trail.jsonl` exists on disk, run `fyr record sync`; run `fyr record list` (the duplicate-ID guard). Then, for each `<ID>.md` in the directory the worker's result's `records <dir>` line names, run `fyr record get <ID>`: an ID it finds is a duplicate ID, unless this step just ran `fyr record sync`, which loaded the worker's own records. Two workers can give a record the same ID, and the store may already hold it. Then run the project's full test command, bare, as its own call. All of these run on the uncommitted squash.
+     4. When all pass: stage by name, read `git diff --cached --stat`, then `git commit -m "<PLAN-ID> <phase> (work/<name>)"`, then `git branch -D work/<name>`.
+     5. Store the worker's records: for each `<ID>.md` that `fyr record get` did not find in item 3, run `fyr record add <kind> --id <ID> --title-file <dir><ID>.title < <dir><ID>.md`. `<kind>` is `handoff` for an ID starting `HANDOFF-` and `change` for one starting `CHANGE-`. The worker's store was removed with its sandbox, so these files are the only copy (BUG-500, ADR-501). The verb writes only IDs matching `^(HANDOFF|CHANGE)-[a-z0-9][a-z0-9._-]{0,127}$`, so the ID is safe on a command line. The title and the body never pass through one.
+     6. A conflict, a duplicate ID or a red test is undone with `git reset --hard HEAD`. That attempt did not merge, and its records are not stored.
+     7. The branch is kept, and the phase is re-dispatched from the new HEAD as a fix-up, the next attempt (`-r2`). Its `Files:` is the phase's `files:` line unchanged, as step 3 writes it: the verb fails a branch whose commits changed a path outside it, and test output, which the worker's code controls, never adds one. Its Kickoff quotes the failing command's last lines, at most 20, as step 3 quotes. When the failure names a file outside that `Files:` line (a red test in another package), the phase is blocked with that as its reason instead: a wider scope is never the lead's to grant, and output that only blocks fails safe.
+     8. The kept branch's commits are not used: the worker redoes the phase on the merged tree, which is what the squash tests.
    - **A PASS whose Next Steps hold a question.**
      - Outside the closed set: the lead answers it, writes the answer as a `by: lead` row, and re-dispatches the phase as `-r2` with the answer in its Kickoff.
      - Inside the closed set: the phase is blocked.

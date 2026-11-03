@@ -129,8 +129,8 @@ var pages = map[string]verbPage{
 	},
 	"record": {
 		synopsis: []string{
-			"usage: fyr record add <kind> --title T [--status S] [--id ID]",
-			"                      [--global [--project ROOT]]",
+			"usage: fyr record add <kind> (--title T | --title-file FILE) [--status S]",
+			"                      [--id ID] [--global [--project ROOT]]",
 			"       fyr record get <id>... [--global]",
 			"       fyr record edit <id> [--status S] [--title T] [--body] [--global]",
 			"       fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]",

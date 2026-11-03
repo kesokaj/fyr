@@ -21,9 +21,9 @@ import (
 // maxNamed is how many paths or IDs one note names.
 const maxNamed = 20
 
-// collect is steps 6-8. A worker a safety reason failed, or whose session
-// never started, gets none of them (D38); a timed-out, killed or otherwise
-// failed one is fetched (D26).
+// collect is steps 6-8, step 8 being the drafts and the records (ADR-501).
+// A worker a safety reason failed, or whose session never started, gets none
+// of them (D38); a timed-out, killed or otherwise failed one is fetched (D26).
 func (w *worker) collect() {
 	if !w.ran || w.unsafe() || !w.b.Intact() || !w.b.GitIntact() {
 		return
@@ -37,7 +37,10 @@ func (w *worker) collect() {
 		return
 	}
 	w.scope()
-	w.collected = w.drafts()
+	drafts := w.drafts()
+	records := w.deliver()
+	w.closeLeadDir()
+	w.collected = drafts && records
 }
 
 // leadGit is git in the lead's checkout for the steps after the session,
