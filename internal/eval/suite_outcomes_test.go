@@ -28,7 +28,7 @@ printf '.agents/scratch/*\n' >.gitignore
 	}
 	retire := "\"$F\" record edit MEMORY-release-day --status retired >/dev/null\n"
 	preflight := "rec review --title 'Preflight — v0.1.1' <<<'## Verdict: NO-SHIP'\n"
-	return map[string][]outcome{
+	outs := map[string][]outcome{
 		"init-project": {
 			{"scaffold committed", true, scaffold + deploy + commit},
 			{"left uncommitted", false, scaffold + deploy},
@@ -107,4 +107,8 @@ printf '.agents/scratch/*\n' >.gitignore
 			{"recalled, not saved", false, "echo Friday >\"$OUT2\"\n"},
 		},
 	}
+	for id, o := range taskOutcomes() {
+		outs[id] = o
+	}
+	return outs
 }

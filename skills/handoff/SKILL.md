@@ -160,6 +160,17 @@ Never: push; tick the plan record or TODO.md; store a record of any kind but the
 Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
 ```
 
+For a task list with no plan (the `work` skill's task-list mode), the lead fills the plan-less form instead. The task is the operator's sentence on one line; `Files:`, `Model:` and Done when are the lead's table row, as the operator approved it:
+
+```text
+Project: this clone, the current directory; never another checkout. Read AGENTS.md; do this task only, as a worker, with no plan: <the task, one line>.
+Files: <the task's Files: from the lead's table>
+Model: <the task's model from the lead's table>
+Standing approvals (closed set): the task and the tests Done when names; the change record; commit on the current branch work/<name>[-r2]; the closing handoff.
+Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
+Done when: <the task's Done when from the lead's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
+```
+
 **Worker mode.** When the Kickoff's Never line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the change record, the handoff record, and its commit on the worker's branch.
 
 ## Step 5: Save the Document

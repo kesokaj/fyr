@@ -10,9 +10,12 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | review | reviewer | work | retro | distill | dream | preflight) ;;
+    bare | project | review | reviewer | work | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
+  # The stand-in verb is read before demo_tree empties the work tree.
+  local fake=""
+  [ "$scenario" != tasks ] || fake=$(cat .agents/eval/fake-work.sh)
   demo_tree
   [ "$scenario" = bare ] || scaffold
   git add -A
@@ -23,6 +26,7 @@ main() {
     review) review_change ;;
     reviewer) reviewer_commit ;;
     work) work_wave ;;
+    tasks) stand_in_verb "$fake" ;;
     retro) feedback_trio "a correction" ;;
     distill) feedback_trio "a repeated procedure" ;;
     dream) memory_trio ;;
@@ -288,6 +292,13 @@ work: $name | ## Next Steps
 work: $name | - None.
 work: $name: drafts $drafts (1 files)
 EOF
+}
+
+# stand_in_verb writes fake-work.sh, the stand-in for fyr work that the task
+# rows run, where the scratch keeps it out of every commit.
+stand_in_verb() {
+  mkdir -p .agents/scratch/eval
+  printf '%s\n' "$1" >.agents/scratch/eval/fake-work.sh
 }
 
 # feedback_trio stores three global corrections about this project.

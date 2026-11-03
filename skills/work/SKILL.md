@@ -1,16 +1,17 @@
 ---
 name: work
-description: "Lead a plan as sandboxed fyr work workers: dispatch phases, squash-merge each PASS, tick the plan. /work PLAN-ID resumes."
-argument-hint: "PLAN-ID"
+description: "Lead a plan's phases, or a task list with no plan, as sandboxed fyr work workers and squash-merge each PASS. /work PLAN-ID resumes; /work <task>; <task> proposes, then runs."
+argument-hint: "PLAN-ID | <task>; <task>..."
 ---
 
 # Work: lead a plan's phases as workers
 
-The lead runs one plan's phases as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' handoff and change records and bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
+The lead runs one plan's phases, or one task list's tasks, as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' handoff and change records and bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
 
-It is loaded two ways:
+It is loaded three ways:
 - **From a planning session.** The feature skill's workers decision says yes; the planning session loads this skill and becomes the lead in the same conversation.
 - **`/work PLAN-ID`**, only to resume a lead on an existing plan after a stop (§ Resume). It never starts a plan's first run.
+- **`/work <task>; <task>…`**, a task list with no plan, typed by the operator in their own turn: `references/tasks.md` holds the whole mode. The lead proposes each task's name, `Files:`, Done when, model, runner and wave in one table, runs it after the operator's go, and merges with the loop's step 7. A task with a design question goes to the feature skill instead.
 
 Every `fyr` command the lead runs carries the `--home` the project's `AGENTS.md` names, when it names one (for `fyr work`, the home it names for that verb, outside every checkout: the sandbox refuses one inside): a write, and a read too (`fyr record get`, `fyr record list`), which without it reads another store; the commands below are shown without it. So does every `fyr` command line in the lead's handoff, its Kickoff included; the worker-mode Kickoff is fixed text and stays as written. Dates come from `date +%F`.
 

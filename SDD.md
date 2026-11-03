@@ -146,7 +146,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - `fyr check` and `fyr eval` are verbs, not gates — ADR-064, ADR-065.
 - A child process that reads untrusted input gets an allow-listed environment — ADR-067.
 - A harness agent's frontmatter is an allow-list — ADR-056, ADR-056a.
-- A session is one Task or one plan phase, or, when the feature skill runs a plan as workers, its planning and dispatch loop — ADR-058, ADR-077.
+- A session is one Task or one plan phase, or, when the feature skill runs a plan as workers, its planning and dispatch loop, or one `/work` task list's dispatch loop — ADR-058, ADR-077.
 - The root documents are PRD, SDD, TDD and TODO — ADR-074.
 - The local page runs in the foreground on loopback behind a per-run token — rejected: a background server, a wider bind — ADR-075.
 - Idle-time self-improvement is an explicit switch with its own timer, nine gates, a risk rubric and M18 workers in docker when preflight passes or on the host — ADR-090.

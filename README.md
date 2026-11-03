@@ -217,7 +217,7 @@ Third-party skills go in verbatim and are listed in `skills/VENDORED.md`; from [
 
 | Group | Skills |
 |---|---|
-| Work protocols | `feature` (design before code, a plan file, a cold-reader check, phases), `work` (leads a plan's phases as sandboxed `fyr work` workers and merges each PASS), `bug` (diagnose, failing test first, smallest fix, record), `review` (one review command with lenses `--code --security --simplify --docs --prompts --tests --all --resume`), `review-standards` (what the reviewer checks), `preflight` (the release gate), `harness-audit` (audits this repository area by area) |
+| Work protocols | `feature` (design before code, a plan file, a cold-reader check, phases), `work` (leads a plan's phases, or a task list with no plan, as sandboxed `fyr work` workers and merges each PASS), `bug` (diagnose, failing test first, smallest fix, record), `review` (one review command with lenses `--code --security --simplify --docs --prompts --tests --all --resume`), `review-standards` (what the reviewer checks), `preflight` (the release gate), `harness-audit` (audits this repository area by area) |
 | Project shape | `init-project` (scaffold or update a project's trail), `requirements`, `spec`, `testing-strategy`, `explain-project` (onboarding notes for a person), `research`, `handoff` (the session's checkpoint, ending in the Kickoff that starts the next session) |
 | Learning loop | `feedback-log`, `project-memory`, `retro`, `distill`, `dream` |
 | Code | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui on Tailwind), `frontend-ui-economist` (plain HTML/CSS), `bash`, `json-api-style`, `docker`, `mermaid-syntax` |

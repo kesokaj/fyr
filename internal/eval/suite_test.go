@@ -175,8 +175,8 @@ func TestSuiteSelectRows(t *testing.T) {
 
 // TestSuiteHarness parses this checkout's tracked suite (ADR-500) and pins
 // exactly its rows: id, agent, grants, kind and version, each its own cluster
-// with no expect. The rows are item 4's of PLAN-2026-11-02-1806-fyr-speed;
-// items 10 and 22 add theirs with their behaviour.
+// with no expect. The rows are item 4's of PLAN-2026-11-02-1806-fyr-speed
+// and item 10's three work-tasks rows; item 22 adds its own with its behaviour.
 func TestSuiteHarness(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -196,6 +196,7 @@ func TestSuiteHarness(t *testing.T) {
 		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
 		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
 		"preflight": {"", true}, "project-memory": {"", false},
+		"work-tasks": {"", true}, "work-tasks-waves": {"", true}, "work-tasks-design": {"", true},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))

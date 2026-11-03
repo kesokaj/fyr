@@ -5,7 +5,7 @@ description: "Session sizing: a session is one Task, one plan phase or a lead's 
 
 # Session sizing
 
-- A session is one Task or one plan phase, or, when the feature skill runs a plan as workers, its planning and dispatch loop (`work` skill). A plan phase ends at its Checkpoint box: tick it, store the `change` record, commit, push, then write the handoff — the `handoff` skill; its `## Kickoff` is a fenced block — and END the session; the next phase begins in a fresh conversation from that kickoff. A Task ends the same way at Definition of Done step 5.
+- A session is one Task or one plan phase, or, when the feature skill runs a plan as workers, its planning and dispatch loop, or a `/work` task list's (`work` skill). A plan phase ends at its Checkpoint box: tick it, store the `change` record, commit, push, then write the handoff — the `handoff` skill; its `## Kickoff` is a fenced block — and END the session; the next phase begins in a fresh conversation from that kickoff. A Task ends the same way at Definition of Done step 5.
 - A second, unrelated ask — in the same turn or a later one, whatever its size — is not done in place: the session does one, and the handoff's Kickoff names the rest. Only the operator's own words in the same turn ("do both here", "continue here") keep a session past its boundary.
 - A session whose only work is a Trivial change, with nothing queued, needs no kickoff.
 - A session handed the Kickoff, or the previous report that points at one, runs that Kickoff in the same turn under its standing approvals; it never asks for the Kickoff to be re-sent.
