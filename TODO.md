@@ -7,16 +7,15 @@
 
 ## Now
 
-Item 10 — plan-less `/work`, of `PLAN-2026-11-02-1806-fyr-speed` (make building with fyr faster without lowering quality):
-
-- [ ] Item 10 — plan-less `/work` — verify: three new eval rows, n of N; one real run per runner on a generated scratch repo, who: AI — expect: two disjoint tasks merged, two overlapping tasks run in two waves, a design-question task routed to the feature skill; `reviewer`, then `/review --docs`
+No phase active: item 9 of `PLAN-2026-11-02-1806-fyr-speed` is done (e961b2e6); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
+- Item 10 — plan-less `/work`: two disjoint tasks merged, two overlapping in two waves, a design question routed to the feature skill.
+- Item 22 — `/work PLAN-ID` starts a first run on a stored, cold-read plan with a workers D-row; any other plan is refused.
 - Item 5 — `--body-file` and `--out` for the record and memory verbs, with the handoff's `--id` (BUG-501).
-- Item 6 — print-mode-only polling, held to the work and handoff rows.
 
 ## Backlog
 
