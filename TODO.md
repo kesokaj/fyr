@@ -7,17 +7,22 @@
 
 ## Now
 
-No phase active: item 9 of `PLAN-2026-11-02-1806-fyr-speed` is done (e961b2e6); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 10 of `PLAN-2026-11-02-1806-fyr-speed` is done on the host runner (its docker run waits for item 12; a clean eval re-run is owed, BUG-504); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 10 — plan-less `/work`: two disjoint tasks merged, two overlapping in two waves, a design question routed to the feature skill.
 - Item 22 — `/work PLAN-ID` starts a first run on a stored, cold-read plan with a workers D-row; any other plan is refused.
 - Item 5 — `--body-file` and `--out` for the record and memory verbs, with the handoff's `--id` (BUG-501).
+- Item 6 — print-mode-only polling: both clients wake on each finished background command and subagent.
 
 ## Backlog
+
+- 2026-11-03 (item 10, BUG-504): `fyr eval`'s real-home watch fingerprints the whole `brain.db`, so another agy session's write fails every trial; compare per scope or per record instead (design question).
+- 2026-11-03 (item 10): re-run `fyr eval work-tasks work-tasks-waves work-tasks-design --runs 3` while no other agy session works (1 of 9 by the verb, 9 of 9 on re-check, BUG-504).
+- 2026-11-03 (item 10): the docker run of a task list, after item 12 builds `fyr-work:local` and the token on this Mac.
+- 2026-11-03 (fyr check, REVIEW-2026-11-03-1143): pre-existing findings at `.agents/eval/GUIDE-eval.md:15`, `:24` (fixture paths) and `PRD.md:95` (R10).
 
 - 2026-11-03 (item 9, ADR-501): an eval row for the `work` skill's duplicate-ID check (two workers delivering one record ID), and the `fyr eval work` run of the item 9 skill change.
 - 2026-11-03 (item 4 baselines, TEST-2026-11-03-0320): preflight made a lightweight tag in 2 of 3 runs; a bug record and a preflight skill fix held to the preflight row.

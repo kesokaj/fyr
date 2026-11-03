@@ -6,7 +6,7 @@ argument-hint: "PLAN-ID | <task>; <task>..."
 
 # Work: lead a plan's phases as workers
 
-The lead runs one plan's phases, or one task list's tasks, as workers: each phase becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan, stores the workers' handoff and change records and bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
+The lead runs one plan's phases, or one task list's tasks, as workers: each phase or task becomes a Kickoff file, `fyr work` runs each Kickoff as an `agy -p` session in a sandboxed clone of the project, and the lead merges what passed. The lead never implements: it composes Kickoffs, runs the verb, reads its result contract, runs the project's full test command on the merged tree, merges, ticks the plan (a task list has none), stores the workers' handoff and change records and bug drafts and writes its own handoff. The verb itself (flags, refusals, the result contract) is `fyr help work`.
 
 It is loaded three ways:
 - **From a planning session.** The feature skill's workers decision says yes; the planning session loads this skill and becomes the lead in the same conversation.
