@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# fake-work.sh <kickoff-file>...: stands in for `fyr work` in the eval's task
-# rows (GUIDE-eval.md, scenario `tasks`), so a row tests the /work lead's
-# plan-less mode without starting real workers inside a trial. fixture.sh
-# copies it to .agents/scratch/eval/ in the demo. It refuses what the real verb
+# fake-work.sh <kickoff-file>...: stands in for `fyr work` in the eval's
+# work-start, work-refuse and task rows (GUIDE-eval.md, scenarios `work-plan`
+# and `tasks`), so a row tests the /work lead without starting real workers
+# inside a trial. fixture.sh copies it to .agents/scratch/eval/ in the demo. It refuses what the real verb
 # refuses that a lead can get wrong (no Kickoff, a name outside the branch
 # alphabet, not one Files: line, more than one Model: line or one that is not a
 # model ID (its shape, where the verb asks agy models), a dirty tree, a branch

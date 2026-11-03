@@ -10,12 +10,12 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | review | reviewer | work | tasks | retro | distill | dream | preflight) ;;
+    bare | project | review | reviewer | work | work-plan | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
   # The stand-in verb is read before demo_tree empties the work tree.
   local fake=""
-  [ "$scenario" != tasks ] || fake=$(cat .agents/eval/fake-work.sh)
+  case "$scenario" in tasks | work-plan) fake=$(cat .agents/eval/fake-work.sh) ;; esac
   demo_tree
   [ "$scenario" = bare ] || scaffold
   git add -A
@@ -26,6 +26,7 @@ main() {
     review) review_change ;;
     reviewer) reviewer_commit ;;
     work) work_wave ;;
+    work-plan) stand_in_verb "$fake"; work_plans ;;
     tasks) stand_in_verb "$fake" ;;
     retro) feedback_trio "a correction" ;;
     distill) feedback_trio "a repeated procedure" ;;
@@ -294,11 +295,73 @@ work: $name: drafts $drafts (1 files)
 EOF
 }
 
-# stand_in_verb writes fake-work.sh, the stand-in for fyr work that the task
-# rows run, where the scratch keeps it out of every commit.
+# stand_in_verb writes fake-work.sh, the stand-in for fyr work that the
+# work-plan and task rows run, where the scratch keeps it out of every commit.
 stand_in_verb() {
   mkdir -p .agents/scratch/eval
   printf '%s\n' "$1" >.agents/scratch/eval/fake-work.sh
+}
+
+# work_plans seeds three plans with no work/* branches: one ready to start
+# (cold-read box ticked, workers D-row yes), one with its cold-read box open,
+# and one with no workers D-row.
+work_plans() {
+  local phases
+  phases=$(cat <<'EOF'
+### Phase 1 — a tab-only name greets the world
+
+files: internal/greet/greet_test.go
+
+- [ ] A table test TestHelloTab pins that a tab-only name greets the world — verify: unit, `go test ./internal/greet`, who: AI — expect: TestHelloTab passes
+- [ ] Checkpoint — expect: `go test ./...` passes with TestHelloTab in internal/greet
+
+### Phase 2 — add the shout package (after: none)
+
+files: internal/shout/
+
+- [ ] Add package internal/shout with Shout(s string) string and TestShout — verify: unit, `go test ./internal/shout`, who: AI — expect: TestShout passes
+- [ ] Checkpoint — expect: `go test ./...` passes with Shout and TestShout in internal/shout
+EOF
+  )
+  rec plan --id PLAN-2026-11-02-greetings --title "Greet: tab-only name and shout package" <<EOF
+# PLAN-2026-11-02-greetings
+
+## Phases
+
+- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-greetings), 0 gaps, 0 blocking questions; design ready, implementation ready
+
+$phases
+
+## Decisions
+
+D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner
+EOF
+  rec plan --id PLAN-2026-11-02-greet-alpha --title "Greet: tab-only name and shout package (alpha)" <<EOF
+# PLAN-2026-11-02-greet-alpha
+
+## Phases
+
+- [ ] Cold-reader check — one report, every item answered
+
+$phases
+
+## Decisions
+
+D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner
+EOF
+  rec plan --id PLAN-2026-11-02-greet-beta --title "Greet: tab-only name and shout package (beta)" <<EOF
+# PLAN-2026-11-02-greet-beta
+
+## Phases
+
+- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-beta), 0 gaps, 0 blocking questions; design ready, implementation ready
+
+$phases
+
+## Decisions
+
+D1 — 2026-11-02 — Greeting prefix stays lower-case — by: cold read round 1
+EOF
 }
 
 # feedback_trio stores three global corrections about this project.
