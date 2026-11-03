@@ -7,15 +7,15 @@
 
 ## Now
 
-No phase active: item 10 of `PLAN-2026-11-02-1806-fyr-speed` is done on the host runner (its docker run waits for item 12; a clean eval re-run is owed, BUG-504); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 22 of `PLAN-2026-11-02-1806-fyr-speed` is done (item 10's docker run waits for item 12; a clean eval re-run of `work-tasks*` is owed, BUG-504); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 22 — `/work PLAN-ID` starts a first run on a stored, cold-read plan with a workers D-row; any other plan is refused.
 - Item 5 — `--body-file` and `--out` for the record and memory verbs, with the handoff's `--id` (BUG-501).
 - Item 6 — print-mode-only polling: both clients wake on each finished background command and subagent.
+- Item 11 — show the runner on the stamp and result lines, plus `fyr work --check`.
 
 ## Backlog
 

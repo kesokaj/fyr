@@ -45,7 +45,8 @@ its outcomes there.
 - The `work-start`, `work-refuse` and `work-tasks` rows test the lead against a
   stand-in verb, not real workers: the real verb's run is item 10's real run
   per runner. The stand-in checks a `Model:` line's shape, not `agy models`'
-  list.
+  list; `work-refuse` covers the cold-read and workers-D-row gates (two prompts
+  per row), not an unstored plan or a `- [-]` cold-read box.
 - A row tests one path of its skill or agent; the baselines are n of 3 at the
   agy default model.
 
