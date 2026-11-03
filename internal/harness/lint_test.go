@@ -325,3 +325,55 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 		t.Errorf("a skill with a folded description refused: %v", err)
 	}
 }
+
+// TestPrintModeOnlyPolling pins Item 6 of PLAN-2026-11-02-1806-fyr-speed:
+// "never end the turn" and `sleep 30` polling apply to print mode (`agy -p`)
+// only, interactive sessions end the turn to wait and wake when background work
+// finishes, and the work lead's no-write rule while a run is going stays.
+func TestPrintModeOnlyPolling(t *testing.T) {
+	repo := filepath.Join("..", "..")
+	for _, root := range []string{"context", "agents", "skills", "rules", "commands"} {
+		err := filepath.WalkDir(filepath.Join(repo, root), func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() && d.Name() == "catalog" {
+				if err == nil {
+					return filepath.SkipDir
+				}
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".md") {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(repo, path)
+			for i, line := range strings.Split(string(data), "\n") {
+				low := strings.ToLower(line)
+				if (strings.Contains(low, "sleep 30") || strings.Contains(low, "never end the turn")) &&
+					!strings.Contains(low, "print-mode") && !strings.Contains(low, "print mode") && !strings.Contains(low, "agy -p") {
+					t.Errorf("%s:%d prescribes polling or never ending the turn outside print mode: %s", rel, i+1, strings.TrimSpace(line))
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for rel, needles := range map[string][]string{
+		"context/AGENTS.md":       {"End the turn to await a subagent or background command", "only a print-mode run (`agy -p`) stays in the turn"},
+		"skills/handoff/SKILL.md": {"An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes", "in print mode only"},
+		"skills/work/SKILL.md":    {"an interactive session ends its turn and wakes when the command finishes", "only a print-mode run (`agy -p`) stays inside the turn and polls it (`manage_task`, `list`) with `sleep 30`", "While a run is going, the lead makes no commit, no edit to a tracked file and no `fyr` write."},
+	} {
+		b, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range needles {
+			if !strings.Contains(string(b), n) {
+				t.Errorf("%s is missing %q", rel, n)
+			}
+		}
+	}
+}

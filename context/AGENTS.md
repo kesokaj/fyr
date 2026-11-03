@@ -30,7 +30,7 @@ Once per task over the whole change; the detail of an agent's reply lives in its
 - **Bug** (anything broken): load the `bug` skill.
 - **Unscaffolded project** (no `.agents/`): run Trivial and Task only — no verifier log, no `change` record, no handoff; commit and push close the task; offer `/init-project` once per session.
 - **Search first:** `fyr search <words>` ranks records, then files; `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep stays for exact strings, regex, past revisions.
-- A print-mode run (`agy -p`) ends only after every dispatched agent's artifact is on disk: never end the turn to await a subagent or a background command (how to wait: `handoff` § Usage).
+- End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn until every dispatched agent's artifact is on disk (`handoff` § Usage).
 
 Every failure that reached a commit, a deploy or the user gets a number: `fyr record add bug` with a prevention rule, its status edited when a fix lands. A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `<project>/.agents/rules/` file, the project's `AGENTS.md` — and the bug's status becomes `graduated`, naming where.
 
