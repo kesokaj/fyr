@@ -107,20 +107,30 @@ func CheckScratchOut(dir, outPath string) (top string, segs []string, err error)
 		}
 	}
 	target := filepath.Join(top, ".agents", "scratch", filepath.FromSlash(sub))
-	if fi, err := os.Lstat(target); err == nil {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return "", nil, refuse("--out %s: %s is a symlink", outPath, target)
-		}
-		if !fi.Mode().IsRegular() {
-			return "", nil, refuse("--out %s: %s is not a regular file", outPath, target)
-		}
-		if hasMultipleLinks(fi) {
-			return "", nil, refuse("--out %s: %s is a hardlink", outPath, target)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", nil, refuse("--out %s: %v", outPath, err)
+	if err := checkScratchLeaf(outPath, target); err != nil {
+		return "", nil, err
 	}
 	return top, segs, nil
+}
+
+func checkScratchLeaf(outPath, target string) error {
+	fi, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return refuse("--out %s: %v", outPath, err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return refuse("--out %s: %s is a symlink", outPath, target)
+	}
+	if !fi.Mode().IsRegular() {
+		return refuse("--out %s: %s is not a regular file", outPath, target)
+	}
+	if hasMultipleLinks(fi) {
+		return refuse("--out %s: %s is a hardlink", outPath, target)
+	}
+	return nil
 }
 
 func scratchRel(top, outPath string) (string, error) {
@@ -166,44 +176,11 @@ func WriteScratch(dir, outPath, body string) error {
 	if err != nil {
 		return err
 	}
-	curRoot, err := os.OpenRoot(top)
+	curRoot, err := openScratchDir(top, outPath, append([]string{".agents", "scratch"}, segs[:len(segs)-1]...))
 	if err != nil {
-		return refuse("--out %s: %v", outPath, err)
+		return err
 	}
-	defer func() {
-		if curRoot != nil {
-			curRoot.Close()
-		}
-	}()
-	for _, seg := range append([]string{".agents", "scratch"}, segs[:len(segs)-1]...) {
-		fi, err := curRoot.Lstat(seg)
-		if errors.Is(err, os.ErrNotExist) {
-			if err := curRoot.Mkdir(seg, 0o755); err != nil {
-				return refuse("--out %s: %v", outPath, err)
-			}
-			fi, err = curRoot.Lstat(seg)
-		}
-		if err != nil {
-			return refuse("--out %s: %v", outPath, err)
-		}
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return refuse("--out %s: %s is a symlink", outPath, seg)
-		}
-		if !fi.IsDir() {
-			return refuse("--out %s: %s is not a directory", outPath, seg)
-		}
-		nextRoot, err := curRoot.OpenRoot(seg)
-		if err != nil {
-			return refuse("--out %s: %v", outPath, err)
-		}
-		fi2, err := nextRoot.Stat(".")
-		if err != nil || !fi2.IsDir() || !os.SameFile(fi, fi2) {
-			nextRoot.Close()
-			return refuse("--out %s: %s changed during open", outPath, seg)
-		}
-		curRoot.Close()
-		curRoot = nextRoot
-	}
+	defer curRoot.Close()
 	leaf := segs[len(segs)-1]
 	if fi, err := curRoot.Lstat(leaf); err == nil {
 		if fi.Mode()&os.ModeSymlink != 0 {
@@ -235,4 +212,41 @@ func WriteScratch(dir, outPath, body string) error {
 		return refuse("--out %s: %v", outPath, err)
 	}
 	return f.Close()
+}
+
+func openScratchDir(top, outPath string, dirs []string) (*os.Root, error) {
+	curRoot, err := os.OpenRoot(top)
+	if err != nil {
+		return nil, refuse("--out %s: %v", outPath, err)
+	}
+	for _, seg := range dirs {
+		fi, err := curRoot.Lstat(seg)
+		if errors.Is(err, os.ErrNotExist) {
+			if err := curRoot.Mkdir(seg, 0o755); err != nil {
+				curRoot.Close()
+				return nil, refuse("--out %s: %v", outPath, err)
+			}
+			fi, err = curRoot.Lstat(seg)
+		}
+		if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+			curRoot.Close()
+			if err != nil {
+				return nil, refuse("--out %s: %v", outPath, err)
+			}
+			return nil, refuse("--out %s: %s is not a real directory", outPath, seg)
+		}
+		nextRoot, err := curRoot.OpenRoot(seg)
+		if err != nil {
+			curRoot.Close()
+			return nil, refuse("--out %s: %v", outPath, err)
+		}
+		fi2, err := nextRoot.Stat(".")
+		curRoot.Close()
+		if err != nil || !fi2.IsDir() || !os.SameFile(fi, fi2) {
+			nextRoot.Close()
+			return nil, refuse("--out %s: %s changed during open", outPath, seg)
+		}
+		curRoot = nextRoot
+	}
+	return curRoot, nil
 }

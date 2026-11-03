@@ -244,7 +244,7 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M4 | T4 | `TestEmbedHoldsOnlyTrackedFiles`, `TestFilesMatchTree`, `TestEmbeddedPlanEqualsCheckout` |
 | M5 | T5 | `TestHarnessMap`, `TestVocabularyVerbsAndFlags`, `TestUpdateNeverInstallsDirtyTree`, `TestUpdateFromReleaseReplacesAndInstalls`, `TestUpdateFromZipVerifiedAndTampered` |
 | M6 | T6 | `TestInstallStatusResyncUninstall`, `TestLintPermissionKeysByKind`, `TestPlainCopyNeverRebuilds`, `TestUninstallKeepsMetricsStore` |
-| M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd` |
+| M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestScratchFileIO`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd` |
 | M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves` |
 | M9 | T9 | `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestMemoryAddBodyFile`, `TestStoreRunsNoProjectHook` |
 | M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestProjectRoots` |
