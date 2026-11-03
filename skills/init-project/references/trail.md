@@ -17,7 +17,7 @@ An agent never runs `fyr record add`. It writes its artifact as a draft file and
 3. The draft's first line is its title as a `# ` heading; no frontmatter (a record carries its own kind, status and date).
 4. Reply with the draft's path, named only after the `write_to_file` call succeeded.
 
-The main thread then stores it: `fyr record add <kind> --title "<title>" < .agents/scratch/agents/<agent>-<stamp>.md`, and cites the ID it prints.
+The main thread then stores it: `fyr record add <kind> --title "<title>" --body-file .agents/scratch/agents/<agent>-<stamp>.md`, and cites the ID it prints.
 
 | Agent | Kind it drafts |
 |---|---|
@@ -27,4 +27,4 @@ The main thread then stores it: `fyr record add <kind> --title "<title>" < .agen
 | bugs | `bug` |
 | changelog | `change` |
 | dreamer | `retro` |
-| documentation | edits files; a spec, deploy doc or guide that is a record gets a draft of its new body, stored with `fyr record edit <ID> --body < <path>` |
+| documentation | edits files; a spec, deploy doc or guide that is a record gets a draft of its new body, stored with `fyr record edit <ID> --body-file <path>` |

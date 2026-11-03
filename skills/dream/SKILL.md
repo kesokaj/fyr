@@ -53,7 +53,7 @@ Otherwise ask for the global context's approval by number ("go all approved", "g
 
 ## Step 5: The record
 
-- Standalone: a `retro` record, `fyr record add retro --title "Dream — <project> (<date>)" < <draft in .agents/scratch/>`, holding the memory line, counts per verdict, the table, what was applied and what was left, and the full text of every retired or rewritten memory. No global index record: a dream is not a retro.
+- Standalone: a `retro` record, `fyr record add retro --title "Dream — <project> (<date>)" --body-file <draft in .agents/scratch/>`, holding the memory line, counts per verdict, the table, what was applied and what was left, and the full text of every retired or rewritten memory. No global index record: a dream is not a retro.
 - From `/retro`: no separate record. The retro record gets a `## Memory` section with the same content, each `promote` becomes a row under its `## Findings` with `rule_ref null`, and the edits are applied with the retro's proposals at its Step 6.
 
 Report in chat: the memory line, counts per verdict, what was applied, and the record's ID.

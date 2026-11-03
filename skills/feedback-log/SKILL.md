@@ -39,7 +39,7 @@ Append an entry when ANY of these occur:
 
 ## Log Format
 
-Store one record per correction: write the JSON object below to `.agents/scratch/feedback-<stamp>.json` (`<stamp>` from `date +%F-%H%M%S`), then `fyr record add feedback --global --project <absolute project root> --title "<the corrected value, one line>" < .agents/scratch/feedback-<stamp>.json`. A `feedback` record is global only and never exported (R8).
+Store one record per correction: write the JSON object below to `.agents/scratch/feedback-<stamp>.json` (`<stamp>` from `date +%F-%H%M%S`), then `fyr record add feedback --global --project <absolute project root> --title "<the corrected value, one line>" --body-file .agents/scratch/feedback-<stamp>.json`. A `feedback` record is global only and never exported (R8).
 
 ```json
 {
@@ -87,7 +87,7 @@ Store one record per correction: write the JSON object below to `.agents/scratch
 4. **Keep `user_quote` short.** Extract the key phrase, not the full paragraph.
 5. **Set `rule_ref` accurately, in the vocabulary above.** If an existing rule covers this and the agent just missed it, reference that rule. If no rule exists, set to `null`.
 6. **One entry per correction.** If the user makes three corrections in one message, write three entries.
-7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `fyr memory add --type feedback --name <slug> --description "<one line>"` (`--type user` for a fact about the user), the body on stdin: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (a description that is not one line of at most 512 bytes, a store that is busy), say why in one line and go on: the feedback record above is already stored.
+7. **Also save it as a memory.** When this skill logs a correction or a re-stated preference, also save it with `fyr memory add --type feedback --name <slug> --description "<one line>" --body-file .agents/scratch/memory-<slug>.md` (`--type user` for a fact about the user), its body written to `.agents/scratch/memory-<slug>.md`: the rule, then a `**Why:**` line and a `**How to apply:**` line. This verb is the store's one writer (R10); the `project-memory` skill covers memories that are not corrections. When the verb refuses (a description that is not one line of at most 512 bytes, a store that is busy), say why in one line and go on: the feedback record above is already stored.
 
 ## Where the loop's outputs land
 

@@ -9,9 +9,26 @@ import (
 	"github.com/kesokaj/fyr/internal/redact"
 )
 
-// teeBody is stdin as the brain store reads it, with what it read kept in
-// seen, so the warning judges exactly the body that was offered.
-func teeBody(seen *strings.Builder) io.Reader { return io.TeeReader(stdin, seen) }
+// teeBodyFrom wraps r so what the brain store reads is kept in seen for the
+// redactor warning.
+func teeBodyFrom(r io.Reader, seen *strings.Builder) io.Reader { return io.TeeReader(r, seen) }
+
+// openBodyReader returns the reader for a record or memory body: stdin when
+// --body-file was not set, or the regular file at path when it was, refusing
+// piped stdin alongside --body-file.
+func openBodyReader(path string, set bool) (io.Reader, func(), error) {
+	if !set {
+		return stdin, func() {}, nil
+	}
+	if brain.StdinPiped(stdin) {
+		return nil, nil, brain.RefusePipedBodyFile()
+	}
+	f, err := brain.OpenBodyFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, func() { f.Close() }, nil
+}
 
 // warnRedactable names on stderr, after the store, an ID given with --id, a
 // title or a body that holds text the redactor would change: a project's

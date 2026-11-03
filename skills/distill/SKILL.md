@@ -133,7 +133,7 @@ mkdir -p .agents/skills/<name>
 From another project, never write the harness checkout (ADR-070): no `skills/<name>/`, no `fyr install`, no `fyr adopt`, no commit there. Queue the draft for `/retro --harness`:
 ```bash
 # write the full SKILL.md to .agents/scratch/distill-<name>.md first: it is the proposal's body; it starts queued
-fyr record add proposal --global --project <absolute project path> --title "Distill — skill <name>" < .agents/scratch/distill-<name>.md
+fyr record add proposal --global --project <absolute project path> --title "Distill — skill <name>" --body-file .agents/scratch/distill-<name>.md
 ```
 Its ID goes in Step 6's records. In the harness checkout itself (`fyr status` first line names it and `test -f context/AGENTS.md` passes), write `skills/<name>/SKILL.md` there instead, under that repo's own rules (`fyr install`, its `AGENTS.md` Testing section, a `change` record, commit, push).
 
@@ -146,8 +146,8 @@ After installation (a queued skill is not installed: say it waits for `/retro --
 
 **The trail** is records (`~/.gemini/config/skills/init-project/references/trail.md`). Dates from `date +%F`, timestamps from `date -u +%FT%TZ` (works on macOS and Linux).
 
-1. Store a `retro` record, `fyr record add retro --title "Distill — <name> (<date>)" < <draft in .agents/scratch/>` (a record is never overwritten), its body a `Session:` line (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "queued as <PROPOSAL-ID>" / "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
-2. Store one global `retro` index record — the cross-project index the `retro` skill shares — `fyr record add retro --global --project <absolute project path> --title "Distill index — <name> (<date>)"`, its body this compact JSON with exactly one entry in `proposals`:
+1. Store a `retro` record, `fyr record add retro --title "Distill — <name> (<date>)" --body-file <draft in .agents/scratch/>` (a record is never overwritten), its body a `Session:` line (the same session form) and four sections: **Pattern** (what was detected, the user's words that showed it), **Scope** (project or global, and why), **Skill** (the path the SKILL.md went to, or "queued as <PROPOSAL-ID>" / "proposed, not installed" / "rejected — reason"), **Trigger evaluation** (the example prompts from Step 4). This is the project's own log of what the learning loop did here; a later session reads it before proposing the same skill again.
+2. Store one global `retro` index record — the cross-project index the `retro` skill shares — `fyr record add retro --global --project <absolute project path> --title "Distill index — <name> (<date>)" --body-file <draft in .agents/scratch/>`, its body this compact JSON with exactly one entry in `proposals`:
 
 ```json
 {"ts":"<date -u +%FT%TZ>","project":"<absolute project path>","session":"<first 8 chars of the conversation id>","kind":"distill","record":"<the distill record's ID>","proposals":[{"title":"<skill name>","scope":"project","target":".agents/skills/<name>/SKILL.md","status":"installed"}]}

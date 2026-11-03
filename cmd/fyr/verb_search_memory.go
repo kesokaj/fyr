@@ -27,8 +27,11 @@ func runMemory(c *ctx) error {
 	given := map[string]bool{}
 	c.fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
 	args := c.fs.Args()
-	if len(args) == 1 && args[0] == "show" && (given["type"] || given["name"] || given["description"] || given["provenance"]) {
-		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description or --provenance")
+	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
+		return usageErr(c.out, "memory", "")
+	}
+	if args[0] == "show" && (given["type"] || given["name"] || given["description"] || given["provenance"] || given["body-file"]) {
+		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description, --body-file or --provenance")
 		return exitCode(2)
 	}
 	prov := "operator"
@@ -39,7 +42,13 @@ func runMemory(c *ctx) error {
 		fmt.Fprintln(c.out, `fyr memory: --provenance must be operator or derived, not ""`)
 		return exitCode(2)
 	}
-	return memoryCmd(args, brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov}, c.home, c.out)
+	body, closeBody, err := openBodyReader(c.memBodyFile, given["body-file"])
+	if err != nil {
+		fmt.Fprintln(c.out, search.Printable("fyr memory: "+err.Error()))
+		return exitCode(2)
+	}
+	defer closeBody()
+	return memoryCmdWithReader(args, brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov}, body, c.home, c.out)
 }
 
 // runSearch serves `search` and `index`; neither needs a harness tree, and a
@@ -77,6 +86,10 @@ var memorySubverbs = []string{"add", "show"}
 // working directory: an alias over the brain store's memory records (D14).
 // A refusal prints its reason and exits 2.
 func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) error {
+	return memoryCmdWithReader(args, e, stdin, home, out)
+}
+
+func memoryCmdWithReader(args []string, e brain.MemoryEntry, body io.Reader, home string, out io.Writer) error {
 	if len(args) != 1 || !slices.Contains(memorySubverbs, args[0]) {
 		// A usage error exits 2 like every other usage error here (dream's, a verb's unknown flag).
 		return usageErr(out, "memory", "")
@@ -88,7 +101,7 @@ func memoryCmd(args []string, e brain.MemoryEntry, home string, out io.Writer) e
 	o := brain.Options{Home: home, Dir: wd}
 	var text string
 	if args[0] == "add" {
-		text, err = brain.MemoryAdd(o, e, stdin)
+		text, err = brain.MemoryAdd(o, e, body)
 		if err == nil {
 			text = "saved " + text + "\n"
 		}

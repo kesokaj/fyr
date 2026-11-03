@@ -138,7 +138,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### Writing Rules
 
-- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. The by-hand Kickoff has no `Model:` line, even for a phase with a `model:` line: the operator picks the model when starting that session. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `AGENTS.md` and no `.agents/`, so no handoff record) the same block is printed in chat only, nothing saved.
+- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; `<handoff ID>` is `HANDOFF-<stamp>-<slug>`, chosen before writing the Kickoff (`<stamp>` from `date +%F-%H%M`, `<slug>` lowercase `[a-z0-9-]` from `<topic>`) and passed to `fyr record add handoff --id` in Step 5 so the Kickoff names the stored ID (BUG-501); the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. The by-hand Kickoff has no `Model:` line, even for a phase with a `model:` line: the operator picks the model when starting that session. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `AGENTS.md` and no `.agents/`, so no handoff record) the same block is printed in chat only, nothing saved.
 - **Be concise.** The whole document should be under 150 lines. A fresh agent needs signal, not noise.
 - **Records by ID, files by repo-relative path**, because the next reader may be on the other machine where the checkout lives elsewhere; the `Project:` line is the only absolute path. A path in another checkout is written as `<repo name>/<relative path>`.
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
@@ -175,10 +175,10 @@ Done when: <the task's Done when from the lead's table>. Where Done when names a
 
 ## Step 5: Save the Document
 
-Write the document to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory), then store it:
+Write the document to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory), then store it with the ID chosen for the Kickoff:
 
 ```bash
-fyr record add handoff --title "Handoff — <date> — <topic>" < .agents/scratch/handoff-<stamp>.md    # prints HANDOFF-<stamp>-<slug>
+fyr record add handoff --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
 ```
 
 Handoffs are **immutable** — never edit a previous handoff; a new session stores a new one, and the newest is the live one.

@@ -114,10 +114,10 @@ That yields:
 
 | Template | Command when absent |
 |---|---|
-| `GUIDE-testing.md` | `fyr record add guide --id GUIDE-testing --title "Testing guide — <project>" < <filled copy>` |
-| `DEPLOY-local.md` | `fyr record add deploy --id DEPLOY-local --title "Deploy — local" < <filled copy>` |
-| `DEPLOY-remote.md` | `fyr record add deploy --id DEPLOY-remote --title "Deploy — remote" < "$ASSETS/records/DEPLOY-remote.md"` |
-| `DEPLOY-gcp.md` | `fyr record add deploy --id DEPLOY-gcp --title "Deploy — GCP" < "$ASSETS/records/DEPLOY-gcp.md"` |
+| `GUIDE-testing.md` | `fyr record add guide --id GUIDE-testing --title "Testing guide — <project>" --body-file <filled copy>` |
+| `DEPLOY-local.md` | `fyr record add deploy --id DEPLOY-local --title "Deploy — local" --body-file <filled copy>` |
+| `DEPLOY-remote.md` | `fyr record add deploy --id DEPLOY-remote --title "Deploy — remote" --body-file "$ASSETS/records/DEPLOY-remote.md"` |
+| `DEPLOY-gcp.md` | `fyr record add deploy --id DEPLOY-gcp --title "Deploy — GCP" --body-file "$ASSETS/records/DEPLOY-gcp.md"` |
 
 A filled copy is written to `.agents/scratch/` first. `GUIDE-testing` is the project's one testing guide; the `verifier` fills its `<placeholders>` on its first run (the tiers it lists are the `testing-strategy` skill's). For `DEPLOY-local`, the Build, Run and Test blocks take the setup answers verbatim, and a `<placeholder>` the answers do not fill is deleted — the Configure row when the code reads no setting yet, the Verify command until the endpoint exists — never replaced with an invented value. `DEPLOY-remote` and `DEPLOY-gcp` keep their *Not applicable yet* line until the user names a target; the GCP record is where the defaults the global context asks for get recorded, never invented. `assets/records/SPEC-TEMPLATE.md` is not seeded: the `spec` skill copies it when a spec is written.
 

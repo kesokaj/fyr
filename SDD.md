@@ -97,7 +97,7 @@ sequenceDiagram
   participant C as M5 cmd/fyr
   participant B as M7 brain store
   participant T as .agents/trail.jsonl
-  A->>C: fyr record add plan, body on stdin
+  A->>C: fyr record add plan, body on stdin or --body-file
   C->>B: allocate the ID, store the record in brain.db
   C-->>A: the new ID
   A->>C: fyr search words, at resume or before touching an area

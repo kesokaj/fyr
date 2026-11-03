@@ -17,9 +17,9 @@ import (
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
 var recordFlags = map[string]map[string]bool{
-	"add":    {"title": true, "title-file": true, "status": true, "id": true, "project": true, "global": true},
-	"get":    {"global": true},
-	"edit":   {"status": true, "title": true, "body": true, "global": true},
+	"add":    {"title": true, "title-file": true, "body-file": true, "status": true, "id": true, "project": true, "global": true},
+	"get":    {"global": true, "out": true},
+	"edit":   {"status": true, "title": true, "body": true, "body-file": true, "global": true},
 	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true},
 	"export": {},
 	"sync":   {},
@@ -54,11 +54,11 @@ func dispatchRecord(c *ctx, o brain.Options, sub string, rest []string, set map[
 	switch sub {
 	case "add":
 		if len(rest) == 1 {
-			return recordAdd(c, o, rest[0])
+			return recordAdd(c, o, rest[0], set)
 		}
 	case "get":
 		if len(rest) > 0 {
-			return recordGet(c, o, rest)
+			return recordGet(c, o, rest, set)
 		}
 	case "edit":
 		if len(rest) == 1 {
@@ -113,7 +113,7 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 
 // recordAdd serves `record add`: the new record's ID, and the redactor
 // warning when the given ID, the stored title or the body would trip it.
-func recordAdd(c *ctx, o brain.Options, kind string) error {
+func recordAdd(c *ctx, o brain.Options, kind string, set map[string]bool) error {
 	if c.recTitleFile != "" {
 		if c.recTitle != "" {
 			return usageErr(c.out, "record", "fyr record add takes --title or --title-file, not both")
@@ -124,8 +124,13 @@ func recordAdd(c *ctx, o brain.Options, kind string) error {
 		}
 		c.recTitle = t
 	}
+	body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
+	if err != nil {
+		return recordErr(c, err)
+	}
+	defer closeBody()
 	var seen strings.Builder
-	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: teeBody(&seen)})
+	id, err := brain.Add(o, brain.AddInput{Kind: kind, Title: c.recTitle, Status: c.recStatus, ID: c.recID, Project: c.recProject, Body: teeBodyFrom(body, &seen)})
 	if err == nil {
 		fmt.Fprintln(c.out, id)
 		warnRedactable(c.recID, c.recTitle, seen.String())
@@ -142,21 +147,39 @@ func recordList(c *ctx, o brain.Options) error {
 	return recordErr(c, err)
 }
 
-// recordGet serves `record get`: each record, a blank line between.
-func recordGet(c *ctx, o brain.Options, ids []string) error {
+// recordGet serves `record get`: each record, a blank line between, or with
+// --out writes one record's body under .agents/scratch/.
+func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error {
+	if set["out"] {
+		if len(ids) != 1 {
+			return usageErr(c.out, "record", "fyr record get --out takes one id")
+		}
+		if _, _, err := brain.CheckScratchOut(o.Dir, c.recOut); err != nil {
+			return recordErr(c, err)
+		}
+	}
 	recs, _, err := brain.Get(o, ids)
+	if err != nil {
+		return recordErr(c, err)
+	}
+	if set["out"] {
+		return recordErr(c, brain.WriteScratch(o.Dir, c.recOut, recs[0].Body))
+	}
 	for i, r := range recs {
 		if i > 0 {
 			fmt.Fprintln(c.out)
 		}
 		fmt.Fprint(c.out, brain.FormatGet(r))
 	}
-	return recordErr(c, err)
+	return nil
 }
 
 // recordEdit serves `record edit`: only what the command line set changes;
 // a new title or body gets the redactor warning, a kept one does not.
 func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
+	if c.recBody && set["body-file"] {
+		return usageErr(c.out, "record", "fyr record edit takes --body or --body-file, not both")
+	}
 	in := brain.EditInput{ID: id}
 	if set["status"] {
 		in.Status = &c.recStatus
@@ -165,8 +188,13 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 		in.Title = &c.recTitle
 	}
 	var seen strings.Builder
-	if c.recBody {
-		in.Body = teeBody(&seen)
+	if c.recBody || set["body-file"] {
+		body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
+		if err != nil {
+			return recordErr(c, err)
+		}
+		defer closeBody()
+		in.Body = teeBodyFrom(body, &seen)
 	}
 	err := brain.Edit(o, in)
 	if err == nil {

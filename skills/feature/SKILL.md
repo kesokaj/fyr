@@ -22,13 +22,13 @@ Restate the request in one or two sentences: "I read this as: X. Confirm or corr
 
 When the request ranges over a LIST — a backlog, `TODO.md`, a review's findings — the restatement is a numbered list instead: one line per item, the recommendation in brackets (`[fix]`, `[strike]` with the reason, `[yours]` for what only the user can decide), ending with the global context's approval line ("go all approved", "go approved 1-3, skip 5"). The answers ARE the scope; strikes the user approves are applied before the plan is written, with the reason on each line. A single request that leaves gaps in who, what, constraints or failure modes gets the same numbered form, one gap per line with your recommended answer; a gap the user does not settle now becomes an `Open:` row in the plan with your default.
 
-When the confirmed scope touches an area this session has not read, or an estimated 10+ files, dispatch `explorer` with the scope restatement only (a budget of 30 tool calls; "write the artifact early, then update it"), asking for the closest existing surfaces with file:line, the patterns to mirror, and what the request leaves open; `## Surfaces touched` cites its brief, stored as a `plan` record from its draft (`fyr record add plan --title "Recon — <slug>" < <path>`).
+When the confirmed scope touches an area this session has not read, or an estimated 10+ files, dispatch `explorer` with the scope restatement only (a budget of 30 tool calls; "write the artifact early, then update it"), asking for the closest existing surfaces with file:line, the patterns to mirror, and what the request leaves open; `## Surfaces touched` cites its brief, stored as a `plan` record from its draft (`fyr record add plan --title "Recon — <slug>" --body-file <path>`).
 
 When the feature adds a CAPABILITY (a verb, a tool, an index) rather than changing a surface, the scope names its consumers by asking who would use it, not who uses the old mechanism today: a search index's consumers include the agents that WRITE records and never grepped before. The consumers go under the restatement in the numbered-list form above, one line each, and the plan gets a task per consumer or a line saying why not.
 
-## Step 2: Plan record — `fyr record add plan --title "Plan — <topic> (<date>)"`
+## Step 2: Plan record — `fyr record add plan --title "Plan — <topic> (<date>)" --body-file .agents/scratch/plan-<slug>.md`
 
-Draft the plan in `.agents/scratch/plan-<slug>.md`, store it with the command above (it prints `PLAN-<stamp>-<slug>`), and keep editing it there: `fyr record get <ID>` into the scratch file (drop the first line, the record's header), edit, `fyr record edit <ID> --body < <file>`. Its status follows its body: open while an unticked `- [ ]` stands outside a fence.
+Draft the plan in `.agents/scratch/plan-<slug>.md`, store it with the command above (it prints `PLAN-<stamp>-<slug>`), and keep editing it there: `fyr record get <ID> --out .agents/scratch/plan-<slug>.md`, edit, `fyr record edit <ID> --body-file .agents/scratch/plan-<slug>.md`. Its status follows its body: open while an unticked `- [ ]` stands outside a fence.
 
 ```markdown
 # Plan — <feature>   (<date>)

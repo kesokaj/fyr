@@ -42,7 +42,7 @@ func checkAdd(o Options, in AddInput) (string, error) {
 // status, and returns its new title and body, read from stdin when given.
 func editFields(in EditInput) (title, body string, err error) {
 	if in.Status == nil && in.Title == nil && in.Body == nil {
-		return "", "", usage("usage: fyr record edit <id> [--status S] [--title T] [--body] needs at least one of them")
+		return "", "", usage("usage: fyr record edit <id> [--status S] [--title T] [--body | --body-file FILE] needs at least one of them")
 	}
 	if in.Status != nil && *in.Status == "" {
 		return "", "", usage("--status needs a value")

@@ -73,7 +73,7 @@ The `--docs` lens of `/review` over `<base>..HEAD` rides in Step 2's reviewer di
 
 ## Step 5: Write the merged gate report
 
-Draft it at `.agents/scratch/preflight-<version>.md` and store it as a `review` record, `fyr record add review --title "Preflight — <version>" < .agents/scratch/preflight-<version>.md`:
+Draft it at `.agents/scratch/preflight-<version>.md` and store it as a `review` record, `fyr record add review --title "Preflight — <version>" --body-file .agents/scratch/preflight-<version>.md`:
 
 - A `Range reviewed: <base>..<head>` line in the body — later runs read this line to find their base when no tag exists.
 - **FAIL-first ordering** — lead with what is broken.

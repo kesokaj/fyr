@@ -26,12 +26,12 @@ type ctx struct {
 	repoFlag, homeFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
 	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer bool
-	fromZip, kind, refs, memType, memName, memDesc, dreamProject                            string
+	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject               string
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut   string
 	metricsUntil, metricsHarness                                                            string
 	metricsContextTarget                                                                    int64
 	metricsAllLabels, metricsJSON                                                           bool
-	recTitle, recTitleFile, recStatus, recID, recProject                                    string
+	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject               string
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
@@ -80,6 +80,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: user, feedback, project or reference")
 		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
 		c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
+		c.fs.StringVar(&c.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.dreamAll, "all", false, "every project registered with index --register")
@@ -110,6 +111,8 @@ var verbs = map[string]verb{
 	"record": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.recTitle, "title", "", "add, edit: the record's one-line title, `T`")
 		c.fs.StringVar(&c.recTitleFile, "title-file", "", "add: read the title from `FILE`, one line, instead of --title")
+		c.fs.StringVar(&c.recBodyFile, "body-file", "", "add, edit: read the body from `FILE` instead of stdin")
+		c.fs.StringVar(&c.recOut, "out", "", "get: write the record's body to `FILE` under .agents/scratch/")
 		c.fs.StringVar(&c.recStatus, "status", "", "add, edit: the status `S`; each kind takes its own, and a status it does not take is refused with the kind's list")
 		c.fs.StringVar(&c.recID, "id", "", "add: the `ID` to use instead of the next one")
 		c.fs.StringVar(&c.recProject, "project", "", "add, list with --global: the project `ROOT` a global record is about")

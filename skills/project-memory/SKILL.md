@@ -35,14 +35,18 @@ When the user asks you to remember something that is one of those, ask what was 
 
 ## How to save
 
-```bash
-fyr memory add --type feedback --name no-db-mocks --description "integration tests hit the real database" <<'EOF'
+Write the body to `.agents/scratch/memory-<slug>.md` with the file tool, then store it:
+
+```markdown
 Integration tests hit a real database, never a mock.
 
 **Why:** a mocked test passed while the real migration failed (the user, 2026-09-30).
 
 **How to apply:** in any test under internal/store, start the test database; never add a mock driver.
-EOF
+```
+
+```bash
+fyr memory add --type feedback --name no-db-mocks --description "integration tests hit the real database" --body-file .agents/scratch/memory-no-db-mocks.md
 ```
 
 - `--name` is a short kebab-case slug, the record's name (`MEMORY-<slug>`): `^[a-z0-9][a-z0-9-]{0,63}$`.
