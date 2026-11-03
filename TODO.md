@@ -7,15 +7,15 @@
 
 ## Now
 
-No phase active: item 6 of `PLAN-2026-11-02-1806-fyr-speed` is done (print-mode-only polling in `context/AGENTS.md`, `skills/handoff/SKILL.md`, and `skills/work/SKILL.md`, `TestPrintModeOnlyPolling`, Mac wakeup checks in Antigravity and `agy -i`, and `work` / `handoff` eval rows; item 10's docker run waits for item 12; a clean eval re-run of `work-tasks*` is owed, `BUG-504`); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 7 of `PLAN-2026-11-02-1806-fyr-speed` is done (migration 5 step and trial stage columns, Antigravity `steps.metadata` `1`, `6`, `7`, `8` and `26` status-9 wait decoding, `Summary.B` `model_min`/`tool_min`/`wait_min`/`idle_min`, `fyr metrics show` `time model/tool/wait/idle m`, and `TestStepTimes` on the recorded macOS `agy 1.4.12` probe fixture in `internal/metrics/testdata/probe/`); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 7 — time split in `fyr metrics`: per-step start, end and wait times from the agy conversation DB.
 - Item 11 — show the runner on the stamp and result lines, plus `fyr work --check`.
 - Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
+- Item 18 — no explorer on an empty repo.
 
 ## Backlog
 

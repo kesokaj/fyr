@@ -38,6 +38,13 @@ func (w *writer) step(sid, ext string, ts int64, kind string) {
 		ON CONFLICT(session_id, ext_id) DO NOTHING`, sid, ext, ts, kind)
 }
 
+func (w *writer) timedStep(sid, ext string, ts int64, kind string, started, ended, wait any) {
+	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, started_ms, ended_ms, wait_ms) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id, ext_id) DO UPDATE SET
+			ts = excluded.ts, started_ms = excluded.started_ms, ended_ms = excluded.ended_ms, wait_ms = excluded.wait_ms`,
+		sid, ext, ts, kind, started, ended, wait)
+}
+
 // targetKind is the trail kind of an absolute path inside the session's
 // project, "outside" for one elsewhere; the path is discarded.
 func (w *writer) targetKind(root, p string) any {

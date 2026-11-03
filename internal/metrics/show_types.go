@@ -74,6 +74,10 @@ type Efficiency struct {
 	CostUSD         map[string]*float64       `json:"cost_usd"`
 	WallMin         map[string]float64        `json:"wall_min"`
 	ActiveMin       map[string]float64        `json:"active_min"`
+	ModelMin        map[string]float64        `json:"model_min"`
+	ToolMin         map[string]float64        `json:"tool_min"`
+	WaitMin         map[string]float64        `json:"wait_min"`
+	IdleMin         map[string]float64        `json:"idle_min"`
 	PeakContext     map[string]int64          `json:"peak_context"`
 	Compactions     map[string]*int           `json:"compactions"`
 	// ContextTarget is the target the next two fields are measured against.
@@ -133,7 +137,7 @@ type sess struct {
 
 type stp struct {
 	ext, kind, tool, skill, kindOf, hash string
-	ts                                   int64
+	ts, started, ended, wait             int64
 	isErr, denied                        bool
 	in, out, cr, cw, ctx                 int64
 	verbs                                []string

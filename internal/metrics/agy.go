@@ -17,12 +17,14 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// Antigravity step types and statuses (plan D35).
+// Antigravity step types and statuses (plan D35; Item 7).
 const (
-	agyUser   = 14
-	agyReply  = 15
-	agyTool   = 132
-	agyFailed = 7
+	agyUser      = 14
+	agyReply     = 15
+	agyTool      = 132
+	agyCancelled = 6
+	agyFailed    = 7
+	agyWaiting   = 9
 )
 
 type agyConv struct {
@@ -159,7 +161,7 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 // agyTool stores one tool step's shape: the common tool name, and from its
 // arguments only a command's verbs and hash, a path's trail kind, a record
 // verb's kind (recordRead) and a skill's name.
-func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields) {
+func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields, started, ended, wait any) {
 	name := f.text(4, 2)
 	tool := agyTools[name]
 	if tool == "" && name != "" {
@@ -186,11 +188,12 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields)
 	}
 	// A conversation is re-read whole when it changes: a step first seen
 	// while running gets its final status and time (review 2026-10-08).
-	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, target_kind, is_error, cmd_hash)
-		VALUES (?, ?, ?, 'tool', ?, ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
+	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, target_kind, is_error, cmd_hash, started_ms, ended_ms, wait_ms)
+		VALUES (?, ?, ?, 'tool', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
 			ts = excluded.ts, tool = excluded.tool, skill = excluded.skill, target_kind = excluded.target_kind,
-			is_error = excluded.is_error, cmd_hash = excluded.cmd_hash`,
-		c.id, ext, ts, tool, skill, kind, boolInt(failed), hash)
+			is_error = excluded.is_error, cmd_hash = excluded.cmd_hash,
+			started_ms = excluded.started_ms, ended_ms = excluded.ended_ms, wait_ms = excluded.wait_ms`,
+		c.id, ext, ts, tool, skill, kind, boolInt(failed), hash, started, ended, wait)
 	if tool == "Bash" {
 		for n, v := range Verb(args.CommandLine) {
 			w.exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`, c.id, ext, n, v)
@@ -311,3 +314,13 @@ func (m fields) bytes(p ...int) []byte {
 }
 
 func (m fields) text(p ...int) string { return string(m.bytes(p...)) }
+
+// timeMS is the Unix milliseconds of a protobuf Timestamp at field n
+// (seconds at n→1, nanoseconds at n→2), 0 when absent.
+func (m fields) timeMS(n int) int64 {
+	sec := m.varint(n, 1)
+	if sec == 0 {
+		return 0
+	}
+	return int64(sec)*1000 + int64(m.varint(n, 2))/1_000_000
+}

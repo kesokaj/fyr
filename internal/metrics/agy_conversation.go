@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // agyStep is one row of a conversation's steps table.
@@ -65,25 +67,92 @@ func (w *writer) agySteps(c agyConv, steps []agyStep) []int64 {
 	var replyTimes []int64
 	for _, st := range steps {
 		f := fieldMap(st.meta)
-		ts := int64(f.varint(1, 1)) * 1000
+		ts := f.timeMS(1)
+		_, ended, startedCol, endedCol, waitCol := stepTimes(st.meta, f)
 		ext := fmt.Sprintf("%s:%d", c.id, st.idx)
 		switch st.typ {
 		case agyUser:
 			w.step(c.id, ext, ts, "user")
 		case agyReply:
-			w.step(c.id, ext, ts, "assistant")
+			w.timedStep(c.id, ext, ts, "assistant", startedCol, endedCol, waitCol)
 			replyTimes = append(replyTimes, ts)
 		case agyTool:
-			w.agyTool(c, ext, ts, st.status == agyFailed, f)
+			w.agyTool(c, ext, ts, st.status == agyFailed, f, startedCol, endedCol, waitCol)
 		default:
 			continue
 		}
+		end := max(ts, ended)
 		if ts > 0 {
 			w.exec(`UPDATE sessions SET started_at = MIN(COALESCE(started_at, ?), ?), ended_at = MAX(COALESCE(ended_at, ?), ?) WHERE id = ?`,
-				ts, ts, ts, ts, c.id)
+				ts, ts, end, end, c.id)
 		}
 	}
 	return replyTimes
+}
+
+// statusEntry is one status transition from steps.metadata field 26→1.
+type statusEntry struct {
+	status int
+	at     int64
+}
+
+// statusHistory decodes the repeated status-transition entries in
+// steps.metadata field 26→1 (status varint at 1, Timestamp at 2).
+func statusHistory(meta []byte) []statusEntry {
+	var out []statusEntry
+	for _, f := range search.ProtoFields(meta) {
+		if f.Wire == 2 && len(f.Path) == 2 && f.Path[0] == 26 && f.Path[1] == 1 {
+			ef := fieldMap(f.Bytes)
+			out = append(out, statusEntry{status: int(ef.varint(1)), at: ef.timeMS(2)})
+		}
+	}
+	return out
+}
+
+// waitMS is the milliseconds a step spent in status 9 (WAITING, permission
+// or confirmation dialog) across its status history, closed by the next
+// transition or ended.
+func waitMS(meta []byte, ended int64) int64 {
+	hist := statusHistory(meta)
+	var wait int64
+	for i, e := range hist {
+		if e.status != agyWaiting || e.at <= 0 {
+			continue
+		}
+		next := ended
+		if i+1 < len(hist) && hist[i+1].at > 0 {
+			next = hist[i+1].at
+		}
+		if next > e.at {
+			wait += next - e.at
+		}
+	}
+	return wait
+}
+
+// stepTimes extracts started_ms, ended_ms and wait_ms from a step's
+// metadata, returning nil values when the step carries no start, end or
+// wait timestamps.
+func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCol, waitCol any) {
+	started = f.timeMS(6)
+	if started == 0 {
+		started = f.timeMS(7)
+	}
+	ended = f.timeMS(8)
+	if ended == 0 {
+		ended = f.timeMS(7)
+	}
+	wait := waitMS(meta, ended)
+	if started > 0 {
+		startedCol = started
+	}
+	if ended > 0 {
+		endedCol = ended
+	}
+	if started > 0 || ended > 0 || wait > 0 {
+		waitCol = wait
+	}
+	return started, ended, startedCol, endedCol, waitCol
 }
 
 // agyGens stores one generation step per gen_metadata row: its tokens, its

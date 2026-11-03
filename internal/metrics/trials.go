@@ -18,11 +18,13 @@ type Trial struct {
 	CLI     string // the first line of `agy --version`; "" when unknown
 	Status  string // "pass", "fail" or "error"
 	Cause   string // the closed set of SPEC-fyr-eval, one identifier; "" for pass
-	// StartedAt and Seconds are the whole trial; SessionSeconds the agy
-	// session(s), nil when none ran.
+	// StartedAt and Seconds are the whole trial; SetupSeconds, SessionSeconds
+	// and CheckSeconds the stage durations, nil when not measured or none ran.
 	StartedAt      time.Time
 	Seconds        int64
+	SetupSeconds   *int64
 	SessionSeconds *int64
+	CheckSeconds   *int64
 	// The suite's per-row fields, written by fyr eval from ADR-085 on with
 	// the suite's defaults applied; zero means NULL (a trial stored before
 	// then, or not known at the run).
@@ -65,8 +67,13 @@ func (t Trial) validate() error {
 			return fmt.Errorf("%s: not printable or over %d bytes", name, trialText)
 		}
 	}
-	if t.RowVersion < 0 || t.Seconds < 0 || (t.SessionSeconds != nil && *t.SessionSeconds < 0) {
+	if t.RowVersion < 0 || t.Seconds < 0 {
 		return errors.New("a count below 0")
+	}
+	for _, p := range []*int64{t.SetupSeconds, t.SessionSeconds, t.CheckSeconds} {
+		if p != nil && *p < 0 {
+			return errors.New("a count below 0")
+		}
 	}
 	// Go's zero time is before 1970: stored, it would sit outside every
 	// window and the trial would vanish from every rate (BUG-181's shape).
@@ -82,15 +89,17 @@ func (s *Store) RecordTrial(t Trial) error {
 	if err := t.validate(); err != nil {
 		return fmt.Errorf("metrics: trial: %w", err)
 	}
-	var sessionSeconds any
-	if t.SessionSeconds != nil {
-		sessionSeconds = *t.SessionSeconds
+	optInt := func(p *int64) any {
+		if p == nil {
+			return nil
+		}
+		return *p
 	}
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli,
-		status, cause, started_at, seconds, session_seconds)
-		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?)`,
+		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds)
+		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
 		t.Run, t.Label, t.RowVersion, t.Kind, t.Cluster, t.Expect, t.Harness, t.CLI,
-		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, sessionSeconds)
+		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds))
 	if err != nil {
 		return fmt.Errorf("metrics: trial: %w", err)
 	}

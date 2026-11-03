@@ -7,12 +7,21 @@ import (
 
 func (s *Summary) add(x sess, steps []stp) {
 	s.addSession(x)
-	r := &stepRun{x: x, main: x.parent == "", a: s.acc(x.vendor), tk: s.B.Tokens[x.vendor]}
+	r := &stepRun{x: x, main: x.parent == "", cursor: x.start, a: s.acc(x.vendor), tk: s.B.Tokens[x.vendor]}
 	if s.seen == nil {
 		s.seen = map[string]bool{}
 	}
 	for _, st := range steps {
 		s.addStep(r, st)
+	}
+	if r.main && r.timed {
+		if x.end > r.cursor && r.cursor > 0 {
+			r.idleMS += x.end - r.cursor
+		}
+		s.B.ModelMin[x.vendor] += float64(r.modelMS) / 60000
+		s.B.ToolMin[x.vendor] += float64(r.toolMS) / 60000
+		s.B.WaitMin[x.vendor] += float64(r.waitMS) / 60000
+		s.B.IdleMin[x.vendor] += float64(r.idleMS) / 60000
 	}
 	// A main session with at least one model call has a peak; a subagent runs
 	// inside its parent's window and is not a session of its own here.
@@ -23,13 +32,53 @@ func (s *Summary) add(x sess, steps []stp) {
 
 // stepRun is one session's state while add walks its steps.
 type stepRun struct {
-	x          sess
-	main       bool
-	a          *acc
-	tk         *Tokens
-	last, peak int64
-	lastHash   string
-	reads      int
+	x                       sess
+	main, timed             bool
+	a                       *acc
+	tk                      *Tokens
+	last, cursor, peak      int64
+	modelMS, toolMS, waitMS int64
+	idleMS                  int64
+	lastHash                string
+	reads                   int
+}
+
+func (r *stepRun) addTime(st stp) {
+	if !r.main {
+		return
+	}
+	var start, end int64
+	switch st.kind {
+	case "user":
+		if r.cursor == 0 && st.ts > 0 {
+			r.cursor = st.ts
+		}
+		return
+	case "assistant":
+		start, end = st.ts, st.ended
+		if start == 0 {
+			start = st.started
+		}
+	case "tool":
+		start, end = st.started, st.ended
+	default:
+		return
+	}
+	if end <= start || start <= 0 {
+		return
+	}
+	r.timed = true
+	if r.cursor > 0 && start > r.cursor {
+		r.idleMS += start - r.cursor
+	}
+	wait := min(max(st.wait, 0), end-start)
+	if st.kind == "assistant" {
+		r.modelMS += (end - start) - wait
+	} else {
+		r.toolMS += (end - start) - wait
+	}
+	r.waitMS += wait
+	r.cursor = max(r.cursor, end)
 }
 
 // agentType is a subagent's type, "unknown" when it has none.
@@ -93,6 +142,7 @@ func (s *Summary) addStep(r *stepRun, st stp) {
 		}
 		r.last = st.ts
 	}
+	r.addTime(st)
 	s.addTokens(r, st)
 	switch st.kind {
 	case "user":

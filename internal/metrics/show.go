@@ -147,7 +147,8 @@ func (s *Store) sessionsIn(q string, args []any) ([]sess, error) {
 
 func (s *Store) stepsOf(id string) ([]stp, error) {
 	rows, err := s.db.Query(`SELECT ext_id, COALESCE(kind,''), COALESCE(tool,''), COALESCE(skill,''), COALESCE(target_kind,''),
-		COALESCE(cmd_hash,''), COALESCE(ts,0), COALESCE(is_error,0), COALESCE(denied,0), COALESCE(tok_in,0), COALESCE(tok_out,0),
+		COALESCE(cmd_hash,''), COALESCE(ts,0), COALESCE(started_ms,0), COALESCE(ended_ms,0), COALESCE(wait_ms,0),
+		COALESCE(is_error,0), COALESCE(denied,0), COALESCE(tok_in,0), COALESCE(tok_out,0),
 		COALESCE(cache_read,0), COALESCE(cache_write,0), COALESCE(context,0)
 		FROM steps WHERE session_id = ? ORDER BY ts, ext_id`, id)
 	if err != nil {
@@ -157,8 +158,8 @@ func (s *Store) stepsOf(id string) ([]stp, error) {
 	idx := map[string]int{}
 	for rows.Next() {
 		var x stp
-		if err := rows.Scan(&x.ext, &x.kind, &x.tool, &x.skill, &x.kindOf, &x.hash, &x.ts, &x.isErr, &x.denied,
-			&x.in, &x.out, &x.cr, &x.cw, &x.ctx); err != nil {
+		if err := rows.Scan(&x.ext, &x.kind, &x.tool, &x.skill, &x.kindOf, &x.hash, &x.ts, &x.started, &x.ended, &x.wait,
+			&x.isErr, &x.denied, &x.in, &x.out, &x.cr, &x.cw, &x.ctx); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -185,6 +186,7 @@ func (s *Store) stepsOf(id string) ([]stp, error) {
 
 func newSummary(since, now time.Time) *Summary {
 	vi := func() map[string]int { return map[string]int{} }
+	vf := func() map[string]float64 { return map[string]float64{} }
 	vm := func() map[string]map[string]int { return map[string]map[string]int{"agy": {}} }
 	return &Summary{
 		Window:    map[string]string{"since": since.UTC().Format("2006-01-02"), "until": now.UTC().Format("2006-01-02")},
@@ -193,7 +195,8 @@ func newSummary(since, now time.Time) *Summary {
 		A: Outcome{DoDClosed: map[string]Closed{}, Verifier: vi(), ReviewFindings: map[string]int{"high": 0, "medium": 0, "low": 0},
 			PassK: map[string]PassK{}},
 		B: Efficiency{ToolCalls: vi(), ToolCallsByTool: vm(), Turns: vi(), Tokens: map[string]*Tokens{},
-			CostUSD: map[string]*float64{}, WallMin: map[string]float64{}, ActiveMin: map[string]float64{},
+			CostUSD: map[string]*float64{}, WallMin: vf(), ActiveMin: vf(),
+			ModelMin: vf(), ToolMin: vf(), WaitMin: vf(), IdleMin: vf(),
 			PeakContext: map[string]int64{}, Compactions: map[string]*int{},
 			SessionsOverContextTarget: map[string]*int{}, SessionPeaks: map[string][]SessionPeak{}},
 		C: Adherence{SQLiteVerbs: vi(), GrepCalls: vi(), SearchGrepRatio: map[string]*float64{},

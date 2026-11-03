@@ -112,7 +112,7 @@ Implements: M9 · Spec: `SPEC-fyr-memory-loop`
 Implements: M10 · Spec: `SPEC-fyr-metrics`
 
 - **Interfaces:** `fyr metrics ingest`, `show`, `report`, `evals`, `export`; `(*Store).ProjectRoots` for M16's cross-project views.
-- **Data:** `~/.config/fyr/metrics.db`, a store of record of session shape: never arguments, prose or tool output; `uninstall` leaves it.
+- **Data:** `~/.config/fyr/metrics.db`, a store of record of session shape: never arguments, prose or tool output; `uninstall` leaves it. Migration 5 adds `started_ms`, `ended_ms` and `wait_ms` on `steps` (from Antigravity `steps.metadata` timestamps `1`, `6`, `7`, `8` and status-history field `26`) and `setup_seconds` and `check_seconds` on `trials`, feeding `Summary.B`'s `model_min`, `tool_min`, `wait_min` and `idle_min` and `show`'s `time model/tool/wait/idle m` line.
 
 ## T11 — The dreamer
 
@@ -247,7 +247,7 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestScratchFileIO`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd` |
 | M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves` |
 | M9 | T9 | `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestMemoryAddBodyFile`, `TestStoreRunsNoProjectHook` |
-| M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestProjectRoots` |
+| M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestProjectRoots`, `TestStepTimes` |
 | M11 | T11 | `TestRunIngestsMetricsFirst`, `TestPromptCarriesMetricsNumbersOnly`, `TestInstallTimerLinux` |
 | M12 | T12 | `TestRedactShapes`, `TestEveryNeedleHasAShapeAndANearMiss` |
 | M13 | T13 | `TestSuiteHarness`, `TestEvalRefusesItsHome`, `TestEvalSuiteFile`, `TestRunDarwinKeychainLogin` |

@@ -82,6 +82,10 @@ func (s *Summary) putColumn(put func(string, float64), v string) {
 	}
 	put("B.wall_min."+v, s.B.WallMin[v])
 	put("B.active_min."+v, s.B.ActiveMin[v])
+	put("B.model_min."+v, s.B.ModelMin[v])
+	put("B.tool_min."+v, s.B.ToolMin[v])
+	put("B.wait_min."+v, s.B.WaitMin[v])
+	put("B.idle_min."+v, s.B.IdleMin[v])
 	put("B.peak_context."+v, float64(s.B.PeakContext[v]))
 	if p := s.B.SessionsOverContextTarget[v]; p != nil {
 		put("B.sessions_over_context_target."+v, float64(*p))

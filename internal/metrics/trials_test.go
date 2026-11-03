@@ -12,8 +12,9 @@ import (
 )
 
 // A store written at schema 3 (before trials) upgrades in place: its rows
-// stay, its sessions get a NULL run, the trials table exists, the schema
-// reads 4; a store at schema 5 is still refused untouched.
+// stay, its sessions get a NULL run, the trials table and migration-5 step
+// and stage columns exist, the schema reads 5; a store at schema 6 is still
+// refused untouched.
 func TestMigrationThreeToCurrent(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	saved := migrations
@@ -23,6 +24,9 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, label, outcome, started_at) VALUES ('old', 'agy', 'eval=x', 'pass', 5)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.db.Exec(`INSERT INTO steps(session_id, ext_id, kind) VALUES ('old', 'e1', 'tool')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.Exec(`INSERT INTO trials(run) VALUES ('x')`); err == nil {
 		t.Fatal("the schema-3 fixture already has a trials table: the test proves nothing")
 	}
@@ -30,21 +34,22 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 
 	migrations = saved
 	s2 := openT(t, p)
-	if v := s2.meta(t, "schema"); v != "4" {
-		t.Fatalf("schema after upgrade = %s, want 4", v)
+	if v := s2.meta(t, "schema"); v != "5" {
+		t.Fatalf("schema after upgrade = %s, want 5", v)
 	}
 	var got string
 	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM trials) || ',' ||
-		(SELECT count(*) FROM sessions WHERE id = 'old' AND run IS NULL AND outcome = 'pass')`).Scan(&got); err != nil || got != "0,1" {
-		t.Fatalf("after upgrade: %q, %v; want 0,1", got, err)
+		(SELECT count(*) FROM sessions WHERE id = 'old' AND run IS NULL AND outcome = 'pass') || ',' ||
+		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,1,1" {
+		t.Fatalf("after upgrade: %q, %v; want 0,1,1", got, err)
 	}
-	s2.db.Exec(`UPDATE meta SET value = '5' WHERE key = 'schema'`)
+	s2.db.Exec(`UPDATE meta SET value = '6' WHERE key = 'schema'`)
 	s2.Close()
 	if s3, err := Open(p); err == nil {
 		s3.Close()
-		t.Fatal("a store at schema 5 was opened by a binary at 4")
+		t.Fatal("a store at schema 6 was opened by a binary at 5")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 5: %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 6: %v, want ErrNewerSchema", err)
 	}
 }
 
@@ -54,7 +59,7 @@ func trialT(run, status, cause string) Trial {
 }
 
 // A trial is stored once: recording the same run again adds no row and
-// changes none; the per-row fields and the session time are NULL until
+// changes none; the per-row fields and the stage times are NULL until
 // given; the export carries the table.
 func TestRecordTrialOnce(t *testing.T) {
 	dir := t.TempDir()
@@ -66,9 +71,10 @@ func TestRecordTrialOnce(t *testing.T) {
 	if err := s.RecordTrial(again); err != nil {
 		t.Fatal(err)
 	}
-	secs := int64(40)
+	setup, secs, check := int64(3), int64(40), int64(2)
 	errored := trialT("2026-10-31-100000/smoke/2", "error", "setup")
-	errored.SessionSeconds, errored.RowVersion, errored.Kind, errored.Cluster, errored.Expect = &secs, 2, "regression", "fam", "Read,fyr-record"
+	errored.SetupSeconds, errored.SessionSeconds, errored.CheckSeconds = &setup, &secs, &check
+	errored.RowVersion, errored.Kind, errored.Cluster, errored.Expect = 2, "regression", "fam", "Read,fyr-record"
 	if err := s.RecordTrial(errored); err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +85,12 @@ func TestRecordTrialOnce(t *testing.T) {
 	}
 	var got string
 	err := s.db.QueryRow(`SELECT count(*) || ',' ||
-		(SELECT status || '/' || cause || '/' || COALESCE(row_version, 'null') || '/' || COALESCE(kind, 'null') || '/' || COALESCE(cluster, 'null') || '/' || COALESCE(expect, 'null') || '/' || COALESCE(session_seconds, 'null') || '/' || harness || '/' || cli || '/' || started_at || '/' || seconds
+		(SELECT status || '/' || cause || '/' || COALESCE(row_version, 'null') || '/' || COALESCE(kind, 'null') || '/' || COALESCE(cluster, 'null') || '/' || COALESCE(expect, 'null') || '/' || COALESCE(setup_seconds, 'null') || '/' || COALESCE(session_seconds, 'null') || '/' || COALESCE(check_seconds, 'null') || '/' || harness || '/' || cli || '/' || started_at || '/' || seconds
 			FROM trials WHERE run = '2026-10-31-100000/smoke/1') || ',' ||
-		(SELECT status || '/' || cause || '/' || row_version || '/' || kind || '/' || cluster || '/' || expect || '/' || session_seconds
+		(SELECT status || '/' || cause || '/' || row_version || '/' || kind || '/' || cluster || '/' || expect || '/' || setup_seconds || '/' || session_seconds || '/' || check_seconds
 			FROM trials WHERE run = '2026-10-31-100000/smoke/2') || ',' ||
 		(SELECT status || '/' || cause || '/' || COALESCE(cli, 'null') FROM trials WHERE run = '2026-10-31-100000/smoke/3') FROM trials`).Scan(&got)
-	want := fmt.Sprintf("3,pass//null/null/null/null/null/abc1234 (dirty)/agy 1.4.12/%d/61,error/setup/2/regression/fam/Read,fyr-record/40,fail/check/null", again.StartedAt.UnixMilli())
+	want := fmt.Sprintf("3,pass//null/null/null/null/null/null/null/abc1234 (dirty)/agy 1.4.12/%d/61,error/setup/2/regression/fam/Read,fyr-record/3/40/2,fail/check/null", again.StartedAt.UnixMilli())
 	if err != nil || got != want {
 		t.Fatalf("trials:\n got %q\nwant %q\n%v", got, want, err)
 	}
@@ -126,6 +132,13 @@ func TestRecordTrialRefuses(t *testing.T) {
 	negative := trialT("r", "pass", "")
 	negative.Seconds = -1
 	bad["negative seconds"] = negative
+	negStage := int64(-1)
+	negSetup := trialT("r", "pass", "")
+	negSetup.SetupSeconds = &negStage
+	bad["negative setup"] = negSetup
+	negCheck := trialT("r", "pass", "")
+	negCheck.CheckSeconds = &negStage
+	bad["negative check"] = negCheck
 	noStart := trialT("r", "pass", "")
 	noStart.StartedAt = time.Time{}
 	bad["zero start time"] = noStart

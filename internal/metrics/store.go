@@ -67,6 +67,14 @@ var migrations = []string{
 		cluster TEXT, expect TEXT, harness TEXT NOT NULL, cli TEXT, status TEXT NOT NULL, cause TEXT NOT NULL,
 		started_at INTEGER NOT NULL, seconds INTEGER NOT NULL, session_seconds INTEGER);
 	ALTER TABLE sessions ADD COLUMN run TEXT;`,
+	// 5: per-step start, end and dialog-wait times from Antigravity's
+	// steps.metadata (timestamps 6, 7, 8 and status-history field 26), and
+	// per-trial setup and check seconds (plan fyr-speed Item 7, § Schema).
+	`ALTER TABLE steps ADD COLUMN started_ms INTEGER;
+	ALTER TABLE steps ADD COLUMN ended_ms INTEGER;
+	ALTER TABLE steps ADD COLUMN wait_ms INTEGER;
+	ALTER TABLE trials ADD COLUMN setup_seconds INTEGER;
+	ALTER TABLE trials ADD COLUMN check_seconds INTEGER;`,
 }
 
 // tables is every table export writes, in dependency order.

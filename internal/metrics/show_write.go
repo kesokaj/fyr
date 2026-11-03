@@ -137,6 +137,9 @@ func (s *Summary) textEfficiency(t textWriter) {
 	})
 	t.row("cost USD", floatCol(s.B.CostUSD, "%.2f"))
 	t.row("wall / active min", func(v string) string { return fmt.Sprintf("%.0f / %.0f", s.B.WallMin[v], s.B.ActiveMin[v]) })
+	t.row("time model/tool/wait/idle m", func(v string) string {
+		return fmt.Sprintf("%.1f / %.1f / %.1f / %.1f", s.B.ModelMin[v], s.B.ToolMin[v], s.B.WaitMin[v], s.B.IdleMin[v])
+	})
 	t.row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	t.row(fmt.Sprintf("over context target %d", s.B.ContextTarget), s.overTarget)
 	t.row("compactions", intCol(s.B.Compactions))
