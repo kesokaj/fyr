@@ -176,7 +176,8 @@ func TestSuiteSelectRows(t *testing.T) {
 // TestSuiteHarness parses this checkout's tracked suite (ADR-500) and pins
 // exactly its rows: id, agent, grants, kind and version, each its own cluster
 // with no expect. The rows are item 4's of PLAN-2026-11-02-1806-fyr-speed,
-// item 10's three work-tasks rows, and item 22's work-start and work-refuse rows.
+// item 10's three work-tasks rows, item 22's work-start and work-refuse rows,
+// and item 17's two reviewer-wide rows.
 func TestSuiteHarness(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -193,6 +194,7 @@ func TestSuiteHarness(t *testing.T) {
 	want := map[string]pin{
 		"init-project": {"", true}, "feature": {"", false}, "review": {"", true},
 		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
+		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true},
 		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
 		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
 		"preflight": {"", true}, "project-memory": {"", false},

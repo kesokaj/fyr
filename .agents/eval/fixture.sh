@@ -10,7 +10,7 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | review | reviewer | work | work-plan | tasks | retro | distill | dream | preflight) ;;
+    bare | project | review | reviewer | reviewer-wide | reviewer-wide-bug | work | work-plan | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
   # The stand-in verb is read before demo_tree empties the work tree.
@@ -25,6 +25,8 @@ main() {
   case "$scenario" in
     review) review_change ;;
     reviewer) reviewer_commit ;;
+    reviewer-wide) reviewer_wide ;;
+    reviewer-wide-bug) reviewer_wide; seeded_bug ;;
     work) work_wave ;;
     work-plan) stand_in_verb "$fake"; work_plans ;;
     tasks) stand_in_verb "$fake" ;;
@@ -223,9 +225,9 @@ func shout(s string) string {
 EOF
 }
 
-# reviewer_commit commits a regression: a blank or padded name is no longer
-# trimmed, so "   " greets "   " instead of the world.
-reviewer_commit() {
+# untrimmed_greet writes the reviewer rows' regression: a blank or padded
+# name is no longer trimmed, so "   " greets "   " instead of the world.
+untrimmed_greet() {
   cat >internal/greet/greet.go <<'EOF'
 // Package greet builds the demo's greeting.
 package greet
@@ -238,7 +240,74 @@ func Hello(name string) string {
 	return "hello, " + name
 }
 EOF
+}
+
+# reviewer_commit commits the regression alone.
+reviewer_commit() {
+  untrimmed_greet
   git commit -qam "greet: skip the trim"
+}
+
+# reviewer_wide commits the regression inside a 30-file change in two
+# directories, under a subject that does not name it: a registry of greeting
+# words in internal/lang, its test, and 27 generated language files.
+reviewer_wide() {
+  local pair
+  mkdir -p internal/lang
+  cat >internal/lang/lang.go <<'EOF'
+// Package lang holds the greeting word of each language, by its ISO 639-1 code.
+package lang
+
+var words = map[string]string{}
+
+// register records a language's greeting word; each language file calls it.
+func register(code, word string) { words[code] = word }
+
+// Word returns the greeting word for code, and whether the language is known.
+func Word(code string) (string, bool) {
+	w, ok := words[code]
+	return w, ok
+}
+EOF
+  cat >internal/lang/lang_test.go <<'EOF'
+package lang
+
+import "testing"
+
+func TestWord(t *testing.T) {
+	if w, ok := Word("en"); !ok || w != "hello" {
+		t.Errorf("Word(en) = %q, %v; want hello, true", w, ok)
+	}
+	if _, ok := Word("xx"); ok {
+		t.Error("Word(xx) is known; want unknown")
+	}
+}
+EOF
+  for pair in cs:ahoj cy:helo da:hej de:hallo en:hello eo:saluton es:hola et:tere eu:kaixo \
+    fi:hei fr:bonjour ga:dia hr:bok hu:szia id:halo is:hallo it:ciao lt:labas lv:sveiki \
+    mt:bongu nl:hallo no:hei pl:czesc pt:ola ro:salut sk:ahoj sv:hej; do
+    printf 'package lang\n\nfunc init() { register("%s", "%s") }\n' "${pair%%:*}" "${pair#*:}" >"internal/lang/${pair%%:*}.go"
+  done
+  untrimmed_greet
+  git add internal
+  git commit -qm "lang: greeting words for 27 languages"
+}
+
+# seeded_bug stores, as fixed, the bug the reviewer rows' regression brings back.
+seeded_bug() {
+  rec bug --id BUG-001 --status fixed --title "Bug: a padded name was greeted with its spaces" <<'EOF'
+# BUG-001: a padded name was greeted with its spaces
+
+Symptom: `GET /hello?name=%20bob%20` answered `hello,  bob ` and a blank name
+answered `hello,    ` instead of `hello, world`.
+
+Root cause: `Hello` in `internal/greet/greet.go` used the name as given.
+
+Fix: `strings.TrimSpace` before the empty check; `TestHello` pins the padded
+and the blank rows.
+
+Prevention rule: a change to `internal/greet/greet.go` keeps the trim.
+EOF
 }
 
 # work_wave leaves one fyr work wave finished: the plan, the worker's branch,

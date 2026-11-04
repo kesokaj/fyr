@@ -22,7 +22,7 @@ Default to the current change set, not the whole repo. Establish the diff with `
 
 ## Pre-flight
 
-1. Before reading the diff in detail, run `fyr search --refs <path> --kind bug` for each changed file, with its full path: past failures there, never the author's intent. Then read `PRD.md`, `AGENTS.md`, any `<project>/.agents/rules/`, and `fyr record list --kind bug`. A violation of `PRD.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
+1. Before reading the diff in detail, run `fyr record list --kind bug`: past failures, never the author's intent. When it prints nothing, run no `--refs` search. Otherwise run `fyr search --refs <dir>/ --kind bug` once for each directory holding a changed file, never once per file: the directory's path from the repository root with its trailing `/`, a file at the root by its own path. Then read `PRD.md`, `AGENTS.md` and any `<project>/.agents/rules/`. A violation of `PRD.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
 2. Read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. The six criteria below are the lens; the skill is the detail.
 
 ## The six review criteria

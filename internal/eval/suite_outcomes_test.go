@@ -110,5 +110,8 @@ printf '.agents/scratch/*\n' >.gitignore
 	for id, o := range taskOutcomes() {
 		outs[id] = o
 	}
+	for id, o := range reviewerOutcomes() {
+		outs[id] = o
+	}
 	return outs
 }
