@@ -7,7 +7,7 @@
 
 ## Now
 
-No phase active: the item 14 review's F1 fix (a) is done (`fyr work --check` predicts the build of a missing or stale default image a run builds first, read only, and reads as docker saying so, or refuses in the run's words; the build passes `--platform linux/<daemon arch>`; `ADR-504a`); the next session does the first item of Next from the newest handoff's Kickoff.
+No phase active: the item 14 review's F1 fix (a) is done (`fyr work --check` predicts the build of a missing or stale default image a run builds first, read only, and reads as docker saying so, or refuses in the run's words; the build passes `--platform linux/<daemon arch>`; `ADR-504a`); the next session does the first item of Next, Item 17 of `PLAN-2026-11-02-1806-fyr-speed`, from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
