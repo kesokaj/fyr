@@ -13,9 +13,9 @@ Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the
 
 ## Next
 
+- Item 12 — single-binary Docker setup, Keychain token sync (`service="gemini"`, `account="antigravity"`), Colima `--vz-rosetta` `x86_64`+`arm64` `agy-linux` support, `~/.config/fyr/{sandbox,eval}/<project>` sandbox paths, and `fyr work config` (`workers=8`, `ram=8g`, `cpu=2`, `disk=10g`) (D7–D10).
+- Item 14 — `--runner auto` as the default for `fyr work` (`docker` primary when preflight passes, else `host (<reason>)` secondary).
 - Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
-- Item 18 — no explorer on an empty repo.
-- Item 12 — docker setup on a Mac: script in `skills/work/scripts/` to build `fyr-work:local`, install a linux `agy` and run its login (`who: both`).
 
 ## Backlog
 
