@@ -26,7 +26,7 @@ func TestRunTrials(t *testing.T) {
 	if len(res) != 6 {
 		t.Fatalf("got %d results, want 6: %+v", len(res), res)
 	}
-	stampDir := filepath.Join(r.home, harness.StateDir, "eval", "2026-10-26-080000")
+	stampDir := filepath.Join(ProjectSandboxRoot(r.home, r.root), "2026-10-26-080000")
 	for i, x := range res {
 		row, trial, status := "a", i%3+1, "PASS"
 		if i >= 3 {

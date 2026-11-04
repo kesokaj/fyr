@@ -39,7 +39,7 @@ type ctx struct {
 	workTimeout                                                                             time.Duration
 	workModel                                                                               string
 	workKeep                                                                                bool
-	workMax                                                                                 int
+	workMax, workRAM, workCPU, workDisk                                                     int
 	workKill                                                                                string
 	workRunner                                                                              string
 	workImage                                                                               string

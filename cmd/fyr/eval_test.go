@@ -235,7 +235,7 @@ func TestEvalVerb(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("eval ok: exit %d\n%s", code, out)
 	}
-	if !regexp.MustCompile(`(?m)^eval: ok#1  PASS  agy exit 0  \d+s \(\d+s session\)  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval")) + `/\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(out) {
+	if !regexp.MustCompile(`(?m)^eval: ok#1  PASS  agy exit 0  \d+s \(\d+s session\)  ` + regexp.QuoteMeta(filepath.Join(r.home, harness.StateDir, "eval", filepath.Base(r.project))) + `/\d{4}-\d\d-\d\d-\d{6}/ok/1$`).MatchString(out) {
 		t.Errorf("the row line is missing or misshapen:\n%s", out)
 	}
 	m := recordIDLine.FindStringSubmatch(out)

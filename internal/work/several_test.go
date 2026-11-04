@@ -159,10 +159,10 @@ func TestRunSeveralRefusals(t *testing.T) {
 			o.MaxWorkers = 2
 			return []string{r.kickoff("one", "src/")}
 		}, "the machine already runs 2 workers, at --max-workers 2: @STAMP@"},
-		{"max-9", func(r *rig, o *Options) []string {
-			o.MaxWorkers = 9
+		{"max-33", func(r *rig, o *Options) []string {
+			o.MaxWorkers = 33
 			return []string{r.kickoff("one", "src/")}
-		}, "--max-workers 9: give 1 to 8"},
+		}, "--max-workers 33: give 1 to 32"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t)
@@ -250,7 +250,7 @@ func TestRunDeadContextStartsNothing(t *testing.T) {
 			t.Errorf("%s started: %+v", x.Name, x)
 		}
 	}
-	if m, _ := filepath.Glob(filepath.Join(sandbox.Root(r.home, "work"), "*", "*")); len(m) > 0 {
+	if m, _ := filepath.Glob(filepath.Join(SandboxRoot(r.home, r.lead), "*", "*")); len(m) > 0 {
 		t.Errorf("sandboxes made: %v", m)
 	}
 }

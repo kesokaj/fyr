@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // TestRunPass is one good worker end to end: the stamp line first, the
@@ -26,7 +24,7 @@ func TestRunPass(t *testing.T) {
 	}
 	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
 	lines := strings.Split(r.out.String(), "\n")
-	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner host (--runner host)"; lines[0] != want {
+	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(SandboxRoot(r.home, r.lead), stamp) + "/  runner host (--runner host)"; lines[0] != want {
 		t.Errorf("first line %q, want %q", lines[0], want)
 	}
 	if !strings.HasSuffix(lines[1], "  runner host (--runner host)") {
@@ -39,7 +37,7 @@ func TestRunPass(t *testing.T) {
 	if res.Dir != "" {
 		t.Errorf("a fetched PASS kept its sandbox at %s", res.Dir)
 	}
-	if _, err := os.Lstat(filepath.Join(sandbox.Root(r.home, "work"), stamp, "fix-a")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(SandboxRoot(r.home, r.lead), stamp, "fix-a")); !os.IsNotExist(err) {
 		t.Errorf("the sandbox is still there: %v", err)
 	}
 	if res.Handoff == nil || !strings.HasPrefix(res.Handoff.ID, "HANDOFF-") || len(res.Changes) != 1 || res.Changes[0].Title != "Changed src/a.txt" {

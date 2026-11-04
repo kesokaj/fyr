@@ -45,7 +45,7 @@ if on peers; then
   # the running- files instead, for workers that must never overlap.
   pat=up-; on apart && pat=running-
   on together && for i in $(seq 1 "$(val together)0"); do [ "$(ls "$CTL" | grep -c "^$pat")" -ge 2 ] && { touch "$CTL/met-$me"; break; }; sleep 0.1; done
-  cp "$(dirname "$box")/pid" "$CTL/pid-$me"
+  stamp=$(basename "$(dirname "$box")"); cp "$box/../../../../work/$stamp/pid" "$CTL/pid-$me"
 fi
 on lead && echo stray > "$(val lead)/stray.txt"
 on lead-reset && { git -C "$(val lead-reset)" commit -q --allow-empty -m "record D5 for p3"; git -C "$(val lead-reset)" reset -q --hard HEAD~1; }

@@ -4,7 +4,7 @@ package fyr
 
 import "embed"
 
-// Files holds context/, skills/, agents/, commands/ and rules/.
+// Files holds context/, skills/, agents/, commands/, rules/ and docker/.
 //
-//go:embed all:context all:skills all:agents all:commands all:rules
+//go:embed all:context all:skills all:agents all:commands all:rules all:docker
 var Files embed.FS

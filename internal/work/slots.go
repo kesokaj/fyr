@@ -18,11 +18,11 @@ import (
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
-// The worker limit (D30): machine-wide, counted from the pid file of every
-// running fyr work under the work root.
+// The worker limit (D30, D10): machine-wide, counted from the pid file of
+// every running fyr work under the work root.
 const (
-	DefaultMaxWorkers = 4
-	MaxMaxWorkers     = 8
+	DefaultMaxWorkers = 8
+	MaxMaxWorkers     = 32
 )
 
 // slotPoll is how often a run waiting for a slot recounts the other runs,
@@ -46,8 +46,8 @@ const (
 // run is one invocation's share of the limit: its pid file under
 // <work>/<stamp>/, held under an exclusive flock until the run ends, so a
 // lock another process can take marks a stale file (D33). The file is one
-// line, "<pid> <running>", rewritten in place at a fixed length: running is
-// at most MaxMaxWorkers, one digit, so a reader never sees half a line.
+// line, "<pid> <running>", rewritten in place at offset 0 and truncated:
+// running is at most MaxMaxWorkers, so a reader sees the current line.
 type run struct {
 	work, stamp string
 	max         int
@@ -91,8 +91,11 @@ func openRun(work, stamp string, max int) (*run, error) {
 }
 
 func (r *run) write() error {
-	_, err := r.pid.WriteAt([]byte(fmt.Sprintf("%d %d\n", os.Getpid(), r.running)), 0)
-	return err
+	b := []byte(fmt.Sprintf("%d %d\n", os.Getpid(), r.running))
+	if _, err := r.pid.WriteAt(b, 0); err != nil {
+		return err
+	}
+	return r.pid.Truncate(int64(len(b)))
 }
 
 // take claims one slot when the live workers of every other run and this

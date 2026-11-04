@@ -48,7 +48,17 @@ func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
 	if p.docker == nil {
 		return nil
 	}
-	return &sandbox.Docker{Image: p.docker.image, Agy: p.docker.agy, Stamp: stamp, Name: p.k.Name, Network: sandbox.RunNetwork(stamp)}
+	d := &sandbox.Docker{Image: p.docker.image, Agy: p.docker.agy, Stamp: stamp, Name: p.k.Name, Network: sandbox.RunNetwork(stamp)}
+	if p.docker.ramGB > 0 {
+		d.Memory = fmt.Sprintf("%dg", p.docker.ramGB)
+	}
+	if p.docker.cpus > 0 {
+		d.CPUs = fmt.Sprintf("%d", p.docker.cpus)
+	}
+	if p.docker.diskGB > 0 {
+		d.TmpfsSize = fmt.Sprintf("%dg", max(1, min(2, p.docker.diskGB/2)))
+	}
+	return d
 }
 
 func newWorker(o Options, p prepared, stamp, dir string) *worker {
@@ -86,6 +96,7 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 			w.b.After()
 		}
 		w.b.ExitChecks()
+		w.checkDisk()
 		if w.b.TimedOut() {
 			w.b.Fail(ReasonTimedOut)
 		}
@@ -135,6 +146,43 @@ func (w *worker) prepare(ctx context.Context) bool {
 	w.seedRecords(ctx)
 	w.b.Baseline()
 	return ctx.Err() == nil
+}
+
+// diskUnitBytes is the byte multiplier for DiskGB (1 GiB in production;
+// overridden in tests so ReasonDiskLimit is tested without writing gigabytes).
+var diskUnitBytes int64 = 1 << 30
+
+func (w *worker) checkDisk() {
+	if w.o.DiskGB <= 0 || w.unsafe() || !w.b.Intact() {
+		return
+	}
+	limit := int64(w.o.DiskGB) * diskUnitBytes
+	var used int64
+	var walkErr error
+	_ = filepath.WalkDir(w.res.Dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			walkErr = err
+			return err
+		}
+		if d.Type().IsRegular() {
+			info, ierr := d.Info()
+			if ierr != nil {
+				walkErr = ierr
+				return ierr
+			}
+			used += info.Size()
+		}
+		return nil
+	})
+	if walkErr != nil {
+		fmt.Fprintf(&w.notes, "work: %s: sandbox disk check failed: %v\n", w.p.k.Name, walkErr)
+		w.b.Fail(ReasonDiskLimit)
+		return
+	}
+	if used > limit {
+		fmt.Fprintf(&w.notes, "work: %s: sandbox used %d bytes, over --disk %dg\n", w.p.k.Name, used, w.o.DiskGB)
+		w.b.Fail(ReasonDiskLimit)
+	}
 }
 
 func (w *worker) seedRecords(ctx context.Context) {

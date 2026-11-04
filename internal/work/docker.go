@@ -44,7 +44,8 @@ var elfMachine = map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_
 // dockerPlan is what a docker-mode run resolved: the image by its ID, so a
 // tag moved after the check is not what runs, and the linux agy.
 type dockerPlan struct {
-	image, agy string
+	image, agy          string
+	ramGB, cpus, diskGB int
 }
 
 // Check reports the runner a run with o would use and, for RunnerHost, why:
@@ -95,9 +96,10 @@ func DockerPreflight(o Options) error {
 		*p = abs
 	}
 	var p prepared
-	p.tok = filepath.Join(o.RealHome, sandbox.TokenRel)
-	if st, err := os.Lstat(p.tok); err != nil || !st.Mode().IsRegular() {
-		return fmt.Errorf("no Antigravity login at %s", p.tok)
+	var err error
+	p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true)
+	if err != nil {
+		return err
 	}
 	if _, err := runZone(RunnerDocker); err != nil {
 		return err
@@ -125,7 +127,8 @@ func (p *prepared) dockerRefusals(o Options) error {
 	if err := localDaemon(); err != nil {
 		return err
 	}
-	if err := daemonLimits(); err != nil {
+	ncpu, memGB, err := daemonLimits()
+	if err != nil {
 		return err
 	}
 	ref := o.Image
@@ -135,24 +138,21 @@ func (p *prepared) dockerRefusals(o Options) error {
 	if strings.HasPrefix(ref, "-") || strings.IndexFunc(ref, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
 		return fmt.Errorf("--image %q: an image ref, not a flag", ref)
 	}
-	id, arch, err := inspectImage(ref)
-	if err != nil {
-		return fmt.Errorf("--image %s: %v; build it: %s", ref, err, BuildLine)
-	}
-	if got, err := imageVersion(id); err != nil || got != o.Version {
-		return fmt.Errorf("--image %s holds fyr %q, not this fyr's %s (%v); rebuild it: %s", ref, got, o.Version, err, BuildLine)
-	}
-	agy, err := linuxAgy(o.AgyLinux, arch)
+	id, arch, err := resolveAndCheckImage(o, ref)
 	if err != nil {
 		return err
 	}
-	for _, path := range []string{agy, p.tok, sandbox.Root(o.Home, "work")} {
+	agy, err := linuxAgy(o.AgyLinux, o.RealHome, arch)
+	if err != nil {
+		return err
+	}
+	for _, path := range []string{agy, p.tok, sandbox.Root(o.Home, "work"), SandboxRoot(o.Home, o.Root)} {
 		if err := sandbox.Mountable(path); err != nil {
 			return fmt.Errorf("--runner docker: %v", err)
 		}
 	}
 	// The token is a regular file already: refusal 8 (session).
-	p.docker = &dockerPlan{image: id, agy: agy}
+	p.docker = newDockerPlan(id, agy, o, ncpu, memGB)
 	return nil
 }
 
@@ -177,10 +177,10 @@ func localDaemon() error {
 // container asks for. Without a memory, swap, pids or CPU cgroup controller
 // dockerd drops the flag with a warning only, into the session's err.txt,
 // and the container runs unlimited (the P4 security review, finding 1).
-func daemonLimits() error {
-	out, err := docker("info", "--format", "{{.MemoryLimit}} {{.SwapLimit}} {{.PidsLimit}} {{.CPUCfsQuota}}")
+func daemonLimits() (ncpu, memGB int, err error) {
+	out, err := docker("info", "--format", "{{.MemoryLimit}} {{.SwapLimit}} {{.PidsLimit}} {{.CPUCfsQuota}} {{.NCPU}} {{.MemTotal}}")
 	if err != nil {
-		return fmt.Errorf("--runner docker: docker info: %v", err)
+		return 0, 0, fmt.Errorf("--runner docker: docker info: %v", err)
 	}
 	f := strings.Fields(out)
 	var missing []string
@@ -189,10 +189,16 @@ func daemonLimits() error {
 			missing = append(missing, name)
 		}
 	}
-	if len(missing) > 0 || len(f) != 4 {
-		return fmt.Errorf("--runner docker: the daemon cannot apply the worker's limits (%s; docker info printed %q): give it the cgroup controllers, or use --runner host", strings.Join(missing, ", "), sandbox.Printable(strings.TrimSpace(out)))
+	if len(missing) > 0 || len(f) != 6 {
+		return 0, 0, fmt.Errorf("--runner docker: the daemon cannot apply the worker's limits (%s; docker info printed %q): give it the cgroup controllers, or use --runner host", strings.Join(missing, ", "), sandbox.Printable(strings.TrimSpace(out)))
 	}
-	return nil
+	ncpu, err = strconv.Atoi(f[4])
+	memBytes, merr := strconv.ParseInt(f[5], 10, 64)
+	if err != nil || merr != nil || ncpu < 1 || memBytes <= 0 {
+		return 0, 0, fmt.Errorf("--runner docker: the daemon cannot apply the worker's limits (docker info printed %q): give it the cgroup controllers, or use --runner host", sandbox.Printable(strings.TrimSpace(out)))
+	}
+	memGB = max(MinRAMGB, int((memBytes+(1<<30)-1)>>30))
+	return ncpu, memGB, nil
 }
 
 // imageID is the shape of an image ID, so nothing else reaches docker run's
@@ -240,15 +246,24 @@ func imageVersion(id string) (string, error) {
 	return f[1], nil
 }
 
-// linuxAgy is the agy the container mounts: --agy-linux, or on a linux host
-// the host's own. Either must be a regular executable ELF file whose machine
-// is the image's architecture, so a Mach-O or the wrong arch is refused here,
-// not met as exit 126 in every worker.
-func linuxAgy(given, arch string) (string, error) {
+// linuxAgy is the agy the container mounts: --agy-linux, else
+// <realHome>/.config/fyr/work/agy-linux (ADR-503), else on a linux host the
+// host's own. On darwin with an arm64 image, both EM_AARCH64 and EM_X86_64
+// (via Colima --vz-rosetta, D8) are accepted.
+func linuxAgy(given, realHome, arch string) (string, error) {
 	path := given
+	if path == "" && realHome != "" {
+		wp := filepath.Join(realHome, filepath.FromSlash(sandbox.WorkAgyRel))
+		if st, err := os.Lstat(wp); err == nil {
+			if !st.Mode().IsRegular() {
+				return "", fmt.Errorf("the linux agy %s is not a regular file", wp)
+			}
+			path = wp
+		}
+	}
 	if path == "" {
 		if hostOS != "linux" {
-			return "", fmt.Errorf("--runner docker on %s: give --agy-linux PATH, a linux agy for the image's %s", hostOS, arch)
+			return "", fmt.Errorf("--runner docker on %s: give --agy-linux PATH, or place a linux agy at %s for the image's %s", hostOS, filepath.Join(realHome, filepath.FromSlash(sandbox.WorkAgyRel)), arch)
 		}
 		var err error
 		if path, err = exec.LookPath("agy"); err != nil {
@@ -274,11 +289,10 @@ func linuxAgy(given, arch string) (string, error) {
 		return "", fmt.Errorf("the linux agy %s is not an ELF binary: %v", path, err)
 	}
 	defer f.Close()
-	if f.Machine != want {
+	rosetta := hostOS == "darwin" && arch == "arm64" && f.Machine == elf.EM_X86_64
+	if f.Machine != want && !rosetta {
 		return "", fmt.Errorf("the linux agy %s is built for %s, the image for %s", path, f.Machine, arch)
 	}
-	// Mounted by this path at each session: a file the operator's own
-	// process swaps in between is the operator's (D110).
 	return path, nil
 }
 

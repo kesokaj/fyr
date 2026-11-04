@@ -197,8 +197,8 @@ func (c *ctx) writesState() bool {
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
 	case "work":
-		// Its sandboxes, under the state directory's work/; --kill reads.
-		return c.workKill == ""
+		// Its sandboxes and work/; --kill, --check and bare config read.
+		return c.workKill == "" && !c.check && (c.fs.Arg(0) != "config" || c.workConfigVisited())
 	case "auto":
 		// status and a dry run read; the rest write auto.json or auto/.
 		sub := c.fs.Arg(0)

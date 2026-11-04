@@ -93,6 +93,10 @@ var hostOS = runtime.GOOS
 // SandboxRoot is where eval makes its sandboxes under fyr's home (D8).
 func SandboxRoot(home string) string { return sandbox.Root(home, "eval") }
 
+// ProjectSandboxRoot is where eval makes its sandboxes for project root under
+// fyr's home: <home>/.config/fyr/eval/<project> (D9 of PLAN-2026-11-02-1806-fyr-speed).
+func ProjectSandboxRoot(home, root string) string { return sandbox.ProjectRoot(home, "eval", root) }
+
 // Preflight is the refusals before step 1 that come before the suite is read
 // (D20): root is a checkout, and the sandbox root passes guards a and b on
 // its nearest existing ancestor. cmd calls it first; Run calls it again.
@@ -100,7 +104,7 @@ func Preflight(o Options) error {
 	if err := sandbox.OutsideCheckout(o.Root); err == nil {
 		return fmt.Errorf("%s is not a git checkout", o.Root)
 	}
-	return sandbox.CheckRoot(o.RealHome, o.Repo, SandboxRoot(o.Home))
+	return sandbox.CheckRoot(o.RealHome, o.Repo, ProjectSandboxRoot(o.Home, o.Root))
 }
 
 // Run refuses (error, no row run) or runs every row Options.Runs times,
@@ -159,7 +163,7 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp strin
 				return results
 			}
 			run := path.Join(stamp, r.ID, strconv.Itoa(i))
-			res := runRow(ctx, o, r, agy, tok, filepath.Join(SandboxRoot(o.Home), filepath.FromSlash(run)))
+			res := runRow(ctx, o, r, agy, tok, filepath.Join(ProjectSandboxRoot(o.Home, o.Root), filepath.FromSlash(run)))
 			res.Trial, res.Run = i, run
 			fmt.Fprintln(o.Out, resultLine(res))
 			results = append(results, res)

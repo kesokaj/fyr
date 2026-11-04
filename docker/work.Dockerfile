@@ -4,7 +4,8 @@
 # Build it from the checkout with this line, also in SPEC-fyr-work and
 # printed by fyr work's refusals (TestBuildLinePinned); `docker buildx
 # build`, so a missing BuildKit fails instead of falling back to a builder
-# that ignores work.Dockerfile.dockerignore. The verb never builds or pulls it.
+# that ignores work.Dockerfile.dockerignore. fyr builds fyr-work:local from
+# its embedded copy when the daemon is running and never pulls an image.
 # Build: docker buildx build --load -f docker/work.Dockerfile --build-arg GO_MINOR="$(go env GOVERSION | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')" --build-arg FYR_VERSION="$(fyr version | cut -d' ' -f2)" -t fyr-work:local .
 #
 # GO_MINOR is the machine's Go major.minor, not the go.mod line's: the
@@ -27,6 +28,7 @@ COPY skills skills
 COPY agents agents
 COPY commands commands
 COPY rules rules
+COPY docker docker
 RUN case "${FYR_VERSION}" in ""|*[!A-Za-z0-9._+-]*) echo "FYR_VERSION must be fyr version's stamp" >&2; exit 1 ;; esac && \
     CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=${FYR_VERSION}" -o /out/fyr ./cmd/fyr
 
@@ -39,6 +41,14 @@ ENV PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sb
 # The worker's TZ needs tzdata: a base without it fails here instead of
 # running every worker in UTC unseen (workers D144; TestImageZoneGuard).
 RUN test -f /usr/share/zoneinfo/Etc/UTC
+# On Apple Silicon (arm64), include amd64 glibc so an x86_64 agy-linux runs
+# via Rosetta 2 under Colima --vz-rosetta while Go stays native arm64 (D8).
+RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
+        dpkg --add-architecture amd64 && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends libc6:amd64 && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 # Not root by default: the verb passes the operator's --user, and a run
 # without it still drops root.
 USER 65532:65532

@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // TestRunPass is the golden path, and every step a PASS goes through: the
@@ -21,7 +19,7 @@ func TestRunPass(t *testing.T) {
 	r := newRig(t)
 	x := one(t, r.run(named("ok", "hello {{CLONE}} at {{STAMP}}", `grep -q "agy says ok" "$OUT" && "$SB/bin/fyr" memory show > "$SB/wrapped.txt" && env > "$SB/check.env"`)))
 	wantVerdict(t, x, "PASS")
-	dir := filepath.Join(r.home, harness.StateDir, "eval", "2026-10-26-080000", "ok", "1")
+	dir := filepath.Join(ProjectSandboxRoot(r.home, r.root), "2026-10-26-080000", "ok", "1")
 	app, sb := filepath.Join(dir, "app"), filepath.Join(dir, "home")
 	if x.Dir != dir || x.AgyExit != 0 {
 		t.Errorf("Dir %s, agy exit %d; want %s, 0", x.Dir, x.AgyExit, dir)

@@ -151,9 +151,9 @@ func WithoutGit(env []string) []string {
 var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", ".gemini/antigravity-cli/settings.json"}
 
 // sandboxDirs are the state directory's children check c skips: Root's
-// verbs, and auto's run data. Matched as a whole top-level name, so auto.json
-// is not one of them.
-var sandboxDirs = []string{"eval", "work", "auto"}
+// verbs (eval/, work/, sandbox/), dev homes (dev/), and auto's run data.
+// Matched as a whole top-level name, so auto.json is not one of them.
+var sandboxDirs = []string{"eval", "work", "sandbox", "dev", "auto"}
 
 // storeFile, storeNames, storeTemps and atomicTemp are the state
 // directory's top-level entries the operator's own sessions, the metrics
@@ -208,6 +208,9 @@ func fingerprint(realHome string, skipStores bool) map[string]string {
 				return nil
 			}
 			if dir == harness.StateDir && d.IsDir() && slices.Contains(sandboxDirs, rel) {
+				if rel == "work" {
+					fingerprintWorkDir(p, name, fp)
+				}
 				return filepath.SkipDir
 			}
 			if dir == harness.StateDir && skipStores && storeEntry(rel, d.IsDir()) {
@@ -221,6 +224,32 @@ func fingerprint(realHome string, skipStores bool) map[string]string {
 		})
 	}
 	return fp
+}
+
+// fingerprintWorkDir watches the fixed files inside ~/.config/fyr/work while
+// skipping worker sandboxes, locks and pid directories under work/ (ADR-503):
+// agy-linux and config.json are fingerprinted in full (type, mode, size and
+// SHA-256), while antigravity-oauth-token is fingerprinted by type and mode
+// only so an in-place OAuth token refresh during a run passes check c while
+// creation, deletion, chmod or symlink replacement fails check c.
+func fingerprintWorkDir(workDir, stateName string, fp map[string]string) {
+	for _, file := range []string{"agy-linux", "config.json", "antigravity-oauth-token"} {
+		full := filepath.Join(workDir, file)
+		info, err := os.Lstat(full)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		key := filepath.Join(stateName, "work", file)
+		if err != nil {
+			fp[key] = "unreadable: " + err.Error()
+			continue
+		}
+		if file == "antigravity-oauth-token" && info.Mode().IsRegular() {
+			fp[key] = fmt.Sprintf("%s %v", info.Mode().Type(), info.Mode().Perm())
+			continue
+		}
+		fp[key] = entryPrint(full, fs.FileInfoToDirEntry(info))
+	}
 }
 
 func entryPrint(p string, d fs.DirEntry) string {
@@ -256,16 +285,23 @@ func fileSum(p string) string {
 }
 
 // changedPaths lists every relative path whose fingerprint differs, sorted:
-// paths only, never content.
+// paths only, never content. First-time creation of WorkTokenRel as a regular
+// 0600 file by SyncWorkToken does not count as a change, whereas deletion,
+// chmod or non-regular replacement does.
 func changedPaths(before, after map[string]string) []string {
 	var out []string
+	tokKey := filepath.FromSlash(WorkTokenRel)
+	tokMode := fmt.Sprintf("%s %v", fs.FileMode(0).Type(), fs.FileMode(0o600))
 	for k, v := range before {
 		if after[k] != v {
 			out = append(out, k)
 		}
 	}
-	for k := range after {
+	for k, v := range after {
 		if _, ok := before[k]; !ok {
+			if k == tokKey && v == tokMode {
+				continue
+			}
 			out = append(out, k)
 		}
 	}

@@ -27,10 +27,15 @@ case "$1 $2" in
 "image inspect")
   on noimage && { echo "Error: No such image" >&2; exit 1; }
   echo "$(cat "$CTL/docker-id") $(cat "$CTL/docker-arch")" ;;
+"buildx build")
+  on build-fail && { echo "build failed" >&2; exit 1; }
+  rm -f "$CTL/docker-noimage"
+  for a in "$@"; do case "$a" in FYR_VERSION=*) echo "${a#FYR_VERSION=}" > "$CTL/docker-version" ;; esac; done
+  echo "$*" > "$CTL/docker-build-args" ;;
 "context inspect")
   cat "$CTL/docker-endpoint" ;;
 "info --format")
-  if [ -e "$CTL/docker-info" ]; then cat "$CTL/docker-info"; else echo "true true true true"; fi ;;
+  if [ -e "$CTL/docker-info" ]; then cat "$CTL/docker-info"; else echo "true true true true 4 17179869184"; fi ;;
 "run --rm")
   on version-hang && { echo "timed out" >&2; exit 1; }
   echo "fyr $(cat "$CTL/docker-version")" ;;
@@ -137,7 +142,7 @@ func TestRunDockerPass(t *testing.T) {
 	}
 	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
 	lines := strings.Split(r.out.String(), "\n")
-	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner docker"; lines[0] != want {
+	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(SandboxRoot(r.home, r.lead), stamp) + "/  runner docker"; lines[0] != want {
 		t.Errorf("stamp line %q, want %q", lines[0], want)
 	}
 	if !strings.HasSuffix(res.Block()[0], "  runner docker") {
@@ -506,7 +511,7 @@ func TestRunnerLines(t *testing.T) {
 	}
 	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
 	lines := strings.Split(r.out.String(), "\n")
-	wantStamp := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner host (no Antigravity login at /h/tok)"
+	wantStamp := "work: stamp " + stamp + "  1 workers  " + filepath.Join(SandboxRoot(r.home, r.lead), stamp) + "/  runner host (no Antigravity login at /h/tok)"
 	if lines[0] != wantStamp {
 		t.Errorf("stamp line:\n%s\nwant:\n%s", lines[0], wantStamp)
 	}

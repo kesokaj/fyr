@@ -7,15 +7,15 @@
 
 ## Now
 
-No phase active: item 11 of `PLAN-2026-11-02-1806-fyr-speed` is done (`runner docker` or `runner host (<reason>)` on the stamp line and each result line, `work.Check` and `fyr work --check`, `chooseRunner` wiring `Options.RunnerReason` in `internal/auto`, and `cmd/fyr/help_text.go`, `README.md`, `SDD.md`, `TDD.md`, `SPEC-fyr-work` and `GUIDE-testing` updated); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 12 of `PLAN-2026-11-02-1806-fyr-speed` is done (embedded `docker/work.Dockerfile` and `.dockerignore` in `embed.go` with auto-build when the local Docker daemon is running, macOS Keychain OAuth token sync to `~/.config/fyr/work/antigravity-oauth-token` without a second login, Colima `--vz-rosetta` `x86_64` and `arm64` `agy-linux` support, project-scoped sandboxes under `~/.config/fyr/{sandbox,eval}/<project>`, and `fyr work config` for `workers=8`, `ram=8g`, `cpu=2` and `disk=10g`, `ADR-503`); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 12 — single-binary Docker setup, Keychain token sync (`service="gemini"`, `account="antigravity"`), Colima `--vz-rosetta` `x86_64`+`arm64` `agy-linux` support, `~/.config/fyr/{sandbox,eval}/<project>` sandbox paths, and `fyr work config` (`workers=8`, `ram=8g`, `cpu=2`, `disk=10g`) (D7–D10).
 - Item 14 — `--runner auto` as the default for `fyr work` (`docker` primary when preflight passes, else `host (<reason>)` secondary).
 - Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
+- Item 18 — no explorer on an empty repo: skip explorer dispatch on an empty scaffolded repo.
 
 ## Backlog
 

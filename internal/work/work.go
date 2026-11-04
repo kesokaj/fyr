@@ -35,9 +35,12 @@ type Options struct {
 	Timeout  time.Duration // agy is killed after this; 0 is DefaultTimeout
 	Model    string        // agy --model for a worker whose Kickoff has no Model: line; "" passes none
 	Keep     bool          // keep the sandbox of a fetched worker too
-	// MaxWorkers is the machine-wide limit, 1 to MaxMaxWorkers; 0 is
-	// DefaultMaxWorkers (D30)
+	// MaxWorkers is the machine-wide limit, 1 to MaxMaxWorkers; 0 loads
+	// config.json or DefaultMaxWorkers (D30, D10)
 	MaxWorkers   int
+	RAMGB        int // sandbox memory limit in GB, MinRAMGB to MaxRAMGB; 0 loads config.json or DefaultRAMGB
+	CPUs         int // sandbox CPU limit in cores, MinCPUs to MaxCPUs; 0 loads config.json or DefaultCPUs
+	DiskGB       int // sandbox disk limit in GB, MinDiskGB to MaxDiskGB; 0 loads config.json or DefaultDiskGB
 	Out          io.Writer
 	Now          func() time.Time
 	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
@@ -47,6 +50,7 @@ type Options struct {
 	AgyLinux     string        // --runner docker's linux agy; "" is the host's own on linux
 	Version      string        // this fyr's build version, which the image must hold
 	Auto         bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
+	autoBuild    bool          // true on Run so missing/outdated DefaultImage is auto-built; false on read-only Check/DockerPreflight
 }
 
 // DefaultTimeout is --timeout's default (D45).
@@ -107,13 +111,10 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	if o.Timeout == 0 {
 		o.Timeout = DefaultTimeout
 	}
-	if o.MaxWorkers == 0 {
-		o.MaxWorkers = DefaultMaxWorkers
-	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	if o.MaxWorkers < 1 || o.MaxWorkers > MaxMaxWorkers {
+	if o.MaxWorkers < 0 || o.MaxWorkers > MaxMaxWorkers {
 		return nil, fmt.Errorf("--max-workers %d: give 1 to %d", o.MaxWorkers, MaxMaxWorkers)
 	}
 	if len(files) == 0 {
@@ -128,7 +129,7 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 		}
 		*p = abs
 	}
-	ps, err := preflight(ctx, o, files)
+	ps, err := preflight(ctx, &o, files)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +143,9 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 		o.sweepRun(stamp)
 		return nil, fmt.Errorf("the run's pid file: %v", err)
 	}
-	defer r.close()
-	root := filepath.Join(work, stamp)
+	sbProj := SandboxRoot(o.Home, o.Root)
+	root := filepath.Join(sbProj, stamp)
+	defer closeRunSandboxes(r, root, sbProj, o.Home)
 	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/  %s", stamp, len(ps), root, RunnerLabel(o.Runner, o.RunnerReason))))
 	ws := make([]*worker, len(ps))
 	for i, p := range ps {
@@ -152,6 +154,13 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	res := dispatch(ctx, r, ws, o.Out)
 	o.sweepRun(stamp)
 	return res, nil
+}
+
+func closeRunSandboxes(r *run, root, sbProj, home string) {
+	r.close()
+	_ = os.Remove(root)
+	_ = os.Remove(sbProj)
+	_ = os.Remove(sandbox.Root(home, "sandbox"))
 }
 
 // dispatch starts each worker as a slot frees, in file order, and prints

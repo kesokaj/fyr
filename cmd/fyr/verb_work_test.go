@@ -152,9 +152,9 @@ func (r *workRig) work(args ...string) (string, int) {
 	return "", -1
 }
 
-// sandboxes is every worker directory made under the work root.
+// sandboxes is every worker directory made under the project's sandbox root.
 func (r *workRig) sandboxes() []string {
-	m, _ := filepath.Glob(filepath.Join(sandbox.Root(r.home, "work"), "*", "*"))
+	m, _ := filepath.Glob(filepath.Join(work.SandboxRoot(r.home, r.project), "*", "*"))
 	return m
 }
 
@@ -186,7 +186,7 @@ func TestWorkVerbFail(t *testing.T) {
 }
 
 // TestWorkVerbRefusals: every refusal and usage error exits 2 before any
-// sandbox exists: two files sharing a path, a --max-workers outside 1 to 8,
+// sandbox exists: two files sharing a path, a --max-workers outside 1 to 32,
 // --kill with a file among them, and a --runner the verb cannot run.
 func TestWorkVerbRefusals(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -195,8 +195,8 @@ func TestWorkVerbRefusals(t *testing.T) {
 	}{
 		"no file":      {func(r *workRig) []string { return nil }, "usage: fyr work"},
 		"shared scope": {func(r *workRig) []string { return []string{r.kickoff("fix-a"), r.kickoff("fix-b")} }, "share scope: a.txt and a.txt"},
-		"max 9":        {func(r *workRig) []string { return []string{"--max-workers", "9", r.kickoff("fix-a")} }, "--max-workers 9: give 1 to 8"},
-		"max 0":        {func(r *workRig) []string { return []string{"--max-workers", "0", r.kickoff("fix-a")} }, "--max-workers 0: give 1 to 8"},
+		"max 33":       {func(r *workRig) []string { return []string{"--max-workers", "33", r.kickoff("fix-a")} }, "--max-workers 33: give 1 to 32"},
+		"max 0":        {func(r *workRig) []string { return []string{"--max-workers", "0", r.kickoff("fix-a")} }, "--max-workers 0: give 1 to 32"},
 		"kill a file":  {func(r *workRig) []string { return []string{"--kill", "2026-10-29-170000-42", r.kickoff("fix-a")} }, "--kill takes a stamp and no Kickoff file"},
 		"kill no run":  {func(r *workRig) []string { return []string{"--kill", "2026-10-29-170000-42"} }, "work: no run 2026-10-29-170000-42"},
 		"kill a path":  {func(r *workRig) []string { return []string{"--kill", "../x"} }, "not a stamp"},
@@ -358,7 +358,7 @@ func TestWorkVerbKill(t *testing.T) {
 const fakeVerbDocker = `#!/bin/bash
 case "$1 $2" in
 "context inspect") echo unix:///var/run/docker.sock ;;
-"info --format") echo "true true true true" ;;
+"info --format") echo "true true true true 4 17179869184" ;;
 "image inspect") [ "${@: -1}" = good:1 ] || { echo "Error: No such image" >&2; exit 1; }
   echo "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef amd64" ;;
 "run --rm") echo "fyr vtest" ;;
@@ -433,5 +433,40 @@ func TestWorkVerbCheck(t *testing.T) {
 	}
 	if calls, _ := os.ReadFile(filepath.Join(r.ctl, "docker.calls")); strings.Contains(string(calls), "network create") || strings.Contains(string(calls), "--name fyr-work-") {
 		t.Fatalf("--check created a network or session:\n%s", calls)
+	}
+	if out, code := r.work("--check", "--ram", "1"); code != 2 || !strings.Contains(out, "--ram 1: give 2 to 64") {
+		t.Fatalf("--check --ram 1: exit %d, got %q", code, out)
+	}
+}
+
+// TestWorkVerbConfig pins `fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]`:
+// reading defaults, persisting a partial or full update, and refusing invalid bounds
+// or unknown flags.
+func TestWorkVerbConfig(t *testing.T) {
+	r := newWorkRig(t)
+
+	out, code := r.work("config")
+	if want := "work config: workers=8  ram=8g  cpu=2  disk=10g\n"; code != 0 || out != want {
+		t.Fatalf("config default: exit %d, got %q, want %q", code, out, want)
+	}
+
+	out, code = r.work("--workers", "12", "--ram", "16", "--cpu", "4", "--disk", "20", "config")
+	if want := "work config: workers=12  ram=16g  cpu=4  disk=20g\n"; code != 0 || out != want {
+		t.Fatalf("config write: exit %d, got %q, want %q", code, out, want)
+	}
+
+	out, code = r.work("config")
+	if want := "work config: workers=12  ram=16g  cpu=4  disk=20g\n"; code != 0 || out != want {
+		t.Fatalf("config read persisted: exit %d, got %q, want %q", code, out, want)
+	}
+
+	if out, code := r.work("--ram", "1", "config"); code != 2 || !strings.Contains(out, "--ram 1: give 2 to 64") {
+		t.Fatalf("config bad ram: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("config", "extra"); code != 2 || !strings.Contains(out, "config takes no arguments") {
+		t.Fatalf("config extra arg: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("--keep", "config"); code != 2 || !strings.Contains(out, "config takes only --workers") {
+		t.Fatalf("config bad flag: exit %d, got %q", code, out)
 	}
 }

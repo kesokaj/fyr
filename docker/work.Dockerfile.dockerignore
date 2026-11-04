@@ -13,6 +13,7 @@
 !agents
 !commands
 !rules
+!docker
 **/.env
 **/.env.*
 **/*.env

@@ -20,11 +20,14 @@ import (
 // § --runner docker): the session runs in a container of Image, every other
 // step on the host. A nil Config.Docker is the host path, unchanged.
 type Docker struct {
-	Image   string // the image REF the verb checked
-	Agy     string // a linux agy on the host, mounted read-only at ContainerAgy
-	Stamp   string // the run's stamp: the label fyr.work
-	Name    string // the worker's name: the label fyr.worker
-	Network string // the run's own network, RunNetwork(Stamp), which work makes
+	Image     string // the image REF the verb checked
+	Agy       string // a linux agy on the host, mounted read-only at ContainerAgy
+	Stamp     string // the run's stamp: the label fyr.work
+	Name      string // the worker's name: the label fyr.worker
+	Network   string // the run's own network, RunNetwork(Stamp), which work makes
+	Memory    string // --memory and --memory-swap ("" is memoryLimit, 8g)
+	CPUs      string // --cpus ("" is cpuLimit, 2)
+	TmpfsSize string // /tmp tmpfs size ("" is 2g)
 }
 
 // RunNetwork is the network a run's containers share: a bridge with no
@@ -65,6 +68,20 @@ func (b *Box) cidFile() string {
 	return filepath.Join(filepath.Dir(b.dir), b.c.Docker.Name+".cid")
 }
 
+func (d *Docker) limits() (mem, cpus, tmpfs string) {
+	mem, cpus, tmpfs = d.Memory, d.CPUs, d.TmpfsSize
+	if mem == "" {
+		mem = memoryLimit
+	}
+	if cpus == "" {
+		cpus = cpuLimit
+	}
+	if tmpfs == "" {
+		tmpfs = "2g"
+	}
+	return mem, cpus, tmpfs
+}
+
 // dockerArgs is the docker run argv of one session: the hardening, the
 // limits, the run's network, the four mounts and the container's
 // environment, then agy and its args. Only
@@ -91,14 +108,15 @@ func dockerArgs(d *Docker, app, sb, tok, cid string, uid, gid int, env, agyArgs 
 			return nil, fmt.Errorf("the environment entry %q has no name=value", kv)
 		}
 	}
+	mem, cpus, tmpfs := d.limits()
 	args := []string{"run",
 		"--name", d.container(), "--label", "fyr.work=" + d.Stamp, "--label", "fyr.worker=" + d.Name,
 		"--cidfile", cid, "--pull", "never",
 		"--user", strconv.Itoa(uid) + ":" + strconv.Itoa(gid),
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--init",
-		"--memory", memoryLimit, "--memory-swap", memoryLimit, "--cpus", cpuLimit, "--pids-limit", pidsLimit,
+		"--memory", mem, "--memory-swap", mem, "--cpus", cpus, "--pids-limit", pidsLimit,
 		"--network", d.Network,
-		"--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=2g,mode=1777",
+		"--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=" + tmpfs + ",mode=1777",
 		"--mount", "type=bind,src=" + app + ",dst=" + app,
 		"--mount", "type=bind,src=" + sb + ",dst=" + sb,
 		"--mount", "type=bind,src=" + tok + ",dst=" + tok,

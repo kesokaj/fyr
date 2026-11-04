@@ -26,7 +26,8 @@ type prepared struct {
 // preflight is refusals 1-22 of SPEC-fyr-work before anything is made,
 // for every file of the run, in that order: the limit after the sandbox
 // root's check, so no unapproved root is read, and the model check last.
-func preflight(ctx context.Context, o Options, files []string) ([]prepared, error) {
+func preflight(ctx context.Context, o *Options, files []string) ([]prepared, error) {
+	o.autoBuild = true
 	var p prepared
 	if err := leadClean(o.Root); err != nil {
 		return nil, err
@@ -47,24 +48,19 @@ func preflight(ctx context.Context, o Options, files []string) ([]prepared, erro
 		return nil, err
 	}
 	work := sandbox.Root(o.Home, "work")
-	if err := sandbox.CheckRoot(o.RealHome, o.Repo, work); err != nil {
+	if err := checkWorkRoots(*o, work); err != nil {
 		return nil, err
 	}
-	// After CheckRoot, so nothing under an unapproved root is read (the
-	// Phase 4 security review).
+	if err := o.fillConfig(); err != nil {
+		return nil, err
+	}
 	if err := atLimit(work, o.MaxWorkers); err != nil {
 		return nil, err
 	}
-	switch o.Runner {
-	case "", RunnerHost, RunnerDocker:
-	default:
+	if o.Runner != "" && o.Runner != RunnerHost && o.Runner != RunnerDocker {
 		return nil, fmt.Errorf("--runner %q: give %s or %s", o.Runner, RunnerHost, RunnerDocker)
 	}
-	if err := p.session(o); err != nil {
-		return nil, err
-	}
-	// Last, so every offline refusal is made before the one network call.
-	if err := checkModels(ctx, o, ks); err != nil {
+	if err := p.session(ctx, *o, ks); err != nil {
 		return nil, err
 	}
 	ps := make([]prepared, len(ks))
@@ -73,6 +69,15 @@ func preflight(ctx context.Context, o Options, files []string) ([]prepared, erro
 		ps[i].k = k
 	}
 	return ps, nil
+}
+
+func checkWorkRoots(o Options, work string) error {
+	for _, r := range []string{work, SandboxRoot(o.Home, o.Root)} {
+		if err := sandbox.CheckRoot(o.RealHome, o.Repo, r); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // parseAll is refusal 3 for every file, in order.
@@ -88,21 +93,11 @@ func parseAll(files []string, auto bool) ([]Kickoff, error) {
 	return ks, nil
 }
 
-// session is refusals 8-11 and 22, what the sessions need, then the base
-// and refusal 23, its reflog: 22 and 23 are offline, so they come before
-// every docker call (workers D145, G4).
-func (p *prepared) session(o Options) error {
+// session is refusals 8-11 and 21-23, what the sessions need: offline
+// refusals come first before CheckLogin, checkModels and every docker call
+// (workers D145, G4), and SyncWorkToken runs last after all refusals pass.
+func (p *prepared) session(ctx context.Context, o Options, ks []Kickoff) error {
 	var err error
-	p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, o.Runner == RunnerDocker)
-	if err != nil {
-		return err
-	}
-	// In docker mode the container's agy is a linux one (dockerRefusals).
-	if o.Runner != RunnerDocker {
-		if p.agy, err = exec.LookPath("agy"); err != nil {
-			return errors.New("agy not found on PATH")
-		}
-	}
 	if o.Model != "" && !modelRe.MatchString(o.Model) {
 		return fmt.Errorf("--model %s: not a model ID", o.Model)
 	}
@@ -118,10 +113,31 @@ func (p *prepared) session(o Options) error {
 	if p.reflog, err = reflogStart(o.Root); err != nil {
 		return err
 	}
-	if err = gitFloor(o.Runner); err != nil || o.Runner != RunnerDocker {
+	if err = gitFloor(o.Runner); err != nil {
 		return err
 	}
-	return p.dockerRefusals(o)
+	if o.Runner == RunnerDocker {
+		if v := o.Version; v == "" || v == "unknown" || strings.ContainsAny(v, "() ") {
+			return fmt.Errorf("--runner docker: this fyr is a development build (%s); run fyr install, then build the image from the installed fyr: %s", v, BuildLine)
+		}
+	}
+	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, o.Runner == RunnerDocker); err != nil {
+		return err
+	}
+	if o.Runner != RunnerDocker {
+		if p.agy, err = exec.LookPath("agy"); err != nil {
+			return errors.New("agy not found on PATH")
+		}
+		return checkModels(ctx, o, ks)
+	}
+	if err := checkModels(ctx, o, ks); err != nil {
+		return err
+	}
+	if err := p.dockerRefusals(o); err != nil {
+		return err
+	}
+	p.tok, err = sandbox.SyncWorkToken(o.Home, o.RealHome, hostOS)
+	return err
 }
 
 // leadClean is refusals 1 and 2: root is a checkout's top level and its

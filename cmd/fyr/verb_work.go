@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 	"github.com/kesokaj/fyr/internal/work"
@@ -23,21 +24,22 @@ func init() {
 		c.fs.DurationVar(&c.workTimeout, "timeout", work.DefaultTimeout, "kill the worker's agy after `D`, whole minutes, at least 10m")
 		c.fs.StringVar(&c.workModel, "model", "", "the agy model `M` a worker without a Model: line runs on, checked against agy models (default: agy's own)")
 		c.fs.BoolVar(&c.workKeep, "keep", false, "keep the sandbox of a fetched worker too")
-		c.fs.IntVar(&c.workMax, "max-workers", work.DefaultMaxWorkers, "run at most `N` workers at once across the machine, 1 to 8")
+		c.fs.IntVar(&c.workMax, "max-workers", work.DefaultMaxWorkers, "run at most `N` workers at once across the machine, 1 to 32")
+		c.fs.IntVar(&c.workMax, "workers", work.DefaultMaxWorkers, "alias for --max-workers `N`, 1 to 32")
+		c.fs.IntVar(&c.workRAM, "ram", work.DefaultRAMGB, "sandbox memory limit in `GB`, 2 to 64 (default 8)")
+		c.fs.IntVar(&c.workCPU, "cpu", work.DefaultCPUs, "sandbox CPU limit in `N` cores, 1 to 16 (default 2)")
+		c.fs.IntVar(&c.workDisk, "disk", work.DefaultDiskGB, "sandbox disk limit in `GB`, 2 to 100 (default 10)")
 		c.fs.StringVar(&c.workKill, "kill", "", "end the running fyr work whose stamp line printed `STAMP`")
 		c.fs.StringVar(&c.workRunner, "runner", work.RunnerHost, "where each worker's session runs: `R` is host or docker")
 		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "--runner docker's image `REF`, built by SPEC-fyr-work's build line")
-		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "--runner docker's linux agy `PATH` (default: the host's agy, on linux only)")
+		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "--runner docker's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
 		c.fs.BoolVar(&c.check, "check", false, "check the runner (docker preflight unless --runner host), print why, and exit 0")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
-// runWork serves `fyr work` for one or more Kickoff files, --check, or --kill
-// (SPEC-fyr-work, plan PLAN-2026-10-29-workers Phases 3-4). Every refusal
-// exits 2 before anything is made (D34): the usage errors, a --timeout or a
-// --max-workers of 0 or less, not a checkout, the install source as eval
-// resolves it (D40), then internal/work's own refusals. No --home refusal:
-// the verb writes no store, so the real home is its default (D35).
+// runWork serves `fyr work` for one or more Kickoff files, `config`, --check,
+// or --kill (SPEC-fyr-work, plan PLAN-2026-10-29-workers Phases 3-4). Every
+// refusal exits 2 before anything is made (D34).
 func runWork(c *ctx) error {
 	files := c.fs.Args()
 	if c.workKill != "" {
@@ -46,19 +48,19 @@ func runWork(c *ctx) error {
 	if c.check {
 		return c.workCheckRun(files)
 	}
-	imageSet := false
-	c.fs.Visit(func(f *flag.Flag) { imageSet = imageSet || f.Name == "image" })
+	if len(files) > 0 && files[0] == "config" {
+		return c.workConfigRun(files[1:])
+	}
+	maxW, ram, cpu, disk, imageSet, err := c.workResourceFlags()
+	if err != nil {
+		return err
+	}
 	switch {
 	case len(files) == 0:
 		return usageErr(c.out, "work", "")
-	case c.workMax < 1:
-		// internal/work reads 0 as its default and refuses over 8.
-		return c.workRefuse("--max-workers %d: give 1 to %d", c.workMax, work.MaxMaxWorkers)
 	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
-		// Either alone would run every session on the host unasked.
 		return c.workRefuse("--image and --agy-linux need --runner docker")
 	case c.workTimeout <= 0:
-		// internal/work reads 0 as its default; a typed 0 is a mistake.
 		return c.workRefuse("--timeout %s: give whole minutes, at least 10m", c.workTimeout)
 	}
 	wd, err := os.Getwd()
@@ -82,7 +84,8 @@ func runWork(c *ctx) error {
 		return c.workRefuse("the running fyr: %v", err)
 	}
 	return c.workRun(work.Options{Root: root, Home: c.home, RealHome: realHome, Self: self, Repo: src.Dir,
-		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: c.workMax, Out: c.out,
+		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: maxW,
+		RAMGB: ram, CPUs: cpu, DiskGB: disk, Out: c.out,
 		Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
 }
 
@@ -110,9 +113,12 @@ func (c *ctx) workRun(o work.Options, files []string) error {
 // given), prints work: runner docker or work: runner host (<reason>), and
 // exits 0 without making a sandbox, network or slot.
 func (c *ctx) workCheckRun(files []string) error {
-	var imageSet, runnerSet bool
+	_, _, _, _, imageSet, err := c.workResourceFlags()
+	if err != nil {
+		return err
+	}
+	var runnerSet bool
 	c.fs.Visit(func(f *flag.Flag) {
-		imageSet = imageSet || f.Name == "image"
 		runnerSet = runnerSet || f.Name == "runner"
 	})
 	switch {
@@ -123,16 +129,24 @@ func (c *ctx) workCheckRun(files []string) error {
 	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
 		return c.workRefuse("--image and --agy-linux need --runner docker")
 	}
+	if _, err := work.LoadConfig(c.home); err != nil {
+		return c.workRefuse("%v", err)
+	}
 	realHome, err := os.UserHomeDir()
 	if err != nil {
 		return c.workRefuse("no home directory: %v", err)
+	}
+	var root string
+	if wd, err := os.Getwd(); err == nil {
+		_, root, _ = trail.Roots(wd)
 	}
 	runner := ""
 	if runnerSet {
 		runner = c.workRunner
 	}
+	src, _ := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
 	got, reason := work.Check(work.Options{
-		Home: c.home, RealHome: realHome, Runner: runner,
+		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: runner,
 		Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion(),
 	})
 	fmt.Fprintln(c.out, search.Printable("work: "+work.RunnerLabel(got, reason)))
@@ -160,4 +174,83 @@ func (c *ctx) workKillRun(files []string) error {
 func (c *ctx) workRefuse(format string, a ...any) error {
 	fmt.Fprintln(c.out, search.Printable("work: "+fmt.Sprintf(format, a...)))
 	return exitCode(2)
+}
+
+func (c *ctx) workConfigVisited() bool {
+	visited := false
+	c.fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "max-workers", "workers", "ram", "cpu", "disk":
+			visited = true
+		}
+	})
+	return visited
+}
+
+func (c *ctx) workResourceFlags() (maxW, ram, cpu, disk int, imageSet bool, err error) {
+	seen := map[string]bool{}
+	c.fs.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	imageSet = seen["image"]
+	cfg := work.DefaultConfig()
+	if seen["max-workers"] || seen["workers"] {
+		maxW, cfg.Workers = c.workMax, c.workMax
+	}
+	if seen["ram"] {
+		ram, cfg.RAMGB = c.workRAM, c.workRAM
+	}
+	if seen["cpu"] {
+		cpu, cfg.CPUs = c.workCPU, c.workCPU
+	}
+	if seen["disk"] {
+		disk, cfg.DiskGB = c.workDisk, c.workDisk
+	}
+	if verr := cfg.Validate(); verr != nil {
+		return 0, 0, 0, 0, false, c.workRefuse("%v", verr)
+	}
+	return maxW, ram, cpu, disk, imageSet, nil
+}
+
+func (c *ctx) workConfigRun(rest []string) error {
+	if len(rest) > 0 {
+		return c.workRefuse("config takes no arguments: %q", rest)
+	}
+	seen := map[string]bool{}
+	c.fs.Visit(func(f *flag.Flag) { seen[f.Name] = true })
+	for k := range seen {
+		switch k {
+		case "home", "repo", "max-workers", "workers", "ram", "cpu", "disk":
+		default:
+			return c.workRefuse("config takes only --workers (--max-workers), --ram, --cpu and --disk")
+		}
+	}
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		return c.workRefuse("no home directory: %v", err)
+	}
+	if err := sandbox.CheckRoot(realHome, "", sandbox.Root(c.home, "work")); err != nil {
+		return c.workRefuse("%v", err)
+	}
+	cfg, err := work.LoadConfig(c.home)
+	if err != nil {
+		return c.workRefuse("%v", err)
+	}
+	if seen["max-workers"] || seen["workers"] {
+		cfg.Workers = c.workMax
+	}
+	if seen["ram"] {
+		cfg.RAMGB = c.workRAM
+	}
+	if seen["cpu"] {
+		cfg.CPUs = c.workCPU
+	}
+	if seen["disk"] {
+		cfg.DiskGB = c.workDisk
+	}
+	if c.workConfigVisited() {
+		if err := work.SaveConfig(c.home, cfg); err != nil {
+			return c.workRefuse("%v", err)
+		}
+	}
+	fmt.Fprintln(c.out, search.Printable(cfg.String()))
+	return nil
 }

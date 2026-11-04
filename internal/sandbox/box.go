@@ -95,11 +95,15 @@ func SetHostOS(goos string) func() {
 	return func() { hostOS = old }
 }
 
-// CheckLogin checks the operator's Antigravity login under realHome: a regular
-// file at TokenRel, or, on darwin when tokenOnly is false, a directory at
-// KeychainsRel (BUG-166). When TokenRel exists and is not a regular file, it
-// is refused on every OS. It returns tok, the path to TokenRel when that file
-// exists, or "" when darwin uses Keychains alone.
+// CheckLogin checks the operator's Antigravity login under realHome without
+// writing to disk: a regular file at TokenRel, or when tokenOnly is true a
+// regular file at WorkTokenRel or a decodable macOS Keychain token on darwin
+// when KeychainsRel is present (materialized on a real run by SyncWorkToken,
+// D7, ADR-503), or on darwin when tokenOnly is false, a directory at
+// KeychainsRel (BUG-166). When TokenRel or WorkTokenRel exists and is not a
+// regular file, it is refused on every OS. It returns tok, the path to the
+// token file when one exists (or will be synced), or "" when darwin uses
+// Keychains alone.
 func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
 	p := filepath.Join(realHome, filepath.FromSlash(TokenRel))
 	st, err := os.Lstat(p)
@@ -108,6 +112,9 @@ func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
 			return "", fmt.Errorf("no Antigravity login at %s", p)
 		}
 		return p, nil
+	}
+	if tokenOnly && errors.Is(err, fs.ErrNotExist) {
+		return checkWorkToken(realHome, p, goos)
 	}
 	if goos == "darwin" && !tokenOnly && errors.Is(err, fs.ErrNotExist) {
 		kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))

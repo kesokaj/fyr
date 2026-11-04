@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// TestFilesMatchTree: every regular file under the five harness directories is
-// embedded with the same bytes — `.gitkeep` files included, which `embed`
-// skips without `all:` (plan D2).
+// TestFilesMatchTree: every regular file under the five harness directories
+// and docker/ is embedded with the same bytes — `.gitkeep` files included,
+// which `embed` skips without `all:` (plan D2).
 func TestFilesMatchTree(t *testing.T) {
 	disk := os.DirFS(".")
 	n := 0
-	for _, root := range []string{"context", "skills", "agents", "commands", "rules"} {
+	for _, root := range []string{"context", "skills", "agents", "commands", "rules", "docker"} {
 		err := fs.WalkDir(disk, root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
@@ -58,7 +58,7 @@ func TestEmbedHoldsOnlyTrackedFiles(t *testing.T) {
 	if _, err := os.Stat(".git"); err != nil {
 		t.Skip("not a git checkout: an unpacked copy has nothing to compare against")
 	}
-	roots := []string{"context", "skills", "agents", "commands", "rules"}
+	roots := []string{"context", "skills", "agents", "commands", "rules", "docker"}
 	out, err := exec.Command("git", append([]string{"ls-files", "-z", "--"}, roots...)...).Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)

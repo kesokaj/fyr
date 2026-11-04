@@ -23,7 +23,7 @@ The lead reads only enough to fill these fields (`fyr search`, `git ls-files`, a
 - **Done when:** the operator's own words for the task when they gave some; otherwise `committed with a covering test, and <the project's full test command from AGENTS.md> passes in the clone`.
 - **Model:** one model ID per task from `agy models`, chosen by tier (the `agy-dispatch` rule): a `[flash]` ID for a mechanical change, a `[pro]` ID for one that needs judgement. The ID, never the tier's name, becomes the Kickoff's `Model:` line, since the verb refuses a line `agy models` does not list; `fyr work` runs with no `--model`.
 - **Runner:** what `fyr work` will use. Today that is `host`, the verb's default; name it.
-- **Wave:** go through the tasks in the order given. A task joins the first wave whose tasks' `Files:` it does not intersect (two entries intersect when they are equal, or when one is a directory ending in `/` that is a prefix of the other), and that holds fewer than the verb's `--max-workers` (4). A later wave runs after every merge of the wave before it, on the new HEAD.
+- **Wave:** go through the tasks in the order given. A task joins the first wave whose tasks' `Files:` it does not intersect (two entries intersect when they are equal, or when one is a directory ending in `/` that is a prefix of the other), and that holds fewer than the verb's `--max-workers` (8 by default). A later wave runs after every merge of the wave before it, on the new HEAD.
 
 ## 4. One table, then the go
 
