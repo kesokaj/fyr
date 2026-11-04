@@ -19,24 +19,25 @@ func TestDockerAutoBuildFromEmbedded(t *testing.T) {
 	r.on("docker-arch", "arm64")
 	put(t, filepath.Join(o.Repo, "go.mod"), "module example.com/test\n\ngo 1.26.2\n")
 
-	// Read-only Check (o.autoBuild == false) does not invoke docker buildx
-	// build: --runner auto falls back to the host, an explicit docker refuses.
+	// Read-only Check (buildPredict) does not invoke docker buildx build: a
+	// missing default image a run builds first reads as docker, saying so,
+	// for --runner auto and an explicit docker alike (ADR-504a).
 	r.on("docker-noimage", "")
+	r.on("docker-server-arch", "arm64")
 	auto := o
 	auto.Runner = RunnerAuto
-	if got, _, err := Check(auto); got != RunnerHost || err != nil {
-		t.Fatalf("Check --runner auto with missing image: got %q, %v, want %q", got, err, RunnerHost)
-	}
-	if _, _, err := Check(o); err == nil || !strings.Contains(err.Error(), "build it: "+BuildLine) {
-		t.Fatalf("Check --runner docker with missing image: %v, want its refusal", err)
+	for _, c := range []Options{auto, o} {
+		if got, why, err := Check(c); got != RunnerDocker || err != nil || RunnerLabel(got, why) != "runner docker (fyr-work:local will be built first)" {
+			t.Fatalf("Check --runner %s with missing image: got %q %q, %v, want docker, its image built first", c.Runner, got, why, err)
+		}
 	}
 	if buildArgs := r.read("docker-build-args"); buildArgs != "" {
 		t.Fatalf("Check invoked docker buildx build: %q", buildArgs)
 	}
 
-	// Real run (o.autoBuild == true) builds missing image from embedded docker/work.Dockerfile
+	// Real run (buildFirst) builds missing image from embedded docker/work.Dockerfile
 	// staged under o.Home (never /tmp).
-	o.autoBuild = true
+	o.build = buildFirst
 	if err := DockerPreflight(o); err != nil {
 		t.Fatalf("auto-build missing image: %v", err)
 	}

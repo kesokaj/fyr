@@ -43,9 +43,10 @@ type dockerPlan struct {
 
 // DockerPreflight is the docker runner's refusals (refusals 13-20, 22, 24
 // and 25, plus the login token for Mountable) outside a run: ChooseRunner's
-// probe for --runner auto in fyr auto, and fyr work --check's answer (D2,
-// D5, D17, ADR-504). An image is built only under o.autoBuild, which only
-// Run sets (item 12), so neither caller builds one.
+// default probe, fyr auto's (D2, D5, D17, ADR-504). A caller outside this
+// package always has o.build buildNever, so it builds no image and predicts
+// no build, and a missing or stale image is refused; Run builds one
+// (buildFirst) and Check predicts the build (buildPredict, ADR-504a).
 func DockerPreflight(o Options) error {
 	var p prepared
 	return p.dockerPreflight(o)
@@ -92,9 +93,10 @@ func develBuild(v string) error {
 // dockerRefusals are refusals 13-20 and 24 of SPEC-fyr-work, after refusal
 // 22 and the development-build refusal (develBuild), for a docker-mode run:
 // docker is on PATH, the daemon is local and applies the limits, the image
-// ref is one, the image exists at this fyr's version, the linux agy runs on
-// the image's architecture, and every path the container mounts can be
-// written as a --mount.
+// ref is one, the image exists at this fyr's version (or o.build builds or
+// predicts it: resolveAndCheckImage), the linux agy runs on the image's
+// architecture, and every path the container mounts can be written as a
+// --mount.
 func (p *prepared) dockerRefusals(o Options) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return errors.New("--runner docker: docker not found on PATH")
@@ -125,6 +127,10 @@ func (p *prepared) dockerRefusals(o Options) error {
 		if err := sandbox.Mountable(path); err != nil {
 			return fmt.Errorf("--runner docker: %v", err)
 		}
+	}
+	if id == "" { // buildPredict: a run builds the image first (ADR-504a)
+		p.toBuild = ref
+		return nil
 	}
 	// The token is a regular file already: refusal 8 (session).
 	p.docker = newDockerPlan(id, agy, o, ncpu, memGB)
@@ -342,13 +348,13 @@ func removeLabelled(list []string, rm ...string) (int, error) {
 	return n, errs
 }
 
-// docker is one docker call with the real environment, its stderr in the
-// error.
+// docker is one docker call with the real environment minus
+// DOCKER_DEFAULT_PLATFORM (sandbox.DockerEnv), its stderr in the error.
 func docker(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), dockerTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", args...)
-	cmd.Env = sandbox.FyrEnv()
+	cmd.Env = sandbox.DockerEnv()
 	out, err := cmd.Output()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && len(ee.Stderr) > 0 {

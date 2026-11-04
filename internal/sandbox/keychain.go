@@ -141,27 +141,60 @@ func DecodeKeychainToken(raw string) ([]byte, error) {
 // EnsureWorkDir creates <home>/.config/fyr/work with 0700 permissions,
 // refusing any symlink along the path from home down to work/.
 func EnsureWorkDir(home string) (string, error) {
+	cur, err := walkWorkDir(home, true)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chmod(cur, 0o700); err != nil {
+		return "", err
+	}
+	return cur, nil
+}
+
+// CheckWorkDir is EnsureWorkDir's refusals, read only, in its words: it
+// creates and changes nothing, and passes a directory that is not there
+// yet, which EnsureWorkDir would create (fyr work --check, ADR-504a).
+func CheckWorkDir(home string) error {
+	_, err := walkWorkDir(home, false)
+	return err
+}
+
+// walkWorkDir walks from home down to work/, refusing a home that is no
+// directory and any symlink or other non-directory on the way. With mk it
+// creates each directory that is missing; without it, the walk passes at
+// the first one that is missing.
+func walkWorkDir(home string, mk bool) (string, error) {
 	cur := filepath.Clean(home)
 	if st, err := os.Lstat(cur); err != nil || !st.IsDir() {
 		return "", fmt.Errorf("home %s is not a directory", home)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(filepath.Dir(WorkTokenRel)), "/") {
 		cur = filepath.Join(cur, part)
-		if err := os.Mkdir(cur, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
-			return "", err
+		if mk {
+			if err := mkdirExisting(cur); err != nil {
+				return "", err
+			}
 		}
 		st, err := os.Lstat(cur)
-		if err != nil {
+		switch {
+		case !mk && errors.Is(err, fs.ErrNotExist):
+			return cur, nil
+		case err != nil:
 			return "", err
-		}
-		if !st.IsDir() {
+		case !st.IsDir():
 			return "", fmt.Errorf("%s is not a regular directory", cur)
 		}
 	}
-	if err := os.Chmod(cur, 0o700); err != nil {
-		return "", err
-	}
 	return cur, nil
+}
+
+// mkdirExisting makes dir 0700, passing when something is there already,
+// which the walk's Lstat then checks.
+func mkdirExisting(dir string) error {
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return nil
 }
 
 func writeWorkToken(realHome, wp string, data []byte) error {

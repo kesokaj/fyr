@@ -33,7 +33,7 @@ func init() {
 		c.fs.StringVar(&c.workRunner, "runner", work.RunnerAuto, "where each worker's session runs: `R` is auto, the default (docker when its preflight passes, else the host, saying why), host, or docker (refused when its preflight fails)")
 		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "the docker runner's image `REF`, built by SPEC-fyr-work's build line")
 		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
-		c.fs.BoolVar(&c.check, "check", false, "print the runner the docker preflight picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built, so a missing or stale default image reads as host or a refusal, though a run may build it")
+		c.fs.BoolVar(&c.check, "check", false, "print the runner a run with these flags picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built: a missing or stale default image a run builds first reads as docker, saying so")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
@@ -125,10 +125,11 @@ func (c *ctx) workRunnerFlags(imageSet bool) error {
 }
 
 // workCheckRun is --check: work.Check with the flags a run would pass. It
-// prints work: runner docker or work: runner host (<reason>), the docker
-// preflight's pick, and exits 0, building no image and making no sandbox,
-// network or slot, so a missing or stale default image a run may build reads
-// as host; --runner docker never falls back: its refusal, and exit 2.
+// prints work: runner docker, work: runner docker (<image> will be built
+// first) or work: runner host (<reason>), the runner a run picks, and exits
+// 0, building no image and making no sandbox, network or slot: a missing or
+// stale default image a run builds first is predicted, not built
+// (ADR-504a); --runner docker never falls back: its refusal, and exit 2.
 func (c *ctx) workCheckRun(files []string) error {
 	_, _, _, _, imageSet, err := c.workResourceFlags()
 	if err != nil {

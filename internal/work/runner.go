@@ -6,7 +6,7 @@ import (
 )
 
 // The runners of --runner (SPEC-fyr-work § --runner): auto, the verb's
-// default, is docker when DockerPreflight passes and the host otherwise,
+// default, is docker when the docker preflight passes, else the host,
 // saying why (PLAN-2026-11-02-1806-fyr-speed item 14, D5, ADR-504); host and
 // docker are the explicit choices, and an explicit docker refuses rather
 // than fall back. Options.Runner "" is the host, for a library caller.
@@ -50,33 +50,55 @@ func ChooseRunner(o *Options, preflight func(Options) error) (runner, reason str
 	return RunnerDocker, ""
 }
 
-// Check is fyr work --check: the runner o's flags pick and, for the host,
-// why, read only: no image is built and no sandbox, network or slot is
-// made, so a missing or stale default image that a run may build first
-// (canBuildImage) reads as host. RunnerAuto is ChooseRunner with
-// DockerPreflight; RunnerDocker returns DockerPreflight's refusal as the
-// error; RunnerHost and "" are the host, o.RunnerReason or "--runner host".
+// Check is fyr work --check: the runner o's flags pick and why, read only:
+// no image is built and no sandbox, network or slot is made. A missing or
+// stale default image that a run builds first (canBuildImage) is predicted,
+// not built (buildPredict, ADR-504a): when the build's own checks
+// (predictBuild) and every other refusal pass for the architecture the
+// build gives, it reads as docker, the reason naming the image a run
+// builds first (builtFirst); a build that refuses there refuses Check in
+// the run's words, and a run whose build then fails is refused, or under
+// auto the host, saying why. RunnerAuto is ChooseRunner with that
+// preflight; RunnerDocker returns its refusal as the error; RunnerHost and
+// "" are the host, o.RunnerReason or "--runner host".
 func Check(o Options) (runner, reason string, err error) {
-	o.autoBuild = false
+	o.build = buildPredict
+	var p prepared
 	switch o.Runner {
 	case RunnerAuto:
-		runner, reason = ChooseRunner(&o, DockerPreflight)
+		if runner, reason = ChooseRunner(&o, p.dockerPreflight); runner == RunnerDocker {
+			reason = builtFirst(p.toBuild)
+		}
 		return runner, reason, nil
 	case RunnerDocker:
-		if err := DockerPreflight(o); err != nil {
+		if err := p.dockerPreflight(o); err != nil {
 			return "", "", err
 		}
-		return RunnerDocker, "", nil
+		return RunnerDocker, builtFirst(p.toBuild), nil
 	case RunnerHost, "":
 		return RunnerHost, hostReason(o.RunnerReason), nil
 	}
 	return "", "", CheckRunner(o.Runner)
 }
 
-// RunnerLabel is "runner docker" for RunnerDocker, and
-// "runner host (<reason>)" for the host runner (default "--runner host").
+// builtFirst is Check's reason for the docker runner: the image a run
+// builds first, or "" when there is none to build.
+func builtFirst(image string) string {
+	if image == "" {
+		return ""
+	}
+	return image + " will be built first"
+}
+
+// RunnerLabel is "runner docker" for RunnerDocker, with Check's reason in
+// parentheses when there is one (builtFirst; a run's docker reason is ""),
+// and "runner host (<reason>)" for the host runner (default "--runner
+// host").
 func RunnerLabel(runner, reason string) string {
 	if runner == RunnerDocker {
+		if r := trimDockerErr(reason); r != "" {
+			return fmt.Sprintf("runner %s (%s)", RunnerDocker, r)
+		}
 		return "runner " + RunnerDocker
 	}
 	return fmt.Sprintf("runner %s (%s)", RunnerHost, hostReason(reason))

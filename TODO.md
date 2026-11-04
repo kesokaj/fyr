@@ -7,7 +7,7 @@
 
 ## Now
 
-No phase active: item 14 of `PLAN-2026-11-02-1806-fyr-speed` is done (`fyr work --runner auto` is the default: docker when its preflight passes, else host with the reason on the stamp line; one `work.ChooseRunner` shared with `fyr auto`; `fyr work --check --runner docker` exits 2 on a refusal, `ADR-504`); the next session does the F1 fix (Backlog, 2026-11-04, the operator's pick at the item 14 review cap) from the newest handoff's Kickoff, then the first item of Next.
+No phase active: the item 14 review's F1 fix (a) is done (`fyr work --check` predicts the build of a missing or stale default image a run builds first, read only, and reads as docker saying so, or refuses in the run's words; the build passes `--platform linux/<daemon arch>`; `ADR-504a`); the next session does the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
@@ -19,7 +19,9 @@ Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the
 
 ## Backlog
 
-- 2026-11-04 (item 14 review, finding F1, `left: operator` at the cap, `REVIEW-2026-11-04-1753-review-worktree-merged`): `fyr work --check` builds no image, so a missing or stale default image reads as host although a run may build it, and a task-list `/work` runs each wave with the table's runner (`skills/work/references/tasks.md:37`), so it never reaches the auto-build; the operator picked fix (a) as its own task, the next one: `Check` predicts docker when the only obstacle is a buildable default image, with ADR-504a.
+- 2026-11-04 (ADR-504a, pre-existing): a stale default image whose rebuild fails reads `holds fyr "vold", not this fyr's … (<nil> (auto-build failed: …))` (`internal/work/image_build.go:218`): the `<nil>` is the version read's error when the version read but differed; `--check` mirrors the run's words.
+- 2026-11-04 (ADR-504a review, pre-existing): `fyr work --check` ignores `harness.ResolveSource`'s error and a cwd that is no git checkout (`cmd/fyr/verb_work.go:152-155`), which a run refuses (`:71-78`), so `--check` can name a runner for a run that refuses.
+- 2026-11-04 (ADR-504a review R2-2, residual): `fyr auto`'s marked test runs `fyr-work:local` with the caller's whole environment (`internal/auto/verbs.go:79`), so a `DOCKER_DEFAULT_PLATFORM` naming another platform than the daemon's asks for one the image, now always built for the daemon's, does not have, and the daemon refuses it (fails closed); run it with `sandbox.DockerEnv`, with a test.
 - 2026-11-04 (BUG-506 residual): a long `FAIL (<err>)` detail or eval-gate reason still comes before `branch <b> kept` on `fyr auto`'s 500-rune sweep line (`short`, `internal/auto/run.go:208`), so it can push the branch off the line.
 - 2026-11-04 (item 14): the plan's measure, the same two-task run on both runners, not run (no linux `agy` at `~/.config/fyr/work/agy-linux`, and a development build always resolves to host); folded into Item 42.
 - 2026-11-03 (item 10, BUG-504): `fyr eval`'s real-home watch fingerprints the whole `brain.db`, so another agy session's write fails every trial; compare per scope or per record instead (design question).

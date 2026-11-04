@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/work"
 )
 
@@ -79,5 +80,29 @@ func TestWorkVerbRunnerAutoInstalled(t *testing.T) {
 	}
 	if _, code := r.work("--runner", "docker", "--image", "other:1", r.kickoff("fix-b")); code != 2 {
 		t.Errorf("--runner docker, no image: exit %d, want 2", code)
+	}
+}
+
+// TestWorkVerbCheckPredictsBuild: from an installed build with an install
+// source, a missing default image is one a run builds first, so --check
+// reads as docker and says so, for auto and an explicit docker alike, exit
+// 0, asking docker its architecture and building nothing (ADR-504a).
+func TestWorkVerbCheckPredictsBuild(t *testing.T) {
+	r := newWorkRig(t)
+	old := version
+	version = "vtest"
+	t.Cleanup(func() { version = old })
+	agyLinux := writeAgyLinux(t)
+	want := "work: runner docker (fyr-work:local will be built first)\n"
+	for _, args := range [][]string{{"--check"}, {"--check", "--runner", "docker"}} {
+		if out, code := r.work(append(args, "--agy-linux", agyLinux)...); code != 0 || out != want {
+			t.Errorf("%v: exit %d, got %q, want %q", args, code, out, want)
+		}
+	}
+	if calls := r.dockerCalls(); !strings.Contains(calls, "version --format") || strings.Contains(calls, "buildx") {
+		t.Errorf("--check did not predict the build, or built:\n%s", calls)
+	}
+	if _, err := os.Lstat(sandbox.Root(r.home, "work")); !os.IsNotExist(err) {
+		t.Errorf("--check made the sandbox root: %v", err)
 	}
 }

@@ -27,3 +27,25 @@ func TestAgyEnvZone(t *testing.T) {
 		}
 	}
 }
+
+// DockerEnv is FyrEnv minus DOCKER_DEFAULT_PLATFORM, which would make a
+// docker run ask for a platform the image is not built for; the daemon's
+// own settings stay, and FyrEnv, the build's, keeps it (ADR-504a).
+func TestDockerEnv(t *testing.T) {
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/s390x")
+	t.Setenv("DOCKER_HOST", "unix:///fake/docker.sock")
+	t.Setenv("FYR_REPO", "/elsewhere")
+	t.Setenv("GIT_DIR", "/elsewhere/.git")
+	if !slices.Contains(FyrEnv(), "DOCKER_DEFAULT_PLATFORM=linux/s390x") {
+		t.Fatal("FyrEnv lacks DOCKER_DEFAULT_PLATFORM: its absence below would prove nothing")
+	}
+	env := DockerEnv()
+	if !slices.Contains(env, "DOCKER_HOST=unix:///fake/docker.sock") {
+		t.Error("DockerEnv dropped DOCKER_HOST") // never env itself: it holds the caller's tokens
+	}
+	for _, k := range []string{"DOCKER_DEFAULT_PLATFORM=", "FYR_REPO=", "GIT_DIR="} {
+		if slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, k) }) {
+			t.Errorf("DockerEnv keeps %s", k)
+		}
+	}
+}

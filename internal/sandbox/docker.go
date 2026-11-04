@@ -159,8 +159,9 @@ func (b *Box) containerEnv() []string {
 }
 
 // dockerAgy is steps 9-10 in a container: the docker client in its own
-// process group with the real environment (its context and socket), the
-// container's environment passed as -e pairs only.
+// process group with the real environment (its context and socket) minus
+// DOCKER_DEFAULT_PLATFORM (DockerEnv), the container's environment passed
+// as -e pairs only.
 func (b *Box) dockerAgy(ctx context.Context, prompt, outPath, errPath string, appendErr bool) int {
 	if b.sessions > 1 {
 		b.Note("a docker-mode box runs one session")
@@ -200,7 +201,7 @@ func (b *Box) dockerAgy(ctx context.Context, prompt, outPath, errPath string, ap
 }
 
 // dockerCmd is the session's docker client, or nil when the token or the
-// argv is refused (the box failed).
+// argv is refused (the box failed); it asks for no platform (DockerEnv).
 func (b *Box) dockerCmd(prompt, cid string) *exec.Cmd {
 	// The token is mounted read-write (D106): only the regular file the
 	// login wrote, never a link or a directory in its place.
@@ -216,7 +217,7 @@ func (b *Box) dockerCmd(prompt, cid string) *exec.Cmd {
 		return nil
 	}
 	cmd := exec.Command("docker", args...)
-	cmd.Env = FyrEnv()
+	cmd.Env = DockerEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return cmd
 }

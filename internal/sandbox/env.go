@@ -19,6 +19,20 @@ func FyrEnv() []string {
 	return out
 }
 
+// DockerEnv is FyrEnv for a docker client that runs fyr work's image,
+// minus DOCKER_DEFAULT_PLATFORM: the CLI makes it run's --platform, and
+// the daemon refuses a local image of another platform, while the image
+// is built for the daemon's own (--platform, ADR-504a).
+func DockerEnv() []string {
+	var out []string
+	for _, kv := range FyrEnv() {
+		if k, _, _ := strings.Cut(kv, "="); k != "DOCKER_DEFAULT_PLATFORM" {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 // agyEnv is the allowlist of run.sh:220-222 (the eval plan's D27), with
 // the git identity of Config, plus TZ when Config.Zone names one (workers
 // D144); for eval, which sets no Zone, it is exactly the allowlist.

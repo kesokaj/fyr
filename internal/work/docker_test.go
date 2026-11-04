@@ -14,15 +14,26 @@ import (
 )
 
 // fakeDocker stands in for the docker CLI in a work run. image inspect and
-// the version check print what the controls say. A session `run` writes the
-// cid file, points the sandbox's fyr wrapper at the installed fyr (the
-// image's own, here) and runs the rig's fake agy with exactly the
-// container's environment in the clone. ps prints the worker's list or the
-// run's by the format asked for.
+// the version check print what the controls say, and docker version the
+// daemon's architecture: docker-server-arch, else the image's. A build
+// gives the image the platform buildx picks: --platform, else
+// DOCKER_DEFAULT_PLATFORM, else the daemon's architecture. Either run
+// refuses, as the daemon does, a platform asked for (--platform, else
+// DOCKER_DEFAULT_PLATFORM) that is not the image's. A session
+// `run` writes the cid file, points the sandbox's fyr wrapper at the
+// installed fyr (the image's own, here) and runs the rig's fake agy with
+// exactly the container's environment in the clone. ps prints the worker's
+// list or the run's by the format asked for.
 const fakeDocker = `#!/bin/bash
 CTL=@CTL@
 printf '%s\n' "$*" >> "$CTL/docker.calls"
 on() { [ -e "$CTL/docker-$1" ]; }
+plat_ok() {
+  local want=$DOCKER_DEFAULT_PLATFORM have=linux/$(cat "$CTL/docker-arch") prev= a
+  for a in "$@"; do [ "$prev" = --platform ] && want=$a; prev=$a; done
+  [ -z "$want" ] || [ "$want" = "$have" ] && return 0
+  echo "Error response from daemon: image was found but does not match the specified platform: wanted $want, actual: $have" >&2; return 1
+}
 case "$1 $2" in
 "image inspect")
   on noimage && { echo "Error: No such image" >&2; exit 1; }
@@ -30,16 +41,26 @@ case "$1 $2" in
 "buildx build")
   on build-fail && { echo "build failed" >&2; exit 1; }
   rm -f "$CTL/docker-noimage"
-  for a in "$@"; do case "$a" in FYR_VERSION=*) echo "${a#FYR_VERSION=}" > "$CTL/docker-version" ;; esac; done
+  plat=${DOCKER_DEFAULT_PLATFORM:-linux/$(cat "$CTL/docker-server-arch" 2>/dev/null || cat "$CTL/docker-arch")}; prev=
+  for a in "$@"; do
+    case "$a" in FYR_VERSION=*) echo "${a#FYR_VERSION=}" > "$CTL/docker-version" ;; esac
+    [ "$prev" = --platform ] && plat=$a; prev=$a
+  done
+  echo "${plat#linux/}" > "$CTL/docker-arch"
   echo "$*" > "$CTL/docker-build-args" ;;
 "context inspect")
   cat "$CTL/docker-endpoint" ;;
 "info --format")
   if [ -e "$CTL/docker-info" ]; then cat "$CTL/docker-info"; else echo "true true true true 4 17179869184"; fi ;;
+"version --format")
+  on server-fail && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+  if [ -e "$CTL/docker-server-arch" ]; then cat "$CTL/docker-server-arch"; else cat "$CTL/docker-arch"; fi ;;
 "run --rm")
   on version-hang && { echo "timed out" >&2; exit 1; }
+  plat_ok "$@" || exit 1
   echo "fyr $(cat "$CTL/docker-version")" ;;
 run\ *)
+  plat_ok "$@" || exit 1
   shift; envs=(); cid=; wd=
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -97,6 +118,7 @@ func dockerRig(t *testing.T) (*rig, Options) {
 	// The operator's own daemon settings never reach the fake's run.
 	t.Setenv("DOCKER_HOST", "")
 	t.Setenv("DOCKER_CONTEXT", "")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "")
 	script := strings.NewReplacer("@CTL@", sandbox.ShellQuote(r.ctl), "@AGY@", sandbox.ShellQuote(agy)).Replace(fakeDocker)
 	put(t, filepath.Join(r.bin, "docker"), script)
 	os.Chmod(filepath.Join(r.bin, "docker"), 0o755)
@@ -525,7 +547,8 @@ func TestRunnerLines(t *testing.T) {
 // calls docker; auto and an explicit docker are docker when the preflight
 // passes, and make nothing on disk or in docker; when it fails, auto is the
 // host with the refusal as its reason, and an explicit docker is the
-// refusal itself, as its run would print.
+// refusal itself, as its run would print. The rig has no Repo, so its
+// missing image is one no run can build (TestCheckPredictsBuild has those).
 func TestCheck(t *testing.T) {
 	r, o := dockerRig(t)
 	o.AgyLinux = fakeELF(t, elfMachine[runtime.GOARCH])

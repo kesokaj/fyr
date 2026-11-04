@@ -205,11 +205,13 @@ func TestWrapperByMode(t *testing.T) {
 	}
 }
 
-// One session in a container: the client runs with the real environment,
-// the container gets the sandbox's PATH first, Go's paths in the home and
-// no host PATH; agy ran in the clone; the cid file sits outside the worker
-// directory; the exited container is listed, removed and passes check e.
+// One session in a container: the client runs with the real environment
+// minus DOCKER_DEFAULT_PLATFORM (DockerEnv), the container gets the
+// sandbox's PATH first, Go's paths in the home and no host PATH; agy ran in
+// the clone; the cid file sits outside the worker directory; the exited
+// container is listed, removed and passes check e.
 func TestDockerSession(t *testing.T) {
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/s390x")
 	d := newDockerRig(t)
 	d.set("ps", "cid123 exited\n")
 	b := d.prepared(d.config("w1"))
@@ -227,6 +229,9 @@ func TestDockerSession(t *testing.T) {
 	}
 	if strings.Contains(d.read("client.env"), "HOME="+b.Home()+"\n") || !strings.Contains(d.read("client.env"), "HOME="+d.real+"\n") {
 		t.Fatal("the docker client did not run with the real HOME")
+	}
+	if strings.Contains(d.read("client.env"), "DOCKER_DEFAULT_PLATFORM=") {
+		t.Fatal("the docker client asks for a platform: DOCKER_DEFAULT_PLATFORM reached it")
 	}
 	cenv := strings.Split(strings.TrimSpace(d.read("container.env")), "\n")
 	if cenv[0] != "PATH="+filepath.Join(b.Home(), "bin")+":"+ImagePath {

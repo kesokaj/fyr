@@ -12,7 +12,7 @@ import (
 )
 
 // prepared is what the refusals resolved, for one worker; every field but
-// k is the run's.
+// k and toBuild is the run's.
 type prepared struct {
 	k                Kickoff
 	agy, tok         string
@@ -20,14 +20,15 @@ type prepared struct {
 	reflog           []refEntry // the newest reflog entries of HEAD and its branch then (BUG-198)
 	gitName, gitMail string
 	zone             zone        // the lead's, the worker's TZ (refusal 22)
-	docker           *dockerPlan // nil on the host runner
+	docker           *dockerPlan // nil on the host runner, and under Check's buildPredict when toBuild is set
+	toBuild          string      // Check's buildPredict: the image a run builds first (ADR-504a)
 }
 
 // preflight is refusals 1-22 of SPEC-fyr-work before anything is made,
 // for every file of the run, in that order: the limit after the sandbox
 // root's check, so no unapproved root is read, then session's refusals.
 func preflight(ctx context.Context, o *Options, files []string) ([]prepared, error) {
-	o.autoBuild = true
+	o.build = buildFirst
 	var p prepared
 	if err := leadClean(o.Root); err != nil {
 		return nil, err

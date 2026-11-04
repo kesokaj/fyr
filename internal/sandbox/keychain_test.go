@@ -3,6 +3,8 @@ package sandbox
 import (
 	"encoding/base64"
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -226,4 +228,84 @@ func TestProjectRootAndDockerLimits(t *testing.T) {
 			t.Errorf("dockerArgs missing %q:\n%s", want, joined)
 		}
 	}
+}
+
+// CheckWorkDir refuses what EnsureWorkDir refuses, in its words, and
+// creates and changes nothing; what it passes, EnsureWorkDir makes (fyr
+// work --check, ADR-504a). Paths are under the test's directory, where
+// elsewhere is a real directory.
+func TestCheckWorkDir(t *testing.T) {
+	for _, c := range []struct {
+		name, want  string   // want: "" passes, else in both refusals
+		dirs, files []string // made before the walk
+		link        []string // a symlink: its path, then its target
+	}{
+		{name: "nothing", dirs: []string{"home"}},
+		{name: "config-only", dirs: []string{"home/.config"}},
+		{name: "all-real", dirs: []string{"home/.config/fyr/work"}},
+		{name: "config-symlink", want: "home/.config is not a regular directory", dirs: []string{"home"}, link: []string{"home/.config", "elsewhere"}},
+		{name: "fyr-symlink", want: "home/.config/fyr is not a regular directory", dirs: []string{"home/.config"}, link: []string{"home/.config/fyr", "elsewhere"}},
+		{name: "work-symlink", want: "fyr/work is not a regular directory", dirs: []string{"home/.config/fyr"}, link: []string{"home/.config/fyr/work", "elsewhere"}},
+		{name: "dangling-symlink", want: "home/.config is not a regular directory", dirs: []string{"home"}, link: []string{"home/.config", "gone"}},
+		{name: "work-file", want: "fyr/work is not a regular directory", files: []string{"home/.config/fyr/work"}},
+		{name: "home-file", want: "is not a directory", files: []string{"home"}},
+		{name: "home-missing", want: "is not a directory"},
+		{name: "home-symlink", want: "is not a directory", link: []string{"home", "elsewhere"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			for _, d := range append(c.dirs, "elsewhere") {
+				p := filepath.Join(tmp, filepath.FromSlash(d))
+				// 0755, so a chmod to EnsureWorkDir's 0700 changes the tree.
+				if err := os.MkdirAll(p, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(p, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, f := range c.files {
+				put(t, filepath.Join(tmp, filepath.FromSlash(f)), "x", 0o600)
+			}
+			if c.link != nil {
+				if err := os.Symlink(filepath.Join(tmp, c.link[1]), filepath.Join(tmp, filepath.FromSlash(c.link[0]))); err != nil {
+					t.Fatal(err)
+				}
+			}
+			home := filepath.Join(tmp, "home")
+			before := treeOf(t, tmp)
+			cerr := CheckWorkDir(home)
+			if after := treeOf(t, tmp); !maps.Equal(before, after) {
+				t.Errorf("CheckWorkDir changed the tree:\nbefore %v\nafter  %v", before, after)
+			}
+			_, eerr := EnsureWorkDir(home)
+			switch {
+			case c.want == "" && (cerr != nil || eerr != nil):
+				t.Errorf("CheckWorkDir %v, EnsureWorkDir %v; want both to pass", cerr, eerr)
+			case c.want != "" && (cerr == nil || eerr == nil || cerr.Error() != eerr.Error() || !strings.Contains(cerr.Error(), c.want)):
+				t.Errorf("CheckWorkDir %v, EnsureWorkDir %v; want the same refusal, saying %q", cerr, eerr, c.want)
+			}
+		})
+	}
+}
+
+// treeOf is every path under root, symlinks unfollowed, with its mode.
+func treeOf(t *testing.T, root string) map[string]fs.FileMode {
+	t.Helper()
+	tree := map[string]fs.FileMode{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		tree[p] = info.Mode()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
 }
