@@ -55,7 +55,7 @@ for k in "$@"; do names+=("$(basename "$k" .md)"); done
 mkdir -p .agents/scratch/eval
 echo "call head=$base kickoffs=${names[*]}" >>.agents/scratch/eval/work-calls.log
 stamp=$(date +%Y-%m-%d-%H%M%S)-$$
-echo "work: stamp $stamp  $# workers  $PWD/.agents/scratch/work/$stamp/"
+echo "work: stamp $stamp  $# workers  $PWD/.agents/scratch/work/$stamp/  runner host (--runner host)"
 
 # canned applies the change the task's words ask for and prints what it did.
 canned() {
@@ -90,7 +90,7 @@ for k in "$@"; do
   line_tail="agy exit 0  61s  model ${model:-default}"
   if [ -z "$did" ]; then
     git checkout -q "$cur"
-    echo "work: $n  FAIL (no commits)  $line_tail  work/$n not fetched"
+    echo "work: $n  FAIL (no commits)  $line_tail  work/$n not fetched  runner host (--runner host)"
     fails=1
     continue
   fi
@@ -106,7 +106,7 @@ for k in "$@"; do
   git checkout -q "$cur"
   branch="work/$n ${base:0:7}..${tip:0:7} (1 commits)"
   if [ -n "$outside" ]; then
-    echo "work: $n  FAIL (changed outside its Files: $outside)  $line_tail  $branch"
+    echo "work: $n  FAIL (changed outside its Files: $outside)  $line_tail  $branch  runner host (--runner host)"
     fails=1
     continue
   fi
@@ -118,7 +118,7 @@ for k in "$@"; do
   printf '# Handoff: %s\n\n## Completed\n\n- %s, committed on work/%s; go test ./... passes.\n\n## Next Steps\n\n- None.\n' "$n" "$did" "$n" >"$rel$hid.md"
   printf 'Change %s: %s\n' "$n" "$did" >"$rel$cid.title"
   printf '# Change: %s\n\n%s.\n' "$n" "$did" >"$rel$cid.md"
-  echo "work: $n  PASS  $line_tail  $branch"
+  echo "work: $n  PASS  $line_tail  $branch  runner host (--runner host)"
   echo "work: $n: handoff $hid"
   echo "work: $n | ## Completed"
   echo "work: $n | - $did, committed on work/$n; go test ./... passes."

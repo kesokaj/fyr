@@ -131,15 +131,16 @@ func TestRubricAskStoresProposal(t *testing.T) {
 }
 
 func TestRunnerChoice(t *testing.T) {
-	kind, why := chooseRunner(work.Options{}, func(work.Options) error { return nil })
-	if kind != work.RunnerDocker || !strings.HasPrefix(why, "docker ") {
-		t.Errorf("docker available: %q, %q", kind, why)
+	var wo work.Options
+	kind, why := chooseRunner(&wo, func(work.Options) error { return nil })
+	if kind != work.RunnerDocker || wo.Runner != work.RunnerDocker || wo.RunnerReason != "" || !strings.HasPrefix(why, "docker ") {
+		t.Errorf("docker available: %q, %q, %+v", kind, why, wo)
 	}
-	kind, why = chooseRunner(work.Options{}, func(work.Options) error {
+	kind, why = chooseRunner(&wo, func(work.Options) error {
 		return errors.New("--runner docker: docker image fyr-work:latest is missing")
 	})
-	if kind != work.RunnerHost || why != "host (docker image fyr-work:latest is missing)" {
-		t.Errorf("docker unavailable: %q, %q", kind, why)
+	if kind != work.RunnerHost || wo.Runner != work.RunnerHost || wo.RunnerReason != "docker image fyr-work:latest is missing" || why != "host (docker image fyr-work:latest is missing)" {
+		t.Errorf("docker unavailable: %q, %q, %+v", kind, why, wo)
 	}
 }
 
@@ -190,7 +191,7 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 	if err := Run(o, false); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome {
+	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome || seenOpts.Runner != work.RunnerHost || seenOpts.RunnerReason != "no docker" {
 		t.Errorf("workers=%d preflights=%d count=%d opts=%+v", workerCalls, preflightCalls, seenCount, seenOpts)
 	}
 	if !strings.Contains(out.String(), "worker already ran in this sweep") {

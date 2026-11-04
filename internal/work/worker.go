@@ -69,7 +69,7 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 		StopGrace: o.StopGrace, Prefix: "work: " + p.k.Name, Out: &w.notes,
 		Docker: p.dockerConfig(stamp),
 	})
-	w.res = Result{Name: p.k.Name, AgyExit: -1, Model: model, Base: p.base, Dir: dir}
+	w.res = Result{Name: p.k.Name, AgyExit: -1, Model: model, Base: p.base, Dir: dir, Runner: o.Runner, RunnerReason: o.RunnerReason}
 	return w
 }
 

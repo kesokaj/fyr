@@ -37,15 +37,16 @@ type Options struct {
 	Keep     bool          // keep the sandbox of a fetched worker too
 	// MaxWorkers is the machine-wide limit, 1 to MaxMaxWorkers; 0 is
 	// DefaultMaxWorkers (D30)
-	MaxWorkers int
-	Out        io.Writer
-	Now        func() time.Time
-	StopGrace  time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
-	Runner     string        // RunnerHost ("" too) or RunnerDocker
-	Image      string        // --runner docker's image ref; "" is DefaultImage
-	AgyLinux   string        // --runner docker's linux agy; "" is the host's own on linux
-	Version    string        // this fyr's build version, which the image must hold
-	Auto       bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
+	MaxWorkers   int
+	Out          io.Writer
+	Now          func() time.Time
+	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
+	Runner       string        // RunnerHost ("" too) or RunnerDocker
+	RunnerReason string        // why RunnerHost was chosen; "" is "--runner host"
+	Image        string        // --runner docker's image ref; "" is DefaultImage
+	AgyLinux     string        // --runner docker's linux agy; "" is the host's own on linux
+	Version      string        // this fyr's build version, which the image must hold
+	Auto         bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
 }
 
 // DefaultTimeout is --timeout's default (D45).
@@ -92,6 +93,8 @@ type Result struct {
 	DraftsDir     string   // repo-relative, ending in /
 	Records       int      // handoff and change records written to RecordsDir
 	RecordsDir    string   // repo-relative, ending in /: <ID>.title and <ID>.md each
+	Runner        string   // RunnerHost ("" too) or RunnerDocker
+	RunnerReason  string   // why RunnerHost was chosen; "" is "--runner host"
 	Notes         []string // the sandbox's notes, each a printable line
 }
 
@@ -141,7 +144,7 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	}
 	defer r.close()
 	root := filepath.Join(work, stamp)
-	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/", stamp, len(ps), root)))
+	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/  %s", stamp, len(ps), root, RunnerLabel(o.Runner, o.RunnerReason))))
 	ws := make([]*worker, len(ps))
 	for i, p := range ps {
 		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name))

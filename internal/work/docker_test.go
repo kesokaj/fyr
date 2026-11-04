@@ -135,8 +135,15 @@ func TestRunDockerPass(t *testing.T) {
 	if res.Verdict != "PASS" {
 		t.Fatalf("result %+v\n%s", res, r.out.String())
 	}
-	calls := r.read("docker.calls")
 	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
+	lines := strings.Split(r.out.String(), "\n")
+	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner docker"; lines[0] != want {
+		t.Errorf("stamp line %q, want %q", lines[0], want)
+	}
+	if !strings.HasSuffix(res.Block()[0], "  runner docker") {
+		t.Errorf("result line %q does not end with runner docker", res.Block()[0])
+	}
+	calls := r.read("docker.calls")
 	for _, want := range []string{
 		"image inspect -f {{.Id}} {{.Architecture}} fyr-work:local",
 		"run --rm --pull never --label fyr.work.check=" + fmt.Sprint(os.Getpid()) + " --user " + fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()) + " --cap-drop ALL --security-opt no-new-privileges --network none --read-only --pids-limit 64 " + imgID + " fyr version",
@@ -467,4 +474,79 @@ func deadPid(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return cmd.Process.Pid
+}
+
+// fakeELF writes a minimal 64-bit ELF executable for mach so docker preflight
+// and Check can be tested on any OS.
+func fakeELF(t *testing.T, mach elf.Machine) string {
+	t.Helper()
+	var b [64]byte
+	copy(b[:4], "\x7fELF")
+	b[4], b[5], b[6] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
+	b[16] = byte(elf.ET_EXEC)
+	b[18], b[19] = byte(mach), byte(mach>>8)
+	b[20] = byte(elf.EV_CURRENT)
+	b[52] = 64
+	p := filepath.Join(t.TempDir(), "agy-linux")
+	if err := os.WriteFile(p, b[:], 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// TestRunnerLines pins the stamp line and result line for a host run with an
+// explicit fallback reason, a default host run, and a docker result.
+func TestRunnerLines(t *testing.T) {
+	r := newRig(t)
+	o := r.opts()
+	o.Runner, o.RunnerReason = RunnerHost, "--runner docker: no Antigravity login\nat /h/tok"
+	res, err := first(Run(t.Context(), o, r.kickoff("fix-a", "src/a.txt")))
+	if err != nil || res.Verdict != "PASS" {
+		t.Fatalf("err=%v res=%+v\n%s", err, res, r.out.String())
+	}
+	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
+	lines := strings.Split(r.out.String(), "\n")
+	wantStamp := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner host (no Antigravity login at /h/tok)"
+	if lines[0] != wantStamp {
+		t.Errorf("stamp line:\n%s\nwant:\n%s", lines[0], wantStamp)
+	}
+	if !strings.HasSuffix(lines[1], "  runner host (no Antigravity login at /h/tok)") || lines[1] != res.Block()[0] {
+		t.Errorf("result line:\n%s\nblock[0]:\n%s", lines[1], res.Block()[0])
+	}
+}
+
+// TestCheck pins Check and RunnerLabel across explicit host, passing docker
+// preflight, and failing docker preflight, verifying nothing is made on disk
+// or in docker.
+func TestCheck(t *testing.T) {
+	r, o := dockerRig(t)
+	o.AgyLinux = fakeELF(t, elfMachine[runtime.GOARCH])
+
+	host := o
+	host.Runner = RunnerHost
+	got, why := Check(host)
+	if label := RunnerLabel(got, why); got != RunnerHost || label != "runner host (--runner host)" {
+		t.Errorf("explicit host: %q %q -> %q", got, why, label)
+	}
+	if calls := r.read("docker.calls"); calls != "" {
+		t.Errorf("explicit host called docker: %q", calls)
+	}
+
+	got, why = Check(o)
+	if label := RunnerLabel(got, why); got != RunnerDocker || why != "" || label != "runner docker" {
+		t.Errorf("passing docker: %q %q -> %q", got, why, label)
+	}
+	if calls := r.read("docker.calls"); strings.Contains(calls, "network create") || strings.Contains(calls, "--name fyr-work-") {
+		t.Errorf("Check created a network or session:\n%s", calls)
+	}
+
+	r.on("docker-noimage", "")
+	got, why = Check(o)
+	want := "runner host (--image fyr-work:local: not on this machine (exit status 1: Error: No such image); build it: " + BuildLine + ")"
+	if label := RunnerLabel(got, why); got != RunnerHost || label != want {
+		t.Errorf("missing image:\ngot:  %q\nwant: %q", label, want)
+	}
+	if _, err := os.Lstat(sandbox.Root(o.Home, "work")); !os.IsNotExist(err) {
+		t.Errorf("Check made the sandbox root: %v", err)
+	}
 }

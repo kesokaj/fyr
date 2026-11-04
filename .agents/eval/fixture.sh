@@ -286,8 +286,8 @@ Symptom: before the trim, Hello("\t") greeted a tab. Fixed by the trim;
 TestHelloTab pins it.
 EOF
   cat >.agents/scratch/work/result.txt <<EOF
-work: stamp $stamp  1 workers  $PWD/.agents/scratch/work/$stamp/
-work: $name  PASS  agy exit 0  412s  model default  work/$name $(git rev-parse --short=7 main)..$(git rev-parse --short=7 "work/$name") (1 commits)
+work: stamp $stamp  1 workers  $PWD/.agents/scratch/work/$stamp/  runner host (--runner host)
+work: $name  PASS  agy exit 0  412s  model default  work/$name $(git rev-parse --short=7 main)..$(git rev-parse --short=7 "work/$name") (1 commits)  runner host (--runner host)
 work: $name: handoff HANDOFF-2026-11-02-1210-$name
 work: $name | ## Next Steps
 work: $name | - None.

@@ -145,7 +145,7 @@ func sections(body string) [][]string {
 }
 
 // line is the result line: the verdict, agy's exit, the time, the model,
-// the branch, and the sandbox when it is kept.
+// the branch, the sandbox when it is kept, and the runner with its reason.
 func (r Result) line() string {
 	model := r.Model
 	if model == "" {
@@ -163,7 +163,7 @@ func (r Result) line() string {
 	if r.Dir != "" {
 		l += "  kept " + r.Dir
 	}
-	return l
+	return l + "  " + RunnerLabel(r.Runner, r.RunnerReason)
 }
 
 // clip is l cut to maxLineSize bytes on a rune boundary, marked.

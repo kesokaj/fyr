@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/work"
 )
 
 // workAgy is the worker's CLI the verb tests drive: by default one commit in
@@ -161,9 +163,12 @@ func (r *workRig) sandboxes() []string {
 func TestWorkVerbPass(t *testing.T) {
 	r := newWorkRig(t)
 	out, code := r.work(r.kickoff("fix-a"))
+	lines := strings.Split(out, "\n")
 	if code != 0 || !strings.HasPrefix(out, "work: stamp ") || !strings.Contains(out, "\nwork: fix-a  PASS  agy exit 0  ") ||
-		!strings.Contains(out, "work: fix-a: handoff HANDOFF-2026-10-29-1800-fix-a") {
-		t.Fatalf("exit %d, want 0 with the stamp, the PASS line and the handoff:\n%s", code, out)
+		!strings.Contains(out, "work: fix-a: handoff HANDOFF-2026-10-29-1800-fix-a") ||
+		!strings.HasSuffix(lines[0], "  runner host (--runner host)") ||
+		!strings.HasSuffix(lines[1], "  runner host (--runner host)") {
+		t.Fatalf("exit %d, want 0 with the stamp, the PASS line, the runner and the handoff:\n%s", code, out)
 	}
 	if got := r.git("log", "-1", "--format=%s", "work/fix-a"); got != "records" {
 		t.Errorf("work/fix-a in the checkout ends at %q", got)
@@ -213,9 +218,15 @@ func TestWorkVerbRefusals(t *testing.T) {
 		"unknown runner": {func(r *workRig) []string { return []string{"--runner", "podman", r.kickoff("fix-a")} }, `work: --runner "podman": give host or docker`},
 		// A test binary is no installed build: refused before any docker
 		// call, whether or not this machine has docker (D108).
-		"docker from a dev build":  {func(r *workRig) []string { return []string{"--runner", "docker", r.kickoff("fix-a")} }, "work: --runner docker: this fyr is a development build"},
-		"image without docker":     {func(r *workRig) []string { return []string{"--image", "x:1", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
-		"agy-linux without docker": {func(r *workRig) []string { return []string{"--agy-linux", "/x/agy", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
+		"docker from a dev build":        {func(r *workRig) []string { return []string{"--runner", "docker", r.kickoff("fix-a")} }, "work: --runner docker: this fyr is a development build"},
+		"image without docker":           {func(r *workRig) []string { return []string{"--image", "x:1", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
+		"agy-linux without docker":       {func(r *workRig) []string { return []string{"--agy-linux", "/x/agy", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
+		"check a file":                   {func(r *workRig) []string { return []string{"--check", r.kickoff("fix-a")} }, "work: --check takes no Kickoff file"},
+		"check and kill":                 {func(r *workRig) []string { return []string{"--check", "--kill", "2026-10-29-170000-42"} }, "work: --check and --kill cannot be used together"},
+		"check unknown runner":           {func(r *workRig) []string { return []string{"--check", "--runner", "podman"} }, `work: --runner "podman": give host or docker`},
+		"check host with image":          {func(r *workRig) []string { return []string{"--check", "--runner", "host", "--image", "x:1"} }, "work: --image and --agy-linux need --runner docker"},
+		"check image without docker":     {func(r *workRig) []string { return []string{"--check", "--image", "x:1"} }, "work: --image and --agy-linux need --runner docker"},
+		"check agy-linux without docker": {func(r *workRig) []string { return []string{"--check", "--agy-linux", "/x/agy"} }, "work: --image and --agy-linux need --runner docker"},
 		"bad install source": {func(r *workRig) []string {
 			return []string{"--repo", r.kick, r.kickoff("fix-a")}
 		}, "work: "},
@@ -378,5 +389,49 @@ func TestWorkVerbDockerFlags(t *testing.T) {
 	}
 	if len(r.sandboxes()) > 0 {
 		t.Fatalf("a refusal made sandboxes %v", r.sandboxes())
+	}
+}
+
+// TestWorkVerbCheck pins `fyr work --check [flags]`: it prints the runner and
+// why, exits 0, and makes no sandbox, network or slot.
+func TestWorkVerbCheck(t *testing.T) {
+	r := newWorkRig(t)
+
+	out, code := r.work("--check", "--runner", "host")
+	if want := "work: runner host (--runner host)\n"; code != 0 || out != want {
+		t.Fatalf("--check --runner host: exit %d, got %q, want %q", code, out, want)
+	}
+	if calls, _ := os.ReadFile(filepath.Join(r.ctl, "docker.calls")); len(calls) > 0 {
+		t.Fatalf("--check --runner host called docker: %q", calls)
+	}
+
+	out, code = r.work("--check")
+	wantDevel := "work: runner host (this fyr is a development build ((devel)); run fyr install, then build the image from the installed fyr: " + work.BuildLine + ")\n"
+	if code != 0 || out != wantDevel {
+		t.Fatalf("--check on devel: exit %d\ngot:  %q\nwant: %q", code, out, wantDevel)
+	}
+
+	old := version
+	version = "vtest"
+	t.Cleanup(func() { version = old })
+
+	var elfBin [64]byte
+	copy(elfBin[:4], "\x7fELF")
+	elfBin[4], elfBin[5], elfBin[6] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
+	elfBin[16], elfBin[18], elfBin[20], elfBin[52] = byte(elf.ET_EXEC), byte(elf.EM_X86_64), byte(elf.EV_CURRENT), 64
+	agyLinux := filepath.Join(t.TempDir(), "agy-linux")
+	if err := os.WriteFile(agyLinux, elfBin[:], 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code = r.work("--check", "--runner", "docker", "--image", "good:1", "--agy-linux", agyLinux)
+	if want := "work: runner docker\n"; code != 0 || out != want {
+		t.Fatalf("--check docker ready: exit %d, got %q, want %q", code, out, want)
+	}
+	if _, err := os.Lstat(sandbox.Root(r.home, "work")); !os.IsNotExist(err) || len(r.sandboxes()) > 0 {
+		t.Fatalf("--check made sandbox state: %v %v", err, r.sandboxes())
+	}
+	if calls, _ := os.ReadFile(filepath.Join(r.ctl, "docker.calls")); strings.Contains(string(calls), "network create") || strings.Contains(string(calls), "--name fyr-work-") {
+		t.Fatalf("--check created a network or session:\n%s", calls)
 	}
 }

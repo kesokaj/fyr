@@ -28,10 +28,11 @@ func init() {
 		c.fs.StringVar(&c.workRunner, "runner", work.RunnerHost, "where each worker's session runs: `R` is host or docker")
 		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "--runner docker's image `REF`, built by SPEC-fyr-work's build line")
 		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "--runner docker's linux agy `PATH` (default: the host's agy, on linux only)")
+		c.fs.BoolVar(&c.check, "check", false, "check the runner (docker preflight unless --runner host), print why, and exit 0")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
-// runWork serves `fyr work` for one or more Kickoff files, or --kill
+// runWork serves `fyr work` for one or more Kickoff files, --check, or --kill
 // (SPEC-fyr-work, plan PLAN-2026-10-29-workers Phases 3-4). Every refusal
 // exits 2 before anything is made (D34): the usage errors, a --timeout or a
 // --max-workers of 0 or less, not a checkout, the install source as eval
@@ -41,6 +42,9 @@ func runWork(c *ctx) error {
 	files := c.fs.Args()
 	if c.workKill != "" {
 		return c.workKillRun(files)
+	}
+	if c.check {
+		return c.workCheckRun(files)
 	}
 	imageSet := false
 	c.fs.Visit(func(f *flag.Flag) { imageSet = imageSet || f.Name == "image" })
@@ -102,9 +106,45 @@ func (c *ctx) workRun(o work.Options, files []string) error {
 	return nil
 }
 
+// workCheckRun is --check: runs work.DockerPreflight (unless --runner host is
+// given), prints work: runner docker or work: runner host (<reason>), and
+// exits 0 without making a sandbox, network or slot.
+func (c *ctx) workCheckRun(files []string) error {
+	var imageSet, runnerSet bool
+	c.fs.Visit(func(f *flag.Flag) {
+		imageSet = imageSet || f.Name == "image"
+		runnerSet = runnerSet || f.Name == "runner"
+	})
+	switch {
+	case len(files) > 0:
+		return c.workRefuse("--check takes no Kickoff file")
+	case c.workRunner != work.RunnerHost && c.workRunner != work.RunnerDocker:
+		return c.workRefuse("--runner %q: give %s or %s", c.workRunner, work.RunnerHost, work.RunnerDocker)
+	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
+		return c.workRefuse("--image and --agy-linux need --runner docker")
+	}
+	realHome, err := os.UserHomeDir()
+	if err != nil {
+		return c.workRefuse("no home directory: %v", err)
+	}
+	runner := ""
+	if runnerSet {
+		runner = c.workRunner
+	}
+	got, reason := work.Check(work.Options{
+		Home: c.home, RealHome: realHome, Runner: runner,
+		Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion(),
+	})
+	fmt.Fprintln(c.out, search.Printable("work: "+work.RunnerLabel(got, reason)))
+	return nil
+}
+
 // workKillRun is --kill: SIGTERM to the run the stamp names, which then
 // prints its own result contract. It takes no Kickoff file.
 func (c *ctx) workKillRun(files []string) error {
+	if c.check {
+		return c.workRefuse("--check and --kill cannot be used together")
+	}
 	if len(files) > 0 {
 		return c.workRefuse("--kill takes a stamp and no Kickoff file")
 	}

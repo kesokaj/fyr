@@ -47,6 +47,41 @@ type dockerPlan struct {
 	image, agy string
 }
 
+// Check reports the runner a run with o would use and, for RunnerHost, why:
+// RunnerHost with "--runner host" (or o.RunnerReason) when o.Runner is
+// RunnerHost, and otherwise RunnerDocker when DockerPreflight passes or
+// RunnerHost with its refusal reason when it does not. It makes no sandbox,
+// network or slot.
+func Check(o Options) (runner, reason string) {
+	if o.Runner == RunnerHost {
+		if r := trimDockerErr(o.RunnerReason); r != "" {
+			return RunnerHost, r
+		}
+		return RunnerHost, "--runner " + RunnerHost
+	}
+	if err := DockerPreflight(o); err != nil {
+		return RunnerHost, trimDockerErr(err.Error())
+	}
+	return RunnerDocker, ""
+}
+
+// RunnerLabel is "runner docker" for RunnerDocker, and
+// "runner host (<reason>)" for the host runner (default "--runner host").
+func RunnerLabel(runner, reason string) string {
+	if runner == RunnerDocker {
+		return "runner " + RunnerDocker
+	}
+	reason = trimDockerErr(reason)
+	if reason == "" {
+		reason = "--runner " + RunnerHost
+	}
+	return fmt.Sprintf("runner %s (%s)", RunnerHost, reason)
+}
+
+func trimDockerErr(s string) string {
+	return strings.TrimPrefix(strings.Join(strings.Fields(s), " "), "--runner docker: ")
+}
+
 // DockerPreflight is the docker-mode refusals of preflight (refusals 13-20,
 // 22, 24 and 25, plus the login token for Mountable), so fyr auto can run on
 // docker when they pass and fall back to the host runner with the reason when

@@ -7,15 +7,15 @@
 
 ## Now
 
-No phase active: item 7 of `PLAN-2026-11-02-1806-fyr-speed` is done (migration 5 step and trial stage columns, Antigravity `steps.metadata` `1`, `6`, `7`, `8` and `26` status-9 wait decoding, `Summary.B` `model_min`/`tool_min`/`wait_min`/`idle_min`, `fyr metrics show` `time model/tool/wait/idle m`, and `TestStepTimes` on the recorded macOS `agy 1.4.12` probe fixture in `internal/metrics/testdata/probe/`); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 11 of `PLAN-2026-11-02-1806-fyr-speed` is done (`runner docker` or `runner host (<reason>)` on the stamp line and each result line, `work.Check` and `fyr work --check`, `chooseRunner` wiring `Options.RunnerReason` in `internal/auto`, and `cmd/fyr/help_text.go`, `README.md`, `SDD.md`, `TDD.md`, `SPEC-fyr-work` and `GUIDE-testing` updated); the next session starts the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 11 — show the runner on the stamp and result lines, plus `fyr work --check`.
 - Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
 - Item 18 — no explorer on an empty repo.
+- Item 12 — docker setup on a Mac: script in `skills/work/scripts/` to build `fyr-work:local`, install a linux `agy` and run its login (`who: both`).
 
 ## Backlog
 

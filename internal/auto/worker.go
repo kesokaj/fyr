@@ -27,15 +27,18 @@ import (
 const workerTimeout = 30 * time.Minute
 
 // chooseRunner returns RunnerDocker when fyr work's docker preflight passes,
-// and RunnerHost with the reason when it does not (D2, D17).
-func chooseRunner(wo work.Options, preflight func(work.Options) error) (runner, why string) {
+// and RunnerHost with the reason when it does not, setting wo.Runner and
+// wo.RunnerReason (D2, D17).
+func chooseRunner(wo *work.Options, preflight func(work.Options) error) (runner, why string) {
 	if preflight == nil {
 		preflight = work.DockerPreflight
 	}
-	if err := preflight(wo); err == nil {
+	if err := preflight(*wo); err == nil {
+		wo.Runner, wo.RunnerReason = work.RunnerDocker, ""
 		return work.RunnerDocker, "docker (fyr work docker preflight passed)"
 	} else {
-		reason := strings.TrimPrefix(oneLine(err.Error()), "--runner docker: ")
+		_, reason := work.Check(work.Options{Runner: work.RunnerHost, RunnerReason: err.Error()})
+		wo.Runner, wo.RunnerReason = work.RunnerHost, reason
 		return work.RunnerHost, "host (" + reason + ")"
 	}
 }
@@ -110,7 +113,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	}
 	wo := r.workOptions(root)
 	var runnerWhy string
-	wo.Runner, runnerWhy = chooseRunner(wo, r.o.DockerPreflight)
+	_, runnerWhy = chooseRunner(&wo, r.o.DockerPreflight)
 	if err := r.prepareLearningWorker(root, p, t, k.Path); err != nil {
 		r.failed = true
 		return "worker input error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}

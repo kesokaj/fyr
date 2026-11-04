@@ -26,8 +26,11 @@ func TestRunPass(t *testing.T) {
 	}
 	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
 	lines := strings.Split(r.out.String(), "\n")
-	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/"; lines[0] != want {
+	if want := "work: stamp " + stamp + "  1 workers  " + filepath.Join(sandbox.Root(r.home, "work"), stamp) + "/  runner host (--runner host)"; lines[0] != want {
 		t.Errorf("first line %q, want %q", lines[0], want)
+	}
+	if !strings.HasSuffix(lines[1], "  runner host (--runner host)") {
+		t.Errorf("result line %q does not end with runner host (--runner host)", lines[1])
 	}
 	if got := r.git("-C", r.lead, "rev-parse", "work/fix-a"); got != res.Head {
 		t.Errorf("work/fix-a in the lead is %s, want %s", got, res.Head)
