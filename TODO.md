@@ -7,18 +7,20 @@
 
 ## Now
 
-No phase active: the item 14 review's F1 fix (a) is done (`fyr work --check` predicts the build of a missing or stale default image a run builds first, read only, and reads as docker saying so, or refuses in the run's words; the build passes `--platform linux/<daemon arch>`; `ADR-504a`); the next session does the first item of Next, Item 17 of `PLAN-2026-11-02-1806-fyr-speed`, from the newest handoff's Kickoff.
+No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`); the next session does the first item of Next, Item 18, from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
 - Item 18 — no explorer on an empty repo: skip explorer dispatch on an empty scaffolded repo.
 - Item 13 — Node in the worker image (its docker worker run needs an installed, versioned `fyr` and a linux `agy` at `~/.config/fyr/work/agy-linux`).
+- Item 19 — cold-reader budget: bound the cold read (one took 21 min and 128K output tokens), and the budgeted reader still finds every seeded high-severity flaw.
 
 ## Backlog
 
+- 2026-11-04 (item 17, proposal): the `security` agent's pre-flight still runs one `fyr search --refs` per changed file (`agents/security/agent.md:22`); the reviewer's item 17 change, with its own eval rows, would apply there too.
+- 2026-11-04 (item 17): `GUIDE-testing` § 4 and Item 42's verify line name `--fixture ~/.config/fyr/dev/fyr-eval-fixture`, which does not exist on this Mac; every recorded `fyr eval` run used the default fixture, this checkout.
 - 2026-11-04 (ADR-504a, pre-existing): a stale default image whose rebuild fails reads `holds fyr "vold", not this fyr's … (<nil> (auto-build failed: …))` (`internal/work/image_build.go:218`): the `<nil>` is the version read's error when the version read but differed; `--check` mirrors the run's words.
 - 2026-11-04 (ADR-504a review, pre-existing): `fyr work --check` ignores `harness.ResolveSource`'s error and a cwd that is no git checkout (`cmd/fyr/verb_work.go:152-155`), which a run refuses (`:71-78`), so `--check` can name a runner for a run that refuses.
 - 2026-11-04 (ADR-504a review R2-2, residual): `fyr auto`'s marked test runs `fyr-work:local` with the caller's whole environment (`internal/auto/verbs.go:79`), so a `DOCKER_DEFAULT_PLATFORM` naming another platform than the daemon's asks for one the image, now always built for the daemon's, does not have, and the daemon refuses it (fails closed); run it with `sandbox.DockerEnv`, with a test.
