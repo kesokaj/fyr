@@ -18,13 +18,6 @@ import (
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
-// The runners of --runner: the host (the default) or a container per
-// worker (PLAN-2026-10-29-workers § Interfaces § --runner docker).
-const (
-	RunnerHost   = "host"
-	RunnerDocker = "docker"
-)
-
 // DefaultImage is --image's default, the tag the build line gives.
 const DefaultImage = "fyr-work:local"
 
@@ -48,58 +41,31 @@ type dockerPlan struct {
 	ramGB, cpus, diskGB int
 }
 
-// Check reports the runner a run with o would use and, for RunnerHost, why:
-// RunnerHost with "--runner host" (or o.RunnerReason) when o.Runner is
-// RunnerHost, and otherwise RunnerDocker when DockerPreflight passes or
-// RunnerHost with its refusal reason when it does not. It makes no sandbox,
-// network or slot.
-func Check(o Options) (runner, reason string) {
-	if o.Runner == RunnerHost {
-		if r := trimDockerErr(o.RunnerReason); r != "" {
-			return RunnerHost, r
-		}
-		return RunnerHost, "--runner " + RunnerHost
-	}
-	if err := DockerPreflight(o); err != nil {
-		return RunnerHost, trimDockerErr(err.Error())
-	}
-	return RunnerDocker, ""
-}
-
-// RunnerLabel is "runner docker" for RunnerDocker, and
-// "runner host (<reason>)" for the host runner (default "--runner host").
-func RunnerLabel(runner, reason string) string {
-	if runner == RunnerDocker {
-		return "runner " + RunnerDocker
-	}
-	reason = trimDockerErr(reason)
-	if reason == "" {
-		reason = "--runner " + RunnerHost
-	}
-	return fmt.Sprintf("runner %s (%s)", RunnerHost, reason)
-}
-
-func trimDockerErr(s string) string {
-	return strings.TrimPrefix(strings.Join(strings.Fields(s), " "), "--runner docker: ")
-}
-
-// DockerPreflight is the docker-mode refusals of preflight (refusals 13-20,
-// 22, 24 and 25, plus the login token for Mountable), so fyr auto can run on
-// docker when they pass and fall back to the host runner with the reason when
-// they do not (D2, D17).
+// DockerPreflight is the docker runner's refusals (refusals 13-20, 22, 24
+// and 25, plus the login token for Mountable) outside a run: ChooseRunner's
+// probe for --runner auto in fyr auto, and fyr work --check's answer (D2,
+// D5, D17, ADR-504). An image is built only under o.autoBuild, which only
+// Run sets (item 12), so neither caller builds one.
 func DockerPreflight(o Options) error {
-	for _, p := range []*string{&o.Home, &o.RealHome} {
-		abs, err := filepath.Abs(*p)
+	var p prepared
+	return p.dockerPreflight(o)
+}
+
+// dockerPreflight is DockerPreflight keeping what it resolved: when it
+// passes, p.docker is the run's plan and p.tok the login token, so Run's
+// probe is the run's only docker check. A development build refuses first,
+// before the Keychain and any docker call, since no image can match it
+// (ADR-504); then the offline refusals 22 and 25, then the login.
+func (p *prepared) dockerPreflight(o Options) error {
+	if err := develBuild(o.Version); err != nil {
+		return err
+	}
+	for _, path := range []*string{&o.Home, &o.RealHome} {
+		abs, err := filepath.Abs(*path)
 		if err != nil {
 			return err
 		}
-		*p = abs
-	}
-	var p prepared
-	var err error
-	p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true)
-	if err != nil {
-		return err
+		*path = abs
 	}
 	if _, err := runZone(RunnerDocker); err != nil {
 		return err
@@ -107,20 +73,29 @@ func DockerPreflight(o Options) error {
 	if err := gitFloor(RunnerDocker); err != nil {
 		return err
 	}
+	var err error
+	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true); err != nil {
+		return err
+	}
 	return p.dockerRefusals(o)
 }
 
-// dockerRefusals are refusals 13-20 and 24 of SPEC-fyr-work, after refusal
-// 22, for a docker-mode run: this fyr is an installed build (before any
-// docker call), docker is on PATH, the daemon is local and applies the
-// limits, the image ref is one, the
-// image exists at this fyr's version, the linux agy runs on the image's
-// architecture, and every path the container mounts can be written as a
-// --mount.
-func (p *prepared) dockerRefusals(o Options) error {
-	if v := o.Version; v == "" || v == "unknown" || strings.ContainsAny(v, "() ") {
+// develBuild refuses the docker runner to a development build: the image is
+// built at an installed fyr's version, which such a build does not have.
+func develBuild(v string) error {
+	if v == "" || v == "unknown" || strings.ContainsAny(v, "() ") {
 		return fmt.Errorf("--runner docker: this fyr is a development build (%s); run fyr install, then build the image from the installed fyr: %s", v, BuildLine)
 	}
+	return nil
+}
+
+// dockerRefusals are refusals 13-20 and 24 of SPEC-fyr-work, after refusal
+// 22 and the development-build refusal (develBuild), for a docker-mode run:
+// docker is on PATH, the daemon is local and applies the limits, the image
+// ref is one, the image exists at this fyr's version, the linux agy runs on
+// the image's architecture, and every path the container mounts can be
+// written as a --mount.
+func (p *prepared) dockerRefusals(o Options) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return errors.New("--runner docker: docker not found on PATH")
 	}

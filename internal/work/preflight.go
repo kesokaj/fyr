@@ -25,7 +25,7 @@ type prepared struct {
 
 // preflight is refusals 1-22 of SPEC-fyr-work before anything is made,
 // for every file of the run, in that order: the limit after the sandbox
-// root's check, so no unapproved root is read, and the model check last.
+// root's check, so no unapproved root is read, then session's refusals.
 func preflight(ctx context.Context, o *Options, files []string) ([]prepared, error) {
 	o.autoBuild = true
 	var p prepared
@@ -57,10 +57,12 @@ func preflight(ctx context.Context, o *Options, files []string) ([]prepared, err
 	if err := atLimit(work, o.MaxWorkers); err != nil {
 		return nil, err
 	}
-	if o.Runner != "" && o.Runner != RunnerHost && o.Runner != RunnerDocker {
-		return nil, fmt.Errorf("--runner %q: give %s or %s", o.Runner, RunnerHost, RunnerDocker)
+	if o.Runner != "" {
+		if err := CheckRunner(o.Runner); err != nil {
+			return nil, err
+		}
 	}
-	if err := p.session(ctx, *o, ks); err != nil {
+	if err := p.session(ctx, o, ks); err != nil {
 		return nil, err
 	}
 	ps := make([]prepared, len(ks))
@@ -94,9 +96,12 @@ func parseAll(files []string, auto bool) ([]Kickoff, error) {
 }
 
 // session is refusals 8-11 and 21-23, what the sessions need: offline
-// refusals come first before CheckLogin, checkModels and every docker call
-// (workers D145, G4), and SyncWorkToken runs last after all refusals pass.
-func (p *prepared) session(ctx context.Context, o Options, ks []Kickoff) error {
+// refusals come first, before CheckLogin, checkModels and every docker call
+// (workers D145, G4); then ChooseRunner turns --runner auto into docker or
+// the host (D5, ADR-504), and the probe's plan and token are kept, so docker
+// is checked once; SyncWorkToken runs last, after every refusal passed. The
+// runner chosen is left on o, for the stamp line and the workers.
+func (p *prepared) session(ctx context.Context, o *Options, ks []Kickoff) error {
 	var err error
 	if o.Model != "" && !modelRe.MatchString(o.Model) {
 		return fmt.Errorf("--model %s: not a model ID", o.Model)
@@ -116,25 +121,50 @@ func (p *prepared) session(ctx context.Context, o Options, ks []Kickoff) error {
 	if err = gitFloor(o.Runner); err != nil {
 		return err
 	}
-	if o.Runner == RunnerDocker {
-		if v := o.Version; v == "" || v == "unknown" || strings.ContainsAny(v, "() ") {
-			return fmt.Errorf("--runner docker: this fyr is a development build (%s); run fyr install, then build the image from the installed fyr: %s", v, BuildLine)
+	var probe prepared
+	if ChooseRunner(o, probe.dockerPreflight); o.Runner != RunnerDocker {
+		return p.hostSession(ctx, *o, ks)
+	}
+	p.docker, p.tok = probe.docker, probe.tok
+	return p.dockerSession(ctx, *o, ks)
+}
+
+// hostSession is the host runner's part of session: the login, the host's
+// agy, then the model check.
+func (p *prepared) hostSession(ctx context.Context, o Options, ks []Kickoff) error {
+	var err error
+	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, false); err != nil {
+		return err
+	}
+	if p.agy, err = exec.LookPath("agy"); err != nil {
+		return errors.New("agy not found on PATH")
+	}
+	return checkModels(ctx, o, ks)
+}
+
+// dockerSession is the docker runner's part of session. After --runner
+// auto's probe (p.docker set) only the model check is left; an explicit
+// --runner docker, which ChooseRunner never probes, refuses here in order:
+// a development build, the login, the model check, then dockerRefusals.
+// The work token is synced last.
+func (p *prepared) dockerSession(ctx context.Context, o Options, ks []Kickoff) error {
+	probed := p.docker != nil
+	var err error
+	if !probed {
+		if err = develBuild(o.Version); err != nil {
+			return err
+		}
+		if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true); err != nil {
+			return err
 		}
 	}
-	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, o.Runner == RunnerDocker); err != nil {
+	if err = checkModels(ctx, o, ks); err != nil {
 		return err
 	}
-	if o.Runner != RunnerDocker {
-		if p.agy, err = exec.LookPath("agy"); err != nil {
-			return errors.New("agy not found on PATH")
+	if !probed {
+		if err = p.dockerRefusals(o); err != nil {
+			return err
 		}
-		return checkModels(ctx, o, ks)
-	}
-	if err := checkModels(ctx, o, ks); err != nil {
-		return err
-	}
-	if err := p.dockerRefusals(o); err != nil {
-		return err
 	}
 	p.tok, err = sandbox.SyncWorkToken(o.Home, o.RealHome, hostOS)
 	return err

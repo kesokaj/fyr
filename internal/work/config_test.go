@@ -19,10 +19,16 @@ func TestDockerAutoBuildFromEmbedded(t *testing.T) {
 	r.on("docker-arch", "arm64")
 	put(t, filepath.Join(o.Repo, "go.mod"), "module example.com/test\n\ngo 1.26.2\n")
 
-	// Read-only Check (o.autoBuild == false) does not invoke docker buildx build.
+	// Read-only Check (o.autoBuild == false) does not invoke docker buildx
+	// build: --runner auto falls back to the host, an explicit docker refuses.
 	r.on("docker-noimage", "")
-	if got, _ := Check(o); got != RunnerHost {
-		t.Fatalf("Check with missing image: got %q, want %q", got, RunnerHost)
+	auto := o
+	auto.Runner = RunnerAuto
+	if got, _, err := Check(auto); got != RunnerHost || err != nil {
+		t.Fatalf("Check --runner auto with missing image: got %q, %v, want %q", got, err, RunnerHost)
+	}
+	if _, _, err := Check(o); err == nil || !strings.Contains(err.Error(), "build it: "+BuildLine) {
+		t.Fatalf("Check --runner docker with missing image: %v, want its refusal", err)
 	}
 	if buildArgs := r.read("docker-build-args"); buildArgs != "" {
 		t.Fatalf("Check invoked docker buildx build: %q", buildArgs)

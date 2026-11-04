@@ -42,7 +42,7 @@ Background and measurement
   auto         idle-time runs: on, off, status, run
   metrics      session shapes: ingest, show, report, evals, export
   eval         run behavioural rows against the CLI
-  work         run Kickoffs as agy workers (isolated only with --runner docker)
+  work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
   serve        a local page of status, records, memory and metrics
   version      print the build version
@@ -290,10 +290,11 @@ var pages = map[string]verbPage{
 	"work": {
 		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--max-workers N] [--workers N]",
 			"                [--ram GB] [--cpu N] [--disk GB] [--keep]",
-			"                [--runner host|docker] [--image REF] [--agy-linux PATH]",
+			"                [--runner auto|host|docker] [--image REF] [--agy-linux PATH]",
 			"                <kickoff-file>...",
 			"       fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]",
-			"       fyr work --check [--runner host|docker] [--image REF] [--agy-linux PATH]",
+			"       fyr work --check [--runner auto|host|docker] [--image REF]",
+			"                        [--agy-linux PATH]",
 			"       fyr work --kill <stamp>"},
 		about: []string{
 			"Runs each Kickoff file as a worker: an unattended agy session in its own",
@@ -303,9 +304,9 @@ var pages = map[string]verbPage{
 			"What the agent reads goes to the CLI's model (R8). A Kickoff's Model: line,",
 			"else --model, is its agy model, checked against agy models. Each branch is",
 			"fetched back, checked against Files:, and reported in at most 39 lines.",
-			"Stamp and result lines name the runner and why. --runner docker: each session",
-			"in a hardened container of --image with a linux agy. --check runs the docker",
-			"preflight and prints why (0); --kill <stamp> ends it. Exit 0 PASS, 1, 2 err.",
+			"--runner auto (default) is docker, a hardened container of --image with a",
+			"linux agy, when its preflight passes, else the host; stamp and result lines,",
+			"and --check, say which and why. --kill <stamp> ends it. Exit 0 PASS, 1, 2 err.",
 		},
 	},
 	"check": {

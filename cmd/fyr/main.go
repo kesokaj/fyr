@@ -19,7 +19,7 @@
 //	fyr auto        idle-time runs: on, off, status, run
 //	fyr metrics     session shapes: ingest, show, report, evals, export
 //	fyr eval        run behavioural rows against the CLI
-//	fyr work        run Kickoffs as agy workers (isolated only with --runner docker)
+//	fyr work        run Kickoffs as agy workers (in docker when ready, else host)
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr serve       a local page of status, records, memory and metrics
 //	fyr version     print the build version

@@ -26,22 +26,27 @@ import (
 // workerTimeout is the 30-minute per-worker budget (R3 3.2b, D1 row 7).
 const workerTimeout = 30 * time.Minute
 
-// chooseRunner returns RunnerDocker when fyr work's docker preflight passes,
-// and RunnerHost with the reason when it does not, setting wo.Runner and
-// wo.RunnerReason (D2, D17).
+// chooseRunner is work.ChooseRunner, the one runner choice of fyr work and
+// fyr auto (D5, ADR-504), for --runner auto: RunnerDocker when fyr work's
+// docker preflight passes, and RunnerHost with the reason when it does not,
+// set on wo.Runner and wo.RunnerReason (D2, D17). It runs before work.Run,
+// and DockerPreflight builds no image, so a sweep whose image is missing or
+// stale runs on the host and says so; why is the choice in the words of the
+// sweep's report, which withRunner puts at the end of a worker's line.
 func chooseRunner(wo *work.Options, preflight func(work.Options) error) (runner, why string) {
-	if preflight == nil {
-		preflight = work.DockerPreflight
+	wo.Runner = work.RunnerAuto
+	runner, reason := work.ChooseRunner(wo, preflight)
+	if runner == work.RunnerDocker {
+		return runner, "docker (fyr work docker preflight passed)"
 	}
-	if err := preflight(*wo); err == nil {
-		wo.Runner, wo.RunnerReason = work.RunnerDocker, ""
-		return work.RunnerDocker, "docker (fyr work docker preflight passed)"
-	} else {
-		_, reason := work.Check(work.Options{Runner: work.RunnerHost, RunnerReason: err.Error()})
-		wo.Runner, wo.RunnerReason = work.RunnerHost, reason
-		return work.RunnerHost, "host (" + reason + ")"
-	}
+	return runner, "host (" + reason + ")"
 }
+
+// withRunner ends a worker's report line with the runner and why: last,
+// because a refusal can carry the image's build line and a project's line
+// is cut at lineLimit, so the verdict and the branch come first (BUG-506).
+// Every line that names the runner is built here (sweep_line_test.go).
+func withRunner(line, runnerWhy string) string { return line + "; runner " + runnerWhy }
 
 // runModelTask picks the highest due model task for root (rotating p.LastClass
 // to the end), files any rubric ask, and runs at most one worker.
@@ -150,39 +155,38 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 	defer cleanProjectDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
-		msg := "runner " + runnerWhy + "; FAIL (" + oneLine(err.Error()) + "); branch " + k.Branch + " kept"
+		msg := withRunner("FAIL ("+oneLine(err.Error())+"); branch "+k.Branch+" kept", runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	if slices.Contains(res.Reasons, sandbox.ReasonRealConfig) || configTampered(r.o.Home, cfgBefore, cfgErr) {
 		disableConfig(r.o.Home, r.cfg)
 		_ = saveState(r.o.Home, r.st)
 		r.failed, r.halted = true, true
-		msg := "runner " + runnerWhy + "; auto disabled: its config changed during a run"
+		msg := withRunner("auto disabled: its config changed during a run", runnerWhy)
 		return "auto disabled: its config changed during a run", []Finding{{"worker", "config-changed", k.Branch, msg}}
 	}
 	if gotHash, err := fileSHA256(filepath.Join(dir(r.o.Home), "runs.json")); err != nil || gotHash != stateHash {
 		_ = saveState(r.o.Home, r.st)
 		r.failed = true
-		msg := "runner " + runnerWhy + "; FAIL (runs.json changed during the run); branch " + k.Branch + " kept"
+		msg := withRunner("FAIL (runs.json changed during the run); branch "+k.Branch+" kept", runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	if runErr != nil || res.Verdict != "PASS" {
 		r.failed = true
 		if slices.Contains(res.Reasons, work.ReasonLeadChanged) {
-			msg := fmt.Sprintf("runner %s; FAIL (checkout moved); branch %s kept", runnerWhy, k.Branch)
-			return "checkout moved; branch " + k.Branch + " kept", []Finding{{"worker", t.Class, k.Branch, msg}}
+			return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 		}
 		why := strings.Join(res.Reasons, "; ")
 		if runErr != nil {
 			why = oneLine(runErr.Error())
 		}
-		msg := fmt.Sprintf("runner %s; FAIL (%s); branch %s kept", runnerWhy, why, k.Branch)
+		msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", why, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	draftFindings, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
 	if err != nil {
 		r.failed = true
-		msg := fmt.Sprintf("runner %s; FAIL (drafts: %s); branch %s kept", runnerWhy, oneLine(err.Error()), k.Branch)
+		msg := withRunner(fmt.Sprintf("FAIL (drafts: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	cleanProjectDrafts(root, res.DraftsDir)
@@ -219,20 +223,20 @@ func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy
 		applied, err := r.o.Apply(root, k.Branch, t.Class)
 		if err != nil {
 			r.failed = true
-			msg := fmt.Sprintf("runner %s; FAIL (%s); branch %s kept", runnerWhy, oneLine(err.Error()), k.Branch)
+			msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
 			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 		}
 		if applied {
 			if err := deleteBranch(root, k.Branch); err != nil {
 				r.failed = true
-				msg := fmt.Sprintf("runner %s; FAIL (branch delete: %s); branch %s kept", runnerWhy, oneLine(err.Error()), k.Branch)
+				msg := withRunner(fmt.Sprintf("FAIL (branch delete: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
 				return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 			}
-			msg := fmt.Sprintf("runner %s; PASS; applied, branch %s deleted", runnerWhy, k.Branch)
+			msg := withRunner(fmt.Sprintf("PASS; applied, branch %s deleted", k.Branch), runnerWhy)
 			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 		}
 	}
-	msg := fmt.Sprintf("runner %s; PASS; branch %s kept", runnerWhy, k.Branch)
+	msg := withRunner(fmt.Sprintf("PASS; branch %s kept", k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 }
 

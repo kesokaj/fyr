@@ -42,7 +42,7 @@ commands/, rules/      deployed verbatim; rules share the context's block; comma
 cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), search, memory, redact,
                        trail, check, dream, metrics, brain, eval, sandbox, work, serve, auto
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories and `docker/`, the tree's tests
-docker/                `fyr work --runner docker`'s image: work.Dockerfile and its default-deny ignore file
+docker/                `fyr work`'s docker runner image: work.Dockerfile and its default-deny ignore file
 .agents/               this repo's `.agents/skills` symlink and `.agents/scratch/`; `.agents/eval/` holds the eval suite (`GUIDE-eval.md`) and its fixture (`fixture.sh`); trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.agents/trail.jsonl` on demand)
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
 ```

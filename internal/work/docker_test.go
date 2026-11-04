@@ -499,8 +499,9 @@ func fakeELF(t *testing.T, mach elf.Machine) string {
 	return p
 }
 
-// TestRunnerLines pins the stamp line and result line for a host run with an
-// explicit fallback reason, a default host run, and a docker result.
+// TestRunnerLines pins the stamp line and the result line of a host run
+// with a fallback reason: both end in it, on one line, without the
+// "--runner docker: " prefix.
 func TestRunnerLines(t *testing.T) {
 	r := newRig(t)
 	o := r.opts()
@@ -520,36 +521,46 @@ func TestRunnerLines(t *testing.T) {
 	}
 }
 
-// TestCheck pins Check and RunnerLabel across explicit host, passing docker
-// preflight, and failing docker preflight, verifying nothing is made on disk
-// or in docker.
+// TestCheck pins Check and RunnerLabel (ADR-504): an explicit host never
+// calls docker; auto and an explicit docker are docker when the preflight
+// passes, and make nothing on disk or in docker; when it fails, auto is the
+// host with the refusal as its reason, and an explicit docker is the
+// refusal itself, as its run would print.
 func TestCheck(t *testing.T) {
 	r, o := dockerRig(t)
 	o.AgyLinux = fakeELF(t, elfMachine[runtime.GOARCH])
+	auto := o
+	auto.Runner = RunnerAuto
 
 	host := o
 	host.Runner = RunnerHost
-	got, why := Check(host)
-	if label := RunnerLabel(got, why); got != RunnerHost || label != "runner host (--runner host)" {
-		t.Errorf("explicit host: %q %q -> %q", got, why, label)
+	got, why, err := Check(host)
+	if label := RunnerLabel(got, why); err != nil || got != RunnerHost || label != "runner host (--runner host)" {
+		t.Errorf("explicit host: %q %q %v -> %q", got, why, err, label)
 	}
 	if calls := r.read("docker.calls"); calls != "" {
 		t.Errorf("explicit host called docker: %q", calls)
 	}
 
-	got, why = Check(o)
-	if label := RunnerLabel(got, why); got != RunnerDocker || why != "" || label != "runner docker" {
-		t.Errorf("passing docker: %q %q -> %q", got, why, label)
+	for _, c := range []Options{auto, o} {
+		got, why, err = Check(c)
+		if label := RunnerLabel(got, why); err != nil || got != RunnerDocker || why != "" || label != "runner docker" {
+			t.Errorf("--runner %s, passing docker: %q %q %v -> %q", c.Runner, got, why, err, label)
+		}
 	}
 	if calls := r.read("docker.calls"); strings.Contains(calls, "network create") || strings.Contains(calls, "--name fyr-work-") {
 		t.Errorf("Check created a network or session:\n%s", calls)
 	}
 
 	r.on("docker-noimage", "")
-	got, why = Check(o)
-	want := "runner host (--image fyr-work:local: not on this machine (exit status 1: Error: No such image); build it: " + BuildLine + ")"
-	if label := RunnerLabel(got, why); got != RunnerHost || label != want {
-		t.Errorf("missing image:\ngot:  %q\nwant: %q", label, want)
+	refusal := "--image fyr-work:local: not on this machine (exit status 1: Error: No such image); build it: " + BuildLine
+	got, why, err = Check(auto)
+	if label := RunnerLabel(got, why); err != nil || got != RunnerHost || label != "runner host ("+refusal+")" {
+		t.Errorf("auto, missing image:\ngot:  %q %v\nwant: %q", label, err, "runner host ("+refusal+")")
+	}
+	got, why, err = Check(o)
+	if err == nil || strings.Join(strings.Fields(err.Error()), " ") != refusal || got != "" || why != "" {
+		t.Errorf("explicit docker, missing image: %q %q %v, want the refusal %q", got, why, err, refusal)
 	}
 	if _, err := os.Lstat(sandbox.Root(o.Home, "work")); !os.IsNotExist(err) {
 		t.Errorf("Check made the sandbox root: %v", err)

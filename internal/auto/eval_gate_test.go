@@ -3,6 +3,7 @@ package auto
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,11 +110,16 @@ func getGlobalProposal(t *testing.T, home, id string) brain.Record {
 	return recs[0]
 }
 
+// gateOpts stubs the docker preflight, as driftOpts does, so the runner's
+// reason is short and fixed; TestSweepLineKeepsVerdict reads the real one,
+// whose refusal of a development build carries the image's build line and
+// reaches the sweep line's lineLimit cut (BUG-506).
 func gateOpts(home, realHome, root string, out *bytes.Buffer) Options {
 	o := runOpts(home, out)
 	o.RealHome = realHome
 	o.Repo = root
 	o.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
+	o.DockerPreflight = func(work.Options) error { return errors.New("no docker") }
 	return o
 }
 

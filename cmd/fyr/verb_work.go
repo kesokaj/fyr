@@ -30,10 +30,10 @@ func init() {
 		c.fs.IntVar(&c.workCPU, "cpu", work.DefaultCPUs, "sandbox CPU limit in `N` cores, 1 to 16 (default 2)")
 		c.fs.IntVar(&c.workDisk, "disk", work.DefaultDiskGB, "sandbox disk limit in `GB`, 2 to 100 (default 10)")
 		c.fs.StringVar(&c.workKill, "kill", "", "end the running fyr work whose stamp line printed `STAMP`")
-		c.fs.StringVar(&c.workRunner, "runner", work.RunnerHost, "where each worker's session runs: `R` is host or docker")
-		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "--runner docker's image `REF`, built by SPEC-fyr-work's build line")
-		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "--runner docker's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
-		c.fs.BoolVar(&c.check, "check", false, "check the runner (docker preflight unless --runner host), print why, and exit 0")
+		c.fs.StringVar(&c.workRunner, "runner", work.RunnerAuto, "where each worker's session runs: `R` is auto, the default (docker when its preflight passes, else the host, saying why), host, or docker (refused when its preflight fails)")
+		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "the docker runner's image `REF`, built by SPEC-fyr-work's build line")
+		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
+		c.fs.BoolVar(&c.check, "check", false, "print the runner the docker preflight picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built, so a missing or stale default image reads as host or a refusal, though a run may build it")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
@@ -55,12 +55,13 @@ func runWork(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case len(files) == 0:
+	if len(files) == 0 {
 		return usageErr(c.out, "work", "")
-	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
-		return c.workRefuse("--image and --agy-linux need --runner docker")
-	case c.workTimeout <= 0:
+	}
+	if err := c.workRunnerFlags(imageSet); err != nil {
+		return err
+	}
+	if c.workTimeout <= 0 {
 		return c.workRefuse("--timeout %s: give whole minutes, at least 10m", c.workTimeout)
 	}
 	wd, err := os.Getwd()
@@ -109,25 +110,35 @@ func (c *ctx) workRun(o work.Options, files []string) error {
 	return nil
 }
 
-// workCheckRun is --check: runs work.DockerPreflight (unless --runner host is
-// given), prints work: runner docker or work: runner host (<reason>), and
-// exits 0 without making a sandbox, network or slot.
+// workRunnerFlags is the runner refusals a run and --check share: --runner
+// is auto, host or docker, and --image and --agy-linux, the docker runner's,
+// are refused with --runner host, which never uses them; --runner auto may
+// use them, so it takes them (ADR-504).
+func (c *ctx) workRunnerFlags(imageSet bool) error {
+	if err := work.CheckRunner(c.workRunner); err != nil {
+		return c.workRefuse("%v", err)
+	}
+	if c.workRunner == work.RunnerHost && (c.workAgyLinux != "" || imageSet) {
+		return c.workRefuse("--image and --agy-linux need --runner %s or %s", work.RunnerAuto, work.RunnerDocker)
+	}
+	return nil
+}
+
+// workCheckRun is --check: work.Check with the flags a run would pass. It
+// prints work: runner docker or work: runner host (<reason>), the docker
+// preflight's pick, and exits 0, building no image and making no sandbox,
+// network or slot, so a missing or stale default image a run may build reads
+// as host; --runner docker never falls back: its refusal, and exit 2.
 func (c *ctx) workCheckRun(files []string) error {
 	_, _, _, _, imageSet, err := c.workResourceFlags()
 	if err != nil {
 		return err
 	}
-	var runnerSet bool
-	c.fs.Visit(func(f *flag.Flag) {
-		runnerSet = runnerSet || f.Name == "runner"
-	})
-	switch {
-	case len(files) > 0:
+	if len(files) > 0 {
 		return c.workRefuse("--check takes no Kickoff file")
-	case c.workRunner != work.RunnerHost && c.workRunner != work.RunnerDocker:
-		return c.workRefuse("--runner %q: give %s or %s", c.workRunner, work.RunnerHost, work.RunnerDocker)
-	case c.workRunner != work.RunnerDocker && (c.workAgyLinux != "" || imageSet):
-		return c.workRefuse("--image and --agy-linux need --runner docker")
+	}
+	if err := c.workRunnerFlags(imageSet); err != nil {
+		return err
 	}
 	if _, err := work.LoadConfig(c.home); err != nil {
 		return c.workRefuse("%v", err)
@@ -140,15 +151,14 @@ func (c *ctx) workCheckRun(files []string) error {
 	if wd, err := os.Getwd(); err == nil {
 		_, root, _ = trail.Roots(wd)
 	}
-	runner := ""
-	if runnerSet {
-		runner = c.workRunner
-	}
 	src, _ := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
-	got, reason := work.Check(work.Options{
-		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: runner,
+	got, reason, err := work.Check(work.Options{
+		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: c.workRunner,
 		Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion(),
 	})
+	if err != nil {
+		return c.workRefuse("%v", err)
+	}
 	fmt.Fprintln(c.out, search.Printable("work: "+work.RunnerLabel(got, reason)))
 	return nil
 }

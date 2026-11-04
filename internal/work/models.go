@@ -22,7 +22,7 @@ const maxModelsOut = 64 << 10
 
 var errModelsOver = fmt.Errorf("its output is over %d KiB", maxModelsOut>>10)
 
-// checkModels is refusal 21, the last: when the run names a model, in a
+// checkModels is refusal 21: when the run names a model, in a
 // Kickoff's Model: line or --model, every one must be an ID the host's agy
 // models lists. A failed call or an empty list refuses too: fail closed
 // (D103 item 3). A run naming none makes no call.

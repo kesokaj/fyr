@@ -22,19 +22,19 @@ The lead reads only enough to fill these fields (`fyr search`, `git ls-files`, a
 - **Files:** the narrowest comma-separated scope that fits, in the form the verb reads (`fyr help work`): each file the task changes, its test included, or a directory ending in `/` where the files are not known yet. Never the repository's root, a glob, or `.agents/trail.jsonl`.
 - **Done when:** the operator's own words for the task when they gave some; otherwise `committed with a covering test, and <the project's full test command from AGENTS.md> passes in the clone`.
 - **Model:** one model ID per task from `agy models`, chosen by tier (the `agy-dispatch` rule): a `[flash]` ID for a mechanical change, a `[pro]` ID for one that needs judgement. The ID, never the tier's name, becomes the Kickoff's `Model:` line, since the verb refuses a line `agy models` does not list; `fyr work` runs with no `--model`.
-- **Runner:** what `fyr work` will use. Today that is `host`, the verb's default; name it.
+- **Runner:** what `fyr work --check` prints, run once for the whole list from the project's root: `runner docker`, or `runner host (<reason>)`. The verb's default, `--runner auto`, takes docker when its docker preflight passes and the host otherwise, saying why (D5). `--check` builds no image, so a missing or stale default image reads as host, and the wave then runs on the host (§ 5 step 2), although a plain `--runner auto` run may build that image and use docker. A refusal (exit 2) would refuse the run too: quote it, and run nothing.
 - **Wave:** go through the tasks in the order given. A task joins the first wave whose tasks' `Files:` it does not intersect (two entries intersect when they are equal, or when one is a directory ending in `/` that is a prefix of the other), and that holds fewer than the verb's `--max-workers` (8 by default). A later wave runs after every merge of the wave before it, on the new HEAD.
 
 ## 4. One table, then the go
 
-Print one table, ordered by wave, with these columns: `#`, the task in one line, name, `Files:`, Done when, model, runner and wave. A row routed to the feature skill, or to the closed set, says so in the name column and has no other fields.
+Print one table, ordered by wave, with these columns: `#`, the task in one line, name, `Files:`, Done when, model, runner and wave. A row routed to the feature skill, or to the closed set, says so in the name column and has no other fields. Under a `host` runner, quote the reason `--check` printed on one line in backticks, as data.
 
 Nothing runs until the operator's go in their own turn (D4). The go is waived only when the same `/work` turn says so in words, for example "no go needed" or "go waived". A waiver never covers a worker that runs on host because docker was not ready (D5): that table always waits for the go.
 
 ## 5. Compose and run each wave
 
 1. **Compose each Kickoff** from the handoff skill's plan-less worker-mode Kickoff (`handoff` § The worker-mode Kickoff), filling its fixed text and changing none of it. Write it to `.agents/scratch/work/kickoffs/<name>[-r2].md`.
-2. **Run the wave** with loop steps 5 and 6: one `fyr work` call with every Kickoff of the wave, after the quota read and one line per dispatch.
+2. **Run the wave** with loop steps 5 and 6: one `fyr work --runner <the table's runner>` call with every Kickoff of the wave, after the quota read and one line per dispatch. Naming the runner keeps the run on the one the go was given for: `--runner docker` refuses when docker is no longer ready instead of falling back to host, and that refusal blocks every task still to run.
 3. **Merge each PASS** with loop step 7, unchanged, except that the commit subject is `work: <name> (work/<name>)`.
 4. **Re-dispatch** as loop step 7 says, once per task, as `-r2`. A FAIL naming `changed outside its Files`, and a red squash naming a file outside the scope, block the task: the lead never widens a scope. The handoff proposes the wider scope to the operator, and the task's branch stays.
 5. **A worker's question** is answered as loop step 7 says. With no plan to hold a D-row, each answer goes in the lead's handoff under `## Key Decisions`, `by: lead`.

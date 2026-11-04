@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fake-work.sh <kickoff-file>...: stands in for `fyr work` in the eval's
+# fake-work.sh [--check] [--runner R] <kickoff-file>...: stands in for `fyr work` in the eval's
 # work-start, work-refuse and task rows (GUIDE-eval.md, scenarios `work-plan`
 # and `tasks`), so a row tests the /work lead without starting real workers
 # inside a trial. fixture.sh copies it to .agents/scratch/eval/ in the demo. It refuses what the real verb
@@ -10,7 +10,13 @@
 # makes each worker's branch with a canned change chosen by the task's words,
 # fails a branch that changed a path outside its Files:, writes the worker's
 # handoff and change records where the real verb writes them, and prints the
-# real verb's result contract (`fyr help work`).
+# real verb's result contract (`fyr help work`). Its docker is always ready:
+# --runner auto, the default, and docker run as docker, and --check prints
+# that runner and exits 0, logging no run in work-calls.log. work-runner.log
+# gets `check <runner>` for each --check and `run <runner>` for each run it
+# accepts, <runner> as given (auto with no flag), so a task row can check
+# that the lead ran --check once, before the first wave, and named the
+# runner it printed on each wave (tasks.md § 3 Runner, § 5 step 2).
 set -uo pipefail
 
 refuse() { echo "work: $*"; exit 2; }
@@ -20,6 +26,29 @@ covers() { [ "$1" = "$2" ] || { [ "${1%/}" != "$1" ] && [ "${2#"$1"}" != "$2" ];
 
 # entries prints a Kickoff's Files: entries, one per line.
 entries() { sed -n 's/^Files://p' "$1" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$'; }
+
+# The flags come first, as Go's flag package reads them (tasks.md § 3, § 5).
+runner=auto check=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) check=1; shift ;;
+    --runner) [ $# -ge 2 ] || refuse "flag needs an argument: -runner"; runner=$2; shift 2 ;;
+    --runner=*) runner=${1#--runner=}; shift ;;
+    *) break ;;
+  esac
+done
+case "$runner" in
+  auto | docker) label="runner docker" ;;
+  host) label="runner host (--runner host)" ;;
+  *) refuse "--runner \"$runner\": give auto, host or docker" ;;
+esac
+mkdir -p .agents/scratch/eval
+if [ -n "$check" ]; then
+  [ $# -eq 0 ] || refuse "--check takes no Kickoff file"
+  echo "check $runner" >>.agents/scratch/eval/work-runner.log
+  echo "work: $label"
+  exit 0
+fi
 
 [ $# -gt 0 ] || refuse "give at least one Kickoff file"
 [ -z "$(git status --porcelain)" ] || refuse "the checkout has uncommitted changes; commit them first"
@@ -52,10 +81,10 @@ cur=$(git symbolic-ref --short HEAD)
 base=$(git rev-parse HEAD)
 names=()
 for k in "$@"; do names+=("$(basename "$k" .md)"); done
-mkdir -p .agents/scratch/eval
 echo "call head=$base kickoffs=${names[*]}" >>.agents/scratch/eval/work-calls.log
+echo "run $runner" >>.agents/scratch/eval/work-runner.log
 stamp=$(date +%Y-%m-%d-%H%M%S)-$$
-echo "work: stamp $stamp  $# workers  $PWD/.agents/scratch/work/$stamp/  runner host (--runner host)"
+echo "work: stamp $stamp  $# workers  $PWD/.agents/scratch/work/$stamp/  $label"
 
 # canned applies the change the task's words ask for and prints what it did.
 canned() {
@@ -90,7 +119,7 @@ for k in "$@"; do
   line_tail="agy exit 0  61s  model ${model:-default}"
   if [ -z "$did" ]; then
     git checkout -q "$cur"
-    echo "work: $n  FAIL (no commits)  $line_tail  work/$n not fetched  runner host (--runner host)"
+    echo "work: $n  FAIL (no commits)  $line_tail  work/$n not fetched  $label"
     fails=1
     continue
   fi
@@ -106,7 +135,7 @@ for k in "$@"; do
   git checkout -q "$cur"
   branch="work/$n ${base:0:7}..${tip:0:7} (1 commits)"
   if [ -n "$outside" ]; then
-    echo "work: $n  FAIL (changed outside its Files: $outside)  $line_tail  $branch  runner host (--runner host)"
+    echo "work: $n  FAIL (changed outside its Files: $outside)  $line_tail  $branch  $label"
     fails=1
     continue
   fi
@@ -118,7 +147,7 @@ for k in "$@"; do
   printf '# Handoff: %s\n\n## Completed\n\n- %s, committed on work/%s; go test ./... passes.\n\n## Next Steps\n\n- None.\n' "$n" "$did" "$n" >"$rel$hid.md"
   printf 'Change %s: %s\n' "$n" "$did" >"$rel$cid.title"
   printf '# Change: %s\n\n%s.\n' "$n" "$did" >"$rel$cid.md"
-  echo "work: $n  PASS  $line_tail  $branch  runner host (--runner host)"
+  echo "work: $n  PASS  $line_tail  $branch  $label"
   echo "work: $n: handoff $hid"
   echo "work: $n | ## Completed"
   echo "work: $n | - $did, committed on work/$n; go test ./... passes."

@@ -37,17 +37,23 @@ func taskOutcomes() map[string][]outcome {
 	}
 	land := func(n string) string { return merge(n) + drop(n) + store(n) }
 	planLand := func(phase, n string) string { return planMerge(phase, n) + drop(n) + store(n) }
+	// A task list runs as tasks.md § 3 and § 5 run it: one --check for the
+	// table's runner, which logs no run, then each wave with it named.
+	check := "bash .agents/scratch/eval/fake-work.sh --check >>\"$OUT2\"\n"
+	wave := func(names ...string) string {
+		return strings.Replace(run(names...), "fake-work.sh", "fake-work.sh --runner docker", 1)
+	}
 
 	tab := kick("greet-tab", "internal/greet/greet_test.go", "Add a table test TestHelloTab to internal/greet for a tab-only name")
 	shout := kick("shout", "internal/shout/", "Add a package internal/shout with Shout(s string) string and its table test")
-	disjoint := tab + shout + run("greet-tab", "shout") + "\n" + land("greet-tab") + land("shout")
+	disjoint := tab + shout + check + wave("greet-tab", "shout") + "\n" + land("greet-tab") + land("shout")
 
 	bye := kick("goodbye", "internal/greet/", "Add Goodbye(name string) string to internal/greet/greet.go with a table test")
 	hi := kick("welcome", "internal/greet/", "Add Welcome(name string) string to internal/greet/greet.go with a table test")
-	waves := bye + hi + run("goodbye") + "\n" + land("goodbye") + run("welcome") + "\n" + land("welcome")
+	waves := bye + hi + check + wave("goodbye") + "\n" + land("goodbye") + wave("welcome") + "\n" + land("welcome")
 
 	routed := "echo 'Persist every greeting is a design question (SQLite or Postgres): routed to the feature skill, Kickoff /feature Persist every greeting' >\"$OUT\"\n"
-	design := tab + run("greet-tab") + "\n" + land("greet-tab") + routed
+	design := tab + check + wave("greet-tab") + "\n" + land("greet-tab") + routed
 	persist := kick("persist", "internal/store/", "Persist every greeting, choosing between SQLite and Postgres")
 
 	p1 := planKick("greetings-p1", "Phase 1", "internal/greet/greet_test.go", "go test ./... passes with TestHelloTab in internal/greet")
@@ -67,8 +73,11 @@ func taskOutcomes() map[string][]outcome {
 	}
 	return map[string][]outcome{
 		"work-tasks": {
-			{"one wave, both merged and stored", true, disjoint},
-			{"run in two waves", false, tab + shout + run("greet-tab") + "\n" + land("greet-tab") + run("shout") + "\n" + land("shout")},
+			{"one --check, then one wave on its runner, both merged and stored", true, disjoint},
+			{"run in two waves", false, tab + shout + check + wave("greet-tab") + "\n" + land("greet-tab") + wave("shout") + "\n" + land("shout")},
+			{"no --check before the wave", false, strings.Replace(disjoint, check, "", 1)},
+			{"--check after the wave", false, tab + shout + wave("greet-tab", "shout") + "\n" + check + land("greet-tab") + land("shout")},
+			{"the wave without --runner", false, strings.Replace(disjoint, "fake-work.sh --runner docker", "fake-work.sh", 1)},
 			{"a Kickoff names a plan", false, strings.Replace(disjoint, "for a tab-only name", "for PLAN-2026-11-02-greet-tab", 1)},
 			{"a Kickoff without its Never line", false, strings.Replace(disjoint, "\\nNever: push", "\\nNever: tick", 1)},
 			{"wrong commit subject", false, strings.Replace(disjoint, "'work: shout (work/shout)'", "'add shout'", 1)},
@@ -79,17 +88,21 @@ func taskOutcomes() map[string][]outcome {
 		},
 		"work-tasks-waves": {
 			{"two waves, the second on the first's merge", true, waves},
-			{"one wave, refused", false, bye + hi + run("goodbye", "welcome") + " || true\n"},
-			{"second wave never run", false, bye + hi + run("goodbye") + "\n" + land("goodbye")},
+			{"one wave, refused", false, bye + hi + check + wave("goodbye", "welcome") + " || true\n"},
+			{"second wave never run", false, bye + hi + check + wave("goodbye") + "\n" + land("goodbye")},
+			{"--check before each wave", false, strings.Replace(waves, wave("welcome"), check+wave("welcome"), 1)},
+			{"the second wave without --runner", false, strings.Replace(waves, wave("welcome"), run("welcome"), 1)},
 			{"second worker's records not stored", false, strings.Replace(waves, store("welcome"), "", 1)},
 			{"second branch kept", false, strings.Replace(waves, drop("welcome"), "", 1)},
 			{"a tier as the Model: line", false, tier(waves)},
 		},
 		"work-tasks-design": {
 			{"design task routed, the other merged", true, design},
-			{"design task dispatched", false, tab + persist + run("greet-tab", "persist") + " || true\n" + land("greet-tab") + routed},
+			{"design task dispatched", false, tab + persist + check + wave("greet-tab", "persist") + " || true\n" + land("greet-tab") + routed},
 			{"a plan stored", false, design + "rec plan --title 'Persist greetings' <<<'# PLAN'\n"},
-			{"not routed to the feature skill", false, tab + run("greet-tab") + "\n" + land("greet-tab")},
+			{"not routed to the feature skill", false, tab + check + wave("greet-tab") + "\n" + land("greet-tab")},
+			{"no --check before the wave", false, strings.Replace(design, check, "", 1)},
+			{"the wave without --runner", false, strings.Replace(design, "fake-work.sh --runner docker", "fake-work.sh", 1)},
 			{"nothing merged", false, routed},
 			{"left dirty", false, design + "echo x >>README.md\n"},
 			{"a tier as the Model: line", false, tier(design)},

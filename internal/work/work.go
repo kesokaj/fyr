@@ -44,13 +44,13 @@ type Options struct {
 	Out          io.Writer
 	Now          func() time.Time
 	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is the sandbox's 5s
-	Runner       string        // RunnerHost ("" too) or RunnerDocker
+	Runner       string        // RunnerAuto, RunnerHost ("" too) or RunnerDocker; Run makes RunnerAuto one of the others (ChooseRunner)
 	RunnerReason string        // why RunnerHost was chosen; "" is "--runner host"
-	Image        string        // --runner docker's image ref; "" is DefaultImage
-	AgyLinux     string        // --runner docker's linux agy; "" is the host's own on linux
+	Image        string        // the docker runner's image ref; "" is DefaultImage
+	AgyLinux     string        // the docker runner's linux agy; "" is the host's own on linux
 	Version      string        // this fyr's build version, which the image must hold
 	Auto         bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
-	autoBuild    bool          // true on Run so missing/outdated DefaultImage is auto-built; false on read-only Check/DockerPreflight
+	autoBuild    bool          // true on Run, whose probe may build a missing/outdated DefaultImage; false on read-only Check/DockerPreflight
 }
 
 // DefaultTimeout is --timeout's default (D45).
@@ -97,7 +97,7 @@ type Result struct {
 	DraftsDir     string   // repo-relative, ending in /
 	Records       int      // handoff and change records written to RecordsDir
 	RecordsDir    string   // repo-relative, ending in /: <ID>.title and <ID>.md each
-	Runner        string   // RunnerHost ("" too) or RunnerDocker
+	Runner        string   // RunnerHost ("" too) or RunnerDocker; never RunnerAuto, which Run resolved
 	RunnerReason  string   // why RunnerHost was chosen; "" is "--runner host"
 	Notes         []string // the sandbox's notes, each a printable line
 }

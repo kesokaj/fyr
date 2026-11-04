@@ -130,17 +130,34 @@ func TestRubricAskStoresProposal(t *testing.T) {
 	}
 }
 
+// TestRunnerChoice: fyr auto's runner is work.ChooseRunner's for --runner
+// auto, the one choice fyr work makes too (D5, ADR-504), whatever wo.Runner
+// held before; why is that choice in the sweep's words.
 func TestRunnerChoice(t *testing.T) {
-	var wo work.Options
-	kind, why := chooseRunner(&wo, func(work.Options) error { return nil })
-	if kind != work.RunnerDocker || wo.Runner != work.RunnerDocker || wo.RunnerReason != "" || !strings.HasPrefix(why, "docker ") {
-		t.Errorf("docker available: %q, %q, %+v", kind, why, wo)
-	}
-	kind, why = chooseRunner(&wo, func(work.Options) error {
-		return errors.New("--runner docker: docker image fyr-work:latest is missing")
-	})
-	if kind != work.RunnerHost || wo.Runner != work.RunnerHost || wo.RunnerReason != "docker image fyr-work:latest is missing" || why != "host (docker image fyr-work:latest is missing)" {
-		t.Errorf("docker unavailable: %q, %q, %+v", kind, why, wo)
+	const passed = "docker (fyr work docker preflight passed)"
+	for _, c := range []struct {
+		name, prior string
+		err         error
+		kind, why   string
+	}{
+		{"docker", "", nil, work.RunnerDocker, passed},
+		{"docker over a host option", work.RunnerHost, nil, work.RunnerDocker, passed},
+		{"missing image", work.RunnerDocker, errors.New("--runner docker: docker image fyr-work:latest is missing"), work.RunnerHost, "host (docker image fyr-work:latest is missing)"},
+		{"empty refusal", "", errors.New(" \n"), work.RunnerHost, "host (the docker preflight failed)"},
+	} {
+		pf := func(o work.Options) error {
+			if o.Runner != work.RunnerAuto {
+				t.Errorf("%s: the preflight saw --runner %q", c.name, o.Runner)
+			}
+			return c.err
+		}
+		wo := work.Options{Runner: c.prior}
+		kind, why := chooseRunner(&wo, pf)
+		ref := work.Options{Runner: work.RunnerAuto}
+		refKind, refReason := work.ChooseRunner(&ref, pf)
+		if kind != c.kind || why != c.why || kind != refKind || wo.Runner != ref.Runner || wo.RunnerReason != refReason {
+			t.Errorf("%s: auto %q %q %+v, work.ChooseRunner %q %q", c.name, kind, why, wo, refKind, refReason)
+		}
 	}
 }
 

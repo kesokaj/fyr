@@ -315,7 +315,7 @@ func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runner
 
 func (r *run) rejectEvalGate(root string, t Task, k Kickoff, runnerWhy string, scores []gateRowScore, sessions int, reason string, gateFindings []Finding) (string, []Finding) {
 	propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, reason)
-	msg := fmt.Sprintf("runner %s; eval-gate not kept (%s); proposal %s; branch %s kept", runnerWhy, oneLine(reason), propID, k.Branch)
+	msg := withRunner(fmt.Sprintf("eval-gate not kept (%s); proposal %s; branch %s kept", oneLine(reason), propID, k.Branch), runnerWhy)
 	gateFindings = append(gateFindings, Finding{"eval-gate", "not-kept", k.Branch, msg})
 	return msg, gateFindings
 }

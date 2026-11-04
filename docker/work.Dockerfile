@@ -1,4 +1,4 @@
-# The image `fyr work --runner docker` runs each worker's agy session in
+# The image `fyr work`'s docker runner runs each worker's agy session in
 # (SPEC-fyr-work § The worker image). It carries a linux fyr and the
 # machine's Go toolchain, and no agy: the verb mounts a linux agy read-only.
 # Build it from the checkout with this line, also in SPEC-fyr-work and

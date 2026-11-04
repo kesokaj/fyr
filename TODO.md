@@ -7,20 +7,23 @@
 
 ## Now
 
-No phase active: item 12 of `PLAN-2026-11-02-1806-fyr-speed` is done (embedded `docker/work.Dockerfile` and `.dockerignore` in `embed.go` with auto-build when the local Docker daemon is running, macOS Keychain OAuth token sync to `~/.config/fyr/work/antigravity-oauth-token` without a second login, Colima `--vz-rosetta` `x86_64` and `arm64` `agy-linux` support, project-scoped sandboxes under `~/.config/fyr/{sandbox,eval}/<project>`, and `fyr work config` for `workers=8`, `ram=8g`, `cpu=2` and `disk=10g`, `ADR-503`); the next session starts the first item of Next from the newest handoff's Kickoff.
+No phase active: item 14 of `PLAN-2026-11-02-1806-fyr-speed` is done (`fyr work --runner auto` is the default: docker when its preflight passes, else host with the reason on the stamp line; one `work.ChooseRunner` shared with `fyr auto`; `fyr work --check --runner docker` exits 2 on a refusal, `ADR-504`); the next session does the F1 fix (Backlog, 2026-11-04, the operator's pick at the item 14 review cap) from the newest handoff's Kickoff, then the first item of Next.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
 
 ## Next
 
-- Item 14 — `--runner auto` as the default for `fyr work` (`docker` primary when preflight passes, else `host (<reason>)` secondary).
 - Item 17 — reviewer pre-flight: list open bugs first, skip per-file `--refs` searches when empty.
 - Item 18 — no explorer on an empty repo: skip explorer dispatch on an empty scaffolded repo.
+- Item 13 — Node in the worker image (its docker worker run needs an installed, versioned `fyr` and a linux `agy` at `~/.config/fyr/work/agy-linux`).
 
 ## Backlog
 
+- 2026-11-04 (item 14 review, finding F1, `left: operator` at the cap, `REVIEW-2026-11-04-1753-review-worktree-merged`): `fyr work --check` builds no image, so a missing or stale default image reads as host although a run may build it, and a task-list `/work` runs each wave with the table's runner (`skills/work/references/tasks.md:37`), so it never reaches the auto-build; the operator picked fix (a) as its own task, the next one: `Check` predicts docker when the only obstacle is a buildable default image, with ADR-504a.
+- 2026-11-04 (BUG-506 residual): a long `FAIL (<err>)` detail or eval-gate reason still comes before `branch <b> kept` on `fyr auto`'s 500-rune sweep line (`short`, `internal/auto/run.go:208`), so it can push the branch off the line.
+- 2026-11-04 (item 14): the plan's measure, the same two-task run on both runners, not run (no linux `agy` at `~/.config/fyr/work/agy-linux`, and a development build always resolves to host); folded into Item 42.
 - 2026-11-03 (item 10, BUG-504): `fyr eval`'s real-home watch fingerprints the whole `brain.db`, so another agy session's write fails every trial; compare per scope or per record instead (design question).
-- 2026-11-03 (item 10): re-run `fyr eval work-tasks work-tasks-waves work-tasks-design --runs 3` while no other agy session works (1 of 9 by the verb, 9 of 9 on re-check, BUG-504).
+- 2026-11-03 (item 10): re-run `fyr eval work-tasks work-tasks-waves work-tasks-design --runs 3` while no other agy session works (1 of 9 by the verb, 9 of 9 on re-check, BUG-504); item 14 changed all three rows' prompts and checks (2026-11-04: the runner log), so the re-run also covers that change before a release.
 - 2026-11-03 (item 10): the docker run of a task list, after item 12 builds `fyr-work:local` and the token on this Mac.
 - 2026-11-03 (fyr check, REVIEW-2026-11-03-1143): pre-existing findings at `.agents/eval/GUIDE-eval.md:15`, `:24` (fixture paths) and `PRD.md:95` (R10).
 

@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
@@ -159,16 +158,21 @@ func (r *workRig) sandboxes() []string {
 }
 
 // TestWorkVerbPass: one Kickoff, one good worker, exit 0, the branch
-// fetched into the checkout and the result contract printed.
+// fetched into the checkout and the result contract printed. The default
+// --runner auto of a test binary, a development build, is the host with
+// that reason, and docker is never asked (ADR-504).
 func TestWorkVerbPass(t *testing.T) {
 	r := newWorkRig(t)
 	out, code := r.work(r.kickoff("fix-a"))
 	lines := strings.Split(out, "\n")
+	devel := "  runner host (this fyr is a development build ((devel)); run fyr install, then build the image from the installed fyr: " + work.BuildLine + ")"
 	if code != 0 || !strings.HasPrefix(out, "work: stamp ") || !strings.Contains(out, "\nwork: fix-a  PASS  agy exit 0  ") ||
 		!strings.Contains(out, "work: fix-a: handoff HANDOFF-2026-10-29-1800-fix-a") ||
-		!strings.HasSuffix(lines[0], "  runner host (--runner host)") ||
-		!strings.HasSuffix(lines[1], "  runner host (--runner host)") {
+		!strings.HasSuffix(lines[0], devel) || !strings.HasSuffix(lines[1], devel) {
 		t.Fatalf("exit %d, want 0 with the stamp, the PASS line, the runner and the handoff:\n%s", code, out)
+	}
+	if calls, _ := os.ReadFile(filepath.Join(r.ctl, "docker.calls")); len(calls) > 0 {
+		t.Errorf("a development build's auto run asked docker: %q", calls)
 	}
 	if got := r.git("log", "-1", "--format=%s", "work/fix-a"); got != "records" {
 		t.Errorf("work/fix-a in the checkout ends at %q", got)
@@ -187,7 +191,9 @@ func TestWorkVerbFail(t *testing.T) {
 
 // TestWorkVerbRefusals: every refusal and usage error exits 2 before any
 // sandbox exists: two files sharing a path, a --max-workers outside 1 to 32,
-// --kill with a file among them, and a --runner the verb cannot run.
+// --kill with a file among them, a --runner the verb cannot run, the docker
+// runner's flags with --runner host, and an explicit --runner docker that
+// is not ready, for a run and for --check alike (ADR-504).
 func TestWorkVerbRefusals(t *testing.T) {
 	for name, tc := range map[string]struct {
 		setup func(r *workRig) []string
@@ -215,18 +221,20 @@ func TestWorkVerbRefusals(t *testing.T) {
 			writeTestFile(r.t, p, "Project: this clone.\n")
 			return []string{p}
 		}, "Files:"},
-		"unknown runner": {func(r *workRig) []string { return []string{"--runner", "podman", r.kickoff("fix-a")} }, `work: --runner "podman": give host or docker`},
+		"unknown runner": {func(r *workRig) []string { return []string{"--runner", "podman", r.kickoff("fix-a")} }, `work: --runner "podman": give auto, host or docker`},
 		// A test binary is no installed build: refused before any docker
 		// call, whether or not this machine has docker (D108).
-		"docker from a dev build":        {func(r *workRig) []string { return []string{"--runner", "docker", r.kickoff("fix-a")} }, "work: --runner docker: this fyr is a development build"},
-		"image without docker":           {func(r *workRig) []string { return []string{"--image", "x:1", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
-		"agy-linux without docker":       {func(r *workRig) []string { return []string{"--agy-linux", "/x/agy", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner docker"},
-		"check a file":                   {func(r *workRig) []string { return []string{"--check", r.kickoff("fix-a")} }, "work: --check takes no Kickoff file"},
-		"check and kill":                 {func(r *workRig) []string { return []string{"--check", "--kill", "2026-10-29-170000-42"} }, "work: --check and --kill cannot be used together"},
-		"check unknown runner":           {func(r *workRig) []string { return []string{"--check", "--runner", "podman"} }, `work: --runner "podman": give host or docker`},
-		"check host with image":          {func(r *workRig) []string { return []string{"--check", "--runner", "host", "--image", "x:1"} }, "work: --image and --agy-linux need --runner docker"},
-		"check image without docker":     {func(r *workRig) []string { return []string{"--check", "--image", "x:1"} }, "work: --image and --agy-linux need --runner docker"},
-		"check agy-linux without docker": {func(r *workRig) []string { return []string{"--check", "--agy-linux", "/x/agy"} }, "work: --image and --agy-linux need --runner docker"},
+		"docker from a dev build": {func(r *workRig) []string { return []string{"--runner", "docker", r.kickoff("fix-a")} }, "work: --runner docker: this fyr is a development build"},
+		"host with image":         {func(r *workRig) []string { return []string{"--runner", "host", "--image", "x:1", r.kickoff("fix-a")} }, "work: --image and --agy-linux need --runner auto or docker"},
+		"host with agy-linux": {func(r *workRig) []string {
+			return []string{"--runner", "host", "--agy-linux", "/x/agy", r.kickoff("fix-a")}
+		}, "work: --image and --agy-linux need --runner auto or docker"},
+		"check a file":                {func(r *workRig) []string { return []string{"--check", r.kickoff("fix-a")} }, "work: --check takes no Kickoff file"},
+		"check and kill":              {func(r *workRig) []string { return []string{"--check", "--kill", "2026-10-29-170000-42"} }, "work: --check and --kill cannot be used together"},
+		"check unknown runner":        {func(r *workRig) []string { return []string{"--check", "--runner", "podman"} }, `work: --runner "podman": give auto, host or docker`},
+		"check host with image":       {func(r *workRig) []string { return []string{"--check", "--runner", "host", "--image", "x:1"} }, "work: --image and --agy-linux need --runner auto or docker"},
+		"check host with agy-linux":   {func(r *workRig) []string { return []string{"--check", "--runner", "host", "--agy-linux", "/x/agy"} }, "work: --image and --agy-linux need --runner auto or docker"},
+		"check docker from dev build": {func(r *workRig) []string { return []string{"--check", "--runner", "docker"} }, "work: --runner docker: this fyr is a development build"},
 		"bad install source": {func(r *workRig) []string {
 			return []string{"--repo", r.kick, r.kickoff("fix-a")}
 		}, "work: "},
@@ -393,7 +401,9 @@ func TestWorkVerbDockerFlags(t *testing.T) {
 }
 
 // TestWorkVerbCheck pins `fyr work --check [flags]`: it prints the runner and
-// why, exits 0, and makes no sandbox, network or slot.
+// why, exits 0, and makes no sandbox, network or slot; an explicit --runner
+// docker that is not ready exits 2 (TestWorkVerbRefusals,
+// TestWorkVerbRunnerAutoInstalled).
 func TestWorkVerbCheck(t *testing.T) {
 	r := newWorkRig(t)
 
@@ -414,15 +424,7 @@ func TestWorkVerbCheck(t *testing.T) {
 	old := version
 	version = "vtest"
 	t.Cleanup(func() { version = old })
-
-	var elfBin [64]byte
-	copy(elfBin[:4], "\x7fELF")
-	elfBin[4], elfBin[5], elfBin[6] = byte(elf.ELFCLASS64), byte(elf.ELFDATA2LSB), byte(elf.EV_CURRENT)
-	elfBin[16], elfBin[18], elfBin[20], elfBin[52] = byte(elf.ET_EXEC), byte(elf.EM_X86_64), byte(elf.EV_CURRENT), 64
-	agyLinux := filepath.Join(t.TempDir(), "agy-linux")
-	if err := os.WriteFile(agyLinux, elfBin[:], 0o755); err != nil {
-		t.Fatal(err)
-	}
+	agyLinux := writeAgyLinux(t)
 
 	out, code = r.work("--check", "--runner", "docker", "--image", "good:1", "--agy-linux", agyLinux)
 	if want := "work: runner docker\n"; code != 0 || out != want {

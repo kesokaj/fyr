@@ -111,20 +111,20 @@ func parseAutoTests(agentsMD string) []string {
 
 func (r *run) applyFail(runnerWhy, branch, why string) (string, []Finding) {
 	r.failed = true
-	msg := fmt.Sprintf("runner %s; FAIL (%s); branch %s kept", runnerWhy, oneLine(why), branch)
+	msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", oneLine(why), branch), runnerWhy)
 	return msg, []Finding{{"worker", "failed", branch, msg}}
 }
 
 func (r *run) checkoutMovedFail(runnerWhy, class, branch string) (string, []Finding) {
 	r.failed = true
-	msg := fmt.Sprintf("runner %s; FAIL (checkout moved); branch %s kept", runnerWhy, branch)
+	msg := withRunner(fmt.Sprintf("FAIL (checkout moved); branch %s kept", branch), runnerWhy)
 	return "checkout moved; branch " + branch + " kept", []Finding{{"worker", class, branch, msg}}
 }
 
 // applyBranch runs § The apply step (steps 1–7) for an OutcomeApplied task.
 func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
 	if !r.again(root) {
-		msg := fmt.Sprintf("runner %s; stopped before apply (%s); branch %s kept", runnerWhy, r.verdict, k.Branch)
+		msg := withRunner(fmt.Sprintf("stopped before apply (%s); branch %s kept", r.verdict, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	snap, err := takeCheckoutSnapshot(root)
@@ -135,7 +135,7 @@ func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy stri
 	tests := parseAutoTests(string(agentsBytes))
 	if len(tests) == 0 {
 		id, askF := r.fileNoTestAsk(root, t, k.Branch)
-		msg := fmt.Sprintf("runner %s; PASS (no # auto: test line; proposal %s); branch %s kept", runnerWhy, id, k.Branch)
+		msg := withRunner(fmt.Sprintf("PASS (no # auto: test line; proposal %s); branch %s kept", id, k.Branch), runnerWhy)
 		return msg, []Finding{askF, {"worker", t.Class, k.Branch, msg}}
 	}
 	if err := verifyBranchForApply(root, snap.head, k.Branch, t.Class); err != nil {
@@ -176,7 +176,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 		return r.applyFail(runnerWhy, k.Branch, err.Error())
 	}
 	if !r.again(root) {
-		msg := fmt.Sprintf("runner %s; stopped before apply (%s); branch %s kept", runnerWhy, r.verdict, k.Branch)
+		msg := withRunner(fmt.Sprintf("stopped before apply (%s); branch %s kept", r.verdict, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	if !checkoutUnchanged(root, snap) {
@@ -189,7 +189,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 	if err := deleteBranch(root, k.Branch); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, "branch delete: "+err.Error())
 	}
-	msg := fmt.Sprintf("runner %s; PASS; applied %s (revert: git revert %s), branch %s deleted", runnerWhy, r.appliedSHA, r.appliedSHA, k.Branch)
+	msg := withRunner(fmt.Sprintf("PASS; applied %s (revert: git revert %s), branch %s deleted", r.appliedSHA, r.appliedSHA, k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 }
 
