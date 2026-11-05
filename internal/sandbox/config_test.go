@@ -121,7 +121,7 @@ func TestBoxSessionModel(t *testing.T) {
 			t.Fatalf("rc %d\n%s", rc, r.out.String())
 		}
 		args := strings.Split(strings.TrimSpace(r.read("agy.args.1")), "\n")
-		want := []string{"-p", "The project root is the current directory, " + b.App() + "; ignore any other checkout. hi", "--mode", "accept-edits", "--print-timeout", "20m"}
+		want := []string{"-p", "The project root is the current directory, " + b.App() + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. hi", "--mode", "accept-edits", "--print-timeout", "20m"}
 		if model != "" {
 			want = append(want, "--model", model)
 		}

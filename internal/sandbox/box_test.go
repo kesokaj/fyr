@@ -27,7 +27,7 @@ func TestBoxSession(t *testing.T) {
 		t.Fatalf("second rc %d", rc)
 	}
 	args := strings.Split(strings.TrimSpace(r.read("agy.args.1")), "\n")
-	want := []string{"-p", "The project root is the current directory, " + b.App() + "; ignore any other checkout. hello", "--mode", "accept-edits", "--print-timeout", "20m"}
+	want := []string{"-p", "The project root is the current directory, " + b.App() + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. hello", "--mode", "accept-edits", "--print-timeout", "20m"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("agy args %q, want %q", args, want)
 	}

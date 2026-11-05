@@ -46,7 +46,7 @@ func TestFilesMatchTree(t *testing.T) {
 
 // TestEmbedHoldsOnlyTrackedFiles: `go:embed` reads the WORKING TREE, and
 // `all:` takes dotfiles, so an untracked or gitignored file sitting in one of
-// the five directories at build time is compiled into the released binary and
+// the six embedded directories at build time is compiled into the released binary and
 // installed on every machine — a file review never saw, and one no loader
 // reads, so nothing else would notice it (security review 2026-09-17,
 // finding 1). The embedded set must therefore equal what git tracks, in both
@@ -70,7 +70,7 @@ func TestEmbedHoldsOnlyTrackedFiles(t *testing.T) {
 		}
 	}
 	if len(tracked) == 0 {
-		t.Fatal("git tracks no files under the five directories; the test ran in the wrong directory")
+		t.Fatal("git tracks no files under the six embedded directories; the test ran in the wrong directory")
 	}
 	for _, root := range roots {
 		err := fs.WalkDir(Files, root, func(path string, d fs.DirEntry, err error) error {

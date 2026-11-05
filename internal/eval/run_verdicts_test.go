@@ -53,7 +53,7 @@ func TestRunPass(t *testing.T) {
 		t.Errorf("the wrapper does not pin --home: %q", got)
 	}
 	args := strings.Split(strings.TrimSuffix(r.read("agy.args.1"), "\n"), "\n")
-	wantArgs := []string{"-p", "The project root is the current directory, " + app + "; ignore any other checkout. hello " + app + " at 2026-10-26-0800", "--mode", "accept-edits", "--print-timeout", "20m"}
+	wantArgs := []string{"-p", "The project root is the current directory, " + app + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. hello " + app + " at 2026-10-26-0800", "--mode", "accept-edits", "--print-timeout", "20m"}
 	if strings.Join(args, "\x00") != strings.Join(wantArgs, "\x00") {
 		t.Errorf("agy argv:\n got %q\nwant %q", args, wantArgs)
 	}

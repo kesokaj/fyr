@@ -82,9 +82,9 @@ func TestDeliverySpecCurrent(t *testing.T) {
 		}
 	}
 	// The version to name is the newest of git's tags and the release change
-	// records: the release commit stores its change record and updates this
-	// paragraph before it is tagged (DEPLOY-remote § Releases), so on that
-	// commit the record is ahead of the tag.
+	// records: before the tag is cut, the release's change record and the
+	// updated SPEC-fyr-delivery are stored in the brain store (DEPLOY-remote §
+	// Releases, ADR-091), so at that point the record is ahead of the tag.
 	// Without tags (a tree with no history) the old release records the
 	// migration kept are not the whole history, so nothing can be checked.
 	out, err := exec.Command("git", "-C", filepath.Join("..", ".."), "tag", "--list", "v*").Output()
@@ -106,7 +106,7 @@ func TestDeliverySpecCurrent(t *testing.T) {
 	}
 	tag := newest
 	if !strings.Contains(para, "newest tag "+tag+",") {
-		t.Errorf("SPEC-fyr-delivery § Where things stand does not say \"newest tag %s\"; the release commit updates it (deploy/remote.md § Releases)", tag)
+		t.Errorf("SPEC-fyr-delivery § Where things stand does not say \"newest tag %s\"; preflight updates it before tagging (DEPLOY-remote § Releases)", tag)
 	}
 }
 
@@ -140,7 +140,7 @@ func newestVersion(tags []string, trail []byte) (string, bool) {
 	return fmt.Sprintf("v%d.%d.%d", newest[0], newest[1], newest[2]), found
 }
 
-// On a release commit the release record is ahead of the tags, and the
+// Before the tag is cut the release record is ahead of the tags, and the
 // paragraph must name it (DEPLOY-remote § Releases runs the test before the tag).
 func TestNewestVersion(t *testing.T) {
 	trail := []byte(`{"date":"2026-10-25","id":"CHANGE-2026-10-25-1200-release-v3-0-0","kind":"change"}` + "\n" + `{"id":"CHANGE-2026-09-18-release-v1.2.3"}`)

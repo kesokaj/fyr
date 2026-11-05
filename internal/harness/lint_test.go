@@ -26,8 +26,14 @@ func TestAgentDescriptionRules(t *testing.T) {
 	if _, err := loadAgents(DirSource(newRepo(t))); err != nil {
 		t.Errorf("the fixture's agents: %v", err)
 	}
-	if _, err := loadAgents(DirSource(filepath.Join("..", ".."))); err != nil {
-		t.Errorf("the checkout's agents: %v", err)
+	agents, err := loadAgents(DirSource(filepath.Join("..", "..")))
+	if err != nil {
+		t.Fatalf("the checkout's agents: %v", err)
+	}
+	for _, a := range agents {
+		if a.Name == "documentation" && (!strings.Contains(a.Description, "fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md") || !strings.Contains(a.Description, "fyr record edit <ID> --body-file")) {
+			t.Errorf("documentation description does not state the record-staging contract: %q", a.Description)
+		}
 	}
 }
 
@@ -363,7 +369,7 @@ func TestPrintModeOnlyPolling(t *testing.T) {
 	}
 	for rel, needles := range map[string][]string{
 		"context/AGENTS.md":       {"End the turn to await a subagent or background command", "only a print-mode run (`agy -p`) stays in the turn"},
-		"skills/handoff/SKILL.md": {"An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes", "in print mode only"},
+		"skills/handoff/SKILL.md": {"An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes", "in print mode only", "A run knows it is in print mode only from its prompt", "never probe the process table or the environment to find out"},
 		"skills/work/SKILL.md":    {"an interactive session ends its turn and wakes when the command finishes", "only a print-mode run (`agy -p`) stays inside the turn and polls it (`manage_task`, `list`) with `sleep 30`", "While a run is going, the lead makes no commit, no edit to a tracked file and no `fyr` write."},
 	} {
 		b, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))

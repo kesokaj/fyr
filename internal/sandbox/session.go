@@ -100,7 +100,7 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 // agyArgs is agy's argv after its name, the prompt with its prefix: the
 // same on the host and in a container.
 func (b *Box) agyArgs(prompt string) []string {
-	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. " + prompt
+	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. " + prompt
 	args := []string{"-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout}
 	if b.c.Model != "" {
 		args = append(args, "--model", b.c.Model)
