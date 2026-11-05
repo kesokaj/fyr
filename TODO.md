@@ -18,6 +18,7 @@ Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the
 
 ## Backlog
 
+- 2026-11-05 (BUG-507 verification, TEST-2026-11-05-1138): `GUIDE-testing` § 3c and `TDD.md:44` name `GUIDE-fyr-matrix` as the verb × place-kind spec, and no record of that ID exists in the store, so § 3c cannot run as written (the binary × place cells live in `cmd/fyr/place_matrix_test.go`); restore the record or point § 3c at the test.
 - 2026-11-05 (BUG-507 class sweep): `fyr eval`'s suite fallback (`readRecordSuite`, `cmd/fyr/eval.go:241`) opens the real home's `brain.db` through `brain.ReadScope`, which migrates it, when a checkout has no tracked suite and `--home` names another home; ADR-505's guard keys on a missing `--home`, so it does not cover this; a read-only open or no fallback to the real home, a design question.
 - 2026-11-05 (item 17 closing report, row 5): `GUIDE-testing` § 3l names `auto-*` eval rows that the tracked suite does not hold (only dave's old `GUIDE-eval` record held them); fix after the tag, with the § 4 fixture-path row below.
 - 2026-11-05 (item 17 closing report, row 7): item 17's eval checks do not verify that `fyr record list --kind bug` runs first or that the reviewer runs one `--refs <dir>/` search per directory (a review citing `BUG-001` from the list alone passes), and no fixture changes a root file; a check could read the `--refs` lines from the trial's conversation databases, its scenario in a new file (`.agents/eval/fixture.sh` is 467 LOC).
