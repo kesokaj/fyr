@@ -7,18 +7,20 @@
 
 ## Now
 
-No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`); the next session does the first item of Next, Item 18, from the newest handoff's Kickoff.
+No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`). The operator's order of 2026-11-05: the two open real-home-guard bugs first, then the release, then the plan's remaining items as `/work` waves; the next session does the first item of Next from the newest handoff's Kickoff.
 
-Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator.
+Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator on v7.0.0 before `/preflight`, never while an eval runs (BUG-504).
 
 ## Next
 
-- Item 18 — no explorer on an empty repo: skip explorer dispatch on an empty scaffolded repo.
-- Item 13 — Node in the worker image (its docker worker run needs an installed, versioned `fyr` and a linux `agy` at `~/.config/fyr/work/agy-linux`).
-- Item 19 — cold-reader budget: bound the cold read (one took 21 min and 128K output tokens), and the budgeted reader still finds every seeded high-severity flaw.
+- BUG-507 — a development build of `fyr` (`go run`, a scratch build) refuses a state-writing verb on the real home without an explicit `--home`: the `--home` rule's 12th break becomes a mechanism; its design is asked of the operator first, with an ADR.
+- BUG-504 — `fyr eval`'s real-home watch compares per scope or per record instead of fingerprinting the whole `brain.db`, so another agy session's write no longer fails every trial; its design is asked of the operator first, with an ADR.
+- The release — the prep in `HANDOFF-2026-11-05-1011-fyr-speed-item-17-done` § Open at the post-fix HEAD (records regenerated or restored, the eval sweep, a testing record), then the operator's pilot (item 1) and `/preflight vX.Y.Z` in the operator's own turn.
 
 ## Backlog
 
+- 2026-11-05 (item 17 closing report, row 5): `GUIDE-testing` § 3l names `auto-*` eval rows that the tracked suite does not hold (only dave's old `GUIDE-eval` record held them); fix after the tag, with the § 4 fixture-path row below.
+- 2026-11-05 (item 17 closing report, row 7): item 17's eval checks do not verify that `fyr record list --kind bug` runs first or that the reviewer runs one `--refs <dir>/` search per directory (a review citing `BUG-001` from the list alone passes), and no fixture changes a root file; a check could read the `--refs` lines from the trial's conversation databases, its scenario in a new file (`.agents/eval/fixture.sh` is 467 LOC).
 - 2026-11-04 (item 17, proposal): the `security` agent's pre-flight still runs one `fyr search --refs` per changed file (`agents/security/agent.md:22`); the reviewer's item 17 change, with its own eval rows, would apply there too.
 - 2026-11-04 (item 17): `GUIDE-testing` § 4 and Item 42's verify line name `--fixture ~/.config/fyr/dev/fyr-eval-fixture`, which does not exist on this Mac; every recorded `fyr eval` run used the default fixture, this checkout.
 - 2026-11-04 (ADR-504a, pre-existing): a stale default image whose rebuild fails reads `holds fyr "vold", not this fyr's … (<nil> (auto-build failed: …))` (`internal/work/image_build.go:218`): the `<nil>` is the version read's error when the version read but differed; `--check` mirrors the run's words.
@@ -26,7 +28,6 @@ Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the
 - 2026-11-04 (ADR-504a review R2-2, residual): `fyr auto`'s marked test runs `fyr-work:local` with the caller's whole environment (`internal/auto/verbs.go:79`), so a `DOCKER_DEFAULT_PLATFORM` naming another platform than the daemon's asks for one the image, now always built for the daemon's, does not have, and the daemon refuses it (fails closed); run it with `sandbox.DockerEnv`, with a test.
 - 2026-11-04 (BUG-506 residual): a long `FAIL (<err>)` detail or eval-gate reason still comes before `branch <b> kept` on `fyr auto`'s 500-rune sweep line (`short`, `internal/auto/run.go:208`), so it can push the branch off the line.
 - 2026-11-04 (item 14): the plan's measure, the same two-task run on both runners, not run (no linux `agy` at `~/.config/fyr/work/agy-linux`, and a development build always resolves to host); folded into Item 42.
-- 2026-11-03 (item 10, BUG-504): `fyr eval`'s real-home watch fingerprints the whole `brain.db`, so another agy session's write fails every trial; compare per scope or per record instead (design question).
 - 2026-11-03 (item 10): re-run `fyr eval work-tasks work-tasks-waves work-tasks-design --runs 3` while no other agy session works (1 of 9 by the verb, 9 of 9 on re-check, BUG-504); item 14 changed all three rows' prompts and checks (2026-11-04: the runner log), so the re-run also covers that change before a release.
 - 2026-11-03 (item 10): the docker run of a task list, after item 12 builds `fyr-work:local` and the token on this Mac.
 - 2026-11-03 (fyr check, REVIEW-2026-11-03-1143): pre-existing findings at `.agents/eval/GUIDE-eval.md:15`, `:24` (fixture paths) and `PRD.md:95` (R10); a fixture path written `<clone>/…` is no path candidate (`internal/check/docs.go:143`), the form item 17's scenario rows use (2026-11-05).
