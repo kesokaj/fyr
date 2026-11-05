@@ -7,8 +7,10 @@ package main
 // 80-column terminal never wraps it; help_test.go pins that, the ten-line
 // cap on a description, and the verbs against the command table.
 
-// helpLast ends the short page and every verb page.
-const helpLast = "Every command takes --home DIR and --repo DIR."
+// helpLast ends the short page and every verb page. Its second line is the
+// real-home guard (BUG-507, ADR-505, realhome_guard.go).
+const helpLast = "Every command takes --home DIR and --repo DIR. Without --home, a build that\n" +
+	"is not ~/.local/bin/fyr runs only install, update, version, list, render, diff."
 
 // helpSynopsis is help's own, for its usage errors; `fyr help help` prints
 // the short page, so help has no verb page.

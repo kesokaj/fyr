@@ -41,7 +41,7 @@ func run(args []string, out io.Writer) error {
 		return err
 	}
 	c.warnIgnoredRepo(v)
-	if err := c.resolveHome(); err != nil {
+	if err := c.resolveGuardedHome(); err != nil {
 		return err
 	}
 	if zip, err := c.updateFromZipFlag(); zip {

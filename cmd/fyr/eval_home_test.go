@@ -41,7 +41,9 @@ func TestEvalRefusesItsHome(t *testing.T) {
 		home func(r *evalRig) []string // the --home arguments
 		want string
 	}{
-		"missing":       {func(*evalRig) []string { return nil }, "eval: --home is required"},
+		// As the installed binary: a development build stops at the
+		// real-home guard first (BUG-507, TestRealHomeGuardRefusesDevBuild).
+		"missing":       {func(r *evalRig) []string { asInstalled(r.t, r.real); return nil }, "eval: --home is required"},
 		"the real home": {func(r *evalRig) []string { return []string{"--home", r.real} }, "is the real home"},
 		"the real home, spelled with ..": {func(r *evalRig) []string {
 			return []string{"--home", filepath.Join(r.real, "..", filepath.Base(r.real)) + "/"}
@@ -174,9 +176,12 @@ func TestEvalHomeSnapshotSeesAMigration(t *testing.T) {
 	}
 }
 
-// --list needs no --home: it reads the export and writes nothing.
+// --list needs no --home: it reads the export and writes nothing. As the
+// installed binary: a development build is refused by the real-home guard
+// (BUG-507, TestRealHomeGuardRefusesReads).
 func TestEvalListNeedsNoHome(t *testing.T) {
 	r := newEvalRig(t, evalSuite, true)
+	asInstalled(t, r.real)
 	before := treeOf(t, r.real)
 	var out bytes.Buffer
 	if err := run([]string{"eval", "--repo", r.harness, "--list"}, &out); err != nil || !strings.HasPrefix(out.String(), "ok  -  named  v1  capability\n") {

@@ -7,18 +7,18 @@
 
 ## Now
 
-No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`). The operator's order of 2026-11-05: the two open real-home-guard bugs first, then the release, then the plan's remaining items as `/work` waves; the next session does the first item of Next from the newest handoff's Kickoff.
+No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`). The operator's order of 2026-11-05: the two open real-home-guard bugs first (BUG-507 graduated into ADR-505's guard, 2026-11-05), then the release, then the plan's remaining items as `/work` waves; the next session does the first item of Next from the newest handoff's Kickoff.
 
 Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator on v7.0.0 before `/preflight`, never while an eval runs (BUG-504).
 
 ## Next
 
-- BUG-507 — a development build of `fyr` (`go run`, a scratch build) refuses a state-writing verb on the real home without an explicit `--home`: the `--home` rule's 12th break becomes a mechanism; its design is asked of the operator first, with an ADR.
 - BUG-504 — `fyr eval`'s real-home watch compares per scope or per record instead of fingerprinting the whole `brain.db`, so another agy session's write no longer fails every trial; its design is asked of the operator first, with an ADR.
 - The release — the prep in `HANDOFF-2026-11-05-1011-fyr-speed-item-17-done` § Open at the post-fix HEAD (records regenerated or restored, the eval sweep, a testing record), then the operator's pilot (item 1) and `/preflight vX.Y.Z` in the operator's own turn.
 
 ## Backlog
 
+- 2026-11-05 (BUG-507 class sweep): `fyr eval`'s suite fallback (`readRecordSuite`, `cmd/fyr/eval.go:241`) opens the real home's `brain.db` through `brain.ReadScope`, which migrates it, when a checkout has no tracked suite and `--home` names another home; ADR-505's guard keys on a missing `--home`, so it does not cover this; a read-only open or no fallback to the real home, a design question.
 - 2026-11-05 (item 17 closing report, row 5): `GUIDE-testing` § 3l names `auto-*` eval rows that the tracked suite does not hold (only dave's old `GUIDE-eval` record held them); fix after the tag, with the § 4 fixture-path row below.
 - 2026-11-05 (item 17 closing report, row 7): item 17's eval checks do not verify that `fyr record list --kind bug` runs first or that the reviewer runs one `--refs <dir>/` search per directory (a review citing `BUG-001` from the list alone passes), and no fixture changes a root file; a check could read the `--refs` lines from the trial's conversation databases, its scenario in a new file (`.agents/eval/fixture.sh` is 467 LOC).
 - 2026-11-04 (item 17, proposal): the `security` agent's pre-flight still runs one `fyr search --refs` per changed file (`agents/security/agent.md:22`); the reviewer's item 17 change, with its own eval rows, would apply there too.
