@@ -7,14 +7,14 @@
 
 ## Now
 
-No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`). The operator's order of 2026-11-05: the two open real-home-guard bugs first (BUG-507 graduated into ADR-505's guard, 2026-11-05), then the release, then the plan's remaining items as `/work` waves; the next session does the first item of Next from the newest handoff's Kickoff.
+No phase active: Item 17 of `PLAN-2026-11-02-1806-fyr-speed` is done (the reviewer lists every bug first, runs no `--refs` search when none, and one per directory holding a changed file otherwise; eval rows `reviewer-wide` and `reviewer-wide-bug`), and both pre-release real-home-guard bugs are graduated (BUG-507 into ADR-505's guard, BUG-504 into ADR-506's per-scope `brain.db` watch, 2026-11-05). The next session runs the release prep from the newest handoff's Kickoff before `/preflight vX.Y.Z`.
 
-Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator on v7.0.0 before `/preflight`, never while an eval runs (BUG-504).
+Alongside it: item 1, the pilot build in `~/Workspace/booking-pilot`, run by the operator on v7.0.0 before `/preflight` (and with BUG-504 graduated, safe to run alongside `fyr eval`).
 
 ## Next
 
-- BUG-504 — `fyr eval`'s real-home watch compares per scope or per record instead of fingerprinting the whole `brain.db`, so another agy session's write no longer fails every trial; its design is asked of the operator first, with an ADR.
-- The release — the prep in `HANDOFF-2026-11-05-1011-fyr-speed-item-17-done` § Open at the post-fix HEAD (records regenerated or restored, the eval sweep, a testing record), then the operator's pilot (item 1) and `/preflight vX.Y.Z` in the operator's own turn.
+- The release — the prep in the newest handoff's Kickoff at HEAD (records regenerated or restored, the 21-row `GUIDE-eval` sweep and `auto` holdout row, a `testing` record), then `/preflight vX.Y.Z` in the operator's own turn (and item 1's pilot before `/preflight`'s real-home install).
+- `PLAN-2026-11-02-1806-fyr-speed` — the remaining items (`2`, `15`–`16`, `18`–`42`, then `8`) as `/work` waves after the release.
 
 ## Backlog
 

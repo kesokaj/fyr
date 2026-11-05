@@ -18,15 +18,16 @@ import (
 
 // Options is one invocation of eval.
 type Options struct {
-	Root     string // project checkout (suite, record scope, default fixture)
-	Home     string // fyr's home: sandboxes, stores
-	RealHome string // $HOME: the token, the fingerprint
-	Fixture  string // the repository each row clones; "" is Root
-	Self     string // os.Executable(): the fyr that installs and lists
-	Repo     string // the install source tree (D16); "" is the harness embedded in Self
-	Runs     int    // trials per row, 1 to MaxRuns; 0 is 1
-	Out      io.Writer
-	Now      func() time.Time
+	Root       string // project checkout (suite, record scope, default fixture)
+	Home       string // fyr's home: sandboxes, stores
+	RealHome   string // $HOME: the token, the fingerprint
+	Fixture    string // the repository each row clones; "" is Root
+	Self       string // os.Executable(): the fyr that installs and lists
+	Repo       string // the install source tree (D16); "" is the harness embedded in Self
+	Runs       int    // trials per row, 1 to MaxRuns; 0 is 1
+	Out        io.Writer
+	Now        func() time.Time
+	BrainWatch func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)
 }
 
 // MaxRuns is the most trials of one row an invocation runs (the

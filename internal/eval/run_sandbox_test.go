@@ -53,6 +53,46 @@ func TestRunExitChecks(t *testing.T) {
 			t.Errorf("want the changed path and no content:\n%s", r.out.String())
 		}
 	})
+	t.Run("other session store writes", func(t *testing.T) {
+		r := newRig(t)
+		state := filepath.Join(r.real, harness.StateDir)
+		put(t, filepath.Join(state, "brain.db"), "b1", 0o600)
+		put(t, filepath.Join(state, "metrics.db"), "m1", 0o600)
+		var gotScopes []string
+		o := r.opts()
+		o.BrainWatch = func(_, _ string, scopes []string) (string, bool) {
+			gotScopes = slices.Clone(scopes)
+			return "unchanged-scope-digest", true
+		}
+		row := named("m", "p", "true")
+		row.Setup = "echo b2 > '" + filepath.Join(state, "brain.db") + "' && echo m2 > '" + filepath.Join(state, "metrics.db") + "' && echo w > '" + filepath.Join(state, "brain.db-wal") + "' && echo d > '" + filepath.Join(state, "dream.log") + "'"
+		res, err := Run(context.Background(), o, []Row{row})
+		if err != nil {
+			t.Fatal(err)
+		}
+		x := one(t, res)
+		wantVerdict(t, x, "PASS")
+		wantApp := filepath.Join(x.Dir, "app")
+		if len(gotScopes) != 1 || gotScopes[0] != wantApp {
+			t.Errorf("BrainWatch scopes = %v, want [%s] (o.Root excluded)", gotScopes, wantApp)
+		}
+	})
+	t.Run("watched brain scope changed", func(t *testing.T) {
+		r := newRig(t)
+		state := filepath.Join(r.real, harness.StateDir)
+		put(t, filepath.Join(state, "brain.db"), "b1", 0o600)
+		calls := 0
+		o := r.opts()
+		o.BrainWatch = func(_, _ string, _ []string) (string, bool) {
+			calls++
+			return "digest-" + strconv.Itoa(calls), true
+		}
+		res, err := Run(context.Background(), o, []Row{named("w", "p", "true")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantVerdict(t, one(t, res), "FAIL", ReasonRealConfig)
+	})
 }
 
 // A setup that writes the real config is seen: the fingerprint is taken

@@ -46,10 +46,39 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 	b := sandbox.New(sandbox.Config{
 		Dir: dir, Source: o.Fixture, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
-		Timeout: agyTimeout, PrintTimeout: "20m", StopGrace: stopGrace,
+		Timeout: agyTimeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
+		PrintTimeout: "20m", StopGrace: stopGrace,
 		Prefix: "eval: " + r.ID, Out: o.Out,
 	})
 	return &row{o: o, r: r, b: b, stamp: stamp}
+}
+
+func trialBrainWatch(o Options, dir string) func(string) (string, bool) {
+	scopes := []string{filepath.Join(dir, "app")}
+	if o.Fixture != "" && !samePath(o.Fixture, o.Root) {
+		scopes = append(scopes, o.Fixture)
+	}
+	scratch := filepath.Dir(dir)
+	return func(dbPath string) (string, bool) {
+		if o.BrainWatch == nil {
+			return "", false
+		}
+		return o.BrainWatch(dbPath, scratch, scopes)
+	}
+}
+
+func samePath(a, b string) bool {
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	if ra, err := filepath.EvalSymlinks(ca); err == nil {
+		ca = ra
+	}
+	if rb, err := filepath.EvalSymlinks(cb); err == nil {
+		cb = rb
+	}
+	return ca == cb
 }
 
 // prepare is steps 2-8 of SPEC-fyr-eval § One row; false means the row has

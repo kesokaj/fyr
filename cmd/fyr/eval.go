@@ -194,7 +194,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 			return fail(c.evalRefuse("--fixture %s is not a git repository", fixture))
 		}
 	}
-	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Out: c.out}
+	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Out: c.out, BrainWatch: brain.SnapshotScopes}
 	if err := eval.Preflight(o); err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}

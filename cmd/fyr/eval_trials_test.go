@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -347,4 +348,75 @@ func TestEvalSuiteFile(t *testing.T) {
 	if len(trials) != 1 || trials[0]["label"] != "eval=holdout/secret" || trials[0]["cluster"] != "hold" {
 		t.Errorf("trials = %v, want label eval=holdout/secret cluster hold", trials)
 	}
+}
+
+// TestEvalVerbBrainWatch pins BUG-504 and ADR-506 end to end through runEval
+// and brain.SnapshotScopes: concurrent writes to brain.db in o.Root or another
+// project's scope (plus metrics.db) during a trial pass check c, whereas a
+// leaked write to the trial clone's scope in brain.db fails check c.
+func TestEvalVerbBrainWatch(t *testing.T) {
+	t.Run("concurrent unwatched writes pass", func(t *testing.T) {
+		r := newEvalRig(t, evalSuite, true)
+		r.template("1", "C1")
+		if _, err := brain.Add(brain.Options{Home: r.real, Dir: r.project}, brain.AddInput{
+			Kind: "change", Title: "Before trial", Body: strings.NewReader("body"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		oldRun := evalRun
+		t.Cleanup(func() { evalRun = oldRun })
+		evalRun = func(ctx context.Context, o eval.Options, rows []eval.Row) ([]eval.Result, error) {
+			origWatch := o.BrainWatch
+			calls := 0
+			o.BrainWatch = func(dbPath, scratch string, scopes []string) (string, bool) {
+				calls++
+				if calls == 2 {
+					if _, err := brain.Add(brain.Options{Home: r.real, Dir: r.project}, brain.AddInput{
+						Kind: "bug", Title: "Concurrent session write", Status: "open", Body: strings.NewReader("body"),
+					}); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(r.real, harness.StateDir, "metrics.db"), []byte("ingested"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return origWatch(dbPath, scratch, scopes)
+			}
+			return oldRun(ctx, o, rows)
+		}
+		if out, code := r.eval("ok"); code != 0 || !strings.Contains(out, "eval: 1 of 1 PASS") {
+			t.Fatalf("concurrent unwatched writes: exit %d\n%s", code, out)
+		}
+	})
+
+	t.Run("leaked clone scope write fails check c", func(t *testing.T) {
+		r := newEvalRig(t, evalSuite, true)
+		r.template("1", "C1")
+		if _, err := brain.Add(brain.Options{Home: r.real, Dir: r.project}, brain.AddInput{
+			Kind: "change", Title: "Before trial", Body: strings.NewReader("body"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		oldRun := evalRun
+		t.Cleanup(func() { evalRun = oldRun })
+		evalRun = func(ctx context.Context, o eval.Options, rows []eval.Row) ([]eval.Result, error) {
+			origWatch := o.BrainWatch
+			calls := 0
+			o.BrainWatch = func(dbPath, scratch string, scopes []string) (string, bool) {
+				calls++
+				if calls == 2 && len(scopes) > 0 {
+					if _, err := brain.Add(brain.Options{Home: r.real, Dir: scopes[0]}, brain.AddInput{
+						Kind: "change", Title: "Leaked trial write", Body: strings.NewReader("body"),
+					}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return origWatch(dbPath, scratch, scopes)
+			}
+			return oldRun(ctx, o, rows)
+		}
+		if out, code := r.eval("ok"); code != 1 || !strings.Contains(out, "FAIL (config; real config changed)") {
+			t.Fatalf("leaked clone write: exit %d\n%s", code, out)
+		}
+	})
 }

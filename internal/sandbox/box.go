@@ -24,21 +24,22 @@ import (
 // Config is one sandbox: where it is made, what it clones and installs, and
 // how its session is bounded.
 type Config struct {
-	Dir          string        // the sandbox directory: <Dir>/app the clone, <Dir>/home the HOME
-	Source       string        // the repository cloned into <Dir>/app
-	RealHome     string        // $HOME: check c's fingerprint, the token
-	Repo         string        // install source; "" is the harness embedded in Self
-	Self         string        // the fyr that installs (os.Executable)
-	Grants       []string      // settings.json permissions.allow
-	GitName      string        // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
-	GitEmail     string        //
-	Model        string        // agy --model; "" passes none
-	Zone         string        // agy's TZ, a zone name; "" passes none (work only, workers D144)
-	Timeout      time.Duration // agy alone (in docker mode its container) is killed after this
-	SkipStores   bool          // check c leaves out every storeEntry (work only, D45, D64, D70)
-	PrintTimeout string        // agy --print-timeout, as "<n>m"
-	StopGrace    time.Duration // SIGTERM to SIGKILL on ctx's end; 0 is 5s
-	Prefix       string        // every note starts "<Prefix>: "
+	Dir          string                             // the sandbox directory: <Dir>/app the clone, <Dir>/home the HOME
+	Source       string                             // the repository cloned into <Dir>/app
+	RealHome     string                             // $HOME: check c's fingerprint, the token
+	Repo         string                             // install source; "" is the harness embedded in Self
+	Self         string                             // the fyr that installs (os.Executable)
+	Grants       []string                           // settings.json permissions.allow
+	GitName      string                             // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
+	GitEmail     string                             //
+	Model        string                             // agy --model; "" passes none
+	Zone         string                             // agy's TZ, a zone name; "" passes none (work only, workers D144)
+	Timeout      time.Duration                      // agy alone (in docker mode its container) is killed after this
+	SkipStores   bool                               // check c leaves out every storeEntry (work and eval, D45, D64, D70, ADR-506)
+	BrainWatch   func(dbPath string) (string, bool) // with SkipStores, watches brain.db by mode + scope digest (eval, ADR-506)
+	PrintTimeout string                             // agy --print-timeout, as "<n>m"
+	StopGrace    time.Duration                      // SIGTERM to SIGKILL on ctx's end; 0 is 5s
+	Prefix       string                             // every note starts "<Prefix>: "
 	Out          io.Writer
 	Docker       *Docker // nil: the session runs on the host; else in a container (work only)
 }

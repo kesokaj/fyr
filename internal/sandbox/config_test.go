@@ -14,7 +14,7 @@ import (
 // and D70 amend it: under SkipStores a write to what the sessions, the
 // metrics ingest and the dream write at the top of the state directory
 // changes nothing, state.json and every other watched path still do, and
-// without it (eval's check c) each of those writes is still seen.
+// without SkipStores each of those writes is still seen.
 func TestGuardFingerprintSkipStores(t *testing.T) {
 	real := filepath.Join(outsideTemp(t), "real")
 	write := func(rel string) {
@@ -219,4 +219,74 @@ func diffPrints(a, b map[string]string) string {
 		}
 	}
 	return strings.Join(d, " ")
+}
+
+// TestGuardFingerprintBrainWatch pins ADR-506 (BUG-504): with SkipStores and a
+// BrainWatch callback, check c skips non-brain stores and regular brain.db
+// companions, watches brain.db by file mode + scope digest, and falls back to
+// entryPrint when BrainWatch returns ok == false.
+func TestGuardFingerprintBrainWatch(t *testing.T) {
+	real := filepath.Join(outsideTemp(t), "real")
+	state := filepath.Join(real, filepath.FromSlash(harness.StateDir))
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(state, rel), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, rel := range []string{"brain.db", "brain.db-wal", "brain.db-shm", "metrics.db", "search.db", "dream.log", "state.json"} {
+		write(rel, "v1")
+	}
+
+	digest, ok := "scope-d1", true
+	watch := func(string) (string, bool) { return digest, ok }
+	before := fingerprintWith(real, true, watch)
+
+	// Unwatched store writes and regular brain.db WAL/SHM/page rewrites pass.
+	for _, rel := range []string{"brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal", "metrics.db", "metrics.db-wal", "search.db", "dream.log", ".fyr-99"} {
+		write(rel, "v2-bigger")
+	}
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 0 {
+		t.Fatalf("unwatched store writes changed paths: %v", got)
+	}
+
+	// A watched-scope digest change reports brain.db.
+	digest = "scope-d2"
+	wantBrain := filepath.FromSlash(harness.StateDir + "/brain.db")
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 1 || got[0] != wantBrain {
+		t.Fatalf("scope digest change: %v, want [%s]", got, wantBrain)
+	}
+	digest = "scope-d1"
+
+	// A chmod on brain.db reports brain.db even when the scope digest matches.
+	if err := os.Chmod(filepath.Join(state, "brain.db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 1 || got[0] != wantBrain {
+		t.Fatalf("chmod on brain.db: %v, want [%s]", got, wantBrain)
+	}
+	if err := os.Chmod(filepath.Join(state, "brain.db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupting brain.db so BrainWatch returns ok=false falls back to entryPrint.
+	ok = false
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 1 || got[0] != wantBrain {
+		t.Fatalf("corrupted brain.db fallback: %v, want [%s]", got, wantBrain)
+	}
+	ok = true
+
+	// A non-regular companion (symlink at brain.db-wal) is reported.
+	walPath := filepath.Join(state, "brain.db-wal")
+	os.Remove(walPath)
+	if err := os.Symlink(filepath.Join(state, "state.json"), walPath); err != nil {
+		t.Fatal(err)
+	}
+	wantWal := filepath.FromSlash(harness.StateDir + "/brain.db-wal")
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 1 || got[0] != wantWal {
+		t.Fatalf("symlinked brain.db-wal: %v, want [%s]", got, wantWal)
+	}
 }

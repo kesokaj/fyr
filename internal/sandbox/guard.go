@@ -158,8 +158,10 @@ var sandboxDirs = []string{"eval", "work", "sandbox", "dev", "auto"}
 // storeFile, storeNames, storeTemps and atomicTemp are the state
 // directory's top-level entries the operator's own sessions, the metrics
 // ingest and the dream write, which Config.SkipStores leaves out (D45 of PLAN-2026-10-29-workers,
-// as D64 and D70 amend it): a worker that runs for an hour beside those
-// writers would otherwise fail check c falsely. Each is a writer's exact
+// as D64 and D70 amend it, and ADR-506 for eval, where Config.BrainWatch
+// still watches brain.db by mode and per-scope digest): a worker or eval
+// trial that runs beside those writers would otherwise fail check c falsely.
+// Each is a writer's exact
 // name, never a bare prefix, so a file added later under a similar name is
 // still watched (the Phase 3 security review, finding 4). state.json is not
 // one of them: only an install writes it, and the lead installs nothing while
@@ -190,6 +192,10 @@ func storeEntry(rel string, dir bool) bool {
 // regular file is read through; no link is walked. A path that does not
 // exist is no entry (BUG-158). skipStores leaves out every storeEntry.
 func fingerprint(realHome string, skipStores bool) map[string]string {
+	return fingerprintWith(realHome, skipStores, nil)
+}
+
+func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (string, bool)) map[string]string {
 	fp := map[string]string{}
 	for _, dir := range watched {
 		name := filepath.FromSlash(dir)
@@ -214,6 +220,9 @@ func fingerprint(realHome string, skipStores bool) map[string]string {
 				return filepath.SkipDir
 			}
 			if dir == harness.StateDir && skipStores && storeEntry(rel, d.IsDir()) {
+				if brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
+					fingerprintBrainFile(p, d, rel, key, brainWatch, fp)
+				}
 				if d.IsDir() {
 					return filepath.SkipDir
 				}
@@ -307,4 +316,26 @@ func changedPaths(before, after map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// fingerprintBrainFile watches ~/.config/fyr/brain.db by its file mode and
+// brainWatch's per-scope digest (ADR-506, BUG-504), falling back to entryPrint
+// when brain.db is not a readable SQLite store. Regular -wal, -shm and
+// -journal companions are skipped; non-regular ones are fingerprinted.
+func fingerprintBrainFile(p string, d fs.DirEntry, rel, key string, brainWatch func(string) (string, bool), fp map[string]string) {
+	if rel != "brain.db" {
+		if !d.Type().IsRegular() {
+			fp[key] = entryPrint(p, d)
+		}
+		return
+	}
+	if d.Type().IsRegular() {
+		if info, err := d.Info(); err == nil {
+			if digest, ok := brainWatch(p); ok {
+				fp[key] = fmt.Sprintf("%s %v scope-sha256 %s", info.Mode().Type(), info.Mode().Perm(), digest)
+				return
+			}
+		}
+	}
+	fp[key] = entryPrint(p, d)
 }
