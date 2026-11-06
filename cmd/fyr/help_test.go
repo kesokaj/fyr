@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"flag"
 	"io"
+	"maps"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/eval"
 )
 
 // The help pages (plan ledger Phase 4b, D19-D21): the short page, one page
@@ -297,5 +301,50 @@ func TestHelpSearchKindsMatchSearch(t *testing.T) {
 	_, use := flag.UnquoteUsage(newCtx("search", verbs["search"], io.Discard).fs.Lookup("kind"))
 	if !strings.HasSuffix(use, ": "+list) {
 		t.Errorf("search's --kind usage %q does not end with search's list %q", use, list)
+	}
+}
+
+// helpLast's guard line is a copy of guardFree (ADR-505), so it is pinned:
+// a verb freed in one and not named in the other fails here.
+func TestHelpLastNamesGuardFree(t *testing.T) {
+	_, list, ok := strings.Cut(helpLast, "runs only ")
+	if !ok {
+		t.Fatalf("helpLast names no verb the guard frees:\n%s", helpLast)
+	}
+	named := map[string]bool{}
+	for _, v := range strings.Split(strings.TrimSuffix(list, "."), ", ") {
+		named[v] = true
+	}
+	if !maps.Equal(named, guardFree) {
+		t.Errorf("helpLast frees %v; guardFree is %v", named, guardFree)
+	}
+}
+
+// eval's page names the sandbox layout ProjectSandboxRoot makes, its
+// <project> level included: the path is a copy, so it is pinned.
+func TestHelpEvalNamesSandboxLayout(t *testing.T) {
+	home := t.TempDir()
+	rel, err := filepath.Rel(home, eval.ProjectSandboxRoot(home, filepath.Join(home, "proj")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.ToSlash(filepath.Dir(rel)) + "/<project>/<stamp>/<row>/<i>/"
+	if !strings.Contains(verbHelp("eval"), want) {
+		t.Errorf("eval's page does not name %q:\n%s", want, verbHelp("eval"))
+	}
+}
+
+// bareStatus is a non-zero exit status with no meaning after it, as work's
+// page once read "Exit 0 PASS, 1, 2 err.".
+var bareStatus = regexp.MustCompile(`[ ,][1-9](?:[,.]|$)`)
+
+// Every exit line gives each non-zero status its meaning.
+func TestHelpExitStatusesSayWhat(t *testing.T) {
+	for v, p := range pages {
+		for _, line := range p.about {
+			if _, exit, ok := strings.Cut(line, "Exit "); ok && bareStatus.MatchString(" "+exit) {
+				t.Errorf("%s's exit line leaves a status without its meaning: %q", v, line)
+			}
+		}
 	}
 }
