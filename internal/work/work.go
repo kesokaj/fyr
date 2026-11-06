@@ -28,7 +28,7 @@ import (
 // Options is one invocation.
 type Options struct {
 	Root     string        // the lead's checkout, its top level
-	Home     string        // fyr's home: the sandboxes are under sandbox.Root(Home, "work")
+	Home     string        // fyr's home: the sandboxes are under SandboxRoot(Home, Root), the locks and pid files under sandbox.Root(Home, "work")
 	RealHome string        // $HOME: the token, check c's fingerprint
 	Self     string        // the fyr that installs (os.Executable)
 	Repo     string        // the install source; "" is the harness embedded in Self

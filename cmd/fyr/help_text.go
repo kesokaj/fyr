@@ -9,8 +9,8 @@ package main
 
 // helpLast ends the short page and every verb page. Its second line is the
 // real-home guard (BUG-507, ADR-505, realhome_guard.go).
-const helpLast = "Every command takes --home DIR and --repo DIR. Without --home, a build that\n" +
-	"is not ~/.local/bin/fyr runs only install, update, version, list, render, diff."
+const helpLast = "Every command takes --home DIR and --repo DIR. Without --home, a build not at\n" +
+	"~/.local/bin/fyr runs only install, sync, update, version, list, render, diff."
 
 // helpSynopsis is help's own, for its usage errors; `fyr help help` prints
 // the short page, so help has no verb page.
@@ -280,11 +280,11 @@ var pages = map[string]verbPage{
 			"Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval",
 			"record; or --suite-file PATH outside every checkout) against the Antigravity",
 			"CLI, each row --runs N times (1 to 25, default 1), one trial at a time in its",
-			"own sandbox under --home's .config/fyr/eval/<stamp>/<row>/<i>/: a clone of the",
-			"fixture, a throwaway HOME with the harness installed, your login linked. What",
-			"the agent reads goes to the CLI's model (R8). Prints PASS, FAIL or ERROR per",
-			"trial, writes one testing record, stores each trial and ingests it as",
-			"eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required,",
+			"own sandbox under --home's .config/fyr/eval/<project>/<stamp>/<row>/<i>/: a",
+			"clone of the fixture, a throwaway HOME with the harness installed, your login",
+			"linked. What the agent reads goes to the CLI's model (R8). Prints PASS, FAIL",
+			"or ERROR per trial, writes one testing record, stores each trial and ingests",
+			"it as eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required,",
 			"refused when it is the real home, links its state, or is in a checkout.",
 			"Exit 0 all passed, 1 any did not or did not run, 2 a refusal.",
 		},
@@ -302,13 +302,13 @@ var pages = map[string]verbPage{
 			"Runs each Kickoff file as a worker: an unattended agy session in its own",
 			"sandbox under --home's .config/fyr/sandbox/<project>/, on a clone of HEAD",
 			"with no remote, on branch work/<file name>, at most N at once machine-wide",
-			"(default 8, max 32; fyr work config sets workers, ram, cpu, disk).",
-			"What the agent reads goes to the CLI's model (R8). A Kickoff's Model: line,",
-			"else --model, is its agy model, checked against agy models. Each branch is",
-			"fetched back, checked against Files:, and reported in at most 39 lines.",
-			"--runner auto (default) is docker, a hardened container of --image with a",
-			"linux agy, when its preflight passes, else the host; stamp and result lines,",
-			"and --check, say which and why. --kill <stamp> ends it. Exit 0 PASS, 1, 2 err.",
+			"(default 8, max 32; fyr work config sets workers, ram, cpu, disk). What the",
+			"agent reads goes to the CLI's model (R8). A Kickoff's Model: line, else",
+			"--model, is its agy model, checked against agy models. Each branch is fetched",
+			"back, checked against Files:, and reported in at most 39 lines. --runner auto",
+			"(default) is docker, a hardened container of --image with a linux agy, when its",
+			"preflight passes, else the host; stamp and result lines, and --check, say which",
+			"and why. --kill <stamp> ends it. Exit 0 all PASS, 1 any FAIL, 2 refused.",
 		},
 	},
 	"check": {

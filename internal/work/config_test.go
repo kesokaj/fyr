@@ -59,6 +59,10 @@ func TestDockerAutoBuildFromEmbedded(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "auto-build failed") || !strings.Contains(err.Error(), "build failed") || !strings.Contains(err.Error(), BuildLine) {
 		t.Errorf("build failure: %v, want auto-build failed + build failed + %q", err, BuildLine)
 	}
+	workDir := filepath.Dir(filepath.Join(stageHome(o), filepath.FromSlash(sandbox.WorkAgyRel)))
+	if left, err := filepath.Glob(filepath.Join(workDir, "docker-build-*")); err != nil || len(left) != 0 {
+		t.Errorf("build failure left its build directory: %v, %v", left, err)
+	}
 }
 
 func TestDockerMacKeychainAndRosetta(t *testing.T) {

@@ -45,7 +45,7 @@ type AddInput struct {
 type EditInput struct {
 	ID            string
 	Status, Title *string
-	Body          io.Reader // --body: the new body on stdin
+	Body          io.Reader // --body (stdin) or --body-file FILE: the new body
 }
 
 // ListFilter is `record list`'s flags.
