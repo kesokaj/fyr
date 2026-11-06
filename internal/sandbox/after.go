@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 )
@@ -19,11 +18,16 @@ func (b *Box) After() bool {
 		return false
 	}
 	// Step 12: a denial or a grant the CLI did not take fails the box.
-	if n := b.count(filepath.Join(b.dir, "err.txt"), "auto-denied"); n > 0 {
-		b.Note("auto-denied %d", n)
+	denied := b.count(filepath.Join(b.dir, "err.txt"), "auto-denied")
+	log := newestLog(filepath.Join(b.sb, ".gemini", "antigravity-cli", "log"))
+	if denied == 0 && log != "" {
+		denied = b.count(log, "soft-denying tool confirmation")
+	}
+	if denied > 0 {
+		b.Note("auto-denied %d", denied)
 		b.Fail(ReasonDenied)
 	}
-	if log := newestLog(filepath.Join(b.sb, ".gemini", "antigravity-cli", "log")); log != "" {
+	if log != "" {
 		if n := b.count(log, "invalid allow entry"); n > 0 {
 			b.Note("invalid allow entries %d", n)
 			b.Fail(ReasonInvalid)
@@ -165,16 +169,20 @@ func countLines(path, s string) (int, error) {
 
 // newestLog is the newest cli-*.log of dir by mtime, or "".
 func newestLog(dir string) string {
-	logs, _ := filepath.Glob(filepath.Join(dir, "cli-*.log"))
-	sort.Slice(logs, func(i, j int) bool {
-		a, _ := os.Stat(logs[i])
-		b, _ := os.Stat(logs[j])
-		return a != nil && b != nil && a.ModTime().After(b.ModTime())
-	})
-	if len(logs) == 0 {
-		return ""
+	entries, _ := os.ReadDir(dir)
+	var newest string
+	var newestTime int64
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "cli-") || !strings.HasSuffix(name, ".log") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && (newest == "" || info.ModTime().UnixNano() > newestTime) {
+			newest = filepath.Join(dir, name)
+			newestTime = info.ModTime().UnixNano()
+		}
 	}
-	return logs[0]
+	return newest
 }
 
 // Remove is `fyr work`'s step 9: the sandbox directory removed through the

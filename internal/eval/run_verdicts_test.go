@@ -112,17 +112,18 @@ func TestRunVerdicts(t *testing.T) {
 		agyExit     int
 		cause       string
 	}{
-		"the check fails":              {"", "", named("r", "p", "false"), "FAIL", []string{ReasonCheck}, 0, "check"},
-		"agy exits 3, the check holds": {"exit", "3", named("r", "p", "true"), "PASS", nil, 3, ""},
-		"the agent invoked":            {"invoke", "reviewer", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "PASS", nil, 0, ""},
-		"another agent invoked":        {"invoke", "bugs", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
-		"no agent at all":              {"", "", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
-		"an auto-denied call":          {"denied", "", named("r", "p", "true"), "FAIL", []string{ReasonDenied}, 0, "denied"},
-		"an invalid allow entry":       {"invalid", "", named("r", "p", "true"), "FAIL", []string{ReasonInvalid}, 0, "grant"},
-		"a credential written":         {"leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
-		"a credential printed":         {"print-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
-		"a credential in the clone":    {"clone-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
-		"the token replaced":           {"replace-token", "", named("r", "p", "true"), "PASS", nil, 0, ""},
+		"the check fails":               {"", "", named("r", "p", "false"), "FAIL", []string{ReasonCheck}, 0, "check"},
+		"agy exits 3, the check holds":  {"exit", "3", named("r", "p", "true"), "PASS", nil, 3, ""},
+		"the agent invoked":             {"invoke", "reviewer", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "PASS", nil, 0, ""},
+		"another agent invoked":         {"invoke", "bugs", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
+		"no agent at all":               {"", "", Row{ID: "r", Prompt: "p", Check: "true", Agent: "reviewer", Grants: "named"}, "FAIL", []string{ReasonAgent("reviewer")}, 0, "agent"},
+		"an auto-denied call":           {"denied", "", named("r", "p", "true"), "FAIL", []string{ReasonDenied}, 0, "denied"},
+		"a soft-denied call in cli.log": {"soft-denied", "", named("r", "p", "true"), "FAIL", []string{ReasonDenied}, 3, "denied"},
+		"an invalid allow entry":        {"invalid", "", named("r", "p", "true"), "FAIL", []string{ReasonInvalid}, 0, "grant"},
+		"a credential written":          {"leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"a credential printed":          {"print-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"a credential in the clone":     {"clone-leak", leak, named("r", "p", "true"), "FAIL", []string{ReasonCredentials}, 0, "creds"},
+		"the token replaced":            {"replace-token", "", named("r", "p", "true"), "PASS", nil, 0, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig(t)

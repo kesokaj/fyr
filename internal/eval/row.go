@@ -22,7 +22,7 @@ var (
 // namedGrants is the allow list of a named row (run.sh:212).
 var namedGrants = func() []string {
 	var out []string
-	for _, c := range strings.Fields("git go gofmt cat ls date mkdir pwd grep find wc head tail printf echo cp ln test diff fyr chmod readlink bash python3 sleep govulncheck") {
+	for _, c := range strings.Fields("git go gofmt cat ls date mkdir pwd grep find sort wc head tail printf echo cp ln test diff fyr chmod readlink bash python3 sleep govulncheck") {
 		out = append(out, "command("+c+")")
 	}
 	return append(out, "read_file(*)", "write_file(*)")

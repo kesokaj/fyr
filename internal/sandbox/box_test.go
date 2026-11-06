@@ -302,3 +302,46 @@ func TestBoxSessionKeychainGuards(t *testing.T) {
 		t.Errorf("missing keychain file warning in:\n%s", out)
 	}
 }
+
+// TestAfterSoftDenialInCLILog pins BUG-515 option (d): when agy ends a
+// print-mode run on a soft-denied tool confirmation after earlier retried API
+// errors (such as HTTP 429) and writes the stale API error to err.txt instead
+// of "auto-denied", After still detects the denial from cli-*.log's
+// "soft-denying tool confirmation" line without double-counting when err.txt
+// also carries "auto-denied".
+func TestAfterSoftDenialInCLILog(t *testing.T) {
+	r := newRig(t)
+	b := r.prepared(r.config("soft-deny-log-only"))
+	put(t, filepath.Join(b.Dir(), "err.txt"), "API error (attempt 1): RESOURCE_EXHAUSTED (code 429)\n", 0o600)
+	put(t, filepath.Join(b.Home(), ".gemini", "antigravity-cli", "log", "cli-1.log"),
+		"I1106 17:11:32.066770 467 tool_confirmation_manager.go:221] Print mode: soft-denying tool confirmation \"RunCommand\" at step 51\n", 0o600)
+	b.started = true
+	if !b.After() {
+		t.Fatal("After: sandbox not intact")
+	}
+	if !b.Has(ReasonDenied) || !strings.Contains(r.out.String(), "test: soft-deny-log-only: auto-denied 1\n") {
+		t.Errorf("reasons %v, out:\n%s", b.Reasons(), r.out.String())
+	}
+
+	r.out.Reset()
+	b2 := r.prepared(r.config("soft-deny-both"))
+	put(t, filepath.Join(b2.Dir(), "err.txt"), "jetski: no output produced — tool was auto-denied\n", 0o600)
+	put(t, filepath.Join(b2.Home(), ".gemini", "antigravity-cli", "log", "cli-1.log"),
+		"I1106 16:16:40.516283 499 tool_confirmation_manager.go:221] Print mode: soft-denying tool confirmation \"RunCommand\" at step 20\n", 0o600)
+	b2.started = true
+	b2.After()
+	if !b2.Has(ReasonDenied) || !strings.Contains(r.out.String(), "test: soft-deny-both: auto-denied 1\n") {
+		t.Errorf("reasons %v, out:\n%s", b2.Reasons(), r.out.String())
+	}
+
+	r.out.Reset()
+	b3 := r.prepared(r.config("soft-deny-[glob]"))
+	put(t, filepath.Join(b3.Dir(), "err.txt"), "API error (attempt 1): RESOURCE_EXHAUSTED (code 429)\n", 0o600)
+	put(t, filepath.Join(b3.Home(), ".gemini", "antigravity-cli", "log", "cli-1.log"),
+		"I1106 17:11:32.066770 467 tool_confirmation_manager.go:221] Print mode: soft-denying tool confirmation \"RunCommand\" at step 51\n", 0o600)
+	b3.started = true
+	b3.After()
+	if !b3.Has(ReasonDenied) || !strings.Contains(r.out.String(), "test: soft-deny-[glob]: auto-denied 1\n") {
+		t.Errorf("reasons %v, out:\n%s", b3.Reasons(), r.out.String())
+	}
+}

@@ -26,7 +26,7 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 1: Find or create the file
 
-`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise copy the template — `records/SPEC-TEMPLATE.md` under the init-project skill's assets directory, found as that skill's Step 2 finds it — to `.agents/scratch/SPEC-<app>-<topic>.md` (`<app>` and `<topic>` lowercase `[a-z0-9-]`), fill it with its `Status: draft` line, and store it: `fyr record add spec --id SPEC-<app>-<topic> --title "Spec — <app>: <topic>" --body-file .agents/scratch/SPEC-<app>-<topic>.md`. An existing spec is edited the same way: `fyr record get <ID> --out <file>`, edit, `fyr record edit <ID> --body-file <file>`; a spec no longer true gets `--status retired`.
+`fyr search <topic words> --kind spec` first: an existing spec on the topic is updated, never duplicated. Otherwise read the template — `~/.gemini/config/skills/init-project/assets/records/SPEC-TEMPLATE.md` (or `.agents/skills/init-project/assets/records/SPEC-TEMPLATE.md`, as the `init-project` skill's Step 2 locates `assets`) — write `.agents/scratch/SPEC-<app>-<topic>.md` (`<app>` and `<topic>` lowercase `[a-z0-9-]`) with its `Status: draft` line filled, and store it: `fyr record add spec --id SPEC-<app>-<topic> --title "Spec — <app>: <topic>" --body-file .agents/scratch/SPEC-<app>-<topic>.md`. An existing spec is edited the same way: `fyr record get <ID> --out <file>`, edit, `fyr record edit <ID> --body-file <file>`; a spec no longer true gets `--status retired`.
 
 ## Step 2: Fill every section, in order
 

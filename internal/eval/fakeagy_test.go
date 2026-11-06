@@ -19,6 +19,12 @@ cp "$HOME/.gemini/antigravity-cli/settings.json" "$REC/settings.$n" 2>/dev/null
 conv=$HOME/.gemini/antigravity-cli/conversations
 if [ -e "$CTL/invoke" ]; then mkdir -p "$conv"; printf 'SQLite format 3\000{"TypeName":"%s"}\000' "$(cat "$CTL/invoke")" > "$conv/main-$n.db"; fi
 if [ -e "$CTL/denied" ]; then echo "tool call auto-denied: command(rm)" >&2; fi
+if [ -e "$CTL/soft-denied" ]; then
+  mkdir -p "$HOME/.gemini/antigravity-cli/log"
+  echo 'I1106 17:11:32.066770 467 tool_confirmation_manager.go:221] Print mode: soft-denying tool confirmation "RunCommand" at step 51' > "$HOME/.gemini/antigravity-cli/log/cli-1.log"
+  echo "API error (attempt 1): RESOURCE_EXHAUSTED (code 429)" >&2
+  exit 3
+fi
 if [ -e "$CTL/invalid" ]; then mkdir -p "$HOME/.gemini/antigravity-cli/log"; echo "invalid allow entry: x" > "$HOME/.gemini/antigravity-cli/log/cli-1.log"; fi
 if [ -e "$CTL/leak" ]; then printf 'GH_TOKEN=%s\n' "$(cat "$CTL/leak")" > "$HOME/.gemini/term.log"; fi
 if [ -e "$CTL/realconfig" ]; then echo x >> "$(cat "$CTL/realconfig")"; fi

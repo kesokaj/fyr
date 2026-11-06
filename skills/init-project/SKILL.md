@@ -30,16 +30,13 @@ Every write this skill makes — a root file, a template copy, a `.gitignore` li
 
 ## Step 2: Locate the templates
 
-The templates live next to this SKILL.md:
+The templates live next to this SKILL.md (`$ASSETS` below is the directory this prints):
 
 ```bash
-for d in ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets; do
-  [ -d "$d" ] && ASSETS="$d" && break
-done
-echo "$ASSETS"
+ls -d ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets 2>/dev/null | head -1
 ```
 
-If none exists, say so and stop — do not improvise the templates from memory. The templates live outside the project, so reading them may take one permission approval; a headless run passes the skill directory explicitly (a `read_file` allow-rule for it). When a headless run refuses a loop below, copy file by file with the file-writing tool instead, and say so in the summary.
+If none exists, say so and stop — do not improvise the templates from memory. The templates live outside the project, so reading them may take one permission approval; a headless run passes the skill directory explicitly (a `read_file` allow-rule for it).
 
 ## Step 3: Root files
 

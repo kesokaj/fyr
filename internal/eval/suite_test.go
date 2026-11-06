@@ -281,3 +281,197 @@ func TestEvalSuiteFile(t *testing.T) {
 		t.Errorf("ReadSuiteFile(inside) = %v, want inside a git checkout", err)
 	}
 }
+
+// namedShellProblem returns the first shell command word in script that is not
+// in allowed, or "" when every command segment starts with an allowed word.
+func namedShellProblem(script string, allowed map[string]bool) string {
+	script = strings.ReplaceAll(script, "\\\n", " ")
+	for _, line := range strings.Split(script, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		for _, seg := range splitShellSegments(line) {
+			fields := strings.Fields(seg)
+			for len(fields) > 0 && strings.Contains(fields[0], "=") && !strings.HasPrefix(fields[0], "=") {
+				fields = fields[1:]
+			}
+			if len(fields) == 0 {
+				continue
+			}
+			word := strings.TrimLeft(fields[0], "(")
+			if word == "" {
+				continue
+			}
+			if !allowed[word] {
+				return word
+			}
+		}
+	}
+	return ""
+}
+
+func splitShellSegments(line string) []string {
+	var out []string
+	var quote byte
+	start := 0
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if quote != 0 {
+			if c == '\\' && quote == '"' {
+				i++
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+		case '#':
+			if i == 0 || line[i-1] == ' ' || line[i-1] == '\t' {
+				out = append(out, line[start:i])
+				return out
+			}
+		case '|', ';':
+			out = append(out, line[start:i])
+			if c == '|' && i+1 < len(line) && line[i+1] == '|' {
+				i++
+			}
+			start = i + 1
+		case '&':
+			if i+1 < len(line) && line[i+1] == '&' {
+				out = append(out, line[start:i])
+				i++
+				start = i + 1
+			}
+		}
+	}
+	out = append(out, line[start:])
+	return out
+}
+
+// TestNamedRowSkillCommands pins BUG-515's prevention rule: namedGrants
+// includes sort, every fenced bash/sh block in the skills and agents exercised
+// by a named-grant GUIDE-eval row (plus init-project Step 2, which spec and
+// requirements reference) uses only commands in namedGrants, and no skill
+// offers a dead "when a headless run refuses" fallback.
+func TestNamedRowSkillCommands(t *testing.T) {
+	allowed := map[string]bool{}
+	for _, g := range namedGrants {
+		if cmd, ok := strings.CutPrefix(g, "command("); ok {
+			allowed[strings.TrimSuffix(cmd, ")")] = true
+		}
+	}
+	for _, must := range []string{"ls", "head", "find", "sort"} {
+		if !allowed[must] {
+			t.Errorf("namedGrants is missing command(%s)", must)
+		}
+	}
+	baseAllowed := map[string]bool{"ls": true, "head": true, "find": true, "sort": true, "echo": true, "fyr": true}
+	for _, bad := range []string{
+		"for d in ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets; do\n  [ -d \"$d\" ] && ASSETS=\"$d\" && break\ndone\necho \"$ASSETS\"",
+		"find cmd internal -type f | ungranted",
+		"while read -r f; do echo \"$f\"; done",
+		"if [ -d .agents ]; then echo ok; fi",
+		"/bin/rm -rf .agents/scratch/x",
+	} {
+		if got := namedShellProblem(bad, baseAllowed); got == "" {
+			t.Errorf("namedShellProblem passed ungranted script:\n%s", bad)
+		}
+	}
+	for _, good := range []string{
+		"ls -d ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets 2>/dev/null | head -1",
+		"find cmd internal -type f | sort",
+		"fyr memory add --type feedback --name no-db-mocks --description \"d\" --body-file .agents/scratch/m.md",
+	} {
+		if got := namedShellProblem(good, baseAllowed); got != "" {
+			t.Errorf("namedShellProblem refused granted script (%s):\n%s", got, good)
+		}
+	}
+
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initBytes, err := os.ReadFile(filepath.Join(root, "skills", "init-project", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, afterStep2, ok := strings.Cut(string(initBytes), "## Step 2: Locate the templates")
+	if !ok {
+		t.Fatal("skills/init-project/SKILL.md has no Step 2 heading")
+	}
+	step2, _, ok := strings.Cut(afterStep2, "\n## Step 3:")
+	if !ok {
+		t.Fatal("skills/init-project/SKILL.md has no Step 3 heading")
+	}
+	targets := map[string]string{"skills/init-project/SKILL.md#Step2": step2}
+	namedRowTarget := map[string]string{
+		"spec":           "skills/spec/SKILL.md",
+		"feature":        "skills/feature/SKILL.md",
+		"feedback-log":   "skills/feedback-log/SKILL.md",
+		"project-memory": "skills/project-memory/SKILL.md",
+		"reviewer":       "agents/reviewer/agent.md",
+		"documentation":  "agents/documentation/agent.md",
+	}
+	rows, _, err := ReadTrackedSuite(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if _, wide := r.Wide(); !wide && namedRowTarget[r.ID] == "" {
+			t.Errorf("named-grant row %q is missing from namedRowTarget in TestNamedRowSkillCommands", r.ID)
+		}
+	}
+	for _, rel := range namedRowTarget {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets[rel] = string(b)
+	}
+	for name, text := range targets {
+		parts := strings.Split(text, "```")
+		for i := 1; i < len(parts); i += 2 {
+			tag, body, _ := strings.Cut(parts[i], "\n")
+			tag = strings.TrimSpace(tag)
+			if tag != "bash" && tag != "sh" {
+				continue
+			}
+			if bad := namedShellProblem(body, allowed); bad != "" {
+				t.Errorf("%s has ungranted command %q in bash block:\n%s", name, bad, strings.TrimSpace(body))
+			}
+		}
+	}
+	specText := targets["skills/spec/SKILL.md"]
+	if !strings.Contains(specText, "~/.gemini/config/skills/init-project/assets/records/SPEC-TEMPLATE.md") {
+		t.Error("skills/spec/SKILL.md does not name ~/.gemini/config/skills/init-project/assets/records/SPEC-TEMPLATE.md directly")
+	}
+	err = filepath.WalkDir(filepath.Join(root, "skills"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() && d.Name() == "catalog" {
+			if err == nil {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return nil
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		low := strings.ToLower(string(b))
+		if strings.Contains(low, "when a headless run refuses") || strings.Contains(low, "when headless refuses") {
+			rel, _ := filepath.Rel(root, path)
+			t.Errorf("%s offers a dead headless refusal fallback (print mode ends the turn on refusal)", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
