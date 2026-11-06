@@ -180,6 +180,25 @@ func TestRecordExitCodes(t *testing.T) {
 	}
 }
 
+// get prints every record it finds, then refuses the missing ones with exit
+// 1, as it did before --out; get --out with a missing ID writes no file
+// (TestRecordBodyFileAndOut).
+func TestRecordGetPrintsFoundBeforeMissing(t *testing.T) {
+	recordRepo(t)
+	home := t.TempDir()
+	if out, err := recordCmd(t, "Symptom: x.\n", "record", "add", "bug", "--title", "found", "--home", home); err != nil || out != "BUG-001\n" {
+		t.Fatalf("add: %q %v", out, err)
+	}
+	out, err := recordCmd(t, "", "record", "get", "BUG-001", "BUG-404", "--home", home)
+	if exitOf(err) != 1 {
+		t.Fatalf("get of a found and a missing id: exit %d (%v), want 1\n%s", exitOf(err), err, out)
+	}
+	found, refusal := strings.Index(out, "Symptom: x.\n"), strings.Index(out, "no record BUG-404")
+	if !strings.HasPrefix(out, "BUG-001  bug  ") || found < 0 || refusal < found {
+		t.Errorf("get of a found and a missing id printed %q; want BUG-001's record, then the refusal naming BUG-404", out)
+	}
+}
+
 // D16 through the verb: an unmigrated project refuses with exit 1 and names
 // the import command.
 func TestRecordUnmigratedRefusal(t *testing.T) {

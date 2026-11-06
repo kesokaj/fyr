@@ -147,8 +147,9 @@ func recordList(c *ctx, o brain.Options) error {
 	return recordErr(c, err)
 }
 
-// recordGet serves `record get`: each record, a blank line between, or with
-// --out writes one record's body under .agents/scratch/.
+// recordGet serves `record get`: each record found, a blank line between,
+// then the refusal naming any missing; or with --out writes one record's
+// body under .agents/scratch/, and nothing when its ID is missing.
 func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error {
 	if set["out"] {
 		if len(ids) != 1 {
@@ -159,10 +160,10 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 		}
 	}
 	recs, _, err := brain.Get(o, ids)
-	if err != nil {
-		return recordErr(c, err)
-	}
 	if set["out"] {
+		if err != nil {
+			return recordErr(c, err)
+		}
 		return recordErr(c, brain.WriteScratch(o.Dir, c.recOut, recs[0].Body))
 	}
 	for i, r := range recs {
@@ -171,7 +172,7 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 		}
 		fmt.Fprint(c.out, brain.FormatGet(r))
 	}
-	return nil
+	return recordErr(c, err)
 }
 
 // recordEdit serves `record edit`: only what the command line set changes;
