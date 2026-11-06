@@ -188,32 +188,33 @@ func TestBoxLaterSessionNeedsIntact(t *testing.T) {
 	b.ExitChecks()
 }
 
-// On darwin, CheckLogin accepts $HOME/Library/Keychains in host mode when
-// antigravity-oauth-token is absent (BUG-166), still requires the token file
-// when tokenOnly is set, and refuses a symlinked token on every OS.
+// On darwin, CheckLogin accepts $HOME/Library/Keychains when
+// antigravity-oauth-token is absent (BUG-166) and refuses a symlinked token
+// on every OS; the docker runner's CheckWorkLogin needs a token the Keychain
+// gives or a token file, and refuses here, where it has neither.
 func TestCheckLoginMacKeychain(t *testing.T) {
 	real := t.TempDir()
 	tokPath := filepath.Join(real, TokenRel)
 	kcPath := filepath.Join(real, KeychainsRel)
 	put(t, filepath.Join(kcPath, "login.keychain-db"), "keychain", 0o600)
 
-	if _, err := CheckLogin(real, "linux", false); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+	if _, err := CheckLogin(real, "linux"); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
 		t.Fatalf("linux without token file: %v", err)
 	}
-	if _, err := CheckLogin(real, "darwin", true); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
-		t.Fatalf("darwin tokenOnly without token file: %v", err)
+	if _, err := CheckWorkLogin(real, real, "darwin"); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+		t.Fatalf("darwin docker login without a token: %v", err)
 	}
-	if tok, err := CheckLogin(real, "darwin", false); err != nil || tok != "" {
+	if tok, err := CheckLogin(real, "darwin"); err != nil || tok != "" {
 		t.Fatalf("darwin Keychain-only: tok=%q err=%v", tok, err)
 	}
 	os.MkdirAll(filepath.Dir(tokPath), 0o700)
 	os.Symlink(filepath.Join(kcPath, "login.keychain-db"), tokPath)
-	if _, err := CheckLogin(real, "darwin", false); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
+	if _, err := CheckLogin(real, "darwin"); err == nil || !strings.Contains(err.Error(), "no Antigravity login at "+tokPath) {
 		t.Errorf("symlinked token on darwin: %v", err)
 	}
 	os.Remove(tokPath)
 	os.RemoveAll(filepath.Join(real, "Library"))
-	if _, err := CheckLogin(real, "darwin", false); err == nil || !strings.Contains(err.Error(), "Keychain") || !strings.Contains(err.Error(), "antigravity-oauth-token") {
+	if _, err := CheckLogin(real, "darwin"); err == nil || !strings.Contains(err.Error(), "Keychain") || !strings.Contains(err.Error(), "antigravity-oauth-token") {
 		t.Errorf("darwin with neither login: %v", err)
 	}
 }

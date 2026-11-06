@@ -197,8 +197,8 @@ func mkdirExisting(dir string) error {
 	return nil
 }
 
-func writeWorkToken(realHome, wp string, data []byte) error {
-	workDir, err := EnsureWorkDir(realHome)
+func writeWorkToken(home, wp string, data []byte) error {
+	workDir, err := EnsureWorkDir(home)
 	if err != nil {
 		return err
 	}
@@ -231,39 +231,33 @@ func writeWorkToken(realHome, wp string, data []byte) error {
 	return nil
 }
 
-func checkWorkToken(realHome, p, goos string) (string, error) {
-	wp := filepath.Join(realHome, filepath.FromSlash(WorkTokenRel))
-	wst, werr := os.Lstat(wp)
-	if werr == nil && !wst.Mode().IsRegular() {
-		return "", fmt.Errorf("no Antigravity login at %s", wp)
-	}
-	if dst, derr := os.Lstat(filepath.Dir(wp)); derr == nil && !dst.IsDir() {
-		return "", fmt.Errorf("no Antigravity login at %s (%s is not a regular directory)", wp, filepath.Dir(wp))
-	}
-	if goos == "darwin" {
-		kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
-		if info, kerr := os.Lstat(kc); kerr == nil && info.IsDir() {
-			if raw, err := readKeychainToken(kc); err == nil {
-				if _, derr := DecodeKeychainToken(raw); derr != nil {
-					return "", fmt.Errorf("no Antigravity login at %s (%v)", wp, derr)
-				}
-				return wp, nil
-			}
-		}
-	}
-	if werr == nil && wst.Mode().IsRegular() {
-		return wp, nil
-	}
-	return "", fmt.Errorf("no Antigravity login at %s", p)
-}
-
 // SyncWorkToken materializes the container OAuth token file for a docker-mode
 // run after all preflight refusals have passed: it returns realHome's TokenRel
 // when present, or on darwin extracts the macOS Keychain token and writes it
 // atomically (0600 in a 0700 directory) to WorkTokenRel under home (or
 // realHome when home is empty), falling back to an existing regular
-// WorkTokenRel when Keychain lookup is unavailable (D7, ADR-503).
+// WorkTokenRel, under home and then under realHome, when Keychain lookup is
+// unavailable (D7, ADR-503). CheckWorkLogin is its read-only twin.
 func SyncWorkToken(home, realHome, goos string) (string, error) {
+	return workToken(home, realHome, goos, true)
+}
+
+// CheckWorkLogin is SyncWorkToken's refusals, read only, in its words: the
+// docker runner's preflight and fyr work --check resolve the login the way
+// the run will, under the same home, and create and change nothing
+// (BUG-510); only a write that fails on disk is the run's alone. It returns
+// the token path the run mounts, which on the Keychain branch the run
+// writes last.
+func CheckWorkLogin(home, realHome, goos string) (string, error) {
+	return workToken(home, realHome, goos, false)
+}
+
+// workToken is the one resolution behind SyncWorkToken (write) and
+// CheckWorkLogin (read only), so the check cannot pass what the run
+// refuses. An existing token is read with one Lstat per path, as the run
+// mounts it; only the Keychain branch walks the directories, since only
+// it writes.
+func workToken(home, realHome, goos string, write bool) (string, error) {
 	p := filepath.Join(realHome, filepath.FromSlash(TokenRel))
 	if st, err := os.Lstat(p); err == nil {
 		if !st.Mode().IsRegular() {
@@ -271,42 +265,74 @@ func SyncWorkToken(home, realHome, goos string) (string, error) {
 		}
 		return p, nil
 	}
-	targetHome := home
-	if targetHome == "" {
-		targetHome = realHome
+	if home == "" {
+		home = realHome
 	}
-	wp := filepath.Join(targetHome, filepath.FromSlash(WorkTokenRel))
-	wst, werr := os.Lstat(wp)
-	if werr == nil && !wst.Mode().IsRegular() {
-		return "", fmt.Errorf("no Antigravity login at %s", wp)
+	wp := filepath.Join(home, filepath.FromSlash(WorkTokenRel))
+	have, err := workTokenFile(wp)
+	if err != nil {
+		return "", err
 	}
 	rwp := filepath.Join(realHome, filepath.FromSlash(WorkTokenRel))
-	rwst, rwerr := os.Lstat(rwp)
-	if rwerr == nil && !rwst.Mode().IsRegular() {
-		return "", fmt.Errorf("no Antigravity login at %s", rwp)
+	rhave, err := workTokenFile(rwp)
+	if err != nil {
+		return "", err
 	}
-	if goos == "darwin" {
-		kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
-		if info, kerr := os.Lstat(kc); kerr == nil && info.IsDir() {
-			if raw, err := readKeychainToken(kc); err == nil {
-				data, derr := DecodeKeychainToken(raw)
-				if derr != nil {
-					return "", fmt.Errorf("no Antigravity login at %s (%v)", wp, derr)
-				}
-				if err := writeWorkToken(targetHome, wp, data); err != nil {
-					return "", fmt.Errorf("no Antigravity login at %s (%v)", wp, err)
-				}
-				return wp, nil
-			}
-		}
-	}
-	if werr == nil && wst.Mode().IsRegular() {
+	done, err := keychainWorkToken(home, realHome, wp, goos, write)
+	switch {
+	case err != nil:
+		return "", err
+	case done, have:
 		return wp, nil
-	}
-	if rwerr == nil && rwst.Mode().IsRegular() {
+	case rhave:
 		return rwp, nil
 	}
 	return "", fmt.Errorf("no Antigravity login at %s", p)
+}
+
+// workTokenFile reports whether wp is a regular file, refusing a wp that is
+// anything else and a work/ directory above it that is no directory, a
+// symlink included.
+func workTokenFile(wp string) (bool, error) {
+	st, err := os.Lstat(wp)
+	if err == nil && !st.Mode().IsRegular() {
+		return false, fmt.Errorf("no Antigravity login at %s", wp)
+	}
+	if dst, derr := os.Lstat(filepath.Dir(wp)); derr == nil && !dst.IsDir() {
+		return false, fmt.Errorf("no Antigravity login at %s (%s is not a regular directory)", wp, filepath.Dir(wp))
+	}
+	return err == nil, nil
+}
+
+// keychainWorkToken is workToken's Keychain branch: on darwin, with
+// realHome's Keychain folder and a token the Keychain gives, it decodes the
+// token and writes it to wp under home, or without write checks the walk
+// the write takes (CheckWorkDir), so both refuse in the same words. done is
+// false when there is no Keychain token to use, and the caller falls back.
+func keychainWorkToken(home, realHome, wp, goos string, write bool) (done bool, err error) {
+	if goos != "darwin" {
+		return false, nil
+	}
+	kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
+	if info, kerr := os.Lstat(kc); kerr != nil || !info.IsDir() {
+		return false, nil
+	}
+	raw, kerr := readKeychainToken(kc)
+	if kerr != nil {
+		return false, nil
+	}
+	data, err := DecodeKeychainToken(raw)
+	if err == nil {
+		if write {
+			err = writeWorkToken(home, wp, data)
+		} else {
+			err = CheckWorkDir(home)
+		}
+	}
+	if err != nil {
+		return false, fmt.Errorf("no Antigravity login at %s (%v)", wp, err)
+	}
+	return true, nil
 }
 
 // ProjectName returns a safe single-segment directory name for projectRoot.

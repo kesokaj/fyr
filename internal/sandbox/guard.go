@@ -139,20 +139,22 @@ func WithoutGit(env []string) []string {
 	return out
 }
 
-// watched are the real home's paths check c fingerprints: fyr's state (its
-// eval/ and work/ directories left out, every sandbox of either verb is
-// written there, D8 and PLAN-2026-10-29-workers D10, and auto/, a run's data
-// beside those sandboxes, while auto.json above it stays watched: the fyr
-// auto plan's D6), the old state
-// directory, and the CLI's installed customizations and settings, which a
-// grant written there would outlive the run in. The token and the CLI's
+// watched are the real home's paths check c fingerprints: fyr's state
+// directory less its sandboxDirs, eval/, work/, sandbox/, dev/ and auto/,
+// but with work/'s three fixed files, agy-linux, config.json and
+// antigravity-oauth-token (fingerprintWorkDir, ADR-503); the old state
+// directory; and the CLI's installed customizations and settings, which a
+// grant written there would outlive the run in. The CLI's own token and its
 // conversations are not watched: a sandboxed session refreshes the one
 // through its link, and the operator's own sessions write the other.
 var watched = []string{harness.StateDir, harness.OldStateDir, ".gemini/config", ".gemini/antigravity-cli/settings.json"}
 
 // sandboxDirs are the state directory's children check c skips: Root's
-// verbs (eval/, work/, sandbox/), dev homes (dev/), and auto's run data.
-// Matched as a whole top-level name, so auto.json is not one of them.
+// verbs, holding the sandboxes and the work runs' locks and pid files
+// (eval/, work/, sandbox/: D8, PLAN-2026-10-29-workers D10 and D9 of
+// PLAN-2026-11-02-1806-fyr-speed), dev homes (dev/) and auto's run data
+// (auto/: the fyr auto plan's D6). Matched as a whole top-level name, so
+// auto.json, beside auto/, is not one of them and stays watched.
 var sandboxDirs = []string{"eval", "work", "sandbox", "dev", "auto"}
 
 // storeFile, storeNames, storeTemps and atomicTemp are the state
@@ -186,15 +188,13 @@ func storeEntry(rel string, dir bool) bool {
 	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (!dir && atomicTemp.MatchString(rel))
 }
 
-// fingerprint is safety check c (preamble :85-117, BUG-107, 123, 158): every
-// entry under the watched paths, as path relative to the home → type, mode,
-// size and a SHA-256 of a file's content or a link's target. A link to a
-// regular file is read through; no link is walked. A path that does not
-// exist is no entry (BUG-158). skipStores leaves out every storeEntry.
-func fingerprint(realHome string, skipStores bool) map[string]string {
-	return fingerprintWith(realHome, skipStores, nil)
-}
-
+// fingerprintWith is safety check c (preamble :85-117, BUG-107, 123, 158):
+// every entry under the watched paths, as path relative to the home → type,
+// mode, size and a SHA-256 of a file's content or a link's target. A link to
+// a regular file is read through; no link is walked. A path that does not
+// exist is no entry (BUG-158). skipStores leaves out every storeEntry, and
+// with it a non-nil brainWatch still watches brain.db by mode and per-scope
+// digest (fingerprintBrainFile, ADR-506).
 func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (string, bool)) map[string]string {
 	fp := map[string]string{}
 	for _, dir := range watched {

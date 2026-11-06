@@ -76,14 +76,14 @@ func TestCheckLoginMacKeychainTokenSync(t *testing.T) {
 	raw := keychainPrefix + base64.StdEncoding.EncodeToString([]byte(good))
 	t.Cleanup(SetKeychainReader(func() (string, error) { return raw, nil }))
 
-	// CheckLogin is read-only: it validates the Keychain token without creating work/ or writing WorkTokenRel.
+	// CheckWorkLogin is read-only: it validates the Keychain token without creating work/ or writing WorkTokenRel.
 	wantPath := filepath.Join(real, filepath.FromSlash(WorkTokenRel))
-	tok, err := CheckLogin(real, "darwin", true)
+	tok, err := CheckWorkLogin(real, real, "darwin")
 	if err != nil || tok != wantPath {
-		t.Fatalf("CheckLogin: %q, %v; want %q", tok, err, wantPath)
+		t.Fatalf("CheckWorkLogin: %q, %v; want %q", tok, err, wantPath)
 	}
 	if _, err := os.Lstat(wantPath); !os.IsNotExist(err) {
-		t.Fatalf("CheckLogin wrote %s during read-only check: %v", wantPath, err)
+		t.Fatalf("CheckWorkLogin wrote %s during read-only check: %v", wantPath, err)
 	}
 
 	// SyncWorkToken with a separate --home writes under scratch, never under realHome.
@@ -116,7 +116,7 @@ func TestCheckLoginMacKeychainTokenSync(t *testing.T) {
 
 	// When Keychain lookup fails later, an existing regular WorkTokenRel is used.
 	t.Cleanup(SetKeychainReader(func() (string, error) { return "", errors.New("locked") }))
-	tok, err = CheckLogin(real, "darwin", true)
+	tok, err = CheckWorkLogin(real, real, "darwin")
 	if err != nil || tok != wantPath {
 		t.Errorf("fallback to existing WorkTokenRel: %q, %v", tok, err)
 	}
@@ -133,8 +133,8 @@ func TestCheckLoginMacKeychainTokenSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(SetKeychainReader(func() (string, error) { return raw, nil }))
-	if _, err := CheckLogin(real, "darwin", true); err == nil || !strings.Contains(err.Error(), wantPath) {
-		t.Errorf("symlink at WorkTokenRel (CheckLogin): %v", err)
+	if _, err := CheckWorkLogin(real, real, "darwin"); err == nil || !strings.Contains(err.Error(), wantPath) {
+		t.Errorf("symlink at WorkTokenRel (CheckWorkLogin): %v", err)
 	}
 	if _, err := SyncWorkToken(real, real, "darwin"); err == nil || !strings.Contains(err.Error(), wantPath) {
 		t.Errorf("symlink at WorkTokenRel (SyncWorkToken): %v", err)
@@ -143,14 +143,14 @@ func TestCheckLoginMacKeychainTokenSync(t *testing.T) {
 		t.Errorf("symlink target overwritten: %q", b)
 	}
 
-	// A symlinked work/ directory is refused by both CheckLogin and SyncWorkToken.
+	// A symlinked work/ directory is refused by both CheckWorkLogin and SyncWorkToken.
 	os.Remove(wantPath)
 	os.Remove(filepath.Dir(wantPath))
 	if err := os.Symlink(tmp, filepath.Dir(wantPath)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CheckLogin(real, "darwin", true); err == nil {
-		t.Error("symlinked work/ directory accepted by CheckLogin")
+	if _, err := CheckWorkLogin(real, real, "darwin"); err == nil {
+		t.Error("symlinked work/ directory accepted by CheckWorkLogin")
 	}
 	if _, err := SyncWorkToken(real, real, "darwin"); err == nil {
 		t.Error("symlinked work/ directory accepted by SyncWorkToken")
@@ -176,33 +176,33 @@ func TestFingerprintWorkDir(t *testing.T) {
 
 	// First-time creation of antigravity-oauth-token at 0600 or in-place token
 	// refresh during a run does not fail check c; sandbox/ and dev/ are skipped.
-	before := fingerprint(real, false)
+	before := fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t1"}`, 0o600)
-	if got := changedPaths(before, fingerprint(real, false)); len(got) != 0 {
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); len(got) != 0 {
 		t.Errorf("first-time 0600 token sync changed fingerprint: %v", got)
 	}
-	before = fingerprint(real, false)
+	before = fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t2-longer"}`, 0o600)
 	write("sandbox/fyr/2026-11-04-120000-1/fix-a/home/x", "worker", 0o644)
 	write("dev/fyr-eval/home/x", "dev", 0o644)
-	if got := changedPaths(before, fingerprint(real, false)); len(got) != 0 {
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); len(got) != 0 {
 		t.Errorf("in-place token refresh or sandbox/dev write changed fingerprint: %v", got)
 	}
 
 	// Modifying agy-linux, config.json, or token permissions fails check c.
-	before = fingerprint(real, false)
+	before = fingerprintWith(real, false, nil)
 	write("work/agy-linux", "elf-tampered", 0o755)
-	if got := changedPaths(before, fingerprint(real, false)); !slices.Equal(got, []string{filepath.FromSlash(WorkAgyRel)}) {
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkAgyRel)}) {
 		t.Errorf("agy-linux tamper: got %v", got)
 	}
-	before = fingerprint(real, false)
+	before = fingerprintWith(real, false, nil)
 	write("work/config.json", `{"workers":32}`, 0o600)
-	if got := changedPaths(before, fingerprint(real, false)); !slices.Equal(got, []string{filepath.FromSlash(WorkConfigRel)}) {
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkConfigRel)}) {
 		t.Errorf("config.json tamper: got %v", got)
 	}
-	before = fingerprint(real, false)
+	before = fingerprintWith(real, false, nil)
 	os.Chmod(filepath.Join(real, filepath.FromSlash(WorkTokenRel)), 0o644)
-	if got := changedPaths(before, fingerprint(real, false)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
 		t.Errorf("token chmod: got %v", got)
 	}
 }

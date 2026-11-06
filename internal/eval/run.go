@@ -38,7 +38,7 @@ const MaxRuns = 25
 type Result struct {
 	Row    string
 	Trial  int    // 1 to Options.Runs
-	Run    string // "<stamp>/<row>/<trial>", the sandbox under SandboxRoot; the trial's key
+	Run    string // "<stamp>/<row>/<trial>", the sandbox under ProjectSandboxRoot; the trial's key
 	Status string // StatusPass, StatusFail or StatusError
 	Cause  string // classify's closed set; "" for a PASS
 	// Reasons are the fixed reason strings, in the order the steps gave
@@ -91,9 +91,6 @@ const tokenRel = sandbox.TokenRel
 // hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
 var hostOS = runtime.GOOS
 
-// SandboxRoot is where eval makes its sandboxes under fyr's home (D8).
-func SandboxRoot(home string) string { return sandbox.Root(home, "eval") }
-
 // ProjectSandboxRoot is where eval makes its sandboxes for project root under
 // fyr's home: <home>/.config/fyr/eval/<project> (D9 of PLAN-2026-11-02-1806-fyr-speed).
 func ProjectSandboxRoot(home, root string) string { return sandbox.ProjectRoot(home, "eval", root) }
@@ -143,7 +140,7 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 		}
 		seen[r.ID] = true
 	}
-	tok, err := sandbox.CheckLogin(o.RealHome, hostOS, false)
+	tok, err := sandbox.CheckLogin(o.RealHome, hostOS)
 	if err != nil {
 		return nil, err
 	}

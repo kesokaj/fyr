@@ -97,15 +97,12 @@ func SetHostOS(goos string) func() {
 }
 
 // CheckLogin checks the operator's Antigravity login under realHome without
-// writing to disk: a regular file at TokenRel, or when tokenOnly is true a
-// regular file at WorkTokenRel or a decodable macOS Keychain token on darwin
-// when KeychainsRel is present (materialized on a real run by SyncWorkToken,
-// D7, ADR-503), or on darwin when tokenOnly is false, a directory at
-// KeychainsRel (BUG-166). When TokenRel or WorkTokenRel exists and is not a
-// regular file, it is refused on every OS. It returns tok, the path to the
-// token file when one exists (or will be synced), or "" when darwin uses
-// Keychains alone.
-func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
+// writing to disk, for the host runner and fyr eval: a regular file at
+// TokenRel, or on darwin a directory at KeychainsRel (BUG-166). A TokenRel
+// that exists and is not a regular file is refused on every OS. It returns
+// tok, the path to the token file when one exists, or "" when darwin uses
+// Keychains alone. The docker runner's login is CheckWorkLogin (BUG-510).
+func CheckLogin(realHome, goos string) (tok string, err error) {
 	p := filepath.Join(realHome, filepath.FromSlash(TokenRel))
 	st, err := os.Lstat(p)
 	if err == nil {
@@ -114,10 +111,7 @@ func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
 		}
 		return p, nil
 	}
-	if tokenOnly && errors.Is(err, fs.ErrNotExist) {
-		return checkWorkToken(realHome, p, goos)
-	}
-	if goos == "darwin" && !tokenOnly && errors.Is(err, fs.ErrNotExist) {
+	if goos == "darwin" && errors.Is(err, fs.ErrNotExist) {
 		kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
 		if info, kerr := os.Lstat(kc); kerr == nil && info.IsDir() {
 			return "", nil
@@ -127,8 +121,10 @@ func CheckLogin(realHome, goos string, tokenOnly bool) (tok string, err error) {
 	return "", fmt.Errorf("no Antigravity login at %s", p)
 }
 
-// Root is where a verb makes its sandboxes under fyr's home: verb is "eval"
-// or "work", the two sandbox roots check c leaves out (D10).
+// Root is a verb's directory under fyr's home: "eval" holds eval's
+// sandboxes, "work" the work runs' locks and pid files and the docker
+// runner's files, and "sandbox" work's sandboxes, three of the sandboxDirs
+// check c leaves out (D10, D9 of PLAN-2026-11-02-1806-fyr-speed).
 func Root(home, verb string) string { return filepath.Join(home, harness.StateDir, verb) }
 
 // CheckRoot is the refusal of a sandbox root before anything is made: guards

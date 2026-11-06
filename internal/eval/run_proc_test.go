@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // alive reports whether pid is running and not a zombie, waiting up to a
@@ -134,7 +135,7 @@ func TestRunRefusals(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.want) || res != nil {
 				t.Errorf("want a refusal holding %q, got %v, %+v", c.want, err, res)
 			}
-			if _, err := os.Stat(SandboxRoot(o.Home)); !os.IsNotExist(err) {
+			if _, err := os.Stat(sandbox.Root(o.Home, "eval")); !os.IsNotExist(err) {
 				t.Error("a refusal created the sandbox root")
 			}
 			if r.read("agy.n") != "" || r.read("self.calls") != "" {

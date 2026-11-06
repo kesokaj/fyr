@@ -83,9 +83,9 @@ func TestGuardFingerprintSkipStores(t *testing.T) {
 		{state + ".fyr-123", false, true},
 		{state + "proposals/dream/p.md", false, true},
 	} {
-		before := fingerprint(real, c.skip)
+		before := fingerprintWith(real, c.skip, nil)
 		write(c.rel)
-		if got := changedPaths(before, fingerprint(real, c.skip)); (len(got) > 0) != c.changes {
+		if got := changedPaths(before, fingerprintWith(real, c.skip, nil)); (len(got) > 0) != c.changes {
 			t.Errorf("skip %v, a write at %s: changed paths %v, want a change %v", c.skip, c.rel, got, c.changes)
 		}
 	}
@@ -191,14 +191,14 @@ func TestFingerprintWatchesAutoConfig(t *testing.T) {
 	write("auto.json", "off")
 	write("auto/runs.json", "1")
 	for _, skip := range []bool{false, true} {
-		before := fingerprint(real, skip)
+		before := fingerprintWith(real, skip, nil)
 		write("auto/runs.json", "2")
 		write("auto/auto.log", "line")
-		if d := diffPrints(before, fingerprint(real, skip)); d != "" {
+		if d := diffPrints(before, fingerprintWith(real, skip, nil)); d != "" {
 			t.Errorf("skip %v: a write under auto/ was seen: %s", skip, d)
 		}
 		write("auto.json", "on")
-		if d := diffPrints(before, fingerprint(real, skip)); d == "" {
+		if d := diffPrints(before, fingerprintWith(real, skip, nil)); d == "" {
 			t.Errorf("skip %v: a change of auto.json went unseen", skip)
 		}
 		write("auto.json", "off")

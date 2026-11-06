@@ -97,7 +97,7 @@ func parseAll(files []string, auto bool) ([]Kickoff, error) {
 }
 
 // session is refusals 8-11 and 21-23, what the sessions need: offline
-// refusals come first, before CheckLogin, checkModels and every docker call
+// refusals first, before the login check, checkModels and every docker call
 // (workers D145, G4); then ChooseRunner turns --runner auto into docker or
 // the host (D5, ADR-504), and the probe's plan and token are kept, so docker
 // is checked once; SyncWorkToken runs last, after every refusal passed. The
@@ -134,7 +134,7 @@ func (p *prepared) session(ctx context.Context, o *Options, ks []Kickoff) error 
 // agy, then the model check.
 func (p *prepared) hostSession(ctx context.Context, o Options, ks []Kickoff) error {
 	var err error
-	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, false); err != nil {
+	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS); err != nil {
 		return err
 	}
 	if p.agy, err = exec.LookPath("agy"); err != nil {
@@ -155,7 +155,7 @@ func (p *prepared) dockerSession(ctx context.Context, o Options, ks []Kickoff) e
 		if err = develBuild(o.Version); err != nil {
 			return err
 		}
-		if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true); err != nil {
+		if p.tok, err = sandbox.CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
 			return err
 		}
 	}

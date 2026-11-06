@@ -75,7 +75,7 @@ func (p *prepared) dockerPreflight(o Options) error {
 		return err
 	}
 	var err error
-	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS, true); err != nil {
+	if p.tok, err = sandbox.CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
 		return err
 	}
 	return p.dockerRefusals(o)
@@ -132,7 +132,7 @@ func (p *prepared) dockerRefusals(o Options) error {
 		p.toBuild = ref
 		return nil
 	}
-	// The token is a regular file already: refusal 8 (session).
+	// Refusal 8 passed (CheckWorkLogin); a Keychain token is synced last.
 	p.docker = newDockerPlan(id, agy, o, ncpu, memGB)
 	return nil
 }
