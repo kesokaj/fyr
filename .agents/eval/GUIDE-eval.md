@@ -12,16 +12,16 @@ a trial, so old trials stop counting against the new row.
 
 Every row's setup is `bash .agents/eval/fixture.sh <scenario>`, run in the
 trial's clone of this checkout. It replaces the clone's history with a small
-demo project (a Go greeting service: `cmd/server`, `internal/greet` and its
-table test), removes every tag and the remote so nothing the agent runs can
-reach this checkout, and seeds the records a scenario needs into the trial
-home's store through `$FYR`. The scenarios:
+demo project (a Go greeting service: `<clone>/cmd/server`,
+`<clone>/internal/greet` and its table test), removes every tag and the remote
+so nothing the agent runs can reach this checkout, and seeds the records a
+scenario needs into the trial home's store through `$FYR`. The scenarios:
 
 | scenario | what it adds to the demo |
 |---|---|
 | `bare` | nothing: no scaffold, no records |
 | `project` | the `/init-project` scaffold (AGENTS.md, PRD, SDD, TDD, TODO, `.gitignore`) and the `GUIDE-testing` and `DEPLOY-local` records |
-| `review` | `project`, plus an uncommitted unused function `shout` in `internal/greet/greet.go` |
+| `review` | `project`, plus an uncommitted unused function `shout` in `<clone>/internal/greet/greet.go` |
 | `reviewer` | `project`, plus a committed regression: `Hello` no longer trims its name |
 | `reviewer-wide` | `project`, plus one committed 30-file change in two directories, under a subject that does not name the regression: a new `<clone>/internal/lang` (a registry of greeting words, its test, 27 generated language files) and the `reviewer` regression in `<clone>/internal/greet/greet.go` |
 | `reviewer-wide-bug` | `reviewer-wide`, plus `BUG-001`, status fixed, on `<clone>/internal/greet/greet.go`: the bug the regression brings back |

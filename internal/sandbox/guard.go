@@ -295,8 +295,8 @@ func fileSum(p string) string {
 
 // changedPaths lists every relative path whose fingerprint differs, sorted:
 // paths only, never content. A path that appears counts, the work token
-// included: fyr work syncs it in preflight, before any worker fingerprints,
-// and fyr eval never does, so fyr never writes it mid-run (BUG-511).
+// included (BUG-511): a docker run syncs it before its workers fingerprint,
+// yet a run in session fails when another run first creates it (BUG-513).
 func changedPaths(before, after map[string]string) []string {
 	var out []string
 	for k, v := range before {
