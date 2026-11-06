@@ -236,8 +236,9 @@ func writeWorkToken(home, wp string, data []byte) error {
 // when present, or on darwin extracts the macOS Keychain token and writes it
 // atomically (0600 in a 0700 directory) to WorkTokenRel under home (or
 // realHome when home is empty), falling back to an existing regular
-// WorkTokenRel, under home and then under realHome, when Keychain lookup is
-// unavailable (D7, ADR-503). CheckWorkLogin is its read-only twin.
+// WorkTokenRel reached from its home through no symlink, under home and
+// then under realHome, when Keychain lookup is unavailable (D7, ADR-503,
+// BUG-512). CheckWorkLogin is its read-only twin.
 func SyncWorkToken(home, realHome, goos string) (string, error) {
 	return workToken(home, realHome, goos, true)
 }
@@ -253,10 +254,10 @@ func CheckWorkLogin(home, realHome, goos string) (string, error) {
 }
 
 // workToken is the one resolution behind SyncWorkToken (write) and
-// CheckWorkLogin (read only), so the check cannot pass what the run
-// refuses. An existing token is read with one Lstat per path, as the run
-// mounts it; only the Keychain branch walks the directories, since only
-// it writes.
+// CheckWorkLogin (read only): the check refuses what the run refuses,
+// but for a write that fails on disk. An existing WorkTokenRel is walked
+// from its home as the Keychain branch's write is, so a symlinked
+// directory on the way is refused there too (BUG-512).
 func workToken(home, realHome, goos string, write bool) (string, error) {
 	p := filepath.Join(realHome, filepath.FromSlash(TokenRel))
 	if st, err := os.Lstat(p); err == nil {
@@ -269,12 +270,12 @@ func workToken(home, realHome, goos string, write bool) (string, error) {
 		home = realHome
 	}
 	wp := filepath.Join(home, filepath.FromSlash(WorkTokenRel))
-	have, err := workTokenFile(wp)
+	have, err := workTokenFile(home, wp)
 	if err != nil {
 		return "", err
 	}
 	rwp := filepath.Join(realHome, filepath.FromSlash(WorkTokenRel))
-	rhave, err := workTokenFile(rwp)
+	rhave, err := workTokenFile(realHome, rwp)
 	if err != nil {
 		return "", err
 	}
@@ -290,10 +291,11 @@ func workToken(home, realHome, goos string, write bool) (string, error) {
 	return "", fmt.Errorf("no Antigravity login at %s", p)
 }
 
-// workTokenFile reports whether wp is a regular file, refusing a wp that is
-// anything else and a work/ directory above it that is no directory, a
-// symlink included.
-func workTokenFile(wp string) (bool, error) {
+// workTokenFile reports whether wp, WorkTokenRel under home, is a regular
+// file, refusing a wp that is anything else, a work/ directory above it
+// that is no directory, a symlink included, and, when wp is there, any
+// symlink from home down to work/ (CheckWorkDir's walk, BUG-512).
+func workTokenFile(home, wp string) (bool, error) {
 	st, err := os.Lstat(wp)
 	if err == nil && !st.Mode().IsRegular() {
 		return false, fmt.Errorf("no Antigravity login at %s", wp)
@@ -301,7 +303,13 @@ func workTokenFile(wp string) (bool, error) {
 	if dst, derr := os.Lstat(filepath.Dir(wp)); derr == nil && !dst.IsDir() {
 		return false, fmt.Errorf("no Antigravity login at %s (%s is not a regular directory)", wp, filepath.Dir(wp))
 	}
-	return err == nil, nil
+	if err != nil {
+		return false, nil
+	}
+	if werr := CheckWorkDir(home); werr != nil {
+		return false, fmt.Errorf("no Antigravity login at %s (%v)", wp, werr)
+	}
+	return true, nil
 }
 
 // keychainWorkToken is workToken's Keychain branch: on darwin, with

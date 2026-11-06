@@ -294,23 +294,18 @@ func fileSum(p string) string {
 }
 
 // changedPaths lists every relative path whose fingerprint differs, sorted:
-// paths only, never content. First-time creation of WorkTokenRel as a regular
-// 0600 file by SyncWorkToken does not count as a change, whereas deletion,
-// chmod or non-regular replacement does.
+// paths only, never content. A path that appears counts, the work token
+// included: fyr work syncs it in preflight, before any worker fingerprints,
+// and fyr eval never does, so fyr never writes it mid-run (BUG-511).
 func changedPaths(before, after map[string]string) []string {
 	var out []string
-	tokKey := filepath.FromSlash(WorkTokenRel)
-	tokMode := fmt.Sprintf("%s %v", fs.FileMode(0).Type(), fs.FileMode(0o600))
 	for k, v := range before {
 		if after[k] != v {
 			out = append(out, k)
 		}
 	}
-	for k, v := range after {
+	for k := range after {
 		if _, ok := before[k]; !ok {
-			if k == tokKey && v == tokMode {
-				continue
-			}
 			out = append(out, k)
 		}
 	}

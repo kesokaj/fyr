@@ -174,12 +174,12 @@ func TestFingerprintWorkDir(t *testing.T) {
 	write("work/agy-linux", "elf-v1", 0o755)
 	write("work/config.json", `{"workers":8}`, 0o600)
 
-	// First-time creation of antigravity-oauth-token at 0600 or in-place token
-	// refresh during a run does not fail check c; sandbox/ and dev/ are skipped.
+	// A token created during a run fails check c, even at 0600 (BUG-511); an
+	// in-place token refresh does not, and sandbox/ and dev/ are skipped.
 	before := fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t1"}`, 0o600)
-	if got := changedPaths(before, fingerprintWith(real, false, nil)); len(got) != 0 {
-		t.Errorf("first-time 0600 token sync changed fingerprint: %v", got)
+	if got := changedPaths(before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
+		t.Errorf("a 0600 token created during a run: got %v, want it flagged", got)
 	}
 	before = fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t2-longer"}`, 0o600)

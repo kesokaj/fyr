@@ -36,9 +36,11 @@ func TestCheckWorkLoginMatchesSync(t *testing.T) {
 		{name: "keychain-bad-token", goos: "darwin", kc: "bad", home: "home", want: "home/" + tok + " (keychain entry", dirs: []string{"home"}},
 		{name: "cli-token-first", goos: "darwin", kc: "good", home: "home", path: "real/" + TokenRel, files: []string{"real/" + TokenRel}, dirs: []string{"home"}, link: []string{"home/.config", "elsewhere"}},
 		{name: "linux-work-symlink", goos: "linux", home: "home", want: "home/.config/fyr/work is not a regular directory", dirs: []string{"home/.config/fyr"}, link: []string{"home/.config/fyr/work", "elsewhere"}},
-		// The fallback reads a regular token through a symlinked .config, as
-		// the run does (a dotfiles home); only the Keychain write walks.
-		{name: "linux-config-symlink-fallback", goos: "linux", home: "home", path: "home/" + tok, dirs: []string{"home"}, link: []string{"home/.config", "elsewhere"}},
+		// An existing fallback token is walked from its home as the Keychain
+		// write is: a symlinked directory on the way refuses (BUG-512).
+		{name: "linux-config-symlink-fallback", goos: "linux", home: "home", want: "home/.config is not a regular directory", dirs: []string{"home"}, link: []string{"home/.config", "elsewhere"}},
+		{name: "linux-fyr-symlink-fallback", goos: "linux", home: "home", want: "home/.config/fyr is not a regular directory", dirs: []string{"home/.config"}, link: []string{"home/.config/fyr", "elsewhere"}},
+		{name: "linux-real-config-symlink-fallback", goos: "linux", home: "home", want: "real/.config is not a regular directory", dirs: []string{"home"}, link: []string{"real/.config", "elsewhere"}},
 		{name: "linux-real-token", goos: "linux", home: "real", path: "real/" + tok, files: []string{"real/" + tok}},
 		{name: "linux-none", goos: "linux", home: "home", want: "no Antigravity login at ", dirs: []string{"home"}},
 	} {
