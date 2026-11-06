@@ -10,7 +10,7 @@ import (
 
 // The final stage's one ENV PATH line is ImagePath, so the box's PATH for a
 // container is the image's own with the sandbox's bin directory first, and
-// its USER is not root (SPEC-fyr-work § The worker image).
+// its USER is not root (SPEC-fyr-work § --runner docker).
 func TestImagePathPinned(t *testing.T) {
 	lines := strings.Split(readFile(t, "../../docker/work.Dockerfile"), "\n")
 	last := -1
@@ -102,7 +102,12 @@ func TestImageContextAllowList(t *testing.T) {
 	for _, d := range dirs {
 		wantCopy = append(wantCopy, "COPY "+d+" "+d)
 	}
-	wantCopy = append(wantCopy, "COPY --from=build /out/fyr /usr/local/bin/fyr")
+	wantCopy = append(wantCopy,
+		"COPY --from=build /out/fyr /usr/local/bin/fyr",
+		"COPY --from="+nodeImagePin+" /usr/local/bin/node /usr/local/bin/node",
+		"COPY --from="+nodeImagePin+" /usr/local/include/node /usr/local/include/node",
+		"COPY --from="+nodeImagePin+" /usr/local/lib/node_modules /usr/local/lib/node_modules",
+	)
 	var gotCopy []string
 	for _, l := range strings.Split(readFile(t, "../../docker/work.Dockerfile"), "\n") {
 		if strings.HasPrefix(l, "COPY ") || strings.HasPrefix(l, "ADD ") {
@@ -113,6 +118,8 @@ func TestImageContextAllowList(t *testing.T) {
 		t.Fatalf("Dockerfile copies\n got %q\nwant %q", gotCopy, wantCopy)
 	}
 }
+
+const nodeImagePin = "node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d"
 
 // secretShapedIgnores is .gitignore's block under its "Secret-shaped paths"
 // comment, up to the first blank line.

@@ -21,7 +21,7 @@ import (
 // DefaultImage is --image's default, the tag the build line gives.
 const DefaultImage = "fyr-work:local"
 
-// BuildLine is SPEC-fyr-work § The worker image's build line, printed by the
+// BuildLine is SPEC-fyr-work § --runner docker's build line, printed by the
 // refusals an image can fix.
 const BuildLine = `docker buildx build --load -f docker/work.Dockerfile --build-arg GO_MINOR="$(go env GOVERSION | sed -E 's/^go([0-9]+\.[0-9]+).*/\1/')" --build-arg FYR_VERSION="$(fyr version | cut -d' ' -f2)" -t fyr-work:local .`
 
