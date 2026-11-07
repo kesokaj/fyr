@@ -418,6 +418,8 @@ func TestNamedRowSkillCommands(t *testing.T) {
 		"feedback-log":   "skills/feedback-log/SKILL.md",
 		"project-memory": "skills/project-memory/SKILL.md",
 		"reviewer":       "agents/reviewer/agent.md",
+		"reviewer-cold":  "agents/reviewer/agent.md",
+		"resume":         "context/AGENTS.md",
 		"documentation":  "agents/documentation/agent.md",
 	}
 	rows, _, err := ReadTrackedSuite(root, false)
