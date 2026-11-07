@@ -74,6 +74,43 @@ func reviewerOutcomes() map[string][]outcome {
 	}
 }
 
+// featureOutcomes is the outcomes of item 18's rows (scenarios project-empty
+// and project): feature-empty skips explorer on a repository with no source
+// yet, and feature-recon dispatches explorer once on a repository with code.
+func featureOutcomes() map[string][]outcome {
+	conv := func(file, text string) string {
+		return "d=\"$SB/.gemini/antigravity-cli/conversations\"; mkdir -p \"$d\"\n" +
+			"{ printf 'SQLite format 3\\000'; cat <<'EOF'; } >\"$d/" + file + "\"\n" + text + "\nEOF\n"
+	}
+	emptyFixture := `! test -e go.mod && ! test -e cmd && ! test -e internal && test -s AGENTS.md
+`
+	codeFixture := `test -f cmd/server/main.go && test -f internal/greet/greet.go && test -f go.mod
+`
+	emptyPlan := "rec plan --title 'Plan — greeting HTTP service' <<'EOF'\n# Plan — greeting HTTP service\n\n## Surfaces touched\nThe repository has no source yet; this feature adds cmd/server and internal/greet.\n\n- [ ] Phase 1: GET /hello, GET /goodbye and GET /version, who: AI\n- [ ] Checkpoint\nEOF\n"
+	reconPlan := "rec plan --title 'Recon — greeting-service' <<'EOF'\n# Recon — greeting-service\n\n## Summary\ncmd/server/main.go:1 and internal/greet/greet.go:1.\nEOF\n" +
+		"rec plan --title 'Plan — extend greeting service' <<'EOF'\n# Plan — extend greeting service\n\n## Surfaces touched\nCites Recon — greeting-service.\n\n- [ ] Phase 1: GET /goodbye and GET /version, who: AI\n- [ ] Checkpoint\nEOF\n"
+	noExplorer := conv("m.db", `{"CommandLine":"fyr record add plan --title 'Plan — greeting HTTP service' --body-file .agents/scratch/plan.md"}`)
+	withExplorer := conv("m.db", `{"TypeName":"explorer","Prompt":"recon greeting service"}`)
+	return map[string][]outcome{
+		"feature-empty": {
+			{"plan stored, no explorer", true, emptyFixture + emptyPlan + noExplorer},
+			{"dispatches explorer", false, emptyFixture + emptyPlan + withExplorer},
+			{"dispatches explorer in WAL", false, emptyFixture + emptyPlan + noExplorer + conv("m.db-wal", `{"TypeName":"explorer","Prompt":"recon"}`)},
+			{"no conversation db", false, emptyFixture + emptyPlan},
+			{"plan omits no-source note", false, emptyFixture + "rec plan --title 'Plan' <<'EOF'\n# Plan\n\n- [ ] Phase 1: GET /hello, who: AI\nEOF\n" + noExplorer},
+			{"no plan stored", false, emptyFixture + noExplorer},
+			{"writes source code", false, emptyFixture + emptyPlan + noExplorer + "mkdir -p cmd/server && echo 'package main' >cmd/server/main.go\n"},
+		},
+		"feature-recon": {
+			{"explorer dispatched, recon and plan stored", true, codeFixture + reconPlan + withExplorer},
+			{"no explorer dispatched", false, codeFixture + reconPlan + noExplorer},
+			{"no recon in plan", false, codeFixture + "rec plan --title 'Plan' <<'EOF'\n# Plan\n\n- [ ] Phase 1: GET /goodbye, who: AI\nEOF\n" + withExplorer},
+			{"no plan stored", false, codeFixture + withExplorer},
+			{"edits source code", false, codeFixture + reconPlan + withExplorer + "echo '// edit' >>cmd/server/main.go\n"},
+		},
+	}
+}
+
 // TestReviewerMarker pins the reviewer-wide check's marker both ways: the
 // row's check greps it, and the reviewer's definition holds it, so a changed
 // first sentence fails here instead of failing every trial.

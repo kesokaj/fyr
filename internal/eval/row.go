@@ -3,6 +3,7 @@ package eval
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,14 +44,25 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 	if _, wide := r.Wide(); wide {
 		grants = []string{"command(*)", "read_file(*)", "write_file(*)"}
 	}
+	timeout, printTimeout := rowTimeouts(r.Timeout)
 	b := sandbox.New(sandbox.Config{
 		Dir: dir, Source: o.Fixture, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
-		Timeout: agyTimeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
-		PrintTimeout: "20m", StopGrace: stopGrace,
+		Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
+		PrintTimeout: printTimeout, StopGrace: stopGrace,
 		Prefix: "eval: " + r.ID, Out: o.Out,
 	})
 	return &row{o: o, r: r, b: b, stamp: stamp}
+}
+
+func rowTimeouts(d time.Duration) (time.Duration, string) {
+	if d <= 0 {
+		return agyTimeout, "20m"
+	}
+	if d < time.Minute {
+		return d, d.String()
+	}
+	return d + 5*time.Minute, fmt.Sprintf("%dm", int(d/time.Minute))
 }
 
 func trialBrainWatch(o Options, dir string) func(string) (string, bool) {
@@ -157,24 +169,47 @@ func (w *row) syncRecords(ctx context.Context) bool {
 	return true
 }
 
-// session is steps 9-10: prompt, then prompt2 after a clean first exit. It
-// returns the last agy exit status (-1: none, killed).
+// nothingQueuedLine is the closing handoff's Kickoff line when a pipeline
+// has no remaining work (skills/handoff/SKILL.md); a multi-turn row stops
+// once a session prints it (ADR-509).
+const nothingQueuedLine = "Nothing queued; start the next task in a fresh conversation."
+
+// session is steps 9-10: prompt, then prompt2 (up to r.Turns total sessions
+// when r.Turns > 1, or one follow-up when r.Turns == 0 && r.Prompt2 != "")
+// while the previous session exited 0 on an intact sandbox without printing
+// nothingQueuedLine. It returns the last agy exit status (-1: none, killed).
 func (w *row) session(ctx context.Context, agy, tok string) int {
 	vars := map[string]string{"CLONE": w.b.App(), "SB": w.b.Home(), "FIXDIR": w.o.Fixture, "STAMP": w.stamp}
 	rc := w.b.Session(ctx, agy, tok, Expand(w.r.Prompt, vars), "out.txt")
-	// The first session may have replaced the sandbox: the second opens its
-	// output through the same paths, so it runs only on an intact one.
-	if w.r.Prompt2 != "" && rc == 0 && ctx.Err() == nil && w.b.Intact() {
-		rc = w.b.Session(ctx, agy, tok, Expand(w.r.Prompt2, vars), "out2.txt")
+	turns := w.r.Turns
+	if turns == 0 && w.r.Prompt2 != "" {
+		turns = 2
+	}
+	prevOut := filepath.Join(w.b.Dir(), "out.txt")
+	// An earlier session may have replaced the sandbox: each later session
+	// opens its output through the same paths, so it runs only on an intact one.
+	for t := 2; t <= turns && rc == 0 && ctx.Err() == nil && w.b.Intact(); t++ {
+		if w.r.Turns > 1 && outDone(prevOut) {
+			break
+		}
+		name := fmt.Sprintf("out%d.txt", t)
+		rc = w.b.Session(ctx, agy, tok, Expand(w.r.Prompt2, vars), name)
+		prevOut = filepath.Join(w.b.Dir(), name)
 	}
 	return rc
 }
 
+func outDone(path string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(b), nothingQueuedLine)
+}
+
 // afterSession is steps 11-13. A sandbox the session replaced is not
-// followed: no removal through it, no check run in it.
-func (w *row) afterSession(ctx context.Context) {
+// followed: no removal through it, no check run in it. It reports whether
+// step 13 ran.
+func (w *row) afterSession(ctx context.Context) bool {
 	if !w.b.After() || ctx.Err() != nil {
-		return
+		return false
 	}
 	// Step 13: the row's check.
 	if !w.b.Bash(ctx, w.r.Check, w.checkEnv(), "check.log") {
@@ -190,12 +225,13 @@ func (w *row) afterSession(ctx context.Context) {
 			w.b.Fail(ReasonAgent(w.r.Agent))
 		}
 	}
+	return true
 }
 
 // checkEnv is run.sh's check environment (:237): env -i, eval's own PATH
 // (the wrapper directory is never on it), HOME=SB, and the row's paths.
 func (w *row) checkEnv() []string {
-	return []string{
+	env := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + w.b.Home(),
 		"SB=" + w.b.Home(),
@@ -204,6 +240,10 @@ func (w *row) checkEnv() []string {
 		"FIXDIR=" + w.o.Fixture,
 		"CLONE=" + w.b.App(),
 	}
+	for t := 3; t <= w.r.Turns; t++ {
+		env = append(env, fmt.Sprintf("OUT%d=%s", t, filepath.Join(w.b.Dir(), fmt.Sprintf("out%d.txt", t))))
+	}
+	return env
 }
 
 // setupEnv is the check's, plus the git identity run.sh's gi() used, and FYR,

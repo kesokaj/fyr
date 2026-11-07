@@ -22,7 +22,7 @@ Restate the request in one or two sentences: "I read this as: X. Confirm or corr
 
 When the request ranges over a LIST — a backlog, `TODO.md`, a review's findings — the restatement is a numbered list instead: one line per item, the recommendation in brackets (`[fix]`, `[strike]` with the reason, `[yours]` for what only the user can decide), ending with the global context's approval line ("go all approved", "go approved 1-3, skip 5"). The answers ARE the scope; strikes the user approves are applied before the plan is written, with the reason on each line. A single request that leaves gaps in who, what, constraints or failure modes gets the same numbered form, one gap per line with your recommended answer; a gap the user does not settle now becomes an `Open:` row in the plan with your default.
 
-When the confirmed scope touches an area this session has not read, or an estimated 10+ files, dispatch `explorer` with the scope restatement only (a budget of 30 tool calls; "write the artifact early, then update it"), asking for the closest existing surfaces with file:line, the patterns to mirror, and what the request leaves open; `## Surfaces touched` cites its brief, stored as a `plan` record from its draft (`fyr record add plan --title "Recon — <slug>" --body-file <path>`).
+When the repository already has source files and the confirmed scope touches an area this session has not read, or an estimated 10+ files, dispatch `explorer` with the scope restatement only (a budget of 30 tool calls; "write the artifact early, then update it"), asking for the closest existing surfaces with file:line, the patterns to mirror, and what the request leaves open; `## Surfaces touched` cites its brief, stored as a `plan` record from its draft (`fyr record add plan --title "Recon — <slug>" --body-file <path>`). In a repository with no source files yet (only the root docs and `.agents/` scaffold), skip `explorer` even when the scope estimates 10+ files and note in `## Surfaces touched` that the repository has no source yet.
 
 When the feature adds a CAPABILITY (a verb, a tool, an index) rather than changing a surface, the scope names its consumers by asking who would use it, not who uses the old mechanism today: a search index's consumers include the agents that WRITE records and never grepped before. The consumers go under the restatement in the numbered-list form above, one line each, and the plan gets a task per consumer or a line saying why not.
 
@@ -40,7 +40,7 @@ Draft the plan in `.agents/scratch/plan-<slug>.md`, store it with the command ab
 In: … / Out: … / Follow-ups noted, not built: …
 
 ## Surfaces touched
-<files, packages, routes, tables, external services; the recon brief when Step 1 dispatched one>
+<files, packages, routes, tables, external services; the recon brief when Step 1 dispatched one, or that the repository has no source yet>
 
 ## Interfaces
 <function signatures, request/response shapes, schema changes, config keys — concrete enough that two implementers converge; when a spec exists (`spec` skill), its path instead of a restatement; for a changed shape, who consumes it today and whether the change is additive>
@@ -102,7 +102,7 @@ The check is ONE report, never a second: a count a headless run cannot argue pas
 
 A planning session **may lead** when the plan, as drafted, has two or more phases with only `who: AI` boxes and pairwise disjoint `files:` lines. In such a session a BLOCKING question only the user can settle is not asked at the cold read: it becomes an `Open:` row with your default. When the workers decision below is yes, the phases that depend on that row stay out of the run, and the lead's closing handoff lists the row; when it is no, the question is asked then, as this step's gate, before the planning session's handoff.
 
-**The workers decision.** Once the cold-read box is closed, decide whether the plan runs as workers: yes when two or more phases have only `who: AI` boxes, depend on no unsettled `Open:` row, and carry pairwise disjoint `files:` lines. Record the answer as a D-row `by: planner`. On a yes, this session does not end: it loads the `work` skill and becomes the lead, in the same conversation. On a no, each phase runs from its own Kickoff, as below.
+**The workers decision.** Once the cold-read box is closed, decide whether the plan runs as workers: yes when two or more phases have only `who: AI` boxes, depend on no unsettled `Open:` row, and carry pairwise disjoint `files:` lines. Record the answer under `## Decisions` as `D<n> — <date> — workers: yes | no, <why> — by: planner`. On a yes, this session does not end: it loads the `work` skill and becomes the lead, in the same conversation. On a no, each phase runs from its own Kickoff, as below.
 
 The planning session ends here, unless the workers decision says yes; then this session is the lead (`work` skill) and ends at the lead's handoff. On a no, with the box closed, commit and push the plan, write the handoff with Phase 1's Kickoff (`handoff` skill), and end the session (`rules/session-sizing.md`): Phase 1 starts in a fresh session from that Kickoff, never in the session that wrote the plan.
 

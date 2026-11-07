@@ -72,6 +72,8 @@ if [ -e "$CTL/decoy" ]; then (cd "$(cat "$CTL/decoy")" && HOME=/nowhere exec set
 if [ -e "$CTL/swap" ]; then for d in app home; do mv "$sbdir/$d" "$sbdir/$d.moved"; ln -s "$(cat "$CTL/swap")" "$sbdir/$d"; done; fi
 echo "stderr $n" >&2
 echo "agy says ok"; echo "session $n"
+if [ -e "$CTL/done.$n" ]; then echo "Nothing queued; start the next task in a fresh conversation."; fi
+if [ -e "$CTL/exit.$n" ]; then exit "$(cat "$CTL/exit.$n")"; fi
 if [ -e "$CTL/exit" ]; then exit "$(cat "$CTL/exit")"; fi
 exit 0
 `

@@ -6,7 +6,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// MaxTimeout is the longest per-row session timeout (ADR-509, Item 24).
+const MaxTimeout = 4 * time.Hour
+
+// MaxTurns is the most scripted operator turns a row may run (ADR-509, Item 24).
+const MaxTurns = 12
 
 // The kinds of row (ADR-085): a regression row is expected to pass every
 // time, an adversarial row tests a planted instruction or a lane, an
@@ -27,6 +34,10 @@ var kinds = []string{KindCapability, KindRegression, KindAdversarial, KindIndica
 // seven (ADR-085).
 var optionalHeader = []string{"version", "kind", "cluster", "expect"}
 
+// benchmarkHeader is the two columns a 13-column benchmark suite header adds
+// after optionalHeader (ADR-509).
+var benchmarkHeader = []string{"timeout", "turns"}
+
 // expectMax is the longest joined expect list: the trial's text bound in
 // internal/metrics (trialText), so a parsed row is never refused at the store.
 const expectMax = 120
@@ -38,12 +49,14 @@ var (
 	// identWord is SPEC-fyr-metrics' identifier rule (nameShape in
 	// internal/metrics/writer.go), copied because this package links no
 	// SQLite driver and so cannot import metrics (D10).
-	identWord = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,63}$`)
+	identWord    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,63}$`)
+	validTimeout = regexp.MustCompile(`^[1-9][0-9]*[hm]([1-9][0-9]*m)?$`)
+	validTurns   = regexp.MustCompile(`^[1-9][0-9]?$`)
 )
 
-// optionalCells reads the four optional cells of row r, line n, into r, with
+// optionalCells reads the optional cells of row r, line n, into r, with
 // the defaults for an empty cell: version 1, kind capability, cluster the
-// row's id, no expect.
+// row's id, no expect, timeout 0, turns 0.
 func optionalCells(r *Row, cells []string, n int) error {
 	version, kind, cluster, expect := textCell(cells[0]), textCell(cells[1]), textCell(cells[2]), textCell(cells[3])
 	r.Version, r.Kind, r.Cluster = 1, KindCapability, r.ID
@@ -71,6 +84,25 @@ func optionalCells(r *Row, cells []string, n int) error {
 			return fmt.Errorf("GUIDE-eval line %d: row %s: %w", n, r.ID, err)
 		}
 		r.Expect = joined
+	}
+	return benchmarkCells(r, cells, n)
+}
+
+func benchmarkCells(r *Row, cells []string, n int) error {
+	timeout, turns := textCell(cells[4]), textCell(cells[5])
+	if timeout != "" {
+		d, err := time.ParseDuration(timeout)
+		if err != nil || !validTimeout.MatchString(timeout) || d < time.Minute || d > MaxTimeout || d%time.Minute != 0 {
+			return fmt.Errorf("GUIDE-eval line %d: row %s: timeout %q: want whole minutes from 1m to 4h", n, r.ID, timeout)
+		}
+		r.Timeout = d
+	}
+	if turns != "" {
+		v, err := strconv.Atoi(turns)
+		if err != nil || !validTurns.MatchString(turns) || v < 1 || v > MaxTurns {
+			return fmt.Errorf("GUIDE-eval line %d: row %s: turns %q: want an integer from 1 to %d", n, r.ID, turns, MaxTurns)
+		}
+		r.Turns = v
 	}
 	return nil
 }

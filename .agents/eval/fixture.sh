@@ -10,7 +10,7 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | review | reviewer | reviewer-wide | reviewer-wide-bug | work | work-plan | tasks | retro | distill | dream | preflight) ;;
+    bare | project | project-empty | review | reviewer | reviewer-wide | reviewer-wide-bug | work | work-plan | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
   # The stand-in verb is read before demo_tree empties the work tree.
@@ -18,6 +18,7 @@ main() {
   case "$scenario" in tasks | work-plan) fake=$(cat .agents/eval/fake-work.sh) ;; esac
   demo_tree
   [ "$scenario" = bare ] || scaffold
+  [ "$scenario" != project-empty ] || rm -rf cmd internal go.mod
   git add -A
   git commit -qm "demo: a greeting service"
   replace_history

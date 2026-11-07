@@ -130,3 +130,31 @@ func TestWorkSkillRunsFeatureSteps5And6AfterLastMerge(t *testing.T) {
 	}
 }
 
+// TestFeatureSkillEmptyRepoAndWorkersDRow pins Item 18 and I4 of
+// PLAN-2026-11-02-1806-fyr-speed: feature Step 1 skips explorer in a
+// repository that has no source files yet, and Step 3 shows the workers D-row
+// shape that the work skill reads.
+func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
+	text := readSkill(t, "skills/feature/SKILL.md")
+	step1 := section(t, text, "## Step 1: Scope")
+	for _, want := range []string{
+		"repository already has source files",
+		"no source files yet",
+		"skip `explorer`",
+		"no source yet",
+	} {
+		if !strings.Contains(step1, want) {
+			t.Errorf("skills/feature/SKILL.md ## Step 1: Scope does not say %q", want)
+		}
+	}
+	step3 := section(t, text, "## Step 3: Cold-reader check")
+	for _, want := range []string{
+		"D<n> — <date> — workers: yes | no, <why> — by: planner",
+	} {
+		if !strings.Contains(step3, want) {
+			t.Errorf("skills/feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
+		}
+	}
+}
+
+

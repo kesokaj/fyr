@@ -194,7 +194,7 @@ func TestSuiteHarness(t *testing.T) {
 		wide  bool
 	}
 	want := map[string]pin{
-		"init-project": {"", true}, "feature": {"", false}, "review": {"", true},
+		"init-project": {"", true}, "feature": {"", false}, "feature-empty": {"", false}, "feature-recon": {"explorer", true}, "review": {"", true},
 		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
 		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true},
 		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
@@ -414,6 +414,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	namedRowTarget := map[string]string{
 		"spec":           "skills/spec/SKILL.md",
 		"feature":        "skills/feature/SKILL.md",
+		"feature-empty":  "skills/feature/SKILL.md",
 		"feedback-log":   "skills/feedback-log/SKILL.md",
 		"project-memory": "skills/project-memory/SKILL.md",
 		"reviewer":       "agents/reviewer/agent.md",

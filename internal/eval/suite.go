@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
@@ -62,13 +63,16 @@ func ReadSuiteFile(path string) ([]Row, error) {
 
 // Row is one scenario of the suite: a setup, one or two prompts, a check,
 // and optionally an agent the conversation store must show invoked. The
-// last four fields are the long header's optional columns, defaulted when
+// next four fields are the long header's optional columns, defaulted when
 // the table or the cell has none (ADR-085); Expect is the entries joined by
-// ",".
+// ",". Timeout and Turns are the 13-column benchmark header's optional
+// columns, 0 when unset (ADR-509).
 type Row struct {
 	ID, Setup, Prompt, Prompt2, Check, Agent, Grants string
 	Version                                          int
 	Kind, Cluster, Expect                            string
+	Timeout                                          time.Duration
+	Turns                                            int
 }
 
 // Wide reports whether the row runs with command(*), and why.
@@ -96,9 +100,13 @@ var Placeholders = []string{"CLONE", "SB", "FIXDIR", "STAMP"}
 // suiteLongHeader is suiteHeader followed by the four optional columns.
 var suiteLongHeader = append(append([]string{}, suiteHeader...), optionalHeader...)
 
+// suiteBenchHeader is suiteLongHeader followed by timeout and turns (ADR-509).
+var suiteBenchHeader = append(append([]string{}, suiteLongHeader...), benchmarkHeader...)
+
 // ParseSuite reads the one table of GUIDE-eval's body whose header is
 // `| id | setup | prompt | prompt2 | check | agent | grants |`, or that
-// followed by `| version | kind | cluster | expect |` (ADR-085). Any prose may
+// followed by `| version | kind | cluster | expect |` (ADR-085), or that
+// followed by `| timeout | turns |` (ADR-509). Any prose may
 // surround it. A table that does not parse is refused with its line number.
 func ParseSuite(body string) ([]Row, error) {
 	lines := strings.Split(body, "\n")
@@ -137,12 +145,12 @@ func ParseSuite(body string) ([]Row, error) {
 }
 
 // suiteStart is the index of the suite table's header line, the one table
-// with suiteHeader or suiteLongHeader, and that header's width.
+// with suiteHeader, suiteLongHeader or suiteBenchHeader, and that header's width.
 func suiteStart(lines []string) (int, int, error) {
 	start, width := -1, 0
 	for i, l := range lines {
 		cells, ok := splitCells(l)
-		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader)) {
+		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader) || equalCells(cells, suiteBenchHeader)) {
 			continue
 		}
 		if start >= 0 {
@@ -164,7 +172,7 @@ func parseRow(l string, n, width int) (Row, error) {
 	}
 	cells, _ := splitCells(l)
 	if len(cells) != width {
-		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), width, strings.Join(suiteLongHeader[:width], ", "))
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), width, strings.Join(suiteBenchHeader[:width], ", "))
 	}
 	m := leadingID.FindStringSubmatch(cells[0])
 	if m == nil || !validID.MatchString(m[1]) {
@@ -179,14 +187,14 @@ func parseRow(l string, n, width int) (Row, error) {
 		Agent:   textCell(cells[5]),
 		Grants:  textCell(cells[6]),
 	}
-	cells = append(cells[len(suiteHeader):], "", "", "", "")
+	cells = append(cells[len(suiteHeader):], "", "", "", "", "", "")
 	err := optionalCells(&r, cells, n)
 	return r, err
 }
 
 // checkRow refuses a row with no prompt or check, an agent that is not a
-// name, grants that are neither named nor a reasoned wide, or a placeholder
-// eval does not fill.
+// name, grants that are neither named nor a reasoned wide, an incompatible
+// turns/prompt2 combination, or a placeholder eval does not fill.
 func checkRow(r Row, n int) error {
 	if r.Prompt == "" {
 		return fmt.Errorf("GUIDE-eval line %d: row %s has no prompt", n, r.ID)
@@ -199,6 +207,12 @@ func checkRow(r Row, n int) error {
 	}
 	if reason, wide := r.Wide(); !(r.Grants == "named" || wide && strings.TrimSpace(reason) != "") {
 		return fmt.Errorf("GUIDE-eval line %d: row %s: grants is %q, want named or wide: <reason>", n, r.ID, r.Grants)
+	}
+	if r.Turns == 1 && r.Prompt2 != "" {
+		return fmt.Errorf("GUIDE-eval line %d: row %s: turns 1 cannot have prompt2", n, r.ID)
+	}
+	if r.Turns > 1 && r.Prompt2 == "" {
+		return fmt.Errorf("GUIDE-eval line %d: row %s: turns %d requires prompt2", n, r.ID, r.Turns)
 	}
 	for _, p := range []string{r.Prompt, r.Prompt2} {
 		for _, ph := range placeholder.FindAllString(p, -1) {

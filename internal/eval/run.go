@@ -53,7 +53,9 @@ type Result struct {
 	AgyExit        int
 	Started        time.Time // the trial's start
 	Seconds        int       // the whole trial
+	SetupSeconds   int       // steps 1-8 (prepare); -1 when prepare did not complete
 	SessionSeconds int       // the agy session(s); -1 when none started
+	CheckSeconds   int       // step 13 (afterSession); -1 when not run
 	Dir            string    // the sandbox
 }
 
@@ -142,15 +144,8 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if err := Preflight(o); err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, errors.New("no row to run")
-	}
-	seen := map[string]bool{}
-	for _, r := range rows {
-		if seen[r.ID] {
-			return nil, fmt.Errorf("row %s is named twice", r.ID)
-		}
-		seen[r.ID] = true
+	if err := checkRows(rows); err != nil {
+		return nil, err
 	}
 	tok, err := sandbox.CheckLogin(o.RealHome, hostOS)
 	if err != nil {
@@ -161,6 +156,32 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 		return nil, errors.New("agy not found on PATH")
 	}
 	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
+}
+
+func checkRows(rows []Row) error {
+	if len(rows) == 0 {
+		return errors.New("no row to run")
+	}
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if seen[r.ID] {
+			return fmt.Errorf("row %s is named twice", r.ID)
+		}
+		seen[r.ID] = true
+		if r.Timeout < 0 || r.Timeout > MaxTimeout {
+			return fmt.Errorf("row %s: timeout %s: want at most %s", r.ID, r.Timeout, MaxTimeout)
+		}
+		if r.Turns < 0 || r.Turns > MaxTurns {
+			return fmt.Errorf("row %s: turns %d: want 1 to %d", r.ID, r.Turns, MaxTurns)
+		}
+		if r.Turns == 1 && r.Prompt2 != "" {
+			return fmt.Errorf("row %s: turns 1 cannot have prompt2", r.ID)
+		}
+		if r.Turns > 1 && r.Prompt2 == "" {
+			return fmt.Errorf("row %s: turns %d requires prompt2", r.ID, r.Turns)
+		}
+	}
+	return nil
 }
 
 type trialSpec struct {
@@ -266,7 +287,7 @@ func resultLine(r Result) string {
 func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result {
 	t0 := time.Now()
 	w := newRow(o, r, dir, o.Now().Format("2006-01-02-1504"))
-	res := Result{Row: r.ID, AgyExit: -1, Started: t0, SessionSeconds: -1, Dir: dir}
+	res := Result{Row: r.ID, AgyExit: -1, Started: t0, SetupSeconds: -1, SessionSeconds: -1, CheckSeconds: -1, Dir: dir}
 	finish := func() Result {
 		res.Seconds = int(time.Since(t0).Seconds())
 		res.Reasons = w.b.Reasons()
@@ -278,12 +299,16 @@ func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result 
 		return finish()
 	}
 	if w.prepare(ctx) {
+		res.SetupSeconds = int(time.Since(t0).Seconds())
 		s0 := time.Now()
 		res.AgyExit = w.session(ctx, agy, tok)
 		if w.b.Started() {
 			res.SessionSeconds = int(time.Since(s0).Seconds())
 		}
-		w.afterSession(ctx)
+		c0 := time.Now()
+		if w.afterSession(ctx) {
+			res.CheckSeconds = int(time.Since(c0).Seconds())
+		}
 	}
 	w.b.ExitChecks()
 	if ctx.Err() != nil && !w.b.Has(ReasonInterrupted) {

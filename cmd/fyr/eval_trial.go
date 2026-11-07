@@ -66,9 +66,17 @@ func trialOf(r eval.Result, row eval.Row, key, cli string) metrics.Trial {
 		Cause:  r.Cause, StartedAt: r.Started, Seconds: int64(r.Seconds),
 		RowVersion: row.Version, Kind: row.Kind, Cluster: row.Cluster, Expect: row.Expect,
 	}
+	if r.SetupSeconds >= 0 {
+		s := int64(r.SetupSeconds)
+		t.SetupSeconds = &s
+	}
 	if r.SessionSeconds >= 0 {
 		s := int64(r.SessionSeconds)
 		t.SessionSeconds = &s
+	}
+	if r.CheckSeconds >= 0 {
+		s := int64(r.CheckSeconds)
+		t.CheckSeconds = &s
 	}
 	return t
 }
