@@ -1,11 +1,11 @@
 ## Environment & Stack
 
-- **Local by default.** Build, run, and test on the machine in front of you, the way the project's `DEPLOY-local` record says. Nothing goes to a cloud unless the user says so.
-- **GCP is the only cloud.** When the user says to use GCP, deploy, or push an image, ask for the defaults before doing anything — project ID, region, Artifact Registry repository, service name, the service account it runs as, and whether the service is public — never assume or invent them, never fall back to another project's value, and record them in the project's `DEPLOY-gcp` record so the next session does not ask again. Never suggest another cloud provider.
+- **Local by default.** Build, run and test locally per the project's `DEPLOY-local` record; touch cloud only when asked.
+- **GCP is the only cloud.** Before any GCP deploy or image push, ask for project ID, region, Artifact Registry repo, service name, runtime service account and public/private access — never assume or reuse another project's — and save them in `DEPLOY-gcp`. Never suggest another cloud.
 - **Backend: Go** (`golang` skill): `cmd/<app>/` + `internal/`, `log/slog` JSON logging.
-- **Frontend: TanStack Start + TypeScript + Tailwind**, fully contained in one `web/` or `ui/` directory inside the Go project (`typescript` skill; UI: `frontend-ui-modern` for the app, shadcn/ui on Tailwind; `frontend-ui-economist` for plain HTML/CSS pages and editorial or report UI). Shipped JS runs on plain V8: no Node-only APIs outside the server entry.
-- **Machines:** macOS (Apple Silicon) runs Docker via Colima; Linux boxes use plain Docker. Remote boxes or VMs only on explicit request — ask for access details, never assume them.
-- **Root steps on the operator's own Linux box:** passwordless `sudo -n` is available. When the operator says to run a root step AND the project's `DEPLOY-local` record § Operator steps records the standing permission, run it (look at the target first; record the command and its verification in the change entry); without that record, hand the step back with the exact command.
-- **Build, image and deploy mechanics** (local test first, amd64 images, Artifact Registry paths tagged by git SHA) are the `docker` and `cloud-run-deploy` skills'.
-- **Compute:** Cloud Run first (`cloud-run-deploy` skill); GKE (`gke-basics`) or Compute Engine when Cloud Run does not fit. Infrastructure as code with Terraform (`terraform` skill) when it is more than one service.
-- **Auth:** `gcloud auth login` and `gcloud auth application-default login` (`gcloud-setup` skill). Secrets reach Cloud Run through Secret Manager (`--set-secrets`), never `--set-env-vars`.
+- **Frontend: TanStack Start + TypeScript + Tailwind** in one `web/` or `ui/` directory (`typescript` skill; `frontend-ui-modern` for shadcn/ui app UI; `frontend-ui-economist` for plain HTML/CSS editorial/report UI). Client JS runs on plain V8: no Node APIs outside server entry.
+- **Machines:** Docker via Colima on macOS (Apple Silicon), plain Docker on Linux. Use remote hosts/VMs only when asked; ask for access.
+- **Root steps on Linux:** passwordless `sudo -n` runs only when asked AND `DEPLOY-local` § Operator steps grants standing permission (inspect target first; log command and verification in the `change` record); otherwise return the exact command.
+- **Build and deploy mechanics** (local test first, amd64 images, git-SHA Artifact Registry tags): `docker` and `cloud-run-deploy`.
+- **Compute:** Cloud Run first (`cloud-run-deploy`), else GKE (`gke-basics`) or Compute Engine; Terraform (`terraform`) when managing >1 service.
+- **Auth:** `gcloud auth login` and `gcloud auth application-default login` (`gcloud-setup`). Pass Cloud Run secrets via `--set-secrets`, never `--set-env-vars`.

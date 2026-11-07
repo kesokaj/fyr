@@ -5,7 +5,7 @@ description: "Agy dispatch: read the quota and choose by tier before fyr work or
 
 # Agy dispatch
 
-- Before scheduling `fyr work`, choose each worker's model by tier: a `Model:` line, else `--model`. The `/work` lead copies a plan's and adds none; a task list gets one per task. Before that and before every `fyr eval`, read the quota: `agy -p "/usage"` (no turn, no quota spent).
-- State the tier, the model and the quota left in one line per dispatch.
-- Tiers (IDs: `agy models`): [pro] argon, [flash] flash (Gemini pool); [opus], [sonnet], [gpt-oss] (Claude and GPT pool).
-- A model out: a similar model in the same tier, named with why. A tier out: stop and ask, never a weaker tier. Quota is per pool, so a pool out is every tier in it.
+- Before `fyr work`, pick each worker's model by tier (`Model:` line or `--model`; `/work PLAN-ID` copies the plan's, task lists set one per task). Before `fyr work` or `fyr eval`, check quota via `agy -p "/usage"` (spends no turn/quota).
+- Report tier, model and remaining quota in one line per dispatch.
+- Tiers (`agy models`): [pro] argon, [flash] flash (Gemini pool); [opus], [sonnet], [gpt-oss] (Claude/GPT pool).
+- Model out: pick a peer in the same tier and state why. Tier or pool out: stop and ask, never downgrade.

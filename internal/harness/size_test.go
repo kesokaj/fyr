@@ -15,11 +15,12 @@ import (
 // says 12,000 characters per file). A second file costs the first one room.
 const antigravityRulesBlockBytes = 24000
 
-// renderedContextBudgetBytes is the ceiling this repo pins itself to: an 8%
-// margin under the observed cap (ADR-035). It is never raised by an
+// renderedContextBudgetBytes is the ceiling this repo pins itself to after the
+// D11 Item 35 context diet, inside PRD § Known limits' 22,000-byte cap and
+// Antigravity's 24,000-byte block (ADR-035). It is never raised by an
 // implementer; a rule that does not fit is paid for by a deletion or a
 // merge, or lives in a skill (PRD § Known limits).
-const renderedContextBudgetBytes = 22000
+const renderedContextBudgetBytes = 19500
 
 // TestRenderedContextFitsAntigravityBlock renders THIS checkout the way
 // `fyr install` does and measures the whole block Antigravity would
@@ -51,14 +52,11 @@ func TestRenderedContextFitsAntigravityBlock(t *testing.T) {
 	t.Logf("Antigravity rules block is %d bytes (context %d, rules %d), budget %d", total, len(ctx), rules, renderedContextBudgetBytes)
 }
 
-// renderedContextTargetBytes is the harness's own ceiling for the hand-written
-// context (the render before its generated `## Installed` inventory), under the Antigravity block pin above: the audit of 2026-09-30
-// found the context 94 bytes from that pin, so no rule could be added and no
-// rules/ file deployed (plan audit-fix, C1, D2b). Adherence tracks the number
-// of distinct instructions, not bytes, so the cut moved whole rules into the
-// skill or agent that acts on them. This test fails above 15,000, the only
-// ceiling for the hand-written part (plan 2026-10-25-harness-audit-fix D10).
-const renderedContextTargetBytes = 15000
+// renderedContextTargetBytes is the harness's own pin for the hand-written
+// context (the render before its generated `## Installed` inventory), lowered
+// from PRD G1's 15,000-byte ceiling to 13,000 by the D11 Item 35 context diet
+// (plan 2026-10-25-harness-audit-fix D10; PLAN-2026-11-02-1806-fyr-speed Item 35).
+const renderedContextTargetBytes = 13000
 
 func TestRenderedContextUnderTarget(t *testing.T) {
 	src := DirSource(filepath.Join("..", ".."))

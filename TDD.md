@@ -15,7 +15,7 @@ Implements: M1 · Spec: none (the files are their own spec; the size limits belo
 - **Interfaces:** `context/AGENTS.md`, then `context/dev-setup.md`, rendered by `fyr render` into one file (`~/.gemini/config/rules/AGENTS.md`), plus each `rules/*.md` file — `critical-thinking.md` (ADR-050), `session-sizing.md` (ADR-058, ADR-077), `agy-dispatch.md` (`PLAN.md` D15), `code-modularity.md` (ADR-066) — all in Antigravity's rules directory.
 - **Errors:** a context over its size pin fails `go test ./internal/harness`; a rule with a frontmatter key outside its allow list fails the install's lint.
 - **Configuration:** none; the canary word ends the rendered context.
-- **Size pins** (`internal/harness/size_test.go`): `TestRenderedContextUnderTarget`, the hand-written context (the render before its generated `## Installed` inventory) under 15,000 bytes, the harness's own ceiling and the only one; `TestRenderedContextFitsAntigravityBlock`, the whole render under 22,000 bytes inside Antigravity's 24,000-byte block (ADR-035), which the inventory, growing with every skill, counts toward. A limit is never raised.
+- **Size pins** (`internal/harness/size_test.go`): `TestRenderedContextUnderTarget`, the hand-written context (the render before its generated `## Installed` inventory) pinned at 13,000 bytes inside `PRD.md` G1's 15,000-byte ceiling; `TestRenderedContextFitsAntigravityBlock`, the whole render plus `rules/*.md` pinned at 19,500 bytes inside `PRD.md` § Known limits' 22,000-byte cap and Antigravity's 24,000-byte block (ADR-035), which the inventory, growing with every skill, counts toward. A limit is never raised.
 
 ## T2 — Skills and commands
 
