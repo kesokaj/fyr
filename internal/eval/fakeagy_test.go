@@ -64,6 +64,9 @@ if [ -e "$CTL/child" ]; then sleep 300 </dev/null >/dev/null 2>&1 & echo $! >> "
 if [ -e "$CTL/setsid" ]; then (cd / && exec setsid sleep 301 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/pids"; fi
 if [ -e "$CTL/hang" ]; then touch "$REC/started"; exec sleep 300; fi
 sbdir=$(dirname "$HOME")
+if [ -e "$CTL/check-absent" ]; then
+  if [ -e "$sbdir/check.log" ] || grep -rq "$(cat "$CTL/check-absent")" "$sbdir" 2>/dev/null; then exit 99; fi
+fi
 if [ -e "$CTL/print-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/print-leak")"; fi
 if [ -e "$CTL/clone-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/clone-leak")" > leak.env; fi
 if [ -e "$CTL/fifo" ]; then rm "$sbdir/err.txt"; mkfifo "$sbdir/err.txt" "$sbdir/check.log"; mkdir -p "$conv"; mkfifo "$conv/main.db"; fi

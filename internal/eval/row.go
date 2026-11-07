@@ -176,8 +176,8 @@ const nothingQueuedLine = "Nothing queued; start the next task in a fresh conver
 
 // session is steps 9-10: prompt, then prompt2 (up to r.Turns total sessions
 // when r.Turns > 1, or one follow-up when r.Turns == 0 && r.Prompt2 != "")
-// while the previous session exited 0 on an intact sandbox without printing
-// nothingQueuedLine. It returns the last agy exit status (-1: none, killed).
+// while the previous session exited 0 on an intact sandbox (and for r.Turns > 1,
+// without printing nothingQueuedLine). It returns the last agy exit status (-1: none, killed).
 func (w *row) session(ctx context.Context, agy, tok string) int {
 	vars := map[string]string{"CLONE": w.b.App(), "SB": w.b.Home(), "FIXDIR": w.o.Fixture, "STAMP": w.stamp}
 	rc := w.b.Session(ctx, agy, tok, Expand(w.r.Prompt, vars), "out.txt")

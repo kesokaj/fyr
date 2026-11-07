@@ -187,15 +187,12 @@ func TestRunScriptedTurns(t *testing.T) {
 func TestRunStageSecondsAndHiddenCheck(t *testing.T) {
 	r := newRig(t)
 	const secret = "HIDDEN_CHECK_SECRET_MARKER_509"
-	// During the agy session, no file in the sandbox directory (app or home)
-	// may contain the check marker, nor may check.log exist yet. Once agy
-	// exits and After() unlinks the token, the check runs and sees the
-	// marker in its own script.
+	r.on("check-absent", secret)
 	row := Row{
 		ID:     "stages",
 		Setup:  "echo setup-ok > setup-ran.txt",
 		Prompt: "build",
-		Check:  `test "` + secret + `" = "` + secret + `" && ! grep -rq "` + secret + `" "$CLONE" "$SB" && test -f setup-ran.txt`,
+		Check:  `echo "` + secret + `" && test -f setup-ran.txt && grep -q "agy says ok" "$OUT"`,
 		Grants: "named",
 	}
 	x := one(t, r.run(row))
@@ -203,11 +200,31 @@ func TestRunStageSecondsAndHiddenCheck(t *testing.T) {
 	if x.SetupSeconds < 0 || x.SessionSeconds < 0 || x.CheckSeconds < 0 {
 		t.Errorf("stage seconds = setup %d, session %d, check %d; want all >= 0", x.SetupSeconds, x.SessionSeconds, x.CheckSeconds)
 	}
+	checkLog, err := os.ReadFile(filepath.Join(x.Dir, "check.log"))
+	if err != nil || !strings.Contains(string(checkLog), secret) {
+		t.Errorf("check.log after scoring = %q, %v; want %q", checkLog, err, secret)
+	}
 	for _, f := range []string{"agy.args.1", "agy.env.1", "settings.1"} {
 		if strings.Contains(r.read(f), secret) {
 			t.Errorf("%s leaked the check script marker", f)
 		}
 	}
+
+	// Must-fail control: if Setup plants the check marker inside the sandbox
+	// before agy runs, fakeAgy's mid-session check-absent guard exits 99.
+	rLeak := newRig(t)
+	rLeak.on("check-absent", secret)
+	xLeak := one(t, rLeak.run(Row{
+		ID:     "leaked",
+		Setup:  `echo "` + secret + `" > leaked.txt`,
+		Prompt: "build",
+		Check:  `grep -q "agy says ok" "$OUT"`,
+		Grants: "named",
+	}))
+	if xLeak.AgyExit != 99 {
+		t.Errorf("leaked setup AgyExit = %d, want 99", xLeak.AgyExit)
+	}
+	wantVerdict(t, xLeak, StatusFail, ReasonCheck)
 
 	rErr := newRig(t)
 	xErr := one(t, rErr.run(Row{ID: "err", Setup: "exit 1", Prompt: "p", Check: "true", Grants: "named"}))
