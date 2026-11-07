@@ -261,6 +261,9 @@ func linuxAgy(given, realHome, arch, id string) (string, error) {
 	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() || st.Mode().Perm()&0o111 == 0 {
 		return "", fmt.Errorf("the linux agy %s is not an executable file", path)
 	}
+	if err := sandbox.Mountable(path); err != nil {
+		return "", fmt.Errorf("the linux agy %s: %v", path, err)
+	}
 	want, ok := elfMachine[arch]
 	if !ok {
 		return "", fmt.Errorf("the image's architecture %q is not one --runner docker knows (amd64, arm64)", arch)
@@ -278,8 +281,11 @@ func linuxAgy(given, realHome, arch, id string) (string, error) {
 }
 
 func checkRosetta(id, agyPath string) error {
-	if id == "" || sandbox.Mountable(agyPath) != nil {
+	if id == "" {
 		return nil
+	}
+	if err := sandbox.Mountable(agyPath); err != nil {
+		return err
 	}
 	_, err := docker("run", "--rm", "--pull", "never", "--user", strconv.Itoa(os.Getuid())+":"+strconv.Itoa(os.Getgid()),
 		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--network", "none", "--read-only", "--pids-limit", "64",

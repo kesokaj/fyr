@@ -25,9 +25,9 @@ import (
 // A --home that is the real home, or whose state directory is the real one
 // through a link, is refused: the seal would take the real key, and the join
 // would load the trail the agent wrote into the real brain store. Where eval
-// cannot see the processes a row left (procsChecked false, every system but
-// Linux), one still running could swap the git directory between that check
-// and the write, so nothing is registered and the sessions get no record
+// cannot see the processes a row left (procsChecked false, systems other than
+// Linux and macOS), one still running could swap the git directory between that
+// check and the write, so nothing is registered and the sessions get no record
 // events; that is a known limit there, not a failed ingest, which would make
 // every run exit 1 (the phase's security review, rounds 1 and 2).
 func registerClone(home, sandbox string, procsChecked bool) error {

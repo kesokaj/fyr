@@ -124,7 +124,7 @@ func (b *Box) ExitChecks() {
 			b.Note("processes left by the run (BUG-163); each was sent SIGTERM: %s", strings.Join(found, ", "))
 		}
 		if err != nil {
-			b.Note("the leftover-process check could not read /proc: %v", err)
+			b.Note("the leftover-process check could not inspect running processes: %v", err)
 		}
 		if len(found) > 0 || err != nil {
 			b.Fail(ReasonProcs)

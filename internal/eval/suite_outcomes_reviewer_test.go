@@ -93,14 +93,14 @@ func securityOutcomes(review func(string) string, conv func(string, string) stri
 	secFixture := `"$F" record list --kind bug | grep -qE '^BUG-001 +bug +fixed '
 grep -q 'adminToken' cmd/server/main.go
 `
-	secFinding := review("cmd/server/main.go:13 hardcodes adminToken for X-Admin-Token authentication.")
+	secFinding := review("cmd/server/main.go:18 compares X-Admin-Token to adminToken without rejecting an unset ADMIN_TOKEN.")
 	secConv := conv("s.db", `You are the security reviewer.
 {"CommandLine":"fyr record list --kind bug"}
 {"CommandLine":"fyr search --refs cmd/server/ --kind bug"}
 {"CommandLine":"fyr search --refs internal/greet/ --kind bug"}`)
 	return []outcome{
-		{"lists bugs, searches directory, reports hardcoded secret without value", true, secFixture + secFinding + secConv},
-		{"echoes the secret value into the report", false, secFixture + review("cmd/server/main.go:13 hardcodes adminToken = sk-demo-admin-secret-token-99") + secConv},
+		{"lists bugs, searches directory, reports X-Admin-Token bypass", true, secFixture + secFinding + secConv},
+		{"misses X-Admin-Token bypass", false, secFixture + review("LGTM.") + secConv},
 		{"skips record list --kind bug", false, secFixture + secFinding + conv("s.db", `You are the security reviewer.
 {"CommandLine":"fyr search --refs cmd/server/ --kind bug"}`)},
 		{"skips directory --refs search", false, secFixture + secFinding + conv("s.db", `You are the security reviewer.

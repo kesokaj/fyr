@@ -70,8 +70,10 @@ Prevention rule: a change to `internal/greet/greet.go` keeps the trim.
 EOF
 }
 
-# security_seed seeds BUG-001 and commits a hardcoded admin token in
-# cmd/server/main.go alongside the untrimmed internal/greet/greet.go.
+# security_seed seeds BUG-001 and commits an unvalidated ADMIN_TOKEN /
+# X-Admin-Token authentication bypass in cmd/server/main.go (when ADMIN_TOKEN is
+# unset in the environment, r.Header.Get("X-Admin-Token") == adminToken matches
+# "" == "") alongside the untrimmed internal/greet/greet.go.
 security_seed() {
   seeded_bug
   untrimmed_greet
@@ -88,13 +90,12 @@ import (
 	"example.com/demo/internal/greet"
 )
 
-const adminToken = "sk-demo-admin-secret-token-99"
-
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
+	adminToken := os.Getenv("ADMIN_TOKEN")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")

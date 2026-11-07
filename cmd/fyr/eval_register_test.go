@@ -170,9 +170,9 @@ func TestRegisterCloneRefusals(t *testing.T) {
 }
 
 // skipWithoutProcCheck skips a test of registration on a system where
-// safety check e does not run (O1, no /proc: macOS): registerClone then
-// registers nothing by design, which TestRegisterCloneRefusals'
-// procsChecked=false call pins on every system.
+// safety check e does not run (O1, systems other than Linux and macOS):
+// registerClone then registers nothing by design, which
+// TestRegisterCloneRefusals' procsChecked=false call pins on every system.
 func skipWithoutProcCheck(t *testing.T) {
 	t.Helper()
 	if !eval.ProcsChecked {

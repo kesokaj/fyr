@@ -318,10 +318,26 @@ func setHostOS(t *testing.T, os string) {
 	t.Cleanup(func() { hostOS = old })
 }
 
-// The machine table covers both image architectures.
+// The machine table covers both image architectures, and linuxAgy/checkRosetta
+// reject an unmountable path (such as a path containing a comma) before any
+// docker --mount call.
 func TestELFMachines(t *testing.T) {
 	if elfMachine["amd64"] != elf.EM_X86_64 || elfMachine["arm64"] != elf.EM_AARCH64 || len(elfMachine) != 2 {
 		t.Fatalf("%v", elfMachine)
+	}
+	commaDir := filepath.Join(t.TempDir(), "bad,dir")
+	if err := os.MkdirAll(commaDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commaAgy := filepath.Join(commaDir, "agy-linux")
+	if err := os.WriteFile(commaAgy, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := linuxAgy(commaAgy, "", "arm64", "sha256:1111"); err == nil || !strings.Contains(err.Error(), "cannot hold ','") {
+		t.Errorf("linuxAgy(comma path) = %v, want mount path refusal", err)
+	}
+	if err := checkRosetta("sha256:1111", commaAgy); err == nil || !strings.Contains(err.Error(), "cannot hold ','") {
+		t.Errorf("checkRosetta(comma path) = %v, want mount path refusal", err)
 	}
 }
 
