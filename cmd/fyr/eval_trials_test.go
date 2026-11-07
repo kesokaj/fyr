@@ -100,9 +100,19 @@ func TestEvalVerbParallel(t *testing.T) {
 	r.template("1", "C1")
 	r.template("2", "C2")
 	r.template("3", "C3")
+	if err := os.WriteFile(filepath.Join(r.ctl, "pair"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var gotParallel int
+	prev := evalRun
+	evalRun = func(ctx context.Context, o eval.Options, rows []eval.Row) ([]eval.Result, error) {
+		gotParallel = o.Parallel
+		return prev(ctx, o, rows)
+	}
+	defer func() { evalRun = prev }()
 	out, code := r.eval("--runs", "3", "--parallel", "2", "ok")
-	if code != 0 {
-		t.Fatalf("eval --runs 3 --parallel 2 ok: exit %d\n%s", code, out)
+	if code != 0 || gotParallel != 2 {
+		t.Fatalf("eval --runs 3 --parallel 2 ok: exit %d, parallel %d\n%s", code, gotParallel, out)
 	}
 	i1 := strings.Index(out, "eval: ok#1  PASS")
 	i2 := strings.Index(out, "eval: ok#2  PASS")

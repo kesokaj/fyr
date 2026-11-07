@@ -260,6 +260,6 @@ gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...   # be
 go run ./cmd/fyr install --home .agents/scratch/home                         # never against your real $HOME
 ```
 
-Two tests pin the deployed context's size (`internal/harness/size_test.go`): the hand-written context under 15,000 bytes, and the whole rendered block, skill inventory included, under 22,000 bytes, inside Antigravity's 24,000-byte limit. `govulncheck` has two known, unreachable advisories (`DEPLOY-local` § Operator steps).
+Two tests pin the deployed context's size (`internal/harness/size_test.go`): the hand-written context under 13,000 bytes (inside `PRD.md` G1's 15,000-byte ceiling), and the whole rendered block, skill inventory included, under 19,500 bytes (inside `PRD.md`'s 22,000-byte cap and Antigravity's 24,000-byte limit). `govulncheck` has two known, unreachable advisories (`DEPLOY-local` § Operator steps).
 
 Where to read more: `AGENTS.md` for the rules of this repository; `PRD.md`, `SDD.md` and `TDD.md` for what the harness must do, how it fits and how it is built; `DEPLOY-remote` for the machines, the resync loop and the release procedure (`/preflight vX.Y.Z`, no key); the `adr` records (`fyr record list --kind adr`) for every decision and why.

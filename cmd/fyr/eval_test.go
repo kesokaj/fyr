@@ -30,6 +30,7 @@ while ! mkdir "$REC/agy.lock" 2>/dev/null; do sleep 0.01; done
 n=$(( $(cat "$REC/agy.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$REC/agy.n"
 rmdir "$REC/agy.lock"
 if [ -e "$CTL/hang" ]; then touch "$REC/started"; exec sleep 300; fi
+if [ -e "$CTL/pair" ] && [ "$n" -le 2 ]; then touch "$REC/pair.$n"; for _ in $(seq 1 300); do [ -e "$REC/pair.1" ] && [ -e "$REC/pair.2" ] && break; sleep 0.01; done; [ -e "$REC/pair.1" ] && [ -e "$REC/pair.2" ] || exit 1; fi
 if [ -d "$TPL/$n" ]; then cp -r "$TPL/$n/." "$HOME/.gemini/antigravity-cli/"; fi
 echo "agy says ok"
 `
