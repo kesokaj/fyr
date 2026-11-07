@@ -52,7 +52,7 @@ Backup and versioning only: no CI, no hooks. Commit and push to the current bran
 
 - Never commit or hardcode secrets. Never hand-roll auth, crypto, password hashing, sessions or JWT/OIDC (vetted libraries only; stdlib `crypto/*` as designed is fine). Otherwise stdlib first.
 - Get dates/timestamps from the shell (`date +%F`, `date +%F-%H%M`), never memory; run alone if a CLI refuses pipes.
-- Check `git diff --numstat` before committing (`-` in both columns is a binary); before `rm -r`, run `git ls-files <dir>` and delete by name; an unexpected ` D` or deletions in an "added" commit is a stop sign.
+- Check `git diff --numstat` before committing (`-` in both columns is a binary); never `rm -r`: run `git ls-files <dir>` and `git rm` by name; an unexpected ` D` or deletions in an "added" commit is a stop sign.
 - `PRD.md` is immutable without explicit approval: propose exact edit → approval → ADR → update `PRD.md` and `TODO.md` in one commit. Non-drift rules go to `PRD.md` first.
 - Put every generated or temporary file in the project scratch folder `.agents/scratch/` (gitignored), never `/tmp`, never beside source; `go run` must never dirty the tree.
 - Lead with what is broken; state severity and confidence; never restate a failure as success.

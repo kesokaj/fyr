@@ -247,15 +247,6 @@ func readRecordSuite(home, root string, atHead bool) ([]eval.Row, error) {
 	}
 	work, found := findRecord(recs, suiteID)
 	if !ok || !found {
-		if real, rerr := os.UserHomeDir(); rerr == nil && real != "" && real != home {
-			recs, ok, err = brain.ReadScope(real, root)
-			if err != nil {
-				return nil, err
-			}
-			work, found = findRecord(recs, suiteID)
-		}
-	}
-	if !ok || !found {
 		return nil, fmt.Errorf("no %s record in %s", suiteID, filepath.Join(root, ".agents", "trail.jsonl"))
 	}
 	if atHead {

@@ -1,8 +1,11 @@
 package work
 
 import (
+	"context"
 	"fmt"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 // The runners of --runner (SPEC-fyr-work § --runner): auto, the verb's
@@ -62,6 +65,14 @@ func ChooseRunner(o *Options, preflight func(Options) error) (runner, reason str
 // preflight; RunnerDocker returns its refusal as the error; RunnerHost and
 // "" are the host, o.RunnerReason or "--runner host".
 func Check(o Options) (runner, reason string, err error) {
+	if o.Home != "" && o.RealHome != "" {
+		if err := checkWorkRoots(o, sandbox.Root(o.Home, "work")); err != nil {
+			return "", "", err
+		}
+	}
+	if err := checkModels(context.Background(), o, nil); err != nil {
+		return "", "", err
+	}
 	o.build = buildPredict
 	var p prepared
 	switch o.Runner {

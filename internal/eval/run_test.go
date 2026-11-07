@@ -48,6 +48,7 @@ func newRig(t *testing.T) *rig {
 	put(t, filepath.Join(r.real, harness.StateDir, "brain.db"), "store", 0o600)
 	sub := strings.NewReplacer("@CTL@", sandbox.ShellQuote(r.ctl), "@REC@", sandbox.ShellQuote(r.rec))
 	put(t, filepath.Join(r.bin, "agy"), sub.Replace(fakeAgy), 0o755)
+	prepProcsTools(t, r.bin)
 	r.self = filepath.Join(tmp, "self")
 	put(t, r.self, sub.Replace(fakeSelf), 0o755)
 	t.Setenv("PATH", r.bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -63,6 +64,30 @@ func newRig(t *testing.T) *rig {
 		}
 	})
 	return r
+}
+
+func prepProcsTools(t *testing.T, binDir string) {
+	t.Helper()
+	if _, err := exec.LookPath("setsid"); err != nil {
+		src := filepath.Join(binDir, "setsid.c")
+		put(t, src, "#include <unistd.h>\nint main(int c, char **v){setsid(); execvp(v[1], v+1); return 127;}\n", 0o644)
+		if cc, err := exec.LookPath("cc"); err == nil {
+			if out, err := exec.Command(cc, "-o", filepath.Join(binDir, "setsid"), src).CombinedOutput(); err != nil {
+				t.Fatalf("cc setsid: %v\n%s", err, out)
+			}
+		} else {
+			put(t, filepath.Join(binDir, "setsid"), "#!/bin/sh\nexec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- \"$@\"\n", 0o755)
+		}
+	}
+	if cs, err := exec.LookPath("codesign"); err == nil {
+		if sleep, err := exec.LookPath("sleep"); err == nil {
+			if b, err := os.ReadFile(sleep); err == nil {
+				dst := filepath.Join(binDir, "sleep")
+				put(t, dst, string(b), 0o755)
+				_ = exec.Command(cs, "-f", "-s", "-", dst).Run()
+			}
+		}
+	}
 }
 
 func (r *rig) git(args ...string) {

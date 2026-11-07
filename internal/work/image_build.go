@@ -247,7 +247,11 @@ func checkImageVersion(o Options, ref, id, arch string) (string, string, error) 
 		predicted, parch, berr := buildOrPredict(o)
 		switch {
 		case berr != nil:
-			verr = fmt.Errorf("%v (auto-build failed: %v)", verr, berr)
+			if verr != nil {
+				verr = fmt.Errorf("%v (auto-build failed: %v)", verr, berr)
+			} else {
+				verr = fmt.Errorf("auto-build failed: %v", berr)
+			}
 		case predicted:
 			return "", parch, nil
 		default:
@@ -257,8 +261,11 @@ func checkImageVersion(o Options, ref, id, arch string) (string, string, error) 
 			}
 		}
 	}
-	if verr != nil || got != o.Version {
+	if verr != nil {
 		return "", "", fmt.Errorf("--image %s holds fyr %q, not this fyr's %s (%v); rebuild it: %s", ref, got, o.Version, verr, BuildLine)
+	}
+	if got != o.Version {
+		return "", "", fmt.Errorf("--image %s holds fyr %q, not this fyr's %s; rebuild it: %s", ref, got, o.Version, BuildLine)
 	}
 	imageVersionCache.Store(imageVersionKey{home: stageHome(o), id: id}, got)
 	return id, arch, nil

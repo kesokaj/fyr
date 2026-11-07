@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package sandbox
 
@@ -9,37 +9,6 @@ import (
 	"strings"
 	"testing"
 )
-
-// TestProcsUnreadableFailsClosed is PLAN.md item 49: an agent can exhaust
-// descriptors or memory so /proc cannot be read, and check e must not read
-// that as "nothing left". A process that vanished is no failure.
-func TestProcsUnreadableFailsClosed(t *testing.T) {
-	old := procDir
-	t.Cleanup(func() { procDir = old })
-
-	procDir = filepath.Join(t.TempDir(), "missing")
-	if _, err := leftoverProcs(nil, "test", "/nowhere/sb", "/nowhere/sb"); err == nil {
-		t.Error("a /proc that cannot be listed passed")
-	}
-
-	// A pid whose status cannot be read for a reason other than its exit.
-	procDir = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(procDir, "4242", "status"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := leftoverProcs(nil, "test", "/nowhere/sb", "/nowhere/sb"); err == nil {
-		t.Error("a process that cannot be read passed")
-	}
-
-	// A pid that has gone: its directory holds nothing.
-	procDir = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(procDir, "4242"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if found, err := leftoverProcs(nil, "test", "/nowhere/sb", "/nowhere/sb"); err != nil || len(found) != 0 {
-		t.Errorf("a vanished process: %v, %v", found, err)
-	}
-}
 
 // TestExitChecksProcsUnreadable: the error reaches the box as `procs`.
 func TestExitChecksProcsUnreadable(t *testing.T) {

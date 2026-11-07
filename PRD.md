@@ -1,7 +1,7 @@
 # PRD — fyr
 
 What `fyr` and the harness are for, who they serve, and what must never drift.
-Status: current · Owner: the operator · Last updated: 2026-11-02 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Owner: the operator · Last updated: 2026-11-07 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
@@ -26,7 +26,7 @@ An Antigravity CLI session starts with no memory of the last one and carries onl
 
 - Hooks of any kind. Researched and rejected 2026-09-03 (ADR-007, `PLAN-2026-09-03-research-hooks`); the harness is enforced by reading, not by gates (R3's two exceptions apart).
 - Plugin or marketplace packaging: a namespace would rename every skill and agent.
-- Editing any vendor setting of a real home: the harness is files in the customization directories, nothing else; the one vendor file `fyr` writes is the `settings.json` of a sandbox HOME — `fyr eval`'s under `~/.config/fyr/eval/<project>/`, `fyr work`'s under `~/.config/fyr/sandbox/<project>/` — never the operator's (ADR-062, ADR-065, ADR-076, ADR-503).
+- Editing any vendor setting of a real home: the harness is files in the customization directories, nothing else; the one vendor file `fyr` writes is the `settings.json` of a sandbox or private dream HOME — `fyr eval`'s under `~/.config/fyr/eval/<project>/`, `fyr work`'s under `~/.config/fyr/sandbox/<project>/`, and `fyr dream`'s private home under `~/.config/fyr/dream-agy-home-<pid>/` — never the operator's (ADR-062, ADR-065, ADR-073, ADR-076, ADR-503, ADR-510).
 - Symlinking the customization directory to the checkout or a shared store: a copy has no dangling-symlink failure mode, and a release-binary place has no checkout to link to.
 
 ## Must — non-negotiable
@@ -111,7 +111,7 @@ None.
 - **Antigravity global rules path.** The CLI's customization root is `~/.gemini/config/`; rules there are documented for the workspace form (`.agents/rules/*.md`) and by analogy for the global one. Verified on the Linux box 2026-09-03 (`TEST-2026-09-03-verify-real-home` (`fyr record get`)): the CLI reads rules, skills, and agents from there. Confirmed on the Mac for Antigravity on 2026-09-04 (`TEST-2026-09-04-verify-mac-real-home`).
 - **Antigravity tool names cannot be enumerated.** An unrecognised name in an agent's `tools:` hangs the subagent, so `fyr install` fails on any tool name it does not know rather than guessing.
 - **Antigravity IDE is out of scope.** Only the `agy` CLI is targeted; the IDE's global paths are unverified.
-- **`fyr work` on macOS has no leftover-process check on the host runner.** Without /proc the check that a worker left no process does not run; the final process-group kill still does, as for `fyr eval` (ADR-076). With `--runner docker` the session's processes live in Colima's VM: the check lists the worker's container by its labels and fails the worker on one left running, while the host process scan still does not run (ADR-079). Under the default `--runner auto`, a Mac whose docker is not ready runs its workers on the host and so without the container check; the stamp line names the host and why. `/work` on a task list waits for the operator's go before such a run; `/work PLAN-ID`, whose go is the plan's approval, asks none (ADR-504, ADR-507).
+- **`fyr work` on macOS and `--runner auto` host fallback.** On macOS, safety check e (`leftoverProcs`, `internal/sandbox/procs_darwin.go`) scans the operator's processes with `/usr/sbin/lsof` (`cwd`, `txt`) and `/bin/ps -Eww` (`HOME=<SB>` environment and command line) alongside the final process-group kill (`fyr eval` and `fyr work`, ADR-076, ADR-510), rather than Linux `/proc`. With `--runner docker` the session's processes live in Colima's VM and check e also lists the worker's container by its labels and fails the worker on one left running (ADR-079). Under the default `--runner auto`, a machine whose docker is not ready runs its workers on the host without container isolation; the stamp line names the host and why, and `/work` — both on a task list and on `/work PLAN-ID` — runs `fyr work --check`, passes `--runner`, and waits for the operator's go before a run that falls back to the host (ADR-504, ADR-507, ADR-510).
 - **Antigravity has no compaction window a file can set.** A session compacts when the CLI decides; the session-sizing rule (`rules/session-sizing.md`, ADR-058) is the only mechanism that ends a session at its checkpoint.
 
 ## Open questions

@@ -16,12 +16,13 @@ printf '.agents/scratch/*\n' >.gitignore
 	}
 	skipped := "- [-] Cold-reader check — skipped: one phase, under 5 files"
 	body := func(kind, text string) string { return "rec " + kind + " --title t <<<'" + text + "'\n" }
-	editPlan := "printf '# PLAN\\n\\n- [x] A tab-only name greets the world: TestHelloTab\\n- [x] Checkpoint\\n' | \"$F\" record edit PLAN-2026-11-02-greet-tab --body\n"
+	editPlan := "printf '# PLAN\\n\\n- [x] A tab-only name greets the world: TestHelloTab\\n- [x] Checkpoint\\n- [ ] Document padding behaviour in README.md\\n- [ ] Checkpoint\\n' | \"$F\" record edit PLAN-2026-11-02-greet-tab --body\n"
+	storeRecs := "for f in .agents/scratch/work/2026-11-02-1200/greet-tab-p1/records/*.md; do id=$(basename \"$f\" .md); rec \"$(printf '%s' \"${id%%-*}\" | tr A-Z a-z)\" --id \"$id\" --title-file \"${f%.md}.title\" <\"$f\"; done\n"
 	bug := "rec bug --title 'Bug: Hello accepted a tab-only name' <.agents/scratch/work/2026-11-02-1200/greet-tab-p1/bug-tab.md\n"
 	merge := "git -c merge.directoryRenames=false merge -q --squash work/greet-tab-p1\n" +
 		"git commit -qm 'PLAN-2026-11-02-greet-tab p1 (work/greet-tab-p1)'\n"
 	drop := "git branch -qD work/greet-tab-p1\n"
-	work := merge + drop + editPlan + bug
+	work := merge + drop + storeRecs + editPlan + bug
 	feedback := "\"$F\" record add feedback --global --project \"$PWD\" --title 'Logs go through log/slog' <<<'{\"correction\": \"use log/slog, never fmt.Println\"}' >/dev/null\n"
 	memory := func(name, text string) string {
 		return "\"$F\" memory add --type feedback --name " + name + " --description '" + text + "' <<<'" + text + "' >/dev/null\n"
@@ -62,12 +63,17 @@ printf '.agents/scratch/*\n' >.gitignore
 			{"kickoff without the task", false, body("handoff", "# Handoff\n\n## Kickoff\n\nCarry on.")},
 		},
 		"work": {
-			{"merged, ticked, bug stored", true, work},
+			{"merged p1, undid duplicate-ID p2, ticked p1, stored records and bug", true, work},
 			{"wrong commit subject", false, strings.Replace(work, "p1 (work/greet-tab-p1)", "merge the worker", 1)},
-			{"branch kept", false, merge + editPlan + bug},
-			{"plan not ticked", false, merge + drop + bug},
+			{"branch kept", false, merge + storeRecs + editPlan + bug},
+			{"duplicate-ID worker merged anyway", false, work + "git -c merge.directoryRenames=false merge -q --squash work/greet-pad-p2 && git commit -qm 'PLAN-2026-11-02-greet-tab p2 (work/greet-pad-p2)'\n"},
+			{"duplicate-ID branch deleted", false, work + "git branch -qD work/greet-pad-p2\n"},
+			{"duplicate-ID handoff stored", false, work + "rec handoff --id HANDOFF-2026-11-02-1210-greet-pad-p2 --title-file .agents/scratch/work/2026-11-02-1200/greet-pad-p2/records/HANDOFF-2026-11-02-1210-greet-pad-p2.title <.agents/scratch/work/2026-11-02-1200/greet-pad-p2/records/HANDOFF-2026-11-02-1210-greet-pad-p2.md\n"},
+			{"records not stored", false, merge + drop + editPlan + bug},
+			{"plan not ticked", false, merge + drop + storeRecs + bug},
+			{"phase 2 ticked too", false, strings.ReplaceAll(work, "- [ ]", "- [x]")},
 			{"bug stored twice", false, work + bug},
-			{"bug not stored", false, merge + drop + editPlan},
+			{"bug not stored", false, merge + drop + storeRecs + editPlan},
 			{"left dirty", false, work + "echo x >>README.md\n"},
 		},
 		"retro": {

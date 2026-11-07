@@ -144,18 +144,25 @@ func (c *ctx) workCheckRun(files []string) error {
 	if _, err := work.LoadConfig(c.home); err != nil {
 		return c.workRefuse("%v", err)
 	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	_, root, err := trail.Roots(wd)
+	if err != nil {
+		return c.workRefuse("%s is not a git checkout", wd)
+	}
+	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
+	if err != nil {
+		return c.workRefuse("%v", err)
+	}
 	realHome, err := os.UserHomeDir()
 	if err != nil {
 		return c.workRefuse("no home directory: %v", err)
 	}
-	var root string
-	if wd, err := os.Getwd(); err == nil {
-		_, root, _ = trail.Roots(wd)
-	}
-	src, _ := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
 	got, reason, err := work.Check(work.Options{
 		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: c.workRunner,
-		Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion(),
+		Image: c.workImage, AgyLinux: c.workAgyLinux, Model: c.workModel, Version: buildVersion(),
 	})
 	if err != nil {
 		return c.workRefuse("%v", err)
@@ -243,7 +250,10 @@ func (c *ctx) workConfigRun(rest []string) error {
 	}
 	cfg, err := work.LoadConfig(c.home)
 	if err != nil {
-		return c.workRefuse("%v", err)
+		if !c.workConfigVisited() {
+			return c.workRefuse("%v", err)
+		}
+		cfg = work.DefaultConfig()
 	}
 	if seen["max-workers"] || seen["workers"] {
 		cfg.Workers = c.workMax

@@ -3,7 +3,9 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -27,6 +30,7 @@ const (
 	WorkTokenRel  = harness.StateDir + "/work/antigravity-oauth-token"
 	WorkAgyRel    = harness.StateDir + "/work/agy-linux"
 	WorkConfigRel = harness.StateDir + "/work/config.json"
+	workSlotsLock = "slots.lock"
 
 	keychainPrefix  = "go-keyring-base64:"
 	keychainService = "gemini"
@@ -197,11 +201,42 @@ func mkdirExisting(dir string) error {
 	return nil
 }
 
+func lockWorkSlots(workDir string, create bool) (func(), error) {
+	flags := os.O_RDONLY | syscall.O_NOFOLLOW
+	if create {
+		flags = os.O_RDWR | os.O_CREATE | syscall.O_NOFOLLOW
+	}
+	f, err := os.OpenFile(filepath.Join(workDir, workSlotsLock), flags, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a regular file", f.Name())
+	}
+	if err == nil {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+	}
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}
+
 func writeWorkToken(home, wp string, data []byte) error {
 	workDir, err := EnsureWorkDir(home)
 	if err != nil {
 		return err
 	}
+	unlock, err := lockWorkSlots(workDir, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if st, err := os.Lstat(wp); err == nil && !st.Mode().IsRegular() {
 		return fmt.Errorf("%s is not a regular file", wp)
 	}
@@ -229,6 +264,36 @@ func writeWorkToken(home, wp string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// isKeychainSyncedWorkToken reports whether afterPrint is the entryPrint of
+// realHome's WorkTokenRel as written by SyncWorkToken from the macOS Keychain
+// under the work root's slots.lock (BUG-513, ADR-503).
+func isKeychainSyncedWorkToken(realHome, afterPrint string) bool {
+	if hostOS != "darwin" || realHome == "" || afterPrint == "" || CheckWorkDir(realHome) != nil {
+		return false
+	}
+	workDir := filepath.Join(realHome, filepath.FromSlash(filepath.Dir(WorkTokenRel)))
+	unlock, err := lockWorkSlots(workDir, false)
+	if err != nil {
+		return false
+	}
+	defer unlock()
+	kc := filepath.Join(realHome, filepath.FromSlash(KeychainsRel))
+	if info, err := os.Lstat(kc); err != nil || !info.IsDir() {
+		return false
+	}
+	raw, err := readKeychainToken(kc)
+	if err != nil {
+		return false
+	}
+	data, err := DecodeKeychainToken(raw)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	want := fmt.Sprintf("%s %v size %d sha256 %s", os.FileMode(0).Type(), os.FileMode(0o600).Perm(), len(data), hex.EncodeToString(sum[:]))
+	return afterPrint == want
 }
 
 // SyncWorkToken materializes the container OAuth token file for a docker-mode

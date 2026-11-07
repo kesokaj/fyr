@@ -46,8 +46,15 @@ func TestDockerAutoBuildFromEmbedded(t *testing.T) {
 		t.Errorf("buildx args = %q", buildArgs)
 	}
 
-	// Stale image version is rebuilt automatically from embedded docker/work.Dockerfile.
+	// Stale image version is rebuilt automatically from embedded docker/work.Dockerfile,
+	// and a failed rebuild of a stale image formats no "<nil>" in the error.
+	r.on("docker-id", "sha256:"+strings.Repeat("2", 64))
 	r.on("docker-version", "vold")
+	r.on("docker-build-fail", "")
+	if err := DockerPreflight(o); err == nil || !strings.Contains(err.Error(), `holds fyr "vold", not this fyr's vtest (auto-build failed:`) || strings.Contains(err.Error(), "<nil>") {
+		t.Fatalf("stale image rebuild failure: %v", err)
+	}
+	os.Remove(filepath.Join(r.ctl, "docker-build-fail"))
 	if err := DockerPreflight(o); err != nil {
 		t.Fatalf("auto-rebuild stale image: %v", err)
 	}
@@ -99,6 +106,13 @@ func TestDockerMacKeychainAndRosetta(t *testing.T) {
 		}
 	}
 
+	// When the VM lacks Rosetta, EM_X86_64 is refused on darwin arm64.
+	r.on("docker-no-rosetta", "")
+	if err := DockerPreflight(o); err == nil || !strings.Contains(err.Error(), "built for EM_X86_64, the image for arm64") {
+		t.Errorf("EM_X86_64 without Rosetta accepted: %v", err)
+	}
+	os.Remove(filepath.Join(r.ctl, "docker-no-rosetta"))
+
 	// Unsupported ELF architecture (EM_RISCV) is still refused.
 	src := fakeELF(t, elf.EM_RISCV)
 	b, _ := os.ReadFile(src)
@@ -133,6 +147,10 @@ func TestWorkConfigAndResourceClamping(t *testing.T) {
 	}
 	if want := "work config: workers=12  ram=16g  cpu=6  disk=20g"; got.String() != want {
 		t.Errorf("String() = %q, want %q", got.String(), want)
+	}
+	os.WriteFile(ConfigPath(home), []byte(`{"workers":99,"ram_gb":8,"cpus":2,"disk_gb":10}`), 0o600)
+	if _, err := LoadConfig(home); err == nil || !strings.Contains(err.Error(), ConfigPath(home)) {
+		t.Errorf("LoadConfig out-of-range error did not name %s: %v", ConfigPath(home), err)
 	}
 
 	for _, bad := range []Config{

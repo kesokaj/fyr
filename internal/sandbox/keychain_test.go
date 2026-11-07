@@ -144,8 +144,7 @@ func TestCheckLoginMacKeychainTokenSync(t *testing.T) {
 	}
 
 	// A symlinked work/ directory is refused by both CheckWorkLogin and SyncWorkToken.
-	os.Remove(wantPath)
-	os.Remove(filepath.Dir(wantPath))
+	os.RemoveAll(filepath.Dir(wantPath))
 	if err := os.Symlink(tmp, filepath.Dir(wantPath)); err != nil {
 		t.Fatal(err)
 	}
@@ -174,19 +173,45 @@ func TestFingerprintWorkDir(t *testing.T) {
 	write("work/agy-linux", "elf-v1", 0o755)
 	write("work/config.json", `{"workers":8}`, 0o600)
 
-	// A token created during a run fails check c, even at 0600 (BUG-511); an
-	// in-place token refresh does not, and sandbox/ and dev/ are skipped.
+	// A token created or overwritten by a worker during a run fails check c,
+	// even at 0600 (BUG-511, ADR-503), while sandbox/ and dev/ writes are skipped.
 	before := fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t1"}`, 0o600)
-	if got := changedPaths(before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
+	if got := changedPathsIn(real, before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
 		t.Errorf("a 0600 token created during a run: got %v, want it flagged", got)
 	}
 	before = fingerprintWith(real, false, nil)
 	write("work/antigravity-oauth-token", `{"access_token":"t2-longer"}`, 0o600)
 	write("sandbox/fyr/2026-11-04-120000-1/fix-a/home/x", "worker", 0o644)
 	write("dev/fyr-eval/home/x", "dev", 0o644)
-	if got := changedPaths(before, fingerprintWith(real, false, nil)); len(got) != 0 {
-		t.Errorf("in-place token refresh or sandbox/dev write changed fingerprint: %v", got)
+	if got := changedPathsIn(real, before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
+		t.Errorf("in-place token overwrite: got %v, want only WorkTokenRel flagged", got)
+	}
+
+	// A concurrent SyncWorkToken from realHome's macOS Keychain under slots.lock
+	// passes changedPathsIn on first creation and refresh (BUG-513), while
+	// tampering with the synced file is still flagged.
+	os.Remove(filepath.Join(real, filepath.FromSlash(WorkTokenRel)))
+	t.Cleanup(SetHostOS("darwin"))
+	kc := filepath.Join(real, filepath.FromSlash(KeychainsRel))
+	if err := os.MkdirAll(kc, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kc, "login.keychain-db"), []byte("kc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	raw := keychainPrefix + base64.StdEncoding.EncodeToString([]byte(`{"access_token":"kc-tok-1","token_type":"Bearer"}`))
+	t.Cleanup(SetKeychainReader(func() (string, error) { return raw, nil }))
+	before = fingerprintWith(real, false, nil)
+	if _, err := SyncWorkToken(real, real, "darwin"); err != nil {
+		t.Fatalf("SyncWorkToken: %v", err)
+	}
+	if got := changedPathsIn(real, before, fingerprintWith(real, false, nil)); len(got) != 0 {
+		t.Errorf("concurrent Keychain SyncWorkToken flagged by check c: %v", got)
+	}
+	write("work/antigravity-oauth-token", `{"access_token":"planted"}`, 0o600)
+	if got := changedPathsIn(real, before, fingerprintWith(real, false, nil)); !slices.Equal(got, []string{filepath.FromSlash(WorkTokenRel)}) {
+		t.Errorf("planted token over Keychain sync: got %v, want it flagged", got)
 	}
 
 	// Modifying agy-linux, config.json, or token permissions fails check c.

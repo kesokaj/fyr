@@ -38,7 +38,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 case "$runner" in
-  auto | docker) label="runner docker" ;;
+  auto)
+    if [ -f .agents/scratch/eval/work-host-reason ]; then
+      label="runner host ($(cat .agents/scratch/eval/work-host-reason))"
+    else
+      label="runner docker"
+    fi ;;
+  docker)
+    if [ -f .agents/scratch/eval/work-host-reason ]; then
+      refuse "$(cat .agents/scratch/eval/work-host-reason)"
+    fi
+    label="runner docker" ;;
   host) label="runner host (--runner host)" ;;
   *) refuse "--runner \"$runner\": give auto, host or docker" ;;
 esac

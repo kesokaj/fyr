@@ -85,6 +85,12 @@ func TestGitDirClean(t *testing.T) {
 		{"a config too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "config"), strings.Repeat("#", maxConfigFile+1), 0o644)
 		}, "config"},
+		{"a reftable too big", func(t *testing.T, git string) {
+			if err := os.MkdirAll(filepath.Join(git, "reftable"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			put(t, filepath.Join(git, "reftable", "0001.ref"), strings.Repeat("0", maxConfigFile+1), 0o644)
+		}, "reftable/0001.ref"},
 		{"a HEAD too big", func(t *testing.T, git string) {
 			put(t, filepath.Join(git, "HEAD"), strings.Repeat("0", maxRefFile+1), 0o644)
 		}, "HEAD"},

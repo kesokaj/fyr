@@ -68,7 +68,7 @@ func gitDirProblem(git string) string {
 		switch {
 		case rel == "HEAD" || strings.HasPrefix(rel, "refs"+string(filepath.Separator)):
 			limit = maxRefFile
-		case rel == "config":
+		case rel == "config" || strings.HasPrefix(rel, "reftable"+string(filepath.Separator)):
 			limit = maxConfigFile
 		default:
 			return nil

@@ -119,7 +119,7 @@ func (p *prepared) dockerRefusals(o Options) error {
 	if err != nil {
 		return err
 	}
-	agy, err := linuxAgy(o.AgyLinux, o.RealHome, arch)
+	agy, err := linuxAgy(o.AgyLinux, o.RealHome, arch, id)
 	if err != nil {
 		return err
 	}
@@ -230,8 +230,8 @@ func imageVersion(id string) (string, error) {
 // linuxAgy is the agy the container mounts: --agy-linux, else
 // <realHome>/.config/fyr/work/agy-linux (ADR-503), else on a linux host the
 // host's own. On darwin with an arm64 image, both EM_AARCH64 and EM_X86_64
-// (via Colima --vz-rosetta, D8) are accepted.
-func linuxAgy(given, realHome, arch string) (string, error) {
+// (verified via checkRosetta when the image exists, D8) are accepted.
+func linuxAgy(given, realHome, arch, id string) (string, error) {
 	path := given
 	if path == "" && realHome != "" {
 		wp := filepath.Join(realHome, filepath.FromSlash(sandbox.WorkAgyRel))
@@ -270,11 +270,22 @@ func linuxAgy(given, realHome, arch string) (string, error) {
 		return "", fmt.Errorf("the linux agy %s is not an ELF binary: %v", path, err)
 	}
 	defer f.Close()
-	rosetta := hostOS == "darwin" && arch == "arm64" && f.Machine == elf.EM_X86_64
+	rosetta := hostOS == "darwin" && arch == "arm64" && f.Machine == elf.EM_X86_64 && checkRosetta(id, path) == nil
 	if f.Machine != want && !rosetta {
 		return "", fmt.Errorf("the linux agy %s is built for %s, the image for %s", path, f.Machine, arch)
 	}
 	return path, nil
+}
+
+func checkRosetta(id, agyPath string) error {
+	if id == "" || sandbox.Mountable(agyPath) != nil {
+		return nil
+	}
+	_, err := docker("run", "--rm", "--pull", "never", "--user", strconv.Itoa(os.Getuid())+":"+strconv.Itoa(os.Getgid()),
+		"--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--network", "none", "--read-only", "--pids-limit", "64",
+		"--mount", "type=bind,src="+agyPath+",dst="+sandbox.ContainerAgy+",readonly",
+		id, sandbox.ContainerAgy, "--version")
+	return err
 }
 
 // makeNetwork is a docker-mode run's network, made after the refusals and

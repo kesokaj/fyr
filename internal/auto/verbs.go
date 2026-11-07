@@ -78,6 +78,7 @@ func runMarkedTest(wtDir, runner, cmdLine string, timeout time.Duration) error {
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
 		"--user", uid, "-v", wtDir+":/work:rw", "-w", "/work", "fyr-work:local", "bash", "-c", cmdLine)
+	cmd.Env = sandbox.DockerEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
 	}

@@ -309,8 +309,8 @@ var pages = map[string]verbPage{
 			"--model, is its agy model, checked against agy models. Each branch is fetched",
 			"back, checked against Files:, and reported in at most 39 lines. --runner auto",
 			"(default) is docker, a hardened container of --image with a linux agy, when its",
-			"preflight passes, else the host; stamp and result lines, and --check, say which",
-			"and why. --kill <stamp> ends it. Exit 0 all PASS, 1 any FAIL, 2 refused.",
+			"preflight passes, else host; stamp and result lines, and --check, say which and",
+			"why (SPEC-fyr-work). --kill <stamp> ends it. Exit 0 PASS, 1 FAIL, 2 refused.",
 		},
 	},
 	"check": {

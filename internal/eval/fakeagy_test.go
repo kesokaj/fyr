@@ -61,7 +61,7 @@ if [ -e "$CTL/leak" ]; then printf 'GH_TOKEN=%s\n' "$(cat "$CTL/leak")" > "$HOME
 if [ -e "$CTL/realconfig" ]; then echo x >> "$(cat "$CTL/realconfig")"; fi
 if [ -e "$CTL/replace-token" ]; then rm "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"; echo copy > "$HOME/.gemini/antigravity-cli/antigravity-oauth-token"; fi
 if [ -e "$CTL/child" ]; then sleep 300 </dev/null >/dev/null 2>&1 & echo $! >> "$REC/pids"; fi
-if [ -e "$CTL/setsid" ]; then (cd / && exec setsid sleep 301 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/pids"; fi
+if [ -e "$CTL/setsid" ]; then (cd / && exec setsid sleep 301 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/pids"; sleep 0.05; fi
 if [ -e "$CTL/hang" ]; then touch "$REC/started"; exec sleep 300; fi
 sbdir=$(dirname "$HOME")
 if [ -e "$CTL/check-absent" ]; then
@@ -71,7 +71,7 @@ if [ -e "$CTL/print-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/print-leak")"; fi
 if [ -e "$CTL/clone-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/clone-leak")" > leak.env; fi
 if [ -e "$CTL/fifo" ]; then rm "$sbdir/err.txt"; mkfifo "$sbdir/err.txt" "$sbdir/check.log"; mkdir -p "$conv"; mkfifo "$conv/main.db"; fi
 if [ -e "$CTL/link-cli" ]; then mv "$HOME/.gemini/antigravity-cli" "$HOME/.gemini/cli.moved"; ln -s "$(cat "$CTL/link-cli")" "$HOME/.gemini/antigravity-cli"; fi
-if [ -e "$CTL/decoy" ]; then (cd "$(cat "$CTL/decoy")" && HOME=/nowhere exec setsid sleep 303 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/decoy"; fi
+if [ -e "$CTL/decoy" ]; then d=$(cat "$CTL/decoy"); (cd "$d" && HOME=/nowhere exec setsid sleep 303 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/decoy"; sleep 0.05; fi
 if [ -e "$CTL/swap" ]; then for d in app home; do mv "$sbdir/$d" "$sbdir/$d.moved"; ln -s "$(cat "$CTL/swap")" "$sbdir/$d"; done; fi
 echo "stderr $n" >&2
 echo "agy says ok"; echo "session $n"

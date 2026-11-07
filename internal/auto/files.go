@@ -185,16 +185,40 @@ func oneLine(s string) string {
 }
 
 // lineLimit bounds a quoted line in the log, the state and a report: a tool's
-// output or a project's file is not trusted to be short.
-const lineLimit = 500
+// output or a project's file is not trusted to be short. maxBeforeBranch caps
+// any error/reason prefix before "; branch <b> kept" so the kept branch never
+// falls past lineLimit (BUG-506).
+const (
+	lineLimit       = 500
+	maxBeforeBranch = 200
+)
 
 // short is oneLine cut to lineLimit runes, which says it was cut.
 func short(s string) string {
-	s = oneLine(s)
+	s = capBeforeBranch(oneLine(s))
 	if r := []rune(s); len(r) > lineLimit {
 		return string(r[:lineLimit]) + "..."
 	}
 	return s
+}
+
+func capBeforeBranch(line string) string {
+	head, tail, ok := strings.Cut(line, "; branch ")
+	if !ok {
+		return line
+	}
+	prop := ""
+	if h, p, ok := strings.Cut(head, "; proposal "); ok {
+		head, prop = h, "; proposal "+p
+	}
+	if r := []rune(head); len(r) > maxBeforeBranch {
+		suffix := "..."
+		if strings.HasSuffix(head, ")") && strings.Contains(head, "(") {
+			suffix = "...)"
+		}
+		head = string(r[:maxBeforeBranch]) + suffix
+	}
+	return head + prop + "; branch " + tail
 }
 
 // openRegular creates or opens a file through no link, and refuses anything

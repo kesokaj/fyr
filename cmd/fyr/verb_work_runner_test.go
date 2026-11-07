@@ -105,4 +105,23 @@ func TestWorkVerbCheckPredictsBuild(t *testing.T) {
 	if _, err := os.Lstat(sandbox.Root(r.home, "work")); !os.IsNotExist(err) {
 		t.Errorf("--check made the sandbox root: %v", err)
 	}
+
+	// --check refuses a bad --repo or non-checkout cwd as a run does, and
+	// `fyr work config --workers` repairs a malformed config.json.
+	if out, code := r.work("--check", "--repo", filepath.Join(r.project, "missing")); code != 2 || !strings.Contains(out, "work: ") {
+		t.Errorf("--check bad --repo: exit %d, got %q", code, out)
+	}
+	cfgPath := work.ConfigPath(r.home)
+	os.MkdirAll(filepath.Dir(cfgPath), 0o700)
+	os.WriteFile(cfgPath, []byte(`{"workers":99,"ram_gb":8,"cpus":2,"disk_gb":10}`), 0o600)
+	if out, code := r.work("config"); code != 2 || !strings.Contains(out, cfgPath) {
+		t.Errorf("config read on bad file: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("config", "--workers", "6"); code != 0 || !strings.Contains(out, "workers=6") {
+		t.Errorf("config repair on bad file: exit %d, got %q", code, out)
+	}
+	t.Chdir(t.TempDir())
+	if out, code := r.work("--check"); code != 2 || !strings.Contains(out, "is not a git checkout") {
+		t.Errorf("--check outside checkout: exit %d, got %q", code, out)
+	}
 }

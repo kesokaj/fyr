@@ -23,10 +23,10 @@ func TestRunExitChecks(t *testing.T) {
 		if !ProcsChecked {
 			t.Skip("no /proc here (O1)")
 		}
+		r := newRig(t)
 		if _, err := exec.LookPath("setsid"); err != nil {
 			t.Skip("no setsid here")
 		}
-		r := newRig(t)
 		r.on("child", "")
 		r.on("setsid", "")
 		x := one(t, r.run(named("p", "p", "true")))

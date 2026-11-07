@@ -130,17 +130,3 @@ func ppid(pid int) int {
 	n, _ := strconv.Atoi(v)
 	return n
 }
-
-// cleanName keeps the characters the preamble kept, at most 40 of them.
-func cleanName(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r < 128 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._+-", r)) && b.Len() < 40 {
-			b.WriteRune(r)
-		}
-	}
-	if b.Len() == 0 {
-		return "?"
-	}
-	return b.String()
-}

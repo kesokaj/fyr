@@ -100,7 +100,10 @@ func LoadConfig(home string) (Config, error) {
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		return cfg, fmt.Errorf("%s: %v", p, err)
 	}
-	return cfg, cfg.Validate()
+	if err := cfg.Validate(); err != nil {
+		return cfg, fmt.Errorf("%s: %v", p, err)
+	}
+	return cfg, nil
 }
 
 // SaveConfig validates cfg and writes it atomically to ConfigPath(home) with

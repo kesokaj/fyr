@@ -197,12 +197,13 @@ func TestSuiteHarness(t *testing.T) {
 		"init-project": {"", true}, "feature": {"", false}, "feature-empty": {"", true}, "feature-recon": {"explorer", true}, "review": {"", true},
 		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
 		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true}, "reviewer-cold": {"reviewer", false},
+		"security": {"security", true}, "verifier": {"verifier", true},
 		"resume":  {"", false},
 		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
 		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
 		"preflight": {"", true}, "project-memory": {"", false},
 		"work-tasks": {"", true}, "work-tasks-waves": {"", true}, "work-tasks-design": {"", true},
-		"work-start": {"", true}, "work-refuse": {"", true},
+		"work-start": {"", true}, "work-start-host": {"", true}, "work-refuse": {"", true},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))

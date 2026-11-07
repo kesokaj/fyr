@@ -17,14 +17,25 @@ import (
 // alive reports whether pid is running and not a zombie, waiting up to a
 // few seconds for it to go.
 func alive(pid string) bool {
-	for i := 0; i < 100; i++ {
-		b, err := os.ReadFile("/proc/" + pid + "/status")
-		if err != nil || strings.Contains(string(b), "State:\tZ") {
+	for i := 0; i < 40; i++ {
+		if !procRunning(pid) {
 			return false
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return true
+}
+
+func procRunning(pid string) bool {
+	if b, err := os.ReadFile("/proc/" + pid + "/status"); err == nil {
+		return !strings.Contains(string(b), "State:\tZ")
+	}
+	if _, err := os.Stat("/proc"); err == nil {
+		return false
+	}
+	out, err := exec.Command("/bin/ps", "-p", pid, "-o", "state=").Output()
+	st := strings.TrimSpace(string(out))
+	return err == nil && st != "" && !strings.HasPrefix(st, "Z")
 }
 
 // TestRunTimeout: at the timeout only agy is killed, the check still runs

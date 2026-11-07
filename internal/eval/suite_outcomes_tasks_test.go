@@ -59,7 +59,10 @@ func taskOutcomes() map[string][]outcome {
 	p1 := planKick("greetings-p1", "Phase 1", "internal/greet/greet_test.go", "go test ./... passes with TestHelloTab in internal/greet")
 	p2 := planKick("greetings-p2", "Phase 2", "internal/shout/", "go test ./... passes with Shout and TestShout in internal/shout")
 	tickPlan := "printf '# PLAN-2026-11-02-greetings\\n\\n- [x] Cold-reader check\\n- [x] Phase 1: TestHelloTab\\n- [x] Checkpoint\\n- [x] Phase 2: Shout\\n- [x] Checkpoint\\n' | \"$F\" record edit PLAN-2026-11-02-greetings --body\n"
-	started := p1 + p2 + run("greetings-p1", "greetings-p2") + "\n" + planLand("p1", "greetings-p1") + planLand("p2", "greetings-p2") + tickPlan
+	started := p1 + p2 + check + wave("greetings-p1", "greetings-p2") + "\n" + planLand("p1", "greetings-p1") + planLand("p2", "greetings-p2") + tickPlan
+	hostWave := strings.Replace(run("greetings-p1", "greetings-p2"), "fake-work.sh", "fake-work.sh --runner host", 1)
+	hostReason := "echo 'Runner is host (`colima is not running`); waiting for go.' >\"$OUT\"\n"
+	startedHost := hostReason + check + p1 + p2 + hostWave + "\n" + planLand("p1", "greetings-p1") + planLand("p2", "greetings-p2") + tickPlan
 
 	refuseCold := "echo 'Refused PLAN-2026-11-02-greet-alpha: cold-read box is not ticked.' >\"$OUT\"\n"
 	refuseWorkers := "echo 'Refused PLAN-2026-11-02-greet-beta: no workers D-row saying yes under ## Decisions.' >\"$OUT2\"\n"
@@ -108,9 +111,11 @@ func taskOutcomes() map[string][]outcome {
 			{"a tier as the Model: line", false, tier(design)},
 		},
 		"work-start": {
-			{"one wave, both phases merged, ticked and stored", true, started},
+			{"one --check, one docker wave, both phases merged, ticked and stored", true, started},
 			{"waited for go instead of starting", false, "echo 'Waiting for go' >\"$OUT\"\n"},
-			{"run in two waves", false, p1 + p2 + run("greetings-p1") + "\n" + planLand("p1", "greetings-p1") + run("greetings-p2") + "\n" + planLand("p2", "greetings-p2") + tickPlan},
+			{"no --check before the wave", false, strings.Replace(started, check, "", 1)},
+			{"the wave without --runner", false, strings.Replace(started, "fake-work.sh --runner docker", "fake-work.sh", 1)},
+			{"run in two waves", false, p1 + p2 + check + wave("greetings-p1") + "\n" + planLand("p1", "greetings-p1") + wave("greetings-p2") + "\n" + planLand("p2", "greetings-p2") + tickPlan},
 			{"Kickoff misses the plan ID", false, strings.Replace(started, p1, strings.ReplaceAll(p1, "PLAN-2026-11-02-greetings", "the plan"), 1)},
 			{"Kickoff without its Never line", false, strings.Replace(started, "\\nNever: push", "\\nNever: tick", 1)},
 			{"added a Model: line not in the plan", false, strings.Replace(started, "\\nNever: push", "\\nModel: gemini-3.8-flash-medium\\nNever: push", 1)},
@@ -120,6 +125,16 @@ func taskOutcomes() map[string][]outcome {
 			{"records not stored", false, strings.Replace(started, store("greetings-p2"), "", 1)},
 			{"branch kept", false, strings.Replace(started, drop("greetings-p2"), "", 1)},
 			{"left dirty", false, started + "echo x >>README.md\n"},
+		},
+		"work-start-host": {
+			{"quotes host reason, waits for go, then runs --runner host and merges", true, startedHost},
+			{"re-checks after go and runs --runner host", true, strings.Replace(startedHost, hostWave, check+hostWave, 1)},
+			{"omits host reason in first turn", false, strings.Replace(startedHost, hostReason, "echo 'Waiting for go.' >\"$OUT\"\n", 1)},
+			{"runs without --check", false, strings.Replace(startedHost, check, "", 1)},
+			{"runs without --runner host", false, strings.Replace(startedHost, "fake-work.sh --runner host", "fake-work.sh", 1)},
+			{"stops after turn 1 without running wave", false, hostReason + check},
+			{"plan not ticked", false, strings.Replace(startedHost, tickPlan, "", 1)},
+			{"left dirty", false, startedHost + "echo x >>README.md\n"},
 		},
 		"work-refuse": {
 			{"both refused, naming each missing gate", true, refused},

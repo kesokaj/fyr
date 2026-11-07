@@ -237,10 +237,8 @@ func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (
 
 // fingerprintWorkDir watches the fixed files inside ~/.config/fyr/work while
 // skipping worker sandboxes, locks and pid directories under work/ (ADR-503):
-// agy-linux and config.json are fingerprinted in full (type, mode, size and
-// SHA-256), while antigravity-oauth-token is fingerprinted by type and mode
-// only so an in-place OAuth token refresh during a run passes check c while
-// creation, deletion, chmod or symlink replacement fails check c.
+// agy-linux, config.json and antigravity-oauth-token are fingerprinted in
+// full (type, mode, size and SHA-256).
 func fingerprintWorkDir(workDir, stateName string, fp map[string]string) {
 	for _, file := range []string{"agy-linux", "config.json", "antigravity-oauth-token"} {
 		full := filepath.Join(workDir, file)
@@ -251,10 +249,6 @@ func fingerprintWorkDir(workDir, stateName string, fp map[string]string) {
 		key := filepath.Join(stateName, "work", file)
 		if err != nil {
 			fp[key] = "unreadable: " + err.Error()
-			continue
-		}
-		if file == "antigravity-oauth-token" && info.Mode().IsRegular() {
-			fp[key] = fmt.Sprintf("%s %v", info.Mode().Type(), info.Mode().Perm())
 			continue
 		}
 		fp[key] = entryPrint(full, fs.FileInfoToDirEntry(info))
@@ -294,9 +288,9 @@ func fileSum(p string) string {
 }
 
 // changedPaths lists every relative path whose fingerprint differs, sorted:
-// paths only, never content. A path that appears counts, the work token
-// included (BUG-511): a docker run syncs it before its workers fingerprint,
-// yet a run in session fails when another run first creates it (BUG-513).
+// paths only, never content. Every path that appears or changes counts, the
+// work token included (BUG-511); changedPathsIn filters out a macOS Keychain
+// sync under slots.lock (BUG-513).
 func changedPaths(before, after map[string]string) []string {
 	var out []string
 	for k, v := range before {
@@ -310,6 +304,19 @@ func changedPaths(before, after map[string]string) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// changedPathsIn is check c's comparison for realHome: changedPaths, less a
+// WorkTokenRel that a concurrent SyncWorkToken wrote from realHome's macOS
+// Keychain under the work root's slots.lock (BUG-513, ADR-503). Any planted,
+// modified, deleted or re-permissioned token stays in the list (BUG-511).
+func changedPathsIn(realHome string, before, after map[string]string) []string {
+	out := changedPaths(before, after)
+	tokKey := filepath.FromSlash(WorkTokenRel)
+	if slices.Contains(out, tokKey) && isKeychainSyncedWorkToken(realHome, after[tokKey]) {
+		out = slices.DeleteFunc(out, func(p string) bool { return p == tokKey })
+	}
 	return out
 }
 
