@@ -17,7 +17,18 @@ import (
 
 const buildTimeout = 5 * time.Minute
 
-var goMinorRe = regexp.MustCompile(`(?m)^go\s+([0-9]+\.[0-9]+)`)
+var (
+	goMinorRe    = regexp.MustCompile(`(?m)^go\s+([0-9]+\.[0-9]+)`)
+	goVerRe      = regexp.MustCompile(`^go([0-9]+\.[0-9]+)`)
+	goEnvVersion = func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "go", "env", "GOVERSION")
+		cmd.Env = sandbox.FyrEnv()
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+)
 
 // buildMode is what the docker refusals do with a missing or stale
 // DefaultImage that o can build (canBuildImage), as Options.build.
@@ -49,10 +60,17 @@ func canBuildImage(o Options, ref string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
-// goMinor returns the Go major.minor version for the image build: the host
-// runtime's Go major.minor when available, or go.mod's go line.
+// goMinor returns the Go major.minor version for the image build: the
+// installed `go env GOVERSION` first (so an upgraded host toolchain is used
+// even from an older release binary), else runtime.Version(), else go.mod's
+// go line.
 func goMinor(repo string) string {
-	if m := regexp.MustCompile(`^go([0-9]+\.[0-9]+)`).FindStringSubmatch(runtime.Version()); len(m) == 2 {
+	if v, err := goEnvVersion(); err == nil {
+		if m := goVerRe.FindStringSubmatch(v); len(m) == 2 {
+			return m[1]
+		}
+	}
+	if m := goVerRe.FindStringSubmatch(runtime.Version()); len(m) == 2 {
 		return m[1]
 	}
 	if b, err := os.ReadFile(filepath.Join(repo, "go.mod")); err == nil {

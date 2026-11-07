@@ -11,7 +11,8 @@ import (
 // wraps it (plan ledger D19).
 const helpWidth = 79
 
-// pageOf is a verb's page; sync is install's alias and shares it.
+// pageOf looks up a verb's page in pages (help_text.go); sync is install's
+// alias and shares it.
 func pageOf(verb string) (verbPage, bool) {
 	if verb == "sync" {
 		verb = "install"

@@ -57,7 +57,7 @@ func TestHelpLinesFit(t *testing.T) {
 // has a page, sync install's.
 func TestHelpShortPageListsEveryVerb(t *testing.T) {
 	var listed []string
-	for _, m := range regexp.MustCompile(`(?m)^  ([a-z]+) `).FindAllStringSubmatch(shortPage, -1) {
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-z][a-z-]*) `).FindAllStringSubmatch(shortPage, -1) {
 		listed = append(listed, m[1])
 	}
 	sort.Strings(listed)
@@ -331,6 +331,54 @@ func TestHelpEvalNamesSandboxLayout(t *testing.T) {
 	want := filepath.ToSlash(filepath.Dir(rel)) + "/<project>/<stamp>/<row>/<i>/"
 	if !strings.Contains(verbHelp("eval"), want) {
 		t.Errorf("eval's page does not name %q:\n%s", want, verbHelp("eval"))
+	}
+}
+
+// TestHelpEvalGolden pins `fyr eval -h` (Items 23 and 32 of
+// PLAN-2026-11-02-1806-fyr-speed): the tracked suite path (eval.SuitePath, D2),
+// the fallback GUIDE-eval record, --suite-file, --runs N, --parallel N, and
+// trial-order output.
+func TestHelpEvalGolden(t *testing.T) {
+	got, code := helpRun(t, "eval", "-h")
+	if code != 0 {
+		t.Fatalf("fyr eval -h: exit %d\n%s", code, got)
+	}
+	if !strings.Contains(got, eval.SuitePath) {
+		t.Errorf("fyr eval -h does not name %q:\n%s", eval.SuitePath, got)
+	}
+	const want = `usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]
+                [--parallel N] <row>...
+       fyr eval [--suite-file PATH] --list
+
+Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval
+record; or --suite-file PATH outside every checkout) against the Antigravity
+CLI, each row --runs N times (1 to 25, default 1), up to --parallel N at once
+(1 to 25, default 1) in its own sandbox
+under --home's .config/fyr/eval/<project>/<stamp>/<row>/<i>/: a clone of the
+fixture, a throwaway HOME with the harness installed, your login linked. What
+the agent reads goes to the CLI's model (R8). Prints PASS, FAIL or ERROR per
+trial in order, writes one testing record, stores each trial and ingests it as
+eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required, refused
+for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.
+
+Flags:
+  --fixture DIR
+      the git repository DIR each row clones (default: this checkout)
+  --list
+      print the suite's rows (id, agent or -, named or wide, version, kind) and
+      run nothing
+  --parallel N
+      run up to N trials at once, 1 to 25 (default 1; benchmark trials stay at
+      1)
+  --runs N
+      run each named row N times, 1 to 25, each trial in its own sandbox
+  --suite-file PATH
+      read the suite from PATH outside every checkout; labels rows
+      eval=holdout/<id>
+
+` + helpLast + "\n"
+	if got != want {
+		t.Errorf("fyr eval -h:\ngot:\n%s\nwant:\n%s", got, want)
 	}
 }
 

@@ -217,3 +217,76 @@ func TestPrintCheckSummaryOrder(t *testing.T) {
 		t.Errorf("summary %q, want %q", b.String(), want)
 	}
 }
+
+func TestResumeVerb(t *testing.T) {
+	home := t.TempDir()
+	root := checkRepo(t, map[string]string{
+		"AGENTS.md": "# AGENTS.md\n",
+		"PRD.md":    "# PRD.md\n",
+		"TODO.md":   "# TODO.md\n\n## Now\n\n- [ ] Task 1\n",
+	})
+	before := gitStatus(t, root)
+	var out bytes.Buffer
+	err := run([]string{"resume", "--home", home}, &out)
+	if code := exitOf(err); code != 0 {
+		t.Fatalf("resume: exit %d, out %q", code, out.String())
+	}
+	for _, want := range []string{
+		"## AGENTS.md\n# AGENTS.md\n",
+		"## Open records\n(none)\n",
+		"## Newest handoff\n(none)\n",
+		"## TODO.md Now\n## Now\n\n- [ ] Task 1\n",
+		"## Open plans\n(none)\n",
+		"## Recent changes\n(none)\n",
+		"## Memory\n(none)\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("resume missing %q in:\n%s", want, out.String())
+		}
+	}
+	if after := gitStatus(t, root); after != before {
+		t.Errorf("resume changed checkout:\n%s\nwas:\n%s", after, before)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("resume wrote under --home: %v", entries)
+	}
+
+	t.Chdir(t.TempDir())
+	out.Reset()
+	err = run([]string{"resume", "--home", home}, &out)
+	if code := exitOf(err); code != 2 || !strings.Contains(out.String(), "is not a git checkout") {
+		t.Errorf("resume outside checkout: exit %d, out %q", code, out.String())
+	}
+}
+
+func TestGitCheckVerb(t *testing.T) {
+	home := t.TempDir()
+	root := checkRepo(t, map[string]string{"README.md": "hello\n"})
+	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := run([]string{"git-check", "--home", home}, &out)
+	if code := exitOf(err); code != 0 {
+		t.Fatalf("git-check: exit %d, out %q", code, out.String())
+	}
+	for _, want := range []string{
+		"## git status --short --untracked-files=all\n?? untracked.txt\n",
+		"## git log --branches --not --remotes --oneline\n",
+		"## git tag\n(none)\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("git-check missing %q in:\n%s", want, out.String())
+		}
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("git-check wrote under --home: %v", entries)
+	}
+
+	t.Chdir(t.TempDir())
+	out.Reset()
+	err = run([]string{"git-check", "--home", home}, &out)
+	if code := exitOf(err); code != 2 || !strings.Contains(out.String(), "is not a git checkout") {
+		t.Errorf("git-check outside checkout: exit %d, out %q", code, out.String())
+	}
+}

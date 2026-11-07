@@ -93,6 +93,28 @@ func TestEvalVerbRuns(t *testing.T) {
 	}
 }
 
+// TestEvalVerbParallel: --runs 3 --parallel 2 runs up to 2 trials at once,
+// prints in trial order, and stores all 3 trials and sessions.
+func TestEvalVerbParallel(t *testing.T) {
+	r := newEvalRig(t, evalSuite, true)
+	r.template("1", "C1")
+	r.template("2", "C2")
+	r.template("3", "C3")
+	out, code := r.eval("--runs", "3", "--parallel", "2", "ok")
+	if code != 0 {
+		t.Fatalf("eval --runs 3 --parallel 2 ok: exit %d\n%s", code, out)
+	}
+	i1 := strings.Index(out, "eval: ok#1  PASS")
+	i2 := strings.Index(out, "eval: ok#2  PASS")
+	i3 := strings.Index(out, "eval: ok#3  PASS")
+	if i1 < 0 || i2 <= i1 || i3 <= i2 {
+		t.Errorf("trials not printed in order:\n%s", out)
+	}
+	if k, passed := r.passK("eval=ok"); k != 3 || passed != 3 {
+		t.Errorf("pass^k of eval=ok: k %d passed %d, want 3 and 3", k, passed)
+	}
+}
+
 // TestEvalVerbErrorTrial: a trial whose setup fails is an ERROR with cause
 // setup: no session ran, yet it has a trials row, with no session seconds,
 // and pass^k counts it under errors, never graded (the eval-metrics plan

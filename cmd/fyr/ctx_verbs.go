@@ -35,7 +35,7 @@ type ctx struct {
 	recBody, recAll                                                                         bool
 	evalFixture                                                                             string
 	evalList                                                                                bool
-	evalRuns                                                                                int
+	evalRuns, evalParallel                                                                  int
 	workTimeout                                                                             time.Duration
 	workModel                                                                               string
 	workKeep                                                                                bool
@@ -76,6 +76,8 @@ type verb struct {
 var verbs = map[string]verb{
 	"version":   {run: runVersion},
 	"uninstall": {flags: (*ctx).dryRunFlag, run: runUninstall},
+	"resume":    {run: runResume},
+	"git-check": {run: runGitCheck},
 	"memory": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: user, feedback, project or reference")
 		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")

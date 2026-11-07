@@ -36,6 +36,7 @@ Harness
 Records and search
   record       add, get, edit, list or import trail records
   memory       save or show this project's memory
+  resume       read-only seven-step session resume
   search       ranked search of records and files
   index        reconcile the search index; --register opts in
 
@@ -46,6 +47,7 @@ Background and measurement
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
+  git-check    read-only post-dispatch git status, log and tag check
   serve        a local page of status, records, memory and metrics
   version      print the build version
 
@@ -273,20 +275,20 @@ var pages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                <row>...",
+			"                [--parallel N] <row>...",
 			"       fyr eval [--suite-file PATH] --list",
 		},
 		about: []string{
 			"Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval",
 			"record; or --suite-file PATH outside every checkout) against the Antigravity",
-			"CLI, each row --runs N times (1 to 25, default 1), one trial at a time in its",
-			"own sandbox under --home's .config/fyr/eval/<project>/<stamp>/<row>/<i>/: a",
-			"clone of the fixture, a throwaway HOME with the harness installed, your login",
-			"linked. What the agent reads goes to the CLI's model (R8). Prints PASS, FAIL",
-			"or ERROR per trial, writes one testing record, stores each trial and ingests",
-			"it as eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required,",
-			"refused when it is the real home, links its state, or is in a checkout.",
-			"Exit 0 all passed, 1 any did not or did not run, 2 a refusal.",
+			"CLI, each row --runs N times (1 to 25, default 1), up to --parallel N at once",
+			"(1 to 25, default 1) in its own sandbox",
+			"under --home's .config/fyr/eval/<project>/<stamp>/<row>/<i>/: a clone of the",
+			"fixture, a throwaway HOME with the harness installed, your login linked. What",
+			"the agent reads goes to the CLI's model (R8). Prints PASS, FAIL or ERROR per",
+			"trial in order, writes one testing record, stores each trial and ingests it as",
+			"eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required, refused",
+			"for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.",
 		},
 	},
 	"work": {
@@ -323,6 +325,28 @@ var pages = map[string]verbPage{
 			"does not resolve, or, when SDD.md exists, that SDD.md's trace lacks; and",
 			"every SDD.md component TDD.md's trace lacks. One line per finding, then a",
 			"summary. Exit 0 clean, 1 with findings, or 1 for a refusal (on stderr).",
+		},
+	},
+	"resume": {
+		synopsis: []string{"usage: fyr resume"},
+		about: []string{
+			"Prints the working directory's checkout session resume in the seven-step",
+			"order AGENTS.md § Resume names: AGENTS.md (with missing PRD.md or file-era",
+			"trail notices), open records, the newest handoff in full, TODO.md § Now,",
+			"each open plan in full, the three newest change records, and active project",
+			"memory. Read-only: it writes nothing and never creates brain.db when",
+			"--home has none, falling back to .agents/trail.jsonl. Exit 0 ok, 2 refused.",
+		},
+	},
+	"git-check": {
+		synopsis: []string{"usage: fyr git-check"},
+		about: []string{
+			"Runs the three post-dispatch git checks on the working directory's",
+			"checkout in one read-only call and prints each under its heading:",
+			"git status --short --untracked-files=all, git log --branches --not --remotes",
+			"--oneline, and git tag. It writes nothing and leaves the stop-sign rule",
+			"unchanged: an unnamed path, commit or tag in the output is still a stop",
+			"sign. Exit 0 ok, 2 refused.",
 		},
 	},
 	"serve": {

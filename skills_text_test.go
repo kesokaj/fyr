@@ -103,3 +103,30 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 		t.Error("retro's subagent row does not name <name>/agent.md")
 	}
 }
+
+// TestWorkSkillRunsFeatureSteps5And6AfterLastMerge pins BUG-516 (Item 21 of
+// PLAN-2026-11-02-1806-fyr-speed): after the last wave's merge in plan mode,
+// the lead runs feature Steps 5 and 6 over the whole range from the first
+// wave's base to HEAD before the lead's closing handoff.
+func TestWorkSkillRunsFeatureSteps5And6AfterLastMerge(t *testing.T) {
+	text := readSkill(t, "skills/work/SKILL.md")
+	loop := section(t, text, "## The loop")
+	for _, want := range []string{
+		"After the last merge",
+		"feature` Steps 5 and 6",
+		"from the first wave's base to HEAD",
+		"`reviewer`",
+		"`verifier`",
+		"`<short>-<phase>-fix`",
+	} {
+		if !strings.Contains(loop, want) {
+			t.Errorf("skills/work/SKILL.md ## The loop does not say %q", want)
+		}
+	}
+	afterIdx := strings.Index(loop, "11. **After the last merge**")
+	endIdx := strings.Index(loop, "12. **End the loop**")
+	if afterIdx < 0 || endIdx <= afterIdx {
+		t.Errorf("skills/work/SKILL.md ## The loop must order step 11 (After the last merge) before step 12 (End the loop)")
+	}
+}
+

@@ -92,11 +92,11 @@ func TestUsageMatchesDocComment(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^//\tfyr ([a-z]+)`).FindAllStringSubmatch(string(src), -1) {
+	for _, m := range regexp.MustCompile(`(?m)^//\tfyr ([a-z][a-z-]*)`).FindAllStringSubmatch(string(src), -1) {
 		doc[m[1]] = true
 	}
 	use := map[string]bool{}
-	for _, m := range regexp.MustCompile(`(?m)^  ([a-z]+) `).FindAllStringSubmatch(shortPage, -1) {
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-z][a-z-]*) `).FindAllStringSubmatch(shortPage, -1) {
 		use[m[1]] = true
 	}
 	keys := func(m map[string]bool) []string {

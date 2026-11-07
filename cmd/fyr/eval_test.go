@@ -26,7 +26,9 @@ import (
 const evalAgy = `#!/bin/bash
 REC=@REC@; TPL=@TPL@; CTL=@CTL@
 if [ "$1" = --version ]; then echo "agy-fake 9.9"; echo second line; exit 0; fi
+while ! mkdir "$REC/agy.lock" 2>/dev/null; do sleep 0.01; done
 n=$(( $(cat "$REC/agy.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$REC/agy.n"
+rmdir "$REC/agy.lock"
 if [ -e "$CTL/hang" ]; then touch "$REC/started"; exec sleep 300; fi
 if [ -d "$TPL/$n" ]; then cp -r "$TPL/$n/." "$HOME/.gemini/antigravity-cli/"; fi
 echo "agy says ok"
@@ -463,16 +465,19 @@ func TestEvalVerbRefusals(t *testing.T) {
 		setup  func(r *evalRig) []string // the arguments after eval's own --repo and --home
 		want   string
 	}{
-		"no row":              {evalSuite, true, func(*evalRig) []string { return nil }, "usage: fyr eval"},
-		"--list with a row":   {evalSuite, true, func(*evalRig) []string { return []string{"--list", "ok"} }, "--list takes no row"},
-		"unknown flag":        {evalSuite, true, func(*evalRig) []string { return []string{"--parallel", "2", "ok"} }, "flag provided but not defined: -parallel"},
-		"--runs 0":            {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "0", "ok"} }, "fyr eval: --runs 0: want 1 to 25"},
-		"--runs 26":           {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "26", "ok"} }, "fyr eval: --runs 26: want 1 to 25"},
-		"--runs -1":           {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "-1", "ok"} }, "fyr eval: --runs -1: want 1 to 25"},
-		"--runs not a number": {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "two", "ok"} }, `invalid value "two" for flag -runs`},
-		"--list with --runs":  {evalSuite, true, func(*evalRig) []string { return []string{"--list", "--runs", "2"} }, "--list takes no --runs"},
-		"unknown row":         {evalSuite, true, func(*evalRig) []string { return []string{"ok", "nope"} }, `eval: no row "nope" in GUIDE-eval`},
-		"row named twice":     {evalSuite, true, func(*evalRig) []string { return []string{"ok", "ok"} }, "eval: row ok is named twice"},
+		"no row":                 {evalSuite, true, func(*evalRig) []string { return nil }, "usage: fyr eval"},
+		"--list with a row":      {evalSuite, true, func(*evalRig) []string { return []string{"--list", "ok"} }, "--list takes no row"},
+		"unknown flag":           {evalSuite, true, func(*evalRig) []string { return []string{"--no-such-flag", "ok"} }, "flag provided but not defined: -no-such-flag"},
+		"--runs 0":               {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "0", "ok"} }, "fyr eval: --runs 0: want 1 to 25"},
+		"--runs 26":              {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "26", "ok"} }, "fyr eval: --runs 26: want 1 to 25"},
+		"--runs -1":              {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "-1", "ok"} }, "fyr eval: --runs -1: want 1 to 25"},
+		"--runs not a number":    {evalSuite, true, func(*evalRig) []string { return []string{"--runs", "two", "ok"} }, `invalid value "two" for flag -runs`},
+		"--list with --runs":     {evalSuite, true, func(*evalRig) []string { return []string{"--list", "--runs", "2"} }, "--list takes no --runs"},
+		"--parallel 0":           {evalSuite, true, func(*evalRig) []string { return []string{"--parallel", "0", "ok"} }, "fyr eval: --parallel 0: want 1 to 25"},
+		"--parallel 26":          {evalSuite, true, func(*evalRig) []string { return []string{"--parallel", "26", "ok"} }, "fyr eval: --parallel 26: want 1 to 25"},
+		"--list with --parallel": {evalSuite, true, func(*evalRig) []string { return []string{"--list", "--parallel", "2"} }, "--list takes no --parallel"},
+		"unknown row":            {evalSuite, true, func(*evalRig) []string { return []string{"ok", "nope"} }, `eval: no row "nope" in GUIDE-eval`},
+		"row named twice":        {evalSuite, true, func(*evalRig) []string { return []string{"ok", "ok"} }, "eval: row ok is named twice"},
 		"not a checkout": {evalSuite, true, func(r *evalRig) []string {
 			r.t.Chdir(r.t.TempDir())
 			return []string{"ok"}

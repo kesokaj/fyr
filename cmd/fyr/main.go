@@ -13,6 +13,7 @@
 //	fyr adopt       copy a skill from elsewhere into skills/
 //	fyr record      add, get, edit, list or import trail records
 //	fyr memory      save or show this project's memory
+//	fyr resume      read-only seven-step session resume
 //	fyr search      ranked search of records and files
 //	fyr index       reconcile the search index; --register opts in
 //	fyr dream       the hourly dreamer and its timer
@@ -21,6 +22,7 @@
 //	fyr eval        run behavioural rows against the CLI
 //	fyr work        run Kickoffs as agy workers (in docker when ready, else host)
 //	fyr check       read-only drift check of this checkout's docs
+//	fyr git-check   read-only post-dispatch git status, log and tag check
 //	fyr serve       a local page of status, records, memory and metrics
 //	fyr version     print the build version
 package main

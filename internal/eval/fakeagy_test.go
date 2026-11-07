@@ -11,7 +11,38 @@ import (
 // agy is the -p form (plan § Verification).
 const fakeAgy = `#!/bin/bash
 CTL=@CTL@; REC=@REC@
+while ! mkdir "$REC/agy.lock" 2>/dev/null; do sleep 0.01; done
 n=$(( $(cat "$REC/agy.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$REC/agy.n"
+if [ -e "$CTL/barrier" ]; then
+  inf=$(( $(cat "$REC/inflight" 2>/dev/null || echo 0) + 1 )); echo "$inf" > "$REC/inflight"
+  pk=$(cat "$REC/peak" 2>/dev/null || echo 0)
+  [ "$inf" -gt "$pk" ] && echo "$inf" > "$REC/peak"
+  mkdir -p "$REC/arrived"; : > "$REC/arrived/$n"
+fi
+rmdir "$REC/agy.lock"
+if [ -e "$CTL/barrier" ]; then
+  b=$(cat "$CTL/barrier")
+  for _ in $(seq 1 500); do
+    [ "$(ls "$REC/arrived" 2>/dev/null | wc -l)" -ge "$b" ] && break
+    sleep 0.01
+  done
+fi
+if [ -e "$CTL/after.$n" ]; then
+  w=$(cat "$CTL/after.$n")
+  for _ in $(seq 1 500); do
+    [ -e "$REC/finished.$w" ] && break
+    sleep 0.01
+  done
+  sleep 0.05
+fi
+if [ -e "$CTL/sleep.$n" ]; then sleep "$(cat "$CTL/sleep.$n")"; fi
+if [ -e "$CTL/barrier" ]; then
+  while ! mkdir "$REC/agy.lock" 2>/dev/null; do sleep 0.01; done
+  inf=$(( $(cat "$REC/inflight" 2>/dev/null || echo 1) - 1 )); echo "$inf" > "$REC/inflight"
+  echo "$n" >> "$REC/finish.order"
+  : > "$REC/finished.$n"
+  rmdir "$REC/agy.lock"
+fi
 printf '%s\n' "$@" > "$REC/agy.args.$n"
 env > "$REC/agy.env.$n"; pwd > "$REC/agy.cwd.$n"
 cp "$HOME/.gemini/antigravity-cli/settings.json" "$REC/settings.$n" 2>/dev/null

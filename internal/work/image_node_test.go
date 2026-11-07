@@ -112,3 +112,21 @@ func hasBlockBetween(lines, block []string, after, before int) bool {
 	}
 	return false
 }
+
+// TestGoMinor pins W3: goMinor prefers `go env GOVERSION` over runtime.Version()
+// so an upgraded host Go toolchain is picked even from an older release binary,
+// and falls back to runtime.Version() when `go env GOVERSION` fails.
+func TestGoMinor(t *testing.T) {
+	old := goEnvVersion
+	t.Cleanup(func() { goEnvVersion = old })
+
+	goEnvVersion = func() (string, error) { return "go1.99.2", nil }
+	if got := goMinor(t.TempDir()); got != "1.99" {
+		t.Fatalf("goMinor with go1.99.2 = %q, want 1.99", got)
+	}
+
+	goEnvVersion = func() (string, error) { return "", fmt.Errorf("no go") }
+	if got := goMinor(t.TempDir()); !regexp.MustCompile(`^[0-9]+\.[0-9]+$`).MatchString(got) {
+		t.Fatalf("goMinor fallback = %q, want major.minor", got)
+	}
+}

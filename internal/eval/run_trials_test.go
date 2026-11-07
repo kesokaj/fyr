@@ -70,3 +70,53 @@ func TestRunRunsRefused(t *testing.T) {
 		t.Errorf("Runs 0: trial %d in %s, want one trial in .../a/1", x.Trial, x.Dir)
 	}
 }
+
+// TestRunParallel: Parallel 2 over 3 trials runs 2 trials concurrently (meeting
+// a barrier of 2 while capping peak concurrency at 2) and prints notes and
+// verdict lines in trial order (1, 2, 3) even when trial 2 finishes before
+// trial 1; a Parallel outside 1 to MaxParallel is refused before anything is
+// made (Item 23 of PLAN-2026-11-02-1806-fyr-speed).
+func TestRunParallel(t *testing.T) {
+	r := newRig(t)
+	for _, n := range []int{-1, MaxParallel + 1} {
+		o := r.opts()
+		o.Parallel = n
+		if res, err := Run(context.Background(), o, []Row{named("a", "p", "true")}); err == nil || !strings.Contains(err.Error(), "want 1 to 25") || res != nil {
+			t.Errorf("parallel %d: %v %v, want a refusal", n, res, err)
+		}
+	}
+	r.on("barrier", "2")
+	r.on("after.1", "2")
+	o := r.opts()
+	o.Runs = 3
+	o.Parallel = 2
+	row := Row{ID: "a", Prompt: "p", Check: "true", Grants: "wide: needs bash"}
+	res, err := Run(context.Background(), o, []Row{row})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.clean(res)
+	if len(res) != 3 {
+		t.Fatalf("got %d results, want 3: %+v", len(res), res)
+	}
+	if peak := strings.TrimSpace(r.read("peak")); peak != "2" {
+		t.Errorf("peak concurrent agy sessions = %q, want \"2\"", peak)
+	}
+	order := strings.Fields(r.read("finish.order"))
+	if len(order) != 3 || order[0] != "2" {
+		t.Errorf("finish.order = %v, want trial 2 finishing first", order)
+	}
+	for i, x := range res {
+		wantTrial := i + 1
+		if x.Row != "a" || x.Trial != wantTrial || x.Status != StatusPass {
+			t.Errorf("res[%d] = %+v, want a#%d PASS", i, x, wantTrial)
+		}
+	}
+	out := r.out.String()
+	i1 := strings.Index(out, "eval: a#1  PASS")
+	i2 := strings.Index(out, "eval: a#2  PASS")
+	i3 := strings.Index(out, "eval: a#3  PASS")
+	if i1 < 0 || i2 <= i1 || i3 <= i2 {
+		t.Errorf("output not in trial order (indices %d, %d, %d):\n%s", i1, i2, i3, out)
+	}
+}

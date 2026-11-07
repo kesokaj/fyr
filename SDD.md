@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-04 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-07 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -35,14 +35,14 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M4 | `embed.go` | The five content directories and `docker/` built into the binary, pinned both ways to what git tracks, so a release binary carries the harness and the worker image files | R8, R9 |
 | M5 | `cmd/fyr` | The verbs, their flags and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where, the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
-| M7 | `internal/brain` | The brain store, `fyr record`: every project's trail records and the global ones, with on-demand `.agents/trail.jsonl` export and sync | R0, R4, R7 |
+| M7 | `internal/brain` | The brain store, `fyr record` and `fyr resume`: every project's trail records and the global ones, with on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume | R0, R4, R7 |
 | M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text index over files; the dream's read-only reads | R0, R4 |
 | M9 | `internal/memory` | `fyr memory`: the project memory every session loads | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |
 | M12 | `internal/redact` | The credential redactor every dream input passes before it leaves the machine | R3, R8 |
-| M13 | `internal/eval` | `fyr eval`: the behavioural suite (the tracked `.agents/eval/GUIDE-eval.md`, else the `GUIDE-eval` record, or `--suite-file PATH`), its rows' setup and checks, run in M17's sandbox | R6, R8 |
-| M14 | `internal/check` | `fyr check`: the read-only drift check of docs, specs, requirements and the R → M → T traces | R0 |
+| M13 | `internal/eval` | `fyr eval`: the behavioural suite (the tracked `.agents/eval/GUIDE-eval.md`, else the `GUIDE-eval` record, or `--suite-file PATH`), its rows' setup and checks, run in M17's sandbox up to `--parallel N` at once | R6, R8 |
+| M14 | `internal/check` | `fyr check` and `fyr git-check`: the read-only drift check of docs, specs, requirements and the R → M → T traces, and the three post-dispatch git checks | R0 |
 | M15 | `internal/trail` | The git reads every package makes into a project root, and the noindex markers | R7 |
 | M16 | `internal/serve` | A local page on loopback, run in the foreground by hand: status, context, records, memory, metrics, evals, dream and the drift check (scoped to the checkout when started inside one, or across every project in the home's stores when started outside one), and two maintenance actions | R0, R3, R4, R7, R8, R10 |
 | M17 | `internal/sandbox` | One unattended CLI session in a throwaway clone and home under `~/.config/fyr/{sandbox,eval}/<project>` (`ProjectRoot`, D9, ADR-503), and its safety checks; M13 runs its rows in it, M18 its workers, whose session can run in a hardened container instead (`Config.Docker`, Phase 7 of `PLAN-2026-10-29-workers`; macOS Keychain login synced to `~/.config/fyr/work/antigravity-oauth-token` without a second login, D7, ADR-503) | R6, R8 |
@@ -155,6 +155,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - `fyr work --check` predicts the build a run makes first: a missing or stale default image that a run builds reads as `runner docker (fyr-work:local will be built first)` when the build's own checks (the daemon's architecture, which the build passes as `--platform`, and the work directory it stages in) and every other refusal pass, and a build that would refuse there refuses `--check` in the run's words, while `DockerPreflight`, `fyr auto`'s probe, builds and predicts nothing, and the docker clients that run the image drop `DOCKER_DEFAULT_PLATFORM` (`sandbox.DockerEnv`) — rejected: building in `--check`, a `/work` task list running each wave with `--runner auto`, accepting a linux agy of any known architecture, predicting `DOCKER_DEFAULT_PLATFORM` instead of passing `--platform`, `--platform` on every `docker run` — ADR-504a.
 - Without `--home`, only the home's installed `~/.local/bin/fyr` runs a store-opening verb (every verb but `install`, `sync`, `update`, `version`, `list`, `render` and `diff`, reads included); any other build refuses with exit 2 before opening or migrating a store — ADR-505.
 - `fyr eval` check c skips the non-brain top-level store and dream files and watches `~/.config/fyr/brain.db` by file mode and a read-from-a-copy SHA-256 digest of the trial clone's and `--fixture`'s scopes (`brain.SnapshotScopes`), so another `agy` session's writes in `Options.Root` or another repository and the hourly dream no longer fail running trials — rejected: watching `Options.Root`, keeping `metrics.db` and `search.db` byte-watched, opening the live `brain.db` directly in SQLite — ADR-506.
+- A session's seven-step resume sequence and the three post-dispatch git checks are read-only top-level verbs (`fyr resume`, `fyr git-check`) — rejected: keeping seven and three separate calls in the context, or making `fyr git-check` parse output and fail as a gate — ADR-508.
 
 ## Cross-cutting
 

@@ -168,7 +168,7 @@ func TestRealHomeGuardRefusesReads(t *testing.T) {
 		{"status"}, {"memory", "show"}, {"metrics", "show"}, {"metrics", "report"},
 		{"metrics", "evals"}, {"record", "import", "--dry-run"}, {"auto", "status"},
 		{"auto", "run", "--dry-run"}, {"dream", "--dry-run"}, {"uninstall", "--dry-run"},
-		{"work", "--check"}, {"eval", "--list"},
+		{"work", "--check"}, {"eval", "--list"}, {"resume"}, {"git-check"},
 	} {
 		if err, out := guardFor(t, args...); !isGuardRefusal(err, out) {
 			t.Errorf("%v: err = %v, out %q; want the BUG-507 refusal", args, err, out)

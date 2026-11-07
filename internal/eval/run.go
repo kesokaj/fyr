@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ type Options struct {
 	Self       string // os.Executable(): the fyr that installs and lists
 	Repo       string // the install source tree (D16); "" is the harness embedded in Self
 	Runs       int    // trials per row, 1 to MaxRuns; 0 is 1
+	Parallel   int    // trials at once, 1 to MaxParallel; 0 is 1
 	Out        io.Writer
 	Now        func() time.Time
 	BrainWatch func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)
@@ -33,6 +35,10 @@ type Options struct {
 // MaxRuns is the most trials of one row an invocation runs (the
 // eval-metrics plan D25).
 const MaxRuns = 25
+
+// MaxParallel is the most trials an invocation runs at once (Item 23 of
+// PLAN-2026-11-02-1806-fyr-speed).
+const MaxParallel = MaxRuns
 
 // Result is one trial's outcome: one run of a row in its own sandbox.
 type Result struct {
@@ -105,18 +111,24 @@ func Preflight(o Options) error {
 	return sandbox.CheckRoot(o.RealHome, o.Repo, ProjectSandboxRoot(o.Home, o.Root))
 }
 
-// Run refuses (error, no row run) or runs every row Options.Runs times,
-// serially, rows in the order given and trials innermost, and returns one
-// result per trial. On ctx's end the current trial is an ERROR
-// (interrupted), the row's remaining trials and the rows after it are not
-// run, and the trials started are returned with a nil error (D22; the
-// eval-metrics plan D18).
+// Run refuses (error, no row run) or runs every row Options.Runs times, up
+// to Options.Parallel trials at once, printing in trial order (rows in the
+// order given and trials innermost), and returns one result per started
+// trial. On ctx's end in-flight trials finish as ERROR (interrupted),
+// unstarted trials are not run, and the trials started are returned with a
+// nil error (D22; the eval-metrics plan D18; Item 23).
 func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if o.Runs == 0 {
 		o.Runs = 1
 	}
 	if o.Runs < 1 || o.Runs > MaxRuns {
 		return nil, fmt.Errorf("runs %d: want 1 to %d", o.Runs, MaxRuns)
+	}
+	if o.Parallel == 0 {
+		o.Parallel = 1
+	}
+	if o.Parallel < 1 || o.Parallel > MaxParallel {
+		return nil, fmt.Errorf("parallel %d: want 1 to %d", o.Parallel, MaxParallel)
 	}
 	if o.Fixture == "" {
 		o.Fixture = o.Root
@@ -151,23 +163,75 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
 }
 
-// runTrials runs each row o.Runs times under one stamp, trials innermost,
-// and stops before the next trial once ctx has ended.
-func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
-	var results []Result
+type trialSpec struct {
+	row   Row
+	trial int
+	run   string
+	dir   string
+}
+
+type trialDone struct {
+	idx int
+	res Result
+	out string
+}
+
+func trialSpecs(o Options, rows []Row, stamp string) []trialSpec {
+	root := ProjectSandboxRoot(o.Home, o.Root)
+	specs := make([]trialSpec, 0, len(rows)*o.Runs)
 	for _, r := range rows {
 		for i := 1; i <= o.Runs; i++ {
-			if ctx.Err() != nil {
-				return results
-			}
 			run := path.Join(stamp, r.ID, strconv.Itoa(i))
-			res := runRow(ctx, o, r, agy, tok, filepath.Join(ProjectSandboxRoot(o.Home, o.Root), filepath.FromSlash(run)))
-			res.Trial, res.Run = i, run
-			fmt.Fprintln(o.Out, resultLine(res))
-			results = append(results, res)
+			specs = append(specs, trialSpec{
+				row:   r,
+				trial: i,
+				run:   run,
+				dir:   filepath.Join(root, filepath.FromSlash(run)),
+			})
 		}
 	}
-	return results
+	return specs
+}
+
+// runTrials runs each row o.Runs times under one stamp, trials innermost, up
+// to o.Parallel at once, printing each trial's notes and result line in trial
+// order, and stops launching once ctx has ended.
+func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
+	specs := trialSpecs(o, rows, stamp)
+	results := make([]Result, len(specs))
+	outs := make([]string, len(specs))
+	done := make([]bool, len(specs))
+	ch := make(chan trialDone, len(specs))
+	next, inFlight, launched, printed := 0, 0, 0, 0
+	launch := func() {
+		for next < len(specs) && inFlight < o.Parallel && ctx.Err() == nil {
+			idx, s := next, specs[next]
+			next++
+			inFlight++
+			launched++
+			go func() {
+				var buf bytes.Buffer
+				tOpts := o
+				tOpts.Out = &buf
+				res := runRow(ctx, tOpts, s.row, agy, tok, s.dir)
+				res.Trial, res.Run = s.trial, s.run
+				ch <- trialDone{idx: idx, res: res, out: buf.String()}
+			}()
+		}
+	}
+	launch()
+	for inFlight > 0 {
+		d := <-ch
+		inFlight--
+		results[d.idx], outs[d.idx], done[d.idx] = d.res, d.out, true
+		for printed < launched && done[printed] {
+			fmt.Fprint(o.Out, outs[printed])
+			fmt.Fprintln(o.Out, resultLine(results[printed]))
+			printed++
+		}
+		launch()
+	}
+	return results[:launched]
 }
 
 // resultLine is a trial's line (SPEC-fyr-eval § The verb): the row and its

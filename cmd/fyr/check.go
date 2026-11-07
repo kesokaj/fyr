@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -17,6 +18,45 @@ import (
 // initialization cycle).
 func init() {
 	verbs["check"] = verb{run: runCheck}
+}
+
+// runResume serves `fyr resume` (ADR-508): read-only seven-step session
+// resume over the working directory's checkout. Exit 0 ok, 2 on a refusal.
+func runResume(c *ctx) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	out, err := brain.Resume(brain.Options{Home: c.home, Dir: wd})
+	if brain.IsRefusal(err) {
+		fmt.Fprintln(c.out, search.Printable("fyr resume: "+err.Error()))
+		return exitCode(2)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(c.out, out)
+	return nil
+}
+
+// runGitCheck serves `fyr git-check`: read-only post-dispatch git status, log
+// and tag check over the working directory's checkout. Exit 0 ok, 2 on a
+// refusal.
+func runGitCheck(c *ctx) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	out, err := check.GitCheck(wd)
+	if errors.Is(err, check.ErrRefused) {
+		fmt.Fprintln(c.out, search.Printable("fyr git-check: "+err.Error()))
+		return exitCode(2)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprint(c.out, out)
+	return nil
 }
 
 // runCheck serves `fyr check` (spec SPEC-fyr-check, ADR-064): read-only over
