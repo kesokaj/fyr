@@ -127,6 +127,15 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 		if a.Name == "reviewer" && !strings.Contains(a.Body, "~/.gemini/config/skills/review-standards/SKILL.md") {
 			t.Errorf("the reviewer does not name the review-standards skill by its Antigravity path")
 		}
+		wantModel := map[string]string{
+			"changelog":     "flash",
+			"documentation": "flash",
+			"explorer":      "flash",
+			"security":      "pro",
+		}[a.Name]
+		if a.Front["model"] != wantModel {
+			t.Errorf("agent %s model = %q, want %q", a.Name, a.Front["model"], wantModel)
+		}
 	}
 	want := []string{"bugs", "changelog", "documentation", "dreamer", "explorer", "reviewer", "security", "verifier"}
 	if !slices.Equal(names, want) {

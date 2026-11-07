@@ -3,6 +3,7 @@ name: explorer
 description: "Read-only codebase recon in an isolated context. Returns a structured brief (files, flows, conventions, risks, open questions) drafted under .agents/scratch/agents/ for the main thread to store as a plan record, so only the summary enters the main context. Dispatch for any survey spanning 10+ files, before large features, and as the scan phase of /review --project. Never edits source; the only file it creates is its own brief."
 subagent: true
 mainAgent: false
+model: flash
 tools: [view_file, grep_search, find_by_name, run_command, write_to_file]
 ---
 

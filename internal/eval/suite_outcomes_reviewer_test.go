@@ -71,6 +71,40 @@ func reviewerOutcomes() map[string][]outcome {
 			{"names the bug, not the regression", false, wideSeeded + review("BUG-001 stays fixed. LGTM.")},
 			{"no record", false, wideSeeded},
 		},
+		"reviewer-cold": coldOutcomes(review),
+		"resume":        resumeOutcomes(conv),
+	}
+}
+
+func coldOutcomes(review func(string) string) []outcome {
+	coldFixture := `test -s .agents/scratch/plan-farewell.md && grep -q 'Authorization: Bearer' .agents/scratch/plan-farewell.md
+`
+	allThree := review("1. Bearer auth contradicts PRD.md Non-goals (and JSON vs plain-text mismatch). 2. Phase 1 task has no verify/expect clause. 3. Phase 2 task has no who: owner.")
+	tooLong := "rec review --title t <<'EOF'\n" + strings.Repeat("finding auth verify who\n", 85) + "EOF\n"
+	return []outcome{
+		{"finds all three flaws within 80 lines", true, coldFixture + allThree},
+		{"misses auth contradiction", false, coldFixture + review("Phase 1 has no verify clause and Phase 2 has no who: owner.")},
+		{"misses missing verification", false, coldFixture + review("Bearer auth violates PRD.md Non-goals and Phase 2 has no who: owner.")},
+		{"misses unowned step", false, coldFixture + review("Bearer auth violates PRD.md Non-goals and Phase 1 has no verify clause.")},
+		{"exceeds 80 lines", false, coldFixture + tooLong},
+		{"no review record", false, coldFixture},
+		{"edits source code", false, coldFixture + allThree + "echo '// edit' >>cmd/server/main.go\n"},
+	}
+}
+
+func resumeOutcomes(conv func(string, string) string) []outcome {
+	resumeFixture := `"$F" resume | grep -q 'PLAN-2026-11-02-farewell' && "$F" resume | grep -q 'HANDOFF-2026-11-02-1200-phase1-done' && "$F" resume | grep -q 'goodbye-port'
+`
+	goodOut := "printf 'Status: Phase 1 done. Active plan: PLAN-2026-11-02-farewell. Next step: Phase 2 (wire GET /goodbye). Memory: goodbye-port (port 8080).\\n' >\"$OUT\"\n"
+	ranResume := conv("m.db", `{"CommandLine":"fyr resume"}`)
+	noResume := conv("m.db", `{"CommandLine":"fyr record list --open"}`)
+	return []outcome{
+		{"runs fyr resume and states status, plan, next step and memory", true, resumeFixture + goodOut + ranResume},
+		{"skips fyr resume command", false, resumeFixture + goodOut + noResume},
+		{"omits plan ID in reply", false, resumeFixture + "printf 'Next step: Phase 2 goodbye on port 8080.\\n' >\"$OUT\"\n" + ranResume},
+		{"omits next step in reply", false, resumeFixture + "printf 'Active plan: PLAN-2026-11-02-farewell on port 8080.\\n' >\"$OUT\"\n" + ranResume},
+		{"omits memory in reply", false, resumeFixture + "printf 'Active plan: PLAN-2026-11-02-farewell, Phase 2 goodbye.\\n' >\"$OUT\"\n" + ranResume},
+		{"dirty working tree", false, resumeFixture + goodOut + ranResume + "echo '// dirty' >>cmd/server/main.go\n"},
 	}
 }
 

@@ -293,6 +293,7 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 		t.Fatal(err)
 	}
 	redirectRe := regexp.MustCompile("`[^`]*\\bfyr\\s+(?:record|memory)\\b[^`]*(?:\\s<\\s|<<)[^`]*`|^\\s*fyr\\s+(?:record|memory)\\b.*(?:\\s<\\s|<<)")
+	bareBodyRe := regexp.MustCompile(`--body(?:[^-]|$)`)
 	for _, root := range []string{"context", "agents", "skills", "rules", "commands"} {
 		err := filepath.WalkDir(filepath.Join(repo, root), func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -312,6 +313,9 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 			for i, line := range strings.Split(string(data), "\n") {
 				if redirectRe.MatchString(line) {
 					t.Errorf("%s:%d redirects input into fyr instead of --body-file: %s", rel, i+1, strings.TrimSpace(line))
+				}
+				if bareBodyRe.MatchString(line) {
+					t.Errorf("%s:%d uses bare --body (stdin pipe) instead of --body-file: %s", rel, i+1, strings.TrimSpace(line))
 				}
 				if strings.Contains(line, "drop the header line") || strings.Contains(line, "header line dropped") || strings.Contains(line, "drop the first line, the record's header") {
 					t.Errorf("%s:%d tells the caller to drop the header line instead of fyr record get --out: %s", rel, i+1, strings.TrimSpace(line))

@@ -196,7 +196,8 @@ func TestSuiteHarness(t *testing.T) {
 	want := map[string]pin{
 		"init-project": {"", true}, "feature": {"", false}, "feature-empty": {"", true}, "feature-recon": {"explorer", true}, "review": {"", true},
 		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
-		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true},
+		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true}, "reviewer-cold": {"reviewer", false},
+		"resume":  {"", false},
 		"handoff": {"", true}, "work": {"", true}, "retro": {"", true}, "distill": {"", true},
 		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
 		"preflight": {"", true}, "project-memory": {"", false},

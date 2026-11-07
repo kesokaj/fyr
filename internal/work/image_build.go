@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr"
@@ -224,12 +225,25 @@ func resolveAndCheckImage(o Options, ref string) (id, arch string, err error) {
 	return checkImageVersion(o, ref, id, arch)
 }
 
+type imageVersionKey struct {
+	home, id string
+}
+
+var imageVersionCache sync.Map // imageVersionKey -> string
+
 // checkImageVersion is resolveAndCheckImage's version check of the image
 // id that ref named: it holds this fyr's version, else it is rebuilt or
-// predicted as resolveAndCheckImage says, or refused.
+// predicted as resolveAndCheckImage says, or refused. A passing version for
+// (stageHome(o), id) is cached so repeated checks of the same content-addressed
+// image ID do not spawn another container (Item 30).
 func checkImageVersion(o Options, ref, id, arch string) (string, string, error) {
+	key := imageVersionKey{home: stageHome(o), id: id}
+	if cached, ok := imageVersionCache.Load(key); ok && cached == o.Version {
+		return id, arch, nil
+	}
 	got, verr := imageVersion(id)
 	if (verr != nil || got != o.Version) && canBuildImage(o, ref) {
+		imageVersionCache.Delete(key)
 		predicted, parch, berr := buildOrPredict(o)
 		switch {
 		case berr != nil:
@@ -246,6 +260,7 @@ func checkImageVersion(o Options, ref, id, arch string) (string, string, error) 
 	if verr != nil || got != o.Version {
 		return "", "", fmt.Errorf("--image %s holds fyr %q, not this fyr's %s (%v); rebuild it: %s", ref, got, o.Version, verr, BuildLine)
 	}
+	imageVersionCache.Store(imageVersionKey{home: stageHome(o), id: id}, got)
 	return id, arch, nil
 }
 

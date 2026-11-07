@@ -29,7 +29,7 @@ var recordPrefix = map[string]string{"handoff": "HANDOFF-", "change": "CHANGE-"}
 // records the worker added, which live only in its sandbox's brain.db or on
 // its branch, written into the lead's scratch beside the drafts, one
 // <ID>.title and one <ID>.md each, for the lead to store with `fyr record
-// add <kind> --id <ID> --title-file <ID>.title < <ID>.md`. The verb writes
+// add <kind> --id <ID> --title-file <ID>.title --body-file <ID>.md`. The verb writes
 // no store. An auto worker gets none: fyr auto reads its result and removes
 // its drafts directory. False means a copy that could not be made: the
 // sandbox is kept.

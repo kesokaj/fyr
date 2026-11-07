@@ -129,7 +129,7 @@ agent to start with only when one is genuinely the first move.>
 ## Kickoff
 
 ```text
-Project: <absolute path>. Read AGENTS.md, then fyr record get <handoff ID>, then fyr record get <plan ID>; do Phase <n> — <name> only.
+Project: <absolute path>. Run fyr resume (handoff <handoff ID>, plan <plan ID>); do Phase <n> — <name> only.
 Files: <the phase's files: line, verbatim>
 Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the checkpoint's `change` record, commit and push; the closing handoff. Never: a who: user box, an Open: row, a release, a deploy, a real-home install, anything outside this repository. Ask only outside the set or on a critical failure.
 Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff with the next Kickoff and end the session.
@@ -187,7 +187,7 @@ Reading side: the global context's § Resume, then checkpoint tells every fresh 
 
 ### Cold-reader check — before the handoff counts as finished
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader: yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `TODO.md` Now → the open plans' unticked boxes → the three newest `change` records → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader (`fyr resume`): yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `TODO.md` Now → the open plans' unticked boxes → the three newest `change` records → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file or record ID that does not exist (`fyr record get` refuses it).
@@ -198,9 +198,9 @@ A handoff is done when a fresh reader can resume from it, not when it is saved. 
 
 Fix what comes back at the source (plan, `TODO.md`, the dispatches above) and in the handoff itself while it is still this session's; then report.
 
-## Step 6: Commit and push
+## Step 6: Commit, push and ingest once
 
-Stage anything Step 3 wrote, by name, then `git commit -m "Handoff: <topic>"` when there are staged changes. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push, except in worker mode (§ The worker-mode Kickoff), which neither pushes nor ingests.
+Stage the conversation's and Step 3's changes by name, read `git diff --cached --stat`, then commit in a separate call (`git commit -m "<phase, task or handoff summary>"`) when there are staged changes — one commit, one push and one `fyr metrics ingest` per conversation, never a second set after a checkpoint commit. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/handoff` or the project's `.agents/skills/handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push, except in worker mode (§ The worker-mode Kickoff), which neither pushes nor ingests.
 
 The session's last call, after the push (or after the commit, when there is no remote to push to), is `fyr metrics ingest`: the checkpoint feed of the metrics store, so `/retro` and `fyr metrics show` see this session without waiting for the next dream. Its summary line (`metrics: N sessions, M steps, K events added; …`), or its error and exit status, goes in the report. A failed ingest never edits the handoff (immutable) and never stops the session from ending: the next ingest — the next handoff, `/retro`, or the next dream — joins every session again.
 

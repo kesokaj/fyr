@@ -2,16 +2,62 @@ package sandbox
 
 import (
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/trail"
 )
+
+var buildSeq atomic.Uint64
+
+// PrepareSelf builds ./cmd/fyr from repo once before a multi-sandbox run when
+// repo is a fyr checkout, self is a Go binary (not a test script), and go is
+// on PATH. If the build cannot run or fails, self is returned so each
+// sandbox's Install records the failure in install.log as before.
+func PrepareSelf(ctx context.Context, repo, self string) (string, func()) {
+	nop := func() {}
+	if repo == "" || self == "" || !harness.IsCheckout(repo) {
+		return self, nop
+	}
+	if _, err := buildinfo.ReadFile(self); err != nil {
+		return self, nop
+	}
+	if st, err := os.Stat(filepath.Join(repo, "cmd", "fyr")); err != nil || !st.IsDir() {
+		return self, nop
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		return self, nop
+	}
+	dir := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("fyr-build-%d-%d", os.Getpid(), buildSeq.Add(1)))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return self, nop
+	}
+	bin := filepath.Join(dir, "fyr")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/fyr")
+	cmd.Dir = repo
+	cmd.Env = append(FyrEnv(), "GOTOOLCHAIN=local")
+	if err := cmd.Run(); err != nil {
+		_ = os.RemoveAll(dir)
+		return self, nop
+	}
+	return bin, func() { _ = os.RemoveAll(dir) }
+}
+
+func isPreparedSelf(repo, self string) bool {
+	if repo == "" || self == "" {
+		return false
+	}
+	wantDir := filepath.Join(repo, ".agents", "scratch")
+	dir := filepath.Dir(self)
+	return filepath.Dir(dir) == wantDir && strings.HasPrefix(filepath.Base(dir), "fyr-build-")
+}
 
 // wrapperScript is SB/bin/fyr, given SB and the installed binary. fyr's
 // flags are last-wins, so a --home of the agent's own would override the one
@@ -79,6 +125,11 @@ func (b *Box) cloneApp(ctx context.Context) bool {
 		b.Fail(ReasonClone)
 		return false
 	}
+	// Refresh the clone's index once so fyr search in the sandbox does not
+	// see a racily clean index and re-hash every tracked file (Item 30).
+	ref := exec.CommandContext(ctx, "git", "-C", b.app, "update-index", "-q", "--refresh")
+	ref.Env = WithoutGit(os.Environ())
+	_ = ref.Run()
 	return true
 }
 
@@ -136,10 +187,16 @@ func (b *Box) Install(ctx context.Context) bool {
 	inst := exec.CommandContext(ctx, b.c.Self, args...)
 	inst.Dir = b.sb
 	inst.Env = FyrEnv()
+	if isPreparedSelf(b.c.Repo, b.c.Self) {
+		inst.Env = append(inst.Env, harness.ChildEnv+"=1")
+	}
 	log, err := os.Create(filepath.Join(b.dir, "install.log"))
 	if err != nil {
 		b.Fail(ReasonInstall)
 		return false
+	}
+	if isPreparedSelf(b.c.Repo, b.c.Self) {
+		fmt.Fprintf(log, "building fyr from %s\n", b.c.Repo)
 	}
 	inst.Stdout, inst.Stderr = log, log
 	err = inst.Run()

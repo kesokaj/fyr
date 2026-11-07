@@ -10,7 +10,7 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | project-empty | review | reviewer | reviewer-wide | reviewer-wide-bug | work | work-plan | tasks | retro | distill | dream | preflight) ;;
+    bare | project | project-empty | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | resume | work | work-plan | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
   # The stand-in verb is read before demo_tree empties the work tree.
@@ -28,6 +28,8 @@ main() {
     reviewer) reviewer_commit ;;
     reviewer-wide) reviewer_wide ;;
     reviewer-wide-bug) reviewer_wide; seeded_bug ;;
+    reviewer-cold) reviewer_cold ;;
+    resume) resume_seed ;;
     work) work_wave ;;
     work-plan) stand_in_verb "$fake"; work_plans ;;
     tasks) stand_in_verb "$fake" ;;
@@ -463,6 +465,99 @@ preflight_tag() {
 `GET /healthz` is for a load balancer's health check.
 EOF
   git commit -qam "readme: say what healthz is for"
+}
+
+# reviewer_cold writes a draft plan with three seeded high-severity flaws:
+# (1) a contradiction with PRD.md Non-goals (Bearer auth) and JSON vs plain-text
+# return type between Interfaces and Phase 1; (2) a missing verification on
+# Phase 1's task; (3) an unowned step (missing who:) on Phase 2's task.
+reviewer_cold() {
+  cat >.agents/scratch/plan-farewell.md <<'EOF'
+# Plan — Farewell endpoint
+
+**Date:** 2026-11-02 · **Status:** draft
+
+## Why
+
+Add `GET /goodbye?name=N` to `cmd/server/main.go` backed by `internal/farewell`, answering `goodbye, N` (or `goodbye, world` when `N` is blank).
+
+## Surfaces touched
+
+- `internal/farewell/farewell.go` (new)
+- `cmd/server/main.go:73`
+
+## Interfaces
+
+- `Farewell(name string) string` in `internal/farewell` returns JSON `{"farewell":"goodbye, N"}`.
+- `GET /goodbye?name=N` requires an `Authorization: Bearer <token>` header (`PRD.md` R1) and writes `Farewell(name)`.
+
+## Phases
+
+- [ ] Cold-reader check — one report, every item answered
+
+### Phase 1 — Farewell package
+files: internal/farewell/
+
+- [ ] Add `Farewell(name string) string` in `internal/farewell/farewell.go` returning plain text `"goodbye, " + name`, who: AI
+- [ ] Checkpoint — verify: `go vet ./...`, who: AI — expect: exit 0
+
+### Phase 2 — Server route
+files: cmd/server/main.go, README.md
+after: Phase 1
+
+- [ ] Wire `GET /goodbye` into `cmd/server/main.go` and document it in `README.md` — verify: `go test ./...`, expect: exit 0
+- [ ] Checkpoint — verify: `gofmt -l . && go vet ./... && go test ./...`, who: AI — expect: exit 0
+EOF
+}
+
+# resume_seed seeds an open plan (Phase 1 ticked, Phase 2 open), a handoff,
+# TODO.md Now, a change record, and a project memory for fyr resume.
+resume_seed() {
+  cat >TODO.md <<'EOF'
+# TODO
+
+## Now
+
+- [ ] Phase 2 of `PLAN-2026-11-02-farewell`: wire `GET /goodbye` into `cmd/server/main.go`
+
+## Next
+
+## Backlog
+EOF
+  git commit -qam "todo: phase 2 of PLAN-2026-11-02-farewell"
+  rec plan --id PLAN-2026-11-02-farewell --title "Plan — Farewell endpoint" <<'EOF'
+# PLAN-2026-11-02-farewell
+
+## Phases
+
+- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-farewell), 0 gaps, 0 blocking questions; design ready, implementation ready
+
+### Phase 1 — Farewell package
+files: internal/greet/
+
+- [x] Add `Farewell(name string) string` to `internal/greet/greet.go` — verify: `go test ./...`, who: AI — expect: exit 0
+- [x] Checkpoint — verify: `gofmt -l . && go vet ./... && go test ./...`, who: AI — expect: exit 0 — evidence: `go test ./...` ok
+
+### Phase 2 — Server route
+files: cmd/server/main.go
+
+- [ ] Wire `GET /goodbye` into `cmd/server/main.go` — verify: `go test ./...`, who: AI — expect: exit 0
+- [ ] Checkpoint — verify: `gofmt -l . && go vet ./... && go test ./...`, who: AI — expect: exit 0
+EOF
+  rec change --id CHANGE-2026-11-02-1155-phase1-farewell --title "Change — Phase 1 farewell helper" <<'EOF'
+# Change — Phase 1 farewell helper
+
+Completed Phase 1 of `PLAN-2026-11-02-farewell`.
+EOF
+  rec handoff --id HANDOFF-2026-11-02-1200-phase1-done --title "Handoff — 2026-11-02 — Phase 1 done, Phase 2 next" <<'EOF'
+# Handoff — 2026-11-02 — Phase 1 done, Phase 2 next
+
+## Summary
+
+Phase 1 of `PLAN-2026-11-02-farewell` is complete. Next is Phase 2: wire `GET /goodbye` into `cmd/server/main.go`.
+EOF
+  printf 'The local demo server listens on port 8080 by default.\n' |
+    "$FYR" memory add --type project --name goodbye-port --description "Local demo server port 8080" --home "$SB" >/dev/null
 }
 
 main "$@"

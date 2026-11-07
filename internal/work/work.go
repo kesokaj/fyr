@@ -145,7 +145,9 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	}
 	sbProj := SandboxRoot(o.Home, o.Root)
 	root := filepath.Join(sbProj, stamp)
-	defer closeRunSandboxes(r, root, sbProj, o.Home)
+	builtSelf, cleanSelf := sandbox.PrepareSelf(ctx, o.Repo, o.Self)
+	o.Self = builtSelf
+	defer closeRunSandboxes(r, root, sbProj, o.Home, cleanSelf)
 	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/  %s", stamp, len(ps), root, RunnerLabel(o.Runner, o.RunnerReason))))
 	ws := make([]*worker, len(ps))
 	for i, p := range ps {
@@ -156,7 +158,8 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	return res, nil
 }
 
-func closeRunSandboxes(r *run, root, sbProj, home string) {
+func closeRunSandboxes(r *run, root, sbProj, home string, cleanSelf func()) {
+	cleanSelf()
 	r.close()
 	_ = os.Remove(root)
 	_ = os.Remove(sbProj)

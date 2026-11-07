@@ -18,12 +18,12 @@ Trigger for you: write the report as soon as the first file of the range is read
 
 ## Scope
 
-Default to the current change set, not the whole repo. Establish the diff with `git diff`, `git diff --staged`, or `git diff <base>...HEAD` (`gh pr diff <n>` for a PR), and name it in the report on a `Range reviewed:` line. If the dispatch hands you a plan file instead of a diff (the cold-reader check), review that document and the code surfaces it names, and answer the questions the dispatch asks, in its numbering. If no diff is discernible, say so and review what the dispatch names — never silently review everything.
+Default to the current change set, not the whole repo. Establish the diff with `git diff`, `git diff --staged`, or `git diff <base>...HEAD` (`gh pr diff <n>` for a PR), and name it in the report on a `Range reviewed:` line. If the dispatch hands you a plan file instead of a diff (the cold-reader check), review that document and the code surfaces it names within a budget of 15 tool calls, and answer the questions the dispatch asks in its numbering, capped at 10 findings and questions in total (blocking and high-severity first, one or two sentences each, report under 80 lines; omit the six code-diff Criteria section). If no diff is discernible, say so and review what the dispatch names — never silently review everything.
 
 ## Pre-flight
 
 1. Before reading the diff in detail, run `fyr record list --kind bug`: past failures, never the author's intent. When it prints nothing, run no `--refs` search. Otherwise run `fyr search --refs <dir>/ --kind bug` once for each directory holding a changed file, never once per file: the directory's path from the repository root with its trailing `/`, a file at the root by its own path. Then read `PRD.md`, `AGENTS.md` and any `<project>/.agents/rules/`. A violation of `PRD.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
-2. Read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. The six criteria below are the lens; the skill is the detail.
+2. For a code diff (skip on a plan cold-read), read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. The six criteria below are the lens; the skill is the detail.
 
 ## The six review criteria
 

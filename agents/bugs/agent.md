@@ -50,7 +50,7 @@ Other BUG ids, the `change` record, the `review` or `testing` record.
 
 ## Graduation
 
-A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `<project>/.agents/rules/` file, the project's `AGENTS.md` — never into a longer paragraph. The commit that writes the mechanism sets the bug's status to `graduated` and adds a `Graduated to: <mechanism>` line to its body (`fyr record edit BUG-NNN --status graduated`, then `--body`); a rule promoted from a project to the harness leaves the project's bug as it is.
+A rule that recurs graduates into a mechanism — a test, a script a skill runs, an agent definition, a `<project>/.agents/rules/` file, the project's `AGENTS.md` — never into a longer paragraph. The commit that writes the mechanism sets the bug's status to `graduated` and adds a `Graduated to: <mechanism>` line to its body (`fyr record edit BUG-NNN --status graduated --body-file <path>`); a rule promoted from a project to the harness leaves the project's bug as it is.
 
 ## Rules
 

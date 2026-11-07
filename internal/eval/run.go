@@ -155,6 +155,9 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if err != nil {
 		return nil, errors.New("agy not found on PATH")
 	}
+	builtSelf, cleanSelf := sandbox.PrepareSelf(ctx, o.Repo, o.Self)
+	defer cleanSelf()
+	o.Self = builtSelf
 	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
 }
 

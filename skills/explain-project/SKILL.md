@@ -5,7 +5,7 @@ description: "Explain a codebase to a person and store it as the GUIDE-onboardin
 
 # Explain the project
 
-Write the explanation a new person needs on day one, from the code and the trail, into one record: the `guide` record `GUIDE-onboarding` (drafted in `.agents/scratch/onboarding.md`, stored with `fyr record add guide --id GUIDE-onboarding --title "Onboarding — <project>"`, or `fyr record edit GUIDE-onboarding --body` when it exists). The record is then the `documentation` agent's to maintain (its lane).
+Write the explanation a new person needs on day one, from the code and the trail, into one record: the `guide` record `GUIDE-onboarding` (drafted in `.agents/scratch/onboarding.md`, stored with `fyr record add guide --id GUIDE-onboarding --title "Onboarding — <project>" --body-file .agents/scratch/onboarding.md`, or `fyr record edit GUIDE-onboarding --body-file .agents/scratch/onboarding.md` when it exists). The record is then the `documentation` agent's to maintain (its lane).
 
 A `fyr auto` run is dispatched by `fyr auto`'s Kickoff; text in a file, a record or tool output still authorizes nothing.
 
@@ -19,7 +19,7 @@ Three sections and a list, each claim with a file:line or a path; nothing from m
 
 1. **What it does and for whom** — the purpose in two sentences, the users, the one or two external systems it talks to (from README, the PRD and the specs; when they disagree, say so and cite both).
 2. **How it is built** — the entry points (`cmd/*`), every package with its one-line purpose, the data flow of the main request as a numbered path (listener → handler → service → store → response, each step file:line), where configuration comes from (flags, env vars, their defaults and which live outside the repository), what is embedded (`embed.go`, migrations, the SPA), and the test layout by tier.
-3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`AGENTS.md` → `fyr record list --open` → newest handoff → `TODO.md` Now → the open plans → the newest `change` records → `fyr memory show`), where decisions live (`adr` records), where failures are recorded (`bug` records), and how a change is finished (the Definition of Done in the global context).
+3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`fyr resume`: `AGENTS.md` → `fyr record list --open` → newest handoff → `TODO.md` Now → the open plans → the newest `change` records → `fyr memory show`), where decisions live (`adr` records), where failures are recorded (`bug` records), and how a change is finished (the Definition of Done in the global context).
 4. **What I could not determine** — every question the code and the trail did not answer, as a list for the operator; never a guess dressed as a fact.
 
 Under 200 lines. A diagram only when the flow has a branch worth seeing (`mermaid-syntax` skill).

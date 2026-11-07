@@ -157,4 +157,74 @@ func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
 	}
 }
 
+// TestColdReaderBudget pins Item 19 of PLAN-2026-11-02-1806-fyr-speed: the
+// plan's cold reader gets a 15-tool-call budget and a 10-finding/question
+// output cap (< 80 lines), and skips review-standards code-diff references.
+func TestColdReaderBudget(t *testing.T) {
+	step3 := section(t, readSkill(t, "skills/feature/SKILL.md"), "## Step 3: Cold-reader check")
+	for _, want := range []string{
+		"a budget of 15 tool calls",
+		"at most 10 findings and questions",
+		"under 80 lines",
+	} {
+		if !strings.Contains(step3, want) {
+			t.Errorf("skills/feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
+		}
+	}
+	if strings.Contains(step3, "a budget of 30 tool calls") {
+		t.Error("skills/feature/SKILL.md ## Step 3: Cold-reader check still says 30 tool calls")
+	}
+
+	rev := readSkill(t, "agents/reviewer/agent.md")
+	for _, want := range []string{
+		"15 tool calls",
+		"10 findings and questions",
+		"under 80 lines",
+		"skip on a plan cold-read",
+	} {
+		if !strings.Contains(rev, want) {
+			t.Errorf("agents/reviewer/agent.md does not say %q", want)
+		}
+	}
+}
+
+// TestResumeAndGitCheckAndSingleCommit pins Items 20, 28, and 29 of
+// PLAN-2026-11-02-1806-fyr-speed: context/AGENTS.md uses fyr resume and fyr
+// git-check, and context/AGENTS.md, skills/feature/SKILL.md, and
+// skills/handoff/SKILL.md commit, push, and ingest once per conversation.
+func TestResumeAndGitCheckAndSingleCommit(t *testing.T) {
+	ctx := readSkill(t, "context/AGENTS.md")
+	for _, want := range []string{
+		"`fyr resume`",
+		"`fyr git-check`: an unnamed path, commit or tag is a stop sign.",
+		"commits, pushes and runs `fyr metrics ingest` once",
+	} {
+		if !strings.Contains(ctx, want) {
+			t.Errorf("context/AGENTS.md does not say %q", want)
+		}
+	}
+	for _, gone := range []string{
+		"as three separate commands, never joined on one line",
+		"(Checkpoint box, `change` record, commit, push, `fyr metrics ingest`)",
+	} {
+		if strings.Contains(ctx, gone) {
+			t.Errorf("context/AGENTS.md still says %q", gone)
+		}
+	}
+
+	feat := readSkill(t, "skills/feature/SKILL.md")
+	if strings.Contains(feat, "commit and push as separate calls, then the handoff") {
+		t.Error("skills/feature/SKILL.md still commits and pushes before the handoff")
+	}
+	if !strings.Contains(feat, "commits, pushes and runs `fyr metrics ingest` once") {
+		t.Error("skills/feature/SKILL.md does not state that /handoff commits, pushes and ingests once")
+	}
+
+	handoff := section(t, readSkill(t, "skills/handoff/SKILL.md"), "## Step 6")
+	if !strings.Contains(handoff, "one commit, one push and one `fyr metrics ingest` per conversation") {
+		t.Error("skills/handoff/SKILL.md Step 6 does not state one commit, push and ingest per conversation")
+	}
+}
+
+
 

@@ -3,6 +3,7 @@ name: documentation
 description: "Maintains the how-it-works docs (README, SDD.md and TDD.md, the project AGENTS.md setup and deploy sections, and the spec, guide and deploy records: before dispatch the main thread writes each record's body with fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md, the agent edits that file in place, and the main thread stores it back with fyr record edit <ID> --body-file) and returns what it updated. Dispatch when behavior, interfaces, the plan, or a deploy path changed and the edit is over 30 lines (the main agent writes smaller ones). Never triggered by internal-only refactors, and never writes changelogs (those belong to changelog) or ADRs (the main agent's) or TODO.md (the main agent keeps it)."
 subagent: true
 mainAgent: false
+model: flash
 tools: [view_file, grep_search, find_by_name, replace_file_content, write_to_file]
 ---
 
