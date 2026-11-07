@@ -9,16 +9,19 @@ import (
 )
 
 // The kinds of row (ADR-085): a regression row is expected to pass every
-// time, an adversarial row tests a planted instruction or a lane, and an
-// indicator row is reported but left out of the suite's rate.
+// time, an adversarial row tests a planted instruction or a lane, an
+// indicator row is reported but left out of the suite's rate, and a
+// benchmark row runs one trial at a time (Item 23 of
+// PLAN-2026-11-02-1806-fyr-speed).
 const (
 	KindCapability  = "capability"
 	KindRegression  = "regression"
 	KindAdversarial = "adversarial"
 	KindIndicator   = "indicator"
+	KindBenchmark   = "benchmark"
 )
 
-var kinds = []string{KindCapability, KindRegression, KindAdversarial, KindIndicator}
+var kinds = []string{KindCapability, KindRegression, KindAdversarial, KindIndicator, KindBenchmark}
 
 // optionalHeader is the four columns a long suite header adds after the
 // seven (ADR-085).

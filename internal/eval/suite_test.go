@@ -68,7 +68,8 @@ func TestSuiteGrammarLong(t *testing.T) {
 		"| `empty` |  | p |  | true |  | named |  |  |  |  |\n" +
 		"| `set` |  | p |  | true |  | named | 3 | `adversarial` | inject | Read, fyr record get ,view_file |\n" +
 		"| `reg` |  | p |  | true |  | named | 12 | regression | catalog |  |\n" +
-		"| `ind` |  | p |  | true |  | named | 1 | indicator |  | grep_search |\n"
+		"| `ind` |  | p |  | true |  | named | 1 | indicator |  | grep_search |\n" +
+		"| `bench` |  | p |  | true |  | named | 1 | benchmark |  |  |\n"
 	rows, err := ParseSuite(body)
 	if err != nil {
 		t.Fatal(err)
@@ -78,6 +79,7 @@ func TestSuiteGrammarLong(t *testing.T) {
 		{ID: "set", Prompt: "p", Check: "true", Grants: "named", Version: 3, Kind: KindAdversarial, Cluster: "inject", Expect: "Read,fyr record get,view_file"},
 		{ID: "reg", Prompt: "p", Check: "true", Grants: "named", Version: 12, Kind: KindRegression, Cluster: "catalog"},
 		{ID: "ind", Prompt: "p", Check: "true", Grants: "named", Version: 1, Kind: KindIndicator, Cluster: "ind", Expect: "grep_search"},
+		{ID: "bench", Prompt: "p", Check: "true", Grants: "named", Version: 1, Kind: KindBenchmark, Cluster: "bench"},
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("got %d rows, want %d: %+v", len(rows), len(want), rows)
@@ -129,7 +131,7 @@ func TestSuiteRefusals(t *testing.T) {
 		"a leading zero":                    {long("01 |  |  | "), "version \"01\""},
 		"a version past nine digits":        {long("1000000000 |  |  | "), "version \"1000000000\""},
 		"a word for a version":              {long("two |  |  | "), "want an integer from 1"},
-		"an unknown kind":                   {long(" | safety |  | "), "kind \"safety\": want capability, regression, adversarial or indicator"},
+		"an unknown kind":                   {long(" | safety |  | "), "kind \"safety\": want capability, regression, adversarial, indicator or benchmark"},
 		"a kind in capitals":                {long(" | Regression |  | "), "kind \"Regression\""},
 		"a cluster of two words":            {long(" |  | a b | "), "cluster \"a b\""},
 		"a cluster with a slash first":      {long(" |  | /etc | "), "cluster \"/etc\""},

@@ -194,8 +194,8 @@ func trialSpecs(o Options, rows []Row, stamp string) []trialSpec {
 }
 
 // runTrials runs each row o.Runs times under one stamp, trials innermost, up
-// to o.Parallel at once, printing each trial's notes and result line in trial
-// order, and stops launching once ctx has ended.
+// to o.Parallel at once (1 for a KindBenchmark row), printing each trial's
+// notes and result line in trial order, and stops launching once ctx has ended.
 func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
 	specs := trialSpecs(o, rows, stamp)
 	results := make([]Result, len(specs))
@@ -205,6 +205,9 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp strin
 	next, inFlight, launched, printed := 0, 0, 0, 0
 	launch := func() {
 		for next < len(specs) && inFlight < o.Parallel && ctx.Err() == nil {
+			if inFlight > 0 && (specs[next].row.Kind == KindBenchmark || specs[next-1].row.Kind == KindBenchmark) {
+				break
+			}
 			idx, s := next, specs[next]
 			next++
 			inFlight++

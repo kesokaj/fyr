@@ -170,4 +170,21 @@ func TestResumeRefusesNonCheckout(t *testing.T) {
 	if !IsRefusal(err) {
 		t.Fatalf("err = %v, want IsRefusal", err)
 	}
+	dir := repo(t)
+	home := t.TempDir()
+	target := filepath.Join(t.TempDir(), "secret.md")
+	if err := os.WriteFile(target, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"AGENTS.md", "TODO.md"} {
+		link := filepath.Join(dir, name)
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Resume(opts(dir, home))
+		_ = os.Remove(link)
+		if err == nil {
+			t.Fatalf("Resume followed symlinked %s, want error", name)
+		}
+	}
 }

@@ -102,7 +102,7 @@ func queryScopeDesc(home, sc string) ([]Record, error) {
 
 func writeResumeAgents(b *strings.Builder, top string, count int) error {
 	b.WriteString("## AGENTS.md\n")
-	data, err := os.ReadFile(filepath.Join(top, "AGENTS.md"))
+	data, err := readRegular(filepath.Join(top, "AGENTS.md"), maxBody)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		b.WriteString("(missing: AGENTS.md)\n")
@@ -175,7 +175,7 @@ func writeResumeNewestHandoff(b *strings.Builder, recs []Record) {
 
 func writeResumeTodoNow(b *strings.Builder, top string) error {
 	b.WriteString("\n## TODO.md Now\n")
-	data, err := os.ReadFile(filepath.Join(top, "TODO.md"))
+	data, err := readRegular(filepath.Join(top, "TODO.md"), maxBody)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		b.WriteString("(missing: TODO.md)\n")

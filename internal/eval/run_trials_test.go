@@ -74,8 +74,9 @@ func TestRunRunsRefused(t *testing.T) {
 // TestRunParallel: Parallel 2 over 3 trials runs 2 trials concurrently (meeting
 // a barrier of 2 while capping peak concurrency at 2) and prints notes and
 // verdict lines in trial order (1, 2, 3) even when trial 2 finishes before
-// trial 1; a Parallel outside 1 to MaxParallel is refused before anything is
-// made (Item 23 of PLAN-2026-11-02-1806-fyr-speed).
+// trial 1; a KindBenchmark row stays at concurrency 1 even when Parallel > 1;
+// a Parallel outside 1 to MaxParallel is refused before anything is made
+// (Item 23 of PLAN-2026-11-02-1806-fyr-speed).
 func TestRunParallel(t *testing.T) {
 	r := newRig(t)
 	for _, n := range []int{-1, MaxParallel + 1} {
@@ -119,4 +120,28 @@ func TestRunParallel(t *testing.T) {
 	if i1 < 0 || i2 <= i1 || i3 <= i2 {
 		t.Errorf("output not in trial order (indices %d, %d, %d):\n%s", i1, i2, i3, out)
 	}
+
+	t.Run("benchmark stays at 1", func(t *testing.T) {
+		rb := newRig(t)
+		rb.on("barrier", "1")
+		rb.on("sleep.1", "0.3")
+		ob := rb.opts()
+		ob.Runs = 2
+		ob.Parallel = 3
+		bench := Row{ID: "b", Prompt: "p", Check: "true", Grants: "named", Kind: KindBenchmark}
+		resB, err := Run(context.Background(), ob, []Row{bench})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rb.clean(resB)
+		if len(resB) != 2 {
+			t.Fatalf("got %d benchmark results, want 2: %+v", len(resB), resB)
+		}
+		if peak := strings.TrimSpace(rb.read("peak")); peak != "1" {
+			t.Errorf("peak concurrent agy sessions for benchmark = %q, want \"1\"", peak)
+		}
+		if order := strings.Fields(rb.read("finish.order")); len(order) != 2 || order[0] != "1" || order[1] != "2" {
+			t.Errorf("benchmark finish.order = %v, want [1 2]", order)
+		}
+	})
 }
