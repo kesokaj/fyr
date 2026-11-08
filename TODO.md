@@ -7,13 +7,13 @@
 
 ## Now
 
-### Phase 2 — Live `fyr eval` Behavioural Proofs for AST Citations, Read Ledger & Prompt Vetter (`PLAN-2026-11-08-1907-plan-verification-a-b-benchmark-of-second-brain`)
-- [ ] Check quota via `agy -p "/usage"` and run live `fyr eval` trials for the 5 behavioural proof rows (`ast-slice-citations`, `read-ledger-dedup`, `vet-first-gate`, `vet-question-and-bypass`, `fence-injection-guard`) against `--home ~/.config/fyr/dev/fyr-eval`
+### Phase 3 — Paired A/B Token, Latency & Zero-Unnecessary-Verification Benchmark & DoD (`PLAN-2026-11-08-1907-plan-verification-a-b-benchmark-of-second-brain`)
+- [ ] Check quota via `agy -p "/usage"` and run paired A/B `fyr eval` trials (`--runs 3`) on `ab-pipeline-on` (`project-ast`, hooks ON) and `ab-pipeline-off` (`project-ast-nohooks`, hooks OFF) against `--home ~/.config/fyr/dev/fyr-eval`, then extract per-label metrics (`fyr metrics show --home ~/.config/fyr/dev/fyr-eval --label eval=ab-pipeline-on --json` vs `eval=ab-pipeline-off`) and store the benchmark + verification `testing` record in `--home ~`
 - [ ] Checkpoint
 
 ## Next
 
-- Phase 3 — Paired A/B Token, Latency & Zero-Unnecessary-Verification Benchmark & DoD (`PLAN-2026-11-08-1907-plan-verification-a-b-benchmark-of-second-brain`)
+(none)
 
 ## Backlog
 
