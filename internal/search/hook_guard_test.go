@@ -82,19 +82,22 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		return resp
 	}
 
-	// 1. Invocation 1 of Turn 1 injects capsule + turn contract.
-	r1 := callHook(1, prompt)
+	// 1. Invocation 0 of Turn 1 (0-indexed in agy) injects capsule + turn contract and omits Metadata (BUG-523).
+	r1 := callHook(0, prompt)
 	if len(r1.InjectSteps) != 1 || r1.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("turn 1 inv 1: expected 1 injectStep, got %+v", r1)
+		t.Fatalf("turn 1 inv 0: expected 1 injectStep, got %+v", r1)
 	}
 	if !strings.Contains(r1.InjectSteps[0].SystemMessage.SystemMessage, "[FYR_TURN_CONTRACT]") {
-		t.Errorf("turn 1 inv 1 missing [FYR_TURN_CONTRACT]")
+		t.Errorf("turn 1 inv 0 missing [FYR_TURN_CONTRACT]")
+	}
+	if r1.InjectSteps[0].SystemMessage.Metadata != nil {
+		t.Errorf("turn 1 inv 0 Metadata must be nil to avoid agy scrubMessage panic (BUG-523), got %+v", r1.InjectSteps[0].SystemMessage.Metadata)
 	}
 
-	// 2. Invocation 2 (mid-turn tool loop, same prompt, no compaction) skips re-injection and keeps turn_count=1.
-	r2 := callHook(2, prompt)
+	// 2. Invocation 1 (mid-turn tool loop, same prompt, no compaction) skips re-injection and keeps turn_count=1.
+	r2 := callHook(1, prompt)
 	if len(r2.InjectSteps) != 0 {
-		t.Errorf("turn 1 inv 2 (mid-turn): expected 0 injectSteps, got %+v", r2.InjectSteps)
+		t.Errorf("turn 1 inv 1 (mid-turn): expected 0 injectSteps, got %+v", r2.InjectSteps)
 	}
 	st, _, err := openLedgerStore(dir)
 	if err != nil {
@@ -103,13 +106,13 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 	_, turnCount := st.currentGeneration("conv-midturn")
 	st.close()
 	if turnCount != 1 {
-		t.Errorf("after mid-turn inv 2, turn_count = %d, want 1", turnCount)
+		t.Errorf("after mid-turn inv 1, turn_count = %d, want 1", turnCount)
 	}
 
-	// 3. New user turn (invocationNum == 1) with the SAME prompt runs in full and increments turn_count to 2.
-	r3 := callHook(1, prompt)
+	// 3. New user turn (invocationNum == 0) with the SAME prompt runs in full and increments turn_count to 2.
+	r3 := callHook(0, prompt)
 	if len(r3.InjectSteps) != 1 || r3.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("turn 2 inv 1 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
+		t.Fatalf("turn 2 inv 0 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
 	}
 	st2, _, err := openLedgerStore(dir)
 	if err != nil {
@@ -118,7 +121,7 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 	_, turnCount2 := st2.currentGeneration("conv-midturn")
 	st2.close()
 	if turnCount2 != 2 {
-		t.Errorf("after turn 2 inv 1, turn_count = %d, want 2", turnCount2)
+		t.Errorf("after turn 2 inv 0, turn_count = %d, want 2", turnCount2)
 	}
 }
 

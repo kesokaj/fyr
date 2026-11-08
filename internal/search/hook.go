@@ -518,14 +518,22 @@ func writeStoreDegraded(out io.Writer, err error) error {
 	return writePreInvocation(out, "", banner)
 }
 
+// writePreInvocation serializes the PreInvocation hook response. Antigravity CLI
+// v1.5.3's utils.scrubMessage panics on any populated map<string,string> field
+// (HookSystemMessage.metadata), so userMarkdown is prepended to SystemMessage and
+// Metadata is left nil (BUG-523).
 func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 	var resp PreInvocationOutput
 	if sysMsg != "" || userMarkdown != "" {
-		msg := &HookSystemMessage{SystemMessage: sysMsg}
+		combined := sysMsg
 		if userMarkdown != "" {
-			msg.Metadata = map[string]any{"user_markdown": userMarkdown}
+			if combined != "" {
+				combined = userMarkdown + "\n" + combined
+			} else {
+				combined = userMarkdown
+			}
 		}
-		resp.InjectSteps = []HookInjectStep{{SystemMessage: msg}}
+		resp.InjectSteps = []HookInjectStep{{SystemMessage: &HookSystemMessage{SystemMessage: combined}}}
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {

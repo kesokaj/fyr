@@ -98,7 +98,7 @@ func advanceOrSkipTurn(st *store, conversationID string, genID, lastBytes, turnC
 	var prevSum string
 	_ = st.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
 		conversationID, genID, preInvocationSentinel).Scan(&prevSum)
-	if !compacted && promptSum != "" && prevSum == promptSum && (invocationNum > 1 || invocationNum == 0) {
+	if !compacted && promptSum != "" && prevSum == promptSum && invocationNum >= 1 {
 		if hasSize {
 			lastBytes, estTokens = curBytes, curBytes/4
 			_, _ = st.db.Exec(`UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, estTokens, conversationID)

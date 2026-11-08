@@ -286,11 +286,10 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		t.Fatalf("expected 1 injectStep, got %+v", hookResp)
 	}
 	sys := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	banner, _ := hookResp.InjectSteps[0].SystemMessage.Metadata["user_markdown"].(string)
 	if !strings.Contains(sys, "directive: VET_FIRST") || !strings.Contains(sys, "BEGIN DATA MEMORY-hooks") {
 		t.Errorf("hook systemMessage missing VET_FIRST or fenced MEMORY-hooks:\n%s", sys)
 	}
-	if !strings.Contains(banner, "`FEATURE` → `VET_FIRST`") || !strings.Contains(banner, "prefix `!` to bypass vetting") {
-		t.Errorf("hook user_markdown banner missing FEATURE->VET_FIRST or `!` tip:\n%s", banner)
+	if !strings.Contains(sys, "`FEATURE` → `VET_FIRST`") || !strings.Contains(sys, "prefix `!` to bypass vetting") {
+		t.Errorf("hook systemMessage banner missing FEATURE->VET_FIRST or `!` tip:\n%s", sys)
 	}
 }
