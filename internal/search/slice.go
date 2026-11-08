@@ -161,30 +161,38 @@ func (sc *scope) renderSliceCapsule(o Options, g *symGraph, tiers sliceTiers, ma
 	if len(hdr) <= maxBytes {
 		buf.WriteString(hdr)
 	}
-	hop0Cap, hop1Cap := maxBytes, maxBytes
-	if len(tiers.hop1) > 0 && len(tiers.hop2) > 0 {
-		hop0Cap = maxBytes * 60 / 100
-		hop1Cap = maxBytes * 85 / 100
-	} else if len(tiers.hop1) > 0 {
-		hop0Cap = maxBytes * 75 / 100
-	}
 	paths := map[string]bool{}
 	for _, idx := range tiers.hop0 {
+		paths[g.syms[idx].Path] = true
+	}
+	for _, c := range tiers.hop1 {
+		paths[g.syms[c.idx].Path] = true
+	}
+	var extrasBuf bytes.Buffer
+	extrasCap := min(max(0, maxBytes-buf.Len()), max(360, maxBytes/2))
+	sc.appendSliceExtras(&extrasBuf, paths, o.BrainRefs, extrasCap)
+	symMax := max(buf.Len(), maxBytes-extrasBuf.Len())
+	hop0Cap, hop1Cap := symMax, symMax
+	if len(tiers.hop1) > 0 && len(tiers.hop2) > 0 {
+		hop0Cap = symMax * 60 / 100
+		hop1Cap = symMax * 85 / 100
+	} else if len(tiers.hop1) > 0 {
+		hop0Cap = symMax * 75 / 100
+	}
+	for _, idx := range tiers.hop0 {
 		s := g.syms[idx]
-		paths[s.Path] = true
 		sc.appendWithinBudget(&buf, sc.formatHop0Symbol(s, hop0Cap-buf.Len()), hop0Cap)
 	}
 	for _, c := range tiers.hop1 {
 		s := g.syms[c.idx]
-		paths[s.Path] = true
 		sc.appendWithinBudget(&buf, sc.formatHop1Symbol(s, c, hop1Cap-buf.Len()), hop1Cap)
 	}
 	for _, idx := range tiers.hop2 {
 		s := g.syms[idx]
 		line := fmt.Sprintf("[Hop 2] %s:%d-%d (%s)  %s\n", s.Path, s.StartLine, s.EndLine, s.QualName(), s.Sig)
-		sc.appendWithinBudget(&buf, line, maxBytes)
+		sc.appendWithinBudget(&buf, line, symMax)
 	}
-	sc.appendSliceExtras(&buf, paths, o.BrainRefs, maxBytes)
+	sc.appendWithinBudget(&buf, extrasBuf.String(), maxBytes)
 	return buf.String()
 }
 
@@ -195,19 +203,34 @@ func (sc *scope) appendWithinBudget(buf *bytes.Buffer, block string, capBytes in
 }
 
 func (sc *scope) appendSliceExtras(buf *bytes.Buffer, paths map[string]bool, brainRefs func(string) []LinkedRecord, maxBytes int) {
-	recs := sc.linkedRecordsForPaths(paths, brainRefs)
+	recs := sc.activeLinkedRecords(paths, brainRefs)
 	if len(recs) > 0 {
-		sc.appendWithinBudget(buf, "linked_records:\n", maxBytes)
+		wroteHdr := false
 		for _, r := range recs {
 			line := fmt.Sprintf("  %s [%s] %s\n", r.ID, r.Status, r.Title)
+			if !wroteHdr {
+				if buf.Len()+len("linked_records:\n")+len(line) > maxBytes {
+					break
+				}
+				buf.WriteString("linked_records:\n")
+				wroteHdr = true
+			}
 			sc.appendWithinBudget(buf, line, maxBytes)
 		}
 	}
-	hints := sc.coChangeHintsForPaths(paths)
+	hints := sc.activeCoChangeHints(paths)
 	if len(hints) > 0 {
-		sc.appendWithinBudget(buf, "co_change_hint:\n", maxBytes)
+		wroteHdr := false
 		for _, h := range hints {
-			sc.appendWithinBudget(buf, "  "+h+"\n", maxBytes)
+			line := "  " + h + "\n"
+			if !wroteHdr {
+				if buf.Len()+len("co_change_hint:\n")+len(line) > maxBytes {
+					break
+				}
+				buf.WriteString("co_change_hint:\n")
+				wroteHdr = true
+			}
+			sc.appendWithinBudget(buf, line, maxBytes)
 		}
 	}
 }

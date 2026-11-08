@@ -22,7 +22,10 @@ type Summary struct {
 	// seen holds the vendor and id of every tool call and message already
 	// counted: a resumed or forked session replays earlier history into a
 	// new transcript, and the replay is not new work.
-	seen map[string]bool
+	seen           map[string]bool
+	readCalls      map[string]int
+	rangedReads    map[string]int
+	redundantReads map[string]int
 }
 
 type Outcome struct {
@@ -103,6 +106,8 @@ type Adherence struct {
 	SQLiteVerbs     map[string]int            `json:"sqlite_verbs"`
 	GrepCalls       map[string]int            `json:"grep_calls"`
 	SearchGrepRatio map[string]*float64       `json:"search_grep_ratio"`
+	RedundantReads  map[string]int            `json:"redundant_reads"`
+	RangedReadPct   map[string]*float64       `json:"ranged_read_pct"`
 	Forbidden       map[string]int            `json:"forbidden"`
 	FirstReads      map[string]int            `json:"first_reads"`
 	Skills          map[string]map[string]int `json:"skills"`

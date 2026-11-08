@@ -77,6 +77,7 @@ func Search(o Options, words []string, kind string, limit int) ([]Hit, error) {
 			return nil, err
 		}
 	}
+	decorateMemoryHits(st, o, hits)
 	return hits, nil
 }
 
@@ -186,7 +187,38 @@ func Refs(o Options, ref, kind string, limit int) ([]Hit, error) {
 		h.Label = label(h.Scope, project, o.Global) + h.ID
 		hits = append(hits, h)
 	}
+	decorateMemoryHits(st, o, hits)
 	return hits, rows.Err()
+}
+
+func decorateMemoryHits(st *store, o Options, hits []Hit) {
+	_, defTop, _ := trail.Roots(o.Dir)
+	for i := range hits {
+		if hits[i].Kind != "memory" {
+			continue
+		}
+		var body, updated string
+		if err := st.db.QueryRow(`SELECT body, updated FROM records WHERE scope = ? AND id = ?`, hits[i].Scope, hits[i].ID).Scan(&body, &updated); err != nil {
+			continue
+		}
+		top := defTop
+		if hits[i].Scope != "" {
+			if fi, err := os.Stat(hits[i].Scope); err == nil && fi.IsDir() {
+				top = hits[i].Scope
+			}
+		}
+		r := hits[i].Record
+		r.Body = body
+		r.Updated = updated
+		if stale := MemoryStalenessTag(top, r); stale != "" {
+			if !strings.Contains(hits[i].Title, stale) {
+				hits[i].Title += " " + stale
+			}
+			if hits[i].Snippet != "" && !strings.Contains(hits[i].Snippet, stale) {
+				hits[i].Snippet += " " + stale
+			}
+		}
+	}
 }
 
 // ownHits is the record whose ID is ref, in each scope Refs searches, and

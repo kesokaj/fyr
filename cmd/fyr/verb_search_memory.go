@@ -115,24 +115,10 @@ func makeBrainReprime() func(dir, home string) string {
 }
 
 func summarizePlanReadyPhases(body string) string {
-	var openPhases []string
-	curPhase := ""
-	for _, line := range strings.Split(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "### Phase ") {
-			curPhase = strings.TrimPrefix(trimmed, "### ")
-			if idx := strings.Index(curPhase, " ("); idx > 0 {
-				curPhase = curPhase[:idx]
-			}
-		} else if curPhase != "" && strings.HasPrefix(trimmed, "- [ ] ") {
-			openPhases = append(openPhases, curPhase)
-			curPhase = ""
-		}
+	if line := brain.ReadyPhasesLine(body); line != "" {
+		return line
 	}
-	if len(openPhases) == 0 {
-		return "open"
-	}
-	return "ready/open: " + strings.Join(openPhases, ", ")
+	return "open"
 }
 
 func makeBrainRefsForDir(home string, global bool) func(dir, target string) []search.LinkedRecord {
@@ -150,7 +136,9 @@ func makeBrainRefs(dir, home string, global bool) func(string) []search.LinkedRe
 		}
 		var out []search.LinkedRecord
 		for _, h := range hits {
-			if h.Record.Kind == "bug" || h.Record.Kind == "adr" {
+			isOpenBug := h.Record.Kind == "bug" && (h.Record.Status == "open" || h.Record.Status == "")
+			isActiveADR := h.Record.Kind == "adr" && (h.Record.Status == "accepted" || h.Record.Status == "open" || h.Record.Status == "")
+			if isOpenBug || isActiveADR {
 				out = append(out, search.LinkedRecord{ID: h.Record.ID, Status: h.Record.Status, Title: h.Record.Title})
 			}
 		}

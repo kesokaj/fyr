@@ -41,6 +41,7 @@ type stepRun struct {
 	idleMS                  int64
 	lastHash                string
 	reads                   int
+	seenReads               map[string]bool
 }
 
 func (r *stepRun) addTime(st stp) {
@@ -151,6 +152,7 @@ func (s *Summary) addStep(r *stepRun, st stp) {
 		r.a.interrupts++
 	case "compaction":
 		r.a.compactions++
+		r.seenReads = nil
 	case "tool":
 		s.addTool(r, st)
 	}
@@ -211,13 +213,58 @@ func (s *Summary) addTool(r *stepRun, st stp) {
 		s.C.FirstReads[st.kindOf]++
 		r.reads++
 	}
-	if st.hash != "" && st.hash == r.lastHash {
-		s.D.RetryLoops[v]++
-	}
 	if st.tool == "Bash" {
+		if st.hash != "" && st.hash == r.lastHash {
+			s.D.RetryLoops[v]++
+		}
 		r.lastHash = st.hash
 	}
+	s.addFileRead(r, v, st)
 	s.verbs(v, st)
+}
+
+func (s *Summary) addFileRead(r *stepRun, v string, st stp) {
+	ranged, base := parseFileHash(st.hash)
+	switch st.tool {
+	case "Read":
+		if st.isErr || st.denied {
+			return
+		}
+		if s.readCalls == nil {
+			s.readCalls = map[string]int{}
+			s.rangedReads = map[string]int{}
+			s.redundantReads = map[string]int{}
+		}
+		s.readCalls[v]++
+		if ranged {
+			s.rangedReads[v]++
+		}
+		if base != "" {
+			if r.seenReads == nil {
+				r.seenReads = map[string]bool{}
+			}
+			if r.seenReads[base] {
+				s.redundantReads[v]++
+			} else {
+				r.seenReads[base] = true
+			}
+		}
+	case "Write", "Edit":
+		if !st.isErr && !st.denied && base != "" && r.seenReads != nil {
+			delete(r.seenReads, base)
+		}
+	}
+}
+
+func parseFileHash(h string) (bool, string) {
+	switch {
+	case strings.HasPrefix(h, "r:"):
+		return true, strings.TrimPrefix(h, "r:")
+	case strings.HasPrefix(h, "f:"):
+		return false, strings.TrimPrefix(h, "f:")
+	default:
+		return false, ""
+	}
 }
 
 func (s *Summary) verbs(v string, st stp) {

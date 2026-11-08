@@ -150,6 +150,8 @@ func (s *Summary) textAdherence(t textWriter) {
 	t.row("fyr search|index", countCol(s.C.SQLiteVerbs))
 	t.row("grep/rg/Grep", countCol(s.C.GrepCalls))
 	t.row("search : grep", floatCol(s.C.SearchGrepRatio, "%.3f"))
+	t.row("redundant reads", countCol(s.C.RedundantReads))
+	t.row("ranged read %", floatCol(s.C.RangedReadPct, "%.1f%%"))
 	fmt.Fprintf(t.w, "  forbidden shapes %v\n  first reads %v\n", safeMap(s.C.Forbidden), safeMap(s.C.FirstReads))
 	for _, v := range t.cols {
 		if len(s.C.Skills[v]) > 0 {

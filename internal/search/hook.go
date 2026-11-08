@@ -3,6 +3,7 @@ package search
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -371,11 +372,19 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		if err == nil && !dec.Allowed {
 			return writeDecision(out, "deny", dec.Reason)
 		}
+		if err == nil {
+			if mErr := markPreWriteInLedger(dir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
+				return writeDecision(out, "allow", "fyr brain: pre-write ledger unavailable ("+oneLineErr(mErr)+")")
+			}
+		}
 	}
 	return writeDecision(out, "allow", "")
 }
 
-func handleStopHook(_ string, _ HookInput, out io.Writer) error {
+func handleStopHook(dir string, in HookInput, out io.Writer) error {
+	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
+		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
+	}
 	return writeDecision(out, "allow", "")
 }
 

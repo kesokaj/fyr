@@ -9,6 +9,8 @@ import (
 
 func (s *Summary) finish(all []sess, trials []trial, claimed map[string]bool) {
 	s.passK(all, trials, claimed)
+	s.C.RedundantReads = map[string]int{"agy": 0}
+	s.C.RangedReadPct = map[string]*float64{"agy": nil}
 	s.Columns = []string{"agy"}
 	if s.Sessions[historical] > 0 || len(s.Subagents[historical]) > 0 {
 		s.Columns = append(s.Columns, historical)
@@ -112,6 +114,11 @@ func (s *Summary) finishColumn(v string) {
 	if a.grep > 0 {
 		r := float64(a.sqlite) / float64(a.grep)
 		s.C.SearchGrepRatio[v] = &r
+	}
+	s.C.RedundantReads[v] = s.redundantReads[v]
+	if total := s.readCalls[v]; total > 0 {
+		pct := round4(float64(s.rangedReads[v]) * 100.0 / float64(total))
+		s.C.RangedReadPct[v] = &pct
 	}
 	if v == historical {
 		d, i, c := a.denials, a.interrupts, a.compactions

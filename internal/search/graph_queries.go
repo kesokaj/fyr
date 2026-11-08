@@ -181,14 +181,14 @@ func (sc *scope) findAffected(o Options, out io.Writer) error {
 	writeAffectedList(out, "transitive_callers:", transitive)
 	writeAffectedList(out, "tests_to_run:", tests)
 	fmt.Fprintln(out, "linked_records:")
-	recs := sc.linkedRecordsForPaths(paths, o.BrainRefs)
+	recs := sc.activeLinkedRecords(paths, o.BrainRefs)
 	if len(recs) == 0 {
 		fmt.Fprintln(out, "  (none)")
 	}
 	for _, r := range recs {
 		fmt.Fprintf(out, "  %s [%s] %s\n", r.ID, r.Status, r.Title)
 	}
-	if hints := sc.coChangeHintsForPaths(paths); len(hints) > 0 {
+	if hints := sc.activeCoChangeHints(paths); len(hints) > 0 {
 		writeAffectedList(out, "co_change_hint:", hints)
 	}
 	return nil

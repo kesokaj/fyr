@@ -178,6 +178,7 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields,
 		}
 		if tool == "Read" || tool == "Write" || tool == "Edit" {
 			kind = w.targetKind(c.root, p)
+			hash = w.targetPathHash(c.root, p, tool, args.isRanged())
 		}
 	}
 	if tool == "Bash" && args.CommandLine != "" {

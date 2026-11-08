@@ -1,6 +1,11 @@
 package metrics
 
-import "regexp"
+import (
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+)
 
 // agyTools maps Antigravity's tool names to the store's vocabulary, the
 // names the summary counts by (Bash, Read, Grep; spec § Shared tool
@@ -23,10 +28,20 @@ var skillPath = regexp.MustCompile(`/skills/([A-Za-z0-9_.-]+)/SKILL\.md$`)
 // tool sends its path under its own key: view_file AbsolutePath, the 1.4.7
 // tools Path, write_to_file and replace_file_content TargetFile (BUG-184).
 type agyArgs struct {
-	CommandLine  string `json:"CommandLine"`
-	AbsolutePath string `json:"AbsolutePath"`
-	Path         string `json:"Path"`
-	TargetFile   string `json:"TargetFile"`
+	CommandLine     string `json:"CommandLine"`
+	AbsolutePath    string `json:"AbsolutePath"`
+	Path            string `json:"Path"`
+	TargetFile      string `json:"TargetFile"`
+	StartLine       any    `json:"StartLine"`
+	EndLine         any    `json:"EndLine"`
+	StartLineLower  any    `json:"start_line"`
+	EndLineLower    any    `json:"end_line"`
+	StartLineNumber any    `json:"StartLineNumber"`
+	EndLineNumber   any    `json:"EndLineNumber"`
+	Offset          any    `json:"Offset"`
+	Limit           any    `json:"Limit"`
+	OffsetLower     any    `json:"offset"`
+	LimitLower      any    `json:"limit"`
 }
 
 // path is the file the call names, whichever key carried it.
@@ -37,4 +52,52 @@ func (a agyArgs) path() string {
 		}
 	}
 	return ""
+}
+
+// isRanged reports whether a Read call specified a line range or limit.
+func (a agyArgs) isRanged() bool {
+	for _, v := range []any{
+		a.StartLine, a.EndLine, a.StartLineLower, a.EndLineLower,
+		a.StartLineNumber, a.EndLineNumber, a.Offset, a.Limit,
+		a.OffsetLower, a.LimitLower,
+	} {
+		if positiveArg(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func positiveArg(v any) bool {
+	switch n := v.(type) {
+	case float64:
+		return n > 0
+	case int:
+		return n > 0
+	case int64:
+		return n > 0
+	case string:
+		p, err := strconv.Atoi(strings.TrimSpace(n))
+		return err == nil && p > 0
+	}
+	return false
+}
+
+func (w *writer) targetPathHash(root, p, tool string, ranged bool) string {
+	norm := normalizeTargetPath(root, p)
+	h := w.hash(norm)
+	if tool == "Read" && ranged {
+		return "r:" + h
+	}
+	return "f:" + h
+}
+
+func normalizeTargetPath(root, p string) string {
+	clean := filepath.Clean(strings.TrimSpace(p))
+	if root != "" {
+		if rel, err := filepath.Rel(filepath.Clean(root), clean); err == nil && rel != "." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return strings.TrimPrefix(filepath.ToSlash(clean), "./")
 }
