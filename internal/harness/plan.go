@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -11,9 +12,12 @@ import (
 // Deployment roots, relative to $HOME: the Antigravity CLI scans
 // ~/.gemini/config.
 const (
-	AgyRoot = ".gemini/config"
-	BinPath = ".local/bin/fyr"
+	AgyRoot  = ".gemini/config"
+	HooksRel = ".gemini/config/hooks.json"
+	BinPath  = ".local/bin/fyr"
 )
+
+const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command"
 
 // VendorAntigravity is the one vendor, recorded in the manifest so a reader
 // of state.json (the init-project skill) sees an Antigravity-only install.
@@ -50,7 +54,10 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 		return nil, err
 	}
 
-	files := []File{{Rel: filepath.Join(AgyRoot, "rules", "AGENTS.md"), Data: context, Mode: 0o644}}
+	files := []File{
+		{Rel: filepath.FromSlash(HooksRel), Data: hooksJSON(), Mode: 0o644},
+		{Rel: filepath.Join(AgyRoot, "rules", "AGENTS.md"), Data: context, Mode: 0o644},
+	}
 
 	for _, s := range inv.Skills {
 		skill, err := skillFiles(src, s)
@@ -171,4 +178,26 @@ func SecretShaped(name string) bool {
 		}
 	}
 	return false
+}
+
+func hookCommand(event string) map[string]any {
+	cmd := `sh -c 'if [ -x "$HOME/bin/fyr" ]; then exec "$HOME/bin/fyr" search --hook ` + event + `; elif [ -x "$HOME/.local/bin/fyr" ]; then exec "$HOME/.local/bin/fyr" search --hook ` + event + `; fi'`
+	return map[string]any{"type": "command", "command": cmd}
+}
+
+func hooksJSON() []byte {
+	cfg := map[string]any{
+		"fyr-brain": map[string]any{
+			"PreInvocation": []any{hookCommand("pre-invocation")},
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": preToolUseMatcher,
+					"hooks":   []any{hookCommand("pre-tool-use")},
+				},
+			},
+			"Stop": []any{hookCommand("stop")},
+		},
+	}
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	return append(data, '\n')
 }

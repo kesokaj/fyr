@@ -106,3 +106,116 @@ func TestParseKickoffRefusals(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatKickoffCapsuleAndPreseed(t *testing.T) {
+	root := t.TempDir()
+	k := Kickoff{
+		Name:  "phase-4-worker",
+		Text:  "Project: x\nFiles: ADR-511, internal/search/hook.go, internal/work/\nDone.\n",
+		Files: []string{"ADR-511", "internal/search/hook.go", "internal/work/"},
+	}
+	if got := k.SliceQuery(); got != "internal/search/hook.go internal/work" {
+		t.Fatalf("SliceQuery() = %q", got)
+	}
+	// Without .agents/scratch/search.db, FormatKickoffCapsule leaves k.Text unchanged.
+	unchanged := FormatKickoffCapsule(k, root, func(dir, query string, budget int) (string, error) {
+		t.Fatal("sliceFn should not be called when search.db is absent")
+		return "", nil
+	}, nil)
+	if unchanged != k.Text {
+		t.Fatalf("expected unchanged kickoff text when search.db is absent, got:\n%s", unchanged)
+	}
+
+	// Create .agents/scratch/search.db so FormatKickoffCapsule activates.
+	scratchDir := filepath.Join(root, ".agents", "scratch")
+	if err := os.MkdirAll(scratchDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scratchDir, "search.db"), []byte("sqlite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sampleCapsule := strings.Join([]string{
+		"[Hop 0] internal/search/hook.go:10-45 (func RunHook)",
+		"func RunHook(o Options) error {",
+		"\treturn nil",
+		"}",
+		"[Hop 1] internal/work/kickoff.go:48-77 (func ParseKickoff)",
+		"func ParseKickoff(path string) (Kickoff, error) {",
+		"\treturn parseKickoff(path, false)",
+		"}",
+		"[Hop 1] internal/work/work.go:110-159 (func Run) snippet lines 120-125",
+		"120: ps, err := preflight(ctx, &o, files)",
+		"[Hop 2] internal/auto/kickoff.go:146-185: func BuildKickoff(now time.Time, t Task) (Kickoff, error)",
+	}, "\n")
+
+	var seenQuery string
+	var seenBudget int
+	var seenPivots []CapsulePivot
+	formatted := FormatKickoffCapsule(k, root, func(dir, query string, budget int) (string, error) {
+		seenQuery = query
+		seenBudget = budget
+		return sampleCapsule, nil
+	}, func(dir string, pivots []CapsulePivot) error {
+		seenPivots = pivots
+		return nil
+	})
+	if seenQuery != "internal/search/hook.go internal/work" || seenBudget != KickoffCapsuleBudget {
+		t.Fatalf("seenQuery=%q seenBudget=%d", seenQuery, seenBudget)
+	}
+	if !strings.Contains(formatted, "## Structural Context Capsule\n") || !strings.Contains(formatted, "[Hop 0] internal/search/hook.go:10-45") {
+		t.Fatalf("formatted kickoff missing capsule:\n%s", formatted)
+	}
+	if len(seenPivots) != 2 || seenPivots[0].Path != "internal/search/hook.go" || seenPivots[0].StartLine != 10 || seenPivots[0].EndLine != 45 || seenPivots[1].Path != "internal/work/kickoff.go" {
+		t.Fatalf("unexpected pre-seeded pivots: %+v", seenPivots)
+	}
+
+	// Verify <= 1,500 token cap (6,000 chars) on oversized capsule output and
+	// that a mid-symbol truncated trailing Hop block is not pre-seeded.
+	var truncatedPivots []CapsulePivot
+	oversized := FormatKickoffCapsule(k, root, func(dir, query string, budget int) (string, error) {
+		return "[Hop 0] internal/search/hook.go:10-45 (func RunHook)\nfunc RunHook() {}\n" +
+			"[Hop 1] internal/work/kickoff.go:48-150 (func ParseKickoff)\n" +
+			strings.Repeat("a", KickoffCapsuleBudget*4+2000), nil
+	}, func(dir string, pivots []CapsulePivot) error {
+		truncatedPivots = pivots
+		return nil
+	})
+	idx := strings.Index(oversized, "## Structural Context Capsule\n")
+	if idx < 0 {
+		t.Fatal("missing capsule header on oversized output")
+	}
+	capsulePart := oversized[idx+len("## Structural Context Capsule\n"):]
+	if len(capsulePart)/4 > KickoffCapsuleBudget {
+		t.Fatalf("capsule tokens %d exceed budget %d", len(capsulePart)/4, KickoffCapsuleBudget)
+	}
+	if len(truncatedPivots) != 1 || truncatedPivots[0].Path != "internal/search/hook.go" {
+		t.Fatalf("expected truncated trailing pivot to be dropped, got %+v", truncatedPivots)
+	}
+
+	// Verify ParseKickoff attaches capsule automatically when DefaultSliceFunc is registered.
+	prevSlice, prevPreseed := DefaultSliceFunc, DefaultPreseedFunc
+	t.Cleanup(func() {
+		DefaultSliceFunc = prevSlice
+		DefaultPreseedFunc = prevPreseed
+	})
+	DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
+		return sampleCapsule, nil
+	}
+	var parsedPivots []CapsulePivot
+	DefaultPreseedFunc = func(dir string, pivots []CapsulePivot) error {
+		parsedPivots = pivots
+		return nil
+	}
+	kFile := filepath.Join(root, "worker-a.md")
+	if err := os.WriteFile(kFile, []byte("Project: "+root+".\nFiles: internal/search/hook.go\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pk, err := ParseKickoff(kFile)
+	if err != nil {
+		t.Fatalf("ParseKickoff: %v", err)
+	}
+	if !strings.Contains(pk.Text, "## Structural Context Capsule\n") || len(parsedPivots) != 2 {
+		t.Fatalf("ParseKickoff did not attach capsule or pre-seed pivots: pivots=%+v text=%s", parsedPivots, pk.Text)
+	}
+}

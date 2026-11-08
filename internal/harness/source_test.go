@@ -52,6 +52,7 @@ func TestPlanFromFSSource(t *testing.T) {
 	}
 	want := []string{
 		".gemini/config/agents/reviewer/agent.md",
+		".gemini/config/hooks.json",
 		".gemini/config/rules/AGENTS.md",
 		".gemini/config/rules/go-style.md",
 		".gemini/config/skills/alpha/SKILL.md",

@@ -22,6 +22,27 @@ func TestPlanAntigravityOnly(t *testing.T) {
 			t.Errorf("planned %s, outside ~/%s", f.Rel, AgyRoot)
 		}
 	}
+	var hooksData []byte
+	for _, f := range files {
+		if f.Rel == filepath.Join(AgyRoot, "hooks.json") {
+			hooksData = f.Data
+		}
+	}
+	if len(hooksData) == 0 {
+		t.Fatalf("expected %s/hooks.json to be planned", AgyRoot)
+	}
+	for _, want := range []string{
+		`"fyr-brain"`, `"PreInvocation"`, `"PreToolUse"`, `"Stop"`,
+		`\"$HOME/bin/fyr\" search --hook pre-invocation`,
+		`\"$HOME/.local/bin/fyr\" search --hook pre-invocation`,
+		`\"$HOME/bin/fyr\" search --hook pre-tool-use`,
+		`\"$HOME/bin/fyr\" search --hook stop`,
+		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command",
+	} {
+		if !strings.Contains(string(hooksData), want) {
+			t.Errorf("hooks.json missing %q:\n%s", want, string(hooksData))
+		}
+	}
 	home := t.TempDir()
 	if err := Install(DirSource(repo), home, files, false, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)

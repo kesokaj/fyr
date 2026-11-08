@@ -85,6 +85,7 @@ func TestInstallStatusResyncUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
+		".gemini/config/hooks.json",
 		".gemini/config/rules/AGENTS.md",
 		".gemini/config/skills/alpha/SKILL.md",
 		".gemini/config/skills/alpha/references/notes.md",

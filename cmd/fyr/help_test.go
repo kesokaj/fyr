@@ -302,6 +302,11 @@ func TestHelpSearchKindsMatchSearch(t *testing.T) {
 	if !strings.HasSuffix(use, ": "+list) {
 		t.Errorf("search's --kind usage %q does not end with search's list %q", use, list)
 	}
+	for _, want := range []string{"--slice QUERY", "--skeleton FILE", "--path SYM", "--affected TARGET", "--map", "--hook EVENT"} {
+		if !strings.Contains(verbHelp("search"), want) {
+			t.Errorf("search's help page missing %q:\n%s", want, verbHelp("search"))
+		}
+	}
 }
 
 // helpLast's guard line is a copy of guardFree (ADR-505), so it is pinned:

@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/work"
 )
 
@@ -380,5 +381,71 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 	}
 	if err := verifyAutoDirs(longHome); err == nil {
 		t.Error("verifyAutoDirs ignored non-ErrNotExist Lstat error")
+	}
+}
+
+func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
+	home := t.TempDir()
+	root := idleDocDriftProject(t)
+	srcBody := strings.Join([]string{
+		"package sample",
+		"",
+		"func ReconcileTargetSymbol(input string) string {",
+		"\treturn helperSymbol(input)",
+		"}",
+		"",
+		"func helperSymbol(s string) string {",
+		"\treturn s",
+		"}",
+		"",
+	}, "\n")
+	writeTree(t, root, ".gitignore", ".agents/scratch/*\n")
+	writeTree(t, root, "sample.go", srcBody)
+	writeTree(t, root, "README.md", "run `fyr nonesuch` and see `ReconcileTargetSymbol`\n")
+	git(t, root, "add", ".gitignore", "sample.go", "README.md")
+	git(t, root, "commit", "-q", "-m", "add sample.go and readme ref")
+	git(t, root, "push", "-q")
+	backdate(t, root)
+
+	// Register and index the project so dream.Targets(home) and .agents/scratch/search.db exist.
+	var indexOut bytes.Buffer
+	if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: func() time.Time { return runAt.Add(-8 * time.Hour) }}, brain.AddInput{
+		Kind:  "guide",
+		ID:    "GUIDE-onboarding",
+		Title: "Onboarding",
+		Body:  strings.NewReader("# Guide\n"),
+	}); err != nil {
+		t.Fatalf("brain.Add: %v", err)
+	}
+	if err := search.Index(search.Options{Dir: root, Home: home}, &indexOut); err != nil {
+		t.Fatalf("search.Index: %v", err)
+	}
+
+	// Run a real auto sweep (pickProjectTask -> execWorker -> WriteKickoff)
+	// without manually setting task.Root, and verify the written Kickoff file
+	// includes the structural capsule and pre-seeds read_ledger.
+	writeConfig(t, home, validConfig)
+	var out bytes.Buffer
+	o := driftOpts(home, root, &out)
+	var kickoffName, kickoffBody string
+	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+		kickoffName = strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+		kickoffBody = readFile(t, paths[0])
+		git(t, root, "branch", "work/"+kickoffName)
+		return []work.Result{{Name: kickoffName, Verdict: "PASS"}}, nil
+	}
+	if err := Run(o, false); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(kickoffBody, "## Structural Context Capsule\n") || !strings.Contains(kickoffBody, "ReconcileTargetSymbol") {
+		t.Fatalf("expected structural context capsule in sweep kickoff file, got:\n%s", kickoffBody)
+	}
+	// Verify that read_ledger was pre-seeded for sample.go so an immediate covering read hits [UNCHANGED].
+	res, err := search.CheckAndRecordRead(root, kickoffName, "sample.go", 3, 5, 1)
+	if err != nil {
+		t.Fatalf("CheckAndRecordRead: %v", err)
+	}
+	if res.Allowed || !strings.Contains(res.Reason, "[UNCHANGED]") {
+		t.Fatalf("expected pre-seeded read_ledger to block redundant covering read, got %+v", res)
 	}
 }

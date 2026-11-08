@@ -45,7 +45,7 @@ func status(src harness.Source, home string, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "repo has   %d skills, %d agents, %d commands, %d rules\n", len(inv.Skills), len(inv.Agents), len(inv.Commands), len(inv.Rules))
-	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
+	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, hooks.json, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
 
 	if fromZip {
 		return zipDrift(home, st, out)

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
@@ -63,7 +64,10 @@ func runSearch(c *ctx) error {
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
 		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
 		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
-		BrainRefs: makeBrainRefs(wd, c.home, c.global),
+		Hook: c.hookEvent, HookIn: stdin,
+		BrainRefs:       makeBrainRefs(wd, c.home, c.global),
+		BrainRefsForDir: makeBrainRefsForDir(c.home, c.global),
+		BrainReprime:    makeBrainReprime(),
 	}
 	if c.cmd == "index" && c.register {
 		return runRegister(c, o)
@@ -83,7 +87,58 @@ func runSearch(c *ctx) error {
 }
 
 func isGraphSearchMode(o search.Options) bool {
-	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map
+	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map || o.Hook != ""
+}
+
+func makeBrainReprime() func(dir, home string) string {
+	return func(dir, home string) string {
+		if home == "" {
+			return ""
+		}
+		if _, err := os.Stat(brain.Path(home)); err != nil {
+			return ""
+		}
+		bo := brain.Options{Home: home, Dir: dir}
+		var parts []string
+		if mem, err := brain.MemoryShow(bo); err == nil && strings.TrimSpace(mem) != "" {
+			parts = append(parts, "# Re-primed Project Memory\n"+strings.TrimSpace(mem))
+		}
+		if plans, err := brain.List(bo, brain.ListFilter{Kind: "plan", Open: true}); err == nil && len(plans) > 0 {
+			var lines []string
+			for _, p := range plans {
+				lines = append(lines, fmt.Sprintf("- %s: %s (%s)", p.ID, p.Title, summarizePlanReadyPhases(p.Body)))
+			}
+			parts = append(parts, "# Active Open Plans\n"+strings.Join(lines, "\n"))
+		}
+		return strings.Join(parts, "\n\n")
+	}
+}
+
+func summarizePlanReadyPhases(body string) string {
+	var openPhases []string
+	curPhase := ""
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### Phase ") {
+			curPhase = strings.TrimPrefix(trimmed, "### ")
+			if idx := strings.Index(curPhase, " ("); idx > 0 {
+				curPhase = curPhase[:idx]
+			}
+		} else if curPhase != "" && strings.HasPrefix(trimmed, "- [ ] ") {
+			openPhases = append(openPhases, curPhase)
+			curPhase = ""
+		}
+	}
+	if len(openPhases) == 0 {
+		return "open"
+	}
+	return "ready/open: " + strings.Join(openPhases, ", ")
+}
+
+func makeBrainRefsForDir(home string, global bool) func(dir, target string) []search.LinkedRecord {
+	return func(dir, target string) []search.LinkedRecord {
+		return makeBrainRefs(dir, home, global)(target)
+	}
 }
 
 func makeBrainRefs(dir, home string, global bool) func(string) []search.LinkedRecord {

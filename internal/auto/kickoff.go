@@ -1,8 +1,10 @@
 package auto
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -11,9 +13,27 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/work"
 )
+
+func init() {
+	work.DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
+		var buf bytes.Buffer
+		err := search.BuildContextSlice(search.Options{Dir: dir, Slice: query, Budget: budget, Hops: 2}, &buf)
+		return buf.String(), err
+	}
+	work.DefaultPreseedFunc = func(dir string, pivots []work.CapsulePivot) error {
+		sp := make([]search.CapsulePivot, len(pivots))
+		for i, p := range pivots {
+			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
+		}
+		return search.RegisterCapsulePivots(dir, "work-kickoff", 1, sp)
+	}
+}
 
 // The model task classes of § Task classes, in priority order.
 const (
@@ -69,11 +89,11 @@ var classOrder = []classSpec{
 // Task is one model task chosen for a project, after the rubric filtered its
 // Files: entries.
 type Task struct {
-	Class, Level, Outcome, ID string
-	DraftsOnly                bool
-	Kept, Denied              []string
-	Count                     int
-	Reruns                    []EvalRerunRow
+	Class, Level, Outcome, ID, Root string
+	DraftsOnly                      bool
+	Kept, Denied                    []string
+	Count                           int
+	Reruns                          []EvalRerunRow
 }
 
 // Kickoff is the file written to ~/.config/fyr/auto/kickoffs/ for work.Run.
@@ -181,7 +201,35 @@ func BuildKickoff(now time.Time, t Task) (Kickoff, error) {
 		"- Commit on your branch and store one handoff record with fyr record add handoff; ask no question.",
 		"", "Task: " + taskLine, "",
 	}, "\n")
-	return Kickoff{Name: name, Branch: "work/" + name, Text: text, Files: slices.Clone(t.Kept)}, nil
+	k := Kickoff{Name: name, Branch: "work/" + name, Text: text, Files: slices.Clone(t.Kept)}
+	if t.Root != "" {
+		k = AttachProjectCapsule(t.Root, k.Name, k)
+	}
+	return k, nil
+}
+
+// AttachProjectCapsule appends a structural --slice context capsule (<= 1,500
+// tokens) to k and pre-seeds read_ledger when root has a project search index.
+func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
+	wk := work.Kickoff{Name: k.Name, Path: k.Path, Text: k.Text, Files: k.Files}
+	k.Text = work.FormatKickoffCapsule(wk, root, func(dir, query string, budget int) (string, error) {
+		var buf bytes.Buffer
+		err := search.BuildContextSlice(search.Options{
+			Dir:     dir,
+			Slice:   query,
+			Budget:  budget,
+			Hops:    2,
+			Session: conversationID,
+		}, &buf)
+		return buf.String(), err
+	}, func(dir string, pivots []work.CapsulePivot) error {
+		sp := make([]search.CapsulePivot, len(pivots))
+		for i, p := range pivots {
+			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
+		}
+		return search.RegisterCapsulePivots(dir, conversationID, 1, sp)
+	})
+	return k
 }
 
 func renderClassTask(t Task) (string, error) {
@@ -224,6 +272,9 @@ func renderClassTask(t Task) (string, error) {
 // WriteKickoff writes the rendered Kickoff to ~/.config/fyr/auto/kickoffs/,
 // 0600, atomically, refusing a linked directory or file.
 func WriteKickoff(home string, now time.Time, t Task) (Kickoff, error) {
+	if t.Root == "" {
+		t.Root = resolveAutoTaskRoot(home, t)
+	}
 	k, err := BuildKickoff(now, t)
 	if err != nil {
 		return Kickoff{}, err
@@ -236,6 +287,50 @@ func WriteKickoff(home string, now time.Time, t Task) (Kickoff, error) {
 		return Kickoff{}, err
 	}
 	return k, nil
+}
+
+func resolveAutoTaskRoot(home string, t Task) string {
+	var cands []string
+	if st, _, err := loadState(home); err == nil {
+		for r := range st.Projects {
+			cands = append(cands, r)
+		}
+	}
+	if targets, err := dream.Targets(home); err == nil {
+		for _, tgt := range targets {
+			if !slices.Contains(cands, tgt.Root) {
+				cands = append(cands, tgt.Root)
+			}
+		}
+	}
+	slices.Sort(cands)
+	fallback := ""
+	for _, root := range cands {
+		if _, err := os.Stat(filepath.Join(root, ".agents", "scratch", "search.db")); err != nil {
+			continue
+		}
+		if fallback == "" {
+			fallback = root
+		}
+		if taskFilesMatchRoot(root, t.Kept) {
+			return root
+		}
+	}
+	return fallback
+}
+
+func taskFilesMatchRoot(root string, kept []string) bool {
+	matched := false
+	for _, e := range kept {
+		if recordForm.MatchString(e) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, e)); err != nil {
+			return false
+		}
+		matched = true
+	}
+	return matched
 }
 
 // rotatedClasses returns the eligible classes for level with lastClass moved

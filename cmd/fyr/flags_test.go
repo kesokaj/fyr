@@ -51,6 +51,7 @@ func TestReorder(t *testing.T) {
 		"search --slice Reconcile --budget 1800": {"--slice", "Reconcile", "--budget", "1800", "search"},
 		"search --path EntryPoint LeafTarget":    {"--path", "EntryPoint", "search", "LeafTarget"},
 		"search --affected CoreStore --home /x":  {"--affected", "CoreStore", "--home", "/x", "search"},
+		"search --hook pre-invocation --home /x": {"--hook", "pre-invocation", "--home", "/x", "search"},
 	}
 	for in, want := range cases {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {
@@ -227,5 +228,16 @@ func TestSearchGraphModesCLI(t *testing.T) {
 		if !strings.Contains(out.String(), tc.want) {
 			t.Errorf("run(%v) missing %q in:\n%s", tc.args, tc.want, out.String())
 		}
+	}
+
+	origStdin := stdin
+	t.Cleanup(func() { stdin = origStdin })
+	stdin = strings.NewReader(`{"conversationId":"cli-hook","workspacePaths":["` + filepath.ToSlash(repo) + `"],"invocationNum":1,"lastUserInput":"Check Reconcile behavior"}`)
+	var hookOut bytes.Buffer
+	if err := run([]string{"search", "--hook", "pre-invocation", "--home", home}, &hookOut); err != nil {
+		t.Fatalf("search --hook pre-invocation: %v\n%s", err, hookOut.String())
+	}
+	if !strings.Contains(hookOut.String(), `"injectSteps"`) || !strings.Contains(hookOut.String(), "[Hop 0]") {
+		t.Errorf("search --hook pre-invocation output missing capsule:\n%s", hookOut.String())
 	}
 }

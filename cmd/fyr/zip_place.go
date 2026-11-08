@@ -42,7 +42,7 @@ func statusWithoutSource(st harness.State, home string, out io.Writer) error {
 	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/fyr/state.json)\n", st.InstalledAt, installedFrom(st, st.Origin()), len(st.Files))
 	binaryLines(home, "", harness.RepoInfo{}, out)
 	retroLine(home, out)
-	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
+	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, hooks.json, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)
 	return zipDrift(home, st, out)
 }
 
