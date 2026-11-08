@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,11 +22,30 @@ func ACPCommand() []string {
 
 type jsonrpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      *int64          `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id,omitempty"`
 	Method  string          `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *jsonrpcError   `json:"error,omitempty"`
+}
+
+func hasRPCID(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null"
+}
+
+func parseRPCIntID(raw json.RawMessage) (int64, bool) {
+	var n int64
+	if json.Unmarshal(raw, &n) == nil {
+		return n, true
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 type jsonrpcError struct {
@@ -114,11 +134,15 @@ func (c *ACPClient) dispatchLine(line []byte) {
 	if err := json.Unmarshal([]byte(trimmed), &msg); err != nil {
 		return
 	}
-	if msg.ID != nil && msg.Method == "" {
+	if hasRPCID(msg.ID) && msg.Method == "" {
+		id, ok := parseRPCIntID(msg.ID)
+		if !ok {
+			return
+		}
 		c.mu.Lock()
-		ch, ok := c.pending[*msg.ID]
+		ch, ok := c.pending[id]
 		if ok {
-			delete(c.pending, *msg.ID)
+			delete(c.pending, id)
 		}
 		c.mu.Unlock()
 		if ok {
@@ -126,8 +150,8 @@ func (c *ACPClient) dispatchLine(line []byte) {
 		}
 		return
 	}
-	if msg.ID != nil && msg.Method != "" {
-		go c.handleServerRequest(*msg.ID, msg.Method, msg.Params)
+	if hasRPCID(msg.ID) && msg.Method != "" {
+		go c.handleServerRequest(msg.ID, msg.Method, msg.Params)
 		return
 	}
 	if msg.Method != "" {
@@ -188,7 +212,8 @@ func (c *ACPClient) sendRequest(id int64, method string, params any) error {
 	if err != nil {
 		return err
 	}
-	b, err := json.Marshal(jsonrpcMessage{JSONRPC: "2.0", ID: &id, Method: method, Params: raw})
+	rawID := json.RawMessage(strconv.FormatInt(id, 10))
+	b, err := json.Marshal(jsonrpcMessage{JSONRPC: "2.0", ID: rawID, Method: method, Params: raw})
 	if err != nil {
 		return err
 	}
@@ -198,12 +223,12 @@ func (c *ACPClient) sendRequest(id int64, method string, params any) error {
 	return err
 }
 
-func (c *ACPClient) sendResponse(id int64, result any, rpcErr *jsonrpcError) {
+func (c *ACPClient) sendResponse(id json.RawMessage, result any, rpcErr *jsonrpcError) {
 	var raw json.RawMessage
 	if result != nil {
 		raw, _ = json.Marshal(result)
 	}
-	b, err := json.Marshal(jsonrpcMessage{JSONRPC: "2.0", ID: &id, Result: raw, Error: rpcErr})
+	b, err := json.Marshal(jsonrpcMessage{JSONRPC: "2.0", ID: id, Result: raw, Error: rpcErr})
 	if err != nil {
 		return
 	}
@@ -288,10 +313,10 @@ type acpPermParams struct {
 }
 
 type acpPermToolCall struct {
-	Title    string         `json:"title"`
-	Name     string         `json:"name"`
-	Kind     string         `json:"kind"`
-	RawInput map[string]any `json:"rawInput"`
+	Title    string          `json:"title"`
+	Name     string          `json:"name"`
+	Kind     string          `json:"kind"`
+	RawInput json.RawMessage `json:"rawInput"`
 }
 
 type acpPermOption struct {
@@ -299,7 +324,7 @@ type acpPermOption struct {
 	Kind     string `json:"kind"`
 }
 
-func (c *ACPClient) handleServerRequest(id int64, method string, params json.RawMessage) {
+func (c *ACPClient) handleServerRequest(id json.RawMessage, method string, params json.RawMessage) {
 	if method != "session/request_permission" {
 		c.sendResponse(id, nil, &jsonrpcError{Code: -32601, Message: "method not found: " + method})
 		return

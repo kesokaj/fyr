@@ -44,11 +44,27 @@ type acpUpdateDetail struct {
 	Name          string          `json:"name"`
 	Kind          string          `json:"kind"`
 	Status        string          `json:"status"`
-	RawInput      map[string]any  `json:"rawInput"`
+	RawInput      json.RawMessage `json:"rawInput"`
 	Usage         struct {
 		InputTokens  int `json:"inputTokens"`
 		OutputTokens int `json:"outputTokens"`
 	} `json:"usage"`
+}
+
+func rawInputMap(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) == nil {
+		return m
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		_ = json.Unmarshal([]byte(s), &m)
+		return m
+	}
+	return nil
 }
 
 type promptState struct {
@@ -194,17 +210,18 @@ func extractUpdateText(direct string, raw json.RawMessage) string {
 }
 
 func buildToolEvent(sid string, idx int, u acpUpdateDetail) ACPEvent {
+	inMap := rawInputMap(u.RawInput)
 	name := firstNonEmpty(u.Name, u.Title, u.Kind, "tool")
-	summary := firstNonEmpty(u.Title, strField(u.RawInput, "CommandLine", "command", "Path", "path", "query"))
+	summary := firstNonEmpty(u.Title, strField(inMap, "CommandLine", "commandLine", "command_line", "command", "Path", "path", "target_file", "targetFile", "query"))
 	kind := "tool_call"
 	if u.SessionUpdate == "tool_call_update" {
 		kind = "tool_update"
 	}
-	subType := strField(u.RawInput, "TypeName", "typeName", "subagent")
+	subType := strField(inMap, "TypeName", "typeName", "subagent")
 	if strings.Contains(strings.ToLower(name), "subagent") || subType != "" {
 		kind = "subagent"
 		name = "invoke_subagent"
-		role := strField(u.RawInput, "Role", "role")
+		role := strField(inMap, "Role", "role")
 		if subType != "" && role != "" {
 			summary = subType + " (" + role + ")"
 		} else if subType != "" {
@@ -222,7 +239,7 @@ func pickOptionID(opts []acpPermOption, allow bool) string {
 	fallback := "reject_once"
 	if allow {
 		want = "allow"
-		fallback = "allow_always"
+		fallback = "allow_once"
 	}
 	for _, o := range opts {
 		if strings.Contains(strings.ToLower(o.OptionID), want) || strings.Contains(strings.ToLower(o.Kind), want) {
@@ -235,13 +252,17 @@ func pickOptionID(opts []acpPermOption, allow bool) string {
 }
 
 func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
+	inMap := rawInputMap(p.ToolCall.RawInput)
 	cmdStr := p.Command
 	if cmdStr == "" {
-		cmdStr = strField(p.ToolCall.RawInput, "CommandLine", "command", "cmd")
+		cmdStr = strField(inMap, "CommandLine", "commandLine", "command_line", "command", "cmd")
 	}
 	name := firstNonEmpty(p.ToolName, p.Tool, p.ToolCall.Name, p.ToolCall.Title, p.ToolCall.Kind)
 	if cmdStr == "" && strings.HasPrefix(name, "command(") && strings.HasSuffix(name, ")") {
 		cmdStr = strings.TrimSuffix(strings.TrimPrefix(name, "command("), ")")
+	}
+	if cmdStr == "" && isCommandTool(name, p.ToolCall.Kind) && p.ToolCall.Title != "" && !isCommandTool(p.ToolCall.Title, "") {
+		cmdStr = strings.Trim(p.ToolCall.Title, "`")
 	}
 	desc := firstNonEmpty(name, "unknown_tool")
 	if cmdStr != "" {

@@ -43,42 +43,49 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 		sc := bufio.NewScanner(srvInR)
 		enc := json.NewEncoder(srvOutW)
 		var nextPermID int64 = 100
+		readPermReply := func() {
+			if !sc.Scan() {
+				return
+			}
+			var reply jsonrpcMessage
+			if json.Unmarshal(sc.Bytes(), &reply) != nil {
+				return
+			}
+			var res struct {
+				Outcome struct {
+					OptionID string `json:"optionId"`
+				} `json:"outcome"`
+			}
+			_ = json.Unmarshal(reply.Result, &res)
+			mu.Lock()
+			permOpts = append(permOpts, res.Outcome.OptionID)
+			mu.Unlock()
+		}
 		for sc.Scan() {
 			var msg jsonrpcMessage
 			if err := json.Unmarshal(sc.Bytes(), &msg); err != nil {
 				continue
 			}
-			if msg.ID != nil && msg.Method == "" {
-				var res struct {
-					Outcome struct {
-						OptionID string `json:"optionId"`
-					} `json:"outcome"`
-				}
-				_ = json.Unmarshal(msg.Result, &res)
-				mu.Lock()
-				permOpts = append(permOpts, res.Outcome.OptionID)
-				mu.Unlock()
-				continue
-			}
 			switch msg.Method {
 			case "initialize":
-				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": map[string]any{"protocolVersion": 1}})
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{"protocolVersion": 1}})
 			case "session/new":
-				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": map[string]any{"sessionId": "sid-test-1"}})
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{"sessionId": "sid-test-1"}})
 			case "session/load", "session/set_model", "session/set_mode", "session/cancel", "session/close":
-				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": map[string]any{}})
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]any{}})
 			case "session/prompt":
-				// Request permission for an allowed command (git status) and a denied command (curl ...)
-				id1 := nextPermID
-				nextPermID++
+				// Request permission with a string front ID (as `agy acp --process-per-session` sends)
+				// and lowerCamelCase `commandLine`, plus a denied command (`curl ...`).
+				id1 := "jetski-acp-front:1"
 				_ = enc.Encode(map[string]any{
 					"jsonrpc": "2.0", "id": id1, "method": "session/request_permission",
 					"params": map[string]any{
 						"sessionId": "sid-test-1",
-						"toolCall":  map[string]any{"title": "run_command", "kind": "execute", "rawInput": map[string]any{"CommandLine": "git status && go test ./..."}},
-						"options":   []map[string]any{{"optionId": "allow_always", "kind": "allow_always"}, {"optionId": "reject_once", "kind": "reject_once"}},
+						"toolCall":  map[string]any{"title": "run_command", "kind": "execute", "rawInput": map[string]any{"commandLine": "git status && go test ./..."}},
+						"options":   []map[string]any{{"optionId": "allow_once", "kind": "allow_once"}, {"optionId": "reject_once", "kind": "reject_once"}},
 					},
 				})
+				readPermReply()
 				id2 := nextPermID
 				nextPermID++
 				_ = enc.Encode(map[string]any{
@@ -89,6 +96,7 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 						"options":   []map[string]any{{"optionId": "allow_always", "kind": "allow_always"}, {"optionId": "reject_once", "kind": "reject_once"}},
 					},
 				})
+				readPermReply()
 				// Emit tool_call (subagent), usage_update, and agent_message_chunk notifications
 				_ = enc.Encode(map[string]any{
 					"jsonrpc": "2.0", "method": "session/update",
@@ -113,7 +121,7 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 					},
 				})
 				_ = enc.Encode(map[string]any{
-					"jsonrpc": "2.0", "id": *msg.ID,
+					"jsonrpc": "2.0", "id": msg.ID,
 					"result": map[string]any{
 						"stopReason": "end_turn",
 						"usage":      map[string]any{"inputTokens": 120, "outputTokens": 45},
@@ -162,6 +170,13 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 		t.Fatalf("events.jsonl missing expected lines:\n%s", evStr)
 	}
 
+	if err := client.Cancel(ctx, sid); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if err := client.CloseSession(ctx, sid); err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+
 	mu.Lock()
 	gotDenied := slices.Clone(deniedList)
 	gotOpts := slices.Clone(permOpts)
@@ -169,14 +184,8 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 	if len(gotDenied) != 1 || !strings.Contains(gotDenied[0], "curl") {
 		t.Fatalf("deniedList = %v, want 1 curl entry", gotDenied)
 	}
-	if !slices.Contains(gotOpts, "allow_always") || !slices.Contains(gotOpts, "reject_once") {
-		t.Fatalf("permOpts = %v, want allow_always and reject_once", gotOpts)
-	}
-	if err := client.Cancel(ctx, sid); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
-	if err := client.CloseSession(ctx, sid); err != nil {
-		t.Fatalf("CloseSession: %v", err)
+	if !slices.Contains(gotOpts, "allow_once") || !slices.Contains(gotOpts, "reject_once") {
+		t.Fatalf("permOpts = %v, want allow_once and reject_once", gotOpts)
 	}
 }
 
