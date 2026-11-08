@@ -293,6 +293,9 @@ func matchCommandGrants(grants []string, cmdStr string) bool {
 	}
 	for _, seg := range segs {
 		bin := firstCommandBin(seg)
+		if isShellBuiltinNoop(bin) {
+			continue
+		}
 		if bin == "" || !slices.Contains(grants, "command("+bin+")") {
 			return false
 		}
@@ -300,15 +303,62 @@ func matchCommandGrants(grants []string, cmdStr string) bool {
 	return true
 }
 
+func isShellBuiltinNoop(bin string) bool {
+	return bin == "true" || bin == "false" || bin == ":" || bin == "cd"
+}
+
 func splitShellSegments(s string) []string {
-	repl := strings.NewReplacer("&&", "\n", "||", "\n", ";", "\n", "|", "\n", "$(", "\n", "`", "\n")
 	var out []string
-	for _, part := range strings.Split(repl.Replace(s), "\n") {
-		if t := strings.TrimSpace(part); t != "" {
-			out = append(out, t)
+	var cur strings.Builder
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		if quote == 0 && (s[i] == '\'' || s[i] == '"') {
+			quote = s[i]
+			cur.WriteByte(s[i])
+			continue
 		}
+		if quote != 0 && s[i] == quote {
+			quote = 0
+			cur.WriteByte(s[i])
+			continue
+		}
+		if skip, split := shellOperatorLen(s, i, quote); split {
+			if t := strings.TrimSpace(cur.String()); t != "" {
+				out = append(out, t)
+			}
+			cur.Reset()
+			i += skip - 1
+			continue
+		}
+		cur.WriteByte(s[i])
+	}
+	if t := strings.TrimSpace(cur.String()); t != "" {
+		out = append(out, t)
 	}
 	return out
+}
+
+func shellOperatorLen(s string, i int, quote byte) (int, bool) {
+	if quote == '\'' {
+		return 0, false
+	}
+	ch := s[i]
+	if ch == '$' && i+1 < len(s) && s[i+1] == '(' {
+		return 2, true
+	}
+	if ch == '`' {
+		return 1, true
+	}
+	if quote == '"' {
+		return 0, false
+	}
+	if (ch == '&' || ch == '|') && i+1 < len(s) && s[i+1] == ch {
+		return 2, true
+	}
+	if ch == ';' || ch == '|' || ch == '\n' {
+		return 1, true
+	}
+	return 0, false
 }
 
 func firstCommandBin(seg string) string {

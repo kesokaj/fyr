@@ -81,7 +81,7 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 					"jsonrpc": "2.0", "id": id1, "method": "session/request_permission",
 					"params": map[string]any{
 						"sessionId": "sid-test-1",
-						"toolCall":  map[string]any{"title": "run_command", "kind": "execute", "rawInput": map[string]any{"commandLine": "git status && go test ./..."}},
+						"toolCall":  map[string]any{"title": "run_command", "kind": "execute", "rawInput": map[string]any{"commandLine": `git commit -m "fix: a | b; c" && go test ./... || true`}},
 						"options":   []map[string]any{{"optionId": "allow_once", "kind": "allow_once"}, {"optionId": "reject_once", "kind": "reject_once"}},
 					},
 				})
