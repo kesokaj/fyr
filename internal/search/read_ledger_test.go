@@ -91,9 +91,9 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st0, err := CheckCompaction(root, "conv-compact", transcript)
+	st0, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-0")
 	if err != nil {
-		t.Fatalf("CheckCompaction initial: %v", err)
+		t.Fatalf("checkTurnOrMidTurn initial: %v", err)
 	}
 	if st0.GenerationID != 0 || st0.Compacted || st0.LastTranscriptBytes != 2000 {
 		t.Fatalf("initial SessionState = %+v, want Gen=0, Compacted=false, Bytes=2000", st0)
@@ -136,9 +136,9 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 	if err := os.WriteFile(transcript, []byte(strings.Repeat("x", 2500)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st1, err := CheckCompaction(root, "conv-compact", transcript)
+	st1, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-1")
 	if err != nil {
-		t.Fatalf("CheckCompaction grow: %v", err)
+		t.Fatalf("checkTurnOrMidTurn grow: %v", err)
 	}
 	if st1.GenerationID != 0 || st1.Compacted {
 		t.Fatalf("after growth SessionState = %+v, want Gen=0, Compacted=false", st1)
@@ -148,9 +148,9 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 	if err := os.WriteFile(transcript, []byte(strings.Repeat("x", 1500)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st2, err := CheckCompaction(root, "conv-compact", transcript)
+	st2, _, err := checkTurnOrMidTurn(root, "conv-compact", transcript, 0, "turn-2")
 	if err != nil {
-		t.Fatalf("CheckCompaction shrink: %v", err)
+		t.Fatalf("checkTurnOrMidTurn shrink: %v", err)
 	}
 	if st2.GenerationID != 1 || !st2.Compacted || st2.LastTranscriptBytes != 1500 {
 		t.Fatalf("after >20%% shrinkage SessionState = %+v, want Gen=1, Compacted=true, Bytes=1500", st2)

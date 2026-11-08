@@ -259,7 +259,7 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		}
 	}
 
-	// Verify PreInvocation hook includes fenced brain records + contract + user_markdown banner.
+	// Verify PreInvocation hook includes fenced brain records + contract + systemMessage vet banner.
 	inJSON, _ := json.Marshal(map[string]any{
 		"conversationId": "conv-vet-hook",
 		"workspacePaths": []string{dir},

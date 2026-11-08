@@ -2,9 +2,7 @@ package search
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -76,43 +74,6 @@ func openLedgerStore(dir string) (*store, string, error) {
 	}
 	st, err := openStore(projectDB(root), io.Discard)
 	return st, root, err
-}
-
-// CheckCompaction stats transcriptPath and increments generation_id when transcript size shrinks > 20%.
-func CheckCompaction(dir, conversationID, transcriptPath string) (SessionState, error) {
-	st, _, err := openLedgerStore(dir)
-	if err != nil {
-		return SessionState{}, err
-	}
-	defer st.close()
-	if conversationID == "" {
-		conversationID = "default"
-	}
-	curBytes, hasSize := 0, false
-	if fi, err := os.Stat(strings.TrimSpace(transcriptPath)); err == nil && fi.Mode().IsRegular() {
-		curBytes, hasSize = int(fi.Size()), true
-	}
-	var genID, lastBytes, turnCount, estTokens int
-	err = st.db.QueryRow(`SELECT generation_id, last_transcript_bytes, turn_count, est_tokens FROM session_meta WHERE conversation_id = ?`, conversationID).
-		Scan(&genID, &lastBytes, &turnCount, &estTokens)
-	if errors.Is(err, sql.ErrNoRows) {
-		est := curBytes / 4
-		_, err = st.db.Exec(`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)`, conversationID, curBytes, est)
-		return SessionState{ConversationID: conversationID, GenerationID: 0, LastTranscriptBytes: curBytes, TurnCount: 1, EstTokens: est}, err
-	}
-	if err != nil {
-		return SessionState{}, err
-	}
-	compacted := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
-	if compacted {
-		genID++
-	}
-	if compacted || hasSize {
-		lastBytes, estTokens = curBytes, curBytes/4
-	}
-	turnCount++
-	_, err = st.db.Exec(`UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, estTokens, conversationID)
-	return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: estTokens, Compacted: compacted}, err
 }
 
 func (s *store) currentGeneration(conversationID string) (int, int) {
