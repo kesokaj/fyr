@@ -4,8 +4,8 @@ Project rules for this repo. They override the global context, which this repo i
 
 ## What this repo is
 
-The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `fyr`, the Go binary that installs them into the Antigravity CLI. No hooks, no gates, no CI.
-`fyr` is also the second brain the Antigravity CLI consults at the moments the context names (search, memory, metrics, dream): the purpose and its two constraints are `PRD.md` R0.
+The agent harness: one global context (agents.md standard), skills (Agent Skills `SKILL.md` standard), subagents, and `fyr`, the Go binary that installs them into the Antigravity CLI (with `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`, R3, ADR-511). No daemons, no gates, no CI.
+`fyr` is also the second brain the Antigravity CLI consults at the moments the context names (search, memory, metrics, dream): the purpose and its constraints are `PRD.md` R0.
 
 ## How the harness works
 

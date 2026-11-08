@@ -1,7 +1,7 @@
 # TDD — fyr
 
 How each part of the harness is built and tested: one section per component of SDD.md, each pointing at the record that holds its detail.
-Status: current · Last updated: 2026-11-07 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
+Status: current · Last updated: 2026-11-08 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
 
 <!-- One section T1… per component M… of SDD.md — its interfaces, data, errors, configuration and dependencies —
      each a summary that points at the SPEC record holding the detail (`fyr record get SPEC-…`), never a copy of it.
@@ -97,10 +97,10 @@ Implements: M7 · Spec: `SPEC-fyr-record`
 
 ## T8 — Search
 
-Implements: M8 · Spec: `SPEC-fyr-search`
+Implements: M8 · Spec: `SPEC-fyr-search` · Decision: ADR-511
 
 - **Interfaces:** `fyr search` (records first, then files), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
-- **Data:** the indexes are caches, rebuilt when deleted (R4). The dream job's two read-only SQLite reads live here too: the global index's project list and Antigravity's conversation databases, both from copies.
+- **Data:** the indexes (`.agents/scratch/search.db`, `~/.config/fyr/search.db`) are caches, rebuilt when deleted (R4), holding full-text FTS, per-blob AST `symbols` and `sym_refs` (`EXTRACTED` `1.0` vs `INFERRED` `0.7` confidence), the session `read_ledger` and `session_meta`, and `co_activity` (`schemaVersion = "4"`, ADR-511). The dream job's two read-only SQLite reads live here too: the global index's project list and Antigravity's conversation databases, both from copies.
 
 ## T9 — Memory
 

@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-07 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-08 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -9,7 +9,7 @@ Status: current · Last updated: 2026-11-07 · Requirements: [PRD.md](PRD.md) ·
 
 ## Context
 
-One operator, their own machines, one private repository. The harness is files a session reads (context, rules, skills, agents) plus `fyr`, which installs those files and keeps what a session cannot hold: each project's trail, its memory, the shape of every session, and an hourly consolidation of idle projects. Out of scope: any CLI but `agy` (R1), hooks, gates and CI (R3), and any service (R8).
+One operator, their own machines, one private repository. The harness is files a session reads (context, rules, skills, agents) plus `fyr`, which installs those files (and the `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`, R3, ADR-511) and keeps what a session cannot hold: each project's trail, its memory, the AST symbol and reference graph, the shape of every session, and an hourly consolidation of idle projects. Out of scope: any CLI but `agy` (R1), background daemons, commit gates and CI (R3), and any service (R8).
 
 ```mermaid
 flowchart LR
@@ -34,9 +34,9 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M3 | `agents/` | Subagents in Antigravity's `agent.md` format, installed as written | R1, R5 |
 | M4 | `embed.go` | The five content directories and `docker/` built into the binary, pinned both ways to what git tracks, so a release binary carries the harness and the worker image files | R8, R9 |
 | M5 | `cmd/fyr` | The verbs, their flags and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
-| M6 | `internal/harness` | The installer: the plan of what goes where, the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
+| M6 | `internal/harness` | The installer: the plan of what goes where (including `~/.gemini/config/hooks.json`), the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
 | M7 | `internal/brain` | The brain store, `fyr record` and `fyr resume`: every project's trail records and the global ones, with on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume | R0, R4, R7 |
-| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text index over files; the dream's read-only reads | R0, R4 |
+| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text and pure-Go AST symbol/reference graph index over files, tiered context slicing, session read-deduplication ledger, passive co-activity, and `< 250 ms` fail-open CLI hook handlers; the dream's read-only reads | R0, R3, R4 |
 | M9 | `internal/memory` | `fyr memory`: the project memory every session loads | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |
@@ -158,6 +158,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - A session's seven-step resume sequence and the three post-dispatch git checks are read-only top-level verbs (`fyr resume`, `fyr git-check`) — rejected: keeping seven and three separate calls in the context, or making `fyr git-check` parse output and fail as a gate — ADR-508.
 - Pipeline benchmark extensions on `fyr eval`: per-row `timeout` (`1m`..`4h`), scripted multi-turn sessions (`turns` `1`..`12` with early completion detection), and per-stage timing (`setup_seconds`, `session_seconds`, `check_seconds`) with check scripts kept out of the sandbox until scoring — ADR-509.
 - `PRD.md` names `fyr dream`'s private `settings.json` under `~/.config/fyr/dream-agy-home-<pid>/`, macOS check e (`procs_darwin.go` via `lsof` and `ps -Eww`), and `/work PLAN-ID` running `fyr work --check`, passing `--runner`, and waiting for the operator's go when `--runner auto` falls back to the host — ADR-510 (amending ADR-507).
+- Zero-daemon Antigravity CLI hooks in `~/.gemini/config/hooks.json` (`< 250 ms` fail-open timeout), pure-Go `go/ast` symbol and reference graph in `internal/search` (`schemaVersion = "4"`), consume-on-hit session read ledger with compaction re-priming, and salted-hash read telemetry in `internal/metrics` — rejected: background MCP daemons, CGo Tree-sitter bindings, permanent hard-blocking of repeated file reads — ADR-511 (superseding ADR-007 in part).
 
 ## Cross-cutting
 
@@ -188,7 +189,7 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 | R0 | M1, M7, M8, M9, M10, M11, M14, M16, M19 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
-| R3 | M1, M6, M11, M12, M16, M19 |
+| R3 | M1, M6, M8, M11, M12, M16, M19 |
 | R4 | M5, M6, M7, M8, M10, M16, M19 |
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M17 |
