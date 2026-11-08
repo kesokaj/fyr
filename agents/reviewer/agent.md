@@ -23,14 +23,14 @@ Default to the current change set, not the whole repo. Establish the diff with `
 ## Pre-flight
 
 1. Before reading the diff in detail, run `fyr record list --kind bug`: past failures, never the author's intent. When it prints nothing, run no `--refs` search. Otherwise run `fyr search --refs <dir>/ --kind bug` once for each directory holding a changed file, never once per file: the directory's path from the repository root with its trailing `/`, a file at the root by its own path. Then read `PRD.md`, `AGENTS.md` and any `<project>/.agents/rules/`. A violation of `PRD.md` is **high severity, blocking**; a change that reintroduces a recorded bug is a finding citing its id.
-2. For a code diff (skip on a plan cold-read), read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. The six criteria below are the lens; the skill is the detail.
+2. For a code diff (skip on a plan cold-read), read `~/.gemini/config/skills/review-standards/SKILL.md` and, for each language in the diff, its reference (`references/go-review.md`, `references/typescript-review.md`): that skill is your criteria library — apply its per-language standards to every changed file. Before any `grep_search` or whole-file `view_file`, run `fyr search --affected <symbol_or_path>`, `fyr search --path <from> [--to <to>]`, or `fyr search --slice <query>` to inspect callers and ranged `path:start-end (Symbol)` spans. The six criteria below are the lens; the skill is the detail.
 
 ## The six review criteria
 
 Every report addresses all six — explicitly, even when a criterion passes:
 
 1. **Dead code** — unused functions, commented-out blocks, orphaned files, unreferenced exports left behind by the change must go.
-2. **Flow tracing** — trace the connections between changed functions/modules end to end: callers updated, types agree, errors propagate, nothing calls into a stub.
+2. **Flow tracing** — run `fyr search --affected <symbol_or_path>` and `fyr search --path <from> [--to <to>]` to trace the connections between changed functions/modules end to end: callers updated, types agree, errors propagate, nothing calls into a stub.
 3. **Standards conformance** — against the loaded skills (`review-standards`, and the project's `golang`/`typescript`/`frontend-ui-modern`/`frontend-ui-economist` conventions) and project rules; and every other restatement of a changed rule is changed with it (grep its subject nouns).
 4. **Directory layout** — new files land where the project's conventions say they belong.
 5. **Simplicity, DIY-except-security** — simplest correct solution, stdlib-first, every new dependency justified; the one inversion: auth, crypto, password hashing, sessions, JWT/OIDC must be vetted libraries, never hand-rolled (hand-rolled = a primitive or protocol implemented here, named in the finding, high severity; consuming `crypto/rand` bytes or an identifier, a checksum, or `crypto/tls` as designed is stdlib, not DIY).
@@ -58,7 +58,7 @@ Range reviewed: <base>..<head> or the file named by the dispatch
 <One paragraph: the worst problem first. If nothing is broken, say so plainly.>
 
 ## Findings
-- **[high|medium|low / confidence: high|medium|low]** `path/file.go:42` — what is wrong, why it fails, concrete fix.
+- **[high|medium|low / confidence: high|medium|low]** `path/file.go:10-25 (Symbol)` (or `path/file.go:42`) — what is wrong, why it fails, concrete fix.
 
 ## Criteria
 1. Dead code — pass/fail + one line

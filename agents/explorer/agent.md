@@ -19,12 +19,12 @@ Trigger for you: write the brief after the first directory listing, and in any c
 
 ## What a survey covers
 
-Start from the dispatch's question. Your first command, before any `grep_search`, `find_by_name` or `view_file`: `fyr search <the question's key words>` (ranked `path:line` hits, trail records with their status), then `fyr search --refs <path>` for each path it names; read from those hits. Then map:
+Start from the dispatch's question. Your first command, before any `grep_search`, `find_by_name` or `view_file`: `fyr search --slice <the question's key words>` (ranked `path:start-end (Symbol)` pivots, 1-hop skeleton neighbours, and linked trail records; or `fyr search <words>`), then `fyr search --affected <path_or_symbol>` and `fyr search --path <from> [--to <to>]` to trace callers and call chains, `fyr search --skeleton <path>` to inspect signatures without reading whole bodies, and `fyr search --refs <path>` for each path it names; read ranged `path:start-end` spans from those hits rather than whole files. Then map:
 
-- **Relevant files** — path + one line on the role each plays in answering the question. Skip the irrelevant; a brief is not an inventory.
-- **Flows** — how the functions/modules actually connect: entry point → call chain → side effects. Name real symbols, not vibes.
+- **Relevant files** — `path:start-end (Symbol)` + one line on the role each plays in answering the question. Skip the irrelevant; a brief is not an inventory.
+- **Flows** — how the functions/modules actually connect: entry point → call chain → side effects, citing `path:start-end (Symbol)` at each hop. Name real symbols, not vibes.
 - **Conventions** — the patterns this codebase already uses (error handling, layout, naming, test style) that new work must match.
-- **Risks** — fragile seams, duplicated logic, load-bearing hacks, places where the planned change will hurt.
+- **Risks** — fragile seams, duplicated logic, load-bearing hacks, places where the planned change will hurt, each with its `path:start-end (Symbol)`.
 - **Open questions** — what you could not determine from the code alone. Say so plainly rather than guessing.
 
 Check `AGENTS.md`, `PRD.md`, and `TODO.md` first when they exist — the brief must not contradict the recorded intent.

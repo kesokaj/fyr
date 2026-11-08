@@ -36,7 +36,7 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M19
 | M5 | `cmd/fyr` | The verbs, their flags and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where (including `~/.gemini/config/hooks.json`), the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
 | M7 | `internal/brain` | The brain store, `fyr record` and `fyr resume`: every project's trail records and the global ones, with on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume | R0, R4, R7 |
-| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text and pure-Go AST symbol/reference graph index over files, tiered context slicing, session read-deduplication ledger, passive co-activity, and `< 250 ms` fail-open CLI hook handlers; the dream's read-only reads | R0, R3, R4 |
+| M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text and pure-Go AST symbol/reference graph index over files, tiered context slicing (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), session read-deduplication ledger, passive co-activity, `< 25 ms` prompt vetting (`--vet`: 9-mode intent classifier, 6-anchor vetter, skill prefetcher, cryptographic data fence, `[FYR_TURN_CONTRACT]`), and `< 250 ms` fail-open CLI hook handlers (`--hook pre-invocation\|pre-tool-use\|stop` in `~/.gemini/config/hooks.json`); the dream's read-only reads | R0, R3, R4 |
 | M9 | `internal/memory` | `fyr memory`: the project memory every session loads | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics`: the store of record of every session's shape | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the hourly dreamer, its timer, lock, state and log | R0, R3, R8 |
@@ -133,7 +133,7 @@ sequenceDiagram
 
 One line each; the record holds the context, the alternatives and the operator's approval (`fyr record get ADR-NNN`).
 
-- The harness is context, skills and subagents, with no hooks and no gates — rejected: lifecycle hooks — ADR-001, ADR-007.
+- The harness is context, skills and subagents, with no daemons and no commit gates (ADR-007's lifecycle-hook rejection superseded in part by ADR-511's `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`) — ADR-001, ADR-007, ADR-511.
 - Antigravity only, with no path that sends experience back — rejected: a second CLI and a report verb — ADR-062, ADR-070.
 - The deployed context is one block pinned under 22,000 bytes, pruned rather than split — ADR-035, ADR-051.
 - One dependency, a pure-Go SQLite driver — rejected: cgo drivers and a second dependency — ADR-045.
@@ -158,7 +158,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - A session's seven-step resume sequence and the three post-dispatch git checks are read-only top-level verbs (`fyr resume`, `fyr git-check`) — rejected: keeping seven and three separate calls in the context, or making `fyr git-check` parse output and fail as a gate — ADR-508.
 - Pipeline benchmark extensions on `fyr eval`: per-row `timeout` (`1m`..`4h`), scripted multi-turn sessions (`turns` `1`..`12` with early completion detection), and per-stage timing (`setup_seconds`, `session_seconds`, `check_seconds`) with check scripts kept out of the sandbox until scoring — ADR-509.
 - `PRD.md` names `fyr dream`'s private `settings.json` under `~/.config/fyr/dream-agy-home-<pid>/`, macOS check e (`procs_darwin.go` via `lsof` and `ps -Eww`), and `/work PLAN-ID` running `fyr work --check`, passing `--runner`, and waiting for the operator's go when `--runner auto` falls back to the host — ADR-510 (amending ADR-507).
-- Zero-daemon Antigravity CLI hooks in `~/.gemini/config/hooks.json` (`< 250 ms` fail-open timeout), pure-Go `go/ast` symbol and reference graph in `internal/search` (`schemaVersion = "4"`), consume-on-hit session read ledger with compaction re-priming, and salted-hash read telemetry in `internal/metrics` — rejected: background MCP daemons, CGo Tree-sitter bindings, permanent hard-blocking of repeated file reads — ADR-511 (superseding ADR-007 in part).
+- Zero-daemon Antigravity CLI hooks in `~/.gemini/config/hooks.json` (`< 250 ms` fail-open timeout via `fyr search --hook pre-invocation|pre-tool-use|stop`), pure-Go `go/ast` symbol and reference graph in `internal/search` (`schemaVersion = "4"`, `--slice`, `--skeleton`, `--path`, `--affected`, `--map`), deterministic `< 25 ms` prompt vetter, skill prefetcher and cryptographic fence (`--vet`), consume-on-hit session read ledger with compaction re-priming, and salted-hash read telemetry in `internal/metrics` — rejected: background MCP daemons, CGo Tree-sitter bindings, permanent hard-blocking of repeated file reads — ADR-511 (superseding ADR-007 in part).
 
 ## Cross-cutting
 

@@ -61,7 +61,7 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 | `fyr list` / `render` | The inventory; the assembled context | `SPEC-fyr-delivery` |
 | `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store and its on-demand `.agents/trail.jsonl` export and sync | `SPEC-fyr-record` |
 | `fyr resume` | The read-only seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory; ADR-508) | `fyr help resume` |
-| `fyr search <words>`, `fyr index` | Records first, then ranked files; consent to be read across projects | `SPEC-fyr-search` |
+| `fyr search <words>`, `fyr index` | Records first, then ranked files; AST graph slicing and queries (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), `< 25 ms` prompt vetting (`--vet`), and `< 250 ms` CLI hooks (`--hook`); consent to be read across projects | `SPEC-fyr-search` |
 | `fyr memory add` / `show` | The project's memory records and their index | `SPEC-fyr-memory-loop` |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | Session shapes and eval trials: stored, summarised, rendered | `SPEC-fyr-metrics` |
 | `fyr dream --install-timer` | The hourly job that proposes from idle projects; `--remove-timer` undoes it | `SPEC-fyr-dream` |
@@ -80,7 +80,7 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 
 Implements: M6 · Spec: `SPEC-fyr-delivery`; the working rules are `AGENTS.md` § Rules for working here
 
-- **Interfaces:** `internal/harness/plan.go` says what is installed where; `internal/harness/inventory.go` holds the lint; the manifest is `~/.config/fyr/state.json`.
+- **Interfaces:** `internal/harness/plan.go` says what is installed where (including `~/.gemini/config/hooks.json` for `PreInvocation`, `PreToolUse` and `Stop`, ADR-511); `internal/harness/inventory.go` holds the lint; the manifest is `~/.config/fyr/state.json`.
 - **Rebuild or copy:** `fyr install` rebuilds the binary from its own git checkout with `go build` and lets that build install (BUG-006); it copies the running binary only when `go` is missing, when the tree is a plain copy with no `.git` (its binary was built from that tree, which may be read-only to the installing user, BUG-015), or when the source is the harness embedded in a release binary (ADR-033, D13).
 - **Lint refusals** (`inventory.go`, each with its bug in `TestLint*` and `TestAgentDescriptionRules`): the flat `agents/<name>.md` format from before ADR-062; a skill without `SKILL.md` and its `description`; a description over 1,024 characters, or in an agent one that is not one line or names "dispatch prompt" or "harness binary"; a frontmatter value a strict YAML parser reads as a comment (BUG-004: quote it); in every kind a key outside its allow list (`agentKeys`, `skillKeys`, `commandKeys`, `ruleKeys`; IN23), a permission key (`allowed-tools`, `hooks`, `permissionMode`, `mcpServers`) above all; a command or rule whose file name fails `validName`; a frontmatter block a YAML reader could read differently from the lint's line grammar (BUG-143, BUG-153).
 - **Errors:** every lint refusal names the file and the rule; a failed write keeps the manifest complete; `update` refuses a dirty checkout and an unknown status.
@@ -99,7 +99,7 @@ Implements: M7 · Spec: `SPEC-fyr-record`
 
 Implements: M8 · Spec: `SPEC-fyr-search` · Decision: ADR-511
 
-- **Interfaces:** `fyr search` (records first, then files), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
+- **Interfaces:** `fyr search` (records first, then files), `--slice <query>` (`--hops`, `--budget`, `--session`), `--skeleton <path>`, `--path <from> [--to <to>]`, `--affected <target>`, `--map`, `--vet <prompt>` (`internal/search/vet.go` and `internal/search/fence.go`: 9-mode intent classifier, 6-anchor vetter, skill prefetcher, cryptographic data fence, `[FYR_TURN_CONTRACT]`), `--hook <event>` (`internal/search/hook.go`: `pre-invocation`, `pre-tool-use`, `stop` for `~/.gemini/config/hooks.json`), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
 - **Data:** the indexes (`.agents/scratch/search.db`, `~/.config/fyr/search.db`) are caches, rebuilt when deleted (R4), holding full-text FTS, per-blob AST `symbols` and `sym_refs` (`EXTRACTED` `1.0` vs `INFERRED` `0.7` confidence), the session `read_ledger` and `session_meta`, and `co_activity` (`schemaVersion = "4"`, ADR-511). The dream job's two read-only SQLite reads live here too: the global index's project list and Antigravity's conversation databases, both from copies.
 
 ## T9 — Memory
@@ -114,7 +114,7 @@ Implements: M9 · Spec: `SPEC-fyr-memory-loop`
 Implements: M10 · Spec: `SPEC-fyr-metrics`
 
 - **Interfaces:** `fyr metrics ingest`, `show`, `report`, `evals`, `export`; `(*Store).ProjectRoots` for M16's cross-project views.
-- **Data:** `~/.config/fyr/metrics.db`, a store of record of session shape: never arguments, prose or tool output; `uninstall` leaves it. Migration 5 adds `started_ms`, `ended_ms` and `wait_ms` on `steps` (from Antigravity `steps.metadata` timestamps `1`, `6`, `7`, `8` and status-history field `26`) and `setup_seconds` and `check_seconds` on `trials`, feeding `Summary.B`'s `model_min`, `tool_min`, `wait_min` and `idle_min` and `show`'s `time model/tool/wait/idle m` line.
+- **Data:** `~/.config/fyr/metrics.db`, a store of record of session shape: never arguments, prose or tool output; `uninstall` leaves it. Migration 5 adds `started_ms`, `ended_ms` and `wait_ms` on `steps` (from Antigravity `steps.metadata` timestamps `1`, `6`, `7`, `8` and status-history field `26`) and `setup_seconds` and `check_seconds` on `trials`, feeding `Summary.B`'s `model_min`, `tool_min`, `wait_min` and `idle_min` and `show`'s `time model/tool/wait/idle m` line. Salted-hash read prefixes (`"r:"` ranged vs `"f:"` full in `steps.cmd_hash`, D9, ADR-511) feed `Summary.A`'s `RedundantReads`, `RangedReadPct` and `Search : Grep` in `fyr metrics show` without a schema migration or raw paths.
 
 ## T11 — The dreamer
 
@@ -221,7 +221,7 @@ Built through Phase 7: the switch, the files, the timer, the gates, the free che
 | `~/.config/fyr/brain.db` | store of record | every project's trail records and the global ones (feedback, proposal, retro), memory | `SPEC-fyr-record` |
 | `.agents/trail.jsonl` | on-demand export | one project's exported records, one JSON object per line (`fyr record export` / `sync`) | `SPEC-fyr-record` |
 | `~/.config/fyr/metrics.db` | store of record | session shape | `SPEC-fyr-metrics` |
-| `.agents/scratch/search.db`, `~/.config/fyr/search.db` | cache | the full-text indexes | `SPEC-fyr-search` |
+| `.agents/scratch/search.db`, `~/.config/fyr/search.db` | cache | the full-text and AST `symbols`/`sym_refs` indexes, plus `.agents/scratch/search.db`'s session `read_ledger`, `session_meta` and `co_activity` (`schemaVersion = "4"`, ADR-511) | `SPEC-fyr-search` |
 | `~/.config/fyr/state.json` | state | the install's manifest | `SPEC-fyr-delivery` |
 | `~/.config/fyr/auto.json` | state | `fyr auto`'s switch, level and thresholds; `on` and `off` write it | `SPEC-fyr-auto` |
 | `~/.config/fyr/auto/` | state | `runs.json`, whose model-run count is the budget, `auto.lock`, `auto.log`, `kickoffs/`, `drafts/`, `inputs/` | `SPEC-fyr-auto` |
@@ -247,7 +247,7 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M5 | T5 | `TestHarnessMap`, `TestVocabularyVerbsAndFlags`, `TestHelpEvalGolden`, `TestUpdateNeverInstallsDirtyTree`, `TestUpdateFromReleaseReplacesAndInstalls`, `TestUpdateFromZipVerifiedAndTampered` |
 | M6 | T6 | `TestInstallStatusResyncUninstall`, `TestLintPermissionKeysByKind`, `TestPlainCopyNeverRebuilds`, `TestUninstallKeepsMetricsStore` |
 | M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestScratchFileIO`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd`, `TestSnapshotScopes`, `TestResumeGolden`, `TestResumeReadOnlyDoesNotCreateDB`, `TestResumeFileEraNoticeAndTrailFallback`, `TestResumeRefusesNonCheckout`, `TestResumeVerb` |
-| M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves` |
+| M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves`, `TestReconcilePopulatesSymbolsAndSymRefs`, `TestBuildContextSliceAndBudget`, `TestFindSymbolPath`, `TestFindAffected`, `TestCheckAndRecordReadConsumeOnHit`, `TestRunHookPreInvocationCapsuleAndPreseed`, `TestRunHookPreToolUseAndStop`, `TestRunHookPreInvocationFenceAndTurnContract`, `TestFenceNewAndDataCollisionResistance`, `TestClassifyIntentAllNineModes`, `TestVetPromptGatesAndBypasses` |
 | M9 | T9 | `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestMemoryAddBodyFile`, `TestStoreRunsNoProjectHook` |
 | M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestProjectRoots`, `TestStepTimes` |
 | M11 | T11 | `TestRunIngestsMetricsFirst`, `TestPromptCarriesMetricsNumbersOnly`, `TestInstallTimerLinux` |

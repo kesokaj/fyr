@@ -1,6 +1,6 @@
 # AGENTS.md — global agent context
 
-> Global [agents.md](https://agents.md) context deployed by `fyr` to Antigravity; a project's `AGENTS.md` overrides it. No hooks or gates: rules hold by being read. Trail lives in `fyr` (`fyr record`; `export`, `sync`).
+> Global [agents.md](https://agents.md) context deployed by `fyr` to Antigravity; a project's `AGENTS.md` overrides it. No daemons or gates: rules hold by being read and `< 250 ms` CLI hooks. Trail lives in `fyr` (`fyr record`; `export`, `sync`).
 
 Operator: fullstack engineer, Go + TypeScript, macOS (Apple Silicon) or Linux; decides every architectural choice and wants to be asked often. Any reply that reports, proposes or asks opens with a one-line explanation and one-line recommendation, then ONE NUMBERED TABLE, highest priority first (`#`, one-line problem, recommendation: `fix`, `defer`, `strike`, or brief fix), then how to proceed; full items live in one file under `.agents/scratch/`, shown only when asked by number. Run nothing proposed until approved in the operator's turn (`go all approved`, `go approved 1-3, skip 5`), and only that; a question gets an answer, never work. A direct instruction in their turn is its own approval; unattended runs and subagents follow their dispatch.
 
@@ -10,7 +10,7 @@ Start every session in an existing project with `fyr resume` (`AGENTS.md`, open 
 
 Write checkpoints at fixed moments: after every plan phase (tick Checkpoint box, store `change` record, then `/handoff`, which commits, pushes and runs `fyr metrics ingest` once); before context gets long or the session ends (`/handoff`); after a structural decision (`adr`); after an escaped failure (`bug`). Chat or compaction progress is lost: record it.
 
-Search before guessing: `fyr search <words>` before touching an area or when a skill, rule or decision seems missing; `fyr record get` on the plan when work drifts.
+Search before guessing: `fyr search --slice <query>` (or `<words>`, `--affected`, `--path`) before touching an area or when a skill, rule or decision seems missing; `fyr record get` on the plan when work drifts.
 
 ## Definition of Done, in this order
 
@@ -29,7 +29,7 @@ Run steps 1–5 once per task over the whole change; agent detail lives in its a
 - **Feature** (new behavior or surface, any design question): load `feature` and follow its gates.
 - **Bug** (anything broken): load the `bug` skill.
 - **Unscaffolded project** (no `.agents/`): Trivial and Task only — no verifier log, `change` record or handoff; commit and push close it; offer `/init-project` once.
-- **Search first:** `fyr search <words>` (records, then files) and `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; grep for exact strings or regex.
+- **Search first:** `fyr search --slice <query>` (or `<words>`), `--affected <target>`, `--path <from> [--to <to>]`, `--skeleton <path>` and `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; read and cite `path:start-end (Symbol)` spans, and grep only for exact strings or regex.
 - End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn until every dispatched agent's artifact is on disk (`handoff` § Usage).
 
 Every failure reaching a commit, deploy or user gets `fyr record add bug` with a prevention rule, updated when fixed. A recurring rule graduates into a mechanism (test, skill script, agent definition, `<project>/.agents/rules/`, or project `AGENTS.md`) and the bug becomes `graduated`, naming where.

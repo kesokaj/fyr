@@ -7,15 +7,12 @@
 
 ## Now
 
-Active plan: `PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` (Second-Brain AST Graph, Tiered Slicer & Zero-Daemon Hook Engine)
-
-### Phase 7 — Cross-Agent Citation Rules, Docs & Byte-Budget Verification (after: Phase 6)
-- [ ] Update `context/AGENTS.md` (`<= 444` B net delta so `TestRenderedContextUnderTarget <= 13,000` B holds), `agents/explorer/agent.md`, `agents/reviewer/agent.md`, `agents/security/agent.md`, `skills/feature/SKILL.md`, `skills/bug/SKILL.md`, and `skills/work/SKILL.md` to require `fyr search --slice`/`--affected`/`--path` first and `path:start-end (Symbol)` citations — verify: unit, `go test -race ./internal/harness/... .`, who: AI — expect: `TestRenderedContextUnderTarget` (`<= 13,000` B), `TestRenderedContextFitsAntigravityBlock` (`<= 19,500` B), and `TestSkillsText` pass — docs: context/AGENTS.md
-- [ ] Update `README.md`, `SDD.md`, `TDD.md`, and `TODO.md` to document `--slice`, `--skeleton`, `--path`, `--affected`, `--map`, `--vet`, `--hook`, and `~/.gemini/config/hooks.json` — verify: unit, `go test -race ./...`, who: AI — expect: all repository tests, `funclen_test.go`, `size_test.go`, `place_matrix_test.go`, and `help_test.go` pass with zero warnings — docs: README.md
-- [ ] Checkpoint — expect: all 7 phases complete, `fyr install` deploys updated context and hooks, and full test suite passes — evidence: `go test -race ./...`, pending
+(none)
 
 ## Next
 
 (none)
 
 ## Backlog
+
+- 2026-11-08 — Update stored trail records `GUIDE-onboarding` (lines 24, 50, 65: `search.db` schema `"4"`, AST graph / hooks / vetter surfaces, `fyr search --slice`), `SPEC-fyr-metrics` (lines 289, 353: `"r:"`/`"f:"` `steps.cmd_hash` read prefixes and `RedundantReads`/`RangedReadPct`), and `DEPLOY-remote` (line 4: clarify `no hooks` as deploy/git hooks alongside `ADR-511`) (`REVIEW-2026-11-08-1757-review-worktree-code-docs-2026-11-08`, `PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` → T8, T10)

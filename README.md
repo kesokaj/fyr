@@ -1,6 +1,6 @@
 # fyr
 
-Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in one repository and installed the same way on every machine you work from, plus `fyr`, a small Go binary that does the installing and keeps what a session cannot hold on its own: the searchable trail of each project, its memory, the shape of every session and a consolidation of idle projects that runs hourly while an `agy` session of yours is open. One operator, their own machines, a private repository. No hooks, no gates, no CI, no service.
+Your rules, skills and subagents for the **Antigravity CLI** (`agy`), kept in one repository and installed the same way on every machine you work from, plus `fyr`, a small Go binary that does the installing and keeps what a session cannot hold on its own: the searchable trail of each project, its memory, the shape of every session and a consolidation of idle projects that runs hourly while an `agy` session of yours is open. One operator, their own machines, a private repository. No daemons, no gates, no CI, no service.
 
 ## Why it exists
 
@@ -88,7 +88,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | Skills | 39 of them, each a directory with a `SKILL.md` in the [Agent Skills](https://agentskills.io) standard; the model loads one when its description matches, but for `auto`, which a `fyr auto` Kickoff names, and you can type any of them as `/name` |
 | Subagents | 8, each `agents/<name>/agent.md` in Antigravity's format, installed as written |
 | Rules | always-on rules under `rules/` (today: critical thinking, one session per task or phase, code modularity, and agy dispatch) |
-| The binary | `fyr`: install, update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records and a project's files; `memory`; `metrics`; the `dream`, hourly while an `agy` session runs; `auto`, a switch with its own timer, off by default |
+| The binary | `fyr`: install (including the `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`), update, status, uninstall; `record`, the brain store of every project's trail records; `search` over those records, a project's files and its AST symbol/reference graph (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`, `--vet`, `--hook`); `memory`; `metrics`; the `dream`, hourly while an `agy` session runs; `auto`, a switch with its own timer, off by default |
 
 ## Quick start
 
@@ -103,7 +103,7 @@ fyr status                        # ends with "drift none"
 
 Put `~/.local/bin` on your `PATH` if it is not already. Then start a session in any project: the global context loads, and the `/init-project` skill scaffolds a new project's trail. The first build fetches one Go module, the pure-Go SQLite driver behind `search`, `record` and `metrics`.
 
-Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (and `~/.local/bin/fyr`) and edits no vendor setting (ADR-062). And the harness's own state lives in `~/.config/fyr/` (the brain store `brain.db` with the global feedback, proposal and retro records, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
+Two things to know about your home directory. `install` writes only under `~/.gemini/config/` (including `~/.gemini/config/hooks.json`, plus `~/.local/bin/fyr`) and edits no vendor setting (ADR-062, ADR-511). And the harness's own state lives in `~/.config/fyr/` (the brain store `brain.db` with the global feedback, proposal and retro records, the search index, the metrics store); Antigravity prompts for paths outside the workspace, so it may ask before first using that directory.
 
 No checkout on this machine? § Install without cloning and § Install from a zip, below.
 
@@ -119,7 +119,7 @@ No checkout on this machine? § Install without cloning and § Install from a zi
 | `fyr list` / `render` | The skill and agent inventory; the context as deployed |
 | `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store: this project's trail records and the global ones (`export` writes `.agents/trail.jsonl` on demand; `sync` loads it into `brain.db`) |
 | `fyr resume` | Prints this checkout's seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory) in one read-only call |
-| `fyr search <words>` | Matching records first, then a ranked search of the project's files |
+| `fyr search <words>` | Matching records first, then a ranked search of the project's files; `--slice` builds a tiered AST context capsule (`path:start-end (Symbol)` pivots, 1-hop skeleton neighbours, trail records), `--skeleton` prints signatures without bodies, `--path` traces shortest call/import hops (`--to`), `--affected` lists callers and blast radius, `--map` prints the repository symbol map, `--vet` runs the `< 25 ms` 9-mode intent classifier and 6-anchor prompt vetter, and `--hook` serves the `< 250 ms` fail-open CLI hooks (`pre-invocation`, `pre-tool-use`, `stop`) in `~/.gemini/config/hooks.json` |
 | `fyr memory add` / `show` | The project memory a session loads at start |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `export` | The shape of every session: stored, summarised, charted, backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
 | `fyr dream --install-timer` | The hourly dreamer, while an `agy` session of yours runs; it only proposes |
