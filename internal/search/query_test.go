@@ -1,6 +1,10 @@
 package search
 
 import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -198,5 +202,187 @@ func TestNoDuplicateHitAcrossRounds(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "search: 1 hits") || !strings.Contains(out, ", 1 with every word") {
 		t.Errorf("header counts the duplicate:\n%s", out)
+	}
+}
+
+func TestExtractGoSymbolsAndImplicitInterfaces(t *testing.T) {
+	src := `package demo
+
+import (
+	"fmt"
+	"github.com/kesokaj/fyr/internal/trail"
+)
+
+const MaxRetries = 3
+var DefaultWorker = &Worker[int]{}
+
+type Runner interface {
+	Execute(task string) error
+}
+
+type Worker[T any] struct {
+	limit T
+}
+
+func (w *Worker[T]) Execute(task string) error {
+	fmt.Println(task)
+	_ = trail.Command
+	return runTask(task)
+}
+
+func runTask(task string) error {
+	return nil
+}
+`
+	syms, refs := extractGoSymbols("internal/demo/worker.go", src)
+	gotSyms := map[string]symbolRow{}
+	for _, s := range syms {
+		gotSyms[s.recv+"."+s.name] = s
+	}
+	for _, want := range []struct {
+		key, kind string
+		exported  int
+	}{
+		{".MaxRetries", "const", 1},
+		{".DefaultWorker", "var", 1},
+		{".Runner", "interface", 1},
+		{"Runner.Execute", "interface_method", 1},
+		{".Worker", "struct", 1},
+		{"Worker.Execute", "method", 1},
+		{".runTask", "func", 0},
+	} {
+		sy, ok := gotSyms[want.key]
+		if !ok || sy.kind != want.kind || sy.exported != want.exported || sy.bodyHash == "" {
+			t.Errorf("symbol %s: got %+v (ok=%v), want kind=%s exported=%d", want.key, sy, ok, want.kind, want.exported)
+		}
+	}
+
+	hasRef := func(from, pkg, name, kind, conf string, weight float64) bool {
+		for _, r := range refs {
+			if r.fromSym == from && r.toPkg == pkg && r.toName == name && r.kind == kind && r.confidence == conf && r.weight == weight {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasRef("Worker.Execute", "", "runTask", "call", "EXTRACTED", 1.0) {
+		t.Errorf("missing EXTRACTED call Worker.Execute -> runTask in %+v", refs)
+	}
+	if !hasRef("Worker.Execute", "trail", "Command", "call", "EXTRACTED", 1.0) {
+		t.Errorf("missing EXTRACTED selector ref Worker.Execute -> trail.Command in %+v", refs)
+	}
+	if !hasRef("Runner", "demo", "Worker", "implements", "INFERRED", 0.7) {
+		t.Errorf("missing INFERRED implements Runner -> Worker in %+v", refs)
+	}
+	if !hasRef("Runner.Execute", "demo", "Worker.Execute", "iface_call", "INFERRED", 0.7) {
+		t.Errorf("missing INFERRED iface_call Runner.Execute -> Worker.Execute in %+v", refs)
+	}
+
+	// Exceeding maxImplicitImplementers (10) suppresses INFERRED interface edges.
+	var many strings.Builder
+	many.WriteString("package demo\ntype TooBroad interface { Step() }\n")
+	for i := 0; i <= maxImplicitImplementers; i++ {
+		fmt.Fprintf(&many, "type Impl%d struct{}\nfunc (Impl%d) Step() {}\n", i, i)
+	}
+	_, manyRefs := extractGoSymbols("internal/demo/many.go", many.String())
+	for _, r := range manyRefs {
+		if r.confidence == "INFERRED" {
+			t.Fatalf("expected 0 INFERRED edges when implementers > %d, got %+v", maxImplicitImplementers, r)
+		}
+	}
+
+	// Partial/broken Go syntax falls back without losing declarations.
+	broken := "package demo\nfunc BeforeBroken() {}\nfunc broken(\nfunc AfterBroken() { BeforeBroken() }\n"
+	bSyms, bRefs := extractGoSymbols("internal/demo/broken.go", broken)
+	foundAfter := false
+	for _, s := range bSyms {
+		if s.name == "AfterBroken" {
+			foundAfter = true
+		}
+	}
+	if !foundAfter || len(bRefs) == 0 {
+		t.Errorf("broken Go file fallback missed AfterBroken: syms=%+v refs=%+v", bSyms, bRefs)
+	}
+}
+
+func TestExtractCodeAndMarkdownDocRefs(t *testing.T) {
+	tsSyms, tsRefs := extractSymbolsAndRefs("web/app.ts", "export async function fetchUser(id: string) {\n  return parseUser(id)\n}\n")
+	if len(tsSyms) != 1 || tsSyms[0].name != "fetchUser" || tsSyms[0].exported != 1 || len(tsRefs) != 1 || tsRefs[0].toName != "parseUser" {
+		t.Errorf("TS extraction: syms=%+v refs=%+v", tsSyms, tsRefs)
+	}
+
+	pySyms, pyRefs := extractSymbolsAndRefs("scripts/run.py", "class Engine:\n    def execute(self):\n        helper_step()\n")
+	if len(pySyms) != 2 || pySyms[1].recv != "Engine" || pySyms[1].name != "execute" || len(pyRefs) != 1 || pyRefs[0].fromSym != "Engine.execute" || pyRefs[0].toName != "helper_step" {
+		t.Errorf("Python extraction: syms=%+v refs=%+v", pySyms, pyRefs)
+	}
+
+	shSyms, shRefs := extractSymbolsAndRefs("scripts/check.sh", "#!/bin/sh\nrun_gate() {\n  verify_tree()\n}\n")
+	if len(shSyms) != 1 || shSyms[0].name != "run_gate" || len(shRefs) != 1 || shRefs[0].toName != "verify_tree" {
+		t.Errorf("Shell extraction: syms=%+v refs=%+v", shSyms, shRefs)
+	}
+
+	md := "# Design\n\nUses `(*store).apply`, `search.Options`, `ParseBashFileRead(cmd string)`, and `internal/search/store.go:openStore`, not `store.go`.\n```go\n`ignoredInFence`\n```\n"
+	_, mdRefs := extractSymbolsAndRefs("README.md", md)
+	got := map[string]symRefRow{}
+	for _, r := range mdRefs {
+		got[r.toPkg+"."+r.toName] = r
+		if r.fromSym != "<doc>" || r.kind != "doc_ref" || r.confidence != "INFERRED" || r.weight != 0.7 {
+			t.Errorf("unexpected doc_ref metadata: %+v", r)
+		}
+	}
+	for _, want := range []string{"store.apply", "search.Options", ".ParseBashFileRead", ".openStore"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("missing markdown doc_ref %q in %+v", want, got)
+		}
+	}
+	for _, unwant := range []string{"store.go", ".ignoredInFence"} {
+		if _, ok := got[unwant]; ok {
+			t.Errorf("unexpected markdown doc_ref %q in %+v", unwant, got)
+		}
+	}
+}
+
+func TestFyrGoCallerResolution(t *testing.T) {
+	declared := map[string]bool{}
+	var allRefs []symRefRow
+	for _, rootDir := range []string{"../../cmd", "../../internal"} {
+		err := filepath.WalkDir(rootDir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return err
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			syms, refs := extractGoSymbols(filepath.ToSlash(p), string(data))
+			for _, s := range syms {
+				declared[s.name] = true
+				if s.recv != "" {
+					declared[s.recv+"."+s.name] = true
+				}
+			}
+			allRefs = append(allRefs, refs...)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", rootDir, err)
+		}
+	}
+	total, resolved := 0, 0
+	for _, r := range allRefs {
+		if r.kind != "call" && r.kind != "type_ref" {
+			continue
+		}
+		total++
+		if declared[r.toName] {
+			resolved++
+		}
+	}
+	if total < 200 {
+		t.Fatalf("expected >= 200 non-test Go symbol refs across fyr, got %d", total)
+	}
+	pct := float64(resolved) * 100.0 / float64(total)
+	if pct < 90.0 {
+		t.Fatalf("non-test Go caller resolution on fyr = %.1f%% (%d / %d), want >= 90.0%%", pct, resolved, total)
 	}
 }

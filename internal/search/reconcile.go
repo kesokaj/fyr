@@ -149,6 +149,11 @@ func (s *store) applyLocked(src source, now int64) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if n > 0 {
+		if err := s.reconcileGoInterfaces(src.project); err != nil {
+			return 0, err
+		}
+	}
 	if _, err := s.db.Exec(`UPDATE blobs SET last_seen = ? WHERE oid IN (SELECT oid FROM files WHERE project = ?)`, now, src.project); err != nil {
 		return 0, err
 	}
@@ -221,4 +226,38 @@ func (s *store) writeFiles(src source, files map[string]string, w map[string]ent
 		}
 	}
 	return n, nil
+}
+
+func (s *store) reconcileGoInterfaces(project string) error {
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project = ? AND sy.kind = 'interface'`, project).Scan(&n); err != nil || n == 0 {
+		return err
+	}
+	rows, err := s.db.Query(`SELECT sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project = ? AND sy.kind IN ('interface', 'interface_method', 'method')`, project)
+	if err != nil {
+		return err
+	}
+	var syms []symbolRow
+	for rows.Next() {
+		var sy symbolRow
+		if err := rows.Scan(&sy.oid, &sy.name, &sy.recv, &sy.kind, &sy.pkg, &sy.startLine); err != nil {
+			rows.Close()
+			return err
+		}
+		syms = append(syms, sy)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`DELETE FROM sym_refs WHERE kind IN ('implements', 'iface_call') AND oid IN (SELECT oid FROM files WHERE project = ?)`, project); err != nil {
+		return err
+	}
+	for _, r := range matchImplicitInterfaces(syms) {
+		if _, err := s.db.Exec(`INSERT INTO sym_refs(oid, from_sym, to_pkg, to_name, kind, confidence, weight, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.oid, r.fromSym, r.toPkg, r.toName, r.kind, r.confidence, r.weight, r.line); err != nil {
+			return err
+		}
+	}
+	return nil
 }

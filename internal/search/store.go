@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "3"
+const schemaVersion = "4"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -54,6 +54,17 @@ CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
 END;
 CREATE TABLE refs(oid TEXT, line INTEGER, target TEXT);
 CREATE INDEX refs_target ON refs(target);
+CREATE TABLE symbols(oid TEXT, name TEXT, recv TEXT, kind TEXT, pkg TEXT, start_line INT, end_line INT, sig TEXT, exported INT, body_hash TEXT);
+CREATE INDEX symbols_oid ON symbols(oid);
+CREATE INDEX symbols_name ON symbols(name);
+CREATE INDEX symbols_pkg_name ON symbols(pkg, name);
+CREATE TABLE sym_refs(oid TEXT, from_sym TEXT, to_pkg TEXT, to_name TEXT, kind TEXT, confidence TEXT, weight REAL, line INT);
+CREATE INDEX sym_refs_oid ON sym_refs(oid);
+CREATE INDEX sym_refs_to_name ON sym_refs(to_name);
+CREATE INDEX sym_refs_from_sym ON sym_refs(from_sym);
+CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line));
+CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT);
+CREATE TABLE co_activity(file_a TEXT, file_b TEXT, kind TEXT, count INT, updated_at INT, PRIMARY KEY(file_a, file_b, kind));
 `
 
 // store is one open index database.

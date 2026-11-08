@@ -114,13 +114,16 @@ func TestReconcileSkipsBinaryLargeSymlinkSubmodule(t *testing.T) {
 func TestReconcileGC(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
-	writeFile(t, root, "a.md", "old gazelle\n")
+	writeFile(t, root, "a.md", "old gazelle calling `openStore`\n")
 	writeFile(t, root, "b.md", "old ibex\n")
 	commitAll(t, root, "add")
 	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"gazelle"}})
 	db := openDB(t, root)
 	oidA := strings.TrimSpace(gitT(t, root, "rev-parse", "HEAD:a.md"))
 	oidB := strings.TrimSpace(gitT(t, root, "rev-parse", "HEAD:b.md"))
+	if n := count(t, db, `SELECT count(*) FROM sym_refs WHERE oid = ?`, oidA); n == 0 {
+		t.Fatalf("precondition: want sym_refs row on oidA before GC")
+	}
 	writeFile(t, root, "a.md", "new gazelle\n")
 	writeFile(t, root, "b.md", "new ibex\n")
 	commitAll(t, root, "change")
@@ -137,6 +140,12 @@ func TestReconcileGC(t *testing.T) {
 	}
 	if n := count(t, db, `SELECT count(*) FROM chunks WHERE oid = ?`, oidA); n != 0 {
 		t.Errorf("chunks of a collected blob survived")
+	}
+	if n := count(t, db, `SELECT count(*) FROM symbols WHERE oid = ?`, oidA); n != 0 {
+		t.Errorf("symbols of a collected blob survived")
+	}
+	if n := count(t, db, `SELECT count(*) FROM sym_refs WHERE oid = ?`, oidA); n != 0 {
+		t.Errorf("sym_refs of a collected blob survived")
 	}
 	if n := count(t, db, `SELECT count(*) FROM blobs WHERE oid = ?`, oidB); n != 1 {
 		t.Errorf("blob seen 13 days ago was collected")
@@ -196,5 +205,57 @@ func TestOpenRebuildsCorruptAndOldSchema(t *testing.T) {
 	out = mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
 	if !strings.Contains(out, "rebuilt") || !strings.Contains(out, "README.md") {
 		t.Errorf("schema 1 not rebuilt:\n%s", out)
+	}
+}
+
+func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, root, "pkg/svc.go", "package pkg\n\ntype Runner interface {\n\tRun(name string) error\n}\n\ntype Worker struct{}\n\nfunc (w *Worker) Run(name string) error {\n\treturn helper(name)\n}\n\nfunc helper(s string) error {\n\treturn nil\n}\n")
+	writeFile(t, root, "docs/arch.md", "# Arch\n\nCalls `Worker.Run` and `helper`.\n")
+	commitAll(t, root, "add code and docs")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"demo"}})
+
+	db := openDB(t, root)
+	var schema string
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "4" {
+		t.Fatalf("schema = %q, err = %v; want 4", schema, err)
+	}
+	for _, tbl := range []string{"symbols", "sym_refs", "read_ledger", "session_meta", "co_activity"} {
+		if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl); n != 1 {
+			t.Fatalf("missing table %s in search.db", tbl)
+		}
+	}
+	oidGo := strings.TrimSpace(gitT(t, root, "rev-parse", "HEAD:pkg/svc.go"))
+	symCount := count(t, db, `SELECT count(*) FROM symbols WHERE oid = ? AND body_hash != ''`, oidGo)
+	if symCount < 4 {
+		t.Fatalf("symbols count for pkg/svc.go = %d, want >= 4", symCount)
+	}
+	refCount := count(t, db, `SELECT count(*) FROM sym_refs WHERE oid = ? AND from_sym = 'Worker.Run' AND to_name = 'helper' AND confidence = 'EXTRACTED' AND weight = 1.0`, oidGo)
+	if refCount != 1 {
+		t.Fatalf("want 1 EXTRACTED call edge Worker.Run -> helper, got %d", refCount)
+	}
+
+	// Warm apply on unchanged blobs takes no write lock and completes in < 5 ms.
+	st, err := openStore(projectDB(root), os.Stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	view, _, err := gitView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	changed, err := st.apply(source{project: root, dir: root, view: view})
+	elapsed := time.Since(start)
+	if err != nil || changed != 0 {
+		t.Fatalf("warm apply: changed=%d, err=%v", changed, err)
+	}
+	if elapsed >= 5*time.Millisecond {
+		t.Errorf("warm apply took %v, want < 5ms", elapsed)
+	}
+	if got := count(t, db, `SELECT count(*) FROM symbols WHERE oid = ?`, oidGo); got != symCount {
+		t.Errorf("symbols count changed after warm apply: got %d, want %d", got, symCount)
 	}
 }
