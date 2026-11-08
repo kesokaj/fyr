@@ -48,6 +48,11 @@ func CanonicalizePath(cwd, targetPath string) string {
 	if !filepath.IsAbs(p) && cwd != "" {
 		p = filepath.Join(cwd, p)
 	}
+	if !filepath.IsAbs(p) {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+	}
 	p = filepath.Clean(p)
 	if eval, err := filepath.EvalSymlinks(p); err == nil {
 		return filepath.ToSlash(filepath.Clean(eval))
@@ -62,18 +67,12 @@ func openLedgerStore(dir string) (*store, string, error) {
 	if dir == "" {
 		dir = "."
 	}
-	root := dir
-	if r, err := checkoutRoot(dir); err == nil {
-		if err := guardProject(r); err != nil {
-			return nil, "", err
-		}
-		root = r
-	} else {
-		for _, d := range []string{".agents", filepath.Join(".agents", "scratch")} {
-			if fi, err := os.Lstat(filepath.Join(root, d)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-				return nil, "", fmt.Errorf("search: %s is a symlink; refusing to write through it", filepath.ToSlash(d))
-			}
-		}
+	root, err := checkoutRoot(dir)
+	if err != nil {
+		return nil, "", errNotCheckout
+	}
+	if err := guardProject(root); err != nil {
+		return nil, "", err
 	}
 	st, err := openStore(projectDB(root), io.Discard)
 	return st, root, err
@@ -151,7 +150,7 @@ func RegisterCapsulePivots(dir, conversationID string, turnNum int, pivots []Cap
 	if len(pivots) == 0 {
 		return nil
 	}
-	st, _, err := openLedgerStore(dir)
+	st, root, err := openLedgerStore(dir)
 	if err != nil {
 		return err
 	}
@@ -165,7 +164,7 @@ func RegisterCapsulePivots(dir, conversationID string, turnNum int, pivots []Cap
 	}
 	now := nowFunc().Unix()
 	for _, p := range pivots {
-		resolved := CanonicalizePath(dir, p.Path)
+		resolved := CanonicalizePath(root, p.Path)
 		if sumHex, _, totalLines, ok := readFileDigestAndLines(resolved); ok {
 			start, end := normalizeLineRange(p.StartLine, p.EndLine, totalLines)
 			if err := st.upsertReadStamp(conversationID, genID, resolved, start, end, sumHex, turnNum, now); err != nil {
@@ -219,9 +218,15 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 }
 
 func (s *store) upsertReadStamp(conversationID string, genID int, resolved string, start, end int, sumHex string, turnNum int, now int64) error {
-	_, err := s.db.Exec(`INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line) DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, hit_count = 1, updated_at = excluded.updated_at`,
-		conversationID, genID, resolved, start, end, sumHex, turnNum, now)
-	return err
+	const q = `INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line) DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, hit_count = 1, updated_at = excluded.updated_at`
+	if _, err := s.db.Exec(q, conversationID, genID, resolved, start, end, sumHex, turnNum, now); err != nil {
+		return err
+	}
+	if start > 0 && sumHex != "" {
+		_, err := s.db.Exec(q, conversationID, genID, resolved, 0, 0, sumHex, turnNum, now)
+		return err
+	}
+	return nil
 }
 
 // CheckPreWriteHash verifies that a previously read file has not been modified on disk before a write/edit.
@@ -284,25 +289,11 @@ func normalizeLineRange(startLine, endLine, totalLines int) (int, int) {
 	return startLine, max(startLine, endLine)
 }
 
-func (s *store) fileSkeletonSummary(root, resolvedPath, text string) string {
-	rel := relDisplayPath(root, resolvedPath)
-	rows, err := s.db.Query(`SELECT sy.start_line, sy.end_line, sy.sig FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.path = ? OR f.path LIKE '%' || ? ORDER BY sy.start_line, sy.end_line`, rel, "/"+rel)
+func (s *store) fileSkeletonSummary(_, resolvedPath, text string) string {
+	syms, _ := extractSymbolsAndRefs(resolvedPath, text)
 	var lines []string
-	if err == nil {
-		for rows.Next() {
-			var start, end int
-			var sig string
-			if rows.Scan(&start, &end, &sig) == nil {
-				lines = append(lines, fmt.Sprintf("%d-%d  %s", start, end, sig))
-			}
-		}
-		rows.Close()
-	}
-	if len(lines) == 0 {
-		syms, _ := extractSymbolsAndRefs(resolvedPath, text)
-		for _, sy := range syms {
-			lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.startLine, sy.endLine, sy.sig))
-		}
+	for _, sy := range syms {
+		lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.startLine, sy.endLine, sy.sig))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -334,7 +325,7 @@ func ParseBashFileRead(cmd string) (BashFileRead, bool) {
 	}
 	switch tool := filepath.Base(tokens[0]); tool {
 	case "cat", "nl", "bat", "batcat":
-		return parseBashSimpleOrBat(strings.TrimSuffix(tool, "cat")+"", tool, tokens[1:])
+		return parseBashSimpleOrBat(tool, tokens[1:])
 	case "head", "tail":
 		return parseBashHeadOrTail(tool, tokens[1:])
 	case "sed":
@@ -401,7 +392,7 @@ func stepQuotedShellByte(cmd string, i int, quote byte, cur *strings.Builder) (i
 	return i, true
 }
 
-func parseBashSimpleOrBat(_, rawTool string, args []string) (BashFileRead, bool) {
+func parseBashSimpleOrBat(rawTool string, args []string) (BashFileRead, bool) {
 	tool := rawTool
 	if tool == "batcat" {
 		tool = "bat"

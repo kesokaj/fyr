@@ -18,6 +18,7 @@ Active plan: `PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zer
 ## Next
 
 - Phase 5 — Passive Co-Activity Memory, Staleness Flags & Read Telemetry (`PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` → T8, T15, T16)
-- Phase 6 — Cross-Agent Citation Rules, Docs & Byte-Budget Verification (`PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` → T1, T2, T5, T8)
+- Phase 6 — Prompt Vetting, Intent Router, Skill Prefetcher & Turn Contract (`PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` → T5, T8)
+- Phase 7 — Cross-Agent Citation Rules, Docs & Byte-Budget Verification (`PLAN-2026-11-08-0938-plan-second-brain-ast-graph-tiered-slicer-zero-d` → T1, T2, T5, T8)
 
 ## Backlog

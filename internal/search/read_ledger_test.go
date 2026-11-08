@@ -104,8 +104,18 @@ func TestRegisterCapsulePivotsAndCompactionReset(t *testing.T) {
 	if len(pivots) != 1 || pivots[0].Path != "pkg/alpha.go" || pivots[0].StartLine != 3 || pivots[0].EndLine != 5 {
 		t.Fatalf("ParseCapsulePivots = %+v, want [{Path:pkg/alpha.go StartLine:3 EndLine:5}]", pivots)
 	}
-	if err := RegisterCapsulePivots(root, "conv-compact", 1, pivots); err != nil {
-		t.Fatalf("RegisterCapsulePivots: %v", err)
+	if err := RegisterCapsulePivots(filepath.Join(root, "pkg"), "conv-compact", 1, pivots); err != nil {
+		t.Fatalf("RegisterCapsulePivots from subdir: %v", err)
+	}
+	if got := CanonicalizePath("", "pkg/alpha.go"); !filepath.IsAbs(filepath.FromSlash(got)) {
+		t.Fatalf("CanonicalizePath(\"\", relative) = %q, want absolute path", got)
+	}
+	nonCheckout := t.TempDir()
+	if _, err := CheckAndRecordRead(nonCheckout, "conv-compact", "foo.go", 1, 10, 1); err == nil {
+		t.Fatalf("CheckAndRecordRead on non-checkout directory succeeded, want errNotCheckout")
+	}
+	if _, err := os.Stat(filepath.Join(nonCheckout, ".agents")); !os.IsNotExist(err) {
+		t.Fatalf("non-checkout directory had .agents created: err=%v", err)
 	}
 
 	// Reading lines 3..5 in generation 0 hits the pre-seeded capsule pivot.
@@ -196,10 +206,8 @@ func TestWorktreeCanonicalizationAndPreWriteHash(t *testing.T) {
 		t.Fatalf("wt2 read should not collide with wt1, got %+v, %v", d2, err)
 	}
 
-	// Pre-write hash check: re-stamp wt1's pkg/shared.go, then modify it externally on disk.
-	if dec, err := CheckAndRecordRead(wt1, "conv-wt", "pkg/shared.go", 0, 0, 3); err != nil || !dec.Allowed {
-		t.Fatalf("re-stamp wt1: %+v, %v", dec, err)
-	}
+	// Pre-write hash check right after a 2nd-read [UNCHANGED] consume (d1Link above consumed wt1's range stamp):
+	// external disk edit must still be caught by CheckPreWriteHash without requiring a 3rd read.
 	writeFile(t, wt1, "pkg/shared.go", "package pkg\n\nfunc Shared() string { return \"external-edit\" }\n")
 
 	pwConflict, err := CheckPreWriteHash(wt1, "conv-wt", "pkg/shared.go")
@@ -207,7 +215,7 @@ func TestWorktreeCanonicalizationAndPreWriteHash(t *testing.T) {
 		t.Fatalf("CheckPreWriteHash on modified file: %v", err)
 	}
 	if pwConflict.Allowed {
-		t.Fatalf("CheckPreWriteHash should deny write when disk hash changed since last read: %+v", pwConflict)
+		t.Fatalf("CheckPreWriteHash should deny write when disk hash changed after 2nd-read consume: %+v", pwConflict)
 	}
 
 	// Re-read the updated file, then verify CheckPreWriteHash allows the write when disk matches.
