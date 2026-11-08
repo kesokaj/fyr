@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	hookDefaultBudget    = 1800
+	hookDefaultBudget    = 1200
 	hookMaxDirtyFastPath = 15
 	hookKneeTokens       = 180000
 	hookMinIdentLen      = 6
@@ -107,6 +107,12 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 		return writeDecision(out, "allow", "")
 	}
 	dir := resolveHookDir(o, input)
+	if hooksDisabled(dir) {
+		if event == "pre-invocation" {
+			return writePreInvocation(out, "", "")
+		}
+		return writeDecision(out, "allow", "")
+	}
 	switch event {
 	case "pre-invocation":
 		return handlePreInvocation(o, dir, input, out)
@@ -149,9 +155,13 @@ func resolveHookDir(o Options, in HookInput) string {
 }
 
 func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) error {
-	state, err := CheckCompaction(dir, in.ConversationID, in.TranscriptPath)
+	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
+	state, skip, err := checkTurnOrMidTurn(dir, in.ConversationID, in.TranscriptPath, in.InvocationNum, rawPrompt)
 	if err != nil {
 		return writeStoreDegraded(out, err)
+	}
+	if skip {
+		return writePreInvocation(out, "", "")
 	}
 	sc, dirtySummary, fastPath, err := prepareHookScope(dir)
 	if err != nil {
@@ -172,7 +182,6 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		sections = append(sections, dirtySummary)
 		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
 	}
-	rawPrompt := strings.TrimSpace(in.LastUserInput)
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
 	sliceOpts := o
 	sliceOpts.Dir = dir
@@ -265,7 +274,7 @@ func formatDirtyFastPath(dirtyPaths []string, diffN int) string {
 }
 
 func (sc *scope) runVet(o Options, out io.Writer) error {
-	prompt := strings.TrimSpace(o.Vet)
+	prompt := StripSandboxPreamble(strings.TrimSpace(o.Vet))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(prompt, "!"))
 	slice := sc.buildVetSlice(o, cleanPrompt, SessionState{}, false)
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)

@@ -148,10 +148,11 @@ func isKickoffPrompt(p string) bool {
 }
 
 func classifySlashPrefix(low string) (IntentMode, bool) {
-	if !strings.HasPrefix(low, "/") {
+	s := strings.TrimSpace(strings.TrimPrefix(low, "run "))
+	if !strings.HasPrefix(s, "/") {
 		return "", false
 	}
-	first, _, _ := strings.Cut(low, " ")
+	first, _, _ := strings.Cut(s, " ")
 	switch first {
 	case "/preflight":
 		return IntentRelease, true
@@ -302,7 +303,7 @@ func VetPrompt(prompt string, intent IntentMode, slice SliceResult, brainCtx Tur
 }
 
 func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx TurnBrainContext, catalog []SkillMeta) VetResult {
-	trimmed := strings.TrimSpace(prompt)
+	trimmed := StripSandboxPreamble(strings.TrimSpace(prompt))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(trimmed, "!"))
 	if intent == "" {
 		intent = ClassifyIntent(cleanPrompt, slice.SymbolHits)
@@ -326,16 +327,17 @@ func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx
 }
 
 func decideVetGate(rawPrompt string, intent IntentMode, present, conflicts []string) VetGate {
-	if rawPrompt == "" || strings.HasPrefix(rawPrompt, "!") || strings.HasPrefix(rawPrompt, "/") {
-		return GatePassThrough
-	}
-	if intent == IntentApproval || intent == IntentTrivial {
+	if rawPrompt == "" || strings.HasPrefix(rawPrompt, "!") {
 		return GatePassThrough
 	}
 	if len(conflicts) > 0 {
 		return GateVetFirst
 	}
-	if isKickoffPrompt(rawPrompt) {
+	low := strings.ToLower(rawPrompt)
+	if strings.HasPrefix(rawPrompt, "/") || strings.HasPrefix(low, "run /") || intent == IntentApproval || intent == IntentTrivial {
+		return GatePassThrough
+	}
+	if isKickoffPrompt(rawPrompt) || hasAutonomousWaiver(low) {
 		return GateEnrichAndProceed
 	}
 	hasTarget := slices.Contains(present, "target")

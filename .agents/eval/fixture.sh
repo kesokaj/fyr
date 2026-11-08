@@ -10,10 +10,11 @@ main() {
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
-    bare | project | project-empty | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | security | verifier | resume | work | work-plan | work-plan-host | tasks | retro | distill | dream | preflight) ;;
+    bare | project | project-empty | project-ast | project-ast-nohooks | project-ast-inject | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | security | verifier | resume | work | work-plan | work-plan-host | tasks | retro | distill | dream | preflight) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
   source .agents/eval/fixture-extra.sh
+  source .agents/eval/fixture-ast.sh
   # The stand-in verb is read before demo_tree empties the work tree.
   local fake=""
   case "$scenario" in tasks | work-plan | work-plan-host) fake=$(cat .agents/eval/fake-work.sh) ;; esac
@@ -41,6 +42,9 @@ main() {
     distill) feedback_trio "a repeated procedure" ;;
     dream) memory_trio ;;
     preflight) preflight_tag ;;
+    project-ast) project_ast ;;
+    project-ast-nohooks) project_ast_nohooks ;;
+    project-ast-inject) project_ast_inject ;;
   esac
 }
 

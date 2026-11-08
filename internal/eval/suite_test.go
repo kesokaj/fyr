@@ -204,6 +204,9 @@ func TestSuiteHarness(t *testing.T) {
 		"preflight": {"", true}, "project-memory": {"", false},
 		"work-tasks": {"", true}, "work-tasks-waves": {"", true}, "work-tasks-design": {"", true},
 		"work-start": {"", true}, "work-start-host": {"", true}, "work-refuse": {"", true},
+		"ast-slice-citations": {"explorer", true}, "read-ledger-dedup": {"", false},
+		"vet-first-gate": {"", false}, "vet-question-and-bypass": {"", false}, "fence-injection-guard": {"", false},
+		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
@@ -414,14 +417,20 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	}
 	targets := map[string]string{"skills/init-project/SKILL.md#Step2": step2}
 	namedRowTarget := map[string]string{
-		"spec":           "skills/spec/SKILL.md",
-		"feature":        "skills/feature/SKILL.md",
-		"feedback-log":   "skills/feedback-log/SKILL.md",
-		"project-memory": "skills/project-memory/SKILL.md",
-		"reviewer":       "agents/reviewer/agent.md",
-		"reviewer-cold":  "agents/reviewer/agent.md",
-		"resume":         "context/AGENTS.md",
-		"documentation":  "agents/documentation/agent.md",
+		"spec":                    "skills/spec/SKILL.md",
+		"feature":                 "skills/feature/SKILL.md",
+		"feedback-log":            "skills/feedback-log/SKILL.md",
+		"project-memory":          "skills/project-memory/SKILL.md",
+		"reviewer":                "agents/reviewer/agent.md",
+		"reviewer-cold":           "agents/reviewer/agent.md",
+		"resume":                  "context/AGENTS.md",
+		"documentation":           "agents/documentation/agent.md",
+		"read-ledger-dedup":       "context/AGENTS.md",
+		"vet-first-gate":          "context/AGENTS.md",
+		"vet-question-and-bypass": "context/AGENTS.md",
+		"fence-injection-guard":   "context/AGENTS.md",
+		"ab-pipeline-on":          "context/AGENTS.md",
+		"ab-pipeline-off":         "context/AGENTS.md",
 	}
 	rows, _, err := ReadTrackedSuite(root, false)
 	if err != nil {

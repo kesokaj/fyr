@@ -166,18 +166,18 @@ func buildTurnContract(res VetResult) string {
 	case GatePassThrough:
 		b.WriteString("directive: PASS_THROUGH — Execute the operator's direct instruction or approval without ceremony.\n")
 	case GateVetFirst:
-		b.WriteString("directive: VET_FIRST — Do NOT edit files or run write tools yet.\n")
+		b.WriteString("directive: VET_FIRST — Do NOT edit files, run write tools, or dispatch subagents yet.\n")
 		if len(res.Conflicts) > 0 {
 			b.WriteString("conflicts: " + strings.Join(res.Conflicts, "; ") + "\n")
 		}
 		if len(res.MissingAnchors) > 0 {
 			b.WriteString("missing_anchors: " + strings.Join(res.MissingAnchors, ", ") + "\n")
 		}
-		b.WriteString("reply_shape: State (1) Goal in 1 line, (2) Scope (in/out), (3) Strikeable Assumptions in ONE NUMBERED TABLE, and (4) <= 3 clarifying questions; wait for operator approval.\n")
+		b.WriteString("reply_shape: State (1) Goal in 1 line, (2) Scope (in/out), (3) Strikeable Assumptions in ONE NUMBERED TABLE, and (4) <= 3 clarifying questions; wait for operator approval (even in print mode `agy -p`).\n")
 	default:
 		switch res.Intent {
 		case IntentQuestion:
-			b.WriteString("directive: ANSWER_ONLY — Answer the question directly using path:start-end (Symbol) citations; do NOT edit files or perform unasked work.\n")
+			b.WriteString("directive: ANSWER_ONLY — Answer the question directly using path:start-end (Symbol) citations; do NOT edit files, dispatch subagents, or perform unasked work.\n")
 		case IntentCorrection:
 			b.WriteString("directive: CORRECTION — Log the operator correction via feedback-log (global feedback record) and project-memory (fyr memory add) before continuing.\n")
 		default:

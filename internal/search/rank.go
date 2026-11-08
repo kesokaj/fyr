@@ -246,7 +246,7 @@ func (sc *scope) sessionActiveFiles(sessionID string, extra map[string]bool) map
 	if sessionID == "" || sc.st == nil {
 		return out
 	}
-	rows, err := sc.st.db.Query(`SELECT DISTINCT resolved_path FROM read_ledger WHERE conversation_id = ?`, sessionID)
+	rows, err := sc.st.db.Query(`SELECT DISTINCT resolved_path FROM read_ledger WHERE conversation_id = ? AND start_line >= -1`, sessionID)
 	if err != nil {
 		return out
 	}
