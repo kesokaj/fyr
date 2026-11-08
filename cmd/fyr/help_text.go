@@ -183,6 +183,7 @@ var pages = map[string]verbPage{
 			"       fyr search --path SYM [--to SYM]",
 			"       fyr search --affected TARGET",
 			"       fyr search --map",
+			"       fyr search --vet PROMPT",
 			"       fyr search --hook <pre-invocation|pre-tool-use|stop>",
 		},
 		about: []string{
@@ -193,7 +194,8 @@ var pages = map[string]verbPage{
 			"naming an ID, a file or a directory (trailing /); --open lists open bugs,",
 			"plans with unticked boxes, current specs, guides and deploy docs, and",
 			"queued proposals. --slice, --skeleton, --path, --affected and --map query",
-			"the AST symbol and reference graph; --hook serves Antigravity CLI hooks.",
+			"the AST symbol and reference graph; --vet runs the 9-mode intent, 6-anchor",
+			"and skill/record vetter; --hook serves Antigravity CLI hooks.",
 		},
 	},
 	"index": {

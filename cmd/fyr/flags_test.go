@@ -10,7 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // allFlags is a FlagSet holding the global flags and every verb's flags, for
@@ -51,6 +53,7 @@ func TestReorder(t *testing.T) {
 		"search --slice Reconcile --budget 1800": {"--slice", "Reconcile", "--budget", "1800", "search"},
 		"search --path EntryPoint LeafTarget":    {"--path", "EntryPoint", "search", "LeafTarget"},
 		"search --affected CoreStore --home /x":  {"--affected", "CoreStore", "--home", "/x", "search"},
+		"search --vet Reconcile --home /x":       {"--vet", "Reconcile", "--home", "/x", "search"},
 		"search --hook pre-invocation --home /x": {"--hook", "pre-invocation", "--home", "/x", "search"},
 	}
 	for in, want := range cases {
@@ -220,6 +223,7 @@ func TestSearchGraphModesCLI(t *testing.T) {
 		{[]string{"search", "--path", "Reconcile", "Helper", "--home", home}, "Reconcile -> Helper"},
 		{[]string{"search", "--affected", "Helper", "--home", home}, "direct_callers:"},
 		{[]string{"search", "--map", "--home", home}, "god_nodes"},
+		{[]string{"search", "--vet", "Fix panic in Reconcile in svc.go", "--home", home}, "[FYR_TURN_CONTRACT]"},
 	} {
 		var out bytes.Buffer
 		if err := run(tc.args, &out); err != nil {
@@ -239,5 +243,36 @@ func TestSearchGraphModesCLI(t *testing.T) {
 	}
 	if !strings.Contains(hookOut.String(), `"injectSteps"`) || !strings.Contains(hookOut.String(), "[Hop 0]") {
 		t.Errorf("search --hook pre-invocation output missing capsule:\n%s", hookOut.String())
+	}
+}
+
+func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
+	recs := []brain.Record{
+		{ID: "ADR-001", Kind: "adr", Status: "accepted", Title: "Unrelated one", Body: "We never use XML soap envelopes."},
+		{ID: "ADR-002", Kind: "adr", Status: "accepted", Title: "Unrelated two", Body: "Rejected: soap envelopes."},
+		{ID: "ADR-003", Kind: "adr", Status: "accepted", Title: "Unrelated three", Body: "Never commit binaries."},
+		{ID: "ADR-004", Kind: "adr", Status: "accepted", Title: "Cache architecture", Body: "Rejected: memcached cluster."},
+	}
+	prompt := "Build a new memcached cluster client"
+	terms := extractTurnQueryTerms(prompt, nil)
+	var turnCtx search.TurnBrainContext
+	for _, r := range recs {
+		classifyTurnRecord(&turnCtx, "", prompt, terms, r)
+	}
+	if len(turnCtx.ADRs) != 1 || turnCtx.ADRs[0].ID != "ADR-004" {
+		t.Fatalf("got ADRs=%+v, want only [ADR-004]", turnCtx.ADRs)
+	}
+	if len(turnCtx.Conflicts) != 1 || !strings.Contains(turnCtx.Conflicts[0], "ADR-004") {
+		t.Fatalf("got Conflicts=%v, want ADR-004 conflict", turnCtx.Conflicts)
+	}
+	// An unrelated prompt should match 0 ADRs so constraints anchor is not falsely satisfied.
+	var emptyCtx search.TurnBrainContext
+	unrelated := "Build a new dashboard widget"
+	uTerms := extractTurnQueryTerms(unrelated, nil)
+	for _, r := range recs {
+		classifyTurnRecord(&emptyCtx, "", unrelated, uTerms, r)
+	}
+	if len(emptyCtx.ADRs) != 0 {
+		t.Fatalf("expected 0 matched ADRs for unrelated prompt, got %+v", emptyCtx.ADRs)
 	}
 }

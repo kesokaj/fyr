@@ -17,30 +17,33 @@ type LinkedRecord struct {
 
 // Options are the flags of `fyr search` and `fyr index`.
 type Options struct {
-	Dir             string                                  // working directory the command runs in
-	Home            string                                  // home directory (--home), for the global search index
-	Words           []string                                // search words
-	Refs            string                                  // --refs target
-	Open            bool                                    // --open
-	Kind            string                                  // --kind filter
-	Limit           int                                     // --limit
-	Global          bool                                    // --global
-	Rebuild         bool                                    // index --rebuild
-	Slice           string                                  // --slice query or symbol
-	Hops            int                                     // --hops (default 2)
-	Budget          int                                     // --budget token limit (default 2000, chars/4)
-	Session         string                                  // --session conversation ID
-	Skeleton        string                                  // --skeleton file path
-	Path            string                                  // --path source symbol
-	To              string                                  // --to target symbol for --path
-	Affected        string                                  // --affected file path or symbol
-	Map             bool                                    // --map repo summary
-	Hook            string                                  // --hook event: pre-invocation, pre-tool-use or stop
-	HookIn          io.Reader                               // optional stdin reader for --hook
-	ActiveFiles     map[string]bool                         // optional in-memory active file set
-	BrainRefs       func(target string) []LinkedRecord      // optional callback to internal/brain.Refs
-	BrainRefsForDir func(dir, target string) []LinkedRecord // dir-bound BrainRefs for --hook workspacePaths[0]
-	BrainReprime    func(dir, home string) string           // optional callback for compaction re-prime
+	Dir              string                                                          // working directory the command runs in
+	Home             string                                                          // home directory (--home), for the global search index
+	Words            []string                                                        // search words
+	Refs             string                                                          // --refs target
+	Open             bool                                                            // --open
+	Kind             string                                                          // --kind filter
+	Limit            int                                                             // --limit
+	Global           bool                                                            // --global
+	Rebuild          bool                                                            // index --rebuild
+	Slice            string                                                          // --slice query or symbol
+	Hops             int                                                             // --hops (default 2)
+	Budget           int                                                             // --budget token limit (default 2000, chars/4)
+	Session          string                                                          // --session conversation ID
+	Skeleton         string                                                          // --skeleton file path
+	Path             string                                                          // --path source symbol
+	To               string                                                          // --to target symbol for --path
+	Affected         string                                                          // --affected file path or symbol
+	Map              bool                                                            // --map repo summary
+	Vet              string                                                          // --vet prompt
+	Hook             string                                                          // --hook event: pre-invocation, pre-tool-use or stop
+	HookIn           io.Reader                                                       // optional stdin reader for --hook
+	ActiveFiles      map[string]bool                                                 // optional in-memory active file set
+	BrainRefs        func(target string) []LinkedRecord                              // optional callback to internal/brain.Refs
+	BrainRefsForDir  func(dir, target string) []LinkedRecord                         // dir-bound BrainRefs for --hook workspacePaths[0]
+	BrainReprime     func(dir, home string) string                                   // optional callback for compaction re-prime
+	BrainTurnContext func(dir, home, prompt string, files []string) TurnBrainContext // optional callback for --vet and --hook
+	SkillCatalog     func(home string) []SkillMeta                                   // optional callback for --vet and --hook
 }
 
 const (
@@ -101,17 +104,21 @@ func validateSearchModes(o *Options) error {
 		o.Slice = strings.TrimSpace(o.Slice + " " + strings.Join(o.Words, " "))
 		o.Words = nil
 	}
+	if o.Vet != "" && len(o.Words) > 0 {
+		o.Vet = strings.TrimSpace(o.Vet + " " + strings.Join(o.Words, " "))
+		o.Words = nil
+	}
 	modes := 0
-	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open, o.Slice != "", o.Skeleton != "", o.Path != "", o.Affected != "", o.Map, o.Hook != ""} {
+	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open, o.Slice != "", o.Skeleton != "", o.Path != "", o.Affected != "", o.Map, o.Vet != "", o.Hook != ""} {
 		if set {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return usageError{"search: words, --refs, --open, --slice, --skeleton, --path, --affected, --map and --hook exclude each other; see fyr help search"}
+		return usageError{"search: words, --refs, --open, --slice, --skeleton, --path, --affected, --map, --vet and --hook exclude each other; see fyr help search"}
 	case modes == 0:
-		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected, --map or --hook; see fyr help search"}
+		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected, --map, --vet or --hook; see fyr help search"}
 	}
 	if o.Hook != "" && normalizeHookEvent(o.Hook) == "" {
 		return usageError{"search: --hook must be one of: pre-invocation pre-tool-use stop; see fyr help search"}
@@ -168,6 +175,14 @@ func Search(o Options, out io.Writer) error {
 	if o.Hook != "" {
 		return RunHook(o, o.HookIn, out)
 	}
+	if o.Vet != "" && !o.Global {
+		sc, _, _, err := prepareHookScope(o.Dir)
+		if err != nil {
+			return err
+		}
+		defer sc.close()
+		return sc.runVet(o, out)
+	}
 	sc, err := prepare(o, out)
 	if err != nil {
 		return err
@@ -184,6 +199,8 @@ func Search(o Options, out io.Writer) error {
 		return sc.findAffected(o, out)
 	case o.Map:
 		return sc.repoMapSummary(o, out)
+	case o.Vet != "":
+		return sc.runVet(o, out)
 	case o.Refs != "":
 		return sc.refs(o, out)
 	case o.Open:

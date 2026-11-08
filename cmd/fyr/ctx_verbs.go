@@ -25,29 +25,29 @@ type ctx struct {
 	// global flags, accepted by every verb
 	repoFlag, homeFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
-	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer bool
-	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject               string
-	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut   string
-	metricsUntil, metricsHarness                                                            string
-	metricsContextTarget                                                                    int64
-	metricsAllLabels, metricsJSON                                                           bool
-	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject               string
-	recBody, recAll                                                                         bool
-	evalFixture                                                                             string
-	evalList                                                                                bool
-	evalRuns, evalParallel                                                                  int
-	workTimeout                                                                             time.Duration
-	workModel                                                                               string
-	workKeep                                                                                bool
-	workMax, workRAM, workCPU, workDisk                                                     int
-	workKill                                                                                string
-	workRunner                                                                              string
-	workImage                                                                               string
-	workAgyLinux                                                                            string
-	autoLevel, autoProjectIdle, autoUserIdle                                                string
-	limit, port, sliceHops, sliceBudget                                                     int
-	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, hookEvent     string
-	repoMap, register                                                                       bool
+	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer        bool
+	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                      string
+	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut          string
+	metricsUntil, metricsHarness                                                                   string
+	metricsContextTarget                                                                           int64
+	metricsAllLabels, metricsJSON                                                                  bool
+	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
+	recBody, recAll                                                                                bool
+	evalFixture                                                                                    string
+	evalList                                                                                       bool
+	evalRuns, evalParallel                                                                         int
+	workTimeout                                                                                    time.Duration
+	workModel                                                                                      string
+	workKeep                                                                                       bool
+	workMax, workRAM, workCPU, workDisk                                                            int
+	workKill                                                                                       string
+	workRunner                                                                                     string
+	workImage                                                                                      string
+	workAgyLinux                                                                                   string
+	autoLevel, autoProjectIdle, autoUserIdle                                                       string
+	limit, port, sliceHops, sliceBudget                                                            int
+	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
+	repoMap, register                                                                              bool
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
@@ -141,6 +141,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument)")
 		c.fs.StringVar(&c.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol")
 		c.fs.BoolVar(&c.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check")
+		c.fs.StringVar(&c.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
 		c.fs.StringVar(&c.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: pre-invocation, pre-tool-use or stop")
 	}, positional: true, run: runSearch},
 	"index": {flags: func(c *ctx) {

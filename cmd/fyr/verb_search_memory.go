@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -64,10 +65,12 @@ func runSearch(c *ctx) error {
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
 		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
 		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
-		Hook: c.hookEvent, HookIn: stdin,
-		BrainRefs:       makeBrainRefs(wd, c.home, c.global),
-		BrainRefsForDir: makeBrainRefsForDir(c.home, c.global),
-		BrainReprime:    makeBrainReprime(),
+		Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
+		BrainRefs:        makeBrainRefs(wd, c.home, c.global),
+		BrainRefsForDir:  makeBrainRefsForDir(c.home, c.global),
+		BrainReprime:     makeBrainReprime(),
+		BrainTurnContext: makeBrainTurnContext(),
+		SkillCatalog:     makeSkillCatalog(),
 	}
 	if c.cmd == "index" && c.register {
 		return runRegister(c, o)
@@ -87,7 +90,187 @@ func runSearch(c *ctx) error {
 }
 
 func isGraphSearchMode(o search.Options) bool {
-	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map || o.Hook != ""
+	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map || o.Vet != "" || o.Hook != ""
+}
+
+func makeBrainTurnContext() func(dir, home, prompt string, files []string) search.TurnBrainContext {
+	return func(dir, home, prompt string, files []string) search.TurnBrainContext {
+		recs := loadTurnRecords(dir, home)
+		if len(recs) == 0 {
+			return search.TurnBrainContext{}
+		}
+		terms := extractTurnQueryTerms(prompt, files)
+		var ctx search.TurnBrainContext
+		for _, r := range recs {
+			classifyTurnRecord(&ctx, dir, prompt, terms, r)
+		}
+		return ctx
+	}
+}
+
+func loadTurnRecords(dir, home string) []brain.Record {
+	if home != "" {
+		if _, err := os.Stat(brain.Path(home)); err == nil {
+			if recs, err := brain.List(brain.Options{Home: home, Dir: dir}, brain.ListFilter{}); err == nil && len(recs) > 0 {
+				return recs
+			}
+		}
+	}
+	if recs, ok, err := brain.ReadTrail(dir); err == nil && ok {
+		return recs
+	}
+	return nil
+}
+
+func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, terms []string, r brain.Record) {
+	switch r.Kind {
+	case "plan":
+		if (r.Status == "open" || r.Status == "") && ctx.ActivePlan == nil {
+			ctx.ActivePlan = &search.MatchedRecord{
+				ID: r.ID, Kind: "plan", Status: r.Status, Title: r.Title,
+				Provenance: r.Provenance, Body: summarizePlanReadyPhases(r.Body),
+			}
+		}
+	case "memory":
+		if (r.Status == "closed" || r.Status == "") && len(ctx.Memories) < 3 && matchesRecordTerms(r, prompt, terms) {
+			ctx.Memories = append(ctx.Memories, search.MatchedRecord{
+				ID: r.ID, Kind: "memory", Status: r.Status, Title: r.Title,
+				Provenance: r.Provenance, Body: r.Body, StaleTag: brain.MemoryStalenessTag(dir, r),
+			})
+		}
+	case "bug":
+		if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 3 && matchesRecordTerms(r, prompt, terms) {
+			ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
+				ID: r.ID, Kind: "bug", Status: r.Status, Title: r.Title,
+				Provenance: r.Provenance, Body: r.Body,
+			})
+		}
+	case "adr":
+		if r.Status != "accepted" && r.Status != "open" && r.Status != "" {
+			return
+		}
+		rec := search.MatchedRecord{
+			ID: r.ID, Kind: "adr", Status: r.Status, Title: r.Title,
+			Provenance: r.Provenance, Body: r.Body,
+		}
+		conflict := search.CheckADRConflict(strings.ToLower(prompt), rec)
+		if conflict != "" {
+			ctx.Conflicts = append(ctx.Conflicts, conflict)
+		}
+		if (conflict != "" || matchesRecordTerms(r, prompt, terms)) && len(ctx.ADRs) < 3 {
+			ctx.ADRs = append(ctx.ADRs, rec)
+		}
+	}
+}
+
+func extractTurnQueryTerms(prompt string, files []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(t string) {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if len(t) >= 4 && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, f := range files {
+		add(f)
+		add(filepath.Base(f))
+	}
+	for _, w := range strings.FieldsFunc(prompt, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' && r != '/' && r != '.'
+	}) {
+		add(w)
+	}
+	return out
+}
+
+func matchesRecordTerms(r brain.Record, prompt string, terms []string) bool {
+	hay := strings.ToLower(r.ID + "\n" + r.Title + "\n" + r.Body)
+	if r.ID != "" && strings.Contains(strings.ToLower(prompt), strings.ToLower(r.ID)) {
+		return true
+	}
+	for _, t := range terms {
+		if strings.Contains(hay, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func makeSkillCatalog() func(home string) []search.SkillMeta {
+	return func(home string) []search.SkillMeta {
+		if home == "" {
+			return nil
+		}
+		skillsDir := filepath.Join(home, ".gemini", "config", "skills")
+		entries, err := os.ReadDir(skillsDir)
+		if err != nil {
+			return nil
+		}
+		var out []search.SkillMeta
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			p := filepath.Join(skillsDir, e.Name(), "SKILL.md")
+			if meta, ok := parseSkillMetaFile(e.Name(), p); ok {
+				out = append(out, meta)
+			}
+		}
+		return out
+	}
+}
+
+func parseSkillMetaFile(name, path string) (search.SkillMeta, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return search.SkillMeta{}, false
+	}
+	desc := extractSkillDescription(string(data))
+	if desc == "" {
+		return search.SkillMeta{}, false
+	}
+	if len(desc) > 600 {
+		desc = strings.TrimSpace(desc[:600])
+	}
+	return search.SkillMeta{
+		Name:        name,
+		Description: desc,
+		Path:        "skills/" + name + "/SKILL.md",
+		Digest:      desc,
+	}, true
+}
+
+func extractSkillDescription(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
+	}
+	var descLines []string
+	inDesc := false
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if strings.TrimSpace(line) == "---" {
+			break
+		}
+		if strings.HasPrefix(line, "description:") {
+			inDesc = true
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			if rest != "" && rest != "|" && rest != ">" {
+				descLines = append(descLines, strings.Trim(rest, `"'`))
+			}
+			continue
+		}
+		if inDesc {
+			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+				descLines = append(descLines, strings.TrimSpace(line))
+			} else {
+				break
+			}
+		}
+	}
+	return strings.Join(descLines, " ")
 }
 
 func makeBrainReprime() func(dir, home string) string {

@@ -172,15 +172,38 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		sections = append(sections, dirtySummary)
 		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
 	}
-	if capsule, pivots := buildHookCapsule(sc, o, dir, in, state); capsule != "" {
-		sections = append(sections, capsule)
-		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", pivots))
+	rawPrompt := strings.TrimSpace(in.LastUserInput)
+	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
+	sliceOpts := o
+	sliceOpts.Dir = dir
+	sliceOpts.Session = in.ConversationID
+	slice := sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
+	if slice.Capsule != "" {
+		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", slice.Pivots))
 	}
 	if state.EstTokens >= hookKneeTokens {
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /handoff or /compact.", state.EstTokens/1000))
 		banners = append(banners, fmt.Sprintf("⚠️ %dk tokens (>= 180K knee)", state.EstTokens/1000))
 	}
-	return writePreInvocation(out, strings.Join(sections, "\n\n"), strings.Join(banners, " · "))
+	sysMsg, banner := buildHookEnvelope(o, dir, rawPrompt, cleanPrompt, slice, sections, banners)
+	return writePreInvocation(out, sysMsg, banner)
+}
+
+func buildHookEnvelope(o Options, dir, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
+	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" {
+		return "", ""
+	}
+	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
+	var brainCtx TurnBrainContext
+	if o.BrainTurnContext != nil {
+		brainCtx = o.BrainTurnContext(dir, o.Home, cleanPrompt, slice.Files)
+	}
+	var catalog []SkillMeta
+	if o.SkillCatalog != nil {
+		catalog = o.SkillCatalog(o.Home)
+	}
+	vetRes := vetPromptCore(rawPrompt, intent, slice, brainCtx, catalog)
+	return BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
 }
 
 func prepareHookScope(dir string) (*scope, string, bool, error) {
@@ -241,42 +264,88 @@ func formatDirtyFastPath(dirtyPaths []string, diffN int) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func buildHookCapsule(sc *scope, o Options, dir string, in HookInput, state SessionState) (string, int) {
-	prompt := strings.TrimSpace(in.LastUserInput)
+func (sc *scope) runVet(o Options, out io.Writer) error {
+	prompt := strings.TrimSpace(o.Vet)
+	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(prompt, "!"))
+	slice := sc.buildVetSlice(o, cleanPrompt, SessionState{}, false)
+	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
+	var brainCtx TurnBrainContext
+	if o.BrainTurnContext != nil {
+		brainCtx = o.BrainTurnContext(o.Dir, o.Home, cleanPrompt, slice.Files)
+	}
+	var catalog []SkillMeta
+	if o.SkillCatalog != nil {
+		catalog = o.SkillCatalog(o.Home)
+	}
+	res := VetPrompt(prompt, intent, slice, brainCtx, catalog)
+	_, err := io.WriteString(out, FormatVetResult(res))
+	return err
+}
+
+func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, preseedLedger bool) SliceResult {
+	if sc == nil || sc.st == nil || prompt == "" {
+		return SliceResult{}
+	}
 	g, err := sc.loadSymGraph()
 	if err != nil || len(g.syms) == 0 {
-		return "", 0
+		return SliceResult{}
 	}
-	active := sc.sessionActiveFiles(in.ConversationID, o.ActiveFiles)
+	hits, fileSet := countMatchingSymbols(g, prompt)
+	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	ranked, confident := rankAndCheckConfidence(g, prompt, active)
 	if !confident && !state.Compacted {
-		return "", 0
+		return SliceResult{SymbolHits: hits, Files: sortedMapKeys(fileSet)}
 	}
-	budget := o.Budget
-	if budget <= 0 || budget == defaultSliceBudget {
-		budget = hookDefaultBudget
+	capsule, pivots := sc.renderHookOrVetCapsule(o, g, prompt, ranked, fileSet)
+	if capsule != "" && preseedLedger {
+		_ = RegisterCapsulePivots(o.Dir, o.Session, state.TurnCount, pivots)
 	}
-	hops := o.Hops
-	if hops <= 0 {
-		hops = defaultSliceHops
+	return SliceResult{
+		Capsule:    capsule,
+		Pivots:     len(pivots),
+		SymbolHits: hits,
+		Files:      sortedMapKeys(fileSet),
+		Confident:  confident,
 	}
+}
+
+func countMatchingSymbols(g *symGraph, prompt string) (int, map[string]bool) {
+	terms := parseQueryTerms(prompt)
+	hits := 0
+	fileSet := map[string]bool{}
+	for _, s := range g.syms {
+		if matchesPromptTerms(s, terms) {
+			hits++
+			fileSet[s.Path] = true
+		}
+	}
+	return hits, fileSet
+}
+
+func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, ranked []RankedSymbol, fileSet map[string]bool) (string, []CapsulePivot) {
 	sliceOpts := o
-	sliceOpts.Dir = dir
 	sliceOpts.Slice = prompt
-	sliceOpts.Budget = budget
-	sliceOpts.Hops = hops
-	sliceOpts.Session = in.ConversationID
-	if o.BrainRefsForDir != nil {
-		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(dir, target) }
+	if sliceOpts.Budget <= 0 || sliceOpts.Budget == defaultSliceBudget {
+		sliceOpts.Budget = hookDefaultBudget
 	}
-	tiers := g.selectSliceTiers(prompt, ranked, hops)
-	capsule := strings.TrimSpace(sc.renderSliceCapsule(sliceOpts, g, tiers, max(200, budget*4)))
+	if sliceOpts.Hops <= 0 {
+		sliceOpts.Hops = defaultSliceHops
+	}
+	if o.BrainRefsForDir != nil && o.Dir != "" {
+		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(o.Dir, target) }
+	}
+	tiers := g.selectSliceTiers(prompt, ranked, sliceOpts.Hops)
+	capsule := strings.TrimSpace(sc.renderSliceCapsule(sliceOpts, g, tiers, max(200, sliceOpts.Budget*4)))
 	if capsule == "" {
-		return "", 0
+		return "", nil
 	}
 	pivots := ParseCapsulePivots(capsule)
-	_ = RegisterCapsulePivots(dir, in.ConversationID, state.TurnCount, pivots)
-	return capsule, len(pivots)
+	for _, p := range pivots {
+		if p.Path != "" {
+			fileSet[p.Path] = true
+		}
+	}
+	return capsule, pivots
 }
 
 func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) ([]RankedSymbol, bool) {
