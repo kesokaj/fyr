@@ -261,12 +261,6 @@ func (c *ACPClient) NewSession(ctx context.Context, cwd string) (string, error) 
 	return res.SessionID, nil
 }
 
-// LoadSession resumes an existing ACP session by ID.
-func (c *ACPClient) LoadSession(ctx context.Context, sessionID, cwd string) error {
-	req := map[string]any{"sessionId": sessionID, "cwd": cwd, "mcpServers": []any{}}
-	return c.call(ctx, "session/load", req, nil)
-}
-
 // SetSessionModel selects the model for sessionID.
 func (c *ACPClient) SetSessionModel(ctx context.Context, sessionID, model string) error {
 	if model == "" {
@@ -292,11 +286,6 @@ func (c *ACPClient) Steer(ctx context.Context, sessionID, text string) error {
 		"prompt":    []map[string]any{{"type": "text", "text": text}},
 	}
 	return c.call(ctx, "session/prompt", req, nil)
-}
-
-// Cancel cancels an in-progress turn on sessionID.
-func (c *ACPClient) Cancel(ctx context.Context, sessionID string) error {
-	return c.call(ctx, "session/cancel", map[string]any{"sessionId": sessionID}, nil)
 }
 
 // CloseSession closes sessionID on the ACP server.

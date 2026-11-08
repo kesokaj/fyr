@@ -39,6 +39,10 @@ func ChooseRunner(o *Options, preflight func(Options) error) (runner, reason str
 	if o.Runner != RunnerAuto {
 		return o.Runner, o.RunnerReason
 	}
+	if o.ACP {
+		o.Runner, o.RunnerReason = RunnerHost, "--acp"
+		return RunnerHost, "--acp"
+	}
 	if preflight == nil {
 		preflight = DockerPreflight
 	}
@@ -82,6 +86,9 @@ func Check(o Options) (runner, reason string, err error) {
 		}
 		return runner, reason, nil
 	case RunnerDocker:
+		if o.ACP {
+			return "", "", fmt.Errorf("--acp requires the host runner")
+		}
 		if err := p.dockerPreflight(o); err != nil {
 			return "", "", err
 		}

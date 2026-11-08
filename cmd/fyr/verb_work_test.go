@@ -488,6 +488,12 @@ func TestWorkStatus(t *testing.T) {
 	if out, code := r.work("--status", "--acp"); code != 2 || !strings.Contains(out, "--status and --acp cannot be used together") {
 		t.Fatalf("--status --acp: exit %d, got %q", code, out)
 	}
+	if out, code := r.work("--acp", "--runner", "docker", r.kickoff("fix-a")); code != 2 || !strings.Contains(out, "--acp requires the host runner") {
+		t.Fatalf("--acp --runner docker: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("--check", "--acp"); code != 0 || !strings.Contains(out, "work: runner host (--acp)") {
+		t.Fatalf("--check --acp: exit %d, got %q", code, out)
+	}
 
 	if out, code := r.work(r.kickoff("fix-a")); code != 0 {
 		t.Fatalf("work run: exit %d\n%s", code, out)

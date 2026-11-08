@@ -63,6 +63,7 @@ func (b *Box) acpSession(ctx context.Context, agy, prompt, outPath, errPath stri
 	} else {
 		b.acpProc.setErrWriter(errf)
 	}
+	defer b.acpProc.setErrWriter(nil)
 	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. " + prompt
 	resp, evBytes, err := b.acpProc.client.Prompt(turnCtx, b.acpProc.sessionID, b.c.Model, b.app, full, b.c.OnEvent)
 	b.writeACPOutputs(out, resp, evBytes)

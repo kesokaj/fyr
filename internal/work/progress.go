@@ -96,7 +96,7 @@ func (t *progressTracker) onStart(name string) {
 	if !ok {
 		return
 	}
-	t.starts[name] = time.Now()
+	t.starts[name] = t.now()
 	w := &t.wave.Workers[idx]
 	w.State = "running"
 	t.persistLocked()
@@ -169,7 +169,7 @@ func (t *progressTracker) elapsedLocked(name string) int {
 	if !ok {
 		return 0
 	}
-	return max(0, int(time.Since(st).Seconds()))
+	return max(0, int(t.now().Sub(st).Seconds()))
 }
 
 func (t *progressTracker) persistLocked() {
@@ -219,7 +219,7 @@ func fmtMMSS(sec int) string {
 
 // FormatStatusBoard reads the newest `<home>/.config/fyr/work/<stamp>/status.json`
 // and renders a compact status table for `fyr work --status`.
-func FormatStatusBoard(home, _ string) (string, error) {
+func FormatStatusBoard(home string) (string, error) {
 	workDir := sandbox.Root(home, "work")
 	entries, err := os.ReadDir(workDir)
 	if err != nil {

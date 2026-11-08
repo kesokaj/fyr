@@ -269,7 +269,7 @@ func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
 		desc = "command(" + cmdStr + ")"
 	}
 	if len(grants) == 0 {
-		return true, desc
+		return false, desc
 	}
 	if cmdStr != "" || isCommandTool(name, p.ToolCall.Kind) {
 		if slices.Contains(grants, "command(*)") {
@@ -312,6 +312,12 @@ func splitShellSegments(s string) []string {
 	var cur strings.Builder
 	var quote byte
 	for i := 0; i < len(s); i++ {
+		if (quote == 0 || quote == '"') && s[i] == '\\' && i+1 < len(s) {
+			cur.WriteByte(s[i])
+			i++
+			cur.WriteByte(s[i])
+			continue
+		}
 		if quote == 0 && (s[i] == '\'' || s[i] == '"') {
 			quote = s[i]
 			cur.WriteByte(s[i])
@@ -343,7 +349,7 @@ func shellOperatorLen(s string, i int, quote byte) (int, bool) {
 		return 0, false
 	}
 	ch := s[i]
-	if ch == '$' && i+1 < len(s) && s[i+1] == '(' {
+	if (ch == '$' || ch == '<' || ch == '>') && i+1 < len(s) && s[i+1] == '(' {
 		return 2, true
 	}
 	if ch == '`' {
@@ -355,6 +361,9 @@ func shellOperatorLen(s string, i int, quote byte) (int, bool) {
 	if (ch == '&' || ch == '|') && i+1 < len(s) && s[i+1] == ch {
 		return 2, true
 	}
+	if ch == '&' && (i == 0 || s[i-1] != '>') && (i+1 >= len(s) || s[i+1] != '>') {
+		return 1, true
+	}
 	if ch == ';' || ch == '|' || ch == '\n' {
 		return 1, true
 	}
@@ -365,6 +374,9 @@ func firstCommandBin(seg string) string {
 	for _, tok := range strings.Fields(seg) {
 		tok = strings.Trim(tok, `"'()`)
 		if tok == "" || tok == "export" || tok == "env" {
+			continue
+		}
+		if strings.HasPrefix(tok, ">") || strings.HasPrefix(tok, "<") || strings.HasPrefix(tok, "2>") || strings.HasPrefix(tok, "1>") {
 			continue
 		}
 		if eq := strings.IndexByte(tok, '='); eq > 0 && !strings.Contains(tok[:eq], "/") {

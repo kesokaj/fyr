@@ -106,11 +106,7 @@ func (c *ctx) workStatusRun(files []string) error {
 	if c.workACP {
 		return c.workRefuse("--status and --acp cannot be used together")
 	}
-	var root string
-	if wd, err := os.Getwd(); err == nil {
-		_, root, _ = trail.Roots(wd)
-	}
-	board, err := work.FormatStatusBoard(c.home, root)
+	board, err := work.FormatStatusBoard(c.home)
 	if err != nil {
 		return c.workRefuse("%v", err)
 	}
@@ -149,6 +145,9 @@ func (c *ctx) workRunnerFlags(imageSet bool) error {
 	if c.workRunner == work.RunnerHost && (c.workAgyLinux != "" || imageSet) {
 		return c.workRefuse("--image and --agy-linux need --runner %s or %s", work.RunnerAuto, work.RunnerDocker)
 	}
+	if c.workACP && c.workRunner == work.RunnerDocker {
+		return c.workRefuse("--acp requires the host runner")
+	}
 	return nil
 }
 
@@ -181,7 +180,7 @@ func (c *ctx) workCheckRun(files []string) error {
 	}
 	got, reason, err := work.Check(work.Options{
 		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: c.workRunner,
-		Image: c.workImage, AgyLinux: c.workAgyLinux, Model: c.workModel, Version: buildVersion(),
+		Image: c.workImage, AgyLinux: c.workAgyLinux, Model: c.workModel, ACP: c.workACP, Version: buildVersion(),
 	})
 	if err != nil {
 		return c.workRefuse("%v", err)

