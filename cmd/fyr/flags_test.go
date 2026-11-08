@@ -46,8 +46,11 @@ func TestReorder(t *testing.T) {
 		// A value flag reorder does not know swallows the next argument:
 		// --project would take "--dry-run" as its value and the run would
 		// call the model when a dry run was asked (BUG-002's shape).
-		"dream --project /x --dry-run": {"--project", "/x", "--dry-run", "dream"},
-		"dream --dry-run":              {"--dry-run", "dream"},
+		"dream --project /x --dry-run":           {"--project", "/x", "--dry-run", "dream"},
+		"dream --dry-run":                        {"--dry-run", "dream"},
+		"search --slice Reconcile --budget 1800": {"--slice", "Reconcile", "--budget", "1800", "search"},
+		"search --path EntryPoint LeafTarget":    {"--path", "EntryPoint", "search", "LeafTarget"},
+		"search --affected CoreStore --home /x":  {"--affected", "CoreStore", "--home", "/x", "search"},
 	}
 	for in, want := range cases {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {
@@ -190,6 +193,39 @@ func TestOneRepositoryName(t *testing.T) {
 		}
 		if !strings.Contains(string(data), want) {
 			t.Errorf("%s does not give the clone URL %s", rel, want)
+		}
+	}
+}
+
+func TestSearchGraphModesCLI(t *testing.T) {
+	t.Setenv(harness.ChildEnv, "1")
+	repo, _ := gitFixture(t)
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".agents/scratch/*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "svc.go"), []byte("package main\n\n// Reconcile runs sync (BUG-007).\nfunc Reconcile() error {\n\treturn Helper()\n}\n\nfunc Helper() error {\n\treturn nil\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(repo)
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"search", "--slice", "Reconcile", "--budget", "1800", "--home", home}, "[Hop 0]"},
+		{[]string{"search", "--skeleton", "svc.go", "--home", home}, "4-6  func Reconcile() error"},
+		{[]string{"search", "--path", "Reconcile", "--to", "Helper", "--home", home}, "Reconcile -> Helper"},
+		{[]string{"search", "--path", "Reconcile", "Helper", "--home", home}, "Reconcile -> Helper"},
+		{[]string{"search", "--affected", "Helper", "--home", home}, "direct_callers:"},
+		{[]string{"search", "--map", "--home", home}, "god_nodes"},
+	} {
+		var out bytes.Buffer
+		if err := run(tc.args, &out); err != nil {
+			t.Fatalf("run(%v): %v\n%s", tc.args, err, out.String())
+		}
+		if !strings.Contains(out.String(), tc.want) {
+			t.Errorf("run(%v) missing %q in:\n%s", tc.args, tc.want, out.String())
 		}
 	}
 }

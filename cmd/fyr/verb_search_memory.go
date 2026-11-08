@@ -58,14 +58,21 @@ func runSearch(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	o := search.Options{Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
-		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild}
+	o := search.Options{
+		Dir: wd, Home: c.home, Words: c.fs.Args(), Refs: c.refs, Open: c.openRecords,
+		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
+		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
+		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
+		BrainRefs: makeBrainRefs(wd, c.home, c.global),
+	}
 	if c.cmd == "index" && c.register {
 		return runRegister(c, o)
 	} else if c.cmd == "index" {
 		err = search.Index(o, c.out)
 	} else if err = search.Validate(o); err == nil {
-		recordHits(c, o)
+		if !isGraphSearchMode(o) {
+			recordHits(c, o)
+		}
 		err = search.Search(o, c.out)
 	}
 	if search.IsUsage(err) {
@@ -73,6 +80,27 @@ func runSearch(c *ctx) error {
 		return exitCode(2)
 	}
 	return err
+}
+
+func isGraphSearchMode(o search.Options) bool {
+	return o.Slice != "" || o.Skeleton != "" || o.Path != "" || o.Affected != "" || o.Map
+}
+
+func makeBrainRefs(dir, home string, global bool) func(string) []search.LinkedRecord {
+	bo := brain.Options{Home: home, Dir: dir, Global: global}
+	return func(target string) []search.LinkedRecord {
+		hits, err := brain.Refs(bo, target, "", 10)
+		if err != nil {
+			return nil
+		}
+		var out []search.LinkedRecord
+		for _, h := range hits {
+			if h.Record.Kind == "bug" || h.Record.Kind == "adr" {
+				out = append(out, search.LinkedRecord{ID: h.Record.ID, Status: h.Record.Status, Title: h.Record.Title})
+			}
+		}
+		return out
+	}
 }
 
 // stdin is where `memory add` reads the body; a test replaces it.

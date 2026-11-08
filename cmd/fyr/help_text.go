@@ -178,6 +178,11 @@ var pages = map[string]verbPage{
 			"usage: fyr search [--limit N] [--kind K] [--global] <words>...",
 			"       fyr search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]",
 			"       fyr search --open [--kind K] [--global]",
+			"       fyr search --slice QUERY [--hops N] [--budget N] [--session ID]",
+			"       fyr search --skeleton FILE",
+			"       fyr search --path SYM [--to SYM]",
+			"       fyr search --affected TARGET",
+			"       fyr search --map",
 		},
 		about: []string{
 			"Prints the brain store's matching records first (this project's and the",
@@ -186,7 +191,8 @@ var pages = map[string]verbPage{
 			"first, so it never answers from another branch. --refs finds every record",
 			"naming an ID, a file or a directory (trailing /); --open lists open bugs,",
 			"plans with unticked boxes, current specs, guides and deploy docs, and",
-			"queued proposals.",
+			"queued proposals. --slice, --skeleton, --path, --affected and --map query",
+			"the AST symbol and reference graph.",
 		},
 	},
 	"index": {

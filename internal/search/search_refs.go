@@ -152,3 +152,75 @@ func (sc *scope) sameName(name string) ([]string, error) {
 func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
+
+func (sc *scope) linkedRecordsForPaths(paths map[string]bool, brainRefs func(string) []LinkedRecord) []LinkedRecord {
+	if len(paths) == 0 {
+		return nil
+	}
+	byID := map[string]LinkedRecord{}
+	var pathList []string
+	for p := range paths {
+		pathList = append(pathList, p)
+	}
+	sort.Strings(pathList)
+	for _, p := range pathList {
+		if brainRefs != nil {
+			for _, r := range brainRefs(p) {
+				byID[r.ID] = r
+			}
+		}
+		sc.collectFileIDRefs(p, byID)
+	}
+	if brainRefs != nil {
+		for id := range byID {
+			for _, r := range brainRefs(id) {
+				byID[r.ID] = r
+			}
+		}
+	}
+	var out []LinkedRecord
+	for _, r := range byID {
+		out = append(out, r)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+func (sc *scope) collectFileIDRefs(p string, byID map[string]LinkedRecord) {
+	q := `SELECT DISTINCT r.target, r.line FROM refs r JOIN files f ON f.oid = r.oid
+		WHERE f.project IN ` + sc.in() + ` AND f.path = ? ORDER BY r.target`
+	rows, err := sc.st.db.Query(q, append(sc.keys(), p)...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var target string
+		var line int
+		if err := rows.Scan(&target, &line); err == nil && idPattern.MatchString(target) {
+			if _, ok := byID[target]; !ok {
+				byID[target] = LinkedRecord{ID: target, Status: "ref", Title: fmt.Sprintf("referenced at %s:%d", p, line)}
+			}
+		}
+	}
+}
+
+func (sc *scope) coChangeHintsForPaths(paths map[string]bool) []string {
+	if len(paths) == 0 || sc.st == nil {
+		return nil
+	}
+	rows, err := sc.st.db.Query(`SELECT file_a, file_b, kind, count FROM co_activity WHERE count >= 3 ORDER BY count DESC, file_a, file_b`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var a, b, kind string
+		var count int
+		if err := rows.Scan(&a, &b, &kind, &count); err == nil && (paths[a] || paths[b]) {
+			out = append(out, fmt.Sprintf("%s <-> %s (%s: %d)", a, b, kind, count))
+		}
+	}
+	return out
+}

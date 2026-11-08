@@ -8,17 +8,36 @@ import (
 	"strings"
 )
 
+// LinkedRecord is a BUG-NNN or ADR-NNN record linked to a file or symbol.
+type LinkedRecord struct {
+	ID     string
+	Status string
+	Title  string
+}
+
 // Options are the flags of `fyr search` and `fyr index`.
 type Options struct {
-	Dir     string   // working directory the command runs in
-	Home    string   // home directory (--home), for the global search index
-	Words   []string // search words
-	Refs    string   // --refs target
-	Open    bool     // --open
-	Kind    string   // --kind filter
-	Limit   int      // --limit
-	Global  bool     // --global
-	Rebuild bool     // index --rebuild
+	Dir          string                             // working directory the command runs in
+	Home         string                             // home directory (--home), for the global search index
+	Words        []string                           // search words
+	Refs         string                             // --refs target
+	Open         bool                               // --open
+	Kind         string                             // --kind filter
+	Limit        int                                // --limit
+	Global       bool                               // --global
+	Rebuild      bool                               // index --rebuild
+	Slice        string                             // --slice query or symbol
+	Hops         int                                // --hops (default 2)
+	Budget       int                                // --budget token limit (default 2000, chars/4)
+	Session      string                             // --session conversation ID
+	Skeleton     string                             // --skeleton file path
+	Path         string                             // --path source symbol
+	To           string                             // --to target symbol for --path
+	Affected     string                             // --affected file path or symbol
+	Map          bool                               // --map repo summary
+	ActiveFiles  map[string]bool                    // optional in-memory active file set
+	BrainRefs    func(target string) []LinkedRecord // optional callback to internal/brain.Refs
+	BrainReprime func(dir, home string) string      // optional callback for compaction re-prime
 }
 
 const (
@@ -67,17 +86,44 @@ func validate(o *Options, verb string) error {
 	if verb == "index" {
 		return nil
 	}
+	return validateSearchModes(o)
+}
+
+func validateSearchModes(o *Options) error {
+	if o.Path != "" && o.To == "" && len(o.Words) == 1 {
+		o.To = o.Words[0]
+		o.Words = nil
+	}
+	if o.Slice != "" && len(o.Words) > 0 {
+		o.Slice = strings.TrimSpace(o.Slice + " " + strings.Join(o.Words, " "))
+		o.Words = nil
+	}
 	modes := 0
-	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open} {
+	for _, set := range []bool{len(o.Words) > 0, o.Refs != "", o.Open, o.Slice != "", o.Skeleton != "", o.Path != "", o.Affected != "", o.Map} {
 		if set {
 			modes++
 		}
 	}
 	switch {
 	case modes > 1:
-		return usageError{"search: words, --refs and --open exclude each other; see fyr help search"}
+		return usageError{"search: words, --refs, --open, --slice, --skeleton, --path, --affected and --map exclude each other; see fyr help search"}
 	case modes == 0:
-		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path> or --open; see fyr help search"}
+		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected or --map; see fyr help search"}
+	}
+	if o.Path != "" && o.To == "" {
+		return usageError{"search: --path requires --to <symbol> or a target symbol argument; see fyr help search"}
+	}
+	if o.Hops == 0 {
+		o.Hops = defaultSliceHops
+	}
+	if o.Hops < 0 || o.Hops > 6 {
+		return usageError{"search: --hops must be between 0 and 6; see fyr help search"}
+	}
+	if o.Budget == 0 {
+		o.Budget = defaultSliceBudget
+	}
+	if o.Budget < 50 {
+		return usageError{"search: --budget must be at least 50 tokens; see fyr help search"}
 	}
 	return nil
 }
@@ -119,6 +165,16 @@ func Search(o Options, out io.Writer) error {
 	}
 	defer sc.close()
 	switch {
+	case o.Slice != "":
+		return sc.buildContextSlice(o, out)
+	case o.Skeleton != "":
+		return sc.buildFileSkeleton(o.Skeleton, out)
+	case o.Path != "":
+		return sc.findSymbolPath(o.Path, o.To, out)
+	case o.Affected != "":
+		return sc.findAffected(o, out)
+	case o.Map:
+		return sc.repoMapSummary(o, out)
 	case o.Refs != "":
 		return sc.refs(o, out)
 	case o.Open:
