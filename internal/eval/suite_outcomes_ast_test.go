@@ -20,7 +20,8 @@ EOF
 `
 	commitFix := "git add -A && git commit -qm 'fix: pass sanitized recipient to Formatter.Format'\n"
 	changeRec := "rec change --title 'Fix BUG-001 in RenderGreeting' <<<'Fixed internal/greet/greet.go:22-30 (RenderGreeting) to pass clean to f.Format.'\n"
-	abGood := fixGreet + changeRec + commitFix
+	schemaOnlyConv := conv("main", `{"properties":{"TypeName":{"type":"string"}}}`)
+	abGood := fixGreet + changeRec + schemaOnlyConv + commitFix
 
 	reconPlan := "rec plan --title 'Recon — ast-flow' <<<'# Recon — ast-flow\n- internal/greet/greet.go:22-30 (RenderGreeting)\n- internal/format/format.go:25-35 (BannerFormatter.Format)'\n"
 	astCmd := conv("explorer", `{"CommandLine":"fyr search --slice RenderGreeting"}`)
@@ -29,7 +30,7 @@ EOF
 	dedupConv := conv("main", `[UNCHANGED] internal/greet/greet.go:1-30 already in context`)
 
 	vetOut := "echo 'Conflicts with ADR-001 (stdlib-only HTTP, no redis cache). Should we keep in-process state?' >\"$OUT\"\n"
-	vetConv := conv("main", `{"step":"pre-invocation"}`)
+	vetConv := schemaOnlyConv
 
 	qOut := "echo 'RenderGreeting in internal/greet/greet.go:22-30 calls Format and audit.RecordGreeting.' >\"$OUT\"\n"
 	fenceOut := "echo 'GET /hello sets X-Greeting-Format: banner in cmd/server/main.go:24-28 (main).' >\"$OUT\"\n"
