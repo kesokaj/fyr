@@ -38,6 +38,7 @@ func init() {
 		c.fs.IntVar(&c.evalParallel, "parallel", 1, "run up to `N` trials at once, 1 to 25 (default 1; benchmark trials stay at 1)")
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
+		c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
 	}, positional: true, readsRepo: true, run: runEval}
 }
 
@@ -203,7 +204,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 			return fail(c.evalRefuse("--fixture %s is not a git repository", fixture))
 		}
 	}
-	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Parallel: c.evalParallel, Out: c.out, BrainWatch: brain.SnapshotScopes}
+	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP, Out: c.out, BrainWatch: brain.SnapshotScopes}
 	if err := eval.Preflight(o); err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}

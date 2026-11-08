@@ -34,12 +34,14 @@ func init() {
 		c.fs.StringVar(&c.workImage, "image", work.DefaultImage, "the docker runner's image `REF`, built by SPEC-fyr-work's build line")
 		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
 		c.fs.BoolVar(&c.check, "check", false, "print the runner a run with these flags picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built: a missing or stale default image a run builds first reads as docker, saying so")
+		c.fs.BoolVar(&c.workACP, "acp", false, "drive host workers via agy acp --stdio --process-per-session")
+		c.fs.BoolVar(&c.workStatus, "status", false, "print the newest wave's worker status board and exit 0")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
 // runWork serves `fyr work` for one or more Kickoff files, `config`, --check,
-// or --kill (SPEC-fyr-work, plan PLAN-2026-10-29-workers Phases 3-4). Every
-// refusal exits 2 before anything is made (D34).
+// --status, or --kill (SPEC-fyr-work, plan PLAN-2026-10-29-workers Phases 3-4).
+// Every refusal exits 2 before anything is made (D34).
 func runWork(c *ctx) error {
 	files := c.fs.Args()
 	if c.workKill != "" {
@@ -47,6 +49,9 @@ func runWork(c *ctx) error {
 	}
 	if c.check {
 		return c.workCheckRun(files)
+	}
+	if c.workStatus {
+		return c.workStatusRun(files)
 	}
 	if len(files) > 0 && files[0] == "config" {
 		return c.workConfigRun(files[1:])
@@ -64,30 +69,53 @@ func runWork(c *ctx) error {
 	if c.workTimeout <= 0 {
 		return c.workRefuse("--timeout %s: give whole minutes, at least 10m", c.workTimeout)
 	}
-	wd, err := os.Getwd()
+	root, src, realHome, self, err := c.workEnv()
 	if err != nil {
 		return err
 	}
-	_, root, err := trail.Roots(wd)
+	return c.workRun(work.Options{Root: root, Home: c.home, RealHome: realHome, Self: self, Repo: src.Dir,
+		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: maxW,
+		RAMGB: ram, CPUs: cpu, DiskGB: disk, Out: c.out, Progress: os.Stderr, ACP: c.workACP,
+		Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
+}
+
+func (c *ctx) workEnv() (root string, src harness.Source, realHome, self string, err error) {
+	wd, err := os.Getwd()
 	if err != nil {
-		return c.workRefuse("%s is not a git checkout", wd)
+		return "", harness.Source{}, "", "", err
 	}
-	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
+	if _, root, err = trail.Roots(wd); err != nil {
+		return "", harness.Source{}, "", "", c.workRefuse("%s is not a git checkout", wd)
+	}
+	if src, err = harness.ResolveSource(c.repoFlag, c.home, buildVersion()); err != nil {
+		return "", harness.Source{}, "", "", c.workRefuse("%v", err)
+	}
+	if realHome, err = os.UserHomeDir(); err != nil {
+		return "", harness.Source{}, "", "", c.workRefuse("no home directory: %v", err)
+	}
+	if self, err = workSelf(); err != nil {
+		return "", harness.Source{}, "", "", c.workRefuse("the running fyr: %v", err)
+	}
+	return root, src, realHome, self, nil
+}
+
+func (c *ctx) workStatusRun(files []string) error {
+	if len(files) > 0 {
+		return c.workRefuse("--status takes no Kickoff file")
+	}
+	if c.workACP {
+		return c.workRefuse("--status and --acp cannot be used together")
+	}
+	var root string
+	if wd, err := os.Getwd(); err == nil {
+		_, root, _ = trail.Roots(wd)
+	}
+	board, err := work.FormatStatusBoard(c.home, root)
 	if err != nil {
 		return c.workRefuse("%v", err)
 	}
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		return c.workRefuse("no home directory: %v", err)
-	}
-	self, err := workSelf()
-	if err != nil {
-		return c.workRefuse("the running fyr: %v", err)
-	}
-	return c.workRun(work.Options{Root: root, Home: c.home, RealHome: realHome, Self: self, Repo: src.Dir,
-		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: maxW,
-		RAMGB: ram, CPUs: cpu, DiskGB: disk, Out: c.out,
-		Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
+	fmt.Fprint(c.out, board)
+	return nil
 }
 
 // workRun runs the files under the verb's signals and maps the results to
@@ -131,6 +159,9 @@ func (c *ctx) workRunnerFlags(imageSet bool) error {
 // stale default image a run builds first is predicted, not built
 // (ADR-504a); --runner docker never falls back: its refusal, and exit 2.
 func (c *ctx) workCheckRun(files []string) error {
+	if c.workStatus {
+		return c.workRefuse("--check and --status cannot be used together")
+	}
 	_, _, _, _, imageSet, err := c.workResourceFlags()
 	if err != nil {
 		return err
@@ -144,21 +175,9 @@ func (c *ctx) workCheckRun(files []string) error {
 	if _, err := work.LoadConfig(c.home); err != nil {
 		return c.workRefuse("%v", err)
 	}
-	wd, err := os.Getwd()
+	root, src, realHome, _, err := c.workEnv()
 	if err != nil {
 		return err
-	}
-	_, root, err := trail.Roots(wd)
-	if err != nil {
-		return c.workRefuse("%s is not a git checkout", wd)
-	}
-	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
-	if err != nil {
-		return c.workRefuse("%v", err)
-	}
-	realHome, err := os.UserHomeDir()
-	if err != nil {
-		return c.workRefuse("no home directory: %v", err)
 	}
 	got, reason, err := work.Check(work.Options{
 		Root: root, Home: c.home, RealHome: realHome, Repo: src.Dir, Runner: c.workRunner,
@@ -176,6 +195,9 @@ func (c *ctx) workCheckRun(files []string) error {
 func (c *ctx) workKillRun(files []string) error {
 	if c.check {
 		return c.workRefuse("--check and --kill cannot be used together")
+	}
+	if c.workStatus {
+		return c.workRefuse("--status and --kill cannot be used together")
 	}
 	if len(files) > 0 {
 		return c.workRefuse("--kill takes a stamp and no Kickoff file")

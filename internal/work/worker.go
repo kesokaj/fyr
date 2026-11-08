@@ -41,6 +41,7 @@ type worker struct {
 	baseRecords map[string]Record
 	dest        *os.Root // the lead's .agents/scratch/work/<stamp>/<name>/, once made
 	res         Result
+	tracker     *progressTracker
 }
 
 // dockerConfig is the box's container, nil on the host runner.
@@ -61,8 +62,8 @@ func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
 	return d
 }
 
-func newWorker(o Options, p prepared, stamp, dir string) *worker {
-	w := &worker{o: o, p: p, stamp: stamp}
+func newWorker(o Options, p prepared, stamp, dir string, tracker *progressTracker) *worker {
+	w := &worker{o: o, p: p, stamp: stamp, tracker: tracker}
 	// The Kickoff's Model: line is this worker's alone (D103 item 1).
 	model := p.k.Model
 	if model == "" {
@@ -77,7 +78,8 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 		Grants: wideGrant, GitName: p.gitName, GitEmail: p.gitMail, Model: model, Zone: p.zone.name,
 		Timeout: o.Timeout, SkipStores: true, PrintTimeout: fmt.Sprintf("%dm", pt),
 		StopGrace: o.StopGrace, Prefix: "work: " + p.k.Name, Out: &w.notes,
-		Docker: p.dockerConfig(stamp),
+		Docker: p.dockerConfig(stamp), ACP: o.ACP,
+		OnEvent: func(ev sandbox.ACPEvent) { tracker.onEvent(p.k.Name, ev) },
 	})
 	w.res = Result{Name: p.k.Name, AgyExit: -1, Model: model, Base: p.base, Dir: dir, Runner: o.Runner, RunnerReason: o.RunnerReason}
 	return w
@@ -89,6 +91,7 @@ func newWorker(o Options, p prepared, stamp, dir string) *worker {
 // time fetches into the lead and checks it.
 func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 	w.start = time.Now()
+	w.tracker.onStart(w.p.k.Name)
 	if w.b.Make() {
 		if w.prepare(ctx) {
 			w.res.AgyExit = w.b.Session(ctx, w.p.agy, w.p.tok, w.p.k.Text, "out.txt")
@@ -109,7 +112,9 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 		w.remove()
 	}
 	w.res.Seconds = int(time.Since(w.start).Seconds())
-	return w.result()
+	res := w.result()
+	w.tracker.onFinish(w.p.k.Name, res)
+	return res
 }
 
 // unstarted is the result of a worker that never got a slot: no sandbox,
@@ -117,7 +122,9 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 func (w *worker) unstarted(reason string) Result {
 	w.b.Fail(reason)
 	w.res.Dir = ""
-	return w.result()
+	res := w.result()
+	w.tracker.onFinish(w.p.k.Name, res)
+	return res
 }
 
 // result is the Result from the box's reasons and notes.

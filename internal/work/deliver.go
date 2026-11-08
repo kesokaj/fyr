@@ -61,7 +61,25 @@ func (w *worker) deliver() bool {
 		w.res.Records = n
 		w.res.RecordsDir = filepath.ToSlash(filepath.Join(".agents", "scratch", "work", w.stamp, w.p.k.Name, recordsSub)) + "/"
 	}
+	w.copyEventsJSONL()
 	return true
+}
+
+func (w *worker) copyEventsJSONL() {
+	evPath := filepath.Join(w.b.Dir(), "events.jsonl")
+	st, err := os.Lstat(evPath)
+	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 16<<20 {
+		return
+	}
+	data, err := os.ReadFile(evPath)
+	if err != nil {
+		return
+	}
+	dest, err := w.leadDir()
+	if err != nil {
+		return
+	}
+	_ = writeDraft(dest, "events.jsonl", data)
 }
 
 // leadDir is .agents/scratch/work/<stamp>/<name>/ in the lead's checkout,

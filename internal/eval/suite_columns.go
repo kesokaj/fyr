@@ -104,6 +104,18 @@ func benchmarkCells(r *Row, cells []string, n int) error {
 		}
 		r.Turns = v
 	}
+	r.ACP = strings.HasPrefix(r.ID, "acp-")
+	if len(cells) > 6 {
+		switch acp := textCell(cells[6]); acp {
+		case "":
+		case "true":
+			r.ACP = true
+		case "false":
+			r.ACP = false
+		default:
+			return fmt.Errorf("GUIDE-eval line %d: row %s: acp %q: want true or false", n, r.ID, acp)
+		}
+	}
 	return nil
 }
 

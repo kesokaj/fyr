@@ -50,6 +50,8 @@ type Options struct {
 	AgyLinux     string        // the docker runner's linux agy; "" is the host's own on linux
 	Version      string        // this fyr's build version, which the image must hold
 	Auto         bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
+	ACP          bool          // drive host workers via `agy acp --stdio --process-per-session`
+	Progress     io.Writer     // optional live subagent-style progress writer (stderr in CLI; nil suppresses)
 	build        buildMode     // a missing or stale DefaultImage: Run builds it (buildFirst), Check predicts the build (buildPredict), DockerPreflight neither (buildNever)
 }
 
@@ -108,26 +110,8 @@ type Result struct {
 // order of files, as soon as it and every file before it ended (D19). The
 // results are in that order too.
 func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
-	if o.Timeout == 0 {
-		o.Timeout = DefaultTimeout
-	}
-	if o.Now == nil {
-		o.Now = time.Now
-	}
-	if o.MaxWorkers < 0 || o.MaxWorkers > MaxMaxWorkers {
-		return nil, fmt.Errorf("--max-workers %d: give 1 to %d", o.MaxWorkers, MaxMaxWorkers)
-	}
-	if len(files) == 0 {
-		return nil, errors.New("no Kickoff file")
-	}
-	// Once, so the fetch (git -C Root) and the drafts copy (os.Root) read
-	// the same clone (security review of Phase 2, finding 8).
-	for _, p := range []*string{&o.Root, &o.Home, &o.RealHome} {
-		abs, err := filepath.Abs(*p)
-		if err != nil {
-			return nil, err
-		}
-		*p = abs
+	if err := initRunOptions(&o, files); err != nil {
+		return nil, err
 	}
 	ps, err := preflight(ctx, &o, files)
 	if err != nil {
@@ -149,13 +133,39 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	o.Self = builtSelf
 	defer closeRunSandboxes(r, root, sbProj, o.Home, cleanSelf)
 	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/  %s", stamp, len(ps), root, RunnerLabel(o.Runner, o.RunnerReason))))
+	tracker := newProgressTracker(o, stamp, ps)
 	ws := make([]*worker, len(ps))
 	for i, p := range ps {
-		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name))
+		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name), tracker)
 	}
 	res := dispatch(ctx, r, ws, o.Out)
 	o.sweepRun(stamp)
 	return res, nil
+}
+
+func initRunOptions(o *Options, files []string) error {
+	if o.Timeout == 0 {
+		o.Timeout = DefaultTimeout
+	}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.MaxWorkers < 0 || o.MaxWorkers > MaxMaxWorkers {
+		return fmt.Errorf("--max-workers %d: give 1 to %d", o.MaxWorkers, MaxMaxWorkers)
+	}
+	if len(files) == 0 {
+		return errors.New("no Kickoff file")
+	}
+	// Once, so the fetch (git -C Root) and the drafts copy (os.Root) read
+	// the same clone (security review of Phase 2, finding 8).
+	for _, p := range []*string{&o.Root, &o.Home, &o.RealHome} {
+		abs, err := filepath.Abs(*p)
+		if err != nil {
+			return err
+		}
+		*p = abs
+	}
+	return nil
 }
 
 func closeRunSandboxes(r *run, root, sbProj, home string, cleanSelf func()) {

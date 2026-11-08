@@ -284,7 +284,7 @@ var pages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] <row>...",
+			"                [--parallel N] [--acp] <row>...",
 			"       fyr eval [--suite-file PATH] --list",
 		},
 		about: []string{
@@ -302,12 +302,13 @@ var pages = map[string]verbPage{
 	},
 	"work": {
 		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--max-workers N] [--workers N]",
-			"                [--ram GB] [--cpu N] [--disk GB] [--keep]",
+			"                [--ram GB] [--cpu N] [--disk GB] [--keep] [--acp]",
 			"                [--runner auto|host|docker] [--image REF] [--agy-linux PATH]",
 			"                <kickoff-file>...",
 			"       fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]",
 			"       fyr work --check [--runner auto|host|docker] [--image REF]",
 			"                        [--agy-linux PATH]",
+			"       fyr work --status",
 			"       fyr work --kill <stamp>"},
 		about: []string{
 			"Runs each Kickoff file as a worker: an unattended agy session in its own",

@@ -101,6 +101,7 @@ func runOutcome(t *testing.T, self, fixture, fixtureExtra, fixtureAST, fake stri
 	put(t, filepath.Join(sb, "bin", "fyr"), fmt.Sprintf(checkWrapper, shq(self), shq(sb)), 0o755)
 	check := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + sb, "SB=" + sb,
 		"OUT=" + filepath.Join(tmp, "out.txt"), "OUT2=" + filepath.Join(tmp, "out2.txt"),
+		"EVENTS=" + filepath.Join(tmp, "events.jsonl"),
 		"FIXDIR=" + clone, "CLONE=" + clone, "GIT_CONFIG_NOSYSTEM=1"}
 	setup := append(append([]string{}, check...), "FYR="+self, "F="+filepath.Join(sb, "bin", "fyr"),
 		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@localhost",

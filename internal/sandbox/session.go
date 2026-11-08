@@ -78,6 +78,9 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	if b.c.Docker != nil {
 		return b.dockerAgy(ctx, prompt, outPath, errPath, appendErr)
 	}
+	if b.c.ACP {
+		return b.acpSession(ctx, agy, prompt, outPath, errPath, appendErr)
+	}
 	cmd := b.hostCmd(agy, prompt)
 	out, errf, err := agyOutputs(outPath, errPath, appendErr)
 	if err != nil {

@@ -473,3 +473,27 @@ func TestWorkVerbConfig(t *testing.T) {
 		t.Fatalf("config bad flag: exit %d, got %q", code, out)
 	}
 }
+
+func TestWorkStatus(t *testing.T) {
+	r := newWorkRig(t)
+
+	out, code := r.work("--status")
+	if code != 0 || !strings.Contains(out, "work: no active or recent waves") {
+		t.Fatalf("--status empty: exit %d, got %q", code, out)
+	}
+
+	if out, code := r.work("--status", "extra.md"); code != 2 || !strings.Contains(out, "--status takes no Kickoff file") {
+		t.Fatalf("--status with file: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("--status", "--acp"); code != 2 || !strings.Contains(out, "--status and --acp cannot be used together") {
+		t.Fatalf("--status --acp: exit %d, got %q", code, out)
+	}
+
+	if out, code := r.work(r.kickoff("fix-a")); code != 0 {
+		t.Fatalf("work run: exit %d\n%s", code, out)
+	}
+	out, code = r.work("--status")
+	if code != 0 || !strings.Contains(out, "WORKER\tSTATE") || !strings.Contains(out, "fix-a\tPASS") {
+		t.Fatalf("--status after wave: exit %d\n%s", code, out)
+	}
+}

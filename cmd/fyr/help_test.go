@@ -352,7 +352,7 @@ func TestHelpEvalGolden(t *testing.T) {
 		t.Errorf("fyr eval -h does not name %q:\n%s", eval.SuitePath, got)
 	}
 	const want = `usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]
-                [--parallel N] <row>...
+                [--parallel N] [--acp] <row>...
        fyr eval [--suite-file PATH] --list
 
 Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval
@@ -367,6 +367,8 @@ eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required, refused
 for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.
 
 Flags:
+  --acp
+      drive trials via agy acp --stdio --process-per-session
   --fixture DIR
       the git repository DIR each row clones (default: this checkout)
   --list

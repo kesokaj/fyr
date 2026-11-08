@@ -73,6 +73,7 @@ type Row struct {
 	Kind, Cluster, Expect                            string
 	Timeout                                          time.Duration
 	Turns                                            int
+	ACP                                              bool
 }
 
 // Wide reports whether the row runs with command(*), and why.
@@ -102,6 +103,9 @@ var suiteLongHeader = append(append([]string{}, suiteHeader...), optionalHeader.
 
 // suiteBenchHeader is suiteLongHeader followed by timeout and turns (ADR-509).
 var suiteBenchHeader = append(append([]string{}, suiteLongHeader...), benchmarkHeader...)
+
+// suiteACPHeader is suiteBenchHeader followed by acp (D10).
+var suiteACPHeader = append(append([]string{}, suiteBenchHeader...), "acp")
 
 // ParseSuite reads the one table of GUIDE-eval's body whose header is
 // `| id | setup | prompt | prompt2 | check | agent | grants |`, or that
@@ -150,7 +154,7 @@ func suiteStart(lines []string) (int, int, error) {
 	start, width := -1, 0
 	for i, l := range lines {
 		cells, ok := splitCells(l)
-		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader) || equalCells(cells, suiteBenchHeader)) {
+		if !ok || !(equalCells(cells, suiteHeader) || equalCells(cells, suiteLongHeader) || equalCells(cells, suiteBenchHeader) || equalCells(cells, suiteACPHeader)) {
 			continue
 		}
 		if start >= 0 {
@@ -172,7 +176,7 @@ func parseRow(l string, n, width int) (Row, error) {
 	}
 	cells, _ := splitCells(l)
 	if len(cells) != width {
-		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), width, strings.Join(suiteBenchHeader[:width], ", "))
+		return Row{}, fmt.Errorf("GUIDE-eval line %d: %d columns, want %d (%s)", n, len(cells), width, strings.Join(suiteACPHeader[:width], ", "))
 	}
 	m := leadingID.FindStringSubmatch(cells[0])
 	if m == nil || !validID.MatchString(m[1]) {
@@ -187,7 +191,7 @@ func parseRow(l string, n, width int) (Row, error) {
 		Agent:   textCell(cells[5]),
 		Grants:  textCell(cells[6]),
 	}
-	cells = append(cells[len(suiteHeader):], "", "", "", "", "", "")
+	cells = append(cells[len(suiteHeader):], "", "", "", "", "", "", "")
 	err := optionalCells(&r, cells, n)
 	return r, err
 }

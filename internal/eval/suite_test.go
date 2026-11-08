@@ -206,7 +206,7 @@ func TestSuiteHarness(t *testing.T) {
 		"work-start": {"", true}, "work-start-host": {"", true}, "work-refuse": {"", true},
 		"ast-slice-citations": {"explorer", true}, "read-ledger-dedup": {"", false},
 		"vet-first-gate": {"", false}, "vet-question-and-bypass": {"", false}, "fence-injection-guard": {"", false},
-		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false},
+		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false}, "acp-vet-multi-turn": {"", false},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
@@ -431,6 +431,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 		"fence-injection-guard":   "context/AGENTS.md",
 		"ab-pipeline-on":          "context/AGENTS.md",
 		"ab-pipeline-off":         "context/AGENTS.md",
+		"acp-vet-multi-turn":      "context/AGENTS.md",
 	}
 	rows, _, err := ReadTrackedSuite(root, false)
 	if err != nil {

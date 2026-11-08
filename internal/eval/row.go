@@ -50,7 +50,7 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
 		Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
 		PrintTimeout: printTimeout, StopGrace: stopGrace,
-		Prefix: "eval: " + r.ID, Out: o.Out,
+		Prefix: "eval: " + r.ID, Out: o.Out, ACP: r.ACP || o.ACP,
 	})
 	return &row{o: o, r: r, b: b, stamp: stamp}
 }
@@ -237,6 +237,7 @@ func (w *row) checkEnv() []string {
 		"SB=" + w.b.Home(),
 		"OUT=" + filepath.Join(w.b.Dir(), "out.txt"),
 		"OUT2=" + filepath.Join(w.b.Dir(), "out2.txt"),
+		"EVENTS=" + filepath.Join(w.b.Dir(), "events.jsonl"),
 		"FIXDIR=" + w.o.Fixture,
 		"CLONE=" + w.b.App(),
 	}

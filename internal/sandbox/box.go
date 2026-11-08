@@ -41,7 +41,9 @@ type Config struct {
 	StopGrace    time.Duration                      // SIGTERM to SIGKILL on ctx's end; 0 is 5s
 	Prefix       string                             // every note starts "<Prefix>: "
 	Out          io.Writer
-	Docker       *Docker // nil: the session runs on the host; else in a container (work only)
+	Docker       *Docker        // nil: the session runs on the host; else in a container (work only)
+	ACP          bool           // true: drive agy via `agy acp --stdio --process-per-session`
+	OnEvent      func(ACPEvent) // optional live step callback when ACP is true
 }
 
 // The fixed reason strings of the steps this package runs (SPEC-fyr-eval
@@ -169,7 +171,8 @@ type Box struct {
 	// root is SB, opened once guard a approved it. A held handle follows the
 	// directory through a rename, so the token link is removed from the home
 	// it was made in, whatever the path leads to by then.
-	root *os.Root
+	root    *os.Root
+	acpProc *acpProcess
 }
 
 // New is the Box of c; nothing is made until Make.

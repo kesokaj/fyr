@@ -27,6 +27,7 @@ type Options struct {
 	Repo       string // the install source tree (D16); "" is the harness embedded in Self
 	Runs       int    // trials per row, 1 to MaxRuns; 0 is 1
 	Parallel   int    // trials at once, 1 to MaxParallel; 0 is 1
+	ACP        bool   // drive trials via `agy acp --stdio --process-per-session`
 	Out        io.Writer
 	Now        func() time.Time
 	BrainWatch func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)

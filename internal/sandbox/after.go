@@ -13,6 +13,7 @@ import (
 // After is steps 11-12. It reports whether the sandbox is intact: one the
 // session replaced is not followed, so the caller runs nothing in it.
 func (b *Box) After() bool {
+	b.closeACP()
 	b.unlink() // through the held root, whatever the paths lead to now
 	if !b.Intact() {
 		return false
@@ -97,19 +98,18 @@ func (b *Box) removeLinks() {
 
 // ExitChecks is step 14: leftover processes (a docker-mode session checked
 // its container at its end), then the real config, then new credentials,
-// and last a SIGKILL to every agy group as a sweep.
+// and last a SIGKILL to every agy group as a sweep. It uses the approved
+// strings, never a fresh resolution, whether or not the clone still exists:
+// a clone the agent turned into a link to the real home must not aim the
+// SIGTERM there, and one it deleted must not skip the check.
 func (b *Box) ExitChecks() {
+	b.closeACP()
 	if b.root != nil {
 		defer b.root.Close()
 	}
 	if b.tokLinked || b.keychainsLinked {
 		b.removeLinks() // gone even when a step after 9 returned early
 	}
-	// The approved strings, never a fresh resolution, and whether or not the
-	// clone still exists: a clone the agent turned into a link to the real
-	// home must not aim the SIGTERM there, and one it deleted must not skip
-	// the check. Before step 2's resolution no agent has run, so a fresh resolution is
-	// the clone the box just made.
 	roots := []string{}
 	for _, p := range []string{b.app, b.sb} {
 		if r, ok := b.resolved[p]; ok {

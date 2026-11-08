@@ -34,11 +34,11 @@ type ctx struct {
 	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
 	recBody, recAll                                                                                bool
 	evalFixture                                                                                    string
-	evalList                                                                                       bool
+	evalList, evalACP                                                                              bool
 	evalRuns, evalParallel                                                                         int
 	workTimeout                                                                                    time.Duration
 	workModel                                                                                      string
-	workKeep                                                                                       bool
+	workKeep, workACP, workStatus                                                                  bool
 	workMax, workRAM, workCPU, workDisk                                                            int
 	workKill                                                                                       string
 	workRunner                                                                                     string
