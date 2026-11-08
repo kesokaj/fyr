@@ -7,7 +7,11 @@
 
 ## Now
 
-(none)
+### Phase 4 — Agent Client Protocol (`agy acp`) Sandbox Driver, Subagent-Style `/work` Overview & Multi-Turn `VET_FIRST` E2E Proof (`PLAN-2026-11-08-1907-plan-verification-a-b-benchmark-of-second-brain`)
+- [ ] Add `internal/sandbox/acp.go`, `internal/sandbox/acp_prompt.go`, and `internal/sandbox/acp_test.go` implementing `ACPClient`, `session/request_permission` grant matching against `b.c.Grants`, dual `out.txt` + `events.jsonl` output, `Config.OnEvent` callbacks, warm multi-turn `sessionId` reuse in `Box.acpSession`, and clean teardown in `Box.closeACP()` inside `After()` and `ExitChecks()`
+- [ ] Add `internal/work/progress.go` and `internal/work/progress_test.go` implementing `ProgressTracker`, subagent-style live progress lines on `Options.Progress`, host-side `<work-root>/<stamp>/status.json`, and `fyr work --status` + `--acp` in `cmd/fyr/work.go` (updating `skills/work/SKILL.md`); wire `ACP bool` into `internal/eval/`, add the 2-turn `acp-vet-multi-turn` row to `.agents/eval/GUIDE-eval.md`, pin it in `internal/eval/suite_test.go`, and add positive/negative outcomes in `internal/eval/suite_outcomes_ast_test.go` and `internal/eval/suite_outcomes_test.go`
+- [ ] Commit Phase 4 code + `GUIDE-eval.md`, check quota via `agy -p "/usage"`, and run live `fyr eval` for `acp-vet-multi-turn` against `--home ~/.config/fyr/dev/fyr-eval`, then complete Definition of Done (`verifier`, `reviewer`, `security`, `change` record, `ADR`, and `/handoff`)
+- [ ] Checkpoint
 
 ## Next
 
