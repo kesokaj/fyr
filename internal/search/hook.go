@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
 )
 
@@ -156,19 +156,41 @@ func resolveHookDir(o Options, in HookInput) string {
 
 func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) error {
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
-	state, skip, err := checkTurnOrMidTurn(dir, in.ConversationID, in.TranscriptPath, in.InvocationNum, rawPrompt)
-	if err != nil {
-		return writeStoreDegraded(out, err)
+	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
+	var (
+		state        SessionState
+		skip         bool
+		sc           *scope
+		dirtySummary string
+		fastPath     bool
+		slice        SliceResult
+		sections     []string
+		banners      []string
+	)
+	err := ensureHookProjectReady(dir)
+	if err == nil {
+		state, skip, err = checkTurnOrMidTurn(dir, in.ConversationID, in.TranscriptPath, in.InvocationNum, rawPrompt)
 	}
-	if skip {
+	if err == nil && skip {
 		return writePreInvocation(out, "", "")
 	}
-	sc, dirtySummary, fastPath, err := prepareHookScope(dir)
-	if err != nil {
-		return writeStoreDegraded(out, err)
+	if err == nil {
+		sc, dirtySummary, fastPath, err = prepareHookScope(dir)
 	}
-	defer sc.close()
+	if err != nil {
+		if in.InvocationNum > 1 {
+			return writePreInvocation(out, "", "")
+		}
+		banners = append(banners, storeDegradedBanner(err))
+	} else {
+		defer sc.close()
+		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, cleanPrompt, state, dirtySummary, fastPath)
+	}
+	sysMsg, banner := buildHookEnvelope(o, dir, rawPrompt, cleanPrompt, slice, sections, banners)
+	return writePreInvocation(out, sysMsg, banner)
+}
 
+func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
 	var sections, banners []string
 	if state.Compacted {
 		if o.BrainReprime != nil {
@@ -182,10 +204,9 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		sections = append(sections, dirtySummary)
 		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
 	}
-	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
 	sliceOpts := o
 	sliceOpts.Dir = dir
-	sliceOpts.Session = in.ConversationID
+	sliceOpts.Session = convID
 	slice := sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
 	if slice.Capsule != "" {
 		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", slice.Pivots))
@@ -194,12 +215,11 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /handoff or /compact.", state.EstTokens/1000))
 		banners = append(banners, fmt.Sprintf("⚠️ %dk tokens (>= 180K knee)", state.EstTokens/1000))
 	}
-	sysMsg, banner := buildHookEnvelope(o, dir, rawPrompt, cleanPrompt, slice, sections, banners)
-	return writePreInvocation(out, sysMsg, banner)
+	return sections, banners, slice
 }
 
 func buildHookEnvelope(o Options, dir, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
-	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" {
+	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && len(banners) == 0 {
 		return "", ""
 	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
@@ -215,7 +235,46 @@ func buildHookEnvelope(o Options, dir, rawPrompt, cleanPrompt string, slice Slic
 	return BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
 }
 
+func ensureHookProjectReady(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		dir = "."
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return fmt.Errorf("search: %s is not a regular directory", dir)
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if fi, err = os.Lstat(absDir); err != nil {
+		return err
+	} else if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return fmt.Errorf("search: %s is not a regular directory", absDir)
+	}
+	if isRefusedAutoInitDir(absDir) {
+		return fmt.Errorf("search: refusing to auto-initialize system/root directory %s", absDir)
+	}
+	if err := checkScratchNoSymlinks(absDir); err != nil {
+		return err
+	}
+	root, nested, err := ensureHookGitCheckout(absDir)
+	if err != nil {
+		return err
+	}
+	if err := checkScratchNoSymlinks(root); err != nil {
+		return err
+	}
+	return ensureHookScratchIgnored(root, nested)
+}
+
 func prepareHookScope(dir string) (*scope, string, bool, error) {
+	if err := ensureHookProjectReady(dir); err != nil {
+		return nil, "", false, err
+	}
 	root, err := checkoutRoot(dir)
 	if err != nil {
 		return nil, "", false, errNotCheckout
@@ -466,56 +525,12 @@ func handleStopHook(dir string, in HookInput, out io.Writer) error {
 	return writeDecision(out, "allow", "")
 }
 
-func extractStringArg(args map[string]any, keys ...string) string {
-	for _, k := range keys {
-		if v, ok := args[k]; ok {
-			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-				return strings.TrimSpace(s)
-			}
-		}
-	}
-	return ""
-}
-
-func extractLineRangeArgs(args map[string]any) (int, int) {
-	start := extractIntArg(args, "StartLine", "start_line", "StartLineNumber", "start_line_number", "Offset", "offset")
-	end := extractIntArg(args, "EndLine", "end_line", "EndLineNumber", "end_line_number")
-	limit := extractIntArg(args, "Limit", "limit")
-	if end == 0 && limit > 0 {
-		if start > 0 {
-			end = start + limit - 1
-		} else {
-			start, end = 1, limit
-		}
-	}
-	return start, end
-}
-
-func extractIntArg(args map[string]any, keys ...string) int {
-	for _, k := range keys {
-		v, ok := args[k]
-		if !ok {
-			continue
-		}
-		switch n := v.(type) {
-		case float64:
-			return int(n)
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case string:
-			if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
-				return parsed
-			}
-		}
-	}
-	return 0
+func storeDegradedBanner(err error) string {
+	return fmt.Sprintf("⚠️ **fyr brain:** store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
 }
 
 func writeStoreDegraded(out io.Writer, err error) error {
-	banner := fmt.Sprintf("⚠️ **fyr brain:** store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
-	return writePreInvocation(out, "", banner)
+	return writePreInvocation(out, "", storeDegradedBanner(err))
 }
 
 // writePreInvocation serializes the PreInvocation hook response. Antigravity CLI

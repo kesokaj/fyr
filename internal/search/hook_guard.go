@@ -5,9 +5,16 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -137,4 +144,219 @@ func upsertPreInvocationStamp(st *store, conversationID string, genID, turnCount
 		return
 	}
 	_ = st.upsertReadStamp(conversationID, genID, preInvocationSentinel, -3, -3, promptSum, turnCount, nowFunc().Unix())
+}
+
+func isRefusedAutoInitDir(absDir string) bool {
+	clean := filepath.Clean(absDir)
+	if clean == "/" || clean == "." {
+		return true
+	}
+	refused := []string{"/", os.TempDir(), os.Getenv("HOME")}
+	if uh, err := os.UserHomeDir(); err == nil && uh != "" {
+		refused = append(refused, uh)
+	}
+	for _, r := range refused {
+		r = strings.TrimSpace(r)
+		if r != "" && sameAutoInitPath(clean, filepath.Clean(r)) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameAutoInitPath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ea, errA := filepath.EvalSymlinks(a)
+	eb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && filepath.Clean(ea) == filepath.Clean(eb)
+}
+
+func checkScratchNoSymlinks(root string) error {
+	for _, d := range []string{".agents", filepath.Join(".agents", "scratch")} {
+		if fi, err := os.Lstat(filepath.Join(root, d)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("search: %s is a symlink; refusing to write through it", filepath.ToSlash(d))
+		}
+	}
+	return nil
+}
+
+func ensureHookGitCheckout(absDir string) (string, []string, error) {
+	root, err := checkoutRoot(absDir)
+	if err == nil {
+		if isRefusedAutoInitDir(root) {
+			return "", nil, fmt.Errorf("search: refusing to auto-initialize system/root directory %s", root)
+		}
+		return root, nil, nil
+	}
+	nested := scanNestedGitDirs(absDir, "", 1)
+	if err := trail.Command(absDir, "init", "-q").Run(); err != nil {
+		return "", nil, fmt.Errorf("search: git init: %w", err)
+	}
+	root, err = checkoutRoot(absDir)
+	if err != nil {
+		return "", nil, errNotCheckout
+	}
+	return root, nested, nil
+}
+
+func scanNestedGitDirs(base, rel string, depth int) []string {
+	entries, err := os.ReadDir(filepath.Join(base, filepath.FromSlash(rel)))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		name := e.Name()
+		if name == ".git" || name == ".agents" || strings.ContainsAny(name, "\r\n") || e.Type()&os.ModeSymlink != 0 || !e.IsDir() {
+			continue
+		}
+		subRel := name
+		if rel != "" {
+			subRel = rel + "/" + name
+		}
+		subAbs := filepath.Join(base, filepath.FromSlash(subRel))
+		if _, err := os.Lstat(filepath.Join(subAbs, ".git")); err == nil {
+			out = append(out, "/"+subRel+"/")
+			continue
+		}
+		if depth < 3 {
+			out = append(out, scanNestedGitDirs(base, subRel, depth+1)...)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func ensureHookScratchIgnored(root string, nested []string) error {
+	ignoreErr := trail.Command(root, "check-ignore", "-q", ".agents/scratch/search.db").Run()
+	if ignoreErr == nil && len(nested) == 0 {
+		return nil
+	}
+	var ee *exec.ExitError
+	if ignoreErr != nil && (!errors.As(ignoreErr, &ee) || ee.ExitCode() != 1) {
+		return fmt.Errorf("search: git check-ignore: %w", ignoreErr)
+	}
+	patterns := append([]string{".agents/scratch/*"}, nested...)
+	return appendGitInfoExclude(root, patterns)
+}
+
+func appendGitInfoExclude(root string, patterns []string) error {
+	out, err := git(root, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return err
+	}
+	commonDir := filepath.Clean(strings.TrimSpace(string(out)))
+	if commonDir == "" || !filepath.IsAbs(commonDir) {
+		return fmt.Errorf("search: invalid git common dir %q", commonDir)
+	}
+	if fi, err := os.Lstat(commonDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return fmt.Errorf("search: git common dir %s is not a regular directory", commonDir)
+	}
+	infoDir := filepath.Join(commonDir, "info")
+	if fi, err := os.Lstat(infoDir); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir()) {
+		return fmt.Errorf("search: %s is a symlink or not a directory", infoDir)
+	}
+	excludeFile := filepath.Join(infoDir, "exclude")
+	if fi, err := os.Lstat(excludeFile); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
+		return fmt.Errorf("search: %s is a symlink or not a regular file", excludeFile)
+	}
+	return writePatternsToCommonExclude(commonDir, patterns)
+}
+
+func writePatternsToCommonExclude(commonDir string, patterns []string) error {
+	commonRoot, err := os.OpenRoot(commonDir)
+	if err != nil {
+		return err
+	}
+	defer commonRoot.Close()
+	if err := commonRoot.Mkdir("info", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	relExclude := filepath.Join("info", "exclude")
+	if fi, err := commonRoot.Lstat(relExclude); err == nil && (!fi.Mode().IsRegular() || fi.Size() > maxFileBytes) {
+		return fmt.Errorf("search: %s is not a readable regular file", relExclude)
+	}
+	existing, err := readAll(commonRoot, relExclude)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	add := filterNewExcludePatterns(existing, patterns)
+	if len(add) == 0 {
+		return nil
+	}
+	f, err := commonRoot.OpenFile(relExclude, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	prefix := ""
+	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
+		prefix = "\n"
+	}
+	_, err = io.WriteString(f, prefix+strings.Join(add, "\n")+"\n")
+	return err
+}
+
+func filterNewExcludePatterns(existing []byte, patterns []string) []string {
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(existing), "\n") {
+		seen[strings.TrimSpace(line)] = true
+	}
+	var add []string
+	for _, p := range patterns {
+		if p = strings.TrimSpace(p); p != "" && !seen[p] {
+			seen[p] = true
+			add = append(add, p)
+		}
+	}
+	return add
+}
+
+func extractStringArg(args map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := args[k]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
+}
+
+func extractLineRangeArgs(args map[string]any) (int, int) {
+	start := extractIntArg(args, "StartLine", "start_line", "StartLineNumber", "start_line_number", "Offset", "offset")
+	end := extractIntArg(args, "EndLine", "end_line", "EndLineNumber", "end_line_number")
+	limit := extractIntArg(args, "Limit", "limit")
+	if end == 0 && limit > 0 {
+		if start > 0 {
+			end = start + limit - 1
+		} else {
+			start, end = 1, limit
+		}
+	}
+	return start, end
+}
+
+func extractIntArg(args map[string]any, keys ...string) int {
+	for _, k := range keys {
+		v, ok := args[k]
+		if !ok {
+			continue
+		}
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case string:
+			if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
 }

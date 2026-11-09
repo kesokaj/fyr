@@ -279,11 +279,17 @@ func TestRunHookPreInvocationDirtyFastPath(t *testing.T) {
 }
 
 func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
-	nonGitDir := t.TempDir()
+	brokenDir := t.TempDir()
 	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brokenDir, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(brokenDir, ".agents", "scratch")); err != nil {
+		t.Fatal(err)
+	}
 	inJSON, _ := json.Marshal(map[string]any{
 		"conversationId": "conv-broken",
-		"workspacePaths": []string{nonGitDir},
+		"workspacePaths": []string{brokenDir},
 		"invocationNum":  1,
 		"lastUserInput":  "Inspect ReconcileProjectIndex",
 	})
@@ -299,9 +305,121 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 	if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
 		t.Fatalf("expected degradation step, got: %+v", resp)
 	}
-	banner := resp.InjectSteps[0].SystemMessage.SystemMessage
-	if !strings.Contains(banner, "⚠️ **fyr brain:** store unavailable (") || !strings.Contains(banner, "run /fyr-index-project or fyr index") {
-		t.Errorf("unexpected degradation banner: %q", banner)
+	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
+	for _, want := range []string{
+		"⚠️ **fyr brain:** store unavailable (",
+		"run /fyr-index-project or fyr index",
+		"🧭 **fyr vet:**",
+		"[FYR_TURN_CONTRACT]",
+	} {
+		if !strings.Contains(sysMsg, want) {
+			t.Errorf("degraded systemMessage missing %q:\n%s", want, sysMsg)
+		}
+	}
+
+	// Mid-turn continuation (invocationNum > 1) suppresses repeated degraded banners.
+	inMid, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-broken",
+		"workspacePaths": []string{brokenDir},
+		"invocationNum":  2,
+		"lastUserInput":  "Inspect ReconcileProjectIndex",
+	})
+	var midOut bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inMid)}, &midOut); err != nil {
+		t.Fatalf("mid-turn degraded: %v", err)
+	}
+	var midResp PreInvocationOutput
+	if err := json.Unmarshal(midOut.Bytes(), &midResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(midResp.InjectSteps) != 0 {
+		t.Errorf("expected 0 injectSteps on mid-turn degraded invocationNum=2, got %+v", midResp.InjectSteps)
+	}
+
+	// `fyr search --vet` also falls back to stateless vetting when store is unavailable.
+	var vetOut bytes.Buffer
+	if err := Search(Options{Dir: brokenDir, Home: home, Vet: "Inspect ReconcileProjectIndex"}, &vetOut); err != nil {
+		t.Fatalf("Search --vet on brokenDir: %v", err)
+	}
+	if !strings.Contains(vetOut.String(), "[FYR_TURN_CONTRACT]") {
+		t.Errorf("expected [FYR_TURN_CONTRACT] from Search --vet fallback, got:\n%s", vetOut.String())
+	}
+}
+
+func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
+	rawDir := t.TempDir()
+	home := t.TempDir()
+	src := `package sample
+
+func ReconcileProjectIndex(root string) error {
+	return AlphaHelper(root)
+}
+
+func AlphaHelper(root string) error {
+	return nil
+}
+
+func BetaValidator(input string) bool {
+	return len(input) > 0
+}
+
+func GammaFormatter(msg string) string {
+	return msg
+}
+
+func DeltaNotifier(code int) error {
+	return nil
+}
+`
+	writeFile(t, rawDir, "service.go", src)
+	if err := os.MkdirAll(filepath.Join(rawDir, "nested-clone", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	inJSON, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-auto-init",
+		"workspacePaths": []string{rawDir},
+		"invocationNum":  1,
+		"lastUserInput":  "Investigate ReconcileProjectIndex failure on modified blobs",
+	})
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}, &out); err != nil {
+		t.Fatalf("Search --hook pre-invocation: %v", err)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, out.String())
+	}
+	if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("expected 1 injectStep on Turn 1, got %+v", resp)
+	}
+	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
+	for _, want := range []string{
+		"[Hop 0] service.go:3-5 (ReconcileProjectIndex)",
+		"🧭 **fyr vet:**",
+		"[FYR_TURN_CONTRACT]",
+	} {
+		if !strings.Contains(sysMsg, want) {
+			t.Errorf("Turn 1 auto-init systemMessage missing %q:\n%s", want, sysMsg)
+		}
+	}
+	excludeData, err := os.ReadFile(filepath.Join(rawDir, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatalf("read .git/info/exclude: %v", err)
+	}
+	for _, wantPattern := range []string{".agents/scratch/*", "/nested-clone/"} {
+		if !strings.Contains(string(excludeData), wantPattern) {
+			t.Errorf(".git/info/exclude missing %q:\n%s", wantPattern, string(excludeData))
+		}
+	}
+	if _, err := os.Stat(filepath.Join(rawDir, ".gitignore")); !os.IsNotExist(err) {
+		t.Errorf("expected tracked .gitignore not to be created, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rawDir, ".agents", "scratch", "search.db")); err != nil {
+		t.Errorf("expected .agents/scratch/search.db to be created: %v", err)
+	}
+	if err := ensureHookProjectReady(os.TempDir()); err == nil {
+		t.Errorf("expected ensureHookProjectReady(os.TempDir()) to refuse system temp root")
 	}
 }
 

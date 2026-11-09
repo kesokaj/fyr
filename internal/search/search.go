@@ -178,7 +178,7 @@ func Search(o Options, out io.Writer) error {
 	if o.Vet != "" && !o.Global {
 		sc, _, _, err := prepareHookScope(o.Dir)
 		if err != nil {
-			return err
+			return (&scope{}).runVet(o, out)
 		}
 		defer sc.close()
 		return sc.runVet(o, out)
