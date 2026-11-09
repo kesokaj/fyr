@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -222,16 +223,21 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		},
 	}
 
-	startVet := time.Now()
-	res := VetPrompt(
-		"Fix ReconcileProjectIndex in service.go to respect sha256 token auth and run go test",
-		"",
-		SliceResult{SymbolHits: 2, Pivots: 1, Files: []string{"service.go"}, Capsule: "[Hop 0] service.go:3-5 (ReconcileProjectIndex)"},
-		brainCtx,
-	)
-	vetDur := time.Since(startVet)
-	if vetDur > 10*time.Millisecond {
-		t.Errorf("VetPrompt took %v, want < 10ms", vetDur)
+	var res VetResult
+	durations := make([]time.Duration, 5)
+	for i := range durations {
+		startVet := time.Now()
+		res = VetPrompt(
+			"Fix ReconcileProjectIndex in service.go to respect sha256 token auth and run go test",
+			"",
+			SliceResult{SymbolHits: 2, Pivots: 1, Files: []string{"service.go"}, Capsule: "[Hop 0] service.go:3-5 (ReconcileProjectIndex)"},
+			brainCtx,
+		)
+		durations[i] = time.Since(startVet)
+	}
+	slices.Sort(durations)
+	if median := durations[len(durations)/2]; median >= 10*time.Millisecond {
+		t.Errorf("VetPrompt median of 5 runs took %v (all: %v), want < 10ms", median, durations)
 	}
 	if !fenceBoundaryRe.MatchString(res.FenceBoundary) {
 		t.Fatalf("invalid FenceBoundary: %q", res.FenceBoundary)

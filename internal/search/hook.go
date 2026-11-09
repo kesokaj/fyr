@@ -17,6 +17,7 @@ const (
 	hookKneeTokens       = 180000
 	hookMinIdentLen      = 6
 	hookConfidenceRatio  = 3.0
+	maxReadFileBytes     = 46080
 )
 
 // HookInput is the JSON payload Antigravity sends to a lifecycle hook on stdin.
@@ -100,14 +101,8 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 		in = os.Stdin
 	}
 	input, decErr := decodeHookInput(in)
-	if decErr != nil {
-		if event == "pre-invocation" {
-			return writePreInvocation(out, "", "")
-		}
-		return writeDecision(out, "allow", "")
-	}
 	dir := resolveHookDir(o, input)
-	if hooksDisabled(dir) {
+	if decErr != nil || hooksDisabled(dir) {
 		if event == "pre-invocation" {
 			return writePreInvocation(out, "", "")
 		}
@@ -158,14 +153,12 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
 	var (
-		state        SessionState
-		skip         bool
-		sc           *scope
-		dirtySummary string
-		fastPath     bool
-		slice        SliceResult
-		sections     []string
-		banners      []string
+		state             SessionState
+		skip, fastPath    bool
+		sc                *scope
+		dirtySummary      string
+		slice             SliceResult
+		sections, banners []string
 	)
 	err := ensureHookProjectReady(dir)
 	if err == nil {
@@ -239,21 +232,16 @@ func ensureHookProjectReady(dir string) error {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
-	fi, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-		return fmt.Errorf("search: %s is not a regular directory", dir)
-	}
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return err
 	}
-	if fi, err = os.Lstat(absDir); err != nil {
-		return err
-	} else if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-		return fmt.Errorf("search: %s is not a regular directory", absDir)
+	for _, p := range []string{dir, absDir} {
+		if fi, err := os.Lstat(p); err != nil {
+			return err
+		} else if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+			return fmt.Errorf("search: %s is not a regular directory", p)
+		}
 	}
 	if isRefusedAutoInitDir(absDir) {
 		return fmt.Errorf("search: refusing to auto-initialize system/root directory %s", absDir)
@@ -486,7 +474,7 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		if target == "" {
 			return writeDecision(out, "allow", "")
 		}
-		start, end := extractLineRangeArgs(args)
+		start, end := clampReadRangeAtByteLimit(dir, target, args)
 		dec, err := CheckAndRecordRead(dir, in.ConversationID, target, start, end, 0)
 		if err == nil && !dec.Allowed {
 			return writeDecision(out, "deny", dec.Reason)
@@ -518,6 +506,39 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 	return writeDecision(out, "allow", "")
 }
 
+func clampReadRangeAtByteLimit(dir, target string, args map[string]any) (int, int) {
+	start, end := extractLineRangeArgs(args)
+	byteOffset := max(0, extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset"))
+	_, data, totalLines, ok := readFileDigestAndLines(CanonicalizePath(dir, target))
+	if !ok || (byteOffset == 0 && len(data) <= maxReadFileBytes) {
+		return start, end
+	}
+	reqStart, reqEnd := normalizeLineRange(start, end, totalLines)
+	lines := splitLines(string(data))
+	if reqEnd = min(reqEnd, len(lines)); reqStart > reqEnd {
+		return start, end
+	}
+	winStart, winEnd, cumBytes, effStart, effEnd := byteOffset, byteOffset+maxReadFileBytes, 0, 0, 0
+	for lineNum := reqStart; lineNum <= reqEnd; lineNum++ {
+		lineEnd := cumBytes + len(lines[lineNum-1]) + 1
+		if lineEnd <= winStart {
+			cumBytes = lineEnd
+			continue
+		}
+		if effStart == 0 {
+			effStart = lineNum
+		}
+		if lineEnd > winEnd {
+			break
+		}
+		effEnd, cumBytes = lineNum, lineEnd
+	}
+	if effStart == 0 {
+		return reqStart, reqEnd
+	}
+	return effStart, max(effStart, effEnd)
+}
+
 func handleStopHook(dir string, in HookInput, out io.Writer) error {
 	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
 		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
@@ -541,29 +562,23 @@ func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 	var resp PreInvocationOutput
 	if sysMsg != "" || userMarkdown != "" {
 		combined := sysMsg
-		if userMarkdown != "" {
-			if combined != "" {
-				combined = userMarkdown + "\n" + combined
-			} else {
-				combined = userMarkdown
-			}
+		if userMarkdown != "" && combined != "" {
+			combined = userMarkdown + "\n" + combined
+		} else if userMarkdown != "" {
+			combined = userMarkdown
 		}
 		resp.InjectSteps = []HookInjectStep{{SystemMessage: &HookSystemMessage{SystemMessage: combined}}}
 	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return nil
+	if data, err := json.Marshal(resp); err == nil {
+		_, _ = out.Write(append(data, '\n'))
 	}
-	_, _ = out.Write(append(data, '\n'))
 	return nil
 }
 
 func writeDecision(out io.Writer, decision, reason string) error {
-	data, err := json.Marshal(HookDecisionOutput{Decision: decision, Reason: reason})
-	if err != nil {
-		return nil
+	if data, err := json.Marshal(HookDecisionOutput{Decision: decision, Reason: reason}); err == nil {
+		_, _ = out.Write(append(data, '\n'))
 	}
-	_, _ = out.Write(append(data, '\n'))
 	return nil
 }
 

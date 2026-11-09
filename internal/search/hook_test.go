@@ -11,10 +11,7 @@ import (
 	"time"
 )
 
-func setupHookRepo(t *testing.T) string {
-	t.Helper()
-	dir := newRepo(t)
-	src := `package sample
+const hookSampleServiceSrc = `package sample
 
 func ReconcileProjectIndex(root string) error {
 	return AlphaHelper(root)
@@ -36,7 +33,11 @@ func DeltaNotifier(code int) error {
 	return nil
 }
 `
-	writeFile(t, dir, "service.go", src)
+
+func setupHookRepo(t *testing.T) string {
+	t.Helper()
+	dir := newRepo(t)
+	writeFile(t, dir, "service.go", hookSampleServiceSrc)
 	commitAll(t, dir, "init hook fixture")
 	return dir
 }
@@ -347,61 +348,29 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 }
 
 func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
-	rawDir := t.TempDir()
-	home := t.TempDir()
-	src := `package sample
-
-func ReconcileProjectIndex(root string) error {
-	return AlphaHelper(root)
-}
-
-func AlphaHelper(root string) error {
-	return nil
-}
-
-func BetaValidator(input string) bool {
-	return len(input) > 0
-}
-
-func GammaFormatter(msg string) string {
-	return msg
-}
-
-func DeltaNotifier(code int) error {
-	return nil
-}
-`
-	writeFile(t, rawDir, "service.go", src)
+	rawDir, home := t.TempDir(), t.TempDir()
+	writeFile(t, rawDir, "service.go", hookSampleServiceSrc)
 	for i := 0; i < 20; i++ {
 		writeFile(t, rawDir, fmt.Sprintf("extra_%02d.go", i), fmt.Sprintf("package sample\nfunc Extra%02d() {}\n", i))
 	}
 	if err := os.MkdirAll(filepath.Join(rawDir, "nested-clone", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	callPreInv := func(convID, prompt string) string {
+		inJSON, _ := json.Marshal(map[string]any{"conversationId": convID, "workspacePaths": []string{rawDir}, "invocationNum": 1, "lastUserInput": prompt})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}, &out); err != nil {
+			t.Fatalf("pre-invocation(%s): %v", convID, err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+			t.Fatalf("unmarshal(%s): err=%v resp=%+v", convID, err, resp)
+		}
+		return resp.InjectSteps[0].SystemMessage.SystemMessage
+	}
 
-	inJSON, _ := json.Marshal(map[string]any{
-		"conversationId": "conv-auto-init",
-		"workspacePaths": []string{rawDir},
-		"invocationNum":  1,
-		"lastUserInput":  "Investigate ReconcileProjectIndex failure on modified blobs",
-	})
-	var out bytes.Buffer
-	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}, &out); err != nil {
-		t.Fatalf("Search --hook pre-invocation: %v", err)
-	}
-	var resp PreInvocationOutput
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v\nraw: %s", err, out.String())
-	}
-	if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("expected 1 injectStep on Turn 1, got %+v", resp)
-	}
-	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
-	for _, want := range []string{
-		"[Hop 0] service.go:3-5 (ReconcileProjectIndex)",
-		"🧭 **fyr vet:**",
-		"[FYR_TURN_CONTRACT]",
-	} {
+	sysMsg := callPreInv("conv-auto-init", "Investigate ReconcileProjectIndex failure on modified blobs")
+	for _, want := range []string{"[Hop 0] service.go:3-5 (ReconcileProjectIndex)", "🧭 **fyr vet:**", "[FYR_TURN_CONTRACT]"} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("Turn 1 auto-init systemMessage missing %q:\n%s", want, sysMsg)
 		}
@@ -410,22 +379,7 @@ func DeltaNotifier(code int) error {
 		t.Errorf("Turn 1 auto-init with >20 files unexpectedly took dirty fast-path:\n%s", sysMsg)
 	}
 
-	// Turn 2 (diffN == 0, still uncommitted with >20 files) reconciles without dirty fast-path banner.
-	inJSON2, _ := json.Marshal(map[string]any{
-		"conversationId": "conv-auto-init-2",
-		"workspacePaths": []string{rawDir},
-		"invocationNum":  1,
-		"lastUserInput":  "Inspect BetaValidator in service.go",
-	})
-	var out2 bytes.Buffer
-	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON2)}, &out2); err != nil {
-		t.Fatalf("Turn 2 Search --hook pre-invocation: %v", err)
-	}
-	var resp2 PreInvocationOutput
-	if err := json.Unmarshal(out2.Bytes(), &resp2); err != nil {
-		t.Fatalf("Turn 2 unmarshal: %v", err)
-	}
-	sysMsg2 := resp2.InjectSteps[0].SystemMessage.SystemMessage
+	sysMsg2 := callPreInv("conv-auto-init-2", "Inspect BetaValidator in service.go")
 	if strings.Contains(sysMsg2, ">15 dirty files") || strings.Contains(sysMsg2, "# fast-path:") {
 		t.Errorf("Turn 2 uncommitted repo (diffN=0) unexpectedly took dirty fast-path:\n%s", sysMsg2)
 	}
@@ -449,6 +403,55 @@ func DeltaNotifier(code int) error {
 	}
 	if err := ensureHookProjectReady(os.TempDir()); err == nil {
 		t.Errorf("expected ensureHookProjectReady(os.TempDir()) to refuse system temp root")
+	}
+}
+
+func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	// Build a 250-line file where each line is 232 bytes (231 chars + '\n') = 58,000 bytes total.
+	// Lines 1..198 = 45,936 bytes (<= 46,080 limit); line 199 crosses 46,080 bytes (46,168 bytes).
+	var b strings.Builder
+	b.WriteString("package sample // " + strings.Repeat("p", 231-len("package sample // ")) + "\n")
+	for line := 2; line <= 250; line++ {
+		prefix := fmt.Sprintf("// line %03d ", line)
+		b.WriteString(prefix + strings.Repeat("x", 231-len(prefix)) + "\n")
+	}
+	writeFile(t, dir, "big.go", b.String())
+
+	callReadHook := func(convID string, args map[string]any) HookDecisionOutput {
+		req, _ := json.Marshal(map[string]any{"conversationId": convID, "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "read_file", "args": args}})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("pre-tool-use: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return dec
+	}
+
+	// 1. Initial read of lines 1..250 exceeds 46,080 bytes: allowed and clamped to 1..198 in read_ledger.
+	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
+		t.Fatalf("1st read 1..250: got %+v, want allow", dec)
+	}
+	// 2. Follow-up read of the truncated tail (199..250) is allowed on the first attempt.
+	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 199, "EndLine": 250}); dec.Decision != "allow" {
+		t.Fatalf("follow-up read of truncated tail 199..250: got %+v, want allow on 1st attempt", dec)
+	}
+	// 3. Re-reading the already-delivered head (1..198) returns [UNCHANGED].
+	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 198}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
+		t.Fatalf("re-read of delivered head 1..198: got %+v, want deny [UNCHANGED]", dec)
+	}
+	// 4. Continuation read using ByteOffset=46080 on 1..250 is allowed on the 1st attempt and denied on duplicate.
+	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
+		t.Fatalf("conv-offset initial read: got %+v, want allow", dec)
+	}
+	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "allow" {
+		t.Fatalf("conv-offset ByteOffset=46080 continuation read: got %+v, want allow on 1st attempt", dec)
+	}
+	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED] big.go:199-250") {
+		t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:199-250", dec)
 	}
 }
 
@@ -480,14 +483,7 @@ func TestRunHookPreToolUseAndStop(t *testing.T) {
 		t.Fatalf("1st read_file want allow, got %+v", d)
 	}
 	// 2. Bash single-file cat on already-read service.go is denied with [UNCHANGED] (and consumes stamp).
-	bashReq, _ := json.Marshal(map[string]any{
-		"conversationId": "conv-tools",
-		"workspacePaths": []string{dir},
-		"toolCall": map[string]any{
-			"name": "run_command",
-			"args": map[string]any{"CommandLine": "cat service.go"},
-		},
-	})
+	bashReq, _ := json.Marshal(map[string]any{"conversationId": "conv-tools", "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": "cat service.go"}}})
 	var bashOut bytes.Buffer
 	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(bashReq)}, &bashOut); err != nil {
 		t.Fatalf("run_command hook: %v", err)
@@ -505,14 +501,7 @@ func TestRunHookPreToolUseAndStop(t *testing.T) {
 		t.Fatalf("re-read want allow, got %+v", d)
 	}
 	writeFile(t, dir, "service.go", "package sample\nfunc ReconcileProjectIndex(root string) error { return nil }\n")
-	editReq, _ := json.Marshal(map[string]any{
-		"conversationId": "conv-tools",
-		"workspacePaths": []string{dir},
-		"toolCall": map[string]any{
-			"name": "edit_file",
-			"args": map[string]any{"Path": "service.go"},
-		},
-	})
+	editReq, _ := json.Marshal(map[string]any{"conversationId": "conv-tools", "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "edit_file", "args": map[string]any{"Path": "service.go"}}})
 	var editOut bytes.Buffer
 	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(editReq)}, &editOut); err != nil {
 		t.Fatalf("edit_file hook: %v", err)
