@@ -91,7 +91,7 @@ func scanCreds(dir string) map[string]credFinding {
 		// A link out of the tree is read even inside an install: what it
 		// leads to is not third-party code the walk reaches on its own.
 		link := d.Type()&fs.ModeSymlink != 0
-		read := !underAny(p, locked) || link && !resolvesUnder(root, p)
+		read := !underAny(p, locked) && !goBuildCacheEntry(root, p, d) || link && !resolvesUnder(root, p)
 		if f, ok := scanEntry(p, d, read); ok {
 			f.outside = f.problem == dirLink && !resolvesUnder(root, p)
 			out[rel] = f
@@ -128,6 +128,34 @@ func underAny(p string, dirs []string) bool {
 		}
 	}
 	return false
+}
+
+const arMagic = "!<arch>\n"
+
+var goBuildCacheRel = regexp.MustCompile(`^(?:home/)?\.cache/go-build/[0-9a-f]{2}/[0-9a-f]+-[ad]$`)
+
+// goBuildCacheEntry reports whether p is a regular Unix ar archive ("!<arch>\n")
+// inside the sandbox's Go build cache (home/.cache/go-build/<xx>/<hex>-a|-d,
+// BUG-520): compiled package archives of internal/redact and internal/sandbox
+// embed the redactor test patterns, and -race builds can exceed maxScan, while
+// symlinks, unreadable files, credential-named files and non-archive plaintext
+// files planted in go-build are still scanned and fail closed.
+func goBuildCacheEntry(root, p string, d fs.DirEntry) bool {
+	if d == nil || !d.Type().IsRegular() {
+		return false
+	}
+	rel, err := filepath.Rel(root, p)
+	if err != nil || !goBuildCacheRel.MatchString(filepath.ToSlash(rel)) {
+		return false
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var hdr [len(arMagic)]byte
+	_, err = io.ReadFull(f, hdr[:])
+	return err == nil && string(hdr[:]) == arMagic
 }
 
 // resolvesUnder says whether link p, followed to the end, lands inside root.

@@ -323,3 +323,52 @@ func TestCredsLockedModules(t *testing.T) {
 		t.Errorf("a scan root named node_modules: %q", got)
 	}
 }
+
+// TestScanCredsGoBuildCacheArchivesAndPlantedCreds is the BUG-520 regression
+// pin: compiled Go build cache Unix ar archives ("!<arch>\n") under
+// home/.cache/go-build/<xx>/<hex>-a|-d carrying redactor test patterns or
+// exceeding maxScan pass, while plaintext secrets, credential-named files,
+// symlinks and unreadable files planted inside home/.cache/go-build/ fail
+// closed.
+func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
+	old := maxScan
+	maxScan = 128
+	t.Cleanup(func() { maxScan = old })
+
+	h := t.TempDir()
+	base := scanCreds(h)
+	gb := filepath.Join(h, "home", ".cache", "go-build")
+	put(t, filepath.Join(gb, "README"), "This directory holds cached build artifacts.\n", 0o644)
+	put(t, filepath.Join(gb, "00", "3ca7d41d7f2166632c91f1865e8f4adbb12b55dffeb8302087315de6385734f0-d"),
+		"!<arch>\n__.PKGDEF\n"+ghToken+"\n"+awsKey+"\n", 0o644)
+	put(t, filepath.Join(gb, "00", "3e4b8790b7e608509787b1d693e3f5c9feaf6d4134151a531993b1e9831dcbe2-d"),
+		"!<arch>\n__.PKGDEF\n"+strings.Repeat("x", 256)+ghToken, 0o644)
+	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
+		t.Fatalf("go-build archives flagged as credentials: %v", got)
+	}
+
+	outside := filepath.Join(t.TempDir(), "secret.a")
+	put(t, outside, "!<arch>\n"+ghToken, 0o600)
+	put(t, filepath.Join(gb, "00", "deadbeef-d"), "plaintext "+ghToken, 0o644)
+	put(t, filepath.Join(gb, "leak.txt"), "!<arch>\n"+awsKey, 0o644)
+	put(t, filepath.Join(gb, "00", "id_rsa"), "!<arch>\n", 0o600)
+	if err := os.Symlink(outside, filepath.Join(gb, "00", "feedface-d")); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join("home", ".cache", "go-build", "00", "deadbeef-d") + " (github-token)",
+		filepath.Join("home", ".cache", "go-build", "00", "feedface-d") + " (github-token)",
+		filepath.Join("home", ".cache", "go-build", "00", "id_rsa") + " (name)",
+		filepath.Join("home", ".cache", "go-build", "leak.txt") + " (aws-key)",
+	}
+	if os.Geteuid() != 0 {
+		locked := filepath.Join(gb, "00", "badcafe0-d")
+		put(t, locked, "!<arch>\n", 0o000)
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o600) })
+		want = append(want, filepath.Join("home", ".cache", "go-build", "00", "badcafe0-d")+" (unreadable)")
+	}
+	slices.Sort(want)
+	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
+		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
+	}
+}
