@@ -7,14 +7,6 @@
 
 ## Now
 
-### Phase 3 — CLI Trajectory Mapping (`fyr metrics trajectory`) & Live Antigravity `/work` Sidepanel (`--status-md`) (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
-
-- [ ] Create `internal/metrics/trajectory.go` and `internal/metrics/trajectory_test.go` and wire `fyr metrics trajectory [<session-id>] [--project DIR] [--limit N] [--json]` into `cmd/fyr/verb_metrics.go` and `cmd/fyr/help_text.go`.
-- [ ] Create `internal/sandbox/transcript_watch.go` and `internal/sandbox/transcript_watch_test.go` and wire `b.watchTranscript(ctx)` into `internal/sandbox/docker.go` (`dockerAgy`) and `internal/sandbox/session.go` (`hostCmd`).
-- [ ] Create `internal/work/progress_md.go` and wire `--status-md <FILE>` into `internal/work/progress.go`, `internal/work/work.go`, `cmd/fyr/verb_work.go`, `cmd/fyr/help_text.go`, and `skills/work/SKILL.md`.
-- [ ] Update `SDD.md`, `TDD.md`, and `SPEC-fyr-metrics`, then run full Definition of Done (`verifier`, `reviewer --code --docs`, `security`, `change` record, close plan, `TODO.md`, and `/handoff`).
-- [ ] Checkpoint
-
 ## Next
 
 ## Backlog

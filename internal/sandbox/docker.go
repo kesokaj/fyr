@@ -186,7 +186,9 @@ func (b *Box) dockerAgy(ctx context.Context, prompt, outPath, errPath string, ap
 	}
 	// Not in b.pgids: Wait reaps the client, so step 14's sweep would aim at
 	// a group whose id may be another's by then.
+	stopWatch := b.watchTranscript(ctx)
 	rc := agyExit(b.waitDocker(ctx, cmd, cmd.Process.Pid))
+	stopWatch()
 	// Check e's container half, now: the unlink and step 12's reads come
 	// after it, never while the container could still run.
 	b.containersLeft()

@@ -35,7 +35,7 @@ func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 // metricsSubverbs is what runMetrics dispatches, in its order: its refusal
 // texts are built from it and the check vocabulary reads it, and a test pins
 // it against the switch (plan fyr-check D14).
-var metricsSubverbs = []string{"ingest", "show", "report", "evals", "export"}
+var metricsSubverbs = []string{"ingest", "show", "report", "evals", "trajectory", "export"}
 
 func runMetrics(c *ctx) error {
 	args := c.fs.Args()
@@ -52,6 +52,8 @@ func runMetrics(c *ctx) error {
 		return c.metricsReport(args)
 	case "evals":
 		return c.metricsEvals(args)
+	case "trajectory":
+		return c.metricsTrajectory(args)
 	case "export":
 		return c.metricsExport(args)
 	}
@@ -164,6 +166,59 @@ func (c *ctx) metricsReport(args []string) error {
 	return nil
 }
 
+// metricsTrajectory serves `metrics trajectory`: per-session token trajectory,
+// subagent hierarchy, and context/tool anomalies, as text or --json (D6).
+func (c *ctx) metricsTrajectory(args []string) error {
+	if bad := c.metricsFlagsOutside("project", "limit", "json"); bad != "" {
+		fmt.Fprintf(c.out, "fyr metrics trajectory: --%s does not apply to trajectory\n", bad)
+		return exitCode(2)
+	}
+	if len(args) > 1 {
+		fmt.Fprintln(c.out, "fyr metrics trajectory [<session-id>] [--project DIR] [--limit N] [--json]")
+		return exitCode(2)
+	}
+	if c.limit < 0 {
+		fmt.Fprintln(c.out, "fyr metrics trajectory: --limit must be >= 0")
+		return exitCode(2)
+	}
+	proj, err := c.trajectoryProject()
+	if err != nil {
+		fmt.Fprintln(c.out, "fyr metrics trajectory: "+err.Error())
+		return exitCode(2)
+	}
+	s, err := c.existingMetricsStore()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	var sid string
+	if len(args) == 1 {
+		sid = args[0]
+	}
+	list, err := s.Trajectories(metrics.TrajectoryOptions{
+		Project: proj, SessionID: sid, Limit: c.limit,
+	})
+	if err != nil {
+		fmt.Fprintln(c.out, "fyr metrics trajectory: "+err.Error())
+		return exitCode(1)
+	}
+	if c.metricsJSON {
+		return metrics.WriteTrajectoriesJSON(c.out, list)
+	}
+	metrics.WriteTrajectoriesText(c.out, list)
+	return nil
+}
+
+func (c *ctx) trajectoryProject() (string, error) {
+	if c.metricsProject != "" {
+		return filepath.Abs(c.metricsProject)
+	}
+	if c.dirFlag != "" {
+		return c.projectDir()
+	}
+	return "", nil
+}
+
 // metricsExport serves `metrics export FILE`.
 func (c *ctx) metricsExport(args []string) error {
 	if bad := c.metricsFlagsOutside(); bad != "" {
@@ -190,7 +245,7 @@ func (c *ctx) metricsExport(args []string) error {
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
 func (c *ctx) metricsFlagsOutside(allowed ...string) string {
-	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true}
+	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true, "limit": true}
 	ok := map[string]bool{}
 	for _, a := range allowed {
 		ok[a] = true
@@ -232,6 +287,9 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	}
 	if c.metricsHarness != "" {
 		return o, errors.New("--harness belongs to evals")
+	}
+	if c.limit != 0 {
+		return o, errors.New("--limit belongs to trajectory")
 	}
 	if c.metricsOut != "" && c.fs.Arg(0) != "report" {
 		return o, errors.New("--out belongs to report")

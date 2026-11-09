@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -235,6 +236,10 @@ func strField(m map[string]any, keys ...string) string {
 	for _, k := range keys {
 		if v, ok := m[k]; ok {
 			if s, ok := v.(string); ok && s != "" {
+				var u string
+				if len(s) >= 2 && s[0] == '"' && json.Unmarshal([]byte(s), &u) == nil {
+					return u
+				}
 				return s
 			}
 		}

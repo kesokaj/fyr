@@ -56,7 +56,7 @@ func skipGitGlobals(rest []string) []string {
 }
 
 // shAgentSub are fyr's second-level verbs, and sh-agent's before the rename, kept after the subcommand.
-var shAgentSub = map[string]bool{"ingest": true, "show": true, "report": true, "evals": true, "export": true, "add": true}
+var shAgentSub = map[string]bool{"ingest": true, "show": true, "report": true, "evals": true, "trajectory": true, "export": true, "add": true}
 
 // goStyle programs take long flags behind a single dash (`go test -race
 // -count=1`) and never glue a value to a flag, so the whole name is kept.

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // agyHome writes one Antigravity conversation, id, in the workspace /p under
@@ -211,6 +212,11 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"metrics", "report", "--harness", "abc1234", "--out", filepath.Join(home, "x.html")},
 		{"metrics", "ingest", "--harness", "abc1234"},
 		{"metrics", "export", "--harness", "abc1234", filepath.Join(home, "x.jsonl")},
+		{"metrics", "show", "--limit", "5"},
+		{"metrics", "trajectory", "s1", "s2"},
+		{"metrics", "trajectory", "--limit", "-1"},
+		{"metrics", "trajectory", "--since", "2026-10-01"},
+		{"metrics", "trajectory", "--harness", "abc1234"},
 	} {
 		err := run(append(args, "--home", home), &bytes.Buffer{})
 		var code exitCode
@@ -242,6 +248,7 @@ func TestMetricsWithoutStore(t *testing.T) {
 		{"metrics", "report", "--out", filepath.Join(t.TempDir(), "r.html")},
 		{"metrics", "export", filepath.Join(t.TempDir(), "e.jsonl")},
 		{"metrics", "evals"},
+		{"metrics", "trajectory"},
 	} {
 		var out bytes.Buffer
 		err := run(append(args, "--home", home), &out)
@@ -252,5 +259,35 @@ func TestMetricsWithoutStore(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "metrics.db")); !os.IsNotExist(err) {
 		t.Errorf("a read verb created the store: %v", err)
+	}
+}
+
+func TestMetricsTrajectoryCLI(t *testing.T) {
+	home := t.TempDir()
+	ws := filepath.Join(home, "proj")
+	agyHomeIn(t, home, "11111111-1111-1111-1111-111111111111", ws)
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	out.Reset()
+	if err := run([]string{"metrics", "trajectory", "--limit", "5", "--json", "--home", home}, &out); err != nil {
+		t.Fatalf("trajectory --json: %v", err)
+	}
+	var list []metrics.SessionTrajectory
+	if err := json.Unmarshal(out.Bytes(), &list); err != nil {
+		t.Fatalf("unmarshal trajectory json: %v (%s)", err, out.String())
+	}
+	if len(list) != 1 || list[0].SessionID != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("trajectory list = %+v", list)
+	}
+
+	out.Reset()
+	if err := run([]string{"metrics", "trajectory", "11111111", "--home", home}, &out); err != nil {
+		t.Fatalf("trajectory prefix: %v", err)
+	}
+	if !strings.Contains(out.String(), "11111111") {
+		t.Errorf("trajectory text output = %q", out.String())
 	}
 }

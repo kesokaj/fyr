@@ -52,6 +52,7 @@ type Options struct {
 	Auto         bool          // fyr auto's worker: an empty Files: line is a drafts-only scope, and auto-drafts.jsonl is copied with the drafts
 	ACP          bool          // drive host workers via `agy acp --stdio --process-per-session`
 	Progress     io.Writer     // optional live subagent-style progress writer (stderr in CLI; nil suppresses)
+	StatusMD     string        // optional Markdown artifact file updated atomically on each progress event (D7)
 	build        buildMode     // a missing or stale DefaultImage: Run builds it (buildFirst), Check predicts the build (buildPredict), DockerPreflight neither (buildNever)
 }
 

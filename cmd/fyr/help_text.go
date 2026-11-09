@@ -44,7 +44,7 @@ Records and search
 Background and measurement
   dream        the hourly dreamer and its timer
   auto         idle-time runs: on, off, status, run
-  metrics      session shapes: ingest, show, report, evals, export
+  metrics      session shapes: ingest, show, report, evals, trajectory, export
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
@@ -268,6 +268,8 @@ var pages = map[string]verbPage{
 			"                          [--context-target N] [--out FILE]",
 			"       fyr metrics evals [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
 			"                         [--harness KEY] [--json]",
+			"       fyr metrics trajectory [<session-id>] [--project DIR] [--limit N]",
+			"                              [--json]",
 			"       fyr metrics export FILE",
 		},
 		about: []string{
@@ -277,10 +279,10 @@ var pages = map[string]verbPage{
 			"reliability; labelled (sandbox) sessions only when named. report writes",
 			"that as one HTML file with charts, 0600, never over a file. evals prints",
 			"a line per fyr eval row (kind, pass rates, Wilson interval, efficiency",
-			"means, expect's m of n, a flag from its whole history: saturated, broken,",
-			"unstable or history) and the suite with each kind's rate; --harness keeps",
-			"one key's trials. export writes every row but the cmd_hash salt to FILE",
-			"as JSONL, 0600, an existing FILE refused: it is the store's only backup.",
+			"means, expect's m of n, a flag from its whole history) and the suite;",
+			"--harness keeps one key's trials. trajectory prints session token curves,",
+			"subagent lineage and context/tool anomalies. export writes every row but",
+			"the cmd_hash salt to FILE as JSONL, 0600, an existing FILE refused.",
 		},
 	},
 	"eval": {
@@ -305,8 +307,8 @@ var pages = map[string]verbPage{
 	"work": {
 		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--max-workers N] [--workers N]",
 			"                [--ram GB] [--cpu N] [--disk GB] [--keep] [--acp]",
-			"                [--runner auto|host|docker] [--image REF] [--agy-linux PATH]",
-			"                <kickoff-file>...",
+			"                [--status-md FILE] [--runner auto|host|docker] [--image REF]",
+			"                [--agy-linux PATH] <kickoff-file>...",
 			"       fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]",
 			"       fyr work --check [--runner auto|host|docker] [--image REF]",
 			"                        [--agy-linux PATH]",

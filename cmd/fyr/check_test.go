@@ -76,7 +76,7 @@ func TestVocabularySubverbListsMatchDispatchers(t *testing.T) {
 		return out.String()
 	}
 	metricsSynopsis := strings.Join(pages["metrics"].synopsis, "\n") + "\n"
-	const metricsUnknown = `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, export)` + "\n"
+	const metricsUnknown = `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, trajectory, export)` + "\n"
 	if got := call("metrics", "frob"); !strings.HasPrefix(got, metricsUnknown+metricsSynopsis) || !strings.HasSuffix(got, "run 'fyr help metrics' for its flags\n") {
 		t.Errorf("metrics frob: %q, want the reason, the synopsis and the hint", got)
 	}

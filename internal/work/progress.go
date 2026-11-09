@@ -40,13 +40,14 @@ type WaveStatus struct {
 }
 
 type progressTracker struct {
-	mu         sync.Mutex
-	out        io.Writer
-	statusPath string
-	now        func() time.Time
-	starts     map[string]time.Time
-	index      map[string]int
-	wave       WaveStatus
+	mu           sync.Mutex
+	out          io.Writer
+	statusPath   string
+	statusMDPath string
+	now          func() time.Time
+	starts       map[string]time.Time
+	index        map[string]int
+	wave         WaveStatus
 }
 
 func newProgressTracker(o Options, stamp string, ps []prepared) *progressTracker {
@@ -55,11 +56,12 @@ func newProgressTracker(o Options, stamp string, ps []prepared) *progressTracker
 		nowFn = time.Now
 	}
 	t := &progressTracker{
-		out:        o.Progress,
-		statusPath: filepath.Join(sandbox.Root(o.Home, "work"), stamp, "status.json"),
-		now:        nowFn,
-		starts:     make(map[string]time.Time, len(ps)),
-		index:      make(map[string]int, len(ps)),
+		out:          o.Progress,
+		statusPath:   filepath.Join(sandbox.Root(o.Home, "work"), stamp, "status.json"),
+		statusMDPath: o.StatusMD,
+		now:          nowFn,
+		starts:       make(map[string]time.Time, len(ps)),
+		index:        make(map[string]int, len(ps)),
 		wave: WaveStatus{
 			Stamp:   stamp,
 			Workers: make([]WorkerStatus, len(ps)),
@@ -173,10 +175,13 @@ func (t *progressTracker) elapsedLocked(name string) int {
 }
 
 func (t *progressTracker) persistLocked() {
+	t.wave.UpdatedAt = t.now().UTC().Format(time.RFC3339)
+	if t.statusMDPath != "" {
+		writeStatusMD(t.statusMDPath, t.wave)
+	}
 	if t.statusPath == "" {
 		return
 	}
-	t.wave.UpdatedAt = t.now().UTC().Format(time.RFC3339)
 	b, err := json.MarshalIndent(t.wave, "", "  ")
 	if err != nil {
 		return

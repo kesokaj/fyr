@@ -47,6 +47,7 @@ type ctx struct {
 	workRunner                                                                                     string
 	workImage                                                                                      string
 	workAgyLinux                                                                                   string
+	workStatusMD                                                                                   string
 	autoLevel, autoProjectIdle, autoUserIdle                                                       string
 	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
@@ -121,11 +122,12 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
 		c.fs.StringVar(&c.metricsSince, "since", "", "show, report, evals: the window's start, `YYYY-MM-DD` (default 30 days ago)")
 		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report, evals: the window's end, `YYYY-MM-DD`, exclusive (default now)")
-		c.fs.StringVar(&c.metricsProject, "project", "", "show, report: only sessions in the project root `DIR`")
+		c.fs.StringVar(&c.metricsProject, "project", "", "show, report, trajectory: only sessions in the project root `DIR`")
 		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "show, report: include labelled (sandbox) sessions")
-		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, evals: print the summary as JSON")
+		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, evals, trajectory: print the summary as JSON")
 		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "show, report: the peak context, `N` tokens, a main session should stay under (default 300000)")
 		c.fs.StringVar(&c.metricsHarness, "harness", "", "evals: only the trials of the harness key `KEY`, exactly")
+		c.fs.IntVar(&c.limit, "limit", 0, "trajectory: print at most `N` main sessions (default 10)")
 		c.fs.StringVar(&c.metricsOut, "out", "", "report: the HTML file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
 	"record": {flags: func(c *ctx) {

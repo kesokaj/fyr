@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -38,6 +39,7 @@ func init() {
 		c.fs.StringVar(&c.workAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+sandbox.WorkAgyRel+", or the host's agy on linux)")
 		c.fs.BoolVar(&c.check, "check", false, "print the runner a run with these flags picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built: a missing or stale default image a run builds first reads as docker, saying so")
 		c.fs.BoolVar(&c.workACP, "acp", false, "drive host workers via agy acp --stdio --process-per-session")
+		c.fs.StringVar(&c.workStatusMD, "status-md", "", "write live Markdown wave status to `FILE` (0600, atomic)")
 		c.fs.BoolVar(&c.workStatus, "status", false, "print the newest wave's worker status board and exit 0")
 		c.fs.BoolVar(&c.jsonOut, "json", false, "status: print the wave status board as JSON")
 	}, positional: true, readsRepo: true, run: runWork}
@@ -50,6 +52,9 @@ func runWork(c *ctx) error {
 	files := c.fs.Args()
 	if c.jsonOut && !c.workStatus {
 		return c.workRefuse("--json requires --status")
+	}
+	if c.workStatusMD != "" && (c.workKill != "" || c.check || c.workStatus) {
+		return c.workRefuse("--status-md applies only to a worker run")
 	}
 	if c.workKill != "" {
 		return c.workKillRun(files)
@@ -83,7 +88,7 @@ func runWork(c *ctx) error {
 	return c.workRun(work.Options{Root: root, Home: c.home, RealHome: realHome, Self: self, Repo: src.Dir,
 		Timeout: c.workTimeout, Model: c.workModel, Keep: c.workKeep, MaxWorkers: maxW,
 		RAMGB: ram, CPUs: cpu, DiskGB: disk, Out: c.out, Progress: os.Stderr, ACP: c.workACP,
-		Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
+		StatusMD: c.workStatusMD, Runner: c.workRunner, Image: c.workImage, AgyLinux: c.workAgyLinux, Version: buildVersion()}, files)
 }
 
 func (c *ctx) workEnv() (root string, src harness.Source, realHome, self string, err error) {
@@ -162,6 +167,13 @@ func workStatusJSON(home string) (string, error) {
 // workRun runs the files under the verb's signals and maps the results to
 // the exit status: 0 every worker passed, 1 any failed, 2 a refusal.
 func (c *ctx) workRun(o work.Options, files []string) error {
+	if o.StatusMD != "" {
+		abs, err := resolveStatusMD(o.Root, o.StatusMD)
+		if err != nil {
+			return c.workRefuse("%v", err)
+		}
+		o.StatusMD = abs
+	}
 	// A hangup too, as eval, and a quit: either default would kill fyr
 	// before the token link is removed, and agy, in its own process group,
 	// would run on with the wide grant (the Phase 3 security review).
@@ -177,6 +189,30 @@ func (c *ctx) workRun(o work.Options, files []string) error {
 		}
 	}
 	return nil
+}
+
+func resolveStatusMD(root, p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("--status-md %s: %v", p, err)
+	}
+	cleanRoot := filepath.Clean(root)
+	if r, err := filepath.EvalSymlinks(cleanRoot); err == nil {
+		cleanRoot = r
+	}
+	checkAbs := filepath.Clean(abs)
+	if r, err := filepath.EvalSymlinks(filepath.Dir(checkAbs)); err == nil {
+		checkAbs = filepath.Join(r, filepath.Base(checkAbs))
+	}
+	rel, err := filepath.Rel(cleanRoot, checkAbs)
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		scratch := filepath.Join(cleanRoot, ".agents", "scratch")
+		srel, serr := filepath.Rel(scratch, checkAbs)
+		if serr != nil || srel == "." || srel == ".." || strings.HasPrefix(srel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("--status-md %s: path inside checkout must be under .agents/scratch/", p)
+		}
+	}
+	return abs, nil
 }
 
 // workRunnerFlags is the runner refusals a run and --check share: --runner

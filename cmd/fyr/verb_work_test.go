@@ -488,6 +488,12 @@ func TestWorkStatus(t *testing.T) {
 	if out, code := r.work("--status", "--acp"); code != 2 || !strings.Contains(out, "--status and --acp cannot be used together") {
 		t.Fatalf("--status --acp: exit %d, got %q", code, out)
 	}
+	if out, code := r.work("--status", "--status-md", filepath.Join(t.TempDir(), "w.md")); code != 2 || !strings.Contains(out, "--status-md applies only to a worker run") {
+		t.Fatalf("--status --status-md: exit %d, got %q", code, out)
+	}
+	if out, code := r.work("--status-md", "in-repo.md", r.kickoff("fix-a")); code != 2 || !strings.Contains(out, "path inside checkout must be under .agents/scratch/") {
+		t.Fatalf("--status-md inside checkout: exit %d, got %q", code, out)
+	}
 	if out, code := r.work("--acp", "--runner", "docker", r.kickoff("fix-a")); code != 2 || !strings.Contains(out, "--acp requires the host runner") {
 		t.Fatalf("--acp --runner docker: exit %d, got %q", code, out)
 	}
@@ -495,8 +501,13 @@ func TestWorkStatus(t *testing.T) {
 		t.Fatalf("--check --acp: exit %d, got %q", code, out)
 	}
 
-	if out, code := r.work(r.kickoff("fix-a")); code != 0 {
+	mdFile := filepath.Join(t.TempDir(), "work-wave.md")
+	if out, code := r.work("--status-md", mdFile, r.kickoff("fix-a")); code != 0 {
 		t.Fatalf("work run: exit %d\n%s", code, out)
+	}
+	mdRaw, err := os.ReadFile(mdFile)
+	if err != nil || !strings.Contains(string(mdRaw), "```mermaid") || !strings.Contains(string(mdRaw), "````carousel") {
+		t.Fatalf("--status-md file missing or incomplete: err=%v\n%s", err, string(mdRaw))
 	}
 	out, code = r.work("--status")
 	if code != 0 || !strings.Contains(out, "WORKER\tSTATE") || !strings.Contains(out, "fix-a\tPASS") {

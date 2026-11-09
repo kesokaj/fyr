@@ -26,12 +26,14 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 	}
 
 	var prog bytes.Buffer
+	statusMD := filepath.Join(outsideTemp(t), "work-wave.md")
 	fixedNow := time.Date(2026, 11, 8, 21, 0, 0, 0, time.UTC)
 	o := Options{
 		Home:     home,
 		Root:     root,
 		Model:    "gemini-3-flash",
 		Progress: &prog,
+		StatusMD: statusMD,
 		Now:      func() time.Time { return fixedNow },
 	}
 	stamp := "2026-11-08-210000-1234"
@@ -112,5 +114,41 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 		if !strings.Contains(board, want) {
 			t.Errorf("status board missing %q:\n%s", want, board)
 		}
+	}
+
+	mdBytes, err := os.ReadFile(statusMD)
+	if err != nil {
+		t.Fatalf("reading statusMD: %v", err)
+	}
+	md := string(mdBytes)
+	for _, want := range []string{
+		"# fyr work — wave " + stamp,
+		"```mermaid\nflowchart LR",
+		`wave --> w0["p1 (PASS)"]`,
+		`w0 --> w0_s0["subagent: verifier (Test Runner)"]`,
+		"| `p1` | `PASS` | `gemini-4-argon-high` | `work/p1` | `01:15` | 2 | 2 |",
+		"````carousel",
+		"<!-- slide -->",
+		"### Worker `p1` (`PASS`)",
+		"### Worker `p2` (`queued`)",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("statusMD missing %q:\n%s", want, md)
+		}
+	}
+
+	// Symlink target is refused and never overwritten.
+	symDir := outsideTemp(t)
+	victim := filepath.Join(symDir, "victim.md")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symPath := filepath.Join(symDir, "link.md")
+	if err := os.Symlink(victim, symPath); err != nil {
+		t.Fatal(err)
+	}
+	writeStatusMD(symPath, wave)
+	if got, _ := os.ReadFile(victim); string(got) != "keep" {
+		t.Fatalf("symlink victim was overwritten: %q", string(got))
 	}
 }

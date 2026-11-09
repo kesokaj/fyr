@@ -97,6 +97,8 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 	b.started = true
 	pgid := cmd.Process.Pid
 	b.pgids = append(b.pgids, pgid)
+	stopWatch := b.watchTranscript(ctx)
+	defer stopWatch()
 	return agyExit(b.waitAgy(ctx, cmd, pgid))
 }
 

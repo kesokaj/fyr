@@ -222,7 +222,7 @@ func TestUsageErrSites(t *testing.T) {
 		"eval without a row":     {[]string{"eval"}, "eval", ""},
 		"memory frob":            {[]string{"memory", "frob"}, "memory", ""},
 		"bare metrics":           {[]string{"metrics"}, "metrics", ""},
-		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, export)`},
+		"metrics frob":           {[]string{"metrics", "frob"}, "metrics", `fyr metrics: unknown subcommand "frob" (ingest, show, report, evals, trajectory, export)`},
 		"sync with a stray word": {[]string{"sync", "x", "--repo", "../.."}, "sync", `sync takes no arguments: ["x"]`},
 		"dream both timers":      {[]string{"dream", "--install-timer", "--remove-timer"}, "dream", "fyr dream: --install-timer or --remove-timer, not both"},
 		"dream timer and scope":  {[]string{"dream", "--remove-timer", "--project", "x"}, "dream", "fyr dream: --install-timer and --remove-timer take no --all or --project"},
