@@ -7,12 +7,10 @@
 
 ## Now
 
-### Phase 3 — Multi-Turn Scenario Proof Suite (`Mock 3: mock-fleet-ops`) — Parallel Workers, Trajectory Anomalies, Dream/Retro & Auto (`PLAN-2026-11-09-1546-plan-end-to-end-feature-proof-matrix-3-mock-proj`, after: Phase 2)
-- [ ] 3.1 In `cmd/fyr/mock_scenario_fleet_test.go`, write `TestMockScenario3FleetOpsWorkersTrajectoryAndLearningLoop` replaying **Mock Project 3**.
-- [ ] 3.2 Checkpoint: run `gofmt -l cmd internal && go vet ./... && go test -race ./cmd/fyr`, store the `change` record, and run `/fyr-handoff`.
+### Phase 4 — Optional Live `GUIDE-eval.md` Multi-Turn Scenario Rows & Full Verification Gate (`PLAN-2026-11-09-1546-plan-end-to-end-feature-proof-matrix-3-mock-proj`, after: Phase 3)
+- [ ] 4.1 If approved by the operator, add 3 multi-turn capability rows (`scenario-ledger-mvp`, `scenario-worker-adr-fence`, `scenario-fleet-trajectory`) to `.agents/eval/GUIDE-eval.md` (with matching pins in `internal/eval/suite_test.go` and good/bad outcomes in `internal/eval/suite_outcomes_test.go`).
+- [ ] 4.2 Run the full project verification suite (`gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...`, `"$(go env GOPATH)/bin/govulncheck" ./...`, `fyr check --home ~`), dispatch `verifier` and `reviewer` (`--code --docs`), and close the plan with `/fyr-handoff`.
 
 ## Next
-
-- Phase 4 (`PLAN-2026-11-09-1546-plan-end-to-end-feature-proof-matrix-3-mock-proj`): Full Verification Gate (and optional live `GUIDE-eval.md` multi-turn scenario rows if requested).
 
 ## Backlog
