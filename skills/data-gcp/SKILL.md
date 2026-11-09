@@ -88,7 +88,7 @@ gcloud sql databases create app --instance "${APP}-db"
 
 `github.com/golang-migrate/migrate/v4` with `source/iofs` over `//go:embed migrations/*.sql`
 and the `database/pgx/v5` driver, exposed as the service binary's `migrate` subcommand
-(`golang/references/service.md` § Database item 3), run as a Job from `/preflight` BEFORE the
+(`golang/references/service.md` § Database item 3), run as a Job from `/fyr-preflight` BEFORE the
 new revision receives traffic, never on instance start (every cold start would race every
 other):
 
@@ -184,7 +184,7 @@ is faster; the proxy is for reading production data or a one-off migration check
   identity columns; a `created_at timestamptz NOT NULL DEFAULT now()` on every table.
 - A migration is forward-only once applied in production: the next migration fixes it.
 - The migration job's `--wait` exit status is read bare; a failed migration is a NO-SHIP
-  for the revision that needs it (`preflight`).
+  for the revision that needs it (`fyr-preflight`).
 
 ## Operations the project records
 

@@ -19,7 +19,7 @@ Your run can be cut off at a turn limit, and a run cut off before its one write 
 
 ## Where the entry goes
 
-View `~/.gemini/config/skills/init-project/references/trail.md` before your first write. The entry is the draft `.agents/scratch/agents/changelog-<stamp>.md`; the main thread stores it as a `change` record (`fyr record add change --title …`), whose ID carries the stamp. A `change` record is never rewritten.
+View `~/.gemini/config/skills/fyr-init-project/references/trail.md` before your first write. The entry is the draft `.agents/scratch/agents/changelog-<stamp>.md`; the main thread stores it as a `change` record (`fyr record add change --title …`), whose ID carries the stamp. A `change` record is never rewritten.
 
 ## The date — never from memory
 
@@ -69,7 +69,7 @@ Which PRD.md items this satisfies (or "n/a").
 ```
 Use absolute dates. Never edit a past change record — always draft a new one.
 
-**ADRs** are not yours: a structural decision is recorded by the main agent as an `adr` record (shape: the `feature` skill § Decisions). When a dispatch asks you for one, say so and write the changes entry only.
+**ADRs** are not yours: a structural decision is recorded by the main agent as an `adr` record (shape: the `fyr-feature` skill § Decisions). When a dispatch asks you for one, say so and write the changes entry only.
 
 ## Rules
 

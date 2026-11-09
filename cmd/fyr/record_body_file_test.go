@@ -282,17 +282,26 @@ func TestMemoryAddBodyFile(t *testing.T) {
 }
 
 // TestNoRedirectedFyrInstructions pins Item 5 of PLAN-2026-11-02-1806-fyr-speed
-// and BUG-501: no harness instruction redirects a file or heredoc into fyr
-// (which breaks the unsandboxed(fyr) prefix grant and raises a permission
-// dialog), none tells the caller to strip the header line of fyr record get
-// instead of using --out, and handoff's record add passes --id so the Kickoff
-// names the stored handoff ID.
+// and BUG-501: no harness instruction redirects a file (`< file`) or unquoted
+// heredoc (`<<EOF`) into fyr (single-quoted `<<'EOF'` is the ADR-513 1-call
+// shell-safe stdin protocol), none tells the caller to strip the header line of
+// fyr record get instead of using --out, and handoff's record add passes --id
+// so the Kickoff names the stored handoff ID.
 func TestNoRedirectedFyrInstructions(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	redirectRe := regexp.MustCompile("`[^`]*\\bfyr\\s+(?:record|memory)\\b[^`]*(?:\\s<\\s|<<)[^`]*`|^\\s*fyr\\s+(?:record|memory)\\b.*(?:\\s<\\s|<<)")
+	if !redirectRe.MatchString("fyr memory add <<'EOF' < input.txt") {
+		t.Fatal("redirectRe must match mixed heredoc + file redirection")
+	}
+	if redirectRe.MatchString(strings.ReplaceAll("fyr memory add <<'EOF'", "<<'EOF'", "")) {
+		t.Fatal("cleaned single-quoted <<'EOF' must not match redirectRe")
+	}
+	if !redirectRe.MatchString(strings.ReplaceAll("fyr memory add <<'EOF' < input.txt", "<<'EOF'", "")) {
+		t.Fatal("cleaned line with extra < input.txt must still match redirectRe")
+	}
 	bareBodyRe := regexp.MustCompile(`--body(?:[^-]|$)`)
 	for _, root := range []string{"context", "agents", "skills", "rules", "commands"} {
 		err := filepath.WalkDir(filepath.Join(repo, root), func(path string, d fs.DirEntry, err error) error {
@@ -311,8 +320,8 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(repo, path)
 			for i, line := range strings.Split(string(data), "\n") {
-				if redirectRe.MatchString(line) {
-					t.Errorf("%s:%d redirects input into fyr instead of --body-file: %s", rel, i+1, strings.TrimSpace(line))
+				if redirectRe.MatchString(strings.ReplaceAll(line, "<<'EOF'", "")) {
+					t.Errorf("%s:%d redirects input into fyr instead of --body-file or <<'EOF': %s", rel, i+1, strings.TrimSpace(line))
 				}
 				if bareBodyRe.MatchString(line) {
 					t.Errorf("%s:%d uses bare --body (stdin pipe) instead of --body-file: %s", rel, i+1, strings.TrimSpace(line))
@@ -330,19 +339,19 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	handoffBytes, err := os.ReadFile(filepath.Join(repo, "skills", "handoff", "SKILL.md"))
+	handoffBytes, err := os.ReadFile(filepath.Join(repo, "skills", "fyr-handoff", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	handoff := string(handoffBytes)
 	if !strings.Contains(handoff, "fyr record add handoff --id HANDOFF-<stamp>-<slug>") || !strings.Contains(handoff, "--body-file .agents/scratch/handoff-<stamp>.md") {
-		t.Errorf("skills/handoff/SKILL.md does not store the handoff with --id HANDOFF-<stamp>-<slug> and --body-file (BUG-501)")
+		t.Errorf("skills/fyr-handoff/SKILL.md does not store the handoff with --id HANDOFF-<stamp>-<slug> and --body-file (BUG-501)")
 	}
-	specBytes, err := os.ReadFile(filepath.Join(repo, "skills", "spec", "SKILL.md"))
+	specBytes, err := os.ReadFile(filepath.Join(repo, "skills", "fyr-spec", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(specBytes), "[a-z0-9-]") {
-		t.Errorf("skills/spec/SKILL.md does not constrain <app> and <topic> to [a-z0-9-]")
+		t.Errorf("skills/fyr-spec/SKILL.md does not constrain <app> and <topic> to [a-z0-9-]")
 	}
 }

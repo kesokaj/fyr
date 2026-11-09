@@ -30,9 +30,9 @@ func TestRubricDenied(t *testing.T) {
 		".gitignore", "web/.gitattributes",
 		"skills/VENDORED.md", "skills/google-catalog/catalog/", "skills/google-catalog/catalog/a/SKILL.md",
 		// auto's own contract and code (D36).
-		"internal/auto/", "internal/auto/rubric.go", "skills/auto/", "skills/auto/SKILL.md",
+		"internal/auto/", "internal/auto/rubric.go", "skills/fyr-auto/", "skills/fyr-auto/SKILL.md",
 		// .agents/skills links to skills/ in this repository.
-		".agents/skills", ".agents/skills/VENDORED.md", ".agents/skills/google-catalog/catalog/x", ".agents/skills/auto/SKILL.md",
+		".agents/skills", ".agents/skills/VENDORED.md", ".agents/skills/google-catalog/catalog/x", ".agents/skills/fyr-auto/SKILL.md",
 		// Names at any depth.
 		"AGENTS.md", "web/AGENTS.md", "x/y/PRD.md", "a_test.go", "internal/x/a_test.go",
 		"go.mod", "tools/go.sum", "web/package.json", "web/package-lock.json", "web/pnpm-lock.yaml",
@@ -47,7 +47,7 @@ func TestRubricDenied(t *testing.T) {
 		"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "SPEC-fyr-work", "ADR-090", "ADR-089a",
 		// Lines git quotes, a control character, and past ASCII, which a
 		// file system may fold onto a denied name.
-		"\"a\\303.md\"", "a\nAGENTS.md", "AGENT\u017f.md", "\u017fkills/auto/SKILL.md", "A_\u017fest.go", "AGENT\u200cS.md",
+		"\"a\\303.md\"", "a\nAGENTS.md", "AGENT\u017f.md", "\u017fkills/fyr-auto/SKILL.md", "A_\u017fest.go", "AGENT\u200cS.md",
 	} {
 		if !Denied(e) {
 			t.Errorf("Denied(%q) = false, want true", e)
@@ -56,7 +56,7 @@ func TestRubricDenied(t *testing.T) {
 	for _, e := range []string{
 		"README.md", "SDD.md", "TODO.md", "SPEC-greet", "GUIDE-onboarding",
 		"docs/guide.md", "internal/greet/greet.go", "internal/worker.go", "cmd/server/main.go",
-		"skills/retro/", "skills/retro/SKILL.md", ".agents/skills/new-one/", "agents/verifier/agent.md",
+		"skills/fyr-retro/", "skills/fyr-retro/SKILL.md", ".agents/skills/new-one/", "agents/verifier/agent.md",
 		"latest_test.go.txt", "contexts/x.md", "rules.md", "go.modx", "lock.go", "my-package.json",
 		"web/context/x.md", "web/rules/x.md", "internal/evaluate/x.go", "adr-notes.md",
 	} {
@@ -67,23 +67,23 @@ func TestRubricDenied(t *testing.T) {
 }
 
 func TestRubricAllowedFiles(t *testing.T) {
-	in := []string{"README.md", "AGENTS.md", "SPEC-greet", "internal/x_test.go", "ADR-001", "skills/retro/SKILL.md", ".agents/workflows/x.md"}
+	in := []string{"README.md", "AGENTS.md", "SPEC-greet", "internal/x_test.go", "ADR-001", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}
 	kept, denied := AllowedFiles(in, false)
 	if want := []string{"README.md", "SPEC-greet"}; !slices.Equal(kept, want) {
 		t.Errorf("kept %v, want %v", kept, want)
 	}
-	if want := []string{"AGENTS.md", "internal/x_test.go", "ADR-001", "skills/retro/SKILL.md", ".agents/workflows/x.md"}; !slices.Equal(denied, want) {
+	if want := []string{"AGENTS.md", "internal/x_test.go", "ADR-001", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}; !slices.Equal(denied, want) {
 		t.Errorf("denied %v, want %v", denied, want)
 	}
 	// An instruction class gets the instruction files, and nothing denied.
 	kept, _ = AllowedFiles(in, true)
-	if want := []string{"README.md", "SPEC-greet", "skills/retro/SKILL.md", ".agents/workflows/x.md"}; !slices.Equal(kept, want) {
+	if want := []string{"README.md", "SPEC-greet", "skills/fyr-retro/SKILL.md", ".agents/workflows/x.md"}; !slices.Equal(kept, want) {
 		t.Errorf("an instruction class kept %v, want %v", kept, want)
 	}
 }
 
 func TestRubricInstruction(t *testing.T) {
-	for _, e := range []string{"skills/", "skills/retro/SKILL.md", "agents/verifier/agent.md", "commands/x.md",
+	for _, e := range []string{"skills/", "skills/fyr-retro/SKILL.md", "agents/verifier/agent.md", "commands/x.md",
 		".agents/skills/new/", ".agents/agents/x.md", ".agents/commands/x.md", ".agents/workflows/x.md", ".agents/", "SKILLS/x", "../x"} {
 		if !Instruction(e) {
 			t.Errorf("Instruction(%q) = false, want true", e)
@@ -117,7 +117,7 @@ var (
 // TestRubricMatchesSkill pins rubric.go and the skill's words to each other,
 // both ways: a token or sentence on one side only fails.
 func TestRubricMatchesSkill(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "auto", "SKILL.md"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-auto", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

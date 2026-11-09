@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// The risk rubric's single source (D11). skills/auto/SKILL.md states it in
+// The risk rubric's single source (D11). skills/fyr-auto/SKILL.md states it in
 // words, and TestRubricMatchesSkill pins the two together, both ways.
 var (
 	// deniedRoots are paths from the repository's root, a directory ending
@@ -15,7 +15,7 @@ var (
 	// D42).
 	deniedRoots = []string{
 		"context/", "rules/", ".agents/rules/", ".agents/eval/",
-		"internal/eval/", "internal/auto/", "skills/auto/",
+		"internal/eval/", "internal/auto/", "skills/fyr-auto/",
 		"internal/work/", "internal/sandbox/", "internal/redact/", "cmd/fyr/", "docker/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",
 		"skills/VENDORED.md", "skills/google-catalog/catalog/",

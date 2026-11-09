@@ -12,7 +12,7 @@ import (
 
 // The trailer check (TR8, plan 2026-10-25-harness-audit-fix D4, D13): the
 // handoff skill's Step 6 and the preflight skill's Step 6.4 run
-// skills/handoff/scripts/check-trailers.sh before the push, and it must refuse
+// skills/fyr-handoff/scripts/check-trailers.sh before the push, and it must refuse
 // an unpushed commit whose message carries a CLI trailer (BUG-177) while
 // passing a clean range. The fixture is a real clone with an upstream, because
 // the script reads `git log @{u}..HEAD`, and a commit already pushed is not
@@ -23,7 +23,7 @@ func TestCheckTrailersScript(t *testing.T) {
 			t.Skipf("%s not on PATH", tool)
 		}
 	}
-	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "handoff", "scripts", "check-trailers.sh"))
+	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "fyr-handoff", "scripts", "check-trailers.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}

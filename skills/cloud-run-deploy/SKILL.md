@@ -3,9 +3,9 @@ name: cloud-run-deploy
 description: |
   The HOW of a Google Cloud Run deploy: build the image locally (ARM to test, AMD64 to
   deploy), push to Artifact Registry, deploy, verify, roll back. A ship, deploy, release or
-  "cut vX.Y.Z" request in the user's own turn means `/preflight`, which gates and then runs
+  "cut vX.Y.Z" request in the user's own turn means `/fyr-preflight`, which gates and then runs
   these steps: never run them in its place. Use directly for the mechanics: an image build
-  or push, a rollback, a `gcloud run` flag, a failed revision, or a deploy `/preflight`
+  or push, a rollback, a `gcloud run` flag, a failed revision, or a deploy `/fyr-preflight`
   already gated. Do NOT use for GKE workloads (gke-basics), local-only container work
   (docker), gcloud auth problems (gcloud-setup) or Terraform-managed infrastructure
   (terraform).
@@ -108,7 +108,7 @@ Flags — apply deliberately, not by default; a project-specific flag and its re
 
 When the service is in Terraform (`terraform` skill), Terraform set the image once and ignores it since: this skill owns every revision, the traffic split and the rollback, and a `terraform apply` in between changes none of them.
 
-`/preflight`'s deploy row runs this block from the SECOND revision on; the first deploy of a
+`/fyr-preflight`'s deploy row runs this block from the SECOND revision on; the first deploy of a
 service that does not exist yet is a plain `gcloud run deploy` (there is no serving revision to
 keep traffic on), and a rollback skips it. Deploy without traffic, test the tagged revision with a
 token, shift a slice, promote.

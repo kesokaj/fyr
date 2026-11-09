@@ -53,20 +53,27 @@ func TestClassifyIntentAllNineModes(t *testing.T) {
 		{"How does ReconcileProjectIndex work in service.go?", 2, IntentQuestion},
 		{"What is the schema of read_ledger?", 1, IntentQuestion},
 		{"/explain-project", 0, IntentQuestion},
+		{"/fyr-explain-project", 0, IntentQuestion},
 		{"fix typo in README.md", 0, IntentTrivial},
 		{"rename x to count", 0, IntentTrivial},
 		{"Update FormatVetResult in internal/search/fence.go", 1, IntentTask},
+		{"/fyr-index-project", 0, IntentTask},
+		{"/fyr-refresh-project-index", 0, IntentTask},
 		{"Project: /home/user/fyr. Files: a.go\nStanding approvals (closed set): all", 1, IntentTask},
 		{"Fix nil pointer panic in ReconcileProjectIndex", 1, IntentBug},
 		{"TestRunHook fails with race condition", 1, IntentBug},
 		{"/bug investigate failure", 0, IntentBug},
+		{"/fyr-bug investigate failure", 0, IntentBug},
 		{"Build a new GraphQL subscription gateway", 0, IntentFeature},
 		{"Design and implement distributed caching", 0, IntentFeature},
 		{"/feature add webhook", 0, IntentFeature},
+		{"/fyr-feature add webhook", 0, IntentFeature},
 		{"Review this diff for regressions", 0, IntentReview},
 		{"/review --code --security", 0, IntentReview},
+		{"/fyr-review --code --security", 0, IntentReview},
 		{"Ship it and cut v7.4.0", 0, IntentRelease},
 		{"/preflight v7.4.0", 0, IntentRelease},
+		{"/fyr-preflight v8.0.0", 0, IntentRelease},
 	}
 	for _, tc := range cases {
 		got := ClassifyIntent(tc.prompt, tc.symbolHits)
@@ -132,13 +139,13 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		t.Errorf("QUESTION contract missing ANSWER_ONLY:\n%s", qRes.TurnContract)
 	}
 
-	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches feedback-log + project-memory.
+	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-feedback-log + fyr-project-memory.
 	corrRes := VetPrompt("No, always do table-driven tests with -race", "", SliceResult{}, TurnBrainContext{})
 	if corrRes.Intent != IntentCorrection || corrRes.Gate != GateEnrichAndProceed {
 		t.Errorf("CORRECTION: got intent=%s gate=%s, want CORRECTION / ENRICH_AND_PROCEED", corrRes.Intent, corrRes.Gate)
 	}
-	if len(corrRes.Skills) != 2 || corrRes.Skills[0].Name != "feedback-log" || corrRes.Skills[1].Name != "project-memory" {
-		t.Errorf("CORRECTION skills = %+v, want [feedback-log, project-memory]", corrRes.Skills)
+	if len(corrRes.Skills) != 2 || corrRes.Skills[0].Name != "fyr-feedback-log" || corrRes.Skills[1].Name != "fyr-project-memory" {
+		t.Errorf("CORRECTION skills = %+v, want [fyr-feedback-log, fyr-project-memory]", corrRes.Skills)
 	}
 
 	// 7. Conflict with PRD / ADR triggers VET_FIRST and sanitizes newlines in ADR titles.

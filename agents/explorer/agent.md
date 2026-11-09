@@ -1,6 +1,6 @@
 ---
 name: explorer
-description: "Read-only codebase recon in an isolated context. Returns a structured brief (files, flows, conventions, risks, open questions) drafted under .agents/scratch/agents/ for the main thread to store as a plan record, so only the summary enters the main context. Dispatch for any survey spanning 10+ files, before large features, and as the scan phase of /review --project. Never edits source; the only file it creates is its own brief."
+description: "Read-only codebase recon in an isolated context. Returns a structured brief (files, flows, conventions, risks, open questions) drafted under .agents/scratch/agents/ for the main thread to store as a plan record, so only the summary enters the main context. Dispatch for any survey spanning 10+ files, before large features, and as the scan phase of /fyr-review --project. Never edits source; the only file it creates is its own brief."
 subagent: true
 mainAgent: false
 model: flash
@@ -31,7 +31,7 @@ Check `AGENTS.md`, `PRD.md`, and `TODO.md` first when they exist — the brief m
 
 ## Brief — on disk, never chat-only
 
-Write it as a draft (`~/.gemini/config/skills/init-project/references/trail.md`): from the repo root (`git rev-parse --show-toplevel`), `mkdir -p .agents/scratch/agents`, then `.agents/scratch/agents/explorer-<stamp>.md`, `<stamp>` from `date +%F-%H%M` — never memory. The main thread stores it as a `plan` record; you never run `fyr record add`. No frontmatter: the first line is the `# ` title.
+Write it as a draft (`~/.gemini/config/skills/fyr-init-project/references/trail.md`): from the repo root (`git rev-parse --show-toplevel`), `mkdir -p .agents/scratch/agents`, then `.agents/scratch/agents/explorer-<stamp>.md`, `<stamp>` from `date +%F-%H%M` — never memory. The main thread stores it as a `plan` record; you never run `fyr record add`. No frontmatter: the first line is the `# ` title.
 
 ```markdown
 # Recon — <slug>   (<date>)

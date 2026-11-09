@@ -152,7 +152,7 @@ func TestRefsPrefilterIsEquivalent(t *testing.T) {
 		"prose with a full stop. And another one. No reference here",
 		"a dotted word like e.g. or v1.2.3 but no extension",
 		"mixed BUG-001 in cmd/x/y.ts, and go.mod; also z.tf",
-		"a directory only: skills/feature/",
+		"a directory only: skills/fyr-feature/",
 		"",
 	}, "\n")
 	// One bare name per accepted extension, no slash on the line.

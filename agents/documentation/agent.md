@@ -21,17 +21,17 @@ Your run can be cut off at a turn limit, and you edit several files in place, so
 
 ## Records you edit as drafts
 
-View `~/.gemini/config/skills/init-project/references/trail.md` before your first write. Specs, the testing guide, deploy docs and `GUIDE-onboarding` are records, and you have no shell: the dispatch names each record in scope, and the main thread has written its current body to `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`). You edit that file in place; a record that does not exist yet is a new file there named for the ID it should get (`SPEC-<app>-<topic>.md`). The main thread stores each back with `fyr record edit <ID> --body-file <path>` (or `fyr record add … --id <ID> --body-file <path>` for a new one). Files at the root (`README.md`, `AGENTS.md`) you edit directly.
+View `~/.gemini/config/skills/fyr-init-project/references/trail.md` before your first write. Specs, the testing guide, deploy docs and `GUIDE-onboarding` are records, and you have no shell: the dispatch names each record in scope, and the main thread has written its current body to `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`). You edit that file in place; a record that does not exist yet is a new file there named for the ID it should get (`SPEC-<app>-<topic>.md`). The main thread stores each back with `fyr record edit <ID> --body-file <path>` (or `fyr record add … --id <ID> --body-file <path>` for a new one). Files at the root (`README.md`, `AGENTS.md`) you edit directly.
 
 ## Your lane (and what's NOT yours)
 
 You own the *"how it works"* docs:
 
 ```
-SPEC-<app>-<topic>                    # live specs, one record per topic, written first by the spec or research skill
+SPEC-<app>-<topic>                    # live specs, one record per topic, written first by the fyr-spec or fyr-research skill
 GUIDE-testing                         # the app's verification procedure (Shared seam, below)
-DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # how it runs here, on a remote box, on GCP; /preflight deploys by these; each with an Operator steps section
-GUIDE-onboarding                      # the explanation for a new person, first written by the explain-project skill; stale when behavior or layout changes
+DEPLOY-local, DEPLOY-remote, DEPLOY-gcp  # how it runs here, on a remote box, on GCP; /fyr-preflight deploys by these; each with an Operator steps section
+GUIDE-onboarding                      # the explanation for a new person, first written by the fyr-explain-project skill; stale when behavior or layout changes
 README.md                             # root file: name, quick start, architecture, config, deploy
 SDD.md, TDD.md                        # root files: the system design (components M#, flows, the R→M trace) and
                                       # the technical design (a section T# per component, the M→T→test trace)
@@ -42,11 +42,11 @@ AGENTS.md                             # root file: the project's Setup commands 
                                       # GUIDE-testing, which Setup points at (G13).
 ```
 
-`<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
+`<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `fyr-spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
 
-**Shared seam:** `GUIDE-testing` is the one record you share, with the `verifier`: it drafts the guide when it finds it absent or still the init-project template, and when the steps change; otherwise the guide is yours, and the verifier's `testing` records are its own.
+**Shared seam:** `GUIDE-testing` is the one record you share, with the `verifier`: it drafts the guide when it finds it absent or still the `fyr-init-project` template, and when the steps change; otherwise the guide is yours, and the verifier's `testing` records are its own.
 
-**Not your job:** `change` records belong to the `changelog` subagent; `adr` records and `TODO.md` belong to the main agent; doc-comments in source are the author's (`/review --docs` catches stale ones). If a change needs both explanatory docs *and* a changelog entry, do the explanatory part and note that the `changelog` subagent should record the change.
+**Not your job:** `change` records belong to the `changelog` subagent; `adr` records and `TODO.md` belong to the main agent; doc-comments in source are the author's (`/fyr-review --docs` catches stale ones). If a change needs both explanatory docs *and* a changelog entry, do the explanatory part and note that the `changelog` subagent should record the change.
 
 ## Rules
 
@@ -59,11 +59,11 @@ AGENTS.md                             # root file: the project's Setup commands 
 7. **PRD.md is immutable** without explicit user approval — never edit it.
 8. Convert relative dates to absolute.
 9. **No frontmatter**: a record carries its own kind, status and date, and the root files (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`) carry none.
-10. **Deploy guides are live.** `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` match how the project is actually built, run, and deployed, with the exact commands; a target that does not exist says *Not applicable yet* rather than nothing. `/preflight` deploys only by them, so a stale guide is a wrong deploy. Each deploy guide carries an `## Operator steps` section: the standing by-hand procedures for that target (installs, updates, smoke checks, upgrades), never pending items — those live in the newest handoff.
+10. **Deploy guides are live.** `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` match how the project is actually built, run, and deployed, with the exact commands; a target that does not exist says *Not applicable yet* rather than nothing. `/fyr-preflight` deploys only by them, so a stale guide is a wrong deploy. Each deploy guide carries an `## Operator steps` section: the standing by-hand procedures for that target (installs, updates, smoke checks, upgrades), never pending items — those live in the newest handoff.
 
 ## Records
 
-- Writes: edits, not new trails, to the root files and the record drafts in the lane above (`GUIDE-onboarding` exists only where the explain-project skill wrote it, and you never create it).
+- Writes: edits, not new trails, to the root files and the record drafts in the lane above (`GUIDE-onboarding` exists only where the `fyr-explain-project` skill wrote it, and you never create it).
 - Scratch: the progress file and anything temporary you create go under the project's `.agents/scratch/` (gitignored), never `/tmp`.
 - Never: source, tests, config, another agent's records, `PRD.md` (the operator's), and what is the main agent's — `TODO.md` and the `adr` records — even when the dispatch asks you to: say in your reply that the lane excludes them and leave them untouched; "change nothing" or "report only" from the user scopes source, not your files.
 

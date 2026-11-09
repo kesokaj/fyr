@@ -514,7 +514,7 @@ func extractIntArg(args map[string]any, keys ...string) int {
 }
 
 func writeStoreDegraded(out io.Writer, err error) error {
-	banner := fmt.Sprintf("⚠️ **fyr brain:** store unavailable (%s) — capsule/memory skipped; run fyr doctor", oneLineErr(err))
+	banner := fmt.Sprintf("⚠️ **fyr brain:** store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
 	return writePreInvocation(out, "", banner)
 }
 

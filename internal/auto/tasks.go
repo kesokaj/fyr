@@ -284,7 +284,7 @@ func (r *run) readSessionFrictions(root string) []int {
 
 func (r *run) uneditedScaffoldCount(root string) int {
 	n := 0
-	assetsDir := filepath.Join(r.o.Home, harness.AgyRoot, "skills", "init-project", "assets")
+	assetsDir := filepath.Join(r.o.Home, harness.AgyRoot, "skills", "fyr-init-project", "assets")
 	for _, name := range []string{"SDD.md", "TDD.md", "TODO.md"} {
 		f, err := sandbox.OpenRegular(filepath.Join(root, name), os.O_RDONLY)
 		if err != nil {

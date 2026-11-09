@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const areasPath = "skills/harness-audit/references/areas.md"
+const areasPath = "skills/fyr-harness-audit/references/areas.md"
 
 var (
 	// runPattern reads a `-run` argument, quoted or bare, as areas.md writes it.

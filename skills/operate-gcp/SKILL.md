@@ -1,6 +1,6 @@
 ---
 name: operate-gcp
-description: "Operate a Cloud Run service that is already deployed: the runbook (rollback first), reading logs and Error Reporting, the run.googleapis.com metrics, one uptime check and one alerting policy, rollback outside a release, turning an incident into a bug record, the dependency and base-image cadence, cost knobs, and the background-work shapes (Jobs, Scheduler, Tasks, Pub/Sub). Use when the user says it's slow, something is down, show me the logs, what happened in prod, set up an alert or an uptime check, roll back, write the runbook, or reports an incident. Do NOT use for a release or deploy (preflight, then cloud-run-deploy), a new deploy flag (cloud-run-deploy), the database itself (data-gcp), who may call the service (api-auth-gcp), gcloud credentials (gcloud-setup), or GKE (gke-basics)."
+description: "Operate a Cloud Run service that is already deployed: the runbook (rollback first), reading logs and Error Reporting, the run.googleapis.com metrics, one uptime check and one alerting policy, rollback outside a release, turning an incident into a bug record, the dependency and base-image cadence, cost knobs, and the background-work shapes (Jobs, Scheduler, Tasks, Pub/Sub). Use when the user says it's slow, something is down, show me the logs, what happened in prod, set up an alert or an uptime check, roll back, write the runbook, or reports an incident. Do NOT use for a release or deploy (fyr-preflight, then cloud-run-deploy), a new deploy flag (cloud-run-deploy), the database itself (data-gcp), who may call the service (api-auth-gcp), gcloud credentials (gcloud-setup), or GKE (gke-basics)."
 ---
 
 # Operating a Cloud Run service
@@ -11,10 +11,10 @@ turning every incident into a numbered bug. The project's values (project, regio
 the last good revision) come from the `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`); the runbook's home is that
 file's § Operate.
 
-**When NOT to use this skill:** shipping a new revision or cutting a version (`preflight`,
+**When NOT to use this skill:** shipping a new revision or cutting a version (`fyr-preflight`,
 which runs `cloud-run-deploy` at its deploy row); a flag on the deploy command
 (`cloud-run-deploy`); the schema, the connection or a slow query (`data-gcp`); auth and
-callers (`api-auth-gcp`); a defect in the code once the incident is contained (`bug`).
+callers (`api-auth-gcp`); a defect in the code once the incident is contained (`fyr-bug`).
 
 ## Runbook — rollback first, then look
 
@@ -37,7 +37,7 @@ gcloud run services logs read "${SERVICE}" --region "${REGION}" --limit 100 \
 Rollback is step 2, not step 5: a service that serves the last good revision buys the time the
 other steps need. A rollback outside a release is recorded as a `change` record, as what it is (traffic
 moved to revision X at time T, why), never re-tagged as a release; the fix ships through
-`preflight` later. When a canary tag is still set, `--remove-tags canary` after the
+`fyr-preflight` later. When a canary tag is still set, `--remove-tags canary` after the
 rollback (`cloud-run-deploy` § Canary).
 
 ## Logs
@@ -82,8 +82,8 @@ serves the last good revision, write the incident note — the revision, the tim
 log query that shows it and the counts it returns (never raw entries), the user-visible effect, what was done — into
 a `bug` record (`fyr record add bug`) with a prevention rule (yourself, or the `bugs` agent when you lack the evidence). The prevention
 rule becomes a mechanism when it can: a startup probe path, an alerting policy on the metric
-that would have fired, a test. The code fix then runs under the `bug` skill, ships through
-`preflight`, and the record is closed when the fix lands.
+that would have fired, a test. The code fix then runs under the `fyr-bug` skill, ships through
+`fyr-preflight`, and the record is closed when the fix lands.
 
 ## Dependency and base-image cadence
 

@@ -170,7 +170,7 @@ func (w *row) syncRecords(ctx context.Context) bool {
 }
 
 // nothingQueuedLine is the closing handoff's Kickoff line when a pipeline
-// has no remaining work (skills/handoff/SKILL.md); a multi-turn row stops
+// has no remaining work (skills/fyr-handoff/SKILL.md); a multi-turn row stops
 // once a session prints it (ADR-509).
 const nothingQueuedLine = "Nothing queued; start the next task in a fresh conversation."
 

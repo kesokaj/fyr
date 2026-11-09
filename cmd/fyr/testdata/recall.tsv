@@ -26,13 +26,13 @@ research on antigravity knowledge items as a memory feature	PLAN-2026-09-29-rese
 how release tags are signed with an ssh key and checked before pushing	DEPLOY-remote
 drift: every living file that says update will not run on a checkout with local changes	DEPLOY-local,DEPLOY-remote,README.md,PRD.md
 drift: every living file that states the byte budget of the deployed context	GUIDE-testing,AGENTS.md,README.md,PRD.md,agents/bugs/agent.md,internal/harness/size_test.go
-drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md,skills/preflight/SKILL.md,skills/retro/SKILL.md,skills/review/SKILL.md
+drift: every agent or skill that tells a subagent to write its report file before finishing its checks	agents/dreamer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md,skills/fyr-preflight/SKILL.md,skills/fyr-retro/SKILL.md,skills/fyr-review/SKILL.md
 drift: every living file that says temporary files belong in the project scratch folder and not in tmp	AGENTS.md,README.md,agents/bugs/agent.md,agents/changelog/agent.md,agents/documentation/agent.md,agents/explorer/agent.md,agents/reviewer/agent.md,agents/security/agent.md,agents/verifier/agent.md,context/AGENTS.md
 refs ADR-040: records that mention ADR-040	ADR-040,PRD.md,RETRO-2026-09-28-retro
 refs internal/harness/zip.go: bugs and plans that name internal/harness/zip.go	PLAN-2026-09-28-signed-zip,PLAN-2026-09-28-update-from-zip
 refs BUG-171: records that mention BUG-171	BUG-171,CHANGE-2026-10-12-1143-gate-v2.7.0-fixes,CHANGE-2026-10-24-2211-fyr-phase2-claude-code-leaves-the-binary
 drift: every file that says release tags are signed with ssh options on the command instead of changing git settings	DEPLOY-remote,AGENTS.md
-drift: every file that says to stage files one by one by name instead of adding everything	context/AGENTS.md,skills/handoff/SKILL.md,skills/preflight/SKILL.md,skills/retro/SKILL.md
+drift: every file that says to stage files one by one by name instead of adding everything	context/AGENTS.md,skills/fyr-handoff/SKILL.md,skills/fyr-preflight/SKILL.md,skills/fyr-retro/SKILL.md
 drift: every file that says commits carry no co-author trailer	README.md,cmd/fyr/main.go,context/AGENTS.md
 drift: every file that says the deployed context ends with a check word so truncation shows	GUIDE-testing,AGENTS.md,README.md,internal/harness/render.go
 drift: every file that says the update check only reports and signals when the install is behind	DEPLOY-local,DEPLOY-remote,README.md,cmd/fyr/ctx_verbs.go,cmd/fyr/main.go

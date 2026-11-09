@@ -300,7 +300,7 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 		t.Fatalf("expected degradation step, got: %+v", resp)
 	}
 	banner := resp.InjectSteps[0].SystemMessage.SystemMessage
-	if !strings.Contains(banner, "⚠️ **fyr brain:** store unavailable (") || !strings.Contains(banner, "run fyr doctor") {
+	if !strings.Contains(banner, "⚠️ **fyr brain:** store unavailable (") || !strings.Contains(banner, "run /fyr-index-project or fyr index") {
 		t.Errorf("unexpected degradation banner: %q", banner)
 	}
 }

@@ -218,7 +218,7 @@ Built through Phase 7: the switch, the files, the timer, the gates, the free che
 
 ## Testing strategy
 
-`go test` only: unit tests with `-race`, the size pins, the lint tests, and three pins in the root package: `TestFunctionLength` (a non-test function over 50 lines, `rules/code-modularity.md` item 1, unless `longFuncs` names it), `TestGitTestPackagesDropGitVariables` (a test package that names the git binary needs a `TestMain` dropping `GIT_*`) and `TestAreasRunPatternsExist` (every `-run` pattern in `skills/harness-audit/references/areas.md` names a test, WS53). Behavioural runs against the Antigravity CLI are `fyr eval` rows. The procedure is the `GUIDE-testing` record (`fyr record get GUIDE-testing`); the commands are `AGENTS.md` § Setup commands.
+`go test` only: unit tests with `-race`, the size pins, the lint tests, and three pins in the root package: `TestFunctionLength` (a non-test function over 50 lines, `rules/code-modularity.md` item 1, unless `longFuncs` names it), `TestGitTestPackagesDropGitVariables` (a test package that names the git binary needs a `TestMain` dropping `GIT_*`) and `TestAreasRunPatternsExist` (every `-run` pattern in `skills/fyr-harness-audit/references/areas.md` names a test, WS53). Behavioural runs against the Antigravity CLI are `fyr eval` rows. The procedure is the `GUIDE-testing` record (`fyr record get GUIDE-testing`); the commands are `AGENTS.md` § Setup commands.
 
 ## Build, run and deploy
 
@@ -231,7 +231,7 @@ Every component of SDD.md, its section here, and tests that verify it.
 | Component | Section | Verified by |
 |---|---|---|
 | M1 | T1 | `TestRenderedContextUnderTarget`, `TestRenderedContextFitsAntigravityBlock`, `TestPrintModeOnlyPolling`, `TestResumeAndGitCheckAndSingleCommit` |
-| M2 | T2 | `TestSkillListingBudget`, `TestLintAllowListPerKind`, `TestVendoredRowsCarryAPin`, `TestPrintModeOnlyPolling`, `TestWorkSkillRunsFeatureSteps5And6AfterLastMerge`, `TestFeatureSkillEmptyRepoAndWorkersDRow`, `TestColdReaderBudget`, `TestResumeAndGitCheckAndSingleCommit` |
+| M2 | T2 | `TestSkillListingBudget`, `TestLintAllowListPerKind`, `TestVendoredRowsCarryAPin`, `TestPrintModeOnlyPolling`, `TestWorkSkillRunsFeatureSteps5And6AfterLastMerge`, `TestFeatureSkillEmptyRepoAndWorkersDRow`, `TestColdReaderBudget`, `TestResumeAndGitCheckAndSingleCommit`, `TestProjectIndexingLifecycleSkills` |
 | M3 | T3 | `TestAgentsInstallAsWritten`, `TestKnownToolsAreTheDerivedNames`, `TestCheckoutAgentsAreNative`, `TestColdReaderBudget` |
 | M4 | T4 | `TestEmbedHoldsOnlyTrackedFiles`, `TestFilesMatchTree`, `TestEmbeddedPlanEqualsCheckout` |
 | M5 | T5 | `TestHarnessMap`, `TestVocabularyVerbsAndFlags`, `TestHelpEvalGolden`, `TestUpdateNeverInstallsDirtyTree`, `TestUpdateFromReleaseReplacesAndInstalls`, `TestUpdateFromZipVerifiedAndTampered` |

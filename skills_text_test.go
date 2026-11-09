@@ -39,7 +39,7 @@ func section(t *testing.T, text, head string) string {
 // block. The handoff skill's report step prints the Kickoff in full, in a
 // fenced block, as its last item, and says a pointer does not replace it.
 func TestHandoffReportEndsWithTheKickoffInline(t *testing.T) {
-	step := section(t, readSkill(t, "skills/handoff/SKILL.md"), "## Step 7")
+	step := section(t, readSkill(t, "skills/fyr-handoff/SKILL.md"), "## Step 7")
 	for _, want := range []string{"Kickoff block in full", "in a fenced block in the reply", "ready to paste", "Never a pointer to the file"} {
 		if !strings.Contains(step, want) {
 			t.Errorf("handoff Step 7 does not say %q", want)
@@ -56,11 +56,11 @@ func TestHandoffReportEndsWithTheKickoffInline(t *testing.T) {
 // before the push, by its installed path.
 func TestPushStepsRunTheTrailerCheck(t *testing.T) {
 	for path, head := range map[string]string{
-		"skills/handoff/SKILL.md":   "## Step 6",
-		"skills/preflight/SKILL.md": "## Step 6",
+		"skills/fyr-handoff/SKILL.md":   "## Step 6",
+		"skills/fyr-preflight/SKILL.md": "## Step 6",
 	} {
 		step := section(t, readSkill(t, path), head)
-		if !strings.Contains(step, "scripts/check-trailers.sh") || !strings.Contains(step, "~/.gemini/config/skills/handoff") {
+		if !strings.Contains(step, "scripts/check-trailers.sh") || !strings.Contains(step, "~/.gemini/config/skills/fyr-handoff") {
 			t.Errorf("%s %s does not run check-trailers.sh by its installed path", path, head)
 		}
 		run, push := strings.Index(step, "check-trailers.sh"), strings.LastIndex(step, "push")
@@ -75,15 +75,15 @@ func TestPushStepsRunTheTrailerCheck(t *testing.T) {
 // section name, one CLI, and one Session form.
 func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 	gone := map[string][]string{
-		"skills/retro/SKILL.md":                    {"`agents/<name>.md`", "`.agents/agents/<name>.md`"},
-		"skills/harness-audit/references/areas.md": {"derive.go", "`agents/*.md`"},
-		"skills/handoff/SKILL.md":                  {"Resume Protocol", "either vendor", "Session ID"},
-		"skills/review-standards/SKILL.md":         {"the six criteria below"},
-		"skills/review/SKILL.md":                   {"all six criteria"},
-		"skills/preflight/SKILL.md":                {"Step 2 item 1"},
-		"skills/feature/SKILL.md":                  {"a tool-call budget the dispatch names"},
-		"skills/bug/SKILL.md":                      {"a tool-call budget the dispatch names"},
-		"skills/explain-project/SKILL.md":          {"a tool-call budget the dispatch names"},
+		"skills/fyr-retro/SKILL.md":                    {"`agents/<name>.md`", "`.agents/agents/<name>.md`"},
+		"skills/fyr-harness-audit/references/areas.md": {"derive.go", "`agents/*.md`"},
+		"skills/fyr-handoff/SKILL.md":                  {"Resume Protocol", "either vendor", "Session ID"},
+		"skills/review-standards/SKILL.md":             {"the six criteria below"},
+		"skills/fyr-review/SKILL.md":                   {"all six criteria"},
+		"skills/fyr-preflight/SKILL.md":                {"Step 2 item 1"},
+		"skills/fyr-feature/SKILL.md":                  {"a tool-call budget the dispatch names"},
+		"skills/fyr-bug/SKILL.md":                      {"a tool-call budget the dispatch names"},
+		"skills/fyr-explain-project/SKILL.md":          {"a tool-call budget the dispatch names"},
 	}
 	for path, words := range gone {
 		text := readSkill(t, path)
@@ -94,12 +94,12 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 		}
 	}
 	const form = "<first 8 chars of the conversation id>"
-	for _, path := range []string{"skills/handoff/SKILL.md", "skills/feedback-log/SKILL.md", "skills/retro/SKILL.md", "skills/distill/SKILL.md"} {
+	for _, path := range []string{"skills/fyr-handoff/SKILL.md", "skills/fyr-feedback-log/SKILL.md", "skills/fyr-retro/SKILL.md", "skills/fyr-distill/SKILL.md"} {
 		if !strings.Contains(readSkill(t, path), form) {
 			t.Errorf("%s does not use the one Session form %s", path, form)
 		}
 	}
-	if !strings.Contains(readSkill(t, "skills/retro/SKILL.md"), "<name>/agent.md") {
+	if !strings.Contains(readSkill(t, "skills/fyr-retro/SKILL.md"), "<name>/agent.md") {
 		t.Error("retro's subagent row does not name <name>/agent.md")
 	}
 }
@@ -109,24 +109,24 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 // the lead runs feature Steps 5 and 6 over the whole range from the first
 // wave's base to HEAD before the lead's closing handoff.
 func TestWorkSkillRunsFeatureSteps5And6AfterLastMerge(t *testing.T) {
-	text := readSkill(t, "skills/work/SKILL.md")
+	text := readSkill(t, "skills/fyr-work/SKILL.md")
 	loop := section(t, text, "## The loop")
 	for _, want := range []string{
 		"After the last merge",
-		"feature` Steps 5 and 6",
+		"fyr-feature` Steps 5 and 6",
 		"from the first wave's base to HEAD",
 		"`reviewer`",
 		"`verifier`",
 		"`<short>-<phase>-fix`",
 	} {
 		if !strings.Contains(loop, want) {
-			t.Errorf("skills/work/SKILL.md ## The loop does not say %q", want)
+			t.Errorf("skills/fyr-work/SKILL.md ## The loop does not say %q", want)
 		}
 	}
 	afterIdx := strings.Index(loop, "11. **After the last merge**")
 	endIdx := strings.Index(loop, "12. **End the loop**")
 	if afterIdx < 0 || endIdx <= afterIdx {
-		t.Errorf("skills/work/SKILL.md ## The loop must order step 11 (After the last merge) before step 12 (End the loop)")
+		t.Errorf("skills/fyr-work/SKILL.md ## The loop must order step 11 (After the last merge) before step 12 (End the loop)")
 	}
 }
 
@@ -135,7 +135,7 @@ func TestWorkSkillRunsFeatureSteps5And6AfterLastMerge(t *testing.T) {
 // repository that has no source files yet, and Step 3 shows the workers D-row
 // shape that the work skill reads.
 func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
-	text := readSkill(t, "skills/feature/SKILL.md")
+	text := readSkill(t, "skills/fyr-feature/SKILL.md")
 	step1 := section(t, text, "## Step 1: Scope")
 	for _, want := range []string{
 		"repository already has source files",
@@ -144,7 +144,7 @@ func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
 		"no source yet",
 	} {
 		if !strings.Contains(step1, want) {
-			t.Errorf("skills/feature/SKILL.md ## Step 1: Scope does not say %q", want)
+			t.Errorf("skills/fyr-feature/SKILL.md ## Step 1: Scope does not say %q", want)
 		}
 	}
 	step3 := section(t, text, "## Step 3: Cold-reader check")
@@ -152,7 +152,7 @@ func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
 		"D<n> — <date> — workers: yes | no, <why> — by: planner",
 	} {
 		if !strings.Contains(step3, want) {
-			t.Errorf("skills/feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
+			t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
 		}
 	}
 }
@@ -161,18 +161,18 @@ func TestFeatureSkillEmptyRepoAndWorkersDRow(t *testing.T) {
 // plan's cold reader gets a 15-tool-call budget and a 10-finding/question
 // output cap (< 80 lines), and skips review-standards code-diff references.
 func TestColdReaderBudget(t *testing.T) {
-	step3 := section(t, readSkill(t, "skills/feature/SKILL.md"), "## Step 3: Cold-reader check")
+	step3 := section(t, readSkill(t, "skills/fyr-feature/SKILL.md"), "## Step 3: Cold-reader check")
 	for _, want := range []string{
 		"a budget of 15 tool calls",
 		"at most 10 findings and questions",
 		"under 80 lines",
 	} {
 		if !strings.Contains(step3, want) {
-			t.Errorf("skills/feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
+			t.Errorf("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check does not say %q", want)
 		}
 	}
 	if strings.Contains(step3, "a budget of 30 tool calls") {
-		t.Error("skills/feature/SKILL.md ## Step 3: Cold-reader check still says 30 tool calls")
+		t.Error("skills/fyr-feature/SKILL.md ## Step 3: Cold-reader check still says 30 tool calls")
 	}
 
 	rev := readSkill(t, "agents/reviewer/agent.md")
@@ -190,8 +190,8 @@ func TestColdReaderBudget(t *testing.T) {
 
 // TestResumeAndGitCheckAndSingleCommit pins Items 20, 28, and 29 of
 // PLAN-2026-11-02-1806-fyr-speed: context/AGENTS.md uses fyr resume and fyr
-// git-check, and context/AGENTS.md, skills/feature/SKILL.md, and
-// skills/handoff/SKILL.md commit, push, and ingest once per conversation.
+// git-check, and context/AGENTS.md, skills/fyr-feature/SKILL.md, and
+// skills/fyr-handoff/SKILL.md commit, push, and ingest once per conversation.
 func TestResumeAndGitCheckAndSingleCommit(t *testing.T) {
 	ctx := readSkill(t, "context/AGENTS.md")
 	for _, want := range []string{
@@ -212,19 +212,16 @@ func TestResumeAndGitCheckAndSingleCommit(t *testing.T) {
 		}
 	}
 
-	feat := readSkill(t, "skills/feature/SKILL.md")
+	feat := readSkill(t, "skills/fyr-feature/SKILL.md")
 	if strings.Contains(feat, "commit and push as separate calls, then the handoff") {
-		t.Error("skills/feature/SKILL.md still commits and pushes before the handoff")
+		t.Error("skills/fyr-feature/SKILL.md still commits and pushes before the handoff")
 	}
 	if !strings.Contains(feat, "commits, pushes and runs `fyr metrics ingest` once") {
-		t.Error("skills/feature/SKILL.md does not state that /handoff commits, pushes and ingests once")
+		t.Error("skills/fyr-feature/SKILL.md does not state that /fyr-handoff commits, pushes and ingests once")
 	}
 
-	handoff := section(t, readSkill(t, "skills/handoff/SKILL.md"), "## Step 6")
+	handoff := section(t, readSkill(t, "skills/fyr-handoff/SKILL.md"), "## Step 6")
 	if !strings.Contains(handoff, "one commit, one push and one `fyr metrics ingest` per conversation") {
-		t.Error("skills/handoff/SKILL.md Step 6 does not state one commit, push and ingest per conversation")
+		t.Error("skills/fyr-handoff/SKILL.md Step 6 does not state one commit, push and ingest per conversation")
 	}
 }
-
-
-

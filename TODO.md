@@ -7,14 +7,6 @@
 
 ## Now
 
-### Phase 4 — Indexing Lifecycle (`/fyr-init-project`, `/fyr-index-project`, `/fyr-refresh-project-index`) & `fyr-*` Prefix for All `fyr`-Vital Skills (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`, after: Phase 3)
-- [x] Record `ADR-514` & update `PRD.md` (lines 84, 91, 114) + `TODO.md` in one commit.
-- [ ] Rename all 18 existing `fyr`-vital skills to `fyr-<skill>` (`git mv`) and update frontmatter, `/fyr-<name>` slash invocations, and `~/.gemini/config/skills/fyr-<name>/` paths across skills and agents.
-- [ ] Implement the 3-skill project indexing lifecycle (`skills/fyr-init-project/SKILL.md`, `skills/fyr-index-project/SKILL.md`, `skills/fyr-refresh-project-index/SKILL.md`).
-- [ ] Update Go callers, hook banner (`internal/search/hook.go`), vetter (`internal/search/vet.go`), `internal/auto/*`, test/eval pins (`init_project_test.go`, `skills_text_test.go`, `areas_test.go`, `cmd/fyr/record_body_file_test.go`, `cmd/fyr/testdata/recall.tsv`, `internal/eval/*`, `.agents/eval/GUIDE-eval.md`), `context/AGENTS.md`, `AGENTS.md`, `README.md`, and `rules/session-sizing.md`.
-- [ ] Run verification (`gofmt -l . && go vet ./... && go test -race ./...`, `fyr check`) and full Definition of Done (`verifier`, `reviewer --code --docs`, `security`, `testing`/`review`/`change` records, close plan, clear `TODO.md` `## Now`, and `/fyr-handoff`).
-- [ ] Checkpoint
-
 ## Next
 
 ## Backlog

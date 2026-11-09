@@ -156,13 +156,13 @@ func TestTracesRuleNotes(t *testing.T) {
 	}
 }
 
-// The init-project templates are in the shape rule (d) reads: their SDD
+// The fyr-init-project templates are in the shape rule (d) reads: their SDD
 // traces R1 alone, so the template's R2 and S1 are gaps, and its one
 // component M1 is traced in its TDD.
 func TestTracesRuleReadsTheTemplates(t *testing.T) {
 	files := map[string]string{}
 	for _, name := range []string{"PRD.md", "SDD.md", "TDD.md"} {
-		b, err := os.ReadFile(filepath.Join("..", "..", "skills", "init-project", "assets", name))
+		b, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-init-project", "assets", name))
 		if err != nil {
 			t.Fatal(err)
 		}

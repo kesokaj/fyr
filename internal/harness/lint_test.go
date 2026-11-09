@@ -368,9 +368,9 @@ func TestPrintModeOnlyPolling(t *testing.T) {
 		}
 	}
 	for rel, needles := range map[string][]string{
-		"context/AGENTS.md":       {"End the turn to await a subagent or background command", "only a print-mode run (`agy -p`) stays in the turn"},
-		"skills/handoff/SKILL.md": {"An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes", "in print mode only", "A run knows it is in print mode only from its prompt", "never probe the process table or the environment to find out"},
-		"skills/work/SKILL.md":    {"an interactive session ends its turn and wakes when the command finishes", "only a print-mode run (`agy -p`) stays inside the turn and polls it (`manage_task`, `list`) with `sleep 30`", "While a run is going, the lead makes no commit, no edit to a tracked file and no `fyr` write."},
+		"context/AGENTS.md":           {"End the turn to await a subagent or background command", "only a print-mode run (`agy -p`) stays in the turn"},
+		"skills/fyr-handoff/SKILL.md": {"An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes", "in print mode only", "A run knows it is in print mode only from its prompt", "never probe the process table or the environment to find out"},
+		"skills/fyr-work/SKILL.md":    {"an interactive session ends its turn and wakes when the command finishes", "only a print-mode run (`agy -p`) stays inside the turn and polls it (`manage_task`, `list`) with `sleep 30`", "While a run is going, the lead makes no commit, no edit to a tracked file and no `fyr` write."},
 	} {
 		b, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(rel)))
 		if err != nil {

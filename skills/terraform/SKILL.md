@@ -13,7 +13,7 @@ Infrastructure as code for the one cloud this stack uses, written and applied by
 
 - Terraform when the deployment is more than one service, or when a resource must outlive any one deploy: the service account, the Artifact Registry repository, the secrets, the database, the scheduler. One root per app under `infra/`.
 - The image, the new revision and the rollback stay with `cloud-run-deploy`: Terraform sets the image once, on the first apply, from `var.git_sha` (the git short SHA that skill produces, never computed in HCL); from then on the service's and the job's `lifecycle { ignore_changes }` leave image and traffic to gcloud, so a later `terraform apply` never resets a deploy, a canary or a rollback. Terraform owns the shape (service account, secrets, scaling, ingress, the job's definition); gcloud owns the revisions.
-- `terraform plan` before every `apply`, and nothing is applied to Google unless the user asked for it in their own turn (`/preflight` is the deploy path; this skill is the HCL under it).
+- `terraform plan` before every `apply`, and nothing is applied to Google unless the user asked for it in their own turn (`/fyr-preflight` is the deploy path; this skill is the HCL under it).
 - The project's recorded defaults (project ID, region, repository, service name, service account, public or not) live in the project's `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`); the state bucket's name is recorded there too.
 
 ## Layout

@@ -32,7 +32,7 @@ Establish the diff (`git diff`, `git diff --staged`, `git diff <base>...HEAD`), 
 
 ## Findings — on disk, never chat-only
 
-Write it as a draft (`~/.gemini/config/skills/init-project/references/trail.md`): from the repo root (`git rev-parse --show-toplevel`), `mkdir -p .agents/scratch/agents`, then `.agents/scratch/agents/security-<stamp>.md`, `<stamp>` from `date +%F-%H%M` — never memory. The main thread stores it as a `review` record; you never run `fyr record add`. No frontmatter: the first line is the `# ` title.
+Write it as a draft (`~/.gemini/config/skills/fyr-init-project/references/trail.md`): from the repo root (`git rev-parse --show-toplevel`), `mkdir -p .agents/scratch/agents`, then `.agents/scratch/agents/security-<stamp>.md`, `<stamp>` from `date +%F-%H%M` — never memory. The main thread stores it as a `review` record; you never run `fyr record add`. No frontmatter: the first line is the `# ` title.
 
 Format — **lead with what is broken**; every finding carries severity and confidence:
 

@@ -379,7 +379,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	}
 	baseAllowed := map[string]bool{"ls": true, "head": true, "find": true, "sort": true, "echo": true, "fyr": true}
 	for _, bad := range []string{
-		"for d in ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets; do\n  [ -d \"$d\" ] && ASSETS=\"$d\" && break\ndone\necho \"$ASSETS\"",
+		"for d in ~/.gemini/config/skills/fyr-init-project/assets .agents/skills/fyr-init-project/assets; do\n  [ -d \"$d\" ] && ASSETS=\"$d\" && break\ndone\necho \"$ASSETS\"",
 		"find cmd internal -type f | ungranted",
 		"while read -r f; do echo \"$f\"; done",
 		"if [ -d .agents ]; then echo ok; fi",
@@ -390,7 +390,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 		}
 	}
 	for _, good := range []string{
-		"ls -d ~/.gemini/config/skills/init-project/assets .agents/skills/init-project/assets 2>/dev/null | head -1",
+		"ls -d ~/.gemini/config/skills/fyr-init-project/assets .agents/skills/fyr-init-project/assets 2>/dev/null | head -1",
 		"find cmd internal -type f | sort",
 		"fyr memory add --type feedback --name no-db-mocks --description \"d\" --body-file .agents/scratch/m.md",
 	} {
@@ -403,24 +403,24 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	initBytes, err := os.ReadFile(filepath.Join(root, "skills", "init-project", "SKILL.md"))
+	initBytes, err := os.ReadFile(filepath.Join(root, "skills", "fyr-init-project", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, afterStep2, ok := strings.Cut(string(initBytes), "## Step 2: Locate the templates")
 	if !ok {
-		t.Fatal("skills/init-project/SKILL.md has no Step 2 heading")
+		t.Fatal("skills/fyr-init-project/SKILL.md has no Step 2 heading")
 	}
 	step2, _, ok := strings.Cut(afterStep2, "\n## Step 3:")
 	if !ok {
-		t.Fatal("skills/init-project/SKILL.md has no Step 3 heading")
+		t.Fatal("skills/fyr-init-project/SKILL.md has no Step 3 heading")
 	}
-	targets := map[string]string{"skills/init-project/SKILL.md#Step2": step2}
+	targets := map[string]string{"skills/fyr-init-project/SKILL.md#Step2": step2}
 	namedRowTarget := map[string]string{
-		"spec":                    "skills/spec/SKILL.md",
-		"feature":                 "skills/feature/SKILL.md",
-		"feedback-log":            "skills/feedback-log/SKILL.md",
-		"project-memory":          "skills/project-memory/SKILL.md",
+		"spec":                    "skills/fyr-spec/SKILL.md",
+		"feature":                 "skills/fyr-feature/SKILL.md",
+		"feedback-log":            "skills/fyr-feedback-log/SKILL.md",
+		"project-memory":          "skills/fyr-project-memory/SKILL.md",
 		"reviewer":                "agents/reviewer/agent.md",
 		"reviewer-cold":           "agents/reviewer/agent.md",
 		"resume":                  "context/AGENTS.md",
@@ -462,9 +462,9 @@ func TestNamedRowSkillCommands(t *testing.T) {
 			}
 		}
 	}
-	specText := targets["skills/spec/SKILL.md"]
-	if !strings.Contains(specText, "~/.gemini/config/skills/init-project/assets/records/SPEC-TEMPLATE.md") {
-		t.Error("skills/spec/SKILL.md does not name ~/.gemini/config/skills/init-project/assets/records/SPEC-TEMPLATE.md directly")
+	specText := targets["skills/fyr-spec/SKILL.md"]
+	if !strings.Contains(specText, "~/.gemini/config/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md") {
+		t.Error("skills/fyr-spec/SKILL.md does not name ~/.gemini/config/skills/fyr-init-project/assets/records/SPEC-TEMPLATE.md directly")
 	}
 	err = filepath.WalkDir(filepath.Join(root, "skills"), func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() && d.Name() == "catalog" {

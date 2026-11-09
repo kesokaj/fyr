@@ -170,10 +170,10 @@ func TestRequirementsRuleReadsPRD(t *testing.T) {
 	}
 }
 
-// The init-project PRD template is in the shape rule (c) reads: each of its
+// The fyr-init-project PRD template is in the shape rule (c) reads: each of its
 // Must and Should items is found, and found as the template's placeholder.
 func TestRequirementsRuleReadsThePRDTemplate(t *testing.T) {
-	tmpl, err := os.ReadFile(filepath.Join("..", "..", "skills", "init-project", "assets", "PRD.md"))
+	tmpl, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-init-project", "assets", "PRD.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -154,15 +154,15 @@ func classifySlashPrefix(low string) (IntentMode, bool) {
 	}
 	first, _, _ := strings.Cut(s, " ")
 	switch first {
-	case "/preflight":
+	case "/fyr-preflight", "/preflight":
 		return IntentRelease, true
-	case "/review", "/harness-audit":
+	case "/fyr-review", "/review", "/fyr-harness-audit", "/harness-audit":
 		return IntentReview, true
-	case "/bug":
+	case "/fyr-bug", "/bug":
 		return IntentBug, true
-	case "/feature", "/spec", "/requirements", "/init-project":
+	case "/fyr-feature", "/feature", "/fyr-spec", "/spec", "/fyr-requirements", "/requirements", "/fyr-init-project", "/init-project":
 		return IntentFeature, true
-	case "/explain-project", "/explain", "/research":
+	case "/fyr-explain-project", "/explain-project", "/explain", "/fyr-research", "/research":
 		return IntentQuestion, true
 	default:
 		return IntentTask, true
@@ -431,7 +431,7 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	}
 	byName := mergeSkillCatalog(catalog)
 	if intent == IntentCorrection {
-		return selectNamedSkills(byName, "operator correction", "feedback-log", "project-memory"), secReq
+		return selectNamedSkills(byName, "operator correction", "fyr-feedback-log", "fyr-project-memory"), secReq
 	}
 	type scoredSkill struct {
 		meta  SkillMeta
@@ -472,46 +472,16 @@ func selectNamedSkills(byName map[string]SkillMeta, reason string, names ...stri
 }
 
 var intentPrimarySkill = map[IntentMode]string{
-	IntentBug:     "bug",
-	IntentFeature: "feature",
-	IntentReview:  "review",
-	IntentRelease: "preflight",
+	IntentBug:     "fyr-bug",
+	IntentFeature: "fyr-feature",
+	IntentReview:  "fyr-review",
+	IntentRelease: "fyr-preflight",
 }
 
 func scoreSkillCandidate(s SkillMeta, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	score, reason := 0, ""
+	score, reason := scoreSkillSurface(s.Name, lowPrompt, intent, files)
 	if primary, ok := intentPrimarySkill[intent]; ok && s.Name == primary {
 		score, reason = 100, "intent="+string(intent)
-	}
-	switch s.Name {
-	case "explain-project":
-		if intent == IntentQuestion && (strings.Contains(lowPrompt, "explain") || strings.Contains(lowPrompt, "walk me through")) {
-			score, reason = 95, "intent=QUESTION (onboarding)"
-		}
-	case "golang":
-		if hasExt(files, ".go") || containsAnyWord(lowPrompt, "go", "golang", "goroutine", "slog", "httptest") {
-			score, reason = 70, "Go code surface"
-		}
-	case "typescript":
-		if hasExt(files, ".ts", ".tsx") || containsAnyWord(lowPrompt, "typescript", "tsconfig", "vitest") {
-			score, reason = 70, "TypeScript surface"
-		}
-	case "bash":
-		if hasExt(files, ".sh") || containsAnyWord(lowPrompt, "bash", "shell", "script", "jq", "rg") {
-			score, reason = 70, "shell script surface"
-		}
-	case "testing-strategy":
-		if containsAnyWord(lowPrompt, "test", "tests", "coverage", "verifier", "e2e") {
-			score, reason = 60, "verification/testing surface"
-		}
-	case "spec":
-		if containsAnyWord(lowPrompt, "spec", "specify", "contract", "interface") {
-			score, reason = 65, "specification surface"
-		}
-	case "project-memory":
-		if containsAnyWord(lowPrompt, "remember", "memory", "forget") {
-			score, reason = 85, "memory directive"
-		}
 	}
 	if strings.Contains(lowPrompt, s.Name) {
 		score += 40
@@ -520,6 +490,48 @@ func scoreSkillCandidate(s SkillMeta, lowPrompt string, intent IntentMode, files
 		}
 	}
 	return score, reason
+}
+
+func scoreSkillSurface(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
+	switch name {
+	case "fyr-explain-project", "explain-project":
+		if intent == IntentQuestion && (strings.Contains(lowPrompt, "explain") || strings.Contains(lowPrompt, "walk me through")) {
+			return 95, "intent=QUESTION (onboarding)"
+		}
+	case "golang":
+		if hasExt(files, ".go") || containsAnyWord(lowPrompt, "go", "golang", "goroutine", "slog", "httptest") {
+			return 70, "Go code surface"
+		}
+	case "typescript":
+		if hasExt(files, ".ts", ".tsx") || containsAnyWord(lowPrompt, "typescript", "tsconfig", "vitest") {
+			return 70, "TypeScript surface"
+		}
+	case "bash":
+		if hasExt(files, ".sh") || containsAnyWord(lowPrompt, "bash", "shell", "script", "jq", "rg") {
+			return 70, "shell script surface"
+		}
+	case "testing-strategy":
+		if containsAnyWord(lowPrompt, "test", "tests", "coverage", "verifier", "e2e") {
+			return 60, "verification/testing surface"
+		}
+	case "fyr-spec", "spec":
+		if containsAnyWord(lowPrompt, "spec", "specify", "contract", "interface") {
+			return 65, "specification surface"
+		}
+	case "fyr-project-memory", "project-memory":
+		if containsAnyWord(lowPrompt, "remember", "memory", "forget") {
+			return 85, "memory directive"
+		}
+	case "fyr-index-project":
+		if strings.Contains(lowPrompt, "fyr-index-project") || (containsAnyWord(lowPrompt, "index", "indexing", "search.db") && !containsAnyWord(lowPrompt, "refresh", "rebuild")) {
+			return 90, "project indexing surface"
+		}
+	case "fyr-refresh-project-index":
+		if strings.Contains(lowPrompt, "fyr-refresh-project-index") || (containsAnyWord(lowPrompt, "index", "search.db") && containsAnyWord(lowPrompt, "refresh", "rebuild", "stale")) {
+			return 92, "project index refresh surface"
+		}
+	}
+	return 0, ""
 }
 
 func touchesSecuritySurface(lowPrompt string, files []string) bool {

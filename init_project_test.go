@@ -14,7 +14,7 @@ import (
 // there is no other kind of machine: neither skill reads the vendor, and
 // neither names a `.claude` path or Claude Code's old memory directory.
 func TestInitProjectAndDreamNameOneCLI(t *testing.T) {
-	for _, path := range []string{"skills/init-project/SKILL.md", "skills/dream/SKILL.md"} {
+	for _, path := range []string{"skills/fyr-init-project/SKILL.md", "skills/fyr-dream/SKILL.md"} {
 		skill, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -33,7 +33,7 @@ func TestInitProjectAndDreamNameOneCLI(t *testing.T) {
 // links the other two by relative path; the IDs flow R# → M# → T# → tasks;
 // and no template names a file the scaffold no longer has.
 func TestInitProjectRootDocs(t *testing.T) {
-	const dir = "skills/init-project/assets/"
+	const dir = "skills/fyr-init-project/assets/"
 	for _, gone := range []string{"REQUIREMENTS.md", "ROADMAP.md"} {
 		if _, err := os.Lstat(dir + gone); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s%s still ships (%v)", dir, gone, err)
@@ -70,6 +70,52 @@ func TestInitProjectRootDocs(t *testing.T) {
 			first := strings.TrimSpace(strings.SplitN(block, "\n", 2)[0])
 			if !strings.HasPrefix(first, "flowchart ") && first != "sequenceDiagram" {
 				t.Errorf("%s%s: mermaid block %d opens %q, want a flowchart or a sequenceDiagram", dir, name, i+1, first)
+			}
+		}
+	}
+}
+
+// TestProjectIndexingLifecycleSkills pins the 3-skill project indexing lifecycle
+// (ADR-514): /fyr-init-project (Step 1 git init check + Step 6 fyr index &
+// fyr search --map), /fyr-index-project (MVP zero-scaffold indexing), and
+// /fyr-refresh-project-index (incremental/--rebuild refresh & --map diagnostics).
+func TestProjectIndexingLifecycleSkills(t *testing.T) {
+	checks := map[string][]string{
+		"skills/fyr-init-project/SKILL.md": {
+			"name: fyr-init-project",
+			"git rev-parse --show-toplevel",
+			"git init",
+			"fyr index",
+			"fyr search --map",
+			"fyr index --register",
+		},
+		"skills/fyr-index-project/SKILL.md": {
+			"name: fyr-index-project",
+			"git rev-parse --show-toplevel",
+			"git init",
+			".agents/scratch/*",
+			"fyr index",
+			"fyr search --map",
+			"fyr index --register",
+			"/fyr-init-project",
+		},
+		"skills/fyr-refresh-project-index/SKILL.md": {
+			"name: fyr-refresh-project-index",
+			"fyr index",
+			"fyr index --rebuild",
+			"fyr search --map",
+			"fyr index --global",
+		},
+	}
+	for path, needles := range checks {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		text := string(data)
+		for _, want := range needles {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s missing %q", path, want)
 			}
 		}
 	}

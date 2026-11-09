@@ -312,18 +312,20 @@ func joinOrNone(items []string) string {
 
 func defaultSkillCatalog() []SkillMeta {
 	return []SkillMeta{
-		{Name: "bug", Path: "skills/bug/SKILL.md", Digest: "Workflow for fixing broken behavior: problem note, goldfish diagnosis on symptom/repro only, failing test before the fix, smallest fix, review, bug record."},
-		{Name: "feature", Path: "skills/feature/SKILL.md", Digest: "Workflow for feature work: scope confirmation, plan record with phases and task checkboxes, cold-reader check before code, one phase per checkpoint, e2e verification."},
-		{Name: "feedback-log", Path: "skills/feedback-log/SKILL.md", Digest: "Passive correction logger: when the operator corrects or overrides agent behavior, record a structured global feedback record (`fyr record add feedback --global`)."},
-		{Name: "project-memory", Path: "skills/project-memory/SKILL.md", Digest: "Save and load project memory through `fyr memory add` and `fyr memory show` when the operator states a preference, correction, or project constraint."},
-		{Name: "review", Path: "skills/review/SKILL.md", Digest: "Review working tree, git range, PR, or paths through reviewer, security, verifier, and explorer subagents (`--code`, `--security`, `--docs`, `--tests`)."},
-		{Name: "preflight", Path: "skills/preflight/SKILL.md", Digest: "Release gate and release path (`/preflight vX.Y.Z`): Definition of Done, reviewer and security dispatch over release diff, SHIP/NO-SHIP report, annotated tag."},
+		{Name: "fyr-bug", Path: "skills/fyr-bug/SKILL.md", Digest: "Workflow for fixing broken behavior: problem note, goldfish diagnosis on symptom/repro only, failing test before the fix, smallest fix, review, bug record."},
+		{Name: "fyr-feature", Path: "skills/fyr-feature/SKILL.md", Digest: "Workflow for feature work: scope confirmation, plan record with phases and task checkboxes, cold-reader check before code, one phase per checkpoint, e2e verification."},
+		{Name: "fyr-feedback-log", Path: "skills/fyr-feedback-log/SKILL.md", Digest: "Passive correction logger: when the operator corrects or overrides agent behavior, record a structured global feedback record (`fyr record add feedback --global`)."},
+		{Name: "fyr-project-memory", Path: "skills/fyr-project-memory/SKILL.md", Digest: "Save and load project memory through `fyr memory add` and `fyr memory show` when the operator states a preference, correction, or project constraint."},
+		{Name: "fyr-review", Path: "skills/fyr-review/SKILL.md", Digest: "Review working tree, git range, PR, or paths through reviewer, security, verifier, and explorer subagents (`--code`, `--security`, `--docs`, `--tests`)."},
+		{Name: "fyr-preflight", Path: "skills/fyr-preflight/SKILL.md", Digest: "Release gate and release path (`/fyr-preflight vX.Y.Z`): Definition of Done, reviewer and security dispatch over release diff, SHIP/NO-SHIP report, annotated tag."},
 		{Name: "golang", Path: "skills/golang/SKILL.md", Digest: "Go standards: `cmd/<app>` + `internal/`, stdlib first, `log/slog` JSON, table-driven tests with `-race`, hand-written fakes, functions <= 50 lines."},
 		{Name: "typescript", Path: "skills/typescript/SKILL.md", Digest: "TypeScript standards: strict tsconfig, narrowing, ESM module boundaries, runtime validation at boundaries, Vitest and Playwright tiers."},
 		{Name: "bash", Path: "skills/bash/SKILL.md", Digest: "Bash and shell scripting: `set -euo pipefail`, safe quoting, `jq`/`rg`/`fd` pipelines, shellcheck compliance."},
 		{Name: "testing-strategy", Path: "skills/testing-strategy/SKILL.md", Digest: "Decide test tiers owed by a change: unit with `-race`, integration, API `httptest`, e2e, and `GUIDE-testing` maintenance."},
-		{Name: "spec", Path: "skills/spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
-		{Name: "explain-project", Path: "skills/explain-project/SKILL.md", Digest: "Explain a codebase to the operator with `file:line` entry points, package flow, and trail resume order (`GUIDE-onboarding`)."},
+		{Name: "fyr-spec", Path: "skills/fyr-spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
+		{Name: "fyr-explain-project", Path: "skills/fyr-explain-project/SKILL.md", Digest: "Explain a codebase to the operator with `file:line` entry points, package flow, and trail resume order (`GUIDE-onboarding`)."},
+		{Name: "fyr-index-project", Path: "skills/fyr-index-project/SKILL.md", Digest: "Enable MVP indexing and AST graphing (`.agents/scratch/search.db`, `fyr index`, `fyr search --map`) in an existing or unscaffolded project with zero root-doc scaffolding."},
+		{Name: "fyr-refresh-project-index", Path: "skills/fyr-refresh-project-index/SKILL.md", Digest: "Reconcile (`fyr index`) or clean-rebuild (`fyr index --rebuild`) the project's `.agents/scratch/search.db`, print `fyr search --map`, and report skipped files or noindex directories."},
 	}
 }
 

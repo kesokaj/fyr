@@ -405,7 +405,7 @@ func TestEvalGate(t *testing.T) {
 		o2.Work = func(_ context.Context, _ work.Options, kickoffs ...string) ([]work.Result, error) {
 			name := strings.TrimSuffix(filepath.Base(kickoffs[0]), ".md")
 			base := git(t, root2, "rev-parse", "HEAD")
-			tip := commitPlumbing(t, root2, base, "100644", "skills/auto/SKILL.md", "---\nname: auto\ndescription: auto\n---\n# denied\n", "touch denied skill")
+			tip := commitPlumbing(t, root2, base, "100644", "skills/fyr-auto/SKILL.md", "---\nname: fyr-auto\ndescription: auto\n---\n# denied\n", "touch denied skill")
 			git(t, root2, "update-ref", "refs/heads/work/"+name, tip)
 			return []work.Result{{Name: name, Base: base, Head: tip, Commits: 1, Verdict: "PASS"}}, nil
 		}

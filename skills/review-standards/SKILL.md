@@ -1,18 +1,18 @@
 ---
 name: review-standards
-description: "Per-language code-excellence standards for Go and TypeScript, loaded by the reviewer agent, and by /preflight when it reads a small diff itself. Load when applying the project review criteria: dead code, function flow, directory layout, simplicity, security-exempt DIY rule, decoupling. Not a review workflow — `/review` dispatches the reviewing."
+description: "Per-language code-excellence standards for Go and TypeScript, loaded by the reviewer agent, and by /fyr-preflight when it reads a small diff itself. Load when applying the project review criteria: dead code, function flow, directory layout, simplicity, security-exempt DIY rule, decoupling. Not a review workflow — `/fyr-review` dispatches the reviewing."
 ---
 
 # Review Standards
 
-A standards **library**, not an actor. Whoever is reviewing (the `reviewer` agent, or `/preflight` reading a diff below the reviewer threshold itself; `/review` never reviews by itself) loads this file and judges the diff against criteria 1–6 below and the rules in §§ 7–8. Every finding gets a severity (high / medium / low) and a confidence level, and lands in a `review` record (the reviewer's draft, stored by the main thread) — never chat-only.
+A standards **library**, not an actor. Whoever is reviewing (the `reviewer` agent, or `/fyr-preflight` reading a diff below the reviewer threshold itself; `/fyr-review` never reviews by itself) loads this file and judges the diff against criteria 1–6 below and the rules in §§ 7–8. Every finding gets a severity (high / medium / low) and a confidence level, and lands in a `review` record (the reviewer's draft, stored by the main thread) — never chat-only.
 
 Language deep-dives (load only for the languages present in the diff):
 
 - [references/go-review.md](references/go-review.md) — Go checklist
 - [references/typescript-review.md](references/typescript-review.md) — TypeScript checklist
 
-Lens reference (not a language; loaded only when `/review --prompts` names it in the reviewer's brief):
+Lens reference (not a language; loaded only when `/fyr-review --prompts` names it in the reviewer's brief):
 
 - [references/prompt-audit/prompt-audit.md](references/prompt-audit/prompt-audit.md) — Anthropic's prompt-audit reference (vendored verbatim, Apache-2.0, `skills/VENDORED.md`): dated prompt patterns, brittle instruction files, redundant sub-agents
 
@@ -76,7 +76,7 @@ Installers count as callers. A change that an installer, updater or converge ste
 The two shapes that hide best.
 
 - [ ] A value joining a VOCABULARY (a signal, a status, a category) has every enumeration of it (schema, template, table, help text) changed in the same edit.
-- [ ] A CLAIM the diff reverses has every restatement of it found by one grep over its key words across every living file BEFORE the first review round, because each round otherwise finds only the copy the last fix pointed at. The `review` skill's `--docs` lens runs the `review` skill's `review/scripts/restatement-grep.sh` for this; name the files it listed.
+- [ ] A CLAIM the diff reverses has every restatement of it found by one grep over its key words across every living file BEFORE the first review round, because each round otherwise finds only the copy the last fix pointed at. The `fyr-review` skill's `--docs` lens runs the `fyr-review` skill's `fyr-review/scripts/restatement-grep.sh` for this; name the files it listed.
 - [ ] Claims of test COVERAGE name what is not covered; "covered" without the gap named is a finding.
 
 ## 8. Code-shape rules — a review checks them, an author applies them before claiming done

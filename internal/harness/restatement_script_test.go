@@ -20,7 +20,7 @@ func TestRestatementGrepRunsOutsideHarness(t *testing.T) {
 			t.Skipf("%s not on PATH", tool)
 		}
 	}
-	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "review", "scripts", "restatement-grep.sh"))
+	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "fyr-review", "scripts", "restatement-grep.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestRestatementGrepSkipsVendoredCatalog(t *testing.T) {
 			t.Skipf("%s not on PATH", tool)
 		}
 	}
-	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "review", "scripts", "restatement-grep.sh"))
+	script, err := filepath.Abs(filepath.Join("..", "..", "skills", "fyr-review", "scripts", "restatement-grep.sh"))
 	if err != nil {
 		t.Fatal(err)
 	}
