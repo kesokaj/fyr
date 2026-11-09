@@ -372,6 +372,9 @@ func DeltaNotifier(code int) error {
 }
 `
 	writeFile(t, rawDir, "service.go", src)
+	for i := 0; i < 20; i++ {
+		writeFile(t, rawDir, fmt.Sprintf("extra_%02d.go", i), fmt.Sprintf("package sample\nfunc Extra%02d() {}\n", i))
+	}
 	if err := os.MkdirAll(filepath.Join(rawDir, "nested-clone", ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -402,6 +405,32 @@ func DeltaNotifier(code int) error {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("Turn 1 auto-init systemMessage missing %q:\n%s", want, sysMsg)
 		}
+	}
+	if strings.Contains(sysMsg, ">15 dirty files") || strings.Contains(sysMsg, "# fast-path:") {
+		t.Errorf("Turn 1 auto-init with >20 files unexpectedly took dirty fast-path:\n%s", sysMsg)
+	}
+
+	// Turn 2 (diffN == 0, still uncommitted with >20 files) reconciles without dirty fast-path banner.
+	inJSON2, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-auto-init-2",
+		"workspacePaths": []string{rawDir},
+		"invocationNum":  1,
+		"lastUserInput":  "Inspect BetaValidator in service.go",
+	})
+	var out2 bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON2)}, &out2); err != nil {
+		t.Fatalf("Turn 2 Search --hook pre-invocation: %v", err)
+	}
+	var resp2 PreInvocationOutput
+	if err := json.Unmarshal(out2.Bytes(), &resp2); err != nil {
+		t.Fatalf("Turn 2 unmarshal: %v", err)
+	}
+	sysMsg2 := resp2.InjectSteps[0].SystemMessage.SystemMessage
+	if strings.Contains(sysMsg2, ">15 dirty files") || strings.Contains(sysMsg2, "# fast-path:") {
+		t.Errorf("Turn 2 uncommitted repo (diffN=0) unexpectedly took dirty fast-path:\n%s", sysMsg2)
+	}
+	if !strings.Contains(sysMsg2, "[Hop 0] service.go:11-13 (BetaValidator)") {
+		t.Errorf("Turn 2 systemMessage missing BetaValidator hop:\n%s", sysMsg2)
 	}
 	excludeData, err := os.ReadFile(filepath.Join(rawDir, ".git", "info", "exclude"))
 	if err != nil {

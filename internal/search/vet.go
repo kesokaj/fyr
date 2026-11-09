@@ -214,7 +214,7 @@ func isTrivialPrompt(low string, symbolHits int) bool {
 
 func isQuestionPrompt(orig, low string) bool {
 	hasEditVerb := containsAnyWord(low, "fix", "implement", "add", "build", "create", "refactor", "update", "write", "change", "remove", "delete")
-	if strings.HasSuffix(strings.TrimSpace(orig), "?") && !hasEditVerb {
+	if strings.HasSuffix(strings.TrimSpace(orig), "?") && (!hasEditVerb || isDeliberativeQuestion(low)) {
 		return true
 	}
 	for _, q := range []string{"what ", "why ", "how ", "where ", "when ", "who ", "which ", "explain ", "walk me through", "can you explain", "tell me "} {
@@ -225,15 +225,14 @@ func isQuestionPrompt(orig, low string) bool {
 	return false
 }
 
+func isDeliberativeQuestion(low string) bool {
+	return !containsAnySubstr(low, "can you ", "could you ", "would you ") &&
+		containsAnySubstr(low, "do we ", "should we ", "did we ", "did you ", "have we ", "have you ", "are we ")
+}
+
 func isBugPrompt(low string) bool {
-	for _, kw := range []string{
-		"bug", "broken", "failing", "fails", "failure", "crash", "crashes", "panic",
-		"regression", "debug", "investigate", "doesn't work", "does not work",
-		"nil pointer", "race condition", "deadlock", "error in", "wrong output",
-	} {
-		if strings.Contains(low, kw) {
-			return true
-		}
+	if containsAnySubstr(low, "bug", "broken", "failing", "fails", "failure", "crash", "crashes", "panic", "regression", "debug", "investigate", "doesn't work", "does not work", "nil pointer", "race condition", "deadlock", "error in", "wrong output") {
+		return true
 	}
 	return containsAnyWord(low, "fix") && !strings.Contains(low, "fix typo") && !strings.Contains(low, "fix comment")
 }
@@ -535,22 +534,21 @@ func scoreSkillSurface(name, lowPrompt string, intent IntentMode, files []string
 }
 
 func touchesSecuritySurface(lowPrompt string, files []string) bool {
-	for _, kw := range []string{
-		"auth", "authn", "authz", "oauth", "oidc", "jwt", "iap", "token", "password",
-		"crypto", "cipher", "hmac", "sha256", "tls", "secret", "redact", "credential",
-		"iam", "permission", "frontmatter", "allowlist", "allow-list", "skillkeys",
-		"agentkeys", "knowntools", "inject", "injection", "sanitize", "fence",
-	} {
-		if containsAnyWord(lowPrompt, kw) || strings.Contains(lowPrompt, kw) {
+	if containsAnySubstr(lowPrompt, "auth", "authn", "authz", "oauth", "oidc", "jwt", "iap", "token", "password", "crypto", "cipher", "hmac", "sha256", "tls", "secret", "redact", "credential", "iam", "permission", "frontmatter", "allowlist", "allow-list", "skillkeys", "agentkeys", "knowntools", "inject", "injection", "sanitize", "fence") {
+		return true
+	}
+	for _, f := range files {
+		if containsAnySubstr(strings.ToLower(f), "redact", "security", "auth", "guard", "inventory.go", "fence.go", "go.mod") {
 			return true
 		}
 	}
-	for _, f := range files {
-		lf := strings.ToLower(f)
-		for _, sub := range []string{"redact", "security", "auth", "guard", "inventory.go", "fence.go", "go.mod"} {
-			if strings.Contains(lf, sub) {
-				return true
-			}
+	return false
+}
+
+func containsAnySubstr(s string, subs ...string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
 		}
 	}
 	return false

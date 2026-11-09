@@ -295,7 +295,7 @@ func prepareHookScope(dir string) (*scope, string, bool, error) {
 	var existingFiles int
 	_ = st.db.QueryRow(`SELECT count(*) FROM files WHERE project = ?`, root).Scan(&existingFiles)
 	diffN, _ := st.diffCount(source{project: root, dir: root, view: view})
-	if len(dirtyPaths) > hookMaxDirtyFastPath || (existingFiles > 0 && diffN > hookMaxDirtyFastPath) {
+	if existingFiles > 0 && diffN > hookMaxDirtyFastPath {
 		summary := formatDirtyFastPath(dirtyPaths, diffN)
 		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, summary, true, nil
 	}

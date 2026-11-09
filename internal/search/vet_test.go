@@ -52,6 +52,10 @@ func TestClassifyIntentAllNineModes(t *testing.T) {
 		{"From now on keep hook latency under 50ms", 0, IntentCorrection},
 		{"How does ReconcileProjectIndex work in service.go?", 2, IntentQuestion},
 		{"What is the schema of read_ledger?", 1, IntentQuestion},
+		{"Check again. Do we need to add this prompt?", 0, IntentQuestion},
+		{"Did you add the skills part?", 0, IntentQuestion},
+		{"Should we add a skill for this?", 0, IntentQuestion},
+		{"Can you add a new GraphQL endpoint?", 0, IntentFeature},
 		{"/explain-project", 0, IntentQuestion},
 		{"/fyr-explain-project", 0, IntentQuestion},
 		{"fix typo in README.md", 0, IntentTrivial},
@@ -130,13 +134,19 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		t.Errorf("anchored BUG: got intent=%s gate=%s, want BUG / ENRICH_AND_PROCEED", bugAnchored.Intent, bugAnchored.Gate)
 	}
 
-	// 5. QUESTION gets ENRICH_AND_PROCEED with ANSWER_ONLY directive.
-	qRes := VetPrompt("How does ReconcileProjectIndex work?", "", SliceResult{SymbolHits: 1}, TurnBrainContext{})
-	if qRes.Intent != IntentQuestion || qRes.Gate != GateEnrichAndProceed {
-		t.Errorf("QUESTION: got intent=%s gate=%s, want QUESTION / ENRICH_AND_PROCEED", qRes.Intent, qRes.Gate)
-	}
-	if !strings.Contains(qRes.TurnContract, "directive: ANSWER_ONLY") {
-		t.Errorf("QUESTION contract missing ANSWER_ONLY:\n%s", qRes.TurnContract)
+	// 5. QUESTION gets ENRICH_AND_PROCEED with ANSWER_ONLY directive (including deliberative/status questions).
+	for _, qPrompt := range []string{
+		"How does ReconcileProjectIndex work?",
+		"Check again. Do we need to add this prompt?",
+		"Did you add the skills part?",
+	} {
+		qRes := VetPrompt(qPrompt, "", SliceResult{SymbolHits: 1}, TurnBrainContext{})
+		if qRes.Intent != IntentQuestion || qRes.Gate != GateEnrichAndProceed {
+			t.Errorf("QUESTION(%q): got intent=%s gate=%s, want QUESTION / ENRICH_AND_PROCEED", qPrompt, qRes.Intent, qRes.Gate)
+		}
+		if !strings.Contains(qRes.TurnContract, "directive: ANSWER_ONLY") {
+			t.Errorf("QUESTION(%q) contract missing ANSWER_ONLY:\n%s", qPrompt, qRes.TurnContract)
+		}
 	}
 
 	// 6. CORRECTION gets ENRICH_AND_PROCEED and prefetches fyr-feedback-log + fyr-project-memory.
