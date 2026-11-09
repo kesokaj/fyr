@@ -45,7 +45,7 @@ type ctx struct {
 	workImage                                                                                      string
 	workAgyLinux                                                                                   string
 	autoLevel, autoProjectIdle, autoUserIdle                                                       string
-	limit, port, sliceHops, sliceBudget                                                            int
+	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
 	repoMap, register                                                                              bool
 	// src is the harness, resolved before run for the verbs that mark source

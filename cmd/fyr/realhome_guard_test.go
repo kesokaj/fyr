@@ -91,7 +91,6 @@ var guardedInvocations = [][]string{
 	{"index", "--global"},
 	{"search", "words"},
 	{"dream"},
-	{"serve"},
 	{"auto", "on"},
 	{"auto", "run"},
 	{"work", "task.md"},

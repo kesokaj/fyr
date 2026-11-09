@@ -48,7 +48,6 @@ Background and measurement
   work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
   git-check    read-only post-dispatch git status, log and tag check
-  serve        a local page of status, records, memory and metrics
   version      print the build version
 
 ` + helpLast + "\n"
@@ -357,19 +356,6 @@ var pages = map[string]verbPage{
 			"--oneline, and git tag. It writes nothing and leaves the stop-sign rule",
 			"unchanged: an unnamed path, commit or tag in the output is still a stop",
 			"sign. Exit 0 ok, 2 refused.",
-		},
-	},
-	"serve": {
-		synopsis: []string{"usage: fyr serve [--port N]"},
-		about: []string{
-			"Serves pages of this checkout and this home on http://127.0.0.1:N/",
-			"until Ctrl-C: status, the context, records, search, memory, metrics,",
-			"eval results, the dream log and fyr check, with two buttons that run",
-			"fyr index and fyr metrics ingest, one at a time, no flags. Prints the",
-			"URL with this run's path and token once; open it by pasting it into the",
-			"address bar. Listens on 127.0.0.1 only and opens no browser. A request without",
-			"the token, from another host name or from another site is refused. A",
-			"second Ctrl-C while it stops exits 1 at once. A busy port exits 1.",
 		},
 	},
 	"version": {

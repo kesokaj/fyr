@@ -7,17 +7,17 @@
 
 ## Now
 
-### Phase 1 — Drop `fyr serve` Cleanly (`-3,507` LOC) (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
+### Phase 2 — Universal CLI Ergonomics (`-C` / `--dir`, `--limit`, `--json`) & 1-Call Stdin/JSON Agent Protocol (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
 
-- [ ] Record new ADR superseding `ADR-075` and edit `SPEC-fyr-serve` status to `retired`.
-- [ ] Run `git ls-files internal/serve cmd/fyr/*serve*` and `git rm` all 24 files by name.
-- [ ] Remove `fyr serve` from `cmd/fyr/main.go`, `cmd/fyr/help_text.go`, `cmd/fyr/realhome_guard_test.go`, `cmd/fyr/verb_metrics.go`, `internal/metrics/evals_write.go`, `SDD.md` (`M16`), `TDD.md` (`T16`), `AGENTS.md`, `context/AGENTS.md`, and `README.md`.
-- [ ] Run `gofmt -l . && go vet ./... && go test -race ./...` and `go run ./cmd/fyr check --home ~/.config/fyr/dev/check`.
+- [ ] Add `--dir <DIR>` and `-C <DIR>` to `newCtx` in `cmd/fyr/ctx_verbs.go`, implement `c.projectDir()`, wire across project verbs (`record`, `memory`, `resume`, `search`, `index`, `check`, `git-check`, `work`, `dream`), and add unit tests in `cmd/fyr/flags_test.go`.
+- [ ] Create `internal/brain/stdin_doc.go` and `internal/brain/stdin_doc_test.go` (`ParseRecordStdin`, `ParseMemoryStdin`, `--json-in`), wire into `cmd/fyr/record.go` (`recordAdd`, `recordEdit`) and `cmd/fyr/verb_search_memory.go` (`runMemory`), and add CLI tests in `cmd/fyr/record_test.go` and `cmd/fyr/memory_test.go`.
+- [ ] Add `--limit N` to `fyr record list` and `--json` to `fyr record list`, `fyr record get`, `fyr memory show`, `fyr status`, `fyr search`, and `fyr work --status`.
+- [ ] Update `skills/work/SKILL.md`, `skills/project-memory/SKILL.md`, `context/AGENTS.md`, `AGENTS.md`, and `SPEC-fyr-record` to document 1-call `<<'EOF'` `stdin` headers, `--json-in`, `-C`/`--dir`, `--limit`, and `--json`.
+- [ ] Run `gofmt -l . && go vet ./... && go test -race ./...` and verify `fyr check`.
 - [ ] Checkpoint
 
 ## Next
 
-- Phase 2 — Universal CLI Ergonomics (`-C` / `--dir`, `--limit`, `--json`) & 1-Call Stdin/JSON Agent Protocol (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
 - Phase 3 — CLI Trajectory Mapping (`fyr metrics trajectory`) & Live Antigravity `/work` Sidepanel (`--status-md`) (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
 
 ## Backlog

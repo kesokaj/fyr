@@ -85,7 +85,7 @@ func (c *ctx) metricsIngest(args []string) error {
 }
 
 // ingestInto is one ingest into the home's store and its summary line on w:
-// `metrics ingest` and `fyr serve`'s ingest action both run it.
+// `metrics ingest` and `fyr auto`'s metrics check both run it.
 func ingestInto(o metrics.Options, w io.Writer) (metrics.Result, error) {
 	s, err := metrics.Open(metrics.Path(o.Home))
 	if err != nil {
@@ -98,6 +98,16 @@ func ingestInto(o metrics.Options, w io.Writer) (metrics.Result, error) {
 	}
 	fmt.Fprintln(w, r.Line())
 	return r, nil
+}
+
+// ingestTo is the bare `fyr metrics ingest` (no --source, --label or
+// --outcome); a failed source, exit 1 at the terminal, is returned as an error.
+func ingestTo(home string, w io.Writer) error {
+	r, err := ingestInto(metrics.Options{Home: home}, w)
+	if err == nil && len(r.Failed) > 0 {
+		err = fmt.Errorf("%d source(s) failed", len(r.Failed))
+	}
+	return err
 }
 
 // metricsShow serves `metrics show`, as text or --json.

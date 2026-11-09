@@ -23,7 +23,6 @@
 //	fyr work        run Kickoffs as agy workers (in docker when ready, else host)
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr git-check   read-only post-dispatch git status, log and tag check
-//	fyr serve       a local page of status, records, memory and metrics
 //	fyr version     print the build version
 package main
 

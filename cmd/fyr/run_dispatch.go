@@ -189,9 +189,6 @@ func (c *ctx) writesState() bool {
 		return c.fs.Arg(0) == "add"
 	case "metrics":
 		return c.fs.Arg(0) == "ingest"
-	case "serve":
-		// Its pages load a changed trail.jsonl, as record list does.
-		return true
 	case "eval":
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).

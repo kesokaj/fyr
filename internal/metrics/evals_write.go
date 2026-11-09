@@ -11,7 +11,7 @@ import (
 )
 
 // evalHead is the view's columns, in the order of the eval-metrics plan
-// § Interfaces; the report and `fyr serve` show the same table.
+// § Interfaces; the report shows the same table.
 var evalHead = []string{"row", "v", "kind", "n", "c", "errors", "pass@1", "pass^3", "wilson95", "flip", "turns", "tool calls",
 	"tokens in/out/cache", "session s", "active s", "tool err %", "retries", "peak ctx", "expect", "last", "flags"}
 
