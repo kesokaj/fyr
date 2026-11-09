@@ -99,7 +99,7 @@ func TestHelpFlagsAreTheFlagSet(t *testing.T) {
 	for _, v := range verbKeys() {
 		var want []string
 		newCtx(v, verbs[v], io.Discard).fs.VisitAll(func(f *flag.Flag) {
-			if f.Name != "home" && f.Name != "repo" {
+			if !isGlobalFlag(f.Name) {
 				want = append(want, f.Name)
 			}
 		})

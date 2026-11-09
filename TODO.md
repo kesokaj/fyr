@@ -7,18 +7,15 @@
 
 ## Now
 
-### Phase 2 — Universal CLI Ergonomics (`-C` / `--dir`, `--limit`, `--json`) & 1-Call Stdin/JSON Agent Protocol (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
+### Phase 3 — CLI Trajectory Mapping (`fyr metrics trajectory`) & Live Antigravity `/work` Sidepanel (`--status-md`) (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
 
-- [ ] Add `--dir <DIR>` and `-C <DIR>` to `newCtx` in `cmd/fyr/ctx_verbs.go`, implement `c.projectDir()`, wire across project verbs (`record`, `memory`, `resume`, `search`, `index`, `check`, `git-check`, `work`, `dream`), and add unit tests in `cmd/fyr/flags_test.go`.
-- [ ] Create `internal/brain/stdin_doc.go` and `internal/brain/stdin_doc_test.go` (`ParseRecordStdin`, `ParseMemoryStdin`, `--json-in`), wire into `cmd/fyr/record.go` (`recordAdd`, `recordEdit`) and `cmd/fyr/verb_search_memory.go` (`runMemory`), and add CLI tests in `cmd/fyr/record_test.go` and `cmd/fyr/memory_test.go`.
-- [ ] Add `--limit N` to `fyr record list` and `--json` to `fyr record list`, `fyr record get`, `fyr memory show`, `fyr status`, `fyr search`, and `fyr work --status`.
-- [ ] Update `skills/work/SKILL.md`, `skills/project-memory/SKILL.md`, `context/AGENTS.md`, `AGENTS.md`, and `SPEC-fyr-record` to document 1-call `<<'EOF'` `stdin` headers, `--json-in`, `-C`/`--dir`, `--limit`, and `--json`.
-- [ ] Run `gofmt -l . && go vet ./... && go test -race ./...` and verify `fyr check`.
+- [ ] Create `internal/metrics/trajectory.go` and `internal/metrics/trajectory_test.go` and wire `fyr metrics trajectory [<session-id>] [--project DIR] [--limit N] [--json]` into `cmd/fyr/verb_metrics.go` and `cmd/fyr/help_text.go`.
+- [ ] Create `internal/sandbox/transcript_watch.go` and `internal/sandbox/transcript_watch_test.go` and wire `b.watchTranscript(ctx)` into `internal/sandbox/docker.go` (`dockerAgy`) and `internal/sandbox/session.go` (`hostCmd`).
+- [ ] Create `internal/work/progress_md.go` and wire `--status-md <FILE>` into `internal/work/progress.go`, `internal/work/work.go`, `cmd/fyr/verb_work.go`, `cmd/fyr/help_text.go`, and `skills/work/SKILL.md`.
+- [ ] Update `SDD.md`, `TDD.md`, and `SPEC-fyr-metrics`, then run full Definition of Done (`verifier`, `reviewer --code --docs`, `security`, `change` record, close plan, `TODO.md`, and `/handoff`).
 - [ ] Checkpoint
 
 ## Next
-
-- Phase 3 — CLI Trajectory Mapping (`fyr metrics trajectory`) & Live Antigravity `/work` Sidepanel (`--status-md`) (`PLAN-2026-11-09-0000-plan-v8-0-0-cli-first-architecture-drop-fyr-serv`)
 
 ## Backlog
 

@@ -346,3 +346,51 @@ func TestSearchRefsAndOpenPrintRecords(t *testing.T) {
 		t.Errorf("search --open: %q %v", out, err)
 	}
 }
+
+func TestRecordStdinHeadersJSONAndLimit(t *testing.T) {
+	recordRepo(t)
+	home := t.TempDir()
+
+	// 1-call stdin headers on record add.
+	out, err := recordCmd(t, "Title: Header bug one\nStatus: open\nID: BUG-010\n\nSymptom: a.\nRule: b.\n", "record", "add", "bug", "--home", home)
+	if err != nil || out != "BUG-010\n" {
+		t.Fatalf("record add via stdin headers: %q %v", out, err)
+	}
+
+	// --json-in on record add.
+	out, err = recordCmd(t, `{"title":"JSON bug two","status":"fixed","id":"BUG-011","body":"Symptom: c.\nRule: d.\n"}`, "record", "add", "bug", "--json-in", "--home", home)
+	if err != nil || out != "BUG-011\n" {
+		t.Fatalf("record add --json-in: %q %v", out, err)
+	}
+
+	// Must-fail: --json-in unknown field exits 2.
+	if out, err = recordCmd(t, `{"title":"bad","unknown":1}`, "record", "add", "bug", "--json-in", "--home", home); exitOf(err) != 2 {
+		t.Errorf("record add --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
+	// --json-in on record edit.
+	if out, err = recordCmd(t, `{"status":"fixed","title":"Header bug one fixed","body":"Symptom: a.\nRule: b2.\n"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); err != nil {
+		t.Fatalf("record edit --json-in: %q %v", out, err)
+	}
+	if out, err = recordCmd(t, `{"bogus":"x"}`, "record", "edit", "BUG-010", "--json-in", "--home", home); exitOf(err) != 2 {
+		t.Errorf("record edit --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
+	// record list --limit N and --json.
+	out, err = recordCmd(t, "", "record", "list", "--limit", "1", "--json", "--home", home)
+	if err != nil || !strings.Contains(out, `"id": "BUG-011"`) || strings.Contains(out, `"id": "BUG-010"`) {
+		t.Errorf("record list --limit 1 --json: %q %v", out, err)
+	}
+	if out, err = recordCmd(t, "", "record", "list", "--limit", "0", "--home", home); exitOf(err) != 2 {
+		t.Errorf("record list --limit 0: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
+	// record get --json and --out + --json refusal.
+	out, err = recordCmd(t, "", "record", "get", "BUG-010", "--json", "--home", home)
+	if err != nil || !strings.Contains(out, `"title": "Header bug one fixed"`) || !strings.Contains(out, `"body": "Symptom: a.\nRule: b2."`) {
+		t.Errorf("record get --json: %q %v", out, err)
+	}
+	if out, err = recordCmd(t, "", "record", "get", "BUG-010", "--out", ".agents/scratch/x.md", "--json", "--home", home); exitOf(err) != 2 {
+		t.Errorf("record get --out --json: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+}

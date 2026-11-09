@@ -7,10 +7,11 @@ package main
 // 80-column terminal never wraps it; help_test.go pins that, the ten-line
 // cap on a description, and the verbs against the command table.
 
-// helpLast ends the short page and every verb page. Its second line is the
+// helpLast ends the short page and every verb page. Its third line is the
 // real-home guard (BUG-507, ADR-505, realhome_guard.go).
-const helpLast = "Every command takes --home DIR and --repo DIR. Without --home, a build not at\n" +
-	"~/.local/bin/fyr runs only install, sync, update, version, list, render, diff."
+const helpLast = "Every command takes --home DIR, --repo DIR and -C/--dir DIR.\n" +
+	"Without --home, a build not at ~/.local/bin/fyr\n" +
+	"runs only install, sync, update, version, list, render, diff."
 
 // helpSynopsis is help's own, for its usage errors; `fyr help help` prints
 // the short page, so help has no verb page.
@@ -95,11 +96,11 @@ var pages = map[string]verbPage{
 		},
 	},
 	"status": {
-		synopsis: []string{"usage: fyr status"},
+		synopsis: []string{"usage: fyr status [--json]"},
 		about: []string{
 			"Prints what is installed, from which commit, the binary's build, the",
 			"drift against the harness, the dream timer, auto, and a note when another fyr",
-			"comes first on PATH. Exit 1 on drift.",
+			"comes first on PATH; --json prints it as JSON. Exit 1 on drift.",
 		},
 	},
 	"diff": {
@@ -132,12 +133,14 @@ var pages = map[string]verbPage{
 	},
 	"record": {
 		synopsis: []string{
-			"usage: fyr record add <kind> (--title T | --title-file FILE) [--status S]",
-			"                      [--id ID] [--body-file FILE] [--global [--project ROOT]]",
-			"       fyr record get <id>... [--out FILE] [--global]",
+			"usage: fyr record add <kind> [--title T | --title-file FILE] [--status S]",
+			"                      [--id ID] [--body-file FILE | --json-in]",
+			"                      [--global [--project ROOT]]",
+			"       fyr record get <id>... [--out FILE | --json] [--global]",
 			"       fyr record edit <id> [--status S] [--title T]",
-			"                       [--body | --body-file FILE] [--global]",
-			"       fyr record list [--kind K] [--open] [--global [--project ROOT]] [--all]",
+			"                       [--body | --body-file FILE | --json-in] [--global]",
+			"       fyr record list [--kind K] [--open] [--limit N] [--json]",
+			"                       [--global [--project ROOT]] [--all]",
 			"       fyr record export",
 			"       fyr record sync",
 			"       fyr record import [--dry-run] [<docs-root>]",
@@ -146,35 +149,35 @@ var pages = map[string]verbPage{
 		about: []string{
 			"The brain store, ~/.config/fyr/brain.db: this project's trail records",
 			"(every worktree shares them) and, with --global, the global ones. add",
-			"reads the body on stdin or --body-file (empty or over 1 MiB refused) and",
-			"prints the new ID; an --id, title or body the dream's redactor would change",
-			"is stored with a warning on stderr. get prints each record (with",
-			"(provenance P) on memory and feedback), or with --out writes one body under",
-			".agents/scratch/. export writes the project's trail records to",
-			".agents/trail.jsonl on demand; sync loads .agents/trail.jsonl into the store",
-			"and its FTS index. import migrates a trail that is still files, with that",
-			"warning; until then record refuses. Exit 0, 1 a refusal, 2 a usage error.",
+			"reads the body on stdin, --body-file or --json-in (empty or over 1 MiB",
+			"refused) and prints the new ID; an --id, title or body the dream's redactor",
+			"would change is stored with a warning on stderr. get prints each record (with",
+			"(provenance P) on memory and feedback), writes one body under .agents/scratch/",
+			"with --out, or prints JSON with --json. export writes .agents/trail.jsonl on",
+			"demand; sync loads .agents/trail.jsonl into the store and its FTS index;",
+			"import migrates a file-era trail. Exit 0, 1 a refusal, 2 a usage error.",
 		},
 	},
 	"memory": {
 		synopsis: []string{
-			"usage: fyr memory add --type T --name SLUG --description TEXT",
-			"                      [--body-file FILE] [--provenance operator|derived]",
-			"       fyr memory show",
+			"usage: fyr memory add [--type T --name SLUG --description TEXT]",
+			"                      [--body-file FILE | --json-in]",
+			"                      [--provenance operator|derived]",
+			"       fyr memory show [--json]",
 		},
 		about: []string{
 			"This project's memory: memory records in the brain store, never exported.",
-			"add saves one, its body on stdin or --body-file, as MEMORY-<SLUG> in this",
+			"add saves one, its body on stdin (with optional Type:/Name:/Description:/",
+			"Provenance: headers), --body-file or --json-in, as MEMORY-<SLUG> in this",
 			"project's scope, replacing one of the same name; every session writes",
 			"memory this way (R10). --provenance defaults to operator; pass derived",
 			"when what is saved came from a file or tool output. show prints the memory",
-			"index, one line per memory, capped at what a session loads at start (200",
-			"lines, 25 KB).",
+			"index (or JSON with --json), capped at 200 lines and 25 KB in text mode.",
 		},
 	},
 	"search": {
 		synopsis: []string{
-			"usage: fyr search [--limit N] [--kind K] [--global] <words>...",
+			"usage: fyr search [--limit N] [--kind K] [--global] [--json] <words>...",
 			"       fyr search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]",
 			"       fyr search --open [--kind K] [--global]",
 			"       fyr search --slice QUERY [--hops N] [--budget N] [--session ID]",
@@ -307,7 +310,7 @@ var pages = map[string]verbPage{
 			"       fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]",
 			"       fyr work --check [--runner auto|host|docker] [--image REF]",
 			"                        [--agy-linux PATH]",
-			"       fyr work --status",
+			"       fyr work --status [--json]",
 			"       fyr work --kill <stamp>"},
 		about: []string{
 			"Runs each Kickoff file as a worker: an unattended agy session in its own",

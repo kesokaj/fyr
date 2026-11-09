@@ -17,10 +17,10 @@ import (
 // --repo: one it does not take is a usage error, never parsed and ignored
 // (IN5's rule, per subverb).
 var recordFlags = map[string]map[string]bool{
-	"add":    {"title": true, "title-file": true, "body-file": true, "status": true, "id": true, "project": true, "global": true},
-	"get":    {"global": true, "out": true},
-	"edit":   {"status": true, "title": true, "body": true, "body-file": true, "global": true},
-	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true},
+	"add":    {"title": true, "title-file": true, "body-file": true, "status": true, "id": true, "project": true, "global": true, "json-in": true},
+	"get":    {"global": true, "out": true, "json": true},
+	"edit":   {"status": true, "title": true, "body": true, "body-file": true, "global": true, "json-in": true},
+	"list":   {"kind": true, "open": true, "project": true, "all": true, "global": true, "limit": true, "json": true},
 	"export": {},
 	"sync":   {},
 	"import": {"dry-run": true, "global": true},
@@ -43,7 +43,7 @@ func runRecord(c *ctx) error {
 	if err != nil {
 		return err
 	}
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func dispatchRecord(c *ctx, o brain.Options, sub string, rest []string, set map[
 		}
 	case "list":
 		if len(rest) == 0 {
-			return recordList(c, o)
+			return recordList(c, o, set)
 		}
 	case "export":
 		if len(rest) == 0 {
@@ -100,7 +100,7 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 	var stray []string
 	c.fs.Visit(func(f *flag.Flag) {
 		set[f.Name] = true
-		if f.Name != "home" && f.Name != "repo" && !takes[f.Name] {
+		if !isGlobalFlag(f.Name) && !takes[f.Name] {
 			stray = append(stray, "--"+f.Name)
 		}
 	})
@@ -114,19 +114,9 @@ func recordFlagsSet(c *ctx, sub string, takes map[string]bool) (map[string]bool,
 // recordAdd serves `record add`: the new record's ID, and the redactor
 // warning when the given ID, the stored title or the body would trip it.
 func recordAdd(c *ctx, o brain.Options, kind string, set map[string]bool) error {
-	if c.recTitleFile != "" {
-		if c.recTitle != "" {
-			return usageErr(c.out, "record", "fyr record add takes --title or --title-file, not both")
-		}
-		t, err := readTitleFile(c.recTitleFile)
-		if err != nil {
-			return recordErr(c, err)
-		}
-		c.recTitle = t
-	}
-	body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
+	body, closeBody, err := c.resolveRecordAddInput(set)
 	if err != nil {
-		return recordErr(c, err)
+		return err
 	}
 	defer closeBody()
 	var seen strings.Builder
@@ -138,19 +128,93 @@ func recordAdd(c *ctx, o brain.Options, kind string, set map[string]bool) error 
 	return recordErr(c, err)
 }
 
-// recordList serves `record list`: one line per record.
-func recordList(c *ctx, o brain.Options) error {
+func (c *ctx) resolveRecordAddInput(set map[string]bool) (io.Reader, func(), error) {
+	noop := func() {}
+	if c.jsonIn {
+		if set["body-file"] || set["title-file"] {
+			return nil, noop, usageErr(c.out, "record", "fyr record add: --json-in takes no --body-file or --title-file")
+		}
+		doc, err := brain.ParseRecordJSON(stdin)
+		if err != nil {
+			return nil, noop, recordErr(c, err)
+		}
+		c.applyRecordStdinDoc(doc, set)
+		return strings.NewReader(doc.Body), noop, nil
+	}
+	if c.recTitleFile != "" {
+		if c.recTitle != "" {
+			return nil, noop, usageErr(c.out, "record", "fyr record add takes --title or --title-file, not both")
+		}
+		t, err := readTitleFile(c.recTitleFile)
+		if err != nil {
+			return nil, noop, recordErr(c, err)
+		}
+		c.recTitle = t
+	}
+	body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
+	if err != nil {
+		return nil, noop, recordErr(c, err)
+	}
+	if !set["body-file"] {
+		doc, rest, perr := brain.ParseRecordStdin(body)
+		if perr != nil {
+			closeBody()
+			return nil, noop, recordErr(c, perr)
+		}
+		c.applyRecordStdinDoc(doc, set)
+		body = rest
+	}
+	return body, closeBody, nil
+}
+
+func (c *ctx) applyRecordStdinDoc(doc brain.RecordStdinDoc, set map[string]bool) {
+	if !set["title"] && c.recTitle == "" && doc.Title != "" {
+		c.recTitle = doc.Title
+	}
+	if !set["status"] && doc.Status != "" {
+		c.recStatus = doc.Status
+	}
+	if !set["id"] && doc.ID != "" {
+		c.recID = doc.ID
+	}
+	if !set["project"] && doc.Project != "" {
+		c.recProject = doc.Project
+	}
+}
+
+// recordList serves `record list`: one line per record, or JSON with --json.
+func recordList(c *ctx, o brain.Options, set map[string]bool) error {
+	if set["limit"] && c.limit < 1 {
+		return usageErr(c.out, "record", "fyr record list: --limit must be at least 1")
+	}
 	recs, err := brain.List(o, brain.ListFilter{Kind: c.kind, Open: c.openRecords, Project: c.recProject, All: c.recAll})
+	if err != nil {
+		return recordErr(c, err)
+	}
+	if c.limit > 0 && len(recs) > c.limit {
+		recs = recs[:c.limit]
+	}
+	if c.jsonOut {
+		js, jerr := brain.FormatRecordsJSON(recs, false)
+		if jerr != nil {
+			return recordErr(c, jerr)
+		}
+		fmt.Fprint(c.out, js)
+		return nil
+	}
 	for _, r := range recs {
 		fmt.Fprintln(c.out, brain.FormatLine(r, c.recAll))
 	}
-	return recordErr(c, err)
+	return nil
 }
 
 // recordGet serves `record get`: each record found, a blank line between,
-// then the refusal naming any missing; or with --out writes one record's
-// body under .agents/scratch/, and nothing when its ID is missing.
+// then the refusal naming any missing; with --out writes one record's
+// body under .agents/scratch/; or with --json prints a JSON array.
 func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error {
+	if set["out"] && c.jsonOut {
+		return usageErr(c.out, "record", "fyr record get takes --out or --json, not both")
+	}
 	if set["out"] {
 		if len(ids) != 1 {
 			return usageErr(c.out, "record", "fyr record get --out takes one id")
@@ -165,6 +229,16 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 			return recordErr(c, err)
 		}
 		return recordErr(c, brain.WriteScratch(o.Dir, c.recOut, recs[0].Body))
+	}
+	if c.jsonOut {
+		if len(recs) > 0 || err == nil {
+			js, jerr := brain.FormatRecordsJSON(recs, true)
+			if jerr != nil {
+				return recordErr(c, jerr)
+			}
+			fmt.Fprint(c.out, js)
+		}
+		return recordErr(c, err)
 	}
 	for i, r := range recs {
 		if i > 0 {
@@ -181,6 +255,9 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 	if c.recBody && set["body-file"] {
 		return usageErr(c.out, "record", "fyr record edit takes --body or --body-file, not both")
 	}
+	if c.jsonIn && (c.recBody || set["body-file"]) {
+		return usageErr(c.out, "record", "fyr record edit: --json-in takes no --body or --body-file")
+	}
 	in := brain.EditInput{ID: id}
 	if set["status"] {
 		in.Status = &c.recStatus
@@ -189,15 +266,12 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 		in.Title = &c.recTitle
 	}
 	var seen strings.Builder
-	if c.recBody || set["body-file"] {
-		body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
-		if err != nil {
-			return recordErr(c, err)
-		}
-		defer closeBody()
-		in.Body = teeBodyFrom(body, &seen)
+	closeBody, err := c.resolveRecordEditInput(&in, &seen, set)
+	if err != nil {
+		return err
 	}
-	err := brain.Edit(o, in)
+	defer closeBody()
+	err = brain.Edit(o, in)
 	if err == nil {
 		title := ""
 		if in.Title != nil {
@@ -206,6 +280,51 @@ func recordEdit(c *ctx, o brain.Options, id string, set map[string]bool) error {
 		warnRedactable("", title, seen.String())
 	}
 	return recordErr(c, err)
+}
+
+func (c *ctx) resolveRecordEditInput(in *brain.EditInput, seen *strings.Builder, set map[string]bool) (func(), error) {
+	noop := func() {}
+	if c.jsonIn {
+		doc, err := brain.ParseRecordEditJSON(stdin)
+		if err != nil {
+			return noop, recordErr(c, err)
+		}
+		if in.Status == nil && doc.Status != nil {
+			in.Status = doc.Status
+		}
+		if in.Title == nil && doc.Title != nil {
+			in.Title = doc.Title
+		}
+		if doc.Body != nil {
+			in.Body = teeBodyFrom(strings.NewReader(*doc.Body), seen)
+		}
+		return noop, nil
+	}
+	if !c.recBody && !set["body-file"] {
+		return noop, nil
+	}
+	body, closeBody, err := openBodyReader(c.recBodyFile, set["body-file"])
+	if err != nil {
+		return noop, recordErr(c, err)
+	}
+	if !set["body-file"] {
+		doc, rest, perr := brain.ParseRecordStdin(body)
+		if perr != nil {
+			closeBody()
+			return noop, recordErr(c, perr)
+		}
+		if in.Title == nil && doc.Title != "" {
+			t := doc.Title
+			in.Title = &t
+		}
+		if in.Status == nil && doc.Status != "" {
+			s := doc.Status
+			in.Status = &s
+		}
+		body = rest
+	}
+	in.Body = teeBodyFrom(body, seen)
+	return closeBody, nil
 }
 
 // recordExport serves `record export`: writes the project's exported-kind
@@ -318,25 +437,7 @@ func recordErr(c *ctx, err error) error {
 // none, and a one-line note when the records could not be searched (a
 // trail.jsonl that does not parse), so the file search still answers.
 func recordHits(c *ctx, o search.Options) {
-	limit := o.Limit
-	if limit == 0 {
-		limit = 10
-	}
-	bo := brain.Options{Home: o.Home, Dir: o.Dir, Global: o.Global}
-	var hits []brain.Hit
-	var err error
-	var head string
-	switch {
-	case o.Refs != "":
-		hits, err = brain.Refs(bo, o.Refs, o.Kind, limit)
-		head = fmt.Sprintf("records: %d naming %s", len(hits), o.Refs)
-	case o.Open:
-		hits, err = brain.OpenRecords(bo, o.Kind, limit)
-		head = fmt.Sprintf("records: %d open", len(hits))
-	default:
-		hits, err = brain.Search(bo, o.Words, o.Kind, limit)
-		head = fmt.Sprintf("records: %d hits for %q", len(hits), strings.Join(o.Words, " "))
-	}
+	hits, head, err := recordHitsData(o)
 	if err != nil {
 		fmt.Fprintln(c.out, search.Printable("records: not searched: "+err.Error()))
 		return
@@ -350,6 +451,25 @@ func recordHits(c *ctx, o search.Options) {
 		if h.Snippet != "" {
 			fmt.Fprintf(c.out, "    %s\n", h.Snippet)
 		}
+	}
+}
+
+func recordHitsData(o search.Options) ([]brain.Hit, string, error) {
+	limit := o.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	bo := brain.Options{Home: o.Home, Dir: o.Dir, Global: o.Global}
+	switch {
+	case o.Refs != "":
+		hits, err := brain.Refs(bo, o.Refs, o.Kind, limit)
+		return hits, fmt.Sprintf("records: %d naming %s", len(hits), o.Refs), err
+	case o.Open:
+		hits, err := brain.OpenRecords(bo, o.Kind, limit)
+		return hits, fmt.Sprintf("records: %d open", len(hits)), err
+	default:
+		hits, err := brain.Search(bo, o.Words, o.Kind, limit)
+		return hits, fmt.Sprintf("records: %d hits for %q", len(hits), strings.Join(o.Words, " ")), err
 	}
 }
 

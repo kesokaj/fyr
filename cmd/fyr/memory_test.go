@@ -382,9 +382,12 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 // A memory usage error exits 2 like every other usage error of this binary;
 // the usage line goes to the writer.
 func TestMemoryUsageErrorExits2(t *testing.T) {
+	home := t.TempDir()
 	for _, args := range [][]string{{}, {"forget"}, {"add", "extra"}} {
 		var out bytes.Buffer
-		err := memoryCmd(args, brain.MemoryEntry{}, t.TempDir(), &out)
+		cmdArgs := append([]string{"memory"}, args...)
+		cmdArgs = append(cmdArgs, "--home", home)
+		err := run(cmdArgs, &out)
 		var code exitCode
 		if !errors.As(err, &code) || code != 2 {
 			t.Errorf("memory %v: want exit 2, got %v", args, err)
@@ -406,4 +409,40 @@ func dreamAgy(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestMemoryStdinHeadersAndJSON(t *testing.T) {
+	recordRepo(t)
+	home := t.TempDir()
+
+	// 1-call stdin headers on memory add.
+	out, err := recordCmd(t, "Type: feedback\nName: header-mem\nDescription: via stdin headers\nProvenance: derived\n\nBody from stdin headers.\n", "memory", "add", "--home", home)
+	if err != nil || out != "saved MEMORY-header-mem\n" {
+		t.Fatalf("memory add stdin headers: %q %v", out, err)
+	}
+
+	// --json-in on memory add.
+	out, err = recordCmd(t, `{"type":"project","name":"json-mem","description":"via json-in","provenance":"operator","body":"Body from JSON.\n"}`, "memory", "add", "--json-in", "--home", home)
+	if err != nil || out != "saved MEMORY-json-mem\n" {
+		t.Fatalf("memory add --json-in: %q %v", out, err)
+	}
+
+	// Must-fail: unknown field on memory add --json-in exits 2.
+	if out, err = recordCmd(t, `{"type":"project","unknown":1}`, "memory", "add", "--json-in", "--home", home); exitOf(err) != 2 {
+		t.Errorf("memory add --json-in unknown field: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
+	// memory show --json.
+	out, err = recordCmd(t, "", "memory", "show", "--json", "--home", home)
+	if err != nil || !strings.Contains(out, `"name": "header-mem"`) || !strings.Contains(out, `"provenance": "derived"`) || !strings.Contains(out, `"name": "json-mem"`) {
+		t.Errorf("memory show --json: %q %v", out, err)
+	}
+
+	// Must-fail: memory add --json and memory show --json-in exit 2.
+	if out, err = recordCmd(t, "body\n", "memory", "add", "--type", "user", "--name", "x", "--description", "d", "--json", "--home", home); exitOf(err) != 2 {
+		t.Errorf("memory add --json: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+	if out, err = recordCmd(t, "", "memory", "show", "--json-in", "--home", home); exitOf(err) != 2 {
+		t.Errorf("memory show --json-in: exit %d, want 2 (%q)", exitOf(err), out)
+	}
 }

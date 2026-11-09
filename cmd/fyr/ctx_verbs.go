@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -23,9 +25,10 @@ type ctx struct {
 	out  io.Writer
 	home string
 	// global flags, accepted by every verb
-	repoFlag, homeFlag string
+	repoFlag, homeFlag, dirFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
 	dryRun, check, force, openRecords, global, rebuild, dreamAll, installTimer, removeTimer        bool
+	jsonOut, jsonIn                                                                                bool
 	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                      string
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut          string
 	metricsUntil, metricsHarness                                                                   string
@@ -56,6 +59,18 @@ type ctx struct {
 // no git helper is ever called with "" (D17).
 func (c *ctx) repo() string { return c.src.Dir }
 
+// projectDir is --dir / -C when given (made absolute), else the working directory.
+func (c *ctx) projectDir() (string, error) {
+	if c.dirFlag != "" {
+		return filepath.Abs(c.dirFlag)
+	}
+	return os.Getwd()
+}
+
+func isGlobalFlag(name string) bool {
+	return name == "home" || name == "repo" || name == "dir" || name == "C"
+}
+
 func (c *ctx) dryRunFlag() {
 	c.fs.BoolVar(&c.dryRun, "dry-run", false, "print what would change, change nothing")
 }
@@ -70,7 +85,7 @@ type verb struct {
 	run        func(c *ctx) error
 }
 
-// verbs is the command table. A verb's FlagSet holds the two global flags
+// verbs is the command table. A verb's FlagSet holds the global flags
 // and the ones its flags func registers, so `list --check` is a usage error
 // instead of a flag parsed and silently ignored (IN5). Adding a verb here is
 // a map change under the project's README map rule (D9: verbs unchanged).
@@ -84,6 +99,8 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
 		c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
 		c.fs.StringVar(&c.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
+		c.fs.BoolVar(&c.jsonIn, "json-in", false, "add: read JSON payload from stdin")
+		c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.dreamAll, "all", false, "every project registered with index --register")
@@ -121,7 +138,10 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.recProject, "project", "", "add, list with --global: the project `ROOT` a global record is about")
 		c.fs.BoolVar(&c.global, "global", false, "the global scope instead of this project's")
 		c.fs.BoolVar(&c.recBody, "body", false, "edit: read the new body on stdin")
+		c.fs.BoolVar(&c.jsonIn, "json-in", false, "add, edit: read JSON payload from stdin")
+		c.fs.BoolVar(&c.jsonOut, "json", false, "get, list: print records as JSON")
 		c.fs.StringVar(&c.kind, "kind", "", "list: only records of kind `K`")
+		c.fs.IntVar(&c.limit, "limit", 0, "list: print at most `N` records")
 		c.fs.BoolVar(&c.openRecords, "open", false, "list: only open records (open plans and bugs, current specs, deploy docs and guides, queued proposals)")
 		c.fs.BoolVar(&c.recAll, "all", false, "list: every scope, each line ending in its scope")
 		c.dryRunFlag()
@@ -132,6 +152,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.refs, "refs", "", "every record naming `REF`: an ID, a file, or a directory (trailing /)")
 		c.fs.BoolVar(&c.openRecords, "open", false, "open bugs, plans with unticked boxes, and the other open records")
 		c.fs.BoolVar(&c.global, "global", false, "also the global records and every project registered with index --register, from the brain store")
+		c.fs.BoolVar(&c.jsonOut, "json", false, "print hits or query results as JSON")
 		c.fs.StringVar(&c.sliceQuery, "slice", "", "0/1/2-hop context capsule for `QUERY` ranked by PageRank")
 		c.fs.IntVar(&c.sliceHops, "hops", 0, "slice: maximum graph hops `N`, 0-6 (default 2)")
 		c.fs.IntVar(&c.sliceBudget, "budget", 0, "slice: token budget `N` estimated as chars/4 (default 2000)")
@@ -151,8 +172,15 @@ var verbs = map[string]verb{
 	}, run: runSearch},
 	"install": {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
 	"sync":    {flags: (*ctx).dryRunFlag, source: true, run: runInstall},
-	"status":  {source: true, run: func(c *ctx) error { return status(c.src, c.home, c.out) }},
-	"diff":    {source: true, run: runDiff},
+	"status": {flags: func(c *ctx) {
+		c.fs.BoolVar(&c.jsonOut, "json", false, "print the status as JSON")
+	}, source: true, run: func(c *ctx) error {
+		if c.jsonOut {
+			return statusJSON(c.src, c.home, c.out)
+		}
+		return status(c.src, c.home, c.out)
+	}},
+	"diff": {source: true, run: runDiff},
 	"update": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.check, "check", false, "only report whether this place is behind; exit 2 when it is")
 		c.fs.StringVar(&c.fromZip, "from-zip", "", "install the harness in the repository zip `FILE` with the running binary")
@@ -165,7 +193,7 @@ var verbs = map[string]verb{
 	}, source: true, positional: true, run: runAdopt},
 }
 
-// newCtx is a verb's ctx with its FlagSet: the two global flags and the
+// newCtx is a verb's ctx with its FlagSet: the global flags and the
 // verb's own. run parses it; the check vocabulary reads it (plan fyr-check
 // D14), so the vocabulary is the flags the verb really takes.
 func newCtx(cmd string, v verb, out io.Writer) *ctx {
@@ -176,6 +204,8 @@ func newCtx(cmd string, v verb, out io.Writer) *ctx {
 	c.fs.Usage = func() {}
 	c.fs.StringVar(&c.repoFlag, "repo", "", "the harness checkout `DIR`")
 	c.fs.StringVar(&c.homeFlag, "home", "", "install under `DIR` instead of $HOME")
+	c.fs.StringVar(&c.dirFlag, "dir", "", "the project checkout `DIR` (default working directory)")
+	c.fs.StringVar(&c.dirFlag, "C", "", "shorthand for --dir `DIR`")
 	if v.flags != nil {
 		v.flags(c)
 	}

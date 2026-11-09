@@ -43,7 +43,7 @@ cmd/fyr, internal/     the binary; harness (plan.go, the lint in inventory.go), 
                        trail, check, dream, metrics, brain, eval, sandbox, work, auto
 embed.go, *_test.go    package `fyr`: the go:embed of the five content directories and `docker/`, the tree's tests
 docker/                `fyr work`'s docker runner image: work.Dockerfile and its default-deny ignore file
-.agents/               this repo's `.agents/skills` symlink and `.agents/scratch/`; `.agents/eval/` holds the eval suite (`GUIDE-eval.md`) and its fixture (`fixture.sh`); trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.agents/trail.jsonl` on demand)
+.agents/               this repo's `.agents/skills` symlink and `.agents/scratch/`; `.agents/eval/` holds the eval suite (`GUIDE-eval.md`) and its fixture (`fixture.sh`); trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.agents/trail.jsonl` on demand; `-C`/`--dir`, `--limit`, `--json`, `--json-in` on CLI verbs)
 .agents/scratch/       gitignored; every generated or temporary file, never /tmp
 ```
 

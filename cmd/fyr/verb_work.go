@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"syscall"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -36,6 +39,7 @@ func init() {
 		c.fs.BoolVar(&c.check, "check", false, "print the runner a run with these flags picks and why, and exit 0 (with --runner docker, its refusal and exit 2); no image is built: a missing or stale default image a run builds first reads as docker, saying so")
 		c.fs.BoolVar(&c.workACP, "acp", false, "drive host workers via agy acp --stdio --process-per-session")
 		c.fs.BoolVar(&c.workStatus, "status", false, "print the newest wave's worker status board and exit 0")
+		c.fs.BoolVar(&c.jsonOut, "json", false, "status: print the wave status board as JSON")
 	}, positional: true, readsRepo: true, run: runWork}
 }
 
@@ -44,6 +48,9 @@ func init() {
 // Every refusal exits 2 before anything is made (D34).
 func runWork(c *ctx) error {
 	files := c.fs.Args()
+	if c.jsonOut && !c.workStatus {
+		return c.workRefuse("--json requires --status")
+	}
 	if c.workKill != "" {
 		return c.workKillRun(files)
 	}
@@ -80,7 +87,7 @@ func runWork(c *ctx) error {
 }
 
 func (c *ctx) workEnv() (root string, src harness.Source, realHome, self string, err error) {
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return "", harness.Source{}, "", "", err
 	}
@@ -99,6 +106,8 @@ func (c *ctx) workEnv() (root string, src harness.Source, realHome, self string,
 	return root, src, realHome, self, nil
 }
 
+var workStampRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-([0-9]{1,7})$`)
+
 func (c *ctx) workStatusRun(files []string) error {
 	if len(files) > 0 {
 		return c.workRefuse("--status takes no Kickoff file")
@@ -106,12 +115,48 @@ func (c *ctx) workStatusRun(files []string) error {
 	if c.workACP {
 		return c.workRefuse("--status and --acp cannot be used together")
 	}
+	if c.jsonOut {
+		js, err := workStatusJSON(c.home)
+		if err != nil {
+			return c.workRefuse("%v", err)
+		}
+		fmt.Fprint(c.out, js)
+		return nil
+	}
 	board, err := work.FormatStatusBoard(c.home)
 	if err != nil {
 		return c.workRefuse("%v", err)
 	}
 	fmt.Fprint(c.out, board)
 	return nil
+}
+
+func workStatusJSON(home string) (string, error) {
+	workDir := sandbox.Root(home, "work")
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "{\"stamp\":\"\",\"updated_at\":\"\",\"workers\":[]}\n", nil
+		}
+		return "", err
+	}
+	var stamps []string
+	for _, e := range entries {
+		if e.IsDir() && workStampRe.MatchString(e.Name()) {
+			if _, serr := os.Stat(filepath.Join(workDir, e.Name(), "status.json")); serr == nil {
+				stamps = append(stamps, e.Name())
+			}
+		}
+	}
+	if len(stamps) == 0 {
+		return "{\"stamp\":\"\",\"updated_at\":\"\",\"workers\":[]}\n", nil
+	}
+	sort.Strings(stamps)
+	data, err := os.ReadFile(filepath.Join(workDir, stamps[len(stamps)-1], "status.json"))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 // workRun runs the files under the verb's signals and maps the results to
@@ -257,7 +302,7 @@ func (c *ctx) workConfigRun(rest []string) error {
 	c.fs.Visit(func(f *flag.Flag) { seen[f.Name] = true })
 	for k := range seen {
 		switch k {
-		case "home", "repo", "max-workers", "workers", "ram", "cpu", "disk":
+		case "home", "repo", "dir", "C", "max-workers", "workers", "ram", "cpu", "disk":
 		default:
 			return c.workRefuse("config takes only --workers (--max-workers), --ram, --cpu and --disk")
 		}

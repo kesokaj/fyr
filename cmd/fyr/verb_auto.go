@@ -47,7 +47,7 @@ func runAuto(c *ctx) error {
 	}
 	var stray string
 	c.fs.Visit(func(f *flag.Flag) {
-		if f.Name != "home" && f.Name != "repo" && !own[f.Name] {
+		if !isGlobalFlag(f.Name) && !own[f.Name] {
 			stray = f.Name
 		}
 	})

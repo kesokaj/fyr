@@ -53,7 +53,7 @@ fyr memory add --type feedback --name no-db-mocks --description "integration tes
 - `--description` is one line of at most 512 bytes: what a future session scans in the index to decide whether to open the memory.
 - The body is one fact. For `feedback` and `project`, follow it with a `**Why:**` line and a `**How to apply:**` line. Write dates as `YYYY-MM-DD`, never "next week": run `date +%F` as its own command first and type the date it printed into the body. The save is the one `fyr memory add` command above, nothing joined to it and no `$( )` inside it, because a headless permission check refuses a command substitution.
 - Saving under an existing slug replaces that memory. Update a memory rather than adding a second one on the same fact; `fyr memory show` lists what exists.
-- `--provenance` defaults to `operator`; pass `--provenance derived` when what you save came from a file or tool output.
+- `--provenance` defaults to `operator`; pass `--provenance derived` when what you save came from a file or tool output. `fyr memory add` also accepts `--json-in` (or leading `Type:`, `Name:`, `Description:`, `Provenance:` header lines before the first blank line when reading stdin directly), `-C DIR` / `--dir DIR`, and `fyr memory show --json`.
 - The verb exits 2 with one line when it refuses: outside a git checkout, a description that is not one line of at most 512 bytes, an empty body, or a busy store. Say the reason to the user and go on without the memory. `fyr memory show` prints at most 200 memories; past that, run `/dream`.
 
 ## Tidying

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"debug/buildinfo"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/auto"
@@ -13,6 +17,69 @@ import (
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 )
+
+type statusSummary struct {
+	Repo      string   `json:"repo,omitempty"`
+	Source    string   `json:"source,omitempty"`
+	Installed string   `json:"installed"`
+	Binary    string   `json:"binary,omitempty"`
+	Retro     string   `json:"retro,omitempty"`
+	Dream     string   `json:"dream,omitempty"`
+	Auto      string   `json:"auto,omitempty"`
+	Inventory string   `json:"inventory,omitempty"`
+	Agy       string   `json:"agy,omitempty"`
+	Drift     string   `json:"drift,omitempty"`
+	Drifted   bool     `json:"drifted"`
+	Lines     []string `json:"lines"`
+}
+
+var statusFieldPrefixes = []struct {
+	prefix string
+	set    func(*statusSummary, string)
+}{
+	{"repo       ", func(s *statusSummary, v string) { s.Repo = v }},
+	{"source     ", func(s *statusSummary, v string) { s.Source = v }},
+	{"installed  ", func(s *statusSummary, v string) { s.Installed = v }},
+	{"binary     ", func(s *statusSummary, v string) { s.Binary = v }},
+	{"retro      ", func(s *statusSummary, v string) { s.Retro = v }},
+	{"dream      ", func(s *statusSummary, v string) { s.Dream = v }},
+	{"auto       ", func(s *statusSummary, v string) { s.Auto = v }},
+	{"repo has   ", func(s *statusSummary, v string) { s.Inventory = v }},
+	{"agy        ", func(s *statusSummary, v string) { s.Agy = v }},
+	{"drift      ", func(s *statusSummary, v string) { s.Drift = v }},
+}
+
+func statusJSON(src harness.Source, home string, out io.Writer) error {
+	var buf bytes.Buffer
+	err := status(src, home, &buf)
+	var code exitCode
+	if err != nil && !errors.As(err, &code) {
+		return err
+	}
+	sum := statusSummary{Drifted: err != nil, Lines: []string{}}
+	for _, line := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n") {
+		if line != "" {
+			sum.Lines = append(sum.Lines, line)
+			applyStatusLine(&sum, line)
+		}
+	}
+	enc := json.NewEncoder(out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if jerr := enc.Encode(sum); jerr != nil {
+		return jerr
+	}
+	return err
+}
+
+func applyStatusLine(sum *statusSummary, line string) {
+	for _, p := range statusFieldPrefixes {
+		if after, ok := strings.CutPrefix(line, p.prefix); ok {
+			p.set(sum, strings.TrimSpace(after))
+			return
+		}
+	}
+}
 
 func status(src harness.Source, home string, out io.Writer) error {
 	repo := src.Dir

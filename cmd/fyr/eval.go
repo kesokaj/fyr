@@ -85,7 +85,7 @@ func runEval(c *ctx) error {
 	if why := evalHomeRefused(c.homeFlag, c.home); why != "" && !c.evalList {
 		return c.evalRefuse("%s", why)
 	}
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}

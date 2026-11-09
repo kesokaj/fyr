@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -21,6 +22,8 @@ func allFlags() *flag.FlagSet {
 	c := &ctx{fs: flag.NewFlagSet("all", flag.ContinueOnError)}
 	c.fs.StringVar(&c.repoFlag, "repo", "", "")
 	c.fs.StringVar(&c.homeFlag, "home", "", "")
+	c.fs.StringVar(&c.dirFlag, "dir", "", "")
+	c.fs.StringVar(&c.dirFlag, "C", "", "")
 	for _, v := range verbs {
 		if v.flags == nil {
 			continue
@@ -274,5 +277,97 @@ func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
 	}
 	if len(emptyCtx.ADRs) != 0 {
 		t.Fatalf("expected 0 matched ADRs for unrelated prompt, got %+v", emptyCtx.ADRs)
+	}
+}
+
+func TestProjectDirFlagAcrossVerbs(t *testing.T) {
+	t.Setenv(harness.ChildEnv, "1")
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proj := recordRepo(t)
+	if err := os.WriteFile(filepath.Join(proj, "AGENTS.md"), []byte("# AGENTS.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "PRD.md"), []byte("# PRD.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(proj, "svc.go"), []byte("package main\nfunc RunSvc() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	t.Chdir(outside)
+	home := t.TempDir()
+
+	out, err := recordCmd(t, "Title: Scoped bug\n\nSymptom: x.\nRule: y.\n", "record", "add", "bug", "-C", proj, "--home", home)
+	if err != nil || out != "BUG-001\n" {
+		t.Fatalf("record add -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "record", "list", "--dir", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "BUG-001") {
+		t.Fatalf("record list --dir: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "Type: project\nName: scoped-mem\nDescription: via -C\n\nMemory body.\n", "memory", "add", "-C", proj, "--home", home)
+	if err != nil || out != "saved MEMORY-scoped-mem\n" {
+		t.Fatalf("memory add -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "memory", "show", "--dir", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "scoped-mem") {
+		t.Fatalf("memory show --dir: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "resume", "-C", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "BUG-001") || !strings.Contains(out, "scoped-mem") {
+		t.Fatalf("resume -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "git-check", "-C", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "## git status") {
+		t.Fatalf("git-check -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "index", "-C", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "files") {
+		t.Fatalf("index -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "search", "RunSvc", "--dir", proj, "--json", "--home", home)
+	if err != nil || !strings.Contains(out, `"records"`) || !strings.Contains(out, "svc.go") {
+		t.Fatalf("search --dir --json: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "check", "-C", proj, "--home", home)
+	if err != nil || !strings.Contains(out, "check: 0 findings") {
+		t.Fatalf("check -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "work", "--status", "--json", "-C", proj, "--home", home)
+	if err != nil || !strings.Contains(out, `"workers"`) {
+		t.Fatalf("work --status --json -C: %q %v", out, err)
+	}
+	out, err = recordCmd(t, "", "eval", "--list", "-C", repoRoot, "--home", home)
+	if err != nil || !strings.Contains(out, "v1") {
+		t.Fatalf("eval --list -C: %q %v", out, err)
+	}
+	dreamAgy(t)
+	out, err = recordCmd(t, "", "dream", "-C", proj, "--dry-run", "--home", home)
+	if err != nil || !strings.Contains(out, "[dry-run]") {
+		t.Fatalf("dream -C --dry-run: %q %v", out, err)
+	}
+}
+
+func TestStatusJSON(t *testing.T) {
+	t.Setenv(harness.ChildEnv, "1")
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	var out bytes.Buffer
+	err = run([]string{"status", "--json", "--repo", repo, "--home", home}, &out)
+	if exitOf(err) != 1 {
+		t.Fatalf("status --json uninstalled: want exit 1, got %v", err)
+	}
+	var sum statusSummary
+	if jerr := json.Unmarshal(out.Bytes(), &sum); jerr != nil {
+		t.Fatalf("unmarshal status --json: %v\n%s", jerr, out.String())
+	}
+	if !sum.Drifted || !strings.Contains(sum.Installed, "nothing") {
+		t.Errorf("unexpected statusSummary: %+v", sum)
 	}
 }

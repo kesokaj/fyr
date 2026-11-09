@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 
 	"github.com/kesokaj/fyr/internal/brain"
@@ -23,7 +22,7 @@ func init() {
 // runResume serves `fyr resume` (ADR-508): read-only seven-step session
 // resume over the working directory's checkout. Exit 0 ok, 2 on a refusal.
 func runResume(c *ctx) error {
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
@@ -43,7 +42,7 @@ func runResume(c *ctx) error {
 // and tag check over the working directory's checkout. Exit 0 ok, 2 on a
 // refusal.
 func runGitCheck(c *ctx) error {
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
@@ -64,7 +63,7 @@ func runGitCheck(c *ctx) error {
 // findings, 1 with no summary and the reason on stderr for a refusal; notes
 // never count.
 func runCheck(c *ctx) error {
-	wd, err := os.Getwd()
+	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
@@ -101,10 +100,10 @@ func printCheck(w io.Writer, rep check.Report) {
 // vocabulary is the running binary's verbs, subverbs and flags, read from
 // the same FlagSets run parses (plan fyr-check D14): record's subverbs take
 // recordFlags' flags; metrics' and memory's take the verb's. Every verb and
-// subverb also takes the two global flags and --help, which the flag package
-// answers.
+// subverb also takes the four global flags (--home, --repo, --dir, -C) and
+// --help, which the flag package answers.
 func vocabulary() check.Vocabulary {
-	v := check.Vocabulary{"help": {Flags: map[string]bool{"home": true, "repo": true, "help": true}}}
+	v := check.Vocabulary{"help": {Flags: map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}}}
 	for name, vb := range verbs {
 		c := newCtx(name, vb, io.Discard)
 		flags := map[string]bool{"help": true}
@@ -114,7 +113,7 @@ func vocabulary() check.Vocabulary {
 		case "record":
 			spec.Subverbs = map[string]map[string]bool{}
 			for sub, takes := range recordFlags {
-				own := map[string]bool{"home": true, "repo": true, "help": true}
+				own := map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}
 				for f := range takes {
 					own[f] = true
 				}
@@ -123,7 +122,7 @@ func vocabulary() check.Vocabulary {
 		case "auto":
 			spec.Subverbs = map[string]map[string]bool{}
 			for _, sub := range autoSubverbs {
-				own := map[string]bool{"home": true, "repo": true, "help": true}
+				own := map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}
 				for f := range autoFlags[sub] {
 					own[f] = true
 				}

@@ -41,7 +41,7 @@ func verbHelp(verb string) string {
 func flagLines(verb string) []string {
 	var lines []string
 	newCtx(verb, verbs[verb], io.Discard).fs.VisitAll(func(f *flag.Flag) {
-		if f.Name == "home" || f.Name == "repo" {
+		if isGlobalFlag(f.Name) {
 			return
 		}
 		arg, use := flag.UnquoteUsage(f)
@@ -103,6 +103,8 @@ func runHelp(args []string, out io.Writer) error {
 	fs.Usage = func() {}
 	fs.String("home", "", "")
 	fs.String("repo", "", "")
+	fs.String("dir", "", "")
+	fs.String("C", "", "")
 	var kept []string
 	for i, a := range args {
 		if a == "--" {
