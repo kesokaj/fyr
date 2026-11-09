@@ -17,7 +17,6 @@ const (
 	hookKneeTokens       = 180000
 	hookMinIdentLen      = 6
 	hookConfidenceRatio  = 3.0
-	maxReadFileBytes     = 46080
 )
 
 // HookInput is the JSON payload Antigravity sends to a lifecycle hook on stdin.
@@ -474,7 +473,10 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		if target == "" {
 			return writeDecision(out, "allow", "")
 		}
-		start, end := clampReadRangeAtByteLimit(dir, target, args)
+		start, end, record := clampReadRange(dir, target, args)
+		if !record {
+			return writeDecision(out, "allow", "")
+		}
 		dec, err := CheckAndRecordRead(dir, in.ConversationID, target, start, end, 0)
 		if err == nil && !dec.Allowed {
 			return writeDecision(out, "deny", dec.Reason)
@@ -504,39 +506,6 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		}
 	}
 	return writeDecision(out, "allow", "")
-}
-
-func clampReadRangeAtByteLimit(dir, target string, args map[string]any) (int, int) {
-	start, end := extractLineRangeArgs(args)
-	byteOffset := max(0, extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset"))
-	_, data, totalLines, ok := readFileDigestAndLines(CanonicalizePath(dir, target))
-	if !ok || (byteOffset == 0 && len(data) <= maxReadFileBytes) {
-		return start, end
-	}
-	reqStart, reqEnd := normalizeLineRange(start, end, totalLines)
-	lines := splitLines(string(data))
-	if reqEnd = min(reqEnd, len(lines)); reqStart > reqEnd {
-		return start, end
-	}
-	winStart, winEnd, cumBytes, effStart, effEnd := byteOffset, byteOffset+maxReadFileBytes, 0, 0, 0
-	for lineNum := reqStart; lineNum <= reqEnd; lineNum++ {
-		lineEnd := cumBytes + len(lines[lineNum-1]) + 1
-		if lineEnd <= winStart {
-			cumBytes = lineEnd
-			continue
-		}
-		if effStart == 0 {
-			effStart = lineNum
-		}
-		if lineEnd > winEnd {
-			break
-		}
-		effEnd, cumBytes = lineNum, lineEnd
-	}
-	if effStart == 0 {
-		return reqStart, reqEnd
-	}
-	return effStart, max(effStart, effEnd)
 }
 
 func handleStopHook(dir string, in HookInput, out io.Writer) error {

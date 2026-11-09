@@ -406,55 +406,6 @@ func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
 	}
 }
 
-func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
-	dir, home := setupHookRepo(t), t.TempDir()
-	// Build a 250-line file where each line is 232 bytes (231 chars + '\n') = 58,000 bytes total.
-	// Lines 1..198 = 45,936 bytes (<= 46,080 limit); line 199 crosses 46,080 bytes (46,168 bytes).
-	var b strings.Builder
-	b.WriteString("package sample // " + strings.Repeat("p", 231-len("package sample // ")) + "\n")
-	for line := 2; line <= 250; line++ {
-		prefix := fmt.Sprintf("// line %03d ", line)
-		b.WriteString(prefix + strings.Repeat("x", 231-len(prefix)) + "\n")
-	}
-	writeFile(t, dir, "big.go", b.String())
-
-	callReadHook := func(convID string, args map[string]any) HookDecisionOutput {
-		req, _ := json.Marshal(map[string]any{"conversationId": convID, "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "read_file", "args": args}})
-		var out bytes.Buffer
-		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
-			t.Fatalf("pre-tool-use: %v", err)
-		}
-		var dec HookDecisionOutput
-		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		return dec
-	}
-
-	// 1. Initial read of lines 1..250 exceeds 46,080 bytes: allowed and clamped to 1..198 in read_ledger.
-	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
-		t.Fatalf("1st read 1..250: got %+v, want allow", dec)
-	}
-	// 2. Follow-up read of the truncated tail (199..250) is allowed on the first attempt.
-	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 199, "EndLine": 250}); dec.Decision != "allow" {
-		t.Fatalf("follow-up read of truncated tail 199..250: got %+v, want allow on 1st attempt", dec)
-	}
-	// 3. Re-reading the already-delivered head (1..198) returns [UNCHANGED].
-	if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 198}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
-		t.Fatalf("re-read of delivered head 1..198: got %+v, want deny [UNCHANGED]", dec)
-	}
-	// 4. Continuation read using ByteOffset=46080 on 1..250 is allowed on the 1st attempt and denied on duplicate.
-	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
-		t.Fatalf("conv-offset initial read: got %+v, want allow", dec)
-	}
-	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "allow" {
-		t.Fatalf("conv-offset ByteOffset=46080 continuation read: got %+v, want allow on 1st attempt", dec)
-	}
-	if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED] big.go:199-250") {
-		t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:199-250", dec)
-	}
-}
-
 func TestRunHookPreToolUseAndStop(t *testing.T) {
 	dir := setupHookRepo(t)
 	home := t.TempDir()

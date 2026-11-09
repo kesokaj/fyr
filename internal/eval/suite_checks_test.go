@@ -54,6 +54,10 @@ func TestSuiteChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixtureMock, err := os.ReadFile(filepath.Join(root, ".agents", "eval", "fixture-mock.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	fake, err := os.ReadFile(filepath.Join(root, ".agents", "eval", "fake-work.sh"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +76,7 @@ func TestSuiteChecks(t *testing.T) {
 		for _, o := range outs {
 			t.Run(r.ID+"/"+o.name, func(t *testing.T) {
 				t.Parallel()
-				got := runOutcome(t, self, string(fixture), string(fixtureExtra), string(fixtureAST), string(fake), r, o)
+				got := runOutcome(t, self, string(fixture), string(fixtureExtra), string(fixtureAST), string(fixtureMock), string(fake), r, o)
 				if got != o.pass {
 					t.Errorf("check passed %v, want %v", got, o.pass)
 				}
@@ -90,13 +94,14 @@ func TestSuiteChecks(t *testing.T) {
 // fixture and its stand-in verb, the row's setup with FYR and the fixture
 // identity), runs the outcome, then the row's check, and reports whether the
 // check passed.
-func runOutcome(t *testing.T, self, fixture, fixtureExtra, fixtureAST, fake string, r Row, o outcome) bool {
+func runOutcome(t *testing.T, self, fixture, fixtureExtra, fixtureAST, fixtureMock, fake string, r Row, o outcome) bool {
 	tmp := outsideTemp(t)
 	clone, sb := filepath.Join(tmp, "app"), filepath.Join(tmp, "sb")
 	gitInit(t, clone)
 	put(t, filepath.Join(clone, ".agents", "eval", "fixture.sh"), fixture, 0o644)
 	put(t, filepath.Join(clone, ".agents", "eval", "fixture-extra.sh"), fixtureExtra, 0o644)
 	put(t, filepath.Join(clone, ".agents", "eval", "fixture-ast.sh"), fixtureAST, 0o644)
+	put(t, filepath.Join(clone, ".agents", "eval", "fixture-mock.sh"), fixtureMock, 0o644)
 	put(t, filepath.Join(clone, ".agents", "eval", "fake-work.sh"), fake, 0o644)
 	put(t, filepath.Join(sb, "bin", "fyr"), fmt.Sprintf(checkWrapper, shq(self), shq(sb)), 0o755)
 	check := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + sb, "SB=" + sb,

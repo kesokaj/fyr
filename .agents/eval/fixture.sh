@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
-# fixture.sh <scenario>: turns a trial's clone of this checkout into the demo
-# project a row of GUIDE-eval.md runs against. Run by a row's setup, in the
-# clone, with $FYR (the fyr under test) and $SB (the trial's home) set by
-# `fyr eval`. Every record it seeds goes to $SB's store, never the operator's.
-# The whole body is read before it runs, because demo_tree removes .agents/eval
-# from the work tree.
+# fixture.sh <scenario>: either turns a `fyr eval` trial clone of this checkout
+# into the demo project a row of GUIDE-eval.md runs against, or — for
+# `mock-ledger-api`, `mock-cloud-worker`, and `mock-fleet-ops` — materializes a
+# proof-matrix mock project inside an isolated throwaway directory under
+# ${TMPDIR:-/tmp} (refusing exit 2 elsewhere via fixture-mock.sh). Every record
+# goes to $SB's store, never the operator's; demo_tree removes .agents/eval.
 main() {
   set -euo pipefail
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in
     bare | project | project-empty | project-ast | project-ast-nohooks | project-ast-inject | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | security | verifier | resume | work | work-plan | work-plan-host | tasks | retro | distill | dream | preflight | mock-ledger-api | mock-cloud-worker | mock-fleet-ops) ;;
     *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
   esac
+  source "$(dirname -- "${BASH_SOURCE[0]}")/fixture-mock.sh"
   case "$scenario" in
-    mock-ledger-api) mock_ledger_api; return 0 ;;
-    mock-cloud-worker) mock_cloud_worker; return 0 ;;
-    mock-fleet-ops) mock_fleet_ops; return 0 ;;
+    mock-ledger-api | mock-cloud-worker | mock-fleet-ops)
+      guard_mock_dir
+      case "$scenario" in
+        mock-ledger-api) mock_ledger_api ;;
+        mock-cloud-worker) mock_cloud_worker ;;
+        mock-fleet-ops) mock_fleet_ops ;;
+      esac
+      return 0
+      ;;
   esac
+  guard_demo_clone
   source .agents/eval/fixture-extra.sh
   source .agents/eval/fixture-ast.sh
   # The stand-in verb is read before demo_tree empties the work tree.
@@ -58,6 +67,7 @@ rec() { "$FYR" record add "$@" --home "$SB" >/dev/null; }
 # demo_tree empties the work tree on an orphan branch and writes the demo:
 # a Go HTTP service with one tested package.
 demo_tree() {
+  guard_demo_clone
   git checkout -q --orphan demo
   git rm -rqf .
   git clean -fdq
@@ -303,6 +313,7 @@ EOF
 }
 
 init_mock_git() {
+  guard_mock_dir
   if [ -d .git ]; then
     git checkout -q --orphan mock-init && git rm -rqf . && git clean -fdxq
   else
@@ -314,6 +325,7 @@ init_mock_git() {
 # mock_ledger_api materializes Mock Project 1: an unscaffolded 22-file Go HTTP
 # accounting service with no .git, no root docs, and no search.db.
 mock_ledger_api() {
+  guard_mock_dir
   if [ -d .git ]; then
     find . -mindepth 1 -depth -delete
   fi
