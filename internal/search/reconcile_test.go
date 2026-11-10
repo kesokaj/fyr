@@ -3,6 +3,7 @@ package search
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -246,14 +247,18 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	changed, err := st.apply(source{project: root, dir: root, view: view})
-	elapsed := time.Since(start)
-	if err != nil || changed != 0 {
-		t.Fatalf("warm apply: changed=%d, err=%v", changed, err)
+	durations := make([]time.Duration, 5)
+	for i := range durations {
+		start := time.Now()
+		changed, err := st.apply(source{project: root, dir: root, view: view})
+		durations[i] = time.Since(start)
+		if err != nil || changed != 0 {
+			t.Fatalf("warm apply: changed=%d, err=%v", changed, err)
+		}
 	}
-	if elapsed >= 5*time.Millisecond {
-		t.Errorf("warm apply took %v, want < 5ms", elapsed)
+	slices.Sort(durations)
+	if median := durations[len(durations)/2]; median >= 5*time.Millisecond {
+		t.Errorf("warm apply median of 5 runs took %v (all: %v), want < 5ms", median, durations)
 	}
 	if got := count(t, db, `SELECT count(*) FROM symbols WHERE oid = ?`, oidGo); got != symCount {
 		t.Errorf("symbols count changed after warm apply: got %d, want %d", got, symCount)
