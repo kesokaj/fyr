@@ -1,6 +1,6 @@
 # Real `agy` 1.4.12 output
 
-Captured 2026-10-31 on dave, in a sandbox home outside every checkout, with
+Captured 2026-10-31 on Linux, in a sandbox home outside every checkout, with
 only the home's path rewritten. `TestRealAgyShapes` reads every file.
 
 - `permissions.json`, `config.json`, `hooks.json`: `agy -p /<name> --output-format json`.

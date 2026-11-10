@@ -233,7 +233,7 @@ func TestFingerprintWorkDir(t *testing.T) {
 }
 
 func TestProjectRootAndDockerLimits(t *testing.T) {
-	if got := ProjectRoot("/h", "sandbox", "/Users/spgo/Workspace/fyr"); got != filepath.Join("/h", harness.StateDir, "sandbox", "fyr") {
+	if got := ProjectRoot("/h", "sandbox", "/Users/alice/Workspace/fyr"); got != filepath.Join("/h", harness.StateDir, "sandbox", "fyr") {
 		t.Errorf("ProjectRoot = %q", got)
 	}
 	for _, odd := range []string{"", ".", "/", "-flag", "a\x01b"} {
