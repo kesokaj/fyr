@@ -41,7 +41,7 @@ Follow the `fyr-docs` skill throughout: open **Purpose** as a crisp BLUF (Bottom
 7. **Open questions** — one line each, ending in the default taken until answered.
 8. **Verification** — the test or command that pins each interface and failure mode. A section that nothing can check is design, not spec: move it to the plan or an ADR.
 
-Numbered-table gaps: when the request leaves several things open (who calls it, what the error looks like, a limit), ask them as ONE numbered table in chat — `#`, the gap in one line, your recommended answer — per the global context, and write the answers in; an unanswered gap stays an Open question with its default.
+Open gaps: when the request leaves things open (who calls it, what the error looks like, a limit), ask them in chat as a numbered list or a compact table (never force a 1-row table) — `#`, the gap in one line, your recommended answer — per the global context, and write the answers in; an unanswered gap stays an Open question with its default.
 
 ## Step 3: Agree and hand over
 

@@ -30,10 +30,18 @@ fi
 TOTAL_STAGES=0
 
 _STAGE_INDEX=0
+_WIZARD_TMP=""
 ENV_FILE="${ENV_FILE:-.env}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
 WRITTEN_SECRET=() # secret targets set this run (gh:<NAME>, gcp:<NAME>)
 SKIPPED=()        # manual follow-ups when gh or gcloud is unavailable
+
+_cleanup_wizard_tmp() {
+  if [[ -n "${_WIZARD_TMP:-}" ]]; then
+    rm -f "$_WIZARD_TMP"
+  fi
+}
+trap _cleanup_wizard_tmp EXIT INT TERM
 
 # _clear wipes the terminal so only the current step is on screen. No-op when
 # output isn't a terminal, so piped logs stay readable.
@@ -96,7 +104,7 @@ confirm() {
 # _existing KEY: current value of KEY in ENV_FILE, if any, with write_env's
 # single quotes or a plain dotenv double-quoted value undone.
 _existing() {
-  [[ -f "$ENV_FILE" ]] || return 1
+  [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || return 1
   local line="" value sq="'\\''"
   while IFS= read -r candidate; do
     if [[ "$candidate" == "${1}="* ]]; then
@@ -148,18 +156,25 @@ ask_secret() {
 # sibling scratch file (never system temp) and sets $KEY. Idempotent.
 write_env() {
   local key="$1" value="$2" dir tmp sq="'\\''" line
+  if [[ -L "$ENV_FILE" ]]; then
+    printf '  %s✗ refusing symlinked %s%s\n' "$YELLOW" "$ENV_FILE" "$RESET" >&2
+    return 1
+  fi
   dir=$(dirname "$ENV_FILE")
   mkdir -p "$dir"
-  [[ -e "$ENV_FILE" ]] || (umask 077 && : > "$ENV_FILE")
   tmp=$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" != "${key}="* ]]; then
-      printf '%s\n' "$line" >> "$tmp"
-    fi
-  done < "$ENV_FILE"
+  _WIZARD_TMP="$tmp"
+  chmod 0600 "$tmp"
+  if [[ -f "$ENV_FILE" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" != "${key}="* ]]; then
+        printf '%s\n' "$line" >> "$tmp"
+      fi
+    done < "$ENV_FILE"
+  fi
   printf "%s='%s'\n" "$key" "${value//\'/$sq}" >> "$tmp"
-  cat "$tmp" > "$ENV_FILE"
-  rm -f "$tmp"
+  mv -f "$tmp" "$ENV_FILE"
+  _WIZARD_TMP=""
   printf -v "$key" '%s' "$value"
   WRITTEN_ENV+=("$key")
   printf '  %s✓ wrote%s %s → %s\n' "$GREEN" "$RESET" "$key" "$ENV_FILE"

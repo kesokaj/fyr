@@ -2,7 +2,7 @@
 
 **`fyr`** is an open-source agentic coding harness and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 41 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 8 specialized subagents (`agents/<name>/agent.md`), 4 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 9 specialized subagents (`agents/<name>/agent.md`), 4 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 ## Why it exists
 
@@ -269,7 +269,7 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 
 `fyr list` prints every skill and subagent with its description.
 
-### Skills (41)
+### Skills (43)
 
 | Group | Skills |
 |---|---|

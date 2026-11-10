@@ -324,6 +324,29 @@ func TestReportVerbCLI(t *testing.T) {
 		}
 	}
 
+	// `fyr metrics show --project` outside a checkout exits 2 without suggesting --global.
+	out.Reset()
+	err := run([]string{"metrics", "show", "--project", "--dir", nonGit, "--home", home}, &out)
+	var showCode exitCode
+	if !errors.As(err, &showCode) || showCode != 2 {
+		t.Errorf("metrics show --project: err = %v, want exit 2 (out %q)", err, out.String())
+	}
+	if strings.Contains(out.String(), "--global") {
+		t.Errorf("metrics show --project error must not suggest --global, got %q", out.String())
+	}
+
+	// Explicit `fyr report --project .` in a non-git directory resolves "." like "$PWD" (1 session).
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"report", "--project", ".", "--md", "--since", "2026-10-01", "--dir", other, "--home", home}, &out); err != nil {
+		t.Fatalf("report --project . in non-git dir: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "| Sessions | 1 |") {
+		t.Errorf("report --project . in non-git dir output:\n%s", out.String())
+	}
+
 	// Inside a git checkout, bare `fyr report --md` defaults to --project <repo>
 	// (1 session) and prints the 5 sections to stdout.
 	out.Reset()

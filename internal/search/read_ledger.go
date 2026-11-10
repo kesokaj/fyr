@@ -164,6 +164,7 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 	if err == nil {
 		_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ?`,
 			conversationID, genID, resolved, sumHex, reqStart, reqEnd)
+		st.recordLedgerBlock(conversationID, turnNum, nowFunc().Unix())
 		relPath := relDisplayPath(root, resolved)
 		skel := st.fileSkeletonSummary(root, resolved, string(data))
 		reason := fmt.Sprintf("[UNCHANGED] %s:%d-%d (sha256 %s) already in context; stamp consumed (retry to force re-read).", relPath, reqStart, reqEnd, sumHex[:min(12, len(sumHex))])
@@ -176,6 +177,12 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 		return ReadDecision{}, err
 	}
 	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: 1}, nil
+}
+
+func (s *store) recordLedgerBlock(conversationID string, turnNum int, now int64) {
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num))`)
+	_, _ = s.db.Exec(`INSERT INTO read_ledger_stats(conversation_id, turn_num, saved_count, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(conversation_id, turn_num) DO UPDATE SET saved_count = read_ledger_stats.saved_count + 1, updated_at = excluded.updated_at`,
+		conversationID, turnNum, now)
 }
 
 func (s *store) upsertReadStamp(conversationID string, genID int, resolved string, start, end int, sumHex string, turnNum int, now int64) error {

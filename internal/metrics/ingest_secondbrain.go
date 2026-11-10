@@ -158,7 +158,7 @@ func (s *Store) ingestProjectSearchDB(root, tmpDir string, log io.Writer) {
 }
 
 func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
-	rows, err := db.Query(`SELECT conversation_id, turn_num, COALESCE(SUM(CASE WHEN hit_count > 1 THEN hit_count - 1 ELSE 0 END), 0) FROM read_ledger GROUP BY conversation_id, turn_num`)
+	rows, err := db.Query(`SELECT conversation_id, turn_num, COALESCE(SUM(saved_count), 0) FROM read_ledger_stats GROUP BY conversation_id, turn_num`)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return map[turnKey]int{}, nil

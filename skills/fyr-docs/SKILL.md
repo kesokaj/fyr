@@ -15,7 +15,7 @@ Write and maintain scannable, high-signal technical documentation that humans an
 ```mermaid
 flowchart LR
   P1["1. Standards\nBLUF + Airy + Visual"] --> P2["2. Investigate\nfyr search + Code"]
-  P2 --> P3["3. Write / Edit\nDiagrams + <details>"]
+  P2 --> P3["3. Write / Edit\nDiagrams + Details Folding"]
   P3 --> P4["4. Verify\nLinks + fyr check"]
 ```
 

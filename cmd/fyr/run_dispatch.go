@@ -262,8 +262,8 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 			positional = append(positional, args[i+1:]...)
 			i = len(args)
 		case strings.HasPrefix(a, "-"):
-			if (a == "--project" || a == "-project") && valueFlags[a] && (fs.Name() == "report" || fs.Name() == "metrics") && (i+1 >= len(args) || strings.HasPrefix(args[i+1], "-")) {
-				flags = append(flags, "--project=.")
+			if isReportBareProject(fs, args, i, valueFlags) {
+				flags = append(flags, "--project="+bareProjectSentinel)
 				continue
 			}
 			flags = append(flags, a)
@@ -279,4 +279,33 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 		flags = append(flags, "--")
 	}
 	return append(flags, positional...)
+}
+
+func isReportBareProject(fs *flag.FlagSet, args []string, i int, valueFlags map[string]bool) bool {
+	a := args[i]
+	if (a != "--project" && a != "-project") || !valueFlags[a] {
+		return false
+	}
+	if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+		return false
+	}
+	if fs.Name() == "report" {
+		return true
+	}
+	if fs.Name() != "metrics" {
+		return false
+	}
+	for j := 0; j < len(args); j++ {
+		if args[j] == "--" {
+			return j+1 < len(args) && args[j+1] == "report"
+		}
+		if strings.HasPrefix(args[j], "-") {
+			if j != i && valueFlags[args[j]] && j+1 < len(args) {
+				j++
+			}
+			continue
+		}
+		return args[j] == "report"
+	}
+	return false
 }

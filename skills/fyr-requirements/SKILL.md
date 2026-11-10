@@ -27,7 +27,7 @@ From the global context § Hard rules: "`PRD.md` is immutable without the user's
 
 ## Step 2: Elicit the gaps
 
-Ask in the form the global context's Operator paragraph prescribes — a one-line explanation and recommendation, then ONE numbered table: `#`, the gap in one short line, your recommended answer. One table per round; a round covers the questions whose answers do not depend on each other (the `grilling` skill's frontier idea: ask what can be asked now, let the answers open the next round). Gaps to look for, in this order:
+Ask in the form the global context's Operator paragraph prescribes — a concise 1–2 line summary and recommendation, then a numbered list or a compact table (never force a 1-row table): `#`, the gap in one short line, your recommended answer. One round covers the questions whose answers do not depend on each other (the `grilling` skill's frontier idea: ask what can be asked now, let the answers open the next round). Gaps to look for, in this order:
 
 1. **Who** uses it and who must never (the trust boundary).
 2. **What** it must do and must never do (the Must and Non-goals tiers).

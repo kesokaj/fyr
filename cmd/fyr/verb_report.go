@@ -71,12 +71,14 @@ func (c *ctx) renderReport(prefix string) error {
 	return nil
 }
 
+const bareProjectSentinel = "\x00cwd"
+
 // resolveMetricsProject resolves --project for show and report: bare --project
-// ("--project=.") requires a git checkout at the working directory (or -C),
-// while an explicit path is made absolute and canonicalized to its checkout
-// root when inside one.
+// on report (bareProjectSentinel) requires a git checkout at the working
+// directory (or -C), while an explicit path is made absolute and canonicalized
+// to its checkout root when inside one.
 func (c *ctx) resolveMetricsProject() (string, error) {
-	if c.metricsProject == "." {
+	if c.metricsProject == bareProjectSentinel {
 		wd, err := c.projectDir()
 		if err != nil {
 			return "", err
@@ -87,7 +89,15 @@ func (c *ctx) resolveMetricsProject() (string, error) {
 		}
 		return root, nil
 	}
-	abs, err := filepath.Abs(c.metricsProject)
+	p := c.metricsProject
+	if !filepath.IsAbs(p) && c.dirFlag != "" {
+		wd, err := c.projectDir()
+		if err != nil {
+			return "", err
+		}
+		p = filepath.Join(wd, p)
+	}
+	abs, err := filepath.Abs(p)
 	if err != nil {
 		return "", err
 	}

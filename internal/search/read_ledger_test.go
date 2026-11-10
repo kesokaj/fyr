@@ -61,6 +61,22 @@ func TestCheckAndRecordReadConsumeOnHit(t *testing.T) {
 		t.Fatalf("3rd retry after consume-on-hit should be allowed, got Denied: %+v", d3)
 	}
 
+	// Verify read_ledger_stats persisted the consumed block on turn 2 (and nothing on turn 3).
+	st, _, err := openLedgerStore(root)
+	if err != nil {
+		t.Fatalf("openLedgerStore: %v", err)
+	}
+	var savedTurn2, rowsTotal int
+	if err := st.db.QueryRow(`SELECT saved_count FROM read_ledger_stats WHERE conversation_id = 'conv-alpha' AND turn_num = 2`).Scan(&savedTurn2); err != nil || savedTurn2 != 1 {
+		st.close()
+		t.Fatalf("read_ledger_stats turn 2 saved_count = %d, err = %v, want 1", savedTurn2, err)
+	}
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM read_ledger_stats WHERE conversation_id = 'conv-alpha'`).Scan(&rowsTotal); err != nil || rowsTotal != 1 {
+		st.close()
+		t.Fatalf("read_ledger_stats row count = %d, err = %v, want 1", rowsTotal, err)
+	}
+	st.close()
+
 	// Reading a wider range (1..45) when only 5..25 is stamped is NOT covered, so it is allowed.
 	d4, err := CheckAndRecordRead(root, "conv-alpha", "internal/service/task.go", 1, 45, 4)
 	if err != nil {

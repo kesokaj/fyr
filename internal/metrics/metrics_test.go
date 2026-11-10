@@ -3,13 +3,16 @@ package metrics
 import (
 	"bytes"
 	"database/sql"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
@@ -199,16 +202,45 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 		`INSERT INTO projects VALUES ('`+rootCorrupt+`', 'proj-corrupt', 1791367200)`,
 	)
 
-	// Seed rootA/.agents/scratch/search.db with vet_history (including raw_prompt with canary and "!" bypass) and read_ledger.
+	// Initialize rootA as a git checkout, index it via internal/search, seed vet_history,
+	// and exercise real search.CheckAndRecordRead allow + consume-on-hit blocks.
+	if out, err := exec.Command("git", "-C", rootA, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init rootA: %v\n%s", err, out)
+	}
+	for name, body := range map[string]string{
+		".gitignore": ".agents/scratch/*\n",
+		"a.go":       "package alpha\n\nfunc Alpha() int { return 1 }\n",
+		"b.go":       "package alpha\n\nfunc Beta() int { return 2 }\n",
+		"c.go":       "package alpha\n\nfunc Gamma() int { return 3 }\n",
+	} {
+		if err := os.WriteFile(filepath.Join(rootA, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := search.Index(search.Options{Dir: rootA, Home: home}, io.Discard); err != nil {
+		t.Fatalf("search.Index rootA: %v", err)
+	}
 	sqliteT(t, filepath.Join(rootA, ".agents", "scratch", "search.db"),
-		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT, PRIMARY KEY(conversation_id, turn_num))`,
-		`CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line))`,
 		`INSERT INTO vet_history VALUES ('C_ALPHA', 1, 'FEATURE', 'VET_FIRST', 40, 'design `+canary+`', 'improved `+canary+`', 'target', 'scope', 'fyr-feature,golang', 'internal/a.go,internal/b.go', 1791367200)`,
 		`INSERT INTO vet_history VALUES ('C_ALPHA', 2, 'TASK', 'PROCEED', 100, '  ! bypass `+canary+`', '', 'target,goal', '', 'golang', 'internal/a.go', 1791367260)`,
-		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/a.go', 1, 50, 'sha1', 1, 3, 1791367210)`,
-		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/b.go', 1, 20, 'sha2', 1, 1, 1791367215)`,
-		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/c.go', 1, 30, 'sha3', 2, 2, 1791367270)`,
 	)
+	// Turn 1: 2 consumed read-ledger blocks on a.go (allow -> deny -> allow -> deny), plus 1 unrepeated read on b.go.
+	for i, wantAllow := range []bool{true, false, true, false} {
+		dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "a.go", 1, 3, 1)
+		if err != nil || dec.Allowed != wantAllow {
+			t.Fatalf("turn 1 a.go call %d: Allowed=%v err=%v, want Allowed=%v", i+1, dec.Allowed, err, wantAllow)
+		}
+	}
+	if dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "b.go", 1, 3, 1); err != nil || !dec.Allowed {
+		t.Fatalf("turn 1 b.go: Allowed=%v err=%v", dec.Allowed, err)
+	}
+	// Turn 2: 1 consumed read-ledger block on c.go (allow -> deny).
+	for i, wantAllow := range []bool{true, false} {
+		dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "c.go", 1, 3, 2)
+		if err != nil || dec.Allowed != wantAllow {
+			t.Fatalf("turn 2 c.go call %d: Allowed=%v err=%v, want Allowed=%v", i+1, dec.Allowed, err, wantAllow)
+		}
+	}
 
 	// Seed rootB/.agents/scratch/search.db with vet_history.
 	sqliteT(t, filepath.Join(rootB, ".agents", "scratch", "search.db"),
