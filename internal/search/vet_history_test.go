@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestVetHistoryTableAndHelpers(t *testing.T) {
@@ -365,6 +367,14 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	if err := os.WriteFile(transcriptPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	workStatusDir := filepath.Join(home, harness.StateDir, "work", "2026-11-10-120000-111")
+	if err := os.MkdirAll(workStatusDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workStatusJSON := `{"stamp":"2026-11-10-120000-111","updated_at":"2026-11-10T12:00:05Z","workers":[{"name":"w-fix","state":"PASS","model":"gemini-4-argon","step_count":4,"commits":1,"base_check":"PASS","judge_model":"claude-opus-5-5","judge_verdict":"PASS","last_step":"judge (claude-opus-5-5): PASS"}]}`
+	if err := os.WriteFile(filepath.Join(workStatusDir, "status.json"), []byte(workStatusJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	inJSON := fmt.Sprintf(`{"conversationId":"conv-vis-1","workspacePaths":[%q],"transcriptPath":%q,"invocationNum":1,"lastUserInput":"Fix ReconcileProjectIndex in service.go and run go test ./..."}`, dir, transcriptPath)
@@ -385,6 +395,8 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 		"flowchart LR",
 		"Turn-by-Turn `fyr vet` History",
 		"[VET_IMPROVED_PROMPT]",
+		"## Active / Latest `fyr work` Wave (`2026-11-10-120000-111`)",
+		"| `w-fix` | `PASS` | `gemini-4-argon` | `PASS` | `PASS (claude-opus-5-5)` | 4 | 1 |",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("fyr-process.md missing %q in:\n%s", want, text)

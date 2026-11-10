@@ -45,6 +45,14 @@ func writeWaveMermaid(b *strings.Builder, stamp string, workers []WorkerStatus) 
 			fmt.Fprintf(b, "  %s --> %s[\"%s\"]\n",
 				wid, sid, mermaidLabel("subagent: "+sub))
 		}
+		if w.JudgeVerdict != "" {
+			jm := w.JudgeModel
+			if jm == "" {
+				jm = "judge"
+			}
+			fmt.Fprintf(b, "  %s --> %s_j[\"%s\"]\n",
+				wid, wid, mermaidLabel(fmt.Sprintf("judge: %s (%s)", jm, w.JudgeVerdict)))
+		}
 	}
 	b.WriteString("```\n\n")
 }
@@ -100,6 +108,16 @@ func writeWorkerSlide(b *strings.Builder, w WorkerStatus) {
 		sanitizeCell(w.Branch), sanitizeCell(w.Model), fmtMMSS(w.ElapsedSec), w.StepCount, w.Commits)
 	fmt.Fprintf(b, "- **Files:** `%s`\n", sanitizeCell(files))
 	fmt.Fprintf(b, "- **Subagents:** `%s`\n", sanitizeCell(subs))
+	if w.BaseCheck != "" {
+		fmt.Fprintf(b, "- **Base-Check:** `%s`\n", sanitizeCell(w.BaseCheck))
+	}
+	if w.JudgeVerdict != "" {
+		jm := w.JudgeModel
+		if jm == "" {
+			jm = "judge"
+		}
+		fmt.Fprintf(b, "- **Judge:** `%s (%s)`\n", sanitizeCell(jm), sanitizeCell(w.JudgeVerdict))
+	}
 	fmt.Fprintf(b, "- **Last step:** `%s`\n", sanitizeCell(last))
 	if len(w.Reasons) > 0 {
 		fmt.Fprintf(b, "- **Reasons:** `%s`\n", sanitizeCell(strings.Join(w.Reasons, "; ")))

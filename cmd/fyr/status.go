@@ -209,11 +209,11 @@ func retroLine(home string, out io.Writer) {
 		days := int(time.Since(last).Hours() / 24)
 		hint := ""
 		if days > 14 {
-			hint = " — past 14 days, run /retro at the end of the next session"
+			hint = " — past 14 days, run /fyr-retro at the end of the next session"
 		}
 		fmt.Fprintf(out, "retro      last proposal %s (%d days ago)%s\n", last.Format("2006-01-02"), days, hint)
 	} else {
-		fmt.Fprintln(out, "retro      none yet — run /retro at the end of a session with corrections")
+		fmt.Fprintln(out, "retro      none yet — run /fyr-retro at the end of a session with corrections")
 	}
 }
 

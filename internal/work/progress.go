@@ -17,21 +17,24 @@ import (
 
 // WorkerStatus is one worker's live state in `status.json`.
 type WorkerStatus struct {
-	Name       string   `json:"name"`
-	State      string   `json:"state"` // "queued", "running", "PASS", "FAIL"
-	Model      string   `json:"model"`
-	Branch     string   `json:"branch"`
-	Files      []string `json:"files"`
-	StepCount  int      `json:"step_count"`
-	LastTool   string   `json:"last_tool,omitempty"`
-	LastStep   string   `json:"last_step,omitempty"`
-	Subagents  []string `json:"subagents,omitempty"`
-	ElapsedSec int      `json:"elapsed_sec"`
-	Commits    int      `json:"commits,omitempty"`
-	Reasons    []string `json:"reasons,omitempty"`
+	Name         string   `json:"name"`
+	State        string   `json:"state"` // "queued", "running", "PASS", "FAIL"
+	Model        string   `json:"model"`
+	Branch       string   `json:"branch"`
+	Files        []string `json:"files"`
+	StepCount    int      `json:"step_count"`
+	LastTool     string   `json:"last_tool,omitempty"`
+	LastStep     string   `json:"last_step,omitempty"`
+	Subagents    []string `json:"subagents,omitempty"`
+	BaseCheck    string   `json:"base_check,omitempty"`
+	JudgeModel   string   `json:"judge_model,omitempty"`
+	JudgeVerdict string   `json:"judge_verdict,omitempty"`
+	ElapsedSec   int      `json:"elapsed_sec"`
+	Commits      int      `json:"commits,omitempty"`
+	Reasons      []string `json:"reasons,omitempty"`
 }
 
-// WaveStatus is a `/work` wave's live status board persisted to
+// WaveStatus is a `/fyr-work` wave's live status board persisted to
 // `<home>/.config/fyr/work/<stamp>/status.json`.
 type WaveStatus struct {
 	Stamp     string         `json:"stamp"`
@@ -144,6 +147,51 @@ func (t *progressTracker) onEvent(name string, ev sandbox.ACPEvent) {
 		t.emitLine(fmt.Sprintf("work: [%s] ⚙ step %d (%s)  %s",
 			w.Name, w.StepCount, fmtMMSS(w.ElapsedSec), w.LastStep))
 	}
+}
+
+func (t *progressTracker) onBaseCheck(name, stage, status string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	idx, ok := t.index[name]
+	if !ok {
+		return
+	}
+	w := &t.wave.Workers[idx]
+	w.ElapsedSec = t.elapsedLocked(name)
+	w.BaseCheck = status
+	w.LastTool = "base-check"
+	w.LastStep = fmt.Sprintf("base-check %s: %s", stage, status)
+	t.persistLocked()
+	t.emitLine(fmt.Sprintf("work: [%s] 🧪 base-check %s (%s)  %s",
+		w.Name, stage, fmtMMSS(w.ElapsedSec), status))
+}
+
+func (t *progressTracker) onJudge(name, model, verdict, reason string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	idx, ok := t.index[name]
+	if !ok {
+		return
+	}
+	w := &t.wave.Workers[idx]
+	w.ElapsedSec = t.elapsedLocked(name)
+	w.JudgeModel = model
+	w.JudgeVerdict = verdict
+	w.LastTool = "judge"
+	step := fmt.Sprintf("judge (%s): %s", model, verdict)
+	if reason != "" {
+		step += " — " + reason
+	}
+	w.LastStep = step
+	t.persistLocked()
+	t.emitLine(fmt.Sprintf("work: [%s] ⚖ %s (%s)",
+		w.Name, step, fmtMMSS(w.ElapsedSec)))
 }
 
 func (t *progressTracker) onFinish(name string, res Result) {

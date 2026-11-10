@@ -1,6 +1,6 @@
 # <project>
 
-<one line: what it does and for whom — the project overview the user gave /init-project>
+<one line: what it does and for whom — the project overview the user gave /fyr-init-project>
 
 ## Quick start
 
@@ -33,7 +33,7 @@ Flags and environment variables, with their defaults; a runtime data path (a dat
 
 ## Deploy
 
-How it runs here, on a remote box and on GCP is the `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` records; a release goes through `/preflight`.
+How it runs here, on a remote box and on GCP is the `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` records; a release goes through `/fyr-preflight`.
 
 ## Where things are
 

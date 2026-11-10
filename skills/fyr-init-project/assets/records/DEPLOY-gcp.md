@@ -69,7 +69,7 @@ The runbook, filled once the service is live (`operate-gcp` skill); every value 
 
 | Row | Value |
 |---|---|
-| Last good revision | updated by the `/preflight` deploy row after every release |
+| Last good revision | updated by the `/fyr-preflight` deploy row after every release |
 | Rollback | `gcloud run services update-traffic SERVICE --region REGION --to-revisions GOOD=100` (`cloud-run-deploy` § Rollback), then `--remove-tags canary` if set; after reading the `change` records between GOOD and the serving revision (a security fix, SA change or secret rotation in between is the operator's call) |
 | Logs | `gcloud run services logs read SERVICE --region REGION --limit 50 --log-filter 'severity>=ERROR' --freshness 1h` |
 | Uptime check | name, path (`/healthz`), or "none: IAM-gated service, alert on metrics" |

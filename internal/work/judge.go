@@ -37,10 +37,12 @@ func (w *worker) runPreBaseCheck(ctx context.Context) bool {
 	if err == nil {
 		w.b.Note("Base-Check %q passed on HEAD before the worker started (not falsifiable)", w.p.k.BaseCheck)
 		w.b.Fail(ReasonBaseCheckPassed)
+		w.tracker.onBaseCheck(w.p.k.Name, "pre", "passed-on-HEAD (FAIL)")
 		return false
 	}
 	cleanBaseCheckArtifacts(w.b.App())
 	w.b.Note("Base-Check %q failed on HEAD as expected before build", w.p.k.BaseCheck)
+	w.tracker.onBaseCheck(w.p.k.Name, "pre", "pre-ok")
 	return ctx.Err() == nil
 }
 
@@ -57,7 +59,10 @@ func (w *worker) runPostBaseCheck() {
 	if err != nil {
 		w.b.Note("Base-Check %q failed after build: %v: %s", w.p.k.BaseCheck, err, lastLine(string(out)))
 		w.b.Fail(ReasonBaseCheckFailed)
+		w.tracker.onBaseCheck(w.p.k.Name, "post", "FAIL")
+		return
 	}
+	w.tracker.onBaseCheck(w.p.k.Name, "post", "PASS")
 }
 
 func (w *worker) baseCheckCmd() *exec.Cmd {
@@ -110,21 +115,25 @@ func (w *worker) runJudge() {
 	if fallbackReason != "" {
 		w.b.Note("judge model: %s (%s)", judgeModel, fallbackReason)
 	}
+	w.tracker.onJudge(w.p.k.Name, judgeModel, "running", "")
 	prompt := w.buildJudgePrompt(judgeModel)
 	report, err := execJudgeAgy(ctx, agy, judgeModel, prompt)
 	w.writeJudgeArtifacts(judgeModel, report, err)
 	if err != nil {
 		w.b.Note("judge (%s) execution failed: %v", judgeModel, err)
 		w.b.Fail(ReasonJudgeFailed)
+		w.tracker.onJudge(w.p.k.Name, judgeModel, "FAIL", err.Error())
 		return
 	}
 	passed, reason := parseJudgeVerdict(report)
 	if !passed {
 		w.b.Note("judge (%s): FAIL — %s", judgeModel, reason)
 		w.b.Fail(ReasonJudgeFailed)
+		w.tracker.onJudge(w.p.k.Name, judgeModel, "FAIL", reason)
 		return
 	}
 	w.b.Note("judge (%s): PASS — %s", judgeModel, reason)
+	w.tracker.onJudge(w.p.k.Name, judgeModel, "PASS", reason)
 }
 
 func (w *worker) buildJudgePrompt(judgeModel string) string {

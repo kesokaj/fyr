@@ -113,7 +113,7 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 	case "pre-tool-use":
 		return handlePreToolUse(dir, input, out)
 	default:
-		return handleStopHook(dir, input, out)
+		return handleStopHook(o, dir, input, out)
 	}
 }
 
@@ -482,8 +482,8 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 	return writeDecision(out, "allow", "")
 }
 
-func handleStopHook(dir string, in HookInput, out io.Writer) error {
-	writeHookProcessArtifact(nil, dir, in, "5/6 Verify & Judge", nil)
+func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {
+	writeHookProcessArtifact(o.Home, nil, dir, in, "5/6 Verify & Judge", nil)
 	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
 		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
 	}

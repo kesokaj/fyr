@@ -55,7 +55,7 @@ const (
 
 var (
 	errNotCheckout = errors.New("search: not inside a git checkout; use grep")
-	errNotIgnored  = errors.New(`search: .agents/scratch/search.db is not gitignored; add ".agents/scratch/*" to .gitignore (/init-project does)`)
+	errNotIgnored  = errors.New(`search: .agents/scratch/search.db is not gitignored; add ".agents/scratch/*" to .gitignore (/fyr-init-project does)`)
 	idPattern      = regexp.MustCompile(`^(BUG|ADR)-\d{3}[a-z]?$`)
 )
 

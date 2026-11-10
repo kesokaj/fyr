@@ -1,11 +1,15 @@
 package search
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
@@ -30,7 +34,7 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", slice.Pivots))
 	}
 	if state.EstTokens >= hookKneeTokens {
-		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /handoff or /compact.", state.EstTokens/1000))
+		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))
 		banners = append(banners, fmt.Sprintf("⚠️ %dk tokens (>= 180K knee)", state.EstTokens/1000))
 	}
 	return sections, banners, slice
@@ -62,7 +66,7 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, t
 		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
 		_ = sc.st.recordVetHistory(convID, turnNum, rawPrompt, vetRes, pivotFiles)
 	}
-	writeHookProcessArtifact(sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
+	writeHookProcessArtifact(o.Home, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	return sysMsg, banner
 }
 
@@ -81,7 +85,7 @@ func inferProcessStage(turnNum int, res VetResult) string {
 	}
 }
 
-func writeHookProcessArtifact(sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
+func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
 	if hooksDisabled(dir) {
 		return
 	}
@@ -105,7 +109,103 @@ func writeHookProcessArtifact(sc *scope, dir string, in HookInput, stage string,
 		rows, _ = st.listConversationVetHistory(in.ConversationID, 20)
 	}
 	content := RenderProcessArtifact(in.ConversationID, stage, rows, records)
+	if waveMD := readLatestWorkWaveMarkdown(home); waveMD != "" {
+		content += "\n" + waveMD
+	}
 	_ = writeProcessArtifactAtomic(target, []byte(content))
+}
+
+type workStatusSnapshot struct {
+	Stamp     string               `json:"stamp"`
+	UpdatedAt string               `json:"updated_at"`
+	Workers   []workWorkerSnapshot `json:"workers"`
+}
+
+type workWorkerSnapshot struct {
+	Name         string `json:"name"`
+	State        string `json:"state"`
+	Model        string `json:"model"`
+	StepCount    int    `json:"step_count"`
+	Commits      int    `json:"commits"`
+	BaseCheck    string `json:"base_check"`
+	JudgeModel   string `json:"judge_model"`
+	JudgeVerdict string `json:"judge_verdict"`
+	LastStep     string `json:"last_step"`
+}
+
+func readLatestWorkWaveMarkdown(home string) string {
+	snap, ok := loadLatestWorkStatus(home)
+	if !ok {
+		return ""
+	}
+	return renderWorkWaveMarkdown(snap)
+}
+
+func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
+	if strings.TrimSpace(home) == "" {
+		return workStatusSnapshot{}, false
+	}
+	workDir := filepath.Join(home, harness.StateDir, "work")
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return workStatusSnapshot{}, false
+	}
+	var stamps []string
+	for _, e := range entries {
+		if e.IsDir() {
+			if _, serr := os.Stat(filepath.Join(workDir, e.Name(), "status.json")); serr == nil {
+				stamps = append(stamps, e.Name())
+			}
+		}
+	}
+	if len(stamps) == 0 {
+		return workStatusSnapshot{}, false
+	}
+	sort.Strings(stamps)
+	newest := stamps[len(stamps)-1]
+	data, err := os.ReadFile(filepath.Join(workDir, newest, "status.json"))
+	if err != nil {
+		return workStatusSnapshot{}, false
+	}
+	var snap workStatusSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil || len(snap.Workers) == 0 {
+		return workStatusSnapshot{}, false
+	}
+	return snap, true
+}
+
+func renderWorkWaveMarkdown(snap workStatusSnapshot) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Active / Latest `fyr work` Wave (`%s`)\n\n", Printable(snap.Stamp))
+	if snap.UpdatedAt != "" {
+		fmt.Fprintf(&sb, "- **Updated:** `%s`\n\n", Printable(snap.UpdatedAt))
+	}
+	sb.WriteString("| Worker | State | Model | Base-Check | Judge | Steps | Commits | Last Step |\n|---|---|---|---|---|---:|---:|---|\n")
+	for _, w := range snap.Workers {
+		bc := w.BaseCheck
+		if bc == "" {
+			bc = "—"
+		}
+		jg := w.JudgeVerdict
+		if jg != "" && w.JudgeModel != "" {
+			jg = fmt.Sprintf("%s (%s)", jg, w.JudgeModel)
+		} else if jg == "" {
+			jg = "—"
+		}
+		last := w.LastStep
+		if last == "" {
+			last = "—"
+		}
+		fmt.Fprintf(&sb, "| `%s` | `%s` | `%s` | `%s` | `%s` | %d | %d | %s |\n",
+			sanitizeMDCell(w.Name), sanitizeMDCell(w.State), sanitizeMDCell(w.Model), sanitizeMDCell(bc), sanitizeMDCell(jg), w.StepCount, w.Commits, sanitizeMDCell(last))
+	}
+	return sb.String()
+}
+
+func sanitizeMDCell(s string) string {
+	clean := Printable(s)
+	r := strings.NewReplacer("|", "/", "`", "'", "\n", " ")
+	return strings.TrimSpace(r.Replace(clean))
 }
 
 func resolveProcessArtifactPath(in HookInput) string {

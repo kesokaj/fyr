@@ -1,6 +1,6 @@
 # Testing guide — <project>
 
-<!-- The one guide per project. /init-project copies this template; the verifier fills every <placeholder> on its first run and updates § 1 when the commands change; documentation maintains it when behaviour or interfaces change. The tiers and when each is owed: the testing-strategy skill. -->
+<!-- The one guide per project. /fyr-init-project copies this template; the verifier fills every <placeholder> on its first run and updates § 1 when the commands change; documentation maintains it when behaviour or interfaces change. The tiers and when each is owed: the testing-strategy skill. -->
 
 ## 1. Commands
 
@@ -20,7 +20,7 @@ The exact verification commands, the ones `AGENTS.md` § Setup lists; run each b
 | API | `<httptest / curl>` | a handler, a route, a JSON shape | <what> |
 | Browser e2e | `<playwright>` | a new or changed UI flow | <what> |
 | Container smoke | `<docker build && docker run && curl /healthz>` | the Dockerfile, the build, `embed.go` | <what> |
-| Cloud smoke | inside `/preflight` only (`deploy/gcp.md`) | a deploy flag, a secret, IAM | the revision serves |
+| Cloud smoke | inside `/fyr-preflight` only (`deploy/gcp.md`) | a deploy flag, a secret, IAM | the revision serves |
 
 ## 3. Fixtures and environment
 

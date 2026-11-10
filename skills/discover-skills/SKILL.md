@@ -112,5 +112,5 @@ Search tips: specific keywords ("react testing", not "testing"); alternative ter
 ## When nothing is found
 
 Say so, offer to do the task directly, and, if it recurs, suggest writing a skill: in the
-harness checkout's `skills/<name>/SKILL.md` for every project (`/distill` captures a procedure
+harness checkout's `skills/<name>/SKILL.md` for every project (`/fyr-distill` captures a procedure
 that repeated), or in the project's `.agents/skills/` for one.

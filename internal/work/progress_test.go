@@ -44,6 +44,7 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 
 	tr := newProgressTracker(o, stamp, ps)
 	tr.onStart("p1")
+	tr.onBaseCheck("p1", "pre", "pre-ok")
 	fixedNow = fixedNow.Add(15 * time.Second)
 	tr.onEvent("p1", sandbox.ACPEvent{
 		Kind:      "tool_call",
@@ -60,6 +61,8 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 		Summary:   "verifier (Test Runner)",
 		Status:    "running",
 	})
+	tr.onBaseCheck("p1", "post", "PASS")
+	tr.onJudge("p1", "claude-opus-5-5", "PASS", "all requirements met")
 	tr.onFinish("p1", Result{
 		Name:    "p1",
 		Verdict: "PASS",
@@ -70,8 +73,11 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 	lines := prog.String()
 	for _, want := range []string{
 		"work: [p1] ▶ started  model gemini-4-argon-high  branch work/p1  files: internal/search/hook.go",
+		"work: [p1] 🧪 base-check pre (00:00)  pre-ok",
 		"work: [p1] ⚙ step 1 (00:15)  read_file internal/search/hook.go",
 		"work: [p1] 🤖 step 2 (00:45)  subagent verifier (Test Runner)",
+		"work: [p1] 🧪 base-check post (00:45)  PASS",
+		"work: [p1] ⚖ judge (claude-opus-5-5): PASS — all requirements met (00:45)",
 		"work: [p1] ✓ finished PASS (01:15, 2 steps, 2 commits)",
 	} {
 		if !strings.Contains(lines, want) {
@@ -108,7 +114,7 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 	for _, want := range []string{
 		"work: stamp " + stamp,
 		"WORKER\tSTATE\tELAPSED\tSTEPS\tCOMMITS\tMODEL\tLAST STEP",
-		"p1\tPASS\t01:15\t2\t2\tgemini-4-argon-high\tverifier (Test Runner)",
+		"p1\tPASS\t01:15\t2\t2\tgemini-4-argon-high\tjudge (claude-opus-5-5): PASS — all requirements met",
 		"p2\tqueued\t00:00\t0\t0\tgemini-3-flash\t-",
 	} {
 		if !strings.Contains(board, want) {
@@ -126,10 +132,13 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 		"```mermaid\nflowchart LR",
 		`wave --> w0["p1 (PASS)"]`,
 		`w0 --> w0_s0["subagent: verifier (Test Runner)"]`,
+		`w0 --> w0_j["judge: claude-opus-5-5 (PASS)"]`,
 		"| `p1` | `PASS` | `gemini-4-argon-high` | `work/p1` | `01:15` | 2 | 2 |",
 		"````carousel",
 		"<!-- slide -->",
 		"### Worker `p1` (`PASS`)",
+		"- **Base-Check:** `PASS`",
+		"- **Judge:** `claude-opus-5-5 (PASS)`",
 		"### Worker `p2` (`queued`)",
 	} {
 		if !strings.Contains(md, want) {
