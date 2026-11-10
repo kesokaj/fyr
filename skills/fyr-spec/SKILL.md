@@ -30,7 +30,7 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 2: Fill every section, in order
 
-Follow the `fyr-docs` skill throughout: open **Purpose** as a crisp BLUF (Bottom Line Up Front), keep prose short and airy, include a Mermaid diagram (`mermaid-syntax` skill) in **Interfaces** or **Data** whenever the surface spans multiple components, actors, or states, and fold supplementary or > 12-row flag/schema tables inside `<details>`. A section that does not apply to this surface keeps its heading with one line saying why, never the template's comment.
+Follow the `fyr-docs` skill throughout: open **Purpose** as a crisp BLUF (Bottom Line Up Front), keep prose short and airy, include a Mermaid diagram (`mermaid-syntax` skill) in **Interfaces** or **Data** whenever the surface spans multiple components, actors, or states, and fold supplementary or > 12-row flag/schema tables inside `<details>`. Derive interfaces, status codes and failure modes statically from the source and existing unit tests (`go test`); never build or start live servers, background processes or `curl` probes while writing a spec. A section that does not apply to this surface keeps its heading with one line saying why, never the template's comment.
 
 1. **Purpose** — two or three sentences; who calls it, for what, what it is not.
 2. **Interfaces** — every shape as a fenced block (JSON per the `json-api-style` skill, Go signatures, a flag table). Settle each ambiguity with ONE shape; alternatives go to Open questions, never into the spec as a second shape.
