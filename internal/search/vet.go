@@ -416,6 +416,9 @@ var adrConflictPrefixes = []struct {
 }
 
 func extractConflictPhrases(rest string, minWords int) []string {
+	if cut := strings.Index(rest, ". "); cut >= 0 {
+		rest = rest[:cut]
+	}
 	if minWords >= 2 {
 		if cut := strings.IndexAny(rest, ".;:()"); cut >= 0 {
 			rest = rest[:cut]

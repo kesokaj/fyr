@@ -202,6 +202,15 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 	if kickoffRes.Gate != GateEnrichAndProceed {
 		t.Errorf("BUG-529 kickoff prompt: got gate=%s, want ENRICH_AND_PROCEED", kickoffRes.Gate)
 	}
+	periodADRCtx := TurnBrainContext{
+		ADRs: []MatchedRecord{
+			{ID: "ADR-516", Kind: "adr", Status: "accepted", Title: "Local store", Body: "Rejected: redis. We use SQLite."},
+		},
+	}
+	periodRes := VetPrompt("Connect main.go to redis for caching", "", SliceResult{SymbolHits: 1, Files: []string{"main.go"}}, periodADRCtx)
+	if periodRes.Gate != GateVetFirst || len(periodRes.Conflicts) == 0 {
+		t.Errorf("Rejected token before period: got gate=%s conflicts=%v, want VET_FIRST", periodRes.Gate, periodRes.Conflicts)
+	}
 }
 
 func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {

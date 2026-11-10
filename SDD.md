@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-08 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-10 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -9,12 +9,12 @@ Status: current · Last updated: 2026-11-08 · Requirements: [PRD.md](PRD.md) ·
 
 ## Context
 
-One operator, their own machines, one private repository. The harness is files a session reads (context, rules, skills, agents) plus `fyr`, which installs those files (and the `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`, R3, ADR-511) and keeps what a session cannot hold: each project's trail, its memory, the AST symbol and reference graph, the shape of every session, and an hourly consolidation of idle projects. Out of scope: any CLI but `agy` (R1), background daemons, commit gates and CI (R3), and any service (R8).
+Open-source repository (`github.com/kesokaj/fyr`), local-first on each operator's machines (`ADR-515`). The harness is files a session reads (context, rules, skills, agents) plus `fyr`, which installs those files (and the `< 250 ms` fail-open CLI hooks in `~/.gemini/config/hooks.json`, R3, ADR-511) and keeps what a session cannot hold: each project's trail, its memory, the AST symbol and reference graph, the shape of every session, and an hourly consolidation of idle projects. Out of scope: any CLI but `agy` (R1), background daemons, commit gates and CI (R3), and any service (R8).
 
 ```mermaid
 flowchart LR
   operator["Operator"] --> checkout["Harness checkout<br/>context, skills, agents, rules, cmd/fyr"]
-  checkout --> github[("GitHub, private<br/>main, tags, releases")]
+  checkout --> github[("GitHub<br/>main, tags, releases")]
   github --> fyr["fyr on each machine"]
   fyr --> gemini["~/.gemini/config<br/>installed files"]
   gemini --> agy["agy sessions"]
@@ -137,7 +137,7 @@ One line each; the record holds the context, the alternatives and the operator's
 - The deployed context is one block pinned under 22,000 bytes, pruned rather than split — ADR-035, ADR-051.
 - One dependency, a pure-Go SQLite driver — rejected: cgo drivers and a second dependency — ADR-045.
 - Every trail record lives in one brain store, exported to and synced from `.agents/trail.jsonl` only on demand — rejected: Markdown files per record, rewriting `.agents/trail.jsonl` on every record write — ADR-063, ADR-091.
-- A release binary carries the harness, and releases carry checksums but no signature — ADR-033, ADR-034, ADR-053.
+- A release binary carries the harness, and releases are publicly downloadable over HTTPS with checksums and no signature — ADR-033, ADR-034, ADR-053, ADR-515.
 - A third way in, the zip place — ADR-038, ADR-041.
 - The metrics store holds session shape only, never prose — ADR-055, ADR-055a.
 - The hourly dreamer proposes only, and its dream is a visible conversation — ADR-047a, ADR-073.

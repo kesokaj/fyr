@@ -337,7 +337,11 @@ func verifyFleetAutoAndCheck(t *testing.T, r *fleetRig, dbPath string) {
 			t.Fatalf("dry-run created %s: %v", rel, err)
 		}
 	}
-	requireContains(t, fyrMust(t, "", "auto", "run", "--home", r.home), "health: no findings", "Gemini Models")
+	autoOut := fyrMust(t, "", "auto", "run", "--home", r.home)
+	requireContains(t, autoOut, "health: no findings", "1 of 1 projects checked, level observe")
+	if strings.Contains(autoOut, "Gemini Models") {
+		t.Fatalf("observe level should not probe or print /usage quota (BUG-530):\n%s", autoOut)
+	}
 	fyrMust(t, "", "auto", "off", "--home", r.home)
 	fyrMust(t, "", "check", "-C", r.proj, "--home", r.home)
 }
