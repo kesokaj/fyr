@@ -13,7 +13,8 @@ import (
 // name only verbs the binary has, and carry the verbs those procedures and the
 // dream run through. A verb renamed or removed fails here, not silently in a
 // picture nobody re-reads. Nothing sends experience off the machine any more
-// (ADR-062), so `report` is neither a verb nor on the map.
+// (ADR-062), so `report` is never on the map (`fyr report` is the local-only
+// usage report verb, ADR-516).
 func TestHarnessMap(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
@@ -43,8 +44,5 @@ func TestHarnessMap(t *testing.T) {
 	}
 	if seen["report"] || strings.Contains(block, "styrman-harness-feedback") {
 		t.Error("the map still draws the report path back to the feedback repository")
-	}
-	if _, ok := verbs["report"]; ok {
-		t.Error("the binary still has a `report` verb")
 	}
 }

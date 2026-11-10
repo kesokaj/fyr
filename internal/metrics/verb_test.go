@@ -69,7 +69,7 @@ func TestVerb(t *testing.T) {
 		// A session from before the rename names the old binary.
 		{"sh-agent search --refs x", []string{"sh-agent search --refs"}},
 		{"go run ./cmd/sh-agent metrics show --json", []string{"sh-agent metrics show --json"}},
-		{"fyr report --dry-run", []string{"fyr --dry-run"}},
+		{"fyr report --dry-run", []string{"fyr report --dry-run"}},
 		{"fyr serve --port 3000", []string{"fyr --port"}},
 		{">/dev/null git status; > out.txt ls; 2>err cat f", []string{"git status", "ls", "cat"}},
 		{"", nil},

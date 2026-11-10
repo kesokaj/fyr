@@ -42,6 +42,9 @@ ul.notes{color:var(--ink-2);padding-left:18px}
 <div class="legend">{{range .Series}}<span><span class="sw {{.Class}}"></span>{{.Label}}</span>{{end}}</div>
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>
+{{range .Sections}}<section><h2>{{.Title}}</h2>{{if .Note}}<p class="note">{{.Note}}</p>{{end}}
+<div class="tablewrap"><table><tr>{{range .Table.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>
+{{end}}
 {{range .Charts}}<section><h2>{{.Title}}</h2>{{if .Note}}<p class="note">{{.Note}}</p>{{end}}{{.SVG}}
 <details><summary>Table</summary><div class="tablewrap"><table><tr>{{range .Table.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></details></section>
 {{end}}

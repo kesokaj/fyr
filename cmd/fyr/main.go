@@ -19,6 +19,7 @@
 //	fyr dream       the hourly dreamer and its timer
 //	fyr auto        idle-time runs: on, off, status, run
 //	fyr metrics     session shapes: ingest, show, report, evals, trajectory, export
+//	fyr report      project or global usage report (HTML or --md)
 //	fyr eval        run behavioural rows against the CLI
 //	fyr work        run Kickoffs as agy workers (in docker when ready, else host)
 //	fyr check       read-only drift check of this checkout's docs

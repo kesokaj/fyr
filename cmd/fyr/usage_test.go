@@ -90,8 +90,8 @@ func TestMainExitStatus(t *testing.T) {
 		"usage error": {"list --no-such-flag", 2, "", ""},
 		// A usage error like every other: exit 2, the reason on stdout (IN16).
 		"unknown command": {"no-such-verb", 2, `unknown command "no-such-verb"`, ""},
-		// The report path left with ADR-062: the word is no verb at all.
-		"report is gone": {"report --dry-run", 2, `unknown command "report"`, ""},
+		// A verb that does not take --dry-run refuses it with exit 2.
+		"report refuses dry-run": {"report --dry-run", 2, `flag provided but not defined: -dry-run`, ""},
 		// Help is a successful ask (IN15): the verb's page, which ends with
 		// the global flags line.
 		"list -h": {"list -h", 0, "\n\n" + helpLast + "\n", ""},

@@ -262,6 +262,10 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 			positional = append(positional, args[i+1:]...)
 			i = len(args)
 		case strings.HasPrefix(a, "-"):
+			if (a == "--project" || a == "-project") && valueFlags[a] && (fs.Name() == "report" || fs.Name() == "metrics") && (i+1 >= len(args) || strings.HasPrefix(args[i+1], "-")) {
+				flags = append(flags, "--project=.")
+				continue
+			}
 			flags = append(flags, a)
 			if valueFlags[a] && i+1 < len(args) {
 				flags = append(flags, args[i+1])

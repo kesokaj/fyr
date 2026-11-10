@@ -129,41 +129,14 @@ func (c *ctx) metricsShow(args []string) error {
 	return nil
 }
 
-// metricsReport serves `metrics report`: the HTML file, at --out or the
-// default path.
+// metricsReport serves `metrics report`: the HTML file (or --md), at --out or
+// the default path.
 func (c *ctx) metricsReport(args []string) error {
 	if len(args) > 0 || c.metricsJSON {
-		fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project DIR] [--label KEY=VALUE | --all-labels] [--context-target N] [--out FILE]")
+		fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project [DIR] | --global] [--label KEY=VALUE | --all-labels] [--context-target N] [--md] [--out FILE]")
 		return exitCode(2)
 	}
-	o, err := c.metricsShowOptions()
-	if err != nil {
-		fmt.Fprintln(c.out, "fyr metrics report: "+err.Error())
-		return exitCode(2)
-	}
-	s, err := c.existingMetricsStore()
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-	sum, err := s.Show(o)
-	if err != nil {
-		return err
-	}
-	evals, err := reportEvals(s, o)
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	file := c.metricsOut
-	if file == "" {
-		file = metrics.ReportPath(c.home, now)
-	}
-	if err := metrics.WriteReport(sum, evals, file, now); err != nil {
-		return err
-	}
-	fmt.Fprintln(c.out, "metrics: report written to "+file)
-	return nil
+	return c.renderReport("fyr metrics report")
 }
 
 // metricsTrajectory serves `metrics trajectory`: per-session token trajectory,
@@ -245,7 +218,7 @@ func (c *ctx) metricsExport(args []string) error {
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
 func (c *ctx) metricsFlagsOutside(allowed ...string) string {
-	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true, "limit": true}
+	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "global": true, "md": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true, "limit": true}
 	ok := map[string]bool{}
 	for _, a := range allowed {
 		ok[a] = true
@@ -279,6 +252,9 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if o.Since, o.Now, err = c.metricsWindow(); err != nil {
 		return o, err
 	}
+	if c.metricsProject != "" && c.global {
+		return o, errors.New("--project and --global exclude each other")
+	}
 	if c.metricsLabel != "" && c.metricsAllLabels {
 		return o, errors.New("--label and --all-labels exclude each other")
 	}
@@ -291,8 +267,12 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if c.limit != 0 {
 		return o, errors.New("--limit belongs to trajectory")
 	}
-	if c.metricsOut != "" && c.fs.Arg(0) != "report" {
+	isReport := c.cmd == "report" || c.fs.Arg(0) == "report"
+	if c.metricsOut != "" && !isReport {
 		return o, errors.New("--out belongs to report")
+	}
+	if (c.global || c.metricsMD) && !isReport {
+		return o, errors.New("--global and --md belong to report")
 	}
 	// Given means set: 0 left to the package is the default target, 0 typed
 	// is a mistake.
@@ -304,11 +284,11 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	o.ContextTarget = c.metricsContextTarget
 	o.Label, o.AllLabels = c.metricsLabel, c.metricsAllLabels
 	if c.metricsProject != "" {
-		abs, err := filepath.Abs(c.metricsProject)
+		proj, err := c.resolveMetricsProject()
 		if err != nil {
 			return o, err
 		}
-		o.Project = abs
+		o.Project = proj
 	}
 	return o, nil
 }

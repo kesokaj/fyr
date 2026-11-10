@@ -249,6 +249,7 @@ func TestMetricsWithoutStore(t *testing.T) {
 		{"metrics", "export", filepath.Join(t.TempDir(), "e.jsonl")},
 		{"metrics", "evals"},
 		{"metrics", "trajectory"},
+		{"report", "--out", filepath.Join(t.TempDir(), "r.html")},
 	} {
 		var out bytes.Buffer
 		err := run(append(args, "--home", home), &out)
@@ -289,5 +290,92 @@ func TestMetricsTrajectoryCLI(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "11111111") {
 		t.Errorf("trajectory text output = %q", out.String())
+	}
+}
+
+func TestReportVerbCLI(t *testing.T) {
+	home := t.TempDir()
+	repo, _ := gitFixture(t)
+	other := filepath.Join(t.TempDir(), "other-proj")
+	agyHomeIn(t, home, "11111111-1111-1111-1111-111111111111", repo)
+	agyHomeIn(t, home, "22222222-2222-2222-2222-222222222222", other)
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	// Usage refusals: --project + --global, bare --project outside checkout,
+	// and --global / --md on non-report metrics subcommands.
+	nonGit := t.TempDir()
+	for _, args := range [][]string{
+		{"report", "--project", repo, "--global"},
+		{"report", "--project", "--global"},
+		{"report", "--project", "--dir", nonGit},
+		{"metrics", "report", "--project", "--global"},
+		{"metrics", "report", "--project", "--dir", nonGit},
+		{"metrics", "show", "--global"},
+		{"metrics", "show", "--md"},
+	} {
+		out.Reset()
+		err := run(append(args, "--home", home), &out)
+		var code exitCode
+		if !errors.As(err, &code) || code != 2 {
+			t.Errorf("%v: err = %v, want exit 2 (out %q)", args, err, out.String())
+		}
+	}
+
+	// Inside a git checkout, bare `fyr report --md` defaults to --project <repo>
+	// (1 session) and prints the 5 sections to stdout.
+	out.Reset()
+	if err := run([]string{"report", "--md", "--since", "2026-10-01", "--dir", repo, "--home", home}, &out); err != nil {
+		t.Fatalf("report --md in checkout: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		"## 1. Executive Pulse",
+		"| Sessions | 1 |",
+		"## 2. Second-Brain Leverage",
+		"## 3. Quality & Learning Loop",
+		"## 4. Autonomy & Model Routing",
+		"## 5. Per-Project / Project Breakdown",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report --md in checkout lacks %q:\n%s", want, out.String())
+		}
+	}
+
+	// Bare `--project` flag before `--md` normalizes to `--project=.`.
+	out.Reset()
+	if err := run([]string{"report", "--project", "--md", "--since", "2026-10-01", "--dir", repo, "--home", home}, &out); err != nil {
+		t.Fatalf("report --project --md: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "| Sessions | 1 |") {
+		t.Errorf("report --project --md output:\n%s", out.String())
+	}
+
+	// Outside a git checkout, bare `fyr report --md` defaults to --global (2 sessions).
+	out.Reset()
+	if err := run([]string{"report", "--md", "--since", "2026-10-01", "--dir", nonGit, "--home", home}, &out); err != nil {
+		t.Fatalf("report --md outside checkout: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "| Sessions | 2 |") || !strings.Contains(out.String(), repo) {
+		t.Errorf("report --md outside checkout should be global:\n%s", out.String())
+	}
+
+	// --md --out writes a 0600 file and refuses overwrite; HTML --out writes HTML.
+	mdFile := filepath.Join(t.TempDir(), "rep.md")
+	out.Reset()
+	if err := run([]string{"report", "--global", "--md", "--since", "2026-10-01", "--out", mdFile, "--home", home}, &out); err != nil {
+		t.Fatalf("report --md --out: %v\n%s", err, out.String())
+	}
+	if err := run([]string{"report", "--global", "--md", "--since", "2026-10-01", "--out", mdFile, "--home", home}, &out); err == nil {
+		t.Fatal("report --md --out overwrote an existing file")
+	}
+	htmlFile := filepath.Join(t.TempDir(), "rep.html")
+	out.Reset()
+	if err := run([]string{"report", "--global", "--since", "2026-10-01", "--out", htmlFile, "--home", home}, &out); err != nil {
+		t.Fatalf("report --global --out: %v\n%s", err, out.String())
+	}
+	if b, err := os.ReadFile(htmlFile); err != nil || !bytes.Contains(b, []byte("<h2>1. Executive Pulse</h2>")) {
+		t.Fatalf("HTML report file: %v", err)
 	}
 }

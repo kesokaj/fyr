@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
@@ -185,7 +187,7 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 	db.Close()
 
 	// Seed global ~/.config/fyr/search.db with rootB and rootCorrupt so they are discovered from projects.
-	globalSearchDB := filepath.Join(home, ".config", "fyr", "search.db")
+	globalSearchDB := filepath.Join(home, harness.StateDir, "search.db")
 	if err := os.MkdirAll(filepath.Dir(globalSearchDB), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -221,9 +223,9 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 	}
 
 	// Seed two valid fyr work waves and one corrupt status.json under ~/.config/fyr/work/.
-	wave1Dir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-100000-1111")
-	wave2Dir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-110000-2222")
-	waveBadDir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-120000-bad")
+	wave1Dir := filepath.Join(home, harness.StateDir, "work", "2026-10-08-100000-1111")
+	wave2Dir := filepath.Join(home, harness.StateDir, "work", "2026-10-08-110000-2222")
+	waveBadDir := filepath.Join(home, harness.StateDir, "work", "2026-10-08-120000-bad")
 	for _, d := range []string{wave1Dir, wave2Dir, waveBadDir} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)

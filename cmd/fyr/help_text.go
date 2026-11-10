@@ -45,6 +45,7 @@ Background and measurement
   dream        the hourly dreamer and its timer
   auto         idle-time runs: on, off, status, run
   metrics      session shapes: ingest, show, report, evals, trajectory, export
+  report       project or global usage report (HTML or --md)
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
@@ -264,7 +265,8 @@ var pages = map[string]verbPage{
 			"                        [--project DIR] [--label KEY=VALUE | --all-labels]",
 			"                        [--context-target N] [--json]",
 			"       fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
-			"                          [--project DIR] [--label KEY=VALUE | --all-labels]",
+			"                          [--project [DIR] | --global] [--md]",
+			"                          [--label KEY=VALUE | --all-labels]",
 			"                          [--context-target N] [--out FILE]",
 			"       fyr metrics evals [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
 			"                         [--harness KEY] [--json]",
@@ -277,12 +279,29 @@ var pages = map[string]verbPage{
 			"every Antigravity session (tools, command verbs, tokens, timings; never",
 			"arguments or prose). show summarises it: outcome, efficiency, adherence,",
 			"reliability; labelled (sandbox) sessions only when named. report writes",
-			"that as one HTML file with charts, 0600, never over a file. evals prints",
-			"a line per fyr eval row (kind, pass rates, Wilson interval, efficiency",
-			"means, expect's m of n, a flag from its whole history) and the suite;",
-			"--harness keeps one key's trials. trajectory prints session token curves,",
-			"subagent lineage and context/tool anomalies. export writes every row but",
-			"the cmd_hash salt to FILE as JSONL, 0600, an existing FILE refused.",
+			"that as one HTML file with charts (or Markdown with --md), 0600, never over",
+			"a file. evals prints a line per fyr eval row (kind, pass rates, Wilson",
+			"interval, efficiency means, expect's m of n, a flag from its whole history)",
+			"and the suite; --harness keeps one key's trials. trajectory prints session",
+			"token curves, subagent lineage and context/tool anomalies. export writes",
+			"every row but the cmd_hash salt to FILE as JSONL, 0600, an existing FILE",
+		},
+	},
+	"report": {
+		synopsis: []string{
+			"usage: fyr report [--project [DIR] | --global] [--md] [--out FILE]",
+			"                  [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
+			"                  [--label KEY=VALUE | --all-labels] [--context-target N]",
+		},
+		about: []string{
+			"Renders the five-section usage report (Executive Pulse, Second-Brain",
+			"Leverage, Quality & Learning Loop, Autonomy & Model Routing, Per-Project /",
+			"Project Breakdown) from ~/.config/fyr/metrics.db and brain.db. Inside a git",
+			"checkout with neither --project nor --global, defaults to --project at the",
+			"checkout root; outside a checkout, defaults to --global. Writes one HTML",
+			"file (0600, refusing to overwrite) at --out or the default path under",
+			"~/.config/fyr/reports/, or with --md prints Markdown to stdout (or writes",
+			"--out FILE). Exit 0 ok, 1 missing store or write error, 2 a usage error.",
 		},
 	},
 	"eval": {

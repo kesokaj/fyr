@@ -164,7 +164,7 @@ func TestRealHomeGuardExemptions(t *testing.T) {
 func TestRealHomeGuardRefusesReads(t *testing.T) {
 	guardHome(t, "")
 	for _, args := range [][]string{
-		{"status"}, {"memory", "show"}, {"metrics", "show"}, {"metrics", "report"},
+		{"status"}, {"memory", "show"}, {"metrics", "show"}, {"metrics", "report"}, {"report"},
 		{"metrics", "evals"}, {"record", "import", "--dry-run"}, {"auto", "status"},
 		{"auto", "run", "--dry-run"}, {"dream", "--dry-run"}, {"uninstall", "--dry-run"},
 		{"work", "--check"}, {"eval", "--list"}, {"resume"}, {"git-check"},

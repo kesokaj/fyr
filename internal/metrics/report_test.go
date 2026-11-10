@@ -210,3 +210,78 @@ func TestReportAgyOnly(t *testing.T) {
 		t.Errorf("the summary's tool-call row is not one agy cell of 4:\n%s", html)
 	}
 }
+
+func TestRenderMarkdownReportSections(t *testing.T) {
+	sum := reportFixture(t)
+	score := 92.5
+	ratio := 4.5
+	sum.E = SecondBrain{
+		TurnVets: 12, MeanVetScore: &score, VetFirstTurns: 9,
+		BypassedTurns: 1, PivotsSeeded: 7, LedgerSaved: 5,
+	}
+	sum.F = WorkSummary{
+		Waves: 2, Workers: 4, Passed: 3, Failed: 1,
+		BaseCheckPassed: 3, BaseCheckFailed: 1,
+		JudgePassed: 2, JudgeFailed: 1, JudgeFallback: 1,
+	}
+	sum.Projects = []ProjectRow{{
+		Project: "/tmp/proj|pipe", Sessions: 3, ActiveMin: 14.2, Tokens: 5000,
+		SearchGrepRatio: &ratio, MeanVetScore: &score, Corrections: 1, EscapedBugs: 0,
+		LastActive: "2026-10-08",
+	}}
+	var mdBuf, htmlBuf bytes.Buffer
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderReport(&htmlBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	md := mdBuf.String()
+	html := htmlBuf.String()
+	for _, sec := range []string{
+		"1. Executive Pulse",
+		"2. Second-Brain Leverage",
+		"3. Quality & Learning Loop",
+		"4. Autonomy & Model Routing",
+		"5. Per-Project / Project Breakdown",
+	} {
+		if !strings.Contains(md, "## "+sec) {
+			t.Errorf("markdown report lacks section %q:\n%s", sec, md)
+		}
+		if !strings.Contains(html, "<h2>"+esc(sec)+"</h2>") {
+			t.Errorf("HTML report lacks section %q", sec)
+		}
+	}
+	for _, want := range []string{
+		"| Turn vets | 12 | n/a |",
+		"| Mean vet score | 92.5 | n/a |",
+		"| Read-ledger blocks saved | 5 | n/a |",
+		"| Work waves / workers | 2 / 4 | n/a |",
+		"| Cross-family Judge (PASS / FAIL / fallback) | 2 / 1 / 1 | n/a |",
+		`/tmp/proj\|pipe`,
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown report lacks %q:\n%s", want, md)
+		}
+	}
+}
+
+func TestWriteMarkdownReportRefusesOverwrite(t *testing.T) {
+	sum := reportFixture(t)
+	f := filepath.Join(t.TempDir(), "r", "m.md")
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	if err := WriteMarkdownReport(sum, nil, f, now); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
+	}
+	if err := WriteMarkdownReport(sum, nil, f, now); err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("second write: %v", err)
+	}
+}

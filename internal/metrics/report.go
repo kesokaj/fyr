@@ -131,7 +131,8 @@ func RenderReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) err
 	}
 	return reportTmpl.Execute(w, map[string]any{
 		"Sum": sum, "Charts": charts, "Generated": now.UTC().Format("2006-01-02 15:04 UTC"),
-		"Outcome": outcomeTable(sum, series), "Series": series, "Evals": evalsSectionOf(evals),
+		"Outcome": outcomeTable(sum, series), "Sections": reportSections(sum, series, evals),
+		"Series": series, "Evals": evalsSectionOf(evals),
 	})
 }
 
