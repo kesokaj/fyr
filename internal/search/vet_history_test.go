@@ -328,6 +328,36 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 }
 
+func TestMatchSkillsFyrDocsTriageAndBashWizard(t *testing.T) {
+	// 1. fyr-docs triggers on docset audit, BLUF, and README/documentation authoring.
+	skillsAudit, _ := MatchSkills("Audit the documentation in README.md and SDD.md for BLUF and collapsible details", IntentTask, []string{"README.md", "SDD.md"}, nil)
+	if len(skillsAudit) == 0 || skillsAudit[0].Name != "fyr-docs" {
+		t.Errorf("expected fyr-docs first on doc audit/BLUF prompt, got %+v", skillsAudit)
+	}
+	skillsWriteDocs, _ := MatchSkills("Write documentation for the new CLI flags in README.md", IntentTask, []string{"README.md"}, nil)
+	if len(skillsWriteDocs) == 0 || skillsWriteDocs[0].Name != "fyr-docs" {
+		t.Errorf("expected fyr-docs on README documentation prompt, got %+v", skillsWriteDocs)
+	}
+
+	// 2. fyr-triage triggers on issue/PR/backlog triage and Agent Brief requests.
+	skillsTriage, _ := MatchSkills("Triage issue #42 and open backlog items into an agent brief", IntentTask, nil, nil)
+	if len(skillsTriage) == 0 || skillsTriage[0].Name != "fyr-triage" {
+		t.Errorf("expected fyr-triage on issue/backlog triage prompt, got %+v", skillsTriage)
+	}
+
+	// 3. bash triggers on interactive setup wizard and set_gcp_secret prompts.
+	skillsWizard, _ := MatchSkills("Generate an interactive setup wizard using set_gcp_secret for Cloud Run secrets", IntentTask, nil, nil)
+	foundBash := false
+	for _, s := range skillsWizard {
+		if s.Name == "bash" {
+			foundBash = true
+		}
+	}
+	if !foundBash {
+		t.Errorf("expected bash skill on setup wizard / set_gcp_secret prompt, got %+v", skillsWizard)
+	}
+}
+
 func TestVetPromptClauseAndSecurityPrecision(t *testing.T) {
 	// 1. Mid-sentence "will actually", "can actually", "that actually", "to actually" must NOT classify as CORRECTION.
 	for _, p := range []string{

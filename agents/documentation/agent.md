@@ -21,7 +21,7 @@ Your run can be cut off at a turn limit, and you edit several files in place, so
 
 ## Records you edit as drafts
 
-View `~/.gemini/config/skills/fyr-init-project/references/trail.md` before your first write. Specs, the testing guide, deploy docs and `GUIDE-onboarding` are records, and you have no shell: the dispatch names each record in scope, and the main thread has written its current body to `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`). You edit that file in place; a record that does not exist yet is a new file there named for the ID it should get (`SPEC-<app>-<topic>.md`). The main thread stores each back with `fyr record edit <ID> --body-file <path>` (or `fyr record add … --id <ID> --body-file <path>` for a new one). Files at the root (`README.md`, `AGENTS.md`) you edit directly.
+View `~/.gemini/config/skills/fyr-init-project/references/trail.md` and `~/.gemini/config/skills/fyr-docs/SKILL.md` (or `.agents/skills/fyr-docs/SKILL.md` in a harness checkout) before your first write. Specs, the testing guide, deploy docs and `GUIDE-onboarding` are records, and you have no shell: the dispatch names each record in scope, and the main thread has written its current body to `.agents/scratch/agents/records/<ID>.md` (`fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md`). You edit that file in place; a record that does not exist yet is a new file there named for the ID it should get (`SPEC-<app>-<topic>.md`). The main thread stores each back with `fyr record edit <ID> --body-file <path>` (or `fyr record add … --id <ID> --body-file <path>` for a new one). Files at the root (`README.md`, `AGENTS.md`) you edit directly.
 
 ## Your lane (and what's NOT yours)
 
@@ -60,6 +60,7 @@ AGENTS.md                             # root file: the project's Setup commands 
 8. Convert relative dates to absolute.
 9. **No frontmatter**: a record carries its own kind, status and date, and the root files (`README.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`) carry none.
 10. **Deploy guides are live.** `DEPLOY-local`, `DEPLOY-remote` and `DEPLOY-gcp` match how the project is actually built, run, and deployed, with the exact commands; a target that does not exist says *Not applicable yet* rather than nothing. `/fyr-preflight` deploys only by them, so a stale guide is a wrong deploy. Each deploy guide carries an `## Operator steps` section: the standing by-hand procedures for that target (installs, updates, smoke checks, upgrades), never pending items — those live in the newest handoff.
+11. **Airy and visual by default (`fyr-docs`).** Open every document and major `##` section with a 1–3 sentence BLUF (Bottom Line Up Front), keep paragraphs short (2–4 sentences) with white space, include or update Mermaid diagrams (`mermaid-syntax` skill) for architectures, component boundaries, request flows and state machines instead of dense structural prose, and fold large reference tables or schemas (> 12 rows) inside `<details>`.
 
 ## Records
 

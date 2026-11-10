@@ -1,6 +1,6 @@
 # The trail: records, and an agent's draft
 
-The one statement of where a project's trail lives and how an agent's artifact reaches it. The eight agents point here (`~/.gemini/config/skills/fyr-init-project/references/trail.md` as installed) instead of carrying their own copy.
+The one statement of where a project's trail lives and how an agent's artifact reaches it. The nine agents point here (`~/.gemini/config/skills/fyr-init-project/references/trail.md` as installed) instead of carrying their own copy.
 
 ## Records
 
@@ -23,7 +23,7 @@ The main thread then stores it: `fyr record add <kind> --title "<title>" --body-
 |---|---|
 | reviewer, security | `review` |
 | verifier | `testing` (and, when it writes or fills the testing guide, a second draft for `GUIDE-testing`) |
-| explorer | `plan` (a recon brief: no checkboxes, so it is stored closed) |
+| explorer, triage | `plan` (a recon or triage brief: no checkboxes outside fenced blocks, so it is stored closed) |
 | bugs | `bug` |
 | changelog | `change` |
 | dreamer | `retro` |

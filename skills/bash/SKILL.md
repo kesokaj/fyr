@@ -10,6 +10,7 @@ Expert guidance for writing robust, maintainable, and secure shell scripts follo
 ## When to Use
 
 - Writing or reviewing Bash/Zsh scripts
+- Generating interactive human-in-the-loop setup, credential, or migration wizards (`./references/wizard.md`)
 - Automating tasks with shell commands
 - Argument parsing, error handling, or signal traps
 - Using CLI tools: `jq`, `rg`, `fd`, `fzf`, `yq`, `bat`
@@ -64,6 +65,9 @@ For detailed patterns, examples, and templates, consult the reference files:
 
 * **Makefile Patterns, Targets, Conventions**
   Read → `./references/makefile-patterns.md`
+
+* **Interactive Human-in-the-Loop Setup, Secret & Migration Wizards (`set_gcp_secret`, `gh secret`, `.env`)**
+  Read → `./references/wizard.md` · Template → `./assets/wizard-template.sh`
 
 > [!TIP]
 > When the user asks you to write a shell script, immediately read the reference file to apply correct patterns for error handling, argument parsing, and cleanup.

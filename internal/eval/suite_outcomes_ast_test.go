@@ -67,7 +67,19 @@ EOF
 		{"left dirty", false, acpGood + "echo x >>README.md\n"},
 	}
 
+	triageGood := "rec plan --title 'Triage — backlog-pass' <<<'# Triage — backlog-pass\n1. Redis cache — enhancement / wontfix (prior rejection in ADR-001)\n2. BUG-001 — bug / ready-for-agent (Entry point: internal/greet/greet.go:22-30 (RenderGreeting))'\n"
+	triageCases := []outcome{
+		{"cites ADR-001 wontfix and BUG-001 ready-for-agent with greet.go range in closed plan", true, triageGood},
+		{"missing wontfix verdict", false, "rec plan --title 'Triage — backlog-pass' <<<'ADR-001 noted; BUG-001 ready-for-agent at internal/greet/greet.go:22-30'\n"},
+		{"missing ADR-001 prior-rejection citation", false, "rec plan --title 'Triage — backlog-pass' <<<'Redis: wontfix; BUG-001: ready-for-agent at internal/greet/greet.go:22-30'\n"},
+		{"missing ready-for-agent verdict", false, "rec plan --title 'Triage — backlog-pass' <<<'Redis: wontfix per ADR-001; BUG-001: needs-info at internal/greet/greet.go:22-30'\n"},
+		{"missing greet.go line-range citation", false, "rec plan --title 'Triage — backlog-pass' <<<'Redis: wontfix per ADR-001; BUG-001: ready-for-agent in internal/greet/greet.go'\n"},
+		{"stored with open checkbox instead of closed plan", false, "rec plan --title 'Triage — backlog-pass' <<<'# Triage\n- [ ] Fix BUG-001\nRedis: wontfix per ADR-001; BUG-001: ready-for-agent at internal/greet/greet.go:22-30'\n"},
+		{"source modified", false, triageGood + "echo '// x' >>internal/greet/greet.go\n"},
+	}
+
 	return map[string][]outcome{
+		"triage": triageCases,
 		"ast-slice-citations": {
 			{"plan cites both symbols with line ranges and ran AST search", true, reconPlan + astCmd},
 			{"missing format.go citation", false, "rec plan --title 'Recon — ast-flow' <<<'internal/greet/greet.go:22-30 (RenderGreeting)'\n" + astCmd},

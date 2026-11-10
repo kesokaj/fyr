@@ -22,7 +22,7 @@ Three sections and a list, each claim with a file:line or a path; nothing from m
 3. **How to work on it** — the exact commands from `AGENTS.md` § Setup, the resume order the trail uses (`fyr resume`: `AGENTS.md` → `fyr record list --open` → newest handoff → `TODO.md` Now → the open plans → the newest `change` records → `fyr memory show`), where decisions live (`adr` records), where failures are recorded (`bug` records), and how a change is finished (the Definition of Done in the global context).
 4. **What I could not determine** — every question the code and the trail did not answer, as a list for the operator; never a guess dressed as a fact.
 
-Under 200 lines. A diagram only when the flow has a branch worth seeing (`mermaid-syntax` skill).
+Follow the `fyr-docs` skill: open the document and each `##` section with a 1–3 sentence BLUF (Bottom Line Up Front), keep prose short and airy under 200 lines total, include a Mermaid architecture and main request-flow diagram (`mermaid-syntax` skill) in **How it is built**, and fold long flag/config tables inside `<details>`.
 
 ## Step 3: Report
 
@@ -30,4 +30,4 @@ In chat: the file's path, the three section headings with one line each, and the
 
 ## When NOT to use this skill
 
-A review of the code → `fyr-review`. A recon brief before a change → the `explorer` agent directly. README quick-start text or a spec → the `documentation` agent and the `fyr-spec` skill. Stress-testing a plan → `grilling`.
+A review of the code → `fyr-review`. A recon brief before a change → the `explorer` agent directly. README quick-start text, docset audits, or a spec → `fyr-docs`, the `documentation` agent, and the `fyr-spec` skill. Stress-testing a plan → `grilling`.

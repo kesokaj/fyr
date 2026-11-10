@@ -109,7 +109,7 @@ func TestKnownToolsAreTheDerivedNames(t *testing.T) {
 	}
 }
 
-// TestCheckoutAgentsAreNative: the checkout's eight agents load in the native
+// TestCheckoutAgentsAreNative: the checkout's nine agents load in the native
 // format, and the reviewer names the review-standards skill by the path
 // Antigravity installs it at (audit 2026-09-30, AG5, kept from the derivation
 // test it replaces).
@@ -132,12 +132,13 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 			"documentation": "flash",
 			"explorer":      "flash",
 			"security":      "pro",
+			"triage":        "flash",
 		}[a.Name]
 		if a.Front["model"] != wantModel {
 			t.Errorf("agent %s model = %q, want %q", a.Name, a.Front["model"], wantModel)
 		}
 	}
-	want := []string{"bugs", "changelog", "documentation", "dreamer", "explorer", "reviewer", "security", "verifier"}
+	want := []string{"bugs", "changelog", "documentation", "dreamer", "explorer", "reviewer", "security", "triage", "verifier"}
 	if !slices.Equal(names, want) {
 		t.Errorf("agents = %v, want %v", names, want)
 	}
@@ -162,6 +163,7 @@ func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
 		"bugs":          "the record file is the FIRST `write_to_file`",
 		"changelog":     "## Write first",
 		"documentation": "Status: IN PROGRESS",
+		"triage":        "Status: IN PROGRESS",
 	}
 	seen := 0
 	for _, a := range agents {
@@ -178,7 +180,7 @@ func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
 		}
 		// The draft agents rewrite their one draft whole with write_to_file;
 		// none edits a file in place (AG19, and AG27 of the 2026-10-27 audit).
-		if (a.Name == "changelog" || a.Name == "bugs") && slices.Contains(splitList(a.Front["tools"]), "replace_file_content") {
+		if (a.Name == "changelog" || a.Name == "bugs" || a.Name == "triage") && slices.Contains(splitList(a.Front["tools"]), "replace_file_content") {
 			t.Errorf("%s writes one draft but lists replace_file_content", a.Name)
 		}
 	}

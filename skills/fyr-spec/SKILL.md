@@ -30,7 +30,7 @@ One surface, one file, one shape. A spec says what a thing looks like from outsi
 
 ## Step 2: Fill every section, in order
 
-A section that does not apply to this surface keeps its heading with one line saying why, never the template's comment.
+Follow the `fyr-docs` skill throughout: open **Purpose** as a crisp BLUF (Bottom Line Up Front), keep prose short and airy, include a Mermaid diagram (`mermaid-syntax` skill) in **Interfaces** or **Data** whenever the surface spans multiple components, actors, or states, and fold supplementary or > 12-row flag/schema tables inside `<details>`. A section that does not apply to this surface keeps its heading with one line saying why, never the template's comment.
 
 1. **Purpose** — two or three sentences; who calls it, for what, what it is not.
 2. **Interfaces** — every shape as a fenced block (JSON per the `json-api-style` skill, Go signatures, a flag table). Settle each ambiguity with ONE shape; alternatives go to Open questions, never into the spec as a second shape.
@@ -56,4 +56,5 @@ A spec on its own is a docs change: a `change` record (or the feature's names it
 - `fyr-feature` — the plan; its Interfaces point here when a spec exists; its § Decisions holds the ADR shape.
 - `fyr-research` — writes a spec through the same template when it settles on a shape.
 - `json-api-style` — the JSON shapes an Interfaces section uses.
+- `fyr-docs` — airy, visual-first documentation rules (BLUF, Mermaid diagrams, `<details>` folding).
 - `documentation` agent — owns the spec after the first write.

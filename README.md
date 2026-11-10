@@ -87,8 +87,8 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | Surface | Installed path & details |
 |---|---|
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
-| **Skills (41)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
-| **Subagents (8)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`bugs`, `changelog`, `documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `verifier`) |
+| **Skills (43)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
+| **Subagents (9)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`bugs`, `changelog`, `documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `triage`, `verifier`) |
 | **Rules (4)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `session-sizing`) |
 | **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`pre-invocation`, `pre-tool-use`, `stop`) with `< 250 ms` fail-open timeout |
 | **Binary (`fyr`)** | `~/.local/bin/fyr` + local stores under `~/.config/fyr/` (`brain.db`, `metrics.db`, `search.db`, `state.json`, `0700` mode) |
@@ -273,18 +273,19 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 
 | Group | Skills |
 |---|---|
-| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-work` (leads a plan's phases or a task list as sandboxed `fyr work` workers and squash-merges each PASS), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `/fyr-auto` (worker contract for `fyr auto`) |
-| **Project shape & indexing** | `fyr-init-project` (full scaffold + trail + index), `fyr-index-project` (zero-scaffold MVP `.agents/scratch/search.db` indexing & AST graph), `fyr-refresh-project-index` (reconcile or `--rebuild` index + `--map` diagnostics), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project` (`GUIDE-onboarding`), `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
+| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-work` (leads a plan's phases or a task list as sandboxed `fyr work` workers and squash-merges each PASS), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-work` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `/fyr-auto` (worker contract for `fyr auto`) |
+| **Project shape & indexing** | `fyr-init-project` (full scaffold + trail + index), `fyr-index-project` (zero-scaffold MVP `.agents/scratch/search.db` indexing & AST graph), `fyr-refresh-project-index` (reconcile or `--rebuild` index + `--map` diagnostics), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project` (`GUIDE-onboarding`), `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
 | **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-distill`, `fyr-dream` |
-| **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
+| **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
 | **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` (routes to pinned Google skills under `skills/google-catalog/catalog/`) |
-| **Vendored & forks** | `grilling`, `codebase-design`, `discover-skills` (forked from `find-skills`), and `gke-basics`; provenance in `skills/VENDORED.md` |
+| **Vendored & forks** | `grilling`, `codebase-design`, `discover-skills` (forked from `find-skills`), `fyr-docs` (forked from `docs-writer`), `fyr-triage` (forked from `triage`), `bash` wizard, and `gke-basics`; provenance in `skills/VENDORED.md` |
 
-### Subagents (8)
+### Subagents (9)
 
 | Subagent | Default Model | Role |
 |---|---|---|
 | `explorer` | `flash` | Read-only codebase reconnaissance (10+ files) drafted under `.agents/scratch/agents/` and stored as a `plan` record |
+| `triage` | `flash` | Read-only queue, issue, and PR triage (redundancy + `PRD.md`/`ADR` rejection checks and Agent Brief drafts) stored as a closed `plan` record |
 | `reviewer` | inherit | Independent severity-ranked code, docs, and prompt review drafted under `.agents/scratch/agents/` (`review` record) |
 | `security` | `pro` | Defensive security audit of diffs touching auth, crypto, secrets, IAM, input parsing, frontmatter allowlists, or dependencies |
 | `verifier` | inherit | Runs project test tiers (`go test -race`, vet, lint, e2e) on the frozen working tree and drafts a `testing` record |

@@ -86,19 +86,10 @@ func isDiagnosticOrNegatedSkillMention(name, lowPrompt string) bool {
 		return false
 	}
 	for _, phrase := range []string{
-		"loading the " + name + " skill",
-		"loads the " + name + " skill",
-		"loading " + name + " skill",
-		"triggering the " + name + " skill",
-		"triggers the " + name + " skill",
-		"over-triggers " + name,
-		name + " skill very often",
-		"don't use " + name,
-		"do not use " + name,
-		"never use " + name,
-		"without " + name,
-		"stop loading " + name,
-		"instead of " + name,
+		"loading the " + name + " skill", "loads the " + name + " skill", "loading " + name + " skill",
+		"triggering the " + name + " skill", "triggers the " + name + " skill", "over-triggers " + name,
+		name + " skill very often", "don't use " + name, "do not use " + name, "never use " + name,
+		"without " + name, "stop loading " + name, "instead of " + name,
 	} {
 		if strings.Contains(lowPrompt, phrase) {
 			return true
@@ -117,7 +108,7 @@ func scoreSkillSurface(name, lowPrompt string, intent IntentMode, files []string
 	if sc, r := scoreInfraOrAPISkill(name, lowPrompt, files); sc > 0 {
 		return sc, r
 	}
-	return scoreFyrWorkflowSkill(name, lowPrompt, intent)
+	return scoreFyrWorkflowSkill(name, lowPrompt, intent, files)
 }
 
 func scoreLangOrUISkill(name, lowPrompt string, files []string) (int, string) {
@@ -160,8 +151,8 @@ func isBashSkillSurface(lowPrompt string, files []string) bool {
 	if shCount > 0 && shCount*2 > len(files) {
 		return true
 	}
-	return containsAnySubstr(lowPrompt, "shell script", "bash script") ||
-		containsAnyWord(lowPrompt, "zsh", "shfmt", "shellcheck", "jq", "yq", "awk", "sed")
+	return containsAnySubstr(lowPrompt, "shell script", "bash script", "setup wizard", "bash wizard", "interactive wizard") ||
+		containsAnyWord(lowPrompt, "zsh", "shfmt", "shellcheck", "jq", "yq", "awk", "sed", "set_gcp_secret")
 }
 
 func scoreInfraOrAPISkill(name, lowPrompt string, files []string) (int, string) {
@@ -214,13 +205,24 @@ var fyrWorkflowSkillRules = map[string]struct {
 	"fyr-distill":        {82, "skill distillation surface", []string{"distill", "fyr-distill"}, []string{"into a skill", "reusable skill"}},
 	"fyr-dream":          {82, "memory consolidation surface", nil, []string{"fyr dream", "/fyr-dream", "consolidate memory", "dreamer"}},
 	"fyr-harness-audit":  {88, "harness audit surface", nil, []string{"harness audit", "fyr-harness-audit", "audit the harness"}},
+	"fyr-triage":         {86, "issue/PR and backlog triage surface", []string{"triage", "fyr-triage", "wontfix", "needs-triage", "needs-info", "ready-for-agent"}, []string{"/fyr-triage", "agent brief", "needs my attention"}},
 }
 
-func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode) (int, string) {
+func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
 	switch name {
 	case "fyr-explain-project", "explain-project":
 		if intent == IntentQuestion && (strings.Contains(lowPrompt, "explain") || strings.Contains(lowPrompt, "walk me through")) {
 			return 95, "intent=QUESTION (onboarding)"
+		}
+	case "fyr-docs":
+		if containsAnyWord(lowPrompt, "fyr-docs", "docs-writer", "bluf", "docset") ||
+			containsAnySubstr(lowPrompt, "/fyr-docs", "audit docs", "audit the docs", "audit the documentation", "docs audit", "airy docs") {
+			return 84, "documentation standard/audit surface"
+		}
+		if containsAnyWord(lowPrompt, "documentation", "readme", "onboarding", "runbook") ||
+			containsAnySubstr(lowPrompt, "write docs", "update docs", "edit docs", "review docs") ||
+			(hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !containsAnyWord(lowPrompt, "typo", "rename")) {
+			return 73, "documentation surface"
 		}
 	case "fyr-index-project":
 		if strings.Contains(lowPrompt, "fyr-index-project") || (containsAnyWord(lowPrompt, "index", "indexing", "search.db") && !containsAnyWord(lowPrompt, "refresh", "rebuild")) {
@@ -345,8 +347,10 @@ func defaultSkillCatalog() []SkillMeta {
 		{Name: "fyr-preflight", Path: "skills/fyr-preflight/SKILL.md", Digest: "Release gate and release path (`/fyr-preflight vX.Y.Z`): Definition of Done, reviewer and security dispatch over release diff, SHIP/NO-SHIP report, annotated tag."},
 		{Name: "golang", Path: "skills/golang/SKILL.md", Digest: "Go standards: `cmd/<app>` + `internal/`, stdlib first, `log/slog` JSON, table-driven tests with `-race`, hand-written fakes, functions <= 50 lines."},
 		{Name: "typescript", Path: "skills/typescript/SKILL.md", Digest: "TypeScript standards: strict tsconfig, narrowing, ESM module boundaries, runtime validation at boundaries, Vitest and Playwright tiers."},
-		{Name: "bash", Path: "skills/bash/SKILL.md", Digest: "Bash and shell scripting: `set -euo pipefail`, safe quoting, `jq`/`rg`/`fd` pipelines, shellcheck compliance."},
+		{Name: "bash", Path: "skills/bash/SKILL.md", Digest: "Bash and shell scripting: `set -euo pipefail`, safe quoting, `jq`/`rg`/`fd` pipelines, shellcheck compliance, and interactive setup wizards (`set_gcp_secret`)."},
 		{Name: "testing-strategy", Path: "skills/testing-strategy/SKILL.md", Digest: "Decide test tiers owed by a change: unit with `-race`, integration, API `httptest`, e2e, and `GUIDE-testing` maintenance."},
+		{Name: "fyr-docs", Path: "skills/fyr-docs/SKILL.md", Digest: "Airy, visual-first documentation standard and docset audit: BLUF (Bottom Line Up Front), short prose, Mermaid diagrams, and `<details>` folding."},
+		{Name: "fyr-triage", Path: "skills/fyr-triage/SKILL.md", Digest: "Triage GitHub issues/PRs and local `fyr` queues (`TODO.md` Backlog, `BUG-*`, `PROPOSAL-*`) via redundancy and `PRD.md`/ADR checks into Agent Briefs or `/fyr-work` Kickoffs."},
 		{Name: "fyr-spec", Path: "skills/fyr-spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
 		{Name: "fyr-explain-project", Path: "skills/fyr-explain-project/SKILL.md", Digest: "Explain a codebase to the operator with `file:line` entry points, package flow, and trail resume order (`GUIDE-onboarding`)."},
 		{Name: "fyr-index-project", Path: "skills/fyr-index-project/SKILL.md", Digest: "Enable MVP indexing and AST graphing (`.agents/scratch/search.db`, `fyr index`, `fyr search --map`) in an existing or unscaffolded project with zero root-doc scaffolding."},
