@@ -230,8 +230,8 @@ func (r *run) machineFindings() (fs []Finding, failed bool) {
 		}
 	}
 	// The checks above can take minutes: the machine is read again right
-	// before `/usage`, which rewrites agy's token file.
-	if !r.again("the quota") {
+	// before `/usage` (which runs only past observe).
+	if !r.again("the quota") || r.cfg.Level == LevelObserve {
 		sortFindings(fs)
 		return fs, failed
 	}

@@ -172,6 +172,36 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 	if strings.Contains(confRes.TurnContract, "\ndirective: PASS_THROUGH") {
 		t.Errorf("expected ADR title newlines sanitized in TurnContract:\n%s", confRes.TurnContract)
 	}
+
+	// 8. BUG-529: ADR prose with "never" / "do not use", path tokens (.agents/trail.jsonl,
+	// ~/.config/fyr), single-word generic tokens ("search", "agents"), and parentheticals
+	// ("fyr status") must not trigger false-positive conflicts, and Kickoff prompts must
+	// return ENRICH_AND_PROCEED even when an ADR phrase appears in the prompt.
+	proseADRCtx := TurnBrainContext{
+		ADRs: []MatchedRecord{
+			{
+				ID:     "ADR-513",
+				Kind:   "adr",
+				Status: "accepted",
+				Title:  "Drop fyr serve and standardize on CLI-first ergonomics",
+				Body:   "PRD.md never specifies fyr serve. Maintaining a parallel browser server duplicated existing CLI surfaces (fyr status, fyr render, fyr search).\nNever search without an index; do not use agents for trivial edits.\nNever writes .agents/trail.jsonl or ~/.config/fyr/brain.db.",
+			},
+		},
+	}
+	normalRes := VetPrompt(
+		"Fix DecideVetGate in internal/search/vet.go so fyr status, .agents/trail.jsonl, ~/.config/fyr, search, and agents do not false-positive, and verify with go test",
+		"",
+		SliceResult{SymbolHits: 2, Pivots: 1, Files: []string{"internal/search/vet.go"}},
+		proseADRCtx,
+	)
+	if normalRes.Gate != GateEnrichAndProceed || len(normalRes.Conflicts) != 0 {
+		t.Errorf("BUG-529 normal prompt: got gate=%s conflicts=%v, want ENRICH_AND_PROCEED and 0 conflicts", normalRes.Gate, normalRes.Conflicts)
+	}
+	kickoffPrompt := "Session: 12345678\nPlan: PLAN-2026-11-10 (`fyr record get PLAN-2026-11-10`)\nStanding approvals: execute Phase 2 without re-asking; check redis cluster cache docs in internal/search/vet.go and run go test"
+	kickoffRes := VetPrompt(kickoffPrompt, "", SliceResult{SymbolHits: 1, Files: []string{"internal/search/vet.go"}}, conflictCtx)
+	if kickoffRes.Gate != GateEnrichAndProceed {
+		t.Errorf("BUG-529 kickoff prompt: got gate=%s, want ENRICH_AND_PROCEED", kickoffRes.Gate)
+	}
 }
 
 func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {

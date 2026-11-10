@@ -64,6 +64,7 @@ func hasAutonomousWaiver(lowPrompt string) bool {
 		"the scope is confirmed",
 		"no go needed",
 		"without asking",
+		"without re-asking",
 	} {
 		if strings.Contains(lowPrompt, w) {
 			return true

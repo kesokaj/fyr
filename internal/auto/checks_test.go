@@ -153,11 +153,11 @@ func TestReportWrittenOnlyWhenFound(t *testing.T) {
 	if got := reports(t, home); len(got) != 0 {
 		t.Errorf("%v", got)
 	}
-	if st, _, _ := loadState(home); !strings.Contains(st.Budget, "P 90% of 5h") || st.Projects[root].LastClass != "health" {
+	if st, _, _ := loadState(home); st.Budget != "" || st.Projects[root].LastClass != "health" {
 		t.Errorf("%+v", st)
 	}
-	if e.usageCalls != 1 {
-		t.Errorf("%d /usage calls", e.usageCalls)
+	if e.usageCalls != 0 {
+		t.Errorf("want 0 /usage calls at observe, got %d", e.usageCalls)
 	}
 }
 
@@ -260,12 +260,25 @@ func TestReportNoUsageBeforeAProjectPasses(t *testing.T) {
 
 func TestReportUnreadableQuotaIsAFinding(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usageErr: errFake}
 	reportRun(t, home, e)
 	got := reports(t, home)
 	if len(got) != 1 || !strings.Contains(got[0].Body, "quota/unreadable") || got[0].Project != "" {
 		t.Errorf("%+v", got)
+	}
+}
+
+func TestObserveSkipsQuotaUsageCheck(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	e := &fakeEnv{targets: targetsOf(idleProject(t)), usageErr: errFake}
+	out := reportRun(t, home, e)
+	if e.usageCalls != 0 || strings.Contains(out, "unreadable") {
+		t.Errorf("want 0 /usage calls and no unreadable quota at observe, got %d calls:\n%s", e.usageCalls, out)
+	}
+	if got := reports(t, home); len(got) != 0 {
+		t.Errorf("want 0 reports at observe when only /usage is unreadable, got %+v", got)
 	}
 }
 

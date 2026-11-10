@@ -144,6 +144,7 @@ func isApprovalPrompt(low string) bool {
 
 func isKickoffPrompt(p string) bool {
 	return strings.Contains(p, "Standing approvals (closed set):") ||
+		strings.Contains(p, "Standing approvals:") ||
 		(strings.HasPrefix(p, "Project:") && strings.Contains(p, "Files:"))
 }
 
@@ -329,14 +330,17 @@ func decideVetGate(rawPrompt string, intent IntentMode, present, conflicts []str
 	if rawPrompt == "" || strings.HasPrefix(rawPrompt, "!") {
 		return GatePassThrough
 	}
-	if len(conflicts) > 0 {
-		return GateVetFirst
-	}
 	low := strings.ToLower(rawPrompt)
 	if strings.HasPrefix(rawPrompt, "/") || strings.HasPrefix(low, "run /") || intent == IntentApproval || intent == IntentTrivial {
 		return GatePassThrough
 	}
-	if isKickoffPrompt(rawPrompt) || hasAutonomousWaiver(low) {
+	if isKickoffPrompt(rawPrompt) {
+		return GateEnrichAndProceed
+	}
+	if len(conflicts) > 0 {
+		return GateVetFirst
+	}
+	if hasAutonomousWaiver(low) {
 		return GateEnrichAndProceed
 	}
 	hasTarget := slices.Contains(present, "target")
@@ -387,9 +391,9 @@ func CheckADRConflict(lowPrompt string, adr MatchedRecord) string {
 	safeTitle := strings.Join(strings.Fields(adr.Title), " ")
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
-		for _, prefix := range []string{"rejected:", "forbid:", "never ", "do not use ", "banned:"} {
-			if idx := strings.Index(line, prefix); idx >= 0 {
-				for _, phrase := range extractConflictPhrases(line[idx+len(prefix):]) {
+		for _, p := range adrConflictPrefixes {
+			if idx := strings.Index(line, p.prefix); idx >= 0 {
+				for _, phrase := range extractConflictPhrases(line[idx+len(p.prefix):], p.minWords) {
 					if phrase != "" && strings.Contains(lowPrompt, phrase) {
 						return fmt.Sprintf("conflicts with %s (%s): %q", adr.ID, safeTitle, phrase)
 					}
@@ -400,13 +404,34 @@ func CheckADRConflict(lowPrompt string, adr MatchedRecord) string {
 	return ""
 }
 
-func extractConflictPhrases(rest string) []string {
+var adrConflictPrefixes = []struct {
+	prefix   string
+	minWords int
+}{
+	{"rejected:", 1},
+	{"forbid:", 1},
+	{"banned:", 1},
+	{"do not use ", 2},
+	{"never ", 2},
+}
+
+func extractConflictPhrases(rest string, minWords int) []string {
+	if minWords >= 2 {
+		if cut := strings.IndexAny(rest, ".;:()"); cut >= 0 {
+			rest = rest[:cut]
+		}
+	}
 	var phrases []string
 	for _, part := range strings.FieldsFunc(rest, func(r rune) bool {
-		return r == ',' || r == ';' || r == '(' || r == ')' || r == ':' || r == '.'
+		return r == ',' || r == ';' || r == '(' || r == ')' || r == ':'
 	}) {
-		w := strings.Fields(strings.Trim(part, "`*\"' "))
-		if len(w) >= 1 && len(w) <= 4 {
+		w := strings.Fields(strings.Trim(part, "`*\"'. "))
+		if minWords >= 2 && slices.ContainsFunc(w, func(tok string) bool {
+			return strings.HasPrefix(tok, ".") || strings.HasPrefix(tok, "~") || strings.Contains(tok, "/")
+		}) {
+			continue
+		}
+		if len(w) >= minWords && len(w) <= 4 {
 			if cand := strings.Join(w, " "); len(cand) >= 4 && !stopWordsVet[cand] {
 				phrases = append(phrases, cand)
 			}
@@ -418,6 +443,10 @@ func extractConflictPhrases(rest string) []string {
 var stopWordsVet = map[string]bool{
 	"none": true, "true": true, "false": true, "this": true, "that": true,
 	"with": true, "from": true, "into": true, "only": true, "when": true,
+	"search": true, "agents": true, "status": true, "record": true, "records": true,
+	"memory": true, "metrics": true, "config": true, "files": true, "branch": true,
+	"worker": true, "workers": true, "skills": true, "rules": true, "tests": true,
+	"check": true, "index": true, "store": true, "hooks": true,
 }
 
 // MatchSkills selects the top 1-2 skills (<= 600 B digest + SKILL.md path)
