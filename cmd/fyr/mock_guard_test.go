@@ -217,4 +217,100 @@ func TestMockFixtureRefusesOutsideThrowawayDir(t *testing.T) {
 		}
 		assertPreserved(t, pwdInsideSB)
 	})
+
+	t.Run("demo-app-without-own-git-inside-enclosing-repo-refused", func(t *testing.T) {
+		enclosing := filepath.Join(allowedTmp, "enclosing-demo")
+		seedStandInRepo(t, enclosing)
+		runCmd(t, enclosing, "git", "tag", "v0.9.0")
+		runCmd(t, enclosing, "git", "remote", "add", "origin", "https://example.invalid/demo-parent.git")
+		appNoGit := filepath.Join(enclosing, "app")
+		sibSB := filepath.Join(enclosing, "sb")
+		for _, d := range []string{appNoGit, sibSB} {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, f := range []string{"fixture.sh", "fixture-extra.sh", "fixture-ast.sh", "fixture-mock.sh"} {
+			b, err := os.ReadFile(filepath.Join(checkoutRoot, ".agents", "eval", f))
+			if err != nil {
+				t.Fatal(err)
+			}
+			putFile(t, filepath.Join(appNoGit, ".agents", "eval", f), string(b))
+		}
+		out, code, err := runFixture(appNoGit, "bare", allowedTmp, sibSB, fakeHome)
+		if err == nil || code != 2 {
+			t.Fatalf("demo scenario in app/ without own .git: err=%v code=%d (want exit 2)\n%s", err, code, out)
+		}
+		assertPreserved(t, enclosing)
+		if got := runCmd(t, enclosing, "git", "tag", "-l"); got == "" {
+			t.Fatal("enclosing repo tag v0.9.0 was wiped by demo_tree/replace_history")
+		}
+		if got := runCmd(t, enclosing, "git", "remote"); got == "" {
+			t.Fatal("enclosing repo remote origin was wiped by demo_tree/replace_history")
+		}
+	})
+
+	t.Run("git-env-injection-and-valid-tmpdir-runs", func(t *testing.T) {
+		standIn := filepath.Join(base, "git-env-victim")
+		seedStandInRepo(t, standIn)
+		runCmd(t, standIn, "git", "tag", "v0.9.0")
+		runCmd(t, standIn, "git", "remote", "add", "origin", "https://example.invalid/victim.git")
+		wantHead := runCmd(t, standIn, "git", "rev-parse", "HEAD")
+
+		runWithGitEnv := func(dir, scenario, sbDir string) {
+			t.Helper()
+			cmd := exec.Command("bash", fixturePath, scenario)
+			cmd.Dir = dir
+			cmd.Env = append(os.Environ(),
+				"FYR="+bin,
+				"SB="+sbDir,
+				"TMPDIR="+allowedTmp,
+				"HOME="+fakeHome,
+				"GIT_DIR="+filepath.Join(standIn, ".git"),
+				"GIT_WORK_TREE="+standIn,
+				"GIT_INDEX_FILE="+filepath.Join(standIn, ".git", "index"),
+				"GIT_COMMON_DIR="+filepath.Join(standIn, ".git"),
+				"GIT_OBJECT_DIRECTORY="+filepath.Join(standIn, ".git", "objects"),
+			)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("valid throwaway %s in %s failed: %v\n%s", scenario, dir, err, out)
+			}
+			assertPreserved(t, standIn)
+			if got := runCmd(t, standIn, "git", "rev-parse", "HEAD"); got != wantHead {
+				t.Fatalf("victim HEAD changed after %s: got %q, want %q", scenario, got, wantHead)
+			}
+			if got := runCmd(t, standIn, "git", "tag", "-l"); got == "" {
+				t.Fatalf("victim tag v0.9.0 wiped after %s", scenario)
+			}
+			if got := runCmd(t, standIn, "git", "remote"); got == "" {
+				t.Fatalf("victim remote origin wiped after %s", scenario)
+			}
+		}
+
+		validNoGit := filepath.Join(allowedTmp, "valid-mock-no-git")
+		if err := os.MkdirAll(validNoGit, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		runWithGitEnv(validNoGit, "mock-fleet-ops", sb)
+
+		validHasGit := filepath.Join(allowedTmp, "valid-mock-has-git")
+		seedStandInRepo(t, validHasGit)
+		runWithGitEnv(validHasGit, "mock-fleet-ops", sb)
+
+		trialRoot := filepath.Join(allowedTmp, "valid-trial")
+		trialApp := filepath.Join(trialRoot, "app")
+		trialSB := filepath.Join(trialRoot, "sb")
+		seedStandInRepo(t, trialApp)
+		if err := os.MkdirAll(trialSB, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range []string{"fixture.sh", "fixture-extra.sh", "fixture-ast.sh", "fixture-mock.sh"} {
+			b, err := os.ReadFile(filepath.Join(checkoutRoot, ".agents", "eval", f))
+			if err != nil {
+				t.Fatal(err)
+			}
+			putFile(t, filepath.Join(trialApp, ".agents", "eval", f), string(b))
+		}
+		runWithGitEnv(trialApp, "bare", trialSB)
+	})
 }

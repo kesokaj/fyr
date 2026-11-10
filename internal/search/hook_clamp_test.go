@@ -52,14 +52,18 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 	}
 
 	t.Run("byte-limit-clamp-and-continuation", func(t *testing.T) {
+		// With "%d: " prefixes, lines 1..194 reach 45,869 B (<= 46,080 B) while line 195 reaches 46,106 B (> 46,080 B).
 		if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
 			t.Fatalf("1st read 1..250: got %+v, want allow", dec)
+		}
+		if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 195, "EndLine": 198}); dec.Decision != "allow" {
+			t.Fatalf("follow-up read of prefix-truncated lines 195..198: got %+v, want allow on 1st attempt", dec)
 		}
 		if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 199, "EndLine": 250}); dec.Decision != "allow" {
 			t.Fatalf("follow-up read of truncated tail 199..250: got %+v, want allow on 1st attempt", dec)
 		}
-		if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 198}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
-			t.Fatalf("re-read of delivered head 1..198: got %+v, want deny [UNCHANGED]", dec)
+		if dec := callReadHook("conv-clamp", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 194}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
+			t.Fatalf("re-read of delivered head 1..194: got %+v, want deny [UNCHANGED]", dec)
 		}
 		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250}); dec.Decision != "allow" {
 			t.Fatalf("conv-offset initial read: got %+v, want allow", dec)
@@ -67,8 +71,36 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "allow" {
 			t.Fatalf("conv-offset ByteOffset=46080 continuation read: got %+v, want allow on 1st attempt", dec)
 		}
-		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED] big.go:199-250") {
-			t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:199-250", dec)
+		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED] big.go:195-250") {
+			t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:195-250", dec)
+		}
+	})
+
+	t.Run("raw-under-46080-formatted-over-46080-clamps-at-prefix-budget", func(t *testing.T) {
+		// 750 lines x 60 raw bytes = 45,000 raw bytes (<= 46,080 B), but "%d: " prefixes bring
+		// lines 1..750 to 48,641 formatted bytes (> 46,080 B), truncating inside line 711 (line 710 ends at 46,041 B).
+		var boundary strings.Builder
+		for line := 1; line <= 750; line++ {
+			prefix := fmt.Sprintf("// %04d ", line)
+			boundary.WriteString(prefix + strings.Repeat("b", 59-len(prefix)) + "\n")
+		}
+		writeFile(t, dir, "boundary.go", boundary.String())
+		if dec := callReadHook("conv-prefix-cap", map[string]any{"Path": "boundary.go", "StartLine": 1, "EndLine": 750}); dec.Decision != "allow" {
+			t.Fatalf("1st read 1..750: got %+v, want allow", dec)
+		}
+		if dec := callReadHook("conv-prefix-cap", map[string]any{"Path": "boundary.go", "StartLine": 711, "EndLine": 750}); dec.Decision != "allow" {
+			t.Fatalf("follow-up read of prefix-truncated tail 711..750: got %+v, want allow on 1st attempt", dec)
+		}
+		if dec := callReadHook("conv-prefix-cap", map[string]any{"Path": "boundary.go", "StartLine": 1, "EndLine": 710}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
+			t.Fatalf("re-read of delivered 1..710: got %+v, want deny [UNCHANGED]", dec)
+		}
+
+		writeFile(t, dir, "empty.go", "")
+		if dec := callReadHook("conv-empty", map[string]any{"Path": "empty.go"}); dec.Decision != "allow" {
+			t.Fatalf("empty file 1st read: got %+v, want allow", dec)
+		}
+		if dec := callReadHook("conv-empty", map[string]any{"Path": "empty.go"}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
+			t.Fatalf("empty file 2nd read: got %+v, want deny [UNCHANGED]", dec)
 		}
 	})
 

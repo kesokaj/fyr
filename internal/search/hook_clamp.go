@@ -1,13 +1,18 @@
 package search
 
+import (
+	"strconv"
+	"strings"
+)
+
 const (
 	maxReadFileLines = 800
 	maxReadFileBytes = 46080
 )
 
-// clampReadRange models read_file's 800-line and 46,080-byte caps so read_ledger
-// stamps only the lines read_file actually delivers, and returns record=false when
-// StartLine or ByteOffset lies outside the window (where read_file delivers nothing).
+// clampReadRange models read_file's 800-line and 46,080-byte caps (including "%d: "
+// line-number prefixes) so read_ledger stamps only the complete lines read_file
+// delivers, returning record=false when StartLine or ByteOffset delivers zero lines.
 func clampReadRange(dir, target string, args map[string]any) (int, int, bool) {
 	start, end := extractLineRangeArgs(args)
 	rawOffset := extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset")
@@ -21,29 +26,33 @@ func clampReadRange(dir, target string, args map[string]any) (int, int, bool) {
 	if start > totalLines {
 		return 0, 0, false
 	}
-	reqStart, reqEnd := normalizeLineRange(start, end, totalLines)
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return 1, 1, rawOffset == 0
+	}
+	reqStart, reqEnd := normalizeLineRange(start, end, len(lines))
 	reqEnd = min(reqEnd, reqStart+maxReadFileLines-1)
-	if rawOffset == 0 && len(data) <= maxReadFileBytes {
-		return reqStart, reqEnd, true
-	}
-	lines := splitLines(string(data))
-	if reqEnd = min(reqEnd, len(lines)); reqStart > reqEnd {
-		return 0, 0, false
-	}
 	winStart, winEnd, cumBytes, effStart, effEnd := rawOffset, rawOffset+maxReadFileBytes, 0, 0, 0
 	for lineNum := reqStart; lineNum <= reqEnd; lineNum++ {
-		lineEnd := cumBytes + len(lines[lineNum-1]) + 1
-		if lineEnd <= winStart {
-			cumBytes = lineEnd
+		contentEnd := cumBytes + len(strconv.Itoa(lineNum)) + 2 + len(lines[lineNum-1])
+		nextCum := contentEnd + 1
+		if lineNum == reqEnd {
+			nextCum = contentEnd
+		}
+		if nextCum <= winStart {
+			cumBytes = nextCum
 			continue
 		}
 		if effStart == 0 {
 			effStart = lineNum
 		}
-		if lineEnd > winEnd {
+		if contentEnd > winEnd {
 			break
 		}
-		effEnd, cumBytes = lineNum, lineEnd
+		effEnd, cumBytes = lineNum, nextCum
 	}
 	if effEnd == 0 {
 		return 0, 0, false

@@ -7,7 +7,7 @@
 # goes to $SB's store, never the operator's; demo_tree removes .agents/eval.
 main() {
   set -euo pipefail
-  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
   case "$scenario" in

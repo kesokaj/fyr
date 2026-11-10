@@ -2,10 +2,10 @@
 # Sourced by .agents/eval/fixture.sh before any destructive step runs.
 
 guard_demo_clone() {
-  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
   local cwd sb_dir
   if ! cwd=$(pwd -P) || [ -z "$cwd" ] || [ "$(basename -- "$cwd")" != "app" ] ||
-    [ -L .git ] || { [ -e .git ] && [ ! -d .git ]; } ||
+    [ -L .git ] || [ ! -d .git ] ||
     [ -z "${SB:-}" ] || [ ! -d "$SB" ] || ! sb_dir=$(cd -- "$SB" 2>/dev/null && pwd -P) ||
     [ "$cwd" = "$sb_dir" ] || [ "$(dirname -- "$cwd")" != "$(dirname -- "$sb_dir")" ] ||
     [ -e .agents/scratch/search.db ] || [ -L .agents/scratch/search.db ]; then
@@ -15,7 +15,7 @@ guard_demo_clone() {
 }
 
 guard_mock_dir() {
-  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
   local cwd eval_dir checkout_root raw_tmp tmp_root sb_dir home_p=""
   if ! cwd=$(pwd -P) || [ -z "$cwd" ] || [ "$cwd" = "/" ]; then
     echo "fixture.sh: refusing mock scenario in unsafe working directory" >&2

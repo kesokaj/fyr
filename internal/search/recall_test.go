@@ -136,9 +136,19 @@ func TestSliceVsGrepTokenEfficiencyAndRecall(t *testing.T) {
 	root, files := seedMultiHopBenchmarkRepo(t)
 	home := t.TempDir()
 
-	// Validate evalSymbolRecall in both must-pass and must-fail states first (review-standards § 2).
-	if r := evalSymbolRecall("func HandleTransfer() { PostLedgerEntry() }", []string{"HandleTransfer", "PostLedgerEntry", "ComputeAccountDelta"}); r >= 1.0 || r <= 0.5 {
+	// Validate evalSymbolRecall across must-pass (1.0), partial (0.67), and must-fail (0.0) states first (review-standards § 2).
+	goldCheck := []string{"HandleTransfer", "PostLedgerEntry", "ComputeAccountDelta"}
+	if r := evalSymbolRecall("func HandleTransfer() { PostLedgerEntry(); ComputeAccountDelta() }", goldCheck); r != 1.0 {
+		t.Fatalf("evalSymbolRecall full match = %.2f, want 1.00", r)
+	}
+	if r := evalSymbolRecall("func HandleTransfer() { PostLedgerEntry() }", goldCheck); r >= 1.0 || r <= 0.5 {
 		t.Fatalf("evalSymbolRecall partial match = %.2f, want 0.67", r)
+	}
+	if r := evalSymbolRecall("func unrelatedHelper() {}", goldCheck); r != 0.0 {
+		t.Fatalf("evalSymbolRecall zero match = %.2f, want 0.00", r)
+	}
+	if r := evalSymbolRecall("func HandleTransfer() {}", nil); r != 0.0 {
+		t.Fatalf("evalSymbolRecall empty gold = %.2f, want 0.00", r)
 	}
 
 	cases := []sliceBenchmarkCase{
