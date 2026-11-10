@@ -75,10 +75,41 @@ var migrations = []string{
 	ALTER TABLE steps ADD COLUMN wait_ms INTEGER;
 	ALTER TABLE trials ADD COLUMN setup_seconds INTEGER;
 	ALTER TABLE trials ADD COLUMN check_seconds INTEGER;`,
+	// 6: second-brain turn vetting and read-ledger savings from per-project
+	// .agents/scratch/search.db, plus fyr work wave/judge telemetry from
+	// ~/.config/fyr/work/<stamp>/status.json (plan v8.5.0 D1, D3).
+	`CREATE TABLE turn_vets(
+		project_root TEXT NOT NULL,
+		conversation_id TEXT NOT NULL,
+		turn_num INTEGER NOT NULL,
+		intent TEXT NOT NULL,
+		gate TEXT NOT NULL,
+		score INTEGER NOT NULL,
+		bypassed INTEGER NOT NULL DEFAULT 0,
+		skills_count INTEGER NOT NULL DEFAULT 0,
+		pivots_count INTEGER NOT NULL DEFAULT 0,
+		ledger_saved INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY(project_root, conversation_id, turn_num)
+	);
+	CREATE TABLE work_waves(
+		stamp TEXT NOT NULL,
+		worker TEXT NOT NULL,
+		project_root TEXT NOT NULL DEFAULT '',
+		state TEXT NOT NULL,
+		model TEXT NOT NULL DEFAULT '',
+		step_count INTEGER NOT NULL DEFAULT 0,
+		commits INTEGER NOT NULL DEFAULT 0,
+		base_check TEXT NOT NULL DEFAULT '',
+		judge_model TEXT NOT NULL DEFAULT '',
+		judge_verdict TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY(stamp, worker)
+	);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

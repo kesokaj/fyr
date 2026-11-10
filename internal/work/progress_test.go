@@ -97,6 +97,9 @@ func TestProgressTrackerAndStatusBoard(t *testing.T) {
 	if wave.Stamp != stamp || len(wave.Workers) != 2 {
 		t.Fatalf("unexpected wave: %+v", wave)
 	}
+	if wave.ProjectRoot != filepath.Clean(root) {
+		t.Fatalf("wave.ProjectRoot = %q, want %q", wave.ProjectRoot, filepath.Clean(root))
+	}
 	if wave.Workers[0].State != "PASS" || wave.Workers[0].StepCount != 2 || wave.Workers[0].Commits != 2 {
 		t.Fatalf("unexpected worker[0]: %+v", wave.Workers[0])
 	}

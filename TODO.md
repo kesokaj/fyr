@@ -7,14 +7,13 @@
 
 ## Now
 
-### Phase 2 — Metrics Schema v6 (`turn_vets`, `work_waves`) & Second-Brain/Wave Ingest (`PLAN-2026-11-10-1540-plan-v8-5-0-airy-ux-second-brain-metrics-fyr-rep`)
-- [ ] Add `ProjectRoot` (`json:"project_root,omitempty"`) to `WaveStatus` in `internal/work/progress.go:39-65` (populated from `filepath.Clean(o.Root)`) and cover in `internal/work/progress_test.go` — verify: unit, `go test -race ./internal/work -run TestProgress`, who: AI — expect: `PASS`
-- [ ] Add migration 6 (`turn_vets` and `work_waves` tables) in `internal/metrics/store.go:39-82`, implement `ingestSecondBrainAndWaves` in `internal/metrics/ingest_secondbrain.go` (wired into `metrics.Ingest` when `o.Source == ""`), and implement `SecondBrain`, `WorkSummary`, and `ProjectRow` aggregations in `internal/metrics/show_types.go`, `internal/metrics/show.go`, and `internal/metrics/show_secondbrain.go` — verify: unit, `go test -race ./internal/metrics/...`, who: AI — expect: `PASS`
-- [ ] Checkpoint — expect: `go test -race ./internal/work/... ./internal/metrics/...` passes with 0 failures — evidence: command and exit status, date
+### Phase 3 — `fyr report --project | --global` (`--md` & HTML), `ADR-516` & Docs (`PLAN-2026-11-10-1540-plan-v8-5-0-airy-ux-second-brain-metrics-fyr-rep`)
+- [ ] Record `ADR-516` (`fyr report --project | --global` local usage report verb and `metrics.db` schema v6 for second-brain and `fyr work` wave telemetry) and update `AGENTS.md` Rule 5 and `cmd/fyr/harnessmap_test.go:44-49` so `TestHarnessMap` still forbids `fyr report` in `README.md` § How it works while allowing the local-only `fyr report` verb — verify: unit, `go test -race ./cmd/fyr -run TestHarnessMap`, who: AI — expect: `PASS` — docs: `AGENTS.md`
+- [ ] Implement `RenderMarkdownReport` in `internal/metrics/report_md.go`, extend `RenderReport` in `internal/metrics/report.go` with the 5 airy sections (Executive Pulse, Second-Brain Leverage, Quality & Learning Loop, Autonomy & Model Routing, and Per-Project / Project Breakdown), and wire `fyr report` / `fyr metrics report` in `cmd/fyr/verb_report.go`, `cmd/fyr/verb_metrics.go`, `cmd/fyr/run_dispatch.go` (including `reorder` bare `--project` normalization and `--global` / `--md` flags), and `cmd/fyr/help_text.go`, then update `SPEC-fyr-metrics`, `README.md`, `SDD.md`, and `TDD.md` — verify: unit, `go test -race ./internal/metrics/... ./cmd/fyr/...`, who: AI — expect: `PASS` — docs: `SPEC-fyr-metrics`, `README.md`, `SDD.md`, `TDD.md`
+- [ ] Checkpoint — expect: `go test -race ./internal/metrics/... ./cmd/fyr/...` and `fyr check` pass with 0 findings — evidence: command and exit status, date
 
 ## Next
 
-- Phase 3 — `fyr report --project | --global` (`--md` & HTML), `ADR-516` & Docs (`PLAN-2026-11-10-1540-plan-v8-5-0-airy-ux-second-brain-metrics-fyr-rep`)
 - Phase 4 — `fyr-docs`, `/fyr-triage` & Bash Wizard Skills Integration (`PLAN-2026-11-10-1540-plan-v8-5-0-airy-ux-second-brain-metrics-fyr-rep`)
 - Phase 5 — End-to-End Verification, Reviews & Release Readiness (`PLAN-2026-11-10-1540-plan-v8-5-0-airy-ux-second-brain-metrics-fyr-rep`)
 

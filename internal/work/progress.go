@@ -37,9 +37,10 @@ type WorkerStatus struct {
 // WaveStatus is a `/fyr-work` wave's live status board persisted to
 // `<home>/.config/fyr/work/<stamp>/status.json`.
 type WaveStatus struct {
-	Stamp     string         `json:"stamp"`
-	UpdatedAt string         `json:"updated_at"`
-	Workers   []WorkerStatus `json:"workers"`
+	Stamp       string         `json:"stamp"`
+	ProjectRoot string         `json:"project_root,omitempty"`
+	UpdatedAt   string         `json:"updated_at"`
+	Workers     []WorkerStatus `json:"workers"`
 }
 
 type progressTracker struct {
@@ -58,6 +59,10 @@ func newProgressTracker(o Options, stamp string, ps []prepared) *progressTracker
 	if nowFn == nil {
 		nowFn = time.Now
 	}
+	var projectRoot string
+	if strings.TrimSpace(o.Root) != "" {
+		projectRoot = filepath.Clean(o.Root)
+	}
 	t := &progressTracker{
 		out:          o.Progress,
 		statusPath:   filepath.Join(sandbox.Root(o.Home, "work"), stamp, "status.json"),
@@ -66,8 +71,9 @@ func newProgressTracker(o Options, stamp string, ps []prepared) *progressTracker
 		starts:       make(map[string]time.Time, len(ps)),
 		index:        make(map[string]int, len(ps)),
 		wave: WaveStatus{
-			Stamp:   stamp,
-			Workers: make([]WorkerStatus, len(ps)),
+			Stamp:       stamp,
+			ProjectRoot: projectRoot,
+			Workers:     make([]WorkerStatus, len(ps)),
 		},
 	}
 	for i, p := range ps {

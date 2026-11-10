@@ -127,6 +127,9 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 	for _, n := range notes {
 		fmt.Fprintln(log, printable("metrics: note: "+n))
 	}
+	if o.Source == "" {
+		ingestSecondBrainAndWaves(s, o.Home, log)
+	}
 	after, err := s.counts()
 	if err != nil {
 		return r, err

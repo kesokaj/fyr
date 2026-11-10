@@ -12,9 +12,9 @@ import (
 )
 
 // A store written at schema 3 (before trials) upgrades in place: its rows
-// stay, its sessions get a NULL run, the trials table and migration-5 step
-// and stage columns exist, the schema reads 5; a store at schema 6 is still
-// refused untouched.
+// stay, its sessions get a NULL run, the trials table, migration-5 step
+// and stage columns, and migration-6 turn_vets/work_waves tables exist, the
+// schema reads 6; a store at schema 7 is still refused untouched.
 func TestMigrationThreeToCurrent(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	saved := migrations
@@ -34,22 +34,24 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 
 	migrations = saved
 	s2 := openT(t, p)
-	if v := s2.meta(t, "schema"); v != "5" {
-		t.Fatalf("schema after upgrade = %s, want 5", v)
+	if v := s2.meta(t, "schema"); v != "6" {
+		t.Fatalf("schema after upgrade = %s, want 6", v)
 	}
 	var got string
 	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM trials) || ',' ||
+		(SELECT count(*) FROM turn_vets) || ',' ||
+		(SELECT count(*) FROM work_waves) || ',' ||
 		(SELECT count(*) FROM sessions WHERE id = 'old' AND run IS NULL AND outcome = 'pass') || ',' ||
-		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,1,1" {
-		t.Fatalf("after upgrade: %q, %v; want 0,1,1", got, err)
+		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,1,1" {
+		t.Fatalf("after upgrade: %q, %v; want 0,0,0,1,1", got, err)
 	}
-	s2.db.Exec(`UPDATE meta SET value = '6' WHERE key = 'schema'`)
+	s2.db.Exec(`UPDATE meta SET value = '7' WHERE key = 'schema'`)
 	s2.Close()
 	if s3, err := Open(p); err == nil {
 		s3.Close()
-		t.Fatal("a store at schema 6 was opened by a binary at 5")
+		t.Fatal("a store at schema 7 was opened by a binary at 6")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 6: %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 7: %v, want ErrNewerSchema", err)
 	}
 }
 

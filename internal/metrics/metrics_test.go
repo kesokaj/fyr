@@ -142,3 +142,184 @@ func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
+	home := t.TempDir()
+	rootA := filepath.Join(t.TempDir(), "proj-alpha")
+	rootB := filepath.Join(t.TempDir(), "proj-beta")
+	rootCorrupt := filepath.Join(t.TempDir(), "proj-corrupt")
+	for _, r := range []string{rootA, rootB, rootCorrupt} {
+		if err := os.MkdirAll(filepath.Join(r, ".agents", "scratch"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const t0 = 1791367200 // 2026-10-07T10:00:00Z
+	// Seed Antigravity conversation summary for rootA so rootA is discovered from sessions.
+	agyDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(filepath.Join(agyDir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sqliteT(t, filepath.Join(agyDir, "conversation_summaries.db"),
+		"CREATE TABLE conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL, `agent_name` text NOT NULL DEFAULT '', `parent_conversation_id` text NOT NULL DEFAULT '')",
+		`INSERT INTO conversation_summaries VALUES ('C_ALPHA', '2026-10-08 10:05:00+00:00', '["file://`+rootA+`"]', '', '')`,
+	)
+	convDB := filepath.Join(agyDir, "conversations", "C_ALPHA.db")
+	sqliteT(t, convDB,
+		"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
+		"CREATE TABLE gen_metadata (`idx` integer, `data` blob, `size` integer NOT NULL DEFAULT 0)",
+	)
+	db, err := sql.Open("sqlite", convDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, st := range [][]any{
+		{14, 3, agyStepMeta(t0, "", nil), nil},
+		{132, 3, agyStepMeta(t0+60, "run_command", map[string]any{"CommandLine": "fyr search TargetAlpha"}), nil},
+		{132, 3, agyStepMeta(t0+120, "grep_search", map[string]any{"Query": "TargetAlpha"}), nil},
+	} {
+		if _, err := db.Exec(`INSERT INTO steps VALUES (?, ?, ?, ?, ?, ?)`, i, st[0], st[1], st[2], st[3], []byte("payload")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	// Seed global ~/.config/fyr/search.db with rootB and rootCorrupt so they are discovered from projects.
+	globalSearchDB := filepath.Join(home, ".config", "fyr", "search.db")
+	if err := os.MkdirAll(filepath.Dir(globalSearchDB), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sqliteT(t, globalSearchDB,
+		`CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)`,
+		`INSERT INTO meta VALUES ('schema', '5')`,
+		`CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, last_seen INTEGER)`,
+		`INSERT INTO projects VALUES ('`+rootB+`', 'proj-beta', 1791367200)`,
+		`INSERT INTO projects VALUES ('`+rootCorrupt+`', 'proj-corrupt', 1791367200)`,
+	)
+
+	// Seed rootA/.agents/scratch/search.db with vet_history (including raw_prompt with canary and "!" bypass) and read_ledger.
+	sqliteT(t, filepath.Join(rootA, ".agents", "scratch", "search.db"),
+		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT, PRIMARY KEY(conversation_id, turn_num))`,
+		`CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line))`,
+		`INSERT INTO vet_history VALUES ('C_ALPHA', 1, 'FEATURE', 'VET_FIRST', 40, 'design `+canary+`', 'improved `+canary+`', 'target', 'scope', 'fyr-feature,golang', 'internal/a.go,internal/b.go', 1791367200)`,
+		`INSERT INTO vet_history VALUES ('C_ALPHA', 2, 'TASK', 'PROCEED', 100, '  ! bypass `+canary+`', '', 'target,goal', '', 'golang', 'internal/a.go', 1791367260)`,
+		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/a.go', 1, 50, 'sha1', 1, 3, 1791367210)`,
+		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/b.go', 1, 20, 'sha2', 1, 1, 1791367215)`,
+		`INSERT INTO read_ledger VALUES ('C_ALPHA', 0, '/c.go', 1, 30, 'sha3', 2, 2, 1791367270)`,
+	)
+
+	// Seed rootB/.agents/scratch/search.db with vet_history.
+	sqliteT(t, filepath.Join(rootB, ".agents", "scratch", "search.db"),
+		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT, PRIMARY KEY(conversation_id, turn_num))`,
+		`CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line))`,
+		`INSERT INTO vet_history VALUES ('C_BETA', 1, 'TASK', 'ENRICH_AND_PROCEED', 70, 'fix bug', 'improved', 'target', '', '', 'cmd/main.go', 1791367300)`,
+	)
+
+	// Seed corrupt search.db in rootCorrupt to verify non-fatal note handling.
+	if err := os.WriteFile(filepath.Join(rootCorrupt, ".agents", "scratch", "search.db"), []byte("not a sqlite db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed two valid fyr work waves and one corrupt status.json under ~/.config/fyr/work/.
+	wave1Dir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-100000-1111")
+	wave2Dir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-110000-2222")
+	waveBadDir := filepath.Join(home, ".config", "fyr", "work", "2026-10-08-120000-bad")
+	for _, d := range []string{wave1Dir, wave2Dir, waveBadDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(wave1Dir, "status.json"), []byte(`{
+		"stamp": "2026-10-08-100000-1111",
+		"project_root": "`+rootA+`",
+		"updated_at": "2026-10-08T10:00:00Z",
+		"workers": [
+			{"name": "p1", "state": "PASS", "model": "gemini-4-argon", "step_count": 5, "commits": 2, "base_check": "PASS", "judge_model": "claude-opus-5-5", "judge_verdict": "PASS"},
+			{"name": "p2", "state": "FAIL", "model": "gemini-4-argon", "step_count": 3, "commits": 0, "base_check": "FAIL", "judge_model": "gemini-4-argon", "judge_verdict": "FAIL"}
+		]
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wave2Dir, "status.json"), []byte(`{
+		"stamp": "2026-10-08-110000-2222",
+		"project_root": "`+rootB+`",
+		"updated_at": "2026-10-08T11:00:00Z",
+		"workers": [
+			{"name": "w1", "state": "PASS", "model": "gemini-3.8-flash", "step_count": 2, "commits": 1, "base_check": "PASS", "judge_model": "claude-sonnet-4-6", "judge_verdict": "PASS"}
+		]
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(waveBadDir, "status.json"), []byte(`{broken json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	storePath := filepath.Join(t.TempDir(), "metrics.db")
+	s := openT(t, storePath)
+	var logBuf bytes.Buffer
+	res, err := Ingest(s, Options{Home: home}, &logBuf)
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("expected 0 failed sources (corrupt second-brain/wave files must be notes only), got %v", res.Failed)
+	}
+	if !strings.Contains(logBuf.String(), "metrics: note:") {
+		t.Errorf("expected metrics: note: for corrupt search.db / status.json, got:\n%s", logBuf.String())
+	}
+
+	// Verify raw_prompt / improved_prompt canary never reaches metrics.db.
+	rawDB, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(rawDB, []byte(canary)) {
+		t.Fatalf("metrics.db leaked raw prompt canary %s", canary)
+	}
+
+	// Verify global Show aggregations (Summary.E, Summary.F, Summary.Projects).
+	win := ShowOptions{
+		Since: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		Now:   time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC),
+	}
+	sum, err := s.Show(win)
+	if err != nil {
+		t.Fatalf("Show global: %v", err)
+	}
+	if sum.E.TurnVets != 3 || sum.E.MeanVetScore == nil || *sum.E.MeanVetScore != 70.0 ||
+		sum.E.VetFirstTurns != 1 || sum.E.BypassedTurns != 1 || sum.E.PivotsSeeded != 4 || sum.E.LedgerSaved != 3 {
+		t.Errorf("unexpected global Summary.E: %+v", sum.E)
+	}
+	if sum.F.Waves != 2 || sum.F.Workers != 3 || sum.F.Passed != 2 || sum.F.Failed != 1 ||
+		sum.F.BaseCheckPassed != 2 || sum.F.BaseCheckFailed != 1 ||
+		sum.F.JudgePassed != 2 || sum.F.JudgeFailed != 1 || sum.F.JudgeFallback != 1 {
+		t.Errorf("unexpected global Summary.F: %+v", sum.F)
+	}
+	if len(sum.Projects) != 2 {
+		t.Fatalf("expected 2 ProjectRows in global Show, got %+v", sum.Projects)
+	}
+	if sum.Projects[0].Project != filepath.Clean(rootA) || sum.Projects[0].Sessions != 1 ||
+		sum.Projects[0].MeanVetScore == nil || *sum.Projects[0].MeanVetScore != 70.0 {
+		t.Errorf("unexpected Projects[0]: %+v", sum.Projects[0])
+	}
+
+	// Verify --project Show filters Summary.E and Summary.F to rootA and omits Summary.Projects.
+	projSum, err := s.Show(ShowOptions{
+		Project: rootA,
+		Since:   win.Since,
+		Now:     win.Now,
+	})
+	if err != nil {
+		t.Fatalf("Show project: %v", err)
+	}
+	if projSum.E.TurnVets != 2 || projSum.E.MeanVetScore == nil || *projSum.E.MeanVetScore != 70.0 ||
+		projSum.E.PivotsSeeded != 3 || projSum.E.LedgerSaved != 3 {
+		t.Errorf("unexpected project Summary.E: %+v", projSum.E)
+	}
+	if projSum.F.Waves != 1 || projSum.F.Workers != 2 || projSum.F.Passed != 1 || projSum.F.Failed != 1 || projSum.F.JudgeFallback != 1 {
+		t.Errorf("unexpected project Summary.F: %+v", projSum.F)
+	}
+	if len(projSum.Projects) != 0 {
+		t.Errorf("expected empty Projects in --project mode, got %+v", projSum.Projects)
+	}
+}

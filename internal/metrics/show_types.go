@@ -15,6 +15,9 @@ type Summary struct {
 	B         Efficiency                `json:"B"`
 	C         Adherence                 `json:"C"`
 	D         Reliability               `json:"D"`
+	E         SecondBrain               `json:"E"`
+	F         WorkSummary               `json:"F"`
+	Projects  []ProjectRow              `json:"projects,omitempty"`
 	Daily     []Day                     `json:"daily"`
 	Notes     []string                  `json:"notes"`
 
@@ -119,6 +122,45 @@ type Reliability struct {
 	Interrupts        map[string]*int           `json:"interrupts"`
 	RetryLoops        map[string]int            `json:"retry_loops"`
 	SubagentToolCalls map[string]map[string]int `json:"subagent_tool_calls"`
+}
+
+// SecondBrain aggregates PreInvocation vetting and PreToolUse read-ledger
+// savings from turn_vets (schema 6).
+type SecondBrain struct {
+	TurnVets      int      `json:"turn_vets"`
+	MeanVetScore  *float64 `json:"mean_vet_score"`
+	VetFirstTurns int      `json:"vet_first_turns"`
+	BypassedTurns int      `json:"bypassed_turns"`
+	PivotsSeeded  int      `json:"pivots_seeded"`
+	LedgerSaved   int      `json:"ledger_saved"`
+}
+
+// WorkSummary aggregates fyr work wave, Base-Check, and cross-family Judge
+// verdicts from work_waves (schema 6).
+type WorkSummary struct {
+	Waves           int `json:"waves"`
+	Workers         int `json:"workers"`
+	Passed          int `json:"passed"`
+	Failed          int `json:"failed"`
+	BaseCheckPassed int `json:"base_check_passed"`
+	BaseCheckFailed int `json:"base_check_failed"`
+	JudgePassed     int `json:"judge_passed"`
+	JudgeFailed     int `json:"judge_failed"`
+	JudgeFallback   int `json:"judge_fallback"`
+}
+
+// ProjectRow summarizes one project's activity for the global report's
+// per-project breakdown.
+type ProjectRow struct {
+	Project         string   `json:"project"`
+	Sessions        int      `json:"sessions"`
+	ActiveMin       float64  `json:"active_min"`
+	Tokens          int64    `json:"tokens"`
+	SearchGrepRatio *float64 `json:"search_grep_ratio"`
+	MeanVetScore    *float64 `json:"mean_vet_score"`
+	Corrections     int      `json:"corrections"`
+	EscapedBugs     int      `json:"escaped_bugs"`
+	LastActive      string   `json:"last_active"`
 }
 
 // Day is one calendar day (UTC) of the window, per vendor: the report's
