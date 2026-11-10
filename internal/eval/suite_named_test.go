@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// TestNamedRowSkillProhibitions pins BUG-533: skills exercised under named
-// grants in GUIDE-eval must not prompt ungranted shell commands — single-phase
-// plans in fyr-feature omit model: without running `agy models`, and fyr-spec
-// derives failure modes statically without live server or `curl` probes.
+// TestNamedRowSkillProhibitions pins BUG-533 and BUG-536: skills exercised under
+// named grants in GUIDE-eval must not prompt ungranted shell commands — single-phase
+// plans in fyr-feature omit model: without running `agy models` and derive Steps 1-3
+// planning details without building probe binaries or running `rm` or `curl`, and
+// fyr-spec derives failure modes statically without live server or `curl` probes.
 func TestNamedRowSkillProhibitions(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -34,6 +35,9 @@ func TestNamedRowSkillProhibitions(t *testing.T) {
 	}
 	if !strings.Contains(feature, "do not run `agy models`") {
 		t.Error("skills/fyr-feature/SKILL.md does not tell single-phase / workers: no plans not to run `agy models`")
+	}
+	if !strings.Contains(feature, "never build probe binaries") || !strings.Contains(feature, "`rm`") {
+		t.Error("skills/fyr-feature/SKILL.md Step 2 does not forbid building probe binaries or running `rm` during Steps 1-3 planning")
 	}
 
 	specBytes, err := os.ReadFile(filepath.Join(root, "skills", "fyr-spec", "SKILL.md"))

@@ -28,7 +28,7 @@ When the feature adds a CAPABILITY (a verb, a tool, an index) rather than changi
 
 ## Step 2: Plan record — `fyr record add plan --title "Plan — <topic> (<date>)" --body-file .agents/scratch/plan-<slug>.md`
 
-Draft the plan in `.agents/scratch/plan-<slug>.md`, store it with the command above (it prints `PLAN-<stamp>-<slug>`), and keep editing it there: `fyr record get <ID> --out .agents/scratch/plan-<slug>.md`, edit, `fyr record edit <ID> --body-file .agents/scratch/plan-<slug>.md`. Its status follows its body: open while an unticked `- [ ]` stands outside a fence.
+Draft the plan in `.agents/scratch/plan-<slug>.md`, store it with the command above (it prints `PLAN-<stamp>-<slug>`), and keep editing it there: `fyr record get <ID> --out .agents/scratch/plan-<slug>.md`, edit, `fyr record edit <ID> --body-file .agents/scratch/plan-<slug>.md`. Its status follows its body: open while an unticked `- [ ]` stands outside a fence. During Steps 1–3 (planning before code), derive interfaces, assumptions, and failure modes from reading source, module files, and `go doc` — never build probe binaries, start live servers, or run `rm` or `curl` (`.agents/scratch/` is already gitignored).
 
 ```markdown
 # Plan — <feature>   (<date>)
