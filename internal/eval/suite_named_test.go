@@ -36,8 +36,18 @@ func TestNamedRowSkillProhibitions(t *testing.T) {
 	if !strings.Contains(feature, "do not run `agy models`") {
 		t.Error("skills/fyr-feature/SKILL.md does not tell single-phase / workers: no plans not to run `agy models`")
 	}
-	if !strings.Contains(feature, "never build probe binaries") || !strings.Contains(feature, "`rm`") {
-		t.Error("skills/fyr-feature/SKILL.md Step 2 does not forbid building probe binaries or running `rm` during Steps 1-3 planning")
+	_, afterStep2, ok := strings.Cut(feature, "## Step 2:")
+	if !ok {
+		t.Fatal("skills/fyr-feature/SKILL.md is missing ## Step 2:")
+	}
+	step2, _, ok := strings.Cut(afterStep2, "\n## Step 3:")
+	if !ok {
+		t.Fatal("skills/fyr-feature/SKILL.md is missing ## Step 3:")
+	}
+	for _, want := range []string{"never build probe binaries", "start live servers", "`rm`", "`curl`"} {
+		if !strings.Contains(step2, want) {
+			t.Errorf("skills/fyr-feature/SKILL.md Step 2 missing %q prohibition", want)
+		}
 	}
 
 	specBytes, err := os.ReadFile(filepath.Join(root, "skills", "fyr-spec", "SKILL.md"))
