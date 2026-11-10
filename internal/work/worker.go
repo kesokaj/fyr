@@ -37,11 +37,12 @@ type worker struct {
 	start time.Time    // run's start on the wall clock: the window's from (D140)
 	// collected: the branch was fetched and neither the drafts copy nor the
 	// records copy failed (ADR-501)
-	collected   bool
-	baseRecords map[string]Record
-	dest        *os.Root // the lead's .agents/scratch/work/<stamp>/<name>/, once made
-	res         Result
-	tracker     *progressTracker
+	collected    bool
+	baseRecords  map[string]Record
+	baseCheckOut string   // post-build Base-Check: output passed to the isolated Judge
+	dest         *os.Root // the lead's .agents/scratch/work/<stamp>/<name>/, once made
+	res          Result
+	tracker      *progressTracker
 }
 
 // dockerConfig is the box's container, nil on the host runner.
@@ -151,6 +152,9 @@ func (w *worker) prepare(ctx context.Context) bool {
 		return false
 	}
 	w.seedRecords(ctx)
+	if !w.runPreBaseCheck(ctx) {
+		return false
+	}
 	w.b.Baseline()
 	return ctx.Err() == nil
 }

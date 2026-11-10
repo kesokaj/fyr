@@ -2,10 +2,8 @@ package search
 
 import (
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -79,6 +77,9 @@ type SliceResult struct {
 type VetResult struct {
 	Intent             IntentMode      `json:"intent"`
 	Gate               VetGate         `json:"gate"`
+	Score              int             `json:"score"`
+	ImprovedPrompt     string          `json:"improvedPrompt,omitempty"`
+	CarriedFromTurn    int             `json:"carriedFromTurn,omitempty"`
 	PresentAnchors     []string        `json:"presentAnchors,omitempty"`
 	MissingAnchors     []string        `json:"missingAnchors,omitempty"`
 	Skills             []SkillMeta     `json:"skills,omitempty"`
@@ -172,7 +173,7 @@ func classifySlashPrefix(low string) (IntentMode, bool) {
 
 func isCorrectionPrompt(low string) bool {
 	for _, p := range []string{
-		"no,", "no —", "no -", "no:", "wrong", "actually,", "actually ",
+		"no,", "no —", "no -", "no:", "actually,",
 		"always do ", "never do ", "we don't use", "we do not use",
 		"don't use ", "do not use ", "stop doing", "from now on",
 		"instead of that", "that's wrong", "that is wrong", "you missed",
@@ -181,10 +182,25 @@ func isCorrectionPrompt(low string) bool {
 			return true
 		}
 	}
+	if (strings.HasPrefix(low, "wrong") || hasClauseStart(low, "wrong")) && !strings.Contains(low, "wrong output") {
+		return true
+	}
+	return strings.HasPrefix(low, "actually ") || hasClauseStart(low, "actually ")
+}
+
+func hasClauseStart(low, phrase string) bool {
+	for _, sep := range []string{". ", "! ", "? ", "\n", "; ", "— ", "- "} {
+		if strings.Contains(low, sep+phrase) {
+			return true
+		}
+	}
 	return false
 }
 
 func isReleasePrompt(low string) bool {
+	if containsAnySubstr(low, "write me a prompt", "give me the prompt", "when this is done", "once this is done", "after phase", "when phase") {
+		return false
+	}
 	for _, p := range []string{"ship it", "release this", "cut v", "deploy v", "tag v", "new version", "cut a release"} {
 		if strings.Contains(low, p) {
 			return true
@@ -259,10 +275,11 @@ func isFeatureKeyword(low string) bool {
 func EvaluateAnchors(prompt string, slice SliceResult, brainCtx TurnBrainContext) ([]string, []string) {
 	p := strings.TrimSpace(prompt)
 	low := strings.ToLower(p)
-	hasTarget := slice.SymbolHits > 0 || slice.Pivots > 0 || len(slice.Files) > 0 ||
+	sliceConfident := slice.Confident || slice.Pivots > 0
+	hasTarget := (sliceConfident && (slice.SymbolHits > 0 || len(slice.Files) > 0)) || slice.Pivots > 0 ||
 		fileTokenRe.MatchString(p) || identTokenRe.MatchString(p)
 	hasGoal := len(strings.Fields(p)) >= 3
-	hasScope := len(slice.Files) > 0 || fileTokenRe.MatchString(p) ||
+	hasScope := (sliceConfident && len(slice.Files) > 0) || fileTokenRe.MatchString(p) ||
 		containsAnyWord(low, "only", "in", "package", "file", "module", "phase", "without")
 	hasIO := flagOrRange.MatchString(p) || strings.ContainsAny(p, "()`[]{}") ||
 		containsAnyWord(low, "flag", "json", "input", "output", "returns", "error", "repro", "expect", "command", "stdin", "stdout")
@@ -303,6 +320,19 @@ func VetPrompt(prompt string, intent IntentMode, slice SliceResult, brainCtx Tur
 }
 
 func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx TurnBrainContext, catalog []SkillMeta) VetResult {
+	return vetPromptCoreWithHistory(prompt, intent, slice, brainCtx, catalog, nil, nil, nil)
+}
+
+func vetPromptCoreWithHistory(
+	prompt string,
+	intent IntentMode,
+	slice SliceResult,
+	brainCtx TurnBrainContext,
+	catalog []SkillMeta,
+	prev *VetHistoryRow,
+	recentSkills map[string]bool,
+	recentPivots []string,
+) VetResult {
 	trimmed := StripSandboxPreamble(strings.TrimSpace(prompt))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(trimmed, "!"))
 	if intent == "" {
@@ -311,12 +341,22 @@ func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx
 	conflicts := detectTurnConflicts(cleanPrompt, brainCtx)
 	ctxWithConflicts := brainCtx
 	ctxWithConflicts.Conflicts = conflicts
-	present, missing := EvaluateAnchors(cleanPrompt, slice, ctxWithConflicts)
+	score, present, missing := ComputeVetScore(cleanPrompt, intent, slice, ctxWithConflicts, prev)
+	carriedFrom := 0
+	if prev != nil && shouldCarryForwardVet(cleanPrompt, intent, slice, prev) {
+		carriedFrom = prev.TurnNum
+	}
 	files := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
+	if carriedFrom > 0 && len(prev.PivotFiles) > 0 {
+		files = extractPromptAndSliceFiles(cleanPrompt, append(append([]string{}, slice.Files...), prev.PivotFiles...))
+	}
 	skills, secReq := MatchSkills(cleanPrompt, intent, files, catalog)
-	return VetResult{
+	skills = filterSuggestedSkills(skills, files, recentSkills, recentPivots)
+	res := VetResult{
 		Intent:           intent,
 		Gate:             decideVetGate(trimmed, intent, present, conflicts),
+		Score:            score,
+		CarriedFromTurn:  carriedFrom,
 		PresentAnchors:   present,
 		MissingAnchors:   missing,
 		Skills:           skills,
@@ -324,6 +364,8 @@ func vetPromptCore(prompt string, intent IntentMode, slice SliceResult, brainCtx
 		MatchedRecords:   collectMatchedRecords(brainCtx),
 		Conflicts:        conflicts,
 	}
+	res.ImprovedPrompt = SynthesizeImprovedPrompt(cleanPrompt, res, slice, ctxWithConflicts, prev)
+	return res
 }
 
 func decideVetGate(rawPrompt string, intent IntentMode, present, conflicts []string) VetGate {
@@ -450,177 +492,4 @@ var stopWordsVet = map[string]bool{
 	"memory": true, "metrics": true, "config": true, "files": true, "branch": true,
 	"worker": true, "workers": true, "skills": true, "rules": true, "tests": true,
 	"check": true, "index": true, "store": true, "hooks": true,
-}
-
-// MatchSkills selects the top 1-2 skills (<= 600 B digest + SKILL.md path)
-// and sets the mandatory security subagent flag on auth/crypto/secret/frontmatter surfaces.
-func MatchSkills(prompt string, intent IntentMode, files []string, catalog []SkillMeta) ([]SkillMeta, bool) {
-	low := strings.ToLower(prompt)
-	secReq := touchesSecuritySurface(low, files)
-	if intent == IntentApproval || intent == IntentTrivial {
-		return nil, false
-	}
-	byName := mergeSkillCatalog(catalog)
-	if intent == IntentCorrection {
-		return selectNamedSkills(byName, "operator correction", "fyr-feedback-log", "fyr-project-memory"), secReq
-	}
-	type scoredSkill struct {
-		meta  SkillMeta
-		score int
-	}
-	var scored []scoredSkill
-	for _, s := range byName {
-		if sc, reason := scoreSkillCandidate(s, low, intent, files); sc > 0 {
-			cand := s
-			cand.Digest = truncateBytes(cand.Digest, maxSkillDigestBytes)
-			cand.Reason = reason
-			scored = append(scored, scoredSkill{meta: cand, score: sc})
-		}
-	}
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].score != scored[j].score {
-			return scored[i].score > scored[j].score
-		}
-		return scored[i].meta.Name < scored[j].meta.Name
-	})
-	var out []SkillMeta
-	for i := 0; i < len(scored) && len(out) < 2; i++ {
-		out = append(out, scored[i].meta)
-	}
-	return out, secReq
-}
-
-func selectNamedSkills(byName map[string]SkillMeta, reason string, names ...string) []SkillMeta {
-	var out []SkillMeta
-	for _, name := range names {
-		if s, ok := byName[name]; ok {
-			s.Digest = truncateBytes(s.Digest, maxSkillDigestBytes)
-			s.Reason = reason
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-var intentPrimarySkill = map[IntentMode]string{
-	IntentBug:     "fyr-bug",
-	IntentFeature: "fyr-feature",
-	IntentReview:  "fyr-review",
-	IntentRelease: "fyr-preflight",
-}
-
-func scoreSkillCandidate(s SkillMeta, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	score, reason := scoreSkillSurface(s.Name, lowPrompt, intent, files)
-	if primary, ok := intentPrimarySkill[intent]; ok && s.Name == primary {
-		score, reason = 100, "intent="+string(intent)
-	}
-	if strings.Contains(lowPrompt, s.Name) {
-		score += 40
-		if reason == "" {
-			reason = "named in prompt"
-		}
-	}
-	return score, reason
-}
-
-func scoreSkillSurface(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
-	switch name {
-	case "fyr-explain-project", "explain-project":
-		if intent == IntentQuestion && (strings.Contains(lowPrompt, "explain") || strings.Contains(lowPrompt, "walk me through")) {
-			return 95, "intent=QUESTION (onboarding)"
-		}
-	case "golang":
-		if hasExt(files, ".go") || containsAnyWord(lowPrompt, "go", "golang", "goroutine", "slog", "httptest") {
-			return 70, "Go code surface"
-		}
-	case "typescript":
-		if hasExt(files, ".ts", ".tsx") || containsAnyWord(lowPrompt, "typescript", "tsconfig", "vitest") {
-			return 70, "TypeScript surface"
-		}
-	case "bash":
-		if hasExt(files, ".sh") || containsAnyWord(lowPrompt, "bash", "shell", "script", "jq", "rg") {
-			return 70, "shell script surface"
-		}
-	case "testing-strategy":
-		if containsAnyWord(lowPrompt, "test", "tests", "coverage", "verifier", "e2e") {
-			return 60, "verification/testing surface"
-		}
-	case "fyr-spec", "spec":
-		if containsAnyWord(lowPrompt, "spec", "specify", "contract", "interface") {
-			return 65, "specification surface"
-		}
-	case "fyr-project-memory", "project-memory":
-		if containsAnyWord(lowPrompt, "remember", "memory", "forget") {
-			return 85, "memory directive"
-		}
-	case "fyr-index-project":
-		if strings.Contains(lowPrompt, "fyr-index-project") || (containsAnyWord(lowPrompt, "index", "indexing", "search.db") && !containsAnyWord(lowPrompt, "refresh", "rebuild")) {
-			return 90, "project indexing surface"
-		}
-	case "fyr-refresh-project-index":
-		if strings.Contains(lowPrompt, "fyr-refresh-project-index") || (containsAnyWord(lowPrompt, "index", "search.db") && containsAnyWord(lowPrompt, "refresh", "rebuild", "stale")) {
-			return 92, "project index refresh surface"
-		}
-	}
-	return 0, ""
-}
-
-func touchesSecuritySurface(lowPrompt string, files []string) bool {
-	if containsAnySubstr(lowPrompt, "auth", "authn", "authz", "oauth", "oidc", "jwt", "iap", "token", "password", "crypto", "cipher", "hmac", "sha256", "tls", "secret", "redact", "credential", "iam", "permission", "frontmatter", "allowlist", "allow-list", "skillkeys", "agentkeys", "knowntools", "inject", "injection", "sanitize", "fence") {
-		return true
-	}
-	for _, f := range files {
-		if containsAnySubstr(strings.ToLower(f), "redact", "security", "auth", "guard", "inventory.go", "fence.go", "go.mod") {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAnySubstr(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, f := range sliceFiles {
-		if f = strings.TrimSpace(f); f != "" && !seen[f] {
-			seen[f] = true
-			out = append(out, f)
-		}
-	}
-	for _, m := range fileTokenRe.FindAllString(prompt, -1) {
-		if m = strings.Trim(m, "`'\".,;:()"); m != "" && !seen[m] {
-			seen[m] = true
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-func containsAnyWord(low string, words ...string) bool {
-	tokens := strings.FieldsFunc(low, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' && r != '-'
-	})
-	for _, t := range tokens {
-		if slices.Contains(words, t) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasExt(files []string, exts ...string) bool {
-	for _, f := range files {
-		if slices.Contains(exts, strings.ToLower(filepath.Ext(f))) {
-			return true
-		}
-	}
-	return false
 }

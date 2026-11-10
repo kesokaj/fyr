@@ -1,11 +1,11 @@
 package auto
 
 import (
-	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/work"
 )
 
 const (
@@ -14,7 +14,7 @@ const (
 	// disabled is a window `/usage` prints no number for. agy does so when
 	// the week is out, and nothing says it means only that, so it reads as
 	// under every floor.
-	disabled = -1
+	disabled = work.DisabledWindow
 	// poolLimit is far past any pool's name; budgetLine goes in runs.json.
 	poolLimit = 64
 	// poolsLimit keeps budgetLine short for the same reason.
@@ -27,77 +27,22 @@ type Pool struct {
 	Five, Week int
 }
 
-var percent = regexp.MustCompile(`^[0-9]{1,3}%$`)
-
 // parseUsage reads `/usage`: one line per pool and window, four tab-separated
 // fields. Anything else, a window missing or a line twice is an error, and the
 // caller fails closed on it.
 func parseUsage(text string) ([]Pool, error) {
-	var pools []Pool
-	index := map[string]int{}
-	seen := map[string]bool{}
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		f := strings.Split(line, "\t")
-		if len(f) != 4 || f[0] == "" || len(f[0]) > poolLimit {
-			return nil, fmt.Errorf("a line that is not a pool's: %q", short(line))
-		}
-		value, err := usageValue(f[2])
-		if err != nil {
-			return nil, err
-		}
-		i, ok := index[f[0]]
-		if !ok {
-			i = len(pools)
-			index[f[0]] = i
-			if len(pools) == poolsLimit {
-				return nil, errors.New("more pools than any account has")
-			}
-			pools = append(pools, Pool{Name: f[0]})
-		}
-		if key := f[0] + "\t" + f[1]; seen[key] {
-			return nil, fmt.Errorf("%q twice", short(f[0]+" "+f[1]))
-		} else {
-			seen[key] = true
-		}
-		switch f[1] {
-		case "Weekly Limit Remaining":
-			pools[i].Week = value
-		case "Five Hour Limit Remaining":
-			pools[i].Five = value
-		default:
-			return nil, fmt.Errorf("an unknown window: %q", short(f[1]))
-		}
+	wp, err := work.ParseUsage(text)
+	if err != nil {
+		return nil, err
 	}
-	if len(pools) == 0 {
-		return nil, errors.New("no pool")
+	out := make([]Pool, len(wp))
+	for i, p := range wp {
+		out[i] = Pool{Name: p.Name, Five: p.Five, Week: p.Week}
 	}
-	for _, p := range pools {
-		if !seen[p.Name+"\tWeekly Limit Remaining"] || !seen[p.Name+"\tFive Hour Limit Remaining"] {
-			return nil, fmt.Errorf("%q lacks a window", short(p.Name))
-		}
-	}
-	return pools, nil
+	return out, nil
 }
 
-func usageValue(s string) (int, error) {
-	if s == "disabled" {
-		return disabled, nil
-	}
-	if !percent.MatchString(s) {
-		return 0, fmt.Errorf("a value that is no percentage: %q", short(s))
-	}
-	n, err := strconv.Atoi(strings.TrimSuffix(s, "%"))
-	if err != nil || n > 100 {
-		return 0, fmt.Errorf("a value that is no percentage: %q", short(s))
-	}
-	return n, nil
-}
-
-func (p Pool) under() bool { return p.Five < floorFive || p.Week < floorWeek }
+func underPool(p Pool) bool { return p.Five < floorFive || p.Week < floorWeek }
 
 func said(n int) string {
 	if n == disabled {
@@ -129,7 +74,7 @@ func gateBudget(runs int, text string, readErr error) (line string, stop bool) {
 		return "G9 budget: /usage unreadable: " + short(err.Error()), true
 	}
 	for _, p := range pools {
-		if p.under() {
+		if underPool(p) {
 			return "G9 " + budgetLine(pools), true
 		}
 	}

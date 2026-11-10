@@ -178,53 +178,8 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		defer sc.close()
 		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, cleanPrompt, state, dirtySummary, fastPath)
 	}
-	sysMsg, banner := buildHookEnvelope(o, dir, rawPrompt, cleanPrompt, slice, sections, banners)
+	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state.TurnCount, rawPrompt, cleanPrompt, slice, sections, banners)
 	return writePreInvocation(out, sysMsg, banner)
-}
-
-func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
-	var sections, banners []string
-	if state.Compacted {
-		if o.BrainReprime != nil {
-			if rep := strings.TrimSpace(o.BrainReprime(dir, o.Home)); rep != "" {
-				sections = append(sections, rep)
-			}
-		}
-		banners = append(banners, fmt.Sprintf("♻️ compacted (gen %d): re-primed memory & capsule", state.GenerationID))
-	}
-	if fastPath && dirtySummary != "" {
-		sections = append(sections, dirtySummary)
-		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
-	}
-	sliceOpts := o
-	sliceOpts.Dir = dir
-	sliceOpts.Session = convID
-	slice := sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
-	if slice.Capsule != "" {
-		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", slice.Pivots))
-	}
-	if state.EstTokens >= hookKneeTokens {
-		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /handoff or /compact.", state.EstTokens/1000))
-		banners = append(banners, fmt.Sprintf("⚠️ %dk tokens (>= 180K knee)", state.EstTokens/1000))
-	}
-	return sections, banners, slice
-}
-
-func buildHookEnvelope(o Options, dir, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
-	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && len(banners) == 0 {
-		return "", ""
-	}
-	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
-	var brainCtx TurnBrainContext
-	if o.BrainTurnContext != nil {
-		brainCtx = o.BrainTurnContext(dir, o.Home, cleanPrompt, slice.Files)
-	}
-	var catalog []SkillMeta
-	if o.SkillCatalog != nil {
-		catalog = o.SkillCatalog(o.Home)
-	}
-	vetRes := vetPromptCore(rawPrompt, intent, slice, brainCtx, catalog)
-	return BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
 }
 
 func ensureHookProjectReady(dir string) error {
@@ -323,6 +278,13 @@ func (sc *scope) runVet(o Options, out io.Writer) error {
 	prompt := StripSandboxPreamble(strings.TrimSpace(o.Vet))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(prompt, "!"))
 	slice := sc.buildVetSlice(o, cleanPrompt, SessionState{}, false)
+	var prev *VetHistoryRow
+	var recentSkills map[string]bool
+	var recentPivots []string
+	if sc != nil && sc.st != nil && o.Session != "" {
+		prev, _ = sc.st.lastVetHistory(o.Session, 0)
+		recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(o.Session, 0, 3)
+	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
 	var brainCtx TurnBrainContext
 	if o.BrainTurnContext != nil {
@@ -332,7 +294,18 @@ func (sc *scope) runVet(o Options, out io.Writer) error {
 	if o.SkillCatalog != nil {
 		catalog = o.SkillCatalog(o.Home)
 	}
-	res := VetPrompt(prompt, intent, slice, brainCtx, catalog)
+	res := vetPromptCoreWithHistory(prompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
+	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, nil)
+	res.SystemMessage = sysMsg
+	res.UserMarkdownBanner = banner
+	if sc != nil && sc.st != nil && o.Session != "" && prompt != "" {
+		nextTurn := 1
+		if prev != nil {
+			nextTurn = prev.TurnNum + 1
+		}
+		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
+		_ = sc.st.recordVetHistory(o.Session, nextTurn, prompt, res, pivotFiles)
+	}
 	_, err := io.WriteString(out, FormatVetResult(res))
 	return err
 }
@@ -345,13 +318,14 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	if err != nil || len(g.syms) == 0 {
 		return SliceResult{}
 	}
-	hits, fileSet := countMatchingSymbols(g, prompt)
+	hits, _ := countMatchingSymbols(g, prompt)
 	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	ranked, confident := rankAndCheckConfidence(g, prompt, active)
 	if !confident && !state.Compacted {
-		return SliceResult{SymbolHits: hits, Files: sortedMapKeys(fileSet)}
+		return SliceResult{SymbolHits: hits, Files: nil}
 	}
-	capsule, pivots := sc.renderHookOrVetCapsule(o, g, prompt, ranked, fileSet)
+	pivotFileSet := map[string]bool{}
+	capsule, pivots := sc.renderHookOrVetCapsule(o, g, prompt, ranked, pivotFileSet)
 	if capsule != "" && preseedLedger {
 		_ = RegisterCapsulePivots(o.Dir, o.Session, state.TurnCount, pivots)
 	}
@@ -359,7 +333,7 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 		Capsule:    capsule,
 		Pivots:     len(pivots),
 		SymbolHits: hits,
-		Files:      sortedMapKeys(fileSet),
+		Files:      sortedMapKeys(pivotFileSet),
 		Confident:  confident,
 	}
 }
@@ -509,6 +483,7 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 }
 
 func handleStopHook(dir string, in HookInput, out io.Writer) error {
+	writeHookProcessArtifact(nil, dir, in, "5/6 Verify & Judge", nil)
 	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
 		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
 	}

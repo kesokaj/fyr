@@ -29,7 +29,7 @@ var errModelsOver = fmt.Errorf("its output is over %d KiB", maxModelsOut>>10)
 func checkModels(ctx context.Context, o Options, ks []Kickoff) error {
 	named := o.Model != ""
 	for _, k := range ks {
-		named = named || k.Model != ""
+		named = named || k.Model != "" || k.JudgeModel != ""
 	}
 	if !named {
 		return nil
@@ -54,6 +54,9 @@ func checkModels(ctx context.Context, o Options, ks []Kickoff) error {
 	for _, k := range ks {
 		if k.Model != "" && !listed[k.Model] {
 			return fmt.Errorf("the Kickoff %s names the model %s, which agy models does not list: %s", k.Path, k.Model, all)
+		}
+		if k.JudgeModel != "" && !listed[k.JudgeModel] {
+			return fmt.Errorf("the Kickoff %s names the judge model %s, which agy models does not list: %s", k.Path, k.JudgeModel, all)
 		}
 	}
 	if o.Model != "" && !listed[o.Model] {

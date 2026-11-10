@@ -34,6 +34,22 @@ if [ "$*" = models ]; then
   if on models-list; then cat "$CTL/models-list"; else printf 'gemini-x\tGemini X\nm-a\tModel A\nm-b\tModel B\n'; fi
   exit 0
 fi
+if [ "$1" = -p ] && [ "$2" = /usage ]; then
+  if on usage-out; then cat "$CTL/usage-out"; else
+    printf 'Gemini\tWeekly Limit Remaining\t90%%\t2026-11-15\n'
+    printf 'Gemini\tFive Hour Limit Remaining\t95%%\t2026-11-10\n'
+    printf 'Claude\tWeekly Limit Remaining\t85%%\t2026-11-15\n'
+    printf 'Claude\tFive Hour Limit Remaining\t95%%\t2026-11-10\n'
+  fi
+  exit 0
+fi
+case "$*" in
+*"[FYR_JUDGE]"*)
+  printf '%s\n' "$@" > "$CTL/judge-args"
+  if on judge-out; then cat "$CTL/judge-out"; else printf 'Review looks clean.\nVERDICT: PASS — criterion met\n'; fi
+  exit "$(cat "$CTL/judge-exit" 2>/dev/null || echo 0)"
+  ;;
+esac
 printf '%s\n' "$@" > "$CTL/args"; env > "$CTL/env"; pwd > "$CTL/cwd"
 git rev-parse --abbrev-ref HEAD > "$CTL/branch"; git remote > "$CTL/remotes"
 box=$(dirname "$HOME"); me=$(basename "$box")

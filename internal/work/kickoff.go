@@ -15,11 +15,14 @@ import (
 
 // Kickoff is one Kickoff file: the worker's prompt and its scope.
 type Kickoff struct {
-	Path  string   // the file as given
-	Name  string   // its base name without .md; the branch is work/<Name>
-	Text  string   // the whole file, passed to agy verbatim
-	Files []string // the Files: line's entries, as written
-	Model string   // the Model: line's ID, trimmed; "" when the file has none
+	Path       string   // the file as given
+	Name       string   // its base name without .md; the branch is work/<Name>
+	Text       string   // the whole file, passed to agy verbatim
+	Files      []string // the Files: line's entries, as written
+	Model      string   // the Model: line's ID, trimmed; "" when the file has none
+	BaseCheck  string   // optional Base-Check: shell command (must fail on HEAD, pass after build)
+	Judge      string   // optional Judge: one-line criterion evaluated by an isolated cross-family judge
+	JudgeModel string   // optional Judge-Model: ID overriding automatic cross-family judge selection
 }
 
 // Branch is the worker's branch, in the clone and, once fetched, in the
@@ -71,6 +74,15 @@ func parseKickoff(path string, auto bool) (Kickoff, error) {
 	if k.Model, err = modelLine(k.Text); err != nil {
 		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
 	}
+	if k.BaseCheck, err = optionalLine(k.Text, "Base-Check:"); err != nil {
+		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
+	}
+	if k.Judge, err = optionalLine(k.Text, "Judge:"); err != nil {
+		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
+	}
+	if k.JudgeModel, err = namedModelLine(k.Text, "Judge-Model:"); err != nil {
+		return k, fmt.Errorf("the Kickoff %s: %v", path, err)
+	}
 	if !nameRe.MatchString(k.Name) {
 		return k, fmt.Errorf("the Kickoff %s: the name %q is not lower-case letters, digits and '-', at most 63, starting with a letter or digit", path, k.Name)
 	}
@@ -93,17 +105,39 @@ func prefixed(text, prefix string) []string {
 // modelLine is the ID on the one line that starts "Model:", "" when there
 // is none (PLAN-2026-10-29-workers § Interfaces § A model per worker).
 func modelLine(text string) (string, error) {
-	lines := prefixed(text, "Model:")
+	return namedModelLine(text, "Model:")
+}
+
+func namedModelLine(text, prefix string) (string, error) {
+	lines := prefixed(text, prefix)
 	switch {
 	case len(lines) == 0:
 		return "", nil
 	case len(lines) > 1:
-		return "", fmt.Errorf("%d Model: lines; give one", len(lines))
+		return "", fmt.Errorf("%d %s lines; give one", len(lines), prefix)
 	}
 	if m := strings.TrimSpace(lines[0]); modelRe.MatchString(m) {
 		return m, nil
 	}
-	return "", fmt.Errorf("the Model: line %q is not a model ID", strings.TrimSpace(lines[0]))
+	return "", fmt.Errorf("the %s line %q is not a model ID", prefix, strings.TrimSpace(lines[0]))
+}
+
+func optionalLine(text, prefix string) (string, error) {
+	lines := prefixed(text, prefix)
+	switch {
+	case len(lines) == 0:
+		return "", nil
+	case len(lines) > 1:
+		return "", fmt.Errorf("%d %s lines; give one", len(lines), prefix)
+	}
+	v := strings.TrimSpace(lines[0])
+	if v == "" {
+		return "", fmt.Errorf("an empty %s line", prefix)
+	}
+	if sandbox.Printable(v) != v {
+		return "", fmt.Errorf("the %s line %q holds a control character", prefix, v)
+	}
+	return v, nil
 }
 
 // filesLine is the entries of the one line that starts "Files:" (D16). When

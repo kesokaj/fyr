@@ -392,9 +392,16 @@ func matchesPromptTerms(s RankedSymbol, terms []string) bool {
 	}
 	nameLow, qualLow, pathLow := strings.ToLower(s.Name), strings.ToLower(s.QualName()), strings.ToLower(s.Path)
 	baseLow := strings.ToLower(strings.TrimSuffix(filepath.Base(s.Path), filepath.Ext(s.Path)))
+	shortShellSym := strings.HasSuffix(pathLow, ".sh") && len(nameLow) < hookMinIdentLen
 	for _, t := range terms {
 		tl := strings.ToLower(t)
-		if nameLow == tl || qualLow == tl || pathLow == tl || baseLow == tl {
+		if pathLow == tl || (strings.HasSuffix(tl, ".sh") && filepath.Base(pathLow) == filepath.Base(tl)) {
+			return true
+		}
+		if shortShellSym {
+			continue
+		}
+		if nameLow == tl || qualLow == tl || baseLow == tl {
 			return true
 		}
 		if len(tl) >= 4 && (strings.Contains(nameLow, tl) || strings.Contains(qualLow, tl)) {

@@ -67,15 +67,18 @@ var (
 
 // The FAIL reasons work adds to the sandbox's (§ Interfaces, D38).
 const (
-	ReasonTimedOut     = "timed out"
-	ReasonKilled       = "killed"
-	ReasonNoCommits    = "no commits"
-	ReasonNoHandoff    = "no handoff"
-	ReasonTwoHandoffs  = "more than one handoff"
-	ReasonOutside      = "changed outside its Files"
-	ReasonRewrote      = "rewrote history"
-	ReasonLeadChanged  = "lead checkout changed"
-	ReasonBranchFailed = "branch"
+	ReasonTimedOut        = "timed out"
+	ReasonKilled          = "killed"
+	ReasonNoCommits       = "no commits"
+	ReasonNoHandoff       = "no handoff"
+	ReasonTwoHandoffs     = "more than one handoff"
+	ReasonOutside         = "changed outside its Files"
+	ReasonRewrote         = "rewrote history"
+	ReasonLeadChanged     = "lead checkout changed"
+	ReasonBranchFailed    = "branch"
+	ReasonBaseCheckPassed = "base-check passed on HEAD"
+	ReasonBaseCheckFailed = "base-check failed"
+	ReasonJudgeFailed     = "judge failed"
 )
 
 // Record is one record the worker's branch added, as its trail.jsonl line

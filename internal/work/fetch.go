@@ -37,8 +37,10 @@ func (w *worker) collect() {
 		return
 	}
 	w.scope()
+	w.runPostBaseCheck()
 	drafts := w.drafts()
 	records := w.deliver()
+	w.runJudge()
 	w.closeLeadDir()
 	w.collected = drafts && records
 }

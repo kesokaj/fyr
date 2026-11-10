@@ -207,3 +207,64 @@ func TestRunModelCheckDocker(t *testing.T) {
 		t.Fatalf("docker with a host agy: %v %+v, %d calls\n%s", err, res, r2.modelCalls(), r2.out.String())
 	}
 }
+
+func TestResolveRoleModel(t *testing.T) {
+	ctx := context.Background()
+	oldUsage := usageProbeFunc
+	oldList := listModelsFunc
+	t.Cleanup(func() {
+		usageProbeFunc = oldUsage
+		listModelsFunc = oldList
+	})
+
+	// 1. Builder routes to Gemini ([pro] -> gemini-4-argon, [flash] -> gemini-3.8-flash).
+	m, note, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
+	if err != nil || m != "gemini-4-argon" || !strings.Contains(note, "Gemini") {
+		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
+	}
+	mFlash, _, _ := ResolveRoleModel(ctx, "agy", "builder", "flash", "")
+	if mFlash != "gemini-3.8-flash" {
+		t.Fatalf("builder flash: got %q, want gemini-3.8-flash", mFlash)
+	}
+
+	// 2. Judge/verifier/reviewer routes to Anthropic when Claude pool quota >= 30% 5h and >= 20% weekly.
+	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+		return []string{"gemini-4-argon", "gemini-3.8-flash", "claude-opus-5-5", "claude-sonnet-4-6"}, nil
+	}
+	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t45%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t60%\tx\n", nil
+	}
+	jModel, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || jModel != "claude-opus-5-5" || !strings.Contains(jNote, "Anthropic") {
+		t.Fatalf("judge healthy quota: got m=%q note=%q err=%v", jModel, jNote, err)
+	}
+	vModel, _, _ := ResolveRoleModel(ctx, "agy", "verifier", "sonnet", "")
+	if vModel != "claude-sonnet-4-6" {
+		t.Fatalf("verifier sonnet healthy quota: got %q, want claude-sonnet-4-6", vModel)
+	}
+
+	// 3. Judge falls back to Gemini when Claude pool weekly < 20% or 5h < 30% (or disabled).
+	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t15%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\tx\n", nil
+	}
+	fbModel, fbNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || fbModel != "gemini-4-argon" || !strings.Contains(fbNote, "fallback to Gemini") {
+		t.Fatalf("judge low quota fallback: got m=%q note=%q err=%v", fbModel, fbNote, err)
+	}
+	fbFlash, fbFlashNote, _ := ResolveRoleModel(ctx, "agy", "reviewer", "flash", "")
+	if fbFlash != "gemini-3.8-flash" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
+		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q", fbFlash, fbFlashNote)
+	}
+
+	// 4. Explicit model overrides routing.
+	expModel, expNote, _ := ResolveRoleModel(ctx, "agy", "judge", "pro", "custom-model")
+	if expModel != "custom-model" || !strings.Contains(expNote, "explicit") {
+		t.Fatalf("explicit override: got m=%q note=%q", expModel, expNote)
+	}
+}
