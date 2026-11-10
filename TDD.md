@@ -97,6 +97,7 @@ Implements: M7 · Spec: `SPEC-fyr-record`
 
 ## T8 — Search
 
+Indexes project and global records and source AST graphs in SQLite caches for context slicing, symbol tracing, prompt vetting, and `< 250 ms` fail-open CLI hooks.
 Implements: M8 · Spec: `SPEC-fyr-search` · Decision: ADR-511
 
 - **Interfaces:** `fyr search` (records first, then files), `--slice <query>` (`--hops`, `--budget`, `--session`), `--skeleton <path>`, `--path <from> [--to <to>]`, `--affected <target>`, `--map`, `--vet <prompt>` (`internal/search/vet.go`, `vet_skills.go`, `vet_history.go`, and `fence.go`: 9-mode intent classifier, `0..100` 6-anchor `VetScore` with prior-turn `vet_history` carry-forward, 3-turn skill deduplication, `< 2 ms` `[VET_IMPROVED_PROMPT]` synthesis, cryptographic data fence, `[FYR_TURN_CONTRACT]`), `--hook <event>` (`internal/search/hook.go`, `process_artifact.go`, `hook_clamp.go` and `hook_guard.go`: `pre-invocation`, `pre-tool-use`, `stop` for `~/.gemini/config/hooks.json`, writing `<appDataDir>/brain/<conv-id>/fyr-process.md`, with `ensureHookProjectReady` auto-initializing unindexed workspace directories via `git init -q` and `<git-common-dir>/info/exclude` and always running prompt vetting even when the store degrades), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
@@ -111,6 +112,7 @@ Implements: M9 · Spec: `SPEC-fyr-memory-loop`
 
 ## T10 — Metrics
 
+Ingests shape-only session, eval trial, second-brain vet/ledger, and work-wave telemetry into `metrics.db` for CLI summaries, trajectories, and local HTML/Markdown reports.
 Implements: M10 · Spec: `SPEC-fyr-metrics`
 
 - **Interfaces:** `fyr metrics ingest`, `show`, `report`, `evals`, `trajectory`, `export`, and top-level `fyr report [--project [DIR] | --global] [--md] [--out FILE]` (`cmd/fyr/verb_report.go`, `internal/metrics/report_md.go`, `RenderMarkdownReport`, `WriteMarkdownReport`, ADR-516; `Store.Trajectories`, `WriteTrajectoriesText` and `WriteTrajectoriesJSON` in `internal/metrics/trajectory.go`, surfacing parent → subagent lineage, turn-by-turn token growth vs `ContextKneeTokens` 180,000, and `KNEE_EXCEEDED` / `REDUNDANT_READ` / `RETRY_LOOP` anomalies, ADR-513).

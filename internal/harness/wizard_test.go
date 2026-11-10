@@ -80,7 +80,8 @@ func TestWizardWriteEnvPermissionsAndSymlink(t *testing.T) {
 		t.Errorf("symlink target modified: %q", targetBody)
 	}
 
-	// 3. Exit trap removes active _WIZARD_TMP if interrupted mid-run.
+	// 3. Exit, INT, and TERM traps remove active _WIZARD_TMP and abort execution
+	// without resuming or clobbering an existing 0600 ENV_FILE (BUG-534).
 	staleTmp := filepath.Join(dir, ".env.tmp.interrupt")
 	if err := os.WriteFile(staleTmp, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
@@ -90,4 +91,73 @@ func TestWizardWriteEnvPermissionsAndSymlink(t *testing.T) {
 	if _, err := os.Lstat(staleTmp); !os.IsNotExist(err) {
 		t.Errorf("expected EXIT trap to remove %s, Lstat err = %v", staleTmp, err)
 	}
+
+	intTmp := filepath.Join(dir, ".env.tmp.sigint")
+	resumedMarker := filepath.Join(dir, "resumed")
+	if err := os.WriteFile(intTmp, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmdInt := exec.Command("bash", "-c", `source "$1"; _WIZARD_TMP="$2"; kill -INT $$; printf 'resumed\n' > "$3"`, "_", script, intTmp, resumedMarker)
+	err = cmdInt.Run()
+	if err == nil {
+		t.Errorf("expected SIGINT to exit non-zero, got nil")
+	} else if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() != 130 {
+		t.Errorf("SIGINT exit code = %d, want 130", ee.ExitCode())
+	}
+	if _, err := os.Lstat(intTmp); !os.IsNotExist(err) {
+		t.Errorf("expected INT trap to remove %s, Lstat err = %v", intTmp, err)
+	}
+	if _, err := os.Lstat(resumedMarker); !os.IsNotExist(err) {
+		t.Errorf("wizard resumed execution after SIGINT (%s created)", resumedMarker)
+	}
+
+	// Simulate SIGTERM arriving mid-write_env right after _WIZARD_TMP is armed:
+	// pre-existing 0600 .env must remain intact (not truncated or widened to 0644).
+	realChmod, err := exec.LookPath("chmod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimDir := filepath.Join(dir, "shim")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chmodShim := filepath.Join(shimDir, "chmod")
+	shimBody := "#!/usr/bin/env bash\n" + strconvQuotePath(realChmod) + " \"$@\"\nkill -TERM \"$PPID\"\n"
+	if err := os.WriteFile(chmodShim, []byte(shimBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	termEnv := filepath.Join(dir, "term.env")
+	const origEnv = "KEEP='intact'\nOAUTH_CLIENT_SECRET='orig'\n"
+	if err := os.WriteFile(termEnv, []byte(origEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmdTerm := exec.Command("bash", "-c", `umask 022; PATH="$3:$PATH"; source "$1"; ENV_FILE="$2"; write_env OAUTH_CLIENT_SECRET "partial"`, "_", script, termEnv, shimDir)
+	err = cmdTerm.Run()
+	if err == nil {
+		t.Errorf("expected SIGTERM mid-write_env to exit non-zero, got nil")
+	} else if ee, ok := err.(*exec.ExitError); ok && ee.ExitCode() != 143 {
+		t.Errorf("SIGTERM exit code = %d, want 143", ee.ExitCode())
+	}
+	termFi, err := os.Lstat(termEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := termFi.Mode().Perm(); got != 0o600 {
+		t.Errorf("term.env mode after SIGTERM = %04o, want 0600", got)
+	}
+	termBody, err := os.ReadFile(termEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(termBody) != origEnv {
+		t.Errorf("term.env modified on SIGTERM:\ngot:  %q\nwant: %q", termBody, origEnv)
+	}
+	termMatches, _ := filepath.Glob(termEnv + ".tmp.*")
+	if len(termMatches) != 0 {
+		t.Errorf("leftover temp files after SIGTERM: %v", termMatches)
+	}
+}
+
+func strconvQuotePath(p string) string {
+	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
 }

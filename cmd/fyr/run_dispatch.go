@@ -94,6 +94,14 @@ func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
 		// --from-zip x` would otherwise run the verb as if nothing had been said.
 		return true, usageErr(c.out, c.cmd, fmt.Sprintf("%s takes no arguments: %q", c.cmd, c.fs.Args()))
 	}
+	if c.cmd == "metrics" || c.cmd == "report" {
+		projectVisited := false
+		c.fs.Visit(func(f *flag.Flag) { projectVisited = projectVisited || f.Name == "project" })
+		if projectVisited && (c.metricsProject == "" || c.metricsProject == missingProjectSentinel || strings.HasPrefix(c.metricsProject, "-")) {
+			fmt.Fprintf(c.out, "fyr %s: --project needs a directory: --project <dir>\n", c.cmd)
+			return true, exitCode(2)
+		}
+	}
 	return false, nil
 }
 
@@ -262,9 +270,15 @@ func reorder(fs *flag.FlagSet, args []string) []string {
 			positional = append(positional, args[i+1:]...)
 			i = len(args)
 		case strings.HasPrefix(a, "-"):
-			if isReportBareProject(fs, args, i, valueFlags) {
-				flags = append(flags, "--project="+bareProjectSentinel)
-				continue
+			if (a == "--project" || a == "-project") && valueFlags[a] && (i+1 == len(args) || strings.HasPrefix(args[i+1], "-")) {
+				if isReportBareProject(fs, args, i, valueFlags) {
+					flags = append(flags, "--project="+bareProjectSentinel)
+					continue
+				}
+				if fs.Name() == "metrics" {
+					flags = append(flags, "--project="+missingProjectSentinel)
+					continue
+				}
 			}
 			flags = append(flags, a)
 			if valueFlags[a] && i+1 < len(args) {

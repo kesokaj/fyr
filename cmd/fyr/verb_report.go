@@ -71,7 +71,10 @@ func (c *ctx) renderReport(prefix string) error {
 	return nil
 }
 
-const bareProjectSentinel = "\x00cwd"
+const (
+	bareProjectSentinel    = "\x00cwd"
+	missingProjectSentinel = "\x00missing-project"
+)
 
 // resolveMetricsProject resolves --project for show and report: bare --project
 // on report (bareProjectSentinel) requires a git checkout at the working

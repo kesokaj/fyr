@@ -41,7 +41,9 @@ _cleanup_wizard_tmp() {
     rm -f "$_WIZARD_TMP"
   fi
 }
-trap _cleanup_wizard_tmp EXIT INT TERM
+trap _cleanup_wizard_tmp EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # _clear wipes the terminal so only the current step is on screen. No-op when
 # output isn't a terminal, so piped logs stay readable.

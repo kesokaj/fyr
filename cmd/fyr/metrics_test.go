@@ -324,15 +324,30 @@ func TestReportVerbCLI(t *testing.T) {
 		}
 	}
 
-	// `fyr metrics show --project` outside a checkout exits 2 without suggesting --global.
-	out.Reset()
-	err := run([]string{"metrics", "show", "--project", "--dir", nonGit, "--home", home}, &out)
-	var showCode exitCode
-	if !errors.As(err, &showCode) || showCode != 2 {
-		t.Errorf("metrics show --project: err = %v, want exit 2 (out %q)", err, out.String())
-	}
-	if strings.Contains(out.String(), "--global") {
-		t.Errorf("metrics show --project error must not suggest --global, got %q", out.String())
+	// Bare or flag-shaped `--project` on non-report `metrics` subcommands exits 2
+	// naming `--project` without swallowing subsequent flags or suggesting --global (BUG-535).
+	for _, args := range [][]string{
+		{"metrics", "show", "--dir", nonGit, "--home", home, "--project"},
+		{"metrics", "show", "--dir", nonGit, "--home", home, "--project", "--json"},
+		{"metrics", "show", "--project", "--dir", nonGit, "--home", home},
+		{"metrics", "show", "--project", "--home", home},
+		{"metrics", "show", "--project=--json", "--dir", nonGit, "--home", home},
+		{"metrics", "trajectory", "--project", "--json", "--home", home},
+		{"report", "--project=", "--home", home},
+		{"report", "--project=--md", "--home", home},
+	} {
+		out.Reset()
+		err := run(args, &out)
+		var showCode exitCode
+		if !errors.As(err, &showCode) || showCode != 2 {
+			t.Errorf("%v: err = %v, want exit 2 (out %q)", args, err, out.String())
+		}
+		if !strings.Contains(out.String(), "--project") {
+			t.Errorf("%v: error must name --project, got %q", args, out.String())
+		}
+		if strings.Contains(out.String(), "--global") || strings.Contains(out.String(), "takes no arguments") {
+			t.Errorf("%v: unexpected refusal text %q", args, out.String())
+		}
 	}
 
 	// Explicit `fyr report --project .` in a non-git directory resolves "." like "$PWD" (1 session).
