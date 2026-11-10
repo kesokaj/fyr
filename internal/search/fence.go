@@ -162,7 +162,7 @@ func buildTurnContract(res VetResult) string {
 	var b strings.Builder
 	b.WriteString("[FYR_TURN_CONTRACT]\n")
 	fmt.Fprintf(&b, "intent: %s | gate: %s | score: %d/100\n", res.Intent, res.Gate, res.Score)
-	fmt.Fprintf(&b, "status_line: 🧭 **fyr** · Stage: **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet: `%s/%s (%d/100)` · Active: `<IDs>` · Pre-seeded: `<skills + pivots>` · Models: Builder `gemini-4-argon` | Judge `claude-opus-5-5 (or Gemini fallback)`\n", res.Intent, res.Gate, res.Score)
+	fmt.Fprintf(&b, "status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `%d/100` · Skills: `%s`\n", res.Score, formatContractSkills(res.Skills))
 	switch res.Gate {
 	case GatePassThrough:
 		b.WriteString("directive: PASS_THROUGH — Execute the operator's direct instruction or approval without ceremony.\n")
@@ -196,12 +196,23 @@ func buildTurnContract(res VetResult) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func formatContractSkills(skills []SkillMeta) string {
+	if len(skills) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(skills))
+	for _, s := range skills {
+		names = append(names, s.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
 func buildUserMarkdownBanner(res VetResult, extraBanners []string) string {
-	parts := []string{fmt.Sprintf("🧭 **fyr vet:** `%s` → `%s`", res.Intent, res.Gate)}
+	parts := []string{fmt.Sprintf("🧭 **fyr vet:** `%s` → `%s` (`%d/100`)", res.Intent, res.Gate, res.Score)}
 	if len(res.Skills) > 0 {
 		var names []string
 		for _, s := range res.Skills {
-			names = append(names, fmt.Sprintf("`%s` (%s)", s.Name, s.Path))
+			names = append(names, fmt.Sprintf("`%s`", s.Name))
 		}
 		parts = append(parts, "📚 skills: "+strings.Join(names, ", "))
 	}
@@ -209,11 +220,7 @@ func buildUserMarkdownBanner(res VetResult, extraBanners []string) string {
 		parts = append(parts, "🔒 subagent: `security` required")
 	}
 	if len(res.MatchedRecords) > 0 {
-		var ids []string
-		for _, r := range res.MatchedRecords {
-			ids = append(ids, "`"+r.ID+"`")
-		}
-		parts = append(parts, "🗂️ records: "+strings.Join(ids, ", "))
+		parts = append(parts, fmt.Sprintf("🗂️ %d record(s)", len(res.MatchedRecords)))
 	}
 	if res.Gate == GateVetFirst {
 		if len(res.Conflicts) > 0 {

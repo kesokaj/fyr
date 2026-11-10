@@ -31,7 +31,7 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 	sliceOpts.Session = convID
 	slice := sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
 	if slice.Capsule != "" {
-		banners = append(banners, fmt.Sprintf("🧠 Turn-0 capsule (%d pivots pre-seeded)", slice.Pivots))
+		banners = append(banners, fmt.Sprintf("🧠 %d pivots", slice.Pivots))
 	}
 	if state.EstTokens >= hookKneeTokens {
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))

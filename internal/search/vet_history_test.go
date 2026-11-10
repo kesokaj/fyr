@@ -381,8 +381,29 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	if err := RunHook(Options{Hook: "pre-invocation", Dir: dir, Home: home}, strings.NewReader(inJSON), &out); err != nil {
 		t.Fatalf("RunHook pre-invocation: %v", err)
 	}
-	if !strings.Contains(out.String(), "status_line: 🧭 **fyr**") {
-		t.Errorf("expected status_line in PreInvocation output, got:\n%s", out.String())
+	var hookResp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &hookResp); err != nil || len(hookResp.InjectSteps) == 0 || hookResp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("unmarshal PreInvocationOutput: err=%v out=%s", err, out.String())
+	}
+	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
+	bannerLine, _, _ := strings.Cut(sysMsg, "\n")
+	for _, want := range []string{
+		"status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `",
+		" · Skills: `fyr-bug, golang`",
+		"🧠 5 pivots",
+	} {
+		if !strings.Contains(sysMsg, want) {
+			t.Errorf("expected %q in PreInvocation systemMessage, got:\n%s", want, sysMsg)
+		}
+	}
+	for _, unwanted := range []string{
+		"Stage: **[N/6",
+		"Turn-0 capsule",
+		"(skills/golang/SKILL.md)",
+	} {
+		if strings.Contains(bannerLine, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
+			t.Errorf("unexpected verbose token %q in banner/systemMessage:\n%s", unwanted, sysMsg)
+		}
 	}
 	artifactPath := filepath.Join(brainDir, "fyr-process.md")
 	data, err := os.ReadFile(artifactPath)
