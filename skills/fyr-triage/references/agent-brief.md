@@ -153,5 +153,5 @@ When the operator approves running one or more `ready-for-agent` briefs right aw
 |---|---|
 | **Task** | One-sentence summary + desired behavior + `PRD`/`ADR` constraint |
 | **`Files:`** | Repo-relative files/dirs resolved right before dispatch via `fyr search --slice` |
-| **`Model:`** | `gemini-4-argon` (`[pro]`) or `gemini-3.8-flash` (`[flash]`) per `rules/agy-dispatch.md` |
+| **`Model:`** | Bare model ID resolved via `fyr models --pick builder [--tier pro\|flash]` per `rules/agy-dispatch.md` |
 | **`Done when:`** | Concrete `go test -race <pkg>` command verifying the brief's acceptance criteria |
