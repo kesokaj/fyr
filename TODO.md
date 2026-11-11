@@ -7,18 +7,16 @@
 
 ## Now
 
-Wave 1 (`/fyr-work` Docker waves after Phase 1 bootstrap, `D19`, `D20`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phases 2, 5, 6, 9 in parallel.
+Wave 2 (`/fyr-work` Docker waves after Wave 1 `2, 5, 6, 9` PASS, `D19`, `D22`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phases 3 and 7 in parallel.
 
-- [x] Phase 2 — Autonomy model in context and workflow skills (`context/AGENTS.md`, `skills/fyr-feature/`, `skills/fyr-work/`, `rules/session-sizing.md`, `GUIDE-eval`) (`8910833f`)
-- [ ] Phase 5 — Trigger-coverage KPIs in `fyr report` (`internal/metrics/`, `TDD.md`, `SPEC-fyr-metrics`)
-- [ ] Phase 6 — Read ledger: diagnose and fix `0` blocks saved (`internal/search/`)
-- [ ] Phase 9 — Live model catalog: `fyr models` and evidence-judged routing (`cmd/fyr/`, `internal/work/`, `internal/search/process_artifact*`, `rules/agy-dispatch.md`, `README.md`, `SPEC-fyr-work`, `SPEC-fyr-delivery`)
+- [ ] Phase 3 — Workers by default in the plan template (`skills/fyr-feature/SKILL.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
+- [ ] Phase 7 — Worker latency budget (`cmd/fyr/`, `internal/work/`, `internal/sandbox/`, `internal/metrics/`, `docker/work.Dockerfile`, `SDD.md`, `TDD.md`, `SPEC-fyr-work`)
 
 ## Next
 
-- Wave 2 (Phases 3, 7) — Workers by default in plan template (`→ T2, T13`) and worker latency budget (`→ T10, T17, T18`)
 - Wave 3 (Phase 4) — Always-on feature-routing rule (`rules/fyr-features.md`) + advisory vet routing (`internal/search/vet_route.go`)
 - Phase 8 — Closing range review (`reviewer --code --docs`, `security`, `verifier`), `fyr models --refresh`, `fyr eval`, `dave` install + registration + dream timer, and `fyr report --md`
+- Release (`/fyr-preflight v8.6.0`, `D21`) — Gate, annotated tag, GitHub release assets + checksums, and post-release `dave` reinstall
 
 ## Backlog
 
