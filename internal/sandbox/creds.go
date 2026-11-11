@@ -105,7 +105,7 @@ func scanCreds(dir string) map[string]credFinding {
 		// leads to is not third-party code the walk reaches on its own.
 		link := d.Type()&fs.ModeSymlink != 0
 		read := !underAny(p, locked) && !goBuildCacheEntry(root, p, d) || link && !resolvesUnder(root, p)
-		if f, ok := scanEntry(p, d, read); ok {
+		if f, ok := scanEntry(root, p, d, read); ok {
 			f.outside = f.problem == dirLink && !resolvesUnder(root, p)
 			out[rel] = f
 		}
@@ -186,7 +186,7 @@ func resolvesUnder(root, p string) bool {
 
 // scanEntry reads p's content only when read is set; a name, a link and an
 // unreadable file are checked either way, and a size only matters to a read.
-func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
+func scanEntry(root, p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	link := d.Type()&fs.ModeSymlink != 0
 	st, err := os.Stat(p)
 	if link {
@@ -215,7 +215,14 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 		f.Close()
 		return credFinding{}, false
 	}
-	if st.Size() > maxScan {
+	return scanRegularContent(root, p, d, st.Size())
+}
+
+func scanRegularContent(root, p string, d fs.DirEntry, size int64) (credFinding, bool) {
+	if size > maxScan {
+		if f, handled, ok := scanGoBuildTestLog(root, p, d); handled {
+			return f, ok
+		}
 		return credFinding{problem: fmt.Sprintf("larger than %d bytes, not read", maxScan)}, true
 	}
 	b, err := readBounded(p)

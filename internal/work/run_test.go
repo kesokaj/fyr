@@ -368,10 +368,10 @@ func TestRunModelAndKeep(t *testing.T) {
 }
 
 // TestWorkArgsUnchangedByAuto: Options.Auto is additive. Without it, work's
-// agy argv, its refusal of a bare Files: line and its drafts name rule are
-// unchanged; with it, the agy argv stays the same, a bare Files: line is a
-// drafts-only scope that fails any tree change, and auto-drafts.jsonl is
-// copied.
+// agy CLI flags, its refusal of a bare Files: line and its drafts name rule
+// are unchanged (while non-Auto prompts prepend workerExecutionRule); with it,
+// the agy CLI flags stay the same, a bare Files: line is a drafts-only scope
+// that fails any tree change, and auto-drafts.jsonl is copied.
 func TestWorkArgsUnchangedByAuto(t *testing.T) {
 	r := newRig(t)
 	r.on("draft-names", "auto-drafts.jsonl\nok.md\n")

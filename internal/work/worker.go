@@ -95,7 +95,7 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 	w.tracker.onStart(w.p.k.Name)
 	if w.b.Make() {
 		if w.prepare(ctx) {
-			w.res.AgyExit = w.b.Session(ctx, w.p.agy, w.p.tok, w.p.k.Text, "out.txt")
+			w.res.AgyExit = w.b.Session(ctx, w.p.agy, w.p.tok, w.workerPrompt(), "out.txt")
 			w.ran = w.b.Started()
 			w.b.After()
 		}
@@ -116,6 +116,15 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 	res := w.result()
 	w.tracker.onFinish(w.p.k.Name, res)
 	return res
+}
+
+const workerExecutionRule = "Worker execution rules (`fyr work`): do NOT call `invoke_subagent` (`verifier`, `reviewer`, `security`, `explorer`, `documentation`, `changelog`, `bugs`) — `fyr work` runs `Base-Check` and cross-family `Judge` outside your sandbox, and the lead dispatches range review, security, and verification after waves merge. Run the project's lint, typecheck, and test commands for your scoped files (plus any checkpoint command in your Kickoff) directly, self-review `git diff` yourself, and when writing a `change` record note `self-reviewed in fyr work worker`. If a `run_command` backgrounds, wait with `sleep 20` between `manage_task` checks until it completes before committing.\n\n"
+
+func (w *worker) workerPrompt() string {
+	if w.o.Auto {
+		return w.p.k.Text
+	}
+	return workerExecutionRule + w.p.k.Text
 }
 
 // unstarted is the result of a worker that never got a slot: no sandbox,

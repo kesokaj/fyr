@@ -189,10 +189,13 @@ func (b *Box) dockerAgy(ctx context.Context, prompt, outPath, errPath string, ap
 	stopWatch := b.watchTranscript(ctx)
 	rc := agyExit(b.waitDocker(ctx, cmd, cmd.Process.Pid))
 	stopWatch()
+	_, cerr := os.Stat(cid)
+	if cerr == nil {
+		b.waitContainerExited()
+	}
 	// Check e's container half, now: the unlink and step 12's reads come
 	// after it, never while the container could still run.
 	b.containersLeft()
-	_, cerr := os.Stat(cid)
 	os.Remove(cid) // read once; check e finds the container by its labels
 	if cerr != nil || (rc >= 125 && rc <= 127) {
 		b.Note("docker exit %d: agy did not start in the container (see err.txt)", rc)
@@ -265,6 +268,21 @@ func (b *Box) waitDocker(ctx context.Context, cmd *exec.Cmd, pgid int) error {
 		syscall.Kill(-pgid, syscall.SIGKILL)
 		return <-done
 	}
+}
+
+// waitContainerExited synchronizes with dockerd after the docker run client
+// exits so tmpfs/mount teardown transitions the container state to exited
+// before containersLeft queries docker ps (BUG-539).
+func (b *Box) waitContainerExited() {
+	timeout := min(b.c.StopGrace/2, 5*time.Second)
+	if timeout <= 0 {
+		timeout = time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "wait", b.c.Docker.container())
+	cmd.Env = FyrEnv()
+	_ = cmd.Run()
 }
 
 // docker is one helper call, with the real environment and a deadline of
