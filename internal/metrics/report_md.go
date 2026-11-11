@@ -112,6 +112,7 @@ func reportSections(sum *Summary, series []serie, evals *EvalRows) []reportSecti
 		secondBrainSection(sum, series),
 		qualityLoopSection(sum, series, evals),
 		autonomySection(sum, series),
+		triggerCoverageSection(sum),
 		projectBreakdownSection(sum, series),
 	}
 }

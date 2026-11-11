@@ -100,8 +100,9 @@ type table struct {
 	Rows [][]string
 }
 
-// RenderReport writes the report's HTML for sum, with the per-row view
-// evals under the pass^k chart when it holds a row (nil for none).
+// RenderReport writes the report's HTML for sum (including Trigger coverage and
+// the numbered report sections), with the per-row view evals under the pass^k
+// chart when it holds a row (nil for none).
 func RenderReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
 	series := seriesOf(sum)
 	var charts []chart

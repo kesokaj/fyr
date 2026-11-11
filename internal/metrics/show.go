@@ -69,7 +69,7 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 		}
 	}
 	sum.finish(all, trials, claimed)
-	if err := s.populateSecondBrainAndProjects(sum, o, all, since, now); err != nil {
+	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, since, now); err != nil {
 		return nil, err
 	}
 	return sum, nil

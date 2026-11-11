@@ -107,6 +107,9 @@ func Ingest(s *Store, o Options, log io.Writer) (Result, error) {
 		return r, err
 	}
 	s.ingestAgy(o, &r, log)
+	if o.Source != "" && o.Label != "" && o.Run == "" {
+		ingestDevHome(s, o, &r, log)
+	}
 	// A kit learns its run's outcome after the run (accept.py): the label's
 	// sessions with no outcome yet get this one, though no transcript changed.
 	// An earlier run, stamped after its own acceptance, keeps its outcome.

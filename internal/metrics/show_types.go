@@ -8,18 +8,19 @@ type Summary struct {
 	Window map[string]string `json:"window"`
 	// Columns are the summary's columns: "agy", then "claude" only when the
 	// window holds historical rows.
-	Columns   []string                  `json:"columns"`
-	Sessions  map[string]int            `json:"sessions"`
-	Subagents map[string]map[string]int `json:"subagents"`
-	A         Outcome                   `json:"A"`
-	B         Efficiency                `json:"B"`
-	C         Adherence                 `json:"C"`
-	D         Reliability               `json:"D"`
-	E         SecondBrain               `json:"E"`
-	F         WorkSummary               `json:"F"`
-	Projects  []ProjectRow              `json:"projects,omitempty"`
-	Daily     []Day                     `json:"daily"`
-	Notes     []string                  `json:"notes"`
+	Columns         []string                  `json:"columns"`
+	Sessions        map[string]int            `json:"sessions"`
+	Subagents       map[string]map[string]int `json:"subagents"`
+	A               Outcome                   `json:"A"`
+	B               Efficiency                `json:"B"`
+	C               Adherence                 `json:"C"`
+	D               Reliability               `json:"D"`
+	E               SecondBrain               `json:"E"`
+	F               WorkSummary               `json:"F"`
+	TriggerCoverage TriggerCoverage           `json:"trigger_coverage"`
+	Projects        []ProjectRow              `json:"projects,omitempty"`
+	Daily           []Day                     `json:"daily"`
+	Notes           []string                  `json:"notes"`
 
 	accs map[string]*acc
 	// seen holds the vendor and id of every tool call and message already

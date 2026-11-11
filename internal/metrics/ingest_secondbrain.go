@@ -254,6 +254,10 @@ func (s *Store) upsertTurnVets(rows []turnVetRow) error {
 }
 
 func (s *Store) ingestWorkWaves(home string, log io.Writer) {
+	s.ingestWorkWavesWithLabel(home, "", log)
+}
+
+func (s *Store) ingestWorkWavesWithLabel(home, label string, log io.Writer) {
 	workDir := filepath.Join(home, harness.StateDir, "work")
 	entries, err := os.ReadDir(workDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -264,14 +268,14 @@ func (s *Store) ingestWorkWaves(home string, log io.Writer) {
 		return
 	}
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.Type().IsDir() {
 			continue
 		}
-		s.ingestWaveDir(workDir, e.Name(), log)
+		s.ingestWaveDir(workDir, e.Name(), label, log)
 	}
 }
 
-func (s *Store) ingestWaveDir(workDir, dirName string, log io.Writer) {
+func (s *Store) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
 	statusPath := filepath.Join(workDir, dirName, "status.json")
 	fi, err := os.Lstat(statusPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -281,8 +285,8 @@ func (s *Store) ingestWaveDir(workDir, dirName string, log io.Writer) {
 		noteSecondBrain(log, "%s: %v", statusPath, err)
 		return
 	}
-	if !fi.Mode().IsRegular() {
-		noteSecondBrain(log, "%s: not a regular file", statusPath)
+	if !fi.Mode().IsRegular() || fi.Size() > 4<<20 {
+		noteSecondBrain(log, "%s: not a regular file or exceeds 4 MiB", statusPath)
 		return
 	}
 	data, err := os.ReadFile(statusPath)
@@ -296,7 +300,7 @@ func (s *Store) ingestWaveDir(workDir, dirName string, log io.Writer) {
 		return
 	}
 	updatedAt := parseWaveUpdatedAt(snap.UpdatedAt, fi.ModTime())
-	if err := s.upsertWaveWorkers(dirName, snap, updatedAt); err != nil {
+	if err := s.upsertWaveWorkers(dirName, label, snap, updatedAt); err != nil {
 		noteSecondBrain(log, "%s: %v", statusPath, err)
 	}
 }
@@ -314,7 +318,7 @@ func parseWaveUpdatedAt(raw string, fallback time.Time) int64 {
 	return 0
 }
 
-func (s *Store) upsertWaveWorkers(dirName string, snap waveSnapshot, updatedAt int64) error {
+func (s *Store) upsertWaveWorkers(dirName, label string, snap waveSnapshot, updatedAt int64) error {
 	if len(snap.Workers) == 0 {
 		return nil
 	}
@@ -322,6 +326,7 @@ func (s *Store) upsertWaveWorkers(dirName string, snap waveSnapshot, updatedAt i
 	if stamp == "" {
 		stamp = printable(strings.TrimSpace(dirName))
 	}
+	stamp = encodeWaveStamp(printable(label), stamp)
 	var projRoot string
 	if strings.TrimSpace(snap.ProjectRoot) != "" {
 		projRoot = printable(filepath.Clean(strings.TrimSpace(snap.ProjectRoot)))

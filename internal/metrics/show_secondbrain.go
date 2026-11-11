@@ -19,28 +19,27 @@ type projAcc struct {
 	activeMS, tokens, lastMS                                int64
 }
 
-func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, since, now time.Time) error {
-	if o.Label != "" {
-		return nil
+func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, trials []trial, since, now time.Time) error {
+	if o.Label == "" {
+		sb, vetsByRoot, err := s.querySecondBrain(o, since, now)
+		if err != nil {
+			return err
+		}
+		sum.E = sb
+		if o.Project == "" {
+			projects, err := s.buildProjectRows(all, vetsByRoot)
+			if err != nil {
+				return err
+			}
+			sum.Projects = projects
+		}
 	}
-	sb, vetsByRoot, err := s.querySecondBrain(o, since, now)
-	if err != nil {
-		return err
-	}
-	sum.E = sb
 	ws, err := s.queryWorkWaves(o, since, now)
 	if err != nil {
 		return err
 	}
 	sum.F = ws
-	if o.Project == "" {
-		projects, err := s.buildProjectRows(all, vetsByRoot)
-		if err != nil {
-			return err
-		}
-		sum.Projects = projects
-	}
-	return nil
+	return s.populateTriggerCoverage(sum, o, all, trials, since, now)
 }
 
 func windowAndProjectWhere(tsCol string, o ShowOptions, since, now time.Time) (string, []any) {
@@ -130,6 +129,9 @@ func (s *Store) queryWorkWaves(o ShowOptions, since, now time.Time) (WorkSummary
 		var stamp, state, baseCheck, judgeModel, judgeVerdict string
 		if err := rows.Scan(&stamp, &state, &baseCheck, &judgeModel, &judgeVerdict); err != nil {
 			return WorkSummary{}, err
+		}
+		if !waveMatchesLabel(stamp, o) {
+			continue
 		}
 		if stamp != "" {
 			stamps[stamp] = true
