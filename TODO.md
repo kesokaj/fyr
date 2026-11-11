@@ -9,7 +9,7 @@
 
 Wave 1 (`/fyr-work` Docker waves after Phase 1 bootstrap, `D19`, `D20`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phases 2, 5, 6, 9 in parallel.
 
-- [ ] Phase 2 — Autonomy model in context and workflow skills (`context/AGENTS.md`, `skills/fyr-feature/`, `skills/fyr-work/`, `rules/session-sizing.md`, `GUIDE-eval`)
+- [x] Phase 2 — Autonomy model in context and workflow skills (`context/AGENTS.md`, `skills/fyr-feature/`, `skills/fyr-work/`, `rules/session-sizing.md`, `GUIDE-eval`) (`8910833f`)
 - [ ] Phase 5 — Trigger-coverage KPIs in `fyr report` (`internal/metrics/`, `TDD.md`, `SPEC-fyr-metrics`)
 - [ ] Phase 6 — Read ledger: diagnose and fix `0` blocks saved (`internal/search/`)
 - [ ] Phase 9 — Live model catalog: `fyr models` and evidence-judged routing (`cmd/fyr/`, `internal/work/`, `internal/search/process_artifact*`, `rules/agy-dispatch.md`, `README.md`, `SPEC-fyr-work`, `SPEC-fyr-delivery`)
