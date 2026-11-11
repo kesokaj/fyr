@@ -10,11 +10,34 @@ printf '.agents/scratch/*\n' >.gitignore
 `
 	deploy := "rec deploy --id DEPLOY-local --title 'Deploy — local' <<<'go run ./cmd/server'\n"
 	commit := "git add -A && git commit -qm scaffold\n"
-	plan := func(cold string) string {
-		return "rec plan --title 'GET /version' <<'EOF'\n# PLAN: GET /version\n\n" + cold +
-			"\n- [ ] Phase 1: the version handler, who: AI\n- [ ] Checkpoint\nEOF\n"
+	modelsJSON := "mkdir -p \"$SB/.config/fyr\" && printf '{\"updated_at\":\"2026-11-11T00:00:00Z\"}\\n' >\"$SB/.config/fyr/models.json\"\n"
+	goodFeaturePlanBody := "# Plan — Goodbye and version endpoints (2026-11-11)\n\n" +
+		"- [x] Cold-reader check — one report (REVIEW-2026-11-11-1200-cold), zero gaps\n" +
+		"### Phase 1 — Add Goodbye to greet (after: none)\n" +
+		"files: internal/greet/\n" +
+		"model: gemini-4-carbon-high\n" +
+		"base-check: go test -run '^TestGoodbye$' ./internal/greet\n" +
+		"judge: Goodbye returns goodbye and trimmed name or world when blank\n" +
+		"judge-model: claude-opus-5-5-high\n" +
+		"- [ ] Add Goodbye and table test — verify: unit, go test -race ./internal/greet, who: AI — expect: PASS\n" +
+		"- [ ] Checkpoint — expect: internal/greet green — evidence: pending\n" +
+		"### Phase 2 — Add HTTP handlers (after: Phase 1)\n" +
+		"files: cmd/server/\n" +
+		"model: gemini-4-carbon-high\n" +
+		"base-check: go test -run '^TestServerGoodbyeAndVersion$' ./cmd/server\n" +
+		"judge: GET /goodbye and GET /version answer expected strings\n" +
+		"judge-model: claude-opus-5-5-high\n" +
+		"- [ ] Wire GET /goodbye and GET /version — verify: unit, go test -race ./cmd/server, who: AI — expect: PASS\n" +
+		"- [ ] Checkpoint — expect: cmd/server green — evidence: pending\n\n" +
+		"## Decisions\n" +
+		"D1 — 2026-11-11 — workers: yes, waves W1: 1 · W2: 2 — by: planner\n"
+	planWithTitle := func(title, b string) string {
+		return "rec plan --title '" + title + "' <<'EOF'\n" + b + "EOF\n"
 	}
-	skipped := "- [-] Cold-reader check — skipped: one phase, under 5 files"
+	plan := func(b string) string {
+		return planWithTitle("Plan — Goodbye and version endpoints (2026-11-11)", b)
+	}
+	goodFeature := modelsJSON + plan(goodFeaturePlanBody)
 	body := func(kind, text string) string { return "rec " + kind + " --title t <<<'" + text + "'\n" }
 	editPlan := "printf '# PLAN\\n\\n- [x] A tab-only name greets the world: TestHelloTab\\n- [x] Checkpoint\\n- [ ] Document padding behaviour in README.md\\n- [ ] Checkpoint\\n' | \"$F\" record edit PLAN-2026-11-02-greet-tab --body\n"
 	storeRecs := "for f in .agents/scratch/work/2026-11-02-1200/greet-tab-p1/records/*.md; do id=$(basename \"$f\" .md); rec \"$(printf '%s' \"${id%%-*}\" | tr A-Z a-z)\" --id \"$id\" --title-file \"${f%.md}.title\" <\"$f\"; done\n"
@@ -38,11 +61,22 @@ printf '.agents/scratch/*\n' >.gitignore
 			{"no TDD.md", false, scaffold + "rm TDD.md\n" + deploy + commit},
 		},
 		"feature": {
-			{"plan stored, cold read closed", true, plan(skipped)},
-			{"no plan", false, ""},
-			{"cold read still open", false, plan("- [ ] Cold-reader check")},
-			{"code written", false, plan(skipped) + "echo 'package main' >cmd/server/version.go\n"},
-			{"code edited", false, plan(skipped) + "echo '// v' >>cmd/server/main.go\n"},
+			{"two-phase worker plan stored, models.json written, cold read closed", true, goodFeature},
+			{"no plan", false, modelsJSON},
+			{"missing goodbye scope", false, modelsJSON + planWithTitle("Plan — Farewell and version endpoints (2026-11-11)", strings.ReplaceAll(strings.ReplaceAll(goodFeaturePlanBody, "Goodbye", "Farewell"), "goodbye", "farewell"))},
+			{"missing version scope", false, modelsJSON + planWithTitle("Plan — Goodbye and health endpoints (2026-11-11)", strings.ReplaceAll(strings.ReplaceAll(goodFeaturePlanBody, "Version", "Health"), "version", "health"))},
+			{"cold read still open", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "- [x] Cold-reader check", "- [ ] Cold-reader check", 1))},
+			{"cold read skipped on multi-phase", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "- [x] Cold-reader check", "- [-] Cold-reader check", 1))},
+			{"files: on only one phase", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "files: cmd/server/\n", "", 1))},
+			{"backticked model: line", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "model: gemini-4-carbon-high", "model: `gemini-4-carbon-high`", 1))},
+			{"missing base-check:", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "base-check: go test -run '^TestGoodbye$' ./internal/greet\n", "", 1))},
+			{"missing judge:", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "judge: Goodbye returns goodbye and trimmed name or world when blank\n", "", 1))},
+			{"missing judge-model:", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "judge-model: claude-opus-5-5-high\n", "", 1))},
+			{"workers: no instead of yes", false, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "workers: yes, waves W1: 1 · W2: 2", "workers: no, small scope", 1))},
+			{"fyr models not run", false, plan(goodFeaturePlanBody)},
+			{"code written", false, goodFeature + "echo 'package main' >cmd/server/version.go\n"},
+			{"code edited", false, goodFeature + "echo '// v' >>cmd/server/main.go\n"},
+			{"started fyr work", false, goodFeature + "git branch work/p1\n"},
 		},
 		"review": {
 			{"finds the unused function", true, body("review", "shout is unused: delete it")},

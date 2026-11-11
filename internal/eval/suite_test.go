@@ -194,7 +194,7 @@ func TestSuiteHarness(t *testing.T) {
 		wide  bool
 	}
 	want := map[string]pin{
-		"init-project": {"", true}, "feature": {"", false}, "feature-empty": {"", true}, "feature-recon": {"explorer", true}, "review": {"", true},
+		"init-project": {"", true}, "feature": {"", true}, "feature-empty": {"", true}, "feature-recon": {"explorer", true}, "review": {"", true},
 		"reviewer": {"reviewer", false}, "documentation": {"documentation", false},
 		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true}, "reviewer-cold": {"reviewer", false},
 		"security": {"security", true}, "verifier": {"verifier", true},
