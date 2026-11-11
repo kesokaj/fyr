@@ -1,7 +1,7 @@
 # PRD — fyr
 
 What `fyr` and the harness are for, who they serve, and what must never drift.
-Status: current · Owner: the operator · Last updated: 2026-11-10 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Owner: the operator · Last updated: 2026-11-11 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
@@ -111,7 +111,7 @@ None.
 - **Antigravity global rules path.** The CLI's customization root is `~/.gemini/config/`; rules there are documented for the workspace form (`.agents/rules/*.md`) and by analogy for the global one. Verified on the Linux box 2026-09-03 (`TEST-2026-09-03-verify-real-home` (`fyr record get`)): the CLI reads rules, skills, and agents from there. Confirmed on the Mac for Antigravity on 2026-09-04 (`TEST-2026-09-04-verify-mac-real-home`).
 - **Antigravity tool names cannot be enumerated.** An unrecognised name in an agent's `tools:` hangs the subagent, so `fyr install` fails on any tool name it does not know rather than guessing.
 - **Antigravity IDE is out of scope.** Only the `agy` CLI is targeted; the IDE's global paths are unverified.
-- **`fyr work` on macOS and `--runner auto` host fallback.** On macOS, safety check e (`leftoverProcs`, `internal/sandbox/procs_darwin.go`) scans the operator's processes with `/usr/sbin/lsof` (`cwd`, `txt`) and `/bin/ps -Eww` (`HOME=<SB>` environment and command line) alongside the final process-group kill (`fyr eval` and `fyr work`, ADR-076, ADR-510), rather than Linux `/proc`. With `--runner docker` the session's processes live in Colima's VM and check e also lists the worker's container by its labels and fails the worker on one left running (ADR-079). Under the default `--runner auto`, a machine whose docker is not ready runs its workers on the host without container isolation; the stamp line names the host and why, and `/fyr-work` — both on a task list and on `/fyr-work PLAN-ID` — runs `fyr work --check`, passes `--runner`, and waits for the operator's go before a run that falls back to the host (ADR-504, ADR-507, ADR-510).
+- **`fyr work` on macOS and `--runner auto` host fallback.** On macOS, safety check e (`leftoverProcs`, `internal/sandbox/procs_darwin.go`) scans the operator's processes with `/usr/sbin/lsof` (`cwd`, `txt`) and `/bin/ps -Eww` (`HOME=<SB>` environment and command line) alongside the final process-group kill (`fyr eval` and `fyr work`, ADR-076, ADR-510), rather than Linux `/proc`. With `--runner docker` the session's processes live in Colima's VM and check e also lists the worker's container by its labels and fails the worker on one left running (ADR-079). Under the default `--runner auto`, a machine whose docker is not ready runs its workers on the host without container isolation; the stamp line names the host and why, and `/fyr-work` — both on a task list and on `/fyr-work PLAN-ID` — runs `fyr work --check`, passes `--runner`, and settles host fallback in the pre-build interview or task-list go (quoting the `--check` reason in the closing handoff when pre-approved, and deferring unapproved host runs to the closing handoff rather than stopping mid-build, ADR-504, ADR-517 superseding the mid-build wait-points of ADR-507 and ADR-510).
 - **Antigravity has no compaction window a file can set.** A session compacts when the CLI decides; the session-sizing rule (`rules/session-sizing.md`, ADR-058) is the only mechanism that ends a session at its checkpoint.
 
 ## Open questions
