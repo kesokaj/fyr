@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 )
 
 // recordsSub is the directory under .agents/scratch/work/<stamp>/<name>/
@@ -23,17 +24,52 @@ var recordTail = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 const maxRecords = 50
 
 // recordPrefix is each delivered kind's ID prefix.
-var recordPrefix = map[string]string{"handoff": "HANDOFF-", "change": "CHANGE-"}
+var recordPrefix = map[string]string{
+	"plan":     "PLAN-",
+	"review":   "REVIEW-",
+	"testing":  "TEST-",
+	"change":   "CHANGE-",
+	"handoff":  "HANDOFF-",
+	"bug":      "BUG-",
+	"adr":      "ADR-",
+	"retro":    "RETRO-",
+	"learning": "LEARNING-",
+	"spec":     "SPEC-",
+	"deploy":   "DEPLOY-",
+	"guide":    "GUIDE-",
+}
+
+var (
+	modifiedRecordsMu sync.Mutex
+	modifiedRecords   = map[*worker][]Record{}
+)
+
+func (w *worker) setModifiedRecords(recs []Record) {
+	modifiedRecordsMu.Lock()
+	if len(recs) == 0 {
+		delete(modifiedRecords, w)
+	} else {
+		modifiedRecords[w] = recs
+	}
+	modifiedRecordsMu.Unlock()
+}
+
+func (w *worker) takeModifiedRecords() []Record {
+	modifiedRecordsMu.Lock()
+	recs := modifiedRecords[w]
+	delete(modifiedRecords, w)
+	modifiedRecordsMu.Unlock()
+	return recs
+}
 
 // deliver is step 8's second half (BUG-500, ADR-501): the handoff and change
-// records the worker added, which live only in its sandbox's brain.db or on
-// its branch, written into the lead's scratch beside the drafts, one
-// <ID>.title and one <ID>.md each, for the lead to store with `fyr record
-// add <kind> --id <ID> --title-file <ID>.title --body-file <ID>.md`. The verb writes
-// no store. An auto worker gets none: fyr auto reads its result and removes
-// its drafts directory. False means a copy that could not be made: the
-// sandbox is kept.
+// records the worker added, plus any existing trail records named in Files:
+// that the worker modified (written with <ID>.kind, <ID>.title and <ID>.md),
+// placed in the lead's scratch beside the drafts for the lead to store or edit.
+// The verb writes no store. An auto worker gets none. False means a copy that
+// could not be made: the sandbox is kept.
 func (w *worker) deliver() bool {
+	modified := w.takeModifiedRecords()
 	if w.o.Auto {
 		return true
 	}
@@ -42,6 +78,11 @@ func (w *worker) deliver() bool {
 		recs = append(recs, *w.res.Handoff)
 	}
 	recs = append(recs, w.res.Changes...)
+	modSet := make(map[string]bool, len(modified))
+	for _, r := range modified {
+		modSet[r.ID] = true
+		recs = append(recs, r)
+	}
 	if len(recs) == 0 {
 		return true
 	}
@@ -49,7 +90,7 @@ func (w *worker) deliver() bool {
 	if len(over) > 0 {
 		w.b.Note("records not copied (over %d): %s", maxRecords, named(over))
 	}
-	n, refused, err := writeRecords(w.leadDir, recs)
+	n, refused, err := writeRecordsWithKind(w.leadDir, recs, modSet)
 	if len(refused) > 0 {
 		w.b.Note("records not copied (an ID not its kind's grammar): %s", named(refused))
 	}
@@ -97,6 +138,7 @@ func (w *worker) leadDir() (*os.Root, error) {
 
 // closeLeadDir closes what leadDir opened.
 func (w *worker) closeLeadDir() {
+	_ = w.takeModifiedRecords()
 	if w.dest != nil {
 		w.dest.Close()
 		w.dest = nil
@@ -107,6 +149,10 @@ func (w *worker) closeLeadDir() {
 // dir's records/, which it makes and which must not exist yet, and returns
 // how many it wrote and the refused IDs, quoted: they are the worker's text.
 func writeRecords(dir func() (*os.Root, error), recs []Record) (int, []string, error) {
+	return writeRecordsWithKind(dir, recs, nil)
+}
+
+func writeRecordsWithKind(dir func() (*os.Root, error), recs []Record, withKind map[string]bool) (int, []string, error) {
 	var refused []string
 	var dest *os.Root
 	n := 0
@@ -122,6 +168,11 @@ func writeRecords(dir func() (*os.Root, error), recs []Record) (int, []string, e
 				return n, refused, err
 			}
 			defer dest.Close()
+		}
+		if withKind[r.ID] {
+			if err := writeDraft(dest, r.ID+".kind", []byte(r.Kind+"\n")); err != nil {
+				return n, refused, err
+			}
 		}
 		if err := writeDraft(dest, r.ID+".title", []byte(r.Title+"\n")); err != nil {
 			return n, refused, err

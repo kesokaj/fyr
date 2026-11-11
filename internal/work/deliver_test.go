@@ -147,3 +147,32 @@ func TestCapRecords(t *testing.T) {
 		t.Errorf("under the cap: kept %d, over %q", len(kept), over)
 	}
 }
+
+func TestModifiedInScopeRecordsReachTheLead(t *testing.T) {
+	root := t.TempDir()
+	mod := Record{ID: "SPEC-fyr-work", Kind: "spec", Title: "fyr work spec", Body: "# SPEC-fyr-work\nUpdated body.\n"}
+	added := Record{ID: "CHANGE-2026-11-11-1200-p9", Kind: "change", Title: "Phase 9", Body: "Added catalog.\n"}
+	recs := []Record{added, mod}
+	n, refused, err := writeRecordsWithKind(
+		func() (*os.Root, error) { return draftsDest(root, "s", "p9") },
+		recs,
+		map[string]bool{"SPEC-fyr-work": true},
+	)
+	if err != nil || n != 2 || len(refused) != 0 {
+		t.Fatalf("writeRecordsWithKind: n=%d refused=%v err=%v", n, refused, err)
+	}
+	dir := filepath.Join(root, ".agents", "scratch", "work", "s", "p9", "records")
+	for file, want := range map[string]string{
+		"SPEC-fyr-work.kind":  "spec\n",
+		"SPEC-fyr-work.title": "fyr work spec\n",
+		"SPEC-fyr-work.md":    "# SPEC-fyr-work\nUpdated body.\n",
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil || string(got) != want {
+			t.Errorf("%s: got %q (%v), want %q", file, got, err, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "CHANGE-2026-11-11-1200-p9.kind")); !os.IsNotExist(err) {
+		t.Errorf("unexpected .kind file on added change record: %v", err)
+	}
+}

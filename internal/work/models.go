@@ -6,11 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/sandbox"
+)
+
+var (
+	ansiCSIRe  = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]`)
+	twoSpaceRe = regexp.MustCompile(`  +`)
 )
 
 // modelsTimeout bounds the agy models call (D125), a variable so a test
@@ -68,9 +74,21 @@ func checkModels(ctx context.Context, o Options, ks []Kickoff) error {
 // listModels runs `agy models` in / with the verb's environment, stdin from
 // the null device, in its own process group, which the deadline or the
 // run's end kills, and which is killed after the call too, so no helper it
-// left runs on (D125); the IDs are each stdout line's text before its
-// first tab.
+// left runs on (D125); the IDs are parsed by ParseModelsOutput.
 func listModels(run context.Context, agy string) ([]string, error) {
+	raw, err := runAgyModels(run, agy)
+	if err != nil {
+		return nil, err
+	}
+	entries := ParseModelsOutput(raw)
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.ID)
+	}
+	return ids, nil
+}
+
+func runAgyModels(run context.Context, agy string) (string, error) {
 	ctx, cancel := context.WithTimeout(run, modelsTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, agy, "models")
@@ -97,15 +115,9 @@ func listModels(run context.Context, agy string) ([]string, error) {
 		if l := lastLine(stderr.String()); l != "" {
 			err = fmt.Errorf("%v: %s", err, l)
 		}
-		return nil, err
+		return "", err
 	}
-	var ids []string
-	for _, l := range strings.Split(stdout.String(), "\n") {
-		if id, _, ok := strings.Cut(l, "\t"); ok && strings.TrimSpace(id) != "" {
-			ids = append(ids, strings.TrimSpace(id))
-		}
-	}
-	return ids, nil
+	return stdout.String(), nil
 }
 
 // rootEnv is the verb's environment with PWD saying /: an explicit Env
@@ -154,4 +166,87 @@ func lastLine(s string) string {
 		l = l[i+1:]
 	}
 	return strings.TrimSpace(l)
+}
+
+// ParseModelsOutput strips ANSI CSI/OSC sequences and \r spinner frames from
+// `agy models` stdout and parses `<id>\t<display>` or `<id>  +<display>` rows.
+func ParseModelsOutput(raw string) []CatalogEntry {
+	clean := ansiCSIRe.ReplaceAllString(strings.ReplaceAll(raw, "\r\n", "\n"), "")
+	seen := map[string]bool{}
+	var out []CatalogEntry
+	for _, line := range strings.Split(clean, "\n") {
+		if i := strings.LastIndexByte(line, '\r'); i >= 0 {
+			line = line[i+1:]
+		}
+		line = strings.TrimSpace(line)
+		id, disp, ok := splitModelLine(line)
+		if !ok || seen[id] {
+			continue
+		}
+		seen[id] = true
+		fam, tier, eff := ClassifyModel(id, disp)
+		out = append(out, CatalogEntry{
+			ID:          id,
+			DisplayName: disp,
+			Family:      fam,
+			Tier:        tier,
+			Effort:      eff,
+		})
+	}
+	return out
+}
+
+func splitModelLine(line string) (string, string, bool) {
+	var id, disp string
+	if left, right, ok := strings.Cut(line, "\t"); ok {
+		id, disp = strings.TrimSpace(left), strings.TrimSpace(right)
+	} else if loc := twoSpaceRe.FindStringIndex(line); loc != nil {
+		id, disp = strings.TrimSpace(line[:loc[0]]), strings.TrimSpace(line[loc[1]:])
+	} else {
+		return "", "", false
+	}
+	if !modelRe.MatchString(id) || isHeaderRow(id, disp) {
+		return "", "", false
+	}
+	return id, disp, true
+}
+
+func isHeaderRow(id, disp string) bool {
+	lowID := strings.ToLower(id)
+	lowDisp := strings.ToLower(disp)
+	if (lowID == "id" || lowID == "model" || lowID == "name") &&
+		(strings.Contains(lowDisp, "name") || strings.Contains(lowDisp, "display") || strings.HasPrefix(lowDisp, "---")) {
+		return true
+	}
+	return strings.Trim(id, "-") == ""
+}
+
+// ClassifyModel derives family ("gemini"|"anthropic"|"other"), tier ("pro"|"flash"),
+// and effort ("low"|"medium"|"high"|"") from a model ID and display name.
+func ClassifyModel(id, displayName string) (family, tier, effort string) {
+	low := strings.ToLower(strings.TrimSpace(id))
+	switch {
+	case strings.HasPrefix(low, "gemini-"):
+		family = "gemini"
+	case strings.HasPrefix(low, "claude-"):
+		family = "anthropic"
+	default:
+		family = "other"
+	}
+	switch {
+	case strings.HasSuffix(low, "-high"):
+		effort = "high"
+	case strings.HasSuffix(low, "-medium"):
+		effort = "medium"
+	case strings.HasSuffix(low, "-low"):
+		effort = "low"
+	}
+	lowAll := low + " " + strings.ToLower(displayName)
+	if strings.Contains(lowAll, "flash") || strings.Contains(lowAll, "sonnet") ||
+		strings.Contains(lowAll, "haiku") || strings.Contains(lowAll, "-lite") || strings.Contains(lowAll, "-mini") {
+		tier = "flash"
+	} else {
+		tier = "pro"
+	}
+	return family, tier, effort
 }

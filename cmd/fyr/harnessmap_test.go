@@ -45,4 +45,7 @@ func TestHarnessMap(t *testing.T) {
 	if seen["report"] || strings.Contains(block, "styrman-harness-feedback") {
 		t.Error("the map still draws the report path back to the feedback repository")
 	}
+	if seen["models"] {
+		t.Error("the map shows fyr models, which is a local-only catalog verb (ADR-519)")
+	}
 }

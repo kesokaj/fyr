@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"os"
 	"os/exec"
 	"regexp"
-	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -33,7 +35,10 @@ type Pool struct {
 	Five, Week int
 }
 
-var percentRe = regexp.MustCompile(`^[0-9]{1,3}%$`)
+var (
+	percentRe  = regexp.MustCompile(`^[0-9]{1,3}%$`)
+	numTokenRe = regexp.MustCompile(`\d+`)
+)
 
 var (
 	usageProbeFunc = RunUsage
@@ -144,61 +149,109 @@ func RunUsage(run context.Context, agy string) (string, error) {
 	return stdout.String(), nil
 }
 
-// ResolveRoleModel resolves cross-family models by role and tier:
-//   - "builder" / "worker": Gemini ("gemini-4-argon" for [pro], "gemini-3.8-flash" for [flash])
-//   - "judge" / "verifier" / "reviewer": Anthropic ("claude-opus-5-5" for [pro]/[opus],
-//     "claude-sonnet-4-6" for [flash]/[sonnet]), automatically falling back to the
-//     equivalent-tier Gemini model when Anthropic pool quota in `agy -p "/usage"` is
-//     < 20% weekly or < 30% 5-hour remaining, or when unavailable in `agy models`.
+// ResolveRoleModel resolves cross-family models dynamically from listed agy models
+// without hardcoding model IDs:
+//   - "builder" / "worker": active Gemini (preferring Carbon, then newest in tier)
+//   - "mechanical": active Gemini Flash
+//   - "judge" / "verifier" / "reviewer": active Anthropic (Opus for pro, Sonnet for flash),
+//     falling back to the equivalent-tier listed Gemini model when no Anthropic model is
+//     listed or when Anthropic pool quota in `agy -p "/usage"` is < 20% weekly or < 30% 5h.
 func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel string) (string, string, error) {
 	if exp := strings.TrimSpace(explicitModel); exp != "" {
 		return exp, "explicit model " + exp, nil
 	}
-	normRole := strings.ToLower(strings.TrimSpace(role))
-	normTier := strings.ToLower(strings.Trim(strings.TrimSpace(tier), "[]"))
-	geminiModel, anthropicModel := tierModels(normTier)
-	if normRole == "" || normRole == "builder" || normRole == "worker" {
-		if normRole == "" {
-			normRole = "builder"
+	if strings.TrimSpace(agyPath) == "" {
+		return "", "", errors.New("resolve role model: agy path required")
+	}
+	ids, err := listModelsFunc(ctx, agyPath)
+	if err != nil {
+		return "", "", fmt.Errorf("agy models: %w", err)
+	}
+	if len(ids) == 0 {
+		return "", "", errors.New("agy models listed no model")
+	}
+	cachedEv := map[string]ModelEvidence{}
+	if home := os.Getenv("HOME"); home != "" {
+		if cat, ok, err := LoadCatalog(home); err == nil && ok {
+			for _, e := range cat.Entries {
+				cachedEv[e.ID] = e.Evidence
+			}
 		}
-		return geminiModel, fmt.Sprintf("role=%s -> Gemini (%s)", normRole, geminiModel), nil
 	}
-	if agyPath == "" {
-		return anthropicModel, fmt.Sprintf("role=%s -> Anthropic (%s)", normRole, anthropicModel), nil
+	entries := make([]CatalogEntry, 0, len(ids))
+	for _, id := range ids {
+		fam, tr, eff := ClassifyModel(id, "")
+		entries = append(entries, CatalogEntry{
+			ID:       id,
+			Family:   fam,
+			Tier:     tr,
+			Effort:   eff,
+			Status:   "active",
+			Evidence: cachedEv[id],
+		})
 	}
-	return resolveAnthropicOrFallback(ctx, agyPath, normRole, anthropicModel, geminiModel)
+	pick, err := PickRoleFromCatalog(ctx, Catalog{Entries: entries}, agyPath, role, tier)
+	if err != nil {
+		return "", "", err
+	}
+	return pick.Model, pick.Reason, nil
 }
 
-func tierModels(normTier string) (geminiModel, anthropicModel string) {
-	switch normTier {
-	case "flash", "sonnet":
-		return "gemini-3.8-flash", "claude-sonnet-4-6"
-	default:
-		return "gemini-4-argon", "claude-opus-5-5"
+// PickRoleFromCatalog selects an active model from cat for role+tier, probing
+// live Anthropic quota via agyPath when choosing an Anthropic judge/reviewer/verifier.
+func PickRoleFromCatalog(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, error) {
+	normRole, normTier, err := NormalizeRoleTier(role, tier)
+	if err != nil {
+		return RolePick{}, err
 	}
+	pick, err := pickFromEntries(cat.Entries, cat.Picks, normRole, normTier)
+	if err != nil {
+		return RolePick{}, err
+	}
+	if (normRole != "judge" && normRole != "reviewer" && normRole != "verifier") || agyPath == "" {
+		return pick, nil
+	}
+	if !strings.HasPrefix(strings.ToLower(pick.Model), "claude-") {
+		return pick, nil
+	}
+	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
+	gem, _, _ := pickGeminiOrAny(active, nil, "", "builder", normTier)
+	model, reason, fb := probeAnthropicQuota(ctx, agyPath, normRole, pick.Model, gem.ID)
+	if fb == "" {
+		fb = pick.FallbackReason
+	}
+	return RolePick{
+		Role:           normRole,
+		Tier:           normTier,
+		Model:          model,
+		Reason:         reason,
+		FallbackReason: fb,
+	}, nil
 }
 
-func resolveAnthropicOrFallback(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, error) {
-	if ids, err := listModelsFunc(ctx, agyPath); err == nil && len(ids) > 0 && !slices.Contains(ids, anthropicModel) {
-		return geminiFallback, fmt.Sprintf("role=%s fallback to Gemini (%s): %s not in agy models", role, geminiFallback, anthropicModel), nil
-	}
+func probeAnthropicQuota(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, string) {
 	uText, err := usageProbeFunc(ctx, agyPath)
 	if err != nil {
-		return geminiFallback, fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error())), nil
+		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error()))
+		return geminiFallback, fb, fb
 	}
 	pools, err := ParseUsage(uText)
 	if err != nil {
-		return geminiFallback, fmt.Sprintf("role=%s fallback to Gemini (%s): /usage parse error (%s)", role, geminiFallback, shortQuote(err.Error())), nil
+		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage parse error (%s)", role, geminiFallback, shortQuote(err.Error()))
+		return geminiFallback, fb, fb
 	}
 	pool, ok := findAnthropicPool(pools)
 	if !ok {
-		return geminiFallback, fmt.Sprintf("role=%s fallback to Gemini (%s): no Anthropic/Claude pool in /usage", role, geminiFallback), nil
+		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): no Anthropic/Claude pool in /usage", role, geminiFallback)
+		return geminiFallback, fb, fb
 	}
 	if pool.Week < AnthropicJudgeFloorWeek || pool.Five < AnthropicJudgeFloorFive {
-		return geminiFallback, fmt.Sprintf("role=%s fallback to Gemini (%s): %s quota low (5h=%s, week=%s; floor %d%%/%d%%)",
-			role, geminiFallback, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week), AnthropicJudgeFloorFive, AnthropicJudgeFloorWeek), nil
+		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): %s quota low (5h=%s, week=%s; floor %d%%/%d%%)",
+			role, geminiFallback, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week), AnthropicJudgeFloorFive, AnthropicJudgeFloorWeek)
+		return geminiFallback, fb, fb
 	}
-	return anthropicModel, fmt.Sprintf("role=%s -> Anthropic (%s; %s 5h=%s, week=%s)", role, anthropicModel, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week)), nil
+	note := fmt.Sprintf("role=%s -> Anthropic (%s; %s 5h=%s, week=%s)", role, anthropicModel, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week))
+	return anthropicModel, note, ""
 }
 
 func findAnthropicPool(pools []Pool) (Pool, bool) {
@@ -216,4 +269,114 @@ func formatPoolPct(n int) string {
 		return "disabled"
 	}
 	return strconv.Itoa(n) + "%"
+}
+
+func isCarbon(id string) bool {
+	return strings.Contains(strings.ToLower(id), "carbon")
+}
+
+func filterEntries(in []CatalogEntry, keep func(CatalogEntry) bool) []CatalogEntry {
+	var out []CatalogEntry
+	for _, e := range in {
+		if keep(e) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func rankBucket(candidates []CatalogEntry, role, tier string) CatalogEntry {
+	cp := append([]CatalogEntry(nil), candidates...)
+	sort.SliceStable(cp, func(i, j int) bool {
+		return betterCandidate(cp[i], cp[j], role, tier)
+	})
+	return cp[0]
+}
+
+func betterCandidate(a, b CatalogEntry, role, tier string) bool {
+	runsA := a.Evidence.WorkRuns + a.Evidence.EvalRuns
+	runsB := b.Evidence.WorkRuns + b.Evidence.EvalRuns
+	evA, evB := runsA >= 5, runsB >= 5
+	if evA && evB {
+		rateA := float64(a.Evidence.WorkPass+a.Evidence.EvalPass) / float64(runsA)
+		rateB := float64(b.Evidence.WorkPass+b.Evidence.EvalPass) / float64(runsB)
+		if math.Abs(rateA-rateB) > 1e-9 {
+			return rateA > rateB
+		}
+		if a.Evidence.WorkMeanSeconds > 0 && b.Evidence.WorkMeanSeconds > 0 &&
+			math.Abs(a.Evidence.WorkMeanSeconds-b.Evidence.WorkMeanSeconds) > 1e-9 {
+			return a.Evidence.WorkMeanSeconds < b.Evidence.WorkMeanSeconds
+		}
+	} else if evA != evB {
+		if evA {
+			return float64(a.Evidence.WorkPass+a.Evidence.EvalPass)/float64(runsA) >= 0.5
+		}
+		return float64(b.Evidence.WorkPass+b.Evidence.EvalPass)/float64(runsB) < 0.5
+	}
+	if cmp := compareModelVersions(a.ID, b.ID); cmp != 0 {
+		return cmp > 0
+	}
+	if ea, eb := effortRank(a, role, tier), effortRank(b, role, tier); ea != eb {
+		return ea > eb
+	}
+	return a.ID < b.ID
+}
+
+func compareModelVersions(idA, idB string) int {
+	va, vb := parseVersionNums(idA), parseVersionNums(idB)
+	n := max(len(va), len(vb))
+	for i := 0; i < n; i++ {
+		var xa, xb int
+		if i < len(va) {
+			xa = va[i]
+		}
+		if i < len(vb) {
+			xb = vb[i]
+		}
+		if xa != xb {
+			if xa > xb {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func parseVersionNums(id string) []int {
+	raw := numTokenRe.FindAllString(id, -1)
+	nums := make([]int, 0, len(raw))
+	for _, s := range raw {
+		if n, err := strconv.Atoi(s); err == nil {
+			nums = append(nums, n)
+		}
+	}
+	return nums
+}
+
+func effortRank(e CatalogEntry, role, tier string) int {
+	if role == "builder" && tier == "flash" && isCarbon(e.ID) {
+		switch e.Effort {
+		case "medium":
+			return 4
+		case "low":
+			return 3
+		case "high":
+			return 2
+		default:
+			return 1
+		}
+	}
+	switch e.Effort {
+	case "high":
+		return 4
+	case "":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
 }

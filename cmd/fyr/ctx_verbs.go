@@ -49,6 +49,8 @@ type ctx struct {
 	workAgyLinux                                                                                   string
 	workStatusMD                                                                                   string
 	autoLevel, autoProjectIdle, autoUserIdle                                                       string
+	modelsPick, modelsTier                                                                         string
+	modelsRefresh                                                                                  bool
 	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
 	repoMap, register                                                                              bool

@@ -108,7 +108,7 @@ func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, 
 		defer st.close()
 		rows, _ = st.listConversationVetHistory(in.ConversationID, 20)
 	}
-	content := RenderProcessArtifact(in.ConversationID, stage, rows, records)
+	content := RenderProcessArtifactForHome(home, in.ConversationID, stage, rows, records)
 	if waveMD := readLatestWorkWaveMarkdown(home); waveMD != "" {
 		content += "\n" + waveMD
 	}
@@ -260,11 +260,17 @@ func writeProcessArtifactAtomic(target string, data []byte) error {
 // Markdown artifact showing the 6-stage fyr pipeline, active trail/model routing,
 // and chronological turn-by-turn vet_history + [VET_IMPROVED_PROMPT] synthesis.
 func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
+	return RenderProcessArtifactForHome("", convID, stage, rows, records)
+}
+
+// RenderProcessArtifactForHome formats fyr-process.md using cached <home>/.config/fyr/models.json
+// picks when present (< 1 ms, never spawning agy) and role-family policy otherwise.
+func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	var sb strings.Builder
 	sb.WriteString("# 🧭 `fyr` Live Process & Turn Telemetry\n\n")
 	fmt.Fprintf(&sb, "- **Conversation:** `%s`\n", convID)
 	fmt.Fprintf(&sb, "- **Active Stage:** **%s**\n", stage)
-	sb.WriteString("- **Cross-Family Model Routing:** Builder `gemini-4-argon` / `gemini-3.8-flash` · Judge / Verifier / Reviewer `claude-opus-5-5` / `claude-sonnet-4-6` (auto-fallback to Gemini when Anthropic quota `< 20%` weekly or `< 30%` 5-hour)\n")
+	sb.WriteString(formatModelRoutingLine(home))
 	if len(records) > 0 {
 		var ids []string
 		for _, r := range records {
@@ -298,4 +304,49 @@ func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records [
 		}
 	}
 	return sb.String()
+}
+
+func formatModelRoutingLine(home string) string {
+	const policy = "- **Cross-Family Model Routing:** Builder → Gemini (Carbon/pro, Flash) · Judge / Verifier / Reviewer → Anthropic (Opus/pro, Sonnet/flash; auto-fallback to Gemini when Anthropic quota `< 20%` weekly or `< 30%` 5-hour)\n"
+	if home == "" {
+		return policy
+	}
+	p := filepath.Join(home, harness.StateDir, "models.json")
+	st, err := os.Lstat(p)
+	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 1<<20 {
+		return policy
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return policy
+	}
+	var cached struct {
+		Picks map[string]struct {
+			Model          string `json:"model"`
+			FallbackReason string `json:"fallback_reason"`
+		} `json:"picks"`
+	}
+	if json.Unmarshal(data, &cached) != nil || len(cached.Picks) == 0 {
+		return policy
+	}
+	bPro := sanitizeMDCell(cached.Picks["builder:pro"].Model)
+	bFlash := sanitizeMDCell(cached.Picks["builder:flash"].Model)
+	jPro := sanitizeMDCell(cached.Picks["judge:pro"].Model)
+	jFlash := sanitizeMDCell(cached.Picks["judge:flash"].Model)
+	if bPro == "" || jPro == "" {
+		return policy
+	}
+	bPart := "`" + bPro + "`"
+	if bFlash != "" && bFlash != bPro {
+		bPart += " / `" + bFlash + "`"
+	}
+	jPart := "`" + jPro + "`"
+	if jFlash != "" && jFlash != jPro {
+		jPart += " / `" + jFlash + "`"
+	}
+	suffix := "auto-fallback to Gemini when Anthropic quota `< 20%` weekly or `< 30%` 5-hour"
+	if fb := sanitizeMDCell(cached.Picks["judge:pro"].FallbackReason); fb != "" {
+		suffix = fb
+	}
+	return fmt.Sprintf("- **Cross-Family Model Routing:** Builder %s · Judge / Verifier / Reviewer %s (%s)\n", bPart, jPart, suffix)
 }

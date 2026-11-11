@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -92,7 +93,10 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 		o.RealHome = real
 	}
 	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
-	o.Metrics = func() ([]auto.Finding, error) { return autoMetricsFindings(c.home) }
+	o.Metrics = func() ([]auto.Finding, error) {
+		refreshModelsBestEffort(context.Background(), c.home)
+		return autoMetricsFindings(c.home)
+	}
 	return o
 }
 

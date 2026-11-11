@@ -22,6 +22,7 @@ import (
 // the Kickoff's scope and one handoff record, the strict export line written
 // as fyr record writes it. internal/work's tests cover every other shape.
 const workAgy = `#!/bin/bash
+if [ "${1:-}" = models ]; then printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n'; exit 0; fi
 CTL=@CTL@
 if [ -e "$CTL/hang" ]; then touch "$CTL/started"; exec sleep 300; fi
 [ -e "$CTL/nocommit" ] && { echo "agy says ok"; exit 0; }

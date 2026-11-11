@@ -108,6 +108,7 @@ func runEval(c *ctx) error {
 	// removed, and agy, in its own process group, would run on unattended.
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	refreshModelsBestEffort(sig, c.home)
 	results, err := evalRun(sig, o, rows)
 	if err != nil {
 		return c.evalRefuse("%v", err)

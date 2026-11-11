@@ -217,20 +217,26 @@ func TestResolveRoleModel(t *testing.T) {
 		listModelsFunc = oldList
 	})
 
-	// 1. Builder routes to Gemini ([pro] -> gemini-4-argon, [flash] -> gemini-3.8-flash).
-	m, note, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
-	if err != nil || m != "gemini-4-argon" || !strings.Contains(note, "Gemini") {
-		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
-	}
-	mFlash, _, _ := ResolveRoleModel(ctx, "agy", "builder", "flash", "")
-	if mFlash != "gemini-3.8-flash" {
-		t.Fatalf("builder flash: got %q, want gemini-3.8-flash", mFlash)
+	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+		return []string{
+			"gemini-4-carbon-high",
+			"gemini-3.8-flash-high",
+			"claude-opus-5-5-high",
+			"claude-sonnet-5-5-high",
+		}, nil
 	}
 
-	// 2. Judge/verifier/reviewer routes to Anthropic when Claude pool quota >= 30% 5h and >= 20% weekly.
-	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
-		return []string{"gemini-4-argon", "gemini-3.8-flash", "claude-opus-5-5", "claude-sonnet-4-6"}, nil
+	// 1. Builder routes to listed Gemini models (Carbon for pro, Flash when no Carbon medium/low).
+	m, note, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
+	if err != nil || m != "gemini-4-carbon-high" || !strings.Contains(note, "Gemini") {
+		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
 	}
+	mFlash, _, err := ResolveRoleModel(ctx, "agy", "builder", "flash", "")
+	if err != nil || mFlash != "gemini-3.8-flash-high" {
+		t.Fatalf("builder flash: got %q err=%v, want gemini-3.8-flash-high", mFlash, err)
+	}
+
+	// 2. Judge/verifier/reviewer routes to listed Anthropic models when Claude pool quota >= 30% 5h and >= 20% weekly.
 	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
@@ -238,15 +244,15 @@ func TestResolveRoleModel(t *testing.T) {
 			"Claude and GPT models\tFive Hour Limit Remaining\t60%\tx\n", nil
 	}
 	jModel, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
-	if err != nil || jModel != "claude-opus-5-5" || !strings.Contains(jNote, "Anthropic") {
+	if err != nil || jModel != "claude-opus-5-5-high" || !strings.Contains(jNote, "Anthropic") {
 		t.Fatalf("judge healthy quota: got m=%q note=%q err=%v", jModel, jNote, err)
 	}
-	vModel, _, _ := ResolveRoleModel(ctx, "agy", "verifier", "sonnet", "")
-	if vModel != "claude-sonnet-4-6" {
-		t.Fatalf("verifier sonnet healthy quota: got %q, want claude-sonnet-4-6", vModel)
+	vModel, _, err := ResolveRoleModel(ctx, "agy", "verifier", "sonnet", "")
+	if err != nil || vModel != "claude-sonnet-5-5-high" {
+		t.Fatalf("verifier sonnet healthy quota: got %q err=%v, want claude-sonnet-5-5-high", vModel, err)
 	}
 
-	// 3. Judge falls back to Gemini when Claude pool weekly < 20% or 5h < 30% (or disabled).
+	// 3. Judge falls back to listed Gemini when Claude pool weekly < 20% or 5h < 30% (or disabled).
 	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
@@ -254,12 +260,12 @@ func TestResolveRoleModel(t *testing.T) {
 			"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\tx\n", nil
 	}
 	fbModel, fbNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
-	if err != nil || fbModel != "gemini-4-argon" || !strings.Contains(fbNote, "fallback to Gemini") {
+	if err != nil || fbModel != "gemini-4-carbon-high" || !strings.Contains(fbNote, "fallback to Gemini") {
 		t.Fatalf("judge low quota fallback: got m=%q note=%q err=%v", fbModel, fbNote, err)
 	}
-	fbFlash, fbFlashNote, _ := ResolveRoleModel(ctx, "agy", "reviewer", "flash", "")
-	if fbFlash != "gemini-3.8-flash" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
-		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q", fbFlash, fbFlashNote)
+	fbFlash, fbFlashNote, err := ResolveRoleModel(ctx, "agy", "reviewer", "flash", "")
+	if err != nil || fbFlash != "gemini-3.8-flash-high" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
+		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q err=%v", fbFlash, fbFlashNote, err)
 	}
 
 	// 4. Explicit model overrides routing.

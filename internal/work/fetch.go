@@ -278,11 +278,19 @@ func (w *worker) records(root, ref string) (outside []string) {
 	if err == nil {
 		var after map[string]Record
 		if after, err = w.afterRecords(root, ref); err == nil {
+			var modified []Record
 			for id, r := range before {
-				if a, ok := after[id]; (!ok || a != r) && !w.p.k.names(id) {
+				a, ok := after[id]
+				if (!ok || a != r) && !w.p.k.names(id) {
 					outside = append(outside, id)
+					continue
+				}
+				if ok && a != r {
+					modified = append(modified, a)
 				}
 			}
+			sort.Slice(modified, func(i, j int) bool { return modified[i].ID < modified[j].ID })
+			w.setModifiedRecords(modified)
 			return append(outside, w.added(before, after)...)
 		}
 	}

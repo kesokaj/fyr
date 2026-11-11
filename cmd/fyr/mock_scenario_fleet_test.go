@@ -38,6 +38,7 @@ func (e fleetEnv) Targets(string) ([]dream.Target, error) { return dream.Targets
 
 const fleetFakeAgy = `#!/bin/bash
 set -euo pipefail
+if [ "${1:-}" = models ]; then printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n'; exit 0; fi
 me=$(basename "$(dirname "$HOME")"); logdir="$HOME/.gemini/antigravity-cli/brain/conv-$me/.system_generated/logs"; mkdir -p "$logdir"
 case "$me" in
 collector) target="internal/collector/probe.go"

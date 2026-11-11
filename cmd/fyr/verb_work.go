@@ -179,6 +179,7 @@ func (c *ctx) workRun(o work.Options, files []string) error {
 	// would run on with the wide grant (the Phase 3 security review).
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stop()
+	refreshModelsBestEffort(sig, o.Home)
 	res, err := work.Run(sig, o, files...)
 	if err != nil {
 		return c.workRefuse("%v", err)

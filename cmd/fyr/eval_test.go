@@ -26,6 +26,7 @@ import (
 const evalAgy = `#!/bin/bash
 REC=@REC@; TPL=@TPL@; CTL=@CTL@
 if [ "$1" = --version ]; then echo "agy-fake 9.9"; echo second line; exit 0; fi
+if [ "$1" = models ]; then printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n'; exit 0; fi
 while ! mkdir "$REC/agy.lock" 2>/dev/null; do sleep 0.01; done
 n=$(( $(cat "$REC/agy.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$REC/agy.n"
 rmdir "$REC/agy.lock"

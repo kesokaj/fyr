@@ -46,6 +46,7 @@ Background and measurement
   auto         idle-time runs: on, off, status, run
   metrics      session shapes: ingest, show, report, evals, trajectory, export
   report       project or global usage report (HTML or --md)
+  models       the live agy model catalog and role picks
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (in docker when ready, else host)
   check        read-only drift check of this checkout's docs
@@ -385,5 +386,16 @@ var pages = map[string]verbPage{
 	"version": {
 		synopsis: []string{"usage: fyr version"},
 		about:    []string{"Prints the build version."},
+	},
+	"models": {
+		synopsis: []string{"usage: fyr models [--json] [--pick ROLE] [--refresh] [--tier T]"},
+		about: []string{
+			"Lists the Antigravity model catalog in ~/.config/fyr/models.json,",
+			"refreshing from agy models on a cold cache or with --refresh, and",
+			"prints the evidence-judged pick per role (builder, judge, reviewer,",
+			"verifier, mechanical) with any fallback reason (gone model or low",
+			"Anthropic quota). --pick ROLE prints the selected model ID (with",
+			"--json, the RolePick object). Exit 0 ok, 1 refresh error, 2 refusal.",
+		},
 	},
 }
