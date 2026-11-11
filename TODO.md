@@ -7,14 +7,12 @@
 
 ## Now
 
-Wave 2b (`/fyr-work` Docker `-r2` fix-up after `p3` PASS, `D19`, `D25`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phase 7 (`p7-r2`).
+Wave 3 (`/fyr-work` Docker wave after Waves 1 & 2 PASS, `D19`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phase 4 (`p4`).
 
-- [x] Phase 3 — Workers by default in the plan template (`skills/fyr-feature/SKILL.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
-- [ ] Phase 7 — Worker latency budget (`cmd/fyr/`, `internal/work/`, `internal/sandbox/`, `internal/metrics/`, `docker/work.Dockerfile`, `SDD.md`, `TDD.md`, `SPEC-fyr-work`)
+- [ ] Phase 4 — Feature-routing rule and vet routing (`rules/fyr-features.md`, `context/`, `skills/`, `internal/search/vet_route*.go`, `README.md`, `SDD.md`, `TDD.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
 
 ## Next
 
-- Wave 3 (Phase 4) — Always-on feature-routing rule (`rules/fyr-features.md`) + advisory vet routing (`internal/search/vet_route.go`)
 - Phase 8 — Closing range review (`reviewer --code --docs`, `security`, `verifier`), `fyr models --refresh`, `fyr eval`, `dave` install + registration + dream timer, and `fyr report --md`
 - Release (`/fyr-preflight v8.6.0`, `D21`) — Gate, annotated tag, GitHub release assets + checksums, and post-release `dave` reinstall
 
