@@ -159,5 +159,8 @@ printf '.agents/scratch/*\n' >.gitignore
 	for id, o := range astOutcomes() {
 		outs[id] = o
 	}
+	for id, o := range featureRoutingOutcomes() {
+		outs[id] = o
+	}
 	return outs
 }

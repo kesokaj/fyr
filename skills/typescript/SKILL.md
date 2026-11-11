@@ -14,6 +14,8 @@ description: |
 
 Language-level standards for all TypeScript code. UI conventions live in the `frontend-ui-modern` and `frontend-ui-economist` skills.
 
+- **Frontend: TanStack Start + TypeScript + Tailwind** in one `web/` or `ui/` directory (`typescript` skill; `frontend-ui-modern` for shadcn/ui app UI; `frontend-ui-economist` for plain HTML/CSS editorial/report UI). Client JS runs on plain V8: no Node APIs outside server entry.
+
 ## Compiler Baseline
 
 - TypeScript 7.0 (the native compiler; `latest` since 2026-07, 7.0.2 still `latest` on the npm registry on 2026-10-25) with 6.0's defaults: `strict: true`, `module: esnext`, `types: []`. Removed options (`moduleResolution: node`/`classic`, `baseUrl`, `esModuleInterop: false`, `target: es5`) fail the build; do not carry them over.

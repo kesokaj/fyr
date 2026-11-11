@@ -2,7 +2,7 @@
 
 **`fyr`** is an open-source agentic coding harness and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 9 specialized subagents (`agents/<name>/agent.md`), 4 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 9 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 ## Why it exists
 
@@ -89,7 +89,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
 | **Skills (43)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
 | **Subagents (9)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`bugs`, `changelog`, `documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `triage`, `verifier`) |
-| **Rules (4)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `session-sizing`) |
+| **Rules (5)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `fyr-features`, `session-sizing`) |
 | **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`pre-invocation`, `pre-tool-use`, `stop`) with `< 250 ms` fail-open timeout |
 | **Binary (`fyr`)** | `~/.local/bin/fyr` + local stores under `~/.config/fyr/` (`brain.db`, `metrics.db`, `search.db`, `state.json`, `0700` mode) |
 

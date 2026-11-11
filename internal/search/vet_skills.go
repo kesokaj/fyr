@@ -232,6 +232,12 @@ func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []st
 		if strings.Contains(lowPrompt, "fyr-refresh-project-index") || (containsAnyWord(lowPrompt, "index", "search.db") && containsAnyWord(lowPrompt, "refresh", "rebuild", "stale")) {
 			return 92, "project index refresh surface"
 		}
+	case "fyr-work":
+		if (len(fyrWorkflowSkillRules[name].words) > 0 && containsAnyWord(lowPrompt, fyrWorkflowSkillRules[name].words...)) ||
+			(len(fyrWorkflowSkillRules[name].subs) > 0 && containsAnySubstr(lowPrompt, fyrWorkflowSkillRules[name].subs...)) ||
+			(!isKickoffLow(lowPrompt) && hasBatchOrMultiPhaseCues(lowPrompt, lowPrompt)) {
+			return fyrWorkflowSkillRules[name].score, fyrWorkflowSkillRules[name].reason
+		}
 	default:
 		if rule, ok := fyrWorkflowSkillRules[name]; ok {
 			if (len(rule.words) > 0 && containsAnyWord(lowPrompt, rule.words...)) ||

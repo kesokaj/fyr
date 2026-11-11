@@ -207,7 +207,7 @@ func TestSuiteHarness(t *testing.T) {
 		"ast-slice-citations": {"explorer", true}, "read-ledger-dedup": {"", false},
 		"vet-first-gate": {"", false}, "vet-question-and-bypass": {"", false}, "fence-injection-guard": {"", false},
 		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false}, "acp-vet-multi-turn": {"", false},
-		"triage": {"triage", true}, "autonomy": {"", true},
+		"triage": {"triage", true}, "autonomy": {"", true}, "feature-routing": {"", false},
 	}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
@@ -433,6 +433,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 		"ab-pipeline-on":          "context/AGENTS.md",
 		"ab-pipeline-off":         "context/AGENTS.md",
 		"acp-vet-multi-turn":      "context/AGENTS.md",
+		"feature-routing":         "rules/fyr-features.md",
 	}
 	rows, _, err := ReadTrackedSuite(root, false)
 	if err != nil {

@@ -288,6 +288,7 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		res.FenceBoundary + " BEGIN DATA PLAN-2026-11-08",
 		res.FenceBoundary + " BEGIN DATA ast-slice",
 		"[FYR_TURN_CONTRACT]",
+		"route: /fyr-bug (reproduce with failing test first)",
 		"mandatory_subagent: security",
 	} {
 		if !strings.Contains(res.SystemMessage, want) {

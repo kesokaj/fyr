@@ -10,8 +10,6 @@ Start every session in an existing project with `fyr resume` (`AGENTS.md`, open 
 
 Write checkpoints at fixed moments: after every plan phase (tick Checkpoint box, store `change` record, then `/fyr-handoff`, which commits, pushes and runs `fyr metrics ingest` once); before context gets long or the session ends (`/fyr-handoff`); after a structural decision (`adr`); after an escaped failure (`bug`). Chat or compaction progress is lost: record it.
 
-Search before guessing: `fyr search --slice <query>` (or `<words>`, `--affected`, `--path`) before touching an area or when a skill, rule or decision seems missing; `fyr record get` on the plan when work drifts.
-
 ## Definition of Done, in this order
 
 1. **Tests and verification:** `verifier` runs project commands and every plan tier (dispatch names each, quoting any edited verification command) and drafts the `testing` record once per task, last, after step 2 fixes (run tests bare yourself until then). Keep the tree frozen while it runs — if a fix cannot wait, stop the run, commit, and re-dispatch. If `GUIDE-testing` is absent or still the template, tell `verifier` to fill it first. Untested changed code is a FAIL, never hidden.
@@ -26,8 +24,6 @@ Run steps 1–5 once per task over the whole change; agent detail lives in its a
 
 - **Trivial** (typo, one-line config, rename, ≤10-line docs edit): act, then DoD steps 4 and 5.
 - **Task** (one sitting, no design question): three-line plan in chat, execute, then DoD; if a design question arises or it outgrows one sitting, switch to `fyr-feature`.
-- **Feature** (new behavior or surface, any design question): load `fyr-feature` and follow its gates.
-- **Bug** (anything broken): load the `fyr-bug` skill.
 - **Unscaffolded project** (no `.agents/`): Trivial and Task only — no verifier log, `change` record or handoff; commit and push close it; offer `/fyr-init-project` (or `/fyr-index-project`) once.
 - **Search first:** `fyr search --slice <query>` (or `<words>`), `--affected <target>`, `--path <from> [--to <to>]`, `--skeleton <path>` and `--refs <BUG-NNN|ADR-NNN|path>` before touching an area; read and cite `path:start-end (Symbol)` spans, and grep only for exact strings or regex.
 - End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn until every dispatched agent's artifact is on disk (`fyr-handoff` § Usage).

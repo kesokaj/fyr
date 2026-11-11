@@ -78,6 +78,7 @@ type VetResult struct {
 	Intent             IntentMode      `json:"intent"`
 	Gate               VetGate         `json:"gate"`
 	Score              int             `json:"score"`
+	Route              string          `json:"route,omitempty"`
 	ImprovedPrompt     string          `json:"improvedPrompt,omitempty"`
 	CarriedFromTurn    int             `json:"carriedFromTurn,omitempty"`
 	PresentAnchors     []string        `json:"presentAnchors,omitempty"`
@@ -210,6 +211,9 @@ func isReleasePrompt(low string) bool {
 }
 
 func isReviewPrompt(low string) bool {
+	if strings.HasPrefix(low, "review ") {
+		return true
+	}
 	for _, p := range []string{"review this", "review the ", "code review", "security review", "review diff", "review pr", "audit the "} {
 		if strings.Contains(low, p) {
 			return true
@@ -365,6 +369,7 @@ func vetPromptCoreWithHistory(
 		Conflicts:        conflicts,
 	}
 	res.ImprovedPrompt = SynthesizeImprovedPrompt(cleanPrompt, res, slice, ctxWithConflicts, prev)
+	attachAdvisoryRoute(cleanPrompt, &res, slice, ctxWithConflicts)
 	return res
 }
 

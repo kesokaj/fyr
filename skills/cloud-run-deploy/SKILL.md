@@ -16,6 +16,12 @@ locally first, always. Artifact Registry is the primary registry; GitHub Contain
 Registry only when explicitly requested. Every flag below was checked against
 `gcloud run deploy --help` of the Google Cloud SDK 587.0.0 (2026-10-01).
 
+- **Local by default.** Build, run and test locally per the project's `DEPLOY-local` record; touch cloud only when asked.
+- **Machines:** Docker via Colima on macOS (Apple Silicon), plain Docker on Linux. Use remote hosts/VMs only when asked; ask for access.
+- **Build and deploy mechanics** (local test first, amd64 images, git-SHA Artifact Registry tags): `docker` and `cloud-run-deploy`.
+- **Compute:** Cloud Run first (`cloud-run-deploy`), else GKE (`gke-basics`) or Compute Engine; Terraform (`terraform`) when managing >1 service.
+- **Auth:** `gcloud auth login` and `gcloud auth application-default login` (`gcloud-setup`). Pass Cloud Run secrets via `--set-secrets`, never `--set-env-vars`.
+
 ## Pre-flight
 
 1. **Defaults:** read the project's `DEPLOY-gcp` record (`fyr record get DEPLOY-gcp`):
