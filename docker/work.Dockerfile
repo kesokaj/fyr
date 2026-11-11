@@ -64,6 +64,11 @@ RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
         apt-get install -y --no-install-recommends libc6:amd64 && \
         rm -rf /var/lib/apt/lists/*; \
     fi
+# Pre-install world-readable -race stdlib archives in $GOROOT/pkg/*_race so
+# unprivileged workers reuse them with an empty sandbox GOCACHE and zero
+# /root/.cache bloat (D25; TestImageRaceStdlibPrebuilt).
+ENV GODEBUG=installgoroot=all
+RUN go install -race std && rm -rf /root/.cache
 # Not root by default: the verb passes the operator's --user, and a run
 # without it still drops root.
 USER 65532:65532

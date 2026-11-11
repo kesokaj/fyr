@@ -106,6 +106,11 @@ var migrations = []string{
 		updated_at INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY(stamp, worker)
 	);`,
+	// 7: per-worker stage seconds (setup_s, agy_s, check_s) in work_waves
+	// from ~/.config/fyr/work/<stamp>/status.json (Phase 7, D17).
+	`ALTER TABLE work_waves ADD COLUMN setup_s INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE work_waves ADD COLUMN agy_s INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE work_waves ADD COLUMN check_s INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // tables is every table export writes, in dependency order.

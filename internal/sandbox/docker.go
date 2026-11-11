@@ -155,7 +155,7 @@ func (b *Box) containerEnv() []string {
 		}
 	}
 	return append([]string{"PATH=" + filepath.Join(b.sb, "bin") + ":" + ImagePath},
-		append(env, "GOPATH="+filepath.Join(b.sb, "go"), "GOTOOLCHAIN=local")...)
+		append(env, "GOPATH="+filepath.Join(b.sb, "go"), "GOTOOLCHAIN=local", "GODEBUG=installgoroot=all")...)
 }
 
 // dockerAgy is steps 9-10 in a container: the docker client in its own

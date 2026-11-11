@@ -132,10 +132,6 @@ func TestEvalTallyFromSuite(t *testing.T) {
 func TestEveryVerbSurvivesTheVerbList(t *testing.T) {
 	for name := range verbs {
 		got := metrics.Verb("fyr " + name)
-		// Phase 7 (Wave 2, owning internal/metrics/) adds "models" to metrics.Verb's allowlist.
-		if name == "models" && len(got) == 1 && got[0] == "fyr" {
-			continue
-		}
 		if len(got) != 1 || got[0] != "fyr "+name {
 			t.Errorf("fyr %s normalises to %q", name, got)
 		}

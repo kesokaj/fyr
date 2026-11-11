@@ -30,6 +30,9 @@ type WorkerStatus struct {
 	JudgeModel   string   `json:"judge_model,omitempty"`
 	JudgeVerdict string   `json:"judge_verdict,omitempty"`
 	ElapsedSec   int      `json:"elapsed_sec"`
+	SetupSec     int      `json:"setup_s"`
+	AgySec       int      `json:"agy_s"`
+	CheckSec     int      `json:"check_s"`
 	Commits      int      `json:"commits,omitempty"`
 	Reasons      []string `json:"reasons,omitempty"`
 }
@@ -200,6 +203,27 @@ func (t *progressTracker) onJudge(name, model, verdict, reason string) {
 		w.Name, step, fmtMMSS(w.ElapsedSec)))
 }
 
+func (t *progressTracker) onStage(name, stage string, sec int) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	idx, ok := t.index[name]
+	if !ok {
+		return
+	}
+	w := &t.wave.Workers[idx]
+	w.ElapsedSec = t.elapsedLocked(name)
+	switch stage {
+	case "setup":
+		w.SetupSec = max(0, sec)
+	case "agy":
+		w.AgySec = max(0, sec)
+	}
+	t.persistLocked()
+}
+
 func (t *progressTracker) onFinish(name string, res Result) {
 	if t == nil {
 		return
@@ -213,6 +237,9 @@ func (t *progressTracker) onFinish(name string, res Result) {
 	w := &t.wave.Workers[idx]
 	w.State = res.Verdict
 	w.ElapsedSec = res.Seconds
+	w.SetupSec = max(0, res.SetupSec)
+	w.AgySec = max(0, res.AgySec)
+	w.CheckSec = max(0, res.CheckSec)
 	w.Commits = res.Commits
 	w.Reasons = slices.Clone(res.Reasons)
 	t.persistLocked()

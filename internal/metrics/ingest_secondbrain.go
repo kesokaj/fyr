@@ -42,6 +42,9 @@ type waveWorkerSnapshot struct {
 	Model        string `json:"model"`
 	StepCount    int    `json:"step_count"`
 	Commits      int    `json:"commits"`
+	SetupSec     int    `json:"setup_s"`
+	AgySec       int    `json:"agy_s"`
+	CheckSec     int    `json:"check_s"`
 	BaseCheck    string `json:"base_check"`
 	JudgeModel   string `json:"judge_model"`
 	JudgeVerdict string `json:"judge_verdict"`
@@ -342,10 +345,11 @@ func (s *Store) upsertWaveWorkers(dirName, label string, snap waveSnapshot, upda
 			continue
 		}
 		if _, err := tx.Exec(
-			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, setup_s, agy_s, check_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			stamp, worker, projRoot, printable(strings.TrimSpace(w.State)), printable(strings.TrimSpace(w.Model)),
 			max(0, w.StepCount), max(0, w.Commits), printable(strings.TrimSpace(w.BaseCheck)),
 			printable(strings.TrimSpace(w.JudgeModel)), printable(strings.TrimSpace(w.JudgeVerdict)), updatedAt,
+			max(0, w.SetupSec), max(0, w.AgySec), max(0, w.CheckSec),
 		); err != nil {
 			return err
 		}

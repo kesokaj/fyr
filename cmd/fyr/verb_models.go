@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/work"
 )
@@ -56,7 +58,7 @@ func runModels(c *ctx) error {
 
 func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (work.Catalog, error) {
 	if c.modelsRefresh || !work.CatalogExists(c.home) {
-		return work.RefreshCatalog(ctx, c.home, agyPath, nil)
+		return work.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
 	}
 	cat, ok, err := work.LoadCatalog(c.home)
 	if err != nil {
@@ -145,5 +147,36 @@ func refreshModelsBestEffort(parent context.Context, home string) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	_, _ = work.RefreshCatalog(ctx, home, agyPath, nil)
+	_, _ = work.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))
+}
+
+func loadMetricsModelEvidence(home string) map[string]work.ModelEvidence {
+	if strings.TrimSpace(home) == "" {
+		return nil
+	}
+	dbPath := metrics.Path(home)
+	fi, err := os.Lstat(dbPath)
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	s, err := metrics.Open(dbPath)
+	if err != nil {
+		return nil
+	}
+	defer s.Close()
+	raw, err := s.ModelEvidence(time.Time{}, time.Time{})
+	if err != nil || len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]work.ModelEvidence, len(raw))
+	for k, v := range raw {
+		out[k] = work.ModelEvidence{
+			WorkRuns:        v.WorkRuns,
+			WorkPass:        v.WorkPass,
+			WorkMeanSeconds: v.WorkMeanSeconds,
+			EvalRuns:        v.EvalRuns,
+			EvalPass:        v.EvalPass,
+		}
+	}
+	return out
 }

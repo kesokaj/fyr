@@ -34,7 +34,7 @@ func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 		noteSecondBrain(log, "%s sessions: %v", srcPath, err)
 	}
 	if ver >= 6 {
-		if err := s.copyDevWorkWaves(srcDB, label); err != nil {
+		if err := s.copyDevWorkWaves(srcDB, label, ver >= 7); err != nil {
 			noteSecondBrain(log, "%s work_waves: %v", srcPath, err)
 		}
 	}
@@ -189,8 +189,12 @@ func copyDevSessionVerbs(tx *sql.Tx, src *sql.DB, origSID, destSID string) error
 	return rows.Err()
 }
 
-func (s *Store) copyDevWorkWaves(src *sql.DB, label string) error {
-	rows, err := src.Query(`SELECT stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at FROM work_waves`)
+func (s *Store) copyDevWorkWaves(src *sql.DB, label string, hasStageCols bool) error {
+	q := `SELECT stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, 0, 0, 0 FROM work_waves`
+	if hasStageCols {
+		q = `SELECT stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, COALESCE(setup_s, 0), COALESCE(agy_s, 0), COALESCE(check_s, 0) FROM work_waves`
+	}
+	rows, err := src.Query(q)
 	if err != nil {
 		return err
 	}
@@ -202,16 +206,17 @@ func (s *Store) copyDevWorkWaves(src *sql.DB, label string) error {
 	defer tx.Rollback()
 	for rows.Next() {
 		var stamp, worker, root, state, model, bc, jm, jv string
-		var steps, commits int
+		var steps, commits, setupS, agyS, checkS int
 		var updatedAt int64
-		if err := rows.Scan(&stamp, &worker, &root, &state, &model, &steps, &commits, &bc, &jm, &jv, &updatedAt); err != nil {
+		if err := rows.Scan(&stamp, &worker, &root, &state, &model, &steps, &commits, &bc, &jm, &jv, &updatedAt, &setupS, &agyS, &checkS); err != nil {
 			return err
 		}
 		enc := encodeWaveStamp(printable(label), printable(stamp))
 		if _, err := tx.Exec(
-			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, setup_s, agy_s, check_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			enc, printable(worker), printable(root), printable(state), printable(model),
 			max(0, steps), max(0, commits), printable(bc), printable(jm), printable(jv), updatedAt,
+			max(0, setupS), max(0, agyS), max(0, checkS),
 		); err != nil {
 			return err
 		}

@@ -209,6 +209,8 @@ func AggregateWorkEvidence(home string, extra map[string]ModelEvidence) map[stri
 			cur.WorkRuns = ex.WorkRuns
 			cur.WorkPass = ex.WorkPass
 			cur.WorkMeanSeconds = ex.WorkMeanSeconds
+		} else if cur.WorkMeanSeconds == 0 && ex.WorkMeanSeconds > 0 {
+			cur.WorkMeanSeconds = ex.WorkMeanSeconds
 		}
 		out[id] = cur
 	}
@@ -229,7 +231,9 @@ func mergeStatusFileEvidence(path string, acc map[string]*workEvTally) {
 			Model      string  `json:"model"`
 			State      string  `json:"state"`
 			ElapsedSec float64 `json:"elapsed_sec"`
+			SetupSec   float64 `json:"setup_s"`
 			AgySec     float64 `json:"agy_s"`
+			CheckSec   float64 `json:"check_s"`
 		} `json:"workers"`
 	}
 	if json.Unmarshal(data, &snap) != nil {
@@ -248,7 +252,7 @@ func mergeStatusFileEvidence(path string, acc map[string]*workEvTally) {
 		if w.State == "PASS" {
 			t.pass++
 		}
-		if sec := max(w.ElapsedSec, w.AgySec); sec > 0 {
+		if sec := max(w.ElapsedSec, w.SetupSec+w.AgySec+w.CheckSec); sec > 0 {
 			t.secSum += sec
 			t.secCount++
 		}

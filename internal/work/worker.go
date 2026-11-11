@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -43,6 +42,7 @@ type worker struct {
 	dest         *os.Root // the lead's .agents/scratch/work/<stamp>/<name>/, once made
 	res          Result
 	tracker      *progressTracker
+	seed         *waveSeed
 }
 
 // dockerConfig is the box's container, nil on the host runner.
@@ -63,8 +63,8 @@ func (p prepared) dockerConfig(stamp string) *sandbox.Docker {
 	return d
 }
 
-func newWorker(o Options, p prepared, stamp, dir string, tracker *progressTracker) *worker {
-	w := &worker{o: o, p: p, stamp: stamp, tracker: tracker}
+func newWorker(o Options, p prepared, stamp, dir string, tracker *progressTracker, seed *waveSeed) *worker {
+	w := &worker{o: o, p: p, stamp: stamp, tracker: tracker, seed: seed}
 	// The Kickoff's Model: line is this worker's alone (D103 item 1).
 	model := p.k.Model
 	if model == "" {
@@ -94,28 +94,47 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) Result {
 	w.start = time.Now()
 	w.tracker.onStart(w.p.k.Name)
 	if w.b.Make() {
-		if w.prepare(ctx) {
+		ok := w.prepare(ctx)
+		setupEnd := time.Now()
+		w.res.SetupSec = stageSeconds(w.start, setupEnd)
+		w.tracker.onStage(w.p.k.Name, "setup", w.res.SetupSec)
+		checkStart := setupEnd
+		if ok {
 			w.res.AgyExit = w.b.Session(ctx, w.p.agy, w.p.tok, w.workerPrompt(), "out.txt")
 			w.ran = w.b.Started()
+			checkStart = time.Now()
+			w.res.AgySec = stageSeconds(setupEnd, checkStart)
+			w.tracker.onStage(w.p.k.Name, "agy", w.res.AgySec)
 			w.b.After()
 		}
-		w.b.ExitChecks()
-		w.checkDisk()
-		if w.b.TimedOut() {
-			w.b.Fail(ReasonTimedOut)
-		}
-		if ctx.Err() != nil {
-			w.b.Fail(ReasonKilled)
-		}
-		collect.Lock()
-		w.collect()
-		collect.Unlock()
-		w.remove()
+		w.finishChecks(ctx, collect)
+		w.res.CheckSec = stageSeconds(checkStart, time.Now())
+	} else {
+		w.res.SetupSec = stageSeconds(w.start, time.Now())
 	}
-	w.res.Seconds = int(time.Since(w.start).Seconds())
+	w.res.Seconds = stageSeconds(w.start, time.Now())
 	res := w.result()
 	w.tracker.onFinish(w.p.k.Name, res)
 	return res
+}
+
+func (w *worker) finishChecks(ctx context.Context, collect *sync.Mutex) {
+	w.b.ExitChecks()
+	w.checkDisk()
+	if w.b.TimedOut() {
+		w.b.Fail(ReasonTimedOut)
+	}
+	if ctx.Err() != nil {
+		w.b.Fail(ReasonKilled)
+	}
+	collect.Lock()
+	w.collect()
+	collect.Unlock()
+	w.remove()
+}
+
+func stageSeconds(from, to time.Time) int {
+	return max(0, int(to.Sub(from).Seconds()))
 }
 
 const workerExecutionRule = "Worker execution rules (`fyr work`): do NOT call `invoke_subagent` (`verifier`, `reviewer`, `security`, `explorer`, `documentation`, `changelog`, `bugs`) — `fyr work` runs `Base-Check` and cross-family `Judge` outside your sandbox, and the lead dispatches range review, security, and verification after waves merge. Run the project's lint, typecheck, and test commands for your scoped files (plus any checkpoint command in your Kickoff) directly, self-review `git diff` yourself, and when writing a `change` record note `self-reviewed in fyr work worker`. If a `run_command` backgrounds, wait with `sleep 20` between `manage_task` checks until it completes before committing.\n\n"
@@ -215,42 +234,23 @@ func (w *worker) seedRecords(ctx context.Context) {
 		_ = cmd.Run()
 		return
 	}
-	for _, h := range []string{w.o.Home, w.o.RealHome} {
-		if h == "" {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(h, harness.StateDir, "brain.db")); err != nil {
-			continue
-		}
-		exp := exec.CommandContext(ctx, fyrBin, "record", "export", "--repo", w.o.Root, "--home", h)
-		exp.Dir = w.b.App()
-		exp.Env = sandbox.FyrEnv()
-		if err := exp.Run(); err != nil {
-			_ = os.Remove(trailFile)
-			_ = os.Remove(filepath.Dir(trailFile))
-			continue
-		}
-		blob, err := os.ReadFile(trailFile)
-		if err != nil {
-			_ = os.Remove(trailFile)
-			_ = os.Remove(filepath.Dir(trailFile))
-			continue
-		}
-		recs, err := parseTrail(blob)
-		if err != nil || len(recs) == 0 {
-			_ = os.Remove(trailFile)
-			_ = os.Remove(filepath.Dir(trailFile))
-			continue
-		}
-		syncCmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
-		syncCmd.Dir = w.b.App()
-		syncCmd.Env = sandbox.FyrEnv()
-		_ = syncCmd.Run()
-		_ = os.Remove(trailFile)
-		_ = os.Remove(filepath.Dir(trailFile))
-		w.baseRecords = recs
+	blob, recs, ok := w.seed.load(ctx, fyrBin, w.b.App(), w.o.Root, w.o.Home, w.o.RealHome)
+	if !ok {
 		return
 	}
+	if err := os.MkdirAll(filepath.Dir(trailFile), 0o755); err != nil {
+		return
+	}
+	if err := os.WriteFile(trailFile, blob, 0o600); err != nil {
+		cleanSeedTrail(trailFile)
+		return
+	}
+	syncCmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
+	syncCmd.Dir = w.b.App()
+	syncCmd.Env = sandbox.FyrEnv()
+	_ = syncCmd.Run()
+	cleanSeedTrail(trailFile)
+	w.baseRecords = recs
 }
 
 // branch is step 2: the clone loses its origin, which is the lead's

@@ -237,7 +237,7 @@ func TestDockerSession(t *testing.T) {
 	if cenv[0] != "PATH="+filepath.Join(b.Home(), "bin")+":"+ImagePath {
 		t.Fatalf("container PATH %q", cenv[0])
 	}
-	for _, kv := range []string{"HOME=" + b.Home(), "GOPATH=" + filepath.Join(b.Home(), "go"), "GOTOOLCHAIN=local"} {
+	for _, kv := range []string{"HOME=" + b.Home(), "GOPATH=" + filepath.Join(b.Home(), "go"), "GOTOOLCHAIN=local", "GODEBUG=installgoroot=all"} {
 		if !slices.Contains(cenv, kv) {
 			t.Fatalf("container env lacks %q: %q", kv, cenv)
 		}

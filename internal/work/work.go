@@ -94,6 +94,9 @@ type Result struct {
 	AgyExit       int
 	Model         string // the model agy ran on, "" its default
 	Seconds       int
+	SetupSec      int
+	AgySec        int
+	CheckSec      int
 	Base, Head    string // Head is "" when the branch was not fetched
 	Commits       int
 	Dir           string   // the sandbox, "" once removed
@@ -138,9 +141,10 @@ func Run(ctx context.Context, o Options, files ...string) ([]Result, error) {
 	defer closeRunSandboxes(r, root, sbProj, o.Home, cleanSelf)
 	fmt.Fprintln(o.Out, sandbox.Printable(fmt.Sprintf("work: stamp %s  %d workers  %s/  %s", stamp, len(ps), root, RunnerLabel(o.Runner, o.RunnerReason))))
 	tracker := newProgressTracker(o, stamp, ps)
+	seed := &waveSeed{}
 	ws := make([]*worker, len(ps))
 	for i, p := range ps {
-		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name), tracker)
+		ws[i] = newWorker(o, p, stamp, filepath.Join(root, p.k.Name), tracker, seed)
 	}
 	res := dispatch(ctx, r, ws, o.Out)
 	o.sweepRun(stamp)

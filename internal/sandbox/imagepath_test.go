@@ -1,7 +1,10 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -164,4 +167,104 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestImageRaceStdlibPrebuilt pins D25: the final stage sets
+// ENV GODEBUG=installgoroot=all and installs world-readable -race stdlib
+// archives into $GOROOT/pkg/${GOOS}_${GOARCH}_race/*.a while purging
+// /root/.cache before dropping to USER 65532:65532, and verifies Go's
+// installgoroot=all target resolution behaviourally.
+func TestImageRaceStdlibPrebuilt(t *testing.T) {
+	const (
+		envLine = "ENV GODEBUG=installgoroot=all"
+		runLine = "RUN go install -race std && rm -rf /root/.cache"
+	)
+	lines := strings.Split(readFile(t, "../../docker/work.Dockerfile"), "\n")
+	if err := checkImageRaceStdlib(lines); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mutation checks: missing ENV, missing cache purge, wrong order, or after USER all fail.
+	withoutEnv := slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return l == envLine })
+	if checkImageRaceStdlib(withoutEnv) == nil {
+		t.Fatal("accepted Dockerfile without ENV GODEBUG=installgoroot=all")
+	}
+	withoutPurge := slices.Clone(lines)
+	for i, l := range withoutPurge {
+		if l == runLine {
+			withoutPurge[i] = "RUN go install -race std"
+		}
+	}
+	if checkImageRaceStdlib(withoutPurge) == nil {
+		t.Fatal("accepted Dockerfile without && rm -rf /root/.cache")
+	}
+	afterUser := slices.DeleteFunc(slices.Clone(lines), func(l string) bool { return l == runLine })
+	afterUser = append(afterUser, runLine)
+	if checkImageRaceStdlib(afterUser) == nil {
+		t.Fatal("accepted RUN go install -race std placed after USER 65532:65532")
+	}
+
+	// Behavioural toolchain check: Go 1.20+ returns "" without installgoroot=all
+	// and $GOROOT/pkg/<goos>_<goarch>_race/runtime.a with installgoroot=all.
+	gorootOut, err := exec.Command("go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	goroot := strings.TrimSpace(string(gorootOut))
+	baseEnv := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "GODEBUG=")
+	})
+
+	unsetCmd := exec.Command("go", "list", "-race", "-f", "{{.Target}}", "runtime")
+	unsetCmd.Env = append(slices.Clone(baseEnv), "GODEBUG=")
+	unsetOut, err := unsetCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list -race (GODEBUG=): %v\n%s", err, unsetOut)
+	}
+	if got := strings.TrimSpace(string(unsetOut)); got != "" {
+		t.Fatalf("go list -race Target with GODEBUG= is %q, want empty", got)
+	}
+
+	setCmd := exec.Command("go", "list", "-race", "-f", "{{.Target}}", "runtime")
+	setCmd.Env = append(slices.Clone(baseEnv), "GODEBUG=installgoroot=all")
+	setOut, err := setCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list -race (GODEBUG=installgoroot=all): %v\n%s", err, setOut)
+	}
+	got := strings.TrimSpace(string(setOut))
+	wantPrefix := filepath.Join(goroot, "pkg") + string(filepath.Separator)
+	wantSuffix := "_race" + string(filepath.Separator) + "runtime.a"
+	if !strings.HasPrefix(got, wantPrefix) || !strings.HasSuffix(got, wantSuffix) {
+		t.Fatalf("go list -race Target with GODEBUG=installgoroot=all = %q, want %s*...%s", got, wantPrefix, wantSuffix)
+	}
+}
+
+func checkImageRaceStdlib(lines []string) error {
+	const (
+		envLine = "ENV GODEBUG=installgoroot=all"
+		runLine = "RUN go install -race std && rm -rf /root/.cache"
+	)
+	lastFrom, pathAt, userAt := -1, -1, -1
+	var envAt, runAt []int
+	for i, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "FROM "):
+			lastFrom = i
+		case strings.HasPrefix(l, "ENV PATH="):
+			pathAt = i
+		case strings.HasPrefix(l, "USER ") && i > lastFrom:
+			userAt = i
+		case l == envLine:
+			envAt = append(envAt, i)
+		case l == runLine:
+			runAt = append(runAt, i)
+		}
+	}
+	if len(envAt) != 1 || envAt[0] <= lastFrom || envAt[0] <= pathAt || envAt[0] >= userAt {
+		return fmt.Errorf("%q at lines %v; want once in final stage after ENV PATH (%d) and before USER (%d)", envLine, envAt, pathAt+1, userAt+1)
+	}
+	if len(runAt) != 1 || runAt[0] <= envAt[0] || runAt[0] >= userAt {
+		return fmt.Errorf("%q at lines %v; want once after %q (%d) and before USER (%d)", runLine, runAt, envLine, envAt[0]+1, userAt+1)
+	}
+	return nil
 }
