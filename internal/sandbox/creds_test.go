@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -370,5 +371,146 @@ func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
 	slices.Sort(want)
 	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
 		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
+	}
+}
+
+func printableRuns(b []byte, minLen int) []byte {
+	var out []byte
+	start := -1
+	for i, c := range b {
+		if c >= 0x20 && c <= 0x7e {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 && i-start >= minLen {
+			out = append(out, b[start:i]...)
+			out = append(out, '\n')
+		}
+		start = -1
+	}
+	if start >= 0 && len(b)-start >= minLen {
+		out = append(out, b[start:]...)
+		out = append(out, '\n')
+	}
+	return out
+}
+
+func putSparse(t *testing.T, p, prefix string, size int64) {
+	t.Helper()
+	put(t, p, prefix, 0o755)
+	f, err := os.OpenFile(p, os.O_WRONLY, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestScanCredsIgnoresFyrOwnPatterns covers BUG-538: compiled fyr .rodata
+// strings, post-Baseline() copies of baseline fixture tokens into search.db and
+// agy transcripts, and >maxScan ELF/Mach-O Go build-cache outputs pass, while
+// novel credentials planted anywhere still fail closed.
+func TestScanCredsIgnoresFyrOwnPatterns(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "fyr")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/fyr")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build ./cmd/fyr: %v\n%s", err, out)
+	}
+	rawBin, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := printableRuns(rawBin, 4)
+	if len(runs) < 4096 {
+		t.Fatalf("printable runs from fyr binary = %d bytes, want >= 4096", len(runs))
+	}
+	strDir := t.TempDir()
+	put(t, filepath.Join(strDir, "fyr-strings.txt"), string(runs), 0o644)
+	if got := newCreds(nil, scanCreds(strDir)); len(got) != 0 {
+		t.Errorf("compiled fyr printable strings flagged: %v", got)
+	}
+
+	assertSelfHostingSandbox(t)
+}
+
+func assertSelfHostingSandbox(t *testing.T) {
+	t.Helper()
+	sb := t.TempDir()
+	baseGH := "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
+	baseHdr := "-----" + "BEGIN OPENSSH " + "PRIVATE KEY-----"
+	basePEM := "-----" + "BEGIN RSA " + "PRIVATE KEY-----\nMIIEpAIBAAKCAQEAsecretbody\n-----END RSA PRIVATE KEY-----"
+	baseRef := `{"` + "refresh_" + `token": "x"}`
+	fixture := strings.Join([]string{baseGH, baseHdr, basePEM, baseRef}, "\n") + "\n"
+	put(t, filepath.Join(sb, "app", "internal", "fixture_test.go"), fixture, 0o644)
+	base := scanCreds(sb)
+
+	sdb := filepath.Join(sb, "app", ".agents", "scratch", "search.db")
+	outTxt := filepath.Join(sb, "home", ".gemini", "antigravity-cli", "brain", "conv1", ".system_generated", "steps", "1", "output.txt")
+	jsonl := filepath.Join(sb, "home", ".gemini", "antigravity-cli", "brain", "conv1", ".system_generated", "logs", "transcript.jsonl")
+	put(t, sdb, "SQLite format 3\x00"+fixture, 0o600)
+	put(t, outTxt, "1: "+baseGH+"\n2: "+baseHdr+"\n3: "+baseRef+"\n", 0o600)
+	put(t, jsonl, `{"out":"`+strings.ReplaceAll(basePEM, "\n", `\n`)+`"}`+"\n", 0o600)
+	hex64 := strings.Repeat("ab", 32)
+	putSparse(t, filepath.Join(sb, "home", ".cache", "go-build", "ab", hex64+"-d"), "\x7fELF\x02\x01\x01\x00", maxScan+4096)
+	putSparse(t, filepath.Join(sb, "home", ".cache", "go-build", "cd", hex64+"-d"), "\xcf\xfa\xed\xfe\x0c\x00\x00\x01", maxScan+4096)
+	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+		t.Errorf("self-hosting sandbox post-baseline artifacts flagged: %v", got)
+	}
+
+	novelAnt := "sk-" + "ant-" + strings.Repeat("Q", 24)
+	novelRef := `{"` + "refresh_" + `token": "1//0gNovelSecretRefreshToken"}`
+	novelKey := "-----" + "BEGIN OPENSSH " + "PRIVATE KEY-----\nComment: leaked\n" + strings.Repeat("Z", 32) + "\n-----END OPENSSH PRIVATE KEY-----"
+	for _, tc := range []struct{ path, payload, wantKind string }{
+		{sdb, "SQLite format 3\x00" + fixture + novelAnt, "anthropic-key"},
+		{outTxt, "1: " + baseRef + "\n2: " + novelRef + "\n", "refresh-token"},
+		{filepath.Join(sb, "app", "leaked.pem"), novelKey, "private-key"},
+		{filepath.Join(sb, "home", ".cache", "go-build", "ef", hex64+"-d"), "not-elf " + novelAnt, "anthropic-key"},
+	} {
+		prev, existed := readOptional(tc.path)
+		put(t, tc.path, tc.payload, 0o600)
+		got := newCreds(base, scanCreds(sb))
+		restoreOptional(t, tc.path, prev, existed)
+		if len(got) != 1 || !strings.Contains(got[0], tc.wantKind) {
+			t.Errorf("novel %s in %s: got %v, want 1 hit containing %q", tc.wantKind, tc.path, got, tc.wantKind)
+		}
+	}
+
+	outsideELF := filepath.Join(t.TempDir(), "outside-elf")
+	putSparse(t, outsideELF, "\x7fELF\x02\x01\x01\x00", maxScan+4096)
+	symPath := filepath.Join(sb, "home", ".cache", "go-build", "99", hex64+"-d")
+	if err := os.MkdirAll(filepath.Dir(symPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideELF, symPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := newCreds(base, scanCreds(sb)); len(got) != 1 || !strings.Contains(got[0], "larger than") {
+		t.Errorf("symlinked oversized ELF in go-build: got %v, want oversized refusal", got)
+	}
+}
+
+func readOptional(p string) ([]byte, bool) {
+	b, err := os.ReadFile(p)
+	return b, err == nil
+}
+
+func restoreOptional(t *testing.T, p string, b []byte, existed bool) {
+	t.Helper()
+	if !existed {
+		_ = os.Remove(p)
+		return
+	}
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

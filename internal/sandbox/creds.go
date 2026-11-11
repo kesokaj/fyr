@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,41 +13,53 @@ import (
 	"strings"
 )
 
-// The credential shapes of the preamble (:128-137, BUG-160), kept as one
-// regexp per kind so the scan can count each: a growth in any one count is a
-// new credential (D17).
+type credPattern struct {
+	kind string
+	re   *regexp.Regexp
+}
+
+// The credential shapes of the preamble (:128-137, BUG-160), assembled at init
+// from short pieces so compiled .rodata holds no self-matching vendor literals
+// (BUG-538).
 var (
-	credNames = regexp.MustCompile(`^(id_rsa|id_ecdsa|id_ed25519|id_dsa|\.credentials\.json|application_default_credentials\.json|credentials\.db|access_tokens\.db|.*oauth-token.*|hosts\.yml|\.netrc|\.git-credentials|.*\.p12|.*\.pfx)$`)
-	credPaths = regexp.MustCompile(`/\.aws/credentials$|/\.docker/config\.json$`)
-	credText  = []struct {
-		kind string
-		re   *regexp.Regexp
-	}{
-		{"github-token", regexp.MustCompile(`gh[opsur]_[A-Za-z0-9]{30,}`)},
-		{"github-pat", regexp.MustCompile(`github_pat_[A-Za-z0-9_]{30,}`)},
-		{"private-key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
-		{"anthropic-key", regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{20,}`)},
-		{"openai-key", regexp.MustCompile(`sk-proj-[A-Za-z0-9_-]{20,}`)},
-		{"refresh-token", regexp.MustCompile(`"refresh_token"`)},
-		{"google-access-token", regexp.MustCompile(`ya29\.[A-Za-z0-9_-]{20,}`)},
-		{"google-api-key", regexp.MustCompile(`AIza[A-Za-z0-9_-]{35}`)},
-		{"gitlab-token", regexp.MustCompile(`glpat-[A-Za-z0-9_-]{20,}`)},
-	}
-	// AWS keys are counted apart: AWS's published example key is
-	// documentation an agent reads in a test, and only that exact key is set
-	// aside.
-	credAWS     = regexp.MustCompile(`AKIA[A-Z0-9]{16}`)
-	credExample = []byte("AKIA" + "IOSFODNN7EXAMPLE")
+	credNames      = regexp.MustCompile(`^(id_rsa|id_ecdsa|id_ed25519|id_dsa|\.credentials\.json|application_default_credentials\.json|credentials\.db|access_tokens\.db|.*oauth-token.*|hosts\.yml|\.netrc|\.git-credentials|.*\.p12|.*\.pfx)$`)
+	credPaths      = regexp.MustCompile(`/\.aws/credentials$|/\.docker/config\.json$`)
+	credText       []credPattern
+	credAWS        *regexp.Regexp
+	credExample    []byte
+	credRefreshVal *regexp.Regexp
+	credPrivBody   *regexp.Regexp
 )
 
-// credFinding is what the scan saw at one path: a count per credential
-// kind, or a problem ("unreadable", "a link to a directory, not walked"),
-// which fails closed. A link's problem carries its target: a link the
-// baseline held, unchanged, is the fixture's (a tracked directory link),
-// while an unreadable file always fails, since its content cannot be
-// compared.
+func init() {
+	for _, row := range []struct {
+		kind  string
+		parts []string
+	}{
+		{"github-token", []string{"gh", `[opsur]_[A-Za-z0-9]{30,}`}},
+		{"github-pat", []string{"git", "hub_pat_", `[A-Za-z0-9_]{30,}`}},
+		{"private-key", []string{"---", "--BEGIN [A-Z ]*PRI", "VATE KEY-----"}},
+		{"anthropic-key", []string{"sk-", "ant", `-[A-Za-z0-9_-]{20,}`}},
+		{"openai-key", []string{"sk-", "proj", `-[A-Za-z0-9_-]{20,}`}},
+		{"refresh-token", []string{`"ref`, `resh_`, `token"`}},
+		{"google-access-token", []string{"ya", `29\.[A-Za-z0-9_-]{20,}`}},
+		{"google-api-key", []string{"AI", "za", `[A-Za-z0-9_-]{35}`}},
+		{"gitlab-token", []string{"gl", "pat", `-[A-Za-z0-9_-]{20,}`}},
+	} {
+		credText = append(credText, credPattern{kind: row.kind, re: regexp.MustCompile(strings.Join(row.parts, ""))})
+	}
+	credAWS = regexp.MustCompile(strings.Join([]string{"AK", "IA", `[A-Z0-9]{16}`}, ""))
+	credExample = []byte(strings.Join([]string{"AK", "IA", "IOSFODNN7EXAMPLE"}, ""))
+	credRefreshVal = regexp.MustCompile(strings.Join([]string{`^\s*:\s*("[^"\\\r\n]{0,256}"|'[^'\\\r\n]{0,256}'|[^\s,}\]\r\n`, "`", `]{1,256})`}, ""))
+	credPrivBody = regexp.MustCompile(`^(?:(?:[ \t\r\n]|\\+[rn])+(?:[0-9]+:[ \t]*)?)*(?:[A-Za-z][A-Za-z0-9_-]*:[ \t][^\r\n\\]*(?:[ \t\r\n]|\\+[rn])+(?:[0-9]+:[ \t]*)?)*([A-Za-z0-9+/=]{16,48})`)
+}
+
+// credFinding is what the scan saw at one path: counts and SHA-256 token
+// digests per credential kind, or a problem ("unreadable", "a link to a
+// directory, not walked"), which fails closed.
 type credFinding struct {
 	kinds   map[string]int
+	digests map[string]map[[32]byte]int
 	problem string
 	target  string
 	outside bool // a directory link that resolves outside the scanned tree
@@ -135,27 +148,26 @@ const arMagic = "!<arch>\n"
 var goBuildCacheRel = regexp.MustCompile(`^(?:home/)?\.cache/go-build/[0-9a-f]{2}/[0-9a-f]+-[ad]$`)
 
 // goBuildCacheEntry reports whether p is a regular Unix ar archive ("!<arch>\n")
-// inside the sandbox's Go build cache (home/.cache/go-build/<xx>/<hex>-a|-d,
-// BUG-520): compiled package archives of internal/redact and internal/sandbox
-// embed the redactor test patterns, and -race builds can exceed maxScan, while
-// symlinks, unreadable files, credential-named files and non-archive plaintext
-// files planted in go-build are still scanned and fail closed.
+// or linked ELF/Mach-O binary inside the sandbox's Go build cache
+// (home/.cache/go-build/<xx>/<hex>-a|-d, BUG-520, BUG-538): compiled archives
+// and -race test binaries can exceed maxScan, while symlinks, unreadable files,
+// credential-named files and non-binary files in go-build fail closed.
 func goBuildCacheEntry(root, p string, d fs.DirEntry) bool {
 	if d == nil || !d.Type().IsRegular() {
 		return false
 	}
 	rel, err := filepath.Rel(root, p)
-	if err != nil || !goBuildCacheRel.MatchString(filepath.ToSlash(rel)) {
+	if err != nil || !goBuildCacheRel.MatchString(filepath.ToSlash(rel)) || !resolvesUnder(root, p) {
 		return false
 	}
-	f, err := os.Open(p)
+	f, err := OpenRegular(p, os.O_RDONLY)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
 	var hdr [len(arMagic)]byte
-	_, err = io.ReadFull(f, hdr[:])
-	return err == nil && string(hdr[:]) == arMagic
+	n, _ := io.ReadFull(f, hdr[:])
+	return (n == len(arMagic) && string(hdr[:]) == arMagic) || isExecutable(hdr[:n])
 }
 
 // resolvesUnder says whether link p, followed to the end, lands inside root.
@@ -216,11 +228,11 @@ func scanEntry(p string, d fs.DirEntry, read bool) (credFinding, bool) {
 	if isExecutable(b) {
 		return credFinding{}, false // the installed fyr carries the redaction patterns as text
 	}
-	kinds := credKinds(b)
+	kinds, digests := credKinds(b)
 	if len(kinds) == 0 {
 		return credFinding{}, false
 	}
-	return credFinding{kinds: kinds}, true
+	return credFinding{kinds: kinds, digests: digests}, true
 }
 
 // readBounded reads at most maxScan+1 bytes of p: a /proc file stats as size
@@ -235,25 +247,48 @@ func readBounded(p string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, maxScan+1))
 }
 
-// credKinds counts each credential kind in b; AWS's documented example key
-// is not one.
-func credKinds(b []byte) map[string]int {
+// credKinds counts each credential kind and records SHA-256 digests of matched
+// credential tokens in b; AWS's documented example key is not one.
+func credKinds(b []byte) (map[string]int, map[string]map[[32]byte]int) {
 	kinds := map[string]int{}
+	digests := map[string]map[[32]byte]int{}
+	add := func(kind string, tok []byte) {
+		kinds[kind]++
+		if digests[kind] == nil {
+			digests[kind] = map[[32]byte]int{}
+		}
+		digests[kind][sha256.Sum256(tok)]++
+	}
 	for _, c := range credText {
-		if n := len(c.re.FindAllIndex(b, -1)); n > 0 {
-			kinds[c.kind] = n
+		for _, loc := range c.re.FindAllIndex(b, -1) {
+			add(c.kind, canonicalCredToken(c.kind, b, loc[0], loc[1]))
 		}
 	}
-	n := 0
 	for _, m := range credAWS.FindAll(b, -1) {
 		if !bytes.Equal(m, credExample) {
-			n++
+			add("aws-key", m)
 		}
 	}
-	if n > 0 {
-		kinds["aws-key"] = n
+	return kinds, digests
+}
+
+func canonicalCredToken(kind string, b []byte, start, end int) []byte {
+	switch kind {
+	case "refresh-token":
+		tail := b[end:min(len(b), end+300)]
+		if m := credRefreshVal.FindSubmatch(tail); m != nil {
+			return append(append([]byte("refresh-token:"), m[1]...), 0)
+		}
+	case "private-key":
+		tail := b[end:min(len(b), end+256)]
+		if m := credPrivBody.FindSubmatch(tail); m != nil {
+			out := make([]byte, 0, (end-start)+1+len(m[1]))
+			out = append(out, b[start:end]...)
+			out = append(out, ':')
+			return append(out, m[1]...)
+		}
 	}
-	return kinds
+	return b[start:end]
 }
 
 // isExecutable is the ELF and Mach-O magic skip of the preamble (:161-162).
@@ -268,16 +303,27 @@ func isExecutable(b []byte) bool {
 	return false
 }
 
-// newCreds lists the paths of after that are new against the baseline: a
-// path the baseline lacks, a kind it lacks, or a kind whose count grew. A
-// problem counts unless it is a link the baseline held with the same
-// target and, for a directory link, whose target lies inside the scanned
-// tree, where the walk reads it under its own path; one that leads out is
-// unread, so it always counts (gate review of v3.0.0). An unreadable or
-// oversized file always counts, since it could hold anything (D17, fail
-// closed). Each line is the path and why, never
-// content.
+func baselineDigests(baseline map[string]credFinding) map[string]map[[32]byte]bool {
+	known := map[string]map[[32]byte]bool{}
+	for _, b := range baseline {
+		for k, ds := range b.digests {
+			if known[k] == nil {
+				known[k] = map[[32]byte]bool{}
+			}
+			for sum := range ds {
+				known[k][sum] = true
+			}
+		}
+	}
+	return known
+}
+
+// newCreds lists the paths of after that carry a novel credential token or
+// name finding against baseline, or a problem (links outside the tree,
+// unreadable and oversized files always fail closed). Each line is path and
+// reason only, never content.
 func newCreds(baseline, after map[string]credFinding) []string {
+	known := baselineDigests(baseline)
 	var out []string
 	for rel, f := range after {
 		if f.problem != "" {
@@ -290,8 +336,18 @@ func newCreds(baseline, after map[string]credFinding) []string {
 		b := baseline[rel]
 		var grew []string
 		for k, n := range f.kinds {
-			if n > b.kinds[k] {
-				grew = append(grew, k)
+			ds := f.digests[k]
+			if len(ds) == 0 {
+				if n > b.kinds[k] {
+					grew = append(grew, k)
+				}
+				continue
+			}
+			for sum := range ds {
+				if !known[k][sum] {
+					grew = append(grew, k)
+					break
+				}
 			}
 		}
 		if len(grew) > 0 {

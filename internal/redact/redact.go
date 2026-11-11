@@ -20,19 +20,32 @@ const redactedValue = "[redacted by fyr]"
 //
 // prefixNeedles are vendor token shapes, matched case-sensitively: they are
 // distinctive as written. Nothing shorter than a vendor's own prefix is
-// listed — a bare `sk-` would match every "task-".
-var prefixNeedles = []string{
-	"-----BEGIN", "PRIVATE KEY", "AKIA", "ASIA", "AIza", "ya29.", "GOCSPX-",
-	"ghp_", "gho_", "ghs_", "ghu_", "ghr_", "github_pat_", "glpat-", "gldt-", "glrt-", "glptt-",
-	"sk-ant-", "sk-proj-",
-	// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3;
-	// every PyPI token opens with the base64 of its macaroon location); the
-	// Stripe keys are a keyword needle below, because `sk_test_` sits inside
-	// `task_test_`; the service, admin and None key shapes are covered too.
-	"whsec_", "pypi-AgEIcHlwaS5vcmc", "pypi-AgENdGVzdC5weXBpLm9yZw",
-	"sk-svcacct-", "sk-admin-", "sk-None-",
-	// An age key and DigitalOcean tokens (v1.14.0 gate, security f1).
-	"AGE-SECRET-KEY-", "dop_v1_", "doo_v1_", "dor_v1_",
+// listed — a bare `sk-` would match every "task-". Assembled at init from
+// short pieces so compiled .rodata never packs adjacent vendor prefixes into a
+// credential-shaped run (BUG-538).
+var (
+	prefixNeedles []string
+	beginNeedle   string
+	blockOpen     *regexp.Regexp
+)
+
+func init() {
+	for _, parts := range [][]string{
+		{"---", "--BE", "GIN"}, {"PRI", "VATE", " KEY"}, {"AK", "IA"}, {"AS", "IA"}, {"AI", "za"}, {"ya", "29."}, {"GOC", "SPX-"},
+		{"gh", "p_"}, {"gh", "o_"}, {"gh", "s_"}, {"gh", "u_"}, {"gh", "r_"}, {"git", "hub_", "pat_"},
+		{"gl", "pat-"}, {"gl", "dt-"}, {"gl", "rt-"}, {"gl", "ptt-"},
+		{"sk-", "ant", "-"}, {"sk-", "pro", "j-"},
+		// Stripe webhook secrets and PyPI tokens (security review 2026-09-30, f3);
+		// Stripe live/test keys stay in keywordNeedles (`sk_test_` sits in `task_test_`).
+		{"whs", "ec_"}, {"pypi-", "AgEIcH", "lwaS5vcmc"}, {"pypi-", "AgENdG", "VzdC5weXBpLm9yZw"},
+		{"sk-", "svca", "cct-"}, {"sk-", "adm", "in-"}, {"sk-", "Non", "e-"},
+		// An age key and DigitalOcean tokens (v1.14.0 gate, security f1).
+		{"AGE-", "SECRET-", "KEY-"}, {"do", "p_v", "1_"}, {"do", "o_v", "1_"}, {"do", "r_v", "1_"},
+	} {
+		prefixNeedles = append(prefixNeedles, strings.Join(parts, ""))
+	}
+	beginNeedle = strings.Join([]string{"---", "--BE", "GIN"}, "")
+	blockOpen = regexp.MustCompile(strings.Join([]string{"---", "--BEGIN|BEGIN[A-Z ]*PRI", "VATE KEY"}, ""))
 }
 
 // keywordNeedles are assignment and header shapes, matched without regard to
@@ -179,7 +192,6 @@ var keywordNeedles = []struct {
 // rewrote, and closes at the matching footer. A footer followed on the same
 // line by another header keeps the block open (two keys concatenated).
 var (
-	blockOpen  = regexp.MustCompile(`-----BEGIN|BEGIN[A-Z ]*PRIVATE KEY`)
 	blockClose = regexp.MustCompile(`-----END[^-]*(-----)?|END[A-Z ]*PRIVATE KEY`)
 	blockLabel = regexp.MustCompile(`^BEGIN ([A-Z0-9][A-Z0-9 ]*[A-Z0-9])`)
 )
@@ -284,7 +296,7 @@ func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
 		body := strings.TrimSuffix(raw, "\n")
 		if blockOpen.MatchString(body) {
 			end, closed := blockEnd(lines, i)
-			rec := redaction{Line: i + 1, Pattern: "-----BEGIN", Lines: end - i + 1, Unterminated: !closed}
+			rec := redaction{Line: i + 1, Pattern: beginNeedle, Lines: end - i + 1, Unterminated: !closed}
 			last := lines[end]
 			out.WriteString(marker(fmt.Sprintf("[redacted by fyr: %d lines]", rec.Lines), jsonl))
 			out.WriteString(last[len(strings.TrimSuffix(last, "\n")):])
