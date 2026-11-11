@@ -182,3 +182,55 @@ func TestHooksDisabledMarker(t *testing.T) {
 		t.Errorf("expected search.db not to be created when .agents/scratch/no-hooks is present")
 	}
 }
+
+func TestHookInputNormalizationAndProjectDirResolution(t *testing.T) {
+	raw := []byte(`{
+		"artifact_directory_path": "/home/dev/.gemini/antigravity-cli/brain/conv-from-artifact",
+		"tool_call": {
+			"tool_name": "CORTEX_STEP_TYPE_VIEW_FILE",
+			"arguments": "{\"filePath\":\"pkg/a.go\",\"startLine\":5,\"lineCount\":10}"
+		}
+	}`)
+	in, err := parseAndNormalizeHookInput(Options{}, raw)
+	if err != nil {
+		t.Fatalf("parseAndNormalizeHookInput: %v", err)
+	}
+	if in.ConversationID != "conv-from-artifact" {
+		t.Fatalf("ConversationID = %q, want conv-from-artifact", in.ConversationID)
+	}
+	if got := normalizeHookToolName(in.ToolCall.Name); got != "read_file" {
+		t.Fatalf("normalizeHookToolName(%q) = %q, want read_file", in.ToolCall.Name, got)
+	}
+	if p := extractToolTargetPath(in.ToolCall.Args); p != "pkg/a.go" {
+		t.Fatalf("extractToolTargetPath = %q, want pkg/a.go", p)
+	}
+	if s, e := extractLineRangeArgs(in.ToolCall.Args); s != 5 || e != 14 {
+		t.Fatalf("extractLineRangeArgs = (%d, %d), want (5, 14)", s, e)
+	}
+
+	// When cwd/o.Dir is one checkout (e.g. ~/.gemini dotfiles) and absolutePath targets another checkout,
+	// resolveToolProjectDir routes to target's checkout and still honors .agents/scratch/no-hooks there.
+	otherRepo := setupHookRepo(t)
+	targetRepo := setupHookRepo(t)
+	targetFile := filepath.Join(targetRepo, "service.go")
+	if got := resolveToolProjectDir(otherRepo, HookInput{}, targetFile); CanonicalizePath("", got) != CanonicalizePath("", targetRepo) {
+		t.Fatalf("resolveToolProjectDir = %q, want %q", got, targetRepo)
+	}
+	if err := os.MkdirAll(filepath.Join(targetRepo, ".agents", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetRepo, ".agents", "scratch", "no-hooks"), []byte("1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-disabled-target",
+		"toolCall":       map[string]any{"name": "view_file", "args": map[string]any{"absolutePath": targetFile}},
+	})
+	var out bytes.Buffer
+	if err := Search(Options{Dir: otherRepo, Home: t.TempDir(), Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+		t.Fatalf("pre-tool-use with target no-hooks: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetRepo, ".agents", "scratch", "search.db")); err == nil {
+		t.Fatalf("expected targetRepo search.db not to be created when no-hooks marker is present")
+	}
+}

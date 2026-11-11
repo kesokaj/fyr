@@ -1,6 +1,8 @@
 package search
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -321,5 +323,128 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 	_, intercepted, err = CheckAndRecordBashRead(root, "conv-bash", "sed -n '1,120p' foo.go | head -n 5", 3)
 	if err != nil || intercepted {
 		t.Fatalf("pipeline should bypass read ledger, got intercepted=%v, err=%v", intercepted, err)
+	}
+}
+
+func TestPreToolUseBlocksUnchangedRereadAndCounts(t *testing.T) {
+	repo, hooksDir, home := setupUnignoredPreToolRepo(t)
+	invoke := func(payload map[string]any) HookDecisionOutput {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		var out bytes.Buffer
+		if err := Search(Options{Dir: hooksDir, Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(raw)}, &out); err != nil {
+			t.Fatalf("pre-tool-use hook: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal hook decision %q: %v", out.String(), err)
+		}
+		return dec
+	}
+	savedCount := func(convID string) int {
+		t.Helper()
+		db := openDB(t, repo)
+		defer db.Close()
+		var n int
+		_ = db.QueryRow(`SELECT COALESCE(SUM(saved_count), 0) FROM read_ledger_stats WHERE conversation_id = ?`, convID).Scan(&n)
+		return n
+	}
+
+	assertPreToolFullFileLifecycle(t, repo, hooksDir, invoke, savedCount)
+	assertPreToolRangedAndEnvelopeVariants(t, repo, invoke, savedCount)
+}
+
+func setupUnignoredPreToolRepo(t *testing.T) (string, string, string) {
+	t.Helper()
+	repo := t.TempDir()
+	gitT(t, repo, "init", "-q", "-b", "main")
+	gitT(t, repo, "config", "user.email", "test@example.invalid")
+	gitT(t, repo, "config", "user.name", "test")
+	gitT(t, repo, "config", "commit.gpgsign", "false")
+	var svc strings.Builder
+	svc.WriteString("package demo\n\nfunc ExecuteService(id string) error {\n")
+	for i := 1; i <= 25; i++ {
+		fmt.Fprintf(&svc, "\t_ = %d\n", i)
+	}
+	svc.WriteString("\treturn nil\n}\n")
+	writeFile(t, repo, "service.go", svc.String())
+
+	var rng strings.Builder
+	rng.WriteString("package demo\n\nfunc PartOne() int {\n")
+	for i := 1; i <= 15; i++ {
+		fmt.Fprintf(&rng, "\t_ = %d\n", i)
+	}
+	rng.WriteString("\treturn 1\n}\n\nfunc PartTwo() int {\n")
+	for i := 1; i <= 16; i++ {
+		fmt.Fprintf(&rng, "\t_ = %d\n", i)
+	}
+	rng.WriteString("\treturn 2\n}\n")
+	writeFile(t, repo, "ranged.go", rng.String())
+	commitAll(t, repo, "init unignored repo")
+	return repo, t.TempDir(), t.TempDir()
+}
+
+func assertPreToolFullFileLifecycle(t *testing.T, repo, nonGitDir string, invoke func(map[string]any) HookDecisionOutput, savedCount func(string) int) {
+	t.Helper()
+	d1 := invoke(map[string]any{
+		"conversationId": "conv-full",
+		"workspacePaths": []string{nonGitDir, repo},
+		"toolCall":       map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}},
+	})
+	if d1.Decision != "allow" {
+		t.Fatalf("1st full read_file = %+v, want allow", d1)
+	}
+	d2 := invoke(map[string]any{
+		"session_id":     "conv-full",
+		"workspacePaths": []string{repo},
+		"toolCall":       map[string]any{"name": "default_api:read_file", "args": map[string]any{"path": "service.go"}},
+	})
+	if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED] service.go:1-") || !strings.Contains(d2.Reason, "stamp consumed") || !strings.Contains(d2.Reason, "func ExecuteService") {
+		t.Fatalf("2nd unchanged full read_file = %+v, want deny with [UNCHANGED] consume-on-hit + skeleton", d2)
+	}
+	if got := savedCount("conv-full"); got != 1 {
+		t.Fatalf("saved_count after 1st block = %d, want 1", got)
+	}
+	if d3 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d3.Decision != "allow" {
+		t.Fatalf("3rd retry after consume-on-hit = %+v, want allow", d3)
+	}
+	if d4 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d4.Decision != "deny" || savedCount("conv-full") != 2 {
+		t.Fatalf("4th unchanged re-read = %+v (saved=%d), want deny and saved=2", d4, savedCount("conv-full"))
+	}
+	_ = invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}})
+	writeFile(t, repo, "service.go", "package demo\n\nfunc ExecuteService(id string) error { return nil }\n")
+	if dChanged := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); dChanged.Decision != "allow" || savedCount("conv-full") != 2 {
+		t.Fatalf("read after file change = %+v (saved=%d), want allow and saved=2", dChanged, savedCount("conv-full"))
+	}
+}
+
+func assertPreToolRangedAndEnvelopeVariants(t *testing.T, repo string, invoke func(map[string]any) HookDecisionOutput, savedCount func(string) int) {
+	t.Helper()
+	r1 := invoke(map[string]any{
+		"sessionId": "conv-range",
+		"cwd":       repo,
+		"toolCall":  map[string]any{"name": "read_file", "args": map[string]any{"path": "ranged.go", "startLine": 1, "endLine": 20}},
+	})
+	if r1.Decision != "allow" {
+		t.Fatalf("1st camelCase ranged read = %+v, want allow", r1)
+	}
+	r2 := invoke(map[string]any{
+		"conversation_id": "conv-range",
+		"tool_call":       map[string]any{"name": "view_file", "args": map[string]any{"absolutePath": filepath.Join(repo, "ranged.go"), "start_line": 21, "end_line": 42}},
+	})
+	if r2.Decision != "allow" || savedCount("conv-range") != 0 {
+		t.Fatalf("2nd novel ranged read (21..42) = %+v (saved=%d), want allow and saved=0", r2, savedCount("conv-range"))
+	}
+	r3 := invoke(map[string]any{
+		"transcriptPath":  "/tmp/agy/brain/conv-range/.system_generated/logs/transcript.jsonl",
+		"workspace_paths": []string{repo},
+		"tool_name":       "read_file",
+		"tool_input":      map[string]any{"Path": "ranged.go", "StartLine": 1, "EndLine": 42},
+	})
+	if r3.Decision != "deny" || !strings.HasPrefix(r3.Reason, "[UNCHANGED] ranged.go:1-") || savedCount("conv-range") != 1 {
+		t.Fatalf("3rd covering re-read across coalesced range = %+v (saved=%d), want deny and saved=1", r3, savedCount("conv-range"))
 	}
 }

@@ -1,7 +1,6 @@
 package search
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +22,7 @@ const (
 type HookInput struct {
 	ConversationID        string       `json:"conversationId"`
 	WorkspacePaths        []string     `json:"workspacePaths"`
+	Cwd                   string       `json:"cwd,omitempty"`
 	TranscriptPath        string       `json:"transcriptPath"`
 	ArtifactDirectoryPath string       `json:"artifactDirectoryPath"`
 	ModelName             string       `json:"modelName"`
@@ -99,7 +99,7 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 	if in == nil {
 		in = os.Stdin
 	}
-	input, decErr := decodeHookInput(in)
+	input, decErr := decodeHookInput(o, in)
 	dir := resolveHookDir(o, input)
 	if decErr != nil || hooksDisabled(dir) {
 		if event == "pre-invocation" {
@@ -117,27 +117,33 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 	}
 }
 
-func decodeHookInput(in io.Reader) (HookInput, error) {
+func decodeHookInput(o Options, in io.Reader) (HookInput, error) {
 	data, err := io.ReadAll(io.LimitReader(in, 4<<20))
 	if err != nil {
 		return HookInput{}, err
 	}
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 {
-		return HookInput{}, nil
-	}
-	var input HookInput
-	if err := json.Unmarshal(trimmed, &input); err != nil {
-		return HookInput{}, err
-	}
-	return input, nil
+	return parseAndNormalizeHookInput(o, data)
 }
 
 func resolveHookDir(o Options, in HookInput) string {
+	firstWP := ""
 	for _, wp := range in.WorkspacePaths {
-		if p := strings.TrimSpace(wp); p != "" {
+		p := strings.TrimSpace(wp)
+		if p == "" {
+			continue
+		}
+		if firstWP == "" {
+			firstWP = p
+		}
+		if _, err := checkoutRoot(p); err == nil {
 			return p
 		}
+	}
+	if firstWP != "" {
+		return firstWP
+	}
+	if cwd := strings.TrimSpace(in.Cwd); cwd != "" {
+		return cwd
 	}
 	if o.Dir != "" {
 		return o.Dir
@@ -439,47 +445,80 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 }
 
 func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
-	name := strings.TrimSpace(in.ToolCall.Name)
+	switch normalizeHookToolName(in.ToolCall.Name) {
+	case "read_file":
+		return handlePreToolRead(dir, in, out)
+	case "run_command":
+		return handlePreToolBash(dir, in, out)
+	case "write_or_edit":
+		return handlePreToolWrite(dir, in, out)
+	default:
+		return writeDecision(out, "allow", "")
+	}
+}
+
+func handlePreToolRead(dir string, in HookInput, out io.Writer) error {
 	args := in.ToolCall.Args
-	switch name {
-	case "read_file", "view_file", "Read":
-		target := extractStringArg(args, "Path", "path", "AbsolutePath", "absolute_path", "FilePath", "file_path", "TargetFile", "target_file")
-		if target == "" {
-			return writeDecision(out, "allow", "")
-		}
-		start, end, record := clampReadRange(dir, target, args)
-		if !record {
-			return writeDecision(out, "allow", "")
-		}
-		dec, err := CheckAndRecordRead(dir, in.ConversationID, target, start, end, 0)
-		if err == nil && !dec.Allowed {
-			return writeDecision(out, "deny", dec.Reason)
-		}
-	case "run_command", "Bash", "bash":
-		cmd := extractStringArg(args, "CommandLine", "command_line", "Command", "command", "cmd")
-		if cmd == "" {
-			return writeDecision(out, "allow", "")
-		}
-		dec, matched, err := CheckAndRecordBashRead(dir, in.ConversationID, cmd, 0)
-		if err == nil && matched && !dec.Allowed {
-			return writeDecision(out, "deny", dec.Reason)
-		}
-	case "edit_file", "replace_file_content", "multi_replace_file_content", "write_file", "write_to_file", "Edit", "Write":
-		target := extractStringArg(args, "Path", "path", "TargetFile", "target_file", "AbsolutePath", "absolute_path", "FilePath", "file_path")
-		if target == "" {
-			return writeDecision(out, "allow", "")
-		}
-		dec, err := CheckPreWriteHash(dir, in.ConversationID, target)
-		if err == nil && !dec.Allowed {
-			return writeDecision(out, "deny", dec.Reason)
-		}
-		if err == nil {
-			if mErr := markPreWriteInLedger(dir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
-				return writeDecision(out, "allow", "fyr brain: pre-write ledger unavailable ("+oneLineErr(mErr)+")")
-			}
+	target := extractToolTargetPath(args)
+	toolDir := resolveToolProjectDir(dir, in, target)
+	if target == "" || (toolDir != dir && hooksDisabled(toolDir)) {
+		return writeDecision(out, "allow", "")
+	}
+	start, end, record := clampReadRange(toolDir, target, args)
+	if !record {
+		return writeDecision(out, "allow", "")
+	}
+	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
+		return CheckAndRecordRead(toolDir, in.ConversationID, target, start, end, 0)
+	})
+	if err == nil && !dec.Allowed {
+		return writeDecision(out, "deny", dec.Reason)
+	}
+	return writeDecision(out, "allow", "")
+}
+
+func handlePreToolBash(dir string, in HookInput, out io.Writer) error {
+	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
+	bfr, ok := ParseBashFileRead(cmd)
+	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
+	if !ok || (toolDir != dir && hooksDisabled(toolDir)) {
+		return writeDecision(out, "allow", "")
+	}
+	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
+		return CheckAndRecordRead(toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
+	})
+	if err == nil && !dec.Allowed {
+		return writeDecision(out, "deny", dec.Reason)
+	}
+	return writeDecision(out, "allow", "")
+}
+
+func handlePreToolWrite(dir string, in HookInput, out io.Writer) error {
+	target := extractToolTargetPath(in.ToolCall.Args)
+	toolDir := resolveToolProjectDir(dir, in, target)
+	if target == "" || (toolDir != dir && hooksDisabled(toolDir)) {
+		return writeDecision(out, "allow", "")
+	}
+	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
+		return CheckPreWriteHash(toolDir, in.ConversationID, target)
+	})
+	if err == nil && !dec.Allowed {
+		return writeDecision(out, "deny", dec.Reason)
+	}
+	if err == nil {
+		if mErr := markPreWriteInLedger(toolDir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
+			return writeDecision(out, "allow", "fyr brain: pre-write ledger unavailable ("+oneLineErr(mErr)+")")
 		}
 	}
 	return writeDecision(out, "allow", "")
+}
+
+func checkLedgerWithIgnoreRetry(dir string, fn func() (ReadDecision, error)) (ReadDecision, error) {
+	dec, err := fn()
+	if errors.Is(err, errNotIgnored) && ensureExistingCheckoutIgnored(dir) {
+		return fn()
+	}
+	return dec, err
 }
 
 func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {

@@ -116,6 +116,7 @@ func RegisterCapsulePivots(dir, conversationID string, turnNum int, pivots []Cap
 		return err
 	}
 	defer st.close()
+	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		conversationID = "default"
 	}
@@ -144,6 +145,7 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 		return ReadDecision{}, err
 	}
 	defer st.close()
+	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		conversationID = "default"
 	}
@@ -180,12 +182,27 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 }
 
 func (s *store) recordLedgerBlock(conversationID string, turnNum int, now int64) {
-	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num))`)
-	_, _ = s.db.Exec(`INSERT INTO read_ledger_stats(conversation_id, turn_num, saved_count, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(conversation_id, turn_num) DO UPDATE SET saved_count = read_ledger_stats.saved_count + 1, updated_at = excluded.updated_at`,
-		conversationID, turnNum, now)
+	const ins = `INSERT INTO read_ledger_stats(conversation_id, turn_num, saved_count, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(conversation_id, turn_num) DO UPDATE SET saved_count = read_ledger_stats.saved_count + 1, updated_at = excluded.updated_at`
+	if _, err := s.db.Exec(ins, conversationID, turnNum, now); err != nil {
+		_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num))`)
+		_, _ = s.db.Exec(ins, conversationID, turnNum, now)
+	}
 }
 
 func (s *store) upsertReadStamp(conversationID string, genID int, resolved string, start, end int, sumHex string, turnNum int, now int64) error {
+	if start > 0 && end >= start && sumHex != "" {
+		var minS, maxE int
+		if err := s.db.QueryRow(
+			`SELECT COALESCE(MIN(start_line), 0), COALESCE(MAX(end_line), 0) FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ?`,
+			conversationID, genID, resolved, sumHex, end+1, start-1,
+		).Scan(&minS, &maxE); err == nil && minS > 0 {
+			start, end = min(start, minS), max(end, maxE)
+			_, _ = s.db.Exec(
+				`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ?`,
+				conversationID, genID, resolved, sumHex, end, start,
+			)
+		}
+	}
 	const q = `INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line) DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, hit_count = 1, updated_at = excluded.updated_at`
 	if _, err := s.db.Exec(q, conversationID, genID, resolved, start, end, sumHex, turnNum, now); err != nil {
 		return err
@@ -204,6 +221,7 @@ func CheckPreWriteHash(dir, conversationID, targetPath string) (ReadDecision, er
 		return ReadDecision{}, err
 	}
 	defer st.close()
+	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
 		conversationID = "default"
 	}
