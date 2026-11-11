@@ -7,9 +7,9 @@
 
 ## Now
 
-Wave 2 (`/fyr-work` Docker waves after Wave 1 `2, 5, 6, 9` PASS, `D19`, `D22`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phases 3 and 7 in parallel.
+Wave 2b (`/fyr-work` Docker `-r2` fix-up after `p3` PASS, `D19`, `D25`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phase 7 (`p7-r2`).
 
-- [ ] Phase 3 — Workers by default in the plan template (`skills/fyr-feature/SKILL.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
+- [x] Phase 3 — Workers by default in the plan template (`skills/fyr-feature/SKILL.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
 - [ ] Phase 7 — Worker latency budget (`cmd/fyr/`, `internal/work/`, `internal/sandbox/`, `internal/metrics/`, `docker/work.Dockerfile`, `SDD.md`, `TDD.md`, `SPEC-fyr-work`)
 
 ## Next
