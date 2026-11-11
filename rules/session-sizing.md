@@ -5,8 +5,8 @@ description: "Session sizing: a session is one Task, one plan phase or a lead's 
 
 # Session sizing
 
-- A session is one Task, one plan phase, or a lead's planning/dispatch loop (`fyr-feature` workers or `/fyr-work`). A plan phase ends at its Checkpoint box: tick it, store the `change` record, then run `/fyr-handoff` (which commits, pushes and runs `fyr metrics ingest` once; its `## Kickoff` is a fenced block) and END the session; the next phase starts in a fresh conversation from that Kickoff. A Task ends the same way at Definition of Done step 5.
-- Never do a second, unrelated ask in place: finish the current one and queue the rest in the handoff's Kickoff, unless the operator explicitly says "do both here" or "continue here" in their turn.
-- A session with only a Trivial change and nothing queued needs no Kickoff.
-- When handed a Kickoff (or a report pointing to one), execute it in the same turn under its standing approvals without asking to re-send.
-- Why: long contexts degrade gradually before compaction and the model cannot see its own fill; the checkpoint is the visible boundary.
+- A session is one Task, one plan phase, or a lead's wave loop (`fyr-feature` workers or `/fyr-work`). End each phase at its Checkpoint box and each Task at DoD step 5 via `/fyr-handoff` (commits, pushes, `fyr metrics ingest` once; fenced `## Kickoff`); start the next phase in a fresh session. A `/fyr-work` lead chains waves in one session, checking `fyr metrics ingest` + `fyr metrics trajectory` between waves and writing a `/fyr-work <PLAN-ID>` resume handoff on `KNEE_EXCEEDED` (`>= 180,000` tokens) or compaction.
+- Never do a second, unrelated ask in place: queue it in the handoff's Kickoff unless the operator says "do both here" or "continue here" in their turn.
+- A Trivial change with nothing queued needs no Kickoff.
+- Execute a handed Kickoff in the same turn under its standing approvals with zero build-time questions (`ADR-517`): unknowns become dated `D-row`s (`by: implementer` or `by: lead`), closed-set items go to the closing handoff, and only a `fyr work` safety `FAIL` stops a lead loop early.
+- Why: context degrades past the `180,000`-token knee; checkpoints and `fyr metrics trajectory` mark the boundary.

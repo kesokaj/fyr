@@ -66,6 +66,7 @@ func TestSuiteChecks(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", self, filepath.Join(root, "cmd", "fyr")).CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
+	goEnv := suiteGoEnv(t)
 	cases := suiteOutcomes()
 	for _, r := range rows {
 		outs := cases[r.ID]
@@ -76,7 +77,7 @@ func TestSuiteChecks(t *testing.T) {
 		for _, o := range outs {
 			t.Run(r.ID+"/"+o.name, func(t *testing.T) {
 				t.Parallel()
-				got := runOutcome(t, self, string(fixture), string(fixtureExtra), string(fixtureAST), string(fixtureMock), string(fake), r, o)
+				got := runOutcome(t, self, goEnv, string(fixture), string(fixtureExtra), string(fixtureAST), string(fixtureMock), string(fake), r, o)
 				if got != o.pass {
 					t.Errorf("check passed %v, want %v", got, o.pass)
 				}
@@ -90,11 +91,27 @@ func TestSuiteChecks(t *testing.T) {
 	}
 }
 
+// suiteGoEnv preserves the Go build and module caches across moved-HOME
+// subtests so parallel outcome/check `go test` runs do not recompile stdlib
+// into per-subtest /tmp caches and exhaust a 2 GiB container /tmp tmpfs.
+func suiteGoEnv(t *testing.T) []string {
+	t.Helper()
+	env := []string{"GOPROXY=off"}
+	for _, k := range []string{"GOCACHE", "GOMODCACHE", "GOPATH"} {
+		out, err := exec.Command("go", "env", k).Output()
+		if err != nil {
+			t.Fatalf("go env %s: %v", k, err)
+		}
+		env = append(env, k+"="+strings.TrimSpace(string(out)))
+	}
+	return env
+}
+
 // runOutcome sets up a clone as `fyr eval` would (a repository holding the
 // fixture and its stand-in verb, the row's setup with FYR and the fixture
 // identity), runs the outcome, then the row's check, and reports whether the
 // check passed.
-func runOutcome(t *testing.T, self, fixture, fixtureExtra, fixtureAST, fixtureMock, fake string, r Row, o outcome) bool {
+func runOutcome(t *testing.T, self string, goEnv []string, fixture, fixtureExtra, fixtureAST, fixtureMock, fake string, r Row, o outcome) bool {
 	tmp := outsideTemp(t)
 	clone, sb := filepath.Join(tmp, "app"), filepath.Join(tmp, "sb")
 	gitInit(t, clone)
@@ -104,10 +121,10 @@ func runOutcome(t *testing.T, self, fixture, fixtureExtra, fixtureAST, fixtureMo
 	put(t, filepath.Join(clone, ".agents", "eval", "fixture-mock.sh"), fixtureMock, 0o644)
 	put(t, filepath.Join(clone, ".agents", "eval", "fake-work.sh"), fake, 0o644)
 	put(t, filepath.Join(sb, "bin", "fyr"), fmt.Sprintf(checkWrapper, shq(self), shq(sb)), 0o755)
-	check := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + sb, "SB=" + sb,
+	check := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + sb, "SB=" + sb,
 		"OUT=" + filepath.Join(tmp, "out.txt"), "OUT2=" + filepath.Join(tmp, "out2.txt"),
 		"EVENTS=" + filepath.Join(tmp, "events.jsonl"),
-		"FIXDIR=" + clone, "CLONE=" + clone, "GIT_CONFIG_NOSYSTEM=1"}
+		"FIXDIR=" + clone, "CLONE=" + clone, "GIT_CONFIG_NOSYSTEM=1"}, goEnv...)
 	setup := append(append([]string{}, check...), "FYR="+self, "F="+filepath.Join(sb, "bin", "fyr"),
 		"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@localhost",
 		"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=f@localhost")

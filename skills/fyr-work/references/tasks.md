@@ -29,7 +29,7 @@ The lead reads only enough to fill these fields (`fyr search`, `git ls-files`, a
 
 Print one table, ordered by wave, with these columns: `#`, the task in one line, name, `Files:`, Done when, model, runner and wave. A row routed to the feature skill, or to the closed set, says so in the name column and has no other fields. Under a `host` runner, quote the reason `--check` printed on one line in backticks, as data.
 
-Nothing runs until the operator's go in their own turn (D4). The go is waived only when the same `/fyr-work` turn says so in words, for example "no go needed" or "go waived". A waiver never covers a worker that runs on host because docker was not ready (D5): that table always waits for the go.
+Nothing runs until the operator's go in their own turn (D4), which settles the table's scope and runner (`host` fallback included) before build starts (`ADR-517`, superseding `ADR-507`'s mid-build wait-point). The go is waived only when the same `/fyr-work` turn says so in words, for example "no go needed" or "go waived": when `--check` reported `host` and the invocation turn also pre-approved `host` fallback in words, the waves run on `--runner host` and the closing handoff quotes `<reason>` in backticks; when `go` was waived without pre-approving `host`, never stop mid-run to ask — run no host workers and defer the tasks with `<reason>` quoted in backticks to the closing handoff's `Next Steps`.
 
 ## 5. Compose and run each wave
 
@@ -39,7 +39,7 @@ Nothing runs until the operator's go in their own turn (D4). The go is waived on
 4. **Re-dispatch** as loop step 7 says, once per task, as `-r2`. A FAIL naming `changed outside its Files`, and a red squash naming a file outside the scope, block the task: the lead never widens a scope. The handoff proposes the wider scope to the operator, and the task's branch stays.
 5. **A worker's question** is answered as loop step 7 says. With no plan to hold a D-row, each answer goes in the lead's handoff under `## Key Decisions`, `by: lead`.
 6. **Store the bug drafts** with loop step 9.
-7. **End the wave:** commit by name, run `check-trailers.sh`, and push when the project has a remote, so the tree is clean before the next wave. There is no plan box or `TODO.md` line to tick.
+7. **End the wave:** commit by name, run `check-trailers.sh`, and push when the project has a remote, so the tree is clean before the next wave. There is no plan box or `TODO.md` line to tick. When another wave remains, check `fyr metrics ingest` and `fyr metrics trajectory --project . --limit 1` before chaining: on `KNEE_EXCEEDED` (`>= 180,000` tokens) or CLI compaction, stop chaining before the next wave and list the remaining tasks as a new `/fyr-work` list in the closing handoff's `Next Steps`.
 
 A task is blocked when it needs the closed set, failed twice, was refused by the verb, or merged with a handoff whose `## Completed` section prints nothing (loop step 8's command). Blocked tasks are never re-dispatched, and the other tasks still run.
 
@@ -51,7 +51,7 @@ Run the Definition of Done once over the whole range, from the first wave's base
 - the docs check;
 - the `verifier` last.
 
-The workers' change records are the range's change records. The lead stores the review and testing records its dispatches drafted, and edits no source, tests or docs: a finding to fix becomes one fix-up worker inside the task's own `Files:` (`<name>-fix`), dispatched and merged as in section 5. A finding outside every task's scope is a closed-set item.
+The workers' change records are the range's change records. The lead stores the review and testing records its dispatches drafted, and edits no source, tests or docs: a finding to fix becomes one fix-up worker inside the task's own `Files:` (`<name>-fix`), dispatched and merged as in section 5. When the review loop hits its two-round cap, the lead never stops to ask: in-scope trade-offs go under `## Key Decisions` (`by: lead`) and in the review's `## Outcome`, while any finding outside every task's scope or needing the closed set goes to the closing handoff's `Next Steps`.
 
 ## 7. The lead's handoff
 
@@ -60,6 +60,6 @@ The lead's handoff (the `fyr-handoff` skill) ends the session. Per task it gives
 - the merged commit and its worker's `## Completed` evidence, written as loop step 8 writes evidence (one line, no plan-line prefix), or the handoff ID when it cannot be written so;
 - or the blocked reason and the branch that stays.
 
-Its Next Steps name every task routed to the `fyr-feature` skill, with its Kickoff; every wider scope proposed; every closed-set item; every bug record stored, by ID; and every unmerged branch.
+Its Next Steps name every task routed to the `fyr-feature` skill, with its Kickoff; every wider scope proposed; the `--check` host `<reason>` quoted in backticks when waves ran on `host` or were deferred for unapproved host fallback; every closed-set item; every bug record stored, by ID; and every unmerged branch.
 
 A task list never resumes. A stopped task run is restarted by a new `/fyr-work` list built from the lead's handoff, after its unmerged branches are dealt with.
