@@ -7,13 +7,15 @@
 
 ## Now
 
-Wave 3 (`/fyr-work` Docker wave after Waves 1 & 2 PASS, `D19`) — `PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`: Phase 4 (`p4`).
+Phase 8 — Closing proof (`PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`):
 
-- [ ] Phase 4 — Feature-routing rule and vet routing (`rules/fyr-features.md`, `context/`, `skills/`, `internal/search/vet_route*.go`, `README.md`, `SDD.md`, `TDD.md`, `.agents/eval/GUIDE-eval.md`, `internal/eval/`)
+- [ ] `reviewer` (`--code --docs`), `security`, `verifier` over the whole range (`v8.5.0..HEAD`)
+- [ ] `fyr models --refresh --home ~` on `dave` and `fyr eval` for rows `autonomy`, `feature`, `feature-routing` and changed skills
+- [ ] Real-home install on `dave` (`/home/kesokaj/Workspace/fyr`); `fyr index --register --home ~` + `fyr dream --install-timer --home ~` (`D10`) — docs: `DEPLOY-local`
+- [ ] `fyr report --md --home ~` shows `Trigger coverage` with non-zero worker, Judge and Base-Check rows (E2E criteria 1–5)
 
 ## Next
 
-- Phase 8 — Closing range review (`reviewer --code --docs`, `security`, `verifier`), `fyr models --refresh`, `fyr eval`, `dave` install + registration + dream timer, and `fyr report --md`
 - Release (`/fyr-preflight v8.6.0`, `D21`) — Gate, annotated tag, GitHub release assets + checksums, and post-release `dave` reinstall
 
 ## Backlog
