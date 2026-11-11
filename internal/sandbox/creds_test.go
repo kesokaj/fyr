@@ -447,7 +447,7 @@ func assertSelfHostingSandbox(t *testing.T) {
 	t.Helper()
 	sb := t.TempDir()
 	baseGH := "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD"
-	baseHdr := "-----" + "BEGIN OPENSSH " + "PRIVATE KEY-----"
+	baseHdr := `var hdr = "` + "-----" + "BEGIN OPENSSH " + "PRIVATE KEY-----" + `"`
 	basePEM := "-----" + "BEGIN RSA " + "PRIVATE KEY-----\nMIIEpAIBAAKCAQEAsecretbody\n-----END RSA PRIVATE KEY-----"
 	baseRef := `{"` + "refresh_" + `token": "x"}`
 	fixture := strings.Join([]string{baseGH, baseHdr, basePEM, baseRef}, "\n") + "\n"

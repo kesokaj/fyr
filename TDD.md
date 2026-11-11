@@ -64,7 +64,7 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 | `fyr search <words>`, `fyr index` | Records first, then ranked files; AST graph slicing and queries (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), `< 25 ms` prompt vetting (`--vet`), and `< 250 ms` CLI hooks (`--hook`); consent to be read across projects | `SPEC-fyr-search` |
 | `fyr memory add` / `show` | The project's memory records and their index | `SPEC-fyr-memory-loop` |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `trajectory` / `export` | Session shapes, trajectories and eval trials: stored, summarised, rendered | `SPEC-fyr-metrics` |
-| `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Project or global five-section usage report (Economist HTML or `--md`; ADR-516) | `SPEC-fyr-metrics` |
+| `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Project or global six-section usage report including `Trigger coverage` (Economist HTML or `--md`; ADR-516, ADR-518) | `SPEC-fyr-metrics` |
 | `fyr dream --install-timer` | The hourly job that proposes from idle projects; `--remove-timer` undoes it | `SPEC-fyr-dream` |
 | `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run, its timer, and the run (§ T19) | `SPEC-fyr-auto` |
 | `fyr check` | A read-only drift check of this checkout; exit 1 on findings | `SPEC-fyr-check` |

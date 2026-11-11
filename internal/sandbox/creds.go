@@ -1,8 +1,6 @@
 package sandbox
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/fs"
@@ -28,7 +26,6 @@ var (
 	credAWS        *regexp.Regexp
 	credExample    []byte
 	credRefreshVal *regexp.Regexp
-	credPrivBody   *regexp.Regexp
 )
 
 func init() {
@@ -51,18 +48,18 @@ func init() {
 	credAWS = regexp.MustCompile(strings.Join([]string{"AK", "IA", `[A-Z0-9]{16}`}, ""))
 	credExample = []byte(strings.Join([]string{"AK", "IA", "IOSFODNN7EXAMPLE"}, ""))
 	credRefreshVal = regexp.MustCompile(strings.Join([]string{`^\s*:\s*("[^"\\\r\n]{0,256}"|'[^'\\\r\n]{0,256}'|[^\s,}\]\r\n`, "`", `]{1,256})`}, ""))
-	credPrivBody = regexp.MustCompile(`^(?:(?:[ \t\r\n]|\\+[rn])+(?:[0-9]+:[ \t]*)?)*(?:[A-Za-z][A-Za-z0-9_-]*:[ \t][^\r\n\\]*(?:[ \t\r\n]|\\+[rn])+(?:[0-9]+:[ \t]*)?)*([A-Za-z0-9+/=]{16,48})`)
 }
 
-// credFinding is what the scan saw at one path: counts and SHA-256 token
-// digests per credential kind, or a problem ("unreadable", "a link to a
-// directory, not walked"), which fails closed.
+// credFinding is what the scan saw at one path: counts, unparsed bare-marker
+// counts, and SHA-256 token digests per credential kind, or a problem
+// ("unreadable", "a link to a directory, not walked"), which fails closed.
 type credFinding struct {
-	kinds   map[string]int
-	digests map[string]map[[32]byte]int
-	problem string
-	target  string
-	outside bool // a directory link that resolves outside the scanned tree
+	kinds    map[string]int
+	unparsed map[string]int
+	digests  map[string]map[[32]byte]int
+	problem  string
+	target   string
+	outside  bool // a directory link that resolves outside the scanned tree
 }
 
 // maxScan bounds the bytes read from one file: a larger file is a problem,
@@ -235,11 +232,11 @@ func scanRegularContent(root, p string, d fs.DirEntry, size int64) (credFinding,
 	if isExecutable(b) {
 		return credFinding{}, false // the installed fyr carries the redaction patterns as text
 	}
-	kinds, digests := credKinds(b)
+	kinds, unparsed, digests := credKinds(b)
 	if len(kinds) == 0 {
 		return credFinding{}, false
 	}
-	return credFinding{kinds: kinds, digests: digests}, true
+	return credFinding{kinds: kinds, unparsed: unparsed, digests: digests}, true
 }
 
 // readBounded reads at most maxScan+1 bytes of p: a /proc file stats as size
@@ -254,48 +251,15 @@ func readBounded(p string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(f, maxScan+1))
 }
 
-// credKinds counts each credential kind and records SHA-256 digests of matched
-// credential tokens in b; AWS's documented example key is not one.
-func credKinds(b []byte) (map[string]int, map[string]map[[32]byte]int) {
+// credKinds counts each credential kind, unparsed bare markers, and SHA-256
+// digests of matched credential tokens in b; AWS's documented example key is
+// not one.
+func credKinds(b []byte) (map[string]int, map[string]int, map[string]map[[32]byte]int) {
 	kinds := map[string]int{}
+	unparsed := map[string]int{}
 	digests := map[string]map[[32]byte]int{}
-	add := func(kind string, tok []byte) {
-		kinds[kind]++
-		if digests[kind] == nil {
-			digests[kind] = map[[32]byte]int{}
-		}
-		digests[kind][sha256.Sum256(tok)]++
-	}
-	for _, c := range credText {
-		for _, loc := range c.re.FindAllIndex(b, -1) {
-			add(c.kind, canonicalCredToken(c.kind, b, loc[0], loc[1]))
-		}
-	}
-	for _, m := range credAWS.FindAll(b, -1) {
-		if !bytes.Equal(m, credExample) {
-			add("aws-key", m)
-		}
-	}
-	return kinds, digests
-}
-
-func canonicalCredToken(kind string, b []byte, start, end int) []byte {
-	switch kind {
-	case "refresh-token":
-		tail := b[end:min(len(b), end+300)]
-		if m := credRefreshVal.FindSubmatch(tail); m != nil {
-			return append(append([]byte("refresh-token:"), m[1]...), 0)
-		}
-	case "private-key":
-		tail := b[end:min(len(b), end+256)]
-		if m := credPrivBody.FindSubmatch(tail); m != nil {
-			out := make([]byte, 0, (end-start)+1+len(m[1]))
-			out = append(out, b[start:end]...)
-			out = append(out, ':')
-			return append(out, m[1]...)
-		}
-	}
-	return b[start:end]
+	recordWindowCreds(b, len(b), kinds, unparsed, digests)
+	return kinds, unparsed, digests
 }
 
 // isExecutable is the ELF and Mach-O magic skip of the preamble (:161-162).
@@ -343,6 +307,10 @@ func newCreds(baseline, after map[string]credFinding) []string {
 		b := baseline[rel]
 		var grew []string
 		for k, n := range f.kinds {
+			if f.unparsed[k] > b.unparsed[k] {
+				grew = append(grew, k)
+				continue
+			}
 			ds := f.digests[k]
 			if len(ds) == 0 {
 				if n > b.kinds[k] {

@@ -32,14 +32,23 @@ func decodeWaveStamp(stored string) (label, raw string) {
 		return "", stored
 	}
 	n, err := strconv.Atoi(nStr)
-	if err != nil || n <= 0 || len(rest) <= n || rest[n] != ':' {
+	if err != nil || n <= 0 || n > 128 || len(rest) <= n || rest[n] != ':' {
 		return "", stored
 	}
 	cand := rest[:n]
-	if !strings.Contains(cand, "=") {
+	if !hasASCIIAlpha(cand) || rest[n+1:] == "" {
 		return "", stored
 	}
 	return cand, rest[n+1:]
+}
+
+func hasASCIIAlpha(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if (s[i] >= 'A' && s[i] <= 'Z') || (s[i] >= 'a' && s[i] <= 'z') {
+			return true
+		}
+	}
+	return false
 }
 
 func waveMatchesLabel(stamp string, o ShowOptions) bool {

@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"io/fs"
@@ -59,6 +58,7 @@ func streamTestLogFile(fd *os.File, statSize int64) (credFinding, bool, bool) {
 	}
 
 	kinds := map[string]int{}
+	unparsed := map[string]int{}
 	digests := map[string]map[[32]byte]int{}
 	total, wlen := int64(n), n
 	for {
@@ -67,7 +67,7 @@ func streamTestLogFile(fd *os.File, statSize int64) (credFinding, bool, bool) {
 		if !eof {
 			safeEnd = wlen - overlap
 		}
-		addWindowCreds(buf[:wlen], safeEnd, kinds, digests)
+		recordWindowCreds(buf[:wlen], safeEnd, kinds, unparsed, digests)
 		if eof {
 			break
 		}
@@ -86,30 +86,5 @@ func streamTestLogFile(fd *os.File, statSize int64) (credFinding, bool, bool) {
 	if len(kinds) == 0 {
 		return credFinding{}, true, false
 	}
-	return credFinding{kinds: kinds, digests: digests}, true, true
-}
-
-func addWindowCreds(win []byte, safeEnd int, kinds map[string]int, digests map[string]map[[32]byte]int) {
-	record := func(kind string, tok []byte) {
-		kinds[kind]++
-		if digests[kind] == nil {
-			digests[kind] = map[[32]byte]int{}
-		}
-		digests[kind][sha256.Sum256(tok)]++
-	}
-	for _, c := range credText {
-		for _, loc := range c.re.FindAllIndex(win, -1) {
-			if loc[0] < safeEnd {
-				record(c.kind, canonicalCredToken(c.kind, win, loc[0], loc[1]))
-			}
-		}
-	}
-	for _, loc := range credAWS.FindAllIndex(win, -1) {
-		if loc[0] < safeEnd {
-			m := win[loc[0]:loc[1]]
-			if !bytes.Equal(m, credExample) {
-				record("aws-key", m)
-			}
-		}
-	}
+	return credFinding{kinds: kinds, unparsed: unparsed, digests: digests}, true, true
 }

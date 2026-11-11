@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -71,6 +72,54 @@ func TestCredsEveryPattern(t *testing.T) {
 		}
 		if f, ok := got[filepath.Join("miss", n.miss)]; ok {
 			t.Errorf("near-miss name %q counted: %+v", n.miss, f)
+		}
+	}
+}
+
+// TestScanCredsDistinguishesPKCS8KeysAndBareMarkers covers BUG-542: distinct
+// PKCS#8 P-256 and RSA-2048 private keys that share their first 48 base64
+// ASN.1 header bytes still fail closed, and bare markers or Go struct tags in
+// baseline source never excuse novel unparsed or non-colon leaks.
+func TestScanCredsDistinguishesPKCS8KeysAndBareMarkers(t *testing.T) {
+	sb := t.TempDir()
+	beginPKCS8 := "-----" + "BEGIN " + "PRIVATE KEY-----"
+	endPKCS8 := "-----END PRIVATE KEY-----"
+	p256ASN1 := "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg"
+	rsaASN1 := "MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIB"
+
+	baseP256 := beginPKCS8 + "\n" + p256ASN1 + strings.Repeat("A", 64) + "\n" + strings.Repeat("B", 56) + "==\n" + endPKCS8
+	leakedP256 := beginPKCS8 + "\n" + p256ASN1 + strings.Repeat("Z", 64) + "\n" + strings.Repeat("Y", 56) + "==\n" + endPKCS8
+	baseRSA := beginPKCS8 + "\n" + rsaASN1 + strings.Repeat("C", 64) + "\n" + strings.Repeat("D", 192) + "\n" + endPKCS8
+	leakedRSA := beginPKCS8 + "\n" + rsaASN1 + strings.Repeat("W", 64) + "\n" + strings.Repeat("X", 192) + "\n" + endPKCS8
+	structTag := "type tok struct { R string `json:\"" + "refresh_" + "token\"` }"
+	knownRef := `{"` + "refresh_" + `token": "fixture-val"}`
+
+	fixture := strings.Join([]string{baseP256, baseRSA, structTag, knownRef, beginPKCS8}, "\n") + "\n"
+	put(t, filepath.Join(sb, "app", "fixture_test.go"), fixture, 0o644)
+	base := scanCreds(sb)
+
+	// Struct tag and baseline PEMs indexed into search.db pass.
+	sdb := filepath.Join(sb, "app", ".agents", "scratch", "search.db")
+	put(t, sdb, "SQLite format 3\x00"+strings.Join([]string{baseP256, baseRSA, structTag, knownRef}, "\n")+"\n", 0o600)
+	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+		t.Fatalf("indexed baseline PKCS#8 and struct tag flagged: %v", got)
+	}
+
+	for _, tc := range []struct {
+		name, rel, payload, wantKind string
+	}{
+		{"distinct PKCS#8 P-256", "app/leaked-p256.pem", leakedP256 + "\n", "private-key"},
+		{"distinct PKCS#8 RSA-2048", "app/leaked-rsa.pem", leakedRSA + "\n", "private-key"},
+		{"unparsed short PEM block", "app/leaked-short.pem", beginPKCS8 + "\nshortsecret\n" + endPKCS8 + "\n", "private-key"},
+		{"equals refresh_token leak", "app/leaked.env", `"refresh_` + `token" = "novelSecret123"` + "\n", "refresh-token"},
+		{"mixed known+unparsed refresh_token", "app/mixed.txt", knownRef + "\n" + `["refresh_` + `token", "novelSecret456"]` + "\n", "refresh-token"},
+	} {
+		p := filepath.Join(sb, filepath.FromSlash(tc.rel))
+		put(t, p, tc.payload, 0o600)
+		got := newCreds(base, scanCreds(sb))
+		_ = os.Remove(p)
+		if len(got) != 1 || !strings.Contains(got[0], tc.wantKind) {
+			t.Errorf("%s: got %v, want 1 hit containing %q", tc.name, got, tc.wantKind)
 		}
 	}
 }

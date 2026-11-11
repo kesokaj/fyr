@@ -7,16 +7,7 @@
 
 ## Now
 
-Phase 8 — Closing proof (`PLAN-2026-11-11-0640-plan-fyr-autonomy-and-full-feature-use`):
-
-- [ ] `reviewer` (`--code --docs`), `security`, `verifier` over the whole range (`v8.5.0..HEAD`)
-- [ ] `fyr models --refresh --home ~` on `dave` and `fyr eval` for rows `autonomy`, `feature`, `feature-routing` and changed skills
-- [ ] Real-home install on `dave` (`/home/kesokaj/Workspace/fyr`); `fyr index --register --home ~` + `fyr dream --install-timer --home ~` (`D10`) — docs: `DEPLOY-local`
-- [ ] `fyr report --md --home ~` shows `Trigger coverage` with non-zero worker, Judge and Base-Check rows (E2E criteria 1–5)
-
 ## Next
-
-- Release (`/fyr-preflight v8.6.0`, `D21`) — Gate, annotated tag, GitHub release assets + checksums, and post-release `dave` reinstall
 
 ## Backlog
 

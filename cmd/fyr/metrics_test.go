@@ -185,6 +185,8 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"metrics", "show", "--since", "2026-10-05", "--until", "2026-10-01"},
 		{"metrics", "ingest", "--until", "2026-10-01"},
 		{"metrics", "show", "--label", "a=b", "--all-labels"},
+		{"metrics", "show", "--label", "bare"},
+		{"report", "--label", "bare"},
 		{"metrics", "show", "--outcome", "pass"},
 		{"metrics", "show", "--out", filepath.Join(home, "x.html")},
 		{"metrics", "report", "--json"},

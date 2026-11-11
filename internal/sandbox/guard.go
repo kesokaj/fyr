@@ -179,13 +179,14 @@ var (
 )
 
 // storeEntry reports whether rel, relative to the state directory, is one
-// of the entries SkipStores leaves out: top-level names only, and
-// WriteAtomic's temporary names as files only.
-func storeEntry(rel string, dir bool) bool {
+// of the entries SkipStores leaves out: top-level names only, regular
+// models.json refreshes (BUG-543), and WriteAtomic's temporary names as files only.
+func storeEntry(rel string, mode fs.FileMode) bool {
 	if strings.ContainsRune(rel, filepath.Separator) {
 		return false
 	}
-	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (!dir && atomicTemp.MatchString(rel))
+	dir := mode.IsDir()
+	return storeFile.MatchString(rel) || slices.Contains(storeNames, rel) || storeTemps.MatchString(rel) || (mode.IsRegular() && rel == "models.json") || (!dir && atomicTemp.MatchString(rel))
 }
 
 // fingerprintWith is safety check c (preamble :85-117, BUG-107, 123, 158):
@@ -219,7 +220,7 @@ func fingerprintWith(realHome string, skipStores bool, brainWatch func(string) (
 				}
 				return filepath.SkipDir
 			}
-			if dir == harness.StateDir && skipStores && storeEntry(rel, d.IsDir()) {
+			if dir == harness.StateDir && skipStores && storeEntry(rel, d.Type()) {
 				if brainWatch != nil && strings.HasPrefix(rel, "brain.db") {
 					fingerprintBrainFile(p, d, rel, key, brainWatch, fp)
 				}

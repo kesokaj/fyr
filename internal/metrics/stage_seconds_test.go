@@ -118,6 +118,21 @@ func TestWorkWavesStageSecondsSchema7(t *testing.T) {
 	if set2 != 5 || agy2 != 40 || chk2 != 15 {
 		t.Fatalf("copied dev stage seconds = (%d, %d, %d), want (5, 40, 15)", set2, agy2, chk2)
 	}
+	// Bare and KEY=VALUE dev labels stay isolated from unlabelled Show() and match their own Label filter.
+	unlabelled, err := s7.Show(ShowOptions{Now: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatalf("unlabelled Show: %v", err)
+	}
+	if unlabelled.F.Workers != 1 {
+		t.Fatalf("unlabelled Show Workers = %d, want 1 (labelled dev copy leaked)", unlabelled.F.Workers)
+	}
+	labelled, err := s7.Show(ShowOptions{Now: now.Add(time.Minute), Label: "fyr-work"})
+	if err != nil {
+		t.Fatalf("labelled Show: %v", err)
+	}
+	if labelled.F.Workers != 1 {
+		t.Fatalf("labelled Show(fyr-work) Workers = %d, want 1", labelled.F.Workers)
+	}
 
 	// Schema-6 dev store (without stage columns) copies cleanly with (0, 0, 0).
 	dev6Path := filepath.Join(dir, "dev6-metrics.db")

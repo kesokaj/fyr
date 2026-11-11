@@ -255,8 +255,8 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if c.metricsProject != "" && c.global {
 		return o, errors.New("--project and --global exclude each other")
 	}
-	if c.metricsLabel != "" && c.metricsAllLabels {
-		return o, errors.New("--label and --all-labels exclude each other")
+	if err := validateShowLabelFlags(c.metricsLabel, c.metricsAllLabels); err != nil {
+		return o, err
 	}
 	if c.metricsSource != "" || c.metricsOutcome != "" {
 		return o, errors.New("--source and --outcome belong to ingest")
@@ -291,6 +291,19 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 		o.Project = proj
 	}
 	return o, nil
+}
+
+func validateShowLabelFlags(label string, allLabels bool) error {
+	if label != "" && allLabels {
+		return errors.New("--label and --all-labels exclude each other")
+	}
+	if label != "" {
+		k, v, ok := strings.Cut(label, "=")
+		if !ok || k == "" || v == "" {
+			return fmt.Errorf("--label %q: want KEY=VALUE", label)
+		}
+	}
+	return nil
 }
 
 // metricsWindow reads --since and --until: zero for either not given, and

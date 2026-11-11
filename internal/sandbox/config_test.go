@@ -245,13 +245,32 @@ func TestGuardFingerprintBrainWatch(t *testing.T) {
 	watch := func(string) (string, bool) { return digest, ok }
 	before := fingerprintWith(real, true, watch)
 
-	// Unwatched store writes and regular brain.db WAL/SHM/page rewrites pass.
-	for _, rel := range []string{"brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal", "metrics.db", "metrics.db-wal", "search.db", "dream.log", ".fyr-99"} {
+	// Unwatched store writes, regular models.json refreshes (BUG-543), and
+	// regular brain.db WAL/SHM/page rewrites pass under SkipStores.
+	for _, rel := range []string{"brain.db", "brain.db-wal", "brain.db-shm", "brain.db-journal", "metrics.db", "metrics.db-wal", "search.db", "dream.log", "models.json", ".fyr-99"} {
 		write(rel, "v2-bigger")
 	}
 	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 0 {
 		t.Fatalf("unwatched store writes changed paths: %v", got)
 	}
+	// Without SkipStores, models.json stays watched, and under SkipStores a
+	// symlink replacing models.json is still reported.
+	beforeNoSkip := fingerprintWith(real, false, nil)
+	write("models.json", "v3-refresh")
+	wantModels := filepath.FromSlash(harness.StateDir + "/models.json")
+	if got := changedPaths(beforeNoSkip, fingerprintWith(real, false, nil)); len(got) != 1 || got[0] != wantModels {
+		t.Fatalf("models.json without SkipStores: %v, want [%s]", got, wantModels)
+	}
+	modelsPath := filepath.Join(state, "models.json")
+	os.Remove(modelsPath)
+	if err := os.Symlink(filepath.Join(state, "state.json"), modelsPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := changedPaths(before, fingerprintWith(real, true, watch)); len(got) != 1 || got[0] != wantModels {
+		t.Fatalf("symlinked models.json under SkipStores: %v, want [%s]", got, wantModels)
+	}
+	os.Remove(modelsPath)
+	write("models.json", "v2-bigger")
 
 	// A watched-scope digest change reports brain.db.
 	digest = "scope-d2"
