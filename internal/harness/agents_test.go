@@ -138,7 +138,7 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 		}
 		if a.Name == "security" {
 			if _, ok := a.Front["model"]; ok {
-				t.Errorf("agent security model = %q, want none (inherits session or cross-family model)", a.Front["model"])
+				t.Errorf("agent security model = %q, want none (inherits session model)", a.Front["model"])
 			}
 		}
 	}
@@ -148,6 +148,49 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 	}
 	if flat, _ := filepath.Glob(filepath.Join("..", "..", "agents", "*.md")); len(flat) > 0 {
 		t.Errorf("flat agent files left from the format before ADR-062: %v", flat)
+	}
+
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundSecurityRow bool
+	for _, line := range strings.Split(string(readme), "\n") {
+		if strings.HasPrefix(line, "| `security` |") {
+			foundSecurityRow = true
+			if strings.Contains(line, "cross-family") {
+				t.Errorf("README.md security subagent row claims cross-family routing: %s", line)
+			}
+			if !strings.Contains(line, "inherits session model") {
+				t.Errorf("README.md security subagent row does not state security inherits session model: %s", line)
+			}
+		}
+	}
+	if !foundSecurityRow {
+		t.Errorf("README.md missing security subagent row")
+	}
+
+	reviewSkill, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-review", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundHighLine bool
+	for _, line := range strings.Split(string(reviewSkill), "\n") {
+		if strings.Contains(line, "`--high`:") {
+			foundHighLine = true
+			if strings.Contains(line, "reviewer and security") && strings.Contains(line, "cross-family") {
+				t.Errorf("skills/fyr-review/SKILL.md --high line claims cross-family routing for security: %s", line)
+			}
+			if strings.Contains(line, "security") && strings.Contains(line, "cross-family") && strings.Index(line, "security") < strings.Index(line, "cross-family") {
+				t.Errorf("skills/fyr-review/SKILL.md --high line claims cross-family routing for security: %s", line)
+			}
+			if !strings.Contains(line, "`security` inherits the session model") && !strings.Contains(line, "security inherits the session model") {
+				t.Errorf("skills/fyr-review/SKILL.md --high line does not state security inherits session model: %s", line)
+			}
+		}
+	}
+	if !foundHighLine {
+		t.Errorf("skills/fyr-review/SKILL.md missing --high line")
 	}
 }
 

@@ -288,7 +288,7 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 | `explorer` | `flash` | Read-only codebase reconnaissance (10+ files) drafted under `.agents/scratch/agents/` and stored as a `plan` record |
 | `triage` | `flash` | Read-only queue, issue, and PR triage (redundancy + `PRD.md`/`ADR` rejection checks and Agent Brief drafts) stored as a closed `plan` record |
 | `reviewer` | inherit | Independent severity-ranked code, docs, and prompt review drafted under `.agents/scratch/agents/` (`review` record) |
-| `security` | inherit | Defensive security audit of diffs touching auth, crypto, secrets, IAM, input parsing, frontmatter allowlists, or dependencies (inherits session model or cross-family routing) |
+| `security` | inherit | Defensive security audit of diffs touching auth, crypto, secrets, IAM, input parsing, frontmatter allowlists, or dependencies (inherits session model) |
 | `verifier` | inherit | Runs project test tiers (`go test -race`, vet, lint, e2e) on the frozen working tree and drafts a `testing` record |
 | `documentation` | `flash` | Maintains living docs (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) when changes exceed 30 lines |
 | `changelog` | `flash` | Drafts structured `change` records from `git log --stat` when delegated |
