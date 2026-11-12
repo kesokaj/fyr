@@ -131,11 +131,15 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 			"changelog":     "flash",
 			"documentation": "flash",
 			"explorer":      "flash",
-			"security":      "pro",
 			"triage":        "flash",
 		}[a.Name]
 		if a.Front["model"] != wantModel {
 			t.Errorf("agent %s model = %q, want %q", a.Name, a.Front["model"], wantModel)
+		}
+		if a.Name == "security" {
+			if _, ok := a.Front["model"]; ok {
+				t.Errorf("agent security model = %q, want none (inherits session or cross-family model)", a.Front["model"])
+			}
 		}
 	}
 	want := []string{"bugs", "changelog", "documentation", "dreamer", "explorer", "reviewer", "security", "triage", "verifier"}

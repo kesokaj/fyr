@@ -3,7 +3,6 @@ name: security
 description: "Defensive security reviewer of a diff and its blast radius (secrets, injection, authz/authn, unsafe crypto, dependency risk). Returns findings, drafted under .agents/scratch/agents/ for the main thread to store as a review record. Dispatch whenever a changed path touches auth, crypto, secrets, IAM, input parsing, or dependencies, regardless of diff size. Never builds exploits and never edits source; the only file it creates is its own findings file."
 subagent: true
 mainAgent: false
-model: pro
 tools: [view_file, grep_search, find_by_name, run_command, write_to_file]
 ---
 
