@@ -178,87 +178,6 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 	return cat, nil
 }
 
-type workEvTally struct {
-	runs, pass int
-	secSum     float64
-	secCount   int
-}
-
-// AggregateWorkEvidence scans <home>/.config/fyr/work/*/status.json and merges extra evidence.
-func AggregateWorkEvidence(home string, extra map[string]ModelEvidence) map[string]ModelEvidence {
-	acc := map[string]*workEvTally{}
-	if home != "" {
-		paths, _ := filepath.Glob(filepath.Join(home, harness.StateDir, "work", "*", "status.json"))
-		for _, p := range paths {
-			mergeStatusFileEvidence(p, acc)
-		}
-	}
-	out := make(map[string]ModelEvidence, len(acc)+len(extra))
-	for id, t := range acc {
-		mean := 0.0
-		if t.secCount > 0 {
-			mean = t.secSum / float64(t.secCount)
-		}
-		out[id] = ModelEvidence{WorkRuns: t.runs, WorkPass: t.pass, WorkMeanSeconds: mean}
-	}
-	for id, ex := range extra {
-		cur := out[id]
-		cur.EvalRuns += ex.EvalRuns
-		cur.EvalPass += ex.EvalPass
-		if ex.WorkRuns > cur.WorkRuns {
-			cur.WorkRuns = ex.WorkRuns
-			cur.WorkPass = ex.WorkPass
-			cur.WorkMeanSeconds = ex.WorkMeanSeconds
-		} else if cur.WorkMeanSeconds == 0 && ex.WorkMeanSeconds > 0 {
-			cur.WorkMeanSeconds = ex.WorkMeanSeconds
-		}
-		out[id] = cur
-	}
-	return out
-}
-
-func mergeStatusFileEvidence(path string, acc map[string]*workEvTally) {
-	st, err := os.Lstat(path)
-	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 4<<20 {
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	var snap struct {
-		Workers []struct {
-			Model      string  `json:"model"`
-			State      string  `json:"state"`
-			ElapsedSec float64 `json:"elapsed_sec"`
-			SetupSec   float64 `json:"setup_s"`
-			AgySec     float64 `json:"agy_s"`
-			CheckSec   float64 `json:"check_s"`
-		} `json:"workers"`
-	}
-	if json.Unmarshal(data, &snap) != nil {
-		return
-	}
-	for _, w := range snap.Workers {
-		if w.Model == "" || (w.State != "PASS" && w.State != "FAIL") {
-			continue
-		}
-		t := acc[w.Model]
-		if t == nil {
-			t = &workEvTally{}
-			acc[w.Model] = t
-		}
-		t.runs++
-		if w.State == "PASS" {
-			t.pass++
-		}
-		if sec := max(w.ElapsedSec, w.SetupSec+w.AgySec+w.CheckSec); sec > 0 {
-			t.secSum += sec
-			t.secCount++
-		}
-	}
-}
-
 // BuildCatalog merges freshly parsed entries with optional previous state and evidence.
 func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence map[string]ModelEvidence) Catalog {
 	today := now.UTC().Format("2006-01-02")
@@ -304,7 +223,6 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 			e.FirstSeen = today
 		}
 		e.LastSeen = today
-		e.Evidence = evidence[e.ID]
 		entries = append(entries, e)
 	}
 	if hasPrev {
@@ -313,10 +231,10 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 				continue
 			}
 			old.Status = "gone"
-			old.Evidence = evidence[old.ID]
 			entries = append(entries, old)
 		}
 	}
+	applyCatalogEvidence(entries, evidence)
 	return entries
 }
 

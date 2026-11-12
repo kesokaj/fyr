@@ -274,3 +274,49 @@ func TestResolveRoleModel(t *testing.T) {
 		t.Fatalf("explicit override: got m=%q note=%q", expModel, expNote)
 	}
 }
+
+func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T) {
+	ctx := context.Background()
+	oldUsage := usageProbeFunc
+	oldList := listModelsFunc
+	t.Cleanup(func() {
+		usageProbeFunc = oldUsage
+		listModelsFunc = oldList
+	})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	parsed := ParseModelsOutput(
+		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+			"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n" +
+			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
+	)
+	cat := BuildCatalog(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 95},
+		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
+		"claude-opus-5-5":      {EvalRuns: 8, EvalPass: 8},
+	})
+	if err := SaveCatalog(home, cat); err != nil {
+		t.Fatal(err)
+	}
+
+	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+		return []string{"gemini-4-carbon-high", "gemini-4-carbon-medium", "claude-opus-5-5-high"}, nil
+	}
+	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t10%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t50%\tx\n", nil
+	}
+
+	bModel, _, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
+	if err != nil || bModel != "gemini-4-carbon-medium" {
+		t.Fatalf("builder pro with 7/16 work + 31/35 eval: got %q err=%v, want gemini-4-carbon-medium", bModel, err)
+	}
+	jFallback, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
+		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
+	}
+}

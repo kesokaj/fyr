@@ -210,3 +210,171 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("models.json corrupted after failed refresh: %v", err)
 	}
 }
+
+func TestCatalogJoinsBareEvalEvidenceOntoHighestEffort(t *testing.T) {
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	parsed := ParseModelsOutput(
+		"gemini-4-argon-low\tGemini 4 Argon (Low)\n" +
+			"gemini-4-argon-medium\tGemini 4 Argon (Medium)\n" +
+			"gemini-4-argon-high\tGemini 4 Argon (High)\n" +
+			"gpt-oss-120b-low\tGPT-OSS 120B (Low)\n" +
+			"gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n" +
+			"claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n" +
+			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n" +
+			"claude-sonnet-4-6\tClaude Sonnet 4.6\n" +
+			"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n" +
+			"gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n",
+	)
+	prev := &Catalog{
+		Entries: []CatalogEntry{
+			{ID: "gemini-3.8-flash-high", Family: "gemini", Tier: "flash", Effort: "high", Status: "active", FirstSeen: "2026-11-10", LastSeen: "2026-11-10"},
+		},
+	}
+	evidence := map[string]ModelEvidence{
+		// Bare metrics.db eval key joins onto highest-effort -high despite -low/-medium appearing first.
+		"gemini-4-argon": {EvalRuns: 34, EvalPass: 31},
+		// Bare key joins onto -medium when no -high exists in the catalog.
+		"gpt-oss-120b": {EvalRuns: 6, EvalPass: 5},
+		// Exact match + bare key add without double-counting the exact match.
+		"claude-opus-5-5-high": {WorkRuns: 3, WorkPass: 3, WorkMeanSeconds: 42, EvalRuns: 2, EvalPass: 2},
+		"claude-opus-5-5":      {EvalRuns: 5, EvalPass: 4},
+		// Exact match on an already-bare active catalog entry is counted once, never twice.
+		"claude-sonnet-4-6": {EvalRuns: 8, EvalPass: 7},
+		// Effort-suffixed unlisted key is not bare and must not bleed onto a sibling effort.
+		"claude-sonnet-5-5-low": {EvalRuns: 9, EvalPass: 9},
+		// When -high is gone and -medium is active, bare key joins onto active -medium.
+		"gemini-3.8-flash": {EvalRuns: 7, EvalPass: 6},
+	}
+
+	cat := BuildCatalog(now, parsed, prev, evidence)
+	byID := map[string]CatalogEntry{}
+	for _, e := range cat.Entries {
+		byID[e.ID] = e
+	}
+
+	if got := byID["gemini-4-argon-high"].Evidence; got.EvalRuns != 34 || got.EvalPass != 31 {
+		t.Errorf("gemini-4-argon-high evidence = %+v, want EvalRuns=34 EvalPass=31", got)
+	}
+	if got := byID["gemini-4-argon-medium"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("gemini-4-argon-medium evidence = %+v, want zero", got)
+	}
+	if got := byID["gemini-4-argon-low"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("gemini-4-argon-low evidence = %+v, want zero", got)
+	}
+	if got := byID["gpt-oss-120b-medium"].Evidence; got.EvalRuns != 6 || got.EvalPass != 5 {
+		t.Errorf("gpt-oss-120b-medium evidence = %+v, want EvalRuns=6 EvalPass=5", got)
+	}
+	if got := byID["gpt-oss-120b-low"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("gpt-oss-120b-low evidence = %+v, want zero", got)
+	}
+	wantOpus := ModelEvidence{WorkRuns: 3, WorkPass: 3, WorkMeanSeconds: 42, EvalRuns: 7, EvalPass: 6}
+	if got := byID["claude-opus-5-5-high"].Evidence; got != wantOpus {
+		t.Errorf("claude-opus-5-5-high evidence = %+v, want %+v", got, wantOpus)
+	}
+	if got := byID["claude-opus-5-5-medium"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("claude-opus-5-5-medium evidence = %+v, want zero", got)
+	}
+	if got := byID["claude-sonnet-4-6"].Evidence; got.EvalRuns != 8 || got.EvalPass != 7 {
+		t.Errorf("claude-sonnet-4-6 exact bare entry = %+v, want EvalRuns=8 EvalPass=7 (no double count)", got)
+	}
+	if got := byID["claude-sonnet-5-5-high"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("claude-sonnet-5-5-high evidence = %+v, want zero (suffixed -low must not join)", got)
+	}
+	if got := byID["gemini-3.8-flash-medium"].Evidence; got.EvalRuns != 7 || got.EvalPass != 6 {
+		t.Errorf("gemini-3.8-flash-medium active fallback = %+v, want EvalRuns=7 EvalPass=6", got)
+	}
+	if got := byID["gemini-3.8-flash-high"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("gemini-3.8-flash-high gone entry = %+v, want zero", got)
+	}
+}
+
+func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	parsed := ParseModelsOutput(
+		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+			"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n",
+	)
+
+	// 1. Failing WorkPass (7/16 = 43.75% < 50%, WorkRuns >= 5) must NOT be masked by 31/35 bare EvalPass
+	//    against an untested peer (0/0) or against a >=50% evidence peer (3/5 work pass).
+	catUntestedPeer := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 90},
+		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
+	})
+	byID := map[string]CatalogEntry{}
+	for _, e := range catUntestedPeer.Entries {
+		byID[e.ID] = e
+	}
+	if got := byID["gemini-4-carbon-high"].Evidence; got.WorkRuns != 16 || got.WorkPass != 7 || got.EvalRuns != 35 || got.EvalPass != 31 {
+		t.Fatalf("joined carbon-high evidence = %+v, want Work=7/16 Eval=31/35", got)
+	}
+	if got := catUntestedPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
+		t.Errorf("builder:pro with 7/16 work + 31/35 eval = %q, want gemini-4-carbon-medium", got)
+	}
+
+	catPassingPeer := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high":   {WorkRuns: 6, WorkPass: 1, WorkMeanSeconds: 50},
+		"gemini-4-carbon":        {EvalRuns: 30, EvalPass: 30}, // raw combined 31/36 = 86.1% > 60%
+		"gemini-4-carbon-medium": {WorkRuns: 5, WorkPass: 3, WorkMeanSeconds: 70},
+	})
+	if got := catPassingPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
+		t.Errorf("builder:pro against 3/5 work peer = %q, want gemini-4-carbon-medium", got)
+	}
+
+	// 2. Exact 50% WorkPass (3/6) is NOT below 50%, so joined EvalPass keeps -high selected.
+	catAtHalf := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high": {WorkRuns: 6, WorkPass: 3},
+		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
+	})
+	if got := catAtHalf.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
+		t.Errorf("builder:pro at 3/6 (50%%) work + 9/10 eval = %q, want gemini-4-carbon-high", got)
+	}
+
+	// 3. WorkRuns < 5 (1/4) does NOT trigger the WorkRuns >= 5 guard; combined 10/14 >= 50% picks -high.
+	catUnderFive := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high": {WorkRuns: 4, WorkPass: 1},
+		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
+	})
+	if got := catUnderFive.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
+		t.Errorf("builder:pro at 1/4 (<5) work + 9/10 eval = %q, want gemini-4-carbon-high", got)
+	}
+}
+
+func TestCatalogEvidenceEdgeCases(t *testing.T) {
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	parsed := ParseModelsOutput(
+		"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n" +
+			"gemini-4-carbon-high\tGemini 4 Carbon (High)\n",
+	)
+	prev := &Catalog{
+		Entries: []CatalogEntry{
+			{ID: "claude-opus-5-4-low", Family: "anthropic", Tier: "pro", Effort: "low", Status: "active", FirstSeen: "2026-11-01", LastSeen: "2026-11-01"},
+			{ID: "claude-opus-5-4-high", Family: "anthropic", Tier: "pro", Effort: "high", Status: "active", FirstSeen: "2026-11-01", LastSeen: "2026-11-01"},
+		},
+	}
+	cat := BuildCatalog(now, parsed, prev, map[string]ModelEvidence{
+		"claude-sonnet-5.5":      {EvalRuns: 5, EvalPass: 5},
+		"models/gemini-4-carbon": {EvalRuns: 6, EvalPass: 5},
+		"claude-opus-5-4":        {EvalRuns: 4, EvalPass: 3},
+		"unlisted-model":         {EvalRuns: 9, EvalPass: 9},
+	})
+	byID := map[string]CatalogEntry{}
+	for _, e := range cat.Entries {
+		byID[e.ID] = e
+	}
+	if got := byID["claude-sonnet-5-5-high"].Evidence; got.EvalRuns != 5 || got.EvalPass != 5 {
+		t.Errorf("dot-folded bare stem = %+v, want 5/5", got)
+	}
+	if got := byID["gemini-4-carbon-high"].Evidence; got.EvalRuns != 6 || got.EvalPass != 5 {
+		t.Errorf("models/ prefixed bare stem = %+v, want 5/6", got)
+	}
+	if got := byID["claude-opus-5-4-high"].Evidence; got.EvalRuns != 4 || got.EvalPass != 3 {
+		t.Errorf("gone highest-effort fallback = %+v, want 3/4", got)
+	}
+	if got := byID["claude-opus-5-4-low"].Evidence; got != (ModelEvidence{}) {
+		t.Errorf("gone lower-effort = %+v, want zero", got)
+	}
+	if _, ok := byID["unlisted-model"]; ok {
+		t.Errorf("unlisted bare key created a phantom catalog entry")
+	}
+}

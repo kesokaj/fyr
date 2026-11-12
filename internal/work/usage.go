@@ -170,26 +170,7 @@ func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel st
 	if len(ids) == 0 {
 		return "", "", errors.New("agy models listed no model")
 	}
-	cachedEv := map[string]ModelEvidence{}
-	if home := os.Getenv("HOME"); home != "" {
-		if cat, ok, err := LoadCatalog(home); err == nil && ok {
-			for _, e := range cat.Entries {
-				cachedEv[e.ID] = e.Evidence
-			}
-		}
-	}
-	entries := make([]CatalogEntry, 0, len(ids))
-	for _, id := range ids {
-		fam, tr, eff := ClassifyModel(id, "")
-		entries = append(entries, CatalogEntry{
-			ID:       id,
-			Family:   fam,
-			Tier:     tr,
-			Effort:   eff,
-			Status:   "active",
-			Evidence: cachedEv[id],
-		})
-	}
+	entries := buildListedCatalogEntries(os.Getenv("HOME"), ids)
 	pick, err := PickRoleFromCatalog(ctx, Catalog{Entries: entries}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err
@@ -294,12 +275,9 @@ func rankBucket(candidates []CatalogEntry, role, tier string) CatalogEntry {
 }
 
 func betterCandidate(a, b CatalogEntry, role, tier string) bool {
-	runsA := a.Evidence.WorkRuns + a.Evidence.EvalRuns
-	runsB := b.Evidence.WorkRuns + b.Evidence.EvalRuns
-	evA, evB := runsA >= 5, runsB >= 5
+	rateA, evA := effectivePassRate(a.Evidence)
+	rateB, evB := effectivePassRate(b.Evidence)
 	if evA && evB {
-		rateA := float64(a.Evidence.WorkPass+a.Evidence.EvalPass) / float64(runsA)
-		rateB := float64(b.Evidence.WorkPass+b.Evidence.EvalPass) / float64(runsB)
 		if math.Abs(rateA-rateB) > 1e-9 {
 			return rateA > rateB
 		}
@@ -309,9 +287,9 @@ func betterCandidate(a, b CatalogEntry, role, tier string) bool {
 		}
 	} else if evA != evB {
 		if evA {
-			return float64(a.Evidence.WorkPass+a.Evidence.EvalPass)/float64(runsA) >= 0.5
+			return rateA >= 0.5
 		}
-		return float64(b.Evidence.WorkPass+b.Evidence.EvalPass)/float64(runsB) < 0.5
+		return rateB < 0.5
 	}
 	if cmp := compareModelVersions(a.ID, b.ID); cmp != 0 {
 		return cmp > 0
@@ -320,6 +298,26 @@ func betterCandidate(a, b CatalogEntry, role, tier string) bool {
 		return ea > eb
 	}
 	return a.ID < b.ID
+}
+
+// effectivePassRate returns a candidate's empirical pass rate once total
+// graded runs reach 5. When WorkRuns >= 5 and WorkPass is below 50%, EvalPass
+// cannot lift the effective pass rate above WorkPass/WorkRuns.
+func effectivePassRate(ev ModelEvidence) (float64, bool) {
+	wRuns := max(ev.WorkRuns, 0)
+	eRuns := max(ev.EvalRuns, 0)
+	runs := wRuns + eRuns
+	if runs < 5 {
+		return 0, false
+	}
+	wPass := min(max(ev.WorkPass, 0), wRuns)
+	ePass := min(max(ev.EvalPass, 0), eRuns)
+	combined := float64(wPass+ePass) / float64(runs)
+	if wRuns >= 5 && wPass*2 < wRuns {
+		workRate := float64(wPass) / float64(wRuns)
+		return min(workRate, combined), true
+	}
+	return combined, true
 }
 
 func compareModelVersions(idA, idB string) int {
