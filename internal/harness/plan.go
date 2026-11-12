@@ -17,7 +17,7 @@ const (
 	BinPath  = ".local/bin/fyr"
 )
 
-const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command"
+const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent"
 
 // VendorAntigravity is the one vendor, recorded in the manifest so a reader
 // of state.json (the init-project skill) sees an Antigravity-only install.

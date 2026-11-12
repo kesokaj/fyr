@@ -536,3 +536,52 @@ func TestRunHookPreInvocationFenceAndTurnContract(t *testing.T) {
 		}
 	}
 }
+
+func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
+	dir := setupHookRepo(t)
+	home := t.TempDir()
+	cases := []struct {
+		name, tool string
+		args       map[string]any
+		want       string
+	}{
+		{"reviewer flash denied", "invoke_subagent", map[string]any{"TypeName": "reviewer", "Model": "flash"}, "deny"},
+		{"verifier flash_lite denied", "invoke_subagent", map[string]any{"TypeName": "verifier", "Model": "flash_lite"}, "deny"},
+		{"security flash denied", "invoke_subagent", map[string]any{"TypeName": "security", "Model": "flash"}, "deny"},
+		{"dreamer pro denied", "invoke_subagent", map[string]any{"TypeName": "dreamer", "Model": "pro"}, "deny"},
+		{"bugs flash denied", "invoke_subagent", map[string]any{"TypeName": "bugs", "Model": "flash"}, "deny"},
+		{"prefixed tool lowercase key denied", "default_api:invoke_subagent", map[string]any{"TypeName": "Reviewer", "model": "flash"}, "deny"},
+		{"cortex snake_case key denied", "CORTEX_STEP_TYPE_INVOKE_SUBAGENT", map[string]any{"type_name": "verifier", "Model": "pro"}, "deny"},
+		{"masked alias model denied", "invoke_subagent", map[string]any{"TypeName": "reviewer", "Model": "inherit", "model": "flash"}, "deny"},
+		{"non-string model denied", "invoke_subagent", map[string]any{"TypeName": "bugs", "Model": 42}, "deny"},
+		{"reviewer omitted allowed", "invoke_subagent", map[string]any{"TypeName": "reviewer"}, "allow"},
+		{"verifier inherit allowed", "invoke_subagent", map[string]any{"TypeName": "verifier", "Model": "inherit"}, "allow"},
+		{"security INHERIT allowed", "invoke_subagent", map[string]any{"TypeName": "security", "Model": " INHERIT "}, "allow"},
+		{"dreamer empty model allowed", "invoke_subagent", map[string]any{"TypeName": "dreamer", "Model": ""}, "allow"},
+		{"bugs nil model allowed", "invoke_subagent", map[string]any{"TypeName": "bugs", "Model": nil}, "allow"},
+		{"explorer flash allowed", "invoke_subagent", map[string]any{"TypeName": "explorer", "Model": "flash"}, "allow"},
+		{"changelog flash allowed", "invoke_subagent", map[string]any{"TypeName": "changelog", "Model": "flash"}, "allow"},
+		{"documentation flash allowed", "invoke_subagent", map[string]any{"TypeName": "documentation", "Model": "flash"}, "allow"},
+		{"triage flash_lite allowed", "invoke_subagent", map[string]any{"TypeName": "triage", "Model": "flash_lite"}, "allow"},
+		{"research pro allowed", "invoke_subagent", map[string]any{"TypeName": "research", "Model": "pro"}, "allow"},
+	}
+	for _, tc := range cases {
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-subagent-guard",
+			"workspacePaths": []string{dir},
+			"modelName":      "gemini-4-carbon-medium",
+			"toolCall":       map[string]any{"name": tc.tool, "args": tc.args},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("%s: Search error: %v", tc.name, err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("%s: unmarshal: %v", tc.name, err)
+		}
+		if dec.Decision != tc.want || (tc.want == "deny" && !strings.Contains(dec.Reason, "inherit")) {
+			t.Errorf("%s: got %+v, want decision=%q", tc.name, dec, tc.want)
+		}
+	}
+}

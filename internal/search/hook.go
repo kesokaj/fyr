@@ -452,6 +452,8 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		return handlePreToolBash(dir, in, out)
 	case "write_or_edit":
 		return handlePreToolWrite(dir, in, out)
+	case "invoke_subagent", "invokesubagent":
+		return handlePreToolSubagent(in, out)
 	default:
 		return writeDecision(out, "allow", "")
 	}
