@@ -209,6 +209,7 @@ func TestSuiteHarness(t *testing.T) {
 		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false}, "acp-vet-multi-turn": {"", false},
 		"triage": {"triage", true}, "autonomy": {"", true}, "feature-routing": {"", false},
 	}
+	wantVer := map[string]int{"reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
 	}
@@ -221,8 +222,8 @@ func TestSuiteHarness(t *testing.T) {
 		if _, wide := r.Wide(); r.Agent != w.agent || wide != w.wide {
 			t.Errorf("row %s: agent %q wide %v, want agent %q wide %v", r.ID, r.Agent, wide, w.agent, w.wide)
 		}
-		if r.Kind != KindCapability || r.Version != 1 || r.Cluster != r.ID || r.Expect != "" {
-			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want capability, version 1, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect)
+		if ver := max(wantVer[r.ID], 1); r.Kind != KindCapability || r.Version != ver || r.Cluster != r.ID || r.Expect != "" {
+			t.Errorf("row %s: kind %q version %d cluster %q expect %q, want capability, version %d, its own cluster, no expect", r.ID, r.Kind, r.Version, r.Cluster, r.Expect, ver)
 		}
 		// Every scenario comes from the tracked fixture, never the clone's
 		// own history.

@@ -58,6 +58,8 @@ func reviewerOutcomes() map[string][]outcome {
 	return map[string][]outcome{
 		"reviewer-wide": {
 			{"skips the searches", true, wideNoBugs + trim + main + clean},
+			{"main session reads reviewer agent.md before dispatch", true, wideNoBugs + trim + conv("m.db", "<subagents>\n9: "+reviewerMarker+".\n{\"CommandLine\":\"fyr search --refs internal/greet/greet.go --kind bug\"}") + clean},
+			{"main session reads reviewer agent.md without dispatching", false, wideNoBugs + trim + conv("m.db", "<subagents>\n9: "+reviewerMarker+".")},
 			{"searches a file", false, wideNoBugs + trim + main + reviewer(`
 {"CommandLine":"fyr search --refs internal/greet/greet.go --kind bug"}`)},
 			{"searches a directory", false, wideNoBugs + trim + main + reviewer(`
@@ -72,6 +74,8 @@ func reviewerOutcomes() map[string][]outcome {
 		},
 		"reviewer-wide-bug": {
 			{"lists bugs, searches directory, cites BUG-001", true, wideSeeded + citeBug + main + dirSearch},
+			{"main session reads reviewer agent.md before dispatch", true, wideSeeded + citeBug + conv("m.db", "<subagents>\n9: "+reviewerMarker+".\n{\"TypeName\":\"reviewer\"}") + dirSearch},
+			{"main session reads reviewer agent.md and searches itself without dispatching", false, wideSeeded + citeBug + conv("m.db", "<subagents>\n9: "+reviewerMarker+".\n{\"CommandLine\":\"fyr record list --kind bug\"}\n{\"CommandLine\":\"fyr search --refs internal/greet/ --kind bug\"}\n{\"CommandLine\":\"fyr search --refs internal/lang/ --kind bug\"}\n{\"CommandLine\":\"fyr search --refs README.md --kind bug\"}")},
 			{"skips record list --kind bug", false, wideSeeded + citeBug + main + conv("r.db", reviewerMarker+`
 {"CommandLine":"fyr search --refs internal/greet/ --kind bug"}`)},
 			{"skips directory --refs search", false, wideSeeded + citeBug + main + clean},
@@ -100,6 +104,8 @@ grep -q 'adminToken' cmd/server/main.go
 {"CommandLine":"fyr search --refs internal/greet/ --kind bug"}`)
 	return []outcome{
 		{"lists bugs, searches directory, reports X-Admin-Token bypass", true, secFixture + secFinding + secConv},
+		{"main session reads security agent.md before dispatch", true, secFixture + secFinding + conv("m.db", "<subagents>\n9: You are the security reviewer.\n{\"TypeName\":\"security\"}") + secConv},
+		{"main session reads security agent.md and runs checks itself without dispatching", false, secFixture + secFinding + conv("m.db", "<subagents>\n9: You are the security reviewer.\n{\"CommandLine\":\"fyr record list --kind bug\"}\n{\"CommandLine\":\"fyr search --refs cmd/server/ --kind bug\"}\n{\"CommandLine\":\"fyr search --refs internal/greet/ --kind bug\"}")},
 		{"misses X-Admin-Token bypass", false, secFixture + review("LGTM.") + secConv},
 		{"skips record list --kind bug", false, secFixture + secFinding + conv("s.db", `You are the security reviewer.
 {"CommandLine":"fyr search --refs cmd/server/ --kind bug"}`)},
