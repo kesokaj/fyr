@@ -260,3 +260,43 @@ func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
 		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
 	}
 }
+
+func TestUnescapeLayerSpanEscapedBoundary(t *testing.T) {
+	rt := "refresh_" + "token"
+	tests := []struct {
+		name     string
+		raw      string
+		needle   string
+		wantSpan string
+	}{
+		{
+			name:     "escaped-quote-on-line-2",
+			raw:      `line1\n` + "`\\" + `"` + rt + `\"` + "` prose",
+			needle:   `"` + rt,
+			wantSpan: `"` + rt,
+		},
+		{
+			name:     "unicode-escape-boundary",
+			raw:      `line1\n\u0022` + rt + `\u0022 prose`,
+			needle:   `0022` + rt + `\u00`,
+			wantSpan: `"` + rt + `"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			start := strings.Index(tc.raw, tc.needle)
+			if start < 0 {
+				t.Fatalf("needle %q missing in %q", tc.needle, tc.raw)
+			}
+			end := start + len(tc.needle)
+			unesc, ns, ne := unescapeLayerSpan([]byte(tc.raw), start, end)
+			if got := string(unesc[ns:ne]); got != tc.wantSpan {
+				t.Fatalf("unesc[%d:%d] = %q, want %q (full=%q)", ns, ne, got, tc.wantSpan, string(unesc))
+			}
+			ls, le := subLineBounds(unesc, ns, ne)
+			if line := string(unesc[ls:le]); strings.Contains(line, "line1") {
+				t.Fatalf("subLineBounds leaked line1: %q", line)
+			}
+		})
+	}
+}

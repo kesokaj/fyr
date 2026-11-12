@@ -195,13 +195,15 @@ func evenBackslashesBefore(s []byte, idx int) bool {
 
 func unescapeLayerSpan(s []byte, start, end int) ([]byte, int, int) {
 	out := make([]byte, 0, len(s))
-	ns, ne := 0, len(s)
+	var ns, ne int
+	var setStart, setEnd bool
 	for i := 0; i < len(s); i++ {
-		if i == start {
-			ns = len(out)
+		tokStart, outBefore := i, len(out)
+		if !setStart && start <= tokStart {
+			ns, setStart = outBefore, true
 		}
-		if i == end {
-			ne = len(out)
+		if !setEnd && end <= tokStart {
+			ne, setEnd = outBefore, true
 		}
 		if s[i] != '\\' || i+1 >= len(s) {
 			out = append(out, s[i])
@@ -211,11 +213,21 @@ func unescapeLayerSpan(s []byte, start, end int) ([]byte, int, int) {
 		if dec, step, ok := decodeUnicodeEscape(s, i); ok {
 			out = append(out, dec...)
 			i += step
-			continue
+		} else {
+			out = appendJSONEscape(out, s[i])
 		}
-		out = appendJSONEscape(out, s[i])
+		tokEnd := i + 1
+		if !setStart && start < tokEnd {
+			ns, setStart = outBefore, true
+		}
+		if !setEnd && end < tokEnd {
+			ne, setEnd = len(out), true
+		}
 	}
-	if end >= len(s) {
+	if !setStart {
+		ns = len(out)
+	}
+	if !setEnd {
 		ne = len(out)
 	}
 	return out, ns, ne
