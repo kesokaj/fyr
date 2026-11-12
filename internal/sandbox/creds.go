@@ -23,6 +23,7 @@ var (
 	credNames      = regexp.MustCompile(`^(id_rsa|id_ecdsa|id_ed25519|id_dsa|\.credentials\.json|application_default_credentials\.json|credentials\.db|access_tokens\.db|.*oauth-token.*|hosts\.yml|\.netrc|\.git-credentials|.*\.p12|.*\.pfx)$`)
 	credPaths      = regexp.MustCompile(`/\.aws/credentials$|/\.docker/config\.json$`)
 	credText       []credPattern
+	credPrivBegin  *regexp.Regexp
 	credAWS        *regexp.Regexp
 	credExample    []byte
 	credRefreshVal *regexp.Regexp
@@ -43,7 +44,11 @@ func init() {
 		{"google-api-key", []string{"AI", "za", `[A-Za-z0-9_-]{35}`}},
 		{"gitlab-token", []string{"gl", "pat", `-[A-Za-z0-9_-]{20,}`}},
 	} {
-		credText = append(credText, credPattern{kind: row.kind, re: regexp.MustCompile(strings.Join(row.parts, ""))})
+		re := regexp.MustCompile(strings.Join(row.parts, ""))
+		if row.kind == "private-key" {
+			credPrivBegin = re
+		}
+		credText = append(credText, credPattern{kind: row.kind, re: re})
 	}
 	credAWS = regexp.MustCompile(strings.Join([]string{"AK", "IA", `[A-Z0-9]{16}`}, ""))
 	credExample = []byte(strings.Join([]string{"AK", "IA", "IOSFODNN7EXAMPLE"}, ""))
@@ -258,7 +263,8 @@ func credKinds(b []byte) (map[string]int, map[string]int, map[string]map[[32]byt
 	kinds := map[string]int{}
 	unparsed := map[string]int{}
 	digests := map[string]map[[32]byte]int{}
-	recordWindowCreds(b, len(b), kinds, unparsed, digests)
+	covered := scanSQLiteOverflow(b, kinds, unparsed, digests)
+	recordWindowCredsSkip(b, len(b), covered, kinds, unparsed, digests)
 	return kinds, unparsed, digests
 }
 

@@ -1,10 +1,12 @@
 package sandbox
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -120,260 +122,6 @@ func TestCredsLeftovers(t *testing.T) {
 	}
 }
 
-// TestCredsNotCredentials: a public key, an executable (the installed fyr
-// carries the redaction patterns as text), and AWS's published example key
-// are not credentials; a clean home has none.
-func TestCredsNotCredentials(t *testing.T) {
-	for name, plant := range map[string]func(t *testing.T, h string){
-		"a clean home": func(t *testing.T, h string) {},
-		"a public key": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".ssh", "id_ed25519.pub"), "ssh-ed25519 AAAA", 0o644)
-		},
-		"an ELF binary": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".local", "bin", "fyr"), "\x7fELF-----BEGIN RSA PRIVATE KEY-----", 0o755)
-		},
-		"a Mach-O binary": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".local", "bin", "fyr"), "\xcf\xfa\xed\xfe"+ghToken, 0o755)
-		},
-		"only the example": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, ".gemini", "brain", "transcript.jsonl"), `{"user_quote":"`+awsExample+`"}`, 0o644)
-			put(t, filepath.Join(h, "conv.db"), "SQLite\x00"+awsExample+"\x00", 0o644)
-		},
-		"a link to a file": func(t *testing.T, h string) {
-			put(t, filepath.Join(h, "notes"), "nothing", 0o644)
-			os.Symlink("notes", filepath.Join(h, "n"))
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := t.TempDir()
-			plant(t, h)
-			if left := newCreds(nil, scanCreds(h)); len(left) != 0 {
-				t.Errorf("found %v", left)
-			}
-		})
-	}
-	// The directory itself a link: reported, never followed (the scan only
-	// ever gets eval's own sandbox directory).
-	tmp := t.TempDir()
-	real := filepath.Join(tmp, "real-home")
-	put(t, filepath.Join(real, ".ssh", "id_ed25519"), "", 0o600)
-	link := filepath.Join(tmp, "home")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatal(err)
-	}
-	if left := newCreds(nil, scanCreds(link)); len(left) != 1 || left[0] != ". (a link, not followed)" {
-		t.Errorf("a linked directory holding a key: %v", left)
-	}
-	// A home that is a dangling link is reported, never passed.
-	if err := os.Symlink(filepath.Join(tmp, "gone"), filepath.Join(tmp, "dangling")); err != nil {
-		t.Fatal(err)
-	}
-	if left := newCreds(nil, scanCreds(filepath.Join(tmp, "dangling"))); len(left) != 1 {
-		t.Errorf("a dangling home: %v", left)
-	}
-}
-
-// TestCredsBaseline is D17: what the fixture brought in before the token
-// was linked (this harness's trail quotes a key header, A5) is not a leak;
-// a new path, a new kind or a grown count is, and a problem always is.
-func TestCredsBaseline(t *testing.T) {
-	h := t.TempDir()
-	store := filepath.Join(h, harness.StateDir, "brain.db")
-	put(t, store, "SQLite\x00-----BEGIN OPENSSH PRIVATE KEY-----\x00", 0o600)
-	base := scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
-		t.Errorf("the unchanged baseline is reported: %v", got)
-	}
-	put(t, store, "SQLite\x00-----BEGIN OPENSSH PRIVATE KEY-----\x00-----BEGIN RSA PRIVATE KEY-----\x00", 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "private-key") {
-		t.Errorf("a grown count: %v", got)
-	}
-	put(t, store, "SQLite\x00-----BEGIN OPENSSH PRIVATE KEY-----\x00"+ghToken, 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "github-token") {
-		t.Errorf("a new kind in a baseline file: %v", got)
-	}
-	put(t, store, "SQLite\x00-----BEGIN OPENSSH PRIVATE KEY-----\x00", 0o600)
-	put(t, filepath.Join(h, "new.log"), ghToken, 0o600)
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.HasPrefix(got[0], "new.log") {
-		t.Errorf("a new path: %v", got)
-	}
-	if os.Geteuid() != 0 {
-		os.Remove(filepath.Join(h, "new.log"))
-		put(t, filepath.Join(h, "locked"), "", 0o000)
-		base = scanCreds(h)
-		if got := newCreds(base, scanCreds(h)); len(got) != 1 || !strings.Contains(got[0], "unreadable") {
-			t.Errorf("an unreadable file already in the baseline passes: %v", got)
-		}
-	}
-}
-
-// TestCredsLinkProblems: a link problem the baseline held with the same
-// target is the fixture's; the same path re-pointed, or a new one, counts;
-// an unreadable or oversized file counts baseline or not.
-func TestCredsLinkProblems(t *testing.T) {
-	h := t.TempDir()
-	put(t, filepath.Join(h, "sub", "f"), "x", 0o644)
-	if err := os.Symlink("sub", filepath.Join(h, "dirlink")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("gone", filepath.Join(h, "stale")); err != nil {
-		t.Fatal(err)
-	}
-	base := scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
-		t.Errorf("unchanged links are reported: %v", got)
-	}
-	os.Remove(filepath.Join(h, "dirlink"))
-	if err := os.Symlink(h, filepath.Join(h, "dirlink")); err != nil {
-		t.Fatal(err)
-	}
-	if got := newCreds(base, scanCreds(h)); len(got) != 1 || got[0] != "dirlink (a link to a directory, not walked)" {
-		t.Errorf("a re-pointed directory link: %v", got)
-	}
-	old := maxScan
-	maxScan = 4
-	t.Cleanup(func() { maxScan = old })
-	put(t, filepath.Join(h, "big"), "more than four bytes", 0o644)
-	base = scanCreds(h)
-	if got := newCreds(base, scanCreds(h)); !slices.Contains(got, "big (larger than 4 bytes, not read)") {
-		t.Errorf("an oversized file already in the baseline passes: %v", got)
-	}
-}
-
-// Gate review of v3.0.0: a directory link the baseline held unchanged is
-// skipped only while it leads inside the scanned tree; one that leads out
-// is never walked, so a credential written through it would go unseen, and
-// it counts.
-func TestCredsBaselineLinkOutsideCounts(t *testing.T) {
-	h, elsewhere := t.TempDir(), t.TempDir()
-	if err := os.Symlink(elsewhere, filepath.Join(h, "out")); err != nil {
-		t.Fatal(err)
-	}
-	base := scanCreds(h)
-	got := newCreds(base, scanCreds(h))
-	if len(got) != 1 || got[0] != "out (a link to a directory, not walked)" {
-		t.Errorf("a baseline link out of the tree passes: %v", got)
-	}
-}
-
-// TestCredsLockedModules: a node_modules beside a regular lockfile is a
-// package manager's install, whose files are not read (BUG-185: prettier's
-// flow plugin holds an AKIA-shaped string), while the name scan, links out of
-// the tree and unreadable files still count inside it; a node_modules with
-// no lockfile or a linked one, a sibling whose name only starts with
-// node_modules, the lockfile itself, a plain file named node_modules and a
-// scan root named node_modules are read as before.
-func TestCredsLockedModules(t *testing.T) {
-	h := t.TempDir()
-	base := scanCreds(h)
-	outside := filepath.Join(t.TempDir(), "token.txt")
-	put(t, outside, ghToken, 0o600)
-	web := filepath.Join(h, "app", "web")
-	put(t, filepath.Join(web, "package-lock.json"), "{}", 0o644)
-	put(t, filepath.Join(web, "node_modules", "prettier", "plugins", "flow.js"), "x="+awsKey, 0o644)
-	put(t, filepath.Join(web, "node_modules", "a", "node_modules", "b", "i.js"), ghToken, 0o644)
-	put(t, filepath.Join(web, "node_modules", "a", "id_rsa"), "", 0o600)
-	if err := os.MkdirAll(filepath.Join(web, "node_modules", ".bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, target := range map[string]string{"inside": filepath.Join("..", "prettier", "plugins", "flow.js"), "outside": outside} {
-		if err := os.Symlink(target, filepath.Join(web, "node_modules", ".bin", name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	put(t, filepath.Join(web, "node_modules.bak", "k.js"), awsKey, 0o644)
-	for _, lock := range []string{"npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock", "bun.lockb"} {
-		put(t, filepath.Join(h, "app", lock, lock), ghToken, 0o644)
-		put(t, filepath.Join(h, "app", lock, "node_modules", "z.js"), awsKey, 0o644)
-	}
-	put(t, filepath.Join(h, "app", "loose", "node_modules", "y.js"), awsKey, 0o644)
-	put(t, filepath.Join(h, "app", "linked", "real-lock"), "{}", 0o644)
-	if err := os.Symlink("real-lock", filepath.Join(h, "app", "linked", "package-lock.json")); err != nil {
-		t.Fatal(err)
-	}
-	put(t, filepath.Join(h, "app", "linked", "node_modules", "y.js"), awsKey, 0o644)
-	put(t, filepath.Join(h, "app", "file", "pnpm-lock.yaml"), "", 0o644)
-	put(t, filepath.Join(h, "app", "file", "node_modules"), ghToken, 0o644)
-	want := []string{
-		filepath.Join("app", "file", "node_modules") + " (github-token)",
-		filepath.Join("app", "linked", "node_modules", "y.js") + " (aws-key)",
-		filepath.Join("app", "loose", "node_modules", "y.js") + " (aws-key)",
-		filepath.Join("app", "web", "node_modules", ".bin", "outside") + " (github-token)",
-		filepath.Join("app", "web", "node_modules", "a", "id_rsa") + " (name)",
-		filepath.Join("app", "web", "node_modules.bak", "k.js") + " (aws-key)",
-	}
-	for _, lock := range []string{"bun.lock", "bun.lockb", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock"} {
-		want = append(want, filepath.Join("app", lock, lock)+" (github-token)")
-	}
-	if os.Geteuid() != 0 {
-		put(t, filepath.Join(web, "node_modules", "locked.js"), "", 0o000)
-		want = append(want, filepath.Join("app", "web", "node_modules", "locked.js")+" (unreadable)")
-	}
-	slices.Sort(want)
-	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
-		t.Errorf("findings\n got %q\nwant %q", got, want)
-	}
-
-	// The scan root is never an install, even named node_modules beside a
-	// lockfile: the lockfile lies outside the tree.
-	top := t.TempDir()
-	put(t, filepath.Join(top, "package-lock.json"), "{}", 0o644)
-	nm := filepath.Join(top, "node_modules")
-	put(t, filepath.Join(nm, "x.js"), awsKey, 0o644)
-	if got := newCreds(nil, scanCreds(nm)); !slices.Equal(got, []string{"x.js (aws-key)"}) {
-		t.Errorf("a scan root named node_modules: %q", got)
-	}
-}
-
-// TestScanCredsGoBuildCacheArchivesAndPlantedCreds is the BUG-520 regression
-// pin: compiled Go build cache Unix ar archives ("!<arch>\n") under
-// home/.cache/go-build/<xx>/<hex>-a|-d carrying redactor test patterns or
-// exceeding maxScan pass, while plaintext secrets, credential-named files,
-// symlinks and unreadable files planted inside home/.cache/go-build/ fail
-// closed.
-func TestScanCredsGoBuildCacheArchivesAndPlantedCreds(t *testing.T) {
-	old := maxScan
-	maxScan = 128
-	t.Cleanup(func() { maxScan = old })
-
-	h := t.TempDir()
-	base := scanCreds(h)
-	gb := filepath.Join(h, "home", ".cache", "go-build")
-	put(t, filepath.Join(gb, "README"), "This directory holds cached build artifacts.\n", 0o644)
-	put(t, filepath.Join(gb, "00", "3ca7d41d7f2166632c91f1865e8f4adbb12b55dffeb8302087315de6385734f0-d"),
-		"!<arch>\n__.PKGDEF\n"+ghToken+"\n"+awsKey+"\n", 0o644)
-	put(t, filepath.Join(gb, "00", "3e4b8790b7e608509787b1d693e3f5c9feaf6d4134151a531993b1e9831dcbe2-d"),
-		"!<arch>\n__.PKGDEF\n"+strings.Repeat("x", 256)+ghToken, 0o644)
-	if got := newCreds(base, scanCreds(h)); len(got) != 0 {
-		t.Fatalf("go-build archives flagged as credentials: %v", got)
-	}
-
-	outside := filepath.Join(t.TempDir(), "secret.a")
-	put(t, outside, "!<arch>\n"+ghToken, 0o600)
-	put(t, filepath.Join(gb, "00", "deadbeef-d"), "plaintext "+ghToken, 0o644)
-	put(t, filepath.Join(gb, "leak.txt"), "!<arch>\n"+awsKey, 0o644)
-	put(t, filepath.Join(gb, "00", "id_rsa"), "!<arch>\n", 0o600)
-	if err := os.Symlink(outside, filepath.Join(gb, "00", "feedface-d")); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		filepath.Join("home", ".cache", "go-build", "00", "deadbeef-d") + " (github-token)",
-		filepath.Join("home", ".cache", "go-build", "00", "feedface-d") + " (github-token)",
-		filepath.Join("home", ".cache", "go-build", "00", "id_rsa") + " (name)",
-		filepath.Join("home", ".cache", "go-build", "leak.txt") + " (aws-key)",
-	}
-	if os.Geteuid() != 0 {
-		locked := filepath.Join(gb, "00", "badcafe0-d")
-		put(t, locked, "!<arch>\n", 0o000)
-		t.Cleanup(func() { _ = os.Chmod(locked, 0o600) })
-		want = append(want, filepath.Join("home", ".cache", "go-build", "00", "badcafe0-d")+" (unreadable)")
-	}
-	slices.Sort(want)
-	if got := newCreds(base, scanCreds(h)); !slices.Equal(got, want) {
-		t.Errorf("planted credentials under go-build:\n got %q\nwant %q", got, want)
-	}
-}
-
 func printableRuns(b []byte, minLen int) []byte {
 	var out []byte
 	start := -1
@@ -410,10 +158,10 @@ func putSparse(t *testing.T, p, prefix string, size int64) {
 	}
 }
 
-// TestScanCredsIgnoresFyrOwnPatterns covers BUG-538: compiled fyr .rodata
-// strings, post-Baseline() copies of baseline fixture tokens into search.db and
-// agy transcripts, and >maxScan ELF/Mach-O Go build-cache outputs pass, while
-// novel credentials planted anywhere still fail closed.
+// TestScanCredsIgnoresFyrOwnPatterns covers BUG-538 and BUG-544: compiled fyr
+// .rodata strings, post-Baseline() indexing/transcripts/WAL of the tracked repo
+// and seeded brain.db trail records, and >maxScan ELF/Mach-O Go build-cache
+// outputs pass, while novel credentials planted anywhere fail closed.
 func TestScanCredsIgnoresFyrOwnPatterns(t *testing.T) {
 	root, err := filepath.Abs("../..")
 	if err != nil {
@@ -441,6 +189,7 @@ func TestScanCredsIgnoresFyrOwnPatterns(t *testing.T) {
 	}
 
 	assertSelfHostingSandbox(t)
+	assertSelfHostedRepoIndex(t, root, bin)
 }
 
 func assertSelfHostingSandbox(t *testing.T) {
@@ -470,20 +219,12 @@ func assertSelfHostingSandbox(t *testing.T) {
 	novelAnt := "sk-" + "ant-" + strings.Repeat("Q", 24)
 	novelRef := `{"` + "refresh_" + `token": "1//0gNovelSecretRefreshToken"}`
 	novelKey := "-----" + "BEGIN OPENSSH " + "PRIVATE KEY-----\nComment: leaked\n" + strings.Repeat("Z", 32) + "\n-----END OPENSSH PRIVATE KEY-----"
-	for _, tc := range []struct{ path, payload, wantKind string }{
+	assertPlantedCredsFail(t, sb, base, []plantedCred{
 		{sdb, "SQLite format 3\x00" + fixture + novelAnt, "anthropic-key"},
 		{outTxt, "1: " + baseRef + "\n2: " + novelRef + "\n", "refresh-token"},
 		{filepath.Join(sb, "app", "leaked.pem"), novelKey, "private-key"},
 		{filepath.Join(sb, "home", ".cache", "go-build", "ef", hex64+"-d"), "not-elf " + novelAnt, "anthropic-key"},
-	} {
-		prev, existed := readOptional(tc.path)
-		put(t, tc.path, tc.payload, 0o600)
-		got := newCreds(base, scanCreds(sb))
-		restoreOptional(t, tc.path, prev, existed)
-		if len(got) != 1 || !strings.Contains(got[0], tc.wantKind) {
-			t.Errorf("novel %s in %s: got %v, want 1 hit containing %q", tc.wantKind, tc.path, got, tc.wantKind)
-		}
-	}
+	})
 
 	outsideELF := filepath.Join(t.TempDir(), "outside-elf")
 	putSparse(t, outsideELF, "\x7fELF\x02\x01\x01\x00", maxScan+4096)
@@ -499,18 +240,146 @@ func assertSelfHostingSandbox(t *testing.T) {
 	}
 }
 
-func readOptional(p string) ([]byte, bool) {
-	b, err := os.ReadFile(p)
-	return b, err == nil
+type plantedCred struct{ path, payload, wantKind string }
+
+func assertPlantedCredsFail(t *testing.T, sb string, base map[string]credFinding, cases []plantedCred) {
+	t.Helper()
+	for _, tc := range cases {
+		prev, err := os.ReadFile(tc.path)
+		existed := err == nil
+		put(t, tc.path, tc.payload, 0o600)
+		got := newCreds(base, scanCreds(sb))
+		if !existed {
+			_ = os.Remove(tc.path)
+		} else if err := os.WriteFile(tc.path, prev, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || !strings.Contains(got[0], tc.wantKind) {
+			t.Errorf("planted %s in %s: got %v, want 1 hit containing %q", tc.wantKind, tc.path, got, tc.wantKind)
+		}
+	}
 }
 
-func restoreOptional(t *testing.T, p string, b []byte, existed bool) {
+func seedRepoSandbox(t *testing.T, root, bin, app, home string) []string {
 	t.Helper()
-	if !existed {
-		_ = os.Remove(p)
-		return
+	tracked, err := exec.Command("git", "-C", root, "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
 	}
-	if err := os.WriteFile(p, b, 0o600); err != nil {
+	for _, rawRel := range bytes.Split(tracked, []byte{0}) {
+		rel := string(rawRel)
+		if rel == "" || strings.HasPrefix(rel, "skills/google-catalog/catalog/") {
+			continue
+		}
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		st, err := os.Lstat(p)
+		if err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		put(t, filepath.Join(app, filepath.FromSlash(rel)), string(b), 0o644)
+	}
+	put(t, filepath.Join(app, ".gitignore"), ".agents/scratch/*\n.agents/trail.jsonl\n", 0o644)
+	for _, args := range [][]string{{"init", "-q"}, {"add", "."}, {"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init"}} {
+		if out, err := exec.Command("git", append([]string{"-C", app}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	pk, sshPK, rt := "-----"+"BEGIN PRIVATE KEY-----", "-----"+"BEGIN OPENSSH PRIVATE KEY-----", "refresh_"+"token"
+	trail1 := fmt.Sprintf("Patterns (`\"%s\"`, `%s`) > 64 MiB & steps/<n>/output.txt >= 1, span `\"%s\" names <field>`, and `pasted %s up to -----END below`.\n", rt, pk, rt, sshPK)
+	var ovf strings.Builder
+	for i := range 80 {
+		fmt.Fprintf(&ovf, "- row %02d (<n> & >= 1): PKCS#8 (`%s`) — `` `json:\"%s\"` `` or `\"%s\"` prose padding\n", i, pk, rt, rt)
+	}
+	trails := []string{trail1, ovf.String()}
+	for i, body := range trails {
+		cmd := exec.Command(bin, "record", "add", "review", "--home", home, "-C", app, "--title", fmt.Sprintf("seed-%d", i))
+		cmd.Stdin = strings.NewReader(body)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("seed trail %d: %v\n%s", i, err, out)
+		}
+	}
+	return trails
+}
+
+func assertSelfHostedRepoIndex(t *testing.T, root, bin string) {
+	t.Helper()
+	sb := t.TempDir()
+	app, home := filepath.Join(sb, "app"), filepath.Join(sb, "home")
+	trails := seedRepoSandbox(t, root, bin, app, home)
+	base := scanCreds(sb)
+
+	for _, verb := range [][]string{{"index"}, {"record", "export"}} {
+		if out, err := exec.Command(bin, append(verb, "--home", home, "-C", app)...).CombinedOutput(); err != nil {
+			t.Fatalf("fyr %v: %v\n%s", verb, err, out)
+		}
+	}
+	rawDB, err := os.ReadFile(filepath.Join(home, harness.StateDir, "brain.db"))
+	if err != nil {
 		t.Fatal(err)
 	}
+	put(t, filepath.Join(home, harness.StateDir, "brain.db-wal"), string(rawDB), 0o600)
+	outTxt := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "steps", "1", "output.txt")
+	jsonl := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "logs", "transcript.jsonl")
+	writeTranscriptFixtures(t, app, outTxt, jsonl, trails)
+	if got := newCreds(base, scanCreds(sb)); len(got) != 0 {
+		t.Errorf("BUG-544 self-hosted repo index/transcript flagged: %v", got)
+	}
+	assertSelfHostedPlantedFail(t, sb, app, outTxt, jsonl, base)
+	ovfLeak := exec.Command(bin, "record", "add", "review", "--home", home, "-C", app, "--title", "ovf-leak")
+	ovfLeak.Stdin = strings.NewReader(strings.Repeat("pad line\n", 520) + "leaked " + "sk-" + "ant-" + strings.Repeat("V", 24) + "\n")
+	if out, err := ovfLeak.CombinedOutput(); err != nil {
+		t.Fatalf("seed ovf-leak: %v\n%s", err, out)
+	}
+	if got := newCreds(base, scanCreds(sb)); len(got) == 0 || !strings.Contains(strings.Join(got, ","), "anthropic-key") {
+		t.Errorf("planted secret in SQLite overflow cell: got %v, want anthropic-key hit", got)
+	}
+}
+
+func writeTranscriptFixtures(t *testing.T, app, outTxt, jsonl string, extras []string) {
+	t.Helper()
+	var numbered, logs strings.Builder
+	chunks := append([]string{}, extras...)
+	for _, rel := range []string{"internal/redact/redact_test.go", "internal/sandbox/creds_test.go", "internal/sandbox/creds_table_test.go", "cmd/fyr/record_body_file_test.go", "internal/eval/run_proc_test.go"} {
+		raw, err := os.ReadFile(filepath.Join(app, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks = append(chunks, string(raw))
+	}
+	for _, s := range chunks {
+		for i, line := range strings.Split(s, "\n") {
+			fmt.Fprintf(&numbered, "%d: %s\n", i+1, line)
+		}
+		enc1, _ := json.Marshal(s)
+		enc2, _ := json.Marshal(string(enc1))
+		fmt.Fprintf(&logs, "{\"out\":%s,\"nested\":%s}\n", enc1, enc2)
+	}
+	put(t, outTxt, numbered.String(), 0o600)
+	put(t, jsonl, logs.String(), 0o600)
+}
+
+func assertSelfHostedPlantedFail(t *testing.T, sb, app, outTxt, jsonl string, base map[string]credFinding) {
+	t.Helper()
+	hdr, endHdr := "-----"+"BEGIN OPENSSH PRIVATE KEY-----", "-----"+"END OPENSSH PRIVATE KEY-----"
+	b64, b64Plus, rt := "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU=", "MIIE+gIB+ADANBg==", "refresh_"+"token"
+	longBody := strings.Repeat(b64, 56)
+	assertPlantedCredsFail(t, sb, base, []plantedCred{
+		{filepath.Join(app, "short.pem"), "-----" + "BEGIN PRIVATE KEY-----\nMIIBogIBAA==\n-----" + "END PRIVATE KEY-----\n", "private-key"},
+		{jsonl, fmt.Sprintf("{\"out\":[%q,\"REALKEYBODY1\",\"REALKEYBODY2\",%q]}\n", hdr, endHdr), "private-key"},
+		{jsonl, fmt.Sprintf("{\"out\":[%q,%q,%q]}\n", hdr, longBody, endHdr), "private-key"},
+		{jsonl, fmt.Sprintf("[%q,%q]\n", hdr, b64), "private-key"},
+		{jsonl, fmt.Sprintf("[\n  %q,\n  %q\n]\n", hdr, b64Plus), "private-key"},
+		{jsonl, fmt.Sprintf("{\"ts\":1,\"line\":%q}\n{\"ts\":2,\"line\":%q}\n", hdr, b64Plus), "private-key"},
+		{jsonl, fmt.Sprintf("[%q,\"Comment: leaked\",%q]\n", hdr, b64), "private-key"},
+		{filepath.Join(app, "concat.go"), fmt.Sprintf("var k = %q +\n\t%q\n", hdr, b64Plus), "private-key"},
+		{filepath.Join(app, "crlf.pem"), hdr + "\r\n" + b64Plus + "\r\n", "private-key"},
+		{jsonl, fmt.Sprintf("{\"key\":\"%s \\\" %s \\\"\"}\n", hdr, b64Plus), "private-key"},
+		{filepath.Join(app, "bare.pem"), hdr + "\n", "private-key"},
+		{outTxt, "`\"" + rt + "\"`\n: \"1//0gNovelSecret\"\n", "refresh-token"},
+		{outTxt, "| field | `\"" + rt + "\"` | `1//0gNovelSecret` |\n", "refresh-token"},
+	})
 }

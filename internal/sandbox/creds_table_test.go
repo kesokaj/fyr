@@ -110,7 +110,8 @@ func TestScanCredsDistinguishesPKCS8KeysAndBareMarkers(t *testing.T) {
 	}{
 		{"distinct PKCS#8 P-256", "app/leaked-p256.pem", leakedP256 + "\n", "private-key"},
 		{"distinct PKCS#8 RSA-2048", "app/leaked-rsa.pem", leakedRSA + "\n", "private-key"},
-		{"unparsed short PEM block", "app/leaked-short.pem", beginPKCS8 + "\nshortsecret\n" + endPKCS8 + "\n", "private-key"},
+		{"short PEM block", "app/leaked-short.pem", beginPKCS8 + "\nshortsecret\n" + endPKCS8 + "\n", "private-key"},
+		{"unparsed bare PEM header", "app/leaked-bare.pem", beginPKCS8 + "\n*\n", "private-key"},
 		{"equals refresh_token leak", "app/leaked.env", `"refresh_` + `token" = "novelSecret123"` + "\n", "refresh-token"},
 		{"mixed known+unparsed refresh_token", "app/mixed.txt", knownRef + "\n" + `["refresh_` + `token", "novelSecret456"]` + "\n", "refresh-token"},
 	} {
