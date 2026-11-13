@@ -124,15 +124,15 @@ func (p *prepared) session(ctx context.Context, o *Options, ks []Kickoff) error 
 	}
 	var probe prepared
 	if ChooseRunner(o, probe.dockerPreflight); o.Runner != RunnerDocker {
-		return p.hostSession(ctx, *o, ks)
+		return p.hostSession(ctx, o, ks)
 	}
 	p.docker, p.tok = probe.docker, probe.tok
-	return p.dockerSession(ctx, *o, ks)
+	return p.dockerSession(ctx, o, ks)
 }
 
 // hostSession is the host runner's part of session: the login, the host's
 // agy, then the model check.
-func (p *prepared) hostSession(ctx context.Context, o Options, ks []Kickoff) error {
+func (p *prepared) hostSession(ctx context.Context, o *Options, ks []Kickoff) error {
 	var err error
 	if p.tok, err = sandbox.CheckLogin(o.RealHome, hostOS); err != nil {
 		return err
@@ -148,7 +148,7 @@ func (p *prepared) hostSession(ctx context.Context, o Options, ks []Kickoff) err
 // --runner docker, which ChooseRunner never probes, refuses here in order:
 // a development build, the login, the model check, then dockerRefusals.
 // The work token is synced last.
-func (p *prepared) dockerSession(ctx context.Context, o Options, ks []Kickoff) error {
+func (p *prepared) dockerSession(ctx context.Context, o *Options, ks []Kickoff) error {
 	probed := p.docker != nil
 	var err error
 	if !probed {
@@ -163,7 +163,7 @@ func (p *prepared) dockerSession(ctx context.Context, o Options, ks []Kickoff) e
 		return err
 	}
 	if !probed {
-		if err = p.dockerRefusals(o); err != nil {
+		if err = p.dockerRefusals(*o); err != nil {
 			return err
 		}
 	}

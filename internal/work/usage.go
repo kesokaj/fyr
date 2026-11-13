@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -252,57 +250,6 @@ func formatPoolPct(n int) string {
 	return strconv.Itoa(n) + "%"
 }
 
-func isCarbon(id string) bool {
-	return strings.Contains(strings.ToLower(id), "carbon")
-}
-
-func filterEntries(in []CatalogEntry, keep func(CatalogEntry) bool) []CatalogEntry {
-	var out []CatalogEntry
-	for _, e := range in {
-		if keep(e) {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-func rankBucket(candidates []CatalogEntry, role, tier string) CatalogEntry {
-	cp := append([]CatalogEntry(nil), candidates...)
-	sort.SliceStable(cp, func(i, j int) bool {
-		return betterCandidate(cp[i], cp[j], role, tier)
-	})
-	return cp[0]
-}
-
-func betterCandidate(a, b CatalogEntry, role, tier string) bool {
-	rateA, evA := effectivePassRate(a.Evidence)
-	rateB, evB := effectivePassRate(b.Evidence)
-	if evA && evB {
-		if math.Abs(rateA-rateB) > 1e-9 {
-			return rateA > rateB
-		}
-		if a.Evidence.WorkMeanSeconds > 0 && b.Evidence.WorkMeanSeconds > 0 &&
-			math.Abs(a.Evidence.WorkMeanSeconds-b.Evidence.WorkMeanSeconds) > 1e-9 {
-			return a.Evidence.WorkMeanSeconds < b.Evidence.WorkMeanSeconds
-		}
-	} else if evA != evB {
-		if evA {
-			return rateA >= 0.5
-		}
-		return rateB < 0.5
-	}
-	if cmp := compareModelVersions(a.ID, b.ID); cmp != 0 {
-		return cmp > 0
-	}
-	if ea, eb := effortRank(a, role, tier), effortRank(b, role, tier); ea != eb {
-		return ea > eb
-	}
-	return a.ID < b.ID
-}
-
-// effectivePassRate returns a candidate's empirical pass rate once total
-// graded runs reach 5. When WorkRuns >= 5 and WorkPass is below 50%, EvalPass
-// cannot lift the effective pass rate above WorkPass/WorkRuns.
 func effectivePassRate(ev ModelEvidence) (float64, bool) {
 	wRuns := max(ev.WorkRuns, 0)
 	eRuns := max(ev.EvalRuns, 0)
@@ -318,63 +265,4 @@ func effectivePassRate(ev ModelEvidence) (float64, bool) {
 		return min(workRate, combined), true
 	}
 	return combined, true
-}
-
-func compareModelVersions(idA, idB string) int {
-	va, vb := parseVersionNums(idA), parseVersionNums(idB)
-	n := max(len(va), len(vb))
-	for i := 0; i < n; i++ {
-		var xa, xb int
-		if i < len(va) {
-			xa = va[i]
-		}
-		if i < len(vb) {
-			xb = vb[i]
-		}
-		if xa != xb {
-			if xa > xb {
-				return 1
-			}
-			return -1
-		}
-	}
-	return 0
-}
-
-func parseVersionNums(id string) []int {
-	raw := numTokenRe.FindAllString(id, -1)
-	nums := make([]int, 0, len(raw))
-	for _, s := range raw {
-		if n, err := strconv.Atoi(s); err == nil {
-			nums = append(nums, n)
-		}
-	}
-	return nums
-}
-
-func effortRank(e CatalogEntry, role, tier string) int {
-	if role == "builder" && tier == "flash" && isCarbon(e.ID) {
-		switch e.Effort {
-		case "medium":
-			return 4
-		case "low":
-			return 3
-		case "high":
-			return 2
-		default:
-			return 1
-		}
-	}
-	switch e.Effort {
-	case "high":
-		return 4
-	case "":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 0
-	}
 }

@@ -32,7 +32,7 @@ var errModelsOver = fmt.Errorf("its output is over %d KiB", maxModelsOut>>10)
 // Kickoff's Model: line or --model, every one must be an ID the host's agy
 // models lists. A failed call or an empty list refuses too: fail closed
 // (D103 item 3). A run naming none makes no call.
-func checkModels(ctx context.Context, o Options, ks []Kickoff) error {
+func checkModels(ctx context.Context, o *Options, ks []Kickoff) error {
 	named := o.Model != ""
 	for _, k := range ks {
 		named = named || k.Model != "" || k.JudgeModel != ""
@@ -55,6 +55,9 @@ func checkModels(ctx context.Context, o Options, ks []Kickoff) error {
 	listed := map[string]bool{}
 	for _, id := range ids {
 		listed[id] = true
+	}
+	if err := resolveAutoModels(ctx, o, ks, listed, ids); err != nil {
+		return err
 	}
 	all := strings.Join(ids, ", ")
 	for _, k := range ks {
@@ -185,13 +188,15 @@ func ParseModelsOutput(raw string) []CatalogEntry {
 		}
 		seen[id] = true
 		fam, tier, eff := ClassifyModel(id, disp)
-		out = append(out, CatalogEntry{
+		entry := CatalogEntry{
 			ID:          id,
 			DisplayName: disp,
 			Family:      fam,
 			Tier:        tier,
 			Effort:      eff,
-		})
+		}
+		applyModelProfile(&entry)
+		out = append(out, entry)
 	}
 	return out
 }
@@ -222,7 +227,7 @@ func isHeaderRow(id, disp string) bool {
 }
 
 // ClassifyModel derives family ("gemini"|"anthropic"|"other"), tier ("pro"|"flash"),
-// and effort ("low"|"medium"|"high"|"") from a model ID and display name.
+// and effort ("max"|"xhigh"|"high"|"medium"|"low"|"orchestrator"|"") from a model ID and display name.
 func ClassifyModel(id, displayName string) (family, tier, effort string) {
 	low := strings.ToLower(strings.TrimSpace(id))
 	switch {
@@ -233,7 +238,14 @@ func ClassifyModel(id, displayName string) (family, tier, effort string) {
 	default:
 		family = "other"
 	}
+	lowDisp := strings.ToLower(displayName)
 	switch {
+	case strings.Contains(low, "orchestrator") || strings.Contains(lowDisp, "orchestrator"):
+		effort = "orchestrator"
+	case strings.HasSuffix(low, "-xhigh") || strings.Contains(lowDisp, "(xhigh)"):
+		effort = "xhigh"
+	case strings.HasSuffix(low, "-max") || strings.Contains(lowDisp, "(max)"):
+		effort = "max"
 	case strings.HasSuffix(low, "-high"):
 		effort = "high"
 	case strings.HasSuffix(low, "-medium"):
@@ -241,9 +253,11 @@ func ClassifyModel(id, displayName string) (family, tier, effort string) {
 	case strings.HasSuffix(low, "-low"):
 		effort = "low"
 	}
-	lowAll := low + " " + strings.ToLower(displayName)
+	lowAll := low + " " + lowDisp
+	isFastHydrogen := strings.Contains(lowAll, "hydrogen") && (effort == "low" || effort == "medium" || effort == "")
 	if strings.Contains(lowAll, "flash") || strings.Contains(lowAll, "sonnet") ||
-		strings.Contains(lowAll, "haiku") || strings.Contains(lowAll, "-lite") || strings.Contains(lowAll, "-mini") {
+		strings.Contains(lowAll, "haiku") || strings.Contains(lowAll, "-lite") || strings.Contains(lowAll, "-mini") ||
+		strings.Contains(lowAll, "gpt-oss") || isFastHydrogen {
 		tier = "flash"
 	} else {
 		tier = "pro"

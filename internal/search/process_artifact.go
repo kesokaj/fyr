@@ -26,12 +26,15 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 		sections = append(sections, dirtySummary)
 		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
 	}
-	sliceOpts := o
-	sliceOpts.Dir = dir
-	sliceOpts.Session = convID
-	slice := sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
-	if slice.Capsule != "" {
-		banners = append(banners, fmt.Sprintf("🧠 %d pivots", slice.Pivots))
+	var slice SliceResult
+	if ClassifyIntent(cleanPrompt, 0) != IntentApproval || state.Compacted {
+		sliceOpts := o
+		sliceOpts.Dir = dir
+		sliceOpts.Session = convID
+		slice = sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
+		if slice.Capsule != "" {
+			banners = append(banners, fmt.Sprintf("🧠 %d pivots", slice.Pivots))
+		}
 	}
 	if state.EstTokens >= hookKneeTokens {
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))
@@ -40,16 +43,19 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 	return sections, banners, slice
 }
 
-func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, turnNum int, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
+func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
 	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && len(banners) == 0 {
 		return "", ""
 	}
+	turnNum := state.TurnCount
 	var prev *VetHistoryRow
 	var recentSkills map[string]bool
 	var recentPivots []string
 	if sc != nil && sc.st != nil {
 		prev, _ = sc.st.lastVetHistory(convID, turnNum)
-		recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(convID, turnNum, 3)
+		if !state.Compacted {
+			recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(convID, turnNum, 3)
+		}
 	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
 	var brainCtx TurnBrainContext
@@ -61,6 +67,12 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, t
 		catalog = o.SkillCatalog(o.Home)
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
+	if sc != nil && sc.st != nil {
+		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
+	}
+	if nudge := suggestSessionModelNudge(sc, convID, state.GenerationID, turnNum, in.ModelName, vetRes); nudge != "" {
+		banners = append(banners, nudge)
+	}
 	sysMsg, banner := BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
 	if sc != nil && sc.st != nil && rawPrompt != "" {
 		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)

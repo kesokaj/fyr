@@ -62,8 +62,9 @@ type HookSystemMessage struct {
 
 // HookDecisionOutput is the JSON response written by PreToolUse and Stop hooks.
 type HookDecisionOutput struct {
-	Decision string `json:"decision"`
-	Reason   string `json:"reason,omitempty"`
+	Decision  string         `json:"decision"`
+	Reason    string         `json:"reason,omitempty"`
+	Overwrite map[string]any `json:"overwrite,omitempty"`
 }
 
 func normalizeHookEvent(raw string) string {
@@ -111,7 +112,7 @@ func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
 	case "pre-invocation":
 		return handlePreInvocation(o, dir, input, out)
 	case "pre-tool-use":
-		return handlePreToolUse(dir, input, out)
+		return handlePreToolUse(o.Home, dir, input, out)
 	default:
 		return handleStopHook(o, dir, input, out)
 	}
@@ -184,7 +185,7 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		defer sc.close()
 		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, cleanPrompt, state, dirtySummary, fastPath)
 	}
-	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state.TurnCount, rawPrompt, cleanPrompt, slice, sections, banners)
+	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, banners)
 	return writePreInvocation(out, sysMsg, banner)
 }
 
@@ -330,16 +331,15 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	if !confident && !state.Compacted {
 		return SliceResult{SymbolHits: hits, Files: nil}
 	}
-	pivotFileSet := map[string]bool{}
-	capsule, pivots := sc.renderHookOrVetCapsule(o, g, prompt, ranked, pivotFileSet)
-	if capsule != "" && preseedLedger {
+	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
+	if capsule != "" && preseedLedger && len(pivots) > 0 {
 		_ = RegisterCapsulePivots(o.Dir, o.Session, state.TurnCount, pivots)
 	}
 	return SliceResult{
 		Capsule:    capsule,
-		Pivots:     len(pivots),
+		Pivots:     symCount,
 		SymbolHits: hits,
-		Files:      sortedMapKeys(pivotFileSet),
+		Files:      symFiles,
 		Confident:  confident,
 	}
 }
@@ -357,30 +357,19 @@ func countMatchingSymbols(g *symGraph, prompt string) (int, map[string]bool) {
 	return hits, fileSet
 }
 
-func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, ranked []RankedSymbol, fileSet map[string]bool) (string, []CapsulePivot) {
+func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, ranked []RankedSymbol) (string, []CapsulePivot, []string, int) {
 	sliceOpts := o
 	sliceOpts.Slice = prompt
-	if sliceOpts.Budget <= 0 || sliceOpts.Budget == defaultSliceBudget {
-		sliceOpts.Budget = hookDefaultBudget
-	}
-	if sliceOpts.Hops <= 0 {
-		sliceOpts.Hops = defaultSliceHops
-	}
 	if o.BrainRefsForDir != nil && o.Dir != "" {
 		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(o.Dir, target) }
 	}
-	tiers := g.selectSliceTiers(prompt, ranked, sliceOpts.Hops)
-	capsule := strings.TrimSpace(sc.renderSliceCapsule(sliceOpts, g, tiers, max(200, sliceOpts.Budget*4)))
+	tiers := g.selectSliceTiers(prompt, ranked, defaultSliceHops)
+	capsule := strings.TrimSpace(sc.renderCompactHookCapsule(sliceOpts, g, tiers, compactHookMaxBytes))
 	if capsule == "" {
-		return "", nil
+		return "", nil, nil, 0
 	}
-	pivots := ParseCapsulePivots(capsule)
-	for _, p := range pivots {
-		if p.Path != "" {
-			fileSet[p.Path] = true
-		}
-	}
-	return capsule, pivots
+	pivots, files, symCount := extractCompactCapsuleMeta(capsule)
+	return capsule, pivots, files, symCount
 }
 
 func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) ([]RankedSymbol, bool) {
@@ -444,7 +433,7 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 	return ranked[0].Score / (hookConfidenceRatio + 1.0)
 }
 
-func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
+func handlePreToolUse(home, dir string, in HookInput, out io.Writer) error {
 	switch normalizeHookToolName(in.ToolCall.Name) {
 	case "read_file":
 		return handlePreToolRead(dir, in, out)
@@ -454,6 +443,8 @@ func handlePreToolUse(dir string, in HookInput, out io.Writer) error {
 		return handlePreToolWrite(dir, in, out)
 	case "invoke_subagent", "invokesubagent":
 		return handlePreToolSubagent(in, out)
+	case "swarm":
+		return handlePreToolSwarm(home, in, out)
 	default:
 		return writeDecision(out, "allow", "")
 	}
@@ -561,7 +552,11 @@ func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 }
 
 func writeDecision(out io.Writer, decision, reason string) error {
-	if data, err := json.Marshal(HookDecisionOutput{Decision: decision, Reason: reason}); err == nil {
+	return writeDecisionWithOverwrite(out, decision, reason, nil)
+}
+
+func writeDecisionWithOverwrite(out io.Writer, decision, reason string, overwrite map[string]any) error {
+	if data, err := json.Marshal(HookDecisionOutput{Decision: decision, Reason: reason, Overwrite: overwrite}); err == nil {
 		_, _ = out.Write(append(data, '\n'))
 	}
 	return nil

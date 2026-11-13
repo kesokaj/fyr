@@ -1,7 +1,6 @@
 package search
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 )
@@ -136,7 +135,7 @@ func hasSkillName(skills []SkillMeta, names ...string) bool {
 	return false
 }
 
-func attachAdvisoryRoute(cleanPrompt string, res *VetResult, slice SliceResult, brainCtx TurnBrainContext) {
+func attachAdvisoryRoute(cleanPrompt string, res *VetResult, _ SliceResult, _ TurnBrainContext) {
 	if res == nil {
 		return
 	}
@@ -146,21 +145,5 @@ func attachAdvisoryRoute(cleanPrompt string, res *VetResult, slice SliceResult, 
 	}
 	if res.ImprovedPrompt != "" {
 		res.ImprovedPrompt += "\nroute: " + res.Route
-		return
 	}
-	files := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
-	scopeStr := "project"
-	if len(files) > 0 {
-		scopeStr = strings.Join(files[:min(6, len(files))], ", ")
-	}
-	var b strings.Builder
-	b.WriteString("[VET_IMPROVED_PROMPT]\n")
-	fmt.Fprintf(&b, "score: %d/100\n", res.Score)
-	fmt.Fprintf(&b, "task: %s\n", collapseOneLine(cleanPrompt, 280))
-	fmt.Fprintf(&b, "targets: %s\n", formatImprovedPromptTargets(cleanPrompt, slice))
-	fmt.Fprintf(&b, "scope: %s\n", scopeStr)
-	fmt.Fprintf(&b, "constraints: %s\n", formatImprovedPromptConstraints(brainCtx))
-	fmt.Fprintf(&b, "verify: %s\n", inferVerifyCommand(files))
-	fmt.Fprintf(&b, "route: %s", res.Route)
-	res.ImprovedPrompt = b.String()
 }

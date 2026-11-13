@@ -115,7 +115,8 @@ func scoreLangOrUISkill(name, lowPrompt string, files []string) (int, string) {
 	switch name {
 	case "golang":
 		goCount := countExt(files, ".go")
-		if goCount > 0 || containsAnyWord(lowPrompt, "go", "golang", "goroutine", "slog", "httptest") {
+		if goCount > 0 || containsAnyWord(lowPrompt, "golang", "goroutine", "slog", "httptest", "gofmt", "govulncheck") ||
+			containsAnySubstr(lowPrompt, "go test", "go build", "go run", "go vet", "go.mod", "go code", "in go") {
 			return 70 + min(15, goCount*3), "Go code surface"
 		}
 	case "typescript":
@@ -287,7 +288,7 @@ func extractPromptAndSliceFiles(prompt string, sliceFiles []string) []string {
 		}
 	}
 	for _, m := range fileTokenRe.FindAllString(prompt, -1) {
-		if m = strings.Trim(m, "`'\".,;:()"); m != "" && !seen[m] {
+		if m = strings.TrimSpace(strings.Trim(m, "`'\".,;:()")); m != "" && !seen[m] {
 			seen[m] = true
 			out = append(out, m)
 		}

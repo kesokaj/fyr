@@ -20,7 +20,8 @@ func init() {
 	verbs["models"] = verb{
 		flags: func(c *ctx) {
 			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog or --pick result as JSON")
-			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE`: builder, judge, reviewer, verifier or mechanical")
+			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE`: builder, planner, judge, reviewer, verifier or mechanical")
+			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, best-for/avoid-for guidance, and empirical stats for model `ID`")
 			c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
 			c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro or flash")
 		},
@@ -37,6 +38,9 @@ func runModels(c *ctx) error {
 			return usageErr(c.out, "models", "fyr models: "+err.Error())
 		}
 	}
+	if c.modelsExplain != "" && c.modelsPick != "" {
+		return usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
+	}
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
@@ -45,6 +49,9 @@ func runModels(c *ctx) error {
 	if err != nil {
 		fmt.Fprintf(c.out, "models: %v\n", err)
 		return exitCode(1)
+	}
+	if c.modelsExplain != "" {
+		return runModelsExplain(c, cat, c.modelsExplain)
 	}
 	if c.modelsPick != "" {
 		return runModelsPick(sig, c, cat, agyPath)
@@ -58,7 +65,11 @@ func runModels(c *ctx) error {
 
 func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (work.Catalog, error) {
 	if c.modelsRefresh || !work.CatalogExists(c.home) {
-		return work.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
+		cat, err := work.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
+		if err == nil && c.modelsRefresh {
+			cat = work.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+		}
+		return cat, err
 	}
 	cat, ok, err := work.LoadCatalog(c.home)
 	if err != nil {
@@ -92,9 +103,53 @@ func writeIndentedJSON(c *ctx, v any) error {
 	return enc.Encode(v)
 }
 
+func runModelsExplain(c *ctx, cat work.Catalog, target string) error {
+	lowTarget := strings.ToLower(strings.TrimSpace(target))
+	for _, e := range cat.Entries {
+		if strings.EqualFold(e.ID, lowTarget) || strings.ToLower(e.Subfamily) == lowTarget {
+			if c.jsonOut {
+				return writeIndentedJSON(c, e)
+			}
+			printCatalogEntryDetail(c, e)
+			return nil
+		}
+	}
+	fmt.Fprintf(c.out, "models: no entry matching %q in %s\n", target, work.CatalogPath(c.home))
+	return exitCode(1)
+}
+
+func printCatalogEntryDetail(c *ctx, e work.CatalogEntry) {
+	fmt.Fprintf(c.out, "ID: %s (%s)\n", e.ID, e.Status)
+	fmt.Fprintf(c.out, "Family/Subfamily: %s / %s · Tier: %s · Effort: %s · Speed: %s · Mode: %s\n",
+		e.Family, e.Subfamily, e.Tier, e.Effort, e.Speed, e.Mode)
+	if e.Summary != "" {
+		fmt.Fprintf(c.out, "Summary: %s\n", e.Summary)
+	}
+	if len(e.BestFor) > 0 {
+		fmt.Fprintf(c.out, "Best-for: %s\n", strings.Join(e.BestFor, ", "))
+	}
+	if len(e.AvoidFor) > 0 {
+		fmt.Fprintf(c.out, "Avoid-for: %s\n", strings.Join(e.AvoidFor, ", "))
+	}
+	if tot := e.Evidence.WorkRuns + e.Evidence.EvalRuns; tot > 0 {
+		fmt.Fprintf(c.out, "Evidence: %d/%d total pass (work %d/%d @ %.0fs mean, eval %d/%d)\n",
+			e.Evidence.WorkPass+e.Evidence.EvalPass, tot,
+			e.Evidence.WorkPass, e.Evidence.WorkRuns, e.Evidence.WorkMeanSeconds,
+			e.Evidence.EvalPass, e.Evidence.EvalRuns)
+	} else {
+		fmt.Fprintln(c.out, "Evidence: 0 runs (unjudged canary eligible)")
+	}
+	if e.RetiringOn != "" {
+		fmt.Fprintf(c.out, "Retiring: %s\n", e.RetiringOn)
+	}
+	if e.ChangelogNote != "" {
+		fmt.Fprintf(c.out, "Changelog: %s\n", e.ChangelogNote)
+	}
+}
+
 func printCatalogText(c *ctx, cat work.Catalog) {
-	fmt.Fprintf(c.out, "%-28s  %-6s  %-9s  %-5s  %-6s  %-7s  %s\n",
-		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "PASS", "DISPLAY NAME")
+	fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-12s  %-7s  %-8s  %s\n",
+		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "PASS", "SPEED", "BEST FOR")
 	for _, e := range cat.Entries {
 		eff := e.Effort
 		if eff == "" {
@@ -104,12 +159,21 @@ func printCatalogText(c *ctx, cat work.Catalog) {
 		if tot := e.Evidence.WorkRuns + e.Evidence.EvalRuns; tot > 0 {
 			runs = fmt.Sprintf("%d/%d", e.Evidence.WorkPass+e.Evidence.EvalPass, tot)
 		}
-		disp := e.DisplayName
-		if disp == "" {
-			disp = "-"
+		spd := e.Speed
+		if spd == "" {
+			spd = "-"
 		}
-		fmt.Fprintf(c.out, "%-28s  %-6s  %-9s  %-5s  %-6s  %-7s  %s\n",
-			e.ID, e.Status, e.Family, e.Tier, eff, runs, disp)
+		best := e.DisplayName
+		if len(e.BestFor) > 0 {
+			best = strings.Join(e.BestFor, ",")
+		} else if best == "" {
+			best = "-"
+		}
+		if e.RetiringOn != "" {
+			best += " [retiring " + e.RetiringOn + "]"
+		}
+		fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-12s  %-7s  %-8s  %s\n",
+			e.ID, e.Status, e.Family, e.Tier, eff, runs, spd, best)
 	}
 	if len(cat.Picks) == 0 {
 		return

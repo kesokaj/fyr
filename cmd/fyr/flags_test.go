@@ -257,10 +257,10 @@ func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
 		{ID: "ADR-004", Kind: "adr", Status: "accepted", Title: "Cache architecture", Body: "Rejected: memcached cluster."},
 	}
 	prompt := "Build a new memcached cluster client"
-	terms := extractTurnQueryTerms(prompt, nil)
+	terms := extractTurnQueryTerms(prompt)
 	var turnCtx search.TurnBrainContext
 	for _, r := range recs {
-		classifyTurnRecord(&turnCtx, "", prompt, terms, r)
+		classifyTurnRecord(&turnCtx, "", prompt, nil, terms, r)
 	}
 	if len(turnCtx.ADRs) != 1 || turnCtx.ADRs[0].ID != "ADR-004" {
 		t.Fatalf("got ADRs=%+v, want only [ADR-004]", turnCtx.ADRs)
@@ -271,9 +271,9 @@ func TestClassifyTurnRecordSkipsUnrelatedADRs(t *testing.T) {
 	// An unrelated prompt should match 0 ADRs so constraints anchor is not falsely satisfied.
 	var emptyCtx search.TurnBrainContext
 	unrelated := "Build a new dashboard widget"
-	uTerms := extractTurnQueryTerms(unrelated, nil)
+	uTerms := extractTurnQueryTerms(unrelated)
 	for _, r := range recs {
-		classifyTurnRecord(&emptyCtx, "", unrelated, uTerms, r)
+		classifyTurnRecord(&emptyCtx, "", unrelated, nil, uTerms, r)
 	}
 	if len(emptyCtx.ADRs) != 0 {
 		t.Fatalf("expected 0 matched ADRs for unrelated prompt, got %+v", emptyCtx.ADRs)

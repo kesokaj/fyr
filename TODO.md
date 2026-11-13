@@ -7,6 +7,8 @@
 
 ## Now
 
+- *(nothing active)*
+
 ## Next
 
 ## Backlog

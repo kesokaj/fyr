@@ -17,6 +17,7 @@ import (
 	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/work"
 )
 
 const (
@@ -309,4 +310,18 @@ func (r *run) uneditedScaffoldCount(root string) int {
 		}
 	}
 	return n
+}
+
+// unjudgedCanaryModel returns the first active, non-interactive, non-retiring
+// model in <home>/.config/fyr/models.json with 0 combined empirical runs, if any.
+func (r *run) unjudgedCanaryModel() string {
+	cat, ok, err := work.LoadCatalog(r.o.Home)
+	if err != nil || !ok {
+		return ""
+	}
+	cands := work.UnjudgedActiveModels(cat)
+	if len(cands) == 0 {
+		return ""
+	}
+	return cands[0].ID
 }

@@ -94,7 +94,7 @@ type VetResult struct {
 }
 
 var (
-	fileTokenRe  = regexp.MustCompile(`(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+|\b[A-Za-z0-9_-]+\.(?:go|ts|tsx|js|py|sh|md|sql|json|yaml|yml|toml)\b`)
+	fileTokenRe  = regexp.MustCompile(`(?:^|[\s` + "`" + `'\"(]|\./)(?:cmd|internal|skills|rules|context|agents|docker|\.agents|scripts|pkg|web|ui|src|docs|test|tests|api|app|lib)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+|(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+\.(?:go|ts|tsx|js|jsx|py|sh|md|sql|json|yaml|yml|toml|css|html|svg|proto|txt)\b|\b(?:Dockerfile|Makefile)\b`)
 	identTokenRe = regexp.MustCompile("`[^`]+`|\\b[A-Z][A-Za-z0-9]+\\.[A-Za-z0-9_]+\\b|\\b[a-z]+[A-Z][A-Za-z0-9_]*\\b|\\b[A-Z][a-z0-9]+[A-Z][A-Za-z0-9_]*\\b|\\b[a-z0-9]+_[a-z0-9_]+\\b")
 	flagOrRange  = regexp.MustCompile(`--[a-z][a-z0-9-]*|:\d+(?:-\d+)?\b|\b(?:func|type|struct|interface|return|error|panic|nil|exit)\b`)
 )
@@ -255,7 +255,7 @@ func isBugPrompt(low string) bool {
 	if containsAnySubstr(low, "bug", "broken", "failing", "fails", "failure", "crash", "crashes", "panic", "regression", "debug", "investigate", "doesn't work", "does not work", "nil pointer", "race condition", "deadlock", "error in", "wrong output") {
 		return true
 	}
-	return containsAnyWord(low, "fix") && !strings.Contains(low, "fix typo") && !strings.Contains(low, "fix comment")
+	return containsAnyWord(low, "fix") && !strings.Contains(low, "fix typo") && !strings.Contains(low, "fix comment") && !strings.Contains(low, "fix plan")
 }
 
 func isFeaturePrompt(low string, symbolHits int) bool {

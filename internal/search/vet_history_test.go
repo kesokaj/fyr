@@ -163,7 +163,7 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 
 	start := time.Now()
 	res := VetPrompt(
-		"Fix ReconcileProjectIndex in internal/search/service.go to return error on empty root and verify with go test",
+		"Fix ReconcileProjectIndex in internal/search/service.go",
 		IntentBug,
 		slice,
 		brainCtx,
@@ -172,8 +172,8 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 	if elapsed >= 2*time.Millisecond {
 		t.Logf("note: VetPrompt + SynthesizeImprovedPrompt took %v", elapsed)
 	}
-	if res.Score < 45 {
-		t.Fatalf("expected Score >= 45, got %d", res.Score)
+	if res.Score < 45 || res.Score >= 80 {
+		t.Fatalf("expected 45 <= Score < 80 for mid-score synthesis check, got %d", res.Score)
 	}
 	for _, want := range []string{
 		"[VET_IMPROVED_PROMPT]",
@@ -187,6 +187,15 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 		if !strings.Contains(res.TurnContract, want) {
 			t.Errorf("TurnContract missing %q:\n%s", want, res.TurnContract)
 		}
+	}
+	hiRes := VetPrompt(
+		"Fix ReconcileProjectIndex in internal/search/service.go to return error on empty root and verify with go test",
+		IntentBug,
+		slice,
+		brainCtx,
+	)
+	if hiRes.Score < 80 || hiRes.ImprovedPrompt != "" {
+		t.Errorf("expected Score >= 80 prompt to omit redundant [VET_IMPROVED_PROMPT], score=%d got=%q", hiRes.Score, hiRes.ImprovedPrompt)
 	}
 
 	// End-to-end stateful multi-turn hook: Turn 1 is VET_FIRST, Turn 2 answers it and carries forward Turn 1.
@@ -407,7 +416,7 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	inJSON := fmt.Sprintf(`{"conversationId":"conv-vis-1","workspacePaths":[%q],"transcriptPath":%q,"invocationNum":1,"lastUserInput":"Fix ReconcileProjectIndex in service.go and run go test ./..."}`, dir, transcriptPath)
+	inJSON := fmt.Sprintf(`{"conversationId":"conv-vis-1","workspacePaths":[%q],"transcriptPath":%q,"invocationNum":1,"lastUserInput":"Fix ReconcileProjectIndex in service.go"}`, dir, transcriptPath)
 	if err := RunHook(Options{Hook: "pre-invocation", Dir: dir, Home: home}, strings.NewReader(inJSON), &out); err != nil {
 		t.Fatalf("RunHook pre-invocation: %v", err)
 	}

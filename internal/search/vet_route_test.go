@@ -168,69 +168,76 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		Capsule:    "[Hop 0] internal/search/service.go:3-5 (ReconcileProjectIndex)",
 	}
 
-	// Verify VetPrompt emits advisory `route:` inside [VET_IMPROVED_PROMPT] across routed intents without blocking Gate.
+	// Verify VetPrompt emits advisory `route:` inside [FYR_TURN_CONTRACT] directly when
+	// Score >= 80 or ANSWER_ONLY (omitting redundant [VET_IMPROVED_PROMPT]), and inside
+	// [VET_IMPROVED_PROMPT] when 45 <= Score < 80.
 	vetChecks := []struct {
-		name       string
-		prompt     string
-		wantGate   VetGate
-		wantRoute  string
-		inContract bool
+		name               string
+		prompt             string
+		wantGate           VetGate
+		wantRoute          string
+		wantImprovedPrompt bool
 	}{
 		{
-			name:       "anchored bug",
-			prompt:     "Fix panic in ReconcileProjectIndex in internal/search/service.go:19 when root is empty and verify with go test",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-bug (reproduce with failing test first)",
-			inContract: true,
+			name:               "mid-score bug emits improved prompt with route",
+			prompt:             "Fix ReconcileProjectIndex in internal/search/service.go",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-bug (reproduce with failing test first)",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "anchored multi-phase feature",
-			prompt:     "Implement Phase 1 caching in internal/search/service.go returning CacheHit; implement Phase 2 metrics in internal/metrics/store.go returning Count, and verify with go test",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-work (waves with model:, judge:, base-check:)",
-			inContract: true,
+			name:      "anchored high-score bug puts route in TurnContract without redundant ImprovedPrompt",
+			prompt:    "Fix panic in ReconcileProjectIndex in internal/search/service.go:19 when root is empty and verify with go test",
+			wantGate:  GateEnrichAndProceed,
+			wantRoute: "route: /fyr-bug (reproduce with failing test first)",
 		},
 		{
-			name:       "anchored single-phase feature",
-			prompt:     "Implement CacheIndex in internal/search/service.go returning CacheStats and verify with go test",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-feature (pre-build interview first)",
-			inContract: true,
+			name:               "anchored multi-phase feature",
+			prompt:             "Implement Phase 1 caching in internal/search/service.go returning CacheHit; implement Phase 2 metrics in internal/metrics/store.go returning Count, and verify with go test",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-work (waves with model:, judge:, base-check:)",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "two independent tasks",
-			prompt:     "Update internal/search/service.go; update internal/search/vet.go",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-work <task>; <task>",
-			inContract: true,
+			name:               "anchored single-phase feature",
+			prompt:             "Implement CacheIndex in internal/search/service.go returning CacheStats and verify with go test",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-feature (pre-build interview first)",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "review prompt",
-			prompt:     "Review internal/search/service.go for race conditions",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-review --judge (cross-family)",
-			inContract: true,
+			name:               "two independent tasks",
+			prompt:             "Update internal/search/service.go; update internal/search/vet.go",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-work <task>; <task>",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "release prompt",
-			prompt:     "Ship it and cut v8.6.0",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: /fyr-preflight",
-			inContract: true,
+			name:               "review prompt",
+			prompt:             "Review internal/search/service.go for race conditions",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-review --judge (cross-family)",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "lookup task prompt",
-			prompt:     "Find callers and references of ReconcileProjectIndex in internal/search/service.go",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: fyr search --slice",
-			inContract: true,
+			name:               "release prompt",
+			prompt:             "Ship it and cut v8.6.0",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: /fyr-preflight",
+			wantImprovedPrompt: true,
 		},
 		{
-			name:       "question prompt stays ANSWER_ONLY in contract with route in ImprovedPrompt",
-			prompt:     "Where is ReconcileProjectIndex defined?",
-			wantGate:   GateEnrichAndProceed,
-			wantRoute:  "route: fyr search --slice",
-			inContract: false,
+			name:               "lookup task prompt",
+			prompt:             "Find callers and references of ReconcileProjectIndex in internal/search/service.go",
+			wantGate:           GateEnrichAndProceed,
+			wantRoute:          "route: fyr search --slice",
+			wantImprovedPrompt: true,
+		},
+		{
+			name:      "question prompt stays ANSWER_ONLY with route in TurnContract",
+			prompt:    "Where is ReconcileProjectIndex defined?",
+			wantGate:  GateEnrichAndProceed,
+			wantRoute: "route: fyr search --slice",
 		},
 	}
 	for _, vc := range vetChecks {
@@ -238,10 +245,14 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		if res.Gate != vc.wantGate {
 			t.Errorf("%s: Gate = %s, want %s", vc.name, res.Gate, vc.wantGate)
 		}
-		if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") || !strings.Contains(res.ImprovedPrompt, vc.wantRoute) {
-			t.Errorf("%s: ImprovedPrompt missing %q:\n%s", vc.name, vc.wantRoute, res.ImprovedPrompt)
+		if vc.wantImprovedPrompt {
+			if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") || !strings.Contains(res.ImprovedPrompt, vc.wantRoute) {
+				t.Errorf("%s: ImprovedPrompt missing %q:\n%s", vc.name, vc.wantRoute, res.ImprovedPrompt)
+			}
+		} else if res.ImprovedPrompt != "" {
+			t.Errorf("%s: expected empty ImprovedPrompt (Score=%d), got:\n%s", vc.name, res.Score, res.ImprovedPrompt)
 		}
-		if vc.inContract && !strings.Contains(res.TurnContract, vc.wantRoute) {
+		if !strings.Contains(res.TurnContract, vc.wantRoute) {
 			t.Errorf("%s: TurnContract missing %q:\n%s", vc.name, vc.wantRoute, res.TurnContract)
 		}
 	}
@@ -269,7 +280,8 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Errorf("VetPrompt median latency = %v (all: %v), want < 25ms", median, samples)
 	}
 
-	// Live pre-invocation hook emits [VET_IMPROVED_PROMPT] with advisory route: line.
+	// Live pre-invocation hook: mid-score bug emits [VET_IMPROVED_PROMPT] + route, while
+	// high-score bug emits route in [FYR_TURN_CONTRACT] without redundant [VET_IMPROVED_PROMPT].
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -279,7 +291,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		"conversationId": "conv-vet-route",
 		"workspacePaths": []string{dir},
 		"invocationNum":  1,
-		"lastUserInput":  "Fix ReconcileProjectIndex in service.go to handle empty root and run go test",
+		"lastUserInput":  "Fix ReconcileProjectIndex in service.go",
 	})
 	var hookOut bytes.Buffer
 	if err := Search(Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}, &hookOut); err != nil {

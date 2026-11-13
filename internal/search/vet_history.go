@@ -320,9 +320,13 @@ func hasNewFileSurface(curFiles, recentPivots []string) bool {
 }
 
 // SynthesizeImprovedPrompt generates the deterministic [VET_IMPROVED_PROMPT]
-// block in < 2 ms when res.Score >= 45 and the turn is executable.
+// block when 45 <= Score < 80, follow-up to VET_FIRST applies, or conflicts exist;
+// prompts scoring >= 80 with no VET_FIRST carry-forward or conflicts pass directly.
 func SynthesizeImprovedPrompt(prompt string, res VetResult, slice SliceResult, brainCtx TurnBrainContext, prev *VetHistoryRow) string {
 	if res.Score < 45 || res.Gate != GateEnrichAndProceed || res.Intent == IntentQuestion || res.Intent == IntentCorrection {
+		return ""
+	}
+	if res.Score >= 80 && (prev == nil || prev.Gate != GateVetFirst) && len(brainCtx.Conflicts) == 0 {
 		return ""
 	}
 	task := collapseOneLine(StripSandboxPreamble(strings.TrimSpace(prompt)), 280)
@@ -352,10 +356,14 @@ func SynthesizeImprovedPrompt(prompt string, res VetResult, slice SliceResult, b
 func formatImprovedPromptTargets(prompt string, slice SliceResult) string {
 	var spans []string
 	for _, line := range strings.Split(slice.Capsule, "\n") {
-		if (!strings.HasPrefix(line, "[Hop 0] ") && !strings.HasPrefix(line, "[Hop 1] ")) || strings.Contains(line, " snippet ") {
+		if !strings.HasPrefix(line, "[Hop 0] ") && (!strings.HasPrefix(line, "[Hop 1] ") || strings.Contains(line, " snippet ")) {
 			continue
 		}
-		rest := strings.TrimSpace(strings.TrimSuffix(line[strings.IndexByte(line, ']')+2:], "[EXTRACTED]"))
+		rest := line[strings.IndexByte(line, ']')+2:]
+		if cut := strings.Index(rest, " snippet — "); cut >= 0 {
+			rest = rest[:cut]
+		}
+		rest = collapseOneLine(strings.TrimSpace(strings.TrimSuffix(rest, "[EXTRACTED]")), 120)
 		if rest != "" {
 			spans = append(spans, rest)
 			if len(spans) >= 5 {

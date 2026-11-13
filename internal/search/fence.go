@@ -190,6 +190,9 @@ func buildTurnContract(res VetResult) string {
 			}
 		}
 	}
+	if res.Route != "" && res.Gate != GatePassThrough && res.Intent != IntentCorrection && !strings.Contains(res.ImprovedPrompt, "route: ") {
+		b.WriteString("route: " + res.Route + "\n")
+	}
 	if res.SecurityRequired {
 		b.WriteString("mandatory_subagent: security — Surface touches auth/crypto/secrets/frontmatter/input-parsing; dispatch the security subagent before completion.\n")
 	}
@@ -263,7 +266,11 @@ func formatMatchedRecordBody(r MatchedRecord) string {
 	if body == "" {
 		return hdr
 	}
-	return hdr + "\n" + truncateBytes(body, 1200)
+	capBytes := 600
+	if r.Kind == "adr" || r.Kind == "bug" {
+		capBytes = 380
+	}
+	return hdr + "\n" + truncateBytes(body, capBytes)
 }
 
 func formatSkillsDigestBlock(skills []SkillMeta) string {

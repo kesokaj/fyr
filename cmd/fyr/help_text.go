@@ -389,14 +389,15 @@ var pages = map[string]verbPage{
 		about:    []string{"Prints the build version."},
 	},
 	"models": {
-		synopsis: []string{"usage: fyr models [--json] [--pick ROLE] [--refresh] [--tier T]"},
+		synopsis: []string{"usage: fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]"},
 		about: []string{
 			"Lists the Antigravity model catalog in ~/.config/fyr/models.json,",
 			"refreshing from agy models on a cold cache or with --refresh, and",
-			"prints the evidence-judged pick per role (builder, judge, reviewer,",
+			"prints the pick per role (builder, planner, judge, reviewer,",
 			"verifier, mechanical) with any fallback reason (gone model or low",
-			"Anthropic quota). --pick ROLE prints the selected model ID (with",
-			"--json, the RolePick object). Exit 0 ok, 1 refresh error, 2 refusal.",
+			"Anthropic quota). --pick ROLE prints the selected model ID; --explain ID",
+			"prints model capabilities, changelog notes and empirical evidence.",
+			"Exit 0 ok, 1 refresh error, 2 refusal.",
 		},
 	},
 }

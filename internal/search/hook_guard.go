@@ -511,6 +511,8 @@ func normalizeHookToolName(raw string) string {
 		return "run_command"
 	case "edit_file", "editfile", "replace_file_content", "multi_replace_file_content", "write_file", "writefile", "write_to_file", "edit", "write":
 		return "write_or_edit"
+	case "swarm":
+		return "swarm"
 	default:
 		return s
 	}

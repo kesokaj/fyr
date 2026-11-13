@@ -26,15 +26,24 @@ type ModelEvidence struct {
 
 // CatalogEntry describes one model tracked in .config/fyr/models.json.
 type CatalogEntry struct {
-	ID          string        `json:"id"`
-	DisplayName string        `json:"display_name"`
-	Family      string        `json:"family"`
-	Tier        string        `json:"tier"`
-	Effort      string        `json:"effort"`
-	Status      string        `json:"status"`
-	FirstSeen   string        `json:"first_seen"`
-	LastSeen    string        `json:"last_seen"`
-	Evidence    ModelEvidence `json:"evidence"`
+	ID              string        `json:"id"`
+	DisplayName     string        `json:"display_name"`
+	Family          string        `json:"family"`
+	Subfamily       string        `json:"subfamily,omitempty"`
+	Tier            string        `json:"tier"`
+	Effort          string        `json:"effort"`
+	Mode            string        `json:"mode,omitempty"`
+	Speed           string        `json:"speed,omitempty"`
+	Summary         string        `json:"summary,omitempty"`
+	BestFor         []string      `json:"best_for,omitempty"`
+	AvoidFor        []string      `json:"avoid_for,omitempty"`
+	InteractiveOnly bool          `json:"interactive_only,omitempty"`
+	RetiringOn      string        `json:"retiring_on,omitempty"`
+	ChangelogNote   string        `json:"changelog_note,omitempty"`
+	Status          string        `json:"status"`
+	FirstSeen       string        `json:"first_seen"`
+	LastSeen        string        `json:"last_seen"`
+	Evidence        ModelEvidence `json:"evidence"`
 }
 
 // RolePick records the selected active model and rationale for a role+tier.
@@ -57,6 +66,7 @@ type Catalog struct {
 var StandardRoleTiers = [][2]string{
 	{"builder", "pro"},
 	{"builder", "flash"},
+	{"planner", "pro"},
 	{"judge", "pro"},
 	{"judge", "flash"},
 	{"reviewer", "pro"},
@@ -212,9 +222,12 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 	entries := make([]CatalogEntry, 0, len(parsed)+len(prevByID))
 	for _, e := range parsed {
 		seen[e.ID] = true
+		applyModelProfile(&e)
 		if old, ok := prevByID[e.ID]; ok {
 			e.Status = "active"
 			e.FirstSeen = nonEmpty(old.FirstSeen, today)
+			e.ChangelogNote = nonEmpty(e.ChangelogNote, old.ChangelogNote)
+			e.RetiringOn = nonEmpty(e.RetiringOn, old.RetiringOn)
 		} else if hasPrev {
 			e.Status = "new"
 			e.FirstSeen = today
@@ -230,6 +243,7 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 			if seen[old.ID] {
 				continue
 			}
+			applyModelProfile(&old)
 			old.Status = "gone"
 			entries = append(entries, old)
 		}
@@ -252,9 +266,9 @@ func NormalizeRoleTier(role, tier string) (normRole, normTier string, err error)
 		normRole = "builder"
 	}
 	switch normRole {
-	case "builder", "judge", "reviewer", "verifier", "mechanical":
+	case "builder", "planner", "judge", "reviewer", "verifier", "mechanical":
 	default:
-		return "", "", fmt.Errorf("unknown role %q (want builder, judge, reviewer, verifier or mechanical)", role)
+		return "", "", fmt.Errorf("unknown role %q (want builder, planner, judge, reviewer, verifier or mechanical)", role)
 	}
 	rawTier := strings.ToLower(strings.Trim(strings.TrimSpace(tier), "[]"))
 	switch rawTier {
@@ -276,16 +290,24 @@ func NormalizeRoleTier(role, tier string) (normRole, normTier string, err error)
 
 func pickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role, tier string) (RolePick, error) {
 	active := make([]CatalogEntry, 0, len(entries))
+	eligible := make([]CatalogEntry, 0, len(entries))
 	goneIDs := map[string]bool{}
 	for _, e := range entries {
+		applyModelProfile(&e)
 		if e.Status == "gone" {
 			goneIDs[e.ID] = true
 			continue
 		}
 		active = append(active, e)
+		if isAutoPickEligible(e) {
+			eligible = append(eligible, e)
+		}
 	}
 	if len(active) == 0 {
 		return RolePick{}, errors.New("no active models in catalog")
+	}
+	if len(eligible) == 0 {
+		eligible = active
 	}
 	key := role + ":" + tier
 	prevModel := ""
@@ -293,100 +315,8 @@ func pickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role
 		prevModel = prev.Model
 	}
 	if role == "judge" || role == "reviewer" || role == "verifier" {
-		return pickCrossFamilyRole(active, goneIDs, prevModel, role, tier)
+		return pickCrossFamilyRole(eligible, goneIDs, prevModel, role, tier)
 	}
-	chosen, reason, fb := pickGeminiOrAny(active, goneIDs, prevModel, role, tier)
+	chosen, reason, fb := pickGeminiOrAny(eligible, goneIDs, prevModel, role, tier)
 	return RolePick{Role: role, Tier: tier, Model: chosen.ID, Reason: reason, FallbackReason: fb}, nil
-}
-
-func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (RolePick, error) {
-	var buckets [][]CatalogEntry
-	if tier == "pro" {
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "anthropic" && strings.Contains(strings.ToLower(e.ID), "opus")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" }),
-		}
-	} else {
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "anthropic" && strings.Contains(strings.ToLower(e.ID), "sonnet")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" }),
-		}
-	}
-	for _, b := range buckets {
-		if len(b) > 0 {
-			best := rankBucket(b, role, tier)
-			fb := goneFallbackNote(prevModel, best.ID, goneIDs)
-			return RolePick{
-				Role:           role,
-				Tier:           tier,
-				Model:          best.ID,
-				Reason:         fmt.Sprintf("role=%s -> Anthropic (%s)", role, best.ID),
-				FallbackReason: fb,
-			}, nil
-		}
-	}
-	gem, _, _ := pickGeminiOrAny(active, goneIDs, "", "builder", tier)
-	fb := fmt.Sprintf("role=%s fallback to Gemini (%s): no active Anthropic model in agy models", role, gem.ID)
-	if prevModel != "" && goneIDs[prevModel] {
-		fb = fmt.Sprintf("role=%s fallback to Gemini (%s): previous model %s is gone and no Anthropic model is active", role, gem.ID, prevModel)
-	}
-	return RolePick{
-		Role:           role,
-		Tier:           tier,
-		Model:          gem.ID,
-		Reason:         fb,
-		FallbackReason: fb,
-	}, nil
-}
-
-func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (CatalogEntry, string, string) {
-	var buckets [][]CatalogEntry
-	switch {
-	case role == "mechanical":
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	case tier == "flash":
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "gemini" && isCarbon(e.ID) && (e.Effort == "medium" || e.Effort == "low")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	default:
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isCarbon(e.ID) && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	}
-	for _, b := range buckets {
-		if len(b) > 0 {
-			best := rankBucket(b, role, tier)
-			famLabel := "Gemini"
-			if best.Family != "gemini" {
-				famLabel = best.Family
-			}
-			return best, fmt.Sprintf("role=%s -> %s (%s)", role, famLabel, best.ID), goneFallbackNote(prevModel, best.ID, goneIDs)
-		}
-	}
-	return active[0], fmt.Sprintf("role=%s -> %s", role, active[0].ID), goneFallbackNote(prevModel, active[0].ID, goneIDs)
-}
-
-func goneFallbackNote(prevModel, newModel string, goneIDs map[string]bool) string {
-	if prevModel != "" && prevModel != newModel && goneIDs[prevModel] {
-		return fmt.Sprintf("previous model %s is gone from agy models; fell back to %s", prevModel, newModel)
-	}
-	return ""
 }

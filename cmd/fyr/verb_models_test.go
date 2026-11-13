@@ -254,4 +254,26 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	if bp := cat2.Picks["builder:pro"]; bp.Model != "gemini-3.9-carbon-high" {
 		t.Errorf("refreshModelsBestEffort builder:pro pick = %+v, want gemini-3.9-carbon-high", bp)
 	}
+
+	// Verify --explain and --pick planner CLI flags work cleanly and reject invalid combinations.
+	out.Reset()
+	if err := run([]string{"models", "--explain", "gemini-4-carbon-high", "--home", home}, &out); err != nil {
+		t.Fatalf("fyr models --explain: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{"ID: gemini-4-carbon-high", "Subfamily:", "architecture", "Best-for:"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("--explain missing %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if err := run([]string{"models", "--pick", "planner", "--home", home}, &out); err != nil {
+		t.Fatalf("fyr models --pick planner: %v\n%s", err, out.String())
+	}
+	if strings.TrimSpace(out.String()) == "" {
+		t.Errorf("--pick planner returned empty model")
+	}
+	out.Reset()
+	if err := run([]string{"models", "--explain", "gemini-4-carbon-high", "--pick", "builder", "--home", home}, &out); exitOf(err) != 2 {
+		t.Errorf("--explain + --pick exit = %d (%v), want 2", exitOf(err), err)
+	}
 }

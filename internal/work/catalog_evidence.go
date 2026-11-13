@@ -248,7 +248,7 @@ func matchBareStemPass(entries []CatalogEntry, stem string, wantGone, foldDots b
 func bareModelStem(id string) (string, bool) {
 	low := strings.ToLower(strings.TrimSpace(id))
 	low = strings.TrimPrefix(low, "models/")
-	for _, suf := range []string{"-high", "-medium", "-low"} {
+	for _, suf := range []string{"-xhigh", "-max", "-high", "-medium", "-low"} {
 		if strings.HasSuffix(low, suf) {
 			if base := strings.TrimSuffix(low, suf); base != "" {
 				return base, true
@@ -268,6 +268,10 @@ func entryEffort(e CatalogEntry) string {
 
 func canonicalEffortRank(effort string) int {
 	switch effort {
+	case "max":
+		return 5
+	case "xhigh":
+		return 4
 	case "high":
 		return 3
 	case "medium":

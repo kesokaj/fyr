@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -156,8 +158,12 @@ func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCo
 }
 
 // agyGens stores one generation step per gen_metadata row: its tokens, its
-// context, and the model it names.
+// context, and the model it names. Multi-model Orchestrator sessions record
+// Carbon/Argon on early steps and Hydrogen on execution steps; normalize those
+// to the corresponding gemini-pro-orchestrator identifier at the session level.
 func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
+	seenModels := map[string]bool{}
+	var firstModel string
 	for i, g := range gens {
 		f := fieldMap(g)
 		var ts any
@@ -174,9 +180,46 @@ func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
 				cache_read = excluded.cache_read, context = excluded.context`,
 			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5), ctx)
 		if m := identifier(f.text(1, 19)); m != "" {
-			w.exec(`UPDATE sessions SET model = COALESCE(model, ?) WHERE id = ?`, m, c.id)
+			if firstModel == "" {
+				firstModel = m
+			}
+			seenModels[strings.ToLower(m)] = true
 		}
 	}
+	if sessionModel := normalizeSessionModel(firstModel, seenModels); sessionModel != "" {
+		w.exec(`UPDATE sessions SET model = COALESCE(model, ?) WHERE id = ?`, sessionModel, c.id)
+	}
+}
+
+func normalizeSessionModel(first string, seen map[string]bool) string {
+	if len(seen) <= 1 {
+		return first
+	}
+	var hasHydrogen, hasCarbon, hasArgon bool
+	for m := range seen {
+		switch {
+		case strings.Contains(m, "orchestrator"):
+			return m
+		case strings.Contains(m, "hydrogen"):
+			hasHydrogen = true
+		case strings.Contains(m, "carbon"):
+			hasCarbon = true
+		case strings.Contains(m, "argon"):
+			hasArgon = true
+		}
+	}
+	if hasHydrogen && hasArgon && !hasCarbon {
+		return "gemini-pro-orchestrator-argon"
+	}
+	if hasHydrogen && hasCarbon {
+		return "gemini-pro-orchestrator"
+	}
+	models := make([]string, 0, len(seen))
+	for m := range seen {
+		models = append(models, m)
+	}
+	sort.Strings(models)
+	return "orchestrator(" + strings.Join(models, "+") + ")"
 }
 
 // agyIngestState records the conversation's source size and modified time,

@@ -74,7 +74,7 @@ func Check(o Options) (runner, reason string, err error) {
 			return "", "", err
 		}
 	}
-	if err := checkModels(context.Background(), o, nil); err != nil {
+	if err := checkModels(context.Background(), &o, nil); err != nil {
 		return "", "", err
 	}
 	o.build = buildPredict
