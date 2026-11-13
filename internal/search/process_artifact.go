@@ -231,7 +231,7 @@ func resolveProcessArtifactPath(in HookInput) string {
 	if tp := strings.TrimSpace(in.TranscriptPath); tp != "" {
 		cur := filepath.Dir(filepath.Clean(tp))
 		for i := 0; i < 6 && cur != "/" && cur != "."; i++ {
-			if filepath.Base(filepath.Dir(cur)) == "brain" {
+			if isUnderBrainDir(cur) {
 				return filepath.Join(cur, "fyr-process.md")
 			}
 			cur = filepath.Dir(cur)

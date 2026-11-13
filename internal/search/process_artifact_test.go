@@ -63,6 +63,9 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 	if isUnderBrainDir("/tmp/brain/conv-1/nested") {
 		t.Errorf("nested subdir under brain accepted")
 	}
+	if got := resolveProcessArtifactPath(HookInput{TranscriptPath: "brain/conv-1/logs/transcript.jsonl"}); got != "" {
+		t.Errorf("relative TranscriptPath resolved artifact path %q, want empty", got)
+	}
 	tmpRoot := t.TempDir()
 	realDir := filepath.Join(tmpRoot, "real")
 	if err := os.MkdirAll(realDir, 0o700); err != nil {
@@ -73,6 +76,9 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		symConv := filepath.Join(symBrain, "conv-1")
 		if isUnderBrainDir(symConv) {
 			t.Errorf("symlinked brain dir accepted")
+		}
+		if got := resolveProcessArtifactPath(HookInput{TranscriptPath: filepath.Join(symConv, "logs", "transcript.jsonl")}); got != "" {
+			t.Errorf("symlinked TranscriptPath resolved artifact path %q, want empty", got)
 		}
 		if err := writeProcessArtifactAtomic(filepath.Join(symConv, "fyr-process.md"), []byte("x")); err == nil {
 			t.Errorf("writeProcessArtifactAtomic succeeded through symlinked brain dir")
