@@ -3,6 +3,7 @@ package work
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -319,4 +320,105 @@ func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T)
 	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
 		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
 	}
+}
+
+func TestRootEnvStripsAntigravityVars(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_LS_ADDRESS", "localhost:1234")
+	t.Setenv("ANTIGRAVITY_CSRF_TOKEN", "tok")
+	t.Setenv("SSH_CONNECTION", "192.168.5.181 1234 192.168.5.10 22")
+
+	env := rootEnv()
+	var hasSSH, hasPWD bool
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "ANTIGRAVITY_") {
+			t.Errorf("rootEnv leaked %q", kv)
+		}
+		if kv == "SSH_CONNECTION=192.168.5.181 1234 192.168.5.10 22" {
+			hasSSH = true
+		}
+		if kv == "PWD=/" {
+			hasPWD = true
+		}
+	}
+	if !hasSSH || !hasPWD {
+		t.Errorf("rootEnv missing expected vars: hasSSH=%v hasPWD=%v", hasSSH, hasPWD)
+	}
+}
+
+func TestRunAgyDetachesControllingTTY(t *testing.T) {
+	if os.Getenv("FYR_TEST_IN_PTY") == "1" {
+		runAgyInPTYChild(t)
+		return
+	}
+	scriptBin, err := exec.LookPath("script")
+	if err != nil {
+		t.Skip("script binary not available for PTY check")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		cmd = exec.CommandContext(ctx, scriptBin, "-q", "/dev/null", os.Args[0], "-test.run=^TestRunAgyDetachesControllingTTY$")
+	} else {
+		sub := sandbox.ShellQuote(os.Args[0]) + " -test.run=^TestRunAgyDetachesControllingTTY$"
+		cmd = exec.CommandContext(ctx, scriptBin, "-q", "-e", "-c", sub, "/dev/null")
+	}
+	cmd.Env = append(os.Environ(), "FYR_TEST_IN_PTY=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("PTY child failed: %v\n%s", err, out)
+	}
+}
+
+func runAgyInPTYChild(t *testing.T) {
+	t.Helper()
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		t.Fatalf("precondition: /dev/tty not attached: %v", err)
+	}
+	_ = tty.Close()
+
+	oldTimeout := modelsTimeout
+	modelsTimeout = 400 * time.Millisecond
+	t.Cleanup(func() { modelsTimeout = oldTimeout })
+
+	fakeAgy := writeFakePTYScript(t)
+	ctx := context.Background()
+	if out, err := runAgyModels(ctx, fakeAgy); err != nil || !strings.Contains(out, "gemini-4-carbon-high") {
+		t.Fatalf("runAgyModels: out=%q err=%v", out, err)
+	}
+	if out, err := RunUsage(ctx, fakeAgy); err != nil || !strings.Contains(out, "Gemini Models") {
+		t.Fatalf("RunUsage: out=%q err=%v", out, err)
+	}
+	if out := runAgyChangelog(ctx, fakeAgy); !strings.Contains(out, "Added Gemini 4 Carbon") {
+		t.Fatalf("runAgyChangelog: out=%q", out)
+	}
+	if out, err := execJudgeAgy(ctx, fakeAgy, "gemini-4-carbon-high", "review diff"); err != nil || !strings.Contains(out, "VERDICT: PASS") {
+		t.Fatalf("execJudgeAgy: out=%q err=%v", out, err)
+	}
+}
+
+func writeFakePTYScript(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "agy")
+	script := `#!/bin/sh
+if [ -r /dev/tty ]; then
+  head -c 1 /dev/tty >/dev/null 2>&1 || true
+fi
+case "$1" in
+  models) printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\n' ;;
+  changelog) printf '1.5.8:\n· Added Gemini 4 Carbon\n' ;;
+  -p)
+    if [ "$2" = "/usage" ]; then
+      printf 'Gemini Models\tWeekly Limit Remaining\t80%%\tx\nGemini Models\tFive Hour Limit Remaining\t90%%\tx\n'
+    else
+      printf 'VERDICT: PASS — clean\n'
+    fi
+    ;;
+esac
+`
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

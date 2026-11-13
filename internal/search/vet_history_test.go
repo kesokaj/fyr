@@ -427,8 +427,7 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
 	bannerLine, _, _ := strings.Cut(sysMsg, "\n")
 	for _, want := range []string{
-		"status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `",
-		" · Skills: `fyr-bug, golang`",
+		"status_line: `fyr · <resume|plan|build|verify|handoff> · fyr-bug, golang`",
 		"🧠 5 pivots",
 	} {
 		if !strings.Contains(sysMsg, want) {
@@ -437,10 +436,11 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 	for _, unwanted := range []string{
 		"Stage: **[N/6",
+		"[N/6",
 		"Turn-0 capsule",
 		"(skills/golang/SKILL.md)",
 	} {
-		if strings.Contains(bannerLine, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
+		if strings.Contains(bannerLine, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
 			t.Errorf("unexpected verbose token %q in banner/systemMessage:\n%s", unwanted, sysMsg)
 		}
 	}
@@ -451,7 +451,7 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		"# 🧭 `fyr` Live Process & Turn Telemetry",
+		"# `fyr` Turn Telemetry",
 		"flowchart LR",
 		"Turn-by-Turn `fyr vet` History",
 		"[VET_IMPROVED_PROMPT]",

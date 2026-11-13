@@ -75,7 +75,7 @@ func runAgyChangelog(ctx context.Context, agyPath string) string {
 	cmd := exec.CommandContext(cctx, agyPath, "changelog")
 	cmd.Dir = "/"
 	cmd.Env = rootEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
 	stdout := &capped{}

@@ -162,7 +162,7 @@ func buildTurnContract(res VetResult) string {
 	var b strings.Builder
 	b.WriteString("[FYR_TURN_CONTRACT]\n")
 	fmt.Fprintf(&b, "intent: %s | gate: %s | score: %d/100\n", res.Intent, res.Gate, res.Score)
-	fmt.Fprintf(&b, "status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `%d/100` · Skills: `%s`\n", res.Score, formatContractSkills(res.Skills))
+	fmt.Fprintf(&b, "status_line: %s\n", formatStatusLine(res))
 	switch res.Gate {
 	case GatePassThrough:
 		b.WriteString("directive: PASS_THROUGH — Execute the operator's direct instruction or approval without ceremony.\n")
@@ -199,15 +199,19 @@ func buildTurnContract(res VetResult) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func formatContractSkills(skills []SkillMeta) string {
-	if len(skills) == 0 {
-		return "none"
+func formatStatusLine(res VetResult) string {
+	var skillSuffix string
+	if len(res.Skills) > 0 {
+		names := make([]string, 0, len(res.Skills))
+		for _, s := range res.Skills {
+			names = append(names, s.Name)
+		}
+		skillSuffix = " · " + strings.Join(names, ", ")
 	}
-	names := make([]string, 0, len(skills))
-	for _, s := range skills {
-		names = append(names, s.Name)
+	if res.Gate == GateVetFirst {
+		return fmt.Sprintf("`fyr · vet %d/100%s`", res.Score, skillSuffix)
 	}
-	return strings.Join(names, ", ")
+	return fmt.Sprintf("`fyr · <resume|plan|build|verify|handoff>%s`", skillSuffix)
 }
 
 func buildUserMarkdownBanner(res VetResult, extraBanners []string) string {

@@ -515,7 +515,7 @@ func checkLedgerWithIgnoreRetry(dir string, fn func() (ReadDecision, error)) (Re
 }
 
 func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {
-	writeHookProcessArtifact(o.Home, nil, dir, in, "5/6 Verify & Judge", nil)
+	writeHookProcessArtifact(o.Home, nil, dir, in, "Verify", nil)
 	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
 		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
 	}

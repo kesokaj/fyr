@@ -85,15 +85,15 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 func inferProcessStage(turnNum int, res VetResult) string {
 	switch {
 	case res.Gate == GateVetFirst:
-		return "2/6 Vet"
+		return "Vet"
 	case res.Intent == IntentRelease:
-		return "5/6 Verify & Judge"
+		return "Verify"
 	case res.Intent == IntentFeature && res.Score < 65:
-		return "3/6 Plan"
+		return "Plan"
 	case turnNum <= 1 && res.Intent == IntentQuestion:
-		return "1/6 Resume"
+		return "Resume"
 	default:
-		return "4/6 Build"
+		return "Build"
 	}
 }
 
@@ -269,7 +269,7 @@ func writeProcessArtifactAtomic(target string, data []byte) error {
 }
 
 // RenderProcessArtifact formats the live `<appDataDir>/brain/<conv-id>/fyr-process.md`
-// Markdown artifact showing the 6-stage fyr pipeline, active trail/model routing,
+// Markdown artifact showing the fyr workflow stages, active trail/model routing,
 // and chronological turn-by-turn vet_history + [VET_IMPROVED_PROMPT] synthesis.
 func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	return RenderProcessArtifactForHome("", convID, stage, rows, records)
@@ -279,7 +279,7 @@ func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records [
 // picks when present (< 1 ms, never spawning agy) and role-family policy otherwise.
 func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	var sb strings.Builder
-	sb.WriteString("# 🧭 `fyr` Live Process & Turn Telemetry\n\n")
+	sb.WriteString("# `fyr` Turn Telemetry\n\n")
 	fmt.Fprintf(&sb, "- **Conversation:** `%s`\n", convID)
 	fmt.Fprintf(&sb, "- **Active Stage:** **%s**\n", stage)
 	sb.WriteString(formatModelRoutingLine(home))
@@ -291,7 +291,7 @@ func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryR
 		fmt.Fprintf(&sb, "- **Active Trail Records:** %s\n", strings.Join(ids, ", "))
 	}
 	sb.WriteString("\n## Pipeline Stage\n\n```mermaid\nflowchart LR\n")
-	sb.WriteString("  S1[\"1. Resume\"] --> S2[\"2. Vet\"] --> S3[\"3. Plan\"] --> S4[\"4. Build\"] --> S5[\"5. Verify & Judge\"] --> S6[\"6. Handoff\"]\n")
+	sb.WriteString("  S1[\"Resume\"] --> S2[\"Vet\"] --> S3[\"Plan\"] --> S4[\"Build\"] --> S5[\"Verify\"] --> S6[\"Handoff\"]\n")
 	sb.WriteString("```\n\n")
 	sb.WriteString("## Turn-by-Turn `fyr vet` History\n\n")
 	if len(rows) == 0 {

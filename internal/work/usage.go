@@ -124,7 +124,7 @@ func RunUsage(run context.Context, agy string) (string, error) {
 	cmd := exec.CommandContext(ctx, agy, "-p", "/usage")
 	cmd.Dir = "/"
 	cmd.Env = rootEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
 	stdout, stderr := &capped{over: errModelsOver}, &capped{}

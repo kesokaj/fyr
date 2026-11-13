@@ -35,11 +35,11 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 
 	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, []string{"🧠 2 pivots"})
 
-	wantStatus := "status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `85/100` · Skills: `fyr-bug, golang`"
+	wantStatus := "status_line: `fyr · <resume|plan|build|verify|handoff> · fyr-bug, golang`"
 	if !strings.Contains(res.TurnContract, wantStatus) {
 		t.Errorf("TurnContract missing compact status_line %q:\n%s", wantStatus, res.TurnContract)
 	}
-	for _, legacy := range []string{"Stage: **[N/6", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder"} {
+	for _, legacy := range []string{"Stage: **[N/6", "[N/6", "🧭 **fyr**", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder"} {
 		if strings.Contains(res.TurnContract, legacy) {
 			t.Errorf("TurnContract still contains verbose legacy status field %q:\n%s", legacy, res.TurnContract)
 		}
@@ -72,12 +72,22 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 	}
 	_, banner := BuildTurnEnvelope(&res, SliceResult{}, TurnBrainContext{}, nil, nil)
 
-	wantStatus := "status_line: 🧭 **fyr** · **[N/6 <Resume|Vet|Plan|Build|Verify & Judge|Handoff>]** · Vet `20/100` · Skills: `none`"
+	wantStatus := "status_line: `fyr · vet 20/100`"
 	if !strings.Contains(res.TurnContract, wantStatus) {
 		t.Errorf("TurnContract missing none-skills status_line %q:\n%s", wantStatus, res.TurnContract)
+	}
+	if strings.Contains(res.TurnContract, "none") {
+		t.Errorf("TurnContract should omit empty skills rather than printing none:\n%s", res.TurnContract)
 	}
 	wantBanner := "🧭 **fyr vet:** `FEATURE` → `VET_FIRST` (`20/100`) · 💡 tip: missing anchors (target, scope, verification) — prefix `!` to bypass vetting"
 	if banner != wantBanner {
 		t.Errorf("banner = %q, want %q", banner, wantBanner)
+	}
+
+	proceed := VetResult{Intent: IntentTask, Gate: GateEnrichAndProceed, Score: 90}
+	BuildTurnEnvelope(&proceed, SliceResult{}, TurnBrainContext{}, nil, nil)
+	wantProceedStatus := "status_line: `fyr · <resume|plan|build|verify|handoff>`"
+	if !strings.Contains(proceed.TurnContract, wantProceedStatus) {
+		t.Errorf("TurnContract without skills = %q, want %q", proceed.TurnContract, wantProceedStatus)
 	}
 }

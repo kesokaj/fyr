@@ -75,9 +75,10 @@ func checkModels(ctx context.Context, o *Options, ks []Kickoff) error {
 }
 
 // listModels runs `agy models` in / with the verb's environment, stdin from
-// the null device, in its own process group, which the deadline or the
-// run's end kills, and which is killed after the call too, so no helper it
-// left runs on (D125); the IDs are parsed by ParseModelsOutput.
+// the null device, in its own session and process group (Setsid: true, detaching
+// /dev/tty so SSH terminal probes never stop on SIGTTIN/SIGTTOU), which the
+// deadline or the run's end kills, and which is killed after the call too, so
+// no helper it left runs on (D125); the IDs are parsed by ParseModelsOutput.
 func listModels(run context.Context, agy string) ([]string, error) {
 	raw, err := runAgyModels(run, agy)
 	if err != nil {
@@ -97,7 +98,7 @@ func runAgyModels(run context.Context, agy string) (string, error) {
 	cmd := exec.CommandContext(ctx, agy, "models")
 	cmd.Dir = "/"
 	cmd.Env = rootEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
 	stdout, stderr := &capped{over: errModelsOver}, &capped{}
@@ -123,13 +124,14 @@ func runAgyModels(run context.Context, agy string) (string, error) {
 	return stdout.String(), nil
 }
 
-// rootEnv is the verb's environment with PWD saying /: an explicit Env
-// keeps the inherited PWD, which names the lead's checkout (the Phase 8a
-// security review).
+// rootEnv is the verb's environment with PWD saying / and ANTIGRAVITY_*
+// stripped: an explicit Env keeps the inherited PWD (the Phase 8a security
+// review), and stripping ANTIGRAVITY_* prevents nested daemon/TTY interference.
 func rootEnv() []string {
 	var out []string
 	for _, kv := range sandbox.FyrEnv() {
-		if k, _, _ := strings.Cut(kv, "="); k != "PWD" && k != "OLDPWD" {
+		k, _, _ := strings.Cut(kv, "=")
+		if k != "PWD" && k != "OLDPWD" && !strings.HasPrefix(k, "ANTIGRAVITY_") {
 			out = append(out, kv)
 		}
 	}
