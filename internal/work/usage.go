@@ -155,6 +155,12 @@ func RunUsage(run context.Context, agy string) (string, error) {
 //     falling back to the equivalent-tier listed Gemini model when no Anthropic model is
 //     listed or when Anthropic pool quota in `agy -p "/usage"` is < 20% weekly or < 30% 5h.
 func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel string) (string, string, error) {
+	return ResolveRoleModelForHome(ctx, os.Getenv("HOME"), agyPath, role, tier, explicitModel)
+}
+
+// ResolveRoleModelForHome behaves like ResolveRoleModel, reading models.json from
+// home (when non-empty) rather than os.Getenv("HOME").
+func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, explicitModel string) (string, string, error) {
 	if exp := strings.TrimSpace(explicitModel); exp != "" {
 		return exp, "explicit model " + exp, nil
 	}
@@ -168,7 +174,7 @@ func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel st
 	if len(ids) == 0 {
 		return "", "", errors.New("agy models listed no model")
 	}
-	entries := buildListedCatalogEntries(os.Getenv("HOME"), ids)
+	entries := buildListedCatalogEntries(home, ids)
 	pick, err := PickRoleFromCatalog(ctx, Catalog{Entries: entries}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err

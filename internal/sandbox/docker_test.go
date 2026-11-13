@@ -175,8 +175,8 @@ func TestHostCmdUnchanged(t *testing.T) {
 	b := r.prepared(r.config("host"))
 	cmd := b.hostCmd("/bin/agy", "hello")
 	wantArgs := []string{"/bin/agy", "-p", "The project root is the current directory, " + b.App() + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. hello", "--mode", "accept-edits", "--print-timeout", "20m"}
-	if !slices.Equal(cmd.Args, wantArgs) || cmd.Dir != b.App() || !slices.Equal(cmd.Env, b.agyEnv()) || cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
-		t.Fatalf("host cmd: args %q dir %q setpgid %v", cmd.Args, cmd.Dir, cmd.SysProcAttr)
+	if !slices.Equal(cmd.Args, wantArgs) || cmd.Dir != b.App() || !slices.Equal(cmd.Env, b.agyEnv()) || cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Fatalf("host cmd: args %q dir %q setsid %v", cmd.Args, cmd.Dir, cmd.SysProcAttr)
 	}
 	if !strings.HasPrefix(cmd.Env[0], "PATH="+filepath.Join(b.Home(), "bin")+string(os.PathListSeparator)) {
 		t.Fatalf("host PATH %q", cmd.Env[0])

@@ -130,9 +130,11 @@ func applyChangelogText(raw string, entries []CatalogEntry) {
 			if !matchedStem && !matchedSub {
 				continue
 			}
-			if (strings.Contains(low, "retir") || strings.Contains(low, "deprecat")) && entries[i].RetiringOn == "" {
-				if m := changelogDateRe.FindString(t); m != "" {
-					entries[i].RetiringOn = m
+			if entries[i].RetiringOn == "" {
+				if kwIdx := earliestKeywordIndex(low, "retir", "deprecat"); kwIdx >= 0 {
+					if m := changelogDateRe.FindString(low[kwIdx:]); m != "" {
+						entries[i].RetiringOn = m
+					}
 				}
 			}
 			if entries[i].ChangelogNote == "" {
@@ -197,36 +199,19 @@ func ResolveAutoRoleAndTier(k Kickoff) (role, tier, rationale string) {
 	return "builder", "pro", "multi-file coding scope -> builder:pro"
 }
 
-// AutoPickKickoffModel selects a concrete model ID from home's catalog for
-// a Kickoff whose Model: is empty or "auto", falling back to listed models.
-func AutoPickKickoffModel(ctx context.Context, home, agyPath string, k Kickoff) (string, string, error) {
-	role, tier, rationale := ResolveAutoRoleAndTier(k)
-	if cat, ok, err := LoadCatalog(home); err == nil && ok {
-		pick, err := PickRoleFromCatalog(ctx, cat, agyPath, role, tier)
-		if err == nil && pick.Model != "" {
-			if pick.FallbackReason != "" {
-				return pick.Model, rationale + "; " + pick.FallbackReason, nil
-			}
-			return pick.Model, rationale + " (" + pick.Reason + ")", nil
-		}
-	}
-	if agyPath == "" {
-		var err error
-		agyPath, err = exec.LookPath("agy")
-		if err != nil {
-			return "", "", errors.New("auto-pick model: agy not found on PATH")
-		}
-	}
-	model, note, err := ResolveRoleModel(ctx, agyPath, role, tier, "")
-	if err != nil {
-		return "", "", err
-	}
-	return model, rationale + " (" + note + ")", nil
-}
-
 // resolveAutoModels resolves Kickoffs with Model: "auto" (or empty when
 // default/auto-pick applies) and Judge-Model: "auto" before preflight model
 // verification, and rejects interactive-only orchestrator IDs in headless work.
+func earliestKeywordIndex(s string, keywords ...string) int {
+	best := -1
+	for _, kw := range keywords {
+		if idx := strings.Index(s, kw); idx >= 0 && (best < 0 || idx < best) {
+			best = idx
+		}
+	}
+	return best
+}
+
 func resolveAutoModels(ctx context.Context, o *Options, ks []Kickoff, listed map[string]bool, ids []string) error {
 	for i := range ks {
 		if isInteractiveOnlyID(ks[i].Model) {

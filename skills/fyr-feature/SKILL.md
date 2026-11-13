@@ -70,10 +70,10 @@ judge-model: <required on multi-phase `workers: yes` worker phases: bare model I
 - [ ] Checkpoint — expect: <observable end state of the phase> — evidence: <command and exit status>, <date>
 ### Phase 2 — … (after: Phase 1)
 files: <required on multi-phase plans: comma-separated repo-relative files, directories ending in `/`, record IDs>
-model: <required on multi-phase `workers: yes` worker phases: bare model ID from `fyr models --pick builder`>
+model: <required on multi-phase `workers: yes` worker phases: bare model ID from `fyr models --pick builder`, or `auto`>
 base-check: <required on multi-phase `workers: yes` worker phases: shell command failing on HEAD and exiting 0 after build>
 judge: <required on multi-phase `workers: yes` worker phases: one-line semantic acceptance criterion>
-judge-model: <required on multi-phase `workers: yes` worker phases: bare model ID from `fyr models --pick judge`>
+judge-model: <required on multi-phase `workers: yes` worker phases: bare model ID from `fyr models --pick judge`, or `auto`>
 
 ## Risks
 Assumptions: <a claim about an external system, a consumer, or a machine> — checked by <command>, first task of the phase that depends on it; or none

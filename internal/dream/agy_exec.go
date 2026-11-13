@@ -46,7 +46,7 @@ func runGroup(cmd *exec.Cmd, grace time.Duration) error {
 	// the run into a failure, and Ctrl-C stopped reaching a CLI outside
 	// fyr's own group (the fix's review).
 	cmd.WaitDelay = grace
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	killGroup := func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Cancel = func() error { killGroup(); return nil }
 	if err := cmd.Start(); err != nil {

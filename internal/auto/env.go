@@ -93,7 +93,7 @@ func tool(wait time.Duration, dir string, env []string, name string, args ...str
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir, cmd.WaitDelay = dir, time.Second
 	// Its own group, so a deadline ends what the tool started too.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(append(os.Environ(), "LC_ALL=C"), env...)
 	var out capped

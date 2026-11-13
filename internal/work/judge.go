@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -75,15 +74,7 @@ func (w *worker) baseCheckCmd() *exec.Cmd {
 			env = append(env, kv)
 		}
 	}
-	binDir := filepath.Join(w.b.Home(), ".local", "bin")
-	pathVal := binDir + string(os.PathListSeparator) + os.Getenv("PATH")
-	var finalEnv []string
-	for _, kv := range env {
-		if k, _, _ := strings.Cut(kv, "="); k != "PATH" {
-			finalEnv = append(finalEnv, kv)
-		}
-	}
-	cmd.Env = append(finalEnv, "HOME="+w.b.Home(), "PWD="+w.b.App(), "PATH="+pathVal)
+	cmd.Env = append(env, "HOME="+w.b.Home(), "PWD="+w.b.App())
 	return cmd
 }
 
@@ -111,7 +102,7 @@ func (w *worker) runJudge() {
 		w.b.Fail(ReasonJudgeFailed)
 		return
 	}
-	judgeModel, fallbackReason, _ := ResolveRoleModel(ctx, agy, "judge", "opus", w.p.k.JudgeModel)
+	judgeModel, fallbackReason, _ := ResolveRoleModelForHome(ctx, w.o.Home, agy, "judge", "opus", w.p.k.JudgeModel)
 	if fallbackReason != "" {
 		w.b.Note("judge model: %s (%s)", judgeModel, fallbackReason)
 	}

@@ -378,3 +378,25 @@ func TestCatalogEvidenceEdgeCases(t *testing.T) {
 		t.Errorf("unlisted bare key created a phantom catalog entry")
 	}
 }
+
+func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
+	home := t.TempDir()
+	path := CatalogPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"entries":[{"id":"gemini-pro-orchestrator","display_name":"Gemini Pro (Orchestrator)","family":"gemini","tier":"pro","status":"active"},{"id":"gpt-oss-120b-medium","display_name":"GPT-OSS 120B (Medium)","family":"other","tier":"flash","status":"active"}]}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cat, ok, err := LoadCatalog(home)
+	if err != nil || !ok || len(cat.Entries) != 2 {
+		t.Fatalf("LoadCatalog legacy: ok=%v len=%d err=%v", ok, len(cat.Entries), err)
+	}
+	if !cat.Entries[0].InteractiveOnly || cat.Entries[0].Subfamily != "orchestrator" {
+		t.Errorf("legacy orchestrator not hydrated on LoadCatalog: %+v", cat.Entries[0])
+	}
+	if cat.Entries[1].Subfamily != "gpt-oss" || cat.Entries[1].RetiringOn == "" {
+		t.Errorf("legacy gpt-oss not hydrated on LoadCatalog: %+v", cat.Entries[1])
+	}
+}

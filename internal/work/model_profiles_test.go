@@ -110,16 +110,30 @@ func TestChangelogEnrichmentAndUnjudgedCanaries(t *testing.T) {
 		{ID: "gemini-pro-orchestrator", Family: "gemini", Tier: "pro", Status: "active"},
 		{ID: "gpt-oss-120b-medium", Family: "other", Tier: "flash", Status: "active"},
 		{ID: "custom-bare-v1", Family: "other", Tier: "pro", Status: "active"},
+		{ID: "custom-retire-v1", Family: "other", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 1}},
+		{ID: "custom-deprecate-v1", Family: "other", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 1}},
 	}
 	for i := range entries {
 		applyModelProfile(&entries[i])
 	}
-	applyChangelogText("2026-11-01 Notice: gpt-oss-120b retiring on 2026-11-18\n2026-11-02 Release: Gemini 4 Carbon excels at deep coding.", entries)
+	applyChangelogText(
+		"2026-11-01 Notice: gpt-oss-120b retiring on 2026-11-18\n"+
+			"2026-11-02 Release: Gemini 4 Carbon excels at deep coding.\n"+
+			"2026-11-01 Notice: custom-retire-v1 retiring on 2026-11-25\n"+
+			"2026-11-01 Notice: custom-deprecate-v1 deprecated in favor of v2",
+		entries,
+	)
 	if entries[0].ChangelogNote == "" {
 		t.Errorf("expected ChangelogNote on carbon entry")
 	}
 	if entries[3].RetiringOn != "2026-11-18" {
 		t.Errorf("gpt-oss RetiringOn = %q, want 2026-11-18", entries[3].RetiringOn)
+	}
+	if entries[5].RetiringOn != "2026-11-25" {
+		t.Errorf("custom-retire-v1 RetiringOn = %q, want 2026-11-25", entries[5].RetiringOn)
+	}
+	if entries[6].RetiringOn != "" || entries[6].ChangelogNote == "" {
+		t.Errorf("non-dated deprecation falsely populated RetiringOn or dropped note: %+v", entries[6])
 	}
 	if entries[2].RetiringOn != "" || entries[4].RetiringOn != "" || entries[4].ChangelogNote != "" {
 		t.Errorf("bare model IDs falsely matched unrelated changelog line: orch=%+v bare=%+v", entries[2], entries[4])

@@ -320,6 +320,13 @@ func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T)
 	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
 		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
 	}
+
+	// Explicit home must override os.Getenv("HOME") when loading catalog evidence.
+	t.Setenv("HOME", t.TempDir())
+	bHomeModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
+	if err != nil || bHomeModel != "gemini-4-carbon-medium" {
+		t.Fatalf("ResolveRoleModelForHome(home): got %q err=%v, want gemini-4-carbon-medium", bHomeModel, err)
+	}
 }
 
 func TestRootEnvStripsAntigravityVars(t *testing.T) {

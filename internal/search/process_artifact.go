@@ -165,7 +165,8 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 	var stamps []string
 	for _, e := range entries {
 		if e.IsDir() {
-			if _, serr := os.Stat(filepath.Join(workDir, e.Name(), "status.json")); serr == nil {
+			p := filepath.Join(workDir, e.Name(), "status.json")
+			if st, serr := os.Lstat(p); serr == nil && st.Mode().IsRegular() && st.Size() > 0 && st.Size() <= 4<<20 {
 				stamps = append(stamps, e.Name())
 			}
 		}
@@ -188,9 +189,9 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 
 func renderWorkWaveMarkdown(snap workStatusSnapshot) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Active / Latest `fyr work` Wave (`%s`)\n\n", Printable(snap.Stamp))
+	fmt.Fprintf(&sb, "## Active / Latest `fyr work` Wave (`%s`)\n\n", sanitizeMDCell(snap.Stamp))
 	if snap.UpdatedAt != "" {
-		fmt.Fprintf(&sb, "- **Updated:** `%s`\n\n", Printable(snap.UpdatedAt))
+		fmt.Fprintf(&sb, "- **Updated:** `%s`\n\n", sanitizeMDCell(snap.UpdatedAt))
 	}
 	sb.WriteString("| Worker | State | Model | Base-Check | Judge | Steps | Commits | Last Step |\n|---|---|---|---|---|---:|---:|---|\n")
 	for _, w := range snap.Workers {
@@ -240,14 +241,32 @@ func resolveProcessArtifactPath(in HookInput) string {
 }
 
 func isUnderBrainDir(dir string) bool {
-	if filepath.Base(filepath.Dir(dir)) == "brain" {
-		return true
+	if !filepath.IsAbs(dir) {
+		return false
 	}
-	return strings.Contains(filepath.ToSlash(dir), "/brain/")
+	base := filepath.Base(dir)
+	if base == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return false
+	}
+	brainDir := filepath.Dir(dir)
+	if filepath.Base(brainDir) != "brain" {
+		return false
+	}
+	if st, err := os.Lstat(brainDir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+		return false
+	}
+	if st, err := os.Lstat(dir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+		return false
+	}
+	return true
 }
 
 func writeProcessArtifactAtomic(target string, data []byte) error {
 	parent := filepath.Dir(target)
+	brainDir := filepath.Dir(parent)
+	if st, err := os.Lstat(brainDir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+		return fmt.Errorf("brain dir is not a regular directory")
+	}
 	if st, err := os.Lstat(parent); err != nil {
 		if err := os.MkdirAll(parent, 0o700); err != nil {
 			return err
@@ -258,14 +277,33 @@ func writeProcessArtifactAtomic(target string, data []byte) error {
 	if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("refusing symlink target")
 	}
-	tmp := target + ".tmp"
-	if st, err := os.Lstat(tmp); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing symlink tmp")
-	}
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	f, err := os.CreateTemp(parent, ".fyr-process-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, target)
+	tmp := f.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 // RenderProcessArtifact formats the live `<appDataDir>/brain/<conv-id>/fyr-process.md`
@@ -280,13 +318,13 @@ func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records [
 func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	var sb strings.Builder
 	sb.WriteString("# `fyr` Turn Telemetry\n\n")
-	fmt.Fprintf(&sb, "- **Conversation:** `%s`\n", convID)
-	fmt.Fprintf(&sb, "- **Active Stage:** **%s**\n", stage)
+	fmt.Fprintf(&sb, "- **Conversation:** `%s`\n", sanitizeMDCell(convID))
+	fmt.Fprintf(&sb, "- **Active Stage:** **%s**\n", sanitizeMDCell(stage))
 	sb.WriteString(formatModelRoutingLine(home))
 	if len(records) > 0 {
 		var ids []string
 		for _, r := range records {
-			ids = append(ids, "`"+r.ID+"`")
+			ids = append(ids, "`"+sanitizeMDCell(r.ID)+"`")
 		}
 		fmt.Fprintf(&sb, "- **Active Trail Records:** %s\n", strings.Join(ids, ", "))
 	}
@@ -300,22 +338,44 @@ func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryR
 	}
 	sb.WriteString("| Turn | Intent | Gate | Score | Skills | Pivots |\n|---|---|---|---|---|---|\n")
 	for _, r := range rows {
-		skills := strings.Join(r.SuggestedSkills, ", ")
-		if skills == "" {
-			skills = "—"
+		skills := "—"
+		if len(r.SuggestedSkills) > 0 {
+			skills = sanitizeMDCell(strings.Join(r.SuggestedSkills, ", "))
 		}
-		pivots := strings.Join(r.PivotFiles, ", ")
-		if pivots == "" {
-			pivots = "—"
+		pivots := "—"
+		if len(r.PivotFiles) > 0 {
+			pivots = sanitizeMDCell(strings.Join(r.PivotFiles, ", "))
 		}
-		fmt.Fprintf(&sb, "| %d | `%s` | `%s` | `%d/100` | %s | %s |\n", r.TurnNum, r.Intent, r.Gate, r.Score, skills, pivots)
+		fmt.Fprintf(&sb, "| %d | `%s` | `%s` | `%d/100` | %s | %s |\n",
+			r.TurnNum, sanitizeMDCell(string(r.Intent)), sanitizeMDCell(string(r.Gate)), r.Score, skills, pivots)
 	}
 	for _, r := range rows {
-		if strings.TrimSpace(r.ImprovedPrompt) != "" {
-			fmt.Fprintf(&sb, "\n### Turn %d Synthesized `[VET_IMPROVED_PROMPT]`\n\n```text\n%s\n```\n", r.TurnNum, strings.TrimSpace(r.ImprovedPrompt))
+		if prompt := strings.TrimSpace(r.ImprovedPrompt); prompt != "" {
+			fence := safeBacktickFence(prompt)
+			fmt.Fprintf(&sb, "\n### Turn %d Synthesized `[VET_IMPROVED_PROMPT]`\n\n%stext\n%s\n%s\n",
+				r.TurnNum, fence, prompt, fence)
 		}
 	}
 	return sb.String()
+}
+
+func safeBacktickFence(text string) string {
+	maxRun, run := 0, 0
+	for i := 0; i < len(text); i++ {
+		if text[i] == '`' {
+			run++
+			if run > maxRun {
+				maxRun = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	n := 3
+	if maxRun >= n {
+		n = maxRun + 1
+	}
+	return strings.Repeat("`", n)
 }
 
 func formatModelRoutingLine(home string) string {

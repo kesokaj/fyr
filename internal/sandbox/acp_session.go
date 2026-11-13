@@ -80,7 +80,7 @@ func (b *Box) startACP(turnCtx context.Context, agy string, errf *os.File) error
 	cmd := exec.Command(agy, ACPCommand()...)
 	cmd.Dir = b.app
 	cmd.Env = b.agyEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err

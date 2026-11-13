@@ -85,6 +85,15 @@ func TestWorkerBaseCheck(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatalf("Case 4: runPostBaseCheck executed on a branch that failed scope() with ReasonOutside")
 	}
+
+	// Case 5: baseCheckCmd must not expose worker-writable <sandbox-home>/.local/bin on PATH.
+	r5 := newRig(t)
+	kPath := filepath.Join(r5.kick, "bc-no-worker-bin.md")
+	put(t, kPath, "Project: "+r5.lead+"\nFiles: src/a.txt\nBase-Check: grep -q work src/a.txt && case \":$PATH:\" in *\":$HOME/.local/bin:\"*) false ;; esac\n")
+	res5 := r5.run(kPath)
+	if res5.Verdict != "PASS" {
+		t.Fatalf("Case 5 (worker .local/bin leaked into host Base-Check PATH): Verdict=%s Reasons=%v Notes=%v", res5.Verdict, res5.Reasons, res5.Notes)
+	}
 }
 
 func TestWorkerJudge(t *testing.T) {

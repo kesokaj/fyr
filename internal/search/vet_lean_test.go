@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestVetPrecisionFixPlanAndSlashWords(t *testing.T) {
@@ -163,5 +164,18 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 	}
 	if turnCtxCalls < 3 {
 		t.Errorf("turnCtxCalls = %d, expected >= 3", turnCtxCalls)
+	}
+}
+
+func TestCompactSigPreservesUTF8Runes(t *testing.T) {
+	sig := "func Render(αβγδεζηθ string) → error"
+	for maxLen := 4; maxLen <= len(sig)+2; maxLen++ {
+		got := compactSig(sig, maxLen)
+		if !utf8.ValidString(got) {
+			t.Fatalf("compactSig(sig, %d) produced invalid UTF-8: %q", maxLen, got)
+		}
+		if len(got) > maxLen {
+			t.Fatalf("compactSig(sig, %d) len=%d exceeds maxLen: %q", maxLen, len(got), got)
+		}
 	}
 }

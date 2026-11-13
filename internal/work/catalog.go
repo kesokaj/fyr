@@ -117,6 +117,9 @@ func LoadCatalog(home string) (Catalog, bool, error) {
 	if err := json.Unmarshal(data, &cat); err != nil {
 		return Catalog{}, false, err
 	}
+	for i := range cat.Entries {
+		applyModelProfile(&cat.Entries[i])
+	}
 	return cat, true, nil
 }
 

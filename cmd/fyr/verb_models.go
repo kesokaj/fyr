@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/trail"
 	"github.com/kesokaj/fyr/internal/work"
 )
 
@@ -202,7 +204,7 @@ func refreshModelsBestEffort(parent context.Context, home string) {
 	if sandbox.CheckWorkDir(home) != nil {
 		return
 	}
-	if exec.Command("git", "-C", home, "rev-parse", "--git-dir").Run() == nil {
+	if trail.Command(home, "rev-parse", "--git-dir").Run() == nil {
 		return
 	}
 	agyPath, err := exec.LookPath("agy")
@@ -223,7 +225,12 @@ func loadMetricsModelEvidence(home string) map[string]work.ModelEvidence {
 	if err != nil || !fi.Mode().IsRegular() {
 		return nil
 	}
-	s, err := metrics.Open(dbPath)
+	tmp, err := os.MkdirTemp(filepath.Dir(dbPath), "models-metrics-")
+	if err != nil {
+		return nil
+	}
+	defer os.RemoveAll(tmp)
+	s, err := metrics.Snapshot(dbPath, tmp)
 	if err != nil {
 		return nil
 	}

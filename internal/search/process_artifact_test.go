@@ -54,3 +54,61 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestProcessArtifactSecurityHardening(t *testing.T) {
+	// 1. Anchored brain directory refuses nested arbitrary /brain/<conv>/sub paths and relative paths.
+	if isUnderBrainDir("relative/brain/conv-1") {
+		t.Errorf("relative brain dir accepted")
+	}
+	if isUnderBrainDir("/tmp/brain/conv-1/nested") {
+		t.Errorf("nested subdir under brain accepted")
+	}
+	tmpRoot := t.TempDir()
+	realDir := filepath.Join(tmpRoot, "real")
+	if err := os.MkdirAll(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	symBrain := filepath.Join(tmpRoot, "brain")
+	if err := os.Symlink(realDir, symBrain); err == nil {
+		symConv := filepath.Join(symBrain, "conv-1")
+		if isUnderBrainDir(symConv) {
+			t.Errorf("symlinked brain dir accepted")
+		}
+		if err := writeProcessArtifactAtomic(filepath.Join(symConv, "fyr-process.md"), []byte("x")); err == nil {
+			t.Errorf("writeProcessArtifactAtomic succeeded through symlinked brain dir")
+		}
+	}
+
+	// 2. loadLatestWorkStatus refuses symlinked status.json.
+	fakeHome := t.TempDir()
+	workWave := filepath.Join(fakeHome, harness.StateDir, "work", "2026-11-12-100000-1")
+	if err := os.MkdirAll(workWave, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secretFile := filepath.Join(fakeHome, "secret.json")
+	if err := os.WriteFile(secretFile, []byte(`{"stamp":"s","workers":[{"name":"w"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secretFile, filepath.Join(workWave, "status.json")); err == nil {
+		if _, ok := loadLatestWorkStatus(fakeHome); ok {
+			t.Errorf("loadLatestWorkStatus followed symlinked status.json")
+		}
+	}
+
+	// 3. Rendered cells escape '|' and backticks, and fenced prompts with ``` use longer fences.
+	out := RenderProcessArtifact("conv|evil", "4.`Build`", []VetHistoryRow{{
+		TurnNum:         1,
+		Intent:          "feat|x",
+		Gate:            "ALLOW`y",
+		Score:           90,
+		SuggestedSkills: []string{"sk|a"},
+		PivotFiles:      []string{"a`b.go"},
+		ImprovedPrompt:  "hello\n```\ninjected\n```\nbye",
+	}}, nil)
+	if strings.Contains(out, "conv|evil") || strings.Contains(out, "feat|x") || strings.Contains(out, "`a`b.go`") {
+		t.Errorf("unescaped markdown cell characters in:\n%s", out)
+	}
+	if !strings.Contains(out, "````text\nhello\n```\ninjected\n```\nbye\n````") {
+		t.Errorf("fenced prompt containing ``` did not upgrade outer fence:\n%s", out)
+	}
+}

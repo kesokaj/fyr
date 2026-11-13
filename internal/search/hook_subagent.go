@@ -104,11 +104,11 @@ func stringArgCI(args map[string]any, key string) string {
 }
 
 func inferSwarmRole(args map[string]any) string {
-	hint := strings.ToLower(stringArgCI(args, "name") + " " + stringArgCI(args, "brief"))
+	tokens := tokenizeRoleHint(stringArgCI(args, "name") + " " + stringArgCI(args, "brief"))
 	switch {
-	case containsAnySub(hint, "review", "verif", "judge", "sec"):
+	case hasSwarmRoleToken(tokens, []string{"sec"}, []string{"review", "verif", "judge", "secur"}):
 		return "judge"
-	case containsAnySub(hint, "doc", "triv", "explore"):
+	case hasSwarmRoleToken(tokens, []string{"doc", "docs", "document", "documents", "documentation"}, []string{"triv", "explor"}):
 		return "mechanical"
 	default:
 		return "builder"
@@ -244,23 +244,38 @@ func scoreSwarmCandidate(e swarmModelEntry, role string) int {
 
 func effortWeight(id string) int {
 	switch {
+	case strings.Contains(id, "-max"):
+		return 6
+	case strings.Contains(id, "-xhigh"):
+		return 5
 	case strings.Contains(id, "-high"):
 		return 4
-	case strings.Contains(id, "-xhigh"):
-		return 3
 	case strings.Contains(id, "-medium"):
 		return 2
 	case strings.Contains(id, "-low"):
 		return 1
 	default:
-		return 0
+		return 3
 	}
 }
 
-func containsAnySub(s string, subs ...string) bool {
-	for _, sub := range subs {
-		if strings.Contains(s, sub) {
-			return true
+func tokenizeRoleHint(raw string) []string {
+	return strings.FieldsFunc(strings.ToLower(raw), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	})
+}
+
+func hasSwarmRoleToken(tokens, exact, prefixes []string) bool {
+	for _, tok := range tokens {
+		for _, e := range exact {
+			if tok == e {
+				return true
+			}
+		}
+		for _, p := range prefixes {
+			if strings.HasPrefix(tok, p) {
+				return true
+			}
 		}
 	}
 	return false

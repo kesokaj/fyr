@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -136,7 +137,11 @@ func compactSig(s string, maxLen int) string {
 	fields := strings.Fields(s)
 	out := strings.Join(fields, " ")
 	if maxLen > 3 && len(out) > maxLen {
-		return strings.TrimSpace(out[:maxLen-3]) + "..."
+		cut := maxLen - 3
+		for cut > 0 && !utf8.RuneStart(out[cut]) {
+			cut--
+		}
+		return strings.TrimSpace(out[:cut]) + "..."
 	}
 	return out
 }

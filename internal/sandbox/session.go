@@ -119,7 +119,7 @@ func (b *Box) hostCmd(agy, prompt string) *exec.Cmd {
 	cmd := exec.Command(agy, b.agyArgs(prompt)...)
 	cmd.Dir = b.app
 	cmd.Env = b.agyEnv()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd
 }
 

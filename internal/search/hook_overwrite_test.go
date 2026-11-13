@@ -172,3 +172,33 @@ func TestPreInvocationModelSuggestorSessionDedupAndOrchestratorQuiet(t *testing.
 		t.Errorf("Orchestrator session should never emit model tip:\n%s", sysOrch)
 	}
 }
+
+func TestInferSwarmRoleAndEffortWeight(t *testing.T) {
+	roleCases := []struct {
+		name  string
+		brief string
+		want  string
+	}{
+		{name: "second-worker", brief: "update docker runner section 3", want: "builder"},
+		{name: "documented-fix", brief: "handle docker socket", want: "builder"},
+		{name: "sec-audit", brief: "check auth boundaries", want: "judge"},
+		{name: "verifier-1", brief: "run tests", want: "judge"},
+		{name: "doc-writer", brief: "update README docs", want: "mechanical"},
+		{name: "repo-explorer", brief: "scan internal packages", want: "mechanical"},
+	}
+	for _, tc := range roleCases {
+		got := inferSwarmRole(map[string]any{"name": tc.name, "brief": tc.brief})
+		if got != tc.want {
+			t.Errorf("inferSwarmRole(name=%q, brief=%q) = %q, want %q", tc.name, tc.brief, got, tc.want)
+		}
+	}
+	if !(effortWeight("m-max") > effortWeight("m-xhigh") &&
+		effortWeight("m-xhigh") > effortWeight("m-high") &&
+		effortWeight("m-high") > effortWeight("m-plain") &&
+		effortWeight("m-plain") > effortWeight("m-medium") &&
+		effortWeight("m-medium") > effortWeight("m-low")) {
+		t.Errorf("effortWeight order broken: max=%d xhigh=%d high=%d plain=%d med=%d low=%d",
+			effortWeight("m-max"), effortWeight("m-xhigh"), effortWeight("m-high"),
+			effortWeight("m-plain"), effortWeight("m-medium"), effortWeight("m-low"))
+	}
+}
