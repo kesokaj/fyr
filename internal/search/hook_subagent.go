@@ -36,10 +36,21 @@ func handlePreToolSubagent(in HookInput, out io.Writer) error {
 	if isFastExecutionModel(in.ModelName) {
 		cloned := cloneArgsWithoutModelKeys(in.ToolCall.Args)
 		cloned["Model"] = "pro"
-		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, strings.TrimSpace(in.ModelName))
+		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, formatModelTag("", in.ModelName))
 		return writeDecisionWithOverwrite(out, "allow", reason, cloned)
 	}
 	return writeDecision(out, "allow", "")
+}
+
+func formatModelTag(home, raw string) string {
+	mName, mThink := ResolveModelAndThinking(home, raw)
+	if mName == "" {
+		return strings.TrimSpace(raw)
+	}
+	if mThink != "" {
+		return fmt.Sprintf("%s, thinking=%s", mName, mThink)
+	}
+	return mName
 }
 
 func isFastExecutionModel(modelName string) bool {
@@ -89,7 +100,11 @@ func handlePreToolSwarm(home string, in HookInput, out io.Writer) error {
 	}
 	cloned := cloneArgsWithoutModelKeys(in.ToolCall.Args)
 	cloned["model"] = picked
-	return writeDecisionWithOverwrite(out, "allow", "[AUTO_SWARM_MODEL] selected "+picked, cloned)
+	reason := "[AUTO_SWARM_MODEL] selected " + picked
+	if label := formatModelTag(home, picked); label != "" && label != strings.TrimSpace(picked) {
+		reason = fmt.Sprintf("[AUTO_SWARM_MODEL] selected %s (%s)", picked, label)
+	}
+	return writeDecisionWithOverwrite(out, "allow", reason, cloned)
 }
 
 func stringArgCI(args map[string]any, key string) string {

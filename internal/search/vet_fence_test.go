@@ -1,6 +1,9 @@
 package search
 
 import (
+	"bytes"
+	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
@@ -8,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func parseFencedJSONBanner(t *testing.T, banner string) PreInvocationBanner {
@@ -103,6 +108,19 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 		len(parsed.MissingAnchors) != 3 || !strings.Contains(parsed.Tip, "missing anchors (target, scope, verification)") ||
 		parsed.Enrichment != nil {
 		t.Errorf("parsed VET_FIRST banner mismatch: %+v\nraw:\n%s", parsed, banner)
+	}
+
+	conflictVet := VetResult{
+		SessionModel: "claude-opus-5-5-high",
+		Intent:       IntentFeature,
+		Gate:         GateVetFirst,
+		Score:        10,
+		Conflicts:    []string{"ADR-001"},
+	}
+	_, conflictBanner := BuildTurnEnvelope(&conflictVet, SliceResult{}, TurnBrainContext{}, nil, nil)
+	parsedConflict := parseFencedJSONBanner(t, conflictBanner)
+	if parsedConflict.Model != "Claude Opus 5.5" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "ending with ?") {
+		t.Errorf("conflict VET_FIRST banner mismatch: %+v\nraw:\n%s", parsedConflict, conflictBanner)
 	}
 
 	proceed := VetResult{Intent: IntentTask, Gate: GateEnrichAndProceed, Score: 90}
@@ -202,7 +220,137 @@ func TestZeroEmojisAndPrettyJSONSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(dispData), "2-space `json` block") {
-		t.Errorf("rules/agy-dispatch.md missing per-dispatch JSON block contract")
+	if !strings.Contains(string(dispData), "2-space `json` block") ||
+		!strings.Contains(string(dispData), `"model": "Claude Opus 5.5", "thinking": "HIGH"`) ||
+		strings.Contains(string(dispData), `"tier":`) ||
+		strings.Contains(string(dispData), `"model": "agy:pro"`) {
+		t.Errorf("rules/agy-dispatch.md missing exact model+thinking dispatch contract or still mentions tier/agy:pro")
 	}
+}
+
+func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
+	home := t.TempDir()
+	catDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(catDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catJSON := `{"entries":[
+		{"id":"claude-opus-5-5-high","display_name":"Claude Opus 5.5 (High)","effort":"high"},
+		{"id":"gemini-4-carbon-medium","display_name":"Gemini 4 Carbon (Medium)","effort":"medium"},
+		{"id":"gemini-pro-orchestrator","display_name":"Orchestrator (Carbon)","effort":"orchestrator"},
+		{"id":"custom-next-xhigh","display_name":"Custom Next (XHigh)","effort":"xhigh"},
+		{"id":"gemini-4-hydrogen-xhigh","display_name":"","effort":""}
+	]}`
+	if err := os.WriteFile(filepath.Join(catDir, "models.json"), []byte(catJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		homeArg, raw, wantModel, wantThink string
+	}{
+		{home, "claude-opus-5-5-high", "Claude Opus 5.5", "HIGH"},
+		{home, "gemini-4-carbon-medium", "Gemini 4 Carbon", "MEDIUM"},
+		{home, "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
+		{home, "custom-next-xhigh", "Custom Next", "XHIGH"},
+		{home, "gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen", "XHIGH"},
+		{"", "claude-opus-5-5-high", "Claude Opus 5.5", "HIGH"},
+		{"", "gemini-4-carbon-medium", "Gemini 4 Carbon", "MEDIUM"},
+		{"", "gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen", "XHIGH"},
+		{"", "gemini-3.8-flash-tiered", "Gemini 3.8 Flash", "TIERED"},
+		{"", "gemini-flash-worker-agy", "Gemini Flash Worker", "FAST"},
+		{"", "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
+		{"", "auto", "", ""},
+		{"", "", "", ""},
+	}
+	for _, tc := range cases {
+		gotModel, gotThink := ResolveModelAndThinking(tc.homeArg, tc.raw)
+		if gotModel != tc.wantModel || gotThink != tc.wantThink {
+			t.Errorf("ResolveModelAndThinking(%q, %q) = (%q, %q), want (%q, %q)",
+				tc.homeArg, tc.raw, gotModel, gotThink, tc.wantModel, tc.wantThink)
+		}
+	}
+	if m, th := parseModelFallback("  claude-opus-5-5-high  "); m != "Claude Opus 5.5" || th != "HIGH" {
+		t.Errorf("parseModelFallback leading/trailing spaces = (%q, %q), want (Claude Opus 5.5, HIGH)", m, th)
+	}
+	if got := formatModelTag("", "gemini-4-hydrogen-medium"); got != "Gemini 4 Hydrogen, thinking=MEDIUM" {
+		t.Errorf("formatModelTag = %q, want Gemini 4 Hydrogen, thinking=MEDIUM", got)
+	}
+
+	// Verify gen_metadata field (1, 19) fallback when hook stdin carries modelName="auto".
+	appDir := t.TempDir()
+	convID := "conv-model-fallback"
+	brainDir := filepath.Join(appDir, "brain", convID)
+	convDir := filepath.Join(appDir, "conversations")
+	if err := os.MkdirAll(brainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(convDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(convDir, convID+".db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	modelVal := []byte("claude-opus-5-5-high")
+	inner := binary.AppendUvarint(nil, uint64((19<<3)|2))
+	inner = binary.AppendUvarint(inner, uint64(len(modelVal)))
+	inner = append(inner, modelVal...)
+	outer := binary.AppendUvarint(nil, uint64((1<<3)|2))
+	outer = binary.AppendUvarint(outer, uint64(len(inner)))
+	outer = append(outer, inner...)
+	if _, err := db.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (0, ?)`, outer); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	hookIn := HookInput{
+		ConversationID:        convID,
+		ArtifactDirectoryPath: brainDir,
+		ModelName:             "auto",
+	}
+	assertCleanDirs := func(phase string) {
+		t.Helper()
+		ents, err := os.ReadDir(brainDir)
+		if err != nil {
+			t.Fatalf("%s ReadDir(brainDir): %v", phase, err)
+		}
+		for _, e := range ents {
+			if strings.HasPrefix(e.Name(), ".fyr-conv-") {
+				t.Errorf("%s leaked temp dir %s in brainDir", phase, e.Name())
+			}
+		}
+		for _, suffix := range []string{"-wal", "-shm"} {
+			if _, err := os.Stat(dbPath + suffix); !os.IsNotExist(err) {
+				t.Errorf("%s created sidecar %s in convDir (err=%v)", phase, dbPath+suffix, err)
+			}
+		}
+	}
+	if got := resolveHookSessionModel(hookIn); got != "claude-opus-5-5-high" {
+		t.Fatalf("resolveHookSessionModel = %q, want claude-opus-5-5-high", got)
+	}
+	assertCleanDirs("after resolveHookSessionModel")
+	payload, _ := json.Marshal(map[string]any{
+		"conversationId":        convID,
+		"artifactDirectoryPath": brainDir,
+		"modelName":             "auto",
+		"lastUserInput":         "!review internal/search/telemetry_model.go with ResolveModelAndThinking",
+		"workspacePaths":        []string{t.TempDir()},
+	})
+	var out bytes.Buffer
+	if err := RunHook(Options{Home: home, Hook: "pre-invocation"}, bytes.NewReader(payload), &out); err != nil {
+		t.Fatalf("RunHook pre-invocation: %v", err)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
+	}
+	banner := parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
+	if banner.Model != "Claude Opus 5.5" || banner.Thinking != "HIGH" {
+		t.Errorf("PreInvocation fallback resolved model=%q thinking=%q, want Claude Opus 5.5 / HIGH", banner.Model, banner.Thinking)
+	}
+	assertCleanDirs("after RunHook")
 }

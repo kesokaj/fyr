@@ -39,6 +39,8 @@ type PreInvocationEnrichment struct {
 type PreInvocationBanner struct {
 	Surface                  string                   `json:"surface"`
 	Contract                 string                   `json:"contract,omitempty"`
+	Model                    string                   `json:"model,omitempty"`
+	Thinking                 string                   `json:"thinking,omitempty"`
 	Intent                   string                   `json:"intent,omitempty"`
 	Gate                     string                   `json:"gate,omitempty"`
 	Score                    *int                     `json:"score,omitempty"`
@@ -118,11 +120,27 @@ func preInvocationDirective(res VetResult) string {
 	return "ENRICH_AND_PROCEED"
 }
 
+func bannerModelAndThinking(res VetResult) (string, string) {
+	modelName := collapseOneLine(printable(res.SessionModel), 80)
+	thinking := collapseOneLine(printable(res.SessionThinking), 32)
+	if modelName != "" && thinking == "" {
+		resolved, resolvedThink := ResolveModelAndThinking("", modelName)
+		if resolved != "" {
+			modelName = resolved
+		}
+		thinking = resolvedThink
+	}
+	return modelName, thinking
+}
+
 func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []string) PreInvocationBanner {
 	score := res.Score
+	modelName, thinking := bannerModelAndThinking(res)
 	b := PreInvocationBanner{
 		Surface:                  "PRE_INVOCATION",
 		Contract:                 "[FYR_TURN_CONTRACT]",
+		Model:                    modelName,
+		Thinking:                 thinking,
 		Intent:                   normalizeUpperSnakeEnum(string(res.Intent)),
 		Gate:                     normalizeUpperSnakeEnum(string(res.Gate)),
 		Score:                    &score,
@@ -141,8 +159,10 @@ func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []s
 	}
 	if res.Gate == GateVetFirst {
 		b.MissingAnchors = cleanPrintableSlice(res.MissingAnchors, 80)
-		if len(b.Conflicts) == 0 && len(b.MissingAnchors) > 0 {
-			b.Tip = fmt.Sprintf("missing anchors (%s) — prefix `!` to bypass vetting", strings.Join(b.MissingAnchors, ", "))
+		if len(b.MissingAnchors) > 0 {
+			b.Tip = fmt.Sprintf("missing anchors (%s) — ask up to 3 clarifying questions (ending with ?) before editing or dispatching; prefix `!` to bypass vetting", strings.Join(b.MissingAnchors, ", "))
+		} else {
+			b.Tip = "surface conflicts and ask up to 3 clarifying questions (ending with ?) before editing or dispatching; prefix `!` to bypass vetting"
 		}
 	}
 	for _, extra := range extraBanners {

@@ -79,6 +79,8 @@ type VetResult struct {
 	Gate               VetGate         `json:"gate"`
 	Score              int             `json:"score"`
 	Bypassed           bool            `json:"bypassed,omitempty"`
+	SessionModel       string          `json:"sessionModel,omitempty"`
+	SessionThinking    string          `json:"sessionThinking,omitempty"`
 	Route              string          `json:"route,omitempty"`
 	PriorTurnContext   string          `json:"priorTurnContext,omitempty"`
 	TargetFiles        []string        `json:"targetFiles,omitempty"`

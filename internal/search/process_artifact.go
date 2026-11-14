@@ -72,10 +72,12 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 		catalog = o.SkillCatalog(o.Home)
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
+	rawModel := resolveHookSessionModel(in)
+	vetRes.SessionModel, vetRes.SessionThinking = ResolveModelAndThinking(o.Home, rawModel)
 	if sc != nil && sc.st != nil {
 		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
 	}
-	if nudge := suggestSessionModelNudge(sc, convID, state.GenerationID, turnNum, in.ModelName, vetRes); nudge != "" {
+	if nudge := suggestSessionModelNudge(sc, convID, state.GenerationID, turnNum, rawModel, vetRes); nudge != "" {
 		banners = append(banners, nudge)
 	}
 	sysMsg, banner := BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
