@@ -3,13 +3,45 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
+
+type offlineReleaseTransport struct{}
+
+func (offlineReleaseTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("offline test network disabled")
+}
+
+func setOfflineReleaseHTTP(t *testing.T) {
+	t.Helper()
+	harness.SetReleaseHTTPForTest(t, "https://offline.invalid/kesokaj/fyr", &http.Client{Transport: offlineReleaseTransport{}})
+}
+
+func serveLatestReleaseForTest(t *testing.T, tag string, onDownload func(path string)) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/kesokaj/fyr/releases/latest" {
+			http.Redirect(w, r, "/kesokaj/fyr/releases/tag/"+tag, http.StatusFound)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/kesokaj/fyr/releases/download/") && onDownload != nil {
+			onDownload(r.URL.Path)
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	harness.SetReleaseHTTPForTest(t, srv.URL+"/kesokaj/fyr", srv.Client())
+	return srv
+}
 
 // zipOfTree writes tree's files into a zip under one top folder, the way
 // GitHub's "Download ZIP" lays them out, and returns the zip's path.
@@ -62,11 +94,12 @@ func markedZip(t *testing.T) string {
 	return zipOfTree(t, tree)
 }
 
-// isolate cuts a test's reach: no git or gh on PATH and a scratch working
-// directory, so a regression that falls through to a real update
-// cannot fetch, pull or push (BUG-094).
+// isolate cuts a test's reach: no git on PATH, offline release HTTP, and a
+// scratch working directory, so a regression that falls through to a real
+// update cannot fetch, pull, push, or hit github.com (BUG-094).
 func isolate(t *testing.T) {
 	t.Helper()
+	setOfflineReleaseHTTP(t)
 	t.Setenv("FYR_REPO", "")
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())

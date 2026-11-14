@@ -7,7 +7,7 @@
 
 ## Now
 
-- *(nothing active)*
+*(nothing active)*
 
 ## Next
 

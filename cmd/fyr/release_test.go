@@ -105,14 +105,13 @@ func TestReleaseBinaryWithoutCheckout(t *testing.T) {
 	if err := run([]string{"adopt", "anything", "--home", home}, &out); err == nil || err.Error() != "adopt needs a harness checkout (`git clone git@github.com:kesokaj/fyr.git`, then run adopt from a build of it); this install is a release binary and carries no tree to adopt into" {
 		t.Errorf("adopt: err = %v", err)
 	}
-	// `update` on a release binary goes to the release flow (Phase 4). PATH is
-	// emptied for this call so the real gh is never reached: an earlier version
-	// of this test called the real repository over the network (2026-09-17).
+	// `update` on a release binary goes to the HTTPS release flow (offline in tests).
 	out.Reset()
 	func() {
+		setOfflineReleaseHTTP(t)
 		t.Setenv("PATH", t.TempDir())
-		if err := run([]string{"update", "--home", home}, &out); err == nil || !strings.Contains(err.Error(), "install gh and run gh auth login") {
-			t.Errorf("update with no gh: err = %v, want the gh refusal", err)
+		if err := run([]string{"update", "--home", home}, &out); err == nil || !strings.Contains(err.Error(), "offline test network disabled") {
+			t.Errorf("update offline: err = %v, want offline error", err)
 		}
 	}()
 }
@@ -126,14 +125,8 @@ func TestReleaseBinaryUpdateCheckExitsTwo(t *testing.T) {
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
 
-	// A gh that answers the one call --check makes, and nothing else on PATH.
-	bin := t.TempDir()
-	gh := filepath.Join(bin, "gh")
-	script := "#!/bin/sh" + "\n" + "printf " + "'v9.9.9" + "\\n" + "'" + "\n"
-	if err := os.WriteFile(gh, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
+	serveLatestReleaseForTest(t, "v9.9.9", nil)
+	t.Setenv("PATH", t.TempDir())
 
 	var out bytes.Buffer
 	err := run([]string{"update", "--check", "--home", t.TempDir()}, &out)

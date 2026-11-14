@@ -1,6 +1,7 @@
 package search
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,12 +10,35 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
+func extractProcessTelemetryJSON(t *testing.T, md string) (string, ProcessTelemetry) {
+	t.Helper()
+	lines := strings.Split(md, "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.HasSuffix(lines[i], "json") && strings.HasPrefix(lines[i], "```") {
+			fence := strings.TrimSuffix(lines[i], "json")
+			for j := i + 1; j < len(lines); j++ {
+				if lines[j] == fence {
+					raw := strings.Join(lines[i+1:j], "\n")
+					var doc ProcessTelemetry
+					if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+						t.Fatalf("unmarshal ProcessTelemetry: %v\nraw:\n%s", err, raw)
+					}
+					return raw, doc
+				}
+			}
+		}
+	}
+	t.Fatalf("missing fenced json block in process telemetry:\n%s", md)
+	return "", ProcessTelemetry{}
+}
+
 func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 	// 1. Missing models.json renders role-family policy with zero hardcoded model IDs.
 	emptyHome := t.TempDir()
 	gotPolicy := RenderProcessArtifactForHome(emptyHome, "conv-1", "2. Vet", nil, nil)
-	if !strings.Contains(gotPolicy, "Cross-Family Model Routing:") || !strings.Contains(gotPolicy, "Builder → Gemini") {
-		t.Fatalf("missing policy routing line:\n%s", gotPolicy)
+	rawPolicy, docPolicy := extractProcessTelemetryJSON(t, gotPolicy)
+	if docPolicy.Stage != "VET" || !strings.Contains(docPolicy.ModelRouting.Policy, "Builder -> Gemini") {
+		t.Fatalf("unexpected policy telemetry %+v:\n%s", docPolicy, rawPolicy)
 	}
 	for _, forbidden := range []string{"gemini-4-" + "argon", "claude-sonnet-" + "4-6"} {
 		if strings.Contains(gotPolicy, forbidden) {
@@ -42,16 +66,15 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 	}
 
 	gotCached := RenderProcessArtifactForHome(home, "conv-2", "4. Build", nil, nil)
-	for _, want := range []string{
-		"`gemini-4-carbon-high`",
-		"`gemini-3.8-flash-high`",
-		"`claude-opus-5-5-high`",
-		"`claude-sonnet-5-5-high`",
-		"previous model claude-opus-5-4-high is gone",
-	} {
-		if !strings.Contains(gotCached, want) {
-			t.Errorf("cached process artifact missing %q:\n%s", want, gotCached)
-		}
+	_, docCached := extractProcessTelemetryJSON(t, gotCached)
+	if docCached.Stage != "BUILD" ||
+		docCached.ModelRouting.BuilderPro != "gemini-4-carbon-high" ||
+		docCached.ModelRouting.BuilderFlash != "gemini-3.8-flash-high" ||
+		docCached.ModelRouting.JudgePro != "claude-opus-5-5-high" ||
+		docCached.ModelRouting.JudgeFlash != "claude-sonnet-5-5-high" ||
+		docCached.ModelRouting.UpdateTime != "2026-11-11T10:00:00Z" ||
+		docCached.ModelRouting.FallbackReason != "previous model claude-opus-5-4-high is gone" {
+		t.Errorf("unexpected cached modelRouting telemetry: %+v", docCached.ModelRouting)
 	}
 }
 
@@ -101,8 +124,8 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		}
 	}
 
-	// 3. Rendered cells escape '|' and backticks, and fenced prompts with ``` use longer fences.
-	out := RenderProcessArtifact("conv|evil", "4.`Build`", []VetHistoryRow{{
+	// 3. Control characters are scrubbed, JSON fields parse cleanly, and fenced content with ``` upgrades outer fences.
+	out := RenderProcessArtifact("conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
 		TurnNum:         1,
 		Intent:          "feat|x",
 		Gate:            "ALLOW`y",
@@ -111,8 +134,12 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		PivotFiles:      []string{"a`b.go"},
 		ImprovedPrompt:  "hello\n```\ninjected\n```\nbye",
 	}}, nil)
-	if strings.Contains(out, "conv|evil") || strings.Contains(out, "feat|x") || strings.Contains(out, "`a`b.go`") {
-		t.Errorf("unescaped markdown cell characters in:\n%s", out)
+	if !strings.Contains(out, "````json\n") {
+		t.Errorf("conversationId containing ``` did not upgrade outer json fence:\n%s", out)
+	}
+	_, docHard := extractProcessTelemetryJSON(t, out)
+	if docHard.ConversationID != "conv?|```evil" || docHard.Stage != "4_BUILD" || len(docHard.Turns) != 1 || docHard.Turns[0].Intent != "FEAT_X" || docHard.Turns[0].Gate != "ALLOW_Y" {
+		t.Errorf("unexpected hardened telemetry payload: %+v", docHard)
 	}
 	if !strings.Contains(out, "````text\nhello\n```\ninjected\n```\nbye\n````") {
 		t.Errorf("fenced prompt containing ``` did not upgrade outer fence:\n%s", out)

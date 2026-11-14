@@ -142,12 +142,7 @@ func TestUpToDateUpdateSaysNothingAboutTheRunningBinary(t *testing.T) {
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
 
-	// A gh that answers the one call the up-to-date path makes.
-	ghDir := t.TempDir()
-	script := "#!/bin/sh" + "\n" + "printf " + "'v1.0.0" + "\\n" + "'" + "\n"
-	if err := os.WriteFile(filepath.Join(ghDir, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	serveLatestReleaseForTest(t, "v1.0.0", nil)
 	// A PATH directory whose fyr IS this process's executable — the
 	// shape of /usr/local/bin/fyr on devbox.
 	self, err := os.Executable()
@@ -166,7 +161,7 @@ func TestUpToDateUpdateSaysNothingAboutTheRunningBinary(t *testing.T) {
 	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", ghDir+string(os.PathListSeparator)+elsewhere)
+	t.Setenv("PATH", elsewhere)
 
 	for _, args := range [][]string{
 		{"update", "--home", home},

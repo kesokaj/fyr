@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -149,6 +150,8 @@ func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainCont
 
 func gatherTextsToFence(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, extra []string) []string {
 	texts := append([]string{slice.Capsule}, extra...)
+	texts = append(texts, res.Conflicts...)
+	texts = append(texts, res.MissingAnchors...)
 	for _, s := range res.Skills {
 		texts = append(texts, s.Name, s.Path, s.Digest)
 	}
@@ -200,44 +203,32 @@ func buildTurnContract(res VetResult) string {
 }
 
 func formatStatusLine(res VetResult) string {
-	var skillSuffix string
-	if len(res.Skills) > 0 {
-		names := make([]string, 0, len(res.Skills))
-		for _, s := range res.Skills {
-			names = append(names, s.Name)
+	var skills []string
+	for _, s := range res.Skills {
+		if name := strings.TrimSpace(printable(s.Name)); name != "" {
+			skills = append(skills, name)
 		}
-		skillSuffix = " · " + strings.Join(names, ", ")
+	}
+	rawSkills := ""
+	if len(skills) > 0 {
+		if raw, err := json.Marshal(skills); err == nil {
+			rawSkills = string(raw)
+		}
 	}
 	if res.Gate == GateVetFirst {
-		return fmt.Sprintf("`fyr · vet %d/100%s`", res.Score, skillSuffix)
+		if rawSkills != "" {
+			return fmt.Sprintf(`2-space json fenced block (omit empty): {"action": "<what is being vetted>", "targets": ["<path>"], "records": ["<ID>"], "skills": %s, "nextStep": "<approval needed>"}`, rawSkills)
+		}
+		return `2-space json fenced block (omit empty): {"action": "<what is being vetted>", "targets": ["<path>"], "records": ["<ID>"], "nextStep": "<approval needed>"}`
 	}
-	return fmt.Sprintf("`fyr · <resume|plan|build|verify|handoff>%s`", skillSuffix)
+	if rawSkills != "" {
+		return fmt.Sprintf(`2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "skills": %s, "nextStep": "<next>"}`, rawSkills)
+	}
+	return `2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "nextStep": "<next>"}`
 }
 
 func buildUserMarkdownBanner(res VetResult, extraBanners []string) string {
-	parts := []string{fmt.Sprintf("🧭 **fyr vet:** `%s` → `%s` (`%d/100`)", res.Intent, res.Gate, res.Score)}
-	if len(res.Skills) > 0 {
-		var names []string
-		for _, s := range res.Skills {
-			names = append(names, fmt.Sprintf("`%s`", s.Name))
-		}
-		parts = append(parts, "📚 skills: "+strings.Join(names, ", "))
-	}
-	if res.SecurityRequired {
-		parts = append(parts, "🔒 subagent: `security` required")
-	}
-	if len(res.MatchedRecords) > 0 {
-		parts = append(parts, fmt.Sprintf("🗂️ %d record(s)", len(res.MatchedRecords)))
-	}
-	if res.Gate == GateVetFirst {
-		if len(res.Conflicts) > 0 {
-			parts = append(parts, "⚠️ conflict: "+res.Conflicts[0])
-		} else if len(res.MissingAnchors) > 0 {
-			parts = append(parts, fmt.Sprintf("💡 tip: missing anchors (%s) — prefix `!` to bypass vetting", strings.Join(res.MissingAnchors, ", ")))
-		}
-	}
-	parts = append(parts, extraBanners...)
-	return strings.Join(parts, " · ")
+	return formatPreInvocationBanner(res, extraBanners)
 }
 
 func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {

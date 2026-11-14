@@ -169,10 +169,7 @@ func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLi
 		st.recordLedgerBlock(conversationID, turnNum, nowFunc().Unix())
 		relPath := relDisplayPath(root, resolved)
 		skel := st.fileSkeletonSummary(root, resolved, string(data))
-		reason := fmt.Sprintf("[UNCHANGED] %s:%d-%d (sha256 %s) already in context; stamp consumed (retry to force re-read).", relPath, reqStart, reqEnd, sumHex[:min(12, len(sumHex))])
-		if skel != "" {
-			reason += "\n# " + relPath + "\n" + skel
-		}
+		reason := formatUnchangedLedgerNotice(relPath, reqStart, reqEnd, sumHex, hitCount+1, skel)
 		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: hitCount + 1}, nil
 	}
 	if err := st.upsertReadStamp(conversationID, genID, resolved, reqStart, reqEnd, sumHex, turnNum, nowFunc().Unix()); err != nil {
@@ -237,11 +234,7 @@ func CheckPreWriteHash(dir, conversationID, targetPath string) (ReadDecision, er
 	_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line > 0`, conversationID, genID, resolved)
 	if err == nil && stampedSHA != sumHex {
 		skel := st.fileSkeletonSummary(root, resolved, string(data))
-		reason := fmt.Sprintf("[MODIFIED] %s changed on disk since last read (was %s, now %s); re-read before editing.",
-			relDisplayPath(root, resolved), stampedSHA[:min(12, len(stampedSHA))], sumHex[:12])
-		if skel != "" {
-			reason += "\n" + skel
-		}
+		reason := formatModifiedLedgerNotice(relDisplayPath(root, resolved), stampedSHA, sumHex, skel)
 		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: 1, EndLine: totalLines, SHA256: sumHex, GenerationID: genID}, nil
 	}
 	_ = st.upsertReadStamp(conversationID, genID, resolved, 0, 0, "", turnNum, nowFunc().Unix())

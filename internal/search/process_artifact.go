@@ -20,11 +20,11 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 				sections = append(sections, rep)
 			}
 		}
-		banners = append(banners, fmt.Sprintf("♻️ compacted (gen %d): re-primed memory & capsule", state.GenerationID))
+		banners = append(banners, fmt.Sprintf("compacted (gen %d): re-primed memory & capsule", state.GenerationID))
 	}
 	if fastPath && dirtySummary != "" {
 		sections = append(sections, dirtySummary)
-		banners = append(banners, "⚡ >15 dirty files: serving cached AST snapshot")
+		banners = append(banners, ">15 dirty files: serving cached AST snapshot")
 	}
 	var slice SliceResult
 	if ClassifyIntent(cleanPrompt, 0) != IntentApproval || state.Compacted {
@@ -33,12 +33,12 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 		sliceOpts.Session = convID
 		slice = sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
 		if slice.Capsule != "" {
-			banners = append(banners, fmt.Sprintf("🧠 %d pivots", slice.Pivots))
+			banners = append(banners, fmt.Sprintf("%d pivots", slice.Pivots))
 		}
 	}
 	if state.EstTokens >= hookKneeTokens {
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))
-		banners = append(banners, fmt.Sprintf("⚠️ %dk tokens (>= 180K knee)", state.EstTokens/1000))
+		banners = append(banners, fmt.Sprintf("%dk tokens (>= 180K knee)", state.EstTokens/1000))
 	}
 	return sections, banners, slice
 }
@@ -85,15 +85,15 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 func inferProcessStage(turnNum int, res VetResult) string {
 	switch {
 	case res.Gate == GateVetFirst:
-		return "Vet"
+		return "VET"
 	case res.Intent == IntentRelease:
-		return "Verify"
+		return "VERIFY"
 	case res.Intent == IntentFeature && res.Score < 65:
-		return "Plan"
+		return "PLAN"
 	case turnNum <= 1 && res.Intent == IntentQuestion:
-		return "Resume"
+		return "RESUME"
 	default:
-		return "Build"
+		return "BUILD"
 	}
 }
 
@@ -121,9 +121,6 @@ func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, 
 		rows, _ = st.listConversationVetHistory(in.ConversationID, 20)
 	}
 	content := RenderProcessArtifactForHome(home, in.ConversationID, stage, rows, records)
-	if waveMD := readLatestWorkWaveMarkdown(home); waveMD != "" {
-		content += "\n" + waveMD
-	}
 	_ = writeProcessArtifactAtomic(target, []byte(content))
 }
 
@@ -143,14 +140,6 @@ type workWorkerSnapshot struct {
 	JudgeModel   string `json:"judge_model"`
 	JudgeVerdict string `json:"judge_verdict"`
 	LastStep     string `json:"last_step"`
-}
-
-func readLatestWorkWaveMarkdown(home string) string {
-	snap, ok := loadLatestWorkStatus(home)
-	if !ok {
-		return ""
-	}
-	return renderWorkWaveMarkdown(snap)
 }
 
 func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
@@ -185,40 +174,6 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 		return workStatusSnapshot{}, false
 	}
 	return snap, true
-}
-
-func renderWorkWaveMarkdown(snap workStatusSnapshot) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Active / Latest `fyr work` Wave (`%s`)\n\n", sanitizeMDCell(snap.Stamp))
-	if snap.UpdatedAt != "" {
-		fmt.Fprintf(&sb, "- **Updated:** `%s`\n\n", sanitizeMDCell(snap.UpdatedAt))
-	}
-	sb.WriteString("| Worker | State | Model | Base-Check | Judge | Steps | Commits | Last Step |\n|---|---|---|---|---|---:|---:|---|\n")
-	for _, w := range snap.Workers {
-		bc := w.BaseCheck
-		if bc == "" {
-			bc = "—"
-		}
-		jg := w.JudgeVerdict
-		if jg != "" && w.JudgeModel != "" {
-			jg = fmt.Sprintf("%s (%s)", jg, w.JudgeModel)
-		} else if jg == "" {
-			jg = "—"
-		}
-		last := w.LastStep
-		if last == "" {
-			last = "—"
-		}
-		fmt.Fprintf(&sb, "| `%s` | `%s` | `%s` | `%s` | `%s` | %d | %d | %s |\n",
-			sanitizeMDCell(w.Name), sanitizeMDCell(w.State), sanitizeMDCell(w.Model), sanitizeMDCell(bc), sanitizeMDCell(jg), w.StepCount, w.Commits, sanitizeMDCell(last))
-	}
-	return sb.String()
-}
-
-func sanitizeMDCell(s string) string {
-	clean := Printable(s)
-	r := strings.NewReplacer("|", "/", "`", "'", "\n", " ")
-	return strings.TrimSpace(r.Replace(clean))
 }
 
 func resolveProcessArtifactPath(in HookInput) string {
@@ -316,47 +271,7 @@ func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records [
 // RenderProcessArtifactForHome formats fyr-process.md using cached <home>/.config/fyr/models.json
 // picks when present (< 1 ms, never spawning agy) and role-family policy otherwise.
 func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
-	var sb strings.Builder
-	sb.WriteString("# `fyr` Turn Telemetry\n\n")
-	fmt.Fprintf(&sb, "- **Conversation:** `%s`\n", sanitizeMDCell(convID))
-	fmt.Fprintf(&sb, "- **Active Stage:** **%s**\n", sanitizeMDCell(stage))
-	sb.WriteString(formatModelRoutingLine(home))
-	if len(records) > 0 {
-		var ids []string
-		for _, r := range records {
-			ids = append(ids, "`"+sanitizeMDCell(r.ID)+"`")
-		}
-		fmt.Fprintf(&sb, "- **Active Trail Records:** %s\n", strings.Join(ids, ", "))
-	}
-	sb.WriteString("\n## Pipeline Stage\n\n```mermaid\nflowchart LR\n")
-	sb.WriteString("  S1[\"Resume\"] --> S2[\"Vet\"] --> S3[\"Plan\"] --> S4[\"Build\"] --> S5[\"Verify\"] --> S6[\"Handoff\"]\n")
-	sb.WriteString("```\n\n")
-	sb.WriteString("## Turn-by-Turn `fyr vet` History\n\n")
-	if len(rows) == 0 {
-		sb.WriteString("_No turns recorded yet._\n")
-		return sb.String()
-	}
-	sb.WriteString("| Turn | Intent | Gate | Score | Skills | Pivots |\n|---|---|---|---|---|---|\n")
-	for _, r := range rows {
-		skills := "—"
-		if len(r.SuggestedSkills) > 0 {
-			skills = sanitizeMDCell(strings.Join(r.SuggestedSkills, ", "))
-		}
-		pivots := "—"
-		if len(r.PivotFiles) > 0 {
-			pivots = sanitizeMDCell(strings.Join(r.PivotFiles, ", "))
-		}
-		fmt.Fprintf(&sb, "| %d | `%s` | `%s` | `%d/100` | %s | %s |\n",
-			r.TurnNum, sanitizeMDCell(string(r.Intent)), sanitizeMDCell(string(r.Gate)), r.Score, skills, pivots)
-	}
-	for _, r := range rows {
-		if prompt := strings.TrimSpace(r.ImprovedPrompt); prompt != "" {
-			fence := safeBacktickFence(prompt)
-			fmt.Fprintf(&sb, "\n### Turn %d Synthesized `[VET_IMPROVED_PROMPT]`\n\n%stext\n%s\n%s\n",
-				r.TurnNum, fence, prompt, fence)
-		}
-	}
-	return sb.String()
+	return renderProcessTelemetryMarkdown(home, convID, stage, rows, records)
 }
 
 func safeBacktickFence(text string) string {
@@ -376,49 +291,4 @@ func safeBacktickFence(text string) string {
 		n = maxRun + 1
 	}
 	return strings.Repeat("`", n)
-}
-
-func formatModelRoutingLine(home string) string {
-	const policy = "- **Cross-Family Model Routing:** Builder → Gemini (Carbon/pro, Flash) · Judge / Verifier / Reviewer → Anthropic (Opus/pro, Sonnet/flash; auto-fallback to Gemini when Anthropic quota `< 20%` weekly or `< 30%` 5-hour)\n"
-	if home == "" {
-		return policy
-	}
-	p := filepath.Join(home, harness.StateDir, "models.json")
-	st, err := os.Lstat(p)
-	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 1<<20 {
-		return policy
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return policy
-	}
-	var cached struct {
-		Picks map[string]struct {
-			Model          string `json:"model"`
-			FallbackReason string `json:"fallback_reason"`
-		} `json:"picks"`
-	}
-	if json.Unmarshal(data, &cached) != nil || len(cached.Picks) == 0 {
-		return policy
-	}
-	bPro := sanitizeMDCell(cached.Picks["builder:pro"].Model)
-	bFlash := sanitizeMDCell(cached.Picks["builder:flash"].Model)
-	jPro := sanitizeMDCell(cached.Picks["judge:pro"].Model)
-	jFlash := sanitizeMDCell(cached.Picks["judge:flash"].Model)
-	if bPro == "" || jPro == "" {
-		return policy
-	}
-	bPart := "`" + bPro + "`"
-	if bFlash != "" && bFlash != bPro {
-		bPart += " / `" + bFlash + "`"
-	}
-	jPart := "`" + jPro + "`"
-	if jFlash != "" && jFlash != jPro {
-		jPart += " / `" + jFlash + "`"
-	}
-	suffix := "auto-fallback to Gemini when Anthropic quota `< 20%` weekly or `< 30%` 5-hour"
-	if fb := sanitizeMDCell(cached.Picks["judge:pro"].FallbackReason); fb != "" {
-		suffix = fb
-	}
-	return fmt.Sprintf("- **Cross-Family Model Routing:** Builder %s · Judge / Verifier / Reviewer %s (%s)\n", bPart, jPart, suffix)
 }

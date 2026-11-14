@@ -425,22 +425,22 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 		t.Fatalf("unmarshal PreInvocationOutput: err=%v out=%s", err, out.String())
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	bannerLine, _, _ := strings.Cut(sysMsg, "\n")
 	for _, want := range []string{
-		"status_line: `fyr · <resume|plan|build|verify|handoff> · fyr-bug, golang`",
-		"🧠 5 pivots",
+		`status_line: 2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "skills": ["fyr-bug","golang"], "nextStep": "<next>"}`,
+		`"pivotCount": 5`,
 	} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("expected %q in PreInvocation systemMessage, got:\n%s", want, sysMsg)
 		}
 	}
+	bannerPart, _, _ := strings.Cut(sysMsg, "=====")
 	for _, unwanted := range []string{
 		"Stage: **[N/6",
 		"[N/6",
 		"Turn-0 capsule",
 		"(skills/golang/SKILL.md)",
 	} {
-		if strings.Contains(bannerLine, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
+		if strings.Contains(bannerPart, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
 			t.Errorf("unexpected verbose token %q in banner/systemMessage:\n%s", unwanted, sysMsg)
 		}
 	}
@@ -451,12 +451,14 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		"# `fyr` Turn Telemetry",
-		"flowchart LR",
-		"Turn-by-Turn `fyr vet` History",
+		"# fyr Turn Telemetry",
+		`"conversationId": "conv-vis-1"`,
+		`"stage": "BUILD"`,
+		"## Synthesized Improved Prompts",
 		"[VET_IMPROVED_PROMPT]",
-		"## Active / Latest `fyr work` Wave (`2026-11-10-120000-111`)",
-		"| `w-fix` | `PASS` | `gemini-4-argon` | `PASS` | `PASS (claude-opus-5-5)` | 4 | 1 |",
+		`"stamp": "2026-11-10-120000-111"`,
+		`"judgeVerdict": "PASS"`,
+		`"judgeModel": "claude-opus-5-5"`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("fyr-process.md missing %q in:\n%s", want, text)

@@ -180,7 +180,7 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		if in.InvocationNum > 1 {
 			return writePreInvocation(out, "", "")
 		}
-		banners = append(banners, storeDegradedBanner(err))
+		banners = append(banners, storeDegradedNotice(err))
 	} else {
 		defer sc.close()
 		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, cleanPrompt, state, dirtySummary, fastPath)
@@ -523,7 +523,7 @@ func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {
 }
 
 func storeDegradedBanner(err error) string {
-	return fmt.Sprintf("⚠️ **fyr brain:** store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
+	return formatStoreDegradedBanner(err)
 }
 
 func writeStoreDegraded(out io.Writer, err error) error {

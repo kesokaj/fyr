@@ -85,13 +85,11 @@ func TestReleaseUpdateDryRunChangesNothing(t *testing.T) {
 	t.Chdir(t.TempDir())
 	defer func(v string) { version = v }(version)
 	version = "v1.0.0"
-	bin := t.TempDir()
-	log := filepath.Join(t.TempDir(), "gh.log")
-	script := "#!/bin/sh\n" + "echo \"$@\" >> " + log + "\n" + "printf 'v9.9.9\\n'\n"
-	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
+	var downloaded []string
+	serveLatestReleaseForTest(t, "v9.9.9", func(path string) {
+		downloaded = append(downloaded, path)
+	})
+	t.Setenv("PATH", t.TempDir())
 	home := t.TempDir()
 	var out bytes.Buffer
 	if err := run([]string{"update", "--dry-run", "--home", home}, &out); err != nil {
@@ -100,9 +98,8 @@ func TestReleaseUpdateDryRunChangesNothing(t *testing.T) {
 	if !strings.Contains(out.String(), "[dry-run]") || !strings.Contains(out.String(), "v9.9.9") {
 		t.Errorf("dry run does not say what update would do:\n%s", out.String())
 	}
-	calls, _ := os.ReadFile(log)
-	if strings.Contains(string(calls), "download") {
-		t.Errorf("update --dry-run downloaded:\n%s", calls)
+	if len(downloaded) != 0 {
+		t.Errorf("update --dry-run downloaded: %v", downloaded)
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("update --dry-run wrote %d entries under the home", len(entries))

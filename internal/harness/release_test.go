@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,41 +15,6 @@ import (
 	"time"
 )
 
-// The fake gh: enough of the two calls UpdateFromRelease makes, driven by the
-// environment so each case can bend one thing. Absolute paths throughout,
-// because the cases that test a missing tool run with a PATH that holds
-// almost nothing.
-const fakeGh = `#!/bin/sh
-[ -n "$GH_ARGS_LOG" ] && printf '%s\n' "$*" >> "$GH_ARGS_LOG"
-if [ "$1" = "release" ] && [ "$2" = "view" ]; then
-  if [ -n "$GH_FAIL_VIEW" ]; then
-    echo "gh: HTTP 401: Bad credentials (https://api.github.com/graphql)" >&2
-    exit 1
-  fi
-  printf '%s\n' "$GH_TAG"
-  exit 0
-fi
-if [ "$1" = "release" ] && [ "$2" = "download" ]; then
-  dest=""
-  while [ $# -gt 0 ]; do
-    if [ "$1" = "--dir" ]; then shift; dest="$1"; fi
-    shift
-  done
-  n=0
-  for f in "$GH_ASSETS"/*; do
-    [ -e "$f" ] || continue
-    /bin/cp "$f" "$dest/" && n=$((n+1))
-  done
-  if [ "$n" -eq 0 ]; then
-    echo "gh: no assets match the file pattern" >&2
-    exit 1
-  fi
-  exit 0
-fi
-echo "fake gh: unexpected call: $*" >&2
-exit 1
-`
-
 // The release binary this fixture ships: a script that records the arguments
 // it was installed with, so the test can tell that the NEW binary ran.
 const fakeReleaseBinary = `#!/bin/sh
@@ -55,7 +22,7 @@ printf 'install %s\n' "$*" >> "$FYR_FAKE_MARKER"
 `
 
 type release struct {
-	assets string // what gh "downloads" from
+	assets string // what the test TLS server serves
 	tag    string
 }
 
@@ -85,21 +52,59 @@ func writeSums(t *testing.T, dir, asset, tag string) {
 		"# fyr "+tag+"\n"+hex.EncodeToString(sum[:])+"  "+asset+"\n")
 }
 
-// env puts the fake gh on PATH and points it at this release; withGh false
-// leaves gh off it. PATH holds that directory ALONE, so the real gh is never
-// reached.
-func (r release) env(t *testing.T, withGh bool) {
+// env points UpdateFromRelease at a local httptest.NewTLSServer serving r.assets
+// and empties PATH so neither real gh nor real github.com is reached. GH_TAG
+// and GH_FAIL_VIEW remain supported as live test knobs for redirect status and
+// target tag overrides without restarting the TLS server.
+func (r release) env(t *testing.T, withLatest bool) {
 	t.Helper()
-	bin := t.TempDir()
-	if withGh {
-		gh := filepath.Join(bin, "gh")
-		writeFile(t, gh, fakeGh)
-		if err := os.Chmod(gh, 0o755); err != nil {
-			t.Fatal(err)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if logPath := os.Getenv("GH_ARGS_LOG"); logPath != "" {
+			f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+			if err == nil {
+				_, _ = f.WriteString(req.Host + req.URL.Path + "\n")
+				_ = f.Close()
+			}
 		}
-	}
-	t.Setenv("PATH", bin)
+		tag := os.Getenv("GH_TAG")
+		if os.Getenv("GH_TAG_SET") == "" {
+			tag = r.tag
+		}
+		switch req.URL.Path {
+		case "/kesokaj/fyr/releases/latest":
+			if !withLatest {
+				http.NotFound(w, req)
+				return
+			}
+			if os.Getenv("GH_FAIL_VIEW") != "" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			w.Header().Set("Location", "/kesokaj/fyr/releases/tag/"+tag)
+			w.WriteHeader(http.StatusFound)
+			return
+		case "/kesokaj/fyr/releases/tag/" + tag:
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		prefix := "/kesokaj/fyr/releases/download/" + tag + "/"
+		if !strings.HasPrefix(req.URL.Path, prefix) {
+			http.NotFound(w, req)
+			return
+		}
+		name := filepath.Base(strings.TrimPrefix(req.URL.Path, prefix))
+		data, err := os.ReadFile(filepath.Join(r.assets, name))
+		if err != nil {
+			http.NotFound(w, req)
+			return
+		}
+		_, _ = w.Write(data)
+	}))
+	t.Cleanup(srv.Close)
+	SetReleaseHTTPForTest(t, srv.URL+"/kesokaj/fyr", srv.Client())
+	t.Setenv("PATH", t.TempDir())
 	t.Setenv("GH_TAG", r.tag)
+	t.Setenv("GH_TAG_SET", "1")
 	t.Setenv("GH_ASSETS", r.assets)
 	t.Setenv("GH_FAIL_VIEW", "")
 	os.Unsetenv("GH_FAIL_VIEW")
@@ -220,9 +225,9 @@ func TestUpdateFromReleaseRefusals(t *testing.T) {
 		gh      bool
 		prepare func(t *testing.T, r release)
 	}{
-		{name: "gh missing", want: "install gh and run gh auth login", gh: false},
+		{name: "latest release endpoint returns 404", want: "no published release found", gh: false},
 		{
-			name: "gh cannot reach the repository", want: "gh release view failed: gh: HTTP 401",
+			name: "latest release endpoint returns HTTP 401", want: "checking latest release: HTTP 401",
 			gh:      true,
 			prepare: func(t *testing.T, _ release) { t.Setenv("GH_FAIL_VIEW", "1") },
 		},
@@ -517,17 +522,20 @@ func TestUpdateFromReleaseSweepStaysInHome(t *testing.T) {
 	}
 }
 
-// TestUpdateFromReleasePinsTheHost: every gh call names github.com in --repo,
-// so GH_HOST cannot send the update to another server (security review
-// 2026-10-05, ADR-053).
+// TestUpdateFromReleasePinsTheHost: release updates ignore GH_HOST/GH_TOKEN
+// and hit only the pinned release host and repository path (ADR-053).
 func TestUpdateFromReleasePinsTheHost(t *testing.T) {
+	if releaseDefaultBaseURL != "https://github.com/kesokaj/fyr" {
+		t.Fatalf("releaseDefaultBaseURL = %q, want https://github.com/kesokaj/fyr", releaseDefaultBaseURL)
+	}
 	r := newRelease(t, "v9.9.9")
 	r.env(t, true)
 	home := t.TempDir()
 	installedBinary(t, home)
 	t.Setenv("FYR_FAKE_MARKER", filepath.Join(home, "installed.txt"))
 	t.Setenv("GH_HOST", "example.invalid")
-	log := filepath.Join(t.TempDir(), "gh-args")
+	t.Setenv("GH_TOKEN", "invalid-token")
+	log := filepath.Join(t.TempDir(), "http-reqs")
 	t.Setenv("GH_ARGS_LOG", log)
 	var out bytes.Buffer
 	if err := UpdateFromRelease(home, "v1.0.0", false, []string{"--home", home}, &out); err != nil {
@@ -538,12 +546,12 @@ func TestUpdateFromReleasePinsTheHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(calls) < 2 {
-		t.Fatalf("gh was called %d times, want view and download:\n%s", len(calls), data)
+	if len(calls) < 3 {
+		t.Fatalf("HTTP server saw %d calls, want latest, asset, and SHA256SUMS:\n%s", len(calls), data)
 	}
 	for _, c := range calls {
-		if !strings.Contains(c, "--repo github.com/kesokaj/fyr") {
-			t.Errorf("a gh call does not pin the host: %s", c)
+		if strings.Contains(c, "example.invalid") || !strings.Contains(c, "/kesokaj/fyr/releases/") {
+			t.Errorf("request leaked host or missed /kesokaj/fyr/releases/: %s", c)
 		}
 	}
 }

@@ -170,7 +170,7 @@ fyr install     # installs the harness built into the binary
 fyr status      # "source embedded vX.Y.Z" and "drift none"
 ```
 
-To move a release-binary place forward later, run `fyr update` there: it requires `gh` on `PATH`, accepts only a canonical `vX.Y.Z` tag newer than what is installed, checks the binary against the release's `SHA256SUMS`, and only then replaces `~/.local/bin/fyr` and reinstalls.
+To move a release-binary place forward later, run `fyr update` there: it checks the public GitHub Releases over HTTPS with no `gh` CLI required, accepts only a canonical `vX.Y.Z` tag newer than what is installed, checks the binary against the release's `SHA256SUMS`, and only then replaces `~/.local/bin/fyr` and reinstalls.
 
 ### 3. Install from a zip (no SSH, no gh)
 

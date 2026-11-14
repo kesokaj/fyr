@@ -71,7 +71,7 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "allow" {
 			t.Fatalf("conv-offset ByteOffset=46080 continuation read: got %+v, want allow on 1st attempt", dec)
 		}
-		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED] big.go:195-250") {
+		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.HasPrefix(dec.Reason, "[UNCHANGED]\n") || !strings.Contains(dec.Reason, `"path": "big.go"`) || !strings.Contains(dec.Reason, `"startLine": 195`) || !strings.Contains(dec.Reason, `"endLine": 250`) {
 			t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:195-250", dec)
 		}
 	})

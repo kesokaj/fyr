@@ -33,6 +33,7 @@ type matrixRig struct {
 
 func newMatrixRig(t *testing.T) matrixRig {
 	t.Helper()
+	setOfflineReleaseHTTP(t)
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		t.Skip("git is not on PATH")
@@ -151,13 +152,13 @@ type matrixCell struct {
 // are the fix.
 var placeCells = []matrixCell{
 	{matrixRelease, "checkout", []string{"status"}, 0, []string{"source     embedded v1.2.3", "from commit ", "drift      none"}, nil, "path"},
-	{matrixRelease, "checkout", []string{"update"}, 1, []string{"this install has no checkout; install gh"}, nil, "path"},
+	{matrixRelease, "checkout", []string{"update"}, 1, []string{"offline test network disabled"}, nil, "path"},
 	{matrixRelease, "checkout", []string{"update", "--from-zip", "ZIP"}, 0, []string{"installing its harness and the running binary v1.2.3; nothing is downloaded and nothing in the zip replaces the binary"}, []string{"did not move"}, "zip"},
 	{matrixRelease, "binary", []string{"status"}, 0, []string{"from release v1.2.3", "drift      none"}, nil, "release"},
-	{matrixRelease, "binary", []string{"update"}, 1, []string{"this install has no checkout; install gh"}, nil, "release"},
+	{matrixRelease, "binary", []string{"update"}, 1, []string{"offline test network disabled"}, nil, "release"},
 	{matrixRelease, "binary", []string{"update", "--from-zip", "ZIP"}, 0, []string{"the running binary v1.2.3"}, []string{"did not move"}, "zip"},
 	{matrixRelease, "zip", []string{"status"}, 0, []string{"source     embedded v1.2.3", "from zip sha256:", "drift      not compared"}, nil, "zip"},
-	{matrixRelease, "zip", []string{"update"}, 1, []string{"this install has no checkout; install gh"}, nil, "zip"},
+	{matrixRelease, "zip", []string{"update"}, 1, []string{"offline test network disabled"}, nil, "zip"},
 	{matrixRelease, "zip", []string{"update", "--from-zip", "ZIP"}, 0, []string{"the running binary v1.2.3"}, []string{"did not move"}, "zip"},
 	{matrixRelease, "zip", []string{"install", "--repo", "CHECKOUT"}, 1, []string{"this is the release binary v1.2.3", "--repo=CHECKOUT is refused"}, nil, "zip"},
 

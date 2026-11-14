@@ -292,12 +292,12 @@ func suggestSessionModelNudge(sc *scope, convID string, genID, turnNum int, mode
 	}
 	if isFastExecutionModel(modelName) && (res.Intent == IntentFeature || (res.Intent == IntentBug && res.Score < 70)) {
 		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:pro") {
-			return "💡 model tip: architecture/deep-debug turn on fast model — consider Orchestrator (Argon) or Carbon"
+			return "model tip: architecture/deep-debug turn on fast model — consider Orchestrator (Argon) or Carbon"
 		}
 	}
 	if (strings.Contains(lower, "argon") || strings.Contains(lower, "opus")) && res.Intent == IntentTrivial {
 		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:fast") {
-			return "💡 model tip: trivial turn on heavy reasoning model — Orchestrator or Hydrogen/Flash is faster"
+			return "model tip: trivial turn on heavy reasoning model — Orchestrator or Hydrogen/Flash is faster"
 		}
 	}
 	return ""
