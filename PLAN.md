@@ -53,13 +53,13 @@ Rejected: a per-file 24,000 B rule cap. It contradicts `PRD.md:110` (BUG-085, wh
 
 Each phase is one fresh session. It ends at its Checkpoint with `/fyr-handoff`, and it starts from a clean tree with no other session in `fyr`.
 
-- [ ] Cold-reader check: REVIEW at `fyr-research/.agents/scratch/agents/review-fyr-v9-plan.md`. Answered by D2, D5–D9 and the rewritten phases below.
+- [x] Cold-reader check: REVIEW at `fyr-research/.agents/scratch/agents/review-fyr-v9-plan.md`. Answered by D2, D5–D9 and the rewritten phases below.
 
 ### Phase 0 — Safety net and PRD amendment (no Go code)
 files: `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `PLAN.md`, ADR record
-- [ ] Commit `PLAN.md` and store it with `fyr record add plan --body-file PLAN.md` — verify: `fyr record list --kind plan` shows it
-- [ ] Turn `fyr auto` off for the duration, keep the binary for rollback with `cp ~/.local/bin/fyr ~/.local/bin/fyr-v8-rollback`, and copy `~/.config/fyr/{brain,metrics}.db` to `~/.config/fyr/backup-2026-11-14/` while no `fyr` process runs — verify: `fyr auto status` says off, and the backup files have the same size as the originals
-- [ ] Draft the exact `PRD.md` diff and the ADR text, then wait for the operator's verbatim approval. The diff covers:
+- [x] Commit `PLAN.md` and store it with `fyr record add plan --body-file PLAN.md` — verify: `fyr record list --kind plan` shows it (`58cce4b6`, `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- [x] Turn `fyr auto` off for the duration, keep the binary for rollback with `cp ~/.local/bin/fyr ~/.local/bin/fyr-v8-rollback`, and copy `~/.config/fyr/{brain,metrics}.db` to `~/.config/fyr/backup-2026-11-14/` while no `fyr` process runs — verify: `fyr auto status` says off, and the backup files have the same size as the originals (`47374681` B binary; `36216832` B `brain.db`; `68567040` B `metrics.db`)
+- [x] Draft the exact `PRD.md` diff and the ADR text, then wait for the operator's verbatim approval. The diff covers:
   - G2 at ≤ 4,500 B.
   - R0 without `fyr work`.
   - R3: five hooks, a stamp-only `Stop` nudge, persistent hash ledger, one background runner `fyr auto` with dream merged in.
@@ -71,8 +71,8 @@ files: `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `PLAN.md`, ADR record
   - R10: macOS `sandbox-exec`.
   - Known limits: drop the Docker fallback and keep BUG-085.
   - Pre-approval for the enforced-by edits that Phase 6b makes.
-  — verify: operator "go" quoted in the ADR; `fyr check` exits 0
-- [ ] Checkpoint — expect: amendment and ADR committed and pushed, backups present, rollback binary present — evidence: `fyr check`, `git log -1`
+  — verify: operator "go" quoted in the ADR (`"Go all approved"`, `ADR-522`); `fyr check` exits 0
+- [x] Checkpoint — expect: amendment and ADR committed and pushed, backups present, rollback binary present — evidence: `fyr check` (0 findings), `ADR-522`, `git log -1`
 
 ### Phase 0b — Prove the graph works: A/B baseline (after: Phase 0; no Go code unless the harness lacks a counter)
 files: `.agents/eval/`, `.agents/scratch/ab/`, `retro` record
