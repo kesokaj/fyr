@@ -144,7 +144,7 @@ func HopTwoSecondLeaf() error {
 	}
 }
 
-func TestBuildFileSkeleton(t *testing.T) {
+func TestSearchFileSkeleton(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
 
@@ -163,8 +163,8 @@ func (e *Engine) Run(limit int) error {
 	commitAll(t, root, "seed skeleton")
 
 	var buf bytes.Buffer
-	if err := BuildFileSkeleton(Options{Dir: root, Home: home, Skeleton: "internal/core/sample.go"}, &buf); err != nil {
-		t.Fatalf("BuildFileSkeleton: %v", err)
+	if err := Search(Options{Dir: root, Home: home, Skeleton: "internal/core/sample.go"}, &buf); err != nil {
+		t.Fatalf("Search skeleton: %v", err)
 	}
 	got := buf.String()
 	if !strings.Contains(got, "3-5  type Engine struct") {
@@ -262,7 +262,7 @@ func TestRepoMapSummary(t *testing.T) {
 	home := t.TempDir()
 
 	writeFile(t, root, "internal/alpha/alpha.go", `package alpha
-import "example/internal/beta"
+import "example.com/internal/beta"
 func AlphaMain() { beta.BetaHelper() }
 `)
 	writeFile(t, root, "internal/beta/beta.go", `package beta
@@ -279,5 +279,60 @@ func BetaHelper() {}
 		if !strings.Contains(got, want) {
 			t.Errorf("map output missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestSearchMapNoFalseCycles(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+
+	writeFile(t, root, "internal/alpha/alpha.go", `package alpha
+import "example.com/internal/beta"
+type closer interface{ Close() error }
+type AlphaImpl struct{}
+func (a *AlphaImpl) Close() error { return nil }
+func UseAlpha(c closer, b *beta.BetaImpl) error {
+	_ = beta.Helper()
+	_ = b.Close()
+	return c.Close()
+}
+`)
+	writeFile(t, root, "internal/beta/beta.go", `package beta
+type BetaImpl struct{}
+func (b *BetaImpl) Close() error { return nil }
+func Helper() error {
+	var x BetaImpl
+	return x.Close()
+}
+`)
+	writeFile(t, root, "scripts/deploy.sh", "#!/bin/bash\nClose() { :; }\nHelper() { Close; }\n")
+	commitAll(t, root, "seed map false-cycle repro")
+
+	var buf bytes.Buffer
+	if err := RepoMapSummary(Options{Dir: root, Home: home, Map: true}, &buf); err != nil {
+		t.Fatalf("RepoMapSummary: %v", err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "alpha (") || !strings.Contains(got, "-> beta") {
+		t.Errorf("expected alpha -> beta edge in map:\n%s", got)
+	}
+	if !strings.Contains(got, "import_cycles:\n  none (DAG verified)") {
+		t.Errorf("expected DAG with zero false cycles, got:\n%s", got)
+	}
+}
+
+func TestFindPackageCyclesMultiHop(t *testing.T) {
+	deps := map[string][]string{
+		"a": {"b"},
+		"b": {"a"},
+		"x": {"y"},
+		"y": {"z"},
+		"z": {"w", "x"},
+		"w": nil,
+	}
+	got := findPackageCycles(deps)
+	want := "a -> b -> a\nx -> y -> z -> x"
+	if strings.Join(got, "\n") != want {
+		t.Errorf("findPackageCycles =\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }

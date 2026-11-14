@@ -105,31 +105,6 @@ func checkRegistered(st *store, home, root string, out io.Writer) error {
 	return nil
 }
 
-// HasTrail reports whether root's .agents/trail.jsonl is a regular file in a
-// real .agents directory: a symlink at either name is no trail, as in brain's
-// guardExportPath, and a file at .agents is none either. An error means the
-// check could not run.
-func HasTrail(root string) (bool, error) {
-	fi, err := os.Lstat(filepath.Join(root, ".agents"))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !fi.IsDir() {
-		return false, nil
-	}
-	fi, err = os.Lstat(filepath.Join(root, filepath.FromSlash(trailExport)))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return fi.Mode().IsRegular(), nil
-}
-
 // HasScopeRecords reports whether root has project trail records: either a
 // regular .agents/trail.jsonl in a real .agents directory, or exported-kind
 // rows for root's scope in brain.db under home (ADR-091). A symlink or

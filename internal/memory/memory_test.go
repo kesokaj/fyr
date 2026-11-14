@@ -6,10 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
-
-var now = time.Date(2026, 9, 30, 18, 0, 0, 0, time.UTC)
 
 // repo makes a git checkout whose .gitignore ignores the store, as
 // /init-project leaves it.
@@ -154,10 +151,4 @@ func TestRootIsTheWorkTreeTop(t *testing.T) {
 			t.Errorf("Root = %q, %v; want a refusal", got, err)
 		}
 	})
-}
-
-func samePath(a, b string) bool {
-	ra, _ := filepath.EvalSymlinks(filepath.Dir(a))
-	rb, _ := filepath.EvalSymlinks(filepath.Dir(b))
-	return ra == rb && filepath.Base(a) == filepath.Base(b)
 }

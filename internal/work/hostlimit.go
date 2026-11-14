@@ -32,7 +32,8 @@ func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
 // fetchCmd is step 6's fetch of ref from git, a clone's .git.
 func fetchCmd(root, git, ref, runner string) *exec.Cmd {
 	return capMemory(leadGit(root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
-		"--no-recurse-submodules", "--no-write-fetch-head", "--upload-pack", "git upload-pack --strict",
+		"--no-recurse-submodules", "--no-write-fetch-head",
+		"--upload-pack", "git -c core.hooksPath=/dev/null -c core.fsmonitor=false upload-pack --strict",
 		git, ref+":"+ref), runner)
 }
 

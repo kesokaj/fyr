@@ -45,13 +45,14 @@ func (s RankedSymbol) QualName() string {
 }
 
 type graphEdge struct {
-	fromIdx    int
-	toIdx      int
-	kind       string
-	confidence string
-	weight     float64
-	line       int
-	fromPath   string
+	fromIdx      int
+	toIdx        int
+	kind         string
+	confidence   string
+	qualifiedPkg bool
+	weight       float64
+	line         int
+	fromPath     string
 }
 
 type symGraph struct {
@@ -167,13 +168,14 @@ func (g *symGraph) addRawRef(r rawSymRef) {
 	}
 	for _, toIdx := range g.resolveTargets(fromPkg, r.toPkg, r.toName) {
 		g.syms[toIdx].InRefs++
+		qualified := r.toPkg != ""
 		if len(fromIdxs) == 0 {
-			g.in[toIdx] = append(g.in[toIdx], graphEdge{fromIdx: -1, toIdx: toIdx, kind: r.kind, confidence: r.confidence, weight: r.weight, line: r.line, fromPath: r.path})
+			g.in[toIdx] = append(g.in[toIdx], graphEdge{fromIdx: -1, toIdx: toIdx, kind: r.kind, confidence: r.confidence, qualifiedPkg: qualified, weight: r.weight, line: r.line, fromPath: r.path})
 			continue
 		}
 		for _, fromIdx := range fromIdxs {
 			if fromIdx != toIdx {
-				e := graphEdge{fromIdx: fromIdx, toIdx: toIdx, kind: r.kind, confidence: r.confidence, weight: r.weight, line: r.line, fromPath: r.path}
+				e := graphEdge{fromIdx: fromIdx, toIdx: toIdx, kind: r.kind, confidence: r.confidence, qualifiedPkg: qualified, weight: r.weight, line: r.line, fromPath: r.path}
 				g.out[fromIdx] = append(g.out[fromIdx], e)
 				g.in[toIdx] = append(g.in[toIdx], e)
 			}
@@ -263,15 +265,6 @@ func (sc *scope) sessionActiveFiles(sessionID string, extra map[string]bool) map
 		}
 	}
 	return out
-}
-
-// rankSymbols computes 20-iteration Personalized PageRank over the scope's AST symbol graph.
-func (sc *scope) rankSymbols(query string, activeFiles map[string]bool) ([]RankedSymbol, error) {
-	g, err := sc.loadSymGraph()
-	if err != nil {
-		return nil, err
-	}
-	return g.rank(query, activeFiles), nil
 }
 
 func (g *symGraph) rank(query string, activeFiles map[string]bool) []RankedSymbol {

@@ -133,8 +133,9 @@ func TestDockerReadsAreCapped(t *testing.T) {
 			t.Errorf("%s ran past the limit under docker", name)
 		}
 	}
-	if got := fetchCmd(src, "x/.git", "refs/heads/w", RunnerDocker).Args; got[0] != "sh" || !slices.Contains(got, "fetch") {
-		t.Errorf("the fetch is not capped: %q", got)
+	gotFetch := fetchCmd(src, "x/.git", "refs/heads/w", RunnerDocker).Args
+	if gotFetch[0] != "sh" || !slices.Contains(gotFetch, "fetch") || !slices.Contains(gotFetch, "git -c core.hooksPath=/dev/null -c core.fsmonitor=false upload-pack --strict") {
+		t.Errorf("the fetch is not capped or hardened: %q", gotFetch)
 	}
 	if got := blobCmd(src, "abc", RunnerDocker).Args; got[0] != "sh" || !slices.Contains(got, "cat-file") {
 		t.Errorf("the blob read is not capped: %q", got)

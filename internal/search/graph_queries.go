@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -314,62 +313,6 @@ func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
 		fmt.Fprintf(out, "  %s\n", c)
 	}
 	return nil
-}
-
-type pkgStat struct {
-	name  string
-	count int
-}
-
-func (g *symGraph) summarizePackages() ([]pkgStat, map[string][]string) {
-	counts := map[string]int{}
-	depSet := map[string]map[string]bool{}
-	for i, s := range g.syms {
-		if s.Pkg == "" {
-			continue
-		}
-		counts[s.Pkg]++
-		for _, e := range g.out[i] {
-			toPkg := g.syms[e.toIdx].Pkg
-			if toPkg != "" && toPkg != s.Pkg && e.confidence == ConfidenceExtracted {
-				if depSet[s.Pkg] == nil {
-					depSet[s.Pkg] = map[string]bool{}
-				}
-				depSet[s.Pkg][toPkg] = true
-			}
-		}
-	}
-	var pkgs []pkgStat
-	deps := map[string][]string{}
-	for p, c := range counts {
-		pkgs = append(pkgs, pkgStat{name: p, count: c})
-		for d := range depSet[p] {
-			deps[p] = append(deps[p], d)
-		}
-		sort.Strings(deps[p])
-	}
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].name < pkgs[j].name })
-	return pkgs, deps
-}
-
-func findPackageCycles(deps map[string][]string) []string {
-	var cycles []string
-	seen := map[string]bool{}
-	for start, list := range deps {
-		for _, next := range list {
-			for _, back := range deps[next] {
-				if back == start && start < next {
-					c := fmt.Sprintf("%s -> %s -> %s", start, next, start)
-					if !seen[c] {
-						seen[c] = true
-						cycles = append(cycles, c)
-					}
-				}
-			}
-		}
-	}
-	sort.Strings(cycles)
-	return cycles
 }
 
 func parseQueryTerms(query string) []string {

@@ -65,8 +65,6 @@ type session struct {
 
 func (s *session) close() { s.st.close() }
 
-func (s *session) project() bool { return s.top != "" }
-
 // resolveProject is the checkout holding dir: the main worktree's root, the
 // scope every worktree shares (memory.Root's rule), and this checkout's own
 // top level, whose trail.jsonl its branch commits.

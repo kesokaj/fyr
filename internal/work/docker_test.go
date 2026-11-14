@@ -59,6 +59,23 @@ case "$1 $2" in
   on version-hang && { echo "timed out" >&2; exit 1; }
   on no-rosetta && [[ "$*" == *"--mount"* ]] && { echo "rosetta exec format error" >&2; exit 126; }
   plat_ok "$@" || exit 1
+  if [[ "$*" == *"--label fyr.work.basecheck="* ]]; then
+    [[ "$*" == *"antigravity-oauth-token"* ]] && { echo "token mounted in base-check" >&2; exit 99; }
+    shift 2; envs=(); wd=; net=
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -e) envs+=("$2"); shift 2 ;;
+        -w) wd=$2; shift 2 ;;
+        --network) net=$2; shift 2 ;;
+        --read-only|--init) shift ;;
+        -*) shift 2 ;;
+        *) break ;;
+      esac
+    done
+    [ "$net" = none ] || { echo "base-check net=$net, want none" >&2; exit 99; }
+    shift
+    cd "$wd" && exec env -i "${envs[@]}" "$@"
+  fi
   echo "fyr $(cat "$CTL/docker-version")" ;;
 run\ *)
   plat_ok "$@" || exit 1
@@ -197,6 +214,45 @@ func TestRunDockerPass(t *testing.T) {
 	}
 	if !strings.Contains(r.out.String(), "work: the run's container sweep (label fyr.work="+stamp+"): 1 removed") {
 		t.Errorf("no sweep line:\n%s", r.out.String())
+	}
+}
+
+// TestRunDockerBaseCheck pins that Base-Check: runs inside an isolated
+// --network none container (without OAuth token or host secrets) when
+// --runner docker is active.
+func TestRunDockerBaseCheck(t *testing.T) {
+	linuxOnly(t)
+	t.Setenv("SUPER_SECRET_HOST_TOKEN", "hunter2-do-not-leak")
+	r, o := dockerRig(t)
+	r.on("change", "")
+	k := filepath.Join(r.kick, "bc-docker.md")
+	put(t, k, "Project: "+r.lead+". Do the phase.\nFiles: src/a.txt\nBase-Check: grep -q work src/a.txt && [ -z \"$SUPER_SECRET_HOST_TOKEN\" ]\nStanding approvals: commit.\n")
+	res, err := runWith(o, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != "PASS" {
+		t.Fatalf("Verdict=%s Reasons=%v Notes=%v\n%s", res.Verdict, res.Reasons, res.Notes, r.out.String())
+	}
+	stamp := fmt.Sprintf("2026-10-29-180000-%d", os.Getpid())
+	bcCalls := 0
+	for _, line := range strings.Split(r.read("docker.calls"), "\n") {
+		if !strings.Contains(line, "--label fyr.work.basecheck="+stamp+"-bc-docker") {
+			continue
+		}
+		bcCalls++
+		if !strings.Contains(line, "--network none") {
+			t.Errorf("base-check call missing --network none:\n%s", line)
+		}
+		if strings.Contains(line, "antigravity-oauth-token") {
+			t.Errorf("base-check call unexpectedly mounted OAuth token:\n%s", line)
+		}
+		if strings.Contains(line, "hunter2-do-not-leak") {
+			t.Errorf("base-check call leaked host secret in args:\n%s", line)
+		}
+	}
+	if bcCalls != 2 {
+		t.Errorf("expected 2 containerized Base-Check runs (pre and post), got %d:\n%s", bcCalls, r.read("docker.calls"))
 	}
 }
 

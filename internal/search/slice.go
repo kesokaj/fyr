@@ -46,16 +46,6 @@ func BuildContextSlice(o Options, out io.Writer) error {
 	return sc.buildContextSlice(o, out)
 }
 
-// BuildFileSkeleton emits declaration-only start-end signature lines for o.Skeleton.
-func BuildFileSkeleton(o Options, out io.Writer) error {
-	sc, err := prepare(o, out)
-	if err != nil {
-		return err
-	}
-	defer sc.close()
-	return sc.buildFileSkeleton(o.Skeleton, out)
-}
-
 func (sc *scope) buildContextSlice(o Options, out io.Writer) error {
 	if o.Hops <= 0 && o.Slice != "" {
 		o.Hops = defaultSliceHops

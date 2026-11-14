@@ -47,11 +47,11 @@ If the script is mostly calling other utilities with little data manipulation, s
 
 ## Escapes survive tools
 
-A file tool can turn an escape into its character (`\u0041` written as `A`). After writing text meant to keep an escape, `grep -n` for the escape itself, and write it through a script when the tool keeps converting it; a check for an escape builds its needle from character codes and never quotes the escape itself. After a heredoc or generated write, `git diff --numstat <path>`: a `-` in both columns means the file is BINARY and invisible to every reviewer. (Moved from the global context 2026-10-01.)
+A file tool can turn an escape into its character (`\u0041` written as `A`). After writing text meant to keep an escape, `grep -n` for the escape itself, and write it through a script when the tool keeps converting it; a check for an escape builds its needle from character codes and never quotes the escape itself. After a heredoc or generated write, `git diff --numstat <path>`: a `-` in both columns means the file is BINARY and invisible to every reviewer.
 
 ## Installed commands
 
-An installed COMMAND is verified by the shell that will run it — the bare name, after `hash -r` (bash) or `rehash` (zsh), then `type <name>` when it disagrees — never by the file that was moved into place: an earlier `PATH` entry or the shell's command hash shadows it with every file-level check green. Before claiming a script is done, apply `review-standards` § 8 (the code-shape rules). (Moved from the global context 2026-10-01.)
+An installed COMMAND is verified by the shell that will run it — the bare name, after `hash -r` (bash) or `rehash` (zsh), then `type <name>` when it disagrees — never by the file that was moved into place: an earlier `PATH` entry or the shell's command hash shadows it with every file-level check green. Before claiming a script is done, apply `review-standards` § 8 (the code-shape rules).
 
 ## Reference Library
 

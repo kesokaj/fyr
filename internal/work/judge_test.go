@@ -2,6 +2,7 @@ package work
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -86,13 +87,96 @@ func TestWorkerBaseCheck(t *testing.T) {
 		t.Fatalf("Case 4: runPostBaseCheck executed on a branch that failed scope() with ReasonOutside")
 	}
 
-	// Case 5: baseCheckCmd must not expose worker-writable <sandbox-home>/.local/bin on PATH.
+	// Case 5: hostBaseCheckCmd must not expose worker-writable <sandbox-home>/.local/bin on PATH.
 	r5 := newRig(t)
 	kPath := filepath.Join(r5.kick, "bc-no-worker-bin.md")
 	put(t, kPath, "Project: "+r5.lead+"\nFiles: src/a.txt\nBase-Check: grep -q work src/a.txt && case \":$PATH:\" in *\":$HOME/.local/bin:\"*) false ;; esac\n")
 	res5 := r5.run(kPath)
 	if res5.Verdict != "PASS" {
 		t.Fatalf("Case 5 (worker .local/bin leaked into host Base-Check PATH): Verdict=%s Reasons=%v Notes=%v", res5.Verdict, res5.Reasons, res5.Notes)
+	}
+
+	// Case 6: hostBaseCheckCmd must use an explicit allowlist and strip arbitrary host secrets.
+	t.Setenv("SUPER_SECRET_HOST_TOKEN", "hunter2-do-not-leak")
+	r6 := newRig(t)
+	kEnv := filepath.Join(r6.kick, "bc-allowlist-env.md")
+	put(t, kEnv, "Project: "+r6.lead+"\nFiles: src/a.txt\nBase-Check: grep -q work src/a.txt && [ -z \"$SUPER_SECRET_HOST_TOKEN\" ]\n")
+	res6 := r6.run(kEnv)
+	if res6.Verdict != "PASS" {
+		t.Fatalf("Case 6 (host secret leaked into host Base-Check env): Verdict=%s Reasons=%v Notes=%v", res6.Verdict, res6.Reasons, res6.Notes)
+	}
+
+	// Case 7: sanitizedHostPath strips relative entries and symlinked sandbox/app paths.
+	realRoot := filepath.Join(t.TempDir(), "real")
+	realSb := filepath.Join(realRoot, "sb")
+	realApp := filepath.Join(realRoot, "app")
+	linkSbBin := filepath.Join(t.TempDir(), "sb-bin-link")
+	if err := os.MkdirAll(filepath.Join(realSb, ".local", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(realApp, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(realSb, ".local", "bin"), linkSbBin); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "./bin:bin:"+linkSbBin+":"+filepath.Join(realApp, "bin")+":/usr/bin:/bin")
+	sanitized := sanitizedHostPath(realApp, realSb)
+	for _, entry := range filepath.SplitList(sanitized) {
+		if !filepath.IsAbs(entry) {
+			t.Fatalf("Case 7: relative PATH entry %q survived in %q", entry, sanitized)
+		}
+		if entry == linkSbBin || strings.HasPrefix(entry, realApp) || strings.HasPrefix(entry, realSb) {
+			t.Fatalf("Case 7: sandbox/app PATH entry %q survived in %q", entry, sanitized)
+		}
+	}
+	if sanitized != "/usr/bin:/bin" {
+		t.Fatalf("Case 7: sanitizedHostPath = %q, want %q", sanitized, "/usr/bin:/bin")
+	}
+}
+
+func TestCleanBaseCheckArtifactsDisablesHooks(t *testing.T) {
+	app := t.TempDir()
+	for _, args := range [][]string{
+		{"init"},
+		{"config", "user.email", "t@example.com"},
+		{"config", "user.name", "T"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", app}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(app, "a.txt"), []byte("hello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", "a.txt"},
+		{"commit", "-m", "init"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", app}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(app, "a.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app, "untracked.tmp"), []byte("junk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "fsmonitor-hook-ran")
+	if out, err := exec.Command("git", "-C", app, "config", "core.fsmonitor", "touch "+marker+"; true").CombinedOutput(); err != nil {
+		t.Fatalf("git config core.fsmonitor: %v\n%s", err, out)
+	}
+	cleanBaseCheckArtifacts(app)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("cleanBaseCheckArtifacts executed core.fsmonitor on untrusted repo")
+	}
+	got, err := os.ReadFile(filepath.Join(app, "a.txt"))
+	if err != nil || string(got) != "hello\n" {
+		t.Fatalf("a.txt after cleanBaseCheckArtifacts = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(app, "untracked.tmp")); err == nil {
+		t.Fatalf("untracked.tmp survived cleanBaseCheckArtifacts")
 	}
 }
 

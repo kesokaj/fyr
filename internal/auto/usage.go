@@ -15,9 +15,7 @@ const (
 	// the week is out, and nothing says it means only that, so it reads as
 	// under every floor.
 	disabled = work.DisabledWindow
-	// poolLimit is far past any pool's name; budgetLine goes in runs.json.
-	poolLimit = 64
-	// poolsLimit keeps budgetLine short for the same reason.
+	// poolsLimit keeps budgetLine short for runs.json.
 	poolsLimit = 16
 )
 

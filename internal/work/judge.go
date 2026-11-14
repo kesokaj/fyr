@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -22,9 +21,10 @@ var (
 const maxJudgeDiffBytes = 48 << 10
 
 // runPreBaseCheck runs the Kickoff's Base-Check: command on HEAD before the
-// builder session starts. It must fail (non-zero exit) on HEAD to prove the
-// check is falsifiable; if it exits 0, the worker fails with
-// ReasonBaseCheckPassed and skips the builder session.
+// builder session starts (inside Docker --network none when --runner docker is
+// active, else on the host with an allowlisted env). It must fail (non-zero
+// exit) on HEAD to prove the check is falsifiable; if it exits 0, the worker
+// fails with ReasonBaseCheckPassed and skips the builder session.
 func (w *worker) runPreBaseCheck(ctx context.Context) bool {
 	if w.p.k.BaseCheck == "" {
 		return true
@@ -32,7 +32,14 @@ func (w *worker) runPreBaseCheck(ctx context.Context) bool {
 	if !w.b.Intact() {
 		return false
 	}
-	_, err := runBounded(w.baseCheckCmd(), baseCheckTimeout)
+	_, err := w.runBaseCheck()
+	var se *baseCheckSetupError
+	if errors.As(err, &se) {
+		w.b.Note("Base-Check %q setup failed: %v", w.p.k.BaseCheck, se)
+		w.b.Fail(ReasonBaseCheckFailed)
+		w.tracker.onBaseCheck(w.p.k.Name, "pre", "setup-FAIL")
+		return false
+	}
 	if err == nil {
 		w.b.Note("Base-Check %q passed on HEAD before the worker started (not falsifiable)", w.p.k.BaseCheck)
 		w.b.Fail(ReasonBaseCheckPassed)
@@ -53,7 +60,7 @@ func (w *worker) runPostBaseCheck() {
 	if w.p.k.BaseCheck == "" || len(w.b.Reasons()) > 0 || !w.b.Intact() {
 		return
 	}
-	out, err := runBounded(w.baseCheckCmd(), baseCheckTimeout)
+	out, err := w.runBaseCheck()
 	w.baseCheckOut = strings.TrimSpace(string(out))
 	if err != nil {
 		w.b.Note("Base-Check %q failed after build: %v: %s", w.p.k.BaseCheck, err, lastLine(string(out)))
@@ -64,23 +71,9 @@ func (w *worker) runPostBaseCheck() {
 	w.tracker.onBaseCheck(w.p.k.Name, "post", "PASS")
 }
 
-func (w *worker) baseCheckCmd() *exec.Cmd {
-	cmd := exec.Command("sh", "-c", w.p.k.BaseCheck)
-	cmd.Dir = w.b.App()
-	var env []string
-	for _, kv := range sandbox.FyrEnv() {
-		k, _, _ := strings.Cut(kv, "=")
-		if k != "HOME" && k != "PWD" && k != "OLDPWD" {
-			env = append(env, kv)
-		}
-	}
-	cmd.Env = append(env, "HOME="+w.b.Home(), "PWD="+w.b.App())
-	return cmd
-}
-
 func cleanBaseCheckArtifacts(app string) {
-	_ = trail.Command(app, "checkout", "-q", "--", ".").Run()
-	_ = trail.Command(app, "clean", "-fdq", "-e", ".agents/scratch").Run()
+	_ = trail.Command(app, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "checkout", "-q", "--", ".").Run()
+	_ = trail.Command(app, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "clean", "-fdq", "-e", ".agents/scratch").Run()
 }
 
 // runJudge evaluates the Kickoff's Judge: criterion in an isolated read-only

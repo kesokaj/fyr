@@ -79,6 +79,24 @@ func TestGitDirClean(t *testing.T) {
 		{"a worktree config", func(t *testing.T, git string) {
 			appendConfig(t, git, "[extensions]\n\tworktreeConfig = true\n")
 		}, "extensions.worktreeconfig"},
+		{"uploadpack packObjectsHook", func(t *testing.T, git string) {
+			appendConfig(t, git, "[uploadpack]\n\tpackObjectsHook = /bin/true\n")
+		}, "uploadpack."},
+		{"core.hooksPath", func(t *testing.T, git string) {
+			appendConfig(t, git, "[core]\n\thooksPath = /bad/hooks\n")
+		}, "core.hookspath"},
+		{"core.fsmonitor", func(t *testing.T, git string) {
+			appendConfig(t, git, "[core]\n\tfsmonitor = /bin/true\n")
+		}, "core.fsmonitor"},
+		{"core.sshCommand", func(t *testing.T, git string) {
+			appendConfig(t, git, "[core]\n\tsshCommand = /bin/true\n")
+		}, "core.sshcommand"},
+		{"pack windowMemory", func(t *testing.T, git string) {
+			appendConfig(t, git, "[pack]\n\twindowMemory = 1g\n")
+		}, "pack."},
+		{"filter clean", func(t *testing.T, git string) {
+			appendConfig(t, git, "[filter \"lfs\"]\n\tclean = /bin/true\n")
+		}, "filter."},
 		{"a config git cannot read", func(t *testing.T, git string) {
 			appendConfig(t, git, "[broken\n")
 		}, "config"},

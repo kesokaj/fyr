@@ -98,9 +98,7 @@ func quotedDelim(ds []heredoc, line string, tabs bool) ([]heredoc, string, bool)
 // starts with into ds and returns the rest of line; unparsed when there is
 // no delimiter word or it is not modelled.
 func unquotedDelim(ds []heredoc, line string, tabs bool) ([]heredoc, string, bool) {
-	if strings.HasPrefix(line, "\\") {
-		line = line[1:] // <<\EOF: a quoted delimiter, the same here-doc
-	}
+	line = strings.TrimPrefix(line, "\\") // <<\EOF: a quoted delimiter, the same here-doc
 	// An unquoted delimiter is the whole word up to a shell
 	// metacharacter, taken literally ($END included), as bash does.
 	end := strings.IndexFunc(line, func(r rune) bool {
