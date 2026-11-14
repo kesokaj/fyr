@@ -118,7 +118,7 @@ func (t *progressTracker) onStart(name string) {
 	if files == "" {
 		files = "(drafts)"
 	}
-	t.emitLine(fmt.Sprintf("work: [%s] ▶ started  model %s  branch %s  files: %s",
+	t.emitLine(fmt.Sprintf("work: [%s] started  model %s  branch %s  files: %s",
 		w.Name, w.Model, w.Branch, files))
 }
 
@@ -143,7 +143,7 @@ func (t *progressTracker) onEvent(name string, ev sandbox.ACPEvent) {
 			w.Subagents = append(w.Subagents, ev.Summary)
 		}
 		t.persistLocked()
-		t.emitLine(fmt.Sprintf("work: [%s] 🤖 step %d (%s)  subagent %s",
+		t.emitLine(fmt.Sprintf("work: [%s] step %d (%s)  subagent %s",
 			w.Name, w.StepCount, fmtMMSS(w.ElapsedSec), ev.Summary))
 	case "tool_call", "tool_update":
 		if ev.Kind == "tool_update" && ev.StepIndex <= w.StepCount {
@@ -153,7 +153,7 @@ func (t *progressTracker) onEvent(name string, ev sandbox.ACPEvent) {
 		w.LastTool = ev.ToolName
 		w.LastStep = strings.TrimSpace(ev.ToolName + " " + ev.Summary)
 		t.persistLocked()
-		t.emitLine(fmt.Sprintf("work: [%s] ⚙ step %d (%s)  %s",
+		t.emitLine(fmt.Sprintf("work: [%s] step %d (%s)  %s",
 			w.Name, w.StepCount, fmtMMSS(w.ElapsedSec), w.LastStep))
 	}
 }
@@ -174,7 +174,7 @@ func (t *progressTracker) onBaseCheck(name, stage, status string) {
 	w.LastTool = "base-check"
 	w.LastStep = fmt.Sprintf("base-check %s: %s", stage, status)
 	t.persistLocked()
-	t.emitLine(fmt.Sprintf("work: [%s] 🧪 base-check %s (%s)  %s",
+	t.emitLine(fmt.Sprintf("work: [%s] base-check %s (%s)  %s",
 		w.Name, stage, fmtMMSS(w.ElapsedSec), status))
 }
 
@@ -199,7 +199,7 @@ func (t *progressTracker) onJudge(name, model, verdict, reason string) {
 	}
 	w.LastStep = step
 	t.persistLocked()
-	t.emitLine(fmt.Sprintf("work: [%s] ⚖ %s (%s)",
+	t.emitLine(fmt.Sprintf("work: [%s] %s (%s)",
 		w.Name, step, fmtMMSS(w.ElapsedSec)))
 }
 
@@ -243,7 +243,7 @@ func (t *progressTracker) onFinish(name string, res Result) {
 	w.Commits = res.Commits
 	w.Reasons = slices.Clone(res.Reasons)
 	t.persistLocked()
-	t.emitLine(fmt.Sprintf("work: [%s] ✓ finished %s (%s, %d steps, %d commits)",
+	t.emitLine(fmt.Sprintf("work: [%s] finished %s (%s, %d steps, %d commits)",
 		w.Name, w.State, fmtMMSS(w.ElapsedSec), w.StepCount, w.Commits))
 }
 

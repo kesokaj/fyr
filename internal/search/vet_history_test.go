@@ -178,15 +178,25 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 	for _, want := range []string{
 		"[VET_IMPROVED_PROMPT]",
 		"score: ",
-		"targets: internal/search/service.go:3-5 (ReconcileProjectIndex)",
-		"scope: internal/search/service.go",
+		"targets: internal/search/service.go",
 		"constraints: ADR-511 (Zero-daemon CLI hooks); BUG-507 (Guard real home writes)",
 		"verify: go test -race ./internal/search/...",
-		"directive: EXECUTE_IMPROVED_PROMPT",
 	} {
-		if !strings.Contains(res.TurnContract, want) {
-			t.Errorf("TurnContract missing %q:\n%s", want, res.TurnContract)
+		if !strings.Contains(res.ImprovedPrompt, want) {
+			t.Errorf("ImprovedPrompt missing %q:\n%s", want, res.ImprovedPrompt)
 		}
+	}
+	for _, unwanted := range []string{"task:", "scope:", "targets: none", "stdlib-first"} {
+		if strings.Contains(res.ImprovedPrompt, unwanted) {
+			t.Errorf("ImprovedPrompt repeated unwanted filler %q:\n%s", unwanted, res.ImprovedPrompt)
+		}
+	}
+	parsed := parseFencedJSONBanner(t, res.TurnContract)
+	if parsed.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed.Enrichment == nil ||
+		parsed.Enrichment.Verify != "go test -race ./internal/search/..." ||
+		len(parsed.Enrichment.Targets) != 1 || parsed.Enrichment.Targets[0] != "internal/search/service.go" ||
+		len(parsed.Enrichment.Records) != 2 {
+		t.Errorf("parsed JSON contract/enrichment mismatch: %+v\nraw:\n%s", parsed, res.TurnContract)
 	}
 	hiRes := VetPrompt(
 		"Fix ReconcileProjectIndex in internal/search/service.go to return error on empty root and verify with go test",
@@ -213,7 +223,8 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 	if err := json.Unmarshal(out1.Bytes(), &resp1); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp1.InjectSteps[0].SystemMessage.SystemMessage, "directive: VET_FIRST") {
+	parsed1 := parseFencedJSONBanner(t, resp1.InjectSteps[0].SystemMessage.SystemMessage)
+	if parsed1.Directive != "VET_FIRST" {
 		t.Fatalf("expected Turn 1 VET_FIRST, got:\n%s", resp1.InjectSteps[0].SystemMessage.SystemMessage)
 	}
 
@@ -232,15 +243,11 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys2 := resp2.InjectSteps[0].SystemMessage.SystemMessage
-	for _, want := range []string{
-		"directive: EXECUTE_IMPROVED_PROMPT",
-		"[VET_IMPROVED_PROMPT]",
-		"Build a new caching layer (follow-up turn 1:",
-		"service.go:3-5 (ReconcileProjectIndex)",
-	} {
-		if !strings.Contains(sys2, want) {
-			t.Errorf("Turn 2 systemMessage missing %q:\n%s", want, sys2)
-		}
+	parsed2 := parseFencedJSONBanner(t, sys2)
+	if parsed2.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed2.Enrichment == nil ||
+		!strings.Contains(parsed2.Enrichment.PriorTurnContext, "turn 1: Build a new caching layer") ||
+		!strings.Contains(parsed2.Enrichment.AstSlice, "service.go:3-5 (ReconcileProjectIndex)") {
+		t.Errorf("Turn 2 JSON enrichment mismatch: %+v\nraw:\n%s", parsed2, sys2)
 	}
 }
 
@@ -426,22 +433,26 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
 	for _, want := range []string{
-		`status_line: 2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "skills": ["fyr-bug","golang"], "nextStep": "<next>"}`,
+		`"contract": "[FYR_TURN_CONTRACT]"`,
+		`"skills":`,
+		`"fyr-bug"`,
+		`"golang"`,
 		`"pivotCount": 5`,
 	} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("expected %q in PreInvocation systemMessage, got:\n%s", want, sysMsg)
 		}
 	}
-	bannerPart, _, _ := strings.Cut(sysMsg, "=====")
 	for _, unwanted := range []string{
+		"=====",
+		"status_line:",
 		"Stage: **[N/6",
 		"[N/6",
 		"Turn-0 capsule",
 		"(skills/golang/SKILL.md)",
 	} {
-		if strings.Contains(bannerPart, unwanted) || strings.Contains(sysMsg, "Stage: **[N/6") || strings.Contains(sysMsg, "[N/6") || strings.Contains(sysMsg, "Turn-0 capsule") {
-			t.Errorf("unexpected verbose token %q in banner/systemMessage:\n%s", unwanted, sysMsg)
+		if strings.Contains(sysMsg, unwanted) {
+			t.Errorf("unexpected verbose token %q in systemMessage:\n%s", unwanted, sysMsg)
 		}
 	}
 	artifactPath := filepath.Join(brainDir, "fyr-process.md")

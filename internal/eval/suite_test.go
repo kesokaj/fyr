@@ -209,7 +209,7 @@ func TestSuiteHarness(t *testing.T) {
 		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false}, "acp-vet-multi-turn": {"", false},
 		"triage": {"triage", true}, "autonomy": {"", true}, "feature-routing": {"", false},
 	}
-	wantVer := map[string]int{"reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2}
+	wantVer := map[string]int{"reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2, "feature-routing": 2}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
 	}

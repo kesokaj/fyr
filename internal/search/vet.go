@@ -78,7 +78,11 @@ type VetResult struct {
 	Intent             IntentMode      `json:"intent"`
 	Gate               VetGate         `json:"gate"`
 	Score              int             `json:"score"`
+	Bypassed           bool            `json:"bypassed,omitempty"`
 	Route              string          `json:"route,omitempty"`
+	PriorTurnContext   string          `json:"priorTurnContext,omitempty"`
+	TargetFiles        []string        `json:"targetFiles,omitempty"`
+	SuggestedVerify    string          `json:"suggestedVerify,omitempty"`
 	ImprovedPrompt     string          `json:"improvedPrompt,omitempty"`
 	CarriedFromTurn    int             `json:"carriedFromTurn,omitempty"`
 	PresentAnchors     []string        `json:"presentAnchors,omitempty"`
@@ -368,6 +372,7 @@ func vetPromptCoreWithHistory(
 		MatchedRecords:   collectMatchedRecords(brainCtx),
 		Conflicts:        conflicts,
 	}
+	populateVetDeltas(&res, trimmed, cleanPrompt, slice, files, prev)
 	res.ImprovedPrompt = SynthesizeImprovedPrompt(cleanPrompt, res, slice, ctxWithConflicts, prev)
 	attachAdvisoryRoute(cleanPrompt, &res, slice, ctxWithConflicts)
 	return res

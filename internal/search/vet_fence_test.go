@@ -58,36 +58,29 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 
 	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, []string{"2 pivots"})
 
-	wantStatus := `status_line: 2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "skills": ["fyr-bug","golang"], "nextStep": "<next>"}`
-	if !strings.Contains(res.TurnContract, wantStatus) {
-		t.Errorf("TurnContract missing compact status_line %q:\n%s", wantStatus, res.TurnContract)
+	if sysMsg != banner || res.TurnContract != banner {
+		t.Fatalf("expected single unified envelope across sysMsg, banner, TurnContract")
 	}
-	if strings.Contains(res.TurnContract, `"stage":`) {
-		t.Errorf("TurnContract still contains bare stage key:\n%s", res.TurnContract)
+	if !strings.HasPrefix(sysMsg, "```json\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
+		t.Fatalf("expected strictly one json fenced block with no surrounding prose, got:\n%s", sysMsg)
 	}
-	for _, legacy := range []string{"Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder"} {
-		if strings.Contains(res.TurnContract, legacy) {
-			t.Errorf("TurnContract still contains verbose legacy status field %q:\n%s", legacy, res.TurnContract)
+	for _, legacy := range []string{`"stage":`, "BEGIN DATA", "status_line:", "Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder", "skills/fyr-bug/SKILL.md", "Turn-0 capsule"} {
+		if strings.Contains(sysMsg, legacy) {
+			t.Errorf("envelope contains legacy/verbose token %q:\n%s", legacy, sysMsg)
 		}
 	}
 
 	parsed := parseFencedJSONBanner(t, banner)
-	if parsed.Surface != "PRE_INVOCATION" || parsed.Intent != "BUG" || parsed.Gate != "ENRICH_AND_PROCEED" ||
+	if parsed.Surface != "PRE_INVOCATION" || parsed.Contract != "[FYR_TURN_CONTRACT]" ||
+		parsed.Intent != "BUG" || parsed.Gate != "ENRICH_AND_PROCEED" || parsed.Directive != "ENRICH_AND_PROCEED" ||
 		parsed.Score == nil || *parsed.Score != 85 || !parsed.SecuritySubagentRequired ||
 		parsed.MatchedRecordCount != 2 || parsed.PivotCount != 2 || len(parsed.Skills) != 2 {
 		t.Errorf("parsed banner mismatch: %+v\nraw:\n%s", parsed, banner)
 	}
-	for _, noise := range []string{"skills/fyr-bug/SKILL.md", "MEMORY-airy-ux", "ADR-515", "Turn-0 capsule"} {
-		if strings.Contains(banner, noise) {
-			t.Errorf("banner contains verbose path/ID noise %q: %s", noise, banner)
-		}
-	}
-
-	// Full skill paths and record IDs remain inside the fenced systemMessage blocks.
-	for _, wantInSys := range []string{"skills/fyr-bug/SKILL.md", "BEGIN DATA MEMORY-airy-ux", "BEGIN DATA ADR-515", wantStatus} {
-		if !strings.Contains(sysMsg, wantInSys) {
-			t.Errorf("systemMessage missing %q:\n%s", wantInSys, sysMsg)
-		}
+	if parsed.Enrichment == nil || len(parsed.Enrichment.Records) != 2 ||
+		parsed.Enrichment.Records[0].ID != "MEMORY-airy-ux" || parsed.Enrichment.Records[1].ID != "ADR-515" ||
+		!strings.Contains(parsed.Enrichment.AstSlice, "[Hop 0]") || parsed.Enrichment.Trust == "" {
+		t.Errorf("parsed enrichment mismatch: %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
 	}
 }
 
@@ -100,27 +93,35 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 	}
 	_, banner := BuildTurnEnvelope(&res, SliceResult{}, TurnBrainContext{}, nil, nil)
 
-	wantStatus := `status_line: 2-space json fenced block (omit empty): {"action": "<what is being vetted>", "targets": ["<path>"], "records": ["<ID>"], "nextStep": "<approval needed>"}`
-	if !strings.Contains(res.TurnContract, wantStatus) {
-		t.Errorf("TurnContract missing none-skills status_line %q:\n%s", wantStatus, res.TurnContract)
-	}
-	if strings.Contains(res.TurnContract, "none") || strings.Contains(res.TurnContract, `"stage":`) {
-		t.Errorf("TurnContract should omit empty skills and bare stage:\n%s", res.TurnContract)
+	if strings.Contains(res.TurnContract, "none") || strings.Contains(res.TurnContract, `"stage":`) || strings.Contains(res.TurnContract, `"enrichment"`) {
+		t.Errorf("TurnContract should omit empty skills, bare stage, and empty enrichment:\n%s", res.TurnContract)
 	}
 	parsed := parseFencedJSONBanner(t, banner)
-	if parsed.Surface != "PRE_INVOCATION" || parsed.Intent != "FEATURE" || parsed.Gate != "VET_FIRST" ||
-		parsed.Score == nil || *parsed.Score != 20 || !strings.Contains(parsed.Tip, "missing anchors (target, scope, verification)") {
+	if parsed.Surface != "PRE_INVOCATION" || parsed.Contract != "[FYR_TURN_CONTRACT]" ||
+		parsed.Intent != "FEATURE" || parsed.Gate != "VET_FIRST" || parsed.Directive != "VET_FIRST" ||
+		parsed.Score == nil || *parsed.Score != 20 || len(parsed.Skills) != 0 ||
+		len(parsed.MissingAnchors) != 3 || !strings.Contains(parsed.Tip, "missing anchors (target, scope, verification)") ||
+		parsed.Enrichment != nil {
 		t.Errorf("parsed VET_FIRST banner mismatch: %+v\nraw:\n%s", parsed, banner)
 	}
 
 	proceed := VetResult{Intent: IntentTask, Gate: GateEnrichAndProceed, Score: 90}
 	BuildTurnEnvelope(&proceed, SliceResult{}, TurnBrainContext{}, nil, nil)
-	wantProceedStatus := `status_line: 2-space json fenced block (omit empty): {"action": "<concrete work/check>", "targets": ["<path>"], "records": ["<ID>"], "checks": ["<check: result>"], "nextStep": "<next>"}`
-	if !strings.Contains(proceed.TurnContract, wantProceedStatus) {
-		t.Errorf("TurnContract without skills = %q, want %q", proceed.TurnContract, wantProceedStatus)
+	if strings.Contains(proceed.TurnContract, `"stage":`) || strings.Contains(proceed.TurnContract, `"enrichment"`) {
+		t.Errorf("TurnContract without delta contains bare stage or empty enrichment:\n%s", proceed.TurnContract)
 	}
-	if strings.Contains(proceed.TurnContract, `"stage":`) {
-		t.Errorf("TurnContract without skills contains bare stage:\n%s", proceed.TurnContract)
+
+	// Unanchored non-code prompt with 1 memory omits verify and targets while keeping the record.
+	memCtx := TurnBrainContext{
+		Memories: []MatchedRecord{
+			{ID: "MEMORY-vet-history", Kind: "memory", Title: "Add vet_history table", Provenance: "operator", Body: "# Add vet_history table\nAdd scoring."},
+		},
+	}
+	uRes := VetPrompt("Reinvention of sandboxing workflow without citing files", IntentTask, SliceResult{}, memCtx)
+	uParsed := parseFencedJSONBanner(t, uRes.SystemMessage)
+	if uParsed.Enrichment == nil || uParsed.Enrichment.Verify != "" || len(uParsed.Enrichment.Targets) != 0 ||
+		len(uParsed.Enrichment.Records) != 1 || strings.Contains(uParsed.Enrichment.Records[0].Note, "#") {
+		t.Errorf("unanchored non-code prompt enrichment mismatch: %+v\nraw:\n%s", uParsed.Enrichment, uRes.SystemMessage)
 	}
 }
 

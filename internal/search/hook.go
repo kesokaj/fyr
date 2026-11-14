@@ -183,7 +183,7 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		banners = append(banners, storeDegradedNotice(err))
 	} else {
 		defer sc.close()
-		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, cleanPrompt, state, dirtySummary, fastPath)
+		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fastPath)
 	}
 	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, banners)
 	return writePreInvocation(out, sysMsg, banner)
@@ -538,10 +538,12 @@ func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 	var resp PreInvocationOutput
 	if sysMsg != "" || userMarkdown != "" {
 		combined := sysMsg
-		if userMarkdown != "" && combined != "" {
-			combined = userMarkdown + "\n" + combined
-		} else if userMarkdown != "" {
-			combined = userMarkdown
+		if userMarkdown != "" {
+			if combined == "" || combined == userMarkdown {
+				combined = userMarkdown
+			} else {
+				combined = userMarkdown + "\n" + combined
+			}
 		}
 		resp.InjectSteps = []HookInjectStep{{SystemMessage: &HookSystemMessage{SystemMessage: combined}}}
 	}

@@ -319,41 +319,66 @@ func hasNewFileSurface(curFiles, recentPivots []string) bool {
 	return false
 }
 
-// SynthesizeImprovedPrompt generates the deterministic [VET_IMPROVED_PROMPT]
-// block when 45 <= Score < 80, follow-up to VET_FIRST applies, or conflicts exist;
-// prompts scoring >= 80 with no VET_FIRST carry-forward or conflicts pass directly.
-func SynthesizeImprovedPrompt(prompt string, res VetResult, slice SliceResult, brainCtx TurnBrainContext, prev *VetHistoryRow) string {
+func populateVetDeltas(res *VetResult, rawPrompt, cleanPrompt string, slice SliceResult, files []string, prev *VetHistoryRow) {
+	if res == nil {
+		return
+	}
+	res.Bypassed = strings.HasPrefix(rawPrompt, "!")
+	if (!res.Bypassed && (res.Intent == IntentApproval || res.Intent == IntentTrivial)) || res.Intent == IntentCorrection {
+		return
+	}
+	if prev != nil && shouldCarryForwardVet(cleanPrompt, res.Intent, slice, prev) && prev.RawPrompt != "" && prev.RawPrompt != rawPrompt {
+		res.PriorTurnContext = fmt.Sprintf("turn %d: %s", prev.TurnNum, collapseOneLine(prev.RawPrompt, 180))
+	}
+	if len(files) > 0 {
+		res.TargetFiles = append(res.TargetFiles, files[:min(6, len(files))]...)
+	}
+	if res.Intent != IntentQuestion && res.Gate != GateVetFirst && stringInList(res.MissingAnchors, "verification") {
+		res.SuggestedVerify = inferConcreteVerifyCommand(files)
+	}
+}
+
+func stringInList(items []string, want string) bool {
+	for _, it := range items {
+		if it == want {
+			return true
+		}
+	}
+	return false
+}
+
+// SynthesizeImprovedPrompt generates a compact delta-only [VET_IMPROVED_PROMPT]
+// record for vet_history and fyr-process.md when non-redundant deltas exist
+// and 45 <= Score < 80, follow-up to VET_FIRST applies, or conflicts exist.
+func SynthesizeImprovedPrompt(_ string, res VetResult, slice SliceResult, brainCtx TurnBrainContext, prev *VetHistoryRow) string {
 	if res.Score < 45 || res.Gate != GateEnrichAndProceed || res.Intent == IntentQuestion || res.Intent == IntentCorrection {
 		return ""
 	}
 	if res.Score >= 80 && (prev == nil || prev.Gate != GateVetFirst) && len(brainCtx.Conflicts) == 0 {
 		return ""
 	}
-	task := collapseOneLine(StripSandboxPreamble(strings.TrimSpace(prompt)), 280)
-	if prev != nil && shouldCarryForwardVet(prompt, res.Intent, slice, prev) && prev.RawPrompt != "" && prev.RawPrompt != strings.TrimSpace(prompt) {
-		task = fmt.Sprintf("%s (follow-up turn %d: %s)", collapseOneLine(prev.RawPrompt, 180), prev.TurnNum, task)
+	var lines []string
+	if prior := strings.TrimSpace(res.PriorTurnContext); prior != "" {
+		lines = append(lines, "prior: "+prior)
 	}
-	targets := formatImprovedPromptTargets(prompt, slice)
-	files := extractPromptAndSliceFiles(prompt, slice.Files)
-	scopeStr := "project"
-	if len(files) > 0 {
-		scopeStr = strings.Join(files[:min(6, len(files))], ", ")
+	if len(res.TargetFiles) > 0 {
+		lines = append(lines, "targets: "+strings.Join(res.TargetFiles, ", "))
+	} else if spans := formatImprovedPromptTargetSpans(slice); len(spans) > 0 {
+		lines = append(lines, "targets: "+strings.Join(spans, ", "))
 	}
-	constraints := formatImprovedPromptConstraints(brainCtx)
-	verifyCmd := inferVerifyCommand(files)
-
-	var b strings.Builder
-	b.WriteString("[VET_IMPROVED_PROMPT]\n")
-	fmt.Fprintf(&b, "score: %d/100\n", res.Score)
-	fmt.Fprintf(&b, "task: %s\n", task)
-	fmt.Fprintf(&b, "targets: %s\n", targets)
-	fmt.Fprintf(&b, "scope: %s\n", scopeStr)
-	fmt.Fprintf(&b, "constraints: %s\n", constraints)
-	fmt.Fprintf(&b, "verify: %s", verifyCmd)
-	return b.String()
+	if verify := strings.TrimSpace(res.SuggestedVerify); verify != "" {
+		lines = append(lines, "verify: "+verify)
+	}
+	if c := formatImprovedPromptConstraints(brainCtx); c != "" {
+		lines = append(lines, "constraints: "+c)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("[VET_IMPROVED_PROMPT]\nscore: %d/100\n%s", res.Score, strings.Join(lines, "\n"))
 }
 
-func formatImprovedPromptTargets(prompt string, slice SliceResult) string {
+func formatImprovedPromptTargetSpans(slice SliceResult) []string {
 	var spans []string
 	for _, line := range strings.Split(slice.Capsule, "\n") {
 		if !strings.HasPrefix(line, "[Hop 0] ") && (!strings.HasPrefix(line, "[Hop 1] ") || strings.Contains(line, " snippet ")) {
@@ -371,14 +396,7 @@ func formatImprovedPromptTargets(prompt string, slice SliceResult) string {
 			}
 		}
 	}
-	if len(spans) > 0 {
-		return strings.Join(spans, ", ")
-	}
-	files := extractPromptAndSliceFiles(prompt, slice.Files)
-	if len(files) > 0 {
-		return strings.Join(files[:min(5, len(files))], ", ")
-	}
-	return "none"
+	return spans
 }
 
 func formatImprovedPromptConstraints(brainCtx TurnBrainContext) string {
@@ -389,16 +407,13 @@ func formatImprovedPromptConstraints(brainCtx TurnBrainContext) string {
 	for _, bug := range brainCtx.Bugs[:min(2, len(brainCtx.Bugs))] {
 		parts = append(parts, fmt.Sprintf("%s (%s)", bug.ID, collapseOneLine(bug.Title, 60)))
 	}
-	for _, mem := range brainCtx.Memories[:min(1, len(brainCtx.Memories))] {
-		parts = append(parts, fmt.Sprintf("%s (%s)", mem.ID, collapseOneLine(mem.Title, 60)))
-	}
-	if len(parts) == 0 {
-		return "stdlib-first; preserve existing tests"
+	for _, c := range brainCtx.Conflicts[:min(2, len(brainCtx.Conflicts))] {
+		parts = append(parts, collapseOneLine(c, 80))
 	}
 	return strings.Join(parts, "; ")
 }
 
-func inferVerifyCommand(files []string) string {
+func inferConcreteVerifyCommand(files []string) string {
 	for _, f := range files {
 		ext := strings.ToLower(filepath.Ext(f))
 		if ext == ".go" {
@@ -408,11 +423,11 @@ func inferVerifyCommand(files []string) string {
 			}
 			return fmt.Sprintf("go test -race ./%s/...", strings.TrimPrefix(dir, "./"))
 		}
-		if ext == ".ts" || ext == ".tsx" {
+		if ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" {
 			return "npm test"
 		}
 	}
-	return "go test -race ./..."
+	return ""
 }
 
 func collapseOneLine(s string, maxLen int) string {

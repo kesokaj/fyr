@@ -135,7 +135,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 
 	// Turn 1: injects MEMORY-service-invariants, ADR-521, and golang skill.
 	sys1 := runTurn(1, "Update ReconcileProjectIndex in service.go and run go test")
-	for _, want := range []string{"MEMORY-service-invariants", "ADR-521", "skills/golang/SKILL.md"} {
+	for _, want := range []string{"MEMORY-service-invariants", "ADR-521", `"golang"`} {
 		if !strings.Contains(sys1, want) {
 			t.Errorf("Turn 1 missing %q:\n%s", want, sys1)
 		}
@@ -146,7 +146,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys2 := runTurn(1, "Update AlphaHelper in service.go and run go test")
-	for _, unwanted := range []string{"MEMORY-service-invariants", "ADR-521", "skills/golang/SKILL.md"} {
+	for _, unwanted := range []string{"MEMORY-service-invariants", "ADR-521", `"golang"`} {
 		if strings.Contains(sys2, unwanted) {
 			t.Errorf("Turn 2 should deduplicate %q:\n%s", unwanted, sys2)
 		}
@@ -157,7 +157,7 @@ func TestPreInvocationSessionDedupAndCompactionReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys3 := runTurn(1, "Update ReconcileProjectIndex in service.go and run go test")
-	for _, want := range []string{"MEMORY-service-invariants", "ADR-521", "skills/golang/SKILL.md"} {
+	for _, want := range []string{"MEMORY-service-invariants", "ADR-521", `"golang"`} {
 		if !strings.Contains(sys3, want) {
 			t.Errorf("Post-compaction Turn 3 missing %q:\n%s", want, sys3)
 		}

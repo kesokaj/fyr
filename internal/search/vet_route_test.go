@@ -182,62 +182,62 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			name:               "mid-score bug emits improved prompt with route",
 			prompt:             "Fix ReconcileProjectIndex in internal/search/service.go",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-bug (reproduce with failing test first)",
+			wantRoute:          "/fyr-bug (reproduce with failing test first)",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:      "anchored high-score bug puts route in TurnContract without redundant ImprovedPrompt",
 			prompt:    "Fix panic in ReconcileProjectIndex in internal/search/service.go:19 when root is empty and verify with go test",
 			wantGate:  GateEnrichAndProceed,
-			wantRoute: "route: /fyr-bug (reproduce with failing test first)",
+			wantRoute: "/fyr-bug (reproduce with failing test first)",
 		},
 		{
 			name:               "anchored multi-phase feature",
 			prompt:             "Implement Phase 1 caching in internal/search/service.go returning CacheHit; implement Phase 2 metrics in internal/metrics/store.go returning Count, and verify with go test",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-work (waves with model:, judge:, base-check:)",
+			wantRoute:          "/fyr-work (waves with model:, judge:, base-check:)",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:               "anchored single-phase feature",
 			prompt:             "Implement CacheIndex in internal/search/service.go returning CacheStats and verify with go test",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-feature (pre-build interview first)",
+			wantRoute:          "/fyr-feature (pre-build interview first)",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:               "two independent tasks",
 			prompt:             "Update internal/search/service.go; update internal/search/vet.go",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-work <task>; <task>",
+			wantRoute:          "/fyr-work <task>; <task>",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:               "review prompt",
 			prompt:             "Review internal/search/service.go for race conditions",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-review --judge (cross-family)",
+			wantRoute:          "/fyr-review --judge (cross-family)",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:               "release prompt",
 			prompt:             "Ship it and cut v8.6.0",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: /fyr-preflight",
+			wantRoute:          "/fyr-preflight",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:               "lookup task prompt",
 			prompt:             "Find callers and references of ReconcileProjectIndex in internal/search/service.go",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "route: fyr search --slice",
+			wantRoute:          "fyr search --slice",
 			wantImprovedPrompt: true,
 		},
 		{
 			name:      "question prompt stays ANSWER_ONLY with route in TurnContract",
 			prompt:    "Where is ReconcileProjectIndex defined?",
 			wantGate:  GateEnrichAndProceed,
-			wantRoute: "route: fyr search --slice",
+			wantRoute: "fyr search --slice",
 		},
 	}
 	for _, vc := range vetChecks {
@@ -246,14 +246,15 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			t.Errorf("%s: Gate = %s, want %s", vc.name, res.Gate, vc.wantGate)
 		}
 		if vc.wantImprovedPrompt {
-			if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") || !strings.Contains(res.ImprovedPrompt, vc.wantRoute) {
-				t.Errorf("%s: ImprovedPrompt missing %q:\n%s", vc.name, vc.wantRoute, res.ImprovedPrompt)
+			if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") || !strings.Contains(res.ImprovedPrompt, "route: "+vc.wantRoute) {
+				t.Errorf("%s: ImprovedPrompt missing %q:\n%s", vc.name, "route: "+vc.wantRoute, res.ImprovedPrompt)
 			}
 		} else if res.ImprovedPrompt != "" {
 			t.Errorf("%s: expected empty ImprovedPrompt (Score=%d), got:\n%s", vc.name, res.Score, res.ImprovedPrompt)
 		}
-		if !strings.Contains(res.TurnContract, vc.wantRoute) {
-			t.Errorf("%s: TurnContract missing %q:\n%s", vc.name, vc.wantRoute, res.TurnContract)
+		parsed := parseFencedJSONBanner(t, res.TurnContract)
+		if parsed.Route != vc.wantRoute {
+			t.Errorf("%s: parsed Route = %q, want %q\n%s", vc.name, parsed.Route, vc.wantRoute, res.TurnContract)
 		}
 	}
 
@@ -302,9 +303,11 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Fatalf("unmarshal hook output: %v", err)
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	for _, want := range []string{"[VET_IMPROVED_PROMPT]", "route: /fyr-bug (reproduce with failing test first)"} {
-		if !strings.Contains(sysMsg, want) {
-			t.Errorf("pre-invocation systemMessage missing %q:\n%s", want, sysMsg)
-		}
+	if strings.Contains(sysMsg, "[VET_IMPROVED_PROMPT]") {
+		t.Errorf("pre-invocation systemMessage should not emit raw [VET_IMPROVED_PROMPT]:\n%s", sysMsg)
+	}
+	parsed := parseFencedJSONBanner(t, sysMsg)
+	if parsed.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed.Route != "/fyr-bug (reproduce with failing test first)" {
+		t.Errorf("parsed envelope = %+v, want Directive=EXECUTE_IMPROVED_PROMPT Route=/fyr-bug (reproduce with failing test first)\nraw:\n%s", parsed, sysMsg)
 	}
 }

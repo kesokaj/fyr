@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -148,6 +149,57 @@ func TestUpdateFromReleaseRedirectGuardsAndSizeCap(t *testing.T) {
 		err := UpdateFromRelease(home, "v1.0.0", false, nil, &bytes.Buffer{})
 		if err == nil || !strings.Contains(err.Error(), "larger than") {
 			t.Fatalf("expected size cap error, got: %v", err)
+		}
+	})
+}
+
+func TestReleaseRedirectLoopCDNAndLatestGuards(t *testing.T) {
+	t.Run("excessive redirects (>= 5 hops) rejected", func(t *testing.T) {
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, r.URL.Path, http.StatusFound)
+		}))
+		defer srv.Close()
+		u, err := url.Parse(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = fetchReleaseAsset(srv.URL+"/kesokaj/fyr/releases/download/v9.9.9/SHA256SUMS", u, srv.Client(), 1<<20)
+		if err == nil || !strings.Contains(err.Error(), "too many redirects") {
+			t.Fatalf("expected too many redirects error, got: %v", err)
+		}
+	})
+
+	t.Run("allowedReleaseRedirectHost pins github CDN hosts", func(t *testing.T) {
+		cases := []struct {
+			host     string
+			baseHost string
+			want     bool
+		}{
+			{"github.com", "github.com", true},
+			{"release-assets.githubusercontent.com", "github.com", true},
+			{"objects.githubusercontent.com", "github.com", true},
+			{"github-releases.githubusercontent.com", "github.com", true},
+			{"evil.githubusercontent.com", "github.com", false},
+			{"attacker.example.com", "github.com", false},
+			{"release-assets.githubusercontent.com", "127.0.0.1", false},
+		}
+		for _, tc := range cases {
+			if got := allowedReleaseRedirectHost(tc.host, tc.baseHost); got != tc.want {
+				t.Errorf("allowedReleaseRedirectHost(%q, %q) = %v, want %v", tc.host, tc.baseHost, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("latest release redirect rejects off-host and non-HTTPS locations", func(t *testing.T) {
+		base, _ := url.Parse("https://github.com/kesokaj/fyr")
+		reqURL, _ := url.Parse("https://github.com/kesokaj/fyr/releases/latest")
+		for _, badLoc := range []string{
+			"https://evil.invalid/kesokaj/fyr/releases/tag/v9.9.9",
+			"http://github.com/kesokaj/fyr/releases/tag/v9.9.9",
+		} {
+			if _, err := extractTagFromLatestRedirect(reqURL, base, badLoc); err == nil || !strings.Contains(err.Error(), "untrusted location") {
+				t.Errorf("extractTagFromLatestRedirect(%q) err = %v, want untrusted location error", badLoc, err)
+			}
 		}
 	})
 }

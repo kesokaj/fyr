@@ -12,7 +12,7 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
+func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
 	var sections, banners []string
 	if state.Compacted {
 		if o.BrainReprime != nil {
@@ -27,7 +27,10 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, cleanPrompt string,
 		banners = append(banners, ">15 dirty files: serving cached AST snapshot")
 	}
 	var slice SliceResult
-	if ClassifyIntent(cleanPrompt, 0) != IntentApproval || state.Compacted {
+	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
+	initIntent := ClassifyIntent(cleanPrompt, 1)
+	skipHeavy := !state.Compacted && !bypassed && (initIntent == IntentApproval || initIntent == IntentTrivial)
+	if !skipHeavy {
 		sliceOpts := o
 		sliceOpts.Dir = dir
 		sliceOpts.Session = convID
@@ -58,12 +61,14 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 		}
 	}
 	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
+	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
+	skipBrainAndSkills := !state.Compacted && !bypassed && (intent == IntentApproval || intent == IntentTrivial)
 	var brainCtx TurnBrainContext
-	if o.BrainTurnContext != nil {
+	if !skipBrainAndSkills && o.BrainTurnContext != nil {
 		brainCtx = o.BrainTurnContext(dir, o.Home, cleanPrompt, slice.Files)
 	}
 	var catalog []SkillMeta
-	if o.SkillCatalog != nil {
+	if !skipBrainAndSkills && o.SkillCatalog != nil {
 		catalog = o.SkillCatalog(o.Home)
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
