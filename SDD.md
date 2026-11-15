@@ -176,7 +176,7 @@ The dreamer is the one thing that runs on its own, hourly while an `agy` session
 
 ## Risks
 
-- **The rules block fills.** The context, the rules and the generated inventory share one 24,000-byte block; a skill dropped in grows the inventory. Shown by `TestRenderedContextFitsAntigravityBlock` and `TestSkillListingBudget`.
+- **The rules block fills.** Hand-written context and global `rules/*.md` share Antigravity's 24,000-byte block, while the always-on slice stays within `9,000` bytes and `fyr list` prints the skill inventory separately. Shown by `TestAlwaysOnContextBudget`, `TestRenderedContextFitsAntigravityBlock`, and `TestSkillListingBudget`.
 - **Antigravity changes underneath.** Paths, tool names and the block size are measured, not documented (PRD § Known limits). Shown by the real-home smoke and the `fyr eval` rows.
 - **The docs drift from the binary.** Shown by `fyr check` (G3) and `/fyr-review --docs`.
 - **A credential slips past the redactor.** The redactor grows by kind, with a near-miss per needle. Shown by `TestRedactShapes`.

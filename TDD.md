@@ -1,7 +1,7 @@
 # TDD — fyr
 
 How each part of the harness is built and tested: one section per component of SDD.md, each pointing at the record that holds its detail.
-Status: current · Last updated: 2026-11-12 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
+Status: current · Last updated: 2026-11-15 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
 
 <!-- One section T1… per component M… of SDD.md — its interfaces, data, errors, configuration and dependencies —
      each a summary that points at the SPEC record holding the detail (`fyr record get SPEC-…`), never a copy of it.
@@ -12,10 +12,10 @@ Status: current · Last updated: 2026-11-12 · Requirements: [PRD.md](PRD.md) ·
 
 Implements: M1 · Spec: none (the files are their own spec; the size limits below and ADR-035)
 
-- **Interfaces:** `context/AGENTS.md`, then `context/dev-setup.md`, rendered by `fyr render` into one file (`~/.gemini/config/rules/AGENTS.md`), plus each `rules/*.md` file — `critical-thinking.md` (ADR-050), `session-sizing.md` (ADR-058, ADR-077), `agy-dispatch.md` (`PLAN.md` D15, ADR-519), `code-modularity.md` (ADR-066), `fyr-features.md` (ADR-518) — all in Antigravity's rules directory.
-- **Errors:** a context over its size pin fails `go test ./internal/harness`; a rule with a frontmatter key outside its allow list fails the install's lint.
-- **Configuration:** none; the canary word ends the rendered context.
-- **Size pins** (`internal/harness/size_test.go`): `TestRenderedContextUnderTarget`, the hand-written context (the render before its generated `## Installed` inventory) pinned at 13,000 bytes inside `PRD.md` G1's 15,000-byte ceiling; `TestRenderedContextFitsAntigravityBlock`, the whole render plus `rules/*.md` pinned at 19,500 bytes inside `PRD.md` § Known limits' 22,000-byte cap and Antigravity's 24,000-byte block (ADR-035), which the inventory, growing with every skill, counts toward. A limit is never raised.
+- **Interfaces:** `context/AGENTS.md`, then `context/dev-setup.md`, rendered by `fyr render` into one file (`~/.gemini/config/rules/AGENTS.md`), plus each `rules/*.md` file — `critical-thinking.md` (ADR-050), `session-sizing.md` (ADR-058, ADR-077), `agy-dispatch.md` (`PLAN.md` D15, ADR-519), `code-modularity.md` (ADR-066), `fyr-features.md` (ADR-518) — all in Antigravity's rules directory (frontmatter allows `description`, `trigger`, `globs`).
+- **Errors:** a context or rules set over its size pin fails `go test ./internal/harness`; a rule with a frontmatter key outside its allow list or inconsistent `trigger`/`globs` fails the install's lint.
+- **Configuration:** none; the canary word ends the rendered context (`RenderContext` omits duplicate inventory; `fyr list` prints descriptions).
+- **Size pins** (`internal/harness/size_test.go`): `TestRenderedContextUnderTarget`, rendered global context pinned at 13,000 bytes inside `PRD.md` G1's 15,000-byte ceiling; `TestAlwaysOnContextBudget`, rendered global context plus always-on `rules/*.md` pinned at 9,000 bytes; `TestRepoAgentsUnderTarget`, repo `AGENTS.md` pinned at 4,500 bytes (`PRD.md` G2); `TestRenderedContextFitsAntigravityBlock`, combined rendered context plus all `rules/*.md` pinned at 19,500 bytes inside `PRD.md` § Known limits' 22,000-byte cap and Antigravity's 24,000-byte block (ADR-035). A limit is never raised.
 
 ## T2 — Skills and commands
 

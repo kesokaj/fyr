@@ -3,24 +3,84 @@ package harness
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 )
 
-// The Antigravity CLI builds ONE <user_rules> block from every file in
-// ~/.gemini/config/rules/ and cuts it at this many bytes, marking the cut
-// with "<truncated N bytes>" (BUG-085, measured 2026-09-21; the vendor page
-// says 12,000 characters per file). A second file costs the first one room.
+// The Antigravity CLI builds ONE <user_rules> block from always-on rules in
+// ~/.gemini/config/rules/ (while trigger: model_decision rules list path and
+// description only) and cuts always-on rules at 24,000 bytes (BUG-085, measured
+// 2026-09-21). Both combined and always-on budgets below stay strict.
 const antigravityRulesBlockBytes = 24000
 
-// renderedContextBudgetBytes is the ceiling this repo pins itself to after the
-// D11 Item 35 context diet, inside PRD § Known limits' 22,000-byte cap and
-// Antigravity's 24,000-byte block (ADR-035). It is never raised by an
-// implementer; a rule that does not fit is paid for by a deletion or a
-// merge, or lives in a skill (PRD § Known limits).
+// renderedContextBudgetBytes is the combined block ceiling (rendered context
+// plus every rules/<name>.md, always-on or triggered), pinned inside PRD §
+// Known limits' 22,000-byte cap and Antigravity's 24,000-byte block (ADR-035).
+// It is never raised by an implementer; a rule that does not fit is paid for
+// by a deletion or a merge, or lives in a skill (PRD § Known limits).
 const renderedContextBudgetBytes = 19500
+
+// alwaysOnContextBudgetBytes caps the always-on slice (rendered context plus
+// rules/*.md whose trigger is unset or always_on) per PLAN v9 Phase 1.
+const alwaysOnContextBudgetBytes = 9000
+
+// repoAgentsBudgetBytes enforces PRD G2 (wc -c AGENTS.md <= 4,500 B).
+const repoAgentsBudgetBytes = 4500
+
+type rulesBlockStats struct {
+	ctx            int
+	alwaysOnRules  int
+	triggeredRules int
+}
+
+func (s rulesBlockStats) alwaysOn() int { return s.ctx + s.alwaysOnRules }
+func (s rulesBlockStats) total() int    { return s.ctx + s.alwaysOnRules + s.triggeredRules }
+
+func isAlwaysOnRule(d Doc) bool {
+	return d.Trigger == "" || d.Trigger == "always_on"
+}
+
+func measureRulesBlock(src Source) (rulesBlockStats, error) {
+	if _, err := fs.Stat(src.FS, "context/AGENTS.md"); err != nil {
+		return rulesBlockStats{}, fmt.Errorf("reading context/AGENTS.md: %w", err)
+	}
+	inv, err := LoadInventory(src)
+	if err != nil {
+		return rulesBlockStats{}, err
+	}
+	ctx, err := RenderContext(src, inv)
+	if err != nil {
+		return rulesBlockStats{}, err
+	}
+	stats := rulesBlockStats{ctx: len(ctx)}
+	for _, r := range inv.Rules {
+		if isAlwaysOnRule(r) {
+			stats.alwaysOnRules += len(r.Raw)
+		} else {
+			stats.triggeredRules += len(r.Raw)
+		}
+	}
+	return stats, nil
+}
+
+func checkCombinedBlockBudget(s rulesBlockStats, budget int) error {
+	if s.total() > budget {
+		return fmt.Errorf("Antigravity rules block is %d bytes (context %d, always-on rules %d, triggered rules %d), budget %d (the CLI cuts the block at %d): cut %d bytes",
+			s.total(), s.ctx, s.alwaysOnRules, s.triggeredRules, budget, antigravityRulesBlockBytes, s.total()-budget)
+	}
+	return nil
+}
+
+func checkAlwaysOnBudget(s rulesBlockStats, budget int) error {
+	if s.alwaysOn() > budget {
+		return fmt.Errorf("always-on context + rules is %d bytes (context %d, always-on rules %d; triggered rules %d), budget %d: cut or scope %d bytes",
+			s.alwaysOn(), s.ctx, s.alwaysOnRules, s.triggeredRules, budget, s.alwaysOn()-budget)
+	}
+	return nil
+}
 
 // TestRenderedContextFitsAntigravityBlock renders THIS checkout the way
 // `fyr install` does and measures the whole block Antigravity would
@@ -28,34 +88,33 @@ const renderedContextBudgetBytes = 19500
 // beside it. It reads the repository at ../.. like TestHarnessMap, so it
 // fails — never skips — when run from anywhere else.
 func TestRenderedContextFitsAntigravityBlock(t *testing.T) {
-	src := DirSource(filepath.Join("..", ".."))
-	if _, err := fs.Stat(src.FS, "context/AGENTS.md"); err != nil {
+	stats, err := measureRulesBlock(DirSource(filepath.Join("..", "..")))
+	if err != nil {
 		t.Fatalf("this test reads the checkout at ../..: %v", err)
 	}
-	inv, err := LoadInventory(src)
-	if err != nil {
+	if err := checkCombinedBlockBudget(stats, renderedContextBudgetBytes); err != nil {
 		t.Fatal(err)
 	}
-	ctx, err := RenderContext(src, inv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rules := 0
-	for _, r := range inv.Rules {
-		rules += len(r.Raw)
-	}
-	total := len(ctx) + rules
-	if total > renderedContextBudgetBytes {
-		t.Fatalf("Antigravity rules block is %d bytes (context %d, rules %d), budget %d (the CLI cuts the block at %d): cut %d bytes",
-			total, len(ctx), rules, renderedContextBudgetBytes, antigravityRulesBlockBytes, total-renderedContextBudgetBytes)
-	}
-	t.Logf("Antigravity rules block is %d bytes (context %d, rules %d), budget %d", total, len(ctx), rules, renderedContextBudgetBytes)
+	t.Logf("Antigravity rules block is %d bytes (context %d, always-on rules %d, triggered rules %d), budget %d",
+		stats.total(), stats.ctx, stats.alwaysOnRules, stats.triggeredRules, renderedContextBudgetBytes)
 }
 
-// renderedContextTargetBytes is the harness's own pin for the hand-written
-// context (the render before its generated `## Installed` inventory), lowered
-// from PRD G1's 15,000-byte ceiling to 13,000 by the D11 Item 35 context diet
-// (plan 2026-10-25-harness-audit-fix D10; PLAN-2026-11-02-1806-fyr-speed Item 35).
+func TestAlwaysOnContextBudget(t *testing.T) {
+	stats, err := measureRulesBlock(DirSource(filepath.Join("..", "..")))
+	if err != nil {
+		t.Fatalf("this test reads the checkout at ../..: %v", err)
+	}
+	if err := checkAlwaysOnBudget(stats, alwaysOnContextBudgetBytes); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("always-on rules block is %d bytes (context %d, always-on rules %d; triggered rules %d), budget %d",
+		stats.alwaysOn(), stats.ctx, stats.alwaysOnRules, stats.triggeredRules, alwaysOnContextBudgetBytes)
+}
+
+// renderedContextTargetBytes is the harness's own pin for the rendered global
+// context (context/*.md plus Marker and Canary), lowered from PRD G1's 15,000-byte
+// ceiling to 13,000 by the D11 Item 35 context diet (plan 2026-10-25-harness-audit-fix
+// D10; PLAN-2026-11-02-1806-fyr-speed Item 35).
 const renderedContextTargetBytes = 13000
 
 func TestRenderedContextUnderTarget(t *testing.T) {
@@ -71,18 +130,55 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The hand-written part only: the generated `## Installed` inventory grows with
-	// every skill dropped in, and a file drop must never fail this pin (R5); the
-	// whole render, inventory included, stays under the Antigravity block in the
-	// test above.
-	written := string(ctx)
-	if i := strings.Index(written, "\n## Installed"); i >= 0 {
-		written = written[:i]
+	if len(ctx) > renderedContextTargetBytes {
+		t.Fatalf("rendered context is %d bytes, target %d: move a whole rule into the skill or agent that acts on it, never shorten a sentence", len(ctx), renderedContextTargetBytes)
 	}
-	if len(written) > renderedContextTargetBytes {
-		t.Fatalf("hand-written context is %d bytes, target %d: move a whole rule into the skill or agent that acts on it, never shorten a sentence", len(written), renderedContextTargetBytes)
+	t.Logf("rendered context is %d bytes, target %d", len(ctx), renderedContextTargetBytes)
+}
+
+func TestRepoAgentsUnderTarget(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Logf("hand-written context is %d bytes (render %d with the inventory), target %d", len(written), len(ctx), renderedContextTargetBytes)
+	if len(b) > repoAgentsBudgetBytes {
+		t.Fatalf("repo AGENTS.md is %d bytes, target <= %d (PRD G2): move repo rules into .agents/rules/*.md", len(b), repoAgentsBudgetBytes)
+	}
+	t.Logf("repo AGENTS.md is %d bytes, target <= %d", len(b), repoAgentsBudgetBytes)
+}
+
+func TestSizeChecksFailOnOversizedRule(t *testing.T) {
+	alwaysOver := mapSource(map[string]string{
+		"context/AGENTS.md":     "# AGENTS.md\n",
+		"skills/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody\n",
+		"rules/big.md":          "---\ntrigger: always_on\n---\n" + strings.Repeat("a", alwaysOnContextBudgetBytes+1),
+	})
+	stats, err := measureRulesBlock(alwaysOver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAlwaysOnBudget(stats, alwaysOnContextBudgetBytes); err == nil {
+		t.Errorf("oversized always_on rule (%d B) unexpectedly passed always-on budget %d", stats.alwaysOn(), alwaysOnContextBudgetBytes)
+	}
+	if err := checkCombinedBlockBudget(stats, renderedContextBudgetBytes); err != nil {
+		t.Errorf("always-on-only overflow (%d B) should stay under combined budget %d: %v", stats.total(), renderedContextBudgetBytes, err)
+	}
+
+	triggeredOver := mapSource(map[string]string{
+		"context/AGENTS.md":     "# AGENTS.md\n",
+		"skills/alpha/SKILL.md": "---\nname: alpha\ndescription: a\n---\nbody\n",
+		"rules/big.md":          "---\ntrigger: model_decision\ndescription: \"probe\"\n---\n" + strings.Repeat("b", renderedContextBudgetBytes+1),
+	})
+	stats2, err := measureRulesBlock(triggeredOver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAlwaysOnBudget(stats2, alwaysOnContextBudgetBytes); err != nil {
+		t.Errorf("triggered rule should not count against always-on budget: %v", err)
+	}
+	if err := checkCombinedBlockBudget(stats2, renderedContextBudgetBytes); err == nil {
+		t.Errorf("oversized model_decision rule (%d B) unexpectedly passed combined budget %d", stats2.total(), renderedContextBudgetBytes)
+	}
 }
 
 // TestSkillListingBudget pins what the CLI must list at session start: the

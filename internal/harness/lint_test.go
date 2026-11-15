@@ -251,7 +251,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			_, err := LoadInventory(DirSource(repo))
 			return err
 		}},
-		"rule": {[]string{"description: d"}, [3]string{"trigger", "", ""}, func(front string) error {
+		"rule": {[]string{"description: d"}, [3]string{"description", "", ""}, func(front string) error {
 			repo := newRepo(t)
 			os.MkdirAll(filepath.Join(repo, "rules"), 0o755)
 			os.WriteFile(filepath.Join(repo, "rules", "x.md"), []byte("---\n"+front+"---\nbody\n"), 0o644)

@@ -40,13 +40,15 @@ func TestInventoryAndRender(t *testing.T) {
 	if !strings.HasPrefix(s, Marker+"\n# AGENTS.md") {
 		t.Errorf("context should start with the marker and AGENTS.md:\n%s", s[:80])
 	}
-	for _, want := range []string{"## Environment & Stack", "`alpha`", "`/beta`", "`reviewer` (pro)", "`/deploy`", "`go-style`"} {
+	for _, want := range []string{"## Environment & Stack", Canary} {
 		if !strings.Contains(s, want) {
 			t.Errorf("context missing %q", want)
 		}
 	}
-	if strings.Contains(s, "Alpha does things") {
-		t.Errorf("deployed context should carry names only, not descriptions")
+	for _, unwanted := range []string{"## Installed", "Alpha does things"} {
+		if strings.Contains(s, unwanted) {
+			t.Errorf("deployed context should omit inventory/descriptions (%q)", unwanted)
+		}
 	}
 	// The canary is the LAST line: a check that reads it proves the whole
 	// file loaded (BUG-085). Anything after it would be unproven.

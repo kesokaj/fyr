@@ -16,19 +16,18 @@ func TestSlashNoteOnlyWhenSomeSkillIsSlashOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	const marked = "Skills marked `/name` are typed by the user"
-	if !strings.Contains(renderInventoryCompact(inv), marked) || !strings.Contains(RenderInventory(inv), marked) {
+	if !strings.Contains(RenderInventory(inv), marked) {
 		t.Errorf("fixture has a slash-only skill; the note should be printed")
 	}
 	for i := range inv.Skills {
 		inv.Skills[i].SlashOnly = false
 	}
-	for _, out := range []string{renderInventoryCompact(inv), RenderInventory(inv)} {
-		if strings.Contains(out, marked) {
-			t.Errorf("no slash-only skill; the note must not be printed:\n%s", out)
-		}
-		if !strings.Contains(out, "can also be typed as `/name`") {
-			t.Errorf("expected the all-model-invocable sentence:\n%s", out)
-		}
+	out := RenderInventory(inv)
+	if strings.Contains(out, marked) {
+		t.Errorf("no slash-only skill; the note must not be printed:\n%s", out)
+	}
+	if !strings.Contains(out, "can also be typed as `/name`") {
+		t.Errorf("expected the all-model-invocable sentence:\n%s", out)
 	}
 }
 

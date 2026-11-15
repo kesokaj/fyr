@@ -45,11 +45,47 @@ func TestLintAllowListPerKind(t *testing.T) {
 			t.Errorf("skill with %q refused: %v", front, err)
 		}
 	}
-	if err := doc("rules", "trigger: always_on\n"); err != nil {
-		t.Errorf("rule with trigger refused: %v", err)
+	for _, okRule := range []string{
+		"trigger: always_on\n",
+		"trigger: glob\nglobs: \"**/*.go\"\n",
+		"trigger: glob\nglobs: \"**/*.{go,md}\"\n",
+		"trigger: model_decision\n",
+	} {
+		if err := doc("rules", okRule); err != nil {
+			t.Errorf("rule with %q refused: %v", okRule, err)
+		}
 	}
-	if err := doc("commands", "trigger: always_on\n"); err == nil {
-		t.Error("a command with a rule's trigger key loaded")
+	for _, dir := range []string{"commands", "workflows"} {
+		if err := doc(dir, "trigger: always_on\n"); err == nil {
+			t.Errorf("a %s doc with a rule's trigger key loaded", dir)
+		}
+		if err := doc(dir, "globs: \"**/*.go\"\n"); err == nil {
+			t.Errorf("a %s doc with a rule's globs key loaded", dir)
+		}
+	}
+	if err := skill("globs: \"**/*.go\"\n"); err == nil {
+		t.Error("a skill with globs loaded")
+	}
+	for _, badRule := range []string{
+		"trigger: glob\n",
+		"trigger: always_on\nglobs: \"**/*.go\"\n",
+		"trigger: always-on\n",
+		"trigger: model-decision\n",
+		"trigger: manual\n",
+		"trigger: glob\nglobs: \"/etc/*\"\n",
+		"trigger: glob\nglobs: \"../secret/*.md\"\n",
+		"trigger: glob\nglobs: \"sub/../secret/*.md\"\n",
+		"trigger: glob\nglobs: \"~/secret/*.md\"\n",
+		"trigger: glob\nglobs: \"**/*.go,\"\n",
+	} {
+		if err := doc("rules", badRule); err == nil {
+			t.Errorf("invalid rule frontmatter %q unexpectedly loaded", badRule)
+		}
+	}
+	repo := newRepo(t)
+	writeFile(t, filepath.Join(repo, "rules", "missing-desc.md"), "---\ntrigger: model_decision\n---\nbody\n")
+	if _, err := LoadInventory(DirSource(repo)); err == nil {
+		t.Error("model_decision rule without description unexpectedly loaded")
 	}
 }
 

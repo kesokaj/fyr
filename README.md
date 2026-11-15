@@ -235,7 +235,7 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
      - `context/<name>.md` → appended to `~/.gemini/config/rules/AGENTS.md`
    - Import third-party skills from [skills.sh](https://skills.sh) via `npx skills@<version> add <owner/repo> -s <skill>` (or `fyr adopt <name>`), then run `fyr install`.
    - The installer lints every customization before deploying and refuses a skill without a `description`, a skill, command, rule or agent with a frontmatter key outside its kind's allow list (such as `allowed-tools`, `disallowedTools`, `hooks` or any other permission key), a command or rule whose file name is not one plain name, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `TDD.md` § T3 and § T6 list each refusal and its test.
-   - Note: `internal/harness/size_test.go` pins hand-written `context/*.md` under `13,000` bytes and the rendered rules block under `19,500` bytes so Antigravity never truncates its 24,000-byte global rules block (`TDD.md` § T1–T2).
+   - Note: `internal/harness/size_test.go` pins hand-written `context/*.md` under `13,000` bytes, always-on context plus `always_on` rules under `9,000` bytes, repository `AGENTS.md` under `4,500` bytes, and the combined deployed rules block under `19,500` bytes so Antigravity never truncates its 24,000-byte global rules block (`TDD.md` § T1–T2).
 
 ## Daily CLI Reference
 
@@ -331,6 +331,6 @@ gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...   # be
 go run ./cmd/fyr install --home .agents/scratch/home                         # never against your real $HOME in development
 ```
 
-Two tests pin the deployed context's size (`internal/harness/size_test.go`): the hand-written context under `13,000` bytes (inside `PRD.md` G1's `15,000`-byte ceiling), and the whole rendered block, skill inventory included, under `19,500` bytes (inside `PRD.md`'s `22,000`-byte cap and Antigravity's `24,000`-byte limit). Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`).
+Four tests pin the context sizes (`internal/harness/size_test.go`): hand-written `context/*.md` under `13,000` bytes (inside `PRD.md` G1's `15,000`-byte ceiling), always-on context plus `always_on` rules under `9,000` bytes, repository `AGENTS.md` under `4,500` bytes (`PRD.md` G2), and the combined deployed rules block (`context/*.md` plus `rules/*.md`, with the skill inventory kept separate in `fyr list`) under `19,500` bytes (inside `PRD.md`'s `22,000`-byte cap and Antigravity's `24,000`-byte limit). Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`).
 
 Where to read more: [`AGENTS.md`](AGENTS.md) for repository rules; [`PRD.md`](PRD.md), [`SDD.md`](SDD.md), and [`TDD.md`](TDD.md) for requirements, architecture, and test pins; [`SECURITY.md`](SECURITY.md) for security boundaries; and `fyr record list --kind spec` / `fyr record list --kind adr` for surface specs and architecture decisions.

@@ -77,10 +77,13 @@ func TestPlanFromFSSource(t *testing.T) {
 		t.Errorf("notes.md mode = %v, want 0644", notes.Mode)
 	}
 	ctx := string(byRel[filepath.FromSlash(".gemini/config/rules/AGENTS.md")].Data)
-	for _, part := range []string{Marker, "Be honest.", "## Environment", "Skills (1): `alpha`", "Subagents (1): `reviewer`\n", "`/deploy`", "`go-style`"} {
+	for _, part := range []string{Marker, "Be honest.", "## Environment", Canary} {
 		if !strings.Contains(ctx, part) {
 			t.Errorf("rendered context lacks %q", part)
 		}
+	}
+	if strings.Contains(ctx, "## Installed") {
+		t.Errorf("rendered context should not embed duplicate inventory")
 	}
 }
 
