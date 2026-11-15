@@ -8,13 +8,13 @@ Operator: Go/TS fullstack engineer (Linux/macOS ARM); decides in the pre-build i
 
 Start every session with `fyr resume`. Report file trails (`fyr record import`) or unscaffolded repos (`/fyr-init-project` or `/fyr-index-project`). Read `PRD.md` before major changes; state status, active plan ID, next step, and project memory before editing. Newest handoff wins unless an open plan postdates it; name missing files; never guess intent.
 
-After each phase (tick Checkpoint, store `change`) or when context grows/session ends, run `fyr close` / `/fyr-handoff` (commits, pushes and runs `fyr metrics ingest` once); store `adr` on structural choices and `bug` on escaped failures.
+After each phase (tick Checkpoint, store `change`) or when context grows/session ends, run `/fyr-handoff` (commits, pushes and runs `fyr metrics ingest` once; stores `handoff`); store `adr` on structural choices and `bug` on escaped failures.
 
 ## Definition of Done (in order, once per task)
 
-1. **Verify:** run `fyr verify` (writes `.agents/scratch/verify.stamp`); dispatch `verifier` (`testing` record) only when browser, container, or live local HTTP e2e is owed (`GUIDE-testing`; never hide untested code).
-2. **Review & Docs:** dispatch `reviewer` (diff only) for 50+ lines, 5+ files, or `fyr-bug` fixes (`--docs` if interfaces/commands/deploy change; self-review smaller diffs in `change`), and `security` for auth, crypto, secrets, IAM, parsing, or deps (fix/rebut in `## Outcome`; fixed triggers need failing-first tests, max 2 rounds). Update how-it-works docs (`<= 30` lines self, else `documentation`). Write `change` (citing `path:start-end (Symbol)` + agents), `adr`, and `bug` yourself; tick plan (`fyr record edit <ID> --body-file <path>`); update `TODO.md` (`Now`, `Next` <= 3, `Backlog`; operator steps in handoff Next Steps).
-3. **Close:** run `fyr close` / `/fyr-handoff`; mid-task stops run `/fyr-handoff` early, never instead of DoD (never deletes prior `change`/`testing` records).
+1. **Verify:** run `fyr verify` (runs `gofmt`, `go vet ./...`, `go test -race ./...`, `fyr check`, and writes gitignored `.agents/scratch/verify.stamp`; obey explicit user test/commit overrides when given); dispatch `verifier` (`testing` record) only when browser, container, or live local HTTP e2e is owed (`GUIDE-testing`; never hide untested code).
+2. **Review & Docs:** dispatch `reviewer` (diff only) for 50+ lines, 5+ files, or `fyr-bug` fixes (`--docs` if interfaces/commands/deploy change; self-review smaller diffs in `change`), and `security` for auth, crypto, secrets, IAM, parsing, or deps (fix/rebut in `## Outcome`; fixed triggers need failing-first tests, max 2 rounds). Update how-it-works docs only on behavior/interface/plan/deploy changes (`<= 30` lines self, else `documentation`; skip reading root docs when unchanged). Write `change` (citing `path:start-end (Symbol)` + agents), `adr`, and `bug` yourself; tick plan (`fyr record edit <ID> --body-file <path>`); update `TODO.md` (`Now`, `Next` <= 3, `Backlog`; operator steps in handoff Next Steps).
+3. **Close:** run `/fyr-handoff` (or `fyr close --title` after `fyr verify` to store an immutable `handoff` with the verify digest; `fyr close` neither commits nor pushes, and never deletes prior records); mid-task stops run `/fyr-handoff` early, never instead of DoD.
 
 ## Work, search, and subagents
 
