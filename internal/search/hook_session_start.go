@@ -1,17 +1,21 @@
 package search
 
 import (
+	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
 	sessionStartMaxBytes    = 1500
 	sessionStartMaxFileRead = 64 << 10
+	reftableGitTimeout      = 80 * time.Millisecond
 )
 
 type sessionStartCapsule struct {
@@ -56,8 +60,7 @@ func handleSessionStart(o Options, dir string, _ HookInput, out io.Writer) error
 func collectSessionGitSummary(root string) sessionGitSummary {
 	state, err := ComputeGoTreeState(root)
 	if err != nil {
-		branch := collapseOneLine(printable(readGitBranchFast(resolveGitWorktreeDir(root))), 80)
-		return sessionGitSummary{Branch: branch}
+		return sessionGitSummary{Branch: collapseOneLine(printable(state.Branch), 80)}
 	}
 	sample := cleanPrintableSlice(state.DirtyGo, 80)
 	if len(sample) > 5 {
@@ -205,4 +208,34 @@ func readBoundedText(path string, limit int64) string {
 		return ""
 	}
 	return string(data)
+}
+
+func readGitBranchReftable(root string) string {
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+	if sym, ok := runGitBounded(root, reftableGitTimeout, "symbolic-ref", "--short", "-q", "HEAD"); ok && sym != "" && sym != ".invalid" {
+		return sym
+	}
+	if sha, ok := runGitBounded(root, reftableGitTimeout, "rev-parse", "--verify", "-q", "--short=8", "HEAD"); ok && sha != "" && sha != ".invalid" {
+		return sha
+	}
+	return ""
+}
+
+func runGitBounded(root string, timeout time.Duration, args ...string) (string, bool) {
+	cmd := trail.Command(root, args...)
+	cmd.Env = append(cmd.Env, "LC_ALL=C", "LANGUAGE=")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		return "", false
+	}
+	timer := time.AfterFunc(timeout, func() { _ = cmd.Process.Kill() })
+	err := cmd.Wait()
+	timer.Stop()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(stdout.String()), true
 }

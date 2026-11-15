@@ -325,3 +325,95 @@ func TestSessionStartCapsuleUTF8AndClosedFence(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionStartReftableBranch(t *testing.T) {
+	dir := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-q", "--ref-format=reftable", "-b", "feature/reftable")
+	runGit("config", "user.name", "test")
+	runGit("config", "user.email", "test@localhost")
+	runGit("config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc Main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "go.mod", "main.go")
+	runGit("commit", "-qm", "init")
+
+	headData, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
+	if err != nil {
+		t.Fatalf("read .git/HEAD: %v", err)
+	}
+	if got := strings.TrimSpace(string(headData)); got != "ref: refs/heads/.invalid" {
+		t.Fatalf(".git/HEAD = %q, want ref: refs/heads/.invalid", got)
+	}
+
+	home := t.TempDir()
+	req, _ := json.Marshal(map[string]any{"conversationId": "conv-reftable", "workspacePaths": []string{dir}})
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "session-start", HookIn: bytes.NewReader(req)}, &out); err != nil {
+		t.Fatalf("Search(session-start): %v", err)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("unexpected SessionStart response: %+v (%v)", resp, err)
+	}
+	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
+	if !strings.Contains(msg, `"branch": "feature/reftable"`) {
+		t.Fatalf("SessionStart output missing feature/reftable branch:\n%s", msg)
+	}
+	if strings.Contains(msg, ".invalid") {
+		t.Fatalf("SessionStart output leaked .invalid stub:\n%s", msg)
+	}
+
+	idxPath := filepath.Join(dir, ".git", "index")
+	origIdx, err := os.ReadFile(idxPath)
+	if err != nil {
+		t.Fatalf("read .git/index: %v", err)
+	}
+	if err := os.WriteFile(idxPath, []byte("bad-index"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := collectSessionGitSummary(dir); got.Branch != "feature/reftable" || got.DirtyGoCount != 0 {
+		t.Fatalf("corrupt index collectSessionGitSummary = %+v, want branch feature/reftable", got)
+	}
+	if err := os.WriteFile(idxPath, origIdx, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runGit("checkout", "-q", "--detach", "HEAD")
+	wantDetached := runGit("rev-parse", "--short=8", "HEAD")
+	state, err := ComputeGoTreeState(dir)
+	if err != nil {
+		t.Fatalf("ComputeGoTreeState(detached): %v", err)
+	}
+	if state.Branch != wantDetached || strings.Contains(state.Branch, ".invalid") {
+		t.Fatalf("detached ComputeGoTreeState.Branch = %q, want %q", state.Branch, wantDetached)
+	}
+
+	broken := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(broken, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(broken, ".git", "HEAD"), []byte("ref: refs/heads/.invalid\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	brokenState, err := ComputeGoTreeState(broken)
+	if err != nil {
+		t.Fatalf("ComputeGoTreeState(broken): %v", err)
+	}
+	if brokenState.Branch != "" {
+		t.Fatalf("broken .invalid ComputeGoTreeState.Branch = %q, want empty", brokenState.Branch)
+	}
+}

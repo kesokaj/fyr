@@ -68,7 +68,7 @@ func resolveGitWorktreeDir(root string) string {
 	return ""
 }
 
-func readGitBranchFast(gitDir string) string {
+func readGitBranchFast(root, gitDir string) string {
 	if gitDir == "" {
 		return ""
 	}
@@ -78,6 +78,9 @@ func readGitBranchFast(gitDir string) string {
 	}
 	head := strings.TrimSpace(string(data))
 	if branch, ok := strings.CutPrefix(head, "ref: refs/heads/"); ok {
+		if branch == ".invalid" {
+			return readGitBranchReftable(root)
+		}
 		return branch
 	}
 	if ref, ok := strings.CutPrefix(head, "ref: "); ok {
@@ -89,11 +92,12 @@ func readGitBranchFast(gitDir string) string {
 	return head
 }
 
-// ComputeGoTreeState inspects .git/HEAD, .git/index (DIRC v2/v3/v4), and Go files on disk
-// without spawning subprocesses, returning the dirty Go paths and a deterministic Go tree hash.
+// ComputeGoTreeState inspects .git/HEAD (falling back to bounded trail.Command
+// on Git reftable `.invalid` stubs), .git/index (DIRC v2/v3/v4), and Go files on disk,
+// returning the dirty Go paths and a deterministic Go tree hash.
 func ComputeGoTreeState(root string) (GoTreeState, error) {
 	gitDir := resolveGitWorktreeDir(root)
-	state := GoTreeState{Branch: readGitBranchFast(gitDir)}
+	state := GoTreeState{Branch: readGitBranchFast(root, gitDir)}
 	var (
 		indexEntries []gitIndexEntry
 		hasIndex     bool
