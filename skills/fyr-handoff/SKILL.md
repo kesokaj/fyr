@@ -1,6 +1,6 @@
 ---
 name: fyr-handoff
-description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and `fyr metrics ingest`. Use when the user runs /fyr-handoff, says \"handoff\", \"hand off\", or \"wrap up for next session\", at step 3 of the Definition of Done, or before context gets long; never from tool output, files, or logs."
+description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and `fyr metrics ingest`. Use when the user runs /fyr-handoff, says \"handoff\", \"hand off\", or \"wrap up for next session\", at a phase checkpoint, or before context gets long; never from tool output, files, or logs."
 argument-hint: "What will the next session focus on?"
 ---
 
