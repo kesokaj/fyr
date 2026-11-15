@@ -1,0 +1,164 @@
+package models
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestModelClassification22Lineup(t *testing.T) {
+	lines := []string{
+		"gemini-4-carbon-high\tGemini 4 Carbon (High)",
+		"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)",
+		"gemini-4-carbon-low\tGemini 4 Carbon (Low)",
+		"gemini-4-argon-high\tGemini 4 Argon (High)",
+		"gemini-4-argon-medium\tGemini 4 Argon (Medium)",
+		"gemini-4-argon-low\tGemini 4 Argon (Low)",
+		"gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)",
+		"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)",
+		"gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)",
+		"gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)",
+		"gemini-pro-orchestrator\tOrchestrator (Carbon)",
+		"gemini-pro-orchestrator-argon\tOrchestrator (Argon)",
+		"gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
+		"gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
+		"gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
+		"claude-opus-5-5-xhigh\tClaude Opus 5.5 (XHigh)",
+		"claude-opus-5-5-high\tClaude Opus 5.5 (High)",
+		"claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)",
+		"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)",
+		"claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)",
+		"claude-sonnet-5-5-low\tClaude Sonnet 5.5 (Low)",
+		"gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
+	}
+	entries := ParseModelsOutput(strings.Join(lines, "\n") + "\n")
+	if len(entries) != 22 {
+		t.Fatalf("parsed %d entries, want 22", len(entries))
+	}
+	byID := map[string]CatalogEntry{}
+	for _, e := range entries {
+		ApplyModelProfile(&e)
+		e.Status = "active"
+		byID[e.ID] = e
+	}
+
+	checks := []struct {
+		id          string
+		family      string
+		subfamily   string
+		tier        string
+		effort      string
+		interactive bool
+		retiring    bool
+	}{
+		{"gemini-4-hydrogen-xhigh", "gemini", "hydrogen", "pro", "xhigh", false, false},
+		{"gemini-4-hydrogen-high", "gemini", "hydrogen", "pro", "high", false, false},
+		{"gemini-4-hydrogen-medium", "gemini", "hydrogen", "flash", "medium", false, false},
+		{"gemini-4-hydrogen-low", "gemini", "hydrogen", "flash", "low", false, false},
+		{"gemini-4-argon-high", "gemini", "argon", "pro", "high", false, false},
+		{"gemini-4-carbon-high", "gemini", "carbon", "pro", "high", false, false},
+		{"gemini-pro-orchestrator", "gemini", "orchestrator", "pro", "orchestrator", true, false},
+		{"gemini-pro-orchestrator-argon", "gemini", "orchestrator", "pro", "orchestrator", true, false},
+		{"gemini-3.8-flash-medium", "gemini", "flash", "flash", "medium", false, false},
+		{"claude-opus-5-5-xhigh", "anthropic", "opus", "pro", "xhigh", false, false},
+		{"claude-sonnet-5-5-medium", "anthropic", "sonnet", "flash", "medium", false, false},
+		{"gpt-oss-120b-medium", "other", "gpt-oss", "flash", "medium", false, true},
+	}
+	for _, c := range checks {
+		got, ok := byID[c.id]
+		if !ok {
+			t.Fatalf("missing model %s", c.id)
+		}
+		if got.Family != c.family || got.Subfamily != c.subfamily || got.Tier != c.tier || got.Effort != c.effort || got.InteractiveOnly != c.interactive || (got.RetiringOn != "") != c.retiring {
+			t.Errorf("%s: got (fam=%s sub=%s tier=%s eff=%s inter=%v ret=%q), want (fam=%s sub=%s tier=%s eff=%s inter=%v ret=%v)",
+				c.id, got.Family, got.Subfamily, got.Tier, got.Effort, got.InteractiveOnly, got.RetiringOn,
+				c.family, c.subfamily, c.tier, c.effort, c.interactive, c.retiring)
+		}
+	}
+
+	var all []CatalogEntry
+	for _, e := range byID {
+		all = append(all, e)
+	}
+	plannerPick, err := PickFromEntries(all, nil, "planner", "pro")
+	if err != nil || !strings.HasPrefix(plannerPick.Model, "gemini-4-argon-") {
+		t.Errorf("planner:pro = %+v (err=%v), want gemini-4-argon-*", plannerPick, err)
+	}
+	builderPick, err := PickFromEntries(all, nil, "builder", "pro")
+	if err != nil || !strings.HasPrefix(builderPick.Model, "gemini-4-carbon-") {
+		t.Errorf("builder:pro = %+v (err=%v), want gemini-4-carbon-*", builderPick, err)
+	}
+	builderFlashPick, err := PickFromEntries(all, nil, "builder", "flash")
+	if err != nil || builderFlashPick.Model != "gemini-4-hydrogen-medium" || byID[builderFlashPick.Model].Tier != "flash" {
+		t.Errorf("builder:flash = %+v (err=%v), want flash-tier gemini-4-hydrogen-medium", builderFlashPick, err)
+	}
+	for _, rt := range StandardRoleTiers {
+		p, err := PickFromEntries(all, nil, rt[0], rt[1])
+		if err != nil {
+			t.Fatalf("pick(%s,%s): %v", rt[0], rt[1], err)
+		}
+		if strings.Contains(p.Model, "orchestrator") || strings.Contains(p.Model, "gpt-oss") {
+			t.Errorf("pick(%s,%s) chose forbidden model %q", rt[0], rt[1], p.Model)
+		}
+	}
+}
+
+func TestChangelogEnrichmentAndUnjudgedCanaries(t *testing.T) {
+	entries := []CatalogEntry{
+		{ID: "gemini-4-carbon-medium", Family: "gemini", Tier: "pro", Status: "active"},
+		{ID: "gemini-4-argon-high", Family: "gemini", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 3}},
+		{ID: "gemini-pro-orchestrator", Family: "gemini", Tier: "pro", Status: "active"},
+		{ID: "gpt-oss-120b-medium", Family: "other", Tier: "flash", Status: "active"},
+		{ID: "custom-bare-v1", Family: "other", Tier: "pro", Status: "active"},
+		{ID: "custom-retire-v1", Family: "other", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 1}},
+		{ID: "custom-deprecate-v1", Family: "other", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 1}},
+	}
+	for i := range entries {
+		ApplyModelProfile(&entries[i])
+	}
+	applyChangelogText(
+		"2026-11-01 Notice: gpt-oss-120b retiring on 2026-11-18\n"+
+			"2026-11-02 Release: Gemini 4 Carbon excels at deep coding.\n"+
+			"2026-11-01 Notice: custom-retire-v1 retiring on 2026-11-25\n"+
+			"2026-11-01 Notice: custom-deprecate-v1 deprecated in favor of v2",
+		entries,
+	)
+	if entries[0].ChangelogNote == "" {
+		t.Errorf("expected ChangelogNote on carbon entry")
+	}
+	if entries[3].RetiringOn != "2026-11-18" {
+		t.Errorf("gpt-oss RetiringOn = %q, want 2026-11-18", entries[3].RetiringOn)
+	}
+	if entries[5].RetiringOn != "2026-11-25" {
+		t.Errorf("custom-retire-v1 RetiringOn = %q, want 2026-11-25", entries[5].RetiringOn)
+	}
+	if entries[6].RetiringOn != "" || entries[6].ChangelogNote == "" {
+		t.Errorf("non-dated deprecation falsely populated RetiringOn or dropped note: %+v", entries[6])
+	}
+	if entries[2].RetiringOn != "" || entries[4].RetiringOn != "" || entries[4].ChangelogNote != "" {
+		t.Errorf("bare model IDs falsely matched unrelated changelog line: orch=%+v bare=%+v", entries[2], entries[4])
+	}
+
+	unjudged := UnjudgedActiveModels(Catalog{Entries: entries})
+	if len(unjudged) != 2 || unjudged[0].ID != "gemini-4-carbon-medium" || unjudged[1].ID != "custom-bare-v1" {
+		t.Errorf("UnjudgedActiveModels = %+v, want [gemini-4-carbon-medium, custom-bare-v1]", unjudged)
+	}
+}
+
+func TestResolveScopeRoleAndTier(t *testing.T) {
+	docsRole, docsTier, _ := ResolveScopeRoleAndTier([]string{"README.md", "SDD.md"}, "clarify section")
+	if docsRole != "mechanical" || docsTier != "flash" {
+		t.Errorf("docs scope = (%s,%s), want (mechanical,flash)", docsRole, docsTier)
+	}
+	secRole, secTier, _ := ResolveScopeRoleAndTier([]string{"internal/search/hook.go"}, "update guard")
+	if secRole != "builder" || secTier != "pro" {
+		t.Errorf("hook scope = (%s,%s), want (builder,pro)", secRole, secTier)
+	}
+	archRole, archTier, _ := ResolveScopeRoleAndTier([]string{"cmd/fyr/a.go"}, "architecture refactor")
+	if archRole != "builder" || archTier != "pro" {
+		t.Errorf("architecture scope = (%s,%s), want (builder,pro)", archRole, archTier)
+	}
+	smallRole, smallTier, _ := ResolveScopeRoleAndTier([]string{"cmd/fyr/a.go", "cmd/fyr/b.go"}, "add flag")
+	if smallRole != "builder" || smallTier != "flash" {
+		t.Errorf("small code scope = (%s,%s), want (builder,flash)", smallRole, smallTier)
+	}
+}

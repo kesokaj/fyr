@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
@@ -41,7 +42,7 @@ var (
 	// --model: it refuses a flag, a space and a control character offline,
 	// and agy models is the authority (refusal 21). An agy that lists an ID
 	// outside it widens it here, with its test (D126).
-	modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	modelRe = models.ModelIDRe
 )
 
 // ParseKickoff reads path as a Kickoff, or refuses it (refusal 3, and

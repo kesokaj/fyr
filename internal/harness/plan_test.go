@@ -129,3 +129,64 @@ func TestPlanDropsGroupAndOtherWrite(t *testing.T) {
 		t.Error("the loose file should still be planned")
 	}
 }
+
+func TestPlanInstallsWorkflowScripts(t *testing.T) {
+	repo := newRepo(t)
+	wfDir := filepath.Join(repo, "workflows")
+	if err := os.MkdirAll(wfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantBody := "\"\"\"Parallel review workflow.\"\"\"\n\nprint('ok')\n"
+	if err := os.WriteFile(filepath.Join(wfDir, "review_parallel.py"), []byte(wantBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files, err := Plan(DirSource(repo), nil)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	wantRel := filepath.Join(AgyRoot, "workflows", "review_parallel.py")
+	var found bool
+	for _, f := range files {
+		if f.Rel != wantRel {
+			continue
+		}
+		found = true
+		if string(f.Data) != wantBody {
+			t.Errorf("planned bytes = %q, want %q", string(f.Data), wantBody)
+		}
+		if f.Mode.Perm() != 0o644 {
+			t.Errorf("workflow script mode = %o, want 644", f.Mode.Perm())
+		}
+	}
+	if !found {
+		t.Fatalf("missing planned file %s", wantRel)
+	}
+
+	t.Run("rejects bad workflow script name", func(t *testing.T) {
+		badRepo := newRepo(t)
+		badDir := filepath.Join(badRepo, "workflows")
+		if err := os.MkdirAll(badDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(badDir, "-bad.py"), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Plan(DirSource(badRepo), nil); err == nil {
+			t.Fatal("expected error for invalid workflow script name -bad.py")
+		}
+	})
+
+	t.Run("rejects secret-shaped python filename", func(t *testing.T) {
+		secRepo := newRepo(t)
+		secDir := filepath.Join(secRepo, "workflows")
+		if err := os.MkdirAll(secDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(secDir, "oauth-token.py"), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Plan(DirSource(secRepo), nil); err == nil {
+			t.Fatal("expected error for secret-shaped workflow script name")
+		}
+	})
+}

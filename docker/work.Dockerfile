@@ -28,6 +28,7 @@ COPY skills skills
 COPY agents agents
 COPY commands commands
 COPY rules rules
+COPY workflows workflows
 COPY docker docker
 RUN case "${FYR_VERSION}" in ""|*[!A-Za-z0-9._+-]*) echo "FYR_VERSION must be fyr version's stamp" >&2; exit 1 ;; esac && \
     CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=${FYR_VERSION}" -o /out/fyr ./cmd/fyr

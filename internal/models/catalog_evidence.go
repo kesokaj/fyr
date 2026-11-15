@@ -1,4 +1,4 @@
-package work
+package models
 
 import (
 	"encoding/json"
@@ -94,30 +94,8 @@ func joinCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEviden
 	if len(entries) == 0 || len(evidence) == 0 {
 		return nil
 	}
-	exactActive := make(map[string]int, len(entries))
-	exactGone := make(map[string]int)
-	for i, e := range entries {
-		low := strings.ToLower(strings.TrimSpace(e.ID))
-		if low == "" {
-			continue
-		}
-		if e.Status == "gone" {
-			if _, exists := exactGone[low]; !exists {
-				exactGone[low] = i
-			}
-			continue
-		}
-		if _, exists := exactActive[low]; !exists {
-			exactActive[low] = i
-		}
-	}
-
-	keys := make([]string, 0, len(evidence))
-	for k := range evidence {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
+	exactActive, exactGone := indexCatalogEntryIDs(entries)
+	keys := sortedEvidenceKeys(evidence)
 	joined := make(map[string]ModelEvidence, len(entries))
 	for _, k := range keys {
 		idx, exact := routeEvidenceKey(entries, exactActive, exactGone, k)
@@ -140,6 +118,36 @@ func joinCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEviden
 	return joined
 }
 
+func indexCatalogEntryIDs(entries []CatalogEntry) (exactActive, exactGone map[string]int) {
+	exactActive = make(map[string]int, len(entries))
+	exactGone = make(map[string]int)
+	for i, e := range entries {
+		low := strings.ToLower(strings.TrimSpace(e.ID))
+		if low == "" {
+			continue
+		}
+		if e.Status == "gone" {
+			if _, exists := exactGone[low]; !exists {
+				exactGone[low] = i
+			}
+			continue
+		}
+		if _, exists := exactActive[low]; !exists {
+			exactActive[low] = i
+		}
+	}
+	return exactActive, exactGone
+}
+
+func sortedEvidenceKeys(evidence map[string]ModelEvidence) []string {
+	keys := make([]string, 0, len(evidence))
+	for k := range evidence {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func applyCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEvidence) {
 	joined := joinCatalogEvidence(entries, evidence)
 	for i := range entries {
@@ -147,7 +155,9 @@ func applyCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEvide
 	}
 }
 
-func buildListedCatalogEntries(home string, ids []string) []CatalogEntry {
+// BuildListedCatalogEntries constructs active CatalogEntries for ids enriched
+// with any persisted empirical evidence from <home>/.config/fyr/models.json.
+func BuildListedCatalogEntries(home string, ids []string) []CatalogEntry {
 	listedSet := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		listedSet[id] = true

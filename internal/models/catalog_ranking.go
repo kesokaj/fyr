@@ -1,4 +1,4 @@
-package work
+package models
 
 import (
 	"fmt"
@@ -55,16 +55,29 @@ func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevMod
 }
 
 func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (CatalogEntry, string, string) {
-	var buckets [][]CatalogEntry
+	for _, b := range geminiRoleBuckets(active, role, tier) {
+		if len(b) > 0 {
+			best := rankBucket(b, role, tier)
+			famLabel := "Gemini"
+			if best.Family != "gemini" {
+				famLabel = best.Family
+			}
+			return best, fmt.Sprintf("role=%s -> %s (%s)", role, famLabel, best.ID), goneFallbackNote(prevModel, best.ID, goneIDs)
+		}
+	}
+	return active[0], fmt.Sprintf("role=%s -> %s", role, active[0].ID), goneFallbackNote(prevModel, active[0].ID, goneIDs)
+}
+
+func geminiRoleBuckets(active []CatalogEntry, role, tier string) [][]CatalogEntry {
 	switch {
 	case role == "mechanical":
-		buckets = [][]CatalogEntry{
+		return [][]CatalogEntry{
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "flash" }),
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
 			active,
 		}
 	case role == "planner":
-		buckets = [][]CatalogEntry{
+		return [][]CatalogEntry{
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isArgon(e.ID) && e.Tier == "pro" }),
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isCarbon(e.ID) && e.Tier == "pro" }),
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "pro" }),
@@ -72,7 +85,7 @@ func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, 
 			active,
 		}
 	case tier == "flash":
-		buckets = [][]CatalogEntry{
+		return [][]CatalogEntry{
 			filterEntries(active, func(e CatalogEntry) bool {
 				return e.Family == "gemini" && e.Subfamily == "hydrogen" && e.Tier == "flash"
 			}),
@@ -84,7 +97,7 @@ func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, 
 			active,
 		}
 	default:
-		buckets = [][]CatalogEntry{
+		return [][]CatalogEntry{
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isCarbon(e.ID) && e.Tier == "pro" }),
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isArgon(e.ID) && e.Tier == "pro" }),
 			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "pro" }),
@@ -92,17 +105,6 @@ func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, 
 			active,
 		}
 	}
-	for _, b := range buckets {
-		if len(b) > 0 {
-			best := rankBucket(b, role, tier)
-			famLabel := "Gemini"
-			if best.Family != "gemini" {
-				famLabel = best.Family
-			}
-			return best, fmt.Sprintf("role=%s -> %s (%s)", role, famLabel, best.ID), goneFallbackNote(prevModel, best.ID, goneIDs)
-		}
-	}
-	return active[0], fmt.Sprintf("role=%s -> %s", role, active[0].ID), goneFallbackNote(prevModel, active[0].ID, goneIDs)
 }
 
 func goneFallbackNote(prevModel, newModel string, goneIDs map[string]bool) string {

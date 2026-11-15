@@ -7,18 +7,18 @@
 
 ## Now
 
-### Phase 4 — Models extraction and native orchestration (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-files: `internal/models/`, `internal/work/`, `cmd/fyr/verb_models.go`, `cmd/fyr/run_dispatch.go`, `internal/auto/usage.go`, `internal/auto/eval_gate.go`, `workflows/`, `skills/fyr-swarm/`, `skills/fyr-review/`, `skills/fyr-preflight/`
-- [ ] Move the model catalog and quota picker into `internal/models` and re-point every importer — verify: `go build ./... && go test -race ./...`; `go list -deps ./cmd/fyr | grep internal/work` is reduced to the `verb_work` path only
-- [ ] Two workflow scripts, `review_parallel.py` and `preflight_gate.py` — verify: a real `run_workflow` run over a scratch diff returns schema-valid results
-- [ ] `skills/fyr-swarm/SKILL.md` (routing table, `Files:` brief, gate and land); `/fyr-review` and `/fyr-preflight` call the workflows — verify: eval rows for the changed skills
+### Phase 5 — Isolation without Docker (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+files: `internal/isolate/`, `internal/eval/`, `internal/auto/eval_gate.go`, `internal/auto/eval_exec.go`, `internal/auto/worker.go`, `cmd/fyr/eval.go`
+- [ ] `internal/isolate` per D6. Pass criterion: a write outside the scratch home fails with EACCES, and the real `$HOME` is unchanged — verify: `go test -race ./internal/isolate/...`, plus a must-fail test with Landlock off
+- [ ] Move `internal/eval`, `internal/auto` (eval gate, eval exec, worker) and `cmd/fyr/eval.go` off `internal/sandbox` behind a runner switch, keeping Docker as the default — verify: `TestEvalRefusesWithoutHome` and `TestEvalRefusesItsHome` still pass
+- [ ] Dual-run: 5 real eval rows give the same verdict on both runners. Then make `isolate` the default — verify: 5 of 5 match
 - [ ] Checkpoint
 
 ## Next
 
-- Phase 5 — Isolation without Docker (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 6a — One background runner (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 6b — Deletion (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 
 ## Backlog
 

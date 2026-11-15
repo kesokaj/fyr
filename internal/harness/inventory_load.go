@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"path"
 	"slices"
+	"sort"
 	"strings"
 )
 
@@ -131,4 +132,52 @@ func checkAgent(name, front string, fm Frontmatter) error {
 		}
 	}
 	return nil
+}
+
+// loadWorkflowScripts reads workflows/*.py files compiled into embedded
+// installations and deployed alongside markdown workflow prompts.
+func loadWorkflowScripts(src Source) ([]Doc, error) {
+	paths, err := fs.Glob(src.FS, "workflows/*.py")
+	if err != nil {
+		return nil, err
+	}
+	var out []Doc
+	for _, p := range paths {
+		base := path.Base(p)
+		shown := src.path(p)
+		if SecretShaped(base) {
+			return nil, fmt.Errorf("workflow %s: secret-shaped filename is forbidden", shown)
+		}
+		name := strings.TrimSuffix(base, ".py")
+		if err := validName("workflow", shown, name); err != nil {
+			return nil, err
+		}
+		raw, err := src.readRegular(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Doc{
+			Name:        name,
+			Description: workflowScriptSummary(string(raw)),
+			Path:        shown,
+			Raw:         raw,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func workflowScriptSummary(src string) string {
+	s := strings.TrimSpace(src)
+	for _, q := range []string{`"""`, `'''`} {
+		if strings.HasPrefix(s, q) {
+			s = strings.TrimPrefix(s, q)
+			if end := strings.Index(s, q); end >= 0 {
+				s = s[:end]
+			}
+			return firstLine(s)
+		}
+	}
+	s = strings.TrimLeft(s, "# ")
+	return firstLine(s)
 }

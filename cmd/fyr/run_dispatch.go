@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 func run(args []string, out io.Writer) error {
@@ -210,7 +210,7 @@ func (c *ctx) writesState() bool {
 		sub := c.fs.Arg(0)
 		return sub == "on" || sub == "off" || (sub == "run" && !c.dryRun)
 	case "models":
-		return c.modelsRefresh || !work.CatalogExists(c.home)
+		return c.modelsRefresh || !models.CatalogExists(c.home)
 	}
 	return false
 }

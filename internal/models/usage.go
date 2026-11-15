@@ -1,4 +1,4 @@
-package work
+package models
 
 import (
 	"context"
@@ -39,9 +39,10 @@ var (
 	numTokenRe = regexp.MustCompile(`\d+`)
 )
 
+// UsageProbeFunc and ListModelsFunc are package hooks overridden in unit tests.
 var (
-	usageProbeFunc = RunUsage
-	listModelsFunc = listModels
+	UsageProbeFunc = RunUsage
+	ListModelsFunc = ListModels
 )
 
 // ParseUsage reads `/usage`: one line per pool and window, four tab-separated
@@ -63,26 +64,10 @@ func ParseUsage(text string) ([]Pool, error) {
 		if err != nil {
 			return nil, err
 		}
-		i, ok := index[f[0]]
-		if !ok {
-			i = len(pools)
-			index[f[0]] = i
-			if len(pools) == poolsLimit {
-				return nil, errors.New("more pools than any account has")
-			}
-			pools = append(pools, Pool{Name: f[0]})
-		}
-		if key := f[0] + "\t" + f[1]; seen[key] {
-			return nil, fmt.Errorf("%q twice", shortQuote(f[0]+" "+f[1]))
-		}
-		seen[f[0]+"\t"+f[1]] = true
-		switch f[1] {
-		case "Weekly Limit Remaining":
-			pools[i].Week = value
-		case "Five Hour Limit Remaining":
-			pools[i].Five = value
-		default:
-			return nil, fmt.Errorf("an unknown window: %q", shortQuote(f[1]))
+		var errPool error
+		pools, errPool = recordPoolWindow(pools, index, seen, f[0], f[1], value)
+		if errPool != nil {
+			return nil, errPool
 		}
 	}
 	if len(pools) == 0 {
@@ -92,6 +77,31 @@ func ParseUsage(text string) ([]Pool, error) {
 		if !seen[p.Name+"\tWeekly Limit Remaining"] || !seen[p.Name+"\tFive Hour Limit Remaining"] {
 			return nil, fmt.Errorf("%q lacks a window", shortQuote(p.Name))
 		}
+	}
+	return pools, nil
+}
+
+func recordPoolWindow(pools []Pool, index map[string]int, seen map[string]bool, name, window string, value int) ([]Pool, error) {
+	i, ok := index[name]
+	if !ok {
+		i = len(pools)
+		index[name] = i
+		if len(pools) == poolsLimit {
+			return nil, errors.New("more pools than any account has")
+		}
+		pools = append(pools, Pool{Name: name})
+	}
+	if key := name + "\t" + window; seen[key] {
+		return nil, fmt.Errorf("%q twice", shortQuote(name+" "+window))
+	}
+	seen[name+"\t"+window] = true
+	switch window {
+	case "Weekly Limit Remaining":
+		pools[i].Week = value
+	case "Five Hour Limit Remaining":
+		pools[i].Five = value
+	default:
+		return nil, fmt.Errorf("an unknown window: %q", shortQuote(window))
 	}
 	return pools, nil
 }
@@ -120,27 +130,27 @@ func shortQuote(s string) string {
 
 // RunUsage executes `agy -p "/usage"` in / with process-group cleanup.
 func RunUsage(run context.Context, agy string) (string, error) {
-	ctx, cancel := context.WithTimeout(run, modelsTimeout)
+	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, agy, "-p", "/usage")
 	cmd.Dir = "/"
-	cmd.Env = rootEnv()
+	cmd.Env = RootEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
-	stdout, stderr := &capped{over: errModelsOver}, &capped{}
+	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	if stdout.full {
-		err = errModelsOver
+		err = ErrModelsOver
 	} else if ctx.Err() == context.DeadlineExceeded {
-		err = fmt.Errorf("no answer in %s", modelsTimeout)
+		err = fmt.Errorf("no answer in %s", ModelsTimeout)
 	}
 	if err != nil {
-		if l := lastLine(stderr.String()); l != "" {
+		if l := LastLine(stderr.String()); l != "" {
 			err = fmt.Errorf("%v: %s", err, l)
 		}
 		return "", err
@@ -149,12 +159,7 @@ func RunUsage(run context.Context, agy string) (string, error) {
 }
 
 // ResolveRoleModel resolves cross-family models dynamically from listed agy models
-// without hardcoding model IDs:
-//   - "builder" / "worker": active Gemini (preferring Carbon, then newest in tier)
-//   - "mechanical": active Gemini Flash
-//   - "judge" / "verifier" / "reviewer": active Anthropic (Opus for pro, Sonnet for flash),
-//     falling back to the equivalent-tier listed Gemini model when no Anthropic model is
-//     listed or when Anthropic pool quota in `agy -p "/usage"` is < 20% weekly or < 30% 5h.
+// without hardcoding model IDs.
 func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel string) (string, string, error) {
 	return resolveRoleModel(ctx, os.Getenv("HOME"), agyPath, role, tier, explicitModel, false)
 }
@@ -173,14 +178,14 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 	if strings.TrimSpace(agyPath) == "" {
 		return "", "", errors.New("resolve role model: agy path required")
 	}
-	ids, err := listModelsFunc(ctx, agyPath)
+	ids, err := ListModelsFunc(ctx, agyPath)
 	if err != nil {
 		return "", "", fmt.Errorf("agy models: %w", err)
 	}
 	if len(ids) == 0 {
 		return "", "", errors.New("agy models listed no model")
 	}
-	entries := buildListedCatalogEntries(home, ids)
+	entries := BuildListedCatalogEntries(home, ids)
 	pick, pools, err := PickRoleFromCatalogWithPools(ctx, Catalog{Entries: entries}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err
@@ -205,7 +210,7 @@ func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, rol
 	if err != nil {
 		return RolePick{}, nil, err
 	}
-	pick, err := pickFromEntries(cat.Entries, cat.Picks, normRole, normTier)
+	pick, err := PickFromEntries(cat.Entries, cat.Picks, normRole, normTier)
 	if err != nil {
 		return RolePick{}, nil, err
 	}
@@ -231,7 +236,7 @@ func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, rol
 }
 
 func probeAnthropicQuotaPools(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
-	uText, err := usageProbeFunc(ctx, agyPath)
+	uText, err := UsageProbeFunc(ctx, agyPath)
 	if err != nil {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error()))
 		return geminiFallback, fb, fb, nil

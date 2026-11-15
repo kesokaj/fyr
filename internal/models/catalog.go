@@ -1,4 +1,4 @@
-package work
+package models
 
 import (
 	"context"
@@ -92,6 +92,40 @@ func CatalogExists(home string) bool {
 	return err == nil && st.Mode().IsRegular()
 }
 
+// CheckHomeDir verifies that home and any existing parent directories down to
+// <home>/.config/fyr are regular directories (never symlinks).
+func CheckHomeDir(home string) error {
+	clean := filepath.Clean(strings.TrimSpace(home))
+	if clean == "" || clean == "." {
+		return errors.New("empty home")
+	}
+	st, err := os.Lstat(clean)
+	if err != nil {
+		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+		return fmt.Errorf("refusing non-directory home %s", clean)
+	}
+	cur := clean
+	for _, part := range strings.Split(filepath.ToSlash(harness.StateDir), "/") {
+		if part == "" || part == "." {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		st, err := os.Lstat(cur)
+		if errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+			return fmt.Errorf("refusing non-directory state path %s", cur)
+		}
+	}
+	return nil
+}
+
 // LoadCatalog reads <home>/.config/fyr/models.json if present.
 func LoadCatalog(home string) (Catalog, bool, error) {
 	if home == "" {
@@ -120,7 +154,7 @@ func LoadCatalog(home string) (Catalog, bool, error) {
 		return Catalog{}, false, err
 	}
 	for i := range cat.Entries {
-		applyModelProfile(&cat.Entries[i])
+		ApplyModelProfile(&cat.Entries[i])
 	}
 	return cat, true, nil
 }
@@ -171,7 +205,7 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 			return Catalog{}, errors.New("agy models: agy not found on PATH")
 		}
 	}
-	raw, err := runAgyModels(ctx, agyPath)
+	raw, err := RunAgyModels(ctx, agyPath)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("agy models: %w", err)
 	}
@@ -206,7 +240,7 @@ func probeCatalogPoolsBestEffort(ctx context.Context, agyPath string, now time.T
 	if cat == nil || strings.TrimSpace(agyPath) == "" {
 		return false
 	}
-	uText, err := usageProbeFunc(ctx, agyPath)
+	uText, err := UsageProbeFunc(ctx, agyPath)
 	if err != nil {
 		return false
 	}
@@ -249,7 +283,7 @@ func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence 
 	picks := make(map[string]RolePick, len(StandardRoleTiers))
 	for _, rt := range StandardRoleTiers {
 		key := rt[0] + ":" + rt[1]
-		if p, err := pickFromEntries(entries, prevPicks, rt[0], rt[1]); err == nil {
+		if p, err := PickFromEntries(entries, prevPicks, rt[0], rt[1]); err == nil {
 			picks[key] = p
 		}
 	}
@@ -274,7 +308,7 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 	entries := make([]CatalogEntry, 0, len(parsed)+len(prevByID))
 	for _, e := range parsed {
 		seen[e.ID] = true
-		applyModelProfile(&e)
+		ApplyModelProfile(&e)
 		if old, ok := prevByID[e.ID]; ok {
 			e.Status = "active"
 			e.FirstSeen = nonEmpty(old.FirstSeen, today)
@@ -295,7 +329,7 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 			if seen[old.ID] {
 				continue
 			}
-			applyModelProfile(&old)
+			ApplyModelProfile(&old)
 			old.Status = "gone"
 			entries = append(entries, old)
 		}
@@ -340,12 +374,13 @@ func NormalizeRoleTier(role, tier string) (normRole, normTier string, err error)
 	return normRole, normTier, nil
 }
 
-func pickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role, tier string) (RolePick, error) {
+// PickFromEntries chooses the highest-ranked active model in entries for role+tier.
+func PickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role, tier string) (RolePick, error) {
 	active := make([]CatalogEntry, 0, len(entries))
 	eligible := make([]CatalogEntry, 0, len(entries))
 	goneIDs := map[string]bool{}
 	for _, e := range entries {
-		applyModelProfile(&e)
+		ApplyModelProfile(&e)
 		if e.Status == "gone" {
 			goneIDs[e.ID] = true
 			continue

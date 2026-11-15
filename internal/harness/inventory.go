@@ -42,12 +42,16 @@ type Doc struct {
 }
 
 // Inventory is everything the repo contributes. Each field is a directory:
-// drop a file into it and the next install deploys it — no code changes.
+// Inventory is everything the repo holds in its four customization
+// directories plus workflows/: adding a skill, agent, command, workflow script,
+// or rule is adding a file, so any session that installs from this repo picks
+// up new customizations automatically.
 type Inventory struct {
-	Skills   []Skill // skills/<name>/SKILL.md
-	Agents   []Agent // agents/<name>/agent.md
-	Commands []Doc   // commands/<name>.md and workflows/<name>.md
-	Rules    []Doc   // rules/<name>.md
+	Skills          []Skill // skills/<name>/SKILL.md
+	Agents          []Agent // agents/<name>/agent.md
+	Commands        []Doc   // commands/<name>.md and workflows/<name>.md
+	WorkflowScripts []Doc   // workflows/<name>.py
+	Rules           []Doc   // rules/<name>.md
 }
 
 // identLike reports whether name holds only the characters an identifier
@@ -143,6 +147,9 @@ func LoadInventory(src Source) (Inventory, error) {
 		return inv, err
 	}
 	if inv.Commands, err = loadDocs(src, "command", commandKeys, "commands", "workflows"); err != nil {
+		return inv, err
+	}
+	if inv.WorkflowScripts, err = loadWorkflowScripts(src); err != nil {
 		return inv, err
 	}
 	if inv.Rules, err = loadDocs(src, "rule", ruleKeys, "rules"); err != nil {
@@ -392,6 +399,12 @@ func RenderInventory(inv Inventory) string {
 		fmt.Fprintf(&b, "\n### Rules (%d)\n\n| Rule | About |\n|---|---|\n", len(inv.Rules))
 		for _, r := range inv.Rules {
 			fmt.Fprintf(&b, "| `%s` | %s |\n", r.Name, cell(r.Description, 160))
+		}
+	}
+	if len(inv.WorkflowScripts) > 0 {
+		fmt.Fprintf(&b, "\n### Workflow scripts (%d)\n\n| Script | Does |\n|---|---|\n", len(inv.WorkflowScripts))
+		for _, w := range inv.WorkflowScripts {
+			fmt.Fprintf(&b, "| `%s.py` | %s |\n", w.Name, cell(w.Description, 160))
 		}
 	}
 	return b.String()

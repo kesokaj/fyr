@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
@@ -83,7 +84,7 @@ func TestWorkWavesRecordsStageSeconds(t *testing.T) {
 		}
 	}
 
-	ev := AggregateWorkEvidence(r.home, nil)
+	ev := models.AggregateWorkEvidence(r.home, nil)
 	me := ev["gemini-4-carbon-high"]
 	if me.WorkRuns != 2 || me.WorkPass != 2 || me.WorkMeanSeconds < 3 {
 		t.Errorf("AggregateWorkEvidence = %+v, want 2/2 runs with mean >= 3s", me)

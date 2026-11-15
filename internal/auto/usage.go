@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 const (
@@ -14,7 +14,7 @@ const (
 	// disabled is a window `/usage` prints no number for. agy does so when
 	// the week is out, and nothing says it means only that, so it reads as
 	// under every floor.
-	disabled = work.DisabledWindow
+	disabled = models.DisabledWindow
 	// poolsLimit keeps budgetLine short for runs.json.
 	poolsLimit = 16
 )
@@ -29,12 +29,12 @@ type Pool struct {
 // fields. Anything else, a window missing or a line twice is an error, and the
 // caller fails closed on it.
 func parseUsage(text string) ([]Pool, error) {
-	wp, err := work.ParseUsage(text)
+	mp, err := models.ParseUsage(text)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Pool, len(wp))
-	for i, p := range wp {
+	out := make([]Pool, len(mp))
+	for i, p := range mp {
 		out[i] = Pool{Name: p.Name, Five: p.Five, Week: p.Week}
 	}
 	return out, nil

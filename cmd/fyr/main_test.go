@@ -35,7 +35,7 @@ func plainCopy(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dst := t.TempDir()
-	for _, top := range []string{"context", "skills", "agents", "commands", "rules"} {
+	for _, top := range []string{"context", "skills", "agents", "commands", "rules", "workflows"} {
 		root := filepath.Join(src, top)
 		err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -70,7 +70,7 @@ func plainCopyOf(t *testing.T) string {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(t.TempDir(), "copy")
-	for _, dir := range []string{"context", "skills", "agents", "commands", "rules"} {
+	for _, dir := range []string{"context", "skills", "agents", "commands", "rules", "workflows"} {
 		src := filepath.Join(repo, dir)
 		err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 			if err != nil {

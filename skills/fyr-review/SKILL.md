@@ -21,7 +21,7 @@ One command, every lens. The skill decides the scope, hands every agent the same
 /fyr-review --high                   # strongest model for reviewer and security
 ```
 
-**The trail** is records (`~/.gemini/config/skills/fyr-init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported on demand with `fyr record export`. Dates from `date +%F`. Dispatch through `invoke_subagent`, by agent name.
+**The trail** is records (`~/.gemini/config/skills/fyr-init-project/references/trail.md`): written with `fyr record add`, read with `fyr record list|get`, exported on demand with `fyr record export`. Dates from `date +%F`. Dispatch through `invoke_subagent` by agent name, or via `run_workflow` (`review_parallel.py`) when 2+ lenses run in parallel.
 
 ## Step 1: Parse
 
@@ -44,6 +44,8 @@ Every agent writes that text on its `Range reviewed:` line. `<scope>` for artifa
 Before any dispatch, look for a project agent that shadows a harness review agent: an entry under `<project>/.agents/agents/` named `reviewer`, `security`, `verifier` or `explorer` (a `<name>.md` file or a `<name>/agent.md` directory), or whose frontmatter `name:` is one of those four. The CLI may load the project copy in place of the harness one, so its report would stand in for the independent one. One found means stop before dispatching: name the file, say the review cannot run until it is renamed or removed, and write nothing.
 
 Each dispatch gets the scope text, today's date, its slug, its brief, the sentence "Write your artifact with `write_to_file`; report only means no source edits.", and a budget of 30 tool calls (15 for a re-dispatch over fixes only) with "write the artifact early, then update it" (context § Work). `--high`: `reviewer` inherits the session model or cross-family routing (`agy-dispatch`) while `security` inherits the session model, so run the session on the strongest id `agy models` lists (`agy --model <id>`; the CLI refuses `--model pro`) when it matters.
+
+- **Orchestrating 2+ lenses via `run_workflow`:** When 2 or more lenses are selected (including `--all` or `--code --security`), invoke `run_workflow` with `ScriptPath` set to `<HOME>/.gemini/config/workflows/review_parallel.py` (using the expanded absolute `$HOME` path, never literal `~` because `hook_workflow.go` checks `ScriptPath` via `os.Lstat`; `<repo>/workflows/review_parallel.py` also works in a harness checkout) and `Args: {"scope_text": "<verbatim scope text>", "scope_slug": "<scope>", "date": "<YYYY-MM-DD>", "lenses": [...]}` (plus `"judge_criterion"` for `--judge` or `"verify_tiers"` for `--tests`). `review_parallel.py` sets `model="pro"` for `reviewer`, `security`, and `verifier`, merges `--code` + `--docs` into one dispatch, and returns JSON results per lens. Use direct `invoke_subagent` for a single-lens review (or Round 2 `send_message` resume over fixes; `review_parallel.py` also handles 1 lens when preferred).
 
 | Lens | Agent | Slug it receives | Brief (verbatim) |
 |---|---|---|---|

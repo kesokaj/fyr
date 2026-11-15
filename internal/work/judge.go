@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -63,7 +64,7 @@ func (w *worker) runPostBaseCheck() {
 	out, err := w.runBaseCheck()
 	w.baseCheckOut = strings.TrimSpace(string(out))
 	if err != nil {
-		w.b.Note("Base-Check %q failed after build: %v: %s", w.p.k.BaseCheck, err, lastLine(string(out)))
+		w.b.Note("Base-Check %q failed after build: %v: %s", w.p.k.BaseCheck, err, models.LastLine(string(out)))
 		w.b.Fail(ReasonBaseCheckFailed)
 		w.tracker.onBaseCheck(w.p.k.Name, "post", "FAIL")
 		return
@@ -95,7 +96,7 @@ func (w *worker) runJudge() {
 		w.b.Fail(ReasonJudgeFailed)
 		return
 	}
-	judgeModel, fallbackReason, _ := ResolveRoleModelForHome(ctx, w.o.Home, agy, "judge", "opus", w.p.k.JudgeModel)
+	judgeModel, fallbackReason, _ := models.ResolveRoleModelForHome(ctx, w.o.Home, agy, "judge", "opus", w.p.k.JudgeModel)
 	if fallbackReason != "" {
 		w.b.Note("judge model: %s (%s)", judgeModel, fallbackReason)
 	}
@@ -154,26 +155,26 @@ func execJudgeAgy(run context.Context, agy, model, prompt string) (string, error
 	}
 	cmd := exec.CommandContext(ctx, agy, args...)
 	cmd.Dir = "/"
-	cmd.Env = rootEnv()
+	cmd.Env = models.RootEnv()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
-	stdout, stderr := &capped{over: errModelsOver}, &capped{}
+	stdout, stderr := &models.Capped{Over: models.ErrModelsOver}, &models.Capped{}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
 	if cmd.Process != nil {
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	switch {
-	case stdout.full:
-		err = errModelsOver
+	case stdout.Full():
+		err = models.ErrModelsOver
 	case run.Err() != nil:
 		err = errors.New("the run ended before it answered")
 	case ctx.Err() == context.DeadlineExceeded:
 		err = fmt.Errorf("no answer in %s", judgeTimeout)
 	}
 	if err != nil {
-		if l := lastLine(stderr.String()); l != "" {
+		if l := models.LastLine(stderr.String()); l != "" {
 			return stdout.String(), fmt.Errorf("%v: %s", err, l)
 		}
 		return stdout.String(), err

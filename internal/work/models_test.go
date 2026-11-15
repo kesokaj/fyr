@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
@@ -58,9 +59,9 @@ func TestRunModelRefusals(t *testing.T) {
 			return r.modelKickoff("a", "src/a.txt", "m-a")
 		}, "the model check: agy models listed no model"},
 		{"timed-out", func(r *rig, o *Options) string {
-			old := modelsTimeout
-			modelsTimeout = 300 * time.Millisecond
-			r.t.Cleanup(func() { modelsTimeout = old })
+			old := models.ModelsTimeout
+			models.ModelsTimeout = 300 * time.Millisecond
+			r.t.Cleanup(func() { models.ModelsTimeout = old })
 			r.on("models-sleep", "30")
 			return r.modelKickoff("a", "src/a.txt", "m-a")
 		}, "the model check: agy models: no answer in 300ms"},
@@ -196,7 +197,6 @@ func TestRunModelCheckDocker(t *testing.T) {
 		t.Errorf("a refusal made the sandbox root: %v", err)
 	}
 	r2, o2 := dockerRig(t)
-	// A copy: the fake docker still runs the one off PATH in the container.
 	b, err := os.ReadFile(filepath.Join(r2.tmp, "agy-off-path", "agy"))
 	if err != nil {
 		t.Fatal(err)
@@ -209,152 +209,9 @@ func TestRunModelCheckDocker(t *testing.T) {
 	}
 }
 
-func TestResolveRoleModel(t *testing.T) {
-	ctx := context.Background()
-	oldUsage := usageProbeFunc
-	oldList := listModelsFunc
-	t.Cleanup(func() {
-		usageProbeFunc = oldUsage
-		listModelsFunc = oldList
-	})
-
-	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
-		return []string{
-			"gemini-4-carbon-high",
-			"gemini-3.8-flash-high",
-			"claude-opus-5-5-high",
-			"claude-sonnet-5-5-high",
-		}, nil
-	}
-
-	// 1. Builder routes to listed Gemini models (Carbon for pro, Flash when no Carbon medium/low).
-	m, note, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
-	if err != nil || m != "gemini-4-carbon-high" || !strings.Contains(note, "Gemini") {
-		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
-	}
-	mFlash, _, err := ResolveRoleModel(ctx, "agy", "builder", "flash", "")
-	if err != nil || mFlash != "gemini-3.8-flash-high" {
-		t.Fatalf("builder flash: got %q err=%v, want gemini-3.8-flash-high", mFlash, err)
-	}
-
-	// 2. Judge/verifier/reviewer routes to listed Anthropic models when Claude pool quota >= 30% 5h and >= 20% weekly.
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
-		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
-			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
-			"Claude and GPT models\tWeekly Limit Remaining\t45%\tx\n" +
-			"Claude and GPT models\tFive Hour Limit Remaining\t60%\tx\n", nil
-	}
-	jModel, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
-	if err != nil || jModel != "claude-opus-5-5-high" || !strings.Contains(jNote, "Anthropic") {
-		t.Fatalf("judge healthy quota: got m=%q note=%q err=%v", jModel, jNote, err)
-	}
-	vModel, _, err := ResolveRoleModel(ctx, "agy", "verifier", "sonnet", "")
-	if err != nil || vModel != "claude-sonnet-5-5-high" {
-		t.Fatalf("verifier sonnet healthy quota: got %q err=%v, want claude-sonnet-5-5-high", vModel, err)
-	}
-
-	// 3. Judge falls back to listed Gemini when Claude pool weekly < 20% or 5h < 30% (or disabled).
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
-		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
-			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
-			"Claude and GPT models\tWeekly Limit Remaining\t15%\tx\n" +
-			"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\tx\n", nil
-	}
-	fbModel, fbNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
-	if err != nil || fbModel != "gemini-4-carbon-high" || !strings.Contains(fbNote, "fallback to Gemini") {
-		t.Fatalf("judge low quota fallback: got m=%q note=%q err=%v", fbModel, fbNote, err)
-	}
-	fbFlash, fbFlashNote, err := ResolveRoleModel(ctx, "agy", "reviewer", "flash", "")
-	if err != nil || fbFlash != "gemini-3.8-flash-high" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
-		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q err=%v", fbFlash, fbFlashNote, err)
-	}
-
-	// 4. Explicit model overrides routing.
-	expModel, expNote, _ := ResolveRoleModel(ctx, "agy", "judge", "pro", "custom-model")
-	if expModel != "custom-model" || !strings.Contains(expNote, "explicit") {
-		t.Fatalf("explicit override: got m=%q note=%q", expModel, expNote)
-	}
-}
-
-func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T) {
-	ctx := context.Background()
-	oldUsage := usageProbeFunc
-	oldList := listModelsFunc
-	t.Cleanup(func() {
-		usageProbeFunc = oldUsage
-		listModelsFunc = oldList
-	})
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	parsed := ParseModelsOutput(
-		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
-			"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n" +
-			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
-	)
-	cat := BuildCatalog(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), parsed, nil, map[string]ModelEvidence{
-		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 95},
-		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
-		"claude-opus-5-5":      {EvalRuns: 8, EvalPass: 8},
-	})
-	if err := SaveCatalog(home, cat); err != nil {
-		t.Fatal(err)
-	}
-
-	listModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
-		return []string{"gemini-4-carbon-high", "gemini-4-carbon-medium", "claude-opus-5-5-high"}, nil
-	}
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
-		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
-			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
-			"Claude and GPT models\tWeekly Limit Remaining\t10%\tx\n" +
-			"Claude and GPT models\tFive Hour Limit Remaining\t50%\tx\n", nil
-	}
-
-	bModel, _, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
-	if err != nil || bModel != "gemini-4-carbon-medium" {
-		t.Fatalf("builder pro with 7/16 work + 31/35 eval: got %q err=%v, want gemini-4-carbon-medium", bModel, err)
-	}
-	jFallback, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
-	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
-		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
-	}
-
-	// Explicit home must override os.Getenv("HOME") when loading catalog evidence.
-	t.Setenv("HOME", t.TempDir())
-	bHomeModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
-	if err != nil || bHomeModel != "gemini-4-carbon-medium" {
-		t.Fatalf("ResolveRoleModelForHome(home): got %q err=%v, want gemini-4-carbon-medium", bHomeModel, err)
-	}
-}
-
-func TestRootEnvStripsAntigravityVars(t *testing.T) {
-	t.Setenv("ANTIGRAVITY_LS_ADDRESS", "localhost:1234")
-	t.Setenv("ANTIGRAVITY_CSRF_TOKEN", "tok")
-	t.Setenv("SSH_CONNECTION", "192.168.5.181 1234 192.168.5.10 22")
-
-	env := rootEnv()
-	var hasSSH, hasPWD bool
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "ANTIGRAVITY_") {
-			t.Errorf("rootEnv leaked %q", kv)
-		}
-		if kv == "SSH_CONNECTION=192.168.5.181 1234 192.168.5.10 22" {
-			hasSSH = true
-		}
-		if kv == "PWD=/" {
-			hasPWD = true
-		}
-	}
-	if !hasSSH || !hasPWD {
-		t.Errorf("rootEnv missing expected vars: hasSSH=%v hasPWD=%v", hasSSH, hasPWD)
-	}
-}
-
-func TestRunAgyDetachesControllingTTY(t *testing.T) {
+func TestExecJudgeAgyDetachesControllingTTY(t *testing.T) {
 	if os.Getenv("FYR_TEST_IN_PTY") == "1" {
-		runAgyInPTYChild(t)
+		runJudgeAgyInPTYChild(t)
 		return
 	}
 	scriptBin, err := exec.LookPath("script")
@@ -365,9 +222,9 @@ func TestRunAgyDetachesControllingTTY(t *testing.T) {
 	defer cancel()
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {
-		cmd = exec.CommandContext(ctx, scriptBin, "-q", "/dev/null", os.Args[0], "-test.run=^TestRunAgyDetachesControllingTTY$")
+		cmd = exec.CommandContext(ctx, scriptBin, "-q", "/dev/null", os.Args[0], "-test.run=^TestExecJudgeAgyDetachesControllingTTY$")
 	} else {
-		sub := sandbox.ShellQuote(os.Args[0]) + " -test.run=^TestRunAgyDetachesControllingTTY$"
+		sub := sandbox.ShellQuote(os.Args[0]) + " -test.run=^TestExecJudgeAgyDetachesControllingTTY$"
 		cmd = exec.CommandContext(ctx, scriptBin, "-q", "-e", "-c", sub, "/dev/null")
 	}
 	cmd.Env = append(os.Environ(), "FYR_TEST_IN_PTY=1")
@@ -377,7 +234,7 @@ func TestRunAgyDetachesControllingTTY(t *testing.T) {
 	}
 }
 
-func runAgyInPTYChild(t *testing.T) {
+func runJudgeAgyInPTYChild(t *testing.T) {
 	t.Helper()
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -385,44 +242,20 @@ func runAgyInPTYChild(t *testing.T) {
 	}
 	_ = tty.Close()
 
-	oldTimeout := modelsTimeout
-	modelsTimeout = 400 * time.Millisecond
-	t.Cleanup(func() { modelsTimeout = oldTimeout })
-
-	fakeAgy := writeFakePTYScript(t)
-	ctx := context.Background()
-	if out, err := runAgyModels(ctx, fakeAgy); err != nil || !strings.Contains(out, "gemini-4-carbon-high") {
-		t.Fatalf("runAgyModels: out=%q err=%v", out, err)
-	}
-	if out, err := RunUsage(ctx, fakeAgy); err != nil || !strings.Contains(out, "Gemini Models") {
-		t.Fatalf("RunUsage: out=%q err=%v", out, err)
-	}
-	if out := runAgyChangelog(ctx, fakeAgy); !strings.Contains(out, "Added Gemini 4 Carbon") {
-		t.Fatalf("runAgyChangelog: out=%q", out)
-	}
-	if out, err := execJudgeAgy(ctx, fakeAgy, "gemini-4-carbon-high", "review diff"); err != nil || !strings.Contains(out, "VERDICT: PASS") {
+	fakeAgy := writeFakeJudgePTYScript(t)
+	if out, err := execJudgeAgy(context.Background(), fakeAgy, "gemini-4-carbon-high", "review diff"); err != nil || !strings.Contains(out, "VERDICT: PASS") {
 		t.Fatalf("execJudgeAgy: out=%q err=%v", out, err)
 	}
 }
 
-func writeFakePTYScript(t *testing.T) string {
+func writeFakeJudgePTYScript(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "agy")
 	script := `#!/bin/sh
 if [ -r /dev/tty ]; then
   head -c 1 /dev/tty >/dev/null 2>&1 || true
 fi
-case "$1" in
-  models) printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\n' ;;
-  changelog) printf '1.5.8:\n· Added Gemini 4 Carbon\n' ;;
-  -p)
-    if [ "$2" = "/usage" ]; then
-      printf 'Gemini Models\tWeekly Limit Remaining\t80%%\tx\nGemini Models\tFive Hour Limit Remaining\t90%%\tx\n'
-    else
-      printf 'VERDICT: PASS — clean\n'
-    fi
-    ;;
-esac
+printf 'VERDICT: PASS — clean\n'
 `
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

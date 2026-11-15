@@ -39,6 +39,7 @@ type File struct {
 //	agents/<name>/agent.md → .gemini/config/agents/<name>/agent.md (as written)
 //	commands/<name>.md     → .gemini/config/workflows/<name>.md
 //	workflows/<name>.md    → same as commands/
+//	workflows/<name>.py    → .gemini/config/workflows/<name>.py
 //	rules/<name>.md        → .gemini/config/rules/<name>.md
 //
 // src is the checkout, plain copy, or embedded files to read.
@@ -74,13 +75,9 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 	// A command is a markdown prompt invoked as /name, which Antigravity calls
 	// a workflow. Copied verbatim; the CLI ignores frontmatter keys it does
 	// not know.
-	for _, c := range inv.Commands {
-		files = append(files, File{Rel: filepath.Join(AgyRoot, "workflows", c.Name+".md"), Data: c.Raw, Mode: 0o644})
-	}
-
-	for _, r := range inv.Rules {
-		files = append(files, File{Rel: filepath.Join(AgyRoot, "rules", r.Name+".md"), Data: r.Raw, Mode: 0o644})
-	}
+	files = appendFlatDocFiles(files, "workflows", ".md", inv.Commands)
+	files = appendFlatDocFiles(files, "workflows", ".py", inv.WorkflowScripts)
+	files = appendFlatDocFiles(files, "rules", ".md", inv.Rules)
 
 	if selfExe != nil {
 		files = append(files, File{Rel: BinPath, Data: selfExe, Mode: 0o755})
@@ -93,6 +90,13 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 		}
 	}
 	return files, nil
+}
+
+func appendFlatDocFiles(files []File, dir, ext string, docs []Doc) []File {
+	for _, d := range docs {
+		files = append(files, File{Rel: filepath.Join(AgyRoot, dir, d.Name+ext), Data: d.Raw, Mode: 0o644})
+	}
+	return files
 }
 
 // skillFiles walks one skill's directory into the files install writes for it.

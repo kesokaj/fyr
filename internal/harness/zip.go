@@ -38,8 +38,8 @@ var (
 )
 
 // zipTrees are the only top-level directories an install reads — the same
-// five a release binary embeds. Nothing else in the archive is written.
-var zipTrees = map[string]bool{"context": true, "skills": true, "agents": true, "commands": true, "rules": true}
+// six a release binary embeds. Nothing else in the archive is written.
+var zipTrees = map[string]bool{"context": true, "skills": true, "agents": true, "commands": true, "rules": true, "workflows": true}
 
 // UnpackZip unpacks the harness in the zip at zipPath into a new directory
 // under parent and returns it with the archive's sha256; the caller removes

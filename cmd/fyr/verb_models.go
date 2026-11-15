@@ -13,9 +13,8 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/metrics"
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/trail"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 func init() {
@@ -36,7 +35,7 @@ func runModels(c *ctx) error {
 		return usageErr(c.out, "models", "fyr models: --tier requires --pick")
 	}
 	if c.modelsPick != "" {
-		if _, _, err := work.NormalizeRoleTier(c.modelsPick, c.modelsTier); err != nil {
+		if _, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err != nil {
 			return usageErr(c.out, "models", "fyr models: "+err.Error())
 		}
 	}
@@ -65,33 +64,33 @@ func runModels(c *ctx) error {
 	return nil
 }
 
-func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (work.Catalog, error) {
-	if c.modelsRefresh || !work.CatalogExists(c.home) {
-		cat, err := work.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
+func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.Catalog, error) {
+	if c.modelsRefresh || !models.CatalogExists(c.home) {
+		cat, err := models.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
 		if err == nil && c.modelsRefresh {
-			cat = work.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
-			cat = work.EnrichCatalogPools(ctx, c.home, agyPath, cat)
+			cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+			cat = models.EnrichCatalogPools(ctx, c.home, agyPath, cat)
 		}
 		return cat, err
 	}
-	cat, ok, err := work.LoadCatalog(c.home)
+	cat, ok, err := models.LoadCatalog(c.home)
 	if err != nil {
-		return work.Catalog{}, err
+		return models.Catalog{}, err
 	}
 	if !ok {
-		return work.Catalog{}, fmt.Errorf("catalog missing at %s", work.CatalogPath(c.home))
+		return models.Catalog{}, fmt.Errorf("catalog missing at %s", models.CatalogPath(c.home))
 	}
 	return cat, nil
 }
 
-func runModelsPick(ctx context.Context, c *ctx, cat work.Catalog, agyPath string) error {
-	pick, pools, err := work.PickRoleFromCatalogWithPools(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
+func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string) error {
+	pick, pools, err := models.PickRoleFromCatalogWithPools(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
 	if err != nil {
 		fmt.Fprintf(c.out, "models: %v\n", err)
 		return exitCode(1)
 	}
-	if len(pools) > 0 && c.home != "" && sandbox.CheckWorkDir(c.home) == nil {
-		work.PersistCatalogPoolsBestEffort(c.home, pools)
+	if len(pools) > 0 && c.home != "" && models.CheckHomeDir(c.home) == nil {
+		models.PersistCatalogPoolsBestEffort(c.home, pools)
 	}
 	if c.jsonOut {
 		return writeIndentedJSON(c, pick)
@@ -109,7 +108,7 @@ func writeIndentedJSON(c *ctx, v any) error {
 	return enc.Encode(v)
 }
 
-func runModelsExplain(c *ctx, cat work.Catalog, target string) error {
+func runModelsExplain(c *ctx, cat models.Catalog, target string) error {
 	lowTarget := strings.ToLower(strings.TrimSpace(target))
 	for _, e := range cat.Entries {
 		if strings.EqualFold(e.ID, lowTarget) || strings.ToLower(e.Subfamily) == lowTarget {
@@ -120,11 +119,11 @@ func runModelsExplain(c *ctx, cat work.Catalog, target string) error {
 			return nil
 		}
 	}
-	fmt.Fprintf(c.out, "models: no entry matching %q in %s\n", target, work.CatalogPath(c.home))
+	fmt.Fprintf(c.out, "models: no entry matching %q in %s\n", target, models.CatalogPath(c.home))
 	return exitCode(1)
 }
 
-func printCatalogEntryDetail(c *ctx, e work.CatalogEntry) {
+func printCatalogEntryDetail(c *ctx, e models.CatalogEntry) {
 	fmt.Fprintf(c.out, "ID: %s (%s)\n", e.ID, e.Status)
 	fmt.Fprintf(c.out, "Family/Subfamily: %s / %s · Tier: %s · Effort: %s · Speed: %s · Mode: %s\n",
 		e.Family, e.Subfamily, e.Tier, e.Effort, e.Speed, e.Mode)
@@ -153,7 +152,7 @@ func printCatalogEntryDetail(c *ctx, e work.CatalogEntry) {
 	}
 }
 
-func printCatalogText(c *ctx, cat work.Catalog) {
+func printCatalogText(c *ctx, cat models.Catalog) {
 	fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-12s  %-7s  %-8s  %s\n",
 		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "PASS", "SPEED", "BEST FOR")
 	for _, e := range cat.Entries {
@@ -185,7 +184,7 @@ func printCatalogText(c *ctx, cat work.Catalog) {
 		return
 	}
 	fmt.Fprintln(c.out, "\nRole picks:")
-	for _, rt := range work.StandardRoleTiers {
+	for _, rt := range models.StandardRoleTiers {
 		p, ok := cat.Picks[rt[0]+":"+rt[1]]
 		if !ok {
 			continue
@@ -205,7 +204,7 @@ func refreshModelsBestEffort(parent context.Context, home string) {
 	if home == "" {
 		return
 	}
-	if sandbox.CheckWorkDir(home) != nil {
+	if models.CheckHomeDir(home) != nil {
 		return
 	}
 	if trail.Command(home, "rev-parse", "--git-dir").Run() == nil {
@@ -217,10 +216,10 @@ func refreshModelsBestEffort(parent context.Context, home string) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	_, _ = work.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))
+	_, _ = models.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))
 }
 
-func loadMetricsModelEvidence(home string) map[string]work.ModelEvidence {
+func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
@@ -243,9 +242,9 @@ func loadMetricsModelEvidence(home string) map[string]work.ModelEvidence {
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
-	out := make(map[string]work.ModelEvidence, len(raw))
+	out := make(map[string]models.ModelEvidence, len(raw))
 	for k, v := range raw {
-		out[k] = work.ModelEvidence{
+		out[k] = models.ModelEvidence{
 			WorkRuns:        v.WorkRuns,
 			WorkPass:        v.WorkPass,
 			WorkMeanSeconds: v.WorkMeanSeconds,

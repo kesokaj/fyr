@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 func TestVerbModelsCLI(t *testing.T) {
@@ -91,7 +91,7 @@ func TestVerbModelsCLI(t *testing.T) {
 	if err := run([]string{"models", "--pick", "judge", "--tier", "pro", "--json", "--home", home}, &out); err != nil {
 		t.Fatalf("--pick judge --json: %v", err)
 	}
-	var jp work.RolePick
+	var jp models.RolePick
 	if err := json.Unmarshal(out.Bytes(), &jp); err != nil {
 		t.Fatalf("unmarshal RolePick: %v\n%s", err, out.String())
 	}
@@ -116,7 +116,7 @@ func TestVerbModelsCLI(t *testing.T) {
 	}
 
 	// 4. Failed --refresh exits 1 and keeps existing models.json intact.
-	beforeBytes, err := os.ReadFile(work.CatalogPath(home))
+	beforeBytes, err := os.ReadFile(models.CatalogPath(home))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestVerbModelsCLI(t *testing.T) {
 	if !errors.As(err, &code) || code != 1 {
 		t.Fatalf("failed refresh: err=%v, want exit 1", err)
 	}
-	afterBytes, err := os.ReadFile(work.CatalogPath(home))
+	afterBytes, err := os.ReadFile(models.CatalogPath(home))
 	if err != nil || string(afterBytes) != string(beforeBytes) {
 		t.Errorf("failed refresh altered models.json")
 	}
@@ -188,24 +188,38 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	if err := os.MkdirAll(waveDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	var workers []work.WorkerStatus
+	type workerSnap struct {
+		Name     string `json:"name"`
+		State    string `json:"state"`
+		Model    string `json:"model"`
+		SetupSec int64  `json:"setup_s"`
+		AgySec   int64  `json:"agy_s"`
+		CheckSec int64  `json:"check_s"`
+	}
+	type waveSnap struct {
+		Stamp       string       `json:"stamp"`
+		ProjectRoot string       `json:"project_root"`
+		UpdatedAt   string       `json:"updated_at"`
+		Workers     []workerSnap `json:"workers"`
+	}
+	var workers []workerSnap
 	for i := 0; i < 6; i++ {
 		st4 := "FAIL"
 		if i == 0 {
 			st4 = "PASS" // gemini-4-carbon-high: 1/6 PASS
 		}
 		workers = append(workers,
-			work.WorkerStatus{
+			workerSnap{
 				Name: "c4-" + string(rune('a'+i)), State: st4, Model: "gemini-4-carbon-high",
 				SetupSec: 10, AgySec: 80, CheckSec: 10,
 			},
-			work.WorkerStatus{
+			workerSnap{
 				Name: "c39-" + string(rune('a'+i)), State: "PASS", Model: "gemini-3.9-carbon-high",
 				SetupSec: 5, AgySec: 35, CheckSec: 10,
 			},
 		)
 	}
-	rawSnap, err := json.Marshal(work.WaveStatus{
+	rawSnap, err := json.Marshal(waveSnap{
 		Stamp: "2026-11-11-120000-7", ProjectRoot: "/repo",
 		UpdatedAt: now.Format(time.RFC3339), Workers: workers,
 	})
@@ -227,11 +241,11 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	if err := run([]string{"models", "--refresh", "--json", "--home", home}, &out); err != nil {
 		t.Fatalf("fyr models --refresh --json: %v\n%s", err, out.String())
 	}
-	var cat work.Catalog
+	var cat models.Catalog
 	if err := json.Unmarshal(out.Bytes(), &cat); err != nil {
 		t.Fatalf("unmarshal catalog: %v\n%s", err, out.String())
 	}
-	var got39 *work.CatalogEntry
+	var got39 *models.CatalogEntry
 	for i := range cat.Entries {
 		if cat.Entries[i].ID == "gemini-3.9-carbon-high" {
 			got39 = &cat.Entries[i]
@@ -245,9 +259,9 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	}
 
 	// Verify refreshModelsBestEffort also feeds metrics.Store.ModelEvidence.
-	_ = os.Remove(work.CatalogPath(home))
+	_ = os.Remove(models.CatalogPath(home))
 	refreshModelsBestEffort(context.Background(), home)
-	cat2, ok, err := work.LoadCatalog(home)
+	cat2, ok, err := models.LoadCatalog(home)
 	if err != nil || !ok {
 		t.Fatalf("LoadCatalog after refreshModelsBestEffort: ok=%v err=%v", ok, err)
 	}

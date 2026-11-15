@@ -2,7 +2,7 @@
 
 **`fyr`** is an open-source agentic coding harness and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 44 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 ## Why it exists
 
@@ -87,9 +87,10 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | Surface | Installed path & details |
 |---|---|
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
-| **Skills (43)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
+| **Skills (44)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
 | **Subagents (6)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `verifier`) |
 | **Rules (5)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `fyr-features`, `session-sizing`) |
+| **Workflow scripts (2)** | `workflows/*.py` → `~/.gemini/config/workflows/*.py` (`review_parallel.py`, `preflight_gate.py`) for native `run_workflow` parallel orchestration |
 | **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`) with `< 250 ms` fail-open timeout |
 | **Binary (`fyr`)** | `~/.local/bin/fyr` + local stores under `~/.config/fyr/` (`brain.db`, `metrics.db`, `search.db`, `state.json`, `0700` mode) |
 
@@ -112,7 +113,7 @@ Move a checkout place forward at any time with `fyr update`.
 
 ### 2. Install without cloning
 
-A machine that only uses the harness needs no git checkout or Go toolchain: each release binary (`fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`) embeds `context/`, `skills/`, `agents/`, `commands/`, `rules/` and `docker/`. Set `V` to the version you expect (`v8.2.0`, etc.) from a source outside the download (the person who cut it, or a checkout's changelog), never from the Releases page itself: the guarantee is "the version you named, or nothing", and verify against `SHA256SUMS` over HTTPS (ADR-053, ADR-515).
+A machine that only uses the harness needs no git checkout or Go toolchain: each release binary (`fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`) embeds `context/`, `skills/`, `agents/`, `commands/`, `rules/`, `workflows/` and `docker/`. Set `V` to the version you expect (`v8.2.0`, etc.) from a source outside the download (the person who cut it, or a checkout's changelog), never from the Releases page itself: the guarantee is "the version you named, or nothing", and verify against `SHA256SUMS` over HTTPS (ADR-053, ADR-515).
 
 With `curl` (Linux `amd64` shown; on macOS use `fyr-darwin-arm64` and `shasum -a 256 -c - --ignore-missing`):
 
@@ -233,6 +234,7 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
      - `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md`
      - `rules/<name>.md` → `~/.gemini/config/rules/<name>.md`
      - `commands/<name>.md` → `~/.gemini/config/workflows/<name>.md`
+     - `workflows/<name>.py` → `~/.gemini/config/workflows/<name>.py`
      - `context/<name>.md` → appended to `~/.gemini/config/rules/AGENTS.md`
    - Import third-party skills from [skills.sh](https://skills.sh) via `npx skills@<version> add <owner/repo> -s <skill>` (or `fyr adopt <name>`), then run `fyr install`.
    - The installer lints every customization before deploying and refuses a skill without a `description`, a skill, command, rule or agent with a frontmatter key outside its kind's allow list (such as `allowed-tools`, `disallowedTools`, `hooks` or any other permission key), a command or rule whose file name is not one plain name, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `TDD.md` § T3 and § T6 list each refusal and its test.
@@ -275,11 +277,11 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 
 `fyr list` prints every skill and subagent with its description.
 
-### Skills (43)
+### Skills (44)
 
 | Group | Skills |
 |---|---|
-| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-work` (leads a plan's phases or a task list as sandboxed `fyr work` workers and squash-merges each PASS), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-work` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `/fyr-auto` (worker contract for `fyr auto`) |
+| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-work` (leads a plan's phases or a task list as sandboxed `fyr work` workers and squash-merges each PASS), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-work` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `/fyr-auto` (worker contract for `fyr auto`) |
 | **Project shape & indexing** | `fyr-init-project` (full scaffold + trail + index), `fyr-index-project` (zero-scaffold MVP `.agents/scratch/search.db` indexing & AST graph), `fyr-refresh-project-index` (reconcile or `--rebuild` index + `--map` diagnostics), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project` (`GUIDE-onboarding`), `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
 | **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-distill`, `fyr-dream` |
 | **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
@@ -301,8 +303,8 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 
 ```
 PRD.md        what the harness is for and what must never drift (R0–R10)
-SDD.md        how the parts fit: components M1–M20, the main flows, the decisions
-TDD.md        how each part is built: sections T1–T20 and their tests
+SDD.md        how the parts fit: components M1–M21, the main flows, the decisions
+TDD.md        how each part is built: sections T1–T21 and their tests
 TODO.md       Now, Next and Backlog; the active plan record wins
 AGENTS.md     the rules of this repository, for agents
 LICENSE       MIT License
@@ -312,16 +314,17 @@ agents/       one directory per subagent (agent.md, in Antigravity's format, ins
 skills/       one directory per skill (SKILL.md, references/, assets/)
 rules/        always-on or path-scoped rules
 commands/     markdown prompts invoked as /name (empty; prefer skills)
+workflows/    native run_workflow scripts (review_parallel.py, preflight_gate.py)
 docker/       fyr work's container runner image (work.Dockerfile and .dockerignore)
 cmd/fyr       the binary; internal/ its packages, each named in AGENTS.md § Layout
-embed.go      the go:embed of the five content directories and docker/, pinned to what git tracks
+embed.go      the go:embed of the six content directories and docker/, pinned to what git tracks
 .agents/      this repository's .agents/skills symlink, .agents/eval/ suite, and .agents/scratch/ (gitignored)
 ```
 
 ```mermaid
 flowchart LR
-  prd["PRD.md<br/>requirements R0 to R10"] --> sdd["SDD.md<br/>components M1 to M19"]
-  sdd --> tdd["TDD.md<br/>sections T1 to T19 and their tests"]
+  prd["PRD.md<br/>requirements R0 to R10"] --> sdd["SDD.md<br/>components M1 to M21"]
+  sdd --> tdd["TDD.md<br/>sections T1 to T21 and their tests"]
   tdd --> todo["TODO.md<br/>tasks name a T section"]
   tdd --> records[("SPEC and ADR records<br/>the detail")]
 ```

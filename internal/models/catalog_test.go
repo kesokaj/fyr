@@ -1,4 +1,4 @@
-package work
+package models
 
 import (
 	"context"
@@ -15,11 +15,11 @@ import (
 
 func TestModelCatalogRefreshAndRoute(t *testing.T) {
 	ctx := context.Background()
-	oldUsage := usageProbeFunc
-	oldList := listModelsFunc
+	oldUsage := UsageProbeFunc
+	oldList := ListModelsFunc
 	t.Cleanup(func() {
-		usageProbeFunc = oldUsage
-		listModelsFunc = oldList
+		UsageProbeFunc = oldUsage
+		ListModelsFunc = oldList
 	})
 
 	tmp := t.TempDir()
@@ -39,7 +39,6 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed work/*/status.json evidence for claude-sonnet-5-5-high (3 work passes) and claude-sonnet-5-6-high (1/3 pass).
 	waveDir := filepath.Join(home, harness.StateDir, "work", "2026-11-10-120000-1")
 	if err := os.MkdirAll(waveDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -59,14 +58,11 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Extra eval evidence pushes both Sonnet candidates to >= 5 total runs:
-	// 5-5-high: 3/3 work + 3/3 eval = 6/6 (100%), 5-6-high: 1/3 work + 1/3 eval = 2/6 (33%).
 	extra := map[string]ModelEvidence{
 		"claude-sonnet-5-5-high": {EvalRuns: 3, EvalPass: 3},
 		"claude-sonnet-5-6-high": {EvalRuns: 3, EvalPass: 1},
 	}
 
-	// 1. Initial refresh: strips spinner \r and ANSI CSI codes, parses tabs and 2+ spaces.
 	initialOut := "Fetching available models...\r\x1b[32mgemini-4-carbon-high\x1b[0m\tGemini 4 Carbon (High)\n" +
 		"gemini-4-argon-high  Gemini 4 Argon (High)\n" +
 		"gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n" +
@@ -92,7 +88,6 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		}
 	}
 
-	// Verify 0600 file mode on models.json.
 	info, err := os.Stat(CatalogPath(home))
 	if err != nil {
 		t.Fatalf("stat models.json: %v", err)
@@ -101,7 +96,6 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("models.json perm = %o, want 0600", perm)
 	}
 
-	// Builder prefers Carbon; judge pro prefers Opus; judge flash uses >=5 run pass rate (5-5 over newer 5-6); mechanical prefers Gemini flash.
 	if got := cat1.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
 		t.Errorf("builder:pro = %q, want gemini-4-carbon-high", got)
 	}
@@ -115,8 +109,7 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("mechanical:flash = %q, want gemini-3.8-flash-high", got)
 	}
 
-	// Healthy quota: ResolveRoleModel returns listed Anthropic ID for judge.
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
 		return "Gemini\tWeekly Limit Remaining\t80%\tx\nGemini\tFive Hour Limit Remaining\t90%\tx\n" +
 			"Claude\tWeekly Limit Remaining\t50%\tx\nClaude\tFive Hour Limit Remaining\t70%\tx\n", nil
 	}
@@ -125,8 +118,7 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Fatalf("ResolveRoleModel judge healthy: m=%q note=%q err=%v", jModel, jNote, err)
 	}
 
-	// Low Anthropic quota: ResolveRoleModel falls back to listed Gemini Carbon ID.
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
 		return "Claude\tWeekly Limit Remaining\t12%\tx\nClaude\tFive Hour Limit Remaining\t80%\tx\n", nil
 	}
 	fbModel, fbNote, err := ResolveRoleModel(ctx, agyScript, "judge", "pro", "")
@@ -134,7 +126,6 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Fatalf("ResolveRoleModel judge low quota: m=%q note=%q err=%v", fbModel, fbNote, err)
 	}
 
-	// 2. Second refresh on day 2: remove claude-opus-5-5-high and all Anthropic models, add gemini-4-carbon-medium.
 	secondOut := "gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
 		"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n" +
 		"gemini-4-argon-high\tGemini 4 Argon (High)\n" +
@@ -173,8 +164,7 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		t.Errorf("judge:pro FallbackReason = %q, want mention of gone claude-opus-5-5-high", jp.FallbackReason)
 	}
 
-	// ResolveRoleModel returns only currently listed IDs even when quota is healthy.
-	usageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
 		return "Claude\tWeekly Limit Remaining\t80%\tx\nClaude\tFive Hour Limit Remaining\t80%\tx\n", nil
 	}
 	for _, role := range []string{"builder", "judge", "reviewer", "verifier", "mechanical"} {
@@ -187,7 +177,6 @@ func TestModelCatalogRefreshAndRoute(t *testing.T) {
 		}
 	}
 
-	// 3. Failed refresh keeps existing models.json intact.
 	savedBefore, err := os.ReadFile(CatalogPath(home))
 	if err != nil {
 		t.Fatal(err)
@@ -231,19 +220,13 @@ func TestCatalogJoinsBareEvalEvidenceOntoHighestEffort(t *testing.T) {
 		},
 	}
 	evidence := map[string]ModelEvidence{
-		// Bare metrics.db eval key joins onto highest-effort -high despite -low/-medium appearing first.
-		"gemini-4-argon": {EvalRuns: 34, EvalPass: 31},
-		// Bare key joins onto -medium when no -high exists in the catalog.
-		"gpt-oss-120b": {EvalRuns: 6, EvalPass: 5},
-		// Exact match + bare key add without double-counting the exact match.
-		"claude-opus-5-5-high": {WorkRuns: 3, WorkPass: 3, WorkMeanSeconds: 42, EvalRuns: 2, EvalPass: 2},
-		"claude-opus-5-5":      {EvalRuns: 5, EvalPass: 4},
-		// Exact match on an already-bare active catalog entry is counted once, never twice.
-		"claude-sonnet-4-6": {EvalRuns: 8, EvalPass: 7},
-		// Effort-suffixed unlisted key is not bare and must not bleed onto a sibling effort.
+		"gemini-4-argon":        {EvalRuns: 34, EvalPass: 31},
+		"gpt-oss-120b":          {EvalRuns: 6, EvalPass: 5},
+		"claude-opus-5-5-high":  {WorkRuns: 3, WorkPass: 3, WorkMeanSeconds: 42, EvalRuns: 2, EvalPass: 2},
+		"claude-opus-5-5":       {EvalRuns: 5, EvalPass: 4},
+		"claude-sonnet-4-6":     {EvalRuns: 8, EvalPass: 7},
 		"claude-sonnet-5-5-low": {EvalRuns: 9, EvalPass: 9},
-		// When -high is gone and -medium is active, bare key joins onto active -medium.
-		"gemini-3.8-flash": {EvalRuns: 7, EvalPass: 6},
+		"gemini-3.8-flash":      {EvalRuns: 7, EvalPass: 6},
 	}
 
 	cat := BuildCatalog(now, parsed, prev, evidence)
@@ -295,8 +278,6 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 			"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n",
 	)
 
-	// 1. Failing WorkPass (7/16 = 43.75% < 50%, WorkRuns >= 5) must NOT be masked by 31/35 bare EvalPass
-	//    against an untested peer (0/0) or against a >=50% evidence peer (3/5 work pass).
 	catUntestedPeer := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
 		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 90},
 		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
@@ -314,14 +295,13 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 
 	catPassingPeer := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
 		"gemini-4-carbon-high":   {WorkRuns: 6, WorkPass: 1, WorkMeanSeconds: 50},
-		"gemini-4-carbon":        {EvalRuns: 30, EvalPass: 30}, // raw combined 31/36 = 86.1% > 60%
+		"gemini-4-carbon":        {EvalRuns: 30, EvalPass: 30},
 		"gemini-4-carbon-medium": {WorkRuns: 5, WorkPass: 3, WorkMeanSeconds: 70},
 	})
 	if got := catPassingPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
 		t.Errorf("builder:pro against 3/5 work peer = %q, want gemini-4-carbon-medium", got)
 	}
 
-	// 2. Exact 50% WorkPass (3/6) is NOT below 50%, so joined EvalPass keeps -high selected.
 	catAtHalf := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
 		"gemini-4-carbon-high": {WorkRuns: 6, WorkPass: 3},
 		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
@@ -330,7 +310,6 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 		t.Errorf("builder:pro at 3/6 (50%%) work + 9/10 eval = %q, want gemini-4-carbon-high", got)
 	}
 
-	// 3. WorkRuns < 5 (1/4) does NOT trigger the WorkRuns >= 5 guard; combined 10/14 >= 50% picks -high.
 	catUnderFive := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
 		"gemini-4-carbon-high": {WorkRuns: 4, WorkPass: 1},
 		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
@@ -403,11 +382,11 @@ func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
 
 func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	ctx := context.Background()
-	oldUsage := usageProbeFunc
-	oldList := listModelsFunc
+	oldUsage := UsageProbeFunc
+	oldList := ListModelsFunc
 	t.Cleanup(func() {
-		usageProbeFunc = oldUsage
-		listModelsFunc = oldList
+		UsageProbeFunc = oldUsage
+		ListModelsFunc = oldList
 	})
 
 	tmp := t.TempDir()
@@ -419,7 +398,7 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	}
 
 	usageCalls := 0
-	usageProbeFunc = func(context.Context, string) (string, error) {
+	UsageProbeFunc = func(context.Context, string) (string, error) {
 		usageCalls++
 		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
 			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
@@ -431,15 +410,14 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 		t.Fatalf("RefreshCatalog initial: %v", err)
 	}
 	if usageCalls != 0 {
-		t.Fatalf("RefreshCatalog must not invoke usageProbeFunc (got %d calls)", usageCalls)
+		t.Fatalf("RefreshCatalog must not invoke UsageProbeFunc (got %d calls)", usageCalls)
 	}
 	cat1 = EnrichCatalogPools(ctx, home, agyScript, cat1)
 	if usageCalls != 1 || cat1.QuotaUpdatedAt == "" || len(cat1.Pools) != 2 {
 		t.Fatalf("expected persisted pools on EnrichCatalogPools, got calls=%d cat=%+v", usageCalls, cat1)
 	}
 
-	// Subsequent RefreshCatalog preserves previous pools without calling usageProbeFunc.
-	usageProbeFunc = func(context.Context, string) (string, error) {
+	UsageProbeFunc = func(context.Context, string) (string, error) {
 		usageCalls++
 		return "", os.ErrNotExist
 	}
@@ -448,7 +426,7 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 		t.Fatalf("RefreshCatalog failed: %v", err)
 	}
 	if usageCalls != 1 {
-		t.Fatalf("subsequent RefreshCatalog invoked usageProbeFunc (%d calls)", usageCalls)
+		t.Fatalf("subsequent RefreshCatalog invoked UsageProbeFunc (%d calls)", usageCalls)
 	}
 	if len(cat2.Pools) != 2 || cat2.QuotaUpdatedAt != cat1.QuotaUpdatedAt {
 		t.Errorf("expected preserved pools after RefreshCatalog; got %+v vs %+v", cat2, cat1)
@@ -458,11 +436,10 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 		t.Errorf("EnrichCatalogPools should keep previous pools intact on /usage error; got %+v vs %+v", cat2, cat1)
 	}
 
-	// ResolveRoleModelForHome persists newly parsed pools into existing models.json.
-	listModelsFunc = func(context.Context, string) ([]string, error) {
+	ListModelsFunc = func(context.Context, string) ([]string, error) {
 		return []string{"gemini-4-carbon-high", "claude-opus-5-5-high"}, nil
 	}
-	usageProbeFunc = func(context.Context, string) (string, error) {
+	UsageProbeFunc = func(context.Context, string) (string, error) {
 		return "Claude and GPT models\tWeekly Limit Remaining\t15%\tx\nClaude and GPT models\tFive Hour Limit Remaining\t25%\tx\n", nil
 	}
 	chosen, _, err := ResolveRoleModelForHome(ctx, home, agyScript, "judge", "pro", "")
@@ -472,5 +449,138 @@ func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
 	reloaded, ok, err := LoadCatalog(home)
 	if err != nil || !ok || len(reloaded.Pools) != 1 || reloaded.Pools[0].Week != 15 || reloaded.Pools[0].Five != 25 {
 		t.Fatalf("expected updated pools in models.json, got ok=%v err=%v pools=%+v", ok, err, reloaded.Pools)
+	}
+}
+
+func TestResolveRoleModel(t *testing.T) {
+	ctx := context.Background()
+	oldUsage := UsageProbeFunc
+	oldList := ListModelsFunc
+	t.Cleanup(func() {
+		UsageProbeFunc = oldUsage
+		ListModelsFunc = oldList
+	})
+
+	ListModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+		return []string{
+			"gemini-4-carbon-high",
+			"gemini-3.8-flash-high",
+			"claude-opus-5-5-high",
+			"claude-sonnet-5-5-high",
+		}, nil
+	}
+
+	m, note, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
+	if err != nil || m != "gemini-4-carbon-high" || !strings.Contains(note, "Gemini") {
+		t.Fatalf("builder pro: got m=%q note=%q err=%v", m, note, err)
+	}
+	mFlash, _, err := ResolveRoleModel(ctx, "agy", "builder", "flash", "")
+	if err != nil || mFlash != "gemini-3.8-flash-high" {
+		t.Fatalf("builder flash: got %q err=%v, want gemini-3.8-flash-high", mFlash, err)
+	}
+
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t45%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t60%\tx\n", nil
+	}
+	jModel, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || jModel != "claude-opus-5-5-high" || !strings.Contains(jNote, "Anthropic") {
+		t.Fatalf("judge healthy quota: got m=%q note=%q err=%v", jModel, jNote, err)
+	}
+	vModel, _, err := ResolveRoleModel(ctx, "agy", "verifier", "sonnet", "")
+	if err != nil || vModel != "claude-sonnet-5-5-high" {
+		t.Fatalf("verifier sonnet healthy quota: got %q err=%v, want claude-sonnet-5-5-high", vModel, err)
+	}
+
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t15%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\tx\n", nil
+	}
+	fbModel, fbNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || fbModel != "gemini-4-carbon-high" || !strings.Contains(fbNote, "fallback to Gemini") {
+		t.Fatalf("judge low quota fallback: got m=%q note=%q err=%v", fbModel, fbNote, err)
+	}
+	fbFlash, fbFlashNote, err := ResolveRoleModel(ctx, "agy", "reviewer", "flash", "")
+	if err != nil || fbFlash != "gemini-3.8-flash-high" || !strings.Contains(fbFlashNote, "fallback to Gemini") {
+		t.Fatalf("reviewer flash low quota fallback: got m=%q note=%q err=%v", fbFlash, fbFlashNote, err)
+	}
+
+	expModel, expNote, _ := ResolveRoleModel(ctx, "agy", "judge", "pro", "custom-model")
+	if expModel != "custom-model" || !strings.Contains(expNote, "explicit") {
+		t.Fatalf("explicit override: got m=%q note=%q", expModel, expNote)
+	}
+}
+
+func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T) {
+	ctx := context.Background()
+	oldUsage := UsageProbeFunc
+	oldList := ListModelsFunc
+	t.Cleanup(func() {
+		UsageProbeFunc = oldUsage
+		ListModelsFunc = oldList
+	})
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	parsed := ParseModelsOutput(
+		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+			"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n" +
+			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
+	)
+	cat := BuildCatalog(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 95},
+		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
+		"claude-opus-5-5":      {EvalRuns: 8, EvalPass: 8},
+	})
+	if err := SaveCatalog(home, cat); err != nil {
+		t.Fatal(err)
+	}
+
+	ListModelsFunc = func(ctx context.Context, agy string) ([]string, error) {
+		return []string{"gemini-4-carbon-high", "gemini-4-carbon-medium", "claude-opus-5-5-high"}, nil
+	}
+	UsageProbeFunc = func(ctx context.Context, agy string) (string, error) {
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t10%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t50%\tx\n", nil
+	}
+
+	bModel, _, err := ResolveRoleModel(ctx, "agy", "builder", "pro", "")
+	if err != nil || bModel != "gemini-4-carbon-medium" {
+		t.Fatalf("builder pro with 7/16 work + 31/35 eval: got %q err=%v, want gemini-4-carbon-medium", bModel, err)
+	}
+	jFallback, jNote, err := ResolveRoleModel(ctx, "agy", "judge", "pro", "")
+	if err != nil || jFallback != "gemini-4-carbon-medium" || !strings.Contains(jNote, "fallback to Gemini") {
+		t.Fatalf("judge low-quota fallback: got %q note=%q err=%v, want gemini-4-carbon-medium", jFallback, jNote, err)
+	}
+
+	t.Setenv("HOME", t.TempDir())
+	bHomeModel, _, err := ResolveRoleModelForHome(ctx, home, "agy", "builder", "pro", "")
+	if err != nil || bHomeModel != "gemini-4-carbon-medium" {
+		t.Fatalf("ResolveRoleModelForHome(home): got %q err=%v, want gemini-4-carbon-medium", bHomeModel, err)
+	}
+}
+
+func TestCheckHomeDir(t *testing.T) {
+	home := t.TempDir()
+	if err := CheckHomeDir(home); err != nil {
+		t.Fatalf("clean home refused: %v", err)
+	}
+	if err := CheckHomeDir(""); err == nil {
+		t.Fatal("empty home accepted")
+	}
+	cfg := filepath.Join(home, ".config")
+	target := t.TempDir()
+	if err := os.Symlink(target, cfg); err != nil {
+		t.Skip(err)
+	}
+	if err := CheckHomeDir(home); err == nil || !strings.Contains(err.Error(), "symlink") && !strings.Contains(err.Error(), "non-directory") {
+		t.Fatalf("symlink .config accepted: %v", err)
 	}
 }
