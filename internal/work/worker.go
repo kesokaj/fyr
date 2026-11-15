@@ -137,7 +137,7 @@ func stageSeconds(from, to time.Time) int {
 	return max(0, int(to.Sub(from).Seconds()))
 }
 
-const workerExecutionRule = "Worker execution rules (`fyr work`): do NOT call `invoke_subagent` (`verifier`, `reviewer`, `security`, `explorer`, `documentation`, `changelog`, `bugs`) — `fyr work` runs `Base-Check` and cross-family `Judge` outside your sandbox, and the lead dispatches range review, security, and verification after waves merge. Run the project's lint, typecheck, and test commands for your scoped files (plus any checkpoint command in your Kickoff) directly, self-review `git diff` yourself, and when writing a `change` record note `self-reviewed in fyr work worker`. If a `run_command` backgrounds, wait with `sleep 20` between `manage_task` checks until it completes before committing.\n\n"
+const workerExecutionRule = "Worker execution rules (`fyr work`): do NOT call `invoke_subagent` (`verifier`, `reviewer`, `security`, `explorer`, `documentation`) — `fyr work` runs `Base-Check` and cross-family `Judge` outside your sandbox, and the lead dispatches range review, security, and verification after waves merge. Run the project's lint, typecheck, and test commands for your scoped files (plus any checkpoint command in your Kickoff) directly, self-review `git diff` yourself, and when writing a `change` record note `self-reviewed in fyr work worker`. If a `run_command` backgrounds, wait with `sleep 20` between `manage_task` checks until it completes before committing.\n\n"
 
 func (w *worker) workerPrompt() string {
 	if w.o.Auto {

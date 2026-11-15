@@ -276,10 +276,10 @@ func TestPreToolUseRunWorkflowGuard(t *testing.T) {
 	// 5. ScriptPath with flash override denies [MODEL_OVERRIDE]; inherit on fast denies [AUTO_SUBAGENT_PRO].
 	wfDir := t.TempDir()
 	spFlash := filepath.Join(wfDir, "bad.py")
-	if err := os.WriteFile(spFlash, []byte("agent('p', {'type':'string'}, 'r', 'bugs', 'inherit', 'flash')\n"), 0o600); err != nil {
+	if err := os.WriteFile(spFlash, []byte("agent('p', {'type':'string'}, 'r', 'reviewer', 'inherit', 'flash')\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": spFlash, "Description": "bugs"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": spFlash, "Description": "review"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
 		t.Errorf("positional flash ScriptPath expected [MODEL_OVERRIDE] deny, got %+v", d)
 	}
 	spInherit := filepath.Join(wfDir, "inh.py")

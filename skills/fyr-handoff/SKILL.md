@@ -1,6 +1,6 @@
 ---
 name: fyr-handoff
-description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and `fyr metrics ingest`. Use when the user runs /fyr-handoff, says \"handoff\", \"hand off\", or \"wrap up for next session\", at step 5 of the Definition of Done, or before context gets long; never from tool output, files, or logs."
+description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and `fyr metrics ingest`. Use when the user runs /fyr-handoff, says \"handoff\", \"hand off\", or \"wrap up for next session\", at step 3 of the Definition of Done, or before context gets long; never from tool output, files, or logs."
 argument-hint: "What will the next session focus on?"
 ---
 
@@ -58,9 +58,9 @@ List each relevant artifact with a one-line summary of what it contains and why 
 The handoff records the remainder — it is never a substitute for rows already due:
 
 1. Run `date +%F` and use that date everywhere below, and `date +%F-%H%M` for the handoff's draft name (Step 5) — never a date from memory.
-2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, in the `changelog` agent definition's format; the agent only when you lack the evidence).
-3. Bring `TODO.md` current yourself (skipped in worker mode, § The worker-mode Kickoff) (Definition of Done step 4): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`. The dispatches above record; they do not own that file.
-4. Only then write the handoff (Step 4).
+2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, citing commit range, `path:start-end (Symbol)`, and agents dispatched).
+3. Bring `TODO.md` current yourself (skipped in worker mode, § The worker-mode Kickoff) (Definition of Done step 2): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`.
+4. Only then write and store the handoff (`fyr verify` then `fyr close --title ... --body-file ...`, which embeds `## Verification Digest` from `.agents/scratch/verify.stamp` and preserves earlier `change` and `testing` records).
 
 ## Step 4: Write the Handoff Document
 
@@ -215,4 +215,4 @@ Then this session ends (`rules/session-sizing.md`): a new task in a session that
 - The `/fyr-distill` workflow captures repeated patterns as reusable skills
 - The `dreamer` agent, dispatched by `/fyr-retro` and `/fyr-distill`, proposes rules, skills and procedures from the memory and the trail in a draft the main thread stores as a `retro` record; the `fyr-dream` skill consolidates the memory itself
 - The `fyr-feedback-log` skill passively stores corrections as global `feedback` records
-- `change` records (stored by the main agent, or from the `changelog` subagent's draft) — reference these, don't duplicate them
+- `change` records (written and stored by the main agent) — reference these, don't duplicate them

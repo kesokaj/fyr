@@ -147,7 +147,8 @@ func TestKnownCheckoutRefusesEmbeddedManifest(t *testing.T) {
 // without source fails here until it is placed.
 func TestRepoFlagWarnsOnVerbWithoutSource(t *testing.T) {
 	want := map[string]bool{"version": true, "uninstall": true, "memory": true, "dream": true,
-		"metrics": true, "report": true, "models": true, "record": true, "resume": true, "search": true, "index": true, "check": true, "git-check": true}
+		"metrics": true, "report": true, "models": true, "record": true, "resume": true, "search": true, "index": true, "check": true, "git-check": true,
+		"verify": true, "gate": true, "land": true, "close": true}
 	for name, v := range verbs {
 		if ignores := !v.source && !v.readsRepo; ignores != want[name] {
 			t.Errorf("%s: ignores --repo = %v, want %v", name, ignores, want[name])

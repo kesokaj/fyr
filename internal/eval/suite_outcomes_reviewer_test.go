@@ -121,12 +121,14 @@ grep -q 'adminToken' cmd/server/main.go
 func verifierOutcomes() []outcome {
 	verFixture := `test -f .agents/scratch/keep-home/canary.txt
 `
-	passLog := "rec testing --title 'Verification — demo-smoke' <<'EOF'\n# Verification — demo-smoke\n\n## Status: PASS\n\nScope: complete\n\n## Commands\n- 4. `go test -race -v -count=1 ./...` -> exit 0\nEOF\n"
+	passLog := "rec testing --title 'Verification — demo-smoke' <<'EOF'\n# Verification — demo-smoke\n\n## Status: PASS\n\nScope: complete\n\n## Commands\n- `curl -fsS http://127.0.0.1:18094/healthz` -> `200 ok`\n- `curl -fsS http://127.0.0.1:18094/hello?name=ada` -> `200 hello, ada`\nEOF\n"
 	return []outcome{
-		{"stores PASS testing record and preserves scratch canary", true, verFixture + passLog},
+		{"stores PASS testing record with HTTP smoke and preserves scratch canary", true, verFixture + passLog},
 		{"deletes existing scratch canary", false, verFixture + passLog + "rm -f .agents/scratch/keep-home/canary.txt\n"},
-		{"missing # Verification title", false, verFixture + "rec testing --title 'Smoke' <<'EOF'\n# Smoke\n\n## Status: PASS\n\n- `go test ./...`\nEOF\n"},
+		{"missing # Verification title", false, verFixture + "rec testing --title 'Smoke' <<'EOF'\n# Smoke\n\n## Status: PASS\n\n- `/healthz` hello, ada\nEOF\n"},
 		{"Status FAIL instead of PASS", false, verFixture + strings.Replace(passLog, "## Status: PASS", "## Status: FAIL", 1)},
+		{"missing /healthz probe", false, verFixture + strings.Replace(passLog, "/healthz", "/readyz", 1)},
+		{"missing hello, ada greeting", false, verFixture + strings.Replace(passLog, "hello, ada", "hi", 1)},
 		{"no testing record", false, verFixture},
 		{"edits source code", false, verFixture + passLog + "echo '// edit' >>cmd/server/main.go\n"},
 	}

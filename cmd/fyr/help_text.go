@@ -49,6 +49,10 @@ Background and measurement
   models       the live agy model catalog and role picks
   eval         run behavioural rows against the CLI
   work         run Kickoffs as agy workers (in docker when ready, else host)
+  verify       run gofmt, go vet, go test -race, check and write stamp
+  gate         run lease, numstat, secret and trailer checks on a diff
+  land         gate, squash-verify in worktree, ff main and delete branch
+  close        write one handoff record embedding the fresh verify stamp
   check        read-only drift check of this checkout's docs
   git-check    read-only post-dispatch git status, log and tag check
   version      print the build version
@@ -398,6 +402,43 @@ var pages = map[string]verbPage{
 			"Anthropic quota). --pick ROLE prints the selected model ID; --explain ID",
 			"prints model capabilities, changelog notes and empirical evidence.",
 			"Exit 0 ok, 1 refresh error, 2 refusal.",
+		},
+	},
+	"verify": {
+		synopsis: []string{"usage: fyr verify [--json] [--timeout D]"},
+		about: []string{
+			"Runs gofmt -l, go vet ./..., go test -race ./... and fyr check across",
+			"the checkout, checks the Go tree digest did not move mid-run, and writes",
+			".agents/scratch/verify.stamp cleanly (0600, symlink-safe). Stale",
+			"stamps are deleted on failure. Exit 0 ok, 1 check failed, 2 refused.",
+		},
+	},
+	"gate": {
+		synopsis: []string{"usage: fyr gate <worktree> [--base REF] [--lease GLOB] [--lease-file FILE]"},
+		about: []string{
+			"Checks a clean worktree or branch against base (default HEAD) across",
+			"four deterministic gates: lease and forbidden mode/secret filenames,",
+			"numstat caps and binary diffs, added-line secret scan (without printing",
+			"secrets), and forbidden commit trailers.",
+			"Exit 0 ok, 1 gate failed, 2 refused or dirty.",
+		},
+	},
+	"land": {
+		synopsis: []string{"usage: fyr land <branch> [--message TEXT] [--lease GLOB] [--lease-file FILE]"},
+		about: []string{
+			"Runs gate on branch, squash-merges in a detached scratch worktree, runs",
+			"verify there, verifies main stayed unchanged, fast-forwards main,",
+			"deletes branch, and refreshes .agents/scratch/verify.stamp. Preserves",
+			"branch on failure. Exit 0 ok, 1 failed, 2 refused or usage error.",
+		},
+	},
+	"close": {
+		synopsis: []string{"usage: fyr close --title TEXT [--body-file FILE] [--json]"},
+		about: []string{
+			"Reads a fresh .agents/scratch/verify.stamp matching the current Go tree",
+			"digest, appends a Verification Digest section to the handoff body, and",
+			"writes one handoff record without altering earlier records.",
+			"Exit 0 ok, 1 error, 2 refused or missing/stale stamp.",
 		},
 	},
 }

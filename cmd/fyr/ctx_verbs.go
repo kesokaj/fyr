@@ -54,6 +54,10 @@ type ctx struct {
 	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
 	repoMap, register                                                                              bool
+	gateBase, gateLeaseFile, landMessage, closeTitle, closeBodyFile                                string
+	gateLease                                                                                      stringSliceFlag
+	gateMaxFiles, gateMaxLines                                                                     int
+	gateTimeout                                                                                    time.Duration
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }

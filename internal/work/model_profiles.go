@@ -29,7 +29,7 @@ var knownModelProfiles = []staticModelProfile{
 	{"carbon", "carbon", "", "deep", "Deepest frontier planner and complex multi-file coder; highest thinking latency", []string{"architecture", "hard-debugging", "complex-build"}, []string{"trivial-edits", "tight-timeouts"}, false, ""},
 	{"argon", "argon", "", "balanced", "Balanced Gemini 4 Pro coder and planner with strong pass rate and moderate speed", []string{"standard-build", "planning", "eval"}, []string{"mechanical-renames"}, false, ""},
 	{"hydrogen", "hydrogen", "", "fast", "Fast distilled Gemini 4 execution coder; supports XHigh effort at low latency", []string{"fast-coding", "plan-execution", "2-4-file-tasks"}, []string{"cold-architecture-planning", "cross-family-judge"}, false, ""},
-	{"3.8-flash", "flash", "", "fast", "High-speed low-cost model for mechanical edits, changelogs, docs, and recon", []string{"mechanical", "docs", "triage", "explorer"}, []string{"deep-architecture", "security-review"}, false, ""},
+	{"3.8-flash", "flash", "", "fast", "High-speed low-cost model for mechanical edits, docs, and recon", []string{"mechanical", "docs", "explorer"}, []string{"deep-architecture", "security-review"}, false, ""},
 	{"opus", "opus", "", "deep", "Cross-family frontier judge, code/security reviewer, and verifier", []string{"judge", "reviewer", "verifier", "security"}, []string{"high-volume-mechanical"}, false, ""},
 	{"sonnet", "sonnet", "", "balanced", "Fast cross-family reviewer and flash-tier judge", []string{"judge:flash", "reviewer:flash"}, []string{"gemini-only-quota-conservation"}, false, ""},
 	{"gpt-oss", "gpt-oss", "", "balanced", "Legacy open-weight model sharing Claude/GPT quota pool; retiring 2026-11-18", []string{"legacy-compat"}, []string{"auto-pick"}, false, "2026-11-18"},

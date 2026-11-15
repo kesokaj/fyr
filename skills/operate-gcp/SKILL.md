@@ -80,7 +80,7 @@ console or Terraform, since gcloud has no verb for it. Commands and the policy J
 Every incident gets a number (the global rule: a failure that reached a commit, a deploy or the user — an incident always has). While the service
 serves the last good revision, write the incident note — the revision, the time window, the
 log query that shows it and the counts it returns (never raw entries), the user-visible effect, what was done — into
-a `bug` record (`fyr record add bug`) with a prevention rule (yourself, or the `bugs` agent when you lack the evidence). The prevention
+a `bug` record (`fyr record add bug`) with a prevention rule yourself. The prevention
 rule becomes a mechanism when it can: a startup probe path, an alerting policy on the metric
 that would have fired, a test. The code fix then runs under the `fyr-bug` skill, ships through
 `fyr-preflight`, and the record is closed when the fix lands.

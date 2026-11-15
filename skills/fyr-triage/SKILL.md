@@ -70,9 +70,9 @@ When invoked with no target or `"what needs attention"`, group candidates oldest
 
 Give the short count + scannable list first and let the operator pick which items to triage.
 
-### Isolated Recon via `triage` Subagent
+### Large Backlog or Diff Recon
 
-When triaging **3+ items**, scanning a backlog/queue, or inspecting a large external PR diff (`50+` lines), dispatch the `triage` subagent (`budget: 25 tool calls`, `"write .agents/scratch/agents/triage-<stamp>.md early with Status: IN PROGRESS, then update it; change nothing"`) so raw issue threads, contributor diffs, and search sweeps stay out of main context. Store its completed brief as a closed `plan` record (`fyr record add plan --title "Triage — <slug> (<date>)" --body-file <path>`), present its short summary and open questions to the operator, and keep interactive `grilling` and approved GitHub/record mutations in the main thread.
+When scanning 10+ source files or large diffs during triage, keep raw search sweeps clean by using `fyr search --slice`, `--affected`, and `--refs` (or dispatching `explorer` for read-only codebase recon with a 25-tool-call budget and `.agents/scratch/agents/explorer-<stamp>.md`), then run the redundancy and `PRD.md`/`ADR` checks below inline, storing a closed `plan` triage brief (`fyr record add plan --title "Triage — <slug> (<date>)" --body-file <path>`) with zero checkboxes outside fenced blocks. Keep interactive `grilling` and approved GitHub/record mutations in the main thread.
 
 ## Triage a Specific Item
 
@@ -114,6 +114,6 @@ When triaging **3+ items**, scanning a backlog/queue, or inspecting a large exte
 ## Cross-References
 
 - [agent-brief.md](./references/agent-brief.md) — writing durable Agent Briefs and mapping them to `/fyr-work` Kickoffs.
-- `triage` subagent — isolated read-only queue, issue, and PR recon drafted under `.agents/scratch/agents/` and stored as a closed `plan` record.
+- `explorer` subagent — optional read-only 10+ file codebase recon during Step 1 redundancy checks.
 - `grilling` & `codebase-design` — sharpening ambiguous feature requests and module boundaries during Step 4.
 - `fyr-work`, `fyr-feature`, `fyr-bug` — executing `ready-for-agent` items after triage.

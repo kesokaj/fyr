@@ -1,6 +1,6 @@
 # Testing guide — <project>
 
-<!-- The one guide per project. /fyr-init-project copies this template; the verifier fills every <placeholder> on its first run and updates § 1 when the commands change; documentation maintains it when behaviour or interfaces change. The tiers and when each is owed: the testing-strategy skill. -->
+<!-- The one guide per project. /fyr-init-project copies this template; `fyr verify` runs § 1 formatting, vet, race tests, and `fyr check`; the `verifier` fills/runs live e2e and smoke tiers; `documentation` maintains it when behaviour or interfaces change. The tiers and when each is owed: the testing-strategy skill. -->
 
 ## 1. Commands
 
@@ -32,4 +32,4 @@ The exact verification commands, the ones `AGENTS.md` § Setup lists; run each b
 
 ## 5. Log format
 
-Every verification run is a `testing` record titled `Verification — <slug>`, from the verifier's draft (or the main agent's own, for a behavioural or sandbox run: the release gate counts a command as run only from a verifier's log), with a `Range reviewed: <range or working tree>` line, `## Status: PASS | FAIL | BLOCKED` (IN PROGRESS only while running), a `Scope:` line, the commands run with their exit status (a main-agent run gives each row as n of N against the row's own pass criterion, and its heading is PASS only when every row met it), and a `## Not examined` section naming what did not run.
+Every e2e verification run is a `testing` record titled `Verification — <slug>`, from the verifier's draft (or the main agent's own, for `fyr verify` / behavioural / sandbox runs: the release gate counts an e2e/smoke command as run from a verifier's log or `fyr verify` digest), with a `Range reviewed: <range or working tree>` line, `## Status: PASS | FAIL | BLOCKED` (IN PROGRESS only while running), a `Scope:` line, the commands run with their exit status (a main-agent run gives each row as n of N against the row's own pass criterion, and its heading is PASS only when every row met it), and a `## Not examined` section naming what did not run.

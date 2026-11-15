@@ -103,7 +103,7 @@ Before writing a file, check its name, without `.md`, against `^[a-z0-9][a-z0-9-
     - the plan's e2e criteria (`fyr-feature` Step 5) when `who: AI` covers them (a `who: user` or `who: both` e2e check is a closed-set item);
     - `reviewer` over the range's diff (`--code --docs` when an interface, command or deploy step changed), and `security` when a changed path or the plan's Trust boundaries section needs one;
     - the docs check;
-    - `verifier` last over the frozen tree.
+    - `fyr verify` on the frozen tree (and `verifier` last when browser, container, or live local HTTP e2e is owed).
 
     The merged workers' change records are the range's change records. The lead stores the `review` and `testing` records its dispatches drafted, and edits no source, tests or docs: a finding to fix becomes one fix-up worker inside the phase's own `files:` (`<short>-<phase>-fix`), dispatched and merged as in steps 3–7. When the review loop hits its two-round cap, the lead never stops to ask: in-scope trade-offs or accepted `left` items become a dated `D-row` (`by: lead`) and an entry in the review's `## Outcome`, while any finding outside every phase's scope or needing the closed set goes to the closing handoff's `Next Steps`. When every box of the plan is `[x]` or `[-]` and no fix or blocked phase remains, close the plan (`fyr record edit <PLAN-ID> --body-file <file>`) and clear `TODO.md` Now (`fyr-feature` Step 6), then commit by name, run `check-trailers.sh`, and push.
 12. **End the loop** with the lead's handoff (the `fyr-handoff` skill). Its Next Steps name:

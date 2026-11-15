@@ -23,6 +23,10 @@
 //	fyr models      the live agy model catalog and role picks
 //	fyr eval        run behavioural rows against the CLI
 //	fyr work        run Kickoffs as agy workers (in docker when ready, else host)
+//	fyr verify      run gofmt, go vet, go test -race, check and write stamp
+//	fyr gate        run lease, numstat, secret and trailer checks on a diff
+//	fyr land        gate, squash-verify in worktree, ff main and delete branch
+//	fyr close       write one handoff record embedding the fresh verify stamp
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr git-check   read-only post-dispatch git status, log and tag check
 //	fyr version     print the build version

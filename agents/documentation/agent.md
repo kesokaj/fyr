@@ -1,6 +1,6 @@
 ---
 name: documentation
-description: "Maintains the how-it-works docs (README, SDD.md and TDD.md, the project AGENTS.md setup and deploy sections, and the spec, guide and deploy records: before dispatch the main thread writes each record's body with fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md, the agent edits that file in place, and the main thread stores it back with fyr record edit <ID> --body-file) and returns what it updated. Dispatch when behavior, interfaces, the plan, or a deploy path changed and the edit is over 30 lines (the main agent writes smaller ones). Never triggered by internal-only refactors, and never writes changelogs (those belong to changelog) or ADRs (the main agent's) or TODO.md (the main agent keeps it)."
+description: "Maintains the how-it-works docs (README, SDD.md and TDD.md, the project AGENTS.md setup and deploy sections, and the spec, guide and deploy records: before dispatch the main thread writes each record's body with fyr record get <ID> --out .agents/scratch/agents/records/<ID>.md, the agent edits that file in place, and the main thread stores it back with fyr record edit <ID> --body-file) and returns what it updated. Dispatch when behavior, interfaces, the plan, or a deploy path changed and the edit is over 30 lines (the main agent writes smaller ones). Never triggered by internal-only refactors, and never writes `change` records, `adr` records, or TODO.md (the main agent keeps those)."
 subagent: true
 mainAgent: false
 model: flash
@@ -44,9 +44,9 @@ AGENTS.md                             # root file: the project's Setup commands 
 
 `<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `fyr-spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
 
-**Shared seam:** `GUIDE-testing` is the one record you share, with the `verifier`: it drafts the guide when it finds it absent or still the `fyr-init-project` template, and when the steps change; otherwise the guide is yours, and the verifier's `testing` records are its own.
+**Shared seam:** `GUIDE-testing` is the one record you share, with the `verifier`: it drafts the e2e/smoke sections when it finds the guide absent or still the `fyr-init-project` template, and when the e2e/smoke steps change; otherwise the guide is yours, and the verifier's `testing` records are its own.
 
-**Not your job:** `change` records belong to the `changelog` subagent; `adr` records and `TODO.md` belong to the main agent; doc-comments in source are the author's (`/fyr-review --docs` catches stale ones). If a change needs both explanatory docs *and* a changelog entry, do the explanatory part and note that the `changelog` subagent should record the change.
+**Not your job:** `change` records, `adr` records, and `TODO.md` belong to the main agent; doc-comments in source are the author's (`/fyr-review --docs` catches stale ones). If a change needs both explanatory docs *and* a change record, do the explanatory part and let the main agent write the `change` record.
 
 ## Rules
 

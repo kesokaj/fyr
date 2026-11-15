@@ -2,7 +2,7 @@
 
 **`fyr`** is an open-source agentic coding harness and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 9 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 ## Why it exists
 
@@ -88,7 +88,7 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 |---|---|
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
 | **Skills (43)** | `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`; auto-loaded by description or invoked as `/name` |
-| **Subagents (9)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`bugs`, `changelog`, `documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `triage`, `verifier`) |
+| **Subagents (6)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `verifier`) |
 | **Rules (5)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `fyr-features`, `session-sizing`) |
 | **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`) with `< 250 ms` fail-open timeout |
 | **Binary (`fyr`)** | `~/.local/bin/fyr` + local stores under `~/.config/fyr/` (`brain.db`, `metrics.db`, `search.db`, `state.json`, `0700` mode) |
@@ -259,6 +259,10 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 | `fyr auto on` / `off` / `status` / `run` | The switch of the hourly idle-time run. A run reads its gates, runs the free checks on idle, clean projects, files a global `review` record when the findings changed, and past level `observe` starts at most one M18 worker or eval re-run per run (up to 4 a day, 30m each, in docker when `fyr work`'s docker preflight passes, else host) from a fixed-template Kickoff in `~/.config/fyr/auto/kickoffs/`; for an applied class's `PASS` (or a `harness-edit` at level `harness` that passes the eval gate at `k=3` on target, regression and held-out rows within 24 eval sessions), `fyr` squash-merges `work/<name>` in a detached worktree, runs the base tree's `# auto: test` lines and `fyr check`, fast-forwards the project's local branch by one commit and deletes `work/<name>`, never pushing and never installing into a real home (`install pending`) |
 | `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
 | `fyr git-check` | Runs the three post-dispatch git checks (`git status --short --untracked-files=all`, `git log --branches --not --remotes --oneline`, `git tag`) in one read-only call |
+| `fyr verify` | Runs `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, guarding against mid-run tree mutation and writing `.agents/scratch/verify.stamp` (`0600`) |
+| `fyr gate [--base REF] [--lease GLOB] [--lease-file FILE] [--max-files N] [--max-lines N] <worktree>` | Deterministic worktree gate: `Files:` lease globs, symlink/gitlink modes, secret filenames, numstat caps, added-line secret scan, and commit trailers |
+| `fyr land [--lease GLOB] [--lease-file FILE] [--message TEXT] [--max-files N] [--max-lines N] [--timeout D] <branch>` | Gates `<branch>`, squash-merges and runs `fyr verify` in a detached scratch worktree, fast-forwards the clean base branch, deletes `<branch>`, and refreshes `verify.stamp` |
+| `fyr close --title TEXT [--body-file FILE]` | Stores an immutable `handoff` record embedding `## Verification Digest` from a fresh `verify.stamp` without mutating or deleting prior records |
 | `fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]` | Lists the live `agy models` + `agy changelog` catalog cached in `~/.config/fyr/models.json` (`active`, `new`, `gone`, per-model profiles, fallback notes, and `work_waves`/eval pass-rate evidence), explains a model's profile (`--explain`), refreshes on `--refresh`, and resolves evidence-judged role picks (`planner`, `builder`, `judge`, `reviewer`, `verifier`, `mechanical`) without hardcoded model IDs |
 | `fyr eval --home DIR [--runs N] [--parallel N] [--acp] [--suite-file PATH] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25; up to `--parallel N` trials at once, default 1, `kind: benchmark` rows at 1), each trial in its own sandbox (or warm multi-turn `agy acp --stdio --process-per-session` session when `--acp` is set or the row ID starts with `acp-`) and stored as a trial in the metrics store |
 | `fyr work [--timeout D] [--model M] [--max-workers N] [--workers N] [--ram GB] [--cpu N] [--disk GB] [--keep] [--acp] [--status-md FILE] [--runner auto\|host\|docker] [--image REF] [--agy-linux PATH] <kickoff-file>...`, `fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]`, `fyr work --check [--runner auto\|host\|docker] [--image REF] [--agy-linux PATH]`, `fyr work --status [--json]`, `fyr work --kill <stamp>` | Each Kickoff run as an unattended worker in its own sandbox (`~/.config/fyr/sandbox/<project>/<stamp>/<name>/`), on a clone of this checkout with no remote, up to N at once across the machine (default 8, at most 32); a Kickoff's `Model:` line overrides `--model` for that worker, optional `Base-Check:` runs a falsifiability command that must fail on `HEAD` before build and exit `0` after build, optional `Judge:` (and `Judge-Model:`) runs an isolated cross-family post-build judge over `git diff base..HEAD` and verification output (writing `.agents/scratch/work/<stamp>/<name>/review-judge.md`), and every named `Model:`, `Judge-Model:` or `--model` is checked against `agy models` before anything is made; each branch is fetched back by path and a result contract of at most 39 lines per worker is printed, in file order; the stamp line and each result line name the runner and its reason (`runner docker` or `runner host (<reason>)`); `--runner auto`, the default, picks docker when the docker preflight passes and the host otherwise, its reason saying why, `--runner docker` refuses rather than fall back, and `--image` and `--agy-linux` are refused with `--runner host` (ADR-504); the docker runner runs each worker's agy session in a hardened container of `--image` (default `fyr-work:local`, built automatically from the embedded `docker/work.Dockerfile` when the Docker daemon is running, or by the build line in `SPEC-fyr-work` § `--runner docker`) with a linux agy (`--agy-linux`, or `~/.config/fyr/work/agy-linux`, or the host's agy on linux) and syncs the macOS Keychain login to `~/.config/fyr/work/antigravity-oauth-token` when needed and runs any Base-Check: in a --network none container without token or agy mounts while fetch, scope, Judge: and record delivery stay on the host; every run emits `work: [<name>]` progress lines to stderr, writes `~/.config/fyr/work/<stamp>/status.json`, and when `--status-md FILE` is set writes a live wave Markdown status file during the run, while `--acp` drives host sessions over `agy acp --stdio --process-per-session` (`session.id` and `events.jsonl`) with per-step and subagent progress lines (refused with `--runner docker`, and selecting `runner host (--acp)` under `--runner auto`); `config` prints or persists the worker queue and sandbox resource limits (`workers=8`, `ram=8g`, `cpu=2`, `disk=10g`) in `~/.config/fyr/work/config.json`; `--check` prints the runner a run picks for the same flags, `work: runner docker`, `work: runner docker (fyr-work:local will be built first)` or `work: runner host (<reason>)`, and exits 0 without building an image or making a sandbox, network or slot: a missing or stale default image that a run builds first reads as docker, saying so (ADR-504a); under `--runner docker` it prints the preflight's refusal and exits 2; `--status` prints the newest wave's worker status board and live transcript telemetry from `status.json`; `--kill` ends the run whose stamp line printed `<stamp>` and, with docker, removes that stamp's containers; it never pushes or merges |
@@ -282,26 +286,23 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 | **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` (routes to pinned Google skills under `skills/google-catalog/catalog/`) |
 | **Vendored & forks** | `grilling`, `codebase-design`, `discover-skills` (forked from `find-skills`), `fyr-docs` (forked from `docs-writer`), `fyr-triage` (forked from `triage`), `bash` wizard, and `gke-basics`; provenance in `skills/VENDORED.md` |
 
-### Subagents (9)
+### Subagents (6)
 
 | Subagent | Default Model | Role |
 |---|---|---|
 | `explorer` | `flash` | Read-only codebase reconnaissance (10+ files) drafted under `.agents/scratch/agents/` and stored as a `plan` record |
-| `triage` | `flash` | Read-only queue, issue, and PR triage (redundancy + `PRD.md`/`ADR` rejection checks and Agent Brief drafts) stored as a closed `plan` record |
 | `reviewer` | inherit | Independent severity-ranked code, docs, and prompt review drafted under `.agents/scratch/agents/` (`review` record) |
 | `security` | inherit | Defensive security audit of diffs touching auth, crypto, secrets, IAM, input parsing, frontmatter allowlists, or dependencies (inherits session model) |
-| `verifier` | inherit | Runs project test tiers (`go test -race`, vet, lint, e2e) on the frozen working tree and drafts a `testing` record |
+| `verifier` | inherit | Runs browser e2e, container build/smoke, and live local HTTP smoke (`fyr verify` runs unit, vet, and `fyr check`) on the live tree and drafts a `testing` record |
 | `documentation` | `flash` | Maintains living docs (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) when changes exceed 30 lines |
-| `changelog` | `flash` | Drafts structured `change` records from `git log --stat` when delegated |
-| `bugs` | inherit | Drafts `bug` records (symptom, repro, root cause, fix, prevention rule) when delegated |
 | `dreamer` | inherit | Consolidation judgement for `/fyr-retro` and `/fyr-distill`, proposing graduated rules or skills from trail evidence |
 
 ## Repository Layout
 
 ```
 PRD.md        what the harness is for and what must never drift (R0–R10)
-SDD.md        how the parts fit: components M1–M19, the main flows, the decisions
-TDD.md        how each part is built: sections T1–T19 and their tests
+SDD.md        how the parts fit: components M1–M20, the main flows, the decisions
+TDD.md        how each part is built: sections T1–T20 and their tests
 TODO.md       Now, Next and Backlog; the active plan record wins
 AGENTS.md     the rules of this repository, for agents
 LICENSE       MIT License

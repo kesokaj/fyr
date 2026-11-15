@@ -377,7 +377,7 @@ func suggestSessionModelNudge(sc *scope, convID string, genID, turnNum int, mode
 
 func isModelGuardedSubagent(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "reviewer", "verifier", "security", "dreamer", "bugs":
+	case "reviewer", "verifier", "security", "dreamer":
 		return true
 	default:
 		return false

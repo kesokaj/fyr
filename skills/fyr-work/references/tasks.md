@@ -47,9 +47,9 @@ A task is blocked when it needs the closed set, failed twice, was refused by the
 
 Run the Definition of Done once over the whole range, from the first wave's base to HEAD, as for any Task:
 
+- `fyr verify` (and `verifier` last when browser, container, or live local HTTP e2e is owed);
 - `reviewer` over the range's diff when it has 50+ lines or 5+ files, and `security` when a changed path needs one;
-- the docs check;
-- the `verifier` last.
+- the docs check.
 
 The workers' change records are the range's change records. The lead stores the review and testing records its dispatches drafted, and edits no source, tests or docs: a finding to fix becomes one fix-up worker inside the task's own `Files:` (`<name>-fix`), dispatched and merged as in section 5. When the review loop hits its two-round cap, the lead never stops to ask: in-scope trade-offs go under `## Key Decisions` (`by: lead`) and in the review's `## Outcome`, while any finding outside every task's scope or needing the closed set goes to the closing handoff's `Next Steps`.
 

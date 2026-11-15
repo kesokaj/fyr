@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-11 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-15 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -25,15 +25,15 @@ flowchart LR
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M19) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M20) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
 | M1 | `context/`, `rules/` | The global context and the always-on rules (including feature routing in `rules/fyr-features.md`, ADR-518), one size-pinned block in Antigravity's rules directory | R0, R1, R2, R3 |
 | M2 | `skills/`, `commands/` | Procedures loaded when a description matches, typed as `/name`; vendored skills and the Google catalog kept verbatim | R2, R5 |
-| M3 | `agents/` | Subagents in Antigravity's `agent.md` format, installed as written | R1, R5 |
+| M3 | `agents/` | The six subagents (`reviewer`, `security`, `verifier`, `explorer`, `documentation`, `dreamer`) in Antigravity's `agent.md` format, installed as written | R1, R5 |
 | M4 | `embed.go` | The five content directories and `docker/` built into the binary, pinned both ways to what git tracks, so a release binary carries the harness and the worker image files | R8, R9 |
-| M5 | `cmd/fyr` | The verbs, their flags (including global `-C` / `--dir`, `--limit`, `--json` and `--json-in`), the live model catalog command (`fyr models`, `--explain`, `planner` role, `agy changelog` enrichment, fed by M10's `Store.ModelEvidence` and M18's `catalog.go`), and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
+| M5 | `cmd/fyr` | The verbs (`verify`, `gate`, `land`, and `close` through M20 included), their flags (including global `-C` / `--dir`, `--limit`, `--json` and `--json-in`), the live model catalog command (`fyr models`, `--explain`, `planner` role, `agy changelog` enrichment, fed by M10's `Store.ModelEvidence` and M18's `catalog.go`), and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where (including `~/.gemini/config/hooks.json`), the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
 | M7 | `internal/brain` | The brain store, `fyr record` and `fyr resume`: every project's trail records and the global ones, with 1-call `stdin` headers (`ParseRecordStdin`, `ParseMemoryStdin`) and `--json-in` (`stdin_doc.go`), on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume | R0, R4, R7 |
 | M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text and pure-Go AST symbol/Markdown-heading reference graph index over files (`schemaVersion = "6"`), tiered context slicing (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), persistent hash-keyed session read-deduplication ledger with overlapping-edit invalidation and D7 skeleton-first clamp (`start_line = -4` session sentinels, `-5` unranged-clamp sentinel, emitting `[UNCHANGED]`/`[MODIFIED]`/`[CLAMPED]` + 2-space `LedgerNotice` JSON), passive co-activity, stateful `< 25 ms` prompt vetting with FTS5 0-pivot fallback (`hook_fts_fallback.go`, `--vet`: 9-mode intent classifier, `0..100` 6-anchor `VetScore` with prior-turn `vet_history` carry-forward, 3-turn skill deduplication, actionable `SKILL.md` body digests, omitting `[VET_IMPROVED_PROMPT]` when `Score >= 80` without conflicts/`VET_FIRST`, `< 2 ms` synthesis with advisory `route:` feature routing in `vet_route.go`, ADR-518, ADR-521, cryptographic data fence, `[FYR_TURN_CONTRACT]` with compact 2-space JSON `status_line`), and hard `200 ms` fail-open CLI hook handlers + `~/.config/fyr/no-hooks` switch (`--hook session-start\|pre-invocation\|pre-tool-use\|stop` in `~/.gemini/config/hooks.json`: `<= 1,500 B` `SessionStart` capsule in `hook_session_start.go`, `<= 950 B` Hop-0 compact graph map capsule in `slice_compact.go`, single-pass memoized `turnBrainCache`, `PreInvocation` emoji-free `PreInvocationBanner` JSON keeping `Metadata` `nil` per `BUG-523` and emitting `{}` with zero model tokens on un-enriched `PASS_THROUGH` turns + exact `model`/`thinking` via `telemetry_model.go`, `PreToolUse` `overwrite` guarding `invoke_subagent`, `run_workflow` (`hook_workflow.go`), and prefix-routed `swarm` with 20%/30% quota fallback, session-scoped pure-Go `verify.stamp` `Stop` check (`hook_git_index.go`, `hook_stop_stamp.go`), ADR-520, and `telemetry_process.go` writing `<appDataDir>/brain/<conv-id>/fyr-process.md` Hybrid Example A `ProcessTelemetry` JSON); the dream's read-only reads | R0, R3, R4 |
@@ -187,14 +187,14 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 
 | Requirement | Components |
 |---|---|
-| R0 | M1, M7, M8, M9, M10, M11, M14, M19 |
+| R0 | M1, M7, M8, M9, M10, M11, M14, M19, M20 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
-| R3 | M1, M6, M8, M11, M12, M19 |
-| R4 | M5, M6, M7, M8, M10, M19 |
+| R3 | M1, M6, M8, M11, M12, M19, M20 |
+| R4 | M5, M6, M7, M8, M10, M19, M20 |
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M17 |
-| R7 | M7, M9, M15 |
+| R7 | M7, M9, M15, M20 |
 | R8 | M4, M5, M11, M12, M13, M17, M18, M19 |
 | R9 | M4, M5, M6, M19 |
 | R10 | M5, M6, M19 |
