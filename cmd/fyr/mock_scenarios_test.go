@@ -189,8 +189,8 @@ func verifyLedgerTurn3(t *testing.T, proj, home, dbPath string) {
 	if d := runHook[search.HookDecisionOutput](t, home, "pre-tool-use", readSvc); d.Decision != "deny" || !strings.Contains(d.Reason, "[UNCHANGED]") {
 		t.Fatalf("duplicate read not denied: %+v", d)
 	}
-	if d := runHook[search.HookDecisionOutput](t, home, "pre-tool-use", readSvc); d.Decision != "allow" {
-		t.Fatalf("consume-on-hit retry should allow: %+v", d)
+	if d := runHook[search.HookDecisionOutput](t, home, "pre-tool-use", readSvc); d.Decision != "deny" || !strings.Contains(d.Reason, "[UNCHANGED]") {
+		t.Fatalf("persistent hash-keyed retry should stay denied: %+v", d)
 	}
 	for _, rel := range []string{"internal/entry/store.go", "internal/entry/handler.go", "internal/entry/service.go"} {
 		_ = runHook[search.HookDecisionOutput](t, home, "pre-tool-use", search.HookInput{ConversationID: "conv-ledger", WorkspacePaths: []string{proj}, ToolCall: search.HookToolCall{Name: "read_file", Args: map[string]any{"Path": rel}}})

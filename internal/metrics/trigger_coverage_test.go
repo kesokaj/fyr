@@ -135,13 +135,13 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 	sqliteT(t, filepath.Join(rootA, ".agents", "scratch", "search.db"),
 		`INSERT INTO vet_history VALUES ('S_LEAD', 1, 'FEATURE', 'PROCEED', 95, 'p', 'ip', 'target', '', 'fyr-feature', 'lead.go', 1791453600)`,
 	)
-	for i := 0; i < 5; i++ {
+	// Persistent hash-keyed blocks: 1st call allows, next 2 calls deny -> 2 blocks per file (4 total blocks).
+	for i := 0; i < 3; i++ {
 		if _, err := search.CheckAndRecordRead(rootA, "S_LEAD", "lead.go", 1, 1, 1); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Note: consume-on-hit allows 1st, denies 2nd, allows 3rd, denies 4th, allows 5th -> 2 blocks; add 2 more on hand1.go -> 4 total blocks.
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 3; i++ {
 		if _, err := search.CheckAndRecordRead(rootA, "S_LEAD", "hand1.go", 1, 1, 1); err != nil {
 			t.Fatal(err)
 		}

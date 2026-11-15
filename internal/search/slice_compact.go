@@ -148,9 +148,12 @@ func compactSig(s string, maxLen int) string {
 
 func extractCompactCapsuleMeta(capsule string) (pivots []CapsulePivot, files []string, symCount int) {
 	pivots = ParseCapsulePivots(capsule)
-	fileSet := map[string]bool{}
+	hop0Set := map[string]bool{}
+	hop1Set := map[string]bool{}
 	for _, line := range strings.Split(capsule, "\n") {
-		if !strings.HasPrefix(line, "[Hop 0] ") && !strings.HasPrefix(line, "[Hop 1] ") {
+		isHop0 := strings.HasPrefix(line, "[Hop 0] ")
+		isHop1 := strings.HasPrefix(line, "[Hop 1] ")
+		if !isHop0 && !isHop1 {
 			continue
 		}
 		symCount++
@@ -158,10 +161,17 @@ func extractCompactCapsuleMeta(capsule string) (pivots []CapsulePivot, files []s
 		if spec, _, ok := strings.Cut(rest, " "); ok {
 			if colon := strings.LastIndexByte(spec, ':'); colon > 0 {
 				if p := spec[:colon]; p != "" {
-					fileSet[p] = true
+					if isHop0 {
+						hop0Set[p] = true
+					} else {
+						hop1Set[p] = true
+					}
 				}
 			}
 		}
 	}
-	return pivots, sortedMapKeys(fileSet), symCount
+	if len(hop0Set) > 0 {
+		return pivots, sortedMapKeys(hop0Set), symCount
+	}
+	return pivots, sortedMapKeys(hop1Set), symCount
 }

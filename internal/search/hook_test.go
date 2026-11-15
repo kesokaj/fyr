@@ -129,7 +129,7 @@ func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
 		t.Errorf("expected 1st read after capsule pre-seed to be denied with [UNCHANGED], got: %+v", dec1)
 	}
 
-	// Retry is allowed because stamp was consumed on hit.
+	// Retry remains denied with [UNCHANGED] because the persistent hash-keyed stamp stays active.
 	var readOut2 bytes.Buffer
 	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(readReq)}, &readOut2); err != nil {
 		t.Fatalf("pre-tool-use 2: %v", err)
@@ -138,8 +138,8 @@ func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
 	if err := json.Unmarshal(readOut2.Bytes(), &dec2); err != nil {
 		t.Fatalf("unmarshal dec2: %v", err)
 	}
-	if dec2.Decision != "allow" {
-		t.Errorf("expected retry after consume-on-hit to be allowed, got: %+v", dec2)
+	if dec2.Decision != "deny" || !strings.Contains(dec2.Reason, "[UNCHANGED]") {
+		t.Errorf("expected persistent retry with unchanged sha256 to be denied, got: %+v", dec2)
 	}
 }
 
@@ -433,7 +433,7 @@ func TestRunHookPreToolUseAndStop(t *testing.T) {
 	if d := readCall(); d.Decision != "allow" {
 		t.Fatalf("1st read_file want allow, got %+v", d)
 	}
-	// 2. Bash single-file cat on already-read service.go is denied with [UNCHANGED] (and consumes stamp).
+	// 2. Bash single-file cat on already-read service.go is denied with [UNCHANGED]; persistent stamp stays active.
 	bashReq, _ := json.Marshal(map[string]any{"conversationId": "conv-tools", "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": "cat service.go"}}})
 	var bashOut bytes.Buffer
 	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(bashReq)}, &bashOut); err != nil {
@@ -447,9 +447,9 @@ func TestRunHookPreToolUseAndStop(t *testing.T) {
 		t.Errorf("expected cat service.go to be denied after read_file, got %+v", bashDec)
 	}
 
-	// 3. Re-read service.go so stamp is active, then modify service.go on disk and check edit_file pre-write hash guard.
-	if d := readCall(); d.Decision != "allow" {
-		t.Fatalf("re-read want allow, got %+v", d)
+	// 3. Re-read remains blocked while sha256 matches, then modify service.go on disk and check edit_file pre-write hash guard.
+	if d := readCall(); d.Decision != "deny" {
+		t.Fatalf("re-read with persistent stamp want deny, got %+v", d)
 	}
 	writeFile(t, dir, "service.go", "package sample\nfunc ReconcileProjectIndex(root string) error { return nil }\n")
 	editReq, _ := json.Marshal(map[string]any{"conversationId": "conv-tools", "workspacePaths": []string{dir}, "toolCall": map[string]any{"name": "edit_file", "args": map[string]any{"Path": "service.go"}}})

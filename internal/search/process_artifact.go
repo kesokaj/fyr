@@ -105,7 +105,7 @@ func inferProcessStage(turnNum int, res VetResult) string {
 }
 
 func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
-	if hooksDisabled(dir) {
+	if hooksDisabledForHome(home, dir) {
 		return
 	}
 	target := resolveProcessArtifactPath(in)
@@ -116,8 +116,8 @@ func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, 
 	if sc != nil && sc.st != nil {
 		rows, _ = sc.st.listConversationVetHistory(in.ConversationID, 20)
 	} else {
-		root, err := checkoutRoot(dir)
-		if err != nil {
+		root, _, ok := findGitRootFast(dir)
+		if !ok {
 			return
 		}
 		st, err := openStore(projectDB(root), io.Discard)

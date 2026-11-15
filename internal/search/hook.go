@@ -82,40 +82,15 @@ func normalizeHookEvent(raw string) string {
 
 // RunHook executes the Antigravity lifecycle hook named in o.Hook, reading JSON
 // from in and writing the hook response JSON to out. It always fails open (returns nil).
-func RunHook(o Options, in io.Reader, out io.Writer) (err error) {
+func RunHook(o Options, in io.Reader, out io.Writer) error {
 	event := normalizeHookEvent(o.Hook)
 	if event == "" {
 		return usageError{"search: --hook must be one of: pre-invocation pre-tool-use stop; see fyr help search"}
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			if event == "pre-invocation" {
-				_ = writeStoreDegraded(out, fmt.Errorf("panic: %v", r))
-			} else {
-				_ = writeDecision(out, "allow", "")
-			}
-			err = nil
-		}
-	}()
-	if in == nil {
-		in = os.Stdin
+	if hooksDisabledGlobal(o.Home) {
+		return writeHookAllowFallback(event, out)
 	}
-	input, decErr := decodeHookInput(o, in)
-	dir := resolveHookDir(o, input)
-	if decErr != nil || hooksDisabled(dir) {
-		if event == "pre-invocation" {
-			return writePreInvocation(out, "", "")
-		}
-		return writeDecision(out, "allow", "")
-	}
-	switch event {
-	case "pre-invocation":
-		return handlePreInvocation(o, dir, input, out)
-	case "pre-tool-use":
-		return handlePreToolUse(o.Home, dir, input, out)
-	default:
-		return handleStopHook(o, dir, input, out)
-	}
+	return runHookWithDeadline(o, event, in, out)
 }
 
 func decodeHookInput(o Options, in io.Reader) (HookInput, error) {
@@ -136,7 +111,7 @@ func resolveHookDir(o Options, in HookInput) string {
 		if firstWP == "" {
 			firstWP = p
 		}
-		if _, err := checkoutRoot(p); err == nil {
+		if _, _, ok := findGitRootFast(p); ok {
 			return p
 		}
 	}
@@ -224,8 +199,8 @@ func prepareHookScope(dir string) (*scope, string, bool, error) {
 	if err := ensureHookProjectReady(dir); err != nil {
 		return nil, "", false, err
 	}
-	root, err := checkoutRoot(dir)
-	if err != nil {
+	root, _, ok := findGitRootFast(dir)
+	if !ok {
 		return nil, "", false, errNotCheckout
 	}
 	if err := guardProject(root); err != nil {
@@ -328,6 +303,9 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	hits, _ := countMatchingSymbols(g, prompt)
 	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	ranked, confident := rankAndCheckConfidence(g, prompt, active)
+	if !confident {
+		ranked, confident = sc.ftsFallbackRanked(g, prompt, active)
+	}
 	if !confident && !state.Compacted {
 		return SliceResult{SymbolHits: hits, Files: nil}
 	}
@@ -387,6 +365,9 @@ func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) 
 	}
 	matched := map[int]bool{}
 	for i, s := range g.syms {
+		if s.Kind == "heading" {
+			continue
+		}
 		if matchesPromptTerms(s, longTerms) {
 			matched[i] = true
 		}
@@ -436,11 +417,11 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 func handlePreToolUse(home, dir string, in HookInput, out io.Writer) error {
 	switch normalizeHookToolName(in.ToolCall.Name) {
 	case "read_file":
-		return handlePreToolRead(dir, in, out)
+		return handlePreToolRead(home, dir, in, out)
 	case "run_command":
-		return handlePreToolBash(dir, in, out)
+		return handlePreToolBash(home, dir, in, out)
 	case "write_or_edit":
-		return handlePreToolWrite(dir, in, out)
+		return handlePreToolWrite(home, dir, in, out)
 	case "invoke_subagent", "invokesubagent":
 		return handlePreToolSubagent(in, out)
 	case "swarm":
@@ -450,68 +431,57 @@ func handlePreToolUse(home, dir string, in HookInput, out io.Writer) error {
 	}
 }
 
-func handlePreToolRead(dir string, in HookInput, out io.Writer) error {
+func handlePreToolRead(home, dir string, in HookInput, out io.Writer) error {
 	args := in.ToolCall.Args
 	target := extractToolTargetPath(args)
 	toolDir := resolveToolProjectDir(dir, in, target)
-	if target == "" || (toolDir != dir && hooksDisabled(toolDir)) {
+	if target == "" || hooksDisabledForHome(home, toolDir) {
 		return writeDecision(out, "allow", "")
+	}
+	if clampDec, clamped := checkUnrangedClamp(dir, home, toolDir, in.ConversationID, target, args); clamped {
+		return writeDecision(out, "deny", clampDec.Reason)
 	}
 	start, end, record := clampReadRange(toolDir, target, args)
 	if !record {
 		return writeDecision(out, "allow", "")
 	}
-	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
-		return CheckAndRecordRead(toolDir, in.ConversationID, target, start, end, 0)
-	})
+	dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, target, start, end, 0)
 	if err == nil && !dec.Allowed {
 		return writeDecision(out, "deny", dec.Reason)
 	}
 	return writeDecision(out, "allow", "")
 }
 
-func handlePreToolBash(dir string, in HookInput, out io.Writer) error {
+func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
 	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
 	bfr, ok := ParseBashFileRead(cmd)
 	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
-	if !ok || (toolDir != dir && hooksDisabled(toolDir)) {
+	if !ok || hooksDisabledForHome(home, toolDir) {
 		return writeDecision(out, "allow", "")
 	}
-	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
-		return CheckAndRecordRead(toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
-	})
+	dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
 	if err == nil && !dec.Allowed {
 		return writeDecision(out, "deny", dec.Reason)
 	}
 	return writeDecision(out, "allow", "")
 }
 
-func handlePreToolWrite(dir string, in HookInput, out io.Writer) error {
+func handlePreToolWrite(home, dir string, in HookInput, out io.Writer) error {
 	target := extractToolTargetPath(in.ToolCall.Args)
 	toolDir := resolveToolProjectDir(dir, in, target)
-	if target == "" || (toolDir != dir && hooksDisabled(toolDir)) {
+	if target == "" || hooksDisabledForHome(home, toolDir) {
 		return writeDecision(out, "allow", "")
 	}
-	dec, err := checkLedgerWithIgnoreRetry(toolDir, func() (ReadDecision, error) {
-		return CheckPreWriteHash(toolDir, in.ConversationID, target)
-	})
+	dec, err := CheckPreWriteHashWithEdit(dir, home, toolDir, in.ConversationID, target, in.ToolCall.Args)
 	if err == nil && !dec.Allowed {
 		return writeDecision(out, "deny", dec.Reason)
 	}
-	if err == nil {
-		if mErr := markPreWriteInLedger(toolDir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
+	if err == nil && toolDir == dir {
+		if mErr := markPreWriteInLedger(dir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
 			return writeDecision(out, "allow", "fyr brain: pre-write ledger unavailable ("+oneLineErr(mErr)+")")
 		}
 	}
 	return writeDecision(out, "allow", "")
-}
-
-func checkLedgerWithIgnoreRetry(dir string, fn func() (ReadDecision, error)) (ReadDecision, error) {
-	dec, err := fn()
-	if errors.Is(err, errNotIgnored) && ensureExistingCheckoutIgnored(dir) {
-		return fn()
-	}
-	return dec, err
 }
 
 func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {

@@ -203,7 +203,7 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 	)
 
 	// Initialize rootA as a git checkout, index it via internal/search, seed vet_history,
-	// and exercise real search.CheckAndRecordRead allow + consume-on-hit blocks.
+	// and exercise real search.CheckAndRecordRead allow + persistent hash-keyed blocks.
 	if out, err := exec.Command("git", "-C", rootA, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init rootA: %v\n%s", err, out)
 	}
@@ -224,8 +224,8 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 		`INSERT INTO vet_history VALUES ('C_ALPHA', 1, 'FEATURE', 'VET_FIRST', 40, 'design `+canary+`', 'improved `+canary+`', 'target', 'scope', 'fyr-feature,golang', 'internal/a.go,internal/b.go', 1791367200)`,
 		`INSERT INTO vet_history VALUES ('C_ALPHA', 2, 'TASK', 'PROCEED', 100, '  ! bypass `+canary+`', '', 'target,goal', '', 'golang', 'internal/a.go', 1791367260)`,
 	)
-	// Turn 1: 2 consumed read-ledger blocks on a.go (allow -> deny -> allow -> deny), plus 1 unrepeated read on b.go.
-	for i, wantAllow := range []bool{true, false, true, false} {
+	// Turn 1: 2 persistent read-ledger blocks on a.go (allow -> deny -> deny), plus 1 unrepeated read on b.go.
+	for i, wantAllow := range []bool{true, false, false} {
 		dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "a.go", 1, 3, 1)
 		if err != nil || dec.Allowed != wantAllow {
 			t.Fatalf("turn 1 a.go call %d: Allowed=%v err=%v, want Allowed=%v", i+1, dec.Allowed, err, wantAllow)
@@ -234,7 +234,7 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 	if dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "b.go", 1, 3, 1); err != nil || !dec.Allowed {
 		t.Fatalf("turn 1 b.go: Allowed=%v err=%v", dec.Allowed, err)
 	}
-	// Turn 2: 1 consumed read-ledger block on c.go (allow -> deny).
+	// Turn 2: 1 persistent read-ledger block on c.go (allow -> deny).
 	for i, wantAllow := range []bool{true, false} {
 		dec, err := search.CheckAndRecordRead(rootA, "C_ALPHA", "c.go", 1, 3, 2)
 		if err != nil || dec.Allowed != wantAllow {

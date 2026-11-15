@@ -163,7 +163,7 @@ func TestZeroEmojisAndPrettyJSONSurfaces(t *testing.T) {
 	}
 	var lUnch LedgerNotice
 	rawUnch := strings.TrimPrefix(unchanged, "[UNCHANGED]\n")
-	if err := json.Unmarshal([]byte(rawUnch), &lUnch); err != nil || lUnch.Status != "UNCHANGED" || !lUnch.StampConsumed {
+	if err := json.Unmarshal([]byte(rawUnch), &lUnch); err != nil || lUnch.Status != "UNCHANGED" || lUnch.StampConsumed {
 		t.Errorf("invalid UNCHANGED LedgerNotice JSON (%v): %+v", err, lUnch)
 	}
 	if rawUnch != marshalPrettyJSON(lUnch) {

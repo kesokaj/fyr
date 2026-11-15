@@ -19,7 +19,7 @@ func extractSymbolsAndRefs(filePath, text string) ([]symbolRow, []symRefRow) {
 	case ".sh":
 		return extractShSymbols(filePath, text)
 	case ".md":
-		return nil, extractMarkdownDocRefs(text)
+		return extractMarkdownSymbols(filePath, text)
 	}
 	return nil, nil
 }

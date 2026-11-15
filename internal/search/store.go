@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "5"
+const schemaVersion = "6"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.

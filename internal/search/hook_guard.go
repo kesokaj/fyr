@@ -48,7 +48,7 @@ func hooksDisabled(dir string) bool {
 	if _, err := os.Stat(filepath.Join(dir, ".agents", "scratch", "no-hooks")); err == nil {
 		return true
 	}
-	if root, err := checkoutRoot(dir); err == nil {
+	if root, _, ok := findGitRootFast(dir); ok {
 		if _, err := os.Stat(filepath.Join(root, ".agents", "scratch", "no-hooks")); err == nil {
 			return true
 		}
@@ -186,19 +186,21 @@ func checkScratchNoSymlinks(root string) error {
 }
 
 func ensureHookGitCheckout(absDir string) (string, []string, error) {
-	root, err := checkoutRoot(absDir)
-	if err == nil {
+	if isRefusedAutoInitDir(absDir) {
+		return "", nil, fmt.Errorf("search: refusing to auto-initialize system/root directory %s", absDir)
+	}
+	if root, _, ok := findGitRootFast(absDir); ok {
 		if isRefusedAutoInitDir(root) {
 			return "", nil, fmt.Errorf("search: refusing to auto-initialize system/root directory %s", root)
 		}
 		return root, nil, nil
 	}
 	nested := scanNestedGitDirs(absDir, "", 1)
-	if err := trail.Command(absDir, "init", "-q").Run(); err != nil {
+	if err := initMinimalGitRepo(absDir); err != nil {
 		return "", nil, fmt.Errorf("search: git init: %w", err)
 	}
-	root, err = checkoutRoot(absDir)
-	if err != nil {
+	root, _, ok := findGitRootFast(absDir)
+	if !ok {
 		return "", nil, errNotCheckout
 	}
 	return root, nested, nil
@@ -233,6 +235,10 @@ func scanNestedGitDirs(base, rel string, depth int) []string {
 }
 
 func ensureHookScratchIgnored(root string, nested []string) error {
+	_, commonDir, ok := findGitRootFast(root)
+	if ok && len(nested) == 0 && scratchIgnoredFast(root, commonDir) {
+		return nil
+	}
 	ignoreErr := trail.Command(root, "check-ignore", "-q", ".agents/scratch/search.db").Run()
 	if ignoreErr == nil && len(nested) == 0 {
 		return nil
@@ -242,6 +248,9 @@ func ensureHookScratchIgnored(root string, nested []string) error {
 		return fmt.Errorf("search: git check-ignore: %w", ignoreErr)
 	}
 	patterns := append([]string{".agents/scratch/*"}, nested...)
+	if ok {
+		return writePatternsToValidatedExclude(commonDir, patterns)
+	}
 	return appendGitInfoExclude(root, patterns)
 }
 
@@ -250,7 +259,10 @@ func appendGitInfoExclude(root string, patterns []string) error {
 	if err != nil {
 		return err
 	}
-	commonDir := filepath.Clean(strings.TrimSpace(string(out)))
+	return writePatternsToValidatedExclude(filepath.Clean(strings.TrimSpace(string(out))), patterns)
+}
+
+func writePatternsToValidatedExclude(commonDir string, patterns []string) error {
 	if commonDir == "" || !filepath.IsAbs(commonDir) {
 		return fmt.Errorf("search: invalid git common dir %q", commonDir)
 	}
@@ -523,14 +535,14 @@ func resolveToolProjectDir(dir string, _ HookInput, target string) string {
 	if t == "" || !filepath.IsAbs(t) {
 		return dir
 	}
-	if dirRoot, err := checkoutRoot(dir); err == nil {
+	if dirRoot, _, ok := findGitRootFast(dir); ok {
 		canonDir := strings.TrimRight(CanonicalizePath("", dirRoot), "/")
 		canonTarget := CanonicalizePath("", t)
 		if canonDir != "" && (canonTarget == canonDir || strings.HasPrefix(canonTarget, canonDir+"/")) {
 			return dir
 		}
 	}
-	if targetRoot, err := checkoutRoot(filepath.Dir(t)); err == nil && !isRefusedAutoInitDir(targetRoot) {
+	if targetRoot, _, ok := findGitRootFast(filepath.Dir(t)); ok && !isRefusedAutoInitDir(targetRoot) {
 		return targetRoot
 	}
 	return dir
@@ -541,8 +553,8 @@ func ensureExistingCheckoutIgnored(dir string) bool {
 	if err != nil || isRefusedAutoInitDir(absDir) {
 		return false
 	}
-	root, err := checkoutRoot(absDir)
-	if err != nil || isRefusedAutoInitDir(root) {
+	root, _, ok := findGitRootFast(absDir)
+	if !ok || isRefusedAutoInitDir(root) {
 		return false
 	}
 	if checkScratchNoSymlinks(root) != nil {

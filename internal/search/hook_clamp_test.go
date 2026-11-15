@@ -105,8 +105,11 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 	})
 
 	t.Run("800-line-cap-over-46080-bytes", func(t *testing.T) {
+		if dec := callReadHook("conv-lines-big", map[string]any{"Path": "short_big.go"}); dec.Decision != "deny" || !strings.HasPrefix(dec.Reason, "[CLAMPED]\n") {
+			t.Fatalf("1st unranged read of short_big.go: got %+v, want deny [CLAMPED]", dec)
+		}
 		if dec := callReadHook("conv-lines-big", map[string]any{"Path": "short_big.go"}); dec.Decision != "allow" {
-			t.Fatalf("unranged read of short_big.go: got %+v, want allow", dec)
+			t.Fatalf("2nd unranged retry of short_big.go: got %+v, want allow", dec)
 		}
 		if dec := callReadHook("conv-lines-big", map[string]any{"Path": "short_big.go", "StartLine": 801, "EndLine": 900}); dec.Decision != "allow" {
 			t.Fatalf("follow-up read of unread lines 801..900 on >46KB short-line file: got %+v, want allow on 1st attempt", dec)
@@ -117,8 +120,11 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 	})
 
 	t.Run("800-line-cap-under-46080-bytes", func(t *testing.T) {
+		if dec := callReadHook("conv-lines-small", map[string]any{"Path": "under_bytes.go"}); dec.Decision != "deny" || !strings.HasPrefix(dec.Reason, "[CLAMPED]\n") {
+			t.Fatalf("1st unranged read of under_bytes.go: got %+v, want deny [CLAMPED]", dec)
+		}
 		if dec := callReadHook("conv-lines-small", map[string]any{"Path": "under_bytes.go"}); dec.Decision != "allow" {
-			t.Fatalf("unranged read of under_bytes.go: got %+v, want allow", dec)
+			t.Fatalf("2nd unranged retry of under_bytes.go: got %+v, want allow", dec)
 		}
 		if dec := callReadHook("conv-lines-small", map[string]any{"Path": "under_bytes.go", "StartLine": 801, "EndLine": 900}); dec.Decision != "allow" {
 			t.Fatalf("follow-up read of unread lines 801..900 on <=46KB file: got %+v, want allow on 1st attempt", dec)
@@ -187,6 +193,111 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 		}
 		if dec := callReadHook("conv-both", map[string]any{"Path": "med.go", "StartLine": 500, "EndLine": 800}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[UNCHANGED]") {
 			t.Fatalf("re-read of delivered 500..800: got %+v, want deny [UNCHANGED]", dec)
+		}
+	})
+}
+
+func TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+
+	var goSrc strings.Builder
+	goSrc.WriteString("package sample\n\n")
+	for sec := 1; sec <= 25; sec++ {
+		fmt.Fprintf(&goSrc, "func Section%02d() int {\n", sec)
+		for j := 0; j < 22; j++ {
+			fmt.Fprintf(&goSrc, "\t_ = %d\n", sec*100+j)
+		}
+		goSrc.WriteString("\treturn 1\n}\n\n")
+	}
+	writeFile(t, dir, "large.go", goSrc.String())
+
+	var mdSrc strings.Builder
+	mdSrc.WriteString("# Large Design Doc\n\n")
+	for sec := 1; sec <= 25; sec++ {
+		fmt.Fprintf(&mdSrc, "## Part %02d\n\n", sec)
+		for j := 0; j < 22; j++ {
+			fmt.Fprintf(&mdSrc, "- detail line %d for part %02d\n", j, sec)
+		}
+		mdSrc.WriteString("\n")
+	}
+	writeFile(t, dir, "large.md", mdSrc.String())
+
+	callReadHook := func(convID string, args map[string]any) HookDecisionOutput {
+		t.Helper()
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": convID,
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"name": "read_file", "args": args},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("pre-tool-use: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal: %v (raw=%q)", err, out.String())
+		}
+		return dec
+	}
+
+	assertClampedThenRanged := func(conv, file, wantSkel string) {
+		t.Helper()
+		d1 := callReadHook(conv, map[string]any{"Path": file})
+		if d1.Decision != "deny" || len(d1.Overwrite) != 0 || !strings.HasPrefix(d1.Reason, "[CLAMPED]\n") {
+			t.Fatalf("%s unranged = %+v, want deny [CLAMPED] with nil Overwrite", file, d1)
+		}
+		var notice LedgerNotice
+		raw := strings.TrimPrefix(d1.Reason, "[CLAMPED]\n")
+		if err := json.Unmarshal([]byte(raw), &notice); err != nil {
+			t.Fatalf("%s invalid [CLAMPED] JSON: %v\n%s", file, err, raw)
+		}
+		if notice.Status != "CLAMPED" || notice.TotalLines < 600 || len(notice.Skeleton) == 0 || !strings.Contains(strings.Join(notice.Skeleton, "\n"), wantSkel) {
+			t.Fatalf("%s notice = %+v, want Status=CLAMPED TotalLines>=600 Skeleton containing %q", file, notice, wantSkel)
+		}
+		d2 := callReadHook(conv, map[string]any{"Path": file, "StartLine": 1, "EndLine": 120})
+		if d2.Decision != "allow" {
+			t.Fatalf("%s ranged retry 1..120 = %+v, want allow", file, d2)
+		}
+		d3 := callReadHook(conv, map[string]any{"Path": file, "StartLine": 1, "EndLine": 120})
+		if d3.Decision != "deny" || !strings.HasPrefix(d3.Reason, "[UNCHANGED]\n") {
+			t.Fatalf("%s duplicate ranged 1..120 = %+v, want deny [UNCHANGED]", file, d3)
+		}
+	}
+
+	assertClampedThenRanged("conv-clamp-go", "large.go", "func Section01")
+	assertClampedThenRanged("conv-clamp-md", "large.md", "## Part 01")
+
+	// Regression tests for review & security findings on hasExplicitReadRange and buildClampSkeleton redaction.
+	t.Run("range_edge_cases_and_secret_redaction", func(t *testing.T) {
+		var secretEnv strings.Builder
+		secretToken := strings.Join([]string{"gh", "p_", "1234567890abcdef1234567890abcdef1234"}, "")
+		for i := 0; i < 420; i++ {
+			if i%35 == 0 {
+				fmt.Fprintf(&secretEnv, "GITHUB_TOKEN=%s\n", secretToken)
+			} else {
+				fmt.Fprintf(&secretEnv, "APP_SETTING_%03d=value_%03d\n", i, i)
+			}
+		}
+		writeFile(t, dir, "secrets.env", secretEnv.String())
+
+		// Unbounded StartLine=1 without EndLine/Limit/ByteOffset must clamp, and sampled secrets must be redacted.
+		dUnbounded := callReadHook("conv-clamp-start1", map[string]any{"Path": "secrets.env", "StartLine": 1})
+		if dUnbounded.Decision != "deny" || !strings.HasPrefix(dUnbounded.Reason, "[CLAMPED]\n") {
+			t.Fatalf("StartLine=1 without EndLine/Limit = %+v, want deny [CLAMPED]", dUnbounded)
+		}
+		if strings.Contains(dUnbounded.Reason, secretToken) || strings.Contains(dUnbounded.Reason, "GITHUB_TOKEN="+secretToken) {
+			t.Fatalf("clamped skeleton leaked secret in deny reason: %s", dUnbounded.Reason)
+		}
+		if !strings.Contains(dUnbounded.Reason, "[redacted by fyr]") {
+			t.Fatalf("expected [redacted by fyr] in clamped non-code skeleton: %s", dUnbounded.Reason)
+		}
+
+		// Leading 0-valued StartLine/Offset with explicit EndLine/Limit must be treated as ranged (allow on 1st attempt).
+		if dZeroOffset := callReadHook("conv-zero-offset", map[string]any{"Path": "large.go", "Offset": 0, "Limit": 80}); dZeroOffset.Decision != "allow" {
+			t.Fatalf("Offset=0 Limit=80 = %+v, want allow", dZeroOffset)
+		}
+		if dZeroStart := callReadHook("conv-zero-start", map[string]any{"Path": "large.go", "StartLine": 0, "EndLine": 80}); dZeroStart.Decision != "allow" {
+			t.Fatalf("StartLine=0 EndLine=80 = %+v, want allow", dZeroStart)
 		}
 	})
 }

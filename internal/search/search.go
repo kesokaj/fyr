@@ -1,11 +1,13 @@
 package search
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // LinkedRecord is a BUG-NNN or ADR-NNN record linked to a file or symbol.
@@ -44,6 +46,8 @@ type Options struct {
 	BrainReprime     func(dir, home string) string                                   // optional callback for compaction re-prime
 	BrainTurnContext func(dir, home, prompt string, files []string) TurnBrainContext // optional callback for --vet and --hook
 	SkillCatalog     func(home string) []SkillMeta                                   // optional callback for --vet and --hook
+	hookDeadline     time.Duration
+	hookDispatch     func(context.Context, Options, string, string, HookInput, io.Writer) error
 }
 
 const (

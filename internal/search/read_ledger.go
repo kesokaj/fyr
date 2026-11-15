@@ -65,11 +65,11 @@ func openLedgerStore(dir string) (*store, string, error) {
 	if dir == "" {
 		dir = "."
 	}
-	root, err := checkoutRoot(dir)
-	if err != nil {
+	root, commonDir, ok := findGitRootFast(dir)
+	if !ok {
 		return nil, "", errNotCheckout
 	}
-	if err := guardProject(root); err != nil {
+	if err := guardLedgerFast(root, commonDir); err != nil {
 		return nil, "", err
 	}
 	st, err := openStore(projectDB(root), io.Discard)
@@ -138,44 +138,9 @@ func RegisterCapsulePivots(dir, conversationID string, turnNum int, pivots []Cap
 }
 
 // CheckAndRecordRead checks whether a file range was already read unchanged in this generation,
-// returning [UNCHANGED] + symbol skeleton and consuming the stamp on the 2nd read.
+// returning [UNCHANGED] + symbol skeleton while keeping the persistent hash-keyed stamp active.
 func CheckAndRecordRead(dir, conversationID, targetPath string, startLine, endLine, turnNum int) (ReadDecision, error) {
-	st, root, err := openLedgerStore(dir)
-	if err != nil {
-		return ReadDecision{}, err
-	}
-	defer st.close()
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
-		conversationID = "default"
-	}
-	resolved := CanonicalizePath(dir, targetPath)
-	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
-	if !ok {
-		return ReadDecision{Allowed: true, ResolvedPath: resolved}, nil
-	}
-	reqStart, reqEnd := normalizeLineRange(startLine, endLine, totalLines)
-	genID, defTurn := st.currentGeneration(conversationID)
-	if turnNum <= 0 {
-		turnNum = defTurn
-	}
-	_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 != '' AND sha256 != ?`, conversationID, genID, resolved, sumHex)
-	var hitCount int
-	err = st.db.QueryRow(`SELECT hit_count FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ? ORDER BY (end_line - start_line) DESC LIMIT 1`,
-		conversationID, genID, resolved, sumHex, reqStart, reqEnd).Scan(&hitCount)
-	if err == nil {
-		_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ?`,
-			conversationID, genID, resolved, sumHex, reqStart, reqEnd)
-		st.recordLedgerBlock(conversationID, turnNum, nowFunc().Unix())
-		relPath := relDisplayPath(root, resolved)
-		skel := st.fileSkeletonSummary(root, resolved, string(data))
-		reason := formatUnchangedLedgerNotice(relPath, reqStart, reqEnd, sumHex, hitCount+1, skel)
-		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: hitCount + 1}, nil
-	}
-	if err := st.upsertReadStamp(conversationID, genID, resolved, reqStart, reqEnd, sumHex, turnNum, nowFunc().Unix()); err != nil {
-		return ReadDecision{}, err
-	}
-	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: 1}, nil
+	return CheckAndRecordReadInSession(dir, "", dir, conversationID, targetPath, startLine, endLine, turnNum)
 }
 
 func (s *store) recordLedgerBlock(conversationID string, turnNum int, now int64) {
@@ -213,32 +178,7 @@ func (s *store) upsertReadStamp(conversationID string, genID int, resolved strin
 
 // CheckPreWriteHash verifies that a previously read file has not been modified on disk before a write/edit.
 func CheckPreWriteHash(dir, conversationID, targetPath string) (ReadDecision, error) {
-	st, root, err := openLedgerStore(dir)
-	if err != nil {
-		return ReadDecision{}, err
-	}
-	defer st.close()
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
-		conversationID = "default"
-	}
-	resolved := CanonicalizePath(dir, targetPath)
-	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
-	genID, turnNum := st.currentGeneration(conversationID)
-	if !ok {
-		return ReadDecision{Allowed: true, ResolvedPath: resolved, GenerationID: genID}, nil
-	}
-	var stampedSHA string
-	err = st.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 != '' ORDER BY updated_at DESC LIMIT 1`,
-		conversationID, genID, resolved).Scan(&stampedSHA)
-	_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line > 0`, conversationID, genID, resolved)
-	if err == nil && stampedSHA != sumHex {
-		skel := st.fileSkeletonSummary(root, resolved, string(data))
-		reason := formatModifiedLedgerNotice(relDisplayPath(root, resolved), stampedSHA, sumHex, skel)
-		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: 1, EndLine: totalLines, SHA256: sumHex, GenerationID: genID}, nil
-	}
-	_ = st.upsertReadStamp(conversationID, genID, resolved, 0, 0, "", turnNum, nowFunc().Unix())
-	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: 1, EndLine: totalLines, SHA256: sumHex, GenerationID: genID}, nil
+	return CheckPreWriteHashWithEdit(dir, "", dir, conversationID, targetPath, nil)
 }
 
 func readFileDigestAndLines(resolvedPath string) (string, []byte, int, bool) {

@@ -54,33 +54,33 @@ func TestCheckAndRecordReadConsumeOnHit(t *testing.T) {
 		t.Errorf("2nd read Reason missing symbol skeleton:\n%s", d2.Reason)
 	}
 
-	// 3rd retry is unconditionally allowed because the 2nd read consumed the stamp.
+	// 3rd retry remains denied while the sha256 stamp is unchanged (persistent hash ledger).
 	d3, err := CheckAndRecordRead(root, "conv-alpha", "internal/service/task.go", 5, 25, 3)
 	if err != nil {
 		t.Fatalf("3rd CheckAndRecordRead: %v", err)
 	}
-	if !d3.Allowed {
-		t.Fatalf("3rd retry after consume-on-hit should be allowed, got Denied: %+v", d3)
+	if d3.Allowed || d3.HitCount != 3 {
+		t.Fatalf("3rd read with unchanged sha256 should remain denied with HitCount=3, got: %+v", d3)
 	}
 
-	// Verify read_ledger_stats persisted the consumed block on turn 2 (and nothing on turn 3).
+	// Verify read_ledger_stats persisted blocked turns 2 and 3.
 	st, _, err := openLedgerStore(root)
 	if err != nil {
 		t.Fatalf("openLedgerStore: %v", err)
 	}
-	var savedTurn2, rowsTotal int
-	if err := st.db.QueryRow(`SELECT saved_count FROM read_ledger_stats WHERE conversation_id = 'conv-alpha' AND turn_num = 2`).Scan(&savedTurn2); err != nil || savedTurn2 != 1 {
+	var savedTotal, rowsTotal int
+	if err := st.db.QueryRow(`SELECT COALESCE(SUM(saved_count), 0), COUNT(*) FROM read_ledger_stats WHERE conversation_id = 'conv-alpha'`).Scan(&savedTotal, &rowsTotal); err != nil || savedTotal != 2 || rowsTotal != 2 {
 		st.close()
-		t.Fatalf("read_ledger_stats turn 2 saved_count = %d, err = %v, want 1", savedTurn2, err)
-	}
-	if err := st.db.QueryRow(`SELECT COUNT(*) FROM read_ledger_stats WHERE conversation_id = 'conv-alpha'`).Scan(&rowsTotal); err != nil || rowsTotal != 1 {
-		st.close()
-		t.Fatalf("read_ledger_stats row count = %d, err = %v, want 1", rowsTotal, err)
+		t.Fatalf("read_ledger_stats savedTotal=%d rowsTotal=%d err=%v, want 2, 2", savedTotal, rowsTotal, err)
 	}
 	st.close()
 
-	// Reading a wider range (1..45) when only 5..25 is stamped is NOT covered, so it is allowed.
-	d4, err := CheckAndRecordRead(root, "conv-alpha", "internal/service/task.go", 1, 45, 4)
+	// Reading a wider range (1..45) in a conversation that only stamped 5..25 is NOT covered, so it is allowed.
+	w1, err := CheckAndRecordRead(root, "conv-wider", "internal/service/task.go", 5, 25, 1)
+	if err != nil || !w1.Allowed {
+		t.Fatalf("wider setup 5..25 = %+v, err=%v; want Allowed", w1, err)
+	}
+	d4, err := CheckAndRecordRead(root, "conv-wider", "internal/service/task.go", 1, 45, 2)
 	if err != nil {
 		t.Fatalf("4th CheckAndRecordRead (wider range): %v", err)
 	}
@@ -402,22 +402,21 @@ func assertPreToolFullFileLifecycle(t *testing.T, repo, nonGitDir string, invoke
 		"workspacePaths": []string{repo},
 		"toolCall":       map[string]any{"name": "default_api:read_file", "args": map[string]any{"path": "service.go"}},
 	})
-	if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED]\n") || !strings.Contains(d2.Reason, `"path": "service.go"`) || !strings.Contains(d2.Reason, `"startLine": 1`) || !strings.Contains(d2.Reason, "stamp consumed") || !strings.Contains(d2.Reason, "func ExecuteService") {
-		t.Fatalf("2nd unchanged full read_file = %+v, want deny with [UNCHANGED] consume-on-hit + skeleton", d2)
+	if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED]\n") || !strings.Contains(d2.Reason, `"path": "service.go"`) || !strings.Contains(d2.Reason, `"startLine": 1`) || !strings.Contains(d2.Reason, "already in context") || !strings.Contains(d2.Reason, "func ExecuteService") {
+		t.Fatalf("2nd unchanged full read_file = %+v, want deny with [UNCHANGED] persistent stamp + skeleton", d2)
 	}
 	if got := savedCount("conv-full"); got != 1 {
 		t.Fatalf("saved_count after 1st block = %d, want 1", got)
 	}
-	if d3 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d3.Decision != "allow" {
-		t.Fatalf("3rd retry after consume-on-hit = %+v, want allow", d3)
+	if d3 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d3.Decision != "deny" || savedCount("conv-full") != 2 {
+		t.Fatalf("3rd unchanged re-read = %+v (saved=%d), want deny and saved=2", d3, savedCount("conv-full"))
 	}
-	if d4 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d4.Decision != "deny" || savedCount("conv-full") != 2 {
-		t.Fatalf("4th unchanged re-read = %+v (saved=%d), want deny and saved=2", d4, savedCount("conv-full"))
+	if d4 := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); d4.Decision != "deny" || savedCount("conv-full") != 3 {
+		t.Fatalf("4th unchanged re-read = %+v (saved=%d), want deny and saved=3", d4, savedCount("conv-full"))
 	}
-	_ = invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}})
 	writeFile(t, repo, "service.go", "package demo\n\nfunc ExecuteService(id string) error { return nil }\n")
-	if dChanged := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); dChanged.Decision != "allow" || savedCount("conv-full") != 2 {
-		t.Fatalf("read after file change = %+v (saved=%d), want allow and saved=2", dChanged, savedCount("conv-full"))
+	if dChanged := invoke(map[string]any{"conversationId": "conv-full", "workspacePaths": []string{repo}, "toolCall": map[string]any{"name": "read_file", "args": map[string]any{"Path": "service.go"}}}); dChanged.Decision != "allow" || savedCount("conv-full") != 3 {
+		t.Fatalf("read after file change = %+v (saved=%d), want allow and saved=3", dChanged, savedCount("conv-full"))
 	}
 }
 
