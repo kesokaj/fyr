@@ -7,19 +7,20 @@
 
 ## Now
 
-### Phase 0b — Prove the graph works: A/B baseline (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-Prove whether the code graph already cuts reads and tokens via 5+5 `ab-pipeline-on` / `ab-pipeline-off` eval runs, ingesting metrics and recording the median/spread baseline and verdict rule in a `retro` record.
+### Phase 1 — Context diet (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+Shrink repo `AGENTS.md` (to `<= 4,500` bytes) and global always-on context/rules using scoped `trigger: glob` / `model_decision` rules if honoured by Antigravity CLI, splitting size-test budgets for always-on vs triggered content.
 
-- [ ] Run both rows 5 times each (`fyr eval --home ~/.config/fyr/dev/fyr-eval ab-pipeline-on ab-pipeline-off`, repeated). Then ingest each run's sandbox conversations into a scratch metrics store (`fyr metrics ingest --home .agents/scratch/ab`) — verify: 10 runs ingested, with session IDs listed
-- [ ] Compute per arm the median and spread of: `read_file` calls, repeat reads, in+out tokens, cache-read tokens, wall seconds, and pass rate. Store the table as a `retro` record titled "Graph A/B baseline" — verify: the record exists. If an arm has under 4 of 5 passes, the token comparison is invalid; fix the row first.
-- [ ] Verdict rule, written into the record: the graph "works" only if the on arm has at least 20% fewer reads and at least 10% fewer total tokens at an equal or better pass rate. If it does not, Phase 2a's first task becomes "find out why the graph does not reduce reads", before any other read-engine work — verify: the verdict line is present
-- [ ] Checkpoint — evidence: the `retro` record ID and the A/B table
+- [ ] Probe in a scratch home whether `~/.gemini/config/rules/` honours `trigger: glob` and `trigger: model_decision` (an `agy -p` run with one marker rule of each kind) — verify: a marker shows up only when its trigger fires. If not, fall back to shrinking text only and record a D-row.
+- [ ] Add `"globs"` to `ruleKeys` (`inventory.go:210`) and drop the duplicate inventory from `render.go:53`, keeping Marker and Canary — verify: `go test -race ./internal/harness/...`
+- [ ] Split always-on from triggered bytes in `size_test.go` while keeping `TestRenderedContextFitsAntigravityBlock` on the combined block — verify: the tests pass, and a must-fail run (an oversized rule) fails
+- [ ] Shrink repo `AGENTS.md` (13,867 B → about 3,800 B, plus `.agents/rules/*.md`) and global context plus rules (19,445 B → about 8,200 B always-on) — verify: `wc -c AGENTS.md` ≤ 4,500; `fyr install --home .agents/scratch/p1` is clean; `fyr eval` passes on the rows mapped to `context/` and `rules/`
+- [ ] Checkpoint — evidence: `go test -race ./...`, `fyr check`, eval n of N
 
 ## Next
 
-- Phase 1 — Context diet (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 2a — Read engine and hook safety (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 2b — Hook events and routing (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- Phase 3 — Deterministic gates and subagent pruning (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 
 ## Backlog
 
