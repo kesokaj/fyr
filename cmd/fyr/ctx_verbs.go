@@ -54,7 +54,7 @@ type ctx struct {
 	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
 	repoMap, register                                                                              bool
-	gateBase, gateLeaseFile, landMessage, closeTitle, closeBodyFile                                string
+	gateBase, gateLeaseFile, landMessage, closeID, closeTitle, closeBodyFile                       string
 	gateLease                                                                                      stringSliceFlag
 	gateMaxFiles, gateMaxLines                                                                     int
 	gateTimeout                                                                                    time.Duration

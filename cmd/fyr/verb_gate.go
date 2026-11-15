@@ -55,6 +55,7 @@ func registerLandFlags(c *ctx) {
 }
 
 func registerCloseFlags(c *ctx) {
+	c.fs.StringVar(&c.closeID, "id", "", "explicit handoff record `ID` (HANDOFF-<stamp>-<slug>)")
 	c.fs.StringVar(&c.closeTitle, "title", "", "handoff record title `TEXT` (required)")
 	c.fs.StringVar(&c.closeBodyFile, "body-file", "", "read handoff body from `FILE` instead of stdin")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
@@ -132,13 +133,14 @@ func runClose(c *ctx) error {
 	rep, err := gate.Close(context.Background(), gate.CloseOptions{
 		Dir:   wd,
 		Home:  c.home,
+		ID:    c.closeID,
 		Title: c.closeTitle,
 		Body:  bodyText,
 	})
 	if err != nil {
 		return gateErrCode(c.cmd, err)
 	}
-	warnRedactable("", c.closeTitle, bodyText)
+	warnRedactable(c.closeID, c.closeTitle, bodyText)
 	if c.jsonOut {
 		return writeJSONLine(c.out, rep)
 	}

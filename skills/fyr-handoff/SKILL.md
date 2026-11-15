@@ -60,7 +60,7 @@ The handoff records the remainder — it is never a substitute for rows already 
 1. Run `date +%F` and use that date everywhere below, and `date +%F-%H%M` for the handoff's draft name (Step 5) — never a date from memory.
 2. If the session changed source files and no `change` record covers those changes, store one **before** the handoff (yourself, citing commit range, `path:start-end (Symbol)`, and agents dispatched).
 3. Bring `TODO.md` current yourself (skipped in worker mode, § The worker-mode Kickoff) (Definition of Done step 2): Now names the active phase (its name, plan ID and goal) and mirrors its boxes, ticked in the commit that ticks the plan, and is empty when no plan is open — on a conflict the plan record wins; Next holds at most three phases, one line each; a deferred idea worth keeping goes to Backlog, one line, dated, with its source. Anything the operator must do — other than a standing procedure the deploy guide already records (Step 4's Next Steps rule) — goes in this handoff's Next Steps, never in `TODO.md`.
-4. Only then write and store the handoff (`fyr verify` then `fyr close --title ... --body-file ...`, which embeds `## Verification Digest` from `.agents/scratch/verify.stamp` and preserves earlier `change` and `testing` records).
+4. Only then write the handoff (Step 4).
 
 ## Step 4: Write the Handoff Document
 
@@ -169,9 +169,11 @@ Done when: <the task's Done when from the lead's table>. Where Done when names a
 
 ## Step 5: Save the Document
 
-Write the document to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory), then store it with the ID chosen for the Kickoff:
+Write the document to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory), then store it with the ID chosen for the Kickoff (`fyr close` when `fyr verify` wrote `.agents/scratch/verify.stamp` on the current tree — embeds `## Verification Digest` without committing, pushing, or deleting records; otherwise `fyr record add handoff` when `fyr verify` did not run):
 
 ```bash
+fyr close --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
+# or, when no fresh .agents/scratch/verify.stamp exists (docs-only, mid-task stop, or explicit test override):
 fyr record add handoff --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
 ```
 

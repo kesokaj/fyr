@@ -433,7 +433,7 @@ var pages = map[string]verbPage{
 		},
 	},
 	"close": {
-		synopsis: []string{"usage: fyr close --title TEXT [--body-file FILE] [--json]"},
+		synopsis: []string{"usage: fyr close --title TEXT [--id ID] [--body-file FILE] [--json]"},
 		about: []string{
 			"Reads a fresh .agents/scratch/verify.stamp matching the current Go tree",
 			"digest, appends a Verification Digest section to the handoff body, and",

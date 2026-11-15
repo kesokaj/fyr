@@ -122,5 +122,16 @@ func TestLandAndCloseE2E(t *testing.T) {
 		if !strings.Contains(recs[0].Body, "## Verification Digest") || !strings.Contains(recs[0].Body, cRep.TreeSHA256) {
 			t.Fatalf("handoff missing verification digest:\n%s", recs[0].Body)
 		}
+
+		// Explicit --id handoff creation.
+		const explicitID = "HANDOFF-2026-11-15-1830-explicit-id"
+		idRep, err := Close(ctx, CloseOptions{Dir: repo, Home: home, ID: explicitID, Title: "explicit-id", Body: "Explicit ID body.\n", Now: fixedNow})
+		if err != nil || !idRep.OK || idRep.ID != explicitID {
+			t.Fatalf("Close with explicit ID failed: err=%v rep=%+v", err, idRep)
+		}
+		expRecs, expMissing, err := brain.Get(brain.Options{Home: home, Dir: repo}, []string{explicitID})
+		if err != nil || len(expMissing) != 0 || len(expRecs) != 1 || !strings.Contains(expRecs[0].Body, "## Verification Digest") {
+			t.Fatalf("brain.Get explicit handoff failed: recs=%d missing=%v err=%v", len(expRecs), expMissing, err)
+		}
 	})
 }

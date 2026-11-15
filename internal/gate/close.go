@@ -18,6 +18,7 @@ import (
 type CloseOptions struct {
 	Dir        string
 	Home       string
+	ID         string
 	Title      string
 	Body       string
 	Provenance string
@@ -52,9 +53,11 @@ func Close(ctx context.Context, opts CloseOptions) (CloseReport, error) {
 	id, err := brain.Add(
 		brain.Options{Home: opts.Home, Dir: top, Now: opts.Now},
 		brain.AddInput{
-			Kind:  "handoff",
-			Title: opts.Title,
-			Body:  strings.NewReader(body),
+			Kind:       "handoff",
+			ID:         opts.ID,
+			Title:      opts.Title,
+			Provenance: opts.Provenance,
+			Body:       strings.NewReader(body),
 		},
 	)
 	if err != nil {
