@@ -400,3 +400,77 @@ func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
 		t.Errorf("legacy gpt-oss not hydrated on LoadCatalog: %+v", cat.Entries[1])
 	}
 }
+
+func TestCatalogPersistsQuotaPoolsBestEffort(t *testing.T) {
+	ctx := context.Background()
+	oldUsage := usageProbeFunc
+	oldList := listModelsFunc
+	t.Cleanup(func() {
+		usageProbeFunc = oldUsage
+		listModelsFunc = oldList
+	})
+
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	agyScript := filepath.Join(tmp, "agy")
+	body := "#!/bin/sh\nif [ \"$1\" = \"models\" ]; then\n  printf 'gemini-4-carbon-high\\tGemini 4 Carbon (High)\\nclaude-opus-5-5-high\\tClaude Opus 5.5 (High)\\n'\n  exit 0\nfi\nexit 1\n"
+	if err := os.WriteFile(agyScript, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	usageCalls := 0
+	usageProbeFunc = func(context.Context, string) (string, error) {
+		usageCalls++
+		return "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+			"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+			"Claude and GPT models\tWeekly Limit Remaining\t55%\tx\n" +
+			"Claude and GPT models\tFive Hour Limit Remaining\t70%\tx\n", nil
+	}
+	cat1, err := RefreshCatalog(ctx, home, agyScript, nil)
+	if err != nil {
+		t.Fatalf("RefreshCatalog initial: %v", err)
+	}
+	if usageCalls != 0 {
+		t.Fatalf("RefreshCatalog must not invoke usageProbeFunc (got %d calls)", usageCalls)
+	}
+	cat1 = EnrichCatalogPools(ctx, home, agyScript, cat1)
+	if usageCalls != 1 || cat1.QuotaUpdatedAt == "" || len(cat1.Pools) != 2 {
+		t.Fatalf("expected persisted pools on EnrichCatalogPools, got calls=%d cat=%+v", usageCalls, cat1)
+	}
+
+	// Subsequent RefreshCatalog preserves previous pools without calling usageProbeFunc.
+	usageProbeFunc = func(context.Context, string) (string, error) {
+		usageCalls++
+		return "", os.ErrNotExist
+	}
+	cat2, err := RefreshCatalog(ctx, home, agyScript, nil)
+	if err != nil {
+		t.Fatalf("RefreshCatalog failed: %v", err)
+	}
+	if usageCalls != 1 {
+		t.Fatalf("subsequent RefreshCatalog invoked usageProbeFunc (%d calls)", usageCalls)
+	}
+	if len(cat2.Pools) != 2 || cat2.QuotaUpdatedAt != cat1.QuotaUpdatedAt {
+		t.Errorf("expected preserved pools after RefreshCatalog; got %+v vs %+v", cat2, cat1)
+	}
+	cat2 = EnrichCatalogPools(ctx, home, agyScript, cat2)
+	if len(cat2.Pools) != 2 || cat2.QuotaUpdatedAt != cat1.QuotaUpdatedAt {
+		t.Errorf("EnrichCatalogPools should keep previous pools intact on /usage error; got %+v vs %+v", cat2, cat1)
+	}
+
+	// ResolveRoleModelForHome persists newly parsed pools into existing models.json.
+	listModelsFunc = func(context.Context, string) ([]string, error) {
+		return []string{"gemini-4-carbon-high", "claude-opus-5-5-high"}, nil
+	}
+	usageProbeFunc = func(context.Context, string) (string, error) {
+		return "Claude and GPT models\tWeekly Limit Remaining\t15%\tx\nClaude and GPT models\tFive Hour Limit Remaining\t25%\tx\n", nil
+	}
+	chosen, _, err := ResolveRoleModelForHome(ctx, home, agyScript, "judge", "pro", "")
+	if err != nil || chosen != "gemini-4-carbon-high" {
+		t.Fatalf("ResolveRoleModelForHome low quota: chosen=%q err=%v", chosen, err)
+	}
+	reloaded, ok, err := LoadCatalog(home)
+	if err != nil || !ok || len(reloaded.Pools) != 1 || reloaded.Pools[0].Week != 15 || reloaded.Pools[0].Five != 25 {
+		t.Fatalf("expected updated pools in models.json, got ok=%v err=%v pools=%+v", ok, err, reloaded.Pools)
+	}
+}

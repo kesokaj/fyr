@@ -55,40 +55,40 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "feature with semicolon tasks routes to fyr-work waves",
+			name:   "feature with semicolon tasks routes to fyr-feature",
 			prompt: "Implement OAuth2 login in internal/auth/login.go; implement webhook sink in internal/audit/sink.go",
 			intent: IntentFeature,
-			want:   "/fyr-work (waves with model:, judge:, base-check:)",
+			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "feature with numbered tasks routes to fyr-work waves",
+			name:   "feature with numbered tasks routes to fyr-feature",
 			prompt: "Build two components: 1. Add OAuth2 login in internal/auth/login.go 2. Add audit sink in internal/audit/sink.go",
 			intent: IntentFeature,
-			want:   "/fyr-work (waves with model:, judge:, base-check:)",
+			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "feature with waves cue routes to fyr-work waves",
+			name:   "feature with waves cue routes to fyr-feature",
 			prompt: "Implement Phase 1 and Phase 2 in waves across internal/auth and internal/audit",
 			intent: IntentFeature,
-			want:   "/fyr-work (waves with model:, judge:, base-check:)",
+			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "feature with parallel cue routes to fyr-work waves",
+			name:   "feature with parallel cue routes to fyr-feature",
 			prompt: "Design and build 3 phases in parallel across internal/auth, internal/api, and internal/store",
 			intent: IntentFeature,
-			want:   "/fyr-work (waves with model:, judge:, base-check:)",
+			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "task with two independent semicolon tasks routes to fyr-work task list",
+			name:   "task with two independent semicolon tasks has no fyr-work route",
 			prompt: "Add TestHelloTab to internal/greet/greet_test.go; add Shout to internal/shout/shout.go",
 			intent: IntentTask,
-			want:   "/fyr-work <task>; <task>",
+			want:   "",
 		},
 		{
-			name:   "task with numbered list routes to fyr-work task list",
+			name:   "task with numbered list has no fyr-work route",
 			prompt: "1) Update flag parsing in cmd/a/main.go 2) Update config loader in internal/cfg/load.go",
 			intent: IntentTask,
-			want:   "/fyr-work <task>; <task>",
+			want:   "",
 		},
 		{
 			name:   "bug routes to fyr-bug",
@@ -133,11 +133,11 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			want:   "fyr search --slice",
 		},
 		{
-			name:   "triage skill routes to fyr-triage kickoffs",
+			name:   "triage skill routes to fyr-triage",
 			prompt: "Triage open GitHub issues and backlog items",
 			intent: IntentTask,
 			skills: []SkillMeta{{Name: "fyr-triage"}},
-			want:   "/fyr-triage → /fyr-work Kickoffs",
+			want:   "/fyr-triage",
 		},
 		{
 			name:   "docs skill routes to fyr-docs and fyr check",
@@ -195,7 +195,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			name:               "anchored multi-phase feature",
 			prompt:             "Implement Phase 1 caching in internal/search/service.go returning CacheHit; implement Phase 2 metrics in internal/metrics/store.go returning Count, and verify with go test",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "/fyr-work (waves with model:, judge:, base-check:)",
+			wantRoute:          "/fyr-feature (pre-build interview first)",
 			wantImprovedPrompt: true,
 		},
 		{
@@ -209,7 +209,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			name:               "two independent tasks",
 			prompt:             "Update internal/search/service.go; update internal/search/vet.go",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "/fyr-work <task>; <task>",
+			wantRoute:          "",
 			wantImprovedPrompt: true,
 		},
 		{
@@ -246,7 +246,10 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			t.Errorf("%s: Gate = %s, want %s", vc.name, res.Gate, vc.wantGate)
 		}
 		if vc.wantImprovedPrompt {
-			if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") || !strings.Contains(res.ImprovedPrompt, "route: "+vc.wantRoute) {
+			if !strings.Contains(res.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") {
+				t.Errorf("%s: ImprovedPrompt missing [VET_IMPROVED_PROMPT]:\n%s", vc.name, res.ImprovedPrompt)
+			}
+			if vc.wantRoute != "" && !strings.Contains(res.ImprovedPrompt, "route: "+vc.wantRoute) {
 				t.Errorf("%s: ImprovedPrompt missing %q:\n%s", vc.name, "route: "+vc.wantRoute, res.ImprovedPrompt)
 			}
 		} else if res.ImprovedPrompt != "" {

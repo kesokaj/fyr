@@ -97,10 +97,10 @@ func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
 		t.Errorf("expected Hop 0 ReconcileProjectIndex in systemMessage, got:\n%s", sysMsg)
 	}
 	if !strings.Contains(sysMsg, `"surface": "PRE_INVOCATION"`) {
-		t.Errorf("expected prepended vet JSON banner in systemMessage, got:\n%s", sysMsg)
+		t.Errorf("expected PRE_INVOCATION banner in systemMessage, got:\n%s", sysMsg)
 	}
 	if resp.InjectSteps[0].SystemMessage.Metadata != nil {
-		t.Errorf("expected nil Metadata to avoid agy scrubMessage panic (BUG-523), got: %+v", resp.InjectSteps[0].SystemMessage.Metadata)
+		t.Errorf("HookSystemMessage.Metadata must stay nil to avoid agy utils.scrubMessage panic (BUG-523), got: %+v", resp.InjectSteps[0].SystemMessage.Metadata)
 	}
 
 	// Verify on_capsule_injected pre-seeded read_ledger: reading lines 3-5 of service.go
@@ -306,12 +306,15 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 	if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
 		t.Fatalf("expected degradation step, got: %+v", resp)
 	}
+	if resp.InjectSteps[0].SystemMessage.Metadata != nil {
+		t.Errorf("degraded turn metadata = %v, want nil (BUG-523)", resp.InjectSteps[0].SystemMessage.Metadata)
+	}
 	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
 	for _, want := range []string{
 		`"storeError": "store unavailable (`,
 		"run /fyr-index-project or fyr index",
 		`"surface": "PRE_INVOCATION"`,
-		"[FYR_TURN_CONTRACT]",
+		`"gate": "STORE_DEGRADED"`,
 	} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("degraded systemMessage missing %q:\n%s", want, sysMsg)
@@ -589,6 +592,54 @@ func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
 		}
 		if dec.Decision != tc.want || (tc.want == "deny" && !strings.Contains(dec.Reason, "inherit")) {
 			t.Errorf("%s: got %+v, want decision=%q", tc.name, dec, tc.want)
+		}
+	}
+}
+
+func TestPreInvocationPassThroughEmptyZeroToken(t *testing.T) {
+	dir := setupHookRepo(t)
+	home := t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		prompt  string
+		wantSys bool
+	}{
+		{name: "approval", prompt: "go all approved", wantSys: false},
+		{name: "trivial", prompt: "Fix typo in README.md", wantSys: false},
+		{name: "bang_bypass", prompt: "!Fix BUG-001", wantSys: true},
+	} {
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-banner-" + tc.name,
+			"workspacePaths": []string{dir},
+			"invocationNum":  1,
+			"lastUserInput":  tc.prompt,
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("%s: Search error: %v", tc.name, err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatalf("%s: unmarshal: %v", tc.name, err)
+		}
+		if !tc.wantSys {
+			if len(resp.InjectSteps) != 0 || strings.TrimSpace(out.String()) != "{}" {
+				t.Errorf("%s: expected zero-token {} on un-enriched PASS_THROUGH, got: %s", tc.name, out.String())
+			}
+			continue
+		}
+		if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+			t.Fatalf("%s: expected 1 injectStep, got %+v", tc.name, resp)
+		}
+		sm := resp.InjectSteps[0].SystemMessage
+		if !strings.Contains(sm.SystemMessage, "[FYR_TURN_CONTRACT]") {
+			t.Errorf("%s: expected [FYR_TURN_CONTRACT] in systemMessage, got:\n%s", tc.name, sm.SystemMessage)
+		}
+		if sm.Metadata != nil {
+			t.Errorf("%s: Metadata must stay nil (BUG-523), got: %+v", tc.name, sm.Metadata)
 		}
 	}
 }

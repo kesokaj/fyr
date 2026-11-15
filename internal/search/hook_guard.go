@@ -421,6 +421,11 @@ func applyHookEnvelopeAliases(in *HookInput, raw map[string]any, optSession stri
 	if in.InvocationNum == 0 {
 		in.InvocationNum = extractIntArg(raw, "invocation_num")
 	}
+	if !in.ContinuationActive {
+		if v, ok := raw["continuation_active"].(bool); ok {
+			in.ContinuationActive = v
+		}
+	}
 	in.ConversationID = resolveHookConversationID(*in, raw, optSession)
 }
 
@@ -525,6 +530,8 @@ func normalizeHookToolName(raw string) string {
 		return "write_or_edit"
 	case "swarm":
 		return "swarm"
+	case "run_workflow", "runworkflow":
+		return "run_workflow"
 	default:
 		return s
 	}

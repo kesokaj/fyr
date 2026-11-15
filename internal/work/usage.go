@@ -29,8 +29,9 @@ const (
 
 // Pool is one quota pool's remaining percentages from `agy -p "/usage"`.
 type Pool struct {
-	Name       string
-	Five, Week int
+	Name string `json:"name"`
+	Five int    `json:"five"`
+	Week int    `json:"week"`
 }
 
 var (
@@ -155,12 +156,17 @@ func RunUsage(run context.Context, agy string) (string, error) {
 //     falling back to the equivalent-tier listed Gemini model when no Anthropic model is
 //     listed or when Anthropic pool quota in `agy -p "/usage"` is < 20% weekly or < 30% 5h.
 func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel string) (string, string, error) {
-	return ResolveRoleModelForHome(ctx, os.Getenv("HOME"), agyPath, role, tier, explicitModel)
+	return resolveRoleModel(ctx, os.Getenv("HOME"), agyPath, role, tier, explicitModel, false)
 }
 
 // ResolveRoleModelForHome behaves like ResolveRoleModel, reading models.json from
-// home (when non-empty) rather than os.Getenv("HOME").
+// home (when non-empty) rather than os.Getenv("HOME") and persisting live /usage
+// pools into <home>/.config/fyr/models.json when present.
 func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, explicitModel string) (string, string, error) {
+	return resolveRoleModel(ctx, home, agyPath, role, tier, explicitModel, true)
+}
+
+func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitModel string, persistPools bool) (string, string, error) {
 	if exp := strings.TrimSpace(explicitModel); exp != "" {
 		return exp, "explicit model " + exp, nil
 	}
@@ -175,9 +181,12 @@ func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, exp
 		return "", "", errors.New("agy models listed no model")
 	}
 	entries := buildListedCatalogEntries(home, ids)
-	pick, err := PickRoleFromCatalog(ctx, Catalog{Entries: entries}, agyPath, role, tier)
+	pick, pools, err := PickRoleFromCatalogWithPools(ctx, Catalog{Entries: entries}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err
+	}
+	if persistPools && len(pools) > 0 && home != "" {
+		PersistCatalogPoolsBestEffort(home, pools)
 	}
 	return pick.Model, pick.Reason, nil
 }
@@ -185,23 +194,30 @@ func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, exp
 // PickRoleFromCatalog selects an active model from cat for role+tier, probing
 // live Anthropic quota via agyPath when choosing an Anthropic judge/reviewer/verifier.
 func PickRoleFromCatalog(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, error) {
+	pick, _, err := PickRoleFromCatalogWithPools(ctx, cat, agyPath, role, tier)
+	return pick, err
+}
+
+// PickRoleFromCatalogWithPools behaves like PickRoleFromCatalog and also returns any
+// quota pools parsed from a live `agy -p "/usage"` probe.
+func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
 	normRole, normTier, err := NormalizeRoleTier(role, tier)
 	if err != nil {
-		return RolePick{}, err
+		return RolePick{}, nil, err
 	}
 	pick, err := pickFromEntries(cat.Entries, cat.Picks, normRole, normTier)
 	if err != nil {
-		return RolePick{}, err
+		return RolePick{}, nil, err
 	}
 	if (normRole != "judge" && normRole != "reviewer" && normRole != "verifier") || agyPath == "" {
-		return pick, nil
+		return pick, nil, nil
 	}
 	if !strings.HasPrefix(strings.ToLower(pick.Model), "claude-") {
-		return pick, nil
+		return pick, nil, nil
 	}
 	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
 	gem, _, _ := pickGeminiOrAny(active, nil, "", "builder", normTier)
-	model, reason, fb := probeAnthropicQuota(ctx, agyPath, normRole, pick.Model, gem.ID)
+	model, reason, fb, pools := probeAnthropicQuotaPools(ctx, agyPath, normRole, pick.Model, gem.ID)
 	if fb == "" {
 		fb = pick.FallbackReason
 	}
@@ -211,32 +227,32 @@ func PickRoleFromCatalog(ctx context.Context, cat Catalog, agyPath, role, tier s
 		Model:          model,
 		Reason:         reason,
 		FallbackReason: fb,
-	}, nil
+	}, pools, nil
 }
 
-func probeAnthropicQuota(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, string) {
+func probeAnthropicQuotaPools(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
 	uText, err := usageProbeFunc(ctx, agyPath)
 	if err != nil {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error()))
-		return geminiFallback, fb, fb
+		return geminiFallback, fb, fb, nil
 	}
 	pools, err := ParseUsage(uText)
 	if err != nil {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage parse error (%s)", role, geminiFallback, shortQuote(err.Error()))
-		return geminiFallback, fb, fb
+		return geminiFallback, fb, fb, nil
 	}
 	pool, ok := findAnthropicPool(pools)
 	if !ok {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): no Anthropic/Claude pool in /usage", role, geminiFallback)
-		return geminiFallback, fb, fb
+		return geminiFallback, fb, fb, pools
 	}
 	if pool.Week < AnthropicJudgeFloorWeek || pool.Five < AnthropicJudgeFloorFive {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): %s quota low (5h=%s, week=%s; floor %d%%/%d%%)",
 			role, geminiFallback, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week), AnthropicJudgeFloorFive, AnthropicJudgeFloorWeek)
-		return geminiFallback, fb, fb
+		return geminiFallback, fb, fb, pools
 	}
 	note := fmt.Sprintf("role=%s -> Anthropic (%s; %s 5h=%s, week=%s)", role, anthropicModel, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week))
-	return anthropicModel, note, ""
+	return anthropicModel, note, "", pools
 }
 
 func findAnthropicPool(pools []Pool) (Pool, bool) {

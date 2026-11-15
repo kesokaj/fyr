@@ -94,7 +94,7 @@ func handlePreToolSwarm(home string, in HookInput, out io.Writer) error {
 		}
 		return writeDecision(out, "allow", "")
 	}
-	picked := pickSwarmModel(home, role)
+	picked, fbNote := pickSwarmModel(home, role)
 	if picked == "" {
 		return writeDecision(out, "allow", "")
 	}
@@ -103,6 +103,9 @@ func handlePreToolSwarm(home string, in HookInput, out io.Writer) error {
 	reason := "[AUTO_SWARM_MODEL] selected " + picked
 	if label := formatModelTag(home, picked); label != "" && label != strings.TrimSpace(picked) {
 		reason = fmt.Sprintf("[AUTO_SWARM_MODEL] selected %s (%s)", picked, label)
+	}
+	if fbNote != "" {
+		reason += "; " + fbNote
 	}
 	return writeDecisionWithOverwrite(out, "allow", reason, cloned)
 }
@@ -119,41 +122,95 @@ func stringArgCI(args map[string]any, key string) string {
 }
 
 func inferSwarmRole(args map[string]any) string {
-	tokens := tokenizeRoleHint(stringArgCI(args, "name") + " " + stringArgCI(args, "brief"))
+	tokens := tokenizeRoleHint(stringArgCI(args, "name"))
+	if len(tokens) == 0 {
+		return "builder"
+	}
+	prefix := tokens[:1]
 	switch {
-	case hasSwarmRoleToken(tokens, []string{"sec"}, []string{"review", "verif", "judge", "secur"}):
+	case hasSwarmRoleToken(prefix, []string{"sec"}, []string{"review", "verif", "judge", "secur"}):
 		return "judge"
-	case hasSwarmRoleToken(tokens, []string{"doc", "docs", "document", "documents", "documentation"}, []string{"triv", "explor"}):
+	case hasSwarmRoleToken(prefix, []string{"doc", "docs", "document", "documents", "documentation"}, []string{"triv", "explor"}):
 		return "mechanical"
 	default:
 		return "builder"
 	}
 }
 
-func pickSwarmModel(home, role string) string {
+type swarmPoolQuota struct {
+	Name string `json:"name"`
+	Five int    `json:"five"`
+	Week int    `json:"week"`
+}
+
+func pickSwarmModel(home, role string) (string, string) {
 	resolved := strings.TrimSpace(home)
 	if resolved == "" {
 		resolved, _ = os.UserHomeDir()
 	}
 	if resolved == "" {
-		return ""
+		return "", ""
 	}
 	p := filepath.Join(resolved, harness.StateDir, "models.json")
 	fi, err := os.Lstat(p)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > 1<<20 {
-		return ""
+		return "", ""
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	var cat struct {
 		Entries []swarmModelEntry `json:"entries"`
+		Pools   []swarmPoolQuota  `json:"pools"`
 	}
 	if json.Unmarshal(data, &cat) != nil || len(cat.Entries) == 0 {
-		return ""
+		return "", ""
 	}
-	return pickActiveSwarmCandidate(cat.Entries, role)
+	picked := pickActiveSwarmCandidate(cat.Entries, role)
+	if role != "judge" || !strings.HasPrefix(strings.ToLower(picked), "claude-") || len(cat.Pools) == 0 {
+		return picked, ""
+	}
+	return checkSwarmJudgeQuotaFallback(cat.Entries, cat.Pools, picked)
+}
+
+func checkSwarmJudgeQuotaFallback(entries []swarmModelEntry, pools []swarmPoolQuota, picked string) (string, string) {
+	pool, ok := findSwarmAnthropicPool(pools)
+	if ok && pool.Five >= 30 && pool.Week >= 20 {
+		return picked, ""
+	}
+	var nonAnthropic []swarmModelEntry
+	for _, e := range entries {
+		if !strings.EqualFold(e.Family, "anthropic") && !strings.HasPrefix(strings.ToLower(e.ID), "claude-") {
+			nonAnthropic = append(nonAnthropic, e)
+		}
+	}
+	fb := pickActiveSwarmCandidate(nonAnthropic, "builder")
+	if fb == "" {
+		return picked, ""
+	}
+	if !ok {
+		return fb, fmt.Sprintf("fallback from %s (no Anthropic pool in models.json)", picked)
+	}
+	return fb, fmt.Sprintf("fallback from %s (Anthropic quota low 5h=%s week=%s; floor 30%%/20%%)",
+		picked, formatSwarmPct(pool.Five), formatSwarmPct(pool.Week))
+}
+
+func findSwarmAnthropicPool(pools []swarmPoolQuota) (swarmPoolQuota, bool) {
+	for _, p := range pools {
+		low := strings.ToLower(p.Name)
+		if strings.Contains(low, "claude") || strings.Contains(low, "anthropic") {
+			return p, true
+		}
+	}
+	return swarmPoolQuota{}, false
+}
+
+func formatSwarmPct(v int) string {
+	if v < 0 {
+		return "disabled"
+	}
+	return fmt.Sprintf("%d%%", v)
 }
 
 func pickActiveSwarmCandidate(entries []swarmModelEntry, wantRole string) string {

@@ -82,7 +82,7 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		return resp
 	}
 
-	// 1. Invocation 0 of Turn 1 (0-indexed in agy) injects capsule + turn contract and omits Metadata (BUG-523).
+	// 1. Invocation 0 of Turn 1 (0-indexed in agy) injects capsule + turn contract with nil Metadata (BUG-523).
 	r1 := callHook(0, prompt)
 	if len(r1.InjectSteps) != 1 || r1.InjectSteps[0].SystemMessage == nil {
 		t.Fatalf("turn 1 inv 0: expected 1 injectStep, got %+v", r1)
@@ -91,7 +91,7 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		t.Errorf("turn 1 inv 0 missing [FYR_TURN_CONTRACT]")
 	}
 	if r1.InjectSteps[0].SystemMessage.Metadata != nil {
-		t.Errorf("turn 1 inv 0 Metadata must be nil to avoid agy scrubMessage panic (BUG-523), got %+v", r1.InjectSteps[0].SystemMessage.Metadata)
+		t.Errorf("turn 1 inv 0 Metadata must stay nil (BUG-523), got %+v", r1.InjectSteps[0].SystemMessage.Metadata)
 	}
 
 	// 2. Invocation 1 (mid-turn tool loop, same prompt, no compaction) skips re-injection and keeps turn_count=1.

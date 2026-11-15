@@ -18,7 +18,7 @@ var intentPrimarySkill = map[IntentMode]string{
 // and sets the mandatory security subagent flag on auth/crypto/secret/frontmatter surfaces.
 func MatchSkills(prompt string, intent IntentMode, files []string, catalog []SkillMeta) ([]SkillMeta, bool) {
 	low := strings.ToLower(prompt)
-	secReq := touchesSecuritySurface(low, files)
+	secReq := intent != IntentQuestion && touchesSecuritySurface(low, files)
 	if intent == IntentApproval || intent == IntentTrivial {
 		return nil, false
 	}

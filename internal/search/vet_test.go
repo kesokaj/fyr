@@ -240,6 +240,25 @@ func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {
 			t.Errorf("skill %s missing SKILL.md path", s.Name)
 		}
 	}
+	_, qSecReq := MatchSkills(
+		"How does JWT token auth and frontmatter allowlist validation work in internal/harness/inventory.go?",
+		IntentQuestion,
+		[]string{"internal/harness/inventory.go"},
+		custom,
+	)
+	if qSecReq {
+		t.Errorf("expected SecurityRequired=false for IntentQuestion even on auth/inventory.go surface")
+	}
+	qVet := VetPrompt(
+		"How does auth token validation work in internal/harness/inventory.go?",
+		"",
+		SliceResult{},
+		TurnBrainContext{},
+		custom,
+	)
+	if qVet.Intent != IntentQuestion || qVet.SecurityRequired {
+		t.Errorf("VetPrompt IntentQuestion got intent=%s securityRequired=%v, want QUESTION / false", qVet.Intent, qVet.SecurityRequired)
+	}
 }
 
 func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {

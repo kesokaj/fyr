@@ -32,12 +32,14 @@ func TestPlanAntigravityOnly(t *testing.T) {
 		t.Fatalf("expected %s/hooks.json to be planned", AgyRoot)
 	}
 	for _, want := range []string{
-		`"fyr-brain"`, `"PreInvocation"`, `"PreToolUse"`, `"Stop"`,
+		`"fyr-brain"`, `"SessionStart"`, `"PreInvocation"`, `"PreToolUse"`, `"Stop"`,
+		`\"$HOME/bin/fyr\" search --hook session-start`,
+		`\"$HOME/.local/bin/fyr\" search --hook session-start`,
 		`\"$HOME/bin/fyr\" search --hook pre-invocation`,
 		`\"$HOME/.local/bin/fyr\" search --hook pre-invocation`,
 		`\"$HOME/bin/fyr\" search --hook pre-tool-use`,
 		`\"$HOME/bin/fyr\" search --hook stop`,
-		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm",
+		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm|run_workflow",
 	} {
 		if !strings.Contains(string(hooksData), want) {
 			t.Errorf("hooks.json missing %q:\n%s", want, string(hooksData))

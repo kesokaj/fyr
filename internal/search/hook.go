@@ -35,6 +35,7 @@ type HookInput struct {
 	TerminationReason     string       `json:"terminationReason"`
 	Error                 string       `json:"error"`
 	FullyIdle             bool         `json:"fullyIdle"`
+	ContinuationActive    bool         `json:"continuationActive"`
 }
 
 // HookToolCall is the tool name and argument map passed to a PreToolUse hook.
@@ -46,7 +47,7 @@ type HookToolCall struct {
 // PreInvocationOutput is the JSON response written by a PreInvocation hook.
 type PreInvocationOutput struct {
 	InjectSteps         []HookInjectStep `json:"injectSteps,omitempty"`
-	TerminationBehavior string           `json:"terminationBehavior"`
+	TerminationBehavior string           `json:"terminationBehavior,omitempty"`
 }
 
 // HookInjectStep wraps one injected systemMessage step in PreInvocationOutput.
@@ -69,6 +70,8 @@ type HookDecisionOutput struct {
 
 func normalizeHookEvent(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "session-start", "sessionstart":
+		return "session-start"
 	case "pre-invocation", "preinvocation":
 		return "pre-invocation"
 	case "pre-tool-use", "pretooluse":
@@ -85,7 +88,7 @@ func normalizeHookEvent(raw string) string {
 func RunHook(o Options, in io.Reader, out io.Writer) error {
 	event := normalizeHookEvent(o.Hook)
 	if event == "" {
-		return usageError{"search: --hook must be one of: pre-invocation pre-tool-use stop; see fyr help search"}
+		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use stop; see fyr help search"}
 	}
 	if hooksDisabledGlobal(o.Home) {
 		return writeHookAllowFallback(event, out)
@@ -155,11 +158,10 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		if in.InvocationNum > 1 {
 			return writePreInvocation(out, "", "")
 		}
-		banners = append(banners, storeDegradedNotice(err))
-	} else {
-		defer sc.close()
-		sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fastPath)
+		return writeStoreDegraded(out, err)
 	}
+	defer sc.close()
+	sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fastPath)
 	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, banners)
 	return writePreInvocation(out, sysMsg, banner)
 }
@@ -426,6 +428,8 @@ func handlePreToolUse(home, dir string, in HookInput, out io.Writer) error {
 		return handlePreToolSubagent(in, out)
 	case "swarm":
 		return handlePreToolSwarm(home, in, out)
+	case "run_workflow":
+		return handlePreToolWorkflow(dir, in, out)
 	default:
 		return writeDecision(out, "allow", "")
 	}
@@ -486,8 +490,12 @@ func handlePreToolWrite(home, dir string, in HookInput, out io.Writer) error {
 
 func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {
 	writeHookProcessArtifact(o.Home, nil, dir, in, "Verify", nil)
-	if err := RecordStopCoActivity(dir, in.ConversationID); err != nil && !errors.Is(err, errNotCheckout) {
-		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(err)+")")
+	coErr := RecordStopCoActivity(dir, in.ConversationID)
+	if shouldContinue, reason := evaluateStopStamp(o.Home, dir, in); shouldContinue {
+		return writeDecision(out, "continue", reason)
+	}
+	if coErr != nil && !errors.Is(coErr, errNotCheckout) {
+		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(coErr)+")")
 	}
 	return writeDecision(out, "allow", "")
 }
@@ -501,9 +509,9 @@ func writeStoreDegraded(out io.Writer, err error) error {
 }
 
 // writePreInvocation serializes the PreInvocation hook response. Antigravity CLI
-// v1.5.3's utils.scrubMessage panics on any populated map<string,string> field
-// (HookSystemMessage.metadata), so userMarkdown is prepended to SystemMessage and
-// Metadata is left nil (BUG-523).
+// v1.5.3–v1.5.9 utils.scrubMessage panics on any populated map<string,string>
+// field (HookSystemMessage.metadata), so userMarkdown is combined into
+// SystemMessage and Metadata is kept nil (BUG-523).
 func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 	var resp PreInvocationOutput
 	if sysMsg != "" || userMarkdown != "" {
@@ -511,7 +519,7 @@ func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 		if userMarkdown != "" {
 			if combined == "" || combined == userMarkdown {
 				combined = userMarkdown
-			} else {
+			} else if !strings.Contains(combined, userMarkdown) {
 				combined = userMarkdown + "\n" + combined
 			}
 		}

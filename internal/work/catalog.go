@@ -57,9 +57,11 @@ type RolePick struct {
 
 // Catalog is the persisted .config/fyr/models.json document.
 type Catalog struct {
-	UpdatedAt string              `json:"updated_at"`
-	Entries   []CatalogEntry      `json:"entries"`
-	Picks     map[string]RolePick `json:"picks"`
+	UpdatedAt      string              `json:"updated_at"`
+	QuotaUpdatedAt string              `json:"quota_updated_at,omitempty"`
+	Entries        []CatalogEntry      `json:"entries"`
+	Picks          map[string]RolePick `json:"picks"`
+	Pools          []Pool              `json:"pools,omitempty"`
 }
 
 // StandardRoleTiers lists the default role+tier pairs persisted in Catalog.Picks.
@@ -191,13 +193,58 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 	return cat, nil
 }
 
+// EnrichCatalogPools runs `agy -p "/usage"` best-effort (never failing the
+// caller), updates QuotaUpdatedAt and Pools on cat, and saves cat when changed.
+func EnrichCatalogPools(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
+	if probeCatalogPoolsBestEffort(ctx, agyPath, time.Now().UTC(), &cat) && home != "" {
+		_ = SaveCatalog(home, cat)
+	}
+	return cat
+}
+
+func probeCatalogPoolsBestEffort(ctx context.Context, agyPath string, now time.Time, cat *Catalog) bool {
+	if cat == nil || strings.TrimSpace(agyPath) == "" {
+		return false
+	}
+	uText, err := usageProbeFunc(ctx, agyPath)
+	if err != nil {
+		return false
+	}
+	pools, err := ParseUsage(uText)
+	if err != nil || len(pools) == 0 {
+		return false
+	}
+	cat.QuotaUpdatedAt = now.UTC().Format(time.RFC3339)
+	cat.Pools = pools
+	return true
+}
+
+// PersistCatalogPoolsBestEffort updates quota_updated_at and pools inside an
+// existing <home>/.config/fyr/models.json file, ignoring errors.
+func PersistCatalogPoolsBestEffort(home string, pools []Pool) {
+	if strings.TrimSpace(home) == "" || len(pools) == 0 || !CatalogExists(home) {
+		return
+	}
+	cat, ok, err := LoadCatalog(home)
+	if err != nil || !ok {
+		return
+	}
+	cat.QuotaUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cat.Pools = append([]Pool(nil), pools...)
+	_ = SaveCatalog(home, cat)
+}
+
 // BuildCatalog merges freshly parsed entries with optional previous state and evidence.
 func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence map[string]ModelEvidence) Catalog {
 	today := now.UTC().Format("2006-01-02")
 	entries := mergeCatalogEntries(today, parsed, prev, evidence)
 	var prevPicks map[string]RolePick
+	var quotaUpdatedAt string
+	var prevPools []Pool
 	if prev != nil {
 		prevPicks = prev.Picks
+		quotaUpdatedAt = prev.QuotaUpdatedAt
+		prevPools = append([]Pool(nil), prev.Pools...)
 	}
 	picks := make(map[string]RolePick, len(StandardRoleTiers))
 	for _, rt := range StandardRoleTiers {
@@ -207,9 +254,11 @@ func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence 
 		}
 	}
 	return Catalog{
-		UpdatedAt: now.UTC().Format(time.RFC3339),
-		Entries:   entries,
-		Picks:     picks,
+		UpdatedAt:      now.UTC().Format(time.RFC3339),
+		QuotaUpdatedAt: quotaUpdatedAt,
+		Entries:        entries,
+		Picks:          picks,
+		Pools:          prevPools,
 	}
 }
 

@@ -188,7 +188,7 @@ var pages = map[string]verbPage{
 			"       fyr search --affected TARGET",
 			"       fyr search --map",
 			"       fyr search --vet PROMPT",
-			"       fyr search --hook <pre-invocation|pre-tool-use|stop>",
+			"       fyr search --hook <session-start|pre-invocation|pre-tool-use|stop>",
 		},
 		about: []string{
 			"Prints the brain store's matching records first (this project's and the",

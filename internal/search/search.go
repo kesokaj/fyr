@@ -38,7 +38,7 @@ type Options struct {
 	Affected         string                                                          // --affected file path or symbol
 	Map              bool                                                            // --map repo summary
 	Vet              string                                                          // --vet prompt
-	Hook             string                                                          // --hook event: pre-invocation, pre-tool-use or stop
+	Hook             string                                                          // --hook event: session-start, pre-invocation, pre-tool-use or stop
 	HookIn           io.Reader                                                       // optional stdin reader for --hook
 	ActiveFiles      map[string]bool                                                 // optional in-memory active file set
 	BrainRefs        func(target string) []LinkedRecord                              // optional callback to internal/brain.Refs
@@ -48,6 +48,7 @@ type Options struct {
 	SkillCatalog     func(home string) []SkillMeta                                   // optional callback for --vet and --hook
 	hookDeadline     time.Duration
 	hookDispatch     func(context.Context, Options, string, string, HookInput, io.Writer) error
+	nowFunc          func() time.Time
 }
 
 const (
@@ -125,7 +126,7 @@ func validateSearchModes(o *Options) error {
 		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected, --map, --vet or --hook; see fyr help search"}
 	}
 	if o.Hook != "" && normalizeHookEvent(o.Hook) == "" {
-		return usageError{"search: --hook must be one of: pre-invocation pre-tool-use stop; see fyr help search"}
+		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use stop; see fyr help search"}
 	}
 	if o.Path != "" && o.To == "" {
 		return usageError{"search: --path requires --to <symbol> or a target symbol argument; see fyr help search"}

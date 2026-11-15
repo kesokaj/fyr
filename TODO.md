@@ -7,19 +7,19 @@
 
 ## Now
 
-### Phase 2b — Hook events and routing (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-files: `internal/search/` (vet, route, subagent, hook files), `internal/harness/plan.go`
+### Phase 3 — Deterministic gates and subagent pruning (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+files: `cmd/fyr/`, `internal/gate/`, `agents/`, `internal/harness/agents_test.go`, `context/`, `skills/` (about 15 files that reference the retired agents)
 
-- [ ] Render the `SessionStart` event (a capsule of at most 1.5 KB with date, plan, Now and status) and a `run_workflow` matcher in `internal/harness/plan.go:191-198` — verify: the rendered `hooks.json` golden test; capsule ≤ 1,500 B
-- [ ] Banners go through `metadata.user_markdown` with an empty `systemMessage`. `IntentQuestion` never sets `SecurityRequired` (`vet_skills.go:21`), and `vet_route.go` drops its `/fyr-work` routes — verify: `go test -race ./internal/search/...`
-- [ ] Route `inferSwarmRole` by name prefix only, with the 20%/30% quota fallback (`hook_subagent.go:72-164`). Add the `Stop` stamp check from D2 — verify: `Stop` returns `continue` once on a dirty tree with a stale stamp and allows a matching stamp; latency stays under 250 ms
-- [ ] Checkpoint — evidence: tests, a real-home install, one real session smoke test
+- [ ] `fyr verify` (`gofmt`, `vet`, `go test -race ./...`, `fyr check`, then write the tree-hash stamp) and `fyr gate <worktree>` (lease, numstat, added-line secret scan, trailers) — verify: temp-repo tests, including a must-fail case for each check — docs: `README.md`
+- [ ] `fyr land <branch>` and `fyr close` (one handoff that embeds the verify digest; no deletion of old records) — verify: a temp-repo end-to-end test — docs: `README.md`
+- [ ] Retire `changelog`, `bugs` and `triage`; scope `verifier` to e2e; update `agents_test.go:131-230` and every skill or context reference; switch the DoD to 3 steps — verify: `go test -race ./...`, `fyr check`, eval rows for the changed skills
+- [ ] Checkpoint
 
 ## Next
 
-- Phase 3 — Deterministic gates and subagent pruning (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 4 — Models extraction and native orchestration (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 5 — Isolation without Docker (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- Phase 6a — One background runner (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 
 ## Backlog
 

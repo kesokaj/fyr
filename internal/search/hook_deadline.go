@@ -84,6 +84,8 @@ func dispatchHookEvent(ctx context.Context, o Options, event, dir string, input 
 		return ctx.Err()
 	}
 	switch event {
+	case "session-start":
+		return handleSessionStart(o, dir, input, out)
 	case "pre-invocation":
 		return handlePreInvocation(o, dir, input, out)
 	case "pre-tool-use":
@@ -94,7 +96,7 @@ func dispatchHookEvent(ctx context.Context, o Options, event, dir string, input 
 }
 
 func writeHookAllowFallback(event string, out io.Writer) error {
-	if event == "pre-invocation" {
+	if event == "pre-invocation" || event == "session-start" {
 		return writePreInvocation(out, "", "")
 	}
 	return writeDecision(out, "allow", "")

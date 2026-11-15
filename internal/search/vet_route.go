@@ -33,29 +33,23 @@ func RouteFeature(prompt string, intent IntentMode, skills []SkillMeta) string {
 	case IntentBug:
 		return "/fyr-bug (reproduce with failing test first)"
 	case IntentFeature:
-		if hasBatchOrMultiPhaseCues(clean, low) {
-			return "/fyr-work (waves with model:, judge:, base-check:)"
-		}
 		return "/fyr-feature (pre-build interview first)"
 	case IntentQuestion:
 		return "fyr search --slice"
 	case IntentTask:
-		return routeTaskIntent(clean, low, skills)
+		return routeTaskIntent(low, skills)
 	default:
 		return ""
 	}
 }
 
-func routeTaskIntent(clean, low string, skills []SkillMeta) string {
-	if hasIndependentTasks(clean, low) {
-		return "/fyr-work <task>; <task>"
-	}
+func routeTaskIntent(low string, skills []SkillMeta) string {
 	if hasLookupCues(low) {
 		return "fyr search --slice"
 	}
 	switch {
 	case hasSkillName(skills, "fyr-triage"):
-		return "/fyr-triage → /fyr-work Kickoffs"
+		return "/fyr-triage"
 	case hasSkillName(skills, "fyr-handoff"):
 		return "/fyr-handoff (commits, pushes, fyr metrics ingest once)"
 	case hasSkillName(skills, "fyr-docs"):

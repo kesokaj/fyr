@@ -153,10 +153,9 @@ func verifyFleetTurns1And2(t *testing.T, r *fleetRig) (string, string, string, s
 	}
 	requireContains(t, chkOut, "TestHistogram", "TestRouteSeverity")
 	requireContains(t, fleetHookMsg(t, r, "Add collector histogram and router severity using polling loops."), `"intent": "FEATURE"`, `"gate": "VET_FIRST"`, "conflicts with ADR-001")
-	sys2 := fleetHookMsg(t, r, "go all approved — execute the collector and router phases in parallel with /fyr-work.")
-	requireContains(t, sys2, `"intent": "APPROVAL"`, `"gate": "PASS_THROUGH"`)
-	if strings.Contains(sys2, `"gate": "VET_FIRST"`) {
-		t.Fatalf("Turn 2 approval should bypass VET_FIRST:\n%s", sys2)
+	t2 := runHook[search.PreInvocationOutput](t, r.home, "pre-invocation", search.HookInput{ConversationID: "conv-fleet-lead", WorkspacePaths: []string{r.proj}, LastUserInput: "go all approved — execute the collector and router phases in parallel with /fyr-work."})
+	if len(t2.InjectSteps) != 0 {
+		t.Fatalf("Turn 2 APPROVAL PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2.InjectSteps)
 	}
 	mkKick := func(name, files string) string {
 		p := filepath.Join(r.kick, name+".md")

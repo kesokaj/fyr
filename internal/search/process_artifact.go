@@ -86,6 +86,9 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 		_ = sc.st.recordVetHistory(convID, turnNum, rawPrompt, vetRes, pivotFiles)
 	}
 	writeHookProcessArtifact(o.Home, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
+	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
+		return "", ""
+	}
 	return sysMsg, banner
 }
 

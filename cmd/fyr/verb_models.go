@@ -70,6 +70,7 @@ func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (work.Cat
 		cat, err := work.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
 		if err == nil && c.modelsRefresh {
 			cat = work.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+			cat = work.EnrichCatalogPools(ctx, c.home, agyPath, cat)
 		}
 		return cat, err
 	}
@@ -84,10 +85,13 @@ func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (work.Cat
 }
 
 func runModelsPick(ctx context.Context, c *ctx, cat work.Catalog, agyPath string) error {
-	pick, err := work.PickRoleFromCatalog(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
+	pick, pools, err := work.PickRoleFromCatalogWithPools(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
 	if err != nil {
 		fmt.Fprintf(c.out, "models: %v\n", err)
 		return exitCode(1)
+	}
+	if len(pools) > 0 && c.home != "" && sandbox.CheckWorkDir(c.home) == nil {
+		work.PersistCatalogPoolsBestEffort(c.home, pools)
 	}
 	if c.jsonOut {
 		return writeIndentedJSON(c, pick)

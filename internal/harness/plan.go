@@ -17,7 +17,7 @@ const (
 	BinPath  = ".local/bin/fyr"
 )
 
-const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm"
+const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm|run_workflow"
 
 // VendorAntigravity is the one vendor, recorded in the manifest so a reader
 // of state.json (the init-project skill) sees an Antigravity-only install.
@@ -188,6 +188,7 @@ func hookCommand(event string) map[string]any {
 func hooksJSON() []byte {
 	cfg := map[string]any{
 		"fyr-brain": map[string]any{
+			"SessionStart":  []any{hookCommand("session-start")},
 			"PreInvocation": []any{hookCommand("pre-invocation")},
 			"PreToolUse": []any{
 				map[string]any{

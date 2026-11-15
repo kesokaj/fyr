@@ -214,8 +214,11 @@ func verifyLedgerTurn3(t *testing.T, proj, home, dbPath string) {
 		}
 	}
 	runCmd(t, proj, "go", "test", "./...")
-	if d := runHook[search.HookDecisionOutput](t, home, "stop", search.HookInput{ConversationID: "conv-ledger", WorkspacePaths: []string{proj}}); d.Decision != "allow" || queryInt(t, dbPath, `SELECT COUNT(*) FROM co_activity WHERE kind = 'co_modified'`) < 3 {
-		t.Fatalf("stop hook co_activity failed: %+v", d)
+	if d := runHook[search.HookDecisionOutput](t, home, "stop", search.HookInput{ConversationID: "conv-ledger", WorkspacePaths: []string{proj}}); d.Decision != "continue" || !strings.Contains(d.Reason, "[VERIFY_STAMP]") || queryInt(t, dbPath, `SELECT COUNT(*) FROM co_activity WHERE kind = 'co_modified'`) < 3 {
+		t.Fatalf("first stop hook on dirty uncommitted go tree failed: %+v", d)
+	}
+	if d := runHook[search.HookDecisionOutput](t, home, "stop", search.HookInput{ConversationID: "conv-ledger", WorkspacePaths: []string{proj}}); d.Decision != "allow" {
+		t.Fatalf("second stop hook expected allow: %+v", d)
 	}
 }
 
@@ -290,8 +293,8 @@ func verifyWorkerTurns1And2(t *testing.T, proj, home string) {
 		ConversationID: "conv-worker", WorkspacePaths: []string{proj},
 		LastUserInput: "Hold ADR-001. Instead, fix BUG-001 in internal/processor/retry.go by capping attempt at 10 in NextDelay, and rename NextDelay to BackoffDuration across the Go code. Verify with go test ./...",
 	})
-	if sys2 := t2.InjectSteps[0].SystemMessage.SystemMessage; !strings.Contains(sys2, `"gate": "PASS_THROUGH"`) || strings.Contains(sys2, `"gate": "VET_FIRST"`) {
-		t.Fatalf("Turn 2 expected gate: PASS_THROUGH, got:\n%s", sys2)
+	if len(t2.InjectSteps) != 0 {
+		t.Fatalf("Turn 2 un-enriched PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2.InjectSteps)
 	}
 	if affOut, _, code := fyrCLI(t, "", "search", "--affected", "NextDelay", "-C", proj, "--home", home); code != 0 || !strings.Contains(affOut, "dispatch.go") || !strings.Contains(affOut, "retry_test.go") {
 		t.Fatalf("search --affected NextDelay (%d): %s", code, affOut)
