@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
@@ -50,15 +51,24 @@ func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
 }
 
 func loadTurnRecords(dir, home string, global bool) []brain.Record {
+	var recs []brain.Record
 	if home != "" {
 		if _, err := os.Stat(brain.Path(home)); err == nil {
-			if recs, err := brain.List(brain.Options{Home: home, Dir: dir, Global: global}, brain.ListFilter{}); err == nil && len(recs) > 0 {
+			if prj, err := brain.List(brain.Options{Home: home, Dir: dir, Global: global}, brain.ListFilter{}); err == nil {
+				recs = append(recs, prj...)
+			}
+			if !global {
+				if globals, err := brain.List(brain.Options{Home: home, Dir: dir, Global: true}, brain.ListFilter{Kind: "memory"}); err == nil {
+					recs = append(recs, globals...)
+				}
+			}
+			if len(recs) > 0 {
 				return recs
 			}
 		}
 	}
-	if recs, ok, err := brain.ReadTrail(dir); err == nil && ok {
-		return recs
+	if trailRecs, ok, err := brain.ReadTrail(dir); err == nil && ok {
+		return trailRecs
 	}
 	return nil
 }
@@ -85,41 +95,92 @@ func totalMatchedRecords(ctx *search.TurnBrainContext) int {
 func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
 	switch r.Kind {
 	case "plan":
-		if (r.Status == "open" || r.Status == "") && ctx.ActivePlan == nil {
-			ctx.ActivePlan = &search.MatchedRecord{
-				ID: r.ID, Kind: "plan", Status: r.Status, Title: r.Title,
-				Provenance: r.Provenance, Body: summarizePlanReadyPhases(r.Body),
-			}
-		}
+		classifyPlanRecord(ctx, r)
 	case "memory":
-		if (r.Status == "closed" || r.Status == "") && len(ctx.Memories) < 2 && totalMatchedRecords(ctx) < 4 && matchesRecordPrecision(r, prompt, files, terms) {
-			ctx.Memories = append(ctx.Memories, search.MatchedRecord{
-				ID: r.ID, Kind: "memory", Status: r.Status, Title: r.Title,
-				Provenance: r.Provenance, Body: r.Body, StaleTag: brain.MemoryStalenessTag(dir, r),
-			})
-		}
+		classifyMemoryRecord(ctx, dir, prompt, files, terms, r)
 	case "bug":
-		if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 4 && matchesRecordPrecision(r, prompt, files, terms) {
-			ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
-				ID: r.ID, Kind: "bug", Status: r.Status, Title: r.Title,
-				Provenance: r.Provenance, Body: r.Body,
-			})
-		}
+		classifyBugRecord(ctx, prompt, files, terms, r)
 	case "adr":
-		if r.Status != "accepted" && r.Status != "open" && r.Status != "" {
-			return
+		classifyADRRecord(ctx, prompt, files, terms, r)
+	}
+}
+
+func classifyPlanRecord(ctx *search.TurnBrainContext, r brain.Record) {
+	if (r.Status == "open" || r.Status == "") && ctx.ActivePlan == nil {
+		ctx.ActivePlan = &search.MatchedRecord{
+			ID: r.ID, Kind: "plan", Status: r.Status, Title: r.Title,
+			Provenance: r.Provenance, Body: summarizePlanReadyPhases(r.Body),
 		}
-		rec := search.MatchedRecord{
-			ID: r.ID, Kind: "adr", Status: r.Status, Title: r.Title,
+	}
+}
+
+func classifyMemoryRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
+	if (r.Status != "closed" && r.Status != "") || !matchesRecordPrecision(r, prompt, files, terms) {
+		return
+	}
+	v := brain.ComputeMemoryValidity(dir, r, 0, time.Now())
+	if v < brain.MinActiveValidity {
+		return
+	}
+	m := search.MatchedRecord{
+		ID: r.ID, Kind: "memory", Status: r.Status, Title: r.Title,
+		Provenance: r.Provenance, Body: r.Body, StaleTag: brain.MemoryStalenessTag(dir, r),
+		MemoryKind: r.MemoryKind, Validity: v, Global: r.Scope == "",
+	}
+	ctx.Memories = insertPrioritizedMemory(ctx.Memories, m, totalMatchedRecords(ctx))
+}
+
+func insertPrioritizedMemory(mems []search.MatchedRecord, m search.MatchedRecord, totalRecs int) []search.MatchedRecord {
+	if len(mems) < 4 && totalRecs < 6 {
+		mems = append(mems, m)
+		sort.Slice(mems, func(i, j int) bool { return memoryPriorityLess(mems[i], mems[j]) })
+		return mems
+	}
+	if len(mems) > 0 && memoryPriorityLess(m, mems[len(mems)-1]) {
+		mems[len(mems)-1] = m
+		sort.Slice(mems, func(i, j int) bool { return memoryPriorityLess(mems[i], mems[j]) })
+	}
+	return mems
+}
+
+func memoryPriorityLess(a, b search.MatchedRecord) bool {
+	aPE := a.MemoryKind == "procedural" || a.MemoryKind == "episodic"
+	bPE := b.MemoryKind == "procedural" || b.MemoryKind == "episodic"
+	if aPE != bPE {
+		return aPE
+	}
+	if a.Validity != b.Validity {
+		return a.Validity > b.Validity
+	}
+	if a.Global != b.Global {
+		return !a.Global
+	}
+	return a.ID < b.ID
+}
+
+func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, r brain.Record) {
+	if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecision(r, prompt, files, terms) {
+		ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
+			ID: r.ID, Kind: "bug", Status: r.Status, Title: r.Title,
 			Provenance: r.Provenance, Body: r.Body,
-		}
-		conflict := search.CheckADRConflict(strings.ToLower(prompt), rec)
-		if conflict != "" {
-			ctx.Conflicts = append(ctx.Conflicts, conflict)
-		}
-		if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 4 && matchesRecordPrecision(r, prompt, files, terms))) && len(ctx.ADRs) < 3 {
-			ctx.ADRs = append(ctx.ADRs, rec)
-		}
+		})
+	}
+}
+
+func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, r brain.Record) {
+	if r.Status != "accepted" && r.Status != "open" && r.Status != "" {
+		return
+	}
+	rec := search.MatchedRecord{
+		ID: r.ID, Kind: "adr", Status: r.Status, Title: r.Title,
+		Provenance: r.Provenance, Body: r.Body,
+	}
+	conflict := search.CheckADRConflict(strings.ToLower(prompt), rec)
+	if conflict != "" {
+		ctx.Conflicts = append(ctx.Conflicts, conflict)
+	}
+	if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecision(r, prompt, files, terms))) && len(ctx.ADRs) < 3 {
+		ctx.ADRs = append(ctx.ADRs, rec)
 	}
 }
 

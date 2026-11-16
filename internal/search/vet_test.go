@@ -385,3 +385,33 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		t.Errorf("hook systemMessage banner missing FEATURE/VET_FIRST or `!` tip:\n%s", sys)
 	}
 }
+
+func TestMatchedRecordMemoryMetadata(t *testing.T) {
+	rec := MatchedRecord{
+		ID:         "MEMORY-test",
+		Kind:       "memory",
+		Status:     "closed",
+		Title:      "Procedural memory rule",
+		Provenance: "operator",
+		MemoryKind: "procedural",
+		Validity:   0.85,
+		Global:     true,
+	}
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got MatchedRecord
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.MemoryKind != "procedural" || got.Validity != 0.85 || !got.Global {
+		t.Errorf("roundtrip got %+v, want MemoryKind=procedural Validity=0.85 Global=true", got)
+	}
+	res := VetPrompt("Fix service.go", "", SliceResult{SymbolHits: 1, Files: []string{"service.go"}}, TurnBrainContext{
+		Memories: []MatchedRecord{rec},
+	})
+	if len(res.MatchedRecords) != 1 || res.MatchedRecords[0].MemoryKind != "procedural" || res.MatchedRecords[0].Validity != 0.85 {
+		t.Errorf("VetPrompt MatchedRecords = %+v, want MemoryKind/Validity preserved", res.MatchedRecords)
+	}
+}

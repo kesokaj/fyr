@@ -45,13 +45,16 @@ type SkillMeta struct {
 // MatchedRecord is a project or global record (MEMORY-*, BUG-*, ADR-*, PLAN-*)
 // matched for the current turn.
 type MatchedRecord struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Status     string `json:"status,omitempty"`
-	Title      string `json:"title"`
-	Provenance string `json:"provenance,omitempty"`
-	Body       string `json:"body,omitempty"`
-	StaleTag   string `json:"staleTag,omitempty"`
+	ID         string  `json:"id"`
+	Kind       string  `json:"kind"`
+	Status     string  `json:"status,omitempty"`
+	Title      string  `json:"title"`
+	Provenance string  `json:"provenance,omitempty"`
+	Body       string  `json:"body,omitempty"`
+	StaleTag   string  `json:"staleTag,omitempty"`
+	MemoryKind string  `json:"memoryKind,omitempty"`
+	Validity   float64 `json:"validity,omitempty"`
+	Global     bool    `json:"global,omitempty"`
 }
 
 // TurnBrainContext holds full-body memories, open bug prevention rules, ADR
