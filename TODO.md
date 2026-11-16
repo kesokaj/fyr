@@ -7,12 +7,14 @@
 
 ## Now
 
-### Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-- [x] `/fyr-preflight v9.0.0` (parallel review plus security, isolated changed-row eval, checksums) — verify: SHIP — evidence: `REVIEW-2026-11-16-1125-preflight-v9-0-0`, tag `v9.0.0` at `c28e88de`, 5 assets published (`SHA256SUMS`, `fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`, `fyr-v9.0.0.zip`)
-- [ ] After the tag: a 7-day `fyr report --md` comparison stored as a `retro` record — targets: repeat reads under 10%, search:grep at 1.5 or higher, under 20% of steps at 150k+, tokens per turn down 45%
+### Phase 0 — `PRD.md` amendment, `ADR-523`, and build prep (`PLAN-2026-11-16-1307-plan-dreaming-only-fyr-auto-and-validity-scored`)
+- [x] On operator approval (`go all approved` / `go v9.1.0`), store `ADR-523` (`fyr record add adr`), apply the approved `PRD.md` edits (`R0`, `R3`, `R7`, `R8`, `R9`, keeping `enforced by:` HTML comments on currently-declared test names until Phase 3b), turn `fyr auto off` in `~` during build, and confirm `fyr check` exits 0
+- [x] Checkpoint — `PRD.md`, `TODO.md`, and `ADR-523` stored and verified (`fyr check` exit 0, `fyr verify` green)
 
 ## Next
 
+- Phase 1–4 of `PLAN-2026-11-16-1307-plan-dreaming-only-fyr-auto-and-validity-scored` (multi-part validity-scored memory, progressive `PreInvocation` + trajectory digest, dreaming-only `fyr auto`, `/fyr-preflight v9.0.1`)
+- Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro (earliest 2026-11-23)
 
 ## Backlog
 
