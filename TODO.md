@@ -7,14 +7,11 @@
 
 ## Now
 
-### Phase 0 — `PRD.md` amendment, `ADR-523`, and build prep (`PLAN-2026-11-16-1307-plan-dreaming-only-fyr-auto-and-validity-scored`)
-- [x] On operator approval (`go all approved` / `go v9.1.0`), store `ADR-523` (`fyr record add adr`), apply the approved `PRD.md` edits (`R0`, `R3`, `R7`, `R8`, `R9`, keeping `enforced by:` HTML comments on currently-declared test names until Phase 3b), turn `fyr auto off` in `~` during build, and confirm `fyr check` exits 0
-- [x] Checkpoint — `PRD.md`, `TODO.md`, and `ADR-523` stored and verified (`fyr check` exit 0, `fyr verify` green)
+### Phase 7 — Verification, release, and 7-day retro (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- [x] `fyr eval` suite green, real-home install verified, and `v9.0.0` / `v9.0.1` shipped via `/fyr-preflight`
+- [ ] 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest 2026-11-23)
 
 ## Next
-
-- Phase 1–4 of `PLAN-2026-11-16-1307-plan-dreaming-only-fyr-auto-and-validity-scored` (multi-part validity-scored memory, progressive `PreInvocation` + trajectory digest, dreaming-only `fyr auto`, `/fyr-preflight v9.0.1`)
-- Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro (earliest 2026-11-23)
 
 ## Backlog
 
