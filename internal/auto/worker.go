@@ -28,13 +28,9 @@ const workerTimeout = 30 * time.Minute
 // chooseRunner resolves the worker runner through isolate.ChooseRunner with
 // --runner auto, failing closed if no isolated runner is available (PRD R8,
 // R10; ADR-522). It sets wo.Runner and wo.RunnerReason (D2, D17).
-func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error, preflight func(isolate.WorkerOptions) error) (runner, why string, err error) {
+func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error) (runner, why string, err error) {
 	wo.Runner = isolate.RunnerAuto
-	pf := preflight
-	if pf == nil {
-		pf = isolate.DockerPreflight
-	}
-	runner, why, err = isolate.ChooseRunner(isolate.RunnerAuto, isolateAvail, func() error { return pf(*wo) })
+	runner, why, err = isolate.ChooseRunner(isolate.RunnerAuto, isolateAvail)
 	if err != nil {
 		wo.Runner, wo.RunnerReason = "", ""
 		return "", "", err
@@ -119,7 +115,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	}
 	wo := r.workOptions(root)
 	var runnerWhy string
-	_, runnerWhy, err = chooseRunner(&wo, r.o.IsolateAvailable, r.o.DockerPreflight)
+	_, runnerWhy, err = chooseRunner(&wo, r.o.IsolateAvailable)
 	if err != nil {
 		r.failed = true
 		return "worker runner error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
@@ -147,7 +143,6 @@ func (r *run) workOptions(root string) isolate.WorkerOptions {
 		RealHome:       r.o.realHome(),
 		Self:           r.o.self(),
 		Repo:           r.o.Repo,
-		Version:        r.o.Version,
 		Timeout:        workerTimeout,
 		MaxWorkers:     1,
 		Out:            io.Discard,

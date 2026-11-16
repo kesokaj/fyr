@@ -53,8 +53,6 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"auto", "off"},
 		{"update", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip},
-		// Its sandboxes go under the state directory, whatever it refuses.
-		{"work", "absent.md"},
 	}
 	readOnly := [][]string{
 		{"status", "--repo", repo},
@@ -73,7 +71,6 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"update", "--dry-run", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip, "--dry-run"},
 		{"auto", "off", "--dry-run"},
-		{"work", "--kill", "2026-10-29-170000-42"},
 		// A record dry run says it writes nothing (IN33 of the 2026-10-27 audit).
 		{"record", "import", "--dry-run"},
 	}

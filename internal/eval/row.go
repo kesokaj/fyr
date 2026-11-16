@@ -50,7 +50,7 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
 		Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
 		PrintTimeout: printTimeout, StopGrace: stopGrace,
-		Prefix: "eval: " + r.ID, Out: o.Out, Docker: o.docker, ACP: r.ACP || o.ACP,
+		Prefix: "eval: " + r.ID, Out: o.Out, ACP: r.ACP || o.ACP,
 		TestRO: o.TestRO, TestRW: o.TestRW, TestUnconfined: o.TestUnconfined,
 	})
 	return &row{o: o, r: r, b: b, stamp: stamp}

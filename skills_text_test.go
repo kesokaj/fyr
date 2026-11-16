@@ -104,32 +104,6 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 	}
 }
 
-// TestWorkSkillRunsFeatureSteps5And6AfterLastMerge pins BUG-516 (Item 21 of
-// PLAN-2026-11-02-1806-fyr-speed): after the last wave's merge in plan mode,
-// the lead runs feature Steps 5 and 6 over the whole range from the first
-// wave's base to HEAD before the lead's closing handoff.
-func TestWorkSkillRunsFeatureSteps5And6AfterLastMerge(t *testing.T) {
-	text := readSkill(t, "skills/fyr-work/SKILL.md")
-	loop := section(t, text, "## The loop")
-	for _, want := range []string{
-		"After the last merge",
-		"fyr-feature` Steps 5 and 6",
-		"from the first wave's base to HEAD",
-		"`reviewer`",
-		"`verifier`",
-		"`<short>-<phase>-fix`",
-	} {
-		if !strings.Contains(loop, want) {
-			t.Errorf("skills/fyr-work/SKILL.md ## The loop does not say %q", want)
-		}
-	}
-	afterIdx := strings.Index(loop, "11. **After the last merge**")
-	endIdx := strings.Index(loop, "12. **End the loop**")
-	if afterIdx < 0 || endIdx <= afterIdx {
-		t.Errorf("skills/fyr-work/SKILL.md ## The loop must order step 11 (After the last merge) before step 12 (End the loop)")
-	}
-}
-
 // TestFeatureSkillEmptyRepoAndWorkersDRow pins Item 18 and I4 of
 // PLAN-2026-11-02-1806-fyr-speed: feature Step 1 skips explorer in a
 // repository that has no source files yet, and Step 3 shows the workers D-row

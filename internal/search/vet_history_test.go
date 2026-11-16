@@ -314,7 +314,7 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 	}
 
 	// 2. Negated mention ("don't use docker") suppresses docker.
-	skills2, _ := MatchSkills("Run tests in internal/work/worker.go and don't use docker", IntentTask, []string{"internal/work/worker.go"}, nil)
+	skills2, _ := MatchSkills("Run tests in internal/models/catalog.go and don't use docker", IntentTask, []string{"internal/models/catalog.go"}, nil)
 	for _, s := range skills2 {
 		if s.Name == "docker" {
 			t.Errorf("expected negated docker skill to be suppressed, got %+v", skills2)
@@ -333,14 +333,14 @@ func TestMatchSkillsBashVsGolangAndDiagnosticMentions(t *testing.T) {
 		t.Errorf("expected bash skill on .sh + shellcheck/jq prompt, got %+v", skills3)
 	}
 
-	// 4. Expanded skill surfaces match mermaid-syntax, fyr-work, and frontend-ui-modern.
+	// 4. Expanded skill surfaces match mermaid-syntax, fyr-swarm, and frontend-ui-modern.
 	skillsMermaid, _ := MatchSkills("Add a Mermaid flowchart diagram to README.md", IntentTask, []string{"README.md"}, nil)
 	if len(skillsMermaid) == 0 || skillsMermaid[0].Name != "mermaid-syntax" {
 		t.Errorf("expected mermaid-syntax skill, got %+v", skillsMermaid)
 	}
-	skillsWork, _ := MatchSkills("Update fyr work kickoff parser in internal/work/kickoff.go", IntentTask, []string{"internal/work/kickoff.go", "internal/work/worker.go"}, nil)
-	if len(skillsWork) < 2 || skillsWork[0].Name != "fyr-work" || skillsWork[1].Name != "golang" {
-		t.Errorf("expected [fyr-work, golang], got %+v", skillsWork)
+	skillsSwarm, _ := MatchSkills("Run parallel /fyr-swarm workers with fyr gate and fyr land on internal/models/catalog.go", IntentTask, []string{"internal/models/catalog.go"}, nil)
+	if len(skillsSwarm) < 2 || skillsSwarm[0].Name != "fyr-swarm" || skillsSwarm[1].Name != "golang" {
+		t.Errorf("expected [fyr-swarm, golang], got %+v", skillsSwarm)
 	}
 }
 

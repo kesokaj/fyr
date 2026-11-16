@@ -19,7 +19,7 @@ Cross-repo work gets its handoff in the project that owns the next step; there i
 
 What a compaction must keep is the global context's `# Compact instructions` section; Antigravity reads it as prose. A headless or print-mode run whose dispatched agent has not returned says so in its output and names the agent rather than ending quietly. The stamp in a handoff's draft name and title comes from `date +%F-%H%M`, never memory; where the CLI refuses a joined command, run it alone and type its output.
 
-An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes — never poll with `sleep`. Only a print-mode run (`agy -p`) cannot end its turn to wait, because the turn's end is the run's end and a subagent or background command still running is cut off: in print mode only, give a long shell command a large `WaitMsBeforeAsync` so it returns inside the turn, and poll a dispatched subagent, or a command that went async, with `manage_subagents` or `manage_task` (`list`), `sleep 30` between polls, until each is idle and its artifact is on disk. A run knows it is in print mode only from its prompt (`fyr eval` and `fyr work` say so); never probe the process table or the environment to find out. A print-mode run that must end first names, in its output and in the handoff, each agent still running and its artifact path.
+An interactive session ends its turn to wait for a dispatched subagent or a background command and wakes when each one finishes — never poll with `sleep`. Only a print-mode run (`agy -p`) cannot end its turn to wait, because the turn's end is the run's end and a subagent or background command still running is cut off: in print mode only, give a long shell command a large `WaitMsBeforeAsync` so it returns inside the turn, and poll a dispatched subagent, or a command that went async, with `manage_subagents` or `manage_task` (`list`), `sleep 30` between polls, until each is idle and its artifact is on disk. A run knows it is in print mode only from its prompt (`fyr eval` and `fyr auto` say so); never probe the process table or the environment to find out. A print-mode run that must end first names, in its output and in the handoff, each agent still running and its artifact path.
 
 ## Step 1: Scan the Session
 
@@ -138,31 +138,31 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
 - **Redact sensitive data.** Strip API keys, passwords, tokens, PII, and anything from `~/.zsh_secrets` or `.env` files. Replace with `<REDACTED>`.
 - **Include the branch and commit state.** The next agent needs to know where the code stands.
-- **Next Steps never repeat a standing procedure.** A step the project's deploy record records as a by-hand procedure (its § Operator steps: an update at each place, a smoke check after it) is the guide's and the operator's; listing it reads as a question. Point at the guide once when the release changed what those steps pick up; otherwise say nothing. A lead's closing handoff (`fyr-work` skill) is the exception: it lists the real-home install it deferred, for the final tree, as one line for the operator.
+- **Next Steps never repeat a standing procedure.** A step the project's deploy record records as a by-hand procedure (its § Operator steps: an update at each place, a smoke check after it) is the guide's and the operator's; listing it reads as a question. Point at the guide once when the release changed what those steps pick up; otherwise say nothing. A coordinator's closing handoff (`fyr-swarm` skill) lists any real-home install it deferred, for the final tree, as one line for the operator.
 - **Next Steps never carry an item twice.** An item the previous handoff's Next Steps already held is done in this session, or put to the operator as one line with a recommendation and its answer recorded. A second handoff listing the same open item is a session that left work waiting.
 
 ### The worker-mode Kickoff
 
-A lead (`fyr-work` skill) fills this fixed text for each phase it runs through `fyr work`, changing none of it. Its `Project:` names the clone, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the one the verb makes, `work/<short>-<phase>`, with `-r2` on a second attempt, whose quoted additions follow the block as the `fyr-work` skill's step 3 writes them:
+A coordinator (`fyr-swarm` skill) fills this fixed text for each parallel worker slice, changing none of it. Its `Project:` names the worker's worktree, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the worker's own branch, whose quoted additions constrain its scope:
 
 ```text
 Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
 Files: <the phase's files: line, verbatim>
 Model: <the phase's model: line's value, trimmed; the line left out when the phase has none>
 Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
-Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
+Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
+Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
 ```
 
-For a task list with no plan (the `fyr-work` skill's task-list mode), the lead fills the plan-less form instead. The task is the operator's sentence on one line; `Files:`, `Model:` and Done when are the lead's table row, as the operator approved it:
+For a task list with no plan (the `fyr-swarm` skill's parallel task wave), the coordinator fills the plan-less form instead. The task is the operator's sentence on one line; `Files:`, `Model:` and Done when are the coordinator's table row, as the operator approved it:
 
 ```text
 Project: this clone, the current directory; never another checkout. Read AGENTS.md; do this task only, as a worker, with no plan: <the task, one line>.
-Files: <the task's Files: from the lead's table>
-Model: <the task's model ID from the lead's table>
+Files: <the task's Files: from the coordinator's table>
+Model: <the task's model ID from the coordinator's table>
 Standing approvals (closed set): the task and the tests Done when names; the change record; commit on the current branch work/<name>[-r2]; the closing handoff.
-Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); run fyr work; merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the task's Done when from the lead's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the lead. Then write the handoff and end.
+Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
+Done when: <the task's Done when from the coordinator's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
 ```
 
 **Worker mode.** When the Kickoff's Never line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the change record, the handoff record, and its commit on the worker's branch.

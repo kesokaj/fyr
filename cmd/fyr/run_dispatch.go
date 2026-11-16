@@ -201,9 +201,6 @@ func (c *ctx) writesState() bool {
 		// Sandboxes, the metrics store and the testing record; --list reads,
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
-	case "work":
-		// Its sandboxes and work/; --kill, --check and bare config read.
-		return c.workKill == "" && !c.check && (c.fs.Arg(0) != "config" || c.workConfigVisited())
 	case "auto":
 		// status and any --dry-run read; on, off and real run write auto.json or auto/.
 		sub := c.fs.Arg(0)

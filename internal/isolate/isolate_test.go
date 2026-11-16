@@ -313,29 +313,29 @@ func TestChooseRunner(t *testing.T) {
 	okFn := func() error { return nil }
 	failFn := func(msg string) func() error { return func() error { return errors.New(msg) } }
 
-	if r, _, err := ChooseRunner(RunnerIsolate, okFn, failFn("no docker")); err != nil || r != RunnerIsolate {
+	if r, _, err := ChooseRunner(RunnerIsolate, okFn); err != nil || r != RunnerIsolate {
 		t.Errorf("explicit isolate: got (%q, %v)", r, err)
 	}
-	if _, _, err := ChooseRunner(RunnerIsolate, failFn("no landlock"), okFn); err == nil {
+	if _, _, err := ChooseRunner(RunnerIsolate, failFn("no landlock")); err == nil {
 		t.Error("explicit isolate with failing check succeeded")
 	}
-	if r, _, err := ChooseRunner(RunnerDocker, failFn("no landlock"), okFn); err != nil || r != RunnerDocker {
-		t.Errorf("explicit docker: got (%q, %v)", r, err)
-	}
-	if r, why, err := ChooseRunner(RunnerAuto, okFn, failFn("daemon down")); err != nil || r != RunnerIsolate || why != RunnerIsolate {
+	if r, why, err := ChooseRunner(RunnerAuto, okFn); err != nil || r != RunnerIsolate || why != RunnerIsolate {
 		t.Errorf("auto primary isolate: got (%q, %q, %v)", r, why, err)
 	}
-	if r, why, err := ChooseRunner(RunnerAuto, failFn("no landlock"), okFn); err != nil || r != RunnerDocker || why != "docker (--runner isolate: no landlock)" {
-		t.Errorf("auto fallback to docker: got (%q, %q, %v)", r, why, err)
+	if r, _, err := ChooseRunner(RunnerAuto, failFn("no landlock")); err == nil || r != "" {
+		t.Errorf("unavailable isolate under auto: got (%q, %v), want fail closed", r, err)
 	}
-	if r, _, err := ChooseRunner(RunnerAuto, failFn("no landlock"), failFn("no docker")); err == nil || r != "" {
-		t.Errorf("both unavailable: got (%q, %v), want fail closed", r, err)
+	if _, _, err := ChooseRunner("docker", okFn); err == nil {
+		t.Error("docker runner should be refused")
 	}
-	if _, _, err := ChooseRunner("host", okFn, okFn); err == nil {
+	if _, _, err := ChooseRunner("host", okFn); err == nil {
 		t.Error("host runner should be refused")
 	}
 	if err := CheckEvalRunner("auto"); err == nil {
 		t.Error("CheckEvalRunner accepted auto")
+	}
+	if err := CheckEvalRunner("docker"); err == nil {
+		t.Error("CheckEvalRunner accepted docker")
 	}
 	if err := CheckEvalRunner(RunnerIsolate); err != nil {
 		t.Errorf("CheckEvalRunner(%s): %v", RunnerIsolate, err)

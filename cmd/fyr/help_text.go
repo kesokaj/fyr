@@ -48,7 +48,6 @@ Background and measurement
   report       project or global usage report (HTML or --md)
   models       the live agy model catalog and role picks
   eval         run behavioural rows against the CLI
-  work         run Kickoffs as agy workers (in docker when ready, else host)
   verify       run gofmt, go vet, go test -race, check and write stamp
   gate         run lease, numstat, secret and trailer checks on a diff
   land         gate, squash-verify in worktree, ff main and delete branch
@@ -313,8 +312,7 @@ var pages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] [--acp] [--runner R] [--image REF]",
-			"                [--agy-linux PATH] <row>...",
+			"                [--parallel N] [--acp] [--runner R] <row>...",
 			"       fyr eval [--suite-file PATH] --list",
 		},
 		about: []string{
@@ -328,29 +326,6 @@ var pages = map[string]verbPage{
 			"trial in order, writes one testing record, stores each trial and ingests it as",
 			"eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required, refused",
 			"for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.",
-		},
-	},
-	"work": {
-		synopsis: []string{"usage: fyr work [--timeout D] [--model M] [--max-workers N] [--workers N]",
-			"                [--ram GB] [--cpu N] [--disk GB] [--keep] [--acp]",
-			"                [--status-md FILE] [--runner auto|host|docker] [--image REF]",
-			"                [--agy-linux PATH] <kickoff-file>...",
-			"       fyr work config [--workers N] [--ram GB] [--cpu N] [--disk GB]",
-			"       fyr work --check [--runner auto|host|docker] [--image REF]",
-			"                        [--agy-linux PATH]",
-			"       fyr work --status [--json]",
-			"       fyr work --kill <stamp>"},
-		about: []string{
-			"Runs each Kickoff file as a worker: an unattended agy session in its own",
-			"sandbox under --home's .config/fyr/sandbox/<project>/, on a clone of HEAD",
-			"with no remote, on branch work/<file name>, at most N at once machine-wide",
-			"(default 8, max 32; fyr work config sets workers, ram, cpu, disk). What the",
-			"agent reads goes to the CLI's model (R8). A Kickoff's Model: line, else",
-			"--model, is its agy model, checked against agy models. Each branch is fetched",
-			"back, checked against Files:, and reported in at most 39 lines. --runner auto",
-			"(default) is docker, a hardened container of --image with a linux agy, when its",
-			"preflight passes, else host; stamp and result lines, and --check, say which and",
-			"why (SPEC-fyr-work). --kill <stamp> ends it. Exit 0 PASS, 1 FAIL, 2 refused.",
 		},
 	},
 	"check": {

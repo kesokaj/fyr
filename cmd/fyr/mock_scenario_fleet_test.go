@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,27 +35,7 @@ func (fleetEnv) Usage(_, _ string) (string, error) {
 }
 func (e fleetEnv) Targets(string) ([]dream.Target, error) { return dream.Targets(e.home) }
 
-const fleetFakeAgy = `#!/bin/bash
-set -euo pipefail
-if [ "${1:-}" = models ]; then printf 'gemini-4-carbon-high\tGemini 4 Carbon (High)\nclaude-opus-5-5-high\tClaude Opus 5.5 (High)\n'; exit 0; fi
-me=$(basename "$(dirname "$HOME")"); logdir="$HOME/.gemini/antigravity-cli/brain/conv-$me/.system_generated/logs"; mkdir -p "$logdir"
-case "$me" in
-collector) target="internal/collector/probe.go"
-  printf '\nfunc Histogram(samples []Sample, clock func() int64) (fast, slow int) {\n\t_ = clock()\n\tfor _, s := range samples { if s.LatencyMS < 50 { fast++ } else { slow++ } }\n\treturn fast, slow\n}\n' >> internal/collector/probe.go
-  printf '\nfunc TestHistogram(t *testing.T) {\n\tif f, s := Histogram([]Sample{{Host: "a", LatencyMS: 10}, {Host: "b", LatencyMS: 80}}, func() int64 { return 42 }); f != 1 || s != 1 { t.Fatalf("got %%d,%%d", f, s) }\n}\n' >> internal/collector/probe_test.go
-  git add internal/collector/probe.go internal/collector/probe_test.go ;;
-router) target="internal/router/notify.go"
-  printf '\nfunc RouteSeverity(ms, warn, crit int) string {\n\tif ms >= crit { return "critical" }\n\tif ms >= warn { return "warning" }\n\treturn "ok"\n}\n' >> internal/router/notify.go
-  printf '\nfunc TestRouteSeverity(t *testing.T) {\n\tif got := RouteSeverity(150, 80, 120); got != "critical" { t.Fatalf("got %%q", got) }\n}\n' >> internal/router/notify_test.go
-  git add internal/router/notify.go internal/router/notify_test.go ;;
-rogue) target="README.md"; printf '\nout-of-scope edit\n' >> README.md; git add README.md ;;
-esac
-printf '{"step_index":1,"status":"DONE","tool_calls":[{"name":"edit_file","args":{"Path":"%s"}},{"name":"invoke_subagent","args":{"TypeName":"verifier","Role":"Phase Verifier"}}]}\n' "$target" > "$logdir/transcript.jsonl"
-git commit -qm "$me: implement phase changes"
-printf 'Title: Worker %s changes\n\nImplemented %s scope.\n' "$me" "$me" | "$HOME/.local/bin/fyr" record add change --home "$HOME" >/dev/null
-printf 'Title: Handoff %s\n\n## Next Steps\n\n1. Merge %s.\n' "$me" "$me" | "$HOME/.local/bin/fyr" record add handoff --home "$HOME" >/dev/null`
-
-type fleetRig struct{ proj, home, real, kick, src, tmp string }
+type fleetRig struct{ proj, home, real, src, tmp string }
 
 func fyrMust(t *testing.T, in string, args ...string) string {
 	t.Helper()
@@ -98,8 +77,8 @@ func newFleetRig(t *testing.T) *fleetRig {
 		t.Skipf("tempdir inside git checkout (%s)", strings.TrimSpace(string(out)))
 	}
 	fyrBin, binDir, self := buildMockFyr(t), filepath.Join(tmp, "bin"), filepath.Join(tmp, "self")
-	r := &fleetRig{proj: filepath.Join(tmp, "mock-fleet-ops"), home: filepath.Join(tmp, "fyr-home"), real: filepath.Join(tmp, "real"), kick: filepath.Join(tmp, "kick"), src: checkoutRoot, tmp: tmp}
-	for _, d := range []string{r.proj, r.home, r.real, r.kick, binDir} {
+	r := &fleetRig{proj: filepath.Join(tmp, "mock-fleet-ops"), home: filepath.Join(tmp, "fyr-home"), real: filepath.Join(tmp, "real"), src: checkoutRoot, tmp: tmp}
+	for _, d := range []string{r.proj, r.home, r.real, binDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -107,16 +86,16 @@ func newFleetRig(t *testing.T) *fleetRig {
 	materializeMockIn(t, r.proj, fyrBin, "mock-fleet-ops")
 	writeTestFile(t, filepath.Join(r.real, fyrisolate.TokenRel), "token")
 	selfBody := "#!/bin/bash\nset -euo pipefail\ncase \"${1:-}\" in\ninstall) mkdir -p \"$3/.local/bin\" && cp " + fyrisolate.ShellQuote(fyrBin) + " \"$3/.local/bin/fyr\" && chmod +x \"$3/.local/bin/fyr\" ;;\n*) exec " + fyrisolate.ShellQuote(fyrBin) + " \"$@\" ;;\nesac\n"
-	for p, body := range map[string]string{filepath.Join(binDir, "agy"): fleetFakeAgy, filepath.Join(binDir, "docker"): fakeVerbDocker, filepath.Join(binDir, "systemctl"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "launchctl"): "#!/bin/sh\nexit 0\n", self: selfBody, filepath.Join(r.home, harness.BinPath): selfBody} {
+	for p, body := range map[string]string{filepath.Join(binDir, "agy"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "systemctl"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "launchctl"): "#!/bin/sh\nexit 0\n", self: selfBody, filepath.Join(r.home, harness.BinPath): selfBody} {
 		writeTestFile(t, p, body)
 		if err := os.Chmod(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	oldSelf, oldAuto := workSelf, autoEnv
-	workSelf, autoEnv = func() (string, error) { return self, nil }, fleetEnv{home: r.home}
-	t.Cleanup(func() { workSelf, autoEnv = oldSelf, oldAuto })
-	for _, kv := range [][2]string{{"PATH", binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, {"HOME", r.real}, {"TZ", "UTC"}, {"DOCKER_HOST", ""}, {"DOCKER_CONTEXT", ""}, {"FYR_REPO", ""}} {
+	oldAuto := autoEnv
+	autoEnv = fleetEnv{home: r.home}
+	t.Cleanup(func() { autoEnv = oldAuto })
+	for _, kv := range [][2]string{{"PATH", binDir + string(os.PathListSeparator) + os.Getenv("PATH")}, {"HOME", r.real}, {"TZ", "UTC"}, {"FYR_REPO", ""}} {
 		t.Setenv(kv[0], kv[1])
 	}
 	return r
@@ -124,19 +103,17 @@ func newFleetRig(t *testing.T) *fleetRig {
 
 func TestMockScenario3FleetOpsWorkersTrajectoryAndLearningLoop(t *testing.T) {
 	r := newFleetRig(t)
-	planID, kickCol, kickRtr, kickRogue := verifyFleetTurns1And2(t, r)
-	verifyFleetWorkerRefusals(t, r, kickCol, kickRogue)
-	verifyFleetTurn3Workers(t, r, kickCol, kickRtr)
-	mergeAndImportFleetWorkers(t, r)
+	planID := verifyFleetTurns1And2(t, r)
+	verifyFleetTurn3GateAndLand(t, r)
 	verifyFleetTurn3bTrajectory(t, r)
 	verifyFleetTurn4LearningDreamAutoAndCheck(t, r, planID)
 }
 
-func verifyFleetTurns1And2(t *testing.T, r *fleetRig) (string, string, string, string) {
+func verifyFleetTurns1And2(t *testing.T, r *fleetRig) string {
 	t.Helper()
 	requireContains(t, fleetHookMsg(t, r, "Scaffold this project with /fyr-init-project and define requirements in PRD.md."), "[FYR_TURN_CONTRACT]")
 	writeMockFile(t, filepath.Join(r.proj, "AGENTS.md"), "# AGENTS.md — fleet-ops\n\n## Setup commands\n\n```bash\ngofmt -l cmd internal && go vet ./... && go test ./... # auto: test\n```\n")
-	writeMockFile(t, filepath.Join(r.proj, "PRD.md"), "# PRD — fleet-ops\n\n## Must\n\n- **R1** — Collector histogram buckets probe latency via an injected clock seam. <!-- provenance: operator, 2026-11-09; enforced by: TestHistogram, internal/collector/probe.go::Histogram -->\n- **R2** — Alert router classifies warning and critical severity deterministically. <!-- provenance: operator, 2026-11-09; enforced by: TestRouteSeverity, internal/router/notify.go::RouteSeverity -->\n- **R3** — Summary CLI renders health probes using stdlib only. <!-- provenance: operator, 2026-11-09; enforced by: TestRender, cmd/fleetctl/main.go -->\n\n## Non-goals\n\n- External agent daemons.\n")
+	writeMockFile(t, filepath.Join(r.proj, "PRD.md"), "# PRD — fleet-ops\n\n## Must\n\n- **R1** — Collector histogram buckets probe latency via an injected clock seam. <!-- provenance: operator, 2026-11-09; enforced by: TestHistogram, internal/collector/probe.go::Histogram -->\n- **R2** — Alert router classifies warning and critical severity deterministically. <!-- provenance: operator, 2026-11-09; enforced by: internal/router/notify.go -->\n- **R3** — Summary CLI renders health probes using stdlib only. <!-- provenance: operator, 2026-11-09; enforced by: TestRender, cmd/fleetctl/main.go -->\n\n## Non-goals\n\n- External agent daemons.\n")
 	writeMockFile(t, filepath.Join(r.proj, "SDD.md"), "# SDD — fleet-ops\n\n## Components\n\n| ID | Name | Path |\n|---|---|---|\n| M1 | Collector | `internal/collector` |\n| M2 | Router | `internal/router` |\n| M3 | CLI & Report | `cmd/fleetctl`, `internal/report` |\n\n## Trace\n\n| Requirement | Components |\n|---|---|\n| R1 | M1 |\n| R2 | M2 |\n| R3 | M1, M2, M3 |\n")
 	writeMockFile(t, filepath.Join(r.proj, "TDD.md"), "# TDD — fleet-ops\n\n## Trace\n\n| Component | Section | Verified by |\n|---|---|---|\n| M1 | T1 | `TestCollect`, `TestHistogram` |\n| M2 | T2 | `TestRouteAlert`, `TestRouteSeverity` |\n| M3 | T3 | `TestRender` |\n")
 	writeMockFile(t, filepath.Join(r.proj, "TODO.md"), "# TODO\n\n## Now\n\n- [ ] 1.1 Run collector and router workers.\n\n## Next\n\n## Backlog\n")
@@ -151,65 +128,65 @@ func verifyFleetTurns1And2(t *testing.T, r *fleetRig) (string, string, string, s
 	if c != 1 {
 		t.Fatalf("expected pre-worker check exit 1, got %d:\n%s", c, chkOut)
 	}
-	requireContains(t, chkOut, "TestHistogram", "TestRouteSeverity")
+	requireContains(t, chkOut, "TestHistogram")
 	requireContains(t, fleetHookMsg(t, r, "Add collector histogram and router severity using polling loops."), `"intent": "FEATURE"`, `"gate": "VET_FIRST"`, "conflicts with ADR-001")
-	t2 := runHook[search.PreInvocationOutput](t, r.home, "pre-invocation", search.HookInput{ConversationID: "conv-fleet-lead", WorkspacePaths: []string{r.proj}, LastUserInput: "go all approved — execute the collector and router phases in parallel with /fyr-work."})
+	t2 := runHook[search.PreInvocationOutput](t, r.home, "pre-invocation", search.HookInput{ConversationID: "conv-fleet-lead", WorkspacePaths: []string{r.proj}, LastUserInput: "go all approved — execute the collector and router phases in parallel with /fyr-swarm."})
 	if len(t2.InjectSteps) != 0 {
 		t.Fatalf("Turn 2 APPROVAL PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2.InjectSteps)
 	}
-	mkKick := func(name, files string) string {
-		p := filepath.Join(r.kick, name+".md")
-		writeMockFile(t, p, "Project: this clone. Do the phase.\nFiles: "+files+"\nStanding approvals: commit.\n")
-		return p
-	}
-	return planID, mkKick("collector", "internal/collector/probe.go, internal/collector/probe_test.go"), mkKick("router", "internal/router/notify.go, internal/router/notify_test.go"), mkKick("rogue", "internal/report/summary.go")
+	return planID
 }
 
-func verifyFleetWorkerRefusals(t *testing.T, r *fleetRig, kickCol, kickRogue string) {
+func fleetWorkerCommit(t *testing.T, r *fleetRig, name string) string {
 	t.Helper()
-	kickOverlap := filepath.Join(r.kick, "overlap.md")
-	writeMockFile(t, kickOverlap, "Project: this clone. Do the phase.\nFiles: internal/collector/probe.go\nStanding approvals: commit.\n")
-	if out, errOut, code := fyrCLI(t, "", "work", "--repo", r.src, "--home", r.home, "-C", r.proj, kickCol, kickOverlap); code != 2 || !strings.Contains(out+errOut, "share scope") {
-		t.Fatalf("overlapping kickoffs expected exit 2 share scope, got %d: %s %s", code, out, errOut)
+	wt := filepath.Join(r.tmp, "wt-"+name)
+	runCmd(t, r.proj, "git", "worktree", "add", "-q", "-b", "work/"+name, wt)
+	switch name {
+	case "rogue":
+		writeMockFile(t, filepath.Join(wt, "README.md"), readFile(t, filepath.Join(wt, "README.md"))+"\nout-of-scope edit\n")
+		runCmd(t, wt, "git", "add", "README.md")
+	case "collector":
+		writeMockFile(t, filepath.Join(wt, "internal/collector/probe.go"), readFile(t, filepath.Join(wt, "internal/collector/probe.go"))+"\nfunc Histogram(samples []Sample, clock func() int64) (fast, slow int) {\n\t_ = clock()\n\tfor _, s := range samples {\n\t\tif s.LatencyMS < 50 {\n\t\t\tfast++\n\t\t} else {\n\t\t\tslow++\n\t\t}\n\t}\n\treturn fast, slow\n}\n")
+		writeMockFile(t, filepath.Join(wt, "internal/collector/probe_test.go"), readFile(t, filepath.Join(wt, "internal/collector/probe_test.go"))+"\nfunc TestHistogram(t *testing.T) {\n\tif f, s := Histogram([]Sample{{Host: \"a\", LatencyMS: 10}, {Host: \"b\", LatencyMS: 80}}, func() int64 { return 42 }); f != 1 || s != 1 {\n\t\tt.Fatalf(\"got %d,%d\", f, s)\n\t}\n}\n")
+		runCmd(t, wt, "git", "add", "internal/collector/probe.go", "internal/collector/probe_test.go")
+	case "router":
+		writeMockFile(t, filepath.Join(wt, "internal/router/notify.go"), readFile(t, filepath.Join(wt, "internal/router/notify.go"))+"\nfunc RouteSeverity(ms, warn, crit int) string {\n\tif ms >= crit {\n\t\treturn \"critical\"\n\t}\n\tif ms >= warn {\n\t\treturn \"warning\"\n\t}\n\treturn \"ok\"\n}\n")
+		writeMockFile(t, filepath.Join(wt, "internal/router/notify_test.go"), readFile(t, filepath.Join(wt, "internal/router/notify_test.go"))+"\nfunc TestRouteSeverity(t *testing.T) {\n\tif got := RouteSeverity(150, 80, 120); got != \"critical\" {\n\t\tt.Fatalf(\"got %q\", got)\n\t}\n}\n")
+		runCmd(t, wt, "git", "add", "internal/router/notify.go", "internal/router/notify_test.go")
 	}
-	if out, errOut, code := fyrCLI(t, "", "work", "--status-md", filepath.Join(r.proj, "README.md"), "--repo", r.src, "--home", r.home, "-C", r.proj, kickCol); code != 2 || !strings.Contains(out+errOut, ".agents/scratch/") {
-		t.Fatalf("non-scratch --status-md expected exit 2, got %d: %s %s", code, out, errOut)
+	runCmd(t, wt, "git", "commit", "-qm", name+": implement phase changes")
+	return wt
+}
+
+func verifyFleetTurn3GateAndLand(t *testing.T, r *fleetRig) {
+	t.Helper()
+	rogueWT := fleetWorkerCommit(t, r, "rogue")
+	if out, _, code := fyrCLI(t, "", "gate", "--lease", "internal/report/summary.go", "--home", r.home, "-C", r.proj, rogueWT); code != 1 {
+		t.Fatalf("out-of-lease gate expected exit 1, got %d:\n%s", code, out)
 	}
-	outRogue, _, code := fyrCLI(t, "", "work", "--repo", r.src, "--home", filepath.Join(r.tmp, "rogue-home"), "-C", r.proj, kickRogue)
-	if code != 1 {
-		t.Fatalf("out-of-scope worker expected exit 1, got %d:\n%s", code, outRogue)
-	}
-	requireContains(t, outRogue, "rogue  FAIL", "changed outside its Files")
+	runCmd(t, r.proj, "git", "worktree", "remove", rogueWT)
 	runCmd(t, r.proj, "git", "branch", "-D", "work/rogue")
-	if err := os.RemoveAll(filepath.Join(r.proj, ".agents", "scratch", "work")); err != nil {
-		t.Fatal(err)
-	}
-}
 
-func verifyFleetTurn3Workers(t *testing.T, r *fleetRig, kickCol, kickRtr string) {
-	t.Helper()
-	mdPath := filepath.Join(r.proj, ".agents", "scratch", "work-board.md")
-	requireContains(t, fyrMust(t, "", "work", "--max-workers", "2", "--status-md", mdPath, "--repo", r.src, "--home", r.home, "-C", r.proj, kickCol, kickRtr), "work: collector  PASS", "work: router  PASS")
-	requireContains(t, readFile(t, mdPath), "```mermaid\nflowchart LR", `["collector (PASS)"]`, `["router (PASS)"]`, "subagent: verifier (Phase Verifier)", "````carousel", "<!-- slide -->")
-	requireContains(t, fyrMust(t, "", "work", "--status", "--home", r.home), "collector", "router")
-}
-
-func mergeAndImportFleetWorkers(t *testing.T, r *fleetRig) {
-	t.Helper()
-	workDir := filepath.Join(r.proj, ".agents", "scratch", "work")
-	titles, errT := fs.Glob(os.DirFS(workDir), "*/*/records/*.title")
-	bodies, errB := fs.Glob(os.DirFS(workDir), "*/*/records/*.md")
-	if errT != nil || errB != nil || len(titles) != 4 || len(bodies) != 4 {
-		t.Fatalf("delivered records mismatch: titles=%d(%v) bodies=%d(%v)", len(titles), errT, len(bodies), errB)
-	}
-	for _, w := range []string{"collector", "router"} {
-		for _, args := range [][]string{{"merge", "--squash", "work/" + w}, {"commit", "-qm", "merge " + w + " worker phase"}, {"branch", "-D", "work/" + w}} {
-			runCmd(t, r.proj, "git", args...)
+	for _, w := range []struct{ name, lease string }{
+		{"collector", "internal/collector/*"},
+		{"router", "internal/router/*"},
+	} {
+		wt := fleetWorkerCommit(t, r, w.name)
+		requireContains(t, fyrMust(t, "", "gate", "--lease", w.lease, "--home", r.home, "-C", r.proj, wt), "gate: PASS")
+		runCmd(t, r.proj, "git", "worktree", "remove", wt)
+		if w.name == "router" {
+			writeMockFile(t, filepath.Join(r.proj, "PRD.md"), strings.ReplaceAll(readFile(t, filepath.Join(r.proj, "PRD.md")), "enforced by: internal/router/notify.go", "enforced by: TestRouteSeverity, internal/router/notify.go::RouteSeverity"))
+			runCmd(t, r.proj, "git", "add", "PRD.md")
+			runCmd(t, r.proj, "git", "commit", "-qm", "docs: wire R2 enforced-by before router land")
+			preChk, _, pc := fyrCLI(t, "", "check", "-C", r.proj, "--home", r.home)
+			if pc != 1 {
+				t.Fatalf("expected pre-router check exit 1, got %d:\n%s", pc, preChk)
+			}
+			requireContains(t, preChk, "TestRouteSeverity")
 		}
-	}
-	for _, rel := range titles {
-		tf, id := filepath.Join(workDir, filepath.FromSlash(rel)), strings.TrimSuffix(filepath.Base(rel), ".title")
-		fyrMust(t, "", "record", "add", map[bool]string{true: "change", false: "handoff"}[strings.HasPrefix(id, "CHANGE-")], "--id", id, "--title-file", tf, "--body-file", strings.TrimSuffix(tf, ".title")+".md", "-C", r.proj, "--home", r.home)
+		fyrMust(t, "", "land", "--lease", w.lease, "--message", "merge "+w.name+" worker phase", "--home", r.home, "-C", r.proj, "work/"+w.name)
+		fyrMust(t, "Title: Worker "+w.name+" changes\n\nImplemented "+w.name+" scope.\n", "record", "add", "change", "-C", r.proj, "--home", r.home)
+		fyrMust(t, "Title: Handoff "+w.name+"\n\n## Next Steps\n\n1. Continue fleet-ops verification.\n", "record", "add", "handoff", "-C", r.proj, "--home", r.home)
 	}
 	runCmd(t, r.proj, "go", "test", "./...")
 	requireContains(t, fyrMust(t, "", "git-check", "-C", r.proj, "--home", r.home), "untracked-files=all\n(none)", "merge collector worker phase", "merge router worker phase")

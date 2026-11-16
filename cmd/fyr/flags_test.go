@@ -336,10 +336,6 @@ func TestProjectDirFlagAcrossVerbs(t *testing.T) {
 	if err != nil || !strings.Contains(out, "check: 0 findings") {
 		t.Fatalf("check -C: %q %v", out, err)
 	}
-	out, err = recordCmd(t, "", "work", "--status", "--json", "-C", proj, "--home", home)
-	if err != nil || !strings.Contains(out, `"workers"`) {
-		t.Fatalf("work --status --json -C: %q %v", out, err)
-	}
 	out, err = recordCmd(t, "", "eval", "--list", "-C", repoRoot, "--home", home)
 	if err != nil || !strings.Contains(out, "v1") {
 		t.Fatalf("eval --list -C: %q %v", out, err)

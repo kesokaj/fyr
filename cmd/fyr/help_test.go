@@ -351,8 +351,7 @@ func TestHelpEvalGolden(t *testing.T) {
 		t.Errorf("fyr eval -h does not name %q:\n%s", eval.SuitePath, got)
 	}
 	const want = `usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]
-                [--parallel N] [--acp] [--runner R] [--image REF]
-                [--agy-linux PATH] <row>...
+                [--parallel N] [--acp] [--runner R] <row>...
        fyr eval [--suite-file PATH] --list
 
 Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval
@@ -369,13 +368,8 @@ for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.
 Flags:
   --acp
       drive trials via agy acp --stdio --process-per-session
-  --agy-linux PATH
-      the docker runner's linux agy PATH (default:
-      ~/.config/fyr/work/agy-linux, or host agy on linux)
   --fixture DIR
       the git repository DIR each row clones (default: this checkout)
-  --image REF
-      the docker runner's image REF
   --list
       print the suite's rows (id, agent or -, named or wide, version, kind) and
       run nothing
@@ -383,7 +377,7 @@ Flags:
       run up to N trials at once, 1 to 25 (default 1; benchmark trials stay at
       1)
   --runner R
-      where each trial's session runs: R is isolate or docker (default isolate)
+      where each trial's session runs: R is isolate (default isolate)
   --runs N
       run each named row N times, 1 to 25, each trial in its own sandbox
   --suite-file PATH

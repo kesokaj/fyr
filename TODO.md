@@ -7,14 +7,12 @@
 
 ## Now
 
-### Phase 6b — Deletion (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-files: `internal/work/`, `internal/sandbox/`, `cmd/fyr/verb_work*`, `docker/`, `embed.go`, `internal/auto/rubric.go`, `skills/fyr-work/`, `skills/fyr-auto/`, `PRD.md` enforced-by lists (pre-approved in Phase 0)
-- [ ] Confirm nothing imports the packages anymore (safety rule 3), then delete them. Remove `all:docker` from `embed.go`. Update `rubric.go` `deniedRoots` and `TestRubricMatchesSkill` — verify: `go build ./... && go test -race ./...`, `TestEmbedHoldsOnlyTrackedFiles`, `fyr check`
-- [ ] Checkpoint — evidence: `git diff --stat` shows deletions only in the listed paths
+### Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+- [ ] `/fyr-preflight v9.0.0` (parallel review plus security, isolated changed-row eval, checksums) — verify: SHIP
+- [ ] After the tag: a 7-day `fyr report --md` comparison stored as a `retro` record — targets: repeat reads under 10%, search:grep at 1.5 or higher, under 20% of steps at 150k+, tokens per turn down 45%
 
 ## Next
 
-- Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 
 ## Backlog
 

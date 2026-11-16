@@ -26,7 +26,7 @@ context/, rules/, commands/     global context (`AGENTS.md` + `dev-setup.md`), r
 agents/<name>/agent.md          subagents, installed as written (ADR-062)
 skills/<name>/                  skills (`.agents/skills` links here); `google-catalog/catalog/` is routed, never installed
 cmd/fyr, internal/              CLI binary and packages (`SDD.md` § Components, `TDD.md`)
-embed.go, *_test.go, docker/    `go:embed` content, repo tests, and Docker runner definition
+embed.go, *_test.go             `go:embed` content and repo tests
 .agents/rules/, .agents/eval/   repo model-decision rules and `fyr eval` suite (`GUIDE-eval.md`, `fixture.sh`)
 .agents/scratch/                gitignored; every generated or temporary file, never /tmp
 ```
@@ -35,7 +35,7 @@ Trail records live in `~/.config/fyr/brain.db` (`fyr record export` writes `.age
 
 ## Rules for working here
 
-- **Scratch `--home` always:** Never run `fyr install` against the real `$HOME` in development (`--home .agents/scratch/<name>`). Every state-writing verb (`record`, `memory add`, `index`, `search`, `metrics ingest`, `dream`, `eval`, `work`, `auto`) takes `--home .agents/scratch/<name>` in dev, Kickoffs and handoffs (`ADR-505` `cmd/fyr/realhome_guard.go` exits 2 otherwise; tests never enable `fyr auto` or its timer in real home). Three exceptions sit outside any checkout: `fyr eval` (`~/.config/fyr/dev/fyr-eval`), dev `fyr work` (`~/.config/fyr/dev/fyr-work`), and an approved visible `fyr dream` run (`GUIDE-testing` § 3e, § 4). Real-home installs happen only per `DEPLOY-local` § Operator steps.
+- **Scratch `--home` always:** Never run `fyr install` against the real `$HOME` in development (`--home .agents/scratch/<name>`). Every state-writing verb (`record`, `memory add`, `index`, `search`, `metrics ingest`, `dream`, `eval`, `auto`) takes `--home .agents/scratch/<name>` in dev, Kickoffs and handoffs (`ADR-505` `cmd/fyr/realhome_guard.go` exits 2 otherwise; tests never enable `fyr auto` or its timer in real home). Two exceptions sit outside any checkout: `fyr eval` (`~/.config/fyr/dev/fyr-eval`) and an approved visible `fyr dream` run (`GUIDE-testing` § 3e, § 4). Real-home installs happen only per `DEPLOY-local` § Operator steps.
 - **Dependencies:** Stdlib only in Go, except `modernc.org/sqlite` imported only by `internal/search`, `internal/metrics`, and `internal/brain` (`R4`, `ADR-045`, `ADR-047a`, `ADR-055`, `ADR-063`; never by the installer). Any other dependency requires a `PRD.md` change.
 - **Map, customizations, eval & release:** Read `.agents/rules/delivery-map.md` for `README.md` § How it works rules (`TestHarnessMap`, `SPEC-fyr-delivery`), `.agents/rules/customizations-and-redact.md` for `knownTools`, frontmatter allowlists, `VENDORED.md`, and `redact.go`, and `.agents/rules/eval-and-release.md` for `GUIDE-testing`, `fyr eval`, and unsigned `/fyr-preflight vX.Y.Z` tags (`ADR-053`).
 - **Git:** Commit and push on `main` after each task.

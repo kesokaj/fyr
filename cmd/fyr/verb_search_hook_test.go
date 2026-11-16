@@ -16,7 +16,7 @@ func TestTurnBrainCacheMemoizesAndExtractsActionableSkillDigest(t *testing.T) {
 	bo := brain.Options{Home: home, Dir: dir}
 	adrID, err := brain.Add(bo, brain.AddInput{
 		Kind: "adr", Status: "accepted", Title: "Model routing policy",
-		Body: strings.NewReader("Touches internal/work/catalog.go and enforces cross-family review."),
+		Body: strings.NewReader("Touches internal/models/catalog.go and enforces cross-family review."),
 	})
 	if err != nil {
 		t.Fatalf("Add adr: %v", err)
@@ -34,7 +34,7 @@ func TestTurnBrainCacheMemoizesAndExtractsActionableSkillDigest(t *testing.T) {
 	turnCtxFn := makeBrainTurnContext(cache)
 
 	for i := 0; i < 20; i++ {
-		_ = refs("internal/work/catalog.go")
+		_ = refs("internal/models/catalog.go")
 		_ = refsForDir(dir, adrID)
 	}
 	ctx := turnCtxFn(dir, home, "Tell me some sort of model idea", nil)
@@ -46,7 +46,7 @@ func TestTurnBrainCacheMemoizesAndExtractsActionableSkillDigest(t *testing.T) {
 		t.Errorf("generic stopwords falsely matched records: adrs=%+v bugs=%+v", ctx.ADRs, ctx.Bugs)
 	}
 	// Pivot file hit matches ADR precisely.
-	ctxHit := turnCtxFn(dir, home, "Update catalog", []string{"internal/work/catalog.go"})
+	ctxHit := turnCtxFn(dir, home, "Update catalog", []string{"internal/models/catalog.go"})
 	if len(ctxHit.ADRs) != 1 || ctxHit.ADRs[0].ID != adrID {
 		t.Errorf("pivot file match failed: got %+v, want %s", ctxHit.ADRs, adrID)
 	}

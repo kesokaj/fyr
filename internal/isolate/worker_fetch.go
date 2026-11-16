@@ -2,7 +2,6 @@ package isolate
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -132,21 +131,6 @@ func runGroup(cmd *exec.Cmd, limit time.Duration) error {
 	return err
 }
 
-// lazyFetchSafe is trail.LazyFetchSafe, a variable so a test can take either
-// side.
-var lazyFetchSafe = trail.LazyFetchSafe
-
-// gitFloor is refusal 25: under the docker runner the host's upload-pack
-// reads a clone the container wrote, and a git that does not honour
-// GIT_NO_LAZY_FETCH would run the promisor it configures (PLAN.md item 45,
-// finding S2). A host session runs as the operator already.
-func gitFloor(runner string) error {
-	if runner == RunnerDocker && !lazyFetchSafe() {
-		return errors.New("--runner docker: this git does not honour GIT_NO_LAZY_FETCH, so a fetch from a clone the container wrote could run its config: upgrade git")
-	}
-	return nil
-}
-
 // fetch is step 6: the clone's branch into the lead's checkout, by path,
 // with no tags, and every object checked, since the clone is the agent's.
 // Naming .git, and --strict, close upload-pack's fallback lookups: a .git
@@ -155,7 +139,7 @@ func gitFloor(runner string) error {
 // GitIntact is still honoured.
 func (w *worker) fetch() bool {
 	ref := "refs/heads/" + w.p.k.Branch()
-	out, err := runBounded(fetchCmd(w.o.Root, filepath.Join(w.b.App(), ".git"), ref, w.o.Runner), fetchLimit)
+	out, err := runBounded(fetchCmd(w.o.Root, filepath.Join(w.b.App(), ".git"), ref), fetchLimit)
 	if err != nil {
 		w.b.Note("git fetch of %s: %v: %s", w.p.k.Branch(), err, strings.TrimSpace(string(out)))
 		return false
@@ -173,10 +157,10 @@ func (w *worker) fetch() bool {
 // handoff and change records only (D138).
 func (w *worker) scope() {
 	root, ref := w.o.Root, "refs/heads/"+w.p.k.Branch()
-	if n, err := branchOutput(leadGit(root, "rev-list", "--count", w.p.base+".."+ref), w.o.Runner); err == nil {
+	if n, err := branchOutput(leadGit(root, "rev-list", "--count", w.p.base+".."+ref)); err == nil {
 		w.res.Commits, _ = strconv.Atoi(strings.TrimSpace(string(n)))
 	}
-	if _, err := branchOutput(leadGit(root, "merge-base", "--is-ancestor", w.p.base, ref), w.o.Runner); err != nil {
+	if _, err := branchOutput(leadGit(root, "merge-base", "--is-ancestor", w.p.base, ref)); err != nil {
 		w.b.Note("%s does not descend from %s", w.p.k.Branch(), short(w.p.base))
 		w.b.Fail(ReasonRewrote)
 		return
@@ -185,7 +169,7 @@ func (w *worker) scope() {
 		w.b.Fail(ReasonNoCommits)
 		return
 	}
-	paths, err := workerChangedPaths(root, w.p.base+".."+ref, w.o.Runner)
+	paths, err := workerChangedPaths(root, w.p.base+".."+ref)
 	if err != nil {
 		w.b.Note("the branch's commits: %v", err)
 		w.b.Fail(ReasonOutside)
@@ -203,7 +187,7 @@ func (w *worker) scope() {
 		w.b.Note("changed outside its Files (D18): %s", named(outside))
 		w.b.Fail(ReasonOutside)
 	}
-	ls, err := links(root, w.p.base, ref, w.o.Runner)
+	ls, err := links(root, w.p.base, ref)
 	switch {
 	case err != nil:
 		w.b.Note("the branch's links: %v", err)
@@ -222,8 +206,8 @@ func (w *worker) scope() {
 // and a link reaches outside the checkout through a path its Files: may
 // cover (the v5.0.0 gate's security review). --ignore-submodules=none: a
 // .gitmodules entry with ignore = all would hide a gitlink (round 2).
-func links(root, base, ref, runner string) ([]string, error) {
-	raw, err := branchOutput(leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref), runner)
+func links(root, base, ref string) ([]string, error) {
+	raw, err := branchOutput(leadGit(root, "diff-tree", "-r", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", base, ref))
 	if err != nil {
 		return nil, err
 	}
@@ -241,14 +225,14 @@ func links(root, base, ref, runner string) ([]string, error) {
 
 // workerChangedPaths is every path a commit of rng changed against each of its
 // parents, once each, a gitlink that .gitmodules says to ignore included.
-func workerChangedPaths(root, rng, runner string) ([]string, error) {
-	revs, err := branchOutput(leadGit(root, "rev-list", rng), runner)
+func workerChangedPaths(root, rng string) ([]string, error) {
+	revs, err := branchOutput(leadGit(root, "rev-list", rng))
 	if err != nil {
 		return nil, err
 	}
 	cmd := leadGit(root, "diff-tree", "--stdin", "-r", "-m", "--root", "--no-renames", "--no-ext-diff", "--ignore-submodules=none", "--name-only", "-z", "--no-commit-id")
 	cmd.Stdin = bytes.NewReader(revs)
-	names, err := branchOutput(cmd, runner)
+	names, err := branchOutput(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +252,7 @@ func workerChangedPaths(root, rng, runner string) ([]string, error) {
 // of a kind added refuses, and fills the handoff and change records the
 // branch added.
 func (w *worker) records(root, ref string) (outside []string) {
-	before, err := trailAt(root, w.p.base, w.o.Runner)
+	before, err := trailAt(root, w.p.base)
 	if err == nil && len(before) == 0 && len(w.baseRecords) > 0 {
 		before = w.baseRecords
 	}
@@ -290,7 +274,7 @@ func (w *worker) records(root, ref string) (outside []string) {
 }
 
 func (w *worker) afterRecords(root, ref string) (map[string]WorkerRecord, error) {
-	diff, err := branchOutput(leadGit(root, "diff-tree", "-r", "--name-only", w.p.base, ref, "--", trailRel), w.o.Runner)
+	diff, err := branchOutput(leadGit(root, "diff-tree", "-r", "--name-only", w.p.base, ref, "--", trailRel))
 	if err == nil && len(bytes.TrimSpace(diff)) == 0 {
 		if _, err := os.Stat(filepath.Join(w.b.Home(), harness.StateDir, "brain.db")); err == nil {
 			if recs, err := w.exportBoxRecords(); err == nil {
@@ -298,7 +282,7 @@ func (w *worker) afterRecords(root, ref string) (map[string]WorkerRecord, error)
 			}
 		}
 	}
-	return trailAt(root, ref, w.o.Runner)
+	return trailAt(root, ref)
 }
 
 // added fills the result's handoff and change records: the IDs on the

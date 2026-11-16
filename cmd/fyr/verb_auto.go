@@ -99,8 +99,7 @@ func autoIngest(home string) (string, error) {
 
 func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
-	o.Version = buildVersion()
-	if src, err := harness.ResolveSource(c.repoFlag, c.home, o.Version); err == nil {
+	if src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion()); err == nil {
 		o.Repo = src.Dir
 	}
 	if self, err := os.Executable(); err == nil {

@@ -22,10 +22,9 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// WorkTokenRel, WorkAgyRel and WorkConfigRel are the paths under a home's
-// state directory where fyr work keeps the container OAuth token synced from
-// macOS Keychain, the Linux agy binary, and the worker queue/resource config
-// (D7–D10 of PLAN-2026-11-02-1806-fyr-speed, ADR-503).
+// WorkTokenRel, WorkAgyRel and WorkConfigRel are the legacy paths under a
+// home's state directory where internal/isolate keeps the OAuth token synced
+// from macOS Keychain and watched work-dir state (ADR-503, ADR-522).
 const (
 	WorkTokenRel  = harness.StateDir + "/work/antigravity-oauth-token"
 	WorkAgyRel    = harness.StateDir + "/work/agy-linux"
@@ -157,7 +156,7 @@ func EnsureWorkDir(home string) (string, error) {
 
 // CheckWorkDir is EnsureWorkDir's refusals, read only, in its words: it
 // creates and changes nothing, and passes a directory that is not there
-// yet, which EnsureWorkDir would create (fyr work --check, ADR-504a).
+// yet, which EnsureWorkDir would create (read-only preflight, ADR-504a).
 func CheckWorkDir(home string) error {
 	_, err := walkWorkDir(home, false)
 	return err
@@ -318,12 +317,11 @@ func SyncWorkToken(home, realHome, goos string) (string, error) {
 	return workToken(home, realHome, goos, true)
 }
 
-// CheckWorkLogin is SyncWorkToken's refusals, read only, in its words: the
-// docker runner's preflight and fyr work --check resolve the login the way
-// the run will, under the same home, and create and change nothing
-// (BUG-510); only a write that fails on disk is the run's alone. It returns
-// the token path the run mounts, which on the Keychain branch the run
-// writes last.
+// CheckWorkLogin is SyncWorkToken's refusals, read only, in its words:
+// preflight checks resolve the login the way the run will, under the
+// same home, and create and change nothing (BUG-510); only a write that
+// fails on disk is the run's alone. It returns the token path the run
+// links, which on the Keychain branch the run writes last.
 func CheckWorkLogin(home, realHome, goos string) (string, error) {
 	return workToken(home, realHome, goos, false)
 }

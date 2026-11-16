@@ -22,8 +22,8 @@ func TestRubricDenied(t *testing.T) {
 		// The tracked eval suite and its fixture (ADR-500).
 		".agents/eval/", ".agents/eval/GUIDE-eval.md", ".agents/eval/fixture.sh",
 		// What holds a run in.
-		"internal/work/fetch.go", "internal/isolate/", "internal/isolate/isolate.go", "internal/sandbox/", "internal/redact/redact.go", "cmd/fyr/main.go",
-		"docker/work.Dockerfile", "embed.go",
+		"internal/isolate/", "internal/isolate/isolate.go", "internal/redact/redact.go", "cmd/fyr/main.go",
+		"embed.go",
 		// A CLI's other instruction files, and what redirects a build.
 		"GEMINI.md", "web/GEMINI.md", "CLAUDE.md", ".cursorrules", "go.work", "go.work.sum", ".npmrc",
 		"npm-shrinkwrap.json", "requirements.txt", "pyproject.toml", "Cargo.toml", "vendor/modules.txt",
@@ -44,7 +44,7 @@ func TestRubricDenied(t *testing.T) {
 		// A directory entry that holds a denied root would carry it in.
 		"internal/", ".agents/", "skills/", "skills/google-catalog/", ".github",
 		// Records.
-		"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "SPEC-fyr-work", "ADR-090", "ADR-089a",
+		"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "ADR-090", "ADR-089a",
 		// Lines git quotes, a control character, and past ASCII, which a
 		// file system may fold onto a denied name.
 		"\"a\\303.md\"", "a\nAGENTS.md", "AGENT\u017f.md", "\u017fkills/fyr-auto/SKILL.md", "A_\u017fest.go", "AGENT\u200cS.md",

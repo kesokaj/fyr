@@ -200,7 +200,7 @@ var fyrWorkflowSkillRules = map[string]struct {
 	"spec":               {65, "specification surface", []string{"spec", "specify", "contract", "interface"}, nil},
 	"fyr-project-memory": {85, "memory directive", []string{"remember", "memory", "forget"}, nil},
 	"project-memory":     {85, "memory directive", []string{"remember", "memory", "forget"}, nil},
-	"fyr-work":           {78, "fyr work orchestration surface", []string{"sandbox", "worker", "workers"}, []string{"fyr work", "/fyr-work", "kickoff"}},
+	"fyr-swarm":          {78, "fyr swarm parallel orchestration surface", []string{"swarm", "parallel", "worker", "workers"}, []string{"/fyr-swarm", "fyr gate", "fyr land", "run_workflow"}},
 	"fyr-handoff":        {85, "session handoff surface", []string{"handoff", "fyr-handoff"}, []string{"hand off", "wrap up for next session"}},
 	"fyr-retro":          {85, "session retrospective surface", []string{"retro", "retrospective", "fyr-retro"}, nil},
 	"fyr-distill":        {82, "skill distillation surface", []string{"distill", "fyr-distill"}, []string{"into a skill", "reusable skill"}},
@@ -233,7 +233,7 @@ func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []st
 		if strings.Contains(lowPrompt, "fyr-refresh-project-index") || (containsAnyWord(lowPrompt, "index", "search.db") && containsAnyWord(lowPrompt, "refresh", "rebuild", "stale")) {
 			return 92, "project index refresh surface"
 		}
-	case "fyr-work":
+	case "fyr-swarm":
 		if (len(fyrWorkflowSkillRules[name].words) > 0 && containsAnyWord(lowPrompt, fyrWorkflowSkillRules[name].words...)) ||
 			(len(fyrWorkflowSkillRules[name].subs) > 0 && containsAnySubstr(lowPrompt, fyrWorkflowSkillRules[name].subs...)) ||
 			(!isKickoffLow(lowPrompt) && hasBatchOrMultiPhaseCues(lowPrompt, lowPrompt)) {
@@ -357,7 +357,7 @@ func defaultSkillCatalog() []SkillMeta {
 		{Name: "bash", Path: "skills/bash/SKILL.md", Digest: "Bash and shell scripting: `set -euo pipefail`, safe quoting, `jq`/`rg`/`fd` pipelines, shellcheck compliance, and interactive setup wizards (`set_gcp_secret`)."},
 		{Name: "testing-strategy", Path: "skills/testing-strategy/SKILL.md", Digest: "Decide test tiers owed by a change: unit with `-race`, integration, API `httptest`, e2e, and `GUIDE-testing` maintenance."},
 		{Name: "fyr-docs", Path: "skills/fyr-docs/SKILL.md", Digest: "Airy, visual-first documentation standard and docset audit: BLUF (Bottom Line Up Front), short prose, Mermaid diagrams, and `<details>` folding."},
-		{Name: "fyr-triage", Path: "skills/fyr-triage/SKILL.md", Digest: "Triage GitHub issues/PRs and local `fyr` queues (`TODO.md` Backlog, `BUG-*`, `PROPOSAL-*`) via redundancy and `PRD.md`/ADR checks into Agent Briefs or `/fyr-work` Kickoffs."},
+		{Name: "fyr-triage", Path: "skills/fyr-triage/SKILL.md", Digest: "Triage GitHub issues/PRs and local `fyr` queues (`TODO.md` Backlog, `BUG-*`, `PROPOSAL-*`) via redundancy and `PRD.md`/ADR checks into Agent Briefs or `/fyr-swarm` Kickoffs."},
 		{Name: "fyr-spec", Path: "skills/fyr-spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
 		{Name: "fyr-explain-project", Path: "skills/fyr-explain-project/SKILL.md", Digest: "Explain a codebase to the operator with `file:line` entry points, package flow, and trail resume order (`GUIDE-onboarding`)."},
 		{Name: "fyr-index-project", Path: "skills/fyr-index-project/SKILL.md", Digest: "Enable MVP indexing and AST graphing (`.agents/scratch/search.db`, `fyr index`, `fyr search --map`) in an existing or unscaffolded project with zero root-doc scaffolding."},
@@ -371,7 +371,7 @@ func defaultSkillCatalog() []SkillMeta {
 		{Name: "api-auth-gcp", Path: "skills/api-auth-gcp/SKILL.md", Digest: "Cloud Run caller verification: IAP, Firebase Auth, OIDC identity tokens for service-to-service, Scheduler, Tasks, and Pub/Sub."},
 		{Name: "json-api-style", Path: "skills/json-api-style/SKILL.md", Digest: "Google AIP JSON API design: lowerCamelCase keys, RFC 3339 timestamps, string enums, pageSize/pageToken, structured errors."},
 		{Name: "mermaid-syntax", Path: "skills/mermaid-syntax/SKILL.md", Digest: "Error-free Mermaid v11 diagrams: flowcharts, sequence, state, class, ER, and XY charts with quoted special-character labels."},
-		{Name: "fyr-work", Path: "skills/fyr-work/SKILL.md", Digest: "Lead plan phases or task lists with isolated fyr work sandbox workers and squash-merge each PASS."},
+		{Name: "fyr-swarm", Path: "skills/fyr-swarm/SKILL.md", Digest: "Route parallel multi-file work into isolated `Files:`-leased worktrees or `run_workflow` stages and land each with `fyr gate` and `fyr land`."},
 		{Name: "fyr-handoff", Path: "skills/fyr-handoff/SKILL.md", Digest: "Compact the session into an immutable handoff record with a Kickoff block, commit, push, and fyr metrics ingest."},
 		{Name: "fyr-retro", Path: "skills/fyr-retro/SKILL.md", Digest: "Session retrospective: analyze corrections, memory promotions, bugs, and metrics to propose minimal rule/skill improvements."},
 		{Name: "fyr-distill", Path: "skills/fyr-distill/SKILL.md", Digest: "Detect repeated workflows or domain knowledge in the session and distill them into a reusable skill."},

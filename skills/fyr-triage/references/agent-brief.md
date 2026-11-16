@@ -1,9 +1,9 @@
 # Writing Durable Agent Briefs
 
-An **Agent Brief** is the self-contained contract written when an issue, PR, backlog item, or `BUG-*`/`PROPOSAL-*` record reaches `ready-for-agent`. An autonomous session (`fyr work` worker, `fyr-feature`, or `fyr-bug`) works from this brief: the raw issue thread is background context, while the Agent Brief is the specification.
+An **Agent Brief** is the self-contained contract written when an issue, PR, backlog item, or `BUG-*`/`PROPOSAL-*` record reaches `ready-for-agent`. An autonomous session (`/fyr-swarm` worker, `fyr-feature`, or `fyr-bug`) works from this brief: the raw issue thread is background context, while the Agent Brief is the specification.
 
 > [!NOTE]
-> Adapted from `<upstream>/skills/engineering/triage/AGENT-BRIEF.md` in `mattpocock/skills` at `4ae2317` (MIT, `../LICENSE.txt`), extended with `/fyr-work` task/Kickoff mapping and `brain.db` conventions (`PRD.md` R7).
+> Adapted from `<upstream>/skills/engineering/triage/AGENT-BRIEF.md` in `mattpocock/skills` at `4ae2317` (MIT, `../LICENSE.txt`), extended with `/fyr-swarm` task/Kickoff mapping and `brain.db` conventions (`PRD.md` R7).
 
 ## Principles
 
@@ -145,9 +145,9 @@ PR #42 implements `RenderMarkdownReport` on the happy path, but `--md --out <exi
 
 </details>
 
-## Mapping an Agent Brief to `/fyr-work`
+## Mapping an Agent Brief to `/fyr-swarm`
 
-When the operator approves running one or more `ready-for-agent` briefs right away via `/fyr-work` (task-list mode), condense each brief into a row in `/fyr-work`'s proposal table after running `fyr search --slice` to pin current repo-relative `Files:`:
+When the operator approves running one or more `ready-for-agent` briefs right away via `/fyr-swarm` (parallel wave), condense each brief into a row in `/fyr-swarm`'s slice table after running `fyr search --slice` to pin current repo-relative `Files:`:
 
 | Field | How to derive from the Agent Brief |
 |---|---|

@@ -37,18 +37,9 @@ type ctx struct {
 	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
 	recBody, recAll                                                                                bool
 	evalFixture                                                                                    string
-	evalRunner, evalImage, evalAgyLinux                                                            string
+	evalRunner                                                                                     string
 	evalList, evalACP                                                                              bool
 	evalRuns, evalParallel                                                                         int
-	workTimeout                                                                                    time.Duration
-	workModel                                                                                      string
-	workKeep, workACP, workStatus                                                                  bool
-	workMax, workRAM, workCPU, workDisk                                                            int
-	workKill                                                                                       string
-	workRunner                                                                                     string
-	workImage                                                                                      string
-	workAgyLinux                                                                                   string
-	workStatusMD                                                                                   string
 	autoLevel, autoProjectIdle, autoUserIdle                                                       string
 	modelsPick, modelsTier, modelsExplain                                                          string
 	modelsRefresh                                                                                  bool

@@ -7,13 +7,13 @@ description: "Map every session trigger to its fyr feature."
 
 | When | Use | Not |
 |---|---|---|
-| Code or record lookup | `fyr search --slice` / `--affected` / `--refs` / `--skeleton` | `grep`, blind whole-file reads |
+| Code or record lookup | `fyr search --slice` / `--affected` / `--refs` / `--skeleton` | `grep`, whole-file reads |
 | Session start | `fyr resume` | Reading root files one by one |
 | New behaviour or design question | `/fyr-feature` | Building straight away |
-| 2+ phases or independent tasks | `/fyr-work` | Sequential hand-execution |
+| 2+ phases or independent tasks | `/fyr-swarm` | Sequential hand-execution |
 | Choosing a model for any role | `fyr models --pick <role> [--tier pro\|flash]` | Hardcoded or guessed model IDs |
 | Anything broken or failing | `/fyr-bug` | Patching straight away |
-| Queue of issues, PRs, or Backlog | `/fyr-triage` -> `/fyr-work` | Ad-hoc cherry-picking |
+| Queue of issues, PRs, or Backlog | `/fyr-triage` -> `/fyr-swarm` | Ad-hoc cherry-picking |
 | Review or judgement needed | `reviewer` / `security` / `verifier` (`--judge` cross-family) | Unchecked self-review |
 | Skill, rule, or agent changed | `fyr eval <row>` | Untested behavioural claims |
 | Docs written or audited | `fyr-docs` + `fyr check` | Dense prose walls |

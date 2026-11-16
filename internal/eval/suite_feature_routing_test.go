@@ -12,29 +12,29 @@ func featureRoutingOutcomes() map[string][]outcome {
 		return "mkdir -p \"$SB/.gemini/antigravity-cli/conversations\"\n" +
 			"printf '%s\\n' '" + text + "' >\"$SB/.gemini/antigravity-cli/conversations/" + name + ".db\"\n"
 	}
-	goodOut := "echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Model pick: fyr models --pick builder. Multi-phase waves: /fyr-work.' >\"$OUT\"\n"
+	goodOut := "echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Model pick: fyr models --pick builder. Multi-phase waves: /fyr-swarm.' >\"$OUT\"\n"
 	goodRoute := conv("hook", `{"contract": "[FYR_TURN_CONTRACT]", "route": "fyr search --slice"}`)
 	goodCmd := conv("cmd", `{"CommandLine":"fyr search --affected BannerFormatter.Format"}`)
 
 	return map[string][]outcome{
 		"feature-routing": {
 			{
-				"cites greet.go range, names fyr models --pick and /fyr-work, logs vet route and fyr search query, clean tree",
+				"cites greet.go range, names fyr models --pick and /fyr-swarm, logs vet route and fyr search query, clean tree",
 				true,
 				goodOut + goodRoute + goodCmd,
 			},
 			{
 				"missing greet.go line-range citation in reply",
 				false,
-				"echo 'Use fyr models --pick builder and /fyr-work.' >\"$OUT\"\n" + goodRoute + goodCmd,
+				"echo 'Use fyr models --pick builder and /fyr-swarm.' >\"$OUT\"\n" + goodRoute + goodCmd,
 			},
 			{
 				"missing fyr models --pick in reply",
 				false,
-				"echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Waves: /fyr-work.' >\"$OUT\"\n" + goodRoute + goodCmd,
+				"echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Waves: /fyr-swarm.' >\"$OUT\"\n" + goodRoute + goodCmd,
 			},
 			{
-				"missing /fyr-work in reply",
+				"missing /fyr-swarm in reply",
 				false,
 				"echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Model: fyr models --pick builder.' >\"$OUT\"\n" + goodRoute + goodCmd,
 			},
@@ -67,7 +67,7 @@ var wantFeatureRoutingRows = []featureRoutingRowSpec{
 	{"Code or record lookup", "`fyr search --slice`", "`grep`"},
 	{"Session start", "`fyr resume`", "Reading root files one by one"},
 	{"New behaviour or design question", "`/fyr-feature`", "Building straight away"},
-	{"2+ phases or independent tasks", "`/fyr-work`", "Sequential hand-execution"},
+	{"2+ phases or independent tasks", "`/fyr-swarm`", "Sequential hand-execution"},
 	{"Choosing a model for any role", "`fyr models --pick <role> [--tier pro\\|flash]`", "Hardcoded or guessed model IDs"},
 	{"Anything broken or failing", "`/fyr-bug`", "Patching straight away"},
 	{"Queue of issues, PRs, or Backlog", "`/fyr-triage`", "Ad-hoc cherry-picking"},
@@ -137,7 +137,7 @@ func TestFeatureRoutingRuleAndEvalRow(t *testing.T) {
 	if got == nil {
 		t.Fatal("GUIDE-eval.md is missing row feature-routing")
 	}
-	for _, want := range []string{`"route": "fyr search --slice"`, "fyr models --pick", "/fyr-work"} {
+	for _, want := range []string{`"route": "fyr search --slice"`, "fyr models --pick", "/fyr-swarm"} {
 		if !strings.Contains(got.Check, want) {
 			t.Errorf("feature-routing check missing %q:\n%s", want, got.Check)
 		}

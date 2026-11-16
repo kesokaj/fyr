@@ -133,35 +133,28 @@ func TestRubricAskStoresProposal(t *testing.T) {
 
 // TestRunnerChoice: fyr auto's runner is isolate.ChooseRunner's for --runner
 // auto (D5, ADR-504, ADR-522), whatever wo.Runner held before, failing closed
-// when neither isolate nor docker is available.
+// when OS-native isolation is unavailable.
 func TestRunnerChoice(t *testing.T) {
 	okAvail := func() error { return nil }
 	for _, c := range []struct {
-		name, prior     string
-		isoErr, dockErr error
-		kind, why       string
-		wantErr         bool
+		name, prior string
+		isoErr      error
+		kind, why   string
+		wantErr     bool
 	}{
-		{"isolate", "", nil, nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
-		{"isolate over docker", isolate.RunnerDocker, nil, nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
-		{"missing landlock falls back to docker", isolate.RunnerIsolate, errors.New("no landlock"), nil, isolate.RunnerDocker, "docker (--runner isolate: no landlock)", false},
-		{"empty refusal uses fallback text", "", errors.New(" \n"), nil, isolate.RunnerDocker, "docker (primary runner unavailable)", false},
-		{"both unavailable fail closed", "", errors.New("no landlock"), errors.New("no docker"), "", "", true},
+		{"isolate", "", nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
+		{"prior runner overwritten", "auto", nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
+		{"unavailable fails closed", isolate.RunnerIsolate, errors.New("no landlock"), "", "", true},
+		{"empty refusal fails closed", "", errors.New(" \n"), "", "", true},
 	} {
 		avail := okAvail
 		if c.isoErr != nil {
 			err := c.isoErr
 			avail = func() error { return err }
 		}
-		pf := func(o isolate.WorkerOptions) error {
-			if o.Runner != isolate.RunnerAuto {
-				t.Errorf("%s: the preflight saw --runner %q", c.name, o.Runner)
-			}
-			return c.dockErr
-		}
 		wo := isolate.WorkerOptions{Runner: c.prior}
-		kind, why, err := chooseRunner(&wo, avail, pf)
-		refKind, refReason, refErr := isolate.ChooseRunner(isolate.RunnerAuto, avail, func() error { return c.dockErr })
+		kind, why, err := chooseRunner(&wo, avail)
+		refKind, refReason, refErr := isolate.ChooseRunner(isolate.RunnerAuto, avail)
 		if (err != nil) != c.wantErr || (refErr != nil) != c.wantErr {
 			t.Fatalf("%s: err=%v refErr=%v wantErr=%v", c.name, err, refErr, c.wantErr)
 		}
@@ -187,7 +180,6 @@ func driftOpts(home, root string, out *bytes.Buffer) Options {
 	o.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
 	o.Vocabulary = check.Vocabulary{"status": {}}
 	o.IsolateAvailable = func() error { return nil }
-	o.DockerPreflight = func(isolate.WorkerOptions) error { return errors.New("no docker") }
 	return o
 }
 
@@ -204,9 +196,8 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 	o.Env = &fakeEnv{targets: targetsOf(root, root2), usage: usageText("90%", "90%")}
 	o.IsolateAvailable = func() error {
 		preflightCalls++
-		return errors.New("no landlock")
+		return nil
 	}
-	o.DockerPreflight = func(isolate.WorkerOptions) error { return nil }
 	o.RealHome = realHome
 	o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		workerCalls++
@@ -220,7 +211,7 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 	if err := Run(o, false); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome || seenOpts.Runner != isolate.RunnerDocker || seenOpts.RunnerReason != "docker (--runner isolate: no landlock)" {
+	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome || seenOpts.Runner != isolate.RunnerIsolate || seenOpts.RunnerReason != isolate.RunnerIsolate {
 		t.Errorf("workers=%d preflights=%d count=%d opts=%+v", workerCalls, preflightCalls, seenCount, seenOpts)
 	}
 	if !strings.Contains(out.String(), "worker already ran in this sweep") {

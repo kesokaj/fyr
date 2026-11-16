@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -26,9 +25,7 @@ type Options struct {
 	Fixture        string // the repository each row clones; "" is Root
 	Self           string // os.Executable(): the fyr that installs and lists
 	Repo           string // the install source tree (D16); "" is the harness embedded in Self
-	Runner         string // sandbox runner: isolate or docker ("" uses isolate.DefaultRunner)
-	Image          string // container image REF when Runner is docker ("" uses isolate.DefaultImage)
-	AgyLinux       string // host path to Linux agy binary for --runner docker
+	Runner         string // sandbox runner: isolate ("" uses isolate.DefaultRunner)
 	Runs           int    // trials per row, 1 to MaxRuns; 0 is 1
 	Parallel       int    // trials at once, 1 to MaxParallel; 0 is 1
 	ACP            bool   // drive trials via `agy acp --stdio --process-per-session`
@@ -38,7 +35,6 @@ type Options struct {
 	TestRO         []string
 	TestRW         []string
 	TestUnconfined bool
-	docker         *isolate.Docker
 }
 
 // MaxRuns is the most trials of one row an invocation runs (the
@@ -156,64 +152,33 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if err := checkRows(rows); err != nil {
 		return nil, err
 	}
-	agy, tok, baseDocker, cleanup, err := prepareEvalRunner(ctx, &o)
+	agy, tok, cleanup, err := prepareEvalRunner(ctx, &o)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	return runTrials(ctx, o, rows, agy, tok, baseDocker, o.Now().Format("2006-01-02-150405")), nil
+	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
 }
 
-func prepareEvalRunner(ctx context.Context, o *Options) (agy, tok string, baseDocker *isolate.Docker, cleanup func(), err error) {
+func prepareEvalRunner(ctx context.Context, o *Options) (agy, tok string, cleanup func(), err error) {
 	cleanup = func() {}
-	runner, err := isolate.ResolveEvalRunner(o.Runner)
-	if err != nil {
-		return "", "", nil, cleanup, err
-	}
-	if runner == isolate.RunnerDocker {
-		return prepareEvalDockerRunner(ctx, o)
+	if _, err := isolate.ResolveEvalRunner(o.Runner); err != nil {
+		return "", "", cleanup, err
 	}
 	if _, err = isolate.CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
-		return "", "", nil, cleanup, err
+		return "", "", cleanup, err
 	}
 	agy, err = exec.LookPath("agy")
 	if err != nil {
-		return "", "", nil, cleanup, errors.New("agy not found on PATH")
+		return "", "", cleanup, errors.New("agy not found on PATH")
 	}
 	tok, err = isolate.SyncWorkToken(o.Home, o.RealHome, hostOS)
 	if err != nil {
-		return "", "", nil, cleanup, err
+		return "", "", cleanup, err
 	}
 	builtSelf, cleanSelf := isolate.PrepareSelf(ctx, o.Repo, o.Self)
 	o.Self = builtSelf
-	return agy, tok, nil, cleanSelf, nil
-}
-
-func prepareEvalDockerRunner(ctx context.Context, o *Options) (agy, tok string, baseDocker *isolate.Docker, cleanup func(), err error) {
-	netStamp := fmt.Sprintf("%s-%d", o.Now().Format("20060102-150405"), os.Getpid())
-	builtSelf, cleanSelf := isolate.PrepareSelf(ctx, o.Repo, o.Self)
-	o.Self = builtSelf
-	dockerFyr := ""
-	if runtime.GOOS == "linux" {
-		dockerFyr = o.Self
-	}
-	baseDocker, tok, err = isolate.PrepareEvalDocker(isolate.EvalDockerOptions{
-		Home: o.Home, RealHome: o.RealHome, Root: o.Root,
-		Image: o.Image, AgyLinux: o.AgyLinux, Fyr: dockerFyr,
-		Stamp: netStamp, Name: "eval",
-	})
-	if err != nil {
-		cleanSelf()
-		return "", "", nil, func() {}, err
-	}
-	if err := isolate.MakeRunNetwork(netStamp); err != nil {
-		cleanSelf()
-		return "", "", nil, func() {}, err
-	}
-	return "", tok, baseDocker, func() {
-		_, _, _ = isolate.SweepRunStamp(netStamp)
-		cleanSelf()
-	}, nil
+	return agy, tok, cleanSelf, nil
 }
 
 func checkRows(rows []Row) error {
@@ -275,7 +240,7 @@ func trialSpecs(o Options, rows []Row, stamp string) []trialSpec {
 // runTrials runs each row o.Runs times under one stamp, trials innermost, up
 // to o.Parallel at once (1 for a KindBenchmark row), printing each trial's
 // notes and result line in trial order, and stops launching once ctx has ended.
-func runTrials(ctx context.Context, o Options, rows []Row, agy, tok string, baseDocker *isolate.Docker, stamp string) []Result {
+func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
 	specs := trialSpecs(o, rows, stamp)
 	results := make([]Result, len(specs))
 	outs := make([]string, len(specs))
@@ -293,7 +258,8 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok string, base
 			launched++
 			go func() {
 				var buf bytes.Buffer
-				tOpts := trialOpts(o, baseDocker, &buf, s)
+				tOpts := o
+				tOpts.Out = &buf
 				res := runRow(ctx, tOpts, s.row, agy, tok, s.dir)
 				res.Trial, res.Run = s.trial, s.run
 				ch <- trialDone{idx: idx, res: res, out: buf.String()}
@@ -313,33 +279,6 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok string, base
 		launch()
 	}
 	return results[:launched]
-}
-
-func trialOpts(o Options, baseDocker *isolate.Docker, buf io.Writer, s trialSpec) Options {
-	tOpts := o
-	tOpts.Out = buf
-	if baseDocker != nil {
-		d := *baseDocker
-		d.Name = sanitizeDockerName(s.row.ID, s.trial)
-		tOpts.docker = &d
-	}
-	return tOpts
-}
-
-func sanitizeDockerName(rowID string, trial int) string {
-	var b strings.Builder
-	for _, r := range rowID {
-		switch {
-		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == '.', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	if b.Len() == 0 {
-		b.WriteString("row")
-	}
-	return fmt.Sprintf("%s-%d", b.String(), trial)
 }
 
 // resultLine is a trial's line (SPEC-fyr-eval § The verb): the row and its

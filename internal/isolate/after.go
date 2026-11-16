@@ -18,9 +18,6 @@ func (b *Box) After() bool {
 	if !b.Intact() {
 		return false
 	}
-	if b.dockerWrapper && !b.restoreHostWrapper() {
-		return false
-	}
 	// Step 12: a denial or a grant the CLI did not take fails the box.
 	denied := b.count(filepath.Join(b.dir, "err.txt"), "auto-denied")
 	log := newestLog(filepath.Join(b.sb, ".gemini", "antigravity-cli", "log"))
@@ -75,41 +72,7 @@ func (b *Box) removeLinks() {
 	b.removeInSandbox(TokenRel)
 }
 
-// restoreHostWrapper resets SB/bin/fyr back to the host-installed fyr after
-// a containerized session exits so host-side eval checks can invoke "$SB/bin/fyr".
-func (b *Box) restoreHostWrapper() bool {
-	root, done, err := b.sandboxRoot()
-	if err != nil {
-		b.fileFailed(err, "not restored: bin/fyr: %v", err)
-		return false
-	}
-	defer done()
-	rel := filepath.Join("bin", "fyr")
-	if err := root.Remove(rel); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		b.fileFailed(err, "not removed: bin/fyr: %v", err)
-		return false
-	}
-	f, err := root.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
-	if err != nil {
-		b.fileFailed(err, "not restored: bin/fyr: %v", err)
-		return false
-	}
-	_, werr := f.Write(b.wrapperBytes(b.hostWrapperSelf()))
-	cerr := f.Close()
-	if werr != nil {
-		b.fileFailed(werr, "not restored: bin/fyr: %v", werr)
-		return false
-	}
-	if cerr != nil {
-		b.fileFailed(cerr, "not restored: bin/fyr: %v", cerr)
-		return false
-	}
-	b.dockerWrapper = false
-	return true
-}
-
-// ExitChecks is step 14: leftover processes (a docker-mode session checked
-// its container at its end), then the real config, then new credentials,
+// ExitChecks is step 14: leftover processes, then the real config, then new credentials,
 // and last a SIGKILL to every agy group as a sweep. It uses the approved
 // strings, never a fresh resolution, whether or not the clone still exists:
 // a clone the agent turned into a link to the real home must not aim the
@@ -199,12 +162,12 @@ func newestLog(dir string) string {
 	return newest
 }
 
-// Remove is `fyr work`'s step 9: the sandbox directory removed through the
-// path guard a approved, only while it is intact; os.RemoveAll removes a
-// link inside it, never the link's target. A directory the session left
-// read-only (a Go module cache) is made writable first, never through a
-// link: WalkDir reports a link as a link. False keeps the sandbox: one the
-// session replaced fails sandbox replaced, as Intact does.
+// Remove cleans up a sandbox directory through the path guard a approved,
+// only while it is intact; os.RemoveAll removes a link inside it, never the
+// link's target. A directory the session left read-only (a Go module cache)
+// is made writable first, never through a link: WalkDir reports a link as a
+// link. False keeps the sandbox: one the session replaced fails sandbox
+// replaced, as Intact does.
 func (b *Box) Remove() bool {
 	if b.resolved == nil || !b.Intact() {
 		return false

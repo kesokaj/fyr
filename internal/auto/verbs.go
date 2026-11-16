@@ -45,13 +45,10 @@ type Options struct {
 	RealHome  string
 	Self      string
 	Repo      string
-	Version   string
 	// Work runs one Kickoff file as a worker; nil is isolate.RunWorker.
 	Work func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error)
 	// IsolateAvailable checks host OS sandbox availability; nil is isolate.CheckAvailable.
 	IsolateAvailable func() error
-	// DockerPreflight checks whether work's docker mode can run; nil is isolate.DockerPreflight.
-	DockerPreflight func(isolate.WorkerOptions) error
 	// TestRO, TestRW and TestUnconfined let tests expose stub paths to Landlock.
 	TestRO, TestRW []string
 	TestUnconfined bool
@@ -77,20 +74,8 @@ func (o Options) testRunner() func(wtDir, runner, cmdLine string) error {
 	}
 }
 
-func runMarkedTest(wtDir, runner, cmdLine string, timeout time.Duration) error {
-	if runner != isolate.RunnerDocker {
-		return runShellTest(wtDir, cmdLine, timeout)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
-		"--user", uid, "-v", wtDir+":/work:rw", "-w", "/work", isolate.DefaultImage, "bash", "-c", cmdLine)
-	cmd.Env = isolate.DockerEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
-	}
-	return nil
+func runMarkedTest(wtDir, _ /* runner */, cmdLine string, timeout time.Duration) error {
+	return runShellTest(wtDir, cmdLine, timeout)
 }
 
 func runShellTest(wtDir, cmdLine string, timeout time.Duration) error {

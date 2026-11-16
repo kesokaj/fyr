@@ -1,6 +1,6 @@
 // Package isolate is one unattended CLI session in a throwaway directory:
 // the clone, a home of its own, the harness installed into it, OS-level
-// isolation (Landlock / sandbox-exec) or transitional Docker confinement,
+// isolation (Landlock / sandbox-exec),
 // the token linked for the session, and the safety checks after it.
 package isolate
 
@@ -32,15 +32,14 @@ type Config struct {
 	GitName        string                             // agy's GIT_AUTHOR_*/GIT_COMMITTER_*
 	GitEmail       string                             //
 	Model          string                             // agy --model; "" passes none
-	Zone           string                             // agy's TZ, a zone name; "" passes none (work only, workers D144)
-	Timeout        time.Duration                      // agy alone (in docker mode its container) is killed after this
+	Zone           string                             // agy's TZ, a zone name; "" passes none (workers D144)
+	Timeout        time.Duration                      // agy is killed after this
 	SkipStores     bool                               // check c leaves out every storeEntry (work and eval, D45, D64, D70, ADR-506)
 	BrainWatch     func(dbPath string) (string, bool) // with SkipStores, watches brain.db by mode + scope digest (eval, ADR-506)
 	PrintTimeout   string                             // agy --print-timeout, as "<n>m"
 	StopGrace      time.Duration                      // SIGTERM to SIGKILL on ctx's end; 0 is 5s
 	Prefix         string                             // every note starts "<Prefix>: "
 	Out            io.Writer
-	Docker         *Docker        // nil: OS-level confinement; else transitional container runner
 	ACP            bool           // true: drive agy via `agy acp --stdio --process-per-session`
 	OnEvent        func(ACPEvent) // optional live step callback when ACP is true
 	TestRO         []string       // Go-only read-only test rig paths for OS isolation
@@ -124,19 +123,18 @@ func OutsideCheckout(dir string) error { return outsideCheckout(dir) }
 
 // Box is one sandbox's state as the steps fill it.
 type Box struct {
-	c             Config
-	dir, app, sb  string
-	reasons       []string
-	pgids         []int
-	realBefore    map[string]string
-	credsBefore   map[string]credFinding
-	linked        bool
-	tokLinked     bool
-	dockerWrapper bool   // Install wrote ContainerFyr into bin/fyr; After restores host wrapper
-	tok           string // the real token, as Session was last given it
-	sessions      int
-	started       bool // agy was started by a session
-	timedOut      bool
+	c            Config
+	dir, app, sb string
+	reasons      []string
+	pgids        []int
+	realBefore   map[string]string
+	credsBefore  map[string]credFinding
+	linked       bool
+	tokLinked    bool
+	tok          string // the real token, as Session was last given it
+	sessions     int
+	started      bool // agy was started by a session
+	timedOut     bool
 	// resolved holds dir, app and sb as guard a approved them. The agent can
 	// write in dir, so every later step that follows those paths first checks
 	// they still resolve here (intact), and check e matches these strings.

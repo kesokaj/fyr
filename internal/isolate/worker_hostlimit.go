@@ -4,42 +4,20 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
-	"strconv"
 	"time"
 )
 
-// hostMemKiB bounds the address space of each git process that reads what a
-// docker session wrote, in KiB: 8 GiB, the worker container's own --memory.
-// It is per process, so a fetch's two sides together can hold twice that.
-var hostMemKiB = 8 << 20
-
-// capMemory runs cmd under that limit under the docker runner on linux,
-// through a sh that exits when it cannot set it, so a limit not set fails the
-// command. A clone's config can make the host's pack-objects hold a blob
-// whole, and a few KiB of shared trees make diff-tree list a million paths
-// (the v5.5.0 gate). Children inherit it. A host session runs as the operator
-// already, and on macOS XNU does not enforce RLIMIT_AS and sh refuses ulimit -v.
-func capMemory(cmd *exec.Cmd, runner string) *exec.Cmd {
-	if runner != RunnerDocker || hostOS != "linux" {
-		return cmd
-	}
-	args := append([]string{"-c", `ulimit -v "$0" && exec "$@"`, strconv.Itoa(hostMemKiB)}, cmd.Args...)
-	c := exec.Command("sh", args...)
-	c.Dir, c.Env, c.Stdin = cmd.Dir, cmd.Env, cmd.Stdin
-	return c
-}
-
 // fetchCmd is step 6's fetch of ref from git, a clone's .git.
-func fetchCmd(root, git, ref, runner string) *exec.Cmd {
-	return capMemory(leadGit(root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
+func fetchCmd(root, git, ref string) *exec.Cmd {
+	return leadGit(root, "-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags",
 		"--no-recurse-submodules", "--no-write-fetch-head",
 		"--upload-pack", "git -c core.hooksPath=/dev/null -c core.fsmonitor=false upload-pack --strict",
-		git, ref+":"+ref), runner)
+		git, ref+":"+ref)
 }
 
 // blobCmd prints a blob of the branch.
-func blobCmd(root, oid, runner string) *exec.Cmd {
-	return capMemory(leadGit(root, "cat-file", "blob", oid), runner)
+func blobCmd(root, oid string) *exec.Cmd {
+	return leadGit(root, "cat-file", "blob", oid)
 }
 
 // branchLimit bounds one read of the branch after the fetch, which holds the
@@ -66,9 +44,8 @@ func (o *overflow) Write(p []byte) (int, error) {
 }
 
 // branchOutput is cmd's Output for a git read of a session's history, under
-// the memory limit, the deadline and the output bound.
-func branchOutput(cmd *exec.Cmd, runner string) ([]byte, error) {
-	cmd = capMemory(cmd, runner)
+// the deadline and the output bound.
+func branchOutput(cmd *exec.Cmd) ([]byte, error) {
 	var out overflow
 	cmd.Stdout = &out
 	err := runGroup(cmd, branchLimit)

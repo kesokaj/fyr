@@ -48,12 +48,8 @@ func (b *Box) linkLogin(tok string) error {
 // agy runs one session in its own process group (D18): at the timeout only
 // agy itself is killed, as `timeout --foreground` did, so what it started
 // stays for check e; on ctx's end the whole group gets SIGTERM, then
-// SIGKILL after StopGrace. In docker mode the container is killed instead
-// (dockerAgy).
+// SIGKILL after StopGrace.
 func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, appendErr bool) int {
-	if b.c.Docker != nil {
-		return b.dockerAgy(ctx, prompt, outPath, errPath, appendErr)
-	}
 	if b.c.ACP {
 		return b.acpSession(ctx, agy, prompt, outPath, errPath, appendErr)
 	}

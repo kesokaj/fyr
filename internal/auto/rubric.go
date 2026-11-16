@@ -16,7 +16,7 @@ var (
 	deniedRoots = []string{
 		"context/", "rules/", ".agents/rules/", ".agents/eval/",
 		"internal/eval/", "internal/auto/", "skills/fyr-auto/",
-		"internal/work/", "internal/isolate/", "internal/sandbox/", "internal/redact/", "cmd/fyr/", "docker/", "embed.go",
+		"internal/isolate/", "internal/redact/", "cmd/fyr/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",
 		"skills/VENDORED.md", "skills/google-catalog/catalog/",
 	}
@@ -32,7 +32,7 @@ var (
 	// deniedDirs are directory names at any depth.
 	deniedDirs = []string{"testdata/", ".github/", ".gitlab/", ".circleci/", "vendor/"}
 	// deniedRecords are record IDs, an ADR by its pattern.
-	deniedRecords = []string{"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "SPEC-fyr-work", "ADR-*"}
+	deniedRecords = []string{"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "ADR-*"}
 	// deniedBox is the one denied thing that is no path or record: no class
 	// names a plan in Files:, so Denied has nothing to compare it with.
 	deniedBox = "who: user"

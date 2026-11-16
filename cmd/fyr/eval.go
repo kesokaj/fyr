@@ -42,9 +42,7 @@ func init() {
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
 		c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
-		c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate or docker (default "+fyrisolate.DefaultRunner+")")
-		c.fs.StringVar(&c.evalImage, "image", fyrisolate.DefaultImage, "the docker runner's image `REF`")
-		c.fs.StringVar(&c.evalAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+fyrisolate.WorkAgyRel+", or host agy on linux)")
+		c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate (default "+fyrisolate.DefaultRunner+")")
 	}, positional: true, readsRepo: true, run: runEval}
 }
 
@@ -132,12 +130,11 @@ func runEval(c *ctx) error {
 
 // evalUsage is the usage errors, exit 2, before any other refusal.
 func evalUsage(c *ctx, names []string) error {
-	var runsSet, parallelSet, runnerSet, dockerFlags bool
+	var runsSet, parallelSet, runnerSet bool
 	c.fs.Visit(func(f *flag.Flag) {
 		runsSet = runsSet || f.Name == "runs"
 		parallelSet = parallelSet || f.Name == "parallel"
 		runnerSet = runnerSet || f.Name == "runner"
-		dockerFlags = dockerFlags || f.Name == "image" || f.Name == "agy-linux"
 	})
 	switch {
 	case c.evalList && len(names) > 0:
@@ -149,7 +146,7 @@ func evalUsage(c *ctx, names []string) error {
 	case c.evalList && parallelSet:
 		fmt.Fprintln(c.out, "fyr eval: --list takes no --parallel")
 		return exitCode(2)
-	case c.evalList && (runnerSet || dockerFlags):
+	case c.evalList && runnerSet:
 		fmt.Fprintln(c.out, "fyr eval: --list takes no runner flags")
 		return exitCode(2)
 	case !c.evalList && len(names) == 0:
@@ -159,18 +156,8 @@ func evalUsage(c *ctx, names []string) error {
 	case c.evalParallel < 1 || c.evalParallel > eval.MaxParallel:
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --parallel %d: want 1 to %d", c.evalParallel, eval.MaxParallel))
 	}
-	return evalRunnerUsage(c, dockerFlags)
-}
-
-func evalRunnerUsage(c *ctx, dockerFlags bool) error {
 	if err := fyrisolate.CheckEvalRunner(c.evalRunner); err != nil {
 		return usageErr(c.out, "eval", "fyr eval: "+err.Error())
-	}
-	if c.evalRunner == fyrisolate.RunnerIsolate && dockerFlags {
-		return c.evalRefuse("--image and --agy-linux need --runner docker")
-	}
-	if c.evalACP && c.evalRunner == fyrisolate.RunnerDocker {
-		return c.evalRefuse("--acp cannot run with --runner docker")
 	}
 	return nil
 }
@@ -232,8 +219,8 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	o := eval.Options{
 		Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir,
 		Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP,
-		Runner: c.evalRunner, Image: c.evalImage, AgyLinux: c.evalAgyLinux,
-		Out: c.out, BrainWatch: brain.SnapshotScopes,
+		Runner: c.evalRunner,
+		Out:    c.out, BrainWatch: brain.SnapshotScopes,
 	}
 	if evalTestHook != nil {
 		evalTestHook(&o)

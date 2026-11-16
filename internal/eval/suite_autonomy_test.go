@@ -10,8 +10,6 @@ import (
 type autonomyDocs struct {
 	context       string
 	feature       string
-	work          string
-	tasks         string
 	sessionSizing string
 	rows          map[string]Row
 }
@@ -52,38 +50,12 @@ func autonomyProblems(d autonomyDocs) []string {
 			"the question is asked then, as this step's gate",
 		},
 	)...)
-	errs = append(errs, checkDocPhrases("skills/fyr-work/SKILL.md", d.work,
-		[]string{
-			"never asked during the loop",
-			"ADR-517",
-			"Base-Check:",
-			"Judge:",
-			"Judge-Model:",
-			"(`files:`, `model:`, `base-check:`, `judge:`, `judge-model:`, `after:`, `who:`, `#`)",
-			"fyr metrics trajectory --project . --limit 1",
-			"KNEE_EXCEEDED",
-			"180,000",
-			"safety FAIL",
-		},
-		[]string{
-			"waits for the operator's `go`",
-			"stop and wait for the operator's `go`",
-			"has no context-based stop",
-		},
-	)...)
-	errs = append(errs, checkDocPhrases("skills/fyr-work/references/tasks.md", d.tasks,
-		[]string{"ADR-517", "fyr metrics trajectory", "KNEE_EXCEEDED"},
-		[]string{"that table always waits for the go"},
-	)...)
 	errs = append(errs, checkDocPhrases("rules/session-sizing.md", d.sessionSizing,
 		[]string{"fyr metrics trajectory", "KNEE_EXCEEDED", "180,000", "zero build-time questions"},
 		[]string{"the model cannot see its own fill"},
 	)...)
 	if r, ok := d.rows["autonomy"]; !ok || r.Check == "" || r.Prompt2 != "" {
 		errs = append(errs, "GUIDE-eval.md missing single-turn capability row autonomy")
-	}
-	if r, ok := d.rows["work-start-host"]; !ok || strings.HasPrefix(strings.TrimSpace(r.Prompt2), "go.") {
-		errs = append(errs, "GUIDE-eval.md work-start-host still pauses mid-build for a bare go. turn")
 	}
 	return errs
 }
@@ -108,8 +80,6 @@ func loadAutonomyDocs(t *testing.T, root string) autonomyDocs {
 	return autonomyDocs{
 		context:       read("context/AGENTS.md"),
 		feature:       read("skills/fyr-feature/SKILL.md"),
-		work:          read("skills/fyr-work/SKILL.md"),
-		tasks:         read("skills/fyr-work/references/tasks.md"),
 		sessionSizing: read("rules/session-sizing.md"),
 		rows:          rows,
 	}
@@ -117,17 +87,12 @@ func loadAutonomyDocs(t *testing.T, root string) autonomyDocs {
 
 func assertAutonomyMustFailMutations(t *testing.T, good autonomyDocs) {
 	t.Helper()
-	cloneRows := func(skip string, prompt2 string) map[string]Row {
+	cloneRows := func(skip string) map[string]Row {
 		m := make(map[string]Row, len(good.rows))
 		for k, v := range good.rows {
 			if k != skip {
 				m[k] = v
 			}
-		}
-		if prompt2 != "" {
-			r := m["work-start-host"]
-			r.Prompt2 = prompt2
-			m["work-start-host"] = r
 		}
 		return m
 	}
@@ -138,15 +103,8 @@ func assertAutonomyMustFailMutations(t *testing.T, good autonomyDocs) {
 		{"context asks often", func(d *autonomyDocs) { d.context += "\nwants to be asked often" }},
 		{"feature three gates", func(d *autonomyDocs) { d.feature += "\nThree points always wait for the user" }},
 		{"feature cap ask", func(d *autonomyDocs) { d.feature += "\nAt a cap, ask" }},
-		{"work host go wait", func(d *autonomyDocs) { d.work += "\nstop and wait for the operator's `go`" }},
-		{"work step 8 prefix guard", func(d *autonomyDocs) {
-			d.work = strings.ReplaceAll(d.work, "`base-check:`, `judge:`, `judge-model:`, ", "")
-		}},
-		{"work missing knee check", func(d *autonomyDocs) { d.work = strings.ReplaceAll(d.work, "KNEE_EXCEEDED", "") }},
-		{"tasks host go wait", func(d *autonomyDocs) { d.tasks += "\nthat table always waits for the go" }},
 		{"session sizing missing knee", func(d *autonomyDocs) { d.sessionSizing = strings.ReplaceAll(d.sessionSizing, "180,000", "") }},
-		{"missing autonomy row", func(d *autonomyDocs) { d.rows = cloneRows("autonomy", "") }},
-		{"work-start-host bare go", func(d *autonomyDocs) { d.rows = cloneRows("", "go. Run the wave.") }},
+		{"missing autonomy row", func(d *autonomyDocs) { d.rows = cloneRows("autonomy") }},
 	}
 	for _, tc := range mutations {
 		cp := good

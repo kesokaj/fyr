@@ -212,14 +212,7 @@ func (b *Box) Install(ctx context.Context) bool {
 		return false
 	}
 	bin := filepath.Join(b.sb, "bin")
-	// In a container the installed binary is the host's (a darwin one on
-	// the Mac): the wrapper execs the image's fyr, with the same pin, and
-	// After restores the host wrapper before host-side eval checks run.
 	self := b.hostWrapperSelf()
-	if b.c.Docker != nil {
-		self = ContainerFyr
-		b.dockerWrapper = true
-	}
 	if err := os.MkdirAll(bin, 0o700); err != nil || os.WriteFile(filepath.Join(bin, "fyr"), b.wrapperBytes(self), 0o755) != nil {
 		b.Fail(ReasonInstall)
 		return false

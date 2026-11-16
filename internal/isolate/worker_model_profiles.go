@@ -51,7 +51,7 @@ func resolveAutoModels(_ context.Context, o *WorkerOptions, ks []Kickoff, listed
 
 func fmtErrInteractiveModel(where, model string) error {
 	if where == "--model" {
-		return errors.New("--model " + model + ": interactive orchestrator cannot run headless in fyr work; use --model auto or a concrete builder model")
+		return errors.New("--model " + model + ": interactive orchestrator cannot run headless; use --model auto or a concrete builder model")
 	}
-	return errors.New("the Kickoff " + where + " names " + model + ", which is an interactive orchestrator and cannot run headless in fyr work; use Model: auto or a concrete builder model")
+	return errors.New("the Kickoff " + where + " names " + model + ", which is an interactive orchestrator and cannot run headless; use Model: auto or a concrete builder model")
 }

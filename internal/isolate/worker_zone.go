@@ -1,7 +1,6 @@
 package isolate
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -44,7 +43,7 @@ func leadZone() (zone, error) {
 		if z, ok := asZone(tz); ok {
 			return z, nil
 		}
-		return zone{}, fmt.Errorf("TZ=%.128q: not a zone name fyr work can pass to the worker; set TZ=<Area/City>, or unset it", tz)
+		return zone{}, fmt.Errorf("TZ=%.128q: not a zone name fyr can pass to the worker; set TZ=<Area/City>, or unset it", tz)
 	}
 	if target, err := os.Readlink(localtimeLink); err == nil {
 		if i := strings.LastIndex(target, "zoneinfo/"); i >= 0 {
@@ -70,12 +69,7 @@ func asZone(s string) (zone, bool) {
 	return zone{s, loc}, true
 }
 
-// runZone is refusal 22: leadZone, and with --runner docker a name, since a
-// container has no /etc/localtime of the lead's to read.
-func runZone(runner string) (zone, error) {
-	z, err := leadZone()
-	if err == nil && z.name == "" && runner == RunnerDocker {
-		err = errors.New("--runner docker: the worker needs a zone name, and TZ is unset and /etc/localtime names none; set TZ=<Area/City>")
-	}
-	return z, err
+// runZone is refusal 22: leadZone.
+func runZone(_ string) (zone, error) {
+	return leadZone()
 }

@@ -29,7 +29,6 @@ type WorkerOptions struct {
 	Now                              func() time.Time
 	StopGrace                        time.Duration
 	Runner, RunnerReason             string
-	Image, AgyLinux, Version         string
 	Auto, ACP                        bool
 	TestRO, TestRW                   []string
 	TestUnconfined                   bool
@@ -89,7 +88,6 @@ type prepared struct {
 	zone   zone
 	tok    string
 	agy    string
-	docker *dockerPlan
 }
 
 type worker struct {
@@ -107,11 +105,12 @@ type worker struct {
 	seed        *waveSeed
 }
 
+// SandboxRoot returns `<home>/.config/fyr/sandbox/<project>`.
+func SandboxRoot(home, root string) string { return ProjectRoot(home, "sandbox", root) }
+
 // RunnerLabel formats the runner and selection reason for status output.
-func RunnerLabel(runner, reason string) string {
-	if runner != RunnerDocker {
-		runner = RunnerIsolate
-	}
+func RunnerLabel(_, reason string) string {
+	runner := RunnerIsolate
 	r := strings.TrimSpace(reason)
 	if r == "" || r == runner {
 		return "runner " + runner
@@ -135,18 +134,6 @@ func RunWorker(ctx context.Context, o WorkerOptions, files ...string) ([]WorkerR
 	builtSelf, cleanSelf := PrepareSelf(ctx, o.Repo, o.Self)
 	defer cleanSelf()
 	o.Self = builtSelf
-	if o.Runner == RunnerDocker && ps[0].docker != nil {
-		ps[0].docker.fyr = builtSelf
-		for i := range ps[1:] {
-			if ps[i+1].docker != nil {
-				ps[i+1].docker.fyr = builtSelf
-			}
-		}
-	}
-	if err := o.makeNetwork(stamp); err != nil {
-		return nil, err
-	}
-	defer o.sweepRun(stamp)
 	sbProj := SandboxRoot(o.Home, o.Root)
 	root := filepath.Join(sbProj, stamp)
 	if !o.Keep {
@@ -223,7 +210,7 @@ func preflightSessionState(ctx context.Context, o *WorkerOptions, ks []Kickoff) 
 	if o.Timeout < minTimeout || o.Timeout%timeoutUnit != 0 {
 		return "", zone{}, nil, fmt.Errorf("--timeout %s: give whole minutes, at least %s", o.Timeout, minTimeout)
 	}
-	runner, why, err := ChooseRunner(o.Runner, isolateAvailFor(*o), func() error { return DockerPreflight(*o) })
+	runner, why, err := ChooseRunner(o.Runner, isolateAvailFor(*o))
 	if err != nil {
 		return "", zone{}, nil, err
 	}
@@ -240,9 +227,6 @@ func preflightSessionState(ctx context.Context, o *WorkerOptions, ks []Kickoff) 
 	if err != nil {
 		return "", zone{}, nil, err
 	}
-	if err := gitFloor(o.Runner); err != nil {
-		return "", zone{}, nil, err
-	}
 	return base, z, rf, nil
 }
 
@@ -256,26 +240,15 @@ func isolateAvailFor(o WorkerOptions) func() error {
 func buildPrepared(ctx context.Context, o *WorkerOptions, ks []Kickoff, base string, z zone, rf []refEntry) ([]prepared, error) {
 	var shared prepared
 	shared.base, shared.reflog, shared.zone = base, rf, z
-	if o.Runner == RunnerDocker {
-		if err := shared.dockerPreflight(*o); err != nil {
-			return nil, err
-		}
-		if tok, err := SyncWorkToken(o.Home, o.RealHome, hostOS); err != nil {
-			return nil, err
-		} else {
-			shared.tok = tok
-		}
-	} else {
-		var err error
-		if _, err = CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
-			return nil, err
-		}
-		if shared.agy, err = exec.LookPath("agy"); err != nil {
-			return nil, errors.New("agy not found on PATH")
-		}
-		if shared.tok, err = SyncWorkToken(o.Home, o.RealHome, hostOS); err != nil {
-			return nil, err
-		}
+	var err error
+	if _, err = CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
+		return nil, err
+	}
+	if shared.agy, err = exec.LookPath("agy"); err != nil {
+		return nil, errors.New("agy not found on PATH")
+	}
+	if shared.tok, err = SyncWorkToken(o.Home, o.RealHome, hostOS); err != nil {
+		return nil, err
 	}
 	if err := checkModels(ctx, o, ks); err != nil {
 		return nil, err
@@ -388,17 +361,13 @@ func newWorker(o WorkerOptions, p prepared, stamp, dir string, seed *waveSeed) *
 		model = o.Model
 	}
 	pt := max(1, int((o.Timeout-5*time.Minute)/time.Minute))
-	var dockerCfg *Docker
-	if p.docker != nil && o.Runner == RunnerDocker {
-		dockerCfg = p.docker.boxConfig(stamp, p.k.Name)
-	}
 	w := &worker{o: o, p: p, stamp: stamp, seed: seed}
 	w.b = New(Config{
 		Dir: dir, Source: o.Root, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: wideGrant, GitName: "agy-work", GitEmail: "agy-work@localhost",
 		Model: model, Zone: p.zone.name, Timeout: o.Timeout, SkipStores: true,
 		PrintTimeout: fmt.Sprintf("%dm", pt), StopGrace: o.StopGrace,
-		Prefix: "auto: " + p.k.Name, Out: &w.notes, Docker: dockerCfg, ACP: o.ACP,
+		Prefix: "auto: " + p.k.Name, Out: &w.notes, ACP: o.ACP,
 		TestRO: o.TestRO, TestRW: o.TestRW, TestUnconfined: o.TestUnconfined,
 	})
 	w.res = WorkerResult{Name: p.k.Name, AgyExit: -1, Model: model, Base: p.base, Dir: dir, Runner: o.Runner, RunnerReason: o.RunnerReason}

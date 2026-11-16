@@ -1,7 +1,6 @@
 package isolate
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 
 const (
 	RunnerIsolate = "isolate"
-	RunnerDocker  = "docker"
 	RunnerAuto    = "auto"
 
 	// DefaultRunner is OS-native isolation (Landlock on Linux, Seatbelt on macOS).
@@ -33,13 +31,13 @@ type Policy struct {
 	Network bool     `json:"network,omitempty"`
 }
 
-// CheckEvalRunner validates --runner for `fyr eval` (`isolate`, `docker`, or empty).
+// CheckEvalRunner validates --runner for `fyr eval` (`isolate` or empty).
 func CheckEvalRunner(r string) error {
 	switch r {
-	case "", RunnerIsolate, RunnerDocker:
+	case "", RunnerIsolate:
 		return nil
 	default:
-		return fmt.Errorf("--runner %q: want isolate or docker", r)
+		return fmt.Errorf("--runner %q: want isolate", r)
 	}
 }
 
@@ -49,24 +47,19 @@ func ResolveEvalRunner(r string) (string, error) {
 	if err := CheckEvalRunner(r); err != nil {
 		return "", err
 	}
-	if r == "" {
-		r = DefaultRunner
+	if err := CheckAvailable(); err != nil {
+		return "", fmt.Errorf("--runner isolate: %w", err)
 	}
-	if r == RunnerIsolate {
-		if err := CheckAvailable(); err != nil {
-			return "", fmt.Errorf("--runner isolate: %w", err)
-		}
-	}
-	return r, nil
+	return RunnerIsolate, nil
 }
 
-// CheckRunner validates --runner for workers (`auto`, `isolate`, or `docker`).
+// CheckRunner validates --runner for workers (`auto`, `isolate`, or empty).
 func CheckRunner(r string) error {
 	switch r {
-	case RunnerAuto, RunnerIsolate, RunnerDocker:
+	case "", RunnerAuto, RunnerIsolate:
 		return nil
 	default:
-		return fmt.Errorf("--runner %q: want auto, isolate, or docker", r)
+		return fmt.Errorf("--runner %q: want auto or isolate", r)
 	}
 }
 
@@ -77,7 +70,7 @@ func CheckAvailable() error {
 
 // ChooseRunner resolves a worker runner choice fail-closed without falling back
 // to an unconfined host process (PRD R8, R10).
-func ChooseRunner(requested string, isolateAvail func() error, dockerPreflight func() error) (runner, why string, err error) {
+func ChooseRunner(requested string, isolateAvail func() error) (runner, why string, err error) {
 	if isolateAvail == nil {
 		isolateAvail = CheckAvailable
 	}
@@ -85,19 +78,10 @@ func ChooseRunner(requested string, isolateAvail func() error, dockerPreflight f
 		requested = DefaultRunner
 	}
 	switch requested {
-	case RunnerIsolate:
+	case RunnerIsolate, RunnerAuto:
 		return chooseIsolateRunner(isolateAvail)
-	case RunnerDocker:
-		return chooseDockerRunner(dockerPreflight)
-	case RunnerAuto:
-		isoFn := func() (string, string, error) { return chooseIsolateRunner(isolateAvail) }
-		dockFn := func() (string, string, error) { return chooseDockerRunner(dockerPreflight) }
-		if DefaultRunner == RunnerDocker {
-			return chooseAutoOrder(dockFn, isoFn)
-		}
-		return chooseAutoOrder(isoFn, dockFn)
 	default:
-		return "", "", fmt.Errorf("--runner %q: want auto, isolate, or docker", requested)
+		return "", "", fmt.Errorf("--runner %q: want auto or isolate", requested)
 	}
 }
 
@@ -112,37 +96,6 @@ func chooseIsolateRunner(isolateAvail func() error) (string, string, error) {
 	return RunnerIsolate, RunnerIsolate, nil
 }
 
-func chooseAutoOrder(first, second func() (string, string, error)) (string, string, error) {
-	firstR, firstW, firstErr := first()
-	if firstErr == nil {
-		return firstR, firstW, nil
-	}
-	secondR, _, secondErr := second()
-	if secondErr == nil {
-		return secondR, secondR + " (" + trimErrReason(firstErr, "primary runner unavailable") + ")", nil
-	}
-	return "", "", fmt.Errorf("no isolated runner available: %v; %v", firstErr, secondErr)
-}
-
-func chooseDockerRunner(preflight func() error) (string, string, error) {
-	if preflight == nil {
-		return "", "", errors.New("--runner docker: preflight not configured")
-	}
-	if err := preflight(); err != nil {
-		return "", "", err
-	}
-	return RunnerDocker, RunnerDocker, nil
-}
-
-func trimErrReason(err error, fallback string) string {
-	s := strings.TrimSpace(err.Error())
-	if s == "" {
-		return fallback
-	}
-	line, _, _ := strings.Cut(s, "\n")
-	return line
-}
-
 var systemROCandidates = []string{
 	"/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt",
 	"/proc", "/sys", "/run/systemd/resolve",
@@ -155,7 +108,7 @@ var safeCharDevs = []string{
 }
 
 func (b *Box) isolated() bool {
-	return b.c.Docker == nil && !b.c.TestUnconfined
+	return !b.c.TestUnconfined
 }
 
 func (b *Box) policyFor(bin string, args []string) Policy {

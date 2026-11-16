@@ -6,7 +6,7 @@ argument-hint: "[plan-id or task slices]"
 
 # Swarm — Multi-Agent Parallel Execution
 
-Use parallel execution only when genuinely independent slices justify coordination overhead, and keep workers isolated (`workspace="share"`), write-bounded (`Files:`), and deterministically gated (`fyr gate` + `fyr land`). Note: `/fyr-work` stays available during v9 migration until Phase 6b retirement.
+Use parallel execution only when genuinely independent slices justify coordination overhead, and keep workers isolated (`workspace="share"`), write-bounded (`Files:`), and deterministically gated (`fyr gate` + `fyr land`).
 
 ## Orchestration routing table
 

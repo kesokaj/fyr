@@ -15,9 +15,9 @@ Do **not** open a public GitHub issue for security vulnerabilities.
 
 Instead, report suspected vulnerabilities privately through [GitHub Private Vulnerability Reporting](https://github.com/kesokaj/fyr/security/advisories/new) on `github.com/kesokaj/fyr`. Include:
 
-1. Affected component or package (`cmd/fyr`, `internal/harness`, `internal/search`, `internal/sandbox`, `internal/work`, `internal/auto`, `internal/redact`, or a skill/subagent definition).
+1. Affected component or package (`cmd/fyr`, `internal/harness`, `internal/search`, `internal/isolate`, `internal/gate`, `internal/models`, `internal/auto`, `internal/redact`, or a skill/subagent definition).
 2. Minimal reproduction steps or proof-of-concept input.
-3. Impact assessment (for example: path traversal on `--from-zip`, symlink traversal during `fyr install`, prompt-injection fence escape in `internal/search/fence.go`, sandbox escape in `internal/sandbox` / `internal/work`, or credential redaction bypass in `internal/redact`).
+3. Impact assessment (for example: path traversal on `--from-zip`, symlink traversal during `fyr install`, prompt-injection fence escape in `internal/search/fence.go`, sandbox escape in `internal/isolate`, or credential redaction bypass in `internal/redact`).
 
 ## Security Model & Boundaries
 
