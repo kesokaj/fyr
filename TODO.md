@@ -7,16 +7,13 @@
 
 ## Now
 
-### Phase 5 — Isolation without Docker (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-files: `internal/isolate/`, `internal/eval/`, `internal/auto/eval_gate.go`, `internal/auto/eval_exec.go`, `internal/auto/worker.go`, `cmd/fyr/eval.go`
-- [ ] `internal/isolate` per D6. Pass criterion: a write outside the scratch home fails with EACCES, and the real `$HOME` is unchanged — verify: `go test -race ./internal/isolate/...`, plus a must-fail test with Landlock off
-- [ ] Move `internal/eval`, `internal/auto` (eval gate, eval exec, worker) and `cmd/fyr/eval.go` off `internal/sandbox` behind a runner switch, keeping Docker as the default — verify: `TestEvalRefusesWithoutHome` and `TestEvalRefusesItsHome` still pass
-- [ ] Dual-run: 5 real eval rows give the same verdict on both runners. Then make `isolate` the default — verify: 5 of 5 match
-- [ ] Checkpoint
+### Phase 6a — One background runner (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+files: `internal/auto/`, `internal/dream/`, `cmd/fyr/verb_dream.go`, `cmd/fyr/verb_uninstall.go`
+- [ ] Merge the dream timer into `fyr auto` (one timer). Keep metrics ingest first and the dream's plan-mode, no-tool run — verify: `TestRunIngestsMetricsFirst`, `TestDreamTimerDryRun` (or its renamed successor), and the uninstall timer tests
+- [ ] Checkpoint — evidence: `fyr auto --dry-run --home .agents/scratch/p6a`, and backup row counts equal live row counts
 
 ## Next
 
-- Phase 6a — One background runner (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 6b — Deletion (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 

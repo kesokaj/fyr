@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/sandbox"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -334,7 +334,7 @@ func verifyWorkerTurn3AndSandbox(t *testing.T, proj, home string) {
 	if got := queryInt(t, filepath.Join(home, harness.StateDir, "brain.db"), `SELECT COUNT(*) FROM records WHERE id = 'BUG-001' AND status = 'fixed'`); got != 1 {
 		t.Fatalf("BUG-001 status not fixed in brain.db (got %d)", got)
 	}
-	box := sandbox.New(sandbox.Config{Dir: filepath.Join(t.TempDir(), "sb"), Source: proj, RealHome: t.TempDir(), Out: io.Discard})
+	box := fyrisolate.New(fyrisolate.Config{Dir: filepath.Join(t.TempDir(), "sb"), Source: proj, RealHome: t.TempDir(), Out: io.Discard})
 	if !box.Make() || !box.Clone(context.Background()) {
 		t.Fatalf("sandbox setup failed: %v", box.Reasons())
 	}
@@ -345,11 +345,11 @@ func verifyWorkerTurn3AndSandbox(t *testing.T, proj, home string) {
 		t.Fatal(err)
 	}
 	writeMockFile(t, filepath.Join(cacheDir, "0123456789abcdef-a"), "!<arch>\n"+tok+"\n")
-	if box.ExitChecks(); box.Has(sandbox.ReasonCredentials) {
+	if box.ExitChecks(); box.Has(fyrisolate.ReasonCredentials) {
 		t.Fatalf("archive in .cache/go-build falsely tripped credentials check: %v", box.Reasons())
 	}
 	writeMockFile(t, filepath.Join(cacheDir, "planted-secret"), tok+"\n")
-	if box.ExitChecks(); !box.Has(sandbox.ReasonCredentials) {
+	if box.ExitChecks(); !box.Has(fyrisolate.ReasonCredentials) {
 		t.Fatalf("planted non-archive secret in .cache/go-build missed by ExitChecks: %v", box.Reasons())
 	}
 }

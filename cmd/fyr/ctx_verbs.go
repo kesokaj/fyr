@@ -37,6 +37,7 @@ type ctx struct {
 	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
 	recBody, recAll                                                                                bool
 	evalFixture                                                                                    string
+	evalRunner, evalImage, evalAgyLinux                                                            string
 	evalList, evalACP                                                                              bool
 	evalRuns, evalParallel                                                                         int
 	workTimeout                                                                                    time.Duration

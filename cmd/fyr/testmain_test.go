@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestMain runs as --kill's stand-in run when workHolderEnv is set; else it
@@ -14,6 +16,7 @@ import (
 // calls, and the code under test that runs git in a fixture checkout, would
 // act on another repository. A test that needs one sets it itself.
 func TestMain(m *testing.M) {
+	fyrisolate.MaybeRunInit()
 	if root := os.Getenv(workHolderEnv); root != "" {
 		os.Exit(workHolder(root))
 	}

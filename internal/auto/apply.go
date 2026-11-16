@@ -13,9 +13,9 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/trail"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 // checkoutSnapshot records the checkout state in step 2 and before the worker.
@@ -122,7 +122,7 @@ func (r *run) checkoutMovedFail(runnerWhy, class, branch string) (string, []Find
 }
 
 // applyBranch runs § The apply step (steps 1–7) for an OutcomeApplied task.
-func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
+func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if !r.again(root) {
 		msg := withRunner(fmt.Sprintf("stopped before apply (%s); branch %s kept", r.verdict, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
@@ -161,7 +161,7 @@ func (r *run) fileNoTestAsk(root string, t Task, branch string) (string, Finding
 	return id, Finding{"ask", t.Class, branch, "queued proposal " + id + " (no # auto: test line)"}
 }
 
-func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy string, snap checkoutSnapshot, tests []string, res work.Result) (string, []Finding) {
+func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy string, snap checkoutSnapshot, tests []string, res isolate.WorkerResult) (string, []Finding) {
 	wtDir := filepath.Join(dir(r.o.Home), "wt-"+k.Name)
 	removeWorktree(root, wtDir)
 	defer removeWorktree(root, wtDir)
@@ -193,7 +193,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 }
 
-func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res work.Result) (string, error) {
+func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res isolate.WorkerResult) (string, error) {
 	if _, err := applyGit(wtDir, nil, "merge", "--squash", "refs/heads/"+k.Branch); err != nil {
 		return "", fmt.Errorf("merge --squash: %w", err)
 	}
@@ -218,7 +218,7 @@ func gitConfigValue(root, key string) string {
 	return v
 }
 
-func commitOneLine(t Task, res work.Result) string {
+func commitOneLine(t Task, res isolate.WorkerResult) string {
 	if res.Handoff != nil && strings.TrimSpace(res.Handoff.Title) != "" {
 		return oneLine(res.Handoff.Title)
 	}

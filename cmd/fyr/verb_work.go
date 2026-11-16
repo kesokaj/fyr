@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -24,6 +25,18 @@ import (
 var workSelf = os.Executable
 
 func init() {
+	work.DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
+		var buf bytes.Buffer
+		err := search.BuildContextSlice(search.Options{Dir: dir, Slice: query, Budget: budget, Hops: 2}, &buf)
+		return buf.String(), err
+	}
+	work.DefaultPreseedFunc = func(dir string, pivots []work.CapsulePivot) error {
+		sp := make([]search.CapsulePivot, len(pivots))
+		for i, p := range pivots {
+			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
+		}
+		return search.RegisterCapsulePivots(dir, "work-kickoff", 1, sp)
+	}
 	verbs["work"] = verb{flags: func(c *ctx) {
 		c.fs.DurationVar(&c.workTimeout, "timeout", work.DefaultTimeout, "kill the worker's agy after `D`, whole minutes, at least 10m")
 		c.fs.StringVar(&c.workModel, "model", "", "the agy model `M` a worker without a Model: line runs on, checked against agy models (default: agy's own)")

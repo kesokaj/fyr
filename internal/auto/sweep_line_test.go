@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestWithRunnerKeepsVerdict pins the order withRunner writes (BUG-506): a
@@ -44,7 +44,7 @@ func TestRunMarkedTestDockerStripsPlatformEnv(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
-	if err := runMarkedTest(bin, work.RunnerDocker, "true", 5*time.Second); err != nil {
+	if err := runMarkedTest(bin, isolate.RunnerDocker, "true", 5*time.Second); err != nil {
 		t.Fatalf("runMarkedTest: %v", err)
 	}
 	b, err := os.ReadFile(rec)

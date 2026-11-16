@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
@@ -14,23 +15,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // Options is one invocation of eval.
 type Options struct {
-	Root       string // project checkout (suite, record scope, default fixture)
-	Home       string // fyr's home: sandboxes, stores
-	RealHome   string // $HOME: the token, the fingerprint
-	Fixture    string // the repository each row clones; "" is Root
-	Self       string // os.Executable(): the fyr that installs and lists
-	Repo       string // the install source tree (D16); "" is the harness embedded in Self
-	Runs       int    // trials per row, 1 to MaxRuns; 0 is 1
-	Parallel   int    // trials at once, 1 to MaxParallel; 0 is 1
-	ACP        bool   // drive trials via `agy acp --stdio --process-per-session`
-	Out        io.Writer
-	Now        func() time.Time
-	BrainWatch func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)
+	Root           string // project checkout (suite, record scope, default fixture)
+	Home           string // fyr's home: sandboxes, stores
+	RealHome       string // $HOME: the token, the fingerprint
+	Fixture        string // the repository each row clones; "" is Root
+	Self           string // os.Executable(): the fyr that installs and lists
+	Repo           string // the install source tree (D16); "" is the harness embedded in Self
+	Runner         string // sandbox runner: isolate or docker ("" uses isolate.DefaultRunner)
+	Image          string // container image REF when Runner is docker ("" uses isolate.DefaultImage)
+	AgyLinux       string // host path to Linux agy binary for --runner docker
+	Runs           int    // trials per row, 1 to MaxRuns; 0 is 1
+	Parallel       int    // trials at once, 1 to MaxParallel; 0 is 1
+	ACP            bool   // drive trials via `agy acp --stdio --process-per-session`
+	Out            io.Writer
+	Now            func() time.Time
+	BrainWatch     func(dbPath, scratchDir string, scopes []string) (string, bool) // check c per-scope brain.db watch (ADR-506)
+	TestRO         []string
+	TestRW         []string
+	TestUnconfined bool
+	docker         *isolate.Docker
 }
 
 // MaxRuns is the most trials of one row an invocation runs (the
@@ -62,29 +70,29 @@ type Result struct {
 
 // The fixed reason strings of a FAIL or an ERROR (SPEC-fyr-eval § One row,
 // step 15); classify maps each to its status and cause.
-// The steps internal/sandbox runs carry its strings; eval's own are records,
+// The steps internal/isolate runs carry its strings; eval's own are records,
 // check, interrupted and ReasonAgent.
 const (
-	ReasonExists      = sandbox.ReasonExists
-	ReasonClone       = sandbox.ReasonClone
+	ReasonExists      = isolate.ReasonExists
+	ReasonClone       = isolate.ReasonClone
 	ReasonRecords     = "records list"
-	ReasonSetup       = sandbox.ReasonSetup
-	ReasonInstall     = sandbox.ReasonInstall
-	ReasonSettings    = sandbox.ReasonSettings
-	ReasonToken       = sandbox.ReasonToken
+	ReasonSetup       = isolate.ReasonSetup
+	ReasonInstall     = isolate.ReasonInstall
+	ReasonSettings    = isolate.ReasonSettings
+	ReasonToken       = isolate.ReasonToken
 	ReasonCheck       = "check failed"
-	ReasonDenied      = sandbox.ReasonDenied
-	ReasonInvalid     = sandbox.ReasonInvalid
-	ReasonProcs       = sandbox.ReasonProcs
-	ReasonRealConfig  = sandbox.ReasonRealConfig
-	ReasonCredentials = sandbox.ReasonCredentials
+	ReasonDenied      = isolate.ReasonDenied
+	ReasonInvalid     = isolate.ReasonInvalid
+	ReasonProcs       = isolate.ReasonProcs
+	ReasonRealConfig  = isolate.ReasonRealConfig
+	ReasonCredentials = isolate.ReasonCredentials
 	ReasonInterrupted = "interrupted"
-	ReasonReplaced    = sandbox.ReasonReplaced
-	ReasonWrite       = sandbox.ReasonWrite
+	ReasonReplaced    = isolate.ReasonReplaced
+	ReasonWrite       = isolate.ReasonWrite
 )
 
 // ProcsChecked reports whether safety check e runs on this system (O1).
-const ProcsChecked = sandbox.ProcsChecked
+const ProcsChecked = isolate.ProcsChecked
 
 // ReasonAgent is the FAIL reason of an agent row whose agent the
 // conversation store does not show invoked.
@@ -95,23 +103,23 @@ func ReasonAgent(agent string) string {
 // agentPrefix is ReasonAgent's fixed start, which classify matches.
 const agentPrefix = "no invoke_subagent of "
 
-const tokenRel = sandbox.TokenRel
+const tokenRel = isolate.TokenRel
 
 // hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
 var hostOS = runtime.GOOS
 
 // ProjectSandboxRoot is where eval makes its sandboxes for project root under
 // fyr's home: <home>/.config/fyr/eval/<project> (D9 of PLAN-2026-11-02-1806-fyr-speed).
-func ProjectSandboxRoot(home, root string) string { return sandbox.ProjectRoot(home, "eval", root) }
+func ProjectSandboxRoot(home, root string) string { return isolate.ProjectRoot(home, "eval", root) }
 
 // Preflight is the refusals before step 1 that come before the suite is read
 // (D20): root is a checkout, and the sandbox root passes guards a and b on
 // its nearest existing ancestor. cmd calls it first; Run calls it again.
 func Preflight(o Options) error {
-	if err := sandbox.OutsideCheckout(o.Root); err == nil {
+	if err := isolate.OutsideCheckout(o.Root); err == nil {
 		return fmt.Errorf("%s is not a git checkout", o.Root)
 	}
-	return sandbox.CheckRoot(o.RealHome, o.Repo, ProjectSandboxRoot(o.Home, o.Root))
+	return isolate.CheckRoot(o.RealHome, o.Repo, ProjectSandboxRoot(o.Home, o.Root))
 }
 
 // Run refuses (error, no row run) or runs every row Options.Runs times, up
@@ -148,18 +156,64 @@ func Run(ctx context.Context, o Options, rows []Row) ([]Result, error) {
 	if err := checkRows(rows); err != nil {
 		return nil, err
 	}
-	tok, err := sandbox.CheckLogin(o.RealHome, hostOS)
+	agy, tok, baseDocker, cleanup, err := prepareEvalRunner(ctx, &o)
 	if err != nil {
 		return nil, err
 	}
-	agy, err := exec.LookPath("agy")
+	defer cleanup()
+	return runTrials(ctx, o, rows, agy, tok, baseDocker, o.Now().Format("2006-01-02-150405")), nil
+}
+
+func prepareEvalRunner(ctx context.Context, o *Options) (agy, tok string, baseDocker *isolate.Docker, cleanup func(), err error) {
+	cleanup = func() {}
+	runner, err := isolate.ResolveEvalRunner(o.Runner)
 	if err != nil {
-		return nil, errors.New("agy not found on PATH")
+		return "", "", nil, cleanup, err
 	}
-	builtSelf, cleanSelf := sandbox.PrepareSelf(ctx, o.Repo, o.Self)
-	defer cleanSelf()
+	if runner == isolate.RunnerDocker {
+		return prepareEvalDockerRunner(ctx, o)
+	}
+	if _, err = isolate.CheckWorkLogin(o.Home, o.RealHome, hostOS); err != nil {
+		return "", "", nil, cleanup, err
+	}
+	agy, err = exec.LookPath("agy")
+	if err != nil {
+		return "", "", nil, cleanup, errors.New("agy not found on PATH")
+	}
+	tok, err = isolate.SyncWorkToken(o.Home, o.RealHome, hostOS)
+	if err != nil {
+		return "", "", nil, cleanup, err
+	}
+	builtSelf, cleanSelf := isolate.PrepareSelf(ctx, o.Repo, o.Self)
 	o.Self = builtSelf
-	return runTrials(ctx, o, rows, agy, tok, o.Now().Format("2006-01-02-150405")), nil
+	return agy, tok, nil, cleanSelf, nil
+}
+
+func prepareEvalDockerRunner(ctx context.Context, o *Options) (agy, tok string, baseDocker *isolate.Docker, cleanup func(), err error) {
+	netStamp := fmt.Sprintf("%s-%d", o.Now().Format("20060102-150405"), os.Getpid())
+	builtSelf, cleanSelf := isolate.PrepareSelf(ctx, o.Repo, o.Self)
+	o.Self = builtSelf
+	dockerFyr := ""
+	if runtime.GOOS == "linux" {
+		dockerFyr = o.Self
+	}
+	baseDocker, tok, err = isolate.PrepareEvalDocker(isolate.EvalDockerOptions{
+		Home: o.Home, RealHome: o.RealHome, Root: o.Root,
+		Image: o.Image, AgyLinux: o.AgyLinux, Fyr: dockerFyr,
+		Stamp: netStamp, Name: "eval",
+	})
+	if err != nil {
+		cleanSelf()
+		return "", "", nil, func() {}, err
+	}
+	if err := isolate.MakeRunNetwork(netStamp); err != nil {
+		cleanSelf()
+		return "", "", nil, func() {}, err
+	}
+	return "", tok, baseDocker, func() {
+		_, _, _ = isolate.SweepRunStamp(netStamp)
+		cleanSelf()
+	}, nil
 }
 
 func checkRows(rows []Row) error {
@@ -221,7 +275,7 @@ func trialSpecs(o Options, rows []Row, stamp string) []trialSpec {
 // runTrials runs each row o.Runs times under one stamp, trials innermost, up
 // to o.Parallel at once (1 for a KindBenchmark row), printing each trial's
 // notes and result line in trial order, and stops launching once ctx has ended.
-func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp string) []Result {
+func runTrials(ctx context.Context, o Options, rows []Row, agy, tok string, baseDocker *isolate.Docker, stamp string) []Result {
 	specs := trialSpecs(o, rows, stamp)
 	results := make([]Result, len(specs))
 	outs := make([]string, len(specs))
@@ -239,8 +293,7 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp strin
 			launched++
 			go func() {
 				var buf bytes.Buffer
-				tOpts := o
-				tOpts.Out = &buf
+				tOpts := trialOpts(o, baseDocker, &buf, s)
 				res := runRow(ctx, tOpts, s.row, agy, tok, s.dir)
 				res.Trial, res.Run = s.trial, s.run
 				ch <- trialDone{idx: idx, res: res, out: buf.String()}
@@ -262,6 +315,33 @@ func runTrials(ctx context.Context, o Options, rows []Row, agy, tok, stamp strin
 	return results[:launched]
 }
 
+func trialOpts(o Options, baseDocker *isolate.Docker, buf io.Writer, s trialSpec) Options {
+	tOpts := o
+	tOpts.Out = buf
+	if baseDocker != nil {
+		d := *baseDocker
+		d.Name = sanitizeDockerName(s.row.ID, s.trial)
+		tOpts.docker = &d
+	}
+	return tOpts
+}
+
+func sanitizeDockerName(rowID string, trial int) string {
+	var b strings.Builder
+	for _, r := range rowID {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == '.', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	if b.Len() == 0 {
+		b.WriteString("row")
+	}
+	return fmt.Sprintf("%s-%d", b.String(), trial)
+}
+
 // resultLine is a trial's line (SPEC-fyr-eval § The verb): the row and its
 // trial, the status with the cause before the reasons, and the session's
 // seconds when one started.
@@ -281,13 +361,13 @@ func resultLine(r Result) string {
 	if r.SessionSeconds >= 0 {
 		secs += fmt.Sprintf(" (%ds session)", r.SessionSeconds)
 	}
-	return sandbox.Printable(fmt.Sprintf("eval: %s#%d  %s  agy exit %d  %s  %s", r.Row, r.Trial, v, r.AgyExit, secs, r.Dir))
+	return isolate.Printable(fmt.Sprintf("eval: %s#%d  %s  agy exit %d  %s  %s", r.Row, r.Trial, v, r.AgyExit, secs, r.Dir))
 }
 
 // runRow is steps 1-15 of SPEC-fyr-eval § One row for one trial. A failure
 // inside steps 1-8 skips 9-13 and still runs 14 once the sandbox is eval's
 // own (the comments follow the spec's numbers, IN52 of the 2026-10-27 audit).
-// Steps 1, 2, 4, 6-12 and 14 are internal/sandbox's.
+// Steps 1, 2, 4, 6-12 and 14 are internal/isolate's.
 func runRow(ctx context.Context, o Options, r Row, agy, tok, dir string) Result {
 	t0 := time.Now()
 	w := newRow(o, r, dir, o.Now().Format("2006-01-02-1504"))

@@ -3,6 +3,7 @@ package eval
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,13 +14,14 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 type rig struct {
 	t                                    *testing.T
 	tmp, root, home, real, ctl, rec, bin string
 	self, repo                           string
+	unconfined                           bool
 	out                                  bytes.Buffer
 }
 
@@ -46,7 +48,7 @@ func newRig(t *testing.T) *rig {
 	r.git("commit", "-qm", "fixture")
 	put(t, filepath.Join(r.real, tokenRel), "token", 0o600)
 	put(t, filepath.Join(r.real, harness.StateDir, "brain.db"), "store", 0o600)
-	sub := strings.NewReplacer("@CTL@", sandbox.ShellQuote(r.ctl), "@REC@", sandbox.ShellQuote(r.rec))
+	sub := strings.NewReplacer("@CTL@", isolate.ShellQuote(r.ctl), "@REC@", isolate.ShellQuote(r.rec))
 	put(t, filepath.Join(r.bin, "agy"), sub.Replace(fakeAgy), 0o755)
 	prepProcsTools(t, r.bin)
 	r.self = filepath.Join(tmp, "self")
@@ -101,7 +103,11 @@ func (r *rig) git(args ...string) {
 func (r *rig) on(mode, value string) { put(r.t, filepath.Join(r.ctl, mode), value, 0o644) }
 
 func (r *rig) opts() Options {
-	return Options{Root: r.root, Home: r.home, RealHome: r.real, Self: r.self, Repo: r.repo, Out: &r.out, Now: func() time.Time { return stampTime }}
+	return Options{
+		Root: r.root, Home: r.home, RealHome: r.real, Self: r.self, Repo: r.repo,
+		Runner: isolate.RunnerIsolate, Out: &r.out, Now: func() time.Time { return stampTime },
+		TestRO: []string{r.bin, r.ctl}, TestRW: []string{r.rec}, TestUnconfined: r.unconfined,
+	}
 }
 
 func (r *rig) read(name string) string {
@@ -180,21 +186,33 @@ func TestResultLine(t *testing.T) {
 	}
 }
 
-// On darwin, Run accepts $HOME/Library/Keychains when antigravity-oauth-token
-// is absent (BUG-166), and unlinks Library/Keychains after the session.
+// On darwin, Run extracts the macOS Keychain token prior to sandboxing when
+// antigravity-oauth-token is absent (ADR-503, BUG-166) without exposing
+// $HOME/Library/Keychains inside the sandbox, and unlinks the token link after.
 func TestRunDarwinKeychainLogin(t *testing.T) {
 	old := hostOS
 	hostOS = "darwin"
 	t.Cleanup(func() { hostOS = old })
-	t.Cleanup(sandbox.SetHostOS("darwin"))
+	t.Cleanup(isolate.SetHostOS("darwin"))
+	rawTok := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(`{"access_token":"tok"}`))
+	t.Cleanup(isolate.SetKeychainReader(func() (string, error) { return rawTok, nil }))
 	r := newRig(t)
 	if err := os.Remove(filepath.Join(r.real, tokenRel)); err != nil {
 		t.Fatal(err)
 	}
-	put(t, filepath.Join(r.real, sandbox.KeychainsRel, "login.keychain-db"), "keychain", 0o600)
+	put(t, filepath.Join(r.real, isolate.KeychainsRel, "login.keychain-db"), "keychain", 0o600)
 	x := one(t, r.run(named("ok", "p", "true")))
 	wantVerdict(t, x, StatusPass)
-	if _, err := os.Lstat(filepath.Join(x.Dir, "home", sandbox.KeychainsRel)); !os.IsNotExist(err) {
-		t.Errorf("Library/Keychains still in sandbox: %v", err)
+	if got := r.read("keychains.1"); got != "" {
+		t.Errorf("Library/Keychains was exposed in sandbox during session: %q", got)
+	}
+	if got := strings.TrimSpace(r.read("linked.1")); got != "yes" {
+		t.Errorf("extracted OAuth token was not linked during session: linked.1=%q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(x.Dir, "home", isolate.KeychainsRel)); !os.IsNotExist(err) {
+		t.Errorf("Library/Keychains present in sandbox: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(x.Dir, "home", tokenRel)); !os.IsNotExist(err) {
+		t.Errorf("antigravity-oauth-token link still in sandbox: %v", err)
 	}
 }

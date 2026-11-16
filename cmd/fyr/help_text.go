@@ -313,7 +313,8 @@ var pages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] [--acp] <row>...",
+			"                [--parallel N] [--acp] [--runner R] [--image REF]",
+			"                [--agy-linux PATH] <row>...",
 			"       fyr eval [--suite-file PATH] --list",
 		},
 		about: []string{

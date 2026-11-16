@@ -13,8 +13,8 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/search"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 func TestKickoffBuilder(t *testing.T) {
@@ -58,7 +58,7 @@ func TestKickoffBuilder(t *testing.T) {
 			}
 		}
 		if len(k.Files) > 0 {
-			if _, err := work.ParseKickoff(k.Path); err != nil {
+			if _, err := isolate.ParseKickoff(k.Path); err != nil {
 				t.Errorf("%s: ParseKickoff: %v", spec.Name, err)
 			}
 		}
@@ -131,33 +131,42 @@ func TestRubricAskStoresProposal(t *testing.T) {
 	}
 }
 
-// TestRunnerChoice: fyr auto's runner is work.ChooseRunner's for --runner
-// auto, the one choice fyr work makes too (D5, ADR-504), whatever wo.Runner
-// held before; why is that choice in the sweep's words.
+// TestRunnerChoice: fyr auto's runner is isolate.ChooseRunner's for --runner
+// auto (D5, ADR-504, ADR-522), whatever wo.Runner held before, failing closed
+// when neither isolate nor docker is available.
 func TestRunnerChoice(t *testing.T) {
-	const passed = "docker (fyr work docker preflight passed)"
+	okAvail := func() error { return nil }
 	for _, c := range []struct {
-		name, prior string
-		err         error
-		kind, why   string
+		name, prior     string
+		isoErr, dockErr error
+		kind, why       string
+		wantErr         bool
 	}{
-		{"docker", "", nil, work.RunnerDocker, passed},
-		{"docker over a host option", work.RunnerHost, nil, work.RunnerDocker, passed},
-		{"missing image", work.RunnerDocker, errors.New("--runner docker: docker image fyr-work:latest is missing"), work.RunnerHost, "host (docker image fyr-work:latest is missing)"},
-		{"empty refusal", "", errors.New(" \n"), work.RunnerHost, "host (the docker preflight failed)"},
+		{"isolate", "", nil, nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
+		{"isolate over docker", isolate.RunnerDocker, nil, nil, isolate.RunnerIsolate, isolate.RunnerIsolate, false},
+		{"missing landlock falls back to docker", isolate.RunnerIsolate, errors.New("no landlock"), nil, isolate.RunnerDocker, "docker (--runner isolate: no landlock)", false},
+		{"empty refusal uses fallback text", "", errors.New(" \n"), nil, isolate.RunnerDocker, "docker (primary runner unavailable)", false},
+		{"both unavailable fail closed", "", errors.New("no landlock"), errors.New("no docker"), "", "", true},
 	} {
-		pf := func(o work.Options) error {
-			if o.Runner != work.RunnerAuto {
+		avail := okAvail
+		if c.isoErr != nil {
+			err := c.isoErr
+			avail = func() error { return err }
+		}
+		pf := func(o isolate.WorkerOptions) error {
+			if o.Runner != isolate.RunnerAuto {
 				t.Errorf("%s: the preflight saw --runner %q", c.name, o.Runner)
 			}
-			return c.err
+			return c.dockErr
 		}
-		wo := work.Options{Runner: c.prior}
-		kind, why := chooseRunner(&wo, pf)
-		ref := work.Options{Runner: work.RunnerAuto}
-		refKind, refReason := work.ChooseRunner(&ref, pf)
-		if kind != c.kind || why != c.why || kind != refKind || wo.Runner != ref.Runner || wo.RunnerReason != refReason {
-			t.Errorf("%s: auto %q %q %+v, work.ChooseRunner %q %q", c.name, kind, why, wo, refKind, refReason)
+		wo := isolate.WorkerOptions{Runner: c.prior}
+		kind, why, err := chooseRunner(&wo, avail, pf)
+		refKind, refReason, refErr := isolate.ChooseRunner(isolate.RunnerAuto, avail, func() error { return c.dockErr })
+		if (err != nil) != c.wantErr || (refErr != nil) != c.wantErr {
+			t.Fatalf("%s: err=%v refErr=%v wantErr=%v", c.name, err, refErr, c.wantErr)
+		}
+		if kind != c.kind || why != c.why || kind != refKind || wo.Runner != refKind || wo.RunnerReason != refReason {
+			t.Errorf("%s: auto %q %q %+v, isolate.ChooseRunner %q %q", c.name, kind, why, wo, refKind, refReason)
 		}
 	}
 }
@@ -177,7 +186,8 @@ func driftOpts(home, root string, out *bytes.Buffer) Options {
 	o := runOpts(home, out)
 	o.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
 	o.Vocabulary = check.Vocabulary{"status": {}}
-	o.DockerPreflight = func(work.Options) error { return errors.New("no docker") }
+	o.IsolateAvailable = func() error { return nil }
+	o.DockerPreflight = func(isolate.WorkerOptions) error { return errors.New("no docker") }
 	return o
 }
 
@@ -188,28 +198,29 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 	root2 := idleDocDriftProject(t)
 	writeConfig(t, home, validConfig)
 	var seenCount, workerCalls, preflightCalls int
-	var seenOpts work.Options
+	var seenOpts isolate.WorkerOptions
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
 	o.Env = &fakeEnv{targets: targetsOf(root, root2), usage: usageText("90%", "90%")}
-	o.DockerPreflight = func(work.Options) error {
+	o.IsolateAvailable = func() error {
 		preflightCalls++
-		return errors.New("no docker")
+		return errors.New("no landlock")
 	}
+	o.DockerPreflight = func(isolate.WorkerOptions) error { return nil }
 	o.RealHome = realHome
-	o.Work = func(_ context.Context, wo work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		workerCalls++
 		seenOpts = wo
 		st, _, _ := loadState(home)
 		seenCount = st.ModelRuns
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		git(t, wo.Root, "branch", "work/"+name)
-		return []work.Result{{Name: name, Verdict: "PASS"}}, nil
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
 	}
 	if err := Run(o, false); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome || seenOpts.Runner != work.RunnerHost || seenOpts.RunnerReason != "no docker" {
+	if workerCalls != 1 || preflightCalls != 1 || seenCount != 1 || !seenOpts.Auto || seenOpts.Timeout != 30*time.Minute || seenOpts.RealHome != realHome || seenOpts.Runner != isolate.RunnerDocker || seenOpts.RunnerReason != "docker (--runner isolate: no landlock)" {
 		t.Errorf("workers=%d preflights=%d count=%d opts=%+v", workerCalls, preflightCalls, seenCount, seenOpts)
 	}
 	if !strings.Contains(out.String(), "worker already ran in this sweep") {
@@ -219,7 +230,7 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 	st.ModelRuns = 4
 	saveState(home, st)
 	called := false
-	o.Work = func(context.Context, work.Options, ...string) ([]work.Result, error) {
+	o.Work = func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
 		called = true
 		return nil, nil
 	}
@@ -236,11 +247,11 @@ func TestWorkerBranchCleanup(t *testing.T) {
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
 	var branch string
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		branch = "work/" + name
 		git(t, root, "branch", branch)
-		return []work.Result{{Name: name, Verdict: "PASS"}}, nil
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
 	}
 	o.Apply = func(string, string, string) (bool, error) { return true, nil }
 	if err := Run(o, false); err != nil {
@@ -268,10 +279,10 @@ func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		writeConfig(t, home, `{"enabled": true, "level": "harness", "project_idle": "6h", "user_idle": "15m"}`)
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
-		return []work.Result{{Name: name, Verdict: "PASS"}}, nil
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
 	}
 	err := Run(o, false)
 	if exit(err) != 1 || !strings.Contains(out.String(), "auto disabled: its config changed during a run") {
@@ -289,10 +300,10 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		os.WriteFile(filepath.Join(dir(home), "runs.json"), []byte(`{"date":"2026-11-01","model_runs":0}`), 0o600)
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
-		return []work.Result{{Name: name, Verdict: "PASS"}}, nil
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
 	}
 	if err := Run(o, false); exit(err) != 1 {
 		t.Fatalf("expected exit 1 on state tamper, got %v", err)
@@ -302,11 +313,11 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 		t.Errorf("tampered state not restored: %+v", st)
 	}
 	var name string
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		name = strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		rel := filepath.Join(".agents", "scratch", "work", "2026-11-01-1200", name)
 		writeTree(t, root, filepath.Join(rel, "auto-drafts.jsonl"), "{\"kind\":\"memory\"}\n")
-		return []work.Result{{Name: name, Verdict: "PASS", Drafts: 1, DraftsDir: filepath.ToSlash(rel)}}, nil
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS", Drafts: 1, DraftsDir: filepath.ToSlash(rel)}}, nil
 	}
 	out.Reset()
 	if err := Run(o, false); err != nil {
@@ -337,7 +348,10 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 	home := t.TempDir()
 	called := false
 	r := &run{
-		o:   Options{Home: home, Work: func(context.Context, work.Options, ...string) ([]work.Result, error) { called = true; return nil, nil }},
+		o: Options{Home: home, Work: func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
+			called = true
+			return nil, nil
+		}},
 		cfg: Config{Level: LevelProject},
 		st:  State{Date: "2026-11-01"},
 	}
@@ -428,11 +442,11 @@ func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
 	var kickoffName, kickoffBody string
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		kickoffName = strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		kickoffBody = readFile(t, paths[0])
 		git(t, root, "branch", "work/"+kickoffName)
-		return []work.Result{{Name: kickoffName, Verdict: "PASS"}}, nil
+		return []isolate.WorkerResult{{Name: kickoffName, Verdict: "PASS"}}, nil
 	}
 	if err := Run(o, false); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())

@@ -65,7 +65,8 @@ if [ -e "$CTL/setsid" ]; then (cd / && exec setsid sleep 301 </dev/null >/dev/nu
 if [ -e "$CTL/hang" ]; then touch "$REC/started"; exec sleep 300; fi
 sbdir=$(dirname "$HOME")
 if [ -e "$CTL/check-absent" ]; then
-  if [ -e "$sbdir/check.log" ] || grep -rq "$(cat "$CTL/check-absent")" "$sbdir" 2>/dev/null; then exit 99; fi
+  secret=$(cat "$CTL/check-absent")
+  if [ -e "$sbdir/check.log" ] || grep -rq "$secret" "$PWD" "$HOME" 2>/dev/null || grep -rq "$secret" "$sbdir" 2>/dev/null; then exit 99; fi
 fi
 if [ -e "$CTL/print-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/print-leak")"; fi
 if [ -e "$CTL/clone-leak" ]; then echo "GH_TOKEN=$(cat "$CTL/clone-leak")" > leak.env; fi

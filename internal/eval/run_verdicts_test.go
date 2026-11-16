@@ -61,10 +61,10 @@ func TestRunPass(t *testing.T) {
 		t.Errorf("agy ran in %s, want the clone", got)
 	}
 	aenv := envMap(r.read("agy.env.1"))
-	if !strings.HasPrefix(aenv["PATH"], filepath.Join(sb, "bin")+":") || aenv["HOME"] != sb || aenv["STYRMAN_SKIP_CRED_PULL"] != "1" || aenv["SHELL"] != "/bin/bash" || aenv["GIT_AUTHOR_NAME"] != "agy-rel" {
+	if !strings.HasPrefix(aenv["PATH"], filepath.Join(sb, "bin")+":") || aenv["HOME"] != sb || aenv["TMPDIR"] != filepath.Join(x.Dir, "tmp") || aenv["STYRMAN_SKIP_CRED_PULL"] != "1" || aenv["SHELL"] != "/bin/bash" || aenv["GIT_AUTHOR_NAME"] != "agy-rel" {
 		t.Errorf("agy env: %v", aenv)
 	}
-	allowed := map[string]bool{"PATH": true, "TERM": true, "LANG": true, "USER": true, "LOGNAME": true, "SHELL": true, "HOME": true, "STYRMAN_SKIP_CRED_PULL": true,
+	allowed := map[string]bool{"PATH": true, "TERM": true, "LANG": true, "USER": true, "LOGNAME": true, "SHELL": true, "HOME": true, "TMPDIR": true, "STYRMAN_SKIP_CRED_PULL": true,
 		"GIT_AUTHOR_NAME": true, "GIT_AUTHOR_EMAIL": true, "GIT_COMMITTER_NAME": true, "GIT_COMMITTER_EMAIL": true,
 		"PWD": true, "SHLVL": true, "_": true, "OLDPWD": true} // the last four are bash's own
 	for k := range aenv {

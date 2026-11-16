@@ -4,12 +4,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestMain drops every GIT_* variable before the package's tests run, as
 // the other packages that run git in a fixture do: with GIT_DIR set by a hook
 // or the operator, a fixture's git calls would act on another repository.
 func TestMain(m *testing.M) {
+	isolate.MaybeRunInit()
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)

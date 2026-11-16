@@ -16,8 +16,8 @@ import (
 
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -105,8 +105,8 @@ func newFleetRig(t *testing.T) *fleetRig {
 		}
 	}
 	materializeMockIn(t, r.proj, fyrBin, "mock-fleet-ops")
-	writeTestFile(t, filepath.Join(r.real, sandbox.TokenRel), "token")
-	selfBody := "#!/bin/bash\nset -euo pipefail\ncase \"${1:-}\" in\ninstall) mkdir -p \"$3/.local/bin\" && cp " + sandbox.ShellQuote(fyrBin) + " \"$3/.local/bin/fyr\" && chmod +x \"$3/.local/bin/fyr\" ;;\n*) exec " + sandbox.ShellQuote(fyrBin) + " \"$@\" ;;\nesac\n"
+	writeTestFile(t, filepath.Join(r.real, fyrisolate.TokenRel), "token")
+	selfBody := "#!/bin/bash\nset -euo pipefail\ncase \"${1:-}\" in\ninstall) mkdir -p \"$3/.local/bin\" && cp " + fyrisolate.ShellQuote(fyrBin) + " \"$3/.local/bin/fyr\" && chmod +x \"$3/.local/bin/fyr\" ;;\n*) exec " + fyrisolate.ShellQuote(fyrBin) + " \"$@\" ;;\nesac\n"
 	for p, body := range map[string]string{filepath.Join(binDir, "agy"): fleetFakeAgy, filepath.Join(binDir, "docker"): fakeVerbDocker, filepath.Join(binDir, "systemctl"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "launchctl"): "#!/bin/sh\nexit 0\n", self: selfBody, filepath.Join(r.home, harness.BinPath): selfBody} {
 		writeTestFile(t, p, body)
 		if err := os.Chmod(p, 0o755); err != nil {

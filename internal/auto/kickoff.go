@@ -15,18 +15,18 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 func init() {
-	work.DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
+	isolate.DefaultSliceFunc = func(dir, query string, budget int) (string, error) {
 		var buf bytes.Buffer
 		err := search.BuildContextSlice(search.Options{Dir: dir, Slice: query, Budget: budget, Hops: 2}, &buf)
 		return buf.String(), err
 	}
-	work.DefaultPreseedFunc = func(dir string, pivots []work.CapsulePivot) error {
+	isolate.DefaultPreseedFunc = func(dir string, pivots []isolate.CapsulePivot) error {
 		sp := make([]search.CapsulePivot, len(pivots))
 		for i, p := range pivots {
 			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}
@@ -211,8 +211,8 @@ func BuildKickoff(now time.Time, t Task) (Kickoff, error) {
 // AttachProjectCapsule appends a structural --slice context capsule (<= 1,500
 // tokens) to k and pre-seeds read_ledger when root has a project search index.
 func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
-	wk := work.Kickoff{Name: k.Name, Path: k.Path, Text: k.Text, Files: k.Files}
-	k.Text = work.FormatKickoffCapsule(wk, root, func(dir, query string, budget int) (string, error) {
+	wk := isolate.Kickoff{Name: k.Name, Path: k.Path, Text: k.Text, Files: k.Files}
+	k.Text = isolate.FormatKickoffCapsule(wk, root, func(dir, query string, budget int) (string, error) {
 		var buf bytes.Buffer
 		err := search.BuildContextSlice(search.Options{
 			Dir:     dir,
@@ -222,7 +222,7 @@ func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
 			Session: conversationID,
 		}, &buf)
 		return buf.String(), err
-	}, func(dir string, pivots []work.CapsulePivot) error {
+	}, func(dir string, pivots []isolate.CapsulePivot) error {
 		sp := make([]search.CapsulePivot, len(pivots))
 		for i, p := range pivots {
 			sp[i] = search.CapsulePivot{Path: p.Path, StartLine: p.StartLine, EndLine: p.EndLine}

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // maxScan bounds the bytes read from one conversation database. A variable
@@ -44,7 +44,7 @@ func invokedNotes(sb, agent string) (bool, []string) {
 // whether it was left unread for being over maxScan; a link or a FIFO the
 // agent left in place of a database is not read.
 func readsNeedle(path string, needle []byte) (found, big bool) {
-	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
+	f, err := isolate.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
 		return false, false
 	}

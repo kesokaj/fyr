@@ -40,6 +40,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 )
 
 // stderr is where a read-only verb names the state directory from before the
@@ -54,6 +55,7 @@ var stderr io.Writer = os.Stderr
 var version string
 
 func main() {
+	fyrisolate.MaybeRunInit()
 	if os.Getenv(harness.ChildEnv) != "1" {
 		oldEnvNotices(os.Environ(), os.Stderr)
 	}

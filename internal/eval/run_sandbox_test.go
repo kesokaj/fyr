@@ -24,6 +24,7 @@ func TestRunExitChecks(t *testing.T) {
 			t.Skip("no /proc here (O1)")
 		}
 		r := newRig(t)
+		r.unconfined = true
 		if _, err := exec.LookPath("setsid"); err != nil {
 			t.Skip("no setsid here")
 		}
@@ -46,6 +47,7 @@ func TestRunExitChecks(t *testing.T) {
 	})
 	t.Run("real config", func(t *testing.T) {
 		r := newRig(t)
+		r.unconfined = true
 		r.on("realconfig", filepath.Join(r.real, harness.StateDir, "brain.db"))
 		x := one(t, r.run(named("c", "p", "true")))
 		wantVerdict(t, x, "FAIL", ReasonRealConfig)
@@ -112,6 +114,7 @@ func TestRunSetupThatTouchesTheRealConfig(t *testing.T) {
 // SIGTERM, and the row FAILs sandbox replaced.
 func TestRunSandboxReplaced(t *testing.T) {
 	r := newRig(t)
+	r.unconfined = true
 	put(t, filepath.Join(r.real, ".netrc"), "machine x login y password z\n", 0o600)
 	r.on("swap", r.real)
 	r.on("decoy", r.real)
@@ -173,6 +176,7 @@ func TestRunCLIDirLinked(t *testing.T) {
 // and the check does not run, so it fails too.
 func TestRunFIFOs(t *testing.T) {
 	r := newRig(t)
+	r.unconfined = true
 	r.on("fifo", "")
 	done := make(chan []Result, 1)
 	go func() {

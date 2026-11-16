@@ -22,7 +22,7 @@ func TestRubricDenied(t *testing.T) {
 		// The tracked eval suite and its fixture (ADR-500).
 		".agents/eval/", ".agents/eval/GUIDE-eval.md", ".agents/eval/fixture.sh",
 		// What holds a run in.
-		"internal/work/fetch.go", "internal/sandbox/", "internal/redact/redact.go", "cmd/fyr/main.go",
+		"internal/work/fetch.go", "internal/isolate/", "internal/isolate/isolate.go", "internal/sandbox/", "internal/redact/redact.go", "cmd/fyr/main.go",
 		"docker/work.Dockerfile", "embed.go",
 		// A CLI's other instruction files, and what redirects a build.
 		"GEMINI.md", "web/GEMINI.md", "CLAUDE.md", ".cursorrules", "go.work", "go.work.sum", ".npmrc",

@@ -53,7 +53,7 @@ In a worker's `Files:`, at any level. A task that needs one of these is an ask.
 - `context/`, `rules/`, `<project>/.agents/rules/`
 - `GUIDE-eval`, `.agents/eval/`, `GUIDE-testing`, `SPEC-fyr-eval`, `internal/eval/`: what judges you
 - `SPEC-fyr-auto`, `internal/auto/`, `skills/fyr-auto/`: your own rules
-- `SPEC-fyr-work`, `internal/work/`, `internal/sandbox/`, `internal/redact/`, `cmd/fyr/`, `docker/`, `embed.go`: what holds you in
+- `SPEC-fyr-work`, `internal/work/`, `internal/isolate/`, `internal/sandbox/`, `internal/redact/`, `cmd/fyr/`, `docker/`, `embed.go`: what holds you in
 - `internal/harness/size_test.go`, `internal/harness/inventory.go`
 - `*_test.go` and `testdata/`, at any depth
 - `.github/`, `.gitlab/`, `.circleci/`, `.gitlab-ci.yml`, `.travis.yml`, `Jenkinsfile`, `azure-pipelines.y*ml`, `cloudbuild.*`, at any depth

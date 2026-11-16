@@ -14,8 +14,8 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -48,7 +48,7 @@ func (r *run) currentAgyVersion() string {
 	cx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cx, "agy", "--version")
-	cmd.Env = append(sandbox.WithoutGit(os.Environ()), "PATH="+r.o.path())
+	cmd.Env = append(isolate.WithoutGit(os.Environ()), "PATH="+r.o.path())
 	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
 		return ""

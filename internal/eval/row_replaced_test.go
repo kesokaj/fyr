@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // afterAgy wraps the rig's fake agy: the fake runs first, then script, with
@@ -20,8 +20,8 @@ func (r *rig) afterAgy(script string) {
 	if err := os.Rename(fake, orig); err != nil {
 		r.t.Fatal(err)
 	}
-	put(r.t, fake, "#!/bin/bash\n"+sandbox.ShellQuote(orig)+" \"$@\"; rc=$?\nn=$(cat "+sandbox.ShellQuote(filepath.Join(r.rec, "agy.n"))+
-		")\nsbdir=$(dirname \"$HOME\")\nREAL="+sandbox.ShellQuote(r.real)+"; REC="+sandbox.ShellQuote(r.rec)+"\n"+script+"\nexit $rc\n", 0o755)
+	put(r.t, fake, "#!/bin/bash\n"+isolate.ShellQuote(orig)+" \"$@\"; rc=$?\nn=$(cat "+isolate.ShellQuote(filepath.Join(r.rec, "agy.n"))+
+		")\nsbdir=$(dirname \"$HOME\")\nREAL="+isolate.ShellQuote(r.real)+"; REC="+isolate.ShellQuote(r.rec)+"\n"+script+"\nexit $rc\n", 0o755)
 }
 
 func runOne(t *testing.T, r *rig, row Row) Result {
@@ -48,6 +48,7 @@ func wantReason(t *testing.T, x Result, status, reason string) {
 // from the home it was made in, through the held root.
 func TestRunSecondSessionAfterSwap(t *testing.T) {
 	r := newRig(t)
+	r.unconfined = true
 	r.afterAgy(`if [ "$n" = 1 ]; then cd /; mv "$sbdir" "$sbdir.moved"; ln -s "$REAL" "$sbdir"; fi`)
 	x := runOne(t, r, Row{ID: "s", Prompt: "p", Prompt2: "p2", Check: "true", Grants: "named"})
 	wantReason(t, x, StatusFail, ReasonReplaced)
@@ -71,6 +72,7 @@ func TestRunSecondSessionAfterSwap(t *testing.T) {
 // the row; the second session is never silently skipped into a PASS.
 func TestRunPlantedOutput2(t *testing.T) {
 	r := newRig(t)
+	r.unconfined = true
 	r.afterAgy(`if [ "$n" = 1 ]; then mkfifo "$sbdir/out2.txt"; fi`)
 	x := runOne(t, r, Row{ID: "f", Prompt: "p", Prompt2: "p2", Check: "true", Grants: "named"})
 	wantReason(t, x, StatusFail, ReasonReplaced)
@@ -83,6 +85,7 @@ func TestRunCloneDeleted(t *testing.T) {
 		t.Skip("no /proc here (O1)")
 	}
 	r := newRig(t)
+	r.unconfined = true
 	r.afterAgy(`(cd / && exec setsid sleep 305 </dev/null >/dev/null 2>&1) & echo $! >> "$REC/pids"; cd /; rm -rf "$sbdir/app"`)
 	x := runOne(t, r, named("d", "p", "true"))
 	wantReason(t, x, StatusFail, ReasonProcs)

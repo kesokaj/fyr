@@ -18,28 +18,29 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 // workerTimeout is the 30-minute per-worker budget (R3 3.2b, D1 row 7).
 const workerTimeout = 30 * time.Minute
 
-// chooseRunner is work.ChooseRunner, the one runner choice of fyr work and
-// fyr auto (D5, ADR-504), for --runner auto: RunnerDocker when fyr work's
-// docker preflight passes, and RunnerHost with the reason when it does not,
-// set on wo.Runner and wo.RunnerReason (D2, D17). It runs before work.Run,
-// and DockerPreflight builds no image, so a sweep whose image is missing or
-// stale runs on the host and says so; why is the choice in the words of the
-// sweep's report, which withRunner puts at the end of a worker's line.
-func chooseRunner(wo *work.Options, preflight func(work.Options) error) (runner, why string) {
-	wo.Runner = work.RunnerAuto
-	runner, reason := work.ChooseRunner(wo, preflight)
-	if runner == work.RunnerDocker {
-		return runner, "docker (fyr work docker preflight passed)"
+// chooseRunner resolves the worker runner through isolate.ChooseRunner with
+// --runner auto, failing closed if no isolated runner is available (PRD R8,
+// R10; ADR-522). It sets wo.Runner and wo.RunnerReason (D2, D17).
+func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error, preflight func(isolate.WorkerOptions) error) (runner, why string, err error) {
+	wo.Runner = isolate.RunnerAuto
+	pf := preflight
+	if pf == nil {
+		pf = isolate.DockerPreflight
 	}
-	return runner, "host (" + reason + ")"
+	runner, why, err = isolate.ChooseRunner(isolate.RunnerAuto, isolateAvail, func() error { return pf(*wo) })
+	if err != nil {
+		wo.Runner, wo.RunnerReason = "", ""
+		return "", "", err
+	}
+	wo.Runner, wo.RunnerReason = runner, why
+	return runner, why, nil
 }
 
 // withRunner ends a worker's report line with the runner and why: last,
@@ -118,7 +119,11 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	}
 	wo := r.workOptions(root)
 	var runnerWhy string
-	_, runnerWhy = chooseRunner(&wo, r.o.DockerPreflight)
+	_, runnerWhy, err = chooseRunner(&wo, r.o.IsolateAvailable, r.o.DockerPreflight)
+	if err != nil {
+		r.failed = true
+		return "worker runner error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
+	}
 	if err := r.prepareLearningWorker(root, p, t, k.Path); err != nil {
 		r.failed = true
 		return "worker input error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
@@ -128,37 +133,40 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	resList, runErr := r.o.workRun()(sig, wo, k.Path)
 	stop()
-	var res work.Result
+	var res isolate.WorkerResult
 	if len(resList) > 0 {
 		res = resList[0]
 	}
 	return r.finishWorker(root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr)
 }
 
-func (r *run) workOptions(root string) work.Options {
-	return work.Options{
-		Root:       root,
-		Home:       r.o.Home,
-		RealHome:   r.o.realHome(),
-		Self:       r.o.self(),
-		Repo:       r.o.Repo,
-		Version:    r.o.Version,
-		Timeout:    workerTimeout,
-		MaxWorkers: 1,
-		Out:        io.Discard,
-		Now:        r.o.Now,
-		Auto:       true,
+func (r *run) workOptions(root string) isolate.WorkerOptions {
+	return isolate.WorkerOptions{
+		Root:           root,
+		Home:           r.o.Home,
+		RealHome:       r.o.realHome(),
+		Self:           r.o.self(),
+		Repo:           r.o.Repo,
+		Version:        r.o.Version,
+		Timeout:        workerTimeout,
+		MaxWorkers:     1,
+		Out:            io.Discard,
+		Now:            r.o.Now,
+		Auto:           true,
+		TestRO:         r.o.TestRO,
+		TestRW:         r.o.TestRW,
+		TestUnconfined: r.o.TestUnconfined,
 	}
 }
 
-func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res work.Result, runErr error) (string, []Finding) {
+func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error) (string, []Finding) {
 	defer cleanProjectDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
 		msg := withRunner("FAIL ("+oneLine(err.Error())+"); branch "+k.Branch+" kept", runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
-	if slices.Contains(res.Reasons, sandbox.ReasonRealConfig) || configTampered(r.o.Home, cfgBefore, cfgErr) {
+	if slices.Contains(res.Reasons, isolate.ReasonRealConfig) || configTampered(r.o.Home, cfgBefore, cfgErr) {
 		disableConfig(r.o.Home, r.cfg)
 		_ = saveState(r.o.Home, r.st)
 		r.failed, r.halted = true, true
@@ -173,7 +181,7 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 	}
 	if runErr != nil || res.Verdict != "PASS" {
 		r.failed = true
-		if slices.Contains(res.Reasons, work.ReasonLeadChanged) {
+		if slices.Contains(res.Reasons, isolate.ReasonLeadChanged) {
 			return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 		}
 		why := strings.Join(res.Reasons, "; ")
@@ -212,7 +220,7 @@ func (r *run) recordLearningProgress(p *Project, t Task) {
 	}
 }
 
-func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
+func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if t.Outcome == OutcomeEvalGate {
 		return r.evalGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	}
@@ -243,7 +251,7 @@ func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy
 // collectAutoDrafts copies auto-drafts.jsonl from the worker's DraftsDir into
 // ~/.config/fyr/auto/drafts/<name>.jsonl (D26 S1) and returns any D39 finding
 // lines for the project's report.
-func (r *run) collectAutoDrafts(root, name, class string, res work.Result) ([]Finding, error) {
+func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResult) ([]Finding, error) {
 	if res.Drafts == 0 || res.DraftsDir == "" {
 		return nil, nil
 	}

@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -29,7 +29,7 @@ func ReadTrackedSuite(root string, atHead bool) (rows []Row, found bool, err err
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, false, nil
 	}
-	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
+	f, err := isolate.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
 		return nil, true, fmt.Errorf("%s: %v", SuitePath, err)
 	}

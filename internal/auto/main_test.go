@@ -5,12 +5,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestMain drops every GIT_* variable, as the other packages' TestMain does:
 // the fixtures commit and push, and one exported by a hook would aim them at
 // this checkout. Nor does the operator's git config reach them.
 func TestMain(m *testing.M) {
+	isolate.MaybeRunInit()
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)

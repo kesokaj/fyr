@@ -16,7 +16,7 @@ var (
 	deniedRoots = []string{
 		"context/", "rules/", ".agents/rules/", ".agents/eval/",
 		"internal/eval/", "internal/auto/", "skills/fyr-auto/",
-		"internal/work/", "internal/sandbox/", "internal/redact/", "cmd/fyr/", "docker/", "embed.go",
+		"internal/work/", "internal/isolate/", "internal/sandbox/", "internal/redact/", "cmd/fyr/", "docker/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",
 		"skills/VENDORED.md", "skills/google-catalog/catalog/",
 	}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 const testGateHoldoutSuite = "# Holdout suite\n\n" +
@@ -76,9 +76,9 @@ func initHarnessEvalGateFixture(t *testing.T, home, realHome, extraRows string) 
 	return root, holdoutPath, propID
 }
 
-func makeCandidateBranchWork(t *testing.T, root, newAlpha string) func(context.Context, work.Options, ...string) ([]work.Result, error) {
+func makeCandidateBranchWork(t *testing.T, root, newAlpha string) func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
 	t.Helper()
-	return func(_ context.Context, _ work.Options, kickoffs ...string) ([]work.Result, error) {
+	return func(_ context.Context, _ isolate.WorkerOptions, kickoffs ...string) ([]isolate.WorkerResult, error) {
 		data, err := os.ReadFile(kickoffs[0])
 		if err != nil {
 			t.Fatal(err)
@@ -90,13 +90,13 @@ func makeCandidateBranchWork(t *testing.T, root, newAlpha string) func(context.C
 		base := git(t, root, "rev-parse", "HEAD")
 		tip := commitPlumbing(t, root, base, "100644", "skills/alpha/SKILL.md", newAlpha, "candidate edit to alpha")
 		git(t, root, "update-ref", "refs/heads/work/"+name, tip)
-		return []work.Result{{
+		return []isolate.WorkerResult{{
 			Name:    name,
 			Base:    base,
 			Head:    tip,
 			Commits: 1,
 			Verdict: "PASS",
-			Handoff: &work.Record{ID: "HANDOFF-2026-11-01-1200-alpha", Kind: "handoff", Title: "tighten alpha skill"},
+			Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1200-alpha", Kind: "handoff", Title: "tighten alpha skill"},
 		}}, nil
 	}
 }
@@ -119,7 +119,8 @@ func gateOpts(home, realHome, root string, out *bytes.Buffer) Options {
 	o.RealHome = realHome
 	o.Repo = root
 	o.Env = &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
-	o.DockerPreflight = func(work.Options) error { return errors.New("no docker") }
+	o.IsolateAvailable = func() error { return nil }
+	o.DockerPreflight = func(isolate.WorkerOptions) error { return errors.New("no docker") }
 	return o
 }
 
@@ -402,12 +403,12 @@ func TestEvalGate(t *testing.T) {
 		root2, _, propID2 := initHarnessEvalGateFixture(t, home2, realHome2, "")
 		var out2 bytes.Buffer
 		o2 := gateOpts(home2, realHome2, root2, &out2)
-		o2.Work = func(_ context.Context, _ work.Options, kickoffs ...string) ([]work.Result, error) {
+		o2.Work = func(_ context.Context, _ isolate.WorkerOptions, kickoffs ...string) ([]isolate.WorkerResult, error) {
 			name := strings.TrimSuffix(filepath.Base(kickoffs[0]), ".md")
 			base := git(t, root2, "rev-parse", "HEAD")
 			tip := commitPlumbing(t, root2, base, "100644", "skills/fyr-auto/SKILL.md", "---\nname: fyr-auto\ndescription: auto\n---\n# denied\n", "touch denied skill")
 			git(t, root2, "update-ref", "refs/heads/work/"+name, tip)
-			return []work.Result{{Name: name, Base: base, Head: tip, Commits: 1, Verdict: "PASS"}}, nil
+			return []isolate.WorkerResult{{Name: name, Base: base, Head: tip, Commits: 1, Verdict: "PASS"}}, nil
 		}
 		if err := Run(o2, false); err != nil {
 			t.Fatalf("Run on rubric-denied candidate: %v\n%s", err, out2.String())

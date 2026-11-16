@@ -12,9 +12,9 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -158,7 +158,7 @@ func (r *run) conversationsSince(root string, since time.Time) []convSource {
 }
 
 func readFileMentionsRoot(path, root string) (string, bool) {
-	f, err := sandbox.OpenRegular(path, os.O_RDONLY)
+	f, err := isolate.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
 		return "", false
 	}
@@ -286,7 +286,7 @@ func (r *run) uneditedScaffoldCount(root string) int {
 	n := 0
 	assetsDir := filepath.Join(r.o.Home, harness.AgyRoot, "skills", "fyr-init-project", "assets")
 	for _, name := range []string{"SDD.md", "TDD.md", "TODO.md"} {
-		f, err := sandbox.OpenRegular(filepath.Join(root, name), os.O_RDONLY)
+		f, err := isolate.OpenRegular(filepath.Join(root, name), os.O_RDONLY)
 		if err != nil {
 			continue
 		}

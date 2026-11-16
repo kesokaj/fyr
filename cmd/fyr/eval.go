@@ -15,8 +15,8 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -31,6 +31,9 @@ var evalSelf = os.Executable
 // evalRun is eval.Run; a test wraps it to land a signal before the first row.
 var evalRun = eval.Run
 
+// evalTestHook lets tests adjust eval.Options (e.g. RunnerIsolate and fake binary paths).
+var evalTestHook func(*eval.Options)
+
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
@@ -39,6 +42,9 @@ func init() {
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
 		c.fs.BoolVar(&c.evalACP, "acp", false, "drive trials via agy acp --stdio --process-per-session")
+		c.fs.StringVar(&c.evalRunner, "runner", fyrisolate.DefaultRunner, "where each trial's session runs: `R` is isolate or docker (default "+fyrisolate.DefaultRunner+")")
+		c.fs.StringVar(&c.evalImage, "image", fyrisolate.DefaultImage, "the docker runner's image `REF`")
+		c.fs.StringVar(&c.evalAgyLinux, "agy-linux", "", "the docker runner's linux agy `PATH` (default: ~/"+fyrisolate.WorkAgyRel+", or host agy on linux)")
 	}, positional: true, readsRepo: true, run: runEval}
 }
 
@@ -126,10 +132,12 @@ func runEval(c *ctx) error {
 
 // evalUsage is the usage errors, exit 2, before any other refusal.
 func evalUsage(c *ctx, names []string) error {
-	runsSet, parallelSet := false, false
+	var runsSet, parallelSet, runnerSet, dockerFlags bool
 	c.fs.Visit(func(f *flag.Flag) {
 		runsSet = runsSet || f.Name == "runs"
 		parallelSet = parallelSet || f.Name == "parallel"
+		runnerSet = runnerSet || f.Name == "runner"
+		dockerFlags = dockerFlags || f.Name == "image" || f.Name == "agy-linux"
 	})
 	switch {
 	case c.evalList && len(names) > 0:
@@ -141,12 +149,28 @@ func evalUsage(c *ctx, names []string) error {
 	case c.evalList && parallelSet:
 		fmt.Fprintln(c.out, "fyr eval: --list takes no --parallel")
 		return exitCode(2)
+	case c.evalList && (runnerSet || dockerFlags):
+		fmt.Fprintln(c.out, "fyr eval: --list takes no runner flags")
+		return exitCode(2)
 	case !c.evalList && len(names) == 0:
 		return usageErr(c.out, "eval", "")
 	case c.evalRuns < 1 || c.evalRuns > eval.MaxRuns:
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --runs %d: want 1 to %d", c.evalRuns, eval.MaxRuns))
 	case c.evalParallel < 1 || c.evalParallel > eval.MaxParallel:
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --parallel %d: want 1 to %d", c.evalParallel, eval.MaxParallel))
+	}
+	return evalRunnerUsage(c, dockerFlags)
+}
+
+func evalRunnerUsage(c *ctx, dockerFlags bool) error {
+	if err := fyrisolate.CheckEvalRunner(c.evalRunner); err != nil {
+		return usageErr(c.out, "eval", "fyr eval: "+err.Error())
+	}
+	if c.evalRunner == fyrisolate.RunnerIsolate && dockerFlags {
+		return c.evalRefuse("--image and --agy-linux need --runner docker")
+	}
+	if c.evalACP && c.evalRunner == fyrisolate.RunnerDocker {
+		return c.evalRefuse("--acp cannot run with --runner docker")
 	}
 	return nil
 }
@@ -205,7 +229,15 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 			return fail(c.evalRefuse("--fixture %s is not a git repository", fixture))
 		}
 	}
-	o := eval.Options{Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir, Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP, Out: c.out, BrainWatch: brain.SnapshotScopes}
+	o := eval.Options{
+		Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir,
+		Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP,
+		Runner: c.evalRunner, Image: c.evalImage, AgyLinux: c.evalAgyLinux,
+		Out: c.out, BrainWatch: brain.SnapshotScopes,
+	}
+	if evalTestHook != nil {
+		evalTestHook(&o)
+	}
 	if err := eval.Preflight(o); err != nil {
 		return fail(c.evalRefuse("%v", err))
 	}
@@ -303,7 +335,7 @@ func ingestRow(home string, r eval.Result) error {
 	// SIGTERM could swap a directory between this check and the ingest
 	// (security review of the fix, round 2). Nor is one the machine could not
 	// write, which read sandbox replaced until PLAN.md item 48.
-	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || sandbox.Compromised(r.Reasons) {
+	if !realDirs(sb, ".gemini", "antigravity-cli", "conversations") || fyrisolate.Compromised(r.Reasons) {
 		return nil
 	}
 	outcome := strings.ToLower(r.Status)

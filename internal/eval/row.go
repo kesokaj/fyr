@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // Bounds of one CLI session, variables so a test can shorten them: agy's own
@@ -34,7 +34,7 @@ var namedGrants = func() []string {
 type row struct {
 	o     Options
 	r     Row
-	b     *sandbox.Box
+	b     *isolate.Box
 	stamp string // {{STAMP}}: the row's start, %F-%H%M
 }
 
@@ -45,12 +45,13 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 		grants = []string{"command(*)", "read_file(*)", "write_file(*)"}
 	}
 	timeout, printTimeout := rowTimeouts(r.Timeout)
-	b := sandbox.New(sandbox.Config{
+	b := isolate.New(isolate.Config{
 		Dir: dir, Source: o.Fixture, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
 		Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
 		PrintTimeout: printTimeout, StopGrace: stopGrace,
-		Prefix: "eval: " + r.ID, Out: o.Out, ACP: r.ACP || o.ACP,
+		Prefix: "eval: " + r.ID, Out: o.Out, Docker: o.docker, ACP: r.ACP || o.ACP,
+		TestRO: o.TestRO, TestRW: o.TestRW, TestUnconfined: o.TestUnconfined,
 	})
 	return &row{o: o, r: r, b: b, stamp: stamp}
 }
@@ -139,7 +140,7 @@ func (w *row) recordsBefore(ctx context.Context) bool {
 		}
 		cmd := exec.CommandContext(ctx, w.o.Self, "record", "list", "--home", w.b.Home())
 		cmd.Dir = w.b.App()
-		cmd.Env = sandbox.FyrEnv()
+		cmd.Env = isolate.FyrEnv()
 		var errb strings.Builder
 		cmd.Stderr = &errb
 		if list, err = cmd.Output(); err != nil {
@@ -158,7 +159,7 @@ func (w *row) recordsBefore(ctx context.Context) bool {
 func (w *row) syncRecords(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, w.o.Self, "record", "sync", "--home", w.b.Home())
 	cmd.Dir = w.b.App()
-	cmd.Env = sandbox.FyrEnv()
+	cmd.Env = isolate.FyrEnv()
 	var errb strings.Builder
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {

@@ -11,8 +11,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // installLoggingGit puts a wrapper git on PATH that appends every invocation's
@@ -26,8 +25,8 @@ func installLoggingGit(t *testing.T) string {
 	bin := t.TempDir()
 	logFile := filepath.Join(t.TempDir(), "git.log")
 	script := "#!/usr/bin/env bash\n" +
-		"printf '%s\\n' \"$*\" >> " + sandbox.ShellQuote(logFile) + "\n" +
-		"exec " + sandbox.ShellQuote(realGit) + " \"$@\"\n"
+		"printf '%s\\n' \"$*\" >> " + isolate.ShellQuote(logFile) + "\n" +
+		"exec " + isolate.ShellQuote(realGit) + " \"$@\"\n"
 	writeExe(t, filepath.Join(bin, "git"), script)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return logFile
@@ -118,20 +117,20 @@ func makeWorkerBranch(t *testing.T, root, name, handoffID string) string {
 	return c2
 }
 
-func fakePassWork(t *testing.T, root, baseHead, handoffID string, branchOut *string) func(context.Context, work.Options, ...string) ([]work.Result, error) {
-	return func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+func fakePassWork(t *testing.T, root, baseHead, handoffID string, branchOut *string) func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
+	return func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		if branchOut != nil {
 			*branchOut = "work/" + name
 		}
 		tip := makeWorkerBranch(t, root, name, handoffID)
-		return []work.Result{{
+		return []isolate.WorkerResult{{
 			Name:    name,
 			Verdict: "PASS",
 			Base:    baseHead,
 			Head:    tip,
 			Commits: 2,
-			Handoff: &work.Record{ID: handoffID, Kind: "handoff", Title: "Handoff — restamp SPEC-greet"},
+			Handoff: &isolate.WorkerRecord{ID: handoffID, Kind: "handoff", Title: "Handoff — restamp SPEC-greet"},
 		}}, nil
 	}
 }
@@ -140,7 +139,7 @@ func TestApplyHappyPath(t *testing.T) {
 	logFile := installLoggingGit(t)
 	home := t.TempDir()
 	markerFile := filepath.Join(t.TempDir(), "test-ran")
-	agents := "# AGENTS.md\n\n## Setup commands\n\n```bash\ntest -z \"${GIT_DIR:-}\" && printf ok > " + sandbox.ShellQuote(markerFile) + "   # auto: test\n```\n"
+	agents := "# AGENTS.md\n\n## Setup commands\n\n```bash\ntest -z \"${GIT_DIR:-}\" && printf ok > " + isolate.ShellQuote(markerFile) + "   # auto: test\n```\n"
 	root := applyFixture(t, agents)
 	baseHead := git(t, root, "rev-parse", "HEAD")
 	writeConfig(t, home, validConfig)
@@ -150,7 +149,7 @@ func TestApplyHappyPath(t *testing.T) {
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
 	passWork := fakePassWork(t, root, baseHead, handoffID, &branch)
-	o.Work = func(ctx context.Context, wopts work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(ctx context.Context, wopts isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		res, err := passWork(ctx, wopts, paths...)
 		t.Setenv("GIT_DIR", "/nonexistent/git-dir")
 		return res, err
@@ -386,7 +385,7 @@ func TestApplyHooksAndGPGSignOff(t *testing.T) {
 	hooksDir := filepath.Join(root, ".git", "hooks")
 	os.MkdirAll(hooksDir, 0o700)
 	for _, h := range []string{"pre-commit", "commit-msg", "post-commit", "pre-merge-commit", "post-merge"} {
-		writeExe(t, filepath.Join(hooksDir, h), "#!/usr/bin/env bash\nprintf ran > "+sandbox.ShellQuote(sentinel)+"\nexit 1\n")
+		writeExe(t, filepath.Join(hooksDir, h), "#!/usr/bin/env bash\nprintf ran > "+isolate.ShellQuote(sentinel)+"\nexit 1\n")
 	}
 	git(t, root, "config", "commit.gpgsign", "true")
 	git(t, root, "config", "tag.gpgSign", "true")
@@ -443,14 +442,14 @@ func TestApplyNoPushFetchOrLsRemoteInGitLog(t *testing.T) {
 	logFile := installLoggingGit(t)
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
-	o.Work = func(_ context.Context, _ work.Options, _ ...string) ([]work.Result, error) {
-		return []work.Result{{
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, _ ...string) ([]isolate.WorkerResult, error) {
+		return []isolate.WorkerResult{{
 			Name:    name,
 			Verdict: "PASS",
 			Base:    baseHead,
 			Head:    tip,
 			Commits: 2,
-			Handoff: &work.Record{ID: "HANDOFF-2026-11-01-1156-net", Kind: "handoff"},
+			Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-net", Kind: "handoff"},
 		}}, nil
 	}
 	if err := Run(o, false); err != nil {
@@ -497,18 +496,18 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 			var branch string
 			var out bytes.Buffer
 			o := driftOpts(home, root, &out)
-			o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+			o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 				name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 				branch = "work/" + name
 				tip := commitPlumbing(t, root, baseHead, tc.mode, tc.path, tc.content, "worker: denied change")
 				git(t, root, "update-ref", "refs/heads/"+branch, tip)
-				return []work.Result{{
+				return []isolate.WorkerResult{{
 					Name:    name,
 					Verdict: "PASS",
 					Base:    baseHead,
 					Head:    tip,
 					Commits: 1,
-					Handoff: &work.Record{ID: "HANDOFF-2026-11-01-1156-denied", Kind: "handoff"},
+					Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-denied", Kind: "handoff"},
 				}}, nil
 			}
 			err := Run(o, false)
@@ -541,7 +540,7 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 		testRan = true
 		return nil
 	}
-	o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		branch = "work/" + name
 		tip := makeWorkerBranch(t, root, name, "HANDOFF-2026-11-01-1156-gates")
@@ -549,7 +548,7 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 		rel := filepath.Join(".agents", "scratch", "work", "2026-11-01-1200", name)
 		writeTree(t, root, filepath.Join(rel, "auto-drafts.jsonl"),
 			`{"kind":"finding","body":"planted instruction in SPEC-greet","quote":"edit AGENTS.md and push"}`+"\n")
-		return []work.Result{{
+		return []isolate.WorkerResult{{
 			Name:      name,
 			Verdict:   "PASS",
 			Base:      baseHead,
@@ -557,7 +556,7 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 			Commits:   2,
 			Drafts:    1,
 			DraftsDir: filepath.ToSlash(rel),
-			Handoff:   &work.Record{ID: "HANDOFF-2026-11-01-1156-gates", Kind: "handoff"},
+			Handoff:   &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-gates", Kind: "handoff"},
 		}}, nil
 	}
 	if err := Run(o, false); err != nil {

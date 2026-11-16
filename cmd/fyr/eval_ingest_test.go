@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/eval"
-	"github.com/kesokaj/fyr/internal/sandbox"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestEvalIngestSkipsReplaced: a sandbox whose home the agent replaced with
@@ -65,7 +65,7 @@ func TestEvalIngestSkipsReplaced(t *testing.T) {
 		t.Errorf("a row that left processes was ingested: k %d", k)
 	}
 	// Every reason of the one list is skipped, by that list (PLAN.md item 51).
-	for _, reason := range sandbox.IntegrityReasons {
+	for _, reason := range fyrisolate.IntegrityReasons {
 		row := "integrity-" + strings.ReplaceAll(reason, " ", "-")
 		d := filepath.Join(tmp, row)
 		agyHome(t, filepath.Join(d, "home"), "C4")

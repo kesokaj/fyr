@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
-	"github.com/kesokaj/fyr/internal/sandbox"
 )
 
 func TestVerbModelsCLI(t *testing.T) {
@@ -184,7 +184,7 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	// Write 6 graded runs per Carbon model into work/*/status.json, ingest into metrics.db,
 	// then delete work/ completely so ONLY metrics.db holds the evidence!
 	now := time.Now().UTC().Truncate(time.Second)
-	waveDir := filepath.Join(sandbox.Root(home, "work"), "2026-11-11-120000-7")
+	waveDir := filepath.Join(fyrisolate.Root(home, "work"), "2026-11-11-120000-7")
 	if err := os.MkdirAll(waveDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	if err := run([]string{"metrics", "ingest", "--home", home}, &ingestOut); err != nil {
 		t.Fatalf("metrics ingest: %v\n%s", err, ingestOut.String())
 	}
-	if err := os.RemoveAll(sandbox.Root(home, "work")); err != nil {
+	if err := os.RemoveAll(fyrisolate.Root(home, "work")); err != nil {
 		t.Fatal(err)
 	}
 

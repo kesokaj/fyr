@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
+	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
@@ -99,7 +101,16 @@ func newEvalRig(t *testing.T, suite string, commit bool) *evalRig {
 	}
 	old := evalSelf
 	evalSelf = func() (string, error) { return self, nil }
-	t.Cleanup(func() { evalSelf = old })
+	oldHook := evalTestHook
+	evalTestHook = func(o *eval.Options) {
+		o.Runner = fyrisolate.RunnerIsolate
+		o.TestRO = append(o.TestRO, bin, r.ctl, r.tpl)
+		o.TestRW = append(o.TestRW, r.rec)
+	}
+	t.Cleanup(func() {
+		evalSelf = old
+		evalTestHook = oldHook
+	})
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", r.real)
 	t.Setenv("FYR_REPO", "")
@@ -557,5 +568,25 @@ func TestEvalBodyLabelsAnUnreadableSource(t *testing.T) {
 	body := evalRecord{root: t.TempDir(), src: harness.Source{Dir: notRepo}, cli: "agy"}.body()
 	if !strings.Contains(body, notRepo+" (dirty: unknown") {
 		t.Errorf("source line not labelled unknown:\n%s", body)
+	}
+}
+
+func TestEvalVerbDefaultRunner(t *testing.T) {
+	c := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
+	verbs["eval"].flags(c)
+	if err := c.fs.Parse([]string{"ok"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if c.evalRunner != fyrisolate.DefaultRunner {
+		t.Errorf("default --runner = %q, want %q", c.evalRunner, fyrisolate.DefaultRunner)
+	}
+	if err := evalUsage(c, c.fs.Args()); err != nil {
+		t.Errorf("evalUsage default: %v", err)
+	}
+	c2 := &ctx{cmd: "eval", fs: flag.NewFlagSet("eval", flag.ContinueOnError), out: &bytes.Buffer{}}
+	verbs["eval"].flags(c2)
+	_ = c2.fs.Parse([]string{"--runner", "auto", "ok"})
+	if err := evalUsage(c2, c2.fs.Args()); err == nil {
+		t.Error("expected evalUsage to reject --runner auto")
 	}
 }

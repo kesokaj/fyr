@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // suiteFileLimit bounds a --suite-file read so an oversized file cannot exhaust memory.
@@ -33,13 +33,13 @@ func ReadSuiteFile(path string) ([]Row, error) {
 	if err != nil {
 		return nil, fmt.Errorf("--suite-file: %v", err)
 	}
-	f, err := sandbox.OpenRegular(abs, os.O_RDONLY)
+	f, err := isolate.OpenRegular(abs, os.O_RDONLY)
 	if err != nil {
 		return nil, fmt.Errorf("--suite-file %s: %v", abs, err)
 	}
 	defer f.Close()
 	dir := filepath.Dir(abs)
-	if err := sandbox.OutsideCheckout(dir); err != nil {
+	if err := isolate.OutsideCheckout(dir); err != nil {
 		return nil, fmt.Errorf("--suite-file %s is inside a git checkout; use a file outside every checkout", abs)
 	}
 	resolvedDir, err := filepath.EvalSymlinks(dir)
@@ -47,7 +47,7 @@ func ReadSuiteFile(path string) ([]Row, error) {
 		return nil, fmt.Errorf("--suite-file %s: %v", abs, err)
 	}
 	if resolvedDir != dir {
-		if err := sandbox.OutsideCheckout(resolvedDir); err != nil {
+		if err := isolate.OutsideCheckout(resolvedDir); err != nil {
 			return nil, fmt.Errorf("--suite-file %s is inside a git checkout; use a file outside every checkout", abs)
 		}
 	}

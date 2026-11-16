@@ -3,11 +3,12 @@ package auto
 import (
 	"bytes"
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestSweepLineKeepsVerdict pins BUG-506: the real docker preflight's
@@ -19,11 +20,11 @@ import (
 func TestSweepLineKeepsVerdict(t *testing.T) {
 	for _, c := range []struct {
 		name, verdict string
-		res           work.Result
+		res           isolate.WorkerResult
 		code          int
 	}{
-		{"fail", "FAIL (no commits)", work.Result{Verdict: "FAIL", Reasons: []string{"no commits"}}, 1},
-		{"pass", "PASS", work.Result{Verdict: "PASS"}, 0},
+		{"fail", "FAIL (no commits)", isolate.WorkerResult{Verdict: "FAIL", Reasons: []string{"no commits"}}, 1},
+		{"pass", "PASS", isolate.WorkerResult{Verdict: "PASS"}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -31,11 +32,15 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 			writeConfig(t, home, validConfig)
 			var out bytes.Buffer
 			o := driftOpts(home, root, &out)
-			// The real preflight: Version "" refuses as a development build
-			// before any docker call or Keychain read.
-			o.DockerPreflight = nil
+			// Deterministic long preflight refusal with isolate.BuildLine so
+			// docker fallback reaches the lineLimit cut without relying on host
+			// Landlock or an Antigravity login token.
+			o.IsolateAvailable = func() error {
+				return errors.New("landlock disabled; build it: " + isolate.BuildLine + " " + strings.Repeat("x", 120))
+			}
+			o.DockerPreflight = func(isolate.WorkerOptions) error { return nil }
 			var branch string
-			o.Work = func(_ context.Context, _ work.Options, paths ...string) ([]work.Result, error) {
+			o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 				name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 				branch = "work/" + name
 				if c.res.Verdict == "PASS" {
@@ -43,7 +48,7 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 				}
 				res := c.res
 				res.Name = name
-				return []work.Result{res}, nil
+				return []isolate.WorkerResult{res}, nil
 			}
 			o.Apply = func(string, string, string) (bool, error) { return false, nil }
 			if err := Run(o, false); exit(err) != c.code {
@@ -51,10 +56,10 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 			}
 			st, _, _ := loadState(home)
 			got := st.Projects[root].Verdict
-			if branch == "" || !strings.HasSuffix(got, "...") || !strings.Contains(got, "runner host (this fyr is a development build") {
-				t.Fatalf("precondition: a worker ran on the host and its line reached the %d-rune cut:\n%s", lineLimit, got)
+			if branch == "" || !strings.HasSuffix(got, "...") || !strings.Contains(got, "runner docker (--runner isolate: landlock disabled") {
+				t.Fatalf("precondition: a worker ran with fallback docker and its line reached the %d-rune cut:\n%s", lineLimit, got)
 			}
-			want := c.verdict + "; branch " + branch + " kept; runner host ("
+			want := c.verdict + "; branch " + branch + " kept; runner docker ("
 			if !strings.Contains(got, want) {
 				t.Errorf("project verdict lost %q:\n%s", want, got)
 			}

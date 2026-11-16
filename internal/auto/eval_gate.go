@@ -10,8 +10,8 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/work"
 )
 
 const (
@@ -152,7 +152,7 @@ func matchProposalTargets(rec brain.Record, targets []harnessTarget) []string {
 	return byWord
 }
 
-func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result) (string, []Finding) {
+func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if snapErr != nil || (res.Base != "" && res.Base != snapBefore.head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
@@ -234,7 +234,7 @@ func collectGateRows(home, root, holdoutPath string, changed []string) ([]gateRo
 	return rows, nil
 }
 
-func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result, candSHA string, rows []gateRow) (string, []Finding) {
+func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, candSHA string, rows []gateRow) (string, []Finding) {
 	runsBefore := max(0, r.st.modelRunsToday(r.o.now())-1)
 	var findings []Finding
 	var scores []gateRowScore
@@ -291,7 +291,7 @@ func rowKeepError(gr gateRow, parent, cand EvalOutcome) string {
 	return ""
 }
 
-func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res work.Result, scores []gateRowScore, sessions int, gateFindings []Finding) (string, []Finding) {
+func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, scores []gateRowScore, sessions int, gateFindings []Finding) (string, []Finding) {
 	v, af := r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	if r.appliedSHA == "" {
 		propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, v)

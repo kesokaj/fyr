@@ -12,8 +12,8 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
-	"github.com/kesokaj/fyr/internal/sandbox"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -203,7 +203,7 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 	argv = append(argv, req.Row)
 	cmd := exec.CommandContext(ctx, self, argv...)
 	cmd.Dir = cloneDir
-	for _, kv := range sandbox.WithoutGit(os.Environ()) {
+	for _, kv := range isolate.WithoutGit(os.Environ()) {
 		if !strings.HasPrefix(kv, "FYR_REPO=") {
 			cmd.Env = append(cmd.Env, kv)
 		}

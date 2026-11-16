@@ -1,0 +1,286 @@
+package isolate
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
+const (
+	RunnerIsolate = "isolate"
+	RunnerDocker  = "docker"
+	RunnerAuto    = "auto"
+
+	// DefaultRunner is OS-native isolation (Landlock on Linux, Seatbelt on macOS).
+	DefaultRunner = RunnerIsolate
+
+	// IsolateInitEnv enables MaybeRunInit inside the child process before exec.
+	IsolateInitEnv = "FYR_ISOLATE_INIT"
+)
+
+// Policy describes filesystem paths and process launch parameters enforced
+// by the platform sandbox before executing an unattended CLI child.
+type Policy struct {
+	Argv    []string `json:"argv"`
+	Dir     string   `json:"dir"`
+	Env     []string `json:"env"`
+	RWPaths []string `json:"rw_paths,omitempty"`
+	ROPaths []string `json:"ro_paths,omitempty"`
+	Network bool     `json:"network,omitempty"`
+}
+
+// CheckEvalRunner validates --runner for `fyr eval` (`isolate`, `docker`, or empty).
+func CheckEvalRunner(r string) error {
+	switch r {
+	case "", RunnerIsolate, RunnerDocker:
+		return nil
+	default:
+		return fmt.Errorf("--runner %q: want isolate or docker", r)
+	}
+}
+
+// ResolveEvalRunner resolves an eval runner flag and fails closed if OS isolation
+// is unavailable when `isolate` is selected.
+func ResolveEvalRunner(r string) (string, error) {
+	if err := CheckEvalRunner(r); err != nil {
+		return "", err
+	}
+	if r == "" {
+		r = DefaultRunner
+	}
+	if r == RunnerIsolate {
+		if err := CheckAvailable(); err != nil {
+			return "", fmt.Errorf("--runner isolate: %w", err)
+		}
+	}
+	return r, nil
+}
+
+// CheckRunner validates --runner for workers (`auto`, `isolate`, or `docker`).
+func CheckRunner(r string) error {
+	switch r {
+	case RunnerAuto, RunnerIsolate, RunnerDocker:
+		return nil
+	default:
+		return fmt.Errorf("--runner %q: want auto, isolate, or docker", r)
+	}
+}
+
+// CheckAvailable reports whether the current OS supports fail-closed sandbox confinement.
+func CheckAvailable() error {
+	return checkOSAvailable()
+}
+
+// ChooseRunner resolves a worker runner choice fail-closed without falling back
+// to an unconfined host process (PRD R8, R10).
+func ChooseRunner(requested string, isolateAvail func() error, dockerPreflight func() error) (runner, why string, err error) {
+	if isolateAvail == nil {
+		isolateAvail = CheckAvailable
+	}
+	if requested == "" {
+		requested = DefaultRunner
+	}
+	switch requested {
+	case RunnerIsolate:
+		return chooseIsolateRunner(isolateAvail)
+	case RunnerDocker:
+		return chooseDockerRunner(dockerPreflight)
+	case RunnerAuto:
+		isoFn := func() (string, string, error) { return chooseIsolateRunner(isolateAvail) }
+		dockFn := func() (string, string, error) { return chooseDockerRunner(dockerPreflight) }
+		if DefaultRunner == RunnerDocker {
+			return chooseAutoOrder(dockFn, isoFn)
+		}
+		return chooseAutoOrder(isoFn, dockFn)
+	default:
+		return "", "", fmt.Errorf("--runner %q: want auto, isolate, or docker", requested)
+	}
+}
+
+func chooseIsolateRunner(isolateAvail func() error) (string, string, error) {
+	if err := isolateAvail(); err != nil {
+		s := strings.TrimSpace(err.Error())
+		if s == "" || strings.HasPrefix(s, "--runner isolate:") {
+			return "", "", err
+		}
+		return "", "", fmt.Errorf("--runner isolate: %w", err)
+	}
+	return RunnerIsolate, RunnerIsolate, nil
+}
+
+func chooseAutoOrder(first, second func() (string, string, error)) (string, string, error) {
+	firstR, firstW, firstErr := first()
+	if firstErr == nil {
+		return firstR, firstW, nil
+	}
+	secondR, _, secondErr := second()
+	if secondErr == nil {
+		return secondR, secondR + " (" + trimErrReason(firstErr, "primary runner unavailable") + ")", nil
+	}
+	return "", "", fmt.Errorf("no isolated runner available: %v; %v", firstErr, secondErr)
+}
+
+func chooseDockerRunner(preflight func() error) (string, string, error) {
+	if preflight == nil {
+		return "", "", errors.New("--runner docker: preflight not configured")
+	}
+	if err := preflight(); err != nil {
+		return "", "", err
+	}
+	return RunnerDocker, RunnerDocker, nil
+}
+
+func trimErrReason(err error, fallback string) string {
+	s := strings.TrimSpace(err.Error())
+	if s == "" {
+		return fallback
+	}
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
+
+var systemROCandidates = []string{
+	"/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt",
+	"/proc", "/sys", "/run/systemd/resolve",
+	"/var/lib/ca-certificates", "/var/cache/ldconfig",
+	"/System", "/Library", "/Applications", "/private/etc", "/private/var/db", "/private/var/select",
+}
+
+var safeCharDevs = []string{
+	"/dev/null", "/dev/zero", "/dev/full", "/dev/random", "/dev/urandom", "/dev/tty", "/dev/ptmx",
+}
+
+func (b *Box) isolated() bool {
+	return b.c.Docker == nil && !b.c.TestUnconfined
+}
+
+func (b *Box) policyFor(bin string, args []string) Policy {
+	rw := []string{b.app, b.sb, filepath.Join(b.dir, "tmp")}
+	for _, dev := range safeCharDevs {
+		if _, err := os.Stat(dev); err == nil {
+			rw = append(rw, dev)
+		}
+	}
+	rw = appendUniqueClean(rw, b.c.TestRW...)
+
+	var ro []string
+	ro = addPathPair(ro, bin)
+	ro = appendExistingPaths(ro, []string{b.tok})
+	ro = appendExistingPaths(ro, systemROCandidates)
+	if gr := runtime.GOROOT(); gr != "" {
+		ro = appendExistingPaths(ro, []string{gr})
+	}
+	ro = appendSafePATHDirs(ro, b.c.RealHome)
+	ro = appendUniqueClean(ro, b.c.TestRO...)
+
+	return Policy{
+		Argv:    append([]string{bin}, args...),
+		Dir:     b.app,
+		Env:     b.agyEnv(),
+		RWPaths: rw,
+		ROPaths: ro,
+		Network: true,
+	}
+}
+
+func addPathPair(dst []string, p string) []string {
+	if p == "" {
+		return dst
+	}
+	dst = appendUniqueClean(dst, p)
+	if r, err := filepath.EvalSymlinks(p); err == nil && r != p {
+		dst = appendUniqueClean(dst, r)
+	}
+	return dst
+}
+
+func appendExistingPaths(dst, candidates []string) []string {
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			dst = addPathPair(dst, c)
+		}
+	}
+	return dst
+}
+
+func appendSafePATHDirs(dst []string, realHome string) []string {
+	tmpRoot := filepath.Clean(os.TempDir())
+	resTmp, _ := resolve(tmpRoot)
+	var resHome string
+	if realHome != "" {
+		resHome, _ = resolve(realHome)
+	}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		resAbs, err := resolve(abs)
+		if err != nil || isExcludedPATHDir(abs, resAbs, tmpRoot, resTmp, realHome, resHome) {
+			continue
+		}
+		if st, err := os.Stat(resAbs); err == nil && st.IsDir() {
+			dst = addPathPair(dst, resAbs)
+		}
+	}
+	return dst
+}
+
+func isExcludedPATHDir(abs, resAbs, tmpRoot, resTmp, realHome, resHome string) bool {
+	if tmpRoot != "" && within(abs, tmpRoot) {
+		return true
+	}
+	if resTmp != "" && within(resAbs, resTmp) {
+		return true
+	}
+	if realHome != "" && within(abs, filepath.Clean(realHome)) {
+		return true
+	}
+	return resHome != "" && within(resAbs, resHome)
+}
+
+func appendUniqueClean(dst []string, paths ...string) []string {
+	seen := make(map[string]bool, len(dst)+len(paths))
+	for _, p := range dst {
+		seen[p] = true
+	}
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		clean := filepath.Clean(p)
+		if !seen[clean] {
+			seen[clean] = true
+			dst = append(dst, clean)
+		}
+	}
+	return dst
+}
+
+func (b *Box) buildAgentCmd(bin string, args []string) (*exec.Cmd, func(), error) {
+	if !b.isolated() {
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = b.app
+		cmd.Env = b.agyEnv()
+		return cmd, func() {}, nil
+	}
+	if !filepath.IsAbs(bin) {
+		resolved, err := exec.LookPath(bin)
+		if err != nil {
+			return nil, nil, fmt.Errorf("isolate binary %s: %w", bin, err)
+		}
+		abs, err := filepath.Abs(resolved)
+		if err != nil {
+			return nil, nil, fmt.Errorf("isolate binary %s: %w", bin, err)
+		}
+		bin = abs
+	}
+	return prepareIsolatedCmd(b.policyFor(bin, args))
+}

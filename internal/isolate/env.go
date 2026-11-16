@@ -1,0 +1,73 @@
+package isolate
+
+import (
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+)
+
+// FyrEnv is the caller's environment for the sandbox's fyr calls, minus
+// what would choose another harness or repository (D16).
+func FyrEnv() []string {
+	var out []string
+	for _, kv := range WithoutGit(os.Environ()) {
+		if k, _, _ := strings.Cut(kv, "="); k != "FYR_REPO" && k != "FYR_CHILD" {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// DockerEnv is FyrEnv for a docker client that runs fyr work's image,
+// minus DOCKER_DEFAULT_PLATFORM: the CLI makes it run's --platform, and
+// the daemon refuses a local image of another platform, while the image
+// is built for the daemon's own (--platform, ADR-504a).
+func DockerEnv() []string {
+	var out []string
+	for _, kv := range FyrEnv() {
+		if k, _, _ := strings.Cut(kv, "="); k != "DOCKER_DEFAULT_PLATFORM" {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+// agyEnv is the allowlist of run.sh:220-222 (the eval plan's D27), with
+// the git identity of Config, plus TZ when Config.Zone names one (workers
+// D144); for eval, which sets no Zone, it is exactly the allowlist.
+func (b *Box) agyEnv() []string {
+	name := ""
+	if u, err := user.Current(); err == nil {
+		name = u.Username
+	}
+	env := []string{
+		"PATH=" + filepath.Join(b.sb, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"TERM=" + envOr("TERM", "dumb"),
+		"LANG=" + envOr("LANG", "C.UTF-8"),
+		"USER=" + envOr("USER", name),
+		"LOGNAME=" + envOr("LOGNAME", name),
+		"SHELL=/bin/bash",
+		// Read by this box's credential broker, outside this repository: off,
+		// so a session behaves here as the kit did (D27).
+		"STYRMAN_SKIP_CRED_PULL=1",
+		"HOME=" + b.sb,
+		"TMPDIR=" + filepath.Join(b.dir, "tmp"),
+		"GIT_AUTHOR_NAME=" + b.c.GitName, "GIT_AUTHOR_EMAIL=" + b.c.GitEmail,
+		"GIT_COMMITTER_NAME=" + b.c.GitName, "GIT_COMMITTER_EMAIL=" + b.c.GitEmail,
+	}
+	if b.c.Zone != "" {
+		env = append(env, "TZ="+b.c.Zone)
+	}
+	return env
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+// ShellQuote is s as one single-quoted bash word.
+func ShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

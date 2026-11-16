@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
-	"github.com/kesokaj/fyr/internal/sandbox"
-	"github.com/kesokaj/fyr/internal/work"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // ExitError is a verb's exit status with the text it prints on stdout, as
@@ -43,10 +42,15 @@ type Options struct {
 	Self      string
 	Repo      string
 	Version   string
-	// Work runs one Kickoff file as a worker; nil is work.Run.
-	Work func(context.Context, work.Options, ...string) ([]work.Result, error)
-	// DockerPreflight checks whether work's docker mode can run; nil is work.DockerPreflight.
-	DockerPreflight func(work.Options) error
+	// Work runs one Kickoff file as a worker; nil is isolate.RunWorker.
+	Work func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error)
+	// IsolateAvailable checks host OS sandbox availability; nil is isolate.CheckAvailable.
+	IsolateAvailable func() error
+	// DockerPreflight checks whether work's docker mode can run; nil is isolate.DockerPreflight.
+	DockerPreflight func(isolate.WorkerOptions) error
+	// TestRO, TestRW and TestUnconfined let tests expose stub paths to Landlock.
+	TestRO, TestRW []string
+	TestUnconfined bool
 	// Apply squashes an applied class's PASS branch onto the checkout (Phase 4); nil runs the apply step.
 	Apply func(root, branch, class string) (bool, error)
 	// TestRunner runs one `# auto: test` command in the apply worktree; nil runs runMarkedTest.
@@ -70,15 +74,15 @@ func (o Options) testRunner() func(wtDir, runner, cmdLine string) error {
 }
 
 func runMarkedTest(wtDir, runner, cmdLine string, timeout time.Duration) error {
-	if runner != work.RunnerDocker {
+	if runner != isolate.RunnerDocker {
 		return runShellTest(wtDir, cmdLine, timeout)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none",
-		"--user", uid, "-v", wtDir+":/work:rw", "-w", "/work", "fyr-work:local", "bash", "-c", cmdLine)
-	cmd.Env = sandbox.DockerEnv()
+		"--user", uid, "-v", wtDir+":/work:rw", "-w", "/work", isolate.DefaultImage, "bash", "-c", cmdLine)
+	cmd.Env = isolate.DockerEnv()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
 	}
@@ -90,7 +94,7 @@ func runShellTest(wtDir, cmdLine string, timeout time.Duration) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "-c", cmdLine)
 	cmd.Dir = wtDir
-	cmd.Env = append(sandbox.WithoutGit(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
+	cmd.Env = append(isolate.WithoutGit(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
 	}
@@ -112,11 +116,11 @@ func (o Options) self() string {
 	return exe
 }
 
-func (o Options) workRun() func(context.Context, work.Options, ...string) ([]work.Result, error) {
+func (o Options) workRun() func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
 	if o.Work != nil {
 		return o.Work
 	}
-	return work.Run
+	return isolate.RunWorker
 }
 
 func (o Options) limit(d time.Duration) time.Duration {

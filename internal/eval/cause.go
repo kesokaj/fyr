@@ -62,7 +62,7 @@ func firstOf(table []struct{ reason, cause string }, reasons []string) (string, 
 // then timeout when agy was killed (an exhausted budget is graded: the
 // check still decides PASS or FAIL), then agent, then check. A reason none
 // of these names is a FAIL with cause check, the graded direction;
-// TestClassifyEveryReason pins that every reason eval and internal/sandbox
+// TestClassifyEveryReason pins that every reason eval and internal/isolate
 // give is named.
 func classify(reasons []string, timedOut bool) (status, cause string) {
 	if len(reasons) == 0 {

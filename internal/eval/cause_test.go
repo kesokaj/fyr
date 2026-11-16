@@ -3,7 +3,7 @@ package eval
 import (
 	"testing"
 
-	"github.com/kesokaj/fyr/internal/sandbox"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestClassify: the status and cause of a trial from its reasons, and the
@@ -52,9 +52,9 @@ func TestClassifyEveryReason(t *testing.T) {
 	}
 	// The sandbox's own constants, named here so a new one shows up as a
 	// missing key rather than a silent default.
-	for _, r := range []string{sandbox.ReasonExists, sandbox.ReasonClone, sandbox.ReasonSetup, sandbox.ReasonInstall, sandbox.ReasonSettings,
-		sandbox.ReasonToken, sandbox.ReasonDenied, sandbox.ReasonInvalid, sandbox.ReasonProcs, sandbox.ReasonRealConfig,
-		sandbox.ReasonCredentials, sandbox.ReasonReplaced, sandbox.ReasonWrite} {
+	for _, r := range []string{isolate.ReasonExists, isolate.ReasonClone, isolate.ReasonSetup, isolate.ReasonInstall, isolate.ReasonSettings,
+		isolate.ReasonToken, isolate.ReasonDenied, isolate.ReasonInvalid, isolate.ReasonProcs, isolate.ReasonRealConfig,
+		isolate.ReasonCredentials, isolate.ReasonReplaced, isolate.ReasonWrite} {
 		if _, ok := want[r]; !ok {
 			t.Errorf("sandbox reason %q has no cause here", r)
 		}
