@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -201,11 +202,51 @@ func MaybeRunInit() {
 			os.Exit(126)
 		}
 	}
-	env := cleanIsolateEnv(pol.Env)
-	if err := syscall.Exec(pol.Argv[0], pol.Argv, env); err != nil {
+	os.Exit(runInitChild(pol))
+}
+
+// runInitChild spawns the sandboxed command as PID 2 while PID 1 stays alive as
+// the CLONE_NEWPID init process so child workers never observe PPID == 1 (BUG-549).
+func runInitChild(pol Policy) int {
+	cmd := exec.Command(pol.Argv[0], pol.Argv[1:]...)
+	cmd.Env = cleanIsolateEnv(pol.Env)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	sigCh := make(chan os.Signal, 8)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
+	if err := cmd.Start(); err != nil {
+		signal.Stop(sigCh)
 		fmt.Fprintf(os.Stderr, "fyr isolate exec %s: %v\n", pol.Argv[0], err)
-		os.Exit(127)
+		return 127
 	}
+	_ = os.Stdin.Close()
+	_ = os.Stdout.Close()
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case s := <-sigCh:
+				_ = cmd.Process.Signal(s)
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := cmd.Wait()
+	signal.Stop(sigCh)
+	close(done)
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return 128 + int(ws.Signal())
+		}
+		return ee.ExitCode()
+	}
+	return 1
 }
 
 func mountIsolatedFS() error {
