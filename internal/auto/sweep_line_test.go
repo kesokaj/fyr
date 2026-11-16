@@ -37,14 +37,24 @@ func TestRunMarkedTestShellSanitizesGitEnv(t *testing.T) {
 	rec := filepath.Join(bin, "env.txt")
 	t.Setenv("GIT_DIR", "/tmp/bad-git-dir")
 	t.Setenv("GIT_WORK_TREE", "/tmp/bad-work-tree")
-	if err := runMarkedTest(bin, "isolate", "env > '"+rec+"'", 5*time.Second); err != nil {
+	t.Setenv("ANTIGRAVITY_SOURCE_METADATA", `{"commandLine":"GIT_DIR=/nonexistent GIT_WORK_TREE=/x go test"}`)
+	if err := runMarkedTest(bin, "isolate", "env -0 > '"+rec+"'", 5*time.Second); err != nil {
 		t.Fatalf("runMarkedTest: %v", err)
 	}
 	b, err := os.ReadFile(rec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "GIT_DIR=") || strings.Contains(string(b), "GIT_WORK_TREE=") {
-		t.Errorf("runMarkedTest leaked GIT_* env to shell:\n%s", b)
+	sawMetadata := false
+	for _, entry := range strings.Split(string(b), "\x00") {
+		if strings.HasPrefix(entry, "GIT_DIR=") || strings.HasPrefix(entry, "GIT_WORK_TREE=") {
+			t.Errorf("runMarkedTest leaked GIT_* env to shell: %s", entry)
+		}
+		if strings.HasPrefix(entry, "ANTIGRAVITY_SOURCE_METADATA=") {
+			sawMetadata = true
+		}
+	}
+	if !sawMetadata {
+		t.Errorf("expected ANTIGRAVITY_SOURCE_METADATA to stay preserved in env:\n%s", b)
 	}
 }
