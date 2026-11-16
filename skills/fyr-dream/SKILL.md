@@ -19,29 +19,29 @@ Sessions save memory one record per fact through `fyr memory add` (the `fyr-proj
 
 ## Step 1: The memory
 
-The project's memory is its `memory` records in `fyr`'s brain store, in the scope of the main worktree's root, so every worktree shares it (`fyr memory show` lists them, one line each; `fyr record get MEMORY-<name>` prints one in full; R10, brain plan D14). Count it: `n` = the lines `fyr memory show` prints (a last `(… N more …)` line adds its N; `fyr record list --kind memory` lists every one, retired ones too, with their status).
+The project's memory is its `memory` records in `fyr`'s brain store, in the scope of the main worktree's root (plus shared cross-project `--global` cards), so every worktree shares it (`fyr memory show --include-low` and `fyr memory show --global --include-low` list both active cards and cards whose validity fell `< 0.40`; `fyr record get MEMORY-<name>` prints one in full; R10, brain plan D14). Count it: `n` = the lines `fyr memory show --include-low` prints (a last `(… N more …)` line adds its N; `fyr record list --kind memory` lists every one, retired ones too, with their status).
 
-The first line of the reply is always `memory: <root> (<n> memories)`. When `n` is 0, the reply adds `no memory for <repo>` and the run ends with nothing written.
+The first line of the reply is always `memory: <root> (<n> memories)`. When `n` is 0 (and `--global` holds nothing to review), the reply adds `no memory for <repo>` and the run ends with nothing written.
 
 ## Step 2: Orientation
 
-Read every memory in full (`fyr record get MEMORY-<name>`; its body's first line is `type: <user|feedback|project|reference>`). Then read, for the checks below: the project's `AGENTS.md` and `<project>/.agents/rules/`, the global context (`~/.gemini/config/rules/AGENTS.md`) and the global rule files (the other `~/.gemini/config/rules/*.md`), the skills and agents the project and the harness install, the `bug` and `adr` records (`fyr record list --kind bug`, `--kind adr`), the newest `handoff` record and the three newest `change` records, and this project's global `feedback` records (`fyr record list --global --kind feedback --project <root>`). A record or file you cannot read is noted, and the checks that needed it resolve to `keep` (Step 3).
+Read every project memory and relevant `--global` `semantic`/`procedural` memory in full (`fyr record get MEMORY-<name>`; its body's first line is `type: <semantic|procedural|episodic>` or legacy `user|feedback|project|reference`, and its header carries `validity`, `provenance`, `evidence_count`, and `verified_at`). Flag cards with validity `< 0.40` for review (checking whether file-anchor staleness, newer `FEEDBACK-*` contradictions, or age decay explains the drop). Then read, for the checks below: the project's `AGENTS.md` and `<project>/.agents/rules/`, the global context (`~/.gemini/config/rules/AGENTS.md`) and the global rule files (the other `~/.gemini/config/rules/*.md`), the skills and agents the project and the harness install, the `bug` and `adr` records (`fyr record list --kind bug`, `--kind adr`), the newest `handoff` record and the three newest `change` records, and this project's global `feedback` records (`fyr record list --global --kind feedback --project <root>`). A record or file you cannot read is noted, and the checks that needed it resolve to `keep` (Step 3).
 
 ## Step 3: One verdict per memory
 
-Every memory gets exactly one verdict, with a one-line why that cites `file:line` or a record ID where a rule or record says so.
+Every memory (including low-validity `< 0.40` cards and reviewed `--global` `semantic`/`procedural` cards) gets exactly one verdict, with a one-line why that cites `file:line` or a record ID where a rule or record says so.
 
 | Verdict | Test | Edit |
 |---|---|---|
-| `keep` | Still true; recorded nowhere the session already loads. | none |
+| `keep` | Still true (if validity `< 0.40` only from age decay and still valid, refresh via `fyr memory add` under its name to reset `verified_at`); recorded nowhere the session already loads. | none (or refresh) |
 | `graduated` | Its rule now lives in the global context or a global rule file, the project `AGENTS.md`, `<project>/.agents/rules/`, a skill, or a bug's prevention rule — found by one `grep` over the memory's key words and one `fyr search` over them for other wording, each hit read in full. | retire it |
-| `stale` | A `project` memory whose work the newest handoff or a `change` record shows done; a `reference` whose target is gone. | retire it |
-| `broken` | Names a file, function, flag or command that no longer exists (`ls`, `grep`); or carries a relative date ("last week", "next month"). | rewrite it to the current name and an absolute date (`fyr memory add` under its name), or retire it when nothing current matches |
-| `merge` | Two or more memories on one fact. | rewrite the one with the older name to hold the fact (the newer `updated` wins a contradiction), retire the others |
+| `stale` | A `semantic` or `episodic` memory whose work the newest handoff or a `change` record shows done; a reference whose target is gone; or a `< 0.40`-validity card contradicted by newer `FEEDBACK-*` records or superseded. | retire it |
+| `broken` | Names a file, function, flag or command that no longer exists (`ls`, `grep`) — dropping validity `< 0.40`; or carries a relative date ("last week", "next month"). | rewrite it to the current name and an absolute date (`fyr memory add` under its name), or retire it when nothing current matches |
+| `merge` | Two or more memories on one fact (project or `--global`). | rewrite the one with the older name to hold the fact (the newer `updated` wins a contradiction), retire the others |
 
 Retiring is `fyr record edit MEMORY-<name> --status retired` (brain plan D28): records are never deleted, `fyr memory show` no longer lists it, and saving that name again brings it back.
 
-`promote` is a flag on a memory that survives as `keep` or as a merge result: its type is `feedback` or `user`, no rule records it, and its fact reached the memory from two sessions — the merged memories each count as one session, or a `feedback` record from another session names the same rule (same `rule_ref`, or the memory's key words in the record's text). A promoted memory stays; it becomes a `/fyr-retro` finding with `rule_ref null`. Dream writes no rule.
+`promote` is a flag on a memory that survives as `keep` or as a merge result: its type is `procedural` or `semantic` (legacy `feedback` or `user`), no rule records it, and its fact reached the memory from two sessions — the merged memories each count as one session, or a `feedback` record from another session names the same rule (same `rule_ref`, or the memory's key words in the record's text). A promoted memory stays; it becomes a `/fyr-retro` finding with `rule_ref null`. Dream writes no rule.
 
 Doubt resolves to `keep`. A memory is retired only when the check that says so ran and returned: a grep target that could not be read, a record that is missing, a claim you could not verify — each is `keep`, with the why naming what could not run.
 

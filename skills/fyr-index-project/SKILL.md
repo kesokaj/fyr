@@ -44,14 +44,10 @@ fyr search --map
 
 ### Step 5: Optional cross-project `--global` search registration
 
-If the user wants cross-project `--global` search (`fyr index --register`) and `fyr record list --limit 1` is empty, seed one 1-call `project` overview memory via `fyr memory add <<'EOF'` (which satisfies `HasScopeRecords` in `brain.db`) and run `fyr index --register`:
+If the user wants cross-project `--global` search (`fyr index --register`) and `fyr record list --limit 1` is empty, seed one 1-call `semantic` overview memory via `fyr memory add --type semantic` (which satisfies `HasScopeRecords` in `brain.db`) and run `fyr index --register`:
 
 ```bash
-fyr memory add <<'EOF'
-Type: project
-Name: project-overview
-Description: one-line summary of what this repository contains
-
+fyr memory add --type semantic --name project-overview --description "one-line summary of what this repository contains" <<'EOF'
 Indexed with /fyr-index-project (MVP zero-scaffold mode).
 EOF
 fyr index --register

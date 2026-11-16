@@ -392,7 +392,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 	for _, good := range []string{
 		"ls -d ~/.gemini/config/skills/fyr-init-project/assets .agents/skills/fyr-init-project/assets 2>/dev/null | head -1",
 		"find cmd internal -type f | sort",
-		"fyr memory add --type feedback --name no-db-mocks --description \"d\" --body-file .agents/scratch/m.md",
+		"fyr memory add --type procedural --name no-db-mocks --description \"d\" --body-file .agents/scratch/m.md",
 	} {
 		if got := namedShellProblem(good, baseAllowed); got != "" {
 			t.Errorf("namedShellProblem refused granted script (%s):\n%s", got, good)

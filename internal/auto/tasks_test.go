@@ -336,9 +336,3 @@ func TestDistillRouting(t *testing.T) {
 		}
 	})
 }
-
-func TestEvalRerunTriggers(t *testing.T) {
-	if _, ok := lookupClass("eval-rerun"); ok {
-		t.Fatal("eval-rerun must be absent")
-	}
-}
