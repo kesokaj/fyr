@@ -29,7 +29,7 @@ func TestUnitNamesPerHome(t *testing.T) {
 	}
 	write(t, filepath.Join(other, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 	calls := fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(other, "/p", "linux"); err != nil {
+	if err := installTimer(other, "/p", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	if got := callsOf(t, calls); got != "--user daemon-reload\n--user enable --now "+unit+".timer\n" {
@@ -48,7 +48,7 @@ func TestUnitNamesPerHome(t *testing.T) {
 	}
 	// macOS: the label and the plist path carry the same suffix, and bootout names that path.
 	mcalls := fakeManager(t, "launchctl", 0)
-	if err := InstallTimer(other, "/p", "darwin"); err != nil {
+	if err := installTimer(other, "/p", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	pl := read(t, macPlistPath(other))

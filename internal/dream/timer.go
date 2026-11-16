@@ -1,10 +1,11 @@
 package dream
 
-// The hourly timers: R3's first exception runs `fyr dream --all` from an OS
-// user timer that `--install-timer` installs and `--remove-timer` or
-// `uninstall` removes (R4); its second, `fyr auto run`, has its own unit
-// through the same code (Timer). A timer is not in the install manifest: the
-// next `install` would delete a listed unit as stale (plan D12).
+// The hourly timer: R3's single background runner `fyr auto run` runs through
+// Timer, which `fyr auto on` installs and `fyr auto off` or `uninstall` removes
+// (R4, ADR-522). The former standalone dream timer (`fyr-dream` / `com.fyr.dream`)
+// is retained here only to detect and remove legacy units on upgrade/uninstall.
+// A timer is not in the install manifest: the next `install` would delete a
+// listed unit as stale (plan D12).
 
 import (
 	"context"
@@ -46,7 +47,8 @@ type Timer struct {
 	StrictStop       bool     // systemd: a failed stop call is an error, after the files go
 }
 
-// dreamTimer is R3's first exception.
+// dreamTimer is the legacy standalone dream timer, kept only for unit naming,
+// detection, and cleanup via RemoveTimer / TimerInstalledHere / TimerInstalled.
 var dreamTimer = Timer{
 	Unit:             unitName,
 	Plist:            plistName,
@@ -54,9 +56,9 @@ var dreamTimer = Timer{
 	Description:      "fyr dream: the hourly background dreamer, while an agy session runs (R3)",
 	TimerDescription: "Run fyr dream hourly",
 	Timeout:          "2h",
-	InstallVerb:      "fyr dream --install-timer",
-	RemoveVerb:       "fyr dream --remove-timer",
-	RemoveHint:       "fyr dream --remove-timer",
+	InstallVerb:      "fyr auto on",
+	RemoveVerb:       "fyr auto off",
+	RemoveHint:       "fyr auto off",
 }
 
 // userHomeDir is the real home; a test seam, since the tests' homes are

@@ -158,8 +158,8 @@ func TestDreamVerb(t *testing.T) {
 	// Usage refusals exit 2 and say why on the writer the caller gave, not
 	// on a stream the caller cannot read (audit of 2026-09-30, IN12, IN13).
 	out.Reset()
-	if err := run([]string{"dream", "--install-timer", "--remove-timer", "--home", home}, &out); !errors.As(err, &code) || code != 2 {
-		t.Errorf("both timer flags: %v, want exit 2", err)
+	if err := run([]string{"dream", "--all", "--project", ".", "--home", home}, &out); !errors.As(err, &code) || code != 2 {
+		t.Errorf("conflicting scope flags: %v, want exit 2", err)
 	}
 	if !strings.Contains(out.String(), "not both") {
 		t.Errorf("the refusal is not on the writer: %q", out.String())
@@ -207,8 +207,8 @@ func TestUninstallDryRunLeavesTheTimer(t *testing.T) {
 	}
 }
 
-// TestDreamTimerDryRun: --dry-run with --install-timer or --remove-timer
-// writes no unit and calls no service manager.
+// TestDreamTimerDryRun: --dry-run on `auto on`, `auto off`, and bare `auto`
+// writes no unit or config and calls no service manager.
 func TestDreamTimerDryRun(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
@@ -220,18 +220,25 @@ func TestDreamTimerDryRun(t *testing.T) {
 	// With no binary to point the unit at, the dry run refuses as the real
 	// run does (SD26 of the 2026-10-27 audit, plan D17).
 	var refused bytes.Buffer
-	err := run([]string{"dream", "--install-timer", "--dry-run", "--home", home}, &refused)
+	err := run([]string{"auto", "on", "--dry-run", "--home", home}, &refused)
 	var code exitCode
 	if !errors.As(err, &code) || code != 2 || !strings.Contains(refused.String(), "no binary at") {
-		t.Errorf("--install-timer --dry-run with no binary: %v, %q; want exit 2 naming the binary", err, refused.String())
+		t.Errorf("auto on --dry-run with no binary: %v, %q; want exit 2 naming the binary", err, refused.String())
 	}
 	binPath := filepath.Join(home, ".local", "bin", "fyr")
 	os.MkdirAll(filepath.Dir(binPath), 0o755)
 	os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755)
-	for _, flag := range []string{"--install-timer", "--remove-timer"} {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"auto", "on", "--dry-run", "--home", home}, "[dry-run] would"},
+		{[]string{"auto", "--dry-run", "--home", home}, "G1 switch:"},
+		{[]string{"auto", "off", "--dry-run", "--home", home}, "auto: already off"},
+	} {
 		var out bytes.Buffer
-		if err := run([]string{"dream", flag, "--dry-run", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "[dry-run] would") {
-			t.Errorf("%s --dry-run: %v, %q", flag, err, out.String())
+		if err := run(tc.args, &out); err != nil || !strings.Contains(out.String(), tc.want) {
+			t.Errorf("%v: %v, %q; want %q", tc.args, err, out.String(), tc.want)
 		}
 	}
 	if entries, _ := os.ReadDir(home); len(entries) != 1 || entries[0].Name() != ".local" {
@@ -240,37 +247,43 @@ func TestDreamTimerDryRun(t *testing.T) {
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
 		t.Error("a dry run called the service manager")
 	}
-}
 
-// TestDreamTimerTakesNoScope: the timer flags with --all or --project are a
-// usage error, not silently ignored (SD33 of the 2026-10-27 audit, D18), and
-// so are --all with --project.
-func TestDreamTimerTakesNoScope(t *testing.T) {
-	home := t.TempDir()
-	for _, args := range [][]string{
-		{"--install-timer", "--all"},
-		{"--remove-timer", "--project", "."},
-		{"--install-timer", "--dry-run", "--all"},
-	} {
-		var out bytes.Buffer
-		err := run(append(append([]string{"dream"}, args...), "--home", home), &out)
-		var code exitCode
-		if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "take no --all or --project") {
-			t.Errorf("%v: %v, %q; want exit 2", args, err, out.String())
+	legacyHome := t.TempDir()
+	files := timerFilesFor(t, legacyHome)
+	var out bytes.Buffer
+	if err := run([]string{"auto", "off", "--dry-run", "--home", legacyHome}, &out); err != nil || !strings.Contains(out.String(), "[dry-run] would") {
+		t.Errorf("auto off --dry-run with legacy timer: %v, %q", err, out.String())
+	}
+	for _, f := range files {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("auto off --dry-run removed %s: %v", f, err)
 		}
 	}
+	if _, err := os.Stat(calls); !os.IsNotExist(err) {
+		t.Error("a dry run called the service manager")
+	}
+}
+
+// TestDreamScopeUsage: conflicting --all and --project, or bare dream, exit 2.
+func TestDreamScopeUsage(t *testing.T) {
+	home := t.TempDir()
 	var out bytes.Buffer
 	err := run([]string{"dream", "--all", "--project", ".", "--dry-run", "--home", home}, &out)
 	var code exitCode
 	if !errors.As(err, &code) || code != 2 || !strings.Contains(out.String(), "not both") {
 		t.Errorf("--all with --project: %v, %q; want exit 2", err, out.String())
 	}
+	out.Reset()
+	err = run([]string{"dream", "--home", home}, &out)
+	if !errors.As(err, &code) || code != 2 {
+		t.Errorf("bare dream: %v, %q; want exit 2", err, out.String())
+	}
 }
 
-// TestDreamTimerSaysWhatItFound: --remove-timer says when it found nothing,
-// and never claims a removal then (the v2.1.0 gate's L1); with a unit there,
-// --remove-timer and uninstall each say they removed it.
-func TestDreamTimerSaysWhatItFound(t *testing.T) {
+// TestAutoOffAndUninstallRemoveTimers: `auto off` says when nothing is
+// installed without calling the service manager; with a legacy dream unit
+// on disk, `auto off` and `uninstall` each remove it.
+func TestAutoOffAndUninstallRemoveTimers(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "calls")
@@ -279,22 +292,22 @@ func TestDreamTimerSaysWhatItFound(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var out bytes.Buffer
-	if err := run([]string{"dream", "--remove-timer", "--home", home}, &out); err != nil {
-		t.Fatalf("--remove-timer with nothing installed: %v", err)
+	if err := run([]string{"auto", "off", "--home", home}, &out); err != nil {
+		t.Fatalf("auto off with nothing installed: %v", err)
 	}
-	if got := out.String(); !strings.Contains(got, "no dream timer found for "+home+" on this system") || strings.Contains(got, "dream timer removed") {
+	if got := out.String(); !strings.Contains(got, "auto: already off") {
 		t.Errorf("nothing installed: %q", got)
 	}
 	if _, err := os.Stat(calls); !os.IsNotExist(err) {
 		data, _ := os.ReadFile(calls)
 		t.Errorf("the service manager was called with nothing installed:\n%s", data)
 	}
-	// With this home's unit on disk, each verb says it removed it, and did.
+	// With this home's legacy dream unit on disk, each verb removes it.
 	for _, c := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{"dream", "--remove-timer", "--home", home}, "dream timer removed\n"},
+		{[]string{"auto", "off", "--home", home}, "auto off\n"},
 		{[]string{"uninstall", "--home", home}, "removed the dream timer\n"},
 	} {
 		files := timerFilesFor(t, home)
@@ -351,8 +364,8 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 	for _, args := range [][]string{
 		{"uninstall", "--home", home},
 		{"uninstall", "--dry-run", "--home", home},
-		{"dream", "--remove-timer", "--home", home},
-		{"dream", "--remove-timer", "--dry-run", "--home", home},
+		{"auto", "off", "--home", home},
+		{"auto", "off", "--dry-run", "--home", home},
 	} {
 		var out bytes.Buffer
 		if err := run(args, &out); err != nil {
@@ -362,15 +375,12 @@ func TestTimerOfAnotherSystemIsNamed(t *testing.T) {
 		if !strings.Contains(got, other) || !strings.Contains(got, "for another system") {
 			t.Errorf("%v does not name the other system's unit file:\n%s", args, got)
 		}
-		// uninstall has nothing of this system to remove here, so its dry run
-		// must not announce a removal either.
-		if args[0] == "dream" && strings.Contains(got, "installed now: true") {
-			t.Errorf("%v says a timer of this system is installed:\n%s", args, got)
-		}
-		if args[0] == "uninstall" && strings.Contains(got, "would remove the dream timer") {
+		// Nothing of this system exists here, so dry run and real removal
+		// must not announce or perform a removal.
+		if strings.Contains(got, "would remove the dream timer") {
 			t.Errorf("%v announces a removal it would not make:\n%s", args, got)
 		}
-		if strings.Contains(got, "removed the dream timer") || strings.Contains(got, "dream timer removed") {
+		if strings.Contains(got, "removed the dream timer") || strings.Contains(got, "auto off\n") {
 			t.Errorf("%v claims a removal:\n%s", args, got)
 		}
 		if _, err := os.Stat(other); err != nil {

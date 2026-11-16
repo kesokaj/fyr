@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -16,14 +17,14 @@ func runVersion(c *ctx) error {
 }
 
 func runUninstall(c *ctx) error {
-	// The dream timer is not in the manifest (the next install would delete
-	// it as stale); uninstall removes it by R4's dream clause, also when no
-	// manifest is left, and a dry run only says so.
+	// Any legacy dream timer is not in the manifest; uninstall removes it,
+	// also when no manifest is left, and a dry run only says so.
+	var timerErr error
 	if dream.TimerInstalledHere(c.home, runtime.GOOS) {
 		if c.dryRun {
 			fmt.Fprintln(c.out, "[dry-run] would remove the dream timer")
 		} else if removed, err := dream.RemoveTimer(c.home, runtime.GOOS); err != nil {
-			return err
+			timerErr = errors.Join(timerErr, err)
 		} else if removed {
 			// Said only when a unit was removed; the guard above already
 			// counts this system's units alone.
@@ -32,24 +33,20 @@ func runUninstall(c *ctx) error {
 	}
 	// Auto's timer goes the same way; auto.json and auto/ stay, as metrics.db
 	// does (R4).
-	var timerErr error
 	if auto.TimerInstalledHere(c.home, runtime.GOOS) {
 		if c.dryRun {
 			fmt.Fprintln(c.out, "[dry-run] would remove the auto timer")
 		} else if removed, err := auto.RemoveTimer(c.home, runtime.GOOS); err != nil {
 			// Its files may be gone with the manager's stop failed; the rest
 			// of the uninstall still runs, and the exit status says so.
-			timerErr = err
+			timerErr = errors.Join(timerErr, err)
 		} else if removed {
 			fmt.Fprintln(c.out, "removed the auto timer")
 		}
 	}
 	err := harness.Uninstall(c.home, c.dryRun, c.out)
 	otherSystemTimerNote(c)
-	if err == nil {
-		err = timerErr
-	}
-	return err
+	return errors.Join(err, timerErr)
 }
 
 // otherSystemTimerNote names unit files of the operating system this binary

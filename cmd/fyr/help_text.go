@@ -42,7 +42,7 @@ Records and search
   index        reconcile the search index; --register opts in
 
 Background and measurement
-  dream        the hourly dreamer and its timer
+  dream        consolidate project memory and trail into proposals
   auto         idle-time runs: on, off, status, run
   metrics      session shapes: ingest, show, report, evals, trajectory, export
   report       project or global usage report (HTML or --md)
@@ -105,8 +105,8 @@ var pages = map[string]verbPage{
 		synopsis: []string{"usage: fyr status [--json]"},
 		about: []string{
 			"Prints what is installed, from which commit, the binary's build, the",
-			"drift against the harness, the dream timer, auto, and a note when another fyr",
-			"comes first on PATH; --json prints it as JSON. Exit 1 on drift.",
+			"drift against the harness, dream status, auto, and a note when another",
+			"fyr comes first on PATH; --json prints it as JSON. Exit 1 on drift.",
 		},
 	},
 	"diff": {
@@ -116,9 +116,10 @@ var pages = map[string]verbPage{
 	"uninstall": {
 		synopsis: []string{"usage: fyr uninstall [--dry-run]"},
 		about: []string{
-			"Removes exactly the files install wrote, and the dream timer and the",
-			"auto timer when installed; nothing else. The metrics store, eval's",
-			"sandboxes, auto.json and auto/ stay. --dry-run names what would go.",
+			"Removes exactly the files install wrote, and the auto timer or any",
+			"legacy dream timer when installed; nothing else. The metrics store,",
+			"eval's sandboxes, auto.json and auto/ stay. --dry-run names what",
+			"would go.",
 		},
 	},
 	"list": {
@@ -224,30 +225,29 @@ var pages = map[string]verbPage{
 	},
 	"auto": {
 		synopsis: []string{
-			"usage: fyr auto on [--level L] [--project-idle D] [--user-idle D]",
-			"       fyr auto off",
+			"usage: fyr auto on [--level L] [--project-idle D] [--user-idle D] [--dry-run]",
+			"       fyr auto off [--dry-run]",
 			"       fyr auto status",
 			"       fyr auto run [--dry-run]",
+			"       fyr auto --dry-run",
 		},
 		about: []string{
 			"An hourly run the operator switches: it does nothing unless on writes",
-			"~/.config/fyr/auto.json. on installs its timer, and a flag not given",
-			"keeps its value only while auto is on. off needs no lock, replaces a",
-			"corrupt config, removes the timer, and exits 1 only when either failed.",
-			"status prints the switch, the level, the last run and the day's model",
-			"runs. run reads its gates, runs the free checks on each idle, clean",
-			"project, logs to ~/.config/fyr/auto/auto.log and files a global review",
-			"record when the findings changed; it spends no model and changes no",
-			"project. --dry-run prints each gate's verdict and writes nothing.",
-			"uninstall removes the timer and leaves auto.json and auto/.",
+			"~/.config/fyr/auto.json. on installs the single hourly timer and retires",
+			"any legacy dream timer; omitted flags keep values only while auto is on.",
+			"off replaces corrupt config and removes the timer (--dry-run previews",
+			"either). status prints the switch, level, last run, dream and budget.",
+			"run ingests metrics, dreams (plan mode, no tool granted) when idle, and",
+			"runs free checks on clean idle projects to ~/.config/fyr/auto/auto.log",
+			"and a global review record when findings change. --dry-run previews each",
+			"gate without ingesting, dreaming or writing. uninstall removes the",
+			"timer and leaves auto.json and auto/.",
 		},
 	},
 	"dream": {
 		synopsis: []string{
 			"usage: fyr dream --all [--dry-run]",
 			"       fyr dream --project DIR [--dry-run]",
-			"       fyr dream --install-timer [--dry-run]",
-			"       fyr dream --remove-timer [--dry-run]",
 		},
 		about: []string{
 			"The background dreamer. It ingests every session into the metrics store,",
@@ -257,9 +257,9 @@ var pages = map[string]verbPage{
 			"summary and its conversations, redacted, to agy granting no tool, and stores",
 			"each proposal as a global queued proposal record. --all needs an agy",
 			"session of this user, logs every other project as skipped and tries one",
-			"once in 24 hours; --project needs no registration. --install-timer runs",
-			"dream --all hourly with this shell's PATH (uninstall removes it). --dry-run",
-			"writes nothing of fyr's but asks agy's permission reports, as a run does.",
+			"once in 24 hours; --project needs no registration. Hourly scheduling now",
+			"runs through fyr auto (on/off). --dry-run writes nothing of fyr's but",
+			"asks agy's permission reports, as a run does.",
 		},
 	},
 	"metrics": {

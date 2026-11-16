@@ -11,7 +11,7 @@ import (
 func TestInstallTimerLinux(t *testing.T) {
 	home := timerHome(t)
 	calls := fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(home, "/p:/q", "linux"); err != nil {
+	if err := installTimer(home, "/p:/q", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	unitDir := filepath.Join(home, ".config", "systemd", "user")
@@ -26,14 +26,14 @@ func TestInstallTimerLinux(t *testing.T) {
 		t.Error("TimerInstalled = false after install")
 	}
 	// Identical files: a rerun is fine.
-	if err := InstallTimer(home, "/p:/q", "linux"); err != nil {
+	if err := installTimer(home, "/p:/q", "linux"); err != nil {
 		t.Errorf("identical rerun: %v", err)
 	}
 	// Another PATH renders other text: the file on disk is kept and named.
 	os.Remove(calls)
-	err := InstallTimer(home, "/other", "linux")
+	err := installTimer(home, "/other", "linux")
 	var ee *ExitError
-	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "fyr-dream.service") || !strings.Contains(ee.Msg, "--remove-timer") {
+	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "fyr-dream.service") || !strings.Contains(ee.Msg, "fyr auto off") {
 		t.Errorf("a differing unit: %v", err)
 	}
 	if callsOf(t, calls) != "" {
@@ -48,13 +48,13 @@ func TestInstallTimerRefusals(t *testing.T) {
 	var ee *ExitError
 	// No binary at BinPath.
 	fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(t.TempDir(), "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "fyr") {
+	if err := installTimer(t.TempDir(), "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "fyr") {
 		t.Errorf("no binary: %v", err)
 	}
 	// No systemctl on PATH.
 	home := timerHome(t)
 	t.Setenv("PATH", t.TempDir())
-	if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "systemctl") {
+	if err := installTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "systemctl") {
 		t.Errorf("no systemctl: %v", err)
 	}
 	if TimerInstalled(home) {
@@ -63,11 +63,11 @@ func TestInstallTimerRefusals(t *testing.T) {
 	// systemctl fails: the files stay and are named.
 	home = timerHome(t)
 	fakeManager(t, "systemctl", 1)
-	if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "left in place") {
+	if err := installTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "left in place") {
 		t.Errorf("failing systemctl: %v", err)
 	}
 	// An OS with no user timer.
-	if err := InstallTimer(timerHome(t), "/p", "windows"); err == nil {
+	if err := installTimer(timerHome(t), "/p", "windows"); err == nil {
 		t.Error("installed on an unsupported OS")
 	}
 }
@@ -81,7 +81,7 @@ func TestRemoveTimerLinux(t *testing.T) {
 	if callsOf(t, calls) != "" {
 		t.Error("systemctl ran with no unit installed")
 	}
-	if err := InstallTimer(home, "/p", "linux"); err != nil {
+	if err := installTimer(home, "/p", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(calls)
@@ -99,7 +99,7 @@ func TestRemoveTimerLinux(t *testing.T) {
 func TestTimerMacOS(t *testing.T) {
 	home := timerHome(t)
 	calls := fakeManager(t, "launchctl", 0)
-	if err := InstallTimer(home, "/p", "darwin"); err != nil {
+	if err := installTimer(home, "/p", "darwin"); err != nil {
 		t.Fatal(err)
 	}
 	plist := macPlistPath(home)
@@ -126,7 +126,7 @@ func TestInstallTimerRefusesUnsafePaths(t *testing.T) {
 	var ee *ExitError
 	for _, path := range []string{"/p\"\nExecStartPre=/bin/evil", "/p\\x", "/p\r"} {
 		home := timerHome(t)
-		if err := InstallTimer(home, path, "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
+		if err := installTimer(home, path, "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
 			t.Errorf("PATH %q: %v", path, err)
 		}
 	}
@@ -152,13 +152,13 @@ func TestInstallTimerRefusesEveryControlCharacter(t *testing.T) {
 	for name, c := range map[string]string{"quote": `"`, "backslash": `\`, "newline": "\n", "carriage return": "\r",
 		"tab": "\t", "start of heading": "\x01", "escape": "\x1b", "delete": "\x7f", "next line (U+0085)": "\u0085"} {
 		home := timerHome(t)
-		if err := InstallTimer(home, "/p"+c+"q", "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
+		if err := installTimer(home, "/p"+c+"q", "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
 			t.Errorf("PATH with a %s: %v", name, err)
 		}
 		// The home is in the binary's path and in --home.
 		home = filepath.Join(t.TempDir(), "h"+c+"o")
 		write(t, filepath.Join(home, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
-		if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
+		if err := installTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 || TimerInstalled(home) {
 			t.Errorf("home with a %s: %v", name, err)
 		}
 	}
@@ -175,7 +175,7 @@ func TestInstallTimerChecksTheHomeItself(t *testing.T) {
 	write(t, filepath.Join(base, ".local", "bin", "fyr"), "#!/bin/sh\n", fresh)
 	home := base + string(filepath.Separator) + `"x` + string(filepath.Separator) + ".."
 	var ee *ExitError
-	if err := InstallTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 {
+	if err := installTimer(home, "/p", "linux"); !errors.As(err, &ee) || ee.Code != 2 {
 		t.Errorf("a home holding a quote that Join cleans away: %v", err)
 	}
 }
@@ -187,7 +187,7 @@ func TestInstallTimerChecksTheHomeItself(t *testing.T) {
 func TestInstallTimerKeepsOnlyAbsolutePath(t *testing.T) {
 	home := timerHome(t)
 	fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(home, "/a/bin::.:node_modules/.bin:/b", "linux"); err != nil {
+	if err := installTimer(home, "/a/bin::.:node_modules/.bin:/b", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	service := read(t, filepath.Join(home, ".config", "systemd", "user", "fyr-dream.service"))
@@ -202,7 +202,7 @@ func TestInstallTimerKeepsOnlyAbsolutePath(t *testing.T) {
 func TestInstallTimerOlderUnitNamed(t *testing.T) {
 	home := timerHome(t)
 	fakeManager(t, "systemctl", 0)
-	if err := InstallTimer(home, "/p", "linux"); err != nil {
+	if err := installTimer(home, "/p", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(home, ".config", "systemd", "user", "fyr-dream.service")
@@ -210,9 +210,9 @@ func TestInstallTimerOlderUnitNamed(t *testing.T) {
 	if err := os.WriteFile(path, []byte(older), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := InstallTimer(home, "/p", "linux")
+	err := installTimer(home, "/p", "linux")
 	var ee *ExitError
-	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "an older fyr") || !strings.Contains(ee.Msg, "--remove-timer") {
+	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "an older fyr") || !strings.Contains(ee.Msg, "fyr auto off") {
 		t.Errorf("an older unit: %v", err)
 	}
 	if read(t, path) != older {
@@ -221,7 +221,7 @@ func TestInstallTimerOlderUnitNamed(t *testing.T) {
 	if _, err := RemoveTimer(home, "linux"); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallTimer(home, "/p", "linux"); err != nil || !strings.Contains(read(t, path), "TimeoutStartSec=2h") {
+	if err := installTimer(home, "/p", "linux"); err != nil || !strings.Contains(read(t, path), "TimeoutStartSec=2h") {
 		t.Errorf("reinstall: %v\n%s", err, read(t, path))
 	}
 }

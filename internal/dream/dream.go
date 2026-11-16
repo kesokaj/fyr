@@ -29,14 +29,15 @@ const maxPrompt = 256 * 1024
 
 // Options is one run.
 type Options struct {
-	Home     string // fyr's home (--home); the child CLI keeps the real environment
-	All      bool
-	Project  string // --project <dir>
-	DryRun   bool
-	Out      io.Writer
-	Now      func() time.Time
-	Projects func(home string) ([]search.Project, error) // search.ListProjects; a test replaces it
-	Scopes   func(home string) ([]string, error)         // brain.Scopes: projects whose trail is records; a test replaces it
+	Home       string // fyr's home (--home); the child CLI keeps the real environment
+	All        bool
+	Project    string // --project <dir>
+	DryRun     bool
+	SkipIngest bool // true when caller (fyr auto) already ingested metrics first
+	Out        io.Writer
+	Now        func() time.Time
+	Projects   func(home string) ([]search.Project, error) // search.ListProjects; a test replaces it
+	Scopes     func(home string) ([]string, error)         // brain.Scopes: projects whose trail is records; a test replaces it
 	// Active says why a project is in use and is not dreamt over yet, ""
 	// when it has been idle for idleFor (D22); nil is the real check
 	// (activity), a test replaces it.
@@ -248,18 +249,15 @@ func (e *ExitError) Error() string { return e.Msg }
 
 // StatusLine is `fyr status`'s dream line.
 func StatusLine(home string) string {
-	timer := "timer not installed"
-	switch {
-	case timerStale(home, runtime.GOOS):
+	timer := "merged into fyr auto"
+	if TimerInstalled(home) {
 		// Named with --home under a home that is not the real one: the bare
 		// commands act on the home they default to (BUG-149's class).
 		flag := ""
 		if unit, _ := UnitFor(home); unit != unitName {
 			flag = " --home " + shellQuote(home)
 		}
-		timer = "timer installed, older schedule: fyr dream --remove-timer" + flag + ", then fyr dream --install-timer" + flag
-	case TimerInstalled(home):
-		timer = "timer installed"
+		timer = "legacy dream timer installed: run fyr auto on" + flag + " or fyr auto off" + flag
 	}
 	st, err := readState(home)
 	if err != nil {

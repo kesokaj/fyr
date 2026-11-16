@@ -50,13 +50,18 @@ func (o Options) realRun() error {
 	}
 	removeCopies(conf, o.Now())
 	prune(filepath.Join(conf, "dream-failed"), r.t0)
-	o.ingestFirst(r.logf)
+	if !o.SkipIngest {
+		o.ingestFirst(r.logf)
+	}
 	projects, skips, err := o.targets()
 	if err != nil {
 		return r.fail(err.Error())
 	}
 	for _, s := range skips {
 		r.logf(s.root + " skip " + s.why)
+	}
+	if o.SkipIngest && len(projects) == 0 {
+		return r.result(0)
 	}
 	if err := r.prepareAgy(); err != nil {
 		return r.fail(err.Error())

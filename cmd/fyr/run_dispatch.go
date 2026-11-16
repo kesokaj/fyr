@@ -178,9 +178,8 @@ func (c *ctx) updateFromZipFlag() (zip bool, err error) {
 // record: every record verb but a dry-run import answers true, get and list
 // included, because a read loads a changed trail.jsonl. The table is
 // by verb, so it errs early on purpose: adopt (which writes into the repo), a
-// project-local search or index (which writes .agents/scratch/search.db) and
-// dream --install-timer or --remove-timer write nothing there, yet migrate
-// too. Moving the old directory early is harmless — one rename, refused for
+// project-local search or index (which writes .agents/scratch/search.db)
+// writes nothing there, yet migrates too. Moving the old directory early is harmless — one rename, refused for
 // a symlink, and both directories present are left alone — and a verb that
 // starts writing there later needs no change here (IN18).
 func (c *ctx) writesState() bool {
@@ -206,9 +205,9 @@ func (c *ctx) writesState() bool {
 		// Its sandboxes and work/; --kill, --check and bare config read.
 		return c.workKill == "" && !c.check && (c.fs.Arg(0) != "config" || c.workConfigVisited())
 	case "auto":
-		// status and a dry run read; the rest write auto.json or auto/.
+		// status and any --dry-run read; on, off and real run write auto.json or auto/.
 		sub := c.fs.Arg(0)
-		return sub == "on" || sub == "off" || (sub == "run" && !c.dryRun)
+		return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
 	case "models":
 		return c.modelsRefresh || !models.CatalogExists(c.home)
 	}

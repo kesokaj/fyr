@@ -50,7 +50,7 @@ func callsOf(t *testing.T, path string) string {
 func TestRemoveTimerSaysWhatItRemoved(t *testing.T) {
 	fakeManager(t, "systemctl", 0)
 	home := timerHome(t)
-	if err := InstallTimer(home, "/usr/bin:/bin", "linux"); err != nil {
+	if err := installTimer(home, "/usr/bin:/bin", "linux"); err != nil {
 		t.Fatal(err)
 	}
 	if removed, err := RemoveTimer(home, "linux"); err != nil || !removed {

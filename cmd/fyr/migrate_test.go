@@ -50,7 +50,7 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"search", "--global", "anything"},
 		{"memory", "add", "--type", "user", "--name", "x", "--description", "y"},
 		{"metrics", "ingest"},
-		{"dream", "--remove-timer"},
+		{"auto", "off"},
 		{"update", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip},
 		// Its sandboxes go under the state directory, whatever it refuses.
@@ -72,7 +72,7 @@ func TestStateDirMigrationByVerb(t *testing.T) {
 		{"update", "--check", "--repo", plainCopy(t)},
 		{"update", "--dry-run", "--repo", plainCopy(t)},
 		{"update", "--from-zip", zip, "--dry-run"},
-		{"dream", "--remove-timer", "--dry-run"},
+		{"auto", "off", "--dry-run"},
 		{"work", "--kill", "2026-10-29-170000-42"},
 		// A record dry run says it writes nothing (IN33 of the 2026-10-27 audit).
 		{"record", "import", "--dry-run"},

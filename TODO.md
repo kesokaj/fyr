@@ -7,14 +7,13 @@
 
 ## Now
 
-### Phase 6a — One background runner (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
-files: `internal/auto/`, `internal/dream/`, `cmd/fyr/verb_dream.go`, `cmd/fyr/verb_uninstall.go`
-- [ ] Merge the dream timer into `fyr auto` (one timer). Keep metrics ingest first and the dream's plan-mode, no-tool run — verify: `TestRunIngestsMetricsFirst`, `TestDreamTimerDryRun` (or its renamed successor), and the uninstall timer tests
-- [ ] Checkpoint — evidence: `fyr auto --dry-run --home .agents/scratch/p6a`, and backup row counts equal live row counts
+### Phase 6b — Deletion (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
+files: `internal/work/`, `internal/sandbox/`, `cmd/fyr/verb_work*`, `docker/`, `embed.go`, `internal/auto/rubric.go`, `skills/fyr-work/`, `skills/fyr-auto/`, `PRD.md` enforced-by lists (pre-approved in Phase 0)
+- [ ] Confirm nothing imports the packages anymore (safety rule 3), then delete them. Remove `all:docker` from `embed.go`. Update `rubric.go` `deniedRoots` and `TestRubricMatchesSkill` — verify: `go build ./... && go test -race ./...`, `TestEmbedHoldsOnlyTrackedFiles`, `fyr check`
+- [ ] Checkpoint — evidence: `git diff --stat` shows deletions only in the listed paths
 
 ## Next
 
-- Phase 6b — Deletion (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 - Phase 7 — Release `v9.0.0` (`PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`)
 
 ## Backlog

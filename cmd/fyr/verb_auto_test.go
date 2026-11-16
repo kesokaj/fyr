@@ -63,8 +63,7 @@ func TestAutoVerbUsage(t *testing.T) {
 		"two":               {"auto", "on", "off"},
 		"level on off":      {"auto", "off", "--level", "project"},
 		"level on run":      {"auto", "run", "--level", "project"},
-		"dry-run on on":     {"auto", "on", "--dry-run"},
-		"dry-run on off":    {"auto", "off", "--dry-run"},
+		"level on bare dry": {"auto", "--dry-run", "--level", "project"},
 		"dry-run on status": {"auto", "status", "--dry-run"},
 		"bad level":         {"auto", "on", "--level", "god"},
 		"empty level":       {"auto", "on", "--level", ""},
@@ -210,7 +209,8 @@ func TestStatusAutoLine(t *testing.T) {
 	}
 }
 
-// A failed stop of the timer stops nothing else, and the exit status says so.
+// A failed stop of auto's timer or a legacy dream timer stops nothing else,
+// and the exit status says so.
 func TestUninstallGoesOnWhenTheAutoTimerFails(t *testing.T) {
 	home, _ := autoHome(t)
 	var out bytes.Buffer
@@ -220,6 +220,7 @@ func TestUninstallGoesOnWhenTheAutoTimerFails(t *testing.T) {
 	if err := run([]string{"auto", "on", "--home", home}, &out); err != nil {
 		t.Fatal(err)
 	}
+	timerFilesFor(t, home)
 	bin := t.TempDir()
 	for _, m := range []string{"systemctl", "launchctl"} {
 		os.WriteFile(filepath.Join(bin, m), []byte("#!/bin/sh\nexit 1\n"), 0o755)
@@ -232,5 +233,30 @@ func TestUninstallGoesOnWhenTheAutoTimerFails(t *testing.T) {
 	}
 	if _, serr := os.Stat(filepath.Join(home, harness.BinPath)); !os.IsNotExist(serr) {
 		t.Error("the rest of the uninstall did not run")
+	}
+}
+
+func TestUninstallJoinsTimerAndHarnessErrors(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("StrictStop timer failure applies on linux")
+	}
+	home, _ := autoHome(t)
+	var out bytes.Buffer
+	if err := run([]string{"install", "--home", home}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"auto", "on", "--home", home}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, harness.StateDir, "state.json"), []byte("{bad"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "systemctl"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out.Reset()
+	err := run([]string{"uninstall", "--home", home}, &out)
+	if err == nil || !strings.Contains(err.Error(), "systemctl") {
+		t.Fatalf("uninstall err = %v, want joined error naming both systemctl and state.json", err)
 	}
 }

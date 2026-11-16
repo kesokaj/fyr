@@ -2,9 +2,10 @@ package auto
 
 import "github.com/kesokaj/fyr/internal/dream"
 
-// unit is R3's second exception's timer, apart from the dream's: its own unit
-// name, its own manager calls, and a lower priority than an operator's work
-// (D14). launchd has no start timeout, so the 3 h limit holds on Linux only.
+// unit is R3's single background timer: its own unit name, its own manager
+// calls, and a lower priority than an operator's work (D14). Each hourly
+// fyr auto run ingests metrics, runs plan-mode dream, and sweeps idle repos.
+// launchd has no start timeout, so the 3 h limit holds on Linux only.
 var unit = dream.Timer{
 	Unit:             "fyr-auto",
 	Plist:            "com.fyr.auto",

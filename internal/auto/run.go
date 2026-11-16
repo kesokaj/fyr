@@ -39,6 +39,8 @@ func Run(o Options, dryRun bool) error {
 			return &ExitError{Code: 1}
 		}
 		say("G2 lock: not taken in a dry run")
+		say("metrics: not ingested in a dry run")
+		say("dream: not run in a dry run")
 		r := &run{o: o, env: o.env(), cfg: c, dry: true, say: say, st: st}
 		r.sweep()
 		say("budget: not read in a dry run")
@@ -74,6 +76,18 @@ func (o Options) locked(c Config, now time.Time, say func(string)) error {
 	if today := now.Format("2006-01-02"); st.Date < today {
 		st.Date, st.ModelRuns = today, 0
 	}
+	c, runSweep, preFailed := o.runPreSweep(c, say)
+	if !runSweep {
+		o.prune(now)
+		if preFailed {
+			return &ExitError{Code: 1}
+		}
+		return nil
+	}
+	return o.finishSweep(c, st, now, say, preFailed)
+}
+
+func (o Options) finishSweep(c Config, st State, now time.Time, say func(string), preFailed bool) error {
 	r := &run{o: o, env: o.env(), cfg: c, say: say, st: st}
 	r.sweep()
 	r.st.LastRun, r.st.Verdict = now, r.verdict
@@ -81,10 +95,52 @@ func (o Options) locked(c Config, now time.Time, say func(string)) error {
 		say("auto: state: " + err.Error())
 		return &ExitError{Code: 1}
 	}
+	o.prune(now)
+	if err := r.exit(); err != nil {
+		return err
+	}
+	if preFailed {
+		return &ExitError{Code: 1}
+	}
+	return nil
+}
+
+func (o Options) prune(now time.Time) {
 	if err := pruneLog(o.Home, now); err != nil {
 		fmt.Fprintln(o.Out, "auto: log: "+oneLine(err.Error()))
 	}
-	return r.exit()
+}
+
+func (o Options) runPreSweep(c Config, say func(string)) (Config, bool, bool) {
+	failed := false
+	if o.Ingest != nil {
+		line, err := o.Ingest()
+		if line != "" {
+			say(line)
+		}
+		if err != nil {
+			say("metrics ingest failed: " + oneLine(err.Error()))
+		}
+	}
+	if o.Dream != nil {
+		if err := o.Dream(); err != nil {
+			say("dream: " + oneLine(err.Error()))
+			failed = true
+		}
+	}
+	if o.Ingest != nil || o.Dream != nil {
+		c2, found, err := Load(o.Home)
+		if err != nil {
+			say(configLine(err))
+			return c, false, true
+		}
+		if !found || !c2.Enabled {
+			say("G1 switch: off, stopped before the sweep")
+			return c, false, failed
+		}
+		c = c2
+	}
+	return c, true, failed
 }
 
 // run is one pass over the machine and its projects.

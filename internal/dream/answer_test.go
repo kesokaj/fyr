@@ -86,21 +86,23 @@ func TestProjectNameIsFolded(t *testing.T) {
 
 func TestStatusLine(t *testing.T) {
 	home := t.TempDir()
-	if got := StatusLine(home); got != "never run; timer not installed" {
+	if got := StatusLine(home); got != "never run; merged into fyr auto" {
 		t.Errorf("fresh: %q", got)
 	}
 	st := state{Projects: map[string]time.Time{}, LastRun: lastRun{At: now, Projects: 2, Proposals: 3}}
 	b, _ := json.Marshal(st)
 	write(t, statePath(home), string(b), fresh)
-	if got := StatusLine(home); got != "last run 2026-09-30: 2 projects, 3 proposals; timer not installed" {
+	if got := StatusLine(home); got != "last run 2026-09-30: 2 projects, 3 proposals; merged into fyr auto" {
 		t.Errorf("ok: %q", got)
 	}
 	st.LastRun.Error = "no agy on PATH"
 	b, _ = json.Marshal(st)
 	write(t, statePath(home), string(b), fresh)
-	installed(t, home, runtime.GOOS) // today's render: an older one is TestStatusLineOlderSchedule's
-	if got := StatusLine(home); got != "last run 2026-09-30 failed: no agy on PATH; timer installed" {
-		t.Errorf("failed: %q", got)
+	installed(t, home, runtime.GOOS)
+	q := shellQuote(home)
+	want := "last run 2026-09-30 failed: no agy on PATH; legacy dream timer installed: run fyr auto on --home " + q + " or fyr auto off --home " + q
+	if got := StatusLine(home); got != want {
+		t.Errorf("failed: %q\nwant: %q", got, want)
 	}
 }
 

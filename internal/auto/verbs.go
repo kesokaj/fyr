@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/isolate"
 )
 
@@ -29,11 +30,14 @@ func (e *ExitError) Error() string { return e.Msg }
 type Options struct {
 	Home       string
 	Out        io.Writer
+	DryRun     bool
 	Now        func() time.Time
 	GOOS       string
 	Path       string
 	Env        Env
 	Vocabulary check.Vocabulary
+	Ingest     func() (string, error)
+	Dream      func() error
 	Install    func() []Finding
 	Metrics    func() ([]Finding, error)
 	// ReadLimit replaces every read's time limit; a test shortens it.
@@ -168,12 +172,37 @@ type Request struct {
 	CheckHarness func() error
 }
 
-// On turns auto on. The config says on last, so no run sees "on" before the
-// timer exists, and any refusal leaves it off (R3).
+// On turns auto on, or validates and reports what would change when DryRun is
+// set. The config says on last, so no run sees "on" before the timer exists,
+// and any refusal leaves it off (R3).
 func On(o Options, r Request) error {
+	c, err := prepareOn(o, r)
+	if err != nil {
+		return err
+	}
+	if o.DryRun {
+		fmt.Fprintf(o.Out, "[dry-run] would turn auto on: level %s, project idle %s, user idle %s; fyr auto run runs hourly\n", c.Level, c.ProjectIdle, c.UserIdle)
+		if dream.TimerInstalledHere(o.Home, o.goos()) {
+			fmt.Fprintln(o.Out, "[dry-run] would remove the legacy dream timer")
+		}
+		return nil
+	}
+	if err := unit.Install(o.Home, o.path(), o.goos()); err != nil {
+		return refuseOn(o, c, err)
+	}
+	c.Enabled = true
+	if err := save(o.Home, c); err != nil {
+		return &ExitError{1, "fyr auto on: " + err.Error() + "; the timer is installed and the config did not change"}
+	}
+	o.retireLegacyDreamOn()
+	fmt.Fprintf(o.Out, "auto on: level %s, project idle %s, user idle %s; fyr auto run runs hourly\n", c.Level, c.ProjectIdle, c.UserIdle)
+	return nil
+}
+
+func prepareOn(o Options, r Request) (Config, error) {
 	prev, _, err := Load(o.Home)
 	if fi, lerr := os.Lstat(ConfigPath(o.Home)); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return &ExitError{2, "fyr auto on: " + ConfigPath(o.Home) + " is a link; refused: run fyr auto off, which replaces it"}
+		return Config{}, &ExitError{2, "fyr auto on: " + ConfigPath(o.Home) + " is a link; refused: run fyr auto off, which replaces it"}
 	}
 	c := defaults()
 	if err == nil && prev.Enabled {
@@ -192,21 +221,27 @@ func On(o Options, r Request) error {
 	}
 	if c.Level == LevelHarness {
 		if err := r.CheckHarness(); err != nil {
-			return &ExitError{2, "fyr auto on: level harness needs a harness checkout: " + oneLine(err.Error())}
+			return Config{}, &ExitError{2, "fyr auto on: level harness needs a harness checkout: " + oneLine(err.Error())}
 		}
 	}
 	if err := unit.Check(o.Home, o.path(), o.goos()); err != nil {
-		return refuseOn(o, c, err)
+		if o.DryRun {
+			return Config{}, &ExitError{2, err.Error()}
+		}
+		return Config{}, refuseOn(o, c, err)
 	}
-	if err := unit.Install(o.Home, o.path(), o.goos()); err != nil {
-		return refuseOn(o, c, err)
+	return c, nil
+}
+
+func (o Options) retireLegacyDreamOn() {
+	if !dream.TimerInstalledHere(o.Home, o.goos()) {
+		return
 	}
-	c.Enabled = true
-	if err := save(o.Home, c); err != nil {
-		return &ExitError{1, "fyr auto on: " + err.Error() + "; the timer is installed and the config did not change"}
+	if removed, err := dream.RemoveTimer(o.Home, o.goos()); err != nil {
+		fmt.Fprintln(o.Out, "auto on: warning: could not remove legacy dream timer: "+oneLine(err.Error()))
+	} else if removed {
+		fmt.Fprintln(o.Out, "removed the legacy dream timer")
 	}
-	fmt.Fprintf(o.Out, "auto on: level %s, project idle %s, user idle %s; fyr auto run runs hourly\n", c.Level, c.ProjectIdle, c.UserIdle)
-	return nil
 }
 
 // refuseOn leaves auto off and says why: exit 2 whether or not the off could
@@ -221,19 +256,35 @@ func refuseOn(o Options, c Config, cause error) error {
 }
 
 // Off is the kill switch: no lock, a corrupt file or a link replaced, and
-// each of its two steps tried whatever the other did. Exit 1 when one failed:
-// a switch that reports off with `enabled: true` on disk is the worse lie.
+// its steps are all tried when real (auto config, auto timer, legacy dream
+// timer). Exit 1 when one failed: a switch that reports off with `enabled: true`
+// on disk is the worse lie.
 func Off(o Options) error {
 	c, found, err := Load(o.Home)
 	_, lerr := os.Lstat(ConfigPath(o.Home))
 	present := err != nil || found || lerr == nil
-	timer := unit.InstalledHere(o.Home, o.goos())
-	if !timer && (!present || (found && !c.Enabled)) {
+	timer, legacy := unit.InstalledHere(o.Home, o.goos()), dream.TimerInstalledHere(o.Home, o.goos())
+	if !timer && !legacy && (!present || (found && !c.Enabled)) {
 		fmt.Fprintln(o.Out, "auto: already off")
 		o.otherSystemNote()
 		return nil
 	}
-	if err != nil || !found {
+	if o.DryRun {
+		fmt.Fprintln(o.Out, "[dry-run] would turn auto off")
+		if timer {
+			fmt.Fprintln(o.Out, "[dry-run] would remove the auto timer")
+		}
+		if legacy {
+			fmt.Fprintln(o.Out, "[dry-run] would remove the dream timer")
+		}
+		o.otherSystemNote()
+		return nil
+	}
+	return o.applyOff(c, found, err, legacy)
+}
+
+func (o Options) applyOff(c Config, found bool, loadErr error, legacy bool) error {
+	if loadErr != nil || !found {
 		c = defaults()
 	}
 	c.Enabled = false
@@ -244,6 +295,11 @@ func Off(o Options) error {
 	if _, err := unit.Remove(o.Home, o.goos()); err != nil {
 		failed = append(failed, err.Error())
 	}
+	if legacy {
+		if _, err := dream.RemoveTimer(o.Home, o.goos()); err != nil {
+			failed = append(failed, err.Error())
+		}
+	}
 	o.otherSystemNote()
 	if len(failed) > 0 {
 		return &ExitError{1, "fyr auto off: " + strings.Join(failed, "; ")}
@@ -253,6 +309,9 @@ func Off(o Options) error {
 }
 
 func (o Options) otherSystemNote() {
+	if files := dream.OtherSystemTimerFiles(o.Home, o.goos()); len(files) > 0 {
+		fmt.Fprintln(o.Out, "a legacy dream timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
+	}
 	if files := unit.OtherSystemFiles(o.Home, o.goos()); len(files) > 0 {
 		fmt.Fprintln(o.Out, "an auto timer unit for another system is in this home and stays: "+strings.Join(files, ", "))
 	}

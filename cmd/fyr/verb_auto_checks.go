@@ -65,14 +65,19 @@ func autoInstallFindings(repoFlag, home string) []auto.Finding {
 // failed ingest source is an error: the row flags still read what is stored.
 func autoMetricsFindings(home string) ([]auto.Finding, error) {
 	ingest := ingestTo(home, io.Discard)
+	fs, err := autoMetricsEvalFindings(home)
+	return fs, errors.Join(ingest, err)
+}
+
+func autoMetricsEvalFindings(home string) ([]auto.Finding, error) {
 	s, err := metrics.Open(metrics.Path(home))
 	if err != nil {
-		return nil, errors.Join(ingest, err)
+		return nil, err
 	}
 	defer s.Close()
 	e, err := s.Evals(metrics.EvalOptions{Now: time.Now()})
 	if err != nil {
-		return nil, errors.Join(ingest, err)
+		return nil, err
 	}
 	var fs []auto.Finding
 	for _, row := range e.Rows {
@@ -80,5 +85,5 @@ func autoMetricsFindings(home string) ([]auto.Finding, error) {
 			fs = append(fs, auto.Finding{Check: "metrics", Rule: flag, Where: row.Row, Text: fmt.Sprintf("%d trials, last %s", row.N, row.Last)})
 		}
 	}
-	return fs, ingest
+	return fs, nil
 }

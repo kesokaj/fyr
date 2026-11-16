@@ -23,24 +23,17 @@ type timerPlan struct {
 	paths   []string
 }
 
-// CheckTimer runs every refusal InstallTimer makes and changes nothing, so
-// `--install-timer --dry-run` refuses what the real run refuses (SD26 of
-// the 2026-10-27 audit, plan D17).
-func CheckTimer(home, path, goos string) error { return dreamTimer.Check(home, path, goos) }
-
-// Check is CheckTimer for this timer.
+// Check runs every refusal Install makes and changes nothing, so `--dry-run`
+// refuses what the real run refuses (SD26 of the 2026-10-27 audit).
 func (t Timer) Check(home, path, goos string) error {
 	_, err := t.plan(home, path, goos)
 	return err
 }
 
-// InstallTimer installs and starts the hourly dream timer for goos, with
-// ExecStart at home's BinPath, `--home home` so the timer's run is scoped to
-// that home (a scratch timer never dreams over the real home, R6), and PATH
-// as given.
-func InstallTimer(home, path, goos string) error { return dreamTimer.Install(home, path, goos) }
+// installTimer installs and starts the legacy dream timer for goos in tests.
+func installTimer(home, path, goos string) error { return dreamTimer.Install(home, path, goos) }
 
-// Install is InstallTimer for this timer.
+// Install is installTimer for this timer.
 func (t Timer) Install(home, path, goos string) error {
 	p, err := t.plan(home, path, goos)
 	if err != nil {

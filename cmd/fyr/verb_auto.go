@@ -5,10 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/kesokaj/fyr/internal/auto"
+	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // auto's run is registered here, not in the verbs literal: a run's check reads
@@ -28,8 +31,8 @@ var autoEnv auto.Env
 var autoSubverbs = []string{"on", "off", "status", "run"}
 
 var autoFlags = map[string]map[string]bool{
-	"on":     {"level": true, "project-idle": true, "user-idle": true},
-	"off":    {},
+	"on":     {"level": true, "project-idle": true, "user-idle": true, "dry-run": true},
+	"off":    {"dry-run": true},
 	"status": {},
 	"run":    {"dry-run": true},
 }
@@ -38,6 +41,9 @@ var autoFlags = map[string]map[string]bool{
 // `on --level harness` looks for a checkout.
 func runAuto(c *ctx) error {
 	args := c.fs.Args()
+	if len(args) == 0 && c.dryRun {
+		args = []string{"run"}
+	}
 	if len(args) != 1 {
 		return usageErr(c.out, "auto", "")
 	}
@@ -55,7 +61,7 @@ func runAuto(c *ctx) error {
 	if stray != "" {
 		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
 	}
-	o := auto.Options{Home: c.home, Out: c.out}
+	o := auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun}
 	var err error
 	switch sub {
 	case "on":
@@ -80,6 +86,17 @@ func runAuto(c *ctx) error {
 	return err
 }
 
+func autoIngest(home string) (string, error) {
+	r, err := ingestInto(metrics.Options{Home: home}, io.Discard)
+	if err != nil {
+		return "", err
+	}
+	if len(r.Failed) > 0 {
+		err = fmt.Errorf("%d source(s) failed", len(r.Failed))
+	}
+	return r.Line(), err
+}
+
 func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
 	o.Version = buildVersion()
@@ -92,10 +109,30 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	if real, err := os.UserHomeDir(); err == nil {
 		o.RealHome = real
 	}
+	var ingested bool
+	var ingestErr error
+	o.Ingest = func() (string, error) {
+		line, err := autoIngest(c.home)
+		ingested, ingestErr = true, err
+		return line, err
+	}
+	o.Dream = func() error {
+		return dream.Run(dream.Options{
+			Home:       c.home,
+			Out:        io.Discard,
+			All:        true,
+			SkipIngest: true,
+			Session:    func() (bool, error) { return true, nil },
+		})
+	}
 	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
 	o.Metrics = func() ([]auto.Finding, error) {
 		refreshModelsBestEffort(context.Background(), c.home)
-		return autoMetricsFindings(c.home)
+		if !ingested {
+			return autoMetricsFindings(c.home)
+		}
+		fs, err := autoMetricsEvalFindings(c.home)
+		return fs, errors.Join(ingestErr, err)
 	}
 	return o
 }

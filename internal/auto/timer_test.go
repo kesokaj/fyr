@@ -1,6 +1,7 @@
 package auto
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,23 +144,23 @@ func TestAutoTimerRefusalNamesAuto(t *testing.T) {
 	}
 }
 
-// The two timers of one home are two units: removing one leaves the other.
-func TestAutoTimerApartFromTheDream(t *testing.T) {
+// Turning auto on retires any legacy standalone dream timer from the home.
+func TestAutoRetiresLegacyDreamTimer(t *testing.T) {
 	home := homeWithBinary(t)
 	fakeManagers(t, "0")
-	if err := dream.InstallTimer(home, "/p", "linux"); err != nil {
-		t.Fatal(err)
+	files := legacyDreamFiles(t, home, "linux")
+	if err := On(Options{Home: home, Out: io.Discard, GOOS: "linux", Path: "/p"}, Request{}); err != nil {
+		t.Fatalf("On: %v", err)
 	}
-	if err := unit.Install(home, "/p", "linux"); err != nil {
-		t.Fatal(err)
+	if !unit.InstalledHere(home, "linux") {
+		t.Error("auto's timer was not installed")
 	}
-	if removed, err := unit.Remove(home, "linux"); err != nil || !removed {
-		t.Fatalf("remove auto: %v, %v", removed, err)
+	if dream.TimerInstalledHere(home, "linux") {
+		t.Error("legacy dream timer still present after auto on")
 	}
-	if !dream.TimerInstalledHere(home, "linux") {
-		t.Error("removing auto's timer took the dream's with it")
-	}
-	if unit.InstalledHere(home, "linux") {
-		t.Error("auto's timer is still there")
+	for _, f := range files {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("legacy dream unit file left behind: %s (%v)", f, err)
+		}
 	}
 }
