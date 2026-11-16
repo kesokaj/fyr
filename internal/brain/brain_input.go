@@ -29,10 +29,7 @@ func checkAdd(o Options, in AddInput) (string, error) {
 			return "", err
 		}
 	}
-	switch {
-	case o.Global && kind == "memory":
-		return "", refuse("memory records are project-scoped (D14): drop --global")
-	case !o.Global && globalOnly[kind]:
+	if !o.Global && globalOnly[kind] {
 		return "", refuse("%s records are global only (R8): add --global, and --project <root> for the project it is about", kind)
 	}
 	return title, nil

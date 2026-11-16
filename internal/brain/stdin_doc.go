@@ -31,31 +31,39 @@ type MemoryStdinDoc struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Provenance  string `json:"provenance"`
+	Global      bool   `json:"global,omitempty"`
 	Body        string `json:"body"`
 }
 
 // RecordJSON is the JSON representation of a Record for `record list --json` and `record get --json`.
 type RecordJSON struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Status     string `json:"status"`
-	Date       string `json:"date"`
-	Title      string `json:"title"`
-	Body       string `json:"body,omitempty"`
-	Scope      string `json:"scope,omitempty"`
-	Project    string `json:"project,omitempty"`
-	Provenance string `json:"provenance,omitempty"`
-	Updated    string `json:"updated"`
+	ID             string  `json:"id"`
+	Kind           string  `json:"kind"`
+	Status         string  `json:"status"`
+	Date           string  `json:"date"`
+	Title          string  `json:"title"`
+	Body           string  `json:"body,omitempty"`
+	Scope          string  `json:"scope,omitempty"`
+	Project        string  `json:"project,omitempty"`
+	Provenance     string  `json:"provenance,omitempty"`
+	MemoryKind     string  `json:"memory_kind,omitempty"`
+	Validity       float64 `json:"validity,omitempty"`
+	VerifiedAt     string  `json:"verified_at,omitempty"`
+	EvidenceCount  int     `json:"evidence_count,omitempty"`
+	SourceSessions string  `json:"source_sessions,omitempty"`
+	Updated        string  `json:"updated"`
 }
 
 // MemorySummary is one item in `fyr memory show --json`.
 type MemorySummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Provenance  string `json:"provenance"`
-	Updated     string `json:"updated"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Description string  `json:"description"`
+	Provenance  string  `json:"provenance"`
+	Validity    float64 `json:"validity"`
+	Global      bool    `json:"global,omitempty"`
+	Updated     string  `json:"updated"`
 }
 
 // SearchHitJSON is one record hit in `fyr search --json`.
@@ -231,6 +239,7 @@ func ParseMemoryJSON(r io.Reader) (MemoryEntry, io.Reader, error) {
 		Name:        doc.Name,
 		Description: doc.Description,
 		Provenance:  doc.Provenance,
+		Global:      doc.Global,
 	}
 	return e, strings.NewReader(doc.Body), nil
 }
@@ -256,15 +265,20 @@ func FormatRecordsJSON(recs []Record, includeBody bool) (string, error) {
 	items := make([]RecordJSON, 0, len(recs))
 	for _, r := range recs {
 		item := RecordJSON{
-			ID:         search.Printable(r.ID),
-			Kind:       search.Printable(r.Kind),
-			Status:     search.Printable(r.Status),
-			Date:       search.Printable(r.Date),
-			Title:      search.Printable(r.Title),
-			Scope:      search.Printable(r.Scope),
-			Project:    search.Printable(r.Project),
-			Provenance: search.Printable(r.Provenance),
-			Updated:    search.Printable(r.Updated),
+			ID:             search.Printable(r.ID),
+			Kind:           search.Printable(r.Kind),
+			Status:         search.Printable(r.Status),
+			Date:           search.Printable(r.Date),
+			Title:          search.Printable(r.Title),
+			Scope:          search.Printable(r.Scope),
+			Project:        search.Printable(r.Project),
+			Provenance:     search.Printable(r.Provenance),
+			MemoryKind:     search.Printable(r.MemoryKind),
+			Validity:       r.Validity,
+			VerifiedAt:     search.Printable(r.VerifiedAt),
+			EvidenceCount:  r.EvidenceCount,
+			SourceSessions: search.Printable(r.SourceSessions),
+			Updated:        search.Printable(r.Updated),
 		}
 		if includeBody {
 			item.Body = r.Body
@@ -274,44 +288,9 @@ func FormatRecordsJSON(recs []Record, includeBody bool) (string, error) {
 	return marshalIndentedJSON(items)
 }
 
-// MemoryShowJSON returns the project's active memories as a JSON array.
+// MemoryShowJSON returns active memories as a JSON array.
 func MemoryShowJSON(o Options) (string, error) {
-	s, err := memorySession(o)
-	if err != nil {
-		return "", err
-	}
-	defer s.close()
-	rows, err := s.st.db.Query(`SELECT id, title, body, provenance, updated FROM records WHERE scope = ? AND kind = 'memory' AND status = 'closed' ORDER BY id`, s.scope)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-	items := []MemorySummary{}
-	for rows.Next() {
-		var id, title, body, prov, updated string
-		if err := rows.Scan(&id, &title, &body, &prov, &updated); err != nil {
-			return "", err
-		}
-		if prov == "" {
-			prov = "unknown"
-		}
-		typ := "?"
-		if m := memoryType.FindStringSubmatch(body); m != nil {
-			typ = m[1]
-		}
-		items = append(items, MemorySummary{
-			ID:          search.Printable(id),
-			Name:        search.Printable(strings.TrimPrefix(id, "MEMORY-")),
-			Type:        search.Printable(typ),
-			Description: search.Printable(title),
-			Provenance:  search.Printable(prov),
-			Updated:     search.Printable(updated),
-		})
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	return marshalIndentedJSON(items)
+	return MemoryShowJSONWithOptions(o, MemoryShowOptions{})
 }
 
 // FormatSearchJSON marshals brain search hits and file/graph search output as JSON.

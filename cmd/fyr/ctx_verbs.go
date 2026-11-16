@@ -30,6 +30,7 @@ type ctx struct {
 	dryRun, check, force, openRecords, global, rebuild, dreamAll                                   bool
 	jsonOut, jsonIn                                                                                bool
 	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                      string
+	memIncludeLow                                                                                  bool
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut          string
 	metricsUntil, metricsHarness                                                                   string
 	metricsContextTarget                                                                           int64
@@ -94,10 +95,12 @@ var verbs = map[string]verb{
 	"resume":    {run: runResume},
 	"git-check": {run: runGitCheck},
 	"memory": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: user, feedback, project or reference")
+		c.fs.StringVar(&c.memType, "type", "", "add: the memory's type `T`: semantic, procedural or episodic")
 		c.fs.StringVar(&c.memName, "name", "", "add: the memory's slug, `SLUG`")
 		c.fs.StringVar(&c.memDesc, "description", "", "add: the memory in one line, `TEXT`")
 		c.fs.StringVar(&c.memBodyFile, "body-file", "", "add: read the body from `FILE` instead of stdin")
+		c.fs.BoolVar(&c.global, "global", false, "shared global memory scope across projects")
+		c.fs.BoolVar(&c.memIncludeLow, "include-low", false, "show: include cards with validity < 0.40")
 		c.fs.BoolVar(&c.jsonIn, "json-in", false, "add: read JSON payload from stdin")
 		c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
 	}, positional: true, run: runMemory},

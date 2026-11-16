@@ -307,11 +307,23 @@ func resolveProvenance(kind, given string) (string, error) {
 	}
 }
 
-const recordCols = `scope, id, kind, status, date, title, body, project, provenance, updated`
+const recordCols = `scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated`
+
+func selectRecordCols(ver int) string {
+	switch {
+	case ver < 2:
+		return `scope, id, kind, status, date, title, body, project, '' AS provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
+	case ver < 3:
+		return `scope, id, kind, status, date, title, body, project, provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
+	default:
+		return recordCols
+	}
+}
 
 func scanRecord(sc interface{ Scan(...any) error }) (Record, error) {
 	var r Record
-	err := sc.Scan(&r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance, &r.Updated)
+	err := sc.Scan(&r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
+		&r.MemoryKind, &r.Validity, &r.VerifiedAt, &r.EvidenceCount, &r.SourceSessions, &r.Updated)
 	if err == nil && (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
 		r.Provenance = "unknown"
 	}

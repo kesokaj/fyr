@@ -117,3 +117,63 @@ func TestUnmigratedProjectRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrationTwoToThreePreservesAndMapsMemory(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	p := Path(home)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
+		t.Fatal(err)
+	}
+	rows := []struct{ id, kind, body, prov, upd string }{
+		{"MEMORY-fb", "memory", "type: feedback\n\nfb", "derived", "2026-10-01T00:00:00Z"},
+		{"MEMORY-proc", "memory", "type: procedural\n\nproc", "unknown", "2026-10-02T00:00:00Z"},
+		{"MEMORY-ep", "memory", "type: episodic\n\nep", "operator", "2026-10-03T00:00:00Z"},
+		{"MEMORY-user", "memory", "type: user\n\nusr", "operator", "2026-10-04T00:00:00Z"},
+		{"BUG-001", "bug", "symptom", "", "2026-10-05T00:00:00Z"},
+	}
+	for _, r := range rows {
+		if _, err := db.Exec(`INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
+			VALUES(?, ?, ?, 'closed', '2026-10-01', ?, ?, '', ?, ?)`,
+			dir, r.id, r.kind, r.id, r.body, r.prov, r.upd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	o := opts(dir, home)
+	recs, missing, err := Get(o, []string{"MEMORY-fb", "MEMORY-proc", "MEMORY-ep", "MEMORY-user", "BUG-001"})
+	if err != nil || len(missing) != 0 || len(recs) != 5 {
+		t.Fatalf("Get after migration 2->3: %v %v %v", recs, missing, err)
+	}
+	byID := map[string]Record{}
+	for _, r := range recs {
+		byID[r.ID] = r
+	}
+	if r := byID["MEMORY-fb"]; r.MemoryKind != "procedural" || r.Validity != 0.55 || r.VerifiedAt != "2026-10-01T00:00:00Z" {
+		t.Errorf("MEMORY-fb = %+v", r)
+	}
+	if r := byID["MEMORY-proc"]; r.MemoryKind != "procedural" || r.Validity != 0.70 || r.VerifiedAt != "2026-10-02T00:00:00Z" {
+		t.Errorf("MEMORY-proc = %+v", r)
+	}
+	if r := byID["MEMORY-ep"]; r.MemoryKind != "episodic" || r.Validity != 1.0 || r.VerifiedAt != "2026-10-03T00:00:00Z" {
+		t.Errorf("MEMORY-ep = %+v", r)
+	}
+	if r := byID["MEMORY-user"]; r.MemoryKind != "semantic" || r.Validity != 1.0 || r.VerifiedAt != "2026-10-04T00:00:00Z" {
+		t.Errorf("MEMORY-user = %+v", r)
+	}
+	if r := byID["BUG-001"]; r.MemoryKind != "" || r.Validity != 1.0 || r.VerifiedAt != "" {
+		t.Errorf("BUG-001 = %+v", r)
+	}
+}

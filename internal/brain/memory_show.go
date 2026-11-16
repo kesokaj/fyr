@@ -1,0 +1,174 @@
+package brain
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/search"
+)
+
+// MemoryShowOptions configures `MemoryShowWithOptions` and `MemoryShowJSONWithOptions`.
+type MemoryShowOptions struct {
+	IncludeLow bool
+}
+
+// MemoryShow is the memory index, one line per active memory (>= 0.40), capped
+// at what a session loads.
+func MemoryShow(o Options) (string, error) {
+	return MemoryShowWithOptions(o, MemoryShowOptions{})
+}
+
+// MemoryShowWithOptions returns the memory index formatted one line per card,
+// hiding cards with validity < 0.40 unless showOpts.IncludeLow is true.
+func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
+	s, err := memorySession(o)
+	if err != nil {
+		return "", err
+	}
+	defer s.close()
+	recs, feedbacks, err := loadShowMemories(s.st.db, s.scope)
+	if err != nil {
+		return "", err
+	}
+	now := o.now()
+	var lines []string
+	for _, r := range recs {
+		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
+		if !showOpts.IncludeLow && val < MinActiveValidity {
+			continue
+		}
+		lines = append(lines, formatMemoryShowLine(r, val))
+	}
+	return capMemoryLines(lines), nil
+}
+
+// MemoryShowJSONWithOptions returns active memories (or all when IncludeLow is
+// true) as a JSON array.
+func MemoryShowJSONWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
+	s, err := memorySession(o)
+	if err != nil {
+		return "", err
+	}
+	defer s.close()
+	recs, feedbacks, err := loadShowMemories(s.st.db, s.scope)
+	if err != nil {
+		return "", err
+	}
+	now := o.now()
+	items := []MemorySummary{}
+	for _, r := range recs {
+		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
+		if !showOpts.IncludeLow && val < MinActiveValidity {
+			continue
+		}
+		prov := r.Provenance
+		if prov == "" {
+			prov = "unknown"
+		}
+		items = append(items, MemorySummary{
+			ID:          search.Printable(r.ID),
+			Name:        search.Printable(strings.TrimPrefix(r.ID, "MEMORY-")),
+			Type:        search.Printable(resolveMemoryKind(r)),
+			Description: search.Printable(r.Title),
+			Provenance:  search.Printable(prov),
+			Validity:    val,
+			Global:      r.Scope == "",
+			Updated:     search.Printable(r.Updated),
+		})
+	}
+	return marshalIndentedJSON(items)
+}
+
+func formatMemoryShowLine(r Record, val float64) string {
+	typ := resolveMemoryKind(r)
+	var scopeTag string
+	if r.Scope == "" {
+		scopeTag = " [global]"
+	}
+	l := search.Printable(fmt.Sprintf("- %s (%s, %.2f)%s — %s",
+		strings.TrimPrefix(r.ID, "MEMORY-"), typ, val, scopeTag, r.Title))
+	for len(l) > memoryMaxLine {
+		_, size := utf8.DecodeLastRuneInString(l)
+		l = l[:len(l)-size]
+	}
+	return l
+}
+
+func capMemoryLines(lines []string) string {
+	var b strings.Builder
+	for i, l := range lines {
+		if i == memoryMaxLines || b.Len()+len(l)+1 > memoryMaxBytes {
+			fmt.Fprintf(&b, "(… %d more: fyr record list --kind memory, then fyr record get MEMORY-<name>)\n", len(lines)-i)
+			break
+		}
+		b.WriteString(l + "\n")
+	}
+	return b.String()
+}
+
+func loadShowMemories(db *sql.DB, scope string) ([]Record, []Record, error) {
+	rows, err := db.Query(`SELECT `+recordCols+` FROM records WHERE scope = ? AND kind = 'memory' AND status = 'closed' ORDER BY id`, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	var recs []Record
+	for rows.Next() {
+		r, err := scanRecord(rows)
+		if err != nil {
+			return nil, nil, err
+		}
+		recs = append(recs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	feedbacks, err := queryFeedbacksDB(db, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	return recs, feedbacks, nil
+}
+
+func feedbackQuery(scope string) (string, []any) {
+	q := `SELECT ` + recordCols + ` FROM records WHERE kind = 'feedback'`
+	if scope != "" {
+		return q + ` AND (project = '' OR project = ?)`, []any{scope}
+	}
+	return q, nil
+}
+
+func queryFeedbacksDB(db *sql.DB, scope string) ([]Record, error) {
+	q, args := feedbackQuery(scope)
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRecordsRows(rows)
+}
+
+func queryFeedbacksConn(ctx context.Context, c *sql.Conn, scope string) ([]Record, error) {
+	q, args := feedbackQuery(scope)
+	rows, err := c.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRecordsRows(rows)
+}
+
+func scanRecordsRows(rows *sql.Rows) ([]Record, error) {
+	var out []Record
+	for rows.Next() {
+		r, err := scanRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

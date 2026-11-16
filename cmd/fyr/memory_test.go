@@ -44,7 +44,7 @@ func TestMemoryVerb(t *testing.T) {
 	if err := run([]string{"memory", "show", "--home", home}, &out); err != nil {
 		t.Fatalf("memory show: %v", err)
 	}
-	if got := out.String(); got != "- deploy-day (project) — we deploy on Fridays\n" {
+	if got := out.String(); got != "- deploy-day (semantic, 1.00) — we deploy on Fridays\n" {
 		t.Errorf("show = %q", got)
 	}
 }
@@ -454,5 +454,36 @@ func TestMemoryStdinHeadersAndJSON(t *testing.T) {
 	}
 	if out, err = recordCmd(t, "", "memory", "show", "--json-in", "--home", home); exitOf(err) != 2 {
 		t.Errorf("memory show --json-in: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+}
+
+func TestMemoryGlobalAndIncludeLowFlags(t *testing.T) {
+	home := t.TempDir()
+	nonGit := t.TempDir()
+	t.Chdir(nonGit)
+
+	// --global works outside a git checkout for add and show.
+	out, err := recordCmd(t, "Shared procedural rule.\n", "memory", "add", "--global", "--type", "procedural", "--name", "shared-proc", "--description", "global procedural card", "--home", home)
+	if err != nil || out != "saved MEMORY-shared-proc\n" {
+		t.Fatalf("memory add --global outside git: %q %v", out, err)
+	}
+	out, err = recordCmd(t, `{"type":"semantic","name":"shared-json","description":"global json","global":true,"body":"Shared JSON body.\n"}`, "memory", "add", "--json-in", "--home", home)
+	if err != nil || out != "saved MEMORY-shared-json\n" {
+		t.Fatalf("memory add --json-in global: %q %v", out, err)
+	}
+	show, err := recordCmd(t, "", "memory", "show", "--global", "--home", home)
+	if err != nil || !strings.Contains(show, "shared-proc (procedural, 1.00) [global]") || !strings.Contains(show, "shared-json (semantic, 1.00) [global]") {
+		t.Fatalf("memory show --global: %q %v", show, err)
+	}
+
+	// Must-fail: memory add --include-low exits 2.
+	if out, err = recordCmd(t, "body\n", "memory", "add", "--type", "semantic", "--name", "bad-flag", "--description", "d", "--include-low", "--home", home); exitOf(err) != 2 {
+		t.Errorf("memory add --include-low: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+
+	// memory show --include-low succeeds and returns cards.
+	showAll, err := recordCmd(t, "", "memory", "show", "--global", "--include-low", "--home", home)
+	if err != nil || !strings.Contains(showAll, "shared-proc") {
+		t.Errorf("memory show --global --include-low: %q %v", showAll, err)
 	}
 }

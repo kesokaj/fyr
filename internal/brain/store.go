@@ -62,14 +62,21 @@ var migrations = []string{
 	CREATE TABLE meta(scope TEXT PRIMARY KEY, export_sha TEXT, last_dream TEXT);`,
 	`ALTER TABLE records ADD COLUMN provenance TEXT NOT NULL DEFAULT '';
 	UPDATE records SET provenance = 'unknown' WHERE kind IN ('memory', 'feedback');`,
+	`ALTER TABLE records ADD COLUMN memory_kind TEXT NOT NULL DEFAULT '';
+	ALTER TABLE records ADD COLUMN validity REAL NOT NULL DEFAULT 1.0;
+	ALTER TABLE records ADD COLUMN verified_at TEXT NOT NULL DEFAULT '';
+	ALTER TABLE records ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE records ADD COLUMN source_sessions TEXT NOT NULL DEFAULT '';
+	UPDATE records SET memory_kind = CASE WHEN kind = 'memory' AND body LIKE 'type: feedback%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: procedural%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: episodic%' THEN 'episodic' WHEN kind = 'memory' THEN 'semantic' ELSE '' END, validity = CASE WHEN kind = 'memory' AND provenance = 'derived' THEN 0.55 WHEN kind = 'memory' AND provenance = 'unknown' THEN 0.70 WHEN kind = 'memory' THEN 1.0 ELSE 1.0 END, verified_at = CASE WHEN kind = 'memory' THEN updated ELSE '' END;`,
 }
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "brain.db") }
 
 type store struct {
-	db   *sql.DB
-	path string
+	db         *sql.DB
+	path       string
+	cleanupDir string
 }
 
 // openStore opens or creates the store under home and migrates it forward.
@@ -119,7 +126,78 @@ func tryOpen(path string) (*store, error) {
 	return s, nil
 }
 
-func (s *store) close() error { return s.db.Close() }
+// openStoreReadOnly opens an existing store under home read-only without
+// running migrations, returning its PRAGMA user_version. A store written by a
+// newer binary is refused.
+func openStoreReadOnly(home string) (*store, int, error) {
+	path := Path(home)
+	if err := checkRegularReadOnly(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, 0, err
+		}
+		return nil, 0, refuse("brain: %v", err)
+	}
+	deadline := time.Now().Add(openWait)
+	for {
+		s, ver, err := tryOpenReadOnly(path)
+		if err == nil || !isBusy(err) {
+			return s, ver, err
+		}
+		if time.Now().After(deadline) {
+			return nil, 0, refuse("the brain store is busy (another fyr holds its write lock); retry")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func checkRegularReadOnly(path string) error {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, err := os.Lstat(p)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			if p == path {
+				return err
+			}
+		case err != nil:
+			return err
+		case !fi.Mode().IsRegular():
+			return fmt.Errorf("%s is not a regular file; refusing to open", filepath.Base(p))
+		}
+	}
+	return nil
+}
+
+func tryOpenReadOnly(path string) (*store, int, error) {
+	tmp, err := os.MkdirTemp(filepath.Dir(path), ".brain-ro-")
+	if err != nil {
+		return nil, 0, err
+	}
+	db, err := search.OpenCopy(filepath.Dir(path), filepath.Base(path), tmp)
+	if err != nil {
+		os.RemoveAll(tmp)
+		return nil, 0, err
+	}
+	db.SetMaxOpenConns(1)
+	s := &store{db: db, path: path, cleanupDir: tmp}
+	ver, err := s.version(s.db)
+	if err != nil {
+		s.close()
+		return nil, 0, fmt.Errorf("brain: %s: %w", s.path, err)
+	}
+	if ver > len(migrations) {
+		s.close()
+		return nil, 0, refuse("brain.db schema %d is newer than this binary (%d); update fyr", ver, len(migrations))
+	}
+	return s, ver, nil
+}
+
+func (s *store) close() error {
+	err := s.db.Close()
+	if s.cleanupDir != "" {
+		_ = os.RemoveAll(s.cleanupDir)
+	}
+	return err
+}
 
 func (s *store) version(q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row

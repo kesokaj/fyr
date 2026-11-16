@@ -1,11 +1,13 @@
 package brain
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The export is byte-stable for the same rows whatever order they were
@@ -311,5 +313,54 @@ func TestExportSyncRefusalsAndReadScope(t *testing.T) {
 	}
 	if ts, ok, err := LastUpdated(home, dir); err != nil || !ok || !ts.Equal(fixed) {
 		t.Errorf("LastUpdated from DB: %v %v %v, want %v", ts, ok, err, fixed)
+	}
+}
+
+func TestReadScopeDoesNotMigrateSchema2Store(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	p := Path(home)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 2`); err != nil {
+		t.Fatal(err)
+	}
+	ts := fixed.UTC().Format(time.RFC3339)
+	if _, err := db.Exec(`INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
+		VALUES(?, 'BUG-001', 'bug', 'open', '2026-10-25', 'bug in v2', 'symptom', '', '', ?)`, dir, ts); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	ok, err := HasRecords(home, dir)
+	if err != nil || !ok {
+		t.Fatalf("HasRecords schema-2: ok=%v err=%v", ok, err)
+	}
+	recs, ok, err := ReadScope(home, dir)
+	if err != nil || !ok || len(recs) != 1 || recs[0].ID != "BUG-001" {
+		t.Fatalf("ReadScope schema-2: recs=%+v ok=%v err=%v", recs, ok, err)
+	}
+	gotTS, ok, err := LastUpdated(home, dir)
+	if err != nil || !ok || !gotTS.Equal(fixed) {
+		t.Fatalf("LastUpdated schema-2: ts=%v ok=%v err=%v", gotTS, ok, err)
+	}
+
+	ro, err := sql.Open("sqlite", "file:"+p+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	var ver int
+	if err := ro.QueryRow(`PRAGMA user_version`).Scan(&ver); err != nil || ver != 2 {
+		t.Fatalf("user_version after read-only helpers = %d (%v), want 2", ver, err)
 	}
 }

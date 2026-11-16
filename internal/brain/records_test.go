@@ -91,8 +91,8 @@ func TestGlobalOnlyKinds(t *testing.T) {
 	g.Global = true
 	add(t, g, "feedback", "use the verbs", "said so", "project", dir)
 	add(t, g, "proposal", "a rule", "draft", "project", dir)
-	if _, err := Add(g, AddInput{Kind: "memory", Title: "t", Body: strings.NewReader("b")}); !IsRefusal(err) {
-		t.Errorf("memory --global: %v, want a refusal (memory is project-scoped, D14)", err)
+	if _, err := Add(g, AddInput{Kind: "memory", Title: "shared fact", Body: strings.NewReader("type: semantic\n\nb")}); err != nil {
+		t.Errorf("memory --global: %v, want success", err)
 	}
 	if _, err := Add(o, AddInput{Kind: "learning", Title: "t", Project: dir, Body: strings.NewReader("b")}); !IsUsage(err) {
 		t.Errorf("--project without --global: %v, want a usage error", err)

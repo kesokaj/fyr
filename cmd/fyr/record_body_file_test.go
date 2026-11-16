@@ -259,7 +259,7 @@ func TestMemoryAddBodyFile(t *testing.T) {
 		t.Fatalf("memory add --body-file: %v %q", err, out)
 	}
 	show, err := recordCmd(t, "", "memory", "show", "--home", home)
-	if err != nil || !strings.Contains(show, "no-db-mocks (feedback)") {
+	if err != nil || !strings.Contains(show, "no-db-mocks (procedural, 1.00)") {
 		t.Fatalf("memory show: %v %q", err, show)
 	}
 

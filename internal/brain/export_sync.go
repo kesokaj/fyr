@@ -37,17 +37,17 @@ func hasScopeDBRecords(home, scope string) (bool, error) {
 	if home == "" || scope == "" {
 		return false, nil
 	}
-	if _, err := os.Lstat(Path(home)); err != nil {
+	st, ver, err := openStoreReadOnly(home)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
 		}
 		return false, err
 	}
-	st, err := openStore(home)
-	if err != nil {
-		return false, err
-	}
 	defer st.close()
+	if ver < 1 {
+		return false, nil
+	}
 	var one int
 	err = st.db.QueryRow(`SELECT 1 FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL+` LIMIT 1`, scope).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -85,41 +85,51 @@ func ReadScope(home, root string) ([]Record, bool, error) {
 		return nil, false, err
 	}
 	if home != "" {
-		if _, err := os.Lstat(Path(home)); err == nil {
-			st, err := openStore(home)
-			if err != nil {
-				return nil, false, err
-			}
-			rows, err := st.db.Query(`SELECT `+recordCols+` FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, scope)
-			if err != nil {
-				st.close()
-				return nil, false, err
-			}
-			var recs []Record
-			for rows.Next() {
-				r, err := scanRecord(rows)
-				if err != nil {
-					rows.Close()
-					st.close()
-					return nil, false, err
-				}
-				recs = append(recs, r)
-			}
-			err = rows.Err()
-			rows.Close()
-			st.close()
-			if err != nil {
-				return nil, false, err
-			}
-			if len(recs) > 0 {
-				sort.Slice(recs, func(i, j int) bool { return idLess(recs[i].ID, recs[j].ID) })
-				return recs, true, nil
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
+		recs, ok, err := readScopeDB(home, scope)
+		if err != nil {
 			return nil, false, err
+		}
+		if ok {
+			return recs, true, nil
 		}
 	}
 	return ReadTrail(top)
+}
+
+func readScopeDB(home, scope string) ([]Record, bool, error) {
+	st, ver, err := openStoreReadOnly(home)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	defer st.close()
+	if ver < 1 {
+		return nil, false, nil
+	}
+	cols := selectRecordCols(ver)
+	rows, err := st.db.Query(`SELECT `+cols+` FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, scope)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var recs []Record
+	for rows.Next() {
+		r, err := scanRecord(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		recs = append(recs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if len(recs) == 0 {
+		return nil, false, nil
+	}
+	sort.Slice(recs, func(i, j int) bool { return idLess(recs[i].ID, recs[j].ID) })
+	return recs, true, nil
 }
 
 // LastUpdated returns the newest updated timestamp of root's records in
@@ -131,26 +141,8 @@ func LastUpdated(home, root string) (time.Time, bool, error) {
 		return time.Time{}, false, err
 	}
 	if home != "" {
-		if _, err := os.Lstat(Path(home)); err == nil {
-			st, err := openStore(home)
-			if err != nil {
-				return time.Time{}, false, err
-			}
-			var latest sql.NullString
-			err = st.db.QueryRow(`SELECT max(updated) FROM records WHERE scope = ?`, scope).Scan(&latest)
-			st.close()
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return time.Time{}, false, err
-			}
-			if latest.Valid && latest.String != "" {
-				t, err := time.Parse(time.RFC3339, latest.String)
-				if err != nil {
-					return time.Time{}, false, err
-				}
-				return t, true, nil
-			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return time.Time{}, false, err
+		if t, ok, err := lastUpdatedDB(home, scope); err != nil || ok {
+			return t, ok, err
 		}
 	}
 	fi, err := os.Stat(trailPath(top))
@@ -161,6 +153,33 @@ func LastUpdated(home, root string) (time.Time, bool, error) {
 		return time.Time{}, false, err
 	}
 	return fi.ModTime(), true, nil
+}
+
+func lastUpdatedDB(home, scope string) (time.Time, bool, error) {
+	st, ver, err := openStoreReadOnly(home)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	defer st.close()
+	if ver < 1 {
+		return time.Time{}, false, nil
+	}
+	var latest sql.NullString
+	err = st.db.QueryRow(`SELECT max(updated) FROM records WHERE scope = ?`, scope).Scan(&latest)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, err
+	}
+	if !latest.Valid || latest.String == "" {
+		return time.Time{}, false, nil
+	}
+	t, err := time.Parse(time.RFC3339, latest.String)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return t, true, nil
 }
 
 // Export writes the checkout's exported-kind records from brain.db to

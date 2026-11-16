@@ -35,21 +35,26 @@ func runMemory(c *ctx) error {
 		fmt.Fprintln(c.out, "fyr memory: show takes no --type, --name, --description, --body-file, --json-in or --provenance")
 		return exitCode(2)
 	}
-	if args[0] == "add" && given["json"] {
-		fmt.Fprintln(c.out, "fyr memory: add takes no --json")
+	if args[0] == "add" && (given["json"] || given["include-low"]) {
+		if given["include-low"] {
+			fmt.Fprintln(c.out, "fyr memory: add takes no --include-low")
+		} else {
+			fmt.Fprintln(c.out, "fyr memory: add takes no --json")
+		}
 		return exitCode(2)
 	}
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
-	o := brain.Options{Home: c.home, Dir: wd}
+	o := brain.Options{Home: c.home, Dir: wd, Global: c.global}
 	if args[0] == "show" {
+		showOpts := brain.MemoryShowOptions{IncludeLow: c.memIncludeLow}
 		if c.jsonOut {
-			text, serr := brain.MemoryShowJSON(o)
+			text, serr := brain.MemoryShowJSONWithOptions(o, showOpts)
 			return memoryFinish(serr, text, c.out)
 		}
-		text, serr := brain.MemoryShow(o)
+		text, serr := brain.MemoryShowWithOptions(o, showOpts)
 		return memoryFinish(serr, text, c.out)
 	}
 	return c.runMemoryAdd(o, given)
@@ -64,22 +69,9 @@ func (c *ctx) runMemoryAdd(o brain.Options, given map[string]bool) error {
 		fmt.Fprintln(c.out, `fyr memory: --provenance must be operator or derived, not ""`)
 		return exitCode(2)
 	}
-	e := brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov}
+	e := brain.MemoryEntry{Type: c.memType, Name: c.memName, Description: c.memDesc, Provenance: prov, Global: c.global}
 	if c.jsonIn {
-		if given["body-file"] {
-			fmt.Fprintln(c.out, "fyr memory: --json-in and --body-file cannot be used together")
-			return exitCode(2)
-		}
-		parsed, body, err := brain.ParseMemoryJSON(stdin)
-		if err != nil {
-			return memoryFinish(err, "", c.out)
-		}
-		applyMemoryStdinEntry(&e, parsed, given)
-		text, err := brain.MemoryAdd(o, e, body)
-		if err == nil {
-			text = "saved " + text + "\n"
-		}
-		return memoryFinish(err, text, c.out)
+		return c.runMemoryAddJSON(o, e, given)
 	}
 	body, closeBody, err := openBodyReader(c.memBodyFile, given["body-file"])
 	if err != nil {
@@ -94,6 +86,26 @@ func (c *ctx) runMemoryAdd(o brain.Options, given map[string]bool) error {
 		}
 		applyMemoryStdinEntry(&e, parsed, given)
 		body = rest
+	}
+	return c.saveMemoryEntry(o, e, body)
+}
+
+func (c *ctx) runMemoryAddJSON(o brain.Options, e brain.MemoryEntry, given map[string]bool) error {
+	if given["body-file"] {
+		fmt.Fprintln(c.out, "fyr memory: --json-in and --body-file cannot be used together")
+		return exitCode(2)
+	}
+	parsed, body, err := brain.ParseMemoryJSON(stdin)
+	if err != nil {
+		return memoryFinish(err, "", c.out)
+	}
+	applyMemoryStdinEntry(&e, parsed, given)
+	return c.saveMemoryEntry(o, e, body)
+}
+
+func (c *ctx) saveMemoryEntry(o brain.Options, e brain.MemoryEntry, body io.Reader) error {
+	if e.Global {
+		o.Global = true
 	}
 	text, err := brain.MemoryAdd(o, e, body)
 	if err == nil {
@@ -114,6 +126,9 @@ func applyMemoryStdinEntry(dst *brain.MemoryEntry, src brain.MemoryEntry, given 
 	}
 	if !given["provenance"] && src.Provenance != "" {
 		dst.Provenance = src.Provenance
+	}
+	if !given["global"] && src.Global {
+		dst.Global = true
 	}
 }
 

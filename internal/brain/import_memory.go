@@ -95,11 +95,13 @@ func memoryRecord(e os.DirEntry, data []byte) (Record, string) {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	meta, body := frontmatter(text)
 	name := strings.TrimSuffix(e.Name(), ".md")
-	typ, modified := "project", ""
+	typ, modified := "semantic", ""
 	for _, l := range strings.Split(text, "\n") {
 		l = strings.TrimSpace(l)
-		if t, ok := strings.CutPrefix(l, "type: "); ok && memoryTypes[t] {
-			typ = t
+		if t, ok := strings.CutPrefix(l, "type: "); ok {
+			if norm, err := NormalizeMemoryType(t); err == nil {
+				typ = norm
+			}
 		}
 		if t, ok := strings.CutPrefix(l, "modified: "); ok {
 			modified = t
@@ -116,7 +118,7 @@ func memoryRecord(e os.DirEntry, data []byte) (Record, string) {
 		day, updated = info.ModTime().UTC().Format("2006-01-02"), info.ModTime().UTC().Format(time.RFC3339)
 	}
 	r := normalize(Record{ID: "MEMORY-" + name, Kind: "memory", Status: "closed", Date: day, Title: meta["description"],
-		Body: "type: " + typ + "\n\n" + body, Updated: updated})
+		Body: "type: " + typ + "\n\n" + body, MemoryKind: typ, Validity: 0.70, VerifiedAt: updated, Updated: updated})
 	// A file the store would refuse is reported and skipped here: left to
 	// insertNew it would roll back the whole import, every project's under
 	// --global (a body the type line pushes past maxBody, a day no clock

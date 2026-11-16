@@ -30,12 +30,12 @@ func Resume(o Options) (string, error) {
 		}
 		return "", refuse("%v", err)
 	}
-	recs, err := resumeRecords(o.Home, sc, top)
+	recs, projCount, err := resumeRecords(o.Home, sc, top)
 	if err != nil {
 		return "", err
 	}
 	var b strings.Builder
-	if err := writeResumeAgents(&b, top, len(recs)); err != nil {
+	if err := writeResumeAgents(&b, top, projCount); err != nil {
 		return "", err
 	}
 	writeResumeOpen(&b, recs)
@@ -45,63 +45,81 @@ func Resume(o Options) (string, error) {
 	}
 	writeResumeOpenPlans(&b, recs)
 	writeResumeRecentChanges(&b, recs)
-	writeResumeMemory(&b, top, recs)
+	writeResumeMemory(&b, top, recs, o.now())
 	return b.String(), nil
 }
 
 // resumeRecords reads sc's records newest-first (date DESC, updated DESC,
 // id DESC) from Path(home) when the database exists on disk, falling back to
-// <top>/.agents/trail.jsonl without creating brain.db.
-func resumeRecords(home, sc, top string) ([]Record, error) {
+// <top>/.agents/trail.jsonl without creating brain.db, then appends global
+// memories and feedbacks from brain.db when present.
+func resumeRecords(home, sc, top string) ([]Record, int, error) {
+	var projRecs []Record
+	var globals []Record
 	if home != "" {
 		if _, err := os.Stat(Path(home)); err == nil {
-			recs, err := queryScopeDesc(home, sc)
-			if err != nil || len(recs) > 0 {
-				return recs, err
+			var err error
+			projRecs, globals, err = queryScopeAndGlobalsDesc(home, sc)
+			if err != nil {
+				return nil, 0, err
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, err
+			return nil, 0, err
 		}
 	}
-	recs, ok, err := ReadTrail(top)
-	if err != nil || !ok {
-		return nil, err
+	if len(projRecs) == 0 {
+		trailRecs, ok, err := ReadTrail(top)
+		if err != nil {
+			return nil, 0, err
+		}
+		if ok {
+			sort.Slice(trailRecs, func(i, j int) bool {
+				if trailRecs[i].Date != trailRecs[j].Date {
+					return trailRecs[i].Date > trailRecs[j].Date
+				}
+				if trailRecs[i].Updated != trailRecs[j].Updated {
+					return trailRecs[i].Updated > trailRecs[j].Updated
+				}
+				return trailRecs[i].ID > trailRecs[j].ID
+			})
+			projRecs = trailRecs
+		}
 	}
-	sort.Slice(recs, func(i, j int) bool {
-		if recs[i].Date != recs[j].Date {
-			return recs[i].Date > recs[j].Date
-		}
-		if recs[i].Updated != recs[j].Updated {
-			return recs[i].Updated > recs[j].Updated
-		}
-		return recs[i].ID > recs[j].ID
-	})
-	return recs, nil
+	projCount := len(projRecs)
+	all := append(projRecs, globals...)
+	return all, projCount, nil
 }
 
-func queryScopeDesc(home, sc string) ([]Record, error) {
-	st, err := openStore(home)
+func queryScopeAndGlobalsDesc(home, sc string) (proj, globals []Record, err error) {
+	st, ver, err := openStoreReadOnly(home)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer st.close()
+	if ver < 1 {
+		return nil, nil, nil
+	}
+	cols := selectRecordCols(ver)
 	rows, err := st.db.Query(
-		`SELECT `+recordCols+` FROM records WHERE scope = ? ORDER BY date DESC, updated DESC, id DESC`,
-		sc,
+		`SELECT `+cols+` FROM records WHERE scope = ? OR (scope = '' AND (kind = 'memory' OR (kind = 'feedback' AND (project = '' OR project = ?)))) ORDER BY date DESC, updated DESC, id DESC`,
+		sc, sc,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	var recs []Record
 	for rows.Next() {
 		r, err := scanRecord(rows)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		recs = append(recs, r)
+		if r.Scope == "" {
+			globals = append(globals, r)
+		} else {
+			proj = append(proj, r)
+		}
 	}
-	return recs, rows.Err()
+	return proj, globals, rows.Err()
 }
 
 func writeResumeAgents(b *strings.Builder, top string, count int) error {
@@ -274,22 +292,41 @@ func writeResumeRecentChanges(b *strings.Builder, recs []Record) {
 	}
 }
 
-func writeResumeMemory(b *strings.Builder, top string, recs []Record) {
+func writeResumeMemory(b *strings.Builder, top string, recs []Record, now time.Time) {
 	b.WriteString("\n## Memory\n")
-	var mems []Record
+	type scoredMem struct {
+		rec Record
+		val float64
+	}
+	var feedbacks []Record
 	for _, r := range recs {
-		if r.Kind == "memory" && r.Status == "closed" {
-			mems = append(mems, r)
+		if r.Kind == "feedback" {
+			feedbacks = append(feedbacks, r)
+		}
+	}
+	var mems []scoredMem
+	for _, r := range recs {
+		if r.Kind != "memory" || r.Status != "closed" || resolveMemoryKind(r) != "semantic" {
+			continue
+		}
+		val := ComputeMemoryValidity(top, r, CountMemoryContradictions(r, feedbacks), now)
+		if val >= MinActiveValidity {
+			mems = append(mems, scoredMem{rec: r, val: val})
 		}
 	}
 	if len(mems) == 0 {
 		b.WriteString("(none)\n")
 		return
 	}
-	sort.Slice(mems, func(i, j int) bool { return mems[i].ID < mems[j].ID })
+	sort.Slice(mems, func(i, j int) bool {
+		if mems[i].rec.ID != mems[j].rec.ID {
+			return mems[i].rec.ID < mems[j].rec.ID
+		}
+		return mems[i].rec.Scope > mems[j].rec.Scope
+	})
 	base := b.Len()
-	for i, r := range mems {
-		l := formatMemoryIndexLine(top, r)
+	for i, item := range mems {
+		l := formatMemoryIndexLine(top, item.rec, item.val)
 		if i == memoryMaxLines || (b.Len()-base)+len(l)+1 > memoryMaxBytes {
 			fmt.Fprintf(b, "(… %d more: fyr record list --kind memory, then fyr record get MEMORY-<name>)\n", len(mems)-i)
 			return
@@ -298,13 +335,14 @@ func writeResumeMemory(b *strings.Builder, top string, recs []Record) {
 	}
 }
 
-func formatMemoryIndexLine(top string, r Record) string {
-	typ := "?"
-	if m := memoryType.FindStringSubmatch(r.Body); m != nil {
-		typ = m[1]
-	}
+func formatMemoryIndexLine(top string, r Record, val float64) string {
 	stale := MemoryStalenessTag(top, r)
-	l := search.Printable(fmt.Sprintf("- %s (%s) — %s", strings.TrimPrefix(r.ID, "MEMORY-"), typ, r.Title))
+	var scopeTag string
+	if r.Scope == "" {
+		scopeTag = " [global]"
+	}
+	l := search.Printable(fmt.Sprintf("- %s (%s, %.2f)%s — %s",
+		strings.TrimPrefix(r.ID, "MEMORY-"), resolveMemoryKind(r), val, scopeTag, r.Title))
 	limit := memoryMaxLine
 	if stale != "" && limit > len(stale)+1 {
 		limit -= len(stale) + 1

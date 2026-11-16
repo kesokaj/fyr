@@ -45,7 +45,7 @@ func TestResumeGolden(t *testing.T) {
 	add(t, day(3), "change", "Change three", "Body 3", "id", "CHANGE-2026-11-03-three")
 	add(t, day(4), "change", "Change four", "Body 4", "id", "CHANGE-2026-11-04-four")
 	if _, err := MemoryAdd(day(3), MemoryEntry{
-		Type:        "feedback",
+		Type:        "project",
 		Name:        "table-tests",
 		Description: "Prefer table-driven tests",
 	}, strings.NewReader("Use subtests for edge cases.")); err != nil {
@@ -95,7 +95,7 @@ func TestResumeGolden(t *testing.T) {
 		"Body 2",
 		"",
 		"## Memory",
-		"- table-tests (feedback) — Prefer table-driven tests",
+		"- table-tests (semantic, 1.00) — Prefer table-driven tests",
 		"",
 	}, "\n")
 	if got != want {

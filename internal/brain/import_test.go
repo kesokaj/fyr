@@ -250,8 +250,15 @@ func TestImportTakesTheProjectMemoryStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(show, "keep-x") || !strings.Contains(show, "keep x in mind") {
-		t.Errorf("the imported memory shows: %q", show)
+	if show != "" {
+		t.Errorf("old unknown-provenance memory should be hidden by default MemoryShow: %q", show)
+	}
+	showAll, err := MemoryShowWithOptions(opts(dir, home), MemoryShowOptions{IncludeLow: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(showAll, "keep-x (semantic,") || !strings.Contains(showAll, "keep x in mind") {
+		t.Errorf("the imported memory shows with IncludeLow: %q", showAll)
 	}
 	if _, err := Export(opts(dir, home)); err != nil {
 		t.Fatal(err)
@@ -283,7 +290,7 @@ func TestMemoryAliasRoundTrip(t *testing.T) {
 		t.Errorf("show: %q", show)
 	}
 	recs, _, err := Get(o, []string{"MEMORY-no-tmp"})
-	if err != nil || !strings.Contains(recs[0].Body, "Never /tmp, ever.") || !strings.Contains(recs[0].Body, "type: feedback") {
+	if err != nil || !strings.Contains(recs[0].Body, "Never /tmp, ever.") || !strings.Contains(recs[0].Body, "type: procedural") {
 		t.Fatalf("get: %+v %v", recs, err)
 	}
 	if _, err := os.Lstat(trailFile(dir)); !os.IsNotExist(err) {
@@ -521,7 +528,7 @@ func TestImportSkipsAMemoryTheStoreRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(show, "keep x in mind") || !strings.Contains(show, "no-desc (project) — untitled") || strings.Contains(show, "huge") {
+	if !strings.Contains(show, "keep x in mind") || !strings.Contains(show, "no-desc (semantic, 0.70) — untitled") || strings.Contains(show, "huge") {
 		t.Errorf("want keep-x and no-desc stored, huge not: %q", show)
 	}
 }

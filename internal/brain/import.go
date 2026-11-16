@@ -234,8 +234,22 @@ func (s *session) insertNew(recs []Record) (map[string]bool, error) {
 			if (r.Kind == "memory" || r.Kind == "feedback") && prov == "" {
 				prov = "unknown"
 			}
-			if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Project, prov, r.Updated); err != nil {
+			memKind, val, verAt := r.MemoryKind, r.Validity, r.VerifiedAt
+			if r.Kind == "memory" {
+				if memKind == "" {
+					memKind = resolveMemoryKind(r)
+				}
+				if val == 0 {
+					val = 0.70
+				}
+				if verAt == "" {
+					verAt = r.Updated
+				}
+			} else if val == 0 {
+				val = 1.0
+			}
+			if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Project, prov, memKind, val, verAt, r.Updated); err != nil {
 				return err
 			}
 			stored[storedKey(r.Scope, r.ID)] = true
