@@ -25,7 +25,7 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			home := t.TempDir()
-			root := idleDocDriftProject(t)
+			root := idleDreamProject(t, home)
 			writeConfig(t, home, validConfig)
 			var out bytes.Buffer
 			o := driftOpts(home, root, &out)
@@ -40,7 +40,6 @@ func TestSweepLineKeepsVerdict(t *testing.T) {
 				res.Name = name
 				return []isolate.WorkerResult{res}, nil
 			}
-			o.Apply = func(string, string, string) (bool, error) { return false, nil }
 			if err := Run(o, false); exit(err) != c.code {
 				t.Fatalf("exit %d, want %d: %v\n%s", exit(err), c.code, err, out.String())
 			}

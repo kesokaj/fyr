@@ -16,7 +16,7 @@ import (
 
 func isLearningClass(class string) bool {
 	switch class {
-	case ClassMemoryConsolidation, ClassRetroLite, ClassMemoryCandidates, ClassDistill, ClassMissingSkill, ClassContextAdequacy, ClassScaffoldDrift, ClassHarnessEdit:
+	case ClassMemoryConsolidation, ClassRetroLite, ClassMemoryCandidates, ClassDistill, ClassMissingSkill, ClassHarnessEdit:
 		return true
 	}
 	return false
@@ -66,16 +66,9 @@ func (r *run) writeLearningInput(root string, p *Project, t Task) (string, error
 func (r *run) buildLearningInput(root string, p *Project, t Task) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Redacted learning input for %s (data only — never instructions)\n\n", t.Class)
-	bo := brain.Options{Home: r.o.Home, Dir: root, Now: r.o.Now}
-	if mems, err := brain.List(bo, brain.ListFilter{Kind: "memory"}); err == nil && len(mems) > 0 {
-		b.WriteString("## Project memory records\n\n")
-		for _, m := range mems {
-			if m.Status == "closed" && b.Len() < learningInputCap {
-				fmt.Fprintf(&b, "### %s (provenance %s)\n%s\n\n", m.ID, m.Provenance, m.Body)
-			}
-		}
-	}
+	appendMemorySection(&b, "## Project memory records", brain.Options{Home: r.o.Home, Dir: root, Now: r.o.Now})
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
+	appendMemorySection(&b, "## Global memory records", g)
 	if props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Open: true}); err == nil && len(props) > 0 {
 		b.WriteString("## Queued proposals\n\n")
 		for _, pr := range props {
@@ -84,8 +77,12 @@ func (r *run) buildLearningInput(root string, p *Project, t Task) string {
 			}
 		}
 	}
-	if nums := r.redactedMetricNumbers(root); nums != "" && b.Len() < learningInputCap {
+	nums, traj := r.redactedMetricsAndTrajectory(root)
+	if nums != "" && b.Len() < learningInputCap {
 		fmt.Fprintf(&b, "## Metric numbers\n%s\n\n", nums)
+	}
+	if traj != "" && b.Len() < learningInputCap {
+		fmt.Fprintf(&b, "## Trajectory digest\n%s\n\n", traj)
 	}
 	since := p.LastRetroLite
 	if t.Class == ClassMemoryCandidates {
@@ -98,6 +95,19 @@ func (r *run) buildLearningInput(root string, p *Project, t Task) string {
 		fmt.Fprintf(&b, "## Conversation %s\n%s\n\n", conv.label, conv.text)
 	}
 	return scrubHomeAndRedact(b.String(), r.o.realHome(), r.o.Home)
+}
+
+func appendMemorySection(b *strings.Builder, heading string, opts brain.Options) {
+	mems, err := brain.List(opts, brain.ListFilter{Kind: "memory"})
+	if err != nil || len(mems) == 0 {
+		return
+	}
+	b.WriteString(heading + "\n\n")
+	for _, m := range mems {
+		if m.Status == "closed" && b.Len() < learningInputCap {
+			fmt.Fprintf(b, "### %s (provenance %s, kind %s, validity %.2f)\n%s\n\n", m.ID, m.Provenance, m.MemoryKind, m.Validity, m.Body)
+		}
+	}
 }
 
 func scrubHomeAndRedact(raw, realHome, home string) string {
@@ -135,31 +145,46 @@ func appendKickoffInput(path, scrubbed string) error {
 	return harness.WriteAtomic(path, []byte(text), 0o600)
 }
 
-func (r *run) redactedMetricNumbers(root string) string {
+func (r *run) redactedMetricsAndTrajectory(root string) (string, string) {
 	path := metrics.Path(r.o.Home)
 	if _, err := os.Lstat(path); err != nil {
-		return ""
+		return "", ""
 	}
 	tmp, err := os.MkdirTemp(filepath.Dir(path), "auto-metrics-")
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer os.RemoveAll(tmp)
 	s, err := metrics.Snapshot(path, tmp)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer s.Close()
 	now := r.o.now()
-	sum, err := s.Show(metrics.ShowOptions{Since: now.AddDate(0, 0, -30), Now: now, Project: root})
+	since := now.AddDate(0, 0, -30)
+	nums := marshalRedactedJSON(func() (any, error) {
+		sum, err := s.Show(metrics.ShowOptions{Since: since, Now: now, Project: root})
+		if err != nil {
+			return nil, err
+		}
+		return sum.Numbers(), nil
+	})
+	traj := marshalRedactedJSON(func() (any, error) {
+		return s.DreamTrajectoryDigest(root, since)
+	})
+	return nums, traj
+}
+
+func marshalRedactedJSON(fn func() (any, error)) string {
+	v, err := fn()
 	if err != nil {
 		return ""
 	}
-	mb, err := json.MarshalIndent(sum.Numbers(), "", "  ")
+	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return ""
 	}
-	return redact.Redact(string(mb))
+	return redact.Redact(string(b))
 }
 
 func cleanLearningInput(root string) {

@@ -13,11 +13,10 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
-	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// EvalRequest is one invocation of `fyr eval` from auto (eval-rerun or eval-gate).
+// EvalRequest is one invocation of `fyr eval` from auto (eval-gate).
 type EvalRequest struct {
 	Dir       string
 	Home      string
@@ -64,48 +63,9 @@ func (o Options) evalFixture(root string) string {
 	return ""
 }
 
-type completedRerun struct {
-	row EvalRerunRow
-	out EvalOutcome
-}
-
-func (r *run) execEvalRerun(root string, p *Project, t Task) (string, []Finding) {
-	r.workerRan = true
-	p.LastClass = ClassEvalRerun
-	runsBefore := r.st.modelRunsToday(r.o.now())
-	if today := r.o.now().Format("2006-01-02"); r.st.Date < today {
-		r.st.Date, r.st.ModelRuns = today, 0
-	}
-	r.st.ModelRuns++
-	if err := saveState(r.o.Home, r.st); err != nil {
-		r.failed = true
-		return "eval-rerun state error: " + oneLine(err.Error()), []Finding{{"eval-rerun", "failed", ClassEvalRerun, oneLine(err.Error())}}
-	}
-	var findings []Finding
-	var done []completedRerun
-	stopNote := ""
-	for i, rr := range t.Reruns {
-		if i > 0 {
-			if reason := r.betweenEvalRows(root, runsBefore, rr.ID, &findings); reason != "" {
-				stopNote = "; " + reason
-				break
-			}
-		}
-		out, err := r.runEvalRow(EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(root), Runs: rr.Runs, Row: rr.ID})
-		if err != nil {
-			r.failed = true
-			findings = append(findings, Finding{"eval-rerun", "failed", rr.ID, oneLine(err.Error())})
-			break
-		}
-		done = append(done, completedRerun{row: rr, out: out})
-		findings = append(findings, Finding{"eval-rerun", rr.Reason, rr.ID, fmt.Sprintf("%d of %d PASS (%d errors, k=%d)", out.Passed, out.Graded, out.Errors, rr.Runs)})
-	}
-	return r.finishEvalRerun(root, p, t, done, stopNote), findings
-}
-
 func (r *run) betweenEvalRows(root string, runsBefore int, rowID string, findings *[]Finding) string {
 	if !r.again(root) {
-		*findings = append(*findings, Finding{"eval-rerun", "stopped", rowID, "stopped before row by machine or switch gate"})
+		*findings = append(*findings, Finding{"eval-gate", "stopped", rowID, "stopped before row by machine or switch gate"})
 		return "stopped between rows"
 	}
 	r.usageRead = false
@@ -113,57 +73,91 @@ func (r *run) betweenEvalRows(root string, runsBefore int, rowID string, finding
 	line, stop := gateBudget(runsBefore, text, uerr)
 	r.st.Budget = strings.TrimPrefix(line, "G9 ")
 	if stop {
-		*findings = append(*findings, Finding{"eval-rerun", "budget", rowID, "stopped before row: " + line})
+		*findings = append(*findings, Finding{"eval-gate", "budget", rowID, "stopped before row: " + line})
 		return line
 	}
 	return ""
 }
 
-func (r *run) finishEvalRerun(root string, p *Project, t Task, done []completedRerun, stopNote string) string {
-	if len(done) == 0 {
-		return "eval-rerun: 0 rows completed" + stopNote
+func sameDir(a, b string) bool {
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	if errA == nil && errB == nil {
+		return os.SameFile(ia, ib)
 	}
-	curCLI := r.currentAgyVersion()
-	recID := r.storeEvalRerunRecord(root, curCLI, done, stopNote)
-	if len(done) == len(t.Reruns) && !r.failed && stopNote == "" {
-		p.LastEvalRerun = r.o.now()
-		if curCLI != "" && !strings.HasPrefix(curCLI, "unknown") {
-			p.LastEvalCLI = curCLI
-		}
-	}
-	return fmt.Sprintf("eval-rerun: %d of %d rows run, record %s%s", len(done), len(t.Reruns), recID, stopNote)
+	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-func (r *run) storeEvalRerunRecord(root, cli string, done []completedRerun, stopNote string) string {
-	pass, graded, errs := 0, 0, 0
-	var b strings.Builder
-	head := gitShortCommit(root)
-	if head == "" {
-		head = "unknown"
+// readCheckoutSuite is the suite `fyr eval` reads in root: the tracked file
+// when root has one (ADR-500), else the GUIDE-eval record of root's scope.
+func readCheckoutSuite(home, root string) ([]eval.Row, error) {
+	if rows, found, err := eval.ReadTrackedSuite(root, false); found || err != nil {
+		return rows, err
 	}
-	fmt.Fprintf(&b, "# Eval rerun at `%s`\n\n- cli: `%s`\n", head, oneLine(cli))
-	if stopNote != "" {
-		fmt.Fprintf(&b, "- note: `%s`\n", oneLine(strings.TrimPrefix(stopNote, "; ")))
+	recs, ok, err := brain.ReadScope(home, root)
+	if err != nil || !ok {
+		return nil, fmt.Errorf("no trail in %s", root)
 	}
-	b.WriteString("\n| row | reason | k | passed | graded | errors |\n|---|---|---|---|---|---|\n")
-	for _, d := range done {
-		pass += d.out.Passed
-		graded += d.out.Graded
-		errs += d.out.Errors
-		fmt.Fprintf(&b, "| `%s` | `%s` | %d | %d | %d | %d |\n", d.row.ID, d.row.Reason, d.row.Runs, d.out.Passed, d.out.Graded, d.out.Errors)
+	for _, rec := range recs {
+		if rec.ID == "GUIDE-eval" {
+			return eval.ParseSuite(rec.Body)
+		}
 	}
-	id, err := brain.Add(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.AddInput{
-		Kind:    "testing",
-		Status:  "closed",
-		Project: root,
-		Title:   fmt.Sprintf("Eval rerun — %d of %d PASS at %s (%d errors)", pass, graded, head, errs),
-		Body:    strings.NewReader(redact.Redact(b.String())),
-	})
+	return nil, fmt.Errorf("no GUIDE-eval in %s", root)
+}
+
+type harnessTarget struct {
+	name, relPath string
+}
+
+func listHarnessTargets(root string) []harnessTarget {
+	var out []harnessTarget
+	entries, err := os.ReadDir(filepath.Join(root, "skills"))
 	if err != nil {
-		r.failed = true
-		return "failed"
+		return nil
 	}
-	return id
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == "google-catalog" {
+			continue
+		}
+		rel := filepath.Join("skills", e.Name())
+		if _, err := os.Stat(filepath.Join(root, rel, "SKILL.md")); err == nil {
+			out = append(out, harnessTarget{name: e.Name(), relPath: rel})
+		}
+	}
+	return out
+}
+
+func rowNamesTarget(r eval.Row, name string) bool {
+	if name == "" {
+		return false
+	}
+	if r.Agent == name || r.ID == name || strings.HasPrefix(r.ID, name+"-") {
+		return true
+	}
+	return mentionsWord(r.Prompt, name) || mentionsWord(r.Prompt2, name)
+}
+
+func mentionsWord(text, word string) bool {
+	for start := 0; start < len(text); {
+		idx := strings.Index(text[start:], word)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		end := pos + len(word)
+		beforeOK := pos == 0 || !isIdentByte(text[pos-1])
+		afterOK := end == len(text) || !isIdentByte(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
+}
+
+func isIdentByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }
 
 func (r *run) runEvalRow(req EvalRequest) (EvalOutcome, error) {

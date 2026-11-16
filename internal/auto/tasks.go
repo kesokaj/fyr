@@ -1,22 +1,18 @@
 package auto
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
-	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -38,13 +34,9 @@ func (r *run) pickProjectTask(root string, p *Project, findings []Finding) *Task
 	return nil
 }
 
-func (r *run) triggerProjectClass(root string, p *Project, class string, findings []Finding) *Task {
+func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Finding) *Task {
 	level := r.cfg.Level
 	switch class {
-	case ClassSpecDrift:
-		return triggerSpecDrift(level, findings)
-	case ClassDocDrift:
-		return triggerDocDrift(level, findings)
 	case ClassMemoryConsolidation:
 		if n := r.countMemoriesSince(root, p.LastMemoryConsolidation); n >= memoryConsolidationThreshold {
 			return preparedTask(ClassMemoryConsolidation, level, nil, "", n)
@@ -57,32 +49,23 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, finding
 		if p.PendingMemoryCandidates > 0 {
 			return preparedTask(ClassMemoryCandidates, level, nil, "", p.PendingMemoryCandidates)
 		}
-	case ClassOnboarding:
-		if n := onboardingAge(r.o.Home, root); n > onboardingCommitLimit {
-			return preparedTask(ClassOnboarding, level, []string{"GUIDE-onboarding"}, "", n)
-		}
 	case ClassDistill:
 		if slug, n := r.repeatedVerbSequence(root); n >= distillRepeatThreshold && slug != "" {
+			if r.isHarnessCheckout(root) {
+				t := preparedTask(ClassDistill, level, []string{"skills/auto-distilled-" + slug + "/"}, "", n)
+				if t != nil {
+					t.Outcome = OutcomeEvalGate
+				}
+				return t
+			}
 			return preparedTask(ClassDistill, level, []string{".agents/skills/auto-distilled-" + slug + "/"}, "", n)
 		}
 	case ClassMissingSkill:
 		if id, n := r.missingSkillProposal(root); id != "" {
 			return preparedTask(ClassMissingSkill, level, nil, id, n)
 		}
-	case ClassContextAdequacy:
-		if n := r.sessionsAboveMedianFriction(root); n > 0 {
-			return preparedTask(ClassContextAdequacy, level, nil, "", n)
-		}
-	case ClassScaffoldDrift:
-		if n := r.uneditedScaffoldCount(root); n > 0 {
-			return preparedTask(ClassScaffoldDrift, level, nil, "", n)
-		}
-	case ClassEvalRerun:
-		return r.triggerEvalRerun(root, p)
 	case ClassHarnessEdit:
 		return r.triggerHarnessEdit(root)
-	case ClassMiniAudit:
-		return r.triggerMiniAudit(root, p)
 	}
 	return nil
 }
@@ -196,7 +179,11 @@ func (r *run) repeatedVerbSequence(root string) (string, int) {
 	if slug == "" {
 		slug = "workflow"
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "auto-distilled-"+slug, "SKILL.md")); err == nil {
+	skillPath := filepath.Join(root, ".agents", "skills", "auto-distilled-"+slug, "SKILL.md")
+	if r.isHarnessCheckout(root) {
+		skillPath = filepath.Join(root, "skills", "auto-distilled-"+slug, "SKILL.md")
+	}
+	if _, err := os.Stat(skillPath); err == nil {
 		return "", 0
 	}
 	return slug, bestN
@@ -241,72 +228,4 @@ func (r *run) missingSkillProposal(root string) (string, int) {
 		return "", 0
 	}
 	return ids[0], len(ids)
-}
-
-func (r *run) sessionsAboveMedianFriction(root string) int {
-	vals := r.readSessionFrictions(root)
-	if len(vals) < 3 {
-		return 0
-	}
-	sorted := slices.Clone(vals)
-	slices.Sort(sorted)
-	median := sorted[len(sorted)/2]
-	above := 0
-	for _, v := range vals {
-		if v > median && v > 0 {
-			above++
-		}
-	}
-	return above
-}
-
-func (r *run) readSessionFrictions(root string) []int {
-	mp := metrics.Path(r.o.Home)
-	if _, err := os.Lstat(mp); err != nil {
-		return nil
-	}
-	tmp, err := os.MkdirTemp(filepath.Dir(mp), "auto-metrics-")
-	if err != nil {
-		return nil
-	}
-	defer os.RemoveAll(tmp)
-	s, err := metrics.Snapshot(mp, tmp)
-	if err != nil {
-		return nil
-	}
-	defer s.Close()
-	vals, err := s.ProjectFrictions(root, r.o.now().AddDate(0, 0, -30))
-	if err != nil {
-		return nil
-	}
-	return vals
-}
-
-func (r *run) uneditedScaffoldCount(root string) int {
-	n := 0
-	assetsDir := filepath.Join(r.o.Home, harness.AgyRoot, "skills", "fyr-init-project", "assets")
-	for _, name := range []string{"SDD.md", "TDD.md", "TODO.md"} {
-		f, err := isolate.OpenRegular(filepath.Join(root, name), os.O_RDONLY)
-		if err != nil {
-			continue
-		}
-		b, rerr := io.ReadAll(io.LimitReader(f, 64<<10))
-		f.Close()
-		if rerr != nil {
-			continue
-		}
-		s := string(b)
-		if strings.Contains(s, "<!-- TODO:") || strings.Contains(s, "_[Replace with") || strings.Contains(s, "<one line:") {
-			n++
-			continue
-		}
-		if tmpl, err := os.ReadFile(filepath.Join(assetsDir, name)); err == nil && !bytes.Equal(b, tmpl) {
-			if out, err := trail.Command(root, "log", "-n", "2", "--format=%H", "--", name).Output(); err == nil {
-				if commits := strings.Fields(string(out)); len(commits) == 1 {
-					n++
-				}
-			}
-		}
-	}
-	return n
 }

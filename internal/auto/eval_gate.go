@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
@@ -17,7 +16,6 @@ import (
 const (
 	gateRuns            = 3
 	maxEvalGateSessions = 24
-	miniAuditInterval   = 7 * 24 * time.Hour
 )
 
 type gateRow struct {
@@ -61,23 +59,6 @@ func (r *run) triggerHarnessEdit(root string) *Task {
 		}
 	}
 	return nil
-}
-
-func (r *run) triggerMiniAudit(root string, p *Project) *Task {
-	if !r.isHarnessCheckout(root) {
-		return nil
-	}
-	if p.LastMiniAudit.IsZero() {
-		if !r.dry {
-			p.LastMiniAudit = r.o.now()
-		}
-		return nil
-	}
-	age := r.o.now().Sub(p.LastMiniAudit)
-	if age < miniAuditInterval {
-		return nil
-	}
-	return preparedTask(ClassMiniAudit, LevelHarness, nil, "", int(age/(24*time.Hour)))
 }
 
 func eligibleHarnessProposal(root string, rec brain.Record) bool {
@@ -167,7 +148,7 @@ func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy s
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
-	rows, err := collectGateRows(r.o.Home, root, r.o.holdoutFile(), changed)
+	rows, err := collectGateRows(r.o.Home, root, r.o.holdoutFile(), changed, t.Class)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
@@ -186,20 +167,20 @@ func changedHarnessTargets(root, base, ref string) ([]string, error) {
 			continue
 		}
 		parts := strings.Split(p, "/")
-		if len(parts) < 2 || (parts[0] != "skills" && parts[0] != "agents") || parts[1] == "" || parts[1] == "google-catalog" {
-			return nil, fmt.Errorf("candidate touched %s outside skills/<s>/ and agents/<a>/", p)
+		if len(parts) < 2 || parts[0] != "skills" || parts[1] == "" || parts[1] == "google-catalog" {
+			return nil, fmt.Errorf("candidate touched %s outside skills/<s>/", p)
 		}
 		if !slices.Contains(names, parts[1]) {
 			names = append(names, parts[1])
 		}
 	}
 	if len(names) == 0 {
-		return nil, fmt.Errorf("candidate changed no skill or agent")
+		return nil, fmt.Errorf("candidate changed no skill")
 	}
 	return names, nil
 }
 
-func collectGateRows(home, root, holdoutPath string, changed []string) ([]gateRow, error) {
+func collectGateRows(home, root, holdoutPath string, changed []string, class string) ([]gateRow, error) {
 	suite, err := readCheckoutSuite(home, root)
 	if err != nil {
 		return nil, err
@@ -219,7 +200,7 @@ func collectGateRows(home, root, holdoutPath string, changed []string) ([]gateRo
 			seen[r.ID] = true
 		}
 	}
-	if len(rows) == 0 {
+	if len(rows) == 0 && class != ClassDistill {
 		return nil, fmt.Errorf("no GUIDE-eval row names %s", strings.Join(changed, ", "))
 	}
 	for _, r := range suite {

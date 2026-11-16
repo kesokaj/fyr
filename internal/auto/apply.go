@@ -121,8 +121,11 @@ func (r *run) checkoutMovedFail(runnerWhy, class, branch string) (string, []Find
 	return "checkout moved; branch " + branch + " kept", []Finding{{"worker", class, branch, msg}}
 }
 
-// applyBranch runs § The apply step (steps 1–7) for an OutcomeApplied task.
+// applyBranch runs § The apply step (steps 1–7).
 func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
+	if r.o.Apply != nil {
+		return r.applyWithHook(root, t, k, runnerWhy)
+	}
 	if !r.again(root) {
 		msg := withRunner(fmt.Sprintf("stopped before apply (%s); branch %s kept", r.verdict, k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
@@ -142,6 +145,27 @@ func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy stri
 		return r.applyFail(runnerWhy, k.Branch, err.Error())
 	}
 	return r.applyInWorktree(root, t, k, runner, runnerWhy, snap, tests, res)
+}
+
+func (r *run) applyWithHook(root string, t Task, k Kickoff, runnerWhy string) (string, []Finding) {
+	applied, err := r.o.Apply(root, k.Branch, t.Class)
+	if err != nil {
+		r.failed = true
+		msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
+		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+	}
+	if applied {
+		if err := deleteBranch(root, k.Branch); err != nil {
+			r.failed = true
+			msg := withRunner(fmt.Sprintf("FAIL (branch delete: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
+			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+		}
+		r.appliedSHA = "applied-mock"
+		msg := withRunner(fmt.Sprintf("PASS; applied, branch %s deleted", k.Branch), runnerWhy)
+		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+	}
+	msg := withRunner(fmt.Sprintf("PASS; branch %s kept", k.Branch), runnerWhy)
+	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 }
 
 func (r *run) fileNoTestAsk(root string, t Task, branch string) (string, Finding) {

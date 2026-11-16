@@ -24,7 +24,7 @@ func TestKickoffBuilder(t *testing.T) {
 		id := ""
 		switch spec.Name {
 		case ClassHarnessEdit:
-			entries = []string{"skills/foo/SKILL.md", "agents/bar/agent.md"}
+			entries = []string{"skills/foo/SKILL.md"}
 			id = "PROPOSAL-1"
 		case ClassDistill:
 			entries = []string{".agents/skills/foo/SKILL.md"}
@@ -74,14 +74,14 @@ func TestKickoffBuilderRefusals(t *testing.T) {
 		count   int
 	}{
 		{"unknown-class", LevelProject, []string{"README.md"}, "", 1},
-		{ClassDocDrift, LevelObserve, []string{"README.md"}, "", 1},
+		{ClassDistill, LevelObserve, []string{".agents/skills/foo/"}, "", 1},
 		{ClassHarnessEdit, LevelProject, []string{"skills/foo/SKILL.md"}, "PROPOSAL-1", 1},
-		{ClassDocDrift, LevelProject, []string{"../secret"}, "", 1},
-		{ClassDocDrift, LevelProject, []string{"prose with spaces"}, "", 1},
-		{ClassDocDrift, LevelProject, []string{".agents/trail.jsonl"}, "", 1},
+		{ClassDistill, LevelProject, []string{"../secret"}, "", 1},
+		{ClassDistill, LevelProject, []string{"prose with spaces"}, "", 1},
+		{ClassDistill, LevelProject, []string{".agents/trail.jsonl"}, "", 1},
 		{ClassMemoryConsolidation, LevelProject, []string{"README.md"}, "", 1},
-		{ClassDocDrift, LevelProject, []string{"README.md"}, "bad id", 1},
-		{ClassDocDrift, LevelProject, []string{"README.md"}, "", -1},
+		{ClassDistill, LevelProject, []string{".agents/skills/foo/"}, "bad id", 1},
+		{ClassDistill, LevelProject, []string{".agents/skills/foo/"}, "", -1},
 	} {
 		if _, err := PrepareTask(c.class, c.level, c.entries, c.id, c.count); err == nil {
 			t.Errorf("accepted %+v", c)
@@ -90,24 +90,24 @@ func TestKickoffBuilderRefusals(t *testing.T) {
 }
 
 func TestKickoffRubricAndAsks(t *testing.T) {
-	task, err := PrepareTask(ClassDocDrift, LevelProject, []string{"README.md", "AGENTS.md", "skills/foo/SKILL.md"}, "", 2)
+	task, err := PrepareTask(ClassDistill, LevelProject, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(task.Kept, ",") != "README.md" {
-		t.Errorf("doc-drift kept: %v", task.Kept)
+	if strings.Join(task.Kept, ",") != ".agents/skills/auto-distilled-foo/" {
+		t.Errorf("distill kept: %v", task.Kept)
 	}
-	if strings.Join(task.Denied, ",") != "AGENTS.md,skills/foo/SKILL.md" {
-		t.Errorf("doc-drift denied: %v", task.Denied)
+	if strings.Join(task.Denied, ",") != "AGENTS.md,agents/bar/agent.md,skills/fyr-auto/SKILL.md" {
+		t.Errorf("distill denied: %v", task.Denied)
 	}
 	htask, err := PrepareTask(ClassHarnessEdit, LevelHarness, []string{"skills/foo/SKILL.md", "agents/bar/agent.md", "AGENTS.md", "cmd/fyr/main.go"}, "PROPOSAL-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(htask.Kept, ",") != "skills/foo/SKILL.md,agents/bar/agent.md" {
+	if strings.Join(htask.Kept, ",") != "skills/foo/SKILL.md" {
 		t.Errorf("harness-edit kept: %v", htask.Kept)
 	}
-	if strings.Join(htask.Denied, ",") != "AGENTS.md,cmd/fyr/main.go" {
+	if strings.Join(htask.Denied, ",") != "agents/bar/agent.md,AGENTS.md,cmd/fyr/main.go" {
 		t.Errorf("harness-edit denied: %v", htask.Denied)
 	}
 }
@@ -116,7 +116,7 @@ func TestRubricAskStoresProposal(t *testing.T) {
 	home := t.TempDir()
 	root := idleProject(t)
 	r := &run{o: runOpts(home, &bytes.Buffer{}), st: State{Date: "2026-11-01"}}
-	task := Task{Class: ClassDocDrift, Level: LevelProject, Denied: []string{"AGENTS.md"}}
+	task := Task{Class: ClassDistill, Level: LevelProject, Denied: []string{"AGENTS.md"}}
 	id, f := r.fileAsk(root, task)
 	if r.failed || id == "failed" || r.st.OpenAsks != 1 || f.Check != "ask" {
 		t.Fatalf("id=%q failed=%v asks=%d f=%+v", id, r.failed, r.st.OpenAsks, f)
@@ -164,14 +164,18 @@ func TestRunnerChoice(t *testing.T) {
 	}
 }
 
-func idleDocDriftProject(t *testing.T) string {
+func idleDreamProject(t *testing.T, home string) string {
 	t.Helper()
 	root := idleProject(t)
-	writeTree(t, root, "README.md", "run `fyr nonesuch` and see `main.go:99`\n")
-	git(t, root, "add", "README.md")
-	git(t, root, "commit", "-q", "-m", "readme")
-	git(t, root, "push", "-q")
-	backdate(t, root)
+	g := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}
+	if _, err := brain.Add(g, brain.AddInput{
+		Kind:    "proposal",
+		Title:   "Missing skill: helper",
+		Project: root,
+		Body:    strings.NewReader("missing-skill: helper\nNeed helper skill."),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return root
 }
 
@@ -186,8 +190,8 @@ func driftOpts(home, root string, out *bytes.Buffer) Options {
 func TestWorkerModelRunCountAndCap(t *testing.T) {
 	home := t.TempDir()
 	realHome := t.TempDir()
-	root := idleDocDriftProject(t)
-	root2 := idleDocDriftProject(t)
+	root := idleDreamProject(t, home)
+	root2 := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
 	var seenCount, workerCalls, preflightCalls int
 	var seenOpts isolate.WorkerOptions
@@ -233,16 +237,18 @@ func TestWorkerModelRunCountAndCap(t *testing.T) {
 
 func TestWorkerBranchCleanup(t *testing.T) {
 	home := t.TempDir()
-	root := idleDocDriftProject(t)
-	writeConfig(t, home, validConfig)
+	realHome := t.TempDir()
+	root, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
 	var out bytes.Buffer
-	o := driftOpts(home, root, &out)
+	o := gateOpts(home, realHome, root, &out)
 	var branch string
-	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
-		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
-		branch = "work/" + name
-		git(t, root, "branch", branch)
-		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+	candWork := makeCandidateBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+	o.Work = func(ctx context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+		branch = "work/" + strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+		return candWork(ctx, wo, paths...)
+	}
+	o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+		return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, Errors: 0, RecordID: "TEST-gate"}, nil
 	}
 	o.Apply = func(string, string, string) (bool, error) { return true, nil }
 	if err := Run(o, false); err != nil {
@@ -251,22 +257,34 @@ func TestWorkerBranchCleanup(t *testing.T) {
 	if got := git(t, root, "branch", "--list", branch); got != "" {
 		t.Errorf("applied PASS left branch: %q", got)
 	}
-	o.Apply = func(string, string, string) (bool, error) { return false, nil }
-	out.Reset()
-	if err := Run(o, false); err != nil {
+
+	home2 := t.TempDir()
+	realHome2 := t.TempDir()
+	root2, _, _ := initHarnessEvalGateFixture(t, home2, realHome2, "")
+	var out2 bytes.Buffer
+	o2 := gateOpts(home2, realHome2, root2, &out2)
+	var branch2 string
+	candWork2 := makeCandidateBranchWork(t, root2, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+	o2.Work = func(ctx context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+		branch2 = "work/" + strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+		return candWork2(ctx, wo, paths...)
+	}
+	o2.Eval = o.Eval
+	o2.Apply = func(string, string, string) (bool, error) { return false, nil }
+	if err := Run(o2, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := git(t, root, "branch", "--list", branch); !strings.Contains(got, branch) {
+	if got := git(t, root2, "branch", "--list", branch2); !strings.Contains(got, branch2) {
 		t.Errorf("unapplied branch deleted: %q", got)
 	}
-	if !strings.Contains(logOf(t, home), "branch "+branch+" kept") {
-		t.Errorf("log omitted kept branch:\n%s", logOf(t, home))
+	if !strings.Contains(logOf(t, home2), "branch "+branch2+" kept") {
+		t.Errorf("log omitted kept branch:\n%s", logOf(t, home2))
 	}
 }
 
 func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
 	home := t.TempDir()
-	root := idleDocDriftProject(t)
+	root := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
@@ -287,7 +305,7 @@ func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
 
 func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 	home := t.TempDir()
-	root := idleDocDriftProject(t)
+	root := idleDreamProject(t, home)
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
@@ -323,9 +341,9 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 }
 
 func TestClassRotation(t *testing.T) {
-	got := rotatedClasses(LevelProject, ClassSpecDrift)
-	if got[0].Name != ClassDocDrift || got[len(got)-1].Name != ClassSpecDrift {
-		t.Errorf("rotated from spec-drift: %+v", got)
+	got := rotatedClasses(LevelProject, ClassMemoryConsolidation)
+	if got[0].Name != ClassRetroLite || got[len(got)-1].Name != ClassMemoryConsolidation {
+		t.Errorf("rotated from memory-consolidation: %+v", got)
 	}
 	for _, c := range got {
 		if c.Level == LevelHarness {
@@ -335,8 +353,8 @@ func TestClassRotation(t *testing.T) {
 }
 
 func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
-	root := idleProject(t)
 	home := t.TempDir()
+	root := idleDreamProject(t, home)
 	called := false
 	r := &run{
 		o: Options{Home: home, Work: func(context.Context, isolate.WorkerOptions, ...string) ([]isolate.WorkerResult, error) {
@@ -346,22 +364,20 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		cfg: Config{Level: LevelProject},
 		st:  State{Date: "2026-11-01"},
 	}
-	// spec-drift has priority over doc-drift unless spec-drift ran last.
-	fs := []Finding{
-		{Check: "check", Rule: "spec-stale", Where: "SPEC-foo"},
-		{Check: "check", Rule: "verb", Where: "README.md:1"},
-	}
-	if task := r.pickProjectTask(root, &Project{}, fs); task == nil || task.Class != ClassSpecDrift {
+	// memory-candidates has priority over missing-skill unless memory-candidates ran last.
+	if task := r.pickProjectTask(root, &Project{PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMemoryCandidates {
 		t.Fatalf("first pick: %+v", task)
 	}
-	if task := r.pickProjectTask(root, &Project{LastClass: ClassSpecDrift}, fs); task == nil || task.Class != ClassDocDrift {
+	if task := r.pickProjectTask(root, &Project{LastClass: ClassMemoryCandidates, PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMissingSkill {
 		t.Fatalf("rotated pick: %+v", task)
 	}
-	// If all targets are rubric-denied (e.g. AGENTS.md), runModelTask files an ask and skips Work.
-	p := Project{}
-	verdict, extra := r.runModelTask(root, &p, []Finding{{Check: "check", Rule: "verb", Where: "AGENTS.md:3"}})
-	if called || r.st.OpenAsks != 1 || !strings.HasPrefix(verdict, "ask ") || len(extra) != 1 {
-		t.Errorf("denied-only: called=%v asks=%d verdict=%q extra=%+v", called, r.st.OpenAsks, verdict, extra)
+	// All targets rubric-denied (e.g. agents/ and AGENTS.md) leaves Kept empty and queues an ask.
+	deniedTask, err := PrepareTask(ClassHarnessEdit, LevelHarness, []string{"agents/reviewer/agent.md", "AGENTS.md"}, "PROPOSAL-1", 1)
+	if err != nil || len(deniedTask.Kept) != 0 || len(deniedTask.Denied) != 2 {
+		t.Fatalf("PrepareTask denied-only = %+v, err=%v", deniedTask, err)
+	}
+	if _, f := r.fileAsk(root, deniedTask); called || r.st.OpenAsks != 1 || f.Check != "ask" {
+		t.Errorf("denied-only: called=%v asks=%d f=%+v", called, r.st.OpenAsks, f)
 	}
 	// Replacing auto/drafts with a symlink during a worker run fails closed in verifyAutoDirs.
 	ensureDir(home)
@@ -391,7 +407,7 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 
 func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 	home := t.TempDir()
-	root := idleDocDriftProject(t)
+	root := idleProject(t)
 	srcBody := strings.Join([]string{
 		"package sample",
 		"",
@@ -406,7 +422,7 @@ func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 	}, "\n")
 	writeTree(t, root, ".gitignore", ".agents/scratch/*\n")
 	writeTree(t, root, "sample.go", srcBody)
-	writeTree(t, root, "README.md", "run `fyr nonesuch` and see `ReconcileTargetSymbol`\n")
+	writeTree(t, root, "README.md", "run `fyr status` and see `ReconcileTargetSymbol`\n")
 	git(t, root, "add", ".gitignore", "sample.go", "README.md")
 	git(t, root, "commit", "-q", "-m", "add sample.go and readme ref")
 	git(t, root, "push", "-q")
@@ -425,6 +441,7 @@ func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 	if err := search.Index(search.Options{Dir: root, Home: home}, &indexOut); err != nil {
 		t.Fatalf("search.Index: %v", err)
 	}
+	writeFakeMetricsDB(t, home, root, []string{"helperSymbol,run", "helperSymbol,run", "helperSymbol,run"}, []int{0, 0, 0})
 
 	// Run a real auto sweep (pickProjectTask -> execWorker -> WriteKickoff)
 	// without manually setting task.Root, and verify the written Kickoff file

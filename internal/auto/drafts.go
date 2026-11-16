@@ -19,13 +19,16 @@ const (
 )
 
 type draftLine struct {
-	Kind   string
-	Action string
-	ID     string
-	Target string
-	Title  string
-	Body   string
-	Quote  string
+	Kind       string
+	Action     string
+	ID         string
+	Target     string
+	Title      string
+	Body       string
+	Quote      string
+	MemoryType string
+	Scope      string
+	Sessions   string
 }
 
 // processDraftLines validates each JSONL line from a worker's auto-drafts.jsonl
@@ -78,13 +81,15 @@ func parseAndValidateDraft(line string) (draftLine, error) {
 	if err != nil {
 		return draftLine{}, err
 	}
-	for _, field := range []string{d.Kind, d.Action, d.ID, d.Target, d.Title, d.Body, d.Quote} {
+	for _, field := range []string{d.Kind, d.Action, d.ID, d.Target, d.Title, d.Body, d.Quote, d.MemoryType, d.Scope, d.Sessions} {
 		if redact.Redact(field) != field {
 			return draftLine{}, errors.New("draft field refused by redactor")
 		}
 	}
-	if strings.ContainsAny(d.ID, "\r\n\x00") || strings.ContainsAny(d.Title, "\r\n\x00") {
-		return draftLine{}, errors.New("draft id or title contains control characters")
+	if strings.ContainsAny(d.ID, "\r\n\x00") || strings.ContainsAny(d.Title, "\r\n\x00") ||
+		strings.ContainsAny(d.MemoryType, "\r\n\x00") || strings.ContainsAny(d.Scope, "\r\n\x00") ||
+		strings.ContainsAny(d.Sessions, "\r\n\x00") {
+		return draftLine{}, errors.New("draft metadata contains control characters")
 	}
 	if len(d.Body) >= draftMaxBytes {
 		return draftLine{}, errors.New("draft body is 4 KiB or larger")
@@ -118,23 +123,8 @@ func decodeDraftObject(line string) (draftLine, error) {
 		if err := dec.Decode(&val); err != nil || val == nil {
 			return d, fmt.Errorf("key %q must be a string", key)
 		}
-		switch key {
-		case "kind":
-			d.Kind = *val
-		case "action":
-			d.Action = *val
-		case "id":
-			d.ID = *val
-		case "target":
-			d.Target = *val
-		case "title":
-			d.Title = *val
-		case "body":
-			d.Body = *val
-		case "quote":
-			d.Quote = *val
-		default:
-			return d, fmt.Errorf("unknown key %q", key)
+		if err := setDraftField(&d, key, *val); err != nil {
+			return d, err
 		}
 	}
 	if _, err := dec.Token(); err != nil {
@@ -144,6 +134,34 @@ func decodeDraftObject(line string) (draftLine, error) {
 		return d, errors.New("trailing data after JSON object")
 	}
 	return d, nil
+}
+
+func setDraftField(d *draftLine, key, val string) error {
+	switch key {
+	case "kind":
+		d.Kind = val
+	case "action":
+		d.Action = val
+	case "id":
+		d.ID = val
+	case "target":
+		d.Target = val
+	case "title":
+		d.Title = val
+	case "body":
+		d.Body = val
+	case "quote":
+		d.Quote = val
+	case "memory_type":
+		d.MemoryType = val
+	case "scope":
+		d.Scope = val
+	case "sessions":
+		d.Sessions = val
+	default:
+		return fmt.Errorf("unknown key %q", key)
+	}
+	return nil
 }
 
 func (r *run) applyDraftLine(root, class string, d draftLine) (Finding, error) {
@@ -162,7 +180,7 @@ func (r *run) applyDraftLine(root, class string, d draftLine) (Finding, error) {
 }
 
 func applyFindingDraft(class string, d draftLine) (Finding, error) {
-	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" {
+	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
 		return Finding{}, errors.New("finding draft takes only body and quote")
 	}
 	detail := oneLine(d.Body)
@@ -174,15 +192,30 @@ func applyFindingDraft(class string, d draftLine) (Finding, error) {
 
 func (r *run) applyMemoryDraft(root string, d draftLine) (Finding, error) {
 	if d.Target != "" || d.Title != "" || d.Quote != "" {
-		return Finding{}, errors.New("memory draft takes only action, id and body")
+		return Finding{}, errors.New("memory draft takes only action, id, body, memory_type, scope and sessions")
 	}
-	bo := brain.Options{Home: r.o.Home, Dir: root, Now: r.o.Now}
-	_, err := brain.MemoryDraft(bo, d.Action, d.ID, d.Body)
+	if d.Scope != "" && d.Scope != "project" && d.Scope != "global" {
+		return Finding{}, fmt.Errorf("memory scope must be project or global, not %q", d.Scope)
+	}
+	if d.Scope == "global" && (d.Action == "retire" || d.Action == "merge") {
+		return Finding{}, fmt.Errorf("global memory cannot be %sd via draft", d.Action)
+	}
+	var sessions []string
+	if strings.TrimSpace(d.Sessions) != "" {
+		for _, s := range strings.Split(d.Sessions, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				sessions = append(sessions, s)
+			}
+		}
+	}
+	bo := brain.Options{Home: r.o.Home, Dir: root, Global: d.Scope == "global", Now: r.o.Now}
+	opts := brain.MemoryDraftOptions{Type: d.MemoryType, EvidenceCount: 1, SourceSessions: sessions}
+	_, err := brain.MemoryDraftWithOptions(bo, d.Action, d.ID, d.Body, opts)
 	return Finding{}, err
 }
 
 func (r *run) applyFeedbackDraft(root, class string, d draftLine) (Finding, error) {
-	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" {
+	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
 		return Finding{}, errors.New("feedback draft takes only body and quote")
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(d.Body), "\n")
@@ -206,7 +239,7 @@ func (r *run) applyFeedbackDraft(root, class string, d draftLine) (Finding, erro
 }
 
 func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, error) {
-	if d.Action != "" || d.ID != "" || d.Quote != "" {
+	if d.Action != "" || d.ID != "" || d.Quote != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
 		return Finding{}, errors.New("proposal draft takes only target, title and body")
 	}
 	if d.Target != "project" && d.Target != "harness" {

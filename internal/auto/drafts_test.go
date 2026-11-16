@@ -211,3 +211,48 @@ func TestDraftsFeedbackProposalFindingAndLimits(t *testing.T) {
 		t.Errorf("proposal records = %+v, err = %v", props, err)
 	}
 }
+
+func TestDraftsMemoryTypeScopeAndSessions(t *testing.T) {
+	home := t.TempDir()
+	root := initGitRepo(t)
+	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+
+	r := &run{o: Options{Home: home, Now: func() time.Time { return now }}}
+	lines := strings.Join([]string{
+		`{"kind": "memory", "action": "add", "id": "global-proc", "body": "Run go vet first.", "memory_type": "procedural", "scope": "global", "sessions": "sess-1, sess-2"}`,
+		`{"kind": "memory", "action": "add", "id": "proj-ep", "body": "Saw timeout in test.", "memory_type": "episodic", "scope": "project", "sessions": "sess-3"}`,
+		`{"kind": "memory", "action": "retire", "id": "MEMORY-global-proc", "body": "try global retire", "scope": "global"}`,
+		`{"kind": "memory", "action": "merge", "id": "MEMORY-global-proc", "body": "try global merge", "scope": "global"}`,
+		`{"kind": "memory", "action": "add", "id": "bad-scope", "body": "invalid scope", "scope": "cluster"}`,
+		`{"kind": "finding", "body": "bad field", "scope": "global"}`,
+	}, "\n") + "\n"
+
+	fs := r.processDraftLines(root, ClassMemoryCandidates, []byte(lines))
+	invalid := 0
+	for _, f := range fs {
+		if f.Rule == "invalid" {
+			invalid++
+		}
+	}
+	if invalid != 4 {
+		t.Errorf("invalid = %d, want 4 (%+v)", invalid, fs)
+	}
+
+	g := brain.Options{Home: home, Global: true, Now: r.o.Now}
+	gRecs, _, err := brain.Get(g, []string{"MEMORY-global-proc"})
+	if err != nil || len(gRecs) != 1 {
+		t.Fatalf("Get global MEMORY-global-proc: %v %v", gRecs, err)
+	}
+	if gRecs[0].MemoryKind != "procedural" || gRecs[0].SourceSessions != "sess-1,sess-2" || gRecs[0].Provenance != "derived" {
+		t.Errorf("global memory = %+v", gRecs[0])
+	}
+
+	bo := brain.Options{Home: home, Dir: root, Now: r.o.Now}
+	pRecs, _, err := brain.Get(bo, []string{"MEMORY-proj-ep"})
+	if err != nil || len(pRecs) != 1 {
+		t.Fatalf("Get project MEMORY-proj-ep: %v %v", pRecs, err)
+	}
+	if pRecs[0].MemoryKind != "episodic" || pRecs[0].SourceSessions != "sess-3" {
+		t.Errorf("project memory = %+v", pRecs[0])
+	}
+}

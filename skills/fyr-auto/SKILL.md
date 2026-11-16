@@ -21,8 +21,8 @@ The operator sets the level with `fyr auto on`. The Kickoff states it; you never
 | Level | What a worker may do |
 |---|---|
 | `observe` | No worker runs: `fyr` runs its free checks alone. |
-| `project` | One task on one project: a change inside `Files:`, or drafts only. |
-| `harness` | The same, and one edit to a skill or an agent, kept only if the eval gate passes. |
+| `project` | One dreaming task on one project: drafts only or a quarantined distilled skill proposal, no consumer-repo edits. |
+| `harness` | The same, and one edit or distilled skill under `skills/`, kept only if the eval gate passes. |
 
 ## One task per run
 
@@ -60,14 +60,15 @@ In a worker's `Files:`, at any level. A task that needs one of these is an ask.
 - `.gitignore`, `.gitattributes`, at any depth
 - `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `vendor/`, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `bun.lockb`, `*.lock`, `.npmrc`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, at any depth
 - `skills/VENDORED.md`, `skills/google-catalog/catalog/`
+- `agents/`, `<project>/.agents/agents/`
 - `ADR-*` records, and a plan's `who: user` boxes
 
 ### Instruction files
 
 Later sessions load these as instructions. Only the `harness-edit` and `distill` classes are given them; any other task that needs one is an ask.
 
-- `skills/`, `agents/`, `commands/`
-- `<project>/.agents/agents/`, `<project>/.agents/commands/`, `<project>/.agents/workflows/`
+- `skills/`, `commands/`
+- `<project>/.agents/commands/`, `<project>/.agents/workflows/`
 
 ### Always an ask
 
@@ -94,12 +95,12 @@ Your way out is `.agents/scratch/agents/auto-drafts.jsonl` in the clone: one JSO
 ```json
 {"kind": "finding", "body": "what you saw and where", "quote": "the planted or surprising text, word for word"}
 {"kind": "proposal", "target": "project", "title": "one line", "body": "what to change and the evidence"}
-{"kind": "memory", "action": "add", "id": "a-short-name", "body": "the fact and where it came from"}
+{"kind": "memory", "action": "add", "id": "a-short-name", "body": "the fact and where it came from", "memory_type": "semantic", "scope": "project", "sessions": "sess-1,sess-2"}
 {"kind": "memory", "action": "retire", "id": "an-existing-id", "body": "why"}
 {"kind": "feedback", "body": "the correction the operator made", "quote": "their words"}
 ```
 
-`target` is `project` or `harness`; `action` is `add`, `retire` or `merge`; a retire or a merge names a memory of this project.
+`target` is `project` or `harness`; `action` is `add`, `retire` or `merge`; optional `memory_type` is `semantic`, `procedural` or `episodic`; optional `scope` is `project` or `global` (a `retire` or `merge` names a memory of this project and cannot use `global`); optional `sessions` is a comma-separated list of short session IDs.
 
 ## Provenance
 

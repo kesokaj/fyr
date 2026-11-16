@@ -31,6 +31,7 @@ func TestRubricDenied(t *testing.T) {
 		"skills/VENDORED.md", "skills/google-catalog/catalog/", "skills/google-catalog/catalog/a/SKILL.md",
 		// auto's own contract and code (D36).
 		"internal/auto/", "internal/auto/rubric.go", "skills/fyr-auto/", "skills/fyr-auto/SKILL.md",
+		"agents/", "agents/verifier/agent.md", ".agents/agents/", ".agents/agents/x.md",
 		// .agents/skills links to skills/ in this repository.
 		".agents/skills", ".agents/skills/VENDORED.md", ".agents/skills/google-catalog/catalog/x", ".agents/skills/fyr-auto/SKILL.md",
 		// Names at any depth.
@@ -56,7 +57,7 @@ func TestRubricDenied(t *testing.T) {
 	for _, e := range []string{
 		"README.md", "SDD.md", "TODO.md", "SPEC-greet", "GUIDE-onboarding",
 		"docs/guide.md", "internal/greet/greet.go", "internal/worker.go", "cmd/server/main.go",
-		"skills/fyr-retro/", "skills/fyr-retro/SKILL.md", ".agents/skills/new-one/", "agents/verifier/agent.md",
+		"skills/fyr-retro/", "skills/fyr-retro/SKILL.md", ".agents/skills/new-one/",
 		"latest_test.go.txt", "contexts/x.md", "rules.md", "go.modx", "lock.go", "my-package.json",
 		"web/context/x.md", "web/rules/x.md", "internal/evaluate/x.go", "adr-notes.md",
 	} {
@@ -83,13 +84,13 @@ func TestRubricAllowedFiles(t *testing.T) {
 }
 
 func TestRubricInstruction(t *testing.T) {
-	for _, e := range []string{"skills/", "skills/fyr-retro/SKILL.md", "agents/verifier/agent.md", "commands/x.md",
-		".agents/skills/new/", ".agents/agents/x.md", ".agents/commands/x.md", ".agents/workflows/x.md", ".agents/", "SKILLS/x", "../x"} {
+	for _, e := range []string{"skills/", "skills/fyr-retro/SKILL.md", "commands/x.md",
+		".agents/skills/new/", ".agents/commands/x.md", ".agents/workflows/x.md", ".agents/", "SKILLS/x", "../x"} {
 		if !Instruction(e) {
 			t.Errorf("Instruction(%q) = false, want true", e)
 		}
 	}
-	for _, e := range []string{"README.md", "docs/skills/x.md", "SPEC-greet", "GUIDE-onboarding", "skillset/x.md"} {
+	for _, e := range []string{"README.md", "docs/skills/x.md", "SPEC-greet", "GUIDE-onboarding", "skillset/x.md", "agents/verifier/agent.md", ".agents/agents/x.md"} {
 		if Instruction(e) {
 			t.Errorf("Instruction(%q) = true, want false", e)
 		}

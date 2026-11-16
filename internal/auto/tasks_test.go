@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,29 +14,28 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-// All seven learning classes render valid Kickoff templates with bare Files:
-// for the six drafts-only classes and .agents/skills/<new>/ for distill.
+// All dreaming classes render valid Kickoff templates.
 func TestTasksKickoffTemplates(t *testing.T) {
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	cases := []struct {
 		class      string
+		level      string
 		entries    []string
 		id         string
 		count      int
 		wantFiles  string
 		wantSubstr string
 	}{
-		{ClassMemoryConsolidation, nil, "", 12, "Files:\n", "12 memory record(s)"},
-		{ClassRetroLite, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
-		{ClassMemoryCandidates, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
-		{ClassDistill, []string{".agents/skills/auto-distilled/"}, "", 4, "Files: .agents/skills/auto-distilled/\n", "4 sessions"},
-		{ClassMissingSkill, nil, "PROPOSAL-2026-11-01-1000-missing-skill", 1, "Files:\n", "skills.sh"},
-		{ClassContextAdequacy, nil, "", 5, "Files:\n", "5 session(s) above the 30-day median"},
-		{ClassScaffoldDrift, nil, "", 2, "Files:\n", "2 unedited scaffold file(s)"},
+		{ClassMemoryConsolidation, LevelProject, nil, "", 12, "Files:\n", "12 memory record(s)"},
+		{ClassRetroLite, LevelProject, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
+		{ClassMemoryCandidates, LevelProject, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
+		{ClassDistill, LevelProject, []string{".agents/skills/auto-distilled/"}, "", 4, "Files: .agents/skills/auto-distilled/\n", "4 sessions"},
+		{ClassMissingSkill, LevelProject, nil, "PROPOSAL-2026-11-01-1000-missing-skill", 1, "Files:\n", "skills.sh"},
+		{ClassHarnessEdit, LevelHarness, []string{"skills/foo/"}, "PROPOSAL-2026-11-01-1000-harness", 1, "Files: skills/foo/\n", "Apply the queued harness proposal"},
 	}
 
 	for _, tc := range cases {
-		task, err := PrepareTask(tc.class, LevelProject, tc.entries, tc.id, tc.count)
+		task, err := PrepareTask(tc.class, tc.level, tc.entries, tc.id, tc.count)
 		if err != nil {
 			t.Fatalf("PrepareTask(%s): %v", tc.class, err)
 		}
@@ -139,39 +137,6 @@ func TestTasksTriggers(t *testing.T) {
 			t.Fatalf("got %+v, want distill count 3", task)
 		}
 	})
-
-	t.Run("context-adequacy", func(t *testing.T) {
-		home := t.TempDir()
-		root := initGitRepo(t)
-		writeFakeMetricsDB(t, home, root, []string{"search", "search", "search", "search", "search"}, []int{0, 1, 1, 5, 6})
-		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
-		var p Project
-		task := r.pickProjectTask(root, &p, nil)
-		if task == nil || task.Class != ClassContextAdequacy || task.Count != 2 {
-			t.Fatalf("got %+v, want context-adequacy count 2", task)
-		}
-	})
-
-	t.Run("scaffold-drift", func(t *testing.T) {
-		home := t.TempDir()
-		root := initGitRepo(t)
-		// Write an unedited placeholder SDD.md from an older scaffold.
-		if err := os.WriteFile(filepath.Join(root, "SDD.md"), []byte("# SDD\n\n<!-- TODO: fill in architecture -->\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if out, err := exec.Command("git", "-C", root, "add", "SDD.md").CombinedOutput(); err != nil {
-			t.Fatalf("git add: %v\n%s", err, out)
-		}
-		if out, err := exec.Command("git", "-C", root, "commit", "-q", "-m", "init scaffold").CombinedOutput(); err != nil {
-			t.Fatalf("git commit: %v\n%s", err, out)
-		}
-		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
-		var p Project
-		task := r.pickProjectTask(root, &p, nil)
-		if task == nil || task.Class != ClassScaffoldDrift || task.Count != 1 {
-			t.Fatalf("got %+v, want scaffold-drift count 1", task)
-		}
-	})
 }
 
 func writeFakeMetricsDB(t *testing.T, home, root string, verbs []string, frictions []int) {
@@ -235,6 +200,11 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := brain.Options{Home: home, Global: true, Now: func() time.Time { return now }}
+	if _, err := brain.MemoryAdd(g, brain.MemoryEntry{
+		Type: "feedback", Name: "global-rule", Description: "always vet",
+	}, strings.NewReader("run go vet before commit")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := brain.Add(g, brain.AddInput{
 		Kind: "proposal", Title: "Proposal with secret", Project: root,
 		Body: strings.NewReader("proposal token " + tok),
@@ -267,8 +237,10 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	if !strings.Contains(string(data), "[redacted by fyr]") {
 		t.Errorf("expected [redacted by fyr] in learning input:\n%s", string(data))
 	}
-	if !strings.Contains(string(data), "## Metric numbers") {
-		t.Errorf("expected ## Metric numbers in learning input:\n%s", string(data))
+	for _, want := range []string{"## Metric numbers", "## Trajectory digest", "## Global memory records", "MEMORY-global-rule", "kind ", "validity "} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("expected %q in learning input:\n%s", want, string(data))
+		}
 	}
 	cleanLearningInput(root)
 	if _, err := os.Stat(inPath); !os.IsNotExist(err) {
@@ -304,4 +276,69 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 		t.Errorf("after memory-candidates progress: %+v", p)
 	}
 	cleanLearningInput(root)
+}
+
+func TestDreamingOnlyClassSet(t *testing.T) {
+	want := map[string]bool{
+		ClassMemoryConsolidation: true,
+		ClassRetroLite:           true,
+		ClassMemoryCandidates:    true,
+		ClassDistill:             true,
+		ClassMissingSkill:        true,
+		ClassHarnessEdit:         true,
+	}
+	if len(classOrder) != len(want) {
+		t.Fatalf("classOrder has %d classes, want %d: %+v", len(classOrder), len(want), classOrder)
+	}
+	for _, c := range classOrder {
+		if !want[c.Name] {
+			t.Errorf("unexpected class %q in classOrder", c.Name)
+		}
+		if c.Outcome == "applied" || c.Outcome == "eval" {
+			t.Errorf("class %q has non-dreaming outcome %q", c.Name, c.Outcome)
+		}
+	}
+	for _, removed := range []string{
+		"spec-drift", "doc-drift", "onboarding",
+		"context-adequacy", "scaffold-drift", "eval-rerun", "mini-audit",
+	} {
+		if _, ok := lookupClass(removed); ok {
+			t.Errorf("deleted class %q still present in classOrder", removed)
+		}
+	}
+}
+
+func TestDistillRouting(t *testing.T) {
+	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+
+	t.Run("harness-checkout-eval-gate", func(t *testing.T) {
+		home := t.TempDir()
+		root := initGitRepo(t)
+		writeFakeMetricsDB(t, home, root, []string{"search,record", "search,record", "search,record"}, []int{0, 0, 0})
+		r := &run{o: Options{Home: home, RealHome: home, Repo: root, Now: func() time.Time { return now }}, cfg: Config{Level: LevelHarness}}
+		var p Project
+		task := r.triggerProjectClass(root, &p, ClassDistill, nil)
+		if task == nil || task.Class != ClassDistill || task.Outcome != OutcomeEvalGate || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], "skills/auto-distilled-") {
+			t.Fatalf("harness distill = %+v, want OutcomeEvalGate and skills/auto-distilled-*", task)
+		}
+	})
+
+	t.Run("consumer-project-proposal", func(t *testing.T) {
+		home := t.TempDir()
+		root := initGitRepo(t)
+		other := initGitRepo(t)
+		writeFakeMetricsDB(t, home, root, []string{"search,record", "search,record", "search,record"}, []int{0, 0, 0})
+		r := &run{o: Options{Home: home, RealHome: home, Repo: other, Now: func() time.Time { return now }}, cfg: Config{Level: LevelHarness}}
+		var p Project
+		task := r.triggerProjectClass(root, &p, ClassDistill, nil)
+		if task == nil || task.Class != ClassDistill || task.Outcome != OutcomeProposal || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], ".agents/skills/auto-distilled-") {
+			t.Fatalf("consumer distill = %+v, want OutcomeProposal and .agents/skills/auto-distilled-*", task)
+		}
+	})
+}
+
+func TestEvalRerunTriggers(t *testing.T) {
+	if _, ok := lookupClass("eval-rerun"); ok {
+		t.Fatal("eval-rerun must be absent")
+	}
 }

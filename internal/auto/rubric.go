@@ -19,6 +19,7 @@ var (
 		"internal/isolate/", "internal/redact/", "cmd/fyr/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",
 		"skills/VENDORED.md", "skills/google-catalog/catalog/",
+		"agents/", ".agents/agents/",
 	}
 	// deniedNames are base names at any depth, as path.Match patterns.
 	deniedNames = []string{
@@ -40,8 +41,8 @@ var (
 	// past the list above, only the classes that are judged as such a change
 	// are given them (D42).
 	instructionRoots = []string{
-		"skills/", "agents/", "commands/",
-		".agents/agents/", ".agents/commands/", ".agents/workflows/",
+		"skills/", "commands/",
+		".agents/commands/", ".agents/workflows/",
 	}
 )
 

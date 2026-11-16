@@ -66,10 +66,6 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 		p.LastClass = t.Class
 		return fmt.Sprintf("ask %s (%s needs rubric-denied %s)", askID, t.Class, strings.Join(t.Denied, ", ")), extra
 	}
-	if t.Class == ClassEvalRerun {
-		v, ef := r.execEvalRerun(root, p, *t)
-		return v, append(extra, ef...)
-	}
 	v, wf := r.execWorker(root, p, *t)
 	return v, append(extra, wf...)
 }
@@ -210,34 +206,12 @@ func (r *run) recordLearningProgress(p *Project, t Task) {
 	case ClassMemoryCandidates:
 		p.LastMemoryCandidates = now
 		p.PendingMemoryCandidates = 0
-	case ClassMiniAudit:
-		p.LastMiniAudit = now
 	}
 }
 
 func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if t.Outcome == OutcomeEvalGate {
 		return r.evalGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
-	}
-	if t.Outcome == OutcomeApplied {
-		if r.o.Apply == nil {
-			return r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
-		}
-		applied, err := r.o.Apply(root, k.Branch, t.Class)
-		if err != nil {
-			r.failed = true
-			msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
-			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
-		}
-		if applied {
-			if err := deleteBranch(root, k.Branch); err != nil {
-				r.failed = true
-				msg := withRunner(fmt.Sprintf("FAIL (branch delete: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
-				return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
-			}
-			msg := withRunner(fmt.Sprintf("PASS; applied, branch %s deleted", k.Branch), runnerWhy)
-			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
-		}
 	}
 	msg := withRunner(fmt.Sprintf("PASS; branch %s kept", k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}

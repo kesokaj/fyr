@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
@@ -52,9 +53,17 @@ func lookRealGit() (string, error) {
 const baseSpecLine = `{"id":"SPEC-greet","kind":"spec","status":"current","date":"2026-10-01","title":"Greeting spec","body":"# SPEC-greet\n\nCode: ` + "`internal/greet/greet.go`" + `\n","updated":"2026-10-01T00:00:00Z"}` + "\n"
 const baseUserPlanLine = `{"id":"PLAN-2026-10-01-user-box","kind":"plan","status":"open","date":"2026-10-01","title":"Plan with user box","body":"# Plan\n\n- [ ] Approve — who: user\n","updated":"2026-10-01T00:00:00Z"}` + "\n"
 
-// applyFixture builds an idle, clean repository with its bare remote, local
-// user.name/user.email, a stale spec SPEC-greet, and the given AGENTS.md text.
-func applyFixture(t *testing.T, agentsMD string) string {
+const harnessApplyConfig = `{"enabled": true, "level": "harness", "project_idle": "6h", "user_idle": "15m"}`
+
+const applyGreetSuite = "# GUIDE-eval\n\n" +
+	"| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
+	"|---|---|---|---|---|---|---|---|---|---|---|\n" +
+	"| `greet` |  | use skills/greet/SKILL.md |  | `true` |  | named | 1 | regression | greet |  |\n"
+
+// applyFixture builds an idle, clean harness repository with its bare remote,
+// local user.name/user.email, skills/greet/SKILL.md, GUIDE-eval, holdout.md, a
+// queued harness proposal, and the given AGENTS.md text.
+func applyFixture(t *testing.T, home, agentsMD string) string {
 	t.Helper()
 	root := idleProject(t)
 	git(t, root, "config", "user.name", "Fixture Author")
@@ -62,16 +71,47 @@ func applyFixture(t *testing.T, agentsMD string) string {
 	if agentsMD != "" {
 		writeTree(t, root, "AGENTS.md", agentsMD)
 	}
+	writeTree(t, root, "skills/greet/SKILL.md", "---\nname: greet\ndescription: greet\n---\n# greet v1\n")
 	writeTree(t, root, "internal/greet/greet.go", "package greet\n\nfunc Greet() string { return \"hi\" }\n")
 	writeTree(t, root, ".agents/trail.jsonl", baseSpecLine+baseUserPlanLine)
 	git(t, root, "add", ".")
-	git(t, root, "commit", "-q", "-m", "fixture: spec and agents")
-	writeTree(t, root, "internal/greet/greet.go", "package greet\n\n// Added comment.\nfunc Greet() string { return \"hi\" }\n")
-	git(t, root, "add", "internal/greet/greet.go")
-	git(t, root, "commit", "-q", "-m", "fixture: code change after spec")
+	git(t, root, "commit", "-q", "-m", "fixture: skill and agents")
 	git(t, root, "push", "-q")
 	backdate(t, root)
+
+	nowFn := func() time.Time { return runAt.Add(-9 * time.Hour) }
+	if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: nowFn}, brain.AddInput{
+		ID:     "GUIDE-eval",
+		Kind:   "guide",
+		Status: "current",
+		Title:  "GUIDE-eval",
+		Body:   strings.NewReader(applyGreetSuite),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "holdout.md"), []byte(testGateHoldoutSuite), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: nowFn}, brain.AddInput{
+		Kind:   "proposal",
+		Status: "queued",
+		Title:  "Auto, harness — update skills/greet/",
+		Body:   strings.NewReader("Target: harness\nEvidence: sess-1, sess-2\n\nUpdate `skills/greet/SKILL.md`.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	return root
+}
+
+func applyOpts(home, root string, out *bytes.Buffer) Options {
+	o := driftOpts(home, root, out)
+	o.Repo = root
+	o.RealHome = home
+	o.HoldoutFile = filepath.Join(home, "holdout.md")
+	o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+		return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, Errors: 0, RecordID: "TEST-gate"}, nil
+	}
+	return o
 }
 
 const defaultAgentsMD = "# AGENTS.md\n\n## Setup commands\n\n```bash\ntrue   # auto: test\n```\n"
@@ -105,13 +145,13 @@ func commitPlumbing(t *testing.T, root, parent, mode, path, content, msg string)
 }
 
 // makeWorkerBranch creates refs/heads/work/<name> in root with two commits that
-// restamp SPEC-greet and add a worker handoff record, without moving HEAD.
+// update skills/greet/SKILL.md and add a worker handoff record, without moving HEAD.
 func makeWorkerBranch(t *testing.T, root, name, handoffID string) string {
 	t.Helper()
 	base := git(t, root, "rev-parse", "HEAD")
-	trailText := `{"id":"SPEC-greet","kind":"spec","status":"current","date":"2026-10-01","title":"Greeting spec","body":"# SPEC-greet\n\nCode: ` + "`internal/greet/greet.go`" + `\n\nRestamped.\n","updated":"2026-11-01T11:55:00Z"}` + "\n" + baseUserPlanLine
-	c1 := commitPlumbing(t, root, base, "100644", ".agents/trail.jsonl", trailText, "worker: restamp SPEC-greet")
-	handoffLine := `{"id":"` + handoffID + `","kind":"handoff","status":"","date":"2026-11-01","title":"Handoff — restamp SPEC-greet","body":"# Handoff\n\nRestamped SPEC-greet.\n","updated":"2026-11-01T11:56:00Z"}` + "\n"
+	c1 := commitPlumbing(t, root, base, "100644", "skills/greet/SKILL.md", "---\nname: greet\ndescription: greet\n---\n# greet updated\n", "worker: update greet skill")
+	trailText := baseSpecLine + baseUserPlanLine
+	handoffLine := `{"id":"` + handoffID + `","kind":"handoff","status":"","date":"2026-11-01","title":"Handoff — update greet skill","body":"# Handoff\n\nUpdated skills/greet/SKILL.md.\n","updated":"2026-11-01T11:56:00Z"}` + "\n"
 	c2 := commitPlumbing(t, root, c1, "100644", ".agents/trail.jsonl", trailText+handoffLine, "worker: handoff")
 	git(t, root, "update-ref", "refs/heads/work/"+name, c2)
 	return c2
@@ -130,7 +170,7 @@ func fakePassWork(t *testing.T, root, baseHead, handoffID string, branchOut *str
 			Base:    baseHead,
 			Head:    tip,
 			Commits: 2,
-			Handoff: &isolate.WorkerRecord{ID: handoffID, Kind: "handoff", Title: "Handoff — restamp SPEC-greet"},
+			Handoff: &isolate.WorkerRecord{ID: handoffID, Kind: "handoff", Title: "Handoff — update greet skill"},
 		}}, nil
 	}
 }
@@ -140,14 +180,14 @@ func TestApplyHappyPath(t *testing.T) {
 	home := t.TempDir()
 	markerFile := filepath.Join(t.TempDir(), "test-ran")
 	agents := "# AGENTS.md\n\n## Setup commands\n\n```bash\ntest -z \"${GIT_DIR:-}\" && printf ok > " + isolate.ShellQuote(markerFile) + "   # auto: test\n```\n"
-	root := applyFixture(t, agents)
+	root := applyFixture(t, home, agents)
 	baseHead := git(t, root, "rev-parse", "HEAD")
-	writeConfig(t, home, validConfig)
+	writeConfig(t, home, harnessApplyConfig)
 
-	const handoffID = "HANDOFF-2026-11-01-1156-handoff-restamp-spec-greet"
+	const handoffID = "HANDOFF-2026-11-01-1156-handoff-update-greet"
 	var branch string
 	var out bytes.Buffer
-	o := driftOpts(home, root, &out)
+	o := applyOpts(home, root, &out)
 	passWork := fakePassWork(t, root, baseHead, handoffID, &branch)
 	o.Work = func(ctx context.Context, wopts isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		res, err := passWork(ctx, wopts, paths...)
@@ -177,7 +217,7 @@ func TestApplyHappyPath(t *testing.T) {
 		}
 	}
 	subj := git(t, root, "log", "-1", "--format=%s")
-	if !strings.HasPrefix(subj, "auto: spec-drift — ") {
+	if !strings.HasPrefix(subj, "auto: harness-edit — ") {
 		t.Errorf("subject = %q", subj)
 	}
 	body := git(t, root, "log", "-1", "--format=%B")
@@ -256,13 +296,13 @@ func TestApplyMovedCheckoutKeepsBranch(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			root := applyFixture(t, defaultAgentsMD)
+			root := applyFixture(t, home, defaultAgentsMD)
 			baseHead := git(t, root, "rev-parse", "HEAD")
-			writeConfig(t, home, validConfig)
+			writeConfig(t, home, harnessApplyConfig)
 
 			var branch string
 			var out bytes.Buffer
-			o := driftOpts(home, root, &out)
+			o := applyOpts(home, root, &out)
 			o.TestRunner = func(wtDir, _ string, cmdLine string) error {
 				tc.mutate(t, root, baseHead)
 				return runShellTest(wtDir, cmdLine, o.limit(workerTimeout))
@@ -285,13 +325,13 @@ func TestApplyMovedCheckoutKeepsBranch(t *testing.T) {
 func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
 	t.Run("marked-test-fails", func(t *testing.T) {
 		home := t.TempDir()
-		root := applyFixture(t, "# AGENTS.md\n\n## Setup commands\n\n```bash\nfalse   # auto: test\n```\n")
+		root := applyFixture(t, home, "# AGENTS.md\n\n## Setup commands\n\n```bash\nfalse   # auto: test\n```\n")
 		baseHead := git(t, root, "rev-parse", "HEAD")
-		writeConfig(t, home, validConfig)
+		writeConfig(t, home, harnessApplyConfig)
 
 		var branch string
 		var out bytes.Buffer
-		o := driftOpts(home, root, &out)
+		o := applyOpts(home, root, &out)
 		o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-red", &branch)
 		err := Run(o, false)
 		if exit(err) != 1 {
@@ -307,18 +347,18 @@ func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
 
 	t.Run("fyr-check-fails-when-prd-present", func(t *testing.T) {
 		home := t.TempDir()
-		root := applyFixture(t, defaultAgentsMD)
+		root := applyFixture(t, home, defaultAgentsMD)
 		writeTree(t, root, "PRD.md", "# PRD\n\n## Must\n\n- **R1** — Req.\n  <!-- provenance: op, 2026-11-01; enforced by: TestNonExistentCheckPin -->\n")
 		git(t, root, "add", "PRD.md")
 		git(t, root, "commit", "-q", "-m", "add prd with missing test pin")
 		git(t, root, "push", "-q")
 		backdate(t, root)
 		baseHead := git(t, root, "rev-parse", "HEAD")
-		writeConfig(t, home, validConfig)
+		writeConfig(t, home, harnessApplyConfig)
 
 		var branch string
 		var out bytes.Buffer
-		o := driftOpts(home, root, &out)
+		o := applyOpts(home, root, &out)
 		o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-prd", &branch)
 		err := Run(o, false)
 		if exit(err) != 1 {
@@ -346,13 +386,13 @@ func TestApplyNoMarkedTestBecomesProposal(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			root := applyFixture(t, tc.agentsMD)
+			root := applyFixture(t, home, tc.agentsMD)
 			baseHead := git(t, root, "rev-parse", "HEAD")
-			writeConfig(t, home, validConfig)
+			writeConfig(t, home, harnessApplyConfig)
 
 			var branch string
 			var out bytes.Buffer
-			o := driftOpts(home, root, &out)
+			o := applyOpts(home, root, &out)
 			o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-notest", &branch)
 			if err := Run(o, false); err != nil {
 				t.Fatalf("expected exit 0, got %v\n%s", err, out.String())
@@ -378,7 +418,7 @@ func TestApplyNoMarkedTestBecomesProposal(t *testing.T) {
 func TestApplyHooksAndGPGSignOff(t *testing.T) {
 	logFile := installLoggingGit(t)
 	home := t.TempDir()
-	root := applyFixture(t, defaultAgentsMD)
+	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")
 
 	sentinel := filepath.Join(t.TempDir(), "hook-ran")
@@ -391,10 +431,10 @@ func TestApplyHooksAndGPGSignOff(t *testing.T) {
 	git(t, root, "config", "tag.gpgSign", "true")
 	git(t, root, "config", "gpg.program", filepath.Join(t.TempDir(), "no-such-gpg"))
 	backdate(t, root)
-	writeConfig(t, home, validConfig)
+	writeConfig(t, home, harnessApplyConfig)
 
 	var out bytes.Buffer
-	o := driftOpts(home, root, &out)
+	o := applyOpts(home, root, &out)
 	o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-hooks", nil)
 	if err := Run(o, false); err != nil {
 		t.Fatalf("Run failed under planted hooks/gpgsign: %v\n%s", err, out.String())
@@ -413,7 +453,7 @@ func TestApplyHooksAndGPGSignOff(t *testing.T) {
 			seen *bool
 		}{
 			{"merge --squash", &sawMergeSquash},
-			{"auto: spec-drift", &sawCommit},
+			{"auto: harness-edit", &sawCommit},
 			{"merge --ff-only", &sawMergeFF},
 		} {
 			if strings.Contains(line, want.sub) {
@@ -433,15 +473,15 @@ func TestApplyHooksAndGPGSignOff(t *testing.T) {
 
 func TestApplyNoPushFetchOrLsRemoteInGitLog(t *testing.T) {
 	home := t.TempDir()
-	root := applyFixture(t, defaultAgentsMD)
+	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")
-	name := "auto-spec-drift-202611011200"
+	name := "auto-harness-edit-202611011200"
 	tip := makeWorkerBranch(t, root, name, "HANDOFF-2026-11-01-1156-net")
-	writeConfig(t, home, validConfig)
+	writeConfig(t, home, harnessApplyConfig)
 
 	logFile := installLoggingGit(t)
 	var out bytes.Buffer
-	o := driftOpts(home, root, &out)
+	o := applyOpts(home, root, &out)
 	o.Work = func(_ context.Context, _ isolate.WorkerOptions, _ ...string) ([]isolate.WorkerResult, error) {
 		return []isolate.WorkerResult{{
 			Name:    name,
@@ -489,30 +529,29 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			root := applyFixture(t, defaultAgentsMD)
+			root := applyFixture(t, home, defaultAgentsMD)
 			baseHead := git(t, root, "rev-parse", "HEAD")
-			writeConfig(t, home, validConfig)
+			writeConfig(t, home, harnessApplyConfig)
 
-			var branch string
+			branch := "work/auto-denied-202611011200"
+			tip := commitPlumbing(t, root, baseHead, tc.mode, tc.path, tc.content, "worker: denied change")
+			git(t, root, "update-ref", "refs/heads/"+branch, tip)
+
 			var out bytes.Buffer
-			o := driftOpts(home, root, &out)
-			o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
-				name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
-				branch = "work/" + name
-				tip := commitPlumbing(t, root, baseHead, tc.mode, tc.path, tc.content, "worker: denied change")
-				git(t, root, "update-ref", "refs/heads/"+branch, tip)
-				return []isolate.WorkerResult{{
-					Name:    name,
-					Verdict: "PASS",
-					Base:    baseHead,
-					Head:    tip,
-					Commits: 1,
-					Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-denied", Kind: "handoff"},
-				}}, nil
+			o := applyOpts(home, root, &out)
+			r := &run{o: o, env: o.env(), say: func(string) {}, cfg: Config{Enabled: true, Level: LevelHarness, ProjectIdle: "6h", UserIdle: "15m"}, st: State{Date: "2026-11-01"}}
+			snap, snapErr := takeCheckoutSnapshot(root)
+			res := isolate.WorkerResult{
+				Name:    "auto-denied-202611011200",
+				Verdict: "PASS",
+				Base:    baseHead,
+				Head:    tip,
+				Commits: 1,
+				Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-denied", Kind: "handoff"},
 			}
-			err := Run(o, false)
-			if exit(err) != 1 {
-				t.Fatalf("expected exit 1 on rubric-denied branch change, got %v\n%s", err, out.String())
+			msg, _ := r.applyBranch(root, Task{Class: ClassMemoryConsolidation, Level: LevelProject}, Kickoff{Branch: branch}, isolate.RunnerIsolate, isolate.RunnerIsolate, snap, snapErr, res)
+			if !r.failed {
+				t.Fatalf("expected applyBranch to fail on rubric-denied branch change, got msg=%q", msg)
 			}
 			if got := git(t, root, "rev-parse", "HEAD"); got != baseHead {
 				t.Errorf("HEAD moved on denied change: %s -> %s", baseHead, got)
@@ -526,15 +565,15 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 
 func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 	home := t.TempDir()
-	root := applyFixture(t, defaultAgentsMD)
+	root := applyFixture(t, home, defaultAgentsMD)
 	baseHead := git(t, root, "rev-parse", "HEAD")
-	writeConfig(t, home, validConfig)
+	writeConfig(t, home, harnessApplyConfig)
 
 	env := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
 	var branch string
 	testRan := false
 	var out bytes.Buffer
-	o := driftOpts(home, root, &out)
+	o := applyOpts(home, root, &out)
 	o.Env = env
 	o.TestRunner = func(string, string, string) error {
 		testRan = true

@@ -8,16 +8,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/search"
-	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func init() {
@@ -37,33 +34,20 @@ func init() {
 
 // The model task classes of § Task classes, in priority order.
 const (
-	ClassSpecDrift           = "spec-drift"
-	ClassDocDrift            = "doc-drift"
 	ClassMemoryConsolidation = "memory-consolidation"
 	ClassRetroLite           = "retro-lite"
 	ClassMemoryCandidates    = "memory-candidates"
-	ClassOnboarding          = "onboarding"
 	ClassDistill             = "distill"
 	ClassMissingSkill        = "missing-skill"
-	ClassContextAdequacy     = "context-adequacy"
-	ClassScaffoldDrift       = "scaffold-drift"
-	ClassEvalRerun           = "eval-rerun"
 	ClassHarnessEdit         = "harness-edit"
-	ClassMiniAudit           = "mini-audit"
 )
 
 // Outcomes of a worker class.
 const (
-	OutcomeApplied  = "applied"
 	OutcomeDrafts   = "drafts"
 	OutcomeProposal = "proposal"
-	OutcomeEval     = "eval"
 	OutcomeEvalGate = "eval-gate"
 )
-
-// onboardingCommitLimit is the commit age at which GUIDE-onboarding triggers
-// the onboarding class (§ Task classes).
-const onboardingCommitLimit = 50
 
 type classSpec struct {
 	Name, Level, Outcome     string
@@ -71,19 +55,12 @@ type classSpec struct {
 }
 
 var classOrder = []classSpec{
-	{ClassSpecDrift, LevelProject, OutcomeApplied, false, false},
-	{ClassDocDrift, LevelProject, OutcomeApplied, false, false},
 	{ClassMemoryConsolidation, LevelProject, OutcomeDrafts, false, true},
 	{ClassRetroLite, LevelProject, OutcomeDrafts, false, true},
 	{ClassMemoryCandidates, LevelProject, OutcomeDrafts, false, true},
-	{ClassOnboarding, LevelProject, OutcomeApplied, false, false},
 	{ClassDistill, LevelProject, OutcomeProposal, true, false},
 	{ClassMissingSkill, LevelProject, OutcomeDrafts, false, true},
-	{ClassContextAdequacy, LevelProject, OutcomeDrafts, false, true},
-	{ClassScaffoldDrift, LevelProject, OutcomeDrafts, false, true},
-	{ClassEvalRerun, LevelHarness, OutcomeEval, false, true},
 	{ClassHarnessEdit, LevelHarness, OutcomeEvalGate, true, false},
-	{ClassMiniAudit, LevelHarness, OutcomeDrafts, false, true},
 }
 
 // Task is one model task chosen for a project, after the rubric filtered its
@@ -93,7 +70,6 @@ type Task struct {
 	DraftsOnly                      bool
 	Kept, Denied                    []string
 	Count                           int
-	Reruns                          []EvalRerunRow
 }
 
 // Kickoff is the file written to ~/.config/fyr/auto/kickoffs/ for work.Run.
@@ -235,35 +211,21 @@ func AttachProjectCapsule(root, conversationID string, k Kickoff) Kickoff {
 func renderClassTask(t Task) (string, error) {
 	files := strings.Join(t.Kept, ", ")
 	switch t.Class {
-	case ClassSpecDrift:
-		return fmt.Sprintf("Update the stale spec record(s) %s against the code they describe with fyr record edit.", files), nil
-	case ClassDocDrift:
-		return fmt.Sprintf("Update %s to fix the %d drift finding(s) fyr check reported.", files, t.Count), nil
 	case ClassMemoryConsolidation:
 		return fmt.Sprintf("Consolidate this project's %d memory record(s) since the last consolidation: write retire, merge and proposal drafts to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassRetroLite:
 		return fmt.Sprintf("Review the %d redacted conversation(s) under .agents/scratch/auto-input/ and write proposal, feedback and finding drafts to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassMemoryCandidates:
 		return fmt.Sprintf("Extract memory candidates from the %d redacted conversation(s) under .agents/scratch/auto-input/ as memory add drafts in .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
-	case ClassOnboarding:
-		return fmt.Sprintf("Update %s (older than %d commits) against the current codebase with fyr record edit.", files, t.Count), nil
 	case ClassDistill:
 		return fmt.Sprintf("Distill the repeated verb sequence (%d sessions) into %s and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count, files), nil
 	case ClassMissingSkill:
 		return fmt.Sprintf("Search skills.sh for the missing skill from %s (%d candidate(s)) and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.ID, t.Count), nil
-	case ClassContextAdequacy:
-		return fmt.Sprintf("Analyze the project's retries and denials (%d session(s) above the 30-day median) and write a context proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
-	case ClassScaffoldDrift:
-		return fmt.Sprintf("Compare the %d unedited scaffold file(s) with fyr-init-project's templates and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
-	case ClassEvalRerun:
-		return fmt.Sprintf("Re-run %d due GUIDE-eval row(s) through fyr eval.", t.Count), nil
 	case ClassHarnessEdit:
 		if t.ID == "" {
 			return "", errors.New("harness-edit requires a proposal ID")
 		}
 		return fmt.Sprintf("Apply the queued harness proposal %s to %s.", t.ID, files), nil
-	case ClassMiniAudit:
-		return fmt.Sprintf("Run a read-only mini-audit of the harness (%d days since the last one) and write finding drafts to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	default:
 		return "", fmt.Errorf("unknown auto task class %q", t.Class)
 	}
@@ -357,67 +319,4 @@ func preparedTask(class, level string, entries []string, id string, count int) *
 		return nil
 	}
 	return &t
-}
-
-func triggerSpecDrift(level string, findings []Finding) *Task {
-	var ids []string
-	for _, f := range findings {
-		if f.Check == "check" && f.Rule == "spec-stale" && recordForm.MatchString(f.Where) && !slices.Contains(ids, f.Where) {
-			ids = append(ids, f.Where)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	return preparedTask(ClassSpecDrift, level, ids, "", len(ids))
-}
-
-func triggerDocDrift(level string, findings []Finding) *Task {
-	var docs []string
-	count := 0
-	for _, f := range findings {
-		if f.Check == "check" && (f.Rule == "verb" || f.Rule == "subverb" || f.Rule == "flag" || f.Rule == "path" || f.Rule == "line") {
-			if doc, _, _ := strings.Cut(f.Where, ":"); isDocTarget(doc) {
-				count++
-				if !slices.Contains(docs, doc) {
-					docs = append(docs, doc)
-				}
-			}
-		}
-	}
-	if len(docs) == 0 {
-		return nil
-	}
-	return preparedTask(ClassDocDrift, level, docs, "", count)
-}
-
-func isDocTarget(doc string) bool {
-	if recordForm.MatchString(doc) {
-		return strings.HasPrefix(doc, "SPEC-") || strings.HasPrefix(doc, "GUIDE-") || strings.HasPrefix(doc, "DEPLOY-")
-	}
-	return strings.HasSuffix(strings.ToLower(doc), ".md") && validTypedEntry(doc)
-}
-
-func onboardingAge(home, root string) int {
-	recs, _, err := brain.ReadScope(home, root)
-	if err != nil {
-		return 0
-	}
-	var since string
-	for _, r := range recs {
-		if r.ID == "GUIDE-onboarding" {
-			if since = r.Updated; since == "" {
-				since = r.Date
-			}
-		}
-	}
-	if since == "" {
-		return 0
-	}
-	out, err := trail.Command(root, "rev-list", "--count", "--since="+since, "HEAD").Output()
-	if err != nil {
-		return 0
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-	return n
 }

@@ -13,6 +13,14 @@ import (
 	"github.com/kesokaj/fyr/internal/isolate"
 )
 
+const testHarnessSuite = "# GUIDE-eval\n\n" +
+	"| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
+	"|---|---|---|---|---|---|---|---|---|---|---|\n" +
+	"| `alpha` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
+	"| `agent-reviewer` |  | dispatch reviewer |  | `true` | reviewer | named | 1 | adversarial | agent-reviewer |  |\n" +
+	"| `smoke` |  | say hi |  | `true` |  | named | 1 | regression | smoke |  |\n" +
+	"| `untouched` |  | use skills/beta/SKILL.md |  | `true` |  | named | 1 | capability | untouched |  |\n"
+
 const testGateHoldoutSuite = "# Holdout suite\n\n" +
 	"| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
 	"|---|---|---|---|---|---|---|---|---|---|---|\n" +
@@ -319,7 +327,7 @@ func TestEvalGate(t *testing.T) {
 		}
 	})
 
-	t.Run("subprocess-checkout-commit-and-mini-audit-trigger", func(t *testing.T) {
+	t.Run("subprocess-checkout-commit-and-no-repo-trigger", func(t *testing.T) {
 		home := t.TempDir()
 		realHome := t.TempDir()
 		root, holdoutPath, _ := initHarnessEvalGateFixture(t, home, realHome, "")
@@ -346,24 +354,44 @@ func TestEvalGate(t *testing.T) {
 		}
 
 		rNoRepo := &run{o: Options{Home: home, Now: func() time.Time { return runAt }}, cfg: Config{Level: LevelHarness}}
-		var zeroProj Project
-		if rNoRepo.triggerHarnessEdit(root) != nil || rNoRepo.triggerMiniAudit(root, &zeroProj) != nil || rNoRepo.triggerEvalRerun(root, &zeroProj) != nil {
-			t.Fatalf("level-harness triggers fired with empty Repo")
+		if rNoRepo.triggerHarnessEdit(root) != nil {
+			t.Fatalf("level-harness trigger fired with empty Repo")
 		}
+	})
 
-		now := runAt
-		rHarn := &run{o: Options{Home: home, Repo: root, Now: func() time.Time { return now }}, cfg: Config{Level: LevelHarness}}
-		var p Project
-		if task := rHarn.triggerMiniAudit(root, &p); task != nil || !p.LastMiniAudit.Equal(runAt) {
-			t.Fatalf("first triggerMiniAudit(zero) = %+v, LastMiniAudit = %v; want nil and seeded %v", task, p.LastMiniAudit, runAt)
+	t.Run("agents-denied-in-changed-targets", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
+		base := git(t, root, "rev-parse", "HEAD")
+		tip := commitPlumbing(t, root, base, "100644", "agents/reviewer/agent.md", "---\nname: reviewer\ndescription: reviewer\n---\n# reviewer v2\n", "touch denied agent")
+		if _, err := changedHarnessTargets(root, base, tip); err == nil || !strings.Contains(err.Error(), "outside skills/<s>/") {
+			t.Fatalf("changedHarnessTargets accepted agents/: %v", err)
 		}
-		now = runAt.Add(3 * 24 * time.Hour)
-		if task := rHarn.triggerMiniAudit(root, &p); task != nil {
-			t.Fatalf("triggerMiniAudit(3d) = %+v, want nil", task)
+	})
+
+	t.Run("distill-without-eval-row-uses-regression-and-holdout", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, holdoutPath, _ := initHarnessEvalGateFixture(t, home, realHome, "")
+		rows, err := collectGateRows(home, root, holdoutPath, []string{"auto-distilled-newskill"}, ClassDistill)
+		if err != nil {
+			t.Fatalf("collectGateRows(ClassDistill): %v", err)
 		}
-		now = runAt.Add(8 * 24 * time.Hour)
-		if task := rHarn.triggerMiniAudit(root, &p); task == nil || task.Class != ClassMiniAudit || task.Count != 8 {
-			t.Fatalf("triggerMiniAudit(8d from zero Project) = %+v, want mini-audit with count 8", task)
+		var sawSmoke, sawHoldout bool
+		for _, gr := range rows {
+			if gr.ID == "smoke" && gr.IsRegression {
+				sawSmoke = true
+			}
+			if gr.ID == "secret-holdout" && gr.IsHoldout {
+				sawHoldout = true
+			}
+		}
+		if !sawSmoke || !sawHoldout {
+			t.Errorf("collectGateRows(ClassDistill) rows = %+v; want smoke regression and secret-holdout", rows)
+		}
+		if _, err := collectGateRows(home, root, holdoutPath, []string{"auto-distilled-newskill"}, ClassHarnessEdit); err == nil {
+			t.Fatalf("collectGateRows(ClassHarnessEdit) succeeded without matching GUIDE-eval row")
 		}
 	})
 
@@ -414,4 +442,18 @@ func TestEvalGate(t *testing.T) {
 			t.Fatalf("proposal missing ## Eval gate after verifyBranchForApply failure:\n%s", prop2.Body)
 		}
 	})
+}
+
+type countingUsageEnv struct {
+	*fakeEnv
+	calls      *int
+	secondText string
+}
+
+func (c *countingUsageEnv) Usage(home, dir string) (string, error) {
+	*c.calls++
+	if *c.calls >= 2 && c.secondText != "" {
+		return c.secondText, nil
+	}
+	return c.fakeEnv.Usage(home, dir)
 }
