@@ -12,7 +12,7 @@ Antigravity sessions start stateless and truncate global rules beyond `24,000` b
 
 - **Context drifts across machines.** Rules and skills tweaked on a laptop are missing on a workstation a week later. `fyr install` deploys the exact same context, skills, subagents, rules, and `< 250 ms` fail-open CLI hooks (`~/.gemini/config/hooks.json`) on every machine, and `fyr status` / `fyr diff` catch drift immediately.
 - **Sessions forget.** When an `agy` conversation ends or compacts, architectural decisions, bug root causes, and multi-phase plans disappear unless recorded. `fyr` keeps a searchable SQLite + FTS5 trail (`~/.config/fyr/brain.db`) and validity-scored `semantic`/`procedural`/`episodic` memory (`project` and `--global`), backed by a pure-Go AST symbol/call graph (`.agents/scratch/search.db`) that injects Turn-0 context capsules and re-primes state after compaction.
-- **A CLI cannot measure or verify itself.** `fyr metrics` and `fyr report` track session shapes, token trajectories, and trigger coverage without storing prose; `fyr eval` runs behavioral suites inside OS-isolated sandboxes; and `fyr dream` / `fyr auto` consolidate memory and propose eval-gated skill improvements during idle hours.
+- **A CLI cannot measure or verify itself.** `fyr metrics` and `fyr report` track session shapes, token trajectories, conversation ratings, and trigger coverage without storing prose; `fyr eval` runs behavioral suites inside OS-isolated sandboxes; and `fyr dream` / `fyr auto` consolidate memory, rate stale conversations, and propose eval-gated skill improvements across all workspaces.
 
 ## Feature Guides & Architecture
 
@@ -35,12 +35,12 @@ flowchart TB
 | Feature Guide | Components | Key CLI Verbs | What It Covers |
 |---|---|---|---|
 | [Delivery, Installer & Customization](features/delivery-and-customization.md) | M1–M6 | `fyr install`, `fyr update`, `fyr status`, `fyr adopt` | Atomic `~/.gemini/config/` deployment, three delivery paths, stack overrides, size budgets, and allowlist lint |
-| [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) | M8 | `fyr search`, `fyr index` | `< 250 ms` lifecycle hooks, 9-mode intent vetter, SHA-256 read ledger, `[CLAMPED]` skeletons, and PageRank AST slicing |
+| [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) | M8 | `fyr search`, `fyr index` | `< 250 ms` lifecycle hooks, 9-mode intent vetter, subtask decomposition, worker JIT capsules, `[COORDINATOR_GUARD]`, SHA-256 read ledger, `[CLAMPED]` skeletons, and PageRank AST slicing |
 | [Brain Store, Trail & Memory](features/brain-and-memory.md) | M7, M9, M15 | `fyr record`, `fyr memory`, `fyr resume` | 15 record kinds in `brain.db`, seven-step resume, `.agents/trail.jsonl` export/sync, and validity-scored memory |
 | [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr models` | 43 skills, 6 subagents, `run_workflow` parallel scripts, live model/quota routing, and deterministic verification |
 | [Telemetry, Trajectories & Reports](features/metrics-and-reports.md) | M10 | `fyr metrics`, `fyr report` | Shape-only `metrics.db` ingestion, `180k` context-knee trajectory anomalies, and 6-section HTML/Markdown reports |
 | [Behavioural Eval & OS Isolation](features/eval-and-isolation.md) | M13, M22 | `fyr eval` | Sandboxed multi-turn/ACP behavioral testing, Wilson 95% intervals, host-safety checks `a`–`e`, subagent check `f`, Landlock, and Seatbelt |
-| [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Redacted zero-tool dreamer, hourly `fyr auto` timer, gates `G1`–`G9`, risk rubric, and `k=3` eval-gated skill edits |
+| [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Global binary `on | off` `fyr auto` timer, all-workspace stale-conversation rating (`session_ratings`), zero-tool dreamer, gates `G1`–`G3`/`G8`/`G9`, risk rubric, and `k=3` eval-gated skill edits |
 
 ## How it works
 
@@ -88,12 +88,12 @@ flowchart LR
     configDir -. "same machine only" .-> retroHarness
     retroHarness --> edit
     sessions -- "memory, trail, transcripts" --> dreamer
-    dreamer -- "proposal records, metrics.db" --> configDir
+    dreamer -- "proposal records, session_ratings (metrics.db)" --> configDir
     dreamer -. "redacted prompt, no tool granted" .-> provider[("the CLI's model provider")]
     dreamer -. "one conversation per project, in /resume" .-> sessions
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
-    autoRun -- "report records, runs.json; at level harness, eval-gated skills/ commit" --> configDir
+    autoRun -- "report records, runs.json; on clean harness checkout, eval-gated skills/ commit" --> configDir
     autoRun -. "a dreaming worker's prompts and files, unredacted; redacted learning inputs; skills.sh asks" .-> provider
     linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
     linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
@@ -242,11 +242,11 @@ Once `fyr install` reports `drift none`, initialize indexing and query the AST g
 
 `fyr` pairs `< 250 ms` fail-open CLI hooks with three local SQLite stores and OS-native process sandboxing so sessions stay fast, accurate, and measurable:
 
-- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `PostToolUse` reserved under the same contract (`PRD.md` R3). See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
+- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`, `ADR-525`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, `improvedPrompt`, compaction-deduplicated `skillDigests`, deterministic `subtasks[]` with `COORDINATE_SUBTASKS`, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing, fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` worker prompt injection, and `[COORDINATOR_GUARD]` direct-edit protection), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `PostToolUse` reserved under the same contract (`PRD.md` R3) and `.agents/scratch/search.db` at `schemaVersion = "7"`. See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
 - **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** Holds 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`) with deterministic memory validity scoring (`>= 0.40`) and on-demand `.agents/trail.jsonl` export/sync. See [Brain Store, Trail & Memory](features/brain-and-memory.md).
-- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), and six-section usage reports via `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
+- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), stale-conversation `session_ratings` (`metrics.db` v8), and six-section usage reports via `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
 - **Sandboxed evaluation (`internal/isolate`, `internal/eval`):** Runs `fyr eval` and `fyr auto` workers inside Linux Landlock or macOS Seatbelt confinement (failing closed when unavailable) with host-safety checks `a`–`e` and subagent check `f`. See [Behavioural Eval & OS Isolation](features/eval-and-isolation.md).
-- **Idle-time consolidation & dreaming (`internal/dream`, `internal/auto`):** Runs `fyr dream` in tool-free plan mode and sweeps registered idle projects under gates `G1`–`G9`, a strict risk rubric, and a `k=3` behavioral eval gate (`ADR-090`, `ADR-522`, `ADR-523`). See [Dream Consolidation & Auto Mode](features/dream-and-auto.md).
+- **Idle-time consolidation & dreaming (`internal/dream`, `internal/auto`):** Runs `fyr auto` as a binary `on` / `off` global switch (`--conversation-idle` default `1h`), discovers all Antigravity workspaces and conversations (including non-git directories and `search.GlobalWorkspace`) without registration, rates stale conversations in tool-free plan mode into `session_ratings` and `target: harness` proposals (`G4`–`G7` retired for dreaming), and executes eval-gated `skills/` workers on clean checkouts under `G1`–`G3`/`G8`/`G9`, a strict risk rubric, and a `k=3` behavioral eval gate (`ADR-090`, `ADR-522`, `ADR-523`, `ADR-524`). See [Dream Consolidation & Auto Mode](features/dream-and-auto.md).
 
 ## Customizing the Harness for Your Stack
 
@@ -269,7 +269,7 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `fyr memory add` / `show` | Save or view validity-scored `semantic`, `procedural`, and `episodic` memories |
 | `fyr verify` | Run `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, writing `.agents/scratch/verify.stamp` |
 | `fyr report` | Render the six-section Economist HTML or `--md` usage report |
-| `fyr auto on` / `off` / `status` / `run` | Manage the single hourly background dreamer and eval-gated skill improvement runner |
+| `fyr auto on` / `off` / `status` / `run` | Global binary on/off switch for hourly stale-conversation rating, dreaming, and eval-gated skill improvement |
 
 <details>
 <summary>Complete CLI command reference (all 26 commands)</summary>
@@ -286,12 +286,12 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store: this project's trail records and the global ones (`export` writes `.agents/trail.jsonl` on demand; `sync` loads it into `brain.db`) |
 | `fyr resume` | Prints this checkout's seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory) in one read-only call |
 | `fyr search <words>` | Matching records first, then ranked files (`--slice`, `--skeleton`, `--path`, `--to`, `--affected`, `--map`, `--refs`, `--open`, `--vet`, `--hook`) |
-| `fyr index [--rebuild] [--register]` | Reconciles or clean-rebuilds `.agents/scratch/search.db` (and `~/.config/fyr/search.db` with `--global`); `--register` opts the project into `fyr dream --all` and `fyr auto` |
+| `fyr index [--rebuild] [--register]` | Reconciles or clean-rebuilds `.agents/scratch/search.db` (and `~/.config/fyr/search.db` with `--global`); `--register` opts the project into `fyr search --global`, `fyr record import --global`, and the metrics join |
 | `fyr memory add` / `show` | Project and `--global` memory (`semantic`, `procedural`, `episodic`), validity-scored (`--include-low` shows `< 0.40`) |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `trajectory` / `export` | The shape of every session: stored, summarised, charted, trended (`trajectory`), and backed up |
 | `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Renders the six-section project or global usage report (`1. Executive Pulse`, `2. Second-Brain Leverage`, `3. Quality & Learning Loop`, `4. Autonomy & Model Routing`, `5. Trigger coverage`, `6. Per-Project / Project Breakdown`) as HTML or Markdown (`--md`) |
-| `fyr dream --all` / `--project DIR` | One-shot dreamer (also invoked hourly by `fyr auto run`): proposes memory and trail consolidations in plan mode with zero tools granted |
-| `fyr auto on` / `off` / `status` / `run` / `--dry-run` | Single hourly background runner (`on`/`off` also take `--dry-run` and retire any legacy `fyr-dream` timer), running `dream`, free checks, and OS-isolated dreaming workers with `k=3` eval gates |
+| `fyr dream --all` / `--project DIR` | One-shot dreamer (also invoked hourly by `fyr auto run`): discovers git, non-git, and `__global__` workspaces without registration, rates stale conversations (`session_ratings`), and proposes memory, trail, and skill improvements in plan mode with zero tools granted |
+| `fyr auto on` / `off` / `status` / `run` / `--dry-run` | Single hourly background runner with global binary switch (`--conversation-idle D` defaults to `1h`; `on`/`off` also take `--dry-run` and retire any legacy `fyr-dream` timer), running `dream`, rating stale conversations, free checkout checks, and OS-isolated dreaming workers with `k=3` eval gates |
 | `fyr check` | Read-only drift check of docs, specs, `PRD.md`, and `SDD.md`/`TDD.md` traces against the binary and tree |
 | `fyr git-check` | Runs the three post-dispatch git checks (`git status --short --untracked-files=all`, `git log --branches --not --remotes --oneline`, `git tag`) in one read-only call |
 | `fyr verify` | Runs `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, guarding against mid-run tree mutation and writing `.agents/scratch/verify.stamp` (`0600`) |
