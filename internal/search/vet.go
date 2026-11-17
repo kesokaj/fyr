@@ -155,9 +155,12 @@ func isApprovalPrompt(low string) bool {
 }
 
 func isKickoffPrompt(p string) bool {
-	return strings.Contains(p, "Standing approvals (closed set):") ||
-		strings.Contains(p, "Standing approvals:") ||
-		(strings.HasPrefix(p, "Project:") && strings.Contains(p, "Files:"))
+	s := stripAnySandboxPreamble(p)
+	if s == "" {
+		return false
+	}
+	low := strings.ToLower(strings.ReplaceAll(s, "\r\n", "\n"))
+	return hasWorkerTopHeader(strings.Split(low, "\n"))
 }
 
 func classifySlashPrefix(low string) (IntentMode, bool) {

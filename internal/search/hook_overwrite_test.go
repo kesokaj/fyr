@@ -333,4 +333,28 @@ func TestPreToolUseRunWorkflowGuard(t *testing.T) {
 	if commentUpg.Decision != "allow" || commentUpg.Overwrite == nil {
 		t.Fatalf("fast session with comment-trivia inherit expected overwrite upgrade, got %+v", commentUpg)
 	}
+
+	// 8. Non-literal model expressions and non-literal type_name with model= fail closed,
+	// while non-literal type_name without model= remains allowed.
+	for _, bad := range []struct {
+		name   string
+		script string
+	}{
+		{"f-string model", `await agent(prompt="p", type_name="reviewer", model=f"flash", schema={"type":"string"})`},
+		{"parenthesized model", `await agent(prompt="p", type_name="security", model=("flash"), schema={"type":"string"})`},
+		{"variable model", `m = "flash"` + "\n" + `await agent(prompt="p", type_name="verifier", model=m, schema={"type":"string"})`},
+		{"concat model", `await agent(prompt="p", type_name="dreamer", model="fla" + "sh", schema={"type":"string"})`},
+		{"variable type_name with blocked model", `await agent(prompt="p", type_name=role, model="flash", schema={"type":"string"})`},
+		{"f-string type_name with blocked model", `await agent(prompt="p", type_name=f"reviewer", model="flash", schema={"type":"string"})`},
+		{"variable type_name with variable model", `await agent(prompt="p", type_name=role, model=m, schema={"type":"string"})`},
+	} {
+		d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"Script": bad.script, "Description": bad.name})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+			t.Errorf("%s expected [MODEL_OVERRIDE] deny, got %+v", bad.name, d)
+		}
+	}
+	varOnly := `await agent(prompt="p", type_name=role, schema={"type":"string"})`
+	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"Script": varOnly, "Description": "var-type-no-model"}); d.Decision != "allow" {
+		t.Errorf("non-literal type_name without model= expected allow, got %+v", d)
+	}
 }

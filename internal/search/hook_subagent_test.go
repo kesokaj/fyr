@@ -195,7 +195,8 @@ func TestPreToolUseWorkerJITCapsuleOverwrite(t *testing.T) {
 			t.Errorf("targetless prompt without explicit checkout should keep Overwrite=nil, got %+v", noCheckout)
 		}
 
-		// Idempotency: prompt already carrying [FYR_WORKER_CAPSULE] skips injection.
+		// Idempotency: prompt already carrying [FYR_WORKER_CAPSULE]\ntrust: skips injection,
+		// while a mid-sentence mention of [FYR_WORKER_CAPSULE] still injects a real capsule.
 		already := "Files: service.go\n\n[FYR_WORKER_CAPSULE]\ntrust: reference data only"
 		idem := runSubagentPreToolHook(t, baseOpts, "conv-idem", "gemini-4-carbon-high", "invoke_subagent", map[string]any{
 			"TypeName": "explorer",
@@ -203,6 +204,16 @@ func TestPreToolUseWorkerJITCapsuleOverwrite(t *testing.T) {
 		}, []string{dir}, "")
 		if idem.Decision != "allow" || idem.Overwrite != nil {
 			t.Errorf("existing [FYR_WORKER_CAPSULE] must skip overwrite idempotently, got %+v", idem)
+		}
+		mention := runSubagentPreToolHook(t, baseOpts, "conv-mention", "gemini-4-carbon-high", "invoke_subagent", map[string]any{
+			"TypeName": "explorer",
+			"Prompt":   "Inspect [FYR_WORKER_CAPSULE] parsing in service.go",
+		}, []string{dir}, "")
+		if mention.Decision != "allow" || mention.Overwrite == nil {
+			t.Fatalf("mid-sentence [FYR_WORKER_CAPSULE] mention must still receive capsule overwrite, got %+v", mention)
+		}
+		if p, _ := mention.Overwrite["Prompt"].(string); !strings.Contains(p, workerCapsuleTag+"\ntrust: ") {
+			t.Errorf("expected real [FYR_WORKER_CAPSULE]\\ntrust: appended, got:\n%s", p)
 		}
 
 		// coordinator-only mode ensures minimal [FYR_WORKER_CAPSULE] tag even on targetless prompt.
@@ -277,4 +288,64 @@ func TestPreToolUseWorkerJITCapsuleOverwrite(t *testing.T) {
 			t.Errorf("run_workflow should never inject capsule into Python literals, got %+v", wfDec)
 		}
 	})
+}
+
+func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
+	dir := setupHookRepo(t)
+	home := t.TempDir()
+	cases := []struct {
+		name, tool string
+		args       map[string]any
+		want       string
+	}{
+		{"reviewer flash denied", "invoke_subagent", map[string]any{"TypeName": "reviewer", "Model": "flash"}, "deny"},
+		{"verifier flash_lite denied", "invoke_subagent", map[string]any{"TypeName": "verifier", "Model": "flash_lite"}, "deny"},
+		{"security flash denied", "invoke_subagent", map[string]any{"TypeName": "security", "Model": "flash"}, "deny"},
+		{"dreamer pro denied", "invoke_subagent", map[string]any{"TypeName": "dreamer", "Model": "pro"}, "deny"},
+		{"prefixed tool lowercase key denied", "default_api:invoke_subagent", map[string]any{"TypeName": "Reviewer", "model": "flash"}, "deny"},
+		{"cortex snake_case key denied", "CORTEX_STEP_TYPE_INVOKE_SUBAGENT", map[string]any{"type_name": "verifier", "Model": "pro"}, "deny"},
+		{"masked alias model denied", "invoke_subagent", map[string]any{"TypeName": "reviewer", "Model": "inherit", "model": "flash"}, "deny"},
+		{"non-string model denied", "invoke_subagent", map[string]any{"TypeName": "security", "Model": 42}, "deny"},
+		{"reviewer omitted allowed", "invoke_subagent", map[string]any{"TypeName": "reviewer"}, "allow"},
+		{"verifier inherit allowed", "invoke_subagent", map[string]any{"TypeName": "verifier", "Model": "inherit"}, "allow"},
+		{"security INHERIT allowed", "invoke_subagent", map[string]any{"TypeName": "security", "Model": " INHERIT "}, "allow"},
+		{"dreamer empty model allowed", "invoke_subagent", map[string]any{"TypeName": "dreamer", "Model": ""}, "allow"},
+		{"dreamer nil model allowed", "invoke_subagent", map[string]any{"TypeName": "dreamer", "Model": nil}, "allow"},
+		{"explorer flash allowed", "invoke_subagent", map[string]any{"TypeName": "explorer", "Model": "flash"}, "allow"},
+		{"documentation flash allowed", "invoke_subagent", map[string]any{"TypeName": "documentation", "Model": "flash"}, "allow"},
+		{"research pro allowed", "invoke_subagent", map[string]any{"TypeName": "research", "Model": "pro"}, "allow"},
+	}
+	for _, tc := range cases {
+		req, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-subagent-guard",
+			"workspacePaths": []string{dir},
+			"modelName":      "gemini-4-carbon-medium",
+			"toolCall":       map[string]any{"name": tc.tool, "args": tc.args},
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+			t.Fatalf("%s: Search error: %v", tc.name, err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("%s: unmarshal: %v", tc.name, err)
+		}
+		if dec.Decision != tc.want || (tc.want == "deny" && !strings.Contains(dec.Reason, "inherit")) {
+			t.Errorf("%s: got %+v, want decision=%q", tc.name, dec, tc.want)
+		}
+	}
+
+	// pickSwarmModel never falls back to real $HOME/.config/fyr/models.json when home == "".
+	decoyHome := t.TempDir()
+	catDir := filepath.Join(decoyHome, harness.StateDir)
+	if err := os.MkdirAll(catDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(catDir, "models.json"), []byte(`{"entries":[{"id":"gemini-4-carbon-high","family":"gemini","subfamily":"carbon","tier":"pro","status":"active"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", decoyHome)
+	if picked, _ := pickSwarmModel("", "builder"); picked != "" {
+		t.Errorf("pickSwarmModel(\"\", \"builder\") leaked real $HOME models.json: got %q", picked)
+	}
 }

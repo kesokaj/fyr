@@ -171,9 +171,6 @@ type swarmPoolQuota struct {
 func pickSwarmModel(home, role string) (string, string) {
 	resolved := strings.TrimSpace(home)
 	if resolved == "" {
-		resolved, _ = os.UserHomeDir()
-	}
-	if resolved == "" {
 		return "", ""
 	}
 	p := filepath.Join(resolved, harness.StateDir, "models.json")
@@ -471,6 +468,11 @@ func isSubagentModelKey(k string) bool {
 
 const workerCapsuleTag = "[FYR_WORKER_CAPSULE]"
 
+func hasWorkerCapsuleMarker(raw string) bool {
+	low := strings.ToLower(strings.ReplaceAll(raw, "\r\n", "\n"))
+	return hasWorkerCapsuleSection(strings.Split(low, "\n"))
+}
+
 func enrichWorkerPromptArgs(o Options, in HookInput, args map[string]any, keys ...string) (string, string, bool) {
 	var key, rawPrompt string
 	for _, k := range keys {
@@ -479,7 +481,7 @@ func enrichWorkerPromptArgs(o Options, in HookInput, args map[string]any, keys .
 			break
 		}
 	}
-	if key == "" || strings.Contains(rawPrompt, workerCapsuleTag) {
+	if key == "" || hasWorkerCapsuleMarker(rawPrompt) {
 		return "", "", false
 	}
 	headerFiles, hasFilesHeader := parseWorkerFilesHeader(StripSandboxPreamble(rawPrompt))

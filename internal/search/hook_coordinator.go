@@ -1,0 +1,238 @@
+package search
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/kesokaj/fyr/internal/harness"
+)
+
+func isRegularFileFast(path string) bool {
+	fi, err := os.Lstat(path)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+func isCoordinatorOnlyMode(home, root string) bool {
+	if root != "" && checkScratchNoSymlinks(root) == nil {
+		if isRegularFileFast(filepath.Join(root, ".agents", "scratch", "coordinator-only")) {
+			return true
+		}
+	}
+	if h := strings.TrimSpace(home); h != "" {
+		stateDir := filepath.Join(h, harness.StateDir)
+		if fi, err := os.Lstat(stateDir); err == nil && fi.Mode()&os.ModeSymlink == 0 && fi.IsDir() {
+			if isRegularFileFast(filepath.Join(stateDir, "coordinator-only")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func resolveExplicitHookDirs(o Options, in HookInput) (string, string) {
+	firstDir := ""
+	cands := append(append([]string{}, in.WorkspacePaths...), in.Cwd, o.Dir)
+	for _, raw := range cands {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+		if firstDir == "" {
+			firstDir = p
+		}
+		if root, _, ok := findGitRootFast(p); ok {
+			return root, root
+		}
+	}
+	return "", firstDir
+}
+
+func parseWorkerFilesHeader(prompt string) ([]string, bool) {
+	var files []string
+	seen := map[string]bool{}
+	hasHeader, inBullets := false, false
+	addTok := func(tok string) {
+		clean := normalizeSlashPath(strings.Trim(tok, "`'\",;()[]"))
+		if low := strings.ToLower(clean); clean != "" && low != "none" && low != "<none>" && low != "(none)" && !seen[clean] {
+			seen[clean] = true
+			files = append(files, clean)
+		}
+	}
+	for _, raw := range strings.Split(strings.ReplaceAll(prompt, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(strings.ToLower(line), "files:") {
+			hasHeader = true
+			rest := strings.TrimSpace(line[len("files:"):])
+			inBullets = rest == ""
+			for _, part := range strings.FieldsFunc(rest, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+				addTok(part)
+			}
+			continue
+		}
+		if inBullets && (strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ")) {
+			if fields := strings.Fields(line[2:]); len(fields) > 0 {
+				addTok(fields[0])
+			}
+		} else if line != "" {
+			inBullets = false
+		}
+	}
+	return files, hasHeader
+}
+
+func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, target string) string {
+	root, commonDir, isGit := resolveWriteGuardGitRoot(toolDir, dir, target)
+	if isCoordinatorWriteExemptPath(root, toolDir, target) {
+		return ""
+	}
+	if isGit && filepath.Clean(commonDir) != filepath.Clean(filepath.Join(root, ".git")) {
+		return ""
+	}
+	if hasBangOrWorkerSignal(in.LastUserInput) {
+		return ""
+	}
+	lastVet := readLatestVetHistoryFast(root, in.ConversationID)
+	if lastVet != nil && hasBangOrWorkerSignal(lastVet.RawPrompt) {
+		return ""
+	}
+	if lastVet != nil && (lastVet.Directive == "COORDINATE_SUBTASKS" || lastVet.SubtaskCount >= 2) {
+		return fmt.Sprintf("[COORDINATOR_GUARD] active COORDINATE_SUBTASKS turn (%d subtasks) blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass.", max(2, lastVet.SubtaskCount))
+	}
+	if isCoordinatorOnlyMode(o.Home, root) {
+		return "[COORDINATOR_GUARD] coordinator-only mode blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass."
+	}
+	return ""
+}
+
+func resolveWriteGuardGitRoot(toolDir, dir, target string) (string, string, bool) {
+	var cands []string
+	if strings.TrimSpace(target) != "" {
+		if resolved := resolveTargetWithAncestors(toolDir, target); resolved != "" {
+			if anc := existingAncestorDir(filepath.FromSlash(resolved)); anc != "" {
+				cands = append(cands, anc)
+			}
+		}
+	}
+	cands = append(cands, toolDir, dir)
+	for _, d := range cands {
+		if strings.TrimSpace(d) == "" {
+			continue
+		}
+		if root, commonDir, ok := findGitRootFast(d); ok {
+			return root, commonDir, true
+		}
+	}
+	return "", "", false
+}
+
+func existingAncestorDir(path string) string {
+	for cur := filepath.Clean(path); ; {
+		if fi, err := os.Stat(cur); err == nil && fi.IsDir() {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return ""
+		}
+		cur = parent
+	}
+}
+
+func isCoordinatorWriteExemptPath(root, toolDir, target string) bool {
+	base := root
+	if base == "" {
+		base = toolDir
+	}
+	if base == "" {
+		return false
+	}
+	relBase := toolDir
+	if relBase == "" {
+		relBase = base
+	}
+	resolved := resolveTargetWithAncestors(relBase, target)
+	canonBase := CanonicalizePath("", base)
+	r, err := filepath.Rel(filepath.FromSlash(canonBase), filepath.FromSlash(resolved))
+	if err != nil {
+		return false
+	}
+	rel := filepath.ToSlash(filepath.Clean(r))
+	if rel != "TODO.md" && rel != ".agents/scratch" && !strings.HasPrefix(rel, ".agents/scratch/") {
+		return false
+	}
+	if hasSymlinkSegmentUnder(base, relBase, target) || hasSymlinkSegmentUnder(canonBase, canonBase, filepath.FromSlash(resolved)) {
+		return false
+	}
+	if checkScratchNoSymlinks(base) != nil {
+		return rel == "TODO.md"
+	}
+	return true
+}
+
+func hasSymlinkSegmentUnder(root, relBase, target string) bool {
+	p := strings.TrimSpace(target)
+	if !filepath.IsAbs(p) && relBase != "" {
+		p = filepath.Join(relBase, p)
+	}
+	p = filepath.Clean(p)
+	rel, err := filepath.Rel(filepath.Clean(root), p)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	cur := filepath.Clean(root)
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveTargetWithAncestors(toolDir, target string) string {
+	p := strings.TrimSpace(target)
+	if !filepath.IsAbs(p) && toolDir != "" {
+		p = filepath.Join(toolDir, p)
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	p = filepath.Clean(p)
+	for cur, tail := p, ""; ; {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.ToSlash(filepath.Join(real, tail))
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return filepath.ToSlash(p)
+		}
+		tail = filepath.Join(filepath.Base(cur), tail)
+		cur = parent
+	}
+}
+
+func hasBangOrWorkerSignal(raw string) bool {
+	trimmed := stripAnySandboxPreamble(raw)
+	return trimmed != "" && (strings.HasPrefix(trimmed, "!") || isWorkerBriefPrompt(trimmed))
+}
+
+func readLatestVetHistoryFast(root, convID string) *VetHistoryRow {
+	if root == "" || checkScratchNoSymlinks(root) != nil || !isRegularFileFast(projectDB(root)) {
+		return nil
+	}
+	st, _, err := openLedgerStore(root)
+	if err != nil || st == nil {
+		return nil
+	}
+	defer st.close()
+	row, err := st.lastVetHistory(convID, 0)
+	if err != nil {
+		return nil
+	}
+	return row
+}

@@ -142,7 +142,7 @@ stateDiagram-v2
 
 ## Coordinator write guard and worker JIT capsules
 
-Because isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0), `PreToolUse` guards direct Coordinator source edits on multi-subtask turns and enriches dispatched worker briefs with `[FYR_WORKER_CAPSULE]` context (`internal/search/hook.go`, `internal/search/hook_subagent.go`, `internal/search/hook_deadline.go`, `internal/search/hook_workflow.go`). `dispatchHookEvent` passes full `Options` (`Home`, `Dir`, `BrainTurnContext`, `SkillCatalog`, `BrainRefsForDir`) into `handlePreToolUse` inside the same `200 ms` budget.
+Because isolated subagents and swarm workers share zero parent conversation memory (`PRD.md` R0), `PreToolUse` guards direct Coordinator source edits on multi-subtask turns and enriches dispatched worker briefs with `[FYR_WORKER_CAPSULE]` context (`internal/search/hook.go`, `internal/search/hook_coordinator.go`, `internal/search/hook_worker_capsule.go`, `internal/search/hook_subagent.go`, `internal/search/hook_workflow.go`). `dispatchHookEvent` passes full `Options` (`Home`, `Dir`, `BrainTurnContext`, `SkillCatalog`, `BrainRefsForDir`) into `handlePreToolUse` inside the same `200 ms` budget.
 
 ```mermaid
 flowchart LR
@@ -158,13 +158,13 @@ flowchart LR
     wfCall --> wfCheck["Enforce model=pro on guarded\nagent() calls; literals untouched"]
 ```
 
-- **`[COORDINATOR_GUARD]` write guard (`handlePreToolWrite` in `internal/search/hook.go`):**
+- **`[COORDINATOR_GUARD]` write guard (`handlePreToolWrite` in `internal/search/hook.go`, `checkCoordinatorWriteGuard` in `internal/search/hook_coordinator.go`):**
   - Denies direct `write_or_edit` calls (`decision: "deny"`, `[COORDINATOR_GUARD]`) when the latest `vet_history` row for `conversationId` records `Directive == "COORDINATE_SUBTASKS"` or `SubtaskCount >= 2`, OR when a regular `coordinator-only` marker file exists at `<root>/.agents/scratch/coordinator-only` or `<o.Home>/.config/fyr/coordinator-only` (resolved strictly via `Options.Home`, `PRD.md` R6).
   - Always allows writes matching any of these exemptions:
-    1. `.agents/scratch/**` (unless `.agents/scratch` contains symlinks, leaving only `TODO.md`) and `TODO.md` (`isCoordinatorWriteExemptPath`).
+    1. `.agents/scratch/**` (unless `.agents/scratch` or any target segment under it is a symlink, leaving only `TODO.md`) and `TODO.md` (`isCoordinatorWriteExemptPath`).
     2. Linked git worktrees (`commonDir != filepath.Join(root, ".git")` via `findGitRootFast`), allowing `workspace="share"` `swarm` and `run_workflow` workers to edit source freely.
     3. `!`-prefixed bypasses (`in.LastUserInput` or `vet_history.RawPrompt` starting with `!`).
-    4. Worker brief sessions (`isWorkerBriefPrompt` matching `in.LastUserInput` or `vet_history.RawPrompt`: `[FYR_WORKER_CAPSULE]`, `Project: this clone`, `"This is a Kickoff written by fyr auto."`, `Standing approvals:` / `Standing approvals (closed set):`, `Project:` + `Files:`, or leading `Files:`).
+    4. Worker brief sessions (`isWorkerBriefPrompt` matching `in.LastUserInput` or `vet_history.RawPrompt` anchored at top header lines `Files:`, `Project: this clone`, `Standing approvals:` / `Standing approvals (closed set):`, line-0 `"This is a Kickoff written by fyr auto."`, or the multi-line `[FYR_WORKER_CAPSULE]\ntrust:` section).
 - **`[FYR_WORKER_CAPSULE]` JIT overwrite (`handlePreToolSubagent` & `handlePreToolSwarm` in `internal/search/hook_subagent.go`):**
   - **Deny-first model routing + merged overwrite:** Denies forbidden model overrides on guarded subagents (`reviewer`, `verifier`, `security`, `dreamer`) and weak models on `swarm` `judge` prefixes, upgrades fast session models to `Model: "pro"` (or selects `swarm` models by name prefix from `~/.config/fyr/models.json` with `30%` 5h / `20%` weekly Anthropic quota fallback), and then runs `enrichWorkerPromptArgs` across **all** allowed `invoke_subagent` (`Prompt`/`prompt`) and `swarm(action="add")` (`brief`/`Brief`) calls, merging model and prompt into one `Overwrite` map.
   - **`AND` gating & idempotency:** Skips prompts that already contain `[FYR_WORKER_CAPSULE]`. Otherwise activates only when **(1)** the prompt/brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` explicitly resolves a checkout (no `os.Getwd()` fallback), **AND (2)** context lookup produces non-empty context (`Hop-0` AST signatures, `>= 1` matched record or `validity >= 0.40` memory, or `>= 1` matched skill digest) — OR when `coordinator-only` mode is active (injecting at least the minimal `[FYR_WORKER_CAPSULE]` worker tag). Generic targetless prompts without an explicit checkout keep `Overwrite == nil` (or model-only `Overwrite`).
@@ -206,7 +206,7 @@ When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go
 |---|---|---|
 | `--global` | `false` | Reconcile `~/.config/fyr/search.db` instead of the local checkout's `.agents/scratch/search.db` |
 | `--rebuild` | `false` | Delete and rebuild the target `search.db` from scratch |
-| `--register` | `false` | Write `.git/fyr-registered` consent so `fyr search --global`, `fyr dream --all`, and `fyr auto` can read this project |
+| `--register` | `false` | Write `.git/fyr-registered` consent so `fyr search --global`, `fyr record import --global`, and the metrics join can read this project |
 
 </details>
 

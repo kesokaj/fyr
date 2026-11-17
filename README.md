@@ -40,7 +40,7 @@ flowchart TB
 | [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr models` | 43 skills, 6 subagents, `run_workflow` parallel scripts, live model/quota routing, and deterministic verification |
 | [Telemetry, Trajectories & Reports](features/metrics-and-reports.md) | M10 | `fyr metrics`, `fyr report` | Shape-only `metrics.db` ingestion, `180k` context-knee trajectory anomalies, and 6-section HTML/Markdown reports |
 | [Behavioural Eval & OS Isolation](features/eval-and-isolation.md) | M13, M22 | `fyr eval` | Sandboxed multi-turn/ACP behavioral testing, Wilson 95% intervals, host-safety checks `a`–`e`, subagent check `f`, Landlock, and Seatbelt |
-| [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Global binary `on | off` `fyr auto` timer, all-workspace stale-conversation rating (`session_ratings`), zero-tool dreamer, gates `G1`–`G3`/`G8`/`G9`, risk rubric, and `k=3` eval-gated skill edits |
+| [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Global binary `on \| off` `fyr auto` timer, all-workspace stale-conversation rating (`session_ratings`), zero-tool dreamer, gates `G1`–`G3`/`G8`/`G9`, risk rubric, and `k=3` eval-gated skill edits |
 
 ## How it works
 

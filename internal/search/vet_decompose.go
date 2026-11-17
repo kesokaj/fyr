@@ -24,26 +24,89 @@ type SubtaskSlice struct {
 
 var numberedMarkerRe = regexp.MustCompile(`(?:^|[\s:;])(?:\((\d+)\)|(\d+)[.)])\s+`)
 
+func stripAnySandboxPreamble(prompt string) string {
+	s := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
+	low := strings.ToLower(s)
+	if strings.HasPrefix(low, strings.ToLower(sandboxPreamblePrefix)) {
+		if idx := strings.Index(low, strings.ToLower(sandboxPreambleEnd)); idx >= 0 {
+			return strings.TrimSpace(s[idx+len(sandboxPreambleEnd):])
+		}
+	}
+	return s
+}
+
+func isProjectThisCloneLine(line string) bool {
+	const prefix = "project: this clone"
+	if !strings.HasPrefix(line, prefix) {
+		return false
+	}
+	if len(line) == len(prefix) {
+		return true
+	}
+	switch line[len(prefix)] {
+	case ' ', '\t', ',', '.', ';', ':':
+		return true
+	default:
+		return false
+	}
+}
+
+func isKickoffHeaderMetaLine(line string) bool {
+	for _, p := range []string{"project:", "session:", "plan:", "model:", "class:", "level:", "never:", "done when:"} {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWorkerTopHeader(lines []string) bool {
+	limit := min(len(lines), 8)
+	for i := 0; i < limit; i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			return false
+		}
+		switch {
+		case strings.HasPrefix(line, "files:"):
+			return true
+		case isProjectThisCloneLine(line):
+			return true
+		case strings.HasPrefix(line, "standing approvals:"),
+			strings.HasPrefix(line, "standing approvals (closed set):"):
+			return true
+		case i == 0 && line == "this is a kickoff written by fyr auto.":
+			return true
+		case isKickoffHeaderMetaLine(line):
+			continue
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+func hasWorkerCapsuleSection(lines []string) bool {
+	for i := 0; i+1 < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "[fyr_worker_capsule]" &&
+			strings.HasPrefix(strings.TrimSpace(lines[i+1]), "trust: ") {
+			return true
+		}
+	}
+	return false
+}
+
 // isWorkerBriefPrompt reports whether prompt (original or lowercased) is an
 // isolated worker brief or autonomous Kickoff so hooks never route workers into
 // COORDINATE_SUBTASKS, fyr-swarm, or [COORDINATOR_GUARD] (D25, SPEC-fyr-pre-hook-coordinator).
 func isWorkerBriefPrompt(prompt string) bool {
-	low := strings.ToLower(strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt))))
-	if strings.HasPrefix(low, strings.ToLower(sandboxPreamblePrefix)) {
-		if idx := strings.Index(low, strings.ToLower(sandboxPreambleEnd)); idx >= 0 {
-			low = strings.TrimSpace(low[idx+len(sandboxPreambleEnd):])
-		}
-	}
-	if low == "" {
+	s := stripAnySandboxPreamble(prompt)
+	if s == "" {
 		return false
 	}
-	return strings.Contains(low, "standing approvals (closed set):") ||
-		strings.Contains(low, "standing approvals:") ||
-		(strings.HasPrefix(low, "project:") && strings.Contains(low, "files:")) ||
-		strings.Contains(low, "[fyr_worker_capsule]") ||
-		strings.Contains(low, "this is a kickoff written by fyr auto.") ||
-		strings.Contains(low, "project: this clone") ||
-		strings.HasPrefix(low, "files:")
+	low := strings.ToLower(strings.ReplaceAll(s, "\r\n", "\n"))
+	lines := strings.Split(low, "\n")
+	return hasWorkerTopHeader(lines) || hasWorkerCapsuleSection(lines)
 }
 
 // DecomposeSubtasks deterministically splits multi-clause or multi-package

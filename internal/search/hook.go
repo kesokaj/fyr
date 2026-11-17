@@ -429,7 +429,7 @@ func handlePreToolUse(o Options, dir string, in HookInput, out io.Writer) error 
 	case "swarm":
 		return handlePreToolSwarm(o, dir, in, out)
 	case "run_workflow":
-		return handlePreToolWorkflow(dir, in, out)
+		return handlePreToolWorkflow(o.Home, dir, in, out)
 	default:
 		return writeDecision(out, "allow", "")
 	}
@@ -554,43 +554,4 @@ func oneLineErr(err error) string {
 		return s[:120] + "..."
 	}
 	return s
-}
-
-func isCoordinatorWriteExemptPath(root, toolDir, target string) bool {
-	resolved := resolveTargetWithAncestors(toolDir, target)
-	rel := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(target)), "./")
-	if root != "" {
-		canonRoot := CanonicalizePath("", root)
-		r, err := filepath.Rel(filepath.FromSlash(canonRoot), filepath.FromSlash(resolved))
-		if err != nil {
-			return false
-		}
-		rel = filepath.ToSlash(filepath.Clean(r))
-		if checkScratchNoSymlinks(root) != nil {
-			return rel == "TODO.md"
-		}
-	}
-	return rel == "TODO.md" || rel == ".agents/scratch" || strings.HasPrefix(rel, ".agents/scratch/")
-}
-
-func resolveTargetWithAncestors(toolDir, target string) string {
-	p := strings.TrimSpace(target)
-	if !filepath.IsAbs(p) && toolDir != "" {
-		p = filepath.Join(toolDir, p)
-	}
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
-	}
-	p = filepath.Clean(p)
-	for cur, tail := p, ""; ; {
-		if real, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.ToSlash(filepath.Join(real, tail))
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return filepath.ToSlash(p)
-		}
-		tail = filepath.Join(filepath.Base(cur), tail)
-		cur = parent
-	}
 }

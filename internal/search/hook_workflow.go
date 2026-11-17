@@ -22,7 +22,7 @@ type workflowPatch struct {
 	repl  string
 }
 
-func handlePreToolWorkflow(dir string, in HookInput, out io.Writer) error {
+func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error {
 	script, inlineKey, isInline, loadDeny := loadWorkflowScriptSource(dir, in.ToolCall.Args)
 	if loadDeny != "" {
 		return writeDecision(out, "deny", loadDeny)
@@ -30,7 +30,7 @@ func handlePreToolWorkflow(dir string, in HookInput, out io.Writer) error {
 	if strings.TrimSpace(script) == "" {
 		return writeDecision(out, "allow", "")
 	}
-	denyReason, patches := inspectWorkflowScript(script, in.ModelName, isInline)
+	denyReason, patches := inspectWorkflowScript(home, script, in.ModelName, isInline)
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
 	}
@@ -41,7 +41,7 @@ func handlePreToolWorkflow(dir string, in HookInput, out io.Writer) error {
 			cloned = map[string]any{}
 		}
 		cloned[inlineKey] = rewritten
-		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatModelTag("", in.ModelName))
+		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatModelTag(home, in.ModelName))
 		return writeDecisionWithOverwrite(out, "allow", reason, cloned)
 	}
 	return writeDecision(out, "allow", "")
@@ -80,7 +80,7 @@ func loadWorkflowScriptSource(dir string, args map[string]any) (string, string, 
 	return string(data), "", false, ""
 }
 
-func inspectWorkflowScript(src, modelName string, isInline bool) (string, []workflowPatch) {
+func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, []workflowPatch) {
 	fast := isFastExecutionModel(modelName)
 	spans := findPythonAgentCalls(src)
 	var (
@@ -88,7 +88,7 @@ func inspectWorkflowScript(src, modelName string, isInline bool) (string, []work
 		patches []workflowPatch
 	)
 	for _, sp := range spans {
-		denyOverride, denyPro, patch := inspectSingleAgentCall(src, sp, modelName, fast, isInline)
+		denyOverride, denyPro, patch := inspectSingleAgentCall(home, src, sp, modelName, fast, isInline)
 		if denyOverride != "" {
 			return denyOverride, nil
 		}
@@ -105,33 +105,87 @@ func inspectWorkflowScript(src, modelName string, isInline bool) (string, []work
 	return "", patches
 }
 
-func inspectSingleAgentCall(src string, sp [2]int, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
+func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
 	args := splitPythonCallArgs(src, sp[0], sp[1])
-	typeName := workflowArgLiteral(findWorkflowArg(args, "type_name", 3))
+	typeArg := findWorkflowArg(args, "type_name", 3)
+	mArg := findWorkflowArg(args, "model", 5)
+	if typeArg == nil || isPythonNone(typeArg.raw) {
+		return "", "", nil
+	}
+	typeName, typeIsLit := unquotePythonLiteral(typeArg.raw)
+	typeName = strings.TrimSpace(typeName)
+	if !typeIsLit {
+		return inspectNonLiteralTypeAgent(home, typeArg, mArg, args, modelName, fast, isInline)
+	}
 	if !isModelGuardedSubagent(typeName) {
 		return "", "", nil
 	}
-	mArg := findWorkflowArg(args, "model", 5)
+	if hasPythonKwargsSplat(args) {
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids **kwargs splat that could override model.", typeName), "", nil
+	}
+	return inspectGuardedModelArg(home, typeName, mArg, modelName, fast, isInline)
+}
+
+func inspectGuardedModelArg(home, typeName string, mArg *workflowArg, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
 	if mArg == nil || isPythonNone(mArg.raw) {
 		if fast {
-			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) forbids omitted model on guarded run_workflow subagent %q; pass model=\"pro\".", formatModelTag("", modelName), typeName), nil
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) forbids omitted model on guarded run_workflow subagent %q; pass model=\"pro\".", formatModelTag(home, modelName), typeName), nil
 		}
 		return "", "", nil
 	}
 	mVal, isLit := unquotePythonLiteral(mArg.raw)
-	if isLit {
-		if isBlockedWorkflowModel(mVal) {
-			safeVal := collapseOneLine(printable(mVal), 64)
-			return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids model=%q; omit model or pass \"inherit\" (or \"pro\" on fast turns).", typeName, safeVal), "", nil
+	if !isLit {
+		safeExpr := collapseOneLine(printable(mArg.raw), 64)
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids non-literal model=%s; omit model or pass \"inherit\" (or \"pro\" on fast turns).", typeName, safeExpr), "", nil
+	}
+	if isBlockedWorkflowModel(mVal) {
+		safeVal := collapseOneLine(printable(mVal), 64)
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids model=%q; omit model or pass \"inherit\" (or \"pro\" on fast turns).", typeName, safeVal), "", nil
+	}
+	if strings.EqualFold(strings.TrimSpace(mVal), "inherit") && fast {
+		if !isInline {
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for guarded subagent %q.", formatModelTag(home, modelName), typeName), nil
 		}
-		if strings.EqualFold(mVal, "inherit") && fast {
-			if !isInline {
-				return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for guarded subagent %q.", formatModelTag("", modelName), typeName), nil
-			}
-			return "", "", &workflowPatch{start: mArg.valStart, end: mArg.valEnd, repl: `"pro"`}
-		}
+		return "", "", &workflowPatch{start: mArg.valStart, end: mArg.valEnd, repl: `"pro"`}
 	}
 	return "", "", nil
+}
+
+func inspectNonLiteralTypeAgent(home string, typeArg, mArg *workflowArg, args []workflowArg, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
+	if hasPythonKwargsSplat(args) {
+		safeType := collapseOneLine(printable(typeArg.raw), 64)
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids **kwargs splat.", safeType), "", nil
+	}
+	if mArg == nil || isPythonNone(mArg.raw) {
+		return "", "", nil
+	}
+	mVal, isLit := unquotePythonLiteral(mArg.raw)
+	if !isLit {
+		safeType := collapseOneLine(printable(typeArg.raw), 64)
+		safeExpr := collapseOneLine(printable(mArg.raw), 64)
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids non-literal model=%s; pass literal \"pro\" or \"inherit\".", safeType, safeExpr), "", nil
+	}
+	if isBlockedWorkflowModel(mVal) {
+		safeType := collapseOneLine(printable(typeArg.raw), 64)
+		safeVal := collapseOneLine(printable(mVal), 64)
+		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids model=%q; pass \"pro\" or \"inherit\".", safeType, safeVal), "", nil
+	}
+	if strings.EqualFold(strings.TrimSpace(mVal), "inherit") && fast {
+		if !isInline {
+			return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside ScriptPath for dynamic subagent %s.", formatModelTag(home, modelName), collapseOneLine(printable(typeArg.raw), 64)), nil
+		}
+		return "", "", &workflowPatch{start: mArg.valStart, end: mArg.valEnd, repl: `"pro"`}
+	}
+	return "", "", nil
+}
+
+func hasPythonKwargsSplat(args []workflowArg) bool {
+	for _, a := range args {
+		if a.kwName == "" && strings.HasPrefix(strings.TrimSpace(a.raw), "**") {
+			return true
+		}
+	}
+	return false
 }
 
 func isBlockedWorkflowModel(val string) bool {
@@ -342,26 +396,28 @@ func skipStringPrefix(src string, i int) int {
 	return j
 }
 
-func workflowArgLiteral(a *workflowArg) string {
-	if a == nil {
-		return ""
-	}
-	val, ok := unquotePythonLiteral(a.raw)
-	if !ok {
-		return ""
-	}
-	return strings.TrimSpace(val)
-}
-
 func unquotePythonLiteral(raw string) (string, bool) {
 	s := strings.TrimSpace(raw)
 	if len(s) >= 2 && (s[0] == 'r' || s[0] == 'R' || s[0] == 'u' || s[0] == 'U') && (s[1] == '\'' || s[1] == '"') {
 		s = s[1:]
 	}
-	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return s[1 : len(s)-1], true
+	if len(s) < 2 {
+		return "", false
 	}
-	return "", false
+	q := s[0]
+	if (q != '"' && q != '\'') || s[len(s)-1] != q {
+		return "", false
+	}
+	for i := 1; i < len(s)-1; i++ {
+		if s[i] == '\\' {
+			i++
+			continue
+		}
+		if s[i] == q {
+			return "", false
+		}
+	}
+	return s[1 : len(s)-1], true
 }
 
 func isPythonNone(raw string) bool { return strings.TrimSpace(raw) == "None" }

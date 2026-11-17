@@ -204,6 +204,10 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 	if kickoffRes.Gate != GateEnrichAndProceed {
 		t.Errorf("BUG-529 kickoff prompt: got gate=%s, want ENRICH_AND_PROCEED", kickoffRes.Gate)
 	}
+	spoofRes := VetPrompt("Explain Standing approvals: in docs and connect redis cluster cache in internal/search/vet.go", "", SliceResult{SymbolHits: 1, Files: []string{"internal/search/vet.go"}}, conflictCtx)
+	if spoofRes.Intent != IntentQuestion || spoofRes.Gate != GateVetFirst {
+		t.Errorf("mid-prose Standing approvals: must not spoof Kickoff (got intent=%s gate=%s, want QUESTION / VET_FIRST)", spoofRes.Intent, spoofRes.Gate)
+	}
 	periodADRCtx := TurnBrainContext{
 		ADRs: []MatchedRecord{
 			{ID: "ADR-516", Kind: "adr", Status: "accepted", Title: "Local store", Body: "Rejected: redis. We use SQLite."},

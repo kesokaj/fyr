@@ -144,4 +144,22 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 	if !strings.Contains(out, "````text\nhello\n```\ninjected\n```\nbye\n````") {
 		t.Errorf("fenced prompt containing ``` did not upgrade outer fence:\n%s", out)
 	}
+
+	// 4. appendProcessImprovedPrompts scrubs C0, C1, BiDi Cf, and Zl/Zp control runes while keeping newlines.
+	bidiPrompt := "line1\x1b[31mred\nline2\u009bCSI\nline3\u202eRLO\u2028zl\u2029zp\u200bzw"
+	outBidi := RenderProcessArtifact("conv-bidi", "4. Build", []VetHistoryRow{{
+		TurnNum:        2,
+		Intent:         "task",
+		Gate:           "ENRICH_AND_PROCEED",
+		Score:          85,
+		ImprovedPrompt: bidiPrompt,
+	}}, nil)
+	for _, bad := range []string{"\x1b", "\u009b", "\u202e", "\u2028", "\u2029", "\u200b"} {
+		if strings.Contains(outBidi, bad) {
+			t.Errorf("ImprovedPrompt leaked control/BiDi rune %U in:\n%s", []rune(bad)[0], outBidi)
+		}
+	}
+	if !strings.Contains(outBidi, "line1?[31mred\nline2?CSI\nline3?RLO?zl?zp?zw") {
+		t.Errorf("ImprovedPrompt did not preserve multi-line scrubbed lines:\n%s", outBidi)
+	}
 }

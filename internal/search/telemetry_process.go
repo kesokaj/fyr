@@ -186,7 +186,7 @@ func buildProcessTurns(rows []VetHistoryRow) []ProcessTurnTelemetry {
 func appendProcessImprovedPrompts(sb *strings.Builder, rows []VetHistoryRow) {
 	wrotePromptHeader := false
 	for _, r := range rows {
-		prompt := strings.TrimSpace(r.ImprovedPrompt)
+		prompt := printableMultiline(r.ImprovedPrompt)
 		if prompt == "" {
 			continue
 		}
