@@ -7,9 +7,7 @@
 
 ## Now
 
-### Wave 4 — Unified Docs, Traces, Review, Security & Close (`PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`)
-- [ ] Sync `README.md`, `features/dream-and-auto.md`, `SDD.md`, `TDD.md`, `PRD.md` (`R0`/`R3` `enforced by:` test names), `SPEC-fyr-pre-hook-coordinator`, and deterministic `Now` pin in `cmd/fyr/verb_search_hook_test.go`
-- [ ] Run independent `reviewer` (`--code --docs`) and `security` audits over full diff, resolve findings, scratch `install`/`status` check, bare `/home/kesokaj/.local/bin/fyr verify` (`0 findings`), store `change`, push `main`, and close plan + handoff via `fyr close`
+<!-- No active Phase 4 tasks remaining; PLAN-2026-11-17-1413 closed -->
 
 ## Next
 
