@@ -89,6 +89,7 @@ type VetResult struct {
 	TargetFiles        []string        `json:"targetFiles,omitempty"`
 	SuggestedVerify    string          `json:"suggestedVerify,omitempty"`
 	ImprovedPrompt     string          `json:"improvedPrompt,omitempty"`
+	Subtasks           []SubtaskSlice  `json:"subtasks,omitempty"`
 	CarriedFromTurn    int             `json:"carriedFromTurn,omitempty"`
 	PresentAnchors     []string        `json:"presentAnchors,omitempty"`
 	MissingAnchors     []string        `json:"missingAnchors,omitempty"`
@@ -378,6 +379,9 @@ func vetPromptCoreWithHistory(
 		Conflicts:        conflicts,
 	}
 	populateVetDeltas(&res, trimmed, cleanPrompt, slice, files, prev)
+	if !res.Bypassed && res.Gate != GatePassThrough {
+		res.Subtasks = DecomposeSubtasks(cleanPrompt, intent, slice, files, catalog)
+	}
 	res.ImprovedPrompt = SynthesizeImprovedPrompt(cleanPrompt, res, slice, ctxWithConflicts, prev)
 	attachAdvisoryRoute(cleanPrompt, &res, slice, ctxWithConflicts)
 	return res

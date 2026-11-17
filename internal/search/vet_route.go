@@ -6,9 +6,8 @@ import (
 )
 
 var (
-	inlineCodeSpanRe = regexp.MustCompile("`[^`]*`")
-	numberedTasksRe  = regexp.MustCompile(`(?is)(?:^|[\s:;])(?:\(?1\)|1\.)\s+\S+.*[\s;](?:\(?2\)|2\.)\s+\S+`)
-	multiPhaseRe     = regexp.MustCompile(`(?i)\b(?:phase\s*1\b.*\bphase\s*2|(?:[2-9]|\d{2,}|two|three|four|five|multiple|several)\s+(?:independent\s+)?(?:phases|tasks|waves)|multi-phase)\b`)
+	numberedTasksRe = regexp.MustCompile(`(?is)(?:^|[\s:;])(?:\(?1\)|1\.)\s+\S+.*[\s;](?:\(?2\)|2\.)\s+\S+`)
+	multiPhaseRe    = regexp.MustCompile(`(?i)\b(?:phase\s*1\b.*\bphase\s*2|(?:[2-9]|\d{2,}|two|three|four|five|multiple|several)\s+(?:independent\s+)?(?:phases|tasks|waves)|multi-phase)\b`)
 )
 
 // RouteFeature returns a concise advisory fyr feature route for prompt and
@@ -16,7 +15,7 @@ var (
 func RouteFeature(prompt string, intent IntentMode, skills []SkillMeta) string {
 	clean := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
 	clean = strings.TrimSpace(strings.TrimPrefix(clean, "!"))
-	if clean == "" || isKickoffPrompt(clean) {
+	if clean == "" || isWorkerBriefPrompt(clean) {
 		return ""
 	}
 	if intent == "" {
@@ -37,15 +36,18 @@ func RouteFeature(prompt string, intent IntentMode, skills []SkillMeta) string {
 	case IntentQuestion:
 		return "fyr search --slice"
 	case IntentTask:
-		return routeTaskIntent(low, skills)
+		return routeTaskIntent(clean, low, skills)
 	default:
 		return ""
 	}
 }
 
-func routeTaskIntent(low string, skills []SkillMeta) string {
+func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 	if hasLookupCues(low) {
 		return "fyr search --slice"
+	}
+	if !isWorkerBriefPrompt(clean) && hasBatchOrMultiPhaseCues(clean, low) {
+		return "/fyr-swarm (isolated subtasks; zero shared memory)"
 	}
 	switch {
 	case hasSkillName(skills, "fyr-triage"):
@@ -81,19 +83,7 @@ func hasIndependentTasks(clean, low string) bool {
 }
 
 func countActionClauses(clean string) int {
-	stripped := inlineCodeSpanRe.ReplaceAllString(clean, "code")
-	if !strings.Contains(stripped, ";") {
-		return 0
-	}
-	n := 0
-	for _, raw := range strings.Split(stripped, ";") {
-		clause := strings.TrimSpace(raw)
-		if len(strings.Fields(clause)) < 2 || isConstraintClause(strings.ToLower(clause)) {
-			continue
-		}
-		n++
-	}
-	return n
+	return len(splitSemicolonActionClauses(clean))
 }
 
 func isConstraintClause(lowClause string) bool {
@@ -108,9 +98,7 @@ func isConstraintClause(lowClause string) bool {
 }
 
 func isKickoffLow(low string) bool {
-	return strings.Contains(low, "standing approvals (closed set):") ||
-		strings.Contains(low, "standing approvals:") ||
-		(strings.HasPrefix(low, "project:") && strings.Contains(low, "files:"))
+	return isWorkerBriefPrompt(low)
 }
 
 func hasLookupCues(low string) bool {
@@ -134,6 +122,9 @@ func attachAdvisoryRoute(cleanPrompt string, res *VetResult, _ SliceResult, _ Tu
 		return
 	}
 	res.Route = RouteFeature(cleanPrompt, res.Intent, res.Skills)
+	if res.Gate == GateEnrichAndProceed && res.Intent != IntentQuestion && res.Intent != IntentCorrection && len(res.Subtasks) >= 2 {
+		res.Route = "/fyr-swarm (isolated subtasks; zero shared memory)"
+	}
 	if res.Route == "" || res.Gate != GateEnrichAndProceed || res.Intent == IntentCorrection {
 		return
 	}

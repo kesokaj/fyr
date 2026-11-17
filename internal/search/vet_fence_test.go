@@ -69,7 +69,7 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 	if !strings.HasPrefix(sysMsg, "```json\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
 		t.Fatalf("expected strictly one json fenced block with no surrounding prose, got:\n%s", sysMsg)
 	}
-	for _, legacy := range []string{`"stage":`, "BEGIN DATA", "status_line:", "Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder", "skills/fyr-bug/SKILL.md", "Turn-0 capsule"} {
+	for _, legacy := range []string{`"stage":`, "BEGIN DATA", "status_line:", "Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder", "Turn-0 capsule"} {
 		if strings.Contains(sysMsg, legacy) {
 			t.Errorf("envelope contains legacy/verbose token %q:\n%s", legacy, sysMsg)
 		}
@@ -86,6 +86,11 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 		parsed.Enrichment.Records[0].ID != "MEMORY-airy-ux" || parsed.Enrichment.Records[1].ID != "ADR-515" ||
 		!strings.Contains(parsed.Enrichment.AstSlice, "[Hop 0]") || parsed.Enrichment.Trust == "" {
 		t.Errorf("parsed enrichment mismatch: %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
+	}
+	if len(parsed.Enrichment.SkillDigests) != 2 ||
+		parsed.Enrichment.SkillDigests[0] != (PreInvocationSkillDigest{Name: "fyr-bug", Path: "skills/fyr-bug/SKILL.md", Digest: "Bug workflow"}) ||
+		parsed.Enrichment.SkillDigests[1] != (PreInvocationSkillDigest{Name: "golang", Path: "skills/golang/SKILL.md", Digest: "Go standards"}) {
+		t.Errorf("parsed skillDigests mismatch: %+v\nraw:\n%s", parsed.Enrichment.SkillDigests, sysMsg)
 	}
 }
 

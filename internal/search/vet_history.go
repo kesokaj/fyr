@@ -22,6 +22,8 @@ type VetHistoryRow struct {
 	MissingAnchors  []string
 	SuggestedSkills []string
 	PivotFiles      []string
+	SubtaskCount    int
+	Directive       string
 	CreatedAt       int64
 }
 
@@ -55,7 +57,7 @@ func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, 
 		}
 	}
 	_, err := st.db.Exec(
-		`INSERT OR REPLACE INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		convID,
 		turnNum,
 		string(res.Intent),
@@ -67,6 +69,8 @@ func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, 
 		strings.Join(res.MissingAnchors, ","),
 		strings.Join(skillNames, ","),
 		strings.Join(pivotFiles, ","),
+		len(res.Subtasks),
+		preInvocationDirective(res),
 		nowFunc().Unix(),
 	)
 	return err
@@ -79,10 +83,10 @@ func (st *store) lastVetHistory(convID string, beforeTurn int) (*VetHistoryRow, 
 	if strings.TrimSpace(convID) == "" {
 		convID = "default"
 	}
-	query := `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`
+	query := `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`
 	args := []any{convID}
 	if beforeTurn > 0 {
-		query = `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
+		query = `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
 		args = []any{convID, beforeTurn}
 	}
 	row, err := scanVetHistoryRow(st.db.QueryRow(query, args...))
@@ -145,7 +149,7 @@ func (st *store) listConversationVetHistory(convID string, limit int) ([]VetHist
 		limit = 50
 	}
 	rows, err := st.db.Query(
-		`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT ?`,
+		`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT ?`,
 		convID, limit,
 	)
 	if err != nil {
@@ -173,7 +177,7 @@ func scanVetHistoryRow(sc rowScanner) (*VetHistoryRow, error) {
 	if err := sc.Scan(
 		&r.ConversationID, &r.TurnNum, &intent, &gate, &r.Score,
 		&r.RawPrompt, &r.ImprovedPrompt, &presentCSV, &missingCSV,
-		&skillsCSV, &pivotsCSV, &r.CreatedAt,
+		&skillsCSV, &pivotsCSV, &r.SubtaskCount, &r.Directive, &r.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -351,10 +355,14 @@ func stringInList(items []string, want string) bool {
 // record for vet_history and fyr-process.md when non-redundant deltas exist
 // and 45 <= Score < 80, follow-up to VET_FIRST applies, or conflicts exist.
 func SynthesizeImprovedPrompt(_ string, res VetResult, slice SliceResult, brainCtx TurnBrainContext, prev *VetHistoryRow) string {
-	if res.Score < 45 || res.Gate != GateEnrichAndProceed || res.Intent == IntentQuestion || res.Intent == IntentCorrection {
+	if res.Gate != GateEnrichAndProceed || res.Intent == IntentQuestion || res.Intent == IntentCorrection {
 		return ""
 	}
-	if res.Score >= 80 && (prev == nil || prev.Gate != GateVetFirst) && len(brainCtx.Conflicts) == 0 {
+	multi := len(res.Subtasks) >= 2
+	if !multi && res.Score < 45 {
+		return ""
+	}
+	if !multi && res.Score >= 80 && (prev == nil || prev.Gate != GateVetFirst) && len(brainCtx.Conflicts) == 0 {
 		return ""
 	}
 	var lines []string
@@ -371,6 +379,9 @@ func SynthesizeImprovedPrompt(_ string, res VetResult, slice SliceResult, brainC
 	}
 	if c := formatImprovedPromptConstraints(brainCtx); c != "" {
 		lines = append(lines, "constraints: "+c)
+	}
+	if len(lines) == 0 && multi {
+		lines = append(lines, fmt.Sprintf("subtasks: %d isolated slices", len(res.Subtasks)))
 	}
 	if len(lines) == 0 {
 		return ""

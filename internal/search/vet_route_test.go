@@ -79,16 +79,22 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			want:   "/fyr-feature (pre-build interview first)",
 		},
 		{
-			name:   "task with two independent semicolon tasks has no fyr-work route",
-			prompt: "Add TestHelloTab to internal/greet/greet_test.go; add Shout to internal/shout/shout.go",
+			name:   "auto kickoff does not self-route to fyr-swarm",
+			prompt: "This is a Kickoff written by fyr auto.\nFiles: internal/search/\nTask: update vet",
 			intent: IntentTask,
 			want:   "",
 		},
 		{
-			name:   "task with numbered list has no fyr-work route",
+			name:   "task with two independent semicolon tasks routes to fyr-swarm",
+			prompt: "Add TestHelloTab to internal/greet/greet_test.go; add Shout to internal/shout/shout.go",
+			intent: IntentTask,
+			want:   "/fyr-swarm (isolated subtasks; zero shared memory)",
+		},
+		{
+			name:   "task with numbered list routes to fyr-swarm",
 			prompt: "1) Update flag parsing in cmd/a/main.go 2) Update config loader in internal/cfg/load.go",
 			intent: IntentTask,
-			want:   "",
+			want:   "/fyr-swarm (isolated subtasks; zero shared memory)",
 		},
 		{
 			name:   "bug routes to fyr-bug",
@@ -195,7 +201,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			name:               "anchored multi-phase feature",
 			prompt:             "Implement Phase 1 caching in internal/search/service.go returning CacheHit; implement Phase 2 metrics in internal/metrics/store.go returning Count, and verify with go test",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "/fyr-feature (pre-build interview first)",
+			wantRoute:          "/fyr-swarm (isolated subtasks; zero shared memory)",
 			wantImprovedPrompt: true,
 		},
 		{
@@ -209,7 +215,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 			name:               "two independent tasks",
 			prompt:             "Update internal/search/service.go; update internal/search/vet.go",
 			wantGate:           GateEnrichAndProceed,
-			wantRoute:          "",
+			wantRoute:          "/fyr-swarm (isolated subtasks; zero shared memory)",
 			wantImprovedPrompt: true,
 		},
 		{
@@ -284,8 +290,8 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Errorf("VetPrompt median latency = %v (all: %v), want < 25ms", median, samples)
 	}
 
-	// Live pre-invocation hook: mid-score bug emits [VET_IMPROVED_PROMPT] + route, while
-	// high-score bug emits route in [FYR_TURN_CONTRACT] without redundant [VET_IMPROVED_PROMPT].
+	// Live pre-invocation hook: mid-score bug emits structured enrichment.improvedPrompt
+	// alongside EXECUTE_IMPROVED_PROMPT and route inside [FYR_TURN_CONTRACT].
 	dir := setupHookRepo(t)
 	home := t.TempDir()
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
@@ -306,11 +312,11 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Fatalf("unmarshal hook output: %v", err)
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	if strings.Contains(sysMsg, "[VET_IMPROVED_PROMPT]") {
-		t.Errorf("pre-invocation systemMessage should not emit raw [VET_IMPROVED_PROMPT]:\n%s", sysMsg)
-	}
 	parsed := parseFencedJSONBanner(t, sysMsg)
 	if parsed.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed.Route != "/fyr-bug (reproduce with failing test first)" {
 		t.Errorf("parsed envelope = %+v, want Directive=EXECUTE_IMPROVED_PROMPT Route=/fyr-bug (reproduce with failing test first)\nraw:\n%s", parsed, sysMsg)
+	}
+	if parsed.Enrichment == nil || !strings.Contains(parsed.Enrichment.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") {
+		t.Errorf("expected enrichment.improvedPrompt with [VET_IMPROVED_PROMPT], got %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
 	}
 }

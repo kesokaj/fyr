@@ -83,7 +83,7 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 	sysMsg, banner := BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
 	if sc != nil && sc.st != nil && rawPrompt != "" {
 		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
-		_ = sc.st.recordVetHistory(convID, turnNum, rawPrompt, vetRes, pivotFiles)
+		_ = sc.st.recordVetHistory(convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles)
 	}
 	writeHookProcessArtifact(o.Home, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {

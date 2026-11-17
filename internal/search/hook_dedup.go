@@ -53,7 +53,7 @@ func filterSessionDedupTurn(st *store, convID string, genID, turnNum int, res *V
 	if len(res.Skills) > 0 {
 		var kept []SkillMeta
 		for _, s := range res.Skills {
-			if markSessionSentinelOnce(st, convID, genID, turnNum, "__vet_skill__:"+s.Name) {
+			if s.Name != "" && markSessionSentinelOnce(st, convID, genID, turnNum, "__vet_skill__:"+s.Name) {
 				kept = append(kept, s)
 			}
 		}

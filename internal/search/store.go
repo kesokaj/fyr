@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "6"
+const schemaVersion = "7"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -66,7 +66,7 @@ CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path 
 CREATE TABLE read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num));
 CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT);
 CREATE TABLE co_activity(file_a TEXT, file_b TEXT, kind TEXT, count INT, updated_at INT, PRIMARY KEY(file_a, file_b, kind));
-CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT, PRIMARY KEY(conversation_id, turn_num));
+CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT DEFAULT 0, directive TEXT DEFAULT '', created_at INT, PRIMARY KEY(conversation_id, turn_num));
 `
 
 // store is one open index database.
