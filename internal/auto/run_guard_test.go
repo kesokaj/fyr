@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -15,8 +14,6 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/trail"
 )
-
-const observeConfig = `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`
 
 func bugProject(t *testing.T, lines string) string {
 	t.Helper()
@@ -33,7 +30,7 @@ func TestGatePartialCloneIsNotRead(t *testing.T) {
 	readable = func(string) bool { return false }
 	t.Cleanup(func() { readable = trail.Readable })
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t))}
 	e.onConv = func() { t.Error("a git-backed gate ran") }
 	if out := reportRun(t, home, e); !strings.Contains(out, "partial clone") {
@@ -47,7 +44,7 @@ func TestGateHungReadableIsLeftBehind(t *testing.T) {
 	readable = func(string) bool { <-release; return true }
 	t.Cleanup(func() { close(release) })
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := runOpts(home, &out)
 	o.Env, o.ReadLimit = &fakeEnv{targets: targetsOf(idleProject(t))}, 200*time.Millisecond
@@ -60,12 +57,12 @@ func TestGateHungTargetsIsLeftBehind(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	e := &fakeEnv{onTargets: func() { <-release }}
 	var out bytes.Buffer
 	o := runOpts(home, &out)
 	o.Env, o.ReadLimit = e, 200*time.Millisecond
-	if exit(Run(o, false)) != 1 || !strings.Contains(out.String(), "G6 registered: a read took over") {
+	if exit(Run(o, false)) != 1 || !strings.Contains(out.String(), "targets: a read took over") {
 		t.Errorf("%s", out.String())
 	}
 }
@@ -73,20 +70,20 @@ func TestGateHungTargetsIsLeftBehind(t *testing.T) {
 // off during the install check, past the re-read before it.
 func TestGateRereadRightBeforeUsage(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}
 	var out bytes.Buffer
 	o := runOpts(home, &out)
 	o.Env = e
 	o.Install = func() []Finding {
-		writeConfig(t, home, `{"enabled": false, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+		writeConfig(t, home, `{"enabled": false, "conversation_idle": "1h"}`)
 		return nil
 	}
 	if err := Run(o, false); err != nil {
 		t.Fatal(err)
 	}
-	if e.usageCalls != 0 || !strings.Contains(out.String(), "G1 switch: off, stopped before the quota") {
-		t.Errorf("%d calls: %s", e.usageCalls, out.String())
+	if st, _, _ := loadState(home); e.usageCalls != 1 || st.Budget != "" || !strings.Contains(out.String(), "G1 switch: off, stopped before the quota") {
+		t.Errorf("%d calls, budget=%q: %s", e.usageCalls, st.Budget, out.String())
 	}
 }
 
@@ -98,31 +95,32 @@ const finishingLimit = 3 * time.Second
 // A read that hangs is left behind: the run goes on and exits 1.
 func TestGateHungReadIsLeftBehind(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	first, second := idleProject(t), idleProject(t)
-	var calls atomic.Int32
-	e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
-	e.onConv = func() {
-		if calls.Add(1) == 1 {
+	readable = func(root string) bool {
+		if root == first {
 			<-release
 		}
+		return true
 	}
+	t.Cleanup(func() { readable = trail.Readable })
+	e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
 	var out bytes.Buffer
 	o := runOpts(home, &out)
 	o.Env, o.ReadLimit = e, finishingLimit
 	if exit(Run(o, false)) != 1 {
 		t.Errorf("%s", out.String())
 	}
-	if !strings.Contains(out.String(), first+": G7 idle: a read took over") || !strings.Contains(out.String(), second+": health:") {
+	if !strings.Contains(out.String(), first+": read project: a read took over") || !strings.Contains(out.String(), second+": health:") {
 		t.Errorf("%s", out.String())
 	}
 }
 
 func TestChecksHungInstallIsAFinding(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 	var out bytes.Buffer
@@ -139,7 +137,7 @@ func TestChecksHungInstallIsAFinding(t *testing.T) {
 
 func TestReportIsRedacted(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	secret := "ghp_" + strings.Repeat("a1", 18)
 	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}
 	var out bytes.Buffer
@@ -157,7 +155,7 @@ func TestReportIsRedacted(t *testing.T) {
 
 func TestReportOneLongLineKeepsTheReport(t *testing.T) {
 	fs := []Finding{{"check", "path", "x", strings.Repeat("y", 1<<20)}, {"check", "path", "z", "short"}}
-	body := reportBody("p", "observe", fs)
+	body := reportBody("p", fs)
 	if len(body) > 4*lineLimit || !strings.Contains(body, "short") {
 		t.Errorf("%d bytes", len(body))
 	}
@@ -165,26 +163,24 @@ func TestReportOneLongLineKeepsTheReport(t *testing.T) {
 
 // off written while the only project is read: no `/usage`, no machine checks.
 func TestGateRereadBeforeUsage(t *testing.T) {
-	for _, level := range []string{"observe", "project"} {
-		t.Run(level, func(t *testing.T) {
-			home := t.TempDir()
-			writeConfig(t, home, strings.ReplaceAll(observeConfig, "observe", level))
-			e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}
-			e.onConv = func() {
-				writeConfig(t, home, `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`)
-			}
-			installs := 0
-			var out bytes.Buffer
-			o := runOpts(home, &out)
-			o.Env = e
-			o.Install = func() []Finding { installs++; return nil }
-			if err := Run(o, false); err != nil {
-				t.Fatal(err)
-			}
-			if e.usageCalls != 0 || installs != 0 || !strings.Contains(out.String(), "G1 switch: off, stopped before") {
-				t.Errorf("%d calls, %d installs: %s", e.usageCalls, installs, out.String())
-			}
-		})
+	home := t.TempDir()
+	writeConfig(t, home, validConfig)
+	e := &fakeEnv{targets: targetsOf(idleProject(t)), usage: usageText("90%", "90%")}
+	readable = func(string) bool {
+		writeConfig(t, home, `{"enabled": false, "conversation_idle": "1h"}`)
+		return true
+	}
+	t.Cleanup(func() { readable = trail.Readable })
+	installs := 0
+	var out bytes.Buffer
+	o := runOpts(home, &out)
+	o.Env = e
+	o.Install = func() []Finding { installs++; return nil }
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	if e.usageCalls != 0 || installs != 0 || !strings.Contains(out.String(), "G1 switch: off, stopped before") {
+		t.Errorf("%d calls, %d installs: %s", e.usageCalls, installs, out.String())
 	}
 }
 
@@ -192,12 +188,12 @@ func TestGateRereadBeforeUsage(t *testing.T) {
 // file one report.
 func TestReportMarkSurvivesAStop(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	first := bugProject(t, trailLine(t, "bug", "BUG-001", "open", "no rule"))
 	second := idleProject(t)
 	for range 3 {
-		e := &fakeEnv{targets: targetsOf(first, second)}
-		e.onConv = func() { e.ptys = []time.Time{runAt} }
+		e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
+		e.onUsage = func() { e.supplies = []Supply{{Type: "Battery"}} }
 		reportRun(t, home, e)
 	}
 	if got := reports(t, home); len(got) != 1 {
@@ -210,7 +206,7 @@ func TestReportMarkSurvivesAStop(t *testing.T) {
 
 func TestReportGoneProjectLeavesTheState(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	root := idleProject(t)
 	reportRun(t, home, &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")})
 	reportRun(t, home, &fakeEnv{usage: usageText("90%", "90%")})
@@ -221,7 +217,7 @@ func TestReportGoneProjectLeavesTheState(t *testing.T) {
 
 func TestChecksQueuedProposal(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, observeConfig)
+	writeConfig(t, home, validConfig)
 	add := func(title string, at time.Time) {
 		o := brain.Options{Home: home, Global: true, Now: func() time.Time { return at }}
 		if _, err := brain.Add(o, brain.AddInput{Kind: "proposal", Title: title, Status: "queued", Body: strings.NewReader("x")}); err != nil {

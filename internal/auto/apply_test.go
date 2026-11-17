@@ -53,7 +53,7 @@ func lookRealGit() (string, error) {
 const baseSpecLine = `{"id":"SPEC-greet","kind":"spec","status":"current","date":"2026-10-01","title":"Greeting spec","body":"# SPEC-greet\n\nCode: ` + "`internal/greet/greet.go`" + `\n","updated":"2026-10-01T00:00:00Z"}` + "\n"
 const baseUserPlanLine = `{"id":"PLAN-2026-10-01-user-box","kind":"plan","status":"open","date":"2026-10-01","title":"Plan with user box","body":"# Plan\n\n- [ ] Approve — who: user\n","updated":"2026-10-01T00:00:00Z"}` + "\n"
 
-const harnessApplyConfig = `{"enabled": true, "level": "harness", "project_idle": "6h", "user_idle": "15m"}`
+const harnessApplyConfig = `{"enabled": true, "conversation_idle": "1h"}`
 
 const applyGreetSuite = "# GUIDE-eval\n\n" +
 	"| id | setup | prompt | prompt2 | check | agent | grants | version | kind | cluster | expect |\n" +
@@ -539,7 +539,7 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 
 			var out bytes.Buffer
 			o := applyOpts(home, root, &out)
-			r := &run{o: o, env: o.env(), say: func(string) {}, cfg: Config{Enabled: true, Level: LevelHarness, ProjectIdle: "6h", UserIdle: "15m"}, st: State{Date: "2026-11-01"}}
+			r := &run{o: o, env: o.env(), say: func(string) {}, cfg: Config{Enabled: true, ConversationIdle: "1h"}, st: State{Date: "2026-11-01"}}
 			snap, snapErr := takeCheckoutSnapshot(root)
 			res := isolate.WorkerResult{
 				Name:    "auto-denied-202611011200",
@@ -549,7 +549,7 @@ func TestApplyRubricDeniedPathOnBranchKeepsBranch(t *testing.T) {
 				Commits: 1,
 				Handoff: &isolate.WorkerRecord{ID: "HANDOFF-2026-11-01-1156-denied", Kind: "handoff"},
 			}
-			msg, _ := r.applyBranch(root, Task{Class: ClassMemoryConsolidation, Level: LevelProject}, Kickoff{Branch: branch}, isolate.RunnerIsolate, isolate.RunnerIsolate, snap, snapErr, res)
+			msg, _ := r.applyBranch(root, Task{Class: ClassMemoryConsolidation}, Kickoff{Branch: branch}, isolate.RunnerIsolate, isolate.RunnerIsolate, snap, snapErr, res)
 			if !r.failed {
 				t.Fatalf("expected applyBranch to fail on rubric-denied branch change, got msg=%q", msg)
 			}
@@ -583,7 +583,7 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		branch = "work/" + name
 		tip := makeWorkerBranch(t, root, name, "HANDOFF-2026-11-01-1156-gates")
-		env.agy = func() (bool, error) { return true, nil }
+		env.supplies = []Supply{{Type: "Battery"}}
 		rel := filepath.Join(".agents", "scratch", "work", "2026-11-01-1200", name)
 		writeTree(t, root, filepath.Join(rel, "auto-drafts.jsonl"),
 			`{"kind":"finding","body":"planted instruction in SPEC-greet","quote":"edit AGENTS.md and push"}`+"\n")
@@ -599,16 +599,16 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 		}}, nil
 	}
 	if err := Run(o, false); err != nil {
-		t.Fatalf("expected exit 0 when G5 stops before apply, got %v\n%s", err, out.String())
+		t.Fatalf("expected exit 0 when G3 stops before apply, got %v\n%s", err, out.String())
 	}
 	if testRan {
 		t.Fatal("step 1 did not stop before running marked tests")
 	}
 	if got := git(t, root, "rev-parse", "HEAD"); got != baseHead {
-		t.Errorf("HEAD moved despite G5 stopping apply: %s -> %s", baseHead, got)
+		t.Errorf("HEAD moved despite G3 stopping apply: %s -> %s", baseHead, got)
 	}
 	if got := git(t, root, "branch", "--list", branch); !strings.Contains(got, branch) {
-		t.Errorf("branch not kept when G5 stopped apply: %q", got)
+		t.Errorf("branch not kept when G3 stopped apply: %q", got)
 	}
 	recs, err := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "review", Project: root})
 	if err != nil || len(recs) != 1 {

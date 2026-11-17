@@ -34,7 +34,7 @@ func logOf(t *testing.T, home string) string {
 }
 
 func TestAutoRunOffIsOneLine(t *testing.T) {
-	for name, text := range map[string]string{"missing": "", "disabled": `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`} {
+	for name, text := range map[string]string{"missing": "", "disabled": `{"enabled": false, "conversation_idle": "1h"}`} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			if text != "" {
@@ -255,7 +255,7 @@ func TestAutoDryRunWritesNothing(t *testing.T) {
 		"no state dir": func(string) {},
 		"on":           func(h string) { writeConfig(t, h, validConfig) },
 		"off": func(h string) {
-			writeConfig(t, h, `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`)
+			writeConfig(t, h, `{"enabled": false, "conversation_idle": "1h"}`)
 		},
 		"corrupt": func(h string) { writeConfig(t, h, "garbage") },
 		"ran before": func(h string) {
@@ -287,7 +287,7 @@ func TestAutoDryRunNamesWhatItSkipped(t *testing.T) {
 	if err := Run(runOpts(home, &out), true); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"G1 switch: on, level project", "G2 lock: not taken in a dry run", "budget: not read in a dry run"} {
+	for _, want := range []string{"G1 switch: on, stale after 1h", "G2 lock: not taken in a dry run", "budget: not read in a dry run"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q in %q", want, out.String())
 		}
@@ -321,12 +321,12 @@ func TestAutoStatus(t *testing.T) {
 	if err := Status(o); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"auto       off; timer not installed\n", "level      observe; project idle 6h, user idle 15m\n", "last run   never\n", "today      0 of 4 model runs\n", "asks       0 open\n"} {
+	for _, want := range []string{"auto       off; timer not installed\n", "mode       stale after 1h; scope all conversations, projects & harness\n", "last run   never\n", "today      0 of 4 model runs\n", "asks       0 open\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("off: missing %q in:\n%s", want, out.String())
 		}
 	}
-	if err := On(o, Request{Level: LevelProject}); err != nil {
+	if err := On(o, Request{ConversationIdle: "2h"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureDir(home); err != nil {
@@ -341,7 +341,7 @@ func TestAutoStatus(t *testing.T) {
 	if err := Status(o); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"auto       on; timer installed\n", "level      project;", "last run   2026-11-01T12:00:00Z: v w\n", "project    /a: G8 dirty\nproject    /b: G7 idle\n", "today      2 of 4 model runs\n", "asks       3 open\n"} {
+	for _, want := range []string{"auto       on; timer installed\n", "mode       stale after 2h;", "last run   2026-11-01T12:00:00Z: v w\n", "project    /a: G8 dirty\nproject    /b: G7 idle\n", "today      2 of 4 model runs\n", "asks       3 open\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("on: missing %q in:\n%s", want, out.String())
 		}
@@ -368,7 +368,7 @@ func TestAutoStatusSaysWhatDisagrees(t *testing.T) {
 	if err := unit.Install(home, "/p", "linux"); err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, home, `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, `{"enabled": false, "conversation_idle": "1h"}`)
 	out.Reset()
 	Status(o)
 	if !strings.Contains(out.String(), "timer installed, and nothing runs while auto is off") {
@@ -401,16 +401,16 @@ func TestAutoStatusLine(t *testing.T) {
 	if got := StatusLine(o); got != "off" {
 		t.Errorf("%q", got)
 	}
-	if err := On(o, Request{Level: LevelProject}); err != nil {
+	if err := On(o, Request{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := StatusLine(o); got != "on, level project; timer installed; never run" {
+	if got := StatusLine(o); got != "on, stale after 1h; timer installed; never run" {
 		t.Errorf("%q", got)
 	}
 	if err := Run(o, false); err != nil {
 		t.Fatal(err)
 	}
-	if got := StatusLine(o); got != "on, level project; timer installed; last run 2026-11-01" {
+	if got := StatusLine(o); got != "on, stale after 1h; timer installed; last run 2026-11-01" {
 		t.Errorf("%q", got)
 	}
 	os.WriteFile(filepath.Join(dir(home), "runs.json"), []byte("garbage"), 0o600)

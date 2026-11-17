@@ -19,23 +19,22 @@ func TestTasksKickoffTemplates(t *testing.T) {
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	cases := []struct {
 		class      string
-		level      string
 		entries    []string
 		id         string
 		count      int
 		wantFiles  string
 		wantSubstr string
 	}{
-		{ClassMemoryConsolidation, LevelProject, nil, "", 12, "Files:\n", "12 memory record(s)"},
-		{ClassRetroLite, LevelProject, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
-		{ClassMemoryCandidates, LevelProject, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
-		{ClassDistill, LevelProject, []string{".agents/skills/auto-distilled/"}, "", 4, "Files: .agents/skills/auto-distilled/\n", "4 sessions"},
-		{ClassMissingSkill, LevelProject, nil, "PROPOSAL-2026-11-01-1000-missing-skill", 1, "Files:\n", "skills.sh"},
-		{ClassHarnessEdit, LevelHarness, []string{"skills/foo/"}, "PROPOSAL-2026-11-01-1000-harness", 1, "Files: skills/foo/\n", "Apply the queued harness proposal"},
+		{ClassMemoryConsolidation, nil, "", 12, "Files:\n", "12 memory record(s)"},
+		{ClassRetroLite, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
+		{ClassMemoryCandidates, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
+		{ClassDistill, []string{".agents/skills/auto-distilled/"}, "", 4, "Files: .agents/skills/auto-distilled/\n", "4 sessions"},
+		{ClassMissingSkill, nil, "PROPOSAL-2026-11-01-1000-missing-skill", 1, "Files:\n", "skills.sh"},
+		{ClassHarnessEdit, []string{"skills/foo/"}, "PROPOSAL-2026-11-01-1000-harness", 1, "Files: skills/foo/\n", "Apply the queued harness proposal"},
 	}
 
 	for _, tc := range cases {
-		task, err := PrepareTask(tc.class, tc.level, tc.entries, tc.id, tc.count)
+		task, err := PrepareTask(tc.class, tc.entries, tc.id, tc.count)
 		if err != nil {
 			t.Fatalf("PrepareTask(%s): %v", tc.class, err)
 		}
@@ -70,7 +69,7 @@ func TestTasksTriggers(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		r := &run{o: Options{Home: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
+		r := &run{o: Options{Home: home, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.pickProjectTask(root, &p, nil)
 		if task == nil || task.Class != ClassMemoryConsolidation || task.Count != 10 {
@@ -89,7 +88,7 @@ func TestTasksTriggers(t *testing.T) {
 		if err := os.WriteFile(convFile, []byte(`{"role":"user","content":"working in `+root+`"}`+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.pickProjectTask(root, &p, nil)
 		if task == nil || task.Class != ClassRetroLite || task.Count != 1 {
@@ -118,7 +117,7 @@ func TestTasksTriggers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.pickProjectTask(root, &p, nil)
 		if task == nil || task.Class != ClassMissingSkill || task.ID != id {
@@ -130,7 +129,7 @@ func TestTasksTriggers(t *testing.T) {
 		home := t.TempDir()
 		root := initGitRepo(t)
 		writeFakeMetricsDB(t, home, root, []string{"search,record", "search,record", "search,record"}, []int{0, 0, 0})
-		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.pickProjectTask(root, &p, nil)
 		if task == nil || task.Class != ClassDistill || task.Count != 3 || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], ".agents/skills/auto-distilled-") {
@@ -220,9 +219,9 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{Level: LevelProject}}
+	r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
 	var p Project
-	task := Task{Class: ClassRetroLite, Level: LevelProject, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
+	task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
 	if _, err := r.writeLearningInput(root, &p, task); err != nil {
 		t.Fatalf("writeLearningInput: %v", err)
 	}
@@ -263,7 +262,7 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	// After retro-lite finishes and advances p.LastRetroLite, memory-candidates
 	// on the next sweep still receives the conversation via p.LastMemoryCandidates.
 	r.recordLearningProgress(&p, task)
-	mcTask := Task{Class: ClassMemoryCandidates, Level: LevelProject, Outcome: OutcomeDrafts, DraftsOnly: true, Count: p.PendingMemoryCandidates}
+	mcTask := Task{Class: ClassMemoryCandidates, Outcome: OutcomeDrafts, DraftsOnly: true, Count: p.PendingMemoryCandidates}
 	mcScrubbed, err := r.writeLearningInput(root, &p, mcTask)
 	if err != nil {
 		t.Fatalf("writeLearningInput(memory-candidates): %v", err)
@@ -315,7 +314,7 @@ func TestDistillRouting(t *testing.T) {
 		home := t.TempDir()
 		root := initGitRepo(t)
 		writeFakeMetricsDB(t, home, root, []string{"search,record", "search,record", "search,record"}, []int{0, 0, 0})
-		r := &run{o: Options{Home: home, RealHome: home, Repo: root, Now: func() time.Time { return now }}, cfg: Config{Level: LevelHarness}}
+		r := &run{o: Options{Home: home, RealHome: home, Repo: root, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.triggerProjectClass(root, &p, ClassDistill, nil)
 		if task == nil || task.Class != ClassDistill || task.Outcome != OutcomeEvalGate || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], "skills/auto-distilled-") {
@@ -328,7 +327,7 @@ func TestDistillRouting(t *testing.T) {
 		root := initGitRepo(t)
 		other := initGitRepo(t)
 		writeFakeMetricsDB(t, home, root, []string{"search,record", "search,record", "search,record"}, []int{0, 0, 0})
-		r := &run{o: Options{Home: home, RealHome: home, Repo: other, Now: func() time.Time { return now }}, cfg: Config{Level: LevelHarness}}
+		r := &run{o: Options{Home: home, RealHome: home, Repo: other, Now: func() time.Time { return now }}, cfg: Config{}}
 		var p Project
 		task := r.triggerProjectClass(root, &p, ClassDistill, nil)
 		if task == nil || task.Class != ClassDistill || task.Outcome != OutcomeProposal || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], ".agents/skills/auto-distilled-") {

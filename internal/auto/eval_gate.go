@@ -36,7 +36,7 @@ func (o Options) holdoutFile() string {
 }
 
 func (r *run) isHarnessCheckout(root string) bool {
-	return r.cfg.Level == LevelHarness && r.o.Repo != "" && sameDir(root, r.o.Repo)
+	return r.o.Repo != "" && sameDir(root, r.o.Repo)
 }
 
 func (r *run) triggerHarnessEdit(root string) *Task {
@@ -53,7 +53,7 @@ func (r *run) triggerHarnessEdit(root string) *Task {
 			continue
 		}
 		if entries := matchProposalTargets(rec, targets); len(entries) > 0 {
-			if t := preparedTask(ClassHarnessEdit, LevelHarness, entries, rec.ID, len(entries)); t != nil {
+			if t := preparedTask(ClassHarnessEdit, entries, rec.ID, len(entries)); t != nil {
 				return t
 			}
 		}

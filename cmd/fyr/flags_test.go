@@ -51,13 +51,14 @@ func TestReorder(t *testing.T) {
 		// A value flag reorder does not know swallows the next argument:
 		// --project would take "--dry-run" as its value and the run would
 		// call the model when a dry run was asked (BUG-002's shape).
-		"dream --project /x --dry-run":           {"--project", "/x", "--dry-run", "dream"},
-		"dream --dry-run":                        {"--dry-run", "dream"},
-		"search --slice Reconcile --budget 1800": {"--slice", "Reconcile", "--budget", "1800", "search"},
-		"search --path EntryPoint LeafTarget":    {"--path", "EntryPoint", "search", "LeafTarget"},
-		"search --affected CoreStore --home /x":  {"--affected", "CoreStore", "--home", "/x", "search"},
-		"search --vet Reconcile --home /x":       {"--vet", "Reconcile", "--home", "/x", "search"},
-		"search --hook pre-invocation --home /x": {"--hook", "pre-invocation", "--home", "/x", "search"},
+		"dream --project /x --dry-run":             {"--project", "/x", "--dry-run", "dream"},
+		"dream --dry-run":                          {"--dry-run", "dream"},
+		"search --slice Reconcile --budget 1800":   {"--slice", "Reconcile", "--budget", "1800", "search"},
+		"search --path EntryPoint LeafTarget":      {"--path", "EntryPoint", "search", "LeafTarget"},
+		"search --affected CoreStore --home /x":    {"--affected", "CoreStore", "--home", "/x", "search"},
+		"search --vet Reconcile --home /x":         {"--vet", "Reconcile", "--home", "/x", "search"},
+		"search --hook pre-invocation --home /x":   {"--hook", "pre-invocation", "--home", "/x", "search"},
+		"auto on --conversation-idle 2h --home /x": {"--conversation-idle", "2h", "--home", "/x", "auto", "on"},
 	}
 	for in, want := range cases {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {

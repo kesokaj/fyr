@@ -36,7 +36,7 @@ func TestKickoffBuilder(t *testing.T) {
 				entries = nil
 			}
 		}
-		task, err := PrepareTask(spec.Name, spec.Level, entries, id, 3)
+		task, err := PrepareTask(spec.Name, entries, id, 3)
 		if err != nil {
 			t.Fatalf("%s: %v", spec.Name, err)
 		}
@@ -68,29 +68,26 @@ func TestKickoffBuilder(t *testing.T) {
 func TestKickoffBuilderRefusals(t *testing.T) {
 	for _, c := range []struct {
 		class   string
-		level   string
 		entries []string
 		id      string
 		count   int
 	}{
-		{"unknown-class", LevelProject, []string{"README.md"}, "", 1},
-		{ClassDistill, LevelObserve, []string{".agents/skills/foo/"}, "", 1},
-		{ClassHarnessEdit, LevelProject, []string{"skills/foo/SKILL.md"}, "PROPOSAL-1", 1},
-		{ClassDistill, LevelProject, []string{"../secret"}, "", 1},
-		{ClassDistill, LevelProject, []string{"prose with spaces"}, "", 1},
-		{ClassDistill, LevelProject, []string{".agents/trail.jsonl"}, "", 1},
-		{ClassMemoryConsolidation, LevelProject, []string{"README.md"}, "", 1},
-		{ClassDistill, LevelProject, []string{".agents/skills/foo/"}, "bad id", 1},
-		{ClassDistill, LevelProject, []string{".agents/skills/foo/"}, "", -1},
+		{"unknown-class", []string{"README.md"}, "", 1},
+		{ClassDistill, []string{"../secret"}, "", 1},
+		{ClassDistill, []string{"prose with spaces"}, "", 1},
+		{ClassDistill, []string{".agents/trail.jsonl"}, "", 1},
+		{ClassMemoryConsolidation, []string{"README.md"}, "", 1},
+		{ClassDistill, []string{".agents/skills/foo/"}, "bad id", 1},
+		{ClassDistill, []string{".agents/skills/foo/"}, "", -1},
 	} {
-		if _, err := PrepareTask(c.class, c.level, c.entries, c.id, c.count); err == nil {
+		if _, err := PrepareTask(c.class, c.entries, c.id, c.count); err == nil {
 			t.Errorf("accepted %+v", c)
 		}
 	}
 }
 
 func TestKickoffRubricAndAsks(t *testing.T) {
-	task, err := PrepareTask(ClassDistill, LevelProject, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
+	task, err := PrepareTask(ClassDistill, []string{".agents/skills/auto-distilled-foo/", "AGENTS.md", "agents/bar/agent.md", "skills/fyr-auto/SKILL.md"}, "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +97,7 @@ func TestKickoffRubricAndAsks(t *testing.T) {
 	if strings.Join(task.Denied, ",") != "AGENTS.md,agents/bar/agent.md,skills/fyr-auto/SKILL.md" {
 		t.Errorf("distill denied: %v", task.Denied)
 	}
-	htask, err := PrepareTask(ClassHarnessEdit, LevelHarness, []string{"skills/foo/SKILL.md", "agents/bar/agent.md", "AGENTS.md", "cmd/fyr/main.go"}, "PROPOSAL-1", 1)
+	htask, err := PrepareTask(ClassHarnessEdit, []string{"skills/foo/SKILL.md", "agents/bar/agent.md", "AGENTS.md", "cmd/fyr/main.go"}, "PROPOSAL-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +113,7 @@ func TestRubricAskStoresProposal(t *testing.T) {
 	home := t.TempDir()
 	root := idleProject(t)
 	r := &run{o: runOpts(home, &bytes.Buffer{}), st: State{Date: "2026-11-01"}}
-	task := Task{Class: ClassDistill, Level: LevelProject, Denied: []string{"AGENTS.md"}}
+	task := Task{Class: ClassDistill, Denied: []string{"AGENTS.md"}}
 	id, f := r.fileAsk(root, task)
 	if r.failed || id == "failed" || r.st.OpenAsks != 1 || f.Check != "ask" {
 		t.Fatalf("id=%q failed=%v asks=%d f=%+v", id, r.failed, r.st.OpenAsks, f)
@@ -289,7 +286,7 @@ func TestWorkerConfigTamperDisablesAuto(t *testing.T) {
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
 	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
-		writeConfig(t, home, `{"enabled": true, "level": "harness", "project_idle": "6h", "user_idle": "15m"}`)
+		writeConfig(t, home, `{"enabled": true, "conversation_idle": "2h"}`)
 		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
 		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
 	}
@@ -341,14 +338,24 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 }
 
 func TestClassRotation(t *testing.T) {
-	got := rotatedClasses(LevelProject, ClassMemoryConsolidation)
+	got := rotatedClasses(false, ClassMemoryConsolidation)
 	if got[0].Name != ClassRetroLite || got[len(got)-1].Name != ClassMemoryConsolidation {
 		t.Errorf("rotated from memory-consolidation: %+v", got)
 	}
 	for _, c := range got {
-		if c.Level == LevelHarness {
-			t.Errorf("level project included harness class %s", c.Name)
+		if c.HarnessOnly {
+			t.Errorf("non-harness rotation included harness class %s", c.Name)
 		}
+	}
+	gotHarness := rotatedClasses(true, ClassMemoryConsolidation)
+	hasHarness := false
+	for _, c := range gotHarness {
+		if c.Name == ClassHarnessEdit {
+			hasHarness = true
+		}
+	}
+	if !hasHarness {
+		t.Errorf("harness rotation missing %s: %+v", ClassHarnessEdit, gotHarness)
 	}
 }
 
@@ -361,7 +368,7 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 			called = true
 			return nil, nil
 		}},
-		cfg: Config{Level: LevelProject},
+		cfg: Config{},
 		st:  State{Date: "2026-11-01"},
 	}
 	// memory-candidates has priority over missing-skill unless memory-candidates ran last.
@@ -372,7 +379,7 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		t.Fatalf("rotated pick: %+v", task)
 	}
 	// All targets rubric-denied (e.g. agents/ and AGENTS.md) leaves Kept empty and queues an ask.
-	deniedTask, err := PrepareTask(ClassHarnessEdit, LevelHarness, []string{"agents/reviewer/agent.md", "AGENTS.md"}, "PROPOSAL-1", 1)
+	deniedTask, err := PrepareTask(ClassHarnessEdit, []string{"agents/reviewer/agent.md", "AGENTS.md"}, "PROPOSAL-1", 1)
 	if err != nil || len(deniedTask.Kept) != 0 || len(deniedTask.Denied) != 2 {
 		t.Fatalf("PrepareTask denied-only = %+v, err=%v", deniedTask, err)
 	}

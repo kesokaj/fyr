@@ -18,7 +18,7 @@ func writeConfig(t *testing.T, home, text string) {
 	}
 }
 
-const validConfig = `{"enabled": true, "level": "project", "project_idle": "6h", "user_idle": "15m"}`
+const validConfig = `{"enabled": true, "conversation_idle": "1h"}`
 
 func TestAutoConfigMissingIsNotFound(t *testing.T) {
 	if _, found, err := Load(t.TempDir()); found || err != nil {
@@ -28,13 +28,22 @@ func TestAutoConfigMissingIsNotFound(t *testing.T) {
 
 func TestAutoConfigRoundTrip(t *testing.T) {
 	home := t.TempDir()
-	want := Config{Enabled: true, Level: LevelHarness, ProjectIdle: "7d", UserIdle: "1m"}
+	want := Config{Enabled: true, ConversationIdle: "7d"}
 	if err := save(home, want); err != nil {
 		t.Fatal(err)
 	}
 	got, found, err := Load(home)
 	if err != nil || !found || got != want {
 		t.Fatalf("%+v, %v, %v", got, found, err)
+	}
+	raw, err := os.ReadFile(ConfigPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []string{"level", "project_idle", "user_idle"} {
+		if strings.Contains(string(raw), legacy) {
+			t.Errorf("saved config contains legacy key %q: %s", legacy, raw)
+		}
 	}
 	info, err := os.Stat(ConfigPath(home))
 	if err != nil || info.Mode().Perm() != 0o600 {
@@ -49,23 +58,23 @@ func TestAutoConfigRoundTrip(t *testing.T) {
 // and no caller can read a half-parsed "enabled".
 func TestAutoConfigCorrupt(t *testing.T) {
 	for name, text := range map[string]string{
-		"empty":           ``,
-		"not json":        `on`,
-		"truncated":       `{"enabled": true`,
-		"unknown key":     `{"enabled": true, "level": "project", "project_idle": "6h", "user_idle": "15m", "x": 1}`,
-		"no enabled":      `{"level": "project", "project_idle": "6h", "user_idle": "15m"}`,
-		"no level":        `{"enabled": true, "project_idle": "6h", "user_idle": "15m"}`,
-		"no project idle": `{"enabled": true, "level": "project", "user_idle": "15m"}`,
-		"no user idle":    `{"enabled": true, "level": "project", "project_idle": "6h"}`,
-		"null enabled":    `{"enabled": null, "level": "project", "project_idle": "6h", "user_idle": "15m"}`,
-		"string enabled":  `{"enabled": "true", "level": "project", "project_idle": "6h", "user_idle": "15m"}`,
-		"two values":      validConfig + validConfig,
-		"bad level":       `{"enabled": true, "level": "god", "project_idle": "6h", "user_idle": "15m"}`,
-		"idle too short":  `{"enabled": true, "level": "project", "project_idle": "59m", "user_idle": "15m"}`,
-		"idle too long":   `{"enabled": true, "level": "project", "project_idle": "8d", "user_idle": "15m"}`,
-		"user idle short": `{"enabled": true, "level": "project", "project_idle": "6h", "user_idle": "59s"}`,
-		"user idle long":  `{"enabled": true, "level": "project", "project_idle": "6h", "user_idle": "25h"}`,
-		"oversized":       `{"enabled": true, "level": "project", "project_idle": "6h", "user_idle": "15m"}` + strings.Repeat(" ", configLimit),
+		"empty":             ``,
+		"not json":          `on`,
+		"truncated":         `{"enabled": true`,
+		"unknown key":       `{"enabled": true, "conversation_idle": "1h", "x": 1}`,
+		"no enabled":        `{"conversation_idle": "1h"}`,
+		"null enabled":      `{"enabled": null, "conversation_idle": "1h"}`,
+		"string enabled":    `{"enabled": "true", "conversation_idle": "1h"}`,
+		"null conv idle":    `{"enabled": true, "conversation_idle": null}`,
+		"int conv idle":     `{"enabled": true, "conversation_idle": 60}`,
+		"null legacy level": `{"enabled": true, "level": null}`,
+		"int legacy idle":   `{"enabled": true, "project_idle": 6}`,
+		"bool legacy user":  `{"enabled": true, "user_idle": false}`,
+		"two values":        validConfig + validConfig,
+		"idle too short":    `{"enabled": true, "conversation_idle": "4m"}`,
+		"idle too long":     `{"enabled": true, "conversation_idle": "8d"}`,
+		"idle invalid":      `{"enabled": true, "conversation_idle": "soon"}`,
+		"oversized":         validConfig + strings.Repeat(" ", configLimit),
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -75,10 +84,19 @@ func TestAutoConfigCorrupt(t *testing.T) {
 			}
 		})
 	}
-	home := t.TempDir()
-	writeConfig(t, home, validConfig)
-	if _, found, err := Load(home); !found || err != nil {
-		t.Errorf("the valid control failed: %v, %v", found, err)
+	for name, text := range map[string]string{
+		"valid":              validConfig,
+		"omitted conv idle":  `{"enabled": true}`,
+		"legacy keys compat": `{"enabled": true, "level": "harness", "project_idle": "6h", "user_idle": "15m"}`,
+		"legacy plus idle":   `{"enabled": false, "level": "observe", "conversation_idle": "2h"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			writeConfig(t, home, text)
+			if c, found, err := Load(home); !found || err != nil || c.ConversationIdle == "" {
+				t.Errorf("%s failed: %+v, %v, %v", name, c, found, err)
+			}
+		})
 	}
 }
 
@@ -110,22 +128,15 @@ func TestAutoConfigDirectoryRefused(t *testing.T) {
 }
 
 func TestAutoSpans(t *testing.T) {
-	good := map[string]func(string) error{"1h": ValidProjectIdle, "7d": ValidProjectIdle, "168h": ValidProjectIdle, "1d": ValidProjectIdle, "1m": ValidUserIdle, "24h": ValidUserIdle}
-	for s, valid := range good {
-		if err := valid(s); err != nil {
+	for _, s := range []string{"5m", "1h", "7d", "168h", "1d", "24h"} {
+		if err := ValidConversationIdle(s); err != nil {
 			t.Errorf("%s: %v", s, err)
 		}
 	}
-	for s, valid := range map[string]func(string) error{"": ValidProjectIdle, "59m": ValidProjectIdle, "8d": ValidProjectIdle, "1.5d": ValidProjectIdle, "-1d": ValidProjectIdle, "d": ValidProjectIdle, "x": ValidUserIdle, "59s": ValidUserIdle, "2d": ValidUserIdle} {
-		if err := valid(s); err == nil {
+	for _, s := range []string{"", "4m", "59s", "8d", "1.5d", "-1d", "d", "x"} {
+		if err := ValidConversationIdle(s); err == nil {
 			t.Errorf("%q passed", s)
 		}
-	}
-	if err := ValidLevel("harness"); err != nil {
-		t.Error(err)
-	}
-	if err := ValidLevel(""); err == nil {
-		t.Error("an empty level passed")
 	}
 }
 
@@ -136,8 +147,8 @@ func TestAutoConfigStrictJSON(t *testing.T) {
 		"stray brace":   validConfig + `}`,
 		"stray bracket": validConfig + `]`,
 		"stray many":    validConfig + "\n}}}]",
-		"twice":         `{"enabled": false, "enabled": true, "level": "project", "project_idle": "6h", "user_idle": "15m"}`,
-		"case folded":   `{"ENABLED": true, "level": "project", "project_idle": "6h", "user_idle": "15m"}`,
+		"twice":         `{"enabled": false, "enabled": true, "conversation_idle": "1h"}`,
+		"case folded":   `{"ENABLED": true, "conversation_idle": "1h"}`,
 		"an array":      `[` + validConfig + `]`,
 		"null":          `null`,
 	} {

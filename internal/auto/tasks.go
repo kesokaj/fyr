@@ -26,7 +26,7 @@ var distillSlugRe = regexp.MustCompile(`[^a-z0-9-]+`)
 // pickProjectTask selects the highest-priority due class for root after
 // rotating p.LastClass to the end (§ Task classes).
 func (r *run) pickProjectTask(root string, p *Project, findings []Finding) *Task {
-	for _, c := range rotatedClasses(r.cfg.Level, p.LastClass) {
+	for _, c := range rotatedClasses(r.isHarnessCheckout(root), p.LastClass) {
 		if t := r.triggerProjectClass(root, p, c.Name, findings); t != nil {
 			return t
 		}
@@ -35,34 +35,33 @@ func (r *run) pickProjectTask(root string, p *Project, findings []Finding) *Task
 }
 
 func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Finding) *Task {
-	level := r.cfg.Level
 	switch class {
 	case ClassMemoryConsolidation:
 		if n := r.countMemoriesSince(root, p.LastMemoryConsolidation); n >= memoryConsolidationThreshold {
-			return preparedTask(ClassMemoryConsolidation, level, nil, "", n)
+			return preparedTask(ClassMemoryConsolidation, nil, "", n)
 		}
 	case ClassRetroLite:
 		if convs := r.conversationsSince(root, p.LastRetroLite); len(convs) > 0 {
-			return preparedTask(ClassRetroLite, level, nil, "", len(convs))
+			return preparedTask(ClassRetroLite, nil, "", len(convs))
 		}
 	case ClassMemoryCandidates:
 		if p.PendingMemoryCandidates > 0 {
-			return preparedTask(ClassMemoryCandidates, level, nil, "", p.PendingMemoryCandidates)
+			return preparedTask(ClassMemoryCandidates, nil, "", p.PendingMemoryCandidates)
 		}
 	case ClassDistill:
 		if slug, n := r.repeatedVerbSequence(root); n >= distillRepeatThreshold && slug != "" {
 			if r.isHarnessCheckout(root) {
-				t := preparedTask(ClassDistill, level, []string{"skills/auto-distilled-" + slug + "/"}, "", n)
+				t := preparedTask(ClassDistill, []string{"skills/auto-distilled-" + slug + "/"}, "", n)
 				if t != nil {
 					t.Outcome = OutcomeEvalGate
 				}
 				return t
 			}
-			return preparedTask(ClassDistill, level, []string{".agents/skills/auto-distilled-" + slug + "/"}, "", n)
+			return preparedTask(ClassDistill, []string{".agents/skills/auto-distilled-" + slug + "/"}, "", n)
 		}
 	case ClassMissingSkill:
 		if id, n := r.missingSkillProposal(root); id != "" {
-			return preparedTask(ClassMissingSkill, level, nil, id, n)
+			return preparedTask(ClassMissingSkill, nil, id, n)
 		}
 	case ClassHarnessEdit:
 		return r.triggerHarnessEdit(root)
@@ -95,8 +94,20 @@ type convSource struct {
 	label, text string
 }
 
+func (r *run) conversationCutoff() time.Time {
+	if r.cfg.ConversationIdle == "" {
+		return time.Time{}
+	}
+	idle, err := span(r.cfg.ConversationIdle)
+	if err != nil || idle <= 0 {
+		return time.Time{}
+	}
+	return r.o.now().Add(-idle)
+}
+
 func (r *run) conversationsSince(root string, since time.Time) []convSource {
 	var out []convSource
+	cutoff := r.conversationCutoff()
 	homes := []string{r.o.realHome()}
 	if r.o.Home != "" && r.o.Home != homes[0] {
 		homes = append(homes, r.o.Home)
@@ -106,7 +117,7 @@ func (r *run) conversationsSince(root string, since time.Time) []convSource {
 		if h == "" {
 			continue
 		}
-		if agy, _, err := search.AgyConversationText(h, root, since); err == nil {
+		if agy, _, err := search.AgyConversationTextInWindow(h, root, since, cutoff); err == nil {
 			for _, a := range agy {
 				if !seen[a.ID] && strings.TrimSpace(a.Text) != "" {
 					seen[a.ID] = true
@@ -114,25 +125,30 @@ func (r *run) conversationsSince(root string, since time.Time) []convSource {
 				}
 			}
 		}
-		for _, sub := range []string{
-			filepath.Join(h, ".gemini", "antigravity", "conversations"),
-			filepath.Join(h, ".gemini", "antigravity-cli", "brain"),
-		} {
-			entries, err := os.ReadDir(sub)
-			if err != nil {
+		out = appendDirConversations(out, seen, h, root, since, cutoff)
+	}
+	return out
+}
+
+func appendDirConversations(out []convSource, seen map[string]bool, home, root string, since, cutoff time.Time) []convSource {
+	for _, sub := range []string{
+		filepath.Join(home, ".gemini", "antigravity", "conversations"),
+		filepath.Join(home, ".gemini", "antigravity-cli", "brain"),
+	} {
+		entries, err := os.ReadDir(sub)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			p := filepath.Join(sub, e.Name())
+			info, err := e.Info()
+			if err != nil || (!since.IsZero() && !info.ModTime().After(since)) || (!cutoff.IsZero() && info.ModTime().After(cutoff)) {
 				continue
 			}
-			for _, e := range entries {
-				p := filepath.Join(sub, e.Name())
-				info, err := e.Info()
-				if err != nil || (!since.IsZero() && !info.ModTime().After(since)) {
-					continue
-				}
-				if info.Mode().IsRegular() && !seen[p] {
-					if raw, ok := readFileMentionsRoot(p, root); ok {
-						seen[p] = true
-						out = append(out, convSource{label: filepath.Base(p), text: redact.RedactJSONL(raw)})
-					}
+			if info.Mode().IsRegular() && !seen[p] {
+				if raw, ok := readFileMentionsRoot(p, root); ok {
+					seen[p] = true
+					out = append(out, convSource{label: filepath.Base(p), text: redact.RedactJSONL(raw)})
 				}
 			}
 		}

@@ -35,7 +35,7 @@ func Status(o Options) error {
 		sw = "on"
 	}
 	fmt.Fprintf(o.Out, "auto       %s; %s\n", sw, o.timerSaid(c))
-	fmt.Fprintf(o.Out, "level      %s; project idle %s, user idle %s\n", c.Level, c.ProjectIdle, c.UserIdle)
+	fmt.Fprintf(o.Out, "mode       stale after %s; scope all conversations, projects & harness\n", c.ConversationIdle)
 	st, err := usableState(o.Home, o.now())
 	if err != nil {
 		fmt.Fprintln(o.Out, "state      unreadable: "+oneLine(err.Error()))
@@ -75,7 +75,7 @@ func StatusLine(o Options) string {
 		}
 		return "off"
 	}
-	line := "on, level " + c.Level + "; " + o.timerSaid(c)
+	line := "on, stale after " + c.ConversationIdle + "; " + o.timerSaid(c)
 	st, err := usableState(o.Home, o.now())
 	switch {
 	case err != nil:

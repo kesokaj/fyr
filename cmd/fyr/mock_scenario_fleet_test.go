@@ -86,7 +86,8 @@ func newFleetRig(t *testing.T) *fleetRig {
 	materializeMockIn(t, r.proj, fyrBin, "mock-fleet-ops")
 	writeTestFile(t, filepath.Join(r.real, fyrisolate.TokenRel), "token")
 	selfBody := "#!/bin/bash\nset -euo pipefail\ncase \"${1:-}\" in\ninstall) mkdir -p \"$3/.local/bin\" && cp " + fyrisolate.ShellQuote(fyrBin) + " \"$3/.local/bin/fyr\" && chmod +x \"$3/.local/bin/fyr\" ;;\n*) exec " + fyrisolate.ShellQuote(fyrBin) + " \"$@\" ;;\nesac\n"
-	for p, body := range map[string]string{filepath.Join(binDir, "agy"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "systemctl"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "launchctl"): "#!/bin/sh\nexit 0\n", self: selfBody, filepath.Join(r.home, harness.BinPath): selfBody} {
+	agyBody := "#!/bin/sh\ncase \"$*\" in *--mode*plan*) printf '%s\\n' '{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"{\\\"proposals\\\":[],\\\"skills\\\":[]}\"}}' ;; esac\nexit 0\n"
+	for p, body := range map[string]string{filepath.Join(binDir, "agy"): agyBody, filepath.Join(binDir, "systemctl"): "#!/bin/sh\nexit 0\n", filepath.Join(binDir, "launchctl"): "#!/bin/sh\nexit 0\n", self: selfBody, filepath.Join(r.home, harness.BinPath): selfBody} {
 		writeTestFile(t, p, body)
 		if err := os.Chmod(p, 0o755); err != nil {
 			t.Fatal(err)
@@ -292,8 +293,7 @@ func verifyFleetTurn4LearningDreamAutoAndCheck(t *testing.T, r *fleetRig, planID
 
 func verifyFleetAutoAndCheck(t *testing.T, r *fleetRig, dbPath string) {
 	t.Helper()
-	fyrMust(t, "", "auto", "on", "--level", "observe", "--project-idle", "1h", "--user-idle", "1m", "--home", r.home)
-	requireContains(t, fyrMust(t, "", "auto", "run", "--dry-run", "--home", r.home), "G7 idle:")
+	fyrMust(t, "", "auto", "on", "--conversation-idle", "1h", "--home", r.home)
 	remote, old, headLog := filepath.Join(r.tmp, "origin.git"), time.Now().UTC().Add(-3*time.Hour), filepath.Join(r.proj, ".git", "logs", "HEAD")
 	t.Setenv("GIT_COMMITTER_DATE", old.Format(time.RFC3339))
 	runCmd(t, r.proj, "git", "commit", "--amend", "--no-edit", "--date", old.Format(time.RFC3339))
@@ -304,21 +304,17 @@ func verifyFleetAutoAndCheck(t *testing.T, r *fleetRig, dbPath string) {
 		}
 	}
 	execSQL(t, dbPath, `UPDATE records SET updated = ?`, old.Format(time.RFC3339))
-	requireContains(t, fyrMust(t, "", "auto", "run", "--dry-run", "--home", r.home), "G8 clean:")
 	runCmd(t, r.tmp, "git", "init", "--bare", "-q", remote)
 	runCmd(t, r.proj, "git", "remote", "add", "origin", remote)
 	runCmd(t, r.proj, "git", "push", "-q", "-u", "origin", "main")
-	requireContains(t, fyrMust(t, "", "auto", "run", "--dry-run", "--home", r.home), "would run health", "1 of 1 projects checked, level observe")
+	requireContains(t, fyrMust(t, "", "auto", "run", "--dry-run", "--home", r.home), "would run health", "1 of 1 projects checked")
 	for _, rel := range []string{"auto", "dream-state.json", "dream.log"} {
 		if _, err := os.Stat(filepath.Join(r.home, harness.StateDir, rel)); !os.IsNotExist(err) {
 			t.Fatalf("dry-run created %s: %v", rel, err)
 		}
 	}
 	autoOut := fyrMust(t, "", "auto", "run", "--home", r.home)
-	requireContains(t, autoOut, "health: no findings", "1 of 1 projects checked, level observe")
-	if strings.Contains(autoOut, "Gemini Models") {
-		t.Fatalf("observe level should not probe or print /usage quota (BUG-530):\n%s", autoOut)
-	}
+	requireContains(t, autoOut, "health: no findings", "1 of 1 projects checked", "75% of 5h", "80% of week remaining")
 	fyrMust(t, "", "auto", "off", "--home", r.home)
 	fyrMust(t, "", "check", "-C", r.proj, "--home", r.home)
 }

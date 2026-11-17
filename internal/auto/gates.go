@@ -2,7 +2,6 @@ package auto
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -149,23 +148,9 @@ func gateSession(env Env, goos string, uid int) string {
 	return ""
 }
 
-// machineStop runs G3, G4 and G5 in order. A pass with no presence signal
-// says so through say.
+// machineStop runs G3 (AC power). G4 (operator presence) and G5 (active agy
+// session) are retired so stale conversations can be rated and dreamt at any
+// time (ADR-524); their helpers remain intact for direct unit tests.
 func (r *run) machineStop() string {
-	if stop := gatePower(r.env, r.o.goos()); stop != "" {
-		return stop
-	}
-	idle, err := span(r.cfg.UserIdle)
-	if err != nil {
-		return "G4 operator: " + oneLine(err.Error())
-	}
-	stop, unknown := gatePresence(r.env, r.o.goos(), os.Getuid(), idle, r.o.now())
-	if stop != "" {
-		return stop
-	}
-	if unknown && !r.unknownSaid {
-		r.unknownSaid = true
-		r.say("user idle: unknown")
-	}
-	return gateSession(r.env, r.o.goos(), os.Getuid())
+	return gatePower(r.env, r.o.goos())
 }

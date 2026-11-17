@@ -150,11 +150,7 @@ func (o Options) path() string {
 // Request is `on`'s flags; an empty field was not given. The verb has
 // refused a flag given empty, and a value out of range, before this.
 type Request struct {
-	Level, ProjectIdle, UserIdle string
-	// CheckHarness answers whether level harness can run here: a harness
-	// checkout has somewhere to commit, an embedded source or a plain copy
-	// has not.
-	CheckHarness func() error
+	ConversationIdle string
 }
 
 // On turns auto on, or validates and reports what would change when DryRun is
@@ -166,7 +162,7 @@ func On(o Options, r Request) error {
 		return err
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "[dry-run] would turn auto on: level %s, project idle %s, user idle %s; fyr auto run runs hourly\n", c.Level, c.ProjectIdle, c.UserIdle)
+		fmt.Fprintf(o.Out, "[dry-run] would turn auto on: stale after %s; fyr auto run runs hourly\n", c.ConversationIdle)
 		if dream.TimerInstalledHere(o.Home, o.goos()) {
 			fmt.Fprintln(o.Out, "[dry-run] would remove the legacy dream timer")
 		}
@@ -180,7 +176,7 @@ func On(o Options, r Request) error {
 		return &ExitError{1, "fyr auto on: " + err.Error() + "; the timer is installed and the config did not change"}
 	}
 	o.retireLegacyDreamOn()
-	fmt.Fprintf(o.Out, "auto on: level %s, project idle %s, user idle %s; fyr auto run runs hourly\n", c.Level, c.ProjectIdle, c.UserIdle)
+	fmt.Fprintf(o.Out, "auto on: stale after %s; fyr auto run runs hourly\n", c.ConversationIdle)
 	return nil
 }
 
@@ -191,23 +187,13 @@ func prepareOn(o Options, r Request) (Config, error) {
 	}
 	c := defaults()
 	if err == nil && prev.Enabled {
-		// Only a running config carries over: a level raised once never comes
-		// back by itself after an off or a self-disable (D21).
 		c = prev
 	}
-	if r.Level != "" {
-		c.Level = r.Level
+	if r.ConversationIdle != "" {
+		c.ConversationIdle = r.ConversationIdle
 	}
-	if r.ProjectIdle != "" {
-		c.ProjectIdle = r.ProjectIdle
-	}
-	if r.UserIdle != "" {
-		c.UserIdle = r.UserIdle
-	}
-	if c.Level == LevelHarness {
-		if err := r.CheckHarness(); err != nil {
-			return Config{}, &ExitError{2, "fyr auto on: level harness needs a harness checkout: " + oneLine(err.Error())}
-		}
+	if err := ValidConversationIdle(c.ConversationIdle); err != nil {
+		return Config{}, &ExitError{2, "fyr auto on: " + err.Error()}
 	}
 	if err := unit.Check(o.Home, o.path(), o.goos()); err != nil {
 		if o.DryRun {

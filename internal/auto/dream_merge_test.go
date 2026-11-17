@@ -112,7 +112,7 @@ func TestAutoRunIngestsMetricsFirstAndDreamsPlanMode(t *testing.T) {
 		o := runOpts(home, &out)
 		o.Env = &fakeEnv{onTargets: func() { swept = true }}
 		o.Dream = func() error {
-			writeConfig(t, home, `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`)
+			writeConfig(t, home, `{"enabled": false, "conversation_idle": "1h"}`)
 			return nil
 		}
 		if err := Run(o, false); err != nil {
@@ -151,13 +151,13 @@ func TestAutoRetiresLegacyDreamTimerAndDryRun(t *testing.T) {
 		}
 		os.Remove(ConfigPath(home))
 
-		if err := On(o, Request{Level: LevelHarness, CheckHarness: noHarness}); exit(err) != 2 {
-			t.Fatalf("noHarness dry-run: %v", err)
+		if err := On(o, Request{ConversationIdle: "1m"}); exit(err) != 2 {
+			t.Fatalf("invalid ConversationIdle dry-run: %v", err)
 		}
 
 		legacy := legacyDreamFiles(t, home, "linux")
 		out.Reset()
-		if err := On(o, Request{Level: LevelProject}); err != nil {
+		if err := On(o, Request{ConversationIdle: "2h"}); err != nil {
 			t.Fatalf("dry-run On: %v", err)
 		}
 		got := out.String()

@@ -20,44 +20,28 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-// The levels, lowest first, and the defaults `on` starts from.
+// Default conversation staleness cutoff and max auto.json size.
 const (
-	LevelObserve = "observe"
-	LevelProject = "project"
-	LevelHarness = "harness"
-
-	defaultProjectIdle = "6h"
-	defaultUserIdle    = "15m"
+	defaultConversationIdle = "1h"
 
 	// configLimit is far above any config: a larger file is not one.
 	configLimit = 4 << 10
 )
 
-// Config is auto.json, every key required.
+// Config is auto.json: a global binary on/off switch and conversation_idle.
 type Config struct {
-	Enabled     bool   `json:"enabled"`
-	Level       string `json:"level"`
-	ProjectIdle string `json:"project_idle"`
-	UserIdle    string `json:"user_idle"`
+	Enabled          bool   `json:"enabled"`
+	ConversationIdle string `json:"conversation_idle"`
 }
 
 func defaults() Config {
-	return Config{Level: LevelObserve, ProjectIdle: defaultProjectIdle, UserIdle: defaultUserIdle}
+	return Config{ConversationIdle: defaultConversationIdle}
 }
 
 // ConfigPath is the operator's switch. It sits beside auto/ and not inside
 // it: check c skips by top-level name, so inside it would go unwatched (D6).
 func ConfigPath(home string) string {
 	return filepath.Join(home, harness.StateDir, "auto.json")
-}
-
-// ValidLevel refuses a level that is not one of the three.
-func ValidLevel(s string) error {
-	switch s {
-	case LevelObserve, LevelProject, LevelHarness:
-		return nil
-	}
-	return fmt.Errorf("level %q: want observe, project or harness", s)
 }
 
 // span parses a duration in Go's form, or whole days as `7d`, which Go's
@@ -81,24 +65,24 @@ func within(name, s string, low, high time.Duration, say string) error {
 	return nil
 }
 
-// ValidProjectIdle is the range of --project-idle.
-func ValidProjectIdle(s string) error {
-	return within("project idle", s, time.Hour, 7*24*time.Hour, "1h to 7d")
+// ValidConversationIdle is the range of --conversation-idle (5m to 7d).
+func ValidConversationIdle(s string) error {
+	return within("conversation idle", s, 5*time.Minute, 7*24*time.Hour, "5m to 7d")
 }
 
-// ValidUserIdle is the range of --user-idle.
-func ValidUserIdle(s string) error {
-	return within("user idle", s, time.Minute, 24*time.Hour, "1m to 24h")
+// ConversationIdleDuration returns the configured conversation_idle duration,
+// defaulting to 1h when absent or unreadable.
+func ConversationIdleDuration(home string) time.Duration {
+	if c, found, err := Load(home); err == nil && found {
+		if d, err := span(c.ConversationIdle); err == nil && d > 0 {
+			return d
+		}
+	}
+	return time.Hour
 }
 
 func (c Config) validate() error {
-	if err := ValidLevel(c.Level); err != nil {
-		return err
-	}
-	if err := ValidProjectIdle(c.ProjectIdle); err != nil {
-		return err
-	}
-	return ValidUserIdle(c.UserIdle)
+	return ValidConversationIdle(c.ConversationIdle)
 }
 
 // readBounded reads a regular file through no link, at most limit bytes: a
@@ -146,20 +130,51 @@ func Load(home string) (c Config, found bool, err error) {
 	if err != nil {
 		return Config{}, false, err
 	}
-	if raw.Enabled == nil || raw.Level == nil || raw.ProjectIdle == nil || raw.UserIdle == nil {
-		return Config{}, false, errors.New("a key is missing: want enabled, level, project_idle, user_idle")
+	if raw.Enabled == nil {
+		return Config{}, false, errors.New("a key is missing: want enabled")
 	}
-	c = Config{*raw.Enabled, *raw.Level, *raw.ProjectIdle, *raw.UserIdle}
+	idle := defaultConversationIdle
+	if raw.ConversationIdle != nil {
+		idle = *raw.ConversationIdle
+	}
+	c = Config{Enabled: *raw.Enabled, ConversationIdle: idle}
 	if err := c.validate(); err != nil {
 		return Config{}, false, err
 	}
 	return c, true, nil
 }
 
-// rawConfig holds pointers, so a null reads as missing.
+// rawConfig holds pointers, so a null reads as missing or invalid.
 type rawConfig struct {
-	Enabled                      *bool
-	Level, ProjectIdle, UserIdle *string
+	Enabled                                        *bool
+	ConversationIdle, Level, ProjectIdle, UserIdle *string
+}
+
+func decodeConfigKey(dec *json.Decoder, raw *rawConfig, key string) error {
+	var dst **string
+	switch key {
+	case "enabled":
+		if err := dec.Decode(&raw.Enabled); err != nil || raw.Enabled == nil {
+			return errors.New(`key "enabled" must be a bool`)
+		}
+		return nil
+	case "conversation_idle":
+		dst = &raw.ConversationIdle
+	case "level":
+		dst = &raw.Level
+	case "project_idle":
+		dst = &raw.ProjectIdle
+	case "user_idle":
+		dst = &raw.UserIdle
+	default:
+		return fmt.Errorf("unknown key %q", key)
+	}
+	var v *string
+	if err := dec.Decode(&v); err != nil || v == nil {
+		return fmt.Errorf("key %q must be a string", key)
+	}
+	*dst = v
+	return nil
 }
 
 // decodeConfig reads one object key by key: encoding/json alone folds a key's
@@ -183,19 +198,7 @@ func decodeConfig(data []byte) (rawConfig, error) {
 			return raw, fmt.Errorf("key %q twice", key)
 		}
 		seen[key] = true
-		switch key {
-		case "enabled":
-			err = dec.Decode(&raw.Enabled)
-		case "level":
-			err = dec.Decode(&raw.Level)
-		case "project_idle":
-			err = dec.Decode(&raw.ProjectIdle)
-		case "user_idle":
-			err = dec.Decode(&raw.UserIdle)
-		default:
-			return raw, fmt.Errorf("unknown key %q", key)
-		}
-		if err != nil {
+		if err := decodeConfigKey(dec, &raw, key); err != nil {
 			return raw, err
 		}
 	}

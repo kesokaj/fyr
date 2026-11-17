@@ -77,7 +77,7 @@ func initHarnessEvalGateFixture(t *testing.T, home, realHome, extraRows string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := save(home, Config{Enabled: true, Level: LevelHarness, ProjectIdle: "6h", UserIdle: "15m"}); err != nil {
+	if err := save(home, Config{Enabled: true, ConversationIdle: "1h"}); err != nil {
 		t.Fatal(err)
 	}
 	return root, holdoutPath, propID
@@ -353,9 +353,9 @@ func TestEvalGate(t *testing.T) {
 			t.Fatalf("runFyrEval with Commit: %+v, %v", out, err)
 		}
 
-		rNoRepo := &run{o: Options{Home: home, Now: func() time.Time { return runAt }}, cfg: Config{Level: LevelHarness}}
+		rNoRepo := &run{o: Options{Home: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
 		if rNoRepo.triggerHarnessEdit(root) != nil {
-			t.Fatalf("level-harness trigger fired with empty Repo")
+			t.Fatalf("triggerHarnessEdit fired with empty Repo")
 		}
 	})
 
@@ -417,7 +417,7 @@ func TestEvalGate(t *testing.T) {
 		if !strings.Contains(prop.Body, "## Eval gate") || !strings.Contains(prop.Body, "3/3") {
 			t.Fatalf("proposal missing ## Eval gate after applyBranch failure:\n%s", prop.Body)
 		}
-		rHarn := &run{o: o, cfg: Config{Level: LevelHarness}}
+		rHarn := &run{o: o, cfg: Config{}}
 		if got := rHarn.triggerHarnessEdit(root); got != nil {
 			t.Fatalf("triggerHarnessEdit re-selected failed proposal: %+v", got)
 		}

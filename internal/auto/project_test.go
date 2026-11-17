@@ -138,40 +138,33 @@ func TestGateProjectSkipped(t *testing.T) {
 	var out strings.Builder
 	o := runOpts(home, nil)
 	o.Out = &out
-	o.Env = &fakeEnv{targets: []dream.Target{{Root: "/lost", Skip: "not registered (fyr index --register)"}, {Root: root}}}
+	o.Env = &fakeEnv{targets: []dream.Target{{Root: "/lost", Skip: "gone"}, {Root: root}}, usage: usageText("90%", "90%")}
 	if err := Run(o, false); err != nil {
 		t.Fatal(err)
 	}
 	log := logOf(t, home)
-	if !strings.Contains(log, "/lost: G6 registered: not registered") || !strings.Contains(log, root+": health: ") {
+	if !strings.Contains(log, "/lost: skipped: gone") || !strings.Contains(log, root+": health: ") {
 		t.Errorf("%s", log)
 	}
 }
 
 func TestGateRereadBeforeEachProject(t *testing.T) {
-	cases := map[string]func(home string, e *fakeEnv) (hook func()){
-		"off": func(home string, e *fakeEnv) func() {
+	for name, set := range map[string]func(home string, e *fakeEnv) func(){
+		"off": func(home string, _ *fakeEnv) func() {
 			return func() {
-				writeConfig(t, home, `{"enabled": false, "level": "project", "project_idle": "6h", "user_idle": "15m"}`)
+				writeConfig(t, home, `{"enabled": false, "conversation_idle": "1h"}`)
 			}
 		},
-		"operator back": func(home string, e *fakeEnv) func() {
-			return func() { e.ptys = []time.Time{runAt} }
-		},
-		"session opened": func(home string, e *fakeEnv) func() {
-			return func() { e.agy = func() (bool, error) { return true, nil } }
-		},
-		"on battery": func(home string, e *fakeEnv) func() {
+		"on battery": func(_ string, e *fakeEnv) func() {
 			return func() { e.supplies = []Supply{{Type: "Battery"}} }
 		},
-	}
-	for name, set := range cases {
+	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			writeConfig(t, home, validConfig)
 			first, second := idleProject(t), idleProject(t)
 			e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
-			e.onConv = set(home, e)
+			e.onUsage = set(home, e)
 			var out strings.Builder
 			o := runOpts(home, nil)
 			o.Out, o.Env = &out, e
@@ -184,13 +177,39 @@ func TestGateRereadBeforeEachProject(t *testing.T) {
 			}
 		})
 	}
+	for name, set := range map[string]func(e *fakeEnv) func(){
+		"operator back": func(e *fakeEnv) func() {
+			return func() { e.ptys = []time.Time{runAt} }
+		},
+		"session opened": func(e *fakeEnv) func() {
+			return func() { e.agy = func() (bool, error) { return true, nil } }
+		},
+	} {
+		t.Run(name+" does not stop", func(t *testing.T) {
+			home := t.TempDir()
+			writeConfig(t, home, validConfig)
+			first, second := idleProject(t), idleProject(t)
+			e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
+			e.onUsage = set(e)
+			var out strings.Builder
+			o := runOpts(home, nil)
+			o.Out, o.Env = &out, e
+			if err := Run(o, false); err != nil {
+				t.Fatal(err)
+			}
+			log := logOf(t, home)
+			if !strings.Contains(log, first+": ") || !strings.Contains(log, second+": ") {
+				t.Errorf("%s", log)
+			}
+		})
+	}
 }
 
 func TestGateCorruptConfigMidRun(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
-	e := &fakeEnv{targets: targetsOf(idleProject(t), idleProject(t))}
-	e.onConv = func() { writeConfig(t, home, "garbage") }
+	e := &fakeEnv{targets: targetsOf(idleProject(t), idleProject(t)), usage: usageText("90%", "90%")}
+	e.onUsage = func() { writeConfig(t, home, "garbage") }
 	var out strings.Builder
 	o := runOpts(home, nil)
 	o.Out, o.Env = &out, e
@@ -205,7 +224,7 @@ func TestGateTargetsUnreadable(t *testing.T) {
 	var out strings.Builder
 	o := runOpts(home, nil)
 	o.Out, o.Env = &out, &fakeEnv{targetsErr: errFake}
-	if exit(Run(o, false)) != 1 || !strings.Contains(logOf(t, home), "G6 registered: fake failure") {
+	if exit(Run(o, false)) != 1 || !strings.Contains(logOf(t, home), "targets: fake failure") {
 		t.Errorf("%s", out.String())
 	}
 }

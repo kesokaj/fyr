@@ -143,7 +143,7 @@ func trailLine(t *testing.T, kind, id, status, body string) string {
 
 func TestReportWrittenOnlyWhenFound(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, validConfig)
 	root := idleProject(t)
 	e := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
 	out := reportRun(t, home, e)
@@ -153,17 +153,17 @@ func TestReportWrittenOnlyWhenFound(t *testing.T) {
 	if got := reports(t, home); len(got) != 0 {
 		t.Errorf("%v", got)
 	}
-	if st, _, _ := loadState(home); st.Budget != "" || st.Projects[root].LastClass != "health" {
+	if st, _, _ := loadState(home); st.Budget == "" || st.Projects[root].LastClass != "health" {
 		t.Errorf("%+v", st)
 	}
-	if e.usageCalls != 0 {
-		t.Errorf("want 0 /usage calls at observe, got %d", e.usageCalls)
+	if e.usageCalls != 1 {
+		t.Errorf("want 1 /usage call, got %d", e.usageCalls)
 	}
 }
 
 func TestReportNamesTheFindingOnce(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, validConfig)
 	root := idleProject(t)
 	writeTree(t, root, ".agents/trail.jsonl", trailLine(t, "bug", "BUG-001", "open", "no rule"))
 	git(t, root, "add", ".")
@@ -205,7 +205,7 @@ func TestReportNamesTheFindingOnce(t *testing.T) {
 // were, and the report is found in the machine's store.
 func TestReportStaysOutOfTheProject(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, validConfig)
 	root := idleProject(t)
 	writeTree(t, root, ".agents/trail.jsonl", trailLine(t, "bug", "BUG-001", "open", "no rule"))
 	git(t, root, "add", ".")
@@ -250,10 +250,8 @@ func TestReportNoUsageBeforeAProjectPasses(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
-	writeTree(t, root, "main.go", "package changed\n")
-	backdate(t, root)
-	e := &fakeEnv{targets: targetsOf(root)}
-	if out := reportRun(t, home, e); !strings.Contains(out, "G8 clean: the tree is dirty") || e.usageCalls != 0 {
+	e := &fakeEnv{targets: []dream.Target{{Root: root, Skip: "gone"}}}
+	if out := reportRun(t, home, e); !strings.Contains(out, "skipped: gone") || e.usageCalls != 0 {
 		t.Errorf("%d calls: %s", e.usageCalls, out)
 	}
 }
@@ -269,22 +267,21 @@ func TestReportUnreadableQuotaIsAFinding(t *testing.T) {
 	}
 }
 
-func TestObserveSkipsQuotaUsageCheck(t *testing.T) {
+func TestDirtyCheckoutRunsHealthAndSkipsWorker(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
-	e := &fakeEnv{targets: targetsOf(idleProject(t)), usageErr: errFake}
+	writeConfig(t, home, validConfig)
+	root := idleProject(t)
+	writeTree(t, root, "main.go", "package changed\n")
+	e := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
 	out := reportRun(t, home, e)
-	if e.usageCalls != 0 || strings.Contains(out, "unreadable") {
-		t.Errorf("want 0 /usage calls and no unreadable quota at observe, got %d calls:\n%s", e.usageCalls, out)
-	}
-	if got := reports(t, home); len(got) != 0 {
-		t.Errorf("want 0 reports at observe when only /usage is unreadable, got %+v", got)
+	if e.usageCalls != 1 || !strings.Contains(out, "worker skipped: the tree is dirty") {
+		t.Errorf("want 1 /usage call and skipped worker on dirty checkout, got %d calls:\n%s", e.usageCalls, out)
 	}
 }
 
 func TestReportLongListSaysWhatIsLeftOut(t *testing.T) {
 	fs := make([]Finding, reportLimit+3)
-	body := reportBody("p", "observe", fs)
+	body := reportBody("p", fs)
 	if strings.Count(body, "\n- ") != reportLimit || !strings.Contains(body, "3 more findings are not listed") {
 		t.Errorf("%d lines", strings.Count(body, "\n- "))
 	}
@@ -292,7 +289,7 @@ func TestReportLongListSaysWhatIsLeftOut(t *testing.T) {
 
 func TestChecksFailedCheckExitsOne(t *testing.T) {
 	home := t.TempDir()
-	writeConfig(t, home, `{"enabled": true, "level": "observe", "project_idle": "6h", "user_idle": "15m"}`)
+	writeConfig(t, home, validConfig)
 	root := idleProject(t)
 	writeTree(t, root, ".agents/trail.jsonl", "not json\n")
 	git(t, root, "add", ".")
@@ -365,7 +362,7 @@ func TestAutoDryRunWritesNothingPastTheGates(t *testing.T) {
 			t.Errorf("%s changed", p)
 		}
 	}
-	for _, want := range []string{"G2 lock: not taken in a dry run", root + ": would run health", "/skipped: G6 registered: gone", "budget: not read in a dry run"} {
+	for _, want := range []string{"G2 lock: not taken in a dry run", root + ": would run health", "/skipped: skipped: gone", "budget: not read in a dry run"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("no %q in %s", want, out.String())
 		}
@@ -380,11 +377,11 @@ func TestAutoDryRunStopsWhereTheRunWould(t *testing.T) {
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	o := runOpts(home, &out)
-	o.Env = &fakeEnv{agy: func() (bool, error) { return true, nil }}
+	o.Env = &fakeEnv{supplies: []Supply{{Type: "Battery"}}}
 	if err := Run(o, true); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "G5 agy session: an interactive agy is running") {
+	if !strings.Contains(out.String(), "G3 power: on battery") {
 		t.Errorf("%s", out.String())
 	}
 }

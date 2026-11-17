@@ -188,39 +188,70 @@ func TestGateSession(t *testing.T) {
 
 func TestGateMachineStopsARun(t *testing.T) {
 	root := idleProject(t)
-	used := []time.Time{runAt.Add(-time.Minute)}
-	envs := map[string]*fakeEnv{
-		"G3 power":    {supplies: []Supply{{Type: "Battery"}}},
-		"G4 operator": {ptys: used},
-		"G5 agy":      {ptys: []time.Time{runAt.Add(-time.Hour)}, agy: func() (bool, error) { return true, nil }},
-	}
-	for gate, e := range envs {
-		t.Run(gate, func(t *testing.T) {
-			home := t.TempDir()
-			writeConfig(t, home, validConfig)
-			e.targets = targetsOf(root)
-			var out bytes.Buffer
-			o := runOpts(home, &out)
-			o.Env = e
-			if err := Run(o, false); err != nil {
-				t.Fatal(err)
-			}
-			log := logOf(t, home)
-			if !strings.Contains(log, gate) || strings.Contains(log, root) || strings.Count(log, "\n") != 1 {
-				t.Errorf("%q", log)
-			}
-		})
-	}
+	t.Run("G3 power stops run", func(t *testing.T) {
+		home := t.TempDir()
+		writeConfig(t, home, validConfig)
+		e := &fakeEnv{supplies: []Supply{{Type: "Battery"}}, targets: targetsOf(root)}
+		var out bytes.Buffer
+		o := runOpts(home, &out)
+		o.Env = e
+		if err := Run(o, false); err != nil {
+			t.Fatal(err)
+		}
+		log := logOf(t, home)
+		if !strings.Contains(log, "G3 power") || strings.Contains(log, root) || strings.Count(log, "\n") != 1 {
+			t.Errorf("%q", log)
+		}
+	})
+	t.Run("G4 operator and G5 agy do not stop run", func(t *testing.T) {
+		home := t.TempDir()
+		writeConfig(t, home, validConfig)
+		used := []time.Time{runAt.Add(-time.Minute)}
+		e := &fakeEnv{
+			ptys:    used,
+			agy:     func() (bool, error) { return true, nil },
+			targets: targetsOf(root),
+			usage:   usageText("90%", "90%"),
+		}
+		var out bytes.Buffer
+		o := runOpts(home, &out)
+		o.Env = e
+		if err := Run(o, false); err != nil {
+			t.Fatal(err)
+		}
+		log := logOf(t, home)
+		if strings.Contains(log, "G4 operator") || strings.Contains(log, "G5 agy") || !strings.Contains(log, root) {
+			t.Errorf("%q", log)
+		}
+		if stop, _ := gatePresence(e, "linux", 1000, 15*time.Minute, runAt); !strings.Contains(stop, "G4 operator") {
+			t.Errorf("gatePresence helper = %q", stop)
+		}
+		if stop := gateSession(e, "linux", 1000); !strings.Contains(stop, "G5 agy") {
+			t.Errorf("gateSession helper = %q", stop)
+		}
+	})
 }
 
 func TestGateUnknownPresenceIsLogged(t *testing.T) {
+	for _, tc := range []struct {
+		goos string
+		env  *fakeEnv
+	}{
+		{"linux", &fakeEnv{}},
+		{"darwin", &fakeEnv{hid: "nothing"}},
+	} {
+		stop, unknown := gatePresence(tc.env, tc.goos, 1000, 15*time.Minute, runAt)
+		if stop != "" || !unknown {
+			t.Errorf("%s: stop=%q unknown=%v", tc.goos, stop, unknown)
+		}
+	}
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
 	if err := Run(runOpts(home, &out), false); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(logOf(t, home), "user idle: unknown") {
+	if strings.Contains(logOf(t, home), "G4 operator") {
 		t.Errorf("%q", logOf(t, home))
 	}
 }

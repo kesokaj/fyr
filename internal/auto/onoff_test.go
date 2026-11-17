@@ -15,9 +15,6 @@ func opts(home string, out *bytes.Buffer) Options {
 	return Options{Home: home, Out: out, GOOS: "linux", Path: "/p:/q"}
 }
 
-func noHarness() error { return errors.New("no checkout here") }
-func aHarness() error  { return nil }
-
 func exit(err error) int {
 	var ee *ExitError
 	if errors.As(err, &ee) {
@@ -37,13 +34,13 @@ func TestAutoOnWritesTheConfigAndTheTimer(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, found, err := Load(home)
-	if err != nil || !found || c != (Config{true, LevelObserve, "6h", "15m"}) {
+	if err != nil || !found || c != (Config{true, "1h"}) {
 		t.Fatalf("%+v, %v, %v", c, found, err)
 	}
 	if !unit.InstalledHere(home, "linux") || !strings.Contains(readFile(t, calls), "enable --now") {
 		t.Errorf("no timer; calls: %s", readFile(t, calls))
 	}
-	if !strings.Contains(out.String(), "level observe") {
+	if !strings.Contains(out.String(), "stale after 1h") {
 		t.Errorf("%q", out.String())
 	}
 }
@@ -54,24 +51,24 @@ func TestAutoOnIsIdempotent(t *testing.T) {
 	fakeManagers(t, "0")
 	var out bytes.Buffer
 	o := opts(home, &out)
-	for _, r := range []Request{{Level: LevelProject}, {UserIdle: "30m"}, {}} {
+	for _, r := range []Request{{ConversationIdle: "2h"}, {}} {
 		if err := On(o, r); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if c, _, _ := Load(home); c != (Config{true, LevelProject, "6h", "30m"}) {
+	if c, _, _ := Load(home); c != (Config{true, "2h"}) {
 		t.Errorf("%+v", c)
 	}
 }
 
-// D21: a raised level does not come back by itself after an off, nor from a
-// config a worker could have written while off.
+// A non-default conversation_idle does not carry over past Off or from a
+// disabled config a worker could have written while off.
 func TestAutoOnFromOffStartsAtTheDefaults(t *testing.T) {
 	home := homeWithBinary(t)
 	fakeManagers(t, "0")
 	var out bytes.Buffer
 	o := opts(home, &out)
-	if err := On(o, Request{Level: LevelProject, ProjectIdle: "1d"}); err != nil {
+	if err := On(o, Request{ConversationIdle: "1d"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Off(o); err != nil {
@@ -80,15 +77,14 @@ func TestAutoOnFromOffStartsAtTheDefaults(t *testing.T) {
 	if err := On(o, Request{}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := Load(home); c != (Config{true, LevelObserve, "6h", "15m"}) {
+	if c, _, _ := Load(home); c != (Config{true, "1h"}) {
 		t.Errorf("after off: %+v", c)
 	}
-	writeConfig(t, home, `{"enabled": false, "level": "harness", "project_idle": "1h", "user_idle": "1m"}`)
-	r := Request{CheckHarness: noHarness}
-	if err := On(o, r); err != nil {
+	writeConfig(t, home, `{"enabled": false, "conversation_idle": "2h", "level": "harness"}`)
+	if err := On(o, Request{}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := Load(home); c != (Config{true, LevelObserve, "6h", "15m"}) {
+	if c, _, _ := Load(home); c != (Config{true, "1h"}) {
 		t.Errorf("from a disabled file: %+v", c)
 	}
 }
@@ -128,13 +124,13 @@ func TestAutoOnRefusesALink(t *testing.T) {
 	}
 }
 
-func TestAutoOnHarnessNeedsACheckout(t *testing.T) {
+func TestAutoOnRejectsOutOfRangeIdleAndNeedsNoCheckout(t *testing.T) {
 	home := homeWithBinary(t)
 	calls := fakeManagers(t, "0")
 	var out bytes.Buffer
 	o := opts(home, &out)
-	err := On(o, Request{Level: LevelHarness, CheckHarness: noHarness})
-	if exit(err) != 2 || !strings.Contains(err.Error(), "level harness needs a harness checkout") {
+	err := On(o, Request{ConversationIdle: "1m"})
+	if exit(err) != 2 || !strings.Contains(err.Error(), "5m to 7d") {
 		t.Errorf("%v", err)
 	}
 	if _, found, _ := Load(home); found {
@@ -143,13 +139,11 @@ func TestAutoOnHarnessNeedsACheckout(t *testing.T) {
 	if _, serr := os.Stat(calls); !errors.Is(serr, os.ErrNotExist) {
 		t.Error("a refusal reached the service manager")
 	}
-	if err := On(o, Request{Level: LevelHarness, CheckHarness: aHarness}); err != nil {
+	if err := On(o, Request{ConversationIdle: "30m"}); err != nil {
 		t.Fatal(err)
 	}
-	// A kept level is checked too: the checkout may have gone since.
-	err = On(o, Request{UserIdle: "20m", CheckHarness: noHarness})
-	if exit(err) != 2 {
-		t.Errorf("a kept harness level: %v", err)
+	if c, _, _ := Load(home); c != (Config{true, "30m"}) {
+		t.Errorf("%+v", c)
 	}
 }
 
@@ -160,7 +154,7 @@ func TestAutoOnTimerRefusalLeavesItOff(t *testing.T) {
 		home := t.TempDir()
 		fakeManagers(t, "0")
 		var out bytes.Buffer
-		err := On(opts(home, &out), Request{Level: LevelProject})
+		err := On(opts(home, &out), Request{ConversationIdle: "2h"})
 		if exit(err) != 2 || !strings.Contains(err.Error(), "no binary at") {
 			t.Errorf("%v", err)
 		}
@@ -191,14 +185,14 @@ func TestAutoOffRemovesAndKeepsTheValues(t *testing.T) {
 	fakeManagers(t, "0")
 	var out bytes.Buffer
 	o := opts(home, &out)
-	if err := On(o, Request{Level: LevelProject}); err != nil {
+	if err := On(o, Request{ConversationIdle: "2h"}); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
 	if err := Off(o); err != nil {
 		t.Fatal(err)
 	}
-	if c, _, _ := Load(home); c != (Config{false, LevelProject, "6h", "15m"}) {
+	if c, _, _ := Load(home); c != (Config{false, "2h"}) {
 		t.Errorf("%+v", c)
 	}
 	if unit.InstalledHere(home, "linux") {

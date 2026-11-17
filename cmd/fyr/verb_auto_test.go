@@ -34,11 +34,11 @@ func autoHome(t *testing.T) (home, calls string) {
 func TestAutoVerbOnStatusRunOff(t *testing.T) {
 	home, _ := autoHome(t)
 	var out bytes.Buffer
-	if err := run([]string{"auto", "on", "--level", "project", "--project-idle", "7d", "--user-idle", "1m", "--home", home}, &out); err != nil {
+	if err := run([]string{"auto", "on", "--conversation-idle", "7d", "--home", home}, &out); err != nil {
 		t.Fatalf("on: %v, %s", err, out.String())
 	}
 	c, found, err := auto.Load(home)
-	if err != nil || !found || c != (auto.Config{Enabled: true, Level: "project", ProjectIdle: "7d", UserIdle: "1m"}) {
+	if err != nil || !found || c != (auto.Config{Enabled: true, ConversationIdle: "7d"}) {
 		t.Fatalf("%+v, %v, %v", c, found, err)
 	}
 	out.Reset()
@@ -46,7 +46,7 @@ func TestAutoVerbOnStatusRunOff(t *testing.T) {
 		t.Fatalf("run: %v, %s", err, out.String())
 	}
 	out.Reset()
-	if err := run([]string{"auto", "status", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "auto       on; timer installed\n") {
+	if err := run([]string{"auto", "status", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "auto       on; timer installed\n") || !strings.Contains(out.String(), "stale after 7d") {
 		t.Fatalf("status: %v, %s", err, out.String())
 	}
 	out.Reset()
@@ -58,21 +58,17 @@ func TestAutoVerbOnStatusRunOff(t *testing.T) {
 func TestAutoVerbUsage(t *testing.T) {
 	home, calls := autoHome(t)
 	for name, args := range map[string][]string{
-		"bare":              {"auto"},
-		"unknown":           {"auto", "maybe"},
-		"two":               {"auto", "on", "off"},
-		"level on off":      {"auto", "off", "--level", "project"},
-		"level on run":      {"auto", "run", "--level", "project"},
-		"level on bare dry": {"auto", "--dry-run", "--level", "project"},
-		"dry-run on status": {"auto", "status", "--dry-run"},
-		"bad level":         {"auto", "on", "--level", "god"},
-		"empty level":       {"auto", "on", "--level", ""},
-		"short idle":        {"auto", "on", "--project-idle", "59m"},
-		"long idle":         {"auto", "on", "--project-idle", "8d"},
-		"empty idle":        {"auto", "on", "--project-idle="},
-		"short user":        {"auto", "on", "--user-idle", "59s"},
-		"long user":         {"auto", "on", "--user-idle", "25h"},
-		"bad user":          {"auto", "on", "--user-idle", "soon"},
+		"bare":               {"auto"},
+		"unknown":            {"auto", "maybe"},
+		"two":                {"auto", "on", "off"},
+		"conv-idle on off":   {"auto", "off", "--conversation-idle", "2h"},
+		"conv-idle on run":   {"auto", "run", "--conversation-idle", "2h"},
+		"conv-idle bare dry": {"auto", "--dry-run", "--conversation-idle", "2h"},
+		"dry-run on status":  {"auto", "status", "--dry-run"},
+		"short idle":         {"auto", "on", "--conversation-idle", "4m"},
+		"long idle":          {"auto", "on", "--conversation-idle", "8d"},
+		"empty idle":         {"auto", "on", "--conversation-idle="},
+		"bad idle":           {"auto", "on", "--conversation-idle", "soon"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -90,31 +86,29 @@ func TestAutoVerbUsage(t *testing.T) {
 	}
 }
 
-// --level harness: a development build inside this checkout passes; a plain
-// copy, a tree that is no harness and a release binary are refused.
-func TestAutoVerbHarnessLevel(t *testing.T) {
+// Deprecated --level / --project-idle / --user-idle flags are accepted as
+// no-ops with warnings and auto on no longer requires a harness checkout.
+func TestAutoVerbDeprecatedFlagsAndNoCheckoutGate(t *testing.T) {
 	home, _ := autoHome(t)
 	var out bytes.Buffer
-	if err := run([]string{"auto", "on", "--level", "harness", "--home", home}, &out); err != nil {
-		t.Fatalf("this checkout: %v, %s", err, out.String())
+	if err := run([]string{"auto", "on", "--level", "harness", "--project-idle", "6h", "--user-idle", "15m", "--conversation-idle", "2h", "--home", home}, &out); err != nil {
+		t.Fatalf("deprecated flags: %v, %s", err, out.String())
 	}
-	if err := run([]string{"auto", "off", "--home", home}, &out); err != nil {
-		t.Fatal(err)
+	for _, want := range []string{"--level", "--project-idle", "--user-idle"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing deprecation warning for %s in:\n%s", want, out.String())
+		}
 	}
-	plain := t.TempDir()
-	os.MkdirAll(filepath.Join(plain, "context"), 0o755)
-	os.MkdirAll(filepath.Join(plain, "skills"), 0o755)
-	os.WriteFile(filepath.Join(plain, "context", "AGENTS.md"), []byte("x"), 0o644)
-	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(plain))
+	if c, found, err := auto.Load(home); err != nil || !found || c != (auto.Config{Enabled: true, ConversationIdle: "2h"}) {
+		t.Fatalf("config after deprecated flags: %+v, %v, %v", c, found, err)
+	}
 	for name, args := range map[string][]string{
-		"plain copy": {"--repo", plain},
-		"no harness": {"--repo", t.TempDir()},
+		"plain dir": {"--repo", t.TempDir()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out.Reset()
-			err := run(append([]string{"auto", "on", "--level", "harness", "--home", home}, args...), &out)
-			if exitOf(err) != 2 || !strings.Contains(out.String(), "level harness needs a harness checkout") {
-				t.Errorf("exit %d, %q", exitOf(err), out.String())
+			if err := run(append([]string{"auto", "on", "--home", home}, args...), &out); err != nil {
+				t.Fatalf("auto on without harness checkout: %v\n%s", err, out.String())
 			}
 		})
 	}
@@ -123,14 +117,10 @@ func TestAutoVerbHarnessLevel(t *testing.T) {
 		version = "v9.9.9"
 		defer func() { version = old }()
 		out.Reset()
-		err := run([]string{"auto", "on", "--level", "harness", "--home", home}, &out)
-		if exitOf(err) != 2 || !strings.Contains(out.String(), "built into the binary") {
-			t.Errorf("exit %d, %q", exitOf(err), out.String())
+		if err := run([]string{"auto", "on", "--home", home}, &out); err != nil {
+			t.Fatalf("auto on in release binary: %v\n%s", err, out.String())
 		}
 	})
-	if c, _, _ := auto.Load(home); c.Enabled {
-		t.Error("a refusal left auto on")
-	}
 }
 
 func TestAutoVerbCorruptConfig(t *testing.T) {
@@ -154,7 +144,7 @@ func TestAutoVerbCorruptConfig(t *testing.T) {
 func TestUninstallRemovesAutoTimerKeepsItsFiles(t *testing.T) {
 	home, calls := autoHome(t)
 	var out bytes.Buffer
-	if err := run([]string{"auto", "on", "--level", "project", "--home", home}, &out); err != nil {
+	if err := run([]string{"auto", "on", "--conversation-idle", "2h", "--home", home}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if err := run([]string{"auto", "run", "--home", home}, &out); err != nil {
@@ -180,7 +170,7 @@ func TestUninstallRemovesAutoTimerKeepsItsFiles(t *testing.T) {
 	if auto.TimerInstalledHere(home, runtime.GOOS) {
 		t.Error("the timer stayed")
 	}
-	if c, found, err := auto.Load(home); err != nil || !found || c.Level != "project" {
+	if c, found, err := auto.Load(home); err != nil || !found || c.ConversationIdle != "2h" {
 		t.Errorf("auto.json: %+v, %v, %v", c, found, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "auto", "auto.log")); err != nil {
@@ -204,7 +194,7 @@ func TestStatusAutoLine(t *testing.T) {
 	}
 	out.Reset()
 	run([]string{"status", "--home", home}, &out)
-	if !strings.Contains(out.String(), "\nauto       on, level observe; timer installed; never run\n") {
+	if !strings.Contains(out.String(), "\nauto       on, stale after 1h; timer installed; never run\n") {
 		t.Errorf("on:\n%s", out.String())
 	}
 }
@@ -258,5 +248,31 @@ func TestUninstallJoinsTimerAndHarnessErrors(t *testing.T) {
 	err := run([]string{"uninstall", "--home", home}, &out)
 	if err == nil || !strings.Contains(err.Error(), "systemctl") {
 		t.Fatalf("uninstall err = %v, want joined error naming both systemctl and state.json", err)
+	}
+}
+
+func TestAutoDreamHarnessRepoResolution(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	if got := autoDreamHarnessRepo("", home, repo); got != "" {
+		t.Fatalf("uninstalled home leaked %q, want empty", got)
+	}
+	if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
+		t.Fatalf("uninstalled autoRunOptions().Repo = %q, want empty", opts.Repo)
+	}
+	if got := autoDreamHarnessRepo(repo, home, repo); got != repo {
+		t.Fatalf("explicit --repo = %q, want %q", got, repo)
+	}
+	checkout := repoRoot(t)
+	if opts := (&ctx{home: home, repoFlag: checkout}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
+		t.Fatalf("explicit --repo autoRunOptions().Repo is empty")
+	}
+	t.Setenv("FYR_REPO", repo)
+	if got := autoDreamHarnessRepo("", home, repo); got != repo {
+		t.Fatalf("FYR_REPO = %q, want %q", got, repo)
+	}
+	t.Setenv("FYR_REPO", checkout)
+	if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo == "" {
+		t.Fatalf("FYR_REPO autoRunOptions().Repo is empty")
 	}
 }

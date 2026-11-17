@@ -41,7 +41,7 @@ type ctx struct {
 	evalRunner                                                                                     string
 	evalList, evalACP                                                                              bool
 	evalRuns, evalParallel                                                                         int
-	autoLevel, autoProjectIdle, autoUserIdle                                                       string
+	autoConvIdle, autoLevel, autoProjectIdle, autoUserIdle                                         string
 	modelsPick, modelsTier, modelsExplain                                                          string
 	modelsRefresh                                                                                  bool
 	limit, sliceHops, sliceBudget                                                                  int
@@ -105,14 +105,15 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.jsonOut, "json", false, "show: print the memory index as JSON")
 	}, positional: true, run: runMemory},
 	"dream": {flags: func(c *ctx) {
-		c.fs.BoolVar(&c.dreamAll, "all", false, "every project registered with index --register")
-		c.fs.StringVar(&c.dreamProject, "project", "", "one checkout, `DIR`, registered or not")
+		c.fs.BoolVar(&c.dreamAll, "all", false, "every workspace discovered from conversations, brain.db and search.db")
+		c.fs.StringVar(&c.dreamProject, "project", "", "one workspace, `DIR`, or __global__")
 		c.dryRunFlag()
 	}, run: runDream},
 	"auto": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.autoLevel, "level", "", "on: `LEVEL`, observe, project or harness (default observe)")
-		c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: how long a project is left alone first, `D`, 1h to 7d (default 6h)")
-		c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: how long the operator is away first, `D`, 1m to 24h (default 15m)")
+		c.fs.StringVar(&c.autoConvIdle, "conversation-idle", "", "on: how long a conversation sits untouched before rating, `D`, 5m to 7d (default 1h)")
+		c.fs.StringVar(&c.autoLevel, "level", "", "on: deprecated no-op `L` (fyr auto is now binary on/off)")
+		c.fs.StringVar(&c.autoProjectIdle, "project-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
+		c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
 		c.dryRunFlag()
 	}, positional: true, readsRepo: true},
 	"metrics": {flags: func(c *ctx) {

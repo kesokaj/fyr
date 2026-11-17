@@ -32,6 +32,7 @@ type fakeEnv struct {
 	convErr     error
 	onConv      func()
 	onTargets   func()
+	onUsage     func()
 }
 
 func (f *fakeEnv) Supplies() ([]Supply, error) { return f.supplies, f.suppliesErr }
@@ -62,6 +63,9 @@ func (f *fakeEnv) AgySession(string, int) (bool, error) {
 
 func (f *fakeEnv) Usage(_, _ string) (string, error) {
 	f.usageCalls++
+	if f.onUsage != nil {
+		f.onUsage()
+	}
 	return f.usage, f.usageErr
 }
 

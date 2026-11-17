@@ -1,10 +1,12 @@
 package auto
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -32,7 +34,7 @@ func Run(o Options, dryRun bool) error {
 		return nil
 	}
 	if dryRun {
-		say("G1 switch: on, level " + c.Level)
+		say("G1 switch: on, stale after " + c.ConversationIdle)
 		st, err := usableState(o.Home, now)
 		if err != nil {
 			say(stateLine(o.Home, err))
@@ -155,7 +157,6 @@ type run struct {
 	failed  bool
 	halted  bool // again stopped the run inside a project
 
-	unknownSaid     bool
 	usageRead       bool
 	usageText       string
 	usageErr        error
@@ -179,8 +180,8 @@ func (r *run) stopMachine(line string) {
 	r.halted = true
 }
 
-// again reads G1 and G3–G5 before the next project, so an `off` during a run
-// stops it there (D7) and a level or threshold changed by `on` takes effect.
+// again reads G1 and G3 before the next project, so an `off` during a run
+// stops it there (D7) and an updated conversation_idle takes effect.
 func (r *run) again(root string) bool {
 	c, found, err := Load(r.o.Home)
 	switch {
@@ -200,19 +201,17 @@ func (r *run) again(root string) bool {
 	return true
 }
 
-// sweep is G3–G5, then each project's G6–G8 and health, then the machine's
-// health once, when a project reached it. Each project's result goes in the
-// state as it ends, so a stop keeps what was reported.
+// sweep checks G3, discovers all targets, evaluates each target, and runs the
+// machine's health once when a target reached it.
 func (r *run) sweep() {
 	if stop := r.machineStop(); stop != "" {
 		r.stopMachine(stop)
 		return
 	}
-	// Listing a project runs git in it, as a read does: under a limit too.
 	env, home := r.env, r.o.Home
 	targets, err := limited(r.o.limit(projectLimit), func() ([]dream.Target, error) { return env.Targets(home) })
 	if err != nil {
-		r.stopMachine("G6 registered: " + oneLine(err.Error()))
+		r.stopMachine("targets: " + oneLine(err.Error()))
 		r.failed = true
 		return
 	}
@@ -231,7 +230,7 @@ func (r *run) sweep() {
 		}
 	}
 	if len(targets) == 0 {
-		r.say("G6 registered: no project")
+		r.say("no workspaces discovered")
 	}
 	for root := range r.st.Projects {
 		if !seen[root] {
@@ -247,14 +246,14 @@ func (r *run) sweep() {
 			return
 		}
 	}
-	r.verdict = fmt.Sprintf("%d of %d projects checked, level %s", reached, len(targets), r.cfg.Level)
+	r.verdict = fmt.Sprintf("%d of %d projects checked", reached, len(targets))
 	r.say(r.verdict)
 }
 
-// project is one project's gates and health; it says whether health ran.
+// project is one target's checks and health; it says whether health ran.
 func (r *run) project(root, skip string) bool {
 	p := r.st.Projects[root]
-	read := projectRead{stop: "G6 registered: " + skip}
+	read := projectRead{stop: "skipped: " + skip}
 	if skip == "" {
 		read = r.readProject(root)
 	}
@@ -272,33 +271,32 @@ func (r *run) project(root, skip string) bool {
 	return reached
 }
 
-// readProject is what a run reads of a project: G7, G8 and, past them on a
-// real run, the free checks, under one time limit. A hostile config can hang
-// git, and trail's calls take no deadline, so a read past the limit is left
-// behind with its child, which the timer's manager ends with the run; it
-// holds nothing of the run's.
+// readProject checks git readability and collects free findings only on
+// readable git checkouts (non-git workspaces and GlobalWorkspace pass safely
+// without G7/G8 blockers).
 func (r *run) readProject(root string) projectRead {
-	idle, err := span(r.cfg.ProjectIdle)
-	if err != nil {
-		return projectRead{stop: "G7 idle: " + oneLine(err.Error())}
+	if root == search.GlobalWorkspace {
+		return projectRead{}
 	}
-	o, env, dry := r.o, r.env, r.dry
+	o, dry := r.o, r.dry
 	got, err := limited(o.limit(projectLimit), func() ([]projectRead, error) {
+		if _, _, rerr := trail.Roots(root); errors.Is(rerr, trail.ErrNotCheckout) {
+			return []projectRead{{}}, nil
+		} else if rerr != nil {
+			return []projectRead{{stop: "skipped: " + oneLine(rerr.Error())}}, nil
+		}
 		if !readable(root) {
-			return []projectRead{{stop: "G6 registered: a partial clone this git cannot read safely"}}, nil
+			return []projectRead{{stop: "skipped: a partial clone this git cannot read safely"}}, nil
 		}
-		read := projectRead{stop: gateIdle(env, o.Home, root, idle, o.now())}
-		if read.stop == "" {
-			read.stop = gateClean(root)
-		}
-		if read.stop == "" && !dry {
+		var read projectRead
+		if !dry {
 			read.findings, read.failed = o.projectFindings(root)
 		}
 		return []projectRead{read}, nil
 	})
 	if err != nil {
 		r.failed = true
-		return projectRead{stop: "G7 idle: " + err.Error()}
+		return projectRead{stop: "read project: " + err.Error()}
 	}
 	return got[0]
 }

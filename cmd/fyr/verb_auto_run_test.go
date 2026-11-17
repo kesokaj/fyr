@@ -82,16 +82,23 @@ func TestAutoDryRunNamesG5(t *testing.T) {
 		}
 	}
 	t.Cleanup(stop)
-	// exec has replaced the fork's image once /proc shows the new name.
-	for i := 0; i < 200 && !strings.Contains(dry(), "G5 agy session"); i++ {
+	for i := 0; i < 200; i++ {
+		if up, _ := dream.AgySession(runtime.GOOS, os.Getuid()); up {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	got := dry()
-	if !strings.Contains(got, "G5 agy session: an interactive agy is running") {
-		t.Fatalf("%s", got)
+	if up, err := dream.AgySession(runtime.GOOS, os.Getuid()); err != nil || !up {
+		t.Fatalf("agy stand-in not visible: up=%v err=%v", up, err)
 	}
-	if strings.Contains(got, "would run") {
-		t.Errorf("a run started past G5: %s", got)
+	got := dry()
+	for _, want := range []string{"G1 switch: on", "G2 lock: not taken in a dry run", "budget: not read in a dry run"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "G5 agy session") {
+		t.Errorf("G5 should be retired in Phase 3A:\n%s", got)
 	}
 	if _, err := os.Stat(filepath.Join(home, harness.StateDir, "auto")); err == nil {
 		t.Error("a dry run made auto/")
@@ -164,8 +171,8 @@ func TestAutoBareDryRun(t *testing.T) {
 	if err := run([]string{"auto", "--home", home}, &bytes.Buffer{}); exitOf(err) != 2 {
 		t.Errorf("bare auto exit = %d (%v), want 2", exitOf(err), err)
 	}
-	if err := run([]string{"auto", "--dry-run", "--level", "project", "--home", home}, &bytes.Buffer{}); exitOf(err) != 2 {
-		t.Errorf("auto --dry-run --level exit = %d (%v), want 2", exitOf(err), err)
+	if err := run([]string{"auto", "--dry-run", "--conversation-idle", "2h", "--home", home}, &bytes.Buffer{}); exitOf(err) != 2 {
+		t.Errorf("auto --dry-run --conversation-idle exit = %d (%v), want 2", exitOf(err), err)
 	}
 }
 

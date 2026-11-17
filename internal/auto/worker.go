@@ -20,6 +20,8 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // workerTimeout is the 30-minute per-worker budget (R3 3.2b, D1 row 7).
@@ -46,10 +48,14 @@ func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error) (runner,
 func withRunner(line, runnerWhy string) string { return line + "; runner " + runnerWhy }
 
 // runModelTask picks the highest due model task for root (rotating p.LastClass
-// to the end), files any rubric ask, and runs at most one worker.
+// to the end), files any rubric ask, and runs at most one worker on clean git
+// checkouts (skipping execWorker on non-git, GlobalWorkspace, or dirty trees).
 func (r *run) runModelTask(root string, p *Project, findings []Finding) (string, []Finding) {
 	if r.workerRan {
 		return "worker already ran in this sweep", nil
+	}
+	if why := workerCheckoutStop(root); why != "" {
+		return "worker skipped: " + why, nil
 	}
 	t := r.pickProjectTask(root, p, findings)
 	if t == nil {
@@ -70,10 +76,26 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 	return v, append(extra, wf...)
 }
 
+func workerCheckoutStop(root string) string {
+	if root == "" || root == search.GlobalWorkspace {
+		return "global workspace has no git checkout"
+	}
+	if _, _, err := trail.Roots(root); err != nil {
+		if errors.Is(err, trail.ErrNotCheckout) {
+			return "not a git checkout"
+		}
+		return oneLine(err.Error())
+	}
+	if why := gateClean(root); why != "" {
+		return strings.TrimPrefix(why, "G8 clean: ")
+	}
+	return ""
+}
+
 func (r *run) fileAsk(root string, t Task) (string, Finding) {
 	denied := strings.Join(t.Denied, ", ")
-	body := fmt.Sprintf("# auto ask: %s in %s\n\nClass `%s` at level `%s` needed rubric-denied target(s): `%s`.\n",
-		t.Class, oneLine(filepath.Base(root)), t.Class, t.Level, oneLine(denied))
+	body := fmt.Sprintf("# auto ask: %s in %s\n\nClass `%s` needed rubric-denied target(s): `%s`.\n",
+		t.Class, oneLine(filepath.Base(root)), t.Class, oneLine(denied))
 	id, err := brain.Add(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.AddInput{
 		Kind:    "proposal",
 		Title:   fmt.Sprintf("auto ask: %s in %s (%s)", t.Class, oneLine(filepath.Base(root)), oneLine(denied)),
@@ -196,15 +218,18 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 }
 
 func (r *run) recordLearningProgress(p *Project, t Task) {
-	now := r.o.now()
+	mark := r.o.now()
+	if cutoff := r.conversationCutoff(); !cutoff.IsZero() {
+		mark = cutoff
+	}
 	switch t.Class {
 	case ClassMemoryConsolidation:
-		p.LastMemoryConsolidation = now
+		p.LastMemoryConsolidation = r.o.now()
 	case ClassRetroLite:
-		p.LastRetroLite = now
+		p.LastRetroLite = mark
 		p.PendingMemoryCandidates = t.Count
 	case ClassMemoryCandidates:
-		p.LastMemoryCandidates = now
+		p.LastMemoryCandidates = mark
 		p.PendingMemoryCandidates = 0
 	}
 }
@@ -302,7 +327,7 @@ func configTampered(home string, before []byte, beforeErr error) bool {
 }
 
 func disableConfig(home string, c Config) {
-	if c.Level == "" {
+	if c.ConversationIdle == "" {
 		c = defaults()
 	}
 	c.Enabled = false

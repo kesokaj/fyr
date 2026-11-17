@@ -31,14 +31,14 @@ var autoEnv auto.Env
 var autoSubverbs = []string{"on", "off", "status", "run"}
 
 var autoFlags = map[string]map[string]bool{
-	"on":     {"level": true, "project-idle": true, "user-idle": true, "dry-run": true},
+	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true},
 	"off":    {"dry-run": true},
 	"status": {},
 	"run":    {"dry-run": true},
 }
 
-// runAuto needs no harness tree: `off` has to work on any place, and only
-// `on --level harness` looks for a checkout.
+// runAuto needs no harness tree: `off` and `on` work on any place, and
+// harness skill edits apply only when a clean checkout is present.
 func runAuto(c *ctx) error {
 	args := c.fs.Args()
 	if len(args) == 0 && c.dryRun {
@@ -68,7 +68,8 @@ func runAuto(c *ctx) error {
 		if reason := c.autoRequestError(); reason != "" {
 			return usageErr(c.out, "auto", reason)
 		}
-		err = auto.On(o, auto.Request{Level: c.autoLevel, ProjectIdle: c.autoProjectIdle, UserIdle: c.autoUserIdle, CheckHarness: c.harnessCheckout})
+		c.warnDeprecatedAutoFlags()
+		err = auto.On(o, auto.Request{ConversationIdle: c.autoConvIdle})
 	case "off":
 		err = auto.Off(o)
 	case "status":
@@ -100,7 +101,7 @@ func autoIngest(home string) (string, error) {
 func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
 	if src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion()); err == nil {
-		o.Repo = src.Dir
+		o.Repo = autoDreamHarnessRepo(c.repoFlag, c.home, src.Dir)
 	}
 	if self, err := os.Executable(); err == nil {
 		o.Self = self
@@ -117,11 +118,13 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	}
 	o.Dream = func() error {
 		return dream.Run(dream.Options{
-			Home:       c.home,
-			Out:        io.Discard,
-			All:        true,
-			SkipIngest: true,
-			Session:    func() (bool, error) { return true, nil },
+			Home:             c.home,
+			Out:              io.Discard,
+			All:              true,
+			SkipIngest:       true,
+			ConversationIdle: auto.ConversationIdleDuration(c.home),
+			HarnessRepo:      o.Repo,
+			Session:          func() (bool, error) { return true, nil },
 		})
 	}
 	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
@@ -136,43 +139,40 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	return o
 }
 
-// autoRequestError refuses a flag of `on` given empty or out of range: every
-// check here comes before anything is read or written.
+// autoRequestError refuses a flag of `on` given empty or out of range before
+// anything is read or written.
 func (c *ctx) autoRequestError() string {
-	checks := []struct {
-		name, value string
-		valid       func(string) error
-	}{
-		{"level", c.autoLevel, auto.ValidLevel},
-		{"project-idle", c.autoProjectIdle, auto.ValidProjectIdle},
-		{"user-idle", c.autoUserIdle, auto.ValidUserIdle},
-	}
 	given := map[string]bool{}
 	c.fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
-	for _, k := range checks {
-		if !given[k.name] {
-			continue
-		}
-		if err := k.valid(k.value); err != nil {
-			return "fyr auto on: --" + k.name + ": " + err.Error()
+	if given["conversation-idle"] {
+		if err := auto.ValidConversationIdle(c.autoConvIdle); err != nil {
+			return "fyr auto on: --conversation-idle: " + err.Error()
 		}
 	}
 	return ""
 }
 
-// harnessCheckout answers whether this place's harness is a checkout: level
-// harness commits to one, and a release binary or a zip place has nothing to
-// commit to.
-func (c *ctx) harnessCheckout() error {
-	src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion())
-	if err != nil {
-		return err
+func (c *ctx) warnDeprecatedAutoFlags() {
+	c.fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "level", "project-idle", "user-idle":
+			fmt.Fprintf(c.out, "auto on: warning: --%s is deprecated and ignored (fyr auto is now binary on/off; use --conversation-idle)\n", f.Name)
+		}
+	})
+}
+
+// autoDreamHarnessRepo restricts dream.Options.HarnessRepo to an explicit
+// --repo / FYR_REPO or an installed checkout origin, preventing CWD's repo
+// from leaking into isolated scratch --home runs or tests under cmd/fyr.
+func autoDreamHarnessRepo(repoFlag, home, resolvedRepo string) string {
+	if resolvedRepo == "" {
+		return ""
 	}
-	if src.Dir == "" {
-		return errors.New("this place's harness is built into the binary")
+	if repoFlag != "" || os.Getenv("FYR_REPO") != "" {
+		return resolvedRepo
 	}
-	if harness.Inspect(src.Dir).Commit == "" {
-		return errors.New(src.Dir + " is a plain copy, not its own git checkout")
+	if st, found, err := harness.LoadState(home); err == nil && found && st.Origin().Kind == harness.OriginPath {
+		return resolvedRepo
 	}
-	return nil
+	return ""
 }
