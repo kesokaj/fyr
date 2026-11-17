@@ -2,7 +2,6 @@ package dream
 
 import (
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
 // AgySession is the dream's process check for `fyr auto`'s G5. It errs toward
@@ -11,20 +10,20 @@ import (
 // one (R3).
 func AgySession(goos string, uid int) (bool, error) { return agySession(goos, uid) }
 
-// Target is one project `--all` knows: Skip says why it is left out, and is
-// empty for a registered, migrated checkout.
+// Target is one workspace `--all` knows: Skip says why it is left out, and is
+// empty for an existing directory or GlobalWorkspace.
 type Target struct{ Root, Skip string }
 
-// Targets is --all's list for `fyr auto`'s G6, read from a copy of the brain
-// store, so a dry run and a real run take one path and neither opens the live
-// store for it.
+// Targets is --all's discovered workspace list for `fyr auto`, read from a copy
+// of the brain store so a dry run and a real run take one path and neither opens
+// the live store for it.
 func Targets(home string) ([]Target, error) {
 	tmp, cleanup, err := brainCopy(home)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	o := Options{Home: home, Projects: search.ListProjects,
+	o := Options{Home: home, Projects: defaultProjects,
 		Scopes: func(string) ([]string, error) { return brain.Scopes(tmp) }}
 	projects, skips, err := o.targets()
 	if err != nil {

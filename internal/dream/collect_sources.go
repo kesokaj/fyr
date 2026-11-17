@@ -1,9 +1,15 @@
 package dream
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // adder returns collectIn's add: one input, unless its text is blank, and
@@ -20,6 +26,14 @@ func (c *Collected) adder(since time.Time) func(kind, label, text string, t time
 			c.Changed = true
 		}
 	}
+}
+
+func brainDBExists(home string) bool {
+	if home == "" {
+		return false
+	}
+	_, err := os.Lstat(brain.Path(home))
+	return err == nil
 }
 
 // addRecords adds a project's records from the brain store under
@@ -43,5 +57,76 @@ func addRecords(brainHome, root string, since, now time.Time, add func(kind, lab
 	for _, r := range in.Trail {
 		add(kindTrail, r.ID, r.Title+"\n"+r.Body, recordTime(r))
 	}
+	if len(in.Feedback) == 0 && root != "" && root != search.GlobalWorkspace && brainDBExists(brainHome) {
+		if _, _, err := trail.Roots(root); errors.Is(err, trail.ErrNotCheckout) {
+			addNonGitFeedback(brainHome, root, since, now, add)
+		}
+	}
 	return nil
+}
+
+func addNonGitFeedback(brainHome, root string, since, now time.Time, add func(kind, label, text string, t time.Time)) {
+	recs, err := brain.List(brain.Options{Home: brainHome, Global: true}, brain.ListFilter{Kind: "feedback", Project: root})
+	if err != nil {
+		return
+	}
+	for _, r := range recs {
+		t := recordTime(r)
+		if t.After(since) && !t.After(now) {
+			add(kindFeedback, r.ID, redactFeedback(r.Body), t)
+		}
+	}
+}
+
+func addOptionalPlanAndHandoff(brainHome, root string, since, upper time.Time, c *Collected, add func(kind, label, text string, t time.Time)) {
+	if !brainDBExists(brainHome) || root == "" || root == search.GlobalWorkspace {
+		return
+	}
+	seen := map[string]bool{}
+	for _, in := range c.Inputs {
+		if in.Kind == kindTrail {
+			seen[in.Label] = true
+		}
+	}
+	o := brain.Options{Home: brainHome, Dir: root}
+	if plans, err := brain.List(o, brain.ListFilter{Kind: "plan"}); err == nil {
+		addPlanContext(plans, since, upper, seen, add)
+	}
+	if handoffs, err := brain.List(o, brain.ListFilter{Kind: "handoff"}); err == nil {
+		for _, r := range handoffs {
+			if seen[r.ID] {
+				break
+			}
+			seen[r.ID] = true
+			add(kindTrail, r.ID, r.Title+"\n"+r.Body, contextTime(r, since, upper))
+			break
+		}
+	}
+}
+
+func addPlanContext(plans []brain.Record, since, upper time.Time, seen map[string]bool, add func(kind, label, text string, t time.Time)) {
+	added := 0
+	for _, r := range plans {
+		if r.Status != "open" || seen[r.ID] {
+			continue
+		}
+		seen[r.ID] = true
+		add(kindTrail, r.ID, r.Title+"\n"+r.Body, contextTime(r, since, upper))
+		added++
+		if added >= 3 {
+			return
+		}
+	}
+	if added == 0 && len(plans) > 0 && !seen[plans[0].ID] {
+		seen[plans[0].ID] = true
+		add(kindTrail, plans[0].ID, plans[0].Title+"\n"+plans[0].Body, contextTime(plans[0], since, upper))
+	}
+}
+
+func contextTime(r brain.Record, since, upper time.Time) time.Time {
+	t := recordTime(r)
+	if t.IsZero() || t.After(upper) || t.After(since) {
+		return since
+	}
+	return t
 }

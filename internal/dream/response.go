@@ -12,8 +12,9 @@ var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
 // response is the one JSON object the CLI is asked for.
 type response struct {
-	Proposals []proposal `json:"proposals"`
-	Skills    []draft    `json:"skills"`
+	Proposals []proposal      `json:"proposals"`
+	Skills    []draft         `json:"skills"`
+	Ratings   []sessionRating `json:"ratings"`
 }
 
 type proposal struct {
@@ -22,6 +23,24 @@ type proposal struct {
 
 type draft struct {
 	Name, Description, Body string
+}
+
+type sessionRating struct {
+	ConversationID  string `json:"conversation_id"`
+	SessionID       string `json:"session_id"`
+	OutcomeScore    int    `json:"outcome_score"`
+	TokenEfficiency int    `json:"token_efficiency"`
+	PlanAlignment   string `json:"plan_alignment"`
+	SkillAction     string `json:"skill_action"`
+	TargetSkill     string `json:"target_skill"`
+	Summary         string `json:"summary"`
+}
+
+func (r sessionRating) id() string {
+	if strings.TrimSpace(r.ConversationID) != "" {
+		return r.ConversationID
+	}
+	return r.SessionID
 }
 
 // answer is the model's text: Antigravity's stream-json ends with a result
@@ -75,7 +94,7 @@ func parse(out string) (response, bool) {
 		// the answer invalid and the project retried every run with the same
 		// prompt (audit 2026-09-30, SD5). The fields used are validated below.
 		dec := json.NewDecoder(strings.NewReader(out[i:]))
-		if dec.Decode(&r) == nil && (r.Proposals != nil || r.Skills != nil) {
+		if dec.Decode(&r) == nil && (r.Proposals != nil || r.Skills != nil || r.Ratings != nil) {
 			return r, true
 		}
 		next := strings.IndexByte(out[i+1:], '{')

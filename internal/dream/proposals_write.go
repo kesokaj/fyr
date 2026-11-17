@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,46 +13,98 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
-// write stores each proposal as a global, queued `proposal` record about
-// the project (brain plan D15), and every valid draft skill in its own
-// directory under proposals/dream/drafts/, which a record names; the model's
-// text is scrubbed again first.
-func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) error {
+func defaultWriteRatings(home, _ string, rows []metrics.SessionRating) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.UpsertSessionRatings(rows)
+}
+
+// write stores validated ratings, draft skills under proposals/dream/drafts/,
+// and each proposal (plus rating-triggered harness skill proposals) as global
+// queued `proposal` records. It returns the count of non-draft-wrapper proposals.
+func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) (int, error) {
 	day := t0.Format("2006-01-02")
-	dir := filepath.Join(conf, "proposals", "dream")
+	draftLines, err := o.writeDrafts(filepath.Join(conf, "proposals", "dream"), c.Name, day, r.Skills)
+	if err != nil {
+		return 0, err
+	}
+	ratings := o.validRatings(c.Root, r.Ratings, t0)
+	if len(ratings) > 0 {
+		writeRatings := o.WriteRatings
+		if writeRatings == nil {
+			writeRatings = defaultWriteRatings
+		}
+		if err := writeRatings(o.Home, c.Root, ratings); err != nil {
+			return 0, err
+		}
+	}
+	head := o.header(c, cli, day)
+	ps := o.buildProposals(head, r.Proposals, ratings)
+	nProps := len(ps)
+	if len(draftLines) > 0 {
+		ps = append(ps, brain.Proposal{Title: "Dream, harness — draft skills for " + c.Name, Body: head + strings.Join(draftLines, "\n") + "\n"})
+	}
+	if _, err := propose(o.Home, proposalProject(o, c.Root), ps, t0); err != nil {
+		return 0, err
+	}
+	return nProps, nil
+}
+
+func proposalProject(o Options, root string) string {
+	if root == search.GlobalWorkspace {
+		if o.HarnessRepo != "" {
+			return o.HarnessRepo
+		}
+		return o.Home
+	}
+	return root
+}
+
+func (o Options) writeDrafts(dir, name, day string, skills []draft) ([]string, error) {
 	var drafts []draft
 	var dropped []string
-	for _, d := range r.Skills {
+	for _, d := range skills {
 		if skillName.MatchString(d.Name) {
 			drafts = append(drafts, d)
 		} else {
 			dropped = append(dropped, d.Name)
 		}
 	}
-	var draftLines []string
+	var lines []string
 	for _, d := range drafts {
-		path, err := unique(filepath.Join(dir, "drafts"), day+"-"+c.Name+"-"+d.Name, "")
+		dst, err := unique(filepath.Join(dir, "drafts"), day+"-"+name+"-"+d.Name, "")
 		if err != nil {
-			return err
+			return nil, err
 		}
 		desc, _ := json.Marshal(o.clean(d.Description))
 		body := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n", d.Name, desc, strings.TrimSpace(o.clean(d.Body)))
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			return err
+		if err := os.MkdirAll(dst, 0o700); err != nil {
+			return nil, err
 		}
-		if err := harness.WriteAtomic(filepath.Join(path, "SKILL.md"), []byte(body), 0o600); err != nil {
-			return err
+		if err := harness.WriteAtomic(filepath.Join(dst, "SKILL.md"), []byte(body), 0o600); err != nil {
+			return nil, err
 		}
-		draftLines = append(draftLines, "Draft skill: "+filepath.Join(dir, "drafts", filepath.Base(path), "SKILL.md"))
+		lines = append(lines, "Draft skill: "+filepath.Join(dir, "drafts", filepath.Base(dst), "SKILL.md"))
 	}
 	for _, n := range dropped {
-		draftLines = append(draftLines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(n)))
+		lines = append(lines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(n)))
 	}
-	head := o.header(c, cli, day)
+	return lines, nil
+}
+
+func (o Options) buildProposals(head string, props []proposal, ratings []metrics.SessionRating) []brain.Proposal {
 	var ps []brain.Proposal
-	for _, p := range r.Proposals {
+	for _, p := range props {
 		// The target leads the title, so /retro tells a project's proposals
 		// from the harness's without opening each (security review of the
 		// dream over records, finding 3).
@@ -61,11 +114,110 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 		}
 		ps = append(ps, brain.Proposal{Title: "Dream, " + target + " — " + o.line(p.Title), Body: head + o.section(p)})
 	}
-	if len(draftLines) > 0 {
-		ps = append(ps, brain.Proposal{Title: "Dream, harness — draft skills for " + c.Name, Body: head + strings.Join(draftLines, "\n") + "\n"})
+	for _, rt := range ratings {
+		if needsSkillProposal(rt) {
+			ps = append(ps, o.ratingProposal(head, rt))
+		}
 	}
-	_, err := propose(o.Home, c.Root, ps, t0)
-	return err
+	return ps
+}
+
+func needsSkillProposal(r metrics.SessionRating) bool {
+	return r.SkillAction == "rewrite-skill" || r.SkillAction == "new-skill" || r.OutcomeScore <= 3 || r.TokenEfficiency <= 3
+}
+
+func (o Options) validRatings(root string, raw []sessionRating, t0 time.Time) []metrics.SessionRating {
+	seen := map[string]bool{}
+	var out []metrics.SessionRating
+	for _, sr := range raw {
+		if r, ok := o.validateRating(root, sr, t0); ok && !seen[r.SessionID] {
+			seen[r.SessionID] = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (o Options) validateRating(root string, sr sessionRating, t0 time.Time) (metrics.SessionRating, bool) {
+	id := strings.TrimSpace(o.line(sr.id()))
+	if id == "" || strings.ContainsAny(id, `/\ `) || id == "." || id == ".." ||
+		strings.ContainsFunc(id, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return metrics.SessionRating{}, false
+	}
+	if sr.OutcomeScore < 1 || sr.OutcomeScore > 5 || sr.TokenEfficiency < 1 || sr.TokenEfficiency > 5 {
+		return metrics.SessionRating{}, false
+	}
+	pa := strings.ToLower(strings.TrimSpace(o.line(sr.PlanAlignment)))
+	switch pa {
+	case "matched", "partial", "missed", "no-plan":
+	default:
+		return metrics.SessionRating{}, false
+	}
+	sa := strings.ToLower(strings.TrimSpace(o.line(sr.SkillAction)))
+	if sa == "" {
+		sa = "none"
+	}
+	switch sa {
+	case "none", "rewrite-skill", "new-skill":
+	default:
+		return metrics.SessionRating{}, false
+	}
+	out := metrics.SessionRating{
+		SessionID:     id,
+		ProjectRoot:   root,
+		EvaluatedAt:   t0.UnixMilli(),
+		OutcomeScore:  sr.OutcomeScore,
+		PlanAlignment: pa,
+		SkillAction:   sa,
+		TargetSkill:   cleanTargetSkill(o.line(sr.TargetSkill)),
+		Summary:       strings.TrimSpace(o.line(sr.Summary)),
+	}
+	setInt(&out.TokenEfficiency, sr.TokenEfficiency)
+	return out, true
+}
+
+func setInt(dst *int, v int) { *dst = v }
+
+func cleanTargetSkill(s string) string {
+	s = strings.TrimSpace(filepath.ToSlash(s))
+	if s == "" || strings.HasPrefix(s, "/") || strings.ContainsRune(s, 0) {
+		return ""
+	}
+	for _, seg := range strings.Split(s, "/") {
+		if seg == ".." {
+			return ""
+		}
+	}
+	trailing := strings.HasSuffix(s, "/")
+	c := path.Clean(s)
+	if c == "." || c == ".." || strings.HasPrefix(c, "../") {
+		return ""
+	}
+	if trailing && !strings.HasSuffix(c, "/") {
+		c += "/"
+	}
+	return c
+}
+
+func (o Options) ratingProposal(head string, r metrics.SessionRating) brain.Proposal {
+	file := "skills/"
+	if r.TargetSkill != "" {
+		file = r.TargetSkill
+	}
+	titleTarget := file
+	if r.SkillAction == "new-skill" && file == "skills/" {
+		titleTarget = "new skill"
+	}
+	title := fmt.Sprintf("Dream, harness — %s (%s)", o.line(titleTarget), o.line(r.SessionID))
+	text := strings.TrimSpace(o.clean(r.Summary))
+	if text == "" {
+		text = fmt.Sprintf("Conversation %s rated outcome %d/5, token efficiency %d/5 (%s).", r.SessionID, r.OutcomeScore, r.TokenEfficiency, r.PlanAlignment)
+	}
+	ev := fmt.Sprintf("conversation %s (outcome %d/5, token_efficiency %d/5, plan_alignment %s)",
+		o.line(r.SessionID), r.OutcomeScore, r.TokenEfficiency, o.line(r.PlanAlignment))
+	body := head + fmt.Sprintf("Target: harness   Kind: skill   File: %s\nSessions: 2\n\n%s\n\nEvidence: %s\n",
+		o.line(file), indent(text), ev)
+	return brain.Proposal{Title: title, Body: body}
 }
 
 // propose is brain.ProposeAll; a test replaces it.

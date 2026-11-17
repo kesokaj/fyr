@@ -33,26 +33,34 @@ func TestTargets(t *testing.T) {
 	// Both and neither are refused by Run before targets (TestRunUsage).
 	o.Project, o.All = "", true
 	got, skips, err = o.targets()
-	if err != nil || len(got) != 1 || got[0].Root != f.root {
+	if err != nil || len(got) != 2 || got[0].Root != f.root || !sameDir(got[1].Root, other) {
 		t.Errorf("--all: %+v, %v", got, err)
 	}
-	want := []skipped{{other, notRegistered}, {gone, "gone"}}
-	if len(skips) != len(want) || skips[0] != want[0] || skips[1] != want[1] {
+	want := []skipped{{gone, "gone"}}
+	if len(skips) != len(want) || skips[0] != want[0] {
 		t.Errorf("--all skipped %+v, want %+v", skips, want)
 	}
-	// A project of records is found by its brain scope too, once, and only
-	// when registered.
+	// A project of records is found by its brain scope too, once, without
+	// requiring registration.
 	recs := t.TempDir()
 	run(t, recs, "git", "init", "-q")
-	markRegistered(t, f.home, recs)
 	o.Scopes = func(string) ([]string, error) { return []string{f.root, recs, other}, nil }
-	if got, skips, err := o.targets(); err != nil || len(got) != 2 || got[1].Root != recs || len(skips) != 2 {
+	if got, skips, err := o.targets(); err != nil || len(got) != 3 || !sameDir(got[2].Root, recs) || len(skips) != 1 {
 		t.Errorf("--all with scopes: %+v, %+v, %v", got, skips, err)
 	}
 	o.Scopes = nil
-	o.Project = t.TempDir() // not a checkout
+	plain := t.TempDir() // non-git directory is accepted
+	o.Project = plain
+	if got, _, err := o.targets(); err != nil || len(got) != 1 || !sameDir(got[0].Root, plain) {
+		t.Errorf("--project plain dir: %+v, %v", got, err)
+	}
+	o.Project = search.GlobalWorkspace
+	if got, _, err := o.targets(); err != nil || len(got) != 1 || got[0].Root != search.GlobalWorkspace {
+		t.Errorf("--project GlobalWorkspace: %+v, %v", got, err)
+	}
+	o.Project = filepath.Join(f.root, "missing")
 	if _, _, err := o.targets(); err == nil {
-		t.Error("--project outside a checkout was accepted")
+		t.Error("--project missing dir was accepted")
 	}
 }
 
@@ -65,8 +73,11 @@ func TestSkipReason(t *testing.T) {
 		t.Errorf("missing root: %q", why)
 	}
 	plain := t.TempDir()
-	if why := skipReason(search.Project{Root: plain}); why != "not a git checkout" {
-		t.Errorf("plain directory: %q", why)
+	if why := skipReason(search.Project{Root: plain}); why != "" {
+		t.Errorf("plain directory skipped: %q", why)
+	}
+	if why := skipReason(search.Project{Root: search.GlobalWorkspace}); why != "" {
+		t.Errorf("GlobalWorkspace skipped: %q", why)
 	}
 }
 

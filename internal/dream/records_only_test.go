@@ -33,38 +33,51 @@ func TestDreamReadsOnlyRecords(t *testing.T) {
 	}
 }
 
-// A project with no trail is skipped and told how to migrate, a file-era
-// tree or not: only `fyr record import` reads that tree now.
-func TestSkipReasonNamesTheImport(t *testing.T) {
-	const want = "no .agents/trail.jsonl: fyr record import"
+// A project with no trail records is not skipped (ADR-524 drops noTrail),
+// though file-era trees still contribute nothing on their own.
+func TestSkipReasonAllowsUnmigrated(t *testing.T) {
 	bare := t.TempDir()
 	run(t, bare, "git", "init", "-q")
-	if why := skipReason(projectAt(bare)); why != want {
-		t.Errorf("no trail: %q, want %q", why, want)
+	if why := skipReason(projectAt(bare)); why != "" {
+		t.Errorf("no trail: %q, want empty", why)
 	}
 	write(t, filepath.Join(bare, ".agents", "docs", "bugs", "BUG-001.md"), "a bug\n", fresh)
-	if why := skipReason(projectAt(bare)); why != want {
-		t.Errorf("a file-era tree: %q, want %q", why, want)
+	if why := skipReason(projectAt(bare)); why != "" {
+		t.Errorf("a file-era tree: %q, want empty", why)
 	}
 }
 
-// A file-era project is skipped by a run: no CLI call.
-func TestRunSkipsAFileEraProject(t *testing.T) {
+// A file-era project with no records or conversations is unchanged (no CLI
+// call), while one with a conversation sends only the conversation and never
+// reads .agents/docs/ files.
+func TestRunUnmigratedFileEraProject(t *testing.T) {
 	f := newFixture(t)
-	rec := fakeCLI(t, "agy", canned, 0)
+	rec := fakeCLI(t, "agy", agyResult(`{"proposals":[],"skills":[]}`, false), 0)
 	bare := t.TempDir()
 	run(t, bare, "git", "init", "-q")
-	write(t, filepath.Join(bare, ".agents", "docs", "bugs", "BUG-001.md"), "a bug\n", fresh)
+	write(t, filepath.Join(bare, ".agents", "docs", "bugs", "BUG-001.md"), "file-era bug body\n", fresh)
 	var out bytes.Buffer
 	o := runOpts(f, &out)
 	o.All, o.Project = false, bare
 	if err := Run(o); err != nil {
 		t.Fatalf("Run: %v\n%s", err, out.String())
 	}
-	if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, " skip "+noTrail) {
-		t.Errorf("no skip line:\n%s", log)
+	if log := read(t, filepath.Join(f.home, harness.StateDir, "dream.log")); !strings.Contains(log, bare+" unchanged") {
+		t.Errorf("expected unchanged log line:\n%s", log)
 	}
 	if _, err := os.Stat(filepath.Join(rec, "args")); !os.IsNotExist(err) {
-		t.Error("a project with no trail reached the CLI")
+		t.Error("an unchanged project without records or conversations reached the CLI")
+	}
+
+	agyLogin(t)
+	agyConversations(t, f.home, map[string]agyConv{
+		"bare-conv": {bare, fresh, []agyStep{{typ: 14, text: "hello from bare workspace today"}}},
+	})
+	if err := Run(o); err != nil {
+		t.Fatalf("Run with conv: %v\n%s", err, out.String())
+	}
+	stdin := read(t, filepath.Join(rec, "stdin"))
+	if !strings.Contains(stdin, "hello from bare workspace today") || strings.Contains(stdin, "file-era bug body") {
+		t.Errorf("unexpected prompt for unmigrated workspace:\n%s", stdin)
 	}
 }

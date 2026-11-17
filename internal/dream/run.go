@@ -166,7 +166,8 @@ func (r *dreamRun) project(p search.Project) {
 		r.logf(p.Root + " skip in use (" + why + ")")
 		return
 	}
-	c, err := collect(r.o.Home, p, r.o.since(r.st, p.Root), r.o.Now(), maxPrompt)
+	since, upper, cutoff := r.o.window(r.st, p.Root)
+	c, err := collectWindow(r.o.Home, r.o.Home, p, since, cutoff, upper, maxPrompt)
 	if err != nil {
 		r.failed++
 		r.logf(p.Root + " fail " + scrub(err.Error(), r.o.Home))
@@ -184,24 +185,39 @@ func (r *dreamRun) project(p search.Project) {
 	if !ok {
 		return
 	}
-	if err := r.o.write(r.conf, c, resp, r.argv[0], r.t0); err != nil {
+	nProps, err := r.o.write(r.conf, c, resp, r.argv[0], r.t0)
+	if err != nil {
 		r.failed++
 		r.logf(p.Root + " fail " + err.Error())
 		return
 	}
-	// Short of the run's start when the cap dropped news: the next run
-	// offers it again (ADR-069).
-	r.st.Projects[p.Root] = watermark(c, r.t0)
+	r.recordSuccess(p.Root, c, since, cutoff)
+	r.total += nProps
+	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, nProps))
+}
+
+func (r *dreamRun) recordSuccess(root string, c Collected, since, cutoff time.Time) {
+	delete(r.st.FailedAttempts, root)
+	if r.o.ConversationIdle > 0 {
+		delete(r.st.Attempts, root)
+		if next := watermark(c, cutoff); next.After(since) {
+			r.st.Projects[root] = next
+		}
+	} else {
+		// Short of the run's start when the cap dropped news: the next run
+		// offers it again (ADR-069).
+		r.st.Projects[root] = watermark(c, r.t0)
+	}
 	r.save()
-	r.total += len(resp.Proposals)
-	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, len(resp.Proposals)))
 }
 
 // ask calls the CLI with the project's prompt in its branch and returns its
 // answer; a failed call or an answer that does not parse fails the project.
 func (r *dreamRun) ask(p search.Project, c Collected, b branch) (response, bool) {
 	// Stored before the call, so a run killed mid-call still counts it.
-	r.st.Attempts[p.Root] = r.o.Now()
+	attemptAt := r.o.Now()
+	r.st.Attempts[p.Root] = attemptAt
+	r.st.FailedAttempts[p.Root] = attemptAt
 	r.save()
 	stdout, stderr, err := call(r.argv, c.Prompt, r.work, b.env)
 	if err != nil {

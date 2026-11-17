@@ -1,40 +1,26 @@
 package dream
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/memory"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// notRegistered is why --all leaves out a checkout the operator never
-// opted in, and how they opt it in (audit-choices D17: the dry run's skip
-// lines are the re-registration listing).
-const notRegistered = "not registered (fyr index --register)"
-
 // skipped is a root --all leaves out before collecting, and why.
 type skipped struct{ root, why string }
 
-// targets is --project's one checkout, or for --all every project the file
-// index registered and every project scope the brain store holds, each
-// checkout once, whose checkout carries this home's registration marker
-// (ADR-068, ADR-068a); the rest come back as skipped, each once. Run has
-// already refused both and neither. --project needs no marker: naming the
-// directory is the operator's opt-in (audit-choices D16).
+// targets is --project's one workspace (git checkout, non-git directory, or
+// search.GlobalWorkspace), or for --all every workspace discovered from the
+// search index, Antigravity conversations, brain scopes, and HarnessRepo,
+// deduplicated per checkout/directory (ADR-524).
 func (o Options) targets() ([]search.Project, []skipped, error) {
 	if o.Project != "" {
-		abs, err := filepath.Abs(o.Project)
-		if err != nil {
-			return nil, nil, err
-		}
-		root, err := memory.Root(abs)
-		if err != nil {
-			return nil, nil, err
-		}
-		return []search.Project{{Root: root, Name: filepath.Base(root)}}, nil, nil
+		return o.projectTarget()
 	}
 	projects, err := o.Projects(o.Home)
 	if err != nil {
@@ -51,37 +37,85 @@ func (o Options) targets() ([]search.Project, []skipped, error) {
 	for _, s := range scopes {
 		projects = append(projects, search.Project{Root: s, Name: filepath.Base(s)})
 	}
-	out, skips := o.registeredOnly(projects)
+	if o.HarnessRepo != "" {
+		clean := filepath.Clean(o.HarnessRepo)
+		projects = append(projects, search.Project{Root: clean, Name: filepath.Base(clean)})
+	}
+	out, skips := o.dedupeTargets(projects)
 	return out, skips, nil
 }
 
-// registeredOnly splits projects into the checkouts registered under this
-// home and the rest, each checkout once.
-func (o Options) registeredOnly(projects []search.Project) ([]search.Project, []skipped) {
+func (o Options) projectTarget() ([]search.Project, []skipped, error) {
+	if o.Project == search.GlobalWorkspace {
+		return []search.Project{{Root: search.GlobalWorkspace, Name: search.GlobalWorkspace}}, nil, nil
+	}
+	abs, err := filepath.Abs(o.Project)
+	if err != nil {
+		return nil, nil, err
+	}
+	if main, _, err := trail.Roots(abs); err == nil {
+		return []search.Project{{Root: main, Name: filepath.Base(main)}}, nil, nil
+	} else if !errors.Is(err, trail.ErrNotCheckout) {
+		return nil, nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !info.IsDir() {
+		return nil, nil, fmt.Errorf("%s is not a directory", abs)
+	}
+	clean := filepath.Clean(abs)
+	return []search.Project{{Root: clean, Name: filepath.Base(clean)}}, nil, nil
+}
+
+// dedupeTargets normalizes git subdirectories to their main checkout, deduplicates
+// projects by projectKey, and separates gone/invalid entries into skips.
+func (o Options) dedupeTargets(projects []search.Project) ([]search.Project, []skipped) {
 	// One checkout, however reached (a linked worktree's path, a symlinked
 	// parent), is one target: its records would otherwise be sent twice
 	// (security review of the dream over records, finding 6).
 	seen := map[string]bool{}
-	stateDir := filepath.Join(o.Home, harness.StateDir)
 	var out []search.Project
 	var skips []skipped
 	for _, p := range projects {
+		if p.Root == "" {
+			continue
+		}
+		p = normalizeTarget(p)
 		k := projectKey(p.Root)
 		if seen[k] {
 			continue
 		}
 		seen[k] = true
-		if trail.Registered(stateDir, p.Root) {
-			out = append(out, p)
+		if p.Name == "" {
+			p.Name = filepath.Base(p.Root)
+		}
+		if why := absent(p); why != "" {
+			skips = append(skips, skipped{p.Root, why})
 			continue
 		}
-		// A root that is gone, or no checkout, says so: registering cannot
-		// help it.
-		why := absent(p)
-		if why == "" {
-			why = notRegistered
-		}
-		skips = append(skips, skipped{p.Root, why})
+		out = append(out, p)
 	}
 	return out, skips
+}
+
+func normalizeTarget(p search.Project) search.Project {
+	if p.Root == "" || p.Root == search.GlobalWorkspace {
+		return p
+	}
+	if main, _, err := trail.Roots(p.Root); err == nil && !samePath(p.Root, main) {
+		return search.Project{Root: main, Name: filepath.Base(main)}
+	}
+	return p
+}
+
+func samePath(a, b string) bool {
+	ca, cb := filepath.Clean(a), filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(ca)
+	rb, errB := filepath.EvalSymlinks(cb)
+	return errA == nil && errB == nil && ra == rb
 }

@@ -81,17 +81,19 @@ func TestFitTooBigDoesNotHoldWatermark(t *testing.T) {
 // no room, holds nothing back and is named as not sent again: a run that
 // sends no news still advances.
 func TestFitLastDatedDoesNotHoldWatermark(t *testing.T) {
+	const limit = 8192
 	c := Collected{Name: "p", Dropped: []string{"feedback.jsonl: " + strings.Repeat("e", 1500)},
 		Inputs: []Input{{Kind: kindMemory, Label: "memory/a.md", Text: "m"}}}
-	room := 4096 - len(head(c)) - len(block(c.Inputs[0]))
+	room := limit - len(head(c)) - len(block(c.Inputs[0]))
 	c.Inputs = append(c.Inputs, Input{Kind: kindTranscript, Label: "only", Text: strings.Repeat("t", room-200), Time: day(1)})
 	if len(block(c.Inputs[1])) > room {
 		t.Fatal("the input must fit the room the cap leaves after memory")
 	}
-	if err := c.fit(4096); err != nil {
+	if err := c.fit(limit); err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Inputs) != 1 || c.Dropped[1] != "transcript only (dropped to fit the 4 KB cap; not sent again)" {
+	wantDropped := fmt.Sprintf("transcript only (dropped to fit the %d KB cap; not sent again)", limit/1024)
+	if len(c.Inputs) != 1 || c.Dropped[1] != wantDropped {
 		t.Errorf("inputs %s, dropped %q", labels(c), c.Dropped)
 	}
 	if !c.Through.IsZero() {

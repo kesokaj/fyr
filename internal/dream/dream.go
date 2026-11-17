@@ -9,6 +9,7 @@
 package dream
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,7 +20,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/memory"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -36,7 +37,7 @@ type Options struct {
 	SkipIngest bool // true when caller (fyr auto) already ingested metrics first
 	Out        io.Writer
 	Now        func() time.Time
-	Projects   func(home string) ([]search.Project, error) // search.ListProjects; a test replaces it
+	Projects   func(home string) ([]search.Project, error) // defaultProjects; a test replaces it
 	Scopes     func(home string) ([]string, error)         // brain.Scopes: projects whose trail is records; a test replaces it
 	// Active says why a project is in use and is not dreamt over yet, ""
 	// when it has been idle for idleFor (D22); nil is the real check
@@ -46,6 +47,14 @@ type Options struct {
 	// runs, which an --all run needs before it does anything (plan D2, D9);
 	// nil is the real check (agySession), a test replaces it.
 	Session func() (bool, error)
+	// ConversationIdle enables sliding-window conversation evaluation (cutoff = now - ConversationIdle)
+	// without whole-project idle blocks (ADR-524). Zero preserves the 24h project idle gate.
+	ConversationIdle time.Duration
+	// HarnessRepo is the optional resolved harness checkout included in --all targets.
+	HarnessRepo string
+	// WriteRatings persists validated conversation ratings in realRun (never in DryRun).
+	// Nil defaults to writing session_ratings in metrics.db during realRun.
+	WriteRatings func(home, project string, rows []metrics.SessionRating) error
 
 	brainHome string // where the brain store is read: Home, or a dry run's copy
 }
@@ -82,19 +91,47 @@ type Collected struct {
 // firstLook is how far back a project's first dream reads.
 const firstLook = 14 * 24 * time.Hour
 
+func defaultProjects(home string) ([]search.Project, error) {
+	projects, err := search.ListProjects(home)
+	if err != nil {
+		return nil, err
+	}
+	agyWS, err := search.ListAgyWorkspaces(home)
+	if err != nil {
+		return nil, err
+	}
+	return append(projects, agyWS...), nil
+}
+
+func (o *Options) withDefaults() {
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	if o.Projects == nil {
+		o.Projects = defaultProjects
+	}
+	if o.Scopes == nil {
+		o.Scopes = brain.Scopes
+	}
+	if o.brainHome == "" {
+		o.brainHome = o.Home
+	}
+	if o.Active == nil {
+		bh := o.brainHome
+		o.Active = func(home string, p search.Project, now time.Time) string { return activityIn(home, bh, p, now) }
+	}
+	if o.Session == nil {
+		o.Session = func() (bool, error) { return agySession(runtime.GOOS, os.Getuid()) }
+	}
+}
+
 // Run is `fyr dream`. Exactly one of All and Project is set: cmd/fyr refuses
 // any other command line as a usage error, with dream's synopsis, before Run
 // is called (ledger item 86); the guard below only keeps another caller from
 // a run that would lock, log or write first.
 func Run(o Options) error {
-	if o.Now == nil {
-		o.Now = time.Now
-	}
-	if o.Projects == nil {
-		o.Projects = search.ListProjects
-	}
-	if o.Scopes == nil {
-		o.Scopes = brain.Scopes
+	if o.All == (o.Project != "") {
+		return &ExitError{2, "fyr dream: exactly one of --all and --project"}
 	}
 	if o.DryRun && o.brainHome == "" {
 		// A dry run reads a copy of the brain store: opening the live one
@@ -107,19 +144,7 @@ func Run(o Options) error {
 		defer cleanup()
 		o.brainHome = tmp
 	}
-	if o.brainHome == "" {
-		o.brainHome = o.Home
-	}
-	if o.Active == nil {
-		bh := o.brainHome
-		o.Active = func(home string, p search.Project, now time.Time) string { return activityIn(home, bh, p, now) }
-	}
-	if o.All == (o.Project != "") {
-		return &ExitError{2, "fyr dream: exactly one of --all and --project"}
-	}
-	if o.Session == nil {
-		o.Session = func() (bool, error) { return agySession(runtime.GOOS, os.Getuid()) }
-	}
+	o.withDefaults()
 	if !o.DryRun {
 		return o.realRun()
 	}
@@ -135,9 +160,9 @@ func Run(o Options) error {
 }
 
 // inUse is why p is not idle yet under --all, "" when it is (or when the
-// run names one project).
+// run names one project, or when ConversationIdle uses per-conversation staleness).
 func (o Options) inUse(p search.Project) string {
-	if !o.All {
+	if !o.All || o.ConversationIdle > 0 {
 		return ""
 	}
 	return o.Active(o.Home, p, o.Now())
@@ -164,10 +189,8 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 			}
 		}
 	}
-	if migrated(brainHome, p.Root) {
-		if in, err := forDream(brainHome, p.Root, now, now); err == nil && in.Last.After(cut) {
-			return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
-		}
+	if in, err := forDream(brainHome, p.Root, now, now); err == nil && in.Last.After(cut) {
+		return "a record updated at " + in.Last.UTC().Format(time.RFC3339)
 	}
 	if convs, _, err := search.AgyConversationText(home, p.Root, cut); err == nil && len(convs) > 0 {
 		return "an Antigravity session at " + convs[0].Modified.UTC().Format(time.RFC3339)
@@ -175,47 +198,53 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 	return ""
 }
 
-// noTrail is why a project with no records is not dreamt over, whatever
-// files it holds: only `fyr record import` reads a file-era tree (D4).
-const noTrail = "no .agents/trail.jsonl: fyr record import"
-
 // skipReason says why a project is not dreamt over, or "" when it is.
-func skipReason(p search.Project, home ...string) string {
-	if why := absent(p); why != "" {
-		return why
-	}
-	var h string
-	if len(home) > 0 {
-		h = home[0]
-	}
-	if !migrated(h, p.Root) {
-		return noTrail
-	}
-	return ""
+func skipReason(p search.Project, _ ...string) string {
+	return absent(p)
 }
 
-// absent says why p is no checkout to dream over at all, or "" when it is
-// one.
+// absent says why p cannot be dreamt over at all, or "" when it is valid
+// (a directory on disk or search.GlobalWorkspace).
 func absent(p search.Project) string {
+	if p.Root == search.GlobalWorkspace {
+		return ""
+	}
 	if info, err := os.Stat(p.Root); err != nil || !info.IsDir() {
 		return "gone"
 	}
-	if _, err := memory.Root(p.Root); err != nil {
-		return "not a git checkout"
+	if _, _, err := trail.Roots(p.Root); err != nil && !errors.Is(err, trail.ErrNotCheckout) {
+		return "invalid git checkout"
 	}
 	return ""
 }
 
 // attempted is when an --all run last started root's CLI call, when that is
 // within cooldown of now, and zero otherwise; --project, which the operator
-// asked for, ignores it. An attempt dated after now (a clock set back) holds
-// until the clock passes it plus cooldown, toward not dreaming.
+// asked for, ignores it. When ConversationIdle > 0, only failed/incomplete
+// attempts trigger the 24h cooldown so newly-stale conversations are rated hourly.
 func (o Options) attempted(st state, root string) time.Time {
-	t, ok := st.Attempts[root]
-	if !o.All || !ok || !t.After(o.Now().Add(-cooldown)) {
+	if !o.All {
+		return time.Time{}
+	}
+	m := st.Attempts
+	if o.ConversationIdle > 0 {
+		m = st.FailedAttempts
+	}
+	t, ok := m[root]
+	if !ok || !t.After(o.Now().Add(-cooldown)) {
 		return time.Time{}
 	}
 	return t
+}
+
+func (o Options) window(st state, root string) (since, upper, cutoff time.Time) {
+	now := o.Now()
+	since = o.since(st, root)
+	if o.ConversationIdle > 0 {
+		cutoff = now.Add(-o.ConversationIdle)
+		return since, cutoff, cutoff
+	}
+	return since, now, time.Time{}
 }
 
 func (o Options) since(st state, root string) time.Time {
@@ -287,9 +316,12 @@ func linuxTimerPath(home string) string { return dreamTimer.timerPath(home) }
 
 func macPlistPath(home string) string { return dreamTimer.plistPath(home) }
 
-// projectKey is the checkout a path names: the main worktree's root when it
-// is one, else the path with its links resolved.
+// projectKey is the workspace key a path names: GlobalWorkspace as-is, the main
+// worktree's root when inside a git checkout, else the path with links resolved.
 func projectKey(root string) string {
+	if root == search.GlobalWorkspace {
+		return search.GlobalWorkspace
+	}
 	if main, _, err := trail.Roots(root); err == nil {
 		return main
 	}

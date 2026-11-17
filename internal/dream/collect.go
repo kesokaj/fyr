@@ -42,38 +42,48 @@ func collect(home string, p search.Project, since, now time.Time, limit int) (Co
 // one (home) in a run, a copy in a dry run, which writes nothing. now is
 // the run's clock.
 func collectIn(home, brainHome string, p search.Project, since, now time.Time, limit int) (Collected, error) {
+	return collectWindow(home, brainHome, p, since, time.Time{}, now, limit)
+}
+
+// collectWindow collects project inputs in (since, upper], where upper is cutoff
+// when non-zero (sliding-window stale conversations), else now.
+func collectWindow(home, brainHome string, p search.Project, since, cutoff, now time.Time, limit int) (Collected, error) {
 	// The name is the checkout's base name, which may hold a line break: it
 	// is folded once here, for the prompt, the proposals header and the file
 	// names alike (audit 2026-10-25, SD15).
 	c := &Collected{Root: p.Root, Name: oneLine(p.Name)}
+	if !cutoff.IsZero() && !cutoff.After(since) {
+		return *c, nil
+	}
 	add := c.adder(since)
-
-	if err := addRecords(brainHome, p.Root, since, now, add); err != nil {
+	upper := now
+	if !cutoff.IsZero() {
+		upper = cutoff
+	}
+	if err := addRecords(brainHome, p.Root, since, upper, add); err != nil {
 		return *c, err
 	}
-	return c.finish(home, p, since, now, limit, add)
+	return c.finishWindow(home, brainHome, p, since, cutoff, upper, limit, add)
 }
 
-// finish adds the skills, the metrics summary and the Antigravity
-// conversations, then scrubs, fits and renders the prompt.
-func (c *Collected) finish(home string, p search.Project, since, now time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
+// finishWindow adds skills, metrics summary, Antigravity conversations, and
+// optional PLAN-*/HANDOFF-* context, then scrubs, fits, and renders the prompt.
+func (c *Collected) finishWindow(home, brainHome string, p search.Project, since, cutoff, upper time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
 	for _, s := range skills(home) {
 		add(kindSkill, "skill "+s.name, s.name+": "+s.description, time.Time{})
 	}
-
 	// The project's agent metrics, numbers only, for this window and the one
 	// before it (R3's addendum, ADR-055a). A store that cannot be read is
 	// named as left out; it never fails the project.
-	if sum, err := metricsSummary(home, p.Root, since, now); err != nil {
+	if sum, err := metricsSummary(home, p.Root, since, upper); err != nil {
 		c.Dropped = append(c.Dropped, "metrics: "+err.Error())
 	} else {
 		add(kindMetrics, "metrics", sum, time.Time{})
 	}
-
 	// An Antigravity read error fails the project, so its watermark stays and
 	// the conversations are read again next time, never skipped for good
 	// (code review 2026-09-30).
-	agy, leftOut, err := search.AgyConversationText(home, p.Root, since)
+	agy, leftOut, err := search.AgyConversationTextInWindow(home, p.Root, since, cutoff)
 	if err != nil {
 		return *c, fmt.Errorf("reading Antigravity's conversations: %w", err)
 	}
@@ -85,7 +95,9 @@ func (c *Collected) finish(home string, p search.Project, since, now time.Time, 
 	for _, l := range leftOut {
 		c.Dropped = append(c.Dropped, kindTranscript+" antigravity "+l)
 	}
-
+	if c.Changed {
+		addOptionalPlanAndHandoff(brainHome, p.Root, since, upper, c, add)
+	}
 	// Labels too: a record's ID is project text and can hold a secret's
 	// shape (SD31 of the 2026-10-27 audit).
 	for i := range c.Inputs {
@@ -152,17 +164,6 @@ func skills(home string) []skill {
 		}
 	}
 	return out
-}
-
-// migrated reports whether root's trail is records in brain.db or a committed
-// `.agents/trail.jsonl` (brain plan D16's line; an Lstat, so a link counts and
-// the brain store refuses it when read).
-func migrated(home, root string) bool {
-	if _, err := os.Lstat(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
-		return true
-	}
-	ok, err := brain.HasRecords(home, root)
-	return err == nil && ok
 }
 
 // forDream is brain.ForDream; a test replaces it.

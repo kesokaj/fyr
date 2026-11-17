@@ -152,8 +152,11 @@ func TestDreamVerb(t *testing.T) {
 	if entries, _ := os.ReadDir(home); len(entries) != 0 {
 		t.Errorf("a dry run on an empty home wrote %v", entries)
 	}
-	if err := run([]string{"dream", "--project", t.TempDir(), "--dry-run", "--home", home}, &out); !errors.As(err, &code) || code != 2 {
-		t.Errorf("--project outside a checkout: %v, want exit 2", err)
+	if err := run([]string{"dream", "--project", t.TempDir(), "--dry-run", "--home", home}, &out); err != nil {
+		t.Errorf("--project non-git dir: %v, want nil", err)
+	}
+	if err := run([]string{"dream", "--project", filepath.Join(t.TempDir(), "missing"), "--dry-run", "--home", home}, &out); !errors.As(err, &code) || code != 2 {
+		t.Errorf("--project missing path: %v, want exit 2", err)
 	}
 	// Usage refusals exit 2 and say why on the writer the caller gave, not
 	// on a stream the caller cannot read (audit of 2026-09-30, IN12, IN13).

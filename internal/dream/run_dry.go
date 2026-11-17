@@ -29,35 +29,44 @@ func (o Options) dryRun(projects []search.Project, skips []skipped, st state) er
 		fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", s.root, s.why)
 	}
 	for _, p := range projects {
-		if why := o.drySkip(p, st); why != "" {
-			fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", p.Root, why)
-			continue
-		}
-		c, err := collectIn(o.Home, o.brainHome, p, o.since(st, p.Root), o.Now(), maxPrompt)
-		if err != nil {
-			fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
-			continue
-		}
-		if !c.Changed {
-			fmt.Fprintf(o.Out, "[dry-run] %s: idle, unchanged since %s\n", p.Root, o.since(st, p.Root).Format(time.RFC3339))
-			continue
-		}
-		counts := map[string]int{}
-		for _, in := range c.Inputs {
-			counts[in.Kind]++
-		}
-		var parts []string
-		for _, k := range promptOrder {
-			parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
-		}
-		fmt.Fprintf(o.Out, "[dry-run] %s: would dream (idle %s, changed since %s): %s; %d bytes; would run: %s\n", p.Root, idleFor, o.since(st, p.Root).Format(time.RFC3339), strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
-		fmt.Fprintf(o.Out, "[dry-run] %s: %s\n", p.Root, o.dryBranch())
-		o.printDropped(c.Dropped)
-		if o.Project != "" {
-			fmt.Fprintf(o.Out, "[dry-run] prompt:\n%s\n", c.Prompt)
-		}
+		o.dryProject(p, st, cli)
 	}
 	return nil
+}
+
+func (o Options) dryProject(p search.Project, st state, cli []string) {
+	if why := o.drySkip(p, st); why != "" {
+		fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", p.Root, why)
+		return
+	}
+	since, upper, cutoff := o.window(st, p.Root)
+	c, err := collectWindow(o.Home, o.brainHome, p, since, cutoff, upper, maxPrompt)
+	if err != nil {
+		fmt.Fprintf(o.Out, "[dry-run] %s: would fail (%v)\n", p.Root, err)
+		return
+	}
+	if !c.Changed {
+		fmt.Fprintf(o.Out, "[dry-run] %s: idle, unchanged since %s\n", p.Root, since.Format(time.RFC3339))
+		return
+	}
+	counts := map[string]int{}
+	for _, in := range c.Inputs {
+		counts[in.Kind]++
+	}
+	var parts []string
+	for _, k := range promptOrder {
+		parts = append(parts, fmt.Sprintf("%s %d", k, counts[k]))
+	}
+	idle := idleFor
+	if o.ConversationIdle > 0 {
+		idle = o.ConversationIdle
+	}
+	fmt.Fprintf(o.Out, "[dry-run] %s: would dream (idle %s, changed since %s): %s; %d bytes; would run: %s\n", p.Root, idle, since.Format(time.RFC3339), strings.Join(parts, ", "), len(c.Prompt), strings.Join(cli, " "))
+	fmt.Fprintf(o.Out, "[dry-run] %s: %s\n", p.Root, o.dryBranch())
+	o.printDropped(c.Dropped)
+	if o.Project != "" {
+		fmt.Fprintf(o.Out, "[dry-run] prompt:\n%s\n", c.Prompt)
+	}
 }
 
 // drySession is the real --all run's first step, said: whether an agy
