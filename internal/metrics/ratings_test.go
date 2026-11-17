@@ -202,3 +202,86 @@ func TestSessionRatingsMigrationUpsertQueryAndReports(t *testing.T) {
 		}
 	}
 }
+
+func TestUpsertSessionRatingsBlocksCrossProjectOverwriteAndBounds(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	ts := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC).UnixMilli()
+
+	// Reject oversized session_id, target_skill, or summary before writing.
+	oversized := []SessionRating{
+		{SessionID: strings.Repeat("s", 129), ProjectRoot: "/repo/alpha", EvaluatedAt: ts, OutcomeScore: 4, TokenEfficiency: 4, PlanAlignment: "matched", SkillAction: "none"},
+		{SessionID: "conv-ok", ProjectRoot: "/repo/alpha", EvaluatedAt: ts, OutcomeScore: 4, TokenEfficiency: 4, PlanAlignment: "matched", SkillAction: "rewrite-skill", TargetSkill: strings.Repeat("x", 201)},
+		{SessionID: "conv-ok", ProjectRoot: "/repo/alpha", EvaluatedAt: ts, OutcomeScore: 4, TokenEfficiency: 4, PlanAlignment: "matched", SkillAction: "none", Summary: strings.Repeat("y", 401)},
+	}
+	for _, bad := range oversized {
+		if err := s.UpsertSessionRatings([]SessionRating{bad}); err == nil {
+			t.Errorf("UpsertSessionRatings(%+v) succeeded, want length bound error", bad)
+		}
+	}
+
+	orig := SessionRating{
+		SessionID:       "conv-owned",
+		ProjectRoot:     "/repo/alpha",
+		EvaluatedAt:     ts,
+		OutcomeScore:    5,
+		TokenEfficiency: 5,
+		PlanAlignment:   "matched",
+		SkillAction:     "none",
+		Summary:         "legit alpha rating",
+	}
+	if err := s.UpsertSessionRatings([]SessionRating{orig}); err != nil {
+		t.Fatalf("seed orig: %v", err)
+	}
+
+	// Attempt cross-project overwrite from /repo/beta, empty project, and __global__.
+	for _, attackerRoot := range []string{"/repo/beta", "", search.GlobalWorkspace} {
+		clobber := SessionRating{
+			SessionID:       "conv-owned",
+			ProjectRoot:     attackerRoot,
+			EvaluatedAt:     ts + 1000,
+			OutcomeScore:    1,
+			TokenEfficiency: 1,
+			PlanAlignment:   "missed",
+			SkillAction:     "rewrite-skill",
+			TargetSkill:     "skills/golang/SKILL.md",
+			Summary:         "clobbered by " + attackerRoot,
+		}
+		if err := s.UpsertSessionRatings([]SessionRating{clobber}); err != nil {
+			t.Fatalf("UpsertSessionRatings(%q): %v", attackerRoot, err)
+		}
+	}
+
+	rows, err := s.SessionRatings("", time.Time{}, time.Time{})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("SessionRatings = %+v, err=%v; want 1", rows, err)
+	}
+	if rows[0].ProjectRoot != "/repo/alpha" || rows[0].OutcomeScore != 5 || rows[0].Summary != "legit alpha rating" {
+		t.Fatalf("cross-project upsert clobbered owned row: %+v", rows[0])
+	}
+
+	// Same ProjectRoot can still update idempotently.
+	orig.OutcomeScore = 4
+	orig.Summary = "updated by alpha"
+	if err := s.UpsertSessionRatings([]SessionRating{orig}); err != nil {
+		t.Fatalf("same-project update: %v", err)
+	}
+	rows, err = s.SessionRatings("/repo/alpha", time.Time{}, time.Time{})
+	if err != nil || len(rows) != 1 || rows[0].OutcomeScore != 4 || rows[0].Summary != "updated by alpha" {
+		t.Fatalf("same-project update did not apply: %+v, err=%v", rows, err)
+	}
+
+	// An unowned row (project_root == "") can be claimed by a concrete ProjectRoot.
+	unowned := SessionRating{SessionID: "conv-unowned", ProjectRoot: "", EvaluatedAt: ts, OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "partial", SkillAction: "none"}
+	if err := s.UpsertSessionRatings([]SessionRating{unowned}); err != nil {
+		t.Fatalf("seed unowned: %v", err)
+	}
+	unowned.ProjectRoot = "/repo/beta"
+	unowned.OutcomeScore = 5
+	if err := s.UpsertSessionRatings([]SessionRating{unowned}); err != nil {
+		t.Fatalf("claim unowned: %v", err)
+	}
+	betaRows, err := s.SessionRatings("/repo/beta", time.Time{}, time.Time{})
+	if err != nil || len(betaRows) != 1 || betaRows[0].OutcomeScore != 5 {
+		t.Fatalf("unowned row not claimed by /repo/beta: %+v, err=%v", betaRows, err)
+	}
+}

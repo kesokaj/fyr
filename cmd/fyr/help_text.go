@@ -215,8 +215,8 @@ var pages = map[string]verbPage{
 		about: []string{
 			"Reconciles the search index against git, or deletes and rebuilds it, and",
 			"prints its counts. --register first writes .git/fyr-registered, sealed to",
-			"this checkout's path and this home: the operator's consent that search",
-			"--global, dream --all, record import --global and the metrics join read",
+			"this checkout's path and this home: the operator's consent that fyr",
+			"search --global, fyr record import --global, and the metrics join read",
 			"this checkout once it has records in brain.db or .agents/trail.jsonl",
 			"(ADR-068, ADR-091). A copy, a moved checkout or another home",
 			"registers again; delete the file to opt out. --register exits 2 with",

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
@@ -38,7 +39,7 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 	if err != nil {
 		return 0, err
 	}
-	ratings := o.validRatings(c.Root, r.Ratings, t0)
+	ratings := o.validRatings(c, r.Ratings, t0)
 	if len(ratings) > 0 {
 		writeRatings := o.WriteRatings
 		if writeRatings == nil {
@@ -126,11 +127,27 @@ func needsSkillProposal(r metrics.SessionRating) bool {
 	return r.SkillAction == "rewrite-skill" || r.SkillAction == "new-skill" || r.OutcomeScore <= 3 || r.TokenEfficiency <= 3
 }
 
-func (o Options) validRatings(root string, raw []sessionRating, t0 time.Time) []metrics.SessionRating {
+func collectedTranscriptIDs(inputs []Input) map[string]bool {
+	ids := make(map[string]bool)
+	for _, in := range inputs {
+		if in.Kind != kindTranscript {
+			continue
+		}
+		if id, ok := strings.CutPrefix(in.Label, "antigravity "); ok {
+			if id = strings.TrimSpace(id); id != "" {
+				ids[id] = true
+			}
+		}
+	}
+	return ids
+}
+
+func (o Options) validRatings(c Collected, raw []sessionRating, t0 time.Time) []metrics.SessionRating {
+	allowed := collectedTranscriptIDs(c.Inputs)
 	seen := map[string]bool{}
 	var out []metrics.SessionRating
 	for _, sr := range raw {
-		if r, ok := o.validateRating(root, sr, t0); ok && !seen[r.SessionID] {
+		if r, ok := o.validateRating(c.Root, allowed, sr, t0); ok && !seen[r.SessionID] {
 			seen[r.SessionID] = true
 			out = append(out, r)
 		}
@@ -138,9 +155,9 @@ func (o Options) validRatings(root string, raw []sessionRating, t0 time.Time) []
 	return out
 }
 
-func (o Options) validateRating(root string, sr sessionRating, t0 time.Time) (metrics.SessionRating, bool) {
+func (o Options) validateRating(root string, allowed map[string]bool, sr sessionRating, t0 time.Time) (metrics.SessionRating, bool) {
 	id := strings.TrimSpace(o.line(sr.id()))
-	if id == "" || strings.ContainsAny(id, `/\ `) || id == "." || id == ".." ||
+	if id == "" || len(id) > 128 || !allowed[id] || strings.ContainsAny(id, `/\ `) || id == "." || id == ".." ||
 		strings.ContainsFunc(id, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return metrics.SessionRating{}, false
 	}
@@ -162,6 +179,10 @@ func (o Options) validateRating(root string, sr sessionRating, t0 time.Time) (me
 	default:
 		return metrics.SessionRating{}, false
 	}
+	ts := cleanTargetSkill(o.line(sr.TargetSkill))
+	if len(ts) > 200 {
+		return metrics.SessionRating{}, false
+	}
 	out := metrics.SessionRating{
 		SessionID:     id,
 		ProjectRoot:   root,
@@ -169,11 +190,26 @@ func (o Options) validateRating(root string, sr sessionRating, t0 time.Time) (me
 		OutcomeScore:  sr.OutcomeScore,
 		PlanAlignment: pa,
 		SkillAction:   sa,
-		TargetSkill:   cleanTargetSkill(o.line(sr.TargetSkill)),
-		Summary:       strings.TrimSpace(o.line(sr.Summary)),
+		TargetSkill:   ts,
+		Summary:       clipUTF8(strings.TrimSpace(o.line(sr.Summary)), 400),
 	}
 	setInt(&out.TokenEfficiency, sr.TokenEfficiency)
 	return out, true
+}
+
+func clipUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes && utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		n := utf8.RuneLen(r)
+		if b.Len()+n > maxBytes {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func setInt(dst *int, v int) { *dst = v }

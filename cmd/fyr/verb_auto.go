@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/dream"
@@ -100,9 +101,7 @@ func autoIngest(home string) (string, error) {
 
 func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
-	if src, err := harness.ResolveSource(c.repoFlag, c.home, buildVersion()); err == nil {
-		o.Repo = autoDreamHarnessRepo(c.repoFlag, c.home, src.Dir)
-	}
+	o.Repo = c.resolveAutoRepo()
 	if self, err := os.Executable(); err == nil {
 		o.Self = self
 	}
@@ -161,9 +160,26 @@ func (c *ctx) warnDeprecatedAutoFlags() {
 	})
 }
 
+func (c *ctx) resolveAutoRepo() string {
+	explicit := c.repoFlag
+	if explicit == "" && os.Getenv("FYR_REPO") == "" && !harness.IsReleaseVersion(buildVersion()) {
+		st, found, err := harness.LoadState(c.home)
+		if err != nil || !found || st.Origin().Kind != harness.OriginPath || st.Repo == "" {
+			return ""
+		}
+		explicit = st.Repo
+	}
+	src, err := harness.ResolveSource(explicit, c.home, buildVersion())
+	if err != nil {
+		return ""
+	}
+	return autoDreamHarnessRepo(c.repoFlag, c.home, src.Dir)
+}
+
 // autoDreamHarnessRepo restricts dream.Options.HarnessRepo to an explicit
-// --repo / FYR_REPO or an installed checkout origin, preventing CWD's repo
-// from leaking into isolated scratch --home runs or tests under cmd/fyr.
+// --repo / FYR_REPO or a resolved path matching the installed OriginPath
+// checkout in state.json, preventing CWD's repo from leaking into scratch
+// runs or untrusted CWD clones.
 func autoDreamHarnessRepo(repoFlag, home, resolvedRepo string) string {
 	if resolvedRepo == "" {
 		return ""
@@ -171,7 +187,7 @@ func autoDreamHarnessRepo(repoFlag, home, resolvedRepo string) string {
 	if repoFlag != "" || os.Getenv("FYR_REPO") != "" {
 		return resolvedRepo
 	}
-	if st, found, err := harness.LoadState(home); err == nil && found && st.Origin().Kind == harness.OriginPath {
+	if st, found, err := harness.LoadState(home); err == nil && found && st.Origin().Kind == harness.OriginPath && st.Repo != "" && samePath(filepath.Clean(resolvedRepo), filepath.Clean(st.Repo)) {
 		return resolvedRepo
 	}
 	return ""

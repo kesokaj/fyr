@@ -25,7 +25,7 @@ type SessionRating struct {
 
 func normalizeSessionRating(r SessionRating) (SessionRating, error) {
 	r.SessionID = strings.TrimSpace(r.SessionID)
-	if r.SessionID == "" || printable(r.SessionID) != r.SessionID {
+	if r.SessionID == "" || len(r.SessionID) > 128 || printable(r.SessionID) != r.SessionID {
 		return SessionRating{}, fmt.Errorf("metrics: session_rating: invalid session_id")
 	}
 	if r.EvaluatedAt < 0 {
@@ -51,7 +51,13 @@ func normalizeSessionRating(r SessionRating) (SessionRating, error) {
 	}
 	r.ProjectRoot = cleanRatingProject(r.ProjectRoot)
 	r.TargetSkill = printable(strings.TrimSpace(r.TargetSkill))
+	if len(r.TargetSkill) > 200 {
+		return SessionRating{}, fmt.Errorf("metrics: session_rating %s: target_skill over 200 bytes", r.SessionID)
+	}
 	r.Summary = printable(strings.TrimSpace(r.Summary))
+	if len(r.Summary) > 400 {
+		return SessionRating{}, fmt.Errorf("metrics: session_rating %s: summary over 400 bytes", r.SessionID)
+	}
 	return r, nil
 }
 
@@ -92,7 +98,8 @@ func (s *Store) UpsertSessionRatings(rows []SessionRating) error {
 		) = (
 			excluded.project_root, excluded.evaluated_at, excluded.outcome_score, excluded.token_efficiency,
 			excluded.plan_alignment, excluded.skill_action, excluded.target_skill, excluded.summary
-		)`
+		)
+		WHERE session_ratings.project_root = '' OR session_ratings.project_root = excluded.project_root`
 	for _, r := range norm {
 		if _, err := tx.Exec(q, r.SessionID, r.ProjectRoot, r.EvaluatedAt,
 			r.OutcomeScore, r.TokenEfficiency, r.PlanAlignment, r.SkillAction, r.TargetSkill, r.Summary); err != nil {
