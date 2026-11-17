@@ -133,7 +133,7 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 		t.Fatalf("search.Index: %v", err)
 	}
 	sqliteT(t, filepath.Join(rootA, ".agents", "scratch", "search.db"),
-		`INSERT INTO vet_history VALUES ('S_LEAD', 1, 'FEATURE', 'PROCEED', 95, 'p', 'ip', 'target', '', 'fyr-feature', 'lead.go', 1791453600)`,
+		`INSERT INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES ('S_LEAD', 1, 'FEATURE', 'PROCEED', 95, 'p', 'ip', 'target', '', 'fyr-feature', 'lead.go', 1791453600)`,
 	)
 	// Persistent hash-keyed blocks: 1st call allows, next 2 calls deny -> 2 blocks per file (4 total blocks).
 	for i := 0; i < 3; i++ {

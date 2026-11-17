@@ -111,10 +111,24 @@ var migrations = []string{
 	`ALTER TABLE work_waves ADD COLUMN setup_s INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE work_waves ADD COLUMN agy_s INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE work_waves ADD COLUMN check_s INTEGER NOT NULL DEFAULT 0;`,
+	// 8: stale-conversation outcome and token-efficiency ratings written by
+	// dream/auto (ADR-524).
+	`CREATE TABLE session_ratings(
+		session_id TEXT PRIMARY KEY,
+		project_root TEXT NOT NULL DEFAULT '',
+		evaluated_at INTEGER NOT NULL,
+		outcome_score INTEGER NOT NULL,
+		token_efficiency INTEGER NOT NULL,
+		plan_alignment TEXT NOT NULL,
+		skill_action TEXT NOT NULL,
+		target_skill TEXT NOT NULL DEFAULT '',
+		summary TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX session_ratings_eval ON session_ratings(evaluated_at);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

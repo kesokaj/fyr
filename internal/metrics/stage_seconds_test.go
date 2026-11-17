@@ -43,8 +43,8 @@ func TestWorkWavesStageSecondsSchema7(t *testing.T) {
 	migrations = saved
 
 	s7 := openT(t, dbPath)
-	if got := s7.meta(t, "schema"); got != "7" {
-		t.Fatalf("schema = %q, want 7", got)
+	if got := s7.meta(t, "schema"); got != "8" {
+		t.Fatalf("schema = %q, want 8", got)
 	}
 	var set0, agy0, chk0 int
 	if err := s7.db.QueryRow(`SELECT setup_s, agy_s, check_s FROM work_waves WHERE worker = 'old-w'`).Scan(&set0, &agy0, &chk0); err != nil {

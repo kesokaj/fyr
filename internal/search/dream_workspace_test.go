@@ -46,9 +46,48 @@ func TestWorkspacesJudge(t *testing.T) {
 			t.Errorf("%s: keep %v why %q, want %v %q", c.uris, keep, why, c.keep, c.why)
 		}
 	}
-	// A root that is not a checkout keeps nothing under it.
+	// A non-git directory keeps its own workspaces and subdirectories, while
+	// still excluding nested git checkouts and outside workspaces.
 	plain := t.TempDir()
-	if keep, why := newWorkspaces(plain, nil).judge("[" + u(plain) + "]"); keep || why != whyUnread {
-		t.Errorf("a plain directory as root: keep %v why %q", keep, why)
+	plainNested := filepath.Join(plain, "nested-git")
+	if err := os.MkdirAll(filepath.Join(plain, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(plainNested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, plainNested, "init", "-q")
+	pw := newWorkspaces(plain, nil)
+	for _, c := range []struct {
+		uris string
+		keep bool
+		why  string
+	}{
+		{"[" + u(plain) + "]", true, ""},
+		{"[" + u(filepath.Join(plain, "sub")) + "]", true, ""},
+		{"[" + u(filepath.Join(plain, "gone", "deeper")) + "]", true, ""},
+		{"[" + u(plainNested) + "]", false, whyNested},
+		{"[" + u("/elsewhere") + "," + u(plain) + "]", false, whyOutside},
+	} {
+		if keep, why := pw.judge(c.uris); keep != c.keep || why != c.why {
+			t.Errorf("plain %s: keep %v why %q, want %v %q", c.uris, keep, why, c.keep, c.why)
+		}
+	}
+
+	// GlobalWorkspace matches only empty workspace_uris ([] or "").
+	gw := newWorkspaces(GlobalWorkspace, nil)
+	for _, c := range []struct {
+		uris string
+		keep bool
+	}{
+		{"[]", true},
+		{"", true},
+		{"[" + u(root) + "]", false},
+		{`["vscode-remote://ssh-remote+h/srv/x"]`, false},
+		{"not json", false},
+	} {
+		if keep, why := gw.judge(c.uris); keep != c.keep || why != "" {
+			t.Errorf("global %q: keep %v why %q, want %v %q", c.uris, keep, why, c.keep, "")
+		}
 	}
 }

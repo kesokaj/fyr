@@ -72,6 +72,9 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, since, now); err != nil {
 		return nil, err
 	}
+	if err := s.populateSessionRatings(sum, o, since, now); err != nil {
+		return nil, err
+	}
 	return sum, nil
 }
 

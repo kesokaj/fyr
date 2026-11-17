@@ -29,14 +29,18 @@ type workspaces struct {
 	root, main string
 	mains      map[string]string // a directory -> its main root, "" when unreadable
 	dream      []string          // the dream's working directory, every form (harness.DreamWorkPaths)
+	sandboxes  []string          // eval/sandbox/auto directories under home
 }
 
 // newWorkspaces judges for root; a conversation with a workspace in exclude
 // is the dream's own and never root's, even when root holds the config
 // directory (a checkout at $HOME; visible dream plan D5).
 func newWorkspaces(root string, exclude []string) *workspaces {
-	w := &workspaces{root: filepath.Clean(root), mains: map[string]string{}, dream: exclude}
-	w.main = w.mainOf(w.root)
+	clean := filepath.Clean(root)
+	w := &workspaces{root: clean, mains: map[string]string{}, dream: exclude}
+	if clean != GlobalWorkspace {
+		w.main = w.mainOf(w.root)
+	}
 	return w
 }
 
@@ -44,40 +48,36 @@ func newWorkspaces(root string, exclude []string) *workspaces {
 // and why one that has a workspace under the root is not ("" for a
 // conversation of another project, which is not named). Every URI must be a
 // file URI under the root, and the nearest directory of it still on disk must
-// resolve to the target's main root: a workspace since deleted is judged by
-// the directory above it, so a nested checkout removed after its session
-// reads as the target's own (a known limit). A conversation with a workspace
-// in the dream's working directory is never kept, and is named only when a
-// workspace of it is under the root.
+// resolve to the target's main root (or "" when root itself is non-git). A
+// conversation with a workspace in the dream's working directory is never kept,
+// and is named only when a workspace of it is under the root.
 func (w *workspaces) judge(uris string) (keep bool, why string) {
+	if w.root == GlobalWorkspace {
+		return judgeGlobalURIs(uris), ""
+	}
 	var list []string
 	if json.Unmarshal([]byte(uris), &list) != nil {
 		return false, ""
 	}
 	under, outside, dream := 0, false, false
 	for _, u := range list {
-		p, err := url.Parse(u)
-		if err != nil || p.Scheme != "file" {
-			// A remote or unreadable workspace is not the root's: fail closed,
-			// as every other doubt here does (the phase's security review,
-			// finding 3).
+		ws, ok := parseFileWorkspace(u)
+		if !ok {
 			outside = true
 			continue
 		}
-		ws := filepath.Clean(p.Path)
 		if harness.InDreamWork(ws, w.dream) {
 			dream = true
+		} else if isExcludedWorkspace(ws, nil, w.sandboxes) {
+			return false, ""
 		}
 		if ws != w.root && !strings.HasPrefix(ws, w.root+string(filepath.Separator)) {
 			outside = true
 			continue
 		}
 		under++
-		switch m := w.mainOf(w.nearest(ws)); {
-		case m == "" || w.main == "":
-			why = whyUnread
-		case m != w.main && why == "":
-			why = whyNested
+		if r := w.checkUnder(ws); r == whyUnread || (r != "" && why == "") {
+			why = r
 		}
 	}
 	switch {
@@ -91,6 +91,36 @@ func (w *workspaces) judge(uris string) (keep bool, why string) {
 		return false, whyOutside
 	}
 	return true, ""
+}
+
+func (w *workspaces) checkUnder(ws string) string {
+	m := w.mainOf(w.nearest(ws))
+	if w.main != "" && m == "" {
+		return whyUnread
+	}
+	if m != w.main {
+		return whyNested
+	}
+	return ""
+}
+
+func judgeGlobalURIs(uris string) bool {
+	if strings.TrimSpace(uris) == "" {
+		return true
+	}
+	var list []string
+	if json.Unmarshal([]byte(uris), &list) != nil {
+		return false
+	}
+	return len(list) == 0
+}
+
+func parseFileWorkspace(u string) (string, bool) {
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme != "file" || p.Path == "" {
+		return "", false
+	}
+	return filepath.Clean(p.Path), true
 }
 
 // nearest is ws or the closest directory above it that exists, never above

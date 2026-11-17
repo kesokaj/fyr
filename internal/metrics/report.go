@@ -348,6 +348,9 @@ func outcomeTable(s *Summary, series []serie) table {
 		c := s.A.DoDClosed[v]
 		return fmt.Sprintf("%d (%d) of %d", c.Closed, c.Ambiguous, c.Of)
 	})
+	row("rated sessions", agyCol(fmt.Sprint(s.A.RatingsCount)))
+	row("mean outcome / token efficiency", agyCol(fmt.Sprintf("%s / %s",
+		fmtFloatPtr(s.A.MeanOutcomeScore, "%.2f"), fmtFloatPtr(s.A.MeanTokenEfficiency, "%.2f"))))
 	row("tool calls", func(v string) string { return fmt.Sprint(s.B.ToolCalls[v]) })
 	row("cost USD", pf(s.B.CostUSD, "%.2f"))
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })

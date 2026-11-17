@@ -33,12 +33,15 @@ type Summary struct {
 }
 
 type Outcome struct {
-	DoDClosed      map[string]Closed `json:"dod_closed"`
-	Verifier       map[string]int    `json:"verifier"`
-	ReviewFindings map[string]int    `json:"review_findings"`
-	EscapedBugs    int               `json:"escaped_bugs"`
-	Corrections    int               `json:"corrections"`
-	PassK          map[string]PassK  `json:"pass_k"`
+	DoDClosed           map[string]Closed `json:"dod_closed"`
+	Verifier            map[string]int    `json:"verifier"`
+	ReviewFindings      map[string]int    `json:"review_findings"`
+	EscapedBugs         int               `json:"escaped_bugs"`
+	Corrections         int               `json:"corrections"`
+	PassK               map[string]PassK  `json:"pass_k"`
+	RatingsCount        int               `json:"ratings_count"`
+	MeanOutcomeScore    *float64          `json:"mean_outcome_score"`
+	MeanTokenEfficiency *float64          `json:"mean_token_efficiency"`
 }
 
 type Closed struct {

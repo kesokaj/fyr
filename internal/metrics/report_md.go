@@ -174,6 +174,9 @@ func qualityLoopSection(s *Summary, series []serie, evals *EvalRows) reportSecti
 		s.A.ReviewFindings["high"], s.A.ReviewFindings["medium"], s.A.ReviewFindings["low"])))
 	addSeriesRow(&t, series, "Escaped bugs", agyCol(fmt.Sprint(s.A.EscapedBugs)))
 	addSeriesRow(&t, series, "Corrections (FEEDBACK-*)", agyCol(fmt.Sprint(s.A.Corrections)))
+	addSeriesRow(&t, series, "Rated sessions", agyCol(fmt.Sprint(s.A.RatingsCount)))
+	addSeriesRow(&t, series, "Mean outcome / token efficiency", agyCol(fmt.Sprintf("%s / %s",
+		fmtFloatPtr(s.A.MeanOutcomeScore, "%.2f"), fmtFloatPtr(s.A.MeanTokenEfficiency, "%.2f"))))
 	addSeriesRow(&t, series, "Tool error rate / retry loops", func(v string) string {
 		return fmt.Sprintf("%s / %d", fmtFloatPtr(s.D.ToolErrorRate[v], "%.3f"), s.D.RetryLoops[v])
 	})

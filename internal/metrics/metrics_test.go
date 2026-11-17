@@ -221,8 +221,8 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 		t.Fatalf("search.Index rootA: %v", err)
 	}
 	sqliteT(t, filepath.Join(rootA, ".agents", "scratch", "search.db"),
-		`INSERT INTO vet_history VALUES ('C_ALPHA', 1, 'FEATURE', 'VET_FIRST', 40, 'design `+canary+`', 'improved `+canary+`', 'target', 'scope', 'fyr-feature,golang', 'internal/a.go,internal/b.go', 1791367200)`,
-		`INSERT INTO vet_history VALUES ('C_ALPHA', 2, 'TASK', 'PROCEED', 100, '  ! bypass `+canary+`', '', 'target,goal', '', 'golang', 'internal/a.go', 1791367260)`,
+		`INSERT INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES ('C_ALPHA', 1, 'FEATURE', 'VET_FIRST', 40, 'design `+canary+`', 'improved `+canary+`', 'target', 'scope', 'fyr-feature,golang', 'internal/a.go,internal/b.go', 1791367200)`,
+		`INSERT INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES ('C_ALPHA', 2, 'TASK', 'PROCEED', 100, '  ! bypass `+canary+`', '', 'target,goal', '', 'golang', 'internal/a.go', 1791367260)`,
 	)
 	// Turn 1: 2 persistent read-ledger blocks on a.go (allow -> deny -> deny), plus 1 unrepeated read on b.go.
 	for i, wantAllow := range []bool{true, false, false} {
@@ -246,7 +246,7 @@ func TestSecondBrainAndWorkWaveIngestAndShow(t *testing.T) {
 	sqliteT(t, filepath.Join(rootB, ".agents", "scratch", "search.db"),
 		`CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, created_at INT, PRIMARY KEY(conversation_id, turn_num))`,
 		`CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line))`,
-		`INSERT INTO vet_history VALUES ('C_BETA', 1, 'TASK', 'ENRICH_AND_PROCEED', 70, 'fix bug', 'improved', 'target', '', '', 'cmd/main.go', 1791367300)`,
+		`INSERT INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES ('C_BETA', 1, 'TASK', 'ENRICH_AND_PROCEED', 70, 'fix bug', 'improved', 'target', '', '', 'cmd/main.go', 1791367300)`,
 	)
 
 	// Seed corrupt search.db in rootCorrupt to verify non-fatal note handling.

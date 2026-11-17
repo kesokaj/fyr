@@ -423,3 +423,115 @@ func TestAgyCorpusLeaves(t *testing.T) {
 	}
 	t.Logf("corpus: %d databases, %d prose leaves kept, %d with a tool-argument key; samples %q", dbs, leaves, withKey, samples)
 }
+
+func TestListAgyWorkspacesAndWindow(t *testing.T) {
+	home := t.TempDir()
+	if got, err := ListAgyWorkspaces(home); err != nil || len(got) != 0 {
+		t.Fatalf("missing summaries db: got %v, err=%v; want nil, nil", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir)); !os.IsNotExist(err) {
+		t.Fatalf("ListAgyWorkspaces created state dir on missing db: %v", err)
+	}
+
+	gitRepo := newRepo(t)
+	plainDir := filepath.Join(t.TempDir(), "notes")
+	if err := os.MkdirAll(plainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dreamDir := harness.DreamWork(home)
+	evalSB := filepath.Join(home, harness.StateDir, "eval", "proj", "row1", "1")
+	sandboxSB := filepath.Join(home, harness.StateDir, "sandbox", "sb1")
+	autoSB := filepath.Join(home, harness.StateDir, "auto", "a1")
+
+	dir := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := sql.Open("sqlite", dsn(filepath.Join(dir, "conversation_summaries.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sum.Exec("CREATE TABLE conversation_summaries (`conversation_id` text, `last_modified_time` datetime NOT NULL, `workspace_uris` text NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	addConv := func(id, mod, uris, text string) {
+		t.Helper()
+		if _, err := sum.Exec(`INSERT INTO conversation_summaries VALUES(?,?,?)`, id, mod, uris); err != nil {
+			t.Fatal(err)
+		}
+		if text == "" {
+			return
+		}
+		cdb, err := sql.Open("sqlite", dsn(filepath.Join(dir, "conversations", id+".db")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cdb.Exec("CREATE TABLE steps (`idx` integer, `step_type` integer, `step_payload` blob)"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cdb.Exec(`INSERT INTO steps VALUES(0, 14, ?)`, blob(text)); err != nil {
+			t.Fatal(err)
+		}
+		cdb.Close()
+	}
+
+	u := func(p string) string { return `["file://` + p + `"]` }
+	addConv("c-too-old", "2026-11-17 09:00:00+00:00", u(gitRepo), "too old for window")
+	addConv("c-stale-git", "2026-11-17 10:30:00+00:00", u(gitRepo), "stale git work")
+	addConv("c-at-cutoff", "2026-11-17 11:00:00+00:00", u(plainDir), "exactly at cutoff")
+	addConv("c-active", "2026-11-17 11:30:00+00:00", u(plainDir), "still active after cutoff")
+	addConv("c-global", "2026-11-17 10:15:00+00:00", "[]", "global workspace conversation")
+	addConv("c-global-empty", "2026-11-17 10:20:00+00:00", "", "empty string workspace conversation")
+	addConv("c-remote", "2026-11-17 10:25:00+00:00", `["vscode-remote://ssh-remote+host/srv/app"]`, "remote only")
+	addConv("c-bad-json", "2026-11-17 10:26:00+00:00", "not json", "")
+	addConv("c-dream", "2026-11-17 10:40:00+00:00", u(dreamDir), "dream conversation")
+	addConv("c-eval", "2026-11-17 10:41:00+00:00", u(evalSB), "eval sandbox")
+	addConv("c-sandbox", "2026-11-17 10:42:00+00:00", u(sandboxSB), "sandbox dir")
+	addConv("c-auto", "2026-11-17 10:43:00+00:00", u(autoSB), "auto dir")
+	sum.Close()
+
+	gotWS, err := ListAgyWorkspaces(home)
+	if err != nil {
+		t.Fatalf("ListAgyWorkspaces: %v", err)
+	}
+	var gotRoots []string
+	for _, p := range gotWS {
+		gotRoots = append(gotRoots, p.Root)
+	}
+	wantRoots := []string{gitRepo, plainDir, GlobalWorkspace}
+	if len(gotRoots) != len(wantRoots) {
+		t.Fatalf("ListAgyWorkspaces = %v, want %v", gotRoots, wantRoots)
+	}
+	for i := range wantRoots {
+		if gotRoots[i] != wantRoots[i] {
+			t.Errorf("workspace[%d] = %q, want %q (all=%v)", i, gotRoots[i], wantRoots[i], gotRoots)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, harness.StateDir)); !os.IsNotExist(err) {
+		t.Errorf("ListAgyWorkspaces left state dir behind: %v", err)
+	}
+
+	since := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2026, 11, 17, 11, 0, 0, 0, time.UTC)
+
+	gitConvs, _, err := AgyConversationTextInWindow(home, gitRepo, since, cutoff)
+	if err != nil || len(gitConvs) != 1 || gitConvs[0].ID != "c-stale-git" {
+		t.Fatalf("git window convs = %+v, err=%v; want [c-stale-git]", gitConvs, err)
+	}
+
+	plainConvs, _, err := AgyConversationTextInWindow(home, plainDir, since, cutoff)
+	if err != nil || len(plainConvs) != 1 || plainConvs[0].ID != "c-at-cutoff" {
+		t.Fatalf("plain window convs = %+v, err=%v; want [c-at-cutoff] (active excluded, cutoff included)", plainConvs, err)
+	}
+
+	// Zero maxModified includes the active conversation too.
+	plainAll, _, err := AgyConversationTextInWindow(home, plainDir, since, time.Time{})
+	if err != nil || len(plainAll) != 2 {
+		t.Fatalf("plain unbounded convs = %+v, err=%v; want 2", plainAll, err)
+	}
+
+	globalConvs, leftOut, err := AgyConversationTextInWindow(home, GlobalWorkspace, since, cutoff)
+	if err != nil || len(leftOut) != 0 || len(globalConvs) != 2 {
+		t.Fatalf("global window convs = %+v, leftOut=%v, err=%v; want 2 (c-global, c-global-empty)", globalConvs, leftOut, err)
+	}
+}

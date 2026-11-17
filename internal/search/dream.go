@@ -7,6 +7,7 @@ package search
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -17,6 +18,10 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
+
+// GlobalWorkspace is the synthetic root for Antigravity conversations that have
+// an empty workspace_uris list (ADR-524).
+const GlobalWorkspace = "__global__"
 
 // Project is one checkout the global search index knows.
 type Project struct {
@@ -78,6 +83,141 @@ func ListProjects(home string) ([]Project, error) {
 	return out, rows.Err()
 }
 
+// ListAgyWorkspaces discovers unique Antigravity workspace directories from
+// conversation_summaries.db, excluding fyr dream-work and {eval,sandbox,auto}
+// sandboxes, and mapping empty workspace_uris lists to GlobalWorkspace.
+func ListAgyWorkspaces(home string) ([]Project, error) {
+	var out []Project
+	err := withAgyTemp(home, "dream-agy-ws-", func(src, tmp string) error {
+		var err error
+		out, err = listAgyWorkspacesFromDB(src, tmp, home)
+		return err
+	})
+	return out, err
+}
+
+func listAgyWorkspacesFromDB(src, tmp, home string) ([]Project, error) {
+	db, err := openCopy(src, "conversation_summaries.db", tmp)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT COALESCE(workspace_uris, '') FROM conversation_summaries ORDER BY rowid`)
+	if err != nil {
+		return nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
+	}
+	defer rows.Close()
+	dreamPaths, sandboxes := harness.DreamWorkPaths(home), sandboxExcludePaths(home)
+	seen := map[string]bool{}
+	var out []Project
+	for rows.Next() {
+		var uris string
+		if err := rows.Scan(&uris); err != nil {
+			return nil, err
+		}
+		out = appendDiscoveredWorkspaces(out, seen, uris, dreamPaths, sandboxes)
+	}
+	return out, rows.Err()
+}
+
+func appendDiscoveredWorkspaces(out []Project, seen map[string]bool, uris string, dream, sandboxes []string) []Project {
+	if strings.TrimSpace(uris) == "" {
+		return addUniqueProject(out, seen, GlobalWorkspace)
+	}
+	var list []string
+	if json.Unmarshal([]byte(uris), &list) != nil {
+		return out
+	}
+	if len(list) == 0 {
+		return addUniqueProject(out, seen, GlobalWorkspace)
+	}
+	var paths []string
+	for _, u := range list {
+		ws, ok := parseFileWorkspace(u)
+		if !ok {
+			continue
+		}
+		if isExcludedWorkspace(ws, dream, sandboxes) {
+			return out
+		}
+		paths = append(paths, ws)
+	}
+	for _, ws := range paths {
+		out = addUniqueProject(out, seen, ws)
+	}
+	return out
+}
+
+func addUniqueProject(out []Project, seen map[string]bool, root string) []Project {
+	if seen[root] {
+		return out
+	}
+	seen[root] = true
+	return append(out, Project{Root: root, Name: filepath.Base(root)})
+}
+
+func sandboxExcludePaths(home string) []string {
+	var homes []string
+	if home != "" {
+		homes = append(homes, filepath.Clean(home))
+		if real, err := filepath.EvalSymlinks(home); err == nil && filepath.Clean(real) != homes[0] {
+			homes = append(homes, filepath.Clean(real))
+		}
+	}
+	var out []string
+	for _, h := range homes {
+		for _, sub := range []string{"eval", "sandbox", "auto"} {
+			out = append(out, filepath.Clean(filepath.Join(h, harness.StateDir, sub)))
+		}
+		for _, sub := range []string{"fyr-auto", "fyr-eval"} {
+			out = append(out, filepath.Clean(filepath.Join(h, "sandbox", sub)))
+		}
+	}
+	return out
+}
+
+func isExcludedWorkspace(ws string, dream, sandboxes []string) bool {
+	if harness.InDreamWork(ws, dream) || harness.InDreamWork(ws, sandboxes) {
+		return true
+	}
+	slash := filepath.ToSlash(filepath.Clean(ws))
+	for _, seg := range []string{"/.config/fyr/eval", "/.config/fyr/sandbox", "/.config/fyr/auto"} {
+		if strings.HasSuffix(slash, seg) || strings.Contains(slash, seg+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func withAgyTemp(home, prefix string, fn func(src, tmp string) error) error {
+	src := filepath.Join(home, ".gemini", "antigravity-cli")
+	if _, err := os.Stat(filepath.Join(src, "conversation_summaries.db")); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	conf := filepath.Join(home, harness.StateDir)
+	_, statErr := os.Stat(conf)
+	created := errors.Is(statErr, os.ErrNotExist)
+	if err := os.MkdirAll(conf, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(conf, prefix)
+	if err != nil {
+		if created {
+			removeIfEmpty(conf)
+		}
+		return err
+	}
+	// The copies go first, then the directory, and only when this call made
+	// it: one deferred function, so the order cannot be inverted.
+	defer func() {
+		os.RemoveAll(tmp)
+		if created {
+			removeIfEmpty(conf)
+		}
+	}()
+	return fn(src, tmp)
+}
+
 // agyTimeLayout is conversation_summaries.last_modified_time as the D8 probe
 // found it.
 const agyTimeLayout = "2006-01-02 15:04:05.999999999-07:00"
@@ -90,69 +230,59 @@ const agyTimeLayout = "2006-01-02 15:04:05.999999999-07:00"
 // databases are copied first and the copies opened, never the live files
 // Antigravity may be writing (D24, D27); the copies are removed after.
 func AgyConversationText(home, root string, since time.Time) ([]AgyConversation, []string, error) {
-	src := filepath.Join(home, ".gemini", "antigravity-cli")
-	if _, err := os.Stat(filepath.Join(src, "conversation_summaries.db")); errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil
-	}
-	conf := filepath.Join(home, harness.StateDir)
-	_, statErr := os.Stat(conf)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if err := os.MkdirAll(conf, 0o700); err != nil {
-		return nil, nil, err
-	}
-	tmp, err := os.MkdirTemp(conf, "dream-agy-")
-	if err != nil {
-		return nil, nil, err
-	}
-	// The copies go first, then the directory, and only when this call made
-	// it: one deferred function, so the order cannot be inverted.
-	defer func() {
-		os.RemoveAll(tmp)
-		if created {
-			removeIfEmpty(conf)
-		}
-	}()
+	return AgyConversationTextInWindow(home, root, since, time.Time{})
+}
 
-	out, leftOut, err := listConversations(src, tmp, newWorkspaces(root, harness.DreamWorkPaths(home)), since)
-	if err != nil {
-		return nil, nil, err
-	}
-	for i := range out {
-		text, err := conversationText(src, out[i].ID, tmp)
+// AgyConversationTextInWindow behaves like AgyConversationText, restricting
+// conversations to (since, maxModified] when maxModified is non-zero.
+func AgyConversationTextInWindow(home, root string, since, maxModified time.Time) ([]AgyConversation, []string, error) {
+	var out []AgyConversation
+	var leftOut []string
+	err := withAgyTemp(home, "dream-agy-", func(src, tmp string) error {
+		ws := newWorkspaces(root, harness.DreamWorkPaths(home))
+		ws.sandboxes = sandboxExcludePaths(home)
+		var err error
+		out, leftOut, err = listConversations(src, tmp, ws, since, maxModified)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
-		out[i].Text = text
-	}
-	return out, leftOut, nil
+		for i := range out {
+			text, err := conversationText(src, out[i].ID, tmp)
+			if err != nil {
+				return err
+			}
+			out[i].Text = text
+		}
+		return nil
+	})
+	return out, leftOut, err
 }
 
 // listConversations reads the conversation list from a copy in tmp: the
-// conversations ws keeps modified after since, without their text, and the
-// names of those under its root it left out. The copy is closed before it
-// returns.
-func listConversations(src, tmp string, ws *workspaces, since time.Time) ([]AgyConversation, []string, error) {
+// conversations ws keeps modified in (since, maxModified], without their text,
+// and the names of those under its root it left out. The copy is closed before
+// it returns.
+func listConversations(src, tmp string, ws *workspaces, since, maxModified time.Time) ([]AgyConversation, []string, error) {
 	db, err := openCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer db.Close()
 	rows, err := db.Query(`SELECT conversation_id, last_modified_time, workspace_uris FROM conversation_summaries`)
 	if err != nil {
-		db.Close()
 		return nil, nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
 	}
+	defer rows.Close()
 	var out []AgyConversation
 	var leftOut []string
 	for rows.Next() {
 		var id, uris string
 		var modified any
 		if err := rows.Scan(&id, &modified, &uris); err != nil {
-			rows.Close()
-			db.Close()
 			return nil, nil, err
 		}
 		t, ok := agyTime(modified)
-		if !ok || !t.After(since) {
+		if !ok || !t.After(since) || (!maxModified.IsZero() && t.After(maxModified)) {
 			continue
 		}
 		if keep, why := ws.judge(uris); !keep {
@@ -163,9 +293,7 @@ func listConversations(src, tmp string, ws *workspaces, since time.Time) ([]AgyC
 		}
 		out = append(out, AgyConversation{ID: id, Modified: t})
 	}
-	rows.Close()
-	db.Close()
-	return out, leftOut, nil
+	return out, leftOut, rows.Err()
 }
 
 // agyTime reads last_modified_time: the driver returns a datetime column as
