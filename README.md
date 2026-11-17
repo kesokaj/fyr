@@ -1,18 +1,48 @@
 # fyr
 
-**`fyr`** is an open-source agentic coding harness and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
+**`fyr`** is an open-source agentic coding harness, build controller, and zero-daemon SQLite/AST second brain for the **Antigravity CLI** (`agy`) on Linux and macOS (`Apple Silicon`).
 
-It packages one global context (`context/AGENTS.md`, following the [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 always-on rules (`rules/*.md`), native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and one pure-Go dependency, `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
+It packages one global context (`context/AGENTS.md`, [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 rules (`rules/*.md`), native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
 ## Why it exists
 
+Antigravity sessions start stateless and truncate global rules beyond `24,000` bytes. `fyr` solves three operational gaps without adding persistent background services:
+
 - **Context drifts across machines.** Rules and skills tweaked on a laptop are missing on a workstation a week later. `fyr install` deploys the exact same context, skills, subagents, rules, and `< 250 ms` fail-open CLI hooks (`~/.gemini/config/hooks.json`) on every machine, and `fyr status` / `fyr diff` catch drift immediately.
-- **Sessions forget.** When an `agy` conversation ends or compacts, architectural decisions, bug root causes, and multi-phase plans disappear unless recorded. `fyr` keeps a searchable SQLite + FTS5 trail (`~/.config/fyr/brain.db`) of plans, ADRs, bugs, reviews, test logs, changes, handoffs, and validity-scored `semantic`/`procedural`/`episodic` memory (project and `--global`), plus a pure-Go AST symbol/call graph (`.agents/scratch/search.db`) that pre-seeds Turn-0 structural context capsules and re-primes state after compaction.
-- **A CLI cannot measure or verify itself.** `fyr metrics` records the structural shape of every session (token economics, tool calls, `model`/`tool`/`wait`/`idle` wall-time splits, redundant file reads, and multi-day trajectory trends — never your prose), `fyr eval` runs repeatable behavioural suites in OS-isolated sandboxes, and `fyr dream` / `fyr auto` consolidate memory and run eval-gated dreaming (`skills/` edits, distilled skills, `skills.sh` asks, `derived` memory cards) during idle hours.
+- **Sessions forget.** When an `agy` conversation ends or compacts, architectural decisions, bug root causes, and multi-phase plans disappear unless recorded. `fyr` keeps a searchable SQLite + FTS5 trail (`~/.config/fyr/brain.db`) and validity-scored `semantic`/`procedural`/`episodic` memory (`project` and `--global`), backed by a pure-Go AST symbol/call graph (`.agents/scratch/search.db`) that injects Turn-0 context capsules and re-primes state after compaction.
+- **A CLI cannot measure or verify itself.** `fyr metrics` and `fyr report` track session shapes, token trajectories, and trigger coverage without storing prose; `fyr eval` runs behavioral suites inside OS-isolated sandboxes; and `fyr dream` / `fyr auto` consolidate memory and propose eval-gated skill improvements during idle hours.
+
+## Feature Guides & Architecture
+
+`fyr` divides its capabilities into seven focused subsystems that work together around every Antigravity CLI session. Explore each deep-dive guide below for Mermaid lifecycle diagrams, internal thresholds, and collapsible flag references.
+
+```mermaid
+flowchart TB
+    devEnv["You + Antigravity CLI (agy)"] --> delivery["1. Delivery & Customization\n(fyr install / update / adopt)"]
+    delivery --> hooks["2. CLI Hooks & AST Graph\n(< 250 ms fail-open + search.db)"]
+    hooks --> brain["3. Brain Store & Memory\n(brain.db trail + validity >= 0.40)"]
+    devEnv --> workflows["4. Workflows & Build Control\n(43 skills, 6 agents, gate / land / verify)"]
+    workflows --> brain
+    workflows --> metrics["5. Telemetry & Reports\n(metrics.db shapes + fyr report)"]
+    devEnv --> evalIso["6. Behavioural Eval & Isolation\n(Landlock / Seatbelt + fyr eval)"]
+    metrics --> dreamAuto["7. Dream & Auto Mode\n(hourly timer + k=3 eval gate)"]
+    brain --> dreamAuto
+    evalIso --> dreamAuto
+```
+
+| Feature Guide | Components | Key CLI Verbs | What It Covers |
+|---|---|---|---|
+| [Delivery, Installer & Customization](features/delivery-and-customization.md) | M1–M6 | `fyr install`, `fyr update`, `fyr status`, `fyr adopt` | Atomic `~/.gemini/config/` deployment, three delivery paths, stack overrides, size budgets, and allowlist lint |
+| [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) | M8 | `fyr search`, `fyr index` | `< 250 ms` lifecycle hooks, 9-mode intent vetter, SHA-256 read ledger, `[CLAMPED]` skeletons, and PageRank AST slicing |
+| [Brain Store, Trail & Memory](features/brain-and-memory.md) | M7, M9, M15 | `fyr record`, `fyr memory`, `fyr resume` | 15 record kinds in `brain.db`, seven-step resume, `.agents/trail.jsonl` export/sync, and validity-scored memory |
+| [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr models` | 43 skills, 6 subagents, `run_workflow` parallel scripts, live model/quota routing, and deterministic verification |
+| [Telemetry, Trajectories & Reports](features/metrics-and-reports.md) | M10 | `fyr metrics`, `fyr report` | Shape-only `metrics.db` ingestion, `180k` context-knee trajectory anomalies, and 6-section HTML/Markdown reports |
+| [Behavioural Eval & OS Isolation](features/eval-and-isolation.md) | M13, M22 | `fyr eval` | Sandboxed multi-turn/ACP behavioral testing, Wilson 95% intervals, host-safety checks `a`–`e`, subagent check `f`, Landlock, and Seatbelt |
+| [Dream Consolidation & Auto Mode](features/dream-and-auto.md) | M11, M12, M19 | `fyr dream`, `fyr auto` | Redacted zero-tool dreamer, hourly `fyr auto` timer, gates `G1`–`G9`, risk rubric, and `k=3` eval-gated skill edits |
 
 ## How it works
 
-This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs, and `fyr auto`'s isolated dreaming workers. The strict rules that keep it true are in `AGENTS.md` § How the harness works; `TestHarnessMap` fails when the map names a command the binary does not have.
+This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs, and `fyr auto`'s isolated dreaming workers. The strict rules that keep it true are in `.agents/rules/delivery-map.md`; `TestHarnessMap` fails when the map names a command the binary does not have.
 
 ```mermaid
 flowchart LR
@@ -82,6 +112,8 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 
 ## What you get
 
+Installing `fyr` deploys seven managed surfaces into `~/.gemini/config/` and `~/.local/bin/fyr` without writing to any vendor `settings.json` (`PRD.md` Non-goals). See [Delivery, Installer & Customization](features/delivery-and-customization.md) for allowlists and size budgets.
+
 | Surface | Installed path & details |
 |---|---|
 | **Global context** | `context/AGENTS.md` + `context/dev-setup.md`, rendered and deployed as `~/.gemini/config/rules/AGENTS.md` |
@@ -89,16 +121,16 @@ A dashed line is a gap: done by hand or limited to one machine. The design aroun
 | **Subagents (6)** | `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md` (`documentation`, `dreamer`, `explorer`, `reviewer`, `security`, `verifier`) |
 | **Rules (5)** | `rules/*.md` → `~/.gemini/config/rules/*.md` (`agy-dispatch`, `code-modularity`, `critical-thinking`, `fyr-features`, `session-sizing`) |
 | **Workflow scripts (2)** | `workflows/*.py` → `~/.gemini/config/workflows/*.py` (`review_parallel.py`, `preflight_gate.py`) for native `run_workflow` parallel orchestration |
-| **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`) with `< 250 ms` fail-open timeout |
+| **Lifecycle hooks** | `~/.gemini/config/hooks.json` invoking `fyr search --hook` (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`; `PostToolUse` reserved under `PRD.md` R3) with `< 250 ms` fail-open timeout |
 | **Binary (`fyr`)** | `~/.local/bin/fyr` + local stores under `~/.config/fyr/` (`brain.db`, `metrics.db`, `search.db`, `state.json`, `0700` mode) |
 
 ## Quickstart: Three Ways In
 
-Make sure `~/.local/bin` is on your `PATH` and the Antigravity CLI (`agy`) is installed. What each kind of place fetches when moving forward is defined in `SPEC-fyr-delivery` § The model.
+Ensure `~/.local/bin` is on your `PATH` and the Antigravity CLI (`agy`) is installed before choosing a delivery path. What each kind of place fetches when moving forward is defined in `SPEC-fyr-delivery` § The model.
 
-### 1. From a source checkout (recommended if you customize skills/context)
+### 1. From a source checkout
 
-Requires Go 1.24.4+ and `git`:
+Recommended when you customize skills, rules, or global context (`go` 1.24.4+ and `git` required):
 
 ```bash
 git clone https://github.com/kesokaj/fyr.git ~/workspace/fyr   # or SSH: git clone git@github.com:kesokaj/fyr.git ~/workspace/fyr
@@ -107,13 +139,11 @@ go run ./cmd/fyr install          # builds the binary, installs ~/.local/bin/fyr
 fyr status                        # ends with "drift none"
 ```
 
-Move a checkout place forward at any time with `fyr update`.
+Keep a checkout place current with `fyr update` (`fyr update` refuses a checkout with uncommitted local changes; `fyr update --check` only reports and exits `2` when behind).
 
 ### 2. Install without cloning
 
-A machine that only uses the harness needs no git checkout or Go toolchain: each release binary (`fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`) embeds `context/`, `skills/`, `agents/`, `commands/`, `rules/` and `workflows/`. Set `V` to the version you expect (`v8.2.0`, etc.) from a source outside the download (the person who cut it, or a checkout's changelog), never from the Releases page itself: the guarantee is "the version you named, or nothing", and verify against `SHA256SUMS` over HTTPS (ADR-053, ADR-515).
-
-With `curl` (Linux `amd64` shown; on macOS use `fyr-darwin-arm64` and `shasum -a 256 -c - --ignore-missing`):
+Release binaries (`fyr-linux-amd64`, `fyr-darwin-arm64`, `fyr-linux-arm64`) embed all six content directories with no git or Go toolchain required. Pin `V` from a trusted out-of-band source (not the Releases page itself) and verify against `SHA256SUMS` over HTTPS (ADR-053, ADR-515):
 
 ```bash
 V=vX.Y.Z && ASSET=fyr-linux-amd64 \
@@ -127,7 +157,21 @@ V=vX.Y.Z && ASSET=fyr-linux-amd64 \
 && mkdir -p ~/.local/bin && mv "$ASSET" ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
-Or with the GitHub CLI (`gh`):
+Then deploy the embedded harness into `~/.gemini/config/` without touching any vendor `settings.json`:
+
+```bash
+hash -r         # bash (zsh: rehash) so the shell resolves ~/.local/bin/fyr
+fyr version     # verify the expected version is first on PATH (BUG-078)
+fyr install     # installs the harness built into the binary
+fyr status      # "source embedded vX.Y.Z" and "drift none"
+```
+
+Update a release-binary machine anytime with `fyr update`, which checks GitHub Releases over HTTPS against `SHA256SUMS` with no `gh` CLI required.
+
+<details>
+<summary>Alternative binary download methods (gh, go install, macOS browser)</summary>
+
+With GitHub CLI (`gh`):
 
 ```bash
 V=vX.Y.Z \
@@ -141,13 +185,13 @@ V=vX.Y.Z \
 && mv fyr-linux-amd64 ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
-Or with `go install` (setting `GOBIN` so the binary lands in `~/.local/bin/fyr`):
+With `go install`:
 
 ```bash
 GOBIN="$HOME/.local/bin" go install github.com/kesokaj/fyr/cmd/fyr@vX.Y.Z
 ```
 
-Or from a browser download on macOS (lifting the quarantine attribute):
+From a browser download on macOS (verifying checksum and lifting quarantine):
 
 ```bash
 V=vX.Y.Z \
@@ -160,85 +204,73 @@ V=vX.Y.Z \
 && mv fyr-darwin-arm64 ~/.local/bin/fyr && cd ~ && rm -r "$D"
 ```
 
-Then deploy the embedded harness into `~/.gemini/config/`:
-
-```bash
-hash -r         # bash (zsh: rehash) so the shell resolves ~/.local/bin/fyr
-fyr version     # verify the expected version is first on PATH (BUG-078)
-fyr install     # installs the harness built into the binary
-fyr status      # "source embedded vX.Y.Z" and "drift none"
-```
-
-To move a release-binary place forward later, run `fyr update` there: it checks the public GitHub Releases over HTTPS with no `gh` CLI required, accepts only a canonical `vX.Y.Z` tag newer than what is installed, checks the binary against the release's `SHA256SUMS`, and only then replaces `~/.local/bin/fyr` and reinstalls.
+</details>
 
 ### 3. Install from a zip (no SSH, no gh)
 
-Download a release's `fyr-vX.Y.Z.zip` and `SHA256SUMS` from the Releases page alongside the `fyr` binary and run:
+Download `fyr-vX.Y.Z.zip` and `SHA256SUMS` beside your `fyr` binary and run `fyr update --from-zip`:
 
 ```bash
 fyr update --from-zip ~/Downloads/fyr-vX.Y.Z.zip   # verifies against SHA256SUMS when beside the zip
 fyr status                                         # "installed … from zip sha256:<hex> (verified vX.Y.Z)"
 ```
 
-The zip is unpacked into a temporary directory under `~/.config/fyr/`, installed, and deleted (`SPEC-fyr-delivery` § The model).
+`fyr` unpacks the zip into a temporary directory inside `~/.config/fyr/`, installs the files, and deletes the temporary directory (`SPEC-fyr-delivery` § The model).
 
 ## First 5 Minutes in Any Repository
 
-Once `fyr install` reports `drift none`, open any project repository:
+Once `fyr install` reports `drift none`, initialize indexing and query the AST graph inside any project repository:
 
-1. **Choose your indexing tier:**
-   - **Zero-scaffold MVP indexing (`/fyr-index-project` or `fyr index`):** Creates only `.agents/scratch/search.db` (gitignored) with full-text search and the AST symbol/call graph — zero root Markdown files (`AGENTS.md`, `PRD.md`, etc.) added to the repo. Note: the `pre-invocation` hook also auto-initializes `.agents/scratch/search.db` on Turn 1 in any git checkout (`ADR-511`).
-   - **Full project scaffolding (`/fyr-init-project`):** Scaffolds `AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, seeds `GUIDE-testing` and `DEPLOY-local` in `brain.db`, and builds `.agents/scratch/search.db`.
+1. **Choose your indexing tier:** Run `/fyr-index-project` (`fyr index`) for zero-scaffold `.agents/scratch/search.db` AST/FTS5 indexing (also auto-initialized on Turn 1 by `pre-invocation`), or run `/fyr-init-project` to scaffold `AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `GUIDE-testing`, and `DEPLOY-local`.
 2. **Start every session with `fyr resume`:**
    ```bash
-   fyr resume   # prints AGENTS.md, open plans/bugs/reviews, newest handoff, TODO.md Now, recent changes, and memory
+   fyr resume   # prints AGENTS.md, open records, newest handoff, TODO.md Now, open plans, recent changes, and semantic memory
    ```
-3. **Query the AST graph and trail before editing:**
+3. **Query the AST graph and trail before reading files:**
    ```bash
-   fyr search --slice "handlePreInvocation"   # tiered AST context capsule (Hop 0 pivots + 1-hop skeletons + linked records)
+   fyr search --slice "handlePreInvocation"   # tiered AST context capsule + linked records
    fyr search --affected "CheckAndRecordRead" # callers, importers, and blast radius
    fyr search --path "run" --to "Install"     # shortest call/import path between symbols
    fyr search --skeleton internal/search/vet.go
-   fyr search --map                           # architectural god-nodes, cycles, and hotspots
+   fyr search --map                           # architectural God Nodes, package deps, and cycles
    ```
-4. **Drive work through `/fyr-*` workflows:**
-   - `/fyr-feature` — scope gate, phased `plan` record in `brain.db`, cold-reader review, one phase per checkpoint.
-   - `/fyr-bug` — problem note, symptom-only goldfish diagnosis, red-first failing test, minimal fix, `bug` record with prevention rule.
-   - `/fyr-review` — dispatches `reviewer`, `security`, `verifier`, and `explorer` across `--code`, `--security`, `--simplify`, `--docs`, `--prompts`, `--tests`, `--all`, `--resume`, `--judge <criterion>`, and `--fix`.
-   - `/fyr-handoff` — stores an immutable `handoff` record with a `## Kickoff` block for the next session, commits, pushes, and runs `fyr metrics ingest`.
+4. **Drive work through `/fyr-*` workflows:** Use `/fyr-feature` for phased plans with pre-build interviews, `/fyr-bug` for symptom-only diagnosis and red-first tests, `/fyr-review` for parallel multi-lens review, and `/fyr-handoff` (or `fyr close`) at completion.
 
 ## Second-Brain Architecture
 
-- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `hook_deadline.go`, `ADR-511`):**
-  - `session-start`: emits a single structured `<= 1,500 B` capsule containing the current date, active plan title, `TODO.md` `Now` items, and pure-Go git/dirty Go tree status (`hook_session_start.go`, `hook_git_index.go`).
-  - `pre-invocation`: classifies turn intent (`APPROVAL`, `CORRECTION`, `QUESTION`, `TRIVIAL`, `TASK`, `BUG`, `FEATURE`, `REVIEW`, `RELEASE`), checks the 6 prompt anchors (`target`, `goal`, `scope`, `inputs_outputs`, `constraints`, `verification`) and ADR conflicts in `< 25 ms`, prefetches up to 2 matching skill digests, injects a Personalized PageRank AST/Markdown-heading slice capsule (with FTS5 0-pivot fallback for natural-language queries), injects matching `procedural`/`episodic` and `--global` memory cards (`validity >= 0.40`) on demand and re-primes active plan phases after context compaction, delivers payloads via `systemMessage` (`Metadata == nil`, zero-token `{}` when un-enriched `PASS_THROUGH`), and wraps all retrieved data inside a per-turn cryptographic boundary (`=====<18-hex>=====`) so untrusted file/record text is never interpreted as instructions.
-  - `pre-tool-use`: enforces a hard `200 ms` fail-open deadline (`~/.config/fyr/no-hooks` global switch), a skeleton-first `[CLAMPED]` guard for unranged `>= 400`-line reads (`hook_clamp.go`), a persistent hash-keyed session read ledger (`read_ledger` in `.agents/scratch/search.db`, accounting for `read_file`'s 800-line / 46,080-byte truncation window, overlapping-edit span invalidation, and external-checkout session routing) that blocks redundant re-reads when the file's SHA-256 has not changed and verifies pre-write hashes before edits, guarded subagent enforcement across `invoke_subagent`, `run_workflow` (`hook_workflow.go` AST script inspection and inline upgrades), and prefix-routed `swarm` workers with 20%/30% `models.json` quota fallback (`hook_subagent.go`).
-  - `stop`: records passive file co-activity (`co_activity`) to improve future AST slice ranking and issues a once-per-tree-hash `[VERIFY_STAMP]` verification nudge when the session modified Go/module files that are dirty without a matching `.agents/scratch/verify.stamp` (`hook_stop_stamp.go`).
-- **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** SQLite + FTS5 store of record for 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`). Supports 1-call `stdin` header documents, `--json` / `--json-in`, `-C` / `--dir`, and on-demand `.agents/trail.jsonl` export/sync (`fyr record export` / `fyr record sync`).
-- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Ingests Antigravity session transcripts (`fyr metrics ingest`), decomposes wall time into `model`, `tool`, `wait`, and `idle`, tracks redundant reads and ranged-read percentages, reports eval `pass@1` / `pass^3` Wilson 95% confidence intervals (`fyr metrics evals`), renders multi-window engineering trajectories (`fyr metrics trajectory`), and feeds shape-only trajectory digests (`DreamTrajectoryDigest`) into dreaming.
-- **Sandboxed evaluation & auto-worker isolation (`internal/isolate`, `internal/eval`):** `fyr eval` runs `.agents/eval/GUIDE-eval.md` rows against live `agy` under OS-native isolation (`isolate`: Landlock on Linux, Seatbelt on macOS, failing closed when unavailable), and `fyr auto` uses the same isolation for its background worker branches, checking post-run safety invariants `a`–`e` (checkout untouched, real home untouched, credential scan, no leftover processes).
-- **Idle-time consolidation & dreaming (`internal/dream`, `internal/auto`):** `fyr auto` is the single hourly background runner: when turned on (`fyr auto on`), it ingests metrics, runs `fyr dream` in plan mode with zero tools granted over idle changed projects, and sweeps idle repos behind 9 safety gates (`G1`–`G9`), a strict file risk rubric, and a `k=3` held-out behavioural eval gate for `skills/` edits and distilled skills (`ADR-090`, `ADR-522`, `ADR-523`).
+`fyr` pairs `< 250 ms` fail-open CLI hooks with three local SQLite stores and OS-native process sandboxing so sessions stay fast, accurate, and measurable:
+
+- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `PostToolUse` reserved under the same contract (`PRD.md` R3). See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
+- **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** Holds 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`) with deterministic memory validity scoring (`>= 0.40`) and on-demand `.agents/trail.jsonl` export/sync. See [Brain Store, Trail & Memory](features/brain-and-memory.md).
+- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), and six-section usage reports via `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
+- **Sandboxed evaluation (`internal/isolate`, `internal/eval`):** Runs `fyr eval` and `fyr auto` workers inside Linux Landlock or macOS Seatbelt confinement (failing closed when unavailable) with host-safety checks `a`–`e` and subagent check `f`. See [Behavioural Eval & OS Isolation](features/eval-and-isolation.md).
+- **Idle-time consolidation & dreaming (`internal/dream`, `internal/auto`):** Runs `fyr dream` in tool-free plan mode and sweeps registered idle projects under gates `G1`–`G9`, a strict risk rubric, and a `k=3` behavioral eval gate (`ADR-090`, `ADR-522`, `ADR-523`). See [Dream Consolidation & Auto Mode](features/dream-and-auto.md).
 
 ## Customizing the Harness for Your Stack
 
-`context/AGENTS.md` and `context/dev-setup.md` ship with an opinionated default stack (**Go** backend, **TanStack Start + TypeScript + Tailwind** frontend, **Google Cloud / Cloud Run** infrastructure).
+`context/AGENTS.md` and `context/dev-setup.md` configure a default stack (**Go** backend, **TypeScript/Tailwind** frontend, **Google Cloud / Cloud Run** infrastructure), while project rules always override global context (`context/AGENTS.md` line 3). You can tailor `fyr` either per project (`<project>/AGENTS.md`, `.agents/rules/*.md`, `.agents/skills/<name>/SKILL.md`) or globally inside your `fyr` checkout (`context/*.md`, `rules/*.md`, `skills/*/SKILL.md`, `agents/*/agent.md`, `workflows/*.py`, or `fyr adopt`), then run `fyr install`.
 
-Because project rules override global rules (`context/AGENTS.md` line 3: *"a project's `AGENTS.md` overrides it"*), you have two ways to tailor `fyr` to another stack (Rust, Python, Next.js, AWS, etc.) or persona:
-
-1. **Per-project override (no fork needed):** Add stack, cloud, testing, and persona rules to `<project>/AGENTS.md` (or `.agents/rules/*.md` and `.agents/skills/<name>/SKILL.md` inside that project). Project-level rules take precedence over `~/.gemini/config/rules/AGENTS.md`.
-2. **Global fork / checkout customization:** Edit `context/dev-setup.md`, `context/AGENTS.md`, `rules/*.md`, `skills/*/SKILL.md`, or `agents/*/agent.md` in your `fyr` checkout and run `go run ./cmd/fyr install`.
-   - Every customization is a file drop:
-     - `skills/<name>/SKILL.md` → `~/.gemini/config/skills/<name>/`
-     - `agents/<name>/agent.md` → `~/.gemini/config/agents/<name>/agent.md`
-     - `rules/<name>.md` → `~/.gemini/config/rules/<name>.md`
-     - `commands/<name>.md` → `~/.gemini/config/workflows/<name>.md`
-     - `workflows/<name>.py` → `~/.gemini/config/workflows/<name>.py`
-     - `context/<name>.md` → appended to `~/.gemini/config/rules/AGENTS.md`
-   - Import third-party skills from [skills.sh](https://skills.sh) via `npx skills@<version> add <owner/repo> -s <skill>` (or `fyr adopt <name>`), then run `fyr install`.
-   - The installer lints every customization before deploying and refuses a skill without a `description`, a skill, command, rule or agent with a frontmatter key outside its kind's allow list (such as `allowed-tools`, `disallowedTools`, `hooks` or any other permission key), a command or rule whose file name is not one plain name, a frontmatter value a strict YAML parser would read as a comment, and an agent tool name Antigravity does not know (an unknown name hangs its subagent). `TDD.md` § T3 and § T6 list each refusal and its test.
-   - Note: `internal/harness/size_test.go` pins hand-written `context/*.md` under `13,000` bytes, always-on context plus `always_on` rules under `9,000` bytes, repository `AGENTS.md` under `4,500` bytes, and the combined deployed rules block under `19,500` bytes so Antigravity never truncates its 24,000-byte global rules block (`TDD.md` § T1–T2).
+To prevent Antigravity's `24,000`-byte global rules block from silently dropping instructions, `internal/harness/size_test.go` pins hand-written `context/*.md` under `13,000` bytes, always-on context plus `always_on` rules under `9,000` bytes, repository `AGENTS.md` under `4,500` bytes, and the combined deployed rules block under `19,500` bytes (`PRD.md` `22,000`-byte cap), ending the rendered block with the canary word `GANNET` so truncation is immediately visible. Global rules also enforce that temporary/scratch files belong in `.agents/scratch/` and never `/tmp`, and commits carry no co-author trailer (`check-trailers.sh`). See [Delivery, Installer & Customization](features/delivery-and-customization.md) for frontmatter allowlists and `knownTools` rules.
 
 ## Daily CLI Reference
+
+Use these ten commands in daily workflows, and expand the full reference below for all 26 `fyr` commands (`fyr help <verb>` prints full flags and `SPEC-fyr-*` holds complete contracts).
+
+| Command | What it does |
+|---|---|
+| `fyr install` | Deploy context, skills, agents, rules, workflows, and hooks to `~/.gemini/config/` |
+| `fyr update` | Move a checkout, release binary, or `--from-zip` place forward |
+| `fyr status` | Check installed version, drift, auto/dream state, and PATH shadowing |
+| `fyr resume` | Print seven-step read-only session resume (`AGENTS.md`, plans, handoff, changes, memory) |
+| `fyr search <words>` | Search `brain.db` + FTS5/AST graph (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`, `--vet`, `--hook`) |
+| `fyr record add` / `get` / `edit` / `list` | Manage project and `--global` trail records (`export` / `sync` for `.agents/trail.jsonl`) |
+| `fyr memory add` / `show` | Save or view validity-scored `semantic`, `procedural`, and `episodic` memories |
+| `fyr verify` | Run `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, writing `.agents/scratch/verify.stamp` |
+| `fyr report` | Render the six-section Economist HTML or `--md` usage report |
+| `fyr auto on` / `off` / `status` / `run` | Manage the single hourly background dreamer and eval-gated skill improvement runner |
+
+<details>
+<summary>Complete CLI command reference (all 26 commands)</summary>
 
 | Command | What it does |
 |---|---|
@@ -247,32 +279,33 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 | `fyr install` (or `sync`) | Deploys the harness and removes what the repository no longer has |
 | `fyr diff` | A unified diff of every drifted file |
 | `fyr uninstall` | Removes exactly what it installed plus `fyr auto`'s timer and any legacy dream timer; the metrics store and `fyr auto`'s config and state stay |
-| `fyr list` / `render` | The skill and agent inventory; the context as deployed |
+| `fyr list` | Prints the skill, subagent, rule, and workflow script inventory |
+| `fyr render` | Prints the assembled `AGENTS.md` context file as `fyr install` deploys it |
 | `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store: this project's trail records and the global ones (`export` writes `.agents/trail.jsonl` on demand; `sync` loads it into `brain.db`) |
 | `fyr resume` | Prints this checkout's seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory) in one read-only call |
-| `fyr search <words>` | Matching records first, then a ranked search of the project's files; `--slice` builds a tiered AST context capsule (`path:start-end (Symbol)` pivots, 1-hop skeleton neighbours, trail records), `--skeleton` prints signatures without bodies, `--path` traces shortest call/import hops (`--to`), `--affected` lists callers and blast radius, `--map` prints the repository symbol map, `--vet` runs the `< 25 ms` 9-mode intent classifier and 6-anchor prompt vetter, and `--hook` serves the `< 250 ms` fail-open CLI hooks (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`) in `~/.gemini/config/hooks.json` |
+| `fyr search <words>` | Matching records first, then ranked files (`--slice`, `--skeleton`, `--path`, `--to`, `--affected`, `--map`, `--refs`, `--open`, `--vet`, `--hook`) |
 | `fyr index [--rebuild] [--register]` | Reconciles or clean-rebuilds `.agents/scratch/search.db` (and `~/.config/fyr/search.db` with `--global`); `--register` opts the project into `fyr dream --all` and `fyr auto` |
-| `fyr memory add` / `show` | Project and `--global` memory (`semantic`, `procedural`, `episodic`), validity-scored (`--include-low` shows `< 0.40`); `semantic` loads at `resume`, `procedural`/`episodic` inject on demand |
-| `fyr metrics ingest` / `show` / `report` / `evals` / `trajectory` / `export` | The shape of every session: stored, summarised, charted, trended across time windows (`trajectory`), and backed up; `evals` shows `fyr eval`'s trials per row (`--home` of the eval home) |
-| `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Renders the six-section project or global usage report (`1. Executive Pulse`, `2. Second-Brain Leverage`, `3. Quality & Learning Loop`, `4. Autonomy & Model Routing`, `5. Trigger coverage`, `6. Per-Project / Project Breakdown`) as a self-contained Economist HTML file or terminal-friendly Markdown (`--md`) |
+| `fyr memory add` / `show` | Project and `--global` memory (`semantic`, `procedural`, `episodic`), validity-scored (`--include-low` shows `< 0.40`) |
+| `fyr metrics ingest` / `show` / `report` / `evals` / `trajectory` / `export` | The shape of every session: stored, summarised, charted, trended (`trajectory`), and backed up |
+| `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Renders the six-section project or global usage report (`1. Executive Pulse`, `2. Second-Brain Leverage`, `3. Quality & Learning Loop`, `4. Autonomy & Model Routing`, `5. Trigger coverage`, `6. Per-Project / Project Breakdown`) as HTML or Markdown (`--md`) |
 | `fyr dream --all` / `--project DIR` | One-shot dreamer (also invoked hourly by `fyr auto run`): proposes memory and trail consolidations in plan mode with zero tools granted |
-| `fyr auto on` / `off` / `status` / `run` / `--dry-run` | Single hourly background runner (`on`/`off` also take `--dry-run` and retire any legacy `fyr-dream` timer). Each `run` ingests metrics first, runs `fyr dream` in plan mode with zero tools granted, re-reads `auto.json`, runs free checks on idle clean projects (filing a global `review` record when findings change), and past level `observe` starts at most one dreaming M22 worker per run (`skills/` edits, distilled skills, `skills.sh` asks, `derived` memory cards; up to 4 a day, 30m each, confined under OS-native isolation via `isolate.ChooseRunner` and failing closed when unavailable) from a fixed-template Kickoff in `~/.config/fyr/auto/kickoffs/`; for a `harness-edit` or harness `distill` at level `harness` that passes the eval gate at `k=3` on target, regression and held-out rows within 24 eval sessions, `fyr` squash-merges `work/<name>` in a detached worktree, runs the base tree's `# auto: test` lines and `fyr check`, fast-forwards the project's local branch by one commit and deletes `work/<name>`, never pushing and never installing into a real home (`install pending`) |
-| `fyr check` | A read-only drift check of the docs, specs, `PRD.md` and the SDD and TDD traces against the binary and the tree |
+| `fyr auto on` / `off` / `status` / `run` / `--dry-run` | Single hourly background runner (`on`/`off` also take `--dry-run` and retire any legacy `fyr-dream` timer), running `dream`, free checks, and OS-isolated dreaming workers with `k=3` eval gates |
+| `fyr check` | Read-only drift check of docs, specs, `PRD.md`, and `SDD.md`/`TDD.md` traces against the binary and tree |
 | `fyr git-check` | Runs the three post-dispatch git checks (`git status --short --untracked-files=all`, `git log --branches --not --remotes --oneline`, `git tag`) in one read-only call |
 | `fyr verify` | Runs `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, guarding against mid-run tree mutation and writing `.agents/scratch/verify.stamp` (`0600`) |
 | `fyr gate [--base REF] [--lease GLOB] [--lease-file FILE] [--max-files N] [--max-lines N] <worktree>` | Deterministic worktree gate: `Files:` lease globs, symlink/gitlink modes, secret filenames, numstat caps, added-line secret scan, and commit trailers |
 | `fyr land [--lease GLOB] [--lease-file FILE] [--message TEXT] [--max-files N] [--max-lines N] [--timeout D] <branch>` | Gates `<branch>`, squash-merges and runs `fyr verify` in a detached scratch worktree, fast-forwards the clean base branch, deletes `<branch>`, and refreshes `verify.stamp` |
 | `fyr close --title TEXT [--body-file FILE]` | Stores an immutable `handoff` record embedding `## Verification Digest` from a fresh `verify.stamp` without mutating or deleting prior records |
-| `fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]` | Lists the live `agy models` + `agy changelog` catalog cached in `~/.config/fyr/models.json` (`active`, `new`, `gone`, per-model profiles, fallback notes, and wave/eval pass-rate evidence), explains a model's profile (`--explain`), refreshes on `--refresh`, and resolves evidence-judged role picks (`planner`, `builder`, `judge`, `reviewer`, `verifier`, `mechanical`) without hardcoded model IDs |
-| `fyr eval --home DIR [--runs N] [--parallel N] [--runner isolate] [--acp] [--suite-file PATH] <row>...` | The behavioural suite against the Antigravity CLI, each row run N times (default 1, at most 25; up to `--parallel N` trials at once, default 1, `kind: benchmark` rows at 1), each trial in an OS-native `isolate` sandbox by default (or warm multi-turn `agy acp --stdio --process-per-session` when `--acp` is set or the row ID starts with `acp-`) and stored as a trial in the metrics store |
+| `fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]` | Lists the live `agy models` + `agy changelog` catalog cached in `~/.config/fyr/models.json`, explains model profiles (`--explain`), and resolves evidence-judged role picks |
+| `fyr eval --home DIR [--runs N] [--parallel N] [--runner isolate] [--acp] [--suite-file PATH] <row>...` | Runs behavioral evaluation rows against `agy` inside OS-native `isolate` sandboxes (or `--acp` sessions) and stores trials in `metrics.db` |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
-| `fyr version` | The build version |
+| `fyr version` | Prints the build version |
 
-`fyr help <verb>` prints a verb's page. Global flags (`--repo`, `--home`, `-C` / `--dir`) are documented in `TDD.md` § T5; each verb's full contract is its `SPEC-fyr-*` record (`fyr record list --kind spec`, then `fyr record get`).
+</details>
 
 ## Skills & Subagents
 
-`fyr list` prints every skill and subagent with its description.
+`fyr list` prints every skill, subagent, rule, and workflow script installed from the harness.
 
 ### Skills (43)
 
@@ -298,6 +331,8 @@ Because project rules override global rules (`context/AGENTS.md` line 3: *"a pro
 
 ## Repository Layout
 
+The repository separates immutable requirements, architecture, and verification traces (`PRD.md` → `SDD.md` → `TDD.md` → `TODO.md`) from the six embedded harness directories and per-feature documentation (`features/`).
+
 ```
 PRD.md        what the harness is for and what must never drift (R0–R10)
 SDD.md        how the parts fit: components M1–M22, the main flows, the decisions
@@ -306,6 +341,7 @@ TODO.md       Now, Next and Backlog; the active plan record wins
 AGENTS.md     the rules of this repository, for agents
 LICENSE       MIT License
 SECURITY.md   vulnerability reporting and security boundary overview
+features/     deep-dive feature guides with Mermaid architecture and lifecycle diagrams
 context/      AGENTS.md (the global context) and dev-setup.md (environment, stack, GCP defaults)
 agents/       one directory per subagent (agent.md, in Antigravity's format, installed as written)
 skills/       one directory per skill (SKILL.md, references/, assets/)
@@ -319,19 +355,21 @@ embed.go      the go:embed of the six content directories, pinned to what git tr
 
 ```mermaid
 flowchart LR
-  prd["PRD.md<br/>requirements R0 to R10"] --> sdd["SDD.md<br/>components M1 to M22"]
-  sdd --> tdd["TDD.md<br/>sections T1 to T22 and their tests"]
-  tdd --> todo["TODO.md<br/>tasks name a T section"]
-  tdd --> records[("SPEC and ADR records<br/>the detail")]
+  prd["PRD.md\nrequirements R0 to R10"] --> sdd["SDD.md\ncomponents M1 to M22"]
+  sdd --> tdd["TDD.md\nsections T1 to T22 and their tests"]
+  tdd --> todo["TODO.md\ntasks name a T section"]
+  tdd --> records[("SPEC and ADR records\nthe detail")]
 ```
 
 ## Working on the Harness
+
+Run formatting, static analysis, the race-enabled Go test suite, and scratch-home verification before claiming completion (`AGENTS.md` § Setup commands):
 
 ```bash
 gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...   # before any completion claim
 go run ./cmd/fyr install --home .agents/scratch/home                         # never against your real $HOME in development
 ```
 
-Four tests pin the context sizes (`internal/harness/size_test.go`): hand-written `context/*.md` under `13,000` bytes (inside `PRD.md` G1's `15,000`-byte ceiling), always-on context plus `always_on` rules under `9,000` bytes, repository `AGENTS.md` under `4,500` bytes (`PRD.md` G2), and the combined deployed rules block (`context/*.md` plus `rules/*.md`, with the skill inventory kept separate in `fyr list`) under `19,500` bytes (inside `PRD.md`'s `22,000`-byte cap and Antigravity's `24,000`-byte limit). Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`).
+Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`), and `internal/harness/size_test.go` must pass without raising any byte ceiling.
 
-Where to read more: [`AGENTS.md`](AGENTS.md) for repository rules; [`PRD.md`](PRD.md), [`SDD.md`](SDD.md), and [`TDD.md`](TDD.md) for requirements, architecture, and test pins; [`SECURITY.md`](SECURITY.md) for security boundaries; and `fyr record list --kind spec` / `fyr record list --kind adr` for surface specs and architecture decisions.
+Where to read more: [`AGENTS.md`](AGENTS.md) for repository rules; [`PRD.md`](PRD.md), [`SDD.md`](SDD.md), and [`TDD.md`](TDD.md) for requirements, architecture, and test pins; [`SECURITY.md`](SECURITY.md) for security boundaries; [Feature Guides](features/delivery-and-customization.md) for subsystem deep dives; and `fyr record list --kind spec` / `fyr record list --kind adr` for surface specs and architecture decisions.
