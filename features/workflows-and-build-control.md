@@ -113,5 +113,6 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 
 ## Next steps
 
+- Read the [Workflow Guide](../Workflow.md) for the complete end-to-end walkthrough from plan to finish, feature to finish, goal, and step-by-step Definition of Done.
 - Inspect your available models and live picks with `fyr models --refresh`.
 - Read [Telemetry, Trajectories & Reports](metrics-and-reports.md) to see how wave pass rates and session shapes feed back into model evidence and usage reports.

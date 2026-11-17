@@ -4,6 +4,8 @@
 
 It packages one global context (`context/AGENTS.md`, [agents.md](https://agents.md) standard), 43 skills ([Agent Skills `SKILL.md`](https://agentskills.io) standard), 6 specialized subagents (`agents/<name>/agent.md`), 5 rules (`rules/*.md`), native parallel workflows (`workflows/*.py`), and a single static Go binary (`fyr`, built with `CGO_ENABLED=0` and `modernc.org/sqlite`). No background daemons, no proxies, no commit gates, no CI, and no hosted service (`PRD.md` R0–R10, MIT License in [`LICENSE`](LICENSE), security policy in [`SECURITY.md`](SECURITY.md)).
 
+Quick links: [Workflow Guide](Workflow.md) (plan to finish, feature to finish & DoD) · [Feature Guides](#feature-guides--architecture) · [How It Works](#how-it-works) · [Quickstart](#quickstart-three-ways-in) · [Daily CLI Reference](#daily-cli-reference)
+
 ## Why it exists
 
 Antigravity sessions start stateless and truncate global rules beyond `24,000` bytes. `fyr` solves three operational gaps without adding persistent background services:
@@ -14,7 +16,7 @@ Antigravity sessions start stateless and truncate global rules beyond `24,000` b
 
 ## Feature Guides & Architecture
 
-`fyr` divides its capabilities into seven focused subsystems that work together around every Antigravity CLI session. Explore each deep-dive guide below for Mermaid lifecycle diagrams, internal thresholds, and collapsible flag references.
+`fyr` divides its capabilities into seven focused subsystems that work together around every Antigravity CLI session. Start with the [Workflow Guide](Workflow.md) for the end-to-end engineering lifecycle (goal, turn classification, plan-to-finish, feature-to-finish, and step-by-step Definition of Done), or explore each subsystem deep-dive below for Mermaid lifecycle diagrams, internal thresholds, and collapsible flag references.
 
 ```mermaid
 flowchart TB
@@ -234,7 +236,7 @@ Once `fyr install` reports `drift none`, initialize indexing and query the AST g
    fyr search --skeleton internal/search/vet.go
    fyr search --map                           # architectural God Nodes, package deps, and cycles
    ```
-4. **Drive work through `/fyr-*` workflows:** Use `/fyr-feature` for phased plans with pre-build interviews, `/fyr-bug` for symptom-only diagnosis and red-first tests, `/fyr-review` for parallel multi-lens review, and `/fyr-handoff` (or `fyr close`) at completion.
+4. **Drive work through `/fyr-*` workflows:** Use `/fyr-feature` for phased plans with pre-build interviews, `/fyr-bug` for symptom-only diagnosis and red-first tests, `/fyr-review` for parallel multi-lens review, and `/fyr-handoff` (or `fyr close`) at completion — see [Workflow.md](Workflow.md) for the full lifecycle and Definition of Done.
 
 ## Second-Brain Architecture
 
@@ -338,6 +340,7 @@ PRD.md        what the harness is for and what must never drift (R0–R10)
 SDD.md        how the parts fit: components M1–M22, the main flows, the decisions
 TDD.md        how each part is built: sections T1–T22 and their tests
 TODO.md       Now, Next and Backlog; the active plan record wins
+Workflow.md   end-to-end engineering workflow (goal, plan-to-finish, feature-to-finish, DoD)
 AGENTS.md     the rules of this repository, for agents
 LICENSE       MIT License
 SECURITY.md   vulnerability reporting and security boundary overview
@@ -372,4 +375,4 @@ go run ./cmd/fyr install --home .agents/scratch/home                         # n
 
 Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`), and `internal/harness/size_test.go` must pass without raising any byte ceiling.
 
-Where to read more: [`AGENTS.md`](AGENTS.md) for repository rules; [`PRD.md`](PRD.md), [`SDD.md`](SDD.md), and [`TDD.md`](TDD.md) for requirements, architecture, and test pins; [`SECURITY.md`](SECURITY.md) for security boundaries; [Feature Guides](features/delivery-and-customization.md) for subsystem deep dives; and `fyr record list --kind spec` / `fyr record list --kind adr` for surface specs and architecture decisions.
+Where to read more: [`Workflow.md`](Workflow.md) for the end-to-end engineering workflow and DoD; [`AGENTS.md`](AGENTS.md) for repository rules; [`PRD.md`](PRD.md), [`SDD.md`](SDD.md), and [`TDD.md`](TDD.md) for requirements, architecture, and test pins; [`SECURITY.md`](SECURITY.md) for security boundaries; [Feature Guides](features/delivery-and-customization.md) for subsystem deep dives; and `fyr record list --kind spec` / `fyr record list --kind adr` for surface specs and architecture decisions.
