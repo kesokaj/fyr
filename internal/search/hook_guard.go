@@ -542,14 +542,18 @@ func resolveToolProjectDir(dir string, _ HookInput, target string) string {
 	if t == "" || !filepath.IsAbs(t) {
 		return dir
 	}
+	canonTarget := resolveTargetWithAncestors("", t)
+	targetAnc := existingAncestorDir(filepath.FromSlash(canonTarget))
+	targetRoot, _, hasTargetRoot := findGitRootFast(targetAnc)
 	if dirRoot, _, ok := findGitRootFast(dir); ok {
 		canonDir := strings.TrimRight(CanonicalizePath("", dirRoot), "/")
-		canonTarget := CanonicalizePath("", t)
 		if canonDir != "" && (canonTarget == canonDir || strings.HasPrefix(canonTarget, canonDir+"/")) {
-			return dir
+			if !hasTargetRoot || strings.TrimRight(CanonicalizePath("", targetRoot), "/") == canonDir {
+				return dir
+			}
 		}
 	}
-	if targetRoot, _, ok := findGitRootFast(filepath.Dir(t)); ok && !isRefusedAutoInitDir(targetRoot) {
+	if hasTargetRoot && !isRefusedAutoInitDir(targetRoot) {
 		return targetRoot
 	}
 	return dir

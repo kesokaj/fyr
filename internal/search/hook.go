@@ -416,18 +416,18 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 	return ranked[0].Score / (hookConfidenceRatio + 1.0)
 }
 
-func handlePreToolUse(home, dir string, in HookInput, out io.Writer) error {
+func handlePreToolUse(o Options, dir string, in HookInput, out io.Writer) error {
 	switch normalizeHookToolName(in.ToolCall.Name) {
 	case "read_file":
-		return handlePreToolRead(home, dir, in, out)
+		return handlePreToolRead(o.Home, dir, in, out)
 	case "run_command":
-		return handlePreToolBash(home, dir, in, out)
+		return handlePreToolBash(o.Home, dir, in, out)
 	case "write_or_edit":
-		return handlePreToolWrite(home, dir, in, out)
+		return handlePreToolWrite(o, dir, in, out)
 	case "invoke_subagent", "invokesubagent":
-		return handlePreToolSubagent(in, out)
+		return handlePreToolSubagent(o, dir, in, out)
 	case "swarm":
-		return handlePreToolSwarm(home, in, out)
+		return handlePreToolSwarm(o, dir, in, out)
 	case "run_workflow":
 		return handlePreToolWorkflow(dir, in, out)
 	default:
@@ -470,13 +470,16 @@ func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
 	return writeDecision(out, "allow", "")
 }
 
-func handlePreToolWrite(home, dir string, in HookInput, out io.Writer) error {
+func handlePreToolWrite(o Options, dir string, in HookInput, out io.Writer) error {
 	target := extractToolTargetPath(in.ToolCall.Args)
 	toolDir := resolveToolProjectDir(dir, in, target)
-	if target == "" || hooksDisabledForHome(home, toolDir) {
+	if target == "" || hooksDisabledForHome(o.Home, toolDir) {
 		return writeDecision(out, "allow", "")
 	}
-	dec, err := CheckPreWriteHashWithEdit(dir, home, toolDir, in.ConversationID, target, in.ToolCall.Args)
+	if reason := checkCoordinatorWriteGuard(o, dir, toolDir, in, target); reason != "" {
+		return writeDecision(out, "deny", reason)
+	}
+	dec, err := CheckPreWriteHashWithEdit(dir, o.Home, toolDir, in.ConversationID, target, in.ToolCall.Args)
 	if err == nil && !dec.Allowed {
 		return writeDecision(out, "deny", dec.Reason)
 	}
@@ -551,4 +554,43 @@ func oneLineErr(err error) string {
 		return s[:120] + "..."
 	}
 	return s
+}
+
+func isCoordinatorWriteExemptPath(root, toolDir, target string) bool {
+	resolved := resolveTargetWithAncestors(toolDir, target)
+	rel := strings.TrimPrefix(filepath.ToSlash(filepath.Clean(target)), "./")
+	if root != "" {
+		canonRoot := CanonicalizePath("", root)
+		r, err := filepath.Rel(filepath.FromSlash(canonRoot), filepath.FromSlash(resolved))
+		if err != nil {
+			return false
+		}
+		rel = filepath.ToSlash(filepath.Clean(r))
+		if checkScratchNoSymlinks(root) != nil {
+			return rel == "TODO.md"
+		}
+	}
+	return rel == "TODO.md" || rel == ".agents/scratch" || strings.HasPrefix(rel, ".agents/scratch/")
+}
+
+func resolveTargetWithAncestors(toolDir, target string) string {
+	p := strings.TrimSpace(target)
+	if !filepath.IsAbs(p) && toolDir != "" {
+		p = filepath.Join(toolDir, p)
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	p = filepath.Clean(p)
+	for cur, tail := p, ""; ; {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.ToSlash(filepath.Join(real, tail))
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return filepath.ToSlash(p)
+		}
+		tail = filepath.Join(filepath.Base(cur), tail)
+		cur = parent
+	}
 }
