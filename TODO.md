@@ -7,18 +7,19 @@
 
 ## Now
 
-### Wave 1 — Parallel Core Foundations (`PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`)
-#### Phase 1A — `PreInvocation` JIT `improvedPrompt`, `skillDigests`, and `DecomposeSubtasks`
-- [ ] Add `SubtaskSlice`, `isWorkerBriefPrompt` (including `"This is a Kickoff written by fyr auto."`), and `DecomposeSubtasks` in `internal/search/vet_decompose.go`, wire `hasBatchOrMultiPhaseCues` in `internal/search/vet_route.go`, attach `Subtasks` in `vetPromptCoreWithHistory` (`internal/search/vet.go`), and add `TestDecomposeSubtasksClausesAndPackages` (`internal/search/vet_decompose_test.go`)
-- [ ] Emit `improvedPrompt`, `skillDigests`, `subtasks`, and `directive: "COORDINATE_SUBTASKS"` in `internal/search/telemetry_json.go`, bump `schemaVersion` to `"7"` (`internal/search/store.go`, `internal/search/reconcile_test.go`) to persist `subtask_count` + `directive` in `vet_history` (`internal/search/vet_history.go`, `internal/search/process_artifact.go`, `internal/search/hook_dedup.go`), and add `TestPreInvocationEmitsImprovedPromptAndSkillDigests` (`internal/search/vet_history_test.go`)
-#### Phase 1B — `metrics.db` Schema v8 (`session_ratings`) & All-Conversation Workspace Discovery
-- [ ] Add `metrics.db` migration 8 (`session_ratings` table), `UpsertSessionRatings`/`SessionRatings` helpers (`internal/metrics/ratings.go`), and rating summary fields in `internal/metrics/` (`Summary.A` in `show_types.go`, `report_md.go`, `report.go`)
-- [ ] Export `GlobalWorkspace`, add `ListAgyWorkspaces`, `AgyConversationTextInWindow` (`maxModified` stale cutoff), and global/non-git workspace support in `internal/search/{dream,dream_workspace}.go` (`TestListAgyWorkspacesAndWindow`)
+### Wave 2 — Parallel Hook & Dream Integration (`PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`)
+#### Phase 2A — `PreToolUse` Worker Capsule Overwrite & Coordinator Write Guard
+- [ ] Pass `Options` to `handlePreToolUse` (`internal/search/{hook_deadline,hook}.go`), implement `[FYR_WORKER_CAPSULE]` JIT overwrite for `invoke_subagent` / `swarm add` (`AND` gating, `<= 1,200 B`, `TestPreToolSubagentAndSwarmCapsuleOverwrite`), and preserve `hook_workflow.go` literal safety
+- [ ] Add `[COORDINATOR_GUARD]` write guard in `handlePreToolWrite` (`internal/search/hook.go`, `TestCoordinatorWriteGuardInHook`) blocking main-checkout Go edits (`COORDINATE_SUBTASKS` / `subtask_count >= 2` without `!` bypass) while allowing `.md`/docs, `.agents/`, linked worktrees, and Worker Role Exemptions
+
+#### Phase 2B — Registration-Free Dream Rating & Harness Proposal Queue
+- [ ] Drop `trail.Registered` (`G6`) and `migrated` (`noTrail`) gates in `internal/dream/{targets,auto_reads,dream}.go` and support non-git `--project` and `search.GlobalWorkspace`
+- [ ] Implement sliding-window `(since, cutoff]` watermarks (`DreamWindow`), stale conversation rating via `AgyConversationTextInWindow`, `WriteRatings` persistence in `metrics.db`, and `target: harness` proposal queueing
 
 ## Next
 
-- Wave 2 (Phase 2A `PreToolUse` JIT/guard + Phase 2B registration-free dream rating) of `PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`
-- Wave 3–4 (Phase 3A binary `fyr auto` + Phase 3B hook docs/smoke -> Phase 4 unified traces, review, security & close) of `PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`
+- Wave 3 (Phase 3A binary `fyr auto` on/off + Phase 3B hook docs & `< 200 ms` smoke) of `PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`
+- Wave 4 (Phase 4 unified traces, docs, cross-family `reviewer` + `security` audits, `/home/kesokaj/.local/bin/fyr verify`, `change`, push & `fyr close`) of `PLAN-2026-11-17-1413-plan-unified-pre-hook-coordinator-worker-jit-cap`
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest 2026-11-23)
 
 ## Backlog
