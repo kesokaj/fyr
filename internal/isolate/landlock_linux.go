@@ -28,8 +28,12 @@ const (
 	llPrSetNoNewPrivs      = 38
 	llPrCapAmbient         = 47
 	llPrCapAmbientClearAll = 4
+	llCapNetAdmin          = 12
 	llCapSysAdmin          = 21
 	llOPath                = 0o10000000
+	siocGIFFlags           = 0x8913
+	siocSIFFlags           = 0x8914
+	iffUp                  = 0x1
 )
 
 const (
@@ -187,7 +191,7 @@ func MaybeRunInit() {
 		fmt.Fprintf(os.Stderr, "fyr isolate: %v\n", err)
 		os.Exit(126)
 	}
-	if err := mountIsolatedFS(); err != nil {
+	if err := mountIsolatedFS(!pol.Network); err != nil {
 		fmt.Fprintf(os.Stderr, "fyr isolate: %v\n", err)
 		os.Exit(126)
 	}
@@ -249,7 +253,7 @@ func runInitChild(pol Policy) int {
 	return 1
 }
 
-func mountIsolatedFS() error {
+func mountIsolatedFS(bringLoopback bool) error {
 	if err := syscall.Mount("none", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
 		return fmt.Errorf("mount / private: %w", err)
 	}
@@ -262,8 +266,31 @@ func mountIsolatedFS() error {
 	if err := syscall.Mount("/dev/pts/ptmx", "/dev/ptmx", "", syscall.MS_BIND, ""); err != nil {
 		return fmt.Errorf("bind /dev/ptmx: %w", err)
 	}
+	if bringLoopback {
+		if err := bringUpLoopback(); err != nil {
+			return err
+		}
+	}
 	if _, _, errno := landlockSyscall6(syscall.SYS_PRCTL, llPrCapAmbient, llPrCapAmbientClearAll, 0, 0, 0, 0); errno != 0 {
 		return fmt.Errorf("clear ambient caps: %w", errno)
+	}
+	return nil
+}
+
+func bringUpLoopback() error {
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if err != nil {
+		return fmt.Errorf("loopback socket: %w", err)
+	}
+	defer syscall.Close(fd)
+	var ifr [40]byte
+	copy(ifr[:16], "lo")
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), siocGIFFlags, uintptr(unsafe.Pointer(&ifr[0]))); errno != 0 {
+		return fmt.Errorf("loopback SIOCGIFFLAGS: %w", errno)
+	}
+	binary.NativeEndian.PutUint16(ifr[16:18], binary.NativeEndian.Uint16(ifr[16:18])|iffUp)
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), siocSIFFlags, uintptr(unsafe.Pointer(&ifr[0]))); errno != 0 {
+		return fmt.Errorf("loopback SIOCSIFFLAGS: %w", errno)
 	}
 	return nil
 }
@@ -305,13 +332,19 @@ func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 		return nil, nil, err
 	}
 	uid, gid := os.Getuid(), os.Getgid()
+	cloneFlags := uintptr(syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID)
+	ambientCaps := []uintptr{llCapSysAdmin}
+	if !pol.Network {
+		cloneFlags |= syscall.CLONE_NEWNET
+		ambientCaps = append(ambientCaps, llCapNetAdmin)
+	}
 	cmd := exec.Command(exe)
 	cmd.Dir = pol.Dir
 	cmd.Env = append(cleanIsolateEnv(pol.Env), IsolateInitEnv+"=1")
 	cmd.ExtraFiles = []*os.File{pr}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid:     true,
-		Cloneflags: syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID,
+		Cloneflags: cloneFlags,
 		UidMappings: []syscall.SysProcIDMap{{
 			ContainerID: uid, HostID: uid, Size: 1,
 		}},
@@ -319,7 +352,7 @@ func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 			ContainerID: gid, HostID: gid, Size: 1,
 		}},
 		GidMappingsEnableSetgroups: false,
-		AmbientCaps:                []uintptr{llCapSysAdmin},
+		AmbientCaps:                ambientCaps,
 	}
 	go func() {
 		_, _ = pw.Write(payload)

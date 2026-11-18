@@ -72,20 +72,20 @@ func buildCommandEnv(opts CommandOpts) ([]string, string) {
 		"GIT_TERMINAL_PROMPT=0",
 	}
 	if opts.TmpDir != "" {
-		env = append(env, "GOCACHE="+filepath.Join(opts.TmpDir, "gocache"))
+		env = append(env,
+			"GOCACHE="+filepath.Join(opts.TmpDir, "gocache"),
+			"GOPATH="+filepath.Join(opts.TmpDir, "gopath"),
+		)
 	}
-	gopath, gomodcache := hostGoDirs(opts.RealHome)
+	gomodcache := hostGoDirs(opts.RealHome)
 	if gomodcache != "" {
 		env = append(env, "GOMODCACHE="+gomodcache)
-	}
-	if gopath != "" {
-		env = append(env, "GOPATH="+gopath)
 	}
 	env = append(env, opts.ExtraEnv...)
 	return env, gomodcache
 }
 
-func hostGoDirs(realHome string) (gopath, gomodcache string) {
+func hostGoDirs(realHome string) string {
 	home := realHome
 	if home == "" {
 		home = os.Getenv("HOME")
@@ -95,17 +95,31 @@ func hostGoDirs(realHome string) (gopath, gomodcache string) {
 			home = u.HomeDir
 		}
 	}
-	rawGP := os.Getenv("GOPATH")
-	if rawGP == "" && home != "" {
-		rawGP = filepath.Join(home, "go")
-	}
-	gopath = existingDir(rawGP)
 	rawMC := os.Getenv("GOMODCACHE")
-	if rawMC == "" && rawGP != "" {
-		rawMC = filepath.Join(rawGP, "pkg", "mod")
+	if rawMC == "" && home != "" {
+		rawMC = filepath.Join(home, "go", "pkg", "mod")
 	}
-	gomodcache = existingDir(rawMC)
-	return gopath, gomodcache
+	mcRes := existingDir(rawMC)
+	if mcRes == "" {
+		return ""
+	}
+	mcAbs, err := filepath.Abs(rawMC)
+	if err != nil {
+		return ""
+	}
+	tmpRoot := filepath.Clean(os.TempDir())
+	resTmp, _ := resolve(tmpRoot)
+	var resHome string
+	if home != "" {
+		resHome, _ = resolve(home)
+	}
+	if !isExcludedPATHDir(mcAbs, mcRes, tmpRoot, resTmp, home, resHome) {
+		return mcRes
+	}
+	if resHome != "" && within(mcRes, filepath.Join(resHome, "go", "pkg", "mod")) {
+		return mcRes
+	}
+	return ""
 }
 
 func existingDir(p string) string {
