@@ -13,26 +13,47 @@ import (
 // agyStep is one row of a conversation's steps table.
 type agyStep struct {
 	idx, typ, status int
-	meta             []byte
+	meta, errDetails []byte
 }
 
 // readAgySteps reads a conversation copy's steps and its generations'
 // metadata, in order; a copy with no gen_metadata table has no generations.
 func readAgySteps(db *sql.DB) ([]agyStep, [][]byte, error) {
-	var steps []agyStep
-	rows, err := db.Query(`SELECT idx, step_type, status, metadata FROM steps ORDER BY idx`)
+	rows, hasErrDetails, err := queryAgyStepRows(db)
 	if err != nil {
 		return nil, nil, err
 	}
+	var steps []agyStep
 	for rows.Next() {
 		var st agyStep
-		if err := rows.Scan(&st.idx, &st.typ, &st.status, &st.meta); err != nil {
+		if hasErrDetails {
+			err = rows.Scan(&st.idx, &st.typ, &st.status, &st.meta, &st.errDetails)
+		} else {
+			err = rows.Scan(&st.idx, &st.typ, &st.status, &st.meta)
+		}
+		if err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
 		steps = append(steps, st)
 	}
 	rows.Close()
+	return steps, readAgyGens(db), nil
+}
+
+func queryAgyStepRows(db *sql.DB) (*sql.Rows, bool, error) {
+	rows, err := db.Query(`SELECT idx, step_type, status, metadata, error_details FROM steps ORDER BY idx`)
+	if err == nil {
+		return rows, true, nil
+	}
+	if !strings.Contains(err.Error(), "no such column: error_details") {
+		return nil, false, err
+	}
+	rows, err = db.Query(`SELECT idx, step_type, status, metadata FROM steps ORDER BY idx`)
+	return rows, false, err
+}
+
+func readAgyGens(db *sql.DB) [][]byte {
 	var gens [][]byte
 	if rows, err := db.Query(`SELECT data FROM gen_metadata ORDER BY idx`); err == nil {
 		for rows.Next() {
@@ -43,16 +64,21 @@ func readAgySteps(db *sql.DB) ([]agyStep, [][]byte, error) {
 		}
 		rows.Close()
 	}
-	return steps, gens, nil
+	return gens
 }
 
 // agySession stores the conversation's session row; a value stored before
-// is kept (the run among them), and its end only moves later.
+// is kept (the run among them), except an unresolved worktree path is updated
+// when resolved, and its end only moves later.
 func (w *writer) agySession(c agyConv) {
 	w.exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, label, outcome, ended_at, run)
 		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
-			project_root = COALESCE(sessions.project_root, excluded.project_root),
+			project_root = CASE
+				WHEN excluded.project_root IS NOT NULL AND (sessions.project_root IS NULL OR sessions.project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
+				THEN excluded.project_root
+				ELSE COALESCE(sessions.project_root, excluded.project_root)
+			END,
 			parent_id = COALESCE(sessions.parent_id, excluded.parent_id),
 			agent_type = COALESCE(sessions.agent_type, excluded.agent_type),
 			label = COALESCE(sessions.label, excluded.label),
@@ -79,7 +105,7 @@ func (w *writer) agySteps(c agyConv, steps []agyStep) []int64 {
 			w.timedStep(c.id, ext, ts, "assistant", startedCol, endedCol, waitCol)
 			replyTimes = append(replyTimes, ts)
 		case agyTool:
-			w.agyTool(c, ext, ts, st.status == agyFailed, f, startedCol, endedCol, waitCol)
+			w.agyTool(c, ext, ts, st, f, startedCol, endedCol, waitCol)
 		default:
 			continue
 		}
@@ -232,4 +258,62 @@ func (w *writer) agyIngestState(source string, modified int64) {
 	}
 	w.exec(`INSERT INTO ingest_state(source, size, mtime, offset) VALUES (?, ?, ?, 0)
 		ON CONFLICT(source) DO UPDATE SET size = excluded.size, mtime = excluded.mtime`, source, size, modified)
+}
+
+var hookDenialMarkers = []string{
+	"[CLAMPED]",
+	"[UNCHANGED]",
+	"[COORDINATOR_GUARD]",
+	"[POLL_LOOP]",
+	"[TOKEN_LOOP]",
+	"[SUBAGENT_BUDGET]",
+	"[MODEL_OVERRIDE]",
+	"[AUTO_SUBAGENT_PRO]",
+	"[INTERACTIVE_STDIN]",
+}
+
+// isHookDenial reports whether a tool step represents a pre-tool hook denial
+// rather than an execution failure.
+func isHookDenial(status int, f fields, meta, errDetails []byte) bool {
+	if strings.EqualFold(strings.TrimSpace(f.text(34, 4)), "deny") {
+		return true
+	}
+	if status != agyFailed {
+		return false
+	}
+	if hasHookDenialMarker(f.text(34, 5)) || protoHasHookDenial(errDetails, false) {
+		return true
+	}
+	return protoHasHookDenial(meta, true)
+}
+
+func protoHasHookDenial(blob []byte, skipToolCall bool) bool {
+	if len(blob) == 0 {
+		return false
+	}
+	flds := search.ProtoFields(blob)
+	if len(flds) == 0 {
+		return hasHookDenialMarker(string(blob))
+	}
+	for _, fld := range flds {
+		if fld.Wire != 2 || (skipToolCall && len(fld.Path) > 0 && fld.Path[0] == 4) {
+			continue
+		}
+		if hasHookDenialMarker(string(fld.Bytes)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHookDenialMarker(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, m := range hookDenialMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(s), "denied by pre-tool hook")
 }

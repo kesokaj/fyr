@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,6 +58,7 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 		fail(filepath.Join(src, "conversation_summaries.db"), err)
 		return
 	}
+	resolveWorktreeRoots(convs, s.db)
 	for _, c := range convs {
 		source := filepath.Join(src, "conversations", c.id+".db")
 		var mtime int64
@@ -71,15 +73,15 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 }
 
 // agyConversations lists the conversations in src's summaries, without the
-// dream's own: one whose first workspace is in exclude is no project's
-// session and gets no ingest_state row (visible dream plan D5).
+// dream's own or /usage probe sessions: one whose first workspace is in exclude
+// is no project's session and gets no ingest_state row (visible dream plan D5).
 func agyConversations(src, tmp string, exclude []string) ([]agyConv, error) {
 	db, err := search.OpenCopy(src, "conversation_summaries.db", tmp)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT conversation_id, last_modified_time, workspace_uris, agent_name, parent_conversation_id FROM conversation_summaries`)
+	rows, err := db.Query(buildSummaryQuery(summaryProbeCols(db)))
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +90,8 @@ func agyConversations(src, tmp string, exclude []string) ([]agyConv, error) {
 	for rows.Next() {
 		var c agyConv
 		var modified any
-		var uris string
-		if err := rows.Scan(&c.id, &modified, &uris, &c.agent, &c.parent); err != nil {
+		var uris, title, preview string
+		if err := rows.Scan(&c.id, &modified, &uris, &c.agent, &c.parent, &title, &preview); err != nil {
 			return nil, err
 		}
 		if c.id == "" || strings.ContainsAny(c.id, `/\`) || c.id == "." || c.id == ".." {
@@ -99,12 +101,45 @@ func agyConversations(src, tmp string, exclude []string) ([]agyConv, error) {
 			c.modified = t.UnixMilli()
 		}
 		c.root = firstWorkspace(uris)
-		if c.root != "" && harness.InDreamWork(c.root, exclude) {
+		if (c.root != "" && harness.InDreamWork(c.root, exclude)) || isUsageProbeSummary(c.root, title, preview) {
 			continue
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func summaryProbeCols(db *sql.DB) (hasTitle, hasPreview bool) {
+	rows, err := db.Query(`PRAGMA table_info(conversation_summaries)`)
+	if err != nil {
+		return false, false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, colType string
+		var dflt sql.NullString
+		if rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk) == nil {
+			if name == "title" {
+				hasTitle = true
+			} else if name == "preview" {
+				hasPreview = true
+			}
+		}
+	}
+	return hasTitle, hasPreview
+}
+
+func buildSummaryQuery(hasTitle, hasPreview bool) string {
+	titleCol, previewCol := `''`, `''`
+	if hasTitle {
+		titleCol = `COALESCE(title, '')`
+	}
+	if hasPreview {
+		previewCol = `COALESCE(preview, '')`
+	}
+	return `SELECT conversation_id, last_modified_time, workspace_uris, agent_name, parent_conversation_id, ` +
+		titleCol + `, ` + previewCol + ` FROM conversation_summaries`
 }
 
 // firstWorkspace is the first file:// workspace URI's path, the session's
@@ -161,7 +196,7 @@ func (s *Store) ingestAgyConversation(src string, c agyConv, source, tmp string,
 // agyTool stores one tool step's shape: the common tool name, and from its
 // arguments only a command's verbs and hash, a path's trail kind, a record
 // verb's kind (recordRead) and a skill's name.
-func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields, started, ended, wait any) {
+func (w *writer) agyTool(c agyConv, ext string, ts int64, st agyStep, f fields, started, ended, wait any) {
 	name := f.text(4, 2)
 	tool := agyTools[name]
 	if tool == "" && name != "" {
@@ -178,7 +213,7 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields,
 		}
 		if tool == "Read" || tool == "Write" || tool == "Edit" {
 			kind = w.targetKind(c.root, p)
-			hash = w.targetPathHash(c.root, p, tool, args.isRanged())
+			hash = w.targetPathHash(c.root, p, tool, args)
 		}
 	}
 	if tool == "Bash" && args.CommandLine != "" {
@@ -187,14 +222,16 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, failed bool, f fields,
 			kind = k
 		}
 	}
+	denied := isHookDenial(st.status, f, st.meta, st.errDetails)
+	isErr := st.status == agyFailed && !denied
 	// A conversation is re-read whole when it changes: a step first seen
 	// while running gets its final status and time (review 2026-10-08).
-	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, target_kind, is_error, cmd_hash, started_ms, ended_ms, wait_ms)
-		VALUES (?, ?, ?, 'tool', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
+	w.exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill, target_kind, is_error, denied, cmd_hash, started_ms, ended_ms, wait_ms)
+		VALUES (?, ?, ?, 'tool', ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(session_id, ext_id) DO UPDATE SET
 			ts = excluded.ts, tool = excluded.tool, skill = excluded.skill, target_kind = excluded.target_kind,
-			is_error = excluded.is_error, cmd_hash = excluded.cmd_hash,
+			is_error = excluded.is_error, denied = excluded.denied, cmd_hash = excluded.cmd_hash,
 			started_ms = excluded.started_ms, ended_ms = excluded.ended_ms, wait_ms = excluded.wait_ms`,
-		c.id, ext, ts, tool, skill, kind, boolInt(failed), hash, started, ended, wait)
+		c.id, ext, ts, tool, skill, kind, boolInt(isErr), boolInt(denied), hash, started, ended, wait)
 	if tool == "Bash" {
 		for n, v := range Verb(args.CommandLine) {
 			w.exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`, c.id, ext, n, v)

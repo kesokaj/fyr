@@ -126,7 +126,7 @@ func (s *Store) readDreamRetries(where string, args []any, extra map[string]int)
 		counts[k] += v
 	}
 	q := `SELECT COALESCE(st.tool, ''), COUNT(*) FROM steps st JOIN sessions s ON s.id = st.session_id WHERE ` +
-		where + ` AND st.is_error = 1 AND COALESCE(st.tool, '') != '' GROUP BY st.tool`
+		where + ` AND st.is_error = 1 AND COALESCE(st.denied, 0) = 0 AND COALESCE(st.tool, '') != '' GROUP BY st.tool`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -236,7 +236,7 @@ func (s *Store) readStepRedundantReads(where string, args []any) (int, error) {
 	}
 	defer rows.Close()
 	total, curSid := 0, ""
-	seen := map[string]bool{}
+	seen := map[string][][2]int{}
 	for rows.Next() {
 		var sid, tool, hash string
 		if err := rows.Scan(&sid, &tool, &hash); err != nil {
@@ -244,17 +244,15 @@ func (s *Store) readStepRedundantReads(where string, args []any) (int, error) {
 		}
 		if sid != curSid {
 			curSid = sid
-			seen = map[string]bool{}
+			seen = map[string][][2]int{}
 		}
-		_, base := parseFileHash(hash)
+		_, base, start, end := parseFileHashRange(hash)
 		if base == "" {
 			continue
 		}
 		if tool == "Read" {
-			if seen[base] {
+			if recordReadInterval(seen, base, start, end) {
 				total++
-			} else {
-				seen[base] = true
 			}
 		} else {
 			delete(seen, base)

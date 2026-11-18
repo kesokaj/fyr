@@ -14,8 +14,9 @@ import (
 // A store written at schema 3 (before trials) upgrades in place: its rows
 // stay, its sessions get a NULL run, the trials table, migration-5 step
 // and stage columns, migration-6 turn_vets/work_waves tables, migration-7
-// work_waves stage columns, and migration-8 session_ratings table exist, the
-// schema reads 8; a store at schema 9 is still refused untouched.
+// work_waves stage columns, migration-8 session_ratings table, and migration-9
+// judge_verdicts table exist, the schema reads 9; a store at schema 10 is still
+// refused untouched.
 func TestMigrationThreeToCurrent(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	saved := migrations
@@ -35,25 +36,26 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 
 	migrations = saved
 	s2 := openT(t, p)
-	if v := s2.meta(t, "schema"); v != "8" {
-		t.Fatalf("schema after upgrade = %s, want 8", v)
+	if v := s2.meta(t, "schema"); v != "9" {
+		t.Fatalf("schema after upgrade = %s, want 9", v)
 	}
 	var got string
 	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM trials) || ',' ||
 		(SELECT count(*) FROM turn_vets) || ',' ||
 		(SELECT count(*) FROM work_waves WHERE setup_s = 0 AND agy_s = 0 AND check_s = 0) || ',' ||
 		(SELECT count(*) FROM session_ratings) || ',' ||
+		(SELECT count(*) FROM judge_verdicts) || ',' ||
 		(SELECT count(*) FROM sessions WHERE id = 'old' AND run IS NULL AND outcome = 'pass') || ',' ||
-		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,0,1,1" {
-		t.Fatalf("after upgrade: %q, %v; want 0,0,0,0,1,1", got, err)
+		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,0,0,1,1" {
+		t.Fatalf("after upgrade: %q, %v; want 0,0,0,0,0,1,1", got, err)
 	}
-	s2.db.Exec(`UPDATE meta SET value = '9' WHERE key = 'schema'`)
+	s2.db.Exec(`UPDATE meta SET value = '10' WHERE key = 'schema'`)
 	s2.Close()
 	if s3, err := Open(p); err == nil {
 		s3.Close()
-		t.Fatal("a store at schema 9 was opened by a binary at 8")
+		t.Fatal("a store at schema 10 was opened by a binary at 9")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 9: %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 10: %v, want ErrNewerSchema", err)
 	}
 }
 

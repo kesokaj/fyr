@@ -28,20 +28,26 @@ var skillPath = regexp.MustCompile(`/skills/([A-Za-z0-9_.-]+)/SKILL\.md$`)
 // tool sends its path under its own key: view_file AbsolutePath, the 1.4.7
 // tools Path, write_to_file and replace_file_content TargetFile (BUG-184).
 type agyArgs struct {
-	CommandLine     string `json:"CommandLine"`
-	AbsolutePath    string `json:"AbsolutePath"`
-	Path            string `json:"Path"`
-	TargetFile      string `json:"TargetFile"`
-	StartLine       any    `json:"StartLine"`
-	EndLine         any    `json:"EndLine"`
-	StartLineLower  any    `json:"start_line"`
-	EndLineLower    any    `json:"end_line"`
-	StartLineNumber any    `json:"StartLineNumber"`
-	EndLineNumber   any    `json:"EndLineNumber"`
-	Offset          any    `json:"Offset"`
-	Limit           any    `json:"Limit"`
-	OffsetLower     any    `json:"offset"`
-	LimitLower      any    `json:"limit"`
+	CommandLine       string `json:"CommandLine"`
+	AbsolutePath      string `json:"AbsolutePath"`
+	Path              string `json:"Path"`
+	TargetFile        string `json:"TargetFile"`
+	StartLine         any    `json:"StartLine"`
+	EndLine           any    `json:"EndLine"`
+	StartLineLower    any    `json:"start_line"`
+	EndLineLower      any    `json:"end_line"`
+	StartLineNumber   any    `json:"StartLineNumber"`
+	EndLineNumber     any    `json:"EndLineNumber"`
+	StartLineCamel    any    `json:"startLine"`
+	EndLineCamel      any    `json:"endLine"`
+	StartLineNumCamel any    `json:"startLineNumber"`
+	EndLineNumCamel   any    `json:"endLineNumber"`
+	Offset            any    `json:"Offset"`
+	Limit             any    `json:"Limit"`
+	OffsetLower       any    `json:"offset"`
+	LimitLower        any    `json:"limit"`
+	LineCount         any    `json:"LineCount"`
+	LineCountCamel    any    `json:"lineCount"`
 }
 
 // path is the file the call names, whichever key carried it.
@@ -56,38 +62,17 @@ func (a agyArgs) path() string {
 
 // isRanged reports whether a Read call specified a line range or limit.
 func (a agyArgs) isRanged() bool {
-	for _, v := range []any{
-		a.StartLine, a.EndLine, a.StartLineLower, a.EndLineLower,
-		a.StartLineNumber, a.EndLineNumber, a.Offset, a.Limit,
-		a.OffsetLower, a.LimitLower,
-	} {
-		if positiveArg(v) {
-			return true
-		}
-	}
-	return false
+	_, _, ranged := extractReadRange(a)
+	return ranged
 }
 
-func positiveArg(v any) bool {
-	switch n := v.(type) {
-	case float64:
-		return n > 0
-	case int:
-		return n > 0
-	case int64:
-		return n > 0
-	case string:
-		p, err := strconv.Atoi(strings.TrimSpace(n))
-		return err == nil && p > 0
-	}
-	return false
-}
-
-func (w *writer) targetPathHash(root, p, tool string, ranged bool) string {
+func (w *writer) targetPathHash(root, p, tool string, args agyArgs) string {
 	norm := normalizeTargetPath(root, p)
 	h := w.hash(norm)
-	if tool == "Read" && ranged {
-		return "r:" + h
+	if tool == "Read" {
+		if start, end, ranged := extractReadRange(args); ranged {
+			return "r:" + h + ":" + strconv.Itoa(start) + "-" + strconv.Itoa(end)
+		}
 	}
 	return "f:" + h
 }

@@ -66,16 +66,18 @@ func ApplyModelProfile(e *CatalogEntry) {
 	}
 }
 
-// RunAgyChangelog runs `agy changelog` best-effort in / with process-group cleanup.
+// RunAgyChangelog runs `agy changelog` best-effort in probeWorkDir() with
+// process-group cleanup.
 func RunAgyChangelog(ctx context.Context, agyPath string) string {
 	if agyPath == "" {
 		return ""
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+	dir := probeWorkDir()
 	cmd := exec.CommandContext(cctx, agyPath, "changelog")
-	cmd.Dir = "/"
-	cmd.Env = RootEnv()
+	cmd.Dir = dir
+	cmd.Env = probeEnv(dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second

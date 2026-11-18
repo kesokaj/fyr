@@ -103,7 +103,7 @@ func TestReadEfficiencyTelemetryAndHashedPaths(t *testing.T) {
 	}
 	// Verify the underlying path hash of steps 1, 2, 3, 4 is identical.
 	baseHash := strings.TrimPrefix(hashes[0], "Read:f:")
-	if strings.TrimPrefix(hashes[1], "Read:r:") != baseHash || strings.TrimPrefix(hashes[2], "Edit:f:") != baseHash {
+	if hashes[1] != "Read:r:"+baseHash+":10-40" || hashes[2] != "Edit:f:"+baseHash || hashes[3] != "Read:r:"+baseHash+":1-25" {
 		t.Errorf("expected identical normalized path hash across Read/Edit of same file, got %v", hashes[:4])
 	}
 

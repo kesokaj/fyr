@@ -125,10 +125,22 @@ var migrations = []string{
 		summary TEXT NOT NULL DEFAULT ''
 	);
 	CREATE INDEX session_ratings_eval ON session_ratings(evaluated_at);`,
+	// 9: cross-family gate/judge verdict ledger (v9.2 Phase 1B).
+	`CREATE TABLE judge_verdicts(
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts INTEGER NOT NULL,
+		project_root TEXT NOT NULL DEFAULT '',
+		target TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL,
+		fallback_reason TEXT NOT NULL DEFAULT '',
+		criterion_hash TEXT NOT NULL,
+		verdict TEXT NOT NULL
+	);
+	CREATE INDEX judge_verdicts_ts ON judge_verdicts(ts);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

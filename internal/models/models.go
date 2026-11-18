@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -44,14 +45,15 @@ func ListModels(run context.Context, agy string) ([]string, error) {
 	return ids, nil
 }
 
-// RunAgyModels executes `agy models` in / with process-group isolation and
-// output capping, returning raw stdout.
+// RunAgyModels executes `agy models` in probeWorkDir() with process-group
+// isolation and output capping, returning raw stdout.
 func RunAgyModels(run context.Context, agy string) (string, error) {
 	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
 	defer cancel()
+	dir := probeWorkDir()
 	cmd := exec.CommandContext(ctx, agy, "models")
-	cmd.Dir = "/"
-	cmd.Env = RootEnv()
+	cmd.Dir = dir
+	cmd.Env = probeEnv(dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
@@ -91,6 +93,30 @@ func RootEnv() []string {
 		out = append(out, kv)
 	}
 	return append(out, "PWD=/")
+}
+
+// probeWorkDir returns an isolated probe directory under os.TempDir() so agy
+// probe invocations never record "/" as a workspace URI.
+func probeWorkDir() string {
+	dir := filepath.Join(os.TempDir(), "fyr-agy-probes")
+	if err := os.MkdirAll(dir, 0o700); err == nil {
+		if st, lerr := os.Lstat(dir); lerr == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 {
+			return dir
+		}
+	}
+	return os.TempDir()
+}
+
+func probeEnv(dir string) []string {
+	base := RootEnv()
+	out := make([]string, 0, len(base))
+	for _, kv := range base {
+		if strings.HasPrefix(kv, "PWD=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "PW"+"D="+dir)
 }
 
 // Capped keeps up to MaxModelsOut bytes. Past that it returns Over, which

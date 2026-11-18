@@ -163,7 +163,7 @@ func scanOneTrajectory(rows *sql.Rows) (SessionTrajectory, error) {
 }
 
 type stepScanner struct {
-	seenReads     map[string]bool
+	seenReads     map[string][][2]int
 	lastBashHash  string
 	toolSteps     int
 	tokIn         int64
@@ -180,7 +180,7 @@ func (s *Store) populateSteps(t *SessionTrajectory) error {
 	if err != nil {
 		return err
 	}
-	sc := stepScanner{seenReads: map[string]bool{}}
+	sc := stepScanner{seenReads: map[string][][2]int{}}
 	for _, st := range steps {
 		sc.observe(st)
 	}
@@ -226,16 +226,14 @@ func (sc *stepScanner) observeTool(st stp) {
 	if st.isErr || st.denied {
 		return
 	}
-	_, base := parseFileHash(st.hash)
+	_, base, start, end := parseFileHashRange(st.hash)
 	if base == "" {
 		return
 	}
 	switch st.tool {
 	case "Read":
-		if sc.seenReads[base] {
+		if recordReadInterval(sc.seenReads, base, start, end) {
 			sc.redundantRead = true
-		} else {
-			sc.seenReads[base] = true
 		}
 	case "Write", "Edit":
 		delete(sc.seenReads, base)

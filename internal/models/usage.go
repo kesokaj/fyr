@@ -128,13 +128,14 @@ func shortQuote(s string) string {
 	return s
 }
 
-// RunUsage executes `agy -p "/usage"` in / with process-group cleanup.
+// RunUsage executes `agy -p "/usage"` in probeWorkDir() with process-group cleanup.
 func RunUsage(run context.Context, agy string) (string, error) {
 	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
 	defer cancel()
+	dir := probeWorkDir()
 	cmd := exec.CommandContext(ctx, agy, "-p", "/usage")
-	cmd.Dir = "/"
-	cmd.Env = RootEnv()
+	cmd.Dir = dir
+	cmd.Env = probeEnv(dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second

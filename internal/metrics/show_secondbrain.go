@@ -168,11 +168,12 @@ func addWaveWorkerCounts(ws *WorkSummary, state, baseCheck, judgeModel, judgeVer
 }
 
 func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) ([]ProjectRow, error) {
+	byID, _, _ := resolveSessionRoots(all)
 	canon := buildRootCanonicalizer(all, vetsByRoot)
 	accs := map[string]*projAcc{}
 	getAcc := func(raw string) *projAcc {
 		r := canon(raw)
-		if r == "" {
+		if r == "" || isProbeBreakdownRoot(r) {
 			return nil
 		}
 		if accs[r] == nil {
@@ -189,14 +190,21 @@ func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) 
 	}
 	parentRoot := map[string]string{}
 	for _, x := range all {
-		if x.root != "" {
-			parentRoot[x.id] = canon(x.root)
+		r := x.root
+		if byID[x.id] != "" {
+			r = byID[x.id]
+		}
+		if r != "" {
+			parentRoot[x.id] = canon(r)
 		}
 	}
 	seen := map[string]bool{}
 	for _, x := range all {
 		root := x.root
-		if root == "" && x.parent != "" {
+		if byID[x.id] != "" {
+			root = byID[x.id]
+		}
+		if (root == "" || isAgyWorktreePath(root)) && x.parent != "" {
 			root = parentRoot[x.parent]
 		}
 		p := getAcc(root)
@@ -211,35 +219,64 @@ func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) 
 }
 
 func buildRootCanonicalizer(all []sess, vetsByRoot map[string]*projVetAcc) func(string) string {
+	byID, wtMap, _ := resolveSessionRoots(all)
 	set := map[string]bool{}
 	for _, x := range all {
-		if x.parent == "" && strings.TrimSpace(x.root) != "" {
-			set[filepath.Clean(x.root)] = true
+		r := strings.TrimSpace(x.root)
+		if byID[x.id] != "" {
+			r = byID[x.id]
+		}
+		if x.parent == "" && r != "" {
+			clean := filepath.Clean(r)
+			if !isNonCollapsibleRoot(clean) && !isAgyWorktreePath(clean) {
+				set[clean] = true
+			}
 		}
 	}
 	for r := range vetsByRoot {
 		if strings.TrimSpace(r) != "" {
-			set[filepath.Clean(r)] = true
+			clean := filepath.Clean(r)
+			if !isNonCollapsibleRoot(clean) && !isAgyWorktreePath(clean) {
+				set[clean] = true
+			}
 		}
 	}
+	roots := sortedRootPrefixes(set)
+	return func(raw string) string {
+		return canonicalizeProjectRoot(raw, roots, wtMap, byID)
+	}
+}
+
+func sortedRootPrefixes(set map[string]bool) []string {
 	roots := make([]string, 0, len(set))
 	for r := range set {
 		roots = append(roots, r)
 	}
 	sort.Slice(roots, func(i, j int) bool { return len(roots[i]) < len(roots[j]) })
-	return func(raw string) string {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return ""
-		}
-		clean := filepath.Clean(raw)
-		for _, r := range roots {
-			if clean == r || strings.HasPrefix(clean, r+"/") {
-				return r
-			}
-		}
-		return clean
+	return roots
+}
+
+func canonicalizeProjectRoot(raw string, roots []string, wtMap, byID map[string]string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
+	clean := filepath.Clean(raw)
+	if mapped := wtMap[clean]; mapped != "" {
+		clean = mapped
+	} else if main, ok := resolveGitWorktreeOnDisk(clean); ok {
+		clean = main
+	} else if isAgyWorktreePath(clean) {
+		if fb := resolveFallbackRoot("", clean, "", byID, nil, roots); fb != "" {
+			clean = fb
+		}
+	}
+	for _, r := range roots {
+		if clean == r || strings.HasPrefix(clean, r+"/") {
+			return r
+		}
+	}
+	return clean
 }
 
 func (s *Store) accumulateProjectSession(p *projAcc, x sess, seen map[string]bool) error {

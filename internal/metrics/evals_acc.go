@@ -126,14 +126,16 @@ func (a *rowAcc) addSession(start, end int64, steps []stp) {
 		case st.kind == "tool" && st.tool != "":
 			a.tools++
 			seq = append(seq, st.tool)
-			if st.isErr {
+			if st.isErr && !st.denied {
 				a.errs++
 			}
-			if st.hash != "" && st.hash == lastHash {
-				a.retries++
-			}
 			if st.tool == "Bash" {
+				if st.hash != "" && st.hash == lastHash {
+					a.retries++
+				}
 				lastHash = st.hash
+			} else {
+				lastHash = ""
 			}
 		}
 	}
