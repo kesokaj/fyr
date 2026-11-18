@@ -188,3 +188,45 @@ func TestSpoofedWorkerMarkersStayDecomposedAndRouted(t *testing.T) {
 		}
 	}
 }
+
+func TestDecomposeSkipsReadOnlyAndPackageLookup(t *testing.T) {
+	skipCases := []struct {
+		name   string
+		prompt string
+	}{
+		{"do not edit any file", "1. Inspect internal/a/a.go 2. Inspect internal/b/b.go; do not edit any file"},
+		{"don't edit files", "Inspect internal/a/a.go and internal/b/b.go; don't edit files"},
+		{"without editing anything", "Trace Store across internal/a/a.go and internal/b/b.go without editing anything"},
+		{"do not modify files", "Inspect internal/a/a.go and internal/b/b.go; do not modify files"},
+		{"don't modify standalone", "Inspect internal/a/a.go and internal/b/b.go; don't modify"},
+		{"change nothing", "1. Read internal/a/a.go 2. Read internal/b/b.go; change nothing"},
+		{"explorer lookup", "Find callers of Store across internal/a/a.go and internal/b/b.go"},
+		{"trace lookup", "Trace references of Handle across internal/a/a.go and internal/b/b.go"},
+		{"where is lookup", "Where is Store defined across internal/a/a.go and internal/b/b.go"},
+		{"check callers lookup", "Check callers of Store across internal/a/a.go and internal/b/b.go"},
+	}
+	for _, tc := range skipCases {
+		if got := DecomposeSubtasks(tc.prompt, IntentTask, SliceResult{}, nil, nil); len(got) != 0 {
+			t.Errorf("%s: DecomposeSubtasks returned %d slices, want 0: %+v", tc.name, len(got), got)
+		}
+	}
+
+	keepCases := []struct {
+		name   string
+		prompt string
+	}{
+		{"lookup cue with edit verb", "Update callers of Store across internal/a/a.go and internal/b/b.go"},
+		{"fix with search domain noun", "Fix search ranking across internal/a/a.go and internal/b/b.go"},
+		{"implement with trace domain noun", "Implement trace logging across internal/a/a.go and internal/b/b.go"},
+		{"scoped do not edit exclusion", "1. Fix parser in internal/search/vet.go 2. Update store in internal/metrics/store.go; do not edit PRD.md"},
+		{"scoped without editing exclusion", "Update internal/a/a.go and internal/b/b.go without editing tests"},
+		{"multi-clause mixed fix and find", "1. Fix parser in internal/search/vet.go 2. Find callers of Handle"},
+	}
+	for _, tc := range keepCases {
+		got := DecomposeSubtasks(tc.prompt, "", SliceResult{}, nil, nil)
+		if len(got) < 2 {
+			t.Errorf("%s: DecomposeSubtasks returned %d slices, want >= 2: %+v", tc.name, len(got), got)
+		}
+		assertDisjointSubtaskFiles(t, got)
+	}
+}

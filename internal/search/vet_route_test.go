@@ -320,3 +320,61 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Errorf("expected enrichment.improvedPrompt with [VET_IMPROVED_PROMPT], got %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
 	}
 }
+
+func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testing.T) {
+	// (a) Read-only multi-package lookup with "do not edit" and phase/wave prose must not decompose
+	// into COORDINATE_SUBTASKS / /fyr-swarm and must keep "fyr search --slice".
+	readOnlyPrompt := "Find all callers and references of BannerFormatter.Format across internal/greet and internal/format in this repository: run fyr search --affected or --slice first (never grep), state each caller's path:start-end (Symbol) citation, and state which fyr command picks a live model for a builder role and which fyr workflow runs 2+ independent phases in waves. Do not edit any file and do not ask me anything."
+	readOnlySlice := SliceResult{
+		Files:      []string{"internal/greet/greet.go", "internal/format/format.go"},
+		SymbolHits: 2,
+	}
+	if subtasks := DecomposeSubtasks(readOnlyPrompt, IntentTask, readOnlySlice, nil, nil); len(subtasks) != 0 {
+		t.Errorf("(a) DecomposeSubtasks returned %d subtasks, want 0: %+v", len(subtasks), subtasks)
+	}
+	resA := VetPrompt(readOnlyPrompt, "", readOnlySlice, TurnBrainContext{})
+	if got := preInvocationDirective(resA); got == "COORDINATE_SUBTASKS" {
+		t.Errorf("(a) preInvocationDirective = %q, want != COORDINATE_SUBTASKS", got)
+	}
+	bannerA := parseFencedJSONBanner(t, resA.TurnContract)
+	if bannerA.Directive == "COORDINATE_SUBTASKS" {
+		t.Errorf("(a) banner.Directive = %q, want != COORDINATE_SUBTASKS", bannerA.Directive)
+	}
+	if bannerA.Route != "fyr search --slice" {
+		t.Errorf("(a) banner.Route = %q, want %q", bannerA.Route, "fyr search --slice")
+	}
+
+	// (b) Single-clause multi-package lookup without "do not edit" must not split into subtasks
+	// and keeps "fyr search --slice".
+	lookupPrompt := "Find callers of Store across internal/a/a.go and internal/b/b.go"
+	if subtasks := DecomposeSubtasks(lookupPrompt, IntentTask, SliceResult{}, nil, nil); len(subtasks) != 0 {
+		t.Errorf("(b) DecomposeSubtasks returned %d subtasks, want 0: %+v", len(subtasks), subtasks)
+	}
+	if got := RouteFeature(lookupPrompt, IntentTask, nil); got != "fyr search --slice" {
+		t.Errorf("(b) RouteFeature = %q, want %q", got, "fyr search --slice")
+	}
+	resB := VetPrompt(lookupPrompt, "", SliceResult{Files: []string{"internal/a/a.go", "internal/b/b.go"}, SymbolHits: 1}, TurnBrainContext{})
+	if got := preInvocationDirective(resB); got == "COORDINATE_SUBTASKS" {
+		t.Errorf("(b) VetPrompt preInvocationDirective = %q, want != COORDINATE_SUBTASKS", got)
+	}
+	if bannerB := parseFencedJSONBanner(t, resB.TurnContract); bannerB.Route != "fyr search --slice" {
+		t.Errorf("(b) VetPrompt banner.Route = %q, want %q", bannerB.Route, "fyr search --slice")
+	}
+
+	// (c) Multi-clause numbered mixed prompt must still decompose into >= 2 slices and keep COORDINATE_SUBTASKS.
+	mixedPrompt := "1. Fix parser in internal/search/vet.go 2. Find callers of Handle"
+	mixedSubtasks := DecomposeSubtasks(mixedPrompt, "", SliceResult{}, nil, nil)
+	if len(mixedSubtasks) < 2 {
+		t.Fatalf("(c) DecomposeSubtasks returned %d slices, want >= 2: %+v", len(mixedSubtasks), mixedSubtasks)
+	}
+	resC := VetPrompt(mixedPrompt, "", SliceResult{}, TurnBrainContext{})
+	if len(resC.Subtasks) < 2 {
+		t.Fatalf("(c) VetPrompt Subtasks len = %d, want >= 2: %+v", len(resC.Subtasks), resC.Subtasks)
+	}
+	if got := preInvocationDirective(resC); got != "COORDINATE_SUBTASKS" {
+		t.Errorf("(c) preInvocationDirective = %q, want COORDINATE_SUBTASKS", got)
+	}
+	if bannerC := parseFencedJSONBanner(t, resC.TurnContract); bannerC.Directive != "COORDINATE_SUBTASKS" {
+		t.Errorf("(c) banner.Directive = %q, want COORDINATE_SUBTASKS", bannerC.Directive)
+	}
+}

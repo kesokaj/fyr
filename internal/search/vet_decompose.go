@@ -22,7 +22,15 @@ type SubtaskSlice struct {
 	Verify string   `json:"verify,omitempty"`
 }
 
-var numberedMarkerRe = regexp.MustCompile(`(?:^|[\s:;])(?:\((\d+)\)|(\d+)[.)])\s+`)
+var (
+	numberedMarkerRe  = regexp.MustCompile(`(?:^|[\s:;])(?:\((\d+)\)|(\d+)[.)])\s+`)
+	blanketReadOnlyRe = regexp.MustCompile(
+		`\b(?:(?:do not|don't)\s+(?:edit|modify)|without\s+editing)\s+(?:anything\b|files\b|any\s+files?\b|any(?:\s*(?:$|[.,;!?:)]|\band\b)))` +
+			`|\b(?:do not|don't)\s+(?:edit|modify)\s*(?:$|[.,;!?:)]|\band\b)` +
+			`|\bwithout\s+editing\s*(?:$|[.,;!?:)])` +
+			`|\b(?:change|edit|modify)\s+nothing\b`,
+	)
+)
 
 func stripAnySandboxPreamble(prompt string) string {
 	s := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
@@ -148,10 +156,14 @@ func dedupKnownFiles(raw []string) []string {
 	return out
 }
 
+func isBlanketReadOnlyPrompt(low string) bool {
+	return blanketReadOnlyRe.MatchString(low)
+}
+
 func shouldSkipDecompose(trimmed string, intent IntentMode, symbolHits int) bool {
 	low := strings.ToLower(trimmed)
 	if trimmed == "" || strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "/") ||
-		strings.HasPrefix(low, "run /") || isWorkerBriefPrompt(trimmed) {
+		strings.HasPrefix(low, "run /") || isWorkerBriefPrompt(trimmed) || isBlanketReadOnlyPrompt(low) {
 		return true
 	}
 	if intent == "" {
@@ -350,8 +362,15 @@ func parseCapsuleLinePathSym(line string) (string, string) {
 	return normalizeSlashPath(spec[:colon]), strings.TrimSpace(sym)
 }
 
+func hasDecomposeEditVerb(trimmed string) bool {
+	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+trimmed+" ", " "))
+	return containsAnyWord(stripped, "implement", "fix", "add", "update", "refactor", "replace", "remove", "delete", "rename", "migrate", "write", "build", "create", "change", "modify")
+}
+
 func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, knownFiles []string, catalog []SkillMeta) []SubtaskSlice {
-	if !hasCodeOrDirTarget(knownFiles) {
+	low := strings.ToLower(trimmed)
+	isReadOnlyLookup := !hasDecomposeEditVerb(trimmed) && (inferClauseRole(trimmed, knownFiles) == "explorer" || hasLookupCues(low))
+	if !hasCodeOrDirTarget(knownFiles) || isReadOnlyLookup {
 		return nil
 	}
 	groups, order := groupFilesByPkg(knownFiles, slice.Capsule)
