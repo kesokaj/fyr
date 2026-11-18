@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -237,27 +238,65 @@ type redaction struct {
 	Unterminated bool
 }
 
+func blockOpenStart(raw string, jsonl bool) (string, []int) {
+	line := strings.TrimSuffix(raw, "\n")
+	if open := blockOpen.FindStringIndex(line); open != nil || !jsonl {
+		return line, open
+	}
+	line = decoded(line)
+	return line, blockOpen.FindStringIndex(line)
+}
+
+func decodedBlockClose(raw string, first bool) (string, int, []int) {
+	dec := decoded(strings.TrimSuffix(raw, "\n"))
+	off := 0
+	if first {
+		open := blockOpen.FindStringIndex(dec)
+		if open == nil {
+			return "", 0, nil
+		}
+		off = open[1]
+	}
+	loc := blockClose.FindStringIndex(dec[off:])
+	if loc == nil {
+		return "", 0, nil
+	}
+	return dec, off, loc
+}
+
 // blockEnd returns the index of the line that closes the key block opened on
 // line i, or the last non-empty line and false when nothing closes it.
-func blockEnd(lines []string, i int) (int, bool) {
-	open := blockOpen.FindStringIndex(lines[i])
-	j, off, opened, label := i, open[1], i, labelAt(lines[i][open[0]:])
+func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
+	openLine, open := blockOpenStart(lines[i], jsonl)
+	if open == nil {
+		return i, false
+	}
+	j, off, opened, label := i, open[1], i, labelAt(openLine[open[0]:])
+	cur, isDecoded := openLine, openLine != strings.TrimSuffix(lines[i], "\n")
 	for j < len(lines) {
-		loc := blockClose.FindStringIndex(lines[j][off:])
+		loc := blockClose.FindStringIndex(cur[off:])
+		if loc == nil && jsonl && !isDecoded {
+			if dec, dOff, dLoc := decodedBlockClose(lines[j], j == i); dLoc != nil {
+				cur, off, loc, isDecoded = dec, dOff, dLoc, true
+			}
+		}
 		if loc == nil {
-			j, off = j+1, 0
+			j++
+			if j < len(lines) {
+				cur, off, isDecoded = lines[j], 0, false
+			}
 			continue
 		}
 		after := off + loc[1]
 		// On the line its header opened, a block closes only at a footer naming
 		// that header's label: a line that merely mentions a footer ("... up to
 		// -----END below") would otherwise close it above the key body (D14).
-		if j == opened && label != "" && !strings.Contains(lines[j][off+loc[0]:after], label) {
+		if j == opened && label != "" && !strings.Contains(cur[off+loc[0]:after], label) {
 			off = after
 			continue
 		}
-		if next := blockOpen.FindStringIndex(lines[j][after:]); next != nil {
-			opened, label = j, labelAt(lines[j][after+next[0]:])
+		if next := blockOpen.FindStringIndex(cur[after:]); next != nil {
+			opened, label = j, labelAt(cur[after+next[0]:])
 			off = after + next[1]
 			continue
 		}
@@ -294,8 +333,12 @@ func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
 			continue
 		}
 		body := strings.TrimSuffix(raw, "\n")
-		if blockOpen.MatchString(body) {
-			end, closed := blockEnd(lines, i)
+		var dec string
+		if jsonl && !blockOpen.MatchString(body) {
+			dec = decoded(body)
+		}
+		if blockOpen.MatchString(body) || (jsonl && blockOpen.MatchString(dec)) {
+			end, closed := blockEnd(lines, i, jsonl)
 			rec := redaction{Line: i + 1, Pattern: beginNeedle, Lines: end - i + 1, Unterminated: !closed}
 			last := lines[end]
 			out.WriteString(marker(fmt.Sprintf("[redacted by fyr: %d lines]", rec.Lines), jsonl))
@@ -306,7 +349,7 @@ func redactLines(data []byte, jsonl bool) ([]byte, []redaction) {
 		}
 		n, ok := needleIn(body)
 		if !ok && jsonl {
-			n, ok = needleIn(decoded(body))
+			n, ok = needleIn(dec)
 		}
 		if ok {
 			out.WriteString(marker(redactedValue, jsonl) + raw[len(body):])
@@ -345,12 +388,51 @@ func RedactJSONL(text string) string {
 func decoded(line string) string {
 	dec := json.NewDecoder(strings.NewReader(line))
 	dec.UseNumber()
-	var b strings.Builder
+	var b, raw strings.Builder
 	for {
 		var v any
 		if dec.Decode(&v) != nil {
-			return b.String()
+			if raw.Len() == 0 {
+				return b.String()
+			}
+			return b.String() + "\n,\n" + raw.String()
 		}
-		fmt.Fprintln(&b, v)
+		writeDecoded(&b, v)
+		b.WriteByte('\n')
+		fmt.Fprintln(&raw, v)
+	}
+}
+
+func writeDecoded(b *strings.Builder, v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		b.WriteString("map[")
+		for _, k := range keys {
+			val := x[k]
+			if s, ok := val.(string); ok {
+				fmt.Fprintf(b, "%s:%q ", k, s)
+				continue
+			}
+			fmt.Fprintf(b, "%s:", k)
+			writeDecoded(b, val)
+			b.WriteByte(' ')
+		}
+		b.WriteByte(']')
+	case []any:
+		b.WriteByte('[')
+		for i, elem := range x {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			writeDecoded(b, elem)
+		}
+		b.WriteByte(']')
+	default:
+		fmt.Fprint(b, v)
 	}
 }

@@ -196,7 +196,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 	if err != nil {
 		return r.applyFail(runnerWhy, k.Branch, err.Error())
 	}
-	if err := r.verifyWorktree(wtDir, runner, tests); err != nil {
+	if err := r.verifyWorktree(root, wtDir, k.Name, runner, tests); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, err.Error())
 	}
 	if !r.again(root) {
@@ -254,9 +254,20 @@ func commitOneLine(t Task, res isolate.WorkerResult) string {
 
 func shortSHA(sha string) string { return sha[:min(len(sha), 7)] }
 
-func (r *run) verifyWorktree(wtDir, runner string, tests []string) error {
+func (r *run) verifyWorktree(root, wtDir, name, runner string, tests []string) error {
+	wtTestDir := filepath.Join(dir(r.o.Home), "wt-test-"+name)
+	if r.o.TestRunner == nil {
+		_ = os.RemoveAll(wtTestDir)
+		for _, sub := range []string{"home", "tmp"} {
+			if err := os.MkdirAll(filepath.Join(wtTestDir, sub), 0o700); err != nil {
+				return fmt.Errorf("marked test scratch dir: %w", err)
+			}
+		}
+		defer os.RemoveAll(wtTestDir)
+	}
+	runTest := r.o.testRunner(root, wtTestDir)
 	for _, cmdLine := range tests {
-		if err := r.o.testRunner()(wtDir, runner, cmdLine); err != nil {
+		if err := runTest(wtDir, runner, cmdLine); err != nil {
 			return fmt.Errorf("marked test %q: %w", cmdLine, err)
 		}
 	}

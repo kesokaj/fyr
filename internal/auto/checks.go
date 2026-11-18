@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -238,7 +239,7 @@ func (r *run) machineFindings() (fs []Finding, failed bool) {
 	text, err := r.usage()
 	if err == nil {
 		var pools []Pool
-		if pools, err = parseUsage(text); err == nil {
+		if pools, err = models.ParseUsage(text); err == nil {
 			r.st.Budget = budgetLine(pools)
 			r.say(r.st.Budget)
 		}

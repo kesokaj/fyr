@@ -348,6 +348,7 @@ func TestIsolatePackageDeps(t *testing.T) {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
+		// Keep retired internal/sandbox and internal/work alongside active packages so none is reintroduced.
 		for _, forbidden := range []string{"modernc.org/sqlite", "internal/sandbox", "internal/work", "internal/brain", "internal/search", "internal/metrics"} {
 			if strings.Contains(line, forbidden) {
 				t.Errorf("internal/isolate imports forbidden dependency %q (%s)", forbidden, line)

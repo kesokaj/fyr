@@ -278,14 +278,14 @@ func (r *run) readProject(root string) projectRead {
 	if root == search.GlobalWorkspace {
 		return projectRead{}
 	}
-	o, dry := r.o, r.dry
+	o, dry, readFn := r.o, r.dry, readable
 	got, err := limited(o.limit(projectLimit), func() ([]projectRead, error) {
 		if _, _, rerr := trail.Roots(root); errors.Is(rerr, trail.ErrNotCheckout) {
 			return []projectRead{{}}, nil
 		} else if rerr != nil {
 			return []projectRead{{stop: "skipped: " + oneLine(rerr.Error())}}, nil
 		}
-		if !readable(root) {
+		if !readFn(root) {
 			return []projectRead{{stop: "skipped: a partial clone this git cannot read safely"}}, nil
 		}
 		var read projectRead

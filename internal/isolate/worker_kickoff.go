@@ -53,11 +53,6 @@ func ParseKickoff(path string) (Kickoff, error) {
 	return parseKickoff(path, false)
 }
 
-// ParseAutoKickoff reads path as an auto worker Kickoff, allowing empty Files: scopes.
-func ParseAutoKickoff(path string) (Kickoff, error) {
-	return parseKickoff(path, true)
-}
-
 func parseKickoff(path string, auto bool) (Kickoff, error) {
 	k := Kickoff{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
 	f, err := OpenRegular(path, os.O_RDONLY)
@@ -237,7 +232,7 @@ var (
 	capsuleHeaderRe = regexp.MustCompile(`^\[Hop [01]\] ([^:\s]+):(\d+)-(\d+) `)
 	// DefaultSliceFunc and DefaultPreseedFunc are optional hooks registered by
 	// callers that link internal/search so ParseKickoff attaches structural
-	// capsules without internal/work importing modernc.org/sqlite (ADR-063).
+	// capsules without internal/isolate importing modernc.org/sqlite (ADR-063).
 	DefaultSliceFunc   func(dir, query string, budget int) (string, error)
 	DefaultPreseedFunc func(dir string, pivots []CapsulePivot) error
 )

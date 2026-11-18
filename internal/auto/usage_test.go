@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 func TestUsageCapture(t *testing.T) {
@@ -12,11 +14,11 @@ func TestUsageCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pools, err := parseUsage(string(data))
+	pools, err := models.ParseUsage(string(data))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Pool{{"Gemini Models", 88, 71}, {"Claude and GPT models", disabled, 0}}
+	want := []Pool{{Name: "Gemini Models", Five: 88, Week: 71}, {Name: "Claude and GPT models", Five: disabled, Week: 0}}
 	if len(pools) != 2 || pools[0] != want[0] || pools[1] != want[1] {
 		t.Errorf("%+v", pools)
 	}
@@ -47,7 +49,7 @@ func TestUsageRefusals(t *testing.T) {
 	}
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) {
-			if p, err := parseUsage(text); err == nil {
+			if p, err := models.ParseUsage(text); err == nil {
 				t.Errorf("parsed: %+v", p)
 			}
 		})
@@ -73,10 +75,10 @@ func TestUsageQuotesAreBounded(t *testing.T) {
 
 func TestUsagePoolCountIsBounded(t *testing.T) {
 	var b strings.Builder
-	for i := range poolsLimit + 1 {
+	for i := range 17 {
 		b.WriteString(strings.ReplaceAll(usageText("90%", "90%"), "P\t", "P"+strconv.Itoa(i)+"\t"))
 	}
-	if _, err := parseUsage(b.String()); err == nil {
+	if _, err := models.ParseUsage(b.String()); err == nil {
 		t.Error("parsed")
 	}
 }

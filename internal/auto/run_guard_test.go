@@ -41,8 +41,9 @@ func TestGatePartialCloneIsNotRead(t *testing.T) {
 // `readable` runs git, so a hostile config can hang it as it can any read.
 func TestGateHungReadableIsLeftBehind(t *testing.T) {
 	release := make(chan struct{})
-	readable = func(string) bool { <-release; return true }
+	t.Cleanup(func() { readable = trail.Readable })
 	t.Cleanup(func() { close(release) })
+	readable = func(string) bool { <-release; return true }
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	var out bytes.Buffer
@@ -97,6 +98,7 @@ func TestGateHungReadIsLeftBehind(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	release := make(chan struct{})
+	t.Cleanup(func() { readable = trail.Readable })
 	t.Cleanup(func() { close(release) })
 	first, second := idleProject(t), idleProject(t)
 	readable = func(root string) bool {
@@ -105,7 +107,6 @@ func TestGateHungReadIsLeftBehind(t *testing.T) {
 		}
 		return true
 	}
-	t.Cleanup(func() { readable = trail.Readable })
 	e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
 	var out bytes.Buffer
 	o := runOpts(home, &out)

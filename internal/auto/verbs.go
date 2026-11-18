@@ -1,13 +1,16 @@
 package auto
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
@@ -65,29 +68,74 @@ type Options struct {
 	AgyVersion func() string
 }
 
-func (o Options) testRunner() func(wtDir, runner, cmdLine string) error {
+func (o Options) testRunner(root, wtTestDir string) func(wtDir, runner, cmdLine string) error {
 	if o.TestRunner != nil {
 		return o.TestRunner
 	}
 	return func(wtDir, runner, cmdLine string) error {
-		return runMarkedTest(wtDir, runner, cmdLine, o.limit(workerTimeout))
+		return runMarkedTest(o, root, wtDir, wtTestDir, runner, cmdLine)
 	}
 }
 
-func runMarkedTest(wtDir, _ /* runner */, cmdLine string, timeout time.Duration) error {
-	return runShellTest(wtDir, cmdLine, timeout)
+func runMarkedTest(o Options, root, wtDir, wtTestDir, _ /* runner */, cmdLine string) error {
+	var ro []string
+	if root != "" {
+		ro = append(ro, filepath.Join(root, ".git"))
+	}
+	ro = append(ro, o.TestRO...)
+	opts := isolate.CommandOpts{
+		Dir:         wtDir,
+		ScratchHome: filepath.Join(wtTestDir, "home"),
+		TmpDir:      filepath.Join(wtTestDir, "tmp"),
+		RealHome:    o.realHome(),
+		Argv:        []string{"bash", "-c", cmdLine},
+		ROPaths:     ro,
+		RWPaths:     o.TestRW,
+		Unconfined:  o.TestUnconfined,
+	}
+	return runShellTest(opts, o.limit(workerTimeout))
 }
 
-func runShellTest(wtDir, cmdLine string, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "bash", "-c", cmdLine)
-	cmd.Dir = wtDir
-	cmd.Env = append(isolate.WithoutGit(os.Environ()), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%v: %s", err, oneLine(string(out)))
+func runShellTest(opts isolate.CommandOpts, timeout time.Duration) error {
+	cmd, cleanup, err := isolate.Command(opts)
+	if err != nil {
+		return err
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	} else {
+		cmd.SysProcAttr.Setsid = true
+	}
+	cmd.WaitDelay = time.Second
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		cleanup()
+		return err
+	}
+	cleanup()
+	if err := waitShellTest(cmd, timeout); err != nil {
+		return fmt.Errorf("%v: %s", err, oneLine(out.String()))
 	}
 	return nil
+}
+
+func waitShellTest(cmd *exec.Cmd, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-timer.C:
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		err := <-done
+		if err == nil {
+			return fmt.Errorf("timed out after %s", timeout)
+		}
+		return err
+	}
 }
 
 func (o Options) realHome() string {

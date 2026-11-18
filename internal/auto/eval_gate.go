@@ -281,14 +281,18 @@ func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runner
 	}
 	// D19 item 3: auto never installs into a real home; the report says install pending.
 	r.installPending = true
+	warn := ""
 	if t.ID != "" {
 		status := "applied:" + r.appliedSHA
-		_ = brain.Edit(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.EditInput{ID: t.ID, Status: &status})
+		if err := brain.Edit(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.EditInput{ID: t.ID, Status: &status}); err != nil {
+			warn = "; warning: proposal " + t.ID + " update failed: " + oneLine(err.Error())
+		}
 	}
-	v += "; install pending"
+	suffix := "; install pending" + warn
+	v += suffix
 	for i := range af {
 		if af[i].Check == "worker" {
-			af[i].Text += "; install pending"
+			af[i].Text += suffix
 		}
 	}
 	return v, append(gateFindings, af...)

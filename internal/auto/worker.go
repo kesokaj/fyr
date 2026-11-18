@@ -180,16 +180,15 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	if slices.Contains(res.Reasons, isolate.ReasonRealConfig) || configTampered(r.o.Home, cfgBefore, cfgErr) {
-		disableConfig(r.o.Home, r.cfg)
-		_ = saveState(r.o.Home, r.st)
-		r.failed, r.halted = true, true
-		msg := withRunner("auto disabled: its config changed during a run", runnerWhy)
-		return "auto disabled: its config changed during a run", []Finding{{"worker", "config-changed", k.Branch, msg}}
+		return r.handleConfigTamper(k.Branch, runnerWhy)
 	}
 	if gotHash, err := fileSHA256(filepath.Join(dir(r.o.Home), "runs.json")); err != nil || gotHash != stateHash {
-		_ = saveState(r.o.Home, r.st)
+		detail := "runs.json changed during the run"
+		if err := saveState(r.o.Home, r.st); err != nil {
+			detail += "; warning: could not restore state: " + oneLine(err.Error())
+		}
 		r.failed = true
-		msg := withRunner("FAIL (runs.json changed during the run); branch "+k.Branch+" kept", runnerWhy)
+		msg := withRunner("FAIL ("+detail+"); branch "+k.Branch+" kept", runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
 	if runErr != nil || res.Verdict != "PASS" {
@@ -326,12 +325,28 @@ func configTampered(home string, before []byte, beforeErr error) bool {
 	return !bytes.Equal(before, after)
 }
 
-func disableConfig(home string, c Config) {
+func (r *run) handleConfigTamper(branch, runnerWhy string) (string, []Finding) {
+	var warns []string
+	if err := disableConfig(r.o.Home, r.cfg); err != nil {
+		warns = append(warns, "could not disable config: "+oneLine(err.Error()))
+	}
+	if err := saveState(r.o.Home, r.st); err != nil {
+		warns = append(warns, "could not save state: "+oneLine(err.Error()))
+	}
+	r.failed, r.halted = true, true
+	base := "auto disabled: its config changed during a run"
+	if len(warns) > 0 {
+		base += " (warning: " + strings.Join(warns, "; ") + ")"
+	}
+	return base, []Finding{{"worker", "config-changed", branch, withRunner(base, runnerWhy)}}
+}
+
+func disableConfig(home string, c Config) error {
 	if c.ConversationIdle == "" {
 		c = defaults()
 	}
 	c.Enabled = false
-	_ = save(home, c)
+	return save(home, c)
 }
 
 func fileSHA256(path string) (string, error) {

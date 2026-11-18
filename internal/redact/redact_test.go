@@ -407,3 +407,32 @@ func TestRedactText(t *testing.T) {
 		t.Errorf("clean text changed: %q", got)
 	}
 }
+
+func TestRedactJSONLEscapedKeyAndPEM(t *testing.T) {
+	escapedKey := `{"pass` + `\u0077ord": "my ` + `pass"}` + "\n"
+	outKey, recsKey := redactLines([]byte(escapedKey), true)
+	if len(recsKey) != 1 || strings.Contains(string(outKey), "my "+"pass") {
+		t.Errorf("escaped key multi-word value leaked: out=%q recs=%+v", outKey, recsKey)
+	}
+
+	escapedPEM := `{"k": "-----BE` + `GIN \u0052SA PRI` + `VATE KEY-----\nabc"}` + "\n"
+	outPEM, recsPEM := redactLines([]byte(escapedPEM), true)
+	if len(recsPEM) != 1 || strings.Contains(string(outPEM), "abc") {
+		t.Errorf("escaped PEM leaked: out=%q recs=%+v", outPEM, recsPEM)
+	}
+
+	escapedAllPEM := `{"k": "\u002d----BE` + `GIN \u0052SA \u0050RIVATE KEY-----\nabc"}` + "\n"
+	outAllPEM, recsAllPEM := redactLines([]byte(escapedAllPEM), true)
+	if len(recsAllPEM) != 1 || recsAllPEM[0].Pattern != beginNeedle || strings.Contains(string(outAllPEM), "abc") {
+		t.Errorf("fully escaped PEM leaked: out=%q recs=%+v", outAllPEM, recsAllPEM)
+	}
+
+	escapedDashMulti := `{"k": "\u002d----BE` + `GIN \u0052SA PRI` + `VATE KEY-----"}` + "\n" +
+		"FAKEBODY\n" +
+		"-----E" + "ND RSA PRI" + "VATE KEY-----\n" +
+		`{"ok":"after"}` + "\n"
+	outMulti, recsMulti := redactLines([]byte(escapedDashMulti), true)
+	if len(recsMulti) != 1 || strings.Contains(string(outMulti), "FAKEBODY") || !strings.Contains(string(outMulti), `"after"`) {
+		t.Errorf("escaped multiline PEM leaked or over-redacted: out=%q recs=%+v", outMulti, recsMulti)
+	}
+}

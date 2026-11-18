@@ -53,16 +53,6 @@ func ResolveEvalRunner(r string) (string, error) {
 	return RunnerIsolate, nil
 }
 
-// CheckRunner validates --runner for workers (`auto`, `isolate`, or empty).
-func CheckRunner(r string) error {
-	switch r {
-	case "", RunnerAuto, RunnerIsolate:
-		return nil
-	default:
-		return fmt.Errorf("--runner %q: want auto or isolate", r)
-	}
-}
-
 // CheckAvailable reports whether the current OS supports fail-closed sandbox confinement.
 func CheckAvailable() error {
 	return checkOSAvailable()

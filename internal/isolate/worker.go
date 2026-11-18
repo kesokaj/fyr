@@ -108,19 +108,6 @@ type worker struct {
 // SandboxRoot returns `<home>/.config/fyr/sandbox/<project>`.
 func SandboxRoot(home, root string) string { return ProjectRoot(home, "sandbox", root) }
 
-// RunnerLabel formats the runner and selection reason for status output.
-func RunnerLabel(_, reason string) string {
-	runner := RunnerIsolate
-	r := strings.TrimSpace(reason)
-	if r == "" || r == runner {
-		return "runner " + runner
-	}
-	if strings.HasPrefix(r, runner+" (") && strings.HasSuffix(r, ")") {
-		return "runner " + r
-	}
-	return fmt.Sprintf("runner %s (%s)", runner, r)
-}
-
 // RunWorker executes one or more Kickoff files in isolated worker sandboxes.
 func RunWorker(ctx context.Context, o WorkerOptions, files ...string) ([]WorkerResult, error) {
 	if err := initWorkerOptions(&o, files); err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestReadCheckoutSuiteTrackedFirst: the auto gate reads the suite `fyr eval`
@@ -71,5 +72,39 @@ func TestEvalFixtureTrackedSuite(t *testing.T) {
 	o.EvalFixture = "/explicit"
 	if got := o.evalFixture(root); got != "/explicit" {
 		t.Errorf("explicit: evalFixture = %q, want /explicit", got)
+	}
+}
+
+func TestApplyKeptGateBranchReportsBrainEditWarning(t *testing.T) {
+	home := t.TempDir()
+	root := idleProject(t)
+	r := &run{
+		o: Options{
+			Home: home,
+			Apply: func(string, string, string) (bool, error) {
+				return true, nil
+			},
+		},
+	}
+	// Make a dummy branch to delete inside applyWithHook.
+	git(t, root, "branch", "work/gate-warn")
+	verdict, findings := r.applyKeptGateBranch(
+		root,
+		Task{ID: "PROPOSAL-nonexistent", Class: ClassHarnessEdit},
+		Kickoff{Name: "gate-warn", Branch: "work/gate-warn"},
+		isolate.RunnerIsolate,
+		isolate.RunnerIsolate,
+		checkoutSnapshot{},
+		nil,
+		isolate.WorkerResult{},
+		nil,
+		0,
+		nil,
+	)
+	if !strings.Contains(verdict, "; install pending; warning: proposal PROPOSAL-nonexistent update failed:") {
+		t.Errorf("verdict missing warning: %q", verdict)
+	}
+	if len(findings) != 1 || !strings.Contains(findings[0].Text, "; warning: proposal PROPOSAL-nonexistent update failed:") {
+		t.Errorf("finding missing warning: %+v", findings)
 	}
 }
