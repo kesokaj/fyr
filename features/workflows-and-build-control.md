@@ -28,9 +28,9 @@ sequenceDiagram
     participant Land as fyr land
     participant WT as Detached Scratch Worktree
     participant Brain as ~/.config/fyr/brain.db
-    Lead->>Gate: fyr gate <worktree> --lease <glob>
+    Lead->>Gate: fyr gate --lease <glob> <worktree>
     Gate-->>Lead: PASS (lease, modes, numstat, secrets, zero trailers)
-    Lead->>Land: fyr land <branch> --message <text>
+    Lead->>Land: fyr land --message <text> <branch>
     Land->>WT: squash-merge onto base HEAD
     Land->>WT: run fyr verify (gofmt, go vet, go test -race, fyr check)
     WT-->>Land: PASS
@@ -112,6 +112,8 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 </details>
 
 ## Next steps
+
+Review the full engineering lifecycle, inspect live model picks, or check telemetry reports:
 
 - Read the [Workflow Guide](../Workflow.md) for the complete end-to-end walkthrough from plan to finish, feature to finish, goal, and step-by-step Definition of Done.
 - Inspect your available models and live picks with `fyr models --refresh`.

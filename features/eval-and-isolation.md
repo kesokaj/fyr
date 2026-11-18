@@ -83,5 +83,7 @@ Why OS-native isolation matters: `agy --sandbox` restricts shell commands only a
 
 ## Next steps
 
+Discover the repository's behavioral evaluation rows or see how `fyr auto` gates harness skill changes with `k=3` trials:
+
 - List the available behavioral suite rows in this repository with `fyr eval --list`.
 - See how `fyr auto` reuses `fyr eval` as a `k=3` behavioral gate in [Dream Consolidation & Auto Mode](dream-and-auto.md).

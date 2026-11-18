@@ -102,5 +102,7 @@ Every `memory` record tracks `provenance` (`operator`, `derived`, or `unknown`),
 
 ## Next steps
 
+Review your repository's active records and memory cards or follow how stale memories consolidate across workspaces:
+
 - Inspect your current repository state by running `fyr resume` and `fyr memory show`.
 - Learn how `fyr dream` and `fyr auto` consolidate and retire stale memory cards in [Dream Consolidation & Auto Mode](dream-and-auto.md).

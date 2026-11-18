@@ -31,7 +31,7 @@ During step 2, `fyr dream --all` (`internal/dream/targets.go`, `internal/search/
 `fyr dream` scrubs conversations, optional `PLAN-*`/`HANDOFF-*` context (`internal/dream/collect_sources.go`), memories, trail records, global `feedback`, and numbers-only `DreamTrajectoryDigest` metrics through `internal/redact`, invokes `agy --input-format stream-json --output-format stream-json --mode plan -p ""` granting zero tools, and records structured conversation ratings alongside global `queued` `proposal` records.
 
 - **`session_ratings` store (`metrics.db` v8, `internal/metrics/store.go`, `internal/metrics/ratings.go`):** Migration 8 adds `session_ratings` (`session_id`, `project_root`, `evaluated_at`, `outcome_score` `1–5`, `token_efficiency` `1–5`, `plan_alignment` `matched|partial|missed|no-plan`, `skill_action` `none|rewrite-skill|new-skill`, `target_skill`, `summary`) with `UpsertSessionRatings` and `SessionRatings`, written only on real runs via `dream.Options.WriteRatings`.
-- **Reporting & proposal routing:** `Summary.A` (`RatingsCount`, `MeanOutcomeScore`, `MeanTokenEfficiency` in `internal/metrics/show_types.go`, `report_md.go`, `report.go`) surfaces ratings in Section 3 (`Quality & Learning Loop`) of `fyr report`. Whenever `skill_action` is `rewrite-skill` or `new-skill`, or either score is `<= 3`, `internal/dream/proposals_write.go` (`needsSkillProposal`) files a global `queued` `proposal` (`Target: harness   Kind: skill`, `Sessions: 2`) naming `target_skill` (or `skills/`) and the conversation rating evidence so `fyr auto` routes it directly into `harness-edit` or `distill` when a clean harness checkout exists.
+- **Reporting & proposal routing:** `Summary.A` (`RatingsCount`, `MeanOutcomeScore`, `MeanTokenEfficiency` in `internal/metrics/show_types.go`, `report_md.go`, `report.go`) surfaces ratings in Section 3 (`Quality & Learning Loop`) of `fyr report`. Whenever `skill_action` is `rewrite-skill` or `new-skill`, or either score is `<= 3`, `internal/dream/proposals_write.go` (`needsSkillProposal`) files a global `queued` `proposal` (`Target: harness   Kind: skill`, with `Sessions: <n>` set dynamically from the distinct rated session count) naming `target_skill` (or `skills/`) and the conversation rating evidence so `fyr auto` routes it directly into `harness-edit` or `distill` when a clean harness checkout exists.
 
 ## Dreaming worker classes and risk rubric
 
@@ -113,6 +113,8 @@ sequenceDiagram
 </details>
 
 ## Next steps
+
+Inspect your `fyr auto` state or view conversation rating averages in the usage report:
 
 - Check your switch state, `conversation_idle` cutoff, and run history with `fyr auto status`, or preview every gate safely with `fyr auto run --dry-run`.
 - Inspect stale-conversation outcome and token-efficiency averages in Section 3 (`Quality & Learning Loop`) of `fyr report --md`.

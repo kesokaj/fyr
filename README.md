@@ -36,7 +36,7 @@ flowchart TB
 |---|---|---|---|
 | [Delivery, Installer & Customization](features/delivery-and-customization.md) | M1–M6 | `fyr install`, `fyr update`, `fyr status`, `fyr adopt` | Atomic `~/.gemini/config/` deployment, three delivery paths, stack overrides, size budgets, and allowlist lint |
 | [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) | M8 | `fyr search`, `fyr index` | `< 250 ms` lifecycle hooks, 9-mode intent vetter, subtask decomposition, worker JIT capsules, `[COORDINATOR_GUARD]`, SHA-256 read ledger, `[CLAMPED]` skeletons, and PageRank AST slicing |
-| [Brain Store, Trail & Memory](features/brain-and-memory.md) | M7, M9, M15 | `fyr record`, `fyr memory`, `fyr resume` | 15 record kinds in `brain.db`, seven-step resume, `.agents/trail.jsonl` export/sync, and validity-scored memory |
+| [Brain Store, Trail & Memory](features/brain-and-memory.md) | M7, M15 | `fyr record`, `fyr memory`, `fyr resume` | 15 record kinds in `brain.db`, seven-step resume, `.agents/trail.jsonl` export/sync, and validity-scored memory |
 | [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) | M2, M3, M14, M20, M21 | `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr models` | 43 skills, 6 subagents, `run_workflow` parallel scripts, live model/quota routing, and deterministic verification |
 | [Telemetry, Trajectories & Reports](features/metrics-and-reports.md) | M10 | `fyr metrics`, `fyr report` | Shape-only `metrics.db` ingestion, `180k` context-knee trajectory anomalies, and 6-section HTML/Markdown reports |
 | [Behavioural Eval & OS Isolation](features/eval-and-isolation.md) | M13, M22 | `fyr eval` | Sandboxed multi-turn/ACP behavioral testing, Wilson 95% intervals, host-safety checks `a`–`e`, subagent check `f`, Landlock, and Seatbelt |
@@ -50,25 +50,25 @@ This map is the contract for how the harness reaches a machine and for what leav
 flowchart LR
     subgraph checkoutLane["Your harness checkout"]
         edit["Edit context/, skills/, agents/, commands/, rules/"]
-        ship["gofmt, vet, test -race<br/>commit and push main"]
-        preflight["/fyr-preflight vX.Y.Z<br/>tag, binaries and zip, no key"]
-        retroHarness["/fyr-retro --harness<br/>applies the proposals queued on this machine"]
+        ship["gofmt, vet, test -race\ncommit and push main"]
+        preflight["/fyr-preflight vX.Y.Z\ntag, binaries and zip, no key"]
+        retroHarness["/fyr-retro --harness\napplies the proposals queued on this machine"]
     end
     subgraph githubLane["GitHub"]
-        harnessRepo[("fyr<br/>main: what checkout places follow<br/>tags: release markers")]
-        releases[("Releases<br/>platform binaries + release zip + SHA256SUMS")]
+        harnessRepo[("fyr\nmain: what checkout places follow\ntags: release markers")]
+        releases[("Releases\nplatform binaries + release zip + SHA256SUMS")]
     end
     subgraph placeLane["Each place"]
-        checkoutPlace["Checkout<br/>the normal path"]
-        binaryPlace["Release binary<br/>harness built in, no repository"]
-        zipPlace["Zip place<br/>repo zip downloaded by hand, no tree kept<br/>a development build leaves by install --repo"]
+        checkoutPlace["Checkout\nthe normal path"]
+        binaryPlace["Release binary\nharness built in, no repository"]
+        zipPlace["Zip place\nrepo zip downloaded by hand, no tree kept\na development build leaves by install --repo"]
         installer["fyr install / fyr update"]
-        homeFiles["~/.gemini/config<br/>installed files, no repository"]
-        sessions["Antigravity sessions<br/>fyr-feedback-log skill logs, /fyr-retro queues"]
-        configDir["~/.config/fyr/<br/>brain.db, metrics.db, search.db, state.json<br/>stays on this machine"]
-        dreamer["fyr dream --all<br/>on demand or inside fyr auto<br/>a CLI with no tool granted"]
-        evalRun["fyr eval rows<br/>typed by you, each row an OS-isolated clone and HOME"]
-        autoRun["fyr auto run<br/>single hourly user timer, when turned on<br/>dream + one OS-isolated dreaming worker: skills/, distilled skills, skills.sh asks, derived memory cards"]
+        homeFiles["~/.gemini/config\ninstalled files, no repository"]
+        sessions["Antigravity sessions\nfyr-feedback-log skill logs, /fyr-retro queues"]
+        configDir["~/.config/fyr/\nbrain.db, metrics.db, search.db, state.json\nstays on this machine"]
+        dreamer["fyr dream --all\non demand or inside fyr auto\na CLI with no tool granted"]
+        evalRun["fyr eval rows\ntyped by you, each row an OS-isolated clone and HOME"]
+        autoRun["fyr auto run\nsingle hourly user timer, when turned on\ndream + one OS-isolated dreaming worker: skills/, distilled skills, skills.sh asks, derived memory cards"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -313,7 +313,7 @@ Use these ten commands in daily workflows, and expand the full reference below f
 
 | Group | Skills |
 |---|---|
-| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-swarm` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `/fyr-auto` (worker contract for `fyr auto`) |
+| **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-swarm` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `fyr-auto` (worker contract for `fyr auto`) |
 | **Project shape & indexing** | `fyr-init-project` (full scaffold + trail + index), `fyr-index-project` (zero-scaffold MVP `.agents/scratch/search.db` indexing & AST graph), `fyr-refresh-project-index` (reconcile or `--rebuild` index + `--map` diagnostics), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project` (`GUIDE-onboarding`), `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
 | **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-distill`, `fyr-dream` |
 | **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
@@ -369,8 +369,11 @@ flowchart LR
 Run formatting, static analysis, the race-enabled Go test suite, and scratch-home verification before claiming completion (`AGENTS.md` § Setup commands):
 
 ```bash
-gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./...   # before any completion claim
-go run ./cmd/fyr install --home .agents/scratch/home                         # never against your real $HOME in development
+gofmt -l cmd internal && go vet ./... && go test -race -timeout 30m ./... # auto: test
+go run ./cmd/fyr install --home .agents/scratch/home   # exercise installer in scratch home
+go run ./cmd/fyr list   # sanity-check skills and agents parse
+go mod download   # cache the one module (R4) for offline builds
+"$(go env GOPATH)/bin/govulncheck" ./...   # watch for NEW findings (known: DEPLOY-local § Operator steps)
 ```
 
 Every stateful `fyr` command run during development must pass `--home .agents/scratch/<name>` (`cmd/fyr/realhome_guard.go`, `ADR-505`), and `internal/harness/size_test.go` must pass without raising any byte ceiling.

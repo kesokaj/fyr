@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-17 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-18 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by
@@ -13,19 +13,22 @@ Open-source repository (`github.com/kesokaj/fyr`), local-first on each operator'
 
 ```mermaid
 flowchart LR
-  operator["Operator"] --> checkout["Harness checkout<br/>context, skills, agents, rules, cmd/fyr"]
-  checkout --> github[("GitHub<br/>main, tags, releases")]
+  operator["Operator"] --> checkout["Harness checkout\ncontext, skills, agents, rules, cmd/fyr"]
+  checkout --> github[("GitHub\nmain, tags, releases")]
   github --> fyr["fyr on each machine"]
-  fyr --> gemini["~/.gemini/config<br/>installed files"]
+  fyr --> gemini["~/.gemini/config\ninstalled files"]
   gemini --> agy["agy sessions"]
   agy --> fyr
-  fyr --> state[("~/.config/fyr<br/>brain.db, metrics.db, search.db")]
-  fyr -.-> provider[("the CLI's model provider<br/>dream prompt, eval runs, work and auto workers")]
+  fyr --> state[("~/.config/fyr\nbrain.db, metrics.db, search.db")]
+  fyr -.-> provider[("the CLI's model provider\ndream prompt, eval runs, auto dreaming workers")]
 ```
 
 ## Components
 
-The content directories (M1–M4) are what a session reads; the binary (M5–M22) is `cmd/fyr` and its packages (`AGENTS.md` § Layout). Each package's surface is a SPEC record, linked from its TDD section.
+The content directories (M1–M4) are what a session reads; the binary (M5–M22) is `cmd/fyr` and its packages (`AGENTS.md` § Layout; `M9` merged into `M7`, and `M16`–`M18` retired under `ADR-522`). Each package's surface is a SPEC record, linked from its TDD section.
+
+<details>
+<summary>Component inventory (M1–M22)</summary>
 
 | ID | Component | Responsibility | Satisfies |
 |---|---|---|---|
@@ -35,9 +38,8 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M22
 | M4 | `embed.go` | The six content directories (`context/`, `skills/`, `agents/`, `commands/`, `rules/`, `workflows/`) built into the binary, pinned both ways to what git tracks, so a release binary carries the harness | R8, R9 |
 | M5 | `cmd/fyr` | The verbs (`verify`, `gate`, `land`, and `close` through M20 included), their flags (including global `-C` / `--dir`, `--limit`, `--json` and `--json-in`), the live model catalog command (`fyr models`, `--explain`, `planner` role, `agy changelog` enrichment, fed by M10's `Store.ModelEvidence` and M21's catalog), and help pages; the three update paths (checkout, release binary, zip) | R4, R6, R8, R9, R10 |
 | M6 | `internal/harness` | The installer: the plan of what goes where (including `~/.gemini/config/hooks.json` and `workflows/*.py` scripts to `~/.gemini/config/workflows/`), the lint, the render, the manifest, status and drift, uninstall, adopt, the release download | R1, R3, R4, R5, R6, R9, R10 |
-| M7 | `internal/brain` | The brain store, `fyr record` and `fyr resume`: every project's trail records and the global ones, `memory` cards (`semantic`, `procedural`, `episodic` with legacy input normalization, `--global` shared cross-project memory, `--include-low` on `show`, and deterministic `0.00–1.00` validity via `ComputeMemoryValidity` hiding cards `< 0.40`), with 1-call `stdin` headers (`ParseRecordStdin`, `ParseMemoryStdin`) and `--json-in` (`stdin_doc.go`), on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume (loading active project + `--global` `semantic` memories) | R0, R4, R7 |
+| M7 | `internal/brain` | The brain store, `fyr record`, `fyr memory`, and `fyr resume`: every project's trail records and the global ones, `memory` cards (`semantic`, `procedural`, `episodic` with legacy input normalization, `--global` shared cross-project memory, `--include-low` on `show`, and deterministic `0.00–1.00` validity via `ComputeMemoryValidity` hiding cards `< 0.40`), with 1-call `stdin` headers (`ParseRecordStdin`, `ParseMemoryStdin`) and `--json-in` (`stdin_doc.go`), on-demand `.agents/trail.jsonl` export and sync, and the read-only seven-step session resume (loading active project + `--global` `semantic` memories) | R0, R4, R7 |
 | M8 | `internal/search` | `fyr search` and `fyr index`: a derived full-text and pure-Go AST symbol/Markdown-heading reference graph index over files (`schemaVersion = "7"` adding `subtask_count` and `directive` on `vet_history`), tiered context slicing (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), persistent hash-keyed session read-deduplication ledger with overlapping-edit invalidation and D7 skeleton-first clamp (`start_line = -4` session sentinels incl. `__vet_skill__:<name>`, `-5` unranged-clamp sentinel, emitting `[UNCHANGED]`/`[MODIFIED]`/`[CLAMPED]` + 2-space `LedgerNotice` JSON), passive co-activity, stateful `< 25 ms` prompt vetting with FTS5 0-pivot fallback (`hook_fts_fallback.go`, `--vet`: 9-mode intent classifier, `0..100` 6-anchor `VetScore` with prior-turn `vet_history` carry-forward, 3-turn skill deduplication + generation-scoped `skillDigests`, `improvedPrompt` emission, deterministic `<= 6` disjoint `subtasks[]` splitting in `vet_decompose.go` with `COORDINATE_SUBTASKS` directive, `vet_route.go`, ADR-518, ADR-521, ADR-525, cryptographic data fence, `[FYR_TURN_CONTRACT]` with compact 2-space JSON), progressive on-demand memory injection in `PreInvocation` (`procedural`/`episodic` and matching `--global`/`semantic` cards with `validity >= 0.40`), and hard `200 ms` fail-open CLI hook handlers + `~/.config/fyr/no-hooks` switch (`--hook session-start\|pre-invocation\|pre-tool-use\|stop` in `~/.gemini/config/hooks.json`: `<= 1,500 B` `SessionStart` capsule in `hook_session_start.go`, `<= 950 B` Hop-0 compact graph map capsule in `slice_compact.go`, single-pass memoized `turnBrainCache`, `PreInvocation` emoji-free `PreInvocationBanner` JSON keeping `Metadata` `nil` per `BUG-523` and emitting `{}` with zero model tokens on un-enriched `PASS_THROUGH` turns + exact `model`/`thinking` via `telemetry_model.go`, `PreToolUse` passing `Options` for `invoke_subagent` / `swarm` `add` model routing + fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` `Overwrite` in `hook_subagent.go`, `[COORDINATOR_GUARD]` direct-edit protection on `COORDINATE_SUBTASKS` or `coordinator-only` sessions, and literal-safe `run_workflow` in `hook_workflow.go`, session-scoped pure-Go `verify.stamp` `Stop` check in `hook_git_index.go`/`hook_stop_stamp.go`, ADR-520, and `telemetry_process.go` writing `<appDataDir>/brain/<conv-id>/fyr-process.md` Hybrid Example A `ProcessTelemetry` JSON); plus all-workspace dream corpus discovery (`GlobalWorkspace`, `ListAgyWorkspaces`, `AgyConversationTextInWindow` in `dream.go`/`dream_workspace.go`, ADR-524) | R0, R3, R4 |
-| M9 | `internal/memory` | `fyr memory`: project and `--global` memory (`semantic`, `procedural`, `episodic`), validity-scored (`ComputeMemoryValidity`, `--include-low` for `< 0.40`), loaded progressively across `resume` and `PreInvocation` | R0, R7 |
 | M10 | `internal/metrics` | `fyr metrics` and `fyr report`: the store of record of every session's shape (`ingest`, `show`, `report`, `evals`, `trajectory`, `export`, schema 6 `turn_vets` and `work_waves`, schema 7 `setup_s`, `agy_s` and `check_s` stage seconds on `work_waves`, schema 8 `session_ratings` in `ratings.go` storing stale-conversation `outcome_score`, `token_efficiency`, `plan_alignment`, `skill_action`, `target_skill`, and `summary` surfaced in `Summary.A` and Section 3 of `fyr report`, ADR-524, multi-model orchestrator session normalization in `agy_conversation.go`, and `Store.ModelEvidence` feeding M5's `fyr models` refreshes), per-session token trajectories, subagent lineage and `KNEE_EXCEEDED` / `REDUNDANT_READ` / `RETRY_LOOP` anomalies (`trajectory.go`, ADR-513), shape-only `DreamTrajectoryDigest` (`dream_digest.go`) feeding dreaming and auto learning inputs, and the six-section Economist HTML and `--md` usage reports including `Trigger coverage` (`report_md.go`, ADR-516, ADR-518) | R0, R4 |
 | M11 | `internal/dream` | `fyr dream`: the registration-free plan-mode dreamer and stale-conversation rater (discovering all workspaces from `conversation_summaries.db`, `brain.db`, `search.db`, and `HarnessRepo` incl. non-git dirs and `GlobalWorkspace`; sliding-window `(since, cutoff]` evaluation; writing `session_ratings` via `WriteRatings` and queueing `target: harness` skill proposals; ADR-524), lock, state, log, and legacy dream-unit cleanup + shared timer renderer | R0, R3, R8 |
 | M12 | `internal/redact` | The credential redactor every dream input passes before it leaves the machine | R3, R8 |
@@ -49,7 +51,11 @@ The content directories (M1–M4) are what a session reads; the binary (M5–M22
 | M21 | `internal/models` | Live `agy models` + `agy changelog` catalog (`~/.config/fyr/models.json`, `0600`), empirical `ModelEvidence` ranking, `agy -p "/usage"` pool quota parsing, and cross-family / scope-aware role picking shared by M5, M19, and M22 (ADR-519, ADR-520) | R4, R8, R10 |
 | M22 | `internal/isolate` | OS-native process isolation (Linux Landlock ABI v3–v5 with `/dev/pts` PTY rw+ioctl, macOS Seatbelt `sandbox-exec` with `pseudo-tty`), post-run credential/process checks, and sandboxed worker execution shared by M13 (`fyr eval`) and M19 (`fyr auto`), failing closed when OS isolation is unavailable (D6, ADR-522) | R4, R6, R8, R10 |
 
+</details>
+
 ## Flows
+
+Four primary runtime loops—`install`, `update`, `record`, and `dream`—govern how files move from the repository or releases onto a machine and how local sessions persist trail and rating data.
 
 ### Install
 
@@ -165,6 +171,8 @@ One line each; the record holds the context, the alternatives and the operator's
 
 ## Cross-cutting
 
+Security, privacy, observability, and cost guardrails apply uniformly across local stores, redaction pipelines, and OS-isolated workers.
+
 - **Security:** four things are sent by design from the machine to the model of the CLI the machine already uses: the dreamer's redacted prompt (M12), and the runs of `fyr eval` and the dreaming workers of `fyr auto` when turned on (M13, M19, M22), plus, for `fyr auto`'s dreaming tasks, the conversations, memory, proposals and trajectory/metric digests (`DreamTrajectoryDigest`) `fyr` gives a worker, through M12's redactor first; and to skills.sh and the npm registry, the search of a `fyr auto` worker looking for a missing skill, its query words unredacted (`fyr eval` and `fyr auto` enforce M22 OS-native confinement — Linux Landlock inside `CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWPID` mounting private `/proc` and `/dev/pts` while clearing ambient caps before exec, and macOS Seatbelt extracting only the `0600` OAuth token prior to sandboxing without linking `~/Library/Keychains` or exposing `/dev/ttys*` or `SecurityServer`/`launchservicesd`/`pasteboard` Mach lookups — failing closed instead of running unisolated; a worker's clone has no remote, the agent retains `command(*)` and the network, and check c and `auto.json`'s watch are tripwires, not containment; R3, R8, ADR-076, ADR-090, ADR-522, ADR-523); every child process that reads untrusted input gets an allow-listed environment (ADR-067); the installer refuses any permission key in frontmatter (M6).
 - **Privacy:** memory (project and `--global`), metrics and the global records stay in `~/.config/fyr/` on the machine that wrote them (R7); the metrics store keeps no arguments, prose or tool output (R4).
 - **Observability:** `fyr status` names drift, the binary's build, dream status (`merged into fyr auto` or legacy unit hint), and `fyr auto`'s switch; `fyr report`, `fyr metrics show` and `fyr metrics report` summarise every session's shape and stale-conversation ratings.
@@ -178,6 +186,8 @@ The README map (`README.md` § How it works) is the deployment picture and the c
 
 ## Risks
 
+Four primary risks threaten instruction delivery, CLI assumptions, doc parity, or redaction coverage, each backed by automated checks.
+
 - **The rules block fills.** Hand-written context and global `rules/*.md` share Antigravity's 24,000-byte block, while the always-on slice stays within `9,000` bytes and `fyr list` prints the skill inventory separately. Shown by `TestAlwaysOnContextBudget`, `TestRenderedContextFitsAntigravityBlock`, and `TestSkillListingBudget`.
 - **Antigravity changes underneath.** Paths, tool names and the block size are measured, not documented (PRD § Known limits). Shown by the real-home smoke and the `fyr eval` rows.
 - **The docs drift from the binary.** Shown by `fyr check` (G3) and `/fyr-review --docs`.
@@ -189,14 +199,14 @@ Every requirement of `PRD.md`, and the components that satisfy it.
 
 | Requirement | Components |
 |---|---|
-| R0 | M1, M7, M8, M9, M10, M11, M14, M19, M20 |
+| R0 | M1, M7, M8, M10, M11, M14, M19, M20 |
 | R1 | M1, M3, M6 |
 | R2 | M1, M2 |
 | R3 | M1, M6, M8, M11, M12, M19, M20 |
 | R4 | M5, M6, M7, M8, M10, M19, M20, M21, M22 |
 | R5 | M2, M3, M6 |
 | R6 | M5, M6, M13, M22 |
-| R7 | M7, M9, M15, M20 |
+| R7 | M7, M15, M20 |
 | R8 | M4, M5, M11, M12, M13, M19, M21, M22 |
 | R9 | M4, M5, M6, M19 |
 | R10 | M5, M6, M19, M21, M22 |

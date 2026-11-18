@@ -105,5 +105,7 @@ An unrecognized tool name in `agents/<name>/agent.md` causes Antigravity CLI to 
 
 ## Next steps
 
+Follow how deployed hooks enrich sessions or inspect the normative release delivery specification:
+
 - Review [CLI Hooks, Prompt Vetting & AST Graph](hooks-and-ast-graph.md) to see how installed hooks enrich sessions in under `250 ms`.
 - Inspect `SPEC-fyr-delivery` with `fyr record get SPEC-fyr-delivery` for the normative release and place matrix contract.

@@ -248,9 +248,9 @@ When a plan has `2+` AI-only phases (`workers: yes`) or backlog triage produces 
 flowchart LR
     quota["1. Quota & Models\nagy -p /usage\nfyr models --pick"] --> spawn["2. Spawn Workers\nworkspace=share (work/<name>)\ndisjoint Files: leases"]
     spawn --> build["3. Worker Build\nRed-first edits + commit\n+ fyr verify (<= 180k tok)"]
-    build --> gate["4. Mechanical Gate\nfyr gate <worktree> --lease\n(lease, modes, secrets, trailers)"]
+    build --> gate["4. Mechanical Gate\nfyr gate --lease <glob> <worktree>\n(lease, modes, secrets, trailers)"]
     gate --> judge["5. Cross-Family Judge\nCross-family model checks\ndiff + test output only"]
-    judge --> land["6. Sequential Land\nfyr land --lease <branch>\n(detached squash + verify + ff)"]
+    judge --> land["6. Sequential Land\nfyr land --lease <glob> <branch>\n(detached squash + verify + ff)"]
     land --> knee["7. Wave Audit\nfyr metrics ingest +\nfyr metrics trajectory"]
 ```
 

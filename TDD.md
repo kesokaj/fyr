@@ -1,14 +1,25 @@
 # TDD — fyr
 
 How each part of the harness is built and tested: one section per component of SDD.md, each pointing at the record that holds its detail.
-Status: current · Last updated: 2026-11-17 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
+Status: current · Last updated: 2026-11-18 · Requirements: [PRD.md](PRD.md) · Design: [SDD.md](SDD.md)
 
 <!-- One section T1… per component M… of SDD.md — its interfaces, data, errors, configuration and dependencies —
      each a summary that points at the SPEC record holding the detail (`fyr record get SPEC-…`), never a copy of it.
      TODO.md tasks name the section they build (→ T1). Kept current by the session that changes the code, in the same
      commit. -->
 
+```mermaid
+flowchart LR
+    prd["PRD.md\nRequirements (R0 to R10)"] --> sdd["SDD.md\nComponents (M1 to M22)"]
+    sdd --> tdd["TDD.md\nDesign & Test Pins (T1 to T22)"]
+    tdd --> verify["fyr verify\ngofmt, go vet, go test -race"]
+    tdd --> check["fyr check\nDocs, Specs, PRD & Trace Parity"]
+    tdd --> eval["fyr eval\nSandboxed Behavioural Rows"]
+```
+
 ## T1 — Global context and rules
+
+Assembles the global Antigravity context and rules block into `~/.gemini/config/rules/` while enforcing strict byte budgets so instructions never truncate silently.
 
 Implements: M1 · Spec: none (the files are their own spec; the size limits below and ADR-035)
 
@@ -19,6 +30,8 @@ Implements: M1 · Spec: none (the files are their own spec; the size limits belo
 
 ## T2 — Skills and commands
 
+Packages reusable `SKILL.md` workflows and empty `commands/` directories under strict frontmatter, description, and skill-listing size limits.
+
 Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored provenance in `skills/VENDORED.md`, the catalog's in `skills/google-catalog/catalog/MANIFEST.md`)
 
 - **Interfaces:** `skills/<name>/SKILL.md` with a `description`, loaded when it matches and typed as `/name`; `commands/<name>.md`, deployed to `~/.gemini/config/workflows/`, empty by design (the operator, 2026-09-30).
@@ -27,12 +40,16 @@ Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored pro
 
 ## T3 — Subagents
 
+Ships Antigravity-native `agents/<name>/agent.md` definitions verbatim while pinning declared tools against `knownTools` so subagents never hang.
+
 Implements: M3 · Spec: none (Antigravity's `agent.md` format; the allow-list is ADR-056)
 
 - **Interfaces:** `agents/<name>/agent.md` with `subagent: true`, `mainAgent: false` and a `tools:` list, installed as written (ADR-062).
 - **Errors:** a tool name outside `knownTools` (`internal/harness/inventory.go`) fails the install, because Antigravity hangs such a subagent.
 
 ## T4 — The embedded harness
+
+Embeds the six tracked harness directories directly into the root Go package via `embed.go` so standalone release binaries deploy without a local checkout.
 
 Implements: M4 · Spec: `SPEC-fyr-delivery`
 
@@ -41,17 +58,22 @@ Implements: M4 · Spec: `SPEC-fyr-delivery`
 
 ## T5 — The CLI
 
-Implements: M5 · Spec: `SPEC-fyr-delivery` (install and update at each kind of place), `cmd/fyr/place_matrix_test.go` (every verb on every kind of place), and the verb's own `SPEC-fyr-*` record
+Exposes all 26 `fyr` verbs, global flags, and help pages in `cmd/fyr` with consistent exit codes and real-home development guards.
+
+Implements: M5 · Spec: `SPEC-fyr-delivery` (install and update at each kind of place), `cmd/fyr/place_matrix_test.go` (every verb on every kind of place), and each verb's `SPEC-fyr-*` record, feature guide, or `fyr help <verb>`
 
 - **Interfaces:** the verbs below; `fyr help <verb>` prints each one's page from `cmd/fyr/help_text.go`.
 - **Errors:** a usage error exits 2 and prints the verb's synopsis; a refusal exits 1 with its reason on stderr.
-- **Dependencies:** M6 for install, update and status; M7–M14, M20 and M21 for their verbs.
+- **Dependencies:** M6 for install, update and status; M7–M8, M10–M14, M20 and M21 for their verbs.
 
 ### Verbs
 
-One line each; `fyr help <verb>` and the record named are the verb's full behaviour.
+One line each; `fyr help <verb>` and the linked contract or feature guide hold the verb's full behaviour.
 
-| Command | What it does | Spec |
+<details>
+<summary>CLI verb reference (24 rows covering 26 commands)</summary>
+
+| Command | What it does | Spec / Guide |
 |---|---|---|
 | `fyr status` | What is installed and its drift; exit 1 on drift | `SPEC-fyr-delivery` |
 | `fyr update` | Moves this place forward by what it is: a checkout, a release binary or a zip | `SPEC-fyr-delivery` |
@@ -60,27 +82,33 @@ One line each; `fyr help <verb>` and the record named are the verb's full behavi
 | `fyr uninstall` | Removes exactly what install wrote | `SPEC-fyr-delivery` |
 | `fyr list` / `render` | The inventory; the assembled context | `SPEC-fyr-delivery` |
 | `fyr record add` / `get` / `edit` / `list` / `export` / `sync` / `import` | The brain store and its on-demand `.agents/trail.jsonl` export and sync | `SPEC-fyr-record` |
-| `fyr resume` | The read-only seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory; ADR-508) | `fyr help resume` |
-| `fyr search <words>`, `fyr index` | Records first, then ranked files; AST graph slicing and queries (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), `< 25 ms` prompt vetting (`--vet`), and `< 250 ms` CLI hooks (`--hook`); consent to be read across projects | `SPEC-fyr-search` |
-| `fyr memory add` / `show` | Project and `--global` memory (`semantic`, `procedural`, `episodic`) and validity-scored index (`--include-low`) | `SPEC-fyr-memory-loop` |
+| `fyr resume` | The read-only seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, memory; ADR-508) | `fyr help resume`, [Brain & Memory](features/brain-and-memory.md) |
+| `fyr search <words>`, `fyr index` | Records first, then ranked files; AST graph slicing and queries (`--slice`, `--skeleton`, `--path`, `--affected`, `--map`), `< 25 ms` prompt vetting (`--vet`), and `< 250 ms` CLI hooks (`--hook`); consent to be read across projects | `SPEC-fyr-pre-hook-coordinator`, [Hooks & AST Graph](features/hooks-and-ast-graph.md), `fyr help search`, `fyr help index` |
+| `fyr memory add` / `show` | Project and `--global` memory (`semantic`, `procedural`, `episodic`) and validity-scored index (`--include-low`) | `SPEC-fyr-record`, [Brain & Memory](features/brain-and-memory.md), `fyr help memory` |
 | `fyr metrics ingest` / `show` / `report` / `evals` / `trajectory` / `export` | Session shapes, trajectories and eval trials: stored, summarised, rendered | `SPEC-fyr-metrics` |
 | `fyr report [--project [DIR] \| --global] [--md] [--out FILE]` | Project or global six-section usage report including `Trigger coverage` (Economist HTML or `--md`; ADR-516, ADR-518) | `SPEC-fyr-metrics` |
-| `fyr dream --all` / `--project DIR` | One-off or `fyr auto`-driven plan-mode dream run across all discovered workspaces that rates stale conversations (`session_ratings`) and proposes consolidations and skill improvements | `SPEC-fyr-dream` |
-| `fyr auto on` / `off` / `status` / `run` | Global binary `on \| off` switch of the single hourly runner (`fyr auto`: metrics ingest, plan-mode dream + stale-conversation rating, and all-workspace sweep; `--conversation-idle` default `1h`; `on`/`off`/bare `--dry-run`), and the run (§ T19) | `SPEC-fyr-auto` |
-| `fyr check` | A read-only drift check of this checkout; exit 1 on findings | `SPEC-fyr-check` |
+| `fyr dream --all` / `--project DIR` | One-off or `fyr auto`-driven plan-mode dream run across all discovered workspaces that rates stale conversations (`session_ratings`) and proposes consolidations and skill improvements | [Dream & Auto](features/dream-and-auto.md), `fyr help dream` |
+| `fyr auto on` / `off` / `status` / `run` | Global binary `on \| off` switch of the single hourly runner (`fyr auto`: metrics ingest, plan-mode dream + stale-conversation rating, and all-workspace sweep; `--conversation-idle` default `1h`; `on`/`off`/bare `--dry-run`), and the run (§ T19) | [Dream & Auto](features/dream-and-auto.md), `fyr help auto` |
+| `fyr check` | A read-only drift check of this checkout; exit 1 on findings | [Workflows & Build Control](features/workflows-and-build-control.md), `fyr help check` |
 | `fyr git-check` | The three read-only post-dispatch git checks (`git status`, `git log`, `git tag`; ADR-508) | `fyr help git-check` |
 | `fyr verify` | Runs `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, guards against mid-run tree mutation, and writes `.agents/scratch/verify.stamp` (`0600`) | `fyr help verify` |
 | `fyr gate [--base REF] [--lease GLOB] [--lease-file FILE] [--max-files N] [--max-lines N] <worktree>` | Checks `Files:` lease globs, `120000`/`160000` modes, secret filenames, numstat binary/caps/non-empty, added-line secrets, and commit trailers | `fyr help gate` |
 | `fyr land [--lease GLOB] [--lease-file FILE] [--message TEXT] [--max-files N] [--max-lines N] [--timeout D] <branch>` | Gates `<branch>`, squash-merges and runs `fyr verify` in a detached scratch worktree, fast-forwards clean main, deletes `<branch>`, and refreshes `verify.stamp` | `fyr help land` |
 | `fyr close --title TEXT [--body-file FILE]` | Writes an immutable `handoff` record embedding `## Verification Digest` from a fresh `verify.stamp`, leaving prior records untouched | `fyr help close` |
 | `fyr eval --home DIR [--runs N] [--parallel N] [--acp] [--suite-file PATH] <row>...` | Behavioural rows against the Antigravity CLI, each in a sandbox | `SPEC-fyr-eval` |
-| `fyr models [--json] [--pick <role>] [--explain ID] [--refresh] [--tier T]` | Live Antigravity model catalog, per-model capability profiles (`ADR-520`), evidence-judged cross-family role picks (`builder`, `planner`, `judge`, `reviewer`, `verifier`, `mechanical`), and cache refresh (§ T21, ADR-519, ADR-520) | `SPEC-fyr-auto` |
+| `fyr models [--json] [--pick <role>] [--explain ID] [--refresh] [--tier T]` | Live Antigravity model catalog, per-model capability profiles (`ADR-520`), evidence-judged cross-family role picks (`builder`, `planner`, `judge`, `reviewer`, `verifier`, `mechanical`), and cache refresh (§ T21, ADR-519, ADR-520) | [Workflows & Build Control](features/workflows-and-build-control.md), `fyr help models` |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` | `fyr help adopt` |
 | `fyr version` | The build version | `fyr help version` |
 
-`fyr` and `fyr help` print the short page, one line per command; `fyr help <verb>` or `fyr <verb> --help` prints that verb's page: its synopsis, what it does, and its flags. A flag a verb does not know is a usage error, exit 2, which prints the verb's synopsis. The global flags are `--repo DIR`, the harness checkout to build and install from (by default `$FYR_REPO`, then the working directory or its parents, then the tree the last install recorded; a release binary installs the harness built into it and refuses `--repo` and `$FYR_REPO`, ADR-034; a verb that does not read it, every verb but `install`, `sync`, `status`, `diff`, `update`, `list`, `render`, `adopt`, `eval` and `auto`, says on stderr that it ignored it and runs), `-C DIR` / `--dir DIR` (resolve the project checkout from `DIR` instead of the working directory via `c.projectDir()`), and `--home DIR` (install somewhere other than `$HOME`, which the tests use; with no `--home`, every verb but `install`, `sync`, `update`, `version`, `list`, `render` and `diff`, its reads and dry runs included (a read opens a store, which migrates it), runs only from the home's installed `~/.local/bin/fyr` by file identity, else it is refused with exit 2 before anything is opened, so a `go run` or scratch build never reaches the real stores unflagged: `cmd/fyr/realhome_guard.go`, BUG-507, ADR-505); `--vendor` no longer exists and is a usage error. The full behaviour of each verb is in the `SPEC-fyr-*` records (`fyr record list --kind spec`, then `fyr record get`).
+</details>
+
+`fyr` and `fyr help` print the short page, one line per command; `fyr help <verb>` or `fyr <verb> --help` prints that verb's page: its synopsis, what it does, and its flags. A flag a verb does not know is a usage error, exit 2, which prints the verb's synopsis.
+
+The global flags are `--repo DIR` (the harness checkout to build and install from; a release binary installs its embedded harness and refuses `--repo` and `$FYR_REPO`, ADR-034, while verbs that do not read it warn on stderr and run), `-C DIR` / `--dir DIR` (resolve the project checkout from `DIR` instead of the working directory via `c.projectDir()`), and `--home DIR` (required in development so unflagged builds never open real stores: `cmd/fyr/realhome_guard.go`, BUG-507, ADR-505); `--vendor` no longer exists and is a usage error. Full contracts live in the `current` spec records (`SPEC-fyr-delivery`, `SPEC-fyr-record`, `SPEC-fyr-metrics`, `SPEC-fyr-eval`, `SPEC-fyr-pre-hook-coordinator`), the [feature guides](features/delivery-and-customization.md), and `fyr help <verb>`.
 
 ## T6 — The installer
+
+Computes atomic install plans in `internal/harness`, lints frontmatter and paths, tracks `~/.config/fyr/state.json`, and handles checkout, release, and zip updates.
 
 Implements: M6 · Spec: `SPEC-fyr-delivery`; the working rules are `AGENTS.md` § Rules for working here
 
@@ -93,7 +121,9 @@ Implements: M6 · Spec: `SPEC-fyr-delivery`; the working rules are `AGENTS.md` �
 
 ## T7 — The brain store
 
-Implements: M7 · Spec: `SPEC-fyr-record`
+Stores every project's trail records and validity-scored project or `--global` memory cards (`fyr memory add` / `show`, `internal/brain/memory.go`) in `~/.config/fyr/brain.db` with on-demand `.agents/trail.jsonl` export/sync and read-only session resume.
+
+Implements: M7 · Spec: `SPEC-fyr-record` · Guide: [Brain Store, Trail & Memory](features/brain-and-memory.md)
 
 - **Interfaces:** `fyr record add`, `get`, `edit`, `list`, `export`, `sync` and `import` (`add --title-file FILE` reads the title from a file, one trailing newline dropped, so a worker's title reaches the store through no shell, ADR-501; `add` and `edit` take `--body-file FILE`, a regular file checked with `Lstat` and `O_NOFOLLOW` under the same 1 MiB cap and redactor warning as stdin and refused with piped stdin, or `--json-in` and optional leading `Title:`/`Status:`/`ID:`/`Project:` stdin headers via `brain.ParseRecordStdin` and `brain.ParseRecordJSON`/`brain.ParseRecordEditJSON` in `internal/brain/stdin_doc.go`; `get --out FILE` writes one record's body under `.agents/scratch/` through no symlink; `list --limit N` caps returned records and `get --json` / `list --json` emit JSON via `brain.FormatRecordsJSON`); `fyr resume` (`brain.Resume`, ADR-508), the read-only seven-step session resume (`AGENTS.md`, open records, newest handoff, `TODO.md` Now, open plans, recent changes, project + `--global` active `semantic` memory) that falls back to `.agents/trail.jsonl` without creating `brain.db` when absent; `brain.MemoryDraft` and `brain.MemoryDraftWithOptions` (`MemoryDraftOptions{Type, EvidenceCount, SourceSessions}`) for `fyr auto`'s validated memory drafts (`add`, `retire`, `merge`); `brain.NormalizeMemoryType` (`semantic|procedural|episodic` with legacy alias normalization), `brain.ComputeMemoryValidity` and `brain.CountMemoryContradictions` (`internal/brain/validity.go`, deterministic `0.00–1.00` validity with `MinActiveValidity = 0.40`), `brain.ReadScope`, `brain.HasRecords`, `brain.LastUpdated` and `brain.SnapshotScopes` (check c's read-from-a-copy per-scope digest, ADR-506) for read-only consumers; a project's records exported to `.agents/trail.jsonl` on demand with `fyr record export` and loaded into `brain.db` and `records_fts` on demand with `fyr record sync` (ADR-091).
 - **Data:** `~/.config/fyr/brain.db`, the store of record for every project's trail records, memory (project and `--global` shared scopes) and the global records (R4, R7). Migration 2 adds `provenance` (`operator`, `derived` or `unknown` on `memory` and `feedback` records; every record stored before the migration or imported from files reads as `unknown`, never `operator`). Migration 3 adds `memory_kind`, `validity`, `verified_at`, `evidence_count`, and `source_sessions` on `records` (`ADR-523`), auto-normalizing legacy `user|project|reference` to `semantic` and `feedback` to `procedural`.
@@ -102,17 +132,14 @@ Implements: M7 · Spec: `SPEC-fyr-record`
 ## T8 — Search
 
 Indexes project and global records and source AST graphs in SQLite caches for context slicing, symbol tracing, prompt vetting, and `< 250 ms` fail-open CLI hooks.
-Implements: M8 · Specs: `SPEC-fyr-search`, `SPEC-fyr-pre-hook-coordinator` · Decisions: ADR-511, ADR-524, ADR-525
+Implements: M8 · Spec: `SPEC-fyr-pre-hook-coordinator` · Guide: [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md) · CLI: `fyr help search`, `fyr help index` · Decisions: ADR-511, ADR-524, ADR-525
 
 - **Interfaces:** `fyr search` (records first, then files), `--slice <query>` (`--hops`, `--budget`, `--session`, with UTF-8 rune-safe `compactSig` in `slice_compact.go` advertising Hop-0 targets), `--skeleton <path>` (`symbols_md.go` for Markdown ATX headings + AST declarations), `--path <from> [--to <to>]`, `--affected <target>`, `--map`, `--vet <prompt>` (`internal/search/vet.go`, `vet_skills.go`, `vet_route.go`, `vet_decompose.go`, `vet_history.go`, `hook_fts_fallback.go`, `telemetry_json.go`, `telemetry_model.go`, and `fence.go`: 9-mode intent classifier with `IntentQuestion` never setting `SecurityRequired`, `0..100` 6-anchor `VetScore` with prior-turn `vet_history` carry-forward, 3-turn skill deduplication + generation-scoped `skillDigests` stamped via `__vet_skill__:<name>` at `start_line = -4`, `< 2 ms` `[VET_IMPROVED_PROMPT]` history synthesis emitted in `enrichment.improvedPrompt`, deterministic `< 25 ms` `DecomposeSubtasks` splitting multi-clause or multi-package prompts into `<= 6` disjoint `SubtaskSlice` entries while skipping `isWorkerBriefPrompt` and emitting `COORDINATE_SUBTASKS` when `len(subtasks) >= 2`, advisory `route` routing via `RouteFeature`, ADR-518, ADR-521, ADR-525, cryptographic `Fence` boundary, single-block 2-space pretty-printed JSON `PreInvocationBanner` carrying exact `model` + `thinking` + `PreInvocationEnrichment` envelope carrying `"contract": "[FYR_TURN_CONTRACT]"` and delta-only context with zero trailing prose), `--hook <event>` (`internal/search/hook.go`, `hook_deadline.go`, `hook_coordinator.go`, `hook_worker_capsule.go`, `hook_session_start.go`, `hook_workflow.go`, `hook_git_index.go`, `hook_stop_stamp.go`, `read_ledger_edit.go`, `process_artifact.go`, `telemetry_json.go`, `telemetry_model.go`, `telemetry_process.go`, `hook_clamp.go`, `hook_dedup.go`, `hook_guard.go`, and `hook_subagent.go`: `session-start` emitting a `<= 1,500 B` capsule with `terminationBehavior` omitted, `pre-invocation` keeping `HookSystemMessage.Metadata` `nil` per `BUG-523`, injecting on-demand `procedural`/`episodic` and matching `--global`/`semantic` memory cards with `validity >= 0.40` up to 4 memories / `totalMatchedRecords` cap 6, and emitting `{}` with zero model tokens on un-enriched `PASS_THROUGH` turns, `pre-tool-use` receiving full `Options` — with `handlePreToolSubagent`, `handlePreToolWorkflow`, and `handlePreToolSwarm` enforcing guarded-subagent `"pro"` models, prefix-only swarm role routing with 20%/30% `models.json` quota fallback, `enrichWorkerPromptArgs` injecting fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` context into `invoke_subagent` `Prompt` and `swarm(action="add")` `brief` via `Overwrite`, and `handlePreToolWrite` / `checkCoordinatorWriteGuard` enforcing `[COORDINATOR_GUARD]` direct-edit protection on `COORDINATE_SUBTASKS` or `coordinator-only` (`Options.Home` / `.agents/scratch`) sessions while exempting `.agents/scratch/**`, `TODO.md`, linked worktrees, `!`-bypass, and `isWorkerBriefPrompt` sessions, `hook_clamp.go` issuing `[CLAMPED]` skeleton-first denies on unranged `>= 400`-line reads, `read_ledger_edit.go` and `hook_dedup.go` read deduplication emitting `[UNCHANGED]`/`[MODIFIED]`/`[CLAMPED]` + Hybrid Example A `LedgerNotice` JSON — and `stop` running a session-scoped pure-Go `.agents/scratch/verify.stamp` check that returns `continue` once on dirty Go files touched by that session without a matching stamp, while writing `<appDataDir>/brain/<conv-id>/fyr-process.md`, with `hook_deadline.go` providing a hard `200 ms` fail-open deadline and `~/.config/fyr/no-hooks` switch), `--refs`, `--open`, `--global`; `fyr index` and `fyr index --register`.
 - **Data:** the indexes (`.agents/scratch/search.db`, `~/.config/fyr/search.db`) are caches, rebuilt when deleted (R4), holding full-text FTS, per-blob AST `symbols` and `sym_refs` (`EXTRACTED` `1.0` vs `INFERRED` `0.7` confidence), the persistent hash-keyed session `read_ledger` and `read_ledger_stats`, `session_meta`, `vet_history` (`subtask_count`, `directive`), and `co_activity` (`schemaVersion = "7"`, rebuilt automatically via `staleSchemaError`, ADR-511, ADR-525). All-workspace dream discovery and conversation reads live in `dream.go` and `dream_workspace.go`: `ListProjects`, `GlobalWorkspace` (`"__global__"`), `ListAgyWorkspaces` (excluding sandboxes), and `AgyConversationTextInWindow` (`maxModified` stale cutoff, supporting non-git directories and empty `workspace_uris`, ADR-524).
 
-## T9 — Memory
+## T9 — Retired (merged into T7 internal/brain)
 
-Implements: M9 · Spec: `SPEC-fyr-memory-loop`
-
-- **Interfaces:** `fyr memory add [--type semantic|procedural|episodic] [--global] [--body-file FILE] [--provenance operator|derived]` (default `operator`; legacy aliases `user|project|reference -> semantic`, `feedback -> procedural`) and `fyr memory show [--global] [--include-low]`; `semantic` cards load at `fyr resume`, `procedural`/`episodic` cards inject on demand in `PreInvocation`, and cards with `ComputeMemoryValidity` `< 0.40` are hidden unless `--include-low` is passed.
-- **Data:** `memory` records in the brain store (`project` or `--global` scope) with `provenance`, `memory_kind`, `validity` (`0.00–1.00`), `verified_at`, `evidence_count`, and `source_sessions`, never exported (R7).
+Project and `--global` memory moved into [T7 — The brain store](#t7--the-brain-store) (`internal/brain/memory.go`), where `fyr memory add` and `fyr memory show` share `brain.db` and `SPEC-fyr-record` directly.
 
 ## T10 — Metrics
 
@@ -124,7 +151,9 @@ Implements: M10 · Spec: `SPEC-fyr-metrics`
 
 ## T11 — The dreamer
 
-Implements: M11 · Spec: `SPEC-fyr-dream` · Decision: ADR-524
+Discovers all Antigravity workspaces without registration, redacts stale conversations and shape metrics, rates sessions into `session_ratings`, and queues global skill and memory proposals in zero-tool plan mode.
+
+Implements: M11 · Guide: [Dream Consolidation & Auto Mode](features/dream-and-auto.md) · CLI: `fyr help dream` · Decision: ADR-524
 
 - **Interfaces:** `fyr dream`, `--all`, `--project DIR` (accepts git checkouts, non-git directories, or `__global__`), `--dry-run` (scheduling lives in `fyr auto`, `T19`; `dream.RemoveTimer` / `dream.TimerInstalledHere` clean up legacy `fyr-dream` units); `Options` adds `ConversationIdle`, `HarnessRepo`, and `WriteRatings`; `targets.go` discovers all workspaces from `search.ListProjects`, `search.ListAgyWorkspaces`, `brain.Scopes`, and `HarnessRepo` without requiring `trail.Registered` (`G6`) or migrated trail records; sliding-window `(since, cutoff]` collection (`collect.go`, `collect_sources.go`, `addOptionalPlanAndHandoff`) pairs `watermark(c, cutoff)` with `FailedAttempts` 24h cooldown when `ConversationIdle > 0`; `prompt.go`/`response.go`/`proposals_write.go` rate stale conversations, write `session_ratings` in `realRun` only, and queue `target: harness` `proposal` records via `needsSkillProposal`.
 - **Errors:** an ingest failure does not fail the dream; a tool call by the model ends the run with no answer.
@@ -132,7 +161,9 @@ Implements: M11 · Spec: `SPEC-fyr-dream` · Decision: ADR-524
 
 ## T12 — The redactor
 
-Implements: M12 · Spec: none (internal; `SPEC-fyr-dream` names where it runs, and its tests pin every needle)
+Scrubs credentials, secret lines, and PEM blocks from plain text and JSONL dream inputs using stdlib-only patterns with pinned over-redaction safety tests.
+
+Implements: M12 · Spec: none (internal; [Dream Consolidation & Auto Mode](features/dream-and-auto.md) names where it runs, and its tests pin every needle)
 
 - **Interfaces:** one function over text, one over JSON lines; stdlib only.
 - **Needles:** a needle matched against raw text has no `\b` in front: a literal `\n` or an underscore is a word character and hides the token.
@@ -151,7 +182,9 @@ Implements: M13 · Spec: `SPEC-fyr-eval`; the rows are the tracked `.agents/eval
 
 ## T14 — Drift check
 
-Implements: M14 · Spec: `SPEC-fyr-check`
+Verifies documentation accuracy, active specs, requirement enforcement sites, trace coverage, and post-dispatch git workspace cleanliness without modifying state.
+
+Implements: M14 · Guide: [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) · CLI: `fyr help check`, `fyr help git-check`
 
 - **Interfaces:** `fyr check`, read-only: rule (a) docs, (b) specs, (c) requirements, (d) traces (`PRD.md` → `SDD.md` → `TDD.md`); `fyr git-check` (`check.GitCheck`, ADR-508), read-only: the three post-dispatch git checks (`git status --short --untracked-files=all`, `git log --branches --not --remotes --oneline`, `git tag`).
 - **Errors:** exit 1 with findings (`check`) or exit 2 outside a git checkout (`git-check`); a trail that does not parse is a refusal, never a partial run.
@@ -159,15 +192,19 @@ Implements: M14 · Spec: `SPEC-fyr-check`
 
 ## T15 — Trail git reads
 
-Implements: M15 · Spec: none (internal; shared by M7–M11 and M14 so that none imports another)
+Isolates git metadata and worktree root discovery so storage, search, and verification packages never invoke git with inherited repo environment variables or import one another.
+
+Implements: M15 · Spec: none (internal; shared by M7–M8, M10–M11, and M14 so that none imports another)
 
 - **Interfaces:** `trail.Command`, which runs git with the repository variables dropped, with `Dates`, `Log` and `DocsRoot`; `NoIndexMarkers`; the registration marker that `fyr index --register` writes. No SQLite.
 
 ## T19 — Auto
 
-Implements: M19 · Spec: `SPEC-fyr-auto` · Decisions: ADR-523, ADR-524
+Manages the global binary `on | off` switch (`ADR-524`) and timer-driven dreaming-only self-improvement (`ADR-523`), gating free-checkout capacity, risk scoring, isolated worker execution, and draft/eval validation.
 
-Global binary `on | off` switch (`ADR-524`) and dreaming-only self-improvement (`ADR-523`): the switch, the files, the timer, the gates (`G1`–`G3`, `G8`–`G9`; `G4`–`G7` retired for dreaming), the free checkout checks, the risk rubric, the worker runner, the apply step, the dreaming tasks' triggers and redacted inputs, the drafts validator and writer, and the harness self-edit/distill eval gate.
+Implements: M19 · Guide: [Dream Consolidation & Auto Mode](features/dream-and-auto.md) · CLI: `fyr help auto` · Decisions: ADR-523, ADR-524
+
+Core coverage spans the switch, the files, the timer, the gates (`G1`–`G3`, `G8`–`G9`; `G4`–`G7` retired for dreaming), the free checkout checks, the risk rubric, the worker runner, the apply step, the dreaming tasks' triggers and redacted inputs, the drafts validator and writer, and the harness self-edit/distill eval gate.
 
 - **Interfaces:** `auto.On(Options, Request)`, `auto.Off(Options)`, `auto.Status(Options)`, `auto.Run(Options, dryRun)` and `auto.StatusLine(Options)`; `Options` carries the home, the writer and the `Now`, `GOOS`, `Path`, `RealHome`, `Self`, `Repo`, `Work`, `IsolateAvailable`, `Apply`, `TestRunner`, `Eval`, `EvalHome`, `EvalFixture`, `HoldoutFile` and `AgyVersion` seams, and `Request{ConversationIdle string}` replaces the retired `Level`, `ProjectIdle`, `UserIdle`, and `CheckHarness` fields (with `--level`, `--project-idle`, and `--user-idle` accepted as deprecated no-op flags with a warning in `cmd/fyr/verb_auto.go`). A verb's failure is an `*auto.ExitError`, its text on stdout.
 - **Config (`config.go`):** `Load` fails closed: one object read key by key, so a repeated key, a key in another case and anything after the value are refused, `"enabled"` required, omitted `"conversation_idle"` defaulted to `"1h"`, legacy `"level"` / `"project_idle"` / `"user_idle"` keys decoded as `*string` and ignored on migration, unknown keys refused, `ValidConversationIdle` (`5m` to `7d`) validated as the flags are, read through no link, 4 KiB at most, regular files only. `save` writes `{enabled, conversation_idle}` via `harness.WriteAtomic` at 0600, whose rename replaces a link instead of following it; that is how `off` takes one out, and why `On` refuses one first. `On` writes `enabled: true` last.
@@ -180,6 +217,8 @@ Global binary `on | off` switch (`ADR-524`) and dreaming-only self-improvement (
 
 ## T20 — Deterministic gates
 
+Implements deterministic pre-merge and close gates—tree-hash verification stamps, lease scope verification, branch landing, and task closing—so parallel agent work merges safely.
+
 Implements: M20 · Spec: `SPEC-fyr-delivery`
 
 - **Interfaces:** `gate.Verify(ctx, VerifyOptions) (VerifyReport, error)`, `gate.ReadStamp(root)` / `gate.WriteStamp(root, Stamp)` (`.agents/scratch/verify.stamp`, `0600`), `gate.ParseLease(text)` and `gate.Gate(ctx, GateOptions) (GateReport, error)`, `gate.Land(ctx, LandOptions) (LandReport, error)`, and `gate.Close(ctx, CloseOptions) (CloseReport, error)`.
@@ -188,31 +227,37 @@ Implements: M20 · Spec: `SPEC-fyr-delivery`
 
 ## T21 — Models catalog and quota picker
 
-Implements: M21 · Spec: `SPEC-fyr-auto`
+Maintains the live model catalog, quota pools, changelog lifecycle profiles, and cross-family role routing so subagents and dreaming workers select healthy models automatically.
+
+Implements: M21 · Guide: [Workflows, Swarm & Build Control](features/workflows-and-build-control.md) · CLI: `fyr help models`
 
 - **Interfaces:** `models.ListModels`, `RunAgyModels`, `ParseModelsOutput`, `ClassifyModel`, `RootEnv`, `Capped`, and `LastLine` (`models.go`, detaching `/dev/tty` via `Setsid: true` and stripping `ANTIGRAVITY_*`, `BUG-546`); `Catalog`, `CatalogEntry`, `ModelEvidence`, `RolePick`, `CatalogPath`, `CatalogExists`, `CheckHomeDir`, `LoadCatalog`, `SaveCatalog`, `RefreshCatalog`, `EnrichCatalogPools`, `PersistCatalogPoolsBestEffort`, `BuildCatalog`, `NormalizeRoleTier`, `PickFromEntries` (`catalog.go`, `catalog_ranking.go`), `AggregateWorkEvidence` and `BuildListedCatalogEntries` (`catalog_evidence.go`, ADR-519); `ApplyModelProfile`, `RunAgyChangelog`, `EnrichCatalogChangelog`, `UnjudgedActiveModels`, `ResolveScopeRoleAndTier`, `IsInteractiveOnlyID`, `PickAutoModelForScope`, and `PickFromListedIDs` (`profiles.go`, ADR-520); and `Pool`, `ParseUsage`, `RunUsage`, `ResolveRoleModel`, `ResolveRoleModelForHome`, `PickRoleFromCatalog`, and `PickRoleFromCatalogWithPools` (`usage.go`, routing `planner`/`builder`/`mechanical` on Gemini and `judge`/`reviewer`/`verifier` cross-family on Anthropic with `< 20%` weekly or `< 30%` 5-hour quota fallback).
 - **Dependencies:** `internal/harness` only (`TestModelsPackageDeps`; no SQLite).
 
 ## T22 — OS-native isolation (`internal/isolate`)
 
-Implements: M22 · Specs: `SPEC-fyr-eval`, `SPEC-fyr-auto`
+Sandboxes evals and autonomous workers using OS-native confinement (Linux Landlock plus user/mount/PID namespaces, macOS Seatbelt) and isolated ACP client runners.
+
+Implements: M22 · Spec: `SPEC-fyr-eval` · Guide: [Behavioural Evaluation & OS Isolation](features/eval-and-isolation.md), [Dream Consolidation & Auto Mode](features/dream-and-auto.md)
 
 - **Interfaces:** `Policy`, `DefaultRunner = RunnerIsolate`, `CheckEvalRunner`, `ResolveEvalRunner`, `CheckRunner`, `CheckAvailable`, and `ChooseRunner` (`isolate.go`, resolving `PATH` symlinks in `appendSafePATHDirs` so `$HOME` and `TMPDIR` subtrees stay excluded and only standard system `PATH` tools outside `$HOME` are readable); `MaybeRunInit` plus Landlock ABI v3–v5 self-reexec policy and private `CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWPID` `/proc` + `/dev/pts` mounts (`landlock_linux.go`, `mounts_linux.go`); `sandbox-exec` Seatbelt renderer with `(allow pseudo-tty)`, `/dev/ptmx` only (no `/dev/ttys*`), scoped Mach lookups denying `SecurityServer`/`launchservicesd`/`pasteboard.1`/`lsd.mapdb`, `(allow process-exec)`/`(allow process-fork)`/`(allow signal (target same-sandbox))` (`seatbelt.go`, `sandbox_darwin.go`); `Config`, `Box`, `New`, `CheckRoot`, `OutsideCheckout`, `EnsureWorkDir`, `CheckWorkDir`, `SyncWorkToken`, `CheckWorkLogin`, `ProjectName`, `ProjectRoot` (`box.go`, `keychain.go`, `open.go`, `guard.go`, `after.go`; pre-sandbox `CheckWorkLogin`/`SyncWorkToken` extract the macOS Keychain OAuth token to `0600` without linking `~/Library/Keychains`); `ACPClient`, `ACPCommand`, `PrepareSelf` (`acp.go`, `prepare.go`); `WorkerOptions`, `WorkerResult`, `RunWorker`, `RunnerLabel`, `ParseAutoKickoff`, `ResolveAutoRoleAndTier` (`worker.go`, `worker_kickoff.go`, `worker_model_profiles.go`, `worker_records.go`, `worker_reflog.go`, `worker_wave_seed.go`, `worker_zone.go`); and fail-closed `unsupported.go` / `procs_*.go` stubs.
 - **Dependencies:** `internal/harness`, `internal/models`, and `internal/trail` (`TestIsolatePackageDeps`; stdlib and raw Linux syscalls via `syscall` only; no SQLite).
 
 ## Data model
 
-| Store | Kind | Holds | Spec |
+Maps every persistent store, on-demand export, search index, and runtime state or cache file used by `fyr` to its specification or feature guide.
+
+| Store | Kind | Holds | Reference |
 |---|---|---|---|
 | `~/.config/fyr/brain.db` | store of record | every project's trail records and the global ones (feedback, proposal, retro), memory | `SPEC-fyr-record` |
 | `.agents/trail.jsonl` | on-demand export | one project's exported records, one JSON object per line (`fyr record export` / `sync`) | `SPEC-fyr-record` |
 | `~/.config/fyr/metrics.db` | store of record | session shape | `SPEC-fyr-metrics` |
-| `.agents/scratch/search.db`, `~/.config/fyr/search.db` | cache | the full-text and AST `symbols`/`sym_refs` indexes, plus `.agents/scratch/search.db`'s session `read_ledger`, `session_meta`, `vet_history` (`subtask_count`, `directive`), and `co_activity` (`schemaVersion = "7"`, ADR-511, ADR-525) | `SPEC-fyr-search` |
+| `.agents/scratch/search.db`, `~/.config/fyr/search.db` | cache | the full-text and AST `symbols`/`sym_refs` indexes, plus `.agents/scratch/search.db`'s session `read_ledger`, `session_meta`, `vet_history` (`subtask_count`, `directive`), and `co_activity` (`schemaVersion = "7"`, ADR-511, ADR-525) | `SPEC-fyr-pre-hook-coordinator`, [Hooks & AST Graph](features/hooks-and-ast-graph.md), `fyr help search` |
 | `.agents/scratch/verify.stamp` | cache | tree-hash verification stamp written by `fyr verify` (`0600`) and read by the `Stop` hook and `fyr close` | `SPEC-fyr-delivery` |
 | `~/.config/fyr/state.json` | state | the install's manifest | `SPEC-fyr-delivery` |
-| `~/.config/fyr/auto.json` | state | `fyr auto`'s binary switch (`enabled`) and `conversation_idle` threshold (`1h` default); `on` and `off` write it | `SPEC-fyr-auto` |
-| `~/.config/fyr/auto/` | state | `runs.json`, whose model-run count is the budget, `auto.lock`, `auto.log`, `kickoffs/`, `drafts/`, `inputs/` | `SPEC-fyr-auto` |
-| `~/.config/fyr/models.json` | cache | live `agy models` + `changelog` catalog (`internal/models`: `active`/`new`/`gone`, `subfamily`/`interactive_only`/`retiring_on` profiles, `catalog_ranking.go`, `profiles.go`, aggregated `ModelEvidence`; `0600`, ADR-519, ADR-520) | `SPEC-fyr-auto` |
+| `~/.config/fyr/auto.json` | state | `fyr auto`'s binary switch (`enabled`) and `conversation_idle` threshold (`1h` default); `on` and `off` write it | [Dream Consolidation & Auto Mode](features/dream-and-auto.md), `fyr help auto` |
+| `~/.config/fyr/auto/` | state | `runs.json`, whose model-run count is the budget, `auto.lock`, `auto.log`, `kickoffs/`, `drafts/`, `inputs/` | [Dream Consolidation & Auto Mode](features/dream-and-auto.md), `fyr help auto` |
+| `~/.config/fyr/models.json` | cache | live `agy models` + `changelog` catalog (`internal/models`: `active`/`new`/`gone`, `subfamily`/`interactive_only`/`retiring_on` profiles, `catalog_ranking.go`, `profiles.go`, aggregated `ModelEvidence`; `0600`, ADR-519, ADR-520) | [Workflows, Swarm & Build Control](features/workflows-and-build-control.md), `fyr help models` |
 
 ## Testing strategy
 
@@ -224,7 +269,10 @@ The commands are `AGENTS.md` § Setup commands; the procedures are the `DEPLOY-l
 
 ## Trace
 
-Every component of SDD.md, its section here, and tests that verify it.
+Maps every component from `SDD.md` to its technical section here and the tests that verify it.
+
+<details>
+<summary>Component trace matrix (M1–M22)</summary>
 
 | Component | Section | Verified by |
 |---|---|---|
@@ -234,16 +282,17 @@ Every component of SDD.md, its section here, and tests that verify it.
 | M4 | T4 | `TestEmbedHoldsOnlyTrackedFiles`, `TestFilesMatchTree`, `TestEmbeddedPlanEqualsCheckout` |
 | M5 | T5 | `TestHarnessMap`, `TestVocabularyVerbsAndFlags`, `TestEveryVerbSurvivesTheVerbList`, `TestHelpEvalGolden`, `TestUpdateNeverInstallsDirtyTree`, `TestUpdateFromReleaseReplacesAndInstalls`, `TestUpdateFromZipVerifiedAndTampered`, `TestVerbModelsCLI`, `TestVerbModelsReadsMetricsEvidence`, `TestCLIVerifyGateLandClose` |
 | M6 | T6 | `TestInstallStatusResyncUninstall`, `TestLintPermissionKeysByKind`, `TestPlainCopyNeverRebuilds`, `TestUninstallKeepsMetricsStore`, `TestPlanInstallsWorkflowScripts` |
-| M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestScratchFileIO`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd`, `TestMemoryPartsAndGlobalScope`, `TestComputeMemoryValidity`, `TestCountMemoryContradictions`, `TestSnapshotScopes`, `TestResumeGolden`, `TestResumeReadOnlyDoesNotCreateDB`, `TestResumeFileEraNoticeAndTrailFallback`, `TestResumeRefusesNonCheckout`, `TestResumeVerb` |
+| M7 | T7 | `TestAddGetEditList`, `TestExportByteStable`, `TestLoadReplacesRowsFromAChangedFile`, `TestRecordSyncWarnsOnRedactable`, `TestRecordAddTitleFile`, `TestScratchFileIO`, `TestRecordBodyFileAndOut`, `TestNoRedirectedFyrInstructions`, `TestTwoProcessesAllocateDistinctIDs`, `TestProvenanceMigrationSetsUnknown`, `TestProvenanceMemoryAdd`, `TestProvenanceMemoryDraftActions`, `TestProvenanceFeedbackAndRecordAdd`, `TestMemoryPartsAndGlobalScope`, `TestComputeMemoryValidity`, `TestCountMemoryContradictions`, `TestSnapshotScopes`, `TestResumeGolden`, `TestResumeReadOnlyDoesNotCreateDB`, `TestResumeFileEraNoticeAndTrailFallback`, `TestResumeRefusesNonCheckout`, `TestResumeVerb`, `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestMemoryGlobalAndIncludeLowFlags`, `TestMemoryAddBodyFile`, `TestStoreRunsNoProjectHook` |
 | M8 | T8 | `TestSearchRanksARecordAboveAFile`, `TestAgyCorpusLeaves`, `TestReconcilePopulatesSymbolsAndSymRefs`, `TestBuildContextSliceAndBudget`, `TestSliceVsGrepTokenEfficiencyAndRecall`, `TestFindSymbolPath`, `TestFindAffected`, `TestCheckAndRecordReadConsumeOnHit`, `TestReadLedgerClampsEndLineAtByteLimit`, `TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed`, `TestReadLedgerPersistenceEditAndExternalCheckout`, `TestExtractMarkdownSymbolsAndSkeleton`, `TestHookHardDeadlineFallsBackToAllow`, `TestGlobalNoHooksSwitch`, `TestNaturalLanguagePromptGetsPivotsViaFTSFallback`, `TestRunHookPreInvocationCapsuleAndPreseed`, `TestRunHookPreToolUseAndStop`, `TestRunHookPreInvocationFenceAndTurnContract`, `TestRunHookPreInvocationStoreDegradationFailOpen`, `TestRunHookPreInvocationAutoInitsUnindexedDir`, `TestFenceNewAndDataCollisionResistance`, `TestClassifyIntentAllNineModes`, `TestVetPromptGatesAndBypasses`, `TestVetRoutesIntentToFeature`, `TestVetPromptFencesRecordsAndRunsUnderLatencyBudget`, `TestVetHistoryTableAndHelpers`, `TestVetScoreAndCarryForward`, `TestSynthesizeImprovedPromptAndStatefulHookTurn`, `TestBuildVetSliceFiltersUnconfidentShellFiles`, `TestMatchSkillsBashVsGolangAndDiagnosticMentions`, `TestVetPromptClauseAndSecurityPrecision`, `TestHookFyrProcessArtifact`, `TestHookPreToolUseSubagentModelGuard`, `TestCompactHookCapsuleAndLargeFnMapOnly`, `TestPreInvocationSessionDedupAndCompactionReset`, `TestPreInvocationProgressiveMemory`, `TestPreToolUseSubagentAutoUpgradeAndSwarmModelFill`, `TestPreInvocationModelSuggestorSessionDedupAndOrchestratorQuiet`, `TestMockScenario1LedgerAPIZeroScaffoldLifecycle`, `TestPreInvocationEmitsImprovedPromptAndSkillDigests`, `TestDecomposeSubtasksClausesAndPackages`, `TestListAgyWorkspacesAndWindow`, `TestPreToolUseWorkerJITCapsuleOverwrite`, `TestPreToolWriteCoordinatorGuard` |
-| M9 | T9 | `TestMemoryVerb`, `TestMemoryProvenanceFlag`, `TestMemoryGlobalAndIncludeLowFlags`, `TestMemoryAddBodyFile`, `TestStoreRunsNoProjectHook` |
 | M10 | T10 | `TestAgyIngestShape`, `TestShowAgyOnly`, `TestStepTimes`, `TestTrajectoriesEmpty`, `TestTrajectoriesLineageAndAnomalies`, `TestMetricsTrajectoryCLI`, `TestDreamTrajectoryDigestEmpty`, `TestDreamTrajectoryDigestLabelIsolationAndSinceFilter`, `TestDreamTrajectoryDigestMultiSessionAggregationAndNoLeak`, `TestSecondBrainAndWorkWaveIngestAndShow`, `TestMigrationThreeToCurrent`, `TestWorkWavesStageSecondsSchema7`, `TestReportTriggerCoverageKPIs`, `TestRenderMarkdownReportSections`, `TestWriteMarkdownReportRefusesOverwrite`, `TestReportVerbCLI`, `TestMockScenario3FleetOpsWorkersTrajectoryAndLearningLoop`, `TestSessionRatingsMigrationUpsertQueryAndReports` |
 | M11 | T11 | `TestRunIngestsMetricsFirst`, `TestPromptCarriesMetricsNumbersOnly`, `TestInstallTimerLinux`, `TestMockScenario3FleetOpsWorkersTrajectoryAndLearningLoop`, `TestAllConversationsRatedWithoutRegistration` |
 | M12 | T12 | `TestRedactShapes`, `TestEveryNeedleHasAShapeAndANearMiss` |
 | M13 | T13 | `TestSuiteHarness`, `TestNamedRowSkillCommands`, `TestNamedRowSkillProhibitions`, `TestEvalRefusesItsHome`, `TestEvalSuiteFile`, `TestRunDarwinKeychainLogin`, `TestEvalVerbBrainWatch`, `TestRunParallel`, `TestEvalVerbParallel`, `TestSuiteGrammarBenchmark`, `TestRunRowTimeout`, `TestRunScriptedTurns`, `TestRunStageSecondsAndHiddenCheck`, `TestEvalVerbStageSecondsAndTurns`, `TestMockFixtureRefusesOutsideThrowawayDir`, `TestFeatureRoutingRuleAndEvalRow` |
 | M14 | T14 | `TestDocsRuleVerbs`, `TestSpecRuleStaleness`, `TestRequirementsRuleReadsPRD`, `TestTracesRule`, `TestGitCheckGolden`, `TestGitCheckRefusesNonCheckout`, `TestGitCheckVerb`, `TestMockScenario2CloudWorkerGovernanceAndSecurity` |
-| M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot` |
+| M15 | T15 | `TestCommandIgnoresRepositoryVariables`, `TestRegisteredCloneIsNot`, `TestRootIsTheWorkTreeTop` |
 | M19 | T19 | `TestAutoOnWritesTheConfigAndTheTimer`, `TestAutoOnFromOffStartsAtTheDefaults`, `TestAutoOffNeedsNoLock`, `TestAutoOffReplacesCorruptAndLink`, `TestAutoConfigCorrupt`, `TestAutoRunCorruptFailsClosed`, `TestAutoDryRunWritesNothing`, `TestAutoTimerSystemdText`, `TestAutoTimerPlistText`, `TestAutoVerbUsage`, `TestUninstallRemovesAutoTimerKeepsItsFiles`, `TestGuardFingerprintSkipsSandboxRoots`, `TestKickoffBuilder`, `TestKickoffRubricAndAsks`, `TestRunnerChoice`, `TestSweepLineKeepsVerdict`, `TestWithRunnerKeepsVerdict`, `TestWorkerModelRunCountAndCap`, `TestWorkerBranchCleanup`, `TestWorkerConfigTamperDisablesAuto`, `TestWorkerStateTamperRestoredAndDraftsCollected`, `TestClassRotation`, `TestApplyHappyPath`, `TestApplyMovedCheckoutKeepsBranch`, `TestApplyRedMarkedTestKeepsBranch`, `TestApplyNoMarkedTestBecomesProposal`, `TestApplyHooksAndGPGSignOff`, `TestApplyNoPushFetchOrLsRemoteInGitLog`, `TestApplyRubricDeniedPathOnBranchKeepsBranch`, `TestApplyStep1RereadsGatesAndDraftFindings`, `TestDraftsMemoryAddRetireMerge`, `TestDraftsRetireOrMergeOtherProjectRefused`, `TestDraftsTokenShapeRefused`, `TestDraftsFeedbackProposalFindingAndLimits`, `TestDraftsMemoryTypeScopeAndSessions`, `TestTasksKickoffTemplates`, `TestTasksTriggers`, `TestTasksRedactedLearningInput`, `TestDreamingOnlyClassSet`, `TestDistillRouting`, `TestEvalGate`, `TestMockScenario3FleetOpsWorkersTrajectoryAndLearningLoop`, `TestAutoOnBinarySwitchAndAllProjectsSweep` |
 | M20 | T20 | `TestVerifyHappyAndMustFail`, `TestGateChecksAndMustFail`, `TestLandAndCloseE2E` |
 | M21 | T21 | `TestModelsPackageDeps`, `TestRootEnvStripsAntigravityVars`, `TestRunAgyDetachesControllingTTY`, `TestModelCatalogRefreshAndRoute`, `TestCatalogJoinsBareEvalEvidenceOntoHighestEffort`, `TestCatalogEvalPassDoesNotMaskFailingWorkPass`, `TestCatalogEvidenceEdgeCases`, `TestLoadCatalogHydratesLegacyModelProfiles`, `TestCatalogPersistsQuotaPoolsBestEffort`, `TestResolveRoleModel`, `TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence`, `TestCheckHomeDir`, `TestModelClassification22Lineup`, `TestChangelogEnrichmentAndUnjudgedCanaries`, `TestResolveScopeRoleAndTier` |
 | M22 | T22 | `TestIsolateLandlockDeniesOutsideWrite`, `TestIsolateLandlockOffMustFail`, `TestIsolateLandlockAllowsPTY`, `TestIsolateLandlockBlocksHostProcAndDevPts`, `TestAppendSafePATHDirsSymlink`, `TestLandlockUnavailableFailsClosed`, `TestSeatbeltProfileRender`, `TestChooseRunner`, `TestIsolatePackageDeps`, `TestBoxSession`, `TestBoxTimedOut`, `TestBoxMakeAndNote`, `TestBoxMakeTrialPath`, `TestBoxTokenLinkRefused`, `TestBoxLaterSessionNeedsIntact`, `TestAgyEnvZone`, `TestGuardRefusedRoots`, `TestGuardOutsideCheckout`, `TestGuardOutsideCheckoutFailsClosed`, `TestGuardFingerprint`, `TestGuardFingerprintSkipsSandboxRoots`, `TestOpenRegularRefusesAHardLink` |
+
+</details>

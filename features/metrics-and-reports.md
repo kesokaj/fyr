@@ -17,7 +17,7 @@ flowchart LR
     metricsDB --> dreamDigest["DreamTrajectoryDigest\n(shape-only feed for dreaming)"]
 ```
 
-Because `metrics.db` preserves session shapes even after old Antigravity conversation transcripts expire, schema migrations (`1` through `7`) always move forward without rebuilding or truncating historical rows. You can back up the entire database (excluding the `cmd_hash` salt) as `0600` JSONL at any time using `fyr metrics export <file>`.
+Because `metrics.db` preserves session shapes even after old Antigravity conversation transcripts expire, schema migrations (`1` through `8`, adding `session_ratings` in v8) always move forward without rebuilding or truncating historical rows. You can back up the entire database (excluding the `cmd_hash` salt) as `0600` JSONL at any time using `fyr metrics export <file>`.
 
 ## Wall-time decomposition and trajectory anomaly detection
 
@@ -46,7 +46,7 @@ When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest`
 |---|---|
 | **1. Executive Pulse** | Sessions, subagents, turns, tool calls, active vs wall min, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, compactions |
 | **2. Second-Brain Leverage** | `Search : grep` ratio, ranged read %, redundant reads, turn vets, mean vet score, `VET_FIRST` / bypassed turns, pivots seeded, read-ledger blocks saved |
-| **3. Quality & Learning Loop** | DoD closure rate, verifier `PASS`/`FAIL`, review findings (`high`/`medium`/`low`), escaped bugs, `FEEDBACK-*` corrections, tool error rate, `pass^k` eval summary |
+| **3. Quality & Learning Loop** | DoD closure rate, verifier `PASS`/`FAIL`, review findings (`high`/`medium`/`low`), escaped bugs, `FEEDBACK-*` corrections, `session_ratings` (rated sessions, mean outcome & token efficiency), tool error rate, `pass^k` eval summary |
 | **4. Autonomy & Model Routing** | Work waves/workers, worker verdicts, `Base-Check` verdicts, cross-family judge verdicts & fallbacks, top subagent tool calls |
 | **5. Trigger coverage** | KPI coverage vs targets (`>= 80%` worker phases, `= 0` build-time questions, `>= 1.0` `Search : grep`, `> 0` read-ledger blocks, `fyr auto` runs/wk, `>= 80%` DoD closed) |
 | **6. Per-Project / Project Breakdown** | Cross-project table in `--global` mode, or top skills and subagents in `--project` mode |
@@ -82,6 +82,8 @@ When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest`
 </details>
 
 ## Next steps
+
+Generate a project report or inspect recent session token curves from the CLI:
 
 - Run `fyr report --md` in any project directory to see your second-brain leverage and trigger coverage immediately.
 - Run `fyr metrics trajectory --limit 5` to inspect token growth and check for `REDUNDANT_READ` or `KNEE_EXCEEDED` sessions.

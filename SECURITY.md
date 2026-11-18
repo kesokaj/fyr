@@ -6,8 +6,8 @@ Only the latest tagged `vX.Y.Z` release on `main` receives security updates.
 
 | Version | Supported |
 |---|---|
-| Latest release (`v8.x`) | Yes |
-| `< v8.0.0` | No |
+| Latest release (`v9.1.x`) | Yes |
+| `< v9.1.0` | No |
 
 ## Reporting a Vulnerability
 
