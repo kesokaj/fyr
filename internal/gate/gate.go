@@ -207,13 +207,15 @@ func finalizeTargetBase(ctx context.Context, baseOpt string, tgt gateTarget) (ga
 
 func loadLeasePatterns(opts GateOptions) ([]string, error) {
 	var patterns []string
-	for _, p := range opts.Lease {
-		cleaned, err := normalizeLeasePattern(p)
-		if err != nil {
-			return nil, err
-		}
-		if cleaned != "" {
-			patterns = append(patterns, cleaned)
+	for _, raw := range opts.Lease {
+		for _, p := range strings.Split(raw, ",") {
+			cleaned, err := normalizeLeasePattern(p)
+			if err != nil {
+				return nil, err
+			}
+			if cleaned != "" {
+				patterns = append(patterns, cleaned)
+			}
 		}
 	}
 	if opts.LeaseFile != "" {
@@ -315,7 +317,7 @@ func splitLeaseTokens(s string) []string {
 }
 
 func normalizeLeasePattern(p string) (string, error) {
-	p = strings.TrimSpace(strings.Trim(p, "`\"'"))
+	p = strings.TrimSpace(strings.Trim(strings.TrimSpace(p), "`\"'"))
 	if p == "" {
 		return "", nil
 	}

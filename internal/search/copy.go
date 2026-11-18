@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // ErrNotRegular is a source that is not a regular file: a FIFO, a device, a
@@ -15,10 +17,10 @@ var ErrNotRegular = errors.New("not a regular file")
 
 // copyFileImpl copies the regular file from to a new file to. The source is
 // opened without blocking and without following a final symlink
-// (openSource), then checked on the open descriptor, so nothing swapped in
-// after a check is read.
+// (trail.OpenNonBlocking), then checked on the open descriptor, so nothing
+// swapped in after a check is read.
 func copyFileImpl(from, to string) error {
-	in, err := openSource(from)
+	in, err := trail.OpenNonBlocking(from)
 	if err != nil {
 		if fi, lerr := os.Lstat(from); lerr == nil && !fi.Mode().IsRegular() {
 			return fmt.Errorf("%s: %w", from, ErrNotRegular)

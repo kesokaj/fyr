@@ -7,72 +7,20 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
-	verifyStampRelPath  = ".agents/scratch/verify.stamp"
+	verifyStampRelPath  = trail.VerifyStampRelPath
 	stopNudgeStampRel   = ".agents/scratch/stop-nudge.stamp"
 	maxVerifyStampBytes = 4096
 )
-
-type verifyStampDoc struct {
-	TreeSHA256   string `json:"treeSha256"`
-	TreeSHA256Sn string `json:"tree_sha256,omitempty"`
-	UpdatedAt    string `json:"updatedAt"`
-}
 
 type stopNudgeDoc struct {
 	ConversationID string `json:"conversationId"`
 	TreeSHA256     string `json:"treeSha256"`
 	UpdatedAt      string `json:"updatedAt"`
-}
-
-func verifyStampPath(root string) string {
-	return filepath.Join(root, filepath.FromSlash(verifyStampRelPath))
-}
-
-func writeVerifyStamp(root, treeSHA256 string) error {
-	sum := strings.ToLower(strings.TrimSpace(treeSHA256))
-	if strings.TrimSpace(root) == "" || sum == "" {
-		return fmt.Errorf("verify stamp requires root and non-empty sha256")
-	}
-	if err := checkScratchNoSymlinks(root); err != nil {
-		return err
-	}
-	target := verifyStampPath(root)
-	payload, err := json.Marshal(verifyStampDoc{
-		TreeSHA256: sum,
-		UpdatedAt:  time.Now().UTC().Format(time.RFC3339),
-	})
-	if err != nil {
-		return err
-	}
-	return writeScratchStampAtomic(target, append(payload, '\n'))
-}
-
-func readVerifyStamp(root string) (string, bool) {
-	if strings.TrimSpace(root) == "" {
-		return "", false
-	}
-	data, ok := readSmallRegularFile(verifyStampPath(root), maxVerifyStampBytes)
-	if !ok {
-		return "", false
-	}
-	var doc verifyStampDoc
-	if json.Unmarshal(data, &doc) == nil {
-		sum := strings.ToLower(strings.TrimSpace(doc.TreeSHA256))
-		if sum == "" {
-			sum = strings.ToLower(strings.TrimSpace(doc.TreeSHA256Sn))
-		}
-		if sum != "" {
-			return sum, true
-		}
-	}
-	fields := strings.Fields(string(data))
-	if len(fields) > 0 && len(fields[0]) == 64 {
-		return strings.ToLower(fields[0]), true
-	}
-	return "", false
 }
 
 func evaluateStopStamp(home, dir string, in HookInput) (bool, string) {
@@ -90,8 +38,14 @@ func evaluateStopStamp(home, dir string, in HookInput) (bool, string) {
 	if err != nil || len(state.DirtyGo) == 0 {
 		return false, ""
 	}
-	if stamp, ok := readVerifyStamp(root); ok && strings.EqualFold(stamp, state.TreeSHA256) {
-		return false, ""
+	if st, err := trail.ReadVerifyStamp(root); err == nil {
+		sum := strings.TrimSpace(st.TreeSHA256)
+		if sum == "" {
+			sum = strings.TrimSpace(st.TreeSHA256Sn)
+		}
+		if sum != "" && strings.EqualFold(sum, state.TreeSHA256) {
+			return false, ""
+		}
 	}
 	convID := strings.TrimSpace(in.ConversationID)
 	if convID == "" {

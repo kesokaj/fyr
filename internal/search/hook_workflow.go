@@ -157,6 +157,13 @@ func inspectNonLiteralTypeAgent(home string, typeArg, mArg *workflowArg, args []
 		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent type_name=%s forbids **kwargs splat.", safeType), "", nil
 	}
 	if mArg == nil || isPythonNone(mArg.raw) {
+		if fast {
+			safeType := collapseOneLine(printable(typeArg.raw), 64)
+			if !isInline {
+				return "", fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" inside ScriptPath for dynamic subagent %s.", formatModelTag(home, modelName), safeType), nil
+			}
+			return fmt.Sprintf("[MODEL_OVERRIDE] fast session (%s) requires explicit model=\"pro\" on inline run_workflow dynamic subagent %s.", formatModelTag(home, modelName), safeType), "", nil
+		}
 		return "", "", nil
 	}
 	mVal, isLit := unquotePythonLiteral(mArg.raw)

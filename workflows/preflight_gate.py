@@ -165,10 +165,18 @@ if parallel_specs:
         ),
     )
 
-prior_blocked = any(
-    bool(r.get("blocking")) or r.get("status") in ("FAIL", "BLOCKED", "INCOMPLETE")
-    for r in stages
-)
+def _stage_blocked(r):
+    status = str(r.get("status") or "").strip().upper()
+    verdict = str(r.get("verdict") or "").strip().upper()
+    return (
+        bool(r.get("blocking"))
+        or status in ("FAIL", "BLOCKED", "INCOMPLETE")
+        or verdict in ("REQUEST_CHANGES", "FAIL", "BLOCKED")
+        or (r.get("stage") == "verifier" and status != "PASS")
+    )
+
+
+prior_blocked = any(_stage_blocked(r) for r in stages)
 
 if run_verifier and not prior_blocked:
     phase("Live e2e verification")
@@ -182,10 +190,7 @@ if run_verifier and not prior_blocked:
     )
     stages.append(v_res)
 
-overall_blocked = any(
-    bool(r.get("blocking")) or r.get("status") in ("FAIL", "BLOCKED", "INCOMPLETE")
-    for r in stages
-)
+overall_blocked = any(_stage_blocked(r) for r in stages)
 gate_verdict = "NO-SHIP" if (not stages or overall_blocked) else "SHIP"
 
 for res in stages:

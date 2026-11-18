@@ -98,7 +98,11 @@ func checkCoordinatorWriteGuard(o Options, dir, toolDir string, in HookInput, ta
 		return ""
 	}
 	if lastVet != nil && (lastVet.Directive == "COORDINATE_SUBTASKS" || lastVet.SubtaskCount >= 2) {
-		return fmt.Sprintf("[COORDINATOR_GUARD] active COORDINATE_SUBTASKS turn (%d subtasks) blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass.", max(2, lastVet.SubtaskCount))
+		label := fmt.Sprintf("multi-subtask turn (%d subtasks)", max(2, lastVet.SubtaskCount))
+		if lastVet.Directive == "COORDINATE_SUBTASKS" {
+			label = fmt.Sprintf("active COORDINATE_SUBTASKS turn (%d subtasks)", max(2, lastVet.SubtaskCount))
+		}
+		return fmt.Sprintf("[COORDINATOR_GUARD] %s blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass.", label)
 	}
 	if isCoordinatorOnlyMode(o.Home, root) {
 		return "[COORDINATOR_GUARD] coordinator-only mode blocks direct Coordinator source edits; dispatch an isolated worker (invoke_subagent / swarm with Files: and workspace=\"share\") or prefix prompt with `!` to bypass."

@@ -240,4 +240,90 @@ func TestGateChecksAndMustFail(t *testing.T) {
 			t.Fatalf("expected branch rules to gate cleanly, err=%v rep=%+v", err, rep)
 		}
 	})
+
+	t.Run("comma-separated lease patterns work alongside repeated flags", func(t *testing.T) {
+		wt := addWorktreeBranch(t, repo, "feat-comma-lease")
+		writeFile(t, filepath.Join(wt, "pkg", "a.go"), "package pkg\n")
+		writeFile(t, filepath.Join(wt, "other", "b.go"), "package other\n")
+		writeFile(t, filepath.Join(wt, "docs", "c.md"), "# doc\n")
+		runGit(t, wt, "add", "pkg/a.go", "other/b.go", "docs/c.md")
+		runGit(t, wt, "commit", "-m", "add three leased files")
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:    repo,
+			Target: wt,
+			Lease:  []string{"pkg/*.go, other/*.go", "docs/*.md"},
+		})
+		if err != nil || !rep.OK {
+			t.Fatalf("comma-separated lease failed: err=%v rep=%+v", err, rep)
+		}
+
+		if _, err := Gate(ctx, GateOptions{Dir: repo, Target: wt, Lease: []string{"pkg/*.go, ../bad"}}); !errors.Is(err, ErrRefused) {
+			t.Fatalf("expected ErrRefused for traversal in comma-separated lease, got %v", err)
+		}
+	})
+
+	t.Run("gate_checks edge cases: empty diff, mode 160000, secret names, quoted secret path", func(t *testing.T) {
+		wtEmpty := addWorktreeBranch(t, repo, "feat-empty")
+		repEmpty, errEmpty := Gate(ctx, GateOptions{Dir: repo, Target: wtEmpty})
+		if !errors.Is(errEmpty, ErrFailed) || !hasFinding(repEmpty, "numstat", "empty diff") {
+			t.Fatalf("expected empty diff finding, err=%v findings=%+v", errEmpty, repEmpty.Findings)
+		}
+
+		wtGitlink := addWorktreeBranch(t, repo, "feat-gitlink")
+		headSHA := runGit(t, wtGitlink, "rev-parse", "HEAD")
+		runGit(t, wtGitlink, "update-index", "--add", "--cacheinfo", "160000,"+headSHA+",submod")
+		runGit(t, wtGitlink, "commit", "-m", "add gitlink")
+		repLink, errLink := Gate(ctx, GateOptions{Dir: repo, Target: wtGitlink})
+		if !errors.Is(errLink, ErrFailed) || !hasFinding(repLink, "lease", "160000") {
+			t.Fatalf("expected mode 160000 finding, err=%v findings=%+v", errLink, repLink.Findings)
+		}
+
+		for _, name := range []string{".env", ".credentials.json", "antigravity-oauth-token", "id_rsa", "prod.tfstate", "dev.tfvars", "cert.pem", "store.p12"} {
+			if !isSecretFilename("sub/" + name) {
+				t.Errorf("isSecretFilename(%q) = false, want true", name)
+			}
+		}
+
+		wtQuoted := addWorktreeBranch(t, repo, "feat-quoted-secret")
+		pat := "gh" + "p_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+		writeFile(t, filepath.Join(wtQuoted, "dir", "sec ret.txt"), "ok1\nok2\nok3\nok4\n"+pat+"\n")
+		runGit(t, wtQuoted, "add", "dir/sec ret.txt")
+		runGit(t, wtQuoted, "commit", "-m", "add quoted secret")
+		repQ, errQ := Gate(ctx, GateOptions{Dir: repo, Target: wtQuoted})
+		if !errors.Is(errQ, ErrFailed) || !hasFinding(repQ, "secrets", "dir/sec ret.txt") {
+			t.Fatalf("expected secrets finding on quoted path, err=%v findings=%+v", errQ, repQ.Findings)
+		}
+	})
+
+	t.Run("ReadStamp refuses symlinked stamp, symlinked scratch, and directory stamp", func(t *testing.T) {
+		badRepo := initTestGoRepo(t)
+		stampPath := filepath.Join(badRepo, filepath.FromSlash(StampRelPath))
+		scratchDir := filepath.Dir(stampPath)
+		if err := os.MkdirAll(scratchDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "real.stamp")
+		writeFile(t, target, `{"treeSha256":"abc","ok":true}`)
+		if err := os.Symlink(target, stampPath); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		if _, err := ReadStamp(badRepo); !errors.Is(err, ErrRefused) {
+			t.Fatalf("ReadStamp(symlink stamp) = %v, want ErrRefused", err)
+		}
+		_ = os.Remove(stampPath)
+		if err := os.Mkdir(stampPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ReadStamp(badRepo); !errors.Is(err, ErrRefused) {
+			t.Fatalf("ReadStamp(dir stamp) = %v, want ErrRefused", err)
+		}
+		_ = os.RemoveAll(scratchDir)
+		if err := os.Symlink(t.TempDir(), scratchDir); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+		if _, err := ReadStamp(badRepo); !errors.Is(err, ErrRefused) {
+			t.Fatalf("ReadStamp(symlink scratch) = %v, want ErrRefused", err)
+		}
+	})
 }

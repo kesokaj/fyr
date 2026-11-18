@@ -1,0 +1,115 @@
+package search
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T) {
+	home := t.TempDir()
+	fastModel := "gemini-3.8-flash-medium"
+	proModel := "gemini-4-carbon-high"
+	wfDir := t.TempDir()
+
+	omittedDyn := `await agent(prompt="p", schema={"type":"string"}, type_name=item["type_name"])`
+	noneDyn := `await agent(prompt="p", schema={"type":"string"}, type_name=item["type_name"], model=None)`
+	proDyn := `await agent(prompt="p", schema={"type":"string"}, type_name=item["type_name"], model="pro")`
+
+	spOmitted := filepath.Join(wfDir, "dyn_omitted.py")
+	spNone := filepath.Join(wfDir, "dyn_none.py")
+	spPro := filepath.Join(wfDir, "dyn_pro.py")
+	for p, src := range map[string]string{
+		spOmitted: omittedDyn + "\n",
+		spNone:    noneDyn + "\n",
+		spPro:     proDyn + "\n",
+	} {
+		if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// 1. Inline Script with omitted or None model on fast session denies [MODEL_OVERRIDE].
+	for _, tc := range []struct {
+		name, script string
+	}{
+		{"inline omitted model", omittedDyn},
+		{"inline model=None", noneDyn},
+	} {
+		d := runPreToolHookForTest(t, home, fastModel, "run_workflow", map[string]any{
+			"Script":      tc.script,
+			"Description": tc.name,
+		})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") || !strings.Contains(d.Reason, `model="pro"`) {
+			t.Errorf("%s on fast: got %+v, want deny with [MODEL_OVERRIDE] requiring model=\"pro\"", tc.name, d)
+		}
+	}
+
+	// 2. ScriptPath with omitted or None model on fast session denies [AUTO_SUBAGENT_PRO].
+	for _, tc := range []struct {
+		name, path string
+	}{
+		{"ScriptPath omitted model", spOmitted},
+		{"ScriptPath model=None", spNone},
+	} {
+		d := runPreToolHookForTest(t, home, fastModel, "run_workflow", map[string]any{
+			"ScriptPath":  tc.path,
+			"Description": tc.name,
+		})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[AUTO_SUBAGENT_PRO]") || !strings.Contains(d.Reason, `model="pro"`) {
+			t.Errorf("%s on fast: got %+v, want deny with [AUTO_SUBAGENT_PRO] requiring model=\"pro\"", tc.name, d)
+		}
+	}
+
+	// 3. Pro session allows omitted/None, and fast session allows explicit model="pro".
+	for _, args := range []map[string]any{
+		{"Script": omittedDyn, "Description": "pro inline omitted"},
+		{"Script": noneDyn, "Description": "pro inline none"},
+		{"ScriptPath": spOmitted, "Description": "pro path omitted"},
+		{"ScriptPath": spNone, "Description": "pro path none"},
+	} {
+		if d := runPreToolHookForTest(t, home, proModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
+			t.Errorf("pro session (%s): got %+v, want clean allow", args["Description"], d)
+		}
+	}
+	for _, args := range []map[string]any{
+		{"Script": proDyn, "Description": "fast inline pro"},
+		{"ScriptPath": spPro, "Description": "fast path pro"},
+	} {
+		if d := runPreToolHookForTest(t, home, fastModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
+			t.Errorf("fast session (%s): got %+v, want clean allow", args["Description"], d)
+		}
+	}
+}
+
+func TestPreToolUseRealWorkflowScriptsAllowedOnProAndFast(t *testing.T) {
+	home := t.TempDir()
+	models := []string{"gemini-4-carbon-high", "gemini-3.8-flash-medium"}
+	scripts := []string{
+		filepath.Join("..", "..", "workflows", "review_parallel.py"),
+		filepath.Join("..", "..", "workflows", "preflight_gate.py"),
+	}
+	for _, scriptPath := range scripts {
+		src, err := os.ReadFile(scriptPath)
+		if err != nil {
+			t.Fatalf("read %s: %v", scriptPath, err)
+		}
+		for _, m := range models {
+			dPath := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{
+				"ScriptPath":  scriptPath,
+				"Description": "real script path " + filepath.Base(scriptPath),
+			})
+			if dPath.Decision != "allow" || dPath.Overwrite != nil {
+				t.Errorf("%s ScriptPath on %s: got %+v, want clean allow", scriptPath, m, dPath)
+			}
+			dInline := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{
+				"Script":      string(src),
+				"Description": "real inline " + filepath.Base(scriptPath),
+			})
+			if dInline.Decision != "allow" || dInline.Overwrite != nil {
+				t.Errorf("%s inline Script on %s: got %+v, want clean allow", scriptPath, m, dInline)
+			}
+		}
+	}
+}

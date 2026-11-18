@@ -190,9 +190,18 @@ func TestStopHookVerifyStampLifecycle(t *testing.T) {
 	}
 
 	// 4. Stale stamp triggers continue on a fresh conversation, then matching stamp allows.
-	if err := writeVerifyStamp(dir, strings.Repeat("0", 64)); err != nil {
-		t.Fatalf("writeVerifyStamp stale: %v", err)
+	writeTestVerifyStamp := func(payload map[string]any) {
+		t.Helper()
+		b, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(dir, filepath.FromSlash(verifyStampRelPath))
+		if err := writeScratchStampAtomic(target, append(b, '\n')); err != nil {
+			t.Fatalf("writeTestVerifyStamp: %v", err)
+		}
 	}
+	writeTestVerifyStamp(map[string]any{"treeSha256": strings.Repeat("0", 64)})
 	if d := runStop(t, home, dir, map[string]any{"conversationId": "conv-stale"}); d.Decision != "continue" {
 		t.Fatalf("stale stamp Stop = %+v, want continue", d)
 	}
@@ -200,11 +209,14 @@ func TestStopHookVerifyStampLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeVerifyStamp(dir, state.TreeSHA256); err != nil {
-		t.Fatalf("writeVerifyStamp current: %v", err)
-	}
+	writeTestVerifyStamp(map[string]any{"treeSha256": state.TreeSHA256})
 	if d := runStop(t, home, dir, map[string]any{"conversationId": "conv-fresh"}); d.Decision != "allow" {
 		t.Fatalf("matching stamp Stop = %+v, want allow", d)
+	}
+	// Legacy snake_case tree_sha256 field is also honored via trail.ReadVerifyStamp.
+	writeTestVerifyStamp(map[string]any{"tree_sha256": state.TreeSHA256})
+	if d := runStop(t, home, dir, map[string]any{"conversationId": "conv-legacy-sn"}); d.Decision != "allow" {
+		t.Fatalf("legacy tree_sha256 stamp Stop = %+v, want allow", d)
 	}
 
 	// 5. ContinuationActive / ExecutionNum / USER_CANCELED bypass even on new untracked .go edit.

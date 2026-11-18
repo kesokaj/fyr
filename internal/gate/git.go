@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/trail"
@@ -141,26 +140,11 @@ func checkoutUnchanged(ctx context.Context, root string, before checkoutSnapshot
 }
 
 func checkScratchNoSymlinks(root string) error {
-	for _, rel := range []string{"", ".agents", filepath.Join(".agents", "scratch")} {
-		p := root
-		if rel != "" {
-			p = filepath.Join(root, rel)
-		}
-		info, err := os.Lstat(p)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return refusef("refusing symlinked path %s", p)
-		}
-		if !info.IsDir() {
-			return refusef("expected directory at %s", p)
-		}
+	err := trail.CheckScratchNoSymlinks(root)
+	if errors.Is(err, trail.ErrStampSymlink) || errors.Is(err, trail.ErrStampNotRegular) {
+		return refusef("%v", err)
 	}
-	return nil
+	return err
 }
 
 func hasForbiddenTrailer(commitBody string) (string, bool) {

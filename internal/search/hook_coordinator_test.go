@@ -164,6 +164,39 @@ func TestPreToolWriteCoordinatorGuard(t *testing.T) {
 	if dec := runWrite(home, dir, "conv-local-marker", "write_file", ".agents/scratch/out.txt", "Edit service.go"); dec.Decision != "allow" {
 		t.Errorf(".agents/scratch/** expected allow under coordinator-only, got %+v", dec)
 	}
+
+	// 6. Multi-subtask turn whose Directive != COORDINATE_SUBTASKS (e.g., VET_FIRST) uses "multi-subtask turn" label.
+	_ = os.Remove(localMarker)
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatalf("openLedgerStore: %v", err)
+	}
+	if err := st.recordVetHistory(
+		"conv-vet-first-multi",
+		1,
+		"1. Update AlphaWork; 2. Update BetaWork; 3. Update GammaWork",
+		VetResult{
+			Intent:    IntentTask,
+			Gate:      GateVetFirst,
+			Score:     85,
+			Conflicts: []string{"ADR-1 conflict"},
+			Subtasks:  []SubtaskSlice{{ID: "subtask-1"}, {ID: "subtask-2"}, {ID: "subtask-3"}},
+		},
+		nil,
+	); err != nil {
+		st.close()
+		t.Fatalf("recordVetHistory: %v", err)
+	}
+	st.close()
+	decMulti := runWrite(home, dir, "conv-vet-first-multi", "edit_file", "service.go", "")
+	if decMulti.Decision != "deny" || !strings.Contains(decMulti.Reason, "multi-subtask turn (3 subtasks)") || strings.Contains(decMulti.Reason, "active COORDINATE_SUBTASKS turn") {
+		t.Errorf("VET_FIRST multi-subtask guard = %+v, want multi-subtask turn (3 subtasks)", decMulti)
+	}
+	runPreInv("conv-coord-active-2", "1. Update AlphaWork in internal/alpha/alpha.go and verify with go test 2. Update BetaWork in internal/beta/beta.go and verify with go test")
+	decCoord := runWrite(home, dir, "conv-coord-active-2", "edit_file", "service.go", "")
+	if decCoord.Decision != "deny" || !strings.Contains(decCoord.Reason, "active COORDINATE_SUBTASKS turn (2 subtasks)") {
+		t.Errorf("COORDINATE_SUBTASKS guard = %+v, want active COORDINATE_SUBTASKS turn (2 subtasks)", decCoord)
+	}
 }
 
 func TestCoordinatorGuardSpoofNonGitAndSymlinks(t *testing.T) {

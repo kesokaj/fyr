@@ -32,91 +32,6 @@ var (
 	)
 )
 
-func stripAnySandboxPreamble(prompt string) string {
-	s := strings.TrimSpace(StripSandboxPreamble(strings.TrimSpace(prompt)))
-	low := strings.ToLower(s)
-	if strings.HasPrefix(low, strings.ToLower(sandboxPreamblePrefix)) {
-		if idx := strings.Index(low, strings.ToLower(sandboxPreambleEnd)); idx >= 0 {
-			return strings.TrimSpace(s[idx+len(sandboxPreambleEnd):])
-		}
-	}
-	return s
-}
-
-func isProjectThisCloneLine(line string) bool {
-	const prefix = "project: this clone"
-	if !strings.HasPrefix(line, prefix) {
-		return false
-	}
-	if len(line) == len(prefix) {
-		return true
-	}
-	switch line[len(prefix)] {
-	case ' ', '\t', ',', '.', ';', ':':
-		return true
-	default:
-		return false
-	}
-}
-
-func isKickoffHeaderMetaLine(line string) bool {
-	for _, p := range []string{"project:", "session:", "plan:", "model:", "class:", "level:", "never:", "done when:"} {
-		if strings.HasPrefix(line, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasWorkerTopHeader(lines []string) bool {
-	limit := min(len(lines), 8)
-	for i := 0; i < limit; i++ {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			return false
-		}
-		switch {
-		case strings.HasPrefix(line, "files:"):
-			return true
-		case isProjectThisCloneLine(line):
-			return true
-		case strings.HasPrefix(line, "standing approvals:"),
-			strings.HasPrefix(line, "standing approvals (closed set):"):
-			return true
-		case i == 0 && line == "this is a kickoff written by fyr auto.":
-			return true
-		case isKickoffHeaderMetaLine(line):
-			continue
-		default:
-			return false
-		}
-	}
-	return false
-}
-
-func hasWorkerCapsuleSection(lines []string) bool {
-	for i := 0; i+1 < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "[fyr_worker_capsule]" &&
-			strings.HasPrefix(strings.TrimSpace(lines[i+1]), "trust: ") {
-			return true
-		}
-	}
-	return false
-}
-
-// isWorkerBriefPrompt reports whether prompt (original or lowercased) is an
-// isolated worker brief or autonomous Kickoff so hooks never route workers into
-// COORDINATE_SUBTASKS, fyr-swarm, or [COORDINATOR_GUARD] (D25, SPEC-fyr-pre-hook-coordinator).
-func isWorkerBriefPrompt(prompt string) bool {
-	s := stripAnySandboxPreamble(prompt)
-	if s == "" {
-		return false
-	}
-	low := strings.ToLower(strings.ReplaceAll(s, "\r\n", "\n"))
-	lines := strings.Split(low, "\n")
-	return hasWorkerTopHeader(lines) || hasWorkerCapsuleSection(lines)
-}
-
 // DecomposeSubtasks deterministically splits multi-clause or multi-package
 // coordinator prompts into <= 6 pairwise-disjoint SubtaskSlice entries.
 func DecomposeSubtasks(cleanPrompt string, intent IntentMode, slice SliceResult, files []string, catalog []SkillMeta) []SubtaskSlice {
@@ -335,33 +250,6 @@ func filesUnderDir(dir string, knownFiles []string) []string {
 	return out
 }
 
-func extractCapsuleSymbolFiles(capsule string) map[string][]string {
-	out := map[string][]string{}
-	for _, line := range strings.Split(capsule, "\n") {
-		if !strings.HasPrefix(line, "[Hop 0] ") && !strings.HasPrefix(line, "[Hop 1] ") {
-			continue
-		}
-		if path, sym := parseCapsuleLinePathSym(line); path != "" && sym != "" {
-			out[sym] = append(out[sym], path)
-		}
-	}
-	return out
-}
-
-func parseCapsuleLinePathSym(line string) (string, string) {
-	rest := line[strings.IndexByte(line, ']')+2:]
-	spec, after, ok := strings.Cut(rest, " (")
-	if !ok {
-		return "", ""
-	}
-	colon := strings.LastIndexByte(spec, ':')
-	sym, _, okSym := strings.Cut(after, ")")
-	if colon <= 0 || !okSym {
-		return "", ""
-	}
-	return normalizeSlashPath(spec[:colon]), strings.TrimSpace(sym)
-}
-
 func hasDecomposeEditVerb(trimmed string) bool {
 	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+trimmed+" ", " "))
 	return containsAnyWord(stripped, "implement", "fix", "add", "update", "refactor", "replace", "remove", "delete", "rename", "migrate", "write", "build", "create", "change", "modify")
@@ -428,23 +316,6 @@ func groupFilesByPkg(knownFiles []string, capsule string) (map[string][]string, 
 		return order[i] < order[j]
 	})
 	return groups, order
-}
-
-func hop0DirRanks(capsule string) map[string]int {
-	ranks, idx := map[string]int{}, 0
-	for _, line := range strings.Split(capsule, "\n") {
-		if !strings.HasPrefix(line, "[Hop 0] ") {
-			continue
-		}
-		if path, _ := parseCapsuleLinePathSym(line); path != "" {
-			dir := packageDirKey(path)
-			if _, exists := ranks[dir]; !exists {
-				ranks[dir] = idx
-				idx++
-			}
-		}
-	}
-	return ranks
 }
 
 func partitionPackageGroups(order []string, groups map[string][]string) []pkgPartition {

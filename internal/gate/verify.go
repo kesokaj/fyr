@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -20,8 +19,8 @@ import (
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
-// StampRelPath matches search.verifyStampRelPath for stop-hook compatibility.
-const StampRelPath = ".agents/scratch/verify.stamp"
+// StampRelPath matches trail.VerifyStampRelPath for stop-hook compatibility.
+const StampRelPath = trail.VerifyStampRelPath
 
 const defaultVerifyTimeout = 30 * time.Minute
 
@@ -332,26 +331,20 @@ func removeStaleStamp(root string) error {
 
 // ReadStamp reads and validates StampRelPath under root without following symlinks.
 func ReadStamp(root string) (Stamp, error) {
-	if err := checkScratchNoSymlinks(root); err != nil {
-		return Stamp{}, err
-	}
-	if err := ensureStampNotSymlink(root); err != nil {
-		return Stamp{}, err
-	}
-	f, err := openRegularNoFollow(filepath.Join(root, filepath.FromSlash(StampRelPath)))
+	st, err := trail.ReadVerifyStamp(root)
 	if err != nil {
+		if errors.Is(err, trail.ErrStampSymlink) || errors.Is(err, trail.ErrStampNotRegular) {
+			return Stamp{}, refusef("%v", err)
+		}
 		return Stamp{}, err
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 64<<10))
-	if err != nil {
-		return Stamp{}, err
-	}
-	var st Stamp
-	if err := json.Unmarshal(data, &st); err != nil {
-		return Stamp{}, fmt.Errorf("parse %s: %w", StampRelPath, err)
-	}
-	return st, nil
+	return Stamp{
+		TreeSHA256: st.TreeSHA256,
+		UpdatedAt:  st.UpdatedAt,
+		Branch:     st.Branch,
+		Head:       st.Head,
+		OK:         st.OK,
+	}, nil
 }
 
 // WriteStamp atomically writes StampRelPath under root with 0600 permissions.
