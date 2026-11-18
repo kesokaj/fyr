@@ -126,7 +126,7 @@ func validateSearchModes(o *Options) error {
 		return usageError{"search: give words, --refs <BUG-NNN|ADR-NNN|path>, --open, --slice, --skeleton, --path, --affected, --map, --vet or --hook; see fyr help search"}
 	}
 	if o.Hook != "" && normalizeHookEvent(o.Hook) == "" {
-		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use stop; see fyr help search"}
+		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use post-tool-use stop; see fyr help search"}
 	}
 	if o.Path != "" && o.To == "" {
 		return usageError{"search: --path requires --to <symbol> or a target symbol argument; see fyr help search"}

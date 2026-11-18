@@ -17,7 +17,10 @@ const (
 	BinPath  = ".local/bin/fyr"
 )
 
-const preToolUseMatcher = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm|run_workflow"
+const (
+	preToolUseMatcher  = "read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow"
+	postToolUseMatcher = "read_file|view_file|run_command|write_file|write_to_file|edit_file|replace_file_content|multi_replace_file_content|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow"
+)
 
 // VendorAntigravity is the one vendor, recorded in the manifest so a reader
 // of state.json (the init-project skill) sees an Antigravity-only install.
@@ -198,6 +201,12 @@ func hooksJSON() []byte {
 				map[string]any{
 					"matcher": preToolUseMatcher,
 					"hooks":   []any{hookCommand("pre-tool-use")},
+				},
+			},
+			"PostToolUse": []any{
+				map[string]any{
+					"matcher": postToolUseMatcher,
+					"hooks":   []any{hookCommand("post-tool-use")},
 				},
 			},
 			"Stop": []any{hookCommand("stop")},

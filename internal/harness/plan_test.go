@@ -2,6 +2,7 @@ package harness
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,14 +33,16 @@ func TestPlanAntigravityOnly(t *testing.T) {
 		t.Fatalf("expected %s/hooks.json to be planned", AgyRoot)
 	}
 	for _, want := range []string{
-		`"fyr-brain"`, `"SessionStart"`, `"PreInvocation"`, `"PreToolUse"`, `"Stop"`,
+		`"fyr-brain"`, `"SessionStart"`, `"PreInvocation"`, `"PreToolUse"`, `"PostToolUse"`, `"Stop"`,
 		`\"$HOME/bin/fyr\" search --hook session-start`,
 		`\"$HOME/.local/bin/fyr\" search --hook session-start`,
 		`\"$HOME/bin/fyr\" search --hook pre-invocation`,
 		`\"$HOME/.local/bin/fyr\" search --hook pre-invocation`,
 		`\"$HOME/bin/fyr\" search --hook pre-tool-use`,
+		`\"$HOME/bin/fyr\" search --hook post-tool-use`,
+		`\"$HOME/.local/bin/fyr\" search --hook post-tool-use`,
 		`\"$HOME/bin/fyr\" search --hook stop`,
-		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|invoke_subagent|swarm|run_workflow",
+		"read_file|view_file|view_file_outline|edit_file|replace_file_content|multi_replace_file_content|write_file|write_to_file|run_command|manage_task|manage_subagents|invoke_subagent|swarm|run_workflow",
 	} {
 		if !strings.Contains(string(hooksData), want) {
 			t.Errorf("hooks.json missing %q:\n%s", want, string(hooksData))
@@ -189,4 +192,37 @@ func TestPlanInstallsWorkflowScripts(t *testing.T) {
 			t.Fatal("expected error for secret-shaped workflow script name")
 		}
 	})
+}
+
+func TestHooksJSONIncludesPostToolUse(t *testing.T) {
+	var parsed struct {
+		FyrBrain struct {
+			PostToolUse []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
+					Type    string `json:"type"`
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PostToolUse"`
+		} `json:"fyr-brain"`
+	}
+	if err := json.Unmarshal(hooksJSON(), &parsed); err != nil {
+		t.Fatalf("unmarshal hooksJSON: %v", err)
+	}
+	if len(parsed.FyrBrain.PostToolUse) != 1 {
+		t.Fatalf("PostToolUse entries = %d, want 1", len(parsed.FyrBrain.PostToolUse))
+	}
+	entry := parsed.FyrBrain.PostToolUse[0]
+	if entry.Matcher != postToolUseMatcher {
+		t.Errorf("PostToolUse matcher = %q, want %q", entry.Matcher, postToolUseMatcher)
+	}
+	if len(entry.Hooks) != 1 {
+		t.Fatalf("PostToolUse hooks = %d, want 1", len(entry.Hooks))
+	}
+	cmd := entry.Hooks[0].Command
+	for _, want := range []string{`"$HOME/bin/fyr" search --hook post-tool-use`, `"$HOME/.local/bin/fyr" search --hook post-tool-use`} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("PostToolUse command missing %q: %s", want, cmd)
+		}
+	}
 }

@@ -90,12 +90,18 @@ func dispatchHookEvent(ctx context.Context, o Options, event, dir string, input 
 		return handlePreInvocation(o, dir, input, out)
 	case "pre-tool-use":
 		return handlePreToolUse(o, dir, input, out)
+	case "post-tool-use":
+		return handlePostToolUse(o, dir, input, out)
 	default:
 		return handleStopHook(o, dir, input, out)
 	}
 }
 
 func writeHookAllowFallback(event string, out io.Writer) error {
+	if event == "post-tool-use" {
+		_, _ = out.Write([]byte("{}\n"))
+		return nil
+	}
 	if event == "pre-invocation" || event == "session-start" {
 		return writePreInvocation(out, "", "")
 	}

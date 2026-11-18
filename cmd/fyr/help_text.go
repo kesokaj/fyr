@@ -54,6 +54,7 @@ Background and measurement
   close        write one handoff record embedding the fresh verify stamp
   check        read-only drift check of this checkout's docs
   git-check    read-only post-dispatch git status, log and tag check
+  watch        inspect sessions, artifacts and processes for hangs
   version      print the build version
 
 ` + helpLast + "\n"
@@ -193,7 +194,8 @@ var pages = map[string]verbPage{
 			"       fyr search --affected TARGET",
 			"       fyr search --map",
 			"       fyr search --vet PROMPT",
-			"       fyr search --hook <session-start|pre-invocation|pre-tool-use|stop>",
+			"       fyr search --hook <session-start|pre-invocation|pre-tool-use|",
+			"                          post-tool-use|stop>",
 		},
 		about: []string{
 			"Prints the brain store's matching records first (this project's and the",
@@ -389,22 +391,39 @@ var pages = map[string]verbPage{
 		},
 	},
 	"gate": {
-		synopsis: []string{"usage: fyr gate <worktree> [--base REF] [--lease GLOB] [--lease-file FILE]"},
+		synopsis: []string{
+			"usage: fyr gate <worktree> [--base REF] [--lease GLOB] [--lease-file FILE]",
+			"                [--judge TEXT [--judge-model ID]]",
+		},
 		about: []string{
 			"Checks a clean worktree or branch against base (default HEAD) across",
 			"four deterministic gates: lease and forbidden mode/secret filenames,",
 			"numstat caps and binary diffs, added-line secret scan (without printing",
-			"secrets), and forbidden commit trailers.",
-			"Exit 0 ok, 1 gate failed, 2 refused or dirty.",
+			"secrets), and forbidden commit trailers. With --judge, runs an",
+			"isolated cross-family agy verdict and logs it to metrics.db.",
+			"Exit 0 ok, 1 gate or judge failed, 2 refused, dirty, or usage error.",
 		},
 	},
 	"land": {
-		synopsis: []string{"usage: fyr land <branch> [--message TEXT] [--lease GLOB] [--lease-file FILE]"},
+		synopsis: []string{
+			"usage: fyr land <branch> [--message TEXT] [--lease GLOB] [--lease-file FILE]",
+			"                [--judge TEXT [--judge-model ID]] [--json]",
+		},
 		about: []string{
 			"Runs gate on branch, squash-merges in a detached scratch worktree, runs",
 			"verify there, verifies main stayed unchanged, fast-forwards main,",
 			"deletes branch, and refreshes .agents/scratch/verify.stamp. Preserves",
-			"branch on failure. Exit 0 ok, 1 failed, 2 refused or usage error.",
+			"branch on failure; --judge runs an optional cross-family verdict.",
+			"Exit 0 ok, 1 failed, 2 refused or usage error.",
+		},
+	},
+	"watch": {
+		synopsis: []string{"usage: fyr watch --check [--conv ID] [--idle-sec N] [--json]"},
+		about: []string{
+			"Inspects session DBs, subagent artifacts, and processes for hangs.",
+			"Reports [INTERACTIVE_WAIT], [STUCK_NO_PROGRESS], or",
+			"[BUDGET_NEAR_LIMIT] findings without polling via LLMs.",
+			"Exit 0 clean, 1 findings detected, 2 refused or usage error.",
 		},
 	},
 	"close": {

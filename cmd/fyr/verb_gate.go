@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/gate"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -41,6 +42,8 @@ func registerGateFlags(c *ctx) {
 	c.fs.StringVar(&c.gateLeaseFile, "lease-file", "", "read lease patterns from `FILE`")
 	c.fs.IntVar(&c.gateMaxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
 	c.fs.IntVar(&c.gateMaxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
+	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
+	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
 }
 
@@ -51,6 +54,8 @@ func registerLandFlags(c *ctx) {
 	c.fs.IntVar(&c.gateMaxFiles, "max-files", 0, "maximum changed files `N` (default 50)")
 	c.fs.IntVar(&c.gateMaxLines, "max-lines", 0, "maximum changed lines `N` (default 1500)")
 	c.fs.DurationVar(&c.gateTimeout, "timeout", 0, "per-command verify timeout `D` (default 30m)")
+	c.fs.StringVar(&c.gateJudge, "judge", "", "cross-family LLM judge acceptance criterion `TEXT`")
+	c.fs.StringVar(&c.gateJudgeModel, "judge-model", "", "explicit judge model `ID` (with --judge)")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print report as JSON")
 }
 
@@ -79,18 +84,25 @@ func runGate(c *ctx) error {
 	if c.fs.NArg() != 1 {
 		return usageErr(c.out, "gate", "fyr gate requires <worktree> or <branch>")
 	}
+	if strings.TrimSpace(c.gateJudgeModel) != "" && strings.TrimSpace(c.gateJudge) == "" {
+		return usageErr(c.out, "gate", "fyr gate: --judge-model requires --judge")
+	}
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
 	rep, err := gate.Gate(context.Background(), gate.GateOptions{
-		Dir:       wd,
-		Target:    c.fs.Arg(0),
-		Base:      c.gateBase,
-		Lease:     c.gateLease,
-		LeaseFile: c.gateLeaseFile,
-		MaxFiles:  c.gateMaxFiles,
-		MaxLines:  c.gateMaxLines,
+		Dir:           wd,
+		Target:        c.fs.Arg(0),
+		Base:          c.gateBase,
+		Home:          c.home,
+		Lease:         c.gateLease,
+		LeaseFile:     c.gateLeaseFile,
+		MaxFiles:      c.gateMaxFiles,
+		MaxLines:      c.gateMaxLines,
+		Judge:         c.gateJudge,
+		JudgeModel:    c.gateJudgeModel,
+		RecordVerdict: recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printGateText)
 }
@@ -99,23 +111,43 @@ func runLand(c *ctx) error {
 	if c.fs.NArg() != 1 {
 		return usageErr(c.out, "land", "fyr land requires <branch>")
 	}
+	if strings.TrimSpace(c.gateJudgeModel) != "" && strings.TrimSpace(c.gateJudge) == "" {
+		return usageErr(c.out, "land", "fyr land: --judge-model requires --judge")
+	}
 	wd, err := c.projectDir()
 	if err != nil {
 		return err
 	}
 	rep, err := gate.Land(context.Background(), gate.LandOptions{
-		Dir:       wd,
-		Branch:    c.fs.Arg(0),
-		Message:   c.landMessage,
-		Home:      c.home,
-		Vocab:     vocabulary(),
-		Timeout:   c.gateTimeout,
-		Lease:     c.gateLease,
-		LeaseFile: c.gateLeaseFile,
-		MaxFiles:  c.gateMaxFiles,
-		MaxLines:  c.gateMaxLines,
+		Dir:           wd,
+		Branch:        c.fs.Arg(0),
+		Message:       c.landMessage,
+		Home:          c.home,
+		Vocab:         vocabulary(),
+		Timeout:       c.gateTimeout,
+		Lease:         c.gateLease,
+		LeaseFile:     c.gateLeaseFile,
+		MaxFiles:      c.gateMaxFiles,
+		MaxLines:      c.gateMaxLines,
+		Judge:         c.gateJudge,
+		JudgeModel:    c.gateJudgeModel,
+		RecordVerdict: recordGateJudgeVerdict(c.home),
 	})
 	return emitGateOutcome(c, rep, rep.MainRoot != "", err, printLandText)
+}
+
+func recordGateJudgeVerdict(home string) func(gate.JudgeVerdictRecord) error {
+	return func(rec gate.JudgeVerdictRecord) error {
+		return metrics.RecordJudgeVerdict(home, metrics.JudgeVerdictRow{
+			TS:             rec.TS,
+			ProjectRoot:    rec.ProjectRoot,
+			Target:         rec.Target,
+			Model:          rec.Model,
+			FallbackReason: rec.FallbackReason,
+			CriterionHash:  rec.CriterionHash,
+			Verdict:        rec.Verdict,
+		})
+	}
 }
 
 func runClose(c *ctx) error {
@@ -212,6 +244,10 @@ func printVerifyText(w io.Writer, rep gate.VerifyReport) {
 
 func printGateText(w io.Writer, rep gate.GateReport) {
 	if rep.OK {
+		if rep.JudgeModel != "" {
+			fmt.Fprintf(w, "gate: PASS (%d file(s), +%d/-%d; judge %s=%s)\n", rep.FilesChanged, rep.LinesAdded, rep.LinesDeleted, rep.JudgeModel, rep.JudgeVerdict)
+			return
+		}
 		fmt.Fprintf(w, "gate: PASS (%d file(s), +%d/-%d)\n", rep.FilesChanged, rep.LinesAdded, rep.LinesDeleted)
 		return
 	}

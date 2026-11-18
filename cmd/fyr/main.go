@@ -28,6 +28,7 @@
 //	fyr close       write one handoff record embedding the fresh verify stamp
 //	fyr check       read-only drift check of this checkout's docs
 //	fyr git-check   read-only post-dispatch git status, log and tag check
+//	fyr watch       inspect sessions, artifacts and processes for hangs
 //	fyr version     print the build version
 package main
 

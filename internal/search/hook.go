@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,7 @@ type HookInput struct {
 
 // HookToolCall is the tool name and argument map passed to a PreToolUse hook.
 type HookToolCall struct {
+	ID   string         `json:"id,omitempty"`
 	Name string         `json:"name"`
 	Args map[string]any `json:"args"`
 }
@@ -76,6 +78,8 @@ func normalizeHookEvent(raw string) string {
 		return "pre-invocation"
 	case "pre-tool-use", "pretooluse":
 		return "pre-tool-use"
+	case "post-tool-use", "posttooluse", "post_tool_use":
+		return "post-tool-use"
 	case "stop":
 		return "stop"
 	default:
@@ -88,7 +92,7 @@ func normalizeHookEvent(raw string) string {
 func RunHook(o Options, in io.Reader, out io.Writer) error {
 	event := normalizeHookEvent(o.Hook)
 	if event == "" {
-		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use stop; see fyr help search"}
+		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use post-tool-use stop; see fyr help search"}
 	}
 	if hooksDisabledGlobal(o.Home) {
 		return writeHookAllowFallback(event, out)
@@ -101,7 +105,31 @@ func decodeHookInput(o Options, in io.Reader) (HookInput, error) {
 	if err != nil {
 		return HookInput{}, err
 	}
-	return parseAndNormalizeHookInput(o, data)
+	parsed, err := parseAndNormalizeHookInput(o, data)
+	if err != nil {
+		return HookInput{}, err
+	}
+	if strings.TrimSpace(parsed.ToolCall.ID) == "" {
+		parsed.ToolCall.ID = extractToolCallFallbackID(data)
+	} else {
+		parsed.ToolCall.ID = strings.TrimSpace(parsed.ToolCall.ID)
+	}
+	return parsed, nil
+}
+
+func extractToolCallFallbackID(data []byte) string {
+	var raw map[string]any
+	if len(bytes.TrimSpace(data)) == 0 || json.Unmarshal(data, &raw) != nil {
+		return ""
+	}
+	for _, key := range []string{"toolCall", "tool_call", "ToolCall"} {
+		if m, ok := raw[key].(map[string]any); ok {
+			if id := extractStringArg(m, "id", "ID", "toolCallId", "tool_call_id", "callId", "call_id"); id != "" {
+				return id
+			}
+		}
+	}
+	return extractStringArg(raw, "toolCallId", "tool_call_id", "callId", "call_id")
 }
 
 func resolveHookDir(o Options, in HookInput) string {
@@ -417,6 +445,18 @@ func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) f
 }
 
 func handlePreToolUse(o Options, dir string, in HookInput, out io.Writer) error {
+	wd := evaluateWatchdogPre(o, dir, in)
+	if wd.denyReason != "" {
+		return writeDecision(out, "deny", wd.denyReason)
+	}
+	var buf bytes.Buffer
+	if err := dispatchPreToolUse(o, dir, in, &buf); err != nil {
+		return err
+	}
+	return finalizeWatchdogPre(dir, in, wd, buf.Bytes(), out)
+}
+
+func dispatchPreToolUse(o Options, dir string, in HookInput, out io.Writer) error {
 	switch normalizeHookToolName(in.ToolCall.Name) {
 	case "read_file":
 		return handlePreToolRead(o.Home, dir, in, out)
@@ -457,15 +497,21 @@ func handlePreToolRead(home, dir string, in HookInput, out io.Writer) error {
 }
 
 func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
+	denyReason, overwrite := checkInteractiveBashGuard(in.ToolCall.Args)
+	if denyReason != "" {
+		return writeDecision(out, "deny", denyReason)
+	}
 	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
 	bfr, ok := ParseBashFileRead(cmd)
 	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
-	if !ok || hooksDisabledForHome(home, toolDir) {
-		return writeDecision(out, "allow", "")
+	if ok && !hooksDisabledForHome(home, toolDir) {
+		dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
+		if err == nil && !dec.Allowed {
+			return writeDecision(out, "deny", dec.Reason)
+		}
 	}
-	dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
-	if err == nil && !dec.Allowed {
-		return writeDecision(out, "deny", dec.Reason)
+	if overwrite != nil {
+		return writeDecisionWithOverwrite(out, "allow", "[AUTO_GIT_TERMINAL_PROMPT] prepended export GIT_TERMINAL_PROMPT=0", overwrite)
 	}
 	return writeDecision(out, "allow", "")
 }

@@ -24,7 +24,7 @@ func init() {
 		"npm":       "audit ci exec init install ls pack publish run start test uninstall update version",
 		"npx":       "",
 		"terraform": "apply console destroy fmt graph import init output plan providers show state validate workspace",
-		"fyr":       "adopt auto check close diff dream eval gate git-check help index install land list memory metrics models record render report resume search status sync uninstall update verify version work",
+		"fyr":       "adopt auto check close diff dream eval gate git-check help index install land list memory metrics models record render report resume search status sync uninstall update verify version watch work",
 		// The binary's name before the rename: transcripts and stored rows
 		// from before it carry `sh-agent search` and its kin (fyr D7, D20).
 		"sh-agent": "adopt diff dream help index install list memory metrics render report search status sync uninstall update version",

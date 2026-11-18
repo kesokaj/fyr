@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/gate"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 func runCLIWithErr(args ...string) (stdoutStr, stderrStr string, code int) {
@@ -118,5 +120,83 @@ func TestCLIVerifyGateLandClose(t *testing.T) {
 	outStr, errStr, code = runCLIWithErr("close", "--home", home, "--dir", repo, "--title", "cli-done", "--body-file", bodyPath)
 	if code != 0 || !strings.HasPrefix(strings.TrimSpace(outStr), "HANDOFF-") {
 		t.Fatalf("close failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+}
+
+func writeFakeCLIJudgeAgy(t *testing.T, binDir, verdictJSON string) {
+	t.Helper()
+	q := "'" + strings.ReplaceAll(verdictJSON, "'", "'\\''") + "'"
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"models\" ]; then\n" +
+		"  printf 'gemini-4-carbon-high\\tGemini 4 Carbon (High)\\n'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+		"  printf 'Claude and GPT models\\tWeekly Limit Remaining\\t50%%\\tx\\nClaude and GPT models\\tFive Hour Limit Remaining\\t70%%\\tx\\n'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"-p\" ]; then\n" +
+		"  printf '%s\\n' " + q + "\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 1\n"
+	writeCLITestFile(t, filepath.Join(binDir, "agy"), script)
+	if err := os.Chmod(filepath.Join(binDir, "agy"), 0o755); err != nil {
+		t.Fatalf("chmod agy: %v", err)
+	}
+}
+
+func TestVerbGateJudge(t *testing.T) {
+	repo := initCLITestRepo(t)
+	home := t.TempDir()
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	runGitCLI(t, repo, "checkout", "-b", "feat")
+	writeCLITestFile(t, filepath.Join(repo, "add.go"), "package main\n\nfunc add(a, b int) int { return a + b }\n")
+	writeCLITestFile(t, filepath.Join(repo, "add_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\tif add(1, 2) != 3 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n")
+	runGitCLI(t, repo, "add", "add.go", "add_test.go")
+	runGitCLI(t, repo, "commit", "-m", "feat add")
+	runGitCLI(t, repo, "checkout", "main")
+
+	if _, _, code := runCLIWithErr("gate", "feat", "--home", home, "--dir", repo, "--judge-model", "gemini-4-carbon-high"); code != 2 {
+		t.Fatalf("gate --judge-model without --judge: code=%d, want 2", code)
+	}
+	if _, _, code := runCLIWithErr("land", "feat", "--home", home, "--dir", repo, "--judge-model", "gemini-4-carbon-high"); code != 2 {
+		t.Fatalf("land --judge-model without --judge: code=%d, want 2", code)
+	}
+
+	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"PASS","reason":"add matches criterion"}`)
+	outStr, errStr, code := runCLIWithErr("gate", "feat", "--home", home, "--dir", repo, "--judge", "verify add")
+	if code != 0 || !strings.Contains(outStr, "gate: PASS (") || !strings.Contains(outStr, "judge ") {
+		t.Fatalf("gate --judge PASS failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	rows, err := metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil || len(rows) != 1 || rows[0].Verdict != "PASS" {
+		t.Fatalf("metrics rows after PASS (%d rows) err=%v rows=%+v", len(rows), err, rows)
+	}
+
+	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"FAIL","reason":"missing edge case"}`)
+	outStr, errStr, code = runCLIWithErr("gate", "feat", "--home", home, "--dir", repo, "--judge", "verify add")
+	if code != 1 || !strings.Contains(outStr, "[judge]") {
+		t.Fatalf("gate --judge FAIL failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	rows, err = metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil || len(rows) != 2 || (rows[0].Verdict != "FAIL" && rows[1].Verdict != "FAIL") {
+		t.Fatalf("metrics rows after FAIL: len=%d err=%v rows=%+v", len(rows), err, rows)
+	}
+
+	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"PASS","reason":"ready to land"}`)
+	outStr, errStr, code = runCLIWithErr("land", "feat", "--home", home, "--dir", repo, "--judge", "verify add", "--json")
+	if code != 0 {
+		t.Fatalf("land --judge --json failed: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	var landRep gate.LandReport
+	if err := json.Unmarshal([]byte(outStr), &landRep); err != nil || !landRep.OK {
+		t.Fatalf("unmarshal LandReport failed: ok=%v err=%v out=%q", landRep.OK, err, outStr)
+	}
+	rows, err = metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("metrics rows after land PASS (%d rows) err=%v rows=%+v", len(rows), err, rows)
 	}
 }
