@@ -143,7 +143,9 @@ func executivePulseSection(s *Summary, series []serie) reportSection {
 	})
 	addSeriesRow(&t, series, "Peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	addSeriesRow(&t, series, fmt.Sprintf("Over context target (%d)", s.B.ContextTarget), s.overTarget)
+	addSeriesRow(&t, series, "Sessions >= 180K knee", agyCol(fmt.Sprintf("%d / %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
 	addSeriesRow(&t, series, "Compactions", func(v string) string { return fmtIntPtr(s.B.Compactions[v]) })
+	addSeriesRow(&t, series, "Search.db compactions", agyCol(fmt.Sprint(s.Health.SearchDBCompactions)))
 	return reportSection{Title: "1. Executive Pulse", Table: t}
 }
 
@@ -160,6 +162,7 @@ func secondBrainSection(s *Summary, series []serie) reportSection {
 	addSeriesRow(&t, series, "Bypassed turns (!)", agyCol(fmt.Sprint(s.E.BypassedTurns)))
 	addSeriesRow(&t, series, "Pivots pre-seeded", agyCol(fmt.Sprint(s.E.PivotsSeeded)))
 	addSeriesRow(&t, series, "Read-ledger blocks saved", agyCol(fmt.Sprint(s.E.LedgerSaved)))
+	addSeriesRow(&t, series, "Clamped read saves ([CLAMPED])", agyCol(fmt.Sprint(s.Health.ClampedSaves)))
 	return reportSection{Title: "2. Second-Brain Leverage", Table: t}
 }
 
@@ -180,24 +183,41 @@ func qualityLoopSection(s *Summary, series []serie, evals *EvalRows) reportSecti
 	addSeriesRow(&t, series, "Tool error rate / retry loops", func(v string) string {
 		return fmt.Sprintf("%s / %d", fmtFloatPtr(s.D.ToolErrorRate[v], "%.3f"), s.D.RetryLoops[v])
 	})
+	addSeriesRow(&t, series, "Hook denials (excl. from error rate)", agyCol(fmt.Sprintf("%d (clamped:%d, ledger:%d, guards:%d)",
+		s.Health.HookDenials, s.Health.ClampedSaves, s.E.LedgerSaved, s.Health.HookBlocksGuards)))
 	addSeriesRow(&t, series, "Eval pass^k / suite", agyCol(fmtEvalSummary(s.A.PassK, evals)))
 	return reportSection{Title: "3. Quality & Learning Loop", Table: t}
 }
 
 func autonomySection(s *Summary, series []serie) reportSection {
 	t := table{Head: head("Metric", series)}
-	addSeriesRow(&t, series, "Work waves / workers", agyCol(fmt.Sprintf("%d / %d", s.F.Waves, s.F.Workers)))
-	addSeriesRow(&t, series, "Worker verdicts (PASS / FAIL)", agyCol(fmt.Sprintf("%d / %d", s.F.Passed, s.F.Failed)))
-	addSeriesRow(&t, series, "Base-Check verdicts (PASS / FAIL)", agyCol(fmt.Sprintf("%d / %d", s.F.BaseCheckPassed, s.F.BaseCheckFailed)))
+	if s.F.Waves > 0 || s.F.Workers > 0 {
+		addSeriesRow(&t, series, "Work waves / workers", agyCol(fmt.Sprintf("%d / %d", s.F.Waves, s.F.Workers)))
+		addSeriesRow(&t, series, "Worker verdicts (PASS / FAIL)", agyCol(fmt.Sprintf("%d / %d", s.F.Passed, s.F.Failed)))
+		addSeriesRow(&t, series, "Base-Check verdicts (PASS / FAIL)", agyCol(fmt.Sprintf("%d / %d", s.F.BaseCheckPassed, s.F.BaseCheckFailed)))
+	}
 	addSeriesRow(&t, series, "Cross-family Judge (PASS / FAIL / fallback)", agyCol(fmt.Sprintf("%d / %d / %d",
 		s.F.JudgePassed, s.F.JudgeFailed, s.F.JudgeFallback)))
+	appendAutonomyV9Rows(&t, series, s)
 	addSeriesRow(&t, series, "Subagent tool calls", func(v string) string { return fmtTopCounts(s.D.SubagentToolCalls[v], 5) })
 	return reportSection{Title: "4. Autonomy & Model Routing", Table: t}
 }
 
+func appendAutonomyV9Rows(t *table, series []serie, s *Summary) {
+	h := s.Health
+	addSeriesRow(t, series, "v9 orchestration", agyCol(fmt.Sprintf("%d (agent:%d, workflow:%d, swarm:%d)",
+		h.OrchestrationCalls, h.SubagentDispatches, h.WorkflowCalls, h.SwarmCalls)))
+	addSeriesRow(t, series, "Deterministic gates", agyCol(fmt.Sprint(h.DeterministicGates)))
+	addSeriesRow(t, series, "Model-family share", agyCol(formatModelFamilyShare(h)))
+	addSeriesRow(t, series, "Guarded subagent downgrades", agyCol(fmt.Sprint(h.GuardedDowngrades)))
+	addSeriesRow(t, series, "Subagents over budget", agyCol(fmt.Sprint(h.SubagentsOverBudget)))
+	addSeriesRow(t, series, "Live quota pools", agyCol(formatPoolQuotas(h.PoolQuotas)))
+	addSeriesRow(t, series, "fyr auto open asks / verdict", agyCol(formatAutoHealth(h)))
+}
+
 func projectBreakdownSection(s *Summary, series []serie) reportSection {
 	if len(s.Projects) > 0 {
-		t := table{Head: []string{"Project", "Sessions", "Active min", "Tokens", "Search : grep", "Mean vet score", "Corrections", "Escaped bugs", "Last active"}}
+		t := table{Head: []string{"Project", "Sessions", "Active min", "Tokens", "Search : grep", "Mean vet score", "Corrections", "Escaped bugs", "Last active", "Auto findings", "Handoff lag (d)"}}
 		for _, p := range s.Projects {
 			t.Rows = append(t.Rows, []string{
 				printable(p.Project),
@@ -209,6 +229,8 @@ func projectBreakdownSection(s *Summary, series []serie) reportSection {
 				fmt.Sprint(p.Corrections),
 				fmt.Sprint(p.EscapedBugs),
 				printable(p.LastActive),
+				fmt.Sprint(p.AutoFindings),
+				fmtIntPtr(p.HandoffLagDays),
 			})
 		}
 		return reportSection{Title: "5. Per-Project / Project Breakdown", Table: t}
@@ -282,4 +304,49 @@ func fmtTopCounts(m map[string]int, limit int) string {
 		parts = append(parts, fmt.Sprintf("%s:%d", printable(k), wrapped["agy"][k]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatModelFamilyShare(h HealthSignals) string {
+	if len(h.ModelFamilyCounts) == 0 {
+		return "n/a"
+	}
+	var parts []string
+	for _, fam := range []string{"gemini", "anthropic", "other"} {
+		if cnt := h.ModelFamilyCounts[fam]; cnt > 0 {
+			parts = append(parts, fmt.Sprintf("%s %.1f%% (%d)", fam, h.ModelFamilyShare[fam], cnt))
+		}
+	}
+	if len(parts) == 0 {
+		return "n/a"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatPoolQuotas(pools []PoolQuota) string {
+	if len(pools) == 0 {
+		return "n/a"
+	}
+	parts := make([]string, 0, len(pools))
+	for _, p := range pools {
+		parts = append(parts, fmt.Sprintf("%s: 5h=%s wk=%s", printable(p.Name), fmtPoolPct(p.Five), fmtPoolPct(p.Week)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func fmtPoolPct(v int) string {
+	if v < 0 {
+		return "disabled"
+	}
+	return fmt.Sprintf("%d%%", v)
+}
+
+func formatAutoHealth(h HealthSignals) string {
+	if !h.AutoRunsPresent {
+		return "n/a"
+	}
+	verdict := printable(strings.TrimSpace(h.AutoLastVerdict))
+	if verdict == "" {
+		verdict = "n/a"
+	}
+	return fmt.Sprintf("%d / %s", h.AutoOpenAsks, verdict)
 }

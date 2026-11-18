@@ -45,7 +45,7 @@ func (c *ctx) renderReport(prefix string) error {
 	if err != nil {
 		return err
 	}
-	evals, err := reportEvals(s, o)
+	evals, err := metrics.ReportEvalsWithDevFallback(s, c.home, o)
 	if err != nil {
 		return err
 	}

@@ -360,5 +360,13 @@ func outcomeTable(s *Summary, series []serie) table {
 	row("denials", pi(s.D.Denials))
 	row("interrupts", pi(s.D.Interrupts))
 	row("compactions", pi(s.B.Compactions))
+	appendOutcomeHealthRows(row, s)
 	return t
+}
+
+func appendOutcomeHealthRows(row func(string, func(string) string), s *Summary) {
+	row("sessions >= 180K knee", agyCol(fmt.Sprintf("%d of %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
+	row("search.db compactions", agyCol(fmt.Sprint(s.Health.SearchDBCompactions)))
+	row("hook denials (excl. from errors)", agyCol(fmt.Sprint(s.Health.HookDenials)))
+	row("guarded subagent downgrades", agyCol(fmt.Sprint(s.Health.GuardedDowngrades)))
 }

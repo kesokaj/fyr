@@ -281,6 +281,7 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if given && c.metricsContextTarget <= 0 {
 		return o, errors.New("--context-target takes a token count above 0")
 	}
+	o.Home = c.home
 	o.ContextTarget = c.metricsContextTarget
 	o.Label, o.AllLabels = c.metricsLabel, c.metricsAllLabels
 	if c.metricsProject != "" {

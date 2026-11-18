@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
@@ -418,4 +419,139 @@ func TestReportVerbCLI(t *testing.T) {
 	if b, err := os.ReadFile(htmlFile); err != nil || !bytes.Contains(b, []byte("<h2>1. Executive Pulse</h2>")) {
 		t.Fatalf("HTML report file: %v", err)
 	}
+}
+
+func TestReportV9HealthAndDevEvalCLI(t *testing.T) {
+	home := t.TempDir()
+	decoy := t.TempDir()
+	t.Setenv("HOME", decoy)
+	repo, _ := gitFixture(t)
+	agyHomeModel(t, home, "11111111-1111-1111-1111-111111111111", repo, "gemini-4-argon")
+
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
+		t.Fatalf("ingest: %v\n%s", err, out.String())
+	}
+
+	// Seed dev/fyr-eval store, runs.json, models.json, search.db, brain.db, and judge_verdicts.
+	devStore, err := metrics.Open(filepath.Join(home, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := devStore.RecordTrial(metrics.Trial{
+		Run: "r/smoke/1", Label: "eval=smoke", RowVersion: 1, Kind: "capability", Harness: "v92",
+		Status: "pass", StartedAt: mustParseDayT(t, "2026-10-08"), Seconds: 8,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	devStore.Close()
+
+	if err := metrics.RecordJudgeVerdict(home, metrics.JudgeVerdictRow{
+		TS: mustParseDayT(t, "2026-10-08").UnixMilli(), ProjectRoot: repo, Target: "phase-2b",
+		Model: "claude-opus-5-5", CriterionHash: "c1", Verdict: "PASS",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestStateFile(t, filepath.Join(home, harness.StateDir, "auto", "runs.json"),
+		`{"date":"2026-10-08","model_runs":2,"last_run":"2026-10-08T10:00:00Z","verdict":"health: ok","open_asks":1,"projects":{"p":{}}}`)
+	writeTestStateFile(t, filepath.Join(home, harness.StateDir, "models.json"),
+		`{"updated_at":"2026-10-08T10:00:00Z","pools":[{"name":"Claude","five":85,"week":95}]}`)
+
+	sdbPath := filepath.Join(repo, ".agents", "scratch", "search.db")
+	if err := os.MkdirAll(filepath.Dir(sdbPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	execSQLiteT(t, sdbPath,
+		`CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT)`,
+		`INSERT INTO session_meta VALUES ('11111111-1111-1111-1111-111111111111', 2, 1000, 4, 250)`,
+	)
+	execSQLiteT(t, filepath.Join(home, harness.StateDir, "brain.db"),
+		`CREATE TABLE records(rid INTEGER PRIMARY KEY, scope TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, project TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '', UNIQUE(scope, id))`,
+		`INSERT INTO records(scope, id, kind, status, date, title, body, project, updated, provenance) VALUES ('`+repo+`', 'REVIEW-2026-10-08-1000-auto', 'review', 'closed', '2026-10-08', 'auto report: repo', 'findings', '', '2026-10-08T10:00:00Z', '')`,
+		`INSERT INTO records(scope, id, kind, status, date, title, body, project, updated, provenance) VALUES ('`+repo+`', 'HANDOFF-2026-10-08-1100-x', 'handoff', '', '2026-10-08', 'handoff', 'done', '', '2026-10-08T11:00:00Z', '')`,
+	)
+
+	// 1. metrics show --json carries health and merged dev eval pass^k.
+	out.Reset()
+	if err := run([]string{"metrics", "show", "--json", "--since", "2026-10-01", "--until", "2026-10-10", "--home", home}, &out); err != nil {
+		t.Fatalf("show --json: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{`"health": {`, `"search_db_compactions": 2`, `"judge_passed": 1`, `"eval=smoke"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("show --json lacks %q:\n%s", want, out.String())
+		}
+	}
+
+	// 2. report --global --md surfaces v9 health rows, brain enrichment, and dev eval rows.
+	out.Reset()
+	if err := run([]string{"report", "--global", "--md", "--since", "2026-10-01", "--until", "2026-10-10", "--home", home}, &out); err != nil {
+		t.Fatalf("report --md: %v\n%s", err, out.String())
+	}
+	md := out.String()
+	for _, want := range []string{
+		"| Search.db compactions | 2 |",
+		"| Cross-family Judge (PASS / FAIL / fallback) | 1 / 0 / 0 |",
+		"Claude: 5h=85% wk=95%",
+		"Auto findings",
+		"Handoff lag (d)",
+		"## Eval rows",
+		"| smoke |",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("report --md lacks %q:\n%s", want, md)
+		}
+	}
+
+	// 3. report --global HTML renders both Eval rows and v9 health without scripts/URLs.
+	htmlFile := filepath.Join(t.TempDir(), "v9.html")
+	out.Reset()
+	if err := run([]string{"report", "--global", "--since", "2026-10-01", "--until", "2026-10-10", "--out", htmlFile, "--home", home}, &out); err != nil {
+		t.Fatalf("report HTML: %v\n%s", err, out.String())
+	}
+	raw, err := os.ReadFile(htmlFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(raw)
+	for _, want := range []string{"<h2>Eval rows</h2>", "<td>smoke</td>", "Claude: 5h=85% wk=95%", "<h2>Trigger coverage</h2>"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+}
+
+func writeTestStateFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func execSQLiteT(t *testing.T, path string, stmts ...string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range stmts {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+}
+
+func mustParseDayT(t *testing.T, day string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed.Add(10 * time.Hour)
 }

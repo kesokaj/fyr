@@ -30,6 +30,8 @@ type TriggerCoverage struct {
 	DoDClosedSessions        int      `json:"dod_closed_sessions"`
 	BuildSessions            int      `json:"build_sessions"`
 	DoDClosedPct             *float64 `json:"dod_closed_pct"`
+	SessionsOverKnee         int      `json:"sessions_over_knee"`
+	MainSessions             int      `json:"main_sessions"`
 }
 
 type sessionCommitSummary struct {
@@ -59,12 +61,8 @@ func (s *Store) populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess,
 	if err := s.addSessionTriggerCoverage(&tc, all); err != nil {
 		return err
 	}
-	for _, n := range sum.C.SQLiteVerbs {
-		tc.SearchCalls += n
-	}
-	for _, n := range sum.C.GrepCalls {
-		tc.GrepCalls += n
-	}
+	tc.SearchCalls = sum.C.SQLiteVerbs["agy"]
+	tc.GrepCalls = sum.C.GrepCalls["agy"]
 	if tc.GrepCalls > 0 {
 		r := round4(float64(tc.SearchCalls) / float64(tc.GrepCalls))
 		tc.SearchGrepRatio = &r
@@ -221,26 +219,74 @@ func (s *Store) querySessionCommitSummary(sessionID string) (sessionCommitSummar
 
 func triggerCoverageSection(s *Summary) reportSection {
 	tc := s.TriggerCoverage
-	t := table{
-		Head: []string{"KPI", "Value", "Target"},
-		Rows: [][]string{
-			{"Qualifying phases run as workers", fmtPctRatio(tc.QualifyingWorkerPhasePct, tc.WorkerPhases, tc.QualifyingPhases), ">= 80%"},
-			{"Worker phases with model: + judge: + base-check:", fmtPctRatio(tc.ConfiguredWorkerPhasePct, tc.ConfiguredWorkerPhases, tc.WorkerPhases), "= 100%"},
-			{"Worker verdicts (PASS / total)", fmt.Sprintf("%d / %d", tc.WorkerPassed, tc.WorkerPhases), "-"},
-			{"Base-Check verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.BaseCheckPassed, tc.BaseCheckFailed), "-"},
-			{"Judge verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.JudgePassed, tc.JudgeFailed), "-"},
-			{"Build-time questions", fmt.Sprint(tc.BuildTimeQuestions), "= 0"},
-			{"Search : grep", fmtSearchGrepKPI(tc), ">= 1.0"},
-			{"Read-ledger blocks", fmt.Sprint(tc.ReadLedgerBlocks), "> 0"},
-			{"fyr auto model runs", fmt.Sprintf("%.2f/wk (%d in %.1f wk)", tc.AutoModelRunsPerWeek, tc.AutoModelRuns, tc.WindowWeeks), "> 0/wk"},
-			{"DoD closed", fmtPctRatio(tc.DoDClosedPct, tc.DoDClosedSessions, tc.BuildSessions), ">= 80%"},
-		},
+	t := table{Head: []string{"KPI", "Value", "Target"}}
+	if s.F.Waves > 0 || s.F.Workers > 0 || tc.WorkerPhases > 0 {
+		t.Rows = append(t.Rows,
+			[]string{"Qualifying phases run as workers", fmtPctRatio(tc.QualifyingWorkerPhasePct, tc.WorkerPhases, tc.QualifyingPhases), ">= 80%"},
+			[]string{"Worker phases with model: + judge: + base-check:", fmtPctRatio(tc.ConfiguredWorkerPhasePct, tc.ConfiguredWorkerPhases, tc.WorkerPhases), "= 100%"},
+			[]string{"Worker verdicts (PASS / total)", fmt.Sprintf("%d / %d", tc.WorkerPassed, tc.WorkerPhases), "-"},
+			[]string{"Base-Check verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.BaseCheckPassed, tc.BaseCheckFailed), "-"},
+		)
 	}
+	t.Rows = append(t.Rows,
+		[]string{"Judge verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.JudgePassed, tc.JudgeFailed), "-"},
+		[]string{"Build-time questions", fmt.Sprint(tc.BuildTimeQuestions), "= 0"},
+		[]string{"Search : grep", fmtSearchGrepKPI(tc), ">= 1.0"},
+		[]string{"Read-ledger blocks", fmt.Sprint(tc.ReadLedgerBlocks), "> 0"},
+		[]string{"fyr auto model runs", fmt.Sprintf("%.2f/wk (%d in %.1f wk)", tc.AutoModelRunsPerWeek, tc.AutoModelRuns, tc.WindowWeeks), "> 0/wk"},
+		[]string{"DoD closed", fmtPctRatio(tc.DoDClosedPct, tc.DoDClosedSessions, tc.BuildSessions), ">= 80%"},
+	)
+	appendV9TriggerRows(&t, s)
 	return reportSection{
 		Title: "Trigger coverage",
 		Note:  "KPIs computed from metrics.db against the autonomy and feature-use targets.",
 		Table: t,
 	}
+}
+
+func appendV9TriggerRows(t *table, s *Summary) {
+	h := s.Health
+	t.Rows = append(t.Rows,
+		[]string{"v9 orchestration", fmt.Sprintf("%d (agent:%d, workflow:%d, swarm:%d)", h.OrchestrationCalls, h.SubagentDispatches, h.WorkflowCalls, h.SwarmCalls), "-"},
+		[]string{"Deterministic gates", fmt.Sprint(h.DeterministicGates), "-"},
+		[]string{"Hook blocks (clamped / ledger / guards)", fmt.Sprintf("%d / %d / %d (total %d)", h.ClampedSaves, s.E.LedgerSaved, h.HookBlocksGuards, h.HookDenials), "-"},
+		[]string{"Model-family share", formatModelFamilyShare(h), "-"},
+		[]string{"Guarded subagent downgrades", fmt.Sprint(h.GuardedDowngrades), "= 0"},
+		[]string{"Live quota pools", formatPoolQuotas(h.PoolQuotas), "-"},
+		[]string{"Sessions >= 180K knee", fmt.Sprintf("%d / %d", h.SessionsOverKnee, h.MainSessions), "= 0"},
+		[]string{"Subagents over budget", fmt.Sprint(h.SubagentsOverBudget), "= 0"},
+	)
+}
+
+func (s *Store) populateJudgeVerdictsHealth(sum *Summary, o ShowOptions, since, now time.Time) error {
+	if o.Label != "" {
+		return nil
+	}
+	rows, err := s.JudgeVerdicts(o.Project, since, now)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil
+		}
+		return err
+	}
+	for _, r := range rows {
+		v := strings.ToUpper(strings.TrimSpace(r.Verdict))
+		switch {
+		case v == "PASS":
+			sum.Health.JudgePassed++
+			sum.F.JudgePassed++
+			sum.TriggerCoverage.JudgePassed++
+		case strings.Contains(v, "FAIL"):
+			sum.Health.JudgeFailed++
+			sum.F.JudgeFailed++
+			sum.TriggerCoverage.JudgeFailed++
+		}
+		if strings.TrimSpace(r.FallbackReason) != "" || strings.Contains(strings.ToLower(r.Model), "gemini") {
+			sum.Health.JudgeFallback++
+			sum.F.JudgeFallback++
+		}
+	}
+	return nil
 }
 
 func fmtPctRatio(pct *float64, num, den int) string {

@@ -2,11 +2,15 @@ package metrics
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // ShowOptions filter what show and report read (spec § Verbs).
 type ShowOptions struct {
+	Home      string
 	Since     time.Time // zero: 30 days before Now
 	Now       time.Time // zero: time.Now()
 	Project   string
@@ -75,35 +79,57 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 	if err := s.populateSessionRatings(sum, o, since, now); err != nil {
 		return nil, err
 	}
+	if err := s.populateHealthAndFallbacks(sum, o, all, since, now); err != nil {
+		return nil, err
+	}
 	return sum, nil
+}
+
+// resolveMetricsHome returns o.Home if set; otherwise it infers the home
+// directory ONLY when s.path ends with <sep><StateDir>/metrics.db so synthetic
+// unit tests using t.TempDir()/metrics.db never touch host $HOME.
+func resolveMetricsHome(o ShowOptions, storePath string) string {
+	if h := strings.TrimSpace(o.Home); h != "" {
+		return filepath.Clean(h)
+	}
+	if strings.TrimSpace(storePath) == "" {
+		return ""
+	}
+	clean := filepath.Clean(storePath)
+	suffix := string(filepath.Separator) + filepath.Join(harness.StateDir, "metrics.db")
+	if strings.HasSuffix(clean, suffix) && len(clean) > len(suffix) {
+		return strings.TrimSuffix(clean, suffix)
+	}
+	return ""
+}
+
+// showWhere builds the WHERE clause and arguments for sessions matching o in [since, now).
+func showWhere(o ShowOptions, since, now time.Time) (string, []any) {
+	w := `COALESCE(started_at, ended_at, 0) >= ? AND COALESCE(started_at, ended_at, 0) < ?`
+	args := []any{since.UnixMilli(), now.UnixMilli()}
+	switch {
+	case o.Label != "":
+		w += ` AND label = ?`
+		args = append(args, o.Label)
+	case !o.AllLabels:
+		w += ` AND label IS NULL`
+	}
+	if o.Project != "" {
+		p := filepath.Clean(o.Project)
+		w += ` AND (project_root = ? OR substr(project_root, 1, length(?)) = ?)`
+		args = append(args, p, p+"/", p+"/")
+	}
+	return w, args
 }
 
 // showQuery is the query of the sessions in the window [since, now) that
 // pass the options' label and project filters, with its arguments.
 func showQuery(o ShowOptions, since, now time.Time) (string, []any) {
+	where, args := showWhere(o, since, now)
 	q := `SELECT id, vendor, COALESCE(project_root,''), COALESCE(parent_id,''), COALESCE(agent_type,''),
 		COALESCE(label,''), COALESCE(outcome,''), COALESCE(run,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
-		FROM sessions WHERE COALESCE(started_at, ended_at, 0) >= ? AND COALESCE(started_at, ended_at, 0) < ?`
-	// A session belongs to the window it starts in, [since, until): adjacent
-	// windows never share one (retro compares two of them).
-	args := []any{since.UnixMilli(), now.UnixMilli()}
-	switch {
-	case o.Label != "":
-		q += ` AND label = ?`
-		args = append(args, o.Label)
-	case !o.AllLabels:
-		q += ` AND label IS NULL`
-	}
-	if o.Project != "" {
-		// The root or anything under it: a session started in a
-		// subdirectory is the project's. An exact, case-sensitive prefix
-		// comparison: LIKE ignores ASCII case, and a sibling sharing the
-		// prefix never matches because the prefix ends in "/".
-		p := filepath.Clean(o.Project)
-		q += ` AND (project_root = ? OR substr(project_root, 1, length(?)) = ?)`
-		args = append(args, p, p+"/", p+"/")
-	}
-	return q + ` ORDER BY started_at`, args
+		FROM sessions WHERE ` + where + ` ORDER BY started_at`
+	return q, args
 }
 
 // sessionsIn runs a sessions query and reads its rows.
@@ -185,4 +211,141 @@ func newSummary(since, now time.Time) *Summary {
 		D: Reliability{ToolErrorRate: map[string]*float64{}, Denials: map[string]*int{}, Interrupts: map[string]*int{},
 			RetryLoops: vi(), SubagentToolCalls: vm()},
 	}
+}
+
+func (s *Store) collectStepHealth(h *HealthSignals, sum *Summary, all []sess) (map[string]bool, error) {
+	h.MainSessions = sum.Sessions["agy"]
+	for _, p := range sum.B.SessionPeaks["agy"] {
+		if p.Peak >= ContextKneeTokens {
+			h.SessionsOverKnee++
+		}
+	}
+	overBudget, seen := map[string]bool{}, map[string]bool{}
+	for _, x := range all {
+		if x.vendor == historical {
+			continue
+		}
+		steps, err := s.stepsOf(x.id)
+		if err != nil {
+			return nil, err
+		}
+		subTools := countSessionStepHealth(h, x, steps, seen)
+		if x.parent != "" {
+			capLimit := 40
+			if strings.EqualFold(x.agent, "self") {
+				capLimit = 120
+			}
+			if subTools > capLimit {
+				overBudget[x.id] = true
+			}
+		}
+	}
+	h.OrchestrationCalls = h.SubagentDispatches + h.WorkflowCalls + h.SwarmCalls
+	return overBudget, nil
+}
+
+func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[string]bool) int {
+	subTools := 0
+	for _, st := range steps {
+		if st.kind == "tool" && x.parent != "" && st.tool != "" {
+			subTools++
+		}
+		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
+			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		if st.kind == "compaction" {
+			h.StepCompactions++
+		} else if st.kind == "tool" {
+			classifyToolHealth(h, st)
+		}
+	}
+	return subTools
+}
+
+func classifyToolHealth(h *HealthSignals, st stp) {
+	if st.denied {
+		h.HookDenials++
+	}
+	switch {
+	case st.tool == "Agent" || st.tool == "invoke_subagent" || st.tool == "agy:invoke_subagent":
+		h.SubagentDispatches++
+	case st.tool == "agy:run_workflow" || st.tool == "run_workflow" || strings.HasSuffix(st.tool, ":run_workflow"):
+		h.WorkflowCalls++
+	case st.tool == "agy:swarm" || st.tool == "swarm" || strings.HasSuffix(st.tool, ":swarm"):
+		h.SwarmCalls++
+	}
+	for _, verb := range st.verbs {
+		for _, gate := range []string{"fyr verify", "fyr gate", "fyr land", "fyr close"} {
+			if verb == gate || strings.HasPrefix(verb, gate+" ") {
+				h.DeterministicGates++
+				break
+			}
+		}
+	}
+}
+
+func (s *Store) populateModelFamilyHealth(h *HealthSignals, o ShowOptions, since, now time.Time) error {
+	where, args := showWhere(o, since, now)
+	rows, err := s.db.Query(`SELECT id, COALESCE(parent_id,''), COALESCE(agent_type,''), COALESCE(model,'') FROM sessions WHERE `+where+` AND vendor = 'agy'`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	counts, total := map[string]int{}, 0
+	for rows.Next() {
+		var id, parent, agentType, model string
+		if err := rows.Scan(&id, &parent, &agentType, &model); err != nil {
+			return err
+		}
+		if fam := classifyModelFamily(model); fam != "" {
+			counts[fam]++
+			total++
+		}
+		if parent != "" && isGuardedSubagentRole(agentType) && isDowngradedModel(model) {
+			h.GuardedDowngrades++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if total > 0 {
+		h.ModelFamilyCounts, h.ModelFamilyShare = counts, map[string]float64{}
+		for fam, c := range counts {
+			h.ModelFamilyShare[fam] = round4(float64(c) * 100.0 / float64(total))
+		}
+	}
+	return nil
+}
+
+func classifyModelFamily(model string) string {
+	low := strings.ToLower(strings.TrimSpace(model))
+	if low == "" {
+		return ""
+	}
+	switch {
+	case strings.Contains(low, "gemini"):
+		return "gemini"
+	case strings.Contains(low, "claude") || strings.Contains(low, "anthropic") || strings.Contains(low, "opus") || strings.Contains(low, "sonnet") || strings.Contains(low, "haiku"):
+		return "anthropic"
+	default:
+		return "other"
+	}
+}
+
+func isGuardedSubagentRole(agentType string) bool {
+	switch strings.ToLower(strings.TrimSpace(agentType)) {
+	case "reviewer", "security", "verifier", "dreamer":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDowngradedModel(model string) bool {
+	low := strings.ToLower(strings.TrimSpace(model))
+	return low != "" && (strings.Contains(low, "flash") || strings.Contains(low, "-low"))
 }
