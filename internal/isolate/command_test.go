@@ -142,6 +142,121 @@ func envToMap(env []string) map[string]string {
 	return out
 }
 
+func TestRejectsAncestorPathsForGoModCacheAndPATH(t *testing.T) {
+	base := t.TempDir()
+	homeParent := filepath.Join(base, "home-parent")
+	realHome := filepath.Join(homeParent, "real")
+	tmpParent := filepath.Join(base, "tmp-parent")
+	sepTmp := filepath.Join(tmpParent, "tmp")
+	scratchHome := filepath.Join(base, "scratch")
+	workDir := filepath.Join(base, "work")
+	safeDir := filepath.Join(base, "safebin")
+	goModCache := filepath.Join(realHome, "go", "pkg", "mod")
+	for _, d := range []string{realHome, sepTmp, scratchHome, workDir, safeDir, goModCache} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resSafeDir, err := filepath.EvalSymlinks(safeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resGoModCache, err := filepath.EvalSymlinks(goModCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("TMPDIR", sepTmp)
+	t.Setenv("HOME", realHome)
+
+	ancHome := filepath.Dir(realHome)
+	ancTmp := filepath.Dir(sepTmp)
+	opts := CommandOpts{
+		Dir:         workDir,
+		ScratchHome: scratchHome,
+		TmpDir:      sepTmp,
+		RealHome:    realHome,
+		Argv:        []string{"bash", "-c", "true"},
+		Unconfined:  true,
+	}
+
+	root := string(filepath.Separator)
+	for _, tc := range []struct {
+		name string
+		mc   string
+	}{
+		{name: "root", mc: root},
+		{name: "ancestor_of_real_home", mc: ancHome},
+		{name: "ancestor_of_tmpdir", mc: ancTmp},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GOMODCACHE", tc.mc)
+			if got := hostGoDirs(realHome); got != "" {
+				t.Errorf("hostGoDirs(%q) with GOMODCACHE=%q = %q, want empty", realHome, tc.mc, got)
+			}
+			cmd, cleanup, err := Command(opts)
+			if err != nil {
+				t.Fatalf("Command with GOMODCACHE=%q: %v", tc.mc, err)
+			}
+			cleanup()
+			if v, ok := envToMap(cmd.Env)["GOMODCACHE"]; ok {
+				t.Errorf("Command env leaked GOMODCACHE=%q for %q", v, tc.mc)
+			}
+			pol := buildCommandPolicy(opts, "/bin/bash", cmd.Env, hostGoDirs(realHome))
+			resMC, _ := filepath.EvalSymlinks(tc.mc)
+			for _, p := range []string{tc.mc, resMC} {
+				if p != "" && slices.Contains(pol.ROPaths, p) {
+					t.Errorf("buildCommandPolicy ROPaths leaked %q for GOMODCACHE=%q: %v", p, tc.mc, pol.ROPaths)
+				}
+			}
+		})
+	}
+
+	t.Setenv("GOMODCACHE", "")
+	if got := hostGoDirs(realHome); got != resGoModCache {
+		t.Errorf("default hostGoDirs(%q) = %q, want %q", realHome, got, resGoModCache)
+	}
+	defaultCmd, defaultCleanup, err := Command(opts)
+	if err != nil {
+		t.Fatalf("Command with default GOMODCACHE: %v", err)
+	}
+	defaultCleanup()
+	if got := envToMap(defaultCmd.Env)["GOMODCACHE"]; got != resGoModCache {
+		t.Errorf("default Command GOMODCACHE = %q, want %q", got, resGoModCache)
+	}
+	defaultPol := buildCommandPolicy(opts, "/bin/bash", defaultCmd.Env, hostGoDirs(realHome))
+	if !slices.Contains(defaultPol.ROPaths, resGoModCache) {
+		t.Errorf("default buildCommandPolicy ROPaths missing %q: %v", resGoModCache, defaultPol.ROPaths)
+	}
+
+	t.Setenv("PATH", strings.Join([]string{root, ancHome, ancTmp, safeDir}, string(os.PathListSeparator)))
+	gotPATH := appendSafePATHDirs(nil, realHome)
+	if !slices.Contains(gotPATH, resSafeDir) {
+		t.Fatalf("appendSafePATHDirs missing safe dir %q: got %v", resSafeDir, gotPATH)
+	}
+	for _, blocked := range []string{root, ancHome, ancTmp} {
+		resBlocked, _ := filepath.EvalSymlinks(blocked)
+		for _, p := range []string{blocked, resBlocked} {
+			if p != "" && slices.Contains(gotPATH, p) {
+				t.Errorf("appendSafePATHDirs leaked excluded dir %q: got %v", p, gotPATH)
+			}
+		}
+	}
+
+	gotEmptyHome := appendSafePATHDirs(nil, "")
+	if !slices.Contains(gotEmptyHome, resSafeDir) {
+		t.Fatalf("appendSafePATHDirs(empty realHome) missing safe dir %q: got %v", resSafeDir, gotEmptyHome)
+	}
+	for _, blocked := range []string{root, ancTmp} {
+		resBlocked, _ := filepath.EvalSymlinks(blocked)
+		for _, p := range []string{blocked, resBlocked} {
+			if p != "" && slices.Contains(gotEmptyHome, p) {
+				t.Errorf("appendSafePATHDirs(empty realHome) leaked excluded dir %q: got %v", p, gotEmptyHome)
+			}
+		}
+	}
+}
+
 func TestCommandLandlockDeniesRealHomeWrite(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Landlock enforcement test runs on Linux")

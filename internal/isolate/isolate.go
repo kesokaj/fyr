@@ -176,17 +176,21 @@ func appendSafePATHDirs(dst []string, realHome string) []string {
 	return dst
 }
 
+func overlapsPath(p, root string) bool {
+	return p != "" && root != "" && (within(p, root) || within(root, p))
+}
+
 func isExcludedPATHDir(abs, resAbs, tmpRoot, resTmp, realHome, resHome string) bool {
-	if tmpRoot != "" && within(abs, tmpRoot) {
+	if filepath.Clean(abs) == string(filepath.Separator) || filepath.Clean(resAbs) == string(filepath.Separator) {
 		return true
 	}
-	if resTmp != "" && within(resAbs, resTmp) {
+	if overlapsPath(abs, tmpRoot) || overlapsPath(resAbs, resTmp) {
 		return true
 	}
-	if realHome != "" && within(abs, filepath.Clean(realHome)) {
+	if realHome != "" && overlapsPath(abs, filepath.Clean(realHome)) {
 		return true
 	}
-	return resHome != "" && within(resAbs, resHome)
+	return overlapsPath(resAbs, resHome)
 }
 
 func appendUniqueClean(dst []string, paths ...string) []string {
