@@ -72,16 +72,25 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
 | Worker brief sessions (`isWorkerBriefPrompt`) | `allow` | Matches `[FYR_WORKER_CAPSULE]`, `Project: this clone`, `"This is a Kickoff written by fyr auto."`, `Standing approvals:`, or leading `Files:` |
 | Operator `!`-prefixed prompt (`!`) | `allow` | Persisted in `vet_history` so intentional direct Coordinator edits pass |
 
+## Watchdog breakers & silent-hang recovery
+
+- **In-band `PreToolUse`/`PostToolUse` Watchdog (`internal/search/hook_bash_guard.go`, `internal/search/hook_watchdog.go`):**
+  - `[INTERACTIVE_STDIN]` blocks interactive editors, pagers, and prompts waiting on stdin, and injects `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` for network `git` commands.
+  - `[POLL_LOOP]` denies `>= 3` consecutive `manage_task` / `manage_subagents` `list`/`status` polls; end the turn to await wakeup or run `fyr watch --check`.
+  - `[TOKEN_LOOP]` denies `>= 3` consecutive identical failing tool calls or `A-B-A-B` failing error loops recorded across `PreToolUse` and `PostToolUse` in `watchdog_ring` (exempting `finish`, `send_message`, `.agents/scratch/agents/` writes, and `git` commit steps).
+  - `[SUBAGENT_BUDGET]` warns at `25`/`90` and blocks at `40` tool calls for specialized subagents (`120` for `self`), nudging completion via artifact write or `finish`.
+- **Silent-hang recovery:** Pair child dispatches with `schedule(TimerCondition: "<id>", DurationSeconds: 90)` instead of polling. If a timer fires or a worker appears stalled, inspect read-only with `fyr watch --check --conv <id> --json` (exits `1` with `[INTERACTIVE_WAIT]`, `[STUCK_NO_PROGRESS]`, or `[BUDGET_NEAR_LIMIT]`).
+
 ## Wave gate & sequential landing (`fyr gate` -> `fyr land`)
 
-1. **Gate every finished slice:** From the coordinator tree, check each completed worker worktree/branch against its lease:
+1. **Gate every finished slice:** From the coordinator tree, check each completed worker worktree/branch against its lease (optionally adding `--judge` for an isolated `Network: true` cross-family diff + `verify.stamp` verdict logged to `metrics.db` `judge_verdicts`, with `--judge-model` to override the auto-picked model):
    ```bash
-   fyr gate --lease "<comma-separated Files lease>" <worker-worktree-or-branch>
+   fyr gate --lease "<comma-separated Files lease>" [--judge "<acceptance criterion>" [--judge-model <id>]] <worker-worktree-or-branch>
    ```
-   Reject slices reporting out-of-lease edits, secret-shaped filenames, missing/failing tests, or commit trailers; message the worker (or re-dispatch) rather than patching across boundaries yourself.
+   Reject slices reporting out-of-lease edits, secret-shaped filenames, missing/failing tests, commit trailers, or a `judge` `FAIL`; message the worker (or re-dispatch) rather than patching across boundaries yourself.
 2. **Land sequentially — one branch at a time:** Merge passing branches onto the target branch strictly in dependency order:
    ```bash
-   fyr land --lease "<comma-separated Files lease>" work/<name>
+   fyr land --lease "<comma-separated Files lease>" [--judge "<acceptance criterion>" [--judge-model <id>]] work/<name>
    ```
    A `share` worker detaches HEAD (`git checkout --detach HEAD`) after committing its branch and before `fyr land` runs so `work/<name>` is not held checked out in its worktree. Never run two `fyr land` commands concurrently; resolve any merge conflict cleanly on a single branch before continuing.
 3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently).

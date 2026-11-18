@@ -45,6 +45,8 @@ Before any dispatch, look for a project agent that shadows a harness review agen
 
 Each dispatch gets the scope text, today's date, its slug, its brief, the sentence "Write your artifact with `write_to_file`; report only means no source edits.", and a budget of 30 tool calls (15 for a re-dispatch over fixes only) with "write the artifact early, then update it" (context § Work). `--high`: `reviewer` inherits the session model or cross-family routing (`agy-dispatch`) while `security` inherits the session model, so run the session on the strongest id `agy models` lists (`agy --model <id>`; the CLI refuses `--model pro`) when it matters.
 
+- **Automatic guarded `pro` upgrade (`needsGuardedProUpgrade`):** `PreToolUse` (`internal/search/hook_subagent.go`, `internal/search/hook_subagent_models.go`) enforces omitted/`"inherit"` `Model` on guarded subagents (`reviewer`, `security`, `verifier`, `dreamer`) and `needsGuardedProUpgrade` automatically upgrades `orchestrator` and fast session turns (`orchestrator`, `auto`, `flash`, `gpt-oss`, `hydrogen-medium/low`, `sonnet-low`) to `Model="pro"`.
+
 - **Orchestrating 2+ lenses via `run_workflow`:** When 2 or more lenses are selected (including `--all` or `--code --security`), invoke `run_workflow` with `ScriptPath` set to `<HOME>/.gemini/config/workflows/review_parallel.py` (using the expanded absolute `$HOME` path, never literal `~` because `hook_workflow.go` checks `ScriptPath` via `os.Lstat`; `<repo>/workflows/review_parallel.py` also works in a harness checkout) and `Args: {"scope_text": "<verbatim scope text>", "scope_slug": "<scope>", "date": "<YYYY-MM-DD>", "lenses": [...]}` (plus `"judge_criterion"` for `--judge` or `"verify_tiers"` for `--tests`). `review_parallel.py` sets `model="pro"` for `reviewer`, `security`, and `verifier`, merges `--code` + `--docs` into one dispatch, and returns JSON results per lens. Use direct `invoke_subagent` for a single-lens review (or Round 2 `send_message` resume over fixes; `review_parallel.py` also handles 1 lens when preferred).
 
 | Lens | Agent | Slug it receives | Brief (verbatim) |
@@ -58,6 +60,8 @@ Each dispatch gets the scope text, today's date, its slug, its brief, the senten
 | `--project` adds | `explorer` | `<scope>` | "Inventory and structure map of the repository: uniformity, orphaned and dead-code candidates." |
 | `--resume` | `explorer` | `project-resume` | § Resume brief below, given verbatim. The brief, not the handoff, is the artifact: the explorer's draft, stored as the `plan` record `Recon — project resume (<date>)`. |
 | `--judge "<criterion>"` | `reviewer` (cross-family via `agy-dispatch`) | `<scope>-judge` | "Evaluate strictly against `Judge: <criterion>` over the scope's diff and verification output only (never the builder's transcript or reasoning). Write `.agents/scratch/agents/review-judge.md` ending with `VERDICT: PASS — <reason>` or `VERDICT: FAIL — <reason>`." |
+
+- **Deterministic CLI cross-family judge (`fyr gate --judge` / `fyr land --judge`):** When gating or landing a branch or worktree without a parent conversation transcript, you can also run `fyr gate --judge "<criterion>" [--judge-model <id>] <worktree-or-branch>` or `fyr land --judge "<criterion>" [--judge-model <id>] <branch>` for an isolated, read-only `Network: true` `agy -p` verdict over the git diff and `verify.stamp` summary (logged to `metrics.db` `judge_verdicts`).
 
 ### Docs brief (`--docs`)
 
