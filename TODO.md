@@ -7,11 +7,11 @@
 
 ## Now
 
-<!-- No active Phase 4 tasks remaining; PLAN-2026-11-17-1413 closed -->
+- [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest 2026-11-23)
 
 ## Next
 
-- Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest 2026-11-23)
+- Post-audit `PRD.md` pin cleanup (`PRD.md:54` `gatePresence`/`gateIdle`, `PRD.md:81` retired `Phase 6b`/`Docker` wording) once approved by operator
 
 ## Backlog
 
