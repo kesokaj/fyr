@@ -47,6 +47,7 @@ const (
 	ReasonLeadChanged  = "lead checkout changed"
 	ReasonBranchFailed = "branch"
 	ReasonDiskLimit    = "disk limit"
+	ReasonJudgeFailed  = "judge failed"
 )
 
 var (
@@ -393,6 +394,9 @@ func (w *worker) finishChecks(ctx context.Context, collect *sync.Mutex) {
 	}
 	if ctx.Err() != nil {
 		w.b.Fail(ReasonKilled)
+	}
+	if w.p.k.Judge != "" && w.ran && !w.unsafe() && len(w.b.Reasons()) == 0 {
+		runWorkerJudge(ctx, w)
 	}
 	collect.Lock()
 	w.collect()

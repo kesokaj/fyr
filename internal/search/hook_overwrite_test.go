@@ -61,12 +61,16 @@ func TestPreToolUseSubagentAutoUpgradeAndSwarmModelFill(t *testing.T) {
 		}
 	}
 
-	// 2. Guarded subagent on Carbon or Orchestrator -> allow with NO overwrite.
-	for _, m := range []string{"gemini-4-carbon-high", "gemini-pro-orchestrator"} {
+	// 2. Guarded subagent on Carbon or Opus -> allow with NO overwrite; Orchestrator upgrades to Model="pro".
+	for _, m := range []string{"gemini-4-carbon-high", "claude-opus-5-5-high"} {
 		d := runPreToolHookForTest(t, home, m, "invoke_subagent", map[string]any{"TypeName": "verifier", "Prompt": "Run tests."})
 		if d.Decision != "allow" || d.Overwrite != nil {
 			t.Errorf("model %q should allow without overwrite, got %+v", m, d)
 		}
+	}
+	orch := runPreToolHookForTest(t, home, "gemini-pro-orchestrator", "invoke_subagent", map[string]any{"TypeName": "verifier", "Prompt": "Run tests."})
+	if orch.Decision != "allow" || orch.Overwrite == nil || orch.Overwrite["Model"] != "pro" {
+		t.Errorf("orchestrator should upgrade guarded subagent to Model=\"pro\", got %+v", orch)
 	}
 
 	// 3. Explicit non-inherit override on guarded subagent -> still deny.
@@ -206,7 +210,8 @@ func TestInferSwarmRoleAndEffortWeight(t *testing.T) {
 		{name: "second-worker", brief: "update docker runner section 3", want: "builder"},
 		{name: "documented-fix", brief: "handle docker socket", want: "builder"},
 		{name: "worker-1", brief: "security review and verifier checks", want: "builder"},
-		{name: "repo-explorer", brief: "scan internal packages", want: "builder"},
+		{name: "repo-explorer", brief: "scan internal packages", want: "mechanical"},
+		{name: "code-reviewer", brief: "review diff", want: "judge"},
 		{name: "sec-audit", brief: "check auth boundaries", want: "judge"},
 		{name: "verifier-1", brief: "run tests", want: "judge"},
 		{name: "doc-writer", brief: "update README docs", want: "mechanical"},

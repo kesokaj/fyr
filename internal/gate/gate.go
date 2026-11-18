@@ -19,13 +19,18 @@ const (
 
 // GateOptions configures deterministic worktree/branch gating.
 type GateOptions struct {
-	Dir       string
-	Target    string
-	Base      string
-	Lease     []string
-	LeaseFile string
-	MaxFiles  int
-	MaxLines  int
+	Dir           string
+	Target        string
+	Base          string
+	Home          string
+	Lease         []string
+	LeaseFile     string
+	MaxFiles      int
+	MaxLines      int
+	Judge         string
+	JudgeModel    string
+	JudgeRunner   func(context.Context, JudgeRequest) (JudgeResult, error)
+	RecordVerdict func(JudgeVerdictRecord) error
 }
 
 // GateFinding describes a single deterministic gate violation.
@@ -37,19 +42,22 @@ type GateFinding struct {
 	Detail string `json:"detail"`
 }
 
-// GateReport summarizes all 4 Gate checks.
+// GateReport summarizes all 4 Gate checks and optional cross-family judge check.
 type GateReport struct {
-	OK           bool          `json:"ok"`
-	MainRoot     string        `json:"mainRoot"`
-	Target       string        `json:"target"`
-	Branch       string        `json:"branch,omitempty"`
-	Base         string        `json:"base"`
-	MergeBase    string        `json:"mergeBase"`
-	Head         string        `json:"head"`
-	FilesChanged int           `json:"filesChanged"`
-	LinesAdded   int           `json:"linesAdded"`
-	LinesDeleted int           `json:"linesDeleted"`
-	Findings     []GateFinding `json:"findings,omitempty"`
+	OK            bool          `json:"ok"`
+	MainRoot      string        `json:"mainRoot"`
+	Target        string        `json:"target"`
+	Branch        string        `json:"branch,omitempty"`
+	Base          string        `json:"base"`
+	MergeBase     string        `json:"mergeBase"`
+	Head          string        `json:"head"`
+	FilesChanged  int           `json:"filesChanged"`
+	LinesAdded    int           `json:"linesAdded"`
+	LinesDeleted  int           `json:"linesDeleted"`
+	Findings      []GateFinding `json:"findings,omitempty"`
+	JudgeModel    string        `json:"judgeModel,omitempty"`
+	JudgeVerdict  string        `json:"judgeVerdict,omitempty"`
+	JudgeFallback string        `json:"judgeFallback,omitempty"`
 }
 
 type gateTarget struct {
@@ -87,6 +95,11 @@ func Gate(ctx context.Context, opts GateOptions) (GateReport, error) {
 	}
 	if len(rep.Findings) > 0 {
 		return rep, failf("gate failed with %d finding(s)", len(rep.Findings))
+	}
+	if strings.TrimSpace(opts.Judge) != "" {
+		if err := applyGateJudge(ctx, opts, tgt, &rep); err != nil {
+			return rep, err
+		}
 	}
 	rep.OK = true
 	return rep, nil

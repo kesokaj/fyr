@@ -17,7 +17,7 @@ func handlePreToolSubagent(o Options, _ string, in HookInput, out io.Writer) err
 		if model, blocked := nonInheritModelOverride(in.ToolCall.Args); blocked {
 			return writeDecision(out, "deny", fmt.Sprintf("[MODEL_OVERRIDE] subagent %q forbids Model=%q override; omit Model or pass \"inherit\" (rules/agy-dispatch.md).", subagent, model))
 		}
-		if isFastExecutionModel(in.ModelName) {
+		if needsGuardedProUpgrade(in.ModelName) {
 			cloned = cloneArgsWithoutModelKeys(in.ToolCall.Args)
 			cloned["Model"] = "pro"
 			reason = fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, formatModelTag(o.Home, in.ModelName))

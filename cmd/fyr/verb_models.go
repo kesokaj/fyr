@@ -67,8 +67,10 @@ func runModels(c *ctx) error {
 func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.Catalog, error) {
 	if c.modelsRefresh || !models.CatalogExists(c.home) {
 		cat, err := models.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
-		if err == nil && c.modelsRefresh {
-			cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+		if err == nil {
+			if c.modelsRefresh {
+				cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+			}
 			cat = models.EnrichCatalogPools(ctx, c.home, agyPath, cat)
 		}
 		return cat, err

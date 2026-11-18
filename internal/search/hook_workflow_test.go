@@ -113,3 +113,40 @@ func TestPreToolUseRealWorkflowScriptsAllowedOnProAndFast(t *testing.T) {
 		}
 	}
 }
+
+func TestPreToolUseWorkflowOrchestratorAndAutoRequirePro(t *testing.T) {
+	home := t.TempDir()
+	wfDir := t.TempDir()
+	spInherit := filepath.Join(wfDir, "inh.py")
+	if err := os.WriteFile(spInherit, []byte("await agent(prompt='Check', schema={'type':'string'}, type_name='reviewer', model='inherit')\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	omitted := `await agent(prompt="Check", schema={"type":"string"}, type_name="reviewer")`
+	inlineInherit := `await agent(prompt="Check", schema={"type":"string"}, type_name="security", model="inherit")`
+
+	for _, m := range []string{"gemini-pro-orchestrator", "auto", "claude-sonnet-5-5-low"} {
+		dOmit := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"Script": omitted, "Description": "omit"})
+		if dOmit.Decision != "deny" || !strings.Contains(dOmit.Reason, "[AUTO_SUBAGENT_PRO]") {
+			t.Errorf("model %q omitted model: got %+v, want [AUTO_SUBAGENT_PRO] deny", m, dOmit)
+		}
+		dInh := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"Script": inlineInherit, "Description": "inh"})
+		if dInh.Decision != "allow" || dInh.Overwrite == nil {
+			t.Fatalf("model %q inline inherit: got %+v, want allow+overwrite", m, dInh)
+		}
+		if s, _ := dInh.Overwrite["Script"].(string); !strings.Contains(s, `model="pro"`) {
+			t.Errorf("model %q expected model=\"pro\" patch, got:\n%s", m, s)
+		}
+		dPath := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"ScriptPath": spInherit, "Description": "path-inh"})
+		if dPath.Decision != "deny" || !strings.Contains(dPath.Reason, "[AUTO_SUBAGENT_PRO]") {
+			t.Errorf("model %q ScriptPath inherit: got %+v, want [AUTO_SUBAGENT_PRO] deny", m, dPath)
+		}
+	}
+
+	for _, m := range []string{"claude-sonnet-5-5-high", "gemini-4-carbon-high", "gemini-4-hydrogen-high"} {
+		d := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"Script": omitted, "Description": "keep"})
+		if d.Decision != "allow" || d.Overwrite != nil {
+			t.Errorf("model %q omitted model: got %+v, want clean allow", m, d)
+		}
+	}
+}

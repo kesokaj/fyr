@@ -291,3 +291,83 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 		t.Errorf("--explain + --pick exit = %d (%v), want 2", exitOf(err), err)
 	}
 }
+
+func TestVerbModelsColdCacheEnrichesPoolsOnly(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	bin := filepath.Join(tmp, "bin")
+	callsPath := filepath.Join(tmp, "calls.log")
+	for _, d := range []string{home, bin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agyScript := "#!/bin/sh\n" +
+		"echo \"$1 $2\" >> \"" + callsPath + "\"\n" +
+		"if [ \"$1\" = \"models\" ]; then\n" +
+		"  printf 'gemini-4-carbon-high\\tGemini 4 Carbon (High)\\nclaude-opus-5-5-high\\tClaude Opus 5.5 (High)\\n'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+		"  printf 'Gemini Models\\tWeekly Limit Remaining\\t80%%\\tx\\nGemini Models\\tFive Hour Limit Remaining\\t90%%\\tx\\nClaude and GPT models\\tWeekly Limit Remaining\\t55%%\\tx\\nClaude and GPT models\\tFive Hour Limit Remaining\\t75%%\\tx\\n'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"changelog\" ]; then\n" +
+		"  printf '1.6.0:\\n· Added Gemini 4 Carbon\\n'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(agyScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Cold cache: `fyr models --json` enriches pools, keeps changelog gated on --refresh.
+	var out bytes.Buffer
+	if err := run([]string{"models", "--json", "--home", home}, &out); err != nil {
+		t.Fatalf("cold fyr models --json: %v\n%s", err, out.String())
+	}
+	var coldCat models.Catalog
+	if err := json.Unmarshal(out.Bytes(), &coldCat); err != nil {
+		t.Fatalf("unmarshal cold catalog: %v\n%s", err, out.String())
+	}
+	if len(coldCat.Pools) != 2 || coldCat.QuotaUpdatedAt == "" {
+		t.Fatalf("cold cache did not enrich pools: pools=%+v quotaUpdatedAt=%q", coldCat.Pools, coldCat.QuotaUpdatedAt)
+	}
+	savedCold, ok, err := models.LoadCatalog(home)
+	if err != nil || !ok || len(savedCold.Pools) != 2 {
+		t.Fatalf("cold cache models.json missing pools: ok=%v err=%v pools=%+v", ok, err, savedCold.Pools)
+	}
+	callsRaw, _ := os.ReadFile(callsPath)
+	if strings.Contains(string(callsRaw), "changelog") {
+		t.Errorf("cold cache unexpectedly ran changelog:\n%s", callsRaw)
+	}
+	for _, e := range savedCold.Entries {
+		if e.ChangelogNote != "" {
+			t.Errorf("cold cache unexpectedly set ChangelogNote on %s: %q", e.ID, e.ChangelogNote)
+		}
+	}
+
+	// Explicit --refresh enriches both changelog and pools.
+	out.Reset()
+	if err := run([]string{"models", "--refresh", "--json", "--home", home}, &out); err != nil {
+		t.Fatalf("refresh fyr models --json: %v\n%s", err, out.String())
+	}
+	callsRaw2, _ := os.ReadFile(callsPath)
+	if !strings.Contains(string(callsRaw2), "changelog") {
+		t.Errorf("--refresh did not invoke changelog:\n%s", callsRaw2)
+	}
+	var refCat models.Catalog
+	if err := json.Unmarshal(out.Bytes(), &refCat); err != nil {
+		t.Fatalf("unmarshal refreshed catalog: %v", err)
+	}
+	var gotCarbonNote string
+	for _, e := range refCat.Entries {
+		if e.ID == "gemini-4-carbon-high" {
+			gotCarbonNote = e.ChangelogNote
+		}
+	}
+	if !strings.Contains(gotCarbonNote, "Added Gemini 4 Carbon") || len(refCat.Pools) != 2 {
+		t.Errorf("--refresh catalog mismatch: carbonNote=%q pools=%+v", gotCarbonNote, refCat.Pools)
+	}
+}

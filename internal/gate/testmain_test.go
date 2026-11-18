@@ -5,11 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestMain strips inherited GIT_* variables and isolates git global/system
 // config so temporary test repositories never touch external checkouts.
 func TestMain(m *testing.M) {
+	isolate.MaybeRunInit()
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
 			os.Unsetenv(k)

@@ -349,3 +349,96 @@ func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
 		t.Errorf("pickSwarmModel(\"\", \"builder\") leaked real $HOME models.json: got %q", picked)
 	}
 }
+
+func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
+	home := t.TempDir()
+	upgradeCases := []string{
+		"gemini-pro-orchestrator",
+		"gemini-pro-orchestrator-argon",
+		"auto",
+		"claude-sonnet-5-5-low",
+		"gemini-3.8-flash-medium",
+		"gpt-oss-120b-medium",
+		"gemini-4-hydrogen-medium",
+		"gemini-4-hydrogen-low",
+	}
+	for _, m := range upgradeCases {
+		dec := runSubagentPreToolHook(t, Options{Home: home}, "conv-upg-"+m, m, "invoke_subagent", map[string]any{
+			"TypeName": "reviewer",
+			"Prompt":   "Review the diff.",
+		}, nil, "")
+		if dec.Decision != "allow" || dec.Overwrite == nil || dec.Overwrite["Model"] != "pro" {
+			t.Errorf("model %q on guarded reviewer: got %+v, want allow with Overwrite[Model]=pro", m, dec)
+		}
+	}
+
+	keepCases := []string{
+		"",
+		"   ",
+		"claude-opus-5-5-high",
+		"gemini-4-carbon-high",
+		"gemini-4-argon-high",
+		"claude-sonnet-5-5-high",
+		"claude-sonnet-5-5-medium",
+		"gemini-4-hydrogen-high",
+		"gemini-4-hydrogen-xhigh",
+		"gemini-4-hydrogen-max",
+	}
+	for _, m := range keepCases {
+		dec := runSubagentPreToolHook(t, Options{Home: home}, "conv-keep-"+m, m, "invoke_subagent", map[string]any{
+			"TypeName": "verifier",
+			"Prompt":   "Verify checks.",
+		}, nil, "")
+		if dec.Decision != "allow" || dec.Overwrite != nil {
+			t.Errorf("model %q on guarded verifier: got %+v, want allow without Overwrite", m, dec)
+		}
+	}
+
+	// handlePreToolSwarm preserves isFastExecutionModel (sonnet-high allowed, sonnet-low denied).
+	swAllow := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-sonnet-high", "gemini-4-carbon-high", "swarm", map[string]any{
+		"action": "add",
+		"name":   "reviewer-1",
+		"model":  "claude-sonnet-5-5-high",
+		"brief":  "Review diff.",
+	}, nil, "")
+	if swAllow.Decision != "allow" {
+		t.Errorf("swarm judge sonnet-high: got %+v, want allow", swAllow)
+	}
+	swDeny := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-sonnet-low", "gemini-4-carbon-high", "swarm", map[string]any{
+		"action": "add",
+		"name":   "reviewer-1",
+		"model":  "claude-sonnet-5-5-low",
+		"brief":  "Review diff.",
+	}, nil, "")
+	if swDeny.Decision != "deny" || !strings.Contains(swDeny.Reason, "[MODEL_OVERRIDE]") {
+		t.Errorf("swarm judge sonnet-low: got %+v, want deny [MODEL_OVERRIDE]", swDeny)
+	}
+}
+
+func TestSwarmRoleMultiToken(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"worker-sec", "judge"},
+		{"phase-1-review", "judge"},
+		{"phase-2-security", "judge"},
+		{"task-verifier-1", "judge"},
+		{"stage-judge", "judge"},
+		{"docs-review", "judge"},
+		{"explore-security", "judge"},
+		{"worker-docs", "mechanical"},
+		{"task-trivial", "mechanical"},
+		{"repo-explorer", "mechanical"},
+		{"doc-writer", "mechanical"},
+		{"second-worker", "builder"},
+		{"documented-fix", "builder"},
+		{"worker-1", "builder"},
+	}
+	for _, tc := range cases {
+		got := inferSwarmRole(map[string]any{"name": tc.name, "brief": "do work"})
+		if got != tc.want {
+			t.Errorf("inferSwarmRole(%q) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

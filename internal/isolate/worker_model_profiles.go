@@ -22,6 +22,9 @@ func resolveAutoModels(_ context.Context, o *WorkerOptions, ks []Kickoff, listed
 		if models.IsInteractiveOnlyID(ks[i].Model) {
 			return fmtErrInteractiveModel(ks[i].Path, ks[i].Model)
 		}
+		if models.IsInteractiveOnlyID(ks[i].JudgeModel) {
+			return fmtErrInteractiveModel(ks[i].Path, ks[i].JudgeModel)
+		}
 		if strings.EqualFold(strings.TrimSpace(ks[i].Model), "auto") {
 			picked, _, err := models.PickAutoModelForScope(o.Home, ks[i].Files, ks[i].Text, listed, ids)
 			if err != nil {

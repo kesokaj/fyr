@@ -53,6 +53,23 @@ func isFastExecutionModel(modelName string) bool {
 	return strings.Contains(s, "sonnet") && strings.Contains(s, "-low")
 }
 
+func needsGuardedProUpgrade(modelName string) bool {
+	s := strings.ToLower(strings.TrimSpace(modelName))
+	if s == "" || strings.Contains(s, "opus") {
+		return false
+	}
+	if !strings.Contains(s, "orchestrator") && (strings.Contains(s, "carbon") || strings.Contains(s, "argon")) {
+		return false
+	}
+	if strings.Contains(s, "sonnet") && !strings.Contains(s, "-low") {
+		return false
+	}
+	if strings.Contains(s, "hydrogen") && (strings.Contains(s, "-high") || strings.Contains(s, "-xhigh") || strings.Contains(s, "-max")) {
+		return false
+	}
+	return true
+}
+
 func formatSwarmPickReason(home, picked, fbNote string) string {
 	reason := "[AUTO_SWARM_MODEL] selected " + picked
 	if label := formatModelTag(home, picked); label != "" && label != strings.TrimSpace(picked) {
@@ -69,11 +86,10 @@ func inferSwarmRole(args map[string]any) string {
 	if len(tokens) == 0 {
 		return "builder"
 	}
-	prefix := tokens[:1]
 	switch {
-	case hasSwarmRoleToken(prefix, []string{"sec"}, []string{"review", "verif", "judge", "secur"}):
+	case hasSwarmRoleToken(tokens, []string{"sec"}, []string{"review", "verif", "judge", "secur"}):
 		return "judge"
-	case hasSwarmRoleToken(prefix, []string{"doc", "docs", "document", "documents", "documentation"}, []string{"triv", "explor"}):
+	case hasSwarmRoleToken(tokens, []string{"doc", "docs", "document", "documents", "documentation"}, []string{"triv", "explor"}):
 		return "mechanical"
 	default:
 		return "builder"

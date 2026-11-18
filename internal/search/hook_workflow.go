@@ -81,7 +81,7 @@ func loadWorkflowScriptSource(dir string, args map[string]any) (string, string, 
 }
 
 func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, []workflowPatch) {
-	fast := isFastExecutionModel(modelName)
+	fast := needsGuardedProUpgrade(modelName)
 	spans := findPythonAgentCalls(src)
 	var (
 		proDeny string
