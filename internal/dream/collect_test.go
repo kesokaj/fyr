@@ -13,6 +13,14 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+func collect(home string, p search.Project, since, now time.Time, limit int) (Collected, error) {
+	return collectIn(home, home, p, since, now, limit)
+}
+
+func collectIn(home, brainHome string, p search.Project, since, now time.Time, limit int) (Collected, error) {
+	return collectWindow(home, brainHome, p, since, time.Time{}, now, limit)
+}
+
 func TestCollectInputs(t *testing.T) {
 	f := newFixture(t)
 	c, err := collect(f.home, project(f), since, time.Now(), maxPrompt)

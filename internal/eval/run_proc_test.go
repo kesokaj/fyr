@@ -116,9 +116,9 @@ func TestRunRefusals(t *testing.T) {
 	}{
 		"not a checkout":       {func(r *rig, o *Options) { o.Root = r.real }, nil, "is not a git checkout"},
 		"a home in a checkout": {func(r *rig, o *Options) { o.Home = filepath.Join(r.root, ".agents", "scratch", "home") }, nil, "(BUG-106)"},
-		"no login":             {func(r *rig, o *Options) { os.Remove(filepath.Join(r.real, tokenRel)) }, nil, "no Antigravity login"}, // darwin: "neither … nor a Keychain folder"
+		"no login":             {func(r *rig, o *Options) { os.Remove(filepath.Join(r.real, isolate.TokenRel)) }, nil, "no Antigravity login"}, // darwin: "neither … nor a Keychain folder"
 		"a login that is a link": {func(r *rig, o *Options) {
-			p := filepath.Join(r.real, tokenRel)
+			p := filepath.Join(r.real, isolate.TokenRel)
 			os.Rename(p, p+".real")
 			os.Symlink(p+".real", p)
 		}, nil, "no Antigravity login at"},

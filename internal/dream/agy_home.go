@@ -110,7 +110,7 @@ func agyHome(conf, goos string) (string, func(), error) {
 func copyPrivate(from, to string) error {
 	// The regular-file check is on the opened file: a FIFO swapped in after
 	// a check would block the open (SD60b of the 2026-10-27 re-audit).
-	in, err := openRegular(from, false)
+	in, err := trail.OpenRegularFollow(from, false)
 	if err != nil {
 		return err
 	}

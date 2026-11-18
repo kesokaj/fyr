@@ -30,10 +30,7 @@ func (t Timer) Check(home, path, goos string) error {
 	return err
 }
 
-// installTimer installs and starts the legacy dream timer for goos in tests.
-func installTimer(home, path, goos string) error { return dreamTimer.Install(home, path, goos) }
-
-// Install is installTimer for this timer.
+// Install installs and starts this timer for goos.
 func (t Timer) Install(home, path, goos string) error {
 	p, err := t.plan(home, path, goos)
 	if err != nil {

@@ -303,7 +303,7 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Target: harness   Kind: skill   File: skills/golang/SKILL.md",
-		"Sessions: 2",
+		"Sessions: 1",
 		"Evidence: conversation conv-git-stale (outcome 2/5, token_efficiency 3/5, plan_alignment partial)",
 	} {
 		if !strings.Contains(gitProp.Body, want) {
@@ -312,7 +312,7 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Target: harness   Kind: skill   File: skills/",
-		"Sessions: 2",
+		"Sessions: 1",
 		"Evidence: conversation conv-global-stale (outcome 4/5, token_efficiency 3/5, plan_alignment no-plan)",
 	} {
 		if !strings.Contains(globalProp.Body, want) {
@@ -595,5 +595,61 @@ func TestRejectsInjectedRatingOutsideCollectedInputsAndEnforcesBounds(t *testing
 		{ConversationID: longID, OutcomeScore: 1, TokenEfficiency: 1, PlanAlignment: "missed"},
 	}, now); len(got) != 0 {
 		t.Fatalf("oversized conversation_id accepted: %+v", got)
+	}
+}
+
+func TestRatingProposalsDistinctSessionsAndTargetSanitization(t *testing.T) {
+	home := t.TempDir()
+	o := Options{Home: home}
+
+	if got := cleanTargetSkill("AGENTS.md"); got != "" {
+		t.Errorf("cleanTargetSkill(AGENTS.md) = %q, want empty", got)
+	}
+	if got := cleanTargetSkill("cmd/fyr/main.go"); got != "" {
+		t.Errorf("cleanTargetSkill(cmd/fyr/main.go) = %q, want empty", got)
+	}
+	if got := cleanTargetSkill("skills"); got != "skills/" {
+		t.Errorf("cleanTargetSkill(skills) = %q, want skills/", got)
+	}
+	if got := cleanTargetSkill("skills/golang/SKILL.md"); got != "skills/golang/SKILL.md" {
+		t.Errorf("cleanTargetSkill(skills/golang/SKILL.md) = %q", got)
+	}
+
+	// Non-skills/ TargetSkill sanitizes to skills/ via validateRating and ratingProposal.
+	col := Collected{
+		Root: "/proj",
+		Inputs: []Input{
+			{Kind: kindTranscript, Label: "antigravity s1"},
+			{Kind: kindTranscript, Label: "antigravity s2"},
+			{Kind: kindTranscript, Label: "antigravity s3"},
+			{Kind: kindTranscript, Label: "antigravity s4"},
+		},
+	}
+	ratings := o.validRatings(col, []sessionRating{
+		{ConversationID: "s1", OutcomeScore: 2, TokenEfficiency: 3, PlanAlignment: "partial", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "first golang gap"},
+		{ConversationID: "s2", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "second golang gap"},
+		{ConversationID: "s3", OutcomeScore: 2, TokenEfficiency: 3, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "AGENTS.md", Summary: "bad target must become skills/"},
+		{ConversationID: "s4", OutcomeScore: 5, TokenEfficiency: 5, PlanAlignment: "matched", SkillAction: "none", TargetSkill: "", Summary: "healthy session"},
+	}, now)
+	if len(ratings) != 4 {
+		t.Fatalf("validRatings len = %d, want 4", len(ratings))
+	}
+	if ratings[2].TargetSkill != "" {
+		t.Errorf("AGENTS.md TargetSkill not cleared: %q", ratings[2].TargetSkill)
+	}
+
+	props := o.buildProposals("HEAD\n\n", nil, ratings)
+	if len(props) != 3 {
+		t.Fatalf("buildProposals len = %d, want 3: %+v", len(props), props)
+	}
+	// s1 and s2 share skills/golang/SKILL.md -> Sessions: 2.
+	for _, i := range []int{0, 1} {
+		if !strings.Contains(props[i].Body, "File: skills/golang/SKILL.md\nSessions: 2\n") {
+			t.Errorf("proposal %d missing Sessions: 2 for skills/golang/SKILL.md:\n%s", i, props[i].Body)
+		}
+	}
+	// s3 sanitized AGENTS.md -> skills/, and only 1 session (s4 was healthy) -> Sessions: 1.
+	if !strings.Contains(props[2].Body, "File: skills/\nSessions: 1\n") {
+		t.Errorf("proposal 2 missing File: skills/ and Sessions: 1:\n%s", props[2].Body)
 	}
 }

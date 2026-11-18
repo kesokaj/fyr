@@ -29,9 +29,9 @@ func TestModelsPackageDeps(t *testing.T) {
 		}
 		for _, imp := range f.Imports {
 			p := strings.Trim(imp.Path.Value, `"`)
+			// models depends only on stdlib and internal/harness (never SQLite or sibling internal/* packages such as internal/isolate or internal/gate).
 			if p == "modernc.org/sqlite" ||
-				strings.HasPrefix(p, "github.com/kesokaj/fyr/internal/work") ||
-				strings.HasPrefix(p, "github.com/kesokaj/fyr/internal/sandbox") {
+				(strings.HasPrefix(p, "github.com/kesokaj/fyr/internal/") && p != "github.com/kesokaj/fyr/internal/harness") {
 				t.Errorf("%s imports forbidden package %q", e.Name(), p)
 			}
 		}

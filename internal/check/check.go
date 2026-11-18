@@ -114,7 +114,7 @@ func Run(dir string, v Vocabulary, home ...string) (Report, error) {
 		rep.Findings = append(rep.Findings, fs...)
 		rep.Notes = append(rep.Notes, notes...)
 	}
-	k.rootDocsRules(&rep, recs)
+	k.rootDocsRules(&rep, recs, ok)
 	// A drift check that read fewer files than it names says so: a clean
 	// result is otherwise no sign (IN53 of the 2026-10-27 audit).
 	if n := len(k.skipped); n > 0 {
@@ -144,13 +144,14 @@ func livingAndSpecs(recs []brain.Record) (living, specs []brain.Record) {
 }
 
 // rootDocsRules adds rules (c) and (d), which read the root documents, to rep.
-func (k *checker) rootDocsRules(rep *Report, recs []brain.Record) {
+func (k *checker) rootDocsRules(rep *Report, recs []brain.Record, ok bool) {
 	reqs, notes := k.requirementsRule(recs)
 	rep.Findings = append(rep.Findings, reqs...)
 	rep.Notes = append(rep.Notes, notes...)
 	traces, notes := k.tracesRule()
 	rep.Findings = append(rep.Findings, traces...)
 	rep.Notes = append(rep.Notes, notes...)
+	rep.Findings = append(rep.Findings, k.specRefsFindings(recs, ok)...)
 }
 
 // open lists what git tracks at top and opens the checkout as an os.Root.

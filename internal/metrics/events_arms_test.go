@@ -19,16 +19,6 @@ func refuseKind(t *testing.T, s *Store, kind string) {
 	}
 }
 
-// fixtureRoot is the project root the fixture's sessions were started in.
-func fixtureRoot(t *testing.T, s *Store) string {
-	t.Helper()
-	var root string
-	if err := s.db.QueryRow(`SELECT project_root FROM sessions LIMIT 1`).Scan(&root); err != nil {
-		t.Fatal(err)
-	}
-	return root
-}
-
 // A failed event write fails the join, whichever kind it is, and nothing
 // of the run is kept.
 func TestJoinEventsPutErrors(t *testing.T) {

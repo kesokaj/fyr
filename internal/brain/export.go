@@ -182,12 +182,6 @@ type readLine struct {
 
 var conflictMarkers = [][]byte{[]byte("<<<<<<<"), []byte("======="), []byte(">>>>>>>"), []byte("|||||||")}
 
-// parseTrail reads every record of a trail.jsonl, or refuses the file with
-// the line number of its first bad line (parseLine).
-func parseTrail(data []byte) ([]Record, error) {
-	return readRecords(bytes.NewReader(data))
-}
-
 // readRecords streams r line by line: a blank line costs nothing, and a
 // line over maxLine is refused before it is decoded, so memory follows the
 // records, never the line count (security review 2026-10-25, finding 1).

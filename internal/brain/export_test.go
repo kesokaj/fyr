@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"bytes"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -9,6 +10,10 @@ import (
 	"testing"
 	"time"
 )
+
+func parseTrail(data []byte) ([]Record, error) {
+	return readRecords(bytes.NewReader(data))
+}
 
 // The export is byte-stable for the same rows whatever order they were
 // written in, sorted by ID, ends in a newline, keeps the key order, and

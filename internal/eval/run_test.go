@@ -46,7 +46,7 @@ func newRig(t *testing.T) *rig {
 	put(t, filepath.Join(r.root, ".agents", "trail.jsonl"), "", 0o644)
 	r.git("add", "-A")
 	r.git("commit", "-qm", "fixture")
-	put(t, filepath.Join(r.real, tokenRel), "token", 0o600)
+	put(t, filepath.Join(r.real, isolate.TokenRel), "token", 0o600)
 	put(t, filepath.Join(r.real, harness.StateDir, "brain.db"), "store", 0o600)
 	sub := strings.NewReplacer("@CTL@", isolate.ShellQuote(r.ctl), "@REC@", isolate.ShellQuote(r.rec))
 	put(t, filepath.Join(r.bin, "agy"), sub.Replace(fakeAgy), 0o755)
@@ -130,7 +130,7 @@ func (r *rig) run(rows ...Row) []Result {
 func (r *rig) clean(res []Result) {
 	r.t.Helper()
 	for _, x := range res {
-		for _, p := range []string{tokenRel, ".gemini/antigravity-cli/settings.json"} {
+		for _, p := range []string{isolate.TokenRel, ".gemini/antigravity-cli/settings.json"} {
 			if _, err := os.Lstat(filepath.Join(x.Dir, "home", p)); !os.IsNotExist(err) {
 				r.t.Errorf("row %s: %s is still in the sandbox", x.Row, p)
 			}
@@ -197,7 +197,7 @@ func TestRunDarwinKeychainLogin(t *testing.T) {
 	rawTok := "go-keyring-base64:" + base64.StdEncoding.EncodeToString([]byte(`{"access_token":"tok"}`))
 	t.Cleanup(isolate.SetKeychainReader(func() (string, error) { return rawTok, nil }))
 	r := newRig(t)
-	if err := os.Remove(filepath.Join(r.real, tokenRel)); err != nil {
+	if err := os.Remove(filepath.Join(r.real, isolate.TokenRel)); err != nil {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(r.real, isolate.KeychainsRel, "login.keychain-db"), "keychain", 0o600)
@@ -212,7 +212,7 @@ func TestRunDarwinKeychainLogin(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(x.Dir, "home", isolate.KeychainsRel)); !os.IsNotExist(err) {
 		t.Errorf("Library/Keychains present in sandbox: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(x.Dir, "home", tokenRel)); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(x.Dir, "home", isolate.TokenRel)); !os.IsNotExist(err) {
 		t.Errorf("antigravity-oauth-token link still in sandbox: %v", err)
 	}
 }

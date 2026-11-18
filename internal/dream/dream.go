@@ -41,7 +41,7 @@ type Options struct {
 	Scopes     func(home string) ([]string, error)         // brain.Scopes: projects whose trail is records; a test replaces it
 	// Active says why a project is in use and is not dreamt over yet, ""
 	// when it has been idle for idleFor (D22); nil is the real check
-	// (activity), a test replaces it.
+	// (activityIn), a test replaces it.
 	Active func(home string, p search.Project, now time.Time) string
 	// Session reports whether an interactive agy session of the operator's
 	// runs, which an --all run needs before it does anything (plan D2, D9);
@@ -168,14 +168,9 @@ func (o Options) inUse(p search.Project) string {
 	return o.Active(o.Home, p, o.Now())
 }
 
-// activity is the real check behind Options.Active: the newest of the
+// activityIn is the real check behind Options.Active: the newest of the
 // checkout's last commit, its scope's last record update and its newest
-// Antigravity conversation, when that is within idleFor of now.
-func activity(home string, p search.Project, now time.Time) string {
-	return activityIn(home, home, p, now)
-}
-
-// activityIn is activity with the brain store read from brainHome. A
+// Antigravity conversation, when that is within idleFor of now. A
 // record dated after now is clock skew or a planted line, never a sign of
 // use (security review of the dream over records, finding 4). The commit
 // is read through trail.Log, which refuses a partial clone on a git that

@@ -29,22 +29,6 @@ const (
 
 var promptOrder = []string{kindMemory, kindFeedback, kindTrail, kindSkill, kindMetrics, kindTranscript}
 
-// collect gathers what project p would send, from the brain store: its
-// memory records, its bug, review, retro, change and handoff records, and the
-// global feedback records about it (D4: a dream reads records only), with the
-// installed skills, the metrics summary and the transcripts. Changed is true
-// when anything but the skills is newer than since.
-func collect(home string, p search.Project, since, now time.Time, limit int) (Collected, error) {
-	return collectIn(home, home, p, since, now, limit)
-}
-
-// collectIn is collect with the brain store read from brainHome: the live
-// one (home) in a run, a copy in a dry run, which writes nothing. now is
-// the run's clock.
-func collectIn(home, brainHome string, p search.Project, since, now time.Time, limit int) (Collected, error) {
-	return collectWindow(home, brainHome, p, since, time.Time{}, now, limit)
-}
-
 // collectWindow collects project inputs in (since, upper], where upper is cutoff
 // when non-zero (sliding-window stale conversations), else now.
 func collectWindow(home, brainHome string, p search.Project, since, cutoff, now time.Time, limit int) (Collected, error) {

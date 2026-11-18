@@ -288,11 +288,6 @@ func FormatRecordsJSON(recs []Record, includeBody bool) (string, error) {
 	return marshalIndentedJSON(items)
 }
 
-// MemoryShowJSON returns active memories as a JSON array.
-func MemoryShowJSON(o Options) (string, error) {
-	return MemoryShowJSONWithOptions(o, MemoryShowOptions{})
-}
-
 // FormatSearchJSON marshals brain search hits and file/graph search output as JSON.
 func FormatSearchJSON(hits []Hit, fileOutput string, recordsError ...string) (string, error) {
 	recs := make([]SearchHitJSON, 0, len(hits))

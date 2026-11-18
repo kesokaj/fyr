@@ -16,12 +16,6 @@ type MemoryDraftOptions struct {
 	SourceSessions []string
 }
 
-// MemoryDraft applies one validated memory draft line from `fyr auto` with
-// default options.
-func MemoryDraft(o Options, action, id, body string) (string, error) {
-	return MemoryDraftWithOptions(o, action, id, body, MemoryDraftOptions{})
-}
-
 // MemoryDraftWithOptions applies one validated memory draft line from `fyr auto`
 // (action: add, retire or merge) without touching trail.jsonl. Global drafts
 // refuse retire and merge.
@@ -98,15 +92,20 @@ func applyMemoryDraftMerge(c *sql.Conn, scope, top, recID, text, curBody, curPro
 	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
 	evCount := resolveDraftEvidence(true, curEv, opts, sessions)
 	var title string
-	_ = c.QueryRowContext(ctx, `SELECT title FROM records WHERE scope = ? AND id = ?`, scope, recID).Scan(&title)
+	if err := c.QueryRowContext(ctx, `SELECT title FROM records WHERE scope = ? AND id = ?`, scope, recID).Scan(&title); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	rec := Record{
 		Scope: scope, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
 		Provenance: "derived", MemoryKind: normType, VerifiedAt: stamp,
 		EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
 	}
-	feedbacks, _ := queryFeedbacksConn(ctx, c, scope)
+	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
+	if err != nil {
+		return err
+	}
 	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
-	_, err := c.ExecContext(ctx, `UPDATE records SET status = 'closed', body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+	_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
 		full, normType, val, stamp, evCount, sessions, stamp, scope, recID)
 	return err
 }
@@ -146,7 +145,10 @@ func applyMemoryDraftAdd(c *sql.Conn, scope, top, slug, recID, text, curProv str
 		EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
 	}
 	ctx := context.Background()
-	feedbacks, _ := queryFeedbacksConn(ctx, c, scope)
+	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
+	if err != nil {
+		return err
+	}
 	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
 	if existsHere {
 		_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,

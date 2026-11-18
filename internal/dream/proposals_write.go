@@ -115,12 +115,33 @@ func (o Options) buildProposals(head string, props []proposal, ratings []metrics
 		}
 		ps = append(ps, brain.Proposal{Title: "Dream, " + target + " — " + o.line(p.Title), Body: head + o.section(p)})
 	}
+	sessionsByTarget := targetSessionCounts(ratings)
 	for _, rt := range ratings {
 		if needsSkillProposal(rt) {
-			ps = append(ps, o.ratingProposal(head, rt))
+			target := resolvedSkillTarget(rt.TargetSkill)
+			ps = append(ps, o.ratingProposal(head, rt, sessionsByTarget[target]))
 		}
 	}
 	return ps
+}
+
+func targetSessionCounts(ratings []metrics.SessionRating) map[string]int {
+	seen := map[string]map[string]bool{}
+	for _, rt := range ratings {
+		if !needsSkillProposal(rt) {
+			continue
+		}
+		target := resolvedSkillTarget(rt.TargetSkill)
+		if seen[target] == nil {
+			seen[target] = map[string]bool{}
+		}
+		seen[target][rt.SessionID] = true
+	}
+	counts := make(map[string]int, len(seen))
+	for target, ids := range seen {
+		counts[target] = len(ids)
+	}
+	return counts
 }
 
 func needsSkillProposal(r metrics.SessionRating) bool {
@@ -229,20 +250,33 @@ func cleanTargetSkill(s string) string {
 	if c == "." || c == ".." || strings.HasPrefix(c, "../") {
 		return ""
 	}
+	if c == "skills" {
+		return "skills/"
+	}
 	if trailing && !strings.HasSuffix(c, "/") {
 		c += "/"
+	}
+	if !strings.HasPrefix(c, "skills/") {
+		return ""
 	}
 	return c
 }
 
-func (o Options) ratingProposal(head string, r metrics.SessionRating) brain.Proposal {
-	file := "skills/"
-	if r.TargetSkill != "" {
-		file = r.TargetSkill
+func resolvedSkillTarget(raw string) string {
+	if c := cleanTargetSkill(raw); c != "" {
+		return c
 	}
+	return "skills/"
+}
+
+func (o Options) ratingProposal(head string, r metrics.SessionRating, sessionCount int) brain.Proposal {
+	file := resolvedSkillTarget(r.TargetSkill)
 	titleTarget := file
 	if r.SkillAction == "new-skill" && file == "skills/" {
 		titleTarget = "new skill"
+	}
+	if sessionCount < 1 {
+		sessionCount = 1
 	}
 	title := fmt.Sprintf("Dream, harness — %s (%s)", o.line(titleTarget), o.line(r.SessionID))
 	text := strings.TrimSpace(o.clean(r.Summary))
@@ -251,8 +285,8 @@ func (o Options) ratingProposal(head string, r metrics.SessionRating) brain.Prop
 	}
 	ev := fmt.Sprintf("conversation %s (outcome %d/5, token_efficiency %d/5, plan_alignment %s)",
 		o.line(r.SessionID), r.OutcomeScore, r.TokenEfficiency, o.line(r.PlanAlignment))
-	body := head + fmt.Sprintf("Target: harness   Kind: skill   File: %s\nSessions: 2\n\n%s\n\nEvidence: %s\n",
-		o.line(file), indent(text), ev)
+	body := head + fmt.Sprintf("Target: harness   Kind: skill   File: %s\nSessions: %d\n\n%s\n\nEvidence: %s\n",
+		o.line(file), sessionCount, indent(text), ev)
 	return brain.Proposal{Title: title, Body: body}
 }
 

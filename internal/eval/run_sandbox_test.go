@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 // TestRunExitChecks: what the run leaves on the machine fails the row even
@@ -131,7 +132,7 @@ func TestRunSandboxReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantVerdict(t, one(t, res), "FAIL", ReasonReplaced)
-	if b, err := os.ReadFile(filepath.Join(r.real, tokenRel)); err != nil || string(b) != "token" {
+	if b, err := os.ReadFile(filepath.Join(r.real, isolate.TokenRel)); err != nil || string(b) != "token" {
 		t.Errorf("the real token: %q, %v", b, err)
 	}
 	if strings.Contains(r.out.String(), ".netrc") {
@@ -149,7 +150,7 @@ func TestRunSandboxReplaced(t *testing.T) {
 // real one. Removing the token link and settings.json never follows it.
 func TestRunCLIDirLinked(t *testing.T) {
 	r := newRig(t)
-	realCLI := filepath.Dir(filepath.Join(r.real, tokenRel))
+	realCLI := filepath.Dir(filepath.Join(r.real, isolate.TokenRel))
 	put(t, filepath.Join(realCLI, "settings.json"), "{}", 0o600)
 	r.on("link-cli", realCLI)
 	res, err := Run(context.Background(), r.opts(), []Row{named("l", "p", "true")})

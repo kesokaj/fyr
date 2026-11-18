@@ -8,6 +8,18 @@ import (
 	"testing"
 )
 
+func linuxServicePath(home string) string { return dreamTimer.servicePath(home) }
+
+func renderSystemd(bin, home, path string) (string, string) {
+	return dreamTimer.renderSystemd(bin, home, path)
+}
+
+func renderLaunchd(label, bin, home, path string) string {
+	return dreamTimer.renderLaunchd(label, bin, home, path)
+}
+
+func installTimer(home, path, goos string) error { return dreamTimer.Install(home, path, goos) }
+
 func TestInstallTimerLinux(t *testing.T) {
 	home := timerHome(t)
 	calls := fakeManager(t, "systemctl", 0)

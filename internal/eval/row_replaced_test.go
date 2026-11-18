@@ -60,10 +60,10 @@ func TestRunSecondSessionAfterSwap(t *testing.T) {
 			t.Errorf("eval wrote %s at the link's end, in the real home", name)
 		}
 	}
-	if _, err := os.Lstat(filepath.Join(x.Dir+".moved", "home", tokenRel)); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(x.Dir+".moved", "home", isolate.TokenRel)); !os.IsNotExist(err) {
 		t.Errorf("the token link stayed in the moved sandbox home: %v", err)
 	}
-	if b, err := os.ReadFile(filepath.Join(r.real, tokenRel)); err != nil || string(b) != "token" {
+	if b, err := os.ReadFile(filepath.Join(r.real, isolate.TokenRel)); err != nil || string(b) != "token" {
 		t.Errorf("the real token: %q, %v", b, err)
 	}
 }

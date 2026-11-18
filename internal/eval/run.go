@@ -99,8 +99,6 @@ func ReasonAgent(agent string) string {
 // agentPrefix is ReasonAgent's fixed start, which classify matches.
 const agentPrefix = "no invoke_subagent of "
 
-const tokenRel = isolate.TokenRel
-
 // hostOS is runtime.GOOS, a variable so a test can run the darwin branch.
 var hostOS = runtime.GOOS
 

@@ -179,3 +179,80 @@ func TestTracesRuleReadsTheTemplates(t *testing.T) {
 		}
 	}
 }
+
+func TestTracesRuleRejectsMissingOrRetiredSpecsInTDDAndSDD(t *testing.T) {
+	prd := "## Must\n\n- **R1** — x.\n"
+	sdd := strings.Join([]string{
+		"# SDD — x",
+		"",
+		"## Components",
+		"",
+		"| M1 | a | `SPEC-live` | R1 |",
+		"",
+		"## Decisions",
+		"",
+		"- Retired spec `SPEC-retired` cited here.",
+		"",
+		"```markdown",
+		"`SPEC-fenced-missing` and `SPEC-retired` in a fence must not trigger.",
+		"```",
+		"",
+		"## Trace",
+		"",
+		"| R1 | M1 |",
+	}, "\n")
+	tdd := strings.Join([]string{
+		"# TDD — x",
+		"",
+		"## T1 — a",
+		"",
+		"Implements: M1 · Spec: `SPEC-live`, `SPEC-missing`, `SPEC-fyr-*`, `SPEC-<app>-<topic>`, `SPEC-…`",
+		"",
+		"~~~text",
+		"SPEC-fenced-only",
+		"~~~",
+		"",
+		"## Trace",
+		"",
+		"| M1 | T1 | TestA |",
+	}, "\n")
+	trail := trailLine(t, "SPEC-live", "spec", "current", "`README.md`") +
+		trailLine(t, "SPEC-retired", "spec", "retired", "`README.md`")
+
+	// With trail present (ok == true): missing and retired unfenced SPEC-* trigger trace findings.
+	dirWithTrail := repo(t, map[string]string{
+		"README.md":           "x\n",
+		"PRD.md":              prd,
+		"SDD.md":              sdd,
+		"TDD.md":              tdd,
+		".agents/trail.jsonl": trail,
+	})
+	rep := run(t, dirWithTrail)
+	got := traceFindings(rep)
+	same(t, got, "SDD.md:9 trace", "TDD.md:5 trace")
+	for _, f := range got {
+		switch f.Where {
+		case "SDD.md":
+			if !strings.Contains(f.Text, "SPEC-retired") {
+				t.Errorf("SDD.md finding = %+v, want SPEC-retired", f)
+			}
+		case "TDD.md":
+			if !strings.Contains(f.Text, "SPEC-missing") {
+				t.Errorf("TDD.md finding = %+v, want SPEC-missing", f)
+			}
+		}
+	}
+
+	// Without trail (ok == false): spec ref check skips cleanly.
+	dirNoTrail := repo(t, map[string]string{
+		"README.md": "x\n",
+		"PRD.md":    prd,
+		"SDD.md":    sdd,
+		"TDD.md":    tdd,
+	})
+	repNoTrail := run(t, dirNoTrail)
+	same(t, traceFindings(repNoTrail))
+	if !strings.Contains(notes(repNoTrail), "no .agents/trail.jsonl") {
+		t.Errorf("notes %q, want no .agents/trail.jsonl note", notes(repNoTrail))
+	}
+}

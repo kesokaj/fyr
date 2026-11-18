@@ -14,6 +14,10 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
+func activity(home string, p search.Project, now time.Time) string {
+	return activityIn(home, home, p, now)
+}
+
 // recordsProject is a checkout whose trail is records: one bug stored at
 // recordAt (so the export is committed), committed at commitAt, with one
 // memory record. Its home holds no Antigravity conversation.

@@ -5,12 +5,15 @@ import (
 	"io/fs"
 	"regexp"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/brain"
 )
 
 var (
 	// componentID is an SDD component, M1.. (PLAN-2026-10-29-root-docs-and-fyr-serve D8).
 	componentID = regexp.MustCompile(`^M[0-9]+$`)
 	namesM      = regexp.MustCompile(`\bM[0-9]+\b`)
+	specRefRe   = regexp.MustCompile(`SPEC-[a-z0-9-]+`)
 )
 
 // tracesRule is rule (d) (PLAN-2026-10-29-root-docs-and-fyr-serve D40):
@@ -152,4 +155,67 @@ func unfenced(text string, f func(n int, l string) bool) {
 			return
 		}
 	}
+}
+
+// specRefsFindings checks unfenced SPEC-* citations in SDD.md and TDD.md
+// against the trail records when a trail is present (ok == true).
+func (k *checker) specRefsFindings(recs []brain.Record, ok bool) []Finding {
+	if !ok {
+		return nil
+	}
+	status := make(map[string]string, len(recs))
+	for _, r := range recs {
+		if r.Kind == "spec" {
+			status[r.ID] = r.Status
+		}
+	}
+	var out []Finding
+	for _, docName := range []string{"SDD.md", "TDD.md"} {
+		data, err := k.readFile(docName)
+		if err != nil {
+			continue
+		}
+		out = append(out, docSpecRefFindings(docName, string(data), status)...)
+	}
+	return out
+}
+
+func docSpecRefFindings(docName, text string, status map[string]string) []Finding {
+	var out []Finding
+	unfenced(text, func(n int, l string) bool {
+		seen := map[string]bool{}
+		for _, id := range lineSpecRefs(l) {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			if st, found := status[id]; !found {
+				out = append(out, Finding{docName, n, "trace", id + ": missing spec record"})
+			} else if st != "current" {
+				out = append(out, Finding{docName, n, "trace", id + ": spec status is " + st + ", want current"})
+			}
+		}
+		return true
+	})
+	return out
+}
+
+func lineSpecRefs(l string) []string {
+	var ids []string
+	for _, m := range specRefRe.FindAllStringIndex(l, -1) {
+		start, end := m[0], m[1]
+		if start > 0 && isSpecIDChar(l[start-1]) {
+			continue
+		}
+		id := l[start:end]
+		if strings.HasSuffix(id, "-") || (end < len(l) && (l[end] == '*' || isSpecIDChar(l[end]))) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func isSpecIDChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }

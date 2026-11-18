@@ -117,8 +117,6 @@ func namesFor(home, unit, plist string) (string, string) {
 	return unit + suffix, plist + suffix
 }
 
-func linuxServicePath(home string) string { return dreamTimer.servicePath(home) }
-
 func (t Timer) servicePath(home string) string {
 	unit, _ := t.Names(home)
 	return filepath.Join(home, ".config", "systemd", "user", unit+".service")
@@ -149,10 +147,6 @@ func unitLines(extra []string) string {
 // still active, so TimeoutStartSec ends a run hung past the per-project kill
 // and a later hour runs (SD36; plan 2026-10-27-ledger D2). The run itself
 // does nothing unless an agy session runs (ADR-073).
-func renderSystemd(bin, home, path string) (string, string) {
-	return dreamTimer.renderSystemd(bin, home, path)
-}
-
 func (t Timer) renderSystemd(bin, home, path string) (string, string) {
 	// systemd expands %-specifiers inside quotes too; %% is a literal %.
 	bin, home, path = strings.ReplaceAll(bin, "%", "%%"), strings.ReplaceAll(home, "%", "%%"), strings.ReplaceAll(path, "%", "%%")
@@ -182,10 +176,6 @@ WantedBy=timers.target
 }
 
 // renderLaunchd returns the launchd agent's plist.
-func renderLaunchd(label, bin, home, path string) string {
-	return dreamTimer.renderLaunchd(label, bin, home, path)
-}
-
 func (t Timer) renderLaunchd(label, bin, home, path string) string {
 	x := func(s string) string {
 		var b strings.Builder

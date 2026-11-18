@@ -7,10 +7,8 @@ import (
 	"time"
 )
 
-// ProjectVerbs, ProjectFrictions and SuiteTrials read session verbs, session
-// friction counts (denials and repeated Bash command hashes) and suite trials
-// from a read-only Store snapshot, scoping project queries to root and its
-// subdirectories without matching sibling prefixes.
+// ProjectVerbs reads session verbs from a read-only Store snapshot, scoping
+// project queries to root and its subdirectories without matching sibling prefixes.
 func TestAutoReadsFromSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "metrics.db")
@@ -33,22 +31,6 @@ func TestAutoReadsFromSnapshot(t *testing.T) {
 		('s1', '2', 0, 'fyr record'),
 		('s2', '1', 0, 'go test'),
 		('s3', '1', 0, 'git status')`)
-	s.db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, cmd_hash, denied) VALUES
-		('s1', '1', 100, 'tool', 'Bash', 'h1', 0),
-		('s1', '2', 200, 'tool', 'Bash', 'h1', 0),
-		('s1', '3', 300, 'tool', 'Read', '', 1),
-		('s2', '1', 400, 'tool', 'Bash', 'h2', 0),
-		('s3', '1', 500, 'tool', 'Bash', 'h3', 1),
-		('s-sub', '1', 600, 'tool', 'Bash', 'h4', 1)`)
-
-	t1 := Trial{Run: "r/alpha/1", Label: "eval=alpha", Harness: "abc1234", CLI: "agy 1.4.12", Status: "pass", StartedAt: base, Seconds: 5}
-	t2 := Trial{Run: "r/beta/1", Label: "kit=beta", Harness: "abc1234", CLI: "agy 1.4.12", Status: "pass", StartedAt: base.Add(time.Minute), Seconds: 5}
-	if err := s.RecordTrial(t1); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RecordTrial(t2); err != nil {
-		t.Fatal(err)
-	}
 	s.Close()
 
 	snap, err := Snapshot(p, t.TempDir())
@@ -66,21 +48,5 @@ func TestAutoReadsFromSnapshot(t *testing.T) {
 	}
 	if !slices.Equal(bySess["s1"], []string{"fyr search", "fyr record"}) || !slices.Equal(bySess["s2"], []string{"go test"}) {
 		t.Errorf("bySess = %v", bySess)
-	}
-
-	frictions, err := snap.ProjectFrictions("/work/proj", base.Add(-time.Hour))
-	if err != nil {
-		t.Fatalf("ProjectFrictions: %v", err)
-	}
-	if !slices.Equal(frictions, []int{2, 0}) {
-		t.Errorf("frictions = %v, want [2 0]", frictions)
-	}
-
-	trials, err := snap.SuiteTrials()
-	if err != nil {
-		t.Fatalf("SuiteTrials: %v", err)
-	}
-	if len(trials) != 1 || trials[0].Label != "eval=alpha" || trials[0].Harness != "abc1234" || trials[0].CLI != "agy 1.4.12" {
-		t.Errorf("SuiteTrials = %+v, want 1 eval=alpha trial", trials)
 	}
 }

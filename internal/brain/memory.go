@@ -33,11 +33,7 @@ const (
 )
 
 var (
-	memorySlug  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-	memoryTypes = map[string]bool{
-		"semantic": true, "procedural": true, "episodic": true,
-		"user": true, "feedback": true, "project": true, "reference": true,
-	}
+	memorySlug = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 	memoryType = regexp.MustCompile(`^type: ([a-z]+)\n`)
 )
 
@@ -171,14 +167,17 @@ func upsertMemoryRow(c *sql.Conn, scope, top, id, title, full, prov, normType st
 		Title: title, Body: full, Provenance: prov, MemoryKind: normType,
 		VerifiedAt: stamp, EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
 	}
-	feedbacks, _ := queryFeedbacksConn(ctx, c, scope)
+	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
+	if err != nil {
+		return err
+	}
 	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
 	if taken {
 		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = ?, memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
 			title, full, prov, normType, val, stamp, evCount, sessions, stamp, scope, id)
 		return err
 	}
-	_, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
+	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
 		VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
 		scope, id, now.Format("2006-01-02"), title, full, prov, normType, val, stamp, evCount, sessions, stamp)
 	return err

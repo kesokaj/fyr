@@ -117,9 +117,6 @@ func (c *Capped) Write(p []byte) (int, error) {
 // String returns the buffered bytes accumulated before any cap.
 func (c *Capped) String() string { return c.buf.String() }
 
-// Full reports whether writes hit MaxModelsOut.
-func (c *Capped) Full() bool { return c.full }
-
 // LastLine returns s's last non-blank line, past any carriage return a spinner left.
 func LastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")

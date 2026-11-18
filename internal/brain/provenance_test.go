@@ -113,8 +113,8 @@ func TestProvenanceMemoryAdd(t *testing.T) {
 	}
 }
 
-// MemoryDraft handles auto's add, retire and merge drafts: it marks add and
-// merge as derived, refuses retire or merge of a missing ID or another
+// MemoryDraftWithOptions handles auto's add, retire and merge drafts: it marks
+// add and merge as derived, refuses retire or merge of a missing ID or another
 // project's ID, refuses overwriting an operator memory on add, and never
 // writes .agents/trail.jsonl.
 func TestProvenanceMemoryDraftActions(t *testing.T) {
@@ -126,9 +126,9 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idDerA, err := MemoryDraft(oA, "add", "auto-note", "first auto note")
+	idDerA, err := MemoryDraftWithOptions(oA, "add", "auto-note", "first auto note", MemoryDraftOptions{})
 	if err != nil {
-		t.Fatalf("MemoryDraft add: %v", err)
+		t.Fatalf("MemoryDraftWithOptions add: %v", err)
 	}
 	idB, err := MemoryAdd(oB, MemoryEntry{Type: "project", Name: "other-proj", Description: "in B"}, strings.NewReader("body in B"))
 	if err != nil {
@@ -136,23 +136,23 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 	}
 
 	// Overwriting an operator memory via auto draft add is refused.
-	if _, err := MemoryDraft(oA, "add", "op-rule", "overwritten"); !IsRefusal(err) {
-		t.Errorf("MemoryDraft add over operator memory: %v, want refusal", err)
+	if _, err := MemoryDraftWithOptions(oA, "add", "op-rule", "overwritten", MemoryDraftOptions{}); !IsRefusal(err) {
+		t.Errorf("MemoryDraftWithOptions add over operator memory: %v, want refusal", err)
 	}
 	// Retiring or merging another project's ID or a missing ID is refused.
 	for _, act := range []string{"retire", "merge"} {
-		if _, err := MemoryDraft(oA, act, idB, "hijacked"); !IsRefusal(err) {
-			t.Errorf("MemoryDraft %s of another project's ID %s: %v, want refusal", act, idB, err)
+		if _, err := MemoryDraftWithOptions(oA, act, idB, "hijacked", MemoryDraftOptions{}); !IsRefusal(err) {
+			t.Errorf("MemoryDraftWithOptions %s of another project's ID %s: %v, want refusal", act, idB, err)
 		}
-		if _, err := MemoryDraft(oA, act, "MEMORY-missing", "body"); !IsRefusal(err) {
-			t.Errorf("MemoryDraft %s of missing ID: %v, want refusal", act, err)
+		if _, err := MemoryDraftWithOptions(oA, act, "MEMORY-missing", "body", MemoryDraftOptions{}); !IsRefusal(err) {
+			t.Errorf("MemoryDraftWithOptions %s of missing ID: %v, want refusal", act, err)
 		}
 	}
 
 	// Merging an existing memory in the same project updates its body, archives
 	// the prior body for reversibility, and sets provenance=derived.
-	if _, err := MemoryDraft(oA, "merge", idOpA, "merged body"); err != nil {
-		t.Fatalf("MemoryDraft merge: %v", err)
+	if _, err := MemoryDraftWithOptions(oA, "merge", idOpA, "merged body", MemoryDraftOptions{}); err != nil {
+		t.Fatalf("MemoryDraftWithOptions merge: %v", err)
 	}
 	recs, _, err := Get(oA, []string{idOpA})
 	if err != nil || len(recs) != 1 {
@@ -163,8 +163,8 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 	}
 
 	// Retiring an existing memory in the same project sets status=retired.
-	if _, err := MemoryDraft(oA, "retire", idDerA, "stale"); err != nil {
-		t.Fatalf("MemoryDraft retire: %v", err)
+	if _, err := MemoryDraftWithOptions(oA, "retire", idDerA, "stale", MemoryDraftOptions{}); err != nil {
+		t.Fatalf("MemoryDraftWithOptions retire: %v", err)
 	}
 	recs, _, err = Get(oA, []string{idDerA})
 	if err != nil || len(recs) != 1 {
@@ -174,7 +174,7 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 		t.Errorf("after retire: status = %q, want \"retired\"", recs[0].Status)
 	}
 	if _, err := os.Stat(trailFile(dirA)); !os.IsNotExist(err) {
-		t.Errorf("MemoryDraft created trail.jsonl: %v", err)
+		t.Errorf("MemoryDraftWithOptions created trail.jsonl: %v", err)
 	}
 }
 
