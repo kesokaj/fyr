@@ -133,6 +133,15 @@ work_wave() {
   local drafts1=".agents/scratch/work/$stamp/$name1"
   local recs1=".agents/scratch/work/$stamp/$name1/records/"
   local recs2=".agents/scratch/work/$stamp/$name2/records/"
+  work_wave_plan_and_branches "$name1" "$name2"
+  mkdir -p "$drafts1" "$recs1" "$recs2"
+  work_wave_worker1_files "$name1" "$drafts1" "$recs1"
+  work_wave_worker2_files "$name1" "$name2" "$recs2"
+  work_wave_result "$stamp" "$name1" "$name2" "$drafts1" "$recs1" "$recs2"
+}
+
+work_wave_plan_and_branches() {
+  local name1="$1" name2="$2"
   rec plan --id PLAN-2026-11-02-greet-tab --title "Greet: a tab-only name and README note" <<'EOF'
 # PLAN-2026-11-02-greet-tab
 
@@ -168,7 +177,10 @@ Names are trimmed of leading and trailing whitespace.
 EOF
   git commit -qam "readme: document padding (PLAN-2026-11-02-greet-tab p2)"
   git checkout -q main
-  mkdir -p "$drafts1" "$recs1" "$recs2"
+}
+
+work_wave_worker1_files() {
+  local name1="$1" drafts1="$2" recs1="$3"
   printf 'Worker %s: TestHelloTab added\n' "$name1" >"${recs1}HANDOFF-2026-11-02-1210-$name1.title"
   cat >"${recs1}HANDOFF-2026-11-02-1210-$name1.md" <<'EOF'
 # Handoff: greet-tab p1
@@ -187,6 +199,16 @@ EOF
 
 Added TestHelloTab in internal/greet/greet_test.go.
 EOF
+  cat >"$drafts1/bug-tab.md" <<'EOF'
+# Bug: Hello accepted a tab-only name
+
+Symptom: before the trim, Hello("\t") greeted a tab. Fixed by the trim;
+TestHelloTab pins it.
+EOF
+}
+
+work_wave_worker2_files() {
+  local name1="$1" name2="$2" recs2="$3"
   printf 'Worker %s: README padding note\n' "$name2" >"${recs2}HANDOFF-2026-11-02-1210-$name2.title"
   cat >"${recs2}HANDOFF-2026-11-02-1210-$name2.md" <<'EOF'
 # Handoff: greet-tab p2
@@ -205,12 +227,10 @@ EOF
 
 Collides with Phase 1's CHANGE-2026-11-02-1210-greet-tab-p1 ID.
 EOF
-  cat >"$drafts1/bug-tab.md" <<'EOF'
-# Bug: Hello accepted a tab-only name
+}
 
-Symptom: before the trim, Hello("\t") greeted a tab. Fixed by the trim;
-TestHelloTab pins it.
-EOF
+work_wave_result() {
+  local stamp="$1" name1="$2" name2="$3" drafts1="$4" recs1="$5" recs2="$6"
   cat >.agents/scratch/work/result.txt <<EOF
 work: stamp $stamp  2 workers  $PWD/.agents/scratch/work/$stamp/  runner host (--runner host)
 work: $name1  PASS  agy exit 0  412s  model default  work/$name1 $(git rev-parse --short=7 main)..$(git rev-parse --short=7 "work/$name1") (1 commits)  runner host (--runner host)
@@ -238,7 +258,29 @@ EOF
 # and one with no workers D-row.
 work_plans() {
   local phases
-  phases=$(cat <<'EOF'
+  phases=$(work_plan_phases)
+  seed_work_plan \
+    PLAN-2026-11-02-greetings \
+    "Greet: tab-only name and shout package" \
+    "- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-greetings), 0 gaps, 0 blocking questions; design ready, implementation ready" \
+    "$phases" \
+    "D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner"
+  seed_work_plan \
+    PLAN-2026-11-02-greet-alpha \
+    "Greet: tab-only name and shout package (alpha)" \
+    "- [ ] Cold-reader check — one report, every item answered" \
+    "$phases" \
+    "D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner"
+  seed_work_plan \
+    PLAN-2026-11-02-greet-beta \
+    "Greet: tab-only name and shout package (beta)" \
+    "- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-beta), 0 gaps, 0 blocking questions; design ready, implementation ready" \
+    "$phases" \
+    "D1 — 2026-11-02 — Greeting prefix stays lower-case — by: cold read round 1"
+}
+
+work_plan_phases() {
+  cat <<'EOF'
 ### Phase 1 — a tab-only name greets the world
 
 files: internal/greet/greet_test.go
@@ -253,45 +295,22 @@ files: internal/shout/
 - [ ] Add package internal/shout with Shout(s string) string and TestShout — verify: unit, `go test ./internal/shout`, who: AI — expect: TestShout passes
 - [ ] Checkpoint — expect: `go test ./...` passes with Shout and TestShout in internal/shout
 EOF
-  )
-  rec plan --id PLAN-2026-11-02-greetings --title "Greet: tab-only name and shout package" <<EOF
-# PLAN-2026-11-02-greetings
+}
+
+seed_work_plan() {
+  local id="$1" title="$2" cold_box="$3" phases="$4" decision="$5"
+  rec plan --id "$id" --title "$title" <<EOF
+# $id
 
 ## Phases
 
-- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-greetings), 0 gaps, 0 blocking questions; design ready, implementation ready
+$cold_box
 
 $phases
 
 ## Decisions
 
-D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner
-EOF
-  rec plan --id PLAN-2026-11-02-greet-alpha --title "Greet: tab-only name and shout package (alpha)" <<EOF
-# PLAN-2026-11-02-greet-alpha
-
-## Phases
-
-- [ ] Cold-reader check — one report, every item answered
-
-$phases
-
-## Decisions
-
-D1 — 2026-11-02 — workers: yes, Phase 1 and Phase 2 have only who: AI boxes, depend on no Open: row, and have disjoint files: lines — by: planner
-EOF
-  rec plan --id PLAN-2026-11-02-greet-beta --title "Greet: tab-only name and shout package (beta)" <<EOF
-# PLAN-2026-11-02-greet-beta
-
-## Phases
-
-- [x] Cold-reader check — one report (REVIEW-2026-11-02-cold-beta), 0 gaps, 0 blocking questions; design ready, implementation ready
-
-$phases
-
-## Decisions
-
-D1 — 2026-11-02 — Greeting prefix stays lower-case — by: cold read round 1
+$decision
 EOF
 }
 

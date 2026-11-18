@@ -62,4 +62,4 @@ What this survey was asked to answer.
 
 Honest recon only: report what the code says, including when it says the planned approach is a bad idea.
 
-Reply in **at most ten lines**: the Summary section, the brief's path, and the top risks or open questions. The full detail stays in the file.
+Keep the reply concise and scannable, leaving full details on disk: the Summary section, the brief's path, and the top risks or open questions.

@@ -83,4 +83,4 @@ What you did not reach — files, criteria, commits. `nothing` only when every f
 
 Be specific and honest: don't invent problems in clean code, don't soften real ones, and mark uncertain findings as low confidence rather than asserting them.
 
-Reply in **at most ten lines**: the verdict, the report's path, and up to three findings worst-first. Nothing else — the detail is already on disk, and repeating it into the caller's context is what fills a session's window with what it just wrote.
+Keep the reply concise and scannable, leaving full details on disk: the verdict, the report's path, and up to three findings worst-first — repeating full details into the caller's context fills a session's window with what was just written.

@@ -39,7 +39,7 @@ AGENTS.md                             # root file: the project's Setup commands 
                                       # Setup stays the few commands a contributor runs before claiming
                                       # something works — the ones the verifier reads. A tier list
                                       # (coverage runs, e2e scripts, container smokes) belongs in
-                                      # GUIDE-testing, which Setup points at (G13).
+                                      # GUIDE-testing, which Setup points at.
 ```
 
 `<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `fyr-spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
@@ -70,4 +70,4 @@ AGENTS.md                             # root file: the project's Setup commands 
 
 ## Output
 
-Reply in **at most ten lines**: which files and record drafts (path and ID) you created or changed with a one-line summary of each, and anything you could not determine (unclear API contract, missing app name) rather than a guess. If dispatched for an internal-only refactor, report "no doc changes needed" and why.
+Keep the reply concise and scannable: which files and record drafts (path and ID) you created or changed with a one-line summary of each, and anything you could not determine (unclear API contract, missing app name) rather than a guess. If dispatched for an internal-only refactor, report "no doc changes needed" and why.

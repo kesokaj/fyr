@@ -45,6 +45,12 @@ guard_mock_dir() {
       home_p="$HOME"
     fi
   fi
+  guard_mock_paths "$cwd" "$checkout_root" "$tmp_root" "$sb_dir" "$home_p" || return $?
+  guard_mock_repo_state "$cwd" "$tmp_root"
+}
+
+guard_mock_paths() {
+  local cwd="$1" checkout_root="$2" tmp_root="$3" sb_dir="$4" home_p="$5"
   if [ "$tmp_root" = "/" ] || [ "$cwd" = "$tmp_root" ]; then
     echo "fixture.sh: refusing mock scenario (TMPDIR=/ or PWD equals TMPDIR)" >&2
     return 2
@@ -81,6 +87,10 @@ guard_mock_dir() {
       return 2
       ;;
   esac
+}
+
+guard_mock_repo_state() {
+  local cwd="$1" tmp_root="$2"
   if [ -L .git ] || { [ -e .git ] && [ ! -d .git ]; }; then
     echo "fixture.sh: refusing mock scenario (worktree or non-directory .git in $cwd)" >&2
     return 2

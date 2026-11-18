@@ -54,11 +54,11 @@ OS, Go / Docker / browser versions, binary/container cleanup status.
 ## Records
 
 - Writes only `.agents/scratch/agents/verifier-<stamp>.md` (and `.agents/scratch/agents/verifier-<stamp>-guide.md` when `GUIDE-testing` e2e sections are missing/updated), named only after `write_to_file` succeeds.
-- Scratch discipline (`BUG-207`): all temporary files live in `.agents/scratch/`, never `/tmp`. Delete nothing under `.agents/scratch/` you did not create (never `rm -r` an existing directory).
+- Scratch discipline (`BUG-207`): all temporary files live in `.agents/scratch/`, never `/tmp`, except isolated git probes (`BUG-204`). Delete nothing under `.agents/scratch/` you did not create (never `rm -r` an existing directory).
 - Copies only (`BUG-190`): never open `~/.gemini/` or `~/.config/fyr/` SQLite stores directly; copy to `.agents/scratch/` if inspected.
-- Must-fail control requests run in an isolated `.agents/scratch/` copy (`git init -q` verified via `--absolute-git-dir` and `GIT_*` unset), never in the working tree.
+- Must-fail git probes run only in a repository under a fresh `mktemp -d` outside every checkout with `GIT_CEILING_DIRECTORIES` set to its parent (`BUG-204`: a probe under `.agents/scratch/` whose `.git` was gone rewrote checkout `HEAD`), created with `git init <dir>`, verified via `git -C <dir> rev-parse --absolute-git-dir` printing `<dir>/.git`, and run with caller `GIT_*` variables unset.
 - Never edit source, tests, config, or run working-tree-mutating git commands (`checkout --`, `restore`, `stash`, `clean`, `reset`, `apply`).
 
 ## Output
 
-Reply in **at most ten lines**: status (`PASS`, `FAIL`, or `BLOCKED`), draft path, smoke/e2e endpoints/flows verified, failure root cause on `FAIL`, or what caller must supply on `BLOCKED`.
+Keep the reply concise and scannable, leaving full details in the log: status (`PASS`, `FAIL`, or `BLOCKED`), draft path, smoke/e2e endpoints/flows verified, failure root cause on `FAIL`, or what caller must supply on `BLOCKED`.

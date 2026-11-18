@@ -10,19 +10,11 @@ main() {
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
   : "${FYR:?FYR is the fyr under test}" "${SB:?SB is the trial home}"
   local scenario="${1:?usage: fixture.sh <scenario>}"
-  case "$scenario" in
-    bare | project | project-empty | project-ast | project-ast-nohooks | project-ast-inject | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | security | verifier | resume | work | work-plan | work-plan-host | tasks | retro | distill | dream | preflight | mock-ledger-api | mock-cloud-worker | mock-fleet-ops) ;;
-    *) echo "fixture.sh: unknown scenario $scenario" >&2; return 2 ;;
-  esac
+  validate_scenario "$scenario"
   source "$(dirname -- "${BASH_SOURCE[0]}")/fixture-mock.sh"
   case "$scenario" in
     mock-ledger-api | mock-cloud-worker | mock-fleet-ops)
-      guard_mock_dir
-      case "$scenario" in
-        mock-ledger-api) mock_ledger_api ;;
-        mock-cloud-worker) mock_cloud_worker ;;
-        mock-fleet-ops) mock_fleet_ops ;;
-      esac
+      dispatch_mock_scenario "$scenario"
       return 0
       ;;
   esac
@@ -39,6 +31,27 @@ main() {
   git commit -qm "demo: a greeting service"
   replace_history
   [ "$scenario" = bare ] || seed_project
+  dispatch_demo_scenario "$scenario" "$fake"
+}
+
+validate_scenario() {
+  case "$1" in
+    bare | project | project-empty | project-ast | project-ast-nohooks | project-ast-inject | review | reviewer | reviewer-wide | reviewer-wide-bug | reviewer-cold | security | verifier | resume | work | work-plan | work-plan-host | tasks | retro | distill | dream | preflight | mock-ledger-api | mock-cloud-worker | mock-fleet-ops) ;;
+    *) echo "fixture.sh: unknown scenario $1" >&2; return 2 ;;
+  esac
+}
+
+dispatch_mock_scenario() {
+  guard_mock_dir
+  case "$1" in
+    mock-ledger-api) mock_ledger_api ;;
+    mock-cloud-worker) mock_cloud_worker ;;
+    mock-fleet-ops) mock_fleet_ops ;;
+  esac
+}
+
+dispatch_demo_scenario() {
+  local scenario="$1" fake="$2"
   case "$scenario" in
     review) review_change ;;
     reviewer) reviewer_commit ;;
@@ -77,6 +90,12 @@ module example.com/demo
 
 go 1.22
 EOF
+  demo_server_main
+  greet_go
+  demo_greet_tests_and_readme
+}
+
+demo_server_main() {
   cat >cmd/server/main.go <<'EOF'
 // Command server serves the demo's greeting over HTTP.
 package main
@@ -109,7 +128,9 @@ func main() {
 	}
 }
 EOF
-  greet_go
+}
+
+demo_greet_tests_and_readme() {
   cat >internal/greet/greet_test.go <<'EOF'
 package greet
 
@@ -160,6 +181,11 @@ scaffold() {
   mkdir -p .agents/scratch .agents/skills .agents/rules
   : >.agents/scratch/.gitkeep
   printf '.agents/scratch/*\n!.agents/scratch/.gitkeep\n' >.gitignore
+  scaffold_agents_md
+  scaffold_design_docs
+}
+
+scaffold_agents_md() {
   cat >AGENTS.md <<'EOF'
 # AGENTS.md — demo
 
@@ -177,6 +203,9 @@ go run ./cmd/server                            # serves on :8080, or $PORT
 - This repository has no remote: commit after each task and never push.
 - Stdlib only.
 EOF
+}
+
+scaffold_design_docs() {
   cat >PRD.md <<'EOF'
 # PRD — demo
 

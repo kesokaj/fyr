@@ -75,4 +75,4 @@ Every candidate carries evidence a reader can open. A candidate with one source 
 
 ## Output
 
-Reply in **at most ten lines**: the Summary, the draft's path, and the candidate rows' kinds and targets. The detail is on disk.
+Keep the reply concise and scannable, leaving full details on disk: the Summary, the draft's path, and the candidate rows' kinds and targets.

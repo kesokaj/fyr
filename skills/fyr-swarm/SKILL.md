@@ -76,12 +76,12 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
 
 1. **Gate every finished slice:** From the coordinator tree, check each completed worker worktree/branch against its lease:
    ```bash
-   fyr gate <worker-worktree-or-branch> --lease "<comma-separated Files lease>"
+   fyr gate --lease "<comma-separated Files lease>" <worker-worktree-or-branch>
    ```
    Reject slices reporting out-of-lease edits, secret-shaped filenames, missing/failing tests, or commit trailers; message the worker (or re-dispatch) rather than patching across boundaries yourself.
 2. **Land sequentially — one branch at a time:** Merge passing branches onto the target branch strictly in dependency order:
    ```bash
    fyr land --lease "<comma-separated Files lease>" work/<name>
    ```
-   Never run two `fyr land` commands concurrently; resolve any merge conflict cleanly on a single branch before continuing.
+   A `share` worker detaches HEAD (`git checkout --detach HEAD`) after committing its branch and before `fyr land` runs so `work/<name>` is not held checked out in its worktree. Never run two `fyr land` commands concurrently; resolve any merge conflict cleanly on a single branch before continuing.
 3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently).

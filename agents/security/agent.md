@@ -70,4 +70,4 @@ A finding about a secret or a private value names where it sits (`path:line`, or
 
 Honest output: a clean diff gets CLEAR, a broken one gets named — never soften severity, and mark uncertain findings low confidence rather than asserting or omitting them.
 
-Reply in **at most ten lines**: the verdict, the file's path, and up to three findings worst-first. Nothing else — the detail is already on disk.
+Keep the reply concise and scannable, leaving full details on disk: the verdict, the file's path, and up to three findings worst-first.

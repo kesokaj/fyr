@@ -3,6 +3,17 @@
 
 project_ast() {
   mkdir -p internal/format internal/audit internal/lang
+  project_ast_format_core
+  project_ast_format_templates_a
+  project_ast_format_templates_b
+  project_ast_audit
+  project_ast_greet
+  project_ast_server
+  project_ast_lang
+  project_ast_trail
+}
+
+project_ast_format_core() {
   cat >internal/format/format.go <<'EOF'
 // Package format normalizes and renders greeting banners.
 package format
@@ -41,6 +52,11 @@ func (b BannerFormatter) Format(verb, recipient string) string {
 	return msg
 }
 
+EOF
+}
+
+project_ast_format_templates_a() {
+  cat >>internal/format/format.go <<'EOF'
 var defaultTemplates = map[string]string{
 	"en-01": "hello",
 	"en-02": "welcome",
@@ -72,6 +88,11 @@ var defaultTemplates = map[string]string{
 	"pt-02": "bom dia",
 	"pt-03": "boa tarde",
 	"pt-04": "bem-vindo",
+EOF
+}
+
+project_ast_format_templates_b() {
+  cat >>internal/format/format.go <<'EOF'
 	"nl-01": "hallo",
 	"nl-02": "goedemorgen",
 	"nl-03": "goedemiddag",
@@ -106,6 +127,9 @@ func LookupTemplate(code string) string {
 	return "hello"
 }
 EOF
+}
+
+project_ast_audit() {
   cat >internal/audit/audit.go <<'EOF'
 // Package audit formats structured audit lines for rendered greetings.
 package audit
@@ -122,6 +146,9 @@ func RecordGreeting(recipient, rendered string) string {
 	return "audit:" + e.Recipient + "->" + e.Rendered
 }
 EOF
+}
+
+project_ast_greet() {
   cat >internal/greet/greet.go <<'EOF'
 // Package greet builds the demo's greeting strings and audited banners.
 package greet
@@ -154,6 +181,9 @@ func RenderGreeting(f format.Formatter, name string) (string, string) {
 	return rendered, auditLine
 }
 EOF
+}
+
+project_ast_server() {
   cat >cmd/server/main.go <<'EOF'
 // Command server serves the demo's greeting over HTTP.
 package main
@@ -189,6 +219,9 @@ func main() {
 	}
 }
 EOF
+}
+
+project_ast_lang() {
   local i
   for i in 01 02 03 04 05 06 07 08 09 10 11 12; do
     cat >"internal/lang/lang_${i}.go" <<EOF
@@ -199,7 +232,9 @@ EOF
   done
   git add -A
   git commit -qm "demo: greeting format and audit pipeline"
+}
 
+project_ast_trail() {
   rec adr --id ADR-001 --status accepted --title "ADR-001: Stdlib-only HTTP and no external caching daemons" <<'EOF'
 # ADR-001: Stdlib-only HTTP and no external caching daemons
 

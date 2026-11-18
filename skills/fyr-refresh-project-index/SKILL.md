@@ -1,6 +1,6 @@
 ---
 name: fyr-refresh-project-index
-description: "Refresh or clean-rebuild (`--rebuild`) the project's `.agents/scratch/search.db` (and `--global` when registered), print `fyr search --map` AST architecture/cycle diagnostics, and report skipped or `.noindex`-excluded paths. Use on /fyr-refresh-project-index or when the search index is stale."
+description: "Refresh or clean-rebuild (`--rebuild`) `.agents/scratch/search.db` (and `--global` if registered), print `fyr search --map` AST/cycle diagnostics, and report skipped or `.fyr-noindex`/`.sh-agent-noindex`-excluded paths. Use on /fyr-refresh-project-index or when the search index is stale."
 argument-hint: "[--rebuild]"
 ---
 
@@ -46,6 +46,6 @@ fyr search --map
 ### Step 4: Report exclusions and skipped files
 
 Report:
-1. The `fyr index` summary line (`files`, `chunks`, `refs`, elapsed time, and `left out: ...` noindex markers such as `.noindex` or `.fyrignore`).
+1. The `fyr index` summary line (`files`, `chunks`, `refs`, elapsed time, and `left out: ...` noindex markers such as `.fyr-noindex` or `.sh-agent-noindex`).
 2. Any tracked or untracked non-ignored files skipped because they exceed `1 MiB` (`find . -name .git -prune -o -type f -size +1048576c -print`) or are binary.
 3. The `fyr search --map` summary (top symbols, package dependency count, and any import cycles).
