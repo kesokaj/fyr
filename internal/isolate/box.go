@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,6 +35,7 @@ type Config struct {
 	Model          string                             // agy --model; "" passes none
 	Zone           string                             // agy's TZ, a zone name; "" passes none (workers D144)
 	Timeout        time.Duration                      // agy is killed after this
+	IdleTimeout    time.Duration                      // agy is aborted early if transcript/artifacts stall past this
 	SkipStores     bool                               // check c leaves out every storeEntry (work and eval, D45, D64, D70, ADR-506)
 	BrainWatch     func(dbPath string) (string, bool) // with SkipStores, watches brain.db by mode + scope digest (eval, ADR-506)
 	PrintTimeout   string                             // agy --print-timeout, as "<n>m"
@@ -146,6 +148,7 @@ type Box struct {
 	// it was made in, whatever the path leads to by then.
 	root    *os.Root
 	acpProc *acpProcess
+	outMu   sync.Mutex
 }
 
 // New is the Box of c; nothing is made until Make.
@@ -174,6 +177,11 @@ func (b *Box) Reasons() []string { return b.reasons }
 
 // Note writes one line, "<Prefix>: " and the message, made printable.
 func (b *Box) Note(format string, a ...any) {
+	if b.c.Out == nil {
+		return
+	}
+	b.outMu.Lock()
+	defer b.outMu.Unlock()
 	fmt.Fprintln(b.c.Out, Printable(b.c.Prefix+": "+fmt.Sprintf(format, a...)))
 }
 
