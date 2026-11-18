@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -151,9 +149,13 @@ func runGateJudge(ctx context.Context, opts GateOptions, agyPath, model, fb stri
 	out, err := isolate.JudgeExecFunc(ctx, isolate.JudgeExecOptions{
 		Home: req.Home, RepoDir: req.RepoDir, AgyPath: agyPath, Model: model, Prompt: buildGateJudgePrompt(req),
 	})
-	verdict, reason, perr := parseStrictGateVerdict(out.Stdout)
-	if err != nil || out.ExitCode != 0 || perr != nil {
-		msg := firstNonEmptyStr(reason, errMsg(perr), errMsg(err), strings.TrimSpace(out.Stderr))
+	verdict, reason, perr := isolate.ParseJudgeVerdict(out.Stdout)
+	if err != nil || out.ExitCode != 0 {
+		msg := firstNonEmptyStr(reason, strings.TrimSpace(out.Stderr), errMsg(err), fmt.Sprintf("judge exit %d", out.ExitCode))
+		return JudgeResult{Model: model, FallbackReason: fb, Verdict: "FAIL", Reason: msg}, nil
+	}
+	if perr != nil {
+		msg := firstNonEmptyStr(errMsg(perr), strings.TrimSpace(out.Stderr))
 		return JudgeResult{Model: model, FallbackReason: fb, Verdict: "FAIL", Reason: msg}, nil
 	}
 	return JudgeResult{Model: model, FallbackReason: fb, Verdict: verdict, Reason: reason}, nil
@@ -170,29 +172,6 @@ func buildGateJudgePrompt(req JudgeRequest) string {
 		"Respond ONLY with JSON {\"verdict\":\"PASS\"|\"FAIL\",\"reason\":\"...\"}.\n\n" +
 		f.Data("criterion", "gate", req.Criterion) + "\n\n" +
 		f.Data("verify-stamp", "repo", req.StampSummary) + "\n\n" + diffBlock
-}
-
-func parseStrictGateVerdict(raw string) (string, string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", "", errors.New("empty judge response")
-	}
-	var res struct {
-		Verdict string `json:"verdict"`
-		Reason  string `json:"reason"`
-	}
-	dec := json.NewDecoder(strings.NewReader(trimmed))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&res); err != nil {
-		return "", "", fmt.Errorf("invalid judge JSON: %w", err)
-	}
-	if _, err := dec.Token(); err != io.EOF {
-		return "", "", errors.New("unexpected trailing tokens in judge JSON")
-	}
-	if res.Verdict != "PASS" && res.Verdict != "FAIL" {
-		return "", "", fmt.Errorf("invalid judge verdict %q", res.Verdict)
-	}
-	return res.Verdict, strings.TrimSpace(res.Reason), nil
 }
 
 func applyGateJudge(ctx context.Context, opts GateOptions, tgt gateTarget, rep *GateReport) error {

@@ -39,6 +39,8 @@ func TestRunJudgePrintConfined(t *testing.T) {
 	script := `#!/bin/bash
 set -e
 printf '%s\n' "$@" > "$HOME/argv.txt"
+grep -qx -- '--output-format' "$HOME/argv.txt" || exit 22
+[ "$(grep -A1 -x -- '--output-format' "$HOME/argv.txt" | sed -n '2p')" = "json" ] || exit 23
 [ -f "$HOME/.gemini/antigravity-cli/settings.json" ] || exit 11
 grep -q '"allow":\[\]' "$HOME/.gemini/antigravity-cli/settings.json" || exit 12
 [ -L "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" ] || exit 13
@@ -240,4 +242,113 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 	if called {
 		t.Errorf("JudgeExecFunc should not run when prior reasons exist")
 	}
+
+	JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+		return JudgeExecOutput{
+			Stdout: `{"conversation_id":"c1","status":"SUCCESS","duration_seconds":1.2,"num_turns":1,"structured_output":{"verdict":"PASS","reason":"envelope ok"}}`,
+		}, nil
+	}
+	wEnv := makeWorker("Add Hello() string in added.go")
+	runWorkerJudge(context.Background(), wEnv)
+	if wEnv.b.Has(ReasonJudgeFailed) {
+		t.Errorf("envelope PASS failed: reasons=%v", wEnv.b.Reasons())
+	}
+
+	r.out.Reset()
+	JudgeExecFunc = func(context.Context, JudgeExecOptions) (JudgeExecOutput, error) {
+		return JudgeExecOutput{Stderr: "Error: --json-schema failed\n", ExitCode: 1}, nil
+	}
+	wErr := makeWorker("Add Hello() string in added.go")
+	runWorkerJudge(context.Background(), wErr)
+	if !wErr.b.Has(ReasonJudgeFailed) || !strings.Contains(r.out.String(), "Error: --json-schema failed") {
+		t.Errorf("expected stderr note on nonzero exit, reasons=%v out=%q", wErr.b.Reasons(), r.out.String())
+	}
+}
+
+func TestParseJudgeVerdict(t *testing.T) {
+	t.Run("accepts agy envelope and bare JSON", func(t *testing.T) {
+		cases := []struct {
+			name, raw, wantV, wantR string
+		}{
+			{
+				name:  "envelope with structured_output and telemetry",
+				raw:   `{"conversation_id":"c1","status":"SUCCESS","duration_seconds":1.5,"num_turns":1,"json_schema":{"type":"object"},"usage":{"input":10},"structured_output":{"verdict":"PASS","reason":"  all good  "}}`,
+				wantV: "PASS", wantR: "all good",
+			},
+			{
+				name:  "envelope response fallback when structured_output absent",
+				raw:   `{"conversation_id":"c2","status":"SUCCESS","response":"{\"verdict\":\"PASS\",\"reason\":\"from response\"}"}`,
+				wantV: "PASS", wantR: "from response",
+			},
+			{
+				name:  "envelope response fallback when structured_output null",
+				raw:   `{"conversation_id":"c3","status":"SUCCESS","structured_output":null,"response":"{\"verdict\":\"FAIL\",\"reason\":\"missing test\"}"}`,
+				wantV: "FAIL", wantR: "missing test",
+			},
+			{
+				name:  "bare verdict JSON",
+				raw:   `{"verdict":"PASS","reason":"ok"}`,
+				wantV: "PASS", wantR: "ok",
+			},
+		}
+		for _, tc := range cases {
+			v, r, err := ParseJudgeVerdict(tc.raw)
+			if err != nil || v != tc.wantV || r != tc.wantR {
+				t.Errorf("%s: got (%q, %q, %v), want (%q, %q, nil)", tc.name, v, r, err, tc.wantV, tc.wantR)
+			}
+		}
+	})
+
+	t.Run("rejects error status and invalid payloads", func(t *testing.T) {
+		cases := []struct {
+			name, raw, wantSub string
+		}{
+			{
+				name:    "non-SUCCESS status with error message even if response set",
+				raw:     `{"status":"ERROR","error":"rate limited","response":"{\"verdict\":\"PASS\",\"reason\":\"ok\"}"}`,
+				wantSub: "judge agy status ERROR: rate limited",
+			},
+			{
+				name:    "non-SUCCESS status without error message",
+				raw:     `{"status":"FAILED","response":"{\"verdict\":\"PASS\",\"reason\":\"ok\"}"}`,
+				wantSub: "judge agy status FAILED: unsuccessful status",
+			},
+			{
+				name:    "SUCCESS envelope missing structured_output and response",
+				raw:     `{"conversation_id":"c4","status":"SUCCESS","structured_output":null,"response":""}`,
+				wantSub: "empty structured_output",
+			},
+			{
+				name:    "bare JSON with unknown inner field",
+				raw:     `{"verdict":"PASS","reason":"ok","extra":1}`,
+				wantSub: "unknown field",
+			},
+			{
+				name:    "envelope structured_output with unknown inner field",
+				raw:     `{"status":"SUCCESS","structured_output":{"verdict":"PASS","reason":"ok","extra":1}}`,
+				wantSub: "unknown field",
+			},
+			{
+				name:    "trailing tokens after bare JSON",
+				raw:     `{"verdict":"PASS","reason":"ok"} {"trailing":true}`,
+				wantSub: "trailing tokens",
+			},
+			{
+				name:    "empty input",
+				raw:     "   \n\t ",
+				wantSub: "empty judge response",
+			},
+			{
+				name:    "invalid verdict value",
+				raw:     `{"verdict":"MAYBE","reason":"unsure"}`,
+				wantSub: "invalid judge verdict",
+			},
+		}
+		for _, tc := range cases {
+			_, _, err := ParseJudgeVerdict(tc.raw)
+			if err == nil || !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("%s: got err=%v, want substring %q", tc.name, err, tc.wantSub)
+			}
+		}
+	})
 }

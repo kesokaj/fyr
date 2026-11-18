@@ -33,10 +33,11 @@ func writeFakeGateAgy(t *testing.T, binDir, modelsText, usageText, verdictJSON s
 		"  exit 0\n" +
 		"fi\n" +
 		"if [ \"$1\" = \"-p\" ]; then\n" +
+		"  case \"$*\" in *\"--output-format json\"*) ;; *) echo 'missing --output-format json' >&2; exit 40 ;; esac\n" +
 		"  case \"$*\" in *--json-schema*) ;; *) echo 'missing --json-schema' >&2; exit 41 ;; esac\n" +
 		"  case \"$*\" in *\"BEGIN DATA\"*) ;; *) echo 'missing BEGIN DATA fence' >&2; exit 42 ;; esac\n" +
 		"  case \"$*\" in *\"Mul(a, b int)\"*) ;; *) echo 'missing diff' >&2; exit 43 ;; esac\n" +
-		"  printf '%s\\n' " + shSingleQuote(verdictJSON) + "\n" +
+		"  printf '%s\\n' " + shSingleQuote("{\"conversation_id\":\"c1\",\"status\":\"SUCCESS\",\"structured_output\":"+verdictJSON+"}") + "\n" +
 		"  exit 0\n" +
 		"fi\n" +
 		"exit 1\n"
@@ -214,6 +215,49 @@ func TestGateJudgeCrossFamily(t *testing.T) {
 		}
 		if gotReq.Criterion != "Sub returns a - b" || gotReq.ExplicitModel != "explicit-judge" || len(recorded) != 1 {
 			t.Errorf("Land did not forward judge options: req=%+v recorded=%+v", gotReq, recorded)
+		}
+	})
+
+	t.Run("nonzero exit with empty stdout surfaces stderr not empty judge response", func(t *testing.T) {
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"models\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(modelsText) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(healthyUsage) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ]; then\n" +
+			"  echo 'Error: --json-schema failed' >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			"exit 1\n"
+		if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:    repo,
+			Target: wt,
+			Home:   home,
+			Lease:  []string{"pkg/**"},
+			Judge:  "Mul exists",
+		})
+		if !errors.Is(err, ErrFailed) || rep.OK {
+			t.Fatalf("expected ErrFailed, got err=%v rep=%+v", err, rep)
+		}
+		if !hasFinding(rep, "judge", "Error: --json-schema failed") {
+			t.Errorf("expected stderr message in judge finding, got %+v", rep.Findings)
+		}
+		if hasFinding(rep, "judge", "empty judge response") {
+			t.Errorf("stderr should not be masked by empty judge response: %+v", rep.Findings)
 		}
 	})
 }
