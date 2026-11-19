@@ -302,3 +302,41 @@ func hasWatchFindingPID(rep Report, kind string, pid int) bool {
 	}
 	return false
 }
+
+func TestParseDarwinPsForUID(t *testing.T) {
+	psOut := strings.Join([]string{
+		"  UID   PID  PPID STAT      ELAPSED COMMAND",
+		"    0     1     0 Ss       10:00:00 /sbin/launchd",
+		"  502   200     1 S           01:30 /usr/bin/other-user --flag",
+		"  501   301   100 S+          02:05 /usr/local/bin/agy   --mode   plan",
+		"  501   302   301 Ss     1-02:03:04 ssh -p 2222 host.example",
+		"  501     0     1 R           00:01 invalid-pid-zero",
+		"bad line",
+	}, "\n")
+	procs := parseDarwinPsForUID(psOut, 501)
+	if len(procs) != 2 {
+		t.Fatalf("got %d procs %+v, want 2", len(procs), procs)
+	}
+	if procs[0].PID != 301 || procs[0].PPID != 100 || procs[0].State != "S+" || procs[0].ElapsedSec != 125 || procs[0].Cmdline != "/usr/local/bin/agy   --mode   plan" {
+		t.Errorf("proc[0] mismatch: %+v", procs[0])
+	}
+	wantElapsed := int64(86400 + 2*3600 + 3*60 + 4)
+	if procs[1].PID != 302 || procs[1].PPID != 301 || procs[1].State != "Ss" || procs[1].ElapsedSec != wantElapsed || procs[1].Cmdline != "ssh -p 2222 host.example" {
+		t.Errorf("proc[1] mismatch: %+v", procs[1])
+	}
+}
+
+func TestWatchProcRedaction(t *testing.T) {
+	secretCmd := "curl --to" + "ken=" + "supersecret1234 https://api.example.com"
+	if got := compactCmdTarget(secretCmd, 42); got != "[redacted by fyr]" {
+		t.Fatalf("compactCmdTarget(%q) = %q, want [redacted by fyr]", secretCmd, got)
+	}
+	longSecretCmd := "cmd " + strings.Repeat("x", 69) + " --pw" + "d=" + "mysecret99"
+	if got := compactCmdTarget(longSecretCmd, 43); got != "[redacted by fyr]" {
+		t.Fatalf("compactCmdTarget(long secret) = %q, want [redacted by fyr]", got)
+	}
+	f := procFinding(kindInteractiveWait, "cmd", ProcInfo{PID: 1, ElapsedSec: 5}, "to"+"ken="+"secret1234", "act")
+	if f.PromptHint != "[redacted by fyr]" {
+		t.Fatalf("procFinding PromptHint = %q, want [redacted by fyr]", f.PromptHint)
+	}
+}

@@ -497,14 +497,17 @@ func handlePreToolRead(home, dir string, in HookInput, out io.Writer) error {
 }
 
 func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
+	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
+	bfr, ok := ParseBashFileRead(cmd)
+	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
+	if hooksDisabledForHome(home, toolDir) {
+		return writeDecision(out, "allow", "")
+	}
 	denyReason, overwrite := checkInteractiveBashGuard(in.ToolCall.Args)
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
 	}
-	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
-	bfr, ok := ParseBashFileRead(cmd)
-	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
-	if ok && !hooksDisabledForHome(home, toolDir) {
+	if ok {
 		dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
 		if err == nil && !dec.Allowed {
 			return writeDecision(out, "deny", dec.Reason)

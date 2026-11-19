@@ -260,6 +260,87 @@ func TestGateJudgeCrossFamily(t *testing.T) {
 			t.Errorf("stderr should not be masked by empty judge response: %+v", rep.Findings)
 		}
 	})
+
+	t.Run("stale verify.stamp on main notes head mismatch instead of ok=true", func(t *testing.T) {
+		repo2 := initTestGoRepo(t)
+		wt2 := addWorktreeBranch(t, repo2, "feat-stale-stamp")
+		writeFile(t, filepath.Join(wt2, "pkg", "mul.go"), "package pkg\n\nfunc Mul(a, b int) int { return a * b }\n")
+		runGit(t, wt2, "add", "pkg/mul.go")
+		runGit(t, wt2, "commit", "-m", "add Mul")
+
+		mainHead := runGit(t, repo2, "rev-parse", "HEAD")
+		wtHead := runGit(t, wt2, "rev-parse", "HEAD")
+		if mainHead == "" || wtHead == "" || mainHead == wtHead {
+			t.Fatalf("expected distinct heads, main=%q wt=%q", mainHead, wtHead)
+		}
+		if _, err := WriteStamp(repo2, Stamp{
+			TreeSHA256: "deadbeef",
+			UpdatedAt:  "2026-11-19T00:00:00Z",
+			Branch:     "main",
+			Head:       mainHead,
+			OK:         true,
+		}); err != nil {
+			t.Fatalf("WriteStamp: %v", err)
+		}
+
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		wantNote := "verify.stamp: missing for head " + wtHead + " (found stamp for head=" + mainHead + " ok=true)"
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"models\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(modelsText) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(healthyUsage) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ]; then\n" +
+			"  case \"$2\" in *\"" + wantNote + "\"*) ;; *) echo 'missing head-mismatch note in prompt' >&2; exit 44 ;; esac\n" +
+			"  case \"$2\" in *\"ok=true treeSha256=\"*) echo 'stale main stamp reported as ok=true' >&2; exit 45 ;; esac\n" +
+			"  printf '%s\\n' " + shSingleQuote(`{"conversation_id":"c1","status":"SUCCESS","structured_output":{"verdict":"PASS","reason":"checked"}}`) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"exit 1\n"
+		if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:    repo2,
+			Target: wt2,
+			Home:   home,
+			Lease:  []string{"pkg/**"},
+			Judge:  "Mul returns a * b",
+		})
+		if err != nil || !rep.OK {
+			t.Fatalf("Gate with stale main stamp failed: err=%v rep=%+v", err, rep)
+		}
+
+		var gotReq JudgeRequest
+		rep2, err := Gate(ctx, GateOptions{
+			Dir:    repo2,
+			Target: wt2,
+			Home:   home,
+			Lease:  []string{"pkg/**"},
+			Judge:  "Mul returns a * b",
+			JudgeRunner: func(_ context.Context, req JudgeRequest) (JudgeResult, error) {
+				gotReq = req
+				return JudgeResult{Model: "claude-opus-5-5-high", Verdict: "PASS", Reason: "ok"}, nil
+			},
+		})
+		if err != nil || !rep2.OK {
+			t.Fatalf("Gate JudgeRunner failed: err=%v rep=%+v", err, rep2)
+		}
+		prompt := buildGateJudgePrompt(gotReq)
+		if gotReq.StampSummary != wantNote || !strings.Contains(prompt, wantNote) || strings.Contains(prompt, "ok=true treeSha256=") {
+			t.Fatalf("verify-stamp fence leaked stale main stamp as ok=true: summary=%q prompt=%s", gotReq.StampSummary, prompt)
+		}
+	})
 }
 
 func TestGatePackageDeps(t *testing.T) {

@@ -113,15 +113,25 @@ func readGateJudgeStamp(tgt gateTarget) (string, error) {
 	if tgt.wtRoot != "" && tgt.wtRoot != tgt.mainRoot {
 		roots = []string{tgt.wtRoot, tgt.mainRoot}
 	}
+	staleNote := ""
 	for _, r := range roots {
 		st, err := ReadStamp(r)
 		if err == nil {
-			return fmt.Sprintf("ok=%v treeSha256=%s branch=%s head=%s updatedAt=%s",
-				st.OK, st.TreeSHA256, st.Branch, st.Head, st.UpdatedAt), nil
+			if tgt.head != "" && st.Head == tgt.head {
+				return fmt.Sprintf("ok=%v treeSha256=%s branch=%s head=%s updatedAt=%s",
+					st.OK, st.TreeSHA256, st.Branch, st.Head, st.UpdatedAt), nil
+			}
+			if staleNote == "" {
+				staleNote = "verify.stamp: missing for head " + tgt.head + " (found stamp for head=" + st.Head + " ok=" + fmt.Sprint(st.OK) + ")"
+			}
+			continue
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
+	}
+	if staleNote != "" {
+		return staleNote, nil
 	}
 	return "verify.stamp: missing", nil
 }

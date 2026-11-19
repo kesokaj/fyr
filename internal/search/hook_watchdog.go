@@ -128,8 +128,10 @@ func checkWatchdogErrorLoop(st *store, convID, ringTool, argHash string) string 
 		return "[TOKEN_LOOP] >= 3 consecutive identical failing tool calls"
 	}
 	key := func(r watchdogRingRow) string { return r.tool + ":" + r.argHash }
+	incoming := ringTool + ":" + argHash
 	if len(ring) >= 4 && ring[0].isError == 1 && ring[1].isError == 1 && ring[2].isError == 1 && ring[3].isError == 1 &&
-		key(ring[0]) == key(ring[2]) && key(ring[1]) == key(ring[3]) && key(ring[0]) != key(ring[1]) {
+		key(ring[0]) == key(ring[2]) && key(ring[1]) == key(ring[3]) && key(ring[0]) != key(ring[1]) &&
+		incoming == key(ring[1]) {
 		return "[TOKEN_LOOP] repeating A-B-A-B error loop"
 	}
 	return ""

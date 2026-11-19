@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -141,6 +143,7 @@ func classifyDarwinState(p ProcInfo, target, state string) (Finding, bool) {
 }
 
 func procFinding(kind, target string, p ProcInfo, hint, action string) Finding {
+	hint = redact.Redact(hint)
 	return Finding{
 		Kind:       kind,
 		Target:     target,
@@ -156,8 +159,79 @@ func compactCmdTarget(cmdline string, pid int) string {
 	if s == "" {
 		return fmt.Sprintf("pid:%d", pid)
 	}
+	s = redact.Redact(s)
 	if len(s) > 80 {
 		return s[:80] + "..."
 	}
 	return s
+}
+
+func parseDarwinPsForUID(out string, uid int) []ProcInfo {
+	var procs []ProcInfo
+	for _, line := range strings.Split(out, "\n") {
+		if info, ok := parseDarwinPsLineForUID(line, uid); ok {
+			procs = append(procs, info)
+		}
+	}
+	return procs
+}
+
+func parseDarwinPsLineForUID(line string, uid int) (ProcInfo, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 5 {
+		return ProcInfo{}, false
+	}
+	parsedUID, err0 := strconv.Atoi(fields[0])
+	pid, err1 := strconv.Atoi(fields[1])
+	ppid, err2 := strconv.Atoi(fields[2])
+	if err0 != nil || parsedUID != uid || err1 != nil || err2 != nil || pid <= 0 {
+		return ProcInfo{}, false
+	}
+	return ProcInfo{
+		PID:        pid,
+		PPID:       ppid,
+		State:      fields[3],
+		Cmdline:    extractNthFieldTail(line, 5),
+		ElapsedSec: parseElapsed(fields[4]),
+	}, true
+}
+
+func extractNthFieldTail(line string, skip int) string {
+	s := strings.TrimLeft(line, " \t")
+	for range skip {
+		i := strings.IndexAny(s, " \t")
+		if i < 0 {
+			return ""
+		}
+		s = strings.TrimLeft(s[i:], " \t")
+	}
+	return strings.TrimSpace(s)
+}
+
+func parseElapsed(etime string) int64 {
+	var days int64
+	rest := strings.TrimSpace(etime)
+	if dStr, after, ok := strings.Cut(rest, "-"); ok {
+		if d, err := strconv.ParseInt(dStr, 10, 64); err == nil {
+			days = d
+		}
+		rest = after
+	}
+	parts := strings.Split(rest, ":")
+	switch len(parts) {
+	case 2:
+		m, _ := strconv.ParseInt(parts[0], 10, 64)
+		s, _ := strconv.ParseInt(parts[1], 10, 64)
+		return days*86400 + m*60 + s
+	case 3:
+		h, _ := strconv.ParseInt(parts[0], 10, 64)
+		m, _ := strconv.ParseInt(parts[1], 10, 64)
+		s, _ := strconv.ParseInt(parts[2], 10, 64)
+		return days*86400 + h*3600 + m*60 + s
+	case 1:
+		s, _ := strconv.ParseInt(parts[0], 10, 64)
+		return days*86400 + s
+	default:
+		return 0
+	}
 }

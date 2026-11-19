@@ -314,6 +314,16 @@ func TestParseJudgeVerdict(t *testing.T) {
 				wantSub: "judge agy status FAILED: unsuccessful status",
 			},
 			{
+				name:    "empty status with non-empty error fails closed",
+				raw:     `{"error":"rate limited","response":"{\"verdict\":\"PASS\",\"reason\":\"ok\"}"}`,
+				wantSub: "judge agy error: rate limited",
+			},
+			{
+				name:    "SUCCESS status with non-empty error fails closed",
+				raw:     `{"status":"SUCCESS","error":"quota exceeded","structured_output":{"verdict":"PASS","reason":"ok"}}`,
+				wantSub: "judge agy status SUCCESS: quota exceeded",
+			},
+			{
 				name:    "SUCCESS envelope missing structured_output and response",
 				raw:     `{"conversation_id":"c4","status":"SUCCESS","structured_output":null,"response":""}`,
 				wantSub: "empty structured_output",

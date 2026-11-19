@@ -168,6 +168,13 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 	if dec := runWatchdogPre(t, home, dir, "conv-ab", "run_command", cmdA); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[TOKEN_LOOP]") {
 		t.Fatalf("A-B-A-B all-error expected [TOKEN_LOOP], got %+v", dec)
 	}
+	if dec := runWatchdogPre(t, home, dir, "conv-ab", "read_file", map[string]any{"AbsolutePath": filepath.Join(dir, "a.go")}); dec.Decision != "allow" {
+		t.Fatalf("distinct recovery read_file after A-B-A-B should allow, got %+v", dec)
+	}
+	cmdC := map[string]any{"CommandLine": "echo recover"}
+	if dec := runWatchdogPre(t, home, dir, "conv-ab", "run_command", cmdC); dec.Decision != "allow" {
+		t.Fatalf("distinct recovery cmdC after A-B-A-B should allow, got %+v", dec)
+	}
 
 	// 4. Role budgets (reviewer @ 25/40, self @ 90/120, main uncapped) & exemptions.
 	revExtra := func(p map[string]any) { p["last_user_input"] = "You are a senior code reviewer." }
@@ -275,5 +282,34 @@ func TestInteractiveBashGuard(t *testing.T) {
 	dec := runWatchdogPre(t, home, dir, "conv-git", "run_command", map[string]any{"commandLine": "git push origin work"})
 	if dec.Decision != "allow" || !strings.Contains(dec.Reason, "[AUTO_GIT_TERMINAL_PROMPT]") || dec.Overwrite["commandLine"] != "export GIT_TERMINAL_PROMPT=0; git push origin work" {
 		t.Fatalf("end-to-end RunHook overwrite mismatch: %+v", dec)
+	}
+
+	noHooksDir := setupHookRepo(t)
+	noHooksPath := filepath.Join(noHooksDir, ".agents", "scratch", "no-hooks")
+	if err := os.MkdirAll(filepath.Dir(noHooksPath), 0o755); err != nil {
+		t.Fatalf("mkdir no-hooks parent: %v", err)
+	}
+	if err := os.WriteFile(noHooksPath, nil, 0o600); err != nil {
+		t.Fatalf("write no-hooks: %v", err)
+	}
+	if dec := runWatchdogPre(t, home, noHooksDir, "conv-nohooks", "run_command", map[string]any{"CommandLine": "vim foo.go"}); dec.Decision != "allow" || dec.Reason != "" {
+		t.Fatalf("no-hooks should bypass [INTERACTIVE_STDIN], got %+v", dec)
+	}
+	if dec := runWatchdogPre(t, home, noHooksDir, "conv-nohooks", "run_command", map[string]any{"commandLine": "git push origin work"}); dec.Decision != "allow" || dec.Reason != "" || len(dec.Overwrite) != 0 {
+		t.Fatalf("no-hooks should bypass GIT_TERMINAL_PROMPT=0 overwrite, got %+v", dec)
+	}
+	for _, args := range []map[string]any{{"CommandLine": "vim foo.go"}, {"commandLine": "git push origin work"}} {
+		var buf bytes.Buffer
+		in := HookInput{ConversationID: "conv-nohooks", ToolCall: HookToolCall{Name: "run_command", Args: args}}
+		if err := handlePreToolBash(home, noHooksDir, in, &buf); err != nil {
+			t.Fatalf("handlePreToolBash: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &dec); err != nil {
+			t.Fatalf("unmarshal %q: %v", buf.String(), err)
+		}
+		if dec.Decision != "allow" || dec.Reason != "" || len(dec.Overwrite) != 0 {
+			t.Fatalf("handlePreToolBash with no-hooks should allow without overwrite/reason (%v), got %+v", args, dec)
+		}
 	}
 }

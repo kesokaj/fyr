@@ -48,12 +48,14 @@ func unwrapJudgeEnvelope(trimmed string) ([]byte, bool, error) {
 	if !isEnv {
 		return nil, false, nil
 	}
-	if env.Status != "" && !strings.EqualFold(env.Status, "SUCCESS") {
-		msg := strings.TrimSpace(env.Error)
-		if msg == "" {
-			msg = "unsuccessful status"
+	if msg := strings.TrimSpace(env.Error); msg != "" {
+		if env.Status != "" {
+			return nil, true, fmt.Errorf("judge agy status %s: %s", env.Status, msg)
 		}
-		return nil, true, fmt.Errorf("judge agy status %s: %s", env.Status, msg)
+		return nil, true, fmt.Errorf("judge agy error: %s", msg)
+	}
+	if env.Status != "" && !strings.EqualFold(env.Status, "SUCCESS") {
+		return nil, true, fmt.Errorf("judge agy status %s: unsuccessful status", env.Status)
 	}
 	if len(so) > 0 && string(so) != "null" {
 		return so, true, nil
