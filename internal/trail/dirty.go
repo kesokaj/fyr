@@ -218,17 +218,7 @@ func isTopLevel(root string) error {
 	if err != nil {
 		return err
 	}
-	real, err := filepath.Abs(root)
-	if err != nil {
-		return err
-	}
-	if r, err := filepath.EvalSymlinks(real); err == nil {
-		real = r
-	}
-	if t, err := filepath.EvalSymlinks(top); err == nil {
-		top = t
-	}
-	if real != top {
+	if !SameDir(root, top) {
 		return fmt.Errorf("trail: Dirty: %s is not the checkout's top level", root)
 	}
 	return nil

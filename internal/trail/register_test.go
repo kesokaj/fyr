@@ -59,7 +59,7 @@ func TestRegisteredPlainCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameDir(filepath.Dir(path), filepath.Join(root, ".git")) || filepath.Base(path) != markerName {
+	if !SameDir(filepath.Dir(path), filepath.Join(root, ".git")) || filepath.Base(path) != markerName {
 		t.Errorf("marker at %s, want %s", path, filepath.Join(root, ".git", markerName))
 	}
 	b, err := os.ReadFile(path)
@@ -147,7 +147,7 @@ func TestRegisteredRedirectTreeIsNot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tree, ".git"), []byte("gitdir: "+filepath.Join(root, ".git")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if common, _, _, err := roots(tree); err != nil || !sameDir(common, filepath.Join(root, ".git")) {
+	if common, _, _, err := roots(tree); err != nil || !SameDir(common, filepath.Join(root, ".git")) {
 		t.Fatalf("the tree does not resolve to the registered git dir (%q, %v), so it proves nothing", common, err)
 	}
 	if Registered(state, tree) {

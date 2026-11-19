@@ -329,3 +329,219 @@ func TestLogRunsNoTextconv(t *testing.T) {
 		}
 	}
 }
+
+func TestDocsRootRejectsSymlinks(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{
+			name: "symlinked .agents out-of-tree",
+			setup: func(t *testing.T, root string) {
+				outside := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(outside, "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+		{
+			name: "symlinked .agents out-of-tree falls back to real docs",
+			setup: func(t *testing.T, root string) {
+				outside := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(outside, "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "docs",
+		},
+		{
+			name: "symlinked .agents in-tree",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "real", "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("real", filepath.Join(root, ".agents")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+		{
+			name: "symlinked .agents/docs out-of-tree",
+			setup: func(t *testing.T, root string) {
+				outside := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(root, ".agents", "docs")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+		{
+			name: "symlinked .agents/docs out-of-tree falls back to real docs",
+			setup: func(t *testing.T, root string) {
+				outside := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, filepath.Join(root, ".agents", "docs")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "docs",
+		},
+		{
+			name: "symlinked .agents/docs in-tree",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Join(root, "target"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("../target", filepath.Join(root, ".agents", "docs")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+		{
+			name: "symlinked docs out-of-tree",
+			setup: func(t *testing.T, root string) {
+				outside := t.TempDir()
+				if err := os.Symlink(outside, filepath.Join(root, "docs")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+		{
+			name: "symlinked docs in-tree",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "target"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("target", filepath.Join(root, "docs")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			tc.setup(t, root)
+			if got := DocsRoot(root); got != tc.want {
+				t.Errorf("DocsRoot = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSameDir(t *testing.T) {
+	real := t.TempDir()
+	other := t.TempDir()
+	link := filepath.Join(t.TempDir(), "via")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if !SameDir(real, real) {
+		t.Error("SameDir(real, real) = false")
+	}
+	if !SameDir(link, real) {
+		t.Error("SameDir(link, real) = false")
+	}
+	if SameDir(real, other) {
+		t.Error("SameDir(real, other) = true")
+	}
+	if SameDir("", ".") || SameDir(".", "") || SameDir("", "") {
+		t.Error("SameDir accepted empty path")
+	}
+	dirtyMissing := filepath.Join(real, "missing", "sub", "..", "x")
+	cleanMissing := filepath.Join(real, "missing", "x")
+	if !SameDir(dirtyMissing, cleanMissing) {
+		t.Errorf("SameDir(%q, %q) = false", dirtyMissing, cleanMissing)
+	}
+	t.Chdir(link)
+	if !SameDir(".", real) {
+		t.Error("SameDir(\".\", real) = false")
+	}
+}
+
+func TestLazyFetchSafe(t *testing.T) {
+	realOut, realErr := exec.Command("git", "version").Output()
+	wantReal := realErr == nil && versionAtLeast(string(realOut), 2, 44)
+	if got := LazyFetchSafe(); got != wantReal {
+		t.Fatalf("LazyFetchSafe() = %v, want %v (%q, %v)", got, wantReal, realOut, realErr)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if got := LazyFetchSafe(); got != wantReal {
+		t.Fatalf("LazyFetchSafe() cached = %v, want %v", got, wantReal)
+	}
+
+	writeFakeGit := func(t *testing.T, body string) string {
+		t.Helper()
+		binDir := t.TempDir()
+		p := filepath.Join(binDir, "git")
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return binDir
+	}
+
+	t.Run("supported version uses neutral dir", func(t *testing.T) {
+		pwdFile := filepath.Join(t.TempDir(), "pwd")
+		binDir := writeFakeGit(t, "pwd > '"+pwdFile+"'\necho 'git version 2.44.0'")
+		t.Setenv("PATH", binDir)
+		if !probeLazyFetchSafe() {
+			t.Fatal("probeLazyFetchSafe() = false, want true")
+		}
+		gotPwd, err := os.ReadFile(pwdFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(string(gotPwd)) != "/" {
+			t.Errorf("cmd.Dir = %q, want %q", strings.TrimSpace(string(gotPwd)), "/")
+		}
+	})
+
+	t.Run("older version", func(t *testing.T) {
+		binDir := writeFakeGit(t, "echo 'git version 2.43.9'")
+		t.Setenv("PATH", binDir)
+		if probeLazyFetchSafe() {
+			t.Error("probeLazyFetchSafe() = true, want false")
+		}
+	})
+
+	t.Run("git error", func(t *testing.T) {
+		binDir := writeFakeGit(t, "exit 1")
+		t.Setenv("PATH", binDir)
+		if probeLazyFetchSafe() {
+			t.Error("probeLazyFetchSafe() = true, want false")
+		}
+	})
+
+	t.Run("missing git", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if probeLazyFetchSafe() {
+			t.Error("probeLazyFetchSafe() = true, want false")
+		}
+	})
+}

@@ -17,7 +17,7 @@ const keyName = "registration.key"
 // readKey reads stateDir's registration key; a missing, linked or odd file
 // is an error.
 func readKey(stateDir string) ([]byte, error) {
-	f, err := openRegular(filepath.Join(stateDir, keyName))
+	f, err := OpenRegular(filepath.Join(stateDir, keyName))
 	if err != nil {
 		return nil, err
 	}

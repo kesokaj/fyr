@@ -33,10 +33,6 @@ type VerifyStamp struct {
 	OK           bool   `json:"ok"`
 }
 
-func openRegular(path string) (*os.File, error) {
-	return OpenRegular(path)
-}
-
 // CheckScratchNoSymlinks ensures root, .agents, and .agents/scratch are not
 // symlinks and are directories when present.
 func CheckScratchNoSymlinks(root string) error {

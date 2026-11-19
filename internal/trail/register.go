@@ -87,7 +87,7 @@ func seal(key []byte, main string) []byte {
 // readSeal reads the marker's seal line; anything but a small regular file
 // holding one is an error.
 func readSeal(path string) ([]byte, error) {
-	f, err := openRegular(path)
+	f, err := OpenRegular(path)
 	if err != nil {
 		return nil, err
 	}

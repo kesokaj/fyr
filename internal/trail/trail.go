@@ -44,13 +44,26 @@ func IsNoIndexMarker(p string) bool {
 // DocsRoot is the project's docs root relative to root: `.agents/docs` when
 // it is a directory, else `docs`, else "". Metrics classifies a file-era
 // project's paths with it; nothing else reads a docs root (ADR-087).
+// It opens root with os.OpenRoot and checks each segment with Lstat so
+// symlinks at `.agents`, `.agents/docs`, or `docs` are rejected.
 func DocsRoot(root string) string {
-	for _, d := range []string{".agents/docs", "docs"} {
-		if fi, err := os.Stat(filepath.Join(root, d)); err == nil && fi.IsDir() {
-			return d
-		}
+	fsRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return ""
+	}
+	defer fsRoot.Close()
+	if isRootDir(fsRoot, ".agents") && isRootDir(fsRoot, ".agents/docs") {
+		return ".agents/docs"
+	}
+	if isRootDir(fsRoot, "docs") {
+		return "docs"
 	}
 	return ""
+}
+
+func isRootDir(fsRoot *os.Root, rel string) bool {
+	fi, err := fsRoot.Lstat(filepath.FromSlash(rel))
+	return err == nil && fi.IsDir()
 }
 
 // Command is git in root with the hardened global options: no index lock,
@@ -215,17 +228,20 @@ func roots(dir string) (common, main, top string, err error) {
 		// this work tree's .git. A planted git dir with a commondir file
 		// would otherwise borrow another project's store (audit-fix
 		// checkpoint security review, finding 1).
-		if !sameDir(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
+		if !SameDir(filepath.Dir(gitDir), filepath.Join(common, "worktrees")) {
 			return "", "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
 		back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+		if err != nil {
+			return "", "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
+		}
 		// git 2.48's worktree.useRelativePaths writes the path relative to
 		// the git dir; resolved against fyr's cwd it named nothing.
 		named := strings.TrimSpace(string(back))
-		if !filepath.IsAbs(named) {
+		if named != "" && !filepath.IsAbs(named) {
 			named = filepath.Join(gitDir, named)
 		}
-		if err != nil || !sameDir(filepath.Dir(named), top) {
+		if named == "" || !SameDir(filepath.Dir(named), top) {
 			return "", "", "", fmt.Errorf("%s is not a worktree the repository at %s registers", top, common)
 		}
 		return common, filepath.Dir(common), top, nil
@@ -233,18 +249,24 @@ func roots(dir string) (common, main, top string, err error) {
 	return common, top, top, nil
 }
 
-// sameDir compares two paths after resolving symlinks, so a temp directory
-// reached through /tmp and its real path match.
-func sameDir(a, b string) bool {
-	ra, err := filepath.EvalSymlinks(a)
-	if err != nil {
-		ra = filepath.Clean(a)
+// SameDir compares two directory paths after resolving symlinks, falling back
+// to cleaned absolute paths when EvalSymlinks fails. Empty paths never match.
+func SameDir(a, b string) bool {
+	if a == "" || b == "" {
+		return false
 	}
-	rb, err := filepath.EvalSymlinks(b)
+	return canonicalPath(a) == canonicalPath(b)
+}
+
+func canonicalPath(p string) string {
+	abs, err := filepath.Abs(p)
 	if err != nil {
-		rb = filepath.Clean(b)
+		abs = filepath.Clean(p)
 	}
-	return ra == rb
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	return filepath.Clean(abs)
 }
 
 // LazyFetchSafe reports whether this machine's git honours GIT_NO_LAZY_FETCH
@@ -252,12 +274,17 @@ func sameDir(a, b string) bool {
 // so no repository's config is read.
 func LazyFetchSafe() bool {
 	lazyOnce.Do(func() {
-		cmd := exec.Command("git", "version")
-		cmd.Dir = os.TempDir()
-		out, err := cmd.Output()
-		lazySafe = err == nil && versionAtLeast(string(out), 2, 44)
+		lazySafe = probeLazyFetchSafe()
 	})
 	return lazySafe
+}
+
+func probeLazyFetchSafe() bool {
+	cmd := exec.Command("git", "version")
+	cmd.Dir = "/"
+	cmd.Env = withoutRepoVars(os.Environ())
+	out, err := cmd.Output()
+	return err == nil && versionAtLeast(string(out), 2, 44)
 }
 
 var (
