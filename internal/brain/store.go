@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"modernc.org/sqlite"
@@ -70,8 +71,13 @@ var migrations = []string{
 	UPDATE records SET memory_kind = CASE WHEN kind = 'memory' AND body LIKE 'type: feedback%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: procedural%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: episodic%' THEN 'episodic' WHEN kind = 'memory' THEN 'semantic' ELSE '' END, validity = CASE WHEN kind = 'memory' AND provenance = 'derived' THEN 0.55 WHEN kind = 'memory' AND provenance = 'unknown' THEN 0.70 WHEN kind = 'memory' THEN 1.0 ELSE 1.0 END, verified_at = CASE WHEN kind = 'memory' THEN updated ELSE '' END;`,
 }
 
-// Path is the store's location under home.
-func Path(home string) string { return filepath.Join(home, harness.StateDir, "brain.db") }
+// Path is the store's location under home, or empty when home is empty.
+func Path(home string) string {
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, harness.StateDir, "brain.db")
+}
 
 type store struct {
 	db         *sql.DB
@@ -82,6 +88,9 @@ type store struct {
 // openStore opens or creates the store under home and migrates it forward.
 // A store a newer binary wrote is refused before anything is written to it.
 func openStore(home string) (*store, error) {
+	if strings.TrimSpace(home) == "" {
+		return nil, refuse("brain: home directory is required")
+	}
 	path := Path(home)
 	// 0700: ~/.config/fyr holds this store's global feedback and the other stores (search.tryOpen).
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -130,6 +139,9 @@ func tryOpen(path string) (*store, error) {
 // running migrations, returning its PRAGMA user_version. A store written by a
 // newer binary is refused.
 func openStoreReadOnly(home string) (*store, int, error) {
+	if strings.TrimSpace(home) == "" {
+		return nil, 0, refuse("brain: home directory is required")
+	}
 	path := Path(home)
 	if err := checkRegularReadOnly(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

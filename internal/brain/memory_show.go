@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -34,13 +35,18 @@ func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error
 		return "", err
 	}
 	now := o.now()
-	var lines []string
+	var mems []scoredMemory
 	for _, r := range recs {
 		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
 		if !showOpts.IncludeLow && val < MinActiveValidity {
 			continue
 		}
-		lines = append(lines, formatMemoryShowLine(r, val))
+		mems = append(mems, scoredMemory{rec: r, val: val})
+	}
+	sortScoredMemories(mems)
+	lines := make([]string, len(mems))
+	for i, m := range mems {
+		lines[i] = formatMemoryShowLine(m.rec, m.val)
 	}
 	return capMemoryLines(lines), nil
 }
@@ -109,8 +115,33 @@ func capMemoryLines(lines []string) string {
 	return b.String()
 }
 
+type scoredMemory struct {
+	rec Record
+	val float64
+}
+
+func sortScoredMemories(mems []scoredMemory) {
+	sort.Slice(mems, func(i, j int) bool {
+		a, b := mems[i], mems[j]
+		if a.val != b.val {
+			return a.val > b.val
+		}
+		ta, tb := memoryRefTime(a.rec), memoryRefTime(b.rec)
+		if !ta.Equal(tb) {
+			return ta.After(tb)
+		}
+		if a.rec.Date != b.rec.Date {
+			return a.rec.Date > b.rec.Date
+		}
+		if a.rec.ID != b.rec.ID {
+			return idLess(a.rec.ID, b.rec.ID)
+		}
+		return a.rec.Scope > b.rec.Scope
+	})
+}
+
 func loadShowMemories(db *sql.DB, scope string) ([]Record, []Record, error) {
-	rows, err := db.Query(`SELECT `+recordCols+` FROM records WHERE scope = ? AND kind = 'memory' AND status = 'closed' ORDER BY id`, scope)
+	rows, err := db.Query(`SELECT `+recordCols+` FROM records WHERE (scope = ? OR scope = '') AND kind = 'memory' AND status = 'closed' ORDER BY id`, scope)
 	if err != nil {
 		return nil, nil, err
 	}

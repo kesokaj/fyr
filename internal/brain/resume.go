@@ -294,36 +294,27 @@ func writeResumeRecentChanges(b *strings.Builder, recs []Record) {
 
 func writeResumeMemory(b *strings.Builder, top string, recs []Record, now time.Time) {
 	b.WriteString("\n## Memory\n")
-	type scoredMem struct {
-		rec Record
-		val float64
-	}
 	var feedbacks []Record
 	for _, r := range recs {
 		if r.Kind == "feedback" {
 			feedbacks = append(feedbacks, r)
 		}
 	}
-	var mems []scoredMem
+	var mems []scoredMemory
 	for _, r := range recs {
 		if r.Kind != "memory" || r.Status != "closed" || resolveMemoryKind(r) != "semantic" {
 			continue
 		}
 		val := ComputeMemoryValidity(top, r, CountMemoryContradictions(r, feedbacks), now)
 		if val >= MinActiveValidity {
-			mems = append(mems, scoredMem{rec: r, val: val})
+			mems = append(mems, scoredMemory{rec: r, val: val})
 		}
 	}
 	if len(mems) == 0 {
 		b.WriteString("(none)\n")
 		return
 	}
-	sort.Slice(mems, func(i, j int) bool {
-		if mems[i].rec.ID != mems[j].rec.ID {
-			return mems[i].rec.ID < mems[j].rec.ID
-		}
-		return mems[i].rec.Scope > mems[j].rec.Scope
-	})
+	sortScoredMemories(mems)
 	base := b.Len()
 	for i, item := range mems {
 		l := formatMemoryIndexLine(top, item.rec, item.val)
@@ -384,7 +375,7 @@ func MemoryStalenessTag(top string, r Record) string {
 			continue
 		}
 		if ref.pinHex != "" {
-			if data, err := os.ReadFile(abs); err == nil {
+			if data, err := readRegular(abs, maxBody); err == nil {
 				sum := sha256.Sum256(data)
 				if !strings.HasPrefix(hex.EncodeToString(sum[:]), ref.pinHex) {
 					return fmt.Sprintf("[STALE: %s modified since %s]", ref.rel, r.ID)

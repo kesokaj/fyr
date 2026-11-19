@@ -255,7 +255,9 @@ func ProposeAll(home, project string, ps []Proposal, now time.Time) ([]string, e
 	}
 	defer st.close()
 	s := &session{st: st}
-	project = canonicalProject(project)
+	if project != "" {
+		project = canonicalProject(project)
+	}
 	var ids []string
 	err = st.tx(func(c *sql.Conn) error {
 		ids = nil

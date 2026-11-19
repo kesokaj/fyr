@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -247,6 +248,9 @@ func ownHits(st *store, o Options, project string, scopes []string, ref, kind st
 		h.Label = label(h.Scope, project, o.Global) + h.ID
 		hits = append(hits, h)
 	}
+	if err := orows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("brain: %w", err)
+	}
 	return hits, seen, nil
 }
 
@@ -300,28 +304,38 @@ func OpenRecords(o Options, kind string, limit int) ([]Hit, error) {
 		return nil, err
 	}
 	defer st.close()
-	sqlq := `SELECT r.scope, r.id, r.kind, r.status, r.date, r.title, r.project FROM records r WHERE ` + strings.ReplaceAll(openSQL, "kind", "r.kind")
+	sqlq := `SELECT r.scope, r.id, r.kind, r.status, r.date, r.title, r.project, r.updated FROM records r WHERE ` + strings.ReplaceAll(openSQL, "kind", "r.kind")
 	var args []any
 	var f string
 	f, args = scopeFilter(scopes, args)
 	sqlq += f
 	f, args = kindFilter(kind, args)
-	sqlq += f + ` ORDER BY r.date DESC, r.id`
+	sqlq += f + ` ORDER BY r.date DESC, r.updated DESC, r.id DESC`
 	rows, err := st.db.Query(sqlq, args...)
 	if err != nil {
 		return nil, fmt.Errorf("brain: %w", err)
 	}
 	defer rows.Close()
 	var hits []Hit
-	for rows.Next() && len(hits) < limit {
+	for rows.Next() {
 		var h Hit
-		if err := rows.Scan(&h.Scope, &h.ID, &h.Kind, &h.Status, &h.Date, &h.Title, &h.Project); err != nil {
+		if err := rows.Scan(&h.Scope, &h.ID, &h.Kind, &h.Status, &h.Date, &h.Title, &h.Project, &h.Updated); err != nil {
 			return nil, err
 		}
 		h.Label = label(h.Scope, project, o.Global) + h.ID
 		hits = append(hits, h)
 	}
-	return hits, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	sort.Slice(hits, func(i, j int) bool { return recordDescLess(hits[i].Record, hits[j].Record) })
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, nil
 }
 
 // label is the scope prefix of a hit's ID: none for the project's own

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -260,25 +261,50 @@ func Add(o Options, in AddInput) (string, error) {
 	now := o.now()
 	var id string
 	err = s.write(func(c *sql.Conn) error {
-		id = in.ID
-		if id == "" {
-			var err error
-			if id, err = s.allocate(c, kind, title, now); err != nil {
-				return err
-			}
-		} else if taken, err := exists(c, s.scope, id); err != nil {
-			return err
-		} else if taken {
-			return refuse("%s already exists in this scope", id)
-		}
-		_, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, updated)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.scope, id, kind, status, now.Format("2006-01-02"), title, body, project, prov, now.UTC().Format(time.RFC3339))
-		return err
+		var werr error
+		id, werr = insertRecord(c, s, in, status, title, body, project, prov, now)
+		return werr
 	})
 	if err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+func insertRecord(c *sql.Conn, s *session, in AddInput, status, title, body, project, prov string, now time.Time) (string, error) {
+	ctx := context.Background()
+	id := in.ID
+	if id == "" {
+		var err error
+		if id, err = s.allocate(c, in.Kind, title, now); err != nil {
+			return "", err
+		}
+	} else if taken, err := exists(c, s.scope, id); err != nil {
+		return "", err
+	} else if taken {
+		return "", refuse("%s already exists in this scope", id)
+	}
+	stamp := now.UTC().Format(time.RFC3339)
+	memKind, val, verAt := "", 1.0, ""
+	if in.Kind == "memory" {
+		rec := Record{
+			Scope: s.scope, ID: id, Kind: in.Kind, Status: status,
+			Title: title, Body: body, Project: project, Provenance: prov,
+			VerifiedAt: stamp, Updated: stamp,
+		}
+		memKind = resolveMemoryKind(rec)
+		rec.MemoryKind = memKind
+		verAt = stamp
+		feedbacks, err := queryFeedbacksConn(ctx, c, s.scope)
+		if err != nil {
+			return "", err
+		}
+		val = ComputeMemoryValidity(s.top, rec, CountMemoryContradictions(rec, feedbacks), now)
+	}
+	_, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.scope, id, in.Kind, status, now.Format("2006-01-02"), title, body, project, prov, memKind, val, verAt, stamp)
+	return id, err
 }
 
 func resolveProvenance(kind, given string) (string, error) {
@@ -429,7 +455,24 @@ func List(o Options, f ListFilter) ([]Record, error) {
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return recordDescLess(out[i], out[j]) })
+	return out, nil
+}
+
+func recordDescLess(a, b Record) bool {
+	if a.Date != b.Date {
+		return a.Date > b.Date
+	}
+	if a.Updated != b.Updated {
+		return a.Updated > b.Updated
+	}
+	if a.ID != b.ID {
+		return idLess(b.ID, a.ID)
+	}
+	return a.Scope < b.Scope
 }
 
 // openAll opens the store for a view of every scope; in a checkout it guards
