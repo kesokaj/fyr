@@ -72,6 +72,7 @@ func TestRunAgyDetachesControllingTTY(t *testing.T) {
 	if err != nil {
 		t.Skip("script binary not available for PTY check")
 	}
+	t.Setenv("HOME", t.TempDir())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var cmd *exec.Cmd

@@ -48,6 +48,7 @@ func writeFakeGateAgy(t *testing.T, binDir, modelsText, usageText, verdictJSON s
 }
 
 func TestGateJudgeCrossFamily(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ctx := context.Background()
 	repo := initTestGoRepo(t)
 	wt := addWorktreeBranch(t, repo, "feat-judge")

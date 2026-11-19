@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // ModelIDRe matches syntactically valid model identifiers returned by agy models.
@@ -99,10 +102,24 @@ func RootEnv() []string {
 }
 
 // probeWorkDir creates a private per-invocation 0700 directory under
-// os.TempDir() so agy probe invocations never share a predictable temp path
-// or record "/" as a workspace URI.
+// <home>/.config/fyr/sandbox so agy probe invocations never write to /tmp,
+// never share a predictable directory, and never record "/" as a workspace URI.
 func probeWorkDir() (string, func(), error) {
-	dir, err := os.MkdirTemp("", "fyr-agy-probes-*")
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" || filepath.Clean(home) == "/" {
+		return "", func() {}, fmt.Errorf("probe workdir home: %v", err)
+	}
+	stateDir := filepath.Join(home, harness.StateDir)
+	root := filepath.Join(stateDir, "sandbox")
+	for _, p := range []string{stateDir, root} {
+		if st, lerr := os.Lstat(p); lerr == nil && st.Mode()&os.ModeSymlink != 0 {
+			return "", func() {}, fmt.Errorf("probe workdir symlink refused: %s", p)
+		}
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", func() {}, fmt.Errorf("probe workdir: %w", err)
+	}
+	dir, err := os.MkdirTemp(root, "fyr-agy-probes-*")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("probe workdir: %w", err)
 	}

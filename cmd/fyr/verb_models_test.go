@@ -42,6 +42,7 @@ func TestVerbModelsCLI(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(agyScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	initialModels := "gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
@@ -179,6 +180,7 @@ func TestVerbModelsReadsMetricsEvidence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(agyScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	// Write 6 graded runs per Carbon model into work/*/status.json, ingest into metrics.db,
@@ -320,6 +322,7 @@ func TestVerbModelsColdCacheEnrichesPoolsOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte(agyScript), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("HOME", home)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	// Cold cache: `fyr models --json` enriches pools, keeps changelog gated on --refresh.

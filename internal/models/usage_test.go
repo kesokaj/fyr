@@ -7,16 +7,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestProbeWorkDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	wantRoot := filepath.Join(home, harness.StateDir, "sandbox")
+
 	dir, cleanup, err := probeWorkDir()
 	if err != nil {
 		t.Fatalf("probeWorkDir() error = %v", err)
 	}
-	if dir == "/" || dir == os.TempDir() {
+	if dir == "/" || dir == os.TempDir() || filepath.Dir(dir) != wantRoot {
 		cleanup()
-		t.Fatalf("probeWorkDir() = %q, must be a private subdirectory", dir)
+		t.Fatalf("probeWorkDir() = %q, want under %q", dir, wantRoot)
 	}
 	if !strings.HasPrefix(filepath.Base(dir), "fyr-agy-probes-") {
 		cleanup()
@@ -49,6 +55,19 @@ func TestProbeWorkDir(t *testing.T) {
 	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
 		t.Fatalf("cleanup left probeWorkDir %q behind (err=%v)", dir, statErr)
 	}
+
+	symHome := t.TempDir()
+	symState := filepath.Join(symHome, harness.StateDir)
+	if err := os.MkdirAll(symState, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(symState, "sandbox")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", symHome)
+	if _, _, err := probeWorkDir(); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlinked sandbox to fail closed, got err=%v", err)
+	}
 }
 
 func TestProbeWorkDirUsedByAgyProbes(t *testing.T) {
@@ -56,9 +75,15 @@ func TestProbeWorkDirUsedByAgyProbes(t *testing.T) {
 	ModelsTimeout = 2 * time.Second
 	t.Cleanup(func() { ModelsTimeout = oldTimeout })
 
-	tmpReal, err := filepath.EvalSymlinks(os.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, harness.StateDir, "sandbox")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		tmpReal = filepath.Clean(os.TempDir())
+		rootReal = filepath.Clean(root)
 	}
 
 	cwdLog := filepath.Join(t.TempDir(), "cwds.txt")
@@ -106,8 +131,8 @@ esac
 	seen := make(map[string]bool, 3)
 	for _, line := range lines {
 		_, got, ok := strings.Cut(line, ":")
-		if !ok || filepath.Dir(got) != tmpReal || !strings.HasPrefix(filepath.Base(got), "fyr-agy-probes-") {
-			t.Errorf("probe ran in %q, want %s/fyr-agy-probes-* (line %q)", got, tmpReal, line)
+		if !ok || filepath.Dir(got) != rootReal || !strings.HasPrefix(filepath.Base(got), "fyr-agy-probes-") {
+			t.Errorf("probe ran in %q, want %s/fyr-agy-probes-* (line %q)", got, rootReal, line)
 			continue
 		}
 		if seen[got] {
