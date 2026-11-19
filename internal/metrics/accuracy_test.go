@@ -501,20 +501,14 @@ func TestJudgeVerdictsMigration(t *testing.T) {
 		t.Fatalf("RecordJudgeVerdict 2: %v", err)
 	}
 
-	allRows, err := QueryJudgeVerdicts(home, "", time.Time{}, time.Time{})
-	if err != nil {
-		t.Fatalf("QueryJudgeVerdicts all: %v", err)
-	}
+	allRows := judgeVerdictsT(t, dbPath, "", time.Time{}, time.Time{})
 	if len(allRows) != 2 {
 		t.Fatalf("got %d judge_verdicts, want 2", len(allRows))
 	}
 	if allRows[0].Model != "gemini-4-carbon" || allRows[0].FallbackReason != "anthropic quota low" || allRows[0].Verdict != "FAIL" {
 		t.Errorf("newest verdict = %+v", allRows[0])
 	}
-	alphaRows, err := QueryJudgeVerdicts(home, "/work/alpha", time.UnixMilli(t1), time.UnixMilli(t2))
-	if err != nil {
-		t.Fatalf("QueryJudgeVerdicts filtered: %v", err)
-	}
+	alphaRows := judgeVerdictsT(t, dbPath, "/work/alpha", time.UnixMilli(t1), time.UnixMilli(t2))
 	if len(alphaRows) != 1 || alphaRows[0].CriterionHash != "hash-aaa" || alphaRows[0].Verdict != "PASS" {
 		t.Errorf("filtered verdicts = %+v", alphaRows)
 	}
@@ -546,4 +540,18 @@ func TestJudgeVerdictsMigration(t *testing.T) {
 	if !found {
 		t.Error("judge_verdicts row not decoded from export")
 	}
+}
+
+func judgeVerdictsT(t *testing.T, dbPath, project string, since, now time.Time) []JudgeVerdictRow {
+	t.Helper()
+	st, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open %s: %v", dbPath, err)
+	}
+	defer st.Close()
+	rows, err := st.JudgeVerdicts(project, since, now)
+	if err != nil {
+		t.Fatalf("JudgeVerdicts(%q): %v", project, err)
+	}
+	return rows
 }

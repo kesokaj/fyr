@@ -146,6 +146,20 @@ func writeFakeCLIJudgeAgy(t *testing.T, binDir, verdictJSON string) {
 	}
 }
 
+func queryJudgeVerdictsT(t *testing.T, home, repo string) []metrics.JudgeVerdictRow {
+	t.Helper()
+	st, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatalf("metrics.Open: %v", err)
+	}
+	defer st.Close()
+	rows, err := st.JudgeVerdicts(repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("JudgeVerdicts: %v", err)
+	}
+	return rows
+}
+
 func TestVerbGateJudge(t *testing.T) {
 	repo := initCLITestRepo(t)
 	home := t.TempDir()
@@ -171,9 +185,9 @@ func TestVerbGateJudge(t *testing.T) {
 	if code != 0 || !strings.Contains(outStr, "gate: PASS (") || !strings.Contains(outStr, "judge ") {
 		t.Fatalf("gate --judge PASS failed: code=%d out=%q err=%q", code, outStr, errStr)
 	}
-	rows, err := metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
-	if err != nil || len(rows) != 1 || rows[0].Verdict != "PASS" {
-		t.Fatalf("metrics rows after PASS (%d rows) err=%v rows=%+v", len(rows), err, rows)
+	rows := queryJudgeVerdictsT(t, home, repo)
+	if len(rows) != 1 || rows[0].Verdict != "PASS" {
+		t.Fatalf("metrics rows after PASS (%d rows) rows=%+v", len(rows), rows)
 	}
 
 	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"FAIL","reason":"missing edge case"}`)
@@ -181,9 +195,9 @@ func TestVerbGateJudge(t *testing.T) {
 	if code != 1 || !strings.Contains(outStr, "[judge]") {
 		t.Fatalf("gate --judge FAIL failed: code=%d out=%q err=%q", code, outStr, errStr)
 	}
-	rows, err = metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
-	if err != nil || len(rows) != 2 || (rows[0].Verdict != "FAIL" && rows[1].Verdict != "FAIL") {
-		t.Fatalf("metrics rows after FAIL: len=%d err=%v rows=%+v", len(rows), err, rows)
+	rows = queryJudgeVerdictsT(t, home, repo)
+	if len(rows) != 2 || (rows[0].Verdict != "FAIL" && rows[1].Verdict != "FAIL") {
+		t.Fatalf("metrics rows after FAIL: len=%d rows=%+v", len(rows), rows)
 	}
 
 	writeFakeCLIJudgeAgy(t, binDir, `{"verdict":"PASS","reason":"ready to land"}`)
@@ -195,9 +209,9 @@ func TestVerbGateJudge(t *testing.T) {
 	if err := json.Unmarshal([]byte(outStr), &landRep); err != nil || !landRep.OK {
 		t.Fatalf("unmarshal LandReport failed: ok=%v err=%v out=%q", landRep.OK, err, outStr)
 	}
-	rows, err = metrics.QueryJudgeVerdicts(home, repo, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
-	if err != nil || len(rows) != 3 {
-		t.Fatalf("metrics rows after land PASS (%d rows) err=%v rows=%+v", len(rows), err, rows)
+	rows = queryJudgeVerdictsT(t, home, repo)
+	if len(rows) != 3 {
+		t.Fatalf("metrics rows after land PASS (%d rows) rows=%+v", len(rows), rows)
 	}
 }
 

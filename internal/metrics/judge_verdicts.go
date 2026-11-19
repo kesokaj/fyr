@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"errors"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,26 +85,6 @@ func truncateUTF8(s string, maxLen int) string {
 		s = s[:len(s)-sz]
 	}
 	return s
-}
-
-// QueryJudgeVerdicts reads stored judge verdicts from <home>/<StateDir>/metrics.db
-// matching optional project and [since, now) bounds, newest first.
-func QueryJudgeVerdicts(home, project string, since, now time.Time) ([]JudgeVerdictRow, error) {
-	if strings.TrimSpace(home) == "" {
-		return nil, errors.New("metrics: judge_verdicts: home required")
-	}
-	p := Path(home)
-	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	} else if err != nil {
-		return nil, fmt.Errorf("metrics: judge_verdicts: %w", err)
-	}
-	s, err := Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer s.Close()
-	return s.JudgeVerdicts(project, since, now)
 }
 
 // JudgeVerdicts reads stored judge verdicts from s matching optional project

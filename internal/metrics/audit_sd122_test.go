@@ -16,13 +16,10 @@ import (
 )
 
 func TestSD122ToSD129IngestAndSyncFixes(t *testing.T) {
-	// SD129: rune-safe truncation in scopedKey and capRunText.
+	// SD129: rune-safe truncation in scopedKey.
 	nonASCII := strings.Repeat("é", 30)
 	if sk := scopedKey(nonASCII, strings.Repeat("x", 200)); !utf8.ValidString(sk) {
 		t.Fatalf("scopedKey invalid UTF-8: %q", sk)
-	}
-	if ct := capRunText(strings.Repeat("é", 120)); !utf8.ValidString(ct) {
-		t.Fatalf("capRunText invalid UTF-8: %q", ct)
 	}
 
 	// SD125: readVetHistoryRows deterministic ORDER BY + printable convID in readLedgerSavings.

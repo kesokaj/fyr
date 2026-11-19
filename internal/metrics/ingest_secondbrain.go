@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,9 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -27,27 +24,6 @@ type turnVetRow struct {
 	projectRoot, convID, intent, gate                          string
 	turnNum, score, bypassed, skillsCount, pivotsCount, ledger int
 	createdAt                                                  int64
-}
-
-type waveSnapshot struct {
-	Stamp       string               `json:"stamp"`
-	ProjectRoot string               `json:"project_root"`
-	UpdatedAt   string               `json:"updated_at"`
-	Workers     []waveWorkerSnapshot `json:"workers"`
-}
-
-type waveWorkerSnapshot struct {
-	Name         string `json:"name"`
-	State        string `json:"state"`
-	Model        string `json:"model"`
-	StepCount    int    `json:"step_count"`
-	Commits      int    `json:"commits"`
-	SetupSec     int    `json:"setup_s"`
-	AgySec       int    `json:"agy_s"`
-	CheckSec     int    `json:"check_s"`
-	BaseCheck    string `json:"base_check"`
-	JudgeModel   string `json:"judge_model"`
-	JudgeVerdict string `json:"judge_verdict"`
 }
 
 func ingestSecondBrainAndWaves(s *Store, home string, log io.Writer) {
@@ -70,48 +46,49 @@ func (s *Store) ingestSecondBrain(home string, log io.Writer) {
 	if len(roots) == 0 {
 		return
 	}
-	tmp, err := os.MkdirTemp(filepath.Dir(s.path), "metrics-sb-")
-	if err != nil {
-		noteSecondBrain(log, "second-brain temp dir: %v", err)
-		return
+	var tmp string
+	defer func() {
+		if tmp != "" {
+			os.RemoveAll(tmp)
+		}
+	}()
+	tempDir := func() (string, error) {
+		if tmp == "" {
+			d, err := os.MkdirTemp(filepath.Dir(s.path), "metrics-sb-")
+			if err != nil {
+				return "", err
+			}
+			tmp = d
+		}
+		return tmp, nil
 	}
-	defer os.RemoveAll(tmp)
 	for i, root := range roots {
-		s.ingestProjectSearchDB(root, filepath.Join(tmp, strconv.Itoa(i)), log)
+		s.ingestProjectSearchDB(root, i, tempDir, log)
 	}
 }
 
 func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
 	seen := map[string]bool{}
-	add := func(r string) {
-		r = strings.TrimSpace(r)
-		if r == "" {
-			return
-		}
-		clean := filepath.Clean(r)
-		seen[clean] = true
-		if fi, err := os.Stat(clean); err == nil && fi.IsDir() {
-			if top := trail.Toplevel(clean); top != "" {
-				seen[filepath.Clean(top)] = true
-			}
-		}
-	}
 	rows, err := s.db.Query(`SELECT DISTINCT project_root FROM sessions WHERE project_root IS NOT NULL AND project_root <> ''`)
 	if err == nil {
+		var sessionRoots []string
 		for rows.Next() {
 			var r string
 			if rows.Scan(&r) == nil {
-				add(r)
+				sessionRoots = append(sessionRoots, r)
 			}
 		}
 		rows.Close()
+		for _, r := range sessionRoots {
+			s.addCandidateRoot(seen, r)
+		}
 	}
 	projs, perr := search.ListProjects(home)
 	if perr != nil {
 		noteSecondBrain(log, "global search.db: %v", perr)
 	}
 	for _, p := range projs {
-		add(p.Root)
+		s.addCandidateRoot(seen, p.Root)
 	}
 	out := make([]string, 0, len(seen))
 	for r := range seen {
@@ -121,7 +98,84 @@ func (s *Store) candidateProjectRoots(home string, log io.Writer) []string {
 	return out
 }
 
-func (s *Store) ingestProjectSearchDB(root, tmpDir string, log io.Writer) {
+func (s *Store) addCandidateRoot(seen map[string]bool, r string) {
+	r = strings.TrimSpace(r)
+	if r == "" {
+		return
+	}
+	clean := filepath.Clean(r)
+	seen[clean] = true
+	fi, err := os.Stat(clean)
+	if err != nil || !fi.IsDir() {
+		return
+	}
+	anc, isSelf := findAncestorGitRoot(clean)
+	if anc == "" || isSelf || seen[anc] || s.isSearchDBUnchanged(anc) {
+		return
+	}
+	if top := trail.Toplevel(clean); top != "" {
+		seen[filepath.Clean(top)] = true
+	}
+}
+
+func hasGitEntry(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+func findAncestorGitRoot(dir string) (string, bool) {
+	if hasGitEntry(dir) {
+		return dir, true
+	}
+	cur := filepath.Dir(dir)
+	for cur != dir {
+		if hasGitEntry(cur) {
+			return cur, false
+		}
+		dir = cur
+		cur = filepath.Dir(dir)
+	}
+	return "", false
+}
+
+func (s *Store) isSearchDBUnchanged(root string) bool {
+	dbPath := filepath.Join(root, ".agents", "scratch", "search.db")
+	fi, err := os.Lstat(dbPath)
+	if err != nil || !fi.Mode().IsRegular() {
+		return false
+	}
+	size, mtime := searchDBSignature(dbPath, fi)
+	return s.sourceUnchanged(dbPath, size, mtime)
+}
+
+func searchDBSignature(dbPath string, fi os.FileInfo) (int64, int64) {
+	size := fi.Size()
+	mtime := fi.ModTime().UnixNano()
+	if wfi, err := os.Lstat(dbPath + "-wal"); err == nil && wfi.Mode().IsRegular() && wfi.Size() > 0 {
+		size += wfi.Size()
+		if wm := wfi.ModTime().UnixNano(); wm > mtime {
+			mtime = wm
+		}
+	}
+	return size, mtime
+}
+
+func (s *Store) sourceUnchanged(source string, size, mtime int64) bool {
+	var prevSize, prevMtime int64
+	err := s.db.QueryRow(`SELECT size, mtime FROM ingest_state WHERE source = ?`, source).Scan(&prevSize, &prevMtime)
+	return err == nil && prevSize == size && prevMtime == mtime
+}
+
+func (s *Store) recordIngestState(source string, size, mtime int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO ingest_state(source, size, mtime, offset) VALUES (?, ?, ?, 0)
+		ON CONFLICT(source) DO UPDATE SET size = excluded.size, mtime = excluded.mtime`,
+		source, size, mtime,
+	)
+	return err
+}
+
+func (s *Store) ingestProjectSearchDB(root string, idx int, tempDir func() (string, error), log io.Writer) {
 	dbPath := filepath.Join(root, ".agents", "scratch", "search.db")
 	fi, err := os.Lstat(dbPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -135,29 +189,43 @@ func (s *Store) ingestProjectSearchDB(root, tmpDir string, log io.Writer) {
 		noteSecondBrain(log, "%s: not a regular file", dbPath)
 		return
 	}
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+	size, mtime := searchDBSignature(dbPath, fi)
+	if s.sourceUnchanged(dbPath, size, mtime) {
+		return
+	}
+	baseTmp, err := tempDir()
+	if err != nil {
+		noteSecondBrain(log, "second-brain temp dir: %v", err)
+		return
+	}
+	tmpDir := filepath.Join(baseTmp, strconv.Itoa(idx))
+	if err := s.syncProjectSearchDB(root, dbPath, tmpDir); err != nil {
 		noteSecondBrain(log, "%s: %v", dbPath, err)
 		return
 	}
+	if err := s.recordIngestState(dbPath, size, mtime); err != nil {
+		noteSecondBrain(log, "%s: %v", dbPath, err)
+	}
+}
+
+func (s *Store) syncProjectSearchDB(root, dbPath, tmpDir string) error {
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return err
+	}
 	db, err := search.OpenCopy(filepath.Dir(dbPath), filepath.Base(dbPath), tmpDir)
 	if err != nil {
-		noteSecondBrain(log, "%s: %v", dbPath, err)
-		return
+		return err
 	}
 	defer db.Close()
 	ledger, err := readLedgerSavings(db)
 	if err != nil {
-		noteSecondBrain(log, "%s: %v", dbPath, err)
-		return
+		return err
 	}
 	vets, err := readVetHistoryRows(db, filepath.Clean(root), ledger)
 	if err != nil {
-		noteSecondBrain(log, "%s: %v", dbPath, err)
-		return
+		return err
 	}
-	if err := s.upsertTurnVets(vets); err != nil {
-		noteSecondBrain(log, "%s: %v", dbPath, err)
-	}
+	return s.upsertTurnVets(vets)
 }
 
 func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
@@ -249,107 +317,6 @@ func (s *Store) upsertTurnVets(rows []turnVetRow) error {
 		if _, err := tx.Exec(
 			`INSERT OR REPLACE INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.projectRoot, r.convID, r.turnNum, r.intent, r.gate, r.score, r.bypassed, r.skillsCount, r.pivotsCount, r.ledger, r.createdAt,
-		); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (s *Store) ingestWorkWaves(home string, log io.Writer) {
-	s.ingestWorkWavesWithLabel(home, "", log)
-}
-
-func (s *Store) ingestWorkWavesWithLabel(home, label string, log io.Writer) {
-	workDir := filepath.Join(home, harness.StateDir, "work")
-	entries, err := os.ReadDir(workDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	if err != nil {
-		noteSecondBrain(log, "%s: %v", workDir, err)
-		return
-	}
-	for _, e := range entries {
-		if !e.Type().IsDir() {
-			continue
-		}
-		s.ingestWaveDir(workDir, e.Name(), label, log)
-	}
-}
-
-func (s *Store) ingestWaveDir(workDir, dirName, label string, log io.Writer) {
-	statusPath := filepath.Join(workDir, dirName, "status.json")
-	fi, err := os.Lstat(statusPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	if err != nil {
-		noteSecondBrain(log, "%s: %v", statusPath, err)
-		return
-	}
-	if !fi.Mode().IsRegular() || fi.Size() > 4<<20 {
-		noteSecondBrain(log, "%s: not a regular file or exceeds 4 MiB", statusPath)
-		return
-	}
-	data, err := os.ReadFile(statusPath)
-	if err != nil {
-		noteSecondBrain(log, "%s: %v", statusPath, err)
-		return
-	}
-	var snap waveSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		noteSecondBrain(log, "%s: %v", statusPath, err)
-		return
-	}
-	updatedAt := parseWaveUpdatedAt(snap.UpdatedAt, fi.ModTime())
-	if err := s.upsertWaveWorkers(dirName, label, snap, updatedAt); err != nil {
-		noteSecondBrain(log, "%s: %v", statusPath, err)
-	}
-}
-
-func parseWaveUpdatedAt(raw string, fallback time.Time) int64 {
-	raw = strings.TrimSpace(raw)
-	for _, layout := range []string{time.RFC3339, time.RFC3339Nano} {
-		if t, err := time.Parse(layout, raw); err == nil && t.Unix() >= 0 {
-			return t.Unix()
-		}
-	}
-	if fallback.Unix() >= 0 {
-		return fallback.Unix()
-	}
-	return 0
-}
-
-func (s *Store) upsertWaveWorkers(dirName, label string, snap waveSnapshot, updatedAt int64) error {
-	if len(snap.Workers) == 0 {
-		return nil
-	}
-	stamp := printable(strings.TrimSpace(snap.Stamp))
-	if stamp == "" {
-		stamp = printable(strings.TrimSpace(dirName))
-	}
-	stamp = encodeWaveStamp(printable(label), stamp)
-	var projRoot string
-	if strings.TrimSpace(snap.ProjectRoot) != "" {
-		projRoot = printable(filepath.Clean(strings.TrimSpace(snap.ProjectRoot)))
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, w := range snap.Workers {
-		worker := printable(strings.TrimSpace(w.Name))
-		if worker == "" {
-			continue
-		}
-		if _, err := tx.Exec(
-			`INSERT OR REPLACE INTO work_waves(stamp, worker, project_root, state, model, step_count, commits, base_check, judge_model, judge_verdict, updated_at, setup_s, agy_s, check_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			stamp, worker, projRoot, printable(strings.TrimSpace(w.State)), printable(strings.TrimSpace(w.Model)),
-			max(0, w.StepCount), max(0, w.Commits), printable(strings.TrimSpace(w.BaseCheck)),
-			printable(strings.TrimSpace(w.JudgeModel)), printable(strings.TrimSpace(w.JudgeVerdict)), updatedAt,
-			max(0, w.SetupSec), max(0, w.AgySec), max(0, w.CheckSec),
 		); err != nil {
 			return err
 		}

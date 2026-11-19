@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	agyCancelled   = 6
 	probeMain      = "6a0066be-3958-4af9-9319-a4544694a20f"
 	probeChild     = "c3882232-59f6-4709-b3cf-f7feec3e998e"
 	probeCancelled = "c321274c-a20a-4366-b7ff-dcb2a91da5e0"

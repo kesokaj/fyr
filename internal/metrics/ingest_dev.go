@@ -73,9 +73,6 @@ func scopedKey(prefix, val string) string {
 	if val == "" {
 		return ""
 	}
-	if prefix == "" {
-		return capRunText(val)
-	}
 	joined := prefix + ":" + val
 	if len(joined) <= trialText {
 		return joined
@@ -85,14 +82,6 @@ func scopedKey(prefix, val string) string {
 		prefix = truncateUTF8(prefix, 40)
 	}
 	return fmt.Sprintf("%s:%x", prefix, sum[:16])
-}
-
-func capRunText(val string) string {
-	if len(val) <= trialText {
-		return val
-	}
-	sum := sha256.Sum256([]byte(val))
-	return fmt.Sprintf("%s:%x", truncateUTF8(val, 40), sum[:16])
 }
 
 // ingestDevHome ingests labelled work waves, worker sandboxes, and dev-home

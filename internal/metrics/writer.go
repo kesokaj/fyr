@@ -81,13 +81,6 @@ func (s *Store) salt() string {
 	return v
 }
 
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // nameShape is what an identifier taken from a transcript must look like to
 // be stored: a skill, a model, an agent type. Anything else (escape bytes,
 // prose a prompt-injected session put there) is dropped, so it reaches

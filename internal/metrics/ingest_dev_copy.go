@@ -99,11 +99,11 @@ func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes 
 	}
 	defer tx.Rollback()
 	for rows.Next() {
-		origID, destID, err := insertCopiedSession(tx, rows, label)
+		origID, destID, inserted, err := insertCopiedSession(tx, rows, label)
 		if err != nil {
 			return err
 		}
-		if destID == "" {
+		if !inserted {
 			continue
 		}
 		if err := copyDevSessionSteps(tx, src, origID, destID, hasStepTimes); err != nil {
@@ -119,25 +119,32 @@ func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes 
 	return tx.Commit()
 }
 
-func insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, string, error) {
+func insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, string, bool, error) {
 	var origID string
 	var vendor, root, parent, agent, model, outcome, run sql.NullString
 	var started, ended, dur sql.NullInt64
 	var cost sql.NullFloat64
 	if err := rows.Scan(&origID, &vendor, &root, &parent, &agent, &model, &outcome, &run, &started, &ended, &cost, &dur); err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	destID := scopedKey(label, origID)
 	if destID == "" {
-		return "", "", nil
+		return "", "", false, nil
 	}
-	_, err := tx.Exec(
+	res, err := tx.Exec(
 		`INSERT OR IGNORE INTO sessions(id, vendor, project_root, parent_id, agent_type, model, label, outcome, run, started_at, ended_at, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		destID, nullPrintable(vendor), nullPrintable(root), scopedNullString(label, parent),
 		nullPrintable(agent), nullPrintable(model), printable(label), nullPrintable(outcome),
 		scopedNullString(label, run), started, ended, cost, dur,
 	)
-	return origID, destID, err
+	if err != nil {
+		return "", "", false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil || n == 0 {
+		return "", "", false, err
+	}
+	return origID, destID, true, nil
 }
 
 func copyDevSessionSteps(tx *sql.Tx, src *sql.DB, origSID, destSID string, hasStepTimes bool) error {
