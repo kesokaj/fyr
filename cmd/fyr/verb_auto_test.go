@@ -10,6 +10,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // autoHome is a scratch home with a binary and recording service managers
@@ -291,7 +292,7 @@ func TestAutoDreamHarnessRepoIgnoresUnrelatedCWDCheckout(t *testing.T) {
 		t.Fatalf("autoDreamHarnessRepo leaked unrelated CWD repo %q, want empty", got)
 	}
 	opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home})
-	if !samePath(opts.Repo, legitRepo) || samePath(opts.Repo, unrelatedRepo) {
+	if !trail.SameDir(opts.Repo, legitRepo) || trail.SameDir(opts.Repo, unrelatedRepo) {
 		t.Fatalf("autoRunOptions().Repo = %q, want %q (not %q)", opts.Repo, legitRepo, unrelatedRepo)
 	}
 

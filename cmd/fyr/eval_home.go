@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // evalHomeRefused is why `fyr eval` refuses its --home, or "" (ledger D37):
@@ -53,7 +54,7 @@ func realHomes() []string {
 	if h, err := os.UserHomeDir(); err == nil {
 		homes = append(homes, h)
 	}
-	if h, err := accountHomeDir(); err == nil && h != "" && !samePath(h, firstOf(homes)) {
+	if h, err := accountHomeDir(); err == nil && h != "" && !trail.SameDir(h, firstOf(homes)) {
 		homes = append(homes, h)
 	}
 	return homes

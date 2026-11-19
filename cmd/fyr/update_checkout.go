@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func runUpdate(c *ctx) error {
@@ -120,7 +121,7 @@ func knownCheckout(repoFlag, home, repo string) error {
 		return nil
 	}
 	// A manifest written by an embedded or zip install records a release or
-	// an archive, never a path: neither is handed to samePath, which would
+	// an archive, never a path: neither is handed to trail.SameDir, which would
 	// resolve it against the working directory.
 	switch o := st.Origin(); o.Kind {
 	case harness.OriginRelease:
@@ -128,19 +129,10 @@ func knownCheckout(repoFlag, home, repo string) error {
 	case harness.OriginZip:
 		return fmt.Errorf("this home was installed from a zip (sha256 %s), not from a checkout; pass --repo %s to build and install from it", o.ShortSum(), repo)
 	}
-	if samePath(st.Repo, repo) {
+	if trail.SameDir(st.Repo, repo) {
 		return nil
 	}
 	return fmt.Errorf("checkout %s is not the installed one (%s); pass --repo %s to build and install from it", repo, st.Repo, repo)
-}
-
-func samePath(a, b string) bool {
-	ra, errA := filepath.EvalSymlinks(a)
-	rb, errB := filepath.EvalSymlinks(b)
-	if errA != nil || errB != nil {
-		return a == b
-	}
-	return ra == rb
 }
 
 // shouldRebuild decides whether install re-executes through a fresh build

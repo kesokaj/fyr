@@ -121,31 +121,13 @@ var verbs = map[string]verb{
 	}, positional: true, readsRepo: true},
 	"metrics": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.metricsSource, "source", "", "ingest: the sandbox home `DIR` to read instead of this one")
-		c.fs.StringVar(&c.metricsLabel, "label", "", "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label")
 		c.fs.StringVar(&c.metricsOutcome, "outcome", "", "ingest: the --source run's acceptance result, `pass|fail|error`")
-		c.fs.StringVar(&c.metricsSince, "since", "", "show, report, evals: the window's start, `YYYY-MM-DD` (default 30 days ago)")
-		c.fs.StringVar(&c.metricsUntil, "until", "", "show, report, evals: the window's end, `YYYY-MM-DD`, exclusive (default now)")
-		c.fs.StringVar(&c.metricsProject, "project", "", "show, report, trajectory: only sessions in the project root `DIR`")
-		c.fs.BoolVar(&c.global, "global", false, "report: all projects across the local store")
-		c.fs.BoolVar(&c.metricsMD, "md", false, "report: write Markdown instead of HTML (stdout unless --out)")
-		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "show, report: include labelled (sandbox) sessions")
+		c.registerReportFlags(true)
 		c.fs.BoolVar(&c.metricsJSON, "json", false, "show, evals, trajectory: print the summary as JSON")
-		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "show, report: the peak context, `N` tokens, a main session should stay under (default 300000)")
 		c.fs.StringVar(&c.metricsHarness, "harness", "", "evals: only the trials of the harness key `KEY`, exactly")
 		c.fs.IntVar(&c.limit, "limit", 0, "trajectory: print at most `N` main sessions (default 10)")
-		c.fs.StringVar(&c.metricsOut, "out", "", "report: the HTML or Markdown file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)")
 	}, positional: true, run: runMetrics},
-	"report": {flags: func(c *ctx) {
-		c.fs.StringVar(&c.metricsProject, "project", "", "only sessions in the project `DIR` (bare --project uses this checkout)")
-		c.fs.BoolVar(&c.global, "global", false, "all projects across the local store")
-		c.fs.BoolVar(&c.metricsMD, "md", false, "write Markdown instead of HTML (stdout unless --out)")
-		c.fs.StringVar(&c.metricsSince, "since", "", "the window's start, `YYYY-MM-DD` (default 30 days ago)")
-		c.fs.StringVar(&c.metricsUntil, "until", "", "the window's end, `YYYY-MM-DD`, exclusive (default now)")
-		c.fs.StringVar(&c.metricsLabel, "label", "", "only sessions with `KEY=VALUE`")
-		c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, "include labelled (sandbox) sessions")
-		c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, "the peak context, `N` tokens, a main session should stay under (default 300000)")
-		c.fs.StringVar(&c.metricsOut, "out", "", "the output file `FILE` (default ~/.config/fyr/reports/<date-time>-metrics.html)")
-	}, run: runReport},
+	"report": {flags: func(c *ctx) { c.registerReportFlags(false) }, run: runReport},
 	"record": {flags: func(c *ctx) {
 		c.fs.StringVar(&c.recTitle, "title", "", "add, edit: the record's one-line title, `T`")
 		c.fs.StringVar(&c.recTitleFile, "title-file", "", "add: read the title from `FILE`, one line, instead of --title")
@@ -209,6 +191,32 @@ var verbs = map[string]verb{
 	"adopt": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.force, "force", false, "replace a skill of the same name already in skills/")
 	}, source: true, positional: true, run: runAdopt},
+}
+
+func (c *ctx) registerReportFlags(withSubverbs bool) {
+	p := func(sub, text string) string {
+		if withSubverbs {
+			return sub + ": " + text
+		}
+		return text
+	}
+	project := "only sessions in the project `DIR` (bare --project uses this checkout)"
+	out := "the output file `FILE` (default ~/.config/fyr/reports/<date-time>-metrics.html)"
+	label := "only sessions with `KEY=VALUE`"
+	if withSubverbs {
+		project = "show, report, trajectory: only sessions in the project root `DIR`"
+		out = "report: the HTML or Markdown file `FILE` to write (default ~/.config/fyr/reports/<date-time>-metrics.html)"
+		label = "ingest: `KEY=VALUE` stamped on every --source session; show, report: only that label"
+	}
+	c.fs.StringVar(&c.metricsSince, "since", "", p("show, report, evals", "the window's start, `YYYY-MM-DD` (default 30 days ago)"))
+	c.fs.StringVar(&c.metricsUntil, "until", "", p("show, report, evals", "the window's end, `YYYY-MM-DD`, exclusive (default now)"))
+	c.fs.StringVar(&c.metricsProject, "project", "", project)
+	c.fs.BoolVar(&c.global, "global", false, p("report", "all projects across the local store"))
+	c.fs.BoolVar(&c.metricsMD, "md", false, p("report", "write Markdown instead of HTML (stdout unless --out)"))
+	c.fs.BoolVar(&c.metricsAllLabels, "all-labels", false, p("show, report", "include labelled (sandbox) sessions"))
+	c.fs.Int64Var(&c.metricsContextTarget, "context-target", 0, p("show, report", "the peak context, `N` tokens, a main session should stay under (default 300000)"))
+	c.fs.StringVar(&c.metricsOut, "out", "", out)
+	c.fs.StringVar(&c.metricsLabel, "label", "", label)
 }
 
 func registerGlobalFlags(fs *flag.FlagSet, c *ctx) {

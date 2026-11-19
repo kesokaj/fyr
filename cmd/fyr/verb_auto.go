@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // auto's run is registered here, not in the verbs literal: a run's check reads
@@ -187,7 +187,7 @@ func autoDreamHarnessRepo(repoFlag, home, resolvedRepo string) string {
 	if repoFlag != "" || os.Getenv("FYR_REPO") != "" {
 		return resolvedRepo
 	}
-	if st, found, err := harness.LoadState(home); err == nil && found && st.Origin().Kind == harness.OriginPath && st.Repo != "" && samePath(filepath.Clean(resolvedRepo), filepath.Clean(st.Repo)) {
+	if st, found, err := harness.LoadState(home); err == nil && found && st.Origin().Kind == harness.OriginPath && st.Repo != "" && trail.SameDir(resolvedRepo, st.Repo) {
 		return resolvedRepo
 	}
 	return ""

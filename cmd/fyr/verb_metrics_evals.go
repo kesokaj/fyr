@@ -36,13 +36,3 @@ func (c *ctx) metricsEvals(args []string) error {
 	e.WriteText(c.out)
 	return nil
 }
-
-// reportEvals is the per-row view a report shows under its pass^k chart,
-// over the report's window; none under --project, since a trial belongs to
-// no project (PLAN.md D16).
-func reportEvals(s *metrics.Store, o metrics.ShowOptions) (*metrics.EvalRows, error) {
-	if o.Project != "" {
-		return nil, nil
-	}
-	return s.Evals(metrics.EvalOptions{Since: o.Since, Now: o.Now})
-}

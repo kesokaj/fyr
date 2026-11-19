@@ -51,6 +51,40 @@ func warnRedactable(id, title, body string) {
 	}
 }
 
+type redactWarnTarget struct {
+	sub          string
+	id           string
+	extraID      string
+	fallbackName string
+	idLabel      string
+	title        string
+	body         string
+	tail         string
+}
+
+// warnRecordRedactable emits per-record ID/title/body redaction warnings to
+// stderr without printing any secret text.
+func warnRecordRedactable(t redactWarnTarget) {
+	idHot := redact.Redact(t.id) != t.id || (t.extraID != "" && redact.Redact(t.extraID) != t.extraID)
+	titleHot := redact.Redact(t.title) != t.title
+	name := t.id
+	if idHot || titleHot {
+		name = t.fallbackName
+	}
+	warn := func(what, where string) {
+		fmt.Fprintf(stderr, "fyr record %s: warning: %s: %s holds text the redactor would change%s%s\n", t.sub, name, what, where, t.tail)
+	}
+	if idHot {
+		warn(t.idLabel, "")
+	}
+	if titleHot {
+		warn("the title", "")
+	}
+	if n := firstRedacted(t.body); n > 0 {
+		warn("the body", fmt.Sprintf(" (first at line %d)", n))
+	}
+}
+
 // warnImportRedactable is warnRedactable for `record import`: one line per
 // record it stored (or, in a dry run, would store) whose ID, source path,
 // title or body holds text the redactor would change, never printing that
@@ -64,26 +98,18 @@ func warnImportRedactable(res *brain.ImportResult, dryRun bool) {
 	if dryRun {
 		tail = ""
 	}
-	warn := func(name, what, where string) {
-		fmt.Fprintf(stderr, "fyr record import: warning: %s: %s holds text the redactor would change%s%s\n", name, what, where, tail)
-	}
 	for i, r := range res.Records {
 		title, body := r.Text()
-		idHot := redact.Redact(r.ID) != r.ID || redact.Redact(r.Path) != r.Path
-		titleHot := redact.Redact(title) != title
-		name := r.ID
-		if idHot || titleHot {
-			name = fmt.Sprintf("record %d in the list above", i+1)
-		}
-		if idHot {
-			warn(name, "the ID or the source path", "")
-		}
-		if titleHot {
-			warn(name, "the title", "")
-		}
-		if n := firstRedacted(body); n > 0 {
-			warn(name, "the body", fmt.Sprintf(" (first at line %d)", n))
-		}
+		warnRecordRedactable(redactWarnTarget{
+			sub:          "import",
+			id:           r.ID,
+			extraID:      r.Path,
+			fallbackName: fmt.Sprintf("record %d in the list above", i+1),
+			idLabel:      "the ID or the source path",
+			title:        title,
+			body:         body,
+			tail:         tail,
+		})
 	}
 }
 
@@ -91,21 +117,15 @@ func warnImportRedactable(res *brain.ImportResult, dryRun bool) {
 // holds text the redactor would change, without printing the text itself.
 func warnSyncRedactable(recs []brain.Record) {
 	for i, r := range recs {
-		idHot := redact.Redact(r.ID) != r.ID
-		titleHot := redact.Redact(r.Title) != r.Title
-		name := r.ID
-		if idHot || titleHot {
-			name = fmt.Sprintf("record %d in .agents/trail.jsonl", i+1)
-		}
-		if idHot {
-			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the ID holds text the redactor would change; stored as written\n", name)
-		}
-		if titleHot {
-			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the title holds text the redactor would change; stored as written\n", name)
-		}
-		if n := firstRedacted(r.Body); n > 0 {
-			fmt.Fprintf(stderr, "fyr record sync: warning: %s: the body holds text the redactor would change (first at line %d); stored as written\n", name, n)
-		}
+		warnRecordRedactable(redactWarnTarget{
+			sub:          "sync",
+			id:           r.ID,
+			fallbackName: fmt.Sprintf("record %d in .agents/trail.jsonl", i+1),
+			idLabel:      "the ID",
+			title:        r.Title,
+			body:         r.Body,
+			tail:         "; stored as written",
+		})
 	}
 }
 

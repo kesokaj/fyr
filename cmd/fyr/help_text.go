@@ -69,7 +69,19 @@ type verbPage struct {
 }
 
 // pages holds a page per verb but sync, which is install's (pageOf).
-var pages = map[string]verbPage{
+var pages = mergePages(coreVerbPages, opsVerbPages)
+
+func mergePages(groups ...map[string]verbPage) map[string]verbPage {
+	out := make(map[string]verbPage)
+	for _, g := range groups {
+		for k, v := range g {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+var coreVerbPages = map[string]verbPage{
 	"install": {
 		synopsis: []string{"usage: fyr install [--dry-run]"},
 		about: []string{
@@ -223,216 +235,6 @@ var pages = map[string]verbPage{
 			"(ADR-068, ADR-091). A copy, a moved checkout or another home",
 			"registers again; delete the file to opt out. --register exits 2 with",
 			"--global or outside a git checkout.",
-		},
-	},
-	"auto": {
-		synopsis: []string{
-			"usage: fyr auto on [--conversation-idle D] [--dry-run]",
-			"       fyr auto off [--dry-run]",
-			"       fyr auto status",
-			"       fyr auto run [--dry-run]",
-			"       fyr auto --dry-run",
-		},
-		about: []string{
-			"An hourly run the operator switches: it does nothing unless on writes",
-			"~/.config/fyr/auto.json. on installs the single hourly timer and retires",
-			"any legacy dream timer; omitted flags keep values only while auto is on.",
-			"off replaces corrupt config and removes the timer (--dry-run previews",
-			"either). status prints the switch, idle cutoff, last run and budget.",
-			"run ingests metrics, dreams (plan mode, no tool granted) over stale",
-			"conversations across all workspaces, rates them, runs free checks on",
-			"git checkouts, and runs eval-gated workers on clean checkouts to",
-			"~/.config/fyr/auto/auto.log and a global review record. --dry-run",
-			"previews each gate without ingesting, dreaming or writing.",
-		},
-	},
-	"dream": {
-		synopsis: []string{
-			"usage: fyr dream --all [--dry-run]",
-			"       fyr dream --project DIR [--dry-run]",
-		},
-		about: []string{
-			"The background dreamer. It ingests every session into the metrics store,",
-			"then discovers git, non-git and global workspaces from search.db,",
-			"conversations and brain.db. For each changed target (--all checks 24h",
-			"idle and tries each once in 24 hours; --project accepts any directory or",
-			"__global__), it sends memory, trail, feedback, metrics numbers and",
-			"redacted conversations to agy in plan mode with no tool, records",
-			"session_ratings, and queues global proposals. Hourly runs go through",
-			"fyr auto (on/off). --dry-run writes nothing of fyr's.",
-		},
-	},
-	"metrics": {
-		synopsis: []string{
-			"usage: fyr metrics ingest [--source DIR --label KEY=VALUE",
-			"                          [--outcome pass|fail|error]]",
-			"       fyr metrics show [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
-			"                        [--project DIR] [--label KEY=VALUE | --all-labels]",
-			"                        [--context-target N] [--json]",
-			"       fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
-			"                          [--project [DIR] | --global] [--md]",
-			"                          [--label KEY=VALUE | --all-labels]",
-			"                          [--context-target N] [--out FILE]",
-			"       fyr metrics evals [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
-			"                         [--harness KEY] [--json]",
-			"       fyr metrics trajectory [<session-id>] [--project DIR] [--limit N]",
-			"                              [--json]",
-			"       fyr metrics export FILE",
-		},
-		about: []string{
-			"The metrics store, ~/.config/fyr/metrics.db. ingest reads the shape of",
-			"every Antigravity session (tools, command verbs, tokens, timings; never",
-			"arguments or prose). show summarises it: outcome, efficiency, adherence,",
-			"reliability; labelled (sandbox) sessions only when named. report writes",
-			"that as one HTML file with charts (or Markdown with --md), 0600, never over",
-			"a file. evals prints a line per fyr eval row (kind, pass rates, Wilson",
-			"interval, efficiency means, expect's m of n, a flag from its whole history)",
-			"and the suite; --harness keeps one key's trials. trajectory prints session",
-			"token curves, subagent lineage and context/tool anomalies. export writes",
-			"every row but the cmd_hash salt to FILE as JSONL, 0600, an existing FILE",
-		},
-	},
-	"report": {
-		synopsis: []string{
-			"usage: fyr report [--project [DIR] | --global] [--md] [--out FILE]",
-			"                  [--since YYYY-MM-DD] [--until YYYY-MM-DD]",
-			"                  [--label KEY=VALUE | --all-labels] [--context-target N]",
-		},
-		about: []string{
-			"Renders the six-section usage report (Executive Pulse, Second-Brain Leverage,",
-			"Quality & Learning Loop, Autonomy & Model Routing, Trigger coverage, and",
-			"Per-Project / Project Breakdown) from ~/.config/fyr/metrics.db and brain.db.",
-			"Inside a git checkout with neither --project nor --global, defaults to",
-			"--project at the checkout root; outside a checkout, defaults to --global.",
-			"Writes one HTML file (0600, refusing to overwrite) at --out or the default",
-			"path under ~/.config/fyr/reports/, or with --md prints Markdown to stdout",
-			"(or writes --out FILE). Exit 0 ok, 1 missing store or write error, 2 a",
-			"usage error.",
-		},
-	},
-	"eval": {
-		synopsis: []string{
-			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] [--acp] [--runner R] <row>...",
-			"       fyr eval [--suite-file PATH] --list",
-		},
-		about: []string{
-			"Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval",
-			"record; or --suite-file PATH outside every checkout) against the Antigravity",
-			"CLI, each row --runs N times (1 to 25, default 1), up to --parallel N at once",
-			"(1 to 25, default 1) in its own sandbox",
-			"under --home's .config/fyr/eval/<project>/<stamp>/<row>/<i>/: a clone of the",
-			"fixture, a throwaway HOME with the harness installed, your login linked. What",
-			"the agent reads goes to the CLI's model (R8). Prints PASS, FAIL or ERROR per",
-			"trial in order, writes one testing record, stores each trial and ingests it as",
-			"eval=<row> (or eval=holdout/<row>); sandboxes stay. --home is required, refused",
-			"for the real home, linked state, or a checkout. Exit 0 pass, 1 fail, 2 refusal.",
-		},
-	},
-	"check": {
-		synopsis: []string{"usage: fyr check"},
-		about: []string{
-			"A read-only drift check of the working directory's git checkout; it",
-			"writes nothing. It checks every fyr verb, subverb and flag the tracked",
-			"Markdown and the current spec, guide and deploy records name in code, and",
-			"every path they name, against this binary and the tree; every current",
-			"spec whose code changed after it, or that names none; every Must and",
-			"Should item of PRD.md (REQUIREMENTS.md without one) whose enforced by:",
-			"does not resolve, or, when SDD.md exists, that SDD.md's trace lacks; and",
-			"every SDD.md component TDD.md's trace lacks. One line per finding, then a",
-			"summary. Exit 0 clean, 1 with findings, or 1 for a refusal (on stderr).",
-		},
-	},
-	"resume": {
-		synopsis: []string{"usage: fyr resume"},
-		about: []string{
-			"Prints the working directory's checkout session resume in the seven-step",
-			"order AGENTS.md § Resume names: AGENTS.md (with missing PRD.md or file-era",
-			"trail notices), open records, the newest handoff in full, TODO.md § Now,",
-			"each open plan in full, the three newest change records, and active project",
-			"memory. Read-only: it writes nothing and never creates brain.db when",
-			"--home has none, falling back to .agents/trail.jsonl. Exit 0 ok, 2 refused.",
-		},
-	},
-	"git-check": {
-		synopsis: []string{"usage: fyr git-check"},
-		about: []string{
-			"Runs the three post-dispatch git checks on the working directory's",
-			"checkout in one read-only call and prints each under its heading:",
-			"git status --short --untracked-files=all, git log --branches --not --remotes",
-			"--oneline, and git tag. It writes nothing and leaves the stop-sign rule",
-			"unchanged: an unnamed path, commit or tag in the output is still a stop",
-			"sign. Exit 0 ok, 2 refused.",
-		},
-	},
-	"version": {
-		synopsis: []string{"usage: fyr version"},
-		about:    []string{"Prints the build version."},
-	},
-	"models": {
-		synopsis: []string{"usage: fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]"},
-		about: []string{
-			"Lists the Antigravity model catalog in ~/.config/fyr/models.json,",
-			"refreshing from agy models on a cold cache or with --refresh, and",
-			"prints the pick per role (builder, planner, judge, reviewer,",
-			"verifier, mechanical) with any fallback reason (gone model or low",
-			"Anthropic quota). --pick ROLE prints the selected model ID; --explain ID",
-			"prints model capabilities, changelog notes and empirical evidence.",
-			"Exit 0 ok, 1 refresh error, 2 refusal.",
-		},
-	},
-	"verify": {
-		synopsis: []string{"usage: fyr verify [--json] [--timeout D]"},
-		about: []string{
-			"Runs gofmt -l, go vet ./..., go test -race ./... and fyr check across",
-			"the checkout, checks the Go tree digest did not move mid-run, and writes",
-			".agents/scratch/verify.stamp cleanly (0600, symlink-safe). Stale",
-			"stamps are deleted on failure. Exit 0 ok, 1 check failed, 2 refused.",
-		},
-	},
-	"gate": {
-		synopsis: []string{
-			"usage: fyr gate <worktree> [--base REF] [--lease GLOB] [--lease-file FILE]",
-			"                [--judge TEXT [--judge-model ID]]",
-		},
-		about: []string{
-			"Checks a clean worktree or branch against base (default HEAD) across",
-			"four deterministic gates: lease and forbidden mode/secret filenames,",
-			"numstat caps and binary diffs, added-line secret scan (without printing",
-			"secrets), and forbidden commit trailers. With --judge, runs an",
-			"isolated cross-family agy verdict and logs it to metrics.db.",
-			"Exit 0 ok, 1 gate or judge failed, 2 refused, dirty, or usage error.",
-		},
-	},
-	"land": {
-		synopsis: []string{
-			"usage: fyr land <branch> [--message TEXT] [--lease GLOB] [--lease-file FILE]",
-			"                [--judge TEXT [--judge-model ID]] [--json]",
-		},
-		about: []string{
-			"Runs gate on branch, squash-merges in a detached scratch worktree, runs",
-			"verify there, verifies main stayed unchanged, fast-forwards main,",
-			"deletes branch, and refreshes .agents/scratch/verify.stamp. Preserves",
-			"branch on failure; --judge runs an optional cross-family verdict.",
-			"Exit 0 ok, 1 failed, 2 refused or usage error.",
-		},
-	},
-	"watch": {
-		synopsis: []string{"usage: fyr watch --check [--conv ID] [--idle-sec N] [--json]"},
-		about: []string{
-			"Inspects session DBs, subagent artifacts, and processes for hangs.",
-			"Reports [INTERACTIVE_WAIT], [STUCK_NO_PROGRESS], or",
-			"[BUDGET_NEAR_LIMIT] findings without polling via LLMs.",
-			"Exit 0 clean, 1 findings detected, 2 refused or usage error.",
-		},
-	},
-	"close": {
-		synopsis: []string{"usage: fyr close --title TEXT [--id ID] [--body-file FILE] [--json]"},
-		about: []string{
-			"Reads a fresh .agents/scratch/verify.stamp matching the current Go tree",
-			"digest, appends a Verification Digest section to the handoff body, and",
-			"writes one handoff record without altering earlier records.",
-			"Exit 0 ok, 1 error, 2 refused or missing/stale stamp.",
 		},
 	},
 }
