@@ -276,7 +276,7 @@ Maps every persistent store, on-demand export, search index, and runtime state o
 
 ## Build, run and deploy
 
-The commands are `AGENTS.md` § Setup commands; the procedures are the `DEPLOY-local` and `DEPLOY-remote` records, and a release is `AGENTS.md` § Release.
+The commands are `AGENTS.md` § Setup commands; the procedures are the `DEPLOY-local` and `DEPLOY-remote` records, and a release is `.agents/rules/eval-and-release.md`.
 
 ## Trace
 

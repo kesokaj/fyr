@@ -1,6 +1,6 @@
 # Workflows, Subagents, Parallel Swarm & Build Control
 
-`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 43 reusable `SKILL.md` workflows, 6 specialized subagents, evidence-ranked model selection (`fyr models`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`).
+`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 43 reusable `SKILL.md` workflows, 6 specialized subagents, evidence-ranked model selection (`fyr models`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`).
 
 ## End-to-end build lifecycle
 
@@ -28,9 +28,9 @@ sequenceDiagram
     participant Land as fyr land
     participant WT as Detached Scratch Worktree
     participant Brain as ~/.config/fyr/brain.db
-    Lead->>Gate: fyr gate --lease <glob> <worktree>
-    Gate-->>Lead: PASS (lease, modes, numstat, secrets, zero trailers)
-    Lead->>Land: fyr land --message <text> <branch>
+    Lead->>Gate: fyr gate --lease <glob> [--judge TEXT] <worktree>
+    Gate-->>Lead: PASS (lease, modes, numstat, secrets, trailers, optional judge)
+    Lead->>Land: fyr land --message <text> [--judge TEXT] <branch>
     Land->>WT: squash-merge onto base HEAD
     Land->>WT: run fyr verify (gofmt, go vet, go test -race, fyr check)
     WT-->>Land: PASS
@@ -40,8 +40,8 @@ sequenceDiagram
 ```
 
 - **`fyr verify` (`internal/gate/verify.go`):** Runs `gofmt -l`, `go vet ./...`, `go test -race ./...`, and `fyr check`, verifies the Go source tree digest did not mutate during the test run, and writes `.agents/scratch/verify.stamp` (`0600`), deleting stale stamps on failure.
-- **`fyr gate` (`internal/gate/gate.go`):** Audits a clean worktree or branch against four rules: `Files:` lease globs plus forbidden `120000`/`160000` modes and secret filenames, numstat caps (default `50` files, `1,500` lines, no binary diffs), added-line secret scanning via `internal/redact` (never printing matched secret values), and zero forbidden commit trailers.
-- **`fyr land` (`internal/gate/land.go`):** Runs `fyr gate` on a worker branch, squash-merges and runs `fyr verify` inside an isolated detached scratch worktree, verifies your base branch stayed clean and unmoved, fast-forwards it, deletes the worker branch, and refreshes `.agents/scratch/verify.stamp`.
+- **`fyr gate` (`internal/gate/gate.go`, `internal/gate/judge.go`):** Audits a clean worktree or branch against four mechanical rules (`Files:` lease globs plus forbidden `120000`/`160000` modes and secret filenames, numstat caps of default `50` files / `1,500` lines with no binary diffs, added-line secret scanning via `internal/redact` without printing matched values, and zero forbidden commit trailers) plus an optional post-gate cross-family LLM verdict (`--judge TEXT`, `--judge-model ID`) run inside `internal/isolate`'s confined read-only `Network: true` sandbox and logged to `metrics.db` (`judge_verdicts`, `ADR-526`).
+- **`fyr land` (`internal/gate/land.go`):** Runs `fyr gate` (including optional `--judge TEXT` and `--judge-model ID`) on a worker branch, squash-merges and runs `fyr verify` inside an isolated detached scratch worktree, verifies your base branch stayed clean and unmoved, fast-forwards it, deletes the worker branch, and refreshes `.agents/scratch/verify.stamp`.
 - **`fyr close` (`internal/gate/close.go`):** Validates that `.agents/scratch/verify.stamp` matches the current Go tree SHA-256 and writes an immutable `handoff` record embedding `## Verification Digest` without altering earlier records.
 
 ## Subagents, parallel workflows, and live model routing
@@ -71,6 +71,14 @@ For multi-lens reviews and release gates, two native Python workflow scripts (`w
 4. **R -> M -> T trace completeness (rule `d`):** Verifies every `PRD.md` requirement maps to a component in `SDD.md` `## Trace` and every `SDD.md` component maps to a row in `TDD.md` `## Trace`.
 
 Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untracked-files=all`, `git log --branches --not --remotes --oneline`, and `git tag` in a single read-only command after any write-capable subagent dispatch.
+
+## Out-of-band hang inspection (`fyr watch`)
+
+`fyr watch --check` (`internal/watch/watch.go`, `ADR-526`) inspects Antigravity session databases, subagent scratch artifacts, and live child processes out-of-band in `< 30 ms` without opening live stores directly or invoking any LLM. It copies target stores into a scratch temp directory, discovers active targets via `conversation_summaries.db`, inspects `.agents/scratch/search.db` alongside Linux `/proc` or macOS `ps`, and exits `0` when clear, `1` on findings, or `2` on invalid `--conv` IDs or store-copy failures:
+
+- **`[INTERACTIVE_WAIT]`:** Flags child processes blocked waiting on interactive stdin.
+- **`[STUCK_NO_PROGRESS]`:** Flags sessions idle past `--idle-sec` with stale scratch artifacts.
+- **`[BUDGET_NEAR_LIMIT]`:** Warns when subagent or session tool calls reach `>= 80%` of the `40`/`120` tool-call budget.
 
 <details>
 <summary>Complete inventory of 43 skills, 6 subagents, and build-control CLI flags</summary>
@@ -102,11 +110,12 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 | Command | Flags | Purpose |
 |---|---|---|
 | `fyr verify` | `--json`, `--timeout D` | Run `gofmt`, `go vet ./...`, `go test -race ./...`, and `fyr check`, writing `.agents/scratch/verify.stamp` |
-| `fyr gate <worktree>` | `--base REF`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--json` | Run 4 deterministic checks on a worktree or branch |
-| `fyr land <branch>` | `--message TEXT`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--timeout D`, `--json` | Gate, squash-verify in detached worktree, fast-forward `main`, and delete branch |
+| `fyr gate <worktree>` | `--base REF`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--judge TEXT`, `--judge-model ID`, `--json` | Run 4 deterministic checks plus optional confined cross-family `--judge` verdict on a worktree or branch |
+| `fyr land <branch>` | `--message TEXT`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--timeout D`, `--judge TEXT`, `--judge-model ID`, `--json` | Gate (with optional `--judge`), squash-verify in detached worktree, fast-forward `main`, and delete branch |
 | `fyr close` | `--title TEXT`, `--id ID`, `--body-file FILE`, `--json` | Write immutable `handoff` record embedding fresh verification digest |
 | `fyr check` | (global flags only) | Run read-only drift and trace checks; exit `1` on findings |
 | `fyr git-check` | (global flags only) | Run post-dispatch `git status`, unpushed commits, and `git tag` check |
+| `fyr watch` | `--check`, `--conv ID`, `--idle-sec N`, `--json` | Inspect session DBs, scratch artifacts, and child processes out-of-band (`< 30 ms`) for stdin blocks, stalls, and subagent budgets |
 | `fyr models` | `--explain ID`, `--json`, `--pick ROLE`, `--refresh`, `--tier T` | Inspect `~/.config/fyr/models.json`, refresh catalog/evidence, and pick role models |
 
 </details>

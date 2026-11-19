@@ -182,7 +182,7 @@ Security, privacy, observability, and cost guardrails apply uniformly across loc
 
 ## Deployment
 
-The README map (`README.md` § How it works) is the deployment picture and the contract: it draws how the harness reaches a machine and what leaves one, and `AGENTS.md` § How the harness works holds the rules that keep it true. What a tag delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
+The README map (`README.md` § How it works) is the deployment picture and the contract: it draws how the harness reaches a machine and what leaves one, and `.agents/rules/delivery-map.md` holds the rules that keep it true. What a tag delivers to each kind of place is stated once, in `SPEC-fyr-delivery` § The model.
 
 `fyr auto` runs on its own, hourly when turned on, rating stale conversations across all workspaces (regardless of other active `agy` sessions), proposing consolidations in tool-free plan mode, and landing eval-gated `skills/` edits on a clean harness checkout; each project's dream is a conversation you can open with `/resume`. The procedures per place are the `DEPLOY-local` and `DEPLOY-remote` records; the requirements behind the three ways in and the three procedures are PRD R8 and R9.
 

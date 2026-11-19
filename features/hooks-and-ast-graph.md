@@ -4,7 +4,7 @@
 
 ## Hook lifecycle across a turn
 
-Antigravity invokes `fyr search --hook` across four active lifecycle events (`session-start`, `pre-invocation`, `pre-tool-use`, and `stop`) with `PostToolUse` reserved under the same `< 250 ms` read-only contract (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a hard `200 ms` internal deadline (`defaultHookDeadline`) and fails open with an `allow` decision or `{}` response if a store is locked, unavailable, or disabled via `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks`.
+Antigravity invokes `fyr search --hook` across five active lifecycle events (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, and `stop`) under the `< 250 ms` fail-open contract (`PRD.md` R3, `internal/search/hook.go`, `internal/search/hook_deadline.go`). Every hook runs inside a hard `200 ms` internal deadline (`defaultHookDeadline`) and fails open with an `allow` decision or `{}` response if a store is locked, unavailable, or disabled via `~/.config/fyr/no-hooks` or `.agents/scratch/no-hooks`.
 
 ```mermaid
 sequenceDiagram
@@ -15,12 +15,15 @@ sequenceDiagram
     Agy->>Hook: session-start (<= 1,500 B capsule)
     Hook-->>Agy: date, active plan, TODO Now, dirty Go files
     Agy->>Hook: pre-invocation (prompt + conversationId)
-    Hook->>DB: AST slice, vet_history (v7), generation dedup
+    Hook->>DB: AST slice, vet_history (v8), generation dedup
     Hook->>Brain: matching BUG, ADR, PLAN, and MEMORY (>= 0.40)
     Hook-->>Agy: PreInvocationBanner JSON (or {} PASS_THROUGH)
     Agy->>Hook: pre-tool-use (toolCall name + args)
-    Hook->>DB: read clamp/ledger, [COORDINATOR_GUARD], worker capsule
-    Hook-->>Agy: allow / deny ([CLAMPED], [UNCHANGED], [COORDINATOR_GUARD]) / overwrite
+    Hook->>DB: clamp/ledger, [COORDINATOR_GUARD], Watchdog, bash guard, capsule
+    Hook-->>Agy: allow / deny ([CLAMPED], [UNCHANGED], [POLL_LOOP], [INTERACTIVE_STDIN]) / overwrite
+    Agy->>Hook: post-tool-use (toolCall result)
+    Hook->>DB: mark watchdog_ring errors (markWatchdogPostError)
+    Hook-->>Agy: {}
     Agy->>Hook: stop (turn completion)
     Hook->>DB: record co-activity and check verify.stamp
     Hook-->>Agy: allow or once-per-tree-hash [VERIFY_STAMP] nudge
@@ -30,7 +33,7 @@ At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "7"`) using Go's stdlib `go/ast` parser and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In addition to symbol definitions, `EXTRACTED` (`1.0`) / `INFERRED` (`0.7`) references, `read_ledger`, and `co_activity`, schema `v7` adds `subtask_count` (`INT DEFAULT 0`) and `directive` (`TEXT DEFAULT ''`) columns to `vet_history`; `openStore` (`staleSchemaError` in `internal/search/store.go`) unlinks and rebuilds older caches automatically on first open (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "8"`) using Go's stdlib `go/ast` parser and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In addition to symbol definitions, `EXTRACTED` (`1.0`) / `INFERRED` (`0.7`) references, `read_ledger`, `vet_history` (`subtask_count`, `directive`), and `co_activity`, schema `v8` adds `watchdog_ring` (last `64` rows per conversation) and `session_meta` (`agent_role`, `agent_name`, `tool_calls`) (`ADR-526`); `openStore` (`staleSchemaError` in `internal/search/store.go`) unlinks and rebuilds older caches automatically on first open (`PRD.md` R4).
 
 ```mermaid
 flowchart LR
@@ -78,7 +81,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 6. **Lean JSON envelope & model resolution:** Emits one 2-space pretty-printed `PreInvocationBanner` JSON object (`Metadata == nil`, `internal/search/telemetry_json.go`) with exact `model` display name and `thinking` effort resolved via `internal/search/telemetry_model.go`.
 
 <details>
-<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v7 `vet_history` fields</summary>
+<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v8 `vet_history` fields</summary>
 
 ```json
 {
@@ -114,7 +117,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 }
 ```
 
-- `vet_history` (`schemaVersion = "7"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
+- `vet_history` (`schemaVersion = "8"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
 
 </details>
 
@@ -171,6 +174,29 @@ flowchart LR
   - **Priority truncation (`<= 1,200 B`):** Keeps existing `Files:` headers verbatim at the top (never duplicated inside `[FYR_WORKER_CAPSULE]`; emits `inferred_files:` only when no `Files:` line existed) and packs cryptographic `New` (`=====<18-hex>=====`, `internal/search/fence.go`) blocks within `<= 1,200 B` in priority order: (1) `Files:` / `inferred_files:`, (2) `<= 3` matched records/memories (`140 B` note cap), (3) top `1` skill digest (`<= 400 B`), (4) `Hop-0` AST slice (`<= 600 B`, line-trimmed from bottom).
 - **`run_workflow` literal safety (`internal/search/hook_workflow.go`):** `handlePreToolWorkflow` inspects Python `agent(...)` calls to enforce `model="pro"` on guarded subagents (`[AUTO_SUBAGENT_PRO]`) while skipping Python string literals and comments (`skipPythonTrivia`), never mutating prompt strings inside scripts.
 
+## Watchdog breakers, bash stdin guard, and PostToolUse
+
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "8"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+
+```mermaid
+flowchart LR
+    preCall["PreToolUse tool call"] --> bashGuard["hook_bash_guard.go\ncheckInteractiveBashGuard"]
+    preCall --> watchPre["hook_watchdog.go\nevaluateWatchdogPre"]
+    bashGuard -- "Interactive or net git" --> bashOut["Deny INTERACTIVE_STDIN or\nOverwrite GIT_TERMINAL_PROMPT=0"]
+    watchPre --> ringDB[("search.db v8\nwatchdog_ring and session_meta")]
+    ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, TOKEN_LOOP,\nor SUBAGENT_BUDGET"]
+    postCall["PostToolUse: handlePostToolUse"] --> postMark["markWatchdogPostError\nreturns {}"]
+    postMark -.-> ringDB
+```
+
+| Breaker / Hook | Implementation | Behavior |
+|---|---|---|
+| `[INTERACTIVE_STDIN]` | `internal/search/hook_bash_guard.go` (`checkInteractiveBashGuard`) | Blocks bash calls waiting on interactive stdin and prepends `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` on network `git` operations |
+| `[POLL_LOOP]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Breaks repeated polling tool-call loops tracked in `watchdog_ring` |
+| `[TOKEN_LOOP]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Breaks consecutive error-spinning tool loops flagged in `watchdog_ring` |
+| `[SUBAGENT_BUDGET]` / `[SUBAGENT_BUDGET_WARN]` | `internal/search/hook_watchdog.go` (`evaluateWatchdogPre` / `finalizeWatchdogPre`) | Tracks per-session `tool_calls` in `session_meta`, warning then denying tool calls when subagent budgets exhaust |
+| `post-tool-use` | `internal/search/hook.go`, `internal/search/hook_watchdog.go` (`handlePostToolUse` / `markWatchdogPostError`) | Marks `watchdog_ring` failures by `HookToolCall.ID` or tool fallback and returns `{}` |
+
 ## Stop verification nudge and co-activity
 
 When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go`) records passive file `co_activity` pairs to improve future `--slice` ranking and writes live session progress to `<appDataDir>/brain/<conv-id>/fyr-process.md` (`internal/search/telemetry_process.go`). If the current session modified Go source or module files (`*.go`, `go.mod`, `go.sum`) and `.agents/scratch/verify.stamp` is missing or mismatches the current Go tree SHA-256, the `Stop` hook emits a once-per-tree-hash `[VERIFY_STAMP]` continuation nudge asking the agent to run `fyr verify`—without ever invoking `go test` inside the hook itself.
@@ -198,7 +224,7 @@ When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go
 | `--affected TARGET` | `""` | Reverse-BFS blast radius (`<= 2` hops) for a file path or symbol |
 | `--map` | `false` | Print top-10 God Nodes by PageRank, package import edges, and cycle check |
 | `--vet PROMPT` | `""` | Run the 9-mode intent, 6-anchor vetter, and skill/record prefetcher for `PROMPT` |
-| `--hook EVENT` | `""` | Execute Antigravity lifecycle hook (`session-start`, `pre-invocation`, `pre-tool-use`, `stop`; `PostToolUse` reserved under `< 250 ms` contract) |
+| `--hook EVENT` | `""` | Execute Antigravity lifecycle hook (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop` under `< 250 ms` fail-open contract) |
 
 ### `fyr index` flags
 

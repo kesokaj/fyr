@@ -17,7 +17,7 @@ flowchart LR
     metricsDB --> dreamDigest["DreamTrajectoryDigest\n(shape-only feed for dreaming)"]
 ```
 
-Because `metrics.db` preserves session shapes even after old Antigravity conversation transcripts expire, schema migrations (`1` through `8`, adding `session_ratings` in v8) always move forward without rebuilding or truncating historical rows. You can back up the entire database (excluding the `cmd_hash` salt) as `0600` JSONL at any time using `fyr metrics export <file>`.
+Because `metrics.db` preserves session shapes even after old Antigravity conversation transcripts expire, schema migrations (`1` through `9`, adding `session_ratings` in v8 and `judge_verdicts` in v9) always move forward without rebuilding or truncating historical rows. You can back up the entire database (excluding the `cmd_hash` salt) as `0600` JSONL at any time using `fyr metrics export <file>`.
 
 ## Wall-time decomposition and trajectory anomaly detection
 

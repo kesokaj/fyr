@@ -23,7 +23,7 @@ Five invariants govern every session in a `fyr`-managed repository:
 | **Session context ceiling** | `<= 180,000` input tokens per session (`rules/session-sizing.md`) | Prevents long-context degradation by sizing each session to `1` plan phase or `<= 3` small tasks (`<= 6` changed files, `<= 2` subagents) |
 | **Decide once, build uninterrupted (`ADR-517`)** | Zero operator questions during build or handoff Kickoff execution | Resolves scope, interfaces, `PRD.md`, and `ADR` trade-offs in one pre-build interview so implementation runs autonomously |
 | **Search and skeleton before reading** | `fyr search --slice` / `--affected` / `--path` / `--skeleton` / `--refs` | Cuts token waste; `PreToolUse` clamps unranged reads of `>= 400` lines and rejects duplicate reads whose SHA-256 has not changed |
-| **Fail-open hooks, fail-closed gates** | `< 250 ms` hooks (`SessionStart`, `PreInvocation`, `PreToolUse`, `Stop`) + hard CLI gates | Guides turns without stalling the CLI, while `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, and `/fyr-preflight` enforce real checks |
+| **Fail-open hooks, fail-closed gates** | `< 250 ms` hooks (`SessionStart`, `PreInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) + hard CLI gates | Guides turns without stalling the CLI, while `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, and `/fyr-preflight` enforce real checks |
 | **Durable trail outside chat memory** | `~/.config/fyr/brain.db` (and on-demand `.agents/trail.jsonl`) + `metrics.db` | Preserves `plan`, `adr`, `bug`, `testing`, `review`, `change`, and `handoff` records across session compactions and machines |
 
 ## 2. Work Classification & Feature Routing
