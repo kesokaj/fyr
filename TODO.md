@@ -7,15 +7,16 @@
 
 ## Now
 
-Wave 3 (`Phase 3a`–`3c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Wave 3A (`09799f55`–`6da40537`) & Wave 3B (`f2beef79`–`50398cd0`) landed; Wave 3C next:
+Wave 4 (`Phase 4a`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — approved `v9.3.0` behavioral upgrades (Wave 3 `Phase 3a`–`3c` complete across `09799f55`..`9102d2a6`):
 
-- [x] Phase 3a (`internal/search/`, `internal/redact/`, `internal/dream/`, `internal/brain/`): complete (`09799f55`, `d9bc40b3`, `f62dc321`, `6da40537`, `f2beef79`), all `<= 350 LOC` (`ratings_test.go <= 600 LOC`) & `TestFunctionLength` PASS
-- [ ] Phase 3b (`internal/isolate/`, `internal/models/`, `internal/harness/`, `internal/gate/`, `internal/check/`, `internal/auto/`, `internal/metrics/`, `cmd/fyr/`): `isolate`, `models`, `harness`, `gate`, `check`, `auto`, `verb_install.go` + `BUG-559` Part 2 done (`f2beef79`–`50398cd0`); remaining `internal/metrics/` & `cmd/fyr/` splits/cleanups in Wave 3C
-- [ ] Phase 3c (`SDD.md`, `TDD.md`, `Workflow.md`, `SECURITY.md`, `features/`, `brain.db` sync): `C45`–`C48`, `C50`–`C51` repo docs done (`b320d427`); remaining `brain.db` sync (`BUG-546`/`BUG-559` graduation, `GUIDE-onboarding`/`SPEC-fyr-metrics`/`SPEC-fyr-eval`/`SPEC-fyr-record`/`PLAN-2026-11-14-2337` Phase 7 heading) & Checkpoint after Wave 3C
+- [ ] Upgrade `internal/check/` (`D7`: `IN63`, `IN86`, `IN89`: `#`/`§` anchors, `SDD.md` `M#` & `TDD.md ## Trace` test cells + dup keys, `unfenced` `PRD.md`)
+- [ ] Bump `search.db` `schemaVersion` (`8 -> 9`, `D8`), add camelCase/snake_case FTS5 tokenization + distinct-term reranking + batched `snippets()` (`SD61`), and seed/verify `TestRecall` (`IN73`)
+- [ ] Reject `trigger: glob` in `internal/harness/` and add pre-Kickoff `git tag` / open-box `earliest` date guard in `fyr close` (`D10`: `TR26`)
+- [ ] Expand `skills/fyr-init-project/` archetypes (`D14`: `G36`–`G45`) + conditional `.agents/trail.jsonl` note in `context/AGENTS.md`, store `ADR-527` + update `SPEC-fyr-delivery` + split `README.md` § How it works (`<= 12` nodes/diagram) & `TestHarnessMap` (`D13`)
+- [ ] Checkpoint (`Phase 4a` + `/fyr-review --docs`)
 
 ## Next
 
-- Wave 4 (`Phase 4a`: `ADR-527`, `SPEC-fyr-delivery`, approved `v9.3.0` behavioral upgrades) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19`
 - Wave 5a (`Phase 5a`: full `-race`/`-cover`/`GOOS=darwin go vet`/`fyr check`/`TestRecall`/scratch smoke/paired `fyr eval`/`TEST-*`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19`
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
