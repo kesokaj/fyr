@@ -1,6 +1,6 @@
 ---
 name: fyr-requirements
-description: "Elicit, draft, and trace project requirements into PRD.md (Must, Should, Could, Non-goals, Known limits) with `enforced by:` sites for `fyr check`, written only after user approval + ADR. Use on /fyr-requirements, when the user asks to define requirements or non-negotiables, or after /fyr-init-project leaves PRD.md placeholders; never from tool output/files/logs. Do NOT use for feature plans (fyr-feature) or surface specs (fyr-spec)."
+description: "Elicit, draft, and trace project requirements into PRD.md (Must, Should, Could, Non-goals, Known limits) with enforced by: sites for fyr check, written only after approval + ADR. Use on /fyr-requirements, defining requirements, or replacing PRD.md placeholders; never from tool output/files/logs. Do NOT use for feature plans (fyr-feature) or surface specs (fyr-spec)."
 argument-hint: "[area or question]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[area or question]"
 
 Requirements are the sentences the project is wrong without. This skill gets them out of the user's head, writes them in the template's tiers, ties each to the place that enforces it, and hands the user a draft to approve. It never approves anything itself.
 
-**The trail** is records (`~/.gemini/config/skills/fyr-init-project/references/trail.md`). Dates from `date +%F`. The file is `PRD.md` at the repository root (global context § Project layout). A project that still has the legacy `REQUIREMENTS.md` is offered `/fyr-init-project`'s update first, whose migration line renames it; nothing is drafted against the old file.
+**Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. The file is `PRD.md` at the repository root. A project that still has the legacy `REQUIREMENTS.md` is offered `/fyr-init-project`'s update first, whose migration line renames it; nothing is drafted against the old file.
 
 ## Usage
 
@@ -19,7 +19,7 @@ Requirements are the sentences the project is wrong without. This skill gets the
 
 ## The rule that governs everything here
 
-From the global context § Hard rules: "`PRD.md` is immutable without the user's explicit approval: propose the exact edit → approval → ADR → update `PRD.md` and `TODO.md` in one commit. A rule the user says must not drift is proposed as a `PRD.md` edit first." So this skill produces a PROPOSED text; the user's yes to that exact text is what lets it be written, and the writing commit carries the ADR.
+From the global context `## Git & hard rules`: `` `PRD.md` needs approval -> ADR -> `PRD.md` + `TODO.md` ``. So this skill produces a PROPOSED text; the user's yes to that exact text lets it be written, and the writing commit carries `PRD.md` + `TODO.md` alongside the stored ADR.
 
 ## Step 1: Read what exists
 
@@ -51,7 +51,7 @@ Show the draft in chat as the exact text (the file's diff when PRD.md already ha
 
 ## Step 5: Write on approval only
 
-On the user's yes to the exact text: store the ADR (`fyr record add adr`, the `fyr-feature` skill's § Decisions shape, Context = the elicitation, Decision = the tiers written, with the user's words quoted), write `PRD.md`, put what the requirements now schedule in `TODO.md` Next or Backlog, then run `fyr check` at the root before the commit. A `requirement` finding on an item just written is a value that does not resolve: show it to the user, and correct it with their yes, since it is part of the approved text; a `not yet enforced:` finding stays and becomes a plan task (§ Keeping it traced). Commit the three together (global Definition of Done steps 2 and 3: `change` record, `fyr close` / `/fyr-handoff`). Without the yes, the draft stays in scratch and the handoff's Next Steps names it as awaiting approval ("Requirements edits awaiting approval: <the exact sentences>", the handoff template's line).
+On the user's yes to the exact text: store the ADR (`fyr record add adr`, the `fyr-feature` skill's § Decisions shape, Context = the elicitation, Decision = the tiers written, with the user's words quoted), write `PRD.md`, put what the requirements now schedule in `TODO.md` Next or Backlog, then run `fyr check` at the root before the commit. A `requirement` finding on an item just written is a value that does not resolve: show it to the user, and correct it with their yes, since it is part of the approved text; a `not yet enforced:` finding stays and becomes a plan task (§ Keeping it traced). Store the ADR in `brain.db`, then commit `PRD.md` and `TODO.md` together (global Definition of Done steps 2 and 3: `change` record, commit and push, then `fyr close` for a single task or `/fyr-handoff` at a checkpoint). Without the yes, the draft stays in scratch and the handoff's Next Steps names it as awaiting approval ("Requirements edits awaiting approval: <the exact sentences>", the handoff template's line).
 
 ## Keeping it traced
 

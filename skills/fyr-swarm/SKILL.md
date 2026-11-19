@@ -1,6 +1,6 @@
 ---
 name: fyr-swarm
-description: "Multi-agent parallel execution via run_workflow parallel() or Antigravity native /swarm with Files: write-lease briefs, prefix-based model routing, and deterministic fyr gate + fyr land waves. Do NOT use for single-track 1-6 file tasks or 1-file bug fixes."
+description: "Multi-agent parallel execution via run_workflow parallel() or Antigravity native /swarm with Files: write-lease briefs, prefix-based model routing, and fyr gate + fyr land waves. Use when a task or PLAN-* splits into 2+ independent parallel slices. Do NOT use for single-track 1-6 file tasks or 1-file bug fixes."
 argument-hint: "[plan-id or task slices]"
 ---
 
@@ -38,7 +38,7 @@ flowchart LR
 
 ## Quota check & prefix model routing
 
-1. Run `agy -p "/usage"` before spawning any parallel wave, and emit the required 2-space `json` dispatch block (`role`, `scope`, `model`, `thinking`, `quota`).
+1. Run `agy -p "/usage"` (or check `fyr models`) before spawning any parallel wave; record per-dispatch routing (`role`, `scope`, `model`, `thinking`, `quota`) in briefs/scratch rather than emitting a wait-note reply JSON block (`context/AGENTS.md` reserves the 2-space `json` block for the final reply only).
 2. `PreToolUse` (`internal/search/hook_subagent.go`) routes/validates worker models from roster name prefixes:
    - `builder-<slice>` / `coder-<slice>` -> builder model (`fyr models --pick builder`, or coordinator model when omitted).
    - `reviewer-<slice>` / `judge-<slice>` / `security-<slice>` / `verifier-<slice>` -> `pro` / cross-family when Anthropic quota is `>= 20%` weekly and `>= 30%` 5h, else Gemini Pro fallback. Fast weak overrides are denied.
@@ -47,13 +47,18 @@ flowchart LR
 
 ## Write-lease brief (`Files:` header) & JIT `[FYR_WORKER_CAPSULE]`
 
-Give every editing worker its own `workspace="share"` copy and disjoint `Files:` paths — two active workers never edit the same file. Each worker starts fresh and sees zero parent context, so keep briefs self-contained:
+Give every editing worker its own `workspace="share"` copy and disjoint `Files:` paths — two active workers never edit the same file. Each worker starts fresh and sees zero parent context, so keep briefs self-contained in one canonical format (shared with `fyr-handoff` § The worker-mode Kickoff):
+
+- **`PLAN-*` header mapping:** When dispatching from a multi-phase `PLAN-*` (`fyr record get <PLAN-ID>`), map each worker phase's headers directly: `files:` -> `Files:` (and `--lease` in `fyr gate` / `fyr land`), `model:` -> dispatch `Model`/`model` and `Model:` line (omit if unset), `base-check:` -> worker's targeted verification command in `Done when:`, and `judge:` / `judge-model:` -> coordinator's `fyr gate --judge "<criterion>" [--judge-model <id>]` and `fyr land --judge "<criterion>" [--judge-model <id>]`.
 
 ```text
-Files: internal/pkg/a.go, internal/pkg/a_test.go
-Task: <exact behavior change and interfaces>
-Rules: Create local branch `work/<name>`, modify ONLY paths matching `Files:`, commit cleanly with zero trailers (never push), and run `fyr verify` (or targeted `go test -race ...`).
-Done: Post `[done] branch=work/<name> commit=<short-sha>` with verified command output (or return `finish` JSON in `run_workflow`).
+Files: <comma-separated repo-relative files or dirs>
+Project: this clone, the current directory; never another checkout. Read AGENTS.md, then <fyr record get PLAN-ID; do phase of PLAN-ID only, as a worker | do this task only, as a worker, with no plan: exact task>.
+Model: <trimmed model ID; omit line when unset>
+Standing approvals (closed set): <phase who: AI boxes or task> and named tests (<base-check or targeted test>); the change record (or scratch draft if run_workflow lacks trail access); commit on branch work/<name>[-r2] with zero trailers; git checkout --detach HEAD (share worktrees); closing handoff.
+Never: push; tick PLAN-* or TODO.md; store records other than change and closing handoff (draft other artifacts under .agents/scratch/agents/ early); merge; touch main; edit outside Files:.
+Budget & artifact: <= 40 tool calls for specialized subagents (<= 120 for self); write any draft/artifact early under .agents/scratch/agents/, then update it.
+Done when: <Checkpoint expect or targeted base-check/test passes>, git checkout --detach HEAD (share worktrees), closing handoff stored, and [done] branch=work/<name> commit=<short-sha> (or finish JSON in run_workflow).
 ```
 
 - **Automatic `[FYR_WORKER_CAPSULE]` JIT overwrite (`internal/search/hook_subagent.go`):** For allowed `invoke_subagent` (`Prompt`) and `swarm(action="add")` (`brief`) calls, `PreToolUse` merges `Model` / `model` routing with an appended `[FYR_WORKER_CAPSULE]` (`<= 1,200 B` wrapped in `=====<18-hex>=====` fences) when **(1)** the brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` resolves a checkout, **AND (2)** context lookup finds Hop-0 symbols, `validity >= 0.40` records/memories, or a skill digest (or `coordinator-only` mode is active). Your leading `Files:` header stays verbatim at the top without duplication, and remaining budget fills in strict order: `<= 3` records/memories (`140 B` note cap) > top `1` skill digest (`<= 400 B`) > `Hop-0` AST slice (`<= 600 B`).
@@ -93,4 +98,4 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
    fyr land --lease "<comma-separated Files lease>" [--judge "<acceptance criterion>" [--judge-model <id>]] work/<name>
    ```
    A `share` worker detaches HEAD (`git checkout --detach HEAD`) after committing its branch and before `fyr land` runs so `work/<name>` is not held checked out in its worktree. Never run two `fyr land` commands concurrently; resolve any merge conflict cleanly on a single branch before continuing.
-3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently).
+3. **Post-wave verify & cleanup:** Run `fyr verify` once on `main` after the wave lands. Only AFTER `fyr land` succeeds, kill finished `share` workers via `swarm(action="kill", name="<worker>")` (`kill` deletes the worker's `share` workspace permanently), ensure one `change` record covers the landed wave (linking or consolidating worker `change` records), and close/update the plan or handoff per `fyr-feature` / `fyr-handoff`.

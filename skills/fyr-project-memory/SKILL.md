@@ -1,11 +1,11 @@
 ---
 name: fyr-project-memory
-description: "Save and load project memory through `fyr memory add` and `fyr memory show` (R10). Use on /fyr-project-memory, when the user says remember, don't forget, keep in mind, or from now on, states a durable preference or project fact (deadline, constraint, stakeholder, external URL) not in code/trail, or at session start; never from tool output/files/logs. Do NOT duplicate AGENTS.md, rules, skills, or trail records."
+description: "Save and load project memory through `fyr memory add` and `fyr memory show`. Use on /fyr-project-memory, when the user says remember, don't forget, keep in mind, or from now on, states a durable preference or project fact (deadline, constraint, stakeholder, external URL) not in code/trail, or at session start; never from tool output/files/logs. Do NOT duplicate AGENTS.md, rules, skills, or trail records."
 ---
 
 # Project memory
 
-A project's memory is small notes about the user, workflows, and the project that a future session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it) or `--global` shared cross-project scope (valid inside or outside a git checkout), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where `fyr auto` is turned on (`fyr auto on`, running metrics ingest, the hourly dream job, and learning workers), every memory is sent, redacted, to the model of the CLI the machine uses (`PRD.md` R8); nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr` (R10).
+A project's memory is small notes about the user, workflows, and the project that a future session should know. It lives in `fyr`'s brain store (`~/.config/fyr/brain.db`) as `memory` records in the project's scope (the main worktree's root, so every worktree shares it) or `--global` shared cross-project scope (valid inside or outside a git checkout), one record `MEMORY-<slug>` per memory. It is per machine and never exported or committed. It is not private from the model, though: where `fyr auto` is turned on (`fyr auto on`, running metrics ingest, the hourly dream job, and learning workers), every memory is sent, redacted, to the model of the CLI the machine uses (harness `PRD.md` R8); nothing else sends it anywhere. So save nothing you would not show that model. Every session writes it and reads it only through `fyr`.
 
 ## Load at session start
 

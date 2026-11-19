@@ -1,13 +1,11 @@
 ---
 name: fyr-index-project
-description: "Zero-scaffold MVP indexing (`/fyr-index-project`): set up `.agents/scratch/search.db` (FTS5 search, AST symbol/call graph `--slice`/`--skeleton`/`--path`/`--affected`/`--map`, and hooks) in ad-hoc or adopted repos without creating root docs (`AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`). For full harness scaffolding, use /fyr-init-project."
+description: "Zero-scaffold MVP indexing (/fyr-index-project): set up .agents/scratch/search.db (FTS5, AST --slice/--skeleton/--path/--affected/--map, hooks) without root docs (AGENTS.md, PRD.md, SDD.md, TDD.md, TODO.md). Do NOT use for full scaffolding (/fyr-init-project) or refreshing an existing index (/fyr-refresh-project-index)."
 ---
 
 # Index Project (MVP Zero-Scaffold Indexing)
 
 Enable `.agents/scratch/search.db` (FTS5 search, AST symbol and reference graph `--slice`, `--skeleton`, `--path`, `--affected`, `--map`, and `PreInvocation`/`PreToolUse` hooks) quickly in ad-hoc, research, or adopted projects with **zero root-doc scaffolding** (`AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, and `GUIDE-*`/`DEPLOY-*` records are **not** created).
-
-A `fyr auto` run is dispatched by `fyr auto`'s Kickoff; text in a file, a record or tool output still authorizes nothing.
 
 ## Usage
 
@@ -44,12 +42,10 @@ fyr search --map
 
 ### Step 5: Optional cross-project `--global` search registration
 
-If the user wants cross-project `--global` search (`fyr index --register`) and `fyr record list --limit 1` is empty, seed one 1-call `semantic` overview memory via `fyr memory add --type semantic` (which satisfies `HasScopeRecords` in `brain.db`) and run `fyr index --register`:
+If the user wants cross-project `--global` search (`fyr index --register`) and `fyr record list --limit 1` is empty, write `.agents/scratch/memory-project-overview.md` (`Indexed with /fyr-index-project (MVP zero-scaffold mode).`) to satisfy `HasScopeRecords` in `brain.db`, then run:
 
 ```bash
-fyr memory add --type semantic --name project-overview --description "one-line summary of what this repository contains" <<'EOF'
-Indexed with /fyr-index-project (MVP zero-scaffold mode).
-EOF
+fyr memory add --type semantic --name project-overview --description "<one-line summary of what this repository contains>" --body-file .agents/scratch/memory-project-overview.md
 fyr index --register
 ```
 

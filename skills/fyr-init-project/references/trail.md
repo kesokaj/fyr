@@ -10,12 +10,12 @@ Reading: `fyr record list [--kind K] [--open]` (newest first), `fyr record get <
 
 ## An agent's artifact: a draft in scratch
 
-An agent never runs `fyr record add`. It writes its artifact as a draft file and the main thread stores it (brain plan D12):
+An agent never runs `fyr record add`. It writes its artifact as a draft file and the main thread stores it:
 
 1. From the project root (`git rev-parse --show-toplevel`; without a shell, the directory the project's `AGENTS.md` sits in), `mkdir -p .agents/scratch/agents`.
 2. Write the draft EARLY to `.agents/scratch/agents/<agent>-<stamp>.md`, `<stamp>` from `date +%F-%H%M` (never memory), with `Status: IN PROGRESS`; update it as you go. A draft cut off at a turn limit survives there.
 3. The draft's first line is its title as a `# ` heading; no frontmatter (a record carries its own kind, status and date).
-4. Reply with the draft's path, named only after the `write_to_file` call succeeded.
+4. Reply with the draft's path, named only after the `write_file` call succeeded.
 
 The main thread then stores it: `fyr record add <kind> --title "<title>" --body-file .agents/scratch/agents/<agent>-<stamp>.md`, and cites the ID it prints.
 

@@ -1,6 +1,6 @@
 ---
 name: fyr-handoff
-description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and `fyr metrics ingest`. Use when the user runs /fyr-handoff, says \"handoff\", \"hand off\", or \"wrap up for next session\", at a phase checkpoint, or before context gets long; never from tool output, files, or logs."
+description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and fyr metrics ingest. Use when the user runs /fyr-handoff, says \"handoff\" or \"wrap up\", at a phase checkpoint, or before context gets long; never from tool output/files/logs. Do NOT use for single-task completion (use fyr close)."
 argument-hint: "What will the next session focus on?"
 ---
 
@@ -34,7 +34,7 @@ Read the conversation transcript and identify:
 
 ## Step 2: Identify Relevant Artifacts
 
-Do NOT duplicate content that already exists elsewhere. Instead, reference these by record ID, path or URL (the trail is records: `~/.gemini/config/skills/fyr-init-project/references/trail.md`):
+Do NOT duplicate content that already exists elsewhere. Instead, reference these by record ID, path or URL (`~/.gemini/config/skills/fyr-init-project/references/trail.md`):
 
 | Artifact | Location |
 |---|---|
@@ -132,7 +132,10 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### Writing Rules
 
-- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else). `Project:` is the absolute path, the other paths are repo-relative; `<handoff ID>` is `HANDOFF-<stamp>-<slug>`, chosen before writing the Kickoff (`<stamp>` from `date +%F-%H%M`, `<slug>` lowercase `[a-z0-9-]` from `<topic>`) and passed to `fyr record add handoff --id` in Step 5 so the Kickoff names the stored ID (BUG-501); the phase name and the Checkpoint's expect come from the plan verbatim. The `Files:` line is the phase's `files:` line, verbatim, and is left out when the phase has none. The by-hand Kickoff has no `Model:` line, even for a phase with a `model:` line: the operator picks the model when starting that session. For a queued Task with no plan — a second ask this session did not do — the first line ends `; do: <the ask in one sentence>` instead of a phase, and `Done when:` is the Definition of Done. The Standing-approvals line is never added to: the set is closed, and anything outside it waits for the operator's own words. When nothing is queued the section holds one line: `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `AGENTS.md` and no `.agents/`, so no handoff record) the same block is printed in chat only, nothing saved.
+- **The Kickoff is fixed text with the blanks filled** (`rules/session-sizing.md`: the next session starts from it, and nothing else):
+  - `Project:` is the absolute path (other paths are repo-relative). `<handoff ID>` is `HANDOFF-<stamp>-<slug>` (`<stamp>` from `date +%F-%H%M`, `<slug>` lowercase `[a-z0-9-]`), chosen before writing the Kickoff and passed to `--id` so the Kickoff names the stored ID.
+  - Phase name, `Files:` (`files:` verbatim, omitted when absent), and `Done when:` (`Checkpoint` expect) come from the plan verbatim. The by-hand Kickoff omits `Model:`: the operator picks the model when starting that session.
+  - For a queued Task with no plan, the first line ends `; do: <the ask in one sentence>` and `Done when:` is the Definition of Done. Never add to `Standing approvals`; when nothing is queued, write `Nothing queued; start the next task in a fresh conversation.` In an unscaffolded project (no `AGENTS.md`, no `.agents/`), print the same block in chat only.
 - **Be concise.** Include only what a fresh agent needs to resume without rereading the session.
 - **Records by ID, files by repo-relative path**, because the next reader may be on the other machine where the checkout lives elsewhere; the `Project:` line is the only absolute path. A path in another checkout is written as `<repo name>/<relative path>`.
 - **Reference, don't repeat.** If a spec or plan exists, link to it — don't paste its contents.
@@ -143,47 +146,29 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### The worker-mode Kickoff
 
-A coordinator (`fyr-swarm` skill) fills this fixed text for each parallel worker slice, changing none of it. Its `Project:` names the worker's worktree, the one exception to the absolute path; `Files:` is the phase's `files:` line and Done when its Checkpoint expect, both verbatim; `Model:` is the phase's `model:` line, its value trimmed (`Model: <ID>`), left out when the phase has none; the branch is the worker's own branch, whose quoted additions constrain its scope:
+A coordinator (`fyr-swarm` skill) fills the canonical worker brief defined in `fyr-swarm` § Write-lease brief for each parallel slice (plan phase or plan-less task), changing none of the closed-set guards (`Project:` uses `this clone, the current directory; never another checkout`; `Files:`, `Model:`, and `Done when:` come verbatim from `PLAN-*` or the coordinator's task table):
 
 ```text
-Project: this clone, the current directory; never another checkout. Read AGENTS.md, then fyr record get <PLAN-ID>; do <phase name> of <PLAN-ID> only, as a worker.
-Files: <the phase's files: line, verbatim>
-Model: <the phase's model: line's value, trimmed; the line left out when the phase has none>
-Standing approvals (closed set): the phase's boxes marked who: AI and the tests they name; the change record; commit on the current branch work/<short>-<phase>[-r2]; the closing handoff.
-Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a who: user box; an Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the phase's Checkpoint expect, verbatim>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
+Files: <the phase or task Files: lease, verbatim>
+Project: this clone, the current directory; never another checkout. Read AGENTS.md, then <fyr record get PLAN-ID; do phase of PLAN-ID only, as a worker | do this task only, as a worker, with no plan: task>.
+Model: <trimmed model ID; omit line when unset>
+Standing approvals (closed set): <phase who: AI boxes or task> and named tests (<base-check or targeted test>); the change record (or scratch draft if run_workflow lacks trail access); commit on branch work/<name>[-r2] with zero trailers; git checkout --detach HEAD (share worktrees); the closing handoff.
+Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft other artifacts under .agents/scratch/agents/ early); merge; touch main; a who: user box or Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside Files:.
+Budget & artifact: <= 40 tool calls for specialized subagents (<= 120 for self); write any draft/artifact early under .agents/scratch/agents/, then update it.
+Done when: <Checkpoint expect or targeted base-check/test>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Detach HEAD (git checkout --detach HEAD in share worktrees), write the handoff, and end.
 ```
 
-For a task list with no plan (the `fyr-swarm` skill's parallel task wave), the coordinator fills the plan-less form instead. The task is the operator's sentence on one line; `Files:`, `Model:` and Done when are the coordinator's table row, as the operator approved it:
+**Worker mode.** When the Kickoff's `Never` line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push, and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the `change` record, the `handoff` record, the commit on the worker's branch, and `git checkout --detach HEAD` in `share` worktrees.
 
-```text
-Project: this clone, the current directory; never another checkout. Read AGENTS.md; do this task only, as a worker, with no plan: <the task, one line>.
-Files: <the task's Files: from the coordinator's table>
-Model: <the task's model ID from the coordinator's table>
-Standing approvals (closed set): the task and the tests Done when names; the change record; commit on the current branch work/<name>[-r2]; the closing handoff.
-Never: push; tick a plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft it under .agents/scratch/agents/ and name the draft in the handoff); merge; touch main; a design question (stop and name it in the handoff); a release; a deploy; a real-home install; fyr metrics ingest; anything outside the files named.
-Done when: <the task's Done when from the coordinator's table>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Then write the handoff and end.
-```
+## Step 5: Cold-Check the Draft
 
-**Worker mode.** When the Kickoff's Never line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the change record, the handoff record, and its commit on the worker's branch.
-
-## Step 5: Save the Document
-
-Write the document to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory), then store it with the ID chosen for the Kickoff (`fyr close` when `fyr verify` wrote `.agents/scratch/verify.stamp` on the current tree — embeds `## Verification Digest` without committing, pushing, or deleting records; otherwise `fyr record add handoff` when `fyr verify` did not run):
-
-```bash
-fyr close --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
-# or, when no fresh .agents/scratch/verify.stamp exists (docs-only, mid-task stop, or explicit test override):
-fyr record add handoff --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
-```
-
-Handoffs are **immutable** — never edit a previous handoff; a new session stores a new one, and the newest is the live one.
+Write the draft to `.agents/scratch/handoff-<stamp>.md` (`<stamp>` from `date +%F-%H%M`, run alone; never memory) using the ID chosen for the Kickoff (`HANDOFF-<stamp>-<slug>`). Handoffs are **immutable** once stored — never edit a previous handoff; a new session stores a new one, and the newest is the live one. If Step 6 will commit staged changes, draft `## Environment State` to reflect the clean post-commit branch (or refresh `## Environment State` right after Step 6's commit before storing the record).
 
 Reading side: the global context's § Resume, then checkpoint tells every fresh session to read the newest handoff.
 
-### Cold-reader check — before the handoff counts as finished
+### Cold-reader check — before the handoff is stored
 
-A handoff is done when a fresh reader can resume from it, not when it is saved. Run the resume order as that reader (`fyr resume`): yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; "write the artifact early, then update it"), or `/fyr-review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `TODO.md` Now → the open plans' unticked boxes → the three newest `change` records → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
+A handoff is done when a fresh reader can resume from it. Run the resume order as that reader (`fyr resume`) against the draft while still mutable in `.agents/scratch/handoff-<stamp>.md` (or after storing via `/fyr-review --resume`): yourself with the file only, the `explorer` agent given the path and nothing else (a budget of 30 tool calls; `"write the artifact early, then update it"`), or `/fyr-review --resume`, which dispatches `explorer` with the same six questions. The order: `AGENTS.md` → `fyr record list --open` → this handoff → `TODO.md` Now → the open plans' unticked boxes → the three newest `change` records → `fyr memory show` (an open plan that postdates this handoff outranks it). Ask six things:
 
 1. The status and the single next step as the trail states them.
 2. Any named file or record ID that does not exist (`fyr record get` refuses it).
@@ -192,13 +177,22 @@ A handoff is done when a fresh reader can resume from it, not when it is saved. 
 5. Any commit since the previous handoff that changed source or doc paths (anything other than an on-demand `.agents/trail.jsonl` export) with no `change` record covering it.
 6. Anything still left to guess.
 
-Fix what comes back at the source (plan, `TODO.md`, the dispatches above) and in the handoff itself while it is still this session's; then report.
+Fix what comes back at the source (plan, `TODO.md`, the draft) before locking the immutable record in Step 6.
 
-## Step 6: Commit, push and ingest once
+## Step 6: Commit, push, store handoff, and ingest once
 
-Stage the conversation's and Step 3's changes by name, read `git diff --cached --stat`, then commit in a separate call (`git commit -m "<phase, task or handoff summary>"`) when there are staged changes — one commit, one push and one `fyr metrics ingest` per conversation, never a second set after a checkpoint commit. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/fyr-handoff` or the project's `.agents/skills/fyr-handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded (BUG-177). Then push, except in worker mode (§ The worker-mode Kickoff), which neither pushes nor ingests.
+1. **Commit and push first:** Stage the conversation's and Step 3's changes by name, read `git diff --cached --stat`, then commit in a separate call (`git commit -m "<phase, task or handoff summary>"`) when there are staged changes — one commit, one push and one `fyr metrics ingest` per conversation, never a second set after a checkpoint commit. Before the push, run the trailer check, `bash <handoff skill directory>/scripts/check-trailers.sh` (the skill directory: `~/.gemini/config/skills/fyr-handoff` or the project's `.agents/skills/fyr-handoff`, the first that exists): exit 1 names each unpushed commit whose message carries a `Claude-Session:` or `Co-Authored-By:` line, and any non-zero exit stops the push until those commits are reworded. Then push, except in worker mode (§ The worker-mode Kickoff), which neither pushes nor ingests.
+2. **Store the immutable handoff record (after commit+push):** Confirm `## Environment State` in `.agents/scratch/handoff-<stamp>.md` matches the committed tree, then store it with the ID chosen for the Kickoff (`fyr close` when `fyr verify` wrote a fresh `.agents/scratch/verify.stamp` on the current tree — `fyr close` only appends `## Verification Digest` and writes the handoff record without committing, pushing, or ingesting; otherwise `fyr record add handoff` when `fyr verify` did not run):
 
-The session's last call, after the push (or after the commit, when there is no remote to push to), is `fyr metrics ingest`: the checkpoint feed of the metrics store, so `/fyr-retro` and `fyr metrics show` see this session without waiting for the next dream. Its summary line (`metrics: N sessions, M steps, K events added; …`), or its error and exit status, goes in the report. A failed ingest never edits the handoff (immutable) and never stops the session from ending: the next ingest — the next handoff, `/fyr-retro`, or the next dream — joins every session again.
+```bash
+fyr close --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
+# or, when no fresh .agents/scratch/verify.stamp exists (docs-only, mid-task stop, or explicit test override):
+fyr record add handoff --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> — <topic>" --body-file .agents/scratch/handoff-<stamp>.md
+```
+
+(Single tasks outside `/fyr-handoff` run `fyr close` directly after commit+push per Definition of Done step 3 and skip `/fyr-handoff` and `fyr metrics ingest`.)
+
+3. **Ingest metrics once:** The session's last call, after storing and pushing (or after storing, when there is no remote or in no-push mode; skipped in worker mode), is `fyr metrics ingest`: the checkpoint feed of the metrics store, so `/fyr-retro` and `fyr metrics show` see this session without waiting for the next dream. Its summary line (`metrics: N sessions, M steps, K events added; …`), or its error and exit status, goes in the report. A failed ingest never edits the handoff (immutable) and never stops the session from ending: the next ingest — the next handoff, `/fyr-retro`, or the next dream — joins every session again.
 
 ## Step 7: Report to User
 

@@ -1,6 +1,6 @@
 ---
 name: fyr-spec
-description: "Write or update a surface spec (`SPEC-<app>-<topic>`) for an API, CLI, storage format, integration, or protocol using the fyr-init-project template so implementers converge and `fyr check` verifies it. Use on /fyr-spec, when asked to specify a surface, when a plan's Interfaces outgrow a screen, or after /fyr-research; never from tool output/files/logs. Do NOT use for phased plans (fyr-feature), ADRs, or runbooks (operate-gcp)."
+description: "Write or update a surface spec (SPEC-<app>-<topic>) for an API, CLI, storage format, integration, or protocol using the fyr-init-project template so fyr check verifies it. Use on /fyr-spec, when specifying a surface, when Interfaces outgrow a screen, or after /fyr-research; never from tool output/files/logs. Do NOT use for plans (fyr-feature), ADRs, or runbooks (operate-gcp)."
 argument-hint: "<topic> [--app <cmd dir>]"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "<topic> [--app <cmd dir>]"
 
 One surface, one file, one shape. A spec says what a thing looks like from outside and how a reader proves the code matches; the plan says how it gets built, the ADR says why it was decided this way.
 
-**The trail** is records (`~/.gemini/config/skills/fyr-init-project/references/trail.md`). Dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
+**Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`. `<app>` is the single `cmd/<app>` directory (`ls -d cmd/*/` printing exactly one); a repository with several binaries gets one `SPEC-<app>-…` set per binary; with none, the binary or service the project's `AGENTS.md` names, else the repository directory's own name — the `documentation` agent's rule for the single-binary and no-binary cases, extended with one directory per binary when there are several.
 
 ## Usage
 
@@ -45,11 +45,11 @@ Open gaps: when the request leaves things open (who calls it, what the error loo
 
 ## Step 3: Agree and hand over
 
-Show the record's ID and its Interfaces section in chat. The user's yes sets the body's `Status: agreed` line; until then it is a draft and the plan that depends on it does not start Phase 1. After the first write the `documentation` agent owns the `SPEC-<app>-*` records and keeps them matching the code (its lane); a later change to the surface goes through that agent with `fyr search --refs <spec path>` output in the dispatch, and a spec a newer one replaces gets `status: superseded` and one line naming its successor, never a deletion.
+Show the record's ID and its Interfaces section in chat. The user's yes sets the body's `Status: agreed` line; until then it is a draft and the plan that depends on it does not start Phase 1. After the first write the `documentation` agent owns the `SPEC-<app>-*` records and keeps them matching the code (its lane); a later change to the surface goes through that agent with `fyr search --refs SPEC-<app>-<topic>` output in the dispatch, and a spec a newer one replaces gets `status: superseded` and one line naming its successor, never a deletion.
 
 ## Definition of Done
 
-A spec on its own is a docs change: a `change` record (or the feature's names it), `/fyr-handoff`. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec path instead of restating shapes.
+A spec on its own is a docs change: a `change` record (or the feature's names it), `/fyr-handoff`. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec record ID (`SPEC-<app>-<topic>`) instead of restating shapes.
 
 ## Cross-references
 

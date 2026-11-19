@@ -1,13 +1,13 @@
 ---
 name: testing-strategy
-description: "Decide which tests a change owes and how the project's testing guide is structured: the test tiers for this stack (unit with -race, integration against a real dependency in compose, API with httptest or curl, browser e2e with Playwright against the Go binary, container smoke, cloud smoke inside /fyr-preflight), when each tier is owed, fixtures, what covered means, and who maintains the GUIDE-testing record. Use when the user asks for a test strategy, which tests to write, how we should test this, what coverage means here, or to write or update the testing guide; load it before planning a feature's Verification section. Do NOT use to write the test itself (golang, typescript), to run the tiers (dispatch the verifier agent), or for the release gate (fyr-preflight)."
+description: "Decide which test tiers (unit, integration, API, e2e, container, cloud smoke) and fixtures a change owes, what covered means, and how GUIDE-testing stays current. Use when planning Verification or updating GUIDE-testing. Do NOT use to write tests (golang, typescript), run e2e (verifier), or run release gates (/fyr-preflight)."
 ---
 
 # Testing strategy
 
 Which tests a change owes, in which tier, against which fixture, and how the project records it. The test itself is the `golang` or `typescript` skill's job (`golang/references/testing.md`, `typescript/references/testing.md`); running the tiers is the `verifier` agent's; the release gate is `fyr-preflight`. This skill decides what is owed and writes it down so the next session does not re-decide.
 
-**The trail** is records (`~/.gemini/config/skills/fyr-init-project/references/trail.md`).
+**Trail:** `~/.gemini/config/skills/fyr-init-project/references/trail.md`; dates from `date +%F`.
 
 ## The tiers for this stack
 

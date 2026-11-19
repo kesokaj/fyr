@@ -3,7 +3,7 @@
 An **Agent Brief** is the self-contained contract written when an issue, PR, backlog item, or `BUG-*`/`PROPOSAL-*` record reaches `ready-for-agent`. An autonomous session (`/fyr-swarm` worker, `fyr-feature`, or `fyr-bug`) works from this brief: the raw issue thread is background context, while the Agent Brief is the specification.
 
 > [!NOTE]
-> Adapted from `<upstream>/skills/engineering/triage/AGENT-BRIEF.md` in `mattpocock/skills` at `4ae2317` (MIT, `../LICENSE.txt`), extended with `/fyr-swarm` task/Kickoff mapping and `brain.db` conventions (`PRD.md` R7).
+> Adapted from `<upstream>/skills/engineering/triage/AGENT-BRIEF.md` in `mattpocock/skills` at `4ae2317` (MIT, `../LICENSE.txt`), extended with `/fyr-swarm` task/Kickoff mapping and `brain.db` conventions (harness `PRD.md` R7).
 
 ## Principles
 
