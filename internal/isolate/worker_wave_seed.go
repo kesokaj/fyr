@@ -5,7 +5,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -71,10 +70,8 @@ func exportSeedCandidates(ctx context.Context, fyrBin, appDir, repoRoot string, 
 func runOneSeedExport(ctx context.Context, fyrBin, appDir, repoRoot, home string) ([]byte, map[string]WorkerRecord, bool) {
 	trailFile := filepath.Join(appDir, trailRel)
 	defer cleanSeedTrail(trailFile)
-	exp := exec.CommandContext(ctx, fyrBin, "record", "export", "--repo", repoRoot, "--home", home)
-	exp.Dir = appDir
-	exp.Env = FyrEnv()
-	if err := exp.Run(); err != nil {
+	exp := newGroupCmd(ctx, fyrBin, appDir, "record", "export", "--repo", repoRoot, "--home", home)
+	if _, err := runBounded(exp, branchLimit); err != nil {
 		return nil, nil, false
 	}
 	f, err := os.Open(trailFile)

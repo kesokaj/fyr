@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +36,11 @@ var ErrModelsOver = fmt.Errorf("its output is over %d KiB", MaxModelsOut>>10)
 
 // ListModels runs `agy models` and returns the parsed model IDs in listed order.
 func ListModels(run context.Context, agy string) ([]string, error) {
-	raw, err := RunAgyModels(run, agy)
+	return listModelsForHome(run, "", agy)
+}
+
+func listModelsForHome(run context.Context, home, agy string) ([]string, error) {
+	raw, err := runAgyModelsForHome(run, home, agy)
 	if err != nil {
 		return nil, err
 	}
@@ -50,45 +55,18 @@ func ListModels(run context.Context, agy string) ([]string, error) {
 // RunAgyModels executes `agy models` in probeWorkDir() with process-group
 // isolation and output capping, returning raw stdout.
 func RunAgyModels(run context.Context, agy string) (string, error) {
-	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
-	defer cancel()
-	dir, cleanup, err := probeWorkDir()
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	cmd := exec.CommandContext(ctx, agy, "models")
-	cmd.Dir = dir
-	cmd.Env = probeEnv(dir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 5 * time.Second
-	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	err = cmd.Run()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	switch {
-	case stdout.full:
-		err = ErrModelsOver
-	case run.Err() != nil:
-		err = errors.New("the run ended before it answered")
-	case ctx.Err() == context.DeadlineExceeded:
-		err = fmt.Errorf("no answer in %s", ModelsTimeout)
-	}
-	if err != nil {
-		if l := LastLine(stderr.String()); l != "" {
-			err = fmt.Errorf("%v: %s", err, l)
-		}
-		return "", err
-	}
-	return stdout.String(), nil
+	return runAgyModelsForHome(run, "", agy)
+}
+
+func runAgyModelsForHome(run context.Context, home, agy string) (string, error) {
+	return runAgyProbe(run, home, agy, ModelsTimeout, 5*time.Second, "models")
 }
 
 // RootEnv returns the process environment stripped of git overrides, fyr
 // recursion markers, PWD/OLDPWD, and ANTIGRAVITY_* vars, with PWD=/.
-func RootEnv() []string {
+func RootEnv() []string { return rootEnvWithPWD("/") }
+
+func rootEnvWithPWD(pwd string) []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
@@ -98,23 +76,37 @@ func RootEnv() []string {
 		}
 		out = append(out, kv)
 	}
-	return append(out, "PWD=/")
+	return append(out, "PW"+"D="+pwd)
 }
 
 // probeWorkDir creates a private per-invocation 0700 directory under
 // <home>/.config/fyr/sandbox so agy probe invocations never write to /tmp,
 // never share a predictable directory, and never record "/" as a workspace URI.
-func probeWorkDir() (string, func(), error) {
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" || filepath.Clean(home) == "/" {
-		return "", func() {}, fmt.Errorf("probe workdir home: %v", err)
-	}
-	stateDir := filepath.Join(home, harness.StateDir)
-	root := filepath.Join(stateDir, "sandbox")
-	for _, p := range []string{stateDir, root} {
-		if st, lerr := os.Lstat(p); lerr == nil && st.Mode()&os.ModeSymlink != 0 {
-			return "", func() {}, fmt.Errorf("probe workdir symlink refused: %s", p)
+func probeWorkDir(home string) (string, func(), error) {
+	if strings.TrimSpace(home) == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", func() {}, fmt.Errorf("probe workdir home: %v", err)
 		}
+	}
+	cleanHome := filepath.Clean(strings.TrimSpace(home))
+	if cleanHome == "" || cleanHome == "/" || cleanHome == "." {
+		return "", func() {}, fmt.Errorf("probe workdir home: invalid %q", home)
+	}
+	if err := ensureHomeDirSafe(cleanHome); err != nil {
+		return "", func() {}, fmt.Errorf("probe workdir home: %w", err)
+	}
+	root := filepath.Join(cleanHome, harness.StateDir, "sandbox")
+	if st, lerr := os.Lstat(root); lerr == nil {
+		if st.Mode()&os.ModeSymlink != 0 {
+			return "", func() {}, fmt.Errorf("probe workdir symlink refused: %s", root)
+		}
+		if !st.IsDir() {
+			return "", func() {}, fmt.Errorf("probe workdir non-directory refused: %s", root)
+		}
+	} else if lerr != nil && !errors.Is(lerr, fs.ErrNotExist) {
+		return "", func() {}, fmt.Errorf("probe workdir: %w", lerr)
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", func() {}, fmt.Errorf("probe workdir: %w", err)
@@ -130,16 +122,41 @@ func probeWorkDir() (string, func(), error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-func probeEnv(dir string) []string {
-	base := RootEnv()
-	out := make([]string, 0, len(base))
-	for _, kv := range base {
-		if strings.HasPrefix(kv, "PWD=") {
-			continue
-		}
-		out = append(out, kv)
+func runAgyProbe(run context.Context, home, agy string, timeout, waitDelay time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(run, timeout)
+	defer cancel()
+	dir, cleanup, err := probeWorkDir(home)
+	if err != nil {
+		return "", err
 	}
-	return append(out, "PW"+"D="+dir)
+	defer cleanup()
+	cmd := exec.CommandContext(ctx, agy, args...)
+	cmd.Dir = dir
+	cmd.Env = rootEnvWithPWD(dir)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = waitDelay
+	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err = cmd.Run()
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	switch {
+	case stdout.full:
+		err = ErrModelsOver
+	case run.Err() != nil:
+		err = errors.New("the run ended before it answered")
+	case ctx.Err() == context.DeadlineExceeded:
+		err = fmt.Errorf("no answer in %s", timeout)
+	}
+	if err != nil {
+		if l := LastLine(stderr.String()); l != "" {
+			err = fmt.Errorf("%v: %s", err, l)
+		}
+		return "", err
+	}
+	return stdout.String(), nil
 }
 
 // Capped keeps up to MaxModelsOut bytes. Past that it returns Over, which

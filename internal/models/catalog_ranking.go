@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (RolePick, error) {
+func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) RolePick {
 	var buckets [][]CatalogEntry
 	if tier == "pro" {
 		buckets = [][]CatalogEntry{
@@ -37,7 +37,7 @@ func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevMod
 				Model:          best.ID,
 				Reason:         fmt.Sprintf("role=%s -> Anthropic (%s)", role, best.ID),
 				FallbackReason: fb,
-			}, nil
+			}
 		}
 	}
 	gem, _, _ := pickGeminiOrAny(active, goneIDs, "", "builder", tier)
@@ -51,7 +51,7 @@ func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevMod
 		Model:          gem.ID,
 		Reason:         fb,
 		FallbackReason: fb,
-	}, nil
+	}
 }
 
 func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (CatalogEntry, string, string) {

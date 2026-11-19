@@ -16,7 +16,7 @@ func TestProbeWorkDir(t *testing.T) {
 	t.Setenv("HOME", home)
 	wantRoot := filepath.Join(home, harness.StateDir, "sandbox")
 
-	dir, cleanup, err := probeWorkDir()
+	dir, cleanup, err := probeWorkDir("")
 	if err != nil {
 		t.Fatalf("probeWorkDir() error = %v", err)
 	}
@@ -41,7 +41,7 @@ func TestProbeWorkDir(t *testing.T) {
 		cleanup()
 		t.Fatalf("probeWorkDir %q permissions %v expose group/other bits", dir, st.Mode().Perm())
 	}
-	dir2, cleanup2, err2 := probeWorkDir()
+	dir2, cleanup2, err2 := probeWorkDir("")
 	if err2 != nil {
 		cleanup()
 		t.Fatalf("second probeWorkDir() error = %v", err2)
@@ -65,7 +65,7 @@ func TestProbeWorkDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", symHome)
-	if _, _, err := probeWorkDir(); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, _, err := probeWorkDir(""); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("expected symlinked sandbox to fail closed, got err=%v", err)
 	}
 }

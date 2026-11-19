@@ -49,7 +49,7 @@ func leftoverProcs(w io.Writer, verb, home string, roots ...string) ([]string, e
 	}
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
-		if err != nil || skip[pid] {
+		if err != nil || pid <= 1 || skip[pid] {
 			continue
 		}
 		dir := filepath.Join(procDir, e.Name())

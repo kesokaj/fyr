@@ -73,7 +73,7 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 		b.Note("agy: %v", err)
 		return -1
 	}
-	b.started = true
+	b.setStarted()
 	pgid := cmd.Process.Pid
 	b.pgids = append(b.pgids, pgid)
 	if b.c.OnEvent != nil || b.c.IdleTimeout > 0 {
@@ -149,7 +149,7 @@ func (b *Box) waitAgy(ctx context.Context, cmd *exec.Cmd, pgid int) error {
 	case err = <-done:
 	case <-timer.C:
 		b.Note("agy timed out after %s; agy itself was killed", b.c.Timeout)
-		b.timedOut = true
+		b.setTimedOut()
 		cmd.Process.Kill()
 		err = <-done
 	case <-ctx.Done():

@@ -584,3 +584,31 @@ func TestCheckHomeDir(t *testing.T) {
 		t.Fatalf("symlink .config accepted: %v", err)
 	}
 }
+
+func TestCatalogPathAndStoreNormalizeWhitespace(t *testing.T) {
+	home := t.TempDir()
+	padded := "  " + home + "/  "
+	if got, want := CatalogPath(padded), CatalogPath(home); got != want {
+		t.Fatalf("CatalogPath(%q) = %q, want %q", padded, got, want)
+	}
+	cat := Catalog{Entries: []CatalogEntry{{ID: "m1", Status: "active"}}}
+	if err := SaveCatalog(padded, cat); err != nil {
+		t.Fatalf("SaveCatalog(padded): %v", err)
+	}
+	if _, err := os.Stat(CatalogPath(home)); err != nil {
+		t.Fatalf("expected catalog at clean path %s: %v", CatalogPath(home), err)
+	}
+	if !CatalogExists(padded) || CatalogExists("   ") {
+		t.Fatalf("CatalogExists unexpected: padded=%v blank=%v", CatalogExists(padded), CatalogExists("   "))
+	}
+	loaded, ok, err := LoadCatalog(padded)
+	if err != nil || !ok || len(loaded.Entries) != 1 || loaded.Entries[0].ID != "m1" {
+		t.Fatalf("LoadCatalog(padded) = (%+v, %v, %v)", loaded, ok, err)
+	}
+	if _, ok, err := LoadCatalog("   "); err != nil || ok {
+		t.Fatalf("LoadCatalog(blank) = (%v, %v), want (false, nil)", ok, err)
+	}
+	if err := SaveCatalog("   ", cat); err == nil {
+		t.Fatal("SaveCatalog(blank) succeeded, want error")
+	}
+}

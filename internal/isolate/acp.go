@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 )
 
+const maxACPLine = 16 << 20
+
 // ACPCommand returns the argv flags used to start agy in Agent Client Protocol
 // stdio mode with process isolation per session.
 func ACPCommand() []string {
@@ -62,6 +64,7 @@ type ACPClient struct {
 	r        *bufio.Reader
 	w        io.Writer
 	writeMu  sync.Mutex
+	turnMu   sync.Mutex
 	nextID   atomic.Int64
 	grants   []string
 	onDenied func(tool string)
@@ -99,11 +102,28 @@ func (c *ACPClient) Close() error {
 	return c.closeErr
 }
 
+func readBoundedLine(r *bufio.Reader, limit int) ([]byte, error) {
+	var buf []byte
+	for {
+		frag, err := r.ReadSlice('\n')
+		if len(buf)+len(frag) > limit {
+			return nil, errors.New("acp line exceeds max size")
+		}
+		if len(buf) == 0 && err != bufio.ErrBufferFull {
+			return frag, err
+		}
+		buf = append(buf, frag...)
+		if err != bufio.ErrBufferFull {
+			return buf, err
+		}
+	}
+}
+
 func (c *ACPClient) readLoop() {
 	var readErr error
 	for {
-		line, err := c.r.ReadBytes('\n')
-		if len(line) > 0 {
+		line, err := readBoundedLine(c.r, maxACPLine)
+		if len(line) > 0 && (err == nil || errors.Is(err, io.EOF)) {
 			c.dispatchLine(line)
 		}
 		if err != nil {
@@ -186,6 +206,7 @@ func (c *ACPClient) call(ctx context.Context, method string, params, out any) er
 		c.removePending(id)
 		return ctx.Err()
 	case <-c.closed:
+		c.removePending(id)
 		return fmt.Errorf("acp %s: EOF waiting for response", method)
 	case resp, ok := <-ch:
 		if !ok {
@@ -279,7 +300,7 @@ func (c *ACPClient) SetSessionMode(ctx context.Context, sessionID, mode string) 
 	return c.call(ctx, "session/set_mode", req, nil)
 }
 
-// Steer sends a mid-session steering prompt to sessionID.
+// Steer sends a mid-session steering prompt to sessionID without waiting for turnMu.
 func (c *ACPClient) Steer(ctx context.Context, sessionID, text string) error {
 	req := map[string]any{
 		"sessionId": sessionID,

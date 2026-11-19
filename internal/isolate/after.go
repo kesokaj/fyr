@@ -42,7 +42,7 @@ func (b *Box) After() bool {
 // item 49), unless no session ran to write it.
 func (b *Box) count(path, s string) int {
 	n, err := countLines(path, s)
-	if err != nil && (b.started || !errors.Is(err, fs.ErrNotExist)) {
+	if err != nil && (b.Started() || !errors.Is(err, fs.ErrNotExist)) {
 		b.fileFailed(err, "not read: %v", err)
 	}
 	return n

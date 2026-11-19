@@ -3,6 +3,7 @@
 package isolate
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -59,7 +60,7 @@ func leftoverProcs(w io.Writer, verb, home string, roots ...string) ([]string, e
 	sort.Ints(pids)
 	var found []string
 	for _, pid := range pids {
-		if skip[pid] {
+		if pid <= 1 || skip[pid] {
 			continue
 		}
 		dp := procs[pid]
@@ -82,8 +83,13 @@ func readDarwinProcs(roots []string) (map[int]*darwinProc, error) {
 	lsofCmd.Dir = "/"
 	lsofCmd.Env = WithoutGit(os.Environ())
 	lsofOut, lsofErr := lsofCmd.Output()
-	if len(lsofOut) == 0 {
-		return nil, fmt.Errorf("lsof: %v", lsofErr)
+	if lsofErr != nil {
+		var ee *exec.ExitError
+		if len(lsofOut) == 0 || !errors.As(lsofErr, &ee) || ee.ExitCode() != 1 || len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("lsof: %v", lsofErr)
+		}
+	} else if len(lsofOut) == 0 {
+		return nil, errors.New("lsof: empty output")
 	}
 	psCmd := exec.Command(psBin, "-Eww", "-U", uid, "-o", "pid=,ppid=,comm=,command=")
 	psCmd.Dir = "/"
@@ -159,7 +165,7 @@ func parsePs(out string, procs map[int]*darwinProc) {
 		if dp.exe == "" {
 			dp.exe = fields[2]
 		}
-		dp.env = line
+		dp.env = skipLeadingFields(line, 2)
 	}
 }
 
@@ -185,11 +191,40 @@ func darwinHit(dp *darwinProc, home string, roots []string) string {
 	if hit != "" {
 		return hit
 	}
-	want := "HOME=" + home
-	for _, tok := range strings.Fields(dp.env) {
-		if tok == want {
-			return "home"
-		}
+	if hasEnvHome(dp.env, home) {
+		return "home"
 	}
 	return ""
+}
+
+func skipLeadingFields(line string, n int) string {
+	i := 0
+	for k := 0; k < n && i < len(line); k++ {
+		for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+			i++
+		}
+		for i < len(line) && line[i] != ' ' && line[i] != '\t' {
+			i++
+		}
+	}
+	return strings.TrimLeft(line[i:], " \t")
+}
+
+func hasEnvHome(envLine, home string) bool {
+	want := "HOME=" + home
+	for start := 0; start <= len(envLine)-len(want); {
+		idx := strings.Index(envLine[start:], want)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		end := pos + len(want)
+		leftOK := pos == 0 || envLine[pos-1] == ' ' || envLine[pos-1] == '\t'
+		rightOK := end == len(envLine) || envLine[end] == ' ' || envLine[end] == '\t'
+		if leftOK && rightOK {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
 }

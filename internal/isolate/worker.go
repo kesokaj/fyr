@@ -348,7 +348,8 @@ func newWorker(o WorkerOptions, p prepared, stamp, dir string, seed *waveSeed) *
 	if model == "" {
 		model = o.Model
 	}
-	pt := max(1, int((o.Timeout-5*time.Minute)/time.Minute))
+	grace := min(5*time.Minute, o.Timeout/5)
+	pt := max(1, int((o.Timeout-grace)/time.Minute))
 	w := &worker{o: o, p: p, stamp: stamp, seed: seed}
 	w.b = New(Config{
 		Dir: dir, Source: o.Root, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
@@ -399,7 +400,7 @@ func (w *worker) finishChecks(ctx context.Context, collect *sync.Mutex) {
 		runWorkerJudge(ctx, w)
 	}
 	collect.Lock()
-	w.collect()
+	w.collect(ctx)
 	collect.Unlock()
 	w.remove()
 }
@@ -429,12 +430,13 @@ func (w *worker) branch() bool {
 }
 
 func (w *worker) seedRecords(ctx context.Context) {
-	fyrBin := filepath.Join(w.b.Home(), ".local", "bin", "fyr")
+	fyrBin, err := w.leadFyrBin()
+	if err != nil {
+		return
+	}
 	trailFile := filepath.Join(w.b.App(), trailRel)
 	if _, err := os.Stat(trailFile); err == nil {
-		cmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
-		cmd.Dir, cmd.Env = w.b.App(), FyrEnv()
-		_ = cmd.Run()
+		runSeedSync(ctx, fyrBin, w.b.App(), w.b.Home())
 		return
 	}
 	blob, recs, ok := w.seed.load(ctx, fyrBin, w.b.App(), w.o.Root, w.o.Home, w.o.RealHome)
@@ -442,9 +444,7 @@ func (w *worker) seedRecords(ctx context.Context) {
 		return
 	}
 	if os.WriteFile(trailFile, blob, 0o600) == nil {
-		cmd := exec.CommandContext(ctx, fyrBin, "record", "sync", "--home", w.b.Home())
-		cmd.Dir, cmd.Env = w.b.App(), FyrEnv()
-		_ = cmd.Run()
+		runSeedSync(ctx, fyrBin, w.b.App(), w.b.Home())
 	}
 	cleanSeedTrail(trailFile)
 	w.baseRecords = recs
@@ -484,7 +484,7 @@ func (w *worker) unsafe() bool {
 }
 
 func (w *worker) remove() {
-	if w.o.Keep || !w.collected || w.unsafe() {
+	if w.o.Keep || w.unsafe() || (w.ran && !w.collected) {
 		return
 	}
 	if w.b.Remove() {

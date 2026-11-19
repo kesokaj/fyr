@@ -7,12 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -37,22 +34,12 @@ const (
 )
 
 const (
-	llExecute    uint64 = 1 << 0
-	llWriteFile  uint64 = 1 << 1
-	llReadFile   uint64 = 1 << 2
-	llReadDir    uint64 = 1 << 3
-	llRemoveDir  uint64 = 1 << 4
-	llRemoveFile uint64 = 1 << 5
-	llMakeChar   uint64 = 1 << 6
-	llMakeDir    uint64 = 1 << 7
-	llMakeReg    uint64 = 1 << 8
-	llMakeSock   uint64 = 1 << 9
-	llMakeFifo   uint64 = 1 << 10
-	llMakeBlock  uint64 = 1 << 11
-	llMakeSym    uint64 = 1 << 12
-	llRefer      uint64 = 1 << 13
-	llTruncate   uint64 = 1 << 14
-	llIoctlDev   uint64 = 1 << 15
+	llExecute   uint64 = 1 << 0
+	llWriteFile uint64 = 1 << 1
+	llReadFile  uint64 = 1 << 2
+	llReadDir   uint64 = 1 << 3
+	llTruncate  uint64 = 1 << 14
+	llIoctlDev  uint64 = 1 << 15
 
 	llFileMask uint64 = llExecute | llWriteFile | llReadFile | llTruncate | llIoctlDev
 	llROMask   uint64 = llExecute | llReadFile | llReadDir
@@ -179,142 +166,6 @@ func addOnePathRule(rsFD int, path string, access uint64) error {
 	return nil
 }
 
-// MaybeRunInit completes confined child startup when FYR_ISOLATE_INIT=1.
-// Call it at the start of main and TestMain before any work runs.
-func MaybeRunInit() {
-	if os.Getenv(IsolateInitEnv) != "1" {
-		return
-	}
-	runtime.LockOSThread()
-	pol, err := readInitPolicy()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fyr isolate: %v\n", err)
-		os.Exit(126)
-	}
-	if err := mountIsolatedFS(!pol.Network); err != nil {
-		fmt.Fprintf(os.Stderr, "fyr isolate: %v\n", err)
-		os.Exit(126)
-	}
-	pol.RWPaths = append(pol.RWPaths, "/dev/pts")
-	if err := applyLandlock(pol); err != nil {
-		fmt.Fprintf(os.Stderr, "fyr isolate: %v\n", err)
-		os.Exit(126)
-	}
-	if pol.Dir != "" {
-		if err := os.Chdir(pol.Dir); err != nil {
-			fmt.Fprintf(os.Stderr, "fyr isolate chdir %s: %v\n", pol.Dir, err)
-			os.Exit(126)
-		}
-	}
-	os.Exit(runInitChild(pol))
-}
-
-// runInitChild spawns the sandboxed command as PID 2 while PID 1 stays alive as
-// the CLONE_NEWPID init process so child workers never observe PPID == 1 (BUG-549).
-func runInitChild(pol Policy) int {
-	cmd := exec.Command(pol.Argv[0], pol.Argv[1:]...)
-	cmd.Env = cleanIsolateEnv(pol.Env)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	sigCh := make(chan os.Signal, 8)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP, syscall.SIGQUIT)
-	if err := cmd.Start(); err != nil {
-		signal.Stop(sigCh)
-		fmt.Fprintf(os.Stderr, "fyr isolate exec %s: %v\n", pol.Argv[0], err)
-		return 127
-	}
-	_ = os.Stdin.Close()
-	_ = os.Stdout.Close()
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case s := <-sigCh:
-				_ = cmd.Process.Signal(s)
-			case <-done:
-				return
-			}
-		}
-	}()
-	err := cmd.Wait()
-	signal.Stop(sigCh)
-	close(done)
-	if err == nil {
-		return 0
-	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			return 128 + int(ws.Signal())
-		}
-		return ee.ExitCode()
-	}
-	return 1
-}
-
-func mountIsolatedFS(bringLoopback bool) error {
-	if err := syscall.Mount("none", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
-		return fmt.Errorf("mount / private: %w", err)
-	}
-	if err := syscall.Mount("proc", "/proc", "proc", syscall.MS_NOSUID|syscall.MS_NOEXEC|syscall.MS_NODEV, ""); err != nil {
-		return fmt.Errorf("mount /proc: %w", err)
-	}
-	if err := syscall.Mount("devpts", "/dev/pts", "devpts", syscall.MS_NOSUID|syscall.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620"); err != nil {
-		return fmt.Errorf("mount /dev/pts: %w", err)
-	}
-	if err := syscall.Mount("/dev/pts/ptmx", "/dev/ptmx", "", syscall.MS_BIND, ""); err != nil {
-		return fmt.Errorf("bind /dev/ptmx: %w", err)
-	}
-	if bringLoopback {
-		if err := bringUpLoopback(); err != nil {
-			return err
-		}
-	}
-	if _, _, errno := landlockSyscall6(syscall.SYS_PRCTL, llPrCapAmbient, llPrCapAmbientClearAll, 0, 0, 0, 0); errno != 0 {
-		return fmt.Errorf("clear ambient caps: %w", errno)
-	}
-	return nil
-}
-
-func bringUpLoopback() error {
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if err != nil {
-		return fmt.Errorf("loopback socket: %w", err)
-	}
-	defer syscall.Close(fd)
-	var ifr [40]byte
-	copy(ifr[:16], "lo")
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), siocGIFFlags, uintptr(unsafe.Pointer(&ifr[0]))); errno != 0 {
-		return fmt.Errorf("loopback SIOCGIFFLAGS: %w", errno)
-	}
-	binary.NativeEndian.PutUint16(ifr[16:18], binary.NativeEndian.Uint16(ifr[16:18])|iffUp)
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), siocSIFFlags, uintptr(unsafe.Pointer(&ifr[0]))); errno != 0 {
-		return fmt.Errorf("loopback SIOCSIFFLAGS: %w", errno)
-	}
-	return nil
-}
-
-func readInitPolicy() (Policy, error) {
-	f := os.NewFile(3, "isolate-policy")
-	if f == nil {
-		return Policy{}, errors.New("missing policy fd")
-	}
-	data, err := io.ReadAll(f)
-	_ = f.Close()
-	if err != nil {
-		return Policy{}, err
-	}
-	var pol Policy
-	if err := json.Unmarshal(data, &pol); err != nil {
-		return Policy{}, err
-	}
-	if len(pol.Argv) == 0 || pol.Argv[0] == "" {
-		return Policy{}, errors.New("empty argv in policy")
-	}
-	return pol, nil
-}
-
 func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 	if err := checkOSAvailable(); err != nil {
 		return nil, nil, err
@@ -323,6 +174,8 @@ func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("isolate executable: %w", err)
 	}
+	var initEnv []string
+	pol, initEnv = withCoverDirForInit(pol, append(cleanIsolateEnv(pol.Env), IsolateInitEnv+"=1"))
 	payload, err := json.Marshal(pol)
 	if err != nil {
 		return nil, nil, err
@@ -340,7 +193,7 @@ func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 	}
 	cmd := exec.Command(exe)
 	cmd.Dir = pol.Dir
-	cmd.Env = append(cleanIsolateEnv(pol.Env), IsolateInitEnv+"=1")
+	cmd.Env = initEnv
 	cmd.ExtraFiles = []*os.File{pr}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid:     true,
@@ -361,13 +214,54 @@ func prepareIsolatedCmd(pol Policy) (*exec.Cmd, func(), error) {
 	return cmd, func() { _ = pr.Close() }, nil
 }
 
-func cleanIsolateEnv(env []string) []string {
-	out := make([]string, 0, len(env))
-	prefix := IsolateInitEnv + "="
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, prefix) {
-			out = append(out, kv)
+func withCoverDirForInit(pol Policy, initEnv []string) (Policy, []string) {
+	cov, fromPol := envValue(pol.Env, "GOCOVERDIR")
+	if !fromPol {
+		cov = os.Getenv("GOCOVERDIR")
+	}
+	if cov == "" {
+		return pol, initEnv
+	}
+	if abs, err := filepath.Abs(cov); err == nil {
+		cov = abs
+	}
+	initEnv = setEnvKey(initEnv, "GOCOVERDIR", cov)
+	pol.RWPaths = appendUniqueClean(pol.RWPaths, cov)
+	return pol, initEnv
+}
+
+func setEnvKey(env []string, key, val string) []string {
+	prefix := key + "="
+	entry := prefix + val
+	out := make([]string, 0, len(env)+1)
+	replaced := false
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			if !replaced {
+				out = append(out, entry)
+				replaced = true
+			}
+			continue
 		}
+		out = append(out, e)
+	}
+	if !replaced {
+		out = append(out, entry)
 	}
 	return out
+}
+
+func hasEnvKey(env []string, key string) bool {
+	_, ok := envValue(env, key)
+	return ok
+}
+
+func envValue(env []string, key string) (string, bool) {
+	prefix := key + "="
+	for i := len(env) - 1; i >= 0; i-- {
+		if val, ok := strings.CutPrefix(env[i], prefix); ok {
+			return val, true
+		}
+	}
+	return "", false
 }

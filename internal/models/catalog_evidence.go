@@ -19,12 +19,14 @@ type workEvTally struct {
 // AggregateWorkEvidence scans <home>/.config/fyr/work/*/status.json and merges extra evidence.
 func AggregateWorkEvidence(home string, extra map[string]ModelEvidence) map[string]ModelEvidence {
 	acc := map[string]*workEvTally{}
-	if home != "" {
+	if home != "" && CheckHomeDir(home) == nil {
 		workDir := filepath.Join(home, harness.StateDir, "work")
-		if dirs, err := os.ReadDir(workDir); err == nil {
-			for _, d := range dirs {
-				if d.IsDir() {
-					mergeStatusFileEvidence(filepath.Join(workDir, d.Name(), "status.json"), acc)
+		if st, lerr := os.Lstat(workDir); lerr == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 {
+			if dirs, err := os.ReadDir(workDir); err == nil {
+				for _, d := range dirs {
+					if d.IsDir() {
+						mergeStatusFileEvidence(filepath.Join(workDir, d.Name(), "status.json"), acc)
+					}
 				}
 			}
 		}
@@ -175,13 +177,15 @@ func BuildListedCatalogEntries(home string, ids []string) []CatalogEntry {
 	entries := make([]CatalogEntry, 0, len(ids))
 	for _, id := range ids {
 		fam, tr, eff := ClassifyModel(id, "")
-		entries = append(entries, CatalogEntry{
+		entry := CatalogEntry{
 			ID:     id,
 			Family: fam,
 			Tier:   tr,
 			Effort: eff,
 			Status: "active",
-		})
+		}
+		ApplyModelProfile(&entry)
+		entries = append(entries, entry)
 	}
 	applyCatalogEvidence(entries, cachedEv)
 	return entries

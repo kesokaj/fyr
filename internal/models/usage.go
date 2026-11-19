@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -130,37 +129,31 @@ func shortQuote(s string) string {
 
 // RunUsage executes `agy -p "/usage"` in probeWorkDir() with process-group cleanup.
 func RunUsage(run context.Context, agy string) (string, error) {
-	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
-	defer cancel()
-	dir, cleanup, err := probeWorkDir()
-	if err != nil {
-		return "", err
+	return runUsageForHome(run, "", agy)
+}
+
+func runUsageForHome(run context.Context, home, agy string) (string, error) {
+	return runAgyProbe(run, home, agy, ModelsTimeout, 5*time.Second, "-p", "/usage")
+}
+
+func probeUsageForHome(ctx context.Context, home, agyPath string) (string, error) {
+	if UsageProbeFunc == nil {
+		return "", errors.New("usage probe unavailable")
 	}
-	defer cleanup()
-	cmd := exec.CommandContext(ctx, agy, "-p", "/usage")
-	cmd.Dir = dir
-	cmd.Env = probeEnv(dir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 5 * time.Second
-	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	err = cmd.Run()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if reflect.ValueOf(UsageProbeFunc).Pointer() == reflect.ValueOf(RunUsage).Pointer() {
+		return runUsageForHome(ctx, home, agyPath)
 	}
-	if stdout.full {
-		err = ErrModelsOver
-	} else if ctx.Err() == context.DeadlineExceeded {
-		err = fmt.Errorf("no answer in %s", ModelsTimeout)
+	return UsageProbeFunc(ctx, agyPath)
+}
+
+func listModelsForHomeOrHook(ctx context.Context, home, agyPath string) ([]string, error) {
+	if ListModelsFunc == nil {
+		return nil, errors.New("list models unavailable")
 	}
-	if err != nil {
-		if l := LastLine(stderr.String()); l != "" {
-			err = fmt.Errorf("%v: %s", err, l)
-		}
-		return "", err
+	if reflect.ValueOf(ListModelsFunc).Pointer() == reflect.ValueOf(ListModels).Pointer() {
+		return listModelsForHome(ctx, home, agyPath)
 	}
-	return stdout.String(), nil
+	return ListModelsFunc(ctx, agyPath)
 }
 
 // ResolveRoleModel resolves cross-family models dynamically from listed agy models
@@ -183,7 +176,7 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 	if strings.TrimSpace(agyPath) == "" {
 		return "", "", errors.New("resolve role model: agy path required")
 	}
-	ids, err := ListModelsFunc(ctx, agyPath)
+	ids, err := listModelsForHomeOrHook(ctx, home, agyPath)
 	if err != nil {
 		return "", "", fmt.Errorf("agy models: %w", err)
 	}
@@ -191,7 +184,7 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 		return "", "", errors.New("agy models listed no model")
 	}
 	entries := BuildListedCatalogEntries(home, ids)
-	pick, pools, err := PickRoleFromCatalogWithPools(ctx, Catalog{Entries: entries}, agyPath, role, tier)
+	pick, pools, err := pickRoleFromCatalogWithPoolsForHome(ctx, home, Catalog{Entries: entries}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err
 	}
@@ -205,6 +198,10 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 // probing live Anthropic quota via agyPath when choosing an Anthropic judge/reviewer/verifier,
 // and also returns any quota pools parsed from a live `agy -p "/usage"` probe.
 func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
+	return pickRoleFromCatalogWithPoolsForHome(ctx, "", cat, agyPath, role, tier)
+}
+
+func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
 	normRole, normTier, err := NormalizeRoleTier(role, tier)
 	if err != nil {
 		return RolePick{}, nil, err
@@ -221,7 +218,7 @@ func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, rol
 	}
 	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
 	gem, _, _ := pickGeminiOrAny(active, nil, "", "builder", normTier)
-	model, reason, fb, pools := probeAnthropicQuotaPools(ctx, agyPath, normRole, pick.Model, gem.ID)
+	model, reason, fb, pools := probeAnthropicQuotaPools(ctx, home, agyPath, normRole, pick.Model, gem.ID)
 	if fb == "" {
 		fb = pick.FallbackReason
 	}
@@ -234,8 +231,8 @@ func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, rol
 	}, pools, nil
 }
 
-func probeAnthropicQuotaPools(ctx context.Context, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
-	uText, err := UsageProbeFunc(ctx, agyPath)
+func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
+	uText, err := probeUsageForHome(ctx, home, agyPath)
 	if err != nil {
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage unreadable (%s)", role, geminiFallback, shortQuote(err.Error()))
 		return geminiFallback, fb, fb, nil

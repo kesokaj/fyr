@@ -18,6 +18,7 @@ func ResolveAutoRoleAndTier(k Kickoff) (role, tier, rationale string) {
 // default/auto-pick applies) and Judge-Model: "auto" before preflight model
 // verification, and rejects interactive-only orchestrator IDs in headless work.
 func resolveAutoModels(_ context.Context, o *WorkerOptions, ks []Kickoff, listed map[string]bool, ids []string) error {
+	wantAuto := strings.EqualFold(strings.TrimSpace(o.Model), "auto")
 	for i := range ks {
 		if models.IsInteractiveOnlyID(ks[i].Model) {
 			return fmtErrInteractiveModel(ks[i].Path, ks[i].Model)
@@ -25,7 +26,7 @@ func resolveAutoModels(_ context.Context, o *WorkerOptions, ks []Kickoff, listed
 		if models.IsInteractiveOnlyID(ks[i].JudgeModel) {
 			return fmtErrInteractiveModel(ks[i].Path, ks[i].JudgeModel)
 		}
-		if strings.EqualFold(strings.TrimSpace(ks[i].Model), "auto") {
+		if strings.EqualFold(strings.TrimSpace(ks[i].Model), "auto") || (wantAuto && ks[i].Model == "") {
 			picked, _, err := models.PickAutoModelForScope(o.Home, ks[i].Files, ks[i].Text, listed, ids)
 			if err != nil {
 				return err
@@ -36,19 +37,25 @@ func resolveAutoModels(_ context.Context, o *WorkerOptions, ks []Kickoff, listed
 			ks[i].JudgeModel = "" // let runJudge pick cross-family dynamically
 		}
 	}
+	return resolveOptionAutoModel(o, ks, listed, ids)
+}
+
+func resolveOptionAutoModel(o *WorkerOptions, ks []Kickoff, listed map[string]bool, ids []string) error {
 	if models.IsInteractiveOnlyID(o.Model) {
 		return fmtErrInteractiveModel("--model", o.Model)
 	}
-	if strings.EqualFold(strings.TrimSpace(o.Model), "auto") {
-		var sample Kickoff
-		if len(ks) > 0 {
-			sample = ks[0]
-		}
-		role, tier, _ := ResolveAutoRoleAndTier(sample)
-		if picked := models.PickFromListedIDs(o.Home, listed, ids, role, tier); picked != "" {
-			o.Model = picked
-		}
+	if !strings.EqualFold(strings.TrimSpace(o.Model), "auto") {
+		return nil
 	}
+	var sample Kickoff
+	if len(ks) > 0 {
+		sample = ks[0]
+	}
+	picked, _, err := models.PickAutoModelForScope(o.Home, sample.Files, sample.Text, listed, ids)
+	if err != nil {
+		return err
+	}
+	o.Model = picked
 	return nil
 }
 

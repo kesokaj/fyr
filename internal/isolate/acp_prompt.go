@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 )
@@ -91,6 +89,9 @@ func (s *promptState) emit(line map[string]any, ev *ACPEvent) {
 // notifications until `session/prompt` returns, and returns the assembled text
 // and normalized NDJSON lines for `events.jsonl`.
 func (c *ACPClient) Prompt(ctx context.Context, sessionID, model, cwd, text string, onEvent func(ACPEvent)) (*PromptResponse, []byte, error) {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+
 	st := &promptState{onEvent: onEvent}
 	initEv := ACPEvent{Kind: "init", SessionID: sessionID, Summary: model}
 	st.emit(map[string]any{"event": "init", "session_id": sessionID, "model": model, "cwd": cwd}, &initEv)
@@ -232,157 +233,4 @@ func buildToolEvent(sid string, idx int, u acpUpdateDetail) ACPEvent {
 		Kind: kind, SessionID: sid, StepIndex: idx,
 		ToolName: name, Summary: summary, Status: firstNonEmpty(u.Status, "running"),
 	}
-}
-
-func pickOptionID(opts []acpPermOption, allow bool) string {
-	want := "reject"
-	fallback := "reject_once"
-	if allow {
-		want = "allow"
-		fallback = "allow_once"
-	}
-	for _, o := range opts {
-		if strings.Contains(strings.ToLower(o.OptionID), want) || strings.Contains(strings.ToLower(o.Kind), want) {
-			if o.OptionID != "" {
-				return o.OptionID
-			}
-		}
-	}
-	return fallback
-}
-
-func checkToolGrant(grants []string, p acpPermParams) (bool, string) {
-	inMap := rawInputMap(p.ToolCall.RawInput)
-	cmdStr := p.Command
-	if cmdStr == "" {
-		cmdStr = strField(inMap, "CommandLine", "commandLine", "command_line", "command", "cmd")
-	}
-	name := firstNonEmpty(p.ToolName, p.Tool, p.ToolCall.Name, p.ToolCall.Title, p.ToolCall.Kind)
-	if cmdStr == "" && strings.HasPrefix(name, "command(") && strings.HasSuffix(name, ")") {
-		cmdStr = strings.TrimSuffix(strings.TrimPrefix(name, "command("), ")")
-	}
-	if cmdStr == "" && isCommandTool(name, p.ToolCall.Kind) && p.ToolCall.Title != "" && !isCommandTool(p.ToolCall.Title, "") {
-		cmdStr = strings.Trim(p.ToolCall.Title, "`")
-	}
-	desc := firstNonEmpty(name, "unknown_tool")
-	if cmdStr != "" {
-		desc = "command(" + cmdStr + ")"
-	}
-	if len(grants) == 0 {
-		return false, desc
-	}
-	if cmdStr != "" || isCommandTool(name, p.ToolCall.Kind) {
-		if slices.Contains(grants, "command(*)") {
-			return true, desc
-		}
-		return matchCommandGrants(grants, firstNonEmpty(cmdStr, name)), desc
-	}
-	if isReadTool(name, p.ToolCall.Kind) {
-		return slices.Contains(grants, "read_file(*)"), desc
-	}
-	if isWriteTool(name, p.ToolCall.Kind) {
-		return slices.Contains(grants, "write_file(*)"), desc
-	}
-	return slices.Contains(grants, name) || slices.Contains(grants, "command(*)"), desc
-}
-
-func matchCommandGrants(grants []string, cmdStr string) bool {
-	segs := splitShellSegments(cmdStr)
-	if len(segs) == 0 {
-		return false
-	}
-	for _, seg := range segs {
-		bin := firstCommandBin(seg)
-		if isShellBuiltinNoop(bin) {
-			continue
-		}
-		if bin == "" || !slices.Contains(grants, "command("+bin+")") {
-			return false
-		}
-	}
-	return true
-}
-
-func isShellBuiltinNoop(bin string) bool {
-	return bin == "true" || bin == "false" || bin == ":" || bin == "cd"
-}
-
-func splitShellSegments(s string) []string {
-	var out []string
-	var cur strings.Builder
-	var quote byte
-	for i := 0; i < len(s); i++ {
-		if (quote == 0 || quote == '"') && s[i] == '\\' && i+1 < len(s) {
-			cur.WriteByte(s[i])
-			i++
-			cur.WriteByte(s[i])
-			continue
-		}
-		if quote == 0 && (s[i] == '\'' || s[i] == '"') {
-			quote = s[i]
-			cur.WriteByte(s[i])
-			continue
-		}
-		if quote != 0 && s[i] == quote {
-			quote = 0
-			cur.WriteByte(s[i])
-			continue
-		}
-		if skip, split := shellOperatorLen(s, i, quote); split {
-			if t := strings.TrimSpace(cur.String()); t != "" {
-				out = append(out, t)
-			}
-			cur.Reset()
-			i += skip - 1
-			continue
-		}
-		cur.WriteByte(s[i])
-	}
-	if t := strings.TrimSpace(cur.String()); t != "" {
-		out = append(out, t)
-	}
-	return out
-}
-
-func shellOperatorLen(s string, i int, quote byte) (int, bool) {
-	if quote == '\'' {
-		return 0, false
-	}
-	ch := s[i]
-	if (ch == '$' || ch == '<' || ch == '>') && i+1 < len(s) && s[i+1] == '(' {
-		return 2, true
-	}
-	if ch == '`' {
-		return 1, true
-	}
-	if quote == '"' {
-		return 0, false
-	}
-	if (ch == '&' || ch == '|') && i+1 < len(s) && s[i+1] == ch {
-		return 2, true
-	}
-	if ch == '&' && (i == 0 || s[i-1] != '>') && (i+1 >= len(s) || s[i+1] != '>') {
-		return 1, true
-	}
-	if ch == ';' || ch == '|' || ch == '\n' {
-		return 1, true
-	}
-	return 0, false
-}
-
-func firstCommandBin(seg string) string {
-	for _, tok := range strings.Fields(seg) {
-		tok = strings.Trim(tok, `"'()`)
-		if tok == "" || tok == "export" || tok == "env" {
-			continue
-		}
-		if strings.HasPrefix(tok, ">") || strings.HasPrefix(tok, "<") || strings.HasPrefix(tok, "2>") || strings.HasPrefix(tok, "1>") {
-			continue
-		}
-		if eq := strings.IndexByte(tok, '='); eq > 0 && !strings.Contains(tok[:eq], "/") {
-			continue
-		}
-		return filepath.Base(tok)
-	}
-	return ""
 }

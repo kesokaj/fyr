@@ -270,9 +270,13 @@ func entryPrint(p string, d fs.DirEntry) string {
 			desc += fmt.Sprintf(" size %d sha256 %s", st.Size(), fileSum(p))
 		}
 	case info.Mode().IsRegular():
-		desc += fmt.Sprintf(" size %d sha256 %s", info.Size(), fileSum(p))
+		return formatRegularEntryPrint(info.Mode(), info.Size(), fileSum(p))
 	}
 	return desc
+}
+
+func formatRegularEntryPrint(perm fs.FileMode, size int64, sha256Hex string) string {
+	return fmt.Sprintf("%s %v size %d sha256 %s", fs.FileMode(0).Type(), perm.Perm(), size, sha256Hex)
 }
 
 func fileSum(p string) string {

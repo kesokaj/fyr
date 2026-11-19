@@ -2,17 +2,11 @@ package models
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // ModelEvidence holds empirical run counts and pass rates for one model ID.
@@ -78,118 +72,6 @@ var StandardRoleTiers = [][2]string{
 	{"mechanical", "flash"},
 }
 
-// CatalogPath returns <home>/.config/fyr/models.json.
-func CatalogPath(home string) string {
-	return filepath.Join(home, harness.StateDir, "models.json")
-}
-
-// CatalogExists reports whether a regular models.json file exists under home.
-func CatalogExists(home string) bool {
-	if home == "" {
-		return false
-	}
-	st, err := os.Lstat(CatalogPath(home))
-	return err == nil && st.Mode().IsRegular()
-}
-
-// CheckHomeDir verifies that home and any existing parent directories down to
-// <home>/.config/fyr are regular directories (never symlinks).
-func CheckHomeDir(home string) error {
-	clean := filepath.Clean(strings.TrimSpace(home))
-	if clean == "" || clean == "." {
-		return errors.New("empty home")
-	}
-	st, err := os.Lstat(clean)
-	if err != nil {
-		return err
-	}
-	if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-		return fmt.Errorf("refusing non-directory home %s", clean)
-	}
-	cur := clean
-	for _, part := range strings.Split(filepath.ToSlash(harness.StateDir), "/") {
-		if part == "" || part == "." {
-			continue
-		}
-		cur = filepath.Join(cur, part)
-		st, err := os.Lstat(cur)
-		if errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-			return fmt.Errorf("refusing non-directory state path %s", cur)
-		}
-	}
-	return nil
-}
-
-// LoadCatalog reads <home>/.config/fyr/models.json if present.
-func LoadCatalog(home string) (Catalog, bool, error) {
-	if home == "" {
-		return Catalog{}, false, nil
-	}
-	p := CatalogPath(home)
-	st, err := os.Lstat(p)
-	if errors.Is(err, fs.ErrNotExist) {
-		return Catalog{}, false, nil
-	}
-	if err != nil {
-		return Catalog{}, false, err
-	}
-	if !st.Mode().IsRegular() {
-		return Catalog{}, false, fmt.Errorf("models catalog %s is not a regular file", p)
-	}
-	if st.Size() > 4<<20 {
-		return Catalog{}, false, fmt.Errorf("models catalog %s exceeds 4 MiB", p)
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return Catalog{}, false, err
-	}
-	var cat Catalog
-	if err := json.Unmarshal(data, &cat); err != nil {
-		return Catalog{}, false, err
-	}
-	for i := range cat.Entries {
-		ApplyModelProfile(&cat.Entries[i])
-	}
-	return cat, true, nil
-}
-
-// SaveCatalog writes cat atomically (0600) to <home>/.config/fyr/models.json, refusing symlinks.
-func SaveCatalog(home string, cat Catalog) error {
-	if home == "" {
-		return errors.New("save catalog: empty home")
-	}
-	dir := filepath.Dir(CatalogPath(home))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if st, err := os.Lstat(dir); err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing non-directory state path %s", dir)
-	}
-	target := CatalogPath(home)
-	if st, err := os.Lstat(target); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing symlink %s", target)
-	}
-	tmp := target + ".tmp"
-	if st, err := os.Lstat(tmp); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("refusing symlink %s", tmp)
-	}
-	data, err := json.MarshalIndent(cat, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, target)
-}
-
 // RefreshCatalog runs `agy models`, merges previous status/dates and empirical
 // evidence, and atomically writes <home>/.config/fyr/models.json. On command or
 // empty-list error, any existing models.json is left untouched.
@@ -205,7 +87,7 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 			return Catalog{}, errors.New("agy models: agy not found on PATH")
 		}
 	}
-	raw, err := RunAgyModels(ctx, agyPath)
+	raw, err := runAgyModelsForHome(ctx, home, agyPath)
 	if err != nil {
 		return Catalog{}, fmt.Errorf("agy models: %w", err)
 	}
@@ -230,17 +112,17 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 // EnrichCatalogPools runs `agy -p "/usage"` best-effort (never failing the
 // caller), updates QuotaUpdatedAt and Pools on cat, and saves cat when changed.
 func EnrichCatalogPools(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
-	if probeCatalogPoolsBestEffort(ctx, agyPath, time.Now().UTC(), &cat) && home != "" {
+	if probeCatalogPoolsBestEffort(ctx, home, agyPath, time.Now().UTC(), &cat) && home != "" {
 		_ = SaveCatalog(home, cat)
 	}
 	return cat
 }
 
-func probeCatalogPoolsBestEffort(ctx context.Context, agyPath string, now time.Time, cat *Catalog) bool {
+func probeCatalogPoolsBestEffort(ctx context.Context, home, agyPath string, now time.Time, cat *Catalog) bool {
 	if cat == nil || strings.TrimSpace(agyPath) == "" {
 		return false
 	}
-	uText, err := UsageProbeFunc(ctx, agyPath)
+	uText, err := probeUsageForHome(ctx, home, agyPath)
 	if err != nil {
 		return false
 	}
@@ -251,21 +133,6 @@ func probeCatalogPoolsBestEffort(ctx context.Context, agyPath string, now time.T
 	cat.QuotaUpdatedAt = now.UTC().Format(time.RFC3339)
 	cat.Pools = pools
 	return true
-}
-
-// PersistCatalogPoolsBestEffort updates quota_updated_at and pools inside an
-// existing <home>/.config/fyr/models.json file, ignoring errors.
-func PersistCatalogPoolsBestEffort(home string, pools []Pool) {
-	if strings.TrimSpace(home) == "" || len(pools) == 0 || !CatalogExists(home) {
-		return
-	}
-	cat, ok, err := LoadCatalog(home)
-	if err != nil || !ok {
-		return
-	}
-	cat.QuotaUpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	cat.Pools = append([]Pool(nil), pools...)
-	_ = SaveCatalog(home, cat)
 }
 
 // BuildCatalog merges freshly parsed entries with optional previous state and evidence.
@@ -402,7 +269,7 @@ func PickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role
 		prevModel = prev.Model
 	}
 	if role == "judge" || role == "reviewer" || role == "verifier" {
-		return pickCrossFamilyRole(eligible, goneIDs, prevModel, role, tier)
+		return pickCrossFamilyRole(eligible, goneIDs, prevModel, role, tier), nil
 	}
 	chosen, reason, fb := pickGeminiOrAny(eligible, goneIDs, prevModel, role, tier)
 	return RolePick{Role: role, Tier: tier, Model: chosen.ID, Reason: reason, FallbackReason: fb}, nil

@@ -3,10 +3,8 @@ package models
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -69,46 +67,32 @@ func ApplyModelProfile(e *CatalogEntry) {
 // RunAgyChangelog runs `agy changelog` best-effort in probeWorkDir() with
 // process-group cleanup.
 func RunAgyChangelog(ctx context.Context, agyPath string) string {
-	if agyPath == "" {
+	return runAgyChangelogForHome(ctx, "", agyPath)
+}
+
+func runAgyChangelogForHome(ctx context.Context, home, agyPath string) string {
+	if strings.TrimSpace(agyPath) == "" {
 		return ""
 	}
-	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	dir, cleanup, err := probeWorkDir()
+	out, err := runAgyProbe(ctx, home, agyPath, 2*time.Second, 2*time.Second, "changelog")
 	if err != nil {
 		return ""
 	}
-	defer cleanup()
-	cmd := exec.CommandContext(cctx, agyPath, "changelog")
-	cmd.Dir = dir
-	cmd.Env = probeEnv(dir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 2 * time.Second
-	stdout := &Capped{}
-	cmd.Stdout = stdout
-	err = cmd.Run()
-	if cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	}
-	if err != nil || stdout.full {
-		return ""
-	}
-	return ansiCSIRe.ReplaceAllString(stdout.buf.String(), "")
+	return ansiCSIRe.ReplaceAllString(out, "")
 }
 
 // EnrichCatalogChangelog runs `agy changelog` best-effort (never failing the
 // caller), enriches ChangelogNote/RetiringOn on cat.Entries, and saves cat.
 func EnrichCatalogChangelog(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
-	enrichEntriesFromChangelog(ctx, agyPath, cat.Entries)
+	enrichEntriesFromChangelog(ctx, home, agyPath, cat.Entries)
 	if home != "" {
 		_ = SaveCatalog(home, cat)
 	}
 	return cat
 }
 
-func enrichEntriesFromChangelog(ctx context.Context, agyPath string, entries []CatalogEntry) {
-	raw := RunAgyChangelog(ctx, agyPath)
+func enrichEntriesFromChangelog(ctx context.Context, home, agyPath string, entries []CatalogEntry) {
+	raw := runAgyChangelogForHome(ctx, home, agyPath)
 	if strings.TrimSpace(raw) == "" {
 		return
 	}

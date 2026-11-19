@@ -294,7 +294,7 @@ func workerDiffForJudge(ctx context.Context, appDir, base string) (string, error
 		return "", err
 	}
 	if len(out) > maxJudgeDiffBytes {
-		return string(out[:maxJudgeDiffBytes]) + "\n... [diff truncated at 128 KiB]", nil
+		return truncateUTF8(string(out), maxJudgeDiffBytes) + "\n... [diff truncated at 128 KiB]", nil
 	}
 	return string(out), nil
 }

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -107,6 +108,24 @@ func SetHostOS(goos string) func() {
 // check c leaves out (D10, D9 of PLAN-2026-11-02-1806-fyr-speed).
 func Root(home, verb string) string { return filepath.Join(home, harness.StateDir, verb) }
 
+// ProjectName returns a safe single-segment directory name for projectRoot.
+func ProjectName(projectRoot string) string {
+	if projectRoot == "" {
+		return "default"
+	}
+	b := filepath.Base(filepath.Clean(projectRoot))
+	if b == "" || b == "." || b == ".." || b == string(filepath.Separator) || strings.HasPrefix(b, "-") || strings.IndexFunc(b, unicode.IsControl) >= 0 {
+		return "default"
+	}
+	return b
+}
+
+// ProjectRoot is where a verb makes its per-project sandboxes under fyr's
+// home: <home>/.config/fyr/<kind>/<project> (D9 of PLAN-2026-11-02-1806-fyr-speed).
+func ProjectRoot(home, kind, projectRoot string) string {
+	return filepath.Join(Root(home, kind), ProjectName(projectRoot))
+}
+
 // CheckRoot is the refusal of a sandbox root before anything is made: guards
 // a and b on its nearest existing ancestor (BUG-106).
 func CheckRoot(realHome, repo, root string) error {
@@ -148,6 +167,7 @@ type Box struct {
 	// it was made in, whatever the path leads to by then.
 	root    *os.Root
 	acpProc *acpProcess
+	mu      sync.Mutex
 	outMu   sync.Mutex
 }
 
@@ -165,15 +185,71 @@ func (b *Box) Home() string { return b.sb }
 
 // Started reports that a session started agy: a token link or an exec that
 // failed leaves it false.
-func (b *Box) Started() bool { return b.started }
+func (b *Box) Started() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.started
+}
+
+func (b *Box) setStarted() {
+	b.mu.Lock()
+	b.started = true
+	b.mu.Unlock()
+}
 
 // TimedOut reports that agy was killed at Config.Timeout: a note, not a
 // reason, so each verb decides what it means.
-func (b *Box) TimedOut() bool { return b.timedOut }
+func (b *Box) TimedOut() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.timedOut
+}
 
-func (b *Box) Fail(reason string) { b.reasons = append(b.reasons, reason) }
+func (b *Box) setTimedOut() {
+	b.mu.Lock()
+	b.timedOut = true
+	b.mu.Unlock()
+}
 
-func (b *Box) Reasons() []string { return b.reasons }
+func (b *Box) Fail(reason string) {
+	b.mu.Lock()
+	b.reasons = append(b.reasons, reason)
+	b.mu.Unlock()
+}
+
+func (b *Box) failOnce(reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !slices.Contains(b.reasons, reason) {
+		b.reasons = append(b.reasons, reason)
+	}
+}
+
+func (b *Box) Reasons() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Clone(b.reasons)
+}
+
+func (b *Box) currentACP() *acpProcess {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.acpProc
+}
+
+func (b *Box) setACP(p *acpProcess) {
+	b.mu.Lock()
+	b.acpProc = p
+	b.mu.Unlock()
+}
+
+func (b *Box) takeACP() *acpProcess {
+	b.mu.Lock()
+	p := b.acpProc
+	b.acpProc = nil
+	b.mu.Unlock()
+	return p
+}
 
 // Note writes one line, "<Prefix>: " and the message, made printable.
 func (b *Box) Note(format string, a ...any) {
@@ -186,12 +262,9 @@ func (b *Box) Note(format string, a ...any) {
 }
 
 func (b *Box) Has(reason string) bool {
-	for _, r := range b.reasons {
-		if r == reason {
-			return true
-		}
-	}
-	return false
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.Contains(b.reasons, reason)
 }
 
 // verb is the prefix's first word, for a line that names no row.
@@ -251,9 +324,7 @@ func (b *Box) Intact() bool {
 // once.
 func (b *Box) replaced(format string, a ...any) {
 	b.Note(format, a...)
-	if !b.Has(ReasonReplaced) {
-		b.Fail(ReasonReplaced)
-	}
+	b.failOnce(ReasonReplaced)
 }
 
 // fileFailed fails the box for a file of its own it could not open or
@@ -265,14 +336,12 @@ func (b *Box) replaced(format string, a ...any) {
 // or memory or mount a file system of its own (PLAN.md items 1 and 48; P6's
 // security review, finding 1). Once each.
 func (b *Box) fileFailed(err error, format string, a ...any) {
-	if b.started || !machineErr(err) {
+	if b.Started() || !machineErr(err) {
 		b.replaced(format, a...)
 		return
 	}
 	b.Note(format, a...)
-	if !b.Has(ReasonWrite) {
-		b.Fail(ReasonWrite)
-	}
+	b.failOnce(ReasonWrite)
 }
 
 // machineErrs are the errors of the machine, not of what is at the path.

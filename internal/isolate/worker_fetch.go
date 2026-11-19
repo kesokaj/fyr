@@ -2,6 +2,7 @@ package isolate
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +24,7 @@ const maxNamed = 20
 // collect is steps 6-8, step 8 being the drafts and the records (ADR-501).
 // A worker a safety reason failed, or whose session never started, gets none
 // of them (D38); a timed-out, killed or otherwise failed one is fetched (D26).
-func (w *worker) collect() {
+func (w *worker) collect(ctx context.Context) {
 	if !w.ran || w.unsafe() || !w.b.Intact() || !w.b.GitIntact() {
 		return
 	}
@@ -35,7 +36,7 @@ func (w *worker) collect() {
 		w.b.Fail(ReasonNoCommits)
 		return
 	}
-	w.scope()
+	w.scope(ctx)
 	drafts := w.drafts()
 	w.closeLeadDir()
 	w.collected = drafts
@@ -111,7 +112,7 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
 // member pins the group's id, and with none the kill finds nothing, as
 // models.go's does.
 func runGroup(cmd *exec.Cmd, limit time.Duration) error {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	setCmdSetsid(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return err
@@ -120,11 +121,11 @@ func runGroup(cmd *exec.Cmd, limit time.Duration) error {
 	var late atomic.Bool
 	t := time.AfterFunc(limit, func() {
 		late.Store(true)
-		syscall.Kill(-pgid, syscall.SIGKILL)
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	})
 	err := cmd.Wait()
 	t.Stop()
-	syscall.Kill(-pgid, syscall.SIGKILL)
+	_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	if late.Load() {
 		return fmt.Errorf("timed out after %s", limit)
 	}
@@ -155,7 +156,7 @@ func (w *worker) fetch() bool {
 // finding 2), and every record that existed at the base and changed or
 // vanished by the branch's tip is named there; then the records it added,
 // handoff and change records only (D138).
-func (w *worker) scope() {
+func (w *worker) scope(ctx context.Context) {
 	root, ref := w.o.Root, "refs/heads/"+w.p.k.Branch()
 	if n, err := branchOutput(leadGit(root, "rev-list", "--count", w.p.base+".."+ref)); err == nil {
 		w.res.Commits, _ = strconv.Atoi(strings.TrimSpace(string(n)))
@@ -181,7 +182,7 @@ func (w *worker) scope() {
 			outside = append(outside, p)
 		}
 	}
-	outside = append(outside, w.records(root, ref)...)
+	outside = append(outside, w.records(ctx, root, ref)...)
 	if len(outside) > 0 {
 		sort.Strings(outside)
 		w.b.Note("changed outside its Files (D18): %s", named(outside))
@@ -251,14 +252,14 @@ func workerChangedPaths(root, rng string) ([]string, error) {
 // changed or vanished records Files: does not name and the added records
 // of a kind added refuses, and fills the handoff and change records the
 // branch added.
-func (w *worker) records(root, ref string) (outside []string) {
+func (w *worker) records(ctx context.Context, root, ref string) (outside []string) {
 	before, err := trailAt(root, w.p.base)
 	if err == nil && len(before) == 0 && len(w.baseRecords) > 0 {
 		before = w.baseRecords
 	}
 	if err == nil {
 		var after map[string]WorkerRecord
-		if after, err = w.afterRecords(root, ref); err == nil {
+		if after, err = w.afterRecords(ctx, root, ref); err == nil {
 			for id, r := range before {
 				a, ok := after[id]
 				if (!ok || a != r) && !w.p.k.names(id) {
@@ -273,11 +274,11 @@ func (w *worker) records(root, ref string) (outside []string) {
 	return []string{trailRel}
 }
 
-func (w *worker) afterRecords(root, ref string) (map[string]WorkerRecord, error) {
+func (w *worker) afterRecords(ctx context.Context, root, ref string) (map[string]WorkerRecord, error) {
 	diff, err := branchOutput(leadGit(root, "diff-tree", "-r", "--name-only", w.p.base, ref, "--", trailRel))
 	if err == nil && len(bytes.TrimSpace(diff)) == 0 {
 		if _, err := os.Stat(filepath.Join(w.b.Home(), harness.StateDir, "brain.db")); err == nil {
-			if recs, err := w.exportBoxRecords(); err == nil {
+			if recs, err := w.exportBoxRecords(ctx); err == nil {
 				return recs, nil
 			}
 		}

@@ -2,14 +2,15 @@ package isolate
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -68,12 +69,42 @@ func trailAt(root, rev string) (map[string]WorkerRecord, error) {
 	return parseTrail(blob)
 }
 
-func (w *worker) exportBoxRecords() (map[string]WorkerRecord, error) {
-	cmd := exec.Command(filepath.Join(w.b.Home(), ".local", "bin", "fyr"), "record", "export", "--home", w.b.Home())
-	cmd.Dir = w.b.App()
+func (w *worker) leadFyrBin() (string, error) {
+	if p := strings.TrimSpace(w.o.Self); p != "" {
+		return p, nil
+	}
+	exe, err := os.Executable()
+	if err != nil || strings.TrimSpace(exe) == "" {
+		return "", fmt.Errorf("lead fyr binary: %v", err)
+	}
+	return exe, nil
+}
+
+func newGroupCmd(ctx context.Context, bin, dir string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
 	cmd.Env = FyrEnv()
-	if err := cmd.Run(); err != nil {
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	return cmd
+}
+
+func runSeedSync(ctx context.Context, fyrBin, appDir, sbHome string) {
+	_ = runGroup(newGroupCmd(ctx, fyrBin, appDir, "record", "sync", "--home", sbHome), branchLimit)
+}
+
+func (w *worker) exportBoxRecords(ctx context.Context) (map[string]WorkerRecord, error) {
+	fyrBin, err := w.leadFyrBin()
+	if err != nil {
 		return nil, err
+	}
+	cmd := newGroupCmd(ctx, fyrBin, w.b.App(), "record", "export", "--home", w.b.Home())
+	if out, err := runBounded(cmd, branchLimit); err != nil {
+		return nil, fmt.Errorf("fyr record export: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	f, err := os.OpenInRoot(w.b.App(), trailRel)
 	if err != nil {
