@@ -49,7 +49,7 @@ Show the record's ID and its Interfaces section in chat. The user's yes sets the
 
 ## Definition of Done
 
-A spec on its own is a docs change: a `change` record (or the feature's names it), `/fyr-handoff`. A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec record ID (`SPEC-<app>-<topic>`) instead of restating shapes.
+A spec on its own is a docs change: a `change` record (or the feature's names it), then `fyr close --id <ID> --title <t> --body-file <p>` (or `/fyr-handoff` at a checkpoint). A spec written inside a feature rides with the plan's checkpoint. The plan's Interfaces section cites the spec record ID (`SPEC-<app>-<topic>`) instead of restating shapes.
 
 ## Cross-references
 

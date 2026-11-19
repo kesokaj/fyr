@@ -146,17 +146,7 @@ Done when: <the phase's Checkpoint expect, verbatim>. Then write the handoff wit
 
 ### The worker-mode Kickoff
 
-A coordinator (`fyr-swarm` skill) fills the canonical worker brief defined in `fyr-swarm` § Write-lease brief for each parallel slice (plan phase or plan-less task), changing none of the closed-set guards (`Project:` uses `this clone, the current directory; never another checkout`; `Files:`, `Model:`, and `Done when:` come verbatim from `PLAN-*` or the coordinator's task table):
-
-```text
-Files: <the phase or task Files: lease, verbatim>
-Project: this clone, the current directory; never another checkout. Read AGENTS.md, then <fyr record get PLAN-ID; do phase of PLAN-ID only, as a worker | do this task only, as a worker, with no plan: task>.
-Model: <trimmed model ID; omit line when unset>
-Standing approvals (closed set): <phase who: AI boxes or task> and named tests (<base-check or targeted test>); the change record (or scratch draft if run_workflow lacks trail access); commit on branch work/<name>[-r2] with zero trailers; git checkout --detach HEAD (share worktrees); the closing handoff.
-Never: push; tick the plan record or TODO.md; store a record of any kind but the change record and the closing handoff (draft other artifacts under .agents/scratch/agents/ early); merge; touch main; a who: user box or Open: row; a release; a deploy; a real-home install; fyr metrics ingest; anything outside Files:.
-Budget & artifact: <= 40 tool calls for specialized subagents (<= 120 for self); write any draft/artifact early under .agents/scratch/agents/, then update it.
-Done when: <Checkpoint expect or targeted base-check/test>. Where Done when names an item under Never, Never wins: name it in the handoff for the coordinator. Detach HEAD (git checkout --detach HEAD in share worktrees), write the handoff, and end.
-```
+A coordinator (`fyr-swarm` skill) fills the canonical worker brief defined in `fyr-swarm` § Write-lease brief for each parallel slice (`Files:`, `Model:`, and `Done when:` from `PLAN-*` or the task table; `Project: this clone, the current directory; never another checkout`; full closed-set `Never:` guards and `Never wins` precedence). Do not duplicate a separate copy of that brief template here.
 
 **Worker mode.** When the Kickoff's `Never` line names push and `TODO.md`, this skill skips Step 3.3's `TODO.md` update, Step 6's push, and its `fyr metrics ingest`, and the handoff says so; the Kickoff wins. Step 5's checks read `TODO.md` but never edit it, and Step 7 reports the skipped ingest and gives the handoff's Kickoff as a proposal for the lead, never a paste. Everything else holds: the `change` record, the `handoff` record, the commit on the worker's branch, and `git checkout --detach HEAD` in `share` worktrees.
 

@@ -20,7 +20,7 @@ The exact verification commands, the ones `AGENTS.md` § Setup lists; run each b
 | API | `<httptest / curl>` | a handler, a route, a JSON shape | <what> |
 | Browser e2e | `<playwright>` | a new or changed UI flow | <what> |
 | Container smoke | `<docker build && docker run && curl /healthz>` | the Dockerfile, the build, `embed.go` | <what> |
-| Cloud smoke | inside `/fyr-preflight` only (`deploy/gcp.md`) | a deploy flag, a secret, IAM | the revision serves |
+| Cloud smoke | inside `/fyr-preflight` only (`DEPLOY-gcp`) | a deploy flag, a secret, IAM | the revision serves |
 
 ## 3. Fixtures and environment
 
