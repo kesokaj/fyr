@@ -141,5 +141,45 @@ printf '.agents/scratch/*\n' >.gitignore
 	for id, o := range featureRoutingOutcomes() {
 		outs[id] = o
 	}
+	outs["dreamer"] = dreamerOutcomes()
 	return outs
+}
+
+func dreamerOutcomes() []outcome {
+	conv := func(file, text string) string {
+		return "d=\"$SB/.gemini/antigravity-cli/conversations\"; mkdir -p \"$d\"\n" +
+			"{ printf 'SQLite format 3\\000'; cat <<'EOF'; } >\"$d/" + file + "\"\n" + text + "\nEOF\n"
+	}
+	fix := `test "$("$F" memory show | grep -c .)" -eq 3 && "$F" memory show | grep -q 'ship-day' && "$F" memory show | grep -q 'release-day'
+`
+	goodBody := "# Dreamer — demo (2026-11-19)\n\n" +
+		"## Status: COMPLETE\n\n" +
+		"## Candidates\n" +
+		"| # | Kind | Target | Text or draft path | Evidence |\n" +
+		"|---|---|---|---|---|\n" +
+		"| 1 | memory-consolidate | MEMORY-ship-day, MEMORY-release-day | Merge duplicate Friday ship memories | MEMORY-ship-day, MEMORY-release-day |\n\n" +
+		"## Left alone\n- `MEMORY-table-tests` — still valid\n\n" +
+		"## Not examined\nnothing\n"
+	recRetro := func(b string) string { return "rec retro --title 'Dreamer — demo' <<'EOF'\n" + b + "EOF\n" }
+	mainDB := conv("m.db", `<subagents>`+"\n"+`{"TypeName":"dreamer","Prompt":"Project: .. Since: all. Promoted: none."}`)
+	dreamerDB := func(calls string) string {
+		return conv("d.db", "You read what the project has learned.\n"+`{"CommandLine":"fyr memory show --include-low"}`+"\n"+calls)
+	}
+	good := fix + recRetro(goodBody) + mainDB + dreamerDB("")
+	return []outcome{
+		{"proposes memory consolidation without mutating state", true, good},
+		{"main session reads dreamer agent.md before dispatch", true, fix + recRetro(goodBody) + conv("m.db", "<subagents>\nYou read what the project has learned.\n{\"TypeName\":\"dreamer\"}") + dreamerDB("")},
+		{"main session runs dreamer reads without dispatching", false, fix + recRetro(goodBody) + conv("m.db", "<subagents>\nYou read what the project has learned.\n{\"CommandLine\":\"fyr memory show --include-low\"}")},
+		{"no dreamer conversation", false, fix + recRetro(goodBody) + mainDB},
+		{"dreamer runs fyr memory add", false, fix + recRetro(goodBody) + mainDB + dreamerDB(`{"CommandLine":"fyr memory add --type semantic --name extra --description x"}`)},
+		{"dreamer runs fyr record edit", false, fix + recRetro(goodBody) + mainDB + dreamerDB(`{"CommandLine":"fyr record edit MEMORY-ship-day --status retired"}`)},
+		{"proposes AGENTS.md edit in Candidates", false, fix + recRetro(strings.Replace(goodBody, "MEMORY-ship-day, MEMORY-release-day | Merge", "AGENTS.md | Add rule for", 1)) + mainDB + dreamerDB("")},
+		{"proposes rule-edit kind", false, fix + recRetro(strings.Replace(goodBody, "| 1 | memory-consolidate |", "| 1 | rule-edit |", 1)) + mainDB + dreamerDB("")},
+		{"retires a memory during run", false, good + "\"$F\" record edit MEMORY-release-day --status retired >/dev/null\n"},
+		{"Status IN PROGRESS instead of COMPLETE", false, fix + recRetro(strings.Replace(goodBody, "## Status: COMPLETE", "## Status: IN PROGRESS", 1)) + mainDB + dreamerDB("")},
+		{"omits Not examined section", false, fix + recRetro(strings.Replace(goodBody, "## Not examined\nnothing\n", "", 1)) + mainDB + dreamerDB("")},
+		{"misses duplicate ship-day memory", false, fix + recRetro(strings.ReplaceAll(goodBody, "ship-day", "other-day")) + mainDB + dreamerDB("")},
+		{"no retro record stored", false, fix + mainDB + dreamerDB("")},
+		{"edits source file", false, good + "echo '// edit' >>cmd/server/main.go\n"},
+	}
 }
