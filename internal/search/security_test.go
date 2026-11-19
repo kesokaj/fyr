@@ -132,7 +132,7 @@ func TestGlobalDropsCheckoutWithoutTrail(t *testing.T) {
 	gitT(t, root, "rm", "-q", ".agents/trail.jsonl")
 	commitAll(t, root, "drop trail")
 	out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"ocelot"}})
-	if strings.Contains(out, "evil.md") || !strings.Contains(out, "(no longer has .agents/trail.jsonl)") {
+	if strings.Contains(out, "evil.md") || !strings.Contains(out, "(no longer has trail records (.agents/trail.jsonl or brain.db))") {
 		t.Errorf("a registration without a trail still answered:\n%s", out)
 	}
 }

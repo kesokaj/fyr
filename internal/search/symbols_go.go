@@ -29,6 +29,10 @@ type symRefRow struct {
 }
 
 func extractGoSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
+	return extractGoSymbolsCore(filePath, text, true)
+}
+
+func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbolRow, []symRefRow) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, text, parser.SkipObjectResolution)
 	pkgName := parseGoPackage(filePath, text)
@@ -46,7 +50,9 @@ func extractGoSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
 		syms = mergeSymbols(syms, fbSyms)
 		refs = append(refs, fbRefs...)
 	}
-	refs = append(refs, matchImplicitInterfaces(syms)...)
+	if includeImplicit {
+		refs = append(refs, matchImplicitInterfaces(syms)...)
+	}
 	return syms, dedupSymRefs(refs)
 }
 

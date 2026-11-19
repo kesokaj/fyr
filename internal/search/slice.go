@@ -169,13 +169,14 @@ func (sc *scope) renderSliceCapsule(o Options, g *symGraph, tiers sliceTiers, ma
 	} else if len(tiers.hop1) > 0 {
 		hop0Cap = symMax * 75 / 100
 	}
+	cache := sliceLineCache{}
 	for _, idx := range tiers.hop0 {
 		s := g.syms[idx]
-		sc.appendWithinBudget(&buf, sc.formatHop0Symbol(s, hop0Cap-buf.Len()), hop0Cap)
+		sc.appendWithinBudget(&buf, sc.formatHop0Symbol(cache, s, hop0Cap-buf.Len()), hop0Cap)
 	}
 	for _, c := range tiers.hop1 {
 		s := g.syms[c.idx]
-		sc.appendWithinBudget(&buf, sc.formatHop1Symbol(s, c, hop1Cap-buf.Len()), hop1Cap)
+		sc.appendWithinBudget(&buf, sc.formatHop1Symbol(cache, s, c, hop1Cap-buf.Len()), hop1Cap)
 	}
 	for _, idx := range tiers.hop2 {
 		s := g.syms[idx]
@@ -225,69 +226,105 @@ func (sc *scope) appendSliceExtras(buf *bytes.Buffer, paths map[string]bool, bra
 	}
 }
 
-func (sc *scope) formatHop0Symbol(s RankedSymbol, remBytes int) string {
-	hdr := fmt.Sprintf("[Hop 0] %s:%d-%d (%s)\n", s.Path, s.StartLine, s.EndLine, s.QualName())
-	if len(hdr) > remBytes {
+type sliceLineCache map[string][]string
+
+func (sc *scope) formatHop0Symbol(cache sliceLineCache, s RankedSymbol, remBytes int) string {
+	makeHdr := func(end int) string {
+		return fmt.Sprintf("[Hop 0] %s:%d-%d (%s)\n", s.Path, s.StartLine, end, s.QualName())
+	}
+	if len(makeHdr(s.StartLine)) > remBytes {
 		return ""
 	}
-	lines := sc.readLinesRange(s.OID, s.Path, s.StartLine, s.EndLine)
+	lines := sc.readLinesRangeCached(cache, s.OID, s.Path, s.StartLine, s.EndLine)
 	if len(lines) == 0 {
 		lines = []string{s.Sig}
 	}
-	return fitLinesToBudget(hdr, lines, s.StartLine, remBytes)
+	return fitLinesToBudget(makeHdr, lines, s.StartLine, remBytes)
 }
 
-func (sc *scope) formatHop1Symbol(s RankedSymbol, c hop1Cand, remBytes int) string {
+func (sc *scope) formatHop1Symbol(cache sliceLineCache, s RankedSymbol, c hop1Cand, remBytes int) string {
 	conf := c.confidence
 	if conf == "" {
 		conf = "EXTRACTED"
 	}
 	span := s.EndLine - s.StartLine + 1
 	if span <= hop1MaxFullLines {
-		hdr := fmt.Sprintf("[Hop 1] %s:%d-%d (%s) [%s]\n", s.Path, s.StartLine, s.EndLine, s.QualName(), conf)
-		lines := sc.readLinesRange(s.OID, s.Path, s.StartLine, s.EndLine)
+		makeHdr := func(end int) string {
+			return fmt.Sprintf("[Hop 1] %s:%d-%d (%s) [%s]\n", s.Path, s.StartLine, end, s.QualName(), conf)
+		}
+		lines := sc.readLinesRangeCached(cache, s.OID, s.Path, s.StartLine, s.EndLine)
 		if len(lines) == 0 {
 			lines = []string{s.Sig}
 		}
-		return fitLinesToBudget(hdr, lines, s.StartLine, remBytes)
+		return fitLinesToBudget(makeHdr, lines, s.StartLine, remBytes)
 	}
 	start := s.StartLine
 	if c.callLine >= s.StartLine && c.callLine <= s.EndLine {
 		start = max(s.StartLine, c.callLine-2)
 	}
 	end := min(s.EndLine, start+hop1SnippetLines-1)
-	hdr := fmt.Sprintf("[Hop 1] %s:%d-%d (%s snippet %d-%d) [%s]\n", s.Path, s.StartLine, s.EndLine, s.QualName(), start, end, conf)
-	lines := sc.readLinesRange(s.OID, s.Path, start, end)
-	return fitLinesToBudget(hdr, lines, start, remBytes)
+	makeHdr := func(last int) string {
+		return fmt.Sprintf("[Hop 1] %s:%d-%d (%s snippet %d-%d) [%s]\n", s.Path, s.StartLine, s.EndLine, s.QualName(), start, last, conf)
+	}
+	lines := sc.readLinesRangeCached(cache, s.OID, s.Path, start, end)
+	return fitLinesToBudget(makeHdr, lines, start, remBytes)
 }
 
-func fitLinesToBudget(hdr string, lines []string, startLine, remBytes int) string {
-	if len(hdr) > remBytes {
+func fitLinesToBudget(makeHdr func(endLine int) string, lines []string, startLine, remBytes int) string {
+	if len(lines) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString(hdr)
+	maxHdrLen := len(makeHdr(startLine + len(lines) - 1))
+	var body strings.Builder
+	lastLine := 0
 	for i, line := range lines {
 		row := fmt.Sprintf("  %d: %s\n", startLine+i, line)
-		if b.Len()+len(row) > remBytes {
-			break
+		if maxHdrLen+body.Len()+len(row) > remBytes {
+			if len(makeHdr(startLine+i))+body.Len()+len(row) > remBytes {
+				break
+			}
 		}
-		b.WriteString(row)
+		body.WriteString(row)
+		lastLine = startLine + i
 	}
-	return b.String()
+	if lastLine == 0 {
+		return ""
+	}
+	hdr := makeHdr(lastLine)
+	if len(hdr)+body.Len() > remBytes {
+		return ""
+	}
+	return hdr + body.String()
 }
 
 func (sc *scope) readLinesRange(oid, relPath string, startLine, endLine int) []string {
+	return sc.readLinesRangeCached(nil, oid, relPath, startLine, endLine)
+}
+
+func (sc *scope) readLinesRangeCached(cache sliceLineCache, oid, relPath string, startLine, endLine int) []string {
+	if cache != nil {
+		if all, ok := cache[relPath]; ok {
+			s, e := max(1, startLine), min(len(all), endLine)
+			if s <= e {
+				return all[s-1 : e]
+			}
+			return nil
+		}
+	}
 	for _, root := range sc.projects {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
 		if err != nil {
 			continue
 		}
 		all := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+		if cache != nil {
+			cache[relPath] = all
+		}
 		s, e := max(1, startLine), min(len(all), endLine)
 		if s <= e {
 			return all[s-1 : e]
 		}
+		return nil
 	}
 	var out []string
 	for line := startLine; line <= endLine; line++ {

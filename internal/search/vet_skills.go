@@ -34,7 +34,7 @@ func MatchSkills(prompt string, intent IntentMode, files []string, catalog []Ski
 	for _, s := range byName {
 		if sc, reason := scoreSkillCandidate(s, low, intent, files); sc > 0 {
 			cand := s
-			cand.Digest = truncateBytes(cand.Digest, maxSkillDigestBytes)
+			cand.Digest = truncateBytesUTF8(cand.Digest, maxSkillDigestBytes)
 			cand.Reason = reason
 			scored = append(scored, scoredSkill{meta: cand, score: sc})
 		}
@@ -56,7 +56,7 @@ func selectNamedSkills(byName map[string]SkillMeta, reason string, names ...stri
 	var out []SkillMeta
 	for _, name := range names {
 		if s, ok := byName[name]; ok {
-			s.Digest = truncateBytes(s.Digest, maxSkillDigestBytes)
+			s.Digest = truncateBytesUTF8(s.Digest, maxSkillDigestBytes)
 			s.Reason = reason
 			out = append(out, s)
 		}

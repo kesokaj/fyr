@@ -227,3 +227,53 @@ func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
 		}
 	}
 }
+
+func TestCoActivityIgnoresPreExistingDirtyReadOnlyAndCapsBulk(t *testing.T) {
+	dir := initCoActivityRepo(t)
+	home := t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	alphaPath := filepath.Join(dir, "pkg", "alpha", "alpha.go")
+	betaPath := filepath.Join(dir, "pkg", "beta", "beta.go")
+	if err := os.WriteFile(alphaPath, []byte("package alpha\nfunc TargetAlpha() int { return 99 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(betaPath, []byte("package beta\nfunc TargetBeta() int { return 99 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{alphaPath, betaPath} {
+		if _, err := CheckAndRecordRead(dir, "sess-dirty-ro", p, 1, 10, 1); err != nil {
+			t.Fatalf("read dirty file %s: %v", p, err)
+		}
+	}
+	if err := RecordStopCoActivity(dir, "sess-dirty-ro"); err != nil {
+		t.Fatalf("RecordStopCoActivity: %v", err)
+	}
+	if rows := queryTestCoActivity(t, dir, "", "co_modified", 1); len(rows) != 0 {
+		t.Fatalf("read-only session on pre-dirty files falsely recorded co_modified: %+v", rows)
+	}
+
+	st, err := openStore(projectDB(dir), io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	bulk := make([]string, maxCoActivityFiles+1)
+	for i := range bulk {
+		bulk[i] = filepath.ToSlash(filepath.Join("pkg", "f"+string(rune('a'+i/26))+string(rune('a'+i%26))+".go"))
+	}
+	if err := upsertCoActivityPairs(st, "sess-bulk", "co_read", bulk); err != nil {
+		t.Fatalf("upsertCoActivityPairs bulk: %v", err)
+	}
+	if rows, err := queryCoActivityDB(st, "", "co_read", 1); err != nil || len(rows) != 1 || rows[0].FileA != "pkg/alpha/alpha.go" || rows[0].FileB != "pkg/beta/beta.go" {
+		t.Fatalf("bulk session >%d files should be skipped, got rows=%+v err=%v", maxCoActivityFiles, rows, err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('pkg/alpha/alpha.go', 'pkg/beta/beta.go', 'co_modified', 4, 1), ('pkg/other1.go', 'pkg/other2.go', 'co_modified', 10, 1)`); err != nil {
+		t.Fatalf("seed co_activity: %v", err)
+	}
+	hints := (&scope{st: st}).activeCoChangeHints(map[string]bool{"pkg/alpha/alpha.go": true})
+	if len(hints) != 1 || !strings.Contains(hints[0], "pkg/alpha/alpha.go <-> pkg/beta/beta.go") {
+		t.Fatalf("activeCoChangeHints SQL filter = %+v, want only alpha <-> beta", hints)
+	}
+}

@@ -55,6 +55,8 @@ func CheckAndRecordReadInSession(sessionDir, home, toolDir, conversationID, targ
 	return st.checkAndRecordResolvedRead(root, conversationID, resolved, startLine, endLine, turnNum)
 }
 
+const ledgerPendingLine = -6
+
 func (s *store) checkAndRecordResolvedRead(root, conversationID, resolved string, startLine, endLine, turnNum int) (ReadDecision, error) {
 	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
 	if !ok {
@@ -65,6 +67,25 @@ func (s *store) checkAndRecordResolvedRead(root, conversationID, resolved string
 	if turnNum <= 0 {
 		turnNum = defTurn
 	}
+	var hitCount int
+	var hit bool
+	if err := s.withImmediateTx(func() error {
+		var err error
+		hit, hitCount, err = s.recordResolvedReadTx(conversationID, genID, resolved, reqStart, reqEnd, sumHex, turnNum)
+		return err
+	}); err != nil {
+		return ReadDecision{}, err
+	}
+	if hit {
+		relPath := relDisplayPath(root, resolved)
+		skel := s.fileSkeletonSummary(root, resolved, string(data))
+		reason := formatUnchangedLedgerNotice(relPath, reqStart, reqEnd, sumHex, hitCount, skel)
+		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: hitCount}, nil
+	}
+	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: 1}, nil
+}
+
+func (s *store) recordResolvedReadTx(conversationID string, genID int, resolved string, reqStart, reqEnd int, sumHex string, turnNum int) (bool, int, error) {
 	now := nowFunc().Unix()
 	_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 != '' AND sha256 != ?`, conversationID, genID, resolved, sumHex)
 	var hitStart, hitEnd, hitCount int
@@ -74,19 +95,16 @@ func (s *store) checkAndRecordResolvedRead(root, conversationID, resolved string
 		_, _ = s.db.Exec(`UPDATE read_ledger SET hit_count = ?, turn_num = ?, updated_at = ? WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = ? AND end_line = ?`,
 			hitCount+1, turnNum, now, conversationID, genID, resolved, hitStart, hitEnd)
 		s.recordLedgerBlock(conversationID, turnNum, now)
-		relPath := relDisplayPath(root, resolved)
-		skel := s.fileSkeletonSummary(root, resolved, string(data))
-		reason := formatUnchangedLedgerNotice(relPath, reqStart, reqEnd, sumHex, hitCount+1, skel)
-		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: hitCount + 1}, nil
+		return true, hitCount + 1, nil
 	}
 	if err := s.upsertReadStamp(conversationID, genID, resolved, reqStart, reqEnd, sumHex, turnNum, now); err != nil {
-		return ReadDecision{}, err
+		return false, 0, err
 	}
-	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: reqStart, EndLine: reqEnd, SHA256: sumHex, GenerationID: genID, HitCount: 1}, nil
+	return false, 1, nil
 }
 
 // CheckPreWriteHashWithEdit verifies disk content before a write/edit and invalidates
-// only stamps overlapping the edited line range (preserving untouched stamps with the post-edit hash).
+// only stamps overlapping the edited line range (recording any predicted post-edit hash as pending).
 func CheckPreWriteHashWithEdit(sessionDir, home, toolDir, conversationID, targetPath string, args map[string]any) (ReadDecision, error) {
 	st, root, err := openSessionLedgerStore(resolveSessionLedgerDir(sessionDir, toolDir), home)
 	if err != nil {
@@ -100,36 +118,65 @@ func CheckPreWriteHashWithEdit(sessionDir, home, toolDir, conversationID, target
 	if !ok {
 		return ReadDecision{Allowed: true, ResolvedPath: resolved, GenerationID: genID}, nil
 	}
-	var stampedSHA string
-	err = st.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 != '' ORDER BY updated_at DESC LIMIT 1`,
-		conversationID, genID, resolved).Scan(&stampedSHA)
-	if err == nil && stampedSHA != sumHex {
-		_, _ = st.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line > 0`, conversationID, genID, resolved)
+	var conflictSHA string
+	if err := st.withImmediateTx(func() error {
+		conflictSHA = st.verifyAndAdvancePreWriteTx(conversationID, genID, resolved, sumHex, string(data), args, turnNum)
+		return nil
+	}); err != nil {
+		return ReadDecision{}, err
+	}
+	if conflictSHA != "" {
 		skel := st.fileSkeletonSummary(root, resolved, string(data))
-		reason := formatModifiedLedgerNotice(relDisplayPath(root, resolved), stampedSHA, sumHex, skel)
+		reason := formatModifiedLedgerNotice(relDisplayPath(root, resolved), conflictSHA, sumHex, skel)
 		return ReadDecision{Allowed: false, Reason: reason, ResolvedPath: resolved, StartLine: 1, EndLine: totalLines, SHA256: sumHex, GenerationID: genID}, nil
 	}
-	st.applyPreWriteEditInvalidation(conversationID, genID, resolved, string(data), args, turnNum)
 	return ReadDecision{Allowed: true, ResolvedPath: resolved, StartLine: 1, EndLine: totalLines, SHA256: sumHex, GenerationID: genID}, nil
 }
 
-func (s *store) applyPreWriteEditInvalidation(conversationID string, genID int, resolved, text string, args map[string]any, turnNum int) {
+func (s *store) verifyAndAdvancePreWriteTx(conversationID string, genID int, resolved, sumHex, text string, args map[string]any, turnNum int) string {
+	var verifiedSHA, pendingSHA string
+	vErr := s.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line >= 0 AND sha256 != '' ORDER BY (start_line = 0 AND end_line = 0) DESC, updated_at DESC LIMIT 1`,
+		conversationID, genID, resolved).Scan(&verifiedSHA)
+	pErr := s.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = ? AND end_line = ? AND sha256 != '' LIMIT 1`,
+		conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine).Scan(&pendingSHA)
+	if pErr == nil && pendingSHA != "" && sumHex == pendingSHA {
+		_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = ? AND end_line = ?`,
+			conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine)
+		_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, sumHex, turnNum, nowFunc().Unix())
+	} else if vErr == nil && verifiedSHA != "" && sumHex == verifiedSHA {
+		_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND ((start_line = ? AND end_line = ?) OR (start_line > 0 AND sha256 != ?))`,
+			conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine, sumHex)
+	} else if vErr == nil && verifiedSHA != "" {
+		_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND (start_line > 0 OR (start_line = ? AND end_line = ?))`,
+			conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine)
+		return verifiedSHA
+	}
+	s.applyPreWriteEditInvalidation(conversationID, genID, resolved, sumHex, text, args, turnNum)
+	return ""
+}
+
+func (s *store) applyPreWriteEditInvalidation(conversationID string, genID int, resolved, verifiedSHA, text string, args map[string]any, turnNum int) {
 	now := nowFunc().Unix()
 	if args != nil {
 		if postSHA, occs, delta, ok := computeEditEffects(text, args); ok {
 			s.updateStampsAcrossEdit(conversationID, genID, resolved, occs, delta, postSHA, now)
-			_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, postSHA, turnNum, now)
+			_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, verifiedSHA, turnNum, now)
+			_ = s.upsertReadStamp(conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine, postSHA, turnNum, now)
 			return
 		}
 	}
 	_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line > 0`, conversationID, genID, resolved)
-	sentinelSHA := ""
 	if args != nil && !extractBoolArg(args, "Append", "append") {
 		if content, ok := extractRawStringArg(args, "Content", "content", "FileContent", "file_content"); ok {
-			sentinelSHA = sha256HexString(content)
+			sentinelSHA := sha256HexString(content)
+			_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, verifiedSHA, turnNum, now)
+			_ = s.upsertReadStamp(conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine, sentinelSHA, turnNum, now)
+			return
 		}
 	}
-	_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, sentinelSHA, turnNum, now)
+	_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = ? AND end_line = ?`,
+		conversationID, genID, resolved, ledgerPendingLine, ledgerPendingLine)
+	_ = s.upsertReadStamp(conversationID, genID, resolved, 0, 0, "", turnNum, now)
 }
 
 func (s *store) updateStampsAcrossEdit(conversationID string, genID int, resolved string, occs []editSpan, delta int, postSHA string, now int64) {
@@ -192,6 +239,10 @@ func computeEditEffects(text string, args map[string]any) (string, []editSpan, i
 	}
 	occs := locateTargetSpans(text, target)
 	if len(occs) == 0 {
+		return "", nil, 0, false
+	}
+	allowMultiple := extractBoolArg(args, "AllowMultiple", "allowMultiple", "allow_multiple", "ReplaceAll", "replace_all")
+	if len(occs) > 1 && !allowMultiple {
 		return "", nil, 0, false
 	}
 	delta := strings.Count(repl, "\n") - strings.Count(target, "\n")

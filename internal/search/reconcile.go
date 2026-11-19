@@ -1,6 +1,7 @@
 package search
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 )
@@ -8,10 +9,11 @@ import (
 // maxFileBytes is the largest file indexed; larger files, and files with a
 // NUL byte in their first 8 KiB, are skipped.
 const (
-	maxFileBytes = 1 << 20
-	binarySniff  = 8 << 10
-	gcAge        = 14 * 24 * 60 * 60 // seconds an unreferenced blob is kept
-	touchEvery   = 24 * 60 * 60      // seconds between last_seen refreshes
+	maxFileBytes           = 1 << 20
+	binarySniff            = 8 << 10
+	gcAge                  = 14 * 24 * 60 * 60 // seconds an unreferenced blob is kept
+	touchEvery             = 24 * 60 * 60      // seconds between last_seen refreshes
+	walCheckpointThreshold = 50
 )
 
 // source is what apply needs to know about one project.
@@ -26,7 +28,9 @@ type source struct {
 // no write lock at all.
 func (s *store) apply(src source) (int, error) {
 	now := nowFunc().Unix()
-	changed, err := s.diffCount(src)
+	var verBefore int
+	_ = s.db.QueryRow(`PRAGMA data_version`).Scan(&verBefore)
+	changed, files, blobs, w, err := s.diffCountWithState(src)
 	if err != nil {
 		return 0, err
 	}
@@ -39,7 +43,7 @@ func (s *store) apply(src source) (int, error) {
 		}
 		return 0, err
 	}
-	n, err := s.applyLocked(src, now)
+	n, err := s.applyLocked(src, now, files, blobs, w, verBefore)
 	if err != nil {
 		s.db.Exec(`ROLLBACK`)
 		if isBusy(err) {
@@ -54,7 +58,7 @@ func (s *store) apply(src source) (int, error) {
 		}
 		return 0, err
 	}
-	if n > 0 {
+	if n >= walCheckpointThreshold {
 		s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	}
 	return n, nil
@@ -112,9 +116,14 @@ func wanted(view []entry, blobs map[string]bool) map[string]entry {
 }
 
 func (s *store) diffCount(src source) (int, error) {
+	n, _, _, _, err := s.diffCountWithState(src)
+	return n, err
+}
+
+func (s *store) diffCountWithState(src source) (int, map[string]string, map[string]bool, map[string]entry, error) {
 	files, blobs, err := s.current(src.project)
 	if err != nil {
-		return 0, err
+		return 0, nil, nil, nil, err
 	}
 	w := wanted(src.view, blobs)
 	n := 0
@@ -128,7 +137,7 @@ func (s *store) diffCount(src source) (int, error) {
 			n++
 		}
 	}
-	return n, nil
+	return n, files, blobs, w, nil
 }
 
 func (s *store) touchDue(project string, now int64) bool {
@@ -137,15 +146,20 @@ func (s *store) touchDue(project string, now int64) bool {
 	return err != nil || now-v >= touchEvery
 }
 
-func (s *store) applyLocked(src source, now int64) (int, error) {
-	files, blobs, err := s.current(src.project)
-	if err != nil {
-		return 0, err
+func (s *store) applyLocked(src source, now int64, files map[string]string, blobs map[string]bool, w map[string]entry, verBefore int) (int, error) {
+	var verAfter int
+	if err := s.db.QueryRow(`PRAGMA data_version`).Scan(&verAfter); err != nil || verBefore == 0 || verAfter != verBefore || files == nil {
+		var err2 error
+		files, blobs, err2 = s.current(src.project)
+		if err2 != nil {
+			return 0, err2
+		}
+		w = wanted(src.view, blobs)
 	}
 	if err := s.indexBlobs(src, blobs, now); err != nil {
 		return 0, err
 	}
-	n, err := s.writeFiles(src, files, wanted(src.view, blobs))
+	n, err := s.writeFiles(src, files, w)
 	if err != nil {
 		return 0, err
 	}
@@ -172,13 +186,22 @@ func (s *store) indexBlobs(src source, blobs map[string]bool, now int64) error {
 		return err
 	}
 	defer fsRoot.Close()
-	var in *inserter
+	var (
+		in       *inserter
+		blobStmt *sql.Stmt
+	)
 	for _, e := range src.view {
 		if _, known := blobs[e.oid]; known {
 			continue
 		}
+		if blobStmt == nil {
+			if blobStmt, err = s.db.Prepare(`INSERT INTO blobs(oid, last_seen, skipped) VALUES (?, ?, ?)`); err != nil {
+				return err
+			}
+			defer blobStmt.Close()
+		}
 		text, ok := readIndexable(fsRoot, filepath.FromSlash(e.path))
-		if _, err := s.db.Exec(`INSERT INTO blobs(oid, last_seen, skipped) VALUES (?, ?, ?)`, e.oid, now, boolInt(!ok)); err != nil {
+		if _, err := blobStmt.Exec(e.oid, now, boolInt(!ok)); err != nil {
 			return err
 		}
 		blobs[e.oid] = !ok
@@ -198,14 +221,48 @@ func (s *store) indexBlobs(src source, blobs map[string]bool, now int64) error {
 	return nil
 }
 
+type fileWriteStmts struct {
+	del, upd, ins *sql.Stmt
+}
+
+func (s *store) prepareFileWriteStmts() (fileWriteStmts, error) {
+	var st fileWriteStmts
+	var err error
+	if st.del, err = s.db.Prepare(`DELETE FROM files WHERE project = ? AND path = ?`); err != nil {
+		return st, err
+	}
+	if st.upd, err = s.db.Prepare(`UPDATE files SET state = ? WHERE project = ? AND path = ? AND state != ?`); err != nil {
+		st.close()
+		return st, err
+	}
+	if st.ins, err = s.db.Prepare(`INSERT INTO files(project, path, oid, state) VALUES (?, ?, ?, ?)`); err != nil {
+		st.close()
+		return st, err
+	}
+	return st, nil
+}
+
+func (st fileWriteStmts) close() {
+	for _, stmt := range []*sql.Stmt{st.del, st.upd, st.ins} {
+		if stmt != nil {
+			stmt.Close()
+		}
+	}
+}
+
 // writeFiles brings the project's files rows from files to w and returns
 // how many paths were added or removed; a path whose blob is unchanged only
 // has its state updated.
 func (s *store) writeFiles(src source, files map[string]string, w map[string]entry) (int, error) {
+	stmts, err := s.prepareFileWriteStmts()
+	if err != nil {
+		return 0, err
+	}
+	defer stmts.close()
 	n := 0
 	for p, oid := range files {
 		if e, ok := w[p]; !ok || e.oid != oid {
-			if _, err := s.db.Exec(`DELETE FROM files WHERE project = ? AND path = ?`, src.project, p); err != nil {
+			if _, err := stmts.del.Exec(src.project, p); err != nil {
 				return 0, err
 			}
 			n++
@@ -213,7 +270,7 @@ func (s *store) writeFiles(src source, files map[string]string, w map[string]ent
 	}
 	for p, e := range w {
 		if old, ok := files[p]; ok && old == e.oid {
-			if _, err := s.db.Exec(`UPDATE files SET state = ? WHERE project = ? AND path = ? AND state != ?`, e.state, src.project, p, e.state); err != nil {
+			if _, err := stmts.upd.Exec(e.state, src.project, p, e.state); err != nil {
 				return 0, err
 			}
 			continue
@@ -221,7 +278,7 @@ func (s *store) writeFiles(src source, files map[string]string, w map[string]ent
 		if _, ok := files[p]; !ok {
 			n++
 		}
-		if _, err := s.db.Exec(`INSERT INTO files(project, path, oid, state) VALUES (?, ?, ?, ?)`, src.project, p, e.oid, e.state); err != nil {
+		if _, err := stmts.ins.Exec(src.project, p, e.oid, e.state); err != nil {
 			return 0, err
 		}
 	}
@@ -253,9 +310,13 @@ func (s *store) reconcileGoInterfaces(project string) error {
 	if _, err := s.db.Exec(`DELETE FROM sym_refs WHERE kind IN ('implements', 'iface_call') AND oid IN (SELECT oid FROM files WHERE project = ?)`, project); err != nil {
 		return err
 	}
+	insStmt, err := s.db.Prepare(`INSERT INTO sym_refs(oid, from_sym, to_pkg, to_name, kind, confidence, weight, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer insStmt.Close()
 	for _, r := range matchImplicitInterfaces(syms) {
-		if _, err := s.db.Exec(`INSERT INTO sym_refs(oid, from_sym, to_pkg, to_name, kind, confidence, weight, line) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.oid, r.fromSym, r.toPkg, r.toName, r.kind, r.confidence, r.weight, r.line); err != nil {
+		if _, err := insStmt.Exec(r.oid, r.fromSym, r.toPkg, r.toName, r.kind, r.confidence, r.weight, r.line); err != nil {
 			return err
 		}
 	}

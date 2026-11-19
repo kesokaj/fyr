@@ -130,10 +130,19 @@ func normalizeRef(t string) string {
 // per line and target.
 func parseRefs(text string) []ref {
 	var out []ref
+	var seen map[string]bool
 	for i, l := range splitLines(text) {
-		seen := map[string]bool{}
+		if len(seen) > 0 {
+			clear(seen)
+		}
 		add := func(t string) {
-			if t != "" && !seen[t] {
+			if t == "" {
+				return
+			}
+			if seen == nil {
+				seen = map[string]bool{}
+			}
+			if !seen[t] {
 				seen[t] = true
 				out = append(out, ref{line: i + 1, target: t})
 			}

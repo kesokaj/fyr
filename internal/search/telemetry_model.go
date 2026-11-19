@@ -16,6 +16,14 @@ type catalogModelEntry struct {
 	Effort      string `json:"effort"`
 }
 
+type modelsCatalogFile struct {
+	UpdatedAt string                      `json:"updated_at"`
+	Entries   []catalogModelEntry         `json:"entries"`
+	Picks     map[string]modelRoutingPick `json:"picks"`
+}
+
+const maxHookConvDBBytes = 8 << 20
+
 var exactModelFallbackMap = map[string][2]string{
 	"gemini-pro-orchestrator":       {"Orchestrator (Carbon)", "DYNAMIC"},
 	"gemini-pro-orchestrator-argon": {"Orchestrator (Argon)", "DYNAMIC"},
@@ -48,38 +56,47 @@ var modelSuffixThinkingMap = []struct {
 
 // ResolveModelAndThinking translates a raw Antigravity model ID or display name
 // into an exact human model name and an UPPER_SNAKE_CASE thinking level using
-// cached <home>/.config/fyr/models.json metadata with a pure-stdlib fallback.
+// cached models.json metadata under home/harness.StateDir with a pure-stdlib fallback.
 func ResolveModelAndThinking(home, rawModel string) (model, thinking string) {
 	trimmed := strings.TrimSpace(printable(rawModel))
 	if trimmed == "" || strings.EqualFold(trimmed, "auto") {
 		return "", ""
 	}
-	if name, eff, ok := resolveModelFromCatalog(home, trimmed); ok {
-		return name, eff
+	cat, ok := loadModelsCatalog(home)
+	return resolveModelAndThinkingWithCatalog(cat, ok, trimmed)
+}
+
+func resolveModelAndThinkingWithCatalog(cat modelsCatalogFile, hasCat bool, rawModel string) (string, string) {
+	trimmed := strings.TrimSpace(printable(rawModel))
+	if trimmed == "" || strings.EqualFold(trimmed, "auto") {
+		return "", ""
+	}
+	if hasCat {
+		if name, eff, ok := matchCatalogModelEntry(cat.Entries, trimmed); ok {
+			return name, eff
+		}
 	}
 	return parseModelFallback(trimmed)
 }
 
-func resolveModelFromCatalog(home, rawModel string) (model, thinking string, ok bool) {
+func loadModelsCatalog(home string) (modelsCatalogFile, bool) {
 	if strings.TrimSpace(home) == "" {
-		return "", "", false
+		return modelsCatalogFile{}, false
 	}
 	p := filepath.Join(home, harness.StateDir, "models.json")
 	st, err := os.Lstat(p)
 	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 1<<20 {
-		return "", "", false
+		return modelsCatalogFile{}, false
 	}
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return "", "", false
+		return modelsCatalogFile{}, false
 	}
-	var cat struct {
-		Entries []catalogModelEntry `json:"entries"`
-	}
+	var cat modelsCatalogFile
 	if json.Unmarshal(data, &cat) != nil {
-		return "", "", false
+		return modelsCatalogFile{}, false
 	}
-	return matchCatalogModelEntry(cat.Entries, rawModel)
+	return cat, true
 }
 
 func matchCatalogModelEntry(entries []catalogModelEntry, rawModel string) (string, string, bool) {
@@ -151,10 +168,14 @@ func parseModelFallback(rawModel string) (string, string) {
 }
 
 func resolveHookSessionModel(in HookInput) string {
+	return resolveHookSessionModelForHome("", in)
+}
+
+func resolveHookSessionModelForHome(home string, in HookInput) string {
 	if m := strings.TrimSpace(in.ModelName); m != "" && !strings.EqualFold(m, "auto") {
 		return m
 	}
-	dbPath, brainSubdir := resolveHookConvDBPath(in)
+	dbPath, brainSubdir := resolveHookConvDBPathForHome(home, in)
 	if dbPath == "" || brainSubdir == "" {
 		return ""
 	}
@@ -162,7 +183,11 @@ func resolveHookSessionModel(in HookInput) string {
 }
 
 func resolveHookConvDBPath(in HookInput) (string, string) {
-	target := resolveProcessArtifactPath(in)
+	return resolveHookConvDBPathForHome("", in)
+}
+
+func resolveHookConvDBPathForHome(home string, in HookInput) (string, string) {
+	target := resolveProcessArtifactPathForHome(home, in)
 	if target == "" {
 		return "", ""
 	}
@@ -180,7 +205,7 @@ func resolveHookConvDBPath(in HookInput) (string, string) {
 		return "", ""
 	}
 	dbPath := filepath.Join(convDir, convID+".db")
-	if !regularBoundedSQLiteFile(dbPath, 32<<20) {
+	if !regularBoundedSQLiteFile(dbPath, maxHookConvDBBytes) {
 		return "", ""
 	}
 	return dbPath, brainSubdir
@@ -200,28 +225,38 @@ func regularBoundedSQLiteFile(dbPath string, maxBytes int64) bool {
 }
 
 func queryConvGenMetadataModel(dbPath, brainSubdir string) string {
+	for attempt := 0; attempt < 2; attempt++ {
+		model, err := readConvGenMetadataModelOnce(dbPath, brainSubdir)
+		if err == nil || !isUnreadable(err) {
+			return model
+		}
+	}
+	return ""
+}
+
+func readConvGenMetadataModelOnce(dbPath, brainSubdir string) (string, error) {
 	tmp, err := os.MkdirTemp(brainSubdir, ".fyr-conv-*")
 	if err != nil {
-		return ""
+		return "", err
 	}
 	defer os.RemoveAll(tmp)
 	cp, err := copyDB(filepath.Dir(dbPath), filepath.Base(dbPath), tmp)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	db, err := sql.Open("sqlite", roDSN(cp))
 	if err != nil {
-		return ""
+		return "", err
 	}
 	defer db.Close()
 	var blob []byte
 	if err := db.QueryRow(`SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1`).Scan(&blob); err != nil {
-		return ""
+		return "", err
 	}
 	for _, f := range ProtoFields(blob) {
 		if f.Wire == 2 && len(f.Path) == 2 && f.Path[0] == 1 && f.Path[1] == 19 {
-			return strings.TrimSpace(string(f.Bytes))
+			return strings.TrimSpace(string(f.Bytes)), nil
 		}
 	}
-	return ""
+	return "", nil
 }

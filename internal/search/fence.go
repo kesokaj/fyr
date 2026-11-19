@@ -2,16 +2,10 @@ package search
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
-	"sync/atomic"
-	"time"
 )
-
-var fenceFallbackSeq atomic.Uint64
 
 // Fence is a per-turn cryptographic boundary (=====<18-hex>=====) that wraps
 // retrieved records, memories, skills, and AST slices as untrusted reference
@@ -31,8 +25,7 @@ func New(texts ...string) Fence {
 			return Fence{tag: tag, hex: h}
 		}
 	}
-	h := fallbackHex18()
-	return Fence{tag: "=====" + h + "=====", hex: h}
+	panic("search: failed to generate collision-free cryptographic fence boundary")
 }
 
 // String returns the fence boundary token (=====<18-hex>=====).
@@ -64,17 +57,8 @@ func (f Fence) Data(name, who, text string) string {
 func randomHex18() string {
 	var b [9]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return fallbackHex18()
+		panic(fmt.Errorf("search: crypto/rand.Read failed: %w", err))
 	}
-	return hex.EncodeToString(b[:])
-}
-
-func fallbackHex18() string {
-	var b [9]byte
-	seq := fenceFallbackSeq.Add(1)
-	pid := uint64(os.Getpid())
-	binary.BigEndian.PutUint64(b[:8], uint64(time.Now().UnixNano())^seq^(pid<<32))
-	b[8] = byte(seq ^ pid)
 	return hex.EncodeToString(b[:])
 }
 
@@ -110,11 +94,17 @@ func sanitizeFenceBody(text, tag, hexPart string) string {
 // BuildTurnEnvelope serializes turn metadata, contract, advisory route, and
 // delta-only enrichment into a single 2-space pretty-printed json fenced block.
 func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections []string, extraBanners []string) (string, string) {
-	allTexts := gatherTextsToFence(res, slice, brainCtx, extraSections)
+	return BuildTurnEnvelopeWithMeta(res, slice, brainCtx, turnBannerMetaFromExtras(extraSections, extraBanners))
+}
+
+// BuildTurnEnvelopeWithMeta serializes turn metadata, contract, advisory route,
+// and delta-only enrichment using typed TurnBannerMeta without stringly round-tripping.
+func BuildTurnEnvelopeWithMeta(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) (string, string) {
+	allTexts := gatherTextsToFence(res, slice, brainCtx, meta.ExtraSections)
 	f := New(allTexts...)
 	res.FenceBoundary = f.String()
 
-	envJSON := formatPreInvocationEnvelope(*res, slice, brainCtx, extraSections, extraBanners)
+	envJSON := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
 	res.TurnContract = envJSON
 	res.SystemMessage = envJSON
 	res.UserMarkdownBanner = envJSON
@@ -153,14 +143,6 @@ func recordProvenance(r MatchedRecord) string {
 		return "operator"
 	}
 	return "trail"
-}
-
-func truncateBytes(s string, maxB int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxB {
-		return s
-	}
-	return strings.TrimSpace(s[:maxB])
 }
 
 // FormatVetResult renders a structured VetResult for `fyr search --vet`.

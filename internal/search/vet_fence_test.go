@@ -282,7 +282,7 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 	}
 
 	// Verify gen_metadata field (1, 19) fallback when hook stdin carries modelName="auto".
-	appDir := t.TempDir()
+	appDir := filepath.Join(home, ".gemini", "antigravity-cli")
 	convID := "conv-model-fallback"
 	brainDir := filepath.Join(appDir, "brain", convID)
 	convDir := filepath.Join(appDir, "conversations")
@@ -358,4 +358,36 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		t.Errorf("PreInvocation fallback resolved model=%q thinking=%q, want Claude Opus 5.5 / HIGH", banner.Model, banner.Thinking)
 	}
 	assertCleanDirs("after RunHook")
+}
+
+func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
+	res := VetResult{
+		Intent:          IntentBug,
+		Gate:            GateEnrichAndProceed,
+		Score:           90,
+		SessionModel:    "Gemini 4 Carbon",
+		SessionThinking: "HIGH",
+		Skills: []SkillMeta{{
+			Name:   "fyr-bug",
+			Path:   "skills/fyr-bug/SKILL.md",
+			Digest: strings.Repeat("é", 400),
+		}},
+	}
+	matched, _ := MatchSkills("fix bug", IntentBug, nil, res.Skills)
+	if len(matched) == 0 || strings.ToValidUTF8(matched[0].Digest, "") != matched[0].Digest {
+		t.Fatalf("MatchSkills produced invalid UTF-8 digest: %+v", matched)
+	}
+	meta := TurnBannerMeta{
+		CompactedGeneration:  2,
+		DirtyFastPath:        true,
+		PivotCount:           4,
+		ContextKneeWarning:   "185k tokens (>= 180K knee)",
+		ModelTip:             "consider Carbon",
+		SessionModelResolved: true,
+	}
+	msg, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, meta)
+	b := parseFencedJSONBanner(t, msg)
+	if b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" || b.TokenKneeWarning != "185k tokens (>= 180K knee)" {
+		t.Fatalf("unexpected typed TurnBannerMeta output: %+v", b)
+	}
 }

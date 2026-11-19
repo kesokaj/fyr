@@ -107,9 +107,44 @@ func marshalPrettyJSON(v any) string {
 	return strings.TrimRight(buf.String(), "\n")
 }
 
-func formatPreInvocationEnvelope(res VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections, extraBanners []string) string {
-	b := buildPreInvocationBannerBase(res, extraSections, extraBanners)
-	b.Enrichment = buildPreInvocationEnrichment(res, slice, brainCtx, extraSections, b.CompactedGeneration)
+// TurnBannerMeta passes structured PreInvocation hook metadata into
+// BuildTurnEnvelopeWithMeta without round-tripping prose banner strings.
+type TurnBannerMeta struct {
+	CompactedGeneration  int
+	DirtyFastPath        bool
+	PivotCount           int
+	ContextKneeWarning   string
+	ModelTip             string
+	StoreError           string
+	Notices              []string
+	ExtraSections        []string
+	SessionModelResolved bool
+}
+
+func (m TurnBannerMeta) hasSignals() bool {
+	return m.CompactedGeneration > 0 || m.DirtyFastPath || m.PivotCount > 0 ||
+		m.ContextKneeWarning != "" || m.ModelTip != "" || m.StoreError != "" || len(m.Notices) > 0
+}
+
+func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {
+	meta := TurnBannerMeta{ExtraSections: extraSections}
+	var b PreInvocationBanner
+	for _, extra := range extraBanners {
+		applyExtraBanner(&b, extra)
+	}
+	meta.CompactedGeneration = b.CompactedGeneration
+	meta.DirtyFastPath = b.DirtyFastPath
+	meta.PivotCount = b.PivotCount
+	meta.ContextKneeWarning = b.TokenKneeWarning
+	meta.ModelTip = b.ModelTip
+	meta.StoreError = b.StoreError
+	meta.Notices = b.Notices
+	return meta
+}
+
+func formatPreInvocationEnvelopeWithMeta(res VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) string {
+	b := buildPreInvocationBannerBaseWithMeta(res, meta)
+	b.Enrichment = buildPreInvocationEnrichment(res, slice, brainCtx, meta.ExtraSections, b.CompactedGeneration)
 	return safeBacktickFenceWithLang(marshalPrettyJSON(b), "json")
 }
 
@@ -135,10 +170,10 @@ func preInvocationDirective(res VetResult) string {
 	return "ENRICH_AND_PROCEED"
 }
 
-func bannerModelAndThinking(res VetResult) (string, string) {
+func bannerModelAndThinking(res VetResult, modelResolved bool) (string, string) {
 	modelName := collapseOneLine(printable(res.SessionModel), 80)
 	thinking := collapseOneLine(printable(res.SessionThinking), 32)
-	if modelName != "" && thinking == "" {
+	if !modelResolved && modelName != "" && thinking == "" {
 		resolved, resolvedThink := ResolveModelAndThinking("", modelName)
 		if resolved != "" {
 			modelName = resolved
@@ -158,9 +193,9 @@ func bannerRoute(res VetResult, directive string) string {
 	return ""
 }
 
-func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []string) PreInvocationBanner {
+func buildPreInvocationBannerBaseWithMeta(res VetResult, meta TurnBannerMeta) PreInvocationBanner {
 	score := res.Score
-	modelName, thinking := bannerModelAndThinking(res)
+	modelName, thinking := bannerModelAndThinking(res, meta.SessionModelResolved)
 	directive := preInvocationDirective(res)
 	b := PreInvocationBanner{
 		Surface:                  "PRE_INVOCATION",
@@ -174,8 +209,24 @@ func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []s
 		Route:                    bannerRoute(res, directive),
 		SecuritySubagentRequired: res.SecurityRequired,
 		MatchedRecordCount:       len(res.MatchedRecords),
+		PivotCount:               meta.PivotCount,
+		CompactedGeneration:      meta.CompactedGeneration,
+		DirtyFastPath:            meta.DirtyFastPath,
 		Conflicts:                cleanPrintableSlice(res.Conflicts, 220),
+		ModelTip:                 collapseOneLine(printable(meta.ModelTip), 220),
+		StoreError:               collapseOneLine(printable(meta.StoreError), 220),
+		Notices:                  cleanPrintableSlice(meta.Notices, 220),
 	}
+	setBannerKneeWarning(&b.TokenKneeWarning, meta.ContextKneeWarning)
+	populateBannerSkillsAndTip(&b, res, meta.ExtraSections)
+	return b
+}
+
+func setBannerKneeWarning(dst *string, warn string) {
+	*dst = collapseOneLine(printable(warn), 220)
+}
+
+func populateBannerSkillsAndTip(b *PreInvocationBanner, res VetResult, extraSections []string) {
 	for _, s := range res.Skills {
 		if name := strings.TrimSpace(printable(s.Name)); name != "" {
 			b.Skills = append(b.Skills, name)
@@ -189,9 +240,6 @@ func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []s
 			b.Tip = "surface conflicts and ask up to 3 clarifying questions (ending with ?) before editing or dispatching; prefix `!` to bypass vetting"
 		}
 	}
-	for _, extra := range extraBanners {
-		applyExtraBanner(&b, extra)
-	}
 	if b.TokenKneeWarning == "" {
 		for _, sec := range extraSections {
 			if strings.HasPrefix(strings.TrimSpace(sec), "[CONTEXT_KNEE_WARNING]") {
@@ -200,7 +248,6 @@ func buildPreInvocationBannerBase(res VetResult, extraSections, extraBanners []s
 			}
 		}
 	}
-	return b
 }
 
 func buildPreInvocationEnrichment(res VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections []string, compactedGen int) *PreInvocationEnrichment {

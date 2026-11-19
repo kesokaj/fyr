@@ -139,23 +139,15 @@ func (sc *scope) populateGraphEdges(g *symGraph) error {
 	if err != nil {
 		return err
 	}
-	var refs []rawSymRef
+	defer rows.Close()
 	for rows.Next() {
 		var r rawSymRef
 		if err := rows.Scan(&r.path, &r.oid, &r.fromSym, &r.toPkg, &r.toName, &r.kind, &r.confidence, &r.weight, &r.line); err != nil {
-			rows.Close()
 			return err
 		}
-		refs = append(refs, r)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, r := range refs {
 		g.addRawRef(r)
 	}
-	return nil
+	return rows.Err()
 }
 
 func (g *symGraph) addRawRef(r rawSymRef) {

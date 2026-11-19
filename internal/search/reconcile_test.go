@@ -264,3 +264,36 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 		t.Errorf("symbols count changed after warm apply: got %d, want %d", got, symCount)
 	}
 }
+
+func TestRefsOIDIndexAndBatchedLinkedRecords(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, root, "a.go", "package main\n// see BUG-101\nfunc A() {}\n")
+	writeFile(t, root, "b.go", "package main\n// see ADR-202\nfunc B() {}\n")
+	commitAll(t, root, "add refs")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"main"}})
+
+	db := openDB(t, root)
+	if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'refs_oid'`); n != 1 {
+		t.Fatalf("missing refs_oid index on fresh v8 DB, count=%d", n)
+	}
+	if _, err := db.Exec(`DROP INDEX refs_oid`); err != nil {
+		t.Fatalf("drop refs_oid: %v", err)
+	}
+	db.Close()
+
+	st, err := openStore(projectDB(root), os.Stdout)
+	if err != nil {
+		t.Fatalf("reopen v8 store: %v", err)
+	}
+	defer st.close()
+	var idxN int
+	if err := st.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'refs_oid'`).Scan(&idxN); err != nil || idxN != 1 {
+		t.Fatalf("ensureSchema did not idempotently recreate refs_oid: idxN=%d err=%v", idxN, err)
+	}
+	sc := &scope{st: st, projects: []string{root}}
+	recs := sc.linkedRecordsForPaths(map[string]bool{"a.go": true, "b.go": true}, nil)
+	if len(recs) != 2 || recs[0].ID != "ADR-202" || recs[1].ID != "BUG-101" {
+		t.Fatalf("batched linkedRecordsForPaths = %+v, want [ADR-202, BUG-101]", recs)
+	}
+}

@@ -534,4 +534,11 @@ func TestListAgyWorkspacesAndWindow(t *testing.T) {
 	if err != nil || len(leftOut) != 0 || len(globalConvs) != 2 {
 		t.Fatalf("global window convs = %+v, leftOut=%v, err=%v; want 2 (c-global, c-global-empty)", globalConvs, leftOut, err)
 	}
+	tmpCheck := t.TempDir()
+	if _, err := conversationText(dir, "c-global", tmpCheck); err != nil {
+		t.Fatalf("conversationText cleanup check: %v", err)
+	}
+	if ents, err := os.ReadDir(tmpCheck); err != nil || len(ents) != 0 {
+		t.Fatalf("conversationText leaked copied DB files in tmp: ents=%v err=%v", ents, err)
+	}
 }

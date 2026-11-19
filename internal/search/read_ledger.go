@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -108,33 +109,58 @@ func ParseCapsulePivots(capsule string) []CapsulePivot {
 
 // RegisterCapsulePivots records Hop-0/Hop-1 capsule ranges in read_ledger for conversationID.
 func RegisterCapsulePivots(dir, conversationID string, turnNum int, pivots []CapsulePivot) error {
+	return RegisterCapsulePivotsWithHome(dir, "", conversationID, turnNum, pivots)
+}
+
+type resolvedCapsulePivot struct {
+	resolved, sumHex string
+	start, end       int
+}
+
+// RegisterCapsulePivotsWithHome records Hop-0/Hop-1 capsule ranges in read_ledger,
+// routing through openSessionLedgerStore so auto-ignore and globalDB fallback apply.
+func RegisterCapsulePivotsWithHome(dir, home, conversationID string, turnNum int, pivots []CapsulePivot) error {
 	if len(pivots) == 0 {
 		return nil
 	}
-	st, root, err := openLedgerStore(dir)
+	st, root, err := openSessionLedgerStore(dir, home)
 	if err != nil {
 		return err
 	}
 	defer st.close()
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
-		conversationID = "default"
+	base := root
+	if base == "" {
+		base = dir
 	}
-	genID, defTurn := st.currentGeneration(conversationID)
+	resolved := make([]resolvedCapsulePivot, 0, len(pivots))
+	for _, p := range pivots {
+		rp := CanonicalizePath(base, p.Path)
+		if sumHex, _, totalLines, ok := readFileDigestAndLines(rp); ok {
+			s, e := normalizeLineRange(p.StartLine, p.EndLine, totalLines)
+			resolved = append(resolved, resolvedCapsulePivot{resolved: rp, sumHex: sumHex, start: s, end: e})
+		}
+	}
+	if len(resolved) == 0 {
+		return nil
+	}
+	return st.upsertCapsulePivotsTx(conversationID, turnNum, resolved)
+}
+
+func (s *store) upsertCapsulePivotsTx(conversationID string, turnNum int, pivots []resolvedCapsulePivot) error {
+	conversationID = normalizeLedgerConvID(conversationID)
+	genID, defTurn := s.currentGeneration(conversationID)
 	if turnNum <= 0 {
 		turnNum = defTurn
 	}
 	now := nowFunc().Unix()
-	for _, p := range pivots {
-		resolved := CanonicalizePath(root, p.Path)
-		if sumHex, _, totalLines, ok := readFileDigestAndLines(resolved); ok {
-			start, end := normalizeLineRange(p.StartLine, p.EndLine, totalLines)
-			if err := st.upsertReadStamp(conversationID, genID, resolved, start, end, sumHex, turnNum, now); err != nil {
+	return s.withImmediateTx(func() error {
+		for _, p := range pivots {
+			if err := s.upsertReadStamp(conversationID, genID, p.resolved, p.start, p.end, p.sumHex, turnNum, now); err != nil {
 				return err
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // CheckAndRecordRead checks whether a file range was already read unchanged in this generation,
@@ -191,7 +217,9 @@ func readFileDigestAndLines(resolvedPath string) (string, []byte, int, bool) {
 		return "", nil, 0, false
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), data, max(1, len(splitLines(string(data)))), true
+	trimmed := bytes.TrimSuffix(data, []byte("\n"))
+	totalLines := max(1, bytes.Count(trimmed, []byte("\n"))+1)
+	return hex.EncodeToString(sum[:]), data, totalLines, true
 }
 
 func normalizeLineRange(startLine, endLine, totalLines int) (int, int) {
@@ -209,7 +237,7 @@ func normalizeLineRange(startLine, endLine, totalLines int) (int, int) {
 }
 
 func (s *store) fileSkeletonSummary(_, resolvedPath, text string) string {
-	syms, _ := extractSymbolsAndRefs(resolvedPath, text)
+	syms, _ := extractSymbolsAndRefsForIndex(resolvedPath, text)
 	var lines []string
 	for _, sy := range syms {
 		lines = append(lines, fmt.Sprintf("%d-%d  %s", sy.startLine, sy.endLine, sy.sig))

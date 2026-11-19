@@ -25,7 +25,7 @@ func registerRepo(t *testing.T) string {
 	}
 	os.MkdirAll(filepath.Join(root, ".agents"), 0o755)
 	os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".agents/scratch/*\n"), 0o644)
-	os.WriteFile(filepath.Join(root, ".agents", "trail.jsonl"), nil, 0o644)
+	os.WriteFile(filepath.Join(root, ".agents", "trail.jsonl"), []byte("{\"kind\":\"bug\",\"id\":\"BUG-001\"}\n"), 0o644)
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
 		{"add", "-A"},

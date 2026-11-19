@@ -165,12 +165,13 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
 	var (
-		state             SessionState
-		skip, fastPath    bool
-		sc                *scope
-		dirtySummary      string
-		slice             SliceResult
-		sections, banners []string
+		state        SessionState
+		skip, fast   bool
+		sc           *scope
+		dirtySummary string
+		slice        SliceResult
+		sections     []string
+		meta         TurnBannerMeta
 	)
 	err := ensureHookProjectReady(dir)
 	if err == nil {
@@ -180,7 +181,7 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		return writePreInvocation(out, "", "")
 	}
 	if err == nil {
-		sc, dirtySummary, fastPath, err = prepareHookScope(dir)
+		sc, dirtySummary, fast, err = prepareHookScope(dir)
 	}
 	if err != nil {
 		if in.InvocationNum > 1 {
@@ -189,8 +190,8 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 		return writeStoreDegraded(out, err)
 	}
 	defer sc.close()
-	sections, banners, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fastPath)
-	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, banners)
+	sections, meta, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fast)
+	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, meta)
 	return writePreInvocation(out, sysMsg, banner)
 }
 
@@ -341,7 +342,7 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	}
 	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
 	if capsule != "" && preseedLedger && len(pivots) > 0 {
-		_ = RegisterCapsulePivots(o.Dir, o.Session, state.TurnCount, pivots)
+		_ = RegisterCapsulePivotsWithHome(o.Dir, o.Home, o.Session, state.TurnCount, pivots)
 	}
 	return SliceResult{
 		Capsule:    capsule,

@@ -447,3 +447,77 @@ func assertPreToolRangedAndEnvelopeVariants(t *testing.T, repo string, invoke fu
 		t.Fatalf("3rd covering re-read across coalesced range = %+v (saved=%d), want deny and saved=1", r3, savedCount("conv-range"))
 	}
 }
+
+func TestFitLinesToBudgetClampsHeaderAndLedgerPivot(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	var src strings.Builder
+	src.WriteString("package main\n\nfunc BigFunc() {\n")
+	for i := 1; i <= 12; i++ {
+		fmt.Fprintf(&src, "\t_ = %d // body line\n", i)
+	}
+	src.WriteString("}\n")
+	writeFile(t, root, "clamp.go", src.String())
+	commitAll(t, root, "add clamp.go")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"BigFunc"}})
+
+	st, err := openStore(projectDB(root), bytes.NewBuffer(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := &scope{st: st, projects: []string{root}}
+	sym := RankedSymbol{Path: "clamp.go", Name: "BigFunc", StartLine: 3, EndLine: 16, Sig: "func BigFunc()"}
+	block := sc.formatHop0Symbol(sliceLineCache{}, sym, 140)
+	st.close()
+	if block == "" || strings.Contains(block, ":3-16 ") {
+		t.Fatalf("expected clamped [Hop 0] header under tight budget, got:\n%s", block)
+	}
+	pivots := ParseCapsulePivots(block)
+	if len(pivots) != 1 || pivots[0].EndLine >= 16 {
+		t.Fatalf("ParseCapsulePivots = %+v, want clamped EndLine < 16", pivots)
+	}
+	if err := RegisterCapsulePivotsWithHome(root, home, "conv-clamp-hdr", 1, pivots); err != nil {
+		t.Fatalf("RegisterCapsulePivotsWithHome: %v", err)
+	}
+	tailRead, err := CheckAndRecordReadInSession(root, home, root, "conv-clamp-hdr", "clamp.go", pivots[0].EndLine+1, 16, 1)
+	if err != nil || !tailRead.Allowed {
+		t.Fatalf("omitted tail lines should remain readable, got %+v, err=%v", tailRead, err)
+	}
+}
+
+func TestPreWritePendingHashAbortedAndMultiOccurrenceEdits(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	content := "package main\n\nfunc One() string { return \"dup\" }\nfunc Two() string { return \"dup\" }\nfunc Unique() string { return \"old\" }\n"
+	writeFile(t, root, "multi.go", content)
+	commitAll(t, root, "add multi.go")
+
+	if dec, err := CheckAndRecordReadInSession(root, home, root, "conv-pending", "multi.go", 1, 5, 1); err != nil || !dec.Allowed {
+		t.Fatalf("initial read: %+v, err=%v", dec, err)
+	}
+	// 1. Ambiguous multi-occurrence Target without AllowMultiple: disk replaces 1 occurrence, next edit must NOT falsely block.
+	if dec, err := CheckPreWriteHashWithEdit(root, home, root, "conv-pending", "multi.go", map[string]any{"Target": `"dup"`, "Replacement": `"one"`}); err != nil || !dec.Allowed {
+		t.Fatalf("multi-occ edit 1: %+v, err=%v", dec, err)
+	}
+	writeFile(t, root, "multi.go", strings.Replace(content, `"dup"`, `"one"`, 1))
+	if dec, err := CheckPreWriteHashWithEdit(root, home, root, "conv-pending", "multi.go", map[string]any{"Target": `"dup"`, "Replacement": `"two"`}); err != nil || !dec.Allowed {
+		t.Fatalf("next edit after single-occurrence replacement falsely blocked: %+v, err=%v", dec, err)
+	}
+
+	// 2. Re-read, then simulate an aborted single-occurrence edit (disk unchanged): next edit must NOT falsely block.
+	if dec, err := CheckAndRecordReadInSession(root, home, root, "conv-pending", "multi.go", 1, 5, 2); err != nil || !dec.Allowed {
+		t.Fatalf("re-read: %+v, err=%v", dec, err)
+	}
+	if dec, err := CheckPreWriteHashWithEdit(root, home, root, "conv-pending", "multi.go", map[string]any{"Target": `"old"`, "Replacement": `"new"`}); err != nil || !dec.Allowed {
+		t.Fatalf("aborted edit prewrite: %+v, err=%v", dec, err)
+	}
+	if dec, err := CheckPreWriteHashWithEdit(root, home, root, "conv-pending", "multi.go", map[string]any{"Target": `"old"`, "Replacement": `"new2"`}); err != nil || !dec.Allowed {
+		t.Fatalf("next edit after aborted write falsely blocked: %+v, err=%v", dec, err)
+	}
+
+	// 3. True external modification still blocks with [MODIFIED].
+	writeFile(t, root, "multi.go", content+"\n// external\n")
+	if dec, err := CheckPreWriteHashWithEdit(root, home, root, "conv-pending", "multi.go", nil); err != nil || dec.Allowed || !strings.Contains(dec.Reason, "[MODIFIED]") {
+		t.Fatalf("external edit should deny with [MODIFIED], got %+v, err=%v", dec, err)
+	}
+}

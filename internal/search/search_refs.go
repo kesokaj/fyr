@@ -169,8 +169,8 @@ func (sc *scope) linkedRecordsForPaths(paths map[string]bool, brainRefs func(str
 				byID[r.ID] = r
 			}
 		}
-		sc.collectFileIDRefs(p, byID)
 	}
+	sc.collectFilesIDRefs(pathList, byID)
 	if brainRefs != nil {
 		for id := range byID {
 			for _, r := range brainRefs(id) {
@@ -186,18 +186,34 @@ func (sc *scope) linkedRecordsForPaths(paths map[string]bool, brainRefs func(str
 	return out
 }
 
-func (sc *scope) collectFileIDRefs(p string, byID map[string]LinkedRecord) {
-	q := `SELECT DISTINCT r.target, r.line FROM refs r JOIN files f ON f.oid = r.oid
-		WHERE f.project IN ` + sc.in() + ` AND f.path = ? ORDER BY r.target`
-	rows, err := sc.st.db.Query(q, append(sc.keys(), p)...)
+func (sc *scope) collectFilesIDRefs(paths []string, byID map[string]LinkedRecord) {
+	const batchSize = 200
+	projKeys := sc.keys()
+	projIn := sc.in()
+	for start := 0; start < len(paths); start += batchSize {
+		chunk := paths[start:min(len(paths), start+batchSize)]
+		q := `SELECT DISTINCT f.path, r.target, r.line FROM refs r JOIN files f ON f.oid = r.oid
+			WHERE f.project IN ` + projIn + ` AND f.path IN (` + placeholders(len(chunk)) + `)
+			ORDER BY f.path, r.target, r.line`
+		args := make([]any, 0, len(projKeys)+len(chunk))
+		args = append(args, projKeys...)
+		for _, p := range chunk {
+			args = append(args, p)
+		}
+		sc.scanFileIDRefRows(q, args, byID)
+	}
+}
+
+func (sc *scope) scanFileIDRefRows(q string, args []any, byID map[string]LinkedRecord) {
+	rows, err := sc.st.db.Query(q, args...)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var target string
+		var p, target string
 		var line int
-		if err := rows.Scan(&target, &line); err == nil && idPattern.MatchString(target) {
+		if err := rows.Scan(&p, &target, &line); err == nil && idPattern.MatchString(target) {
 			if _, ok := byID[target]; !ok {
 				byID[target] = LinkedRecord{ID: target, Status: "ref", Title: fmt.Sprintf("referenced at %s:%d", p, line)}
 			}
@@ -205,22 +221,13 @@ func (sc *scope) collectFileIDRefs(p string, byID map[string]LinkedRecord) {
 	}
 }
 
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat("?,", n-1) + "?"
+}
+
 func (sc *scope) coChangeHintsForPaths(paths map[string]bool) []string {
-	if len(paths) == 0 || sc.st == nil {
-		return nil
-	}
-	rows, err := sc.st.db.Query(`SELECT file_a, file_b, kind, count FROM co_activity WHERE count >= 3 ORDER BY count DESC, file_a, file_b`)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var a, b, kind string
-		var count int
-		if err := rows.Scan(&a, &b, &kind, &count); err == nil && (paths[a] || paths[b]) {
-			out = append(out, fmt.Sprintf("%s <-> %s (%s: %d)", a, b, kind, count))
-		}
-	}
-	return out
+	return sc.queryCoChangeHints(paths, "", 3, 0)
 }

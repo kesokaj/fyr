@@ -405,7 +405,7 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
-	brainDir := filepath.Join(t.TempDir(), "brain", "conv-vis-1")
+	brainDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-vis-1")
 	transcriptPath := filepath.Join(brainDir, ".system_generated", "logs", "transcript.jsonl")
 	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
 		t.Fatal(err)

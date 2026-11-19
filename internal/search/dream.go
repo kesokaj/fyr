@@ -321,6 +321,7 @@ func conversationText(src, id, tmp string) (string, error) {
 	if strings.ContainsAny(id, `/\`) || id == "" || id == "." || id == ".." {
 		return "", nil
 	}
+	defer func() { _ = removeDB(filepath.Join(tmp, id+".db")) }()
 	db, err := openCopy(filepath.Join(src, "conversations"), id+".db", tmp)
 	// A missing database, or one (or its -wal, -shm) that is not a regular
 	// file, is skipped: one planted FIFO must not fail a project's dream

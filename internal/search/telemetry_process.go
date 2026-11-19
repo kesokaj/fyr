@@ -1,14 +1,9 @@
 package search
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // ProcessTelemetry renders Surface 3 (fyr-process.md telemetry artifact) as a
@@ -98,34 +93,23 @@ func firstModelFallbackReason(picks map[string]modelRoutingPick) string {
 }
 
 func buildProcessModelRouting(home string) ProcessModelRouting {
+	cat, ok := loadModelsCatalog(home)
+	return buildProcessModelRoutingFromCatalog(cat, ok)
+}
+
+func buildProcessModelRoutingFromCatalog(cat modelsCatalogFile, hasCat bool) ProcessModelRouting {
 	const defaultPolicy = "Builder -> Gemini (Carbon/pro, Flash); Judge / Verifier / Reviewer -> Anthropic (Opus/pro, Sonnet/flash; fallback < 20% weekly or < 30% 5h -> Gemini)"
 	policy := ProcessModelRouting{Policy: defaultPolicy}
-	if strings.TrimSpace(home) == "" {
-		return policy
-	}
-	p := filepath.Join(home, harness.StateDir, "models.json")
-	st, err := os.Lstat(p)
-	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 1<<20 {
-		return policy
-	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return policy
-	}
-	var cached struct {
-		UpdatedAt string                      `json:"updated_at"`
-		Picks     map[string]modelRoutingPick `json:"picks"`
-	}
-	if json.Unmarshal(data, &cached) != nil || len(cached.Picks) == 0 {
+	if !hasCat || len(cat.Picks) == 0 {
 		return policy
 	}
 	routing := ProcessModelRouting{
-		BuilderPro:     printable(cached.Picks["builder:pro"].Model),
-		BuilderFlash:   printable(cached.Picks["builder:flash"].Model),
-		JudgePro:       printable(cached.Picks["judge:pro"].Model),
-		JudgeFlash:     printable(cached.Picks["judge:flash"].Model),
-		UpdateTime:     printable(cached.UpdatedAt),
-		FallbackReason: firstModelFallbackReason(cached.Picks),
+		BuilderPro:     printable(cat.Picks["builder:pro"].Model),
+		BuilderFlash:   printable(cat.Picks["builder:flash"].Model),
+		JudgePro:       printable(cat.Picks["judge:pro"].Model),
+		JudgeFlash:     printable(cat.Picks["judge:flash"].Model),
+		UpdateTime:     printable(cat.UpdatedAt),
+		FallbackReason: firstModelFallbackReason(cat.Picks),
 	}
 	if routing.BuilderPro == "" && routing.JudgePro == "" && routing.BuilderFlash == "" && routing.JudgeFlash == "" {
 		return policy
@@ -199,6 +183,11 @@ func appendProcessImprovedPrompts(sb *strings.Builder, rows []VetHistoryRow) {
 }
 
 func renderProcessTelemetryMarkdown(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
+	cat, hasCat := loadModelsCatalog(home)
+	return renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, convID, stage, rows, records)
+}
+
+func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFile, hasCat bool, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
 	id := strings.TrimSpace(printable(convID))
 	if id == "" {
 		id = "default"
@@ -206,7 +195,7 @@ func renderProcessTelemetryMarkdown(home, convID, stage string, rows []VetHistor
 	payload := ProcessTelemetry{
 		ConversationID: id,
 		Stage:          normalizeProcessStage(stage),
-		ModelRouting:   buildProcessModelRouting(home),
+		ModelRouting:   buildProcessModelRoutingFromCatalog(cat, hasCat),
 		LatestWorkWave: buildProcessWorkWave(home),
 		Turns:          buildProcessTurns(rows),
 	}

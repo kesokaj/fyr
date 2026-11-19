@@ -22,13 +22,14 @@ func (sc *scope) renderCompactHookCapsule(o Options, g *symGraph, tiers sliceTie
 	footer := sc.buildCompactGraphFooter(o, g, tiers, min(320, maxBytes/2))
 	symCap := maxBytes - len(footer)
 	var buf bytes.Buffer
+	cache := sliceLineCache{}
 	fullCount := 0
 	for _, idx := range tiers.hop0 {
 		s := g.syms[idx]
 		span := s.EndLine - s.StartLine + 1
 		wroteFull := false
 		if fullCount < compactHop0FullMaxSyms && span <= compactHop0FullMaxLine && symCap-buf.Len() > 140 {
-			if blk := sc.formatHop0Symbol(s, symCap-buf.Len()); blk != "" {
+			if blk := sc.formatHop0Symbol(cache, s, symCap-buf.Len()); blk != "" {
 				buf.WriteString(blk)
 				fullCount++
 				wroteFull = true

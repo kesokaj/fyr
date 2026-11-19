@@ -75,8 +75,9 @@ func registrations(st *store) ([]string, error) {
 		}
 		roots = append(roots, r)
 	}
+	err = rows.Err()
 	rows.Close()
-	return roots, nil
+	return roots, err
 }
 
 // checkRegistered drops a registration that no longer holds, with a note on
@@ -105,11 +106,28 @@ func checkRegistered(st *store, home, root string, out io.Writer) error {
 	return nil
 }
 
+func isRegularSQLiteFiles(dbPath string) (bool, error) {
+	for i, suffix := range []string{"", "-wal", "-shm"} {
+		fi, err := os.Lstat(dbPath + suffix)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			if i == 0 {
+				return false, nil
+			}
+		case err != nil:
+			return false, err
+		case !fi.Mode().IsRegular():
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // HasScopeRecords reports whether root has project trail records: either a
-// regular .agents/trail.jsonl in a real .agents directory, or exported-kind
-// rows for root's scope in brain.db under home (ADR-091). A symlink or
-// non-regular file at .agents or .agents/trail.jsonl returns false, nil. It
-// never creates brain.db.
+// non-empty regular .agents/trail.jsonl in a real .agents directory, or
+// exported-kind rows for root's scope in brain.db under home (ADR-091).
+// A symlink or non-regular file at .agents, .agents/trail.jsonl, or brain.db*
+// returns false, nil. It never creates brain.db.
 func HasScopeRecords(home, root string) (bool, error) {
 	if fi, err := os.Lstat(filepath.Join(root, ".agents")); err == nil {
 		if !fi.IsDir() {
@@ -117,9 +135,13 @@ func HasScopeRecords(home, root string) (bool, error) {
 		}
 		tfi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(trailExport)))
 		if err == nil {
-			return tfi.Mode().IsRegular(), nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
+			if !tfi.Mode().IsRegular() {
+				return false, nil
+			}
+			if tfi.Size() > 0 {
+				return true, nil
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return false, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -129,23 +151,20 @@ func HasScopeRecords(home, root string) (bool, error) {
 		return false, nil
 	}
 	brainPath := filepath.Join(home, harness.StateDir, "brain.db")
-	if fi, err := os.Lstat(brainPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
+	ok, err := isRegularSQLiteFiles(brainPath)
+	if err != nil || !ok {
 		return false, err
-	} else if !fi.Mode().IsRegular() {
-		return false, nil
 	}
 	scope := root
 	if main, _, err := trail.Roots(root); err == nil {
 		scope = main
 	}
-	db, err := sql.Open("sqlite", DSN(brainPath))
+	db, err := sql.Open("sqlite", roDSN(brainPath))
 	if err != nil {
 		return false, err
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(1)
 	var one int
 	err = db.QueryRow(`SELECT 1 FROM records WHERE scope = ? AND kind NOT IN ('memory', 'feedback', 'proposal') LIMIT 1`, scope).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -181,7 +200,7 @@ func dropReason(home, root string) (string, error) {
 	case err != nil:
 		return "", err
 	case !ok:
-		return "no longer has .agents/trail.jsonl", nil
+		return "no longer has trail records (.agents/trail.jsonl or brain.db)", nil
 	}
 	return "", nil
 }

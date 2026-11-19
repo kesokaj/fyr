@@ -54,6 +54,7 @@ CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
 END;
 CREATE TABLE refs(oid TEXT, line INTEGER, target TEXT);
 CREATE INDEX refs_target ON refs(target);
+CREATE INDEX IF NOT EXISTS refs_oid ON refs(oid);
 CREATE TABLE symbols(oid TEXT, name TEXT, recv TEXT, kind TEXT, pkg TEXT, start_line INT, end_line INT, sig TEXT, exported INT, body_hash TEXT);
 CREATE INDEX symbols_oid ON symbols(oid);
 CREATE INDEX symbols_name ON symbols(name);
@@ -86,7 +87,7 @@ func dsn(path string) string {
 		path = abs
 	}
 	u := url.URL{Scheme: "file", Path: filepath.ToSlash(path),
-		RawQuery: fmt.Sprintf("_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(0)", busyTimeoutMS)}
+		RawQuery: fmt.Sprintf("_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(0)", busyTimeoutMS)}
 	return u.String()
 }
 
@@ -235,7 +236,7 @@ func (s *store) ensureSchema() error {
 	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v)
 	switch {
 	case err == nil && v == schemaVersion:
-		return nil
+		return s.ensureRefsOIDIndex()
 	case err == nil:
 		return staleSchemaError{v}
 	case errors.Is(err, sql.ErrNoRows):
@@ -275,6 +276,33 @@ func (s *store) ensureSchema() error {
 	}
 	_, err = s.db.Exec(`COMMIT`)
 	return err
+}
+
+func (s *store) ensureRefsOIDIndex() error {
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'refs_oid'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS refs_oid ON refs(oid)`)
+	return err
+}
+
+func (s *store) withImmediateTx(fn func() error) error {
+	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	if err := fn(); err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		return err
+	}
+	if _, err := s.db.Exec(`COMMIT`); err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		return err
+	}
+	return nil
 }
 
 func (s *store) close() error { return s.db.Close() }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 const trailLine = `{"kind":"bug","id":"BUG-001"}` + "\n"
@@ -114,7 +116,7 @@ func TestTrailMustBeARegularFile(t *testing.T) {
 			}
 			put(t, path)
 			out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"demo"}})
-			if !strings.Contains(out, "note: dropped "+root+" (no longer has .agents/trail.jsonl)") {
+			if !strings.Contains(out, "note: dropped "+root+" (no longer has trail records (.agents/trail.jsonl or brain.db))") {
 				t.Errorf("not dropped:\n%s", out)
 			}
 			if got := projectRoots(t, home); len(got) != 0 {
@@ -221,7 +223,7 @@ func TestTrailNeedsARealAgentsDirectory(t *testing.T) {
 			}
 			put(t, agents)
 			out := mustSearch(t, Options{Dir: t.TempDir(), Home: home, Global: true, Words: []string{"demo"}})
-			if !strings.Contains(out, "note: dropped "+root+" (no longer has .agents/trail.jsonl)") {
+			if !strings.Contains(out, "note: dropped "+root+" (no longer has trail records (.agents/trail.jsonl or brain.db))") {
 				t.Errorf("not dropped:\n%s", out)
 			}
 		})
@@ -302,4 +304,28 @@ func TestRegistrationReadsTheRightRoot(t *testing.T) {
 			t.Errorf("RegistryRoot = %s, want the worktree %s", got, wt)
 		}
 	})
+}
+
+func TestHasScopeRecordsEmptyTrailAndSymlinkCompanion(t *testing.T) {
+	home := t.TempDir()
+	root := newRepo(t)
+	writeFile(t, root, ".agents/trail.jsonl", "")
+	commitAll(t, root, "empty trail")
+	ok, err := HasScopeRecords(home, root)
+	if err != nil || ok {
+		t.Fatalf("0-byte trail.jsonl HasScopeRecords = (%v, %v), want (false, nil)", ok, err)
+	}
+	stateDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "brain.db"), []byte("not-empty"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "elsewhere"), filepath.Join(stateDir, "brain.db-wal")); err == nil {
+		ok, err := HasScopeRecords(home, root)
+		if err != nil || ok {
+			t.Fatalf("symlinked brain.db-wal HasScopeRecords = (%v, %v), want (false, nil)", ok, err)
+		}
+	}
 }

@@ -52,7 +52,7 @@ func (in *inserter) content(e entry, text string) error {
 			return err
 		}
 	}
-	syms, srefs := extractSymbolsAndRefs(e.path, text)
+	syms, srefs := extractSymbolsAndRefsForIndex(e.path, text)
 	for _, sy := range syms {
 		if _, err := in.sym.Exec(e.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.startLine, sy.endLine, sy.sig, sy.exported, sy.bodyHash); err != nil {
 			return err

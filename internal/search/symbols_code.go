@@ -9,9 +9,17 @@ import (
 )
 
 func extractSymbolsAndRefs(filePath, text string) ([]symbolRow, []symRefRow) {
+	return extractSymbolsAndRefsCore(filePath, text, true)
+}
+
+func extractSymbolsAndRefsForIndex(filePath, text string) ([]symbolRow, []symRefRow) {
+	return extractSymbolsAndRefsCore(filePath, text, false)
+}
+
+func extractSymbolsAndRefsCore(filePath, text string, includeImplicitGo bool) ([]symbolRow, []symRefRow) {
 	switch strings.ToLower(path.Ext(filePath)) {
 	case ".go":
-		return extractGoSymbols(filePath, text)
+		return extractGoSymbolsCore(filePath, text, includeImplicitGo)
 	case ".ts", ".tsx", ".js", ".jsx", ".mjs":
 		return extractTSSymbols(filePath, text)
 	case ".py":

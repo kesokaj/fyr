@@ -163,3 +163,21 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		t.Errorf("ImprovedPrompt did not preserve multi-line scrubbed lines:\n%s", outBidi)
 	}
 }
+
+func TestHomeAnchoredBrainDirAndRejectsOutsideHome(t *testing.T) {
+	home := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "brain", "conv-1")
+	if !isUnderBrainDir(outside) {
+		t.Fatalf("unanchored home==\"\" should preserve isUnderBrainDir(%q)", outside)
+	}
+	if isUnderBrainDirForHome(home, outside) {
+		t.Fatalf("isUnderBrainDirForHome accepted outside brain dir %q for home %q", outside, home)
+	}
+	anchored := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-1")
+	if !isUnderBrainDirForHome(home, anchored) {
+		t.Fatalf("isUnderBrainDirForHome rejected valid anchored dir %q", anchored)
+	}
+	if dbPath, _ := resolveHookConvDBPathForHome(home, HookInput{ConversationID: "conv-1", ArtifactDirectoryPath: outside}); dbPath != "" {
+		t.Fatalf("resolveHookConvDBPathForHome accepted outside path: %q", dbPath)
+	}
+}

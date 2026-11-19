@@ -12,19 +12,20 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, []string, SliceResult) {
-	var sections, banners []string
+func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, TurnBannerMeta, SliceResult) {
+	var sections []string
+	var meta TurnBannerMeta
 	if state.Compacted {
 		if o.BrainReprime != nil {
 			if rep := strings.TrimSpace(o.BrainReprime(dir, o.Home)); rep != "" {
 				sections = append(sections, rep)
 			}
 		}
-		banners = append(banners, fmt.Sprintf("compacted (gen %d): re-primed memory & capsule", state.GenerationID))
+		meta.CompactedGeneration = max(1, state.GenerationID)
 	}
 	if fastPath && dirtySummary != "" {
 		sections = append(sections, dirtySummary)
-		banners = append(banners, ">15 dirty files: serving cached AST snapshot")
+		meta.DirtyFastPath = true
 	}
 	var slice SliceResult
 	bypassed := strings.HasPrefix(strings.TrimSpace(rawPrompt), "!")
@@ -36,18 +37,18 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPro
 		sliceOpts.Session = convID
 		slice = sc.buildVetSlice(sliceOpts, cleanPrompt, state, true)
 		if slice.Capsule != "" {
-			banners = append(banners, fmt.Sprintf("%d pivots", slice.Pivots))
+			meta.PivotCount = slice.Pivots
 		}
 	}
 	if state.EstTokens >= hookKneeTokens {
 		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))
-		banners = append(banners, fmt.Sprintf("%dk tokens (>= 180K knee)", state.EstTokens/1000))
+		meta.ContextKneeWarning = fmt.Sprintf("%dk tokens (>= 180K knee)", state.EstTokens/1000)
 	}
-	return sections, banners, slice
+	return sections, meta, slice
 }
 
-func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections, banners []string) (string, string) {
-	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && len(banners) == 0 {
+func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
+	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
 		return "", ""
 	}
 	turnNum := state.TurnCount
@@ -72,20 +73,23 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 		catalog = o.SkillCatalog(o.Home)
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
-	rawModel := resolveHookSessionModel(in)
-	vetRes.SessionModel, vetRes.SessionThinking = ResolveModelAndThinking(o.Home, rawModel)
+	cat, hasCat := loadModelsCatalog(o.Home)
+	rawModel := resolveHookSessionModelForHome(o.Home, in)
+	vetRes.SessionModel, vetRes.SessionThinking = resolveModelAndThinkingWithCatalog(cat, hasCat, rawModel)
 	if sc != nil && sc.st != nil {
 		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
 	}
 	if nudge := suggestSessionModelNudge(sc, convID, state.GenerationID, turnNum, rawModel, vetRes); nudge != "" {
-		banners = append(banners, nudge)
+		meta.ModelTip = strings.TrimSpace(strings.TrimPrefix(nudge, "model tip: "))
 	}
-	sysMsg, banner := BuildTurnEnvelope(&vetRes, slice, brainCtx, sections, banners)
+	meta.ExtraSections = sections
+	meta.SessionModelResolved = true
+	sysMsg, banner := BuildTurnEnvelopeWithMeta(&vetRes, slice, brainCtx, meta)
 	if sc != nil && sc.st != nil && rawPrompt != "" {
 		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
 		_ = sc.st.recordVetHistory(convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles)
 	}
-	writeHookProcessArtifact(o.Home, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
+	writeHookProcessArtifactWithCatalog(o.Home, cat, hasCat, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
 		return "", ""
 	}
@@ -108,10 +112,15 @@ func inferProcessStage(turnNum int, res VetResult) string {
 }
 
 func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
+	cat, hasCat := loadModelsCatalog(home)
+	writeHookProcessArtifactWithCatalog(home, cat, hasCat, sc, dir, in, stage, records)
+}
+
+func writeHookProcessArtifactWithCatalog(home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
 	if hooksDisabledForHome(home, dir) {
 		return
 	}
-	target := resolveProcessArtifactPath(in)
+	target := resolveProcessArtifactPathForHome(home, in)
 	if target == "" {
 		return
 	}
@@ -130,7 +139,7 @@ func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, 
 		defer st.close()
 		rows, _ = st.listConversationVetHistory(in.ConversationID, 20)
 	}
-	content := RenderProcessArtifactForHome(home, in.ConversationID, stage, rows, records)
+	content := renderProcessTelemetryMarkdownWithCatalog(home, cat, hasCat, in.ConversationID, stage, rows, records)
 	_ = writeProcessArtifactAtomic(target, []byte(content))
 }
 
@@ -187,16 +196,20 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 }
 
 func resolveProcessArtifactPath(in HookInput) string {
+	return resolveProcessArtifactPathForHome("", in)
+}
+
+func resolveProcessArtifactPathForHome(home string, in HookInput) string {
 	if p := strings.TrimSpace(in.ArtifactDirectoryPath); p != "" {
 		clean := filepath.Clean(p)
-		if isUnderBrainDir(clean) {
+		if isUnderBrainDirForHome(home, clean) {
 			return filepath.Join(clean, "fyr-process.md")
 		}
 	}
 	if tp := strings.TrimSpace(in.TranscriptPath); tp != "" {
 		cur := filepath.Dir(filepath.Clean(tp))
 		for i := 0; i < 6 && cur != "/" && cur != "."; i++ {
-			if isUnderBrainDir(cur) {
+			if isUnderBrainDirForHome(home, cur) {
 				return filepath.Join(cur, "fyr-process.md")
 			}
 			cur = filepath.Dir(cur)
@@ -206,6 +219,10 @@ func resolveProcessArtifactPath(in HookInput) string {
 }
 
 func isUnderBrainDir(dir string) bool {
+	return isUnderBrainDirForHome("", dir)
+}
+
+func isUnderBrainDirForHome(home, dir string) bool {
 	if !filepath.IsAbs(dir) {
 		return false
 	}
@@ -217,10 +234,39 @@ func isUnderBrainDir(dir string) bool {
 	if filepath.Base(brainDir) != "brain" {
 		return false
 	}
-	if st, err := os.Lstat(brainDir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+	if strings.TrimSpace(home) != "" && !matchesAnchoredBrainRoot(home, brainDir) {
 		return false
 	}
-	if st, err := os.Lstat(dir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+	for _, p := range []string{brainDir, dir} {
+		if !isRegularDirOrAbsent(p) {
+			return false
+		}
+	}
+	return true
+}
+
+func matchesAnchoredBrainRoot(home, brainDir string) bool {
+	cleanBrain := filepath.Clean(brainDir)
+	absHome, err := filepath.Abs(strings.TrimSpace(home))
+	if err != nil {
+		return false
+	}
+	matched := cleanBrain == filepath.Join(absHome, ".gemini", "antigravity-cli", "brain")
+	if !matched {
+		if evalHome, err := filepath.EvalSymlinks(absHome); err == nil {
+			matched = cleanBrain == filepath.Join(evalHome, ".gemini", "antigravity-cli", "brain")
+		}
+	}
+	if !matched {
+		return false
+	}
+	agyDir := filepath.Dir(cleanBrain)
+	geminiDir := filepath.Dir(agyDir)
+	return isRegularDirOrAbsent(geminiDir) && isRegularDirOrAbsent(agyDir)
+}
+
+func isRegularDirOrAbsent(p string) bool {
+	if st, err := os.Lstat(p); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
 		return false
 	}
 	return true
