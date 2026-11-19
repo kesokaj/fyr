@@ -301,3 +301,55 @@ func TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed(t *tes
 		}
 	})
 }
+
+func TestPreToolUseReadReusesStoreAndRecordsAtomicWatchdog(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	var large strings.Builder
+	large.WriteString("package sample\n\n")
+	for i := 3; i <= 420; i++ {
+		fmt.Fprintf(&large, "func fn%03d() int { return %d }\n", i, i)
+	}
+	writeFile(t, dir, "large_reuse.go", large.String())
+
+	call := func(id string, args map[string]any) HookDecisionOutput {
+		raw, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-reuse",
+			"workspacePaths": []string{dir},
+			"toolCall":       map[string]any{"id": id, "name": "read_file", "args": args},
+		})
+		var out bytes.Buffer
+		if err := RunHook(Options{Dir: dir, Home: home, Hook: "pre-tool-use"}, bytes.NewReader(raw), &out); err != nil {
+			t.Fatalf("RunHook: %v", err)
+		}
+		var dec HookDecisionOutput
+		if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+			t.Fatalf("unmarshal %q: %v", out.String(), err)
+		}
+		return dec
+	}
+
+	d1 := call("c1", map[string]any{"Path": "large_reuse.go"})
+	if d1.Decision != "deny" || !strings.HasPrefix(d1.Reason, "[CLAMPED]\n") {
+		t.Fatalf("first unranged read = %+v, want [CLAMPED] deny", d1)
+	}
+	d2 := call("c2", map[string]any{"Path": "large_reuse.go", "StartLine": 1, "EndLine": 40})
+	if d2.Decision != "allow" {
+		t.Fatalf("ranged read = %+v, want allow", d2)
+	}
+	d3 := call("c3", map[string]any{"Path": "large_reuse.go", "StartLine": 1, "EndLine": 40})
+	if d3.Decision != "deny" || !strings.HasPrefix(d3.Reason, "[UNCHANGED]") {
+		t.Fatalf("repeat ranged read = %+v, want [UNCHANGED] deny", d3)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatalf("openLedgerStore: %v", err)
+	}
+	defer st.close()
+	var calls, ringCount int
+	if err := st.db.QueryRow(`SELECT COALESCE(tool_calls, 0) FROM session_meta WHERE conversation_id = 'conv-reuse'`).Scan(&calls); err != nil || calls != 1 {
+		t.Fatalf("session_meta.tool_calls = %d, err=%v; want 1", calls, err)
+	}
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM watchdog_ring WHERE conversation_id = 'conv-reuse'`).Scan(&ringCount); err != nil || ringCount != 1 {
+		t.Fatalf("watchdog_ring count = %d, err=%v; want 1", ringCount, err)
+	}
+}

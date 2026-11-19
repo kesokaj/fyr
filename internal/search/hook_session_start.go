@@ -2,6 +2,7 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,13 +34,21 @@ type sessionGitSummary struct {
 	DirtySample  []string `json:"dirtySample,omitempty"`
 }
 
-func handleSessionStart(o Options, dir string, _ HookInput, out io.Writer) error {
+func handleSessionStart(ctx context.Context, o Options, dir string, _ HookInput, out io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if hooksDisabled(dir) {
-		return writePreInvocation(out, "", "")
+		writePreInvocation(out, "", "")
+		return nil
 	}
 	root, _, ok := findGitRootFast(dir)
 	if !ok || hooksDisabled(root) {
-		return writePreInvocation(out, "", "")
+		writePreInvocation(out, "", "")
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	now := time.Now()
 	if o.nowFunc != nil {
@@ -54,7 +63,8 @@ func handleSessionStart(o Options, dir string, _ HookInput, out io.Writer) error
 		Status:  collectSessionGitSummary(root),
 	}
 	rendered := fitSessionStartCapsule(&cap, sessionStartMaxBytes)
-	return writePreInvocation(out, rendered, "")
+	writePreInvocation(out, rendered, "")
+	return nil
 }
 
 func collectSessionGitSummary(root string) sessionGitSummary {

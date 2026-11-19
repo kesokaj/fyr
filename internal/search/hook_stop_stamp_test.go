@@ -302,9 +302,9 @@ func TestGitIndexSafetyGuards(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(outside) })
 	e := gitIndexEntry{Path: "../outside_secret.go", Mode: 0o100644}
-	tracked, dirty, err := checkTrackedGoEntries(root, []gitIndexEntry{e}, true)
-	if err != nil || len(tracked) != 0 || len(dirty) != 0 {
-		t.Fatalf("traversal entry not ignored cleanly: tracked=%v dirty=%v err=%v", tracked, dirty, err)
+	tracked, dirty := checkTrackedGoEntries(root, []gitIndexEntry{e}, true)
+	if len(tracked) != 0 || len(dirty) != 0 {
+		t.Fatalf("traversal entry not ignored cleanly: tracked=%v dirty=%v", tracked, dirty)
 	}
 	if isTrackedEntryDirty(root, e) {
 		t.Fatal("isTrackedEntryDirty accessed non-local traversal path")

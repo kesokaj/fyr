@@ -79,7 +79,8 @@ func finishWorkerToolDecision(o Options, in HookInput, cloned map[string]any, re
 	if cloned == nil {
 		return writeDecision(out, "allow", "")
 	}
-	return writeDecisionWithOverwrite(out, "allow", reason, cloned)
+	writeDecisionWithOverwrite(out, "allow", reason, cloned)
+	return nil
 }
 
 func stringArgCI(args map[string]any, key string) string {

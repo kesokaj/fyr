@@ -35,37 +35,14 @@ type GoTreeState struct {
 
 func resolveGitWorktreeDir(root string) string {
 	dotGit := filepath.Join(root, ".git")
-	fi, err := os.Lstat(dotGit)
-	if err != nil {
-		return ""
-	}
-	if fi.IsDir() {
+	if isRegularDirNoSymlink(dotGit) {
 		return dotGit
 	}
-	if !fi.Mode().IsRegular() || fi.Size() > 4096 {
+	target, ok := readDotGitFileTarget(dotGit, root)
+	if !ok || !isRegularDirNoSymlink(target) {
 		return ""
 	}
-	data, err := os.ReadFile(dotGit)
-	if err != nil {
-		return ""
-	}
-	line := strings.TrimSpace(string(data))
-	target, ok := strings.CutPrefix(line, "gitdir:")
-	if !ok {
-		return ""
-	}
-	target = strings.TrimSpace(target)
-	if target == "" {
-		return ""
-	}
-	if !filepath.IsAbs(target) {
-		target = filepath.Join(root, target)
-	}
-	target = filepath.Clean(target)
-	if info, err := os.Lstat(target); err == nil && info.IsDir() {
-		return target
-	}
-	return ""
+	return target
 }
 
 func readGitBranchFast(root, gitDir string) string {
@@ -109,10 +86,7 @@ func ComputeGoTreeState(root string) (GoTreeState, error) {
 			return state, err
 		}
 	}
-	tracked, dirtySet, err := checkTrackedGoEntries(root, indexEntries, hasIndex)
-	if err != nil {
-		return state, err
-	}
+	tracked, dirtySet := checkTrackedGoEntries(root, indexEntries, hasIndex)
 	diskFiles, untrackedDirty, err := walkGoFilesForState(root, tracked, gitDir != "")
 	if err != nil {
 		return state, err
@@ -126,11 +100,11 @@ func ComputeGoTreeState(root string) (GoTreeState, error) {
 	return state, nil
 }
 
-func checkTrackedGoEntries(root string, entries []gitIndexEntry, hasIndex bool) (map[string]bool, map[string]bool, error) {
+func checkTrackedGoEntries(root string, entries []gitIndexEntry, hasIndex bool) (map[string]bool, map[string]bool) {
 	tracked := make(map[string]bool, len(entries))
 	dirty := make(map[string]bool)
 	if !hasIndex {
-		return tracked, dirty, nil
+		return tracked, dirty
 	}
 	for _, e := range entries {
 		if !filepath.IsLocal(filepath.FromSlash(e.Path)) {
@@ -144,7 +118,7 @@ func checkTrackedGoEntries(root string, entries []gitIndexEntry, hasIndex bool) 
 			dirty[e.Path] = true
 		}
 	}
-	return tracked, dirty, nil
+	return tracked, dirty
 }
 
 func isTrackedEntryDirty(root string, e gitIndexEntry) bool {

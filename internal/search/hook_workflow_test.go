@@ -214,3 +214,26 @@ func TestPreToolUseWorkflowBypassAndPathHardening(t *testing.T) {
 		}
 	}
 }
+
+func TestSkipPythonWSAndComments(t *testing.T) {
+	cases := []struct {
+		name  string
+		src   string
+		start int
+		want  int
+	}{
+		{name: "spaces tabs newlines", src: "  \t\r\nfoo", start: 0, want: 5},
+		{name: "comment to newline", src: "# hi there\n  x", start: 0, want: 13},
+		{name: "comment at eof", src: "# trailing eof", start: 0, want: 14},
+		{name: "lf continuation", src: "\\\n  y", start: 0, want: 4},
+		{name: "crlf continuation", src: "\\\r\n\tz", start: 0, want: 4},
+		{name: "bare backslash stops", src: "\\x", start: 0, want: 0},
+		{name: "non-ws token stops", src: "agent()", start: 0, want: 0},
+		{name: "past end unchanged", src: "abc", start: 5, want: 5},
+	}
+	for _, tc := range cases {
+		if got := skipPythonWSAndComments(tc.src, tc.start); got != tc.want {
+			t.Errorf("%s: skipPythonWSAndComments(%q, %d) = %d, want %d", tc.name, tc.src, tc.start, got, tc.want)
+		}
+	}
+}

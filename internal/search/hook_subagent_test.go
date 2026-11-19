@@ -443,3 +443,47 @@ func TestSwarmRoleMultiToken(t *testing.T) {
 		}
 	}
 }
+
+func TestCompareSwarmModelIDsAndParseIntRuns(t *testing.T) {
+	runCases := []struct {
+		in   string
+		want []int
+	}{
+		{"", nil},
+		{"claude-opus", nil},
+		{"gemini-2.5-pro", []int{2, 5}},
+		{"model-10-beta-2", []int{10, 2}},
+		{"42", []int{42}},
+	}
+	for _, tc := range runCases {
+		got := parseIntRuns(tc.in)
+		if len(got) != len(tc.want) {
+			t.Errorf("parseIntRuns(%q) = %v, want %v", tc.in, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("parseIntRuns(%q)[%d] = %d, want %d", tc.in, i, got[i], tc.want[i])
+			}
+		}
+	}
+
+	cmpCases := []struct {
+		a, b string
+		want int
+	}{
+		{"model-10", "model-2", 1},
+		{"model-2", "model-10", -1},
+		{"v2.10", "v2.5", 1},
+		{"v2.1", "v2", 1},
+		{"v2", "v2.1", -1},
+		{"alpha-1", "beta-1", -1},
+		{"beta-1", "alpha-1", 1},
+		{"same-3", "same-3", 0},
+	}
+	for _, tc := range cmpCases {
+		if got := compareSwarmModelIDs(tc.a, tc.b); got != tc.want {
+			t.Errorf("compareSwarmModelIDs(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,23 +17,38 @@ const (
 	clampMaxSkeletonLines = 60
 )
 
-// clampReadRange models read_file's 800-line and 46,080-byte caps (including "%d: "
-// line-number prefixes) so read_ledger stamps only the complete lines read_file
-// delivers, returning record=false when StartLine or ByteOffset delivers zero lines.
-func clampReadRange(dir, target string, args map[string]any) (int, int, bool) {
+type readFileSnapshot struct {
+	resolved   string
+	sumHex     string
+	data       []byte
+	totalLines int
+	ok         bool
+}
+
+func loadReadFileSnapshot(resolved string) readFileSnapshot {
+	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
+	return readFileSnapshot{
+		resolved:   resolved,
+		sumHex:     sumHex,
+		data:       data,
+		totalLines: totalLines,
+		ok:         ok,
+	}
+}
+
+func clampReadRangeWithSnapshot(args map[string]any, snap readFileSnapshot) (int, int, bool) {
 	start, end := extractLineRangeArgs(args)
 	rawOffset := extractIntArg(args, "ByteOffset", "byte_offset", "byteOffset")
 	if rawOffset < 0 {
 		return 0, 0, false
 	}
-	_, data, totalLines, ok := readFileDigestAndLines(CanonicalizePath(dir, target))
-	if !ok {
+	if !snap.ok {
 		return start, end, true
 	}
-	if start > totalLines {
+	if start > snap.totalLines {
 		return 0, 0, false
 	}
-	lines := strings.Split(string(data), "\n")
+	lines := strings.Split(string(snap.data), "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -41,6 +57,10 @@ func clampReadRange(dir, target string, args map[string]any) (int, int, bool) {
 	}
 	reqStart, reqEnd := normalizeLineRange(start, end, len(lines))
 	reqEnd = min(reqEnd, reqStart+maxReadFileLines-1)
+	return effectiveClampedWindow(lines, reqStart, reqEnd, rawOffset)
+}
+
+func effectiveClampedWindow(lines []string, reqStart, reqEnd, rawOffset int) (int, int, bool) {
 	winStart, winEnd, cumBytes, effStart, effEnd := rawOffset, rawOffset+maxReadFileBytes, 0, 0, 0
 	for lineNum := reqStart; lineNum <= reqEnd; lineNum++ {
 		contentEnd := cumBytes + len(strconv.Itoa(lineNum)) + 2 + len(lines[lineNum-1])
@@ -75,44 +95,34 @@ func hasExplicitReadRange(args map[string]any) bool {
 	return end > 0 || byteOffset > 0
 }
 
-// checkUnrangedClamp returns a [CLAMPED] skeleton-first deny on the first unranged read
-// of any file >= clampSkeletonMinLines, stamping a per-hash retry sentinel so an explicit
-// unranged retry does not deadlock.
-func checkUnrangedClamp(sessionDir, home, toolDir, conversationID, target string, args map[string]any) (ReadDecision, bool) {
-	if hasExplicitReadRange(args) {
+func checkUnrangedClampWithStore(ctx context.Context, st *store, root, conversationID string, snap readFileSnapshot, args map[string]any) (ReadDecision, bool) {
+	if st == nil || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok || snap.totalLines < clampSkeletonMinLines {
 		return ReadDecision{}, false
 	}
-	resolved := CanonicalizePath(toolDir, target)
-	sumHex, data, totalLines, ok := readFileDigestAndLines(resolved)
-	if !ok || totalLines < clampSkeletonMinLines {
-		return ReadDecision{}, false
-	}
-	st, root, err := openSessionLedgerStore(resolveSessionLedgerDir(sessionDir, toolDir), home)
-	if err != nil {
-		return ReadDecision{}, false
-	}
-	defer st.close()
 	convID := normalizeLedgerConvID(conversationID)
 	genID, defTurn := st.currentGeneration(convID)
-	if st.hasClampBypassOrCoverage(convID, genID, resolved, sumHex, totalLines) {
+	if st.hasClampBypassOrCoverage(ctx, convID, genID, snap.resolved, snap.sumHex, snap.totalLines) {
 		return ReadDecision{}, false
 	}
-	_ = st.upsertReadStamp(convID, genID, resolved, clampOnceSentinelLine, clampOnceSentinelLine, sumHex, defTurn, nowFunc().Unix())
-	relPath := relDisplayPath(root, resolved)
-	skel := buildClampSkeleton(resolved, string(data))
+	if ctx.Err() != nil {
+		return ReadDecision{}, false
+	}
+	_ = st.upsertReadStamp(convID, genID, snap.resolved, clampOnceSentinelLine, clampOnceSentinelLine, snap.sumHex, defTurn, nowFunc().Unix())
+	relPath := relDisplayPath(root, snap.resolved)
+	skel := buildClampSkeleton(snap.resolved, string(snap.data))
 	return ReadDecision{
 		Allowed:      false,
-		Reason:       formatClampedLedgerNotice(relPath, totalLines, sumHex, skel),
-		ResolvedPath: resolved,
-		SHA256:       sumHex,
+		Reason:       formatClampedLedgerNotice(relPath, snap.totalLines, snap.sumHex, skel),
+		ResolvedPath: snap.resolved,
+		SHA256:       snap.sumHex,
 		GenerationID: genID,
 	}, true
 }
 
-func (s *store) hasClampBypassOrCoverage(convID string, genID int, resolved, sumHex string, totalLines int) bool {
+func (s *store) hasClampBypassOrCoverage(ctx context.Context, convID string, genID int, resolved, sumHex string, totalLines int) bool {
 	var count int
 	minFull := min(totalLines, maxReadFileLines)
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND ((start_line = ? AND end_line = ?) OR (start_line = 1 AND end_line >= ?))`,
 		convID, genID, resolved, sumHex, clampOnceSentinelLine, clampOnceSentinelLine, minFull,
 	).Scan(&count)

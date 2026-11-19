@@ -1,19 +1,16 @@
 package search
 
 import (
-	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -34,23 +31,6 @@ func StripSandboxPreamble(prompt string) string {
 		return strings.TrimSpace(s[idx+len(sandboxPreambleEnd):])
 	}
 	return prompt
-}
-
-// hooksDisabled reports whether dir (or its git checkout root) contains
-// .agents/scratch/no-hooks, used by paired A/B eval control scenarios.
-func hooksDisabled(dir string) bool {
-	if strings.TrimSpace(dir) == "" {
-		dir = "."
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".agents", "scratch", "no-hooks")); err == nil {
-		return true
-	}
-	if root, _, ok := findGitRootFast(dir); ok {
-		if _, err := os.Stat(filepath.Join(root, ".agents", "scratch", "no-hooks")); err == nil {
-			return true
-		}
-	}
-	return false
 }
 
 // hasAutonomousWaiver reports whether lowPrompt explicitly forbids interactive
@@ -88,6 +68,13 @@ func checkTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (Sessio
 		return SessionState{}, false, err
 	}
 	defer st.close()
+	return checkTurnOrMidTurnWithStore(context.Background(), st, in, rawPrompt)
+}
+
+func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, rawPrompt string) (SessionState, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return SessionState{}, false, err
+	}
 	conversationID := strings.TrimSpace(in.ConversationID)
 	if conversationID == "" {
 		conversationID = "default"
@@ -95,30 +82,37 @@ func checkTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (Sessio
 	curBytes, hasSize := statTranscriptBytes(in.TranscriptPath)
 	promptSum := sha256PromptHex(rawPrompt)
 	var genID, lastBytes, turnCount, estTokens int
-	err = st.db.QueryRow(`SELECT generation_id, last_transcript_bytes, turn_count, est_tokens FROM session_meta WHERE conversation_id = ?`, conversationID).
+	err := st.db.QueryRowContext(ctx, `SELECT generation_id, last_transcript_bytes, turn_count, est_tokens FROM session_meta WHERE conversation_id = ?`, conversationID).
 		Scan(&genID, &lastBytes, &turnCount, &estTokens)
 	if errors.Is(err, sql.ErrNoRows) {
 		est := curBytes / 4
-		_, err = st.db.Exec(`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)`, conversationID, curBytes, est)
-		upsertPreInvocationStamp(st, conversationID, 0, 1, promptSum)
+		_, err = st.db.ExecContext(ctx, `INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)`, conversationID, curBytes, est)
+		if err == nil {
+			if err = ctx.Err(); err == nil {
+				upsertPreInvocationStamp(st, conversationID, 0, 1, promptSum)
+			}
+		}
 		return SessionState{ConversationID: conversationID, GenerationID: 0, LastTranscriptBytes: curBytes, TurnCount: 1, EstTokens: est}, false, err
 	}
 	if err != nil {
 		return SessionState{}, false, err
 	}
-	return advanceOrSkipTurn(st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, in, promptSum)
+	return advanceOrSkipTurn(ctx, st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, in, promptSum)
 }
 
-func advanceOrSkipTurn(st *store, conversationID string, genID, lastBytes, turnCount, estTokens, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
+func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, estTokens, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
 	compacted := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
 	var prevSum string
-	_ = st.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
+	_ = st.db.QueryRowContext(ctx, `SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
 		conversationID, genID, preInvocationSentinel).Scan(&prevSum)
+	if err := ctx.Err(); err != nil {
+		return SessionState{}, false, err
+	}
 	midTurn := in.ContinuationActive || (in.InvocationNum >= 1 && (in.ExecutionNum > 0 || in.StepIdx > in.InitialNumSteps))
 	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
 			lastBytes, estTokens = curBytes, curBytes/4
-			_, _ = st.db.Exec(`UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, estTokens, conversationID)
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, estTokens, conversationID)
 		}
 		return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: estTokens}, true, nil
 	}
@@ -129,8 +123,12 @@ func advanceOrSkipTurn(st *store, conversationID string, genID, lastBytes, turnC
 		lastBytes, estTokens = curBytes, curBytes/4
 	}
 	turnCount++
-	_, err := st.db.Exec(`UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, estTokens, conversationID)
-	upsertPreInvocationStamp(st, conversationID, genID, turnCount, promptSum)
+	_, err := st.db.ExecContext(ctx, `UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, estTokens, conversationID)
+	if err == nil {
+		if err = ctx.Err(); err == nil {
+			upsertPreInvocationStamp(st, conversationID, genID, turnCount, promptSum)
+		}
+	}
 	return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: estTokens, Compacted: compacted}, false, err
 }
 
@@ -184,435 +182,5 @@ func sameAutoInitPath(a, b string) bool {
 }
 
 func checkScratchNoSymlinks(root string) error {
-	for _, d := range []string{".agents", filepath.Join(".agents", "scratch")} {
-		if fi, err := os.Lstat(filepath.Join(root, d)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("search: %s is a symlink; refusing to write through it", filepath.ToSlash(d))
-		}
-	}
-	return nil
-}
-
-func ensureHookGitCheckout(absDir string) (string, []string, error) {
-	if isRefusedAutoInitDir(absDir) {
-		return "", nil, fmt.Errorf("search: refusing to auto-initialize system/root directory %s", absDir)
-	}
-	if root, _, ok := findGitRootFast(absDir); ok {
-		if isRefusedAutoInitDir(root) {
-			return "", nil, fmt.Errorf("search: refusing to auto-initialize system/root directory %s", root)
-		}
-		return root, nil, nil
-	}
-	nested := scanNestedGitDirs(absDir, "", 1)
-	if err := initMinimalGitRepo(absDir); err != nil {
-		return "", nil, fmt.Errorf("search: git init: %w", err)
-	}
-	root, _, ok := findGitRootFast(absDir)
-	if !ok {
-		return "", nil, errNotCheckout
-	}
-	return root, nested, nil
-}
-
-func scanNestedGitDirs(base, rel string, depth int) []string {
-	entries, err := os.ReadDir(filepath.Join(base, filepath.FromSlash(rel)))
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		name := e.Name()
-		if name == ".git" || name == ".agents" || strings.ContainsAny(name, "\r\n") || e.Type()&os.ModeSymlink != 0 || !e.IsDir() {
-			continue
-		}
-		subRel := name
-		if rel != "" {
-			subRel = rel + "/" + name
-		}
-		subAbs := filepath.Join(base, filepath.FromSlash(subRel))
-		if _, err := os.Lstat(filepath.Join(subAbs, ".git")); err == nil {
-			out = append(out, "/"+subRel+"/")
-			continue
-		}
-		if depth < 3 {
-			out = append(out, scanNestedGitDirs(base, subRel, depth+1)...)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func ensureHookScratchIgnored(root string, nested []string) error {
-	_, commonDir, ok := findGitRootFast(root)
-	if !ok {
-		return errNotCheckout
-	}
-	if len(nested) == 0 && scratchIgnoredFast(root, commonDir) {
-		return nil
-	}
-	patterns := append([]string{".agents/scratch/*"}, nested...)
-	return writePatternsToValidatedExclude(root, commonDir, patterns)
-}
-
-func writePatternsToValidatedExclude(root, commonDir string, patterns []string) error {
-	if commonDir == "" || !filepath.IsAbs(commonDir) {
-		return fmt.Errorf("search: invalid git common dir %q", commonDir)
-	}
-	if fi, err := os.Lstat(commonDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-		return fmt.Errorf("search: git common dir %s is not a regular directory", commonDir)
-	}
-	if !validateCommonDirForRoot(root, commonDir) {
-		return fmt.Errorf("search: git common dir %s does not belong to checkout %s", commonDir, root)
-	}
-	infoDir := filepath.Join(commonDir, "info")
-	if fi, err := os.Lstat(infoDir); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir()) {
-		return fmt.Errorf("search: %s is a symlink or not a directory", infoDir)
-	}
-	excludeFile := filepath.Join(infoDir, "exclude")
-	if fi, err := os.Lstat(excludeFile); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
-		return fmt.Errorf("search: %s is a symlink or not a regular file", excludeFile)
-	}
-	return writePatternsToCommonExclude(commonDir, patterns)
-}
-
-func validateCommonDirForRoot(root, commonDir string) bool {
-	if root == "" || commonDir == "" {
-		return false
-	}
-	if sameAutoInitPath(commonDir, filepath.Join(root, ".git")) {
-		return true
-	}
-	dotGitData, ok := readSmallRegularFile(filepath.Join(root, ".git"), 4096)
-	if !ok {
-		return false
-	}
-	rawGitDir, ok := strings.CutPrefix(strings.TrimSpace(string(dotGitData)), "gitdir:")
-	if !ok {
-		return false
-	}
-	rawGitDir = strings.TrimSpace(rawGitDir)
-	if rawGitDir == "" || strings.ContainsAny(rawGitDir, "\r\n") {
-		return false
-	}
-	gitDir := resolveCleanPath(root, rawGitDir)
-	worktreesDir := filepath.Join(commonDir, "worktrees")
-	if !isRegularDirNoSymlink(gitDir) || !isRegularDirNoSymlink(worktreesDir) || !sameAutoInitPath(filepath.Dir(gitDir), worktreesDir) {
-		return false
-	}
-	namedRawBytes, ok := readSmallRegularFile(filepath.Join(gitDir, "gitdir"), 4096)
-	if !ok {
-		return false
-	}
-	namedRaw := strings.TrimSpace(string(namedRawBytes))
-	if namedRaw == "" || strings.ContainsAny(namedRaw, "\r\n") {
-		return false
-	}
-	named := resolveCleanPath(gitDir, namedRaw)
-	if !sameAutoInitPath(filepath.Dir(named), root) {
-		return false
-	}
-	headInfo, err := os.Lstat(filepath.Join(commonDir, "HEAD"))
-	return err == nil && headInfo.Mode()&os.ModeSymlink == 0 && headInfo.Mode().IsRegular()
-}
-
-func writePatternsToCommonExclude(commonDir string, patterns []string) error {
-	commonRoot, err := os.OpenRoot(commonDir)
-	if err != nil {
-		return err
-	}
-	defer commonRoot.Close()
-	if err := commonRoot.Mkdir("info", 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
-	}
-	relExclude := filepath.Join("info", "exclude")
-	if fi, err := commonRoot.Lstat(relExclude); err == nil && (!fi.Mode().IsRegular() || fi.Size() > maxFileBytes) {
-		return fmt.Errorf("search: %s is not a readable regular file", relExclude)
-	}
-	existing, err := readAll(commonRoot, relExclude)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	add := filterNewExcludePatterns(existing, patterns)
-	if len(add) == 0 {
-		return nil
-	}
-	f, err := commonRoot.OpenFile(relExclude, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	prefix := ""
-	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
-		prefix = "\n"
-	}
-	_, err = io.WriteString(f, prefix+strings.Join(add, "\n")+"\n")
-	return err
-}
-
-func filterNewExcludePatterns(existing []byte, patterns []string) []string {
-	seen := map[string]bool{}
-	for _, line := range strings.Split(string(existing), "\n") {
-		seen[strings.TrimSpace(line)] = true
-	}
-	var add []string
-	for _, p := range patterns {
-		if p = strings.TrimSpace(p); p != "" && !seen[p] {
-			seen[p] = true
-			add = append(add, p)
-		}
-	}
-	return add
-}
-
-func extractToolTargetPath(args map[string]any) string {
-	return extractStringArg(args, "Path", "path", "AbsolutePath", "absolutePath", "absolute_path", "FilePath", "filePath", "file_path", "TargetFile", "targetFile", "target_file")
-}
-
-func extractStringArg(args map[string]any, keys ...string) string {
-	for _, k := range keys {
-		if v, ok := args[k]; ok {
-			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-				return strings.TrimSpace(s)
-			}
-		}
-	}
-	return ""
-}
-
-func extractLineRangeArgs(args map[string]any) (int, int) {
-	start := extractIntArg(args, "StartLine", "startLine", "start_line", "StartLineNumber", "startLineNumber", "start_line_number", "Offset", "offset")
-	end := extractIntArg(args, "EndLine", "endLine", "end_line", "EndLineNumber", "endLineNumber", "end_line_number")
-	limit := extractIntArg(args, "Limit", "limit", "LineCount", "lineCount", "line_count")
-	if end == 0 && limit > 0 {
-		if start > 0 {
-			end = start + limit - 1
-		} else {
-			start, end = 1, limit
-		}
-	}
-	return start, end
-}
-
-func extractIntArg(args map[string]any, keys ...string) int {
-	for _, k := range keys {
-		v, ok := args[k]
-		if !ok {
-			continue
-		}
-		switch n := v.(type) {
-		case float64:
-			return int(n)
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case json.Number:
-			if parsed, err := n.Int64(); err == nil {
-				return int(parsed)
-			}
-		case string:
-			if parsed, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
-				return parsed
-			}
-		}
-	}
-	return 0
-}
-
-func parseAndNormalizeHookInput(o Options, data []byte) (HookInput, error) {
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 {
-		return HookInput{ConversationID: strings.TrimSpace(o.Session)}, nil
-	}
-	var input HookInput
-	if err := json.Unmarshal(trimmed, &input); err != nil {
-		return HookInput{}, err
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(trimmed, &raw); err == nil {
-		applyHookEnvelopeAliases(&input, raw, o.Session)
-		applyHookToolAliases(&input.ToolCall, raw)
-	}
-	input.ConversationID = strings.TrimSpace(input.ConversationID)
-	return input, nil
-}
-
-func applyHookEnvelopeAliases(in *HookInput, raw map[string]any, optSession string) {
-	if len(in.WorkspacePaths) == 0 {
-		in.WorkspacePaths = extractStringSliceArg(raw, "workspace_paths", "WorkspacePaths")
-	}
-	if strings.TrimSpace(in.Cwd) == "" {
-		in.Cwd = extractStringArg(raw, "cwd", "Cwd", "workingDirectory", "working_directory")
-	}
-	if strings.TrimSpace(in.TranscriptPath) == "" {
-		in.TranscriptPath = extractStringArg(raw, "transcript_path", "TranscriptPath")
-	}
-	if strings.TrimSpace(in.ArtifactDirectoryPath) == "" {
-		in.ArtifactDirectoryPath = extractStringArg(raw, "artifact_directory_path", "ArtifactDirectoryPath")
-	}
-	if strings.TrimSpace(in.LastUserInput) == "" {
-		in.LastUserInput = extractStringArg(raw, "last_user_input", "prompt", "user_prompt")
-	}
-	if in.InvocationNum == 0 {
-		in.InvocationNum = extractIntArg(raw, "invocation_num")
-	}
-	if in.InitialNumSteps == 0 {
-		in.InitialNumSteps = extractIntArg(raw, "initial_num_steps")
-	}
-	if in.StepIdx == 0 {
-		in.StepIdx = extractIntArg(raw, "step_idx")
-	}
-	if in.ExecutionNum == 0 {
-		in.ExecutionNum = extractIntArg(raw, "execution_num")
-	}
-	if !in.ContinuationActive {
-		if v, ok := raw["continuation_active"].(bool); ok {
-			in.ContinuationActive = v
-		}
-	}
-	in.ConversationID = resolveHookConversationID(*in, raw, optSession)
-}
-
-func resolveHookConversationID(in HookInput, raw map[string]any, optSession string) string {
-	if id := strings.TrimSpace(in.ConversationID); id != "" {
-		return id
-	}
-	if id := extractStringArg(raw, "conversation_id", "sessionId", "session_id", "ConversationID", "SessionID"); id != "" {
-		return id
-	}
-	if id := strings.TrimSpace(optSession); id != "" {
-		return id
-	}
-	return extractBrainConversationID(in.ArtifactDirectoryPath, in.TranscriptPath)
-}
-
-func applyHookToolAliases(tc *HookToolCall, raw map[string]any) {
-	for _, key := range []string{"toolCall", "tool_call", "ToolCall"} {
-		if m, ok := raw[key].(map[string]any); ok {
-			if strings.TrimSpace(tc.Name) == "" {
-				tc.Name = extractStringArg(m, "name", "Name", "toolName", "tool_name")
-			}
-			if len(tc.Args) == 0 {
-				tc.Args = extractToolArgsMap(m, "args", "Args", "arguments", "parameters", "input", "toolInput", "tool_input")
-			}
-		}
-	}
-	if strings.TrimSpace(tc.Name) == "" {
-		tc.Name = extractStringArg(raw, "toolName", "tool_name", "ToolName")
-	}
-	if len(tc.Args) == 0 {
-		tc.Args = extractToolArgsMap(raw, "toolInput", "tool_input", "ToolInput", "args", "arguments", "parameters", "input")
-	}
-}
-
-func extractToolArgsMap(m map[string]any, keys ...string) map[string]any {
-	for _, k := range keys {
-		v, ok := m[k]
-		if !ok || v == nil {
-			continue
-		}
-		if args, ok := v.(map[string]any); ok {
-			return args
-		}
-		if s, ok := v.(string); ok && strings.HasPrefix(strings.TrimSpace(s), "{") {
-			var parsed map[string]any
-			if err := json.Unmarshal([]byte(s), &parsed); err == nil {
-				return parsed
-			}
-		}
-	}
-	return nil
-}
-
-func extractStringSliceArg(m map[string]any, keys ...string) []string {
-	for _, k := range keys {
-		arr, ok := m[k].([]any)
-		if !ok {
-			continue
-		}
-		var out []string
-		for _, elem := range arr {
-			if s, ok := elem.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return nil
-}
-
-func extractBrainConversationID(paths ...string) string {
-	for _, p := range paths {
-		slash := filepath.ToSlash(strings.TrimSpace(p))
-		idx := strings.Index(slash, "/brain/")
-		if idx < 0 {
-			continue
-		}
-		seg, _, _ := strings.Cut(slash[idx+len("/brain/"):], "/")
-		seg = strings.TrimSpace(seg)
-		if seg != "" && seg != "." && seg != ".." {
-			return seg
-		}
-	}
-	return ""
-}
-
-func normalizeHookToolName(raw string) string {
-	s := strings.TrimSpace(raw)
-	if idx := strings.LastIndexByte(s, ':'); idx >= 0 {
-		s = s[idx+1:]
-	}
-	s = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "cortex_step_type_")
-	switch s {
-	case "read_file", "readfile", "view_file", "viewfile", "read":
-		return "read_file"
-	case "run_command", "runcommand", "bash":
-		return "run_command"
-	case "edit_file", "editfile", "replace_file_content", "multi_replace_file_content", "write_file", "writefile", "write_to_file", "edit", "write":
-		return "write_or_edit"
-	case "swarm":
-		return "swarm"
-	case "run_workflow", "runworkflow":
-		return "run_workflow"
-	default:
-		return s
-	}
-}
-
-func resolveToolProjectDir(dir string, _ HookInput, target string) string {
-	t := strings.TrimSpace(target)
-	if t == "" || !filepath.IsAbs(t) {
-		return dir
-	}
-	canonTarget := resolveTargetWithAncestors("", t)
-	targetAnc := existingAncestorDir(filepath.FromSlash(canonTarget))
-	targetRoot, _, hasTargetRoot := findGitRootFast(targetAnc)
-	if dirRoot, _, ok := findGitRootFast(dir); ok {
-		canonDir := strings.TrimRight(CanonicalizePath("", dirRoot), "/")
-		if canonDir != "" && (canonTarget == canonDir || strings.HasPrefix(canonTarget, canonDir+"/")) {
-			if !hasTargetRoot || strings.TrimRight(CanonicalizePath("", targetRoot), "/") == canonDir {
-				return dir
-			}
-		}
-	}
-	if hasTargetRoot && !isRefusedAutoInitDir(targetRoot) {
-		return targetRoot
-	}
-	return dir
-}
-
-func ensureExistingCheckoutIgnored(dir string) bool {
-	absDir, err := filepath.Abs(strings.TrimSpace(dir))
-	if err != nil || isRefusedAutoInitDir(absDir) {
-		return false
-	}
-	root, _, ok := findGitRootFast(absDir)
-	if !ok || isRefusedAutoInitDir(root) {
-		return false
-	}
-	if checkScratchNoSymlinks(root) != nil {
-		return false
-	}
-	return ensureHookScratchIgnored(root, nil) == nil
+	return trail.CheckScratchNoSymlinks(root)
 }

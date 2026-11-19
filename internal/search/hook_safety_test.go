@@ -267,3 +267,32 @@ func TestEnsureHookGitCheckoutRefusesHomeWithoutGit(t *testing.T) {
 		t.Fatalf("expected no .git directory created inside refused HOME %s, got stat err=%v", fakeHome, err)
 	}
 }
+
+func TestUnwrapEnvOrExec(t *testing.T) {
+	cases := []struct {
+		name string
+		kind string
+		toks []string
+		want []string
+	}{
+		{name: "env flags and vars", kind: "env", toks: []string{"-i", "-0", "--ignore-environment", "--null", "-u", "FOO", "--unset", "BAR", "--unset=BAZ", "-C", "/tmp", "--chdir", "/var", "--chdir=/opt", "A=1", "vim", "a.go"}, want: []string{"vim", "a.go"}},
+		{name: "env stops at double dash", kind: "env", toks: []string{"-i", "--", "-u", "git", "status"}, want: []string{"-u", "git", "status"}},
+		{name: "exec flags and -a", kind: "exec", toks: []string{"-c", "-l", "-a", "myname", "nvim", "f.go"}, want: []string{"nvim", "f.go"}},
+		{name: "exec double dash", kind: "exec", toks: []string{"-l", "--", "less", "f.go"}, want: []string{"less", "f.go"}},
+		{name: "command and time -p", kind: "command", toks: []string{"-p", "git", "status"}, want: []string{"git", "status"}},
+		{name: "time double dash", kind: "time", toks: []string{"-p", "--", "sudo", "id"}, want: []string{"sudo", "id"}},
+		{name: "only flags returns nil", kind: "env", toks: []string{"-i", "FOO=bar"}, want: nil},
+	}
+	for _, tc := range cases {
+		got := unwrapEnvOrExec(tc.kind, tc.toks)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: unwrapEnvOrExec(%q, %v) = %v, want %v", tc.name, tc.kind, tc.toks, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: unwrapEnvOrExec(%q, %v)[%d] = %q, want %q", tc.name, tc.kind, tc.toks, i, got[i], tc.want[i])
+			}
+		}
+	}
+}

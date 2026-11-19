@@ -419,3 +419,43 @@ func TestInteractiveBashGuard(t *testing.T) {
 		}
 	}
 }
+
+func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
+	home := t.TempDir()
+	seedWatchdogSummaryDB(t, home)
+
+	// Direct roDSN query must not create state dir or watchdog-agy temp dirs.
+	role, name, found := lookupWatchdogSummaryRole(home, "conv-self")
+	if !found || role != "self" || name != "self" {
+		t.Fatalf("lookupWatchdogSummaryRole(conv-self) = (%q, %q, %v), want (self, self, true)", role, name, found)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != ".gemini" {
+			t.Fatalf("unexpected side-effect entry %q in home dir after roDSN lookup", e.Name())
+		}
+	}
+	// Missing conversation returns sql.ErrNoRows handled cleanly without copy fallback.
+	roleMiss, _, foundMiss := lookupWatchdogSummaryRole(home, "conv-missing")
+	if foundMiss || roleMiss != "main" {
+		t.Fatalf("lookupWatchdogSummaryRole(conv-missing) = (%q, %v), want (main, false)", roleMiss, foundMiss)
+	}
+
+	// Symlinked -wal companion must be refused fail-closed.
+	agyDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	walTarget := filepath.Join(t.TempDir(), "evil.wal")
+	if err := os.WriteFile(walTarget, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	walLink := filepath.Join(agyDir, "conversation_summaries.db-wal")
+	_ = os.Remove(walLink)
+	if err := os.Symlink(walTarget, walLink); err != nil {
+		t.Fatal(err)
+	}
+	if r, _, ok := lookupWatchdogSummaryRole(home, "conv-self"); ok || r != "main" {
+		t.Fatalf("expected symlinked -wal to be refused, got (%q, %v)", r, ok)
+	}
+}

@@ -386,3 +386,78 @@ func TestValidateCommonDirForRootRejectsUnregisteredCommonDir(t *testing.T) {
 		t.Fatalf("validateCommonDirForRoot accepted commonDir without regular HEAD")
 	}
 }
+
+func TestResolveGitWorktreeDir(t *testing.T) {
+	t.Run("regular dotgit dir", func(t *testing.T) {
+		root := t.TempDir()
+		dotGit := filepath.Join(root, ".git")
+		if err := os.MkdirAll(dotGit, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitWorktreeDir(root); got != dotGit {
+			t.Errorf("resolveGitWorktreeDir = %q, want %q", got, dotGit)
+		}
+	})
+	t.Run("missing or symlinked dotgit", func(t *testing.T) {
+		root := t.TempDir()
+		if got := resolveGitWorktreeDir(root); got != "" {
+			t.Errorf("missing .git = %q, want empty", got)
+		}
+		target := filepath.Join(t.TempDir(), "realgit")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(root, ".git")); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitWorktreeDir(root); got != "" {
+			t.Errorf("symlink .git = %q, want empty", got)
+		}
+	})
+	t.Run("dotgit file variants", func(t *testing.T) {
+		wtTarget := filepath.Join(t.TempDir(), "wt-meta")
+		if err := os.MkdirAll(wtTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rootAbs := t.TempDir()
+		if err := os.WriteFile(filepath.Join(rootAbs, ".git"), []byte("gitdir: "+wtTarget+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitWorktreeDir(rootAbs); got != wtTarget {
+			t.Errorf("absolute gitdir = %q, want %q", got, wtTarget)
+		}
+		rootRel := t.TempDir()
+		relTarget := filepath.Join(rootRel, ".git-wt", "wt1")
+		if err := os.MkdirAll(relTarget, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(rootRel, ".git"), []byte("gitdir: .git-wt/wt1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveGitWorktreeDir(rootRel); got != relTarget {
+			t.Errorf("relative gitdir = %q, want %q", got, relTarget)
+		}
+		symTarget := filepath.Join(t.TempDir(), "sym-wt")
+		if err := os.Symlink(wtTarget, symTarget); err != nil {
+			t.Fatal(err)
+		}
+		badCases := []struct {
+			name, body string
+		}{
+			{"no prefix", wtTarget},
+			{"empty gitdir", "gitdir:   "},
+			{"multiline", "gitdir: " + wtTarget + "\nextra"},
+			{"missing dir", "gitdir: " + filepath.Join(t.TempDir(), "absent")},
+			{"symlink target", "gitdir: " + symTarget},
+		}
+		for _, tc := range badCases {
+			badRoot := t.TempDir()
+			if err := os.WriteFile(filepath.Join(badRoot, ".git"), []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if got := resolveGitWorktreeDir(badRoot); got != "" {
+				t.Errorf("%s: got %q, want empty", tc.name, got)
+			}
+		}
+	})
+}

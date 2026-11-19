@@ -3,16 +3,12 @@ package search
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 const (
-	hookDefaultBudget    = 1200
 	hookMaxDirtyFastPath = 15
 	hookKneeTokens       = 180000
 	hookMinIdentLen      = 6
@@ -161,411 +157,19 @@ func resolveHookDir(o Options, in HookInput) string {
 	return "."
 }
 
-func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) error {
-	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
-	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	var (
-		state        SessionState
-		skip, fast   bool
-		sc           *scope
-		dirtySummary string
-		slice        SliceResult
-		sections     []string
-		meta         TurnBannerMeta
-	)
-	err := ensureHookProjectReady(dir)
-	if err == nil {
-		state, skip, err = checkTurnOrMidTurnInput(dir, in, rawPrompt)
-	}
-	if err == nil && skip {
-		return writePreInvocation(out, "", "")
-	}
-	if err == nil {
-		sc, dirtySummary, fast, err = prepareHookScope(dir)
-	}
-	if err != nil {
-		if in.InvocationNum > 1 {
-			return writePreInvocation(out, "", "")
-		}
-		return writeStoreDegraded(out, err)
-	}
-	defer sc.close()
-	sections, meta, slice = buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fast)
-	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, meta)
-	return writePreInvocation(out, sysMsg, banner)
-}
-
-func ensureHookProjectReady(dir string) error {
-	if strings.TrimSpace(dir) == "" {
-		dir = "."
-	}
-	absDir, err := filepath.Abs(dir)
-	if err != nil {
-		return err
-	}
-	for _, p := range []string{dir, absDir} {
-		if fi, err := os.Lstat(p); err != nil {
-			return err
-		} else if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-			return fmt.Errorf("search: %s is not a regular directory", p)
-		}
-	}
-	if isRefusedAutoInitDir(absDir) {
-		return fmt.Errorf("search: refusing to auto-initialize system/root directory %s", absDir)
-	}
-	if err := checkScratchNoSymlinks(absDir); err != nil {
-		return err
-	}
-	root, nested, err := ensureHookGitCheckout(absDir)
-	if err != nil {
-		return err
-	}
-	if err := checkScratchNoSymlinks(root); err != nil {
-		return err
-	}
-	return ensureHookScratchIgnored(root, nested)
-}
-
-func prepareHookScope(dir string) (*scope, string, bool, error) {
-	if err := ensureHookProjectReady(dir); err != nil {
-		return nil, "", false, err
-	}
-	root, _, ok := findGitRootFast(dir)
-	if !ok {
-		return nil, "", false, errNotCheckout
-	}
-	if err := guardProject(root); err != nil {
-		return nil, "", false, err
-	}
-	st, err := openStore(projectDB(root), io.Discard)
-	if err != nil {
-		return nil, "", false, err
-	}
-	view, leftOut, err := gitView(root)
-	if err != nil {
-		st.close()
-		return nil, "", false, err
-	}
-	dirtyPaths := collectDirtyPaths(view)
-	var existingFiles int
-	_ = st.db.QueryRow(`SELECT count(*) FROM files WHERE project = ?`, root).Scan(&existingFiles)
-	diffN, _ := st.diffCount(source{project: root, dir: root, view: view})
-	if existingFiles > 0 && diffN > hookMaxDirtyFastPath {
-		summary := formatDirtyFastPath(dirtyPaths, diffN)
-		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, summary, true, nil
-	}
-	if _, err := st.apply(source{project: root, dir: root, view: view}); err != nil {
-		st.close()
-		return nil, "", false, err
-	}
-	return &scope{st: st, projects: []string{root}, leftOut: leftOut}, "", false, nil
-}
-
-func collectDirtyPaths(view []entry) []string {
-	var out []string
-	for _, e := range view {
-		if e.state == "modified" {
-			out = append(out, "M "+e.path)
-		} else if e.state == "untracked" {
-			out = append(out, "?? "+e.path)
-		}
-	}
-	return out
-}
-
-func formatDirtyFastPath(dirtyPaths []string, diffN int) string {
-	var b strings.Builder
-	count := max(len(dirtyPaths), diffN)
-	fmt.Fprintf(&b, "# fast-path: %d modified/untracked files (> %d threshold; serving cached AST snapshot)\n", count, hookMaxDirtyFastPath)
-	limit := min(20, len(dirtyPaths))
-	for i := 0; i < limit; i++ {
-		b.WriteString("  " + dirtyPaths[i] + "\n")
-	}
-	if len(dirtyPaths) > limit {
-		fmt.Fprintf(&b, "  ... and %d more\n", len(dirtyPaths)-limit)
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
-
-func (sc *scope) runVet(o Options, out io.Writer) error {
-	prompt := StripSandboxPreamble(strings.TrimSpace(o.Vet))
-	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(prompt, "!"))
-	slice := sc.buildVetSlice(o, cleanPrompt, SessionState{}, false)
-	var prev *VetHistoryRow
-	var recentSkills map[string]bool
-	var recentPivots []string
-	if sc != nil && sc.st != nil && o.Session != "" {
-		prev, _ = sc.st.lastVetHistory(o.Session, 0)
-		recentSkills, recentPivots, _ = sc.st.recentSuggestedSkills(o.Session, 0, 3)
-	}
-	intent := ClassifyIntent(cleanPrompt, slice.SymbolHits)
-	var brainCtx TurnBrainContext
-	if o.BrainTurnContext != nil {
-		brainCtx = o.BrainTurnContext(o.Dir, o.Home, cleanPrompt, slice.Files)
-	}
-	var catalog []SkillMeta
-	if o.SkillCatalog != nil {
-		catalog = o.SkillCatalog(o.Home)
-	}
-	res := vetPromptCoreWithHistory(prompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
-	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, nil)
-	res.SystemMessage = sysMsg
-	res.UserMarkdownBanner = banner
-	if sc != nil && sc.st != nil && o.Session != "" && prompt != "" {
-		nextTurn := 1
-		if prev != nil {
-			nextTurn = prev.TurnNum + 1
-		}
-		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
-		_ = sc.st.recordVetHistory(o.Session, nextTurn, prompt, res, pivotFiles)
-	}
-	_, err := io.WriteString(out, FormatVetResult(res))
-	return err
-}
-
-func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, preseedLedger bool) SliceResult {
-	if sc == nil || sc.st == nil || prompt == "" {
-		return SliceResult{}
-	}
-	g, err := sc.loadSymGraph()
-	if err != nil || len(g.syms) == 0 {
-		return SliceResult{}
-	}
-	hits, _ := countMatchingSymbols(g, prompt)
-	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
-	ranked, confident := rankAndCheckConfidence(g, prompt, active)
-	if !confident {
-		ranked, confident = sc.ftsFallbackRanked(g, prompt, active)
-	}
-	if !confident && !state.Compacted {
-		return SliceResult{SymbolHits: hits, Files: nil}
-	}
-	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
-	if capsule != "" && preseedLedger && len(pivots) > 0 {
-		_ = RegisterCapsulePivotsWithHome(o.Dir, o.Home, o.Session, state.TurnCount, pivots)
-	}
-	return SliceResult{
-		Capsule:    capsule,
-		Pivots:     symCount,
-		SymbolHits: hits,
-		Files:      symFiles,
-		Confident:  confident,
-	}
-}
-
-func countMatchingSymbols(g *symGraph, prompt string) (int, map[string]bool) {
-	terms := parseQueryTerms(prompt)
-	hits := 0
-	fileSet := map[string]bool{}
-	for _, s := range g.syms {
-		if matchesPromptTerms(s, terms) {
-			hits++
-			fileSet[s.Path] = true
-		}
-	}
-	return hits, fileSet
-}
-
-func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, ranked []RankedSymbol) (string, []CapsulePivot, []string, int) {
-	sliceOpts := o
-	sliceOpts.Slice = prompt
-	if o.BrainRefsForDir != nil && o.Dir != "" {
-		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(o.Dir, target) }
-	}
-	tiers := g.selectSliceTiers(prompt, ranked, defaultSliceHops)
-	capsule := strings.TrimSpace(sc.renderCompactHookCapsule(sliceOpts, g, tiers, compactHookMaxBytes))
-	if capsule == "" {
-		return "", nil, nil, 0
-	}
-	pivots, files, symCount := extractCompactCapsuleMeta(capsule)
-	return capsule, pivots, files, symCount
-}
-
-func rankAndCheckConfidence(g *symGraph, prompt string, active map[string]bool) ([]RankedSymbol, bool) {
-	if prompt == "" || len(g.syms) == 0 {
-		return nil, false
-	}
-	var longTerms []string
-	for _, t := range parseQueryTerms(prompt) {
-		if len(t) >= hookMinIdentLen {
-			longTerms = append(longTerms, t)
-		}
-	}
-	if len(longTerms) == 0 {
-		return nil, false
-	}
-	matched := map[int]bool{}
-	for i, s := range g.syms {
-		if s.Kind == "heading" {
-			continue
-		}
-		if matchesPromptTerms(s, longTerms) {
-			matched[i] = true
-		}
-	}
-	if len(matched) == 0 {
-		return nil, false
-	}
-	ranked := g.rank(prompt, active)
-	if len(ranked) == 0 {
-		return nil, false
-	}
-	median := medianRankScore(g, ranked, matched)
-	return ranked, median > 0 && ranked[0].Score >= hookConfidenceRatio*median
-}
-
-func medianRankScore(g *symGraph, ranked []RankedSymbol, matched map[int]bool) float64 {
-	if len(ranked) >= 4 {
-		m := ranked[len(ranked)/2].Score
-		if ranked[0].Score >= hookConfidenceRatio*m {
-			return m
-		}
-	}
-	neighbors := map[int]bool{}
-	for idx := range matched {
-		neighbors[idx] = true
-		for _, e := range g.out[idx] {
-			neighbors[e.toIdx] = true
-		}
-		for _, e := range g.in[idx] {
-			if e.fromIdx >= 0 {
-				neighbors[e.fromIdx] = true
-			}
-		}
-	}
-	var bg []float64
-	for _, s := range ranked {
-		if !neighbors[s.Idx] {
-			bg = append(bg, s.Score)
-		}
-	}
-	if len(bg) > 0 {
-		return bg[len(bg)/2]
-	}
-	return ranked[0].Score / (hookConfidenceRatio + 1.0)
-}
-
-func handlePreToolUse(o Options, dir string, in HookInput, out io.Writer) error {
-	wd := evaluateWatchdogPre(o, dir, in)
-	if wd.denyReason != "" {
-		return writeDecision(out, "deny", wd.denyReason)
-	}
-	var buf bytes.Buffer
-	if err := dispatchPreToolUse(o, dir, in, &buf); err != nil {
-		return err
-	}
-	return finalizeWatchdogPre(dir, in, wd, buf.Bytes(), out)
-}
-
-func dispatchPreToolUse(o Options, dir string, in HookInput, out io.Writer) error {
-	switch normalizeHookToolName(in.ToolCall.Name) {
-	case "read_file":
-		return handlePreToolRead(o.Home, dir, in, out)
-	case "run_command":
-		return handlePreToolBash(o.Home, dir, in, out)
-	case "write_or_edit":
-		return handlePreToolWrite(o, dir, in, out)
-	case "invoke_subagent", "invokesubagent":
-		return handlePreToolSubagent(o, dir, in, out)
-	case "swarm":
-		return handlePreToolSwarm(o, dir, in, out)
-	case "run_workflow":
-		return handlePreToolWorkflow(o.Home, dir, in, out)
-	default:
-		return writeDecision(out, "allow", "")
-	}
-}
-
-func handlePreToolRead(home, dir string, in HookInput, out io.Writer) error {
-	args := in.ToolCall.Args
-	target := extractToolTargetPath(args)
-	toolDir := resolveToolProjectDir(dir, in, target)
-	if target == "" || hooksDisabledForHome(home, toolDir) {
-		return writeDecision(out, "allow", "")
-	}
-	if clampDec, clamped := checkUnrangedClamp(dir, home, toolDir, in.ConversationID, target, args); clamped {
-		return writeDecision(out, "deny", clampDec.Reason)
-	}
-	start, end, record := clampReadRange(toolDir, target, args)
-	if !record {
-		return writeDecision(out, "allow", "")
-	}
-	dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, target, start, end, 0)
-	if err == nil && !dec.Allowed {
-		return writeDecision(out, "deny", dec.Reason)
-	}
-	return writeDecision(out, "allow", "")
-}
-
-func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
-	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
-	bfr, ok := ParseBashFileRead(cmd)
-	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
-	if hooksDisabledForHome(home, toolDir) {
-		return writeDecision(out, "allow", "")
-	}
-	denyReason, overwrite := checkInteractiveBashGuard(in.ToolCall.Args)
-	if denyReason != "" {
-		return writeDecision(out, "deny", denyReason)
-	}
-	if ok {
-		dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
-		if err == nil && !dec.Allowed {
-			return writeDecision(out, "deny", dec.Reason)
-		}
-	}
-	if overwrite != nil {
-		return writeDecisionWithOverwrite(out, "allow", "[AUTO_GIT_TERMINAL_PROMPT] prepended export GIT_TERMINAL_PROMPT=0", overwrite)
-	}
-	return writeDecision(out, "allow", "")
-}
-
-func handlePreToolWrite(o Options, dir string, in HookInput, out io.Writer) error {
-	target := extractToolTargetPath(in.ToolCall.Args)
-	toolDir := resolveToolProjectDir(dir, in, target)
-	if target == "" || hooksDisabledForHome(o.Home, toolDir) {
-		return writeDecision(out, "allow", "")
-	}
-	if reason := checkCoordinatorWriteGuard(o, dir, toolDir, in, target); reason != "" {
-		return writeDecision(out, "deny", reason)
-	}
-	dec, err := CheckPreWriteHashWithEdit(dir, o.Home, toolDir, in.ConversationID, target, in.ToolCall.Args)
-	if err == nil && !dec.Allowed {
-		return writeDecision(out, "deny", dec.Reason)
-	}
-	if err == nil && toolDir == dir {
-		if mErr := markPreWriteInLedger(dir, in.ConversationID, dec.ResolvedPath); mErr != nil && !errors.Is(mErr, errNotCheckout) {
-			return writeDecision(out, "allow", "fyr brain: pre-write ledger unavailable ("+oneLineErr(mErr)+")")
-		}
-	}
-	return writeDecision(out, "allow", "")
-}
-
-func handleStopHook(o Options, dir string, in HookInput, out io.Writer) error {
-	writeHookProcessArtifact(o.Home, nil, dir, in, "Verify", nil)
-	coErr := RecordStopCoActivity(dir, in.ConversationID)
-	if shouldContinue, reason := evaluateStopStamp(o.Home, dir, in); shouldContinue {
-		return writeDecision(out, "continue", reason)
-	}
-	if coErr != nil && !errors.Is(coErr, errNotCheckout) {
-		return writeDecision(out, "allow", "fyr brain: co-activity store unavailable ("+oneLineErr(coErr)+")")
-	}
-	return writeDecision(out, "allow", "")
-}
-
 func storeDegradedBanner(err error) string {
 	return formatStoreDegradedBanner(err)
 }
 
-func writeStoreDegraded(out io.Writer, err error) error {
-	return writePreInvocation(out, "", storeDegradedBanner(err))
+func writeStoreDegraded(out io.Writer, err error) {
+	writePreInvocation(out, "", storeDegradedBanner(err))
 }
 
 // writePreInvocation serializes the PreInvocation hook response. Antigravity CLI
 // v1.5.3–v1.5.9 utils.scrubMessage panics on any populated map<string,string>
 // field (HookSystemMessage.metadata), so userMarkdown is combined into
 // SystemMessage and Metadata is kept nil (BUG-523).
-func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
+func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) {
 	var resp PreInvocationOutput
 	if sysMsg != "" || userMarkdown != "" {
 		combined := sysMsg
@@ -581,18 +185,17 @@ func writePreInvocation(out io.Writer, sysMsg, userMarkdown string) error {
 	if data, err := json.Marshal(resp); err == nil {
 		_, _ = out.Write(append(data, '\n'))
 	}
-	return nil
 }
 
 func writeDecision(out io.Writer, decision, reason string) error {
-	return writeDecisionWithOverwrite(out, decision, reason, nil)
+	writeDecisionWithOverwrite(out, decision, reason, nil)
+	return nil
 }
 
-func writeDecisionWithOverwrite(out io.Writer, decision, reason string, overwrite map[string]any) error {
+func writeDecisionWithOverwrite(out io.Writer, decision, reason string, overwrite map[string]any) {
 	if data, err := json.Marshal(HookDecisionOutput{Decision: decision, Reason: reason, Overwrite: overwrite}); err == nil {
 		_, _ = out.Write(append(data, '\n'))
 	}
-	return nil
 }
 
 func oneLineErr(err error) string {
