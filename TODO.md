@@ -9,8 +9,8 @@
 
 Wave 2 (`Phase 2a`–`2c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Core CLI/gate/check/brain/metrics fixes, workflow/agent/context/rule alignment & skill/eval fixes:
 
-- [ ] Phase 2a (`internal/brain/`, `internal/check/`, `internal/gate/`, `internal/metrics/`, `cmd/fyr/`): CLI shortHash/models/record/zip fixes (`IN65`–`IN68`, `IN70`–`IN71`, `IN74`–`IN78`, `TR27`), gate/check fixes & `BUG-559` Part 1 (`IN64`, `IN87`–`IN91`, `IN105`), brain fixes (`SD106`–`SD113`), metrics fixes & N+1 elimination (`SD122`–`SD139`)
-- [ ] Phase 2b (`workflows/`, `workflows_test.go`, `agents/`, `context/`, `rules/`, `.agents/rules/`): harden `preflight_gate.py`/`review_parallel.py` (`AG30`, `AG33`–`AG35`, `AG-S2`), align `agents/*/agent.md` (`AG31`–`AG32`, `AG38`–`AG39`, `AG-S3`), recover `TestAlwaysOnContextBudget` headroom & fix `.agents/rules/` (`C53`, `C-S9`–`C-S10`)
+- [x] Phase 2a (`internal/brain/`, `internal/check/`, `internal/gate/`, `internal/metrics/`, `cmd/fyr/`): CLI shortHash/models/record/zip fixes (`IN65`–`IN68`, `IN70`–`IN71`, `IN74`–`IN78`, `TR27`), gate/check fixes & `BUG-559` Part 1 (`IN64`, `IN87`–`IN91`, `IN105`), brain fixes (`SD106`–`SD113`), metrics fixes & N+1 elimination (`SD122`–`SD139`)
+- [x] Phase 2b (`workflows/`, `workflows_test.go`, `agents/`, `context/`, `rules/`, `.agents/rules/`): harden `preflight_gate.py`/`review_parallel.py` (`AG30`, `AG33`–`AG35`, `AG-S2`), align `agents/*/agent.md` (`AG31`–`AG32`, `AG38`–`AG39`, `AG-S3`), recover `TestAlwaysOnContextBudget` headroom & fix `.agents/rules/` (`C53`, `C-S9`–`C-S10`)
 - [ ] Phase 2c (`after: Phase 2b`; `skills/`, `.agents/eval/`, `internal/eval/`, `areas_test.go`, `skills_text_test.go`, `ui_skills_test.go`): workflow & technical skill fixes (`WS55`–`WS67`, `WS-S8`–`WS-S10`, `TS45`–`TS52`, `TS-S3`–`TS-S4`), `VENDORED.md`/`areas.md` sync (`AG37`), `GUIDE-eval.md` `dreamer` row (`AG36`), Checkpoint
 
 ## Next
