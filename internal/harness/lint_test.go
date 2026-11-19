@@ -108,6 +108,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 		"spaced colon":      "allowed-tools : Bash\n",
 		"block list":        "allowed-tools:\n  - Bash\n",
 		"hooks":             "hooks:\n  PreToolUse: []\n",
+		"column-0 list":     "metadata:\n- agy\n- gemini\n",
 	} {
 		if err := skill(front); err == nil {
 			t.Errorf("skill with %s loaded", name)
@@ -117,7 +118,7 @@ func TestLintPermissionKeysByKind(t *testing.T) {
 		"metadata map":  "metadata:\n  version: \"1.0\"\n",
 		"license":       "license: Apache-2.0\n",
 		"comment line":  "# a comment\n",
-		"column-0 list": "metadata:\n- agy\n- gemini\n",
+		"indented list": "metadata:\n  - agy\n  - gemini\n",
 	} {
 		if err := skill(front); err != nil {
 			t.Errorf("skill with %s refused: %v", name, err)
@@ -272,6 +273,9 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			"a tab-led key after a nested map": plain + "metadata:\n  version: \"1.0\"\n\t" + hidden + "\n",
 			"a tab-led key after a list":       plain + "compatibility:\n  - agy\n\t" + hidden + "\n",
 			"a tab-led key after an empty key": plain + "metadata:\n\t" + hidden + "\n",
+			"a column-0 list":                  plain + "tools:\n- view_file\n- " + hidden + "\n",
+			"a column-0 dash line":             plain + "tools:\n-\n",
+			"a column-0 list map":              plain + "- " + hidden + "\n",
 		}
 		for name, sep := range map[string]string{
 			"a lone carriage return":         "\r",
@@ -289,7 +293,7 @@ func TestLintSeesEveryKeyAYAMLReaderSees(t *testing.T) {
 			}
 			// The refusal is the lint's, not a side effect such as a
 			// missing description.
-			if msg := err.Error(); !strings.Contains(msg, "indented") && !strings.Contains(msg, "line break") && !strings.Contains(msg, "starts with a tab") {
+			if msg := err.Error(); !strings.Contains(msg, "indented") && !strings.Contains(msg, "line break") && !strings.Contains(msg, "starts with a tab") && !strings.Contains(msg, "not a plain") {
 				t.Errorf("%s with %s refused for another reason: %v", kind, name, err)
 			}
 		}

@@ -40,9 +40,15 @@ func invokedNotes(sb, agent string) (bool, []string) {
 	return false, notes
 }
 
+// mainMarker marks the main session's conversation database (GUIDE-eval §
+// Known limits, BUG-545), so reading an agent definition or discussing
+// TypeName in the main session does not count as invoking the subagent.
+var mainMarker = []byte("<subagents>")
+
 // readsNeedle reports whether the regular file at path holds needle, and
 // whether it was left unread for being over maxScan; a link or a FIFO the
-// agent left in place of a database is not read.
+// agent left in place of a database is not read, and a main-agent transcript
+// containing <subagents> is skipped.
 func readsNeedle(path string, needle []byte) (found, big bool) {
 	f, err := isolate.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
@@ -53,5 +59,8 @@ func readsNeedle(path string, needle []byte) (found, big bool) {
 		return false, err == nil
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxScan))
-	return err == nil && bytes.Contains(b, needle), false
+	if err != nil || bytes.Contains(b, mainMarker) {
+		return false, false
+	}
+	return bytes.Contains(b, needle), false
 }

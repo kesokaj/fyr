@@ -150,3 +150,39 @@ func TestSplitFenceIsOneLine(t *testing.T) {
 		t.Errorf("a skill with a spaced fence inside its block: want the not-a-fence refusal, got %v", err)
 	}
 }
+
+func TestLintRejectsDuplicateKeysAndTrailingCommentAfterQuotes(t *testing.T) {
+	if _, err := parseStrict("name: x\nname: y\n"); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Errorf("duplicate top-level key accepted: %v", err)
+	}
+	repo := newRepo(t)
+	writeAgent(t, repo, "dup", "---\nname: dup\ndescription: one line\ndescription: |\n  line 1\n  line 2\nsubagent: true\nmainAgent: false\n---\nbody\n")
+	if _, err := loadAgents(DirSource(repo)); err == nil || !strings.Contains(err.Error(), "duplicated") {
+		t.Errorf("duplicate description in agent accepted: %v", err)
+	}
+	for _, front := range []string{
+		"name: x\ndescription: \"val\" # \"comment\"\n",
+		"name: x\ndescription: 'val' # 'comment'\n",
+		"name: x\ndescription: \"val\\\\\" # \"comment\"\n",
+	} {
+		if _, err := parseStrict(front); err == nil || !strings.Contains(err.Error(), "#") {
+			t.Errorf("trailing comment after quoted value %q accepted: %v", front, err)
+		}
+	}
+	for _, tc := range []struct {
+		front string
+		want  string
+	}{
+		{"name: x\ndescription: \"a \\\"b\\\" # c\"\n", `a "b" # c`},
+		{"name: x\ndescription: 'it''s #1'\n", "it's #1"},
+	} {
+		fm, err := parseStrict(tc.front)
+		if err != nil {
+			t.Errorf("valid quoted value %q rejected: %v", tc.front, err)
+			continue
+		}
+		if fm["description"] != tc.want {
+			t.Errorf("description = %q, want %q", fm["description"], tc.want)
+		}
+	}
+}

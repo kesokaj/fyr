@@ -24,7 +24,7 @@ func RenderContext(src Source, _ Inventory) ([]byte, error) {
 	if err := checkManagedTree(src); err != nil {
 		return nil, err
 	}
-	main, err := fs.ReadFile(src.FS, "context/AGENTS.md")
+	main, err := src.readRegular("context/AGENTS.md")
 	if err != nil {
 		return nil, fmt.Errorf("reading context: %w", err)
 	}
@@ -41,7 +41,7 @@ func RenderContext(src Source, _ Inventory) ([]byte, error) {
 		if path.Base(p) == "AGENTS.md" {
 			continue
 		}
-		data, err := fs.ReadFile(src.FS, p)
+		data, err := src.readRegular(p)
 		if err != nil {
 			return nil, err
 		}

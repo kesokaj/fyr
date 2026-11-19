@@ -109,16 +109,16 @@ func parseStrict(front string) (Frontmatter, error) {
 }
 
 // unreadLine is the first top-level frontmatter line the key grammar cannot
-// read. Blank lines, comments, indented continuations and column-0 list items
-// are fine; anything else (`"key": v`, `key : v`) is a key to a YAML parser
-// that entries would silently skip, so a lint keyed on names never saw it
-// (security review 2026-10-01).
+// read. Blank lines, comments, and indented continuations are fine; anything
+// else (`"key": v`, `key : v`, column-0 `- ` list items) is skipped by entries
+// while a YAML parser reads it, so a lint keyed on names never saw it
+// (security review 2026-10-01, IN79).
 func unreadLine(front string) (string, bool) {
 	for _, l := range strings.Split(front, "\n") {
 		// One carriage return is the line ending (a second one was refused
 		// by parseStrict's line-break check before this runs).
 		l = strings.TrimSuffix(l, "\r")
-		if l == "" || l[0] == ' ' || l[0] == '\t' || l[0] == '#' || l == "-" || strings.HasPrefix(l, "- ") {
+		if l == "" || l[0] == ' ' || l[0] == '\t' || l[0] == '#' {
 			continue
 		}
 		if !keyLine.MatchString(l) {
@@ -219,7 +219,12 @@ const descriptionLimit = 1024
 // over the Agent Skills limit. Quoting the value fixes the first for every
 // reader. parseStrict is its one caller: it lints and parses in one pass.
 func lintEntries(es []entry) error {
+	seen := make(map[string]bool, len(es))
 	for _, e := range es {
+		if seen[e.key] {
+			return fmt.Errorf("frontmatter key %q is duplicated", e.key)
+		}
+		seen[e.key] = true
 		if e.key == "description" {
 			joined := ""
 			if !isBlockIndicator(e.val) {
@@ -233,13 +238,16 @@ func lintEntries(es []entry) error {
 			}
 		}
 		val := e.val
-		if isBlockIndicator(val) || isQuoted(val) {
+		if isBlockIndicator(val) {
 			continue
 		}
 		if val == "" && len(e.cont) > 0 && strings.Contains(e.cont[0], ": ") {
 			continue // nested map; its own keys are the vendor's business
 		}
-		lines := append([]string{val}, e.cont...)
+		lines := e.cont
+		if !isQuoted(val) {
+			lines = append([]string{val}, lines...)
+		}
 		for _, l := range lines {
 			if strings.HasPrefix(l, "#") || strings.Contains(l, " #") || strings.Contains(l, "\t#") {
 				return fmt.Errorf("frontmatter key %q: unquoted value contains \"#\", which YAML reads as a comment; quote the value", e.key)
@@ -250,7 +258,34 @@ func lintEntries(es []entry) error {
 }
 
 func isQuoted(v string) bool {
-	return len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\''))
+	if len(v) < 2 {
+		return false
+	}
+	if v[0] == '"' {
+		for i := 1; i < len(v); i++ {
+			if v[i] == '\\' {
+				i++
+				continue
+			}
+			if v[i] == '"' {
+				return i == len(v)-1
+			}
+		}
+		return false
+	}
+	if v[0] == '\'' {
+		for i := 1; i < len(v); i++ {
+			if v[i] == '\'' {
+				if i+1 < len(v) && v[i+1] == '\'' {
+					i++
+					continue
+				}
+				return i == len(v)-1
+			}
+		}
+		return false
+	}
+	return false
 }
 
 func isBlockIndicator(v string) bool {
@@ -262,15 +297,16 @@ func isBlockIndicator(v string) bool {
 }
 
 func unquote(v string) string {
-	if len(v) >= 2 {
-		switch {
-		case v[0] == '"' && v[len(v)-1] == '"':
-			inner := v[1 : len(v)-1]
-			inner = strings.ReplaceAll(inner, `\"`, `"`)
-			return strings.ReplaceAll(inner, `\\`, `\`)
-		case v[0] == '\'' && v[len(v)-1] == '\'':
-			return strings.ReplaceAll(v[1:len(v)-1], "''", "'")
-		}
+	if !isQuoted(v) {
+		return v
+	}
+	switch v[0] {
+	case '"':
+		inner := v[1 : len(v)-1]
+		inner = strings.ReplaceAll(inner, `\"`, `"`)
+		return strings.ReplaceAll(inner, `\\`, `\`)
+	case '\'':
+		return strings.ReplaceAll(v[1:len(v)-1], "''", "'")
 	}
 	return v
 }

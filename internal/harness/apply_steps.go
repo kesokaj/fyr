@@ -89,10 +89,10 @@ func (r *installRun) correctMode(f File, dest string) {
 	// over — the next run with changed bytes will set it. The probe
 	// runs on a dry run too, so it names the same `mode` line the
 	// real run would (plan sh-agent-works-everywhere, D7, D8).
-	if info, statErr := os.Stat(dest); statErr == nil && info.Mode().Perm() != f.Mode.Perm() {
+	if info, statErr := os.Lstat(dest); statErr == nil && info.Mode().IsRegular() && info.Mode().Perm() != f.Mode.Perm() {
 		fmt.Fprintf(r.out, "mode    ~/%s (%04o -> %04o)\n", f.Rel, info.Mode().Perm(), f.Mode.Perm())
 		if !r.dryRun {
-			if err := os.Chmod(dest, f.Mode.Perm()); err != nil {
+			if err := chmodPlain(dest, f.Mode.Perm()); err != nil {
 				fmt.Fprintf(r.out, "note: could not correct the mode of ~/%s (%v)\n", f.Rel, err)
 			}
 		}

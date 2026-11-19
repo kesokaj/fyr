@@ -463,3 +463,68 @@ func TestRunningElsewhere(t *testing.T) {
 		})
 	}
 }
+
+func TestOldBinariesOnPath(t *testing.T) {
+	root := t.TempDir()
+	oldAt := func(dir string) string {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "sh-agent")
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	a, b, empty := filepath.Join(root, "a"), filepath.Join(root, "b"), filepath.Join(root, "empty")
+	aOld, bOld := oldAt(a), oldAt(b)
+	if err := os.Mkdir(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(root, "plain")
+	if err := os.Mkdir(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plain, "sh-agent"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirNamed := filepath.Join(root, "dirnamed")
+	if err := os.MkdirAll(filepath.Join(dirNamed, "sh-agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	danglingDir := filepath.Join(root, "dangling")
+	if err := os.Mkdir(danglingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "gone"), filepath.Join(danglingDir, "sh-agent")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+		want []string
+	}{
+		{"empty PATH", "", nil},
+		{"no sh-agent anywhere", joinPath(empty, plain, dirNamed, danglingDir), nil},
+		{"single sh-agent", joinPath(empty, a), []string{aOld}},
+		{"multiple in PATH order with duplicates collapsed", joinPath(b, empty, a, b), []string{bOld, aOld}},
+		{"non-executable, directory, dangling symlink skipped", joinPath(plain, dirNamed, danglingDir, a), []string{aOld}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "empty PATH" {
+				t.Chdir(empty)
+			}
+			got := OldBinariesOnPath(tc.path)
+			if len(got) != len(tc.want) {
+				t.Fatalf("OldBinariesOnPath(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("OldBinariesOnPath(%q) = %v, want %v", tc.path, got, tc.want)
+				}
+			}
+		})
+	}
+}

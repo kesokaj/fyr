@@ -53,3 +53,16 @@ func TestInvokedSkipsAnOversizedDatabase(t *testing.T) {
 		t.Errorf("notes %q, want one naming big.db", notes)
 	}
 }
+
+func TestInvokedIgnoresMainSessionWithSubagents(t *testing.T) {
+	sb := t.TempDir()
+	conv := filepath.Join(sb, ".gemini", "antigravity-cli", "conversations")
+	put(t, filepath.Join(conv, "main.db"), "SQLite format 3\x00<subagents>\n{\"TypeName\":\"reviewer\"}\x00", 0o600)
+	if invokedOK(sb, "reviewer") {
+		t.Error("main session containing <subagents> counted as invoking reviewer")
+	}
+	put(t, filepath.Join(conv, "sub.db"), "SQLite format 3\x00{\"TypeName\":\"reviewer\"}\x00", 0o600)
+	if !invokedOK(sb, "reviewer") {
+		t.Error("subagent database without <subagents> did not count as invoking reviewer")
+	}
+}

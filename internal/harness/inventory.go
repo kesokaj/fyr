@@ -264,7 +264,7 @@ func loadDocs(src Source, kind string, allowed []string, dirs ...string) ([]Doc,
 			return nil, err
 		}
 		for _, p := range paths {
-			raw, err := fs.ReadFile(src.FS, p)
+			raw, err := src.readRegular(p)
 			if err != nil {
 				return nil, err
 			}
@@ -462,10 +462,9 @@ func cell(s string, max int) string {
 // one line.
 func descriptionIsMultiLine(front string) bool {
 	for _, e := range entries(front) {
-		if e.key != "description" {
-			continue
+		if e.key == "description" && (isBlockIndicator(e.val) || len(e.cont) > 0) {
+			return true
 		}
-		return isBlockIndicator(e.val) || len(e.cont) > 0
 	}
 	return false
 }

@@ -94,7 +94,7 @@ func adoptDest(repo, src, from string, force bool) (name, dest string, err error
 	if within(from, cmp) || within(cmp, from) {
 		return "", "", fmt.Errorf("%s and %s overlap; adopt copies a skill directory from outside the repo's skills/", from, dest)
 	}
-	_, err = os.Stat(dest)
+	_, err = os.Lstat(dest)
 	switch {
 	case err == nil && !force:
 		return "", "", fmt.Errorf("%s already exists; pass --force to replace it", dest)
@@ -144,7 +144,7 @@ func swapIn(dest, staging string) error {
 	// review of v1.0.0, finding 3).
 	backup := staging + ".previous"
 	hadPrevious := false
-	if _, err := os.Stat(dest); err == nil {
+	if _, err := os.Lstat(dest); err == nil {
 		if err := os.RemoveAll(backup); err != nil {
 			return err
 		}
@@ -199,25 +199,35 @@ func copyTree(src, dest string) error {
 		if d.Name() == ".DS_Store" {
 			return nil
 		}
-		// Refuse a credential at the ENTRANCE too, not only in Plan's deploy
-		// walk: adopt copies a directory into skills/, where it is committed
-		// and pushed, and the install-time refusal would then fire on every
-		// consumer rather than here, after the secret had already been
-		// published (security review of v1.0.0, round 2).
-		if SecretShaped(d.Name()) {
-			return fmt.Errorf("%s is a secret-shaped file — adopt refuses to copy it into the repo; remove it from the skill first", path)
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file — refused", path)
 		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		// As plan.go does for every deployed file: an adopted 0664 would sit
-		// group-writable in the tree every install ships, and git records only
-		// the x bit (security audit 2026-09-18).
-		return WriteAtomic(target, data, info.Mode().Perm()&0o755|0o600)
+		return copyTreeFile(path, target, d)
 	})
+}
+
+func copyTreeFile(path, target string, d fs.DirEntry) error {
+	// Refuse a credential at the ENTRANCE too, not only in Plan's deploy
+	// walk: adopt copies a directory into skills/, where it is committed
+	// and pushed, and the install-time refusal would then fire on every
+	// consumer rather than here, after the secret had already been
+	// published (security review of v1.0.0, round 2).
+	if SecretShaped(d.Name()) {
+		return fmt.Errorf("%s is a secret-shaped file — adopt refuses to copy it into the repo; remove it from the skill first", path)
+	}
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file — refused", path)
+	}
+	data, err := openPlain(path)
+	if err != nil {
+		return err
+	}
+	// As plan.go does for every deployed file: an adopted 0664 would sit
+	// group-writable in the tree every install ships, and git records only
+	// the x bit (security audit 2026-09-18).
+	return WriteAtomic(target, data, info.Mode().Perm()&0o755|0o600)
 }

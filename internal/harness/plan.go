@@ -120,6 +120,9 @@ func skillFiles(src Source, s Skill) ([]File, error) {
 		if d.IsDir() || d.Name() == ".DS_Store" {
 			return nil
 		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("%s is not a regular file — a skill ships regular files only", src.path(p))
+		}
 		// A secret-shaped file is refused rather than copied into the
 		// vendor directory on every machine. The repo's .gitignore
 		// keeps these out of git, which means review never sees them and
@@ -148,6 +151,9 @@ func skillFile(src Source, s Skill, p string, d fs.DirEntry) (File, error) {
 	info, err := d.Info()
 	if err != nil {
 		return File{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return File{}, fmt.Errorf("%s is not a regular file — a skill ships regular files only", src.path(p))
 	}
 	data, err := fs.ReadFile(src.FS, p)
 	if err != nil {

@@ -73,3 +73,80 @@ func TestStatusAndDiffNeverOpenAFIFO(t *testing.T) {
 		}
 	}
 }
+
+func TestNonRegularFilesAreRefusedWithoutBlocking(t *testing.T) {
+	runNoHang := func(name string, fn func() error) {
+		t.Helper()
+		ch := make(chan error, 1)
+		go func() { ch <- fn() }()
+		select {
+		case err := <-ch:
+			if err == nil {
+				t.Errorf("%s: succeeded on FIFO, want refusal", name)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s: blocked on FIFO", name)
+		}
+	}
+
+	t.Run("Plan skill FIFO", func(t *testing.T) {
+		repo := newRepo(t)
+		fifo := filepath.Join(repo, "skills", "alpha", "pipe")
+		if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+			t.Skip("mkfifo:", err)
+		}
+		runNoHang("Plan(skill)", func() error {
+			_, err := Plan(DirSource(repo), nil)
+			return err
+		})
+	})
+
+	for _, tc := range []struct {
+		name string
+		rel  string
+	}{
+		{"RenderContext FIFO", filepath.Join("context", "extra.md")},
+		{"loadDocs rule FIFO", filepath.Join("rules", "r.md")},
+		{"loadDocs command FIFO", filepath.Join("commands", "c.md")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newRepo(t)
+			fifo := filepath.Join(repo, tc.rel)
+			if err := os.MkdirAll(filepath.Dir(fifo), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+				t.Skip("mkfifo:", err)
+			}
+			runNoHang(tc.name, func() error {
+				_, err := Plan(DirSource(repo), nil)
+				return err
+			})
+		})
+	}
+
+	t.Run("Adopt FIFO", func(t *testing.T) {
+		home := t.TempDir()
+		repo := newRepo(t)
+		src := filepath.Join(t.TempDir(), "ext-skill")
+		writeFile(t, filepath.Join(src, "SKILL.md"), "---\nname: ext-skill\ndescription: ext\n---\nbody\n")
+		if err := syscall.Mkfifo(filepath.Join(src, "pipe"), 0o600); err != nil {
+			t.Skip("mkfifo:", err)
+		}
+		runNoHang("Adopt", func() error {
+			_, err := Adopt(repo, home, src, false)
+			return err
+		})
+	})
+
+	t.Run("readCapped FIFO", func(t *testing.T) {
+		fifo := filepath.Join(t.TempDir(), "in")
+		if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+			t.Skip("mkfifo:", err)
+		}
+		runNoHang("readCapped", func() error {
+			_, err := readCapped(fifo, 64)
+			return err
+		})
+	})
+}

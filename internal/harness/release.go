@@ -252,6 +252,12 @@ func installRelease(home, tag, asset string, data []byte, installArgs []string, 
 	// and a rename, so an interrupted update leaves the old binary whole
 	// rather than a half-written one.
 	dest := filepath.Join(home, BinPath)
+	if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, BinPath) {
+		return fmt.Errorf("replacing %s: a symlink is in the way; fyr never writes through a link", dest)
+	}
+	if err := dirInTheWay(dest); err != nil {
+		return fmt.Errorf("replacing %s: %w", dest, err)
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -447,12 +453,19 @@ func checksumFor(sums, name string) (string, error) {
 // before reading it (a release asset, a settings file, a checksum file), so no
 // caller streams an unbounded file into memory.
 func readCapped(path string, max int64) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := openNonBlock(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err == nil && info.Size() > max {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	if info.Size() > max {
 		return nil, fmt.Errorf("%d bytes is larger than the %d this reads", info.Size(), max)
 	}
 	// One byte past the cap: a stream whose Stat size says nothing (a FIFO, a

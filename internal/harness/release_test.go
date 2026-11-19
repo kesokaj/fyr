@@ -555,3 +555,60 @@ func TestUpdateFromReleasePinsTheHost(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallReleaseRefusesSymlinkAndDir(t *testing.T) {
+	t.Run("symlink at BinPath", func(t *testing.T) {
+		home := t.TempDir()
+		dest := filepath.Join(home, BinPath)
+		target := filepath.Join(home, "target-bin")
+		writeFile(t, target, "keep\n")
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, dest); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		var out bytes.Buffer
+		err := installRelease(home, "v9.9.9", "fyr", []byte("new\n"), nil, &out)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("installRelease err = %v, want symlink refusal", err)
+		}
+		if got, _ := os.ReadFile(target); string(got) != "keep\n" {
+			t.Errorf("target modified: %q", got)
+		}
+	})
+	t.Run("symlinked parent directory", func(t *testing.T) {
+		home := t.TempDir()
+		realBin := filepath.Join(t.TempDir(), "real-bin")
+		if err := os.MkdirAll(realBin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		binDir := filepath.Join(home, filepath.Dir(BinPath))
+		if err := os.MkdirAll(filepath.Dir(binDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(realBin, binDir); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		var out bytes.Buffer
+		err := installRelease(home, "v9.9.9", "fyr", []byte("new\n"), nil, &out)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("installRelease err = %v, want symlink refusal", err)
+		}
+		if _, err := os.Stat(filepath.Join(realBin, "fyr")); !os.IsNotExist(err) {
+			t.Errorf("wrote through symlinked bin dir: %v", err)
+		}
+	})
+	t.Run("directory at BinPath", func(t *testing.T) {
+		home := t.TempDir()
+		dest := filepath.Join(home, BinPath)
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		err := installRelease(home, "v9.9.9", "fyr", []byte("new\n"), nil, &out)
+		if err == nil || !strings.Contains(err.Error(), "directory is in the way") {
+			t.Fatalf("installRelease err = %v, want directory-in-the-way refusal", err)
+		}
+	})
+}
