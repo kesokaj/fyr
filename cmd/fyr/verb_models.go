@@ -48,7 +48,7 @@ func runModels(c *ctx) error {
 	agyPath, _ := exec.LookPath("agy")
 	cat, err := loadOrRefreshCatalog(sig, c, agyPath)
 	if err != nil {
-		fmt.Fprintf(c.out, "models: %v\n", err)
+		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
 	}
 	if c.modelsExplain != "" {
@@ -86,10 +86,20 @@ func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.C
 }
 
 func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string) error {
+	normRole, normTier, _ := models.NormalizeRoleTier(c.modelsPick, c.modelsTier)
 	pick, pools, err := models.PickRoleFromCatalogWithPools(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
 	if err != nil {
-		fmt.Fprintf(c.out, "models: %v\n", err)
+		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
+	}
+	if agyPath == "" && isCrossFamilyRole(normRole) && isAnthropicPick(cat.Entries, pick.Model) {
+		fb, fbErr := fallbackPickWithoutAgy(cat, normRole, normTier)
+		if fbErr != nil {
+			fmt.Fprintf(stderr, "models: %v\n", fbErr)
+			return exitCode(1)
+		}
+		pick = fb
+		pools = nil
 	}
 	if len(pools) > 0 && c.home != "" && models.CheckHomeDir(c.home) == nil {
 		models.PersistCatalogPoolsBestEffort(c.home, pools)
@@ -102,6 +112,38 @@ func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath stri
 	}
 	fmt.Fprintln(c.out, pick.Model)
 	return nil
+}
+
+func isCrossFamilyRole(role string) bool {
+	return role == "judge" || role == "reviewer" || role == "verifier"
+}
+
+func isAnthropicPick(entries []models.CatalogEntry, modelID string) bool {
+	for _, e := range entries {
+		if e.ID == modelID {
+			return strings.EqualFold(e.Family, "anthropic")
+		}
+	}
+	return strings.HasPrefix(strings.ToLower(modelID), "claude")
+}
+
+func nonAnthropicEntries(entries []models.CatalogEntry) []models.CatalogEntry {
+	out := make([]models.CatalogEntry, 0, len(entries))
+	for _, e := range entries {
+		if !strings.EqualFold(e.Family, "anthropic") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func fallbackPickWithoutAgy(cat models.Catalog, normRole, normTier string) (models.RolePick, error) {
+	fb, err := models.PickFromEntries(nonAnthropicEntries(cat.Entries), nil, normRole, normTier)
+	if err != nil {
+		return models.RolePick{}, fmt.Errorf("agy not found on PATH; cannot verify Anthropic quota for %s: %w", normRole, err)
+	}
+	fb.FallbackReason = "agy not found on PATH; cannot verify Anthropic quota — fallback to Gemini"
+	return fb, nil
 }
 
 func writeIndentedJSON(c *ctx, v any) error {
@@ -121,7 +163,7 @@ func runModelsExplain(c *ctx, cat models.Catalog, target string) error {
 			return nil
 		}
 	}
-	fmt.Fprintf(c.out, "models: no entry matching %q in %s\n", target, models.CatalogPath(c.home))
+	fmt.Fprintf(stderr, "models: no entry matching %q in %s\n", target, models.CatalogPath(c.home))
 	return exitCode(1)
 }
 

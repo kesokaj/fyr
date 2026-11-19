@@ -226,6 +226,16 @@ func writeJSONLine(w io.Writer, v any) error {
 	return enc.Encode(v)
 }
 
+func shortHash(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
 func printVerifyText(w io.Writer, rep gate.VerifyReport) {
 	for _, s := range rep.Steps {
 		state := "FAIL"
@@ -238,7 +248,7 @@ func printVerifyText(w io.Writer, rep gate.VerifyReport) {
 		}
 	}
 	if rep.OK {
-		fmt.Fprintf(w, "verify: PASS (%s)\n", rep.TreeSHA256[:12])
+		fmt.Fprintf(w, "verify: PASS (%s)\n", shortHash(rep.TreeSHA256, 12))
 	}
 }
 
@@ -266,7 +276,7 @@ func printGateText(w io.Writer, rep gate.GateReport) {
 
 func printLandText(w io.Writer, rep gate.LandReport) {
 	if rep.OK {
-		fmt.Fprintf(w, "land: PASS %s -> %s (%s)\n", rep.Branch, rep.Target, rep.LandCommit[:12])
+		fmt.Fprintf(w, "land: PASS %s -> %s (%s)\n", rep.Branch, rep.Target, shortHash(rep.LandCommit, 12))
 		return
 	}
 	if rep.Gate != nil && len(rep.Gate.Findings) > 0 {

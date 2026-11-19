@@ -19,8 +19,7 @@ import (
 func (c *ctx) metricsSummary(sub string) (*metrics.Summary, error) {
 	o, err := c.metricsShowOptions()
 	if err != nil {
-		fmt.Fprintln(c.out, "fyr metrics "+sub+": "+err.Error())
-		return nil, exitCode(2)
+		return nil, usageErr(c.out, "metrics", "fyr metrics "+sub+": "+err.Error())
 	}
 	s, err := c.existingMetricsStore()
 	if err != nil {
@@ -64,17 +63,14 @@ func runMetrics(c *ctx) error {
 // the summary line.
 func (c *ctx) metricsIngest(args []string) error {
 	if bad := c.metricsFlagsOutside("source", "label", "outcome"); bad != "" {
-		fmt.Fprintf(c.out, "fyr metrics ingest: --%s belongs to show, report or evals\n", bad)
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics ingest: --%s belongs to show, report or evals", bad))
 	}
 	if len(args) > 0 {
-		fmt.Fprintf(c.out, "metrics ingest takes no arguments: %q\n", args)
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics ingest takes no arguments: %q", args))
 	}
 	o := metrics.Options{Home: c.home, Source: c.metricsSource, Label: c.metricsLabel, Outcome: c.metricsOutcome}
 	if err := o.Validate(); err != nil {
-		fmt.Fprintln(c.out, "fyr metrics ingest: "+err.Error())
-		return exitCode(2)
+		return usageErr(c.out, "metrics", "fyr metrics ingest: "+err.Error())
 	}
 	r, err := ingestInto(o, c.out)
 	if err != nil {
@@ -114,9 +110,11 @@ func ingestTo(home string, w io.Writer) error {
 
 // metricsShow serves `metrics show`, as text or --json.
 func (c *ctx) metricsShow(args []string) error {
+	if bad := c.metricsFlagsOutside("since", "until", "project", "label", "all-labels", "context-target", "json"); bad != "" {
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics show: --%s does not apply to show", bad))
+	}
 	if len(args) > 0 {
-		fmt.Fprintf(c.out, "metrics show takes no arguments: %q\n", args)
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics show takes no arguments: %q", args))
 	}
 	sum, err := c.metricsSummary("show")
 	if err != nil {
@@ -132,9 +130,11 @@ func (c *ctx) metricsShow(args []string) error {
 // metricsReport serves `metrics report`: the HTML file (or --md), at --out or
 // the default path.
 func (c *ctx) metricsReport(args []string) error {
-	if len(args) > 0 || c.metricsJSON {
-		fmt.Fprintln(c.out, "fyr metrics report [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--project [DIR] | --global] [--label KEY=VALUE | --all-labels] [--context-target N] [--md] [--out FILE]")
-		return exitCode(2)
+	if bad := c.metricsFlagsOutside("since", "until", "project", "global", "md", "label", "all-labels", "context-target", "out"); bad != "" {
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics report: --%s does not apply to report", bad))
+	}
+	if len(args) > 0 {
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics report takes no arguments: %q", args))
 	}
 	return c.renderReport("fyr metrics report")
 }
@@ -143,21 +143,17 @@ func (c *ctx) metricsReport(args []string) error {
 // subagent hierarchy, and context/tool anomalies, as text or --json (D6).
 func (c *ctx) metricsTrajectory(args []string) error {
 	if bad := c.metricsFlagsOutside("project", "limit", "json"); bad != "" {
-		fmt.Fprintf(c.out, "fyr metrics trajectory: --%s does not apply to trajectory\n", bad)
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics trajectory: --%s does not apply to trajectory", bad))
 	}
 	if len(args) > 1 {
-		fmt.Fprintln(c.out, "fyr metrics trajectory [<session-id>] [--project DIR] [--limit N] [--json]")
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("metrics trajectory takes at most one session id: %q", args))
 	}
 	if c.limit < 0 {
-		fmt.Fprintln(c.out, "fyr metrics trajectory: --limit must be >= 0")
-		return exitCode(2)
+		return usageErr(c.out, "metrics", "fyr metrics trajectory: --limit must be >= 0")
 	}
 	proj, err := c.trajectoryProject()
 	if err != nil {
-		fmt.Fprintln(c.out, "fyr metrics trajectory: "+err.Error())
-		return exitCode(2)
+		return usageErr(c.out, "metrics", "fyr metrics trajectory: "+err.Error())
 	}
 	s, err := c.existingMetricsStore()
 	if err != nil {
@@ -195,12 +191,10 @@ func (c *ctx) trajectoryProject() (string, error) {
 // metricsExport serves `metrics export FILE`.
 func (c *ctx) metricsExport(args []string) error {
 	if bad := c.metricsFlagsOutside(); bad != "" {
-		fmt.Fprintf(c.out, "fyr metrics export: --%s does not apply to export\n", bad)
-		return exitCode(2)
+		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics export: --%s does not apply to export", bad))
 	}
 	if len(args) != 1 {
-		fmt.Fprintln(c.out, "fyr metrics export FILE")
-		return exitCode(2)
+		return usageErr(c.out, "metrics", "fyr metrics export requires FILE")
 	}
 	s, err := c.existingMetricsStore()
 	if err != nil {
@@ -218,14 +212,13 @@ func (c *ctx) metricsExport(args []string) error {
 // that is not in allowed, or "": a flag a subcommand does not read is a
 // usage error, never ignored.
 func (c *ctx) metricsFlagsOutside(allowed ...string) string {
-	own := map[string]bool{"source": true, "label": true, "outcome": true, "since": true, "until": true, "project": true, "global": true, "md": true, "all-labels": true, "json": true, "out": true, "context-target": true, "harness": true, "limit": true}
-	ok := map[string]bool{}
+	ok := make(map[string]bool, len(allowed))
 	for _, a := range allowed {
 		ok[a] = true
 	}
 	bad := ""
 	c.fs.Visit(func(f *flag.Flag) {
-		if bad == "" && own[f.Name] && !ok[f.Name] {
+		if bad == "" && !isGlobalFlag(f.Name) && !ok[f.Name] {
 			bad = f.Name
 		}
 	})

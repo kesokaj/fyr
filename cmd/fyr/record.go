@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
@@ -191,21 +192,75 @@ func recordList(c *ctx, o brain.Options, set map[string]bool) error {
 	if err != nil {
 		return recordErr(c, err)
 	}
+	sortRecordList(recs)
 	if c.limit > 0 && len(recs) > c.limit {
 		recs = recs[:c.limit]
 	}
 	if c.jsonOut {
 		js, jerr := brain.FormatRecordsJSON(recs, false)
 		if jerr != nil {
-			return recordErr(c, jerr)
+			return recordErrTo(stderr, jerr)
 		}
 		fmt.Fprint(c.out, js)
 		return nil
 	}
 	for _, r := range recs {
-		fmt.Fprintln(c.out, brain.FormatLine(r, c.recAll))
+		fmt.Fprintln(c.out, formatRecordListLine(r, c.recAll))
 	}
 	return nil
+}
+
+func recordUpdatedDay(r brain.Record) string {
+	if r.Updated == "" {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339Nano, r.Updated); err == nil {
+		return t.Format("2006-01-02")
+	}
+	if len(r.Updated) >= 10 {
+		return r.Updated[:10]
+	}
+	return ""
+}
+
+func recordListOrderKey(r brain.Record) (day, ts string) {
+	day = r.Date
+	if r.Status == "current" {
+		if upd := recordUpdatedDay(r); upd > day {
+			day = upd
+		}
+		ts = r.Updated
+	}
+	return day, ts
+}
+
+func sortRecordList(recs []brain.Record) {
+	sort.SliceStable(recs, func(i, j int) bool {
+		di, ti := recordListOrderKey(recs[i])
+		dj, tj := recordListOrderKey(recs[j])
+		if di != dj {
+			return di > dj
+		}
+		if ti != tj && recs[i].Status == "current" && recs[j].Status == "current" {
+			return ti > tj
+		}
+		return false
+	})
+}
+
+func formatRecordListLine(r brain.Record, showScope bool) string {
+	line := brain.FormatLine(r, showScope)
+	if r.Status != "current" {
+		return line
+	}
+	upd := recordUpdatedDay(r)
+	if upd == "" || upd == r.Date {
+		return line
+	}
+	if r.Date != "" && strings.Contains(line, "  "+r.Date+"  ") {
+		return strings.Replace(line, "  "+r.Date+"  ", "  "+r.Date+" (updated "+upd+")  ", 1)
+	}
+	return line + " (updated " + upd + ")"
 }
 
 // recordGet serves `record get`: each record found, a blank line between,
@@ -234,11 +289,11 @@ func recordGet(c *ctx, o brain.Options, ids []string, set map[string]bool) error
 		if len(recs) > 0 || err == nil {
 			js, jerr := brain.FormatRecordsJSON(recs, true)
 			if jerr != nil {
-				return recordErr(c, jerr)
+				return recordErrTo(stderr, jerr)
 			}
 			fmt.Fprint(c.out, js)
 		}
-		return recordErr(c, err)
+		return recordErrTo(stderr, err)
 	}
 	for i, r := range recs {
 		if i > 0 {
@@ -415,14 +470,18 @@ func printImport(c *ctx, res *brain.ImportResult) {
 // recordErr prints a refusal (exit 1) or a usage error (exit 2) on the
 // writer, through printable: the message can quote a record's own text.
 func recordErr(c *ctx, err error) error {
+	return recordErrTo(c.out, err)
+}
+
+func recordErrTo(w io.Writer, err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case brain.IsUsage(err):
-		fmt.Fprintln(c.out, search.Printable("fyr record: "+err.Error()))
+		fmt.Fprintln(w, search.Printable("fyr record: "+err.Error()))
 		return exitCode(2)
 	case brain.IsRefusal(err):
-		fmt.Fprintln(c.out, search.Printable("fyr record: "+err.Error()))
+		fmt.Fprintln(w, search.Printable("fyr record: "+err.Error()))
 		return exitCode(1)
 	}
 	// Any other error can carry a checkout's path, which a hand-extracted

@@ -211,6 +211,16 @@ var verbs = map[string]verb{
 	}, source: true, positional: true, run: runAdopt},
 }
 
+func registerGlobalFlags(fs *flag.FlagSet, c *ctx) {
+	if c == nil {
+		c = &ctx{}
+	}
+	fs.StringVar(&c.repoFlag, "repo", "", "the harness checkout `DIR`")
+	fs.StringVar(&c.homeFlag, "home", "", "install under `DIR` instead of $HOME")
+	fs.StringVar(&c.dirFlag, "dir", "", "the project checkout `DIR` (default working directory)")
+	fs.StringVar(&c.dirFlag, "C", "", "shorthand for --dir `DIR`")
+}
+
 // newCtx is a verb's ctx with its FlagSet: the global flags and the
 // verb's own. run parses it; the check vocabulary reads it (plan fyr-check
 // D14), so the vocabulary is the flags the verb really takes.
@@ -220,10 +230,7 @@ func newCtx(cmd string, v verb, out io.Writer) *ctx {
 	// The verb's page is help's to print (parse); the flag package prints
 	// only its one reason line for a flag error (plan ledger D21 3).
 	c.fs.Usage = func() {}
-	c.fs.StringVar(&c.repoFlag, "repo", "", "the harness checkout `DIR`")
-	c.fs.StringVar(&c.homeFlag, "home", "", "install under `DIR` instead of $HOME")
-	c.fs.StringVar(&c.dirFlag, "dir", "", "the project checkout `DIR` (default working directory)")
-	c.fs.StringVar(&c.dirFlag, "C", "", "shorthand for --dir `DIR`")
+	registerGlobalFlags(c.fs, c)
 	if v.flags != nil {
 		v.flags(c)
 	}

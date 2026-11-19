@@ -45,6 +45,8 @@ func runInstall(c *ctx) error {
 		fmt.Fprintln(c.out, "[dry-run] plain copy, not its own git checkout: the running binary would be installed as is")
 	} else if !own {
 		fmt.Fprintln(c.out, "plain copy, not its own git checkout: the running binary is installed as is")
+	} else if goErr != nil && c.dryRun {
+		fmt.Fprintln(c.out, "[dry-run] warning: go is not on PATH; the running binary would be copied, not rebuilt — install Go and run `fyr update`")
 	} else if goErr != nil {
 		fmt.Fprintln(c.out, "warning: go is not on PATH; the running binary was copied, not rebuilt — install Go and run `fyr update`")
 	}

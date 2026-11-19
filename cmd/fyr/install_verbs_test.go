@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -165,5 +166,28 @@ func TestRelativeHomeResolvesAgainstTheInvokingDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "rel-home")); err == nil {
 		t.Errorf("a rel-home directory appeared inside the repository (the child install resolved it against cmd.Dir)")
+	}
+}
+
+func TestInstallDryRunWithoutGoOnPath(t *testing.T) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	bin := t.TempDir()
+	if err := os.Symlink(gitPath, filepath.Join(bin, "git")); err != nil {
+		t.Fatal(err)
+	}
+	repo := scratchClone(t)
+	home := t.TempDir()
+	t.Setenv(harness.ChildEnv, "")
+	t.Setenv("PATH", bin)
+
+	var out bytes.Buffer
+	if err := run([]string{"install", "--dry-run", "--repo", repo, "--home", home}, &out); err != nil {
+		t.Fatalf("install --dry-run: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "[dry-run]") || !strings.Contains(out.String(), "would be copied, not rebuilt") || strings.Contains(out.String(), "was copied") {
+		t.Errorf("unexpected dry-run no-go output:\n%s", out.String())
 	}
 }

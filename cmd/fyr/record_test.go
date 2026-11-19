@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
@@ -392,5 +395,65 @@ func TestRecordStdinHeadersJSONAndLimit(t *testing.T) {
 	}
 	if out, err = recordCmd(t, "", "record", "get", "BUG-010", "--out", ".agents/scratch/x.md", "--json", "--home", home); exitOf(err) != 2 {
 		t.Errorf("record get --out --json: exit %d, want 2 (%q)", exitOf(err), out)
+	}
+}
+
+func TestRecordGetJSONPartialToStderrAndListCurrentUpdated(t *testing.T) {
+	dir := recordRepo(t)
+	home := t.TempDir()
+	day1 := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	day3 := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+
+	if _, err := brain.Add(brain.Options{Home: home, Dir: dir, Now: func() time.Time { return day1 }}, brain.AddInput{
+		Kind: "guide", Status: "current", ID: "GUIDE-old", Title: "Old guide",
+		Body: strings.NewReader("v1.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	planID, err := brain.Add(brain.Options{Home: home, Dir: dir, Now: func() time.Time { return day2 }}, brain.AddInput{
+		Kind: "plan", Title: "Mid plan",
+		Body: strings.NewReader("## Phase 1\n- [ ] Task\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTitle := "Updated guide"
+	if err := brain.Edit(brain.Options{Home: home, Dir: dir, Now: func() time.Time { return day3 }}, brain.EditInput{
+		ID: "GUIDE-old", Title: &newTitle,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// TR27: edited current record sorts by updated ahead of mid-date open plan and prints updated alongside date.
+	outStr, errStr, code := runCLIWithErr("record", "list", "--open", "--home", home)
+	if code != 0 || errStr != "" {
+		t.Fatalf("record list --open: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	guideIdx := strings.Index(outStr, "GUIDE-old")
+	planIdx := strings.Index(outStr, planID)
+	if guideIdx < 0 || planIdx < 0 || guideIdx > planIdx {
+		t.Fatalf("expected GUIDE-old sorted before %s:\n%s", planID, outStr)
+	}
+	if !strings.Contains(outStr, "2026-11-03 (updated 2026-11-19)") {
+		t.Errorf("expected updated date alongside creation date:\n%s", outStr)
+	}
+	outStr, _, code = runCLIWithErr("record", "list", "--open", "--limit", "1", "--home", home)
+	if code != 0 || !strings.Contains(outStr, "GUIDE-old") || strings.Contains(outStr, planID) {
+		t.Errorf("record list --open --limit 1: code=%d out=%q", code, outStr)
+	}
+
+	// IN74: record get --json with partial hits emits valid JSON on stdout and error on stderr.
+	outStr, errStr, code = runCLIWithErr("record", "get", "GUIDE-old", "BUG-999", "--json", "--home", home)
+	if code != 1 || !strings.Contains(errStr, "BUG-999") {
+		t.Fatalf("partial record get --json: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	var got []brain.RecordJSON
+	if err := json.Unmarshal([]byte(outStr), &got); err != nil || len(got) != 1 || got[0].ID != "GUIDE-old" {
+		t.Fatalf("stdout must be pure JSON for partial get: err=%v got=%+v out=%q", err, got, outStr)
+	}
+	outStr, errStr, code = runCLIWithErr("record", "get", "BUG-999", "--json", "--home", home)
+	if code != 1 || outStr != "" || !strings.Contains(errStr, "BUG-999") {
+		t.Fatalf("missing record get --json: code=%d out=%q err=%q", code, outStr, errStr)
 	}
 }

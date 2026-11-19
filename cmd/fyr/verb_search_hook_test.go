@@ -190,3 +190,90 @@ func TestPreInvocationProgressiveMemory(t *testing.T) {
 		t.Errorf("mixed match got mem=%d bugs=%d adrs=%d, want 2/2/2", len(mixed.Memories), len(mixed.Bugs), len(mixed.ADRs))
 	}
 }
+
+func TestExtractSkillDescription(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "single-line quoted",
+			raw:  "---\nname: a\ndescription: \"Quoted summary.\"\n---\nbody\n",
+			want: "Quoted summary.",
+		},
+		{
+			name: "literal block scalar with blank line",
+			raw:  "---\nname: b\ndescription: |\n  First paragraph.\n\n  Second paragraph.\nallowed-tools: Bash\n---\nbody\n",
+			want: "First paragraph. Second paragraph.",
+		},
+		{
+			name: "folded block scalar with blank line and chomp",
+			raw:  "---\nname: c\ndescription: >-\n  Folded line one\n\n  line two.\n---\nbody\n",
+			want: "Folded line one line two.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractSkillDescription(tc.raw); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMakeBrainReprime(t *testing.T) {
+	reprime := makeBrainReprime()
+	dir := recordRepo(t)
+
+	if got := reprime(dir, ""); got != "" {
+		t.Errorf("empty home: got %q, want empty", got)
+	}
+	if got := reprime(dir, t.TempDir()); got != "" {
+		t.Errorf("missing brain.db: got %q, want empty", got)
+	}
+
+	home := t.TempDir()
+	bo := brain.Options{Home: home, Dir: dir}
+	if _, err := brain.MemoryAdd(bo, brain.MemoryEntry{
+		Type: "procedural", Name: "run-race", Description: "Always run go test -race before finishing.",
+	}, strings.NewReader("Details.\n")); err != nil {
+		t.Fatal(err)
+	}
+	openPhasedID, err := brain.Add(bo, brain.AddInput{
+		Kind: "plan", Title: "Phased open plan",
+		Body: strings.NewReader("## Phase 1: Core\n- [ ] Wire handler\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	openPlainID, err := brain.Add(bo, brain.AddInput{
+		Kind: "plan", Title: "Plain open plan",
+		Body: strings.NewReader("- [ ] No phase headings yet.\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedID, err := brain.Add(bo, brain.AddInput{
+		Kind: "plan", Title: "Finished plan",
+		Body: strings.NewReader("- [x] Done.\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := reprime(dir, home)
+	for _, want := range []string{
+		"# Re-primed Project Memory",
+		"Always run go test -race before finishing.",
+		"# Active Open Plans",
+		openPhasedID + ": Phased open plan",
+		openPlainID + ": Plain open plan (open)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("reprime missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, closedID) {
+		t.Errorf("reprime included closed plan %s:\n%s", closedID, got)
+	}
+}

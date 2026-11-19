@@ -39,7 +39,7 @@ func (c *ctx) zipPlaceWithoutSource() (handled bool, err error) {
 // the zip is not kept, so there is nothing to compare against anyway.
 func statusWithoutSource(st harness.State, home string, out io.Writer) error {
 	fmt.Fprintf(out, "source     none — %s is a development build, which carries no harness, and the zip this home was installed from is not kept; `fyr install --repo <checkout>` makes it a checkout place\n", buildVersion())
-	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/.config/fyr/state.json)\n", st.InstalledAt, installedFrom(st, st.Origin()), len(st.Files))
+	fmt.Fprintf(out, "installed  %s from %s (%d files, manifest ~/%s/state.json)\n", st.InstalledAt, installedFrom(st, st.Origin()), len(st.Files), harness.StateDir)
 	binaryLines(home, "", harness.RepoInfo{}, out)
 	retroLine(home, out)
 	fmt.Fprintf(out, "agy        ~/%s  (rules/AGENTS.md, hooks.json, skills/, agents/, workflows/, rules/)\n", harness.AgyRoot)

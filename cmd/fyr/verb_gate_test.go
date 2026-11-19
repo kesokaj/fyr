@@ -200,3 +200,67 @@ func TestVerbGateJudge(t *testing.T) {
 		t.Fatalf("metrics rows after land PASS (%d rows) err=%v rows=%+v", len(rows), err, rows)
 	}
 }
+
+func TestShortHashAndPrintVerifyLandText(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"", 12, ""},
+		{"abc", 12, "abc"},
+		{"0123456789abcdef", 12, "0123456789ab"},
+		{"abc", 0, ""},
+		{"abc", -1, ""},
+	} {
+		if got := shortHash(tc.in, tc.n); got != tc.want {
+			t.Errorf("shortHash(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
+		}
+	}
+
+	for _, hash := range []string{"", "abc", strings.Repeat("a", 64)} {
+		var buf bytes.Buffer
+		printVerifyText(&buf, gate.VerifyReport{
+			OK:         true,
+			TreeSHA256: hash,
+			Steps:      []gate.StepResult{{Name: "gofmt", OK: true, DurationMs: 5}},
+		})
+		want := "verify: PASS (" + shortHash(hash, 12) + ")"
+		if !strings.Contains(buf.String(), want) || !strings.Contains(buf.String(), "verify gofmt:   PASS (5ms)") {
+			t.Errorf("printVerifyText(hash=%q) = %q, want %q", hash, buf.String(), want)
+		}
+	}
+
+	var failVerify bytes.Buffer
+	printVerifyText(&failVerify, gate.VerifyReport{
+		OK:    false,
+		Steps: []gate.StepResult{{Name: "test", OK: false, DurationMs: 9, Detail: "boom"}},
+	})
+	if !strings.Contains(failVerify.String(), "FAIL (9ms)") || !strings.Contains(failVerify.String(), "boom") {
+		t.Errorf("printVerifyText failure = %q", failVerify.String())
+	}
+
+	for _, commit := range []string{"", "def", "0123456789abcdef0123456789abcdef01234567"} {
+		var buf bytes.Buffer
+		printLandText(&buf, gate.LandReport{
+			OK:         true,
+			Branch:     "work/x",
+			Target:     "main",
+			LandCommit: commit,
+		})
+		want := "land: PASS work/x -> main (" + shortHash(commit, 12) + ")"
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("printLandText(commit=%q) = %q, want %q", commit, buf.String(), want)
+		}
+	}
+
+	var failLand bytes.Buffer
+	printLandText(&failLand, gate.LandReport{
+		OK:     false,
+		Gate:   &gate.GateReport{Findings: []gate.GateFinding{{Check: "lease", Path: "x.go", Line: 3, Detail: "out"}}},
+		Verify: &gate.VerifyReport{Steps: []gate.StepResult{{Name: "vet", OK: false, DurationMs: 2, Detail: "bad"}}},
+	})
+	if !strings.Contains(failLand.String(), "[lease] x.go:3: out") || !strings.Contains(failLand.String(), "verify vet:") {
+		t.Errorf("printLandText failure = %q", failLand.String())
+	}
+}

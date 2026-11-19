@@ -206,7 +206,18 @@ func (c *ctx) writesState() bool {
 		sub := c.fs.Arg(0)
 		return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")
 	case "models":
-		return c.modelsRefresh || !models.CatalogExists(c.home)
+		if (c.modelsTier != "" && c.modelsPick == "") || (c.modelsExplain != "" && c.modelsPick != "") {
+			return false
+		}
+		if c.modelsRefresh || !models.CatalogExists(c.home) {
+			return true
+		}
+		if c.modelsPick != "" {
+			if normRole, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err == nil {
+				return isCrossFamilyRole(normRole)
+			}
+		}
+		return false
 	}
 	return false
 }

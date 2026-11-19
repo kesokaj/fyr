@@ -195,3 +195,35 @@ func TestUpdateFromZipInstallRefusalSweepsNothing(t *testing.T) {
 		t.Errorf("an install refusal swept %s", stale)
 	}
 }
+
+func TestUpdateFromZipDryRunRefusesSymlinkAndFileStateDir(t *testing.T) {
+	isolate(t)
+	zp := markedZip(t)
+
+	// 1. Symlink at ~/.config/fyr must be refused in dry-run just like a real run.
+	home := t.TempDir()
+	stateDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(filepath.Dir(stateDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	if err := os.Symlink(target, stateDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"update", "--from-zip", zp, "--home", home, "--dry-run"}, &bytes.Buffer{}); err == nil {
+		t.Errorf("dry-run accepted symlinked state dir %s", stateDir)
+	}
+
+	// 2. Regular file at ~/.config/fyr must be refused in dry-run.
+	home2 := t.TempDir()
+	stateFile := filepath.Join(home2, harness.StateDir)
+	if err := os.MkdirAll(filepath.Dir(stateFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile, []byte("not a dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"update", "--from-zip", zp, "--home", home2, "--dry-run"}, &bytes.Buffer{}); err == nil {
+		t.Errorf("dry-run accepted regular file at %s", stateFile)
+	}
+}

@@ -101,10 +101,7 @@ func runHelp(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("help", flag.ContinueOnError)
 	fs.SetOutput(out)
 	fs.Usage = func() {}
-	fs.String("home", "", "")
-	fs.String("repo", "", "")
-	fs.String("dir", "", "")
-	fs.String("C", "", "")
+	registerGlobalFlags(fs, nil)
 	var kept []string
 	for i, a := range args {
 		if a == "--" {

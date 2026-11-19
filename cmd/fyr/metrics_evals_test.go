@@ -92,7 +92,7 @@ func TestMetricsEvals(t *testing.T) {
 // ingest's refusal of a reading flag names every subcommand that reads it.
 func TestMetricsIngestRefusalNamesEvals(t *testing.T) {
 	out, err := metricsCmd(t, "ingest", "--since", "2026-10-01", "--home", t.TempDir())
-	if err == nil || out != "fyr metrics ingest: --since belongs to show, report or evals\n" {
+	if exitOf(err) != 2 || !strings.HasPrefix(out, "fyr metrics ingest: --since belongs to show, report or evals\n") || !strings.Contains(out, "usage: fyr metrics") {
 		t.Errorf("%v %q", err, out)
 	}
 }

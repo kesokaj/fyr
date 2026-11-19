@@ -9,7 +9,25 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 )
+
+func dryRunZipParent(home, parent string) (string, error) {
+	if err := models.CheckHomeDir(home); err != nil {
+		return "", err
+	}
+	fi, err := os.Lstat(parent)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		return "", nil
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", parent)
+	}
+	return parent, nil
+}
 
 // updateFromZip installs the harness in the repository zip the operator
 // downloaded, with the running binary: unpack, install, delete the unpacked
@@ -23,8 +41,8 @@ func updateFromZip(zipPath, home string, dryRun bool, out io.Writer) (err error)
 	// (IN21).
 	parent := filepath.Join(home, harness.StateDir)
 	if dryRun {
-		if _, err := os.Stat(parent); err != nil {
-			parent = ""
+		if parent, err = dryRunZipParent(home, parent); err != nil {
+			return err
 		}
 	} else {
 		// Created here, and removed again if anything below fails — the unpack

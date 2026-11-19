@@ -288,13 +288,32 @@ func parseSkillMetaFile(name, path string) (search.SkillMeta, bool) {
 	}, true
 }
 
+func isYAMLBlockHeader(s string) bool {
+	if s == "" || (s[0] != '|' && s[0] != '>') {
+		return false
+	}
+	for _, r := range s[1:] {
+		if r != '+' && r != '-' && (r < '1' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func unquoteYAMLValue(s string) string {
+	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
+		return s[1 : len(s)-1]
+	}
+	return s
+}
+
 func extractSkillDescription(text string) string {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
 		return ""
 	}
 	var descLines []string
-	inDesc := false
+	inDesc, isBlock := false, false
 	for i := 1; i < len(lines); i++ {
 		line := lines[i]
 		if strings.TrimSpace(line) == "---" {
@@ -303,20 +322,29 @@ func extractSkillDescription(text string) string {
 		if strings.HasPrefix(line, "description:") {
 			inDesc = true
 			rest := strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			if rest != "" && rest != "|" && rest != ">" {
-				descLines = append(descLines, strings.Trim(rest, `"'`))
+			isBlock = isYAMLBlockHeader(rest)
+			if !isBlock && rest != "" {
+				descLines = append(descLines, rest)
 			}
 			continue
 		}
-		if inDesc {
-			if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-				descLines = append(descLines, strings.TrimSpace(line))
-			} else {
-				break
-			}
+		if !inDesc {
+			continue
 		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			descLines = append(descLines, strings.TrimSpace(line))
+			continue
+		}
+		break
 	}
-	return strings.Join(descLines, " ")
+	joined := strings.Join(descLines, " ")
+	if !isBlock {
+		joined = unquoteYAMLValue(joined)
+	}
+	return joined
 }
 
 func extractActionableSkillDigest(text string) string {

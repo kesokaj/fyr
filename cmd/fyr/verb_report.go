@@ -33,8 +33,7 @@ func runReport(c *ctx) error {
 func (c *ctx) renderReport(prefix string) error {
 	o, err := c.metricsShowOptions()
 	if err != nil {
-		fmt.Fprintln(c.out, prefix+": "+err.Error())
-		return exitCode(2)
+		return usageErr(c.out, c.cmd, prefix+": "+err.Error())
 	}
 	s, err := c.existingMetricsStore()
 	if err != nil {

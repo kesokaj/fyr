@@ -555,3 +555,22 @@ func mustParseDayT(t *testing.T, day string) time.Time {
 	}
 	return parsed.Add(10 * time.Hour)
 }
+
+func TestMetricsSubcommandEmptyAndZeroFlagsRefusedViaUsageErr(t *testing.T) {
+	home := t.TempDir()
+	for _, args := range [][]string{
+		{"metrics", "show", "--limit", "0"},
+		{"metrics", "show", "--source", ""},
+		{"metrics", "show", "--harness", ""},
+		{"metrics", "show", "--out", ""},
+		{"metrics", "report", "--limit", "0"},
+		{"metrics", "report", "--harness", ""},
+		{"metrics", "report", "--json"},
+	} {
+		var out bytes.Buffer
+		err := run(append(args, "--home", home), &out)
+		if exitOf(err) != 2 || !strings.Contains(out.String(), "usage: fyr metrics") {
+			t.Errorf("%v: exit=%d out=%q, want exit 2 with usage: fyr metrics", args, exitOf(err), out.String())
+		}
+	}
+}

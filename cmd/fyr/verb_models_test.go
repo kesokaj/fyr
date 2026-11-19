@@ -374,3 +374,82 @@ func TestVerbModelsColdCacheEnrichesPoolsOnly(t *testing.T) {
 		t.Errorf("--refresh catalog mismatch: carbonNote=%q pools=%+v", gotCarbonNote, refCat.Pools)
 	}
 }
+
+func TestVerbModelsPickWithoutAgyAndStderrErrors(t *testing.T) {
+	home := t.TempDir()
+	emptyBin := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", emptyBin)
+
+	mixed := models.Catalog{
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Entries: []models.CatalogEntry{
+			{ID: "gemini-4-carbon-high", Family: "google", Tier: "pro", Status: "active"},
+			{ID: "claude-opus-5-5-high", Family: "anthropic", Tier: "pro", Status: "active"},
+		},
+	}
+	if err := models.SaveCatalog(home, mixed); err != nil {
+		t.Fatal(err)
+	}
+	catPath := models.CatalogPath(home)
+	before, err := os.ReadFile(catPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cross-family --pick without agy on PATH falls back to Gemini with FallbackReason and leaves models.json untouched.
+	outStr, errStr, code := runCLIWithErr("models", "--pick", "judge", "--home", home)
+	if code != 0 || strings.TrimSpace(outStr) != "gemini-4-carbon-high" {
+		t.Fatalf("--pick judge without agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	if !strings.Contains(errStr, "agy not found on PATH") {
+		t.Errorf("expected fallback reason on stderr, got %q", errStr)
+	}
+	outStr, errStr, code = runCLIWithErr("models", "--pick", "reviewer", "--json", "--home", home)
+	if code != 0 || errStr != "" {
+		t.Fatalf("--pick reviewer --json without agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	var rp models.RolePick
+	if err := json.Unmarshal([]byte(outStr), &rp); err != nil || rp.Model != "gemini-4-carbon-high" || rp.FallbackReason == "" {
+		t.Fatalf("unexpected RolePick json: err=%v rp=%+v out=%q", err, rp, outStr)
+	}
+	after, err := os.ReadFile(catPath)
+	if err != nil || string(after) != string(before) {
+		t.Errorf("read-only --pick mutated models.json")
+	}
+
+	// Explain error goes to stderr, leaving stdout clean even with --json.
+	outStr, errStr, code = runCLIWithErr("models", "--explain", "no-such-model", "--json", "--home", home)
+	if code != 1 || outStr != "" || !strings.Contains(errStr, "no entry matching") {
+		t.Errorf("--explain missing: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+
+	// Anthropic-only catalog without agy fails closed to stderr.
+	anthOnly := models.Catalog{
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Entries: []models.CatalogEntry{
+			{ID: "claude-opus-5-5-high", Family: "anthropic", Tier: "pro", Status: "active"},
+		},
+	}
+	if err := models.SaveCatalog(home, anthOnly); err != nil {
+		t.Fatal(err)
+	}
+	outStr, errStr, code = runCLIWithErr("models", "--pick", "verifier", "--json", "--home", home)
+	if code != 1 || outStr != "" || !strings.Contains(errStr, "agy not found on PATH") {
+		t.Errorf("Anthropic-only --pick without agy: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+
+	// writesState() parity for models.
+	cJudge := newCtx("models", verbs["models"], &bytes.Buffer{})
+	cJudge.home = home
+	cJudge.modelsPick = "judge"
+	if !cJudge.writesState() {
+		t.Errorf("writesState() = false for cross-family --pick judge")
+	}
+	cBuilder := newCtx("models", verbs["models"], &bytes.Buffer{})
+	cBuilder.home = home
+	cBuilder.modelsPick = "builder"
+	if cBuilder.writesState() {
+		t.Errorf("writesState() = true for read-only --pick builder with existing catalog")
+	}
+}
