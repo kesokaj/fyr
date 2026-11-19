@@ -7,11 +7,11 @@
 
 ## Now
 
-Wave 3 (`Phase 3a`–`3c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Wave 3A landed (`09799f55`–`6da40537`: `internal/{search,redact,dream}` splits + dead-code deletions + `C45`–`C51` docs); Wave 3B (`.agents/scratch/wave-3b.py`) & Wave 3C next:
+Wave 3 (`Phase 3a`–`3c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Wave 3A (`09799f55`–`6da40537`) & Wave 3B (`f2beef79`–`50398cd0`) landed; Wave 3C next:
 
-- [ ] Phase 3a (`internal/search/`, `internal/redact/`, `internal/dream/`, `internal/brain/`): `internal/{search,redact,dream}` done (`09799f55`, `d9bc40b3`, `f62dc321`, `6da40537`); remaining `internal/brain/` (`SD-S16`, `SD-S36`–`SD-S41`) in Wave 3B
-- [ ] Phase 3b (`internal/isolate/`, `internal/models/`, `internal/harness/`, `internal/gate/`, `internal/check/`, `internal/auto/`, `internal/metrics/`, `cmd/fyr/`): fix `BUG-559` Part 2 (`worker_judge.go`), delete retired G4/G5/G7 & dead code, unify `trail`/shared helpers, split all `>350` LOC files
-- [ ] Phase 3c (`SDD.md`, `TDD.md`, `Workflow.md`, `SECURITY.md`, `features/`, `brain.db` sync): `C45`–`C48`, `C50`–`C51` repo docs done (`b320d427`); remaining `brain.db` sync (`BUG-546`/`BUG-559` graduation, `GUIDE-onboarding`/`SPEC-fyr-metrics`/`SPEC-fyr-eval`/`SPEC-fyr-record`/`PLAN-2026-11-14-2337` Phase 7 heading) & Checkpoint after Wave 3B/3C
+- [x] Phase 3a (`internal/search/`, `internal/redact/`, `internal/dream/`, `internal/brain/`): complete (`09799f55`, `d9bc40b3`, `f62dc321`, `6da40537`, `f2beef79`), all `<= 350 LOC` (`ratings_test.go <= 600 LOC`) & `TestFunctionLength` PASS
+- [ ] Phase 3b (`internal/isolate/`, `internal/models/`, `internal/harness/`, `internal/gate/`, `internal/check/`, `internal/auto/`, `internal/metrics/`, `cmd/fyr/`): `isolate`, `models`, `harness`, `gate`, `check`, `auto`, `verb_install.go` + `BUG-559` Part 2 done (`f2beef79`–`50398cd0`); remaining `internal/metrics/` & `cmd/fyr/` splits/cleanups in Wave 3C
+- [ ] Phase 3c (`SDD.md`, `TDD.md`, `Workflow.md`, `SECURITY.md`, `features/`, `brain.db` sync): `C45`–`C48`, `C50`–`C51` repo docs done (`b320d427`); remaining `brain.db` sync (`BUG-546`/`BUG-559` graduation, `GUIDE-onboarding`/`SPEC-fyr-metrics`/`SPEC-fyr-eval`/`SPEC-fyr-record`/`PLAN-2026-11-14-2337` Phase 7 heading) & Checkpoint after Wave 3C
 
 ## Next
 
