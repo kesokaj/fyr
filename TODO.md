@@ -7,17 +7,16 @@
 
 ## Now
 
-Wave 1 (`Phase 1a`–`1d`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Security, `-cover`, hook, redactor, watch, dream & auto hardening:
+Wave 2 (`Phase 2a`–`2c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Core CLI/gate/check/brain/metrics fixes, workflow/agent/context/rule alignment & skill/eval fixes:
 
-- [x] Phase 1a (`internal/isolate/`, `internal/models/`): `exportBoxRecords`/`seedRecords` verified lead binary (`IN58`), ACP subshell quote stack (`IN59`), `GOCOVERDIR` PID-1 forward/unset (`IN60`) & `Setsid` (`TR24`), `probeWorkDir` `--home`/`CheckHomeDir` (`IN61`), `SaveCatalog` `CreateTemp` (`IN62`), ACP/models fixes (`IN67`, `IN69`, `IN72`, `IN93`–`IN103`)
-- [x] Phase 1b (`after: Phase 1a`; `internal/harness/`, `internal/eval/`): reject column-0 YAML lists & duplicate keys (`IN79`, `IN81`), `installRelease` symlink/dir guards (`IN80`, `IN82`–`IN85`), `invokedNotes` main-transcript filter (`IN92`) & `go test -race -cover ./internal/eval`
-- [ ] Phase 1c (`internal/search/`, `internal/redact/`, `internal/watch/`): `redact`/`watch`/hook/watchdog/vet/workflow/`BUG-558` landed (`21753ce0`, `5b9e69d2`); remaining: `refs_oid` index (`SD60`), clamp `read_ledger` (`SD62`), `synchronous(NORMAL)` + `BEGIN IMMEDIATE`, `co_activity`/`fence`/`global`/`dream`/`telemetry` (`SD72`–`SD86`)
-- [ ] Phase 1d (`internal/auto/`, `internal/dream/`, `internal/trail/`): `internal/trail/` `DocsRoot` & `SameDir` landed (`19eccbe5`); remaining: `dream` `223`-proposal spam fix (`SD65`, `SD100`–`SD105`), `auto` cutoff/holdouts/redaction/fencing (`SD63`–`SD64`, `SD92`–`SD99`), Checkpoint
+- [ ] Phase 2a (`internal/brain/`, `internal/check/`, `internal/gate/`, `internal/metrics/`, `cmd/fyr/`): CLI shortHash/models/record/zip fixes (`IN65`–`IN68`, `IN70`–`IN71`, `IN74`–`IN78`, `TR27`), gate/check fixes & `BUG-559` Part 1 (`IN64`, `IN87`–`IN91`, `IN105`), brain fixes (`SD106`–`SD113`), metrics fixes & N+1 elimination (`SD122`–`SD139`)
+- [ ] Phase 2b (`workflows/`, `workflows_test.go`, `agents/`, `context/`, `rules/`, `.agents/rules/`): harden `preflight_gate.py`/`review_parallel.py` (`AG30`, `AG33`–`AG35`, `AG-S2`), align `agents/*/agent.md` (`AG31`–`AG32`, `AG38`–`AG39`, `AG-S3`), recover `TestAlwaysOnContextBudget` headroom & fix `.agents/rules/` (`C53`, `C-S9`–`C-S10`)
+- [ ] Phase 2c (`after: Phase 2b`; `skills/`, `.agents/eval/`, `internal/eval/`, `areas_test.go`, `skills_text_test.go`, `ui_skills_test.go`): workflow & technical skill fixes (`WS55`–`WS67`, `WS-S8`–`WS-S10`, `TS45`–`TS52`, `TS-S3`–`TS-S4`), `VENDORED.md`/`areas.md` sync (`AG37`), `GUIDE-eval.md` `dreamer` row (`AG36`), Checkpoint
 
 ## Next
 
-- Wave 2 (`Phase 2a`–`2c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` (`internal/brain/`, `internal/check/`, `internal/gate/`, `internal/metrics/`, `cmd/fyr/`, `workflows/`, `agents/`, `context/`, `rules/`, `skills/`, `.agents/eval/`)
-- Wave 3–4 (`Phase 3a`–`4a`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` (`25` dead-code deletions, `>350`/`>600` LOC splits, doc/record sync, and `v9.3.0` behavioral upgrades)
+- Wave 3 (`Phase 3a`–`3c`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` (`25` dead-code deletions, `>350`/`>600` LOC splits, `BUG-559` Part 2, doc/record sync)
+- Wave 4–5a (`Phase 4a`, `Phase 5a`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` (`v9.3.0` behavioral upgrades, `ADR-527`, full `-race`/`-cover`/`TestRecall`/paired `fyr eval` verification)
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Backlog
