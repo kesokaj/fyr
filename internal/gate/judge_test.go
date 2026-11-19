@@ -337,8 +337,53 @@ func TestGateJudgeCrossFamily(t *testing.T) {
 			t.Fatalf("Gate JudgeRunner failed: err=%v rep=%+v", err, rep2)
 		}
 		prompt := buildGateJudgePrompt(gotReq)
-		if gotReq.StampSummary != wantNote || !strings.Contains(prompt, wantNote) || strings.Contains(prompt, "ok=true treeSha256=") {
+		if gotReq.StampSummary != wantNote || !strings.Contains(prompt, "Do NOT call any tools") || !strings.Contains(prompt, wantNote) || strings.Contains(prompt, "ok=true treeSha256=") {
 			t.Fatalf("verify-stamp fence leaked stale main stamp as ok=true: summary=%q prompt=%s", gotReq.StampSummary, prompt)
+		}
+	})
+
+	t.Run("denied_actions envelope surfaces disallowed tool and stderr", func(t *testing.T) {
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		deniedEnv := `{"conversation_id":"c5","status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"Bash"}]}`
+		script := "#!/bin/sh\n" +
+			"if [ \"$1\" = \"models\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(modelsText) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+			"  printf '%s' " + shSingleQuote(healthyUsage) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"if [ \"$1\" = \"-p\" ]; then\n" +
+			"  echo 'jetski: no output produced — tool permission denied' >&2\n" +
+			"  printf '%s\\n' " + shSingleQuote(deniedEnv) + "\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"exit 1\n"
+		if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:    repo,
+			Target: wt,
+			Home:   home,
+			Lease:  []string{"pkg/**"},
+			Judge:  "Mul exists",
+		})
+		if !errors.Is(err, ErrFailed) || rep.OK {
+			t.Fatalf("expected ErrFailed, got err=%v rep=%+v", err, rep)
+		}
+		if !hasFinding(rep, "judge", "judge attempted disallowed tool action(s): Bash") {
+			t.Errorf("expected denied tool action error in judge finding, got %+v", rep.Findings)
+		}
+		if !hasFinding(rep, "judge", "jetski: no output produced") {
+			t.Errorf("expected stderr message alongside parse error in judge finding, got %+v", rep.Findings)
 		}
 	})
 }

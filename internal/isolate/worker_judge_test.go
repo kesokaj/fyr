@@ -41,6 +41,8 @@ set -e
 printf '%s\n' "$@" > "$HOME/argv.txt"
 grep -qx -- '--output-format' "$HOME/argv.txt" || exit 22
 [ "$(grep -A1 -x -- '--output-format' "$HOME/argv.txt" | sed -n '2p')" = "json" ] || exit 23
+[ "$(pwd)" != "` + repoDir + `" ] || exit 24
+! grep -qx -- '--mode' "$HOME/argv.txt" || exit 25
 [ -f "$HOME/.gemini/antigravity-cli/settings.json" ] || exit 11
 grep -q '"allow":\[\]' "$HOME/.gemini/antigravity-cli/settings.json" || exit 12
 [ -L "$HOME/.gemini/antigravity-cli/antigravity-oauth-token" ] || exit 13
@@ -190,7 +192,7 @@ func TestWorkerFinishChecksJudge(t *testing.T) {
 	}
 	wPass := makeWorker("Add Hello() string in added.go")
 	runWorkerJudge(context.Background(), wPass)
-	if wPass.b.Has(ReasonJudgeFailed) || gotModel != "claude-opus-5-5-high" || !strings.Contains(gotPrompt, "BEGIN DATA") || !strings.Contains(gotPrompt, "+func Hello()") {
+	if wPass.b.Has(ReasonJudgeFailed) || gotModel != "claude-opus-5-5-high" || !strings.Contains(gotPrompt, "Do NOT call any tools") || !strings.Contains(gotPrompt, "BEGIN DATA") || !strings.Contains(gotPrompt, "+func Hello()") {
 		t.Fatalf("worker judge PASS mismatch: reasons=%v model=%q prompt=\n%s", wPass.b.Reasons(), gotModel, gotPrompt)
 	}
 
@@ -310,6 +312,11 @@ func TestParseJudgeVerdict(t *testing.T) {
 				name:    "SUCCESS envelope missing structured_output and response",
 				raw:     `{"conversation_id":"c4","status":"SUCCESS","structured_output":null,"response":""}`,
 				wantSub: "empty structured_output",
+			},
+			{
+				name:    "SUCCESS envelope with denied_actions",
+				raw:     `{"conversation_id":"c5","status":"SUCCESS","response":"","denied_actions":[{"action":"command","display_name":"Bash"}]}`,
+				wantSub: "judge attempted disallowed tool action(s): Bash",
 			},
 			{
 				name:    "bare JSON with unknown inner field",

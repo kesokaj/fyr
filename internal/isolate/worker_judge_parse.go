@@ -9,12 +9,18 @@ import (
 	"strings"
 )
 
+type agyDeniedAction struct {
+	Action      string `json:"action"`
+	DisplayName string `json:"display_name"`
+}
+
 type agyJudgeEnvelope struct {
-	ConversationID   string          `json:"conversation_id"`
-	Status           string          `json:"status"`
-	Response         string          `json:"response"`
-	Error            string          `json:"error"`
-	StructuredOutput json.RawMessage `json:"structured_output"`
+	ConversationID   string            `json:"conversation_id"`
+	Status           string            `json:"status"`
+	Response         string            `json:"response"`
+	Error            string            `json:"error"`
+	StructuredOutput json.RawMessage   `json:"structured_output"`
+	DeniedActions    []agyDeniedAction `json:"denied_actions"`
 }
 
 // ParseJudgeVerdict parses either an `agy --output-format json` envelope or a
@@ -44,7 +50,7 @@ func unwrapJudgeEnvelope(trimmed string) ([]byte, bool, error) {
 		return nil, false, nil
 	}
 	so := bytes.TrimSpace(env.StructuredOutput)
-	isEnv := env.Status != "" || env.ConversationID != "" || env.Error != "" || env.Response != "" || len(so) > 0
+	isEnv := env.Status != "" || env.ConversationID != "" || env.Error != "" || env.Response != "" || len(so) > 0 || len(env.DeniedActions) > 0
 	if !isEnv {
 		return nil, false, nil
 	}
@@ -63,7 +69,27 @@ func unwrapJudgeEnvelope(trimmed string) ([]byte, bool, error) {
 	if resp := strings.TrimSpace(env.Response); resp != "" {
 		return []byte(resp), true, nil
 	}
+	if len(env.DeniedActions) > 0 {
+		return nil, true, fmt.Errorf("judge attempted disallowed tool action(s): %s", formatDeniedActions(env.DeniedActions))
+	}
 	return nil, true, errors.New("empty structured_output in judge response")
+}
+
+func formatDeniedActions(actions []agyDeniedAction) string {
+	names := make([]string, 0, len(actions))
+	for _, a := range actions {
+		name := strings.TrimSpace(a.DisplayName)
+		if name == "" {
+			name = strings.TrimSpace(a.Action)
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return "unknown"
+	}
+	return strings.Join(names, ", ")
 }
 
 func decodeStrictJudgeJSON(raw []byte) (string, string, error) {
