@@ -177,11 +177,11 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 	}
 	defer os.RemoveAll(tmp)
 	cloneDir := filepath.Join(tmp, "repo")
-	if out, err := trail.Command(req.Dir, "clone", "--quiet", "--local", req.Dir, cloneDir).CombinedOutput(); err != nil {
+	if out, err := trail.Command(req.Dir, "clone", "--quiet", "--local", "--", req.Dir, cloneDir).CombinedOutput(); err != nil {
 		return EvalOutcome{}, fmt.Errorf("clone for eval: %v: %s", err, oneLine(string(out)))
 	}
 	if req.Commit != "" {
-		if out, err := applyGit(cloneDir, nil, "checkout", "--detach", req.Commit); err != nil {
+		if out, err := applyGit(cloneDir, nil, "checkout", "--detach", "--end-of-options", req.Commit); err != nil {
 			return EvalOutcome{}, fmt.Errorf("checkout %s for eval: %v: %s", req.Commit, err, oneLine(out))
 		}
 	}

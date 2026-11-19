@@ -7,14 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
-	"github.com/kesokaj/fyr/internal/search"
 )
 
 // toolLimit bounds what a machine tool may print; toolWait and usageWait are
@@ -30,17 +27,9 @@ const (
 type Env interface {
 	Supplies() ([]Supply, error)
 	Pmset(args ...string) (string, error)
-	// Sessions is logind's sessions of uid, each its show-session keys.
-	Sessions(uid int) ([]map[string]string, error)
-	PTYs(uid int) ([]time.Time, error)
-	Ioreg(args ...string) (string, error)
-	AgySession(goos string, uid int) (bool, error)
 	// Usage is `agy -p "/usage"`'s stdout, run in dir.
 	Usage(home, dir string) (string, error)
 	Targets(home string) ([]dream.Target, error)
-	// LastConversation is the newest Antigravity conversation of root
-	// modified after since; zero when there is none.
-	LastConversation(home, root string, since time.Time) (time.Time, error)
 }
 
 // Supply is one entry of /sys/class/power_supply.
@@ -108,71 +97,6 @@ func (machine) Pmset(args ...string) (string, error) {
 	return tool(toolWait, "", nil, "pmset", args...)
 }
 
-func (machine) Ioreg(args ...string) (string, error) {
-	return tool(toolWait, "", nil, "ioreg", args...)
-}
-
-var sessionID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-func (machine) Sessions(uid int) ([]map[string]string, error) {
-	list, err := tool(toolWait, "", nil, "loginctl", "list-sessions", "--no-legend", "--no-pager")
-	if err != nil {
-		return nil, err
-	}
-	var out []map[string]string
-	for _, line := range strings.Split(list, "\n") {
-		f := strings.Fields(line)
-		if len(f) == 0 || !sessionID.MatchString(f[0]) {
-			continue
-		}
-		show, err := tool(toolWait, "", nil, "loginctl", "show-session", f[0], "--no-pager",
-			"-p", "User", "-p", "Type", "-p", "Active", "-p", "LockedHint", "-p", "IdleHint", "-p", "IdleSinceHint")
-		if err != nil {
-			continue
-		}
-		if s := parseSession(show); s["User"] == strconv.Itoa(uid) {
-			out = append(out, s)
-		}
-	}
-	return out, nil
-}
-
-func parseSession(text string) map[string]string {
-	s := map[string]string{}
-	for _, line := range strings.Split(text, "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
-			s[k] = v
-		}
-	}
-	return s
-}
-
-func (machine) PTYs(uid int) ([]time.Time, error) { return readPTYs("/dev/pts", uid) }
-
-// readPTYs is the access time of every numbered terminal uid owns.
-func readPTYs(root string, uid int) ([]time.Time, error) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-	var out []time.Time
-	for _, e := range entries {
-		if _, err := strconv.Atoi(e.Name()); err != nil {
-			continue
-		}
-		info, err := os.Lstat(filepath.Join(root, e.Name()))
-		if err != nil {
-			continue
-		}
-		if at, owner, ok := accessed(info); ok && owner == uid {
-			out = append(out, at)
-		}
-	}
-	return out, nil
-}
-
-func (machine) AgySession(goos string, uid int) (bool, error) { return dream.AgySession(goos, uid) }
-
 // Usage runs outside every checkout, in auto/, with HOME the run's home: a
 // scratch home has no login, so a development run fails closed and never
 // refreshes the real home's token. It starts no turn and leaves no
@@ -182,17 +106,3 @@ func (machine) Usage(home, dir string) (string, error) {
 }
 
 func (machine) Targets(home string) ([]dream.Target, error) { return dream.Targets(home) }
-
-func (machine) LastConversation(home, root string, since time.Time) (time.Time, error) {
-	convs, _, err := search.AgyConversationText(home, root, since)
-	if err != nil {
-		return time.Time{}, err
-	}
-	var last time.Time
-	for _, c := range convs {
-		if c.Modified.After(last) {
-			last = c.Modified
-		}
-	}
-	return last, nil
-}

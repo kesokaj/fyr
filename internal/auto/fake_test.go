@@ -18,19 +18,11 @@ type fakeEnv struct {
 	suppliesErr error
 	batt, all   string
 	pmsetErr    error
-	sessions    []map[string]string
-	ptys        []time.Time
-	hid, root   string
-	ioregErr    error
-	agy         func() (bool, error)
 	usage       string
 	usageErr    error
 	usageCalls  int
 	targets     []dream.Target
 	targetsErr  error
-	conv        time.Time
-	convErr     error
-	onConv      func()
 	onTargets   func()
 	onUsage     func()
 }
@@ -42,23 +34,6 @@ func (f *fakeEnv) Pmset(args ...string) (string, error) {
 		return f.batt, f.pmsetErr
 	}
 	return f.all, f.pmsetErr
-}
-
-func (f *fakeEnv) Sessions(int) ([]map[string]string, error) { return f.sessions, nil }
-func (f *fakeEnv) PTYs(int) ([]time.Time, error)             { return f.ptys, nil }
-
-func (f *fakeEnv) Ioreg(args ...string) (string, error) {
-	if args[0] == "-c" {
-		return f.hid, f.ioregErr
-	}
-	return f.root, nil
-}
-
-func (f *fakeEnv) AgySession(string, int) (bool, error) {
-	if f.agy != nil {
-		return f.agy()
-	}
-	return false, nil
 }
 
 func (f *fakeEnv) Usage(_, _ string) (string, error) {
@@ -74,13 +49,6 @@ func (f *fakeEnv) Targets(string) ([]dream.Target, error) {
 		f.onTargets()
 	}
 	return f.targets, f.targetsErr
-}
-
-func (f *fakeEnv) LastConversation(string, string, time.Time) (time.Time, error) {
-	if f.onConv != nil {
-		f.onConv()
-	}
-	return f.conv, f.convErr
 }
 
 var errFake = errors.New("fake failure")

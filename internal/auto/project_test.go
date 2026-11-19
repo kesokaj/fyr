@@ -1,12 +1,8 @@
 package auto
 
 import (
-	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
 )
@@ -17,86 +13,6 @@ func targetsOf(roots ...string) []dream.Target {
 		out = append(out, dream.Target{Root: r})
 	}
 	return out
-}
-
-func idleGate(e Env, root string) string {
-	return gateIdle(e, "/nowhere", root, 6*time.Hour, runAt)
-}
-
-func TestGateIdlePasses(t *testing.T) {
-	if got := idleGate(&fakeEnv{}, idleProject(t)); got != "" {
-		t.Error(got)
-	}
-}
-
-func TestGateIdleEachClock(t *testing.T) {
-	recent := runAt.Add(-time.Hour)
-	ahead := runAt.Add(48 * time.Hour)
-	touch := func(name string, at time.Time) func(*testing.T, string) {
-		return func(t *testing.T, root string) {
-			if err := os.Chtimes(filepath.Join(root, name), at, at); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	reflog := func(entry string) func(*testing.T, string) {
-		return func(t *testing.T, root string) {
-			p := filepath.Join(root, ".git", "logs", "HEAD")
-			f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer f.Close()
-			if _, err := f.WriteString(entry); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	cases := []struct {
-		name string
-		set  func(*testing.T, string)
-		env  *fakeEnv
-		want string
-	}{
-		{name: "trail", set: touch(".agents/trail.jsonl", recent), want: "the trail"},
-		{name: "trail ahead of the clock", set: touch(".agents/trail.jsonl", ahead), want: "the trail"},
-		{name: "tracked file", set: touch("main.go", recent), want: "main.go"},
-		{name: "tracked file ahead of the clock", set: touch("main.go", ahead), want: "main.go"},
-		{name: "reflog", set: reflog(entryAt(recent)), want: "a git operation"},
-		{name: "reflog ahead of the clock", set: reflog(entryAt(ahead)), want: "a git operation"},
-		{name: "reflog that cannot be dated", set: reflog("garbage\n"), want: "unreadable"},
-		{name: "conversation", env: &fakeEnv{conv: recent}, want: "an Antigravity session"},
-		{name: "conversation unreadable", env: &fakeEnv{convErr: errFake}, want: "unreadable"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			root := idleProject(t)
-			if c.set != nil {
-				c.set(t, root)
-			}
-			e := c.env
-			if e == nil {
-				e = &fakeEnv{}
-			}
-			if got := idleGate(e, root); !strings.Contains(got, c.want) {
-				t.Errorf("%q, want %q", got, c.want)
-			}
-		})
-	}
-}
-
-func entryAt(at time.Time) string {
-	return strings.Repeat("0", 40) + " " + strings.Repeat("1", 40) + " f <f@localhost> " + strconv.FormatInt(at.Unix(), 10) + " +0000\tcommit: x\n"
-}
-
-func TestGateIdleNoReflog(t *testing.T) {
-	root := idleProject(t)
-	if err := os.Remove(filepath.Join(root, ".git", "logs", "HEAD")); err != nil {
-		t.Fatal(err)
-	}
-	if got := idleGate(&fakeEnv{}, root); got != "" {
-		t.Error(got)
-	}
 }
 
 func TestGateCleanPasses(t *testing.T) {
@@ -173,32 +89,6 @@ func TestGateRereadBeforeEachProject(t *testing.T) {
 			}
 			log := logOf(t, home)
 			if !strings.Contains(log, first+": ") || strings.Contains(log, second+": ") {
-				t.Errorf("%s", log)
-			}
-		})
-	}
-	for name, set := range map[string]func(e *fakeEnv) func(){
-		"operator back": func(e *fakeEnv) func() {
-			return func() { e.ptys = []time.Time{runAt} }
-		},
-		"session opened": func(e *fakeEnv) func() {
-			return func() { e.agy = func() (bool, error) { return true, nil } }
-		},
-	} {
-		t.Run(name+" does not stop", func(t *testing.T) {
-			home := t.TempDir()
-			writeConfig(t, home, validConfig)
-			first, second := idleProject(t), idleProject(t)
-			e := &fakeEnv{targets: targetsOf(first, second), usage: usageText("90%", "90%")}
-			e.onUsage = set(e)
-			var out strings.Builder
-			o := runOpts(home, nil)
-			o.Out, o.Env = &out, e
-			if err := Run(o, false); err != nil {
-				t.Fatal(err)
-			}
-			log := logOf(t, home)
-			if !strings.Contains(log, first+": ") || !strings.Contains(log, second+": ") {
 				t.Errorf("%s", log)
 			}
 		})

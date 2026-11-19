@@ -221,10 +221,10 @@ func capBeforeBranch(line string) string {
 	return head + prop + "; branch " + tail
 }
 
-// openRegular creates or opens a file through no link, and refuses anything
-// but a regular file; O_NONBLOCK keeps a fifo from hanging the timer here
-// too, on Linux for 3 h and on a Mac for good.
-func openRegular(path string, flags int) (*os.File, error) {
+// openOrCreateRegular creates or opens a writable file through no link, and
+// refuses anything but a regular file; O_NONBLOCK keeps a fifo from hanging
+// the timer here too. Read-only files use trail.OpenRegular.
+func openOrCreateRegular(path string, flags int) (*os.File, error) {
 	f, err := os.OpenFile(path, flags|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		return nil, err
@@ -241,7 +241,7 @@ func appendLog(home string, now time.Time, line string) error {
 	if err := ensureDir(home); err != nil {
 		return err
 	}
-	f, err := openRegular(filepath.Join(dir(home), "auto.log"), os.O_WRONLY|os.O_APPEND)
+	f, err := openOrCreateRegular(filepath.Join(dir(home), "auto.log"), os.O_WRONLY|os.O_APPEND)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func pruneLog(home string, now time.Time) error {
 // another run has it. The kernel lets go when that run ends, however it ends,
 // so no stale lock can stop the timer's job.
 func lock(home string) (unlock func(), held bool, err error) {
-	f, err := openRegular(filepath.Join(dir(home), "auto.lock"), os.O_RDWR)
+	f, err := openOrCreateRegular(filepath.Join(dir(home), "auto.lock"), os.O_RDWR)
 	if err != nil {
 		return nil, false, err
 	}

@@ -35,7 +35,7 @@ func (r *run) prepareLearningWorker(root string, p *Project, t Task, kickoffPath
 	if !isLearningClass(t.Class) {
 		return time.Time{}, nil
 	}
-	cutoff := r.conversationCutoff()
+	cutoff := r.sweepConversationCutoff()
 	mark := cutoff
 	if mark.IsZero() {
 		mark = r.o.now()
@@ -57,7 +57,7 @@ func (r *run) prepareLearningWorker(root string, p *Project, t Task, kickoffPath
 // and .agents/scratch/auto-input/context.md inside root, scrubbing every line
 // through the dream's redactor first (R8 8.3, D19 item 2).
 func (r *run) writeLearningInput(root string, p *Project, t Task) (string, error) {
-	return r.writeLearningInputWithCutoff(root, p, t, r.conversationCutoff())
+	return r.writeLearningInputWithCutoff(root, p, t, r.sweepConversationCutoff())
 }
 
 func (r *run) writeLearningInputWithCutoff(root string, p *Project, t Task, cutoff time.Time) (string, error) {
@@ -130,7 +130,7 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	appendMemorySection(&b, "## Project memory records", brain.Options{Home: r.o.Home, Dir: root, Now: r.o.Now}, nonConvCap)
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
 	appendMemorySection(&b, "## Global memory records", g, nonConvCap)
-	appendProposalSection(&b, root, t.ID, g, nonConvCap)
+	r.appendProposalSection(&b, root, t.ID, nonConvCap)
 	nums, traj := r.redactedMetricsAndTrajectory(root)
 	appendCappedSection(&b, "## Metric numbers\n", nums, nonConvCap)
 	appendCappedSection(&b, "## Trajectory digest\n", traj, nonConvCap)
@@ -147,11 +147,11 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	return scrubHomeAndRedact(b.String(), r.o.realHome(), r.o.Home)
 }
 
-func appendProposalSection(b *strings.Builder, root, taskID string, g brain.Options, limit int) {
+func (r *run) appendProposalSection(b *strings.Builder, root, taskID string, limit int) {
 	if b.Len() >= limit {
 		return
 	}
-	props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Open: true})
+	props, err := r.sweepOpenProposals()
 	if err != nil || len(props) == 0 {
 		return
 	}
@@ -259,20 +259,11 @@ func appendKickoffInput(path, scrubbed string) error {
 }
 
 func (r *run) redactedMetricsAndTrajectory(root string) (string, string) {
-	path := metrics.Path(r.o.Home)
-	if _, err := os.Lstat(path); err != nil {
+	s, closeSnap := r.sweepMetricsSnapshot()
+	if s == nil {
 		return "", ""
 	}
-	tmp, err := os.MkdirTemp(filepath.Dir(path), "auto-metrics-")
-	if err != nil {
-		return "", ""
-	}
-	defer os.RemoveAll(tmp)
-	s, err := metrics.Snapshot(path, tmp)
-	if err != nil {
-		return "", ""
-	}
-	defer s.Close()
+	defer closeSnap()
 	now := r.o.now()
 	since := now.AddDate(0, 0, -30)
 	nums := marshalRedactedJSON(func() (any, error) {

@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestGatePowerLinux(t *testing.T) {
@@ -84,108 +82,6 @@ func TestGateReadSupplies(t *testing.T) {
 	}
 }
 
-func TestGatePresenceLinux(t *testing.T) {
-	now := runAt
-	since := func(d time.Duration) string { return strconv.FormatInt(now.Add(-d).UnixMicro(), 10) }
-	session := func(kind, active, locked, idle, hint string) map[string]string {
-		return map[string]string{"Type": kind, "Active": active, "LockedHint": locked, "IdleHint": idle, "IdleSinceHint": hint}
-	}
-	cases := []struct {
-		name     string
-		sessions []map[string]string
-		ptys     []time.Time
-		stop     bool
-		unknown  bool
-	}{
-		{name: "no signal", unknown: true},
-		{name: "only a manager session", sessions: []map[string]string{session("unspecified", "yes", "no", "no", "0")}, unknown: true},
-		{name: "in use", sessions: []map[string]string{session("wayland", "yes", "no", "no", "0")}, stop: true},
-		{name: "x11 in use", sessions: []map[string]string{session("x11", "yes", "no", "no", "0")}, stop: true},
-		{name: "idle briefly", sessions: []map[string]string{session("x11", "yes", "no", "yes", since(time.Minute))}, stop: true},
-		{name: "idle long", sessions: []map[string]string{session("x11", "yes", "no", "yes", since(time.Hour))}},
-		{name: "idle unparsed counts as present", sessions: []map[string]string{session("x11", "yes", "no", "yes", "soon")}, stop: true},
-		{name: "locked", sessions: []map[string]string{session("x11", "yes", "yes", "no", "0")}},
-		{name: "not active", sessions: []map[string]string{session("x11", "no", "no", "no", "0")}},
-		{name: "terminal in use", ptys: []time.Time{now.Add(-time.Minute)}, stop: true},
-		{name: "terminal ahead of the clock", ptys: []time.Time{now.Add(time.Hour)}, stop: true},
-		{name: "terminal old", ptys: []time.Time{now.Add(-time.Hour)}},
-		{name: "exactly the limit is away", ptys: []time.Time{now.Add(-15 * time.Minute)}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			stop, unknown := gatePresence(&fakeEnv{sessions: c.sessions, ptys: c.ptys}, "linux", 1000, 15*time.Minute, now)
-			if (stop != "") != c.stop || unknown != c.unknown {
-				t.Errorf("stop %q, unknown %v", stop, unknown)
-			}
-		})
-	}
-}
-
-func TestGatePresenceDarwin(t *testing.T) {
-	minute := strconv.FormatInt(int64(time.Minute), 10)
-	hour := strconv.FormatInt(int64(time.Hour), 10)
-	cases := []struct {
-		name, hid, root string
-		err             error
-		stop, unknown   bool
-	}{
-		{name: "input", hid: `"HIDIdleTime" = ` + minute, stop: true},
-		{name: "the newest of two", hid: `"HIDIdleTime" = ` + hour + "\n" + `"HIDIdleTime" = ` + minute, stop: true},
-		{name: "input, locked", hid: `"HIDIdleTime" = ` + minute, root: `"CGSSessionScreenIsLocked"=Yes`},
-		{name: "away", hid: `"HIDIdleTime" = ` + hour},
-		{name: "a value that overflows counts as present", hid: `"HIDIdleTime" = 99999999999999999999`, stop: true},
-		{name: "no line", hid: "nothing", unknown: true},
-		{name: "unreadable", err: errFake, unknown: true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			stop, unknown := gatePresence(&fakeEnv{hid: c.hid, root: c.root, ioregErr: c.err}, "darwin", 501, 15*time.Minute, runAt)
-			if (stop != "") != c.stop || unknown != c.unknown {
-				t.Errorf("stop %q, unknown %v", stop, unknown)
-			}
-		})
-	}
-}
-
-func TestGateParseSession(t *testing.T) {
-	got := parseSession("Id=2\nType=wayland\nIdleHint=no\n\nnoise\n")
-	if got["Type"] != "wayland" || got["IdleHint"] != "no" || len(got) != 3 {
-		t.Errorf("%v", got)
-	}
-}
-
-func TestGateReadPTYs(t *testing.T) {
-	root := t.TempDir()
-	writeTree(t, root, "4", "")
-	writeTree(t, root, "ptmx", "")
-	at := runAt.Add(-time.Hour)
-	if err := os.Chtimes(filepath.Join(root, "4"), at, at); err != nil {
-		t.Fatal(err)
-	}
-	got, err := readPTYs(root, os.Getuid())
-	if err != nil || len(got) != 1 || !got[0].Equal(at) {
-		t.Errorf("%v, %v", got, err)
-	}
-	if got, _ := readPTYs(root, os.Getuid()+1); len(got) != 0 {
-		t.Errorf("another uid's terminal counted: %v", got)
-	}
-}
-
-func TestGateSession(t *testing.T) {
-	cases := []struct {
-		found bool
-		err   error
-		stop  string
-	}{{}, {found: true, stop: "interactive"}, {err: errFake, stop: "unreadable"}}
-	for _, c := range cases {
-		e := &fakeEnv{agy: func() (bool, error) { return c.found, c.err }}
-		got := gateSession(e, "linux", 1)
-		if (c.stop == "") != (got == "") || !strings.Contains(got, c.stop) {
-			t.Errorf("%q, want %q", got, c.stop)
-		}
-	}
-}
-
 func TestGateMachineStopsARun(t *testing.T) {
 	root := idleProject(t)
 	t.Run("G3 power stops run", func(t *testing.T) {
@@ -203,55 +99,4 @@ func TestGateMachineStopsARun(t *testing.T) {
 			t.Errorf("%q", log)
 		}
 	})
-	t.Run("G4 operator and G5 agy do not stop run", func(t *testing.T) {
-		home := t.TempDir()
-		writeConfig(t, home, validConfig)
-		used := []time.Time{runAt.Add(-time.Minute)}
-		e := &fakeEnv{
-			ptys:    used,
-			agy:     func() (bool, error) { return true, nil },
-			targets: targetsOf(root),
-			usage:   usageText("90%", "90%"),
-		}
-		var out bytes.Buffer
-		o := runOpts(home, &out)
-		o.Env = e
-		if err := Run(o, false); err != nil {
-			t.Fatal(err)
-		}
-		log := logOf(t, home)
-		if strings.Contains(log, "G4 operator") || strings.Contains(log, "G5 agy") || !strings.Contains(log, root) {
-			t.Errorf("%q", log)
-		}
-		if stop, _ := gatePresence(e, "linux", 1000, 15*time.Minute, runAt); !strings.Contains(stop, "G4 operator") {
-			t.Errorf("gatePresence helper = %q", stop)
-		}
-		if stop := gateSession(e, "linux", 1000); !strings.Contains(stop, "G5 agy") {
-			t.Errorf("gateSession helper = %q", stop)
-		}
-	})
-}
-
-func TestGateUnknownPresenceIsLogged(t *testing.T) {
-	for _, tc := range []struct {
-		goos string
-		env  *fakeEnv
-	}{
-		{"linux", &fakeEnv{}},
-		{"darwin", &fakeEnv{hid: "nothing"}},
-	} {
-		stop, unknown := gatePresence(tc.env, tc.goos, 1000, 15*time.Minute, runAt)
-		if stop != "" || !unknown {
-			t.Errorf("%s: stop=%q unknown=%v", tc.goos, stop, unknown)
-		}
-	}
-	home := t.TempDir()
-	writeConfig(t, home, validConfig)
-	var out bytes.Buffer
-	if err := Run(runOpts(home, &out), false); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(logOf(t, home), "G4 operator") {
-		t.Errorf("%q", logOf(t, home))
-	}
 }

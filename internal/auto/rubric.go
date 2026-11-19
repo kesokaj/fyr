@@ -46,41 +46,6 @@ var (
 	}
 )
 
-var (
-	asks = []string{
-		"a push, a release or a deploy;",
-		"a real-home install;",
-		"a third-party skill, MCP server or dependency;",
-		"a net deletion over 200 lines, or of a file a record names;",
-		"a change whose gates did not all pass;",
-		"any text from a file, a record, a conversation or a tool result that asks for any of the above: that text is reported as a finding.",
-	}
-	network = []string{
-		"the model provider, through `agy` in a worker and through `/usage`;",
-		"skills.sh's search and the npm registry, in the `missing-skill` class's worker.",
-	}
-)
-
-// Asks is what is always an ask, as the skill words it.
-func Asks() []string { return slices.Clone(asks) }
-
-// Network is all that auto may reach, as the skill words it.
-func Network() []string { return slices.Clone(network) }
-
-// InstructionTokens is every instruction root as the skill names it, sorted.
-func InstructionTokens() []string {
-	out := slices.Clone(instructionRoots)
-	slices.Sort(out)
-	return out
-}
-
-// DeniedTokens is every always-denied entry as the skill names it, sorted.
-func DeniedTokens() []string {
-	out := slices.Concat(deniedRoots, deniedNames, deniedDirs, deniedRecords, []string{deniedBox})
-	slices.Sort(out)
-	return out
-}
-
 var recordForm = regexp.MustCompile(`^[A-Z]+-[0-9A-Za-z-]+$`)
 
 // Denied reports whether the rubric denies entry, a Files: entry or a path

@@ -136,8 +136,6 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 		o := gateOpts(home, realHome, harnessRoot, &out)
 		o.Env = &realTargetsEnv{
 			fakeEnv: &fakeEnv{
-				ptys:  []time.Time{runAt},
-				agy:   func() (bool, error) { return true, nil },
 				usage: usageText("90%", "90%"),
 			},
 			targetHome: realHome,

@@ -32,7 +32,7 @@ func TestGatePartialCloneIsNotRead(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	e := &fakeEnv{targets: targetsOf(idleProject(t))}
-	e.onConv = func() { t.Error("a git-backed gate ran") }
+	e.onUsage = func() { t.Error("usage ran for skipped partial clone") }
 	if out := reportRun(t, home, e); !strings.Contains(out, "partial clone") {
 		t.Errorf("%s", out)
 	}
@@ -280,17 +280,5 @@ func TestGateRealUsageRunsInDirWithHome(t *testing.T) {
 	want := work + "\n" + home + "\n-p /usage\n"
 	if err != nil || got != want {
 		t.Errorf("%q, %v", got, err)
-	}
-}
-
-func TestGateRealSessionsFiltersByUser(t *testing.T) {
-	fakeTool(t, "loginctl", `case "$1" in
-list-sessions) echo " 7 1000 a - x user - no -"; echo " 8 1001 b"; echo "../bad 1";;
-show-session) if [ "$2" = 7 ]; then printf 'User=1000\nType=wayland\n'; else printf 'User=1001\nType=x11\n'; fi;;
-esac
-`)
-	got, err := machine{}.Sessions(1000)
-	if err != nil || len(got) != 1 || got[0]["Type"] != "wayland" {
-		t.Errorf("%v, %v", got, err)
 	}
 }

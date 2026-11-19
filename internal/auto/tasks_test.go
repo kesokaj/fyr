@@ -469,3 +469,45 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 		}
 	})
 }
+
+func TestProjectPassCacheSharesAndCleans(t *testing.T) {
+	home, root := t.TempDir(), initGitRepo(t)
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	g := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt }}
+	if _, err := brain.Add(g, brain.AddInput{Kind: "proposal", Status: "queued", Project: root, Title: "p1", Body: strings.NewReader("b")}); err != nil {
+		t.Fatal(err)
+	}
+	convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c-pass", ".system_generated", "logs")
+	_ = os.MkdirAll(convDir, 0o700)
+	trPath := filepath.Join(convDir, "transcript.jsonl")
+	_ = os.WriteFile(trPath, []byte(`{"cwd":"`+root+`"}`+"\n"), 0o600)
+	_ = os.Chtimes(trPath, runAt.Add(-2*time.Hour), runAt.Add(-2*time.Hour))
+	r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{ConversationIdle: "1h"}}
+	endPass := r.beginProjectPass(root)
+	defer endPass()
+	s1, c1 := r.sweepMetricsSnapshot()
+	s2, c2 := r.sweepMetricsSnapshot()
+	defer c1()
+	defer c2()
+	if tmps, _ := filepath.Glob(filepath.Join(filepath.Dir(metrics.Path(home)), "auto-metrics-*")); s1 == nil || s1 != s2 || len(tmps) != 1 {
+		t.Fatalf("metrics snapshot s1=%v s2=%v tmps=%v", s1, s2, tmps)
+	}
+	convs1 := r.conversationsSince(root, time.Time{})
+	_ = os.Remove(trPath)
+	if convs2 := r.conversationsSince(root, time.Time{}); len(convs1) != 1 || len(convs2) != 1 {
+		t.Fatalf("cached convs = %d / %d, want 1 / 1", len(convs1), len(convs2))
+	}
+	p1, err1 := r.sweepOpenProposals()
+	_, _ = brain.Add(g, brain.AddInput{Kind: "proposal", Status: "queued", Project: root, Title: "p2", Body: strings.NewReader("b")})
+	if p2, err2 := r.sweepOpenProposals(); err1 != nil || err2 != nil || len(p1) != 1 || len(p2) != 1 {
+		t.Fatalf("cached proposals = (%d,%v) / (%d,%v)", len(p1), err1, len(p2), err2)
+	}
+	r.finishPassMetrics()
+	if tmps, _ := filepath.Glob(filepath.Join(filepath.Dir(metrics.Path(home)), "auto-metrics-*")); len(tmps) != 0 {
+		t.Fatalf("tempdirs left = %v", tmps)
+	}
+}

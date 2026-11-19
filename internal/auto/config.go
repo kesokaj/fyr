@@ -14,10 +14,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 // Default conversation staleness cutoff and max auto.json size.
@@ -89,21 +89,17 @@ func (c Config) validate() error {
 // link, a fifo, a directory or anything longer is an error, and a missing
 // file is fs.ErrNotExist. O_NONBLOCK keeps a fifo from hanging the timer.
 func readBounded(path string, limit int64) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if errors.Is(err, syscall.ELOOP) {
+	f, err := trail.OpenRegular(path)
+	if errors.Is(err, trail.ErrStampSymlink) {
 		return nil, fmt.Errorf("%s is a link", path)
+	}
+	if errors.Is(err, trail.ErrStampNotRegular) {
+		return nil, fmt.Errorf("%s is not a regular file", path)
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", path)
-	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, err

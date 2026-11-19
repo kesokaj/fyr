@@ -1,17 +1,12 @@
 package auto
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/check"
@@ -67,84 +62,6 @@ type Options struct {
 	HoldoutFile string
 	// AgyVersion returns the first line of `agy --version`; nil runs `agy --version`.
 	AgyVersion func() string
-}
-
-func (o Options) testRunner(ctx context.Context, root, wtTestDir string) func(wtDir, runner, cmdLine string) error {
-	if o.TestRunner != nil {
-		return o.TestRunner
-	}
-	return func(wtDir, runner, cmdLine string) error {
-		return runMarkedTest(ctx, o, root, wtDir, wtTestDir, runner, cmdLine)
-	}
-}
-
-func runMarkedTest(ctx context.Context, o Options, root, wtDir, wtTestDir, _ /* runner */, cmdLine string) error {
-	var ro []string
-	if root != "" {
-		ro = append(ro, filepath.Join(root, ".git"))
-	}
-	ro = append(ro, o.TestRO...)
-	opts := isolate.CommandOpts{
-		Dir:         wtDir,
-		ScratchHome: filepath.Join(wtTestDir, "home"),
-		TmpDir:      filepath.Join(wtTestDir, "tmp"),
-		RealHome:    o.realHome(),
-		Argv:        []string{"bash", "-c", cmdLine},
-		ROPaths:     ro,
-		RWPaths:     o.TestRW,
-		Unconfined:  o.TestUnconfined,
-	}
-	return runShellTest(ctx, opts, o.limit(workerTimeout))
-}
-
-func runShellTest(ctx context.Context, opts isolate.CommandOpts, timeout time.Duration) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	tctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd, cleanup, err := isolate.Command(opts)
-	if err != nil {
-		return err
-	}
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	} else {
-		cmd.SysProcAttr.Setsid = true
-	}
-	cmd.WaitDelay = time.Second
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Start(); err != nil {
-		cleanup()
-		return err
-	}
-	cleanup()
-	if err := waitShellTest(tctx, cmd, timeout); err != nil {
-		return fmt.Errorf("%v: %s", err, oneLine(out.String()))
-	}
-	return nil
-}
-
-func waitShellTest(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) error {
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		err := <-done
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("timed out after %s", timeout)
-		}
-		if err != nil {
-			return err
-		}
-		return ctx.Err()
-	}
 }
 
 func (o Options) realHome() string {

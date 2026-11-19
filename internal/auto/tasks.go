@@ -5,14 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
-	"github.com/kesokaj/fyr/internal/isolate"
-	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -108,10 +108,16 @@ func (r *run) conversationCutoff() time.Time {
 }
 
 func (r *run) conversationsSince(root string, since time.Time) []convSource {
-	return r.conversationsSinceCutoff(root, since, r.conversationCutoff())
+	return r.conversationsSinceCutoff(root, since, r.sweepConversationCutoff())
 }
 
 func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []convSource {
+	if r.sweepCache != nil && r.sweepCache.root == root {
+		ck := makeConvCacheKey(since, cutoff)
+		if cached, ok := r.sweepCache.convs[ck]; ok {
+			return slices.Clone(cached)
+		}
+	}
 	var out []convSource
 	homes := []string{r.o.realHome()}
 	if r.o.Home != "" && r.o.Home != homes[0] {
@@ -131,6 +137,9 @@ func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []c
 			}
 		}
 		out = appendDirConversations(out, seen, h, root, since, cutoff)
+	}
+	if r.sweepCache != nil && r.sweepCache.root == root {
+		r.sweepCache.convs[makeConvCacheKey(since, cutoff)] = slices.Clone(out)
 	}
 	return out
 }
@@ -179,7 +188,7 @@ func readFileMentionsRoot(path, root string) (string, bool) {
 	if root == "" {
 		return "", false
 	}
-	f, err := isolate.OpenRegular(path, os.O_RDONLY)
+	f, err := trail.OpenRegular(path)
 	if err != nil {
 		return "", false
 	}
@@ -274,20 +283,11 @@ func (r *run) repeatedVerbSequence(root string) (string, int) {
 }
 
 func (r *run) readSessionVerbs(root string) (map[string][]string, []string) {
-	mp := metrics.Path(r.o.Home)
-	if _, err := os.Lstat(mp); err != nil {
+	s, closeSnap := r.sweepMetricsSnapshot()
+	if s == nil {
 		return nil, nil
 	}
-	tmp, err := os.MkdirTemp(filepath.Dir(mp), "auto-metrics-")
-	if err != nil {
-		return nil, nil
-	}
-	defer os.RemoveAll(tmp)
-	s, err := metrics.Snapshot(mp, tmp)
-	if err != nil {
-		return nil, nil
-	}
-	defer s.Close()
+	defer closeSnap()
 	bySess, order, err := s.ProjectVerbs(root, 100)
 	if err != nil {
 		return nil, nil
@@ -296,12 +296,15 @@ func (r *run) readSessionVerbs(root string) (map[string][]string, []string) {
 }
 
 func (r *run) missingSkillProposal(root string) (string, int) {
-	recs, err := brain.List(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.ListFilter{Kind: "proposal", Project: root, Open: true})
+	recs, err := r.sweepOpenProposals()
 	if err != nil {
 		return "", 0
 	}
 	var ids []string
 	for _, rec := range recs {
+		if rec.Project == "" || !trail.SameDir(rec.Project, root) {
+			continue
+		}
 		lowTitle := strings.ToLower(rec.Title)
 		lowBody := strings.ToLower(rec.Body)
 		if strings.Contains(lowTitle, "missing skill") || strings.Contains(lowBody, "missing-skill:") {
