@@ -33,9 +33,9 @@ func evalsSectionOf(e *EvalRows) *evalsSection {
 
 // ReportEvalsWithDevFallback returns eval rows from s, falling back read-only to
 // <home>/<StateDir>/dev/fyr-eval/<StateDir>/metrics.db when s holds no eval rows
-// in the window and o.Project is empty.
+// in the window and o.Project and o.Label are empty.
 func ReportEvalsWithDevFallback(s *Store, home string, o ShowOptions) (*EvalRows, error) {
-	if o.Project != "" {
+	if o.Project != "" || o.Label != "" {
 		return nil, nil
 	}
 	ev, err := s.Evals(EvalOptions{Since: o.Since, Now: o.Now})
@@ -114,7 +114,7 @@ func openDevEvalStoreRO(home string) (*Store, func(), bool) {
 		return nil, nil, false
 	}
 	ver, err := strconv.Atoi(verStr)
-	if err != nil || ver < 4 || ver > len(migrations) {
+	if err != nil || ver < 5 || ver > len(migrations) {
 		cleanup()
 		return nil, nil, false
 	}
@@ -153,7 +153,18 @@ func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, 
 func copySQLiteTempParent(scratchHome, dbPath string) (string, []string, bool) {
 	h := strings.TrimSpace(scratchHome)
 	if h == "" {
-		return filepath.Dir(dbPath), nil, true
+		dbDir := filepath.Dir(filepath.Clean(dbPath))
+		agentsDir := filepath.Dir(dbDir)
+		if filepath.Base(dbDir) != "scratch" || filepath.Base(agentsDir) != ".agents" {
+			return "", nil, false
+		}
+		if exists, ok := verifyNoSymlinkDir(agentsDir); !ok || !exists {
+			return "", nil, false
+		}
+		if exists, ok := verifyNoSymlinkDir(dbDir); !ok || !exists {
+			return "", nil, false
+		}
+		return dbDir, nil, true
 	}
 	cur := filepath.Clean(h)
 	var dirs []string

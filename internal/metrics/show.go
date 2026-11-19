@@ -57,29 +57,27 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 		return nil, err
 	}
 
+	data, err := s.loadShowData(all)
+	if err != nil {
+		return nil, err
+	}
 	sum := newSummary(since, now)
 	sum.B.ContextTarget = o.ContextTarget
 	if sum.B.ContextTarget <= 0 {
 		sum.B.ContextTarget = DefaultContextTarget
 	}
 	for _, x := range all {
-		steps, err := s.stepsOf(x.id)
-		if err != nil {
-			return nil, err
-		}
-		sum.add(x, steps)
-		if err := s.addEvents(sum, x); err != nil {
-			return nil, err
-		}
+		sum.add(x, data.steps[x.id])
+		sum.addSessionEvents(x, data.events[x.id])
 	}
 	sum.finish(all, trials, claimed)
-	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, since, now); err != nil {
+	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, data, since, now); err != nil {
 		return nil, err
 	}
 	if err := s.populateSessionRatings(sum, o, since, now); err != nil {
 		return nil, err
 	}
-	if err := s.populateHealthAndFallbacks(sum, o, all, since, now); err != nil {
+	if err := s.populateHealthAndFallbacks(sum, o, all, trials, data, since, now); err != nil {
 		return nil, err
 	}
 	return sum, nil
@@ -148,7 +146,7 @@ func (s *Store) sessionsIn(q string, args []any) ([]sess, error) {
 		all = append(all, x)
 	}
 	rows.Close()
-	return all, nil
+	return all, rows.Err()
 }
 
 func (s *Store) stepsOf(id string) ([]stp, error) {
@@ -173,6 +171,9 @@ func (s *Store) stepsOf(id string) ([]stp, error) {
 		out = append(out, x)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	vr, err := s.db.Query(`SELECT ext_id, verb FROM step_verbs WHERE session_id = ? ORDER BY ext_id, n`, id)
 	if err != nil {
 		return nil, err
@@ -213,7 +214,7 @@ func newSummary(since, now time.Time) *Summary {
 	}
 }
 
-func (s *Store) collectStepHealth(h *HealthSignals, sum *Summary, all []sess) (map[string]bool, error) {
+func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp) map[string]bool {
 	h.MainSessions = sum.Sessions["agy"]
 	for _, p := range sum.B.SessionPeaks["agy"] {
 		if p.Peak >= ContextKneeTokens {
@@ -225,11 +226,7 @@ func (s *Store) collectStepHealth(h *HealthSignals, sum *Summary, all []sess) (m
 		if x.vendor == historical {
 			continue
 		}
-		steps, err := s.stepsOf(x.id)
-		if err != nil {
-			return nil, err
-		}
-		subTools := countSessionStepHealth(h, x, steps, seen)
+		subTools := countSessionStepHealth(h, x, stepsByID[x.id], seen)
 		if x.parent != "" {
 			capLimit := 40
 			if strings.EqualFold(x.agent, "self") {
@@ -241,7 +238,7 @@ func (s *Store) collectStepHealth(h *HealthSignals, sum *Summary, all []sess) (m
 		}
 	}
 	h.OrchestrationCalls = h.SubagentDispatches + h.WorkflowCalls + h.SwarmCalls
-	return overBudget, nil
+	return overBudget
 }
 
 func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[string]bool) int {
@@ -269,6 +266,14 @@ func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[stri
 func classifyToolHealth(h *HealthSignals, st stp) {
 	if st.denied {
 		h.HookDenials++
+		switch st.denialKind {
+		case "clamped":
+			h.ClampedSaves++
+		case "ledger":
+			h.HookBlocksLedger++
+		default:
+			h.HookBlocksGuards++
+		}
 	}
 	switch {
 	case st.tool == "Agent" || st.tool == "invoke_subagent" || st.tool == "agy:invoke_subagent":

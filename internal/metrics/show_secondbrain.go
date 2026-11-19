@@ -19,7 +19,7 @@ type projAcc struct {
 	activeMS, tokens, lastMS                                int64
 }
 
-func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, trials []trial, since, now time.Time) error {
+func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
 	if o.Label == "" {
 		sb, vetsByRoot, err := s.querySecondBrain(o, since, now)
 		if err != nil {
@@ -27,19 +27,17 @@ func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all 
 		}
 		sum.E = sb
 		if o.Project == "" {
-			projects, err := s.buildProjectRows(all, vetsByRoot)
-			if err != nil {
-				return err
-			}
-			sum.Projects = projects
+			sum.Projects = buildProjectRows(all, vetsByRoot, data.steps, data.events)
 		}
 	}
-	ws, err := s.queryWorkWaves(o, since, now)
+	waves, err := s.queryWaveRows(o, since, now)
 	if err != nil {
 		return err
 	}
-	sum.F = ws
-	return s.populateTriggerCoverage(sum, o, all, trials, since, now)
+	data.waves = waves
+	sum.F = summarizeWorkWaves(waves)
+	populateTriggerCoverage(sum, o, all, trials, data, since, now)
+	return nil
 }
 
 func windowAndProjectWhere(tsCol string, o ShowOptions, since, now time.Time) (string, []any) {
@@ -116,34 +114,41 @@ func normalizeMilli(ts int64) int64 {
 	return ts
 }
 
-func (s *Store) queryWorkWaves(o ShowOptions, since, now time.Time) (WorkSummary, error) {
+func (s *Store) queryWaveRows(o ShowOptions, since, now time.Time) ([]waveRow, error) {
 	where, args := windowAndProjectWhere("updated_at", o, since, now)
-	rows, err := s.db.Query(`SELECT stamp, state, base_check, judge_model, judge_verdict FROM work_waves WHERE `+where, args...)
+	rows, err := s.db.Query(`SELECT stamp, worker, project_root, state, model, base_check, judge_model, judge_verdict, updated_at FROM work_waves WHERE `+where, args...)
 	if err != nil {
-		return WorkSummary{}, err
+		return nil, err
 	}
 	defer rows.Close()
-	var ws WorkSummary
-	stamps := map[string]bool{}
+	var out []waveRow
 	for rows.Next() {
-		var stamp, state, baseCheck, judgeModel, judgeVerdict string
-		if err := rows.Scan(&stamp, &state, &baseCheck, &judgeModel, &judgeVerdict); err != nil {
-			return WorkSummary{}, err
+		var w waveRow
+		if err := rows.Scan(&w.stamp, &w.worker, &w.projectRoot, &w.state, &w.model, &w.baseCheck, &w.judgeModel, &w.judgeVerdict, &w.updatedAt); err != nil {
+			return nil, err
 		}
-		if !waveMatchesLabel(stamp, o) {
-			continue
+		if waveMatchesLabel(w.stamp, o) {
+			out = append(out, w)
 		}
-		if stamp != "" {
-			stamps[stamp] = true
-		}
-		ws.Workers++
-		addWaveWorkerCounts(&ws, state, baseCheck, judgeModel, judgeVerdict)
 	}
-	ws.Waves = len(stamps)
-	return ws, rows.Err()
+	return out, rows.Err()
 }
 
-func addWaveWorkerCounts(ws *WorkSummary, state, baseCheck, judgeModel, judgeVerdict string) {
+func summarizeWorkWaves(waves []waveRow) WorkSummary {
+	var ws WorkSummary
+	stamps := map[string]bool{}
+	for _, w := range waves {
+		if w.stamp != "" {
+			stamps[w.stamp] = true
+		}
+		ws.Workers++
+		addWaveWorkerCounts(&ws, w.state, w.model, w.baseCheck, w.judgeModel, w.judgeVerdict)
+	}
+	ws.Waves = len(stamps)
+	return ws
+}
+
+func addWaveWorkerCounts(ws *WorkSummary, state, workerModel, baseCheck, judgeModel, judgeVerdict string) {
 	switch strings.ToUpper(strings.TrimSpace(state)) {
 	case "PASS":
 		ws.Passed++
@@ -162,14 +167,26 @@ func addWaveWorkerCounts(ws *WorkSummary, state, baseCheck, judgeModel, judgeVer
 	} else if strings.Contains(jv, "FAIL") {
 		ws.JudgeFailed++
 	}
-	if strings.Contains(strings.ToLower(judgeModel), "gemini") {
+	if strings.TrimSpace(judgeModel) != "" && sameModelFamily(workerModel, judgeModel) {
 		ws.JudgeFallback++
 	}
 }
 
-func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) ([]ProjectRow, error) {
-	byID, _, _ := resolveSessionRoots(all)
-	canon := buildRootCanonicalizer(all, vetsByRoot)
+func sameModelFamily(workerModel, judgeModel string) bool {
+	wf := classifyModelFamily(workerModel)
+	jf := classifyModelFamily(judgeModel)
+	if wf == "" || jf == "" || wf != jf {
+		return false
+	}
+	if wf == "other" {
+		return strings.EqualFold(strings.TrimSpace(workerModel), strings.TrimSpace(judgeModel))
+	}
+	return true
+}
+
+func buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent) []ProjectRow {
+	byID, wtMap, _ := resolveSessionRoots(all)
+	canon := buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)
 	accs := map[string]*projAcc{}
 	getAcc := func(raw string) *projAcc {
 		r := canon(raw)
@@ -188,6 +205,18 @@ func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) 
 			p.lastMS = max(p.lastMS, pv.lastMS)
 		}
 	}
+	parentRoot := buildParentRootMap(all, byID, canon)
+	seen := map[string]bool{}
+	for _, x := range all {
+		root := sessionProjectRoot(x, byID, parentRoot)
+		if p := getAcc(root); p != nil {
+			accumulateProjectSession(p, x, seen, stepsByID[x.id], eventsByID[x.id])
+		}
+	}
+	return finalizeProjectRows(accs)
+}
+
+func buildParentRootMap(all []sess, byID map[string]string, canon func(string) string) map[string]string {
 	parentRoot := map[string]string{}
 	for _, x := range all {
 		r := x.root
@@ -198,28 +227,26 @@ func (s *Store) buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc) 
 			parentRoot[x.id] = canon(r)
 		}
 	}
-	seen := map[string]bool{}
-	for _, x := range all {
-		root := x.root
-		if byID[x.id] != "" {
-			root = byID[x.id]
-		}
-		if (root == "" || isAgyWorktreePath(root)) && x.parent != "" {
-			root = parentRoot[x.parent]
-		}
-		p := getAcc(root)
-		if p == nil {
-			continue
-		}
-		if err := s.accumulateProjectSession(p, x, seen); err != nil {
-			return nil, err
-		}
+	return parentRoot
+}
+
+func sessionProjectRoot(x sess, byID, parentRoot map[string]string) string {
+	root := x.root
+	if byID[x.id] != "" {
+		root = byID[x.id]
 	}
-	return finalizeProjectRows(accs), nil
+	if (root == "" || isAgyWorktreePath(root)) && x.parent != "" {
+		return parentRoot[x.parent]
+	}
+	return root
 }
 
 func buildRootCanonicalizer(all []sess, vetsByRoot map[string]*projVetAcc) func(string) string {
 	byID, wtMap, _ := resolveSessionRoots(all)
+	return buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)
+}
+
+func buildRootCanonicalizerWithRoots(all []sess, vetsByRoot map[string]*projVetAcc, byID, wtMap map[string]string) func(string) string {
 	set := map[string]bool{}
 	for _, x := range all {
 		r := strings.TrimSpace(x.root)
@@ -242,8 +269,14 @@ func buildRootCanonicalizer(all []sess, vetsByRoot map[string]*projVetAcc) func(
 		}
 	}
 	roots := sortedRootPrefixes(set)
+	cache := map[string]string{}
 	return func(raw string) string {
-		return canonicalizeProjectRoot(raw, roots, wtMap, byID)
+		if v, ok := cache[raw]; ok {
+			return v
+		}
+		v := canonicalizeProjectRoot(raw, roots, wtMap, byID)
+		cache[raw] = v
+		return v
 	}
 }
 
@@ -279,18 +312,12 @@ func canonicalizeProjectRoot(raw string, roots []string, wtMap, byID map[string]
 	return clean
 }
 
-func (s *Store) accumulateProjectSession(p *projAcc, x sess, seen map[string]bool) error {
+func accumulateProjectSession(p *projAcc, x sess, seen map[string]bool, steps []stp, events []sessEvent) {
 	main := x.parent == ""
 	if main {
 		p.sessions++
 		p.lastMS = max(p.lastMS, max(x.start, x.end))
-		if err := s.addProjectEvents(p, x.id); err != nil {
-			return err
-		}
-	}
-	steps, err := s.stepsOf(x.id)
-	if err != nil {
-		return err
+		addProjectEventsFromSlice(p, events)
 	}
 	var last int64
 	for _, st := range steps {
@@ -311,7 +338,6 @@ func (s *Store) accumulateProjectSession(p *projAcc, x sess, seen map[string]boo
 		p.tokens += st.in + st.out + st.cr + st.cw
 		addProjectStepVerbs(p, st)
 	}
-	return nil
 }
 
 func addProjectStepVerbs(p *projAcc, st stp) {
@@ -331,25 +357,15 @@ func addProjectStepVerbs(p *projAcc, st stp) {
 	}
 }
 
-func (s *Store) addProjectEvents(p *projAcc, sessionID string) error {
-	rows, err := s.db.Query(`SELECT kind FROM events WHERE session_id = ? AND kind IN ('bug', 'correction')`, sessionID)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var kind string
-		if err := rows.Scan(&kind); err != nil {
-			return err
-		}
-		switch kind {
+func addProjectEventsFromSlice(p *projAcc, events []sessEvent) {
+	for _, ev := range events {
+		switch ev.kind {
 		case "bug":
 			p.escapedBugs++
 		case "correction":
 			p.corrections++
 		}
 	}
-	return rows.Err()
 }
 
 func finalizeProjectRows(accs map[string]*projAcc) []ProjectRow {

@@ -33,7 +33,7 @@ func (s *Store) mainWindows() (map[string][]window, error) {
 		byRoot[root] = append(byRoot[root], window{id, st, en + closeSlack.Milliseconds()})
 	}
 	rows.Close()
-	return byRoot, nil
+	return byRoot, rows.Err()
 }
 
 // owners is every session whose window holds ts.

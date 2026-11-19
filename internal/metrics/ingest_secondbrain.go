@@ -177,14 +177,14 @@ func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
 			return nil, err
 		}
 		if saved > 0 {
-			out[turnKey{convID: strings.TrimSpace(convID), turnNum: turnNum}] += saved
+			out[turnKey{convID: printable(strings.TrimSpace(convID)), turnNum: turnNum}] += saved
 		}
 	}
 	return out, rows.Err()
 }
 
 func readVetHistoryRows(db *sql.DB, root string, ledger map[turnKey]int) ([]turnVetRow, error) {
-	rows, err := db.Query(`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, suggested_skills, pivot_files, created_at FROM vet_history`)
+	rows, err := db.Query(`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, suggested_skills, pivot_files, created_at FROM vet_history ORDER BY turn_num, created_at, rowid`)
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
 			return nil, nil

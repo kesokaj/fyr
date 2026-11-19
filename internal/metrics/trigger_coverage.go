@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -40,16 +41,14 @@ type sessionCommitSummary struct {
 	firstCommitMS     int64
 }
 
-func (s *Store) populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess, trials []trial, since, now time.Time) error {
+func populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) {
 	var tc TriggerCoverage
 	var rawWeeks float64
 	if d := now.Sub(since); d > 0 {
 		rawWeeks = d.Hours() / (24 * 7)
 		tc.WindowWeeks = round4(rawWeeks)
 	}
-	if err := s.addWaveTriggerCoverage(&tc, o, since, now); err != nil {
-		return err
-	}
+	addWaveTriggerCoverageRows(&tc, data.waves)
 	for _, tr := range trials {
 		if strings.HasPrefix(tr.label, "auto=") {
 			tc.AutoModelRuns++
@@ -58,9 +57,7 @@ func (s *Store) populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess,
 	if rawWeeks > 0 && tc.AutoModelRuns > 0 {
 		tc.AutoModelRunsPerWeek = round4(float64(tc.AutoModelRuns) / rawWeeks)
 	}
-	if err := s.addSessionTriggerCoverage(&tc, all); err != nil {
-		return err
-	}
+	addSessionTriggerCoverage(&tc, all, data.steps, data.events)
 	tc.SearchCalls = sum.C.SQLiteVerbs["agy"]
 	tc.GrepCalls = sum.C.GrepCalls["agy"]
 	if tc.GrepCalls > 0 {
@@ -70,7 +67,6 @@ func (s *Store) populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess,
 	tc.ReadLedgerBlocks = sum.E.LedgerSaved
 	finalizeTriggerCoverageRates(&tc)
 	sum.TriggerCoverage = tc
-	return nil
 }
 
 func finalizeTriggerCoverageRates(tc *TriggerCoverage) {
@@ -88,41 +84,27 @@ func finalizeTriggerCoverageRates(tc *TriggerCoverage) {
 	}
 }
 
-func (s *Store) addWaveTriggerCoverage(tc *TriggerCoverage, o ShowOptions, since, now time.Time) error {
-	where, args := windowAndProjectWhere("updated_at", o, since, now)
-	rows, err := s.db.Query(`SELECT stamp, worker, state, model, base_check, judge_model, judge_verdict FROM work_waves WHERE `+where, args...)
-	if err != nil {
-		return err
+func addWaveTriggerCoverageRows(tc *TriggerCoverage, waves []waveRow) {
+	for _, w := range waves {
+		recordWaveCoverageRow(tc, w)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var stamp, worker, state, model, bc, jm, jv string
-		if err := rows.Scan(&stamp, &worker, &state, &model, &bc, &jm, &jv); err != nil {
-			return err
-		}
-		if !waveMatchesLabel(stamp, o) {
-			continue
-		}
-		recordWaveCoverageRow(tc, worker, state, model, bc, jm, jv)
-	}
-	return rows.Err()
 }
 
-func recordWaveCoverageRow(tc *TriggerCoverage, worker, state, model, bc, jm, jv string) {
-	if strings.HasPrefix(strings.TrimSpace(worker), "auto-") {
+func recordWaveCoverageRow(tc *TriggerCoverage, w waveRow) {
+	if strings.HasPrefix(strings.TrimSpace(w.worker), "auto-") {
 		tc.AutoModelRuns++
 		return
 	}
 	tc.WorkerPhases++
-	m := strings.TrimSpace(model)
-	bcTrim := strings.TrimSpace(bc)
-	jmTrim := strings.TrimSpace(jm)
-	jvTrim := strings.TrimSpace(jv)
+	m := strings.TrimSpace(w.model)
+	bcTrim := strings.TrimSpace(w.baseCheck)
+	jmTrim := strings.TrimSpace(w.judgeModel)
+	jvTrim := strings.TrimSpace(w.judgeVerdict)
 	if m != "" && !strings.EqualFold(m, "default") && bcTrim != "" && (jmTrim != "" || jvTrim != "") {
 		tc.ConfiguredWorkerPhases++
 	}
 	var ws WorkSummary
-	addWaveWorkerCounts(&ws, state, bc, jm, jv)
+	addWaveWorkerCounts(&ws, w.state, w.model, w.baseCheck, w.judgeModel, w.judgeVerdict)
 	tc.WorkerPassed += ws.Passed
 	tc.BaseCheckPassed += ws.BaseCheckPassed
 	tc.BaseCheckFailed += ws.BaseCheckFailed
@@ -130,19 +112,12 @@ func recordWaveCoverageRow(tc *TriggerCoverage, worker, state, model, bc, jm, jv
 	tc.JudgeFailed += ws.JudgeFailed
 }
 
-func (s *Store) addSessionTriggerCoverage(tc *TriggerCoverage, all []sess) error {
+func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[string][]stp, eventsByID map[string][]sessEvent) {
 	seenQ := map[string]bool{}
 	handBuildSessions := 0
 	for _, x := range all {
-		steps, err := s.stepsOf(x.id)
-		if err != nil {
-			return err
-		}
-		ev, err := s.querySessionCommitSummary(x.id)
-		if err != nil {
-			return err
-		}
-		hasWorkVerb := countSessionBuildQuestions(tc, x, steps, ev.firstCommitMS, seenQ)
+		ev := sessionCommitSummaryFromEvents(eventsByID[x.id])
+		hasWorkVerb := countSessionBuildQuestions(tc, x, stepsByID[x.id], ev.firstCommitMS, seenQ)
 		if x.parent == "" && ev.hasNonAmbigCommit {
 			tc.BuildSessions++
 			if ev.hasHandoff {
@@ -154,7 +129,6 @@ func (s *Store) addSessionTriggerCoverage(tc *TriggerCoverage, all []sess) error
 		}
 	}
 	tc.QualifyingPhases = tc.WorkerPhases + handBuildSessions
-	return nil
 }
 
 func countSessionBuildQuestions(tc *TriggerCoverage, x sess, steps []stp, firstCommitMS int64, seenQ map[string]bool) bool {
@@ -192,29 +166,19 @@ func countSessionBuildQuestions(tc *TriggerCoverage, x sess, steps []stp, firstC
 	return hasWorkVerb
 }
 
-func (s *Store) querySessionCommitSummary(sessionID string) (sessionCommitSummary, error) {
-	rows, err := s.db.Query(`SELECT kind, COALESCE(value, ''), COALESCE(ts, 0) FROM events WHERE session_id = ? AND kind IN ('commit', 'handoff')`, sessionID)
-	if err != nil {
-		return sessionCommitSummary{}, err
-	}
-	defer rows.Close()
+func sessionCommitSummaryFromEvents(events []sessEvent) sessionCommitSummary {
 	var out sessionCommitSummary
-	for rows.Next() {
-		var kind, val string
-		var ts int64
-		if err := rows.Scan(&kind, &val, &ts); err != nil {
-			return sessionCommitSummary{}, err
-		}
-		if kind == "handoff" {
+	for _, ev := range events {
+		if ev.kind == "handoff" {
 			out.hasHandoff = true
-		} else if kind == "commit" && val != "ambiguous" {
+		} else if ev.kind == "commit" && ev.value != "ambiguous" {
 			out.hasNonAmbigCommit = true
-			if ts > 0 && (out.firstCommitMS == 0 || ts < out.firstCommitMS) {
-				out.firstCommitMS = ts
+			if ev.ts > 0 && (out.firstCommitMS == 0 || ev.ts < out.firstCommitMS) {
+				out.firstCommitMS = ev.ts
 			}
 		}
 	}
-	return out, rows.Err()
+	return out
 }
 
 func triggerCoverageSection(s *Summary) reportSection {
@@ -249,7 +213,7 @@ func appendV9TriggerRows(t *table, s *Summary) {
 	t.Rows = append(t.Rows,
 		[]string{"v9 orchestration", fmt.Sprintf("%d (agent:%d, workflow:%d, swarm:%d)", h.OrchestrationCalls, h.SubagentDispatches, h.WorkflowCalls, h.SwarmCalls), "-"},
 		[]string{"Deterministic gates", fmt.Sprint(h.DeterministicGates), "-"},
-		[]string{"Hook blocks (clamped / ledger / guards)", fmt.Sprintf("%d / %d / %d (total %d)", h.ClampedSaves, s.E.LedgerSaved, h.HookBlocksGuards, h.HookDenials), "-"},
+		[]string{"Hook blocks (clamped / ledger / guards)", fmt.Sprintf("%d / %d / %d (total %d)", h.ClampedSaves, h.HookBlocksLedger, h.HookBlocksGuards, h.HookDenials), "-"},
 		[]string{"Model-family share", formatModelFamilyShare(h), "-"},
 		[]string{"Guarded subagent downgrades", fmt.Sprint(h.GuardedDowngrades), "= 0"},
 		[]string{"Live quota pools", formatPoolQuotas(h.PoolQuotas), "-"},
@@ -258,7 +222,81 @@ func appendV9TriggerRows(t *table, s *Summary) {
 	)
 }
 
-func (s *Store) populateJudgeVerdictsHealth(sum *Summary, o ShowOptions, since, now time.Time) error {
+type waveJudgeEntry struct {
+	proj, stamp, rawStamp, worker, verdict string
+	matched, fallbackCounted               bool
+}
+
+func buildWaveJudgeEntries(waves []waveRow) []waveJudgeEntry {
+	var out []waveJudgeEntry
+	for _, w := range waves {
+		jv := normJudgeVerdict(w.judgeVerdict)
+		if jv == "" {
+			continue
+		}
+		_, raw := decodeWaveStamp(w.stamp)
+		proj := ""
+		if p := strings.TrimSpace(w.projectRoot); p != "" {
+			proj = filepath.Clean(p)
+		}
+		out = append(out, waveJudgeEntry{
+			proj: proj, stamp: strings.TrimSpace(w.stamp), rawStamp: raw,
+			worker: strings.TrimSpace(w.worker), verdict: jv,
+			fallbackCounted: sameModelFamily(w.model, w.judgeModel),
+		})
+	}
+	return out
+}
+
+func normJudgeVerdict(raw string) string {
+	v := strings.ToUpper(strings.TrimSpace(raw))
+	switch {
+	case v == "PASS":
+		return "PASS"
+	case strings.Contains(v, "FAIL"):
+		return "FAIL"
+	default:
+		return ""
+	}
+}
+
+func matchWaveJudgeEntry(entries []waveJudgeEntry, r JudgeVerdictRow, verdict string) int {
+	target := strings.TrimSpace(r.Target)
+	if target == "" || verdict == "" {
+		return -1
+	}
+	rProj := ""
+	if p := strings.TrimSpace(r.ProjectRoot); p != "" {
+		rProj = filepath.Clean(p)
+	}
+	for i := range entries {
+		e := &entries[i]
+		if e.matched || e.verdict != verdict {
+			continue
+		}
+		if e.proj != "" && rProj != "" && e.proj != rProj {
+			continue
+		}
+		if waveTargetMatches(target, *e) {
+			return i
+		}
+	}
+	return -1
+}
+
+func waveTargetMatches(target string, e waveJudgeEntry) bool {
+	if target == e.stamp || (e.rawStamp != "" && target == e.rawStamp) {
+		return true
+	}
+	if e.worker == "" {
+		return false
+	}
+	return target == e.stamp+"/"+e.worker || (e.rawStamp != "" && target == e.rawStamp+"/"+e.worker) || (e.stamp != "" && target == e.worker)
+}
+
+func (s *Store) populateJudgeVerdictsHealth(sum *Summary, o ShowOptions, waves []waveRow, since, now time.Time) error {
+	sum.Health.JudgePassed, sum.Health.JudgeFailed, sum.Health.JudgeFallback =
+		sum.F.JudgePassed, sum.F.JudgeFailed, sum.F.JudgeFallback
 	if o.Label != "" {
 		return nil
 	}
@@ -269,24 +307,39 @@ func (s *Store) populateJudgeVerdictsHealth(sum *Summary, o ShowOptions, since, 
 		}
 		return err
 	}
+	entries := buildWaveJudgeEntries(waves)
 	for _, r := range rows {
-		v := strings.ToUpper(strings.TrimSpace(r.Verdict))
-		switch {
-		case v == "PASS":
-			sum.Health.JudgePassed++
-			sum.F.JudgePassed++
-			sum.TriggerCoverage.JudgePassed++
-		case strings.Contains(v, "FAIL"):
-			sum.Health.JudgeFailed++
-			sum.F.JudgeFailed++
-			sum.TriggerCoverage.JudgeFailed++
-		}
-		if strings.TrimSpace(r.FallbackReason) != "" || strings.Contains(strings.ToLower(r.Model), "gemini") {
+		applyJudgeVerdictRow(sum, entries, r)
+	}
+	return nil
+}
+
+func applyJudgeVerdictRow(sum *Summary, entries []waveJudgeEntry, r JudgeVerdictRow) {
+	v := normJudgeVerdict(r.Verdict)
+	isFallback := strings.TrimSpace(r.FallbackReason) != ""
+	if idx := matchWaveJudgeEntry(entries, r, v); idx >= 0 {
+		entries[idx].matched = true
+		if isFallback && !entries[idx].fallbackCounted {
+			entries[idx].fallbackCounted = true
 			sum.Health.JudgeFallback++
 			sum.F.JudgeFallback++
 		}
+		return
 	}
-	return nil
+	switch v {
+	case "PASS":
+		sum.Health.JudgePassed++
+		sum.F.JudgePassed++
+		sum.TriggerCoverage.JudgePassed++
+	case "FAIL":
+		sum.Health.JudgeFailed++
+		sum.F.JudgeFailed++
+		sum.TriggerCoverage.JudgeFailed++
+	}
+	if isFallback {
+		sum.Health.JudgeFallback++
+		sum.F.JudgeFallback++
+	}
 }
 
 func fmtPctRatio(pct *float64, num, den int) string {

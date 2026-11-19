@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -159,7 +160,41 @@ func scanOneTrajectory(rows *sql.Rows) (SessionTrajectory, error) {
 	} else if durMS > 0 {
 		t.DurationSec = durMS / 1000
 	}
+	t.Project = redactHomePath(t.Project)
 	return t, nil
+}
+
+func redactHomePath(p string) string {
+	s := strings.TrimSpace(p)
+	if s == "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return p
+	}
+	clean := filepath.Clean(s)
+	for _, cand := range homePrefixCandidates(home) {
+		if clean == cand {
+			return "~"
+		}
+		if strings.HasPrefix(clean, cand+string(filepath.Separator)) {
+			return "~" + clean[len(cand):]
+		}
+	}
+	return p
+}
+
+func homePrefixCandidates(home string) []string {
+	clean := filepath.Clean(home)
+	out := []string{clean}
+	if realHome, err := filepath.EvalSymlinks(clean); err == nil {
+		realClean := filepath.Clean(realHome)
+		if realClean != "" && realClean != "/" && realClean != clean {
+			out = append(out, realClean)
+		}
+	}
+	return out
 }
 
 type stepScanner struct {
@@ -286,16 +321,13 @@ func WriteTrajectoriesText(w io.Writer, list []SessionTrajectory) {
 }
 
 func writeOneTrajectoryText(w io.Writer, t SessionTrajectory) {
-	status := "OK"
-	if len(t.Anomalies) > 0 {
-		status = strings.Join(t.Anomalies, ",")
-	}
-	proj := t.Project
+	status := printableList(t.Anomalies, "OK")
+	proj := printable(redactHomePath(t.Project))
 	if proj == "" {
 		proj = "-"
 	}
 	fmt.Fprintf(w, "%s  %s  project=%s  model=%s  dur=%ds  steps=%d  peak=%s  cache=%.0f%%  [%s]\n",
-		shortID(t.SessionID), t.StartedAt, proj, t.Model, t.DurationSec, t.Steps,
+		printable(shortID(t.SessionID)), printable(t.StartedAt), proj, printable(t.Model), t.DurationSec, t.Steps,
 		fmtTokens(t.PeakContextTok), t.CacheHitPct, status)
 	if len(t.TurnTokens) > 0 {
 		parts := make([]string, len(t.TurnTokens))
@@ -310,17 +342,25 @@ func writeOneTrajectoryText(w io.Writer, t SessionTrajectory) {
 }
 
 func writeSubagentText(w io.Writer, sub SessionTrajectory) {
-	subStatus := "OK"
-	if len(sub.Anomalies) > 0 {
-		subStatus = strings.Join(sub.Anomalies, ",")
-	}
-	agent := sub.AgentType
+	subStatus := printableList(sub.Anomalies, "OK")
+	agent := printable(sub.AgentType)
 	if agent == "" {
 		agent = "subagent"
 	}
 	fmt.Fprintf(w, "  └─ %s (%s)  model=%s  dur=%ds  steps=%d  peak=%s  cache=%.0f%%  [%s]\n",
-		shortID(sub.SessionID), agent, sub.Model, sub.DurationSec, sub.Steps,
+		printable(shortID(sub.SessionID)), agent, printable(sub.Model), sub.DurationSec, sub.Steps,
 		fmtTokens(sub.PeakContextTok), sub.CacheHitPct, subStatus)
+}
+
+func printableList(items []string, empty string) string {
+	if len(items) == 0 {
+		return empty
+	}
+	parts := make([]string, len(items))
+	for i, item := range items {
+		parts[i] = printable(item)
+	}
+	return strings.Join(parts, ",")
 }
 
 func fmtTokens(n int64) string {

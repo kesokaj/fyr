@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -193,54 +194,85 @@ func open(path string) (*Store, error) {
 }
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+	have, hasMeta, err := readSchemaVersion(s.db, s.path)
+	if err != nil {
+		return err
+	}
+	if have > len(migrations) {
+		return fmt.Errorf("metrics.db schema %d is newer than this binary (%d); update fyr: %w", have, len(migrations), ErrNewerSchema)
+	}
+	if hasMeta && have == len(migrations) && s.hasSalt() {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.applyMigrationsTx(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func readSchemaVersion(q rowQuerier, path string) (int, bool, error) {
+	var v string
+	err := q.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, true, nil
+	case err != nil && strings.Contains(err.Error(), "no such table"):
+		return 0, false, nil
+	case err != nil:
+		return 0, false, fmt.Errorf("metrics: %s: %w", path, err)
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, false, fmt.Errorf("metrics: %s: unreadable schema %q", path, v)
+	}
+	return n, true, nil
+}
+
+func (s *Store) applyMigrationsTx(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)`); err != nil {
 		return fmt.Errorf("metrics: %s: %w", s.path, err)
 	}
-	have := 0
-	var v string
-	switch err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); {
-	case errors.Is(err, sql.ErrNoRows):
-	case err != nil:
-		return fmt.Errorf("metrics: %s: %w", s.path, err)
-	default:
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return fmt.Errorf("metrics: %s: unreadable schema %q", s.path, v)
-		}
-		have = n
+	have, _, err := readSchemaVersion(tx, s.path)
+	if err != nil {
+		return err
 	}
 	if have > len(migrations) {
 		return fmt.Errorf("metrics.db schema %d is newer than this binary (%d); update fyr: %w", have, len(migrations), ErrNewerSchema)
 	}
 	for i := have; i < len(migrations); i++ {
-		tx, err := s.db.Begin()
-		if err != nil {
-			return err
-		}
 		if _, err := tx.Exec(migrations[i]); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("metrics: migration %d: %w", i+1, err)
 		}
 		if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('schema', ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.Itoa(i+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
 			return err
 		}
 	}
-	return s.ensureSalt()
+	return ensureSaltTx(tx)
+}
+
+func (s *Store) hasSalt() bool {
+	var v string
+	return s.db.QueryRow(`SELECT value FROM meta WHERE key = 'salt'`).Scan(&v) == nil && v != ""
 }
 
 // ensureSalt gives the store its cmd_hash salt once; it never changes, or
 // retry loops across two ingests would not compare (D6).
-func (s *Store) ensureSalt() error {
+func ensureSaltTx(tx *sql.Tx) error {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES ('salt', ?) ON CONFLICT(key) DO NOTHING`, hex.EncodeToString(b))
+	_, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('salt', ?) ON CONFLICT(key) DO NOTHING`, hex.EncodeToString(b))
 	return err
 }
 
@@ -262,10 +294,15 @@ func (s *Store) Export(file string) error {
 	for _, t := range tables {
 		if err := s.exportTable(enc, t); err != nil {
 			f.Close()
+			_ = os.Remove(file)
 			return err
 		}
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(file)
+		return err
+	}
+	return nil
 }
 
 func (s *Store) exportTable(enc *json.Encoder, table string) error {

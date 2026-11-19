@@ -50,6 +50,11 @@ type putFunc func(sid, kind, ref, value string, ts int64) error
 // commit that became ambiguous when an overlapping session arrived) is
 // updated in place. A project root that is gone or is not git gets no
 // commit events and returns a note.
+type pendingEvent struct {
+	sid, kind, ref, value string
+	ts                    int64
+}
+
 func (s *Store) joinEvents(home string) (notes []string, err error) {
 	byRoot, err := s.mainWindows()
 	if err != nil {
@@ -61,21 +66,10 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 	}
 	sort.Strings(roots)
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	if err := rewriteFileRefs(tx); err != nil {
-		return nil, err
-	}
-	if err := rewriteCorrectionRefs(tx); err != nil {
-		return nil, err
-	}
+	var pending []pendingEvent
 	put := func(sid, kind, ref, value string, ts int64) error {
-		_, err := tx.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT(session_id, kind, ref) DO UPDATE SET value = excluded.value, ts = excluded.ts`, sid, ts, kind, ref, value)
-		return err
+		pending = append(pending, pendingEvent{sid: sid, kind: kind, ref: ref, value: value, ts: ts})
+		return nil
 	}
 	for _, root := range roots {
 		rootNotes, err := joinRoot(home, root, byRoot[root], put)
@@ -84,7 +78,33 @@ func (s *Store) joinEvents(home string) (notes []string, err error) {
 		}
 		notes = append(notes, rootNotes...)
 	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if err := applyJoinedEvents(tx, pending); err != nil {
+		return nil, err
+	}
 	return notes, tx.Commit()
+}
+
+func applyJoinedEvents(tx *sql.Tx, pending []pendingEvent) error {
+	if err := rewriteFileRefs(tx); err != nil {
+		return err
+	}
+	if err := rewriteCorrectionRefs(tx); err != nil {
+		return err
+	}
+	for _, ev := range pending {
+		if _, err := tx.Exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(session_id, kind, ref) DO UPDATE SET value = excluded.value, ts = excluded.ts`,
+			ev.sid, ev.ts, ev.kind, ev.ref, ev.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // joinRecords derives a migrated project's handoff, verifier, review and bug

@@ -216,6 +216,11 @@ func TestMetricsReportV9Health(t *testing.T) {
 			('M1', 'vg2', 0, 'fyr gate'),
 			('M1', 'vg3', 0, 'fyr land'),
 			('M1', 'vg4', 0, 'fyr close --id X')`, nil},
+		{`INSERT INTO events(session_id, ts, kind, ref, value) VALUES
+			('M1', ?, 'hook_block', 't5', 'clamped'),
+			('M1', ?, 'hook_block', 't6', 'ledger'),
+			('M1', ?, 'hook_block', 't7', 'guard')`,
+			[]any{ts + 500, ts + 600, ts + 700}},
 		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, created_at)
 			VALUES (?, 'M1', 1, 'FEATURE', 'PROCEED', 88, 0, 1, 2, 2, ?)`, []any{projA, ts}},
 	} {
@@ -304,7 +309,7 @@ func TestMetricsReportV9Health(t *testing.T) {
 	if h.SearchDBCompactions != 3 || h.StepCompactions != 1 || h.MainSessions != 2 || h.SessionsOverKnee != 1 || h.SubagentsOverBudget != 3 {
 		t.Errorf("compactions/knee/budget = %+v", h)
 	}
-	if h.HookDenials != 3 || h.ClampedSaves != 1 || h.HookBlocksLedger != 2 || h.HookBlocksGuards != 0 || h.GuardedDowngrades != 1 {
+	if h.HookDenials != 3 || h.ClampedSaves != 1 || h.HookBlocksLedger != 1 || h.HookBlocksGuards != 1 || h.GuardedDowngrades != 1 {
 		t.Errorf("denials/clamped/downgrades = %+v", h)
 	}
 	if h.ModelFamilyCounts["gemini"] != 3 || h.ModelFamilyCounts["anthropic"] != 2 || len(h.PoolQuotas) != 2 {

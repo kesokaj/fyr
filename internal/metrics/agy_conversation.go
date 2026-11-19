@@ -38,7 +38,11 @@ func readAgySteps(db *sql.DB) ([]agyStep, [][]byte, error) {
 		steps = append(steps, st)
 	}
 	rows.Close()
-	return steps, readAgyGens(db), nil
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	gens, err := readAgyGens(db)
+	return steps, gens, err
 }
 
 func queryAgyStepRows(db *sql.DB) (*sql.Rows, bool, error) {
@@ -53,18 +57,24 @@ func queryAgyStepRows(db *sql.DB) (*sql.Rows, bool, error) {
 	return rows, false, err
 }
 
-func readAgyGens(db *sql.DB) [][]byte {
-	var gens [][]byte
-	if rows, err := db.Query(`SELECT data FROM gen_metadata ORDER BY idx`); err == nil {
-		for rows.Next() {
-			var b []byte
-			if rows.Scan(&b) == nil {
-				gens = append(gens, b)
-			}
+func readAgyGens(db *sql.DB) ([][]byte, error) {
+	rows, err := db.Query(`SELECT data FROM gen_metadata ORDER BY idx`)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, nil
 		}
-		rows.Close()
+		return nil, err
 	}
-	return gens
+	defer rows.Close()
+	var gens [][]byte
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		gens = append(gens, b)
+	}
+	return gens, rows.Err()
 }
 
 // agySession stores the conversation's session row; a value stored before
@@ -75,7 +85,7 @@ func (w *writer) agySession(c agyConv) {
 		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
 			project_root = CASE
-				WHEN excluded.project_root IS NOT NULL AND (sessions.project_root IS NULL OR sessions.project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
+				WHEN excluded.project_root IS NOT NULL AND (sessions.project_root IS NULL OR sessions.project_root = '' OR sessions.project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
 				THEN excluded.project_root
 				ELSE COALESCE(sessions.project_root, excluded.project_root)
 			END,
@@ -213,7 +223,7 @@ func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
 		}
 	}
 	if sessionModel := normalizeSessionModel(firstModel, seenModels); sessionModel != "" {
-		w.exec(`UPDATE sessions SET model = COALESCE(model, ?) WHERE id = ?`, sessionModel, c.id)
+		w.exec(`UPDATE sessions SET model = ? WHERE id = ?`, sessionModel, c.id)
 	}
 }
 
@@ -251,9 +261,9 @@ func normalizeSessionModel(first string, seen map[string]bool) string {
 // agyIngestState records the conversation's source size and modified time,
 // which the next ingest compares to skip an unchanged conversation.
 func (w *writer) agyIngestState(source string, modified int64) {
-	fi, _ := os.Stat(source)
+	fi, err := os.Lstat(source)
 	var size int64
-	if fi != nil {
+	if err == nil && fi.Mode().IsRegular() {
 		size = fi.Size()
 	}
 	w.exec(`INSERT INTO ingest_state(source, size, mtime, offset) VALUES (?, ?, ?, 0)
@@ -275,45 +285,70 @@ var hookDenialMarkers = []string{
 // isHookDenial reports whether a tool step represents a pre-tool hook denial
 // rather than an execution failure.
 func isHookDenial(status int, f fields, meta, errDetails []byte) bool {
-	if strings.EqualFold(strings.TrimSpace(f.text(34, 4)), "deny") {
-		return true
-	}
-	if status != agyFailed {
-		return false
-	}
-	if hasHookDenialMarker(f.text(34, 5)) || protoHasHookDenial(errDetails, false) {
-		return true
-	}
-	return protoHasHookDenial(meta, true)
+	return classifyHookDenial(status, f, meta, errDetails) != ""
 }
 
-func protoHasHookDenial(blob []byte, skipToolCall bool) bool {
+// classifyHookDenial classifies a tool step's pre-tool hook denial into
+// "clamped", "ledger", "guard", or "" when not denied.
+func classifyHookDenial(status int, f fields, meta, errDetails []byte) string {
+	if strings.EqualFold(strings.TrimSpace(f.text(34, 4)), "deny") {
+		if k := hookDenialKind(f.text(34, 5)); k != "" {
+			return k
+		}
+		return "guard"
+	}
+	if status != agyFailed {
+		return ""
+	}
+	if k := hookDenialKind(f.text(34, 5)); k != "" {
+		return k
+	}
+	if k := protoHookDenialKind(errDetails, false); k != "" {
+		return k
+	}
+	return protoHookDenialKind(meta, true)
+}
+
+func protoHookDenialKind(blob []byte, skipToolCall bool) string {
 	if len(blob) == 0 {
-		return false
+		return ""
 	}
 	flds := search.ProtoFields(blob)
 	if len(flds) == 0 {
-		return hasHookDenialMarker(string(blob))
+		return hookDenialKind(string(blob))
 	}
+	best := ""
 	for _, fld := range flds {
 		if fld.Wire != 2 || (skipToolCall && len(fld.Path) > 0 && fld.Path[0] == 4) {
 			continue
 		}
-		if hasHookDenialMarker(string(fld.Bytes)) {
-			return true
+		switch k := hookDenialKind(string(fld.Bytes)); k {
+		case "clamped", "ledger":
+			return k
+		case "guard":
+			best = k
 		}
 	}
-	return false
+	return best
 }
 
-func hasHookDenialMarker(s string) bool {
+func hookDenialKind(s string) string {
 	if s == "" {
-		return false
+		return ""
 	}
-	for _, m := range hookDenialMarkers {
+	if strings.Contains(s, "[CLAMPED]") {
+		return "clamped"
+	}
+	if strings.Contains(s, "[UNCHANGED]") {
+		return "ledger"
+	}
+	for _, m := range hookDenialMarkers[2:] {
 		if strings.Contains(s, m) {
-			return true
+			return "guard"
 		}
 	}
-	return strings.Contains(strings.ToLower(s), "denied by pre-tool hook")
+	if strings.Contains(strings.ToLower(s), "denied by pre-tool hook") {
+		return "guard"
+	}
+	return ""
 }

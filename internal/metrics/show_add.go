@@ -307,24 +307,15 @@ func (s *Summary) verbs(v string, st stp) {
 	}
 }
 
-func (st *Store) addEvents(s *Summary, x sess) error {
+func (s *Summary) addSessionEvents(x sess, events []sessEvent) {
 	if x.parent != "" {
-		return nil
+		return
 	}
-	rows, err := st.db.Query(`SELECT kind, value FROM events WHERE session_id = ?`, x.id)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
 	commits, ambiguous, handoff := 0, 0, false
-	for rows.Next() {
-		var kind, value string
-		if err := rows.Scan(&kind, &value); err != nil {
-			return err
-		}
-		switch kind {
+	for _, ev := range events {
+		switch ev.kind {
 		case "commit":
-			if value == "ambiguous" {
+			if ev.value == "ambiguous" {
 				ambiguous++
 			} else {
 				commits++
@@ -332,9 +323,9 @@ func (st *Store) addEvents(s *Summary, x sess) error {
 		case "handoff":
 			handoff = true
 		case "verifier":
-			s.A.Verifier[value]++
+			s.A.Verifier[ev.value]++
 		case "review":
-			for _, kv := range strings.Split(value, ",") {
+			for _, kv := range strings.Split(ev.value, ",") {
 				k, n, _ := strings.Cut(kv, "=")
 				var c int
 				fmt.Sscan(n, &c)
@@ -355,5 +346,4 @@ func (st *Store) addEvents(s *Summary, x sess) error {
 		c.Ambiguous++
 	}
 	s.A.DoDClosed[x.vendor] = c
-	return rows.Err()
 }

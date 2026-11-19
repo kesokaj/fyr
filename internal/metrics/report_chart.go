@@ -57,7 +57,11 @@ func (p plot) grid(b *strings.Builder, days []Day) {
 	}
 	for i, d := range days {
 		if len(days) <= 8 || i == 0 || i == len(days)-1 || i%(len(days)/4+1) == 0 {
-			fmt.Fprintf(b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, p.x(i), chartH-8, esc(d.Date[5:]))
+			dayLbl := d.Date
+			if len(dayLbl) >= 5 {
+				dayLbl = dayLbl[5:]
+			}
+			fmt.Fprintf(b, `<text class="tick" x="%.1f" y="%.1f" text-anchor="middle">%s</text>`, p.x(i), chartH-8, esc(dayLbl))
 		}
 	}
 }

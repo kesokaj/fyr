@@ -141,29 +141,63 @@ func sameDirPath(a, b string) bool {
 	return ra == rb
 }
 
+type diskRootResult struct {
+	main string
+	ok   bool
+}
+
+type diskRootCache map[string]diskRootResult
+
+func (dc diskRootCache) resolve(dir string) (string, bool) {
+	clean := filepath.Clean(strings.TrimSpace(dir))
+	if clean == "" || clean == "." {
+		return "", false
+	}
+	if res, ok := dc[clean]; ok {
+		return res.main, res.ok
+	}
+	main, ok := resolveGitWorktreeOnDisk(clean)
+	dc[clean] = diskRootResult{main: main, ok: ok}
+	return main, ok
+}
+
 func resolveWorktreeRoots(convs []agyConv, db *sql.DB) {
+	resolveWorktreeRootsFor(convs, db, nil)
+}
+
+func resolveWorktreeRootsFor(convs []agyConv, db *sql.DB, changed map[string]bool) {
 	byID, parents, knownReal := loadExistingSessionRoots(db)
+	dc := diskRootCache{}
 	for i := range convs {
 		c := &convs[i]
 		if c.parent != "" {
 			parents[c.id] = c.parent
 		}
-		if main, ok := resolveGitWorktreeOnDisk(c.root); ok {
-			c.root = main
+		if changed == nil || changed[c.id] || byID[c.id] == "" {
+			if main, ok := dc.resolve(c.root); ok {
+				c.root = main
+			}
 		}
 		if c.root != "" && !isAgyWorktreePath(c.root) {
 			byID[c.id] = filepath.Clean(c.root)
 			knownReal = appendRealProjectCandidate(knownReal, c.root)
 		}
 	}
-	for i := range convs {
-		c := &convs[i]
-		if c.root != "" && !isAgyWorktreePath(c.root) {
-			continue
+	for {
+		updated := false
+		for i := range convs {
+			c := &convs[i]
+			if c.root != "" && !isAgyWorktreePath(c.root) {
+				continue
+			}
+			if resolved := resolveFallbackRoot(c.id, c.root, c.parent, byID, parents, knownReal); resolved != "" {
+				c.root = resolved
+				byID[c.id] = resolved
+				updated = true
+			}
 		}
-		if resolved := resolveFallbackRoot(c.id, c.root, c.parent, byID, parents, knownReal); resolved != "" {
-			c.root = resolved
-			byID[c.id] = resolved
+		if !updated {
+			break
 		}
 	}
 }
@@ -191,6 +225,9 @@ func loadExistingSessionRoots(db *sql.DB) (byID, parents map[string]string, know
 			byID[id] = clean
 			knownReal = appendRealProjectCandidate(knownReal, clean)
 		}
+	}
+	if rows.Err() != nil {
+		return byID, parents, knownReal
 	}
 	return byID, parents, knownReal
 }
@@ -258,6 +295,7 @@ func matchWorktreeToKnownRoot(wtName string, knownReal []string) string {
 
 func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]string, knownReal []string) {
 	byID, parents, wtMap := map[string]string{}, map[string]string{}, map[string]string{}
+	dc := diskRootCache{}
 	for _, x := range all {
 		if x.parent != "" {
 			parents[x.id] = x.parent
@@ -266,7 +304,7 @@ func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]s
 			continue
 		}
 		clean := filepath.Clean(x.root)
-		if main, ok := resolveGitWorktreeOnDisk(clean); ok {
+		if main, ok := dc.resolve(clean); ok {
 			wtMap[clean] = main
 			byID[x.id] = main
 			knownReal = appendRealProjectCandidate(knownReal, main)
@@ -275,17 +313,31 @@ func resolveSessionRoots(all []sess) (byID map[string]string, wtMap map[string]s
 			knownReal = appendRealProjectCandidate(knownReal, clean)
 		}
 	}
-	for _, x := range all {
-		clean := filepath.Clean(strings.TrimSpace(x.root))
-		if byID[x.id] != "" {
-			continue
-		}
-		if r := resolveFallbackRoot(x.id, clean, x.parent, byID, parents, knownReal); r != "" {
-			byID[x.id] = r
-			if clean != "" {
-				wtMap[clean] = r
+	propagateSessionFallbackRoots(all, byID, parents, wtMap, knownReal)
+	return byID, wtMap, knownReal
+}
+
+func propagateSessionFallbackRoots(all []sess, byID, parents, wtMap map[string]string, knownReal []string) {
+	for {
+		updated := false
+		for _, x := range all {
+			if byID[x.id] != "" {
+				continue
+			}
+			clean := ""
+			if tr := strings.TrimSpace(x.root); tr != "" {
+				clean = filepath.Clean(tr)
+			}
+			if r := resolveFallbackRoot(x.id, clean, x.parent, byID, parents, knownReal); r != "" {
+				byID[x.id] = r
+				if clean != "" {
+					wtMap[clean] = r
+				}
+				updated = true
 			}
 		}
+		if !updated {
+			break
+		}
 	}
-	return byID, wtMap, knownReal
 }

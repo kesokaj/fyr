@@ -75,7 +75,10 @@ func normalizeJudgeVerdictRow(r JudgeVerdictRow) (JudgeVerdictRow, error) {
 }
 
 func clipPrintable(s string, maxLen int) string {
-	s = printable(strings.TrimSpace(s))
+	return truncateUTF8(printable(strings.TrimSpace(s)), maxLen)
+}
+
+func truncateUTF8(s string, maxLen int) string {
 	for len(s) > maxLen {
 		_, sz := utf8.DecodeLastRuneInString(s)
 		if sz <= 0 {

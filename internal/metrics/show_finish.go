@@ -128,7 +128,7 @@ func (s *Summary) finishColumn(v string) {
 		}
 	} else {
 		s.D.Denials[v], s.D.Interrupts[v], s.B.Compactions[v] = nil, nil, nil
-		s.Notes = append(s.Notes, "agy: denials, interrupts and compactions are not recorded by the CLI")
+		s.Notes = append(s.Notes, "agy: interrupts are not recorded by the CLI; hook denials and compactions appear in health signals")
 		if s.B.CostUSD[v] == nil {
 			s.Notes = append(s.Notes, "agy: cost is not exposed by the CLI")
 		}

@@ -38,12 +38,22 @@ type agyConv struct {
 // plan; spec § Invariants). step_payload, the tool output, is never read.
 func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 	src := o.agyRoot()
-	if _, err := os.Stat(filepath.Join(src, "conversation_summaries.db")); errors.Is(err, os.ErrNotExist) {
-		return
-	}
+	sumPath := filepath.Join(src, "conversation_summaries.db")
 	fail := func(what string, err error) {
 		r.Failed = append(r.Failed, what)
 		fmt.Fprintln(log, printable(fmt.Sprintf("metrics: %s: %v", what, err)))
+	}
+	fi, err := os.Lstat(sumPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		fail(sumPath, err)
+		return
+	}
+	if !fi.Mode().IsRegular() {
+		fail(sumPath, errors.New("not a regular file"))
+		return
 	}
 	sweepCopies(filepath.Dir(s.path), time.Now())
 	tmp, err := os.MkdirTemp(filepath.Dir(s.path), "metrics-agy-")
@@ -55,21 +65,65 @@ func (s *Store) ingestAgy(o Options, r *Result, log io.Writer) {
 
 	convs, err := agyConversations(src, tmp, o.dreamWork())
 	if err != nil {
-		fail(filepath.Join(src, "conversation_summaries.db"), err)
+		fail(sumPath, err)
 		return
 	}
-	resolveWorktreeRoots(convs, s.db)
-	for _, c := range convs {
+	unchanged, changed := s.agyConvSyncState(src, convs)
+	resolveWorktreeRootsFor(convs, s.db, changed)
+	s.ingestChangedAgyConvs(src, tmp, convs, unchanged, o, fail)
+}
+
+func (s *Store) agyConvSyncState(src string, convs []agyConv) ([]bool, map[string]bool) {
+	unchanged := make([]bool, len(convs))
+	changed := make(map[string]bool, len(convs))
+	for i, c := range convs {
 		source := filepath.Join(src, "conversations", c.id+".db")
-		var mtime int64
-		err := s.db.QueryRow(`SELECT mtime FROM ingest_state WHERE source = ?`, source).Scan(&mtime)
-		if err == nil && mtime == c.modified {
+		fi, lerr := os.Lstat(source)
+		var curSize int64 = -1
+		if lerr == nil && fi.Mode().IsRegular() {
+			curSize = fi.Size()
+		}
+		var mtime, size int64
+		err := s.db.QueryRow(`SELECT mtime, size FROM ingest_state WHERE source = ?`, source).Scan(&mtime, &size)
+		if err == nil && c.modified != 0 && mtime == c.modified && curSize >= 0 && size == curSize {
+			unchanged[i] = true
+			continue
+		}
+		changed[c.id] = true
+	}
+	return unchanged, changed
+}
+
+func (s *Store) ingestChangedAgyConvs(src, tmp string, convs []agyConv, unchanged []bool, o Options, fail func(string, error)) {
+	for i, c := range convs {
+		source := filepath.Join(src, "conversations", c.id+".db")
+		if unchanged[i] {
+			if err := s.propagateResolvedRoot(c); err != nil {
+				fail(source, err)
+			}
+			continue
+		}
+		if fi, lerr := os.Lstat(source); lerr != nil && !errors.Is(lerr, os.ErrNotExist) {
+			fail(source, lerr)
+			continue
+		} else if lerr == nil && !fi.Mode().IsRegular() {
+			fail(source, errors.New("not a regular file"))
 			continue
 		}
 		if err := s.ingestAgyConversation(src, c, source, tmp, o); err != nil {
 			fail(source, err)
 		}
 	}
+}
+
+func (s *Store) propagateResolvedRoot(c agyConv) error {
+	if c.root == "" || isAgyWorktreePath(c.root) {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE sessions SET project_root = ?
+		WHERE id = ? AND (project_root IS NULL OR project_root = '' OR project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')`,
+		c.root, c.id)
+	return err
 }
 
 // agyConversations lists the conversations in src's summaries, without the
@@ -222,7 +276,8 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, st agyStep, f fields, 
 			kind = k
 		}
 	}
-	denied := isHookDenial(st.status, f, st.meta, st.errDetails)
+	denialKind := classifyHookDenial(st.status, f, st.meta, st.errDetails)
+	denied := denialKind != ""
 	isErr := st.status == agyFailed && !denied
 	// A conversation is re-read whole when it changes: a step first seen
 	// while running gets its final status and time (review 2026-10-08).
@@ -232,6 +287,13 @@ func (w *writer) agyTool(c agyConv, ext string, ts int64, st agyStep, f fields, 
 			is_error = excluded.is_error, denied = excluded.denied, cmd_hash = excluded.cmd_hash,
 			started_ms = excluded.started_ms, ended_ms = excluded.ended_ms, wait_ms = excluded.wait_ms`,
 		c.id, ext, ts, tool, skill, kind, boolInt(isErr), boolInt(denied), hash, started, ended, wait)
+	if denied {
+		w.exec(`INSERT INTO events(session_id, ts, kind, ref, value) VALUES (?, ?, 'hook_block', ?, ?)
+			ON CONFLICT(session_id, kind, ref) DO UPDATE SET ts = excluded.ts, value = excluded.value`,
+			c.id, ts, ext, denialKind)
+	} else {
+		w.exec(`DELETE FROM events WHERE session_id = ? AND kind = 'hook_block' AND ref = ?`, c.id, ext)
+	}
 	if tool == "Bash" {
 		for n, v := range Verb(args.CommandLine) {
 			w.exec(`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`, c.id, ext, n, v)

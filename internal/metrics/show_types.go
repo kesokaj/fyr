@@ -229,9 +229,14 @@ type sess struct {
 }
 
 type stp struct {
-	ext, kind, tool, skill, kindOf, hash string
-	ts, started, ended, wait             int64
-	isErr, denied                        bool
-	in, out, cr, cw, ctx                 int64
-	verbs                                []string
+	ext, kind, tool, skill, kindOf, hash, denialKind string
+	ts, started, ended, wait                         int64
+	isErr, denied                                    bool
+	in, out, cr, cw, ctx                             int64
+	verbs                                            []string
+}
+
+type sessEvent struct {
+	kind, ref, value string
+	ts               int64
 }

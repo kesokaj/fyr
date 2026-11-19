@@ -107,7 +107,10 @@ func (s *Store) RecordTrial(t Trial) error {
 }
 
 // trial is a trials row as show reads it.
-type trial struct{ label, run, status string }
+type trial struct {
+	label, run, status string
+	start              int64
+}
 
 // trialRuns is the run of every trial in the store, whatever its window: a
 // session whose run is among them is counted by its trial, in the window
@@ -139,7 +142,7 @@ func (s *Store) trialsIn(o ShowOptions, since, now time.Time) ([]trial, error) {
 	if o.Project != "" || (o.Label == "" && !o.AllLabels) {
 		return nil, nil
 	}
-	q := `SELECT label, run, status FROM trials WHERE started_at >= ? AND started_at < ?`
+	q := `SELECT label, run, status, COALESCE(started_at, 0) FROM trials WHERE started_at >= ? AND started_at < ?`
 	args := []any{since.UnixMilli(), now.UnixMilli()}
 	if o.Label != "" {
 		q += ` AND label = ?`
@@ -153,7 +156,7 @@ func (s *Store) trialsIn(o ShowOptions, since, now time.Time) ([]trial, error) {
 	var out []trial
 	for rows.Next() {
 		var t trial
-		if err := rows.Scan(&t.label, &t.run, &t.status); err != nil {
+		if err := rows.Scan(&t.label, &t.run, &t.status, &t.start); err != nil {
 			return nil, err
 		}
 		out = append(out, t)

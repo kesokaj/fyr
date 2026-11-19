@@ -12,47 +12,96 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func (s *Store) populateHealthAndFallbacks(sum *Summary, o ShowOptions, all []sess, since, now time.Time) error {
+func (s *Store) populateHealthAndFallbacks(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
 	home := resolveMetricsHome(o, s.path)
-	if o.Project == "" && o.Label == "" && home != "" {
+	if o.Project == "" && o.Label == "" && home != "" && !hasEvalPassK(sum.A.PassK) {
 		mergeDevEvalPassK(sum, home, since, now)
 	}
-	if err := s.populateJudgeVerdictsHealth(sum, o, since, now); err != nil {
+	if err := s.populateJudgeVerdictsHealth(sum, o, data.waves, since, now); err != nil {
 		return err
 	}
-	overBudget, err := s.collectStepHealth(&sum.Health, sum, all)
-	if err != nil {
-		return err
-	}
+	overBudget := collectStepHealth(&sum.Health, sum, all, data.steps)
 	if err := s.populateModelFamilyHealth(&sum.Health, o, since, now); err != nil {
 		return err
 	}
+	reconcileAutoModelRuns(sum, home, o, trials, data.waves, since, now)
 	if home != "" {
-		readAutoRunsHealth(sum, home, o, since, now)
 		readModelsQuotaHealth(&sum.Health, home)
 	}
 	if o.Label == "" {
-		inspectProjectSearchDBs(sum, home, o, all, since, now, overBudget)
+		inspectProjectSearchDBs(sum, home, o, all, overBudget)
 	}
 	finalizeHealthSignals(sum, overBudget)
 	if home != "" && len(sum.Projects) > 0 {
 		enrichProjectsFromBrainDB(sum.Projects, home, now)
 	}
+	redactProjectRowHomes(sum.Projects)
 	return nil
+}
+
+func hasEvalPassK(m map[string]PassK) bool {
+	for k := range m {
+		if strings.HasPrefix(k, evalPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactProjectRowHomes(projects []ProjectRow) {
+	for i := range projects {
+		projects[i].Project = redactHomePath(projects[i].Project)
+	}
 }
 
 func finalizeHealthSignals(sum *Summary, overBudget map[string]bool) {
 	sum.Health.SubagentsOverBudget = len(overBudget)
-	sum.Health.HookBlocksLedger = sum.E.LedgerSaved
-	sum.Health.HookBlocksGuards = max(0, sum.Health.HookDenials-sum.Health.ClampedSaves-sum.E.LedgerSaved)
 	sum.TriggerCoverage.SessionsOverKnee = sum.Health.SessionsOverKnee
 	sum.TriggerCoverage.MainSessions = sum.Health.MainSessions
 }
 
-func readAutoRunsHealth(sum *Summary, home string, o ShowOptions, since, now time.Time) {
+func reconcileAutoModelRuns(sum *Summary, home string, o ShowOptions, trials []trial, waves []waveRow, since, now time.Time) {
+	dbTotal, dbByDay := countDBAutoModelRuns(trials, waves)
+	total := dbTotal
+	if home != "" {
+		if runs, stateDay, ok := readAutoRunsHealth(sum, home, o, since, now); ok {
+			onDay := dbByDay[stateDay]
+			total = (dbTotal - onDay) + max(runs, onDay)
+		}
+	}
+	sum.Health.AutoModelRuns = total
+	sum.TriggerCoverage.AutoModelRuns = total
+	if d := now.Sub(since); d > 0 && total > 0 {
+		sum.TriggerCoverage.AutoModelRunsPerWeek = round4(float64(total) / (d.Hours() / (24 * 7)))
+	}
+}
+
+func countDBAutoModelRuns(trials []trial, waves []waveRow) (int, map[string]int) {
+	total := 0
+	byDay := map[string]int{}
+	for _, tr := range trials {
+		if strings.HasPrefix(tr.label, "auto=") {
+			total++
+			if tr.start > 0 {
+				byDay[time.UnixMilli(normalizeMilli(tr.start)).UTC().Format("2006-01-02")]++
+			}
+		}
+	}
+	for _, w := range waves {
+		if strings.HasPrefix(strings.TrimSpace(w.worker), "auto-") {
+			total++
+			if w.updatedAt > 0 {
+				byDay[time.UnixMilli(normalizeMilli(w.updatedAt)).UTC().Format("2006-01-02")]++
+			}
+		}
+	}
+	return total, byDay
+}
+
+func readAutoRunsHealth(sum *Summary, home string, o ShowOptions, since, now time.Time) (int, string, bool) {
 	data, ok := readBoundedRegularFile(home, harness.StateDir, "auto", "runs.json")
 	if !ok {
-		return
+		return 0, "", false
 	}
 	var st struct {
 		Date      string                     `json:"date"`
@@ -63,20 +112,20 @@ func readAutoRunsHealth(sum *Summary, home string, o ShowOptions, since, now tim
 		Projects  map[string]json.RawMessage `json:"projects"`
 	}
 	if json.Unmarshal(data, &st) != nil {
-		return
+		return 0, "", false
 	}
 	sum.Health.AutoRunsPresent = true
 	sum.Health.AutoOpenAsks = max(0, st.OpenAsks)
 	sum.Health.AutoLastVerdict = printable(strings.TrimSpace(st.Verdict))
 	sum.Health.AutoProjectCount = len(st.Projects)
-	if o.Label == "" && autoStateInWindow(st.LastRun, st.Date, since, now) {
-		runs := max(0, st.ModelRuns)
-		sum.Health.AutoModelRuns += runs
-		sum.TriggerCoverage.AutoModelRuns += runs
-		if d := now.Sub(since); d > 0 && sum.TriggerCoverage.AutoModelRuns > 0 {
-			sum.TriggerCoverage.AutoModelRunsPerWeek = round4(float64(sum.TriggerCoverage.AutoModelRuns) / (d.Hours() / (24 * 7)))
-		}
+	if o.Label != "" || o.Project != "" || !autoStateInWindow(st.LastRun, st.Date, since, now) {
+		return 0, "", false
 	}
+	day := strings.TrimSpace(st.Date)
+	if !st.LastRun.IsZero() {
+		day = st.LastRun.UTC().Format("2006-01-02")
+	}
+	return max(0, st.ModelRuns), day, true
 }
 
 func autoStateInWindow(lastRun time.Time, date string, since, now time.Time) bool {
@@ -87,7 +136,7 @@ func autoStateInWindow(lastRun time.Time, date string, since, now time.Time) boo
 		d, err := time.Parse("2006-01-02", strings.TrimSpace(date))
 		return err == nil && d.Add(24*time.Hour).After(since) && d.Before(now)
 	}
-	return true
+	return false
 }
 
 func readModelsQuotaHealth(h *HealthSignals, home string) {
@@ -108,7 +157,7 @@ func readModelsQuotaHealth(h *HealthSignals, home string) {
 	}
 }
 
-func inspectProjectSearchDBs(sum *Summary, home string, o ShowOptions, all []sess, since, now time.Time, overBudget map[string]bool) {
+func inspectProjectSearchDBs(sum *Summary, home string, o ShowOptions, all []sess, overBudget map[string]bool) {
 	roots := distinctProjectRoots(o, all)
 	knownMain, knownSub := indexSessionsByID(all)
 	for _, root := range roots {
@@ -117,7 +166,6 @@ func inspectProjectSearchDBs(sum *Summary, home string, o ShowOptions, all []ses
 			continue
 		}
 		sum.Health.SearchDBCompactions += querySearchDBSessionMeta(db, knownMain, knownSub, overBudget)
-		sum.Health.ClampedSaves += querySearchDBClampedSaves(db, since, now)
 		cleanup()
 	}
 }
@@ -175,6 +223,7 @@ func scanSessionMetaBudgets(db *sql.DB, cols map[string]bool, toolCol string, kn
 		return
 	}
 	defer rows.Close()
+	var found []string
 	for rows.Next() {
 		var id, agent, parent string
 		var tools int
@@ -182,8 +231,14 @@ func scanSessionMetaBudgets(db *sql.DB, cols map[string]bool, toolCol string, kn
 			continue
 		}
 		if capLimit, ok := subagentBudgetCap(id, agent, parent, knownSub, len(knownMain) > 0); ok && tools > capLimit {
-			overBudget[id] = true
+			found = append(found, id)
 		}
+	}
+	if rows.Err() != nil {
+		return
+	}
+	for _, id := range found {
+		overBudget[id] = true
 	}
 }
 
@@ -211,33 +266,6 @@ func isSubagentLikeID(low string) bool {
 		}
 	}
 	return false
-}
-
-func querySearchDBClampedSaves(db *sql.DB, since, now time.Time) int {
-	cols := tableCols(db, "read_ledger")
-	if !cols["start_line"] {
-		return 0
-	}
-	sel := `0`
-	if cols["updated_at"] {
-		sel = `COALESCE(updated_at, 0)`
-	}
-	rows, err := db.Query(`SELECT ` + sel + ` FROM read_ledger WHERE start_line = -5`)
-	if err != nil {
-		return 0
-	}
-	defer rows.Close()
-	saved := 0
-	for rows.Next() {
-		var ts int64
-		if rows.Scan(&ts) != nil {
-			continue
-		}
-		if ts == 0 || (normalizeMilli(ts) >= since.UnixMilli() && normalizeMilli(ts) < now.UnixMilli()) {
-			saved++
-		}
-	}
-	return saved
 }
 
 func enrichProjectsFromBrainDB(projects []ProjectRow, home string, now time.Time) {
@@ -288,7 +316,7 @@ func queryBrainHandoffLag(db *sql.DB, proj string, now time.Time) *int {
 			newest = t
 		}
 	}
-	if newest.IsZero() {
+	if rows.Err() != nil || newest.IsZero() {
 		return nil
 	}
 	days := max(0, int(now.UTC().Sub(newest).Hours()/24))

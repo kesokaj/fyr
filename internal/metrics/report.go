@@ -327,22 +327,6 @@ func outcomeTable(s *Summary, series []serie) table {
 		}
 		t.Rows = append(t.Rows, r)
 	}
-	pf := func(m map[string]*float64, format string) func(string) string {
-		return func(v string) string {
-			if m[v] == nil {
-				return "n/a"
-			}
-			return fmt.Sprintf(format, *m[v])
-		}
-	}
-	pi := func(m map[string]*int) func(string) string {
-		return func(v string) string {
-			if m[v] == nil {
-				return "n/a"
-			}
-			return fmt.Sprint(*m[v])
-		}
-	}
 	row("main sessions", func(v string) string { return fmt.Sprint(s.Sessions[v]) })
 	row("DoD closed (ambiguous) of", func(v string) string {
 		c := s.A.DoDClosed[v]
@@ -352,16 +336,46 @@ func outcomeTable(s *Summary, series []serie) table {
 	row("mean outcome / token efficiency", agyCol(fmt.Sprintf("%s / %s",
 		fmtFloatPtr(s.A.MeanOutcomeScore, "%.2f"), fmtFloatPtr(s.A.MeanTokenEfficiency, "%.2f"))))
 	row("tool calls", func(v string) string { return fmt.Sprint(s.B.ToolCalls[v]) })
-	row("cost USD", pf(s.B.CostUSD, "%.2f"))
+	row("cost USD", optFloatCol(s.B.CostUSD, "%.2f"))
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	row(fmt.Sprintf("sessions over context target (%d)", s.B.ContextTarget), s.overTarget)
-	row("fyr search : grep", pf(s.C.SearchGrepRatio, "%.3f"))
-	row("tool error rate", pf(s.D.ToolErrorRate, "%.3f"))
-	row("denials", pi(s.D.Denials))
-	row("interrupts", pi(s.D.Interrupts))
-	row("compactions", pi(s.B.Compactions))
+	row("fyr search : grep", optFloatCol(s.C.SearchGrepRatio, "%.3f"))
+	row("tool error rate", optFloatCol(s.D.ToolErrorRate, "%.3f"))
+	row("denials", agyFallbackCol(s.D.Denials, fmt.Sprint(s.Health.HookDenials)))
+	row("interrupts", optIntCol(s.D.Interrupts))
+	row("compactions", agyFallbackCol(s.B.Compactions, fmt.Sprintf("%d (steps:%d)", s.Health.SearchDBCompactions, s.Health.StepCompactions)))
 	appendOutcomeHealthRows(row, s)
 	return t
+}
+
+func optFloatCol(m map[string]*float64, format string) func(string) string {
+	return func(v string) string {
+		if m[v] == nil {
+			return "n/a"
+		}
+		return fmt.Sprintf(format, *m[v])
+	}
+}
+
+func optIntCol(m map[string]*int) func(string) string {
+	return func(v string) string {
+		if m[v] == nil {
+			return "n/a"
+		}
+		return fmt.Sprint(*m[v])
+	}
+}
+
+func agyFallbackCol(m map[string]*int, agyVal string) func(string) string {
+	return func(v string) string {
+		if m[v] != nil {
+			return fmt.Sprint(*m[v])
+		}
+		if v == "agy" {
+			return agyVal
+		}
+		return "n/a"
+	}
 }
 
 func appendOutcomeHealthRows(row func(string, func(string) string), s *Summary) {

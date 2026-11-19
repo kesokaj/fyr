@@ -144,7 +144,15 @@ func executivePulseSection(s *Summary, series []serie) reportSection {
 	addSeriesRow(&t, series, "Peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	addSeriesRow(&t, series, fmt.Sprintf("Over context target (%d)", s.B.ContextTarget), s.overTarget)
 	addSeriesRow(&t, series, "Sessions >= 180K knee", agyCol(fmt.Sprintf("%d / %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
-	addSeriesRow(&t, series, "Compactions", func(v string) string { return fmtIntPtr(s.B.Compactions[v]) })
+	addSeriesRow(&t, series, "Compactions", func(v string) string {
+		if s.B.Compactions[v] != nil {
+			return fmtIntPtr(s.B.Compactions[v])
+		}
+		if v == "agy" {
+			return fmt.Sprintf("%d (steps:%d)", s.Health.SearchDBCompactions, s.Health.StepCompactions)
+		}
+		return "n/a"
+	})
 	addSeriesRow(&t, series, "Search.db compactions", agyCol(fmt.Sprint(s.Health.SearchDBCompactions)))
 	return reportSection{Title: "1. Executive Pulse", Table: t}
 }
@@ -184,7 +192,7 @@ func qualityLoopSection(s *Summary, series []serie, evals *EvalRows) reportSecti
 		return fmt.Sprintf("%s / %d", fmtFloatPtr(s.D.ToolErrorRate[v], "%.3f"), s.D.RetryLoops[v])
 	})
 	addSeriesRow(&t, series, "Hook denials (excl. from error rate)", agyCol(fmt.Sprintf("%d (clamped:%d, ledger:%d, guards:%d)",
-		s.Health.HookDenials, s.Health.ClampedSaves, s.E.LedgerSaved, s.Health.HookBlocksGuards)))
+		s.Health.HookDenials, s.Health.ClampedSaves, s.Health.HookBlocksLedger, s.Health.HookBlocksGuards)))
 	addSeriesRow(&t, series, "Eval pass^k / suite", agyCol(fmtEvalSummary(s.A.PassK, evals)))
 	return reportSection{Title: "3. Quality & Learning Loop", Table: t}
 }
@@ -220,7 +228,7 @@ func projectBreakdownSection(s *Summary, series []serie) reportSection {
 		t := table{Head: []string{"Project", "Sessions", "Active min", "Tokens", "Search : grep", "Mean vet score", "Corrections", "Escaped bugs", "Last active", "Auto findings", "Handoff lag (d)"}}
 		for _, p := range s.Projects {
 			t.Rows = append(t.Rows, []string{
-				printable(p.Project),
+				printable(redactHomePath(p.Project)),
 				fmt.Sprint(p.Sessions),
 				fmt.Sprintf("%.1f", p.ActiveMin),
 				fmt.Sprint(p.Tokens),
