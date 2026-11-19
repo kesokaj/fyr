@@ -442,6 +442,96 @@ func TestEvalGate(t *testing.T) {
 			t.Fatalf("proposal missing ## Eval gate after verifyBranchForApply failure:\n%s", prop2.Body)
 		}
 	})
+
+	t.Run("holdout-not-starved-by-regression-rows", func(t *testing.T) {
+		extra := "| `reg-2` |  | check reg 2 |  | `true` |  | named | 1 | regression | reg |  |\n" +
+			"| `reg-3` |  | check reg 3 |  | `true` |  | named | 1 | regression | reg |  |\n" +
+			"| `reg-4` |  | check reg 4 |  | `true` |  | named | 1 | regression | reg |  |\n"
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, holdoutPath, _ := initHarnessEvalGateFixture(t, home, realHome, extra)
+		rows, err := collectGateRows(home, root, holdoutPath, []string{"alpha"}, ClassHarnessEdit)
+		if err != nil {
+			t.Fatalf("collectGateRows: %v", err)
+		}
+		if len(rows) != 6 {
+			t.Fatalf("len(rows) = %d, want 6: %+v", len(rows), rows)
+		}
+		if rows[0].ID != "alpha" || rows[1].ID != "secret-holdout" || !rows[1].IsHoldout {
+			t.Errorf("expected target + holdout before regressions, got rows = %+v", rows)
+		}
+	})
+
+	t.Run("runFyrEval-empty-self-fails-fast", func(t *testing.T) {
+		if _, err := runFyrEval(context.Background(), "", EvalRequest{Dir: t.TempDir(), Home: t.TempDir(), Row: "smoke"}); err == nil {
+			t.Fatalf("expected error on empty self executable")
+		}
+	})
+
+	t.Run("open-asks-decrement-and-reconcile", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, _, propID := initHarnessEvalGateFixture(t, home, realHome, "")
+		autoPropID, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-8 * time.Hour) }}, brain.AddInput{
+			Kind:    "proposal",
+			Status:  "queued",
+			Project: root,
+			Title:   "Auto, harness — tighten skills/alpha/SKILL.md",
+			Body:    strings.NewReader("Target: harness\nEvidence: BUG-001\n\nUpdate `skills/alpha/SKILL.md`.\n"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		closedStatus := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: propID, Status: &closedStatus}); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureDir(home); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveState(home, State{Date: "2026-11-01", OpenAsks: 1}); err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, root, &out)
+		o.Work = makeCandidateBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+		o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+			return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, Errors: 0, RecordID: "TEST-gate"}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		st, _, err := loadState(home)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.OpenAsks != 0 {
+			t.Errorf("OpenAsks = %d after applying proposal, want 0", st.OpenAsks)
+		}
+		// Externally opened then closed auto ask reconciles in Status.
+		askID, err := brain.Add(brain.Options{Home: home, Global: true}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: root, Title: "auto ask: external test", Body: strings.NewReader("test"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = autoPropID
+		st.OpenAsks = 1
+		if err := saveState(home, st); err != nil {
+			t.Fatal(err)
+		}
+		closed := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: askID, Status: &closed}); err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		if err := Status(o); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), "asks       0 open\n") {
+			t.Errorf("Status did not reconcile externally closed ask:\n%s", out.String())
+		}
+	})
 }
 
 type countingUsageEnv struct {

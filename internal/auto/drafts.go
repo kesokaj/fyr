@@ -250,7 +250,7 @@ func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, erro
 		return Finding{}, errors.New("proposal title is empty")
 	}
 	prefix := "Auto, " + d.Target + " — "
-	if !strings.HasPrefix(title, "Auto, ") {
+	if !strings.HasPrefix(title, prefix) {
 		title = prefix + title
 	}
 	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n\n%s", d.Target, class, strings.TrimSpace(d.Body))

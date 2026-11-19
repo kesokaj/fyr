@@ -80,11 +80,11 @@ func TestTasksTriggers(t *testing.T) {
 	t.Run("retro-lite-then-memory-candidates", func(t *testing.T) {
 		home := t.TempDir()
 		root := initGitRepo(t)
-		convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+		convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "session-1", ".system_generated", "logs")
 		if err := os.MkdirAll(convDir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		convFile := filepath.Join(convDir, "session-1.jsonl")
+		convFile := filepath.Join(convDir, "transcript.jsonl")
 		if err := os.WriteFile(convFile, []byte(`{"role":"user","content":"working in `+root+`"}`+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -101,6 +101,14 @@ func TestTasksTriggers(t *testing.T) {
 		task2 := r.pickProjectTask(root, &p, nil)
 		if task2 == nil || task2.Class != ClassMemoryCandidates || task2.Count != 1 {
 			t.Fatalf("run after retro-lite: got %+v, want memory-candidates count 1", task2)
+		}
+		// Without a matching conversation in window, memory-candidates does not trigger.
+		if err := os.Chtimes(convFile, now, now); err != nil {
+			t.Fatal(err)
+		}
+		p.LastMemoryCandidates = now.Add(time.Hour)
+		if task3 := r.pickProjectTask(root, &p, nil); task3 != nil {
+			t.Fatalf("empty conversations still triggered memory-candidates: %+v", task3)
 		}
 	})
 
@@ -189,6 +197,7 @@ func writeFakeMetricsDB(t *testing.T, home, root string, verbs []string, frictio
 func TestTasksRedactedLearningInput(t *testing.T) {
 	home := t.TempDir()
 	root := initGitRepo(t)
+	writeTree(t, root, ".gitignore", ".agents/scratch/\n")
 	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 
 	tok := "ghp_" + strings.Repeat("Z", 36)
@@ -211,11 +220,11 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFakeMetricsDB(t, home, root, []string{"search,record"}, []int{1})
-	convDir := filepath.Join(home, ".gemini", "antigravity", "conversations")
+	convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c1", ".system_generated", "logs")
 	if err := os.MkdirAll(convDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(convDir, "c1.jsonl"), []byte(`{"project":"`+root+`","text":"token `+tok+`"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(`{"project":"`+root+`","text":"token `+tok+`"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,28 +258,29 @@ func TestTasksRedactedLearningInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteKickoff: %v", err)
 	}
-	if err := r.prepareLearningWorker(root, &p, task, k.Path); err != nil {
+	cutoff, err := r.prepareLearningWorker(root, &p, task, k.Path)
+	if err != nil {
 		t.Fatalf("prepareLearningWorker: %v", err)
 	}
 	kData, err := os.ReadFile(k.Path)
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", k.Path, err)
 	}
-	if !strings.Contains(string(kData), "## Redacted learning input") || !strings.Contains(string(kData), "## Conversation c1.jsonl") || strings.Contains(string(kData), tok) {
-		t.Errorf("Kickoff missing redacted conversation or leaked secret:\n%s", string(kData))
+	if !strings.Contains(string(kData), "## Redacted learning input") || !strings.Contains(string(kData), "## Conversation c1") || !strings.Contains(string(kData), "=====") || strings.Contains(string(kData), tok) {
+		t.Errorf("Kickoff missing fenced redacted conversation or leaked value:\n%s", string(kData))
 	}
 	// After retro-lite finishes and advances p.LastRetroLite, memory-candidates
 	// on the next sweep still receives the conversation via p.LastMemoryCandidates.
-	r.recordLearningProgress(&p, task)
+	r.recordLearningProgress(&p, task, cutoff)
 	mcTask := Task{Class: ClassMemoryCandidates, Outcome: OutcomeDrafts, DraftsOnly: true, Count: p.PendingMemoryCandidates}
 	mcScrubbed, err := r.writeLearningInput(root, &p, mcTask)
 	if err != nil {
 		t.Fatalf("writeLearningInput(memory-candidates): %v", err)
 	}
-	if !strings.Contains(mcScrubbed, "## Conversation c1.jsonl") {
+	if !strings.Contains(mcScrubbed, "## Conversation c1") {
 		t.Errorf("memory-candidates after retro-lite lost conversation:\n%s", mcScrubbed)
 	}
-	r.recordLearningProgress(&p, mcTask)
+	r.recordLearningProgress(&p, mcTask, cutoff)
 	if p.PendingMemoryCandidates != 0 || p.LastMemoryCandidates.IsZero() {
 		t.Errorf("after memory-candidates progress: %+v", p)
 	}
@@ -332,6 +342,130 @@ func TestDistillRouting(t *testing.T) {
 		task := r.triggerProjectClass(root, &p, ClassDistill, nil)
 		if task == nil || task.Class != ClassDistill || task.Outcome != OutcomeProposal || len(task.Kept) != 1 || !strings.HasPrefix(task.Kept[0], ".agents/skills/auto-distilled-") {
 			t.Fatalf("consumer distill = %+v, want OutcomeProposal and .agents/skills/auto-distilled-*", task)
+		}
+	})
+}
+
+func TestLearningInputHardeningAndCutoff(t *testing.T) {
+	t.Run("non-gitignored-skips-context-and-symlink-fails-closed", func(t *testing.T) {
+		home := t.TempDir()
+		root := initGitRepo(t)
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
+		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
+		if _, err := r.writeLearningInput(root, &Project{}, task); err != nil {
+			t.Fatalf("writeLearningInput(non-ignored): %v", err)
+		}
+		if _, err := os.Lstat(filepath.Join(root, ".agents", "scratch", "auto-input", "context.md")); !os.IsNotExist(err) {
+			t.Errorf("non-gitignored repo wrote context.md: err=%v", err)
+		}
+		writeTree(t, root, ".gitignore", ".agents/scratch/\n")
+		if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(t.TempDir(), filepath.Join(root, ".agents", "scratch")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.writeLearningInput(root, &Project{}, task); err == nil {
+			t.Errorf("expected symlinked .agents/scratch to fail closed")
+		}
+	})
+
+	t.Run("redact-jsonl-utf8-longest-prefix-and-conv-reserve", func(t *testing.T) {
+		tok := "gh" + "p_" + strings.Repeat("Q", 36)
+		escaped := marshalRedactedJSON(func() (any, error) {
+			return map[string]string{"v": "x\u003d\"y\" " + tok}, nil
+		})
+		if strings.Contains(escaped, tok) {
+			t.Errorf("marshalRedactedJSON leaked secret: %s", escaped)
+		}
+		realHome := "/home/op"
+		scratchHome := "/home/op/scratch"
+		scrubbed := scrubHomeAndRedact("path "+scratchHome+"/a and "+realHome+"/b "+strings.Repeat("é", 25000), realHome, scratchHome)
+		if strings.Contains(scrubbed, "/scratch") || strings.ContainsRune(scrubbed, '\uFFFD') {
+			t.Errorf("longest-prefix or UTF-8 truncation failed: containsScratch=%v", strings.Contains(scrubbed, "/scratch"))
+		}
+		home := t.TempDir()
+		root := initGitRepo(t)
+		writeTree(t, root, ".gitignore", ".agents/scratch/\n")
+		bo := brain.Options{Home: home, Dir: root, Now: func() time.Time { return runAt }}
+		for i := 0; i < 6; i++ {
+			if _, err := brain.MemoryAdd(bo, brain.MemoryEntry{
+				Type: "project", Name: fmt.Sprintf("huge-%d", i), Description: "fill non-conv budget",
+			}, strings.NewReader(strings.Repeat("M", 8192))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-keep", ".system_generated", "logs")
+		if err := os.MkdirAll(convDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(`{"cwd":"`+root+`","msg":"KEEP_CONVERSATION_MARKER"}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
+		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
+		got, err := r.writeLearningInput(root, &Project{}, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "KEEP_CONVERSATION_MARKER") {
+			t.Errorf("conversations starved despite 16 KiB reserve")
+		}
+		k, err := WriteKickoff(home, runAt, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := appendKickoffInput(k.Path, strings.Repeat("é", 40000)); err != nil {
+			t.Fatal(err)
+		}
+		kBytes, err := os.ReadFile(k.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kStr := string(kBytes)
+		if strings.ContainsRune(kStr, '\uFFFD') || strings.Count(kStr, "=====") < 2 {
+			t.Errorf("appendKickoffInput broke UTF-8 or fence markers (count=%d)", strings.Count(kStr, "====="))
+		}
+	})
+
+	t.Run("sibling-prefix-rejected-and-cutoff-captured-at-start", func(t *testing.T) {
+		home := t.TempDir()
+		root := initGitRepo(t)
+		sibling := root + "-sibling"
+		tStart := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+		now := tStart
+		conv1Dir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c-old", ".system_generated", "logs")
+		conv2Dir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c-new", ".system_generated", "logs")
+		sibDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "c-sib", ".system_generated", "logs")
+		for _, d := range []string{conv1Dir, conv2Dir, sibDir} {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		f1 := filepath.Join(conv1Dir, "transcript.jsonl")
+		f2 := filepath.Join(conv2Dir, "transcript.jsonl")
+		fSib := filepath.Join(sibDir, "transcript.jsonl")
+		_ = os.WriteFile(f1, []byte(`{"cwd":"`+root+`","n":1}`+"\n"), 0o600)
+		_ = os.WriteFile(f2, []byte(`{"cwd":"`+root+`","n":2}`+"\n"), 0o600)
+		_ = os.WriteFile(fSib, []byte(`{"cwd":"`+sibling+`"}`+"\n"), 0o600)
+		_ = os.Chtimes(f1, tStart.Add(-90*time.Minute), tStart.Add(-90*time.Minute))
+		// Modified at T_start - 50m: not yet idle (1h) when worker starts at T_start.
+		_ = os.Chtimes(f2, tStart.Add(-50*time.Minute), tStart.Add(-50*time.Minute))
+		_ = os.Chtimes(fSib, tStart.Add(-90*time.Minute), tStart.Add(-90*time.Minute))
+
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{ConversationIdle: "1h"}}
+		var p Project
+		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true, Count: 1}
+		cutoff, err := r.prepareLearningWorker(root, &p, task, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Advance clock 20 minutes during worker execution, then record progress.
+		now = tStart.Add(20 * time.Minute)
+		r.recordLearningProgress(&p, task, cutoff)
+		convs := r.conversationsSince(root, p.LastRetroLite)
+		if len(convs) != 1 || convs[0].label != "c-new" {
+			t.Errorf("conversations after worker advance = %+v, want [c-new] only (no drop, no sibling)", convs)
 		}
 	})
 }

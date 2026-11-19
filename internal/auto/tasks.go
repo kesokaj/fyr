@@ -46,7 +46,9 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Fin
 		}
 	case ClassMemoryCandidates:
 		if p.PendingMemoryCandidates > 0 {
-			return preparedTask(ClassMemoryCandidates, nil, "", p.PendingMemoryCandidates)
+			if convs := r.conversationsSince(root, p.LastMemoryCandidates); len(convs) > 0 {
+				return preparedTask(ClassMemoryCandidates, nil, "", len(convs))
+			}
 		}
 	case ClassDistill:
 		if slug, n := r.repeatedVerbSequence(root); n >= distillRepeatThreshold && slug != "" {
@@ -106,8 +108,11 @@ func (r *run) conversationCutoff() time.Time {
 }
 
 func (r *run) conversationsSince(root string, since time.Time) []convSource {
+	return r.conversationsSinceCutoff(root, since, r.conversationCutoff())
+}
+
+func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []convSource {
 	var out []convSource
-	cutoff := r.conversationCutoff()
 	homes := []string{r.o.realHome()}
 	if r.o.Home != "" && r.o.Home != homes[0] {
 		homes = append(homes, r.o.Home)
@@ -131,32 +136,49 @@ func (r *run) conversationsSince(root string, since time.Time) []convSource {
 }
 
 func appendDirConversations(out []convSource, seen map[string]bool, home, root string, since, cutoff time.Time) []convSource {
-	for _, sub := range []string{
-		filepath.Join(home, ".gemini", "antigravity", "conversations"),
-		filepath.Join(home, ".gemini", "antigravity-cli", "brain"),
-	} {
-		entries, err := os.ReadDir(sub)
-		if err != nil {
+	brainDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain")
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		convID := e.Name()
+		if seen[convID] || convID == "" || convID == "." || convID == ".." {
 			continue
 		}
-		for _, e := range entries {
-			p := filepath.Join(sub, e.Name())
-			info, err := e.Info()
-			if err != nil || (!since.IsZero() && !info.ModTime().After(since)) || (!cutoff.IsZero() && info.ModTime().After(cutoff)) {
-				continue
-			}
-			if info.Mode().IsRegular() && !seen[p] {
-				if raw, ok := readFileMentionsRoot(p, root); ok {
-					seen[p] = true
-					out = append(out, convSource{label: filepath.Base(p), text: redact.RedactJSONL(raw)})
-				}
-			}
+		p, info, ok := openBrainTranscript(brainDir, convID)
+		if !ok || (!since.IsZero() && !info.ModTime().After(since)) || (!cutoff.IsZero() && info.ModTime().After(cutoff)) {
+			continue
+		}
+		if raw, ok := readFileMentionsRoot(p, root); ok {
+			seen[convID] = true
+			out = append(out, convSource{label: convID, text: redact.RedactJSONL(raw)})
 		}
 	}
 	return out
 }
 
+func openBrainTranscript(brainDir, convID string) (string, os.FileInfo, bool) {
+	cur := brainDir
+	for _, seg := range []string{convID, ".system_generated", "logs"} {
+		cur = filepath.Join(cur, seg)
+		info, err := os.Lstat(cur)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return "", nil, false
+		}
+	}
+	p := filepath.Join(cur, "transcript.jsonl")
+	info, err := os.Lstat(p)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", nil, false
+	}
+	return p, info, true
+}
+
 func readFileMentionsRoot(path, root string) (string, bool) {
+	if root == "" {
+		return "", false
+	}
 	f, err := isolate.OpenRegular(path, os.O_RDONLY)
 	if err != nil {
 		return "", false
@@ -167,7 +189,53 @@ func readFileMentionsRoot(path, root string) (string, bool) {
 		return "", false
 	}
 	s := string(b)
-	return s, strings.Contains(s, root)
+	return s, textMentionsPath(s, root)
+}
+
+func textMentionsPath(text, root string) bool {
+	clean := filepath.Clean(root)
+	if clean != "/" {
+		clean = strings.TrimRight(clean, "/")
+	}
+	if clean == "" {
+		return false
+	}
+	for start := 0; start < len(text); {
+		idx := strings.Index(text[start:], clean)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		end := pos + len(clean)
+		if pathBoundaryBefore(text, pos) && pathBoundaryAfter(text, end, clean) {
+			return true
+		}
+		start = pos + 1
+	}
+	return false
+}
+
+func pathBoundaryBefore(s string, pos int) bool {
+	if pos == 0 {
+		return true
+	}
+	b := s[pos-1]
+	if b == '/' {
+		return pos >= 3 && s[pos-3:pos] == "://"
+	}
+	return !isPathWordByte(b)
+}
+
+func pathBoundaryAfter(s string, end int, clean string) bool {
+	if end == len(s) {
+		return true
+	}
+	b := s[end]
+	return b == '/' || clean == "/" || !isPathWordByte(b)
+}
+
+func isPathWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '.' || b == '-'
 }
 
 func (r *run) repeatedVerbSequence(root string) (string, int) {

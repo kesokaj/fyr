@@ -2,6 +2,7 @@ package auto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,15 +80,6 @@ func (r *run) betweenEvalRows(root string, runsBefore int, rowID string, finding
 	return ""
 }
 
-func sameDir(a, b string) bool {
-	ia, errA := os.Stat(a)
-	ib, errB := os.Stat(b)
-	if errA == nil && errB == nil {
-		return os.SameFile(ia, ib)
-	}
-	return filepath.Clean(a) == filepath.Clean(b)
-}
-
 // readCheckoutSuite is the suite `fyr eval` reads in root: the tracked file
 // when root has one (ADR-500), else the GUIDE-eval record of root's scope.
 func readCheckoutSuite(home, root string) ([]eval.Row, error) {
@@ -160,16 +152,22 @@ func isIdentByte(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }
 
-func (r *run) runEvalRow(req EvalRequest) (EvalOutcome, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), r.o.limit(workerTimeout))
+func (r *run) runEvalRow(ctx context.Context, req EvalRequest) (EvalOutcome, error) {
+	if ctx == nil {
+		ctx = r.context()
+	}
+	tctx, cancel := context.WithTimeout(ctx, r.o.limit(workerTimeout))
 	defer cancel()
 	if r.o.Eval != nil {
-		return r.o.Eval(ctx, req)
+		return r.o.Eval(tctx, req)
 	}
-	return runFyrEval(ctx, r.o.self(), req)
+	return runFyrEval(tctx, r.o.self(), req)
 }
 
 func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome, error) {
+	if strings.TrimSpace(self) == "" {
+		return EvalOutcome{}, errors.New("fyr executable path unknown")
+	}
 	if err := ensureDir(req.Home); err != nil {
 		return EvalOutcome{}, err
 	}
@@ -187,6 +185,14 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 			return EvalOutcome{}, fmt.Errorf("checkout %s for eval: %v: %s", req.Commit, err, oneLine(out))
 		}
 	}
+	cmd := exec.CommandContext(ctx, self, evalArgv(req)...)
+	cmd.Dir = cloneDir
+	cmd.Env = evalCleanEnv()
+	raw, runErr := cmd.CombinedOutput()
+	return parseEvalOutcome(req.Row, string(raw), runErr)
+}
+
+func evalArgv(req EvalRequest) []string {
 	argv := []string{"eval", "--home", req.Home, "--runs", strconv.Itoa(max(req.Runs, 1))}
 	if req.Fixture != "" {
 		argv = append(argv, "--fixture", req.Fixture)
@@ -194,25 +200,29 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 	if req.SuiteFile != "" {
 		argv = append(argv, "--suite-file", req.SuiteFile)
 	}
-	argv = append(argv, req.Row)
-	cmd := exec.CommandContext(ctx, self, argv...)
-	cmd.Dir = cloneDir
+	return append(argv, req.Row)
+}
+
+func evalCleanEnv() []string {
+	var env []string
 	for _, kv := range isolate.WithoutGit(os.Environ()) {
 		if !strings.HasPrefix(kv, "FYR_REPO=") {
-			cmd.Env = append(cmd.Env, kv)
+			env = append(env, kv)
 		}
 	}
-	raw, runErr := cmd.CombinedOutput()
-	out := string(raw)
+	return env
+}
+
+func parseEvalOutcome(row, out string, runErr error) (EvalOutcome, error) {
 	m := evalSummaryRe.FindStringSubmatch(out)
 	if m == nil {
 		if runErr != nil {
-			return EvalOutcome{}, fmt.Errorf("fyr eval %s: %v: %s", req.Row, runErr, oneLine(out))
+			return EvalOutcome{}, fmt.Errorf("fyr eval %s: %v: %s", row, runErr, oneLine(out))
 		}
-		return EvalOutcome{}, fmt.Errorf("fyr eval %s: no summary line in output", req.Row)
+		return EvalOutcome{}, fmt.Errorf("fyr eval %s: no summary line in output", row)
 	}
-	pass, _ := strconv.Atoi(m[1])
+	ok, _ := strconv.Atoi(m[1])
 	graded, _ := strconv.Atoi(m[2])
 	errs, _ := strconv.Atoi(m[3])
-	return EvalOutcome{Row: req.Row, Passed: pass, Graded: graded, Errors: errs, RecordID: m[4], Output: out}, nil
+	return EvalOutcome{Row: row, Passed: ok, Graded: graded, Errors: errs, RecordID: m[4], Output: out}, nil
 }

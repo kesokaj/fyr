@@ -204,7 +204,7 @@ func trailFindings(recs []brain.Record) []Finding {
 // comes here.
 func (r *run) machineFindings() (fs []Finding, failed bool) {
 	if r.o.Install != nil {
-		found, err := limited(r.o.limit(installLimit), func() ([]Finding, error) { return r.o.Install(), nil })
+		found, err := limited(r.context(), r.o.limit(installLimit), func() ([]Finding, error) { return r.o.Install(), nil })
 		fs = append(fs, found...)
 		if err != nil {
 			failed = true
@@ -212,7 +212,7 @@ func (r *run) machineFindings() (fs []Finding, failed bool) {
 		}
 	}
 	if r.o.Metrics != nil {
-		found, err := limited(r.o.limit(metricsLimit), r.o.Metrics)
+		found, err := limited(r.context(), r.o.limit(metricsLimit), r.o.Metrics)
 		fs = append(fs, found...)
 		if err != nil {
 			failed = true

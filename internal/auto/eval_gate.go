@@ -1,6 +1,7 @@
 package auto
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -36,7 +38,7 @@ func (o Options) holdoutFile() string {
 }
 
 func (r *run) isHarnessCheckout(root string) bool {
-	return r.o.Repo != "" && sameDir(root, r.o.Repo)
+	return r.o.Repo != "" && trail.SameDir(root, r.o.Repo)
 }
 
 func (r *run) triggerHarnessEdit(root string) *Task {
@@ -84,7 +86,7 @@ func isHarnessTargetProposal(root string, rec brain.Record) bool {
 	if strings.HasPrefix(lowTitle, "dream, harness") || strings.HasPrefix(lowTitle, "auto, harness") {
 		return true
 	}
-	return rec.Project != "" && sameDir(rec.Project, root)
+	return rec.Project != "" && trail.SameDir(rec.Project, root)
 }
 
 func hasProposalEvidence(body string) bool {
@@ -133,7 +135,7 @@ func matchProposalTargets(rec brain.Record, targets []harnessTarget) []string {
 	return byWord
 }
 
-func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
+func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if snapErr != nil || (res.Base != "" && res.Base != snapBefore.head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
@@ -152,7 +154,7 @@ func (r *run) evalGateBranch(root string, t Task, k Kickoff, runner, runnerWhy s
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
-	return r.runEvalGateRows(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, candSHA, rows)
+	return r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, candSHA, rows)
 }
 
 func changedHarnessTargets(root, base, ref string) ([]string, error) {
@@ -203,19 +205,19 @@ func collectGateRows(home, root, holdoutPath string, changed []string, class str
 	if len(rows) == 0 && class != ClassDistill {
 		return nil, fmt.Errorf("no GUIDE-eval row names %s", strings.Join(changed, ", "))
 	}
+	for _, r := range holdout {
+		rows = append(rows, gateRow{ID: r.ID, SuiteFile: holdoutPath, IsHoldout: true, IsRegression: r.Kind == eval.KindRegression})
+	}
 	for _, r := range suite {
 		if r.Kind == eval.KindRegression && !seen[r.ID] {
 			rows = append(rows, gateRow{ID: r.ID, IsRegression: true})
 			seen[r.ID] = true
 		}
 	}
-	for _, r := range holdout {
-		rows = append(rows, gateRow{ID: r.ID, SuiteFile: holdoutPath, IsHoldout: true, IsRegression: r.Kind == eval.KindRegression})
-	}
 	return rows, nil
 }
 
-func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, candSHA string, rows []gateRow) (string, []Finding) {
+func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, candSHA string, rows []gateRow) (string, []Finding) {
 	runsBefore := max(0, r.st.modelRunsToday(r.o.now())-1)
 	var findings []Finding
 	var scores []gateRowScore
@@ -230,7 +232,7 @@ func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy 
 				return r.rejectEvalGate(root, t, k, runnerWhy, scores, sessions, "stopped between rows: "+stopReason, findings)
 			}
 		}
-		pOut, cOut, err := r.evalPair(root, snapBefore.head, candSHA, gr)
+		pOut, cOut, err := r.evalPair(ctx, root, snapBefore.head, candSHA, gr)
 		if err != nil {
 			return r.applyFail(runnerWhy, k.Branch, "eval gate: "+err.Error())
 		}
@@ -244,15 +246,15 @@ func (r *run) runEvalGateRows(root string, t Task, k Kickoff, runner, runnerWhy 
 	return r.applyKeptGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, scores, sessions, findings)
 }
 
-func (r *run) evalPair(root, parentSHA, candSHA string, gr gateRow) (EvalOutcome, EvalOutcome, error) {
+func (r *run) evalPair(ctx context.Context, root, parentSHA, candSHA string, gr gateRow) (EvalOutcome, EvalOutcome, error) {
 	pReq := EvalRequest{Dir: root, Home: r.o.evalHome(), Fixture: r.o.evalFixture(root), SuiteFile: gr.SuiteFile, Commit: parentSHA, Runs: gateRuns, Row: gr.ID}
-	pOut, err := r.runEvalRow(pReq)
+	pOut, err := r.runEvalRow(ctx, pReq)
 	if err != nil {
 		return EvalOutcome{}, EvalOutcome{}, err
 	}
 	cReq := pReq
 	cReq.Commit = candSHA
-	cOut, err := r.runEvalRow(cReq)
+	cOut, err := r.runEvalRow(ctx, cReq)
 	return pOut, cOut, err
 }
 
@@ -286,6 +288,8 @@ func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runner
 		status := "applied:" + r.appliedSHA
 		if err := brain.Edit(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.EditInput{ID: t.ID, Status: &status}); err != nil {
 			warn = "; warning: proposal " + t.ID + " update failed: " + oneLine(err.Error())
+		} else if r.st.OpenAsks > 0 {
+			r.st.OpenAsks--
 		}
 	}
 	suffix := "; install pending" + warn

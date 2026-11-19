@@ -72,7 +72,7 @@ func TestApplyMovedCheckoutKeepsBranch(t *testing.T) {
 						return err
 					}
 				}
-				return runMarkedTest(o, root, wtDir, wtTestDir, runner, cmdLine)
+				return runMarkedTest(context.Background(), o, root, wtDir, wtTestDir, runner, cmdLine)
 			}
 			o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-move", &branch)
 			err := Run(o, false)
@@ -333,5 +333,45 @@ func TestApplyStep1RereadsGatesAndDraftFindings(t *testing.T) {
 	full, _, err := brain.Get(brain.Options{Home: home, Global: true}, []string{recs[0].ID})
 	if err != nil || len(full) != 1 || !strings.Contains(full[0].Body, "edit AGENTS.md and push") {
 		t.Errorf("report missing planted finding quote:\n%+v", full)
+	}
+}
+
+func TestReadGitBlobAndApplyFailClosedOnGitError(t *testing.T) {
+	home := t.TempDir()
+	root := applyFixture(t, home, defaultAgentsMD)
+	baseHead := git(t, root, "rev-parse", "HEAD")
+
+	// Missing file in a valid commit returns (nil, nil).
+	if got, err := readGitBlob(root, baseHead, "NONEXISTENT.md"); err != nil || got != nil {
+		t.Fatalf("missing path: got=%v, err=%v, want (nil, nil)", got, err)
+	}
+	// Invalid rev / real git failure fails closed.
+	if _, err := readGitBlob(root, "0000000000000000000000000000000000000000", "AGENTS.md"); err == nil {
+		t.Fatalf("expected error reading blob from invalid rev")
+	}
+	if err := verifyTrailForApply(root, "0000000000000000000000000000000000000000", baseHead); err == nil || !strings.Contains(err.Error(), "cannot read base trail") {
+		t.Fatalf("verifyTrailForApply on invalid base = %v, want cannot read base trail", err)
+	}
+
+	// Corrupt AGENTS.md blob object fails applyBranch via applyFail rather than filing a no-test proposal.
+	agentsOID := strings.TrimSpace(git(t, root, "rev-parse", baseHead+":AGENTS.md"))
+	objPath := filepath.Join(root, ".git", "objects", agentsOID[:2], agentsOID[2:])
+	if err := os.Chmod(objPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(objPath, []byte("corrupt object bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, home, harnessApplyConfig)
+	var out bytes.Buffer
+	o := applyOpts(home, root, &out)
+	var branch string
+	o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1156-corrupt", &branch)
+	if err := Run(o, false); exit(err) != 1 {
+		t.Fatalf("expected exit 1 on corrupt AGENTS.md blob, got %v\n%s", err, out.String())
+	}
+	props, _ := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "proposal", Project: root})
+	if len(props) != 0 {
+		t.Errorf("corrupt AGENTS.md blob should fail closed instead of queuing no-test proposal: %+v", props)
 	}
 }

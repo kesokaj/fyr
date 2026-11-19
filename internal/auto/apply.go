@@ -121,6 +121,20 @@ func (r *run) checkoutMovedFail(runnerWhy, class, branch string) (string, []Find
 	return "checkout moved; branch " + branch + " kept", []Finding{{"worker", class, branch, msg}}
 }
 
+// readGitBlob returns the blob bytes at rev:path, or (nil, nil) if the path
+// does not exist in rev's tree. Any git or object read error fails closed.
+func readGitBlob(root, rev, path string) ([]byte, error) {
+	spec := rev + ":" + path
+	if _, err := applyGitBytes(root, nil, "cat-file", "-e", spec); err != nil {
+		out, lsErr := applyGit(root, nil, "ls-tree", "-z", rev, "--", path)
+		if lsErr == nil && out == "" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return applyGitBytes(root, nil, "show", spec)
+}
+
 // applyBranch runs § The apply step (steps 1–7).
 func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if r.o.Apply != nil {
@@ -134,7 +148,10 @@ func (r *run) applyBranch(root string, t Task, k Kickoff, runner, runnerWhy stri
 	if err != nil || snapErr != nil || snap != snapBefore || (res.Base != "" && res.Base != snap.head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
-	agentsBytes, _ := applyGitBytes(root, nil, "show", snap.head+":AGENTS.md")
+	agentsBytes, err := readGitBlob(root, snap.head, "AGENTS.md")
+	if err != nil {
+		return r.applyFail(runnerWhy, k.Branch, "read AGENTS.md: "+err.Error())
+	}
 	tests := parseAutoTests(string(agentsBytes))
 	if len(tests) == 0 {
 		id, askF := r.fileNoTestAsk(root, t, k.Branch)
@@ -265,7 +282,7 @@ func (r *run) verifyWorktree(root, wtDir, name, runner string, tests []string) e
 		}
 		defer os.RemoveAll(wtTestDir)
 	}
-	runTest := r.o.testRunner(root, wtTestDir)
+	runTest := r.o.testRunner(r.context(), root, wtTestDir)
 	for _, cmdLine := range tests {
 		if err := runTest(wtDir, runner, cmdLine); err != nil {
 			return fmt.Errorf("marked test %q: %w", cmdLine, err)
@@ -340,7 +357,10 @@ func checkRawDiff(root, base, ref, class string, rawDiff []byte) error {
 }
 
 func verifyTrailForApply(root, base, ref string) error {
-	baseTrail, _ := applyGitBytes(root, nil, "show", base+":.agents/trail.jsonl")
+	baseTrail, err := readGitBlob(root, base, ".agents/trail.jsonl")
+	if err != nil {
+		return fmt.Errorf("cannot read base trail: %w", err)
+	}
 	refTrail, err := applyGitBytes(root, nil, "show", ref+":.agents/trail.jsonl")
 	if err != nil {
 		return fmt.Errorf("cannot read branch trail: %w", err)

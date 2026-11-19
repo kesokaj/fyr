@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeConfig(t *testing.T, home, text string) {
@@ -159,5 +160,21 @@ func TestAutoConfigStrictJSON(t *testing.T) {
 				t.Errorf("%+v, found %v, err %v", c, found, err)
 			}
 		})
+	}
+}
+
+func TestConversationIdleDuration(t *testing.T) {
+	if got := ConversationIdleDuration(t.TempDir()); got != time.Hour {
+		t.Errorf("missing config = %v, want 1h", got)
+	}
+	corruptHome := t.TempDir()
+	writeConfig(t, corruptHome, "{bad json")
+	if got := ConversationIdleDuration(corruptHome); got != time.Hour {
+		t.Errorf("corrupt config = %v, want 1h", got)
+	}
+	validHome := t.TempDir()
+	writeConfig(t, validHome, `{"enabled": true, "conversation_idle": "2h"}`)
+	if got := ConversationIdleDuration(validHome); got != 2*time.Hour {
+		t.Errorf("valid config = %v, want 2h", got)
 	}
 }

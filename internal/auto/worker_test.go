@@ -371,11 +371,27 @@ func TestTriggerSelectionAndSymlinkTripwire(t *testing.T) {
 		cfg: Config{},
 		st:  State{Date: "2026-11-01"},
 	}
-	// memory-candidates has priority over missing-skill unless memory-candidates ran last.
-	if task := r.pickProjectTask(root, &Project{PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMemoryCandidates {
+	// memory-candidates has priority over missing-skill unless memory-candidates ran last,
+	// provided there is at least one matching conversation in window.
+	if task := r.pickProjectTask(root, &Project{PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMissingSkill {
+		t.Fatalf("empty conversations pick: got %+v, want missing-skill", task)
+	}
+	convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-1", ".system_generated", "logs")
+	if err := os.MkdirAll(convDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	convFile := filepath.Join(convDir, "transcript.jsonl")
+	if err := os.WriteFile(convFile, []byte(`{"project":"`+root+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	convTime := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(convFile, convTime, convTime); err != nil {
+		t.Fatal(err)
+	}
+	if task := r.pickProjectTask(root, &Project{LastRetroLite: convTime, LastMemoryCandidates: convTime.Add(-time.Hour), PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMemoryCandidates {
 		t.Fatalf("first pick: %+v", task)
 	}
-	if task := r.pickProjectTask(root, &Project{LastClass: ClassMemoryCandidates, PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMissingSkill {
+	if task := r.pickProjectTask(root, &Project{LastClass: ClassMemoryCandidates, LastRetroLite: convTime, LastMemoryCandidates: convTime, PendingMemoryCandidates: 2}, nil); task == nil || task.Class != ClassMissingSkill {
 		t.Fatalf("rotated pick: %+v", task)
 	}
 	// All targets rubric-denied (e.g. agents/ and AGENTS.md) leaves Kept empty and queues an ask.

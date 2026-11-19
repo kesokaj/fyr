@@ -2,6 +2,7 @@ package auto
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func TestRunMarkedTestShellSanitizesGitEnv(t *testing.T) {
 	t.Setenv("GIT_WORK_TREE", "/tmp/bad-work-tree")
 	t.Setenv("ANTIGRAVITY_SOURCE_METADATA", `{"commandLine":"GIT_DIR=/nonexistent GIT_WORK_TREE=/x go test"}`)
 	o := Options{Home: wtTestDir, RealHome: wtTestDir, ReadLimit: 5 * time.Second, TestUnconfined: isolate.CheckAvailable() != nil}
-	if err := runMarkedTest(o, "", bin, wtTestDir, "isolate", "env -0 > "+isolate.ShellQuote(rec)); err != nil {
+	if err := runMarkedTest(context.Background(), o, "", bin, wtTestDir, "isolate", "env -0 > "+isolate.ShellQuote(rec)); err != nil {
 		t.Fatalf("runMarkedTest: %v", err)
 	}
 	b, err := os.ReadFile(rec)
@@ -132,5 +133,20 @@ func TestRunMarkedTestConfinedAndScrubsHostEnv(t *testing.T) {
 		if rc := strings.TrimSpace(readFile(t, escapeRC)); rc == "" || rc == "0" {
 			t.Errorf("write inside realHome returned rc=%q, want non-zero", rc)
 		}
+	}
+}
+
+func TestReportBodyDistinguishesWorkerRan(t *testing.T) {
+	fs := []Finding{{"worker", "retro-lite", "work/k", "PASS; branch work/k kept"}}
+	workerBody := reportBodyWithApplied("proj", "", true, false, fs)
+	if strings.Contains(workerBody, "from the free checks; nothing was changed") {
+		t.Errorf("worker-ran report falsely claimed free-checks-only:\n%s", workerBody)
+	}
+	if !strings.Contains(workerBody, "worker ran; no checkout commit applied") {
+		t.Errorf("worker-ran report missing worker note:\n%s", workerBody)
+	}
+	freeBody := reportBody("proj", fs)
+	if !strings.Contains(freeBody, "from the free checks; nothing was changed") {
+		t.Errorf("free-checks report changed unexpectedly:\n%s", freeBody)
 	}
 }

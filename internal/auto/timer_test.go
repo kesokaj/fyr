@@ -164,3 +164,39 @@ func TestAutoRetiresLegacyDreamTimer(t *testing.T) {
 		}
 	}
 }
+
+func TestTimerWrapperHelpers(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			home := homeWithBinary(t)
+			fakeManagers(t, "0")
+			if TimerInstalledHere(home, goos) {
+				t.Fatalf("TimerInstalledHere(%s) = true before install", goos)
+			}
+			if err := unit.Install(home, "/p:/q", goos); err != nil {
+				t.Fatalf("unit.Install(%s): %v", goos, err)
+			}
+			if !TimerInstalledHere(home, goos) {
+				t.Fatalf("TimerInstalledHere(%s) = false after install", goos)
+			}
+			otherOS := "darwin"
+			if goos == "darwin" {
+				otherOS = "linux"
+			}
+			if files := OtherSystemTimerFiles(home, otherOS); len(files) == 0 {
+				t.Errorf("OtherSystemTimerFiles(%s) empty when %s unit installed", otherOS, goos)
+			}
+			removed, err := RemoveTimer(home, goos)
+			if err != nil || !removed {
+				t.Fatalf("RemoveTimer(%s) = (%v, %v), want (true, nil)", goos, removed, err)
+			}
+			if TimerInstalledHere(home, goos) {
+				t.Errorf("TimerInstalledHere(%s) still true after RemoveTimer", goos)
+			}
+			removed2, err2 := RemoveTimer(home, goos)
+			if err2 != nil || removed2 {
+				t.Errorf("second RemoveTimer(%s) = (%v, %v), want (false, nil)", goos, removed2, err2)
+			}
+		})
+	}
+}

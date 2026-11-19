@@ -112,6 +112,7 @@ func (r *run) fileAsk(root string, t Task) (string, Finding) {
 
 func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	r.workerRan = true
+	r.projectWorkerRan = true
 	cfgBefore, cfgErr := readBounded(ConfigPath(r.o.Home), configLimit)
 	if today := r.o.now().Format("2006-01-02"); r.st.Date < today {
 		r.st.Date, r.st.ModelRuns = today, 0
@@ -138,20 +139,21 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 		r.failed = true
 		return "worker runner error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
-	if err := r.prepareLearningWorker(root, p, t, k.Path); err != nil {
+	learningCutoff, err := r.prepareLearningWorker(root, p, t, k.Path)
+	if err != nil {
 		r.failed = true
 		return "worker input error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
 	defer cleanLearningInput(root)
 	snapBefore, snapErr := takeCheckoutSnapshot(root)
-	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	sig, stop := signal.NotifyContext(r.context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	defer stop()
 	resList, runErr := r.o.workRun()(sig, wo, k.Path)
-	stop()
 	var res isolate.WorkerResult
 	if len(resList) > 0 {
 		res = resList[0]
 	}
-	return r.finishWorker(root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr)
+	return r.finishWorker(sig, root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr, learningCutoff)
 }
 
 func (r *run) workOptions(root string) isolate.WorkerOptions {
@@ -172,7 +174,7 @@ func (r *run) workOptions(root string) isolate.WorkerOptions {
 	}
 }
 
-func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error) (string, []Finding) {
+func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error, learningCutoff time.Time) (string, []Finding) {
 	defer cleanProjectDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
@@ -211,15 +213,15 @@ func (r *run) finishWorker(root string, p *Project, t Task, k Kickoff, runner, r
 	}
 	cleanProjectDrafts(root, res.DraftsDir)
 	p.LastClass = t.Class
-	r.recordLearningProgress(p, t)
-	v, bf := r.finishPassBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+	r.recordLearningProgress(p, t, learningCutoff)
+	v, bf := r.finishPassBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	return v, append(draftFindings, bf...)
 }
 
-func (r *run) recordLearningProgress(p *Project, t Task) {
-	mark := r.o.now()
-	if cutoff := r.conversationCutoff(); !cutoff.IsZero() {
-		mark = cutoff
+func (r *run) recordLearningProgress(p *Project, t Task, cutoff time.Time) {
+	mark := cutoff
+	if mark.IsZero() {
+		mark = r.o.now()
 	}
 	switch t.Class {
 	case ClassMemoryConsolidation:
@@ -233,9 +235,9 @@ func (r *run) recordLearningProgress(p *Project, t Task) {
 	}
 }
 
-func (r *run) finishPassBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
+func (r *run) finishPassBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
 	if t.Outcome == OutcomeEvalGate {
-		return r.evalGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+		return r.evalGateBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	}
 	msg := withRunner(fmt.Sprintf("PASS; branch %s kept", k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}

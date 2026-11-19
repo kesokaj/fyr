@@ -3,6 +3,7 @@ package auto
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -68,16 +69,16 @@ type Options struct {
 	AgyVersion func() string
 }
 
-func (o Options) testRunner(root, wtTestDir string) func(wtDir, runner, cmdLine string) error {
+func (o Options) testRunner(ctx context.Context, root, wtTestDir string) func(wtDir, runner, cmdLine string) error {
 	if o.TestRunner != nil {
 		return o.TestRunner
 	}
 	return func(wtDir, runner, cmdLine string) error {
-		return runMarkedTest(o, root, wtDir, wtTestDir, runner, cmdLine)
+		return runMarkedTest(ctx, o, root, wtDir, wtTestDir, runner, cmdLine)
 	}
 }
 
-func runMarkedTest(o Options, root, wtDir, wtTestDir, _ /* runner */, cmdLine string) error {
+func runMarkedTest(ctx context.Context, o Options, root, wtDir, wtTestDir, _ /* runner */, cmdLine string) error {
 	var ro []string
 	if root != "" {
 		ro = append(ro, filepath.Join(root, ".git"))
@@ -93,10 +94,15 @@ func runMarkedTest(o Options, root, wtDir, wtTestDir, _ /* runner */, cmdLine st
 		RWPaths:     o.TestRW,
 		Unconfined:  o.TestUnconfined,
 	}
-	return runShellTest(opts, o.limit(workerTimeout))
+	return runShellTest(ctx, opts, o.limit(workerTimeout))
 }
 
-func runShellTest(opts isolate.CommandOpts, timeout time.Duration) error {
+func runShellTest(ctx context.Context, opts isolate.CommandOpts, timeout time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	cmd, cleanup, err := isolate.Command(opts)
 	if err != nil {
 		return err
@@ -114,27 +120,30 @@ func runShellTest(opts isolate.CommandOpts, timeout time.Duration) error {
 		return err
 	}
 	cleanup()
-	if err := waitShellTest(cmd, timeout); err != nil {
+	if err := waitShellTest(tctx, cmd, timeout); err != nil {
 		return fmt.Errorf("%v: %s", err, oneLine(out.String()))
 	}
 	return nil
 }
 
-func waitShellTest(cmd *exec.Cmd, timeout time.Duration) error {
+func waitShellTest(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) error {
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	select {
 	case err := <-done:
 		return err
-	case <-timer.C:
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	case <-ctx.Done():
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
 		err := <-done
-		if err == nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("timed out after %s", timeout)
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return ctx.Err()
 	}
 }
 

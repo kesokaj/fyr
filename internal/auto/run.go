@@ -1,8 +1,12 @@
 package auto
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
@@ -48,11 +52,13 @@ func Run(o Options, dryRun bool) error {
 		say("budget: not read in a dry run")
 		return r.exit()
 	}
-	return o.locked(c, now, say)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	defer stop()
+	return o.locked(ctx, c, now, say)
 }
 
 // locked is a real run past G1.
-func (o Options) locked(c Config, now time.Time, say func(string)) error {
+func (o Options) locked(ctx context.Context, c Config, now time.Time, say func(string)) error {
 	if err := ensureDir(o.Home); err != nil {
 		fmt.Fprintln(o.Out, "auto: "+oneLine(err.Error()))
 		return &ExitError{Code: 1}
@@ -86,13 +92,14 @@ func (o Options) locked(c Config, now time.Time, say func(string)) error {
 		}
 		return nil
 	}
-	return o.finishSweep(c, st, now, say, preFailed)
+	return o.finishSweep(ctx, c, st, now, say, preFailed)
 }
 
-func (o Options) finishSweep(c Config, st State, now time.Time, say func(string), preFailed bool) error {
-	r := &run{o: o, env: o.env(), cfg: c, say: say, st: st}
+func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.Time, say func(string), preFailed bool) error {
+	r := &run{ctx: ctx, o: o, env: o.env(), cfg: c, say: say, st: st}
 	r.sweep()
 	r.st.LastRun, r.st.Verdict = now, r.verdict
+	r.st.OpenAsks = reconcileOpenAsks(r.o.Home, r.o.Now, r.st.OpenAsks)
 	if err := saveState(o.Home, r.st); err != nil {
 		say("auto: state: " + err.Error())
 		return &ExitError{Code: 1}
@@ -147,6 +154,7 @@ func (o Options) runPreSweep(c Config, say func(string)) (Config, bool, bool) {
 
 // run is one pass over the machine and its projects.
 type run struct {
+	ctx     context.Context
 	o       Options
 	env     Env
 	cfg     Config
@@ -157,13 +165,21 @@ type run struct {
 	failed  bool
 	halted  bool // again stopped the run inside a project
 
-	usageRead       bool
-	usageText       string
-	usageErr        error
-	workerRan       bool
-	pendingReportID string
-	appliedSHA      string
-	installPending  bool
+	usageRead        bool
+	usageText        string
+	usageErr         error
+	workerRan        bool
+	projectWorkerRan bool
+	pendingReportID  string
+	appliedSHA       string
+	installPending   bool
+}
+
+func (r *run) context() context.Context {
+	if r.ctx != nil {
+		return r.ctx
+	}
+	return context.Background()
 }
 
 func (r *run) exit() error {
@@ -209,7 +225,7 @@ func (r *run) sweep() {
 		return
 	}
 	env, home := r.env, r.o.Home
-	targets, err := limited(r.o.limit(projectLimit), func() ([]dream.Target, error) { return env.Targets(home) })
+	targets, err := limited(r.context(), r.o.limit(projectLimit), func() ([]dream.Target, error) { return env.Targets(home) })
 	if err != nil {
 		r.stopMachine("targets: " + oneLine(err.Error()))
 		r.failed = true
@@ -252,6 +268,7 @@ func (r *run) sweep() {
 
 // project is one target's checks and health; it says whether health ran.
 func (r *run) project(root, skip string) bool {
+	r.projectWorkerRan = false
 	p := r.st.Projects[root]
 	read := projectRead{stop: "skipped: " + skip}
 	if skip == "" {
@@ -279,7 +296,7 @@ func (r *run) readProject(root string) projectRead {
 		return projectRead{}
 	}
 	o, dry, readFn := r.o, r.dry, readable
-	got, err := limited(o.limit(projectLimit), func() ([]projectRead, error) {
+	got, err := limited(r.context(), o.limit(projectLimit), func() ([]projectRead, error) {
 		if _, _, rerr := trail.Roots(root); errors.Is(rerr, trail.ErrNotCheckout) {
 			return []projectRead{{}}, nil
 		} else if rerr != nil {
@@ -316,9 +333,14 @@ const (
 	metricsLimit = 30 * time.Minute
 )
 
-// limited runs read and gives up on it after d. Its goroutine may outlive the
-// run, so read must touch nothing the run still uses.
-func limited[T any](d time.Duration, read func() ([]T, error)) ([]T, error) {
+// limited runs read and gives up on it after d or when ctx cancels. Its
+// goroutine may outlive the run, so read must touch nothing the run still uses.
+func limited[T any](ctx context.Context, d time.Duration, read func() ([]T, error)) ([]T, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tctx, cancel := context.WithTimeout(ctx, d)
+	defer cancel()
 	type answer struct {
 		got []T
 		err error
@@ -331,8 +353,11 @@ func limited[T any](d time.Duration, read func() ([]T, error)) ([]T, error) {
 	select {
 	case a := <-done:
 		return a.got, a.err
-	case <-time.After(d):
-		return nil, fmt.Errorf("a read took over %s", d)
+	case <-tctx.Done():
+		if errors.Is(tctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return nil, fmt.Errorf("a read took over %s", d)
+		}
+		return nil, tctx.Err()
 	}
 }
 

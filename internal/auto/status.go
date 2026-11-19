@@ -2,8 +2,14 @@ package auto
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func (o Options) timerSaid(c Config) string {
@@ -58,8 +64,44 @@ func Status(o Options) error {
 	if st.Budget != "" {
 		fmt.Fprintln(o.Out, "quota      "+oneLine(st.Budget))
 	}
-	fmt.Fprintf(o.Out, "asks       %d open\n", st.OpenAsks)
+	fmt.Fprintf(o.Out, "asks       %d open\n", reconcileOpenAsks(o.Home, o.Now, st.OpenAsks))
 	return nil
+}
+
+func isAutoAskTitle(title string) bool {
+	return strings.HasPrefix(title, "auto ask:") || strings.HasPrefix(title, "Auto, ")
+}
+
+func reconcileOpenAsks(home string, now func() time.Time, current int) int {
+	if _, err := os.Lstat(filepath.Join(home, harness.StateDir, "brain.db")); err != nil {
+		return current
+	}
+	opts := brain.Options{Home: home, Global: true, Now: now}
+	all, err := brain.List(opts, brain.ListFilter{Kind: "proposal"})
+	if err != nil {
+		return current
+	}
+	hasAuto := false
+	for _, rec := range all {
+		if isAutoAskTitle(rec.Title) {
+			hasAuto = true
+			break
+		}
+	}
+	if !hasAuto {
+		return current
+	}
+	open, err := brain.List(opts, brain.ListFilter{Kind: "proposal", Open: true})
+	if err != nil {
+		return current
+	}
+	n := 0
+	for _, rec := range open {
+		if isAutoAskTitle(rec.Title) {
+			n++
+		}
+	}
+	return min(current, n)
 }
 
 // StatusLine is `fyr status`'s auto line: it reads, and never fails the

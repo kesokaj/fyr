@@ -256,3 +256,23 @@ func TestDraftsMemoryTypeScopeAndSessions(t *testing.T) {
 		t.Errorf("project memory = %+v", pRecs[0])
 	}
 }
+
+func TestDraftsProposalPrefixEnforced(t *testing.T) {
+	home := t.TempDir()
+	root := initGitRepo(t)
+	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	r := &run{o: Options{Home: home, Now: func() time.Time { return now }}}
+	line := `{"kind": "proposal", "target": "harness", "title": "Auto, project — sneak target", "body": "Evidence: 3 sessions."}` + "\n"
+	fs := r.processDraftLines(root, ClassRetroLite, []byte(line))
+	if len(fs) != 0 {
+		t.Fatalf("unexpected findings: %+v", fs)
+	}
+	g := brain.Options{Home: home, Global: true, Now: r.o.Now}
+	props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Project: root})
+	if err != nil || len(props) != 1 {
+		t.Fatalf("props = %+v, err = %v", props, err)
+	}
+	if !strings.HasPrefix(props[0].Title, "Auto, harness — ") {
+		t.Errorf("proposal title %q bypassed target prefix", props[0].Title)
+	}
+}
