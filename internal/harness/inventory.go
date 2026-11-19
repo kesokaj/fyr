@@ -41,7 +41,6 @@ type Doc struct {
 	Raw         []byte
 }
 
-// Inventory is everything the repo contributes. Each field is a directory:
 // Inventory is everything the repo holds in its four customization
 // directories plus workflows/: adding a skill, agent, command, workflow script,
 // or rule is adding a file, so any session that installs from this repo picks
@@ -252,116 +251,6 @@ func loadAgents(src Source) ([]Agent, error) {
 	return agents, nil
 }
 
-// loadDocs reads every *.md directly under the named source directories as
-// one kind, whose frontmatter may set only allowed. Missing directories are
-// fine; the same name in two of them is not.
-func loadDocs(src Source, kind string, allowed []string, dirs ...string) ([]Doc, error) {
-	seen := map[string]string{}
-	var docs []Doc
-	for _, dir := range dirs {
-		paths, err := fs.Glob(src.FS, dir+"/*.md")
-		if err != nil {
-			return nil, err
-		}
-		for _, p := range paths {
-			raw, err := src.readRegular(p)
-			if err != nil {
-				return nil, err
-			}
-			shown := src.path(p)
-			name := strings.TrimSuffix(path.Base(p), ".md")
-			if err := validName(kind, shown, name); err != nil {
-				return nil, err
-			}
-			if prev, dup := seen[name]; dup {
-				return nil, fmt.Errorf("%s and %s both define %q", prev, shown, name)
-			}
-			seen[name] = shown
-			desc, trigger, text, err := readDocFrontmatter(kind, shown, string(raw), allowed)
-			if err != nil {
-				return nil, err
-			}
-			if desc == "" {
-				desc = firstLine(text)
-			}
-			docs = append(docs, Doc{Name: name, Description: desc, Trigger: trigger, Path: shown, Raw: raw})
-		}
-	}
-	sort.Slice(docs, func(i, j int) bool { return docs[i].Name < docs[j].Name })
-	return docs, nil
-}
-
-func readDocFrontmatter(kind, shown, text string, allowed []string) (desc, trigger, body string, err error) {
-	front, body, err := Split(text)
-	if err != nil {
-		if opensFrontmatter(text) {
-			// Not "no frontmatter": a block that starts and cannot be
-			// read would deploy as written with its keys unchecked.
-			return "", "", "", fmt.Errorf("%s: frontmatter starts but cannot be read (the opening --- must be the very first line, alone on it, and a closing --- must follow); a command or rule has a readable frontmatter block or none", shown)
-		}
-		return "", "", text, nil
-	}
-	fm, err := parseStrict(front)
-	if err != nil {
-		return "", "", "", fmt.Errorf("%s: %w", shown, err)
-	}
-	if k := unlistedKey(front, allowed); k != "" {
-		return "", "", "", fmt.Errorf("%s: %s is not a key a harness %s sets (%s); a new one is added by a D-row, and a key that grants a permission never is — the operator's permission mode decides (IN23, BUG-143)", shown, k, kind, strings.Join(allowed, ", "))
-	}
-	trigger = fm["trigger"]
-	if kind == "rule" {
-		if err := validateRuleTrigger(shown, fm); err != nil {
-			return "", "", "", err
-		}
-	}
-	return fm["description"], trigger, body, nil
-}
-
-func validateRuleTrigger(shown string, fm Frontmatter) error {
-	trigger := fm["trigger"]
-	switch trigger {
-	case "", "always_on", "model_decision", "glob":
-	default:
-		return fmt.Errorf("%s: unknown rule trigger %q (supported: always_on, model_decision, glob)", shown, trigger)
-	}
-	globs, hasGlobs := fm["globs"]
-	if hasGlobs && trigger != "glob" {
-		return fmt.Errorf("%s: rule setting globs requires trigger: glob", shown)
-	}
-	if trigger == "glob" {
-		if err := validateRuleGlobs(shown, globs); err != nil {
-			return err
-		}
-	}
-	if trigger == "model_decision" && strings.TrimSpace(fm["description"]) == "" {
-		return fmt.Errorf("%s: rule with trigger: model_decision requires a non-empty description", shown)
-	}
-	return nil
-}
-
-func validateRuleGlobs(shown, globs string) error {
-	if strings.TrimSpace(globs) == "" {
-		return fmt.Errorf("%s: rule with trigger: glob requires a non-empty globs pattern", shown)
-	}
-	for _, pat := range strings.Split(globs, ",") {
-		pat = strings.TrimSpace(pat)
-		if pat == "" {
-			return fmt.Errorf("%s: rule with trigger: glob has an empty pattern segment in %q", shown, globs)
-		}
-		norm := strings.ReplaceAll(pat, "\\", "/")
-		hasDrive := len(norm) >= 2 && unicode.IsLetter(rune(norm[0])) && norm[1] == ':'
-		if strings.HasPrefix(norm, "/") || strings.HasPrefix(norm, "~/") || hasDrive || filepath.IsAbs(pat) {
-			return fmt.Errorf("%s: rule glob %q must be repo-relative, not absolute", shown, pat)
-		}
-		for _, seg := range strings.Split(norm, "/") {
-			if seg == ".." {
-				return fmt.Errorf("%s: rule glob %q must not contain '..' path traversal", shown, pat)
-			}
-		}
-	}
-	return nil
-}
-
 func firstLine(s string) string {
 	for _, l := range strings.Split(s, "\n") {
 		if l = strings.TrimSpace(strings.TrimLeft(l, "# ")); l != "" {
@@ -369,45 +258,6 @@ func firstLine(s string) string {
 		}
 	}
 	return ""
-}
-
-// RenderInventory produces the markdown inventory printed by fyr list.
-func RenderInventory(inv Inventory) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Installed skills, agents, commands, and rules\n\n")
-	fmt.Fprintf(&b, "Generated by `fyr` from the harness repo; `fyr list` prints the same.%s\n\n", slashNote(inv))
-	fmt.Fprintf(&b, "### Skills (%d)\n\n| Skill | Invoke | Use for |\n|---|---|---|\n", len(inv.Skills))
-	for _, s := range inv.Skills {
-		invoke := "auto"
-		if s.SlashOnly {
-			invoke = "`/" + s.Name + "`"
-		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", s.Name, invoke, cell(s.Description, 140))
-	}
-	fmt.Fprintf(&b, "\n### Subagents (%d)\n\n| Agent | Model | Does |\n|---|---|---|\n", len(inv.Agents))
-	for _, a := range inv.Agents {
-		// The model key as written; none means the CLI's default.
-		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", a.Name, a.Front["model"], cell(a.Description, 160))
-	}
-	if len(inv.Commands) > 0 {
-		fmt.Fprintf(&b, "\n### Commands (%d)\n\n| Command | Does |\n|---|---|\n", len(inv.Commands))
-		for _, c := range inv.Commands {
-			fmt.Fprintf(&b, "| `/%s` | %s |\n", c.Name, cell(c.Description, 160))
-		}
-	}
-	if len(inv.Rules) > 0 {
-		fmt.Fprintf(&b, "\n### Rules (%d)\n\n| Rule | About |\n|---|---|\n", len(inv.Rules))
-		for _, r := range inv.Rules {
-			fmt.Fprintf(&b, "| `%s` | %s |\n", r.Name, cell(r.Description, 160))
-		}
-	}
-	if len(inv.WorkflowScripts) > 0 {
-		fmt.Fprintf(&b, "\n### Workflow scripts (%d)\n\n| Script | Does |\n|---|---|\n", len(inv.WorkflowScripts))
-		for _, w := range inv.WorkflowScripts {
-			fmt.Fprintf(&b, "| `%s.py` | %s |\n", w.Name, cell(w.Description, 160))
-		}
-	}
-	return b.String()
 }
 
 // opensFrontmatter reports whether the first non-blank line looks like a
@@ -428,33 +278,6 @@ func opensFrontmatter(text string) bool {
 		return strings.HasPrefix(line, "---") && !strings.HasPrefix(line, "----")
 	}
 	return false
-}
-
-// slashNote explains the `/name` marking, but only when some skill carries
-// `disable-model-invocation`; with none, the sentence would describe nothing.
-func slashNote(inv Inventory) string {
-	for _, s := range inv.Skills {
-		if s.SlashOnly {
-			return " Skills marked `/name` are typed by the user; the rest load when their description matches."
-		}
-	}
-	return " Every skill loads when its description matches the task and can also be typed as `/name`."
-}
-
-// cell shortens text for a table cell and escapes the column separator.
-func cell(s string, max int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	// By runes: a byte cut can split a multi-byte character (security audit
-	// 2026-09-18).
-	if r := []rune(s); len(r) > max {
-		head := string(r[:max])
-		cut := strings.LastIndex(head, " ")
-		if cut < len(head)/2 {
-			cut = len(head)
-		}
-		s = head[:cut] + "…"
-	}
-	return strings.ReplaceAll(s, "|", `\|`)
 }
 
 // descriptionIsMultiLine reports whether the frontmatter's description is a

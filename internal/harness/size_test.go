@@ -51,7 +51,7 @@ func measureRulesBlock(src Source) (rulesBlockStats, error) {
 	if err != nil {
 		return rulesBlockStats{}, err
 	}
-	ctx, err := RenderContext(src, inv)
+	ctx, err := RenderContext(src)
 	if err != nil {
 		return rulesBlockStats{}, err
 	}
@@ -122,11 +122,7 @@ func TestRenderedContextUnderTarget(t *testing.T) {
 	if _, err := fs.Stat(src.FS, "context/AGENTS.md"); err != nil {
 		t.Fatalf("this test reads the checkout at ../..: %v", err)
 	}
-	inv, err := LoadInventory(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, err := RenderContext(src, inv)
+	ctx, err := RenderContext(src)
 	if err != nil {
 		t.Fatal(err)
 	}

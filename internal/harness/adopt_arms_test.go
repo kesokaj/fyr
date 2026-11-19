@@ -2,7 +2,6 @@ package harness
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -79,30 +78,44 @@ func TestAdoptScratchNotADirectory(t *testing.T) {
 	}
 }
 
-// A staging directory left by an earlier run that cannot be removed stops
-// adopt before the copy.
+// A staging parent that cannot be written to stops adopt before the copy.
 func TestAdoptStagingNotRemovable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a read-only directory")
+	}
 	repo := newRepo(t)
-	lockedDir(t, filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("adopt-gamma-%d", os.Getpid())))
+	scratch := filepath.Join(repo, ".agents", "scratch")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(scratch, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(scratch, 0o755) })
 	_, err := Adopt(repo, t.TempDir(), adoptSource(t, "gamma", ""), false)
 	if !errors.Is(err, fs.ErrPermission) {
-		t.Errorf("err = %v, want the staging removal refused", err)
+		t.Errorf("err = %v, want the staging creation refused", err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "skills", "gamma")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the skill was adopted past the failed removal: %v", err)
+		t.Errorf("the skill was adopted past the failed staging creation: %v", err)
 	}
 }
 
-// A backup left by an earlier run that cannot be removed stops a forced
-// adopt with the existing skill untouched.
+// A backup left by an earlier run that cannot be removed stops swapIn
+// with the existing skill untouched.
 func TestAdoptBackupNotRemovable(t *testing.T) {
 	repo := newRepo(t)
 	home := t.TempDir()
 	if _, err := Adopt(repo, home, adoptSource(t, "gamma", "old body\n"), false); err != nil {
 		t.Fatal(err)
 	}
-	lockedDir(t, filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("adopt-gamma-%d.previous", os.Getpid())))
-	_, err := Adopt(repo, home, adoptSource(t, "gamma", "new body\n"), true)
+	staging, err := stageAdopt(repo, "gamma", adoptSource(t, "gamma", "new body\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(staging) })
+	lockedDir(t, staging+".previous")
+	err = swapIn(filepath.Join(repo, "skills", "gamma"), staging)
 	if !errors.Is(err, fs.ErrPermission) || strings.Contains(err.Error(), "could not move") {
 		t.Errorf("err = %v, want the backup removal refused", err)
 	}
@@ -124,7 +137,11 @@ func TestAdoptRenameFailsWithNoPrevious(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(skills, 0o755) })
 	_, err := Adopt(repo, t.TempDir(), adoptSource(t, "gamma", ""), false)
-	staging := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("adopt-gamma-%d", os.Getpid()))
+	matches, globErr := filepath.Glob(filepath.Join(repo, ".agents", "scratch", "adopt-gamma-*"))
+	if globErr != nil || len(matches) != 1 {
+		t.Fatalf("expected 1 staging dir, got %v (err=%v)", matches, globErr)
+	}
+	staging := matches[0]
 	want := "there was no previous skill of that name and the prepared copy is at " + staging
 	if err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("err = %v, want %q", err, want)

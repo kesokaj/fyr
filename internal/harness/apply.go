@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // Install writes the planned files under home, removes files a previous
@@ -83,7 +81,7 @@ func Status(home string, files []File) (Report, error) {
 		state := "ok"
 		// The link is looked at before anything is read: a link's target is
 		// not fyr's to read, and one to a FIFO blocked the read (IN27).
-		if fi, err := os.Lstat(filepath.Join(home, f.Rel)); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
+		if isLinkedPath(home, f.Rel) {
 			state = "foreign" // the operator's link, or a file under one (IN3)
 		} else {
 			existing, err := readPlain(filepath.Join(home, f.Rel))
@@ -139,7 +137,7 @@ func readPlain(p string) ([]byte, error) { return openPlain(p) }
 func Diff(home string, files []File, out io.Writer) error {
 	for _, f := range files {
 		dest := filepath.Join(home, f.Rel)
-		if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(home, f.Rel) {
+		if isLinkedPath(home, f.Rel) {
 			continue // the operator's link, or a file under one, is compared by no one (IN3)
 		}
 		existing, err := readPlain(dest)
@@ -231,13 +229,9 @@ func Uninstall(home string, dryRun bool, out io.Writer) error {
 // claudeFile reports whether rel, an entry of a manifest an install before
 // ADR-062 wrote, is one of Claude Code's files under ~/.claude that is still
 // there. fyr never removes one (plan fyr D32); a file already gone is not
-// counted. The entry is judged as the path it removes, cleaned (a hand-edited
-// `./.claude/x` or `.gemini/../.claude/x` is the same file), and the first
-// element without case, since a case-insensitive file system makes
-// `.Claude` the same directory; on another, keeping it errs safe.
+// counted.
 func claudeFile(home, rel string) bool {
-	first, _, nested := strings.Cut(filepath.ToSlash(filepath.Clean(rel)), "/")
-	if !nested || !strings.EqualFold(first, ".claude") {
+	if !isClaudeRel(rel) {
 		return false
 	}
 	_, err := os.Lstat(filepath.Join(home, rel))
@@ -261,11 +255,10 @@ func fyrOwns(home, rel string) ownership {
 	if claudeFile(home, rel) {
 		return keptClaude
 	}
-	fi, err := os.Lstat(filepath.Join(home, rel))
-	switch {
-	case err != nil:
+	if _, err := os.Lstat(filepath.Join(home, rel)); err != nil {
 		return gone
-	case fi.Mode()&os.ModeSymlink != 0 || underLink(home, rel):
+	}
+	if isLinkedPath(home, rel) {
 		return linked
 	}
 	return owned
@@ -273,96 +266,4 @@ func fyrOwns(home, rel string) ownership {
 
 func keepClaudeLine(n int) string {
 	return fmt.Sprintf("keep    ~/.claude: %d files an install before fyr wrote for Claude Code; fyr never removes them, and they leave its manifest", n)
-}
-
-// WriteAtomic writes through a temp file and rename, so a half-written
-// context file is never visible and a running fyr binary can be
-// replaced on Linux, where opening it for writing would fail with ETXTBSY.
-func WriteAtomic(dest string, data []byte, mode fs.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".fyr-*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		return abandon(tmp, err)
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		return abandon(tmp, err)
-	}
-	// Sync before the rename: without it a crash between the two can leave
-	// the rename durable and the bytes not, so the deployed file is a
-	// zero-length or truncated context that no reader can tell from a real
-	// one (security review of the settings write, 2026-09-16, finding 2 —
-	// the same pattern was fixed there first).
-	if err := tmp.Sync(); err != nil {
-		return abandon(tmp, err)
-	}
-	// Close before the rename, as the settings writer always did: a close
-	// failure then leaves dest untouched, so an error from this function
-	// always means dest is unchanged; and on Linux a binary renamed into
-	// place while still open cannot be executed until the close (ETXTBSY).
-	// Round 2 of the 2026-09-30 review had these two lines the other way.
-	if err := tmp.Close(); err != nil {
-		return abandon(tmp, err)
-	}
-	if err := os.Rename(tmp.Name(), dest); err != nil {
-		return abandon(tmp, err)
-	}
-	return nil
-}
-
-// abandon closes and removes the temp file of a failed write and returns the
-// failure, naming the temp file when even its removal fails so nothing is
-// left behind unseen (the settings writer said so before it shared this
-// helper; code review 2026-09-30).
-func abandon(tmp *os.File, err error) error {
-	tmp.Close() // already closed on the rename branch, which is harmless; the file is discarded next
-	if rm := os.Remove(tmp.Name()); rm != nil {
-		return fmt.Errorf("%w; temp file %s left behind: %v", err, tmp.Name(), rm)
-	}
-	return err
-}
-
-// underLink reports whether any directory between home and home/rel is a
-// symlink: a file under a linked directory is written, chmodded or removed
-// through the link otherwise (security review 2026-09-30 of IN3).
-func underLink(home, rel string) bool {
-	dir := filepath.Dir(rel)
-	for dir != "." && dir != "" && dir != string(filepath.Separator) {
-		if fi, err := os.Lstat(filepath.Join(home, dir)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return true
-		}
-		dir = filepath.Dir(dir)
-	}
-	return false
-}
-
-// pruneEmptyDirs removes now-empty directories from dir upward, stopping at
-// the vendor root and anything above it so uninstall never removes
-// ~/.gemini/config itself. ~/.claude stays a stop too: the resync that sheds
-// a pre-ADR-062 install's files there must leave the directory, which holds
-// the operator's own settings.
-func pruneEmptyDirs(home, dir string) {
-	stop := map[string]bool{
-		home:                                       true,
-		filepath.Join(home, ".claude"):             true, // an install before ADR-062 wrote there
-		filepath.Join(home, ".gemini"):             true,
-		filepath.Join(home, AgyRoot):               true,
-		filepath.Join(home, ".config"):             true,
-		filepath.Join(home, ".local"):              true,
-		filepath.Join(home, filepath.Dir(BinPath)): true,
-	}
-	for !stop[dir] && len(dir) > len(home) {
-		entries, err := os.ReadDir(dir)
-		if err != nil || len(entries) > 0 {
-			return
-		}
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
 }

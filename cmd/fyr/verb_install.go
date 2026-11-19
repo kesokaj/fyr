@@ -78,11 +78,7 @@ func runList(c *ctx) error {
 }
 
 func runRender(c *ctx) error {
-	inv, err := harness.LoadInventory(c.src)
-	if err != nil {
-		return err
-	}
-	data, err := harness.RenderContext(c.src, inv)
+	data, err := harness.RenderContext(c.src)
 	if err != nil {
 		return err
 	}

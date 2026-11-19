@@ -57,7 +57,7 @@ func (r *installRun) writeFile(f File) error {
 	// read through, chmodded or replaced: it is the operator's, kept and
 	// left out of the manifest, so uninstall never removes it (audit
 	// 2026-09-30, IN3; security review of the fix).
-	if fi, err := os.Lstat(dest); err == nil && fi.Mode()&os.ModeSymlink != 0 || underLink(r.home, f.Rel) {
+	if isLinkedPath(r.home, f.Rel) {
 		r.counts["kept"]++
 		fmt.Fprintf(r.out, "keep    ~/%s (a symlink; fyr never writes through a link)\n", f.Rel)
 		return nil

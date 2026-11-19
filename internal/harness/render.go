@@ -20,10 +20,14 @@ const Canary = "Canary: this context ends with the word GANNET."
 // RenderContext assembles the deployed context: Marker first,
 // context/AGENTS.md, every other context/*.md in name order, then the Canary
 // line last so a check that reads it proves the whole file loaded.
-func RenderContext(src Source, _ Inventory) ([]byte, error) {
+func RenderContext(src Source) ([]byte, error) {
 	if err := checkManagedTree(src); err != nil {
 		return nil, err
 	}
+	return renderContextBody(src)
+}
+
+func renderContextBody(src Source) ([]byte, error) {
 	main, err := src.readRegular("context/AGENTS.md")
 	if err != nil {
 		return nil, fmt.Errorf("reading context: %w", err)

@@ -91,8 +91,7 @@ func TestRenderContextRefusesSymlinks(t *testing.T) {
 		if err := os.Symlink(outside, filepath.Join(repo, "context")); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		inv, _ := LoadInventory(DirSource(repo))
-		if _, err := RenderContext(DirSource(repo), inv); err == nil {
+		if _, err := RenderContext(DirSource(repo)); err == nil {
 			t.Fatal("a symlinked context directory must be refused")
 		} else if !strings.Contains(err.Error(), "symlink") {
 			t.Errorf("the error should name the symlink, got %v", err)
@@ -108,8 +107,7 @@ func TestRenderContextRefusesSymlinks(t *testing.T) {
 		if err := os.Symlink(outside, filepath.Join(repo, "context", "extra.md")); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		inv, _ := LoadInventory(DirSource(repo))
-		if _, err := RenderContext(DirSource(repo), inv); err == nil {
+		if _, err := RenderContext(DirSource(repo)); err == nil {
 			t.Fatal("a symlinked context file must be refused")
 		} else if !strings.Contains(err.Error(), "symlink") {
 			t.Errorf("the error should name the symlink, got %v", err)
@@ -159,7 +157,7 @@ func TestAbandonNamesATempFileItCouldNotRemove(t *testing.T) {
 // renamed into place is never still open (ETXTBSY on Linux). Round 2 of the
 // 2026-09-30 review swapped the two lines and every test stayed green.
 func TestWriteAtomicClosesBeforeRename(t *testing.T) {
-	src, err := os.ReadFile("apply.go")
+	src, err := os.ReadFile("fswrite.go")
 	if err != nil {
 		t.Fatal(err)
 	}

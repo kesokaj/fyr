@@ -86,7 +86,13 @@ func managedEntry(rel string) bool {
 	if strings.HasPrefix(clean, AgyRoot+"/") {
 		return true
 	}
-	first, _, nested := strings.Cut(clean, "/")
+	return isClaudeRel(clean)
+}
+
+// isClaudeRel reports whether rel lies under ~/.claude (first segment matched
+// without case after cleaning), for pre-ADR-062 manifest entries.
+func isClaudeRel(rel string) bool {
+	first, _, nested := strings.Cut(filepath.ToSlash(filepath.Clean(rel)), "/")
 	return nested && strings.EqualFold(first, ".claude")
 }
 

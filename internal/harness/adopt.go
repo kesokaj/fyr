@@ -122,8 +122,8 @@ func stageAdopt(repo, name, from string) (string, error) {
 	if err := os.MkdirAll(scratch, 0o755); err != nil {
 		return "", err
 	}
-	staging := filepath.Join(scratch, fmt.Sprintf("adopt-%s-%d", name, os.Getpid()))
-	if err := os.RemoveAll(staging); err != nil {
+	staging, err := os.MkdirTemp(scratch, fmt.Sprintf("adopt-%s-*", name))
+	if err != nil {
 		return "", err
 	}
 	if err := copyTree(from, staging); err != nil {

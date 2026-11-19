@@ -53,7 +53,7 @@ func Plan(src Source, selfExe []byte) ([]File, error) {
 	if err != nil {
 		return nil, err
 	}
-	context, err := RenderContext(src, inv)
+	context, err := renderContextBody(src)
 	if err != nil {
 		return nil, err
 	}

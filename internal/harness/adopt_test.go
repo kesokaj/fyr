@@ -192,6 +192,11 @@ func TestAdoptFailedCopyKeepsTheExistingSkill(t *testing.T) {
 		if err != nil && !strings.Contains(err.Error(), ".agents/scratch") {
 			t.Errorf("the error should name where the prepared copy is, got %v", err)
 		}
+		if staged, _ := filepath.Glob(filepath.Join(repo, ".agents", "scratch", "adopt-widget-*")); len(staged) != 1 {
+			t.Errorf("expected 1 preserved recovery dir after failed swapIn, got %v", staged)
+		} else if rmErr := os.RemoveAll(staged[0]); rmErr != nil {
+			t.Fatal(rmErr)
+		}
 	}
 
 	// The happy path still replaces the skill and leaves no staging behind.

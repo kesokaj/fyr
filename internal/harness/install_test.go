@@ -2,7 +2,6 @@ package harness
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +31,7 @@ func TestInventoryAndRender(t *testing.T) {
 	if len(inv.Rules) != 1 || inv.Rules[0].Description != "Go style" {
 		t.Errorf("rules = %+v", inv.Rules)
 	}
-	ctx, err := RenderContext(DirSource(repo), inv)
+	ctx, err := RenderContext(DirSource(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,13 +253,8 @@ func TestReinstallBuildsAndInstalls(t *testing.T) {
 	if v := strings.TrimSpace(string(ver)); strings.Contains(v, "(devel)") || strings.Contains(v, "unknown") {
 		t.Errorf("installed binary is unstamped: %q", v)
 	}
-	// Reinstall names its build directory after this process's pid (repo.go), so
-	// only that path is ours to check: a glob over fyr-build-* also sees a
-	// concurrent `go test` process's in-flight build and flakes (v1.12.0 gate).
-	own := filepath.Join(repo, ".agents", "scratch", fmt.Sprintf("fyr-build-%d", os.Getpid()))
-	if _, err := os.Stat(own); err == nil {
-		t.Errorf("build directory left behind: %s", own)
-	}
+	// Reinstall uses os.MkdirTemp under .agents/scratch; an isolated repo
+	// check for no leftover fyr-build-* dirs runs in TestReinstallNeverNeedsToDownloadAToolchain.
 }
 
 // TestReinstallNeverNeedsToDownloadAToolchain exercises Reinstall in the
@@ -323,5 +317,8 @@ func TestReinstallNeverNeedsToDownloadAToolchain(t *testing.T) {
 	var out bytes.Buffer
 	if err := Reinstall(repo, []string{"--home", t.TempDir()}, &out); err != nil {
 		t.Fatalf("Reinstall must not need to download a toolchain: %v\n%s", err, out.String())
+	}
+	if left, _ := filepath.Glob(filepath.Join(repo, ".agents", "scratch", "fyr-build-*")); len(left) != 0 {
+		t.Errorf("build directories left behind: %v", left)
 	}
 }
