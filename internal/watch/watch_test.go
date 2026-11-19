@@ -339,4 +339,8 @@ func TestWatchProcRedaction(t *testing.T) {
 	if f.PromptHint != "[redacted by fyr]" {
 		t.Fatalf("procFinding PromptHint = %q, want [redacted by fyr]", f.PromptHint)
 	}
+	fileHint := clipPrintable("pa"+"ssword: https://user:supersecret1234@example.com/auth", promptHintMaxB)
+	if strings.Contains(fileHint, "supersecret1234") {
+		t.Fatalf("clipPrintable leaked credential in PromptHint: %q", fileHint)
+	}
 }

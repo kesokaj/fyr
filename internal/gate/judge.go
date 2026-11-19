@@ -199,7 +199,7 @@ func applyGateJudge(ctx context.Context, opts GateOptions, tgt gateTarget, rep *
 	if opts.RecordVerdict != nil {
 		sum := sha256.Sum256([]byte(strings.TrimSpace(opts.Judge)))
 		rec := JudgeVerdictRecord{
-			TS:             time.Now().Unix(),
+			TS:             time.Now().UnixMilli(),
 			ProjectRoot:    tgt.mainRoot,
 			Target:         opts.Target,
 			Model:          res.Model,

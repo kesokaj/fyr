@@ -132,7 +132,11 @@ func shortQuote(s string) string {
 func RunUsage(run context.Context, agy string) (string, error) {
 	ctx, cancel := context.WithTimeout(run, ModelsTimeout)
 	defer cancel()
-	dir := probeWorkDir()
+	dir, cleanup, err := probeWorkDir()
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
 	cmd := exec.CommandContext(ctx, agy, "-p", "/usage")
 	cmd.Dir = dir
 	cmd.Env = probeEnv(dir)
@@ -141,7 +145,7 @@ func RunUsage(run context.Context, agy string) (string, error) {
 	cmd.WaitDelay = 5 * time.Second
 	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

@@ -79,12 +79,13 @@ func isTempRoot(clean string) bool {
 }
 
 func hasEphemeralSegment(clean string) bool {
-	return hasPathSegment(clean, "smoke-", "fyr-agy-probes", "probes", "sandbox")
+	return hasPathSegment(clean, "smoke-", "fyr-agy-probes", "probes", "sandbox") ||
+		hasPathSegment(clean, "fyr-agy-probes-")
 }
 
 func isProbeBreakdownRoot(r string) bool {
 	clean := filepath.Clean(strings.TrimSpace(r))
-	return clean == "/" || hasPathSegment(clean, "", "fyr-agy-probes", "probes")
+	return clean == "/" || hasPathSegment(clean, "fyr-agy-probes-", "fyr-agy-probes", "probes")
 }
 
 func hasPathSegment(clean, prefix string, exact ...string) bool {

@@ -74,7 +74,11 @@ func RunAgyChangelog(ctx context.Context, agyPath string) string {
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	dir := probeWorkDir()
+	dir, cleanup, err := probeWorkDir()
+	if err != nil {
+		return ""
+	}
+	defer cleanup()
 	cmd := exec.CommandContext(cctx, agyPath, "changelog")
 	cmd.Dir = dir
 	cmd.Env = probeEnv(dir)
@@ -83,7 +87,7 @@ func RunAgyChangelog(ctx context.Context, agyPath string) string {
 	cmd.WaitDelay = 2 * time.Second
 	stdout := &Capped{}
 	cmd.Stdout = stdout
-	err := cmd.Run()
+	err = cmd.Run()
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}

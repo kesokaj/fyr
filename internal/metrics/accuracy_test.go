@@ -25,6 +25,7 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 		{id: "r2", root: "/Users/bob"},
 		{id: "r3", root: tmpRoot},
 		{id: "r4", root: "/tmp/fyr-agy-probes"},
+		{id: "r4b", root: "/tmp/fyr-agy-probes-999"},
 		{id: "r5", root: "/tmp/probes"},
 		{id: "r6", root: sandboxDir},
 		{id: "r7", root: "/tmp/smoke-42"},
@@ -102,6 +103,7 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 
 	deletedWT := filepath.Join(home, ".gemini", "antigravity-cli", "worktrees", "S_MAIN", "workflow-self-abcd1234")
 	probeDir := filepath.Join(os.TempDir(), "fyr-agy-probes")
+	probeDir2 := filepath.Join(os.TempDir(), "fyr-agy-probes-999")
 	agyDir := filepath.Join(home, ".gemini", "antigravity-cli")
 	if err := os.MkdirAll(filepath.Join(agyDir, "conversations"), 0o755); err != nil {
 		t.Fatal(err)
@@ -113,11 +115,12 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 		`INSERT INTO conversation_summaries VALUES ('S_WT_DEL', '', 'wt2', '2026-10-08 10:02:00+00:00', '["file://`+deletedWT+`"]', '', '')`,
 		`INSERT INTO conversation_summaries VALUES ('S_USAGE_ROOT', '', '/usage', '2026-10-08 10:03:00+00:00', '["file:///"]', '', '')`,
 		`INSERT INTO conversation_summaries VALUES ('S_USAGE_PROBE', '', '/usage', '2026-10-08 10:04:00+00:00', '["file://`+probeDir+`"]', '', '')`,
+		`INSERT INTO conversation_summaries VALUES ('S_USAGE_PROBE2', '', '/usage', '2026-10-08 10:04:30+00:00', '["file://`+probeDir2+`"]', '', '')`,
 		`INSERT INTO conversation_summaries VALUES ('S_HOME', '', 'home', '2026-10-08 10:05:00+00:00', '["file:///home/alice"]', '', '')`,
 		`INSERT INTO conversation_summaries VALUES ('S_OTHER', '', 'other', '2026-10-08 10:06:00+00:00', '["file:///home/alice/other-proj"]', '', '')`,
 	)
 	const t0 = 1791453600
-	for i, id := range []string{"S_MAIN", "S_WT_DISK", "S_WT_DEL", "S_USAGE_ROOT", "S_USAGE_PROBE", "S_HOME", "S_OTHER"} {
+	for i, id := range []string{"S_MAIN", "S_WT_DISK", "S_WT_DEL", "S_USAGE_ROOT", "S_USAGE_PROBE", "S_USAGE_PROBE2", "S_HOME", "S_OTHER"} {
 		cp := filepath.Join(agyDir, "conversations", id+".db")
 		sqliteT(t, cp,
 			"CREATE TABLE steps (`idx` integer, `step_type` integer NOT NULL DEFAULT 0, `status` integer NOT NULL DEFAULT 0, `metadata` blob, `error_details` blob, `step_payload` blob)",
@@ -146,6 +149,9 @@ func TestRootCanonicalizerNeverCollapsesHome(t *testing.T) {
 	}
 	if _, ok := byProj[probeDir]; ok {
 		t.Errorf("/usage probe session leaked into Projects: %+v", sum.Projects)
+	}
+	if _, ok := byProj[probeDir2]; ok {
+		t.Errorf("/usage per-call probe session leaked into Projects: %+v", sum.Projects)
 	}
 	if _, ok := byProj[wtDir]; ok {
 		t.Errorf("active worktree leaked into Projects separately from mainRepo: %+v", sum.Projects)

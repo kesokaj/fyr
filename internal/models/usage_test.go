@@ -10,23 +10,44 @@ import (
 )
 
 func TestProbeWorkDir(t *testing.T) {
-	dir := probeWorkDir()
-	want := filepath.Join(os.TempDir(), "fyr-agy-probes")
-	if dir != want {
-		t.Fatalf("probeWorkDir() = %q, want %q", dir, want)
+	dir, cleanup, err := probeWorkDir()
+	if err != nil {
+		t.Fatalf("probeWorkDir() error = %v", err)
 	}
-	if dir == "/" {
-		t.Fatal("probeWorkDir() must never return /")
+	if dir == "/" || dir == os.TempDir() {
+		cleanup()
+		t.Fatalf("probeWorkDir() = %q, must be a private subdirectory", dir)
+	}
+	if !strings.HasPrefix(filepath.Base(dir), "fyr-agy-probes-") {
+		cleanup()
+		t.Fatalf("probeWorkDir() = %q, want prefix fyr-agy-probes-", dir)
 	}
 	st, err := os.Lstat(dir)
 	if err != nil {
+		cleanup()
 		t.Fatalf("Lstat(%q): %v", dir, err)
 	}
 	if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+		cleanup()
 		t.Fatalf("probeWorkDir %q is not a regular directory: mode=%v", dir, st.Mode())
 	}
 	if st.Mode().Perm()&0o077 != 0 {
+		cleanup()
 		t.Fatalf("probeWorkDir %q permissions %v expose group/other bits", dir, st.Mode().Perm())
+	}
+	dir2, cleanup2, err2 := probeWorkDir()
+	if err2 != nil {
+		cleanup()
+		t.Fatalf("second probeWorkDir() error = %v", err2)
+	}
+	defer cleanup2()
+	if dir2 == dir {
+		cleanup()
+		t.Fatalf("two probeWorkDir calls shared path %q", dir)
+	}
+	cleanup()
+	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+		t.Fatalf("cleanup left probeWorkDir %q behind (err=%v)", dir, statErr)
 	}
 }
 
@@ -35,10 +56,9 @@ func TestProbeWorkDirUsedByAgyProbes(t *testing.T) {
 	ModelsTimeout = 2 * time.Second
 	t.Cleanup(func() { ModelsTimeout = oldTimeout })
 
-	wantDir := probeWorkDir()
-	wantReal, err := filepath.EvalSymlinks(wantDir)
+	tmpReal, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
-		wantReal = filepath.Clean(wantDir)
+		tmpReal = filepath.Clean(os.TempDir())
 	}
 
 	cwdLog := filepath.Join(t.TempDir(), "cwds.txt")
@@ -83,10 +103,19 @@ esac
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 probe invocations, got %d:\n%s", len(lines), string(raw))
 	}
+	seen := make(map[string]bool, 3)
 	for _, line := range lines {
 		_, got, ok := strings.Cut(line, ":")
-		if !ok || got != wantReal {
-			t.Errorf("probe ran in %q, want %q (line %q)", got, wantReal, line)
+		if !ok || filepath.Dir(got) != tmpReal || !strings.HasPrefix(filepath.Base(got), "fyr-agy-probes-") {
+			t.Errorf("probe ran in %q, want %s/fyr-agy-probes-* (line %q)", got, tmpReal, line)
+			continue
+		}
+		if seen[got] {
+			t.Errorf("probeWorkDir reused %q across calls", got)
+		}
+		seen[got] = true
+		if _, statErr := os.Stat(got); !os.IsNotExist(statErr) {
+			t.Errorf("probeWorkDir %q not removed after probe return (err=%v)", got, statErr)
 		}
 	}
 }

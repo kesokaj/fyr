@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -197,7 +198,7 @@ func tailNonEmptyLines(text string, limit int) []string {
 }
 
 func clipPrintable(s string, maxB int) string {
-	clean := search.Printable(strings.Join(strings.Fields(s), " "))
+	clean := search.Printable(redact.Redact(strings.Join(strings.Fields(s), " ")))
 	if len(clean) <= maxB {
 		return clean
 	}
