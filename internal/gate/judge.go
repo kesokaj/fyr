@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,13 +11,18 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-const maxGateJudgeDiffBytes = 128 << 10
+const (
+	maxGateJudgeDiffBytes   = 96 << 10
+	maxGateJudgeStatBytes   = 24 << 10
+	maxGateJudgePromptBytes = 120 << 10
+)
 
 // JudgeVerdictRecord captures one cross-family gate verdict for telemetry storage.
 type JudgeVerdictRecord struct {
@@ -40,6 +46,7 @@ type JudgeRequest struct {
 	ExplicitModel string
 	Diff          string
 	StampSummary  string
+	DiffTruncated bool
 }
 
 // JudgeResult summarizes a cross-family judge evaluation outcome.
@@ -48,6 +55,7 @@ type JudgeResult struct {
 	FallbackReason string
 	Verdict        string
 	Reason         string
+	DiffTruncated  bool
 }
 
 // EvaluateJudge resolves the cross-family judge model, reads and fences the diff
@@ -55,13 +63,13 @@ type JudgeResult struct {
 func EvaluateJudge(ctx context.Context, opts GateOptions, tgt gateTarget) (JudgeResult, error) {
 	home := strings.TrimSpace(opts.Home)
 	if home == "" {
-		home = os.Getenv("HOME")
+		return JudgeResult{}, refusef("judge home directory required")
 	}
 	agyPath, model, fb, err := resolveGateJudgeModel(ctx, home, opts)
 	if err != nil {
 		return JudgeResult{}, err
 	}
-	diffText, err := readGateJudgeDiff(ctx, tgt.mainRoot, tgt.mergeBase, tgt.head)
+	diffText, truncated, err := readGateJudgeDiff(ctx, tgt.mainRoot, tgt.mergeBase, tgt.head)
 	if err != nil {
 		return JudgeResult{}, err
 	}
@@ -78,8 +86,14 @@ func EvaluateJudge(ctx context.Context, opts GateOptions, tgt gateTarget) (Judge
 		Home: home, RepoDir: repoDir, Target: opts.Target, MergeBase: tgt.mergeBase,
 		Head: tgt.head, Criterion: opts.Judge, ExplicitModel: opts.JudgeModel,
 		Diff: f.Data("git-diff", "branch", diffText), StampSummary: stampSummary,
+		DiffTruncated: truncated,
 	}
-	return runGateJudge(ctx, opts, agyPath, model, fb, req)
+	res, err := runGateJudge(ctx, opts, agyPath, model, fb, req)
+	if err != nil {
+		return JudgeResult{}, err
+	}
+	res.DiffTruncated = truncated
+	return res, nil
 }
 
 func resolveGateJudgeModel(ctx context.Context, home string, opts GateOptions) (agyPath, model, fallback string, err error) {
@@ -97,15 +111,60 @@ func resolveGateJudgeModel(ctx context.Context, home string, opts GateOptions) (
 	return agyPath, model, fallback, nil
 }
 
-func readGateJudgeDiff(ctx context.Context, root, mergeBase, head string) (string, error) {
+func readGateJudgeDiff(ctx context.Context, root, mergeBase, head string) (string, bool, error) {
 	out, err := gitBytes(ctx, root, "diff", "--no-color", "--no-ext-diff", mergeBase+".."+head)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	if len(out) > maxGateJudgeDiffBytes {
-		return string(out[:maxGateJudgeDiffBytes]) + "\n... [diff truncated at 128 KiB]", nil
+	if len(out) <= maxGateJudgeDiffBytes {
+		return string(out), false, nil
 	}
-	return string(out), nil
+	return formatTruncatedDiff(ctx, root, mergeBase, head, out)
+}
+
+func formatTruncatedDiff(ctx context.Context, root, mergeBase, head string, out []byte) (string, bool, error) {
+	statOut, err := gitBytes(ctx, root, "diff", "--stat", "--no-color", "--no-ext-diff", mergeBase+".."+head)
+	if err != nil {
+		return "", false, err
+	}
+	statBytes := bytes.TrimRight(statOut, "\n")
+	statSuffix := ""
+	if len(statBytes) > maxGateJudgeStatBytes {
+		statBytes = bytes.TrimRight(truncateUTF8Newline(statBytes, maxGateJudgeStatBytes), "\n")
+		statSuffix = "\n... [stat truncated]"
+	}
+	header := "[diff truncated at 96 KiB; git diff --stat:]\n" + string(statBytes) + statSuffix + "\n\n"
+	const footer = "\n... [diff truncated at 96 KiB]"
+	budget := maxGateJudgeDiffBytes - len(header) - len(footer)
+	body := truncateUTF8Newline(out, max(budget, 0))
+	return header + string(body) + footer, true, nil
+}
+
+func truncateUTF8Newline(b []byte, limit int) []byte {
+	if limit <= 0 {
+		return nil
+	}
+	if len(b) <= limit {
+		return b
+	}
+	cand := trimIncompleteUTF8(b[:limit])
+	if idx := bytes.LastIndexByte(cand, '\n'); idx > 0 {
+		return cand[:idx+1]
+	}
+	return cand
+}
+
+func trimIncompleteUTF8(b []byte) []byte {
+	n := len(b)
+	for back := 1; back < utf8.UTFMax && back <= n; back++ {
+		if utf8.RuneStart(b[n-back]) {
+			if !utf8.FullRune(b[n-back:]) {
+				return b[:n-back]
+			}
+			break
+		}
+	}
+	return b
 }
 
 func readGateJudgeStamp(tgt gateTarget) (string, error) {
@@ -156,8 +215,16 @@ func runGateJudge(ctx context.Context, opts GateOptions, agyPath, model, fb stri
 		}
 		return res, nil
 	}
+	return runIsolatedJudge(ctx, agyPath, model, fb, req)
+}
+
+func runIsolatedJudge(ctx context.Context, agyPath, model, fb string, req JudgeRequest) (JudgeResult, error) {
+	prompt := buildGateJudgePrompt(req)
+	if len(prompt) >= maxGateJudgePromptBytes {
+		return JudgeResult{}, refusef("judge prompt exceeds %d bytes (%d)", maxGateJudgePromptBytes, len(prompt))
+	}
 	out, err := isolate.JudgeExecFunc(ctx, isolate.JudgeExecOptions{
-		Home: req.Home, RepoDir: req.RepoDir, AgyPath: agyPath, Model: model, Prompt: buildGateJudgePrompt(req),
+		Home: req.Home, RepoDir: req.RepoDir, AgyPath: agyPath, Model: model, Prompt: prompt,
 	})
 	verdict, reason, perr := isolate.ParseJudgeVerdict(out.Stdout)
 	if err != nil || out.ExitCode != 0 {
@@ -196,6 +263,7 @@ func applyGateJudge(ctx context.Context, opts GateOptions, tgt gateTarget, rep *
 	rep.JudgeModel = res.Model
 	rep.JudgeVerdict = res.Verdict
 	rep.JudgeFallback = res.FallbackReason
+	rep.DiffTruncated = res.DiffTruncated
 	if opts.RecordVerdict != nil {
 		sum := sha256.Sum256([]byte(strings.TrimSpace(opts.Judge)))
 		rec := JudgeVerdictRecord{

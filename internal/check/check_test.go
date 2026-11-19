@@ -320,3 +320,17 @@ func TestSkippedDocIsNoted(t *testing.T) {
 		t.Errorf("notes %q do not name the skipped LINK.md", rep.Notes)
 	}
 }
+
+func TestDocsRuleInvalidLineRanges(t *testing.T) {
+	dir := repo(t, map[string]string{
+		"internal/here.go": "package x\n\nfunc A() {}\n",
+		"README.md": strings.Join([]string{
+			"ok: `internal/here.go:1` `internal/here.go:1-3` `internal/here.go:2-2`",
+			"bad: `internal/here.go:0` `internal/here.go:0-2` `internal/here.go:2-0` `internal/here.go:3-1`",
+		}, "\n") + "\n",
+	})
+	rep := run(t, dir)
+	same(t, rep.Findings,
+		"README.md:2 line", "README.md:2 line", "README.md:2 line", "README.md:2 line",
+	)
+}

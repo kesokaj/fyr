@@ -134,4 +134,48 @@ func TestLandAndCloseE2E(t *testing.T) {
 			t.Fatalf("brain.Get explicit handoff failed: recs=%d missing=%v err=%v", len(expRecs), expMissing, err)
 		}
 	})
+
+	t.Run("pins gated commit SHA against concurrent branch update (IN105)", func(t *testing.T) {
+		wt := filepath.Join(t.TempDir(), "wt-toctou")
+		runGit(t, repo, "worktree", "add", "-b", "toctou-branch", wt, "main")
+		writeFile(t, filepath.Join(wt, "good.go"), "package main\n\nfunc Good() int { return 42 }\n")
+		writeFile(t, filepath.Join(wt, "good_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestGood(t *testing.T) {\n\tif Good() != 42 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n")
+		runGit(t, wt, "add", "good.go", "good_test.go")
+		runGit(t, wt, "commit", "-m", "good commit")
+		c1 := runGit(t, wt, "rev-parse", "HEAD")
+
+		writeFile(t, filepath.Join(wt, "broken_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestBrokenTOCTOU(t *testing.T) { t.Fatal(\"ungated\") }\n")
+		runGit(t, wt, "add", "broken_test.go")
+		runGit(t, wt, "commit", "-m", "ungated second commit")
+		c2 := runGit(t, wt, "rev-parse", "HEAD")
+		runGit(t, wt, "reset", "--hard", c1)
+		runGit(t, repo, "worktree", "remove", wt)
+
+		headBefore := runGit(t, repo, "rev-parse", "HEAD")
+		lRep, err := Land(ctx, LandOptions{
+			Dir:        repo,
+			Branch:     "toctou-branch",
+			Home:       home,
+			Lease:      []string{"good*.go"},
+			Judge:      "Good returns 42",
+			JudgeModel: "explicit-judge",
+			JudgeRunner: func(_ context.Context, _ JudgeRequest) (JudgeResult, error) {
+				runGit(t, repo, "update-ref", "refs/heads/toctou-branch", c2)
+				return JudgeResult{Model: "explicit-judge", Verdict: "PASS", Reason: "ok"}, nil
+			},
+		})
+		if !errors.Is(err, ErrRefused) {
+			t.Fatalf("expected ErrRefused on concurrent branch update, got err=%v rep=%+v", err, lRep)
+		}
+		if lRep.Verify == nil || !lRep.Verify.OK {
+			t.Fatalf("expected scratch worktree Verify to verify pinned C1, got %+v", lRep.Verify)
+		}
+		if runGit(t, repo, "rev-parse", "HEAD") != headBefore {
+			t.Fatalf("main HEAD moved after concurrent branch update")
+		}
+		if got := runGit(t, repo, "rev-parse", "refs/heads/toctou-branch"); got != c2 {
+			t.Fatalf("toctou-branch = %s, want preserved %s", got, c2)
+		}
+		runGit(t, repo, "branch", "-D", "toctou-branch")
+	})
 }

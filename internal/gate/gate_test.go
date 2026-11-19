@@ -327,3 +327,64 @@ func TestGateChecksAndMustFail(t *testing.T) {
 		}
 	})
 }
+
+func TestParseLeaseAndMarkdownFilesSection(t *testing.T) {
+	t.Run("markdown heading with blank lines stops at heading or paragraph", func(t *testing.T) {
+		brief := strings.Join([]string{
+			"# Brief",
+			"",
+			"## Files:",
+			"",
+			"- pkg/**/*.go",
+			"",
+			"- other.go",
+			"",
+			"## Notes",
+			"- ignored.go",
+			"",
+			"## Lease: extra.go",
+			"",
+			"- more.go",
+			"",
+			"Non-bullet paragraph ends section.",
+			"- also_ignored.go",
+		}, "\n")
+		got, err := ParseLease(brief)
+		if err != nil {
+			t.Fatalf("ParseLease: %v", err)
+		}
+		want := []string{"pkg/**/*.go", "other.go", "extra.go", "more.go"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("ParseLease = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("plain list keeps comment and blank-line skipping", func(t *testing.T) {
+		plain := "# plain lease\n\npkg/*.go\n- docs/*.md\n"
+		got, err := ParseLease(plain)
+		if err != nil {
+			t.Fatalf("ParseLease plain: %v", err)
+		}
+		want := []string{"pkg/*.go", "docs/*.md"}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("ParseLease plain = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("Gate uses markdown ## Files: lease file with blank lines", func(t *testing.T) {
+		ctx := context.Background()
+		repo := initTestGoRepo(t)
+		wt := addWorktreeBranch(t, repo, "feat-md-lease")
+		writeFile(t, filepath.Join(wt, "pkg", "ok.go"), "package pkg\n")
+		runGit(t, wt, "add", "pkg/ok.go")
+		runGit(t, wt, "commit", "-m", "add leased file")
+
+		leasePath := filepath.Join(t.TempDir(), "brief.md")
+		writeFile(t, leasePath, "## Task\n\n## Files:\n\n- pkg/**/*.go\n\n## Notes\n- outside.go\n")
+
+		rep, err := Gate(ctx, GateOptions{Dir: repo, Target: wt, LeaseFile: leasePath})
+		if err != nil || !rep.OK {
+			t.Fatalf("Gate with ## Files: lease failed: err=%v rep=%+v", err, rep)
+		}
+	})
+}

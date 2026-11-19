@@ -171,6 +171,9 @@ func splitLine(tok string) (p string, n, m int, hasLine bool) {
 		n, _ = strconv.Atoi(sm[2])
 		if sm[3] != "" {
 			m, _ = strconv.Atoi(sm[3])
+			if m == 0 {
+				m = -1
+			}
 		}
 		hasLine = true
 	}
@@ -203,6 +206,9 @@ func (k *checker) checkPath(c candidate) (Finding, bool) {
 	n, ok := k.lineCount(name)
 	if !ok {
 		return Finding{}, false
+	}
+	if c.n < 1 || c.m < 0 || (c.m > 0 && c.m < c.n) {
+		return Finding{c.where, c.line, "line", fmt.Sprintf("`%s`: invalid line range", c.token)}, true
 	}
 	if c.n > n || c.m > n {
 		return Finding{c.where, c.line, "line", fmt.Sprintf("`%s`: %s has %d lines", c.token, c.p, n)}, true

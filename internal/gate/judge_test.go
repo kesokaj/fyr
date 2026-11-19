@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/isolate"
 )
 
 func shSingleQuote(s string) string {
@@ -410,4 +413,146 @@ func TestGatePackageDeps(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestGateJudgeTruncationAndHomeValidation(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestGoRepo(t)
+	wt := addWorktreeBranch(t, repo, "feat-judge-big")
+
+	var big strings.Builder
+	for i := range 1800 {
+		big.WriteString("line-€€€-🚀-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n")
+		_ = i
+	}
+	writeFile(t, filepath.Join(wt, "big.txt"), big.String())
+	writeFile(t, filepath.Join(wt, "z_tail.txt"), "tail file beyond 96 KiB\n")
+	runGit(t, wt, "add", "big.txt", "z_tail.txt")
+	runGit(t, wt, "commit", "-m", "add >140 KiB utf8 diff")
+
+	t.Run("empty Home returns ErrRefused without reading HOME env (IN90)", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		_, err := Gate(ctx, GateOptions{
+			Dir:        repo,
+			Target:     wt,
+			MaxLines:   5000,
+			Judge:      "big diff ok",
+			JudgeModel: "explicit-judge",
+			JudgeRunner: func(_ context.Context, _ JudgeRequest) (JudgeResult, error) {
+				t.Fatal("JudgeRunner should not run when Home is empty")
+				return JudgeResult{}, nil
+			},
+		})
+		if !errors.Is(err, ErrRefused) {
+			t.Fatalf("expected ErrRefused for empty Home, got %v", err)
+		}
+	})
+
+	t.Run("truncates >140 KiB diff at UTF-8/newline boundary with --stat and <120 KiB prompt (IN64, BUG-559)", func(t *testing.T) {
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		writeFakeGateAgy(t, binDir, "claude-opus-5-5-high\tClaude\n", "", `{"verdict":"PASS","reason":"ok"}`)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		orig := isolate.JudgeExecFunc
+		t.Cleanup(func() { isolate.JudgeExecFunc = orig })
+
+		var gotOpts isolate.JudgeExecOptions
+		isolate.JudgeExecFunc = func(_ context.Context, opts isolate.JudgeExecOptions) (isolate.JudgeExecOutput, error) {
+			gotOpts = opts
+			return isolate.JudgeExecOutput{
+				Stdout: `{"conversation_id":"c1","status":"SUCCESS","structured_output":{"verdict":"PASS","reason":"checked"}}`,
+			}, nil
+		}
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:        repo,
+			Target:     wt,
+			Home:       home,
+			MaxLines:   5000,
+			Judge:      "big diff ok",
+			JudgeModel: "explicit-judge",
+		})
+		if err != nil || !rep.OK {
+			t.Fatalf("Gate big diff failed: err=%v rep=%+v", err, rep)
+		}
+		if !rep.DiffTruncated {
+			t.Fatalf("expected rep.DiffTruncated = true, got false")
+		}
+		if len(gotOpts.Prompt) >= maxGateJudgePromptBytes {
+			t.Fatalf("prompt length %d >= %d cap", len(gotOpts.Prompt), maxGateJudgePromptBytes)
+		}
+		if !utf8.ValidString(gotOpts.Prompt) {
+			t.Fatalf("truncated prompt contains invalid UTF-8")
+		}
+		if !strings.Contains(gotOpts.Prompt, "git diff --stat:") || !strings.Contains(gotOpts.Prompt, "big.txt") || !strings.Contains(gotOpts.Prompt, "z_tail.txt") {
+			t.Fatalf("prompt missing git diff --stat summary for all files:\n%s", gotOpts.Prompt[:min(len(gotOpts.Prompt), 600)])
+		}
+		marker := "\n... [diff truncated at 96 KiB]"
+		idx := strings.Index(gotOpts.Prompt, marker)
+		if idx <= 0 || gotOpts.Prompt[idx-1] != '\n' {
+			t.Fatalf("truncated diff did not end cleanly at a newline boundary before marker (idx=%d)", idx)
+		}
+	})
+
+	t.Run("small diff leaves DiffTruncated false and oversized criterion refuses before JudgeExecFunc", func(t *testing.T) {
+		wtSmall := addWorktreeBranch(t, repo, "feat-judge-small")
+		writeFile(t, filepath.Join(wtSmall, "pkg", "small.go"), "package pkg\n")
+		runGit(t, wtSmall, "add", "pkg/small.go")
+		runGit(t, wtSmall, "commit", "-m", "small")
+
+		home := t.TempDir()
+		binDir := filepath.Join(t.TempDir(), "bin")
+		writeFakeGateAgy(t, binDir, "claude-opus-5-5-high\tClaude\n", "", `{"verdict":"PASS","reason":"ok"}`)
+		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+		orig := isolate.JudgeExecFunc
+		t.Cleanup(func() { isolate.JudgeExecFunc = orig })
+
+		called := false
+		isolate.JudgeExecFunc = func(_ context.Context, _ isolate.JudgeExecOptions) (isolate.JudgeExecOutput, error) {
+			called = true
+			return isolate.JudgeExecOutput{
+				Stdout: `{"conversation_id":"c1","status":"SUCCESS","structured_output":{"verdict":"PASS","reason":"ok"}}`,
+			}, nil
+		}
+
+		rep, err := Gate(ctx, GateOptions{
+			Dir:        repo,
+			Target:     wtSmall,
+			Home:       home,
+			Judge:      "small ok",
+			JudgeModel: "explicit-judge",
+		})
+		if err != nil || !rep.OK || rep.DiffTruncated || !called {
+			t.Fatalf("small diff failed: err=%v rep=%+v called=%v", err, rep, called)
+		}
+
+		called = false
+		_, err = Gate(ctx, GateOptions{
+			Dir:        repo,
+			Target:     wtSmall,
+			Home:       home,
+			Judge:      strings.Repeat("c", maxGateJudgePromptBytes),
+			JudgeModel: "explicit-judge",
+		})
+		if !errors.Is(err, ErrRefused) || called {
+			t.Fatalf("expected ErrRefused before JudgeExecFunc on oversized prompt, err=%v called=%v", err, called)
+		}
+	})
+
+	t.Run("truncateUTF8Newline aligns multi-byte runes and newlines", func(t *testing.T) {
+		raw := []byte("alpha\n€€🚀\nomega\n")
+		// Cut inside the 4-byte 🚀 rune (starts at index 12: "alpha\n" (6) + "€€" (6) = 12).
+		got := truncateUTF8Newline(raw, 14)
+		if !utf8.Valid(got) || string(got) != "alpha\n" {
+			t.Fatalf("truncateUTF8Newline(14) = %q (valid=%v), want %q", got, utf8.Valid(got), "alpha\n")
+		}
+		// Single-line multi-byte input falls back to rune boundary without newline.
+		single := []byte("abc€🚀")
+		gotSingle := truncateUTF8Newline(single, 8)
+		if !utf8.Valid(gotSingle) || string(gotSingle) != "abc€" {
+			t.Fatalf("truncateUTF8Newline(single, 8) = %q, want %q", gotSingle, "abc€")
+		}
+	})
 }

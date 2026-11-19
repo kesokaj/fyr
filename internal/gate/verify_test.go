@@ -191,3 +191,62 @@ func TestGofmtBatchesLargeSlices(t *testing.T) {
 		t.Fatalf("got %v, want [z.go]", unfmt)
 	}
 }
+
+func TestVerifyPropagatesRemoveStaleStampError(t *testing.T) {
+	ctx := context.Background()
+	stampRel := filepath.FromSlash(StampRelPath)
+
+	t.Run("joins removeStaleStamp error on runVerifySteps failure", func(t *testing.T) {
+		repo := initTestGoRepo(t)
+		writeFile(t, filepath.Join(repo, "corrupt_stamp_test.go"), `package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestCorruptStampAndFail(t *testing.T) {
+	p := filepath.FromSlash(`+"`"+StampRelPath+"`"+`)
+	_ = os.RemoveAll(p)
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Fatal("boom")
+}
+`)
+		_, err := Verify(ctx, VerifyOptions{Dir: repo, Now: fixedNow})
+		if !errors.Is(err, ErrFailed) || !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "remove stale stamp") {
+			t.Fatalf("expected joined ErrFailed + ErrRefused + remove stale stamp, got %v", err)
+		}
+		_ = os.RemoveAll(filepath.Join(repo, stampRel))
+	})
+
+	t.Run("joins removeStaleStamp error on mid-verify tree mutation", func(t *testing.T) {
+		repo := initTestGoRepo(t)
+		writeFile(t, filepath.Join(repo, "corrupt_stamp_mutate_test.go"), `package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestCorruptStampAndMutate(t *testing.T) {
+	p := filepath.FromSlash(`+"`"+StampRelPath+"`"+`)
+	_ = os.RemoveAll(p)
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("extra_mid_verify.go", []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+`)
+		_, err := Verify(ctx, VerifyOptions{Dir: repo, Now: fixedNow})
+		if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "tree changed during verify") || !strings.Contains(err.Error(), "remove stale stamp") {
+			t.Fatalf("expected joined ErrRefused + tree changed + remove stale stamp, got %v", err)
+		}
+		_ = os.RemoveAll(filepath.Join(repo, stampRel))
+	})
+}

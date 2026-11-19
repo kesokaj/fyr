@@ -71,12 +71,16 @@ func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	landCommit, verifyRep, err := verifyInScratchWorktree(ctx, lc, opts)
+	gatedHead := gateRep.Head
+	if gatedHead == "" {
+		return rep, refusef("gate returned empty head for branch %s", opts.Branch)
+	}
+	landCommit, verifyRep, err := verifyInScratchWorktree(ctx, lc, gatedHead, opts)
 	rep.Verify = verifyRep
 	if err != nil {
 		return rep, err
 	}
-	return finishLand(ctx, lc, opts.Branch, landCommit, &rep)
+	return finishLand(ctx, lc, opts.Branch, gatedHead, landCommit, &rep)
 }
 
 func prepareLand(ctx context.Context, opts LandOptions) (landCtx, error) {
@@ -169,7 +173,7 @@ func resolveLandMessage(opts LandOptions) (string, error) {
 	return msg, nil
 }
 
-func verifyInScratchWorktree(ctx context.Context, lc landCtx, opts LandOptions) (string, *VerifyReport, error) {
+func verifyInScratchWorktree(ctx context.Context, lc landCtx, gatedHead string, opts LandOptions) (string, *VerifyReport, error) {
 	scratchDir := filepath.Join(lc.root, ".agents", "scratch")
 	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
 		return "", nil, err
@@ -185,7 +189,7 @@ func verifyInScratchWorktree(ctx context.Context, lc landCtx, opts LandOptions) 
 	if _, err := gitBytes(ctx, lc.root, "worktree", "add", "--detach", wtDir, lc.baseHead); err != nil {
 		return "", nil, err
 	}
-	if _, err := gitBytes(ctx, wtDir, "merge", "--squash", "--no-commit", "--", "refs/heads/"+opts.Branch); err != nil {
+	if _, err := gitBytes(ctx, wtDir, "merge", "--squash", "--no-commit", "--", gatedHead); err != nil {
 		return "", nil, failf("squash merge failed: %v", err)
 	}
 	if _, err := gitBytes(ctx, wtDir, "commit", "-m", lc.msg); err != nil {
@@ -199,15 +203,22 @@ func verifyInScratchWorktree(ctx context.Context, lc landCtx, opts LandOptions) 
 	return landCommit, &vRep, err
 }
 
-func finishLand(ctx context.Context, lc landCtx, branch, landCommit string, rep *LandReport) (LandReport, error) {
+func finishLand(ctx context.Context, lc landCtx, branch, gatedHead, landCommit string, rep *LandReport) (LandReport, error) {
 	if err := checkoutUnchanged(ctx, lc.root, lc.snap); err != nil {
 		return *rep, err
+	}
+	curHead, err := verifyCommitRef(ctx, lc.root, "refs/heads/"+branch)
+	if err != nil {
+		return *rep, refusef("verify branch %s head: %v", branch, err)
+	}
+	if curHead != gatedHead {
+		return *rep, refusef("branch %s changed during land (%s != %s)", branch, curHead[:min(12, len(curHead))], gatedHead[:min(12, len(gatedHead))])
 	}
 	if _, err := gitBytes(ctx, lc.root, "merge", "--ff-only", landCommit); err != nil {
 		return *rep, err
 	}
 	rep.LandCommit = landCommit
-	if _, err := gitBytes(ctx, lc.root, "branch", "-D", "--", branch); err != nil {
+	if _, err := gitBytes(ctx, lc.root, "update-ref", "-d", "refs/heads/"+branch, gatedHead); err != nil {
 		return *rep, err
 	}
 	rep.BranchDel = true

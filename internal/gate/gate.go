@@ -58,6 +58,7 @@ type GateReport struct {
 	JudgeModel    string        `json:"judgeModel,omitempty"`
 	JudgeVerdict  string        `json:"judgeVerdict,omitempty"`
 	JudgeFallback string        `json:"judgeFallback,omitempty"`
+	DiffTruncated bool          `json:"diffTruncated,omitempty"`
 }
 
 type gateTarget struct {
@@ -274,10 +275,26 @@ func ParseLease(text string) ([]string, error) {
 	return out, nil
 }
 
+func stripHeadingHashes(line string) (string, bool) {
+	if !strings.HasPrefix(line, "#") {
+		return line, false
+	}
+	return strings.TrimSpace(strings.TrimLeft(line, "#")), true
+}
+
+func parseLeaseHeader(line string) (string, bool) {
+	body, _ := stripHeadingHashes(line)
+	low := strings.ToLower(body)
+	if strings.HasPrefix(low, "files:") || strings.HasPrefix(low, "lease:") {
+		_, rest, _ := strings.Cut(body, ":")
+		return rest, true
+	}
+	return "", false
+}
+
 func hasFilesSection(text string) bool {
 	for _, raw := range strings.Split(text, "\n") {
-		low := strings.ToLower(strings.TrimSpace(raw))
-		if strings.HasPrefix(low, "files:") || strings.HasPrefix(low, "lease:") {
+		if _, ok := parseLeaseHeader(strings.TrimSpace(raw)); ok {
 			return true
 		}
 	}
@@ -285,13 +302,14 @@ func hasFilesSection(text string) bool {
 }
 
 func parseLeaseLine(line string, hasHeader, inFiles bool) (bool, bool, []string) {
-	if line == "" || strings.HasPrefix(line, "#") {
-		return false, false, nil
+	if line == "" {
+		return false, inFiles, nil
 	}
-	low := strings.ToLower(line)
-	if strings.HasPrefix(low, "files:") || strings.HasPrefix(low, "lease:") {
-		_, rest, _ := strings.Cut(line, ":")
+	if rest, ok := parseLeaseHeader(line); ok {
 		return true, true, splitLeaseTokens(rest)
+	}
+	if strings.HasPrefix(line, "#") {
+		return false, false, nil
 	}
 	if hasHeader {
 		if !inFiles {

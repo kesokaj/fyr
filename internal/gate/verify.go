@@ -77,19 +77,23 @@ func Verify(ctx context.Context, opts VerifyOptions) (VerifyReport, error) {
 	rep.Branch = before.Branch
 
 	if err := runVerifySteps(ctx, top, opts, &rep); err != nil {
-		_ = removeStaleStamp(top)
-		return rep, err
+		return rep, joinRemoveStaleStamp(top, err)
 	}
 	after, err := search.ComputeGoTreeState(top)
 	if err != nil {
-		_ = removeStaleStamp(top)
-		return rep, err
+		return rep, joinRemoveStaleStamp(top, err)
 	}
 	if after.TreeSHA256 != before.TreeSHA256 {
-		_ = removeStaleStamp(top)
-		return rep, refusef("tree changed during verify (%s != %s)", before.TreeSHA256[:12], after.TreeSHA256[:12])
+		return rep, joinRemoveStaleStamp(top, refusef("tree changed during verify (%s != %s)", before.TreeSHA256[:12], after.TreeSHA256[:12]))
 	}
 	return finishVerify(top, opts, rep)
+}
+
+func joinRemoveStaleStamp(top string, err error) error {
+	if rmErr := removeStaleStamp(top); rmErr != nil {
+		return errors.Join(err, fmt.Errorf("remove stale stamp: %w", rmErr))
+	}
+	return err
 }
 
 func initVerify(ctx context.Context, opts VerifyOptions) (VerifyReport, string, error) {
