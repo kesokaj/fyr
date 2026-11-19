@@ -9,10 +9,10 @@
 
 Wave 1 (`Phase 1a`–`1d`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — Security, `-cover`, hook, redactor, watch, dream & auto hardening:
 
-- [ ] Phase 1a (`internal/isolate/`, `internal/models/`): `exportBoxRecords`/`seedRecords` verified lead binary (`IN58`), ACP subshell quote stack (`IN59`), `GOCOVERDIR` PID-1 forward/unset (`IN60`) & `Setsid` (`TR24`), `probeWorkDir` `--home`/`CheckHomeDir` (`IN61`), `SaveCatalog` `CreateTemp` (`IN62`), ACP/models fixes (`IN67`, `IN69`, `IN72`, `IN93`–`IN103`)
-- [ ] Phase 1b (`after: Phase 1a`; `internal/harness/`, `internal/eval/`): reject column-0 YAML lists & duplicate keys (`IN79`, `IN81`), `installRelease` symlink/dir guards (`IN80`, `IN82`–`IN85`), `invokedNotes` main-transcript filter (`IN92`) & `go test -race -cover ./internal/eval`
-- [ ] Phase 1c (`internal/search/`, `internal/redact/`, `internal/watch/`): remove `git` from hooks & validate `commonDir` (`SD59`), add `refs_oid` index (`SD60`), clamp `read_ledger` (`SD62`), harden watchdog/shell/workflow guards & `fence`/`global`/`co_activity`/`telemetry` (`SD66`–`SD91`), streaming `RedactJSONL`/PEM fixes (`SD88`, `SD90`, `SD120`), `watch` proc/redaction/window fixes (`SD114`–`SD115`, `SD117`–`SD119`)
-- [ ] Phase 1d (`internal/auto/`, `internal/dream/`, `internal/trail/`): `DocsRoot` symlink guard & `SameDir` (`SD116`, `SD121`), `dream` `223`-proposal dedup/`SkillAction != "none"`/`dryRun`/log scrub (`SD65`, `SD100`–`SD105`), `auto` start-time cutoff & holdout priority & redaction/fencing (`SD63`–`SD64`, `SD92`–`SD99`), Checkpoint
+- [x] Phase 1a (`internal/isolate/`, `internal/models/`): `exportBoxRecords`/`seedRecords` verified lead binary (`IN58`), ACP subshell quote stack (`IN59`), `GOCOVERDIR` PID-1 forward/unset (`IN60`) & `Setsid` (`TR24`), `probeWorkDir` `--home`/`CheckHomeDir` (`IN61`), `SaveCatalog` `CreateTemp` (`IN62`), ACP/models fixes (`IN67`, `IN69`, `IN72`, `IN93`–`IN103`)
+- [x] Phase 1b (`after: Phase 1a`; `internal/harness/`, `internal/eval/`): reject column-0 YAML lists & duplicate keys (`IN79`, `IN81`), `installRelease` symlink/dir guards (`IN80`, `IN82`–`IN85`), `invokedNotes` main-transcript filter (`IN92`) & `go test -race -cover ./internal/eval`
+- [ ] Phase 1c (`internal/search/`, `internal/redact/`, `internal/watch/`): `redact`/`watch`/hook/watchdog/vet/workflow/`BUG-558` landed (`21753ce0`, `5b9e69d2`); remaining: `refs_oid` index (`SD60`), clamp `read_ledger` (`SD62`), `synchronous(NORMAL)` + `BEGIN IMMEDIATE`, `co_activity`/`fence`/`global`/`dream`/`telemetry` (`SD72`–`SD86`)
+- [ ] Phase 1d (`internal/auto/`, `internal/dream/`, `internal/trail/`): `internal/trail/` `DocsRoot` & `SameDir` landed (`19eccbe5`); remaining: `dream` `223`-proposal spam fix (`SD65`, `SD100`–`SD105`), `auto` cutoff/holdouts/redaction/fencing (`SD63`–`SD64`, `SD92`–`SD99`), Checkpoint
 
 ## Next
 
