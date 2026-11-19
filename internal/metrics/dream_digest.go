@@ -31,7 +31,6 @@ type DreamTrajectoryDigest struct {
 type dreamEventCounts struct {
 	retryTools     map[string]int
 	redundantReads int
-	kneeExceeded   int
 }
 
 // DreamTrajectoryDigest aggregates shape-only retries, repeated 2-3 verb loops,
@@ -93,7 +92,7 @@ func (s *Store) countDreamSessions(where string, args []any) (int, error) {
 func (s *Store) readDreamEventCounts(where string, args []any) (dreamEventCounts, error) {
 	out := dreamEventCounts{retryTools: map[string]int{}}
 	q := `SELECT LOWER(e.kind), COALESCE(e.ref, '') FROM events e JOIN sessions s ON s.id = e.session_id WHERE ` +
-		where + ` AND LOWER(e.kind) IN ('retry_loop', 'redundant_read', 'knee_exceeded')`
+		where + ` AND LOWER(e.kind) IN ('retry_loop', 'redundant_read')`
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return out, err
@@ -113,8 +112,6 @@ func (s *Store) readDreamEventCounts(where string, args []any) (dreamEventCounts
 			out.retryTools[tool]++
 		case "redundant_read":
 			out.redundantReads++
-		case "knee_exceeded":
-			out.kneeExceeded++
 		}
 	}
 	return out, rows.Err()

@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -60,81 +62,169 @@ func matchExpect(expect string, tools, verbs map[string]bool) ExpectMatch {
 // trial has two). A trial with no expect, an ERROR, or no main session in
 // the store has no entry: nothing says what such a trial used.
 func (s *Store) ExpectMatches(runs []string) (map[string]ExpectMatch, error) {
-	wanted := map[string]bool{}
-	for _, r := range runs {
-		wanted[r] = true
+	uniqueRuns := distinctRuns(runs)
+	if len(uniqueRuns) == 0 {
+		return map[string]ExpectMatch{}, nil
 	}
-	rows, err := s.db.Query(`SELECT run, expect FROM trials WHERE expect IS NOT NULL AND expect != '' AND status IN ('pass', 'fail')`)
+	expects, err := s.loadExpectsForRuns(uniqueRuns)
+	if err != nil || len(expects) == 0 {
+		return map[string]ExpectMatch{}, err
+	}
+	matchedRuns := sortedExpectRuns(expects)
+	sessToRun, hasSession, sessionIDs, err := s.loadRunMainSessions(matchedRuns)
+	if err != nil || len(sessionIDs) == 0 {
+		return map[string]ExpectMatch{}, err
+	}
+	toolsByRun, verbsByRun, err := s.loadRunToolsAndVerbs(sessToRun, sessionIDs)
 	if err != nil {
 		return nil, err
 	}
-	expects := map[string]string{}
-	for rows.Next() {
-		var run, expect string
-		if err := rows.Scan(&run, &expect); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		if wanted[run] {
-			expects[run] = expect
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := map[string]ExpectMatch{}
+	out := make(map[string]ExpectMatch, len(expects))
 	for run, expect := range expects {
-		tools, verbs, sessions, err := s.runUses(run)
-		if err != nil {
-			return nil, err
-		}
-		if sessions > 0 {
-			out[run] = matchExpect(expect, tools, verbs)
+		if hasSession[run] {
+			out[run] = matchExpect(expect, toolsByRun[run], verbsByRun[run])
 		}
 	}
 	return out, nil
 }
 
-// runUses is the tools and verbs of a run's main sessions, and how many
-// sessions those are.
-func (s *Store) runUses(run string) (tools, verbs map[string]bool, sessions int, err error) {
-	rows, err := s.db.Query(`SELECT id FROM sessions WHERE run = ? AND parent_id IS NULL`, run)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, nil, 0, err
+func distinctRuns(runs []string) []string {
+	seen := make(map[string]bool, len(runs))
+	out := make([]string, 0, len(runs))
+	for _, r := range runs {
+		if !seen[r] {
+			seen[r] = true
+			out = append(out, r)
 		}
-		ids = append(ids, id)
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, nil, 0, err
+	return out
+}
+
+func sortedExpectRuns(expects map[string]string) []string {
+	runs := make([]string, 0, len(expects))
+	for r := range expects {
+		runs = append(runs, r)
 	}
-	tools, verbs = map[string]bool{}, map[string]bool{}
-	for _, id := range ids {
-		steps, err := s.stepsOf(id)
+	sort.Strings(runs)
+	return runs
+}
+
+func (s *Store) loadExpectsForRuns(runs []string) (map[string]string, error) {
+	expects := map[string]string{}
+	for off := 0; off < len(runs); off += showBatchChunk {
+		chunk := runs[off:min(off+showBatchChunk, len(runs))]
+		ph, args := inPlaceholders(chunk)
+		q := `SELECT run, expect FROM trials WHERE run IN (` + ph + `) AND expect IS NOT NULL AND expect != '' AND status IN ('pass', 'fail')`
+		rows, err := s.db.Query(q, args...)
 		if err != nil {
-			return nil, nil, 0, err
+			return nil, err
 		}
-		for _, st := range steps {
-			if st.kind != "tool" {
-				continue
+		for rows.Next() {
+			var run, expect string
+			if err := rows.Scan(&run, &expect); err != nil {
+				rows.Close()
+				return nil, err
 			}
-			if st.tool != "" {
-				tools[st.tool] = true
+			expects[run] = expect
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return expects, nil
+}
+
+func (s *Store) loadRunMainSessions(runs []string) (map[string]string, map[string]bool, []string, error) {
+	sessToRun := map[string]string{}
+	hasSession := map[string]bool{}
+	var sessionIDs []string
+	for off := 0; off < len(runs); off += showBatchChunk {
+		chunk := runs[off:min(off+showBatchChunk, len(runs))]
+		ph, args := inPlaceholders(chunk)
+		rows, err := s.db.Query(`SELECT id, run FROM sessions WHERE run IN (`+ph+`) AND parent_id IS NULL`, args...)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for rows.Next() {
+			var id, run string
+			if err := rows.Scan(&id, &run); err != nil {
+				rows.Close()
+				return nil, nil, nil, err
 			}
-			for _, v := range st.verbs {
-				verbs[v] = true
+			hasSession[run] = true
+			if sessToRun[id] == "" {
+				sessToRun[id] = run
+				sessionIDs = append(sessionIDs, id)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, nil, nil, err
+		}
+		rows.Close()
+	}
+	return sessToRun, hasSession, sessionIDs, nil
+}
+
+func (s *Store) loadRunToolsAndVerbs(sessToRun map[string]string, sessionIDs []string) (map[string]map[string]bool, map[string]map[string]bool, error) {
+	toolsByRun := map[string]map[string]bool{}
+	verbsByRun := map[string]map[string]bool{}
+	for off := 0; off < len(sessionIDs); off += showBatchChunk {
+		chunk := sessionIDs[off:min(off+showBatchChunk, len(sessionIDs))]
+		if err := loadBatchRunTools(s.db, chunk, sessToRun, toolsByRun); err != nil {
+			return nil, nil, err
+		}
+		if err := loadBatchRunToolVerbs(s.db, chunk, sessToRun, verbsByRun); err != nil {
+			return nil, nil, err
 		}
 	}
-	return tools, verbs, len(ids), nil
+	return toolsByRun, verbsByRun, nil
+}
+
+func loadBatchRunTools(db *sql.DB, chunk []string, sessToRun map[string]string, out map[string]map[string]bool) error {
+	ph, args := inPlaceholders(chunk)
+	rows, err := db.Query(`SELECT session_id, COALESCE(tool, '') FROM steps WHERE session_id IN (`+ph+`) AND kind = 'tool' AND COALESCE(tool, '') != ''`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid, tool string
+		if err := rows.Scan(&sid, &tool); err != nil {
+			return err
+		}
+		ensureRunSet(out, sessToRun[sid])[tool] = true
+	}
+	return rows.Err()
+}
+
+func loadBatchRunToolVerbs(db *sql.DB, chunk []string, sessToRun map[string]string, out map[string]map[string]bool) error {
+	ph, args := inPlaceholders(chunk)
+	q := `SELECT sv.session_id, sv.verb FROM step_verbs sv JOIN steps st ON st.session_id = sv.session_id AND st.ext_id = sv.ext_id WHERE sv.session_id IN (` + ph + `) AND st.kind = 'tool'`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid, verb string
+		if err := rows.Scan(&sid, &verb); err != nil {
+			return err
+		}
+		ensureRunSet(out, sessToRun[sid])[verb] = true
+	}
+	return rows.Err()
+}
+
+func ensureRunSet(m map[string]map[string]bool, run string) map[string]bool {
+	set := m[run]
+	if set == nil {
+		set = map[string]bool{}
+		m[run] = set
+	}
+	return set
 }
 
 // addExpect pools each line's counted trials' matches into the line.

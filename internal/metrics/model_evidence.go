@@ -87,10 +87,7 @@ func (s *Store) queryWorkRunDurations() (map[string]float64, error) {
 
 func (s *Store) accumulateWaveModelEvidence(accs map[string]*modelEvidenceAcc, workDurs map[string]float64, since, now time.Time) error {
 	where, args := windowAndProjectWhere("updated_at", ShowOptions{}, since, now)
-	q := `SELECT stamp, worker, state, model, 0, 0, 0 FROM work_waves WHERE ` + where
-	if s.hasWorkWaveStageCols() {
-		q = `SELECT stamp, worker, state, model, COALESCE(setup_s, 0), COALESCE(agy_s, 0), COALESCE(check_s, 0) FROM work_waves WHERE ` + where
-	}
+	q := `SELECT stamp, worker, state, model, COALESCE(setup_s, 0), COALESCE(agy_s, 0), COALESCE(check_s, 0) FROM work_waves WHERE ` + where
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return err
@@ -129,23 +126,6 @@ func scanWaveModelRow(rows *sql.Rows, accs map[string]*modelEvidenceAcc, workDur
 		a.workTimed++
 	}
 	return nil
-}
-
-func (s *Store) hasWorkWaveStageCols() bool {
-	rows, err := s.db.Query(`PRAGMA table_info(work_waves)`)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, colType string
-		var dflt sql.NullString
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err == nil && name == "agy_s" {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Store) accumulateEvalModelEvidence(accs map[string]*modelEvidenceAcc, since, now time.Time) error {
