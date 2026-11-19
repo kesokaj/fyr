@@ -422,3 +422,17 @@ func TestMatchedRecordMemoryMetadata(t *testing.T) {
 		t.Errorf("VetPrompt MatchedRecords = %+v, want MemoryKind/Validity preserved", res.MatchedRecords)
 	}
 }
+
+// VetPrompt runs the 6-Anchor Vetter, ADR/PRD conflict check, Skill Prefetcher,
+// and TurnEnvelope builder in < 10 ms.
+func VetPrompt(prompt string, intent IntentMode, slice SliceResult, brainCtx TurnBrainContext, catalog ...[]SkillMeta) VetResult {
+	var cat []SkillMeta
+	if len(catalog) > 0 {
+		cat = catalog[0]
+	}
+	res := vetPromptCore(prompt, intent, slice, brainCtx, cat)
+	sysMsg, banner := BuildTurnEnvelope(&res, slice, brainCtx, nil, nil)
+	res.SystemMessage = sysMsg
+	res.UserMarkdownBanner = banner
+	return res
+}

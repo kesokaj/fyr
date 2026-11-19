@@ -205,7 +205,7 @@ func LeafTarget() error {
 	commitAll(t, root, "seed path repo")
 
 	var buf bytes.Buffer
-	if err := FindSymbolPath(Options{Dir: root, Home: home, Path: "EntryPoint", To: "LeafTarget"}, &buf); err != nil {
+	if err := Search(Options{Dir: root, Home: home, Path: "EntryPoint", To: "LeafTarget"}, &buf); err != nil {
 		t.Fatalf("FindSymbolPath: %v", err)
 	}
 	got := buf.String()
@@ -246,7 +246,7 @@ func TestDirectCaller(t *testing.T) {
 	commitAll(t, root, "seed affected repo")
 
 	var buf bytes.Buffer
-	if err := FindAffected(Options{Dir: root, Home: home, Affected: "CoreStore"}, &buf); err != nil {
+	if err := Search(Options{Dir: root, Home: home, Affected: "CoreStore"}, &buf); err != nil {
 		t.Fatalf("FindAffected: %v", err)
 	}
 	got := buf.String()
@@ -271,7 +271,7 @@ func BetaHelper() {}
 	commitAll(t, root, "seed map repo")
 
 	var buf bytes.Buffer
-	if err := RepoMapSummary(Options{Dir: root, Home: home, Map: true}, &buf); err != nil {
+	if err := Search(Options{Dir: root, Home: home, Map: true}, &buf); err != nil {
 		t.Fatalf("RepoMapSummary: %v", err)
 	}
 	got := buf.String()
@@ -309,7 +309,7 @@ func Helper() error {
 	commitAll(t, root, "seed map false-cycle repro")
 
 	var buf bytes.Buffer
-	if err := RepoMapSummary(Options{Dir: root, Home: home, Map: true}, &buf); err != nil {
+	if err := Search(Options{Dir: root, Home: home, Map: true}, &buf); err != nil {
 		t.Fatalf("RepoMapSummary: %v", err)
 	}
 	got := buf.String()

@@ -72,8 +72,8 @@ Final body line.
 		t.Fatalf("skeleton leaked non-heading lines:\n%s", skel)
 	}
 	var mapBuf bytes.Buffer
-	if err := RepoMapSummary(Options{Dir: root, Home: home}, &mapBuf); err != nil {
-		t.Fatalf("RepoMapSummary: %v", err)
+	if err := Search(Options{Dir: root, Home: home, Map: true}, &mapBuf); err != nil {
+		t.Fatalf("Search map: %v", err)
 	}
 	if strings.Contains(mapBuf.String(), "docs (") {
 		t.Fatalf("RepoMapSummary treated markdown dir as code package:\n%s", mapBuf.String())

@@ -1,6 +1,10 @@
 package search
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+	"unicode"
+)
 
 type mdHeading struct {
 	line  int
@@ -120,4 +124,80 @@ func countHeadingLevel(trimmed string) int {
 		return 0
 	}
 	return level
+}
+
+var (
+	mdTickRe  = regexp.MustCompile("`([^`\\n]{2,120})`")
+	docIdent  = regexp.MustCompile(`^(?:\(\*?([A-Za-z_][A-Za-z0-9_]*)\)\.|([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)(?:\(.*\))?$`)
+	docStop   = map[string]bool{}
+	docExtSet = map[string]bool{}
+)
+
+func init() {
+	for _, w := range strings.Fields("true false null none main bash text json yaml html todo pass fail") {
+		docStop[w] = true
+	}
+	for _, e := range refExtensions {
+		docExtSet[e] = true
+	}
+	for _, e := range []string{"db", "txt", "log", "lock", "jsonl", "html", "css", "svg", "png"} {
+		docExtSet[e] = true
+	}
+}
+
+func extractMarkdownDocRefs(text string) []symRefRow {
+	var out []symRefRow
+	var f fence
+	for i, l := range splitLines(text) {
+		if f.step(l) || f.inside() || !strings.Contains(l, "`") {
+			continue
+		}
+		for _, m := range mdTickRe.FindAllStringSubmatch(l, -1) {
+			if pkg, name, ok := parseDocSymbolSpan(strings.TrimSpace(m[1])); ok {
+				out = append(out, symRefRow{
+					fromSym: "<doc>", toPkg: pkg, toName: name, kind: "doc_ref",
+					confidence: ConfidenceInferred, weight: WeightInferred, line: i + 1,
+				})
+			}
+		}
+	}
+	return dedupSymRefs(out)
+}
+
+func parseDocSymbolSpan(span string) (string, string, bool) {
+	if idx := strings.LastIndexByte(span, ':'); idx > 0 && strings.Contains(span[:idx], "/") {
+		span = span[idx+1:]
+	}
+	m := docIdent.FindStringSubmatch(span)
+	if m == nil {
+		return "", "", false
+	}
+	qual := m[1]
+	if qual == "" {
+		qual = m[2]
+	}
+	name := m[3]
+	if qual != "" {
+		if docExtSet[strings.ToLower(name)] {
+			return "", "", false
+		}
+		return qual, name, true
+	}
+	hasCall := strings.HasSuffix(span, ")")
+	if docStop[strings.ToLower(name)] || (!hasCall && !looksLikeCodeIdent(name)) {
+		return "", "", false
+	}
+	return "", name, true
+}
+
+func looksLikeCodeIdent(s string) bool {
+	if strings.Contains(s, "_") || len(s) >= 6 {
+		return true
+	}
+	hasUpper, hasLower := false, false
+	for _, r := range s {
+		hasUpper = hasUpper || unicode.IsUpper(r)
+		hasLower = hasLower || unicode.IsLower(r)
+	}
+	return hasUpper && hasLower
 }

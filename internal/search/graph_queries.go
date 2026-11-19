@@ -3,41 +3,10 @@ package search
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 )
 
 const maxSymbolPathHops = 6
-
-// FindSymbolPath finds the shortest call/type/interface-dispatch path (<= 6 hops) between two symbols.
-func FindSymbolPath(o Options, out io.Writer) error {
-	sc, err := prepare(o, out)
-	if err != nil {
-		return err
-	}
-	defer sc.close()
-	return sc.findSymbolPath(o.Path, o.To, out)
-}
-
-// FindAffected computes the reverse-BFS blast radius (<= 2 hops) for a file or symbol.
-func FindAffected(o Options, out io.Writer) error {
-	sc, err := prepare(o, out)
-	if err != nil {
-		return err
-	}
-	defer sc.close()
-	return sc.findAffected(o, out)
-}
-
-// RepoMapSummary emits the top-10 God Nodes by PageRank, package dependency summary, and import-cycle check.
-func RepoMapSummary(o Options, out io.Writer) error {
-	sc, err := prepare(o, out)
-	if err != nil {
-		return err
-	}
-	defer sc.close()
-	return sc.repoMapSummary(o, out)
-}
 
 func (sc *scope) findSymbolPath(fromSpec, toSpec string, out io.Writer) error {
 	g, err := sc.loadSymGraph()
@@ -313,43 +282,4 @@ func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
 		fmt.Fprintf(out, "  %s\n", c)
 	}
 	return nil
-}
-
-func parseQueryTerms(query string) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, f := range strings.FieldsFunc(query, func(r rune) bool {
-		return !isWordRune(r) && r != '.' && r != '/' && r != '-'
-	}) {
-		if f = strings.Trim(f, "./-"); f != "" && !seen[f] {
-			seen[f] = true
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-func matchesPromptTerms(s RankedSymbol, terms []string) bool {
-	if len(terms) == 0 {
-		return false
-	}
-	nameLow, qualLow, pathLow := strings.ToLower(s.Name), strings.ToLower(s.QualName()), strings.ToLower(s.Path)
-	baseLow := strings.ToLower(strings.TrimSuffix(filepath.Base(s.Path), filepath.Ext(s.Path)))
-	shortShellSym := strings.HasSuffix(pathLow, ".sh") && len(nameLow) < hookMinIdentLen
-	for _, t := range terms {
-		tl := strings.ToLower(t)
-		if pathLow == tl || (strings.HasSuffix(tl, ".sh") && filepath.Base(pathLow) == filepath.Base(tl)) {
-			return true
-		}
-		if shortShellSym {
-			continue
-		}
-		if nameLow == tl || qualLow == tl || baseLow == tl {
-			return true
-		}
-		if len(tl) >= 4 && (strings.Contains(nameLow, tl) || strings.Contains(qualLow, tl)) {
-			return true
-		}
-	}
-	return false
 }
