@@ -124,17 +124,32 @@ func TestWorkerDraftsZoneModelsRemoveAndBash(t *testing.T) {
 		t.Fatal("leadZone accepted ../evil")
 	}
 
-	// worker_model_profiles (IN97)
+	// worker_model_profiles (IN97, IN-S43, IN-S47)
+	role, tier, _ := resolveAutoRoleAndTier(Kickoff{Files: []string{"README.md"}, Text: "update doc"})
+	if role == "" || tier == "" {
+		t.Fatalf("resolveAutoRoleAndTier returned empty: (%q, %q)", role, tier)
+	}
 	listed := map[string]bool{"gemini-4-carbon-high": true, "gemini-pro-orchestrator": true}
 	ids := []string{"gemini-4-carbon-high", "gemini-pro-orchestrator"}
 	opts := WorkerOptions{Home: t.TempDir(), Model: "auto"}
 	ks := []Kickoff{{Path: "k1.md", Files: []string{"a.go"}, Text: "work"}}
-	if err := resolveAutoModels(context.Background(), &opts, ks, listed, ids); err != nil || opts.Model != "gemini-4-carbon-high" || ks[0].Model != "gemini-4-carbon-high" {
+	if err := resolveAutoModels(&opts, ks, listed, ids); err != nil || opts.Model != "gemini-4-carbon-high" || ks[0].Model != "gemini-4-carbon-high" {
 		t.Fatalf("resolveAutoModels = (err=%v, o.Model=%q, k.Model=%q)", err, opts.Model, ks[0].Model)
 	}
 	optsFail := WorkerOptions{Home: t.TempDir(), Model: "auto"}
-	if err := resolveAutoModels(context.Background(), &optsFail, []Kickoff{{Path: "k1.md", Text: "work"}}, map[string]bool{"gemini-pro-orchestrator": true}, []string{"gemini-pro-orchestrator"}); err == nil {
+	if err := resolveAutoModels(&optsFail, []Kickoff{{Path: "k1.md", Text: "work"}}, map[string]bool{"gemini-pro-orchestrator": true}, []string{"gemini-pro-orchestrator"}); err == nil {
 		t.Fatal("resolveAutoModels succeeded when no eligible model listed")
+	}
+
+	// IN-S45: shared cappedBuffer
+	cb := cappedBuffer{limit: 5}
+	_, _ = cb.Write([]byte("abc"))
+	if cb.over || cb.buf.String() != "abc" {
+		t.Fatalf("cappedBuffer under limit: over=%v buf=%q", cb.over, cb.buf.String())
+	}
+	_, _ = cb.Write([]byte("defg"))
+	if !cb.over || cb.buf.String() != "abcde" {
+		t.Fatalf("cappedBuffer over limit: over=%v buf=%q", cb.over, cb.buf.String())
 	}
 
 	// IN100: PrintTimeout capped grace for 5m timeout

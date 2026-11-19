@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/models"
@@ -351,4 +352,52 @@ func TestParseJudgeVerdict(t *testing.T) {
 			}
 		}
 	})
+}
+
+func setupLargeDiffRepo(t *testing.T) (repo, baseHead string) {
+	t.Helper()
+	repo = t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=w", "-c", "user.email=w@localhost"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-q")
+	put(t, filepath.Join(repo, "big.txt"), "base\n", 0o644)
+	runGit("add", "big.txt")
+	runGit("commit", "-qm", "init")
+	baseHead = runGit("rev-parse", "HEAD")
+	// Over 140 KiB with multi-byte UTF-8 runes crossing the 96 KiB boundary.
+	payload := strings.Repeat("a", (96<<10)-1) + strings.Repeat("─", 20000) + "\n"
+	put(t, filepath.Join(repo, "big.txt"), payload, 0o644)
+	runGit("add", "big.txt")
+	runGit("commit", "-qm", "large diff")
+	return repo, baseHead
+}
+
+func TestWorkerJudgePromptCapOver140KiB(t *testing.T) {
+	repo, baseHead := setupLargeDiffRepo(t)
+	ctx := context.Background()
+	diff, err := workerDiffForJudge(ctx, repo, baseHead)
+	if err != nil {
+		t.Fatalf("workerDiffForJudge: %v", err)
+	}
+	if len(diff) > (96<<10)+64 || !strings.Contains(diff, "[diff truncated at 96 KiB]") || !utf8.ValidString(diff) {
+		t.Fatalf("diff cap failed: len=%d valid=%v", len(diff), utf8.ValidString(diff))
+	}
+	prompt := buildWorkerJudgePrompt(strings.Repeat("k", 30<<10), diff)
+	if len(prompt) >= 120<<10 || len(prompt) >= 128<<10 || !utf8.ValidString(prompt) {
+		t.Fatalf("prompt cap failed: len=%d valid=%v", len(prompt), utf8.ValidString(prompt))
+	}
+	hugePrompt := buildWorkerJudgePrompt(strings.Repeat("q", 130<<10), diff)
+	if len(hugePrompt) >= 120<<10 || len(hugePrompt) >= 128<<10 || !utf8.ValidString(hugePrompt) {
+		t.Fatalf("huge criterion prompt cap failed: len=%d valid=%v", len(hugePrompt), utf8.ValidString(hugePrompt))
+	}
+	if _, err := RunJudgePrint(ctx, JudgeExecOptions{Home: t.TempDir(), Prompt: strings.Repeat("x", 120<<10)}); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("RunJudgePrint oversized prompt error = %v, want too large refusal", err)
+	}
 }

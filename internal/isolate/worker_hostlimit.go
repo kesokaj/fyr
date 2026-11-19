@@ -28,25 +28,35 @@ const branchLimit = 10 * time.Minute
 // a truncated path list would pass the scope check.
 var maxBranchOutput = 64 << 20
 
-// overflow keeps up to its bound and remembers going past it.
-type overflow struct {
-	kept bytes.Buffer
-	over bool
+// cappedBuffer retains up to limit bytes written to it and records overflow.
+// Keeping buf as a named field avoids io.Copy bypassing Write via ReadFrom.
+type cappedBuffer struct {
+	limit int
+	buf   bytes.Buffer
+	over  bool
 }
 
-func (o *overflow) Write(p []byte) (int, error) {
-	if room := maxBranchOutput - o.kept.Len(); room >= len(p) {
-		o.kept.Write(p)
-	} else {
-		o.over = true
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	room := c.limit - c.buf.Len()
+	if room <= 0 {
+		if len(p) > 0 {
+			c.over = true
+		}
+		return len(p), nil
 	}
+	if len(p) > room {
+		c.over = true
+		c.buf.Write(p[:room])
+		return len(p), nil
+	}
+	c.buf.Write(p)
 	return len(p), nil
 }
 
 // branchOutput is cmd's Output for a git read of a session's history, under
 // the deadline and the output bound.
 func branchOutput(cmd *exec.Cmd) ([]byte, error) {
-	var out overflow
+	out := cappedBuffer{limit: maxBranchOutput}
 	cmd.Stdout = &out
 	err := runGroup(cmd, branchLimit)
 	if err != nil {
@@ -55,5 +65,5 @@ func branchOutput(cmd *exec.Cmd) ([]byte, error) {
 	if out.over {
 		return nil, fmt.Errorf("output over %d bytes", maxBranchOutput)
 	}
-	return out.kept.Bytes(), nil
+	return out.buf.Bytes(), nil
 }

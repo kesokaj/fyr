@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -156,15 +155,9 @@ func listModelsForHomeOrHook(ctx context.Context, home, agyPath string) ([]strin
 	return ListModelsFunc(ctx, agyPath)
 }
 
-// ResolveRoleModel resolves cross-family models dynamically from listed agy models
-// without hardcoding model IDs.
-func ResolveRoleModel(ctx context.Context, agyPath, role, tier, explicitModel string) (string, string, error) {
-	return resolveRoleModel(ctx, os.Getenv("HOME"), agyPath, role, tier, explicitModel, false)
-}
-
-// ResolveRoleModelForHome behaves like ResolveRoleModel, reading models.json from
-// home (when non-empty) rather than os.Getenv("HOME") and persisting live /usage
-// pools into <home>/.config/fyr/models.json when present.
+// ResolveRoleModelForHome resolves cross-family models dynamically from listed
+// agy models without hardcoding model IDs, reading models.json from home (when
+// non-empty) and persisting live /usage pools into <home>/.config/fyr/models.json.
 func ResolveRoleModelForHome(ctx context.Context, home, agyPath, role, tier, explicitModel string) (string, string, error) {
 	return resolveRoleModel(ctx, home, agyPath, role, tier, explicitModel, true)
 }

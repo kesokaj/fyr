@@ -167,3 +167,88 @@ func inCoveredSpan(pos int, spans [][2]int) bool {
 	idx := sort.Search(len(spans), func(i int) bool { return spans[i][1] > pos })
 	return idx < len(spans) && spans[idx][0] <= pos && pos < spans[idx][1]
 }
+
+func stripSQLiteChunkPrefix(b []byte, ps, start int) int {
+	lo := max(0, ps-64)
+	for p := lo; p+41 <= start; p++ {
+		if !isLowerHex40(b[p : p+40]) {
+			continue
+		}
+		for h := max(0, p-10); h+2 < p; h++ {
+			tLine := int(b[h+1])
+			tHead := int(b[h+2])
+			if b[h] == 0x5d && (tLine == 1 || tLine == 2) && tHead >= 13 && tHead%2 == 1 {
+				body := p + 40 + tLine + (tHead-13)/2
+				if body > ps && body <= start {
+					return body
+				}
+			}
+		}
+	}
+	return ps
+}
+
+func stripSQLiteRecordBounds(b []byte, ps, pe, start, end int) (int, int) {
+	lo := max(1, ps-maxLineScan)
+	for r0 := min(ps, len(b)-1); r0 >= lo; r0-- {
+		if b[r0] != 0x00 {
+			continue
+		}
+		hdrStart := r0 - 1
+		hdrSize, n := readVarint(b, hdrStart)
+		if n == 1 && hdrSize >= 11 && hdrSize <= 32 && hdrStart+int(hdrSize) <= len(b) {
+			bodyStart, bodyEnd, ok := parseBrainRecordCols(b, r0+1, hdrStart+int(hdrSize))
+			if ok && bodyStart <= start && end <= min(len(b), bodyEnd) {
+				return max(ps, bodyStart), min(pe, bodyEnd)
+			}
+		}
+		break
+	}
+	return ps, pe
+}
+
+func parseBrainRecordCols(b []byte, pos, payload int) (int, int, bool) {
+	var lens [9]int
+	for i := range 9 {
+		v, n := readVarint(b, pos)
+		if n == 0 || v < 13 || v%2 != 1 {
+			return 0, 0, false
+		}
+		lens[i] = int(v-13) / 2
+		pos += n
+	}
+	if lens[4] != 10 || lens[8] < 20 || pos > payload {
+		return 0, 0, false
+	}
+	datePos := payload + lens[0] + lens[1] + lens[2] + lens[3]
+	if datePos+10 > len(b) || !isISODate(b[datePos:datePos+10]) {
+		return 0, 0, false
+	}
+	bodyStart := datePos + 10 + lens[5]
+	return bodyStart, bodyStart + lens[6], true
+}
+
+func readVarint(b []byte, pos int) (uint64, int) {
+	var v uint64
+	for i := 0; i < 4 && pos+i < len(b); i++ {
+		c := b[pos+i]
+		v = (v << 7) | uint64(c&0x7f)
+		if c < 0x80 {
+			return v, i + 1
+		}
+	}
+	return 0, 0
+}
+
+func isISODate(s []byte) bool {
+	return len(s) == 10 && s[4] == '-' && s[7] == '-' && s[0] == '2' && s[1] == '0'
+}
+
+func isLowerHex40(s []byte) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return len(s) == 40
+}

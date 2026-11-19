@@ -1,7 +1,6 @@
 package isolate
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -11,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -25,7 +23,8 @@ const (
 	// DefaultJudgeTimeout bounds a single isolated judge `agy -p` run.
 	DefaultJudgeTimeout = 3 * time.Minute
 	maxJudgeOutputBytes = 1 << 20
-	maxJudgeDiffBytes   = 128 << 10
+	maxJudgeDiffBytes   = 96 << 10
+	maxJudgePromptBytes = 120 << 10
 	judgeVerdictSchema  = `{"type":"object","properties":{"verdict":{"type":"string","enum":["PASS","FAIL"]},"reason":{"type":"string"}},"required":["verdict","reason"],"additionalProperties":false}`
 )
 
@@ -48,6 +47,9 @@ var JudgeExecFunc = RunJudgePrint
 // RunJudgePrint executes `agy -p` inside a temporary confined scratch home
 // under `<home>/<harness.StateDir>/judge-*` with Network: true and empty tool grants.
 func RunJudgePrint(ctx context.Context, opts JudgeExecOptions) (JudgeExecOutput, error) {
+	if len(opts.Prompt) >= maxJudgePromptBytes {
+		return JudgeExecOutput{ExitCode: -1}, fmt.Errorf("judge prompt too large: %d bytes (limit < %d)", len(opts.Prompt), maxJudgePromptBytes)
+	}
 	absHome, absReal, absRepo, err := resolveJudgeDirs(opts)
 	if err != nil {
 		return JudgeExecOutput{ExitCode: -1}, err
@@ -147,6 +149,9 @@ func linkJudgeToken(scratchHome, absHome, absReal string) (string, error) {
 }
 
 func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok string) (*exec.Cmd, func(), error) {
+	if len(opts.Prompt) >= maxJudgePromptBytes {
+		return nil, nil, fmt.Errorf("judge prompt too large: %d bytes (limit < %d)", len(opts.Prompt), maxJudgePromptBytes)
+	}
 	bin := strings.TrimSpace(opts.AgyPath)
 	if bin == "" {
 		var err error
@@ -180,18 +185,8 @@ func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok stri
 }
 
 func judgePolicy(opts JudgeExecOptions, bin string, args []string, dir, absRepo, scratchHome, tmpDir, tok string, env []string) Policy {
-	rw := addPathPair(addPathPair(nil, scratchHome), tmpDir)
-	for _, dev := range safeCharDevs {
-		if _, err := os.Stat(dev); err == nil {
-			rw = appendUniqueClean(rw, dev)
-		}
-	}
-	ro := addPathPair(addPathPair(addPathPair(addPathPair(nil, bin), tok), absRepo), dir)
-	ro = appendExistingPaths(ro, systemROCandidates)
-	if gr := runtime.GOROOT(); gr != "" {
-		ro = appendExistingPaths(ro, []string{gr})
-	}
-	ro = appendSafePATHDirs(ro, opts.RealHome)
+	extraRO := addPathPair(addPathPair(addPathPair(nil, tok), absRepo), dir)
+	rw, ro := policyPaths(opts.RealHome, bin, addPathPair(addPathPair(nil, scratchHome), tmpDir), nil, nil, extraRO)
 	return Policy{Argv: append([]string{bin}, args...), Dir: dir, Env: env, RWPaths: rw, ROPaths: ro, Network: true}
 }
 
@@ -206,17 +201,9 @@ func judgeEnv(scratchHome, tmpDir, dir string) []string {
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "STYRMAN_SKIP_CRED_PULL=1")
 }
 
-type judgeOutCap struct{ buf bytes.Buffer }
-
-func (c *judgeOutCap) Write(p []byte) (int, error) {
-	if room := maxJudgeOutputBytes - c.buf.Len(); room > 0 {
-		c.buf.Write(p[:min(room, len(p))])
-	}
-	return len(p), nil
-}
-
 func execJudgeCmd(ctx context.Context, cmd *exec.Cmd, cleanup func(), timeout time.Duration) (JudgeExecOutput, error) {
-	var stdout, stderr judgeOutCap
+	stdout := cappedBuffer{limit: maxJudgeOutputBytes}
+	stderr := cappedBuffer{limit: maxJudgeOutputBytes}
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
 		cleanup()
@@ -270,11 +257,9 @@ func runWorkerJudge(ctx context.Context, w *worker) {
 	})
 	verdict, reason, perr := ParseJudgeVerdict(out.Stdout)
 	if jerr != nil || out.ExitCode != 0 || perr != nil || verdict != "PASS" {
-		if reason == "" && (jerr != nil || out.ExitCode != 0) {
-			reason = firstNonEmpty(strings.TrimSpace(out.Stderr), fmt.Sprintf("exit=%d err=%v parse=%v", out.ExitCode, jerr, perr))
-		} else if reason == "" {
+		if reason == "" {
 			var pmsg string
-			if perr != nil {
+			if jerr == nil && out.ExitCode == 0 && perr != nil {
 				pmsg = perr.Error()
 			}
 			reason = firstNonEmpty(pmsg, strings.TrimSpace(out.Stderr), fmt.Sprintf("exit=%d err=%v parse=%v", out.ExitCode, jerr, perr))
@@ -294,12 +279,42 @@ func workerDiffForJudge(ctx context.Context, appDir, base string) (string, error
 		return "", err
 	}
 	if len(out) > maxJudgeDiffBytes {
-		return truncateUTF8(string(out), maxJudgeDiffBytes) + "\n... [diff truncated at 128 KiB]", nil
+		return fmt.Sprintf("%s\n... [diff truncated at %d KiB]", truncateUTF8(string(out), maxJudgeDiffBytes), maxJudgeDiffBytes>>10), nil
 	}
 	return string(out), nil
 }
 
 func buildWorkerJudgePrompt(criterion, diff string) string {
+	prompt := formatWorkerJudgePrompt(criterion, diff)
+	if len(prompt) < maxJudgePromptBytes {
+		return prompt
+	}
+	const diffNote = "\n... [diff truncated for prompt size]"
+	avail := maxJudgePromptBytes - 1 - len(formatWorkerJudgePrompt(criterion, "")) - len(diffNote) - 64
+	for avail > 0 && len(prompt) >= maxJudgePromptBytes {
+		if len(diff) > avail {
+			diff = truncateUTF8(diff, avail) + diffNote
+		}
+		prompt = formatWorkerJudgePrompt(criterion, diff)
+		avail -= 512
+	}
+	if len(prompt) < maxJudgePromptBytes {
+		return prompt
+	}
+	diff = ""
+	const critNote = "\n... [criterion truncated]"
+	critAvail := maxJudgePromptBytes - 1 - len(formatWorkerJudgePrompt("", "")) - len(critNote) - 64
+	for len(prompt) >= maxJudgePromptBytes && critAvail >= 0 {
+		if len(criterion) > critAvail {
+			criterion = truncateUTF8(criterion, critAvail) + critNote
+		}
+		prompt = formatWorkerJudgePrompt(criterion, diff)
+		critAvail -= 512
+	}
+	return prompt
+}
+
+func formatWorkerJudgePrompt(criterion, diff string) string {
 	critBlock, diffBlock := fenceJudgeData("criterion", "kickoff", criterion, diff), fenceJudgeData("git-diff", "worker", diff, criterion)
 	return "Evaluate the git diff strictly against the criterion. " +
 		"Do NOT call any tools, run commands, or read files; judge strictly from the BEGIN DATA blocks provided below. " +

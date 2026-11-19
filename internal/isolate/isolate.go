@@ -101,25 +101,32 @@ func (b *Box) isolated() bool {
 	return !b.c.TestUnconfined
 }
 
-func (b *Box) policyFor(bin string, args []string) Policy {
-	rw := []string{b.app, b.sb, filepath.Join(b.dir, "tmp")}
+func policyPaths(realHome, bin string, baseRW, extraRW, baseRO, extraRO []string) (rw, ro []string) {
+	rw = appendUniqueClean(nil, baseRW...)
 	for _, dev := range safeCharDevs {
 		if _, err := os.Stat(dev); err == nil {
-			rw = append(rw, dev)
+			rw = appendUniqueClean(rw, dev)
 		}
 	}
-	rw = appendUniqueClean(rw, b.c.TestRW...)
+	rw = appendUniqueClean(rw, extraRW...)
 
-	var ro []string
-	ro = addPathPair(ro, bin)
-	ro = appendExistingPaths(ro, []string{b.tok})
+	ro = addPathPair(nil, bin)
+	ro = appendExistingPaths(ro, baseRO)
 	ro = appendExistingPaths(ro, systemROCandidates)
 	if gr := runtime.GOROOT(); gr != "" {
 		ro = appendExistingPaths(ro, []string{gr})
 	}
-	ro = appendSafePATHDirs(ro, b.c.RealHome)
-	ro = appendUniqueClean(ro, b.c.TestRO...)
+	ro = appendSafePATHDirs(ro, realHome)
+	ro = appendUniqueClean(ro, extraRO...)
+	return rw, ro
+}
 
+func (b *Box) policyFor(bin string, args []string) Policy {
+	rw, ro := policyPaths(
+		b.c.RealHome, bin,
+		[]string{b.app, b.sb, filepath.Join(b.dir, "tmp")}, b.c.TestRW,
+		[]string{b.tok}, b.c.TestRO,
+	)
 	return Policy{
 		Argv:    append([]string{bin}, args...),
 		Dir:     b.app,

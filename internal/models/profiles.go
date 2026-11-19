@@ -140,21 +140,6 @@ func isAutoPickEligible(e CatalogEntry) bool {
 	return strings.TrimSpace(e.RetiringOn) == ""
 }
 
-// UnjudgedActiveModels returns active, non-interactive, non-retiring models
-// that have zero combined work + eval runs so `fyr auto` can canary them.
-func UnjudgedActiveModels(cat Catalog) []CatalogEntry {
-	var out []CatalogEntry
-	for _, e := range cat.Entries {
-		if !isAutoPickEligible(e) {
-			continue
-		}
-		if e.Evidence.WorkRuns+e.Evidence.EvalRuns == 0 {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
 // ResolveScopeRoleAndTier determines the best (role, tier) for a task based
 // on its touched files scope and prompt complexity.
 func ResolveScopeRoleAndTier(files []string, text string) (role, tier, rationale string) {

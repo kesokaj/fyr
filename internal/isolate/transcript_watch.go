@@ -218,7 +218,7 @@ func (t *transcriptTailer) readTranscript(root *os.Root, convID, rel string) (bo
 	if fi.Size() <= off {
 		return grew, ""
 	}
-	complete, ok := readTranscriptChunk(root, rel, off, &t.offsets, convID)
+	complete, ok := readTranscriptChunk(root, rel, off, t.offsets, convID)
 	if !ok {
 		return grew, ""
 	}
@@ -234,7 +234,7 @@ func (t *transcriptTailer) readTranscript(root *os.Root, convID, rel string) (bo
 	return grew, loopMsg
 }
 
-func readTranscriptChunk(root *os.Root, rel string, off int64, offsets *map[string]int64, convID string) ([]byte, bool) {
+func readTranscriptChunk(root *os.Root, rel string, off int64, offsets map[string]int64, convID string) ([]byte, bool) {
 	f, err := root.Open(rel)
 	if err != nil {
 		return nil, false
@@ -255,12 +255,12 @@ func readTranscriptChunk(root *os.Root, rel string, off int64, offsets *map[stri
 	lastNL := bytes.LastIndexByte(buf, '\n')
 	if lastNL < 0 {
 		if len(buf) == maxTranscriptRead {
-			(*offsets)[convID] = off + int64(len(buf))
+			offsets[convID] = off + int64(len(buf))
 		}
 		return nil, false
 	}
 	complete := buf[:lastNL+1]
-	(*offsets)[convID] = off + int64(len(complete))
+	offsets[convID] = off + int64(len(complete))
 	return complete, true
 }
 

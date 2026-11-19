@@ -86,24 +86,12 @@ const fetchLimit = 10 * time.Minute
 // maxFetchOutput bounds what a fetch's output keeps; the rest is discarded.
 const maxFetchOutput = 64 << 10
 
-// cappedWriter keeps the first maxFetchOutput bytes.
-// Its buffer is a named field: embedded, its ReadFrom would be io.Copy's way
-// around Write.
-type cappedWriter struct{ kept bytes.Buffer }
-
-func (c *cappedWriter) Write(p []byte) (int, error) {
-	if room := maxFetchOutput - c.kept.Len(); room > 0 {
-		c.kept.Write(p[:min(room, len(p))])
-	}
-	return len(p), nil
-}
-
 // runBounded is CombinedOutput with a deadline and a bound on the output.
 func runBounded(cmd *exec.Cmd, limit time.Duration) ([]byte, error) {
-	var out cappedWriter
+	out := cappedBuffer{limit: maxFetchOutput}
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := runGroup(cmd, limit)
-	return out.kept.Bytes(), err
+	return out.buf.Bytes(), err
 }
 
 // runGroup runs cmd in its own process group, which is killed whole at the

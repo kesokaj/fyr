@@ -45,6 +45,8 @@ func TestACPShellGrantAndSubshellBypass(t *testing.T) {
 		{"echo ok\v#; evil", false},
 		{"echo ok\f#; evil", false},
 		{"echo ok\r#\"\"; evil", false},
+		{"cat <<EOF; evil", false},
+		{"cat <<'EOF'\nrm -rf /\nEOF", false},
 	}
 	for _, tc := range cases {
 		if got := matchCommandGrants(grants, tc.cmd); got != tc.want {

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
 )
 
 // CommandOpts configures a confined (or test-unconfined) child command.
@@ -54,23 +53,12 @@ func resolveCommandBin(bin string) (string, error) {
 }
 
 func buildCommandEnv(opts CommandOpts) ([]string, string) {
-	name := ""
-	if u, err := user.Current(); err == nil {
-		name = u.Username
-	}
-	env := []string{
-		"PATH=" + os.Getenv("PATH"),
-		"TERM=" + envOr("TERM", "dumb"),
-		"LANG=" + envOr("LANG", "C.UTF-8"),
-		"USER=" + envOr("USER", name),
-		"LOGNAME=" + envOr("LOGNAME", name),
-		"SHELL=/bin/bash",
-		"HOME=" + opts.ScratchHome,
-		"TMPDIR=" + opts.TmpDir,
+	env := baseSandboxEnv(os.Getenv("PATH"), opts.ScratchHome, opts.TmpDir)
+	env = append(env,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_TERMINAL_PROMPT=0",
-	}
+	)
 	if opts.TmpDir != "" {
 		env = append(env,
 			"GOCACHE="+filepath.Join(opts.TmpDir, "gocache"),
@@ -142,26 +130,15 @@ func existingDir(p string) string {
 }
 
 func buildCommandPolicy(opts CommandOpts, bin string, env []string, gomodcache string) Policy {
-	rw := appendUniqueClean(nil, opts.Dir, opts.ScratchHome, opts.TmpDir)
-	for _, dev := range safeCharDevs {
-		if _, err := os.Stat(dev); err == nil {
-			rw = appendUniqueClean(rw, dev)
-		}
-	}
-	rw = appendUniqueClean(rw, opts.RWPaths...)
-
-	var ro []string
-	ro = addPathPair(ro, bin)
-	ro = appendExistingPaths(ro, systemROCandidates)
-	if gr := runtime.GOROOT(); gr != "" {
-		ro = appendExistingPaths(ro, []string{gr})
-	}
-	ro = appendSafePATHDirs(ro, opts.RealHome)
+	var baseRO []string
 	if gomodcache != "" {
-		ro = appendExistingPaths(ro, []string{gomodcache})
+		baseRO = []string{gomodcache}
 	}
-	ro = appendUniqueClean(ro, opts.ROPaths...)
-
+	rw, ro := policyPaths(
+		opts.RealHome, bin,
+		[]string{opts.Dir, opts.ScratchHome, opts.TmpDir}, opts.RWPaths,
+		baseRO, opts.ROPaths,
+	)
 	return Policy{
 		Argv:    append([]string{bin}, opts.Argv[1:]...),
 		Dir:     opts.Dir,

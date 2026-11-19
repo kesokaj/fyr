@@ -38,7 +38,7 @@ func checkModels(ctx context.Context, o *WorkerOptions, ks []Kickoff) error {
 	for _, id := range ids {
 		listed[id] = true
 	}
-	if err := resolveAutoModels(ctx, o, ks, listed, ids); err != nil {
+	if err := resolveAutoModels(o, ks, listed, ids); err != nil {
 		return err
 	}
 	all := strings.Join(ids, ", ")

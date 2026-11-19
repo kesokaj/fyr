@@ -102,7 +102,7 @@ func TestModelClassification22Lineup(t *testing.T) {
 	}
 }
 
-func TestChangelogEnrichmentAndUnjudgedCanaries(t *testing.T) {
+func TestChangelogEnrichment(t *testing.T) {
 	entries := []CatalogEntry{
 		{ID: "gemini-4-carbon-medium", Family: "gemini", Tier: "pro", Status: "active"},
 		{ID: "gemini-4-argon-high", Family: "gemini", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 3}},
@@ -136,11 +136,6 @@ func TestChangelogEnrichmentAndUnjudgedCanaries(t *testing.T) {
 	}
 	if entries[2].RetiringOn != "" || entries[4].RetiringOn != "" || entries[4].ChangelogNote != "" {
 		t.Errorf("bare model IDs falsely matched unrelated changelog line: orch=%+v bare=%+v", entries[2], entries[4])
-	}
-
-	unjudged := UnjudgedActiveModels(Catalog{Entries: entries})
-	if len(unjudged) != 2 || unjudged[0].ID != "gemini-4-carbon-medium" || unjudged[1].ID != "custom-bare-v1" {
-		t.Errorf("UnjudgedActiveModels = %+v, want [gemini-4-carbon-medium, custom-bare-v1]", unjudged)
 	}
 }
 
