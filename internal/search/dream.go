@@ -6,11 +6,8 @@ package search
 // conversation databases, both read-only.
 
 import (
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,16 +30,6 @@ type AgyConversation struct {
 	ID       string
 	Modified time.Time
 	Text     string
-}
-
-// roDSN opens path read-only; the path is escaped as dsn does.
-func roDSN(path string) string {
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
-	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(path),
-		RawQuery: fmt.Sprintf("mode=ro&_pragma=busy_timeout(%d)", busyTimeoutMS)}
-	return u.String()
 }
 
 // ListProjects returns the checkouts in the global search index, in the order
@@ -81,112 +68,6 @@ func ListProjects(home string) ([]Project, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
-}
-
-// ListAgyWorkspaces discovers unique Antigravity workspace directories from
-// conversation_summaries.db, excluding fyr dream-work and {eval,sandbox,auto}
-// sandboxes, and mapping empty workspace_uris lists to GlobalWorkspace.
-func ListAgyWorkspaces(home string) ([]Project, error) {
-	var out []Project
-	err := withAgyTemp(home, "dream-agy-ws-", func(src, tmp string) error {
-		var err error
-		out, err = listAgyWorkspacesFromDB(src, tmp, home)
-		return err
-	})
-	return out, err
-}
-
-func listAgyWorkspacesFromDB(src, tmp, home string) ([]Project, error) {
-	db, err := openCopy(src, "conversation_summaries.db", tmp)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT COALESCE(workspace_uris, '') FROM conversation_summaries ORDER BY rowid`)
-	if err != nil {
-		return nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
-	}
-	defer rows.Close()
-	dreamPaths, sandboxes := harness.DreamWorkPaths(home), sandboxExcludePaths(home)
-	seen := map[string]bool{}
-	var out []Project
-	for rows.Next() {
-		var uris string
-		if err := rows.Scan(&uris); err != nil {
-			return nil, err
-		}
-		out = appendDiscoveredWorkspaces(out, seen, uris, dreamPaths, sandboxes)
-	}
-	return out, rows.Err()
-}
-
-func appendDiscoveredWorkspaces(out []Project, seen map[string]bool, uris string, dream, sandboxes []string) []Project {
-	if strings.TrimSpace(uris) == "" {
-		return addUniqueProject(out, seen, GlobalWorkspace)
-	}
-	var list []string
-	if json.Unmarshal([]byte(uris), &list) != nil {
-		return out
-	}
-	if len(list) == 0 {
-		return addUniqueProject(out, seen, GlobalWorkspace)
-	}
-	var paths []string
-	for _, u := range list {
-		ws, ok := parseFileWorkspace(u)
-		if !ok {
-			continue
-		}
-		if isExcludedWorkspace(ws, dream, sandboxes) {
-			return out
-		}
-		paths = append(paths, ws)
-	}
-	for _, ws := range paths {
-		out = addUniqueProject(out, seen, ws)
-	}
-	return out
-}
-
-func addUniqueProject(out []Project, seen map[string]bool, root string) []Project {
-	if seen[root] {
-		return out
-	}
-	seen[root] = true
-	return append(out, Project{Root: root, Name: filepath.Base(root)})
-}
-
-func sandboxExcludePaths(home string) []string {
-	var homes []string
-	if home != "" {
-		homes = append(homes, filepath.Clean(home))
-		if real, err := filepath.EvalSymlinks(home); err == nil && filepath.Clean(real) != homes[0] {
-			homes = append(homes, filepath.Clean(real))
-		}
-	}
-	var out []string
-	for _, h := range homes {
-		for _, sub := range []string{"eval", "sandbox", "auto"} {
-			out = append(out, filepath.Clean(filepath.Join(h, harness.StateDir, sub)))
-		}
-		for _, sub := range []string{"fyr-auto", "fyr-eval"} {
-			out = append(out, filepath.Clean(filepath.Join(h, "sandbox", sub)))
-		}
-	}
-	return out
-}
-
-func isExcludedWorkspace(ws string, dream, sandboxes []string) bool {
-	if harness.InDreamWork(ws, dream) || harness.InDreamWork(ws, sandboxes) {
-		return true
-	}
-	slash := filepath.ToSlash(filepath.Clean(ws))
-	for _, seg := range []string{"/.config/fyr/eval", "/.config/fyr/sandbox", "/.config/fyr/auto"} {
-		if strings.HasSuffix(slash, seg) || strings.Contains(slash, seg+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 func withAgyTemp(home, prefix string, fn func(src, tmp string) error) error {
@@ -356,59 +237,6 @@ func conversationText(src, id, tmp string) (string, error) {
 		}
 	}
 	return b.String(), rows.Err()
-}
-
-// copyDB copies name and its -wal and -shm files from dir into tmp and
-// returns the copy's path; a missing main file is os.ErrNotExist.
-func copyDB(dir, name, tmp string) (string, error) {
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		err := copyFile(filepath.Join(dir, name+suffix), filepath.Join(tmp, name+suffix))
-		if err != nil && (suffix == "" || !errors.Is(err, os.ErrNotExist)) {
-			return "", err
-		}
-	}
-	return filepath.Join(tmp, name), nil
-}
-
-// copyRetryWait is the pause before a second copy of a database whose first
-// copy was torn; zero in tests.
-var copyRetryWait = time.Second
-
-// copyFile is a variable so a test can tear the first copy.
-var copyFile = copyFileImpl
-
-// openCopy copies name from dir into tmp, opens the copy read-only and
-// reads once, since sql.Open is lazy. A copy taken while its writer was
-// mid-checkpoint opens as NOTADB or CORRUPT: the three copies are removed
-// and, after copyRetryWait, copied and opened once more; a second failure
-// is returned. The live database is never opened (audit 2026-09-30, SD7).
-func openCopy(dir, name, tmp string) (*sql.DB, error) {
-	var err error
-	for attempt := 0; attempt < 2; attempt++ {
-		if attempt == 1 {
-			for _, suffix := range []string{"", "-wal", "-shm"} {
-				os.Remove(filepath.Join(tmp, name+suffix))
-			}
-			time.Sleep(copyRetryWait)
-		}
-		var cp string
-		if cp, err = copyDB(dir, name, tmp); err != nil {
-			return nil, err
-		}
-		var db *sql.DB
-		if db, err = sql.Open("sqlite", roDSN(cp)); err != nil {
-			return nil, err
-		}
-		var n int
-		if err = db.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&n); err == nil {
-			return db, nil
-		}
-		db.Close()
-		if !isUnreadable(err) {
-			return nil, err
-		}
-	}
-	return nil, err
 }
 
 // removeIfEmpty removes dir only when nothing is in it, so a run that had to

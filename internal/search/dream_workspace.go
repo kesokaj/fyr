@@ -2,6 +2,7 @@ package search
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -145,4 +146,110 @@ func (w *workspaces) mainOf(dir string) string {
 	}
 	w.mains[dir] = m
 	return m
+}
+
+// ListAgyWorkspaces discovers unique Antigravity workspace directories from
+// conversation_summaries.db, excluding fyr dream-work and {eval,sandbox,auto}
+// sandboxes, and mapping empty workspace_uris lists to GlobalWorkspace.
+func ListAgyWorkspaces(home string) ([]Project, error) {
+	var out []Project
+	err := withAgyTemp(home, "dream-agy-ws-", func(src, tmp string) error {
+		var err error
+		out, err = listAgyWorkspacesFromDB(src, tmp, home)
+		return err
+	})
+	return out, err
+}
+
+func listAgyWorkspacesFromDB(src, tmp, home string) ([]Project, error) {
+	db, err := openCopy(src, "conversation_summaries.db", tmp)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT COALESCE(workspace_uris, '') FROM conversation_summaries ORDER BY rowid`)
+	if err != nil {
+		return nil, fmt.Errorf("reading Antigravity's conversation list: %w", err)
+	}
+	defer rows.Close()
+	dreamPaths, sandboxes := harness.DreamWorkPaths(home), sandboxExcludePaths(home)
+	seen := map[string]bool{}
+	var out []Project
+	for rows.Next() {
+		var uris string
+		if err := rows.Scan(&uris); err != nil {
+			return nil, err
+		}
+		out = appendDiscoveredWorkspaces(out, seen, uris, dreamPaths, sandboxes)
+	}
+	return out, rows.Err()
+}
+
+func appendDiscoveredWorkspaces(out []Project, seen map[string]bool, uris string, dream, sandboxes []string) []Project {
+	if strings.TrimSpace(uris) == "" {
+		return addUniqueProject(out, seen, GlobalWorkspace)
+	}
+	var list []string
+	if json.Unmarshal([]byte(uris), &list) != nil {
+		return out
+	}
+	if len(list) == 0 {
+		return addUniqueProject(out, seen, GlobalWorkspace)
+	}
+	var paths []string
+	for _, u := range list {
+		ws, ok := parseFileWorkspace(u)
+		if !ok {
+			continue
+		}
+		if isExcludedWorkspace(ws, dream, sandboxes) {
+			return out
+		}
+		paths = append(paths, ws)
+	}
+	for _, ws := range paths {
+		out = addUniqueProject(out, seen, ws)
+	}
+	return out
+}
+
+func addUniqueProject(out []Project, seen map[string]bool, root string) []Project {
+	if seen[root] {
+		return out
+	}
+	seen[root] = true
+	return append(out, Project{Root: root, Name: filepath.Base(root)})
+}
+
+func sandboxExcludePaths(home string) []string {
+	var homes []string
+	if home != "" {
+		homes = append(homes, filepath.Clean(home))
+		if real, err := filepath.EvalSymlinks(home); err == nil && filepath.Clean(real) != homes[0] {
+			homes = append(homes, filepath.Clean(real))
+		}
+	}
+	var out []string
+	for _, h := range homes {
+		for _, sub := range []string{"eval", "sandbox", "auto"} {
+			out = append(out, filepath.Clean(filepath.Join(h, harness.StateDir, sub)))
+		}
+		for _, sub := range []string{"fyr-auto", "fyr-eval"} {
+			out = append(out, filepath.Clean(filepath.Join(h, "sandbox", sub)))
+		}
+	}
+	return out
+}
+
+func isExcludedWorkspace(ws string, dream, sandboxes []string) bool {
+	if harness.InDreamWork(ws, dream) || harness.InDreamWork(ws, sandboxes) {
+		return true
+	}
+	slash := filepath.ToSlash(filepath.Clean(ws))
+	for _, seg := range []string{"/.config/fyr/eval", "/.config/fyr/sandbox", "/.config/fyr/auto"} {
+		if strings.HasSuffix(slash, seg) || strings.Contains(slash, seg+"/") {
+			return true
+		}
+	}
+	return false
 }

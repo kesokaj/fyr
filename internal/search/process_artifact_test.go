@@ -125,7 +125,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 	}
 
 	// 3. Control characters are scrubbed, JSON fields parse cleanly, and fenced content with ``` upgrades outer fences.
-	out := RenderProcessArtifact("conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
+	out := RenderProcessArtifactForHome("", "conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
 		TurnNum:         1,
 		Intent:          "feat|x",
 		Gate:            "ALLOW`y",
@@ -147,7 +147,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 
 	// 4. appendProcessImprovedPrompts scrubs C0, C1, BiDi Cf, and Zl/Zp control runes while keeping newlines.
 	bidiPrompt := "line1\x1b[31mred\nline2\u009bCSI\nline3\u202eRLO\u2028zl\u2029zp\u200bzw"
-	outBidi := RenderProcessArtifact("conv-bidi", "4. Build", []VetHistoryRow{{
+	outBidi := RenderProcessArtifactForHome("", "conv-bidi", "4. Build", []VetHistoryRow{{
 		TurnNum:        2,
 		Intent:         "task",
 		Gate:           "ENRICH_AND_PROCEED",

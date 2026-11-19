@@ -52,7 +52,10 @@ func parseIndexStats(out []byte) map[string]indexStat {
 			stats[cur] = st
 		}
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	rem := string(out)
+	for rem != "" {
+		var line string
+		line, rem, _ = strings.Cut(rem, "\n")
 		if !strings.HasPrefix(line, " ") {
 			// A header: "<mode> <oid> <stage>\t<path>".
 			flush()
@@ -62,7 +65,7 @@ func parseIndexStats(out []byte) map[string]indexStat {
 			}
 			continue
 		}
-		f := strings.Fields(strings.ReplaceAll(line, "\t", " "))
+		f := strings.Fields(line)
 		switch {
 		case len(f) >= 2 && f[0] == "mtime:":
 			if sec, nsec, ok := strings.Cut(f[1], ":"); ok {

@@ -225,24 +225,24 @@ func TestWorktreeCanonicalizationAndPreWriteHash(t *testing.T) {
 	}
 
 	// Pre-write hash check right after a 2nd-read [UNCHANGED] consume (d1Link above consumed wt1's range stamp):
-	// external disk edit must still be caught by CheckPreWriteHash without requiring a 3rd read.
+	// external disk edit must still be caught by CheckPreWriteHashWithEdit without requiring a 3rd read.
 	writeFile(t, wt1, "pkg/shared.go", "package pkg\n\nfunc Shared() string { return \"external-edit\" }\n")
 
-	pwConflict, err := CheckPreWriteHash(wt1, "conv-wt", "pkg/shared.go")
+	pwConflict, err := CheckPreWriteHashWithEdit(wt1, "", wt1, "conv-wt", "pkg/shared.go", nil)
 	if err != nil {
-		t.Fatalf("CheckPreWriteHash on modified file: %v", err)
+		t.Fatalf("CheckPreWriteHashWithEdit on modified file: %v", err)
 	}
 	if pwConflict.Allowed {
-		t.Fatalf("CheckPreWriteHash should deny write when disk hash changed after 2nd-read consume: %+v", pwConflict)
+		t.Fatalf("CheckPreWriteHashWithEdit should deny write when disk hash changed after 2nd-read consume: %+v", pwConflict)
 	}
 
-	// Re-read the updated file, then verify CheckPreWriteHash allows the write when disk matches.
+	// Re-read the updated file, then verify CheckPreWriteHashWithEdit allows the write when disk matches.
 	if dec, err := CheckAndRecordRead(wt1, "conv-wt", "pkg/shared.go", 0, 0, 4); err != nil || !dec.Allowed {
 		t.Fatalf("re-read updated file: %+v, %v", dec, err)
 	}
-	pwOK, err := CheckPreWriteHash(wt1, "conv-wt", "pkg/shared.go")
+	pwOK, err := CheckPreWriteHashWithEdit(wt1, "", wt1, "conv-wt", "pkg/shared.go", nil)
 	if err != nil || !pwOK.Allowed {
-		t.Fatalf("CheckPreWriteHash on matching hash = %+v, %v; want Allowed=true", pwOK, err)
+		t.Fatalf("CheckPreWriteHashWithEdit on matching hash = %+v, %v; want Allowed=true", pwOK, err)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 		}
 	}
 
-	// Route single-file cat and sed -n through CheckAndRecordBashRead.
+	// Route single-file cat and sed -n through ParseBashFileRead + CheckAndRecordReadInSession.
 	root := newRepo(t)
 	var lines strings.Builder
 	lines.WriteString("package main\n\nfunc MainRun() {\n")
@@ -308,21 +308,28 @@ func TestParseBashFileReadAndInterception(t *testing.T) {
 	writeFile(t, root, "foo.go", lines.String())
 	commitAll(t, root, "add foo.go")
 
-	dec1, intercepted, err := CheckAndRecordBashRead(root, "conv-bash", "cat foo.go", 1)
-	if err != nil || !intercepted || !dec1.Allowed {
-		t.Fatalf("1st bash cat foo.go = %+v, intercepted=%v, err=%v; want Allowed=true", dec1, intercepted, err)
+	bfr1, intercepted := ParseBashFileRead("cat foo.go")
+	if !intercepted {
+		t.Fatalf("ParseBashFileRead(cat foo.go) = false, want true")
+	}
+	dec1, err := CheckAndRecordReadInSession(root, "", root, "conv-bash", bfr1.Path, bfr1.StartLine, bfr1.EndLine, 1)
+	if err != nil || !dec1.Allowed {
+		t.Fatalf("1st bash cat foo.go = %+v, err=%v; want Allowed=true", dec1, err)
 	}
 
 	// 2nd bash read via sed -n '1,120p' foo.go is covered by full cat foo.go and denied with [UNCHANGED].
-	dec2, intercepted, err := CheckAndRecordBashRead(root, "conv-bash", "sed -n '1,120p' foo.go", 2)
-	if err != nil || !intercepted || dec2.Allowed || !strings.HasPrefix(dec2.Reason, "[UNCHANGED]") {
-		t.Fatalf("2nd bash sed -n '1,120p' foo.go = %+v, intercepted=%v, err=%v; want Denied [UNCHANGED]", dec2, intercepted, err)
+	bfr2, intercepted := ParseBashFileRead("sed -n '1,120p' foo.go")
+	if !intercepted {
+		t.Fatalf("ParseBashFileRead(sed -n '1,120p' foo.go) = false, want true")
+	}
+	dec2, err := CheckAndRecordReadInSession(root, "", root, "conv-bash", bfr2.Path, bfr2.StartLine, bfr2.EndLine, 2)
+	if err != nil || dec2.Allowed || !strings.HasPrefix(dec2.Reason, "[UNCHANGED]") {
+		t.Fatalf("2nd bash sed -n '1,120p' foo.go = %+v, err=%v; want Denied [UNCHANGED]", dec2, err)
 	}
 
 	// Pipeline bypasses interception safely.
-	_, intercepted, err = CheckAndRecordBashRead(root, "conv-bash", "sed -n '1,120p' foo.go | head -n 5", 3)
-	if err != nil || intercepted {
-		t.Fatalf("pipeline should bypass read ledger, got intercepted=%v, err=%v", intercepted, err)
+	if _, intercepted := ParseBashFileRead("sed -n '1,120p' foo.go | head -n 5"); intercepted {
+		t.Fatalf("pipeline should bypass read ledger, got intercepted=true")
 	}
 }
 

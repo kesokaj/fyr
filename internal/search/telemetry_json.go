@@ -1,12 +1,8 @@
 package search
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
-	"unicode"
 )
 
 // PreInvocationRecord describes one matched trail or memory record inside
@@ -73,40 +69,6 @@ type PreInvocationBanner struct {
 	Enrichment               *PreInvocationEnrichment `json:"enrichment,omitempty"`
 }
 
-// LedgerNotice renders Surface 2 (PreToolUse [UNCHANGED] / [MODIFIED] notices)
-// as a fixed sentinel line followed by 2-space pretty-printed lowerCamelCase JSON.
-type LedgerNotice struct {
-	Status         string   `json:"status"`
-	Path           string   `json:"path"`
-	StartLine      int      `json:"startLine,omitempty"`
-	EndLine        int      `json:"endLine,omitempty"`
-	TotalLines     int      `json:"totalLines,omitempty"`
-	Sha256         string   `json:"sha256,omitempty"`
-	PreviousSha256 string   `json:"previousSha256,omitempty"`
-	CurrentSha256  string   `json:"currentSha256,omitempty"`
-	HitCount       int      `json:"hitCount,omitempty"`
-	StampConsumed  bool     `json:"stampConsumed,omitempty"`
-	Message        string   `json:"message"`
-	Skeleton       []string `json:"skeleton,omitempty"`
-}
-
-func safeBacktickFenceWithLang(text, lang string) string {
-	body := strings.TrimRight(text, "\n")
-	fence := safeBacktickFence(body)
-	return fence + lang + "\n" + body + "\n" + fence
-}
-
-func marshalPrettyJSON(v any) string {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		return "{}"
-	}
-	return strings.TrimRight(buf.String(), "\n")
-}
-
 // TurnBannerMeta passes structured PreInvocation hook metadata into
 // BuildTurnEnvelopeWithMeta without round-tripping prose banner strings.
 type TurnBannerMeta struct {
@@ -124,22 +86,6 @@ type TurnBannerMeta struct {
 func (m TurnBannerMeta) hasSignals() bool {
 	return m.CompactedGeneration > 0 || m.DirtyFastPath || m.PivotCount > 0 ||
 		m.ContextKneeWarning != "" || m.ModelTip != "" || m.StoreError != "" || len(m.Notices) > 0
-}
-
-func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {
-	meta := TurnBannerMeta{ExtraSections: extraSections}
-	var b PreInvocationBanner
-	for _, extra := range extraBanners {
-		applyExtraBanner(&b, extra)
-	}
-	meta.CompactedGeneration = b.CompactedGeneration
-	meta.DirtyFastPath = b.DirtyFastPath
-	meta.PivotCount = b.PivotCount
-	meta.ContextKneeWarning = b.TokenKneeWarning
-	meta.ModelTip = b.ModelTip
-	meta.StoreError = b.StoreError
-	meta.Notices = b.Notices
-	return meta
 }
 
 func formatPreInvocationEnvelopeWithMeta(res VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) string {
@@ -324,36 +270,6 @@ func buildPreInvocationSkillDigests(skills []SkillMeta) []PreInvocationSkillDige
 	return out
 }
 
-func cleanSubtaskSlices(items []SubtaskSlice) []SubtaskSlice {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]SubtaskSlice, 0, len(items))
-	for _, it := range items {
-		out = append(out, SubtaskSlice{
-			ID:     collapseOneLine(printable(it.ID), 40),
-			Role:   collapseOneLine(printable(it.Role), 40),
-			Goal:   collapseOneLine(printable(it.Goal), 200),
-			Files:  cleanPrintableSlice(it.Files, 200),
-			Skills: cleanPrintableSlice(it.Skills, 80),
-			Verify: collapseOneLine(printable(it.Verify), 160),
-		})
-	}
-	return out
-}
-
-func truncateBytesUTF8(s string, maxB int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxB {
-		return s
-	}
-	i := maxB
-	for i > 0 && (s[i]&0xc0) == 0x80 {
-		i--
-	}
-	return strings.TrimSpace(s[:i])
-}
-
 func buildPreInvocationRecords(brainCtx TurnBrainContext) []PreInvocationRecord {
 	recs := collectMatchedRecords(brainCtx)
 	if len(recs) == 0 {
@@ -374,84 +290,6 @@ func buildPreInvocationRecords(brainCtx TurnBrainContext) []PreInvocationRecord 
 	return out
 }
 
-func compactRecordNote(r MatchedRecord, title string) string {
-	lines := strings.Split(strings.ReplaceAll(r.Body, "\r\n", "\n"), "\n")
-	var kept []string
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	if len(kept) == 0 {
-		return ""
-	}
-	note := collapseOneLine(printable(strings.Join(kept, " ")), 220)
-	if note == "" || strings.EqualFold(note, title) {
-		return ""
-	}
-	return note
-}
-
-func cleanPrintableSlice(items []string, maxLen int) []string {
-	var out []string
-	for _, item := range items {
-		clean := collapseOneLine(printable(item), maxLen)
-		if clean != "" {
-			out = append(out, clean)
-		}
-	}
-	return out
-}
-
-func printableMultiline(s string) string {
-	s = strings.TrimSpace(strings.ReplaceAll(s, "\r\n", "\n"))
-	if s == "" {
-		return ""
-	}
-	s = strings.ReplaceAll(s, "\t", "  ")
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = printable(strings.TrimRight(line, "\r"))
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-func applyExtraBanner(b *PreInvocationBanner, raw string) {
-	clean := strings.TrimSpace(printable(raw))
-	if clean == "" {
-		return
-	}
-	var gen int
-	switch {
-	case strings.HasPrefix(clean, "compacted (gen "):
-		if _, err := fmt.Sscanf(clean, "compacted (gen %d):", &gen); err == nil && gen > 0 {
-			b.CompactedGeneration = gen
-			return
-		}
-	case strings.Contains(clean, ">15 dirty files: serving cached AST snapshot"):
-		b.DirtyFastPath = true
-		return
-	case strings.HasSuffix(clean, " pivots"):
-		trimmed := strings.TrimSpace(strings.TrimSuffix(clean, " pivots"))
-		if n, err := strconv.Atoi(trimmed); err == nil && n > 0 {
-			b.PivotCount = n
-			return
-		}
-	case strings.Contains(clean, "tokens (>= 180K knee)"):
-		b.TokenKneeWarning = clean
-		return
-	case strings.HasPrefix(clean, "model tip: "):
-		b.ModelTip = strings.TrimSpace(strings.TrimPrefix(clean, "model tip: "))
-		return
-	case strings.HasPrefix(clean, "store unavailable ("):
-		b.StoreError = clean
-		return
-	}
-	b.Notices = append(b.Notices, clean)
-}
-
 func storeDegradedNotice(err error) string {
 	return fmt.Sprintf("store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
 }
@@ -463,73 +301,4 @@ func formatStoreDegradedBanner(err error) string {
 		StoreError: storeDegradedNotice(err),
 	}
 	return safeBacktickFenceWithLang(marshalPrettyJSON(b), "json")
-}
-
-func splitSkeletonLines(skel string) []string {
-	var out []string
-	for _, line := range strings.Split(skel, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if strings.TrimSpace(line) != "" {
-			out = append(out, printable(line))
-		}
-	}
-	return out
-}
-
-func formatUnchangedLedgerNotice(relPath string, start, end int, sumHex string, hitCount int, skel string) string {
-	n := LedgerNotice{
-		Status:    "UNCHANGED",
-		Path:      printable(relPath),
-		StartLine: start,
-		EndLine:   end,
-		Sha256:    sumHex[:min(12, len(sumHex))],
-		HitCount:  hitCount,
-		Message:   "already in context (unchanged sha256; re-read only after content changes or an overlapping edit)",
-		Skeleton:  splitSkeletonLines(skel),
-	}
-	return "[UNCHANGED]\n" + marshalPrettyJSON(n)
-}
-
-func formatClampedLedgerNotice(relPath string, totalLines int, sumHex, skel string) string {
-	n := LedgerNotice{
-		Status:     "CLAMPED",
-		Path:       printable(relPath),
-		TotalLines: totalLines,
-		Sha256:     sumHex[:min(12, len(sumHex))],
-		Message:    "unranged read of large file clamped; inspect skeleton and re-call read_file with StartLine and EndLine",
-		Skeleton:   splitSkeletonLines(skel),
-	}
-	return "[CLAMPED]\n" + marshalPrettyJSON(n)
-}
-
-func formatModifiedLedgerNotice(relPath, prevSHA, curSHA, skel string) string {
-	n := LedgerNotice{
-		Status:         "MODIFIED",
-		Path:           printable(relPath),
-		PreviousSha256: prevSHA[:min(12, len(prevSHA))],
-		CurrentSha256:  curSHA[:min(12, len(curSHA))],
-		Message:        "changed on disk since last read; re-read before editing",
-		Skeleton:       splitSkeletonLines(skel),
-	}
-	return "[MODIFIED]\n" + marshalPrettyJSON(n)
-}
-
-func normalizeUpperSnakeEnum(s string) string {
-	clean := strings.TrimSpace(printable(s))
-	if clean == "" {
-		return ""
-	}
-	var b strings.Builder
-	prevUnderscore := true
-	for _, r := range clean {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(unicode.ToUpper(r))
-			prevUnderscore = false
-		case !prevUnderscore:
-			b.WriteByte('_')
-			prevUnderscore = true
-		}
-	}
-	return strings.TrimRight(b.String(), "_")
 }

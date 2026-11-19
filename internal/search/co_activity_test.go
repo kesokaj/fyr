@@ -80,11 +80,11 @@ func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
 		if _, err := CheckAndRecordRead(dir, sess, gammaPath, 1, 10, 1); err != nil {
 			t.Fatalf("CheckAndRecordRead gamma: %v", err)
 		}
-		if _, err := CheckPreWriteHash(dir, sess, alphaPath); err != nil {
-			t.Fatalf("CheckPreWriteHash alpha: %v", err)
+		if _, err := CheckPreWriteHashWithEdit(dir, "", dir, sess, alphaPath, nil); err != nil {
+			t.Fatalf("CheckPreWriteHashWithEdit alpha: %v", err)
 		}
-		if _, err := CheckPreWriteHash(dir, sess, betaPath); err != nil {
-			t.Fatalf("CheckPreWriteHash beta: %v", err)
+		if _, err := CheckPreWriteHashWithEdit(dir, "", dir, sess, betaPath, nil); err != nil {
+			t.Fatalf("CheckPreWriteHashWithEdit beta: %v", err)
 		}
 		payload := `{"conversationId":"` + sess + `","workspacePaths":["` + filepath.ToSlash(dir) + `"]}`
 		for turn := 1; turn <= 2; turn++ {
@@ -100,7 +100,7 @@ func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
 		t.Fatalf("expected 0 rows at count=2 (minCount=3), got %+v", rows)
 	}
 
-	// Session 3 modifies alpha.go (read -> CheckPreWriteHash -> disk edit -> post-edit re-read, Finding 1)
+	// Session 3 modifies alpha.go (read -> CheckPreWriteHashWithEdit -> disk edit -> post-edit re-read, Finding 1)
 	// and beta.go (via on-disk edit after read).
 	sess3 := "sess-co-3"
 	if _, err := CheckAndRecordRead(dir, sess3, alphaPath, 1, 10, 1); err != nil {
@@ -109,8 +109,8 @@ func TestStopHookRecordsCoActivityAndSurfacesHints(t *testing.T) {
 	if _, err := CheckAndRecordRead(dir, sess3, betaPath, 1, 10, 1); err != nil {
 		t.Fatalf("CheckAndRecordRead beta s3: %v", err)
 	}
-	if _, err := CheckPreWriteHash(dir, sess3, alphaPath); err != nil {
-		t.Fatalf("CheckPreWriteHash alpha s3: %v", err)
+	if _, err := CheckPreWriteHashWithEdit(dir, "", dir, sess3, alphaPath, nil); err != nil {
+		t.Fatalf("CheckPreWriteHashWithEdit alpha s3: %v", err)
 	}
 	origAlpha, err := os.ReadFile(alphaPath)
 	if err != nil {

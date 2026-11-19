@@ -81,12 +81,15 @@ func (s *store) gc(now int64) error {
 	return err
 }
 
-func boolInt(b bool) int {
+// BoolInt converts b to SQLite's 1/0 integer representation.
+func BoolInt(b bool) int {
 	if b {
 		return 1
 	}
 	return 0
 }
+
+func boolInt(b bool) int { return BoolInt(b) }
 
 func dedupSymRefs(refs []symRefRow) []symRefRow {
 	type key struct {

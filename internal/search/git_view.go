@@ -160,7 +160,7 @@ func dropGoneMarkers(fsRoot *os.Root, markers map[string]bool) {
 // (written within the second the index was). Reading it runs nothing.
 func refreshTracked(root string, fsRoot *os.Root, order []string, view map[string]entry) {
 	stats, indexTime := indexStats(root)
-	for _, p := range append([]string(nil), order...) {
+	for _, p := range order {
 		// A plain stat for the comparison (an os.Root walk per file cost
 		// more than the hash it saves); anything read still goes through
 		// fsRoot, which refuses a path that leaves the checkout.

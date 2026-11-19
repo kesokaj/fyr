@@ -317,13 +317,6 @@ func writeProcessArtifactAtomic(target string, data []byte) error {
 	return nil
 }
 
-// RenderProcessArtifact formats the live `<appDataDir>/brain/<conv-id>/fyr-process.md`
-// Markdown artifact showing the fyr workflow stages, active trail/model routing,
-// and chronological turn-by-turn vet_history + [VET_IMPROVED_PROMPT] synthesis.
-func RenderProcessArtifact(convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {
-	return RenderProcessArtifactForHome("", convID, stage, rows, records)
-}
-
 // RenderProcessArtifactForHome formats fyr-process.md using cached <home>/.config/fyr/models.json
 // picks when present (< 1 ms, never spawning agy) and role-family policy otherwise.
 func RenderProcessArtifactForHome(home, convID, stage string, rows []VetHistoryRow, records []MatchedRecord) string {

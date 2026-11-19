@@ -100,28 +100,12 @@ func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainCont
 // BuildTurnEnvelopeWithMeta serializes turn metadata, contract, advisory route,
 // and delta-only enrichment using typed TurnBannerMeta without stringly round-tripping.
 func BuildTurnEnvelopeWithMeta(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) (string, string) {
-	allTexts := gatherTextsToFence(res, slice, brainCtx, meta.ExtraSections)
-	f := New(allTexts...)
-	res.FenceBoundary = f.String()
-
+	res.FenceBoundary = New().String()
 	envJSON := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
 	res.TurnContract = envJSON
 	res.SystemMessage = envJSON
 	res.UserMarkdownBanner = envJSON
 	return envJSON, envJSON
-}
-
-func gatherTextsToFence(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, extra []string) []string {
-	texts := append([]string{slice.Capsule}, extra...)
-	texts = append(texts, res.Conflicts...)
-	texts = append(texts, res.MissingAnchors...)
-	for _, s := range res.Skills {
-		texts = append(texts, s.Name, s.Path, s.Digest)
-	}
-	for _, r := range collectMatchedRecords(brainCtx) {
-		texts = append(texts, r.ID, r.Title, r.Body)
-	}
-	return texts
 }
 
 func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {

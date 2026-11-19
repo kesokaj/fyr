@@ -101,7 +101,7 @@ func sqliteCode(err error) int {
 }
 
 // IsBusy reports whether err is SQLite's busy or locked answer, for the
-// metrics store, which opens its database through DSN.
+// metrics and brain stores, which open their databases through DSN.
 func IsBusy(err error) bool { return isBusy(err) }
 
 func isBusy(err error) bool {
@@ -193,19 +193,47 @@ type staleSchemaError struct{ found string }
 
 func (e staleSchemaError) Error() string { return "schema " + e.found }
 
+// OpenDBWithRetry calls openFn until it succeeds, returns a non-busy error,
+// or exceeds timeout (defaulting to busyTimeoutMS when timeout <= 0).
+func OpenDBWithRetry(timeout time.Duration, openFn func() (*sql.DB, error)) (*sql.DB, error) {
+	if openFn == nil {
+		return nil, errors.New("search: nil open function")
+	}
+	if timeout <= 0 {
+		timeout = time.Duration(busyTimeoutMS) * time.Millisecond
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		db, err := openFn()
+		if err == nil {
+			return db, nil
+		}
+		if db != nil {
+			_ = db.Close()
+		}
+		if !isBusy(err) || time.Now().After(deadline) {
+			return nil, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // tryOpenWaiting is tryOpen, retried while it fails busy, for as long as the
 // busy timeout. Two processes opening a new index at once race to switch it
 // to WAL, and SQLite answers that race with SQLITE_BUSY without waiting on
 // the busy timeout (BUG-187; the brain store's openStore retries the same way).
 func tryOpenWaiting(path string) (*store, error) {
-	deadline := time.Now().Add(time.Duration(busyTimeoutMS) * time.Millisecond)
-	for {
+	db, err := OpenDBWithRetry(0, func() (*sql.DB, error) {
 		s, err := tryOpen(path)
-		if err == nil || !isBusy(err) || time.Now().After(deadline) {
-			return s, err
+		if err != nil {
+			return nil, err
 		}
-		time.Sleep(50 * time.Millisecond)
+		return s.db, nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &store{db: db, path: path}, nil
 }
 
 func tryOpen(path string) (*store, error) {
