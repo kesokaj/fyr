@@ -66,17 +66,17 @@ func TestTargets(t *testing.T) {
 
 func TestSkipReason(t *testing.T) {
 	f := newFixture(t)
-	if why := skipReason(project(f), f.home); why != "" {
+	if why := absent(project(f)); why != "" {
 		t.Errorf("a checkout with records skipped: %q", why)
 	}
-	if why := skipReason(search.Project{Root: filepath.Join(f.root, "gone")}); why != "gone" {
+	if why := absent(search.Project{Root: filepath.Join(f.root, "gone")}); why != "gone" {
 		t.Errorf("missing root: %q", why)
 	}
 	plain := t.TempDir()
-	if why := skipReason(search.Project{Root: plain}); why != "" {
+	if why := absent(search.Project{Root: plain}); why != "" {
 		t.Errorf("plain directory skipped: %q", why)
 	}
-	if why := skipReason(search.Project{Root: search.GlobalWorkspace}); why != "" {
+	if why := absent(search.Project{Root: search.GlobalWorkspace}); why != "" {
 		t.Errorf("GlobalWorkspace skipped: %q", why)
 	}
 }

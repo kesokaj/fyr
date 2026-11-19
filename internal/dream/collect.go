@@ -168,3 +168,37 @@ func redactFeedback(body string) string {
 	}
 	return strings.TrimRight(redact.RedactJSONL(body+"\n"), "\n")
 }
+
+// brainCopy is a private copy of home's brain store for a dry run: a
+// directory laid out as a home, its brain.db and companions copied in, made
+// under ~/.config/fyr whenever that directory exists (swept by removeCopies
+// when a run dies), else in the system's temporary directory: a dry run
+// never creates ~/.config/fyr, which beside an old ~/.config/sh-agent would
+// stop the crossing's migration. Removed by cleanup.
+func brainCopy(home string) (string, func(), error) {
+	live := brain.Path(home)
+	parent, store := "", false
+	if info, err := os.Lstat(filepath.Dir(live)); err == nil && info.IsDir() {
+		parent = filepath.Dir(live)
+	}
+	if _, err := os.Lstat(live); err == nil && parent != "" {
+		store = true
+	}
+	tmp, err := os.MkdirTemp(parent, "dream-brain-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(tmp) }
+	if store {
+		dst := filepath.Dir(brain.Path(tmp))
+		if err := os.MkdirAll(dst, 0o700); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+		if _, err := search.CopyDB(parent, filepath.Base(live), dst); err != nil {
+			cleanup()
+			return "", nil, err
+		}
+	}
+	return tmp, cleanup, nil
+}

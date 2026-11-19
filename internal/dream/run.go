@@ -155,7 +155,7 @@ func (r *dreamRun) fail(msg string) error {
 
 // project dreams over one project and writes what the CLI proposes.
 func (r *dreamRun) project(p search.Project) {
-	if why := skipReason(p, r.o.Home); why != "" {
+	if why := absent(p); why != "" {
 		r.logf(p.Root + " skip " + why)
 		return
 	}

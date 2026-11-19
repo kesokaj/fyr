@@ -10,10 +10,8 @@ package dream
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -193,11 +191,6 @@ func activityIn(home, brainHome string, p search.Project, now time.Time) string 
 	return ""
 }
 
-// skipReason says why a project is not dreamt over, or "" when it is.
-func skipReason(p search.Project, _ ...string) string {
-	return absent(p)
-}
-
 // absent says why p cannot be dreamt over at all, or "" when it is valid
 // (a directory on disk or search.GlobalWorkspace).
 func absent(p search.Project) string {
@@ -270,92 +263,3 @@ type ExitError struct {
 }
 
 func (e *ExitError) Error() string { return e.Msg }
-
-// StatusLine is `fyr status`'s dream line.
-func StatusLine(home string) string {
-	timer := "merged into fyr auto"
-	if TimerInstalled(home) {
-		// Named with --home under a home that is not the real one: the bare
-		// commands act on the home they default to (BUG-149's class).
-		flag := ""
-		if unit, _ := UnitFor(home); unit != unitName {
-			flag = " --home " + shellQuote(home)
-		}
-		timer = "legacy dream timer installed: run fyr auto on" + flag + " or fyr auto off" + flag
-	}
-	st, err := readState(home)
-	if err != nil {
-		return "state unreadable: " + err.Error() + "; " + timer
-	}
-	r := st.LastRun
-	switch {
-	case r.At.IsZero():
-		return "never run; " + timer
-	case r.Error != "":
-		return fmt.Sprintf("last run %s failed: %s; %s", r.At.Format("2006-01-02"), r.Error, timer)
-	}
-	return fmt.Sprintf("last run %s: %d projects, %d proposals; %s", r.At.Format("2006-01-02"), r.Projects, r.Proposals, timer)
-}
-
-// TimerInstalled reports whether a dream timer unit is on disk in home.
-func TimerInstalled(home string) bool {
-	for _, p := range []string{linuxTimerPath(home), macPlistPath(home)} {
-		if _, err := os.Lstat(p); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func linuxTimerPath(home string) string { return dreamTimer.timerPath(home) }
-
-func macPlistPath(home string) string { return dreamTimer.plistPath(home) }
-
-// projectKey is the workspace key a path names: GlobalWorkspace as-is, the main
-// worktree's root when inside a git checkout, else the path with links resolved.
-func projectKey(root string) string {
-	if root == search.GlobalWorkspace {
-		return search.GlobalWorkspace
-	}
-	if main, _, err := trail.Roots(root); err == nil {
-		return main
-	}
-	if r, err := filepath.EvalSymlinks(root); err == nil {
-		return r
-	}
-	return filepath.Clean(root)
-}
-
-// brainCopy is a private copy of home's brain store for a dry run: a
-// directory laid out as a home, its brain.db and companions copied in, made
-// under ~/.config/fyr whenever that directory exists (swept by removeCopies
-// when a run dies), else in the system's temporary directory: a dry run
-// never creates ~/.config/fyr, which beside an old ~/.config/sh-agent would
-// stop the crossing's migration. Removed by cleanup.
-func brainCopy(home string) (string, func(), error) {
-	live := brain.Path(home)
-	parent, store := "", false
-	if info, err := os.Lstat(filepath.Dir(live)); err == nil && info.IsDir() {
-		parent = filepath.Dir(live)
-	}
-	if _, err := os.Lstat(live); err == nil && parent != "" {
-		store = true
-	}
-	tmp, err := os.MkdirTemp(parent, "dream-brain-")
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup := func() { os.RemoveAll(tmp) }
-	if store {
-		dst := filepath.Dir(brain.Path(tmp))
-		if err := os.MkdirAll(dst, 0o700); err != nil {
-			cleanup()
-			return "", nil, err
-		}
-		if _, err := search.CopyDB(parent, filepath.Base(live), dst); err != nil {
-			cleanup()
-			return "", nil, err
-		}
-	}
-	return tmp, cleanup, nil
-}

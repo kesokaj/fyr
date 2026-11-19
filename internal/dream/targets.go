@@ -104,18 +104,23 @@ func normalizeTarget(p search.Project) search.Project {
 	if p.Root == "" || p.Root == search.GlobalWorkspace {
 		return p
 	}
-	if main, _, err := trail.Roots(p.Root); err == nil && !samePath(p.Root, main) {
+	if main, _, err := trail.Roots(p.Root); err == nil && !trail.SameDir(p.Root, main) {
 		return search.Project{Root: main, Name: filepath.Base(main)}
 	}
 	return p
 }
 
-func samePath(a, b string) bool {
-	ca, cb := filepath.Clean(a), filepath.Clean(b)
-	if ca == cb {
-		return true
+// projectKey is the workspace key a path names: GlobalWorkspace as-is, the main
+// worktree's root when inside a git checkout, else the path with links resolved.
+func projectKey(root string) string {
+	if root == search.GlobalWorkspace {
+		return search.GlobalWorkspace
 	}
-	ra, errA := filepath.EvalSymlinks(ca)
-	rb, errB := filepath.EvalSymlinks(cb)
-	return errA == nil && errB == nil && ra == rb
+	if main, _, err := trail.Roots(root); err == nil {
+		return main
+	}
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		return r
+	}
+	return filepath.Clean(root)
 }

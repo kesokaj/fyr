@@ -38,11 +38,11 @@ func TestDreamReadsOnlyRecords(t *testing.T) {
 func TestSkipReasonAllowsUnmigrated(t *testing.T) {
 	bare := t.TempDir()
 	run(t, bare, "git", "init", "-q")
-	if why := skipReason(projectAt(bare)); why != "" {
+	if why := absent(projectAt(bare)); why != "" {
 		t.Errorf("no trail: %q, want empty", why)
 	}
 	write(t, filepath.Join(bare, ".agents", "docs", "bugs", "BUG-001.md"), "a bug\n", fresh)
-	if why := skipReason(projectAt(bare)); why != "" {
+	if why := absent(projectAt(bare)); why != "" {
 		t.Errorf("a file-era tree: %q, want empty", why)
 	}
 }

@@ -31,7 +31,7 @@ func Targets(home string) ([]Target, error) {
 	}
 	var out []Target
 	for _, p := range projects {
-		out = append(out, Target{Root: p.Root, Skip: skipReason(p, tmp)})
+		out = append(out, Target{Root: p.Root, Skip: absent(p)})
 	}
 	for _, s := range skips {
 		out = append(out, Target{Root: s.root, Skip: s.why})
