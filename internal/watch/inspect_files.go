@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
@@ -33,11 +34,11 @@ func inspectConversationFiles(home, convID string, now time.Time) (Finding, bool
 	}
 	brain := filepath.Join(home, ".gemini", "antigravity-cli", "brain", convID, ".system_generated")
 	trPath := filepath.Join(brain, "logs", "transcript.jsonl")
-	if hint, mt, ok := matchFileTailPrompt(trPath, 5); ok {
+	if hint, mt, ok := matchFileTailPrompt(trPath, 5, true); ok {
 		return interactiveFinding(convID, hint, mt, now), true
 	}
 	if stepOut := latestStepOutput(filepath.Join(brain, "steps")); stepOut != "" {
-		if hint, mt, ok := matchFileTailPrompt(stepOut, 20); ok {
+		if hint, mt, ok := matchFileTailPrompt(stepOut, 20, false); ok {
 			return interactiveFinding(convID, hint, mt, now), true
 		}
 	}
@@ -58,7 +59,7 @@ func interactiveFinding(convID, hint string, mod time.Time, now time.Time) Findi
 	}
 }
 
-func matchFileTailPrompt(path string, maxLines int) (string, time.Time, bool) {
+func matchFileTailPrompt(path string, maxLines int, jsonl bool) (string, time.Time, bool) {
 	data, mod, ok := readFileTail(path, tailReadBytes)
 	if !ok {
 		return "", time.Time{}, false
@@ -66,7 +67,7 @@ func matchFileTailPrompt(path string, maxLines int) (string, time.Time, bool) {
 	lines := tailNonEmptyLines(string(data), maxLines)
 	for i := len(lines) - 1; i >= 0; i-- {
 		if interactivePromptRe.MatchString(lines[i]) {
-			return clipPrintable(lines[i], promptHintMaxB), mod, true
+			return clipPrintableMode(lines[i], promptHintMaxB, jsonl), mod, true
 		}
 	}
 	return "", time.Time{}, false
@@ -122,14 +123,21 @@ func inspectArtifacts(dir string, idleSec int, now time.Time) (int, []Finding) {
 	checked := 0
 	var findings []Finding
 	threshold := time.Duration(idleSec) * time.Second
+	cutoff := now.Add(-discoveryWindow)
 	for _, ent := range entries {
 		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".md") {
 			continue
 		}
-		checked++
+		if info, err := ent.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().Before(cutoff) {
+			continue
+		}
 		p := filepath.Join(agentsDir, ent.Name())
 		data, mod, ok := readFileHead(p, artifactMaxB)
-		if !ok || !hasInProgressStatus(string(data)) {
+		if !ok || mod.Before(cutoff) {
+			continue
+		}
+		checked++
+		if !hasInProgressStatus(string(data)) {
 			continue
 		}
 		if idle := now.Sub(mod); idle > threshold {
@@ -146,12 +154,41 @@ func inspectArtifacts(dir string, idleSec int, now time.Time) (int, []Finding) {
 }
 
 func hasInProgressStatus(body string) bool {
+	var fenceChar byte
+	var fenceLen int
 	for _, line := range strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n") {
-		if statusInProgressRe.MatchString(strings.TrimSpace(line)) {
+		trimmed := strings.TrimSpace(line)
+		ch, n := parseFence(trimmed)
+		if fenceChar != 0 {
+			if ch == fenceChar && n >= fenceLen && strings.TrimSpace(trimmed[n:]) == "" {
+				fenceChar, fenceLen = 0, 0
+			}
+			continue
+		}
+		if ch != 0 && !(ch == '`' && strings.ContainsRune(trimmed[n:], '`')) {
+			fenceChar, fenceLen = ch, n
+			continue
+		}
+		if statusInProgressRe.MatchString(trimmed) {
 			return true
 		}
 	}
 	return false
+}
+
+func parseFence(trimmed string) (byte, int) {
+	if len(trimmed) < 3 || (trimmed[0] != '`' && trimmed[0] != '~') {
+		return 0, 0
+	}
+	ch := trimmed[0]
+	n := 0
+	for n < len(trimmed) && trimmed[n] == ch {
+		n++
+	}
+	if n < 3 {
+		return 0, 0
+	}
+	return ch, n
 }
 
 func readFileTail(path string, maxBytes int64) ([]byte, time.Time, bool) {
@@ -198,9 +235,28 @@ func tailNonEmptyLines(text string, limit int) []string {
 }
 
 func clipPrintable(s string, maxB int) string {
-	clean := search.Printable(redact.Redact(strings.Join(strings.Fields(s), " ")))
+	return clipPrintableMode(s, maxB, false)
+}
+
+func clipPrintableMode(s string, maxB int, jsonl bool) string {
+	redacted := redact.Redact(s)
+	if jsonl {
+		redacted = redact.RedactJSONL(s)
+	}
+	clean := search.Printable(strings.Join(strings.Fields(redacted), " "))
 	if len(clean) <= maxB {
 		return clean
 	}
-	return clean[:maxB] + "..."
+	if maxB <= 0 {
+		return "..."
+	}
+	cut := 0
+	for cut < len(clean) {
+		_, size := utf8.DecodeRuneInString(clean[cut:])
+		if cut+size > maxB {
+			break
+		}
+		cut += size
+	}
+	return clean[:cut] + "..."
 }

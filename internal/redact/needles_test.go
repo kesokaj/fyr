@@ -95,3 +95,130 @@ func TestEveryKeywordNeedleBinds(t *testing.T) {
 		}
 	}
 }
+
+// keywordNearMiss holds one kind-specific benign near-miss per keywordNeedles
+// entry (TDD.md § T12, SD120).
+var keywordNearMiss = []struct {
+	name   string
+	sample string
+}{
+	{
+		name:   "secret assignment",
+		sample: "tok" + "en=abcdefg",
+	},
+	{
+		name:   "bearer",
+		sample: "token type: bearer",
+	},
+	{
+		name:   "authorization",
+		sample: "authorization is required for the admin routes",
+	},
+	{
+		name:   "url credentials",
+		sample: "redis://host:6379/0 has no password",
+	},
+	{
+		name:   "jwt",
+		sample: "eyJabcdefgh.short.",
+	},
+	{
+		name:   "stripe key",
+		sample: "sk_live_short",
+	},
+	{
+		name:   "openai key",
+		sample: "sk-1234 is a short id",
+	},
+	{
+		name:   "npm token",
+		sample: "npm_short",
+	},
+	{
+		name:   "hugging face token",
+		sample: "hf_short",
+	},
+	{
+		name:   "url token",
+		sample: "https://deploy-bot@host/r",
+	},
+	{
+		name:   "jwt short",
+		sample: "eyJabcdefgh.e30.short",
+	},
+	{
+		name:   "google refresh token",
+		sample: "1//0short",
+	},
+	{
+		name:   "discord webhook",
+		sample: "discord.com/api/v10/users/1",
+	},
+	{
+		name:   "teams webhook",
+		sample: "see webhook.office.com for the docs",
+	},
+	{
+		name:   "sendgrid key",
+		sample: "SG.x.y",
+	},
+	{
+		name:   "azure account key",
+		sample: "the AccountKey field is required",
+	},
+	{
+		name:   "cookie header",
+		sample: "curl -b sid h",
+	},
+	{
+		name:   "vault token",
+		sample: "hvs.short",
+	},
+	{
+		name:   "docker access token",
+		sample: "a dckr_pat_short one",
+	},
+	{
+		name:   "terraform api token",
+		sample: "abcdef.atlasv1.short",
+	},
+	{
+		name:   "command-line credential",
+		sample: "podman login --username u",
+	},
+	{
+		name:   "auth key",
+		sample: `"auth": "basic"`,
+	},
+	{
+		name:   "credentials key",
+		sample: "credentials: none",
+	},
+}
+
+func TestEveryKeywordNeedleHasANearMiss(t *testing.T) {
+	byName := make(map[string]string, len(keywordNearMiss))
+	for _, entry := range keywordNearMiss {
+		if _, dup := byName[entry.name]; dup {
+			t.Errorf("duplicate keywordNearMiss entry for %q", entry.name)
+		}
+		byName[entry.name] = entry.sample
+	}
+	patterns := make(map[string]bool, len(keywordNeedles))
+	for _, k := range keywordNeedles {
+		patterns[k.pattern] = true
+		miss, ok := byName[k.pattern]
+		if !ok {
+			t.Errorf("keyword needle %q has no near-miss in keywordNearMiss", k.pattern)
+			continue
+		}
+		if _, recs := redactLines([]byte(miss+"\n"), false); len(recs) != 0 {
+			t.Errorf("near-miss %q for %q is redacted: %+v", miss, k.pattern, recs)
+		}
+	}
+	for name := range byName {
+		if !patterns[name] {
+			t.Errorf("keywordNearMiss names %q, which is not in keywordNeedles", name)
+		}
+	}
+}

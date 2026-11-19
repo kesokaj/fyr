@@ -177,12 +177,23 @@ func normalizePath(p string) string {
 	return clean
 }
 
+type metaTimeSources struct {
+	hasRing   bool
+	hasVet    bool
+	hasLedger bool
+}
+
 func inspectSessionMeta(
-	dir, convID, tmp string, summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool,
+	home, dir, convID, tmp string, now time.Time, summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool,
 ) (int, []Finding, error) {
 	scratch := filepath.Join(dir, ".agents", "scratch")
-	if _, err := os.Stat(filepath.Join(scratch, "search.db")); errors.Is(err, os.ErrNotExist) {
+	fi, err := os.Stat(filepath.Join(scratch, "search.db"))
+	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil, nil
+	}
+	var searchDBMod time.Time
+	if err == nil {
+		searchDBMod = fi.ModTime()
 	}
 	db, err := search.OpenCopy(scratch, "search.db", tmp)
 	if errors.Is(err, os.ErrNotExist) {
@@ -196,12 +207,14 @@ func inspectSessionMeta(
 	if err != nil || !cols["conversation_id"] || !cols["turn_count"] {
 		return 0, nil, err
 	}
-	return scanSessionMeta(db, cols, convID, summaries, hasSum, targetSet)
+	return scanSessionMeta(db, home, cols, convID, now, searchDBMod, summaries, hasSum, targetSet)
 }
 
 func scanSessionMeta(
-	db *sql.DB, cols map[string]bool, convID string, summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool,
+	db *sql.DB, home string, cols map[string]bool, convID string, now, searchDBMod time.Time,
+	summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool,
 ) (int, []Finding, error) {
+	sources := loadMetaTimeSources(db)
 	rows, err := db.Query(buildSessionMetaQuery(cols))
 	if err != nil {
 		return 0, nil, err
@@ -218,7 +231,7 @@ func scanSessionMeta(
 		if !validConvID(id) {
 			continue
 		}
-		if !shouldCheckMetaRow(id, convID, summaries, targetSet) {
+		if !shouldCheckMetaRow(db, sources, home, id, convID, now, searchDBMod, summaries, hasSum, targetSet) {
 			continue
 		}
 		checked++
@@ -228,6 +241,30 @@ func scanSessionMeta(
 		}
 	}
 	return checked, findings, rows.Err()
+}
+
+func loadMetaTimeSources(db *sql.DB) metaTimeSources {
+	var src metaTimeSources
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('watchdog_ring', 'vet_history', 'read_ledger')`)
+	if err != nil {
+		return src
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if rows.Scan(&name) != nil {
+			continue
+		}
+		switch name {
+		case "watchdog_ring":
+			src.hasRing = true
+		case "vet_history":
+			src.hasVet = true
+		case "read_ledger":
+			src.hasLedger = true
+		}
+	}
+	return src
 }
 
 func buildSessionMetaQuery(cols map[string]bool) string {
@@ -252,14 +289,66 @@ func buildSessionMetaQuery(cols map[string]bool) string {
 	return fmt.Sprintf("SELECT conversation_id, COALESCE(turn_count, 0), %s, %s, %s FROM session_meta", toolExpr, agentExpr, parentExpr)
 }
 
-func shouldCheckMetaRow(id, convID string, summaries map[string]summaryRow, targetSet map[string]bool) bool {
+func shouldCheckMetaRow(
+	db *sql.DB, sources metaTimeSources, home, id, convID string, now, searchDBMod time.Time,
+	summaries map[string]summaryRow, hasSum bool, targetSet map[string]bool,
+) bool {
 	if convID != "" {
 		return targetSet[id]
 	}
 	if _, known := summaries[id]; known {
 		return targetSet[id]
 	}
-	return true
+	cutoff := now.Add(-discoveryWindow)
+	if mod, ok := metaRowModTime(db, sources, home, id); ok {
+		return !mod.Before(cutoff)
+	}
+	if hasSum {
+		return false
+	}
+	return !searchDBMod.IsZero() && !searchDBMod.Before(cutoff)
+}
+
+func metaRowModTime(db *sql.DB, sources metaTimeSources, home, id string) (time.Time, bool) {
+	var latest time.Time
+	if home != "" {
+		brain := filepath.Join(home, ".gemini", "antigravity-cli", "brain", id)
+		for _, p := range []string{
+			filepath.Join(brain, ".system_generated", "logs", "transcript.jsonl"),
+			brain,
+		} {
+			if fi, err := os.Stat(p); err == nil && fi.ModTime().After(latest) {
+				latest = fi.ModTime()
+			}
+		}
+	}
+	if ts := maxConvUnixTime(db, sources, id); ts > 0 {
+		if t := time.Unix(ts, 0); t.After(latest) {
+			latest = t
+		}
+	}
+	return latest, !latest.IsZero()
+}
+
+func maxConvUnixTime(db *sql.DB, sources metaTimeSources, id string) int64 {
+	var best int64
+	queries := make([]string, 0, 3)
+	if sources.hasRing {
+		queries = append(queries, `SELECT COALESCE(MAX(ts), 0) FROM watchdog_ring WHERE conversation_id = ?`)
+	}
+	if sources.hasVet {
+		queries = append(queries, `SELECT COALESCE(MAX(created_at), 0) FROM vet_history WHERE conversation_id = ?`)
+	}
+	if sources.hasLedger {
+		queries = append(queries, `SELECT COALESCE(MAX(updated_at), 0) FROM read_ledger WHERE conversation_id = ?`)
+	}
+	for _, q := range queries {
+		var ts int64
+		if db.QueryRow(q, id).Scan(&ts) == nil && ts > best {
+			best = ts
+		}
+	}
+	return best
 }
 
 func checkBudgetRow(
@@ -290,20 +379,29 @@ func resolveSubagentBudget(id, rowAgent, rowParent string, summaries map[string]
 		}
 	}
 	lowAgent, lowID := strings.ToLower(agent), strings.ToLower(id)
-	if lowAgent == "self" || (lowAgent == "" && strings.Contains(lowID, "self")) {
-		return "self", selfSubagentCap, true
-	}
-	if agent != "" || parent != "" {
-		if agent == "" {
-			agent = "subagent"
+	if agent != "" {
+		if isAuditSubagentName(lowAgent) {
+			return agent, auditSubagentCap, true
 		}
-		return agent, auditSubagentCap, true
+		return agent, selfSubagentCap, true
+	}
+	if parent != "" {
+		if isAuditSubagentName(lowID) {
+			return "subagent", auditSubagentCap, true
+		}
+		return "self", selfSubagentCap, true
 	}
 	if lowID == "default" {
 		return "", 0, false
 	}
-	if isAuditSubagentName(lowID) || !hasSum {
+	if isAuditSubagentName(lowID) {
 		return "subagent", auditSubagentCap, true
+	}
+	if strings.Contains(lowID, "self") {
+		return "self", selfSubagentCap, true
+	}
+	if !hasSum && (strings.HasPrefix(lowID, "builder-") || strings.HasPrefix(lowID, "coder-")) {
+		return id, selfSubagentCap, true
 	}
 	return "", 0, false
 }

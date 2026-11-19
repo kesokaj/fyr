@@ -277,6 +277,11 @@ func TestRedactShapes(t *testing.T) {
 		// SD41's kinds: the prefix with no token after it, the marker with no
 		// ID in front, and a word too short to be a token.
 		"the dckr_pat_ prefix", "a dckr_pat_short one", "the .atlasv1. marker", "abcdef.atlasv1.short",
+		// SD120: kind-specific short/near-miss forms.
+		"1//0short", "SG.x.y", "hvs.short", "sk_live_short", "eyJabcdefgh.e30.short",
+		"podman login prompts for the password",
+		"mariadb " + "-p",
+		"curl -b sid h",
 	} {
 		// "ASIAN" contains the ASIA prefix: accepted over-redaction, pinned
 		// here so a change to it is deliberate.
@@ -434,5 +439,68 @@ func TestRedactJSONLEscapedKeyAndPEM(t *testing.T) {
 	outMulti, recsMulti := redactLines([]byte(escapedDashMulti), true)
 	if len(recsMulti) != 1 || strings.Contains(string(outMulti), "FAKEBODY") || !strings.Contains(string(outMulti), `"after"`) {
 		t.Errorf("escaped multiline PEM leaked or over-redacted: out=%q recs=%+v", outMulti, recsMulti)
+	}
+}
+
+func TestRedactJSONLRecoveryAndPlainText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		leak string
+	}{
+		{"utf8 bom prefix", "\xef\xbb\xbf{\"q\":\"\\u0041KIAFAKEVALUE\"}\n{\"ok\":\"after\"}\n", "FAKEVALUE"},
+		{"leading non-json text", "2026-11-19 WARN {\"q\":\"\\u0041KIAFAKEVALUE\"}\n{\"ok\":\"after\"}\n", "FAKEVALUE"},
+		{"truncated escaped secret", "{\"user_quote\":\"token\\u003dabc123 broken\n{\"ok\":\"after\"}\n", "abc123"},
+		{"nan before escaped secret", "{\"a\":1,\"b\":NaN,\"q\":\"\\u0041KIAFAKEVALUE\"}\n{\"ok\":\"after\"}\n", "FAKEVALUE"},
+		{"escaped inner quotes", "{\"cmd\":\"curl -u \\\"admin:FAKEVALUE\\\"\"}\n{\"ok\":\"after\"}\n", "FAKEVALUE"},
+		{"escaped key after syntax error", "{\"a\":NaN,\"pass\\u0077ord\":\"my pass\"}\n{\"ok\":\"after\"}\n", "my pass"},
+	}
+	for _, c := range cases {
+		out := RedactJSONL(c.in)
+		if strings.Contains(out, c.leak) {
+			t.Errorf("%s leaked %q: %q", c.name, c.leak, out)
+		}
+		if !strings.Contains(out, `"after"`) {
+			t.Errorf("%s dropped trailing line: %q", c.name, out)
+		}
+	}
+	cleanJSON := `{"a":"token type: bearer","b":"ok"}` + "\n"
+	if got := RedactJSONL(cleanJSON); got != cleanJSON {
+		t.Errorf("clean bea"+"rer JSON changed: %q", got)
+	}
+}
+
+func pemMarker(verb, label string) string {
+	dashes := "---" + "--"
+	return dashes + verb + " " + label + dashes
+}
+
+func TestRedactPEMCaseAndMultiBlock(t *testing.T) {
+	rsaKey := "RSA PRI" + "VATE KEY"
+	opensshKey := "OPENSSH PRI" + "VATE KEY"
+	mismatchedEnd := pemMarker("BEGIN", rsaKey) + "\nFAKEBODY1\n" +
+		pemMarker("END", "NOTE") + "\nFAKEBODY2\n" +
+		pemMarker("END", rsaKey) + "\nafter\n"
+	out := Redact(mismatchedEnd)
+	if strings.Contains(out, "FAKEBODY") || !strings.Contains(out, "after\n") {
+		t.Errorf("mismatched END closed early or leaked: %q", out)
+	}
+
+	lower := pemMarker("begin", strings.ToLower(rsaKey)) + "\nFAKEBODY\n" +
+		pemMarker("end", strings.ToLower(rsaKey)) + "\nafter\n"
+	outLower := Redact(lower)
+	if strings.Contains(outLower, "FAKEBODY") || !strings.Contains(outLower, "after\n") {
+		t.Errorf("lowercase PEM leaked or over-redacted: %q", outLower)
+	}
+
+	mixedTail := fmt.Sprintf(`{"a":%q}`, pemMarker("BEGIN", rsaKey)) + "\n" +
+		"FAKEBODY1\n" +
+		fmt.Sprintf(`{"b":"%s\n\u002d%s"}`, pemMarker("END", rsaKey), pemMarker("BEGIN", opensshKey)[1:]) + "\n" +
+		"FAKEBODY2\n" +
+		pemMarker("END", opensshKey) + "\n" +
+		`{"ok":"after"}` + "\n"
+	outMixed := RedactJSONL(mixedTail)
+	if strings.Contains(outMixed, "FAKEBODY") || !strings.Contains(outMixed, `"after"`) {
+		t.Errorf("mixed raw close + escaped second PEM leaked: %q", outMixed)
 	}
 }

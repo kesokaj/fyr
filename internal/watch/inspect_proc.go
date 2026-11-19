@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -37,12 +38,13 @@ func filterProcs(procs []ProcInfo, customProcs bool, dir, convID string) []ProcI
 		}
 		return out
 	}
+	hasTarget := dir != "" || convID != ""
 	ancestors := buildAncestorSet(procs, self)
 	ppidByPID := make(map[int]int, len(procs))
 	agyPIDs := make(map[int]bool)
 	for _, p := range procs {
 		ppidByPID[p.PID] = p.PPID
-		if isAgyProcess(p.Cmdline) {
+		if isAgyProcess(p.Cmdline) && (!hasTarget || cmdMatchesTarget(p.Cmdline, dir, convID)) {
 			agyPIDs[p.PID] = true
 		}
 	}
@@ -101,22 +103,61 @@ func isAgyProcess(cmdline string) bool {
 }
 
 func cmdMatchesTarget(cmdline, dir, convID string) bool {
-	if convID != "" && strings.Contains(cmdline, convID) {
+	if convID != "" && containsBoundedToken(cmdline, convID, isConvIdentChar) {
 		return true
 	}
-	return dir != "" && strings.Contains(cmdline, dir)
+	if dir == "" {
+		return false
+	}
+	clean := strings.TrimRight(dir, string(filepath.Separator))
+	if clean == "" {
+		clean = dir
+	}
+	if containsBoundedToken(cmdline, clean, isPathContChar) {
+		return true
+	}
+	norm := normalizePath(dir)
+	return norm != "" && norm != clean && containsBoundedToken(cmdline, norm, isPathContChar)
+}
+
+func containsBoundedToken(s, tok string, cont func(byte) bool) bool {
+	for off := 0; off < len(s); {
+		idx := strings.Index(s[off:], tok)
+		if idx < 0 {
+			return false
+		}
+		start := off + idx
+		end := start + len(tok)
+		okLeft := start == 0 || !cont(s[start-1])
+		okRight := end == len(s) || !cont(s[end])
+		if okLeft && okRight {
+			return true
+		}
+		off = start + 1
+	}
+	return false
+}
+
+func isConvIdentChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '_'
+}
+
+func isPathContChar(b byte) bool {
+	return isConvIdentChar(b) || b == '.'
 }
 
 func classifyProc(p ProcInfo, idleSec int) (Finding, bool) {
 	wchan := strings.ToLower(strings.TrimSpace(p.Wchan))
 	state := strings.ToUpper(strings.TrimSpace(p.State))
 	target := compactCmdTarget(p.Cmdline, p.PID)
+	running := strings.HasPrefix(state, "R")
+	isAgy := isAgyProcess(p.Cmdline)
 	switch {
-	case strings.Contains(wchan, "tty"):
+	case strings.Contains(wchan, "tty") && !running:
 		return procFinding(kindInteractiveWait, target, p, "wchan="+p.Wchan, "process blocked on terminal I/O; supply stdin or terminate child"), true
-	case strings.Contains(wchan, "pipe") && p.ElapsedSec >= int64(idleSec):
+	case strings.Contains(wchan, "pipe") && !running && !isAgy && p.ElapsedSec >= int64(idleSec):
 		return procFinding(kindInteractiveWait, target, p, "wchan="+p.Wchan, "process blocked on pipe I/O past idle threshold; check stdin or kill"), true
-	case strings.Contains(wchan, "wait") && p.ElapsedSec >= int64(idleSec):
+	case isBlockedWaitWchan(wchan) && !running && !isAgy && p.ElapsedSec >= int64(idleSec):
 		return procFinding(kindStuckNoProgress, target, p, "wchan="+p.Wchan, "child process stuck waiting past idle threshold; inspect or kill"), true
 	case strings.HasPrefix(state, "T") && p.ElapsedSec >= int64(idleSec):
 		kind := kindStuckNoProgress
@@ -124,10 +165,22 @@ func classifyProc(p ProcInfo, idleSec int) (Finding, bool) {
 			kind = kindInteractiveWait
 		}
 		return procFinding(kind, target, p, "state="+p.State, "stopped child process past idle threshold; resume or kill"), true
-	case wchan == "" && p.ElapsedSec >= int64(idleSec):
+	case runtime.GOOS == "darwin" && wchan == "" && !running && !isAgy && p.ElapsedSec >= int64(idleSec):
 		return classifyDarwinState(p, target, state)
 	}
 	return Finding{}, false
+}
+
+func isBlockedWaitWchan(wchan string) bool {
+	if !strings.Contains(wchan, "wait") {
+		return false
+	}
+	for _, normal := range []string{"futex", "epoll", "poll", "select", "nanosleep", "hrtimer", "woken"} {
+		if strings.Contains(wchan, normal) {
+			return false
+		}
+	}
+	return true
 }
 
 func classifyDarwinState(p ProcInfo, target, state string) (Finding, bool) {

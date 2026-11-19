@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
@@ -342,5 +343,190 @@ func TestWatchProcRedaction(t *testing.T) {
 	fileHint := clipPrintable("pa"+"ssword: https://user:supersecret1234@example.com/auth", promptHintMaxB)
 	if strings.Contains(fileHint, "supersecret1234") {
 		t.Fatalf("clipPrintable leaked credential in PromptHint: %q", fileHint)
+	}
+}
+
+func TestWatchProcFilteringAndHeuristics(t *testing.T) {
+	self := os.Getpid()
+	procs := []ProcInfo{
+		{PID: 10, PPID: 1, Cmdline: "systemd"},
+		{PID: self, PPID: 10, Cmdline: "go test"},
+		{PID: 1000, PPID: 1, Cmdline: "/usr/bin/agy --workspace /target/repo"},
+		{PID: 1001, PPID: 1000, Cmdline: "cat"},
+		{PID: 2000, PPID: 1, Cmdline: "/usr/bin/antigravity --workspace /other/repo"},
+		{PID: 2001, PPID: 2000, Cmdline: "cat"},
+		{PID: 3000, PPID: 1, Cmdline: "bash /target/repo/run.sh"},
+	}
+	anc := buildAncestorSet(procs, self)
+	if !anc[self] || !anc[10] || anc[1000] {
+		t.Fatalf("unexpected ancestor set: %+v", anc)
+	}
+	cycleProcs := []ProcInfo{{PID: 50, PPID: 51}, {PID: 51, PPID: 50}}
+	if cAnc := buildAncestorSet(cycleProcs, 50); !cAnc[50] || !cAnc[51] {
+		t.Fatalf("cycle ancestor set failed: %+v", cAnc)
+	}
+	if !hasAncestorIn(1001, map[int]int{1001: 1000}, map[int]bool{1000: true}) {
+		t.Error("expected hasAncestorIn true for child of root")
+	}
+	if hasAncestorIn(50, map[int]int{50: 51, 51: 50}, map[int]bool{1000: true}) {
+		t.Error("expected hasAncestorIn false on cycle without root")
+	}
+	if !isAgyProcess("/usr/local/bin/agy --mode plan") || !isAgyProcess("antigravity-server") || isAgyProcess("go test") || isAgyProcess("") {
+		t.Error("isAgyProcess classification mismatch")
+	}
+	if !cmdMatchesTarget("bash /target/repo/sub", "/target/repo", "") || cmdMatchesTarget("bash /target/repo-other/sub", "/target/repo", "") {
+		t.Error("cmdMatchesTarget dir boundary mismatch")
+	}
+	if !cmdMatchesTarget("--conv=conv-1", "", "conv-1") || cmdMatchesTarget("--conv=conv-10", "", "conv-1") {
+		t.Error("cmdMatchesTarget convID boundary mismatch")
+	}
+
+	got := filterProcs(procs, false, "/target/repo", "")
+	gotPIDs := map[int]bool{}
+	for _, p := range got {
+		gotPIDs[p.PID] = true
+	}
+	if !gotPIDs[1001] || !gotPIDs[3000] || gotPIDs[2000] || gotPIDs[2001] || gotPIDs[10] || gotPIDs[self] {
+		t.Fatalf("filterProcs scoped mismatch: got %+v", got)
+	}
+
+	for _, benign := range []ProcInfo{
+		{PID: 1, State: "S", Wchan: "futex_wait_queue", Cmdline: "gopls", ElapsedSec: 300},
+		{PID: 2, State: "S", Wchan: "do_epoll_wait", Cmdline: "node", ElapsedSec: 300},
+		{PID: 3, State: "S", Wchan: "do_wait", Cmdline: "agy --workspace /target/repo", ElapsedSec: 300},
+		{PID: 4, State: "R", Wchan: "do_wait", Cmdline: "make", ElapsedSec: 300},
+	} {
+		if f, ok := classifyProc(benign, 90); ok {
+			t.Errorf("unexpected finding for %+v: %+v", benign, f)
+		}
+	}
+	if f, ok := classifyProc(ProcInfo{PID: 5, State: "T+", Cmdline: "vim", ElapsedSec: 100}, 90); !ok || f.Kind != kindInteractiveWait {
+		t.Errorf("T+ stopped proc = %+v, %v", f, ok)
+	}
+	if f, ok := classifyProc(ProcInfo{PID: 6, State: "T", Cmdline: "sleep 99", ElapsedSec: 100}, 90); !ok || f.Kind != kindStuckNoProgress {
+		t.Errorf("T stopped proc = %+v, %v", f, ok)
+	}
+
+	for _, tc := range []struct {
+		state string
+		want  string
+		ok    bool
+	}{
+		{"S+", kindInteractiveWait, true},
+		{"S", kindStuckNoProgress, true},
+		{"I", kindStuckNoProgress, true},
+		{"U", kindStuckNoProgress, true},
+		{"T", kindStuckNoProgress, true},
+		{"R", "", false},
+	} {
+		f, ok := classifyDarwinState(ProcInfo{PID: 7, State: tc.state, Cmdline: "sleep 100", ElapsedSec: 120}, "sleep 100", tc.state)
+		if ok != tc.ok || (ok && f.Kind != tc.want) {
+			t.Errorf("classifyDarwinState(%q) = %+v, %v; want %q, %v", tc.state, f, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestWatchFilesClipAndArtifacts(t *testing.T) {
+	now := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
+	home, dir := t.TempDir(), t.TempDir()
+	seedWatchDBs(t, home, dir, []convSpec{
+		{
+			id:         "conv-secret-tr",
+			ws:         dir,
+			mod:        now.Add(-2 * time.Minute),
+			transcript: "{\"content\":\"Proceed? [y/n] \\u0041KIAFAKEVALUE\"}\n",
+		},
+	}, nil)
+	if f, ok := inspectConversationFiles(home, "conv-secret-tr", now); !ok || strings.Contains(f.PromptHint, "FAKEVALUE") {
+		t.Fatalf("transcript escaped secret leaked or missed prompt: %+v, ok=%v", f, ok)
+	}
+	clipped := clipPrintableMode("a"+strings.Repeat("é", 40)+" [y/n]", 20, false)
+	if !utf8.ValidString(clipped) || !strings.HasSuffix(clipped, "...") || len(clipped) > 23 {
+		t.Fatalf("clipPrintableMode invalid UTF-8 clip: %q", clipped)
+	}
+
+	writeArt(t, dir, "old-abandoned.md", "# Old\nStatus: IN PROGRESS\n", now.Add(-25*time.Hour))
+	writeArt(t, dir, "fenced-example.md", "# Guide\n```md\nStatus: IN PROGRESS\n```\n~~~~\n## Status: IN PROGRESS\n~~~~\n````md\n```\nStatus: IN PROGRESS\n```\n````\n", now.Add(-5*time.Minute))
+	writeArt(t, dir, "active-stuck.md", "# Audit\n## Status: IN PROGRESS\n", now.Add(-5*time.Minute))
+	checked, artFindings := inspectArtifacts(dir, 90, now)
+	if checked != 2 || len(artFindings) != 1 || !strings.Contains(artFindings[0].Target, "active-stuck.md") {
+		t.Fatalf("inspectArtifacts = checked:%d findings:%+v, want checked=2 and only active-stuck.md", checked, artFindings)
+	}
+}
+
+func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
+	now := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
+	home, dir := t.TempDir(), t.TempDir()
+	convs := []convSpec{
+		{id: "lead", ws: dir, mod: now.Add(-5 * time.Minute)},
+		{id: "worker-builder", ws: dir, agent: "builder-1c", parent: "lead", mod: now.Add(-5 * time.Minute)},
+		{id: "worker-coder", ws: dir, agent: "coder-1a", parent: "lead", mod: now.Add(-5 * time.Minute)},
+		{id: "worker-custom", ws: dir, agent: "worker-x", parent: "lead", mod: now.Add(-5 * time.Minute)},
+		{id: "anon-self", ws: dir, agent: "", parent: "lead", mod: now.Add(-5 * time.Minute)},
+	}
+	turns := map[string]int{
+		"worker-builder":       45,
+		"worker-coder":         96,
+		"worker-custom":        45,
+		"anon-self":            45,
+		"orphan-unbacked":      38,
+		"orphan-old-sub":       38,
+		"sub-rev-recent":       33,
+		"orphan-builder-fresh": 45,
+	}
+	auditRoles := []string{"reviewer", "security", "verifier", "explorer", "dreamer", "documentation", "research", "subagent", "sub-helper"}
+	for _, r := range auditRoles {
+		id := "role-" + r
+		convs = append(convs, convSpec{id: id, ws: dir, agent: r, parent: "lead", mod: now.Add(-5 * time.Minute)})
+		turns[id] = 32
+	}
+	seedWatchDBs(t, home, dir, convs, turns)
+
+	agyBrain := filepath.Join(home, ".gemini", "antigravity-cli", "brain")
+	mustWriteWatchFile(t, filepath.Join(agyBrain, "orphan-old-sub", ".system_generated", "logs", "transcript.jsonl"), "{}\n", now.Add(-48*time.Hour))
+	mustWriteWatchFile(t, filepath.Join(agyBrain, "sub-rev-recent", ".system_generated", "logs", "transcript.jsonl"), "{}\n", now.Add(-5*time.Minute))
+	mustWriteWatchFile(t, filepath.Join(agyBrain, "orphan-builder-fresh", ".system_generated", "logs", "transcript.jsonl"), "{}\n", now.Add(-5*time.Minute))
+
+	rep, err := Check(context.Background(), Options{
+		Home:       home,
+		Dir:        dir,
+		Now:        func() time.Time { return now },
+		ProcLister: func() ([]ProcInfo, error) { return nil, nil },
+	})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	for _, want := range []string{"worker-coder", "sub-rev-recent"} {
+		if !hasWatchFinding(rep, kindBudgetNearLimit, want) {
+			t.Errorf("missing BUDGET_NEAR_LIMIT for %s: %+v", want, rep.Findings)
+		}
+	}
+	for _, r := range auditRoles {
+		if !hasWatchFinding(rep, kindBudgetNearLimit, "role-"+r) {
+			t.Errorf("missing BUDGET_NEAR_LIMIT for audit role %s: %+v", r, rep.Findings)
+		}
+	}
+	for _, noWant := range []string{"worker-builder", "worker-custom", "anon-self", "orphan-unbacked", "orphan-old-sub", "orphan-builder-fresh"} {
+		if hasWatchFinding(rep, kindBudgetNearLimit, noWant) {
+			t.Errorf("unexpected BUDGET_NEAR_LIMIT for %s: %+v", noWant, rep.Findings)
+		}
+	}
+
+	// Without conversation_summaries.db, a >24h search.db falls outside discoveryWindow.
+	homeNoSum, dirNoSum := t.TempDir(), t.TempDir()
+	seedWatchDBs(t, homeNoSum, dirNoSum, nil, map[string]int{"sub-stale": 38})
+	_ = os.Remove(filepath.Join(homeNoSum, ".gemini", "antigravity-cli", "conversation_summaries.db"))
+	oldTime := now.Add(-30 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dirNoSum, ".agents", "scratch", "search.db"), oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	repNoSum, err := Check(context.Background(), Options{
+		Home:       homeNoSum,
+		Dir:        dirNoSum,
+		Now:        func() time.Time { return now },
+		ProcLister: func() ([]ProcInfo, error) { return nil, nil },
+	})
+	if err != nil || !repNoSum.OK {
+		t.Fatalf("stale search.db without summaries should be skipped, got rep=%+v err=%v", repNoSum, err)
 	}
 }

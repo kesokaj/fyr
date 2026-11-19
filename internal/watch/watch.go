@@ -110,7 +110,7 @@ func runChecks(ctx context.Context, o Options, customProcs bool, tmp string, rep
 		n, artFindings := inspectArtifacts(o.Dir, o.IdleSec, now)
 		rep.Checked += n
 		rep.Findings = append(rep.Findings, artFindings...)
-		nMeta, metaFindings, err := inspectSessionMeta(o.Dir, o.ConvID, tmp, summaries, hasSum, targetSet)
+		nMeta, metaFindings, err := inspectSessionMeta(o.Home, o.Dir, o.ConvID, tmp, now, summaries, hasSum, targetSet)
 		if err != nil {
 			return err
 		}

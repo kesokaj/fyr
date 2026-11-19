@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -46,7 +45,7 @@ func init() {
 		prefixNeedles = append(prefixNeedles, strings.Join(parts, ""))
 	}
 	beginNeedle = strings.Join([]string{"---", "--BE", "GIN"}, "")
-	blockOpen = regexp.MustCompile(strings.Join([]string{"---", "--BEGIN|BEGIN[A-Z ]*PRI", "VATE KEY"}, ""))
+	blockOpen = regexp.MustCompile("(?i)" + strings.Join([]string{"---", "--BEGIN|BEGIN[A-Z ]*PRI", "VATE KEY"}, ""))
 }
 
 // keywordNeedles are assignment and header shapes, matched without regard to
@@ -193,16 +192,19 @@ var keywordNeedles = []struct {
 // rewrote, and closes at the matching footer. A footer followed on the same
 // line by another header keeps the block open (two keys concatenated).
 var (
-	blockClose = regexp.MustCompile(`-----END[^-]*(-----)?|END[A-Z ]*PRIVATE KEY`)
-	blockLabel = regexp.MustCompile(`^BEGIN ([A-Z0-9][A-Z0-9 ]*[A-Z0-9])`)
+	blockClose = regexp.MustCompile(strings.Join([]string{"(?i)---", "--END[^-]*(---", "--)?|END[A-Z ]*PRI", "VATE KEY"}, ""))
+	blockLabel = regexp.MustCompile(`(?i)^BEGIN ([A-Z0-9][A-Z0-9 ]*[A-Z0-9])`)
 )
 
 // labelAt returns the label of the header that starts at s ("RSA PRIVATE
 // KEY"), or "" when the header names none.
 func labelAt(s string) string {
-	s = s[strings.Index(s, "BEGIN"):]
-	if m := blockLabel.FindStringSubmatch(s); m != nil {
-		return m[1]
+	idx := strings.Index(strings.ToUpper(s), "BEGIN")
+	if idx < 0 {
+		return ""
+	}
+	if m := blockLabel.FindStringSubmatch(s[idx:]); m != nil {
+		return strings.ToUpper(m[1])
 	}
 	return ""
 }
@@ -271,7 +273,7 @@ func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
 	if open == nil {
 		return i, false
 	}
-	j, off, opened, label := i, open[1], i, labelAt(openLine[open[0]:])
+	j, off, label := i, open[1], labelAt(openLine[open[0]:])
 	cur, isDecoded := openLine, openLine != strings.TrimSuffix(lines[i], "\n")
 	for j < len(lines) {
 		loc := blockClose.FindStringIndex(cur[off:])
@@ -288,16 +290,16 @@ func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
 			continue
 		}
 		after := off + loc[1]
-		// On the line its header opened, a block closes only at a footer naming
-		// that header's label: a line that merely mentions a footer ("... up to
-		// -----END below") would otherwise close it above the key body (D14).
-		if j == opened && label != "" && !strings.Contains(cur[off+loc[0]:after], label) {
+		// A block opened with a label closes only at a footer naming that
+		// opening label: a line mentioning a generic footer or a different
+		// label ("-----END NOTE-----") must not close the key early (D14, SD90).
+		if label != "" && !strings.Contains(strings.ToUpper(cur[off+loc[0]:after]), label) {
 			off = after
 			continue
 		}
-		if next := blockOpen.FindStringIndex(cur[after:]); next != nil {
-			opened, label = j, labelAt(cur[after+next[0]:])
-			off = after + next[1]
+		if nCur, nOff, next, nDec := nextBlockOpen(cur, after, jsonl, isDecoded); next != nil {
+			label = labelAt(nCur[nOff+next[0]:])
+			cur, off, isDecoded = nCur, nOff+next[1], nDec
 			continue
 		}
 		return j, true
@@ -307,6 +309,27 @@ func blockEnd(lines []string, i int, jsonl bool) (int, bool) {
 		last--
 	}
 	return last, false
+}
+
+func nextBlockOpen(cur string, after int, jsonl, isDecoded bool) (string, int, []int, bool) {
+	if next := blockOpen.FindStringIndex(cur[after:]); next != nil {
+		return cur, after, next, isDecoded
+	}
+	if !jsonl || isDecoded {
+		return "", 0, nil, false
+	}
+	tail := strings.TrimSuffix(cur[after:], "\n")
+	if dec := decoded(tail); dec != "" {
+		if next := blockOpen.FindStringIndex(dec); next != nil {
+			return dec, 0, next, true
+		}
+	}
+	if decQ := decoded(`"` + tail); decQ != "" {
+		if next := blockOpen.FindStringIndex(decQ); next != nil {
+			return decQ, 0, next, true
+		}
+	}
+	return "", 0, nil, false
 }
 
 // marker is what replaces removed content. In a JSONL file it is a JSON
@@ -375,64 +398,4 @@ func Redact(text string) string {
 func RedactJSONL(text string) string {
 	out, _ := redactLines([]byte(text), true)
 	return string(out)
-}
-
-// decoded is a JSON line's text with its escapes undone, for matching only: a
-// secret behind \" or \u0041 does not match the raw line. fmt prints each key
-// followed by a colon, so a secret-named key still reads as an assignment.
-// Every value on the line is decoded, numbers kept as written, up to the first
-// value that does not decode; that value and everything after it on the line
-// are not seen here (leading text or a BOM, NaN, a raw control character, a
-// truncated record), nor is a value shadowed by a duplicate key. A documented
-// limit, not an exhaustive list (D14).
-func decoded(line string) string {
-	dec := json.NewDecoder(strings.NewReader(line))
-	dec.UseNumber()
-	var b, raw strings.Builder
-	for {
-		var v any
-		if dec.Decode(&v) != nil {
-			if raw.Len() == 0 {
-				return b.String()
-			}
-			return b.String() + "\n,\n" + raw.String()
-		}
-		writeDecoded(&b, v)
-		b.WriteByte('\n')
-		fmt.Fprintln(&raw, v)
-	}
-}
-
-func writeDecoded(b *strings.Builder, v any) {
-	switch x := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		b.WriteString("map[")
-		for _, k := range keys {
-			val := x[k]
-			if s, ok := val.(string); ok {
-				fmt.Fprintf(b, "%s:%q ", k, s)
-				continue
-			}
-			fmt.Fprintf(b, "%s:", k)
-			writeDecoded(b, val)
-			b.WriteByte(' ')
-		}
-		b.WriteByte(']')
-	case []any:
-		b.WriteByte('[')
-		for i, elem := range x {
-			if i > 0 {
-				b.WriteByte(' ')
-			}
-			writeDecoded(b, elem)
-		}
-		b.WriteByte(']')
-	default:
-		fmt.Fprint(b, v)
-	}
 }
