@@ -20,9 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"modernc.org/sqlite"
-	sqlite3 "modernc.org/sqlite/lib"
-
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
 )
@@ -104,21 +101,30 @@ func openStore(home string) (*store, error) {
 	// Two processes opening a new store at once race to switch it to WAL,
 	// and SQLite answers that race with SQLITE_BUSY without waiting on the
 	// busy timeout: the open is retried for as long as that timeout.
-	deadline := time.Now().Add(openWait)
-	for {
-		s, err := tryOpen(path)
-		if err == nil || !isBusy(err) {
-			return s, err
+	var s *store
+	if _, err := openDBBusyRetry(func() (*sql.DB, error) {
+		opened, err := tryOpen(path)
+		if err != nil {
+			return nil, err
 		}
-		if time.Now().After(deadline) {
-			return nil, refuse("the brain store is busy (another fyr holds its write lock); retry")
-		}
-		time.Sleep(50 * time.Millisecond)
+		s = opened
+		return opened.db, nil
+	}); err != nil {
+		return nil, err
 	}
+	return s, nil
 }
 
 // openWait is how long a busy open is retried.
 var openWait = 10 * time.Second
+
+func openDBBusyRetry(fn func() (*sql.DB, error)) (*sql.DB, error) {
+	db, err := search.OpenDBWithRetry(openWait, fn)
+	if err != nil && search.IsBusy(err) {
+		return nil, refuse("the brain store is busy (another fyr holds its write lock); retry")
+	}
+	return db, err
+}
 
 func tryOpen(path string) (*store, error) {
 	db, err := sql.Open("sqlite", search.DSN(path))
@@ -149,17 +155,19 @@ func openStoreReadOnly(home string) (*store, int, error) {
 		}
 		return nil, 0, refuse("brain: %v", err)
 	}
-	deadline := time.Now().Add(openWait)
-	for {
-		s, ver, err := tryOpenReadOnly(path)
-		if err == nil || !isBusy(err) {
-			return s, ver, err
+	var s *store
+	var ver int
+	if _, err := openDBBusyRetry(func() (*sql.DB, error) {
+		opened, v, err := tryOpenReadOnly(path)
+		if err != nil {
+			return nil, err
 		}
-		if time.Now().After(deadline) {
-			return nil, 0, refuse("the brain store is busy (another fyr holds its write lock); retry")
-		}
-		time.Sleep(50 * time.Millisecond)
+		s, ver = opened, v
+		return opened.db, nil
+	}); err != nil {
+		return nil, 0, err
 	}
+	return s, ver, nil
 }
 
 func checkRegularReadOnly(path string) error {
@@ -264,7 +272,7 @@ func (s *store) tx(fn func(c *sql.Conn) error) error {
 	}
 	defer c.Close()
 	if _, err := c.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		if isBusy(err) {
+		if search.IsBusy(err) {
 			return refuse("the brain store is busy (another fyr holds its write lock); retry")
 		}
 		return err
@@ -278,20 +286,6 @@ func (s *store) tx(fn func(c *sql.Conn) error) error {
 		return err
 	}
 	return nil
-}
-
-// sqliteCode is the primary SQLite result code of err, or 0.
-func sqliteCode(err error) int {
-	var se *sqlite.Error
-	if errors.As(err, &se) {
-		return se.Code() & 0xff
-	}
-	return 0
-}
-
-func isBusy(err error) bool {
-	c := sqliteCode(err)
-	return c == sqlite3.SQLITE_BUSY || c == sqlite3.SQLITE_LOCKED
 }
 
 // refusal is input or state the store will not take: the CLI prints it and

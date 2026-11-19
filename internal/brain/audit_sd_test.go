@@ -306,3 +306,137 @@ func TestSD113CappedTextMemorySortedByValidityAndRecency(t *testing.T) {
 		t.Errorf("MemoryShowJSONWithOptions len = %d, want 202 (uncapped)", len(items))
 	}
 }
+
+func TestSD41ImportSummaryAndImportedText(t *testing.T) {
+	if got := ImportSummary(&ImportResult{}); got != "none" {
+		t.Fatalf("ImportSummary(empty) = %q, want none", got)
+	}
+	got := ImportSummary(&ImportResult{
+		Records: []Imported{
+			{Kind: "plan"},
+			{Kind: "bug"},
+			{Kind: "adr"},
+			{Kind: "bug"},
+		},
+	})
+	if got != "adr 1, bug 2, plan 1" {
+		t.Fatalf("ImportSummary = %q, want %q", got, "adr 1, bug 2, plan 1")
+	}
+
+	dir, home := repo(t), t.TempDir()
+	docs := filepath.Join(dir, ".agents", "docs")
+	for _, sub := range []string{"plans", "architecture"} {
+		if err := os.MkdirAll(filepath.Join(docs, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	planText := "# Plan Alpha\n\n- [ ] step one\n"
+	decText := "# Decisions\n\n## ADR-001: Use SQLite (2026-10-25) — accepted\n\nSQLite body.\n"
+	if err := os.WriteFile(filepath.Join(docs, "plans", "2026-10-25-alpha.md"), []byte(planText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "architecture", "DECISIONS.md"), []byte(decText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "docs fixture")
+
+	res, err := Import(opts(dir, home), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Records) != 2 {
+		t.Fatalf("Import dry-run len = %d, want 2: %+v", len(res.Records), res.Records)
+	}
+	byID := map[string]Imported{}
+	for _, r := range res.Records {
+		byID[r.ID] = r
+	}
+	title, body := byID["ADR-001"].Text()
+	if title != "Use SQLite" || !strings.Contains(body, "SQLite body.") {
+		t.Errorf("ADR-001.Text() = (%q, %q)", title, body)
+	}
+	if sum := ImportSummary(res); sum != "adr 1, plan 1" {
+		t.Errorf("ImportSummary(dry-run) = %q, want %q", sum, "adr 1, plan 1")
+	}
+}
+
+func TestSD36OpenSessionUnmigratedAndNoTrail(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	docs := filepath.Join(dir, ".agents", "docs", "plans")
+	if err := os.MkdirAll(docs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := opts(dir, home)
+	if _, err := Add(o, AddInput{Kind: "bug", Title: "x", Body: strings.NewReader("b")}); !IsRefusal(err) {
+		t.Fatalf("unmigrated Add without DB err = %v, want refusal", err)
+	}
+	if _, err := os.Lstat(Path(home)); !os.IsNotExist(err) {
+		t.Fatalf("unmigrated Add created brain.db: %v", err)
+	}
+
+	other := repo(t)
+	add(t, opts(other, home), "bug", "other scope", "b")
+	if _, err := Add(o, AddInput{Kind: "bug", Title: "x", Body: strings.NewReader("b")}); !IsRefusal(err) {
+		t.Fatalf("unmigrated Add with unrelated DB scope err = %v, want refusal", err)
+	}
+
+	migrated, home2 := repo(t), t.TempDir()
+	mo := opts(migrated, home2)
+	add(t, mo, "bug", "already in db", "b")
+	if err := os.MkdirAll(filepath.Join(migrated, ".agents", "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Add(mo, AddInput{Kind: "bug", Title: "second in db", Body: strings.NewReader("b2")}); err != nil {
+		t.Fatalf("Add with DB scope records and no trail.jsonl: %v", err)
+	}
+	if recs, err := List(mo, ListFilter{}); err != nil || len(recs) != 2 {
+		t.Fatalf("List after Add without trail.jsonl = (%d, %v), want 2", len(recs), err)
+	}
+}
+
+func TestSD37ForDreamAndForMetricsSinglePass(t *testing.T) {
+	base := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	dir, home := repo(t), t.TempDir()
+	o := opts(dir, home)
+	o.Now = func() time.Time { return base }
+	if _, err := MemoryAdd(o, MemoryEntry{Type: "semantic", Name: "fact-one", Description: "Fact one"}, strings.NewReader("Body.")); err != nil {
+		t.Fatal(err)
+	}
+	add(t, o, "bug", "dream bug", "symptom")
+	g := Options{Home: home, Dir: dir, Global: true, Now: o.Now}
+	add(t, g, "feedback", "dream feedback", `{"ts":"2026-11-18T12:00:00Z"}`, "project", dir)
+
+	din, err := ForDream(home, dir, base.Add(-time.Hour), base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(din.Memory) != 1 || len(din.Trail) != 1 || len(din.Feedback) != 1 || din.Last.IsZero() {
+		t.Fatalf("ForDream = %+v, want 1 memory, 1 trail, 1 feedback, non-zero Last", din)
+	}
+
+	markRegistered(t, home, dir)
+	min, err := ForMetrics(home, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !min.Migrated || len(min.Trail) != 1 || len(min.Feedback) != 1 {
+		t.Fatalf("ForMetrics(DB only) = %+v, want Migrated=true, 1 trail, 1 feedback", min)
+	}
+
+	if _, err := Export(o); err != nil {
+		t.Fatal(err)
+	}
+	home2 := t.TempDir()
+	markRegistered(t, home2, dir)
+	min2, err := ForMetrics(home2, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !min2.Migrated || len(min2.Trail) != 1 || len(min2.Feedback) != 0 {
+		t.Fatalf("ForMetrics(trail fallback) = %+v, want Migrated=true, 1 trail, 0 feedback", min2)
+	}
+	if _, err := os.Lstat(Path(home2)); !os.IsNotExist(err) {
+		t.Fatalf("ForMetrics(trail fallback) created brain.db: %v", err)
+	}
+}

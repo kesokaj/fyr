@@ -117,26 +117,26 @@ func readDreamStore(home, scope string, since, now time.Time, in *DreamInput) (t
 		return nil, nil, false, err
 	}
 	defer st.close()
-	if in.Memory, err = st.records(`scope = ? AND kind = 'memory' AND status = 'closed'`, scope); err != nil {
+	if all, err = st.records(`scope = ?`, scope); err != nil {
 		return nil, nil, false, err
 	}
-	if trailRecs, err = st.records(`scope = ? AND kind IN ('bug', 'review', 'retro', 'change', 'handoff')`, scope); err != nil {
-		return nil, nil, false, err
+	for _, r := range all {
+		if r.Kind == "memory" && r.Status == "closed" {
+			in.Memory = append(in.Memory, r)
+		}
+		switch r.Kind {
+		case "bug", "review", "retro", "change", "handoff":
+			trailRecs = append(trailRecs, r)
+		}
+		if !unexported[r.Kind] {
+			hasDBExported = true
+		}
 	}
 	fb, err := st.records(`scope = '' AND kind = 'feedback' AND project = ?`, scope)
 	if err != nil {
 		return nil, nil, false, err
 	}
 	in.Feedback = recordsAfter(fb, since, now)
-	if all, err = st.records(`scope = ?`, scope); err != nil {
-		return nil, nil, false, err
-	}
-	for _, r := range all {
-		if !unexported[r.Kind] {
-			hasDBExported = true
-			break
-		}
-	}
 	return trailRecs, all, hasDBExported, nil
 }
 
@@ -147,15 +147,7 @@ func (st *store) records(q string, args ...any) ([]Record, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Record
-	for rows.Next() {
-		r, err := scanRecord(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
+	return scanRecordsRows(rows)
 }
 
 // MetricsInput is what the metrics join reads about one project.
@@ -163,6 +155,39 @@ type MetricsInput struct {
 	Migrated bool     // the checkout at root has records in brain.db or holds .agents/trail.jsonl
 	Trail    []Record // Migrated only: the scope's handoff, testing, review and bug records, every status
 	Feedback []Record // global feedback records about the main worktree root of root (root itself when gone)
+}
+
+type lazyBrainStore struct {
+	home   string
+	st     *store
+	err    error
+	opened bool
+}
+
+func (l *lazyBrainStore) open() (*store, error) {
+	if l.opened {
+		return l.st, l.err
+	}
+	l.opened = true
+	p := Path(l.home)
+	if p == "" {
+		return nil, nil
+	}
+	if _, err := os.Lstat(p); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		l.err = err
+		return nil, err
+	}
+	l.st, l.err = openStore(l.home)
+	return l.st, l.err
+}
+
+func (l *lazyBrainStore) close() {
+	if l.st != nil {
+		l.st.close()
+	}
 }
 
 // ForMetrics reads root's records for the metrics join (plan
@@ -177,33 +202,50 @@ type MetricsInput struct {
 // had trail records to miss.
 func ForMetrics(home, root string) (MetricsInput, error) {
 	var in MetricsInput
+	ls := &lazyBrainStore{home: home}
+	defer ls.close()
 	scope, top, rootErr := trail.Roots(root)
 	if rootErr == nil && trail.Registered(filepath.Join(home, harness.StateDir), root) {
-		ok, err := HasRecords(home, top)
-		in.Migrated = err == nil && ok
+		in.Migrated = metricsRootMigrated(top, scope, ls)
 	}
 	if in.Migrated {
 		var err error
-		if in.Trail, err = metricsTrail(home, scope, top); err != nil {
+		if in.Trail, err = metricsTrailWithStore(scope, top, ls); err != nil {
 			return in, err
 		}
 	}
-	if _, err := os.Lstat(Path(home)); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return in, nil
-		}
-		return in, err
-	}
-	st, err := openStore(home)
+	st, err := ls.open()
 	if err != nil {
 		return in, err
 	}
-	defer st.close()
+	if st == nil {
+		return in, nil
+	}
 	in.Feedback, err = st.records(`scope = '' AND kind = 'feedback' AND project = ?`, canonicalProject(root))
 	return in, err
 }
 
-func metricsTrail(home, scope, top string) ([]Record, error) {
+func metricsRootMigrated(top, scope string, ls *lazyBrainStore) bool {
+	if err := guardExportPath(top); err != nil {
+		return false
+	}
+	if fi, err := os.Lstat(trailPath(top)); err == nil {
+		return fi.Mode().IsRegular()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	if scope == "" {
+		return false
+	}
+	st, err := ls.open()
+	if err != nil || st == nil {
+		return false
+	}
+	ok, err := hasScopeRecordsDB(st.db, scope)
+	return err == nil && ok
+}
+
+func metricsTrailWithStore(scope, top string, ls *lazyBrainStore) ([]Record, error) {
 	if err := guardExportPath(top); err != nil {
 		return nil, err
 	}
@@ -211,17 +253,18 @@ func metricsTrail(home, scope, top string) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	hasDBExported, err := hasScopeDBRecords(home, scope)
+	st, err := ls.open()
 	if err != nil {
 		return nil, err
 	}
-	if hasDBExported {
-		st, err := openStore(home)
+	if st != nil {
+		hasDBExported, err := hasScopeRecordsDB(st.db, scope)
 		if err != nil {
 			return nil, err
 		}
-		defer st.close()
-		return st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope)
+		if hasDBExported {
+			return st.records(`scope = ? AND kind IN ('handoff', 'testing', 'review', 'bug')`, scope)
+		}
 	}
 	if !hasFile {
 		return nil, nil

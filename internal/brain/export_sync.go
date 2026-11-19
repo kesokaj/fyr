@@ -33,6 +33,18 @@ func scopeAndTop(root string) (scope, top string) {
 	return abs, abs
 }
 
+func hasScopeRecordsDB(db *sql.DB, scope string) (bool, error) {
+	var one int
+	err := db.QueryRow(`SELECT 1 FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL+` LIMIT 1`, scope).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func hasScopeDBRecords(home, scope string) (bool, error) {
 	if home == "" || scope == "" {
 		return false, nil
@@ -48,15 +60,7 @@ func hasScopeDBRecords(home, scope string) (bool, error) {
 	if ver < 1 {
 		return false, nil
 	}
-	var one int
-	err = st.db.QueryRow(`SELECT 1 FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL+` LIMIT 1`, scope).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return hasScopeRecordsDB(st.db, scope)
 }
 
 // HasRecords reports whether root has project trail records: either a regular
@@ -114,15 +118,8 @@ func readScopeDB(home, scope string) ([]Record, bool, error) {
 		return nil, false, err
 	}
 	defer rows.Close()
-	var recs []Record
-	for rows.Next() {
-		r, err := scanRecord(rows)
-		if err != nil {
-			return nil, false, err
-		}
-		recs = append(recs, r)
-	}
-	if err := rows.Err(); err != nil {
+	recs, err := scanRecordsRows(rows)
+	if err != nil {
 		return nil, false, err
 	}
 	if len(recs) == 0 {
@@ -193,7 +190,7 @@ func Export(o Options) (int, error) {
 	if o.Repo != "" {
 		return exportFromScope(o)
 	}
-	s, err := openSession(o, false)
+	s, err := openSession(o)
 	if err != nil {
 		return 0, err
 	}

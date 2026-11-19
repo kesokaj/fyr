@@ -185,7 +185,7 @@ func TestEveryUnexportedKindStaysOut(t *testing.T) {
 	dir, home := repo(t), t.TempDir()
 	o := opts(dir, home)
 	add(t, o, "bug", "visible", "visible")
-	s, err := openSession(o, true)
+	s, err := openSession(o)
 	if err != nil {
 		t.Fatal(err)
 	}

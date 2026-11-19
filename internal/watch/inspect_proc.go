@@ -116,8 +116,15 @@ func cmdMatchesTarget(cmdline, dir, convID string) bool {
 	if containsBoundedToken(cmdline, clean, isPathContChar) {
 		return true
 	}
-	norm := normalizePath(dir)
-	return norm != "" && norm != clean && containsBoundedToken(cmdline, norm, isPathContChar)
+	if abs, err := filepath.Abs(clean); err == nil && abs != clean && containsBoundedToken(cmdline, abs, isPathContChar) {
+		return true
+	}
+	real, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return false
+	}
+	real = filepath.Clean(real)
+	return real != clean && containsBoundedToken(cmdline, real, isPathContChar)
 }
 
 func containsBoundedToken(s, tok string, cont func(byte) bool) bool {

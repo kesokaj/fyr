@@ -25,23 +25,9 @@ func MemoryShow(o Options) (string, error) {
 // MemoryShowWithOptions returns the memory index formatted one line per card,
 // hiding cards with validity < 0.40 unless showOpts.IncludeLow is true.
 func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
-	s, err := memorySession(o)
+	mems, err := loadActiveMemories(o, showOpts)
 	if err != nil {
 		return "", err
-	}
-	defer s.close()
-	recs, feedbacks, err := loadShowMemories(s.st.db, s.scope)
-	if err != nil {
-		return "", err
-	}
-	now := o.now()
-	var mems []scoredMemory
-	for _, r := range recs {
-		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
-		if !showOpts.IncludeLow && val < MinActiveValidity {
-			continue
-		}
-		mems = append(mems, scoredMemory{rec: r, val: val})
 	}
 	sortScoredMemories(mems)
 	lines := make([]string, len(mems))
@@ -54,22 +40,13 @@ func MemoryShowWithOptions(o Options, showOpts MemoryShowOptions) (string, error
 // MemoryShowJSONWithOptions returns active memories (or all when IncludeLow is
 // true) as a JSON array.
 func MemoryShowJSONWithOptions(o Options, showOpts MemoryShowOptions) (string, error) {
-	s, err := memorySession(o)
+	mems, err := loadActiveMemories(o, showOpts)
 	if err != nil {
 		return "", err
 	}
-	defer s.close()
-	recs, feedbacks, err := loadShowMemories(s.st.db, s.scope)
-	if err != nil {
-		return "", err
-	}
-	now := o.now()
-	items := []MemorySummary{}
-	for _, r := range recs {
-		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
-		if !showOpts.IncludeLow && val < MinActiveValidity {
-			continue
-		}
+	items := make([]MemorySummary, 0, len(mems))
+	for _, m := range mems {
+		r := m.rec
 		prov := r.Provenance
 		if prov == "" {
 			prov = "unknown"
@@ -80,12 +57,34 @@ func MemoryShowJSONWithOptions(o Options, showOpts MemoryShowOptions) (string, e
 			Type:        search.Printable(resolveMemoryKind(r)),
 			Description: search.Printable(r.Title),
 			Provenance:  search.Printable(prov),
-			Validity:    val,
+			Validity:    m.val,
 			Global:      r.Scope == "",
 			Updated:     search.Printable(r.Updated),
 		})
 	}
 	return marshalIndentedJSON(items)
+}
+
+func loadActiveMemories(o Options, showOpts MemoryShowOptions) ([]scoredMemory, error) {
+	s, err := memorySession(o)
+	if err != nil {
+		return nil, err
+	}
+	defer s.close()
+	recs, feedbacks, err := loadShowMemories(s.st.db, s.scope)
+	if err != nil {
+		return nil, err
+	}
+	now := o.now()
+	var mems []scoredMemory
+	for _, r := range recs {
+		val := ComputeMemoryValidity(s.top, r, CountMemoryContradictions(r, feedbacks), now)
+		if !showOpts.IncludeLow && val < MinActiveValidity {
+			continue
+		}
+		mems = append(mems, scoredMemory{rec: r, val: val})
+	}
+	return mems, nil
 }
 
 func formatMemoryShowLine(r Record, val float64) string {
@@ -146,15 +145,8 @@ func loadShowMemories(db *sql.DB, scope string) ([]Record, []Record, error) {
 		return nil, nil, err
 	}
 	defer rows.Close()
-	var recs []Record
-	for rows.Next() {
-		r, err := scanRecord(rows)
-		if err != nil {
-			return nil, nil, err
-		}
-		recs = append(recs, r)
-	}
-	if err := rows.Err(); err != nil {
+	recs, err := scanRecordsRows(rows)
+	if err != nil {
 		return nil, nil, err
 	}
 	feedbacks, err := queryFeedbacksDB(db, scope)

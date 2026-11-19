@@ -369,3 +369,66 @@ func TestReadScopeDoesNotMigrateSchema2Store(t *testing.T) {
 		t.Fatalf("user_version after read-only helpers = %d (%v), want 2", ver, err)
 	}
 }
+
+func TestScopeAndTop(t *testing.T) {
+	mainRepo := repo(t)
+	realMain, err := filepath.EvalSymlinks(mainRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(mainRepo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sc, top := scopeAndTop(sub)
+	if sc != realMain || top != realMain {
+		t.Fatalf("scopeAndTop(%q) = (%q, %q), want (%q, %q)", sub, sc, top, realMain, realMain)
+	}
+
+	git(t, mainRepo, "commit", "--allow-empty", "-qm", "init")
+	wt := filepath.Join(t.TempDir(), "wt")
+	git(t, mainRepo, "worktree", "add", "-b", "wt-scope", wt, "HEAD")
+	realWT, err := filepath.EvalSymlinks(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, top = scopeAndTop(wt)
+	if sc != realMain || top != realWT || sc == top {
+		t.Fatalf("scopeAndTop(worktree) = (%q, %q), want (%q, %q)", sc, top, realMain, realWT)
+	}
+
+	plain := t.TempDir()
+	sc, top = scopeAndTop(plain)
+	if sc != plain || top != plain {
+		t.Fatalf("scopeAndTop(non-git) = (%q, %q), want (%q, %q)", sc, top, plain, plain)
+	}
+}
+
+func TestExportFromScope(t *testing.T) {
+	home := t.TempDir()
+	src, dest := repo(t), repo(t)
+	add(t, opts(src, home), "bug", "scoped bug", "body from src")
+
+	n, err := Export(Options{Home: home, Dir: dest, Repo: src})
+	if err != nil || n != 1 {
+		t.Fatalf("Export(Repo) = (%d, %v), want (1, nil)", n, err)
+	}
+	if text := trailText(t, dest); !strings.Contains(text, "scoped bug") {
+		t.Fatalf("exported trail missing src record:\n%s", text)
+	}
+
+	if _, err := Export(Options{Home: home, Dir: dest, Repo: t.TempDir()}); err == nil {
+		t.Error("Export(Repo=non-git) succeeded, want error")
+	}
+	if _, err := Export(Options{Home: home, Dir: t.TempDir(), Repo: src}); err == nil {
+		t.Error("Export(Dir=non-git) succeeded, want error")
+	}
+
+	symDest := repo(t)
+	if err := os.Symlink(t.TempDir(), filepath.Join(symDest, ".agents")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Export(Options{Home: home, Dir: symDest, Repo: src}); !IsRefusal(err) {
+		t.Errorf("Export(symlink .agents) err = %v, want refusal", err)
+	}
+}

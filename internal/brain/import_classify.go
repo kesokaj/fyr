@@ -159,8 +159,7 @@ func classifyFile(f docFile, ix bugIndex, today string) (cs []candidate, left bo
 	case f.rel == "bugs/INDEX.md":
 		return nil, false, nil
 	case f.rel == "architecture/DECISIONS.md":
-		adrs, err := splitADRs(body, f.path, today)
-		return adrs, false, err
+		return splitADRs(body, f.path, today), false, nil
 	case bugFile.MatchString(f.rel):
 		c, title, body = bugCandidate(f.rel, meta, title, body, ix)
 	case guides[f.rel] != "":
@@ -258,7 +257,7 @@ func oneLine(s string) string {
 
 // splitADRs makes one record per "## ADR-NNN: Title (date) — Status"
 // section of DECISIONS.md; the preamble before the first is dropped.
-func splitADRs(body, path, today string) ([]candidate, error) {
+func splitADRs(body, path, today string) []candidate {
 	locs := adrHead.FindAllStringSubmatchIndex(body, -1)
 	var out []candidate
 	for i, loc := range locs {
@@ -286,5 +285,5 @@ func splitADRs(body, path, today string) ([]candidate, error) {
 			path: path, rel: "architecture/DECISIONS.md", root: true,
 		})
 	}
-	return out, nil
+	return out
 }

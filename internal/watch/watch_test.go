@@ -530,3 +530,39 @@ func TestWatchSessionMetaWindowAndBudgets(t *testing.T) {
 		t.Fatalf("stale search.db without summaries should be skipped, got rep=%+v err=%v", repNoSum, err)
 	}
 }
+
+func TestWatchWorkspaceMatchesSymlinkedDir(t *testing.T) {
+	base := t.TempDir()
+	realRepo := filepath.Join(base, "repo")
+	realSub := filepath.Join(realRepo, "sub", "nested")
+	sibling := filepath.Join(base, "repo-other")
+	linkRepo := filepath.Join(base, "link-repo")
+	for _, d := range []string{realSub, sibling} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(realRepo, linkRepo); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		uris string
+		dir  string
+		want bool
+	}{
+		{`["file://` + realRepo + `"]`, linkRepo, true},
+		{`["file://` + realSub + `"]`, linkRepo, true},
+		{`["file://` + filepath.Join(linkRepo, "sub") + `"]`, realRepo, true},
+		{`["file://` + sibling + `"]`, linkRepo, false},
+		{`["file://` + sibling + `"]`, realRepo, false},
+	}
+	for _, tc := range cases {
+		if got := workspaceMatchesDir(tc.uris, tc.dir); got != tc.want {
+			t.Errorf("workspaceMatchesDir(%s, %q) = %v, want %v", tc.uris, tc.dir, got, tc.want)
+		}
+	}
+	if !cmdMatchesTarget("bash "+filepath.Join(realRepo, "sub"), linkRepo, "") {
+		t.Errorf("cmdMatchesTarget did not resolve symlinked dir %q", linkRepo)
+	}
+}
