@@ -66,5 +66,4 @@ paper's own faces.
 - The anti-pattern list and the "spend boldness in one place" discipline follow Anthropic's
   `frontend-design` skill; the chart mark rules, the four colour jobs and the six palette checks follow its
   `dataviz` skill (whose validator agrees with `check_theme.js` to the decimal on the palettes here).
-- The simulator the screenshots come from is `../assets/theme-simulator.html`; it is also published as a
-  claude.ai artifact ("Theme Simulator") so the themes can be browsed without running anything.
+- The simulator the screenshots come from is `../assets/theme-simulator.html` ("Theme Simulator"), a self-contained HTML file that can be opened in a browser without running anything.

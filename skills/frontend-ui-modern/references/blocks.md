@@ -1,6 +1,6 @@
 # Blocks: catalog and page recipes
 
-Blocks are full pages (`registry:page` + components) installed with `npx shadcn@latest add <name>`; the CLI pulls the
+Blocks are full pages (`registry:page` + components) installed with `npx shadcn@4.23.0 add <name>`; the CLI pulls the
 variant matching your `components.json` base (Base UI uses `render`, Radix `asChild`). Browse: https://ui.shadcn.com/blocks
 (tabs Featured / Sidebar / Login / Signup; featured = dashboard-01, sidebar-07, sidebar-03, login-03, login-04).
 Pages land at `app/dashboard/page.tsx`, `app/login/page.tsx`, `app/signup/page.tsx` (rewritten per framework:
@@ -51,7 +51,7 @@ Chart examples (`chart-*`, 70 of them) are `registry:block` items too; see chart
 | Settings page | `sidebar-13` (dialog) or Tabs + Cards + `field` | Sections as Cards; `FieldGroup` per section; danger zone as the last card |
 | Auth | `login-04` + `signup-04` (image) or `login-01` + `signup-01` (minimal); `input-otp` for codes | Wire the form library from `/docs/forms`; add `Alert` for auth errors |
 | Data-heavy list | `table` + data-table pattern (TanStack) from `dashboard-01`'s `data-table.tsx` | Column visibility via `DropdownMenu`, row actions via `DropdownMenu`, bulk via `Checkbox`, pagination via `Pagination` |
-| Marketing/landing sections | not in @shadcn — search community registries (`npx shadcn@latest search @tailark -q hero`) and ask the operator which registry to use | Review imports/icons after install |
+| Marketing/landing sections | not in @shadcn — search community registries (`npx shadcn@4.23.0 search @tailark -q hero`) and ask the operator which registry to use | Review imports/icons after install |
 | Chat / agent product | `message-scroller message bubble attachment marker trace code-block` + AI Elements patterns | Follow `/docs/ai-elements/<base>/chat.md` |
 | Command palette | `command` + `dialog` | ⌘K shortcut; `Kbd` hints |
 | Docs/content pages | Typeset (`/typeset`) + `typography` | `.typeset .typeset-docs` wrapper around rendered markdown |

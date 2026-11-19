@@ -95,9 +95,9 @@ work="$repo/.agents/scratch/catalog-refresh"
 excludes=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dest) dest=$2; shift 2 ;;
-    --work) work=$2; shift 2 ;;
-    --exclude) excludes="$excludes"$'\n'"$2"; shift 2 ;;
+    --dest) [ $# -ge 2 ] || { usage; exit 2; }; dest=$2; shift 2 ;;
+    --work) [ $# -ge 2 ] || { usage; exit 2; }; work=$2; shift 2 ;;
+    --exclude) [ $# -ge 2 ] || { usage; exit 2; }; excludes="$excludes"$'\n'"$2"; shift 2 ;;
     --) shift; break ;;
     -*) usage; exit 2 ;;
     *) break ;;

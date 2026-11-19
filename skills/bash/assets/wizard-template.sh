@@ -188,19 +188,30 @@ write_env() {
 set_gcp_secret() {
   local name="$1" value="$2" project="${3:-${GCP_PROJECT_ID:-}}"
   local -a proj_args=()
+  local desc_err="" create_err="" add_err="" reason=""
   [[ -n "$project" ]] && proj_args=(--project "$project")
-  if command -v gcloud >/dev/null 2>&1; then
-    if ! gcloud secrets describe "$name" "${proj_args[@]}" >/dev/null 2>&1; then
-      gcloud secrets create "$name" --replication-policy="automatic" "${proj_args[@]}" >/dev/null 2>&1 || true
-    fi
-    if printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- "${proj_args[@]}" >/dev/null 2>&1; then
-      WRITTEN_SECRET+=("gcp:$name")
-      printf '  %s✓ set%s GCP Secret Manager %s\n' "$GREEN" "$RESET" "$name"
-      return
+  if ! command -v gcloud >/dev/null 2>&1; then
+    SKIPPED+=("GCP secret $name (run: printf '%s' '<value>' | gcloud secrets versions add $name --data-file=-)")
+    warn "skipped GCP secret $name: gcloud not installed; set it later"
+    return 0
+  fi
+  if ! desc_err=$(gcloud secrets describe "$name" "${proj_args[@]}" 2>&1 >/dev/null); then
+    if [[ "$desc_err" == *NOT_FOUND* || "$desc_err" == *"not found"* ]]; then
+      create_err=$(gcloud secrets create "$name" --replication-policy="automatic" "${proj_args[@]}" 2>&1 >/dev/null) || reason="create failed (${create_err%%$'\n'*})"
+    else
+      reason="describe failed (${desc_err%%$'\n'*})"
     fi
   fi
+  if [[ -z "$reason" ]] || [[ "$reason" == "describe failed"* ]]; then
+    if add_err=$(printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- "${proj_args[@]}" 2>&1 >/dev/null); then
+      WRITTEN_SECRET+=("gcp:$name")
+      printf '  %s✓ set%s GCP Secret Manager %s\n' "$GREEN" "$RESET" "$name"
+      return 0
+    fi
+    [[ -z "$reason" ]] && reason="versions add failed (${add_err%%$'\n'*})"
+  fi
   SKIPPED+=("GCP secret $name (run: printf '%s' '<value>' | gcloud secrets versions add $name --data-file=-)")
-  warn "skipped GCP secret $name: gcloud not ready or project unset; set it later"
+  warn "skipped GCP secret $name: ${reason:-unknown error}; set it later"
 }
 
 # set_secret NAME VALUE sets a GitHub repo secret via gh stdin.

@@ -94,7 +94,7 @@ and a check that the Docker base images are current (`golang:<major.minor>` trac
 patch; the distroless digest is bumped deliberately, `docker` skill rule 1). A finding that
 touches a shipped artifact is a `bug` with a PATCH release; one that touches only a dev
 dependency is ordinary work. Record the date and the result in the `change` record of the
-release or in a dated `testing/` log.
+release or in a `testing` record (`GUIDE-testing`).
 
 ## Cost knobs
 

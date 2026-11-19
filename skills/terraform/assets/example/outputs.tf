@@ -1,5 +1,5 @@
 output "service_uri" {
-  description = "The Cloud Run service URL; the smoke check in deploy/gcp.md hits <uri>/healthz"
+  description = "The Cloud Run service URL; the smoke check in DEPLOY-gcp hits <uri>/healthz"
   value       = google_cloud_run_v2_service.app.uri
 }
 

@@ -54,7 +54,7 @@ gcloud sql databases create app --instance "${APP}-db"
    `pgxpool` over it: `golang/references/service.md` § Database. No connector library, no
    certificates, encrypted by the platform. ONE Postgres role on this path: `app` owns the
    schema and runs the migrations, so it has DDL at runtime — the trade-off of the simplest
-   path, stated in `deploy/gcp.md`; the role split is path 2. Creating the role and its
+   path, stated in `DEPLOY-gcp`; the role split is path 2. Creating the role and its
    secret without the password ever touching an argument list, a transcript or source — two
    operator steps, since both prompt:
    ```bash

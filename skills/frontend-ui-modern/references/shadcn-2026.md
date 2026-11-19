@@ -30,7 +30,7 @@ Contents: [Model](#model) · [CLI](#cli) · [components.json](#componentsjson) �
 - **Menu accent** `subtle|bold` (bold: accent = primary) · **Menu color** `default|inverted|default-translucent|inverted-translucent`.
 - **Registry**: items resolve from `https://ui.shadcn.com/r/styles/{style}/{name}.json`; namespaced registries `@acme/button`;
   GitHub registries `owner/repo/item` (private via `gh auth login`/`GH_TOKEN`); `registry:base` ships a whole design system;
-  `registry:font` items; MCP server (`npx shadcn@latest mcp init --client claude`).
+  `registry:font` items; MCP server (`npx shadcn@4.23.0 mcp init --client <client>`).
 - **Packages**: `shadcn` (devDependency; provides `shadcn/tailwind.css` with `data-open:`/`data-closed:` variants, accordion
   keyframes, `no-scrollbar`, `scroll-fade`, `shimmer`), `cn` (replaces clsx + tailwind-merge; `lib/utils.ts` is `export { cn } from "cn"`),
   `class-variance-authority`, `tw-animate-css`, `@shadcn/react` (headless MessageScroller, Questionnaire), `@shadcn/helpers` (AI SDK / TanStack AI mock transports).
@@ -39,20 +39,20 @@ Contents: [Model](#model) · [CLI](#cli) · [components.json](#componentsjson) �
 ## CLI (shadcn 4.23)
 
 ```bash
-npx shadcn@latest init [components...]   # or: create (alias). Interactive unless flags given.
+npx shadcn@4.23.0 init [components...]   # or: create (alias). Interactive unless flags given.
   -t, --template <next|vite|start|react-router|laravel|astro>   -b, --base <base|radix|aria>
   -p, --preset [name|code|url]   -d, --defaults (= --template next --preset base-nova)   -n, --name <dir>
   --monorepo/--no-monorepo  --rtl/--no-rtl  --pointer/--no-pointer  --css-variables/--no-css-variables
   -f, --force  --reinstall/--no-reinstall  -y (default true)  -c <cwd>  -s
-npx shadcn@latest add <names|@ns/item|owner/repo/item|url|./file.json> [-y] [-o] [-a] [-p path] [--dry-run] [--diff [file]] [--view [file]]
-npx shadcn@latest apply <code> [--only theme,font]      # apply a preset to an existing project (keeps base + rtl)
-npx shadcn@latest preset decode|resolve|info|url|open     # inspect/share preset codes
-npx shadcn@latest view <items...>  |  search|list <@registry|owner/repo> [-q query] [-t ui,block,hook] [--json]
-npx shadcn@latest docs <component...> [-b base] [--json]  # URLs for docs, examples, API
-npx shadcn@latest info [--json]                            # framework, style, base, aliases, installed components, preset
-npx shadcn@latest migrate <cn|icons|base-color|radix|rtl> [path] [--from a --to b] [-y]
-npx shadcn@latest build [registry.json] [-o public/r]  |  registry validate|add|build  |  eject (inline shadcn/tailwind.css)
-npx shadcn@latest mcp  |  mcp init --client <claude|cursor|vscode|codex|opencode>
+npx shadcn@4.23.0 add <names|@ns/item|owner/repo/item|url|./file.json> [-y] [-o] [-a] [-p path] [--dry-run] [--diff [file]] [--view [file]]
+npx shadcn@4.23.0 apply <code> [--only theme,font]      # apply a preset to an existing project (keeps base + rtl)
+npx shadcn@4.23.0 preset decode|resolve|info|url|open     # inspect/share preset codes
+npx shadcn@4.23.0 view <items...>  |  search|list <@registry|owner/repo> [-q query] [-t ui,block,hook] [--json]
+npx shadcn@4.23.0 docs <component...> [-b base] [--json]  # URLs for docs, examples, API
+npx shadcn@4.23.0 info [--json]                            # framework, style, base, aliases, installed components, preset
+npx shadcn@4.23.0 migrate <cn|icons|base-color|radix|rtl> [path] [--from a --to b] [-y]
+npx shadcn@4.23.0 build [registry.json] [-o public/r]  |  registry validate|add|build  |  eject (inline shadcn/tailwind.css)
+npx shadcn@4.23.0 mcp  |  mcp init --client <claude|cursor|vscode|codex|opencode>
 ```
 
 Use the project's runner (`npx`, `pnpm dlx`, `bunx --bun`). Scaffolded templates (next, vite, start, react-router, astro;
@@ -247,7 +247,7 @@ use `[data-theme]`-scoped CSS (`node scripts/theme.mjs css <id> --scope data-the
 
 | Stack | Scaffold | Alias | Notes |
 | --- | --- | --- | --- |
-| Next.js (App Router) | `npx shadcn@latest init -t next` or `create-next-app` + `init` | `@/` | `rsc: true`; CLI adds `"use client"`; charts/sidebar are client components |
+| Next.js (App Router) | `npx shadcn@4.23.0 init -t next` or `create-next-app` + `init` | `@/` | `rsc: true`; CLI adds `"use client"`; charts/sidebar are client components |
 | Vite + React | `init -t vite` or `npm create vite` + `@tailwindcss/vite` + paths in `tsconfig.json` **and** `tsconfig.app.json` | `@/` | `rsc: false` |
 | TanStack Start | `init -t start` (or `@tanstack/cli create` without the shadcn add-on) | `@/` | routes in `src/routes` |
 | React Router v7 | `init -t react-router` (`npm create react-router` has Tailwind + `~/*`) | `~/` | Remix page kept separately |

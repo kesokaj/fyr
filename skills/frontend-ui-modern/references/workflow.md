@@ -8,7 +8,7 @@ a new app gets 2–3 full directions; "add a settings page" gets one screen in t
 ## Phase 0 — Discover (5 minutes, no questions the simulation can answer better)
 
 1. Project facts, in this order of preference:
-   - `npx shadcn@latest info --json` (needs `components.json`): framework, tailwind version, `style` (e.g. `base-nova`),
+   - `npx shadcn@4.23.0 info --json` (needs `components.json`): framework, tailwind version, `style` (e.g. `base-nova`),
      `base` (`base` | `radix` | `aria`), `iconLibrary`, `aliases`, installed components, `tailwindCssFile`, `preset`.
    - No `components.json`? Note the stack (Next.js / Vite / TanStack Start / React Router / Astro / Laravel), package
      manager, whether Tailwind v4 is present, and whether there is an existing design language to respect.
@@ -49,8 +49,7 @@ clickable. Rewrite views/shells into the project's screens:
 - Pre-select the recommended shell/view/theme/style by setting the `<html>` attributes or by linking with
   `?dir=A&view=overview&theme=catppuccin&dark=1&style=nova&radius=default`.
 
-Show it in whatever way the environment supports: open the file (Claude Code: `open ui-sim/index.html` / `xdg-open`),
-publish it as an HTML artifact (claude.ai), or capture it with
+Show it in whatever way the environment supports: open `ui-sim/index.html` locally (`open ui-sim/index.html` / `xdg-open`), or capture it with
 `node <skill>/scripts/mockup.mjs ui-sim/index.html --themes a,b --views overview,customers,settings-general --states normal,empty --overlays none,dialog --modes light,dark --widths 1280,390 --full`
 and send the PNGs. Capture every view the operator will decide on; the home screen alone hides most layout decisions (tables, forms, overlays, empty states).
 
@@ -75,18 +74,18 @@ the operator changes their mind, don't keep the history in chat.
 Order of operations (each step is verifiable before the next):
 
 1. **Init or align the project.**
-   - New: `npx shadcn@latest init --template <next|vite|start|react-router|astro|laravel> --preset <style> --base <base|radix|aria> --name <app> --no-monorepo -y`
+   - New: `npx shadcn@4.23.0 init --template <next|vite|start|react-router|astro|laravel> --preset <style> --base <base|radix|aria> --name <app> --no-monorepo -y`
      (preset code from shadcn/create if the operator has one: `--preset <code>`). `init` with neither `--preset` nor
      `--base` stops at an interactive prompt even with `-y`.
    - Existing: respect `components.json`. Switch style/preset only if the decision says so
-     (`npx shadcn@latest apply <code>`, or `init --preset <style> --force --no-reinstall` + per-component `--diff`).
+     (`npx shadcn@4.23.0 apply <code>`, or `init --preset <style> --force --no-reinstall` + per-component `--diff`).
    - Dark mode: the Next.js/Vite templates ship a ThemeProvider; otherwise follow `references/shadcn-2026.md#dark-mode`.
 2. **Apply the theme tokens.** Copy the chosen `:root` + `.dark` pair from `references/themes/<family>.css`
    (or `node <skill>/scripts/theme.mjs css <id> --extras`) into `tailwindCssFile`, replacing the generated `:root`/`.dark`
    blocks. Keep `@theme inline` as generated; add the `--color-success/-warning/-info` lines if extras are used.
    Multi-theme apps (user-switchable): use `--scope data-theme` output and set `data-theme` on `<html>` next to the
    `dark` class.
-3. **Install blocks/components** named in DECISION.md: `npx shadcn@latest add sidebar-07 dashboard-01 login-04 chart-area-interactive ...`.
+3. **Install blocks/components** named in DECISION.md: `npx shadcn@4.23.0 add sidebar-07 dashboard-01 login-04 chart-area-interactive ...`.
    Then read every added file: fix imports to the project's aliases, swap icon imports to the project's `iconLibrary`,
    and check composition against `references/components.md#code-rules`.
 4. **Compose the screens** from the blocks: replace demo nav/data with the real ones, wire data, add the states

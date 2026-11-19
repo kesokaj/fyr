@@ -1,5 +1,5 @@
 variable "project" {
-  description = "GCP project ID (deploy/gcp.md § Recorded defaults)"
+  description = "GCP project ID (DEPLOY-gcp)"
   type        = string
 }
 

@@ -74,9 +74,9 @@ Run each bare and read its exit status (the global rule: never inside a chain th
 3. `terraform plan -detailed-exitcode -out=.agents/scratch/tfplan` — 0 nothing to do, 1 error, 2 a diff to read
 4. `tflint --init && tflint` with the google ruleset
 5. `trivy config --exit-code 1 .` (without `--exit-code 1` trivy exits 0 whatever it finds, and the status read below means nothing)
-6. `terraform apply .agents/scratch/tfplan`, then the project's smoke check from `deploy/gcp.md`
+6. `terraform apply .agents/scratch/tfplan`, then the project's smoke check from `DEPLOY-gcp`
 
-The results go into the project's `testing/` log as the Definition of Done asks; a `plan` that exits 2 is read in full before the apply, and a diff the plan did not predict stops the run.
+The results go into a `change` or `testing` record (`GUIDE-testing`) as the Definition of Done asks; a `plan` that exits 2 is read in full before the apply, and a diff the plan did not predict stops the run.
 
 ## Auth
 

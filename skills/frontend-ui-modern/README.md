@@ -2,13 +2,10 @@
 
 Install (any of these):
 
-- **Project skill (Claude Code)**: copy this folder to `<repo>/.claude/skills/frontend-ui-modern/`.
-- **Personal skill (Claude Code, all projects)**: copy it to `~/.claude/skills/frontend-ui-modern/`.
-- **claude.ai**: save the `.skill` package (or the SKILL.md proposal card) from the chat.
+- **Harness install**: keep this folder in `skills/frontend-ui-modern/` and run `fyr install` (Antigravity CLI loads skills from `~/.gemini/config/skills/` or project `.agents/skills/`).
 
 Requirements: Node 18+ for the scripts; Playwright with Chromium for `scripts/mockup.mjs`
-(`npm i -D playwright && npx playwright install chromium`; already present in Claude's cloud workspace).
-Pair it with shadcn's own agent skill in the project: `npx skills add shadcn/ui`.
+(`npm i -D playwright && npx playwright install chromium`).
 
 Quick tour:
 

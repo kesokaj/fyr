@@ -3,7 +3,7 @@
 Contents: [API](#api) · [Colors](#colors) · [Examples](#examples) · [Catalog](#catalog-70-installable-examples) ·
 [Gotchas](#gotchas) · [Data-viz rules](#data-viz-rules)
 
-`npx shadcn@latest add chart` → `components/ui/chart.tsx` (+ `recharts@3.8.0`, depends on `card`). shadcn does not wrap
+`npx shadcn@4.23.0 add chart` → `components/ui/chart.tsx` (+ `recharts@3.8.0`, depends on `card`). shadcn does not wrap
 Recharts: you compose Recharts components and add `ChartContainer`, `ChartTooltip(Content)`, `ChartLegend(Content)` where needed.
 Browse: https://ui.shadcn.com/charts/{area,bar,line,pie,radar,radial,tooltip}. Docs: https://ui.shadcn.com/docs/components/chart.
 
@@ -110,7 +110,7 @@ export function ChartAreaGradient() {
 `ChartTooltipContent labelFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })} indicator="dot"`.
 Base UI variant: `<ToggleGroup multiple={false} value={timeRange ? [timeRange] : []} onValueChange={(v) => setTimeRange(v[0] ?? "90d")}>`
 and `<Select onValueChange={(v) => { if (v !== null) setTimeRange(v) }}>`. Install the standalone version with
-`npx shadcn@latest add chart-area-interactive` (adds a legend, uses `--chart-1/2`).
+`npx shadcn@4.23.0 add chart-area-interactive` (adds a legend, uses `--chart-1/2`).
 
 **Bar (first chart in the docs)**: `BarChart accessibilityLayer data` > `CartesianGrid vertical={false}` + `XAxis` + `ChartTooltip` + `ChartLegend content={<ChartLegendContent />}` +
 `<Bar dataKey="desktop" fill="var(--color-desktop)" radius={4} />`. **Pie/donut**: `Pie data dataKey="visitors" nameKey="browser" innerRadius={60}` with per-row `fill`;
@@ -118,7 +118,7 @@ center text via `Label content={({ viewBox }) => …}`. **Radial**: `RadialBarCh
 
 ## Catalog (70 installable examples)
 
-`npx shadcn@latest add <id>` → `components/<id>.tsx` (deps `card`, `chart`; `chart-area-interactive` also `select`).
+`npx shadcn@4.23.0 add <id>` → `components/<id>.tsx` (deps `card`, `chart`; `chart-area-interactive` also `select`).
 
 - **area**: chart-area-interactive · chart-area-default · chart-area-linear · chart-area-step · chart-area-legend · chart-area-stacked · chart-area-stacked-expand · chart-area-icons · chart-area-gradient · chart-area-axes
 - **bar**: chart-bar-interactive · chart-bar-default · chart-bar-horizontal · chart-bar-multiple · chart-bar-stacked · chart-bar-label · chart-bar-label-custom · chart-bar-mixed · chart-bar-active · chart-bar-negative

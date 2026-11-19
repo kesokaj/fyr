@@ -1,6 +1,6 @@
 # GCP resources — the standard app in HCL
 
-Every block below is the minimal form from the `hashicorp/google` provider documentation (the `website/docs/r/<name>.html.markdown` pages, https://registry.terraform.io/providers/hashicorp/google/latest/docs), checked against provider 8.x on 2026-09-30. `var.project`, `var.region`, `var.app`, `var.repo` and `var.git_sha` are the values the project's `deploy/gcp.md` records; `var.db_url` is `sensitive = true` and `ephemeral = true` (write-only values must not reach the plan file).
+Every block below is the minimal form from the `hashicorp/google` provider documentation (the `website/docs/r/<name>.html.markdown` pages, https://registry.terraform.io/providers/hashicorp/google/latest/docs), checked against provider 8.x on 2026-09-30. `var.project`, `var.region`, `var.app`, `var.repo` and `var.git_sha` are the values the project's `DEPLOY-gcp` records; `var.db_url` is `sensitive = true` and `ephemeral = true` (write-only values must not reach the plan file).
 
 ## versions.tf and the GCS backend
 
@@ -248,12 +248,12 @@ resource "google_cloud_run_v2_service" "app" {
 # constraints/run.managed.requireInvokerIam is enforced): a top-level argument on the service.
 #   invoker_iam_disabled = true
 
-# IAM-gated, the default (deploy/gcp.md says Public: no): one `google_cloud_run_v2_service_iam_member`
+# IAM-gated, the default (DEPLOY-gcp says Public: no): one `google_cloud_run_v2_service_iam_member`
 # per caller with role = "roles/run.invoker" — the scheduler's is `scheduler_invokes` under § Job and
 # Scheduler below; a second caller gets its own block with its own member.
 
 # Public, the IAM form (blocked where constraints/iam.allowedPolicyMemberDomains is enforced):
-# the same resource with member = "allUsers" — only when deploy/gcp.md says Public: yes, and then
+# the same resource with member = "allUsers" — only when DEPLOY-gcp says Public: yes, and then
 # every route the scheduler calls (/tick below) verifies the OIDC token itself — signature, audience, the issuer
 # (accounts.google.com), AND that `email` is the scheduler SA and `email_verified` is true (idtoken.Validate alone
 # accepts any SA's token for this URL and never compares the issuer).

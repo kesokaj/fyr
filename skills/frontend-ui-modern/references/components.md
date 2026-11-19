@@ -3,8 +3,8 @@
 Contents: [Catalog](#catalog) · [Selection table](#selection-table) · [Composition trees](#composition-trees) ·
 [Base UI vs Radix vs Aria](#base-ui-vs-radix-vs-aria) · [Code rules](#code-rules) · [States](#states)
 
-Install: `npx shadcn@latest add <name> [<name>...]`. Docs per base: `https://ui.shadcn.com/docs/components/<base|radix|aria>/<name>`
-(`npx shadcn@latest docs <name>` prints docs/examples/API URLs). Every page has a Composition tree; every page is also
+Install: `npx shadcn@4.23.0 add <name> [<name>...]`. Docs per base: `https://ui.shadcn.com/docs/components/<base|radix|aria>/<name>`
+(`npx shadcn@4.23.0 docs <name>` prints docs/examples/API URLs). Every page has a Composition tree; every page is also
 available as Markdown by appending `.md`.
 
 ## Catalog (65 registry:ui items, Oct 2026)
@@ -102,7 +102,7 @@ state persisted in the `sidebar_state` cookie (read it server-side and pass `def
 
 ## Base UI vs Radix vs Aria
 
-Check `base` from `npx shadcn@latest info` before writing JSX.
+Check `base` from `npx shadcn@4.23.0 info` before writing JSX.
 
 | Topic | Base UI (`base`, default) | Radix (`radix`) |
 | --- | --- | --- |
@@ -137,7 +137,7 @@ NavigationMenuLink, BreadcrumbLink, SidebarMenuButton, Badge, Item. Blocks insta
 - **Loading button**: compose `Spinner` + `disabled` (`Button` has no `isLoading`).
 - **`cn()`** for conditional classes (`import { cn } from "@/lib/utils"`).
 - **Client boundaries** (`rsc: true`): anything with state, effects, handlers, Recharts, or the sidebar needs `"use client"`; pages stay server components.
-- **Existing first**: search registries (`npx shadcn@latest search @shadcn -q "…"`) before custom markup; `Alert` for callouts, `Empty` for empty states,
+- **Existing first**: search registries (`npx shadcn@4.23.0 search @shadcn -q "…"`) before custom markup; `Alert` for callouts, `Empty` for empty states,
   `Separator` not `<hr>`, `Skeleton` not `animate-pulse` divs, `Badge` not styled spans.
 - **Third-party registry items**: read every added file; fix alias paths and icon imports; verify composition.
 

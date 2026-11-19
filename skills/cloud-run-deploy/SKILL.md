@@ -28,8 +28,8 @@ Registry only when explicitly requested. Every flag below was checked against
    project ID, region, Artifact Registry repo, service name, the service account it
    runs as, visibility, and the rollout and network rows (§ What `DEPLOY-gcp`
    records). If it is missing or empty, ask the user for the six defaults and write
-   them there before anything else. Never guess a project; `gcloud config get project` and `deploy/gcp.md` are
-   cross-checks, not sources.
+   them there before anything else. Never guess a project; `gcloud config get project` is a
+   cross-check, not a source.
 2. **Auth:** if any gcloud/docker-push command fails with a credential error, stop and
    apply the `gcloud-setup` skill.
 3. **Colima (macOS only):** `colima status || colima start`; on Linux the native daemon is
@@ -94,7 +94,7 @@ Flags — apply deliberately, not by default; a project-specific flag and its re
 
 | Flag | Use |
 |---|---|
-| `--allow-unauthenticated` | Public services only (`deploy/gcp.md` Public: yes). When the service is in Terraform, Terraform owns this setting and this flag is never passed (the `terraform` skill, item 6): the `allUsers` binding it writes outlives a later `public = false`. Omit for internal services: IAM-gated is the default, and `--ingress` does not replace it ("the `--[no-]allow-unauthenticated` flag separately controls the identities allowed to call the service"). |
+| `--allow-unauthenticated` | Public services only (`DEPLOY-gcp` Public: yes). When the service is in Terraform, Terraform owns this setting and this flag is never passed (the `terraform` skill, item 6): the `allUsers` binding it writes outlives a later `public = false`. Omit for internal services: IAM-gated is the default, and `--ingress` does not replace it ("the `--[no-]allow-unauthenticated` flag separately controls the identities allowed to call the service"). |
 | `--iap` | Identity-Aware Proxy on the service itself (GA, no load balancer): the login page for an internal tool. Users get `roles/iap.httpsResourceAccessor`; the IAP service agent needs `roles/run.invoker`. `roles/iap.httpsResourceAccessor` is granted on the service, never the project. The app still validates `x-goog-iap-jwt-assertion` with `google.golang.org/api/idtoken` — `idtoken.Validate` against a NON-EMPTY audience `/projects/N/locations/R/services/S` (the library skips the `aud` check when the audience is empty, so startup fails on an empty configured audience) plus an explicit issuer check for `https://cloud.google.com/iap`, since `Validate` does not check `iss` — never a hand-rolled JWT check (the `api-auth-gcp` skill). |
 | `--ingress all\|internal\|internal-and-cloud-load-balancing` | Default `all`. `internal` admits VPC and internal Google sources only; it does not bypass IAM. |
 | `--startup-probe httpGet.path=/healthz` | The default probe for every service; keys `initialDelaySeconds`, `timeoutSeconds`, `periodSeconds`, `failureThreshold`, `httpGet.port`, `tcpSocket.port`, `grpc.port`. `--liveness-probe` the same way; a failed liveness probe SIGKILLs the container, so keep `/healthz` free of downstream calls (`skills/docker/references/health-checks.md`). |

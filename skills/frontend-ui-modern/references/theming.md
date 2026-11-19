@@ -37,7 +37,7 @@ dotfile themes keep the palettes' hex so values stay recognizable (`#cba6f7 /* m
 - `references/themes/shadcn-accents.css` — **amber blue cyan emerald fuchsia green indigo lime orange pink purple red rose sky teal violet yellow**:
   overrides for `primary`, `primary-foreground`, `secondary`, `secondary-foreground`, `chart-1..5`, `sidebar-primary(-foreground)`. Paste on top of a base color.
 - The docs' default (neutral + colorful charts) is in `references/shadcn-2026.md#css-scaffold` and `assets/simulation-template.html`.
-- Presets from https://ui.shadcn.com/create combine base color + accent + chart color + radius + fonts + menu style; apply with `npx shadcn@latest apply <code> --only theme`.
+- Presets from https://ui.shadcn.com/create combine base color + accent + chart color + radius + fonts + menu style; apply with `npx shadcn@4.23.0 apply <code> --only theme`.
 
 ## Dotfile themes
 
@@ -73,7 +73,7 @@ read as "professional"; `tokyo-night`, `dracula`, `monokai` read as "developer t
    add the extras mapping if used. Keep `--radius` from the decision.
 2. **Switchable themes**: `node scripts/theme.mjs css <id> --scope data-theme --extras` per theme → import one CSS file; set
    `data-theme="<id>"` on `<html>` next to the `dark` class; persist both (next-themes `themes`/`value` or your own store).
-3. **Preset code instead** (when the decision is a shadcn/create preset): `npx shadcn@latest apply <code>` or `init --preset <code> --force --no-reinstall`.
+3. **Preset code instead** (when the decision is a shadcn/create preset): `npx shadcn@4.23.0 apply <code>` or `init --preset <code> --force --no-reinstall`.
 4. Sidebar: the inset/floating variants show `--sidebar` as the outer shell; the dotfile themes map it to the palette's dim tier
    (mantle, bg_dark, sumiInk1 …) so the main area floats lighter — check it in the simulation; use `--sidebar: var(--background)` for a flat look.
 5. Verify in both modes with the mockup script; run `node scripts/theme.mjs check <id>` and report any body-text pair below 4.5:1.

@@ -6,8 +6,8 @@ description: "Editorial, report and airy UI in plain HTML/CSS/SVG: six themes on
 # Frontend UI themes
 
 One token contract, six themes that fill it, and the rules that keep a page from drifting into the generic
-AI look. Everything here was built and checked in a browsable simulator (`assets/theme-simulator.html`,
-also published at claude.ai) where the same tool app renders in all six themes; the screenshots in
+AI look. Everything here was built and checked in a browsable simulator (`assets/theme-simulator.html`)
+where the same tool app renders in all six themes; the screenshots in
 `assets/screenshots/` are what "correct" looks like, so compare your work against them.
 
 Why a contract rather than a pile of CSS: when every theme sets the same ~60 variables, a page written
