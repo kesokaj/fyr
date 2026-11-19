@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -20,6 +21,12 @@ type workflowPatch struct {
 	start int
 	end   int
 	repl  string
+}
+
+type workflowCallSpan struct {
+	start     int
+	end       int
+	inFString bool
 }
 
 func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error {
@@ -57,40 +64,101 @@ func loadWorkflowScriptSource(dir string, args map[string]any) (string, string, 
 	if path == "" {
 		return "", "", false, ""
 	}
-	if !filepath.IsAbs(path) && dir != "" {
-		path = filepath.Join(dir, path)
+	if strings.TrimSpace(dir) == "" {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace directory."
 	}
-	fi, err := os.Lstat(path)
+	cleanDir, err := filepath.Abs(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
+	}
+	rel, deny := resolveContainedRelScriptPath(cleanDir, path)
+	if deny != "" {
+		return "", "", false, deny
+	}
+	return readContainedWorkflowScript(cleanDir, rel)
+}
+
+func resolveContainedRelScriptPath(cleanDir, path string) (string, string) {
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(cleanDir, absPath)
+	}
+	absPath = filepath.Clean(absPath)
+	rel, err := filepath.Rel(cleanDir, absPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", "[MODEL_OVERRIDE] run_workflow refuses ScriptPath outside workspace directory."
+	}
+	if hasSymlinkRelSegment(cleanDir, rel) {
+		return "", "[MODEL_OVERRIDE] run_workflow refuses symlink ScriptPath; pass a regular workspace file."
+	}
+	return rel, ""
+}
+
+func hasSymlinkRelSegment(baseDir, rel string) bool {
+	cur := baseDir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func readContainedWorkflowScript(cleanDir, rel string) (string, string, bool, string) {
+	root, err := os.OpenRoot(cleanDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			return "", "", false, ""
 		}
 		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses unreadable ScriptPath."
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses symlink ScriptPath; pass a regular workspace file."
+	defer root.Close()
+	f, err := root.Open(rel)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", "", false, ""
+		}
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses symlink or unreadable ScriptPath."
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow failed to stat ScriptPath."
 	}
 	if !fi.Mode().IsRegular() || fi.Size() > 1<<20 {
 		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses non-regular or > 1 MiB ScriptPath."
 	}
-	data, err := os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil {
 		return "", "", false, "[MODEL_OVERRIDE] run_workflow failed to read ScriptPath."
+	}
+	if len(data) > 1<<20 {
+		return "", "", false, "[MODEL_OVERRIDE] run_workflow refuses non-regular or > 1 MiB ScriptPath."
 	}
 	return string(data), "", false, ""
 }
 
 func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, []workflowPatch) {
 	fast := needsGuardedProUpgrade(modelName)
-	spans := findPythonAgentCalls(src)
+	spans, scanDeny := scanWorkflowAgentCalls(src)
+	if scanDeny != "" {
+		return scanDeny, nil
+	}
 	var (
 		proDeny string
 		patches []workflowPatch
 	)
 	for _, sp := range spans {
-		denyOverride, denyPro, patch := inspectSingleAgentCall(home, src, sp, modelName, fast, isInline)
+		denyOverride, denyPro, patch := inspectSingleAgentCall(home, src, [2]int{sp.start, sp.end}, modelName, fast, isInline)
 		if denyOverride != "" {
 			return denyOverride, nil
+		}
+		if patch != nil && sp.inFString {
+			return fmt.Sprintf("[AUTO_SUBAGENT_PRO] fast session (%s) requires explicit model=\"pro\" (not \"inherit\") inside f-string run_workflow call.", formatModelTag(home, modelName)), nil
 		}
 		if denyPro != "" && proDeny == "" {
 			proDeny = denyPro
@@ -107,6 +175,9 @@ func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, 
 
 func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast, isInline bool) (string, string, *workflowPatch) {
 	args := splitPythonCallArgs(src, sp[0], sp[1])
+	if hasPythonKwargsSplat(args) {
+		return "[MODEL_OVERRIDE] run_workflow subagent forbids *args/**kwargs splat that could override type_name or model.", "", nil
+	}
 	typeArg := findWorkflowArg(args, "type_name", 3)
 	mArg := findWorkflowArg(args, "model", 5)
 	if typeArg == nil || isPythonNone(typeArg.raw) {
@@ -119,9 +190,6 @@ func inspectSingleAgentCall(home, src string, sp [2]int, modelName string, fast,
 	}
 	if !isModelGuardedSubagent(typeName) {
 		return "", "", nil
-	}
-	if hasPythonKwargsSplat(args) {
-		return fmt.Sprintf("[MODEL_OVERRIDE] run_workflow subagent %q forbids **kwargs splat that could override model.", typeName), "", nil
 	}
 	return inspectGuardedModelArg(home, typeName, mArg, modelName, fast, isInline)
 }
@@ -188,7 +256,7 @@ func inspectNonLiteralTypeAgent(home string, typeArg, mArg *workflowArg, args []
 
 func hasPythonKwargsSplat(args []workflowArg) bool {
 	for _, a := range args {
-		if a.kwName == "" && strings.HasPrefix(strings.TrimSpace(a.raw), "**") {
+		if a.kwName == "" && strings.HasPrefix(strings.TrimSpace(a.raw), "*") {
 			return true
 		}
 	}
@@ -227,29 +295,206 @@ func applyWorkflowPatches(src string, patches []workflowPatch) string {
 }
 
 func findPythonAgentCalls(src string) [][2]int {
-	var spans [][2]int
-	for i := 0; i < len(src); {
-		if next, ok := skipPythonTrivia(src, i); ok {
-			i = next
+	spans, _ := scanWorkflowAgentCalls(src)
+	out := make([][2]int, 0, len(spans))
+	for _, sp := range spans {
+		out = append(out, [2]int{sp.start, sp.end})
+	}
+	return out
+}
+
+func scanWorkflowAgentCalls(src string) ([]workflowCallSpan, string) {
+	var spans []workflowCallSpan
+	deny := scanPythonSourceRange(src, 0, len(src), false, &spans)
+	return spans, deny
+}
+
+func scanPythonSourceRange(src string, start, end int, inFString bool, out *[]workflowCallSpan) string {
+	for i := start; i < end; {
+		if src[i] == '#' {
+			for i < end && src[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		if strEnd, isF, deny := tryScanPythonString(src, i, end); strEnd > i {
+			if deny != "" {
+				return deny
+			}
+			if isF {
+				if d := scanFStringInterpolations(src, i, strEnd, out); d != "" {
+					return d
+				}
+			}
+			i = strEnd
 			continue
 		}
 		if isIdentStart(src[i]) {
-			end := scanPythonIdentEnd(src, i)
-			ident := src[i:end]
-			j := skipPythonWSAndComments(src, end)
-			if ident == "agent" && !precededByAttrOrIdent(src, i) && j < len(src) && src[j] == '(' {
-				if closeIdx := findMatchingParen(src, j); closeIdx > j {
-					spans = append(spans, [2]int{j + 1, closeIdx})
-					i = j + 1
-					continue
+			idEnd := min(scanPythonIdentEnd(src, i), end)
+			if src[i:idEnd] == "agent" {
+				next, deny := handleAgentIdent(src, i, idEnd, end, inFString, out)
+				if deny != "" {
+					return deny
 				}
+				i = next
+				continue
 			}
-			i = end
+			i = idEnd
 			continue
 		}
 		i++
 	}
-	return spans
+	return ""
+}
+
+func tryScanPythonString(src string, i, end int) (int, bool, string) {
+	qStart := min(skipStringPrefix(src, i), end)
+	if qStart >= end || (src[qStart] != '\'' && src[qStart] != '"') {
+		return i, false, ""
+	}
+	isF := strings.ContainsAny(src[i:qStart], "fF")
+	strEnd, closed := scanPythonStringSpan(src, qStart, end, isF)
+	if !closed && isF {
+		return strEnd, true, "[MODEL_OVERRIDE] run_workflow refuses unterminated f-string."
+	}
+	return strEnd, isF, ""
+}
+
+func scanFStringInterpolations(src string, strStart, strEnd int, out *[]workflowCallSpan) string {
+	qStart := skipStringPrefix(src, strStart)
+	delimLen := 1
+	if qStart+2 < strEnd && src[qStart+1] == src[qStart] && src[qStart+2] == src[qStart] {
+		delimLen = 3
+	}
+	bodyEnd := strEnd - delimLen
+	for i := qStart + delimLen; i < bodyEnd; {
+		if src[i] == '\\' && i+1 < bodyEnd {
+			i += 2
+			continue
+		}
+		if src[i] == '{' {
+			if i+1 < bodyEnd && src[i+1] == '{' {
+				i += 2
+				continue
+			}
+			closeBrace := findFStringExprEnd(src, i+1, bodyEnd)
+			if closeBrace < 0 {
+				return "[MODEL_OVERRIDE] run_workflow refuses malformed f-string interpolation."
+			}
+			if deny := scanPythonSourceRange(src, i+1, closeBrace, true, out); deny != "" {
+				return deny
+			}
+			i = closeBrace + 1
+			continue
+		}
+		if src[i] == '}' && i+1 < bodyEnd && src[i+1] == '}' {
+			i += 2
+			continue
+		}
+		i++
+	}
+	return ""
+}
+
+func findFStringExprEnd(src string, start, bodyEnd int) int {
+	braceDepth, parenDepth, bracketDepth := 1, 0, 0
+	for i := start; i < bodyEnd; {
+		if next, ok := skipPythonTriviaBounded(src, i, bodyEnd); ok {
+			i = next
+			continue
+		}
+		switch src[i] {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case '[':
+			bracketDepth++
+		case ']':
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+		case '{':
+			braceDepth++
+		case '}':
+			braceDepth--
+			if braceDepth == 0 {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
+}
+
+func handleAgentIdent(src string, idStart, idEnd, limit int, inFString bool, out *[]workflowCallSpan) (int, string) {
+	j := min(skipPythonWSAndComments(src, idEnd), limit)
+	if j < limit && src[j] == '(' {
+		closeIdx := findMatchingParenBounded(src, j, limit)
+		if closeIdx < 0 {
+			return idEnd, "[MODEL_OVERRIDE] run_workflow refuses unclosed agent(...) call."
+		}
+		*out = append(*out, workflowCallSpan{start: j + 1, end: closeIdx, inFString: inFString})
+		return j + 1, ""
+	}
+	parens, afterParens := countWrappingParens(src, idStart, j, limit)
+	if parens > 0 {
+		if afterParens < limit && src[afterParens] == '(' {
+			closeIdx := findMatchingParenBounded(src, afterParens, limit)
+			if closeIdx < 0 {
+				return idEnd, "[MODEL_OVERRIDE] run_workflow refuses unclosed (agent)(...) call."
+			}
+			*out = append(*out, workflowCallSpan{start: afterParens + 1, end: closeIdx, inFString: inFString})
+			return afterParens + 1, ""
+		}
+		return idEnd, "[MODEL_OVERRIDE] run_workflow forbids parenthesized or aliased reference to agent."
+	}
+	if j < limit && src[j] == '=' && (j+1 >= limit || src[j+1] != '=') {
+		return idEnd, ""
+	}
+	if isAgentBindingSite(src, idStart) {
+		return idEnd, ""
+	}
+	return idEnd, "[MODEL_OVERRIDE] run_workflow forbids aliasing or indirect reference to agent; call agent(...) directly."
+}
+
+func countWrappingParens(src string, idStart, afterIdent, limit int) (int, int) {
+	left := idStart
+	right := afterIdent
+	count := 0
+	for right < limit && src[right] == ')' {
+		l := prevNonWSOrComment(src, left)
+		if l < 0 || src[l] != '(' {
+			break
+		}
+		count++
+		left = l
+		right = min(skipPythonWSAndComments(src, right+1), limit)
+	}
+	return count, right
+}
+
+func prevNonWSOrComment(src string, pos int) int {
+	i := pos - 1
+	for i >= 0 && (src[i] == ' ' || src[i] == '\t' || src[i] == '\r' || src[i] == '\n') {
+		i--
+	}
+	return i
+}
+
+func isAgentBindingSite(src string, idStart int) bool {
+	end := prevNonWSOrComment(src, idStart)
+	if end < 0 || !isIdentChar(src[end]) {
+		return false
+	}
+	start := end
+	for start > 0 && isIdentChar(src[start-1]) {
+		start--
+	}
+	prev := src[start : end+1]
+	return prev == "for" || prev == "as"
 }
 
 func splitPythonCallArgs(src string, start, end int) []workflowArg {
@@ -326,54 +571,93 @@ func findTopLevelEq(src string, start, end int) int {
 }
 
 func skipPythonTrivia(src string, i int) (int, bool) {
-	if src[i] == '#' {
-		for i < len(src) && src[i] != '\n' {
+	return skipPythonTriviaBounded(src, i, len(src))
+}
+
+func skipPythonTriviaBounded(src string, i, limit int) (int, bool) {
+	if i < limit && src[i] == '#' {
+		for i < limit && src[i] != '\n' {
 			i++
 		}
 		return i, true
 	}
-	qStart := skipStringPrefix(src, i)
-	if qStart < len(src) && (src[qStart] == '\'' || src[qStart] == '"') {
-		return skipPythonStringEnd(src, qStart), true
+	qStart := min(skipStringPrefix(src, i), limit)
+	if qStart < limit && (src[qStart] == '\'' || src[qStart] == '"') {
+		isF := strings.ContainsAny(src[i:qStart], "fF")
+		end, _ := scanPythonStringSpan(src, qStart, limit, isF)
+		return end, true
 	}
 	return i, false
 }
 
-func skipPythonStringEnd(src string, i int) int {
-	q := src[i]
-	if i+2 < len(src) && src[i+1] == q && src[i+2] == q {
-		delim := src[i : i+3]
-		i += 3
-		for i+2 < len(src) {
-			if src[i] == '\\' {
-				i += 2
-				continue
-			}
-			if src[i:i+3] == delim {
-				return i + 3
-			}
-			i++
-		}
-		return len(src)
+func scanPythonStringSpan(src string, qStart, limit int, isF bool) (int, bool) {
+	q := src[qStart]
+	if qStart+2 < limit && src[qStart+1] == q && src[qStart+2] == q {
+		return scanTripleQuotedPythonString(src, qStart, limit, isF)
 	}
-	i++
-	for i < len(src) {
+	return scanSingleQuotedPythonString(src, qStart, limit, isF)
+}
+
+func scanTripleQuotedPythonString(src string, qStart, limit int, isF bool) (int, bool) {
+	delim := src[qStart : qStart+3]
+	for i := qStart + 3; i+2 < limit; {
 		if src[i] == '\\' {
 			i += 2
 			continue
 		}
-		if src[i] == q {
-			return i + 1
+		if isF && src[i] == '{' {
+			if i+1 < limit && src[i+1] == '{' {
+				i += 2
+				continue
+			}
+			if closeBrace := findFStringExprEnd(src, i+1, limit); closeBrace >= 0 {
+				i = closeBrace + 1
+				continue
+			}
+			return limit, false
+		}
+		if src[i:i+3] == delim {
+			return i + 3, true
 		}
 		i++
 	}
-	return len(src)
+	return limit, false
+}
+
+func scanSingleQuotedPythonString(src string, qStart, limit int, isF bool) (int, bool) {
+	q := src[qStart]
+	for i := qStart + 1; i < limit; {
+		if src[i] == '\\' {
+			i += 2
+			continue
+		}
+		if isF && src[i] == '{' {
+			if i+1 < limit && src[i+1] == '{' {
+				i += 2
+				continue
+			}
+			if closeBrace := findFStringExprEnd(src, i+1, limit); closeBrace >= 0 {
+				i = closeBrace + 1
+				continue
+			}
+			return limit, false
+		}
+		if src[i] == q {
+			return i + 1, true
+		}
+		i++
+	}
+	return limit, false
 }
 
 func findMatchingParen(src string, openIdx int) int {
+	return findMatchingParenBounded(src, openIdx, len(src))
+}
+
+func findMatchingParenBounded(src string, openIdx, limit int) int {
 	depth := 0
-	for i := openIdx; i < len(src); {
-		if next, ok := skipPythonTrivia(src, i); ok {
+	for i := openIdx; i < limit; {
+		if next, ok := skipPythonTriviaBounded(src, i, limit); ok {
 			i = next
 			continue
 		}

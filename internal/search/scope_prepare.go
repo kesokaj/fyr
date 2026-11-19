@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -26,31 +24,35 @@ func globalDB(home string) string {
 // guardProject refuses what the index must not write through or leave
 // unignored.
 func guardProject(root string) error {
-	for _, d := range []string{".agents", filepath.Join(".agents", "scratch")} {
-		if fi, err := os.Lstat(filepath.Join(root, d)); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("search: %s is a symlink; refusing to write through it", filepath.ToSlash(d))
-		}
+	if err := checkScratchNoSymlinks(root); err != nil {
+		return err
 	}
-	cmd := trail.Command(root, "check-ignore", "-q", ".agents/scratch/search.db")
-	err := cmd.Run()
-	var ee *exec.ExitError
-	switch {
-	case err == nil:
-	case errors.As(err, &ee) && ee.ExitCode() == 1:
+	gitRoot, commonDir, ok := findGitRootFast(root)
+	if !ok {
+		return errNotCheckout
+	}
+	if !scratchIgnoredFast(gitRoot, commonDir) {
 		return errNotIgnored
-	default:
-		return fmt.Errorf("search: git check-ignore: %w", err)
 	}
-	// A rebuild removes the companions, which need no ignore rule of their
-	// own but must not be files the checkout tracks.
-	for _, name := range []string{"-wal", "-shm", "-journal"} {
-		rel := ".agents/scratch/search.db" + name
-		out, err := git(root, nil, "ls-files", "--", rel)
-		if err != nil {
-			return fmt.Errorf("search: %w", err)
-		}
-		if len(out) > 0 {
-			return fmt.Errorf("search: %s is tracked; `git rm --cached` it, since a rebuild would delete it", rel)
+	return checkTrackedScratchCompanions(gitRoot)
+}
+
+func checkTrackedScratchCompanions(root string) error {
+	gitDir := resolveGitWorktreeDir(root)
+	if gitDir == "" {
+		return nil
+	}
+	entries, hasIndex, err := readGitIndex(filepath.Join(gitDir, "index"))
+	if err != nil {
+		return fmt.Errorf("search: read git index: %w", err)
+	}
+	if !hasIndex {
+		return nil
+	}
+	for _, e := range entries {
+		switch e.Path {
+		case ".agents/scratch/search.db-wal", ".agents/scratch/search.db-shm", ".agents/scratch/search.db-journal":
+			return fmt.Errorf("search: %s is tracked; `git rm --cached` it, since a rebuild would delete it", e.Path)
 		}
 	}
 	return nil

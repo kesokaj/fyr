@@ -186,29 +186,48 @@ func classifySlashPrefix(low string) (IntentMode, bool) {
 }
 
 func isCorrectionPrompt(low string) bool {
-	for _, p := range []string{
-		"no,", "no —", "no -", "no:", "actually,",
+	turnPrefixes := []string{
+		"no,", "no —", "no -", "no:", "actually,", "actually ",
 		"always do ", "never do ", "we don't use", "we do not use",
 		"don't use ", "do not use ", "stop doing", "from now on",
 		"instead of that", "that's wrong", "that is wrong", "you missed",
-	} {
-		if strings.HasPrefix(low, p) || strings.Contains(low, " "+p) {
+	}
+	for _, p := range turnPrefixes {
+		if strings.HasPrefix(low, p) {
 			return true
 		}
 	}
-	if (strings.HasPrefix(low, "wrong") || hasClauseStart(low, "wrong")) && !strings.Contains(low, "wrong output") {
+	if strings.HasPrefix(low, "wrong") && !strings.Contains(low, "wrong output") {
 		return true
 	}
-	return strings.HasPrefix(low, "actually ") || hasClauseStart(low, "actually ")
+	if hasEditOrFeatureVerb(low) {
+		return false
+	}
+	for _, p := range turnPrefixes {
+		if hasSentenceStart(low, p) {
+			return true
+		}
+	}
+	for _, p := range []string{"we don't use", "we do not use", "stop doing", "from now on", "instead of that", "that's wrong", "that is wrong", "you missed"} {
+		if strings.Contains(low, ", "+p) {
+			return true
+		}
+	}
+	return hasSentenceStart(low, "wrong") && !strings.Contains(low, "wrong output")
 }
 
-func hasClauseStart(low, phrase string) bool {
-	for _, sep := range []string{". ", "! ", "? ", "\n", "; ", "— ", "- "} {
+func hasSentenceStart(low, phrase string) bool {
+	for _, sep := range []string{". ", "! ", "? ", "\n"} {
 		if strings.Contains(low, sep+phrase) {
 			return true
 		}
 	}
 	return false
+}
+
+func hasEditOrFeatureVerb(low string) bool {
+	return isBugPrompt(low) || isFeatureKeyword(low) ||
+		containsAnyWord(low, "add", "create", "extend", "fix", "refactor", "implement", "build", "update")
 }
 
 func isReleasePrompt(low string) bool {
@@ -236,12 +255,17 @@ func isReviewPrompt(low string) bool {
 }
 
 func isTrivialPrompt(low string, symbolHits int) bool {
-	for _, p := range []string{"typo", "fix typo", "fix comment", "one-line", "one line", "rename "} {
+	for _, p := range []string{"typo", "fix typo", "fix comment", "one-line", "one line"} {
 		if strings.Contains(low, p) {
 			return true
 		}
 	}
 	words := strings.Fields(low)
+	if strings.Contains(low, "rename ") && len(words) <= 10 &&
+		!isBugPrompt(low) && !isFeatureKeyword(low) &&
+		!containsAnyWord(low, "refactor", "redesign", "architect", "migrate", "add", "create", "extend", "support", "build", "implement", "split", "extract", "replace") {
+		return true
+	}
 	return len(words) <= 3 && symbolHits == 0 && !strings.HasSuffix(low, "?") &&
 		!isBugPrompt(low) && !isFeatureKeyword(low)
 }

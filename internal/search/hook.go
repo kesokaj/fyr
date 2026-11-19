@@ -174,7 +174,7 @@ func handlePreInvocation(o Options, dir string, in HookInput, out io.Writer) err
 	)
 	err := ensureHookProjectReady(dir)
 	if err == nil {
-		state, skip, err = checkTurnOrMidTurn(dir, in.ConversationID, in.TranscriptPath, in.InvocationNum, rawPrompt)
+		state, skip, err = checkTurnOrMidTurnInput(dir, in, rawPrompt)
 	}
 	if err == nil && skip {
 		return writePreInvocation(out, "", "")

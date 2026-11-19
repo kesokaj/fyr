@@ -293,8 +293,24 @@ func verifyWorkerTurns1And2(t *testing.T, proj, home string) {
 		ConversationID: "conv-worker", WorkspacePaths: []string{proj},
 		LastUserInput: "Hold ADR-001. Instead, fix BUG-001 in internal/processor/retry.go by capping attempt at 10 in NextDelay, and rename NextDelay to BackoffDuration across the Go code. Verify with go test ./...",
 	})
-	if len(t2.InjectSteps) != 0 {
-		t.Fatalf("Turn 2 un-enriched PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2.InjectSteps)
+	if len(t2.InjectSteps) != 1 {
+		t.Fatalf("Turn 2 expected 1 injectStep, got: %+v", t2.InjectSteps)
+	}
+	sys2 := t2.InjectSteps[0].SystemMessage.SystemMessage
+	for _, want := range []string{`"intent": "BUG"`, `"gate": "ENRICH_AND_PROCEED"`} {
+		if !strings.Contains(sys2, want) {
+			t.Fatalf("Turn 2 envelope missing %q:\n%s", want, sys2)
+		}
+	}
+	if strings.Contains(sys2, "VET_FIRST") {
+		t.Fatalf("Turn 2 envelope unexpectedly contains VET_FIRST:\n%s", sys2)
+	}
+	t2Triv := runHook[search.PreInvocationOutput](t, home, "pre-invocation", search.HookInput{
+		ConversationID: "conv-worker", WorkspacePaths: []string{proj},
+		LastUserInput: "Rename NextDelay to BackoffDuration",
+	})
+	if len(t2Triv.InjectSteps) != 0 {
+		t.Fatalf("Turn 2 trivial rename PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2Triv.InjectSteps)
 	}
 	if affOut, _, code := fyrCLI(t, "", "search", "--affected", "NextDelay", "-C", proj, "--home", home); code != 0 || !strings.Contains(affOut, "dispatch.go") || !strings.Contains(affOut, "retry_test.go") {
 		t.Fatalf("search --affected NextDelay (%d): %s", code, affOut)

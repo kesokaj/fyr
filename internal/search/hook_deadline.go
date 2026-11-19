@@ -152,67 +152,188 @@ func findGitRootFast(dir string) (string, string, bool) {
 }
 
 func resolveGitCommonDirFast(dotGitFile, repoRoot string) (string, bool) {
+	fi, err := os.Lstat(dotGitFile)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > 4096 {
+		return "", false
+	}
 	data, err := os.ReadFile(dotGitFile)
 	if err != nil {
 		return "", false
 	}
-	line := strings.TrimSpace(string(data))
-	raw, ok := strings.CutPrefix(line, "gitdir:")
+	raw, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
 	if !ok {
 		return "", false
 	}
-	gd := strings.TrimSpace(raw)
-	if gd == "" {
+	gd := resolveCleanPath(repoRoot, strings.TrimSpace(raw))
+	if !isRegularDirNoSymlink(gd) {
 		return "", false
 	}
-	if !filepath.IsAbs(gd) {
-		gd = filepath.Join(repoRoot, gd)
+	return validateCommonDirBacklink(gd, dotGitFile, repoRoot)
+}
+
+func resolveCleanPath(base, raw string) string {
+	if raw == "" {
+		return ""
 	}
-	gd = filepath.Clean(gd)
-	if cdBytes, err := os.ReadFile(filepath.Join(gd, "commondir")); err == nil {
-		cd := strings.TrimSpace(string(cdBytes))
-		if cd != "" {
-			if !filepath.IsAbs(cd) {
-				cd = filepath.Join(gd, cd)
-			}
-			return filepath.Clean(cd), true
+	if !filepath.IsAbs(raw) {
+		raw = filepath.Join(base, raw)
+	}
+	return filepath.Clean(raw)
+}
+
+func isRegularDirNoSymlink(p string) bool {
+	if p == "" {
+		return false
+	}
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode()&os.ModeSymlink == 0 && fi.IsDir()
+}
+
+func validateCommonDirBacklink(gd, dotGitFile, repoRoot string) (string, bool) {
+	cdPath := filepath.Join(gd, "commondir")
+	fi, err := os.Lstat(cdPath)
+	if err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > 4096 {
+			return "", false
 		}
+		cdBytes, readErr := os.ReadFile(cdPath)
+		if readErr != nil {
+			return "", false
+		}
+		cd := resolveCleanPath(gd, strings.TrimSpace(string(cdBytes)))
+		if !isRegularDirNoSymlink(cd) || filepath.Base(filepath.Dir(gd)) != "worktrees" {
+			return "", false
+		}
+		if !sameAutoInitPath(filepath.Dir(filepath.Dir(gd)), cd) || !gitDirFileMatches(gd, dotGitFile) {
+			return "", false
+		}
+		return cd, true
+	}
+	if !os.IsNotExist(err) || !hasGitDirOrConfigBacklink(gd, dotGitFile, repoRoot) {
+		return "", false
 	}
 	return gd, true
 }
 
-func scratchIgnoredFast(root, commonDir string) bool {
-	for _, p := range []string{
-		filepath.Join(commonDir, "info", "exclude"),
-		filepath.Join(root, ".gitignore"),
-	} {
-		if ignoreFileCoversScratch(p) {
-			return true
-		}
+func gitDirFileMatches(gd, dotGitFile string) bool {
+	p := filepath.Join(gd, "gitdir")
+	fi, err := os.Lstat(p)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > 4096 {
+		return false
 	}
-	return false
-}
-
-func ignoreFileCoversScratch(path string) bool {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(p)
 	if err != nil {
 		return false
 	}
-	matched := false
+	target := resolveCleanPath(gd, strings.TrimSpace(string(data)))
+	return target != "" && sameAutoInitPath(target, dotGitFile)
+}
+
+func hasGitDirOrConfigBacklink(gd, dotGitFile, repoRoot string) bool {
+	if gitDirFileMatches(gd, dotGitFile) {
+		return true
+	}
+	cfgPath := filepath.Join(gd, "config")
+	fi, err := os.Lstat(cfgPath)
+	if err == nil && fi.Mode()&os.ModeSymlink == 0 && fi.Mode().IsRegular() && fi.Size() <= maxFileBytes {
+		if data, err := os.ReadFile(cfgPath); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if k, v, ok := strings.Cut(line, "="); ok && strings.TrimSpace(k) == "worktree" {
+					wt := resolveCleanPath(gd, strings.TrimSpace(v))
+					if wt != "" && sameAutoInitPath(wt, repoRoot) {
+						return true
+					}
+				}
+			}
+		}
+	}
+	rel, err := filepath.Rel(filepath.Clean(repoRoot), filepath.Clean(gd))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func scratchIgnoredFast(root, commonDir string) bool {
+	ignored := false
+	apply := func(path string, fn func(string) bool) {
+		if st := ignoreFileScratchState(path, fn); st != 0 {
+			ignored = st > 0
+		}
+	}
+	apply(filepath.Join(commonDir, "info", "exclude"), patternCoversRootScratch)
+	apply(filepath.Join(root, ".gitignore"), patternCoversRootScratch)
+	if isRegularDirNoSymlink(filepath.Join(root, ".agents")) {
+		apply(filepath.Join(root, ".agents", ".gitignore"), patternCoversAgentsScratch)
+		if isRegularDirNoSymlink(filepath.Join(root, ".agents", "scratch")) {
+			apply(filepath.Join(root, ".agents", "scratch", ".gitignore"), patternCoversLocalScratch)
+		}
+	}
+	return ignored
+}
+
+func ignoreFileCoversScratch(path string) bool {
+	return ignoreFileScratchState(path, patternCoversRootScratch) == 1
+}
+
+func ignoreFileScratchState(path string, coverFn func(string) bool) int {
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {
+		return 0
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	state := 0
 	for _, line := range strings.Split(string(data), "\n") {
 		s := strings.TrimSpace(line)
 		if s == "" || strings.HasPrefix(s, "#") {
 			continue
 		}
 		if strings.HasPrefix(s, "!") {
-			return false
+			if coverFn(strings.TrimSpace(s[1:])) {
+				state = -1
+			}
+			continue
 		}
-		switch s {
-		case ".agents/scratch/*", ".agents/scratch/", ".agents/scratch", ".agents/*", ".agents/", ".agents":
-			matched = true
+		if coverFn(s) {
+			state = 1
 		}
 	}
-	return matched
+	return state
+}
+
+func patternCoversRootScratch(pat string) bool {
+	p := strings.TrimPrefix(strings.TrimSpace(pat), "/")
+	switch p {
+	case ".agents", ".agents/", ".agents/*", ".agents/**", ".agents/**/*",
+		".agents/scratch", ".agents/scratch/", ".agents/scratch/*", ".agents/scratch/**", ".agents/scratch/**/*",
+		".agents/scratch/search.db", ".agents/scratch/*.db",
+		"**/.agents", "**/.agents/", "**/.agents/*", "**/.agents/**",
+		"**/.agents/scratch", "**/.agents/scratch/", "**/.agents/scratch/*", "**/.agents/scratch/**",
+		"*", "**", "*.db":
+		return true
+	}
+	return false
+}
+
+func patternCoversAgentsScratch(pat string) bool {
+	p := strings.TrimPrefix(strings.TrimSpace(pat), "/")
+	switch p {
+	case "scratch", "scratch/", "scratch/*", "scratch/**", "scratch/**/*",
+		"scratch/search.db", "scratch/*.db",
+		"**/scratch", "**/scratch/", "**/scratch/*", "**/scratch/**",
+		"*", "**":
+		return true
+	}
+	return false
+}
+
+func patternCoversLocalScratch(pat string) bool {
+	p := strings.TrimPrefix(strings.TrimSpace(pat), "/")
+	switch p {
+	case "*", "**", "search.db", "*.db", "search.*":
+		return true
+	}
+	return false
 }
 
 func initMinimalGitRepo(absDir string) error {

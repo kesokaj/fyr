@@ -53,7 +53,7 @@ func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T)
 		{"ScriptPath omitted model", spOmitted},
 		{"ScriptPath model=None", spNone},
 	} {
-		d := runPreToolHookForTest(t, home, fastModel, "run_workflow", map[string]any{
+		d := runPreToolHookInDir(t, home, wfDir, fastModel, "run_workflow", map[string]any{
 			"ScriptPath":  tc.path,
 			"Description": tc.name,
 		})
@@ -69,7 +69,7 @@ func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T)
 		{"ScriptPath": spOmitted, "Description": "pro path omitted"},
 		{"ScriptPath": spNone, "Description": "pro path none"},
 	} {
-		if d := runPreToolHookForTest(t, home, proModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
+		if d := runPreToolHookInDir(t, home, wfDir, proModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
 			t.Errorf("pro session (%s): got %+v, want clean allow", args["Description"], d)
 		}
 	}
@@ -77,7 +77,7 @@ func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T)
 		{"Script": proDyn, "Description": "fast inline pro"},
 		{"ScriptPath": spPro, "Description": "fast path pro"},
 	} {
-		if d := runPreToolHookForTest(t, home, fastModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
+		if d := runPreToolHookInDir(t, home, wfDir, fastModel, "run_workflow", args); d.Decision != "allow" || d.Overwrite != nil {
 			t.Errorf("fast session (%s): got %+v, want clean allow", args["Description"], d)
 		}
 	}
@@ -85,25 +85,29 @@ func TestPreToolUseWorkflowNonLiteralTypeRequiresExplicitProOnFast(t *testing.T)
 
 func TestPreToolUseRealWorkflowScriptsAllowedOnProAndFast(t *testing.T) {
 	home := t.TempDir()
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
 	models := []string{"gemini-4-carbon-high", "gemini-3.8-flash-medium"}
 	scripts := []string{
-		filepath.Join("..", "..", "workflows", "review_parallel.py"),
-		filepath.Join("..", "..", "workflows", "preflight_gate.py"),
+		filepath.Join("workflows", "review_parallel.py"),
+		filepath.Join("workflows", "preflight_gate.py"),
 	}
 	for _, scriptPath := range scripts {
-		src, err := os.ReadFile(scriptPath)
+		src, err := os.ReadFile(filepath.Join(repoRoot, scriptPath))
 		if err != nil {
 			t.Fatalf("read %s: %v", scriptPath, err)
 		}
 		for _, m := range models {
-			dPath := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{
+			dPath := runPreToolHookInDir(t, home, repoRoot, m, "run_workflow", map[string]any{
 				"ScriptPath":  scriptPath,
 				"Description": "real script path " + filepath.Base(scriptPath),
 			})
 			if dPath.Decision != "allow" || dPath.Overwrite != nil {
 				t.Errorf("%s ScriptPath on %s: got %+v, want clean allow", scriptPath, m, dPath)
 			}
-			dInline := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{
+			dInline := runPreToolHookInDir(t, home, repoRoot, m, "run_workflow", map[string]any{
 				"Script":      string(src),
 				"Description": "real inline " + filepath.Base(scriptPath),
 			})
@@ -137,7 +141,7 @@ func TestPreToolUseWorkflowOrchestratorAndAutoRequirePro(t *testing.T) {
 		if s, _ := dInh.Overwrite["Script"].(string); !strings.Contains(s, `model="pro"`) {
 			t.Errorf("model %q expected model=\"pro\" patch, got:\n%s", m, s)
 		}
-		dPath := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"ScriptPath": spInherit, "Description": "path-inh"})
+		dPath := runPreToolHookInDir(t, home, wfDir, m, "run_workflow", map[string]any{"ScriptPath": spInherit, "Description": "path-inh"})
 		if dPath.Decision != "deny" || !strings.Contains(dPath.Reason, "[AUTO_SUBAGENT_PRO]") {
 			t.Errorf("model %q ScriptPath inherit: got %+v, want [AUTO_SUBAGENT_PRO] deny", m, dPath)
 		}
@@ -147,6 +151,66 @@ func TestPreToolUseWorkflowOrchestratorAndAutoRequirePro(t *testing.T) {
 		d := runPreToolHookForTest(t, home, m, "run_workflow", map[string]any{"Script": omitted, "Description": "keep"})
 		if d.Decision != "allow" || d.Overwrite != nil {
 			t.Errorf("model %q omitted model: got %+v, want clean allow", m, d)
+		}
+	}
+}
+
+func TestPreToolUseWorkflowBypassAndPathHardening(t *testing.T) {
+	home := t.TempDir()
+	proModel := "gemini-4-carbon-high"
+	fastModel := "gemini-3.8-flash-medium"
+
+	// SD87: *args splat, **kwargs without type_name, f-string interpolations, parenthesized, aliased, attribute calls.
+	for _, tc := range []struct {
+		name, model, script, wantSub string
+	}{
+		{"star args splat", proModel, `await agent("a", "b", *["c", "security", None, "flash"])`, "[MODEL_OVERRIDE]"},
+		{"kwargs splat without type_name", proModel, `await agent(**{"type_name": "security", "model": "flash"})`, "[MODEL_OVERRIDE]"},
+		{"f-string flash override", proModel, `x = f"{agent(prompt='p', schema={'type':'string'}, role='r', type_name='security', model='flash')}"`, "[MODEL_OVERRIDE]"},
+		{"f-string nested braces fast omitted", fastModel, `x = f"{ {'k': agent(prompt='p', schema={'type':'string'}, role='r', type_name='reviewer')} }"`, "[AUTO_SUBAGENT_PRO]"},
+		{"parenthesized call", proModel, `await (agent)(prompt="p", type_name="security", model="flash")`, "[MODEL_OVERRIDE]"},
+		{"double parenthesized call", proModel, `await ((agent))(prompt="p", type_name="reviewer", model="flash")`, "[MODEL_OVERRIDE]"},
+		{"aliased call", proModel, "fn = agent\nawait fn(prompt='p', type_name='security', model='flash')", "[MODEL_OVERRIDE]"},
+		{"parenthesized alias", proModel, "fn = (agent)\nawait fn(prompt='p', type_name='security', model='flash')", "[MODEL_OVERRIDE]"},
+		{"attribute call", proModel, `await ns.agent(prompt="p", type_name="security", model="flash")`, "[MODEL_OVERRIDE]"},
+	} {
+		d := runPreToolHookForTest(t, home, tc.model, "run_workflow", map[string]any{"Script": tc.script, "Description": tc.name})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, tc.wantSub) {
+			t.Errorf("%s: got %+v, want deny containing %q", tc.name, d, tc.wantSub)
+		}
+	}
+
+	// SD87: benign f-string and normal literal call still allowed.
+	okF := `msg = f"hello {name}"` + "\n" + `await agent(prompt=msg, schema={"type":"string"}, type_name="explorer", model="flash")`
+	if d := runPreToolHookForTest(t, home, fastModel, "run_workflow", map[string]any{"Script": okF, "Description": "benign f-string"}); d.Decision != "allow" {
+		t.Errorf("benign f-string unexpectedly denied: %+v", d)
+	}
+
+	// SD89: relative traversal outside dir, absolute outside dir, and symlink ancestor dir all fail closed.
+	wsDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "evil.py")
+	if err := os.WriteFile(outsideFile, []byte("print('hi')\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	relEscape, err := filepath.Rel(wsDir, outsideFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkParent := filepath.Join(wsDir, "linked_sub")
+	if err := os.Symlink(outsideDir, linkParent); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, sp string
+	}{
+		{"relative traversal", relEscape},
+		{"absolute outside workspace", outsideFile},
+		{"symlink ancestor directory", filepath.Join("linked_sub", "evil.py")},
+	} {
+		d := runPreToolHookInDir(t, home, wsDir, proModel, "run_workflow", map[string]any{"ScriptPath": tc.sp, "Description": tc.name})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+			t.Errorf("%s (%s): got %+v, want [MODEL_OVERRIDE] deny", tc.name, tc.sp, d)
 		}
 	}
 }

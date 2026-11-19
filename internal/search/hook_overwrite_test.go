@@ -14,14 +14,23 @@ import (
 
 func runPreToolHookForTest(t *testing.T, home, modelName, toolName string, args map[string]any) HookDecisionOutput {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{
+	return runPreToolHookInDir(t, home, "", modelName, toolName, args)
+}
+
+func runPreToolHookInDir(t *testing.T, home, dir, modelName, toolName string, args map[string]any) HookDecisionOutput {
+	t.Helper()
+	body := map[string]any{
 		"conversationId": "conv-overwrite-test",
 		"modelName":      modelName,
 		"toolCall": map[string]any{
 			"name": toolName,
 			"args": args,
 		},
-	})
+	}
+	if dir != "" {
+		body["workspacePaths"] = []string{dir}
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,14 +293,14 @@ func TestPreToolUseRunWorkflowGuard(t *testing.T) {
 	if err := os.WriteFile(spFlash, []byte("agent('p', {'type':'string'}, 'r', 'reviewer', 'inherit', 'flash')\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": spFlash, "Description": "review"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+	if d := runPreToolHookInDir(t, home, wfDir, proModel, "run_workflow", map[string]any{"ScriptPath": spFlash, "Description": "review"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
 		t.Errorf("positional flash ScriptPath expected [MODEL_OVERRIDE] deny, got %+v", d)
 	}
 	spInherit := filepath.Join(wfDir, "inh.py")
 	if err := os.WriteFile(spInherit, []byte("await agent(prompt='p=1', schema={'type':'string'}, type_name='dreamer', model='inherit')\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := runPreToolHookForTest(t, home, fastModel, "run_workflow", map[string]any{"ScriptPath": spInherit, "Description": "dream"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[AUTO_SUBAGENT_PRO]") {
+	if d := runPreToolHookInDir(t, home, wfDir, fastModel, "run_workflow", map[string]any{"ScriptPath": spInherit, "Description": "dream"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[AUTO_SUBAGENT_PRO]") {
 		t.Errorf("fast ScriptPath inherit expected [AUTO_SUBAGENT_PRO] deny, got %+v", d)
 	}
 
@@ -300,17 +309,17 @@ func TestPreToolUseRunWorkflowGuard(t *testing.T) {
 	if err := os.Symlink(spInherit, spLink); err != nil {
 		t.Fatal(err)
 	}
-	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": spLink, "Description": "link"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+	if d := runPreToolHookInDir(t, home, wfDir, proModel, "run_workflow", map[string]any{"ScriptPath": spLink, "Description": "link"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
 		t.Errorf("symlink ScriptPath expected [MODEL_OVERRIDE] deny, got %+v", d)
 	}
 	spBig := filepath.Join(wfDir, "big.py")
 	if err := os.WriteFile(spBig, make([]byte, (1<<20)+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": spBig, "Description": "big"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
+	if d := runPreToolHookInDir(t, home, wfDir, proModel, "run_workflow", map[string]any{"ScriptPath": spBig, "Description": "big"}); d.Decision != "deny" || !strings.Contains(d.Reason, "[MODEL_OVERRIDE]") {
 		t.Errorf("oversize ScriptPath expected [MODEL_OVERRIDE] deny, got %+v", d)
 	}
-	if d := runPreToolHookForTest(t, home, proModel, "run_workflow", map[string]any{"ScriptPath": filepath.Join(wfDir, "missing.py"), "Description": "missing"}); d.Decision != "allow" {
+	if d := runPreToolHookInDir(t, home, wfDir, proModel, "run_workflow", map[string]any{"ScriptPath": filepath.Join(wfDir, "missing.py"), "Description": "missing"}); d.Decision != "allow" {
 		t.Errorf("missing ScriptPath expected allow, got %+v", d)
 	}
 

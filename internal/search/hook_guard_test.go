@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,14 +64,18 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 	}
 
 	prompt := "Investigate ReconcileProjectIndex in service.go"
-	callHook := func(invNum int, userPrompt string) PreInvocationOutput {
-		inJSON, _ := json.Marshal(map[string]any{
+	callHook := func(invNum int, extra map[string]any, userPrompt string) PreInvocationOutput {
+		payload := map[string]any{
 			"conversationId": "conv-midturn",
 			"workspacePaths": []string{dir},
 			"transcriptPath": transcript,
 			"invocationNum":  invNum,
 			"lastUserInput":  userPrompt,
-		})
+		}
+		for k, v := range extra {
+			payload[k] = v
+		}
+		inJSON, _ := json.Marshal(payload)
 		var out bytes.Buffer
 		if err := Search(Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}, &out); err != nil {
 			t.Fatalf("pre-invocation(%d): %v", invNum, err)
@@ -83,7 +88,7 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 	}
 
 	// 1. Invocation 0 of Turn 1 (0-indexed in agy) injects capsule + turn contract with nil Metadata (BUG-523).
-	r1 := callHook(0, prompt)
+	r1 := callHook(0, nil, prompt)
 	if len(r1.InjectSteps) != 1 || r1.InjectSteps[0].SystemMessage == nil {
 		t.Fatalf("turn 1 inv 0: expected 1 injectStep, got %+v", r1)
 	}
@@ -94,8 +99,8 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		t.Errorf("turn 1 inv 0 Metadata must stay nil (BUG-523), got %+v", r1.InjectSteps[0].SystemMessage.Metadata)
 	}
 
-	// 2. Invocation 1 (mid-turn tool loop, same prompt, no compaction) skips re-injection and keeps turn_count=1.
-	r2 := callHook(1, prompt)
+	// 2. Invocation 1 with stepIdx > initialNumSteps (mid-turn tool loop, same prompt, no compaction) skips re-injection and keeps turn_count=1.
+	r2 := callHook(1, map[string]any{"initialNumSteps": 0, "stepIdx": 2}, prompt)
 	if len(r2.InjectSteps) != 0 {
 		t.Errorf("turn 1 inv 1 (mid-turn): expected 0 injectSteps, got %+v", r2.InjectSteps)
 	}
@@ -109,10 +114,10 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		t.Errorf("after mid-turn inv 1, turn_count = %d, want 1", turnCount)
 	}
 
-	// 3. New user turn (invocationNum == 0) with the SAME prompt runs in full and increments turn_count to 2.
-	r3 := callHook(0, prompt)
+	// 3. SD67: New user turn (invocationNum >= 1, but stepIdx == initialNumSteps, executionNum == 0, continuationActive == false) with the SAME prompt runs in full and increments turn_count to 2.
+	r3 := callHook(2, map[string]any{"initialNumSteps": 4, "stepIdx": 4, "executionNum": 0, "continuationActive": false}, prompt)
 	if len(r3.InjectSteps) != 1 || r3.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("turn 2 inv 0 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
+		t.Fatalf("turn 2 inv 2 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
 	}
 	st2, _, err := openLedgerStore(dir)
 	if err != nil {
@@ -121,7 +126,73 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 	_, turnCount2 := st2.currentGeneration("conv-midturn")
 	st2.close()
 	if turnCount2 != 2 {
-		t.Errorf("after turn 2 inv 0, turn_count = %d, want 2", turnCount2)
+		t.Errorf("after turn 2 inv 2, turn_count = %d, want 2", turnCount2)
+	}
+}
+
+func TestSD59PureGoIgnoreCommonDirAndIndexChecks(t *testing.T) {
+	// 1. ignoreFileCoversScratch handles leading /, /**, and unrelated ! negations.
+	giDir := t.TempDir()
+	giPath := filepath.Join(giDir, ".gitignore")
+	if err := os.WriteFile(giPath, []byte("/.agents/scratch/**\n!*.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !ignoreFileCoversScratch(giPath) {
+		t.Fatalf("expected /.agents/scratch/** + !*.md to cover scratch")
+	}
+	if err := os.WriteFile(giPath, []byte("/.agents/**\n!.agents/scratch/search.db\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ignoreFileCoversScratch(giPath) {
+		t.Fatalf("expected explicit !.agents/scratch/search.db negation to fail cover check")
+	}
+
+	// 2. resolveGitCommonDirFast rejects forged .git -> victim commonDir back-links.
+	victim := setupHookRepo(t)
+	attacker := t.TempDir()
+	dotGit := filepath.Join(attacker, ".git")
+	if err := os.WriteFile(dotGit, []byte("gitdir: "+filepath.Join(victim, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cd, ok := resolveGitCommonDirFast(dotGit, attacker); ok {
+		t.Fatalf("forged direct .git link unexpectedly accepted: %q", cd)
+	}
+	fakeGD := filepath.Join(t.TempDir(), "fake-wt")
+	if err := os.MkdirAll(fakeGD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(fakeGD, "gitdir"), []byte(dotGit+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(fakeGD, "commondir"), []byte(filepath.Join(victim, ".git")+"\n"), 0o644)
+	_ = os.WriteFile(dotGit, []byte("gitdir: "+fakeGD+"\n"), 0o644)
+	if cd, ok := resolveGitCommonDirFast(dotGit, attacker); ok {
+		t.Fatalf("forged fake-wt -> victim commondir unexpectedly accepted: %q", cd)
+	}
+
+	// 3. guardProject catches tracked companion via readGitIndex and runs zero git subprocesses (PATH="").
+	repo := setupHookRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("/.agents/scratch/**\n!.env\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".agents", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wal := filepath.Join(repo, ".agents", "scratch", "search.db-wal")
+	if err := os.WriteFile(wal, []byte("wal"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", repo, "add", "-f", ".agents/scratch/search.db-wal").CombinedOutput(); err != nil {
+		t.Fatalf("git add -f wal: %v\n%s", err, out)
+	}
+	fresh := setupHookRepo(t)
+	t.Setenv("PATH", "")
+	if err := guardProject(repo); err == nil || !strings.Contains(err.Error(), "is tracked") {
+		t.Fatalf("guardProject with tracked -wal = %v, want tracked error", err)
+	}
+	if err := ensureHookScratchIgnored(fresh, nil); err != nil {
+		t.Fatalf("ensureHookScratchIgnored with PATH=\"\" failed: %v", err)
+	}
+	if err := guardProject(fresh); err != nil {
+		t.Fatalf("guardProject after ensureHookScratchIgnored failed: %v", err)
 	}
 }
 
@@ -232,5 +303,86 @@ func TestHookInputNormalizationAndProjectDirResolution(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(targetRepo, ".agents", "scratch", "search.db")); err == nil {
 		t.Fatalf("expected targetRepo search.db not to be created when no-hooks marker is present")
+	}
+}
+
+func TestValidateCommonDirForRootLinkedWorktreeNoGit(t *testing.T) {
+	mainRepo := setupHookRepo(t)
+	wt := filepath.Join(t.TempDir(), "wt")
+	if out, err := exec.Command("git", "-C", mainRepo, "worktree", "add", "-b", "wt-branch", wt).CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v\n%s", err, out)
+	}
+	for _, gi := range []string{
+		filepath.Join(wt, ".gitignore"),
+		filepath.Join(wt, ".agents", ".gitignore"),
+		filepath.Join(wt, ".agents", "scratch", ".gitignore"),
+	} {
+		_ = os.Remove(gi)
+	}
+	commonDir := filepath.Join(mainRepo, ".git")
+
+	t.Setenv("PATH", "")
+	if !validateCommonDirForRoot(wt, commonDir) {
+		t.Fatalf("validateCommonDirForRoot(%q, %q) = false, want true", wt, commonDir)
+	}
+	if err := ensureHookScratchIgnored(wt, nil); err != nil {
+		t.Fatalf("ensureHookScratchIgnored(%q) with PATH=\"\" failed: %v", wt, err)
+	}
+	excludeBytes, err := os.ReadFile(filepath.Join(commonDir, "info", "exclude"))
+	if err != nil || !strings.Contains(string(excludeBytes), ".agents/scratch/*") {
+		t.Fatalf("expected commonDir info/exclude to contain .agents/scratch/*, err=%v content=%q", err, string(excludeBytes))
+	}
+	if err := guardProject(wt); err != nil {
+		t.Fatalf("guardProject(%q) failed: %v", wt, err)
+	}
+}
+
+func TestValidateCommonDirForRootRejectsUnregisteredCommonDir(t *testing.T) {
+	victim := setupHookRepo(t)
+	victimCommon := filepath.Join(victim, ".git")
+	attacker := t.TempDir()
+	fakeGD := filepath.Join(t.TempDir(), "outside", "wt1")
+	if err := os.MkdirAll(fakeGD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeGD, "gitdir"), []byte(filepath.Join(attacker, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeGD, "commondir"), []byte(victimCommon+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(attacker, ".git"), []byte("gitdir: "+fakeGD+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", "")
+	if validateCommonDirForRoot(attacker, victimCommon) {
+		t.Fatalf("validateCommonDirForRoot unexpectedly accepted unregistered commondir outside worktrees/")
+	}
+	if err := writePatternsToValidatedExclude(attacker, victimCommon, []string{".agents/scratch/*"}); err == nil {
+		t.Fatalf("writePatternsToValidatedExclude unexpectedly succeeded for unregistered commondir")
+	}
+	if err := ensureHookScratchIgnored(attacker, nil); err == nil {
+		t.Fatalf("ensureHookScratchIgnored unexpectedly succeeded for unregistered commondir")
+	}
+	if data, err := os.ReadFile(filepath.Join(victimCommon, "info", "exclude")); err == nil && strings.Contains(string(data), ".agents/scratch/*") {
+		t.Fatalf("victim info/exclude was modified despite refusal: %q", string(data))
+	}
+
+	// Missing HEAD inside an otherwise matching commonDir must also be refused.
+	noHeadCommon := filepath.Join(t.TempDir(), "common")
+	wtGD := filepath.Join(noHeadCommon, "worktrees", "wt1")
+	wtRoot := t.TempDir()
+	if err := os.MkdirAll(wtGD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtGD, "gitdir"), []byte(filepath.Join(wtRoot, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtRoot, ".git"), []byte("gitdir: "+wtGD+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if validateCommonDirForRoot(wtRoot, noHeadCommon) {
+		t.Fatalf("validateCommonDirForRoot accepted commonDir without regular HEAD")
 	}
 }

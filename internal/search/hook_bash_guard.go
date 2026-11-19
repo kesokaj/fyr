@@ -23,21 +23,11 @@ func checkInteractiveBashGuard(args map[string]any) (string, map[string]any) {
 	if key == "" {
 		return "", nil
 	}
-	needPromptGuard := false
-	for _, seg := range splitShellSegments(cmd) {
-		cmdTok, rest := unwrapSegmentCommand(tokenizeShellSegment(seg))
-		if cmdTok == "" {
-			continue
-		}
-		if reason := checkInteractiveSegment(cmdTok, rest); reason != "" {
-			return reason, nil
-		}
-		if !needPromptGuard && cmdTok == "git" {
-			sub, _ := skipGitGlobalFlags(rest)
-			needPromptGuard = slices.Contains([]string{"fetch", "pull", "push", "clone", "submodule", "ls-remote"}, sub)
-		}
+	reason, needPromptGuard := inspectBashCommandTree(cmd)
+	if reason != "" {
+		return reason, nil
 	}
-	if needPromptGuard && !strings.Contains(cmd, "GIT_TERMINAL_PROMPT=") {
+	if needPromptGuard {
 		cloned := maps.Clone(args)
 		cloned[key] = "export GIT_TERMINAL_PROMPT=0; " + cmd
 		return "", cloned
@@ -45,46 +35,90 @@ func checkInteractiveBashGuard(args map[string]any) (string, map[string]any) {
 	return "", nil
 }
 
+func inspectBashCommandTree(cmd string) (string, bool) {
+	needPromptGuard := false
+	exportedPrompt := false
+	for _, seg := range splitShellSegments(cmd) {
+		toks := tokenizeShellSegment(seg)
+		if isExportEnvAssign(toks, "GIT_TERMINAL_PROMPT") {
+			exportedPrompt = true
+		}
+		cmdTok, rest := unwrapSegmentCommand(toks)
+		if cmdTok == "" {
+			continue
+		}
+		if reason := checkInteractiveSegment(cmdTok, rest); reason != "" {
+			return reason, false
+		}
+		if cmdTok == "git" && needsGitPromptGuard(rest) && !exportedPrompt && !hasLeadingEnvAssign(toks, "GIT_TERMINAL_PROMPT") {
+			needPromptGuard = true
+		}
+	}
+	for _, sub := range extractSubshellCmds(cmd) {
+		if reason, subGuard := inspectBashCommandTree(sub); reason != "" {
+			return reason, false
+		} else if subGuard && !exportedPrompt {
+			needPromptGuard = true
+		}
+	}
+	return "", needPromptGuard
+}
+
+func needsGitPromptGuard(rest []string) bool {
+	sub, _ := skipGitGlobalFlags(rest)
+	return slices.Contains([]string{"fetch", "pull", "push", "clone", "submodule", "ls-remote"}, sub)
+}
+
+func isExportEnvAssign(toks []string, name string) bool {
+	if len(toks) < 2 || toks[0] != "export" {
+		return false
+	}
+	prefix := name + "="
+	for _, t := range toks[1:] {
+		if strings.HasPrefix(t, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasLeadingEnvAssign(toks []string, name string) bool {
+	prefix := name + "="
+	for i := 0; i < len(toks); i++ {
+		t := strings.TrimLeft(toks[i], "({")
+		if strings.HasPrefix(t, prefix) {
+			return true
+		}
+		if isEnvAssignToken(t) || t == "export" || t == "command" || t == "exec" || t == "time" || t == "env" ||
+			t == "-i" || t == "-0" || t == "-p" || t == "--ignore-environment" || t == "--null" ||
+			strings.HasPrefix(t, "--unset=") || strings.HasPrefix(t, "--chdir=") {
+			continue
+		}
+		if (t == "-u" || t == "--unset" || t == "-C" || t == "--chdir" || t == "-a") && i+1 < len(toks) {
+			i++
+			continue
+		}
+		return false
+	}
+	return false
+}
+
 func splitShellSegments(cmd string) []string {
 	var out, heredocs []string
 	var cur strings.Builder
 	var q byte
 	for i := 0; i < len(cmd); i++ {
-		ch := cmd[i]
 		if q != 0 {
-			i, q = stepQuotedRune(cmd, i, q, &cur)
+			i, q = stepQuotedAtom(cmd, i, q, &cur)
 			continue
 		}
-		if ch == '\\' && i+1 < len(cmd) {
-			cur.WriteString(cmd[i : i+2])
-			i++
-			continue
-		}
-		if ch == '\'' || ch == '"' {
-			q = ch
-			cur.WriteByte(ch)
-		} else if ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&", rune(cmd[i-1]))) {
-			for i+1 < len(cmd) && cmd[i+1] != '\n' {
-				i++
-			}
-		} else if ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<') {
-			delim, next := parseHeredocDelim(cmd, i+2)
-			if delim != "" {
-				heredocs = append(heredocs, delim)
-			}
-			cur.WriteString(cmd[i:next])
-			i = next - 1
-		} else if next, sep := matchShellSeparator(cmd, i); sep {
+		var flush bool
+		i, q, heredocs, flush = stepUnquotedSplitChar(cmd, i, heredocs, &cur)
+		if flush {
 			if s := strings.TrimSpace(cur.String()); s != "" {
 				out = append(out, s)
 			}
 			cur.Reset()
-			if ch == '\n' && len(heredocs) > 0 {
-				next, heredocs = skipHeredocBodies(cmd, next, heredocs), nil
-			}
-			i = next - 1
-		} else {
-			cur.WriteByte(ch)
 		}
 	}
 	if s := strings.TrimSpace(cur.String()); s != "" {
@@ -93,22 +127,101 @@ func splitShellSegments(cmd string) []string {
 	return out
 }
 
-func stepQuotedRune(cmd string, i int, q byte, cur *strings.Builder) (int, byte) {
+func stepUnquotedSplitChar(cmd string, i int, heredocs []string, cur *strings.Builder) (int, byte, []string, bool) {
+	ch := cmd[i]
+	if ch == '\\' && i+1 < len(cmd) {
+		cur.WriteString(cmd[i : i+2])
+		return i + 1, 0, heredocs, false
+	}
+	if next, handled := writeOpaqueAtomOrComment(cmd, i, cur); handled {
+		if next == i {
+			return skipLineComment(cmd, i), 0, heredocs, false
+		}
+		return next - 1, 0, heredocs, false
+	}
+	if ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
+		cur.WriteString("$'")
+		return i + 1, '$', heredocs, false
+	}
+	if ch == '\'' || ch == '"' {
+		cur.WriteByte(ch)
+		return i, ch, heredocs, false
+	}
+	if ch == '<' && i+1 < len(cmd) && cmd[i+1] == '<' && (i+2 >= len(cmd) || cmd[i+2] != '<') {
+		delim, next := parseHeredocDelim(cmd, i+2)
+		if delim != "" {
+			heredocs = append(heredocs, delim)
+		}
+		cur.WriteString(cmd[i:next])
+		return next - 1, 0, heredocs, false
+	}
+	if next, sep := matchShellSeparator(cmd, i); sep {
+		if ch == '\n' && len(heredocs) > 0 {
+			next, heredocs = skipHeredocBodies(cmd, next, heredocs), nil
+		}
+		return next - 1, 0, heredocs, true
+	}
+	cur.WriteByte(ch)
+	return i, 0, heredocs, false
+}
+
+func stepQuotedAtom(cmd string, i int, q byte, cur *strings.Builder) (int, byte) {
+	if q == '"' && cmd[i] == '$' && i+1 < len(cmd) && cmd[i+1] == '(' {
+		end := scanBalancedParenAtom(cmd, i+2)
+		cur.WriteString(cmd[i:end])
+		return end - 1, q
+	}
+	if q == '"' && cmd[i] == '`' {
+		end := scanBacktickAtom(cmd, i+1)
+		cur.WriteString(cmd[i:end])
+		return end - 1, q
+	}
 	cur.WriteByte(cmd[i])
-	if q == '"' && cmd[i] == '\\' && i+1 < len(cmd) {
+	if (q == '"' || q == '$') && cmd[i] == '\\' && i+1 < len(cmd) {
 		cur.WriteByte(cmd[i+1])
 		return i + 1, q
 	}
-	if cmd[i] == q {
+	if (q == '$' && cmd[i] == '\'') || cmd[i] == q {
 		return i, 0
 	}
 	return i, q
+}
+
+func writeOpaqueAtomOrComment(cmd string, i int, cur *strings.Builder) (int, bool) {
+	ch := cmd[i]
+	if ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
+		return i, true
+	}
+	if (ch == '$' || ch == '<' || ch == '>') && i+1 < len(cmd) && cmd[i+1] == '(' {
+		end := scanBalancedParenAtom(cmd, i+2)
+		cur.WriteString(cmd[i:end])
+		return end, true
+	}
+	if ch == '`' {
+		end := scanBacktickAtom(cmd, i+1)
+		cur.WriteString(cmd[i:end])
+		return end, true
+	}
+	return i, false
+}
+
+func skipLineComment(cmd string, i int) int {
+	for i+1 < len(cmd) && cmd[i+1] != '\n' {
+		i++
+	}
+	return i
 }
 
 func matchShellSeparator(cmd string, i int) (int, bool) {
 	c := cmd[i]
 	if c == '\n' || c == ';' {
 		return i + 1, true
+	}
+	if c == '|' && i+1 < len(cmd) && cmd[i+1] == '&' {
+		return i + 2, true
+	}
+	if c == '&' && i+1 < len(cmd) && cmd[i+1] == '>' {
+		return i, false
 	}
 	if c != '|' && (c != '&' || (i > 0 && (cmd[i-1] == '>' || cmd[i-1] == '<'))) {
 		return i, false
@@ -117,6 +230,158 @@ func matchShellSeparator(cmd string, i int) (int, bool) {
 		return i + 2, true
 	}
 	return i + 1, true
+}
+
+func scanBalancedParenAtom(cmd string, pos int) int {
+	depth, q := 1, byte(0)
+	for i := pos; i < len(cmd); i++ {
+		c := cmd[i]
+		if q != 0 {
+			i, q = advanceShellQuote(cmd, i, q)
+			continue
+		}
+		if c == '\\' && i+1 < len(cmd) {
+			i++
+			continue
+		}
+		if c == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
+			q = '$'
+			i++
+			continue
+		}
+		if c == '\'' || c == '"' {
+			q = c
+		} else if c == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
+			i = skipLineComment(cmd, i)
+		} else if c == '(' {
+			depth++
+		} else if c == ')' {
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return len(cmd)
+}
+
+func scanBacktickAtom(cmd string, pos int) int {
+	for i := pos; i < len(cmd); i++ {
+		if cmd[i] == '\\' && i+1 < len(cmd) {
+			i++
+			continue
+		}
+		if cmd[i] == '`' {
+			return i + 1
+		}
+	}
+	return len(cmd)
+}
+
+func advanceShellQuote(cmd string, i int, q byte) (int, byte) {
+	if (q == '"' || q == '$') && cmd[i] == '\\' && i+1 < len(cmd) {
+		return i + 1, q
+	}
+	if (q == '$' && cmd[i] == '\'') || cmd[i] == q {
+		return i, 0
+	}
+	return i, q
+}
+
+func hasShellExpansionOutsideSingleQuotes(cmd string) bool {
+	hasExp, _ := scanShellExpansions(cmd)
+	return hasExp
+}
+
+func extractSubshellCmds(cmd string) []string {
+	_, subs := scanShellExpansions(cmd)
+	return subs
+}
+
+func scanShellExpansions(cmd string) (bool, []string) {
+	hasExp := false
+	var subs []string
+	for i, q := 0, byte(0); i < len(cmd); i++ {
+		ch := cmd[i]
+		if q == '\'' || q == '$' {
+			i, q = advanceShellQuote(cmd, i, q)
+			continue
+		}
+		if q == '"' {
+			if next, ok := captureDoubleQuotedSub(cmd, i, &subs); ok {
+				hasExp, i = true, next-1
+				continue
+			}
+			i, q = advanceShellQuote(cmd, i, q)
+			continue
+		}
+		if ch == '\\' && i+1 < len(cmd) {
+			i++
+			continue
+		}
+		if ch == '$' && i+1 < len(cmd) && cmd[i+1] == '\'' {
+			q = '$'
+			i++
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			q = ch
+			continue
+		}
+		if ch == '#' && (i == 0 || strings.ContainsRune(" \t\n\r;|&(", rune(cmd[i-1]))) {
+			i = skipLineComment(cmd, i)
+			continue
+		}
+		if next, exp, ok := captureUnquotedSub(cmd, i, &subs); ok {
+			hasExp = hasExp || exp
+			i = next - 1
+		}
+	}
+	return hasExp, subs
+}
+
+func captureDoubleQuotedSub(cmd string, i int, subs *[]string) (int, bool) {
+	if cmd[i] == '$' && i+1 < len(cmd) && cmd[i+1] == '(' {
+		end := scanBalancedParenAtom(cmd, i+2)
+		appendInnerBody(cmd, i+2, end, ')', subs)
+		return end, true
+	}
+	if cmd[i] == '`' {
+		end := scanBacktickAtom(cmd, i+1)
+		appendInnerBody(cmd, i+1, end, '`', subs)
+		return end, true
+	}
+	return i, false
+}
+
+func captureUnquotedSub(cmd string, i int, subs *[]string) (int, bool, bool) {
+	ch := cmd[i]
+	if (ch == '$' || ch == '<' || ch == '>') && i+1 < len(cmd) && cmd[i+1] == '(' {
+		end := scanBalancedParenAtom(cmd, i+2)
+		appendInnerBody(cmd, i+2, end, ')', subs)
+		return end, true, true
+	}
+	if ch == '`' {
+		end := scanBacktickAtom(cmd, i+1)
+		appendInnerBody(cmd, i+1, end, '`', subs)
+		return end, true, true
+	}
+	if ch == '(' && (i == 0 || cmd[i-1] != '=') {
+		end := scanBalancedParenAtom(cmd, i+1)
+		appendInnerBody(cmd, i+1, end, ')', subs)
+		return end, false, true
+	}
+	return i, false, false
+}
+
+func appendInnerBody(cmd string, start, end int, closeCh byte, subs *[]string) {
+	bodyEnd := end
+	if bodyEnd > start && cmd[bodyEnd-1] == closeCh {
+		bodyEnd--
+	}
+	if bodyEnd > start {
+		*subs = append(*subs, cmd[start:bodyEnd])
+	}
 }
 
 func parseHeredocDelim(cmd string, i int) (string, int) {
@@ -171,13 +436,18 @@ func tokenizeShellSegment(seg string) []string {
 	inTok := false
 	for i, q := 0, byte(0); i < len(seg); i++ {
 		switch ch := seg[i]; {
-		case q == '"' && ch == '\\' && i+1 < len(seg):
+		case (q == '"' || q == '$') && ch == '\\' && i+1 < len(seg):
 			i++
 			cur.WriteByte(seg[i])
+		case q == '$' && ch == '\'':
+			q = 0
 		case q != 0 && ch == q:
 			q = 0
 		case q != 0:
 			cur.WriteByte(ch)
+		case ch == '$' && i+1 < len(seg) && seg[i+1] == '\'':
+			q, inTok = '$', true
+			i++
 		case ch == '\'' || ch == '"':
 			q, inTok = ch, true
 		case ch == '\\' && i+1 < len(seg):
@@ -265,11 +535,11 @@ func checkInteractiveSegment(cmd string, args []string) string {
 				return "[INTERACTIVE_STDIN] git commit without -m/-F/--file/--message/--reuse-message/-C/--reedit-message/-c/--no-edit opens an editor"
 			}
 		case "rebase":
-			if hasGitShortOrLongFlag(subArgs, "i", "--interactive") {
+			if hasGitFlagWithValues(subArgs, "i", "XsxC", "S", []string{"--onto", "--strategy", "--strategy-option", "--exec", "--whitespace", "--empty"}, "--interactive") {
 				return "[INTERACTIVE_STDIN] interactive git rebase (-i/--interactive) blocks on editor input"
 			}
 		case "add":
-			if hasGitShortOrLongFlag(subArgs, "ip", "--interactive", "--patch") {
+			if hasGitFlagWithValues(subArgs, "ip", "", "", []string{"--chmod", "--pathspec-from-file"}, "--interactive", "--patch") {
 				return "[INTERACTIVE_STDIN] interactive git add (-i/--interactive/-p/--patch) blocks on stdin"
 			}
 		}
@@ -316,15 +586,51 @@ func hasNonInteractiveCommitFlag(args []string) bool {
 }
 
 func hasGitShortOrLongFlag(args []string, shorts string, longs ...string) bool {
-	for _, a := range args {
+	return hasGitFlagWithValues(args, shorts, "XsxC", "S", []string{"--onto", "--strategy", "--strategy-option", "--exec", "--whitespace", "--empty", "--chmod", "--pathspec-from-file"}, longs...)
+}
+
+func hasGitFlagWithValues(args []string, shorts, valShorts, optShorts string, valLongs []string, longs ...string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--" {
 			return false
 		}
-		if slices.Contains(longs, a) || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.ContainsAny(a[1:], shorts)) {
+		if slices.Contains(longs, a) {
 			return true
+		}
+		if strings.HasPrefix(a, "--") {
+			if slices.Contains(valLongs, a) && i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		if len(a) > 1 && a[0] == '-' {
+			hit, skipNext := scanGitShortCluster(a[1:], shorts, valShorts, optShorts)
+			if hit {
+				return true
+			}
+			if skipNext && i+1 < len(args) {
+				i++
+			}
 		}
 	}
 	return false
+}
+
+func scanGitShortCluster(cluster, shorts, valShorts, optShorts string) (bool, bool) {
+	for j := 0; j < len(cluster); j++ {
+		r := rune(cluster[j])
+		if strings.ContainsRune(shorts, r) {
+			return true, false
+		}
+		if strings.ContainsRune(valShorts, r) {
+			return false, j == len(cluster)-1
+		}
+		if strings.ContainsRune(optShorts, r) {
+			return false, false
+		}
+	}
+	return false, false
 }
 
 func hasNonInteractiveSudoFlag(args []string) bool {

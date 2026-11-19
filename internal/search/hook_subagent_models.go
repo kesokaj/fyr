@@ -367,22 +367,29 @@ func nonInheritModelOverride(args map[string]any) (string, bool) {
 		}
 	}
 	sort.Strings(keys)
+	var overrides []string
+	seen := map[string]bool{}
 	for _, k := range keys {
 		v := args[k]
 		if v == nil {
 			continue
 		}
-		s, ok := v.(string)
-		if !ok {
-			return fmt.Sprint(v), true
+		var val string
+		if s, ok := v.(string); ok {
+			val = strings.TrimSpace(s)
+		} else {
+			val = strings.TrimSpace(fmt.Sprint(v))
 		}
-		trimmed := strings.TrimSpace(s)
-		if trimmed == "" || strings.EqualFold(trimmed, "inherit") {
+		if val == "" || strings.EqualFold(val, "inherit") || seen[val] {
 			continue
 		}
-		return trimmed, true
+		seen[val] = true
+		overrides = append(overrides, val)
 	}
-	return "", false
+	if len(overrides) == 0 {
+		return "", false
+	}
+	return strings.Join(overrides, ", "), true
 }
 
 func isSubagentModelKey(k string) bool {

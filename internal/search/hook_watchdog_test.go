@@ -230,6 +230,92 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 		t.Fatalf("main uncapped failed: %+v", dec)
 	}
 
+	// BUG-558: swarm builder/coder workers receive 90/120 budget, while audit roles receive 25/40.
+	seedExtraSummary := func(convID, agentName, parentID string) {
+		sumDB, err := sql.Open("sqlite", DSN(filepath.Join(home, ".gemini", "antigravity-cli", "conversation_summaries.db")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sumDB.Close()
+		if _, err := sumDB.Exec(`INSERT INTO conversation_summaries VALUES (?, '2026-11-18T10:00:00Z', '[]', ?, ?)`, convID, agentName, parentID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedExtraSummary("conv-builder", "builder-1c", "conv-main")
+	seedExtraSummary("conv-sec", "security", "conv-main")
+	if dec := runWatchdogPre(t, home, dir, "conv-builder", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "allow" {
+		t.Fatalf("builder init: %+v", dec)
+	}
+	_, _ = db.Exec(`UPDATE session_meta SET tool_calls = 40 WHERE conversation_id = 'conv-builder'`)
+	if dec := runWatchdogPre(t, home, dir, "conv-builder", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "allow" || dec.Reason != "" {
+		t.Fatalf("builder-1c at 40/120 must allow cleanly (BUG-558), got %+v", dec)
+	}
+	_, _ = db.Exec(`UPDATE session_meta SET tool_calls = 90 WHERE conversation_id = 'conv-builder'`)
+	if dec := runWatchdogPre(t, home, dir, "conv-builder", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "allow" || !strings.Contains(dec.Reason, "[SUBAGENT_BUDGET_WARN]") {
+		t.Fatalf("builder-1c at 90/120 expected [SUBAGENT_BUDGET_WARN], got %+v", dec)
+	}
+	_, _ = db.Exec(`UPDATE session_meta SET tool_calls = 120 WHERE conversation_id = 'conv-builder'`)
+	if dec := runWatchdogPre(t, home, dir, "conv-builder", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[SUBAGENT_BUDGET]") {
+		t.Fatalf("builder-1c at 120/120 expected [SUBAGENT_BUDGET], got %+v", dec)
+	}
+	if dec := runWatchdogPre(t, home, dir, "conv-sec", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "allow" {
+		t.Fatalf("sec init: %+v", dec)
+	}
+	_, _ = db.Exec(`UPDATE session_meta SET tool_calls = 40 WHERE conversation_id = 'conv-sec'`)
+	if dec := runWatchdogPre(t, home, dir, "conv-sec", "run_command", map[string]any{"CommandLine": "true"}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[SUBAGENT_BUDGET]") {
+		t.Fatalf("security at 40/40 expected [SUBAGENT_BUDGET], got %+v", dec)
+	}
+
+	// SD66: non-empty callID absent from watchdog_ring does not retroactively mark prior call as error.
+	okArgs := map[string]any{"CommandLine": "echo ok"}
+	if dec := runWatchdogPre(t, home, dir, "conv-sd66", "run_command", okArgs, func(p map[string]any) { p["toolCallId"] = "tc-ok-1" }); dec.Decision != "allow" {
+		t.Fatalf("sd66 allow: %+v", dec)
+	}
+	runWatchdogPost(t, home, dir, "conv-sd66", "run_command", okArgs, "", "tc-ok-1", "")
+	runWatchdogPost(t, home, dir, "conv-sd66", "run_command", okArgs, "denied", "tc-absent-99", "")
+	var sd66Err int
+	if err := db.QueryRow(`SELECT is_error FROM watchdog_ring WHERE conversation_id = 'conv-sd66' AND tool_call_id = 'tc-ok-1'`).Scan(&sd66Err); err != nil || sd66Err != 0 {
+		t.Fatalf("absent callID poisoned prior call is_error=%d err=%v", sd66Err, err)
+	}
+
+	// SD91: main session quoting a subagent prompt phrase stays main and uncapped.
+	seedExtraSummary("conv-main-quote", "", "")
+	quoteExtra := func(p map[string]any) {
+		p["last_user_input"] = `Please investigate why mentioning "you are a senior code reviewer" triggered cap.`
+	}
+	if dec := runWatchdogPre(t, home, dir, "conv-main-quote", "run_command", map[string]any{"CommandLine": "true"}, quoteExtra); dec.Decision != "allow" {
+		t.Fatalf("sd91 main quote init: %+v", dec)
+	}
+	var mqRole string
+	_ = db.QueryRow(`SELECT agent_role FROM session_meta WHERE conversation_id = 'conv-main-quote'`).Scan(&mqRole)
+	if mqRole != "main" {
+		t.Fatalf("sd91 main session latched role %q, want main", mqRole)
+	}
+	// SD91: unseeded session with quoted phrase mid-prompt also stays main.
+	if dec := runWatchdogPre(t, home, dir, "conv-unseeded-quote", "run_command", map[string]any{"CommandLine": "true"}, quoteExtra); dec.Decision != "allow" {
+		t.Fatalf("sd91 unseeded quote init: %+v", dec)
+	}
+	var uqRole string
+	_ = db.QueryRow(`SELECT agent_role FROM session_meta WHERE conversation_id = 'conv-unseeded-quote'`).Scan(&uqRole)
+	if uqRole != "main" {
+		t.Fatalf("sd91 unseeded mid-prompt quote latched role %q, want main", uqRole)
+	}
+
+	// SD69: watchdog exemption rejects $(...), backticks, <(...), >(...) outside single quotes.
+	for _, badExempt := range []string{
+		"git status $(id)",
+		"git status `id`",
+		"git diff <(id)",
+		`git commit -m "$(id)"`,
+	} {
+		if isWatchdogExemptBash(map[string]any{"CommandLine": badExempt}) {
+			t.Errorf("isWatchdogExemptBash(%q) = true, want false", badExempt)
+		}
+	}
+	if !isWatchdogExemptBash(map[string]any{"CommandLine": "git commit -m 'literal $(ok)'"}) {
+		t.Errorf("single-quoted $(ok) should remain watchdog-exempt")
+	}
+
 	// 5. 64-row ring buffer prune.
 	for i := 0; i < 70; i++ {
 		_ = runWatchdogPre(t, home, dir, "conv-prune", "run_command", map[string]any{"CommandLine": fmt.Sprintf("echo %d", i)})
@@ -243,10 +329,13 @@ func TestWatchdogCircuitBreaker(t *testing.T) {
 func TestInteractiveBashGuard(t *testing.T) {
 	denies := []string{
 		"git commit", "git commit -a", "git commit --amend",
-		"git rebase -i HEAD~2", "git rebase --interactive main",
+		"git rebase -i HEAD~2", "git rebase --interactive main", "git rebase -Xtheirs -i",
 		"git add -i", "git add -p", "git add --patch a.go",
 		"sudo ls", "sudo -u root ls",
 		"vim foo.go", "less README.md", "git diff | less",
+		"echo $(vim f)", `echo "$(git commit)"`, "echo `less README.md`",
+		"cat <(sudo ls)", "(vim f)", "$'foo\\'bar'; vim f",
+		"git commit &> /dev/null", "echo ok |& less",
 	}
 	for _, cmd := range denies {
 		deny, ov := checkInteractiveBashGuard(map[string]any{"CommandLine": cmd})
@@ -258,15 +347,32 @@ func TestInteractiveBashGuard(t *testing.T) {
 	allows := []string{
 		`git commit -m "ok"`, `git commit -am "ok"`, `git commit -m"ok"`,
 		`git commit --amend --no-edit`, `git commit -C HEAD`, `git -C repo commit -m "ok"`,
+		`git rebase -Xtheirs main`, `git rebase -Xpatience main`, `git rebase -Xignore-space-change main`,
+		`git rebase -s recursive --onto main HEAD~2`, `git rebase --onto main --strategy=ort`,
+		`git commit -m "ok" &> /dev/null`, `echo $'foo\'bar'; echo ok`,
 		`sudo -n ls`, `command -v vim`,
 		"cat <<'EOF'\nvim\ngit commit\nEOF",
 		`echo "vim" # git commit`,
+		`echo '$(vim f)'`,
 		`GIT_TERMINAL_PROMPT=1 git fetch origin`,
+		`export GIT_TERMINAL_PROMPT=0; git fetch origin`,
+		`env GIT_TERMINAL_PROMPT=0 git fetch origin`,
 	}
 	for _, cmd := range allows {
 		deny, ov := checkInteractiveBashGuard(map[string]any{"CommandLine": cmd})
 		if deny != "" || ov != nil {
 			t.Fatalf("cmd %q unexpectedly guarded: deny=%q ov=%v", cmd, deny, ov)
+		}
+	}
+
+	for _, cmd := range []string{
+		`echo "GIT_TERMINAL_PROMPT=1" && git fetch origin`,
+		`git fetch origin # GIT_TERMINAL_PROMPT=0`,
+		`git commit -m "GIT_TERMINAL_PROMPT=0" && git fetch origin`,
+	} {
+		deny, ov := checkInteractiveBashGuard(map[string]any{"CommandLine": cmd})
+		if deny != "" || ov == nil || ov["CommandLine"] != "export GIT_TERMINAL_PROMPT=0; "+cmd {
+			t.Fatalf("cmd %q should still inject GIT_TERMINAL_PROMPT=0, got deny=%q ov=%v", cmd, deny, ov)
 		}
 	}
 

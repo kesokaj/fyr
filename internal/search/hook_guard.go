@@ -10,13 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-
-	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -78,15 +75,24 @@ func hasAutonomousWaiver(lowPrompt string) bool {
 // checkTurnOrMidTurn stats transcriptPath, checks compaction, and determines
 // whether this PreInvocation is a mid-turn tool-loop continuation.
 func checkTurnOrMidTurn(dir, conversationID, transcriptPath string, invocationNum int, rawPrompt string) (SessionState, bool, error) {
+	return checkTurnOrMidTurnInput(dir, HookInput{
+		ConversationID: conversationID,
+		TranscriptPath: transcriptPath,
+		InvocationNum:  invocationNum,
+	}, rawPrompt)
+}
+
+func checkTurnOrMidTurnInput(dir string, in HookInput, rawPrompt string) (SessionState, bool, error) {
 	st, _, err := openLedgerStore(dir)
 	if err != nil {
 		return SessionState{}, false, err
 	}
 	defer st.close()
+	conversationID := strings.TrimSpace(in.ConversationID)
 	if conversationID == "" {
 		conversationID = "default"
 	}
-	curBytes, hasSize := statTranscriptBytes(transcriptPath)
+	curBytes, hasSize := statTranscriptBytes(in.TranscriptPath)
 	promptSum := sha256PromptHex(rawPrompt)
 	var genID, lastBytes, turnCount, estTokens int
 	err = st.db.QueryRow(`SELECT generation_id, last_transcript_bytes, turn_count, est_tokens FROM session_meta WHERE conversation_id = ?`, conversationID).
@@ -100,15 +106,16 @@ func checkTurnOrMidTurn(dir, conversationID, transcriptPath string, invocationNu
 	if err != nil {
 		return SessionState{}, false, err
 	}
-	return advanceOrSkipTurn(st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, invocationNum, promptSum)
+	return advanceOrSkipTurn(st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, in, promptSum)
 }
 
-func advanceOrSkipTurn(st *store, conversationID string, genID, lastBytes, turnCount, estTokens, curBytes int, hasSize bool, invocationNum int, promptSum string) (SessionState, bool, error) {
+func advanceOrSkipTurn(st *store, conversationID string, genID, lastBytes, turnCount, estTokens, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
 	compacted := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
 	var prevSum string
 	_ = st.db.QueryRow(`SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
 		conversationID, genID, preInvocationSentinel).Scan(&prevSum)
-	if !compacted && promptSum != "" && prevSum == promptSum && invocationNum >= 1 {
+	midTurn := in.ContinuationActive || (in.InvocationNum >= 1 && (in.ExecutionNum > 0 || in.StepIdx > in.InitialNumSteps))
+	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
 			lastBytes, estTokens = curBytes, curBytes/4
 			_, _ = st.db.Exec(`UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, estTokens, conversationID)
@@ -236,38 +243,25 @@ func scanNestedGitDirs(base, rel string, depth int) []string {
 
 func ensureHookScratchIgnored(root string, nested []string) error {
 	_, commonDir, ok := findGitRootFast(root)
-	if ok && len(nested) == 0 && scratchIgnoredFast(root, commonDir) {
-		return nil
+	if !ok {
+		return errNotCheckout
 	}
-	ignoreErr := trail.Command(root, "check-ignore", "-q", ".agents/scratch/search.db").Run()
-	if ignoreErr == nil && len(nested) == 0 {
+	if len(nested) == 0 && scratchIgnoredFast(root, commonDir) {
 		return nil
-	}
-	var ee *exec.ExitError
-	if ignoreErr != nil && (!errors.As(ignoreErr, &ee) || ee.ExitCode() != 1) {
-		return fmt.Errorf("search: git check-ignore: %w", ignoreErr)
 	}
 	patterns := append([]string{".agents/scratch/*"}, nested...)
-	if ok {
-		return writePatternsToValidatedExclude(commonDir, patterns)
-	}
-	return appendGitInfoExclude(root, patterns)
+	return writePatternsToValidatedExclude(root, commonDir, patterns)
 }
 
-func appendGitInfoExclude(root string, patterns []string) error {
-	out, err := git(root, nil, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return err
-	}
-	return writePatternsToValidatedExclude(filepath.Clean(strings.TrimSpace(string(out))), patterns)
-}
-
-func writePatternsToValidatedExclude(commonDir string, patterns []string) error {
+func writePatternsToValidatedExclude(root, commonDir string, patterns []string) error {
 	if commonDir == "" || !filepath.IsAbs(commonDir) {
 		return fmt.Errorf("search: invalid git common dir %q", commonDir)
 	}
 	if fi, err := os.Lstat(commonDir); err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
 		return fmt.Errorf("search: git common dir %s is not a regular directory", commonDir)
+	}
+	if !validateCommonDirForRoot(root, commonDir) {
+		return fmt.Errorf("search: git common dir %s does not belong to checkout %s", commonDir, root)
 	}
 	infoDir := filepath.Join(commonDir, "info")
 	if fi, err := os.Lstat(infoDir); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir()) {
@@ -278,6 +272,46 @@ func writePatternsToValidatedExclude(commonDir string, patterns []string) error 
 		return fmt.Errorf("search: %s is a symlink or not a regular file", excludeFile)
 	}
 	return writePatternsToCommonExclude(commonDir, patterns)
+}
+
+func validateCommonDirForRoot(root, commonDir string) bool {
+	if root == "" || commonDir == "" {
+		return false
+	}
+	if sameAutoInitPath(commonDir, filepath.Join(root, ".git")) {
+		return true
+	}
+	dotGitData, ok := readSmallRegularFile(filepath.Join(root, ".git"), 4096)
+	if !ok {
+		return false
+	}
+	rawGitDir, ok := strings.CutPrefix(strings.TrimSpace(string(dotGitData)), "gitdir:")
+	if !ok {
+		return false
+	}
+	rawGitDir = strings.TrimSpace(rawGitDir)
+	if rawGitDir == "" || strings.ContainsAny(rawGitDir, "\r\n") {
+		return false
+	}
+	gitDir := resolveCleanPath(root, rawGitDir)
+	worktreesDir := filepath.Join(commonDir, "worktrees")
+	if !isRegularDirNoSymlink(gitDir) || !isRegularDirNoSymlink(worktreesDir) || !sameAutoInitPath(filepath.Dir(gitDir), worktreesDir) {
+		return false
+	}
+	namedRawBytes, ok := readSmallRegularFile(filepath.Join(gitDir, "gitdir"), 4096)
+	if !ok {
+		return false
+	}
+	namedRaw := strings.TrimSpace(string(namedRawBytes))
+	if namedRaw == "" || strings.ContainsAny(namedRaw, "\r\n") {
+		return false
+	}
+	named := resolveCleanPath(gitDir, namedRaw)
+	if !sameAutoInitPath(filepath.Dir(named), root) {
+		return false
+	}
+	headInfo, err := os.Lstat(filepath.Join(commonDir, "HEAD"))
+	return err == nil && headInfo.Mode()&os.ModeSymlink == 0 && headInfo.Mode().IsRegular()
 }
 
 func writePatternsToCommonExclude(commonDir string, patterns []string) error {
@@ -420,6 +454,15 @@ func applyHookEnvelopeAliases(in *HookInput, raw map[string]any, optSession stri
 	}
 	if in.InvocationNum == 0 {
 		in.InvocationNum = extractIntArg(raw, "invocation_num")
+	}
+	if in.InitialNumSteps == 0 {
+		in.InitialNumSteps = extractIntArg(raw, "initial_num_steps")
+	}
+	if in.StepIdx == 0 {
+		in.StepIdx = extractIntArg(raw, "step_idx")
+	}
+	if in.ExecutionNum == 0 {
+		in.ExecutionNum = extractIntArg(raw, "execution_num")
 	}
 	if !in.ContinuationActive {
 		if v, ok := raw["continuation_active"].(bool); ok {

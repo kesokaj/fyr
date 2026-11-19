@@ -3,7 +3,6 @@ package search
 import (
 	"bytes"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -138,12 +137,12 @@ func checkWatchdogErrorLoop(st *store, convID, ringTool, argHash string) string 
 }
 
 func checkWatchdogBudget(role string, toolCalls int) (string, string) {
-	if role == "" || role == "main" {
+	if role == "" || strings.EqualFold(role, "main") {
 		return "", ""
 	}
-	warnAt, capAt := 25, 40
-	if strings.EqualFold(role, "self") {
-		warnAt, capAt = 90, 120
+	warnAt, capAt := 90, 120
+	if isAuditSubagentRole(role) {
+		warnAt, capAt = 25, 40
 	}
 	if toolCalls >= capAt {
 		return fmt.Sprintf("[SUBAGENT_BUDGET] %s reached %d/%d tool calls; write final artifact or finish now", role, toolCalls, capAt), ""
@@ -152,6 +151,16 @@ func checkWatchdogBudget(role string, toolCalls int) (string, string) {
 		return "", fmt.Sprintf("[SUBAGENT_BUDGET_WARN] %s at %d/%d tool calls; finish soon", role, toolCalls, capAt)
 	}
 	return "", ""
+}
+
+func isAuditSubagentRole(role string) bool {
+	r := strings.ToLower(strings.TrimSpace(role))
+	for _, p := range []string{"reviewer", "security", "verifier", "explorer", "dreamer", "documentation", "research", "subagent"} {
+		if r == p || strings.HasPrefix(r, p+"-") || strings.HasPrefix(r, p+"_") {
+			return true
+		}
+	}
+	return strings.HasPrefix(r, "sub-")
 }
 
 func isWatchdogExempt(dir string, in HookInput, normTool string) bool {
@@ -186,7 +195,7 @@ func isWatchdogExempt(dir string, in HookInput, normTool string) bool {
 func isWatchdogExemptBash(args map[string]any) bool {
 	_, cmd := extractBashCmdArg(args)
 	segs := splitShellSegments(cmd)
-	if cmd == "" || len(segs) == 0 {
+	if cmd == "" || len(segs) == 0 || hasShellExpansionOutsideSingleQuotes(cmd) {
 		return false
 	}
 	for _, seg := range segs {
@@ -226,29 +235,68 @@ var watchdogPromptRoles = [][2]string{
 }
 
 func resolveWatchdogRole(home, convID, lastInput string) (string, string) {
-	low := strings.ToLower(lastInput)
-	for _, p := range watchdogPromptRoles {
-		if strings.Contains(low, p[0]) {
-			return p[1], p[1]
+	role, name, found := lookupWatchdogSummaryRole(home, convID)
+	if found {
+		if role != "main" && role != "self" {
+			return role, name
+		}
+		if role == "main" {
+			return "main", ""
+		}
+		if r := matchWatchdogPromptPreamble(lastInput); r != "" {
+			return r, r
+		}
+		return "self", "self"
+	}
+	if r := matchWatchdogPromptPreamble(lastInput); r != "" {
+		return r, r
+	}
+	return "main", ""
+}
+
+func matchWatchdogPromptPreamble(lastInput string) string {
+	stripped := strings.TrimSpace(StripSandboxPreamble(lastInput))
+	if stripped == "" {
+		return ""
+	}
+	lines := strings.Split(strings.ToLower(strings.ReplaceAll(stripped, "\r\n", "\n")), "\n")
+	checked := 0
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		for _, p := range watchdogPromptRoles {
+			if strings.HasPrefix(t, p[0]) {
+				return p[1]
+			}
+		}
+		checked++
+		if checked >= 2 {
+			break
 		}
 	}
+	return ""
+}
+
+func lookupWatchdogSummaryRole(home, convID string) (string, string, bool) {
 	h := strings.TrimSpace(home)
 	agyDir := filepath.Join(h, ".gemini", "antigravity-cli")
 	if _, err := os.Stat(filepath.Join(agyDir, "conversation_summaries.db")); h == "" || err != nil {
-		return "main", ""
+		return "main", "", false
 	}
 	conf := filepath.Join(h, harness.StateDir)
 	_, stErr := os.Stat(conf)
 	created := errors.Is(stErr, os.ErrNotExist)
 	if os.MkdirAll(conf, 0o700) != nil {
-		return "main", ""
+		return "main", "", false
 	}
 	tmp, err := os.MkdirTemp(conf, "watchdog-agy-")
 	if err != nil {
 		if created {
 			_ = os.Remove(conf)
 		}
-		return "main", ""
+		return "main", "", false
 	}
 	defer func() {
 		_ = os.RemoveAll(tmp)
@@ -259,24 +307,24 @@ func resolveWatchdogRole(home, convID, lastInput string) (string, string) {
 	return queryWatchdogSummaryRole(agyDir, tmp, convID)
 }
 
-func queryWatchdogSummaryRole(agyDir, tmp, convID string) (string, string) {
+func queryWatchdogSummaryRole(agyDir, tmp, convID string) (string, string, bool) {
 	db, err := openCopy(agyDir, "conversation_summaries.db", tmp)
 	if err != nil {
-		return "main", ""
+		return "main", "", false
 	}
 	defer db.Close()
 	var agentName, parentID string
 	err = db.QueryRow(`SELECT COALESCE(agent_name, ''), COALESCE(parent_conversation_id, '') FROM conversation_summaries WHERE conversation_id = ? LIMIT 1`, convID).Scan(&agentName, &parentID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "main", ""
+	if err != nil {
+		return "main", "", false
 	}
 	if a := strings.TrimSpace(agentName); a != "" {
-		return a, a
+		return a, a, true
 	}
 	if strings.TrimSpace(parentID) != "" {
-		return "self", "self"
+		return "self", "self", true
 	}
-	return "main", ""
+	return "main", "", true
 }
 
 func finalizeWatchdogPre(dir string, in HookInput, wd watchdogPreState, raw []byte, out io.Writer) error {
@@ -325,7 +373,8 @@ func markWatchdogPostError(dir string, in HookInput) {
 	}
 	defer st.close()
 	convID := strings.TrimSpace(in.ConversationID)
-	if callID := strings.TrimSpace(in.ToolCall.ID); callID != "" && execRowsAffected(st, `UPDATE watchdog_ring SET is_error = 1 WHERE conversation_id = ? AND tool_call_id = ?`, convID, callID) > 0 {
+	if callID := strings.TrimSpace(in.ToolCall.ID); callID != "" {
+		_, _ = st.db.Exec(`UPDATE watchdog_ring SET is_error = 1 WHERE conversation_id = ? AND tool_call_id = ?`, convID, callID)
 		return
 	}
 	ringTool := watchdogRingTool(in.ToolCall)

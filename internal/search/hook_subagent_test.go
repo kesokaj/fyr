@@ -305,6 +305,7 @@ func TestHookPreToolUseSubagentModelGuard(t *testing.T) {
 		{"prefixed tool lowercase key denied", "default_api:invoke_subagent", map[string]any{"TypeName": "Reviewer", "model": "flash"}, "deny"},
 		{"cortex snake_case key denied", "CORTEX_STEP_TYPE_INVOKE_SUBAGENT", map[string]any{"type_name": "verifier", "Model": "pro"}, "deny"},
 		{"masked alias model denied", "invoke_subagent", map[string]any{"TypeName": "reviewer", "Model": "inherit", "model": "flash"}, "deny"},
+		{"conflicting model aliases flash surfaced", "invoke_subagent", map[string]any{"TypeName": "reviewer", "model": "pro", "model_name": "flash"}, "deny"},
 		{"non-string model denied", "invoke_subagent", map[string]any{"TypeName": "security", "Model": 42}, "deny"},
 		{"reviewer omitted allowed", "invoke_subagent", map[string]any{"TypeName": "reviewer"}, "allow"},
 		{"verifier inherit allowed", "invoke_subagent", map[string]any{"TypeName": "verifier", "Model": "inherit"}, "allow"},
