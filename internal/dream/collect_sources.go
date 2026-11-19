@@ -123,10 +123,6 @@ func addPlanContext(plans []brain.Record, since, upper time.Time, seen map[strin
 	}
 }
 
-func contextTime(r brain.Record, since, upper time.Time) time.Time {
-	t := recordTime(r)
-	if t.IsZero() || t.After(upper) || t.After(since) {
-		return since
-	}
-	return t
+func contextTime(_ brain.Record, _, _ time.Time) time.Time {
+	return time.Time{}
 }

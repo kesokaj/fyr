@@ -45,7 +45,7 @@ func (o Options) realRun() error {
 	r := &dreamRun{o: o, conf: conf, t0: o.Now(), logf: logger(filepath.Join(conf, "dream.log"), o.Now)}
 	if r.st, err = readState(o.Home); err != nil {
 		// The state is not rewritten: that would erase the watermarks.
-		r.logf("- run 0 projects, 0 proposals, error " + err.Error())
+		r.logf("- run 0 projects, 0 proposals, error " + scrub(err.Error(), r.o.Home))
 		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	removeCopies(conf, o.Now())
@@ -148,6 +148,7 @@ func (r *dreamRun) finish(n, proposals int, runErr string) error {
 
 // fail ends a run that failed before its first project: exit 2.
 func (r *dreamRun) fail(msg string) error {
+	msg = scrub(msg, r.o.Home)
 	r.finish(0, 0, msg)
 	return &ExitError{2, "fyr dream: " + msg}
 }
@@ -188,7 +189,7 @@ func (r *dreamRun) project(p search.Project) {
 	nProps, err := r.o.write(r.conf, c, resp, r.argv[0], r.t0)
 	if err != nil {
 		r.failed++
-		r.logf(p.Root + " fail " + err.Error())
+		r.logf(p.Root + " fail " + scrub(err.Error(), r.o.Home))
 		return
 	}
 	r.recordSuccess(p.Root, c, since, cutoff)
@@ -198,15 +199,22 @@ func (r *dreamRun) project(p search.Project) {
 
 func (r *dreamRun) recordSuccess(root string, c Collected, since, cutoff time.Time) {
 	delete(r.st.FailedAttempts, root)
+	upper := r.t0
 	if r.o.ConversationIdle > 0 {
 		delete(r.st.Attempts, root)
-		if next := watermark(c, cutoff); next.After(since) {
-			r.st.Projects[root] = next
+		upper = cutoff
+	}
+	// Short of upper when the cap dropped news: the next run offers it again (ADR-069).
+	next := watermark(c, upper)
+	if !c.Through.IsZero() && !next.After(since) && upper.After(since) {
+		if adv := since.Add(time.Nanosecond); !adv.After(upper) {
+			next = adv
+		} else {
+			next = upper
 		}
-	} else {
-		// Short of the run's start when the cap dropped news: the next run
-		// offers it again (ADR-069).
-		r.st.Projects[root] = watermark(c, r.t0)
+	}
+	if next.After(since) {
+		r.st.Projects[root] = next
 	}
 	r.save()
 }
@@ -227,7 +235,7 @@ func (r *dreamRun) ask(p search.Project, c Collected, b branch) (response, bool)
 		if hint := agyAuthHint(stdout, stderr, b.where); hint != "" {
 			reason += ": " + hint
 		}
-		r.logf(p.Root + " fail " + reason)
+		r.logf(p.Root + " fail " + scrub(reason, r.o.Home))
 		return response{}, false
 	}
 	text, aerr := answer(stdout)
@@ -242,7 +250,7 @@ func (r *dreamRun) ask(p search.Project, c Collected, b branch) (response, bool)
 		if hint := agyAuthHint(stdout, stderr, b.where); hint != "" {
 			reason += ": " + hint
 		}
-		r.logf(p.Root + " fail " + reason)
+		r.logf(p.Root + " fail " + scrub(reason, r.o.Home))
 		return response{}, false
 	}
 	return resp, true

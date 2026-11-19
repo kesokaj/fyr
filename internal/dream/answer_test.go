@@ -111,16 +111,26 @@ func TestAnswerNeedsASuccessfulResult(t *testing.T) {
 	if got, err := answer(ok); got == "" || err != nil {
 		t.Errorf("a successful result gave no answer: %q, %v", got, err)
 	}
-	for _, bad := range []string{
-		`{"event":"result","result":{"status":"ERROR","response":"{\"proposals\":[],\"skills\":[]}"}}`,
-		`{"event":"result","result":{"status":"SUCCESS","response":"x","denied_actions":[{"action":"command"}]}}`,
-		`{"event":"init"}`,
+	cases := []struct {
+		name, in, wantErr string
+	}{
+		{"status error", `{"event":"result","result":{"status":"ERROR","response":"{\"proposals\":[],\"skills\":[]}"}}`, "status"},
+		{"denied actions", `{"event":"result","result":{"status":"SUCCESS","response":"x","denied_actions":[{"action":"command"}]}}`, "denied"},
+		{"init only", `{"event":"init"}`, ""},
 		// A tool step that ran, denied or not, means the answer was not
 		// tool-free (security review of the release range).
-		`{"event":"step_update","step_update":{"step_type":"tool","tool_name":"run_command"}}` + "\n" + ok,
-	} {
-		if got, _ := answer(bad); got != "" {
-			t.Errorf("%s gave %q", bad, got)
+		{"tool step", `{"event":"step_update","step_update":{"step_type":"tool","tool_name":"run_command"}}` + "\n" + ok, "tool"},
+	}
+	for _, tc := range cases {
+		got, err := answer(tc.in)
+		if got != "" {
+			t.Errorf("%s gave %q", tc.name, got)
+		}
+		if tc.wantErr == "" && err != nil {
+			t.Errorf("%s: got err %v, want nil", tc.name, err)
+		}
+		if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+			t.Errorf("%s: err = %v, want substring %q", tc.name, err, tc.wantErr)
 		}
 	}
 }
@@ -193,5 +203,35 @@ func TestAnswerLineTooLong(t *testing.T) {
 	_, err := answer(strings.Repeat("x", 17<<20) + "\n")
 	if err == nil || !strings.Contains(err.Error(), "too long") {
 		t.Errorf("err = %v, want an output-line-too-long error", err)
+	}
+}
+
+func TestParseAndProposalValidation(t *testing.T) {
+	if _, ok := parse("{}"); !ok {
+		t.Error("parse({}) = false, want true")
+	}
+	if _, ok := parse(`{"error":"rate limited"}`); ok {
+		t.Error(`parse({"error":"rate limited"}) = true, want false`)
+	}
+	r, ok := parse(`note {} {"proposals":[{"title":"ok","kind":"Rule","target":"Harness","file":"x","text":"body","evidence":"e"}]}`)
+	if !ok || len(r.Proposals) != 1 {
+		t.Fatalf("parse preferred empty object over proposals: ok=%v %+v", ok, r)
+	}
+	o := Options{Home: t.TempDir()}
+	built := o.buildProposals("HEAD\n\n", []proposal{
+		{Title: "bad kind", Kind: "other", Target: "project", Text: "x"},
+		{Title: "   ", Kind: "rule", Target: "project", Text: "x"},
+		{Title: "empty text", Kind: "rule", Target: "project", Text: "  \n "},
+		{Title: "valid", Kind: "Procedure", Target: "Harness", File: "f", Text: "body", Evidence: "ev"},
+	}, nil)
+	if len(built) != 1 || built[0].Title != "Dream, harness — valid" || !strings.Contains(built[0].Body, "Target: harness   Kind: procedure   File: f") {
+		t.Fatalf("built = %+v", built)
+	}
+	notDir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unique(notDir, "name", ".txt"); err == nil || strings.Contains(err.Error(), "no free name") {
+		t.Errorf("unique over file = %v, want immediate Lstat error", err)
 	}
 }

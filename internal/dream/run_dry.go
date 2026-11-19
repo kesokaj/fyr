@@ -17,19 +17,29 @@ const shownDropped = 5
 // advances nothing of fyr's; once a real run has made dream-work it asks
 // the oracle as that run does, and agy keeps its own log in that home.
 func (o Options) dryRun(projects []search.Project, skips []skipped, st state) error {
-	if err := o.drySession(); err != nil {
+	sessionOn, err := o.drySession()
+	if err != nil {
 		return err
 	}
-	if err := checkAgy(); err != nil {
-		return &ExitError{2, "fyr dream: " + err.Error()}
+	if !o.SkipIngest {
+		fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
 	}
-	fmt.Fprintf(o.Out, "[dry-run] would ingest metrics into %s\n", metrics.Path(o.Home))
-	cli := append(command(), "(prompt on stdin as one stream-json message; HOME the branch's, the line below)")
 	for _, s := range skips {
 		fmt.Fprintf(o.Out, "[dry-run] %s: skip (%s)\n", s.root, s.why)
 	}
+	if o.SkipIngest && len(projects) == 0 {
+		return nil
+	}
+	cli := append(command(), "(prompt on stdin as one stream-json message; HOME the branch's, the line below)")
 	for _, p := range projects {
 		o.dryProject(p, st, cli)
+	}
+	if err := checkAgy(); err != nil {
+		if !sessionOn {
+			fmt.Fprintf(o.Out, "[dry-run] warning: %s\n", err.Error())
+			return nil
+		}
+		return &ExitError{2, "fyr dream: " + err.Error()}
 	}
 	return nil
 }
@@ -71,20 +81,20 @@ func (o Options) dryProject(p search.Project, st state, cli []string) {
 
 // drySession is the real --all run's first step, said: whether an agy
 // session runs, and a check that errors exits 2 as that one does.
-func (o Options) drySession() error {
+func (o Options) drySession() (bool, error) {
 	if !o.All {
-		return nil
+		return true, nil
 	}
 	on, err := o.Session()
 	switch {
 	case err != nil:
-		return &ExitError{2, "fyr dream: " + err.Error()}
+		return false, &ExitError{2, "fyr dream: " + err.Error()}
 	case on:
 		fmt.Fprintln(o.Out, "[dry-run] agy session: yes")
 	default:
 		fmt.Fprintln(o.Out, "[dry-run] agy session: no (a real --all run would stop here)")
 	}
-	return nil
+	return on, nil
 }
 
 // drySkip is why the real run would skip p, "" when it would not.

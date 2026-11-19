@@ -16,6 +16,7 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 func defaultWriteRatings(home, _ string, rows []metrics.SessionRating) error {
@@ -30,35 +31,65 @@ func defaultWriteRatings(home, _ string, rows []metrics.SessionRating) error {
 	return s.UpsertSessionRatings(rows)
 }
 
-// write stores validated ratings, draft skills under proposals/dream/drafts/,
-// and each proposal (plus rating-triggered harness skill proposals) as global
-// queued `proposal` records. It returns the count of non-draft-wrapper proposals.
+type plannedDraft struct {
+	dst  string
+	body []byte
+}
+
+type draftPlan struct {
+	items []plannedDraft
+	lines []string
+}
+
+// write stores validated proposals, ratings, and draft skills (in order:
+// planDrafts -> propose -> WriteRatings -> commitDrafts) so drafts and ratings
+// only persist after propose() succeeds. Returns non-draft-wrapper proposals.
 func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) (int, error) {
 	day := t0.Format("2006-01-02")
-	draftLines, err := o.writeDrafts(filepath.Join(conf, "proposals", "dream"), c.Name, day, r.Skills)
+	plan, err := o.planDrafts(filepath.Join(conf, "proposals", "dream"), c.Name, day, r.Skills)
 	if err != nil {
 		return 0, err
 	}
 	ratings := o.validRatings(c, r.Ratings, t0)
-	if len(ratings) > 0 {
-		writeRatings := o.WriteRatings
-		if writeRatings == nil {
-			writeRatings = defaultWriteRatings
-		}
-		if err := writeRatings(o.Home, c.Root, ratings); err != nil {
+	head := o.header(c, cli, day)
+	ps := o.buildProposals(head, r.Proposals, ratings)
+	wrapperTitle := "Dream, harness — draft skills for " + c.Name
+	hasWrapper := len(plan.lines) > 0
+	if hasWrapper {
+		ps = append(ps, brain.Proposal{Title: wrapperTitle, Body: head + strings.Join(plan.lines, "\n") + "\n"})
+	}
+	proj := proposalProject(o, c.Root)
+	ps, err = dedupeProposals(o.Home, proj, ps)
+	if err != nil {
+		return 0, err
+	}
+	nProps := len(ps)
+	if hasWrapper && nProps > 0 && ps[nProps-1].Title == wrapperTitle {
+		nProps--
+	}
+	if len(ps) > 0 {
+		if _, err := propose(o.Home, proj, ps, t0); err != nil {
 			return 0, err
 		}
 	}
-	head := o.header(c, cli, day)
-	ps := o.buildProposals(head, r.Proposals, ratings)
-	nProps := len(ps)
-	if len(draftLines) > 0 {
-		ps = append(ps, brain.Proposal{Title: "Dream, harness — draft skills for " + c.Name, Body: head + strings.Join(draftLines, "\n") + "\n"})
+	if err := o.persistRatings(c.Root, ratings); err != nil {
+		return 0, err
 	}
-	if _, err := propose(o.Home, proposalProject(o, c.Root), ps, t0); err != nil {
+	if err := commitDrafts(plan); err != nil {
 		return 0, err
 	}
 	return nProps, nil
+}
+
+func (o Options) persistRatings(root string, ratings []metrics.SessionRating) error {
+	if len(ratings) == 0 {
+		return nil
+	}
+	writeRatings := o.WriteRatings
+	if writeRatings == nil {
+		writeRatings = defaultWriteRatings
+	}
+	return writeRatings(o.Home, root, ratings)
 }
 
 func proposalProject(o Options, root string) string {
@@ -71,49 +102,70 @@ func proposalProject(o Options, root string) string {
 	return root
 }
 
-func (o Options) writeDrafts(dir, name, day string, skills []draft) ([]string, error) {
-	var drafts []draft
-	var dropped []string
+func (o Options) planDrafts(dir, name, day string, skills []draft) (draftPlan, error) {
+	var plan draftPlan
+	reserved := map[string]bool{}
+	safeName := safeFileName(name)
 	for _, d := range skills {
-		if skillName.MatchString(d.Name) {
-			drafts = append(drafts, d)
-		} else {
-			dropped = append(dropped, d.Name)
+		if !skillName.MatchString(d.Name) {
+			plan.lines = append(plan.lines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(d.Name)))
+			continue
 		}
-	}
-	var lines []string
-	for _, d := range drafts {
-		dst, err := unique(filepath.Join(dir, "drafts"), day+"-"+name+"-"+d.Name, "")
+		dst, err := uniqueFree(filepath.Join(dir, "drafts"), day+"-"+safeName+"-"+d.Name, "", reserved)
 		if err != nil {
-			return nil, err
+			return draftPlan{}, err
 		}
+		reserved[dst] = true
 		desc, _ := json.Marshal(o.clean(d.Description))
 		body := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s\n", d.Name, desc, strings.TrimSpace(o.clean(d.Body)))
-		if err := os.MkdirAll(dst, 0o700); err != nil {
-			return nil, err
-		}
-		if err := harness.WriteAtomic(filepath.Join(dst, "SKILL.md"), []byte(body), 0o600); err != nil {
-			return nil, err
-		}
-		lines = append(lines, "Draft skill: "+filepath.Join(dir, "drafts", filepath.Base(dst), "SKILL.md"))
+		plan.items = append(plan.items, plannedDraft{dst: dst, body: []byte(body)})
+		plan.lines = append(plan.lines, "Draft skill: "+filepath.Join(dir, "drafts", filepath.Base(dst), "SKILL.md"))
 	}
-	for _, n := range dropped {
-		lines = append(lines, fmt.Sprintf("Draft skill %q dropped: not a kebab-case name", o.line(n)))
+	return plan, nil
+}
+
+func commitDrafts(plan draftPlan) error {
+	for _, it := range plan.items {
+		if err := os.MkdirAll(it.dst, 0o700); err != nil {
+			return err
+		}
+		if err := harness.WriteAtomic(filepath.Join(it.dst, "SKILL.md"), it.body, 0o600); err != nil {
+			return err
+		}
 	}
-	return lines, nil
+	return nil
+}
+
+func (o Options) validProposal(p proposal) (proposal, bool) {
+	kind := strings.ToLower(o.line(p.Kind))
+	switch kind {
+	case "rule", "skill", "procedure", "memory":
+	default:
+		return proposal{}, false
+	}
+	title := o.line(p.Title)
+	text := strings.TrimSpace(o.clean(p.Text))
+	if title == "" || text == "" {
+		return proposal{}, false
+	}
+	target := "project"
+	if strings.ToLower(o.line(p.Target)) == "harness" {
+		target = "harness"
+	}
+	return proposal{Title: title, Kind: kind, Target: target, File: p.File, Text: text, Evidence: p.Evidence}, true
 }
 
 func (o Options) buildProposals(head string, props []proposal, ratings []metrics.SessionRating) []brain.Proposal {
 	var ps []brain.Proposal
-	for _, p := range props {
+	for _, raw := range props {
+		p, ok := o.validProposal(raw)
+		if !ok {
+			continue
+		}
 		// The target leads the title, so /retro tells a project's proposals
 		// from the harness's without opening each (security review of the
 		// dream over records, finding 3).
-		target := "project"
-		if p.Target == "harness" {
-			target = "harness"
-		}
-		ps = append(ps, brain.Proposal{Title: "Dream, " + target + " — " + o.line(p.Title), Body: head + o.section(p)})
+		ps = append(ps, brain.Proposal{Title: "Dream, " + p.Target + " — " + p.Title, Body: head + o.section(p)})
 	}
 	sessionsByTarget := targetSessionCounts(ratings)
 	for _, rt := range ratings {
@@ -123,6 +175,146 @@ func (o Options) buildProposals(head string, props []proposal, ratings []metrics
 		}
 	}
 	return ps
+}
+
+type proposalMeta struct {
+	normTitle string
+	target    string
+	kind      string
+	file      string
+	sessionID string
+	draftKey  string
+}
+
+type proposalIndex struct {
+	harnessTitles map[string]bool
+	projectTitles map[string][]string
+	sessions      map[string]bool
+	skillTargets  map[string]bool
+	drafts        map[string]bool
+}
+
+func newProposalIndex() *proposalIndex {
+	return &proposalIndex{
+		harnessTitles: map[string]bool{},
+		projectTitles: map[string][]string{},
+		sessions:      map[string]bool{},
+		skillTargets:  map[string]bool{},
+		drafts:        map[string]bool{},
+	}
+}
+
+func parseProposalMeta(title, body string) proposalMeta {
+	m := proposalMeta{normTitle: strings.ToLower(strings.Join(strings.Fields(title), " ")), target: "project"}
+	if strings.HasPrefix(title, "Dream, harness — draft skills for ") {
+		m.target = "harness"
+		var lines []string
+		for _, ln := range strings.Split(body, "\n") {
+			if strings.HasPrefix(ln, "Draft skill") {
+				lines = append(lines, ln)
+			}
+		}
+		m.draftKey = m.normTitle + "\n" + strings.Join(lines, "\n")
+		return m
+	}
+	if strings.HasPrefix(title, "Dream, harness") {
+		m.target = "harness"
+	}
+	for _, ln := range strings.Split(body, "\n") {
+		if strings.HasPrefix(ln, "Target: ") {
+			parseTargetLine(ln, &m)
+		} else if rest, ok := strings.CutPrefix(ln, "Evidence: conversation "); ok {
+			if fs := strings.Fields(rest); len(fs) > 0 {
+				m.sessionID = fs[0]
+			}
+		}
+	}
+	return m
+}
+
+func parseTargetLine(ln string, m *proposalMeta) {
+	rest, ok := strings.CutPrefix(ln, "Target: ")
+	if !ok {
+		return
+	}
+	if t, after, ok := strings.Cut(rest, "Kind:"); ok {
+		if strings.TrimSpace(t) == "harness" {
+			m.target = "harness"
+		} else {
+			m.target = "project"
+		}
+		if k, f, ok := strings.Cut(after, "File:"); ok {
+			m.kind = strings.ToLower(strings.TrimSpace(k))
+			m.file = strings.TrimSpace(f)
+		}
+	}
+}
+
+func (idx *proposalIndex) add(project string, m proposalMeta) {
+	if m.draftKey != "" {
+		idx.drafts[m.draftKey] = true
+		return
+	}
+	if m.sessionID != "" {
+		idx.sessions[m.sessionID] = true
+	}
+	if m.target == "harness" {
+		idx.harnessTitles[m.normTitle] = true
+		if m.kind == "skill" && m.file != "" {
+			idx.skillTargets[m.file] = true
+		}
+		return
+	}
+	idx.projectTitles[m.normTitle] = append(idx.projectTitles[m.normTitle], project)
+}
+
+func (idx *proposalIndex) seen(project string, m proposalMeta) bool {
+	if m.draftKey != "" {
+		return idx.drafts[m.draftKey]
+	}
+	if m.sessionID != "" && idx.sessions[m.sessionID] {
+		return true
+	}
+	if m.target == "harness" {
+		if m.kind == "skill" && m.file != "" && idx.skillTargets[m.file] {
+			return true
+		}
+		return idx.harnessTitles[m.normTitle]
+	}
+	for _, p := range idx.projectTitles[m.normTitle] {
+		if p == project || trail.SameDir(p, project) {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupeProposals(home, project string, ps []brain.Proposal) ([]brain.Proposal, error) {
+	if len(ps) == 0 {
+		return nil, nil
+	}
+	idx := newProposalIndex()
+	if brainDBExists(home) {
+		recs, err := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "proposal"})
+		if err != nil {
+			return nil, err
+		}
+		for _, rec := range recs {
+			if rec.Status == "queued" || rec.Status == "applied" || strings.HasPrefix(rec.Status, "applied:") {
+				idx.add(rec.Project, parseProposalMeta(rec.Title, rec.Body))
+			}
+		}
+	}
+	var out []brain.Proposal
+	for _, p := range ps {
+		m := parseProposalMeta(p.Title, p.Body)
+		if idx.seen(project, m) {
+			continue
+		}
+		idx.add(project, m)
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func targetSessionCounts(ratings []metrics.SessionRating) map[string]int {
@@ -145,7 +337,7 @@ func targetSessionCounts(ratings []metrics.SessionRating) map[string]int {
 }
 
 func needsSkillProposal(r metrics.SessionRating) bool {
-	return r.SkillAction == "rewrite-skill" || r.SkillAction == "new-skill" || r.OutcomeScore <= 3 || r.TokenEfficiency <= 3
+	return r.SkillAction == "rewrite-skill" || r.SkillAction == "new-skill"
 }
 
 func collectedTranscriptIDs(inputs []Input) map[string]bool {
@@ -318,11 +510,12 @@ func (o Options) header(c Collected, cli, day string) string {
 // the record (audit 2026-09-30, SD3).
 func (o Options) section(p proposal) string {
 	target := "project"
-	if p.Target == "harness" {
+	if strings.ToLower(o.line(p.Target)) == "harness" {
 		target = "harness"
 	}
+	kind := strings.ToLower(o.line(p.Kind))
 	return fmt.Sprintf("Target: %s   Kind: %s   File: %s\n\n%s\n\nEvidence: %s\n",
-		target, o.line(p.Kind), o.line(p.File), indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
+		target, kind, o.line(p.File), indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
 }
 
 func (o Options) clean(s string) string { return scrub(s, o.Home) }
@@ -342,14 +535,25 @@ func (o Options) line(s string) string {
 
 // unique is dir/base+ext, or with -2, -3 … when that exists.
 func unique(dir, base, ext string) (string, error) {
+	return uniqueFree(dir, base, ext, nil)
+}
+
+func uniqueFree(dir, base, ext string, reserved map[string]bool) (string, error) {
 	for n := 1; n < 1000; n++ {
 		name := base
 		if n > 1 {
 			name += "-" + strconv.Itoa(n)
 		}
 		p := filepath.Join(dir, name+ext)
-		if _, err := os.Lstat(p); errors.Is(err, os.ErrNotExist) {
-			return p, nil
+		_, err := os.Lstat(p)
+		if errors.Is(err, os.ErrNotExist) {
+			if !reserved[p] {
+				return p, nil
+			}
+			continue
+		}
+		if err != nil {
+			return "", err
 		}
 	}
 	return "", fmt.Errorf("no free name for %s in %s", base, dir)

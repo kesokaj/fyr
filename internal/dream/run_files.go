@@ -6,11 +6,35 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
+
+var maxLogBytes int64 = 1 << 20
+
+// safeFileName strips path separators, parent-traversal segments, and control
+// characters so a project's display name can safely sit inside a filename.
+func safeFileName(s string) string {
+	s = oneLine(s)
+	s = strings.NewReplacer("/", "-", "\\", "-").Replace(s)
+	for strings.Contains(s, "..") {
+		s = strings.ReplaceAll(s, "..", "_")
+	}
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if s == "" || s == "." {
+		return "project"
+	}
+	return s
+}
 
 // keepFailure keeps the CLI's output of a failed project, scrubbed, for the
 // operator: never in the CLI's working directory (D27).
@@ -19,7 +43,7 @@ func (o Options) keepFailure(conf string, c Collected, t0 time.Time, stdout, std
 	if os.MkdirAll(dir, 0o700) != nil {
 		return
 	}
-	path, err := unique(dir, t0.Format("2006-01-02")+"-"+c.Name, ".txt")
+	path, err := unique(dir, t0.Format("2006-01-02")+"-"+safeFileName(c.Name), ".txt")
 	if err != nil {
 		return
 	}
@@ -40,15 +64,41 @@ func prune(dir string, t0 time.Time) {
 	}
 }
 
-// logger appends one timestamped line per call.
+func openAppendLog(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, os.ErrInvalid
+		}
+		if maxLogBytes > 0 && info.Size() >= maxLogBytes {
+			if err := os.Rename(path, path+".1"); err != nil {
+				return nil, err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		f.Close()
+		return nil, os.ErrInvalid
+	}
+	return f, nil
+}
+
+// logger appends one timestamped line per call, rotating dream.log safely.
 func logger(path string, now func() time.Time) func(string) {
 	return func(line string) {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		f, err := openAppendLog(path)
 		if err != nil {
 			return
 		}
-		fmt.Fprintf(f, "%s %s\n", now().UTC().Format(time.RFC3339), line)
-		f.Close()
+		defer f.Close()
+		_, _ = fmt.Fprintf(f, "%s %s\n", now().UTC().Format(time.RFC3339), line)
 	}
 }
 

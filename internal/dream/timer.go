@@ -308,13 +308,22 @@ func (u timerUnit) remove() error {
 			return &ExitError{2, u.verb + ": " + err.Error()}
 		}
 	}
+	var reloadErr error
 	if len(stop) > 1 {
 		if _, err := exec.LookPath(manager); err == nil {
-			u.call(stop[1])
+			reloadErr = u.call(stop[1])
+		} else {
+			reloadErr = err
 		}
 	}
 	if stopErr != nil && u.strict {
+		if reloadErr != nil {
+			return &ExitError{2, fmt.Sprintf("%s: %s %s: %v (reload: %v); the unit files are gone, and the manager may still hold the timer: run %s %s from a login shell", u.verb, manager, strings.Join(stop[0], " "), stopErr, reloadErr, manager, strings.Join(stop[1], " "))}
+		}
 		return &ExitError{2, fmt.Sprintf("%s: %s %s: %v; the unit files are gone, and the manager may still hold the timer: run %s %s from a login shell", u.verb, manager, strings.Join(stop[0], " "), stopErr, manager, strings.Join(stop[1], " "))}
+	}
+	if reloadErr != nil && u.strict {
+		return &ExitError{2, fmt.Sprintf("%s: %s %s: %v; the unit files are gone, and the manager may still hold the timer: run %s %s from a login shell", u.verb, manager, strings.Join(stop[1], " "), reloadErr, manager, strings.Join(stop[1], " "))}
 	}
 	return nil
 }

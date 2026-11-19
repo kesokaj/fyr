@@ -293,3 +293,49 @@ func TestRunStateWriteFailureIsExit2(t *testing.T) {
 		t.Fatalf("err = %v, want exit 2 naming the lost watermarks", err)
 	}
 }
+
+func TestRunDreamLogScrubsErrorsAndRotatesSafe(t *testing.T) {
+	home := t.TempDir()
+	canary := "gh" + "p_" + strings.Repeat("A1b2", 9)
+	var lines []string
+	r := &dreamRun{
+		o:    Options{Home: home, Now: func() time.Time { return now }},
+		st:   state{Projects: map[string]time.Time{}, Attempts: map[string]time.Time{}, FailedAttempts: map[string]time.Time{}},
+		t0:   now,
+		logf: func(s string) { lines = append(lines, s) },
+	}
+	_ = r.fail("bad " + home + "/x token " + canary)
+	if len(lines) == 0 || strings.Contains(lines[0], home) || strings.Contains(lines[0], canary) {
+		t.Errorf("fail did not scrub home/secret: %v", lines)
+	}
+
+	// logger rotates past maxLogBytes and refuses symlinks via O_NOFOLLOW.
+	prev := maxLogBytes
+	maxLogBytes = 40
+	t.Cleanup(func() { maxLogBytes = prev })
+	logPath := filepath.Join(t.TempDir(), "dream.log")
+	logf := logger(logPath, func() time.Time { return now })
+	logf("first line filling the rotation limit")
+	logf("second line triggers rotation")
+	if _, err := os.Stat(logPath + ".1"); err != nil {
+		t.Errorf("rotated backup missing: %v", err)
+	}
+	sym := filepath.Join(t.TempDir(), "sym.log")
+	target := filepath.Join(t.TempDir(), "target.log")
+	os.WriteFile(target, []byte("keep"), 0o600)
+	os.Symlink(target, sym)
+	logger(sym, func() time.Time { return now })("should not follow")
+	if read(t, target) != "keep" {
+		t.Error("logger followed symlink")
+	}
+	for _, c := range []struct{ in, want string }{
+		{"org/repo\\sub", "org-repo-sub"},
+		{"../../evil", "_-_-evil"},
+		{"..", "_"},
+		{".", "project"},
+	} {
+		if got := safeFileName(c.in); got != c.want {
+			t.Errorf("safeFileName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

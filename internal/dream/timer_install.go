@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/kesokaj/fyr/internal/harness"
@@ -45,10 +47,21 @@ func (t Timer) Install(home, path, goos string) error {
 		}
 	}
 	for _, args := range p.start {
-		if out, err := exec.Command(p.manager, args...).CombinedOutput(); err != nil {
-			return &ExitError{2, fmt.Sprintf("%s: %s %s: %v %s; the unit files are left in place: %s",
-				t.InstallVerb, p.manager, strings.Join(args, " "), err, strings.TrimSpace(string(out)), strings.Join(p.paths, ", "))}
+		if err := runInstallStep(t.InstallVerb, p.manager, args, p.paths); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func runInstallStep(verb, manager string, args, paths []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), managerLimit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, manager, args...)
+	cmd.WaitDelay = time.Second
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return &ExitError{2, fmt.Sprintf("%s: %s %s: %v %s; the unit files are left in place: %s",
+			verb, manager, strings.Join(args, " "), err, strings.TrimSpace(string(out)), strings.Join(paths, ", "))}
 	}
 	return nil
 }

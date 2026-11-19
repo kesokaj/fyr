@@ -221,3 +221,54 @@ func TestDryRunRefusesWhatTheRunRefuses(t *testing.T) {
 		})
 	}
 }
+
+func TestDryRunNoAgyAndEarlyExitParity(t *testing.T) {
+	f := newFixture(t)
+	agyLogin(t)
+	t.Setenv("PATH", t.TempDir())
+
+	// Missing agy still prints target status before exit 2 when session is active.
+	var out bytes.Buffer
+	err := Run(Options{
+		Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+		Active: idle, Scopes: noScopes, Session: session(true, nil),
+		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil },
+	})
+	var ee *ExitError
+	if !errors.As(err, &ee) || ee.Code != 2 || !strings.Contains(ee.Msg, "no agy on PATH") {
+		t.Fatalf("err = %v, want exit 2 no agy on PATH", err)
+	}
+	if !strings.Contains(out.String(), f.root+": would dream") || !strings.Contains(out.String(), "would ingest metrics") {
+		t.Errorf("missing target output before exit 2:\n%s", out.String())
+	}
+
+	// No agy session stops cleanly with warning, mirroring realRun's noSession exit 0.
+	out.Reset()
+	err = Run(Options{
+		Home: f.home, All: true, DryRun: true, Out: &out, Now: func() time.Time { return now },
+		Active: idle, Scopes: noScopes, Session: session(false, nil),
+		Projects: func(string) ([]search.Project, error) { return []search.Project{project(f)}, nil },
+	})
+	if err != nil {
+		t.Fatalf("no session dry run err = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "[dry-run] warning:") || !strings.Contains(out.String(), f.root+": would dream") {
+		t.Errorf("no-session dry run output:\n%s", out.String())
+	}
+
+	// SkipIngest with zero active targets mirrors realRun's early return before checkAgy.
+	out.Reset()
+	err = Run(Options{
+		Home: f.home, All: true, DryRun: true, SkipIngest: true, Out: &out, Now: func() time.Time { return now },
+		Active: idle, Scopes: noScopes, Session: session(true, nil),
+		Projects: func(string) ([]search.Project, error) {
+			return []search.Project{{Root: filepath.Join(f.root, "gone")}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("empty SkipIngest dry run err = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "gone: skip (gone)") || strings.Contains(out.String(), "would ingest") {
+		t.Errorf("empty SkipIngest output:\n%s", out.String())
+	}
+}

@@ -281,25 +281,18 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 		t.Errorf("duplicate conversation_id overwrote first valid rating: %+v", byID["conv-plain-stale"])
 	}
 
-	// Verify queued target: harness proposals (conv-git-stale and conv-global-stale only; not plain-stale 5/4 or harness 5/5).
+	// Verify queued target: harness proposals (only actionable rewrite-skill/new-skill;
+	// conv-global-stale with skill_action=none and token_efficiency=3 must not emit a proposal).
 	recs := dreamProposals(t, home)
-	if len(recs) != 2 {
-		t.Fatalf("queued proposals = %d, want 2: %+v", len(recs), recs)
+	if len(recs) != 1 {
+		t.Fatalf("queued proposals = %d, want 1: %+v", len(recs), recs)
 	}
-	var gitProp, globalProp brain.Record
-	for _, r := range recs {
-		if strings.Contains(r.Body, "conv-git-stale") {
-			gitProp = r
-		}
-		if strings.Contains(r.Body, "conv-global-stale") {
-			globalProp = r
-		}
-		if strings.Contains(r.Body, ghCanary) || strings.Contains(r.Body, "\n### 9. forged") {
-			t.Errorf("proposal leaked canary or forged heading:\n%s", r.Body)
-		}
+	gitProp := recs[0]
+	if strings.Contains(gitProp.Body, ghCanary) || strings.Contains(gitProp.Body, "\n### 9. forged") {
+		t.Errorf("proposal leaked canary or forged heading:\n%s", gitProp.Body)
 	}
-	if strings.Contains(globalProp.Project, search.GlobalWorkspace) || !sameDir(globalProp.Project, harnessRepo) {
-		t.Errorf("global proposal Project = %q, want %q (not %s)", globalProp.Project, harnessRepo, search.GlobalWorkspace)
+	if !strings.Contains(gitProp.Body, "conv-git-stale") {
+		t.Errorf("expected conv-git-stale proposal, got:\n%s", gitProp.Body)
 	}
 	for _, want := range []string{
 		"Target: harness   Kind: skill   File: skills/golang/SKILL.md",
@@ -310,14 +303,8 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 			t.Errorf("git proposal missing %q:\n%s", want, gitProp.Body)
 		}
 	}
-	for _, want := range []string{
-		"Target: harness   Kind: skill   File: skills/",
-		"Sessions: 1",
-		"Evidence: conversation conv-global-stale (outcome 4/5, token_efficiency 3/5, plan_alignment no-plan)",
-	} {
-		if !strings.Contains(globalProp.Body, want) {
-			t.Errorf("global proposal missing %q:\n%s", want, globalProp.Body)
-		}
+	if byID["conv-global-stale"].TokenEfficiency != 3 || byID["conv-global-stale"].SkillAction != "none" {
+		t.Errorf("conv-global-stale rating mismatch: %+v", byID["conv-global-stale"])
 	}
 
 	// 4. Run 2 one hour later (cutoff = now): conv-plain-active (now - 20m) is now stale and evaluated!
@@ -353,8 +340,8 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 		t.Fatalf("SessionRatings after Run 2 = %d, err=%v; want 5", len(ratings2), err)
 	}
 	recs2 := dreamProposals(t, home)
-	if len(recs2) != 3 {
-		t.Fatalf("proposals after Run 2 = %d, want 3", len(recs2))
+	if len(recs2) != 2 {
+		t.Fatalf("proposals after Run 2 = %d, want 2", len(recs2))
 	}
 	if !strings.Contains(recs2[0].Body, "Target: harness   Kind: skill   File: skills/\n") {
 		t.Errorf("unsafe TargetSkill ../escape was not sanitized to skills/:\n%s", recs2[0].Body)
@@ -426,7 +413,7 @@ func TestAllConversationsRatedWithoutRegistration(t *testing.T) {
 		t.Fatalf("GlobalWorkspace SessionRatings = %+v, err=%v; want 2", globalRows, gerr)
 	}
 	recs3 := dreamProposals(t, home)
-	if len(recs3) != 4 || strings.Contains(recs3[0].Project, search.GlobalWorkspace) || !sameDir(recs3[0].Project, home) {
+	if len(recs3) != 3 || strings.Contains(recs3[0].Project, search.GlobalWorkspace) || !sameDir(recs3[0].Project, home) {
 		t.Fatalf("GlobalWorkspace fallback proposal Project = %q (len=%d), want %q (not %s)", recs3[0].Project, len(recs3), home, search.GlobalWorkspace)
 	}
 }
@@ -458,8 +445,10 @@ func TestConversationIdleFailedCooldownAndWriteRatingsError(t *testing.T) {
 	if err := Run(o); !errors.As(err, &ee) || ee.Code != 1 {
 		t.Fatalf("Run err = %v, want exit 1", err)
 	}
-	if recs := dreamProposals(t, f.home); len(recs) != 0 {
-		t.Errorf("WriteRatings error still queued proposals: %+v", recs)
+	// propose runs before WriteRatings, so the proposal was queued while ratings
+	// and watermark did not persist; recovery deduplicates the queued proposal.
+	if recs := dreamProposals(t, f.home); len(recs) != 1 {
+		t.Errorf("proposals after WriteRatings error = %d, want 1: %+v", len(recs), recs)
 	}
 	st, _ := readState(f.home)
 	if !st.Projects[plain].IsZero() || !st.FailedAttempts[plain].Equal(now) {
@@ -476,11 +465,14 @@ func TestConversationIdleFailedCooldownAndWriteRatingsError(t *testing.T) {
 		t.Error("failed attempt retried within 24h cooldown")
 	}
 
-	// Past 24h cooldown and WriteRatings fixed -> succeeds and clears FailedAttempts.
+	// Past 24h cooldown and WriteRatings fixed -> succeeds, deduplicates proposal, and clears FailedAttempts.
 	at = now.Add(25 * time.Hour)
 	o.WriteRatings = nil
 	if err := Run(o); err != nil {
 		t.Fatalf("recovery run err = %v", err)
+	}
+	if recs := dreamProposals(t, f.home); len(recs) != 1 {
+		t.Errorf("proposals after recovery = %d, want 1 (deduplicated): %+v", len(recs), recs)
 	}
 	st, _ = readState(f.home)
 	if !st.FailedAttempts[plain].IsZero() || !st.Projects[plain].Equal(at.Add(-time.Hour)) {
@@ -623,6 +615,7 @@ func TestRatingProposalsDistinctSessionsAndTargetSanitization(t *testing.T) {
 			{Kind: kindTranscript, Label: "antigravity s2"},
 			{Kind: kindTranscript, Label: "antigravity s3"},
 			{Kind: kindTranscript, Label: "antigravity s4"},
+			{Kind: kindTranscript, Label: "antigravity s5"},
 		},
 	}
 	ratings := o.validRatings(col, []sessionRating{
@@ -630,9 +623,10 @@ func TestRatingProposalsDistinctSessionsAndTargetSanitization(t *testing.T) {
 		{ConversationID: "s2", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "second golang gap"},
 		{ConversationID: "s3", OutcomeScore: 2, TokenEfficiency: 3, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "AGENTS.md", Summary: "bad target must become skills/"},
 		{ConversationID: "s4", OutcomeScore: 5, TokenEfficiency: 5, PlanAlignment: "matched", SkillAction: "none", TargetSkill: "", Summary: "healthy session"},
+		{ConversationID: "s5", OutcomeScore: 1, TokenEfficiency: 1, PlanAlignment: "missed", SkillAction: "none", TargetSkill: "", Summary: "low score with none action"},
 	}, now)
-	if len(ratings) != 4 {
-		t.Fatalf("validRatings len = %d, want 4", len(ratings))
+	if len(ratings) != 5 {
+		t.Fatalf("validRatings len = %d, want 5", len(ratings))
 	}
 	if ratings[2].TargetSkill != "" {
 		t.Errorf("AGENTS.md TargetSkill not cleared: %q", ratings[2].TargetSkill)
@@ -648,8 +642,136 @@ func TestRatingProposalsDistinctSessionsAndTargetSanitization(t *testing.T) {
 			t.Errorf("proposal %d missing Sessions: 2 for skills/golang/SKILL.md:\n%s", i, props[i].Body)
 		}
 	}
-	// s3 sanitized AGENTS.md -> skills/, and only 1 session (s4 was healthy) -> Sessions: 1.
+	// s3 sanitized AGENTS.md -> skills/, and only 1 session (s4/s5 had skill_action=none) -> Sessions: 1.
 	if !strings.Contains(props[2].Body, "File: skills/\nSessions: 1\n") {
 		t.Errorf("proposal 2 missing File: skills/ and Sessions: 1:\n%s", props[2].Body)
+	}
+}
+
+func TestProposalDeduplicationAndDraftAtomicity(t *testing.T) {
+	home := t.TempDir()
+	projA := t.TempDir()
+	projB := t.TempDir()
+	o := Options{Home: home, Now: func() time.Time { return now }}
+	conf := filepath.Join(home, harness.StateDir)
+	colA := Collected{
+		Root: projA, Name: "proj-a",
+		Inputs: []Input{
+			{Kind: kindTranscript, Label: "antigravity s1"},
+			{Kind: kindTranscript, Label: "antigravity s2"},
+		},
+	}
+	respA := response{
+		Proposals: []proposal{{Title: "Vet first", Kind: "rule", Target: "project", File: "AGENTS.md", Text: "Run go vet", Evidence: "s1"}},
+		Skills:    []draft{{Name: "new-check", Description: "d", Body: "body"}},
+		Ratings: []sessionRating{
+			{ConversationID: "s1", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "partial", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "gap 1"},
+			{ConversationID: "s2", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "gap 2"},
+		},
+	}
+
+	// Failing propose() leaves zero draft directories and zero ratings.
+	saved := propose
+	propose = func(string, string, []brain.Proposal, time.Time) ([]string, error) {
+		return nil, errors.New("propose failed")
+	}
+	ratingsCalled := false
+	o.WriteRatings = func(string, string, []metrics.SessionRating) error { ratingsCalled = true; return nil }
+	if _, err := o.write(conf, colA, respA, "agy", now); err == nil {
+		t.Fatal("expected propose error")
+	}
+	propose = saved
+	if ratingsCalled {
+		t.Error("WriteRatings ran despite propose failure")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(conf, "proposals", "dream", "drafts")); len(entries) != 0 {
+		t.Errorf("drafts written despite propose failure: %v", entries)
+	}
+
+	// Failing WriteRatings leaves zero draft directories on disk.
+	o.WriteRatings = func(string, string, []metrics.SessionRating) error { return errors.New("ratings err") }
+	if _, err := o.write(conf, colA, respA, "agy", now); err == nil {
+		t.Fatal("expected WriteRatings error")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(conf, "proposals", "dream", "drafts")); len(entries) != 0 {
+		t.Errorf("drafts written despite WriteRatings failure: %v", entries)
+	}
+
+	// Recovery: batch collapses s1/s2 -> 1 skill proposal; rule + draft wrapper = 3 queued;
+	// draft directory has no -2 suffix.
+	o.WriteRatings = nil
+	if _, err := o.write(conf, colA, respA, "agy", now); err != nil {
+		t.Fatalf("recovery write failed: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(conf, "proposals", "dream", "drafts"))
+	if err != nil || len(entries) != 1 || strings.HasSuffix(entries[0].Name(), "-2") {
+		t.Fatalf("draft dirs = %v, err=%v; want single non-suffixed draft", entries, err)
+	}
+	if recs := dreamProposals(t, home); len(recs) != 3 {
+		t.Fatalf("queued recs = %d, want 3: %+v", len(recs), recs)
+	}
+
+	// Cross-project run targeting same queued skill (skills/golang/SKILL.md) deduplicates;
+	// marking proposals applied also blocks re-proposing the same target/title.
+	colB := Collected{Root: projB, Name: "proj-b", Inputs: []Input{{Kind: kindTranscript, Label: "antigravity s3"}}}
+	respB := response{
+		Proposals: []proposal{{Title: "Vet first", Kind: "rule", Target: "project", File: "AGENTS.md", Text: "Run go vet", Evidence: "s3"}},
+		Ratings:   []sessionRating{{ConversationID: "s3", OutcomeScore: 2, TokenEfficiency: 2, PlanAlignment: "missed", SkillAction: "rewrite-skill", TargetSkill: "skills/golang/SKILL.md", Summary: "gap 3"}},
+	}
+	n, err := o.write(conf, colB, respB, "agy", now)
+	if err != nil || n != 1 {
+		t.Fatalf("projB write n=%d err=%v, want n=1", n, err)
+	}
+	applied := "applied:abc1234"
+	for _, rec := range dreamProposals(t, home) {
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: rec.ID, Status: &applied}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	colB.Inputs = []Input{{Kind: kindTranscript, Label: "antigravity s4"}}
+	respB.Ratings[0].ConversationID = "s4"
+	if n, err := o.write(conf, colB, respB, "agy", now); err != nil || n != 0 {
+		t.Fatalf("against applied proposals n=%d err=%v, want n=0", n, err)
+	}
+}
+
+func TestRecordSuccessAdvancesPastBoundaryAndContextTime(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	run(t, root, "git", "init", "-q")
+	sinceT := now.Add(-2 * time.Hour)
+	cutoffT := now.Add(-time.Hour)
+	if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: func() time.Time { return sinceT.Add(-time.Hour) }}, brain.AddInput{
+		Kind: "plan", ID: "PLAN-2026-09-30-big", Title: "Big plan", Body: strings.NewReader(strings.Repeat("p", 3000)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := Collected{
+		Root: root, Name: "proj", Changed: true,
+		Inputs: []Input{
+			{Kind: kindMemory, Label: "memory/m.md", Text: "m"},
+			{Kind: kindTranscript, Label: "antigravity t1", Text: strings.Repeat("x", 1500), Time: sinceT.Add(time.Minute)},
+		},
+	}
+	addOptionalPlanAndHandoff(home, root, sinceT, cutoffT, &c, c.adder(sinceT))
+	if err := c.fit(len(prompt(Collected{Root: root, Name: "proj", Inputs: c.Inputs[:2]})) + 300); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Through.IsZero() {
+		t.Errorf("untimed context plan held Through=%v, want zero", c.Through)
+	}
+	if len(c.Inputs) != 2 || c.Inputs[1].Label != "antigravity t1" {
+		t.Errorf("dropped dated news instead of untimed plan context: %s", labels(c))
+	}
+
+	// recordSuccess advances strictly past since even if Through stopped at since.
+	r := &dreamRun{
+		o:  Options{Home: home, ConversationIdle: time.Hour},
+		st: state{Projects: map[string]time.Time{root: sinceT}, Attempts: map[string]time.Time{root: now}, FailedAttempts: map[string]time.Time{root: now}},
+		t0: now,
+	}
+	r.recordSuccess(root, Collected{Through: sinceT}, sinceT, cutoffT)
+	if !r.st.Projects[root].After(sinceT) {
+		t.Errorf("watermark did not advance past since: got %v, since %v", r.st.Projects[root], sinceT)
 	}
 }

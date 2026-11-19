@@ -95,8 +95,8 @@ func TestRealAgyShapes(t *testing.T) {
 		t.Errorf("turn.jsonl's answer %q is no response", got)
 	}
 	got, err = answer(realOutput(t, "tool.jsonl"))
-	if err != nil || got != "" {
-		t.Errorf("a turn that ran a tool must give no answer: %q, %v", got, err)
+	if err == nil || got != "" || !strings.Contains(err.Error(), "tool") {
+		t.Errorf("a turn that ran a tool must return a tool error and no answer: %q, %v", got, err)
 	}
 }
 

@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -245,4 +246,30 @@ func TestRelayKeepsASignalQueuedAtTheEnd(t *testing.T) {
 	waited := make(chan struct{})
 	close(waited)
 	relay(make(chan os.Signal, 1), waited, func(os.Signal) { t.Error("no signal came, yet one was handled") })
+}
+
+type nonSyscallSignal string
+
+func (s nonSyscallSignal) String() string { return string(s) }
+func (s nonSyscallSignal) Signal()        {}
+
+func TestCLICommandBoundsOutputAndSafeSignal(t *testing.T) {
+	cw := &cappedWriter{limit: 8}
+	n, err := cw.Write([]byte("0123456789"))
+	if err != nil || n != 10 || cw.kept.String() != "01234567" {
+		t.Fatalf("cappedWriter = (%d, %v, %q)", n, err, cw.kept.String())
+	}
+	_, out, errb, err := cliCommand(context.Background(), []string{"agy"}, "hi", t.TempDir(), []string{})
+	if err != nil || out.limit != maxCLIStdout || errb.limit != maxCLIStderr {
+		t.Fatalf("cliCommand bounds = (%d, %d, %v)", out.limit, errb.limit, err)
+	}
+	// Checked type assertion handles non-syscall.Signal without panicking.
+	sigs := make(chan os.Signal, 1)
+	sigs <- nonSyscallSignal("custom")
+	waited := make(chan struct{})
+	relay(sigs, waited, func(sig os.Signal) {
+		if _, ok := sig.(syscall.Signal); ok {
+			t.Error("unexpected syscall.Signal")
+		}
+	})
 }

@@ -105,7 +105,7 @@ func (f *fitter) datedVictim() (i, how int) {
 		if datedRank(in.Kind) < 0 {
 			continue
 		}
-		if newest < 0 || in.Time.Before(oldest) {
+		if !in.Time.IsZero() && (oldest.IsZero() || in.Time.Before(oldest)) {
 			oldest = in.Time
 		}
 		newest = f.newerOf(j, newest)
@@ -116,7 +116,7 @@ func (f *fitter) datedVictim() (i, how int) {
 	if big >= 0 {
 		return big, tooBig
 	}
-	if newest >= 0 && f.c.Inputs[newest].Time.After(oldest) {
+	if newest >= 0 && !f.c.Inputs[newest].Time.IsZero() && f.c.Inputs[newest].Time.After(oldest) {
 		return newest, heldBack
 	}
 	return newest, oldestLeft
@@ -173,6 +173,9 @@ func datedRank(kind string) int {
 // earlier in datedKinds; of the same kind too, the later label, so a rerun
 // over the same inputs drops the same ones.
 func newer(a, b Input) bool {
+	if a.Time.IsZero() != b.Time.IsZero() {
+		return a.Time.IsZero()
+	}
 	if !a.Time.Equal(b.Time) {
 		return a.Time.After(b.Time)
 	}
