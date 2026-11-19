@@ -24,6 +24,10 @@ def _as_bool(raw, default=False):
     return bool(raw)
 
 
+def _norm_token(raw):
+    return re.sub(r"[\s-]+", "_", str(raw or "").strip().upper())
+
+
 STAGE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -33,7 +37,19 @@ STAGE_SCHEMA = {
             "type": "string",
             "enum": ["COMPLETE", "PASS", "FAIL", "BLOCKED", "INCOMPLETE"],
         },
-        "verdict": {"type": "string"},
+        "verdict": {
+            "type": "string",
+            "enum": [
+                "APPROVE",
+                "APPROVE_WITH_NITS",
+                "REQUEST_CHANGES",
+                "CLEAR",
+                "FINDINGS",
+                "PASS",
+                "FAIL",
+                "BLOCKED",
+            ],
+        },
         "blocking": {"type": "boolean"},
         "artifact_path": {"type": "string"},
         "not_examined": {"type": "string"},
@@ -166,14 +182,22 @@ if parallel_specs:
     )
 
 def _stage_blocked(r):
-    status = str(r.get("status") or "").strip().upper()
-    verdict = str(r.get("verdict") or "").strip().upper()
-    return (
-        bool(r.get("blocking"))
-        or status in ("FAIL", "BLOCKED", "INCOMPLETE")
-        or verdict in ("REQUEST_CHANGES", "FAIL", "BLOCKED")
-        or (r.get("stage") == "verifier" and status != "PASS")
-    )
+    stage = str(r.get("stage") or "").strip().lower()
+    status = _norm_token(r.get("status"))
+    verdict = _norm_token(r.get("verdict"))
+    if bool(r.get("blocking")):
+        return True
+    if status in ("FAIL", "BLOCKED", "INCOMPLETE"):
+        return True
+    if verdict in ("FINDINGS", "REQUEST_CHANGES", "FAIL", "BLOCKED"):
+        return True
+    if verdict not in ("APPROVE", "APPROVE_WITH_NITS", "CLEAR", "PASS"):
+        return True
+    if stage in ("reviewer", "security") and status != "COMPLETE":
+        return True
+    if stage == "verifier" and status != "PASS":
+        return True
+    return False
 
 
 prior_blocked = any(_stage_blocked(r) for r in stages)

@@ -56,7 +56,11 @@ async def agent(prompt, schema=None, role="", type_name="", workspace="", model=
         "summary": "ok",
     }
     if type_name in mocks:
-        res.update(mocks[type_name])
+        for k, v in mocks[type_name].items():
+            if v is None:
+                res.pop(k, None)
+            else:
+                res[k] = v
     return res
 
 async def parallel(items, fn):
@@ -201,6 +205,100 @@ func TestWorkflowScriptsPreflightGateEdges(t *testing.T) {
 	})
 	if got := verPass.Output["gate_verdict"]; got != "SHIP" {
 		t.Fatalf("clean PASS stages yielded gate_verdict=%v; want SHIP", got)
+	}
+
+	// Regression cases (AG30): omitted blocking + FINDINGS / spaced or hyphenated verdicts / wrong stage status fail closed.
+	for _, tc := range []struct {
+		name      string
+		sec, ver  bool
+		mocks     map[string]map[string]any
+		wantGate  string
+		wantCalls int
+	}{
+		{
+			name:      "security FINDINGS with omitted blocking",
+			sec:       true,
+			ver:       true,
+			mocks:     map[string]map[string]any{"security": {"blocking": nil, "status": "COMPLETE", "verdict": "FINDINGS"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 2,
+		},
+		{
+			name:      "reviewer spaced REQUEST CHANGES with omitted blocking",
+			sec:       false,
+			ver:       true,
+			mocks:     map[string]map[string]any{"reviewer": {"blocking": nil, "status": "COMPLETE", "verdict": "REQUEST CHANGES"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 1,
+		},
+		{
+			name:      "reviewer hyphenated request-changes",
+			sec:       false,
+			ver:       true,
+			mocks:     map[string]map[string]any{"reviewer": {"blocking": false, "status": "COMPLETE", "verdict": "request-changes"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 1,
+		},
+		{
+			name:      "reviewer IN PROGRESS status blocks",
+			sec:       false,
+			ver:       true,
+			mocks:     map[string]map[string]any{"reviewer": {"blocking": false, "status": "IN PROGRESS", "verdict": "APPROVE"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 1,
+		},
+		{
+			name:      "security PASS status (not COMPLETE) blocks",
+			sec:       true,
+			ver:       true,
+			mocks:     map[string]map[string]any{"security": {"blocking": false, "status": "PASS", "verdict": "CLEAR"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 2,
+		},
+		{
+			name: "clean security CLEAR + reviewer APPROVE + verifier PASS yields SHIP",
+			sec:  true,
+			ver:  true,
+			mocks: map[string]map[string]any{
+				"security": {"blocking": false, "status": "COMPLETE", "verdict": "CLEAR"},
+				"verifier": {"blocking": false, "status": "PASS", "verdict": "PASS"},
+			},
+			wantGate:  "SHIP",
+			wantCalls: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := runWorkflowScriptWithMocks(t, "workflows/preflight_gate.py", map[string]any{
+				"base_ref":     "v0.1.0",
+				"run_reviewer": true,
+				"run_security": tc.sec,
+				"run_verifier": tc.ver,
+			}, tc.mocks)
+			if got := res.Output["gate_verdict"]; got != tc.wantGate {
+				t.Fatalf("%s: gate_verdict=%v, want %s", tc.name, got, tc.wantGate)
+			}
+			if len(res.Calls) != tc.wantCalls {
+				t.Fatalf("%s: got %d calls, want %d: %+v", tc.name, len(res.Calls), tc.wantCalls, res.Calls)
+			}
+		})
+	}
+
+	const pySchemaCheck = `
+import ast, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read(), sys.argv[1])
+body = [
+    n for n in tree.body
+    if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef))
+    or (isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "STAGE_SCHEMA" for t in n.targets))
+]
+ns = {}
+exec(compile(ast.Module(body=body, type_ignores=[]), sys.argv[1], "exec"), ns)
+enum = ns["STAGE_SCHEMA"]["properties"]["verdict"].get("enum")
+want = ["APPROVE", "APPROVE_WITH_NITS", "REQUEST_CHANGES", "CLEAR", "FINDINGS", "PASS", "FAIL", "BLOCKED"]
+assert enum == want, f"STAGE_SCHEMA verdict enum={enum}, want {want}"
+`
+	if out, err := exec.Command("python3", "-c", pySchemaCheck, "workflows/preflight_gate.py").CombinedOutput(); err != nil {
+		t.Fatalf("preflight_gate.py STAGE_SCHEMA check failed: %v\n%s", err, out)
 	}
 }
 

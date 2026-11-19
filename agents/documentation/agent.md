@@ -42,7 +42,7 @@ AGENTS.md                             # root file: the project's Setup commands 
                                       # GUIDE-testing, which Setup points at.
 ```
 
-`<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a `find_by_name` for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `fyr-spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
+`<app>` in `SPEC-<app>-<topic>` is the single `cmd/<app>` directory (a file search for `cmd/*/main.go` matching exactly one file, whose directory is `<app>`; you have no shell; several binaries → one `SPEC-<app>-…` set per binary, as the `fyr-spec` skill writes them), which a heading or title in `AGENTS.md` does not override, else the binary or service the project's `AGENTS.md` names, else the repository directory's own name — and is never left literal in an ID you write.
 
 **Shared seam:** `GUIDE-testing` is the one record you share, with the `verifier`: it drafts the e2e/smoke sections when it finds the guide absent or still the `fyr-init-project` template, and when the e2e/smoke steps change; otherwise the guide is yours, and the verifier's `testing` records are its own.
 
