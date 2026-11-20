@@ -7,16 +7,9 @@
 
 ## Now
 
-Wave 5b (`Phase 5b`, operator) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — host Go toolchain `>= go1.27.4` + `govulncheck`, `/fyr-dream` cleanup, `/fyr-preflight v9.3.0`, and real-home install & smoke (Wave 5a `Phase 5a` complete: `TEST-2026-11-20-0530-phase5a-ai-verification-and-paired-eval`):
-
-- [x] Upgrade host Go toolchain to `>= go1.27.4` (`IN104`, `GO-2026-6859`) and run `"$(go env GOPATH)/bin/govulncheck" ./...` (`who: user`)
-- [x] Run interactive `/fyr-dream` (`D9`, `TR25`, `TR-S3`) to rewrite `MEMORY-install-on-dave-and-real-sandboxes-before-release`, retire global `MEMORY-status-updates-every-5m`, close `13` scratch-scope + obsolete duplicate `queued` proposals (`PROPOSAL-*`), and inspect `PROPOSAL-2026-11-17-0016*` (`Setsid`) (`who: user`)
-- [ ] Run `/fyr-preflight v9.3.0` (`D2`) per `DEPLOY-local` & `.agents/rules/eval-and-release.md`, install to real `$HOME` only per `DEPLOY-local` § Operator steps, and verify `PLAN-2026-11-14-2337` Phase 7 box 2 separately on `>= 2026-11-23` (`who: user`)
-- [ ] Checkpoint (`v9.3.0` shipped and real-home smoke verified)
+- [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Next
-
-- Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Backlog
 
