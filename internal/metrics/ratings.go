@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -10,10 +11,11 @@ import (
 )
 
 // SessionRating is one stale Antigravity conversation's outcome and token
-// efficiency rating stored in session_ratings (metrics.db schema 8, ADR-524).
+// efficiency rating stored in session_ratings (metrics.db schema 8+, ADR-524).
 type SessionRating struct {
 	SessionID       string `json:"session_id"`
 	ProjectRoot     string `json:"project_root"`
+	RepoID          string `json:"repo_id,omitempty"`
 	EvaluatedAt     int64  `json:"evaluated_at"`
 	OutcomeScore    int    `json:"outcome_score"`
 	TokenEfficiency int    `json:"token_efficiency"`
@@ -50,6 +52,7 @@ func normalizeSessionRating(r SessionRating) (SessionRating, error) {
 		return SessionRating{}, fmt.Errorf("metrics: session_rating %s: skill_action %q invalid", r.SessionID, printable(r.SkillAction))
 	}
 	r.ProjectRoot = cleanRatingProject(r.ProjectRoot)
+	r.RepoID = normalizeRatingRepoID(r)
 	r.TargetSkill = printable(strings.TrimSpace(r.TargetSkill))
 	if len(r.TargetSkill) > 200 {
 		return SessionRating{}, fmt.Errorf("metrics: session_rating %s: target_skill over 200 bytes", r.SessionID)
@@ -59,6 +62,16 @@ func normalizeSessionRating(r SessionRating) (SessionRating, error) {
 		return SessionRating{}, fmt.Errorf("metrics: session_rating %s: summary over 400 bytes", r.SessionID)
 	}
 	return r, nil
+}
+
+func normalizeRatingRepoID(r SessionRating) string {
+	if id := clipPrintable(r.RepoID, 256); id != "" {
+		return id
+	}
+	if r.ProjectRoot == "" || r.ProjectRoot == search.GlobalWorkspace {
+		return ""
+	}
+	return clipPrintable(ResolveRepoID(r.ProjectRoot), 256)
 }
 
 func cleanRatingProject(root string) string {
@@ -88,25 +101,34 @@ func (s *Store) UpsertSessionRatings(rows []SessionRating) error {
 		return err
 	}
 	defer tx.Rollback()
-	const q = `INSERT INTO session_ratings(
-		session_id, project_root, evaluated_at, outcome_score, token_efficiency,
-		plan_alignment, skill_action, target_skill, summary)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(session_id) DO UPDATE SET (
-			project_root, evaluated_at, outcome_score, token_efficiency,
-			plan_alignment, skill_action, target_skill, summary
-		) = (
-			excluded.project_root, excluded.evaluated_at, excluded.outcome_score, excluded.token_efficiency,
-			excluded.plan_alignment, excluded.skill_action, excluded.target_skill, excluded.summary
-		)
-		WHERE session_ratings.project_root = '' OR session_ratings.project_root = excluded.project_root`
 	for _, r := range norm {
-		if _, err := tx.Exec(q, r.SessionID, r.ProjectRoot, r.EvaluatedAt,
-			r.OutcomeScore, r.TokenEfficiency, r.PlanAlignment, r.SkillAction, r.TargetSkill, r.Summary); err != nil {
+		if err := upsertOneSessionRating(tx, r); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+func upsertOneSessionRating(tx *sql.Tx, r SessionRating) error {
+	const q = `INSERT INTO session_ratings(
+		session_id, project_root, repo_id, evaluated_at, outcome_score, token_efficiency,
+		plan_alignment, skill_action, target_skill, summary)
+		VALUES (?, ?, CASE
+			WHEN ? != '' THEN ?
+			WHEN ? = ? THEN ''
+			ELSE COALESCE((SELECT repo_id FROM sessions WHERE id = ?), '')
+		END, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET (
+			project_root, repo_id, evaluated_at, outcome_score, token_efficiency,
+			plan_alignment, skill_action, target_skill, summary
+		) = (
+			excluded.project_root, excluded.repo_id, excluded.evaluated_at, excluded.outcome_score, excluded.token_efficiency,
+			excluded.plan_alignment, excluded.skill_action, excluded.target_skill, excluded.summary
+		)
+		WHERE session_ratings.project_root = '' OR session_ratings.project_root = excluded.project_root`
+	_, err := tx.Exec(q, r.SessionID, r.ProjectRoot, r.RepoID, r.RepoID, r.ProjectRoot, search.GlobalWorkspace, r.SessionID,
+		r.EvaluatedAt, r.OutcomeScore, r.TokenEfficiency, r.PlanAlignment, r.SkillAction, r.TargetSkill, r.Summary)
+	return err
 }
 
 const evalTimeMSExpr = `(CASE WHEN evaluated_at >= 100000000 AND evaluated_at < 100000000000 THEN evaluated_at * 1000 ELSE evaluated_at END)`
@@ -116,7 +138,7 @@ const evalTimeMSExpr = `(CASE WHEN evaluated_at >= 100000000 AND evaluated_at < 
 // and optional [since, now) evaluated_at bounds.
 func (s *Store) SessionRatings(project string, since, now time.Time) ([]SessionRating, error) {
 	where, args := sessionRatingsWhere(project, since, now)
-	q := `SELECT session_id, project_root, evaluated_at, outcome_score, token_efficiency,
+	q := `SELECT session_id, project_root, COALESCE(repo_id, ''), evaluated_at, outcome_score, token_efficiency,
 		plan_alignment, skill_action, target_skill, summary
 		FROM session_ratings`
 	if where != "" {
@@ -131,7 +153,7 @@ func (s *Store) SessionRatings(project string, since, now time.Time) ([]SessionR
 	var out []SessionRating
 	for rows.Next() {
 		var r SessionRating
-		if err := rows.Scan(&r.SessionID, &r.ProjectRoot, &r.EvaluatedAt, &r.OutcomeScore,
+		if err := rows.Scan(&r.SessionID, &r.ProjectRoot, &r.RepoID, &r.EvaluatedAt, &r.OutcomeScore,
 			&r.TokenEfficiency, &r.PlanAlignment, &r.SkillAction, &r.TargetSkill, &r.Summary); err != nil {
 			return nil, err
 		}

@@ -117,9 +117,16 @@ func (s *Store) propagateResolvedRoot(c agyConv) error {
 	if c.root == "" || isAgyWorktreePath(c.root) {
 		return nil
 	}
-	_, err := s.db.Exec(`UPDATE sessions SET project_root = ?
-		WHERE id = ? AND (project_root IS NULL OR project_root = '' OR project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')`,
-		c.root, c.id)
+	repoID := ResolveRepoID(c.root)
+	_, err := s.db.Exec(`UPDATE sessions SET
+		project_root = CASE
+			WHEN project_root IS NULL OR project_root = '' OR project_root LIKE '%/.gemini/antigravity-cli/worktrees/%'
+			THEN ? ELSE project_root END,
+		repo_id = CASE
+			WHEN ? != '' AND (repo_id = '' OR project_root IS NULL OR project_root = '' OR project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
+			THEN ? ELSE repo_id END
+		WHERE id = ? AND (repo_id = '' OR project_root IS NULL OR project_root = '' OR project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')`,
+		c.root, repoID, repoID, c.id)
 	return err
 }
 

@@ -14,20 +14,22 @@ import (
 
 // LandOptions configures deterministic squash-landing of a branch onto main.
 type LandOptions struct {
-	Dir           string
-	Branch        string
-	Message       string
-	Home          string
-	Vocab         check.Vocabulary
-	Timeout       time.Duration
-	Lease         []string
-	LeaseFile     string
-	MaxFiles      int
-	MaxLines      int
-	Judge         string
-	JudgeModel    string
-	JudgeRunner   func(context.Context, JudgeRequest) (JudgeResult, error)
-	RecordVerdict func(JudgeVerdictRecord) error
+	Dir             string
+	Branch          string
+	Message         string
+	Home            string
+	Vocab           check.Vocabulary
+	Timeout         time.Duration
+	Lease           []string
+	LeaseFile       string
+	MaxFiles        int
+	MaxLines        int
+	Judge           string
+	JudgeModel      string
+	WorkerModel     string
+	WorkerSessionID string
+	JudgeRunner     func(context.Context, JudgeRequest) (JudgeResult, error)
+	RecordVerdict   func(JudgeVerdictRecord) error
 }
 
 // LandReport summarizes a Land attempt.
@@ -65,6 +67,7 @@ func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 		Lease: opts.Lease, LeaseFile: opts.LeaseFile,
 		MaxFiles: opts.MaxFiles, MaxLines: opts.MaxLines,
 		Judge: opts.Judge, JudgeModel: opts.JudgeModel,
+		WorkerModel: opts.WorkerModel, WorkerSessionID: opts.WorkerSessionID,
 		JudgeRunner: opts.JudgeRunner, RecordVerdict: opts.RecordVerdict,
 	})
 	rep.Gate = &gateRep

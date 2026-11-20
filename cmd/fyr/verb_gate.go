@@ -138,14 +138,31 @@ func runLand(c *ctx) error {
 
 func recordGateJudgeVerdict(home string) func(gate.JudgeVerdictRecord) error {
 	return func(rec gate.JudgeVerdictRecord) error {
+		workerModel, workerSession := rec.WorkerModel, rec.WorkerSessionID
+		if workerModel == "" || workerSession == "" {
+			infModel, infSess := metrics.InferWorkerAttribution(home, rec.ProjectRoot, rec.Target)
+			if workerModel == "" {
+				workerModel = infModel
+			}
+			if workerSession == "" {
+				workerSession = infSess
+			}
+		}
+		repoID := rec.RepoID
+		if repoID == "" && rec.ProjectRoot != "" {
+			repoID = metrics.ResolveRepoID(rec.ProjectRoot)
+		}
 		return metrics.RecordJudgeVerdict(home, metrics.JudgeVerdictRow{
-			TS:             rec.TS,
-			ProjectRoot:    rec.ProjectRoot,
-			Target:         rec.Target,
-			Model:          rec.Model,
-			FallbackReason: rec.FallbackReason,
-			CriterionHash:  rec.CriterionHash,
-			Verdict:        rec.Verdict,
+			TS:              rec.TS,
+			ProjectRoot:     rec.ProjectRoot,
+			RepoID:          repoID,
+			Target:          rec.Target,
+			Model:           rec.Model,
+			WorkerModel:     workerModel,
+			WorkerSessionID: workerSession,
+			FallbackReason:  rec.FallbackReason,
+			CriterionHash:   rec.CriterionHash,
+			Verdict:         rec.Verdict,
 		})
 	}
 }

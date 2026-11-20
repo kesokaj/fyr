@@ -30,7 +30,7 @@ func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 	if err := s.copyDevTrials(srcDB, label, ver >= 5); err != nil {
 		noteSecondBrain(log, "%s trials: %v", srcPath, err)
 	}
-	if err := s.copyDevSessionsAndSteps(srcDB, label, ver >= 5); err != nil {
+	if err := s.copyDevSessionsAndSteps(srcDB, label, ver >= 5, ver >= 11); err != nil {
 		noteSecondBrain(log, "%s sessions: %v", srcPath, err)
 	}
 	if ver >= 6 {
@@ -87,8 +87,12 @@ func insertCopiedTrial(tx *sql.Tx, rows *sql.Rows, label string) error {
 	return err
 }
 
-func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes bool) error {
-	rows, err := src.Query(`SELECT id, vendor, project_root, parent_id, agent_type, model, outcome, run, started_at, ended_at, cost_usd, duration_ms FROM sessions`)
+func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes, hasRepoID bool) error {
+	q := `SELECT id, vendor, project_root, '', parent_id, agent_type, model, outcome, run, started_at, ended_at, cost_usd, duration_ms FROM sessions`
+	if hasRepoID {
+		q = `SELECT id, vendor, project_root, COALESCE(repo_id, ''), parent_id, agent_type, model, outcome, run, started_at, ended_at, cost_usd, duration_ms FROM sessions`
+	}
+	rows, err := src.Query(q)
 	if err != nil {
 		return err
 	}
@@ -120,20 +124,24 @@ func (s *Store) copyDevSessionsAndSteps(src *sql.DB, label string, hasStepTimes 
 }
 
 func insertCopiedSession(tx *sql.Tx, rows *sql.Rows, label string) (string, string, bool, error) {
-	var origID string
+	var origID, repoID string
 	var vendor, root, parent, agent, model, outcome, run sql.NullString
 	var started, ended, dur sql.NullInt64
 	var cost sql.NullFloat64
-	if err := rows.Scan(&origID, &vendor, &root, &parent, &agent, &model, &outcome, &run, &started, &ended, &cost, &dur); err != nil {
+	if err := rows.Scan(&origID, &vendor, &root, &repoID, &parent, &agent, &model, &outcome, &run, &started, &ended, &cost, &dur); err != nil {
 		return "", "", false, err
 	}
 	destID := scopedKey(label, origID)
 	if destID == "" {
 		return "", "", false, nil
 	}
+	repoID = clipPrintable(repoID, 256)
+	if repoID == "" && root.Valid && strings.TrimSpace(root.String) != "" {
+		repoID = clipPrintable(ResolveRepoID(root.String), 256)
+	}
 	res, err := tx.Exec(
-		`INSERT OR IGNORE INTO sessions(id, vendor, project_root, parent_id, agent_type, model, label, outcome, run, started_at, ended_at, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		destID, nullPrintable(vendor), nullPrintable(root), scopedNullString(label, parent),
+		`INSERT OR IGNORE INTO sessions(id, vendor, project_root, repo_id, parent_id, agent_type, model, label, outcome, run, started_at, ended_at, cost_usd, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		destID, nullPrintable(vendor), nullPrintable(root), repoID, scopedNullString(label, parent),
 		nullPrintable(agent), nullPrintable(model), printable(label), nullPrintable(outcome),
 		scopedNullString(label, run), started, ended, cost, dur,
 	)

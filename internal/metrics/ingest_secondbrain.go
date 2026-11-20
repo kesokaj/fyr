@@ -21,8 +21,10 @@ type turnKey struct {
 }
 
 type turnVetRow struct {
-	projectRoot, convID, intent, gate                          string
+	projectRoot, repoID, convID, intent, gate, directive       string
 	turnNum, score, bypassed, skillsCount, pivotsCount, ledger int
+	subtaskCount, durationMS, timedOut, injectedBytes          int
+	pivotsUsedCount, skillsLoadedCount                         int
 	createdAt                                                  int64
 }
 
@@ -221,7 +223,9 @@ func (s *Store) syncProjectSearchDB(root, dbPath, tmpDir string) error {
 	if err != nil {
 		return err
 	}
-	vets, err := readVetHistoryRows(db, filepath.Clean(root), ledger)
+	cleanRoot := filepath.Clean(root)
+	repoID := ResolveRepoID(cleanRoot)
+	vets, err := s.readVetHistoryRows(db, cleanRoot, repoID, ledger)
 	if err != nil {
 		return err
 	}
@@ -251,59 +255,6 @@ func readLedgerSavings(db *sql.DB) (map[turnKey]int, error) {
 	return out, rows.Err()
 }
 
-func readVetHistoryRows(db *sql.DB, root string, ledger map[turnKey]int) ([]turnVetRow, error) {
-	rows, err := db.Query(`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, suggested_skills, pivot_files, created_at FROM vet_history ORDER BY turn_num, created_at, rowid`)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer rows.Close()
-	var out []turnVetRow
-	lastIdx := map[string]int{}
-	for rows.Next() {
-		var convID, intent, gate, rawPrompt, skillsCSV, pivotsCSV string
-		var turnNum, score int
-		var createdAt int64
-		if err := rows.Scan(&convID, &turnNum, &intent, &gate, &score, &rawPrompt, &skillsCSV, &pivotsCSV, &createdAt); err != nil {
-			return nil, err
-		}
-		convID = printable(strings.TrimSpace(convID))
-		bypassed := 0
-		if strings.HasPrefix(strings.TrimSpace(rawPrompt), "!") {
-			bypassed = 1
-		}
-		k := turnKey{convID: convID, turnNum: turnNum}
-		saved := ledger[k]
-		delete(ledger, k)
-		lastIdx[convID] = len(out)
-		out = append(out, turnVetRow{
-			projectRoot: root, convID: convID, turnNum: turnNum,
-			intent: printable(strings.TrimSpace(intent)), gate: printable(strings.TrimSpace(gate)),
-			score: min(100, max(0, score)), bypassed: bypassed,
-			skillsCount: countCSVItems(skillsCSV), pivotsCount: countCSVItems(pivotsCSV),
-			ledger: max(0, saved), createdAt: createdAt,
-		})
-	}
-	for k, saved := range ledger {
-		if idx, ok := lastIdx[k.convID]; ok && saved > 0 {
-			out[idx].ledger += saved
-		}
-	}
-	return out, rows.Err()
-}
-
-func countCSVItems(s string) int {
-	n := 0
-	for _, p := range strings.Split(s, ",") {
-		if strings.TrimSpace(p) != "" {
-			n++
-		}
-	}
-	return n
-}
-
 func (s *Store) upsertTurnVets(rows []turnVetRow) error {
 	if len(rows) == 0 {
 		return nil
@@ -313,10 +264,16 @@ func (s *Store) upsertTurnVets(rows []turnVetRow) error {
 		return err
 	}
 	defer tx.Rollback()
+	const q = `INSERT OR REPLACE INTO turn_vets(
+		project_root, repo_id, conversation_id, turn_num, intent, gate, score, bypassed,
+		skills_count, pivots_count, ledger_saved, directive, subtask_count, duration_ms,
+		timed_out, injected_bytes, pivots_used_count, skills_loaded_count, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	for _, r := range rows {
 		if _, err := tx.Exec(
-			`INSERT OR REPLACE INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.projectRoot, r.convID, r.turnNum, r.intent, r.gate, r.score, r.bypassed, r.skillsCount, r.pivotsCount, r.ledger, r.createdAt,
+			q, r.projectRoot, r.repoID, r.convID, r.turnNum, r.intent, r.gate, r.score, r.bypassed,
+			r.skillsCount, r.pivotsCount, r.ledger, r.directive, r.subtaskCount, r.durationMS,
+			r.timedOut, r.injectedBytes, r.pivotsUsedCount, r.skillsLoadedCount, r.createdAt,
 		); err != nil {
 			return err
 		}

@@ -120,8 +120,8 @@ func TestSD122SizeChangeZeroModifiedAndSD124ModelUpdate(t *testing.T) {
 	}
 	db2.Close()
 	ingestT(t, st, Options{Home: home})
-	if err := st.db.QueryRow(`SELECT model FROM sessions WHERE id = 'CM'`).Scan(&model); err != nil || model != "gemini-pro-orchestrator" {
-		t.Fatalf("upgraded model=%q err=%v, want gemini-pro-orchestrator", model, err)
+	if err := st.db.QueryRow(`SELECT model FROM sessions WHERE id = 'CM'`).Scan(&model); err != nil || model != "orchestrator(gemini-4-carbon+gemini-4-hydrogen)" {
+		t.Fatalf("upgraded model=%q err=%v, want orchestrator(gemini-4-carbon+gemini-4-hydrogen)", model, err)
 	}
 }
 

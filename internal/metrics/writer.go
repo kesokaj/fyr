@@ -24,6 +24,7 @@ type writer struct {
 	run     string
 	err     error
 	project map[string]string // project root -> docs root
+	repoIDs map[string]string // project root -> repo_id
 }
 
 func (w *writer) exec(q string, args ...any) {

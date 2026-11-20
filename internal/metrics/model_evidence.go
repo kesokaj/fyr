@@ -2,18 +2,27 @@ package metrics
 
 import (
 	"database/sql"
+	"math"
 	"strings"
 	"time"
 )
 
-// ModelEvidence summarizes empirical worker and eval performance for one model
-// in [since, now), consumed by cmd/fyr for model selection and fyr models.
+// ModelEvidence summarizes empirical worker, trial, judge, and rating performance
+// for one model in [since, now), consumed by cmd/fyr for model selection.
 type ModelEvidence struct {
-	WorkRuns        int     `json:"work_runs"`
-	WorkPass        int     `json:"work_pass"`
-	WorkMeanSeconds float64 `json:"work_mean_seconds"`
-	EvalRuns        int     `json:"eval_runs"`
-	EvalPass        int     `json:"eval_pass"`
+	WorkRuns         int     `json:"work_runs"`
+	WorkPass         int     `json:"work_pass"`
+	WorkMeanSeconds  float64 `json:"work_mean_seconds"`
+	EvalRuns         int     `json:"eval_runs"`
+	EvalPass         int     `json:"eval_pass"`
+	TrialRuns        int     `json:"trial_runs"`
+	TrialPass        int     `json:"trial_pass"`
+	JudgeRuns        int     `json:"judge_runs"`
+	JudgePass        int     `json:"judge_pass"`
+	RatingRuns       int     `json:"rating_runs"`
+	RatingScoreSum   float64 `json:"rating_score_sum"`
+	DecayedRuns      float64 `json:"decayed_runs"`
+	DecayedSuccesses float64 `json:"decayed_successes"`
 }
 
 type modelEvidenceAcc struct {
@@ -22,7 +31,16 @@ type modelEvidenceAcc struct {
 	workTimed  int
 }
 
-// ModelEvidence aggregates graded work_waves and eval trials per model in [since, now).
+const (
+	evidenceHalfLifeDays = 14.0
+	msPerDay             = 86_400_000.0
+	trialEvidenceWeight  = 1.0
+	judgeEvidenceWeight  = 0.9
+	ratingEvidenceWeight = 0.6
+)
+
+// ModelEvidence aggregates legacy work_waves/evals and 14-day exponentially
+// decayed trials, worker-attributed judge_verdicts, and session_ratings in [since, now).
 func (s *Store) ModelEvidence(since, now time.Time) (map[string]ModelEvidence, error) {
 	if now.IsZero() {
 		now = time.Now()
@@ -41,6 +59,16 @@ func (s *Store) ModelEvidence(since, now time.Time) (map[string]ModelEvidence, e
 	if err := s.accumulateEvalModelEvidence(accs, since, now); err != nil {
 		return nil, err
 	}
+	if err := s.accumulateJudgeModelEvidence(accs, since, now); err != nil {
+		return nil, err
+	}
+	if err := s.accumulateRatingModelEvidence(accs, since, now); err != nil {
+		return nil, err
+	}
+	return finalizeModelEvidence(accs), nil
+}
+
+func finalizeModelEvidence(accs map[string]*modelEvidenceAcc) map[string]ModelEvidence {
 	out := make(map[string]ModelEvidence, len(accs))
 	for m, a := range accs {
 		if a.workTimed > 0 {
@@ -48,7 +76,26 @@ func (s *Store) ModelEvidence(since, now time.Time) (map[string]ModelEvidence, e
 		}
 		out[m] = a.ev
 	}
-	return out, nil
+	return out
+}
+
+func decayWeight(rawTS int64, now time.Time) float64 {
+	tsMS := normalizeMilli(rawTS)
+	ageDays := float64(now.UnixMilli()-tsMS) / msPerDay
+	if ageDays < 0 {
+		ageDays = 0
+	}
+	return math.Pow(0.5, ageDays/evidenceHalfLifeDays)
+}
+
+func clampUnit(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func ensureModelAcc(accs map[string]*modelEvidenceAcc, model string) *modelEvidenceAcc {
@@ -129,7 +176,7 @@ func scanWaveModelRow(rows *sql.Rows, accs map[string]*modelEvidenceAcc, workDur
 }
 
 func (s *Store) accumulateEvalModelEvidence(accs map[string]*modelEvidenceAcc, since, now time.Time) error {
-	rows, err := s.db.Query(`SELECT DISTINCT t.run, LOWER(t.status), s.model
+	rows, err := s.db.Query(`SELECT DISTINCT t.run, LOWER(t.status), s.model, COALESCE(t.started_at, 0)
 		FROM trials t JOIN sessions s ON s.run = t.run
 		WHERE t.started_at >= ? AND t.started_at < ?
 		  AND LOWER(t.status) IN ('pass', 'fail')
@@ -142,19 +189,95 @@ func (s *Store) accumulateEvalModelEvidence(accs map[string]*modelEvidenceAcc, s
 	defer rows.Close()
 	for rows.Next() {
 		var run, status, model string
-		if err := rows.Scan(&run, &status, &model); err != nil {
+		var startedAt int64
+		if err := rows.Scan(&run, &status, &model, &startedAt); err != nil {
 			return err
 		}
-		a := ensureModelAcc(accs, strings.TrimSpace(model))
+		m := strings.TrimSpace(model)
+		if m == "" || strings.EqualFold(m, "default") {
+			continue
+		}
+		a := ensureModelAcc(accs, m)
 		a.ev.EvalRuns++
+		a.ev.TrialRuns++
+		w := trialEvidenceWeight * decayWeight(startedAt, now)
+		a.ev.DecayedRuns += w
 		if status == "pass" {
 			a.ev.EvalPass++
+			a.ev.TrialPass++
+			a.ev.DecayedSuccesses += w
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
 	return s.accumulateUnclaimedEvalSessions(accs, since, now)
+}
+
+func (s *Store) accumulateJudgeModelEvidence(accs map[string]*modelEvidenceAcc, since, now time.Time) error {
+	q := `SELECT j.ts, j.verdict,
+		COALESCE(NULLIF(TRIM(j.worker_model), ''), COALESCE((SELECT s.model FROM sessions s WHERE j.worker_session_id != '' AND s.id = j.worker_session_id), ''))
+		FROM judge_verdicts j
+		WHERE ` + verdictTSMSExpr + ` >= ? AND ` + verdictTSMSExpr + ` < ?`
+	rows, err := s.db.Query(q, since.UnixMilli(), now.UnixMilli())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ts int64
+		var verdict, workerModel string
+		if err := rows.Scan(&ts, &verdict, &workerModel); err != nil {
+			return err
+		}
+		m := strings.TrimSpace(workerModel)
+		v := normJudgeVerdict(verdict)
+		if m == "" || strings.EqualFold(m, "default") || (v != "PASS" && v != "FAIL") {
+			continue
+		}
+		a := ensureModelAcc(accs, m)
+		a.ev.JudgeRuns++
+		w := judgeEvidenceWeight * decayWeight(ts, now)
+		a.ev.DecayedRuns += w
+		if v == "PASS" {
+			a.ev.JudgePass++
+			a.ev.DecayedSuccesses += w
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Store) accumulateRatingModelEvidence(accs map[string]*modelEvidenceAcc, since, now time.Time) error {
+	rTS := `(CASE WHEN r.evaluated_at >= 100000000 AND r.evaluated_at < 100000000000 THEN r.evaluated_at * 1000 ELSE r.evaluated_at END)`
+	q := `SELECT r.evaluated_at, r.outcome_score, s.model
+		FROM session_ratings r JOIN sessions s ON s.id = r.session_id
+		WHERE ` + rTS + ` >= ? AND ` + rTS + ` < ?
+		  AND s.model IS NOT NULL AND s.model != ''`
+	rows, err := s.db.Query(q, since.UnixMilli(), now.UnixMilli())
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var evalAt int64
+		var outcomeScore int
+		var model string
+		if err := rows.Scan(&evalAt, &outcomeScore, &model); err != nil {
+			return err
+		}
+		m := strings.TrimSpace(model)
+		if m == "" || strings.EqualFold(m, "default") {
+			continue
+		}
+		score := clampUnit((float64(outcomeScore) - 1.0) / 4.0)
+		w := ratingEvidenceWeight * decayWeight(evalAt, now)
+		a := ensureModelAcc(accs, m)
+		a.ev.RatingRuns++
+		a.ev.RatingScoreSum += score
+		a.ev.DecayedRuns += w
+		a.ev.DecayedSuccesses += w * score
+	}
+	return rows.Err()
 }
 
 func (s *Store) accumulateUnclaimedEvalSessions(accs map[string]*modelEvidenceAcc, since, now time.Time) error {

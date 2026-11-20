@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,36 +28,43 @@ const (
 
 // JudgeVerdictRecord captures one cross-family gate verdict for telemetry storage.
 type JudgeVerdictRecord struct {
-	TS             int64
-	ProjectRoot    string
-	Target         string
-	Model          string
-	FallbackReason string
-	CriterionHash  string
-	Verdict        string
+	TS              int64
+	ProjectRoot     string
+	RepoID          string
+	Target          string
+	Model           string
+	WorkerModel     string
+	WorkerSessionID string
+	FallbackReason  string
+	CriterionHash   string
+	Verdict         string
 }
 
 // JudgeRequest carries the fenced diff, verification summary, and criterion to JudgeRunner.
 type JudgeRequest struct {
-	Home          string
-	RepoDir       string
-	Target        string
-	MergeBase     string
-	Head          string
-	Criterion     string
-	ExplicitModel string
-	Diff          string
-	StampSummary  string
-	DiffTruncated bool
+	Home            string
+	RepoDir         string
+	Target          string
+	MergeBase       string
+	Head            string
+	Criterion       string
+	ExplicitModel   string
+	WorkerModel     string
+	WorkerSessionID string
+	Diff            string
+	StampSummary    string
+	DiffTruncated   bool
 }
 
 // JudgeResult summarizes a cross-family judge evaluation outcome.
 type JudgeResult struct {
-	Model          string
-	FallbackReason string
-	Verdict        string
-	Reason         string
-	DiffTruncated  bool
+	Model           string
+	WorkerModel     string
+	WorkerSessionID string
+	FallbackReason  string
+	Verdict         string
+	Reason          string
+	DiffTruncated   bool
 }
 
 // EvaluateJudge resolves the cross-family judge model, reads and fences the diff
@@ -85,6 +94,7 @@ func EvaluateJudge(ctx context.Context, opts GateOptions, tgt gateTarget) (Judge
 	req := JudgeRequest{
 		Home: home, RepoDir: repoDir, Target: opts.Target, MergeBase: tgt.mergeBase,
 		Head: tgt.head, Criterion: opts.Judge, ExplicitModel: opts.JudgeModel,
+		WorkerModel: opts.WorkerModel, WorkerSessionID: opts.WorkerSessionID,
 		Diff: f.Data("git-diff", "branch", diffText), StampSummary: stampSummary,
 		DiffTruncated: truncated,
 	}
@@ -264,20 +274,8 @@ func applyGateJudge(ctx context.Context, opts GateOptions, tgt gateTarget, rep *
 	rep.JudgeVerdict = res.Verdict
 	rep.JudgeFallback = res.FallbackReason
 	rep.DiffTruncated = res.DiffTruncated
-	if opts.RecordVerdict != nil {
-		sum := sha256.Sum256([]byte(strings.TrimSpace(opts.Judge)))
-		rec := JudgeVerdictRecord{
-			TS:             time.Now().UnixMilli(),
-			ProjectRoot:    tgt.mainRoot,
-			Target:         opts.Target,
-			Model:          res.Model,
-			FallbackReason: res.FallbackReason,
-			CriterionHash:  hex.EncodeToString(sum[:]),
-			Verdict:        res.Verdict,
-		}
-		if recErr := opts.RecordVerdict(rec); recErr != nil {
-			return recErr
-		}
+	if err := emitJudgeVerdictRecord(ctx, opts, tgt, res); err != nil {
+		return err
 	}
 	if res.Verdict != "PASS" {
 		detail := search.Printable(strings.TrimSpace(res.Reason))
@@ -288,6 +286,76 @@ func applyGateJudge(ctx context.Context, opts GateOptions, tgt gateTarget, rep *
 		return failf("judge failed: %s", detail)
 	}
 	return nil
+}
+
+func emitJudgeVerdictRecord(ctx context.Context, opts GateOptions, tgt gateTarget, res JudgeResult) error {
+	if opts.RecordVerdict == nil {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(opts.Judge)))
+	rec := JudgeVerdictRecord{
+		TS:              time.Now().UnixMilli(),
+		ProjectRoot:     tgt.mainRoot,
+		RepoID:          resolveGateRepoID(ctx, tgt.mainRoot),
+		Target:          opts.Target,
+		Model:           res.Model,
+		WorkerModel:     firstNonEmptyStr(res.WorkerModel, opts.WorkerModel, os.Getenv("FYR_WORKER_MODEL")),
+		WorkerSessionID: firstNonEmptyStr(res.WorkerSessionID, opts.WorkerSessionID, os.Getenv("FYR_WORKER_SESSION")),
+		FallbackReason:  res.FallbackReason,
+		CriterionHash:   hex.EncodeToString(sum[:]),
+		Verdict:         res.Verdict,
+	}
+	return opts.RecordVerdict(rec)
+}
+
+func resolveGateRepoID(ctx context.Context, mainRoot string) string {
+	clean := filepath.Clean(strings.TrimSpace(mainRoot))
+	if clean == "" || clean == "." {
+		return ""
+	}
+	origin, _ := gitLine(ctx, clean, "config", "--get", "remote.origin.url")
+	if gitID, ok := normalizeGateOrigin(origin); ok {
+		return gitID
+	}
+	sum := sha256.Sum256([]byte(clean))
+	return "path:" + hex.EncodeToString(sum[:])[:16]
+}
+
+func normalizeGateOrigin(raw string) (string, bool) {
+	u := strings.TrimSpace(raw)
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		u = u[:i]
+	}
+	var host, repo string
+	if idx := strings.Index(u, "://"); idx >= 0 {
+		if strings.EqualFold(strings.TrimSpace(u[:idx]), "file") {
+			return "", false
+		}
+		host, repo, _ = strings.Cut(u[idx+3:], "/")
+		if at := strings.LastIndexByte(host, '@'); at >= 0 {
+			host = host[at+1:]
+		}
+		if h, p, ok := strings.Cut(host, ":"); ok && h != "" {
+			host = h
+			if strings.Trim(p, "0123456789") != "" {
+				repo = strings.Trim(p+"/"+repo, "/")
+			}
+		}
+	} else if !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, ".") {
+		left, right, ok := strings.Cut(u, ":")
+		if !ok || strings.Contains(left, "/") {
+			return "", false
+		}
+		if at := strings.LastIndexByte(left, '@'); at >= 0 {
+			left = left[at+1:]
+		}
+		host, repo = left, right
+	}
+	repo = strings.Trim(strings.TrimSuffix(strings.TrimSuffix(strings.Trim(repo, "/"), ".git"), ".GIT"), "/")
+	if host == "" || repo == "" || path.Clean(repo) == "." {
+		return "", false
+	}
+	return "git:" + strings.ToLower(host+"/"+strings.Trim(path.Clean(repo), "/")), true
 }
 
 func firstNonEmptyStr(vals ...string) string {

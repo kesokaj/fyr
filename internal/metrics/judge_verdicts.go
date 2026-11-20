@@ -9,16 +9,19 @@ import (
 )
 
 // JudgeVerdictRow records one cross-family gate or judge verdict in metrics.db
-// (schema 9).
+// (schema 9+, extended in schema 11 with repo_id and worker attribution).
 type JudgeVerdictRow struct {
-	ID             int64  `json:"id,omitempty"`
-	TS             int64  `json:"ts"`
-	ProjectRoot    string `json:"project_root"`
-	Target         string `json:"target"`
-	Model          string `json:"model"`
-	FallbackReason string `json:"fallback_reason"`
-	CriterionHash  string `json:"criterion_hash"`
-	Verdict        string `json:"verdict"`
+	ID              int64  `json:"id,omitempty"`
+	TS              int64  `json:"ts"`
+	ProjectRoot     string `json:"project_root"`
+	RepoID          string `json:"repo_id,omitempty"`
+	Target          string `json:"target"`
+	Model           string `json:"model"`
+	WorkerModel     string `json:"worker_model,omitempty"`
+	WorkerSessionID string `json:"worker_session_id,omitempty"`
+	FallbackReason  string `json:"fallback_reason"`
+	CriterionHash   string `json:"criterion_hash"`
+	Verdict         string `json:"verdict"`
 }
 
 const verdictTSMSExpr = `(CASE WHEN ts >= 100000000 AND ts < 100000000000 THEN ts * 1000 ELSE ts END)`
@@ -43,8 +46,8 @@ func (s *Store) RecordJudgeVerdict(row JudgeVerdictRow) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO judge_verdicts(ts, project_root, target, model, fallback_reason, criterion_hash, verdict) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		norm.TS, norm.ProjectRoot, norm.Target, norm.Model, norm.FallbackReason, norm.CriterionHash, norm.Verdict,
+		`INSERT INTO judge_verdicts(ts, project_root, repo_id, target, model, worker_model, worker_session_id, fallback_reason, criterion_hash, verdict) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		norm.TS, norm.ProjectRoot, norm.RepoID, norm.Target, norm.Model, norm.WorkerModel, norm.WorkerSessionID, norm.FallbackReason, norm.CriterionHash, norm.Verdict,
 	)
 	return err
 }
@@ -67,6 +70,12 @@ func normalizeJudgeVerdictRow(r JudgeVerdictRow) (JudgeVerdictRow, error) {
 	} else {
 		r.ProjectRoot = ""
 	}
+	r.RepoID = clipPrintable(r.RepoID, 256)
+	if r.RepoID == "" && r.ProjectRoot != "" {
+		r.RepoID = clipPrintable(ResolveRepoID(r.ProjectRoot), 256)
+	}
+	r.WorkerModel = clipPrintable(r.WorkerModel, 128)
+	r.WorkerSessionID = clipPrintable(r.WorkerSessionID, 128)
 	r.Target = clipPrintable(r.Target, 256)
 	r.FallbackReason = clipPrintable(r.FallbackReason, 400)
 	return r, nil
@@ -91,7 +100,7 @@ func truncateUTF8(s string, maxLen int) string {
 // and [since, now) bounds, newest first.
 func (s *Store) JudgeVerdicts(project string, since, now time.Time) ([]JudgeVerdictRow, error) {
 	where, args := judgeVerdictsWhere(project, since, now)
-	q := `SELECT id, ts, project_root, target, model, fallback_reason, criterion_hash, verdict FROM judge_verdicts`
+	q := `SELECT id, ts, project_root, COALESCE(repo_id, ''), target, model, COALESCE(worker_model, ''), COALESCE(worker_session_id, ''), fallback_reason, criterion_hash, verdict FROM judge_verdicts`
 	if where != "" {
 		q += ` WHERE ` + where
 	}
@@ -104,12 +113,51 @@ func (s *Store) JudgeVerdicts(project string, since, now time.Time) ([]JudgeVerd
 	var out []JudgeVerdictRow
 	for rows.Next() {
 		var r JudgeVerdictRow
-		if err := rows.Scan(&r.ID, &r.TS, &r.ProjectRoot, &r.Target, &r.Model, &r.FallbackReason, &r.CriterionHash, &r.Verdict); err != nil {
+		if err := rows.Scan(&r.ID, &r.TS, &r.ProjectRoot, &r.RepoID, &r.Target, &r.Model, &r.WorkerModel, &r.WorkerSessionID, &r.FallbackReason, &r.CriterionHash, &r.Verdict); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// InferWorkerAttribution best-effort resolves (workerModel, workerSessionID) from
+// <home>/<StateDir>/metrics.db for a gate/land target when not explicitly set.
+func InferWorkerAttribution(home, projectRoot, target string) (string, string) {
+	if strings.TrimSpace(home) == "" || strings.TrimSpace(target) == "" {
+		return "", ""
+	}
+	s, err := Open(Path(home))
+	if err != nil {
+		return "", ""
+	}
+	defer s.Close()
+	return s.inferWorkerAttribution(projectRoot, target)
+}
+
+func (s *Store) inferWorkerAttribution(projectRoot, target string) (string, string) {
+	tgt := strings.TrimSpace(target)
+	cleanTgt := filepath.Clean(tgt)
+	var sid, mod string
+	if err := s.db.QueryRow(
+		`SELECT id, COALESCE(model, '') FROM sessions WHERE project_root = ? AND COALESCE(model, '') != '' ORDER BY COALESCE(ended_at, started_at, 0) DESC LIMIT 1`,
+		cleanTgt,
+	).Scan(&sid, &mod); err == nil && mod != "" {
+		return mod, sid
+	}
+	workerCand := strings.TrimPrefix(tgt, "work/")
+	if _, base, ok := strings.Cut(tgt, "/"); ok && !strings.HasPrefix(tgt, "/") {
+		workerCand = base
+	}
+	proj := ""
+	if strings.TrimSpace(projectRoot) != "" {
+		proj = filepath.Clean(projectRoot)
+	}
+	_ = s.db.QueryRow(
+		`SELECT model FROM work_waves WHERE (worker = ? OR worker = ? OR stamp || '/' || worker = ?) AND (? = '' OR project_root = '' OR project_root = ?) AND COALESCE(model, '') != '' ORDER BY updated_at DESC LIMIT 1`,
+		tgt, workerCand, tgt, proj, proj,
+	).Scan(&mod)
+	return mod, sid
 }
 
 func judgeVerdictsWhere(project string, since, now time.Time) (string, []any) {

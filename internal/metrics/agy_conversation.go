@@ -81,13 +81,19 @@ func readAgyGens(db *sql.DB) ([][]byte, error) {
 // is kept (the run among them), except an unresolved worktree path is updated
 // when resolved, and its end only moves later.
 func (w *writer) agySession(c agyConv) {
-	w.exec(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, label, outcome, ended_at, run)
-		VALUES (?, 'agy', NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
+	repoID := w.repoID(c.root)
+	w.exec(`INSERT INTO sessions(id, vendor, project_root, repo_id, parent_id, agent_type, label, outcome, ended_at, run)
+		VALUES (?, 'agy', NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, 0), NULLIF(?, ''))
 		ON CONFLICT(id) DO UPDATE SET
 			project_root = CASE
 				WHEN excluded.project_root IS NOT NULL AND (sessions.project_root IS NULL OR sessions.project_root = '' OR sessions.project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
 				THEN excluded.project_root
 				ELSE COALESCE(sessions.project_root, excluded.project_root)
+			END,
+			repo_id = CASE
+				WHEN excluded.repo_id != '' AND (sessions.repo_id = '' OR sessions.project_root IS NULL OR sessions.project_root = '' OR sessions.project_root LIKE '%/.gemini/antigravity-cli/worktrees/%')
+				THEN excluded.repo_id
+				ELSE sessions.repo_id
 			END,
 			parent_id = COALESCE(sessions.parent_id, excluded.parent_id),
 			agent_type = COALESCE(sessions.agent_type, excluded.agent_type),
@@ -95,7 +101,7 @@ func (w *writer) agySession(c agyConv) {
 			outcome = COALESCE(sessions.outcome, excluded.outcome),
 			ended_at = MAX(COALESCE(sessions.ended_at, 0), COALESCE(excluded.ended_at, 0)),
 			run = COALESCE(sessions.run, excluded.run)`,
-		c.id, c.root, c.parent, identifier(c.agent), w.label, w.outcome, c.modified, w.run)
+		c.id, c.root, repoID, c.parent, identifier(c.agent), w.label, w.outcome, c.modified, w.run)
 }
 
 // agySteps stores the user, reply and tool steps, widening the session to
@@ -194,9 +200,8 @@ func stepTimes(meta []byte, f fields) (started, ended int64, startedCol, endedCo
 }
 
 // agyGens stores one generation step per gen_metadata row: its tokens, its
-// context, and the model it names. Multi-model Orchestrator sessions record
-// Carbon/Argon on early steps and Hydrogen on execution steps; normalize those
-// to the corresponding gemini-pro-orchestrator identifier at the session level.
+// context, and the concrete model ID from (3,28) falling back to (1,19).
+// Bare stems paired with effort-suffixed variants collapse to the concrete ID.
 func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
 	seenModels := map[string]bool{}
 	var firstModel string
@@ -215,7 +220,11 @@ func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
 				ts = excluded.ts, tok_in = excluded.tok_in, tok_out = excluded.tok_out,
 				cache_read = excluded.cache_read, context = excluded.context`,
 			c.id, fmt.Sprintf("%s:gen:%d", c.id, i), ts, f.varint(1, 4, 2), f.varint(1, 4, 3), f.varint(1, 4, 5), ctx)
-		if m := identifier(f.text(1, 19)); m != "" {
+		m := identifier(f.text(3, 28))
+		if m == "" {
+			m = identifier(f.text(1, 19))
+		}
+		if m != "" {
 			if firstModel == "" {
 				firstModel = m
 			}
@@ -228,34 +237,58 @@ func (w *writer) agyGens(c agyConv, gens [][]byte, replyTimes []int64) {
 }
 
 func normalizeSessionModel(first string, seen map[string]bool) string {
-	if len(seen) <= 1 {
+	if len(seen) == 0 {
 		return first
-	}
-	var hasHydrogen, hasCarbon, hasArgon bool
-	for m := range seen {
-		switch {
-		case strings.Contains(m, "orchestrator"):
-			return m
-		case strings.Contains(m, "hydrogen"):
-			hasHydrogen = true
-		case strings.Contains(m, "carbon"):
-			hasCarbon = true
-		case strings.Contains(m, "argon"):
-			hasArgon = true
-		}
-	}
-	if hasHydrogen && hasArgon && !hasCarbon {
-		return "gemini-pro-orchestrator-argon"
-	}
-	if hasHydrogen && hasCarbon {
-		return "gemini-pro-orchestrator"
 	}
 	models := make([]string, 0, len(seen))
 	for m := range seen {
-		models = append(models, m)
+		models = append(models, strings.ToLower(strings.TrimSpace(m)))
 	}
 	sort.Strings(models)
-	return "orchestrator(" + strings.Join(models, "+") + ")"
+	for _, m := range models {
+		if strings.Contains(m, "orchestrator") {
+			return m
+		}
+	}
+	collapsed := collapseBareModelStems(models)
+	if len(collapsed) == 1 {
+		if first != "" && strings.EqualFold(first, collapsed[0]) {
+			return first
+		}
+		return collapsed[0]
+	}
+	return "orchestrator(" + strings.Join(collapsed, "+") + ")"
+}
+
+func collapseBareModelStems(sortedModels []string) []string {
+	stemsWithEffort := map[string]bool{}
+	for _, m := range sortedModels {
+		if stem, hasEffort := modelStemAndEffort(m); hasEffort {
+			stemsWithEffort[stem] = true
+		}
+	}
+	if len(stemsWithEffort) == 0 {
+		return sortedModels
+	}
+	out := make([]string, 0, len(sortedModels))
+	for _, m := range sortedModels {
+		if _, hasEffort := modelStemAndEffort(m); !hasEffort && stemsWithEffort[m] {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func modelStemAndEffort(m string) (string, bool) {
+	for _, suf := range []string{"-xhigh", "-max", "-high", "-medium", "-low", "-minimal"} {
+		if strings.HasSuffix(m, suf) {
+			if stem := strings.TrimSuffix(m, suf); stem != "" {
+				return stem, true
+			}
+		}
+	}
+	return m, false
 }
 
 // agyIngestState records the conversation's source size and modified time,

@@ -18,18 +18,20 @@ const (
 
 // GateOptions configures deterministic worktree/branch gating.
 type GateOptions struct {
-	Dir           string
-	Target        string
-	Base          string
-	Home          string
-	Lease         []string
-	LeaseFile     string
-	MaxFiles      int
-	MaxLines      int
-	Judge         string
-	JudgeModel    string
-	JudgeRunner   func(context.Context, JudgeRequest) (JudgeResult, error)
-	RecordVerdict func(JudgeVerdictRecord) error
+	Dir             string
+	Target          string
+	Base            string
+	Home            string
+	Lease           []string
+	LeaseFile       string
+	MaxFiles        int
+	MaxLines        int
+	Judge           string
+	JudgeModel      string
+	WorkerModel     string
+	WorkerSessionID string
+	JudgeRunner     func(context.Context, JudgeRequest) (JudgeResult, error)
+	RecordVerdict   func(JudgeVerdictRecord) error
 }
 
 // GateFinding describes a single deterministic gate violation.

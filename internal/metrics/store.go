@@ -140,6 +140,22 @@ var migrations = []string{
 	CREATE INDEX judge_verdicts_ts ON judge_verdicts(ts);`,
 	// 10: shape-only dream/auto background runs ledger (v9.4 Phase 2, ADR-528).
 	`CREATE TABLE background_runs(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, duration_ms INTEGER NOT NULL, projects_checked INTEGER NOT NULL DEFAULT 0, proposals_written INTEGER NOT NULL DEFAULT 0, ratings_written INTEGER NOT NULL DEFAULT 0, worker_ran INTEGER NOT NULL DEFAULT 0, applied INTEGER NOT NULL DEFAULT 0); CREATE INDEX background_runs_ts ON background_runs(ts);`,
+	// 11: canonical repo_id across sessions/verdicts/vets/ratings, worker_model
+	// attribution on judge_verdicts, and extended turn_vets columns (ADR-529, ADR-531).
+	`ALTER TABLE sessions ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE judge_verdicts ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE judge_verdicts ADD COLUMN worker_model TEXT NOT NULL DEFAULT '';
+	ALTER TABLE judge_verdicts ADD COLUMN worker_session_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE turn_vets ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE turn_vets ADD COLUMN directive TEXT NOT NULL DEFAULT '';
+	ALTER TABLE turn_vets ADD COLUMN subtask_count INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE turn_vets ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE turn_vets ADD COLUMN timed_out INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE turn_vets ADD COLUMN injected_bytes INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE turn_vets ADD COLUMN pivots_used_count INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE turn_vets ADD COLUMN skills_loaded_count INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE session_ratings ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	CREATE INDEX IF NOT EXISTS sessions_repo_id ON sessions(repo_id);`,
 }
 
 // tables is every table export writes, in dependency order.
