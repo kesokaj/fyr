@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="__GRAPH_CSP__" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__GRAPH_TITLE__ — fyr graph Constellation</title>
+<style>
+__GRAPH_CSS__
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><span class="brand-dot"></span><span id="repoBrand">__GRAPH_TITLE__</span></div>
+    <div class="seg" id="levelSeg">
+      <button type="button" data-level="pkg" class="active">Packages</button>
+      <button type="button" data-level="file">Files</button>
+      <button type="button" data-level="sym">Symbols</button>
+    </div>
+    <div class="ctrl search-wrap">
+      <span>/</span>
+      <input id="searchInput" type="text" placeholder="Search packages, files, symbols..." autocomplete="off" />
+      <div id="searchResults"></div>
+    </div>
+    <label class="ctrl" title="Color nodes by">
+      Color:
+      <select id="colorBy">
+        <option value="comm">Community</option>
+        <option value="layer">Layer</option>
+        <option value="heat">In-Degree Heat</option>
+        <option value="churn">Agent Read Churn</option>
+      </select>
+    </label>
+    <label class="ctrl" title="Filter language">
+      Lang:
+      <select id="langFilter">
+        <option value="all">All</option>
+        <option value="go">Go</option>
+        <option value="ts">TS/TSX</option>
+        <option value="doc">Docs</option>
+      </select>
+    </label>
+    <label class="ctrl" title="Edge kind filter">
+      Edges:
+      <select id="edgeFilter">
+        <option value="0">All AST edges</option>
+        <option value="1">Calls</option>
+        <option value="2">Type refs</option>
+        <option value="4">Interfaces</option>
+        <option value="8">Imports</option>
+      </select>
+    </label>
+    <label class="ctrl" title="Node labels">
+      Labels:
+      <select id="labelMode">
+        <option value="auto">Auto</option>
+        <option value="all">All</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+    <label class="ctrl"><input id="toggleCoupling" type="checkbox" /> Hidden Co-Activity</label>
+    <label class="ctrl"><input id="toggleTests" type="checkbox" /> Tests</label>
+    <label class="ctrl"><input id="toggleHulls" type="checkbox" checked /> Halos</label>
+    <label class="ctrl" id="symCapWrap" style="display:none;">
+      Top:
+      <input id="symCap" type="range" min="100" max="1500" step="100" value="400" style="width:72px;" />
+      <span id="symCapVal">400</span>
+    </label>
+    <div class="focus-banner" id="focusBanner">
+      <span id="focusLabel"></span>
+      <button type="button" class="btn" id="clearFocusBtn" style="padding:2px 6px;">Reset</button>
+    </div>
+    <div class="toolbar-right">
+      <button type="button" class="btn" id="physicsBtn">Pause</button>
+      <button type="button" class="btn" id="fitBtn">Fit</button>
+      <button type="button" class="btn" id="dotBtn">Export .dot</button>
+      <button type="button" class="btn" id="pngBtn">PNG</button>
+      <button type="button" class="btn" id="themeBtn">Light</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <canvas id="canvas"></canvas>
+
+    <aside class="panel" id="leftPanel">
+      <div class="panel-head">
+        <span>Architecture Map</span>
+        <button type="button" class="btn" id="collapseLeftBtn" style="padding:2px 7px;">_</button>
+      </div>
+      <div class="panel-body">
+        <div class="stats-grid">
+          <div class="stat"><div class="k">Dots</div><div class="v" id="statNodes">0</div></div>
+          <div class="stat"><div class="k">Edges</div><div class="v" id="statEdges">0</div></div>
+          <div class="stat"><div class="k">Communities</div><div class="v" id="statComms">0</div></div>
+          <div class="stat"><div class="k">Pkg Cycles</div><div class="v" id="statCycles">0</div></div>
+        </div>
+        <div class="sec-title">God Nodes (Top-10 PageRank)</div>
+        <div id="godList"></div>
+        <div class="sec-title">Communities (click to isolate)</div>
+        <div class="comm-grid" id="commLegend"></div>
+        <div class="sec-title" id="cyclesTitle">Production Package Cycles</div>
+        <div id="cyclesList"></div>
+      </div>
+    </aside>
+
+    <aside class="panel" id="rightPanel">
+      <div class="panel-head">
+        <span id="inspKind">Inspector</span>
+        <button type="button" class="btn" id="closeRightBtn" style="padding:2px 7px;">x</button>
+      </div>
+      <div class="panel-body" id="inspBody"></div>
+    </aside>
+
+    <div class="hud-bottom">
+      <span><span class="legend-dot" style="background:var(--in-color)"></span>Incoming</span>
+      <span><span class="legend-dot" style="background:var(--out-color)"></span>Outgoing</span>
+      <span><span class="legend-dot" style="background:var(--cycle-color)"></span>Cycle</span>
+      <span><span class="legend-dot" style="background:var(--coupling-color)"></span>Co-Activity</span>
+      <span>Scroll: zoom · Drag: pin · Click: inspect · Dbl-click: 1-hop</span>
+    </div>
+  </div>
+</div>
+
+<script id="graphData" type="application/json">__GRAPH_JSON__</script>
+<script>
+__GRAPH_JS__
+</script>
+</body>
+</html>
