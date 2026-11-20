@@ -7,9 +7,13 @@
 
 ## Now
 
-- [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
+- [ ] Wave 1 of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: Phase 1 (`internal/search/` AST accuracy & structural signals) + Phase 3a (`internal/webpreview/` shared foreground preview)
 
 ## Next
+
+- [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
+- [ ] Phase 2 of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `metrics.db` v10 & shared `DiagnosticReport` + consumers
+- [ ] Phase 3b of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `fyr report` upgrade, `fyr auto log`, & daily HTML report
 
 ## Backlog
 
