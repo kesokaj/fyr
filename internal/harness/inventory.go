@@ -214,7 +214,7 @@ var agentKeys = []string{"name", "description", "subagent", "mainAgent", "model"
 var (
 	skillKeys   = []string{"name", "description", "license", "metadata", "argument-hint", "disable-model-invocation"}
 	commandKeys = []string{"description"}
-	ruleKeys    = []string{"description", "trigger", "globs"}
+	ruleKeys    = []string{"description", "trigger"}
 )
 
 // knownTools is every tool name an agent may list. An unknown name fails the

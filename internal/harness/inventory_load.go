@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
-	"unicode"
 )
 
 // readSkill reads skills/<entry>/SKILL.md into a Skill. ok is false for an
@@ -204,44 +202,14 @@ func readDocFrontmatter(kind, shown, text string, allowed []string) (desc, trigg
 func validateRuleTrigger(shown string, fm Frontmatter) error {
 	trigger := fm["trigger"]
 	switch trigger {
-	case "", "always_on", "model_decision", "glob":
+	case "", "always_on", "model_decision":
+	case "glob":
+		return fmt.Errorf("%s: rule trigger: glob is unsupported in Antigravity; use trigger: model_decision with a description or trigger: always_on", shown)
 	default:
-		return fmt.Errorf("%s: unknown rule trigger %q (supported: always_on, model_decision, glob)", shown, trigger)
-	}
-	globs, hasGlobs := fm["globs"]
-	if hasGlobs && trigger != "glob" {
-		return fmt.Errorf("%s: rule setting globs requires trigger: glob", shown)
-	}
-	if trigger == "glob" {
-		if err := validateRuleGlobs(shown, globs); err != nil {
-			return err
-		}
+		return fmt.Errorf("%s: unknown rule trigger %q (supported: always_on, model_decision)", shown, trigger)
 	}
 	if trigger == "model_decision" && strings.TrimSpace(fm["description"]) == "" {
 		return fmt.Errorf("%s: rule with trigger: model_decision requires a non-empty description", shown)
-	}
-	return nil
-}
-
-func validateRuleGlobs(shown, globs string) error {
-	if strings.TrimSpace(globs) == "" {
-		return fmt.Errorf("%s: rule with trigger: glob requires a non-empty globs pattern", shown)
-	}
-	for _, pat := range strings.Split(globs, ",") {
-		pat = strings.TrimSpace(pat)
-		if pat == "" {
-			return fmt.Errorf("%s: rule with trigger: glob has an empty pattern segment in %q", shown, globs)
-		}
-		norm := strings.ReplaceAll(pat, "\\", "/")
-		hasDrive := len(norm) >= 2 && unicode.IsLetter(rune(norm[0])) && norm[1] == ':'
-		if strings.HasPrefix(norm, "/") || strings.HasPrefix(norm, "~/") || hasDrive || filepath.IsAbs(pat) {
-			return fmt.Errorf("%s: rule glob %q must be repo-relative, not absolute", shown, pat)
-		}
-		for _, seg := range strings.Split(norm, "/") {
-			if seg == ".." {
-				return fmt.Errorf("%s: rule glob %q must not contain '..' path traversal", shown, pat)
-			}
-		}
 	}
 	return nil
 }

@@ -49,6 +49,9 @@ func Close(ctx context.Context, opts CloseOptions) (CloseReport, error) {
 	if err != nil {
 		return CloseReport{}, err
 	}
+	if err := validateCloseKickoff(ctx, top, opts); err != nil {
+		return CloseReport{}, err
+	}
 	body := appendVerificationDigest(opts.Body, st)
 	id, err := brain.Add(
 		brain.Options{Home: opts.Home, Dir: top, Now: opts.Now},

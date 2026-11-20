@@ -47,8 +47,6 @@ func TestLintAllowListPerKind(t *testing.T) {
 	}
 	for _, okRule := range []string{
 		"trigger: always_on\n",
-		"trigger: glob\nglobs: \"**/*.go\"\n",
-		"trigger: glob\nglobs: \"**/*.{go,md}\"\n",
 		"trigger: model_decision\n",
 	} {
 		if err := doc("rules", okRule); err != nil {
@@ -68,6 +66,9 @@ func TestLintAllowListPerKind(t *testing.T) {
 	}
 	for _, badRule := range []string{
 		"trigger: glob\n",
+		"trigger: glob\nglobs: \"**/*.go\"\n",
+		"trigger: glob\nglobs: \"**/*.{go,md}\"\n",
+		"globs: \"**/*.go\"\n",
 		"trigger: always_on\nglobs: \"**/*.go\"\n",
 		"trigger: always-on\n",
 		"trigger: model-decision\n",
@@ -81,6 +82,12 @@ func TestLintAllowListPerKind(t *testing.T) {
 		if err := doc("rules", badRule); err == nil {
 			t.Errorf("invalid rule frontmatter %q unexpectedly loaded", badRule)
 		}
+	}
+	if err := doc("rules", "trigger: glob\n"); err == nil || !strings.Contains(err.Error(), "trigger: glob") || !strings.Contains(err.Error(), "model_decision") || !strings.Contains(err.Error(), "description") || !strings.Contains(err.Error(), "always_on") {
+		t.Errorf("trigger: glob error = %v, want message naming trigger: glob and recommending model_decision with description or always_on", err)
+	}
+	if err := doc("rules", "trigger: manual\n"); err == nil || !strings.Contains(err.Error(), "(supported: always_on, model_decision)") {
+		t.Errorf("trigger: manual error = %v, want supported triggers list without glob", err)
 	}
 	repo := newRepo(t)
 	writeFile(t, filepath.Join(repo, "rules", "missing-desc.md"), "---\ntrigger: model_decision\n---\nbody\n")
