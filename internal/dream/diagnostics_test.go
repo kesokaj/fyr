@@ -3,6 +3,7 @@ package dream
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -32,13 +33,24 @@ func TestDreamDiagnosticsAndCoupling(t *testing.T) {
 
 func seedDreamDiagnosticsAndCoupling(t *testing.T, f fixture) {
 	t.Helper()
-	for rel, body := range map[string]string{
+	seedCouplingSearchDB(t, f.home, f.root, [][2]string{{"pkg1/a.go", "pkg2/b.go"}})
+	seedDreamKneeSessions(t, f.home, f.root)
+}
+
+func seedCouplingSearchDB(t *testing.T, home, root string, pairs [][2]string) {
+	t.Helper()
+	files := map[string]string{
 		".gitignore": ".agents/scratch/*\n",
 		"go.mod":     "module example.com/dreamproj\n\ngo 1.24\n",
-		"pkg1/a.go":  "package pkg1\n\nfunc One() int { return 1 }\n",
-		"pkg2/b.go":  "package pkg2\n\nfunc Two() int { return 2 }\n",
-	} {
-		full := filepath.Join(f.root, rel)
+	}
+	for i, p := range pairs {
+		for j, rel := range p {
+			pkg := filepath.Base(filepath.Dir(rel))
+			files[rel] = fmt.Sprintf("package %s\n\nfunc Fn%d%d() int { return %d }\n", pkg, i, j, i+j+1)
+		}
+	}
+	for rel, body := range files {
+		full := filepath.Join(root, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -46,18 +58,19 @@ func seedDreamDiagnosticsAndCoupling(t *testing.T, f fixture) {
 			t.Fatal(err)
 		}
 	}
-	if err := search.Index(search.Options{Home: f.home, Dir: f.root}, io.Discard); err != nil {
+	if err := search.Index(search.Options{Home: home, Dir: root}, io.Discard); err != nil {
 		t.Fatalf("search.Index: %v", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(f.root, ".agents", "scratch", "search.db"))
+	db, err := sql.Open("sqlite", filepath.Join(root, ".agents", "scratch", "search.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('pkg1/a.go', 'pkg2/b.go', 'co_modified', 5, 100)`); err != nil {
-		t.Fatal(err)
+	for _, p := range pairs {
+		if _, err := db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES (?, ?, 'co_modified', 5, 100)`, p[0], p[1]); err != nil {
+			t.Fatal(err)
+		}
 	}
-	seedDreamKneeSessions(t, f.home, f.root)
 }
 
 func seedDreamKneeSessions(t *testing.T, home, root string) {
@@ -144,22 +157,66 @@ func assertDreamSignalProposalAndBgRun(t *testing.T, f fixture, sigID string) {
 }
 
 func TestAddHiddenCouplingHintsRejectsSymlinkScratch(t *testing.T) {
+	home := t.TempDir()
 	root := t.TempDir()
 	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "search.db"), []byte("not-a-db"), 0o600); err != nil {
+	run(t, root, "git", "init", "-q")
+	if err := os.MkdirAll(filepath.Dir(brain.Path(home)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+	pairs := [][2]string{{"pkg1/a.go", "pkg2/b.go"}, {"pkg1/a.go", "pkg3/c.go"}, {"pkg2/b.go", "pkg3/c.go"}}
+	seedCouplingSearchDB(t, home, root, pairs)
+	scratchDir := filepath.Join(root, ".agents", "scratch")
+	if err := os.Rename(filepath.Join(scratchDir, "search.db"), filepath.Join(outside, "search.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(root, ".agents", "scratch")); err != nil {
+	if hints, err := search.ReadHiddenCouplingHints(filepath.Join(outside, "search.db"), root, 3, 10); err != nil || len(hints) != len(pairs) {
+		t.Fatalf("outside search.db precondition: hints=%d err=%v, want %d", len(hints), err, len(pairs))
+	}
+	if err := os.RemoveAll(scratchDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, scratchDir); err != nil {
 		t.Fatal(err)
 	}
 	called := false
-	addHiddenCouplingHints("", root, func(string, string, string, time.Time) {
+	addHiddenCouplingHints(home, root, func(string, string, string, time.Time) {
 		called = true
 	})
 	if called {
 		t.Fatal("addHiddenCouplingHints read through symlinked .agents/scratch")
+	}
+}
+
+func TestAddHiddenCouplingHintsSkipsSymlinkConf(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	outsideConf := t.TempDir()
+	run(t, root, "git", "init", "-q")
+	pairs := [][2]string{{"pkg1/a.go", "pkg2/b.go"}, {"pkg1/a.go", "pkg3/c.go"}, {"pkg2/b.go", "pkg3/c.go"}}
+	seedCouplingSearchDB(t, home, root, pairs)
+	conf := filepath.Dir(brain.Path(home))
+	if err := os.RemoveAll(conf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(conf), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideConf, conf); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(outsideConf, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(outsideConf, 0o700) })
+	}
+	var got string
+	addHiddenCouplingHints(home, root, func(_, _, text string, _ time.Time) {
+		got = text
+	})
+	var hints []search.HiddenCouplingHint
+	if err := json.Unmarshal([]byte(got), &hints); err != nil || len(hints) != len(pairs) {
+		t.Fatalf("hints = %d (%q), err=%v; want %d", len(hints), got, err, len(pairs))
 	}
 }
