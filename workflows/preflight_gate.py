@@ -31,7 +31,7 @@ def _norm_token(raw):
 STAGE_SCHEMA = {
     "type": "object",
     "properties": {
-        "stage": {"type": "string"},
+        "stage": {"type": "string", "enum": ["reviewer", "security", "verifier"]},
         "agent": {"type": "string"},
         "status": {
             "type": "string",
@@ -182,9 +182,11 @@ if parallel_specs:
     )
 
 def _stage_blocked(r):
-    stage = str(r.get("stage") or "").strip().lower()
+    stage = _norm_token(r.get("stage")).lower()
     status = _norm_token(r.get("status"))
     verdict = _norm_token(r.get("verdict"))
+    if stage not in ("reviewer", "security", "verifier"):
+        return True
     if bool(r.get("blocking")):
         return True
     if status in ("FAIL", "BLOCKED", "INCOMPLETE"):

@@ -256,6 +256,14 @@ func TestWorkflowScriptsPreflightGateEdges(t *testing.T) {
 			wantCalls: 2,
 		},
 		{
+			name:      "reviewer non-canonical stage blocks",
+			sec:       false,
+			ver:       true,
+			mocks:     map[string]map[string]any{"reviewer": {"stage": "reviewer-code", "blocking": false, "status": "COMPLETE", "verdict": "APPROVE"}},
+			wantGate:  "NO-SHIP",
+			wantCalls: 1,
+		},
+		{
 			name: "clean security CLEAR + reviewer APPROVE + verifier PASS yields SHIP",
 			sec:  true,
 			ver:  true,
@@ -293,6 +301,8 @@ body = [
 ]
 ns = {}
 exec(compile(ast.Module(body=body, type_ignores=[]), sys.argv[1], "exec"), ns)
+stage_enum = ns["STAGE_SCHEMA"]["properties"]["stage"].get("enum")
+assert stage_enum == ["reviewer", "security", "verifier"], f"STAGE_SCHEMA stage enum={stage_enum}"
 enum = ns["STAGE_SCHEMA"]["properties"]["verdict"].get("enum")
 want = ["APPROVE", "APPROVE_WITH_NITS", "REQUEST_CHANGES", "CLEAR", "FINDINGS", "PASS", "FAIL", "BLOCKED"]
 assert enum == want, f"STAGE_SCHEMA verdict enum={enum}, want {want}"

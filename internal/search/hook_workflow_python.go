@@ -68,6 +68,10 @@ func scanFStringInterpolations(src string, strStart, strEnd int, out *[]workflow
 	bodyEnd := strEnd - delimLen
 	for i := qStart + delimLen; i < bodyEnd; {
 		if src[i] == '\\' && i+1 < bodyEnd {
+			if src[i+1] == '{' || src[i+1] == '}' {
+				i++
+				continue
+			}
 			i += 2
 			continue
 		}

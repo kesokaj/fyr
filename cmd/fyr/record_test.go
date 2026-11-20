@@ -457,3 +457,22 @@ func TestRecordGetJSONPartialToStderrAndListCurrentUpdated(t *testing.T) {
 		t.Fatalf("missing record get --json: code=%d out=%q err=%q", code, outStr, errStr)
 	}
 }
+
+func TestSortRecordListStrictWeakOrderAndUTC(t *testing.T) {
+	recs := []brain.Record{
+		{ID: "CUR-early", Status: "current", Date: "2026-11-19", Updated: "2026-11-19T10:00:00Z"},
+		{ID: "PLAN-mid", Status: "open", Date: "2026-11-19", Updated: "2026-11-19T11:00:00Z"},
+		{ID: "CUR-late-sub", Status: "current", Date: "2026-11-19", Updated: "2026-11-19T12:00:00.5Z"},
+		{ID: "CUR-late", Status: "current", Date: "2026-11-19", Updated: "2026-11-19T12:00:00Z"},
+	}
+	sortRecordList(recs)
+	want := []string{"CUR-late-sub", "CUR-late", "CUR-early", "PLAN-mid"}
+	for i, id := range want {
+		if recs[i].ID != id {
+			t.Fatalf("sorted[%d] = %s, want %s (full order=%v)", i, recs[i].ID, id, recs)
+		}
+	}
+	if got := recordUpdatedDay(brain.Record{Updated: "2026-11-19T23:30:00-05:00"}); got != "2026-11-20" {
+		t.Fatalf("recordUpdatedDay non-UTC = %q, want 2026-11-20", got)
+	}
+}

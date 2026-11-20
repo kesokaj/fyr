@@ -2,7 +2,6 @@ package isolate
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -81,11 +80,10 @@ func isShellBuiltinNoop(bin string) bool {
 }
 
 type shellFrame struct {
-	quote      byte
-	ansiQuote  bool
-	close      byte
-	parenDepth int
-	cur        []byte
+	quote     byte
+	ansiQuote bool
+	close     byte
+	cur       []byte
 }
 
 func splitShellSegments(s string) []string {
@@ -116,7 +114,7 @@ func splitShellSegments(s string) []string {
 		}
 		i = next
 	}
-	if len(stack) != 1 || stack[0].quote != 0 || stack[0].parenDepth != 0 {
+	if len(stack) != 1 || stack[0].quote != 0 {
 		return nil
 	}
 	flushShellSegment(&stack[0].cur, &out)
@@ -202,15 +200,12 @@ func stepShellParensOrOp(s string, i int, stack *[]shellFrame, out, subSegs *[]s
 	ch := s[i]
 	switch ch {
 	case '(':
-		top.parenDepth++
-		top.cur = append(top.cur, ch)
+		if strings.TrimSpace(string(top.cur)) != "" {
+			return 0, false
+		}
+		*stack = append(*stack, shellFrame{close: ')'})
 		return i, true
 	case ')':
-		if top.parenDepth > 0 {
-			top.parenDepth--
-			top.cur = append(top.cur, ch)
-			return i, true
-		}
 		if top.close != ')' {
 			return 0, false
 		}
@@ -278,23 +273,6 @@ func unquotedShellOpLen(s string, i int) int {
 		return 1
 	}
 	return 0
-}
-
-func firstCommandBin(seg string) string {
-	for _, tok := range strings.Fields(seg) {
-		tok = strings.Trim(tok, `"'()`)
-		if tok == "" || tok == "export" || tok == "env" {
-			continue
-		}
-		if strings.HasPrefix(tok, ">") || strings.HasPrefix(tok, "<") || strings.HasPrefix(tok, "2>") || strings.HasPrefix(tok, "1>") {
-			continue
-		}
-		if eq := strings.IndexByte(tok, '='); eq > 0 && !strings.Contains(tok[:eq], "/") {
-			continue
-		}
-		return filepath.Base(tok)
-	}
-	return ""
 }
 
 func isCommandTool(name, kind string) bool {

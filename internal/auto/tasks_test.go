@@ -423,6 +423,9 @@ func TestLearningInputHardeningAndCutoff(t *testing.T) {
 			t.Fatal(err)
 		}
 		kStr := string(kBytes)
+		if len(kBytes) > 60<<10 {
+			t.Errorf("appendKickoffInput wrote %d bytes, want <= %d", len(kBytes), 60<<10)
+		}
 		if strings.ContainsRune(kStr, '\uFFFD') || strings.Count(kStr, "=====") < 2 {
 			t.Errorf("appendKickoffInput broke UTF-8 or fence markers (count=%d)", strings.Count(kStr, "====="))
 		}

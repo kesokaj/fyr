@@ -143,7 +143,7 @@ func recordUpdatedDay(r brain.Record) string {
 		return ""
 	}
 	if t, err := time.Parse(time.RFC3339Nano, r.Updated); err == nil {
-		return t.Format("2006-01-02")
+		return t.UTC().Format("2006-01-02")
 	}
 	if len(r.Updated) >= 10 {
 		return r.Updated[:10]
@@ -151,13 +151,15 @@ func recordUpdatedDay(r brain.Record) string {
 	return ""
 }
 
-func recordListOrderKey(r brain.Record) (day, ts string) {
+func recordListOrderKey(r brain.Record) (day string, ts time.Time) {
 	day = r.Date
 	if r.Status == "current" {
 		if upd := recordUpdatedDay(r); upd > day {
 			day = upd
 		}
-		ts = r.Updated
+		if t, err := time.Parse(time.RFC3339Nano, r.Updated); err == nil {
+			ts = t.UTC()
+		}
 	}
 	return day, ts
 }
@@ -169,8 +171,8 @@ func sortRecordList(recs []brain.Record) {
 		if di != dj {
 			return di > dj
 		}
-		if ti != tj && recs[i].Status == "current" && recs[j].Status == "current" {
-			return ti > tj
+		if !ti.Equal(tj) {
+			return ti.After(tj)
 		}
 		return false
 	})

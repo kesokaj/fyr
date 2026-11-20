@@ -34,6 +34,10 @@ func scanTripleQuotedPythonString(src string, qStart, limit int, isF bool) (int,
 	delim := src[qStart : qStart+3]
 	for i := qStart + 3; i+2 < limit; {
 		if src[i] == '\\' {
+			if isF && i+1 < limit && (src[i+1] == '{' || src[i+1] == '}') {
+				i++
+				continue
+			}
 			i += 2
 			continue
 		}
@@ -60,6 +64,10 @@ func scanSingleQuotedPythonString(src string, qStart, limit int, isF bool) (int,
 	q := src[qStart]
 	for i := qStart + 1; i < limit; {
 		if src[i] == '\\' {
+			if isF && i+1 < limit && (src[i+1] == '{' || src[i+1] == '}') {
+				i++
+				continue
+			}
 			i += 2
 			continue
 		}
