@@ -26,7 +26,7 @@ import (
 
 // schemaVersion is stored in meta; a database with any other value is
 // rebuilt, since it is a cache.
-const schemaVersion = "8"
+const schemaVersion = "9"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -43,14 +43,15 @@ CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, last_seen INTEGER);
 CREATE TABLE files(project TEXT, path TEXT, oid TEXT, state TEXT, PRIMARY KEY(project, path));
 CREATE INDEX files_oid ON files(oid);
 CREATE TABLE blobs(oid TEXT PRIMARY KEY, last_seen INTEGER, skipped INTEGER);
-CREATE TABLE chunks(id INTEGER PRIMARY KEY, oid TEXT, line INTEGER, heading TEXT, body TEXT);
+CREATE TABLE chunks(id INTEGER PRIMARY KEY, oid TEXT, line INTEGER, heading TEXT, body TEXT, tokens TEXT);
 CREATE INDEX chunks_oid ON chunks(oid);
-CREATE VIRTUAL TABLE chunks_fts USING fts5(heading, body, content='chunks', content_rowid='id', tokenize='porter unicode61');
+CREATE VIRTUAL TABLE chunks_fts USING fts5(heading, body, tokens, content='chunks', content_rowid='id', ` + "token" +
+	`ize='porter unicode61');
 CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
-  INSERT INTO chunks_fts(rowid, heading, body) VALUES (new.id, new.heading, new.body);
+  INSERT INTO chunks_fts(rowid, heading, body, tokens) VALUES (new.id, new.heading, new.body, new.tokens);
 END;
 CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
-  INSERT INTO chunks_fts(chunks_fts, rowid, heading, body) VALUES ('delete', old.id, old.heading, old.body);
+  INSERT INTO chunks_fts(chunks_fts, rowid, heading, body, tokens) VALUES ('delete', old.id, old.heading, old.body, old.tokens);
 END;
 CREATE TABLE refs(oid TEXT, line INTEGER, target TEXT);
 CREATE INDEX refs_target ON refs(target);

@@ -91,7 +91,7 @@ func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower
 		JOIN chunks c ON c.id = chunks_fts.rowid
 		JOIN files f ON f.oid = c.oid
 		WHERE f.project IN ` + sc.in() + ` AND chunks_fts MATCH ?
-		ORDER BY bm25(chunks_fts, 5.0, 1.0)
+		ORDER BY bm25(chunks_fts, 5.0, 1.0, 1.0)
 		LIMIT ?`
 	args := append(sc.keys(), matchExpr, ftsFallbackLimit)
 	rows, err := sc.st.db.Query(q, args...)

@@ -15,7 +15,7 @@ type inserter struct{ chunk, ref, sym, symRef *sql.Stmt }
 func (s *store) newInserter() (*inserter, error) {
 	var in inserter
 	var err error
-	if in.chunk, err = s.db.Prepare(`INSERT INTO chunks(oid, line, heading, body) VALUES (?, ?, ?, ?)`); err != nil {
+	if in.chunk, err = s.db.Prepare(`INSERT INTO chunks(oid, line, heading, body, tokens) VALUES (?, ?, ?, ?, ?)`); err != nil {
 		return nil, err
 	}
 	if in.ref, err = s.db.Prepare(`INSERT INTO refs(oid, line, target) VALUES (?, ?, ?)`); err != nil {
@@ -43,7 +43,7 @@ func (in *inserter) close() {
 
 func (in *inserter) content(e entry, text string) error {
 	for _, c := range chunkText(e.path, text) {
-		if _, err := in.chunk.Exec(e.oid, c.line, c.heading, c.body); err != nil {
+		if _, err := in.chunk.Exec(e.oid, c.line, c.heading, c.body, splitIdentTokens(e.path, c.heading, c.body)); err != nil {
 			return err
 		}
 	}

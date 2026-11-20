@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,9 +11,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // The recall test measures how well a retrieval arm finds the records and
@@ -134,24 +138,90 @@ func grepArm(t *testing.T, root string, q recallQuestion) []string {
 	return paths
 }
 
-// gitGrepCounts is `git grep -c` per file, except the brain store's export,
-// which grep sees as one file: its matching lines count per record ID, as an
-// agent grepping the trail would read them.
+var (
+	recallTrailOnce sync.Once
+	recallTrailRecs []brain.Record
+	recallTrailErr  error
+)
+
+func recallTrailRecords(t *testing.T, root string) []brain.Record {
+	t.Helper()
+	recallTrailOnce.Do(func() {
+		f, err := os.Open(filepath.Join(root, "cmd", "fyr", "testdata", "recall_trail.jsonl"))
+		if err != nil {
+			recallTrailErr = err
+			return
+		}
+		defer f.Close()
+		recallTrailRecs, recallTrailErr = brain.ParseTrail(f)
+	})
+	if recallTrailErr != nil {
+		t.Fatal(recallTrailErr)
+	}
+	return recallTrailRecs
+}
+
+func seedRecallTrail(t *testing.T, root, home string) {
+	t.Helper()
+	for _, r := range recallTrailRecords(t, root) {
+		st := r.Status
+		if r.Kind == "plan" || r.Kind == "handoff" {
+			st = ""
+		}
+		dt, err := time.Parse("2006-01-02", r.Date)
+		if err != nil {
+			dt = time.Now()
+		}
+		if _, err := brain.Add(brain.Options{Home: home, Dir: root, Now: func() time.Time { return dt }}, brain.AddInput{
+			Kind:   r.Kind,
+			Title:  r.Title,
+			Status: st,
+			ID:     r.ID,
+			Body:   strings.NewReader(r.Body),
+		}); err != nil {
+			t.Fatalf("seedRecallTrail %s: %v", r.ID, err)
+		}
+	}
+}
+
+func addRecordWordCounts(counts map[string]int, recs []brain.Record, word string) {
+	lw := strings.ToLower(word)
+	for _, r := range recs {
+		if n := strings.Count(strings.ToLower(r.ID+"\n"+r.Title+"\n"+r.Body), lw); n > 0 {
+			counts[r.ID] += n
+		}
+	}
+}
+
+// gitGrepCounts is `git grep -c` per file, except the brain store's export
+// or the recall trail fixture, whose matching counts are computed per record ID.
 func gitGrepCounts(t *testing.T, root, word string) map[string]int {
 	t.Helper()
 	counts := fileGrepCounts(t, root, word)
-	if _, ok := counts[".agents/trail.jsonl"]; !ok {
+	delete(counts, "cmd/fyr/testdata/recall_trail.jsonl")
+	if _, ok := counts[".agents/trail.jsonl"]; ok {
+		delete(counts, ".agents/trail.jsonl")
+		cmd := exec.Command("git", "grep", "-h", "-i", "-F", "--", word, ".agents/trail.jsonl")
+		cmd.Dir = root
+		out, _ := cmd.Output()
+		for _, l := range strings.Split(string(out), "\n") {
+			if m := trailID.FindStringSubmatch(l); m != nil {
+				counts[m[1]] += strings.Count(strings.ToLower(l), strings.ToLower(word))
+			}
+		}
 		return counts
 	}
-	delete(counts, ".agents/trail.jsonl")
-	cmd := exec.Command("git", "grep", "-h", "-i", "-F", "--", word, ".agents/trail.jsonl")
-	cmd.Dir = root
-	out, _ := cmd.Output()
-	for _, l := range strings.Split(string(out), "\n") {
-		if m := trailID.FindStringSubmatch(l); m != nil {
-			counts[m[1]] += strings.Count(strings.ToLower(l), strings.ToLower(word))
+	if raw, err := os.ReadFile(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
+		recs, err := brain.ParseTrail(bytes.NewReader(raw))
+		if err != nil {
+			t.Fatalf("parse .agents/trail.jsonl: %v", err)
 		}
+		addRecordWordCounts(counts, recs, word)
+		return counts
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read .agents/trail.jsonl: %v", err)
 	}
+	addRecordWordCounts(counts, recallTrailRecords(t, root), word)
 	return counts
 }
 
@@ -236,7 +306,11 @@ type recallArm struct {
 // trail.jsonl. It returns the printed record IDs and paths in order.
 func indexArm(t *testing.T, root string, q recallQuestion) []string {
 	t.Helper()
-	args := []string{"search", "--limit", "11", "--home", recallHome} // one slot for the testdata file recall drops
+	limit := "11" // one slot for the testdata file recall drops
+	if q.mode == "refs" || q.mode == "open" {
+		limit = "50"
+	}
+	args := []string{"search", "--limit", limit, "--home", recallHome}
 	switch q.mode {
 	case "refs":
 		args = append(args, "--refs", q.arg)
@@ -289,21 +363,43 @@ func printedPaths(out string) []string {
 // recallArms lists the arms the test compares.
 var recallArms = []recallArm{{"grep", grepArm}, {"index", indexArm}}
 
+func prepareRecallBrain(t *testing.T, root string) string {
+	t.Helper()
+	home := t.TempDir()
+	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
+		if _, err := brain.Sync(brain.Options{Home: home, Dir: root}); err != nil {
+			t.Fatal(err)
+		}
+		return home
+	}
+	if recs, ok, err := brain.ReadScope(os.Getenv("HOME"), root); err == nil && ok && holdsTrail(recs) {
+		dst := brain.Path(home)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		live := brain.Path(os.Getenv("HOME"))
+		if _, err := search.CopyDB(filepath.Dir(live), filepath.Base(live), filepath.Dir(dst)); err != nil {
+			t.Fatal(err)
+		}
+		return home
+	}
+	seedRecallTrail(t, root, home)
+	return home
+}
+
 func TestRecall(t *testing.T) {
 	if os.Getenv("FYR_RECALL") != "1" {
 		t.Skip("measurement, not a gate: set FYR_RECALL=1 to run it")
 	}
 	root := repoRoot(t)
-	recallHome = t.TempDir()
-	if _, err := os.Stat(filepath.Join(root, ".agents", "trail.jsonl")); err == nil {
-		if _, err := brain.Sync(brain.Options{Home: recallHome, Dir: root}); err != nil {
-			t.Fatal(err)
-		}
-	} else if b, err := os.ReadFile(brain.Path(os.Getenv("HOME"))); err == nil {
-		os.MkdirAll(filepath.Dir(brain.Path(recallHome)), 0o700)
-		os.WriteFile(brain.Path(recallHome), b, 0o600)
-	}
 	qs := loadRecallQuestions(t)
+	recallHome = prepareRecallBrain(t, root)
+	t.Chdir(root)
+	var idxOut bytes.Buffer
+	if err := run([]string{"index", "--home", recallHome}, &idxOut); err != nil {
+		t.Fatalf("index --home: %v\n%s", err, idxOut.String())
+	}
+	armMeans := map[string]float64{}
 	for _, arm := range recallArms {
 		sums := map[string]float64{}
 		counts := map[string]int{}
@@ -324,6 +420,10 @@ func TestRecall(t *testing.T) {
 				t.Logf("%s mean %-5s %.3f over %d", arm.name, class, sums[class]/float64(counts[class]), counts[class])
 			}
 		}
+		armMeans[arm.name] = sums["all"] / float64(counts["all"])
+	}
+	if armMeans["index"] < armMeans["grep"] {
+		t.Fatalf("index mean all %.3f < grep mean all %.3f", armMeans["index"], armMeans["grep"])
 	}
 }
 
@@ -334,14 +434,16 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 	if err == nil && !ok {
 		recs, ok, err = brain.ReadScope(os.Getenv("HOME"), root)
 	}
-	if err != nil || !ok {
-		t.Fatalf("reading trail records for %s: ok=%v, err=%v", root, ok, err)
+	if err != nil {
+		t.Fatalf("reading trail records for %s: err=%v", root, err)
+	}
+	if !ok || !holdsTrail(recs) {
+		recs = recallTrailRecords(t, root)
 	}
 	ids := map[string]bool{}
 	for _, r := range recs {
 		ids[r.ID] = true
 	}
-	var absent []string // gold records a store that never imported this trail lacks
 	var drift, structured int
 	for _, q := range qs {
 		if strings.HasPrefix(q.text, "drift: ") {
@@ -353,11 +455,7 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 		for _, g := range q.gold {
 			if recordLine.MatchString(g+"  x") && !strings.Contains(g, "/") {
 				if !ids[g] {
-					if !holdsTrail(recs) {
-						absent = append(absent, g)
-						continue
-					}
-					t.Errorf("gold record %s of %q is not in .agents/trail.jsonl", g, q.text)
+					t.Errorf("gold record %s of %q is not in trail", g, q.text)
 				}
 				continue
 			}
@@ -368,11 +466,5 @@ func TestRecallQuestionsAreWellFormed(t *testing.T) {
 	}
 	if len(qs) < 30 || drift < 10 || structured < 5 {
 		t.Errorf("recall.tsv has %d questions, %d drift, %d structured; the plan asks for at least 30, 10 and 5", len(qs), drift, structured)
-	}
-	// A store that never imported this repository's trail (holdsTrail)
-	// cannot check the gold IDs; the checks above still ran, and a failure
-	// among them still fails.
-	if len(absent) > 0 {
-		t.Skipf("%d gold records: this machine's store never imported this repository's trail (no %s; item 4 of PLAN-2026-11-02-1806-fyr-speed tracks it)", len(absent), trailSentinel)
 	}
 }

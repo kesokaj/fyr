@@ -15,7 +15,7 @@ sequenceDiagram
     Agy->>Hook: session-start (<= 1,500 B capsule)
     Hook-->>Agy: date, active plan, TODO Now, dirty Go files
     Agy->>Hook: pre-invocation (prompt + conversationId)
-    Hook->>DB: AST slice, vet_history (v8), generation dedup
+    Hook->>DB: AST slice, vet_history (v9), generation dedup
     Hook->>Brain: matching BUG, ADR, PLAN, and MEMORY (>= 0.40)
     Hook-->>Agy: PreInvocationBanner JSON (or {} PASS_THROUGH)
     Agy->>Hook: pre-tool-use (toolCall name + args)
@@ -33,12 +33,12 @@ At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "8"`) using Go's stdlib `go/ast` parser and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In addition to symbol definitions, `EXTRACTED` (`1.0`) / `INFERRED` (`0.7`) references, `read_ledger`, `vet_history` (`subtask_count`, `directive`), and `co_activity`, schema `v8` adds `watchdog_ring` (last `64` rows per conversation) and `session_meta` (`agent_role`, `agent_name`, `tool_calls`) (`ADR-526`); `openStore` (`staleSchemaError` in `internal/search/store.go`) unlinks and rebuilds older caches automatically on first open (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "9"`) using Go's stdlib `go/ast` parser and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In addition to symbol definitions, `EXTRACTED` (`1.0`) / `INFERRED` (`0.7`) references, `refs_oid` (`refs(oid)`), `read_ledger`, `vet_history` (`subtask_count`, `directive`), `co_activity`, and v8's `watchdog_ring` (`64` rows per conversation) and `session_meta` (`agent_role`, `agent_name`, `tool_calls`) (`ADR-526`), schema `v9` adds a `chunks.tokens` / `chunks_fts(heading, body, tokens)` column populated by `splitIdentTokens` (`internal/search/search_tokens.go`) for path segments and camelCase, acronym, or snake_case sub-tokens; `fyr search` word queries filter stop words (`filterQueryWords` in `internal/search/search_query.go`), rerank multi-term queries across files by distinct matched terms (`findDistinctFiles` in `internal/search/search_rank_files.go`), and batch `snippets()` into a single `rowid IN (...)` query. `openStore` (`staleSchemaError` in `internal/search/store.go`) unlinks and rebuilds older caches automatically on first open (`PRD.md` R4).
 
 ```mermaid
 flowchart LR
     repoFiles["Tracked repo files\n(Go source and Markdown headings)"] --> indexer["fyr index\n(reconcile against git)"]
-    indexer --> ftsIndex["FTS5 full-text index"]
+    indexer --> ftsIndex["FTS5 full-text index\n(heading, body, tokens)"]
     indexer --> astGraph["AST symbols and symbol refs\n(EXTRACTED 1.0 / INFERRED 0.7)"]
     ftsIndex --> queryEngine["fyr search / PreInvocation"]
     astGraph --> queryEngine
@@ -81,7 +81,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 6. **Lean JSON envelope & model resolution:** Emits one 2-space pretty-printed `PreInvocationBanner` JSON object (`Metadata == nil`, `internal/search/telemetry_json.go`) with exact `model` display name and `thinking` effort resolved via `internal/search/telemetry_model.go`.
 
 <details>
-<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v8 `vet_history` fields</summary>
+<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v9 `vet_history` fields</summary>
 
 ```json
 {
@@ -117,7 +117,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 }
 ```
 
-- `vet_history` (`schemaVersion = "8"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
+- `vet_history` (`schemaVersion = "9"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
 
 </details>
 
@@ -176,14 +176,14 @@ flowchart LR
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "8"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "9"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
 
 ```mermaid
 flowchart LR
     preCall["PreToolUse tool call"] --> bashGuard["hook_bash_guard.go\ncheckInteractiveBashGuard"]
     preCall --> watchPre["hook_watchdog.go\nevaluateWatchdogPre"]
     bashGuard -- "Interactive or net git" --> bashOut["Deny INTERACTIVE_STDIN or\nOverwrite GIT_TERMINAL_PROMPT=0"]
-    watchPre --> ringDB[("search.db v8\nwatchdog_ring and session_meta")]
+    watchPre --> ringDB[("search.db v9\nwatchdog_ring and session_meta")]
     ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, TOKEN_LOOP,\nor SUBAGENT_BUDGET"]
     postCall["PostToolUse: handlePostToolUse"] --> postMark["markWatchdogPostError\nreturns {}"]
     postMark -.-> ringDB

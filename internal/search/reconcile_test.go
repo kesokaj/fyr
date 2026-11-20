@@ -219,8 +219,8 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 
 	db := openDB(t, root)
 	var schema string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "8" {
-		t.Fatalf("schema = %q, err = %v; want 8", schema, err)
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "9" {
+		t.Fatalf("schema = %q, err = %v; want 9", schema, err)
 	}
 	for _, tbl := range []string{"symbols", "sym_refs", "read_ledger", "session_meta", "co_activity", "vet_history", "watchdog_ring"} {
 		if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl); n != 1 {
@@ -275,7 +275,7 @@ func TestRefsOIDIndexAndBatchedLinkedRecords(t *testing.T) {
 
 	db := openDB(t, root)
 	if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'refs_oid'`); n != 1 {
-		t.Fatalf("missing refs_oid index on fresh v8 DB, count=%d", n)
+		t.Fatalf("missing refs_oid index on fresh v9 DB, count=%d", n)
 	}
 	if _, err := db.Exec(`DROP INDEX refs_oid`); err != nil {
 		t.Fatalf("drop refs_oid: %v", err)
@@ -284,7 +284,7 @@ func TestRefsOIDIndexAndBatchedLinkedRecords(t *testing.T) {
 
 	st, err := openStore(projectDB(root), os.Stdout)
 	if err != nil {
-		t.Fatalf("reopen v8 store: %v", err)
+		t.Fatalf("reopen v9 store: %v", err)
 	}
 	defer st.close()
 	var idxN int

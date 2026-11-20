@@ -33,7 +33,7 @@ type hit struct {
 
 // find appends to hits the ranked chunks matching q, skipping any already
 // in hits, until o.Limit; perFile carries the per-file cap across calls.
-func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int) ([]hit, error) {
+func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int, terms []string) ([]hit, error) {
 	if q == "" || len(hits) >= o.Limit {
 		return hits, nil
 	}
@@ -43,7 +43,7 @@ func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int) (
 	// The full-text match runs once, first: joined directly, the planner
 	// drove the loop from files and ran the match per row (seconds).
 	rows, err := sc.st.db.Query(`WITH m AS MATERIALIZED (
-			SELECT rowid AS id, bm25(chunks_fts, 2.0, 1.0) AS score FROM chunks_fts WHERE chunks_fts MATCH ?)
+			SELECT rowid AS id, bm25(chunks_fts, 2.0, 1.0, 0.8) AS score FROM chunks_fts WHERE chunks_fts MATCH ?)
 		SELECT f.project, f.path, c.oid, c.line, c.id
 		FROM m JOIN chunks c ON c.id = m.id JOIN files f ON f.oid = c.oid
 		WHERE f.project IN `+sc.in()+`
@@ -73,7 +73,7 @@ func (sc *scope) find(o Options, q string, hits []hit, perFile map[string]int) (
 		return nil, err
 	}
 	rows.Close()
-	if err := sc.snippets(q, hits[first:], ids); err != nil {
+	if err := sc.snippets(q, hits[first:], ids, terms); err != nil {
 		return nil, err
 	}
 	return hits, nil
@@ -91,34 +91,86 @@ func chunkIDs(hits []hit) map[int64]bool {
 	return have
 }
 
+type snippetRow struct {
+	body, snip string
+}
+
 // snippets sets each new hit's snippet and moves its line to the snippet's
-// first matched term; ids[i] is the chunk of hits[i].
-func (sc *scope) snippets(q string, hits []hit, ids []int64) error {
-	for i, id := range ids {
-		var body, snip string
-		err := sc.st.db.QueryRow(`SELECT c.body, snippet(chunks_fts, 1, char(1), char(2), '…', 24)
-			FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ? AND chunks_fts.rowid = ?`, q, id).Scan(&body, &snip)
-		if err != nil {
+// first matched term in a single batched query; ids[i] is the chunk of hits[i].
+func (sc *scope) snippets(q string, hits []hit, ids []int64, terms []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	matchQ := ftsQuery(terms, " OR ")
+	if matchQ == "" {
+		matchQ = q
+	}
+	args := make([]any, 0, 1+len(ids))
+	args = append(args, matchQ)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := sc.st.db.Query(`SELECT chunks_fts.rowid, c.body, snippet(chunks_fts, 1, char(1), char(2), '…', 24)
+		FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
+		WHERE chunks_fts MATCH ? AND chunks_fts.rowid IN (`+placeholders(len(ids))+`)`, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	byID := make(map[int64]snippetRow, len(ids))
+	for rows.Next() {
+		var id int64
+		var r snippetRow
+		if err := rows.Scan(&id, &r.body, &r.snip); err != nil {
 			return err
 		}
-		hits[i].line += matchOffset(body, snip)
-		hits[i].snippet = cleanSnippet(snip)
+		byID[id] = r
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for i, id := range ids {
+		if r, ok := byID[id]; ok {
+			hits[i].line += matchOffset(r.body, r.snip, terms)
+			hits[i].snippet = cleanSnippet(r.snip)
+		}
 	}
 	return nil
 }
 
 // matchOffset is the 0-based line of body holding the snippet's first
-// marked term, or 0.
-func matchOffset(body, snip string) int {
+// marked term, falling back to any query term when markers are absent.
+func matchOffset(body, snip string, terms []string) int {
 	a := strings.IndexByte(snip, 1)
 	b := strings.IndexByte(snip, 2)
-	if a < 0 || b <= a {
+	if a >= 0 && b > a {
+		term := strings.ToLower(snip[a+1 : b])
+		for i, l := range strings.Split(body, "\n") {
+			if strings.Contains(strings.ToLower(l), term) {
+				return i
+			}
+		}
 		return 0
 	}
-	term := strings.ToLower(snip[a+1 : b])
+	return firstMatchingLine(body, terms)
+}
+
+func firstMatchingLine(body string, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	lowerTerms := make([]string, 0, len(terms))
+	for _, t := range terms {
+		if lt := strings.ToLower(strings.TrimSpace(t)); lt != "" {
+			lowerTerms = append(lowerTerms, lt)
+		}
+	}
 	for i, l := range strings.Split(body, "\n") {
-		if strings.Contains(strings.ToLower(l), term) {
-			return i
+		ll := strings.ToLower(l)
+		for _, lt := range lowerTerms {
+			if strings.Contains(ll, lt) {
+				return i
+			}
 		}
 	}
 	return 0
@@ -162,19 +214,85 @@ func cleanSnippet(s string) string {
 	return s
 }
 
+var queryStopWords = map[string]bool{
+	"a": true, "an": true, "and": true, "are": true, "as": true, "at": true,
+	"be": true, "because": true, "been": true, "being": true, "but": true, "by": true,
+	"can": true, "could": true, "did": true, "do": true, "does": true, "doing": true, "done": true,
+	"each": true, "every": true, "for": true, "from": true,
+	"had": true, "has": true, "have": true, "having": true, "how": true,
+	"if": true, "in": true, "into": true, "is": true, "it": true, "its": true,
+	"just": true, "may": true, "more": true, "most": true, "must": true,
+	"no": true, "not": true, "of": true, "on": true, "one": true, "only": true, "or": true, "other": true, "our": true, "out": true, "over": true,
+	"should": true, "so": true, "some": true, "such": true,
+	"than": true, "that": true, "the": true, "their": true, "them": true, "then": true, "there": true, "these": true, "they": true, "this": true, "those": true, "through": true, "to": true,
+	"under": true, "until": true, "up": true, "was": true, "were": true,
+	"what": true, "when": true, "where": true, "which": true, "while": true, "who": true, "whom": true, "why": true, "will": true, "with": true, "without": true, "would": true, "your": true,
+}
+
+func isStopOrShortWord(w string) bool {
+	return strings.IndexFunc(w, isWordRune) < 0 || len([]rune(w)) <= 1 || queryStopWords[strings.ToLower(w)]
+}
+
+// filterQueryWords drops 1-char noise and common stop words from words,
+// falling back to words if filtering removes everything.
+func filterQueryWords(words []string) []string {
+	var kept []string
+	for _, w := range words {
+		if !isStopOrShortWord(w) {
+			kept = append(kept, w)
+		}
+	}
+	if len(kept) == 0 {
+		return words
+	}
+	return kept
+}
+
+func prepareQueryTerms(words []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(t string) {
+		if lt := strings.ToLower(t); !seen[lt] {
+			seen[lt] = true
+			out = append(out, t)
+		}
+	}
+	for _, w := range filterQueryWords(words) {
+		parts := splitQueryIdent(w)
+		if len(parts) == 0 {
+			add(w)
+			continue
+		}
+		var sub []string
+		for _, p := range parts {
+			if len([]rune(p)) >= 2 {
+				sub = append(sub, p)
+			}
+		}
+		if len(sub) == 0 {
+			add(w)
+			continue
+		}
+		for _, p := range sub {
+			add(p)
+		}
+	}
+	return out
+}
+
 // words ranks chunks holding every word first, then fills the remaining
-// slots with chunks holding any of them: an AND of many words alone often
-// matched two chunks and stopped there (recall test, D27).
+// slots using distinct-term file reranking across the file's chunks.
 func (sc *scope) words(o Options, out io.Writer) error {
 	phrase := strings.Join(o.Words, " ")
+	terms := prepareQueryTerms(o.Words)
 	perFile := map[string]int{}
-	hits, err := sc.find(o, ftsQuery(o.Words, " "), nil, perFile)
+	hits, err := sc.find(o, ftsQuery(terms, " "), nil, perFile, terms)
 	if err != nil {
 		return err
 	}
 	all := len(hits)
-	if len(o.Words) > 1 {
-		if hits, err = sc.find(o, ftsQuery(o.Words, " OR "), hits, perFile); err != nil {
+	if len(terms) > 1 && len(hits) < o.Limit {
+		if hits, err = sc.findDistinctFiles(o, terms, hits, perFile); err != nil {
 			return err
 		}
 	}
