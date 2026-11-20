@@ -13,6 +13,7 @@
 //	fyr adopt       copy a skill from elsewhere into skills/
 //	fyr record      add, get, edit, list or import trail records
 //	fyr memory      save or show this project's memory
+//	fyr state       export or import a portable state zip bundle
 //	fyr resume      read-only seven-step session resume
 //	fyr search      ranked search of records and files
 //	fyr index       reconcile the search index; --register opts in

@@ -43,6 +43,8 @@ func TestVerb(t *testing.T) {
 		{"fyr metrics show --json --since 2026-10-01", []string{"fyr metrics show --json --since"}},
 		{"fyr metrics evals --json --harness abc1234", []string{"fyr metrics evals --json --harness"}},
 		{"fyr metrics trajectory --limit 5 --json", []string{"fyr metrics trajectory --limit --json"}},
+		{"fyr state export --include-memory --out b.zip", []string{"fyr state export --include-memory --out"}},
+		{"fyr state import b.zip --dry-run", []string{"fyr state import --dry-run"}},
 		{"fyr memory add --type user < x", []string{"fyr memory add --type"}},
 		{"fyr metrics secretword --json", []string{"fyr metrics --json"}},
 		{"fyr record get PLAN-2026-10-31-x", []string{"fyr record"}},

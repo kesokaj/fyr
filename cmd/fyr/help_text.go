@@ -37,6 +37,7 @@ Harness
 Records and search
   record       add, get, edit, list or import trail records
   memory       save or show this project's memory
+  state        export or import a portable state zip bundle
   resume       read-only seven-step session resume
   search       ranked search of records and files
   index        reconcile the search index; --register opts in
@@ -194,6 +195,25 @@ var coreVerbPages = map[string]verbPage{
 			"operator; pass derived when saved from a file or tool output. show prints",
 			"active cards (>= 0.40 validity; --include-low for all, --json for JSON),",
 			"capped at 200 lines and 25 KB in text mode.",
+		},
+	},
+	"state": {
+		synopsis: []string{
+			"usage: fyr state export [--out FILE] [--repo ID|current] [--include-memory]",
+			"                        [--since YYYY-MM-DD] [--json]",
+			"       fyr state import FILE [--repo ID|current] [--include-memory]",
+			"                        [--dry-run] [--json]",
+		},
+		about: []string{
+			"Exports or merges portable state zip bundles (manifest.json,",
+			"brain_records.ndjson and metrics_sanitized.ndjson) across ~/.config/fyr/",
+			"stores using stdlib zip and SHA-256 verification. Default export writes",
+			"project trail records and sanitized metrics (0600, atomic); memory,",
+			"feedback and proposal rows require --include-memory on both export and",
+			"import. import checks zip-slip safety, schema caps (<= 4 / <= 11) and",
+			"SHA-256 digests before opening SQLite, preserves operator provenance,",
+			"and supports --dry-run with zero writes.",
+			"Exit 0 ok, 1 archive or store error, 2 a usage error or refusal.",
 		},
 	},
 	"search": {
