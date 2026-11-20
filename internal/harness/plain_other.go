@@ -32,14 +32,27 @@ func chmodPlain(p string, mode fs.FileMode) error {
 	return os.Chmod(p, mode)
 }
 
-// openNonBlock ensures p is a regular file before opening on !unix platforms.
+// openNonBlock verifies p is a non-symlink regular file before and after opening on !unix platforms.
 func openNonBlock(p string) (*os.File, error) {
-	fi, err := os.Stat(p)
+	fi, err := os.Lstat(p)
 	if err != nil {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is not a regular file", p)
 	}
-	return os.Open(p)
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	fStat, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !os.SameFile(fi, fStat) || !fStat.Mode().IsRegular() {
+		f.Close()
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	}
+	return f, nil
 }

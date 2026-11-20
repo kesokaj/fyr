@@ -222,12 +222,95 @@ func withCoverDirForInit(pol Policy, initEnv []string) (Policy, []string) {
 	if cov == "" {
 		return pol, initEnv
 	}
-	if abs, err := filepath.Abs(cov); err == nil {
-		cov = abs
+	resolved, ok := safeCoverDir(cov)
+	if !ok {
+		return pol, dropEnvKey(initEnv, "GOCOVERDIR")
 	}
-	initEnv = setEnvKey(initEnv, "GOCOVERDIR", cov)
-	pol.RWPaths = appendUniqueClean(pol.RWPaths, cov)
+	initEnv = setEnvKey(initEnv, "GOCOVERDIR", resolved)
+	pol.RWPaths = appendUniqueClean(pol.RWPaths, resolved)
 	return pol, initEnv
+}
+
+var (
+	coverBroadDirs  = []string{"/home", "/tmp", "/var", "/var/tmp", "/opt", "/srv"}
+	coverSystemDirs = []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr"}
+	coverHomeSubs   = []string{".ssh", ".gnupg", ".config", ".gemini", ".local"}
+)
+
+func safeCoverDir(raw string) (string, bool) {
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", false
+	}
+	resolved = filepath.Clean(resolved)
+	fi, err := os.Stat(resolved)
+	if err != nil || !fi.IsDir() || resolved == "/" || filepath.Dir(resolved) == resolved {
+		return "", false
+	}
+	if isForbiddenCoverDir(resolved) {
+		return "", false
+	}
+	return resolved, true
+}
+
+func isForbiddenCoverDir(resolved string) bool {
+	tmp := filepath.Clean(os.TempDir())
+	if resolved == tmp {
+		return true
+	}
+	if tmpRes, err := filepath.EvalSymlinks(tmp); err == nil && resolved == filepath.Clean(tmpRes) {
+		return true
+	}
+	for _, b := range coverBroadDirs {
+		if resolved == b {
+			return true
+		}
+	}
+	for _, sys := range coverSystemDirs {
+		if sameOrUnder(resolved, sys) {
+			return true
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return false
+	}
+	if hr, err := filepath.EvalSymlinks(home); err == nil {
+		home = hr
+	}
+	home = filepath.Clean(home)
+	if resolved == home || sameOrUnder(home, resolved) {
+		return true
+	}
+	for _, sub := range coverHomeSubs {
+		if sameOrUnder(resolved, filepath.Join(home, sub)) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameOrUnder(path, base string) bool {
+	p, b := filepath.Clean(path), filepath.Clean(base)
+	if b == "/" {
+		return strings.HasPrefix(p, "/")
+	}
+	return p == b || strings.HasPrefix(p, b+string(filepath.Separator))
+}
+
+func dropEnvKey(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, prefix) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func setEnvKey(env []string, key, val string) []string {

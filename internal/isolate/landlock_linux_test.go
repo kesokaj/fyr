@@ -5,6 +5,7 @@ package isolate
 import (
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -26,6 +27,10 @@ func TestPrepareIsolatedCmdForwardsGOCOVERDIR(t *testing.T) {
 		t.Skipf("landlock unavailable: %v", err)
 	}
 	covDir := t.TempDir()
+	wantCov := covDir
+	if r, err := filepath.EvalSymlinks(covDir); err == nil {
+		wantCov = r
+	}
 	t.Setenv("GOCOVERDIR", covDir)
 	pol := Policy{
 		Argv: []string{"/bin/true"},
@@ -38,7 +43,7 @@ func TestPrepareIsolatedCmdForwardsGOCOVERDIR(t *testing.T) {
 	}
 	defer cleanup()
 
-	if !slices.Contains(cmd.Env, "GOCOVERDIR="+covDir) || !slices.Contains(cmd.Env, IsolateInitEnv+"=1") {
+	if !slices.Contains(cmd.Env, "GOCOVERDIR="+wantCov) || !slices.Contains(cmd.Env, IsolateInitEnv+"=1") {
 		t.Fatalf("PID 1 cmd.Env missing expected vars: %v", cmd.Env)
 	}
 	raw, err := io.ReadAll(cmd.ExtraFiles[0])
@@ -49,8 +54,8 @@ func TestPrepareIsolatedCmdForwardsGOCOVERDIR(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal policy: %v", err)
 	}
-	if !slices.Contains(got.RWPaths, covDir) {
-		t.Errorf("policy RWPaths missing covDir %s: %v", covDir, got.RWPaths)
+	if !slices.Contains(got.RWPaths, wantCov) {
+		t.Errorf("policy RWPaths missing covDir %s: %v", wantCov, got.RWPaths)
 	}
 	if hasEnvKey(got.Env, "GOCOVERDIR") {
 		t.Errorf("GOCOVERDIR leaked into child Policy.Env: %v", got.Env)
@@ -58,15 +63,24 @@ func TestPrepareIsolatedCmdForwardsGOCOVERDIR(t *testing.T) {
 }
 
 func TestWithCoverDirForInit(t *testing.T) {
+	base := t.TempDir()
+	if r, err := filepath.EvalSymlinks(base); err == nil {
+		base = r
+	}
+	t.Chdir(base)
+	if err := os.MkdirAll(filepath.Join(base, "rel", "cov"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "hostrel", "cov"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
 	t.Setenv("GOCOVERDIR", "")
 	gotPol, gotEnv := withCoverDirForInit(
 		Policy{Env: []string{"PATH=/bin", "GOCOVERDIR=rel/cov"}},
 		[]string{"PATH=/bin", "GOCOVERDIR=rel/cov", IsolateInitEnv + "=1"},
 	)
-	wantRel, err := filepath.Abs("rel/cov")
-	if err != nil {
-		t.Fatal(err)
-	}
+	wantRel := filepath.Join(base, "rel", "cov")
 	if !slices.Contains(gotPol.RWPaths, wantRel) {
 		t.Errorf("RWPaths missing pol.Env relative GOCOVERDIR %s: %v", wantRel, gotPol.RWPaths)
 	}
@@ -78,16 +92,17 @@ func TestWithCoverDirForInit(t *testing.T) {
 	}
 
 	absCov := t.TempDir()
+	wantAbs := absCov
+	if r, err := filepath.EvalSymlinks(absCov); err == nil {
+		wantAbs = r
+	}
 	gotAbsPol, gotAbsEnv := withCoverDirForInit(Policy{Env: []string{"GOCOVERDIR=" + absCov}}, nil)
-	if !slices.Contains(gotAbsPol.RWPaths, absCov) || !slices.Contains(gotAbsEnv, "GOCOVERDIR="+absCov) {
-		t.Errorf("abs pol.Env GOCOVERDIR: rw=%v env=%v want=%s", gotAbsPol.RWPaths, gotAbsEnv, absCov)
+	if !slices.Contains(gotAbsPol.RWPaths, wantAbs) || !slices.Contains(gotAbsEnv, "GOCOVERDIR="+wantAbs) {
+		t.Errorf("abs pol.Env GOCOVERDIR: rw=%v env=%v want=%s", gotAbsPol.RWPaths, gotAbsEnv, wantAbs)
 	}
 
 	t.Setenv("GOCOVERDIR", "hostrel/cov")
-	wantHost, err := filepath.Abs("hostrel/cov")
-	if err != nil {
-		t.Fatal(err)
-	}
+	wantHost := filepath.Join(base, "hostrel", "cov")
 	hostPol, hostEnv := withCoverDirForInit(Policy{Env: []string{"PATH=/bin"}}, []string{"PATH=/bin"})
 	if !slices.Contains(hostPol.RWPaths, wantHost) || !slices.Contains(hostEnv, "GOCOVERDIR="+wantHost) {
 		t.Errorf("relative host GOCOVERDIR: rw=%v env=%v want=%s", hostPol.RWPaths, hostEnv, wantHost)
@@ -96,5 +111,55 @@ func TestWithCoverDirForInit(t *testing.T) {
 	emptyPol, emptyEnv := withCoverDirForInit(Policy{Env: []string{"GOCOVERDIR="}}, []string{"GOCOVERDIR="})
 	if len(emptyPol.RWPaths) != 0 || slices.Contains(emptyEnv, "GOCOVERDIR=hostrel/cov") {
 		t.Errorf("empty pol.Env GOCOVERDIR fell back to host: rw=%v env=%v", emptyPol.RWPaths, emptyEnv)
+	}
+}
+
+func TestWithCoverDirForInitRejectsUnsafeTargets(t *testing.T) {
+	base := t.TempDir()
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("GOCOVERDIR", "")
+
+	filePath := filepath.Join(base, "file.txt")
+	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, sub := range []string{".ssh", ".config"} {
+		if err := os.MkdirAll(filepath.Join(fakeHome, sub, "cov"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkHome := filepath.Join(base, "link-home")
+	if err := os.Symlink(fakeHome, linkHome); err != nil {
+		t.Fatal(err)
+	}
+	linkRoot := filepath.Join(base, "link-root")
+	if err := os.Symlink("/", linkRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	badDirs := []string{
+		filepath.Join(base, "missing"),
+		filePath,
+		"/",
+		os.TempDir(),
+		"/etc",
+		fakeHome,
+		linkHome,
+		linkRoot,
+		filepath.Join(fakeHome, ".ssh"),
+		filepath.Join(fakeHome, ".config", "cov"),
+	}
+	for _, bad := range badDirs {
+		pol, env := withCoverDirForInit(
+			Policy{Env: []string{"PATH=/bin", "GOCOVERDIR=" + bad}},
+			[]string{"PATH=/bin", "GOCOVERDIR=" + bad, IsolateInitEnv + "=1"},
+		)
+		if len(pol.RWPaths) != 0 {
+			t.Errorf("unsafe GOCOVERDIR=%q leaked into RWPaths: %v", bad, pol.RWPaths)
+		}
+		if hasEnvKey(env, "GOCOVERDIR") {
+			t.Errorf("unsafe GOCOVERDIR=%q stayed in initEnv: %v", bad, env)
+		}
 	}
 }
