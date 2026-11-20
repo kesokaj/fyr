@@ -38,7 +38,7 @@ func autonomyProblems(d autonomyDocs) []string {
 	errs = append(errs, checkDocPhrases("skills/fyr-feature/SKILL.md", d.feature,
 		[]string{
 			"pre-build interview",
-			"grilling",
+			"ask_question",
 			"never stops to ask",
 			"by: implementer",
 			"closing handoff",

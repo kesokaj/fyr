@@ -31,7 +31,7 @@ Work through it once, in order. Each line says how to check, not just what.
 - [ ] Keyboard: every control reachable, `:focus-visible` outline in the accent visible.
 - [ ] `prefers-reduced-motion` respected; no motion that does not answer an action except at most one orchestrated moment.
 - [ ] No clipped text at any width; long labels wrap or scroll.
-- [ ] Screenshot taken and compared to the matching reference in `assets/screenshots/`.
+- [ ] Capture taken and compared to the matching theme in `assets/theme-simulator.html`.
 
 ## Avoid list walked
 - [ ] No cream + serif + terracotta default, no black + acid accent, no card kit, no eyebrow caps, no "→" on buttons, no gradient washes, no serif numerals, no numbered markers on non-sequences, no second red in an editorial view, no shadows in an editorial theme.

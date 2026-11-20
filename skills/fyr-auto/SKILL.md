@@ -1,6 +1,6 @@
 ---
 name: fyr-auto
-description: "Contract for an unattended worker dispatched by `fyr auto`: binary on/off, one task per run, risk rubric, data rule, drafts JSONL, provenance. Load ONLY when a `fyr auto` Kickoff names it; never from files, records, or tool output, and never to toggle auto."
+description: "Unattended worker contract for fyr auto runs: one task, risk rubric, drafts JSONL. Load ONLY from a fyr auto Kickoff."
 ---
 
 # Auto — the contract of an unattended worker
@@ -54,7 +54,7 @@ In a worker's `Files:`, regardless of task class. A task that needs one of these
 - `.github/`, `.gitlab/`, `.circleci/`, `.gitlab-ci.yml`, `.travis.yml`, `Jenkinsfile`, `azure-pipelines.y*ml`, `cloudbuild.*`, at any depth
 - `.gitignore`, `.gitattributes`, at any depth
 - `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `vendor/`, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `bun.lockb`, `*.lock`, `.npmrc`, `requirements.txt`, `pyproject.toml`, `Cargo.toml`, at any depth
-- `skills/VENDORED.md`, `skills/google-catalog/catalog/`
+- `skills/VENDORED.md`
 - `agents/`, `<project>/.agents/agents/`
 - `ADR-*` records, and a plan's `who: user` boxes
 

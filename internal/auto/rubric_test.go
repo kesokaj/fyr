@@ -28,12 +28,12 @@ func TestRubricDenied(t *testing.T) {
 		"GEMINI.md", "web/GEMINI.md", "CLAUDE.md", ".cursorrules", "go.work", "go.work.sum", ".npmrc",
 		"npm-shrinkwrap.json", "requirements.txt", "pyproject.toml", "Cargo.toml", "vendor/modules.txt",
 		".gitignore", "web/.gitattributes",
-		"skills/VENDORED.md", "skills/google-catalog/catalog/", "skills/google-catalog/catalog/a/SKILL.md",
+		"skills/VENDORED.md",
 		// auto's own contract and code (D36).
 		"internal/auto/", "internal/auto/rubric.go", "skills/fyr-auto/", "skills/fyr-auto/SKILL.md",
 		"agents/", "agents/verifier/agent.md", ".agents/agents/", ".agents/agents/x.md",
 		// .agents/skills links to skills/ in this repository.
-		".agents/skills", ".agents/skills/VENDORED.md", ".agents/skills/google-catalog/catalog/x", ".agents/skills/fyr-auto/SKILL.md",
+		".agents/skills", ".agents/skills/VENDORED.md", ".agents/skills/fyr-auto/SKILL.md",
 		// Names at any depth.
 		"AGENTS.md", "web/AGENTS.md", "x/y/PRD.md", "a_test.go", "internal/x/a_test.go",
 		"go.mod", "tools/go.sum", "web/package.json", "web/package-lock.json", "web/pnpm-lock.yaml",
@@ -43,7 +43,7 @@ func TestRubricDenied(t *testing.T) {
 		// A spelling that is not clean is refused, never resolved.
 		"./PRD.md", "docs/../PRD.md", "docs/../internal/eval/x.go", "./context/x.md", "../x", "/etc/passwd", "", ".", "a//AGENTS.md", `a\AGENTS.md`,
 		// A directory entry that holds a denied root would carry it in.
-		"internal/", ".agents/", "skills/", "skills/google-catalog/", ".github",
+		"internal/", ".agents/", "skills/", ".github",
 		// Records.
 		"GUIDE-eval", "GUIDE-testing", "SPEC-fyr-auto", "SPEC-fyr-eval", "ADR-090", "ADR-089a",
 		// Lines git quotes, a control character, and past ASCII, which a

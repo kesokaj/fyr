@@ -16,7 +16,6 @@ node scripts/theme.mjs check nord                        # WCAG contrast report
 node scripts/sim.mjs init ui-sim --project "My App"      # clickable simulation (edit the sim-screen sections)
 node scripts/mockup.mjs http://localhost:3000 --widths 1440,390 --modes light,dark   # mockups + contact sheet
 node scripts/theme.mjs build                             # regenerate references/themes/*.css and assets/themes.css after editing assets/palettes.json
-open references/screenshots/gallery.html                 # 131 reference renders (themes, 14 views, states, overlays, styles, shells, mobile) — proof to diff builds against
 node scripts/mockup.mjs ui-sim/index.html --views overview,customers --states normal,empty --overlays none,sheet --full   # sweep views/states/overlays
 ```
 

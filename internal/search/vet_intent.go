@@ -71,7 +71,7 @@ func classifySlashPrefix(low string) (IntentMode, bool) {
 		return IntentBug, true
 	case "/fyr-feature", "/feature", "/fyr-spec", "/spec", "/fyr-requirements", "/requirements", "/fyr-init-project", "/init-project":
 		return IntentFeature, true
-	case "/fyr-explain-project", "/explain-project", "/explain", "/fyr-research", "/research":
+	case "/fyr-research", "/research":
 		return IntentQuestion, true
 	default:
 		return IntentTask, true

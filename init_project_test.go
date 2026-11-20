@@ -75,10 +75,8 @@ func TestInitProjectRootDocs(t *testing.T) {
 	}
 }
 
-// TestProjectIndexingLifecycleSkills pins the 3-skill project indexing lifecycle
-// (ADR-514): /fyr-init-project (Step 1 git init check + Step 6 fyr index &
-// fyr search --map), /fyr-index-project (MVP zero-scaffold indexing), and
-// /fyr-refresh-project-index (incremental/--rebuild refresh & --map diagnostics).
+// TestProjectIndexingLifecycleSkills pins /fyr-init-project's indexing steps
+// (Step 1 git init check + Step 6 fyr index & fyr search --map).
 func TestProjectIndexingLifecycleSkills(t *testing.T) {
 	checks := map[string][]string{
 		"skills/fyr-init-project/SKILL.md": {
@@ -88,23 +86,6 @@ func TestProjectIndexingLifecycleSkills(t *testing.T) {
 			"fyr index",
 			"fyr search --map",
 			"fyr index --register",
-		},
-		"skills/fyr-index-project/SKILL.md": {
-			"name: fyr-index-project",
-			"git rev-parse --show-toplevel",
-			"git init",
-			".agents/scratch/*",
-			"fyr index",
-			"fyr search --map",
-			"fyr index --register",
-			"/fyr-init-project",
-		},
-		"skills/fyr-refresh-project-index/SKILL.md": {
-			"name: fyr-refresh-project-index",
-			"fyr index",
-			"fyr index --rebuild",
-			"fyr search --map",
-			"fyr index --global",
 		},
 	}
 	for path, needles := range checks {

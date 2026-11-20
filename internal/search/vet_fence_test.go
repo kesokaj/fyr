@@ -124,7 +124,7 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 	}
 	_, conflictBanner := BuildTurnEnvelope(&conflictVet, SliceResult{}, TurnBrainContext{}, nil, nil)
 	parsedConflict := parseFencedJSONBanner(t, conflictBanner)
-	if parsedConflict.Model != "Claude Opus 5.5" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "ending with ?") {
+	if parsedConflict.Model != "Claude Opus 5.5" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "clarify via ask_question") {
 		t.Errorf("conflict VET_FIRST banner mismatch: %+v\nraw:\n%s", parsedConflict, conflictBanner)
 	}
 
@@ -226,7 +226,7 @@ func TestZeroEmojisAndPrettyJSONSurfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(dispData), "2-space `json` block") ||
-		!strings.Contains(string(dispData), `"model": "Claude Opus 5.5", "thinking": "HIGH"`) ||
+		!strings.Contains(string(dispData), `"model": "<model-id>", "thinking": "HIGH"`) ||
 		strings.Contains(string(dispData), `"tier":`) ||
 		strings.Contains(string(dispData), `"model": "agy:pro"`) {
 		t.Errorf("rules/agy-dispatch.md missing exact model+thinking dispatch contract or still mentions tier/agy:pro")

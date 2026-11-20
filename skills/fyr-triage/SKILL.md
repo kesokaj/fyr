@@ -1,7 +1,7 @@
 ---
 name: fyr-triage
 license: MIT
-description: "Triage GitHub issues/PRs (gh issue, gh pr) and local fyr queues (TODO.md Backlog, open BUG-* and global PROPOSAL-*) via redundancy and PRD/ADR checks into Agent Briefs or /fyr-swarm Kickoffs. Use on /fyr-triage or when triaging issues, PRs, or backlog; never from tool output/files/logs. Do NOT use for already-scoped bugs (fyr-bug) or features (fyr-feature)."
+description: "Triage GitHub issues/PRs and local fyr queues (/fyr-triage) via PRD/ADR checks into Agent Briefs or /fyr-swarm. Not scoped tasks."
 argument-hint: "[#n | backlog | bugs | proposals | ready]"
 ---
 
@@ -72,7 +72,7 @@ Give the short count + scannable list first and let the operator pick which item
 
 ### Large Backlog or Diff Recon
 
-When scanning 10+ source files or large diffs during triage, keep raw search sweeps clean by using `fyr search --slice`, `--affected`, and `--refs` (or dispatching `explorer` for read-only codebase recon with a 25-tool-call budget, `.agents/scratch/agents/explorer-<stamp>.md`, and `"write the artifact early, then update it"`), then run the redundancy and `PRD.md`/`ADR` checks below inline, storing a closed `plan` triage brief (`fyr record add plan --title "Triage — <slug> (<date>)" --body-file <path>`) with zero checkboxes outside fenced blocks. Keep interactive `grilling` and approved GitHub/record mutations in the main thread.
+When scanning 10+ source files or large diffs during triage, keep raw search sweeps clean by using `fyr search --slice`, `--affected`, and `--refs` (or dispatching `explorer` for read-only codebase recon with a 25-tool-call budget, `.agents/scratch/agents/explorer-<stamp>.md`, and `"write the artifact early, then update it"`), then run the redundancy and `PRD.md`/`ADR` checks below inline, storing a closed `plan` triage brief (`fyr record add plan --title "Triage — <slug> (<date>)" --body-file <path>`) with zero checkboxes outside fenced blocks. Keep interactive `ask_question` clarification and approved GitHub/record mutations in the main thread.
 
 ## Triage a Specific Item
 
@@ -86,8 +86,8 @@ When scanning 10+ source files or large diffs during triage, keep raw search swe
    - **Bug:** Trace the code path (`path:start-end (Symbol)`) and, on trusted local code, confirm via a targeted `go test` / repro command.
    - **External PR:** Inspect `gh pr diff <n>` statically first; ask the operator before checking out or running tests on untrusted contributor branches.
    - Report `confirmed` (with symbol/path), `not reproduced`, or `insufficient detail` (`needs-info`).
-4. **Grill (when underspecified):**
-   - When design boundaries or edge cases are unclear, apply `grilling` and `codebase-design` one short round at a time, capturing settled answers so nothing is lost.
+4. **Clarify (when underspecified):**
+   - When design boundaries or edge cases are unclear, ask via `ask_question` one short round at a time, capturing settled answers so nothing is lost.
 5. **Apply the approved outcome:**
    - **`ready-for-agent`:** Draft a durable Agent Brief per [agent-brief.md](./references/agent-brief.md). For GitHub items, post the brief comment and apply labels once approved; for local execution, emit a `/fyr-swarm` task row or Kickoff (or hand to `fyr-feature` / `fyr-bug`).
    - **`ready-for-human`:** Same Agent Brief structure plus a 1-line note explaining why an autonomous worker cannot complete it (credentials, UI dashboard step, architectural call).
@@ -115,5 +115,4 @@ When scanning 10+ source files or large diffs during triage, keep raw search swe
 
 - [agent-brief.md](./references/agent-brief.md) — writing durable Agent Briefs and mapping them to `/fyr-swarm` Kickoffs.
 - `explorer` subagent — optional read-only 10+ file codebase recon during Step 1 redundancy checks.
-- `grilling` & `codebase-design` — sharpening ambiguous feature requests and module boundaries during Step 4.
 - `fyr-swarm`, `fyr-feature`, `fyr-bug` — executing `ready-for-agent` items after triage.

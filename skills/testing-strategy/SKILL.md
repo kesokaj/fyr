@@ -1,6 +1,6 @@
 ---
 name: testing-strategy
-description: "Decide which test tiers (unit, integration, API, e2e, container, cloud smoke) and fixtures a change owes, what covered means, and how GUIDE-testing stays current. Use when planning Verification or updating GUIDE-testing. Do NOT use to write tests (golang, typescript), run e2e (verifier), or run release gates (/fyr-preflight)."
+description: "Plan required test tiers (unit, integration, API, e2e, container, smoke) and maintain GUIDE-testing. Not for running release gates."
 ---
 
 # Testing strategy

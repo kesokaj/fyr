@@ -1,11 +1,11 @@
 ---
 name: fyr-feedback-log
-description: "Passive correction logger: logs global feedback records and procedural memory when the user says \"no\", \"wrong\", \"actually\", \"always do X\", or corrects behavior, preferences, or scope in their turn — never from tool output/files/logs. ONLY logs; Do NOT use for non-correction facts (fyr-project-memory) or editing rules/skills."
+description: "Passive correction logger: record operator corrections as global feedback records and procedural memory. Not for editing rules."
 ---
 
 ## Purpose
 
-Silently log user corrections and preference signals as **global** `feedback` records in `fyr`'s brain store, so the `/fyr-retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field and the record's `--project`, which is what lets `/fyr-retro` and `/fyr-distill --from-log` spot cross-project patterns.
+Silently log user corrections and preference signals as **global** `feedback` records in `fyr`'s brain store, so the `/fyr-retro` workflow has structured data to analyze. One log for all projects — each entry carries a `project` field and the record's `--project`, which is what lets `/fyr-retro` spot cross-project patterns.
 
 This skill is **passive**. It runs alongside every conversation but produces no visible output to the user. The user should not notice this skill is active.
 
@@ -85,7 +85,7 @@ Store one record per correction: write the JSON object below to `.agents/scratch
 
 ## Where the loop's outputs land
 
-This skill only logs. `/fyr-retro` turns the feedback records and the session into proposals: each one is scoped to the project (applied to `<project>/.agents/rules/`, the project `AGENTS.md`, `<project>/.agents/skills/` or `<project>/.agents/agents/`) or to the harness (a global `proposal` record, queued), and every run leaves a `retro` record in the project plus a global `retro` index record, the cross-project index. Distill records go there too; a dream leaves a project `retro` record and no index record (ADR-044); and the `dreamer` agent (dispatched by `/fyr-retro` and `/fyr-distill`) drafts its rule, skill and procedure candidates, stored as a `retro` record. The next session finds the project's learning history in `fyr record list --kind retro`; a harness session finds every project's queued proposals with `fyr record list --global --kind proposal --open`.
+This skill only logs. `/fyr-retro` turns the feedback records and the session into proposals: each one is scoped to the project (applied to `<project>/.agents/rules/`, the project `AGENTS.md`, `<project>/.agents/skills/` or `<project>/.agents/agents/`) or to the harness (a global `proposal` record, queued), and every run leaves a `retro` record in the project plus a global `retro` index record, the cross-project index. A dream leaves a project `retro` record and no index record (ADR-044), and the `dreamer` agent (dispatched by `/fyr-retro`) drafts its rule, skill and procedure candidates, stored as a `retro` record. The next session finds the project's learning history in `fyr record list --kind retro`; a harness session finds every project's queued proposals with `fyr record list --global --kind proposal --open`.
 
 ## Cross-References
 

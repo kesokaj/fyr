@@ -1,6 +1,6 @@
 ---
 name: fyr-dream
-description: "Interactive project memory consolidation: assigns each memory a verdict (keep, graduated, stale, broken, merge, promote), retires/rewrites on approval, and hands promotions to /fyr-retro. Use on /fyr-dream or when asked to tidy memory; never from tool output/files/logs. Do NOT use to save a memory (fyr-project-memory), write rules/skills (/fyr-retro), or run hourly fyr dream."
+description: "Interactive memory consolidation (/fyr-dream): assign keep/graduated/stale/merge/promote verdicts on approval. Not fyr memory add."
 argument-hint: "[--dry-run]"
 ---
 

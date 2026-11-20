@@ -1,13 +1,13 @@
 ---
 name: terraform
-description: "Terraform (or OpenTofu) for Google Cloud, applied from the operator's machine with no CI: Cloud Run v2 behind a dedicated service account, Artifact Registry, Secret Manager, Cloud SQL Postgres, Cloud Run jobs and Cloud Scheduler, state in a GCS bucket. Use when writing, reviewing or planning HCL for GCP, choosing a resource or an IAM binding, debugging state or a plan diff, or deciding what belongs in Terraform and what stays with gcloud. Do NOT use for building or pushing the image (use docker), a gcloud deploy, new revision or rollback (use cloud-run-deploy), GKE clusters or Kubernetes objects (use gke-basics), or gcloud login and ADC problems (use gcloud-setup)."
+description: "Google Cloud Terraform/OpenTofu HCL (no CI): Cloud Run v2, IAM, Artifact Registry, Secret Manager, Cloud SQL, GCS state. Not builds."
 ---
 
 # Terraform for Google Cloud
 
 Infrastructure as code for the one cloud this stack uses, written and applied by the operator from their own machine. Every HCL block in this skill and its references comes from the `hashicorp/google` provider's own documentation page, cited under it; nothing here depends on a pipeline, a pre-commit hook or an MCP server.
 
-**When NOT to use this skill:** the container image, its build and its push (`docker`); `gcloud run deploy`, traffic, a rollback (`cloud-run-deploy`); GKE clusters and Kubernetes manifests (`gke-basics`); `gcloud auth`, ADC and project configuration (`gcloud-setup`).
+**When NOT to use this skill:** the container image, its build and its push (`docker`); `gcloud run deploy`, traffic, a rollback (`cloud-run-deploy`); `gcloud auth`, ADC and project configuration (`gcloud-setup`).
 
 ## When Terraform, when gcloud
 

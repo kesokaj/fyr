@@ -134,10 +134,6 @@ func scoreLangOrUISkill(name, lowPrompt string, files []string) (int, string) {
 		if hasExt(files, ".tsx") || containsAnyWord(lowPrompt, "shadcn", "tailwind", "react", "tanstack") {
 			return 72, "React/Tailwind/shadcn UI surface"
 		}
-	case "codebase-design":
-		if containsAnySubstr(lowPrompt, "deep module", "module boundary", "interface design", "decouple", "seams") {
-			return 68, "module/interface design surface"
-		}
 	}
 	return 0, ""
 }
@@ -201,7 +197,6 @@ var fyrWorkflowSkillRules = map[string]struct {
 	"fyr-swarm":          {78, "fyr swarm parallel orchestration surface", []string{"swarm", "parallel", "worker", "workers"}, []string{"/fyr-swarm", "fyr gate", "fyr land", "run_workflow"}},
 	"fyr-handoff":        {85, "session handoff surface", []string{"handoff", "fyr-handoff"}, []string{"hand off", "wrap up for next session"}},
 	"fyr-retro":          {85, "session retrospective surface", []string{"retro", "retrospective", "fyr-retro"}, nil},
-	"fyr-distill":        {82, "skill distillation surface", []string{"distill", "fyr-distill"}, []string{"into a skill", "reusable skill"}},
 	"fyr-dream":          {82, "memory consolidation surface", nil, []string{"fyr dream", "/fyr-dream", "consolidate memory", "dreamer"}},
 	"fyr-harness-audit":  {88, "harness audit surface", nil, []string{"harness audit", "fyr-harness-audit", "audit the harness"}},
 	"fyr-triage":         {86, "issue/PR and backlog triage surface", []string{"triage", "fyr-triage", "wontfix", "needs-triage", "needs-info", "ready-for-agent"}, []string{"/fyr-triage", "agent brief", "needs my attention"}},
@@ -209,10 +204,6 @@ var fyrWorkflowSkillRules = map[string]struct {
 
 func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []string) (int, string) {
 	switch name {
-	case "fyr-explain-project", "explain-project":
-		if intent == IntentQuestion && (strings.Contains(lowPrompt, "explain") || strings.Contains(lowPrompt, "walk me through")) {
-			return 95, "intent=QUESTION (onboarding)"
-		}
 	case "fyr-docs":
 		if containsAnyWord(lowPrompt, "fyr-docs", "docs-writer", "bluf", "docset") ||
 			containsAnySubstr(lowPrompt, "/fyr-docs", "audit docs", "audit the docs", "audit the documentation", "docs audit", "airy docs") {
@@ -222,14 +213,6 @@ func scoreFyrWorkflowSkill(name, lowPrompt string, intent IntentMode, files []st
 			containsAnySubstr(lowPrompt, "write docs", "update docs", "edit docs", "review docs") ||
 			(hasBaseOrExt(files, "readme.md", "sdd.md", "tdd.md") && !containsAnyWord(lowPrompt, "typo", "rename")) {
 			return 73, "documentation surface"
-		}
-	case "fyr-index-project":
-		if strings.Contains(lowPrompt, "fyr-index-project") || (containsAnyWord(lowPrompt, "index", "indexing", "search.db") && !containsAnyWord(lowPrompt, "refresh", "rebuild")) {
-			return 90, "project indexing surface"
-		}
-	case "fyr-refresh-project-index":
-		if strings.Contains(lowPrompt, "fyr-refresh-project-index") || (containsAnyWord(lowPrompt, "index", "search.db") && containsAnyWord(lowPrompt, "refresh", "rebuild", "stale")) {
-			return 92, "project index refresh surface"
 		}
 	case "fyr-swarm":
 		if (len(fyrWorkflowSkillRules[name].words) > 0 && containsAnyWord(lowPrompt, fyrWorkflowSkillRules[name].words...)) ||

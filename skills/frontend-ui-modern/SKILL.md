@@ -1,6 +1,6 @@
 ---
 name: frontend-ui-modern
-description: "Modern web-app UI on shadcn/ui, Tailwind and React: dashboards, tables, forms, theming, dark mode. Simulates directions, lets the operator decide, builds, proves it with mockups. Do NOT use for plain HTML/CSS or editorial pages (frontend-ui-economist)."
+description: "Modern React, Tailwind, and shadcn/ui web apps: simulate -> decide -> build -> mockup workflow and themes. Not for plain HTML."
 ---
 
 # frontend-ui-modern
@@ -36,7 +36,6 @@ Two gates, always, scaled to the task:
 ```
 references/  workflow.md · shadcn-2026.md · components.md · blocks.md · charts.md · theming.md · design-rules.md
              themes/<family>.css (20 dotfile themes, :root + .dark) · themes/shadcn-base-colors.css · themes/shadcn-accents.css
-             screenshots/ (131 reference renders: every theme light+dark, 14 views × 3 themes, states, overlays, 8 styles, top-nav shell, mobile; README.md + gallery.html)
 scripts/     sim.mjs (scaffold a simulation) · theme.mjs (palette → shadcn tokens, contrast check) · mockup.mjs (Playwright screenshots + contact sheet)
 assets/      simulation-template.html · themes.css (all themes, [data-theme]-scoped) · palettes.json (verified official palettes) · shadcn-themes.json
 ```
@@ -108,8 +107,8 @@ operator changes their mind; it is the contract for the build and the hand-off.
 5. Charts: `ChartConfig` with `color: "var(--chart-n)"`, `ChartContainer className="min-h-[200px] w-full"`, `ChartTooltip` + `ChartLegend`, `accessibilityLayer`.
 6. Typecheck + dev server before the mockup.
 7. Proof trail: after each milestone (shell + theme applied, each screen/tab, each overlay and state, charts wired) run the mockup script
-   into `ui-mockups/<nn>-<milestone>/` and compare the capture with the references: `theme-<id>-<mode>-1280.png` for colors (surface tiers,
-   primary, chart palette, muted text) and `view-default-<view>-<mode>-1280.png` for structure (header, toolbar, table, pagination, states).
+   into `ui-mockups/<nn>-<milestone>/` and compare the capture with `DECISION.md` and `ui-sim/index.html` for colors (surface tiers,
+   primary, chart palette, muted text) and structure (header, toolbar, table, pagination, states).
    A mismatch means the tokens or the composition didn't land — fix before moving on. Keep every round; they are the evidence in the hand-off.
 
 ### 4 · Mockup (gate 2)
@@ -235,4 +234,3 @@ text ≥ 4.5:1 (muted text with meaning too) · numbers `tabular-nums`, dates fo
 - `references/theming.md` — token contract, applying themes (single, switchable, preset), mapping method, per-theme notes, fonts/styles, contrast checks.
 - `references/design-rules.md` — style picking, layout, type, color usage, density, states, motion, responsive, a11y, content, anti-patterns.
 - `references/themes/` — ready CSS for every theme; `assets/palettes.json` for the verified palettes and sources.
-- `references/screenshots/` — 131 reference renders (themes, every view in 3 themes, states, overlays, styles, shells, mobile) to show the operator and to diff builds against (`README.md` lists them, `gallery.html` shows them side by side).

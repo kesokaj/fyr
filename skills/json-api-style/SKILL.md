@@ -1,6 +1,6 @@
 ---
 name: json-api-style
-description: "JSON API request and response design on Google's API Improvement Proposals (AIP-140 names, 142 time, 126 enums, 158 pagination, 193 errors, 203 field behaviour) with the proto3 JSON mapping: lowerCamelCase keys, RFC 3339 timestamps, string enums, pageSize/pageToken/nextPageToken, the {error: {code, status, message, details}} shape. Use when designing JSON payloads, naming properties, structuring errors or pagination, defining time or enum formats, or reviewing an API contract. Do NOT use for JSON parsing or serialization code (golang, typescript), JSON Schema or OpenAPI authoring, or YAML/TOML config files."
+description: "Google AIP JSON API contracts: lowerCamelCase keys, RFC 3339 timestamps, string enums, pageToken, error shape. Not parser code."
 ---
 
 # JSON API Style

@@ -236,7 +236,7 @@ resource "google_cloud_run_v2_service" "app" {
 }
 ```
 
-- `volumes { cloud_sql_instance }` with the `/cloudsql` mount is the HCL form of `gcloud run deploy --add-cloudsql-instances`; the runtime SA needs `roles/cloudsql.client`. https://docs.cloud.google.com/run/docs/configuring/connect-cloudsql
+- `volumes { cloud_sql_instance }` with the `/cloudsql` mount is the HCL form of `gcloud run deploy --add-cloudsql-instances`; the runtime SA needs `roles/cloudsql.client`. https://cloud.google.com/sql/docs/postgres/connect-run
 - Direct VPC egress is GA and the default choice; a Serverless VPC Access connector is the exception for workloads hit by Cloud NAT cold starts. https://docs.cloud.google.com/run/docs/configuring/vpc-direct-vpc
 - `launch_stage` defaults to GA; a startup probe (`startup_probe { http_get { path = "/healthz" } }`) belongs in the container block when the app has a health endpoint, the same one `cloud-run-deploy` passes with `--startup-probe`.
 - https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/cloud_run_v2_service

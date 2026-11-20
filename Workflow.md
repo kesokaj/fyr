@@ -91,7 +91,7 @@ sequenceDiagram
     Lead->>Fyr: fyr record add plan (draft PLAN record)
     Lead->>Sub: reviewer cold-reader check (plan text only, <= 15 calls)
     Sub-->>Lead: <= 10 findings on failure modes, tests, or scope
-    Lead->>Op: Single pre-build interview (grilling + Open rows + workers yes/no)
+    Lead->>Op: Single pre-build interview (deep stress-test + Open rows + workers yes/no)
     Op-->>Lead: Approve plan, PRD, ADRs, and workers D-row
     alt workers: no (single-track phases)
         Lead->>Fyr: Store Phase 1 /fyr-handoff ## Kickoff and end planning session
@@ -107,7 +107,7 @@ sequenceDiagram
 2. **Scope and reconnaissance:** Query `fyr search --slice`, `--affected`, `--path`, `--skeleton`, and `--refs` before opening source files. When the repository already has source files and scoping touches `10+` files across unread packages, dispatch `explorer` (`flash` model) to write `.agents/scratch/agents/<topic>-brief.md` and store it as a closed recon `plan` record (`Recon — <topic>`). Skip `explorer` on small scopes or empty repositories with no source yet.
 3. **Draft the `PLAN-*` record:** Draft `.agents/scratch/plan-<slug>.md` with the required sections (`## Why`, `## Scope`, `## Surfaces touched`, `## Interfaces`, `## Failure modes`, `## Trust boundaries and data handled`, `## Verification`, `## Phases`, `## Risks`, `## Decisions`) and store it via `fyr record add plan`. Resolve worker `model:` and `judge-model:` headers via `fyr models --pick builder` and `fyr models --pick judge` (never invoke `agy models` directly here). If an interface, API, CLI, or storage contract exceeds one screen, author a `SPEC-*` record first via `/fyr-spec`.
 4. **Isolated cold-reader check:** Dispatch `reviewer` once with the drafted plan text alone (never your intent or rationale), a `15`-tool-call budget, and a `<= 10`-item cap targeting missing failure modes, untestable steps (`verify:` / `expect:`), missing owners (`who:`), and scope bloat. Fold accepted fixes into `PLAN-*` with `fyr record edit <PLAN-ID>`.
-5. **Single pre-build interview (`ADR-517` + `grilling`) & `workers` decision:** In one interactive interview, settle remaining `Open:` rows, approve any `PRD.md` changes (Must -> `ADR-*` -> `PRD.md` + `TODO.md`) and structural `ADR-*` records, and confirm `testing-strategy` tiers. Record the execution decision in `## Decisions` as `D<n> — <date> — workers: yes | no, <why> — by: planner`: plans with `2+` `who: AI` phases default to `workers: yes`, setting `workers: no` only with a concrete technical reason. Once approved:
+5. **Single pre-build interview (`ADR-517`) & `workers` decision:** In one interactive interview, settle remaining `Open:` rows, approve any `PRD.md` changes (Must -> `ADR-*` -> `PRD.md` + `TODO.md`) and structural `ADR-*` records, and confirm `testing-strategy` tiers. Record the execution decision in `## Decisions` as `D<n> — <date> — workers: yes | no, <why> — by: planner`: plans with `2+` `who: AI` phases default to `workers: yes`, setting `workers: no` only with a concrete technical reason. Once approved:
    - If **`workers: no`**: write the closing `/fyr-handoff` with Phase 1's `## Kickoff` and stop so Phase 1 starts fresh under the `180,000`-token context limit.
    - If **`workers: yes`**: remain in the planning session and run Phase 1 immediately as the `/fyr-swarm` coordinator.
 6. **Autonomous execution & mid-build unknowns (`D-row`s vs Closed Set):**
@@ -236,7 +236,7 @@ stateDiagram-v2
 For single-track phases (`workers: no`, `1`–`6` tightly coupled files), each fresh session executes one phase strictly in order:
 
 1. **Write the failing test first (`review-standards` § 2, § 8):** Add a unit or integration test reproducing the target behavior (and both `must-pass` and `must-fail` inputs for validators or checks) and confirm it fails for the expected reason before editing implementation files.
-2. **Implement the smallest passing change:** Write cohesive Go/TS modules obeying `rules/code-modularity.md` and `codebase-design` without speculative abstractions or unrelated refactors.
+2. **Implement the smallest passing change:** Write cohesive Go/TS modules obeying `rules/code-modularity.md` without speculative abstractions or unrelated refactors.
 3. **Run task verification and tick `PLAN-*`:** Execute the task's `verify:` command and immediately update `- [x]` on `PLAN-*` via `fyr record edit <PLAN-ID>` so progress survives interruptions.
 4. **Verify phase checkpoint:** Run the bare full test suite (`fyr verify`), verify the phase's `**Checkpoint:**` criteria (`— expect:` + `— evidence:`), store the `change` record, update `TODO.md`, and run `/fyr-handoff` if more phases remain (or proceed to E2E + multi-lens review on the final phase).
 

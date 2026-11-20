@@ -1,14 +1,6 @@
 ---
 name: cloud-run-deploy
-description: |
-  The HOW of a Google Cloud Run deploy: build the image locally (ARM to test, AMD64 to
-  deploy), push to Artifact Registry, deploy, verify, roll back. A ship, deploy, release or
-  "cut vX.Y.Z" request in the user's own turn means `/fyr-preflight`, which gates and then runs
-  these steps: never run them in its place. Use directly for the mechanics: an image build
-  or push, a rollback, a `gcloud run` flag, a failed revision, or a deploy `/fyr-preflight`
-  already gated. Do NOT use for GKE workloads (gke-basics), local-only container work
-  (docker), gcloud auth problems (gcloud-setup) or Terraform-managed infrastructure
-  (terraform).
+description: "Cloud Run deploy mechanics: local build, Artifact Registry push, gcloud run deploy, rollback. Use /fyr-preflight for releases."
 ---
 
 Release pipeline: **local build (Colima) → Artifact Registry → Cloud Run**. Build
@@ -19,7 +11,7 @@ Registry only when explicitly requested. Every flag below was checked against
 - **Local by default.** Build, run and test locally per the project's `DEPLOY-local` record; touch cloud only when asked.
 - **Machines:** Docker via Colima on macOS (Apple Silicon), plain Docker on Linux. Use remote hosts/VMs only when asked; ask for access.
 - **Build and deploy mechanics** (local test first, amd64 images, git-SHA Artifact Registry tags): `docker` and `cloud-run-deploy`.
-- **Compute:** Cloud Run first (`cloud-run-deploy`), else GKE (`gke-basics`) or Compute Engine; Terraform (`terraform`) when managing >1 service.
+- **Compute:** Cloud Run first (`cloud-run-deploy`), else GKE or Compute Engine; Terraform (`terraform`) when managing >1 service.
 - **Auth:** `gcloud auth login` and `gcloud auth application-default login` (`gcloud-setup`). Pass Cloud Run secrets via `--set-secrets`, never `--set-env-vars`.
 
 ## Pre-flight

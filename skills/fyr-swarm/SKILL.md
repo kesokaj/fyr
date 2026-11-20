@@ -1,6 +1,6 @@
 ---
 name: fyr-swarm
-description: "Multi-agent parallel execution via run_workflow parallel() or Antigravity native /swarm with Files: write-lease briefs, prefix-based model routing, and fyr gate + fyr land waves. Use when a task or PLAN-* splits into 2+ independent parallel slices. Do NOT use for single-track 1-6 file tasks or 1-file bug fixes."
+description: "Parallel multi-agent execution (/fyr-swarm) for 2+ independent slices via run_workflow or /swarm, Files: leases, fyr gate/land."
 argument-hint: "[plan-id or task slices]"
 ---
 
@@ -13,9 +13,9 @@ Use parallel execution only when genuinely independent slices justify coordinati
 | Work shape | Tool | What `fyr` controls |
 |---|---|---|
 | One track, 1–6 files | Plan and execute in main session | Turn-0 capsule, read clamp, `Stop` stamp, `fyr verify`, `fyr close` |
-| Width ≤ 2, or blind judgement (`reviewer`, `security`, `verifier`) | `invoke_subagent` | Model routing + `[FYR_WORKER_CAPSULE]` (`internal/search/hook_subagent.go`) |
-| Width ≥ 3, independent pieces (`PLAN` wave, multi-file refactor, parallel review) | `run_workflow` (`parallel()`, `workspace="share"`, or `"inherit"` for read-only reviews) | `fyr gate` per worker branch, `fyr land` one at a time |
-| Width ≥ 3, workers must negotiate interfaces mid-flight | Native `/swarm` (`workspace="share"`, `Files:` lease) | `Files:` lease, `[FYR_WORKER_CAPSULE]`, `fyr gate`, `fyr land` |
+| Single recon or blind judgement (`reviewer`, `security`, `verifier`, `explorer`) | `invoke_subagent` | Guarded model routing + `[FYR_WORKER_CAPSULE]` |
+| 2+ independent slices (`PLAN-*` wave, multi-file refactor, parallel review) | `run_workflow` (`parallel()`, `workspace="share"`, or `"inherit"` for read-only reviews) | `fyr gate` per worker branch, `fyr land` one at a time |
+| 2+ slices where workers negotiate interfaces mid-flight | Native `/swarm` (`workspace="share"`, `Files:` lease) | `Files:` lease, `[FYR_WORKER_CAPSULE]`, `fyr gate`, `fyr land` |
 | Hard single-surface bug or deep trade-off | Recommend `/boost` to operator (routing row only) | Normal session gates |
 | Multi-day autonomous campaign | Recommend `/teamwork` or `/goal` to operator (routing row only) | Per-milestone `fyr verify` from `PLAN-*` |
 
@@ -39,7 +39,7 @@ flowchart LR
 ## Quota check & prefix model routing
 
 1. Run `agy -p "/usage"` (or check `fyr models`) before spawning any parallel wave; record per-dispatch routing (`role`, `scope`, `model`, `thinking`, `quota`) in briefs/scratch rather than emitting a wait-note reply JSON block (`context/AGENTS.md` reserves the 2-space `json` block for the final reply only).
-2. `PreToolUse` (`internal/search/hook_subagent.go`) routes/validates worker models from roster name prefixes:
+2. `PreToolUse` routes and validates worker models from roster name prefixes:
    - `builder-<slice>` / `coder-<slice>` -> builder model (`fyr models --pick builder`, or coordinator model when omitted).
    - `reviewer-<slice>` / `judge-<slice>` / `security-<slice>` / `verifier-<slice>` -> `pro` / cross-family when Anthropic quota is `>= 20%` weekly and `>= 30%` 5h, else Gemini Pro fallback. Fast weak overrides are denied.
    - `explorer-<slice>` / `docs-<slice>` -> `flash`.
@@ -61,13 +61,13 @@ Budget & artifact: <= 40 tool calls for specialized subagents (<= 120 for self);
 Done when: <Checkpoint expect or targeted base-check/test passes> (where Done when names an item under Never, Never wins: name it in the handoff for the coordinator), git checkout --detach HEAD (share worktrees), closing handoff stored, and [done] branch=work/<name> commit=<short-sha> (or finish JSON in run_workflow).
 ```
 
-- **Automatic `[FYR_WORKER_CAPSULE]` JIT overwrite (`internal/search/hook_subagent.go`):** For allowed `invoke_subagent` (`Prompt`) and `swarm(action="add")` (`brief`) calls, `PreToolUse` merges `Model` / `model` routing with an appended `[FYR_WORKER_CAPSULE]` (`<= 1,200 B` wrapped in `=====<18-hex>=====` fences) when **(1)** the brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` resolves a checkout, **AND (2)** context lookup finds Hop-0 symbols, `validity >= 0.40` records/memories, or a skill digest (or `coordinator-only` mode is active). Your leading `Files:` header stays verbatim at the top without duplication, and remaining budget fills in strict order: `<= 3` records/memories (`140 B` note cap) > top `1` skill digest (`<= 400 B`) > `Hop-0` AST slice (`<= 600 B`).
+- **Automatic `[FYR_WORKER_CAPSULE]` JIT overwrite:** For allowed `invoke_subagent` (`Prompt`) and `swarm(action="add")` (`brief`) calls, `PreToolUse` merges `Model` / `model` routing with an appended `[FYR_WORKER_CAPSULE]` (`<= 1,200 B` wrapped in `=====<18-hex>=====` fences) when **(1)** the brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` resolves a checkout, **AND (2)** context lookup finds Hop-0 symbols, `validity >= 0.40` records/memories, or a skill digest (or `coordinator-only` mode is active). Your leading `Files:` header stays verbatim at the top without duplication, and remaining budget fills in strict order: `<= 3` records/memories (`140 B` note cap) > top `1` skill digest (`<= 400 B`) > `Hop-0` AST slice (`<= 600 B`).
 - **Idempotency & fallback:** Prompts already carrying `[FYR_WORKER_CAPSULE]` and targetless prompts without an explicit checkout are left untouched. Always keep `Files:` and critical constraints in the brief itself so workers remain self-contained even if a caller ignores non-`Model` `Overwrite` keys.
-- **`run_workflow` literal safety:** `PreToolUse` (`internal/search/hook_workflow.go`) enforces `model="pro"` on guarded `agent()` calls (`[AUTO_SUBAGENT_PRO]`) without mutating Python string literals, so embed `Files:` and relevant context directly in `run_workflow` `agent()` prompts and require calling `finish` matching the script's `schema`.
+- **`run_workflow` literal safety:** `PreToolUse` enforces `model="pro"` on guarded `agent()` calls (`[AUTO_SUBAGENT_PRO]`) without mutating Python string literals, so embed `Files:` and relevant context directly in `run_workflow` `agent()` prompts and require calling `finish` matching the script's `schema`.
 
 ## Coordinator write guard (`[COORDINATOR_GUARD]`)
 
-On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or whenever a `coordinator-only` marker (`<root>/.agents/scratch/coordinator-only` or `~/.config/fyr/coordinator-only`) exists, `PreToolUse` denies direct `write_or_edit` calls on the main checkout with `[COORDINATOR_GUARD]` (`internal/search/hook.go`).
+On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or whenever a `coordinator-only` marker (`<root>/.agents/scratch/coordinator-only` or `~/.config/fyr/coordinator-only`) exists, `PreToolUse` denies direct `write_or_edit` calls on the main checkout with `[COORDINATOR_GUARD]`.
 
 | Write surface | Decision | Notes |
 |---|---|---|
@@ -79,7 +79,7 @@ On active `COORDINATE_SUBTASKS` turns (`subtask_count >= 2` in `vet_history`) or
 
 ## Watchdog breakers & silent-hang recovery
 
-- **In-band `PreToolUse`/`PostToolUse` Watchdog (`internal/search/hook_bash_guard.go`, `internal/search/hook_watchdog.go`):**
+- **In-band `PreToolUse`/`PostToolUse` Watchdog:**
   - `[INTERACTIVE_STDIN]` blocks interactive editors, pagers, and prompts waiting on stdin, and injects `export GIT_TERMINAL_PROMPT=0; ` via `Overwrite` for network `git` commands.
   - `[POLL_LOOP]` denies `>= 3` consecutive `manage_task` / `manage_subagents` `list`/`status` polls; end the turn to await wakeup or run `fyr watch --check`.
   - `[TOKEN_LOOP]` denies `>= 3` consecutive identical failing tool calls or `A-B-A-B` failing error loops recorded across `PreToolUse` and `PostToolUse` in `watchdog_ring` (exempting `finish`, `send_message`, `.agents/scratch/agents/` writes, and `git` commit steps).

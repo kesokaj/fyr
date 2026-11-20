@@ -1,11 +1,6 @@
 ---
 name: docker
-description: |
-  Container-based development with Docker via Colima. Use when running containerized commands,
-  building images, managing docker-compose services, writing Dockerfiles, debugging container issues,
-  or working with volumes and networking. Activate for any docker, docker-compose, container,
-  or Dockerfile mention — even simple "build the container" requests.
-  Do NOT use for Kubernetes orchestration (use gke-basics) or Terraform infrastructure (use terraform).
+description: "Local container development with Docker and Colima: Dockerfiles, compose services, volumes, networking. Not for Cloud Run or HCL."
 ---
 
 # Docker & Container Development
@@ -14,8 +9,7 @@ Local container work for a Go service (`cmd/<app>/` + `internal/`, see the `gola
 skill). Docker runs via **Colima** on macOS (Apple Silicon); Linux boxes use the plain
 Docker daemon and skip every Colima step.
 
-**When NOT to use this skill:** pushing or deploying (`cloud-run-deploy`), Kubernetes
-(`gke-basics`), infrastructure-as-code (`terraform`).
+**When NOT to use this skill:** pushing or deploying (`cloud-run-deploy`), infrastructure-as-code (`terraform`).
 
 ## Environment
 

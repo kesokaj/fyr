@@ -1,13 +1,6 @@
 ---
 name: mermaid-syntax
-description: |
-  Comprehensive syntax reference for generating error-free Mermaid diagrams. Prevents common
-  syntax errors with special characters, reserved words, escaping rules, and provides v11 support.
-  Use when: creating mermaid diagrams, fixing mermaid errors, mermaid syntax errors, diagram not
-  rendering, flowchart not working, sequence diagram broken, escaping special characters in mermaid.
-  Activate whenever the user mentions mermaid, flowchart, sequence diagram, class diagram, state
-  diagram, ER diagram, or gantt chart — even if they don't say "mermaid" explicitly.
-  Do NOT use for non-Mermaid diagramming tools (D2, PlantUML, Graphviz).
+description: "Error-free Mermaid v11 diagrams: flowcharts, sequence, state, class, and ER syntax, quoting, and escaping. Not D2 or PlantUML."
 metadata:
   version: "1.5.0"
 ---

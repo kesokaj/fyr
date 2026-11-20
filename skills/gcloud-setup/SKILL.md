@@ -1,19 +1,13 @@
 ---
 name: gcloud-setup
-description: |
-  GCloud CLI authentication and project configuration. Use when encountering "ADC not found",
-  "gcloud auth error", "No credentialed accounts", "Application Default Credentials", "project not set",
-  "permission denied", a 403 from gcloud, bq, or a client library, or when setting up gcloud CLI
-  for a new machine or project.
-  Activate for any gcloud auth, gcloud config, or GCP credential question.
-  Do NOT use for GKE cluster management (use gke-basics) or Terraform GCP resources (use terraform).
+description: "Configure gcloud CLI auth, ADC credentials, and per-command --project settings. Not for Terraform HCL or Cloud Run deploys."
 ---
 
 # GCloud CLI Setup & Authentication
 
 Quick-reference for configuring `gcloud` CLI authentication and project settings (macOS or Linux).
 
-**When NOT to use this skill:** GKE cluster management (use the `gke-basics` skill), Terraform GCP resources (use the `terraform` skill), or Cloud Run deployments (use the `cloud-run-deploy` skill).
+**When NOT to use this skill:** Terraform GCP resources (use the `terraform` skill) or Cloud Run deployments (use the `cloud-run-deploy` skill).
 
 ## Quick Fixes
 
@@ -80,7 +74,7 @@ gcloud projects list
 gcloud run services list --project "$PROJECT_ID" --region "$REGION"
 ```
 
-`--project` on each command is the rule, the same one the `google-catalog` router gives. The
+`--project` on each command is the rule. The
 project ID comes from the project's `DEPLOY-gcp` record, or from the operator when that record
 does not exist yet. A default in `gcloud config` is machine-wide state in `~/.config/gcloud`.
 Every shell and every agent session on the machine shares it, so a command that leans on it

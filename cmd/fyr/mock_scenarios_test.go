@@ -177,7 +177,7 @@ func verifyLedgerTurn3(t *testing.T, proj, home, dbPath string) {
 	t.Helper()
 	t3 := runHook[search.PreInvocationOutput](t, home, "pre-invocation", search.HookInput{
 		ConversationID: "conv-ledger", WorkspacePaths: []string{proj},
-		LastUserInput: "go all approved: 1. Use Idempotency-Key HTTP header, 2. Return 200 on matching payload or 409 Conflict on mismatch, 3. Store in Store, 4. Run /fyr-index-project. Verify with go test ./...",
+		LastUserInput: "go all approved: 1. Use Idempotency-Key HTTP header, 2. Return 200 on matching payload or 409 Conflict on mismatch, 3. Store in Store, 4. Run fyr index. Verify with go test ./...",
 	})
 	if sys3 := t3.InjectSteps[0].SystemMessage.SystemMessage; !strings.Contains(sys3, `"intent": "APPROVAL"`) || !strings.Contains(sys3, `"gate": "PASS_THROUGH"`) || strings.Contains(sys3, "VET_FIRST") || strings.Contains(sys3, `"enrichment"`) {
 		t.Fatalf("Turn 3 expected APPROVAL PASS_THROUGH without enrichment in:\n%s", sys3)
@@ -210,7 +210,7 @@ func verifyLedgerTurn3(t *testing.T, proj, home, dbPath string) {
 	}
 	for _, rootDoc := range []string{"AGENTS.md", "PRD.md", "SDD.md", "TDD.md", "TODO.md"} {
 		if _, err := os.Stat(filepath.Join(proj, rootDoc)); err == nil {
-			t.Fatalf("/fyr-index-project path created unwanted %s", rootDoc)
+			t.Fatalf("fyr index path created unwanted %s", rootDoc)
 		}
 	}
 	runCmd(t, proj, "go", "test", "./...")

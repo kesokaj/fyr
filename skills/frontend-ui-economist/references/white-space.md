@@ -52,16 +52,9 @@ and the themes differ in *how* they spend the space, not how much.
 
 Other views in Airy for scale: Brief (article) 74%, Components gallery 82%.
 
-![Airy at ×0.7](../assets/screenshots/spacing-airy-x07.png)
-![Airy at ×1.6](../assets/screenshots/spacing-airy-x16.png)
-
 ## Measure it
 
-In the simulator the readout in the top bar shows the estimate live, and "show ink" draws what was
-counted:
-
-![Overlay, Airy](../assets/screenshots/overlay-airy-desk.png)
-![Overlay, Instrument](../assets/screenshots/overlay-instrument-desk.png)
+In the simulator (`../assets/theme-simulator.html`) the readout in the top bar shows the estimate live, and "show ink" draws what was counted.
 
 For any page:
 

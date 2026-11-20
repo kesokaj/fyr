@@ -94,7 +94,7 @@ Order of operations (each step is verifiable before the next):
    (or `aspect-auto h-[250px] w-full`), `ChartTooltip` + `ChartLegend`, `accessibilityLayer`. See `references/charts.md`.
 6. **Typecheck and run**: `npx tsc --noEmit` (or the project's `lint`/`typecheck` script) and start the dev server.
 7. **Proof trail.** Every milestone ends with a capture: `node <skill>/scripts/mockup.mjs http://localhost:3000/<route> --out ui-mockups/01-shell`
-   (then `02-theme`, `03-<screen>`, …). Open the PNG and compare it with `references/screenshots/theme-<id>-<mode>-1280.png` for the chosen
+   (then `02-theme`, `03-<screen>`, …). Open the capture and compare it with `ui-sim/index.html` and `DECISION.md` for the chosen
    theme: page/card/sidebar tiers, primary button, chart colors, muted text, border weight. Fix mismatches before the next milestone.
    The rounds stay in the repo (or are listed in the hand-off) as evidence of what was built and when.
 

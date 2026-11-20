@@ -1,6 +1,6 @@
 ---
 name: review-standards
-description: "Per-language code-excellence standards for Go and TypeScript, loaded by the reviewer agent, and by /fyr-preflight when it reads a small diff itself. Load when applying the project review criteria: dead code, function flow, directory layout, simplicity, security-exempt DIY rule, decoupling. Not a review workflow — `/fyr-review` dispatches the reviewing."
+description: "Go and TypeScript code-excellence checklist for reviewer and /fyr-preflight: dead code, flow, layout, simplicity, decoupling."
 ---
 
 # Review Standards
@@ -71,7 +71,7 @@ Installers count as callers. A change that an installer, updater or converge ste
 
 ## 6. Decoupling
 
-- [ ] Small interfaces at the seams — use the `codebase-design` skill's vocabulary (module, interface, seam, adapter, depth): prefer deep modules, flag shallow ones whose interface is as complex as their implementation.
+- [ ] Small interfaces at the seams (module, interface, seam, adapter, depth): prefer deep modules, flag shallow ones whose interface is as complex as their implementation.
 - [ ] Interfaces declared where they are consumed, sized to what the consumer needs — not exported wholesale from the implementing package.
 - [ ] No cross-package reach-ins: no importing another package's internals, no reaching through a struct to a third package's state, no test importing another package's unexported helpers.
 - [ ] Files independently editable: two engineers changing adjacent features should not collide in the same file; flag god-files and grab-bag `util` packages that force serialized edits.

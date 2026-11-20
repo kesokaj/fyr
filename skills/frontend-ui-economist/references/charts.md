@@ -13,10 +13,6 @@ column and sparkline for both; the simulator's Desk and Brief views show them in
 | Series identity | legend row above **and** the series name set inside the plot where that series is farthest from the others (≥ 16px of room, else legend only) | legend row above with dot swatches; values at the line ends, nudged apart by 13px when they collide |
 | Legend swatch | 12×3 line | 10px dot |
 | Source line | "Sources: … " in `--ink-3` under the chart | optional |
-| Reference | `detail-broadsheet-chart.png`, `detail-briefing-chart.png`, `detail-broadsheet-column-chart.png` | `detail-airy-chart.png`, `detail-graphite-chart.png`, `detail-airy-column-chart.png` |
-
-![Editorial vs tool chart](../assets/screenshots/detail-broadsheet-chart.png)
-![Tool chart](../assets/screenshots/detail-airy-chart.png)
 
 ## Mark rules (both styles)
 

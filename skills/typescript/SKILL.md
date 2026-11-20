@@ -1,13 +1,6 @@
 ---
 name: typescript
-description: |
-  TypeScript language standards: typing discipline, tsconfig, generics, narrowing,
-  module/ESM conventions, runtime validation at boundaries, and the test tiers
-  (Vitest, browser mode, Playwright). Use when writing or reviewing TypeScript code,
-  fixing type errors, designing types/interfaces, configuring tsconfig, or setting up
-  tests — in any TS codebase, frontend or tooling.
-  Do NOT use for UI, styling or components (use frontend-ui-modern),
-  backend API logic (use golang), or shell automation (use bash).
+description: "TypeScript standards: strict tsconfig, narrowing, generics, ESM boundaries, boundary validation, Vitest/Playwright. Not UI styling."
 ---
 
 # TypeScript

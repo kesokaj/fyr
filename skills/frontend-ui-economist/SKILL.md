@@ -1,14 +1,13 @@
 ---
 name: frontend-ui-economist
-description: "Editorial, report and airy UI in plain HTML/CSS/SVG: six themes on one token contract, an SVG chart kit, a white-space method. Use for static pages, briefs, or a UI that looks generic. Do NOT use for shadcn, Tailwind or React (frontend-ui-modern)."
+description: "Editorial and airy plain HTML/CSS/SVG UI: six token themes, SVG charts, white-space checks. Not for React/Tailwind/shadcn."
 ---
 
 # Frontend UI themes
 
 One token contract, six themes that fill it, and the rules that keep a page from drifting into the generic
 AI look. Everything here was built and checked in a browsable simulator (`assets/theme-simulator.html`)
-where the same tool app renders in all six themes; the screenshots in
-`assets/screenshots/` are what "correct" looks like, so compare your work against them.
+where the same tool app renders in all six themes; open it in a browser to compare your work against the live reference.
 
 Why a contract rather than a pile of CSS: when every theme sets the same ~60 variables, a page written
 against the tokens can change its whole personality by swapping one block, and components never need
@@ -32,7 +31,7 @@ filling the same contract and running the same checks.
    simulator's readout). Aim for roughly 55–68% white space in the content column of a tool page; Airy
    sits at the top of that band on purpose, Instrument at the bottom.
 6. **Check before you ship.** Run `node scripts/check_theme.js <your css>` (contrast, chart-palette
-   colour-vision checks). Take one screenshot and put it next to the matching reference screenshot. Walk the
+   colour-vision checks). Take one capture and compare it against `assets/theme-simulator.html` in the chosen theme. Walk the
    "Avoid" list. Then the quality floor: responsive to ~400px, visible focus, reduced motion, no clipped text.
 7. **Hand over** with the theme name, the token block (or the CSS file), and the one thing you spent the
    boldness on.
@@ -53,8 +52,7 @@ settings, ops, dev tools, consumer app → tool), and the *job* picks within it 
 scan charts → Briefing, operate many rows → Instrument, approach as a newcomer → Airy, live in it at
 night → Graphite). When two fit, prefer the one whose signature move you can actually use on this page.
 
-See the side-by-side: `assets/screenshots/sheet-all-desks.png`. Per theme, all four views:
-`assets/screenshots/sheet-<theme>.png`. Full detail in `references/themes.md`.
+Open `assets/theme-simulator.html` to inspect all six desks and all four views side by side. Full detail in `references/themes.md`.
 
 ## The token contract
 
@@ -86,7 +84,7 @@ Each recipe is in `assets/theme-kit.css`; the point of listing them is the *why*
 - **Sidebar nav** items bleed to the sidebar edge (`--nav-ml`) so the active mark sits flush: a red left bar
   in the editorial themes, a tonal pill in Airy, a quiet surface step in Instrument/Graphite. Text in the
   nav aligns with the logo mark. (The first version had the mark floating inside the padding, which reads
-  as "|Desk" and looks like a margin bug. See `detail-<theme>-sidebar.png`.)
+  as "|Desk" and looks like a margin bug.)
 - **Buttons**: primary = accent fill + `--accent-ink`; secondary = outline; ghost = `--accent-text`;
   danger = `--bad-btn` (deeper than `--bad` on dark themes) with white text. Radius from `--btn-radius`.
 - **Stat tiles**: label (sentence case), value in the UI sans (never the serif; serif numerals read as
@@ -118,7 +116,6 @@ most 24px with a 4px rounded data end and a square baseline, a hover crosshair a
 
 `assets/charts.js` draws line, column and sparkline in both styles from the tokens. Full rules and the
 series palettes (all six pass colour-vision separation and contrast): `references/charts.md`.
-Compare with `detail-<theme>-chart.png` and `detail-<theme>-chart-hover.png`.
 
 ## White space
 
@@ -127,8 +124,7 @@ a direction: on a tool page, about 55–68% of the content column should be empt
 controls, charts and images are counted as ink. Reach it with the spacing multiplier, not by deleting
 content: `--ws` scales every padding, gap and margin at once (Airy ships at 1.4, Instrument at 0.8, the
 rest at 1). Measure rather than guess: `node scripts/measure_whitespace.js page.html --selector .main
---overlay ink.png` prints the estimate and draws what it counted. Method, counting rules and worked
-numbers: `references/white-space.md`; examples `overlay-*.png` and `spacing-airy-x*.png`.
+--overlay ink-overlay.html` (or `--overlay out/ink`) prints the estimate and draws what it counted. Method, counting rules and worked numbers: `references/white-space.md`.
 
 ## Quality floor
 
@@ -141,8 +137,7 @@ you see in the screenshot. Checklist: `references/checklist.md`.
 ## Avoid (the generic defaults)
 
 These appear in generated UI regardless of subject. Use any of them only when the brief asks for it.
-Side-by-side: `assets/screenshots/anti-pattern-generic-vs-broadsheet.png`; detail in
-`references/anti-patterns.md`.
+Detail in `references/anti-patterns.md`.
 
 - Warm cream page + serif display + terracotta accent (the single most common generated look).
 - Near-black page with one acid-green or vermilion accent; tinted blacks (#0b0b0b, #111) standing in for black.
@@ -295,17 +290,16 @@ read as "shadcn with a serif" unless you add those three by hand.
 
 | Path | What it is | Read it when |
 |---|---|---|
-| `references/themes.md` | Each theme in depth: tokens, use/signature/avoid, every screenshot of it | you have picked a theme |
+| `references/themes.md` | Each theme in depth: tokens, use/signature/avoid | you have picked a theme |
 | `references/token-contract.md` | Every token's role and the component recipes written against them | you build a component not covered above, or extend a theme |
 | `references/charts.md` | Both chart styles, the mark rules, the validated series palettes | the page has a chart |
 | `references/white-space.md` | The 60% heuristic, what counts as ink, how to measure, worked numbers | the page feels dense or empty |
-| `references/anti-patterns.md` | The generic-default tells with the before/after screenshot | before shipping, always |
+| `references/anti-patterns.md` | The generic-default tells and self-critique questions | before shipping, always |
 | `references/checklist.md` | The pre-ship checklist in one place | before shipping, always |
 | `references/further-reading.md` | Sources: The Economist's public chart style guide, Material, WCAG, the typefaces, the CVD model | you want the provenance |
 | `assets/theme-kit.css` | All six token blocks + the component CSS | step 2 of the workflow |
 | `assets/charts.js` | Line, column and sparkline in both chart styles | step 4 |
 | `assets/starter.html` | A minimal themed tool page with a theme switcher, wired to the two files above | starting a new page |
 | `assets/theme-simulator.html` | The full simulator: one app, six themes, four views, white-space readout, token export | you want to browse or show the themes |
-| `assets/screenshots/` | 150+ reference renders; `README.md` there is the index | comparing your output to the reference |
 | `scripts/check_theme.js` | Contrast + chart-palette colour-vision checks for a theme block (no deps) | step 6 |
 | `scripts/measure_whitespace.js` | White-space estimate + ink overlay for any page (needs Playwright) | step 5 |

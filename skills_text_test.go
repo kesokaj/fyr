@@ -1,10 +1,14 @@
 package fyr_test
 
 import (
+	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func readSkill(t *testing.T, path string) string {
@@ -83,7 +87,6 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 		"skills/fyr-preflight/SKILL.md":                {"Step 2 item 1"},
 		"skills/fyr-feature/SKILL.md":                  {"a tool-call budget the dispatch names"},
 		"skills/fyr-bug/SKILL.md":                      {"a tool-call budget the dispatch names"},
-		"skills/fyr-explain-project/SKILL.md":          {"a tool-call budget the dispatch names"},
 	}
 	for path, words := range gone {
 		text := readSkill(t, path)
@@ -94,7 +97,7 @@ func TestWorkflowSkillsCarryNoStaleNames(t *testing.T) {
 		}
 	}
 	const form = "<first 8 chars of the conversation id>"
-	for _, path := range []string{"skills/fyr-handoff/SKILL.md", "skills/fyr-feedback-log/SKILL.md", "skills/fyr-retro/SKILL.md", "skills/fyr-distill/SKILL.md"} {
+	for _, path := range []string{"skills/fyr-handoff/SKILL.md", "skills/fyr-feedback-log/SKILL.md", "skills/fyr-retro/SKILL.md"} {
 		if !strings.Contains(readSkill(t, path), form) {
 			t.Errorf("%s does not use the one Session form %s", path, form)
 		}
@@ -197,5 +200,121 @@ func TestResumeAndGitCheckAndSingleCommit(t *testing.T) {
 	handoff := section(t, readSkill(t, "skills/fyr-handoff/SKILL.md"), "## Step 6")
 	if !strings.Contains(handoff, "one commit, one push and one `fyr metrics ingest` per conversation") {
 		t.Error("skills/fyr-handoff/SKILL.md Step 6 does not state one commit, push and ingest per conversation")
+	}
+}
+
+func TestCombinedContextRulesAndRepoAgentsUnder15KB(t *testing.T) {
+	const budget = 15000
+	var paths []string
+	for _, pat := range []string{"context/*.md", "rules/*.md"} {
+		m, err := filepath.Glob(pat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, m...)
+	}
+	paths = append(paths, "AGENTS.md")
+	var total int
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read %s: %v", p, err)
+		}
+		total += len(b)
+	}
+	if total == 0 || total > budget {
+		t.Fatalf("combined context/*.md + rules/*.md + AGENTS.md = %d B, want 1..%d B", total, budget)
+	}
+	t.Logf("combined context/*.md + rules/*.md + AGENTS.md = %d B (budget %d B)", total, budget)
+}
+
+func parseSkillFrontmatterDescription(t *testing.T, path string) string {
+	t.Helper()
+	raw := readSkill(t, path)
+	if !strings.HasPrefix(raw, "---\n") {
+		t.Fatalf("%s: missing opening frontmatter fence", path)
+	}
+	front, _, ok := strings.Cut(raw[4:], "\n---\n")
+	if !ok {
+		t.Fatalf("%s: missing closing frontmatter fence", path)
+	}
+	lines := strings.Split(front, "\n")
+	for i := 0; i < len(lines); i++ {
+		rest, ok := strings.CutPrefix(lines[i], "description:")
+		if !ok {
+			continue
+		}
+		val := strings.TrimSpace(rest)
+		if val == "|" || val == "|-" || val == ">" || val == ">-" {
+			var cont []string
+			for j := i + 1; j < len(lines) && (strings.HasPrefix(lines[j], "  ") || lines[j] == ""); j++ {
+				if trimmed := strings.TrimSpace(lines[j]); trimmed != "" {
+					cont = append(cont, trimmed)
+				}
+			}
+			return strings.Join(cont, " ")
+		}
+		if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+			if u, err := strconv.Unquote(val); err == nil {
+				return u
+			}
+		}
+		if len(val) >= 2 && val[0] == '\'' && val[len(val)-1] == '\'' {
+			return strings.ReplaceAll(val[1:len(val)-1], "''", "'")
+		}
+		return val
+	}
+	t.Fatalf("%s: missing description in frontmatter", path)
+	return ""
+}
+
+func TestSkillFrontmatterDescriptionsUnder140Chars(t *testing.T) {
+	const maxChars = 140
+	skills, err := filepath.Glob("skills/*/SKILL.md")
+	if err != nil || len(skills) == 0 {
+		t.Fatalf("glob skills/*/SKILL.md: %v (n=%d)", err, len(skills))
+	}
+	for _, p := range skills {
+		desc := parseSkillFrontmatterDescription(t, p)
+		if desc == "" {
+			t.Errorf("%s: empty description", p)
+		}
+		if n := utf8.RuneCountInString(desc); n > maxChars || len(desc) > maxChars {
+			t.Errorf("%s: description is %d chars (%d bytes), want <= %d: %q", p, n, len(desc), maxChars, desc)
+		}
+	}
+}
+
+func TestNoForbiddenStaticCodenamesOrWarningEmoji(t *testing.T) {
+	for _, root := range []string{"context", "rules", "agents", "skills"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			text := string(b)
+			for _, bad := range []string{"Claude Opus 5.5", "⚠"} {
+				if strings.Contains(text, bad) {
+					t.Errorf("%s contains forbidden token %q", path, bad)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	searchGoRe := regexp.MustCompile(`internal/search/[^` + "`" + `\s)]*\.go`)
+	for _, path := range []string{"skills/fyr-review/SKILL.md", "skills/fyr-swarm/SKILL.md"} {
+		text := readSkill(t, path)
+		if m := searchGoRe.FindString(text); m != "" {
+			t.Errorf("%s leaks internal/search implementation path %q", path, m)
+		}
+		if strings.Contains(text, "gpt-oss") {
+			t.Errorf("%s contains stale static codename \"gpt-oss\"", path)
+		}
 	}
 }

@@ -1,6 +1,6 @@
 ---
 name: api-auth-gcp
-description: "Who may call a Go API on Cloud Run, and how the app verifies it: Identity-Aware Proxy (`--iap`) for an internal tool, Firebase Auth for a public app, OIDC identity tokens for service-to-service, Scheduler, Tasks and Pub/Sub callers, and the one Go middleware shape for each — always through Google's vetted libraries, never a hand-rolled JWT check. Use when the user asks about auth, login for an internal tool, IAP, who can call this, verifying the caller, an ID token, a 401/403 from a Cloud Run service, or a scheduler endpoint on a public service. Do NOT use for the deploy flags themselves (cloud-run-deploy), secret handling (terraform, cloud-run-deploy), gcloud login or ADC (gcloud-setup), or GKE (gke-basics)."
+description: "Cloud Run Go API caller auth: IAP, Firebase Auth, and OIDC tokens via Google libraries. Not for deploy flags or gcloud login."
 ---
 
 # API auth on GCP
@@ -11,7 +11,7 @@ and there are only four callers here.
 
 **When NOT to use this skill:** the `gcloud run deploy` flags and the rollout
 (`cloud-run-deploy`); Secret Manager and IAM in HCL (`terraform`); `gcloud auth login`,
-ADC and project configuration (`gcloud-setup`); Kubernetes (`gke-basics`).
+ADC and project configuration (`gcloud-setup`); Kubernetes.
 
 ## Choose
 

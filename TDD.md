@@ -32,7 +32,7 @@ Implements: M1 · Spec: none (the files are their own spec; the size limits belo
 
 Packages reusable `SKILL.md` workflows and empty `commands/` directories under strict frontmatter, description, and skill-listing size limits.
 
-Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored provenance in `skills/VENDORED.md`, the catalog's in `skills/google-catalog/catalog/MANIFEST.md`)
+Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored provenance in `skills/VENDORED.md`)
 
 - **Interfaces:** `skills/<name>/SKILL.md` with a `description`, loaded when it matches and typed as `/name`; `commands/<name>.md`, deployed to `~/.gemini/config/workflows/`, empty by design (the operator, 2026-09-30).
 - **Errors:** the lint refuses a skill without `SKILL.md` or a description, a description over 1,024 characters, a key outside the allow list, and a value a YAML reader would read as a comment.

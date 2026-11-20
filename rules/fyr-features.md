@@ -8,8 +8,8 @@ description: "Map every session trigger to its fyr feature."
 | When | Use | Not |
 |---|---|---|
 | Code or record lookup | `fyr search --slice` / `--affected` / `--refs` / `--skeleton` | `grep`, whole-file reads |
-| Session start | `fyr resume` | Reading root files one by one |
-| New behaviour or design question | `/fyr-feature` | Building straight away |
+| Session start (scaffolded) | `fyr resume` | Reading root files one by one |
+| New behaviour or design question | `/fyr-feature` (`ask_question`) | Building straight away |
 | 2+ phases or independent tasks | `/fyr-swarm` | Sequential hand-execution |
 | Choosing a model for any role | `fyr models --pick <role> [--tier pro\|flash]` | Hardcoded or guessed model IDs |
 | Anything broken or failing | `/fyr-bug` | Patching straight away |

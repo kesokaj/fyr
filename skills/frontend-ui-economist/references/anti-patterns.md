@@ -4,14 +4,7 @@ Generated UI clusters around a handful of looks that appear whatever the subject
 wrong in itself; each is wrong as a *default*, because it was not chosen for this brief. Where a brief
 asks for one of these, follow the brief. Where it leaves the axis free, do not spend that freedom here.
 
-The left half is the same Desk page restyled with the most common generated look; the right half is
-Broadsheet.
-
-![Generic vs Broadsheet](../assets/screenshots/anti-pattern-generic-vs-broadsheet.png)
-
-Full size: `../assets/screenshots/anti-pattern-generic-desk.png`.
-
-What the left side does, and why each one reads as generated:
+Common generated tells and why each one reads as a default:
 
 | Tell | Why it reads as a default | What the themes do instead |
 |---|---|---|
@@ -46,8 +39,7 @@ Ask these in order; the first "yes" is the thing to change.
 Seen during the build; they are easy to misread as taste problems.
 
 - **"|Desk": the active mark floats inside the padding.** The nav item needs to bleed to the sidebar edge
-  (`--nav-ml`) with the same amount added back as padding so text aligns with the logo mark.
-  Compare `detail-broadsheet-sidebar.png` (right) against the first draft, which had the mark 12px in.
+  (`--nav-ml`) with the same amount added back as padding so text aligns with the logo mark (unlike an early draft that floated the mark 12px in).
 - **Sidebar text flush against the viewport edge in some themes only.** A unitless `0` in a token used
   inside `calc()`/`max()` invalidated `padding-left` silently. Always `0px`.
 - **Phone width scrolls sideways.** A horizontal nav strip inside a `1fr` grid column widened the page;

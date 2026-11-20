@@ -101,7 +101,7 @@ try {
     const file = `${prefix}${tag ? "-" + tag : ""}-${mode}-${width}.png`
     await page.screenshot({ path: path.join(out, file), fullPage: !!args.full })
     shots.push({ file, theme, view, state, overlay, mode, width, height, errors, overflow })
-    console.log(`${file}${overflow.scrollWidth > overflow.innerWidth ? "  ⚠ horizontal overflow" : ""}${errors.length ? `  ⚠ ${errors.length} console error(s)` : ""}`)
+    console.log(`${file}${overflow.scrollWidth > overflow.innerWidth ? "  [WARN] horizontal overflow" : ""}${errors.length ? `  [WARN] ${errors.length} console error(s)` : ""}`)
     await context.close()
   }
 } finally { await browser.close() }
@@ -114,7 +114,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>Mockup review — ${es
 <style>body{margin:0;background:#0f0f10;color:#d4d4d8;font:13px ui-monospace,Menlo,monospace}header{padding:12px 16px;border-bottom:1px solid #27272a;background:#18181b;position:sticky;top:0}h2{font-size:13px;margin:24px 16px 8px;color:#fafafa}.row{display:flex;gap:16px;padding:0 16px 8px;overflow-x:auto}.shot{flex:none}.shot img{display:block;max-height:70vh;border-radius:8px;box-shadow:0 0 0 1px #3f3f46}.cap{padding:6px 2px;color:#a1a1aa}.warn{color:#fbbf24}
 .checklist{margin:24px 16px;padding:16px;border:1px solid #27272a;border-radius:8px;max-width:720px}.checklist li{margin:4px 0}</style>
 <header><b>MOCKUP REVIEW</b> · ${esc(target)} · ${new Date().toISOString().slice(0, 16).replace("T", " ")} · ${shots.length} capture(s)</header>
-${Object.entries(groups).map(([g, list]) => `<h2>${esc(g)}</h2>` + modes.map((m) => `<div class="row">${list.filter((s) => s.mode === m).map((s) => `<div class="shot"><img src="${s.file}" alt="${esc(s.file)}"><div class="cap">${[s.state && s.state !== "normal" ? s.state : null, s.overlay && s.overlay !== "none" ? "overlay " + s.overlay : null].filter(Boolean).join(" · ")}${(s.state && s.state !== "normal") || (s.overlay && s.overlay !== "none") ? " · " : ""}${s.mode} · ${s.width}×${s.height}${s.overflow.scrollWidth > s.overflow.innerWidth ? ` <span class="warn">⚠ overflow ${s.overflow.scrollWidth}px</span>` : ""}${s.errors.length ? ` <span class="warn">⚠ ${s.errors.length} console error(s)</span>` : ""}</div></div>`).join("")}</div>`).join("")).join("")}
+${Object.entries(groups).map(([g, list]) => `<h2>${esc(g)}</h2>` + modes.map((m) => `<div class="row">${list.filter((s) => s.mode === m).map((s) => `<div class="shot"><img src="${s.file}" alt="${esc(s.file)}"><div class="cap">${[s.state && s.state !== "normal" ? s.state : null, s.overlay && s.overlay !== "none" ? "overlay " + s.overlay : null].filter(Boolean).join(" · ")}${(s.state && s.state !== "normal") || (s.overlay && s.overlay !== "none") ? " · " : ""}${s.mode} · ${s.width}×${s.height}${s.overflow.scrollWidth > s.overflow.innerWidth ? ` <span class="warn">[WARN] overflow ${s.overflow.scrollWidth}px</span>` : ""}${s.errors.length ? ` <span class="warn">[WARN] ${s.errors.length} console error(s)</span>` : ""}</div></div>`).join("")}</div>`).join("")).join("")}
 <div class="checklist"><b>Sign-off checklist</b><ul>
 <li>Matches the chosen simulation direction (layout, theme, density, radius)?</li>
 <li>Light and dark both read well — no hard-coded colors leaking through?</li>

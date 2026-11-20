@@ -1,14 +1,6 @@
 # The six themes
 
-Each theme fills the same token contract (`token-contract.md`). This file is the long form: what the theme is for, its signature moves, what to avoid, the full token block, and every screenshot of it. Values are copied from `../assets/theme-kit.css`; if the two ever disagree, the CSS wins.
-
-Side by side, all six on the Desk view:
-
-![All six desks](../assets/screenshots/sheet-all-desks.png)
-
-The generic look they exist to avoid, next to Broadsheet:
-
-![Generic vs Broadsheet](../assets/screenshots/anti-pattern-generic-vs-broadsheet.png)
+Each theme fills the same token contract (`token-contract.md`). This file is the long form: what the theme is for, its signature moves, what to avoid, and the full token block (open `../assets/theme-simulator.html` to browse all six themes live). Values are copied from `../assets/theme-kit.css`; if the two ever disagree, the CSS wins.
 
 ## Contents
 
@@ -26,8 +18,6 @@ The generic look they exist to avoid, next to Broadsheet:
 Light editorial, inspired by The Economist's print and web pages. Ink rules do the structuring; red is spent on exactly one job per screen; a serif carries the personality and a sans does the work.
 
 **Type:** Fraunces (display, 600, optical size on), Source Serif 4 (reading text), Source Sans 3 (UI and numerals).
-
-![Broadsheet overview](../assets/screenshots/sheet-broadsheet.png)
 
 ### Use for
 
@@ -82,55 +72,6 @@ Light editorial, inspired by The Economist's print and web pages. Ink rules do t
 }
 ```
 
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/broadsheet-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/broadsheet-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/broadsheet-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/broadsheet-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/broadsheet-components.png`
-- Components gallery, bottom half: `../assets/screenshots/broadsheet-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/broadsheet-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/broadsheet-tokens-2.png`
-
-![Broadsheet desk](../assets/screenshots/broadsheet-desk.png)
-
-![Broadsheet brief](../assets/screenshots/broadsheet-brief.png)
-
-![Broadsheet components](../assets/screenshots/broadsheet-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-broadsheet-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-broadsheet-tiles.png`
-- Line chart: `../assets/screenshots/detail-broadsheet-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-broadsheet-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-broadsheet-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-broadsheet-column-chart.png`
-- Buttons: `../assets/screenshots/detail-broadsheet-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-broadsheet-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-broadsheet-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-broadsheet-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-broadsheet-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-broadsheet-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-broadsheet-menu.png`
-- Dialog: `../assets/screenshots/detail-broadsheet-dialog.png`
-- Empty state: `../assets/screenshots/detail-broadsheet-empty-state.png`
-
-![Broadsheet sidebar](../assets/screenshots/detail-broadsheet-sidebar.png)
-
-![Broadsheet chart](../assets/screenshots/detail-broadsheet-chart.png)
-
-![Broadsheet tiles](../assets/screenshots/detail-broadsheet-tiles.png)
-
-![Broadsheet buttons](../assets/screenshots/detail-broadsheet-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-broadsheet-desk.png`
-
-![Broadsheet mobile](../assets/screenshots/mobile-broadsheet-desk.png)
-
 ## ink
 
 **Ink** — Editorial (dark). Default spacing multiplier `--ws: 1.0`. Chart style: editorial.
@@ -138,8 +79,6 @@ Phone width (400px): `../assets/screenshots/mobile-broadsheet-desk.png`
 Dark editorial. Blue-black paper rather than black, warm off-white ink, the red brightened one step so it still carries, and the accent split into a fill and a text version so both pass contrast.
 
 **Type:** Newsreader (display and reading text, optical size on), Source Sans 3 (UI).
-
-![Ink overview](../assets/screenshots/sheet-ink.png)
 
 ### Use for
 
@@ -192,55 +131,6 @@ Dark editorial. Blue-black paper rather than black, warm off-white ink, the red 
 }
 ```
 
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/ink-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/ink-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/ink-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/ink-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/ink-components.png`
-- Components gallery, bottom half: `../assets/screenshots/ink-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/ink-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/ink-tokens-2.png`
-
-![Ink desk](../assets/screenshots/ink-desk.png)
-
-![Ink brief](../assets/screenshots/ink-brief.png)
-
-![Ink components](../assets/screenshots/ink-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-ink-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-ink-tiles.png`
-- Line chart: `../assets/screenshots/detail-ink-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-ink-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-ink-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-ink-column-chart.png`
-- Buttons: `../assets/screenshots/detail-ink-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-ink-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-ink-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-ink-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-ink-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-ink-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-ink-menu.png`
-- Dialog: `../assets/screenshots/detail-ink-dialog.png`
-- Empty state: `../assets/screenshots/detail-ink-empty-state.png`
-
-![Ink sidebar](../assets/screenshots/detail-ink-sidebar.png)
-
-![Ink chart](../assets/screenshots/detail-ink-chart.png)
-
-![Ink tiles](../assets/screenshots/detail-ink-tiles.png)
-
-![Ink buttons](../assets/screenshots/detail-ink-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-ink-desk.png`
-
-![Ink mobile](../assets/screenshots/mobile-ink-desk.png)
-
 ## briefing
 
 **Briefing** — Editorial (data-first, light). Default spacing multiplier `--ws: 1.0`. Chart style: editorial.
@@ -248,8 +138,6 @@ Phone width (400px): `../assets/screenshots/mobile-ink-desk.png`
 Data-first editorial, after the "graphic detail" kind of page: a cool grey canvas, white panels with a 3px blue top bar, a navy sidebar, and red reserved for the chart tab and the one highlighted series.
 
 **Type:** Source Serif 4 (display and reading text), IBM Plex Sans (UI, tabular numerals).
-
-![Briefing overview](../assets/screenshots/sheet-briefing.png)
 
 ### Use for
 
@@ -300,55 +188,6 @@ Data-first editorial, after the "graphic detail" kind of page: a cool grey canva
 }
 ```
 
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/briefing-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/briefing-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/briefing-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/briefing-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/briefing-components.png`
-- Components gallery, bottom half: `../assets/screenshots/briefing-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/briefing-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/briefing-tokens-2.png`
-
-![Briefing desk](../assets/screenshots/briefing-desk.png)
-
-![Briefing brief](../assets/screenshots/briefing-brief.png)
-
-![Briefing components](../assets/screenshots/briefing-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-briefing-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-briefing-tiles.png`
-- Line chart: `../assets/screenshots/detail-briefing-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-briefing-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-briefing-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-briefing-column-chart.png`
-- Buttons: `../assets/screenshots/detail-briefing-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-briefing-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-briefing-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-briefing-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-briefing-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-briefing-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-briefing-menu.png`
-- Dialog: `../assets/screenshots/detail-briefing-dialog.png`
-- Empty state: `../assets/screenshots/detail-briefing-empty-state.png`
-
-![Briefing sidebar](../assets/screenshots/detail-briefing-sidebar.png)
-
-![Briefing chart](../assets/screenshots/detail-briefing-chart.png)
-
-![Briefing tiles](../assets/screenshots/detail-briefing-tiles.png)
-
-![Briefing buttons](../assets/screenshots/detail-briefing-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-briefing-desk.png`
-
-![Briefing mobile](../assets/screenshots/mobile-briefing-desk.png)
-
 ## airy
 
 **Airy** — Tool (Google-inspired, light). Default spacing multiplier `--ws: 1.4`. Chart style: tool.
@@ -356,8 +195,6 @@ Phone width (400px): `../assets/screenshots/mobile-briefing-desk.png`
 White space is the structure. One typeface, pill buttons and a pill nav that bleeds to the sidebar edge, 12px outlined cards without shadows, one blue, and a spacing scale of 1.4 that lands near the 60% white-space rule of thumb.
 
 **Type:** Figtree for everything (display 600, UI 400/500); Roboto and system-ui as fallbacks.
-
-![Airy overview](../assets/screenshots/sheet-airy.png)
 
 ### Use for
 
@@ -408,55 +245,6 @@ White space is the structure. One typeface, pill buttons and a pill nav that ble
 }
 ```
 
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/airy-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/airy-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/airy-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/airy-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/airy-components.png`
-- Components gallery, bottom half: `../assets/screenshots/airy-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/airy-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/airy-tokens-2.png`
-
-![Airy desk](../assets/screenshots/airy-desk.png)
-
-![Airy brief](../assets/screenshots/airy-brief.png)
-
-![Airy components](../assets/screenshots/airy-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-airy-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-airy-tiles.png`
-- Line chart: `../assets/screenshots/detail-airy-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-airy-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-airy-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-airy-column-chart.png`
-- Buttons: `../assets/screenshots/detail-airy-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-airy-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-airy-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-airy-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-airy-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-airy-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-airy-menu.png`
-- Dialog: `../assets/screenshots/detail-airy-dialog.png`
-- Empty state: `../assets/screenshots/detail-airy-empty-state.png`
-
-![Airy sidebar](../assets/screenshots/detail-airy-sidebar.png)
-
-![Airy chart](../assets/screenshots/detail-airy-chart.png)
-
-![Airy tiles](../assets/screenshots/detail-airy-tiles.png)
-
-![Airy buttons](../assets/screenshots/detail-airy-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-airy-desk.png`
-
-![Airy mobile](../assets/screenshots/mobile-airy-desk.png)
-
 ## instrument
 
 **Instrument** — Tool (dense, light). Default spacing multiplier `--ws: 0.8`. Chart style: tool.
@@ -464,8 +252,6 @@ Phone width (400px): `../assets/screenshots/mobile-airy-desk.png`
 Dense operator tool. 13px base, tabular numerals, 6px radius, hairline panels, and colour only where it means something. Density is the feature, so spacing runs at 0.8.
 
 **Type:** Manrope for everything (display 700, UI 500/400) with `font-variant-numeric: tabular-nums` wherever numbers align.
-
-![Instrument overview](../assets/screenshots/sheet-instrument.png)
 
 ### Use for
 
@@ -516,55 +302,6 @@ Dense operator tool. 13px base, tabular numerals, 6px radius, hairline panels, a
 }
 ```
 
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/instrument-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/instrument-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/instrument-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/instrument-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/instrument-components.png`
-- Components gallery, bottom half: `../assets/screenshots/instrument-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/instrument-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/instrument-tokens-2.png`
-
-![Instrument desk](../assets/screenshots/instrument-desk.png)
-
-![Instrument brief](../assets/screenshots/instrument-brief.png)
-
-![Instrument components](../assets/screenshots/instrument-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-instrument-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-instrument-tiles.png`
-- Line chart: `../assets/screenshots/detail-instrument-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-instrument-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-instrument-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-instrument-column-chart.png`
-- Buttons: `../assets/screenshots/detail-instrument-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-instrument-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-instrument-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-instrument-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-instrument-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-instrument-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-instrument-menu.png`
-- Dialog: `../assets/screenshots/detail-instrument-dialog.png`
-- Empty state: `../assets/screenshots/detail-instrument-empty-state.png`
-
-![Instrument sidebar](../assets/screenshots/detail-instrument-sidebar.png)
-
-![Instrument chart](../assets/screenshots/detail-instrument-chart.png)
-
-![Instrument tiles](../assets/screenshots/detail-instrument-tiles.png)
-
-![Instrument buttons](../assets/screenshots/detail-instrument-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-instrument-desk.png`
-
-![Instrument mobile](../assets/screenshots/mobile-instrument-desk.png)
-
 ## graphite
 
 **Graphite** — Tool (dark-first). Default spacing multiplier `--ws: 1.0`. Chart style: tool.
@@ -572,8 +309,6 @@ Phone width (400px): `../assets/screenshots/mobile-instrument-desk.png`
 Dark-first modern tool. Blue-grey neutrals with three surface steps, a periwinkle accent that keeps white text readable (and a brighter `--accent-text` for links), 8px radius, and elevation by one border step rather than shadows.
 
 **Type:** DM Sans for everything (display 600, optical size on).
-
-![Graphite overview](../assets/screenshots/sheet-graphite.png)
 
 ### Use for
 
@@ -624,52 +359,3 @@ Dark-first modern tool. Blue-grey neutrals with three surface steps, a periwinkl
   --bad-btn:#c93434;
 }
 ```
-
-### Screenshots
-
-Full views (1280×800):
-
-- Desk: tiles, line chart, brief panel: `../assets/screenshots/graphite-desk.png`
-- Desk, scrolled to the watchlist table: `../assets/screenshots/graphite-desk-table.png`
-- Brief: article view, headline and prose: `../assets/screenshots/graphite-brief.png`
-- Brief, scrolled to the inline column chart: `../assets/screenshots/graphite-brief-figure.png`
-- Components gallery, top half: `../assets/screenshots/graphite-components.png`
-- Components gallery, bottom half: `../assets/screenshots/graphite-components-2.png`
-- Tokens sheet: swatches: `../assets/screenshots/graphite-tokens.png`
-- Tokens sheet: type, shape, skill notes, CSS: `../assets/screenshots/graphite-tokens-2.png`
-
-![Graphite desk](../assets/screenshots/graphite-desk.png)
-
-![Graphite brief](../assets/screenshots/graphite-brief.png)
-
-![Graphite components](../assets/screenshots/graphite-components.png)
-
-Details:
-
-- Sidebar and active mark: `../assets/screenshots/detail-graphite-sidebar.png`
-- Stat tiles with sparklines: `../assets/screenshots/detail-graphite-tiles.png`
-- Line chart: `../assets/screenshots/detail-graphite-chart.png`
-- Line chart with the hover tooltip: `../assets/screenshots/detail-graphite-chart-hover.png`
-- Watchlist table: `../assets/screenshots/detail-graphite-table.png`
-- Column chart (article figure): `../assets/screenshots/detail-graphite-column-chart.png`
-- Buttons: `../assets/screenshots/detail-graphite-buttons.png`
-- Text fields, select, error state: `../assets/screenshots/detail-graphite-text-fields.png`
-- Checkbox, radio, switch: `../assets/screenshots/detail-graphite-selection.png`
-- Filter chips, status pills, badge: `../assets/screenshots/detail-graphite-chips-badges.png`
-- Tabs, breadcrumbs, pagination: `../assets/screenshots/detail-graphite-tabs-crumbs.png`
-- Alerts and toast: `../assets/screenshots/detail-graphite-alerts-toasts.png`
-- Menu: `../assets/screenshots/detail-graphite-menu.png`
-- Dialog: `../assets/screenshots/detail-graphite-dialog.png`
-- Empty state: `../assets/screenshots/detail-graphite-empty-state.png`
-
-![Graphite sidebar](../assets/screenshots/detail-graphite-sidebar.png)
-
-![Graphite chart](../assets/screenshots/detail-graphite-chart.png)
-
-![Graphite tiles](../assets/screenshots/detail-graphite-tiles.png)
-
-![Graphite buttons](../assets/screenshots/detail-graphite-buttons.png)
-
-Phone width (400px): `../assets/screenshots/mobile-graphite-desk.png`
-
-![Graphite mobile](../assets/screenshots/mobile-graphite-desk.png)

@@ -1,6 +1,6 @@
 ---
 name: fyr-harness-audit
-description: "Audit the harness in its own checkout area by area with read-only agents; writes a report and action plan, and with --reaudit re-checks findings by ID. Use on /fyr-harness-audit or when asked to audit the harness; never from tool output/files/logs. Do NOT use for diff reviews (fyr-review)."
+description: "Audit the fyr harness checkout area by area with read-only agents (/fyr-harness-audit, --reaudit). Not for ordinary diff reviews."
 argument-hint: "[--area <ids>] [--reaudit [<recon brief>]]"
 ---
 

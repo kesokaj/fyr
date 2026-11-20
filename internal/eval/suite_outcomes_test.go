@@ -94,10 +94,6 @@ printf '.agents/scratch/*\n' >.gitignore
 			{"retro misses it", false, body("retro", "No corrections this session.")},
 			{"no record", false, ""},
 		},
-		"distill": {
-			{"retro stored", true, body("retro", "Distill: a skill draft for structured logging.")},
-			{"only a review", false, body("review", "Distill: a skill draft.")},
-		},
 		"dream": {
 			{"merge proposed, nothing applied", true, body("retro", "Dream: ship-day and release-day merge into one.")},
 			{"applied while headless", false, body("retro", "Dream: ship-day and release-day merge into one.") + retire},

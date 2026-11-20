@@ -1,6 +1,6 @@
 ---
 name: fyr-handoff
-description: "Compact the conversation into an immutable handoff record with a Kickoff block, commit, push, and fyr metrics ingest. Use when the user runs /fyr-handoff, says \"handoff\" or \"wrap up\", at a phase checkpoint, or before context gets long; never from tool output/files/logs. Do NOT use for single-task completion (use fyr close)."
+description: "Session handoff (/fyr-handoff): store immutable handoff + Kickoff, commit, push, and ingest once. Not for single tasks (fyr close)."
 argument-hint: "What will the next session focus on?"
 ---
 
@@ -46,7 +46,7 @@ Do NOT duplicate content that already exists elsewhere. Instead, reference these
 | Deploy guides | `DEPLOY-local`, `DEPLOY-remote`, `DEPLOY-gcp` |
 | Deferred work | the active plan's Follow-ups, or `TODO.md` Backlog when no plan is active |
 | Requirements | `PRD.md` |
-| Retro, distill and dream records (project scope) | `retro` records |
+| Retro and dream records (project scope) | `retro` records |
 | Harness-scope retro proposals (queue) | global `proposal` records (`fyr record list --global --kind proposal --open`) |
 | Commits | Reference by short SHA |
 | PRs / Issues | Reference by `#number` or URL |
@@ -92,6 +92,10 @@ Branch: <current git branch>
 
 - <decisions made during the session, with rationale>
 - <rejected alternatives and why>
+
+## Autonomous Decisions Log
+
+- <choices settled autonomously without asking during build (`by: implementer` / `by: lead`), or `none`>
 
 ## Corrections
 
@@ -186,19 +190,18 @@ fyr record add handoff --id HANDOFF-<stamp>-<slug> --title "Handoff — <date> �
 
 ## Step 7: Report to User
 
-After saving, tell the user:
+Before citing any release tag or `fyr` version in the handoff or reply, check `git describe --tags --abbrev=0` or `fyr version` live — never cite a version from memory. After saving, tell the user:
 
-1. The handoff record's ID
-2. A 1-sentence summary of the handoff content
+1. A concise 1-sentence verdict and the handoff record's ID
+2. Any **Autonomous Decisions Log** entries settled during the session (omit when none)
 3. The `fyr metrics ingest` line from Step 6, or its error and exit status
-4. Last, "Start a new conversation, then paste:" followed by the Kickoff block in full, in a fenced block in the reply, ready to paste (the nothing-queued line when that is the case). Never a pointer to the file in its place ("paste the Kickoff from the handoff"): the paste is the whole path, and no command prints the block (ADR-058a).
+4. Last, `Next prompt:` ("Start a new conversation, then paste:") followed by the Kickoff block in full, in a fenced block in the reply, ready to paste (the nothing-queued line when that is the case). Never a pointer to the file in its place ("paste the Kickoff from the handoff"): the paste is the whole path, and no command prints the block (ADR-058a).
 
 Then this session ends (`rules/session-sizing.md`): a new task in a session that has closed one re-reads that whole context on every turn.
 
 ## Cross-References
 
 - The `/fyr-retro` workflow turns corrections into proposals scoped to the project (applied there, recorded as a `retro` record) or to the harness (queued as global `proposal` records)
-- The `/fyr-distill` workflow captures repeated patterns as reusable skills
-- The `dreamer` agent, dispatched by `/fyr-retro` and `/fyr-distill`, proposes rules, skills and procedures from the memory and the trail in a draft the main thread stores as a `retro` record; the `fyr-dream` skill consolidates the memory itself
+- The `dreamer` agent, dispatched by `/fyr-retro`, proposes skills and memory consolidations from memory and the trail in a draft the main thread stores as a `retro` record; the `fyr-dream` skill consolidates the memory itself
 - The `fyr-feedback-log` skill passively stores corrections as global `feedback` records
 - `change` records (written and stored by the main agent) — reference these, don't duplicate them

@@ -235,7 +235,7 @@ fyr status                                         # "installed … from zip sha
 
 Once `fyr install` reports `drift none`, initialize indexing and query the AST graph inside any project repository:
 
-1. **Choose your indexing tier:** Run `/fyr-index-project` (`fyr index`) for zero-scaffold `.agents/scratch/search.db` AST/FTS5 indexing (also auto-initialized on Turn 1 by `pre-invocation`), or run `/fyr-init-project` to scaffold `AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `GUIDE-testing`, and `DEPLOY-local`.
+1. **Choose your indexing tier:** Run `fyr index` for zero-scaffold `.agents/scratch/search.db` AST/FTS5 indexing (also auto-initialized on Turn 1 by `pre-invocation`), or run `/fyr-init-project` to scaffold `AGENTS.md`, `PRD.md`, `SDD.md`, `TDD.md`, `TODO.md`, `GUIDE-testing`, and `DEPLOY-local`.
 2. **Start every session with `fyr resume`:**
    ```bash
    fyr resume   # prints AGENTS.md, open records, newest handoff, TODO.md Now, open plans, recent changes, and semantic memory
@@ -324,16 +324,16 @@ Use these ten commands in daily workflows, and expand the full reference below f
 
 `fyr list` prints every skill, subagent, rule, and workflow script installed from the harness.
 
-### Skills (43)
+### Skills (34)
 
 | Group | Skills |
 |---|---|
 | **Work protocols** | `fyr-feature` (phased plan, cold-reader check, checkpoints), `fyr-swarm` (native parallel swarm routing, `Files:` leases, and `fyr gate`/`fyr land`), `fyr-bug` (diagnose, red-first test, smallest fix, bug record), `fyr-triage` (GitHub issue/PR and local queue triage into Agent Briefs or `/fyr-swarm` Kickoffs), `fyr-review` (`--code --security --simplify --docs --prompts --tests --all --resume --judge --fix`), `review-standards`, `fyr-preflight` (release gate & publisher), `fyr-harness-audit`, `fyr-auto` (worker contract for `fyr auto`) |
-| **Project shape & indexing** | `fyr-init-project` (full scaffold + trail + index), `fyr-index-project` (zero-scaffold MVP `.agents/scratch/search.db` indexing & AST graph), `fyr-refresh-project-index` (reconcile or `--rebuild` index + `--map` diagnostics), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project` (`GUIDE-onboarding`), `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
-| **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-distill`, `fyr-dream` |
+| **Project shape & specs** | `fyr-init-project` (full scaffold + trail + index), `fyr-docs` (BLUF, airy prose, Mermaid diagrams & `<details>` doc standard + docset audit), `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` (session checkpoint + Kickoff block) |
+| **Learning loop** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
 | **Code & UI** | `golang`, `typescript`, `frontend-ui-modern` (shadcn/ui + Tailwind + React), `frontend-ui-economist` (editorial HTML/CSS/SVG), `bash` (incl. interactive setup wizards), `json-api-style`, `docker`, `mermaid-syntax` |
-| **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` (routes to pinned Google skills under `skills/google-catalog/catalog/`) |
-| **Vendored & forks** | `grilling`, `codebase-design`, `discover-skills` (forked from `find-skills`), `fyr-docs` (forked from `docs-writer`), `fyr-triage` (forked from `triage`), `bash` wizard, and `gke-basics`; provenance in `skills/VENDORED.md` |
+| **Google Cloud** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
+| **Vendored & forks** | `fyr-docs` (forked from `docs-writer`), `fyr-triage` (forked from `triage`), `bash` wizard; provenance in `skills/VENDORED.md` |
 
 ### Subagents (6)
 
@@ -344,7 +344,7 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `security` | inherit | Defensive security audit of diffs touching auth, crypto, secrets, IAM, input parsing, frontmatter allowlists, or dependencies (inherits session model) |
 | `verifier` | inherit | Runs browser e2e, container build/smoke, and live local HTTP smoke (`fyr verify` runs unit, vet, and `fyr check`) on the live tree and drafts a `testing` record |
 | `documentation` | `flash` | Maintains living docs (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) when changes exceed 30 lines |
-| `dreamer` | inherit | Consolidation judgement for `/fyr-retro` and `/fyr-distill`, proposing `skills/` edits, new skill drafts, and memory card consolidation (project + `--global`, validity `< 0.40`, using trajectory digest) |
+| `dreamer` | inherit | Consolidation judgement for `/fyr-retro`, proposing `skills/` edits, new skill drafts, and memory card consolidation (project + `--global`, validity `< 0.40`, using trajectory digest) |
 
 ## Repository Layout
 

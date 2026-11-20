@@ -1,11 +1,10 @@
 ---
 trigger: model_decision
-description: "Apply when executing a Kickoff or plan phase autonomously, sizing a session or phase, running /fyr-swarm waves, checking token knee, or closing at a checkpoint."
+description: "Apply when executing a Kickoff or plan phase autonomously, sizing phases, running /fyr-swarm waves, or checking token knee."
 ---
 
 # Session sizing
 
-- A session is one Task, one plan phase, or a lead's wave loop (`fyr-feature` workers or `/fyr-swarm`). End each phase at its Checkpoint box and each Task at DoD step 3 via `/fyr-handoff` (commits, pushes, `fyr metrics ingest` once; fenced `## Kickoff`); start next phase fresh. A `/fyr-swarm` lead chains waves in one session, running `fyr metrics ingest` + `fyr metrics trajectory` between waves and handing off on `KNEE_EXCEEDED` (`>= 180,000` tokens) or compaction.
-- Queue unrelated asks in the closing Kickoff unless the operator says "do both here" / "continue here"; Trivial changes need no Kickoff.
-- Execute a handed Kickoff under its standing approvals with zero build-time questions (`ADR-517`): log unknowns as dated `D-row`s (`by: implementer`/`lead`), defer out-of-set items to Next Steps, stop early only on a worker gate or safety `FAIL`.
-- Why: quality degrades past the `180,000`-token knee.
+- A session is one Task, one plan phase, or a `/fyr-swarm` wave loop (`<= 180,000`-token knee). End each phase at its Checkpoint box via `/fyr-handoff` (commits, pushes, `fyr metrics ingest` once; fenced `## Kickoff` + `Next prompt:`) and start the next phase fresh. A `/fyr-swarm` lead chains waves, running `fyr metrics ingest` + `fyr metrics trajectory` between waves and handing off on `KNEE_EXCEEDED` (`>= 180,000` tokens) or compaction.
+- Queue unrelated asks in the closing Kickoff unless told `"do both here"` / `"continue here"`; Trivial edits need no Kickoff.
+- Execute a handed Kickoff under its standing approvals with zero build-time questions (`ADR-517`): record choices as dated `D-row`s (`by: implementer`/`lead`) and in the **Autonomous Decisions Log**, defer closed-set extras to Next Steps, and stop early only on a worker gate or safety `FAIL`.

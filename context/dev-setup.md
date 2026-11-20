@@ -1,5 +1,5 @@
 ## Environment & Stack
 
-- **Cloud (GCP only):** Before any GCP deploy or image push, ask for project ID, region, Artifact Registry repo, service name, runtime service account, and public/private access; save in `DEPLOY-gcp`.
+- **Cloud (GCP only):** Ask for project ID, region, Artifact Registry, service, runtime SA, and public/private access before any GCP push/deploy; save in `DEPLOY-gcp`.
 - **Backend (Go):** `cmd/<app>/` + `internal/`, `log/slog` JSON (`golang` skill).
-- **Linux `sudo -n`:** Run only when asked AND `DEPLOY-local` § Operator steps grants standing permission (inspect target; log in `change`), else print command.
+- **Linux `sudo -n`:** Only when asked AND `DEPLOY-local` § Operator steps grants standing permission (inspect target; log in `change`), else print command.

@@ -18,7 +18,7 @@ var (
 		"internal/eval/", "internal/auto/", "skills/fyr-auto/",
 		"internal/isolate/", "internal/redact/", "cmd/fyr/", "embed.go",
 		"internal/harness/size_test.go", "internal/harness/inventory.go",
-		"skills/VENDORED.md", "skills/google-catalog/catalog/",
+		"skills/VENDORED.md",
 		"agents/", ".agents/agents/",
 	}
 	// deniedNames are base names at any depth, as path.Match patterns.

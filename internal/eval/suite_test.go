@@ -199,7 +199,7 @@ func TestSuiteHarness(t *testing.T) {
 		"reviewer-wide": {"reviewer", true}, "reviewer-wide-bug": {"reviewer", true}, "reviewer-cold": {"reviewer", false},
 		"security": {"security", true}, "verifier": {"verifier", true},
 		"resume":  {"", false},
-		"handoff": {"", true}, "retro": {"", true}, "distill": {"", true},
+		"handoff": {"", true}, "retro": {"", true},
 		"dream": {"", true}, "spec": {"", false}, "feedback-log": {"", false},
 		"preflight": {"", true}, "project-memory": {"", false},
 		"ast-slice-citations": {"explorer", true}, "read-ledger-dedup": {"", false},

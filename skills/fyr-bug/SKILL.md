@@ -1,6 +1,6 @@
 ---
 name: fyr-bug
-description: "Workflow for fixing anything broken: failing test, crash, wrong output, regression, log error, or reported issue. Use when the user reports a bug, asks to fix/debug/investigate a failure, or a test fails outside the change under test; also invoked as /fyr-bug. Problem note, goldfish diagnosis, failing test first, smallest fix, review, bug record. Do NOT use for new features (fyr-feature) or typo edits."
+description: "Bug-fix workflow (/fyr-bug): problem note, goldfish diagnosis, failing test first, smallest fix, review, BUG record. Not features."
 argument-hint: "[symptom, repro, or #issue]"
 ---
 
@@ -12,7 +12,7 @@ Diagnose without anchoring, capture the bug as a failing test, fix the smallest 
 
 ## Gates that need the user
 
-Two points always wait for the user: a missing repro when the bug is not obvious from one file (Step 1), and a review loop that hits its two-round cap (the `fyr-review` skill Step 5, reached from Step 5 here). What waives a gate, and what a run does at one when no reply can arrive, is the gate rule in the `fyr-feature` skill's § Gates that need the user. Ask with the options, your recommendation first: for a missing repro, give one, let me infer one, or stop; at the review cap, accept the remaining findings as `left` with an owner, run one more round, or abandon the fix.
+Two points always wait for the user in standalone invocations: a missing repro when the bug is not obvious from one file (Step 1), and a review loop that hits its two-round cap (the `fyr-review` skill Step 5, reached from Step 5 here). What waives a gate, and what a run does at one when no reply can arrive, is the gate rule in the `fyr-feature` skill's § Gates that need the user. Use `ask_question` (`(Recommended)` first): for a missing repro, give one, let me infer one, or stop; at the review cap, accept the remaining findings as `left` with an owner, run one more round, or abandon the fix.
 
 ## Step 0: Triviality gate
 

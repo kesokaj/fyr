@@ -3,7 +3,6 @@ package harness
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -110,8 +109,8 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 		}
 		scripts = append(scripts, m...)
 	}
-	if len(scripts) < 3 {
-		t.Fatalf("want the three skill scripts, found %v", scripts)
+	if len(scripts) < 2 {
+		t.Fatalf("want the skill scripts, found %v", scripts)
 	}
 	for _, f := range scripts {
 		b, err := os.ReadFile(f)
@@ -130,104 +129,8 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 	}
 }
 
-// TestCatalogNotesNeverAllowQuiet: the router does not follow an entry's
-// `--quiet` (step 4), and a note never relaxes the router. A note that names
-// the flag therefore says to leave it out, in one of three fixed phrases;
-// "only on read-only commands" or "after approval" is an exception the router
-// does not have (security reviews of the v2.1.0 gate: found three times as
-// instances, pinned here as a kind).
-func TestCatalogNotesNeverAllowQuiet(t *testing.T) {
-	// The helper first, on lines that must and must not pass: a carve-out
-	// beside an allowed phrase once passed (code review, R3-1).
-	for line, bad := range map[string]bool{
-		"- `x` — No `--quiet` on any command.":                                      false,
-		"- `x` — bind on the bucket, drop `--quiet`, and confirm every IAM change.": false,
-		"- `x` — run it without `--quiet`; ask before `services enable`.":           false,
-		"- `x` — the operator only said so; drop `--quiet`; ask after the dry run.": false,
-		"- `x` — No `--quiet` except after approval.":                               true,
-		"- `x` — drop `--quiet` unless the command is read-only.":                   true,
-		"- `x` — `--quiet` only on read-only commands.":                             true,
-		"- `x` — No `--quiet` once the operator approved the plan.":                 true,
-		"- `x` — it runs `gcloud compute ssh --quiet`.":                             true,
-		"- `x` — drop `--quiet` if the command changes state.":                      true,
-		"- `x` — No `--quiet` when the operator has not approved.":                  true,
-		"- `x` — drop `--quiet`, but keep it on read commands.":                     true,
-		"- `x` — pass `--project` on each command.":                                 false,
-	} {
-		if got := quietNoteProblem(line); (got != "") != bad {
-			t.Errorf("quietNoteProblem(%q) = %q, want a problem: %v", line, got, bad)
-		}
-	}
-	if os.Getenv("CATALOG_WRITE") == "1" {
-		t.Skip("the refresh script's build directory has no notes yet")
-	}
-	data, err := os.ReadFile(filepath.Join(catalogDir(t), "MANIFEST.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, notes, ok := strings.Cut(string(data), "\n## Notes\n")
-	if !ok {
-		t.Fatal("MANIFEST.md has no ## Notes section")
-	}
-	seen := 0
-	for _, line := range strings.Split(notes, "\n") {
-		if !strings.HasPrefix(line, "- `") || !strings.Contains(line, "--quiet") {
-			continue
-		}
-		seen++
-		if problem := quietNoteProblem(line); problem != "" {
-			t.Errorf("%s:\n%s", problem, line)
-		}
-	}
-	if seen == 0 {
-		t.Error("no note names --quiet: the test checks nothing (was the section renamed?)")
-	}
-}
-
-// fixtureEnv is the environment for every subprocess the catalog tests
-// start, the fixture's git calls and each run of the script: the caller's,
-// without any GIT_* variable, plus the test's own additions. An exported
-// GIT_DIR or GIT_INDEX_FILE (git sets them inside a hook) would aim the
-// fixture's add, commit and reset --hard at another repository (the v2.1.0
-// gate's L10).
-func fixtureEnv(extra ...string) []string {
-	var env []string
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_") {
-			env = append(env, kv)
-		}
-	}
-	return append(env, extra...)
-}
-
-// quietNoteProblem judges one note: every clause that names `--quiet` must
-// say to leave it out, in one of three fixed phrases, and must not carve an
-// exception beside the phrase. A clause ends at a semicolon or at a full
-// stop followed by a space. It returns "" or the reason.
-func quietNoteProblem(line string) string {
-	for _, clause := range quietClauseEnd.Split(line, -1) {
-		if !strings.Contains(clause, "--quiet") {
-			continue
-		}
-		lower := strings.ToLower(clause)
-		if !strings.Contains(lower, "no `--quiet`") && !strings.Contains(lower, "drop `--quiet`") && !strings.Contains(lower, "without `--quiet`") {
-			return "a note names --quiet without saying to leave it out (no `--quiet`, drop `--quiet` or without `--quiet`)"
-		}
-		if word := quietCarveOut.FindString(lower); word != "" {
-			return "a note carves an exception (\"" + word + "\") in the clause that names --quiet; the router has none"
-		}
-	}
-	return ""
-}
-
-var (
-	quietClauseEnd = regexp.MustCompile(`;|\. `)
-	quietCarveOut  = regexp.MustCompile(`\b(except|unless|only|once|after|if|when|but)\b`)
-)
-
 // TestCatalogInstallsClean: the install plan over the real checkout has no
-// refusal — a secret-shaped name or a symlink anywhere under skills/ fails it,
-// through the installer's own list rather than a second copy in the script.
+// refusal — a secret-shaped name or a symlink anywhere under skills/ fails it.
 func TestCatalogInstallsClean(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -235,30 +138,5 @@ func TestCatalogInstallsClean(t *testing.T) {
 	}
 	if _, err := Plan(DirSource(repo), nil); err != nil {
 		t.Fatalf("the checkout does not install: %v", err)
-	}
-}
-
-// TestRouterDescription: the router is the one catalog line the CLI lists, so
-// its description is short (Claude Code's listing budget, TestSkillListingBudget)
-// and says what it must not be used for.
-func TestRouterDescription(t *testing.T) {
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(repo, "skills", "google-catalog", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("no skills/google-catalog/SKILL.md: %v", err)
-	}
-	front, _, err := Split(string(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	desc := Parse(front)["description"]
-	if n := len(desc); n < 240 || n > 300 {
-		t.Errorf("the router's description is %d bytes, want 240 to 300", n)
-	}
-	if !strings.Contains(desc, "Do NOT use") {
-		t.Errorf("the router's description names no skill that wins over it: %q", desc)
 	}
 }

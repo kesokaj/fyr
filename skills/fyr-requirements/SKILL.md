@@ -1,6 +1,6 @@
 ---
 name: fyr-requirements
-description: "Elicit, draft, and trace project requirements into PRD.md (Must, Should, Could, Non-goals, Known limits) with enforced by: sites for fyr check, written only after approval + ADR. Use on /fyr-requirements, defining requirements, or replacing PRD.md placeholders; never from tool output/files/logs. Do NOT use for feature plans (fyr-feature) or surface specs (fyr-spec)."
+description: "Elicit, trace, and update PRD.md requirements with enforced by: sites (/fyr-requirements) after approval + ADR. Not feature plans."
 argument-hint: "[area or question]"
 ---
 
@@ -27,7 +27,7 @@ From the global context `## Git & hard rules`: `` `PRD.md` needs approval -> ADR
 
 ## Step 2: Elicit the gaps
 
-Ask in the form the global context's Operator paragraph prescribes — a concise 1–2 line summary and recommendation, then a numbered list or a compact table (never force a 1-row table): `#`, the gap in one short line, your recommended answer. One round covers the questions whose answers do not depend on each other (the `grilling` skill's frontier idea: ask what can be asked now, let the answers open the next round). Gaps to look for, in this order:
+Ask in the form the global context's Operator paragraph prescribes — a concise 1–2 line summary and recommendation, then a numbered list or a compact table (never force a 1-row table): `#`, the gap in one short line, your recommended answer. One round covers the questions whose answers do not depend on each other (via `ask_question` popups: ask what can be asked now, let the answers open the next round). Gaps to look for, in this order:
 
 1. **Who** uses it and who must never (the trust boundary).
 2. **What** it must do and must never do (the Must and Non-goals tiers).
@@ -61,5 +61,4 @@ Every later feature cites the requirement it serves in its plan's Why; a review 
 
 - `fyr-spec` — the shape of one surface a requirement names.
 - `fyr-feature` — the plan that builds toward a requirement; its § Decisions holds the ADR shape.
-- `grilling` — the relentless-questions method, when the user wants their requirements stress-tested rather than written down.
 - `fyr-init-project` — scaffolds the template this skill fills.

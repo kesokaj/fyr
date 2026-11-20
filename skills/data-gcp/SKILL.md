@@ -1,6 +1,6 @@
 ---
 name: data-gcp
-description: "Cloud SQL PostgreSQL for a Go service on Cloud Run: create the instance cost-consciously (Enterprise edition, the smallest tier, PITR backups), connect with pgx over the /cloudsql socket first or the Cloud SQL Go connector with IAM authentication, run schema migrations as a Cloud Run Job with golang-migrate, decide the owner/runtime role split, connect locally through the Auth Proxy, and check indexes and constraints before shipping a schema. Use for any database, Postgres, Cloud SQL, migration, schema, connection string or connection-pool question. Do NOT use for the HCL that creates the instance (terraform), the service's code shape (golang), the deploy or its flags (cloud-run-deploy), or a local Postgres in compose (docker)."
+description: "Cloud SQL Postgres for Go on Cloud Run: pgx socket/connector, golang-migrate jobs, roles, indexes. Not for HCL or compose."
 ---
 
 # Data on GCP: Cloud SQL Postgres for a Go service

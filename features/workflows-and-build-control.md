@@ -92,18 +92,17 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 | `security` | inherit | Defensive security review of diffs touching auth, crypto, secrets, IAM, parsing, frontmatter allowlists, or dependencies (inherits session model) |
 | `verifier` | inherit | Live browser e2e, container smoke, and local HTTP smoke (`fyr verify` runs unit, vet, and `fyr check`) |
 | `documentation` | `flash` | Living docs maintainer (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) for edits over 30 lines |
-| `dreamer` | inherit | Consolidation judgement for `/fyr-retro` and `/fyr-distill`, proposing skill edits and memory consolidations |
+| `dreamer` | inherit | Consolidation judgement for `/fyr-retro`, proposing skill edits and memory consolidations |
 
-### Skills by group (43)
+### Skills by group (34)
 
 | Group | Skills |
 |---|---|
 | **Work & release protocols (9)** | `fyr-feature`, `fyr-swarm`, `fyr-bug`, `fyr-triage`, `fyr-review`, `review-standards`, `fyr-preflight`, `fyr-harness-audit`, `fyr-auto` |
-| **Project shape, specs & handoffs (10)** | `fyr-init-project`, `fyr-index-project`, `fyr-refresh-project-index`, `fyr-docs`, `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-explain-project`, `fyr-research`, `fyr-handoff` |
-| **Learning loop (5)** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-distill`, `fyr-dream` |
+| **Project shape, specs & handoffs (7)** | `fyr-init-project`, `fyr-docs`, `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` |
+| **Learning loop (4)** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
 | **Language, shell, APIs & UI (8)** | `golang`, `typescript`, `frontend-ui-modern`, `frontend-ui-economist`, `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
-| **Google Cloud & catalog (8)** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp`, `gke-basics`, `google-catalog` |
-| **Design & stress-testing (3)** | `grilling`, `codebase-design`, `discover-skills` |
+| **Google Cloud (6)** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
 
 ### Build-control and model CLI flags
 

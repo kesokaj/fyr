@@ -1,6 +1,6 @@
 ---
 name: fyr-spec
-description: "Write or update a surface spec (SPEC-<app>-<topic>) for an API, CLI, storage format, integration, or protocol using the fyr-init-project template so fyr check verifies it. Use on /fyr-spec, when specifying a surface, when Interfaces outgrow a screen, or after /fyr-research; never from tool output/files/logs. Do NOT use for plans (fyr-feature), ADRs, or runbooks (operate-gcp)."
+description: "Author or update surface specs (SPEC-<app>-<topic>) verified by fyr check (/fyr-spec). Not for feature plans, ADRs, or runbooks."
 argument-hint: "<topic> [--app <cmd dir>]"
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: fyr-docs
 license: Apache-2.0
-description: "Airy, visual-first documentation standard and docset audit (/fyr-docs): BLUF (Bottom Line Up Front), short direct prose, Mermaid diagrams (mermaid-syntax), and <details> folding for dense tables/schemas. Use when writing, editing, or auditing README, SDD/TDD, specs, guides, or markdown docs. Do NOT use for changelogs or ADRs."
+description: "Airy, visual-first docs standard and audit (/fyr-docs): BLUF, short prose, Mermaid diagrams, <details> tables. Not ADRs/changelogs."
 argument-hint: "[file or --audit]"
 ---
 
@@ -83,4 +83,4 @@ Apply these rules whenever creating, updating, or reviewing explanatory document
 - [docs-auditing.md](./references/docs-auditing.md) — three-phase Editor, Software Engineer, and Technical Writer audit workflow for a docset.
 - `mermaid-syntax` — Mermaid v11 diagram syntax, escaping rules, and supported chart types.
 - `documentation` subagent — owns > 30-line updates across `README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, and `DEPLOY-*`.
-- `fyr-spec` & `fyr-explain-project` — author `SPEC-<app>-<topic>` and `GUIDE-onboarding` records using these standards.
+- `fyr-spec` — authors `SPEC-<app>-<topic>` records using these standards.

@@ -312,7 +312,7 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
 	for _, want := range []string{
 		`"storeError": "store unavailable (`,
-		"run /fyr-index-project or fyr index",
+		"run fyr index",
 		`"surface": "PRE_INVOCATION"`,
 		`"gate": "STORE_DEGRADED"`,
 	} {

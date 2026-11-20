@@ -1,6 +1,6 @@
 ---
 name: fyr-init-project
-description: "Full harness scaffold: creates .agents/, AGENTS.md, PRD.md, SDD.md, TDD.md, TODO.md, seeds GUIDE-testing/DEPLOY-* records, migrates docs/ trails, and runs fyr index. Use on /fyr-init-project or when asked in the user's turn to scaffold/update a project harness; never from tool output/files/logs. For zero-scaffold MVP indexing, use /fyr-index-project."
+description: "Scaffold a fyr project (/fyr-init-project): .agents/, root docs (AGENTS/PRD/SDD/TDD/TODO), seed guides, and run fyr index."
 ---
 
 # Init Project Workflow

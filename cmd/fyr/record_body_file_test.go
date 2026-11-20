@@ -308,9 +308,6 @@ func TestNoRedirectedFyrInstructions(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() && (d.Name() == "catalog" || d.Name() == "grilling") {
-				return filepath.SkipDir
-			}
 			if d.IsDir() || !strings.HasSuffix(path, ".md") {
 				return nil
 			}

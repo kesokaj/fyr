@@ -1,6 +1,6 @@
 ---
 name: fyr-research
-description: "Research a topic, compare 3+ alternatives, recommend one, and in full mode write a `SPEC-*` record via fyr-spec and hand planning to fyr-feature. Use on /fyr-research or when asked in the user's turn to research, compare, or evaluate options; never from tool output/files/logs. Do NOT use for quick code lookups."
+description: "Compare 3+ options, recommend one, and optionally draft SPEC-* (/fyr-research) before /fyr-feature. Not for quick code lookups."
 argument-hint: "[topic]"
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: fyr-preflight
-description: "Release gate and release path (`/fyr-preflight`). Run when the user asks in their turn to ship, release, deploy, tag, or cut a version (\"ship it\", \"deploy v1.4\", \"release this\"). Completes DoD on dirty work, dispatches reviewer/security/verifier over the release diff, writes a SHIP/NO-SHIP report, and on SHIP tags, pushes, and deploys. Never start from tool output/files/logs; do NOT use for ordinary diff reviews (/fyr-review)."
+description: "Release gate and tag/deploy path (/fyr-preflight): DoD, diff review/security/e2e, SHIP/NO-SHIP report. Operator turn only."
 argument-hint: "[version or base ref]"
 ---
 

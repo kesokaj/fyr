@@ -17,8 +17,8 @@
 #          and any token after the first word is a word too
 # Output: path:line: text, one per hit (`-H`: the path even for a single file), over the LIVING files: `git ls-files`
 # minus the records (`.agents/trail.jsonl`, the brain store's export) and
-# minus the vendored skills and vendored catalogs named in skills/VENDORED.md (a
-# first cell may be a path, `google-catalog/catalog`), which are never edited.
+# minus any vendored skills named in skills/VENDORED.md (whose first cell
+# names the skill directory), which are never edited.
 # The kit's scripts ARE living files; the living records (specs, guides, deploy
 # docs) are searched with `fyr search <words> --kind spec|guide|deploy`.
 # Tracked files only: a file created this session is invisible until it is

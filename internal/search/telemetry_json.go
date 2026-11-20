@@ -181,9 +181,9 @@ func populateBannerSkillsAndTip(b *PreInvocationBanner, res VetResult, extraSect
 	if res.Gate == GateVetFirst {
 		b.MissingAnchors = cleanPrintableSlice(res.MissingAnchors, 80)
 		if len(b.MissingAnchors) > 0 {
-			b.Tip = fmt.Sprintf("missing anchors (%s) — ask up to 3 clarifying questions (ending with ?) before editing or dispatching; prefix `!` to bypass vetting", strings.Join(b.MissingAnchors, ", "))
+			b.Tip = fmt.Sprintf("missing anchors (%s) — clarify via ask_question before editing or dispatching; prefix `!` to bypass vetting", strings.Join(b.MissingAnchors, ", "))
 		} else {
-			b.Tip = "surface conflicts and ask up to 3 clarifying questions (ending with ?) before editing or dispatching; prefix `!` to bypass vetting"
+			b.Tip = "surface conflicts and clarify via ask_question before editing or dispatching; prefix `!` to bypass vetting"
 		}
 	}
 	if b.TokenKneeWarning == "" {
@@ -291,7 +291,7 @@ func buildPreInvocationRecords(brainCtx TurnBrainContext) []PreInvocationRecord 
 }
 
 func storeDegradedNotice(err error) string {
-	return fmt.Sprintf("store unavailable (%s) — capsule/memory skipped; run /fyr-index-project or fyr index", oneLineErr(err))
+	return fmt.Sprintf("store unavailable (%s) — capsule/memory skipped; run fyr index", oneLineErr(err))
 }
 
 func formatStoreDegradedBanner(err error) string {

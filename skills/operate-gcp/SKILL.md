@@ -1,6 +1,6 @@
 ---
 name: operate-gcp
-description: "Operate a Cloud Run service that is already deployed: the runbook (rollback first), reading logs and Error Reporting, the run.googleapis.com metrics, one uptime check and one alerting policy, rollback outside a release, turning an incident into a bug record, the dependency and base-image cadence, cost knobs, and the background-work shapes (Jobs, Scheduler, Tasks, Pub/Sub). Use when the user says it's slow, something is down, show me the logs, what happened in prod, set up an alert or an uptime check, roll back, write the runbook, or reports an incident. Do NOT use for a release or deploy (fyr-preflight, then cloud-run-deploy), a new deploy flag (cloud-run-deploy), the database itself (data-gcp), who may call the service (api-auth-gcp), gcloud credentials (gcloud-setup), or GKE (gke-basics)."
+description: "Operate deployed Cloud Run services: runbooks, rollback, Cloud Logging, metrics, alerts, jobs/queues. Not releases or DB schemas."
 ---
 
 # Operating a Cloud Run service
