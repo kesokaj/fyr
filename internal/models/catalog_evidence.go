@@ -90,8 +90,8 @@ func mergeStatusFileEvidence(path string, acc map[string]*workEvTally) {
 }
 
 // joinCatalogEvidence maps empirical evidence onto catalog entry IDs, joining
-// bare metrics.db eval trial model keys (without effort suffixes) onto the
-// canonical highest-effort catalog entry while counting exact ID matches once.
+// bare metrics.db model keys (without effort suffixes) onto the canonical
+// highest-effort catalog entry while counting exact ID matches once.
 func joinCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEvidence) map[string]ModelEvidence {
 	if len(entries) == 0 || len(evidence) == 0 {
 		return nil
@@ -110,8 +110,7 @@ func joinCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEviden
 		if exact {
 			mergeExactEvidence(&cur, ex)
 		} else {
-			cur.EvalRuns += ex.EvalRuns
-			cur.EvalPass += ex.EvalPass
+			mergeStemEvidence(&cur, ex)
 		}
 		if cur != (ModelEvidence{}) {
 			joined[targetID] = cur
@@ -160,13 +159,20 @@ func applyCatalogEvidence(entries []CatalogEntry, evidence map[string]ModelEvide
 // BuildListedCatalogEntries constructs active CatalogEntries for ids enriched
 // with any persisted empirical evidence from <home>/.config/fyr/models.json.
 func BuildListedCatalogEntries(home string, ids []string) []CatalogEntry {
+	entries, _ := buildListedCatalogEntriesAndPools(home, ids)
+	return entries
+}
+
+func buildListedCatalogEntriesAndPools(home string, ids []string) ([]CatalogEntry, []Pool) {
 	listedSet := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		listedSet[id] = true
 	}
 	cachedEv := map[string]ModelEvidence{}
+	var pools []Pool
 	if home != "" {
 		if cat, ok, err := LoadCatalog(home); err == nil && ok {
+			pools = append([]Pool(nil), cat.Pools...)
 			for _, e := range cat.Entries {
 				if e.Status != "gone" || listedSet[e.ID] {
 					cachedEv[e.ID] = e.Evidence
@@ -188,12 +194,25 @@ func BuildListedCatalogEntries(home string, ids []string) []CatalogEntry {
 		entries = append(entries, entry)
 	}
 	applyCatalogEvidence(entries, cachedEv)
-	return entries
+	populateEntryScores(entries, pools)
+	return entries, pools
+}
+
+func mergeStemEvidence(dst *ModelEvidence, ex ModelEvidence) {
+	dst.EvalRuns += ex.EvalRuns
+	dst.EvalPass += ex.EvalPass
+	dst.TrialRuns += ex.TrialRuns
+	dst.TrialPass += ex.TrialPass
+	dst.JudgeRuns += ex.JudgeRuns
+	dst.JudgePass += ex.JudgePass
+	dst.RatingRuns += ex.RatingRuns
+	dst.RatingScoreSum += ex.RatingScoreSum
+	dst.DecayedRuns += ex.DecayedRuns
+	dst.DecayedSuccesses += ex.DecayedSuccesses
 }
 
 func mergeExactEvidence(dst *ModelEvidence, ex ModelEvidence) {
-	dst.EvalRuns += ex.EvalRuns
-	dst.EvalPass += ex.EvalPass
+	mergeStemEvidence(dst, ex)
 	if ex.WorkRuns > dst.WorkRuns {
 		dst.WorkRuns = ex.WorkRuns
 		dst.WorkPass = ex.WorkPass
@@ -201,6 +220,16 @@ func mergeExactEvidence(dst *ModelEvidence, ex ModelEvidence) {
 	} else if dst.WorkMeanSeconds == 0 && ex.WorkMeanSeconds > 0 {
 		dst.WorkMeanSeconds = ex.WorkMeanSeconds
 	}
+}
+
+// HasZeroEvidence reports whether ev carries zero recorded runs across all sources.
+func HasZeroEvidence(ev ModelEvidence) bool {
+	return TotalEvidenceRuns(ev) == 0 && ev.DecayedRuns <= 0
+}
+
+// TotalEvidenceRuns counts observed runs across work, trials/evals, judge verdicts, and ratings.
+func TotalEvidenceRuns(ev ModelEvidence) int {
+	return max(ev.WorkRuns, 0) + max(max(ev.EvalRuns, ev.TrialRuns), 0) + max(ev.JudgeRuns, 0) + max(ev.RatingRuns, 0)
 }
 
 func routeEvidenceKey(entries []CatalogEntry, exactActive, exactGone map[string]int, key string) (int, bool) {
@@ -262,7 +291,7 @@ func matchBareStemPass(entries []CatalogEntry, stem string, wantGone, foldDots b
 func bareModelStem(id string) (string, bool) {
 	low := strings.ToLower(strings.TrimSpace(id))
 	low = strings.TrimPrefix(low, "models/")
-	for _, suf := range []string{"-xhigh", "-max", "-high", "-medium", "-low"} {
+	for _, suf := range []string{"-xhigh", "-max", "-high", "-medium", "-low", "-minimal"} {
 		if strings.HasSuffix(low, suf) {
 			if base := strings.TrimSuffix(low, suf); base != "" {
 				return base, true

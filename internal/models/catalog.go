@@ -11,11 +11,19 @@ import (
 
 // ModelEvidence holds empirical run counts and pass rates for one model ID.
 type ModelEvidence struct {
-	WorkRuns        int     `json:"work_runs"`
-	WorkPass        int     `json:"work_pass"`
-	WorkMeanSeconds float64 `json:"work_mean_seconds"`
-	EvalRuns        int     `json:"eval_runs"`
-	EvalPass        int     `json:"eval_pass"`
+	WorkRuns         int     `json:"work_runs"`
+	WorkPass         int     `json:"work_pass"`
+	WorkMeanSeconds  float64 `json:"work_mean_seconds"`
+	EvalRuns         int     `json:"eval_runs"`
+	EvalPass         int     `json:"eval_pass"`
+	TrialRuns        int     `json:"trial_runs"`
+	TrialPass        int     `json:"trial_pass"`
+	JudgeRuns        int     `json:"judge_runs"`
+	JudgePass        int     `json:"judge_pass"`
+	RatingRuns       int     `json:"rating_runs"`
+	RatingScoreSum   float64 `json:"rating_score_sum"`
+	DecayedRuns      float64 `json:"decayed_runs"`
+	DecayedSuccesses float64 `json:"decayed_successes"`
 }
 
 // CatalogEntry describes one model tracked in .config/fyr/models.json.
@@ -39,6 +47,8 @@ type CatalogEntry struct {
 	LastSeen        string        `json:"last_seen"`
 	ContextWindow   int64         `json:"context_window,omitempty"`
 	Evidence        ModelEvidence `json:"evidence"`
+
+	Score *ScoreBreakdown `json:"score,omitempty"`
 }
 
 // RolePick records the selected active model and rationale for a role+tier.
@@ -48,6 +58,13 @@ type RolePick struct {
 	Model          string `json:"model"`
 	Reason         string `json:"reason"`
 	FallbackReason string `json:"fallback_reason,omitempty"`
+
+	PriorMean       float64 `json:"prior_mean"`
+	PosteriorMean   float64 `json:"posterior_mean"`
+	ExploreBonus    float64 `json:"explore_bonus"`
+	HeadroomPenalty float64 `json:"headroom_penalty"`
+	RankScore       float64 `json:"rank_score"`
+	DecayedRuns     float64 `json:"decayed_runs"`
 }
 
 // Catalog is the persisted .config/fyr/models.json document.
@@ -113,8 +130,12 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 // EnrichCatalogPools runs `agy -p "/usage"` best-effort (never failing the
 // caller), updates QuotaUpdatedAt and Pools on cat, and saves cat when changed.
 func EnrichCatalogPools(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
-	if probeCatalogPoolsBestEffort(ctx, home, agyPath, time.Now().UTC(), &cat) && home != "" {
-		_ = SaveCatalog(home, cat)
+	if probeCatalogPoolsBestEffort(ctx, home, agyPath, time.Now().UTC(), &cat) {
+		populateEntryScores(cat.Entries, cat.Pools)
+		cat.Picks = computeStandardPicks(cat.Entries, cat.Picks, cat.Pools)
+		if home != "" {
+			_ = SaveCatalog(home, cat)
+		}
 	}
 	return cat
 }
@@ -148,13 +169,8 @@ func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence 
 		quotaUpdatedAt = prev.QuotaUpdatedAt
 		prevPools = append([]Pool(nil), prev.Pools...)
 	}
-	picks := make(map[string]RolePick, len(StandardRoleTiers))
-	for _, rt := range StandardRoleTiers {
-		key := rt[0] + ":" + rt[1]
-		if p, err := PickFromEntries(entries, prevPicks, rt[0], rt[1]); err == nil {
-			picks[key] = p
-		}
-	}
+	populateEntryScores(entries, prevPools)
+	picks := computeStandardPicks(entries, prevPicks, prevPools)
 	return Catalog{
 		UpdatedAt:      now.UTC().Format(time.RFC3339),
 		QuotaUpdatedAt: quotaUpdatedAt,
@@ -162,6 +178,30 @@ func BuildCatalog(now time.Time, parsed []CatalogEntry, prev *Catalog, evidence 
 		Picks:          picks,
 		Pools:          prevPools,
 	}
+}
+
+// RebuildCatalogWithEvidence refreshes evidence, scores, and picks on cat.
+func RebuildCatalogWithEvidence(now time.Time, cat Catalog, evidence map[string]ModelEvidence) Catalog {
+	entries := append([]CatalogEntry(nil), cat.Entries...)
+	for i := range entries {
+		ApplyModelProfile(&entries[i])
+	}
+	applyCatalogEvidence(entries, evidence)
+	populateEntryScores(entries, cat.Pools)
+	cat.Entries = entries
+	cat.Picks = computeStandardPicks(entries, cat.Picks, cat.Pools)
+	cat.UpdatedAt = now.UTC().Format(time.RFC3339)
+	return cat
+}
+
+func computeStandardPicks(entries []CatalogEntry, prevPicks map[string]RolePick, pools []Pool) map[string]RolePick {
+	picks := make(map[string]RolePick, len(StandardRoleTiers))
+	for _, rt := range StandardRoleTiers {
+		if p, err := PickFromEntriesWithPools(entries, prevPicks, pools, rt[0], rt[1]); err == nil {
+			picks[rt[0]+":"+rt[1]] = p
+		}
+	}
+	return picks
 }
 
 func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evidence map[string]ModelEvidence) []CatalogEntry {
@@ -239,14 +279,30 @@ func NormalizeRoleTier(role, tier string) (normRole, normTier string, err error)
 		normTier = "pro"
 	case "flash", "sonnet":
 		normTier = "flash"
+	case "light", "lite", "haiku":
+		normTier = "light"
 	default:
-		return "", "", fmt.Errorf("unknown tier %q (want pro or flash)", tier)
+		return "", "", fmt.Errorf("unknown tier %q (want pro, flash or light)", tier)
 	}
 	return normRole, normTier, nil
 }
 
+// PickFromCatalog selects the highest-ranked active model in cat for role+tier.
+func PickFromCatalog(cat Catalog, role, tier string) (RolePick, error) {
+	return PickFromEntriesWithPools(cat.Entries, cat.Picks, cat.Pools, role, tier)
+}
+
 // PickFromEntries chooses the highest-ranked active model in entries for role+tier.
 func PickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role, tier string) (RolePick, error) {
+	return PickFromEntriesWithPools(entries, prevPicks, nil, role, tier)
+}
+
+// PickFromEntriesWithPools chooses the highest-ranked active model in entries for role+tier.
+func PickFromEntriesWithPools(entries []CatalogEntry, prevPicks map[string]RolePick, pools []Pool, role, tier string) (RolePick, error) {
+	normRole, normTier, err := NormalizeRoleTier(role, tier)
+	if err != nil {
+		return RolePick{}, err
+	}
 	active := make([]CatalogEntry, 0, len(entries))
 	eligible := make([]CatalogEntry, 0, len(entries))
 	goneIDs := map[string]bool{}
@@ -267,14 +323,10 @@ func PickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role
 	if len(eligible) == 0 {
 		eligible = active
 	}
-	key := role + ":" + tier
-	prevModel := ""
-	if prev, ok := prevPicks[key]; ok {
-		prevModel = prev.Model
+	prevModel := prevPicks[normRole+":"+normTier].Model
+	if normRole == "judge" || normRole == "reviewer" || normRole == "verifier" {
+		return pickCrossFamilyRole(eligible, goneIDs, pools, prevModel, normRole, normTier), nil
 	}
-	if role == "judge" || role == "reviewer" || role == "verifier" {
-		return pickCrossFamilyRole(eligible, goneIDs, prevModel, role, tier), nil
-	}
-	chosen, reason, fb := pickGeminiOrAny(eligible, goneIDs, prevModel, role, tier)
-	return RolePick{Role: role, Tier: tier, Model: chosen.ID, Reason: reason, FallbackReason: fb}, nil
+	chosen, sc, reason, fb := pickGeminiOrAny(eligible, goneIDs, pools, prevModel, normRole, normTier)
+	return buildRolePick(normRole, normTier, chosen.ID, reason, fb, sc), nil
 }

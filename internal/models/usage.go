@@ -176,13 +176,13 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 	if len(ids) == 0 {
 		return "", "", errors.New("agy models listed no model")
 	}
-	entries := BuildListedCatalogEntries(home, ids)
-	pick, pools, err := pickRoleFromCatalogWithPoolsForHome(ctx, home, Catalog{Entries: entries}, agyPath, role, tier)
+	entries, pools := buildListedCatalogEntriesAndPools(home, ids)
+	pick, livePools, err := pickRoleFromCatalogWithPoolsForHome(ctx, home, Catalog{Entries: entries, Pools: pools}, agyPath, role, tier)
 	if err != nil {
 		return "", "", err
 	}
-	if persistPools && len(pools) > 0 && home != "" {
-		PersistCatalogPoolsBestEffort(home, pools)
+	if persistPools && len(livePools) > 0 && home != "" {
+		PersistCatalogPoolsBestEffort(home, livePools)
 	}
 	return pick.Model, pick.Reason, nil
 }
@@ -199,29 +199,39 @@ func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat C
 	if err != nil {
 		return RolePick{}, nil, err
 	}
-	pick, err := PickFromEntries(cat.Entries, cat.Picks, normRole, normTier)
-	if err != nil {
-		return RolePick{}, nil, err
-	}
 	if (normRole != "judge" && normRole != "reviewer" && normRole != "verifier") || agyPath == "" {
-		return pick, nil, nil
+		pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, cat.Pools, normRole, normTier)
+		return pick, nil, err
 	}
-	if !strings.HasPrefix(strings.ToLower(pick.Model), "claude-") {
-		return pick, nil, nil
+	pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, nil, normRole, normTier)
+	if err != nil || !isAnthropicEntryID(cat.Entries, pick.Model) {
+		return pick, nil, err
 	}
-	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
-	gem, _, _ := pickGeminiOrAny(active, nil, "", "builder", normTier)
+	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { ApplyModelProfile(&e); return e.Status != "gone" && isAutoPickEligible(e) })
+	if len(active) == 0 {
+		active = filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
+	}
+	gem, gemScore, _, _ := pickGeminiOrAny(active, nil, nil, "", "builder", normTier)
 	model, reason, fb, pools := probeAnthropicQuotaPools(ctx, home, agyPath, normRole, pick.Model, gem.ID)
-	if fb == "" {
-		fb = pick.FallbackReason
+	if fb != "" {
+		if len(pools) > 0 {
+			gem, gemScore, _, _ = pickGeminiOrAny(active, nil, pools, "", "builder", normTier)
+		}
+		return buildRolePick(normRole, normTier, model, reason, fb, gemScore), pools, nil
 	}
-	return RolePick{
-		Role:           normRole,
-		Tier:           normTier,
-		Model:          model,
-		Reason:         reason,
-		FallbackReason: fb,
-	}, pools, nil
+	scoredPick, serr := PickFromEntriesWithPools(cat.Entries, cat.Picks, pools, normRole, normTier)
+	if serr != nil {
+		scoredPick = pick
+	}
+	scoredPick.Reason = reason + "; " + formatScoreSummary(ScoreBreakdown{
+		PriorMean: scoredPick.PriorMean, PosteriorMean: scoredPick.PosteriorMean,
+		ExploreBonus: scoredPick.ExploreBonus, HeadroomPenalty: scoredPick.HeadroomPenalty,
+		RankScore: scoredPick.RankScore, DecayedRuns: scoredPick.DecayedRuns,
+	})
+	if scoredPick.FallbackReason == "" {
+		scoredPick.FallbackReason = pick.FallbackReason
+	}
+	return scoredPick, pools, nil
 }
 
 func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
@@ -249,6 +259,15 @@ func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropi
 	return anthropicModel, note, "", pools
 }
 
+func isAnthropicEntryID(entries []CatalogEntry, modelID string) bool {
+	for _, e := range entries {
+		if e.ID == modelID {
+			return isAnthropicFamily(e.Family) || strings.HasPrefix(strings.ToLower(e.ID), "claude")
+		}
+	}
+	return strings.HasPrefix(strings.ToLower(modelID), "claude")
+}
+
 func findAnthropicPool(pools []Pool) (Pool, bool) {
 	for _, p := range pools {
 		low := strings.ToLower(p.Name)
@@ -264,21 +283,4 @@ func formatPoolPct(n int) string {
 		return "disabled"
 	}
 	return strconv.Itoa(n) + "%"
-}
-
-func effectivePassRate(ev ModelEvidence) (float64, bool) {
-	wRuns := max(ev.WorkRuns, 0)
-	eRuns := max(ev.EvalRuns, 0)
-	runs := wRuns + eRuns
-	if runs < 5 {
-		return 0, false
-	}
-	wPass := min(max(ev.WorkPass, 0), wRuns)
-	ePass := min(max(ev.EvalPass, 0), eRuns)
-	combined := float64(wPass+ePass) / float64(runs)
-	if wRuns >= 5 && wPass*2 < wRuns {
-		workRate := float64(wPass) / float64(wRuns)
-		return min(workRate, combined), true
-	}
-	return combined, true
 }

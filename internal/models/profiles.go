@@ -3,64 +3,98 @@ package models
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
 )
 
-var changelogDateRe = regexp.MustCompile(`\b(20\d{2}-\d{2}-\d{2})\b`)
+var (
+	changelogDateRe = regexp.MustCompile(`\b(20\d{2}-\d{2}-\d{2})\b`)
+	modelSizeTokRe  = regexp.MustCompile(`^\d+(?:\.\d+)?(?:[bkm])?$`)
+)
 
-type staticModelProfile struct {
-	match           string
-	subfamily       string
-	mode            string
-	speed           string
-	summary         string
-	bestFor         []string
-	avoidFor        []string
-	interactiveOnly bool
-	retiringOn      string
-}
-
-var knownModelProfiles = []staticModelProfile{
-	{"orchestrator", "orchestrator", "orchestrator", "balanced", "Interactive 2-phase switcher (Carbon/Argon plan -> Hydrogen execution); default for interactive agy", []string{"interactive-sessions"}, []string{"headless-fyr-work", "fyr-eval"}, true, ""},
-	{"carbon", "carbon", "", "deep", "Deepest frontier planner and complex multi-file coder; highest thinking latency", []string{"architecture", "hard-debugging", "complex-build"}, []string{"trivial-edits", "tight-timeouts"}, false, ""},
-	{"argon", "argon", "", "balanced", "Balanced Gemini 4 Pro coder and planner with strong pass rate and moderate speed", []string{"standard-build", "planning", "eval"}, []string{"mechanical-renames"}, false, ""},
-	{"hydrogen", "hydrogen", "", "fast", "Fast distilled Gemini 4 execution coder; supports XHigh effort at low latency", []string{"fast-coding", "plan-execution", "2-4-file-tasks"}, []string{"cold-architecture-planning", "cross-family-judge"}, false, ""},
-	{"3.8-flash", "flash", "", "fast", "High-speed low-cost model for mechanical edits, docs, and recon", []string{"mechanical", "docs", "explorer"}, []string{"deep-architecture", "security-review"}, false, ""},
-	{"opus", "opus", "", "deep", "Cross-family frontier judge, code/security reviewer, and verifier", []string{"judge", "reviewer", "verifier", "security"}, []string{"high-volume-mechanical"}, false, ""},
-	{"sonnet", "sonnet", "", "balanced", "Fast cross-family reviewer and flash-tier judge", []string{"judge:flash", "reviewer:flash"}, []string{"gemini-only-quota-conservation"}, false, ""},
-	{"gpt-oss", "gpt-oss", "", "balanced", "Legacy open-weight model sharing Claude/GPT quota pool; retiring 2026-11-18", []string{"legacy-compat"}, []string{"auto-pick"}, false, "2026-11-18"},
-}
-
-// ApplyModelProfile populates static role guidance and capability metadata on
-// a CatalogEntry from its normalized ID and display name.
+// ApplyModelProfile populates dynamic capability metadata and role guidance on
+// a CatalogEntry from its normalized ID and display name without static codenames.
 func ApplyModelProfile(e *CatalogEntry) {
 	if e == nil {
 		return
 	}
-	lowAll := strings.ToLower(strings.TrimSpace(e.ID) + " " + e.DisplayName)
-	e.Mode = "standard"
-	for _, p := range knownModelProfiles {
-		if strings.Contains(lowAll, p.match) || (p.match == "3.8-flash" && (strings.Contains(lowAll, "3-8-flash") || (e.Family == "gemini" && e.Tier == "flash"))) {
-			e.Subfamily, e.Speed, e.Summary, e.BestFor, e.AvoidFor, e.InteractiveOnly = p.subfamily, p.speed, p.summary, p.bestFor, p.avoidFor, p.interactiveOnly
-			if p.mode != "" {
-				e.Mode = p.mode
-			}
-			if p.retiringOn != "" && e.RetiringOn == "" {
-				e.RetiringOn = p.retiringOn
-			}
-			return
+	fam, tier, eff := ClassifyModel(e.ID, e.DisplayName)
+	e.Family = nonEmpty(e.Family, fam)
+	e.Tier = nonEmpty(e.Tier, tier)
+	if e.Effort == "" || eff == "orchestrator" {
+		e.Effort = eff
+	}
+	if IsInteractiveOnlyID(e.ID) || strings.Contains(strings.ToLower(e.DisplayName), "orchestrator") || e.Effort == "orchestrator" {
+		e.InteractiveOnly, e.Mode = true, "orchestrator"
+	} else {
+		e.Mode = "standard"
+	}
+	e.Subfamily = inferModelSubfamily(e.ID, e.Family, e.InteractiveOnly)
+	e.Speed = inferModelSpeed(e)
+	populateDynamicGuidance(e)
+	if e.RetiringOn == "" {
+		if kwIdx := earliestKeywordIndex(strings.ToLower(e.DisplayName), "retir", "deprecat"); kwIdx >= 0 {
+			e.RetiringOn = changelogDateRe.FindString(strings.ToLower(e.DisplayName)[kwIdx:])
 		}
 	}
-	if e.Subfamily == "" {
-		e.Subfamily = nonEmpty(e.Family, "other")
+}
+
+func inferModelSubfamily(id, family string, interactive bool) string {
+	if interactive {
+		return "orchestrator"
 	}
-	if e.Speed == "" {
-		e.Speed = map[bool]string{true: "fast", false: "balanced"}[e.Tier == "flash"]
+	stem, _ := bareModelStem(id)
+	var kept []string
+	for i, tok := range strings.FieldsFunc(stem, func(r rune) bool { return r == '-' || r == '_' }) {
+		if (i == 0 && (tok == "gemini" || tok == "claude")) || modelSizeTokRe.MatchString(tok) {
+			continue
+		}
+		kept = append(kept, tok)
 	}
-	if e.Summary == "" {
-		e.Summary = "Newly discovered " + e.Family + " (" + e.Tier + ") model; awaiting empirical benchmark runs"
+	if len(kept) == 0 {
+		return nonEmpty(family, "other")
+	}
+	return strings.Join(kept, "-")
+}
+
+func inferModelSpeed(e *CatalogEntry) string {
+	if e.InteractiveOnly || e.Mode == "orchestrator" {
+		return "balanced"
+	}
+	if e.Tier == "light" || (e.Tier == "flash" && e.Effort != "xhigh" && e.Effort != "max") || e.Effort == "low" {
+		return "fast"
+	}
+	if e.Tier == "pro" && (e.Effort == "high" || e.Effort == "xhigh" || e.Effort == "max") {
+		return "deep"
+	}
+	return "balanced"
+}
+
+func populateDynamicGuidance(e *CatalogEntry) {
+	effLabel := nonEmpty(e.Effort, "default")
+	switch {
+	case e.InteractiveOnly || e.Mode == "orchestrator":
+		e.BestFor, e.AvoidFor = []string{"interactive-sessions"}, []string{"headless-work", "eval", "bench"}
+		e.Summary = "Interactive multi-phase orchestrator; excluded from headless routing"
+	case isAnthropicFamily(e.Family):
+		if e.Tier == "pro" {
+			e.BestFor, e.AvoidFor = []string{"judge:pro", "reviewer:pro", "verifier:pro", "architecture"}, []string{"mechanical:flash"}
+		} else {
+			e.BestFor, e.AvoidFor = []string{"judge:flash", "reviewer:flash", "verifier:flash"}, []string{"quota-constrained-bulk"}
+		}
+		e.Summary = fmt.Sprintf("Dynamic %s %s (%s) cross-family model", e.Family, e.Tier, effLabel)
+	case isGeminiFamily(e.Family, e.ID):
+		if e.Tier == "pro" {
+			e.BestFor, e.AvoidFor = []string{"builder:pro", "planner:pro", "architecture"}, []string{"mechanical:flash"}
+		} else {
+			e.BestFor, e.AvoidFor = []string{"mechanical:flash", "builder:flash"}, []string{"architecture", "planner:pro"}
+		}
+		e.Summary = fmt.Sprintf("Dynamic %s %s (%s) model", e.Family, e.Tier, effLabel)
+	default:
+		e.BestFor, e.AvoidFor = []string{"fallback:" + nonEmpty(e.Tier, "pro")}, []string{"cross-family-judge"}
+		e.Summary = fmt.Sprintf("Dynamic %s (%s) model", nonEmpty(e.Family, "other"), nonEmpty(e.Tier, "pro"))
 	}
 }
 
@@ -85,6 +119,8 @@ func runAgyChangelogForHome(ctx context.Context, home, agyPath string) string {
 // caller), enriches ChangelogNote/RetiringOn on cat.Entries, and saves cat.
 func EnrichCatalogChangelog(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
 	enrichEntriesFromChangelog(ctx, home, agyPath, cat.Entries)
+	populateEntryScores(cat.Entries, cat.Pools)
+	cat.Picks = computeStandardPicks(cat.Entries, cat.Picks, cat.Pools)
 	if home != "" {
 		_ = SaveCatalog(home, cat)
 	}
@@ -102,21 +138,10 @@ func enrichEntriesFromChangelog(ctx context.Context, home, agyPath string, entri
 func applyChangelogText(raw string, entries []CatalogEntry) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	for i := range entries {
-		stem, ok := bareModelStem(entries[i].ID)
-		if !ok {
-			stem = strings.ToLower(strings.TrimSpace(entries[i].ID))
-		}
-		sub := strings.ToLower(strings.TrimSpace(entries[i].Subfamily))
-		matchSub := sub != "" && sub != "other" && sub != "orchestrator" && sub != "gemini" && sub != "anthropic"
 		for _, line := range lines {
 			t := strings.TrimSpace(line)
-			if t == "" {
-				continue
-			}
 			low := strings.ToLower(t)
-			matchedStem := stem != "" && strings.Contains(low, stem)
-			matchedSub := matchSub && strings.Contains(low, sub)
-			if !matchedStem && !matchedSub {
+			if t == "" || !matchesChangelogLine(entries[i], low) {
 				continue
 			}
 			if entries[i].RetiringOn == "" {
@@ -131,6 +156,26 @@ func applyChangelogText(raw string, entries []CatalogEntry) {
 			}
 		}
 	}
+}
+
+func matchesChangelogLine(e CatalogEntry, lowLine string) bool {
+	stem, ok := bareModelStem(e.ID)
+	if !ok {
+		stem = strings.ToLower(strings.TrimSpace(e.ID))
+	}
+	if stem != "" && strings.Contains(lowLine, stem) {
+		return true
+	}
+	sub := strings.ToLower(strings.TrimSpace(e.Subfamily))
+	if sub == "" || sub == "other" || sub == "orchestrator" || sub == "gemini" || sub == "anthropic" {
+		return false
+	}
+	hasSub, hasFam := false, false
+	for _, w := range strings.FieldsFunc(lowLine, func(r rune) bool { return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') }) {
+		hasSub = hasSub || w == sub
+		hasFam = hasFam || w == e.Family || (e.Family == "anthropic" && w == "claude")
+	}
+	return hasSub && hasFam
 }
 
 func isAutoPickEligible(e CatalogEntry) bool {
@@ -203,7 +248,7 @@ func PickAutoModelForScope(home string, files []string, text string, listed map[
 // PickFromListedIDs selects the best eligible listed model for role+tier using
 // empirical evidence stored under home when present.
 func PickFromListedIDs(home string, listed map[string]bool, ids []string, role, tier string) string {
-	entries := BuildListedCatalogEntries(home, ids)
+	entries, pools := buildListedCatalogEntriesAndPools(home, ids)
 	var eligible []CatalogEntry
 	for _, e := range entries {
 		ApplyModelProfile(&e)
@@ -214,7 +259,7 @@ func PickFromListedIDs(home string, listed map[string]bool, ids []string, role, 
 	if len(eligible) == 0 {
 		return ""
 	}
-	if pick, err := PickFromEntries(eligible, nil, role, tier); err == nil {
+	if pick, err := PickFromEntriesWithPools(eligible, nil, pools, role, tier); err == nil {
 		return pick.Model
 	}
 	return eligible[0].ID

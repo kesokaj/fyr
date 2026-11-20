@@ -12,6 +12,7 @@ import (
 	"time"
 
 	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/models"
 )
 
@@ -451,5 +452,93 @@ func TestVerbModelsPickWithoutAgyAndStderrErrors(t *testing.T) {
 	cBuilder.modelsPick = "builder"
 	if cBuilder.writesState() {
 		t.Errorf("writesState() = true for read-only --pick builder with existing catalog")
+	}
+}
+
+func TestVerbModelsBenchAndScoreBreakdownCLI(t *testing.T) {
+	home, emptyBin := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", emptyBin)
+	oldBench := models.BenchRunnerFunc
+	t.Cleanup(func() { models.BenchRunnerFunc = oldBench })
+	validResp := `{"sum":44,"go_func":"func ClampScore(v int) int { if v < 0 { return 0 }; return v }","ok":true}`
+	models.BenchRunnerFunc = func(ctx context.Context, h, agy, modelID, prompt string, timeout time.Duration) (string, error) {
+		if strings.Contains(modelID, "nova") {
+			return `{"sum":0,"go_func":"bad","ok":true}`, nil
+		}
+		return validResp, nil
+	}
+	seed := models.Catalog{
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		Pools:     []models.Pool{{Name: "Gemini Models", Five: 35, Week: 80}},
+		Entries: []models.CatalogEntry{
+			{ID: "gemini-pro-orchestrator", Family: "gemini", Tier: "pro", Status: "active", InteractiveOnly: true},
+			{ID: "gemini-4-neon-high", DisplayName: "Gemini 4 Neon (High)", Status: "new"},
+			{ID: "gemini-5-nova-high", DisplayName: "Gemini 5 Nova (High)", Status: "new"},
+			{ID: "gemini-3.8-flash-high", DisplayName: "Gemini 3.8 Flash (High)", Status: "active"},
+			{ID: "gemini-2.5-flash-lite-low", DisplayName: "Gemini 2.5 Flash Lite (Low)", Status: "active"},
+		},
+	}
+	if err := models.SaveCatalog(home, seed); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run([]string{"models", "--bench", "--json", "--home", home}, &out); err != nil {
+		t.Fatalf("fyr models --bench --json: %v\n%s", err, out.String())
+	}
+	var rep models.BenchReport
+	if err := json.Unmarshal(out.Bytes(), &rep); err != nil || rep.Probed != 3 || rep.Passed != 2 || rep.Failed != 1 {
+		t.Fatalf("BenchReport: err=%v rep=%+v", err, rep)
+	}
+	if got := rep.Picks["builder:pro"].Model; got != "gemini-4-neon-high" {
+		t.Errorf("post-bench builder:pro = %q, want gemini-4-neon-high", got)
+	}
+	ms, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatalf("open metrics.db: %v", err)
+	}
+	evMap, err := ms.ModelEvidence(time.Time{}, time.Time{})
+	_ = ms.Close()
+	if err != nil || evMap["gemini-4-neon-high"].TrialRuns != 1 || evMap["gemini-4-neon-high"].TrialPass != 1 || evMap["gemini-4-neon-high"].DecayedRuns <= 0 {
+		t.Fatalf("metrics.db neon bench evidence = %+v (err=%v)", evMap["gemini-4-neon-high"], err)
+	}
+	out.Reset()
+	if err := run([]string{"models", "--bench", "--model", "gemini-2.5-flash-lite-low", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "post=") {
+		t.Fatalf("fyr models --bench --model: err=%v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := run([]string{"models", "--pick", "builder", "--json", "--home", home}, &out); err != nil {
+		t.Fatalf("--pick builder --json: %v", err)
+	}
+	var pick models.RolePick
+	if err := json.Unmarshal(out.Bytes(), &pick); err != nil || pick.Model != "gemini-4-neon-high" || pick.PosteriorMean <= 0 || pick.ExploreBonus <= 0 || pick.HeadroomPenalty <= 0 || pick.DecayedRuns <= 0 {
+		t.Errorf("pick JSON missing score breakdown: err=%v pick=%+v", err, pick)
+	}
+	out.Reset()
+	if err := run([]string{"models", "--explain", "neon", "--home", home}, &out); err != nil {
+		t.Fatalf("--explain neon: %v", err)
+	}
+	for _, want := range []string{"posterior=", "ucb1=", "headroom_penalty=", "decayed_runs="} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("--explain missing %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if err := run([]string{"models", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "SCORE (POST/UCB/PEN)") {
+		t.Fatalf("fyr models table: err=%v\n%s", err, out.String())
+	}
+	for _, bad := range [][]string{
+		{"models", "--model", "gemini-4-neon-high", "--home", home},
+		{"models", "--max", "2", "--home", home},
+		{"models", "--bench", "--max", "0", "--home", home},
+		{"models", "--bench", "--pick", "builder", "--home", home},
+	} {
+		out.Reset()
+		if code := exitOf(run(bad, &out)); code != 2 {
+			t.Errorf("%v: exit=%d, want 2", bad, code)
+		}
+	}
+	if _, errStr, code := runCLIWithErr("models", "--bench", "--model", "gemini-pro-orchestrator", "--home", home); code != 1 || !strings.Contains(errStr, "interactive-only") {
+		t.Errorf("--bench interactive orchestrator: code=%d err=%q, want exit 1", code, errStr)
 	}
 }

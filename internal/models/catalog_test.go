@@ -291,32 +291,23 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 		t.Fatalf("joined carbon-high evidence = %+v, want Work=7/16 Eval=31/35", got)
 	}
 	if got := catUntestedPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
-		t.Errorf("builder:pro with 7/16 work + 31/35 eval = %q, want gemini-4-carbon-medium", got)
+		t.Errorf("builder:pro with UCB1 untested peer = %q, want gemini-4-carbon-medium", got)
 	}
 
-	catPassingPeer := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
-		"gemini-4-carbon-high":   {WorkRuns: 6, WorkPass: 1, WorkMeanSeconds: 50},
-		"gemini-4-carbon":        {EvalRuns: 30, EvalPass: 30},
-		"gemini-4-carbon-medium": {WorkRuns: 5, WorkPass: 3, WorkMeanSeconds: 70},
+	catDecayedFailure := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high":   {WorkRuns: 6, WorkPass: 1, DecayedRuns: 6.0, DecayedSuccesses: 1.0},
+		"gemini-4-carbon-medium": {WorkRuns: 5, WorkPass: 4, DecayedRuns: 5.0, DecayedSuccesses: 4.0},
 	})
-	if got := catPassingPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
-		t.Errorf("builder:pro against 3/5 work peer = %q, want gemini-4-carbon-medium", got)
+	if got := catDecayedFailure.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
+		t.Errorf("builder:pro against 4/5 decayed peer = %q, want gemini-4-carbon-medium", got)
 	}
 
-	catAtHalf := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
-		"gemini-4-carbon-high": {WorkRuns: 6, WorkPass: 3},
-		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
+	catStrongHigh := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
+		"gemini-4-carbon-high":   {DecayedRuns: 12.0, DecayedSuccesses: 11.5},
+		"gemini-4-carbon-medium": {DecayedRuns: 6.0, DecayedSuccesses: 3.0},
 	})
-	if got := catAtHalf.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
-		t.Errorf("builder:pro at 3/6 (50%%) work + 9/10 eval = %q, want gemini-4-carbon-high", got)
-	}
-
-	catUnderFive := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{
-		"gemini-4-carbon-high": {WorkRuns: 4, WorkPass: 1},
-		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 9},
-	})
-	if got := catUnderFive.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
-		t.Errorf("builder:pro at 1/4 (<5) work + 9/10 eval = %q, want gemini-4-carbon-high", got)
+	if got := catStrongHigh.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
+		t.Errorf("builder:pro strong decayed high = %q, want gemini-4-carbon-high", got)
 	}
 }
 
@@ -365,7 +356,7 @@ func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"entries":[{"id":"gemini-pro-orchestrator","display_name":"Gemini Pro (Orchestrator)","family":"gemini","tier":"pro","status":"active"},{"id":"gpt-oss-120b-medium","display_name":"GPT-OSS 120B (Medium)","family":"other","tier":"flash","status":"active"}]}`
+	legacy := `{"entries":[{"id":"gemini-pro-orchestrator","display_name":"Gemini Pro (Orchestrator)","family":"gemini","tier":"pro","status":"active"},{"id":"gpt-oss-120b-medium","display_name":"GPT-OSS 120B (Medium, Retiring 2026-11-18)","family":"other","tier":"flash","status":"active"}]}`
 	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -376,8 +367,8 @@ func TestLoadCatalogHydratesLegacyModelProfiles(t *testing.T) {
 	if !cat.Entries[0].InteractiveOnly || cat.Entries[0].Subfamily != "orchestrator" {
 		t.Errorf("legacy orchestrator not hydrated on LoadCatalog: %+v", cat.Entries[0])
 	}
-	if cat.Entries[1].Subfamily != "gpt-oss" || cat.Entries[1].RetiringOn == "" {
-		t.Errorf("legacy gpt-oss not hydrated on LoadCatalog: %+v", cat.Entries[1])
+	if cat.Entries[1].Subfamily != "gpt-oss" || cat.Entries[1].RetiringOn != "2026-11-18" {
+		t.Errorf("legacy retiring entry not hydrated on LoadCatalog: %+v", cat.Entries[1])
 	}
 }
 

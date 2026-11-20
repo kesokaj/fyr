@@ -8,103 +8,77 @@ import (
 	"strings"
 )
 
-func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) RolePick {
-	var buckets [][]CatalogEntry
-	if tier == "pro" {
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "anthropic" && strings.Contains(strings.ToLower(e.ID), "opus")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" }),
-		}
-	} else {
-		buckets = [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "anthropic" && strings.Contains(strings.ToLower(e.ID), "sonnet")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "anthropic" }),
-		}
+func buildRolePick(role, tier, model, reason, fb string, sc ScoreBreakdown) RolePick {
+	return RolePick{
+		Role: role, Tier: tier, Model: model, Reason: reason, FallbackReason: fb,
+		PriorMean: sc.PriorMean, PosteriorMean: sc.PosteriorMean,
+		ExploreBonus: sc.ExploreBonus, HeadroomPenalty: sc.HeadroomPenalty,
+		RankScore: sc.RankScore, DecayedRuns: sc.DecayedRuns,
+	}
+}
+
+func formatScoreSummary(sc ScoreBreakdown) string {
+	return fmt.Sprintf("score=%.2f post=%.2f ucb=%.2f pen=%.2f n=%.1f",
+		sc.RankScore, sc.PosteriorMean, sc.ExploreBonus, sc.HeadroomPenalty, sc.DecayedRuns)
+}
+
+func pickCrossFamilyRole(active []CatalogEntry, goneIDs map[string]bool, pools []Pool, prevModel, role, tier string) RolePick {
+	if pool, ok := findAnthropicPool(pools); ok && (pool.Week < AnthropicJudgeFloorWeek || pool.Five < AnthropicJudgeFloorFive) {
+		gem, sc, _, _ := pickGeminiOrAny(active, goneIDs, pools, "", "builder", tier)
+		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): %s quota low (5h=%s, week=%s; floor %d%%/%d%%)",
+			role, gem.ID, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week), AnthropicJudgeFloorFive, AnthropicJudgeFloorWeek)
+		return buildRolePick(role, tier, gem.ID, fb+" ("+formatScoreSummary(sc)+")", fb, sc)
+	}
+	buckets := [][]CatalogEntry{
+		filterEntries(active, func(e CatalogEntry) bool { return isAnthropicFamily(e.Family) && e.Tier == tier }),
+		filterEntries(active, func(e CatalogEntry) bool { return isAnthropicFamily(e.Family) }),
 	}
 	for _, b := range buckets {
 		if len(b) > 0 {
-			best := rankBucket(b, role, tier)
-			fb := goneFallbackNote(prevModel, best.ID, goneIDs)
-			return RolePick{
-				Role:           role,
-				Tier:           tier,
-				Model:          best.ID,
-				Reason:         fmt.Sprintf("role=%s -> Anthropic (%s)", role, best.ID),
-				FallbackReason: fb,
-			}
+			best, sc := rankCandidates(b, role, tier, pools)
+			reason := fmt.Sprintf("role=%s -> Anthropic (%s; %s)", role, best.ID, formatScoreSummary(sc))
+			return buildRolePick(role, tier, best.ID, reason, goneFallbackNote(prevModel, best.ID, goneIDs), sc)
 		}
 	}
-	gem, _, _ := pickGeminiOrAny(active, goneIDs, "", "builder", tier)
+	gem, sc, _, _ := pickGeminiOrAny(active, goneIDs, pools, "", "builder", tier)
 	fb := fmt.Sprintf("role=%s fallback to Gemini (%s): no active Anthropic model in agy models", role, gem.ID)
 	if prevModel != "" && goneIDs[prevModel] {
 		fb = fmt.Sprintf("role=%s fallback to Gemini (%s): previous model %s is gone and no Anthropic model is active", role, gem.ID, prevModel)
 	}
-	return RolePick{
-		Role:           role,
-		Tier:           tier,
-		Model:          gem.ID,
-		Reason:         fb,
-		FallbackReason: fb,
-	}
+	return buildRolePick(role, tier, gem.ID, fb, fb, sc)
 }
 
-func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, prevModel, role, tier string) (CatalogEntry, string, string) {
-	for _, b := range geminiRoleBuckets(active, role, tier) {
+func pickGeminiOrAny(active []CatalogEntry, goneIDs map[string]bool, pools []Pool, prevModel, role, tier string) (CatalogEntry, ScoreBreakdown, string, string) {
+	matchesTier := func(e CatalogEntry) bool {
+		return e.Tier == tier || (role == "mechanical" && tier == "flash" && e.Tier == "light")
+	}
+	buckets := [][]CatalogEntry{
+		filterEntries(active, func(e CatalogEntry) bool { return isGeminiFamily(e.Family, e.ID) && matchesTier(e) }),
+		filterEntries(active, func(e CatalogEntry) bool { return isGeminiFamily(e.Family, e.ID) }),
+		filterEntries(active, matchesTier),
+		active,
+	}
+	for _, b := range buckets {
 		if len(b) > 0 {
-			best := rankBucket(b, role, tier)
+			best, sc := rankCandidates(b, role, tier, pools)
 			famLabel := "Gemini"
-			if best.Family != "gemini" {
-				famLabel = best.Family
+			if !isGeminiFamily(best.Family, best.ID) {
+				famLabel = nonEmpty(best.Family, "other")
 			}
-			return best, fmt.Sprintf("role=%s -> %s (%s)", role, famLabel, best.ID), goneFallbackNote(prevModel, best.ID, goneIDs)
+			return best, sc, fmt.Sprintf("role=%s -> %s (%s; %s)", role, famLabel, best.ID, formatScoreSummary(sc)), goneFallbackNote(prevModel, best.ID, goneIDs)
 		}
 	}
-	return active[0], fmt.Sprintf("role=%s -> %s", role, active[0].ID), goneFallbackNote(prevModel, active[0].ID, goneIDs)
+	sc := ScoreCandidate(active[0], role, tier, TotalRoleSamples(active), pools)
+	return active[0], sc, fmt.Sprintf("role=%s -> %s", role, active[0].ID), goneFallbackNote(prevModel, active[0].ID, goneIDs)
 }
 
-func geminiRoleBuckets(active []CatalogEntry, role, tier string) [][]CatalogEntry {
-	switch {
-	case role == "mechanical":
-		return [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	case role == "planner":
-		return [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isArgon(e.ID) && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isCarbon(e.ID) && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	case tier == "flash":
-		return [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "gemini" && e.Subfamily == "hydrogen" && e.Tier == "flash"
-			}),
-			filterEntries(active, func(e CatalogEntry) bool {
-				return e.Family == "gemini" && isCarbon(e.ID) && (e.Effort == "medium" || e.Effort == "low")
-			}),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "flash" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	default:
-		return [][]CatalogEntry{
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isCarbon(e.ID) && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && isArgon(e.ID) && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" && e.Tier == "pro" }),
-			filterEntries(active, func(e CatalogEntry) bool { return e.Family == "gemini" }),
-			active,
-		}
-	}
+func isGeminiFamily(family, id string) bool {
+	f := strings.ToLower(strings.TrimSpace(family))
+	return f == "gemini" || f == "google" || strings.HasPrefix(strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "models/")), "gemini")
+}
+
+func isAnthropicFamily(family string) bool {
+	return strings.EqualFold(strings.TrimSpace(family), "anthropic")
 }
 
 func goneFallbackNote(prevModel, newModel string, goneIDs map[string]bool) string {
@@ -112,14 +86,6 @@ func goneFallbackNote(prevModel, newModel string, goneIDs map[string]bool) strin
 		return fmt.Sprintf("previous model %s is gone from agy models; fell back to %s", prevModel, newModel)
 	}
 	return ""
-}
-
-func isCarbon(id string) bool {
-	return strings.Contains(strings.ToLower(id), "carbon")
-}
-
-func isArgon(id string) bool {
-	return strings.Contains(strings.ToLower(id), "argon")
 }
 
 func filterEntries(in []CatalogEntry, keep func(CatalogEntry) bool) []CatalogEntry {
@@ -132,45 +98,62 @@ func filterEntries(in []CatalogEntry, keep func(CatalogEntry) bool) []CatalogEnt
 	return out
 }
 
-func rankBucket(candidates []CatalogEntry, role, tier string) CatalogEntry {
-	cp := append([]CatalogEntry(nil), candidates...)
-	sort.SliceStable(cp, func(i, j int) bool {
-		return betterCandidate(cp[i], cp[j], role, tier)
+func rankCandidates(candidates []CatalogEntry, role, tier string, pools []Pool) (CatalogEntry, ScoreBreakdown) {
+	totalSamples := TotalRoleSamples(candidates)
+	type scored struct {
+		entry CatalogEntry
+		score ScoreBreakdown
+	}
+	items := make([]scored, len(candidates))
+	for i, c := range candidates {
+		items[i] = scored{entry: c, score: ScoreCandidate(c, role, tier, totalSamples, pools)}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return betterScoredCandidate(items[i].entry, items[i].score, items[j].entry, items[j].score)
 	})
-	return cp[0]
+	return items[0].entry, items[0].score
 }
 
-func betterCandidate(a, b CatalogEntry, role, tier string) bool {
-	rateA, evA := effectivePassRate(a.Evidence)
-	rateB, evB := effectivePassRate(b.Evidence)
-	if evA && evB {
-		if timeoutPenalty(a, rateA) != timeoutPenalty(b, rateB) {
-			return !timeoutPenalty(a, rateA)
-		}
-		if math.Abs(rateA-rateB) > 1e-9 {
-			return rateA > rateB
-		}
-		if a.Evidence.WorkMeanSeconds > 0 && b.Evidence.WorkMeanSeconds > 0 &&
-			math.Abs(a.Evidence.WorkMeanSeconds-b.Evidence.WorkMeanSeconds) > 1e-9 {
-			return a.Evidence.WorkMeanSeconds < b.Evidence.WorkMeanSeconds
-		}
-	} else if evA != evB {
-		if evA {
-			return rateA >= 0.5
-		}
-		return rateB < 0.5
+func betterScoredCandidate(a CatalogEntry, sa ScoreBreakdown, b CatalogEntry, sb ScoreBreakdown) bool {
+	if math.Abs(sa.RankScore-sb.RankScore) > 1e-6 {
+		return sa.RankScore > sb.RankScore
+	}
+	if a.Evidence.WorkMeanSeconds > 0 && b.Evidence.WorkMeanSeconds > 0 &&
+		math.Abs(a.Evidence.WorkMeanSeconds-b.Evidence.WorkMeanSeconds) > 1e-6 {
+		return a.Evidence.WorkMeanSeconds < b.Evidence.WorkMeanSeconds
 	}
 	if cmp := compareModelVersions(a.ID, b.ID); cmp != 0 {
 		return cmp > 0
 	}
-	if ea, eb := effortRank(a, role, tier), effortRank(b, role, tier); ea != eb {
+	if ea, eb := canonicalEffortRank(entryEffort(a)), canonicalEffortRank(entryEffort(b)); ea != eb {
 		return ea > eb
 	}
-	return a.ID < b.ID
+	return false
 }
 
-func timeoutPenalty(e CatalogEntry, rate float64) bool {
-	return e.Evidence.WorkRuns >= 5 && rate < 0.50 && e.Evidence.WorkMeanSeconds > 1800
+func populateEntryScores(entries []CatalogEntry, pools []Pool) {
+	active := filterEntries(entries, func(e CatalogEntry) bool { return e.Status != "gone" && isAutoPickEligible(e) })
+	totalSamples := TotalRoleSamples(active)
+	for i := range entries {
+		if entries[i].InteractiveOnly || entries[i].Mode == "orchestrator" {
+			entries[i].Score = nil
+			continue
+		}
+		role, tier := defaultEntryRoleTier(entries[i])
+		sc := ScoreCandidate(entries[i], role, tier, totalSamples, pools)
+		entries[i].Score = &sc
+	}
+}
+
+func defaultEntryRoleTier(e CatalogEntry) (string, string) {
+	tier := nonEmpty(e.Tier, "pro")
+	if isAnthropicFamily(e.Family) {
+		return "judge", tier
+	}
+	if tier == "light" || tier == "flash" {
+		return "mechanical", tier
+	}
+	return "builder", tier
 }
 
 func compareModelVersions(idA, idB string) int {
@@ -203,47 +186,4 @@ func parseVersionNums(id string) []int {
 		}
 	}
 	return nums
-}
-
-func effortRank(e CatalogEntry, role, tier string) int {
-	if role == "builder" && tier == "flash" && e.Subfamily == "hydrogen" {
-		switch e.Effort {
-		case "medium":
-			return 5
-		case "low":
-			return 4
-		case "":
-			return 3
-		default:
-			return 1
-		}
-	}
-	if role == "builder" && tier == "flash" && isCarbon(e.ID) {
-		switch e.Effort {
-		case "medium":
-			return 4
-		case "low":
-			return 3
-		case "high":
-			return 2
-		default:
-			return 1
-		}
-	}
-	switch e.Effort {
-	case "max":
-		return 6
-	case "xhigh":
-		return 5
-	case "high":
-		return 4
-	case "":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 0
-	}
 }

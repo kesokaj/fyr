@@ -248,41 +248,55 @@ func isHeaderRow(id, disp string) bool {
 	return strings.Trim(id, "-") == ""
 }
 
-// ClassifyModel derives family ("gemini"|"anthropic"|"other"), tier ("pro"|"flash"),
-// and effort ("max"|"xhigh"|"high"|"medium"|"low"|"orchestrator"|"") from a model ID and display name.
+// ClassifyModel derives family ("gemini"|"anthropic"|"other"),
+// tier ("pro"|"flash"|"light"), and effort ("max"|"xhigh"|"high"|"medium"|"low"|"orchestrator"|"")
+// from a model ID and display name without hardcoded codename tables.
 func ClassifyModel(id, displayName string) (family, tier, effort string) {
-	low := strings.ToLower(strings.TrimSpace(id))
+	low := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(id), "models/"))
+	lowDisp := strings.ToLower(displayName)
 	switch {
-	case strings.HasPrefix(low, "gemini-"):
+	case strings.HasPrefix(low, "gemini") || strings.Contains(lowDisp, "gemini"):
 		family = "gemini"
-	case strings.HasPrefix(low, "claude-"):
+	case strings.HasPrefix(low, "claude") || strings.Contains(lowDisp, "claude") || strings.Contains(lowDisp, "anthropic"):
 		family = "anthropic"
 	default:
 		family = "other"
 	}
-	lowDisp := strings.ToLower(displayName)
+	effort = parseModelEffort(low, lowDisp)
+	tier = parseModelTier(low + " " + lowDisp)
+	return family, tier, effort
+}
+
+func parseModelEffort(low, lowDisp string) string {
 	switch {
 	case strings.Contains(low, "orchestrator") || strings.Contains(lowDisp, "orchestrator"):
-		effort = "orchestrator"
+		return "orchestrator"
 	case strings.HasSuffix(low, "-xhigh") || strings.Contains(lowDisp, "(xhigh)"):
-		effort = "xhigh"
+		return "xhigh"
 	case strings.HasSuffix(low, "-max") || strings.Contains(lowDisp, "(max)"):
-		effort = "max"
-	case strings.HasSuffix(low, "-high"):
-		effort = "high"
-	case strings.HasSuffix(low, "-medium"):
-		effort = "medium"
-	case strings.HasSuffix(low, "-low"):
-		effort = "low"
+		return "max"
+	case strings.HasSuffix(low, "-high") || strings.Contains(lowDisp, "(high)"):
+		return "high"
+	case strings.HasSuffix(low, "-medium") || strings.Contains(lowDisp, "(medium)"):
+		return "medium"
+	case strings.HasSuffix(low, "-low") || strings.Contains(lowDisp, "(low)") ||
+		strings.HasSuffix(low, "-minimal") || strings.Contains(lowDisp, "(minimal)"):
+		return "low"
+	default:
+		return ""
 	}
-	lowAll := low + " " + lowDisp
-	isFastHydrogen := strings.Contains(lowAll, "hydrogen") && (effort == "low" || effort == "medium" || effort == "")
-	if strings.Contains(lowAll, "flash") || strings.Contains(lowAll, "sonnet") ||
-		strings.Contains(lowAll, "haiku") || strings.Contains(lowAll, "-lite") || strings.Contains(lowAll, "-mini") ||
-		strings.Contains(lowAll, "gpt-oss") || isFastHydrogen {
-		tier = "flash"
-	} else {
-		tier = "pro"
+}
+
+func parseModelTier(lowAll string) string {
+	for _, kw := range []string{"-lite", " lite", "(lite)", "haiku", "-mini", " mini", "-nano", " nano", "-micro", "-small"} {
+		if strings.Contains(lowAll, kw) {
+			return "light"
+		}
 	}
-	return family, tier, effort
+	for _, kw := range []string{"flash", "sonnet", "-fast", " fast", "-turbo", "-oss"} {
+		if strings.Contains(lowAll, kw) {
+			return "flash"
+		}
+	}
+	return "pro"
 }

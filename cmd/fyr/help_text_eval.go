@@ -148,15 +148,19 @@ var opsVerbPages = map[string]verbPage{
 		about:    []string{"Prints the build version."},
 	},
 	"models": {
-		synopsis: []string{"usage: fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]"},
+		synopsis: []string{
+			"usage: fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]",
+			"       fyr models --bench [--model ID] [--max N] [--refresh] [--json]",
+		},
 		about: []string{
 			"Lists the Antigravity model catalog in ~/.config/fyr/models.json,",
 			"refreshing from agy models on a cold cache or with --refresh, and",
-			"prints the pick per role (builder, planner, judge, reviewer,",
-			"verifier, mechanical) with any fallback reason (gone model or low",
-			"Anthropic quota). --pick ROLE prints the selected model ID; --explain ID",
-			"prints model capabilities, changelog notes and empirical evidence.",
-			"Exit 0 ok, 1 refresh error, 2 refusal.",
+			"ranks active models via Empirical-Bayes + UCB1 and quota headroom",
+			"across roles (builder, planner, judge, reviewer, verifier, mechanical).",
+			"--pick ROLE prints the selected model ID; --explain ID prints dynamic",
+			"capabilities, score breakdown and decayed evidence; --bench probes",
+			"0-run active models via a 45s zero-tool Go/JSON check into metrics.db.",
+			"Exit 0 ok, 1 refresh, lookup or bench error, 2 usage error or refusal.",
 		},
 	},
 	"verify": {

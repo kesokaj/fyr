@@ -7,38 +7,35 @@ import (
 
 func TestModelClassification22Lineup(t *testing.T) {
 	lines := []string{
+		"gemini-4-neon-high\tGemini 4 Neon (High)",
+		"gemini-5-nova-medium\tGemini 5 Nova (Medium)",
 		"gemini-4-carbon-high\tGemini 4 Carbon (High)",
 		"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)",
 		"gemini-4-carbon-low\tGemini 4 Carbon (Low)",
 		"gemini-4-argon-high\tGemini 4 Argon (High)",
-		"gemini-4-argon-medium\tGemini 4 Argon (Medium)",
-		"gemini-4-argon-low\tGemini 4 Argon (Low)",
 		"gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)",
-		"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)",
 		"gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)",
-		"gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)",
 		"gemini-pro-orchestrator\tOrchestrator (Carbon)",
-		"gemini-pro-orchestrator-argon\tOrchestrator (Argon)",
+		"gemini-pro-orchestrator-neon\tOrchestrator (Neon)",
 		"gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
 		"gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
-		"gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
+		"gemini-2.5-flash-lite-low\tGemini 2.5 Flash Lite (Low)",
 		"claude-opus-5-5-xhigh\tClaude Opus 5.5 (XHigh)",
 		"claude-opus-5-5-high\tClaude Opus 5.5 (High)",
-		"claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)",
 		"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)",
 		"claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)",
-		"claude-sonnet-5-5-low\tClaude Sonnet 5.5 (Low)",
-		"gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
+		"claude-haiku-4-5-low\tClaude Haiku 4.5 (Low)",
+		"gpt-oss-120b-medium\tGPT-OSS 120B (Medium, Retiring 2026-11-18)",
 	}
 	entries := ParseModelsOutput(strings.Join(lines, "\n") + "\n")
-	if len(entries) != 22 {
-		t.Fatalf("parsed %d entries, want 22", len(entries))
+	if len(entries) != len(lines) {
+		t.Fatalf("parsed %d entries, want %d", len(entries), len(lines))
 	}
 	byID := map[string]CatalogEntry{}
-	for _, e := range entries {
-		ApplyModelProfile(&e)
-		e.Status = "active"
-		byID[e.ID] = e
+	for i := range entries {
+		ApplyModelProfile(&entries[i])
+		entries[i].Status = "active"
+		byID[entries[i].ID] = entries[i]
 	}
 
 	checks := []struct {
@@ -50,17 +47,19 @@ func TestModelClassification22Lineup(t *testing.T) {
 		interactive bool
 		retiring    bool
 	}{
+		{"gemini-4-neon-high", "gemini", "neon", "pro", "high", false, false},
+		{"gemini-5-nova-medium", "gemini", "nova", "pro", "medium", false, false},
 		{"gemini-4-hydrogen-xhigh", "gemini", "hydrogen", "pro", "xhigh", false, false},
-		{"gemini-4-hydrogen-high", "gemini", "hydrogen", "pro", "high", false, false},
-		{"gemini-4-hydrogen-medium", "gemini", "hydrogen", "flash", "medium", false, false},
-		{"gemini-4-hydrogen-low", "gemini", "hydrogen", "flash", "low", false, false},
+		{"gemini-4-hydrogen-medium", "gemini", "hydrogen", "pro", "medium", false, false},
 		{"gemini-4-argon-high", "gemini", "argon", "pro", "high", false, false},
 		{"gemini-4-carbon-high", "gemini", "carbon", "pro", "high", false, false},
 		{"gemini-pro-orchestrator", "gemini", "orchestrator", "pro", "orchestrator", true, false},
-		{"gemini-pro-orchestrator-argon", "gemini", "orchestrator", "pro", "orchestrator", true, false},
+		{"gemini-pro-orchestrator-neon", "gemini", "orchestrator", "pro", "orchestrator", true, false},
 		{"gemini-3.8-flash-medium", "gemini", "flash", "flash", "medium", false, false},
+		{"gemini-2.5-flash-lite-low", "gemini", "flash-lite", "light", "low", false, false},
 		{"claude-opus-5-5-xhigh", "anthropic", "opus", "pro", "xhigh", false, false},
 		{"claude-sonnet-5-5-medium", "anthropic", "sonnet", "flash", "medium", false, false},
+		{"claude-haiku-4-5-low", "anthropic", "haiku", "light", "low", false, false},
 		{"gpt-oss-120b-medium", "other", "gpt-oss", "flash", "medium", false, true},
 	}
 	for _, c := range checks {
@@ -75,24 +74,16 @@ func TestModelClassification22Lineup(t *testing.T) {
 		}
 	}
 
-	var all []CatalogEntry
-	for _, e := range byID {
-		all = append(all, e)
+	builderFlashPick, err := PickFromEntries(entries, nil, "builder", "flash")
+	if err != nil || byID[builderFlashPick.Model].Tier != "flash" {
+		t.Errorf("builder:flash = %+v (err=%v), want flash-tier Gemini model", builderFlashPick, err)
 	}
-	plannerPick, err := PickFromEntries(all, nil, "planner", "pro")
-	if err != nil || !strings.HasPrefix(plannerPick.Model, "gemini-4-argon-") {
-		t.Errorf("planner:pro = %+v (err=%v), want gemini-4-argon-*", plannerPick, err)
-	}
-	builderPick, err := PickFromEntries(all, nil, "builder", "pro")
-	if err != nil || !strings.HasPrefix(builderPick.Model, "gemini-4-carbon-") {
-		t.Errorf("builder:pro = %+v (err=%v), want gemini-4-carbon-*", builderPick, err)
-	}
-	builderFlashPick, err := PickFromEntries(all, nil, "builder", "flash")
-	if err != nil || builderFlashPick.Model != "gemini-4-hydrogen-medium" || byID[builderFlashPick.Model].Tier != "flash" {
-		t.Errorf("builder:flash = %+v (err=%v), want flash-tier gemini-4-hydrogen-medium", builderFlashPick, err)
+	builderLightPick, err := PickFromEntries(entries, nil, "mechanical", "light")
+	if err != nil || builderLightPick.Model != "gemini-2.5-flash-lite-low" {
+		t.Errorf("mechanical:light = %+v (err=%v), want gemini-2.5-flash-lite-low", builderLightPick, err)
 	}
 	for _, rt := range StandardRoleTiers {
-		p, err := PickFromEntries(all, nil, rt[0], rt[1])
+		p, err := PickFromEntries(entries, nil, rt[0], rt[1])
 		if err != nil {
 			t.Fatalf("pick(%s,%s): %v", rt[0], rt[1], err)
 		}
@@ -105,7 +96,7 @@ func TestModelClassification22Lineup(t *testing.T) {
 func TestChangelogEnrichment(t *testing.T) {
 	entries := []CatalogEntry{
 		{ID: "gemini-4-carbon-medium", Family: "gemini", Tier: "pro", Status: "active"},
-		{ID: "gemini-4-argon-high", Family: "gemini", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 3}},
+		{ID: "gemini-4-neon-high", Family: "gemini", Tier: "pro", Status: "active", Evidence: ModelEvidence{WorkRuns: 3}},
 		{ID: "gemini-pro-orchestrator", Family: "gemini", Tier: "pro", Status: "active"},
 		{ID: "gpt-oss-120b-medium", Family: "other", Tier: "flash", Status: "active"},
 		{ID: "custom-bare-v1", Family: "other", Tier: "pro", Status: "active"},
@@ -118,12 +109,13 @@ func TestChangelogEnrichment(t *testing.T) {
 	applyChangelogText(
 		"2026-11-01 Notice: gpt-oss-120b retiring on 2026-11-18\n"+
 			"2026-11-02 Release: Gemini 4 Carbon excels at deep coding.\n"+
+			"2026-11-03 Release: Gemini 4 Neon adds fast reasoning.\n"+
 			"2026-11-01 Notice: custom-retire-v1 retiring on 2026-11-25\n"+
 			"2026-11-01 Notice: custom-deprecate-v1 deprecated in favor of v2",
 		entries,
 	)
-	if entries[0].ChangelogNote == "" {
-		t.Errorf("expected ChangelogNote on carbon entry")
+	if entries[0].ChangelogNote == "" || entries[1].ChangelogNote == "" {
+		t.Errorf("expected ChangelogNote on carbon and neon entries: %+v / %+v", entries[0], entries[1])
 	}
 	if entries[3].RetiringOn != "2026-11-18" {
 		t.Errorf("gpt-oss RetiringOn = %q, want 2026-11-18", entries[3].RetiringOn)

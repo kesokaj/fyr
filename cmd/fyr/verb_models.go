@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,27 +22,64 @@ import (
 func init() {
 	verbs["models"] = verb{
 		flags: func(c *ctx) {
-			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog or --pick result as JSON")
+			c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
+			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID`")
+			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
+			c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
+			c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
 			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE`: builder, planner, judge, reviewer, verifier or mechanical")
-			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, best-for/avoid-for guidance, and empirical stats for model `ID`")
 			c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
-			c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro or flash")
+			c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
 		},
 		run: runModels,
 	}
 }
 
-func runModels(c *ctx) error {
-	if c.modelsTier != "" && c.modelsPick == "" {
-		return usageErr(c.out, "models", "fyr models: --tier requires --pick")
+type modelsBenchFlags struct {
+	bench, maxSet, modelSet bool
+	model                   string
+	max                     int
+}
+
+func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
+	bf := modelsBenchFlags{max: models.DefaultBenchMax}
+	c.fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "bench":
+			bf.bench = f.Value.String() == "true"
+		case "model":
+			bf.model, bf.modelSet = f.Value.String(), true
+		case "max":
+			bf.maxSet = true
+			bf.max, _ = strconv.Atoi(f.Value.String())
+		}
+	})
+	switch {
+	case c.modelsTier != "" && c.modelsPick == "":
+		return bf, usageErr(c.out, "models", "fyr models: --tier requires --pick")
+	case c.modelsExplain != "" && c.modelsPick != "":
+		return bf, usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
+	case bf.modelSet && !bf.bench:
+		return bf, usageErr(c.out, "models", "fyr models: --model requires --bench")
+	case bf.maxSet && !bf.bench:
+		return bf, usageErr(c.out, "models", "fyr models: --max requires --bench")
+	case bf.bench && (c.modelsPick != "" || c.modelsExplain != ""):
+		return bf, usageErr(c.out, "models", "fyr models: --bench cannot be combined with --pick or --explain")
+	case bf.bench && bf.max < 1:
+		return bf, usageErr(c.out, "models", "fyr models: --max must be at least 1")
 	}
 	if c.modelsPick != "" {
 		if _, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err != nil {
-			return usageErr(c.out, "models", "fyr models: "+err.Error())
+			return bf, usageErr(c.out, "models", "fyr models: "+err.Error())
 		}
 	}
-	if c.modelsExplain != "" && c.modelsPick != "" {
-		return usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
+	return bf, nil
+}
+
+func runModels(c *ctx) error {
+	bf, err := parseAndValidateModels(c)
+	if err != nil {
+		return err
 	}
 	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
@@ -50,6 +89,9 @@ func runModels(c *ctx) error {
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
+	}
+	if bf.bench {
+		return runModelsBench(sig, c, cat, agyPath, bf)
 	}
 	if c.modelsExplain != "" {
 		return runModelsExplain(c, cat, c.modelsExplain)
@@ -82,7 +124,40 @@ func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.C
 	if !ok {
 		return models.Catalog{}, fmt.Errorf("catalog missing at %s", models.CatalogPath(c.home))
 	}
-	return cat, nil
+	return models.RebuildCatalogWithEvidence(time.Now().UTC(), cat, models.AggregateWorkEvidence(c.home, loadMetricsModelEvidence(c.home))), nil
+}
+
+func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, bf modelsBenchFlags) error {
+	targets, err := models.SelectBenchTargets(cat, bf.model, bf.max)
+	if err != nil {
+		fmt.Fprintf(stderr, "models: %v\n", err)
+		return exitCode(1)
+	}
+	if len(targets) > 0 && agyPath == "" && models.UsesDefaultBenchRunner() {
+		fmt.Fprintln(stderr, "models: agy not found on PATH for --bench")
+		return exitCode(1)
+	}
+	rep, err := models.RunBench(ctx, c.home, agyPath, targets, func(rec models.BenchTrialRecord) error {
+		return metrics.RecordTrial(c.home, metrics.TrialInput{
+			Run: rec.Run, Label: "bench=sanity", Kind: "bench", Harness: buildVersion(),
+			Status: rec.Status, Cause: rec.Cause, StartedAt: rec.StartedAt,
+			Seconds: max(rec.DurationMS/1000, 0), DurationMS: rec.DurationMS, Model: rec.Model,
+		})
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "models: %v\n", err)
+		return exitCode(1)
+	}
+	updated := models.RebuildCatalogWithEvidence(time.Now().UTC(), cat, models.AggregateWorkEvidence(c.home, loadMetricsModelEvidence(c.home)))
+	if err := models.SaveCatalog(c.home, updated); err != nil {
+		fmt.Fprintf(stderr, "models: %v\n", err)
+		return exitCode(1)
+	}
+	models.FinalizeBenchReport(c.out, &rep, updated, !c.jsonOut)
+	if c.jsonOut {
+		return writeIndentedJSON(c, rep)
+	}
+	return nil
 }
 
 func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string) error {
@@ -138,7 +213,7 @@ func nonAnthropicEntries(entries []models.CatalogEntry) []models.CatalogEntry {
 }
 
 func fallbackPickWithoutAgy(cat models.Catalog, normRole, normTier string) (models.RolePick, error) {
-	fb, err := models.PickFromEntries(nonAnthropicEntries(cat.Entries), nil, normRole, normTier)
+	fb, err := models.PickFromEntriesWithPools(nonAnthropicEntries(cat.Entries), nil, cat.Pools, normRole, normTier)
 	if err != nil {
 		return models.RolePick{}, fmt.Errorf("agy not found on PATH; cannot verify Anthropic quota for %s: %w", normRole, err)
 	}
@@ -180,13 +255,16 @@ func printCatalogEntryDetail(c *ctx, e models.CatalogEntry) {
 	if len(e.AvoidFor) > 0 {
 		fmt.Fprintf(c.out, "Avoid-for: %s\n", strings.Join(e.AvoidFor, ", "))
 	}
-	if tot := e.Evidence.WorkRuns + e.Evidence.EvalRuns; tot > 0 {
-		fmt.Fprintf(c.out, "Evidence: %d/%d total pass (work %d/%d @ %.0fs mean, eval %d/%d)\n",
-			e.Evidence.WorkPass+e.Evidence.EvalPass, tot,
-			e.Evidence.WorkPass, e.Evidence.WorkRuns, e.Evidence.WorkMeanSeconds,
-			e.Evidence.EvalPass, e.Evidence.EvalRuns)
+	if tot := models.TotalEvidenceRuns(e.Evidence); tot > 0 || e.Evidence.DecayedRuns > 0 {
+		fmt.Fprintf(c.out, "Evidence: %d runs (decayed %.2f/%.2f, work %d/%d @ %.0fs, trials %d/%d, judge %d/%d, ratings %d)\n",
+			tot, e.Evidence.DecayedSuccesses, e.Evidence.DecayedRuns, e.Evidence.WorkPass, e.Evidence.WorkRuns, e.Evidence.WorkMeanSeconds,
+			max(e.Evidence.EvalPass, e.Evidence.TrialPass), max(e.Evidence.EvalRuns, e.Evidence.TrialRuns), e.Evidence.JudgePass, e.Evidence.JudgeRuns, e.Evidence.RatingRuns)
 	} else {
-		fmt.Fprintln(c.out, "Evidence: 0 runs (unjudged canary eligible)")
+		fmt.Fprintln(c.out, "Evidence: 0 runs (unprobed --bench candidate)")
+	}
+	if e.Score != nil {
+		fmt.Fprintf(c.out, "Score: %.3f (posterior=%.3f, ucb1=%.3f, headroom_penalty=%.3f, decayed_runs=%.2f)\n",
+			e.Score.RankScore, e.Score.PosteriorMean, e.Score.ExploreBonus, e.Score.HeadroomPenalty, e.Score.DecayedRuns)
 	}
 	if e.RetiringOn != "" {
 		fmt.Fprintf(c.out, "Retiring: %s\n", e.RetiringOn)
@@ -197,20 +275,20 @@ func printCatalogEntryDetail(c *ctx, e models.CatalogEntry) {
 }
 
 func printCatalogText(c *ctx, cat models.Catalog) {
-	fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-12s  %-7s  %-8s  %s\n",
-		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "PASS", "SPEED", "BEST FOR")
+	fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-10s  %-7s  %-22s  %s\n",
+		"MODEL", "STATUS", "FAMILY", "TIER", "EFFORT", "DECAYED", "SCORE (POST/UCB/PEN)", "BEST FOR")
 	for _, e := range cat.Entries {
 		eff := e.Effort
 		if eff == "" {
 			eff = "-"
 		}
 		runs := "-"
-		if tot := e.Evidence.WorkRuns + e.Evidence.EvalRuns; tot > 0 {
-			runs = fmt.Sprintf("%d/%d", e.Evidence.WorkPass+e.Evidence.EvalPass, tot)
+		if n, s := models.EffectiveEvidence(e.Evidence); n > 0 {
+			runs = fmt.Sprintf("%.1f/%.1f", s, n)
 		}
-		spd := e.Speed
-		if spd == "" {
-			spd = "-"
+		spd := "-"
+		if e.Score != nil {
+			spd = fmt.Sprintf("%.2f (%.2f+%.2f-%.2f)", e.Score.RankScore, e.Score.PosteriorMean, e.Score.ExploreBonus, e.Score.HeadroomPenalty)
 		}
 		best := e.DisplayName
 		if len(e.BestFor) > 0 {
@@ -221,7 +299,7 @@ func printCatalogText(c *ctx, cat models.Catalog) {
 		if e.RetiringOn != "" {
 			best += " [retiring " + e.RetiringOn + "]"
 		}
-		fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-12s  %-7s  %-8s  %s\n",
+		fmt.Fprintf(c.out, "%-30s  %-6s  %-9s  %-5s  %-10s  %-7s  %-22s  %s\n",
 			e.ID, e.Status, e.Family, e.Tier, eff, runs, spd, best)
 	}
 	if len(cat.Picks) == 0 {
@@ -241,26 +319,15 @@ func printCatalogText(c *ctx, cat models.Catalog) {
 	}
 }
 
-// refreshModelsBestEffort updates <home>/.config/fyr/models.json when home is
-// a valid non-checkout sandbox home and agy is available, keeping any existing
-// cache intact on error.
 func refreshModelsBestEffort(parent context.Context, home string) {
-	if home == "" {
+	if home == "" || models.CheckHomeDir(home) != nil || trail.Command(home, "rev-parse", "--git-dir").Run() == nil {
 		return
 	}
-	if models.CheckHomeDir(home) != nil {
-		return
+	if agyPath, err := exec.LookPath("agy"); err == nil {
+		ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+		defer cancel()
+		_, _ = models.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))
 	}
-	if trail.Command(home, "rev-parse", "--git-dir").Run() == nil {
-		return
-	}
-	agyPath, err := exec.LookPath("agy")
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
-	defer cancel()
-	_, _ = models.RefreshCatalog(ctx, home, agyPath, loadMetricsModelEvidence(home))
 }
 
 func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
@@ -268,8 +335,7 @@ func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
 		return nil
 	}
 	dbPath := metrics.Path(home)
-	fi, err := os.Lstat(dbPath)
-	if err != nil || !fi.Mode().IsRegular() {
+	if fi, err := os.Lstat(dbPath); err != nil || !fi.Mode().IsRegular() {
 		return nil
 	}
 	tmp, err := os.MkdirTemp(filepath.Dir(dbPath), "models-metrics-")
@@ -288,13 +354,14 @@ func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
 	}
 	out := make(map[string]models.ModelEvidence, len(raw))
 	for k, v := range raw {
-		out[k] = models.ModelEvidence{
-			WorkRuns:        v.WorkRuns,
-			WorkPass:        v.WorkPass,
-			WorkMeanSeconds: v.WorkMeanSeconds,
-			EvalRuns:        v.EvalRuns,
-			EvalPass:        v.EvalPass,
-		}
+		var e models.ModelEvidence
+		e.WorkPass, e.WorkRuns, e.WorkMeanSeconds = v.WorkPass, v.WorkRuns, v.WorkMeanSeconds
+		e.EvalPass, e.EvalRuns = v.EvalPass, v.EvalRuns
+		e.TrialPass, e.TrialRuns = v.TrialPass, v.TrialRuns
+		e.JudgePass, e.JudgeRuns = v.JudgePass, v.JudgeRuns
+		e.RatingRuns, e.RatingScoreSum = v.RatingRuns, v.RatingScoreSum
+		e.DecayedRuns, e.DecayedSuccesses = v.DecayedRuns, v.DecayedSuccesses
+		out[k] = e
 	}
 	return out
 }
