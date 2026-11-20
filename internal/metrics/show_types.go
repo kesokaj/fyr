@@ -1,6 +1,8 @@
 package metrics
 
-import ()
+import (
+	"github.com/kesokaj/fyr/internal/search"
+)
 
 // Summary is `show --json` (spec § Output). A metric the CLI cannot produce
 // is nil for its column and named in Notes, never 0.
@@ -19,6 +21,8 @@ type Summary struct {
 	F               WorkSummary               `json:"F"`
 	TriggerCoverage TriggerCoverage           `json:"trigger_coverage"`
 	Health          HealthSignals             `json:"health"`
+	Deltas          *WindowDeltas             `json:"deltas,omitempty"`
+	Diagnostics     *DiagnosticReport         `json:"diagnostics,omitempty"`
 	Projects        []ProjectRow              `json:"projects,omitempty"`
 	Daily           []Day                     `json:"daily"`
 	Notes           []string                  `json:"notes"`
@@ -180,33 +184,36 @@ type PoolQuota struct {
 // HealthSignals aggregates v9 orchestration, deterministic gate, quota,
 // compaction, knee, subagent budget, and hook block health metrics.
 type HealthSignals struct {
-	OrchestrationCalls  int                `json:"orchestration_calls"`
-	SubagentDispatches  int                `json:"subagent_dispatches"`
-	WorkflowCalls       int                `json:"workflow_calls"`
-	SwarmCalls          int                `json:"swarm_calls"`
-	DeterministicGates  int                `json:"deterministic_gates"`
-	JudgePassed         int                `json:"judge_passed"`
-	JudgeFailed         int                `json:"judge_failed"`
-	JudgeFallback       int                `json:"judge_fallback"`
-	AutoRunsPresent     bool               `json:"auto_runs_present,omitempty"`
-	AutoModelRuns       int                `json:"auto_model_runs"`
-	AutoOpenAsks        int                `json:"auto_open_asks"`
-	AutoLastVerdict     string             `json:"auto_last_verdict,omitempty"`
-	AutoProjectCount    int                `json:"auto_project_count"`
-	SearchDBCompactions int                `json:"search_db_compactions"`
-	StepCompactions     int                `json:"step_compactions"`
-	MainSessions        int                `json:"main_sessions"`
-	SessionsOverKnee    int                `json:"sessions_over_knee"`
-	SubagentsOverBudget int                `json:"subagents_over_budget"`
-	HookDenials         int                `json:"hook_denials"`
-	ClampedSaves        int                `json:"clamped_saves"`
-	HookBlocksLedger    int                `json:"hook_blocks_ledger"`
-	HookBlocksGuards    int                `json:"hook_blocks_guards"`
-	ModelFamilyCounts   map[string]int     `json:"model_family_counts,omitempty"`
-	ModelFamilyShare    map[string]float64 `json:"model_family_share,omitempty"`
-	GuardedDowngrades   int                `json:"guarded_downgrades"`
-	PoolQuotas          []PoolQuota        `json:"pool_quotas,omitempty"`
-	QuotaUpdatedAt      string             `json:"quota_updated_at,omitempty"`
+	OrchestrationCalls  int                      `json:"orchestration_calls"`
+	SubagentDispatches  int                      `json:"subagent_dispatches"`
+	WorkflowCalls       int                      `json:"workflow_calls"`
+	SwarmCalls          int                      `json:"swarm_calls"`
+	DeterministicGates  int                      `json:"deterministic_gates"`
+	JudgePassed         int                      `json:"judge_passed"`
+	JudgeFailed         int                      `json:"judge_failed"`
+	JudgeFallback       int                      `json:"judge_fallback"`
+	AutoRunsPresent     bool                     `json:"auto_runs_present,omitempty"`
+	AutoModelRuns       int                      `json:"auto_model_runs"`
+	AutoOpenAsks        int                      `json:"auto_open_asks"`
+	AutoLastVerdict     string                   `json:"auto_last_verdict,omitempty"`
+	AutoProjectCount    int                      `json:"auto_project_count"`
+	SearchDBCompactions int                      `json:"search_db_compactions"`
+	StepCompactions     int                      `json:"step_compactions"`
+	MainSessions        int                      `json:"main_sessions"`
+	SessionsOverKnee    int                      `json:"sessions_over_knee"`
+	SubagentsOverBudget int                      `json:"subagents_over_budget"`
+	HookDenials         int                      `json:"hook_denials"`
+	ClampedSaves        int                      `json:"clamped_saves"`
+	HookBlocksLedger    int                      `json:"hook_blocks_ledger"`
+	HookBlocksGuards    int                      `json:"hook_blocks_guards"`
+	ModelFamilyCounts   map[string]int           `json:"model_family_counts,omitempty"`
+	ModelFamilyShare    map[string]float64       `json:"model_family_share,omitempty"`
+	GuardedDowngrades   int                      `json:"guarded_downgrades"`
+	PoolQuotas          []PoolQuota              `json:"pool_quotas,omitempty"`
+	QuotaUpdatedAt      string                   `json:"quota_updated_at,omitempty"`
+	Structural          search.StructuralSignals `json:"structural"`
+	DreamRuns           BackgroundKindStats      `json:"dream_runs"`
+	AutoRuns            BackgroundKindStats      `json:"auto_runs"`
 }
 
 // Day is one calendar day (UTC) of the window, per vendor: the report's

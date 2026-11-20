@@ -15,7 +15,6 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -131,8 +130,9 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
 	appendMemorySection(&b, "## Global memory records", g, nonConvCap)
 	r.appendProposalSection(&b, root, t.ID, nonConvCap)
-	nums, traj := r.redactedMetricsAndTrajectory(root)
+	nums, diag, traj := r.redactedMetricsDiagnosticsAndTrajectory(root)
 	appendCappedSection(&b, "## Metric numbers\n", nums, nonConvCap)
+	appendCappedSection(&b, "## Diagnostic signals\n", diag, nonConvCap)
 	appendCappedSection(&b, "## Trajectory digest\n", traj, nonConvCap)
 	since := p.LastRetroLite
 	if t.Class == ClassMemoryCandidates {
@@ -259,24 +259,27 @@ func appendKickoffInput(path, scrubbed string) error {
 }
 
 func (r *run) redactedMetricsAndTrajectory(root string) (string, string) {
+	nums, _, traj := r.redactedMetricsDiagnosticsAndTrajectory(root)
+	return nums, traj
+}
+
+func (r *run) redactedMetricsDiagnosticsAndTrajectory(root string) (string, string, string) {
+	sum := r.projectSummary(root)
+	nums := ""
+	if sum != nil {
+		nums = marshalRedactedJSON(func() (any, error) { return sum.Numbers(), nil })
+	}
+	diag := r.redactedDiagnosticSection(root)
 	s, closeSnap := r.sweepMetricsSnapshot()
 	if s == nil {
-		return "", ""
+		return nums, diag, ""
 	}
 	defer closeSnap()
-	now := r.o.now()
-	since := now.AddDate(0, 0, -30)
-	nums := marshalRedactedJSON(func() (any, error) {
-		sum, err := s.Show(metrics.ShowOptions{Since: since, Now: now, Project: root})
-		if err != nil {
-			return nil, err
-		}
-		return sum.Numbers(), nil
-	})
+	since := r.o.now().AddDate(0, 0, -30)
 	traj := marshalRedactedJSON(func() (any, error) {
 		return s.DreamTrajectoryDigest(root, since)
 	})
-	return nums, traj
+	return nums, diag, traj
 }
 
 func marshalRedactedJSON(fn func() (any, error)) string {

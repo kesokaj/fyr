@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // Run is what the timer runs: G1, then G2 past a dry run, then the sweep. A
@@ -97,9 +99,11 @@ func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.T
 	r.st.OpenAsks = reconcileOpenAsks(r.o.Home, r.o.Now, r.st.OpenAsks)
 	if err := saveState(o.Home, r.st); err != nil {
 		say("auto: state: " + err.Error())
+		r.recordSweepRun(now, true, say)
 		return &ExitError{Code: 1}
 	}
 	o.prune(now)
+	r.recordSweepRun(now, preFailed, say)
 	if err := r.exit(); err != nil {
 		return err
 	}
@@ -107,6 +111,35 @@ func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.T
 		return &ExitError{Code: 1}
 	}
 	return nil
+}
+
+func (r *run) recordSweepRun(start time.Time, extraFail bool, say func(string)) {
+	if r.dry {
+		return
+	}
+	outcome := "pass"
+	if extraFail || r.failed {
+		outcome = "fail"
+	}
+	workerRan, applied := 0, 0
+	if r.workerRan {
+		workerRan = 1
+	}
+	if r.appliedSHA != "" {
+		applied = 1
+	}
+	err := r.o.recordBackgroundRun(metrics.BackgroundRunRow{
+		TS:              start.UnixMilli(),
+		Kind:            "auto",
+		Outcome:         outcome,
+		DurationMS:      max(int64(0), r.o.now().Sub(start).Milliseconds()),
+		ProjectsChecked: r.projectsChecked,
+		WorkerRan:       workerRan,
+		Applied:         applied,
+	})
+	if err != nil {
+		say("auto: background_runs: " + oneLine(err.Error()))
+	}
 }
 
 func (o Options) prune(now time.Time) {
@@ -163,6 +196,7 @@ type run struct {
 	usageRead        bool
 	usageText        string
 	usageErr         error
+	projectsChecked  int
 	workerRan        bool
 	projectWorkerRan bool
 	pendingReportID  string

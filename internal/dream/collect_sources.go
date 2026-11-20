@@ -1,9 +1,11 @@
 package dream
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -125,4 +127,42 @@ func addPlanContext(plans []brain.Record, since, upper time.Time, seen map[strin
 
 func contextTime(_ brain.Record, _, _ time.Time) time.Time {
 	return time.Time{}
+}
+
+// addHiddenCouplingHints reads project-local redacted co-activity pairs with
+// zero AST edge from a copy of <root>/.agents/scratch/search.db (never touching
+// live search.db or writing paths to metrics.db).
+func addHiddenCouplingHints(home, root string, add func(kind, label, text string, t time.Time)) {
+	if root == "" || root == search.GlobalWorkspace {
+		return
+	}
+	scratchDir := filepath.Join(root, ".agents", "scratch")
+	info, err := os.Lstat(filepath.Join(scratchDir, "search.db"))
+	if err != nil || !info.Mode().IsRegular() {
+		return
+	}
+	parent := scratchDir
+	if home != "" {
+		if conf := filepath.Dir(brain.Path(home)); conf != "" {
+			if st, err := os.Lstat(conf); err == nil && st.IsDir() {
+				parent = conf
+			}
+		}
+	}
+	tmp, err := os.MkdirTemp(parent, "dream-coupling-")
+	if err != nil {
+		return
+	}
+	defer os.RemoveAll(tmp)
+	copied, err := search.CopyDB(scratchDir, "search.db", tmp)
+	if err != nil {
+		return
+	}
+	hints, err := search.ReadHiddenCouplingHints(copied, root, 3, 10)
+	if err != nil || len(hints) == 0 {
+		return
+	}
+	if b, err := json.MarshalIndent(hints, "", " "); err == nil {
+		add(kindTrail, "hidden-coupling", string(b), time.Time{})
+	}
 }

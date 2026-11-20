@@ -64,6 +64,7 @@ func (c *Collected) finishWindow(home, brainHome string, p search.Project, since
 	} else {
 		add(kindMetrics, "metrics", sum, time.Time{})
 	}
+	addHiddenCouplingHints(home, p.Root, add)
 	// An Antigravity read error fails the project, so its watermark stays and
 	// the conversations are read again next time, never skipped for good
 	// (code review 2026-09-30).

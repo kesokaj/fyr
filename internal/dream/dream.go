@@ -53,6 +53,9 @@ type Options struct {
 	// WriteRatings persists validated conversation ratings in realRun (never in DryRun).
 	// Nil defaults to writing session_ratings in metrics.db during realRun.
 	WriteRatings func(home, project string, rows []metrics.SessionRating) error
+	// RecordBackgroundRun records a shape-only background_runs row in realRun (never in DryRun).
+	// Nil defaults to metrics.RecordBackgroundRun during realRun.
+	RecordBackgroundRun func(metrics.BackgroundRunRow) error
 
 	brainHome string // where the brain store is read: Home, or a dry run's copy
 }
@@ -120,6 +123,12 @@ func (o *Options) withDefaults() {
 	}
 	if o.Session == nil {
 		o.Session = func() (bool, error) { return agySession(runtime.GOOS, os.Getuid()) }
+	}
+	if !o.DryRun && o.RecordBackgroundRun == nil && strings.TrimSpace(o.Home) != "" {
+		h := o.Home
+		o.RecordBackgroundRun = func(row metrics.BackgroundRunRow) error {
+			return metrics.RecordBackgroundRun(h, row)
+		}
 	}
 }
 

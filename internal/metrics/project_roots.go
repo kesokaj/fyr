@@ -79,8 +79,40 @@ func isTempRoot(clean string) bool {
 }
 
 func hasEphemeralSegment(clean string) bool {
-	return hasPathSegment(clean, "smoke-", "fyr-agy-probes", "probes", "sandbox") ||
-		hasPathSegment(clean, "fyr-agy-probes-")
+	return hasSandboxSegment(clean)
+}
+
+func hasSandboxSegment(clean string) bool {
+	segs := strings.Split(filepath.ToSlash(clean), "/")
+	for i, seg := range segs {
+		switch {
+		case seg == "fyr-eval" || seg == "sandbox" || seg == "probes":
+			return true
+		case strings.HasPrefix(seg, "real-home-smoke") || strings.HasPrefix(seg, "smoke-") || strings.HasPrefix(seg, "fyr-agy-probes"):
+			return true
+		case seg == ".agents" && i+1 < len(segs) && segs[i+1] == "scratch":
+			return true
+		}
+	}
+	return false
+}
+
+// isSandboxProjectRoot reports whether root is a home/root directory or carries
+// an ephemeral smoke, eval, probe, sandbox, or .agents/scratch segment. It never
+// blanket-filters /tmp or os.TempDir() so real test fixtures under temp dirs stay.
+func isSandboxProjectRoot(root, home string) bool {
+	trimmed := strings.TrimSpace(root)
+	if trimmed == "" {
+		return false
+	}
+	clean := filepath.Clean(trimmed)
+	if clean == "/" || isHomeRoot(clean) {
+		return true
+	}
+	if h := strings.TrimSpace(home); h != "" && clean == filepath.Clean(h) {
+		return true
+	}
+	return hasSandboxSegment(clean)
 }
 
 func isProbeBreakdownRoot(r string) bool {

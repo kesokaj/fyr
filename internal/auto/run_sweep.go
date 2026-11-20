@@ -34,6 +34,7 @@ func (r *run) sweep() {
 		seen[t.Root] = true
 		if r.project(t.Root, t.Skip) {
 			reached++
+			r.projectsChecked++
 		}
 		if r.halted {
 			return

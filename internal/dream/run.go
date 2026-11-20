@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -132,7 +133,27 @@ type dreamRun struct {
 	dropPrivate func() // its cleanup
 	failed      int    // projects that failed
 	total       int    // proposals written
+	ratings     int    // session ratings written
 	stateErr    error  // the first state write that failed
+}
+
+func (r *dreamRun) recordRun(projectsChecked int, outcome string) {
+	if r.o.DryRun || r.o.RecordBackgroundRun == nil {
+		return
+	}
+	dur := max(int64(0), r.o.Now().Sub(r.t0).Milliseconds())
+	err := r.o.RecordBackgroundRun(metrics.BackgroundRunRow{
+		TS:               r.t0.UnixMilli(),
+		Kind:             "dream",
+		Outcome:          outcome,
+		DurationMS:       dur,
+		ProjectsChecked:  projectsChecked,
+		ProposalsWritten: r.total,
+		RatingsWritten:   r.ratings,
+	})
+	if err != nil {
+		r.logf("background_runs: " + scrub(err.Error(), r.o.Home))
+	}
 }
 
 // finish records the run in the state and the log.
@@ -149,7 +170,8 @@ func (r *dreamRun) finish(n, proposals int, runErr string) error {
 // fail ends a run that failed before its first project: exit 2.
 func (r *dreamRun) fail(msg string) error {
 	msg = scrub(msg, r.o.Home)
-	r.finish(0, 0, msg)
+	_ = r.finish(0, 0, msg)
+	r.recordRun(0, "fail")
 	return &ExitError{2, "fyr dream: " + msg}
 }
 
@@ -186,7 +208,7 @@ func (r *dreamRun) project(p search.Project) {
 	if !ok {
 		return
 	}
-	nProps, err := r.o.write(r.conf, c, resp, r.argv[0], r.t0)
+	nProps, nRatings, err := r.o.writeCounts(r.conf, c, resp, r.argv[0], r.t0)
 	if err != nil {
 		r.failed++
 		r.logf(p.Root + " fail " + scrub(err.Error(), r.o.Home))
@@ -194,6 +216,7 @@ func (r *dreamRun) project(p search.Project) {
 	}
 	r.recordSuccess(p.Root, c, since, cutoff)
 	r.total += nProps
+	r.ratings += nRatings
 	r.logf(fmt.Sprintf("%s ok %d proposals", p.Root, nProps))
 }
 
@@ -273,6 +296,11 @@ func (r *dreamRun) result(n int) error {
 	if err := r.finish(n, r.total, runErr); err != nil && r.stateErr == nil {
 		r.stateErr = err
 	}
+	outcome := "pass"
+	if r.failed > 0 || r.stateErr != nil {
+		outcome = "fail"
+	}
+	r.recordRun(n, outcome)
 	if r.stateErr != nil {
 		return &ExitError{2, "fyr dream: the watermarks could not be saved, so the next run re-sends this one: " + r.stateErr.Error()}
 	}

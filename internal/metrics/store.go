@@ -138,10 +138,12 @@ var migrations = []string{
 		verdict TEXT NOT NULL
 	);
 	CREATE INDEX judge_verdicts_ts ON judge_verdicts(ts);`,
+	// 10: shape-only dream/auto background runs ledger (v9.4 Phase 2, ADR-528).
+	`CREATE TABLE background_runs(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, duration_ms INTEGER NOT NULL, projects_checked INTEGER NOT NULL DEFAULT 0, proposals_written INTEGER NOT NULL DEFAULT 0, ratings_written INTEGER NOT NULL DEFAULT 0, worker_ran INTEGER NOT NULL DEFAULT 0, applied INTEGER NOT NULL DEFAULT 0); CREATE INDEX background_runs_ts ON background_runs(ts);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts", "background_runs"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

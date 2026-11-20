@@ -31,6 +31,8 @@ type projectPassCache struct {
 	metricsOpened bool
 	metricsStore  *metrics.Store
 	metricsTmp    string
+	summaryLoaded bool
+	summary       *metrics.Summary
 	propsLoaded   bool
 	props         []brain.Record
 	propsErr      error

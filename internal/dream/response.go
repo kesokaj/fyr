@@ -19,7 +19,13 @@ type response struct {
 }
 
 type proposal struct {
-	Title, Kind, Target, File, Text, Evidence string
+	Title    string `json:"title"`
+	Kind     string `json:"kind"`
+	Target   string `json:"target"`
+	File     string `json:"file"`
+	Text     string `json:"text"`
+	Evidence string `json:"evidence"`
+	SignalID string `json:"signal_id"`
 }
 
 type draft struct {

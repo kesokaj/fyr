@@ -64,14 +64,15 @@ var metricsSummary = func(home, root string, since, now time.Time) (string, erro
 		return "", err
 	}
 	defer s.Close()
-	cur, err := s.Show(metrics.ShowOptions{Since: since, Now: now, Project: root})
+	cur, err := s.Show(metrics.ShowOptions{Home: home, Since: since, Now: now, Project: root})
 	if err != nil {
 		return "", err
 	}
-	prev, err := s.Show(metrics.ShowOptions{Since: since.Add(-now.Sub(since)), Now: since, Project: root})
+	prev, err := s.Show(metrics.ShowOptions{Home: home, Since: since.Add(-now.Sub(since)), Now: since, Project: root})
 	if err != nil {
 		return "", err
 	}
+	diag := metrics.BuildDiagnosticReport(*cur, nil, "project", root)
 	// Every column counts, the historical one too: its sessions are the
 	// project's record as much as the agy ones (plan fyr D7).
 	n := 0
@@ -80,13 +81,14 @@ var metricsSummary = func(home, root string, since, now time.Time) (string, erro
 			n += c
 		}
 	}
-	if n == 0 {
+	if n == 0 && len(diag.Signals) == 0 {
 		return "", nil
 	}
 	b, err := json.MarshalIndent(map[string]any{
-		"window":   map[string]string{"since": since.UTC().Format(time.RFC3339), "until": now.UTC().Format(time.RFC3339)},
-		"current":  cur.Numbers(),
-		"previous": prev.Numbers(),
+		"window":      map[string]string{"since": since.UTC().Format(time.RFC3339), "until": now.UTC().Format(time.RFC3339)},
+		"current":     cur.Numbers(),
+		"previous":    prev.Numbers(),
+		"diagnostics": diag,
 	}, "", " ")
 	return string(b), err
 }

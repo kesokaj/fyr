@@ -44,6 +44,9 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Fin
 		if convs := r.conversationsSince(root, p.LastRetroLite); len(convs) > 0 {
 			return preparedTask(ClassRetroLite, nil, "", len(convs))
 		}
+		if sigs := r.unaddressedDiagnosticSignals(root); len(sigs) > 0 {
+			return preparedTask(ClassRetroLite, nil, "", len(sigs))
+		}
 	case ClassMemoryCandidates:
 		if p.PendingMemoryCandidates > 0 {
 			if convs := r.conversationsSince(root, p.LastMemoryCandidates); len(convs) > 0 {

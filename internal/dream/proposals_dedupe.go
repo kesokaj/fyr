@@ -13,6 +13,7 @@ type proposalMeta struct {
 	kind      string
 	file      string
 	sessionID string
+	signalID  string
 	draftKey  string
 }
 
@@ -20,6 +21,7 @@ type proposalIndex struct {
 	harnessTitles map[string]bool
 	projectTitles map[string][]string
 	sessions      map[string]bool
+	signals       map[string]bool
 	skillTargets  map[string]bool
 	drafts        map[string]bool
 }
@@ -29,6 +31,7 @@ func newProposalIndex() *proposalIndex {
 		harnessTitles: map[string]bool{},
 		projectTitles: map[string][]string{},
 		sessions:      map[string]bool{},
+		signals:       map[string]bool{},
 		skillTargets:  map[string]bool{},
 		drafts:        map[string]bool{},
 	}
@@ -53,6 +56,8 @@ func parseProposalMeta(title, body string) proposalMeta {
 	for _, ln := range strings.Split(body, "\n") {
 		if strings.HasPrefix(ln, "Target: ") {
 			parseTargetLine(ln, &m)
+		} else if rest, ok := strings.CutPrefix(ln, "Signal: "); ok {
+			m.signalID = cleanSignalID(rest)
 		} else if rest, ok := strings.CutPrefix(ln, "Evidence: conversation "); ok {
 			if fs := strings.Fields(rest); len(fs) > 0 {
 				m.sessionID = fs[0]
@@ -88,6 +93,9 @@ func (idx *proposalIndex) add(project string, m proposalMeta) {
 	if m.sessionID != "" {
 		idx.sessions[m.sessionID] = true
 	}
+	if m.signalID != "" {
+		idx.signals[m.signalID] = true
+	}
 	if m.target == "harness" {
 		idx.harnessTitles[m.normTitle] = true
 		if m.kind == "skill" && m.file != "" {
@@ -98,11 +106,24 @@ func (idx *proposalIndex) add(project string, m proposalMeta) {
 	idx.projectTitles[m.normTitle] = append(idx.projectTitles[m.normTitle], project)
 }
 
+func (idx *proposalIndex) addSignalsFromText(text string) {
+	for _, tok := range strings.FieldsFunc(text, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ':' || r == '_' || r == '-')
+	}) {
+		if sig := cleanSignalID(tok); sig != "" {
+			idx.signals[sig] = true
+		}
+	}
+}
+
 func (idx *proposalIndex) seen(project string, m proposalMeta) bool {
 	if m.draftKey != "" {
 		return idx.drafts[m.draftKey]
 	}
 	if m.sessionID != "" && idx.sessions[m.sessionID] {
+		return true
+	}
+	if m.signalID != "" && idx.signals[m.signalID] {
 		return true
 	}
 	if m.target == "harness" {
@@ -124,16 +145,8 @@ func dedupeProposals(home, project string, ps []brain.Proposal) ([]brain.Proposa
 		return nil, nil
 	}
 	idx := newProposalIndex()
-	if brainDBExists(home) {
-		recs, err := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "proposal"})
-		if err != nil {
-			return nil, err
-		}
-		for _, rec := range recs {
-			if rec.Status == "queued" || rec.Status == "applied" || strings.HasPrefix(rec.Status, "applied:") {
-				idx.add(rec.Project, parseProposalMeta(rec.Title, rec.Body))
-			}
-		}
+	if err := loadExistingProposals(home, project, idx); err != nil {
+		return nil, err
 	}
 	var out []brain.Proposal
 	for _, p := range ps {
@@ -145,4 +158,33 @@ func dedupeProposals(home, project string, ps []brain.Proposal) ([]brain.Proposa
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+func loadExistingProposals(home, project string, idx *proposalIndex) error {
+	if !brainDBExists(home) {
+		return nil
+	}
+	recs, err := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "proposal"})
+	if err != nil {
+		return err
+	}
+	for _, rec := range recs {
+		m := parseProposalMeta(rec.Title, rec.Body)
+		if rec.Status == "queued" || rec.Status == "open" {
+			idx.addSignalsFromText(rec.Body)
+		} else {
+			m.signalID = ""
+		}
+		if rec.Status == "queued" || rec.Status == "open" || rec.Status == "applied" || strings.HasPrefix(rec.Status, "applied:") {
+			idx.add(rec.Project, m)
+		}
+	}
+	if project != "" && project != home {
+		if openRecs, err := brain.List(brain.Options{Home: home, Dir: project}, brain.ListFilter{Open: true}); err == nil {
+			for _, rec := range openRecs {
+				idx.addSignalsFromText(rec.Body)
+			}
+		}
+	}
+	return nil
 }

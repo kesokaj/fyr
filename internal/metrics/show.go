@@ -10,15 +10,18 @@ import (
 
 // ShowOptions filter what show and report read (spec § Verbs).
 type ShowOptions struct {
-	Home      string
-	Since     time.Time // zero: 30 days before Now
-	Now       time.Time // zero: time.Now()
-	Project   string
-	Label     string
-	AllLabels bool
+	Home             string
+	Since            time.Time // zero: 30 days before Now
+	Now              time.Time // zero: time.Now()
+	Project          string
+	Label            string
+	AllLabels        bool
+	IncludeSandboxes bool
 	// ContextTarget is the peak context, in tokens, a main session should
 	// stay under; 0 means DefaultContextTarget (plan session-sized-work D4).
 	ContextTarget int64
+
+	skipDeltas bool
 }
 
 // DefaultContextTarget is the context target when none is given (plan
@@ -71,16 +74,30 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 		sum.addSessionEvents(x, data.events[x.id])
 	}
 	sum.finish(all, trials, claimed)
-	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, data, since, now); err != nil {
-		return nil, err
-	}
-	if err := s.populateSessionRatings(sum, o, since, now); err != nil {
-		return nil, err
-	}
-	if err := s.populateHealthAndFallbacks(sum, o, all, trials, data, since, now); err != nil {
+	if err := s.populateSummaryExtras(sum, o, all, trials, data, since, now); err != nil {
 		return nil, err
 	}
 	return sum, nil
+}
+
+func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
+	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, data, since, now); err != nil {
+		return err
+	}
+	if err := s.populateSessionRatings(sum, o, since, now); err != nil {
+		return err
+	}
+	if err := s.populateBackgroundRuns(sum, o, since, now); err != nil {
+		return err
+	}
+	if err := s.populateHealthAndFallbacks(sum, o, all, trials, data, since, now); err != nil {
+		return err
+	}
+	if err := s.populateWindowDeltas(sum, o, since, now); err != nil {
+		return err
+	}
+	s.populateDiagnostics(sum, o, since, now)
+	return nil
 }
 
 // resolveMetricsHome returns o.Home if set; otherwise it infers the home

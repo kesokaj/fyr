@@ -18,7 +18,7 @@ Decide what deserves to become durable, and only that:
 - a skill: a procedure of three or more steps done more than once, with no skill for it yet;
 - a procedure: steps that belong in an existing skill's reference page;
 - a memory: a fact about the user or the project worth keeping that the memory store lacks.
-Name the evidence for each (the input labels below). A metric that got worse between the two windows (a higher tool error rate, a lower search:grep ratio, a forbidden command shape, more corrections or escaped bugs, fewer sessions closed) is evidence when the other inputs show its cause; cite it by its key, and propose nothing from a number alone. Propose nothing without evidence, and nothing an input shows is already recorded.
+Name the evidence for each (the input labels below). A metric that got worse between the two windows or a triggered signal in "diagnostics" (a higher tool error rate, a lower search:grep ratio, context knee breaches, hidden coupling, package cycles, a forbidden command shape, more corrections or escaped bugs, fewer sessions closed) is evidence when the other inputs (including any "trail: hidden-coupling" co-activity pairs) show its cause; cite it by its key or signal_id, include "signal_id":"sig:..." on any proposal addressing a diagnostic signal ("" otherwise), and propose nothing from a number alone. Propose nothing without evidence, and nothing an input shows is already recorded.
 
 Also rate each Antigravity conversation block ("antigravity <conversation_id>") in "ratings":
 - conversation_id: the exact <conversation_id> from the transcript label
@@ -30,7 +30,7 @@ Also rate each Antigravity conversation block ("antigravity <conversation_id>") 
 - summary: one concise sentence explaining the score and any skill gap
 
 Reply with ONE JSON object and nothing else:
-{"proposals":[{"title":"...","kind":"rule|skill|procedure|memory","target":"harness|project","file":"where it would live","text":"the exact text to add","evidence":"input labels"}],
+{"proposals":[{"title":"...","kind":"rule|skill|procedure|memory","target":"harness|project","file":"where it would live","text":"the exact text to add","evidence":"input labels","signal_id":"sig:... or empty"}],
  "skills":[{"name":"kebab-case-name","description":"one line: when to use it","body":"the SKILL.md body in markdown"}],
  "ratings":[{"conversation_id":"id","outcome_score":1,"token_` +
 	`efficiency":1,"plan_alignment":"matched|partial|missed|no-plan","skill_action":"none|rewrite-skill|new-skill","target_skill":"skills/...","summary":"one line"}]}

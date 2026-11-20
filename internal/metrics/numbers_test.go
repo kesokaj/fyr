@@ -14,7 +14,7 @@ import (
 func TestNumbersOnly(t *testing.T) {
 	sum := reportFixture(t)
 	n := sum.Numbers()
-	key := regexp.MustCompile(`^(sessions|subagents|[ABCD]\.[a-z_]+)(\.(claude|agy|PASS|FAIL|BLOCKED|high|medium|low|git_add_all|git_add_dot|push_force|no_verify|commit_chained_to_test))?$`)
+	key := regexp.MustCompile(`^(sessions|subagents|[ABCDEFH]\.[a-z0-9_]+(\.(structural|background_runs|dream|auto))?)(\.(claude|agy|PASS|FAIL|BLOCKED|high|medium|low|git_add_all|git_add_dot|push_force|no_verify|commit_chained_to_test|[a-z0-9_]+))?$`)
 	for k := range n {
 		if !key.MatchString(k) {
 			t.Errorf("key %q is not one of the package's names", k)

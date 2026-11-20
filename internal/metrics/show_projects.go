@@ -15,12 +15,16 @@ type projAcc struct {
 }
 
 func buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent) []ProjectRow {
+	return buildProjectRowsWithOpts(all, vetsByRoot, stepsByID, eventsByID, ShowOptions{}, "")
+}
+
+func buildProjectRowsWithOpts(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent, o ShowOptions, home string) []ProjectRow {
 	byID, wtMap, _ := resolveSessionRoots(all)
 	canon := buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)
 	accs := map[string]*projAcc{}
 	getAcc := func(raw string) *projAcc {
 		r := canon(raw)
-		if r == "" || isProbeBreakdownRoot(r) {
+		if r == "" || (!o.IncludeSandboxes && isSandboxProjectRoot(r, home)) {
 			return nil
 		}
 		if accs[r] == nil {

@@ -26,14 +26,22 @@ type draftPlan struct {
 	lines []string
 }
 
-// write stores validated proposals, ratings, and draft skills (in order:
-// planDrafts -> propose -> WriteRatings -> commitDrafts) so drafts and ratings
-// only persist after propose() succeeds. Returns non-draft-wrapper proposals.
+// write stores validated proposals, ratings, and draft skills, returning the
+// count of non-draft-wrapper proposals written.
 func (o Options) write(conf string, c Collected, r response, cli string, t0 time.Time) (int, error) {
+	nProps, _, err := o.writeCounts(conf, c, r, cli, t0)
+	return nProps, err
+}
+
+// writeCounts stores validated proposals, ratings, and draft skills (in order:
+// planDrafts -> propose -> WriteRatings -> commitDrafts) so drafts and ratings
+// only persist after propose() succeeds. Returns non-draft-wrapper proposals
+// and validated session ratings written.
+func (o Options) writeCounts(conf string, c Collected, r response, cli string, t0 time.Time) (int, int, error) {
 	day := t0.Format("2006-01-02")
 	plan, err := o.planDrafts(filepath.Join(conf, "proposals", "dream"), c.Name, day, r.Skills)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	ratings := o.validRatings(c, r.Ratings, t0)
 	head := o.header(c, cli, day)
@@ -46,7 +54,7 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 	proj := proposalProject(o, c.Root)
 	ps, err = dedupeProposals(o.Home, proj, ps)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	nProps := len(ps)
 	if hasWrapper && nProps > 0 && ps[nProps-1].Title == wrapperTitle {
@@ -54,16 +62,16 @@ func (o Options) write(conf string, c Collected, r response, cli string, t0 time
 	}
 	if len(ps) > 0 {
 		if _, err := propose(o.Home, proj, ps, t0); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 	if err := o.persistRatings(c.Root, ratings); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if err := commitDrafts(plan); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return nProps, nil
+	return nProps, len(ratings), nil
 }
 
 func proposalProject(o Options, root string) string {
@@ -126,7 +134,22 @@ func (o Options) validProposal(p proposal) (proposal, bool) {
 	if strings.ToLower(o.line(p.Target)) == "harness" {
 		target = "harness"
 	}
-	return proposal{Title: title, Kind: kind, Target: target, File: p.File, Text: text, Evidence: p.Evidence}, true
+	sigID := cleanSignalID(o.line(p.SignalID))
+	return proposal{Title: title, Kind: kind, Target: target, File: p.File, Text: text, Evidence: p.Evidence, SignalID: sigID}, true
+}
+
+func cleanSignalID(raw string) string {
+	s := strings.TrimSpace(raw)
+	if !strings.HasPrefix(s, "sig:") || len(s) < 5 || len(s) > 96 {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ':' || c == '_' || c == '-') {
+			return ""
+		}
+	}
+	return s
 }
 
 func (o Options) buildProposals(head string, props []proposal, ratings []metrics.SessionRating) []brain.Proposal {
@@ -183,8 +206,12 @@ func (o Options) section(p proposal) string {
 		target = "harness"
 	}
 	kind := strings.ToLower(o.line(p.Kind))
-	return fmt.Sprintf("Target: %s   Kind: %s   File: %s\n\n%s\n\nEvidence: %s\n",
-		target, kind, o.line(p.File), indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
+	sigLine := ""
+	if sig := cleanSignalID(o.line(p.SignalID)); sig != "" {
+		sigLine = "Signal: " + sig + "\n"
+	}
+	return fmt.Sprintf("Target: %s   Kind: %s   File: %s\n%s\n%s\n\nEvidence: %s\n",
+		target, kind, o.line(p.File), sigLine, indent(strings.TrimSpace(o.clean(p.Text))), o.line(p.Evidence))
 }
 
 func (o Options) clean(s string) string { return scrub(s, o.Home) }

@@ -12,6 +12,7 @@ import (
 	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // ExitError is a verb's exit status with the text it prints on stdout, as
@@ -62,6 +63,22 @@ type Options struct {
 	HoldoutFile string
 	// AgyVersion returns the first line of `agy --version`; nil runs `agy --version`.
 	AgyVersion func() string
+	// RecordBackgroundRun records a shape-only background_runs row at the end of a real sweep (never in DryRun).
+	// Nil defaults to metrics.RecordBackgroundRun(Home, ...) when Home is non-empty.
+	RecordBackgroundRun func(metrics.BackgroundRunRow) error
+}
+
+func (o Options) recordBackgroundRun(row metrics.BackgroundRunRow) error {
+	if o.DryRun {
+		return nil
+	}
+	if o.RecordBackgroundRun != nil {
+		return o.RecordBackgroundRun(row)
+	}
+	if strings.TrimSpace(o.Home) == "" {
+		return nil
+	}
+	return metrics.RecordBackgroundRun(o.Home, row)
 }
 
 func (o Options) realHome() string {

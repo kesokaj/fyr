@@ -123,31 +123,36 @@ func openDevEvalStoreRO(home string) (*Store, func(), bool) {
 }
 
 func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, func(), bool) {
+	db, _, cleanup, ok := openCopySQLiteFileWithPath(scratchHome, base, relParts...)
+	return db, cleanup, ok
+}
+
+func openCopySQLiteFileWithPath(scratchHome, base string, relParts ...string) (*sql.DB, string, func(), bool) {
 	dbPath, ok := regularNoSymlinkFile(base, relParts...)
 	if !ok || !regularSQLiteCompanions(dbPath) {
-		return nil, nil, false
+		return nil, "", nil, false
 	}
 	tmpParent, createdDirs, ok := copySQLiteTempParent(scratchHome, dbPath)
 	if !ok {
-		return nil, nil, false
+		return nil, "", nil, false
 	}
 	tmp, err := os.MkdirTemp(tmpParent, "fyr-metrics-ro-")
 	if err != nil {
 		cleanupCreatedDirs(createdDirs)
-		return nil, nil, false
+		return nil, "", nil, false
 	}
 	db, err := search.OpenCopy(filepath.Dir(dbPath), filepath.Base(dbPath), tmp)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 		cleanupCreatedDirs(createdDirs)
-		return nil, nil, false
+		return nil, "", nil, false
 	}
 	cleanup := func() {
 		_ = db.Close()
 		_ = os.RemoveAll(tmp)
 		cleanupCreatedDirs(createdDirs)
 	}
-	return db, cleanup, true
+	return db, filepath.Join(tmp, filepath.Base(dbPath)), cleanup, true
 }
 
 func copySQLiteTempParent(scratchHome, dbPath string) (string, []string, bool) {

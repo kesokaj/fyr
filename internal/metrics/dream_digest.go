@@ -23,6 +23,7 @@ type VerbLoop struct {
 // (strictly tool/verb names and counts; zero raw arguments, prose, or paths).
 type DreamTrajectoryDigest struct {
 	Sessions              int            `json:"sessions"`
+	KneeExceeded          int            `json:"kneeExceeded,omitempty"`
 	Retries               []RetryPattern `json:"retries,omitempty"`
 	RepeatedVerbs         []VerbLoop     `json:"repeatedVerbs,omitempty"`
 	RedundantReadHotspots int            `json:"redundantReadHotspots,omitempty"`
@@ -34,7 +35,7 @@ type dreamEventCounts struct {
 }
 
 // DreamTrajectoryDigest aggregates shape-only retries, repeated 2-3 verb loops,
-// and redundant-read counts across label-free sessions since since.
+// knee-exceeded session count, and redundant-read counts across label-free sessions since since.
 func (s *Store) DreamTrajectoryDigest(projectRoot string, since time.Time) (DreamTrajectoryDigest, error) {
 	if s == nil || s.db == nil {
 		return DreamTrajectoryDigest{}, nil
@@ -42,6 +43,10 @@ func (s *Store) DreamTrajectoryDigest(projectRoot string, since time.Time) (Drea
 	where, args := dreamSessionFilter(projectRoot, since)
 	sessions, err := s.countDreamSessions(where, args)
 	if err != nil || sessions == 0 {
+		return DreamTrajectoryDigest{}, err
+	}
+	knee, err := s.readDreamKneeExceeded(where, args)
+	if err != nil {
 		return DreamTrajectoryDigest{}, err
 	}
 	ev, err := s.readDreamEventCounts(where, args)
@@ -62,10 +67,23 @@ func (s *Store) DreamTrajectoryDigest(projectRoot string, since time.Time) (Drea
 	}
 	return DreamTrajectoryDigest{
 		Sessions:              sessions,
+		KneeExceeded:          knee,
 		Retries:               retries,
 		RepeatedVerbs:         verbs,
 		RedundantReadHotspots: ev.redundantReads + stepReads,
 	}, nil
+}
+
+func (s *Store) readDreamKneeExceeded(where string, args []any) (int, error) {
+	qArgs := make([]any, len(args), len(args)+1)
+	copy(qArgs, args)
+	qArgs = append(qArgs, ContextKneeTokens)
+	q := `SELECT COUNT(DISTINCT s.id) FROM sessions s WHERE ` + where +
+		` AND (EXISTS (SELECT 1 FROM steps st WHERE st.session_id = s.id AND COALESCE(st.context, 0) >= ?)` +
+		` OR EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND LOWER(e.kind) = 'knee_exceeded'))`
+	var n int
+	err := s.db.QueryRow(q, qArgs...).Scan(&n)
+	return n, err
 }
 
 func dreamSessionFilter(projectRoot string, since time.Time) (string, []any) {

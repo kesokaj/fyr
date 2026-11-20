@@ -51,10 +51,100 @@ func (s *Summary) Numbers() map[string]float64 {
 	put("B.context_target", float64(s.B.ContextTarget))
 	put("A.escaped_bugs", float64(s.A.EscapedBugs))
 	put("A.corrections", float64(s.A.Corrections))
+	put("A.ratings_count", float64(s.A.RatingsCount))
+	if s.A.MeanOutcomeScore != nil {
+		put("A.mean_outcome_score", *s.A.MeanOutcomeScore)
+	}
+	if s.A.MeanTokenEfficiency != nil {
+		put("A.mean_token_efficiency", *s.A.MeanTokenEfficiency)
+	}
 	for _, k := range forbiddenKeys {
 		put("C.forbidden."+k[1], float64(s.C.Forbidden[k[0]]))
 	}
+	s.putSecondBrainAndWaves(put)
+	s.putHealthNumbers(put)
+	s.putStructuralNumbers(put)
+	s.putBackgroundRunNumbers(put)
 	return n
+}
+
+func (s *Summary) putSecondBrainAndWaves(put func(string, float64)) {
+	put("E.turn_vets", float64(s.E.TurnVets))
+	if s.E.MeanVetScore != nil {
+		put("E.mean_vet_score", *s.E.MeanVetScore)
+	}
+	put("E.vet_first_turns", float64(s.E.VetFirstTurns))
+	put("E.bypassed_turns", float64(s.E.BypassedTurns))
+	put("E.pivots_seeded", float64(s.E.PivotsSeeded))
+	put("E.ledger_saved", float64(s.E.LedgerSaved))
+	put("F.waves", float64(s.F.Waves))
+	put("F.workers", float64(s.F.Workers))
+	put("F.passed", float64(s.F.Passed))
+	put("F.failed", float64(s.F.Failed))
+	put("F.judge_passed", float64(s.F.JudgePassed))
+	put("F.judge_failed", float64(s.F.JudgeFailed))
+	put("F.judge_fallback", float64(s.F.JudgeFallback))
+}
+
+func (s *Summary) putHealthNumbers(put func(string, float64)) {
+	h := s.Health
+	put("H.sessions_over_knee", float64(h.SessionsOverKnee))
+	put("H.main_sessions", float64(h.MainSessions))
+	put("H.subagents_over_budget", float64(h.SubagentsOverBudget))
+	put("H.hook_denials", float64(h.HookDenials))
+	put("H.clamped_saves", float64(h.ClampedSaves))
+	put("H.hook_blocks_ledger", float64(h.HookBlocksLedger))
+	put("H.hook_blocks_guards", float64(h.HookBlocksGuards))
+	put("H.guarded_downgrades", float64(h.GuardedDowngrades))
+	put("H.search_db_compactions", float64(h.SearchDBCompactions))
+	put("H.step_compactions", float64(h.StepCompactions))
+}
+
+func (s *Summary) putStructuralNumbers(put func(string, float64)) {
+	st := s.Health.Structural
+	if st.TotalCodeFiles == 0 && st.TotalProdPkgs == 0 && st.HiddenCouplingPairs == 0 &&
+		st.GodNodeClampHits == 0 && st.GodNodeRepeatReads == 0 && st.ProdPkgCycles == 0 && st.LargeFilesOver350 == 0 {
+		return
+	}
+	put("H.structural.hidden_coupling_pairs", float64(st.HiddenCouplingPairs))
+	put("H.structural.hidden_coupling_rate", st.HiddenCouplingRate)
+	put("H.structural.god_node_clamp_hits", float64(st.GodNodeClampHits))
+	put("H.structural.god_node_repeat_reads", float64(st.GodNodeRepeatReads))
+	put("H.structural.god_node_churn_rate", st.GodNodeChurnRate)
+	put("H.structural.prod_pkg_cycles", float64(st.ProdPkgCycles))
+	put("H.structural.hub_concentration", st.HubConcentration)
+	put("H.structural.large_files_over_350", float64(st.LargeFilesOver350))
+	put("H.structural.total_code_files", float64(st.TotalCodeFiles))
+	put("H.structural.total_prod_pkgs", float64(st.TotalProdPkgs))
+}
+
+func (s *Summary) putBackgroundRunNumbers(put func(string, float64)) {
+	dr, ar := s.Health.DreamRuns, s.Health.AutoRuns
+	if dr.Runs+ar.Runs == 0 {
+		return
+	}
+	put("H.background_runs.total", float64(dr.Runs+ar.Runs))
+	put("H.background_runs.failed", float64(dr.Failed+ar.Failed))
+	if dr.Runs > 0 {
+		put("H.background_runs.dream.runs", float64(dr.Runs))
+		put("H.background_runs.dream.passed", float64(dr.Passed))
+		put("H.background_runs.dream.failed", float64(dr.Failed))
+		put("H.background_runs.dream.mean_duration_ms", dr.MeanDurationMS)
+		put("H.background_runs.dream.projects_checked", float64(dr.ProjectsChecked))
+		put("H.background_runs.dream.proposals_written", float64(dr.ProposalsWritten))
+		put("H.background_runs.dream.ratings_written", float64(dr.RatingsWritten))
+	}
+	if ar.Runs > 0 {
+		put("H.background_runs.auto.runs", float64(ar.Runs))
+		put("H.background_runs.auto.passed", float64(ar.Passed))
+		put("H.background_runs.auto.failed", float64(ar.Failed))
+		put("H.background_runs.auto.mean_duration_ms", ar.MeanDurationMS)
+		put("H.background_runs.auto.projects_checked", float64(ar.ProjectsChecked))
+		put("H.background_runs.auto.proposals_written", float64(ar.ProposalsWritten))
+		put("H.background_runs.auto.ratings_written", float64(ar.RatingsWritten))
+		put("H.background_runs.auto.workers_ran", float64(ar.WorkersRan))
+		put("H.background_runs.auto.applied", float64(ar.Applied))
+	}
 }
 
 // putColumn puts column v's metrics, each key suffixed with the column's
@@ -93,10 +183,22 @@ func (s *Summary) putColumn(put func(string, float64), v string) {
 	if p := s.B.Compactions[v]; p != nil {
 		put("B.compactions."+v, float64(*p))
 	}
+	s.putColumnAdherenceAndReliability(put, v)
+}
+
+func (s *Summary) putColumnAdherenceAndReliability(put func(string, float64), v string) {
 	put("C.sqlite_verbs."+v, float64(s.C.SQLiteVerbs[v]))
 	put("C.grep_calls."+v, float64(s.C.GrepCalls[v]))
 	if p := s.C.SearchGrepRatio[v]; p != nil {
 		put("C.search_grep_ratio."+v, *p)
+	}
+	if s.C.RedundantReads != nil {
+		if c, ok := s.C.RedundantReads[v]; ok {
+			put("C.redundant_reads."+v, float64(c))
+		}
+	}
+	if p := s.C.RangedReadPct[v]; p != nil {
+		put("C.ranged_read_pct."+v, *p)
 	}
 	if p := s.D.ToolErrorRate[v]; p != nil {
 		put("D.tool_error_rate."+v, *p)

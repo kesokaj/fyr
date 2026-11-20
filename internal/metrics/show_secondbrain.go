@@ -19,7 +19,8 @@ func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all 
 		}
 		sum.E = sb
 		if o.Project == "" {
-			sum.Projects = buildProjectRows(all, vetsByRoot, data.steps, data.events)
+			home := resolveMetricsHome(o, s.path)
+			sum.Projects = buildProjectRowsWithOpts(all, vetsByRoot, data.steps, data.events, o, home)
 		}
 	}
 	waves, err := s.queryWaveRows(o, since, now)
