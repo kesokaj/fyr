@@ -7,12 +7,11 @@
 
 ## Now
 
-- [ ] Wave 4a (Phase 4a) of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `brain.IndexRecordLinks`, pure-Go sqlite-free `internal/graph` constellation (`fyr graph` `--out`/`--force`/`--dot`/`--md`/`--json`/`--web`/`--listen`/`--include-tests`/`--include-docs`), and `fyr search --include-docs`
+- [ ] Wave 4b (Phase 4b) of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `SDD.md`, `TDD.md`, living specs (`SPEC-fyr-metrics`, `SPEC-fyr-pre-hook-coordinator`, `SPEC-fyr-graph`), `fyr verify`, parallel `reviewer` + `security` + headless Chromium Playwright `verifier`, finding fixes, and `TODO.md` Backlog closeout
 
 ## Next
 
 - [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
-- [ ] Phase 4b of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: docs, living specs, reviews & Playwright E2E
 
 ## Backlog
 
