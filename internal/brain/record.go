@@ -12,21 +12,22 @@ import (
 
 // Record is one row of the store.
 type Record struct {
-	Scope          string // the main worktree's absolute root, or "" for global
-	ID             string
-	Kind           string
-	Status         string
-	Date           string // YYYY-MM-DD, the day it was added
-	Title          string
-	Body           string
-	Project        string  // a global record's project (feedback, proposal)
-	Provenance     string  // operator, derived or unknown on memory and feedback; "" otherwise (D12)
-	MemoryKind     string  // semantic, procedural or episodic on memory; "" otherwise
-	Validity       float64 // deterministic validity score 0.00-1.00 on memory; 1.0 default
-	VerifiedAt     string  // RFC 3339 timestamp when memory was last verified
-	EvidenceCount  int     // count of sessions corroborating this memory
-	SourceSessions string  // comma-separated sorted, deduplicated short session IDs
-	Updated        string  // RFC 3339, set by every write
+	Scope          string  `json:"scope,omitempty"`   // the main worktree's absolute root, or "" for global
+	RepoID         string  `json:"repo_id,omitempty"` // canonical repository identity, or "" for global
+	ID             string  `json:"id"`
+	Kind           string  `json:"kind"`
+	Status         string  `json:"status"`
+	Date           string  `json:"date"` // YYYY-MM-DD, the day it was added
+	Title          string  `json:"title"`
+	Body           string  `json:"body"`
+	Project        string  `json:"project,omitempty"`         // a global record's project (feedback, proposal)
+	Provenance     string  `json:"provenance,omitempty"`      // operator, derived or unknown on memory and feedback; "" otherwise (D12)
+	MemoryKind     string  `json:"memory_kind,omitempty"`     // semantic, procedural or episodic on memory; "" otherwise
+	Validity       float64 `json:"validity,omitempty"`        // deterministic validity score 0.00-1.00 on memory; 1.0 default
+	VerifiedAt     string  `json:"verified_at,omitempty"`     // RFC 3339 timestamp when memory was last verified
+	EvidenceCount  int     `json:"evidence_count,omitempty"`  // count of sessions corroborating this memory
+	SourceSessions string  `json:"source_sessions,omitempty"` // comma-separated sorted, deduplicated short session IDs
+	Updated        string  `json:"updated"`                   // RFC 3339, set by every write
 }
 
 // prefixes is every kind and the prefix of its IDs (D7, D11). testing is

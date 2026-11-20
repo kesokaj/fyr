@@ -49,19 +49,19 @@ func MemoryDraftWithOptions(o Options, action, id, body string, opts MemoryDraft
 	defer s.close()
 	now := o.now()
 	if err := s.st.tx(func(c *sql.Conn) error {
-		return applyMemoryDraftTx(c, s.scope, s.top, action, slug, recID, text, opts, now)
+		return applyMemoryDraftTx(c, s, action, slug, recID, text, opts, now)
 	}); err != nil {
 		return "", err
 	}
 	return recID, nil
 }
 
-func applyMemoryDraftTx(c *sql.Conn, scope, top, action, slug, recID, text string, opts MemoryDraftOptions, now time.Time) error {
+func applyMemoryDraftTx(c *sql.Conn, s *session, action, slug, recID, text string, opts MemoryDraftOptions, now time.Time) error {
 	ctx := context.Background()
 	stamp := now.UTC().Format(time.RFC3339)
 	var curBody, curProv, curKind, curSessions string
 	var curEv int
-	qerr := c.QueryRowContext(ctx, `SELECT body, provenance, memory_kind, evidence_count, source_sessions FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, scope, recID).
+	qerr := c.QueryRowContext(ctx, `SELECT body, provenance, memory_kind, evidence_count, source_sessions FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, s.scope, recID).
 		Scan(&curBody, &curProv, &curKind, &curEv, &curSessions)
 	existsHere := qerr == nil
 	if qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
@@ -69,63 +69,86 @@ func applyMemoryDraftTx(c *sql.Conn, scope, top, action, slug, recID, text strin
 	}
 	switch action {
 	case "add":
-		return applyMemoryDraftAdd(c, scope, top, slug, recID, text, curProv, curEv, curSessions, existsHere, opts, now, stamp)
+		return applyMemoryDraftAdd(c, s, slug, recID, text, curProv, curEv, curSessions, existsHere, opts, now, stamp)
 	case "retire":
 		if !existsHere {
 			return refuse("no memory %s in this project", recID)
 		}
-		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'retired', updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`, stamp, scope, recID)
+		if curProv == "operator" {
+			return refuse("memory %s has operator provenance and cannot be retired", recID)
+		}
+		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'retired', updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`, stamp, s.scope, recID)
 		return err
 	case "merge":
 		if !existsHere {
 			return refuse("no memory %s in this project", recID)
 		}
-		return applyMemoryDraftMerge(c, scope, top, recID, text, curBody, curProv, curKind, curEv, curSessions, opts, now, stamp)
+		return applyMemoryDraftMerge(c, s, recID, text, curBody, curProv, curKind, curEv, curSessions, opts, now, stamp)
 	}
 	return nil
 }
 
-func applyMemoryDraftMerge(c *sql.Conn, scope, top, recID, text, curBody, curProv, curKind string, curEv int, curSessions string, opts MemoryDraftOptions, now time.Time, stamp string) error {
+func applyMemoryDraftMerge(c *sql.Conn, s *session, recID, text, curBody, curProv, curKind string, curEv int, curSessions string, opts MemoryDraftOptions, now time.Time, stamp string) error {
 	ctx := context.Background()
 	normType := resolveDraftType(opts.Type, text, curKind, curBody)
 	full := mergeMemoryBody(text, curBody, curProv, normType)
 	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
 	evCount := resolveDraftEvidence(true, curEv, opts, sessions)
 	var title string
-	if err := c.QueryRowContext(ctx, `SELECT title FROM records WHERE scope = ? AND id = ?`, scope, recID).Scan(&title); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := c.QueryRowContext(ctx, `SELECT title FROM records WHERE scope = ? AND id = ?`, s.scope, recID).Scan(&title); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	nextProv := "derived"
+	if curProv == "operator" {
+		nextProv = "operator"
+	}
 	rec := Record{
-		Scope: scope, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
-		Provenance: "derived", MemoryKind: normType, VerifiedAt: stamp,
+		Scope: s.scope, RepoID: s.repoID, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
+		Provenance: nextProv, MemoryKind: normType, VerifiedAt: stamp,
 		EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
 	}
-	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
+	feedbacks, err := queryFeedbacksConn(ctx, c, s.scope)
 	if err != nil {
 		return err
 	}
-	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
-	_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
-		full, normType, val, stamp, evCount, sessions, stamp, scope, recID)
+	val := ComputeMemoryValidity(s.top, rec, CountMemoryContradictions(rec, feedbacks), now)
+	_, err = c.ExecContext(ctx, `UPDATE records SET repo_id = ?, status = 'closed', body = ?, provenance = ?, memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+		s.repoID, full, nextProv, normType, val, stamp, evCount, sessions, stamp, s.scope, recID)
 	return err
 }
 
-func mergeMemoryBody(text, curBody, curProv, normType string) string {
-	full := ensureNormalizedMemoryBody(text, normType)
-	prev := strings.TrimSpace(curBody)
-	if prev != "" && !strings.Contains(full, prev) {
-		if curProv == "" {
-			curProv = "unknown"
-		}
-		full += "\n\n---\nPrior (" + curProv + "):\n" + prev
-	}
-	return full
-}
-
-func applyMemoryDraftAdd(c *sql.Conn, scope, top, slug, recID, text, curProv string, curEv int, curSessions string, existsHere bool, opts MemoryDraftOptions, now time.Time, stamp string) error {
+func applyMemoryDraftAdd(c *sql.Conn, s *session, slug, recID, text, curProv string, curEv int, curSessions string, existsHere bool, opts MemoryDraftOptions, now time.Time, stamp string) error {
 	if existsHere && curProv == "operator" {
 		return refuse("memory %s has operator provenance", recID)
 	}
+	title := draftAddTitle(text, slug)
+	normType := resolveDraftType(opts.Type, text, "", "")
+	full := ensureNormalizedMemoryBody(text, normType)
+	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
+	evCount := resolveDraftEvidence(existsHere, curEv, opts, sessions)
+	rec := Record{
+		Scope: s.scope, RepoID: s.repoID, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
+		Provenance: "derived", MemoryKind: normType, VerifiedAt: stamp,
+		EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
+	}
+	ctx := context.Background()
+	feedbacks, err := queryFeedbacksConn(ctx, c, s.scope)
+	if err != nil {
+		return err
+	}
+	val := ComputeMemoryValidity(s.top, rec, CountMemoryContradictions(rec, feedbacks), now)
+	if existsHere {
+		_, err = c.ExecContext(ctx, `UPDATE records SET repo_id = ?, status = 'closed', title = ?, body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+			s.repoID, title, full, normType, val, stamp, evCount, sessions, stamp, s.scope, recID)
+		return err
+	}
+	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
+		VALUES (?, ?, ?, 'memory', 'closed', ?, ?, ?, '', 'derived', ?, ?, ?, ?, ?, ?)`,
+		s.scope, s.repoID, recID, now.Format("2006-01-02"), title, full, normType, val, stamp, evCount, sessions, stamp)
+	return err
+}
+
+func draftAddTitle(text, slug string) string {
 	first, _, _ := strings.Cut(text, "\n")
 	first = strings.TrimSpace(first)
 	if len(first) > maxTitle {
@@ -133,32 +156,9 @@ func applyMemoryDraftAdd(c *sql.Conn, scope, top, slug, recID, text, curProv str
 	}
 	title, err := cleanTitle(first)
 	if err != nil {
-		title = slug
+		return slug
 	}
-	normType := resolveDraftType(opts.Type, text, "", "")
-	full := ensureNormalizedMemoryBody(text, normType)
-	sessions := mergeSourceSessions(curSessions, opts.SourceSessions)
-	evCount := resolveDraftEvidence(existsHere, curEv, opts, sessions)
-	rec := Record{
-		Scope: scope, ID: recID, Kind: "memory", Status: "closed", Title: title, Body: full,
-		Provenance: "derived", MemoryKind: normType, VerifiedAt: stamp,
-		EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
-	}
-	ctx := context.Background()
-	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
-	if err != nil {
-		return err
-	}
-	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
-	if existsHere {
-		_, err = c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = 'derived', memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
-			title, full, normType, val, stamp, evCount, sessions, stamp, scope, recID)
-		return err
-	}
-	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
-		VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', 'derived', ?, ?, ?, ?, ?, ?)`,
-		scope, recID, now.Format("2006-01-02"), title, full, normType, val, stamp, evCount, sessions, stamp)
-	return err
+	return title
 }
 
 func resolveDraftType(optType, text, curKind, curBody string) string {

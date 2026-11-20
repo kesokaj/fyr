@@ -157,7 +157,11 @@ func loadShowMemories(db *sql.DB, scope string) ([]Record, []Record, error) {
 }
 
 func feedbackQuery(scope string) (string, []any) {
-	q := `SELECT ` + recordCols + ` FROM records WHERE kind = 'feedback'`
+	return feedbackQueryVer(len(migrations), scope)
+}
+
+func feedbackQueryVer(ver int, scope string) (string, []any) {
+	q := `SELECT ` + selectRecordCols(ver) + ` FROM records WHERE kind = 'feedback'`
 	if scope != "" {
 		return q + ` AND (project = '' OR project = ?)`, []any{scope}
 	}
@@ -165,7 +169,11 @@ func feedbackQuery(scope string) (string, []any) {
 }
 
 func queryFeedbacksDB(db *sql.DB, scope string) ([]Record, error) {
-	q, args := feedbackQuery(scope)
+	return queryFeedbacksDBVer(db, len(migrations), scope)
+}
+
+func queryFeedbacksDBVer(db *sql.DB, ver int, scope string) ([]Record, error) {
+	q, args := feedbackQueryVer(ver, scope)
 	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err

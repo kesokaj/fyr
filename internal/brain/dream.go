@@ -301,6 +301,7 @@ func ProposeAll(home, project string, ps []Proposal, now time.Time) ([]string, e
 	if project != "" {
 		project = canonicalProject(project)
 	}
+	repoID := ResolveRepoID(project)
 	var ids []string
 	err = st.tx(func(c *sql.Conn) error {
 		ids = nil
@@ -314,8 +315,8 @@ func ProposeAll(home, project string, ps []Proposal, now time.Time) ([]string, e
 			if err := checkRecord(r); err != nil {
 				return refuse("proposal %q: %v", r.Title, err)
 			}
-			if _, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
-				VALUES ('', ?, 'proposal', 'queued', ?, ?, ?, ?, ?)`, id, now.Format("2006-01-02"), r.Title, r.Body, project, now.UTC().Format(time.RFC3339)); err != nil {
+			if _, err := c.ExecContext(context.Background(), `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, updated)
+				VALUES ('', ?, ?, 'proposal', 'queued', ?, ?, ?, ?, ?)`, repoID, id, now.Format("2006-01-02"), r.Title, r.Body, project, now.UTC().Format(time.RFC3339)); err != nil {
 				return err
 			}
 			ids = append(ids, id)

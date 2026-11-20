@@ -149,8 +149,8 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 		}
 	}
 
-	// Merging an existing memory in the same project updates its body, archives
-	// the prior body for reversibility, and sets provenance=derived.
+	// Merging an existing operator memory in the same project updates its body,
+	// archives the prior operator body for reversibility, and preserves operator provenance.
 	if _, err := MemoryDraftWithOptions(oA, "merge", idOpA, "merged body", MemoryDraftOptions{}); err != nil {
 		t.Fatalf("MemoryDraftWithOptions merge: %v", err)
 	}
@@ -158,11 +158,14 @@ func TestProvenanceMemoryDraftActions(t *testing.T) {
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("Get merged: %v %v", recs, err)
 	}
-	if !strings.Contains(recs[0].Body, "merged body") || !strings.Contains(recs[0].Body, "Prior (operator):") || !strings.Contains(recs[0].Body, "operator body") || recs[0].Provenance != "derived" || recs[0].Status != "closed" {
+	if !strings.Contains(recs[0].Body, "merged body") || !strings.Contains(recs[0].Body, "Prior (operator):") || !strings.Contains(recs[0].Body, "operator body") || recs[0].Provenance != "operator" || recs[0].Status != "closed" {
 		t.Errorf("after merge: %+v", recs[0])
 	}
 
-	// Retiring an existing memory in the same project sets status=retired.
+	// Retiring an operator memory is refused, while retiring a derived memory succeeds.
+	if _, err := MemoryDraftWithOptions(oA, "retire", idOpA, "stale", MemoryDraftOptions{}); !IsRefusal(err) {
+		t.Errorf("MemoryDraftWithOptions retire over operator memory: %v, want refusal", err)
+	}
 	if _, err := MemoryDraftWithOptions(oA, "retire", idDerA, "stale", MemoryDraftOptions{}); err != nil {
 		t.Fatalf("MemoryDraftWithOptions retire: %v", err)
 	}

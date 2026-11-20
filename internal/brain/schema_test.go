@@ -177,3 +177,76 @@ func TestMigrationTwoToThreePreservesAndMapsMemory(t *testing.T) {
 		t.Errorf("BUG-001 = %+v", r)
 	}
 }
+
+func TestMigrationThreeToFourAndReadOnlyV3(t *testing.T) {
+	dir, home := repo(t), t.TempDir()
+	p := Path(home)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := db.Exec(migrations[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 3`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
+		VALUES(?, 'BUG-001', 'bug', 'open', '2026-10-25', 'v3 bug', 'Touches pkg/a.go', '', '', '', 1.0, '', '2026-10-25T14:30:00Z')`, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO meta(scope, export_sha) VALUES(?, 'abc123')`, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read-only callers must read a v3 store cleanly without migrating it.
+	if recs, ok, err := ReadScope(home, dir); err != nil || !ok || len(recs) != 1 || recs[0].ID != "BUG-001" {
+		t.Fatalf("ReadScope on v3 store: recs=%+v ok=%v err=%v", recs, ok, err)
+	}
+	if links, err := IndexRecordLinks(home, dir, []string{"pkg/a.go"}); err != nil || links["pkg/a.go"].Bugs != 1 {
+		t.Fatalf("IndexRecordLinks on v3 store: links=%+v err=%v", links, err)
+	}
+	if exported, err := ExportStateRecords(home, StateExportOpts{}); err != nil || len(exported) != 1 || exported[0].RepoID == "" {
+		t.Fatalf("ExportStateRecords on v3 store: %+v %v", exported, err)
+	}
+	ro, err := sql.Open("sqlite", "file:"+p+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var uv int
+	if err := ro.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil || uv != 3 {
+		t.Fatalf("user_version after read-only v3 reads = %d (%v), want 3", uv, err)
+	}
+	ro.Close()
+
+	// Opening read-write migrates v3 -> v4, adding repo_id on records and meta plus records_repo_id index.
+	o := opts(dir, home)
+	recs, missing, err := Get(o, []string{"BUG-001"})
+	if err != nil || len(missing) != 0 || len(recs) != 1 {
+		t.Fatalf("Get after v3->v4 migration: %v %v %v", recs, missing, err)
+	}
+	ro2, err := sql.Open("sqlite", "file:"+p+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro2.Close()
+	if err := ro2.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil || uv != 4 {
+		t.Fatalf("migrated user_version = %d (%v), want 4", uv, err)
+	}
+	var idxCount int
+	if err := ro2.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'records_repo_id'`).Scan(&idxCount); err != nil || idxCount != 1 {
+		t.Fatalf("records_repo_id index count = %d, err = %v", idxCount, err)
+	}
+	var metaRepoID string
+	if err := ro2.QueryRow(`SELECT repo_id FROM meta WHERE scope = ?`, dir).Scan(&metaRepoID); err != nil || metaRepoID != "" {
+		t.Fatalf("migrated meta.repo_id = %q, err = %v", metaRepoID, err)
+	}
+}

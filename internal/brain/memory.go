@@ -80,19 +80,20 @@ func mergeSourceSessions(existing string, incoming []string) string {
 // memorySession opens the store in the project's scope for a memory call, or
 // the shared global scope when o.Global is true (skipping resolveProject, D10).
 func memorySession(o Options) (*session, error) {
-	var scope, top string
+	var scope, top, repoID string
 	if !o.Global {
 		var err error
 		scope, top, err = resolveProject(o.Dir)
 		if err != nil {
 			return nil, err
 		}
+		repoID = ResolveRepoID(scope)
 	}
 	st, err := openStore(o.Home)
 	if err != nil {
 		return nil, err
 	}
-	return &session{st: st, scope: scope, top: top}, nil
+	return &session{st: st, scope: scope, top: top, repoID: repoID}, nil
 }
 
 func validateMemoryEntry(e MemoryEntry) (string, string, error) {
@@ -140,18 +141,18 @@ func MemoryAdd(o Options, e MemoryEntry, body io.Reader) (string, error) {
 	now := o.now()
 	full := "type: " + normType + "\n\n" + text
 	if err := s.st.tx(func(c *sql.Conn) error {
-		return upsertMemoryRow(c, s.scope, s.top, id, title, full, prov, normType, e, now)
+		return upsertMemoryRow(c, s, id, title, full, prov, normType, e, now)
 	}); err != nil {
 		return "", err
 	}
 	return id, nil
 }
 
-func upsertMemoryRow(c *sql.Conn, scope, top, id, title, full, prov, normType string, e MemoryEntry, now time.Time) error {
+func upsertMemoryRow(c *sql.Conn, s *session, id, title, full, prov, normType string, e MemoryEntry, now time.Time) error {
 	ctx := context.Background()
 	var curSessions string
 	var curEv int
-	qerr := c.QueryRowContext(ctx, `SELECT source_sessions, evidence_count FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, scope, id).Scan(&curSessions, &curEv)
+	qerr := c.QueryRowContext(ctx, `SELECT source_sessions, evidence_count FROM records WHERE scope = ? AND id = ? AND kind = 'memory'`, s.scope, id).Scan(&curSessions, &curEv)
 	taken := qerr == nil
 	if qerr != nil && !errors.Is(qerr, sql.ErrNoRows) {
 		return qerr
@@ -163,22 +164,22 @@ func upsertMemoryRow(c *sql.Conn, scope, top, id, title, full, prov, normType st
 	}
 	stamp := now.UTC().Format(time.RFC3339)
 	rec := Record{
-		Scope: scope, ID: id, Kind: "memory", Status: "closed",
+		Scope: s.scope, RepoID: s.repoID, ID: id, Kind: "memory", Status: "closed",
 		Title: title, Body: full, Provenance: prov, MemoryKind: normType,
 		VerifiedAt: stamp, EvidenceCount: evCount, SourceSessions: sessions, Updated: stamp,
 	}
-	feedbacks, err := queryFeedbacksConn(ctx, c, scope)
+	feedbacks, err := queryFeedbacksConn(ctx, c, s.scope)
 	if err != nil {
 		return err
 	}
-	val := ComputeMemoryValidity(top, rec, CountMemoryContradictions(rec, feedbacks), now)
+	val := ComputeMemoryValidity(s.top, rec, CountMemoryContradictions(rec, feedbacks), now)
 	if taken {
-		_, err := c.ExecContext(ctx, `UPDATE records SET status = 'closed', title = ?, body = ?, provenance = ?, memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
-			title, full, prov, normType, val, stamp, evCount, sessions, stamp, scope, id)
+		_, err := c.ExecContext(ctx, `UPDATE records SET repo_id = ?, status = 'closed', title = ?, body = ?, provenance = ?, memory_kind = ?, validity = ?, verified_at = ?, evidence_count = ?, source_sessions = ?, updated = ? WHERE scope = ? AND id = ? AND kind = 'memory'`,
+			s.repoID, title, full, prov, normType, val, stamp, evCount, sessions, stamp, s.scope, id)
 		return err
 	}
-	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
-		VALUES (?, ?, 'memory', 'closed', ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
-		scope, id, now.Format("2006-01-02"), title, full, prov, normType, val, stamp, evCount, sessions, stamp)
+	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated)
+		VALUES (?, ?, ?, 'memory', 'closed', ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`,
+		s.scope, s.repoID, id, now.Format("2006-01-02"), title, full, prov, normType, val, stamp, evCount, sessions, stamp)
 	return err
 }

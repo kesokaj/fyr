@@ -66,6 +66,9 @@ var migrations = []string{
 	ALTER TABLE records ADD COLUMN evidence_count INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE records ADD COLUMN source_sessions TEXT NOT NULL DEFAULT '';
 	UPDATE records SET memory_kind = CASE WHEN kind = 'memory' AND body LIKE 'type: feedback%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: procedural%' THEN 'procedural' WHEN kind = 'memory' AND body LIKE 'type: episodic%' THEN 'episodic' WHEN kind = 'memory' THEN 'semantic' ELSE '' END, validity = CASE WHEN kind = 'memory' AND provenance = 'derived' THEN 0.55 WHEN kind = 'memory' AND provenance = 'unknown' THEN 0.70 WHEN kind = 'memory' THEN 1.0 ELSE 1.0 END, verified_at = CASE WHEN kind = 'memory' THEN updated ELSE '' END;`,
+	`ALTER TABLE records ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	ALTER TABLE meta ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
+	CREATE INDEX IF NOT EXISTS records_repo_id ON records(repo_id);`,
 }
 
 // Path is the store's location under home, or empty when home is empty.

@@ -44,6 +44,7 @@ type RecordJSON struct {
 	Title          string  `json:"title"`
 	Body           string  `json:"body,omitempty"`
 	Scope          string  `json:"scope,omitempty"`
+	RepoID         string  `json:"repo_id,omitempty"`
 	Project        string  `json:"project,omitempty"`
 	Provenance     string  `json:"provenance,omitempty"`
 	MemoryKind     string  `json:"memory_kind,omitempty"`
@@ -271,6 +272,7 @@ func FormatRecordsJSON(recs []Record, includeBody bool) (string, error) {
 			Date:           search.Printable(r.Date),
 			Title:          search.Printable(r.Title),
 			Scope:          search.Printable(r.Scope),
+			RepoID:         search.Printable(r.RepoID),
 			Project:        search.Printable(r.Project),
 			Provenance:     search.Printable(r.Provenance),
 			MemoryKind:     search.Printable(r.MemoryKind),

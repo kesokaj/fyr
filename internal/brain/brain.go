@@ -121,10 +121,21 @@ func insertRecord(c *sql.Conn, s *session, in AddInput, status, title, body, pro
 		}
 		val = ComputeMemoryValidity(s.top, rec, CountMemoryContradictions(rec, feedbacks), now)
 	}
-	_, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.scope, id, in.Kind, status, now.Format("2006-01-02"), title, body, project, prov, memKind, val, verAt, stamp)
+	repoID := recordRepoID(s.repoID, project)
+	_, err := c.ExecContext(ctx, `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.scope, repoID, id, in.Kind, status, now.Format("2006-01-02"), title, body, project, prov, memKind, val, verAt, stamp)
 	return id, err
+}
+
+func recordRepoID(scopeRepoID, project string) string {
+	if scopeRepoID != "" {
+		return scopeRepoID
+	}
+	if project != "" {
+		return ResolveRepoID(project)
+	}
+	return ""
 }
 
 // Get returns the records named, in the order named; any not in the scope
@@ -190,8 +201,8 @@ func Edit(o Options, in EditInput) error {
 				r.Status = planStatus(body)
 			}
 		}
-		_, err = c.ExecContext(ctx, `UPDATE records SET status = ?, title = ?, body = ?, updated = ? WHERE scope = ? AND id = ?`,
-			r.Status, r.Title, r.Body, now.UTC().Format(time.RFC3339), s.scope, in.ID)
+		_, err = c.ExecContext(ctx, `UPDATE records SET repo_id = CASE WHEN repo_id = '' THEN ? ELSE repo_id END, status = ?, title = ?, body = ?, updated = ? WHERE scope = ? AND id = ?`,
+			recordRepoID(s.repoID, r.Project), r.Status, r.Title, r.Body, now.UTC().Format(time.RFC3339), s.scope, in.ID)
 		return err
 	})
 }

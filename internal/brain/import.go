@@ -187,7 +187,11 @@ func storeImported(home, scope, top string, res *ImportResult, recs []Record) er
 	if err != nil {
 		return err
 	}
-	s := &session{st: st, scope: scope, top: top}
+	repoID := ""
+	if scope != "" {
+		repoID = ResolveRepoID(scope)
+	}
+	s := &session{st: st, scope: scope, top: top, repoID: repoID}
 	defer s.close()
 	stored, err := s.insertNew(recs)
 	if err != nil {
@@ -217,46 +221,64 @@ func filterStored(all []Imported, stored map[string]bool) []Imported {
 // every record; the check runs again here as the last guard before the store.
 func (s *session) insertNew(recs []Record) (map[string]bool, error) {
 	stored := map[string]bool{}
+	repoCache := map[string]string{}
+	if s.scope != "" && s.repoID != "" {
+		repoCache[s.scope] = s.repoID
+	}
 	err := s.st.tx(func(c *sql.Conn) error {
 		ctx := context.Background()
 		for _, r := range recs {
-			if err := checkRecord(r); err != nil {
-				return fmt.Errorf("brain: import built a record the load would refuse: %s: %w", r.ID, err)
-			}
-			taken, err := exists(c, r.Scope, r.ID)
+			ok, err := insertImportedRow(ctx, c, r, repoCache)
 			if err != nil {
 				return err
 			}
-			if taken {
-				continue
+			if ok {
+				stored[storedKey(r.Scope, r.ID)] = true
 			}
-			prov := r.Provenance
-			if (r.Kind == "memory" || r.Kind == "feedback") && prov == "" {
-				prov = "unknown"
-			}
-			memKind, val, verAt := r.MemoryKind, r.Validity, r.VerifiedAt
-			if r.Kind == "memory" {
-				if memKind == "" {
-					memKind = resolveMemoryKind(r)
-				}
-				if val == 0 {
-					val = 0.70
-				}
-				if verAt == "" {
-					verAt = r.Updated
-				}
-			} else if val == 0 {
-				val = 1.0
-			}
-			if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Project, prov, memKind, val, verAt, r.Updated); err != nil {
-				return err
-			}
-			stored[storedKey(r.Scope, r.ID)] = true
 		}
 		return nil
 	})
 	return stored, err
+}
+
+func insertImportedRow(ctx context.Context, c *sql.Conn, r Record, repoCache map[string]string) (bool, error) {
+	if err := checkRecord(r); err != nil {
+		return false, fmt.Errorf("brain: import built a record the load would refuse: %s: %w", r.ID, err)
+	}
+	taken, err := exists(c, r.Scope, r.ID)
+	if err != nil || taken {
+		return false, err
+	}
+	fillMissingRepoID(&r, repoCache)
+	prov := r.Provenance
+	if (r.Kind == "memory" || r.Kind == "feedback") && prov == "" {
+		prov = "unknown"
+	}
+	memKind, val, verAt := importedDefaults(r)
+	_, err = c.ExecContext(ctx, `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Scope, r.RepoID, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Project, prov, memKind, val, verAt, r.Updated)
+	return err == nil, err
+}
+
+func importedDefaults(r Record) (memKind string, val float64, verAt string) {
+	memKind, val, verAt = r.MemoryKind, r.Validity, r.VerifiedAt
+	if r.Kind == "memory" {
+		if memKind == "" {
+			memKind = resolveMemoryKind(r)
+		}
+		if val == 0 {
+			val = 0.70
+		}
+		if verAt == "" {
+			verAt = r.Updated
+		}
+		return memKind, val, verAt
+	}
+	if val == 0 {
+		val = 1.0
+	}
+	return memKind, val, verAt
 }
 
 // ImportSummary counts the records by kind, sorted, for the CLI.

@@ -19,9 +19,10 @@ import (
 
 // session is one call's store and scope.
 type session struct {
-	st    *store
-	scope string // the main worktree's root, or "" for global
-	top   string // this checkout's top level, where trail.jsonl is; "" for global
+	st     *store
+	scope  string // the main worktree's root, or "" for global
+	top    string // this checkout's top level, where trail.jsonl is; "" for global
+	repoID string // canonical repository identity for scope, or "" for global
 }
 
 func (s *session) close() { s.st.close() }
@@ -74,7 +75,7 @@ func openSession(o Options) (*session, error) {
 				return nil, refuse("this project's trail is still files under %s/: migrate it with `fyr record import` first", docsDir)
 			}
 		}
-		s.scope, s.top = scope, top
+		s.scope, s.top, s.repoID = scope, top, ResolveRepoID(scope)
 	}
 	st, err := openStore(o.Home)
 	if err != nil {
@@ -242,14 +243,16 @@ func resolveProvenance(kind, given string) (string, error) {
 	}
 }
 
-const recordCols = `scope, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated`
+const recordCols = `scope, repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated`
 
 func selectRecordCols(ver int) string {
 	switch {
 	case ver < 2:
-		return `scope, id, kind, status, date, title, body, project, '' AS provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
+		return `scope, '' AS repo_id, id, kind, status, date, title, body, project, '' AS provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
 	case ver < 3:
-		return `scope, id, kind, status, date, title, body, project, provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
+		return `scope, '' AS repo_id, id, kind, status, date, title, body, project, provenance, '' AS memory_kind, 1.0 AS validity, '' AS verified_at, 0 AS evidence_count, '' AS source_sessions, updated`
+	case ver < 4:
+		return `scope, '' AS repo_id, id, kind, status, date, title, body, project, provenance, memory_kind, validity, verified_at, evidence_count, source_sessions, updated`
 	default:
 		return recordCols
 	}
@@ -257,7 +260,7 @@ func selectRecordCols(ver int) string {
 
 func scanRecord(sc interface{ Scan(...any) error }) (Record, error) {
 	var r Record
-	err := sc.Scan(&r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
+	err := sc.Scan(&r.Scope, &r.RepoID, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
 		&r.MemoryKind, &r.Validity, &r.VerifiedAt, &r.EvidenceCount, &r.SourceSessions, &r.Updated)
 	if err == nil && (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
 		r.Provenance = "unknown"

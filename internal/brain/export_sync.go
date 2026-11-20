@@ -17,8 +17,12 @@ import (
 )
 
 func setExportSHA(c *sql.Conn, scope, sha string) error {
-	_, err := c.ExecContext(context.Background(), `INSERT INTO meta(scope, export_sha) VALUES (?, ?)
-		ON CONFLICT(scope) DO UPDATE SET export_sha = excluded.export_sha`, scope, sha)
+	repoID := ""
+	if scope != "" {
+		repoID = ResolveRepoID(scope)
+	}
+	_, err := c.ExecContext(context.Background(), `INSERT INTO meta(scope, repo_id, export_sha) VALUES (?, ?, ?)
+		ON CONFLICT(scope) DO UPDATE SET repo_id = excluded.repo_id, export_sha = excluded.export_sha`, scope, repoID, sha)
 	return err
 }
 
@@ -305,21 +309,25 @@ func Sync(o Options) ([]Record, error) {
 		return nil, err
 	}
 	defer st.close()
-	err = st.tx(func(c *sql.Conn) error {
-		ctx := context.Background()
-		if _, err := c.ExecContext(ctx, `DELETE FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, scope); err != nil {
-			return err
-		}
-		for _, r := range recs {
-			if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, id, kind, status, date, title, body, project, updated)
-				VALUES (?, ?, ?, ?, ?, ?, ?, '', ?)`, scope, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Updated); err != nil {
-				return err
-			}
-		}
-		return setExportSHA(c, scope, sha)
-	})
-	if err != nil {
+	repoID := ResolveRepoID(scope)
+	if err := st.tx(func(c *sql.Conn) error {
+		return syncScopeTx(c, scope, repoID, sha, recs)
+	}); err != nil {
 		return nil, err
 	}
 	return recs, nil
+}
+
+func syncScopeTx(c *sql.Conn, scope, repoID, sha string, recs []Record) error {
+	ctx := context.Background()
+	if _, err := c.ExecContext(ctx, `DELETE FROM records WHERE scope = ? AND kind NOT IN `+unexportedSQL, scope); err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if _, err := c.ExecContext(ctx, `INSERT INTO records(scope, repo_id, id, kind, status, date, title, body, project, updated)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?)`, scope, repoID, r.ID, r.Kind, r.Status, r.Date, r.Title, r.Body, r.Updated); err != nil {
+			return err
+		}
+	}
+	return setExportSHA(c, scope, sha)
 }

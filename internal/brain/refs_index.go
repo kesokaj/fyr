@@ -95,7 +95,7 @@ func resolveIndexScope(root string) (project, top string) {
 
 func loadLinkCandidates(db *sql.DB, ver int, project, top string) ([]candidateRecord, error) {
 	if ver >= 3 {
-		return loadLinkCandidatesV3(db, project, top)
+		return loadLinkCandidatesV3(db, ver, project, top)
 	}
 	return loadLinkCandidatesLegacy(db, project)
 }
@@ -123,12 +123,12 @@ func loadLinkCandidatesLegacy(db *sql.DB, project string) ([]candidateRecord, er
 	return out, rows.Err()
 }
 
-func loadLinkCandidatesV3(db *sql.DB, project, top string) ([]candidateRecord, error) {
-	feedbacks, err := queryFeedbacksDB(db, project)
+func loadLinkCandidatesV3(db *sql.DB, ver int, project, top string) ([]candidateRecord, error) {
+	feedbacks, err := queryFeedbacksDBVer(db, ver, project)
 	if err != nil {
 		return nil, fmt.Errorf("brain: %w", err)
 	}
-	q := `SELECT ` + recordCols + ` FROM records
+	q := `SELECT ` + selectRecordCols(ver) + ` FROM records
 		WHERE (scope = '' OR scope = ?) AND kind IN ('bug', 'adr', 'memory')
 		ORDER BY id`
 	rows, err := db.Query(q, project)
