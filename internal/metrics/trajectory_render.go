@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 // WriteTrajectoriesJSON encodes trajectories as indented JSON to w.
@@ -45,7 +47,11 @@ func writeOneTrajectoryText(w io.Writer, t SessionTrajectory) {
 		for i, tok := range t.TurnTokens {
 			parts[i] = fmt.Sprintf("t%d=%s", i+1, fmtTokens(tok))
 		}
-		fmt.Fprintf(w, "  turns: %s (knee %s)\n", strings.Join(parts, " -> "), fmtTokens(ContextKneeTokens))
+		knee := t.KneeTokens
+		if knee <= 0 {
+			knee = models.ContextKneeTokens(t.Model)
+		}
+		fmt.Fprintf(w, "  turns: %s (knee %s)\n", strings.Join(parts, " -> "), fmtTokens(knee))
 	}
 	for _, sub := range t.Subagents {
 		writeSubagentText(w, sub)

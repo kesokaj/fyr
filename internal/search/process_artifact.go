@@ -10,9 +10,10 @@ import (
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
-func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, TurnBannerMeta, SliceResult) {
+func buildHealthyHookTurn(o Options, sc *scope, dir, convID, sessionModel, rawPrompt, cleanPrompt string, state SessionState, dirtySummary string, fastPath bool) ([]string, TurnBannerMeta, SliceResult) {
 	var sections []string
 	var meta TurnBannerMeta
 	if state.Compacted {
@@ -40,14 +41,19 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, rawPrompt, cleanPro
 			meta.PivotCount = slice.Pivots
 		}
 	}
-	if state.EstTokens >= hookKneeTokens {
-		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= 180K knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000))
-		meta.ContextKneeWarning = fmt.Sprintf("%dk tokens (>= 180K knee)", state.EstTokens/1000)
+	knee := models.ContextKneeTokensForHome(o.Home, sessionModel)
+	if knee > 0 && int64(state.EstTokens) >= knee {
+		kneeLabel := fmt.Sprintf("%d tokens", knee)
+		if knee >= 1000 {
+			kneeLabel = fmt.Sprintf("%dK", (knee+500)/1000)
+		}
+		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000, kneeLabel))
+		meta.ContextKneeWarning = fmt.Sprintf("%dk tokens (>= %s 60%% model knee)", state.EstTokens/1000, kneeLabel)
 	}
 	return sections, meta, slice
 }
 
-func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
+func buildHookEnvelope(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
 	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
 		return "", ""
 	}
@@ -74,7 +80,7 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID string, in HookInput, s
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
 	cat, hasCat := loadModelsCatalog(o.Home)
-	rawModel := resolveHookSessionModelForHome(o.Home, in)
+	rawModel := sessionModel
 	vetRes.SessionModel, vetRes.SessionThinking = resolveModelAndThinkingWithCatalog(cat, hasCat, rawModel)
 	if sc != nil && sc.st != nil {
 		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)

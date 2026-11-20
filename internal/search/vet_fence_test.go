@@ -381,13 +381,25 @@ func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
 		CompactedGeneration:  2,
 		DirtyFastPath:        true,
 		PivotCount:           4,
-		ContextKneeWarning:   "185k tokens (>= 180K knee)",
+		ContextKneeWarning:   "305k tokens (>= 300K 60% model knee)",
 		ModelTip:             "consider Carbon",
 		SessionModelResolved: true,
 	}
 	msg, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, meta)
 	b := parseFencedJSONBanner(t, msg)
-	if b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" || b.TokenKneeWarning != "185k tokens (>= 180K knee)" {
+	if b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" ||
+		b.TokenKneeWarning != meta.ContextKneeWarning || len(b.Notices) != 0 {
 		t.Fatalf("unexpected typed TurnBannerMeta output: %+v", b)
+	}
+	for _, want := range []string{
+		"305k tokens (>= 300K 60% model knee)",
+		"80k tokens (>= 77K 60% model knee)",
+		"185k tokens (>= 180K knee)",
+	} {
+		var parsed PreInvocationBanner
+		applyExtraBanner(&parsed, want)
+		if parsed.TokenKneeWarning != want || len(parsed.Notices) != 0 {
+			t.Fatalf("applyExtraBanner(%q) = %+v", want, parsed)
+		}
 	}
 }

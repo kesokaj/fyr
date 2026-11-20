@@ -3,12 +3,19 @@ package metrics
 import (
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
-func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp) map[string]bool {
+func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp, home string) map[string]bool {
 	h.MainSessions = sum.Sessions["agy"]
+	modelByID := make(map[string]string, len(all))
+	for _, x := range all {
+		modelByID[x.id] = x.model
+	}
+	overrides := models.ContextWindowOverrides(home)
 	for _, p := range sum.B.SessionPeaks["agy"] {
-		if p.Peak >= ContextKneeTokens {
+		if knee := models.ContextKneeWithOverrides(modelByID[p.Session], overrides); knee > 0 && p.Peak >= knee {
 			h.SessionsOverKnee++
 		}
 	}

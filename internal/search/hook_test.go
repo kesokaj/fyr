@@ -2,6 +2,8 @@ package search
 
 import (
 	"bytes"
+	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 const hookSampleServiceSrc = `package sample
@@ -242,6 +246,131 @@ func TestRunHookPreInvocationCompactionReprimeAndKneeWarning(t *testing.T) {
 	sys2 := resp2.InjectSteps[0].SystemMessage.SystemMessage
 	if !strings.Contains(sys2, "Re-primed Memory & Ready Phases") || !strings.Contains(sys2, "[Hop 0]") {
 		t.Errorf("expected post-compaction memory re-prime + capsule in systemMessage, got:\n%s", sys2)
+	}
+}
+
+func runKneeHookTurn(t *testing.T, home, dir, transcript, convID string, inv int, fields map[string]any, nBytes int) (string, PreInvocationBanner) {
+	t.Helper()
+	if err := os.WriteFile(transcript, bytes.Repeat([]byte("a"), nBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"conversationId": convID,
+		"workspacePaths": []string{dir},
+		"transcriptPath": transcript,
+		"invocationNum":  inv,
+		"lastUserInput":  "Check ReconcileProjectIndex",
+	}
+	for k, v := range fields {
+		payload[k] = v
+	}
+	rawIn, _ := json.Marshal(payload)
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(rawIn)}, &out); err != nil {
+		t.Fatalf("PreInvocation inv=%d: %v", inv, err)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal PreInvocation: %v", err)
+	}
+	if len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
+		return "", PreInvocationBanner{}
+	}
+	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
+	return msg, parseFencedJSONBanner(t, msg)
+}
+
+func assertKneeBanner(t *testing.T, msg string, b PreInvocationBanner, wantSub string) {
+	t.Helper()
+	if wantSub == "" {
+		if strings.Contains(msg, "[CONTEXT_KNEE_WARNING]") || b.TokenKneeWarning != "" {
+			t.Fatalf("unexpected knee warning: msg=%q banner=%+v", msg, b)
+		}
+		return
+	}
+	if !strings.Contains(b.TokenKneeWarning, wantSub) {
+		t.Fatalf("TokenKneeWarning = %q (Notices=%v), want %q", b.TokenKneeWarning, b.Notices, wantSub)
+	}
+	for _, notice := range b.Notices {
+		if strings.Contains(notice, "knee") {
+			t.Fatalf("knee warning leaked into Notices: %v", b.Notices)
+		}
+	}
+}
+
+func TestRunHookPreInvocationPerModelKnee(t *testing.T) {
+	dir := setupHookRepo(t)
+	home := t.TempDir()
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+
+	// gemini-4-neon-high: 220K under 300K knee, 305K over 300K knee.
+	msg1, b1 := runKneeHookTurn(t, home, dir, transcript, "conv-knee-neon", 1, map[string]any{"modelName": "gemini-4-neon-high"}, 880_000)
+	assertKneeBanner(t, msg1, b1, "")
+	msg2, b2 := runKneeHookTurn(t, home, dir, transcript, "conv-knee-neon", 2, map[string]any{"modelName": "gemini-4-neon-high"}, 1_220_000)
+	assertKneeBanner(t, msg2, b2, ">= 300K 60% model knee")
+
+	// gpt-oss-120b-medium: 80K triggers rounded 77K knee cleanly in TokenKneeWarning.
+	msg3, b3 := runKneeHookTurn(t, home, dir, filepath.Join(t.TempDir(), "gpt.jsonl"), "conv-knee-gpt", 1, map[string]any{"modelName": "gpt-oss-120b-medium"}, 320_000)
+	assertKneeBanner(t, msg3, b3, ">= 77K 60% model knee")
+}
+
+func TestRunHookPreInvocationKneeOverridesAndFallback(t *testing.T) {
+	dir := setupHookRepo(t)
+	home := t.TempDir()
+	if err := models.SaveCatalog(home, models.Catalog{
+		UpdatedAt: "2026-11-20T00:00:00Z",
+		Entries:   []models.CatalogEntry{{ID: "custom-wide-hook", DisplayName: "Wide", Status: "active", ContextWindow: 700000}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	transcript := filepath.Join(t.TempDir(), "override.jsonl")
+	msg1, b1 := runKneeHookTurn(t, home, dir, transcript, "conv-knee-ovr", 1, map[string]any{"modelName": "custom-wide-hook"}, 1_400_000)
+	assertKneeBanner(t, msg1, b1, "")
+	msg2, b2 := runKneeHookTurn(t, home, dir, transcript, "conv-knee-ovr", 2, map[string]any{"modelName": "custom-wide-hook"}, 1_700_000)
+	assertKneeBanner(t, msg2, b2, ">= 420K 60% model knee")
+
+	// modelName="auto" falls back to conversations/<conv>.db gen_metadata (claude-opus-5-5-high => 300K knee).
+	appDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	convID := "conv-knee-fallback"
+	brainDir := filepath.Join(appDir, "brain", convID)
+	convDir := filepath.Join(appDir, "conversations")
+	if err := os.MkdirAll(brainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(convDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seedGenMetadataModelT(t, filepath.Join(convDir, convID+".db"), "claude-opus-5-5-high")
+	fbTranscript := filepath.Join(brainDir, "transcript.jsonl")
+	msg3, b3 := runKneeHookTurn(t, home, dir, fbTranscript, convID, 1, map[string]any{
+		"modelName": "auto", "artifactDirectoryPath": brainDir,
+	}, 880_000)
+	assertKneeBanner(t, msg3, b3, "")
+	msg4, b4 := runKneeHookTurn(t, home, dir, fbTranscript, convID, 2, map[string]any{
+		"modelName": "auto", "artifactDirectoryPath": brainDir,
+	}, 1_220_000)
+	assertKneeBanner(t, msg4, b4, ">= 300K 60% model knee")
+}
+
+func seedGenMetadataModelT(t *testing.T, dbPath, model string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	val := []byte(model)
+	inner := binary.AppendUvarint(nil, uint64((19<<3)|2))
+	inner = binary.AppendUvarint(inner, uint64(len(val)))
+	inner = append(inner, val...)
+	outer := binary.AppendUvarint(nil, uint64((1<<3)|2))
+	outer = binary.AppendUvarint(outer, uint64(len(inner)))
+	outer = append(outer, inner...)
+	if _, err := db.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (0, ?)`, outer); err != nil {
+		t.Fatal(err)
 	}
 }
 

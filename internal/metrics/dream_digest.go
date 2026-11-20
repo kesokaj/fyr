@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 // RetryPattern summarizes error/retry counts for one tool name.
@@ -75,15 +77,31 @@ func (s *Store) DreamTrajectoryDigest(projectRoot string, since time.Time) (Drea
 }
 
 func (s *Store) readDreamKneeExceeded(where string, args []any) (int, error) {
-	qArgs := make([]any, len(args), len(args)+1)
-	copy(qArgs, args)
-	qArgs = append(qArgs, ContextKneeTokens)
-	q := `SELECT COUNT(DISTINCT s.id) FROM sessions s WHERE ` + where +
-		` AND (EXISTS (SELECT 1 FROM steps st WHERE st.session_id = s.id AND COALESCE(st.context, 0) >= ?)` +
-		` OR EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND LOWER(e.kind) = 'knee_exceeded'))`
-	var n int
-	err := s.db.QueryRow(q, qArgs...).Scan(&n)
-	return n, err
+	overrides := models.ContextWindowOverrides(resolveMetricsHome(ShowOptions{}, s.path))
+	q := `SELECT COALESCE(s.model, ''),
+		COALESCE((SELECT MAX(COALESCE(st.context, 0)) FROM steps st WHERE st.session_id = s.id), 0),
+		EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.id AND LOWER(e.kind) = 'knee_exceeded')
+		FROM sessions s WHERE ` + where
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var model string
+		var peak int64
+		var hasEvent bool
+		if err := rows.Scan(&model, &peak, &hasEvent); err != nil {
+			return 0, err
+		}
+		if hasEvent {
+			n++
+		} else if knee := models.ContextKneeWithOverrides(model, overrides); knee > 0 && peak >= knee {
+			n++
+		}
+	}
+	return n, rows.Err()
 }
 
 func dreamSessionFilter(projectRoot string, since time.Time) (string, []any) {

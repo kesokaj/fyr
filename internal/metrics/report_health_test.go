@@ -191,8 +191,8 @@ func TestMetricsReportV9Health(t *testing.T) {
 			('S_OK', 'agy', ?, 'M1', 'verifier', 'claude-opus-5-5', ?, ?)`,
 			[]any{projA, ts + 1000, ts + 5000, projA, ts + 6000, ts + 10000, projA, ts + 11000, ts + 15000}},
 		{`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES
-			('M1', 'g1', ?, 'generation', 190000),
-			('M2', 'g2', ?, 'generation', 50000)`,
+			('M1', 'g1', ?, 'generation', 310000),
+			('M2', 'g2', ?, 'generation', 220000)`,
 			[]any{ts + 500, ts + 70500}},
 		{`INSERT INTO steps(session_id, ext_id, ts, kind) VALUES ('M1', 'c1', ?, 'compaction')`, []any{ts + 2000}},
 		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, is_error, denied) VALUES
@@ -345,7 +345,7 @@ func TestMetricsReportV9Health(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Search.db compactions",
-		"Sessions >= 180K knee",
+		"Sessions >= 60% knee",
 		"Clamped read saves ([CLAMPED])",
 		"Hook denials (excl. from error rate)",
 		"Cross-family Judge (PASS / FAIL / fallback)",
@@ -371,6 +371,51 @@ func TestMetricsReportV9Health(t *testing.T) {
 		if strings.Contains(strings.ToLower(html), bad) {
 			t.Errorf("HTML contains %q", bad)
 		}
+	}
+}
+
+func TestHealthAndReportsPerModelKnee(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	since := now.AddDate(0, 0, -7)
+	ts := now.Add(-2 * time.Hour).UnixMilli()
+	home := t.TempDir()
+	proj := filepath.Join(t.TempDir(), "proj")
+	writeStateJSONT(t, filepath.Join(home, harness.StateDir, "models.json"),
+		`{"updated_at":"2026-11-20T00:00:00Z","entries":[{"id":"custom-wide","display_name":"Wide","status":"active","context_window":700000},{"id":"custom-tiny","display_name":"Tiny","status":"active","context_window":1}]}`)
+	s := openT(t, Path(home))
+	for i, row := range []struct {
+		id, model string
+		ctx       int64
+	}{
+		{"s1", "gemini-4-neon-high", 250000}, // under 300K
+		{"s2", "gpt-oss-120b-medium", 77000}, // over 76.8K
+		{"s3", "custom-wide", 380000},        // under 420K
+		{"s4", "custom-wide", 425000},        // over 420K
+		{"s5", "custom-tiny", 50000},         // knee=0 disabled
+	} {
+		t0 := ts + int64(i*1000)
+		if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, project_root, model, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?, ?)`,
+			row.id, proj, row.model, t0, t0+500); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES (?, ?, ?, 'generation', ?)`,
+			row.id, "g-"+row.id, t0+100, row.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if sum.Health.MainSessions != 5 || sum.Health.SessionsOverKnee != 2 {
+		t.Fatalf("Health = %+v, want MainSessions=5 SessionsOverKnee=2", sum.Health)
+	}
+	digest, err := s.DreamTrajectoryDigest(proj, since)
+	if err != nil {
+		t.Fatalf("DreamTrajectoryDigest: %v", err)
+	}
+	if digest.Sessions != 5 || digest.KneeExceeded != 2 {
+		t.Fatalf("DreamTrajectoryDigest = %+v, want Sessions=5 KneeExceeded=2", digest)
 	}
 }
 

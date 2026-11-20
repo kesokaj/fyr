@@ -37,6 +37,7 @@ type CatalogEntry struct {
 	Status          string        `json:"status"`
 	FirstSeen       string        `json:"first_seen"`
 	LastSeen        string        `json:"last_seen"`
+	ContextWindow   int64         `json:"context_window,omitempty"`
 	Evidence        ModelEvidence `json:"evidence"`
 }
 
@@ -181,6 +182,9 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 			e.FirstSeen = nonEmpty(old.FirstSeen, today)
 			e.ChangelogNote = nonEmpty(e.ChangelogNote, old.ChangelogNote)
 			e.RetiringOn = nonEmpty(e.RetiringOn, old.RetiringOn)
+			if e.ContextWindow <= 0 {
+				e.ContextWindow = old.ContextWindow
+			}
 		} else if hasPrev {
 			e.Status = "new"
 			e.FirstSeen = today

@@ -3,10 +3,14 @@ package metrics
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 func TestTrajectoriesEmpty(t *testing.T) {
@@ -162,5 +166,84 @@ func TestTrajectoriesLineageAndAnomalies(t *testing.T) {
 		if !strings.Contains(txt, want) {
 			t.Errorf("text output missing %q:\n%s", want, txt)
 		}
+	}
+}
+
+func TestTrajectoriesAndDigestPerModelKneeAndOverride(t *testing.T) {
+	home := t.TempDir()
+	dbDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(dbDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := models.SaveCatalog(home, models.Catalog{
+		UpdatedAt: "2026-11-20T00:00:00Z",
+		Entries: []models.CatalogEntry{
+			{ID: "custom-wide-model", DisplayName: "Wide", Status: "active", ContextWindow: 700000},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(filepath.Join(dbDir, "metrics.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	t0 := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC).UnixMilli()
+	root := "/work/model-knee"
+	must := func(q string, args ...any) {
+		t.Helper()
+		if _, err := st.db.Exec(q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	cases := []struct {
+		id    string
+		model string
+		ctx   int64
+		ts    int64
+	}{
+		{"n-under", "gemini-4-neon-high", 250000, t0 + 1000},
+		{"n-over", "gemini-4-neon-high", 300000, t0 + 2000},
+		{"g-over", "gpt-oss-120b-medium", 77000, t0 + 3000},
+		{"c-under", "custom-wide-model", 380000, t0 + 4000},
+		{"c-over", "custom-wide-model", 420000, t0 + 5000},
+	}
+	for _, c := range cases {
+		must(`INSERT INTO sessions(id, vendor, project_root, model, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?, ?)`,
+			c.id, root, c.model, c.ts, c.ts+1000)
+		must(`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES (?, '1', ?, 'model', ?)`,
+			c.id, c.ts+500, c.ctx)
+	}
+	gotList, err := st.Trajectories(TrajectoryOptions{Project: root, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]SessionTrajectory{}
+	for _, tr := range gotList {
+		byID[tr.SessionID] = tr
+	}
+	if len(byID["n-under"].Anomalies) != 0 || byID["n-under"].KneeTokens != 300000 {
+		t.Errorf("n-under = %+v, want no anomalies & knee 300000", byID["n-under"])
+	}
+	if strings.Join(byID["n-over"].Anomalies, ",") != "KNEE_EXCEEDED" || byID["n-over"].KneeTokens != 300000 {
+		t.Errorf("n-over = %+v, want KNEE_EXCEEDED & knee 300000", byID["n-over"])
+	}
+	if strings.Join(byID["g-over"].Anomalies, ",") != "KNEE_EXCEEDED" || byID["g-over"].KneeTokens != 76800 {
+		t.Errorf("g-over = %+v, want KNEE_EXCEEDED & knee 76800", byID["g-over"])
+	}
+	if len(byID["c-under"].Anomalies) != 0 || byID["c-under"].KneeTokens != 420000 {
+		t.Errorf("c-under = %+v, want no anomalies & override knee 420000", byID["c-under"])
+	}
+	if strings.Join(byID["c-over"].Anomalies, ",") != "KNEE_EXCEEDED" || byID["c-over"].KneeTokens != 420000 {
+		t.Errorf("c-over = %+v, want KNEE_EXCEEDED & override knee 420000", byID["c-over"])
+	}
+	var txt bytes.Buffer
+	WriteTrajectoriesText(&txt, []SessionTrajectory{byID["n-over"], byID["g-over"]})
+	if !strings.Contains(txt.String(), "(knee 300.0k)") || !strings.Contains(txt.String(), "(knee 76.8k)") {
+		t.Errorf("rendered per-model knees missing:\n%s", txt.String())
+	}
+	digest, err := st.DreamTrajectoryDigest(root, time.UnixMilli(t0-1000))
+	if err != nil || digest.Sessions != 5 || digest.KneeExceeded != 3 {
+		t.Fatalf("digest = %+v err=%v, want Sessions=5 KneeExceeded=3", digest, err)
 	}
 }

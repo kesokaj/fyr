@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
-// ContextKneeTokens is the context token threshold above which a session is
-// flagged with the KNEE_EXCEEDED anomaly (ADR-513, D6).
+// ContextKneeTokens is the fallback context token threshold above which an
+// unknown or legacy-model session is flagged KNEE_EXCEEDED (60% of 300k).
 const ContextKneeTokens = 180000
 
 // DefaultTrajectoryLimit is the default number of main sessions returned by
@@ -35,6 +37,7 @@ type SessionTrajectory struct {
 	StartedAt      string              `json:"startedAt"`
 	DurationSec    int64               `json:"durationSec"`
 	PeakContextTok int64               `json:"peakContextTok"`
+	KneeTokens     int64               `json:"kneeTokens,omitempty"`
 	CacheHitPct    float64             `json:"cacheHitPct"`
 	Steps          int                 `json:"steps"`
 	Subagents      []SessionTrajectory `json:"subagents,omitempty"`
@@ -48,12 +51,13 @@ func (s *Store) Trajectories(o TrajectoryOptions) ([]SessionTrajectory, error) {
 	if err != nil {
 		return nil, err
 	}
+	overrides := models.ContextWindowOverrides(resolveMetricsHome(ShowOptions{}, s.path))
 	out := make([]SessionTrajectory, 0, len(roots))
 	for _, root := range roots {
-		if err := s.populateSteps(&root); err != nil {
+		if err := s.populateSteps(&root, overrides); err != nil {
 			return nil, err
 		}
-		subs, err := s.queryChildSessions(root.SessionID)
+		subs, err := s.queryChildSessions(root.SessionID, overrides)
 		if err != nil {
 			return nil, err
 		}
@@ -112,14 +116,14 @@ func appendProjectClause(q string, args []any, project string) (string, []any) {
 	return q, append(args, p, p+"/", p+"/")
 }
 
-func (s *Store) queryChildSessions(parentID string) ([]SessionTrajectory, error) {
+func (s *Store) queryChildSessions(parentID string, overrides map[string]int64) ([]SessionTrajectory, error) {
 	q := trajectoryCols + ` WHERE parent_id = ? ORDER BY COALESCE(started_at, ended_at, 0) ASC, id ASC`
 	subs, err := s.scanTrajectoryRows(q, parentID)
 	if err != nil {
 		return nil, err
 	}
 	for i := range subs {
-		if err := s.populateSteps(&subs[i]); err != nil {
+		if err := s.populateSteps(&subs[i], overrides); err != nil {
 			return nil, err
 		}
 	}
@@ -208,7 +212,7 @@ type stepScanner struct {
 	retryLoop     bool
 }
 
-func (s *Store) populateSteps(t *SessionTrajectory) error {
+func (s *Store) populateSteps(t *SessionTrajectory, overrides map[string]int64) error {
 	steps, err := s.stepsOf(t.SessionID)
 	if err != nil {
 		return err
@@ -217,7 +221,7 @@ func (s *Store) populateSteps(t *SessionTrajectory) error {
 	for _, st := range steps {
 		sc.observe(st)
 	}
-	sc.applyTo(t)
+	sc.applyTo(t, overrides)
 	return nil
 }
 
@@ -273,7 +277,7 @@ func (sc *stepScanner) observeTool(st stp) {
 	}
 }
 
-func (sc *stepScanner) applyTo(t *SessionTrajectory) {
+func (sc *stepScanner) applyTo(t *SessionTrajectory, overrides map[string]int64) {
 	t.Steps = sc.toolSteps
 	if t.Steps == 0 {
 		t.Steps = len(sc.turnTokens)
@@ -283,7 +287,9 @@ func (sc *stepScanner) applyTo(t *SessionTrajectory) {
 	if denom := sc.tokIn + sc.cacheRead + sc.cacheWrite; denom > 0 {
 		t.CacheHitPct = float64(sc.cacheRead) * 100 / float64(denom)
 	}
-	if t.PeakContextTok > ContextKneeTokens {
+	knee := models.ContextKneeWithOverrides(t.Model, overrides)
+	t.KneeTokens = knee
+	if knee > 0 && t.PeakContextTok >= knee {
 		t.Anomalies = append(t.Anomalies, "KNEE_EXCEEDED")
 	}
 	if sc.redundantRead {

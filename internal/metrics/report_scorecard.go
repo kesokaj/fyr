@@ -23,7 +23,7 @@ func buildScorecardRows(s *Summary) [][]string {
 		{"1. Volume & Context", "Sessions", fmt.Sprint(s.Sessions["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.Sessions }, "%.0f")},
 		{"1. Volume & Context", "Turns", fmt.Sprint(s.B.Turns["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.Turns }, "%.0f")},
 		{"1. Volume & Context", "Tool Calls", fmt.Sprint(s.B.ToolCalls["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.ToolCalls }, "%.0f")},
-		{"1. Volume & Context", fmt.Sprintf("Peak Context (>= 180k knee %% & >= %s target %%)", targetLbl), fmtPeakContextKPI(s), fmtContextRatesDelta(d)},
+		{"1. Volume & Context", fmt.Sprintf("Peak Context (>= 60%% knee %% & >= %s target %%)", targetLbl), fmtPeakContextKPI(s), fmtContextRatesDelta(d)},
 		{"2. Second-Brain", "Search:Grep Ratio", fmtScorecardSearchGrep(s), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.SearchGrepRatio }, "%.2f")},
 		{"2. Second-Brain", "Repeat Reads %", fmtRepeatReadsKPI(s), fmtRepeatReadsDelta(d)},
 		{"2. Second-Brain", "Blocked Ledger / Clamp Saves", fmtLedgerClampKPI(s), fmtSavesDelta(d)},

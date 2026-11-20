@@ -33,11 +33,12 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	sections, meta, slice := buildHealthyHookTurn(o, sc, dir, in.ConversationID, rawPrompt, cleanPrompt, state, dirtySummary, fast)
+	sessionModel := resolveHookSessionModelForHome(o.Home, in)
+	sections, meta, slice := buildHealthyHookTurn(o, sc, dir, in.ConversationID, sessionModel, rawPrompt, cleanPrompt, state, dirtySummary, fast)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, in, state, rawPrompt, cleanPrompt, slice, sections, meta)
+	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta)
 	writePreInvocation(out, sysMsg, banner)
 	return nil
 }

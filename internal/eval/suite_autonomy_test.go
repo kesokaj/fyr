@@ -51,7 +51,7 @@ func autonomyProblems(d autonomyDocs) []string {
 		},
 	)...)
 	errs = append(errs, checkDocPhrases("rules/session-sizing.md", d.sessionSizing,
-		[]string{"fyr metrics trajectory", "KNEE_EXCEEDED", "180,000", "zero build-time questions"},
+		[]string{"fyr metrics trajectory", "KNEE_EXCEEDED", "60% model", "zero build-time questions"},
 		[]string{"the model cannot see its own fill"},
 	)...)
 	if r, ok := d.rows["autonomy"]; !ok || r.Check == "" || r.Prompt2 != "" {
@@ -103,7 +103,7 @@ func assertAutonomyMustFailMutations(t *testing.T, good autonomyDocs) {
 		{"context asks often", func(d *autonomyDocs) { d.context += "\nwants to be asked often" }},
 		{"feature three gates", func(d *autonomyDocs) { d.feature += "\nThree points always wait for the user" }},
 		{"feature cap ask", func(d *autonomyDocs) { d.feature += "\nAt a cap, ask" }},
-		{"session sizing missing knee", func(d *autonomyDocs) { d.sessionSizing = strings.ReplaceAll(d.sessionSizing, "180,000", "") }},
+		{"session sizing missing knee", func(d *autonomyDocs) { d.sessionSizing = strings.ReplaceAll(d.sessionSizing, "60% model", "") }},
 		{"missing autonomy row", func(d *autonomyDocs) { d.rows = cloneRows("autonomy") }},
 	}
 	for _, tc := range mutations {

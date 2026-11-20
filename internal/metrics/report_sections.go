@@ -53,7 +53,7 @@ func executivePulseSection(s *Summary, series []serie) reportSection {
 	})
 	addSeriesRow(&t, series, "Peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	addSeriesRow(&t, series, fmt.Sprintf("Over context target (%d)", s.B.ContextTarget), s.overTarget)
-	addSeriesRow(&t, series, "Sessions >= 180K knee", agyCol(fmt.Sprintf("%d / %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
+	addSeriesRow(&t, series, "Sessions >= 60% knee", agyCol(fmt.Sprintf("%d / %d", s.Health.SessionsOverKnee, s.Health.MainSessions)))
 	addSeriesRow(&t, series, "Compactions", func(v string) string {
 		if s.B.Compactions[v] != nil {
 			return fmtIntPtr(s.B.Compactions[v])

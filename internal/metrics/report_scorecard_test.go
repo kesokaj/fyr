@@ -194,7 +194,7 @@ func TestReportScorecardAndAutonomy(t *testing.T) {
 	for _, want := range []string{
 		"0. Scorecard",
 		"Top-5 Diagnostic Signals",
-		"Peak Context (>= 180k knee % & >= 300k target %)",
+		"Peak Context (>= 60% knee % & >= 300k target %)",
 		"Search:Grep Ratio",
 		"Repeat Reads %",
 		"Blocked Ledger / Clamp Saves",

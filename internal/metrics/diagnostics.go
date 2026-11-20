@@ -105,7 +105,7 @@ func appendSessionSignals(out []DiagnosticSignal, sum Summary, pfx string) []Dia
 			prev := priorKneeRate(sum)
 			sev := pickSev(kneeRate >= 0.50, "high", "medium")
 			out = append(out, makeSignal(pfx, "context_knee_rate", sev, "H.sessions_over_knee",
-				kneeRate, prev, sessions, fmt.Sprintf("%d of %d sessions reached >=180k context knee (%.1f%%)", sum.Health.SessionsOverKnee, sessions, kneeRate*100)))
+				kneeRate, prev, sessions, fmt.Sprintf("%d of %d sessions reached >=60%% model context knee (%.1f%%)", sum.Health.SessionsOverKnee, sessions, kneeRate*100)))
 		}
 		if er := sum.D.ToolErrorRate["agy"]; er != nil && sum.B.ToolCalls["agy"] >= 10 && *er >= 0.08 {
 			prev := priorMetricVal(sum, "D.tool_error_rate.agy")

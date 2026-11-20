@@ -10,7 +10,6 @@ import (
 
 const (
 	hookMaxDirtyFastPath = 15
-	hookKneeTokens       = 180000
 	hookMinIdentLen      = 6
 	hookConfidenceRatio  = 3.0
 )

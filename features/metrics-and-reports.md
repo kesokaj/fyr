@@ -28,7 +28,7 @@ flowchart TD
     rootSess["Main session (root parent)"] --> childSub["Child subagents (linked to parent)"]
     rootSess --> stepScan["Scan step sequence & tokens"]
     childSub --> stepScan
-    stepScan --> kneeCheck{"Peak context > 180,000?\n(ContextKneeTokens)"}
+    stepScan --> kneeCheck{"Peak context >= 60%\nmodel budget?"}
     kneeCheck -- "Yes" --> anomKnee["Flag KNEE_EXCEEDED"]
     stepScan --> readCheck{"Same file hash read twice\nwithout write/compaction?"}
     readCheck -- "Yes" --> anomRead["Flag REDUNDANT_READ"]
@@ -36,7 +36,7 @@ flowchart TD
     bashCheck -- "Yes" --> anomRetry["Flag RETRY_LOOP"]
 ```
 
-When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest` (`internal/metrics/dream_digest.go`) aggregates session counts, median peak tokens, anomaly counts (`DreamTrajectoryDigest.KneeExceeded` counts distinct label-free sessions with `COALESCE(steps.context, 0) >= 180000` (`ContextKneeTokens`) or `LOWER(events.kind) = 'knee_exceeded'`), and model pass rates into a strictly shape-only digest so the dreamer learns from behavioral efficiency patterns without leaking raw session text.
+When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest` (`internal/metrics/dream_digest.go`) aggregates session counts, median peak tokens, anomaly counts (`DreamTrajectoryDigest.KneeExceeded` counts distinct label-free sessions reaching `>= 60%` of their model's effective context budget via `models.ContextKneeWithOverrides`, default `ContextKneeTokens` `180,000`, or recording `LOWER(events.kind) = 'knee_exceeded'`), and model pass rates into a strictly shape-only digest so the dreamer learns from behavioral efficiency patterns without leaking raw session text.
 
 ## Scorecard, diagnostics, and usage reports (`fyr report`)
 
@@ -45,7 +45,7 @@ When `fyr dream` or `fyr auto` runs consolidation, `Store.DreamTrajectoryDigest`
 | Section | What It Measures |
 |---|---|
 | **0. Scorecard** (`report_scorecard.go`) | 4 KPI categories (`1. Volume & Context`, `2. Second-Brain`, `3. Reliability`, `4. Window Deltas` via `WindowDeltas`) plus `Top-5 Diagnostic Signals` (`DiagnosticReport`: `Severity`, `SignalID`, `Metric`, `Current -> Previous`, `Delta`, `Summary`) |
-| **1. Executive Pulse** | Sessions, subagents, turns, tool calls, active vs wall min, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, sessions `>= 180K` knee, compactions |
+| **1. Executive Pulse** | Sessions, subagents, turns, tool calls, active vs wall min, `model`/`tool`/`wait`/`idle` split, token breakdown, peak context, sessions `>= 60%` knee, compactions |
 | **2. Second-Brain Leverage** | `Search : grep` ratio, ranged read %, redundant reads, turn vets, mean vet score, `VET_FIRST` / bypassed turns, pivots seeded, read-ledger blocks saved, `[CLAMPED]` saves |
 | **3. Quality & Learning Loop** | DoD closure rate, verifier `PASS`/`FAIL`, review findings (`high`/`medium`/`low`), escaped bugs, `FEEDBACK-*` corrections, `session_ratings` (rated sessions, mean outcome & token efficiency), tool error rate, `pass^k` eval summary |
 | **4. Autonomy & Model Routing** | Work waves/workers, `v9 orchestration`, `Deterministic gates`, `Model-family share`, `Guarded subagent downgrades`, `Subagents over budget`, `Live quota pools`, `fyr auto` open asks / verdict, worker/`Base-Check`/cross-family judge verdicts & fallbacks, top subagent tool calls |

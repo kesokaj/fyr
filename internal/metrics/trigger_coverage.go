@@ -216,7 +216,7 @@ func appendV9TriggerRows(t *table, s *Summary) {
 		[]string{"Model-family share", formatModelFamilyShare(h), "-"},
 		[]string{"Guarded subagent downgrades", fmt.Sprint(h.GuardedDowngrades), "= 0"},
 		[]string{"Live quota pools", formatPoolQuotas(h.PoolQuotas), "-"},
-		[]string{"Sessions >= 180K knee", fmt.Sprintf("%d / %d", h.SessionsOverKnee, h.MainSessions), "= 0"},
+		[]string{"Sessions >= 60% knee", fmt.Sprintf("%d / %d", h.SessionsOverKnee, h.MainSessions), "= 0"},
 		[]string{"Subagents over budget", fmt.Sprint(h.SubagentsOverBudget), "= 0"},
 	)
 }

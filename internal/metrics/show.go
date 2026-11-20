@@ -144,7 +144,7 @@ func showWhere(o ShowOptions, since, now time.Time) (string, []any) {
 func showQuery(o ShowOptions, since, now time.Time) (string, []any) {
 	where, args := showWhere(o, since, now)
 	q := `SELECT id, vendor, COALESCE(project_root,''), COALESCE(parent_id,''), COALESCE(agent_type,''),
-		COALESCE(label,''), COALESCE(outcome,''), COALESCE(run,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
+		COALESCE(model,''), COALESCE(label,''), COALESCE(outcome,''), COALESCE(run,''), COALESCE(started_at,0), COALESCE(ended_at,0), cost_usd
 		FROM sessions WHERE ` + where + ` ORDER BY started_at`
 	return q, args
 }
@@ -158,7 +158,7 @@ func (s *Store) sessionsIn(q string, args []any) ([]sess, error) {
 	var all []sess
 	for rows.Next() {
 		var x sess
-		if err := rows.Scan(&x.id, &x.vendor, &x.root, &x.parent, &x.agent, &x.label, &x.outcome, &x.run, &x.start, &x.end, &x.cost); err != nil {
+		if err := rows.Scan(&x.id, &x.vendor, &x.root, &x.parent, &x.agent, &x.model, &x.label, &x.outcome, &x.run, &x.start, &x.end, &x.cost); err != nil {
 			rows.Close()
 			return nil, err
 		}

@@ -233,9 +233,9 @@ type Day struct {
 }
 
 type sess struct {
-	id, vendor, root, parent, agent, label, outcome, run string
-	start, end                                           int64
-	cost                                                 *float64
+	id, vendor, root, parent, agent, model, label, outcome, run string
+	start, end                                                  int64
+	cost                                                        *float64
 }
 
 type stp struct {

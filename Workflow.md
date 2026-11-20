@@ -4,13 +4,13 @@
 
 ## 1. Goal & Operating Philosophy
 
-Antigravity sessions start stateless and lose reasoning precision as prompt context expands past `180,000` input tokens (`rules/session-sizing.md`, tracked as `KNEE_EXCEEDED` by `fyr metrics trajectory`). The `fyr` workflow keeps sessions fast, repeatable, and resumable across machines by injecting compact Turn-0 context capsules, locking design decisions before edits start (`ADR-517`), isolating independent reviewers from builder intent, and enforcing completion through fail-closed CLI gates.
+Antigravity sessions start stateless and lose reasoning precision as prompt context expands past `60%` of each model's effective pre-compaction context budget (`rules/session-sizing.md`: `300k` for Gemini `4+`/Claude `5+`/Orchestrators, `180k` default, `77k` GPT-OSS, overridable via `models.json` `context_window`; tracked as `KNEE_EXCEEDED` by `fyr metrics trajectory`). The `fyr` workflow keeps sessions fast, repeatable, and resumable across machines by injecting compact Turn-0 context capsules, locking design decisions before edits start (`ADR-517`), isolating independent reviewers from builder intent, and enforcing completion through fail-closed CLI gates.
 
 ```mermaid
 flowchart LR
     resume["1. Resume & Capsule\nfyr resume + PreInvocation\n(handoff, plan, AST slice)"] --> classify["2. Classify & Scope\nTrivial / Task / Bug /\nFeature / Swarm / Release"]
     classify --> planGate["3. Plan & Interview\nPLAN record + cold-reader\n+ single interview"]
-    planGate --> buildLoop["4. Uninterrupted Build\nRed-first tests + small edits\n(under 180k context knee)"]
+    planGate --> buildLoop["4. Uninterrupted Build\nRed-first tests + small edits\n(under 60% model knee)"]
     buildLoop --> dodGate["5. Three-Step DoD\nfyr verify + review/docs\n+ brain.db records"]
     dodGate --> nextSess["6. Close or Handoff\nfyr close (task) or\n/fyr-handoff (checkpoint)"]
     nextSess -. "Kickoff block resets\ncontext to 0 tokens" .-> resume
@@ -20,7 +20,7 @@ Five invariants govern every session in a `fyr`-managed repository:
 
 | Invariant | Target / Rule | Why It Exists |
 |---|---|---|
-| **Session context ceiling** | `<= 180,000` input tokens per session (`rules/session-sizing.md`) | Prevents long-context degradation by sizing each session to `1` plan phase or `<= 3` small tasks (`<= 6` changed files, `<= 2` subagents) |
+| **Session context ceiling** | `<= 60%` effective model context budget per session (`rules/session-sizing.md`) | Prevents long-context degradation before compaction by sizing each session to `1` plan phase or `<= 3` small tasks (`<= 6` changed files, `<= 2` subagents) |
 | **Decide once, build uninterrupted (`ADR-517`)** | Zero operator questions during build or handoff Kickoff execution | Resolves scope, interfaces, `PRD.md`, and `ADR` trade-offs in one pre-build interview so implementation runs autonomously |
 | **Search and skeleton before reading** | `fyr search --slice` / `--affected` / `--path` / `--skeleton` / `--refs` | Cuts token waste; `PreToolUse` clamps unranged reads of `>= 400` lines and rejects duplicate reads whose SHA-256 has not changed |
 | **Fail-open hooks, fail-closed gates** | `< 250 ms` hooks (`SessionStart`, `PreInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) + hard CLI gates | Guides turns without stalling the CLI, while `fyr verify`, `fyr gate`, `fyr land`, `fyr close`, and `/fyr-preflight` enforce real checks |
@@ -108,7 +108,7 @@ sequenceDiagram
 3. **Draft the `PLAN-*` record:** Draft `.agents/scratch/plan-<slug>.md` with the required sections (`## Why`, `## Scope`, `## Surfaces touched`, `## Interfaces`, `## Failure modes`, `## Trust boundaries and data handled`, `## Verification`, `## Phases`, `## Risks`, `## Decisions`) and store it via `fyr record add plan`. Resolve worker `model:` and `judge-model:` headers via `fyr models --pick builder` and `fyr models --pick judge` (never invoke `agy models` directly here). If an interface, API, CLI, or storage contract exceeds one screen, author a `SPEC-*` record first via `/fyr-spec`.
 4. **Isolated cold-reader check:** Dispatch `reviewer` once with the drafted plan text alone (never your intent or rationale), a `15`-tool-call budget, and a `<= 10`-item cap targeting missing failure modes, untestable steps (`verify:` / `expect:`), missing owners (`who:`), and scope bloat. Fold accepted fixes into `PLAN-*` with `fyr record edit <PLAN-ID>`.
 5. **Single pre-build interview (`ADR-517`) & `workers` decision:** In one interactive interview, settle remaining `Open:` rows, approve any `PRD.md` changes (Must -> `ADR-*` -> `PRD.md` + `TODO.md`) and structural `ADR-*` records, and confirm `testing-strategy` tiers. Record the execution decision in `## Decisions` as `D<n> — <date> — workers: yes | no, <why> — by: planner`: plans with `2+` `who: AI` phases default to `workers: yes`, setting `workers: no` only with a concrete technical reason. Once approved:
-   - If **`workers: no`**: write the closing `/fyr-handoff` with Phase 1's `## Kickoff` and stop so Phase 1 starts fresh under the `180,000`-token context limit.
+   - If **`workers: no`**: write the closing `/fyr-handoff` with Phase 1's `## Kickoff` and stop so Phase 1 starts fresh under the `60%` model context limit.
    - If **`workers: yes`**: remain in the planning session and run Phase 1 immediately as the `/fyr-swarm` coordinator.
 6. **Autonomous execution & mid-build unknowns (`D-row`s vs Closed Set):**
    - **Small implementation unknowns (`D-row`s):** When a reversible, non-structural detail surfaces mid-phase (such as test case bounds or internal helper layout), settle it without asking and append a column-0 dated `D-row` under `## Decisions` (`D<n> — YYYY-MM-DD — <decision> — by: implementer` or `by: lead`), never rewriting existing `D-row`s.
@@ -247,7 +247,7 @@ When a plan has `2+` AI-only phases (`workers: yes`) or backlog triage produces 
 ```mermaid
 flowchart LR
     quota["1. Quota & Models\nagy -p /usage\nfyr models --pick"] --> spawn["2. Spawn Workers\nworkspace=share (work/<name>)\ndisjoint Files: leases"]
-    spawn --> build["3. Worker Build\nRed-first edits + commit\n+ fyr verify (<= 180k tok)"]
+    spawn --> build["3. Worker Build\nRed-first edits + commit\n+ fyr verify (<= 60% knee)"]
     build --> gate["4. Mechanical Gate\nfyr gate --lease <glob> <worktree>\n(lease, modes, secrets, trailers)"]
     gate --> judge["5. Cross-Family Judge\nCross-family model checks\ndiff + test output only"]
     judge --> land["6. Sequential Land\nfyr land --lease <glob> <branch>\n(detached squash + verify + ff)"]
@@ -257,7 +257,7 @@ flowchart LR
 - **Width-based orchestration (`fyr-swarm`):** Route width `<= 2` independent slices through `invoke_subagent`; route width `>= 3` through `run_workflow` (`parallel()` / `pipeline()`) or Antigravity native `swarm` (`workspace="share"`).
 - **Model selection & `PreToolUse` enforcement:** Pick builder and cross-family judge IDs once via `fyr models --pick` against `~/.config/fyr/models.json` (and `agy -p "/usage"` quota pools, falling back to equivalent-tier Gemini models when weekly quota `< 20%` or 5-hour quota `< 30%`). At dispatch time, `PreToolUse` validates prefix-named workers (`planner`, `builder`, `mechanical` vs `judge`, `reviewer`, `verifier`) and rejects weak/fast overrides on guarded roles.
 - **Write leases (`Files:`):** Every worker brief declares exact writable path globs. `fyr gate` mechanically rejects diffs touching files outside the lease, forbidden `120000` (symlink) or `160000` (gitlink) modes, numstat spikes (default `50` files / `1,500` lines), secret filenames or added-line secrets (`internal/redact`), and commit trailers.
-- **Cross-family judging, sequential landing & wave telemetry:** Workers commit locally on `work/<name>`, write worker-mode `change` + `handoff` drafts without pushing or editing `TODO.md`, and face an isolated cross-family judge reading only diff and test output. The coordinator then runs `fyr land --lease <glob> <branch>` one branch at a time (squashing and running `fyr verify` inside an isolated detached scratch worktree before fast-forwarding `main`, deleting the branch, and refreshing `.agents/scratch/verify.stamp`), followed by `fyr metrics ingest` and `fyr metrics trajectory` to confirm sessions stayed under the `180,000`-token knee.
+- **Cross-family judging, sequential landing & wave telemetry:** Workers commit locally on `work/<name>`, write worker-mode `change` + `handoff` drafts without pushing or editing `TODO.md`, and face an isolated cross-family judge reading only diff and test output. The coordinator then runs `fyr land --lease <glob> <branch>` one branch at a time (squashing and running `fyr verify` inside an isolated detached scratch worktree before fast-forwarding `main`, deleting the branch, and refreshing `.agents/scratch/verify.stamp`), followed by `fyr metrics ingest` and `fyr metrics trajectory` to confirm sessions stayed under the per-model `60%` context knee (`KNEE_EXCEEDED`).
 
 ### 4.3 Specialized finish paths: bugs (`/fyr-bug`) and releases (`/fyr-preflight`)
 

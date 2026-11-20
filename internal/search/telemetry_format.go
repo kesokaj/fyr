@@ -137,7 +137,7 @@ func applyExtraBanner(b *PreInvocationBanner, raw string) {
 			b.PivotCount = n
 			return
 		}
-	case strings.Contains(clean, "tokens (>= 180K knee)"):
+	case strings.Contains(clean, "tokens (>= ") && strings.Contains(clean, "knee)"):
 		b.TokenKneeWarning = clean
 		return
 	case strings.HasPrefix(clean, "model tip: "):

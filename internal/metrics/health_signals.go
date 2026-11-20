@@ -21,7 +21,7 @@ func (s *Store) populateHealthAndFallbacks(sum *Summary, o ShowOptions, all []se
 	if err := s.populateJudgeVerdictsHealth(sum, o, data.waves, since, now); err != nil {
 		return err
 	}
-	overBudget := collectStepHealth(&sum.Health, sum, all, data.steps)
+	overBudget := collectStepHealth(&sum.Health, sum, all, data.steps, home)
 	if err := s.populateModelFamilyHealth(&sum.Health, o, since, now); err != nil {
 		return err
 	}
