@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTarjanSCCExcludesIface(t *testing.T) {
@@ -213,5 +214,25 @@ func assertNestedGoModSignals(t *testing.T) {
 	sig, err := ReadStructuralSignals(projectDB(root), root)
 	if err != nil || sig.ProdPkgCycles != 1 {
 		t.Fatalf("nested go.mod ReadStructuralSignals = %+v, err=%v; want ProdPkgCycles=1", sig, err)
+	}
+}
+
+func TestFindPackageCyclesBoundedOnDenseClique(t *testing.T) {
+	deps := map[string][]string{"p00": {"p01"}, "p01": {"p00"}}
+	for i := 1; i < 20; i++ {
+		u := fmt.Sprintf("p%02d", i)
+		for j := 1; j < 20; j++ {
+			if i != j {
+				deps[u] = append(deps[u], fmt.Sprintf("p%02d", j))
+			}
+		}
+	}
+	start := time.Now()
+	cycles := findPackageCycles(deps)
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("findPackageCycles took %v on 20-node dense clique, want < 500ms", elapsed)
+	}
+	if !slices.Contains(cycles, "p00 -> p01 -> p00") {
+		t.Fatalf("expected canonical cycle p00 -> p01 -> p00 in %+v", cycles)
 	}
 }

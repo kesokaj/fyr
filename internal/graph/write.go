@@ -22,39 +22,66 @@ func WriteFile(path string, data []byte, force bool) error {
 	if err != nil {
 		return err
 	}
-	f, err := openTargetNoFollow(path, force)
+	createExcl := !force || prevInfo == nil
+	f, err := openTargetNoFollow(path, createExcl)
 	if err != nil {
 		if !force && errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("refusing to overwrite %s (pass --force)", path)
 		}
+		if force && prevInfo == nil && errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("refusing concurrently created target %s", path)
+		}
 		return err
 	}
-	return writeAndCloseTarget(f, path, data, force, prevInfo)
+	return writeAndCloseTarget(f, path, data, force && prevInfo != nil, prevInfo)
 }
 
 func ensureRealParentDir(dir string) error {
-	if fi, err := os.Lstat(dir); err == nil {
-		if fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing symlinked parent directory %s", dir)
+	cur := filepath.Clean(dir)
+	var missing []string
+	for {
+		fi, err := os.Lstat(cur)
+		if err == nil {
+			if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+				return fmt.Errorf("refusing symlinked or non-directory parent %s", cur)
+			}
+			break
 		}
-		if !fi.IsDir() {
-			return fmt.Errorf("parent path %s is not a directory", dir)
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return err
+		}
+		missing = append(missing, filepath.Base(cur))
+		cur = parent
+	}
+	if len(missing) == 0 {
 		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	fi, err := os.Lstat(dir)
+	return mkdirNoSymlinks(cur, missing)
+}
+
+func mkdirNoSymlinks(ancestor string, missingRev []string) error {
+	r, err := os.OpenRoot(ancestor)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-		return fmt.Errorf("parent path %s is not a real directory", dir)
+	for i := len(missingRev) - 1; i >= 0; i-- {
+		seg := missingRev[i]
+		if err := r.Mkdir(seg, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			_ = r.Close()
+			return err
+		}
+		next, err := r.OpenRoot(seg)
+		_ = r.Close()
+		if err != nil {
+			return fmt.Errorf("parent path %s is not a real directory: %w", seg, err)
+		}
+		r = next
 	}
-	return nil
+	return r.Close()
 }
 
 func checkExistingTarget(path string, force bool) (os.FileInfo, error) {

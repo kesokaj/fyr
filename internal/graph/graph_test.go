@@ -301,6 +301,21 @@ func TestGraphWriteFile0600(t *testing.T) {
 	if err != nil || string(victimBytes) != "keep-me" {
 		t.Fatalf("symlink victim modified: %q", victimBytes)
 	}
+
+	// Refuse symlinked intermediate parent directory when creating new nested target.
+	symDir := filepath.Join(dir, "symdir")
+	if err := os.Symlink(t.TempDir(), symDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(filepath.Join(symDir, "nested", "out.html"), []byte("x"), true); err == nil {
+		t.Fatal("WriteFile through symlinked intermediate parent succeeded, want error")
+	}
+
+	// Fresh write with force=true succeeds via O_EXCL.
+	freshForce := filepath.Join(dir, "sub", "fresh-force.html")
+	if err := WriteFile(freshForce, []byte("fresh"), true); err != nil {
+		t.Fatalf("WriteFile fresh with force=true: %v", err)
+	}
 }
 
 func TestGraphPackageDeps(t *testing.T) {

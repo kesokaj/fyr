@@ -96,7 +96,9 @@ func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, t
 	if err := s.populateWindowDeltas(sum, o, since, now); err != nil {
 		return err
 	}
-	s.populateDiagnostics(sum, o, since, now)
+	if err := s.populateDiagnostics(sum, o, since, now); err != nil {
+		return err
+	}
 	return nil
 }
 

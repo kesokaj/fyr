@@ -136,15 +136,18 @@ func addHiddenCouplingHints(home, root string, add func(kind, label, text string
 	if root == "" || root == search.GlobalWorkspace {
 		return
 	}
+	if err := trail.CheckScratchNoSymlinks(root); err != nil {
+		return
+	}
 	scratchDir := filepath.Join(root, ".agents", "scratch")
 	info, err := os.Lstat(filepath.Join(scratchDir, "search.db"))
 	if err != nil || !info.Mode().IsRegular() {
 		return
 	}
-	parent := scratchDir
+	parent := ""
 	if home != "" {
 		if conf := filepath.Dir(brain.Path(home)); conf != "" {
-			if st, err := os.Lstat(conf); err == nil && st.IsDir() {
+			if st, err := os.Lstat(conf); err == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 {
 				parent = conf
 			}
 		}

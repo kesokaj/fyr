@@ -2,6 +2,7 @@ package search
 
 import (
 	"database/sql"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -131,7 +132,7 @@ func loadGoModulesFromDB(db *sql.DB, projects []string) map[string]string {
 		return out
 	}
 	inSQL, args := projectsInClause(projects)
-	q := `SELECT project, path FROM files WHERE project IN ` + inSQL + ` AND (path = 'go.mod' OR path LIKE '%/go.mod')`
+	q := `SELECT project, path FROM files WHERE project IN ` + inSQL + ` AND (path = 'go.mod' OR path LIKE '%/go.mod') ORDER BY length(path), path`
 	rows, err := db.Query(q, args...)
 	if err != nil {
 		return out
@@ -139,7 +140,7 @@ func loadGoModulesFromDB(db *sql.DB, projects []string) map[string]string {
 	defer rows.Close()
 	for rows.Next() {
 		var proj, relPath string
-		if rows.Scan(&proj, &relPath) == nil {
+		if rows.Scan(&proj, &relPath) == nil && !isExcludedASTPath(relPath) {
 			readGoModAt(proj, relPath, out)
 		}
 	}
@@ -150,13 +151,30 @@ func readGoModAt(root, relPath string, out map[string]string) {
 	if root == "" || relPath == "" {
 		return
 	}
-	full := filepath.Join(root, filepath.FromSlash(relPath))
-	fi, err := os.Lstat(full)
+	rel := filepath.Clean(filepath.FromSlash(relPath))
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	fi, err := r.Lstat(rel)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {
 		return
 	}
-	if data, err := os.ReadFile(full); err == nil {
-		if mod := parseGoModModule(string(data)); mod != "" {
+	f, err := r.Open(rel)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
+	if err != nil || len(data) > maxFileBytes {
+		return
+	}
+	if mod := parseGoModModule(string(data)); mod != "" {
+		if _, exists := out[mod]; !exists {
 			out[mod] = canonicalPkgDir(relPath)
 		}
 	}

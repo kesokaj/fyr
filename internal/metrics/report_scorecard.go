@@ -25,7 +25,7 @@ func buildScorecardRows(s *Summary) [][]string {
 		{"1. Volume & Context", "Tool Calls", fmt.Sprint(s.B.ToolCalls["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.ToolCalls }, "%.0f")},
 		{"1. Volume & Context", fmt.Sprintf("Peak Context (>= 180k knee %% & >= %s target %%)", targetLbl), fmtPeakContextKPI(s), fmtContextRatesDelta(d)},
 		{"2. Second-Brain", "Search:Grep Ratio", fmtScorecardSearchGrep(s), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.SearchGrepRatio }, "%.2f")},
-		{"2. Second-Brain", "Repeat Reads %", fmtRepeatReadsKPI(s), fmtMapMetricDelta(d, "C.redundant_reads.agy", "%.0f")},
+		{"2. Second-Brain", "Repeat Reads %", fmtRepeatReadsKPI(s), fmtRepeatReadsDelta(d)},
 		{"2. Second-Brain", "Blocked Ledger / Clamp Saves", fmtLedgerClampKPI(s), fmtSavesDelta(d)},
 		{"3. Reliability", "Tool Error Rate %", fmtToolErrorRateKPI(s), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.ToolErrorRatePct }, "%.2f%%")},
 		{"3. Reliability", "Retry Loops", fmt.Sprint(s.D.RetryLoops["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.RetryLoops }, "%.0f")},
@@ -132,6 +132,14 @@ func fmtOutcomeScoreDelta(d *WindowDeltas) string {
 		return "n/a"
 	}
 	return "outcome " + fmtMetricDeltaVal(*d.MeanOutcomeScore, "%.2f")
+}
+
+func fmtRepeatReadsDelta(d *WindowDeltas) string {
+	v := fmtMapMetricDelta(d, "C.redundant_reads.agy", "%.0f")
+	if v == "n/a" {
+		return v
+	}
+	return "reads " + v
 }
 
 func fmtDeltaField(d *WindowDeltas, pick func(*WindowDeltas) *MetricDelta, format string) string {

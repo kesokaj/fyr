@@ -113,7 +113,6 @@ func isSQLChain(expr ast.Expr) bool {
 }
 
 var (
-	goPkgRe      = regexp.MustCompile(`^\s*package\s+([A-Za-z_][A-Za-z0-9_]*)`)
 	goFuncLineRe = regexp.MustCompile(`^func\s+(?:\(\s*[A-Za-z0-9_]*\s*\*?([A-Za-z_][A-Za-z0-9_]*)(?:\[[^\]]*\])?\s*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\[[^\]]*\])?\(`)
 	goTypeLineRe = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(struct|interface|[A-Za-z0-9_.*\[\]]+)`)
 	callTokenRe  = regexp.MustCompile(`(?:([A-Za-z_][A-Za-z0-9_]*)\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
@@ -122,15 +121,6 @@ var (
 	shDeclRe     = regexp.MustCompile(`^\s*(?:function\s+([A-Za-z_][A-Za-z0-9_-]*)\s*(?:\(\s*\))?\s*\{?|([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*\)\s*\{)`)
 	codeSkip     = map[string]bool{}
 )
-
-func parseGoPackage(filePath, text string) string {
-	for _, l := range splitLines(text) {
-		if m := goPkgRe.FindStringSubmatch(l); m != nil {
-			return m[1]
-		}
-	}
-	return path.Base(path.Dir(filePath))
-}
 
 func parseGoFallback(filePath, text, pkgName string) ([]symbolRow, []symRefRow) {
 	lines := splitLines(text)

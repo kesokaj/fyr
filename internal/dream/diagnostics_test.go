@@ -142,3 +142,24 @@ func assertDreamSignalProposalAndBgRun(t *testing.T, f fixture, sigID string) {
 		t.Fatalf("dedupeProposals against queued signal_id = %+v, err=%v; want empty", rem, err)
 	}
 }
+
+func TestAddHiddenCouplingHintsRejectsSymlinkScratch(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "search.db"), []byte("not-a-db"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".agents", "scratch")); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	addHiddenCouplingHints("", root, func(string, string, string, time.Time) {
+		called = true
+	})
+	if called {
+		t.Fatal("addHiddenCouplingHints read through symlinked .agents/scratch")
+	}
+}

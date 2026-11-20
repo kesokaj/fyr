@@ -78,15 +78,21 @@ func sortedPkgStats(counts map[string]int, depSet map[string]map[string]bool) ([
 	return pkgs, deps
 }
 
+const maxPackageCycleSteps = 10000
+
 // findPackageCycles prunes non-cyclic edges via Tarjan SCC and formats canonical cycles.
 func findPackageCycles(deps map[string][]string) []string {
 	return formatSCCPackageCycles(deps)
 }
 
-func walkPackageCycles(start string, deps map[string][]string, path []string, onPath, seen map[string]bool, cycles *[]string) {
+func walkPackageCycles(start string, deps map[string][]string, path []string, onPath, seen map[string]bool, steps *int, cycles *[]string) {
+	if *steps >= maxPackageCycleSteps || len(*cycles) >= maxPackageCycles {
+		return
+	}
+	*steps++
 	cur := path[len(path)-1]
 	for _, nxt := range deps[cur] {
-		if len(*cycles) >= maxPackageCycles {
+		if *steps >= maxPackageCycleSteps || len(*cycles) >= maxPackageCycles {
 			return
 		}
 		if nxt == start && len(path) >= 2 {
@@ -99,7 +105,7 @@ func walkPackageCycles(start string, deps map[string][]string, path []string, on
 		}
 		if nxt > start && !onPath[nxt] {
 			onPath[nxt] = true
-			walkPackageCycles(start, deps, append(path, nxt), onPath, seen, cycles)
+			walkPackageCycles(start, deps, append(path, nxt), onPath, seen, steps, cycles)
 			delete(onPath, nxt)
 		}
 	}

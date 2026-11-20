@@ -58,9 +58,9 @@ func BuildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot stri
 	}
 }
 
-func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time.Time) {
+func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time.Time) error {
 	if o.skipDeltas || o.Label != "" {
-		return
+		return nil
 	}
 	scope := "global"
 	if strings.TrimSpace(o.Project) != "" {
@@ -68,13 +68,23 @@ func (s *Store) populateDiagnostics(sum *Summary, o ShowOptions, since, now time
 	}
 	var evalRows []EvalRow
 	if scope == "global" {
-		if ev, err := s.Evals(EvalOptions{Since: since, Now: now}); err == nil {
+		ev, err := ReportEvalsWithDevFallback(s, resolveMetricsHome(o, s.path), ShowOptions{
+			Since:   since,
+			Now:     now,
+			Project: o.Project,
+			Label:   o.Label,
+		})
+		if err != nil {
+			return err
+		}
+		if ev != nil {
 			evalRows = ev.Rows
 		}
 	}
 	rep := BuildDiagnosticReport(*sum, evalRows, scope, o.Project)
 	rep.GeneratedAt = now.UTC().Format(time.RFC3339)
 	sum.Diagnostics = &rep
+	return nil
 }
 
 func resolveDiagnosticScope(scope, projectRoot string) (string, string) {

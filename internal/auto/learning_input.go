@@ -258,11 +258,6 @@ func appendKickoffInput(path, scrubbed string) error {
 	return harness.WriteAtomic(path, []byte(text), 0o600)
 }
 
-func (r *run) redactedMetricsAndTrajectory(root string) (string, string) {
-	nums, _, traj := r.redactedMetricsDiagnosticsAndTrajectory(root)
-	return nums, traj
-}
-
 func (r *run) redactedMetricsDiagnosticsAndTrajectory(root string) (string, string, string) {
 	sum := r.projectSummary(root)
 	nums := ""

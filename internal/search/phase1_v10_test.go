@@ -314,3 +314,36 @@ func TestIncludeDocsExclusion(t *testing.T) {
 	}
 	_ = filepath.Join(root, "docs")
 }
+
+func TestLoadGoModulesIgnoresExcludedAndSymlinks(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "go.mod"), []byte("module example.com/escaped\n\ngo 1.24\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "go.mod", "module example.com/real\n\ngo 1.24\n")
+	writeFile(t, root, "testdata/fixture/go.mod", "module example.com/real\n\ngo 1.24\n")
+	writeFile(t, root, "vendor/mod/go.mod", "module example.com/real\n\ngo 1.24\n")
+	writeFile(t, root, "internal/a/a.go", "package a\nfunc A() {}\n")
+	commitAll(t, root, "seed excluded go.mods")
+	if err := Index(Options{Dir: root, Home: home}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	db := openDB(t, root)
+	defer db.Close()
+	mods := loadGoModulesFromDB(db, []string{root})
+	if mods["example.com/real"] != "." {
+		t.Fatalf("mods[example.com/real] = %q, want \".\" (fixture overwrote root)", mods["example.com/real"])
+	}
+
+	if err := os.Symlink(outside, filepath.Join(root, "sublink")); err != nil {
+		t.Fatal(err)
+	}
+	symMods := map[string]string{}
+	readGoModAt(root, "sublink/go.mod", symMods)
+	if len(symMods) != 0 {
+		t.Fatalf("readGoModAt traversed symlinked directory: %+v", symMods)
+	}
+}

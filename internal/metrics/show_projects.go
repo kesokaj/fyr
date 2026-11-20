@@ -14,10 +14,6 @@ type projAcc struct {
 	activeMS, tokens, lastMS                                int64
 }
 
-func buildProjectRows(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent) []ProjectRow {
-	return buildProjectRowsWithOpts(all, vetsByRoot, stepsByID, eventsByID, ShowOptions{}, "")
-}
-
 func buildProjectRowsWithOpts(all []sess, vetsByRoot map[string]*projVetAcc, stepsByID map[string][]stp, eventsByID map[string][]sessEvent, o ShowOptions, home string) []ProjectRow {
 	byID, wtMap, _ := resolveSessionRoots(all)
 	canon := buildRootCanonicalizerWithRoots(all, vetsByRoot, byID, wtMap)

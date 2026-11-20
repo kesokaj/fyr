@@ -112,6 +112,7 @@ func formatSCCPackageCycles(deps map[string][]string) []string {
 	}
 	seen := map[string]bool{}
 	var cycles []string
+	steps := 0
 	for _, scc := range sccs {
 		inSCC := make(map[string]bool, len(scc))
 		for _, idx := range scc {
@@ -128,11 +129,11 @@ func formatSCCPackageCycles(deps map[string][]string) []string {
 			sort.Strings(subDeps[p])
 		}
 		for _, idx := range scc {
-			if len(cycles) >= maxPackageCycles {
+			if len(cycles) >= maxPackageCycles || steps >= maxPackageCycleSteps {
 				break
 			}
 			start := pkgs[idx]
-			walkPackageCycles(start, subDeps, []string{start}, map[string]bool{start: true}, seen, &cycles)
+			walkPackageCycles(start, subDeps, []string{start}, map[string]bool{start: true}, seen, &steps, &cycles)
 		}
 	}
 	sort.Strings(cycles)
