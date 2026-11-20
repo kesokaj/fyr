@@ -98,6 +98,7 @@ func defaultSkillCatalog() []SkillMeta {
 		{Name: "fyr-spec", Path: "skills/fyr-spec/SKILL.md", Digest: "Write or update a `SPEC-<app>-<topic>` record concrete enough that two implementers converge and `fyr check` verifies it."},
 		{Name: "frontend-ui-economist", Path: "skills/frontend-ui-economist/SKILL.md", Digest: "Editorial, report and airy UI in plain HTML/CSS/SVG: six themes on one token contract, an SVG chart kit, a white-space method."},
 		{Name: "frontend-ui-modern", Path: "skills/frontend-ui-modern/SKILL.md", Digest: "Modern web-app UI on shadcn/ui, Tailwind and React: dashboards, tables, forms, theming, dark mode."},
+		{Name: "frontend-slate-ui", Path: "skills/frontend-slate-ui/SKILL.md", Digest: "Angular 20 web-app UI on SlateUI directives, ng-primitives, Signals, Tailwind CSS 4, and vendored ThemeService (`provideSlateUiTheme`)."},
 		{Name: "docker", Path: "skills/docker/SKILL.md", Digest: "Container-based development with Docker and Colima: building images, compose services, Dockerfiles, volumes and networking."},
 		{Name: "cloud-run-deploy", Path: "skills/cloud-run-deploy/SKILL.md", Digest: "Google Cloud Run deployment mechanics: build locally, push to Artifact Registry, deploy, verify, roll back."},
 		{Name: "data-gcp", Path: "skills/data-gcp/SKILL.md", Digest: "Cloud SQL PostgreSQL for Go on Cloud Run: pgx over /cloudsql socket, golang-migrate job, owner/runtime role split, indexes."},

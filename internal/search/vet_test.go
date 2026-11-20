@@ -266,6 +266,49 @@ func TestMatchSkillsDigestCapAndSecuritySubagent(t *testing.T) {
 	}
 }
 
+func TestMatchSkillsFrontendSlateUIRouting(t *testing.T) {
+	// Positive: Angular / SlateUI / uiButton / provideSlateUiTheme / .component.ts outranks generic typescript (74 > 73) under IntentFeature.
+	featSkills, _ := MatchSkills(
+		"Build an Angular 20 workspace using SlateUI [uiButton] and provideSlateUiTheme",
+		IntentFeature,
+		[]string{"src/app/workspace.component.ts", "src/app/header.component.ts"},
+		nil,
+	)
+	if len(featSkills) != 2 || featSkills[0].Name != "fyr-feature" || featSkills[1].Name != "frontend-slate-ui" {
+		t.Fatalf("Angular/SlateUI feature skills = %+v, want [fyr-feature, frontend-slate-ui]", featSkills)
+	}
+
+	// Positive: ng-primitives + .component.html outranks frontend-ui-economist (74 > 72).
+	htmlSkills, _ := MatchSkills(
+		"Wire ng-primitives dialog focus trap in user-dialog.component.html",
+		IntentTask,
+		[]string{"src/app/user-dialog.component.html"},
+		nil,
+	)
+	if len(htmlSkills) == 0 || htmlSkills[0].Name != "frontend-slate-ui" {
+		t.Fatalf("ng-primitives/.component.html skills = %+v, want top skill frontend-slate-ui", htmlSkills)
+	}
+
+	// Negative: React/shadcn/TSX, plain TypeScript, editorial HTML, and negated mention must not match frontend-slate-ui.
+	for _, tc := range []struct {
+		name   string
+		prompt string
+		files  []string
+	}{
+		{"react_tsx", "Build a React dashboard with shadcn and Tailwind", []string{"src/Dashboard.tsx"}},
+		{"plain_ts", "Add strict tsconfig narrowing and Vitest unit tests in parser.ts", []string{"src/parser.ts"}},
+		{"editorial_html", "Create an editorial UI report with SVG chart in plain HTML", []string{"report.html"}},
+		{"negated", "Build a TypeScript table without frontend-slate-ui in table.ts", []string{"src/table.ts"}},
+	} {
+		got, _ := MatchSkills(tc.prompt, IntentTask, tc.files, nil)
+		for _, s := range got {
+			if s.Name == "frontend-slate-ui" {
+				t.Errorf("%s: MatchSkills(%q) unexpectedly matched frontend-slate-ui: %+v", tc.name, tc.prompt, got)
+			}
+		}
+	}
+}
+
 func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 	brainCtx := TurnBrainContext{
 		Memories: []MatchedRecord{

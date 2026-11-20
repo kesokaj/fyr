@@ -91,3 +91,61 @@ func TestEmbedHoldsOnlyTrackedFiles(t *testing.T) {
 		t.Errorf("%s is tracked by git but not embedded", p)
 	}
 }
+
+func slateUIDisallowedReason(path string) string {
+	for _, seg := range strings.Split(path, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return "dotfile or dotdir"
+		}
+		if seg == "package-lock.json" {
+			return "package-lock.json"
+		}
+	}
+	low := strings.ToLower(path)
+	if strings.HasSuffix(low, ".png") || strings.HasSuffix(low, ".ico") {
+		return "binary image/favicon (.png/.ico)"
+	}
+	if strings.HasPrefix(path, "skills/frontend-slate-ui/references/cli/") ||
+		strings.HasPrefix(path, "skills/frontend-slate-ui/references/theme-pkg/projects/demo/") {
+		return "excluded D11 subtree"
+	}
+	return ""
+}
+
+func TestFrontendSlateUITrimmedAllowlist(t *testing.T) {
+	if _, err := fs.ReadFile(Files, "skills/frontend-slate-ui/SKILL.md"); err != nil {
+		t.Fatalf("skills/frontend-slate-ui/SKILL.md not embedded: %v", err)
+	}
+	n := 0
+	err := fs.WalkDir(Files, "skills/frontend-slate-ui", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if reason := slateUIDisallowedReason(path); reason != "" {
+			t.Errorf("%s shipped in skills/frontend-slate-ui (%s)", path, reason)
+		}
+		if !d.IsDir() {
+			n++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("skills/frontend-slate-ui embedded zero files")
+	}
+	for _, bad := range []string{
+		"skills/frontend-slate-ui/references/theme-pkg/.postcssrc.json",
+		"skills/frontend-slate-ui/references/theme-pkg/.github/workflows/deploy.yml",
+		"skills/frontend-slate-ui/references/theme-pkg/package-lock.json",
+		"skills/frontend-slate-ui/assets/public/assets/og-image.png",
+		"skills/frontend-slate-ui/assets/public/favicon.ico",
+		"skills/frontend-slate-ui/references/cli/package.json",
+		"skills/frontend-slate-ui/references/theme-pkg/projects/demo/src/main.ts",
+	} {
+		if slateUIDisallowedReason(bad) == "" {
+			t.Errorf("must-fail guard missed %s", bad)
+		}
+	}
+}

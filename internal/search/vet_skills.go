@@ -134,8 +134,19 @@ func scoreLangOrUISkill(name, lowPrompt string, files []string) (int, string) {
 		if hasExt(files, ".tsx") || containsAnyWord(lowPrompt, "shadcn", "tailwind", "react", "tanstack") {
 			return 72, "React/Tailwind/shadcn UI surface"
 		}
+	case "frontend-slate-ui":
+		if isAngularSlateUISurface(lowPrompt, files) {
+			tsExtra := max(0, countExt(files, ".ts", ".tsx")-1) * 3
+			return 74 + min(12, tsExtra), "Angular/SlateUI UI surface"
+		}
 	}
 	return 0, ""
+}
+
+func isAngularSlateUISurface(lowPrompt string, files []string) bool {
+	return hasBaseOrExt(files, ".component.ts", ".component.html") ||
+		containsAnyWord(lowPrompt, "angular", "slateui", "slate-ui", "ng-primitives", "uibutton", "provideslateuitheme") ||
+		containsAnySubstr(lowPrompt, ".component.ts", ".component.html", "@angular/")
 }
 
 func isBashSkillSurface(lowPrompt string, files []string) bool {
