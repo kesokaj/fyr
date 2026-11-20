@@ -22,7 +22,7 @@ func open(top string) (*checker, error) {
 	if err != nil {
 		return nil, refusal{err.Error()}
 	}
-	k := &checker{top: top, root: root, topDirs: map[string]bool{}, topFiles: map[string]bool{}, lines: map[string]int{}, links: map[string]bool{}}
+	k := &checker{top: top, root: root, topDirs: map[string]bool{}, topFiles: map[string]bool{}, lines: map[string]int{}, links: map[string]bool{}, headings: map[string][]string{}}
 	for _, p := range strings.Split(string(out), "\x00") {
 		if p == "" {
 			continue

@@ -187,3 +187,53 @@ func TestRequirementsRuleReadsThePRDTemplate(t *testing.T) {
 		}
 	}
 }
+
+func TestRequirementsRuleFencedAndEmptyAndRetired(t *testing.T) {
+	prd := strings.Join([]string{
+		"# PRD — x",
+		"",
+		"## Must",
+		"",
+		"- **R1** — fenced hash inside block does not end item before enforced-by.",
+		"  ```bash",
+		"  # comment inside fence",
+		"  echo ok",
+		"  ```",
+		"  <!-- enforced by: TestLive -->",
+		"- **R2** — comma-only enforced-by is empty.",
+		"  <!-- enforced by: , -->",
+		"- **R3** — retired and superseded records do not resolve.",
+		"  <!-- enforced by: SPEC-retired, ADR-002, SPEC-current, ADR-001 -->",
+	}, "\n")
+	trail := trailLine(t, "SPEC-retired", "spec", "retired", "`internal/a.go`") +
+		trailLine(t, "ADR-002", "adr", "superseded:ADR-001", "x") +
+		trailLine(t, "SPEC-current", "spec", "current", "`internal/a.go`") +
+		trailLine(t, "ADR-001", "adr", "accepted", "x")
+	dir := repo(t, map[string]string{
+		"PRD.md":              prd,
+		"internal/a.go":       "package a\n",
+		"internal/a_test.go":  "package a\n\nimport \"testing\"\n\nfunc TestLive(t *testing.T) {}\n",
+		".agents/trail.jsonl": trail,
+	})
+	rep := run(t, dir)
+	same(t, rep.Findings, "PRD.md:11 requirement", "PRD.md:13 requirement")
+	for _, f := range rep.Findings {
+		switch f.Line {
+		case 11:
+			if f.Text != "R2: an empty `enforced by:`" {
+				t.Errorf("line 11 = %q, want empty enforced by", f.Text)
+			}
+		case 13:
+			for _, bad := range []string{"`SPEC-retired`", "`ADR-002`"} {
+				if !strings.Contains(f.Text, bad) {
+					t.Errorf("line 13 = %q, want %s", f.Text, bad)
+				}
+			}
+			for _, good := range []string{"`SPEC-current`", "`ADR-001`"} {
+				if strings.Contains(f.Text, good) {
+					t.Errorf("line 13 = %q unexpectedly flags %s", f.Text, good)
+				}
+			}
+		}
+	}
+}

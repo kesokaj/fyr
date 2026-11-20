@@ -96,11 +96,12 @@ func TestTracesRule(t *testing.T) {
 	}, "\n")
 	rep := run(t, repo(t, map[string]string{"PRD.md": prd, "SDD.md": sdd, "TDD.md": tdd}))
 	got := traceFindings(rep)
-	same(t, got, "PRD.md:6 trace", "PRD.md:11 trace", "SDD.md:9 trace")
+	same(t, got, "PRD.md:6 trace", "PRD.md:11 trace", "SDD.md:9 trace", "SDD.md:21 trace")
 	want := map[string]string{
 		"PRD.md:6":  "R2: SDD.md's trace row names no component",
 		"PRD.md:11": "S1: no row in SDD.md's trace",
 		"SDD.md:9":  "M3: no row in TDD.md's trace",
+		"SDD.md:21": "R2: duplicate row in SDD.md's trace",
 	}
 	for _, f := range got {
 		key := fmt.Sprintf("%s:%d", f.Where, f.Line)
@@ -254,5 +255,84 @@ func TestTracesRuleRejectsMissingOrRetiredSpecsInTDDAndSDD(t *testing.T) {
 	same(t, traceFindings(repNoTrail))
 	if !strings.Contains(notes(repNoTrail), "no .agents/trail.jsonl") {
 		t.Errorf("notes %q, want no .agents/trail.jsonl note", notes(repNoTrail))
+	}
+}
+
+func TestTracesRuleEscapedPipesDuplicatesAndVerifiedBy(t *testing.T) {
+	prd := strings.Join([]string{
+		"# PRD — x",
+		"",
+		"## Must",
+		"",
+		"- **R1** — one.",
+		"  <!-- enforced by: TestLive -->",
+	}, "\n")
+	sdd := strings.Join([]string{
+		"# SDD — x",
+		"",
+		"## Components",
+		"",
+		"| ID | Component | Responsibility | Satisfies |",
+		"| :--- | :---: | :--- | ---: |",
+		"| M1 | `a \\| b` | `cmd \\| sh` | R1 |",
+		"| M1 | `dup` | dup comp | R1 |",
+		"| M2 | `b` | ok | R1 |",
+		"",
+		"## Trace",
+		"",
+		"| Requirement | Components |",
+		"|---|---|",
+		"| R1 | M1, M99 |",
+		"| R1 | M2 |",
+	}, "\n")
+	tdd := strings.Join([]string{
+		"# TDD — x",
+		"",
+		"## Trace",
+		"",
+		"| Component | Section | Verified by |",
+		"|---|---|---|",
+		"| M1 | T1 | `TestLive`, `TestGone`, `<TestPlaceholder>` |",
+		"| M1 | T1 | - |",
+		"| M2 | T2 | none |",
+		"| M3 | T3 | — |",
+		"| M4 | T4 |  |",
+	}, "\n")
+	dir := repo(t, map[string]string{
+		"PRD.md":             prd,
+		"SDD.md":             sdd,
+		"TDD.md":             tdd,
+		"internal/a_test.go": "package a\n\nimport \"testing\"\n\nfunc TestLive(t *testing.T) {}\n",
+	})
+	rep := run(t, dir)
+	got := traceFindings(rep)
+	same(t, got,
+		"SDD.md:8 trace",
+		"SDD.md:15 trace",
+		"SDD.md:16 trace",
+		"TDD.md:7 trace",
+		"TDD.md:8 trace",
+		"TDD.md:8 trace",
+		"TDD.md:9 trace",
+		"TDD.md:10 trace",
+		"TDD.md:11 trace",
+	)
+	joined := ""
+	for _, f := range got {
+		joined += f.Text + "\n"
+	}
+	for _, want := range []string{"M99", "duplicate", "TestGone", "empty Verified by"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("findings missing %q:\n%s", want, joined)
+		}
+	}
+	for _, skip := range []string{"TestLive", "TestPlaceholder"} {
+		if strings.Contains(joined, skip) {
+			t.Errorf("findings unexpectedly flag %q:\n%s", skip, joined)
+		}
+	}
+	rows := tableRowList(sdd, "Components")
+	if len(rows) != 3 || rows[0].cells[1] != "a | b" || rows[0].cells[2] != "cmd | sh" {
+		t.Errorf("splitTableRow escaped pipe mismatch: %+v", rows)
 	}
 }

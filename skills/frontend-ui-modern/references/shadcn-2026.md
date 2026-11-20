@@ -1,7 +1,7 @@
 # shadcn/ui — current state (verified 2026-10-30 against shadcn-ui/ui `main` + ui.shadcn.com)
 
-Contents: [Model](#model) · [CLI](#cli) · [components.json](#componentsjson) · [CSS scaffold](#css-scaffold) ·
-[Dark mode](#dark-mode) · [Stacks](#stacks) · [Timeline](#timeline) · [Companion skill](#companion-skill)
+Contents: [Model](#model) · [CLI](#cli-shadcn-423) · [components.json](#componentsjson) · [CSS scaffold](#css-scaffold) ·
+[Dark mode](#dark-mode) · [Stacks](#stacks) · [Timeline](#timeline-what-changed-recently--useful-when-older-snippets-look-different) · [Companion skill](#companion-skill)
 
 ## Model
 

@@ -1,6 +1,6 @@
 # Components: catalog, composition, code rules
 
-Contents: [Catalog](#catalog) · [Selection table](#selection-table) · [Composition trees](#composition-trees) ·
+Contents: [Catalog](#catalog-65-registryui-items-oct-2026) · [Selection table](#selection-table) · [Composition trees](#composition-trees) ·
 [Base UI vs Radix vs Aria](#base-ui-vs-radix-vs-aria) · [Code rules](#code-rules) · [States](#states)
 
 Install: `npx shadcn@4.23.0 add <name> [<name>...]`. Docs per base: `https://ui.shadcn.com/docs/components/<base|radix|aria>/<name>`

@@ -5,8 +5,6 @@ import (
 	"io/fs"
 	"regexp"
 	"strings"
-
-	"github.com/kesokaj/fyr/internal/brain"
 )
 
 var (
@@ -14,6 +12,8 @@ var (
 	componentID = regexp.MustCompile(`^M[0-9]+$`)
 	namesM      = regexp.MustCompile(`\bM[0-9]+\b`)
 	specRefRe   = regexp.MustCompile(`SPEC-[a-z0-9-]+`)
+	sepCellRe   = regexp.MustCompile(`^:?-{1,}:?$`)
+	traceTestRe = regexp.MustCompile(`\bTest[A-Za-z0-9_]+\b`)
 )
 
 // tracesRule is rule (d) (PLAN-2026-10-29-root-docs-and-fyr-serve D40):
@@ -28,33 +28,139 @@ func (k *checker) tracesRule() ([]Finding, []string) {
 	}
 	var out []Finding
 	var notes []string
+	compSet, comps, compFinds := sddComponents(sdd)
+	sddTrace, sddFinds := sddTraceRows(sdd, compSet)
+	out = append(out, sddFinds...)
 	if prd, note := k.rootDoc("PRD.md", "requirements not traced"); note != "" {
 		notes = append(notes, note)
 	} else if items := requirementItems(prd); len(items) == 0 {
 		notes = append(notes, "PRD.md has no Must or Should items: requirements not traced")
 	} else {
-		out = requirementTraces(items, tableRows(sdd, "Trace"))
-	}
-	var comps []row
-	for _, r := range tableRowList(sdd, "Components") {
-		if componentID.MatchString(r.cells[0]) {
-			comps = append(comps, r)
-		}
+		out = append(out, requirementTraces(items, sddTrace)...)
 	}
 	if len(comps) == 0 {
 		return out, append(notes, "SDD.md has no M# component: components not traced")
 	}
+	out = append(out, compFinds...)
 	tdd, note := k.rootDoc("TDD.md", "components not traced")
 	if note != "" {
 		return out, append(notes, note)
 	}
-	tddTrace := tableRows(tdd, "Trace")
+	tddTrace, tddFinds := k.tddTraceRows(tdd)
+	out = append(out, tddFinds...)
 	for _, c := range comps {
 		if _, ok := tddTrace[c.cells[0]]; !ok {
 			out = append(out, Finding{"SDD.md", c.line, "trace", c.cells[0] + ": no row in TDD.md's trace"})
 		}
 	}
 	return out, notes
+}
+
+func sddComponents(sdd string) (map[string]bool, []row, []Finding) {
+	compSet := map[string]bool{}
+	var comps []row
+	var out []Finding
+	for _, r := range tableRowList(sdd, "Components") {
+		id := r.cells[0]
+		if !componentID.MatchString(id) {
+			continue
+		}
+		if compSet[id] {
+			out = append(out, Finding{"SDD.md", r.line, "trace", id + ": duplicate row in SDD.md's components"})
+			continue
+		}
+		compSet[id] = true
+		comps = append(comps, r)
+	}
+	return compSet, comps, out
+}
+
+func sddTraceRows(sdd string, compSet map[string]bool) (map[string]row, []Finding) {
+	rows := map[string]row{}
+	var out []Finding
+	for _, r := range tableRowList(sdd, "Trace") {
+		key := r.cells[0]
+		if key != "" {
+			if _, seen := rows[key]; seen {
+				out = append(out, Finding{"SDD.md", r.line, "trace", key + ": duplicate row in SDD.md's trace"})
+			} else {
+				rows[key] = r
+			}
+		}
+		if len(compSet) > 0 && len(r.cells) > 1 {
+			out = append(out, unknownComponentFindings(r, compSet)...)
+		}
+	}
+	return rows, out
+}
+
+func unknownComponentFindings(r row, compSet map[string]bool) []Finding {
+	var out []Finding
+	seen := map[string]bool{}
+	for _, id := range namesM.FindAllString(strings.Join(r.cells[1:], "|"), -1) {
+		if seen[id] || compSet[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, Finding{"SDD.md", r.line, "trace", id + ": unknown component in SDD.md's trace"})
+	}
+	return out
+}
+
+func (k *checker) tddTraceRows(tdd string) (map[string]row, []Finding) {
+	rows := map[string]row{}
+	var out []Finding
+	for _, r := range tableRowList(tdd, "Trace") {
+		key := r.cells[0]
+		if key != "" {
+			if _, seen := rows[key]; seen {
+				out = append(out, Finding{"TDD.md", r.line, "trace", key + ": duplicate row in TDD.md's trace"})
+			} else {
+				rows[key] = r
+			}
+		}
+		out = append(out, k.tddVerifiedFindings(r)...)
+	}
+	return rows, out
+}
+
+func (k *checker) tddVerifiedFindings(r row) []Finding {
+	ver := ""
+	if len(r.cells) >= 3 {
+		ver = strings.TrimSpace(r.cells[2])
+	}
+	if ver == "" || ver == "-" || ver == "—" || strings.EqualFold(ver, "none") {
+		return []Finding{{"TDD.md", r.line, "trace", r.cells[0] + ": empty Verified by in TDD.md's trace"}}
+	}
+	if !k.hasTrackedGoTests() {
+		return nil
+	}
+	clean := placeholderRe.ReplaceAllString(ver, "")
+	var out []Finding
+	seen := map[string]bool{}
+	for _, m := range traceTestRe.FindAllStringIndex(clean, -1) {
+		if m[1] < len(clean) && clean[m[1]] == '*' {
+			continue
+		}
+		tok := clean[m[0]:m[1]]
+		if seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		if !k.testDeclared(tok) {
+			out = append(out, Finding{"TDD.md", r.line, "trace", tok + ": missing test in TDD.md's trace"})
+		}
+	}
+	return out
+}
+
+func (k *checker) hasTrackedGoTests() bool {
+	for _, p := range k.tracked {
+		if strings.HasSuffix(p, "_test.go") {
+			return true
+		}
+	}
+	return false
 }
 
 // requirementTraces is rule (d)'s first half: each item's row in SDD.md's
@@ -93,9 +199,9 @@ type row struct {
 	cells []string
 }
 
-// tableRowList is every table row of text's `## <heading>` sections, the
-// heading's text exactly, up to the next level-one or level-two heading;
-// lines in a fence are not read.
+// tableRowList is every data table row of text's `## <heading>` sections,
+// the heading's text exactly, up to the next level-one or level-two heading;
+// separator rows, header rows above a separator, and fenced lines are skipped.
 func tableRowList(text, heading string) []row {
 	var out []row
 	in := false
@@ -108,9 +214,12 @@ func tableRowList(text, heading string) []row {
 		if !in || !strings.HasPrefix(t, "|") {
 			return true
 		}
-		cells := strings.Split(strings.Trim(t, "|"), "|")
-		for i, c := range cells {
-			cells[i] = strings.Trim(strings.TrimSpace(c), "`")
+		cells := splitTableRow(t)
+		if isSeparatorRow(cells) {
+			if len(out) > 0 && out[len(out)-1].line == n-1 {
+				out = out[:len(out)-1]
+			}
+			return true
 		}
 		out = append(out, row{n, cells})
 		return true
@@ -118,16 +227,53 @@ func tableRowList(text, heading string) []row {
 	return out
 }
 
-// tableRows is tableRowList keyed by each row's first cell; the first row
-// with a key wins.
-func tableRows(text, heading string) map[string]row {
-	rows := map[string]row{}
-	for _, r := range tableRowList(text, heading) {
-		if _, seen := rows[r.cells[0]]; !seen {
-			rows[r.cells[0]] = r
-		}
+func splitTableRow(line string) []string {
+	t := strings.TrimPrefix(strings.TrimSpace(line), "|")
+	if hasUnescapedTrailingPipe(t) {
+		t = t[:len(t)-1]
 	}
-	return rows
+	var cells []string
+	var buf strings.Builder
+	for i := 0; i < len(t); i++ {
+		if t[i] == '\\' && i+1 < len(t) && t[i+1] == '|' {
+			buf.WriteByte('|')
+			i++
+			continue
+		}
+		if t[i] == '|' {
+			cells = append(cells, strings.Trim(strings.TrimSpace(buf.String()), "`"))
+			buf.Reset()
+			continue
+		}
+		buf.WriteByte(t[i])
+	}
+	return append(cells, strings.Trim(strings.TrimSpace(buf.String()), "`"))
+}
+
+func hasUnescapedTrailingPipe(t string) bool {
+	if !strings.HasSuffix(t, "|") {
+		return false
+	}
+	slashes := 0
+	for i := len(t) - 2; i >= 0 && t[i] == '\\'; i-- {
+		slashes++
+	}
+	return slashes%2 == 0
+}
+
+func isSeparatorRow(cells []string) bool {
+	hasDash := false
+	for _, c := range cells {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !sepCellRe.MatchString(c) {
+			return false
+		}
+		hasDash = true
+	}
+	return hasDash
 }
 
 // unfenced calls f with each 1-based line of text that is neither in a fence
@@ -155,67 +301,4 @@ func unfenced(text string, f func(n int, l string) bool) {
 			return
 		}
 	}
-}
-
-// specRefsFindings checks unfenced SPEC-* citations in SDD.md and TDD.md
-// against the trail records when a trail is present (ok == true).
-func (k *checker) specRefsFindings(recs []brain.Record, ok bool) []Finding {
-	if !ok {
-		return nil
-	}
-	status := make(map[string]string, len(recs))
-	for _, r := range recs {
-		if r.Kind == "spec" {
-			status[r.ID] = r.Status
-		}
-	}
-	var out []Finding
-	for _, docName := range []string{"SDD.md", "TDD.md"} {
-		data, err := k.readFile(docName)
-		if err != nil {
-			continue
-		}
-		out = append(out, docSpecRefFindings(docName, string(data), status)...)
-	}
-	return out
-}
-
-func docSpecRefFindings(docName, text string, status map[string]string) []Finding {
-	var out []Finding
-	unfenced(text, func(n int, l string) bool {
-		seen := map[string]bool{}
-		for _, id := range lineSpecRefs(l) {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			if st, found := status[id]; !found {
-				out = append(out, Finding{docName, n, "trace", id + ": missing spec record"})
-			} else if st != "current" {
-				out = append(out, Finding{docName, n, "trace", id + ": spec status is " + st + ", want current"})
-			}
-		}
-		return true
-	})
-	return out
-}
-
-func lineSpecRefs(l string) []string {
-	var ids []string
-	for _, m := range specRefRe.FindAllStringIndex(l, -1) {
-		start, end := m[0], m[1]
-		if start > 0 && isSpecIDChar(l[start-1]) {
-			continue
-		}
-		id := l[start:end]
-		if strings.HasSuffix(id, "-") || (end < len(l) && (l[end] == '*' || isSpecIDChar(l[end]))) {
-			continue
-		}
-		ids = append(ids, id)
-	}
-	return ids
-}
-
-func isSpecIDChar(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
 }

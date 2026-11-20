@@ -116,7 +116,7 @@ func verifyFleetTurns1And2(t *testing.T, r *fleetRig) string {
 	writeMockFile(t, filepath.Join(r.proj, "AGENTS.md"), "# AGENTS.md — fleet-ops\n\n## Setup commands\n\n```bash\ngofmt -l cmd internal && go vet ./... && go test ./... # auto: test\n```\n")
 	writeMockFile(t, filepath.Join(r.proj, "PRD.md"), "# PRD — fleet-ops\n\n## Must\n\n- **R1** — Collector histogram buckets probe latency via an injected clock seam. <!-- provenance: operator, 2026-11-09; enforced by: TestHistogram, internal/collector/probe.go::Histogram -->\n- **R2** — Alert router classifies warning and critical severity deterministically. <!-- provenance: operator, 2026-11-09; enforced by: internal/router/notify.go -->\n- **R3** — Summary CLI renders health probes using stdlib only. <!-- provenance: operator, 2026-11-09; enforced by: TestRender, cmd/fleetctl/main.go -->\n\n## Non-goals\n\n- External agent daemons.\n")
 	writeMockFile(t, filepath.Join(r.proj, "SDD.md"), "# SDD — fleet-ops\n\n## Components\n\n| ID | Name | Path |\n|---|---|---|\n| M1 | Collector | `internal/collector` |\n| M2 | Router | `internal/router` |\n| M3 | CLI & Report | `cmd/fleetctl`, `internal/report` |\n\n## Trace\n\n| Requirement | Components |\n|---|---|\n| R1 | M1 |\n| R2 | M2 |\n| R3 | M1, M2, M3 |\n")
-	writeMockFile(t, filepath.Join(r.proj, "TDD.md"), "# TDD — fleet-ops\n\n## Trace\n\n| Component | Section | Verified by |\n|---|---|---|\n| M1 | T1 | `TestCollect`, `TestHistogram` |\n| M2 | T2 | `TestRouteAlert`, `TestRouteSeverity` |\n| M3 | T3 | `TestRender` |\n")
+	writeMockFile(t, filepath.Join(r.proj, "TDD.md"), "# TDD — fleet-ops\n\n## Trace\n\n| Component | Section | Verified by |\n|---|---|---|\n| M1 | T1 | `TestCollect`, `TestHistogram` |\n| M2 | T2 | `TestRouteAlert` |\n| M3 | T3 | `TestRender` |\n")
 	writeMockFile(t, filepath.Join(r.proj, "TODO.md"), "# TODO\n\n## Now\n\n- [ ] 1.1 Run collector and router workers.\n\n## Next\n\n## Backlog\n")
 	fyrMust(t, "Title: Testing fleet-ops\n\nRun `gofmt -l cmd internal && go vet ./... && go test ./...`.\n", "record", "add", "guide", "--id", "GUIDE-testing", "-C", r.proj, "--home", r.home)
 	fyrMust(t, "Title: Local fleetctl\n\nRun `go run ./cmd/fleetctl`.\n", "record", "add", "deploy", "--id", "DEPLOY-local", "-C", r.proj, "--home", r.home)
@@ -177,7 +177,8 @@ func verifyFleetTurn3GateAndLand(t *testing.T, r *fleetRig) {
 		runCmd(t, r.proj, "git", "worktree", "remove", wt)
 		if w.name == "router" {
 			writeMockFile(t, filepath.Join(r.proj, "PRD.md"), strings.ReplaceAll(readFile(t, filepath.Join(r.proj, "PRD.md")), "enforced by: internal/router/notify.go", "enforced by: TestRouteSeverity, internal/router/notify.go::RouteSeverity"))
-			runCmd(t, r.proj, "git", "add", "PRD.md")
+			writeMockFile(t, filepath.Join(r.proj, "TDD.md"), strings.ReplaceAll(readFile(t, filepath.Join(r.proj, "TDD.md")), "`TestRouteAlert`", "`TestRouteAlert`, `TestRouteSeverity`"))
+			runCmd(t, r.proj, "git", "add", "PRD.md", "TDD.md")
 			runCmd(t, r.proj, "git", "commit", "-qm", "docs: wire R2 enforced-by before router land")
 			preChk, _, pc := fyrCLI(t, "", "check", "-C", r.proj, "--home", r.home)
 			if pc != 1 {

@@ -35,7 +35,7 @@ type Vocabulary map[string]VerbSpec
 type Finding struct {
 	Where string // repo-relative path or record ID
 	Line  int    // 1-based; 0 when the rule has none
-	Rule  string // verb subverb flag path line spec-stale spec-unlinked requirement trace
+	Rule  string // verb subverb flag path line anchor spec-stale spec-unlinked requirement trace
 	Text  string
 }
 
@@ -76,8 +76,9 @@ type checker struct {
 	topFiles map[string]bool
 	lines    map[string]int
 	links    map[string]bool
-	tests    map[string]bool // Go tests declared in tracked *_test.go, read once
-	skipped  []string        // tracked docs and tests readFile refused, for one note (IN53)
+	headings map[string][]string // ATX headings per .md path, read once
+	tests    map[string]bool     // Go tests declared in tracked *_test.go, read once
+	skipped  []string            // tracked docs and tests readFile refused, for one note (IN53)
 }
 
 // Run checks the checkout that holds dir against v. It writes nothing.
@@ -222,6 +223,7 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 				}
 			}
 		}
+		out = append(out, k.anchorFindings(d.where, d.text)...)
 	}
 	var ps []string
 	for _, c := range cands {
@@ -240,7 +242,7 @@ func (k *checker) docsRule(files []string, living []brain.Record, v Vocabulary) 
 }
 
 // ruleOrder puts rule (a)'s findings first, then (b)'s, (c)'s and (d)'s.
-var ruleOrder = map[string]int{"verb": 0, "subverb": 0, "flag": 0, "path": 0, "line": 0, "spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3}
+var ruleOrder = map[string]int{"verb": 0, "subverb": 0, "flag": 0, "path": 0, "line": 0, "anchor": 0, "spec-stale": 1, "spec-unlinked": 1, "requirement": 2, "trace": 3}
 
 func sortFindings(fs []Finding) {
 	sort.SliceStable(fs, func(i, j int) bool {

@@ -45,6 +45,10 @@ func (k *checker) requirementsRule(recs []brain.Record) ([]Finding, []string) {
 	}
 	ids := map[string]bool{}
 	for _, r := range recs {
+		st := strings.ToLower(strings.TrimSpace(r.Status))
+		if st == "retired" || strings.HasPrefix(st, "superseded") {
+			continue
+		}
 		ids[r.ID] = true
 	}
 	var out []Finding
@@ -78,25 +82,25 @@ func requirementItems(text string) []item {
 			cur = nil
 		}
 	}
-	for i, l := range strings.Split(text, "\n") {
-		l = strings.TrimSuffix(l, "\r")
+	unfenced(text, func(n int, l string) bool {
 		if strings.HasPrefix(l, "#") {
 			end()
 			if h, ok := strings.CutPrefix(l, "## "); ok {
 				read = strings.HasPrefix(h, "Must") || strings.HasPrefix(h, "Should")
 			}
-			continue
+			return true
 		}
 		if m := itemRe.FindStringSubmatch(l); m != nil {
 			end()
 			if read && !strings.HasPrefix(m[2], "struck") {
-				cur = &item{id: m[1], line: i + 1}
+				cur = &item{id: m[1], line: n}
 			}
 		}
 		if cur != nil {
 			cur.block += l + "\n"
 		}
-	}
+		return true
+	})
 	end()
 	return out
 }
@@ -128,11 +132,19 @@ func (k *checker) unenforced(where, block string, ids map[string]bool) string {
 		return "`enforced by:` is not yet enforced"
 	}
 	var bad []string
+	tokens := 0
 	for _, part := range strings.Split(value, ",") {
 		tok := siteToken(part)
-		if tok != "" && !k.resolves(where, tok, ids) {
+		if tok == "" {
+			continue
+		}
+		tokens++
+		if !k.resolves(where, tok, ids) {
 			bad = append(bad, "`"+tok+"`")
 		}
+	}
+	if tokens == 0 {
+		return "an empty `enforced by:`"
 	}
 	if len(bad) > 0 {
 		return "`enforced by:` does not resolve: " + strings.Join(bad, ", ")
