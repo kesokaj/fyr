@@ -11,9 +11,7 @@ import (
 
 func openTargetNoFollow(path string, force bool) (*os.File, error) {
 	flags := os.O_WRONLY | os.O_CREATE | syscall.O_NOFOLLOW | syscall.O_NONBLOCK
-	if force {
-		flags |= os.O_TRUNC
-	} else {
+	if !force {
 		flags |= os.O_EXCL
 	}
 	f, err := os.OpenFile(path, flags, 0o600)

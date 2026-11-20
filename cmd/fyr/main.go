@@ -18,9 +18,9 @@
 //	fyr index       reconcile the search index; --register opts in
 //	fyr graph       interactive AST and telemetry constellation
 //	fyr dream       consolidate project memory and trail into proposals
-//	fyr auto        idle-time runs: on, off, status, run
+//	fyr auto        idle-time runs: on, off, status, run, log
 //	fyr metrics     session shapes: ingest, show, report, evals, trajectory, export
-//	fyr report      project or global usage report (HTML or --md)
+//	fyr report      project or global usage report (HTML, --md, --json, --web)
 //	fyr models      the live agy model catalog and role picks
 //	fyr eval        run behavioural rows against the CLI
 //	fyr verify      run gofmt, go vet, go test -race, check and write stamp

@@ -37,7 +37,7 @@ func WriteMarkdownReport(sum *Summary, evals *EvalRows, file string, now time.Ti
 	return f.Close()
 }
 
-// RenderMarkdownReport writes the six-section Markdown usage report to w.
+// RenderMarkdownReport writes the Markdown usage report (Scorecard, sections 1-5, Background Autonomy, and Trigger coverage) to w.
 func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) error {
 	series := seriesOf(sum)
 	var b strings.Builder

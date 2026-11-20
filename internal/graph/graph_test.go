@@ -274,6 +274,15 @@ func TestGraphWriteFile0600(t *testing.T) {
 		t.Errorf("mode after forced overwrite = %04o, want 0600", perm)
 	}
 
+	// Overwrite with shorter content via --force; verifies Truncate(0) after SameFile leaves zero trailing bytes.
+	if err := WriteFile(outPath, []byte("tiny"), true); err != nil {
+		t.Fatalf("WriteFile shorter forced overwrite: %v", err)
+	}
+	got, err = os.ReadFile(outPath)
+	if err != nil || string(got) != "tiny" {
+		t.Fatalf("content after shorter forced overwrite = %q, want %q", got, "tiny")
+	}
+
 	// Refuse symlink target both without and with --force.
 	victim := filepath.Join(dir, "victim.txt")
 	if err := os.WriteFile(victim, []byte("keep-me"), 0o600); err != nil {

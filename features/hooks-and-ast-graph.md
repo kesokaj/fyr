@@ -15,7 +15,7 @@ sequenceDiagram
     Agy->>Hook: session-start (<= 1,500 B capsule)
     Hook-->>Agy: date, active plan, TODO Now, dirty Go files
     Agy->>Hook: pre-invocation (prompt + conversationId)
-    Hook->>DB: AST slice, vet_history (v9), generation dedup
+    Hook->>DB: AST slice, vet_history (v10), generation dedup
     Hook->>Brain: matching BUG, ADR, PLAN, and MEMORY (>= 0.40)
     Hook-->>Agy: PreInvocationBanner JSON (or {} PASS_THROUGH)
     Agy->>Hook: pre-tool-use (toolCall name + args)
@@ -33,26 +33,29 @@ At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "9"`) using Go's stdlib `go/ast` parser and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). In addition to symbol definitions, `EXTRACTED` (`1.0`) / `INFERRED` (`0.7`) references, `refs_oid` (`refs(oid)`), `read_ledger`, `vet_history` (`subtask_count`, `directive`), `co_activity`, and v8's `watchdog_ring` (`64` rows per conversation) and `session_meta` (`agent_role`, `agent_name`, `tool_calls`) (`ADR-526`), schema `v9` adds a `chunks.tokens` / `chunks_fts(heading, body, tokens)` column populated by `splitIdentTokens` (`internal/search/search_tokens.go`) for path segments and camelCase, acronym, or snake_case sub-tokens; `fyr search` word queries filter stop words (`filterQueryWords` in `internal/search/search_query.go`), rerank multi-term queries across files by distinct matched terms (`findDistinctFiles` in `internal/search/search_rank_files.go`), and batch `snippets()` into a single `rowid IN (...)` query. `openStore` (`staleSchemaError` in `internal/search/store.go`) unlinks and rebuilds older caches automatically on first open (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "10"`) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). Schema `v10` migrates `v9` in place (`migrateV9ToV10Tx` in `internal/search/store_migrate.go`) by adding `blobs.line_count INT DEFAULT 0` and clearing derived AST/chunk tables (`chunks_fts`, `chunks`, `refs`, `symbols`, `sym_refs`, `files`, `blobs`, `meta WHERE key LIKE 'touched:%'`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
+
+The indexer resolves Go `go.mod` and `*/go.mod` module aliases (`loadGoModulesFromDB`, `resolveGoImportTarget`, and `resolveCrossPkgGoMethods` without phantom fallthrough to local directories), parses relative TS/TSX imports while suppressing unexported `const` noise (`parseTSImports`, `resolveTSRelativeSpec`, `extractTSSymbols`), and normalizes repo-relative package paths (`canonicalPkgDir`, `topLevelLayer` in `internal/search/pkg_paths.go`) so multiple `package main` directories never collide. Default exclusions skip generated Go files and non-code paths (`isExcludedASTPath`, `isGeneratedGoText`), and `.md`/`.mdx` doc files stay out of graph queries unless `--include-docs` is set. Over production `import | call | type_ref` edges (excluding `iface_call` and `implements`), `fyr` computes Tarjan strongly connected components (`TarjanSCC`, `TarjanPackageSCCs` in `internal/search/graph_tarjan.go`), deterministic Louvain communities (`LouvainCommunities` with `1 + math.Log1p(rawW)` weights and `louvainGamma = 1.35` in `internal/search/graph_louvain.go`), and read-only structural/co-activity feeds (`ReadStructuralSignals`, `ReadHiddenCouplingHints` in `internal/search/structural_signals.go`, and `LoadGraphSnapshot` in `internal/search/graph_export.go`).
 
 ```mermaid
 flowchart LR
-    repoFiles["Tracked repo files\n(Go source and Markdown headings)"] --> indexer["fyr index\n(reconcile against git)"]
+    repoFiles["Tracked repo files\n(Go, TS/TSX, and optional Markdown)"] --> indexer["fyr index\n(reconcile against git, v10)"]
     indexer --> ftsIndex["FTS5 full-text index\n(heading, body, tokens)"]
-    indexer --> astGraph["AST symbols and symbol refs\n(EXTRACTED 1.0 / INFERRED 0.7)"]
+    indexer --> astGraph["AST symbols and edges\n(Go/TS imports, Tarjan SCC, Louvain)"]
     ftsIndex --> queryEngine["fyr search / PreInvocation"]
     astGraph --> queryEngine
-    queryEngine --> sliceOut["--slice (Personalized PageRank capsule)"]
+    astGraph --> graphCmd["fyr graph\n(internal/graph & internal/webpreview)"]
+    queryEngine --> sliceOut["--slice (PageRank capsule, --include-docs)"]
     queryEngine --> skelOut["--skeleton (signatures without bodies)"]
-    queryEngine --> pathOut["--path / --affected / --map"]
+    queryEngine --> pathOut["--path / --affected / --map (--include-docs)"]
 ```
 
 You can query the graph directly from the terminal or inside subagent reconnaissance:
 
-- **`fyr search --slice <query>`:** Computes a Personalized PageRank slice (`0`/`1`/`2` hops, default budget `2,000` tokens) combining Hop-0 symbol pivots, 1-hop skeleton neighbors, and linked `brain.db` records, falling back to FTS5 hits when a natural-language query has zero symbol pivots (`internal/search/hook_fts_fallback.go`).
+- **`fyr search --slice <query>`:** Computes a Personalized PageRank slice (`0`/`1`/`2` hops, default budget `2,000` tokens) combining Hop-0 symbol pivots, 1-hop skeleton neighbors, and linked `brain.db` records, falling back to FTS5 hits when a natural-language query has zero symbol pivots (`internal/search/hook_fts_fallback.go`); pass `--include-docs` to include `.md`/`.mdx` files and `doc_ref` edges.
 - **`fyr search --skeleton <file>`:** Returns declaration start–end line ranges and signatures (or Markdown headings) so you only read the line slice you need.
 - **`fyr search --affected <target>` & `--path <from> --to <to>`:** Traces reverse-BFS blast radius (`<= 2` hops) or shortest call/import paths (`<= 6` hops) across files and packages.
-- **`fyr search --map`:** Surfaces the top-10 God Nodes by PageRank, package import dependencies, and elementary dependency cycles.
+- **`fyr search --map`:** Surfaces the top-10 God Nodes by PageRank, package import dependencies, and elementary dependency cycles (pass `--include-docs` to include doc references).
 
 ## Stateful prompt vetting, directives, and decomposition
 
@@ -77,11 +80,11 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 2. **Directive precedence (`preInvocationDirective`):** Emits `PASS_THROUGH` (`GatePassThrough`) > `VET_FIRST` (`GateVetFirst`) > `COORDINATE_SUBTASKS` (`len(res.Subtasks) >= 2`, setting `route` to `"/fyr-swarm (isolated subtasks; zero shared memory)"`) > `ANSWER_ONLY` (`IntentQuestion`) / `CORRECTION` (`IntentCorrection`) > `EXECUTE_IMPROVED_PROMPT` (non-empty `improvedPrompt`) > `ENRICH_AND_PROCEED`.
 3. **`improvedPrompt` & progressive memory:** Populates `enrichment.improvedPrompt` (`[VET_IMPROVED_PROMPT]`) on `ENRICH_AND_PROCEED` turns (`45 <= score < 80`, `VET_FIRST` follow-ups, conflicts, or `len(subtasks) >= 2`; omitted for questions and corrections), and injects up to `4` matched memories (`validity >= 0.40`) inside the `6`-record cap.
 4. **Compaction-scoped `skillDigests` deduplication:** `vetPromptCoreWithHistory` (`internal/search/vet.go`) calls `filterSuggestedSkills` (`internal/search/vet_history.go`, dropping skills suggested in the last 3 turns unless a new file surface appears); `buildHookEnvelope` (`internal/search/process_artifact.go`) then runs `filterSessionDedupTurn` (`internal/search/hook_dedup.go`), stamping `__vet_skill__:<name>` in `read_ledger` (`start_line = -4`) per `generation_id`. Both `skills` (names) and `enrichment.skillDigests` (`<= 600 B` actionable digests) emit on Turn 1, drop already-seen skills on Turn 2+, and re-prime automatically when compaction increments `generation_id`.
-5. **Deterministic subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause prompts (`1. ... 2. ...` or `;`-separated action clauses, ignoring backticked `;` and constraint clauses) or single-clause multi-package prompts (`>= 2` disjoint Go/top-level directories ordered by Hop-0 rank then lexicographically, folding `> 5` packages into slice `6`) into up to `6` `SubtaskSlice` entries (`internal/search/vet_decompose.go`, `internal/search/vet_route.go`). Greedy assignment keeps `Files` pairwise disjoint (fileless clauses stay `nil`), infers `Role` (`reviewer`, `security`, `documentation`, `explorer`, `builder`), picks up to `2` `Skills`, and suggests `Verify`; skips `PassThrough`, `!`-bypass, `APPROVAL`, `TRIVIAL`, `QUESTION`, `CORRECTION`, and `isWorkerBriefPrompt`.
+5. **Deterministic subtask decomposition (`DecomposeSubtasks`):** Splits multi-clause prompts (`1. ... 2. ...` or `;`-separated action clauses, ignoring backticked `;` and constraint clauses) or single-clause multi-package prompts (`>= 2` disjoint Go/top-level directories ordered by Hop-0 rank then lexicographically) into up to `6` `SubtaskSlice` entries (`internal/search/vet_decompose.go`, `internal/search/vet_route.go`). When `len(order) > maxSubtaskSlices` (`6`), `partitionPackageGroups` calls `coalesceOverflowByCommunity` (`internal/search/vet_decompose_pkg.go`) using deterministic Louvain communities (`internal/search/graph_louvain.go`) before falling back to `partitionOverflowTail`. Greedy assignment keeps `Files` pairwise disjoint (fileless clauses stay `nil`), infers `Role` (`reviewer`, `security`, `documentation`, `explorer`, `builder`), picks up to `2` `Skills`, and suggests `Verify`; skips `PassThrough`, `!`-bypass, `APPROVAL`, `TRIVIAL`, `QUESTION`, `CORRECTION`, and `isWorkerBriefPrompt`.
 6. **Lean JSON envelope & model resolution:** Emits one 2-space pretty-printed `PreInvocationBanner` JSON object (`Metadata == nil`, `internal/search/telemetry_json.go`) with exact `model` display name and `thinking` effort resolved via `internal/search/telemetry_model.go`.
 
 <details>
-<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v9 `vet_history` fields</summary>
+<summary>Example PRE_INVOCATION envelope (`COORDINATE_SUBTASKS`) and schema v10 `vet_history` fields</summary>
 
 ```json
 {
@@ -117,7 +120,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 }
 ```
 
-- `vet_history` (`schemaVersion = "9"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
+- `vet_history` (`schemaVersion = "10"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
 
 </details>
 
@@ -140,8 +143,8 @@ stateDiagram-v2
     AllowedRead --> [*]: Record clamped 800-line / 46,080 B window
 ```
 
-- **Skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest; an immediate ranged read (or an explicit second unranged retry) succeeds without deadlock.
-- **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window. Editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans in the ledger and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
+- **Skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
+- **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window. The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
 
 ## Coordinator write guard and worker JIT capsules
 
@@ -176,14 +179,14 @@ flowchart LR
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "9"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "10"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
 
 ```mermaid
 flowchart LR
     preCall["PreToolUse tool call"] --> bashGuard["hook_bash_guard.go\ncheckInteractiveBashGuard"]
     preCall --> watchPre["hook_watchdog.go\nevaluateWatchdogPre"]
     bashGuard -- "Interactive or net git" --> bashOut["Deny INTERACTIVE_STDIN or\nOverwrite GIT_TERMINAL_PROMPT=0"]
-    watchPre --> ringDB[("search.db v9\nwatchdog_ring and session_meta")]
+    watchPre --> ringDB[("search.db v10\nwatchdog_ring and session_meta")]
     ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, TOKEN_LOOP,\nor SUBAGENT_BUDGET"]
     postCall["PostToolUse: handlePostToolUse"] --> postMark["markWatchdogPostError\nreturns {}"]
     postMark -.-> ringDB
@@ -200,6 +203,23 @@ flowchart LR
 ## Stop verification nudge and co-activity
 
 When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go`) records passive file `co_activity` pairs to improve future `--slice` ranking and writes live session progress to `<appDataDir>/brain/<conv-id>/fyr-process.md` (`internal/search/telemetry_process.go`). If the current session modified Go source or module files (`*.go`, `go.mod`, `go.sum`) and `.agents/scratch/verify.stamp` is missing or mismatches the current Go tree SHA-256, the `Stop` hook emits a once-per-tree-hash `[VERIFY_STAMP]` continuation nudge asking the agent to run `fyr verify`—without ever invoking `go test` inside the hook itself.
+
+## Repository constellation and web preview (`fyr graph`)
+
+`fyr graph` (`cmd/fyr/verb_graph.go`, `internal/graph/`, `internal/webpreview/`) projects the indexed repository symbol graph alongside read-only `brain.db` record links (`brain.IndexRecordLinks` in `internal/brain/refs_index.go`) into an interactive offline HTML constellation, JSON/DOT/Markdown exports, or a localhost preview server. Both `internal/graph` and `internal/webpreview` stay completely free of SQLite imports.
+
+```mermaid
+flowchart LR
+    snap["LoadGraphSnapshot\n(search.db snapshot)"] --> adapt["adaptGraphInput"]
+    links["brain.IndexRecordLinks\n(read-only record links)"] --> adapt
+    adapt --> build["graph.Build\n(Payload + metrics)"]
+    build --> fileOut["HTML / JSON / DOT / MD\n(0600, O_NOFOLLOW)"]
+    build --> webSrv["webpreview.Serve\n(127.0.0.1:0, 128-bit token)"]
+```
+
+- **Outputs & file safety:** Without format flags, `fyr graph` writes `.agents/scratch/graph.html` (`0600`, `O_NOFOLLOW`, refusing overwrites unless `--force` is passed); `--dot`, `--md`, and `--json` print to stdout or write `--out FILE`.
+- **Localhost web preview (`--web [--listen ADDR]`):** Binds `127.0.0.1:0` by default behind a 128-bit `crypto/rand` `/<token>/...` path checked with `subtle.ConstantTimeCompare`, serving `GET`/`HEAD` only (`404`/`405` on mismatch or unsupported methods) with `DefaultHTMLCSP` offline CSP headers.
+- **Interactive `<canvas>` constellation & XSS safety:** Switches granularity (`Packages`, `Files`, `Symbols`), overlays (`Community`, `Layer`, `In-Degree Heat`, `Agent Read Churn`), `Hidden Co-Activity`, and `BrainLinks`, embedding payloads via `sanitizeEmbeddedJSON` with zero `innerHTML` or `eval` sinks.
 
 <details>
 <summary>Search, AST graph, index, and hook CLI flag reference</summary>
@@ -218,6 +238,7 @@ When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go
 | `--hops N` | `2` | Maximum graph traversal hops for `--slice` (`0`–`6`) |
 | `--budget N` | `2000` | Approximate token budget (`chars / 4`) for `--slice` |
 | `--session ID` | `""` | Boost files read in conversation `ID` by `50x` during `--slice` ranking |
+| `--include-docs` | `false` | Include `.md`/`.mdx` doc files and `doc_ref` edges in `--slice` and `--map` |
 | `--skeleton FILE` | `""` | Print declaration/heading line ranges without bodies for `FILE` |
 | `--path SYM` | `""` | Shortest call, type, or interface path from `SYM` (`<= 6` hops; combine with `--to SYM`) |
 | `--to SYM` | `""` | Target symbol for `--path` |
@@ -225,6 +246,20 @@ When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go
 | `--map` | `false` | Print top-10 God Nodes by PageRank, package import edges, and cycle check |
 | `--vet PROMPT` | `""` | Run the 9-mode intent, 6-anchor vetter, and skill/record prefetcher for `PROMPT` |
 | `--hook EVENT` | `""` | Execute Antigravity lifecycle hook (`session-start`, `pre-invocation`, `pre-tool-use`, `post-tool-use`, `stop` under `< 250 ms` fail-open contract) |
+
+### `fyr graph` flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--dot` | `false` | Render Graphviz DOT output (mutually exclusive with `--md`, `--json`, `--web`) |
+| `--md` | `false` | Render Markdown summary (mutually exclusive with `--dot`, `--json`, `--web`) |
+| `--json` | `false` | Render JSON payload (mutually exclusive with `--dot`, `--md`, `--web`) |
+| `--web` | `false` | Serve interactive HTML preview and exports over authenticated localhost HTTP |
+| `--listen ADDR` | `127.0.0.1:0` | Listen address for `--web` (requires `--web`) |
+| `--out FILE` | `.agents/scratch/graph.html` (HTML) / stdout (text) | Write output to `FILE` (`0600`, `O_NOFOLLOW`; cannot combine with `--web`) |
+| `--force` | `false` | Overwrite an existing `--out` file (cannot combine with `--web`) |
+| `--include-tests` | `false` | Include test files in the exported graph |
+| `--include-docs` | `false` | Include `.md`/`.mdx` doc files and `doc_ref` edges in the exported graph |
 
 ### `fyr index` flags
 
@@ -241,4 +276,4 @@ When a turn ends normally, `handleStopHook` (`internal/search/hook_stop_stamp.go
 Explore how brain records feed `PreInvocation` or inspect your repository's symbol graph directly:
 
 - Check [Brain Store, Trail & Memory](brain-and-memory.md) to see how matched `brain.db` records and `validity >= 0.40` memories feed `PreInvocation` and `fyr resume`.
-- Run `fyr search --map` inside any indexed checkout to inspect God Nodes and dependency cycles.
+- Run `fyr search --map` or `fyr graph --web` inside any indexed checkout to inspect God Nodes, dependency cycles, and the interactive constellation.

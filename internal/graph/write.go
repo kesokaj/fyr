@@ -91,6 +91,12 @@ func writeAndCloseTarget(f *os.File, path string, data []byte, force bool, prevI
 		_ = f.Close()
 		return err
 	}
+	if force {
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		if !force {
