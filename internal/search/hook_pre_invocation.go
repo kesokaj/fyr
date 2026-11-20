@@ -208,19 +208,21 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	if !confident {
 		ranked, confident = sc.ftsFallbackRanked(g, prompt, active)
 	}
+	pkgComms := g.packageCommunities()
 	if !confident && !state.Compacted {
-		return SliceResult{SymbolHits: hits, Files: nil}
+		return SliceResult{SymbolHits: hits, Files: nil, PkgCommunities: pkgComms}
 	}
 	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
 	if capsule != "" && preseedLedger && len(pivots) > 0 {
 		_ = RegisterCapsulePivotsWithHome(o.Dir, o.Home, o.Session, state.TurnCount, pivots)
 	}
 	return SliceResult{
-		Capsule:    capsule,
-		Pivots:     symCount,
-		SymbolHits: hits,
-		Files:      symFiles,
-		Confident:  confident,
+		Capsule:        capsule,
+		Pivots:         symCount,
+		SymbolHits:     hits,
+		Files:          symFiles,
+		Confident:      confident,
+		PkgCommunities: pkgComms,
 	}
 }
 

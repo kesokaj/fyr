@@ -69,11 +69,12 @@ type TurnBrainContext struct {
 
 // SliceResult holds the AST slice capsule and metadata for prompt vetting.
 type SliceResult struct {
-	Capsule    string   `json:"capsule,omitempty"`
-	Pivots     int      `json:"pivots,omitempty"`
-	SymbolHits int      `json:"symbolHits,omitempty"`
-	Files      []string `json:"files,omitempty"`
-	Confident  bool     `json:"confident,omitempty"`
+	Capsule        string         `json:"capsule,omitempty"`
+	Pivots         int            `json:"pivots,omitempty"`
+	SymbolHits     int            `json:"symbolHits,omitempty"`
+	Files          []string       `json:"files,omitempty"`
+	Confident      bool           `json:"confident,omitempty"`
+	PkgCommunities map[string]int `json:"pkgCommunities,omitempty"`
 }
 
 // VetResult is the structured output of VetPrompt and BuildTurnEnvelope.

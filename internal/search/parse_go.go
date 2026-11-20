@@ -117,7 +117,7 @@ func selectorCallTarget(fset *token.FileSet, sel *ast.SelectorExpr, fromSym stri
 				return symRefRow{}, false
 			}
 			if _, direct := sel.X.(*ast.Ident); direct {
-				return symRefRow{fromSym: fromSym, toPkg: root, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true
+				return symRefRow{fromSym: fromSym, toPkg: imp, toName: sel.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(sel.Sel.Pos()).Line}, true
 			}
 		}
 		if stdlibVars[root] {

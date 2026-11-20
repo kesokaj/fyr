@@ -43,7 +43,7 @@ func (sc *scope) buildContextSlice(o Options, out io.Writer) error {
 	if o.Budget <= 0 {
 		o.Budget = defaultSliceBudget
 	}
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}

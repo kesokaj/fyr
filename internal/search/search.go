@@ -37,6 +37,7 @@ type Options struct {
 	To               string                                                          // --to target symbol for --path
 	Affected         string                                                          // --affected file path or symbol
 	Map              bool                                                            // --map repo summary
+	IncludeDocs      bool                                                            // --include-docs opt-in for AST maps, slices and graphs
 	Vet              string                                                          // --vet prompt
 	Hook             string                                                          // --hook event: session-start, pre-invocation, pre-tool-use or stop
 	HookIn           io.Reader                                                       // optional stdin reader for --hook
@@ -199,7 +200,7 @@ func Search(o Options, out io.Writer) error {
 	case o.Skeleton != "":
 		return sc.buildFileSkeleton(o.Skeleton, out)
 	case o.Path != "":
-		return sc.findSymbolPath(o.Path, o.To, out)
+		return sc.findSymbolPath(o, out)
 	case o.Affected != "":
 		return sc.findAffected(o, out)
 	case o.Map:

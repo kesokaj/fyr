@@ -195,13 +195,17 @@ func (s *store) indexBlobs(src source, blobs map[string]bool, now int64) error {
 			continue
 		}
 		if blobStmt == nil {
-			if blobStmt, err = s.db.Prepare(`INSERT INTO blobs(oid, last_seen, skipped) VALUES (?, ?, ?)`); err != nil {
+			if blobStmt, err = s.db.Prepare(`INSERT INTO blobs(oid, last_seen, skipped, line_count) VALUES (?, ?, ?, ?)`); err != nil {
 				return err
 			}
 			defer blobStmt.Close()
 		}
 		text, ok := readIndexable(fsRoot, filepath.FromSlash(e.path))
-		if _, err := blobStmt.Exec(e.oid, now, boolInt(!ok)); err != nil {
+		lineCount := 0
+		if ok {
+			lineCount = len(splitLines(text))
+		}
+		if _, err := blobStmt.Exec(e.oid, now, boolInt(!ok), lineCount); err != nil {
 			return err
 		}
 		blobs[e.oid] = !ok
@@ -290,18 +294,22 @@ func (s *store) reconcileGoInterfaces(project string) error {
 	if err := s.db.QueryRow(`SELECT count(*) FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project = ? AND sy.kind = 'interface'`, project).Scan(&n); err != nil || n == 0 {
 		return err
 	}
-	rows, err := s.db.Query(`SELECT sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project = ? AND sy.kind IN ('interface', 'interface_method', 'method')`, project)
+	rows, err := s.db.Query(`SELECT f.path, sy.oid, sy.name, sy.recv, sy.kind, sy.start_line FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project = ? AND sy.kind IN ('interface', 'interface_method', 'method')`, project)
 	if err != nil {
 		return err
 	}
 	var syms []symbolRow
 	for rows.Next() {
+		var fPath string
 		var sy symbolRow
-		if err := rows.Scan(&sy.oid, &sy.name, &sy.recv, &sy.kind, &sy.pkg, &sy.startLine); err != nil {
+		if err := rows.Scan(&fPath, &sy.oid, &sy.name, &sy.recv, &sy.kind, &sy.startLine); err != nil {
 			rows.Close()
 			return err
 		}
-		syms = append(syms, sy)
+		if !isExcludedASTPath(fPath) {
+			sy.pkg = canonicalPkgDir(fPath)
+			syms = append(syms, sy)
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

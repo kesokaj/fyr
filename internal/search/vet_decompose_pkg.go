@@ -18,7 +18,7 @@ func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, 
 		return nil
 	}
 	used, out, baseGoal := map[string]bool{}, make([]SubtaskSlice, 0, min(maxSubtaskSlices, len(order))), collapseOneLine(trimmed, 120)
-	for _, sp := range partitionPackageGroups(order, groups) {
+	for _, sp := range partitionPackageGroups(order, groups, slice.PkgCommunities) {
 		assigned := claimDisjointFiles(sp.files, used)
 		if len(assigned) == 0 {
 			continue
@@ -70,7 +70,7 @@ func groupFilesByPkg(knownFiles []string, capsule string) (map[string][]string, 
 	return groups, order
 }
 
-func partitionPackageGroups(order []string, groups map[string][]string) []pkgPartition {
+func partitionPackageGroups(order []string, groups map[string][]string, pkgComms map[string]int) []pkgPartition {
 	if len(order) <= maxSubtaskSlices {
 		out := make([]pkgPartition, 0, len(order))
 		for _, dir := range order {
@@ -78,6 +78,15 @@ func partitionPackageGroups(order []string, groups map[string][]string) []pkgPar
 		}
 		return out
 	}
+	if len(pkgComms) > 0 {
+		if coalesced := coalesceOverflowByCommunity(order, groups, pkgComms); len(coalesced) >= 2 {
+			return coalesced
+		}
+	}
+	return partitionOverflowTail(order, groups)
+}
+
+func partitionOverflowTail(order []string, groups map[string][]string) []pkgPartition {
 	out := make([]pkgPartition, 0, maxSubtaskSlices)
 	for _, dir := range order[:maxSubtaskSlices-1] {
 		out = append(out, pkgPartition{label: dir, files: groups[dir]})
@@ -87,6 +96,50 @@ func partitionPackageGroups(order []string, groups map[string][]string) []pkgPar
 		overflowFiles = append(overflowFiles, groups[dir]...)
 	}
 	return append(out, pkgPartition{label: strings.Join(order[maxSubtaskSlices-1:], ", "), files: overflowFiles})
+}
+
+func coalesceOverflowByCommunity(order []string, groups map[string][]string, pkgComms map[string]int) []pkgPartition {
+	type commBucket struct {
+		dirs  []string
+		files []string
+	}
+	idxByComm := map[int]int{}
+	var buckets []commBucket
+	nextUnknown := -1
+	for _, dir := range order {
+		cid, ok := pkgComms[dir]
+		if !ok {
+			cid = nextUnknown
+			nextUnknown--
+		}
+		if bIdx, exists := idxByComm[cid]; exists {
+			buckets[bIdx].dirs = append(buckets[bIdx].dirs, dir)
+			buckets[bIdx].files = append(buckets[bIdx].files, groups[dir]...)
+		} else {
+			idxByComm[cid] = len(buckets)
+			buckets = append(buckets, commBucket{dirs: []string{dir}, files: append([]string(nil), groups[dir]...)})
+		}
+	}
+	if len(buckets) < 2 {
+		return nil
+	}
+	out := make([]pkgPartition, 0, min(maxSubtaskSlices, len(buckets)))
+	limit := min(len(buckets), maxSubtaskSlices)
+	if len(buckets) > maxSubtaskSlices {
+		limit = maxSubtaskSlices - 1
+	}
+	for i := 0; i < limit; i++ {
+		out = append(out, pkgPartition{label: strings.Join(buckets[i].dirs, ", "), files: buckets[i].files})
+	}
+	if len(buckets) > maxSubtaskSlices {
+		var dirs, files []string
+		for _, b := range buckets[maxSubtaskSlices-1:] {
+			dirs = append(dirs, b.dirs...)
+			files = append(files, b.files...)
+		}
+		out = append(out, pkgPartition{label: strings.Join(dirs, ", "), files: files})
+	}
+	return out
 }
 
 func claimDisjointFiles(cands []string, used map[string]bool) []string {

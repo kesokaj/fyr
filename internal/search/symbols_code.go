@@ -175,34 +175,11 @@ func parseGoFallback(filePath, text, pkgName string) ([]symbolRow, []symRefRow) 
 	return syms, refs
 }
 
-func extractTSSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	pkg := path.Base(path.Dir(filePath))
-	lines := splitLines(text)
-	var syms []symbolRow
-	var refs []symRefRow
-	curSym := "<module>"
-	for i, l := range lines {
-		trim := strings.TrimSpace(l)
-		if m := tsDeclRe.FindStringSubmatch(l); m != nil {
-			exp := boolInt(strings.TrimSpace(m[1]) == "export")
-			kind, name := m[2], m[3]
-			if kind == "function" {
-				kind = "func"
-			}
-			curSym = name
-			syms = append(syms, symbolRow{
-				name: name, kind: kind, pkg: pkg, startLine: i + 1, endLine: i + 1,
-				sig: strings.TrimSpace(strings.TrimSuffix(trim, "{")), exported: exp, bodyHash: hashString(trim),
-			})
-			continue
-		}
-		refs = append(refs, scanLineCalls(trim, curSym, i+1, codeSkip)...)
-	}
-	return syms, dedupSymRefs(refs)
-}
-
 func extractPySymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	pkg := path.Base(path.Dir(filePath))
+	if isExcludedASTPath(filePath) {
+		return nil, nil
+	}
+	pkg := canonicalPkgDir(filePath)
 	lines := splitLines(text)
 	var syms []symbolRow
 	var refs []symRefRow
@@ -230,7 +207,10 @@ func extractPySymbols(filePath, text string) ([]symbolRow, []symRefRow) {
 }
 
 func extractShSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
-	pkg := path.Base(path.Dir(filePath))
+	if isExcludedASTPath(filePath) {
+		return nil, nil
+	}
+	pkg := canonicalPkgDir(filePath)
 	lines := splitLines(text)
 	var syms []symbolRow
 	var refs []symRefRow

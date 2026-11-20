@@ -185,7 +185,7 @@ func (s *store) upsertReadStamp(conversationID string, genID int, resolved strin
 			)
 		}
 	}
-	const q = `INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line) DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, hit_count = 1, updated_at = excluded.updated_at`
+	const q = `INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?) ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line) DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, hit_count = CASE WHEN excluded.start_line = -5 AND excluded.end_line = -5 THEN read_ledger.hit_count + 1 ELSE 1 END, updated_at = excluded.updated_at`
 	if _, err := s.db.Exec(q, conversationID, genID, resolved, start, end, sumHex, turnNum, now); err != nil {
 		return err
 	}

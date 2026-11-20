@@ -14,30 +14,31 @@ type pkgStat struct {
 
 func isGoSource(p string) bool { return strings.HasSuffix(p, ".go") }
 
-func isTestdataGo(p string) bool {
-	return isGoSource(p) && (strings.HasPrefix(p, "testdata/") || strings.Contains(p, "/testdata/"))
-}
-
-// summarizePackages counts indexed symbols per package and builds the package
-// dependency graph: Go sources connect only via qualified extracted Go
-// references (excluding inferred interface edges, unqualified receiver calls,
-// and Go testdata fixtures), while non-Go sources keep extracted same-world
-// (non-Go) edges so TS/JS/Python module cycles remain visible in mixed repos.
+// summarizePackages counts indexed production symbols per canonical package and
+// builds the directed package dependency graph strictly over extracted
+// import | call | type_ref edges (excluding inferred iface_call/implements).
 func (g *symGraph) summarizePackages() ([]pkgStat, map[string][]string) {
 	counts := map[string]int{}
 	depSet := map[string]map[string]bool{}
+	for _, f := range g.files {
+		if f.pkg != "" && !isDocPath(f.path) && !isTestPath(f.path) && !isExcludedASTPath(f.path) {
+			if _, exists := counts[f.pkg]; !exists {
+				counts[f.pkg] = 0
+			}
+		}
+	}
 	for i, s := range g.syms {
-		if s.Pkg == "" || isTestdataGo(s.Path) {
+		if s.Pkg == "" || isDocPath(s.Path) || isTestPath(s.Path) || isExcludedASTPath(s.Path) {
 			continue
 		}
 		counts[s.Pkg]++
 		sIsGo := isGoSource(s.Path)
 		for _, e := range g.out[i] {
 			to := g.syms[e.toIdx]
-			if to.Pkg == "" || to.Pkg == s.Pkg || e.confidence != ConfidenceExtracted || isTestdataGo(to.Path) {
+			if to.Pkg == "" || to.Pkg == s.Pkg || e.confidence != ConfidenceExtracted || !isStructuralCycleEdgeKind(e.kind) {
 				continue
 			}
-			if sIsGo != isGoSource(to.Path) {
+			if isDocPath(to.Path) || isTestPath(to.Path) || isExcludedASTPath(to.Path) || sIsGo != isGoSource(to.Path) {
 				continue
 			}
 			if sIsGo && !e.qualifiedPkg {
@@ -47,6 +48,17 @@ func (g *symGraph) summarizePackages() ([]pkgStat, map[string][]string) {
 				depSet[s.Pkg] = map[string]bool{}
 			}
 			depSet[s.Pkg][to.Pkg] = true
+		}
+	}
+	for _, ie := range g.importEdges {
+		if ie.fromPkg == "" || ie.toPkg == "" || ie.fromPkg == ie.toPkg || isDocPath(ie.fromPath) || isTestPath(ie.fromPath) {
+			continue
+		}
+		if _, ok := counts[ie.toPkg]; ok {
+			if depSet[ie.fromPkg] == nil {
+				depSet[ie.fromPkg] = map[string]bool{}
+			}
+			depSet[ie.fromPkg][ie.toPkg] = true
 		}
 	}
 	return sortedPkgStats(counts, depSet)
@@ -66,23 +78,9 @@ func sortedPkgStats(counts map[string]int, depSet map[string]map[string]bool) ([
 	return pkgs, deps
 }
 
-// findPackageCycles reports canonical elementary directed cycles (2+ hops) in deps.
+// findPackageCycles prunes non-cyclic edges via Tarjan SCC and formats canonical cycles.
 func findPackageCycles(deps map[string][]string) []string {
-	starts := make([]string, 0, len(deps))
-	for p := range deps {
-		starts = append(starts, p)
-	}
-	sort.Strings(starts)
-	seen := map[string]bool{}
-	var cycles []string
-	for _, start := range starts {
-		if len(cycles) >= maxPackageCycles {
-			break
-		}
-		walkPackageCycles(start, deps, []string{start}, map[string]bool{start: true}, seen, &cycles)
-	}
-	sort.Strings(cycles)
-	return cycles
+	return formatSCCPackageCycles(deps)
 }
 
 func walkPackageCycles(start string, deps map[string][]string, path []string, onPath, seen map[string]bool, cycles *[]string) {

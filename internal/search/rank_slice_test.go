@@ -22,6 +22,7 @@ func CommonUtil() { logHelper() }
 func logHelper() {}
 `))
 	}
+	writeFile(t, root, "go.mod", "module example\n\ngo 1.24\n")
 	writeFile(t, root, "internal/core/reconcile.go", `package core
 import "example/internal/util"
 
@@ -261,6 +262,7 @@ func TestRepoMapSummary(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
 
+	writeFile(t, root, "go.mod", "module example.com\n\ngo 1.24\n")
 	writeFile(t, root, "internal/alpha/alpha.go", `package alpha
 import "example.com/internal/beta"
 func AlphaMain() { beta.BetaHelper() }
@@ -286,6 +288,7 @@ func TestSearchMapNoFalseCycles(t *testing.T) {
 	root := newRepo(t)
 	home := t.TempDir()
 
+	writeFile(t, root, "go.mod", "module example.com\n\ngo 1.24\n")
 	writeFile(t, root, "internal/alpha/alpha.go", `package alpha
 import "example.com/internal/beta"
 type closer interface{ Close() error }
@@ -313,8 +316,8 @@ func Helper() error {
 		t.Fatalf("RepoMapSummary: %v", err)
 	}
 	got := buf.String()
-	if !strings.Contains(got, "alpha (") || !strings.Contains(got, "-> beta") {
-		t.Errorf("expected alpha -> beta edge in map:\n%s", got)
+	if !strings.Contains(got, "internal/alpha (") || !strings.Contains(got, "-> internal/beta") {
+		t.Errorf("expected internal/alpha -> internal/beta edge in map:\n%s", got)
 	}
 	if !strings.Contains(got, "import_cycles:\n  none (DAG verified)") {
 		t.Errorf("expected DAG with zero false cycles, got:\n%s", got)

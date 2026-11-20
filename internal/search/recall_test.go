@@ -91,6 +91,7 @@ func seedMultiHopBenchmarkRepo(t *testing.T) (string, map[string]string) {
 	for rel, content := range files {
 		writeFile(t, root, rel, content)
 	}
+	writeFile(t, root, "go.mod", "module example.com/app\n\ngo 1.24\n")
 	commitAll(t, root, "seed multi-hop recall benchmark repo")
 	return root, files
 }

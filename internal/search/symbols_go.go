@@ -31,17 +31,20 @@ func extractGoSymbols(filePath, text string) ([]symbolRow, []symRefRow) {
 }
 
 func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbolRow, []symRefRow) {
+	if isExcludedASTPath(filePath) || isGeneratedGoText(text) {
+		return nil, nil
+	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filePath, text, parser.SkipObjectResolution)
-	pkgName := parseGoPackage(filePath, text)
+	pkgName := canonicalPkgDir(filePath)
 	var syms []symbolRow
 	var refs []symRefRow
 	if f != nil {
-		if f.Name != nil && f.Name.Name != "" {
-			pkgName = f.Name.Name
-		}
 		imports := parseGoImports(f)
-		syms, refs = walkGoFile(fset, f, text, pkgName, imports)
+		refs = append(refs, extractGoImportRefs(fset, f)...)
+		walkSyms, walkRefs := walkGoFile(fset, f, text, pkgName, imports)
+		syms = append(syms, walkSyms...)
+		refs = append(refs, walkRefs...)
 	}
 	if err != nil {
 		fbSyms, fbRefs := parseGoFallback(filePath, text, pkgName)
@@ -52,6 +55,25 @@ func extractGoSymbolsCore(filePath, text string, includeImplicit bool) ([]symbol
 		refs = append(refs, matchImplicitInterfaces(syms)...)
 	}
 	return syms, dedupSymRefs(refs)
+}
+
+func extractGoImportRefs(fset *token.FileSet, f *ast.File) []symRefRow {
+	var out []symRefRow
+	for _, imp := range f.Imports {
+		if imp.Path == nil {
+			continue
+		}
+		p := strings.Trim(imp.Path.Value, `"`)
+		if p == "" || isStdlibImport(p) {
+			continue
+		}
+		out = append(out, symRefRow{
+			fromSym: "<import>", toPkg: p, toName: "<import>",
+			kind: "import", confidence: ConfidenceExtracted, weight: WeightExtracted,
+			line: fset.Position(imp.Pos()).Line,
+		})
+	}
+	return out
 }
 
 func parseGoImports(f *ast.File) map[string]string {

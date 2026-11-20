@@ -1,6 +1,9 @@
 package search
 
-import "strings"
+import (
+	"database/sql"
+	"strings"
+)
 
 // RankedSymbol is one AST symbol declaration scored by Personalized PageRank.
 type RankedSymbol struct {
@@ -29,6 +32,22 @@ func (s RankedSymbol) QualName() string {
 	return s.Name
 }
 
+type indexedFileMeta struct {
+	project   string
+	path      string
+	oid       string
+	pkg       string
+	lineCount int
+}
+
+type resolvedImportEdge struct {
+	fromPath string
+	fromPkg  string
+	toPath   string
+	toPkg    string
+	line     int
+}
+
 type graphEdge struct {
 	fromIdx      int
 	toIdx        int
@@ -41,33 +60,105 @@ type graphEdge struct {
 }
 
 type symGraph struct {
-	syms      []RankedSymbol
-	out       [][]graphEdge
-	in        [][]graphEdge
-	byName    map[string][]int
-	byQual    map[string][]int
-	byPath    map[string][]int
-	byOIDFrom map[string][]int
-	defFile   map[string]int
+	syms        []RankedSymbol
+	files       []indexedFileMeta
+	out         [][]graphEdge
+	in          [][]graphEdge
+	byName      map[string][]int
+	byQual      map[string][]int
+	byPath      map[string][]int
+	byOIDFrom   map[string][]int
+	defFile     map[string]int
+	pkgSet      map[string]bool
+	fileByStem  map[string]string
+	goMods      map[string]string
+	pkgImports  map[string]map[string]bool
+	importSeen  map[string]bool
+	importEdges []resolvedImportEdge
 }
 
 func (sc *scope) loadSymGraph() (*symGraph, error) {
-	syms, err := sc.querySymbolNodes()
+	return sc.loadSymGraphOpts(false)
+}
+
+func (sc *scope) loadSymGraphOpts(includeDocs bool) (*symGraph, error) {
+	return buildSymGraphFromDB(sc.st.db, sc.projects, loadGoModules(sc), includeDocs)
+}
+
+func buildSymGraphFromDB(db *sql.DB, projects []string, goMods map[string]string, includeDocs bool) (*symGraph, error) {
+	if len(projects) == 0 {
+		return newSymGraphWithMeta(nil, nil, goMods), nil
+	}
+	files, err := queryIndexedFilesDB(db, projects, includeDocs)
 	if err != nil {
 		return nil, err
 	}
-	g := newSymGraph(syms)
-	if err := sc.populateGraphEdges(g); err != nil {
+	syms, err := querySymbolNodesDB(db, projects, includeDocs)
+	if err != nil {
 		return nil, err
+	}
+	g := newSymGraphWithMeta(syms, files, goMods)
+	rawRefs, err := queryRawSymRefsDB(db, projects, includeDocs)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rawRefs {
+		if r.kind == "import" {
+			g.addImportRef(r)
+		}
+	}
+	for _, r := range rawRefs {
+		if r.kind != "import" {
+			g.addRawRef(r)
+		}
 	}
 	return g, nil
 }
 
-func (sc *scope) querySymbolNodes() ([]RankedSymbol, error) {
+func projectsInClause(projects []string) (string, []any) {
+	args := make([]any, len(projects))
+	for i, p := range projects {
+		args[i] = p
+	}
+	return "(" + strings.TrimSuffix(strings.Repeat("?,", len(projects)), ",") + ")", args
+}
+
+func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
+	inSQL, args := projectsInClause(projects)
+	hasLC, _ := tableHasColumn(db, "blobs", "line_count")
+	lcExpr := "0"
+	if hasLC {
+		lcExpr = "COALESCE(b.line_count, 0)"
+	}
+	q := `SELECT f.project, f.path, f.oid, ` + lcExpr + `
+		FROM files f LEFT JOIN blobs b ON b.oid = f.oid
+		WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []indexedFileMeta
+	for rows.Next() {
+		var m indexedFileMeta
+		if err := rows.Scan(&m.project, &m.path, &m.oid, &m.lineCount); err != nil {
+			return nil, err
+		}
+		if isExcludedASTPath(m.path) || (!isCodePath(m.path) && !(includeDocs && isDocPath(m.path))) {
+			continue
+		}
+		m.pkg = canonicalPkgDir(m.path)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func querySymbolNodesDB(db *sql.DB, projects []string, includeDocs bool) ([]RankedSymbol, error) {
+	inSQL, args := projectsInClause(projects)
 	q := `SELECT f.project, f.path, sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line, sy.end_line, sy.sig, sy.exported, sy.body_hash
-		FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project IN ` + sc.in() + `
+		FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project IN ` + inSQL + `
 		ORDER BY f.path, sy.start_line, sy.end_line, sy.recv, sy.name`
-	rows, err := sc.st.db.Query(q, sc.keys()...)
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +170,12 @@ func (sc *scope) querySymbolNodes() ([]RankedSymbol, error) {
 		if err := rows.Scan(&s.Project, &s.Path, &s.OID, &s.Name, &s.Recv, &s.Kind, &s.Pkg, &s.StartLine, &s.EndLine, &s.Sig, &exp, &s.BodyHash); err != nil {
 			return nil, err
 		}
+		if isExcludedASTPath(s.Path) || (!includeDocs && (isDocPath(s.Path) || s.Kind == "heading")) {
+			continue
+		}
+		if !isDocPath(s.Path) && s.Kind != "heading" {
+			s.Pkg = canonicalPkgDir(s.Path)
+		}
 		s.Exported = exp != 0
 		s.Idx = len(syms)
 		syms = append(syms, s)
@@ -87,13 +184,37 @@ func (sc *scope) querySymbolNodes() ([]RankedSymbol, error) {
 }
 
 func newSymGraph(syms []RankedSymbol) *symGraph {
+	return newSymGraphWithMeta(syms, nil, nil)
+}
+
+func newSymGraphWithMeta(syms []RankedSymbol, files []indexedFileMeta, goMods map[string]string) *symGraph {
 	g := &symGraph{
-		syms: syms, out: make([][]graphEdge, len(syms)), in: make([][]graphEdge, len(syms)),
+		syms: syms, files: files,
+		out: make([][]graphEdge, len(syms)), in: make([][]graphEdge, len(syms)),
 		byName: map[string][]int{}, byQual: map[string][]int{}, byPath: map[string][]int{},
 		byOIDFrom: map[string][]int{}, defFile: map[string]int{},
+		pkgSet: map[string]bool{}, fileByStem: map[string]string{},
+		goMods: goMods, pkgImports: map[string]map[string]bool{}, importSeen: map[string]bool{},
 	}
+	for _, f := range files {
+		if f.pkg != "" {
+			g.pkgSet[f.pkg] = true
+		}
+		g.fileByStem[f.path] = f.path
+		if isTSSource(f.path) {
+			stem := trimTSExtension(f.path)
+			if _, exists := g.fileByStem[stem]; !exists {
+				g.fileByStem[stem] = f.path
+			}
+		}
+	}
+	indexGraphSymbols(g)
+	return g
+}
+
+func indexGraphSymbols(g *symGraph) {
 	seenFile := map[string]bool{}
-	for i, s := range syms {
+	for i, s := range g.syms {
 		qn := s.QualName()
 		g.byName[s.Name] = append(g.byName[s.Name], i)
 		g.byQual[qn] = append(g.byQual[qn], i)
@@ -102,115 +223,18 @@ func newSymGraph(syms []RankedSymbol) *symGraph {
 		if s.Recv != "" {
 			g.byOIDFrom[s.OID+"\x00"+s.Name] = append(g.byOIDFrom[s.OID+"\x00"+s.Name], i)
 		}
+		if s.Pkg != "" {
+			g.pkgSet[s.Pkg] = true
+		}
+		if _, exists := g.fileByStem[s.Path]; !exists {
+			g.fileByStem[s.Path] = s.Path
+			if isTSSource(s.Path) {
+				g.fileByStem[trimTSExtension(s.Path)] = s.Path
+			}
+		}
 		if fk := s.Name + "\x00" + s.Path; !seenFile[fk] {
 			seenFile[fk] = true
 			g.defFile[s.Name]++
 		}
 	}
-	return g
-}
-
-type rawSymRef struct {
-	path, oid, fromSym, toPkg, toName, kind, confidence string
-	weight                                              float64
-	line                                                int
-}
-
-func (sc *scope) populateGraphEdges(g *symGraph) error {
-	q := `SELECT f.path, r.oid, r.from_sym, r.to_pkg, r.to_name, r.kind, r.confidence, r.weight, r.line
-		FROM sym_refs r JOIN files f ON f.oid = r.oid WHERE f.project IN ` + sc.in() + `
-		ORDER BY f.path, r.line, r.from_sym, r.to_name`
-	rows, err := sc.st.db.Query(q, sc.keys()...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var r rawSymRef
-		if err := rows.Scan(&r.path, &r.oid, &r.fromSym, &r.toPkg, &r.toName, &r.kind, &r.confidence, &r.weight, &r.line); err != nil {
-			return err
-		}
-		g.addRawRef(r)
-	}
-	return rows.Err()
-}
-
-func (g *symGraph) addRawRef(r rawSymRef) {
-	fromIdxs := g.byOIDFrom[r.oid+"\x00"+r.fromSym]
-	fromPkg := ""
-	if len(fromIdxs) > 0 {
-		fromPkg = g.syms[fromIdxs[0]].Pkg
-	} else if pathIdxs := g.byPath[r.path]; len(pathIdxs) > 0 {
-		fromPkg = g.syms[pathIdxs[0]].Pkg
-	}
-	for _, toIdx := range g.resolveTargets(fromPkg, r.toPkg, r.toName) {
-		g.syms[toIdx].InRefs++
-		qualified := r.toPkg != ""
-		if len(fromIdxs) == 0 {
-			g.in[toIdx] = append(g.in[toIdx], graphEdge{fromIdx: -1, toIdx: toIdx, kind: r.kind, confidence: r.confidence, qualifiedPkg: qualified, weight: r.weight, line: r.line, fromPath: r.path})
-			continue
-		}
-		for _, fromIdx := range fromIdxs {
-			if fromIdx != toIdx {
-				e := graphEdge{fromIdx: fromIdx, toIdx: toIdx, kind: r.kind, confidence: r.confidence, qualifiedPkg: qualified, weight: r.weight, line: r.line, fromPath: r.path}
-				g.out[fromIdx] = append(g.out[fromIdx], e)
-				g.in[toIdx] = append(g.in[toIdx], e)
-			}
-		}
-	}
-}
-
-func (g *symGraph) resolveTargets(fromPkg, toPkg, toName string) []int {
-	if strings.Contains(toName, ".") {
-		if idxs := g.byQual[toName]; len(idxs) > 0 {
-			return g.filterByPkg(idxs, toPkg)
-		}
-	}
-	if toPkg != "" {
-		if idxs := g.byQual[toPkg+"."+toName]; len(idxs) > 0 {
-			return idxs
-		}
-		if idxs := g.filterByPkg(g.byName[toName], toPkg); len(idxs) > 0 {
-			return g.preferIfaceOrTopLevel(idxs)
-		}
-	}
-	cands := g.byName[toName]
-	if len(cands) == 0 {
-		return nil
-	}
-	if fromPkg != "" {
-		if same := g.filterByPkg(cands, fromPkg); len(same) > 0 {
-			return g.preferIfaceOrTopLevel(same)
-		}
-	}
-	if len(cands) > maxImplicitImplementers {
-		return nil
-	}
-	return g.preferIfaceOrTopLevel(cands)
-}
-
-func (g *symGraph) preferIfaceOrTopLevel(idxs []int) []int {
-	var pref []int
-	for _, idx := range idxs {
-		if g.syms[idx].Recv == "" || g.syms[idx].Kind == "interface_method" {
-			pref = append(pref, idx)
-		}
-	}
-	if len(pref) > 0 {
-		return pref
-	}
-	return idxs
-}
-
-func (g *symGraph) filterByPkg(idxs []int, pkg string) []int {
-	if pkg == "" {
-		return idxs
-	}
-	var out []int
-	for _, idx := range idxs {
-		if g.syms[idx].Pkg == pkg {
-			out = append(out, idx)
-		}
-	}
-	return out
 }

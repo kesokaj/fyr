@@ -219,8 +219,8 @@ func TestReconcilePopulatesSymbolsAndSymRefs(t *testing.T) {
 
 	db := openDB(t, root)
 	var schema string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "9" {
-		t.Fatalf("schema = %q, err = %v; want 9", schema, err)
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "10" {
+		t.Fatalf("schema = %q, err = %v; want 10", schema, err)
 	}
 	for _, tbl := range []string{"symbols", "sym_refs", "read_ledger", "session_meta", "co_activity", "vet_history", "watchdog_ring"} {
 		if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tbl); n != 1 {

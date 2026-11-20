@@ -35,7 +35,7 @@ func extractTypeExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imp
 			if id, ok := x.X.(*ast.Ident); ok {
 				if imp, isImp := imports[id.Name]; isImp && !isStdlibImport(imp) {
 					refs = append(refs, symRefRow{
-						fromSym: fromSym, toPkg: id.Name, toName: x.Sel.Name,
+						fromSym: fromSym, toPkg: imp, toName: x.Sel.Name,
 						kind: "type_ref", confidence: ConfidenceExtracted, weight: WeightExtracted,
 						line: fset.Position(x.Sel.Pos()).Line,
 					})
@@ -91,7 +91,7 @@ func extractExprRefs(fset *token.FileSet, node ast.Node, fromSym string, imports
 			}
 			if id, ok := x.X.(*ast.Ident); ok {
 				if imp, isImp := imports[id.Name]; isImp && !isStdlibImport(imp) {
-					refs = append(refs, symRefRow{fromSym: fromSym, toPkg: id.Name, toName: x.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(x.Sel.Pos()).Line})
+					refs = append(refs, symRefRow{fromSym: fromSym, toPkg: imp, toName: x.Sel.Name, kind: "call", confidence: ConfidenceExtracted, weight: WeightExtracted, line: fset.Position(x.Sel.Pos()).Line})
 				}
 			}
 		}

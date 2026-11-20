@@ -87,7 +87,7 @@ func (s *store) checkAndRecordResolvedRead(root, conversationID, resolved string
 
 func (s *store) recordResolvedReadTx(conversationID string, genID int, resolved string, reqStart, reqEnd int, sumHex string, turnNum int) (bool, int, error) {
 	now := nowFunc().Unix()
-	_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 != '' AND sha256 != ?`, conversationID, genID, resolved, sumHex)
+	_, _ = s.db.Exec(`DELETE FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line >= 0 AND sha256 != '' AND sha256 != ?`, conversationID, genID, resolved, sumHex)
 	var hitStart, hitEnd, hitCount int
 	err := s.db.QueryRow(`SELECT start_line, end_line, hit_count FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ? ORDER BY (end_line - start_line) DESC LIMIT 1`,
 		conversationID, genID, resolved, sumHex, reqStart, reqEnd).Scan(&hitStart, &hitEnd, &hitCount)

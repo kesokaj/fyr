@@ -268,13 +268,13 @@ func runTask(task string) error {
 	if !hasRef("Worker.Execute", "", "runTask", "call", "EXTRACTED", 1.0) {
 		t.Errorf("missing EXTRACTED call Worker.Execute -> runTask in %+v", refs)
 	}
-	if !hasRef("Worker.Execute", "trail", "Command", "call", "EXTRACTED", 1.0) {
+	if !hasRef("Worker.Execute", "github.com/kesokaj/fyr/internal/trail", "Command", "call", "EXTRACTED", 1.0) {
 		t.Errorf("missing EXTRACTED selector ref Worker.Execute -> trail.Command in %+v", refs)
 	}
-	if !hasRef("Runner", "demo", "Worker", "implements", "INFERRED", 0.7) {
+	if !hasRef("Runner", "internal/demo", "Worker", "implements", "INFERRED", 0.7) {
 		t.Errorf("missing INFERRED implements Runner -> Worker in %+v", refs)
 	}
-	if !hasRef("Runner.Execute", "demo", "Worker.Execute", "iface_call", "INFERRED", 0.7) {
+	if !hasRef("Runner.Execute", "internal/demo", "Worker.Execute", "iface_call", "INFERRED", 0.7) {
 		t.Errorf("missing INFERRED iface_call Runner.Execute -> Worker.Execute in %+v", refs)
 	}
 

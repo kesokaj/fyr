@@ -24,9 +24,9 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// schemaVersion is stored in meta; a database with any other value is
-// rebuilt, since it is a cache.
-const schemaVersion = "9"
+// schemaVersion is stored in meta; a database with any older value (< 9) is
+// rebuilt, while v9 migrates in place to preserve behavioral history (ADR-528).
+const schemaVersion = "10"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -42,7 +42,7 @@ CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE projects(root TEXT PRIMARY KEY, name TEXT, last_seen INTEGER);
 CREATE TABLE files(project TEXT, path TEXT, oid TEXT, state TEXT, PRIMARY KEY(project, path));
 CREATE INDEX files_oid ON files(oid);
-CREATE TABLE blobs(oid TEXT PRIMARY KEY, last_seen INTEGER, skipped INTEGER);
+CREATE TABLE blobs(oid TEXT PRIMARY KEY, last_seen INTEGER, skipped INTEGER, line_count INT DEFAULT 0);
 CREATE TABLE chunks(id INTEGER PRIMARY KEY, oid TEXT, line INTEGER, heading TEXT, body TEXT, tokens TEXT);
 CREATE INDEX chunks_oid ON chunks(oid);
 CREATE VIRTUAL TABLE chunks_fts USING fts5(heading, body, tokens, content='chunks', content_rowid='id', ` + "token" +
@@ -266,6 +266,8 @@ func (s *store) ensureSchema() error {
 	switch {
 	case err == nil && v == schemaVersion:
 		return s.ensureRefsOIDIndex()
+	case err == nil && v == "9":
+		return s.migrateV9ToV10()
 	case err == nil:
 		return staleSchemaError{v}
 	case errors.Is(err, sql.ErrNoRows):

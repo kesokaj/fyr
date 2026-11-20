@@ -3,13 +3,15 @@ package search
 import (
 	"fmt"
 	"io"
+	"path"
 	"strings"
 )
 
 const maxSymbolPathHops = 6
 
-func (sc *scope) findSymbolPath(fromSpec, toSpec string, out io.Writer) error {
-	g, err := sc.loadSymGraph()
+func (sc *scope) findSymbolPath(o Options, out io.Writer) error {
+	fromSpec, toSpec := o.Path, o.To
+	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
@@ -135,7 +137,7 @@ func reconstructPath(target int, parent map[int]prevStep) []graphEdge {
 }
 
 func (sc *scope) findAffected(o Options, out io.Writer) error {
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
@@ -253,7 +255,7 @@ func writeAffectedList(out io.Writer, header string, items []string) {
 }
 
 func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
-	g, err := sc.loadSymGraph()
+	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
 	if err != nil {
 		return err
 	}
@@ -279,7 +281,31 @@ func (sc *scope) repoMapSummary(o Options, out io.Writer) error {
 		fmt.Fprintln(out, "  none (DAG verified)")
 	}
 	for _, c := range cycles {
-		fmt.Fprintf(out, "  %s\n", c)
+		fmt.Fprintf(out, "  %s\n", formatCycleDisplay(c))
 	}
 	return nil
+}
+
+func formatCycleDisplay(c string) string {
+	parts := strings.Split(c, " -> ")
+	if len(parts) < 3 {
+		return c
+	}
+	bases := make([]string, len(parts))
+	seen := map[string]bool{}
+	for i, p := range parts {
+		b := path.Base(p)
+		bases[i] = b
+		if i < len(parts)-1 {
+			if seen[b] {
+				return c
+			}
+			seen[b] = true
+		}
+	}
+	short := strings.Join(bases, " -> ")
+	if short == c {
+		return c
+	}
+	return c + " (" + short + ")"
 }
