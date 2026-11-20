@@ -7,17 +7,14 @@
 
 ## Now
 
-Wave 4 (`Phase 4a`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — approved `v9.3.0` behavioral upgrades (Wave 3 `Phase 3a`–`3c` complete across `09799f55`..`9102d2a6`):
+Wave 5a (`Phase 5a`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19` — AI full verification, coverage, scratch smoke & paired `fyr eval` benchmark (Wave 4 `Phase 4a` complete across `db85dac6`..`c30ca41c`):
 
-- [ ] Upgrade `internal/check/` (`D7`: `IN63`, `IN86`, `IN89`: `#`/`§` anchors, `SDD.md` `M#` & `TDD.md ## Trace` test cells + dup keys, `unfenced` `PRD.md`)
-- [ ] Bump `search.db` `schemaVersion` (`8 -> 9`, `D8`), add camelCase/snake_case FTS5 tokenization + distinct-term reranking + batched `snippets()` (`SD61`), and seed/verify `TestRecall` (`IN73`)
-- [ ] Reject `trigger: glob` in `internal/harness/` and add pre-Kickoff `git tag` / open-box `earliest` date guard in `fyr close` (`D10`: `TR26`)
-- [ ] Expand `skills/fyr-init-project/` archetypes (`D14`: `G36`–`G45`) + conditional `.agents/trail.jsonl` note in `context/AGENTS.md`, store `ADR-527` + update `SPEC-fyr-delivery` + split `README.md` § How it works (`<= 12` nodes/diagram) & `TestHarnessMap` (`D13`)
-- [ ] Checkpoint (`Phase 4a` + `/fyr-review --docs`)
+- [ ] Run full AI verification matrix (`gofmt -l`, `go vet ./...`, `GOOS=darwin go vet ./...`, `go test -race -timeout 30m ./...`, `go test -cover ./...`, `fyr check`, scratch `--home` CLI checks, and paired `fyr eval` A/B benchmark in `~/.config/fyr/dev/fyr-eval`) and store `TEST-*` evidence record
+- [ ] Checkpoint (AI gates 100% green ready for Phase 5b operator release preflight)
 
 ## Next
 
-- Wave 5a (`Phase 5a`: full `-race`/`-cover`/`GOOS=darwin go vet`/`fyr check`/`TestRecall`/scratch smoke/paired `fyr eval`/`TEST-*`) of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19`
+- Wave 5b (`Phase 5b`, operator): host Go toolchain `>= go1.27.4` + `govulncheck`, `/fyr-dream` cleanup, `/fyr-preflight`, real-home install & smoke of `PLAN-2026-11-19-0852-plan-harness-audit-fix-2026-11-19`
 - Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Backlog
