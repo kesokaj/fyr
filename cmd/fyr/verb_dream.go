@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // runDream needs no harness tree (R3's first exception).
@@ -27,7 +28,21 @@ func runDream(c *ctx) error {
 	case !c.dreamAll && project == "":
 		return usageErr(c.out, "dream", "")
 	default:
-		err = dream.Run(dream.Options{Home: c.home, All: c.dreamAll, Project: project, DryRun: c.dryRun, Out: c.out})
+		var recordBg func(metrics.BackgroundRunRow) error
+		if !c.dryRun {
+			home := c.home
+			recordBg = func(row metrics.BackgroundRunRow) error {
+				return metrics.RecordBackgroundRun(home, row)
+			}
+		}
+		err = dream.Run(dream.Options{
+			Home:                c.home,
+			All:                 c.dreamAll,
+			Project:             project,
+			DryRun:              c.dryRun,
+			Out:                 c.out,
+			RecordBackgroundRun: recordBg,
+		})
 	}
 	var ee *dream.ExitError
 	if errors.As(err, &ee) {

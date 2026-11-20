@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +18,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/webpreview"
 )
 
 // agyHome writes one Antigravity conversation, id, in the workspace /p under
@@ -190,7 +195,18 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"report", "--label", "bare"},
 		{"metrics", "show", "--outcome", "pass"},
 		{"metrics", "show", "--out", filepath.Join(home, "x.html")},
-		{"metrics", "report", "--json"},
+		{"metrics", "report", "--md", "--json"},
+		{"metrics", "report", "--listen", "127.0.0.1:0"},
+		{"metrics", "report", "--web", "--md"},
+		{"metrics", "report", "--web", "--json"},
+		{"metrics", "report", "--web", "--out", filepath.Join(home, "x.html")},
+		{"metrics", "show", "--web"},
+		{"metrics", "show", "--listen", "127.0.0.1:0"},
+		{"report", "--md", "--json"},
+		{"report", "--listen", "127.0.0.1:0"},
+		{"report", "--web", "--md"},
+		{"report", "--web", "--json"},
+		{"report", "--web", "--out", filepath.Join(home, "x.html")},
 		{"metrics", "report", "extra"},
 		{"metrics", "ingest", "--json"},
 		{"metrics", "ingest", "--since", "2026-10-01"},
@@ -565,12 +581,143 @@ func TestMetricsSubcommandEmptyAndZeroFlagsRefusedViaUsageErr(t *testing.T) {
 		{"metrics", "show", "--out", ""},
 		{"metrics", "report", "--limit", "0"},
 		{"metrics", "report", "--harness", ""},
-		{"metrics", "report", "--json"},
+		{"metrics", "report", "--out", ""},
+		{"metrics", "report", "--web", "--listen", ""},
 	} {
 		var out bytes.Buffer
 		err := run(append(args, "--home", home), &out)
 		if exitOf(err) != 2 || !strings.Contains(out.String(), "usage: fyr metrics") {
 			t.Errorf("%v: exit=%d out=%q, want exit 2 with usage: fyr metrics", args, exitOf(err), out.String())
 		}
+	}
+}
+
+func TestVerbReportWebAndFlags(t *testing.T) {
+	home := t.TempDir()
+	agyHomeIn(t, home, "11111111-1111-1111-1111-111111111111", filepath.Join(t.TempDir(), "real-app"))
+	agyHomeIn(t, home, "22222222-2222-2222-2222-222222222222", filepath.Join(t.TempDir(), "fyr-eval", "trial-1"))
+
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	assertReportJSONAndSandboxes(t, home)
+
+	origServe := serveWebPreview
+	t.Cleanup(func() { serveWebPreview = origServe })
+	serveWebPreview = func(_ context.Context, assets map[string]webpreview.Asset, opts webpreview.Options) error {
+		return exerciseReportWebPreview(t, assets, opts)
+	}
+	out.Reset()
+	if err := run([]string{"report", "--global", "--web", "--listen", "127.0.0.1:0", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatalf("report --web: %v\n%s", err, out.String())
+	}
+}
+
+func assertReportJSONAndSandboxes(t *testing.T, home string) {
+	t.Helper()
+	var out bytes.Buffer
+	if err := run([]string{"report", "--global", "--json", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatalf("report --json: %v\n%s", err, out.String())
+	}
+	var jr metrics.JSONReport
+	if err := json.Unmarshal(out.Bytes(), &jr); err != nil || jr.Scorecard.Sessions != 2 {
+		t.Fatalf("report --json decoded = %+v, err=%v\n%s", jr, err, out.String())
+	}
+	jsonFile := filepath.Join(t.TempDir(), "out.json")
+	out.Reset()
+	if err := run([]string{"metrics", "report", "--global", "--json", "--since", "2026-10-01", "--out", jsonFile, "--home", home}, &out); err != nil {
+		t.Fatalf("metrics report --json --out: %v", err)
+	}
+	if fi, err := os.Stat(jsonFile); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("json out mode: err=%v fi=%v", err, fi)
+	}
+	if err := run([]string{"metrics", "report", "--global", "--json", "--since", "2026-10-01", "--out", jsonFile, "--home", home}, &out); err == nil {
+		t.Fatal("--json --out overwrote existing file")
+	}
+	out.Reset()
+	if err := run([]string{"metrics", "show", "--json", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "fyr-eval") {
+		t.Fatalf("default show --json included sandbox project:\n%s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"metrics", "show", "--json", "--include-sandboxes", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "fyr-eval") {
+		t.Fatalf("show --include-sandboxes omitted sandbox project:\n%s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"report", "--global", "--md", "--include-sandboxes", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "fyr-eval") {
+		t.Fatalf("report --include-sandboxes omitted sandbox project:\n%s", out.String())
+	}
+}
+
+func exerciseReportWebPreview(t *testing.T, assets map[string]webpreview.Asset, opts webpreview.Options) error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	defer client.CloseIdleConnections()
+	pr, pw := io.Pipe()
+	opts.Out = pw
+	done := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		done <- webpreview.Serve(ctx, assets, opts)
+	}()
+	line, err := bufio.NewReader(pr).ReadString('\n')
+	go func() { _, _ = io.Copy(io.Discard, pr) }()
+	baseURL := strings.TrimSpace(line)
+	if err != nil || !strings.HasPrefix(baseURL, "http://") {
+		cancel()
+		t.Fatalf("webpreview emitted %q, err=%v", line, err)
+	}
+	assertPreviewGet(t, client, baseURL, "/", "0. Scorecard", reportWebHTMLCSP)
+	assertPreviewGet(t, client, baseURL, "/report.html", "Background Autonomy", reportWebHTMLCSP)
+	assertPreviewGet(t, client, baseURL, "/report.md", "## 0. Scorecard", "default-src 'none'")
+	assertPreviewGet(t, client, baseURL, "/report.json", `"scorecard"`, "default-src 'none'")
+	origin := baseURL[:len("http://")+strings.Index(strings.TrimPrefix(baseURL, "http://"), "/")]
+	resp, err := client.Get(origin + "/00000000000000000000000000000000/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("wrong path status = %d, want 404", resp.StatusCode)
+	}
+	resp, err = client.Post(baseURL, "text/plain", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST status = %d, want 405", resp.StatusCode)
+	}
+	client.CloseIdleConnections()
+	cancel()
+	return <-done
+}
+
+func assertPreviewGet(t *testing.T, client *http.Client, baseURL, suffix, wantBody, wantCSP string) {
+	t.Helper()
+	resp, err := client.Get(strings.TrimSuffix(baseURL, "/") + suffix)
+	if err != nil {
+		t.Fatalf("GET %s: %v", suffix, err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), wantBody) {
+		t.Errorf("GET %s: status=%d body=%q", suffix, resp.StatusCode, body)
+	}
+	if gotCSP := resp.Header.Get("Content-Security-Policy"); gotCSP != wantCSP {
+		t.Errorf("GET %s CSP = %q, want %q", suffix, gotCSP, wantCSP)
 	}
 }

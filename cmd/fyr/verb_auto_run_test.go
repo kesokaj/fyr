@@ -16,6 +16,7 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // quietEnv is a machine with nobody at it; only its process check is real, so
@@ -321,4 +322,110 @@ func TestAutoRunEndToEndIngestFirstAndPlanModeDream(t *testing.T) {
 			t.Errorf("tool-using dream stored %d proposals, want 0: %+v", len(recs), recs)
 		}
 	})
+}
+
+func TestAutoDailyReportAndDryRun(t *testing.T) {
+	autoEnv = quietEnv{}
+	t.Cleanup(func() { autoEnv = nil })
+
+	home, proj, _ := setupAutoDreamE2ERig(t, false)
+	hooksPath := filepath.Join(home, ".gemini", "config", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const hooksOrig = `{"hooks":{"SessionStart":[{"matcher":"","hooks":[]}]}}`
+	if err := os.WriteFile(hooksPath, []byte(hooksOrig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Dry-run writes no daily HTML report, no metrics.db, and leaves hooks.json untouched.
+	var out bytes.Buffer
+	if err := run([]string{"auto", "run", "--dry-run", "--home", home}, &out); err != nil {
+		t.Fatalf("dry-run: %v\n%s", err, out.String())
+	}
+	reportsDir := filepath.Join(home, harness.StateDir, "reports")
+	if _, err := os.Stat(reportsDir); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created reports dir: %v", err)
+	}
+	if gotHooks, err := os.ReadFile(hooksPath); err != nil || string(gotHooks) != hooksOrig {
+		t.Fatalf("dry-run modified hooks.json: %v %q", err, gotHooks)
+	}
+
+	// 2. Real sweep writes YYYY-MM-DD-daily-metrics.html (0600), records dream + auto background_runs, and leaves hooks.json untouched.
+	out.Reset()
+	if err := run([]string{"auto", "run", "--home", home}, &out); err != nil {
+		t.Fatalf("first auto run: %v\n%s", err, out.String())
+	}
+	entries, err := os.ReadDir(reportsDir)
+	if err != nil || len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), "-daily-metrics.html") {
+		t.Fatalf("daily report entries = %v, err=%v", entries, err)
+	}
+	dailyFile := filepath.Join(reportsDir, entries[0].Name())
+	fi, err := os.Stat(dailyFile)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("daily report mode: err=%v mode=%v", err, fi.Mode().Perm())
+	}
+	rawHTML, err := os.ReadFile(dailyFile)
+	if err != nil || !bytes.Contains(rawHTML, []byte("0. Scorecard")) || !bytes.Contains(rawHTML, []byte("Background Autonomy")) {
+		t.Fatalf("daily HTML missing Scorecard or Background Autonomy")
+	}
+
+	// Check background_runs recorded for both dream and auto.
+	st, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bgRows, err := st.QueryBackgroundRuns(time.Time{}, time.Time{})
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenKind := map[string]int{}
+	for _, r := range bgRows {
+		seenKind[r.Kind]++
+	}
+	if seenKind["dream"] < 1 || seenKind["auto"] < 1 {
+		t.Errorf("background_runs kinds = %v, want dream>=1 and auto>=1", seenKind)
+	}
+
+	// 3. Second same-day run treats os.ErrExist on daily HTML as a quiet nil no-op.
+	sentinel := []byte("<!-- keep first daily html -->")
+	if err := os.WriteFile(dailyFile, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"auto", "run", "--home", home}, &out); err != nil {
+		t.Fatalf("second same-day auto run: %v\n%s", err, out.String())
+	}
+	afterSecond, err := os.ReadFile(dailyFile)
+	if err != nil || !bytes.Equal(afterSecond, sentinel) {
+		t.Fatalf("second run overwrote existing daily HTML: %q", afterSecond)
+	}
+	if gotHooks, err := os.ReadFile(hooksPath); err != nil || string(gotHooks) != hooksOrig {
+		t.Fatalf("real run modified hooks.json: %v %q", err, gotHooks)
+	}
+
+	// 4. Standalone `fyr dream --project` also wires RecordBackgroundRun explicitly.
+	out.Reset()
+	if err := run([]string{"dream", "--project", proj, "--home", home}, &out); err != nil {
+		t.Fatalf("standalone dream: %v\n%s", err, out.String())
+	}
+	st2, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bgRows2, err := st2.QueryBackgroundRuns(time.Time{}, time.Time{})
+	st2.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dreamCount := 0
+	for _, r := range bgRows2 {
+		if r.Kind == "dream" {
+			dreamCount++
+		}
+	}
+	if dreamCount < seenKind["dream"]+1 {
+		t.Errorf("standalone dream did not append background_runs row: got %d, prev %d", dreamCount, seenKind["dream"])
+	}
 }

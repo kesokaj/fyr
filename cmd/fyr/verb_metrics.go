@@ -110,7 +110,7 @@ func ingestTo(home string, w io.Writer) error {
 
 // metricsShow serves `metrics show`, as text or --json.
 func (c *ctx) metricsShow(args []string) error {
-	if bad := c.metricsFlagsOutside("since", "until", "project", "label", "all-labels", "context-target", "json"); bad != "" {
+	if bad := c.metricsFlagsOutside("since", "until", "project", "label", "all-labels", "context-target", "include-sandboxes", "json"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics show: --%s does not apply to show", bad))
 	}
 	if len(args) > 0 {
@@ -127,10 +127,9 @@ func (c *ctx) metricsShow(args []string) error {
 	return nil
 }
 
-// metricsReport serves `metrics report`: the HTML file (or --md), at --out or
-// the default path.
+// metricsReport serves `metrics report`: HTML, --md, --json, or --web.
 func (c *ctx) metricsReport(args []string) error {
-	if bad := c.metricsFlagsOutside("since", "until", "project", "global", "md", "label", "all-labels", "context-target", "out"); bad != "" {
+	if bad := c.metricsFlagsOutside("since", "until", "project", "global", "md", "json", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics report: --%s does not apply to report", bad))
 	}
 	if len(args) > 0 {
@@ -251,32 +250,13 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	if err := validateShowLabelFlags(c.metricsLabel, c.metricsAllLabels); err != nil {
 		return o, err
 	}
-	if c.metricsSource != "" || c.metricsOutcome != "" {
-		return o, errors.New("--source and --outcome belong to ingest")
-	}
-	if c.metricsHarness != "" {
-		return o, errors.New("--harness belongs to evals")
-	}
-	if c.limit != 0 {
-		return o, errors.New("--limit belongs to trajectory")
-	}
-	isReport := c.cmd == "report" || c.fs.Arg(0) == "report"
-	if c.metricsOut != "" && !isReport {
-		return o, errors.New("--out belongs to report")
-	}
-	if (c.global || c.metricsMD) && !isReport {
-		return o, errors.New("--global and --md belong to report")
-	}
-	// Given means set: 0 left to the package is the default target, 0 typed
-	// is a mistake.
-	given := false
-	c.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "context-target" })
-	if given && c.metricsContextTarget <= 0 {
-		return o, errors.New("--context-target takes a token count above 0")
+	if err := c.validateReportAndShowFlags(); err != nil {
+		return o, err
 	}
 	o.Home = c.home
 	o.ContextTarget = c.metricsContextTarget
 	o.Label, o.AllLabels = c.metricsLabel, c.metricsAllLabels
+	o.IncludeSandboxes = c.metricsIncludeSandboxes
 	if c.metricsProject != "" {
 		proj, err := c.resolveMetricsProject()
 		if err != nil {
@@ -285,6 +265,54 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 		o.Project = proj
 	}
 	return o, nil
+}
+
+func (c *ctx) validateReportAndShowFlags() error {
+	if c.metricsSource != "" || c.metricsOutcome != "" {
+		return errors.New("--source and --outcome belong to ingest")
+	}
+	if c.metricsHarness != "" {
+		return errors.New("--harness belongs to evals")
+	}
+	if c.limit != 0 {
+		return errors.New("--limit belongs to trajectory")
+	}
+	var ctxGiven, listenGiven, outGiven bool
+	c.fs.Visit(func(f *flag.Flag) {
+		ctxGiven = ctxGiven || f.Name == "context-target"
+		listenGiven = listenGiven || f.Name == "listen"
+		outGiven = outGiven || f.Name == "out"
+	})
+	isReport := c.cmd == "report" || c.fs.Arg(0) == "report"
+	if (c.metricsOut != "" || outGiven) && !isReport {
+		return errors.New("--out belongs to report")
+	}
+	if (c.global || c.metricsMD || c.metricsWeb || listenGiven || c.metricsListen != "") && !isReport {
+		return errors.New("--global, --md, --web and --listen belong to report")
+	}
+	if ctxGiven && c.metricsContextTarget <= 0 {
+		return errors.New("--context-target takes a token count above 0")
+	}
+	return c.validateReportModeExclusions(listenGiven, outGiven)
+}
+
+func (c *ctx) validateReportModeExclusions(listenGiven, outGiven bool) error {
+	if (listenGiven || c.metricsListen != "") && !c.metricsWeb {
+		return errors.New("--listen requires --web")
+	}
+	if listenGiven && strings.TrimSpace(c.metricsListen) == "" {
+		return errors.New("--listen takes an address HOST:PORT")
+	}
+	if c.metricsWeb && (outGiven || c.metricsOut != "" || c.metricsMD || c.metricsJSON) {
+		return errors.New("--web cannot be combined with --out, --md or --json")
+	}
+	if c.metricsMD && c.metricsJSON {
+		return errors.New("--md and --json exclude each other")
+	}
+	if outGiven && strings.TrimSpace(c.metricsOut) == "" {
+		return errors.New("--out needs a file: --out <file>")
+	}
+	return nil
 }
 
 func validateShowLabelFlags(label string, allLabels bool) error {

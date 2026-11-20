@@ -56,6 +56,44 @@ func ReportPath(home string, now time.Time) string {
 	return filepath.Join(home, harness.StateDir, "reports", now.Format("2006-01-02-1504")+"-metrics.html")
 }
 
+// DailyReportPath returns <home>/.config/fyr/reports/YYYY-MM-DD-daily-metrics.html.
+func DailyReportPath(home string, now time.Time) string {
+	return filepath.Join(home, harness.StateDir, "reports", now.Format("2006-01-02")+"-daily-metrics.html")
+}
+
+// WriteDailyReport writes the daily HTML report once per calendar day (0600,
+// O_EXCL), treating os.ErrExist as a quiet nil no-op (ADR-528, D5, D14).
+func WriteDailyReport(sum *Summary, evals *EvalRows, home string, now time.Time) error {
+	file := DailyReportPath(home, now)
+	if _, err := os.Lstat(file); err == nil {
+		return nil
+	}
+	var page bytes.Buffer
+	if err := renderReport(&page, sum, evals, now); err != nil {
+		return err
+	}
+	repDir := filepath.Dir(file)
+	if err := os.MkdirAll(repDir, 0o700); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(repDir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("reports path %s is not a directory", repDir)
+	}
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(page.Bytes()); err != nil {
+		f.Close()
+		os.Remove(file)
+		return err
+	}
+	return f.Close()
+}
+
 // WriteReport renders sum and the per-row view evals (nil for none) to
 // file (mode 0600); an existing file is refused. The page is rendered in
 // memory first, so a render that fails leaves no partial file for the rerun
@@ -111,10 +149,12 @@ func RenderReport(w io.Writer, sum *Summary, evals *EvalRows, now time.Time) err
 	}
 	day("Tool calls per day", "", always(func(d Day, v string) float64 { return float64(d.ToolCalls[v]) }), "%.0f")
 	day("Tokens per day", "input, output and cache", always(func(d Day, v string) float64 { return float64(d.Tokens[v]) }), "%.0f")
-	day("Cost per day (USD)", costNote(sum), func(d Day, v string) (float64, bool) {
-		// A CLI that exposes no cost has no line, never a line at 0.
-		return d.CostUSD[v], sum.B.CostUSD[v] != nil
-	}, "%.2f")
+	if hasAnyCost(sum, series) {
+		day("Cost per day (USD)", costNote(sum), func(d Day, v string) (float64, bool) {
+			// A CLI that exposes no cost has no line, never a line at 0.
+			return d.CostUSD[v], sum.B.CostUSD[v] != nil
+		}, "%.2f")
+	}
 	day("fyr search : grep per day", "searches of the index divided by grep, rg and Grep calls; a day with no grep call has no point", func(d Day, v string) (float64, bool) {
 		if d.GrepCalls[v] == 0 {
 			return 0, false
@@ -139,6 +179,15 @@ func costNote(sum *Summary) string {
 		return "Antigravity exposes no cost"
 	}
 	return ""
+}
+
+func hasAnyCost(sum *Summary, series []serie) bool {
+	for _, s := range series {
+		if sum.B.CostUSD[s.Key] != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // outcomeTable is the summary's headline numbers, a row per metric and a

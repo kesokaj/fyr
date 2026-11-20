@@ -104,6 +104,7 @@ func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.T
 	}
 	o.prune(now)
 	r.recordSweepRun(now, preFailed, say)
+	o.runDailyReport(say)
 	if err := r.exit(); err != nil {
 		return err
 	}
@@ -111,6 +112,15 @@ func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.T
 		return &ExitError{Code: 1}
 	}
 	return nil
+}
+
+func (o Options) runDailyReport(say func(string)) {
+	if o.DryRun || o.Report == nil {
+		return
+	}
+	if err := o.Report(); err != nil {
+		say("report: " + oneLine(err.Error()))
+	}
 }
 
 func (r *run) recordSweepRun(start time.Time, extraFail bool, say func(string)) {

@@ -5,19 +5,23 @@ import (
 	"strings"
 )
 
-// reportSection is one of the five airy sections rendered by both the
-// Economist HTML report and the Markdown report (--md).
+// reportSection is one of the airy sections rendered by both the Economist HTML
+// report and the Markdown report (--md).
 type reportSection struct {
 	Title, Note string
 	Table       table
+	SubTitle    string
+	SubTable    table
 }
 
 func reportSections(sum *Summary, series []serie, evals *EvalRows) []reportSection {
 	return []reportSection{
+		scorecardSection(sum),
 		executivePulseSection(sum, series),
 		secondBrainSection(sum, series),
 		qualityLoopSection(sum, series, evals),
 		autonomySection(sum, series),
+		backgroundAutonomySection(sum),
 		triggerCoverageSection(sum),
 		projectBreakdownSection(sum, series),
 	}

@@ -1,14 +1,26 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/trail"
+	"github.com/kesokaj/fyr/internal/webpreview"
 )
+
+const reportWebHTMLCSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+
+// serveWebPreview is webpreview.Serve; tests replace it to inspect assets or
+// drive a bounded context.
+var serveWebPreview = webpreview.Serve
 
 // runReport serves the top-level `fyr report` verb (ADR-516): inside a git
 // checkout with neither --project nor --global, it defaults to --project at
@@ -49,6 +61,23 @@ func (c *ctx) renderReport(prefix string) error {
 		return err
 	}
 	now := time.Now()
+	if c.metricsWeb {
+		return c.serveReportWeb(sum, evals, now)
+	}
+	return c.writeOrPrintReport(sum, evals, now)
+}
+
+func (c *ctx) writeOrPrintReport(sum *metrics.Summary, evals *metrics.EvalRows, now time.Time) error {
+	if c.metricsJSON {
+		if c.metricsOut != "" {
+			if err := metrics.WriteJSONReport(sum, evals, c.metricsOut, now); err != nil {
+				return err
+			}
+			fmt.Fprintln(c.out, "metrics: report written to "+c.metricsOut)
+			return nil
+		}
+		return metrics.RenderJSONReport(c.out, sum, evals, now)
+	}
 	if c.metricsMD {
 		if c.metricsOut != "" {
 			if err := metrics.WriteMarkdownReport(sum, evals, c.metricsOut, now); err != nil {
@@ -68,6 +97,34 @@ func (c *ctx) renderReport(prefix string) error {
 	}
 	fmt.Fprintln(c.out, "metrics: report written to "+file)
 	return nil
+}
+
+func (c *ctx) serveReportWeb(sum *metrics.Summary, evals *metrics.EvalRows, now time.Time) error {
+	var htmlBuf, mdBuf, jsonBuf bytes.Buffer
+	if err := metrics.RenderReport(&htmlBuf, sum, evals, now); err != nil {
+		return err
+	}
+	if err := metrics.RenderMarkdownReport(&mdBuf, sum, evals, now); err != nil {
+		return err
+	}
+	if err := metrics.RenderJSONReport(&jsonBuf, sum, evals, now); err != nil {
+		return err
+	}
+	htmlBytes := htmlBuf.Bytes()
+	assets := map[string]webpreview.Asset{
+		"/":            {ContentType: "text/html; charset=utf-8", Body: htmlBytes, CSP: reportWebHTMLCSP},
+		"/report.html": {ContentType: "text/html; charset=utf-8", Body: htmlBytes, CSP: reportWebHTMLCSP},
+		"/report.md":   {ContentType: "text/markdown; charset=utf-8", Body: mdBuf.Bytes(), CSP: "default-src 'none'"},
+		"/report.json": {ContentType: "application/json; charset=utf-8", Body: jsonBuf.Bytes(), CSP: "default-src 'none'"},
+	}
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return serveWebPreview(sigCtx, assets, webpreview.Options{
+		Listen:     c.metricsListen,
+		DefaultCSP: reportWebHTMLCSP,
+		Out:        c.out,
+		Err:        stderr,
+	})
 }
 
 const (

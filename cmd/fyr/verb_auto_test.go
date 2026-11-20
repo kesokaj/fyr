@@ -70,6 +70,11 @@ func TestAutoVerbUsage(t *testing.T) {
 		"long idle":          {"auto", "on", "--conversation-idle", "8d"},
 		"empty idle":         {"auto", "on", "--conversation-idle="},
 		"bad idle":           {"auto", "on", "--conversation-idle", "soon"},
+		"log neg lines":      {"auto", "log", "--lines", "-1"},
+		"log zero lines":     {"auto", "log", "--lines", "0"},
+		"log lines and all":  {"auto", "log", "--lines", "10", "--all"},
+		"log dry-run":        {"auto", "log", "--dry-run"},
+		"status with lines":  {"auto", "status", "--lines", "5"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var out bytes.Buffer
@@ -310,5 +315,73 @@ func TestAutoDreamHarnessRepoIgnoresUnrelatedCWDCheckout(t *testing.T) {
 		if opts := (&ctx{home: home}).autoRunOptions(auto.Options{Home: home}); opts.Repo != "" {
 			t.Fatalf("origin %q leaked CWD repo %q, want empty", repoVal, opts.Repo)
 		}
+	}
+}
+
+func TestAutoLogSubverb(t *testing.T) {
+	home, _ := autoHome(t)
+	var out bytes.Buffer
+	if err := run([]string{"auto", "log", "--home", home}, &out); err != nil || out.String() != "no auto log yet\n" {
+		t.Fatalf("absent log: err=%v out=%q", err, out.String())
+	}
+
+	logPath := filepath.Join(home, harness.StateDir, "auto", "auto.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var content strings.Builder
+	for i := 1; i <= 60; i++ {
+		content.WriteString("2026-11-20T10:00:00Z item-")
+		if i < 10 {
+			content.WriteByte('0')
+		} else {
+			content.WriteByte(byte('0' + i/10))
+		}
+		content.WriteByte(byte('0' + i%10))
+		content.WriteByte('\n')
+	}
+	if err := os.WriteFile(logPath, []byte(content.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := run([]string{"auto", "log", "--home", home}, &out); err != nil {
+		t.Fatalf("auto log default: %v", err)
+	}
+	got50 := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(got50) != 50 || !strings.HasSuffix(got50[0], "item-11") || !strings.HasSuffix(got50[49], "item-60") {
+		t.Fatalf("default count=%d first=%q last=%q", len(got50), got50[0], got50[len(got50)-1])
+	}
+
+	out.Reset()
+	if err := run([]string{"auto", "log", "--lines", "5", "--home", home}, &out); err != nil {
+		t.Fatalf("auto log --lines 5: %v", err)
+	}
+	if got5 := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(got5) != 5 || !strings.HasSuffix(got5[0], "item-56") {
+		t.Fatalf("--lines 5 = %v", got5)
+	}
+
+	out.Reset()
+	if err := run([]string{"auto", "log", "--all", "--home", home}, &out); err != nil {
+		t.Fatalf("auto log --all: %v", err)
+	}
+	if gotAll := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(gotAll) != 60 {
+		t.Fatalf("--all count = %d, want 60", len(gotAll))
+	}
+
+	// Symlinked auto.log is refused via O_NOFOLLOW (exit 1).
+	if err := os.Remove(logPath); err != nil {
+		t.Fatal(err)
+	}
+	sec := filepath.Join(t.TempDir(), "secret.log")
+	if err := os.WriteFile(sec, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sec, logPath); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"auto", "log", "--home", home}, &out); exitOf(err) != 1 || strings.Contains(out.String(), "secret") {
+		t.Fatalf("symlinked log: exit=%d out=%q, want exit 1", exitOf(err), out.String())
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/auto"
 	"github.com/kesokaj/fyr/internal/dream"
@@ -29,13 +30,14 @@ var autoEnv auto.Env
 
 // autoSubverbs are `fyr auto`'s subcommands, each with the flags it reads:
 // a flag another one owns is a usage error, never one parsed and dropped.
-var autoSubverbs = []string{"on", "off", "status", "run"}
+var autoSubverbs = []string{"on", "off", "status", "run", "log"}
 
 var autoFlags = map[string]map[string]bool{
 	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true},
 	"off":    {"dry-run": true},
 	"status": {},
 	"run":    {"dry-run": true},
+	"log":    {"lines": true, "all": true},
 }
 
 // runAuto needs no harness tree: `off` and `on` work on any place, and
@@ -62,22 +64,7 @@ func runAuto(c *ctx) error {
 	if stray != "" {
 		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
 	}
-	o := auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun}
-	var err error
-	switch sub {
-	case "on":
-		if reason := c.autoRequestError(); reason != "" {
-			return usageErr(c.out, "auto", reason)
-		}
-		c.warnDeprecatedAutoFlags()
-		err = auto.On(o, auto.Request{ConversationIdle: c.autoConvIdle})
-	case "off":
-		err = auto.Off(o)
-	case "status":
-		err = auto.Status(o)
-	case "run":
-		err = auto.Run(c.autoRunOptions(o), c.dryRun)
-	}
+	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun})
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
 		if ee.Msg != "" {
@@ -86,6 +73,41 @@ func runAuto(c *ctx) error {
 		return exitCode(ee.Code)
 	}
 	return err
+}
+
+func (c *ctx) dispatchAutoSub(sub string, o auto.Options) error {
+	switch sub {
+	case "on":
+		if reason := c.autoRequestError(); reason != "" {
+			return usageErr(c.out, "auto", reason)
+		}
+		c.warnDeprecatedAutoFlags()
+		return auto.On(o, auto.Request{ConversationIdle: c.autoConvIdle})
+	case "off":
+		return auto.Off(o)
+	case "status":
+		return auto.Status(o)
+	case "run":
+		return auto.Run(c.autoRunOptions(o), c.dryRun)
+	case "log":
+		if reason := c.autoLogError(); reason != "" {
+			return usageErr(c.out, "auto", reason)
+		}
+		return auto.Log(o, c.autoLines, c.autoAll)
+	}
+	return nil
+}
+
+func (c *ctx) autoLogError() string {
+	linesGiven := false
+	c.fs.Visit(func(f *flag.Flag) { linesGiven = linesGiven || f.Name == "lines" })
+	if c.autoLines < 0 || (linesGiven && c.autoLines <= 0) {
+		return "fyr auto log: --lines must be above 0"
+	}
+	if linesGiven && c.autoAll {
+		return "fyr auto log: --lines and --all exclude each other"
+	}
+	return ""
 }
 
 func autoIngest(home string) (string, error) {
@@ -100,6 +122,7 @@ func autoIngest(home string) (string, error) {
 }
 
 func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
+	home := c.home
 	o.Env, o.Vocabulary = autoEnv, vocabulary()
 	o.Repo = c.resolveAutoRepo()
 	if self, err := os.Executable(); err == nil {
@@ -108,34 +131,76 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	if real, err := os.UserHomeDir(); err == nil {
 		o.RealHome = real
 	}
+	recordBg := func(row metrics.BackgroundRunRow) error {
+		if o.DryRun {
+			return nil
+		}
+		return metrics.RecordBackgroundRun(home, row)
+	}
+	o.RecordBackgroundRun = recordBg
 	var ingested bool
 	var ingestErr error
 	o.Ingest = func() (string, error) {
-		line, err := autoIngest(c.home)
+		line, err := autoIngest(home)
 		ingested, ingestErr = true, err
 		return line, err
 	}
-	o.Dream = func() error {
-		return dream.Run(dream.Options{
-			Home:             c.home,
-			Out:              io.Discard,
-			All:              true,
-			SkipIngest:       true,
-			ConversationIdle: auto.ConversationIdleDuration(c.home),
-			HarnessRepo:      o.Repo,
-			Session:          func() (bool, error) { return true, nil },
-		})
+	o.Dream = autoDreamCallback(home, o.Repo, recordBg)
+	nowFn := o.Now
+	if nowFn == nil {
+		nowFn = time.Now
 	}
-	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, c.home) }
+	o.Report = func() error { return autoWriteDailyReport(home, nowFn()) }
+	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, home) }
 	o.Metrics = func() ([]auto.Finding, error) {
-		refreshModelsBestEffort(context.Background(), c.home)
+		refreshModelsBestEffort(context.Background(), home)
 		if !ingested {
-			return autoMetricsFindings(c.home)
+			return autoMetricsFindings(home)
 		}
-		fs, err := autoMetricsEvalFindings(c.home)
+		fs, err := autoMetricsEvalFindings(home)
 		return fs, errors.Join(ingestErr, err)
 	}
 	return o
+}
+
+func autoDreamCallback(home, repo string, recordBg func(metrics.BackgroundRunRow) error) func() error {
+	return func() error {
+		return dream.Run(dream.Options{
+			Home:                home,
+			Out:                 io.Discard,
+			All:                 true,
+			SkipIngest:          true,
+			ConversationIdle:    auto.ConversationIdleDuration(home),
+			HarnessRepo:         repo,
+			Session:             func() (bool, error) { return true, nil },
+			RecordBackgroundRun: recordBg,
+		})
+	}
+}
+
+func autoWriteDailyReport(home string, now time.Time) error {
+	if _, err := os.Lstat(metrics.DailyReportPath(home, now)); err == nil {
+		return nil
+	}
+	dbPath := metrics.Path(home)
+	if _, err := os.Lstat(dbPath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	s, err := metrics.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	showOpts := metrics.ShowOptions{Home: home, Now: now}
+	sum, err := s.Show(showOpts)
+	if err != nil {
+		return err
+	}
+	evals, err := metrics.ReportEvalsWithDevFallback(s, home, showOpts)
+	if err != nil {
+		return err
+	}
+	return metrics.WriteDailyReport(sum, evals, home, now)
 }
 
 // autoRequestError refuses a flag of `on` given empty or out of range before

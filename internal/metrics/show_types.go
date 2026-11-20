@@ -214,6 +214,9 @@ type HealthSignals struct {
 	Structural          search.StructuralSignals `json:"structural"`
 	DreamRuns           BackgroundKindStats      `json:"dream_runs"`
 	AutoRuns            BackgroundKindStats      `json:"auto_runs"`
+	KeptAutoBranches    int                      `json:"kept_auto_branches"`
+	ProposalsQueued     int                      `json:"proposals_queued"`
+	ProposalsClosed     int                      `json:"proposals_closed"`
 }
 
 // Day is one calendar day (UTC) of the window, per vendor: the report's

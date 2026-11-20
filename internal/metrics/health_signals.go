@@ -31,6 +31,7 @@ func (s *Store) populateHealthAndFallbacks(sum *Summary, o ShowOptions, all []se
 	}
 	if o.Label == "" && !o.skipDeltas {
 		inspectProjectSearchDBs(sum, home, o, all, overBudget)
+		populateAutonomySignals(sum, home, o, all)
 	}
 	finalizeHealthSignals(sum, overBudget)
 	if !o.skipDeltas && home != "" && len(sum.Projects) > 0 {

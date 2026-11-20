@@ -48,6 +48,12 @@ func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.T
 	for _, sec := range reportSections(sum, series, evals) {
 		fmt.Fprintf(&b, "\n## %s\n\n", sec.Title)
 		writeMDTable(&b, sec.Table)
+		if len(sec.SubTable.Head) > 0 {
+			if sec.SubTitle != "" {
+				fmt.Fprintf(&b, "\n### %s\n\n", sec.SubTitle)
+			}
+			writeMDTable(&b, sec.SubTable)
+		}
 	}
 	if es := evalsSectionOf(evals); es != nil {
 		b.WriteString("\n## Eval rows\n\n")

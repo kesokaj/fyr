@@ -43,9 +43,9 @@ Records and search
 
 Background and measurement
   dream        consolidate project memory and trail into proposals
-  auto         idle-time runs: on, off, status, run
+  auto         idle-time runs: on, off, status, run, log
   metrics      session shapes: ingest, show, report, evals, trajectory, export
-  report       project or global usage report (HTML or --md)
+  report       project or global usage report (HTML, --md, --json, --web)
   models       the live agy model catalog and role picks
   eval         run behavioural rows against the CLI
   verify       run gofmt, go vet, go test -race, check and write stamp

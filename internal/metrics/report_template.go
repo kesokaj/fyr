@@ -15,6 +15,7 @@ body{margin:0;padding:24px 16px 48px;background:var(--surface);color:var(--ink);
 main{max-width:760px;margin:0 auto}
 h1{font-size:22px;margin:0 0 4px}
 h2{font-size:15px;margin:0 0 2px}
+h3{font-size:13px;margin:12px 0 4px}
 .sub,.note{color:var(--ink-2);margin:0 0 12px}
 .legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 16px;color:var(--ink-2)}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
@@ -43,7 +44,7 @@ ul.notes{color:var(--ink-2);padding-left:18px}
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>
 {{range .Sections}}<section><h2>{{.Title}}</h2>{{if .Note}}<p class="note">{{.Note}}</p>{{end}}
-<div class="tablewrap"><table><tr>{{range .Table.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>
+<div class="tablewrap"><table><tr>{{range .Table.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div>{{if .SubTable.Head}}{{if .SubTitle}}<h3>{{.SubTitle}}</h3>{{end}}<div class="tablewrap"><table><tr>{{range .SubTable.Head}}<th>{{.}}</th>{{end}}</tr>{{range .SubTable.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div>{{end}}</section>
 {{end}}
 {{range .Charts}}<section><h2>{{.Title}}</h2>{{if .Note}}<p class="note">{{.Note}}</p>{{end}}{{.SVG}}
 <details><summary>Table</summary><div class="tablewrap"><table><tr>{{range .Table.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Table.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></details></section>

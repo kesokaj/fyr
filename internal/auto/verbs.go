@@ -63,6 +63,8 @@ type Options struct {
 	HoldoutFile string
 	// AgyVersion returns the first line of `agy --version`; nil runs `agy --version`.
 	AgyVersion func() string
+	// Report writes the daily HTML metrics report once per calendar day on real sweeps (never in DryRun).
+	Report func() error
 	// RecordBackgroundRun records a shape-only background_runs row at the end of a real sweep (never in DryRun).
 	// Nil defaults to metrics.RecordBackgroundRun(Home, ...) when Home is non-empty.
 	RecordBackgroundRun func(metrics.BackgroundRunRow) error
