@@ -83,7 +83,7 @@ log query that shows it and the counts it returns (never raw entries), the user-
 a `bug` record (`fyr record add bug`) with a prevention rule yourself. The prevention
 rule becomes a mechanism when it can: a startup probe path, an alerting policy on the metric
 that would have fired, a test. The code fix then runs under the `fyr-bug` skill, ships through
-`fyr-preflight`, and the record is closed when the fix lands.
+`fyr-preflight`, and the incident `BUG-*` record is updated to `--status graduated` (`fyr record edit <BUG-ID> --status graduated`) once its prevention rule is encoded in a regression test, startup probe, or alerting policy (use `--status fixed` only when no automated guard exists yet); check whether the incident reflects a repeated harness or workflow gap that `/fyr-retro` should promote into a rule or skill update.
 
 ## Dependency and base-image cadence
 

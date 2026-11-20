@@ -170,22 +170,44 @@ func TestRequirementsRuleReadsPRD(t *testing.T) {
 	}
 }
 
-// The fyr-init-project PRD template is in the shape rule (c) reads: each of its
-// Must and Should items is found, and found as the template's placeholder.
+// The fyr-init-project PRD template fences its example R1/R2/S1 items so raw
+// init scaffolds emit 0 findings under fyr check, while unwrapping the fences
+// yields one placeholder finding per Must and Should item.
 func TestRequirementsRuleReadsThePRDTemplate(t *testing.T) {
 	tmpl, err := os.ReadFile(filepath.Join("..", "..", "skills", "fyr-init-project", "assets", "PRD.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep := run(t, repo(t, map[string]string{"PRD.md": string(tmpl)}))
+	repRaw := run(t, repo(t, map[string]string{"PRD.md": string(tmpl)}))
+	same(t, repRaw.Findings)
+
+	rep := run(t, repo(t, map[string]string{"PRD.md": unwrapMarkdownFences(string(tmpl))}))
 	if len(rep.Findings) < 2 {
-		t.Fatalf("%d findings on the template, want one per Must and Should item: %+v", len(rep.Findings), rep.Findings)
+		t.Fatalf("%d findings on the unwrapped template, want one per Must and Should item: %+v", len(rep.Findings), rep.Findings)
 	}
 	for _, f := range rep.Findings {
 		if f.Where != "PRD.md" || !strings.HasSuffix(f.Text, "`enforced by:` is the template's placeholder") {
 			t.Errorf("finding %+v, want PRD.md and the placeholder", f)
 		}
 	}
+}
+
+func unwrapMarkdownFences(text string) string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if !in && t == "```markdown" {
+			in = true
+			continue
+		}
+		if in && t == "```" {
+			in = false
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func TestRequirementsRuleFencedAndEmptyAndRetired(t *testing.T) {

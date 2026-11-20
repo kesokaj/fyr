@@ -42,6 +42,8 @@ Dispatch the `explorer` agent with **only the symptom and the repro** — not yo
 
 Compare with your hypothesis. Agreement: proceed. Disagreement: read its evidence and re-investigate before choosing; if it was right, update the problem note and say so. Skip the dispatch only when the location is mechanically obvious (a one-to-three-line fix in a clearly identified place).
 
+**Escalate to `/fyr-feature` when scope grows:** if Step 2's diagnosis (or Step 4 implementation) shows that fixing the root cause requires more than one phase, an architectural/interface/schema redesign, or a `PRD.md`/ADR decision, stop `/fyr-bug` before making multi-phase edits, store the open `BUG-NNN` record capturing the symptom, repro, and diagnosed root cause (`owner: main`), and hand off to `/fyr-feature` referencing that `BUG-NNN` record so it runs the phased `PLAN-*`, cold-reader check, and pre-build interview (moving `BUG-NNN` to `--status fixed` or `--status graduated` once `/fyr-feature` lands the covering test and fix).
+
 ## Step 3: Failing test first
 
 Write the test that captures the bug at the right tier (unit beside the code; integration when a real dependency is involved; e2e when only the running artifact shows it). Run it. It must fail for the reason in the problem note; if it fails for another reason, fix the test before touching the implementation. A must-fail mutation cited as evidence follows the protocol in review-standards § 2 (unique target, restore from a saved copy, `git diff` read, compiled and a named test failed). For UI bugs that a spec cannot capture, script the repro in the browser and confirm the bug is observable; that script is re-run after the fix.

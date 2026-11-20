@@ -4,8 +4,9 @@
 Status: draft · Last updated: YYYY-MM-DD · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- The system design: the parts, their boundaries, the main flows and the big decisions — a summary a human reads
-     in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC per surface), never
-     restated here. Components are M1… (module); each satisfies PRD requirements by ID; TDD.md has one section per
+     in ten minutes. Follow fyr-docs: open every ## section with a 1-3 sentence BLUF, keep Mermaid diagrams <= 12 nodes,
+     and fold > 12-row tables in <details>. The detail lives in the records it links (an ADR per decision, a SPEC per surface),
+     never restated here. Components are M1… (module); each satisfies PRD requirements by ID; TDD.md has one section per
      component. Kept current by the session that changes the design, in the same commit. -->
 
 ## Context

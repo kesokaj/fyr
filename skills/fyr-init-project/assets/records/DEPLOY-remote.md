@@ -20,6 +20,7 @@ A Linux box or VM reached over SSH, used only on the user's explicit request. Ac
 ## Procedure
 
 <!-- Build locally for the target's architecture, copy the artifact, install, restart, in the exact commands. -->
+<!-- Container/compose or static SPA option: replace the Go scp block below with `docker compose pull && docker compose up -d` over SSH, or build (`npm run build`) and sync `dist/` assets to the target host/object store. -->
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o dist/server ./cmd/server
@@ -42,3 +43,16 @@ ssh <host> 'mv <install path>/server.new <install path>/server && sudo systemctl
 ## Rollback
 
 <!-- Keep the previous artifact; the exact commands that put it back. -->
+
+## Operate
+
+Restore service to the previous known-good artifact first, then inspect host logs, resource metrics, and health probes, and capture every production incident as a `BUG-*` record.
+
+| Row | Procedure / Command |
+|---|---|
+| Rollback first | Restore the previous artifact/unit (`mv <install path>/server.prev <install path>/server && sudo systemctl restart <unit>`), record the change via `fyr record add change`, then inspect logs |
+| Service status & metrics | `ssh <host> 'systemctl status <unit> --no-pager'`; host health via `ss -tlnp`, `df -h`, `free -m` |
+| Logs | `ssh <host> 'journalctl -u <unit> -p err -n 100 --no-pager'` (`--since "1 hour ago"` or `-f` while triaging) |
+| Uptime & alerting | External HTTP health check on `/healthz` (or systemd `OnFailure=` unit alert) + notification target |
+| Dependency cadence | `govulncheck ./...` / `npm audit --omit=dev` and OS security patches before every release and monthly; last run date |
+| Incidents | Open `BUG-*` (`fyr record add bug`), fix via `/fyr-bug`, and mark `--status graduated` once covered by a regression test or probe/alert |

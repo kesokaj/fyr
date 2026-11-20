@@ -6,7 +6,7 @@ Operator: Go/TS fullstack engineer (Linux/macOS ARM); decides in the pre-build i
 
 ## Resume, then checkpoint
 
-Start every session with `fyr resume`. Report file trails (`fyr record import`) or unscaffolded repos (`/fyr-init-project` or `/fyr-index-project`). Read `PRD.md` before major changes; state status, active plan ID, next step, and project memory before editing. Newest handoff wins unless an open plan postdates it; name missing files; never guess intent.
+Start every session with `fyr resume` (if `.agents/trail.jsonl` is tracked, run `fyr record sync`). Report file trails (`fyr record import`) or unscaffolded repos (`/fyr-init-project` or `/fyr-index-project`). Read `PRD.md` before major changes; state status, active plan ID, next step, and project memory before editing. Newest handoff wins unless an open plan postdates it; name missing files; never guess intent.
 
 After each phase (tick Checkpoint, store `change`) or when context grows/session ends, run `/fyr-handoff` (commits, pushes and runs `fyr metrics ingest` once; stores `handoff`); store `adr` on structural choices and `bug` on escaped failures.
 
@@ -14,7 +14,7 @@ After each phase (tick Checkpoint, store `change`) or when context grows/session
 
 1. **Verify:** run `fyr verify` (`gofmt -l`, `go vet`, `go test -race ./...`, `fyr check` -> `.agents/scratch/verify.stamp`; on an explicit test override e.g. `go test ./...`, run `gofmt -l .`, `go vet ./...`, that test only, skipping `fyr verify`/`fyr check`). Dispatch `verifier` only for browser/container/live HTTP e2e; never hide untested code.
 2. **Review & Docs:** dispatch `reviewer` (diff only) for 50+ lines, 5+ files, or `fyr-bug` fixes (`--docs` on interface/command/deploy changes; self-review small diffs in `change`), and `security` for auth/crypto/secrets/IAM/parsing/deps (`fyr-review` handles outcome/retest rounds). Update docs on behavior/interface/plan/deploy changes (`<= 30` lines self, else `documentation`). Draft record bodies in `.agents/scratch/` and batch `change`/`adr`/`bug` records (`fyr record add|edit`); tick plan; update `TODO.md`.
-3. **Close:** commit and push (unless told not to), then close a single task with `fyr close --id <ID> --title <t> --body-file <p>` (`handoff` without `verify.stamp`; keeps old records) — skip `/fyr-handoff` and `fyr metrics ingest`. Run `/fyr-handoff` at phase checkpoints, handoffs, long context, or mid-task stops.
+3. **Close:** if `.agents/trail.jsonl` is tracked, run `fyr record export`; commit and push (unless told not to), then close a single task with `fyr close --id <ID> --title <t> --body-file <p>` (`handoff` without `verify.stamp`; keeps old records) — skip `/fyr-handoff` and `fyr metrics ingest`. Run `/fyr-handoff` at phase checkpoints, handoffs, long context, or mid-task stops.
 
 ## Work, search, and subagents
 

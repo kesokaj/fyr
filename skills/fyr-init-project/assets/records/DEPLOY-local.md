@@ -42,6 +42,12 @@ How to build, configure, and run this project on the machine in front of you. `/
 
 <!-- `colima status || colima start`, native-arch build and run for local testing; the amd64 build belongs in gcp.md. -->
 
+## Database & migrations
+
+<!-- Local Postgres / compose service (delete this comment and fill when the project uses a database; otherwise keep "No database yet."). -->
+<!-- Start: `docker compose up -d db` (`docker/references/setup.md` § Step 2); check health: `docker compose ps` -->
+<!-- Migrate: run migrations before starting the app (e.g. `DATABASE_URL=postgres://localhost:5432/app?sslmode=disable go run ./cmd/<app> migrate` or `golang-migrate`); reset volume with `docker compose down -v`. -->
+
 ## Dependency cadence
 
 <!-- `govulncheck ./...`, `npm audit --omit=dev`, and the base image when there is one: before every release and monthly; the last run's date. -->

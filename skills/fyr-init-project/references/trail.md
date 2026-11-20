@@ -26,3 +26,4 @@ The main thread then stores it: `fyr record add <kind> --title "<title>" --body-
 | explorer | `plan` (a recon brief: no checkboxes outside fenced blocks, so it is stored closed) |
 | dreamer | `retro` |
 | documentation | edits files; a spec, deploy doc or guide that is a record gets a draft of its new body, stored with `fyr record edit <ID> --body-file <path>` |
+| `/fyr-swarm` worker | drafts `change` and worker-mode `handoff` under `.agents/scratch/agents/` when dispatched via `run_workflow` without trail access (never pushes, ticks `PLAN-*`/`TODO.md`, or runs `fyr record add` unless granted in its brief; `share` workers detach HEAD before `fyr land`) |

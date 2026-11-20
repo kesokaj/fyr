@@ -2,12 +2,14 @@
 
 <one line: what it does and for whom — the project overview the user gave /fyr-init-project>
 
+<!-- Follow fyr-docs: open every ## section with a 1-3 sentence BLUF, use <= 12-node Mermaid diagrams for 3+ component flows, and fold > 12-row tables inside <details>. -->
+
 ## Quick start
 
 ```bash
 <build command>      # e.g. go build ./...
 <run command>        # e.g. go run ./cmd/<app>
-<test command>       # e.g. go vet ./... && go test -race ./...
+<test command>       # e.g. fyr verify (Go: gofmt, go vet, go test -race, fyr check) or go test -race ./...
 ```
 
 The same commands are the contract in `AGENTS.md` § Setup commands; the `GUIDE-testing` record (`fyr record get GUIDE-testing`) has the tiers behind them.

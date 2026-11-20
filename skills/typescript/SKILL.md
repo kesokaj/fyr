@@ -48,7 +48,7 @@ Language-level standards for all TypeScript code. UI conventions live in the `fr
 
 ## Tests
 
-Four tiers, one runner per tier: Vitest 5 with jsdom + Testing Library 16 for units and component logic (`npm test`); Vitest browser mode with `@vitest/browser-playwright` when layout or `:focus-visible` matters (`npm run test:browser`); `@playwright/test` 1.63 for e2e against the **Go binary** serving `dist/client`, never against `vite dev` (`npm run e2e`). Configs, one pure-function test, one component test and the Playwright `webServer` block: `./references/testing.md`. A test is run red before the code exists (`review-standards` § 2).
+Four tiers, one runner per tier: Vitest 5 with jsdom + Testing Library 16 for units and component logic (`npm test`); Vitest browser mode with `@vitest/browser-playwright` when layout or `:focus-visible` matters (`npm run test:browser`); `@playwright/test` 1.63 for e2e against the built production artifact — the **Go binary** serving `dist/client` when Go embeds the UI, or `vite preview` / `next start` for standalone frontend/SPA apps — never against `vite dev` (`npm run e2e`). Configs, one pure-function test, one component test and the Playwright `webServer` block: `./references/testing.md`. A test is run red before the code exists (`review-standards` § 2).
 
 ## Before claiming done
 

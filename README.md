@@ -46,6 +46,8 @@ flowchart TB
 
 This map is the contract for how the harness reaches a machine and for what leaves one: the dreamer's redacted prompt, the operator's `fyr eval` runs, and `fyr auto`'s isolated dreaming workers. The strict rules that keep it true are in `.agents/rules/delivery-map.md`; `TestHarnessMap` fails when the map names a command the binary does not have.
 
+### Delivery, Release & Local Loop
+
 ```mermaid
 flowchart LR
     subgraph checkoutLane["Your harness checkout"]
@@ -64,11 +66,6 @@ flowchart LR
         zipPlace["Zip place\nrepo zip downloaded by hand, no tree kept\na development build leaves by install --repo"]
         installer["fyr install / fyr update"]
         homeFiles["~/.gemini/config\ninstalled files, no repository"]
-        sessions["Antigravity sessions\nfyr-feedback-log skill logs, /fyr-retro queues"]
-        configDir["~/.config/fyr/\nbrain.db, metrics.db, search.db, state.json\nstays on this machine"]
-        dreamer["fyr dream --all\non demand or inside fyr auto\na CLI with no tool granted"]
-        evalRun["fyr eval rows\ntyped by you, each row an OS-isolated clone and HOME"]
-        autoRun["fyr auto run\nsingle hourly user timer, when turned on\ndream + one OS-isolated dreaming worker: skills/, distilled skills, skills.sh asks, derived memory cards"]
     end
     edit --> ship
     ship -- "git push" --> harnessRepo
@@ -83,23 +80,38 @@ flowchart LR
     binaryPlace --> installer
     zipPlace -.-> installer
     installer -- "writes files" --> homeFiles
+    homeFiles -. "~/.config/fyr/ proposals (same machine only)" .-> retroHarness
+    retroHarness --> edit
+    linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
+    linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
+    linkStyle 9,10,11,12 stroke:#3B4FB8,stroke-width:2px
+    linkStyle 13,14 stroke:#A8660F,stroke-width:2px
+```
+
+### On-Machine Sessions, Dream, Eval & Auto
+
+```mermaid
+flowchart LR
+    homeFiles["~/.gemini/config\ninstalled files, no repository"]
+    sessions["Antigravity sessions\nfyr-feedback-log skill logs, /fyr-retro queues"]
+    configDir["~/.config/fyr/\nbrain.db, metrics.db, search.db, state.json\nstays on this machine"]
+    dreamer["fyr dream --all\non demand or inside fyr auto\na CLI with no tool granted"]
+    evalRun["fyr eval rows\ntyped by you, each row an OS-isolated clone and HOME"]
+    autoRun["fyr auto run\nsingle hourly user timer, when turned on\ndream + one OS-isolated dreaming worker: skills/, distilled skills, skills.sh asks, derived memory cards"]
+    provider[("the CLI's model provider")]
     homeFiles -- "read at session start" --> sessions
     sessions -- "logs" --> configDir
-    configDir -. "same machine only" .-> retroHarness
-    retroHarness --> edit
     sessions -- "memory, trail, transcripts" --> dreamer
     dreamer -- "proposal records, session_ratings (metrics.db)" --> configDir
-    dreamer -. "redacted prompt, no tool granted" .-> provider[("the CLI's model provider")]
+    dreamer -. "redacted prompt, no tool granted" .-> provider
     dreamer -. "one conversation per project, in /resume" .-> sessions
     evalRun -- "testing record, metrics.db" --> configDir
     evalRun -. "a sandbox's prompts and the files its agent reads, unredacted" .-> provider
     autoRun -- "report records, runs.json; on clean harness checkout, eval-gated skills/ commit" --> configDir
     autoRun -. "a dreaming worker's prompts and files, unredacted; redacted learning inputs; skills.sh asks" .-> provider
-    linkStyle 0,1,5,6,7,8 stroke:#0B7A74,stroke-width:2px
-    linkStyle 2,3,4 stroke:#8A3A78,stroke-width:2px
-    linkStyle 9,10,11,12,13 stroke:#3B4FB8,stroke-width:2px
-    linkStyle 14,15,16 stroke:#A8660F,stroke-width:2px
-    linkStyle 17,18,19,20,21,22,23,24 stroke:#5B7F1E,stroke-width:2px
+    linkStyle 0 stroke:#3B4FB8,stroke-width:2px
+    linkStyle 1 stroke:#A8660F,stroke-width:2px
+    linkStyle 2,3,4,5,6,7,8,9 stroke:#5B7F1E,stroke-width:2px
 ```
 
 | Colour | Path | What it carries |
@@ -242,7 +254,7 @@ Once `fyr install` reports `drift none`, initialize indexing and query the AST g
 
 `fyr` pairs `< 250 ms` fail-open CLI hooks with three local SQLite stores and OS-native process sandboxing so sessions stay fast, accurate, and measurable:
 
-- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`, `ADR-525`, `ADR-526`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, `improvedPrompt`, compaction-deduplicated `skillDigests`, deterministic `subtasks[]` with `COORDINATE_SUBTASKS`, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing with `needsGuardedProUpgrade`, fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` worker prompt injection, `[COORDINATOR_GUARD]` direct-edit protection, `[INTERACTIVE_STDIN]` prompt guard, and Watchdog `[POLL_LOOP]`/`[TOKEN_LOOP]`/`[SUBAGENT_BUDGET]` breakers), `post-tool-use` (`watchdog_ring` tool-error marking), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `.agents/scratch/search.db` at `schemaVersion = "8"`. See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
+- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`, `ADR-525`, `ADR-526`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, `improvedPrompt`, compaction-deduplicated `skillDigests`, deterministic `subtasks[]` with `COORDINATE_SUBTASKS`, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing with `needsGuardedProUpgrade`, fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` worker prompt injection, `[COORDINATOR_GUARD]` direct-edit protection, `[INTERACTIVE_STDIN]` prompt guard, and Watchdog `[POLL_LOOP]`/`[TOKEN_LOOP]`/`[SUBAGENT_BUDGET]` breakers), `post-tool-use` (`watchdog_ring` tool-error marking), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `.agents/scratch/search.db` at `schemaVersion = "9"` (camelCase/snake_case `chunks.tokens` FTS5 indexing and `refs_oid` index). See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
 - **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** Holds 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`) with deterministic memory validity scoring (`>= 0.40`) and on-demand `.agents/trail.jsonl` export/sync. See [Brain Store, Trail & Memory](features/brain-and-memory.md).
 - **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), stale-conversation `session_ratings`, post-gate `judge_verdicts` (`metrics.db` v9), v9 orchestration/quota/health signals, and six-section usage reports via `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
 - **Sandboxed evaluation (`internal/isolate`, `internal/eval`):** Runs `fyr eval` and `fyr auto` workers inside Linux Landlock or macOS Seatbelt confinement (failing closed when unavailable) with host-safety checks `a`–`e` and subagent check `f`. See [Behavioural Eval & OS Isolation](features/eval-and-isolation.md).

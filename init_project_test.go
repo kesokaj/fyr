@@ -41,7 +41,7 @@ func TestInitProjectRootDocs(t *testing.T) {
 	}
 	want := map[string][]string{
 		"PRD.md": {"](SDD.md)", "](TDD.md)", "## Problem", "## Users", "## Goals", "| G1 |", "## Non-goals",
-			"## Must", "## Should", "## Could", "- **R1** — ", "- **S1** — ", "enforced by:", "## Known limits", "## Open questions"},
+			"## Must", "## Should", "## Could", "```markdown", "- **R1** — ", "- **S1** — ", "enforced by:", "## Known limits", "## Open questions"},
 		"SDD.md": {"](PRD.md)", "](TDD.md)", "## Context", "## Components", "| M1 |", "R1", "## Flows", "## Decisions",
 			"## Cross-cutting", "## Deployment", "## Risks", "## Trace", "```mermaid"},
 		"TDD.md": {"](PRD.md)", "](SDD.md)", "## T1 — ", "Implements: M1", "SPEC-", "## Data model", "## Testing strategy",

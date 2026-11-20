@@ -21,11 +21,14 @@ go build ./cmd/...
 go run ./cmd/server/
 
 # Test
-go test ./...
+go test -race ./...
 
-# Lint
+# Lint & Verify (Go: gofmt, go vet, go test -race, fyr check -> .agents/scratch/verify.stamp)
 go vet ./...
+fyr verify
 ```
+
+<!-- Standalone CLI / non-Go script / TS app: replace cmd/server/ with cmd/<app>/ (or script/app entry point) and omit unused server steps. Non-Go projects run their own test/lint commands above and close tasks with `fyr record add handoff` instead of `fyr close` (which checks a Go verify.stamp). -->
 
 ## Architecture
 
@@ -44,7 +47,7 @@ go vet ./...
 
 ## Deploy
 
-<!-- One line per target that exists. The procedures live in the DEPLOY-local, DEPLOY-remote and DEPLOY-gcp records; GCP defaults are recorded in DEPLOY-gcp, never invented. -->
+<!-- One line per target that exists. The procedures live in the DEPLOY-local, DEPLOY-remote and DEPLOY-gcp records; GCP defaults are recorded in DEPLOY-gcp, never invented. For non-GCP hosts (AWS, Fly, VPS, or self-hosted compose), record the procedure in DEPLOY-remote and leave DEPLOY-gcp as Not applicable yet. -->
 
 Local only — see `DEPLOY-local` (`fyr record get DEPLOY-local`).
 
@@ -54,7 +57,7 @@ Local only — see `DEPLOY-local` (`fyr record get DEPLOY-local`).
 
 | Path | Purpose |
 |------|---------|
-| `cmd/<app>/main.go` | Application entry point |
+| `cmd/<app>/main.go` | Application entry point (or `<script>` / entry point for a Standalone CLI) |
 | `PRD.md` | What and why: problem, goals, the non-negotiable requirements |
 | `SDD.md` | How the parts fit: components, flows, decisions |
 | `TDD.md` | How each part is built and tested |

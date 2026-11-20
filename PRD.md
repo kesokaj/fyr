@@ -1,7 +1,7 @@
 # PRD — fyr
 
 What `fyr` and the harness are for, who they serve, and what must never drift.
-Status: current · Owner: the operator · Last updated: 2026-11-18 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Owner: the operator · Last updated: 2026-11-20 · Design: [SDD.md](SDD.md) · Technical design: [TDD.md](TDD.md)
 
 > Immutable without the operator's explicit approval. Agents never edit this file.
 
@@ -90,7 +90,7 @@ How each requirement is met and verified is traced in [SDD.md](SDD.md) (requirem
     - **Zip place:** the operator downloads the repository zip by hand and runs `fyr update --from-zip <file>`. It unpacks the zip into a temporary directory, refuses any entry that would leave it, installs that tree with the running binary, and deletes the directory. Nothing is fetched, no repository is created, and nothing in the zip replaces the binary. When the release's `SHA256SUMS` sits beside the zip, the zip is checked against it and refused on a mismatch; a zip without it is installed marked `UNVERIFIED`.
   - **Release:** `/fyr-preflight vX.Y.Z`, from the operator's own turn, gates the tree through parallel preflight (`run_workflow` parallel code and security review, deterministic verification, and isolated changed-row `fyr eval` runs), pushes an annotated tag on `main`, and publishes that tag's binaries and a zip of its tree (`git archive`), with their `SHA256SUMS`; no key is needed, so any machine with the maintainer's GitHub write credential can cut one. Checkout places follow `main`; binary-only places update to the newest release.
 
-  The three procedures and the map change together, only with the operator's explicit approval, an ADR, and one commit carrying the code, the docs and the map. (ADR-031, ADR-033, ADR-038, ADR-039, ADR-040, ADR-041, ADR-053, ADR-062, ADR-090, ADR-515, ADR-522, ADR-523; each quotes the operator's approval of its text.)
+  The three procedures and the map change together, only with the operator's explicit approval, an ADR, and one commit carrying the code, the docs and the map. (ADR-031, ADR-033, ADR-038, ADR-039, ADR-040, ADR-041, ADR-053, ADR-062, ADR-090, ADR-515, ADR-522, ADR-523, ADR-527; each quotes the operator's approval of its text.)
 
 - **R10** — One behaviour on every place.
   <!-- provenance: the operator, 2026-10-24; enforced by: TestTimerMacOS, TestAgySessionMac, TestAgySessionLinux, TEST-2026-09-04-verify-mac-real-home, TestRunnerChoice, TestAutoOnWritesTheConfigAndTheTimer, TestAutoTimerPlistText, TestIsolateLandlockDeniesOutsideWrite, TestSeatbeltProfileRender -->

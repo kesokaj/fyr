@@ -157,9 +157,10 @@ func TestTracesRuleNotes(t *testing.T) {
 	}
 }
 
-// The fyr-init-project templates are in the shape rule (d) reads: their SDD
-// traces R1 alone, so the template's R2 and S1 are gaps, and its one
-// component M1 is traced in its TDD.
+// The fyr-init-project templates emit 0 requirement and 0 trace findings when
+// raw (PRD.md example R1/R2/S1 items are fenced), and once PRD.md's markdown
+// fences are unwrapped, SDD traces R1 alone so R2 and S1 report as gaps while
+// M1 is traced in TDD.
 func TestTracesRuleReadsTheTemplates(t *testing.T) {
 	files := map[string]string{}
 	for _, name := range []string{"PRD.md", "SDD.md", "TDD.md"} {
@@ -169,10 +170,20 @@ func TestTracesRuleReadsTheTemplates(t *testing.T) {
 		}
 		files[name] = string(b)
 	}
-	rep := run(t, repo(t, files))
+	repRaw := run(t, repo(t, files))
+	if len(repRaw.Findings) != 0 {
+		t.Fatalf("raw template findings = %+v, want 0", repRaw.Findings)
+	}
+
+	unwrapped := map[string]string{
+		"PRD.md": unwrapMarkdownFences(files["PRD.md"]),
+		"SDD.md": files["SDD.md"],
+		"TDD.md": files["TDD.md"],
+	}
+	rep := run(t, repo(t, unwrapped))
 	got := traceFindings(rep)
 	if len(got) != 2 {
-		t.Fatalf("trace findings on the templates %+v, want R2 and S1", got)
+		t.Fatalf("trace findings on the unwrapped templates %+v, want R2 and S1", got)
 	}
 	for i, id := range []string{"R2", "S1"} {
 		if got[i].Where != "PRD.md" || got[i].Text != id+": no row in SDD.md's trace" {

@@ -37,7 +37,7 @@ Decided once, each with its reason; the `cloud-run-deploy` skill reads the first
 
 ## Procedure
 
-Follow the `cloud-run-deploy` skill with the defaults and rows above: local test build and smoke run, amd64 build, push, `gcloud run deploy`, canary when the Rollout row says so, verify. The reason for every project-specific flag goes in the table above, not here.
+Follow the `cloud-run-deploy` skill with the defaults and rows above: local test build and smoke run, amd64 build, push, `gcloud run deploy`, canary when the Rollout row says so, verify. The reason for every project-specific flag goes in the table above, not here. For a standalone static SPA without a Go backend, either serve `dist/` from a minimal static/Node container on Cloud Run or sync `dist/` assets to a GCS bucket behind Cloud CDN/Load Balancing.
 
 ## Secrets and configuration
 

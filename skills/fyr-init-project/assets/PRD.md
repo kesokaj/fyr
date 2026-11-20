@@ -38,19 +38,23 @@ Status: draft · Owner: <who decides> · Last updated: YYYY-MM-DD · Design: [SD
 
 <!-- The project is wrong without these. One sentence per item, each with a provenance line: who asked, when, and
      where the requirement is enforced (a test, a rule, a guide). Numbered R1…; a later edit keeps the numbers
-     (a struck item stays as "R3 — struck <date>: <why>"). -->
+     (a struck item stays as "R3 — struck <date>: <why>"). Examples below stay fenced until /fyr-requirements replaces them: -->
 
+```markdown
 - **R1** — <one sentence>.
   <!-- provenance: <who>, <date>; enforced by: <path[:N] | TestName | record ID>, … -->
 - **R2** — <one sentence>.
   <!-- provenance: <who>, <date>; enforced by: <path[:N] | TestName | record ID>, … -->
+```
 
 ## Should — expected unless a decision says otherwise
 
-<!-- S1…: a deviation needs a D-row in the active plan, not an ADR. -->
+<!-- S1…: a deviation needs a D-row in the active plan, not an ADR. Examples below stay fenced until /fyr-requirements replaces them: -->
 
+```markdown
 - **S1** — <one sentence>.
   <!-- provenance: <who>, <date>; enforced by: <path[:N] | TestName | record ID>, … -->
+```
 
 ## Could — welcome when cheap
 
