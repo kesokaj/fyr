@@ -7,13 +7,13 @@
 
 ## Now
 
-- [ ] Wave 2 (Phase 2) of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `metrics.db` v10 (`background_runs`), exact sandbox filter, window deltas, `DreamTrajectoryDigest.KneeExceeded`, expanded `Summary.Numbers()`, structural signals, and shared shape-only `DiagnosticReport` + consumers (`internal/metrics/`, `internal/dream/`, `internal/auto/`, `skills/fyr-retro/SKILL.md`)
+- [ ] Wave 3 (Phase 3b) of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `fyr report` upgrade (`Section 0` Scorecard, Background Autonomy, empty Cost SVG suppression, `--json`, `--web`, `--listen`, `--include-sandboxes`), `fyr auto log`, daily HTML report, `RecordBackgroundRun` wiring, and `help_text`/`check` updates
 
 ## Next
 
 - [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
-- [ ] Phase 3b of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `fyr report` upgrade, `fyr auto log`, & daily HTML report
 - [ ] Phase 4a of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: `fyr graph` core & telemetry constellation
+- [ ] Phase 4b of `PLAN-2026-11-20-1153-plan-fyr-v9-4-0-self-improvement-diagnostics-web`: docs, living specs, reviews & Playwright E2E
 
 ## Backlog
 
