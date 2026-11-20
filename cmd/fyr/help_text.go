@@ -40,6 +40,7 @@ Records and search
   resume       read-only seven-step session resume
   search       ranked search of records and files
   index        reconcile the search index; --register opts in
+  graph        interactive AST and telemetry constellation
 
 Background and measurement
   dream        consolidate project memory and trail into proposals
@@ -201,10 +202,11 @@ var coreVerbPages = map[string]verbPage{
 			"       fyr search --refs <BUG-NNN|ADR-NNN|path> [--kind K] [--global]",
 			"       fyr search --open [--kind K] [--global]",
 			"       fyr search --slice QUERY [--hops N] [--budget N] [--session ID]",
+			"                  [--include-docs]",
 			"       fyr search --skeleton FILE",
 			"       fyr search --path SYM [--to SYM]",
 			"       fyr search --affected TARGET",
-			"       fyr search --map",
+			"       fyr search --map [--include-docs]",
 			"       fyr search --vet PROMPT",
 			"       fyr search --hook <session-start|pre-invocation|pre-tool-use|",
 			"                          post-tool-use|stop>",

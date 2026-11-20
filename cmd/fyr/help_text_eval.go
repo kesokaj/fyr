@@ -213,4 +213,22 @@ var opsVerbPages = map[string]verbPage{
 			"Exit 0 ok, 1 error, 2 refused or missing/stale stamp.",
 		},
 	},
+	"graph": {
+		synopsis: []string{
+			"usage: fyr graph [--out FILE] [--force] [--include-tests] [--include-docs]",
+			"       fyr graph (--dot | --md | --json) [--out FILE] [--force]",
+			"                 [--include-tests] [--include-docs]",
+			"       fyr graph --web [--listen ADDR] [--include-tests] [--include-docs]",
+		},
+		about: []string{
+			"Renders this checkout's AST and behavioral telemetry constellation",
+			"(packages, files, symbols, PageRank God Nodes, Louvain communities, package",
+			"cycles, agent read churn, hidden co-activity coupling, and read-only",
+			"brain.db record links) from .agents/scratch/search.db. Writes offline HTML",
+			"(0600, refusing overwrite unless --force) to .agents/scratch/graph.html or",
+			"--out, prints DOT (--dot), Markdown (--md), or JSON (--json) to stdout",
+			"(unless --out), or serves an in-memory preview (--web).",
+			"Exit 0 ok, 1 index or write error, 2 a usage error or refusal.",
+		},
+	},
 }

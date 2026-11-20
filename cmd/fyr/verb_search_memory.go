@@ -145,7 +145,7 @@ func runSearch(c *ctx) error {
 		Kind: c.kind, Limit: c.limit, Global: c.global, Rebuild: c.rebuild,
 		Slice: c.sliceQuery, Hops: c.sliceHops, Budget: c.sliceBudget, Session: c.sliceSession,
 		Skeleton: c.skeletonPath, Path: c.pathFrom, To: c.pathTo, Affected: c.affectedTarget, Map: c.repoMap,
-		Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
+		IncludeDocs: c.searchIncludeDocs, Vet: c.vetPrompt, Hook: c.hookEvent, HookIn: stdin,
 		BrainRefs:        makeBrainRefs(cache, wd),
 		BrainRefsForDir:  makeBrainRefsForDir(cache),
 		BrainReprime:     makeBrainReprime(),

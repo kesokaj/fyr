@@ -16,6 +16,7 @@
 //	fyr resume      read-only seven-step session resume
 //	fyr search      ranked search of records and files
 //	fyr index       reconcile the search index; --register opts in
+//	fyr graph       interactive AST and telemetry constellation
 //	fyr dream       consolidate project memory and trail into proposals
 //	fyr auto        idle-time runs: on, off, status, run
 //	fyr metrics     session shapes: ingest, show, report, evals, trajectory, export

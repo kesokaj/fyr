@@ -19,9 +19,34 @@ var (
 	//go:embed assets/graph.css
 	graphCSSAsset string
 
+	//go:embed assets/graph_state.js
+	graphJSState string
+
+	//go:embed assets/graph_layout.js
+	graphJSLayout string
+
+	//go:embed assets/graph_render.js
+	graphJSRender string
+
+	//go:embed assets/graph_ui.js
+	graphJSUI string
+
 	//go:embed assets/graph.js
-	graphJSAsset string
+	graphJSBoot string
 )
+
+func bundledGraphJS() string {
+	parts := []string{
+		"(() => {\n\"use strict\";",
+		graphJSState,
+		graphJSLayout,
+		graphJSRender,
+		graphJSUI,
+		graphJSBoot,
+		"})();",
+	}
+	return strings.Join(parts, "\n")
+}
 
 // RenderJSON marshals p as compact UTF-8 JSON followed by a trailing newline.
 // Go's encoding/json escapes '<', '>', and '&' as \u003c, \u003e, and \u0026.
@@ -50,7 +75,7 @@ func RenderHTML(w io.Writer, p *Payload) error {
 		"__GRAPH_TITLE__", repoTitle,
 		"__GRAPH_CSS__", graphCSSAsset,
 		"__GRAPH_JSON__", safeJSON,
-		"__GRAPH_JS__", graphJSAsset,
+		"__GRAPH_JS__", bundledGraphJS(),
 	)
 	_, err = io.WriteString(w, replacer.Replace(graphHTMLTemplate))
 	return err

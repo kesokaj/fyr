@@ -48,7 +48,9 @@ type ctx struct {
 	modelsRefresh                                                                                  bool
 	limit, sliceHops, sliceBudget                                                                  int
 	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
-	repoMap, register                                                                              bool
+	repoMap, register, searchIncludeDocs                                                           bool
+	graphOut, graphListen                                                                          string
+	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs                    bool
 	gateBase, gateLeaseFile, landMessage, closeID, closeTitle, closeBodyFile                       string
 	gateLease                                                                                      stringSliceFlag
 	gateMaxFiles, gateMaxLines                                                                     int
@@ -166,9 +168,21 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.pathTo, "to", "", "path: target symbol `SYM` (or give as positional argument)")
 		c.fs.StringVar(&c.affectedTarget, "affected", "", "reverse-BFS blast radius (<= 2 hops) for `TARGET` path or symbol")
 		c.fs.BoolVar(&c.repoMap, "map", false, "top-10 God Nodes by PageRank, package deps and cycle check")
+		c.fs.BoolVar(&c.searchIncludeDocs, "include-docs", false, "include Markdown docs and headings in AST maps and slices")
 		c.fs.StringVar(&c.vetPrompt, "vet", "", "9-mode intent, 6-anchor vetter and skill/record match for `PROMPT`")
 		c.fs.StringVar(&c.hookEvent, "hook", "", "Antigravity lifecycle hook `EVENT`: session-start, pre-invocation, pre-tool-use, post-tool-use or stop")
 	}, positional: true, run: runSearch},
+	"graph": {flags: func(c *ctx) {
+		c.fs.BoolVar(&c.graphDot, "dot", false, "write Graphviz DOT instead of HTML (stdout unless --out)")
+		c.fs.BoolVar(&c.force, "force", false, "overwrite an existing output file")
+		c.fs.BoolVar(&c.graphIncludeDocs, "include-docs", false, "include Markdown files and doc headings in the graph")
+		c.fs.BoolVar(&c.graphIncludeTests, "include-tests", false, "include test files, test packages and test edges")
+		c.fs.BoolVar(&c.graphJSON, "json", false, "write the graph payload as JSON (stdout unless --out)")
+		c.fs.StringVar(&c.graphListen, "listen", "", "with --web, bind `ADDR` instead of 127.0.0.1:0")
+		c.fs.BoolVar(&c.graphMD, "md", false, "write the Markdown architecture summary (stdout unless --out)")
+		c.fs.StringVar(&c.graphOut, "out", "", "write output to `FILE` (default .agents/scratch/graph.html for HTML)")
+		c.fs.BoolVar(&c.graphWeb, "web", false, "serve the rendered graph in memory on 127.0.0.1:0 in the foreground")
+	}, run: runGraph},
 	"index": {flags: func(c *ctx) {
 		c.fs.BoolVar(&c.global, "global", false, "the global search index, ~/.config/fyr/search.db, instead of this checkout's")
 		c.fs.BoolVar(&c.rebuild, "rebuild", false, "delete the index and build it again")
