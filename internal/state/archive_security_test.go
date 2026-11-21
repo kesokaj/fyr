@@ -38,10 +38,16 @@ func writeCustomZip(t *testing.T, specs []rawZipSpec) string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = w.Write(sp.body)
+		if _, err := w.Write(sp.body); err != nil {
+			t.Fatal(err)
+		}
 	}
-	_ = zw.Close()
-	_ = os.WriteFile(path, buf.Bytes(), 0o600)
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
 
@@ -108,6 +114,47 @@ func TestImportRejectsInvalidArchivesBeforeOpeningDB(t *testing.T) {
 		{name: ManifestEntry, body: validManifestBytes(t, 4, 11, big, empty)},
 		{name: BrainRecordsEntry, body: big}, {name: MetricsSanitizedEntry},
 	}), "oversize")
+
+	// Spoof UncompressedSize64 below maxEntryBytes while deflate payload decompresses to 2048 bytes:
+	// validateZipEntry sees 128 <= 1024 and passes, so readCappedEntry fails closed inside archive/zip's bounded reader.
+	spoofPath := writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: validManifestBytes(t, 4, 11, big, empty)},
+		{name: BrainRecordsEntry, body: big}, {name: MetricsSanitizedEntry},
+	})
+	rawZip, err := os.ReadFile(spoofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patched := 0
+	for _, sig := range []struct {
+		hdr     []byte
+		nameOff int
+		sizeOff int
+	}{
+		{[]byte{'P', 'K', 3, 4}, 30, 22},
+		{[]byte{'P', 'K', 1, 2}, 46, 24},
+	} {
+		for pos := 0; pos < len(rawZip); {
+			i := bytes.Index(rawZip[pos:], sig.hdr)
+			if i < 0 {
+				break
+			}
+			at := pos + i
+			if at+sig.nameOff+len(BrainRecordsEntry) <= len(rawZip) &&
+				string(rawZip[at+sig.nameOff:at+sig.nameOff+len(BrainRecordsEntry)]) == BrainRecordsEntry {
+				rawZip[at+sig.sizeOff], rawZip[at+sig.sizeOff+1], rawZip[at+sig.sizeOff+2], rawZip[at+sig.sizeOff+3] = 128, 0, 0, 0
+				patched++
+			}
+			pos = at + 4
+		}
+	}
+	if patched != 2 {
+		t.Fatalf("patched %d zip headers for %s, want 2", patched, BrainRecordsEntry)
+	}
+	if err := os.WriteFile(spoofPath, rawZip, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertRejectedNoDBTouch(t, spoofPath, "not a valid zip file")
 }
 
 func TestImportSecurityHardeningRegressions(t *testing.T) {

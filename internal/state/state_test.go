@@ -149,14 +149,20 @@ func TestRepoCurrentSinceSymlinkAndEmptyManifest(t *testing.T) {
 		t.Fatalf("filtered export = %+v (%v)", expFiltered.Manifest, err)
 	}
 	allZip := filepath.Join(t.TempDir(), "all.zip")
-	_, _ = Export(ExportOptions{Home: srcHome, Dir: dirAlpha, OutPath: allZip})
+	if _, err := Export(ExportOptions{Home: srcHome, Dir: dirAlpha, OutPath: allZip}); err != nil {
+		t.Fatal(err)
+	}
 	dstBeta := initGitRepo(t, "git@github.com:org/beta.git")
 	if impBeta, err := Import(ImportOptions{Home: t.TempDir(), Dir: dstBeta, BundlePath: allZip, Repo: "current"}); err != nil || impBeta.Brain.Inserted != 1 || impBeta.Metrics.Sessions != 1 || impBeta.Metrics.Trials != 1 || impBeta.Metrics.JudgeVerdicts != 0 {
 		t.Fatalf("Import --repo current (beta) = %+v, %v", impBeta, err)
 	}
 	victim, linkOut := filepath.Join(t.TempDir(), "victim.txt"), filepath.Join(t.TempDir(), "link.zip")
-	_ = os.WriteFile(victim, []byte("keep"), 0o600)
-	_ = os.Symlink(victim, linkOut)
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, linkOut); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Export(ExportOptions{Home: srcHome, OutPath: linkOut}); err == nil {
 		t.Fatal("Export followed symlink OutPath")
 	}
@@ -164,7 +170,11 @@ func TestRepoCurrentSinceSymlinkAndEmptyManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rawM, _ := json.Marshal(emptyRes.Manifest); strings.Contains(string(rawM), ":null") {
+	rawM, err := json.Marshal(emptyRes.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rawM), ":null") {
 		t.Errorf("null slices in manifest: %s", string(rawM))
 	}
 }

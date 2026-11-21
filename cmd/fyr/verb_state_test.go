@@ -141,11 +141,20 @@ func TestStateCLIRejectsCorruptZipSlipAndFutureSchema(t *testing.T) {
 			if symlink {
 				fh.SetMode(fs.ModeSymlink | 0o777)
 			}
-			w, _ := zw.CreateHeader(fh)
-			_, _ = w.Write(body)
+			w, err := zw.CreateHeader(fh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := w.Write(body); err != nil {
+				t.Fatal(err)
+			}
 		}
-		_ = zw.Close()
-		_ = os.WriteFile(p, buf.Bytes(), 0o600)
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, buf.Bytes(), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		return p
 	}
 	s := sha256.Sum256(nil)

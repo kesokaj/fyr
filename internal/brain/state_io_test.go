@@ -182,13 +182,22 @@ func TestStateExportAndImportEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Defense-in-depth: importing allWithMem with IncludeMemory=false filters out memory/feedback/proposal.
-	stNoMem, err := ImportStateRecords(homeB, allWithMem, StateImportOpts{RepoID: repoAlpha, IncludeMemory: false})
+	// Defense-in-depth: importing allWithMem with IncludeMemory=false filters out memory/feedback/proposal
+	// and any global-scope record (Scope == "" && RepoID == "").
+	craftedGlobal := append(append([]Record(nil), allWithMem...), Record{
+		ID: "ADR-999-global", Kind: "adr", Status: "accepted", Date: "2026-11-20",
+		Title: "Global crafted ADR", Body: "should require --include-memory",
+	})
+	stNoMem, err := ImportStateRecords(homeB, craftedGlobal, StateImportOpts{RepoID: repoAlpha, IncludeMemory: false})
 	if err != nil {
 		t.Fatalf("ImportStateRecords(IncludeMemory=false): %v", err)
 	}
 	if stNoMem.Total != 2 || stNoMem.Inserted != 2 || stNoMem.Skipped != 0 {
 		t.Errorf("stNoMem = %+v, want Total=2 Inserted=2", stNoMem)
+	}
+	stNoMemUnfiltered, err := ImportStateRecords(homeB, []Record{craftedGlobal[len(craftedGlobal)-1]}, StateImportOpts{IncludeMemory: false})
+	if err != nil || stNoMemUnfiltered.Total != 0 {
+		t.Errorf("global empty-scope record bypassed IncludeMemory=false: %+v, err=%v", stNoMemUnfiltered, err)
 	}
 
 	// Re-importing the exact same records is 100% idempotent (Inserted=0, Updated=0, Skipped=2).

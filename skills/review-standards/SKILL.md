@@ -14,7 +14,7 @@ Language deep-dives (load only for the languages present in the diff):
 
 Lens reference (not a language; loaded only when `/fyr-review --prompts` names it in the reviewer's brief):
 
-- [references/prompt-audit/prompt-audit.md](references/prompt-audit/prompt-audit.md) — Anthropic's prompt-audit reference (vendored verbatim, Apache-2.0, `skills/VENDORED.md`): dated prompt patterns, brittle instruction files, redundant sub-agents
+- [references/prompt-audit/prompt-audit.md](references/prompt-audit/prompt-audit.md) — Multi-family prompt-audit checklist: dated prompt patterns, brittle instruction files, redundant subagents
 
 ## 1. Dead code — flag for REMOVAL, not for a comment
 

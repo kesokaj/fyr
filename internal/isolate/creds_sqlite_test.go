@@ -89,7 +89,7 @@ func seedRepoSandbox(t *testing.T, root, bin, app, home string) []string {
 	}
 	for _, rawRel := range bytes.Split(tracked, []byte{0}) {
 		rel := string(rawRel)
-		if rel == "" || strings.HasPrefix(rel, "skills/google-catalog/catalog/") {
+		if rel == "" {
 			continue
 		}
 		p := filepath.Join(root, filepath.FromSlash(rel))

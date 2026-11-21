@@ -129,9 +129,9 @@ func TestScriptsHaveNoEarlyExitPipe(t *testing.T) {
 	}
 }
 
-// TestCatalogInstallsClean: the install plan over the real checkout has no
+// TestCheckoutInstallsClean: the install plan over the real checkout has no
 // refusal — a secret-shaped name or a symlink anywhere under skills/ fails it.
-func TestCatalogInstallsClean(t *testing.T) {
+func TestCheckoutInstallsClean(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)

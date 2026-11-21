@@ -58,7 +58,7 @@ Implements: M4 · Spec: `SPEC-fyr-delivery`
 
 ## T5 — The CLI
 
-Exposes all 28 `fyr` verbs, global flags, and help pages in `cmd/fyr` with consistent exit codes and real-home development guards.
+Exposes all 29 `fyr` verbs, global flags, and help pages in `cmd/fyr` with consistent exit codes and real-home development guards.
 
 Implements: M5 · Spec: `SPEC-fyr-delivery` (install and update at each kind of place), `cmd/fyr/place_matrix_test.go` (every verb on every kind of place), and each verb's `SPEC-fyr-*` record, feature guide, or `fyr help <verb>`
 

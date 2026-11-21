@@ -164,7 +164,7 @@ func filterStateImport(recs []Record, opts StateImportOpts) ([]Record, error) {
 		if !knownKind(r.Kind) {
 			return nil, refuse("state import: unknown kind %q", r.Kind)
 		}
-		if !opts.IncludeMemory && (unexported[r.Kind] || (r.Kind == "retro" && r.Scope == "" && r.RepoID == "")) {
+		if !opts.IncludeMemory && (unexported[r.Kind] || (r.Scope == "" && r.RepoID == "")) {
 			continue
 		}
 		if opts.RepoID != "" && r.RepoID != opts.RepoID {

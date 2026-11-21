@@ -255,9 +255,9 @@ Once `fyr install` reports `drift none`, initialize indexing and query the AST g
 
 `fyr` pairs `< 250 ms` fail-open CLI hooks with three local SQLite stores and OS-native process sandboxing so sessions stay fast, accurate, and measurable:
 
-- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`, `ADR-525`, `ADR-526`, `ADR-528`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (9-mode intent vetter, 6-anchor score, `improvedPrompt`, compaction-deduplicated `skillDigests`, deterministic `subtasks[]` with `COORDINATE_SUBTASKS`, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard with `-5` `[CLAMPED]` row retention, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing with `needsGuardedProUpgrade`, fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` worker prompt injection, `[COORDINATOR_GUARD]` direct-edit protection, `[INTERACTIVE_STDIN]` prompt guard, and Watchdog `[POLL_LOOP]`/`[TOKEN_LOOP]`/`[SUBAGENT_BUDGET]` breakers), `post-tool-use` (`watchdog_ring` tool-error marking), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `.agents/scratch/search.db` at `schemaVersion = "10"` (`v9 -> v10` in-place migration preserving behavioral tables and `-5` `[CLAMPED]` retention, camelCase/snake_case `chunks.tokens` FTS5 indexing, `refs_oid` index, `Options.IncludeDocs`, canonical repo-dir package paths, Go/TS resolution, Tarjan SCC, Louvain coalescing, and read-only `StructuralSignals`). See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
-- **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** Holds 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`) with deterministic memory validity scoring (`>= 0.40`) and on-demand `.agents/trail.jsonl` export/sync. See [Brain Store, Trail & Memory](features/brain-and-memory.md).
-- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), stale-conversation `session_ratings`, post-gate `judge_verdicts`, `background_runs` (`metrics.db` v10), orchestration/quota/health signals, shape-only `DiagnosticReport` signals, Section `0. Scorecard`, `Background Autonomy`, daily HTML reports, `fyr auto log`, and HTML/Markdown/`--json`/foreground `--web` preview reports (via `internal/webpreview`) through `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
+- **`< 250 ms` fail-open CLI hooks (`internal/search/hook.go`, `ADR-511`, `ADR-525`, `ADR-526`, `ADR-528`, `ADR-530`):** Serve `session-start` (`<= 1,500 B` capsule), `pre-invocation` (`< 40 ms` warm Turn-0 fast-path, 9-mode intent vetter, 6-anchor score, `improvedPrompt`, compaction-deduplicated `skillDigests`, deterministic `subtasks[]` with `COORDINATE_SUBTASKS`, Hop-0 PageRank AST slice, on-demand `procedural`/`episodic` memory, cryptographic `=====<18-hex>=====` data fence, and zero-token `{}` on `PASS_THROUGH`), `pre-tool-use` (`[CLAMPED]` `>= 400`-line unranged read guard with `-5` `[CLAMPED]` row retention, out-of-root/unindexed `read_file` bypass, SHA-256 `read_ledger` deduplication, `invoke_subagent` / `run_workflow` / `swarm` quota routing with `needsGuardedProUpgrade`, fenced `<= 1,200 B` `[FYR_WORKER_CAPSULE]` worker prompt injection, `[COORDINATOR_GUARD]` direct-edit protection, `[INTERACTIVE_STDIN]` prompt guard, and Watchdog `[POLL_LOOP]`/`[TOKEN_LOOP]`/`[SUBAGENT_BUDGET]` breakers), `post-tool-use` (`watchdog_ring` tool-error marking), and `stop` (`co_activity` + `[VERIFY_STAMP]` check), with `.agents/scratch/search.db` at `schemaVersion = "11"` (`v10 -> v11` in-place migration adding `vet_history.{duration_ms, timed_out, injected_bytes}` while preserving behavioral tables and `-5` `[CLAMPED]` retention, camelCase/snake_case `chunks.tokens` FTS5 indexing, `refs_oid` index, `Options.IncludeDocs`, canonical repo-dir package paths, Go/TS resolution, Tarjan SCC, Louvain coalescing, and read-only `StructuralSignals`). See [CLI Hooks, Prompt Vetting & AST Graph](features/hooks-and-ast-graph.md).
+- **Brain store (`~/.config/fyr/brain.db`, `internal/brain`):** Holds 15 project and global record kinds (`plan`, `review`, `testing`, `change`, `handoff`, `bug`, `adr`, `retro`, `learning`, `spec`, `guide`, `deploy`, `memory`, `feedback`, `proposal`) in `brain.db` v4 (`repo_id`, `operator` provenance guard) with deterministic memory validity scoring (`>= 0.40`) and on-demand `.agents/trail.jsonl` export/sync. See [Brain Store, Trail & Memory](features/brain-and-memory.md).
+- **Session telemetry & trajectory (`~/.config/fyr/metrics.db`, `internal/metrics`):** Stores shape-only tool, token, `model`/`tool`/`wait`/`idle` wall-time splits, trajectory anomalies (`KNEE_EXCEEDED`, `REDUNDANT_READ`, `RETRY_LOOP`), stale-conversation `session_ratings`, post-gate `judge_verdicts`, `background_runs` (`metrics.db` v11 with `repo_id`, `worker_model`, `f(3,28)` model IDs, and extended `turn_vets`), orchestration/quota/health signals, shape-only `DiagnosticReport` signals, Section `0. Scorecard`, `Background Autonomy`, daily HTML reports, `fyr auto log`, and HTML/Markdown/`--json`/foreground `--web` preview reports (via `internal/webpreview`) through `fyr report`. See [Telemetry, Trajectories & Reports](features/metrics-and-reports.md).
 - **Sandboxed evaluation (`internal/isolate`, `internal/eval`):** Runs `fyr eval` and `fyr auto` workers inside Linux Landlock or macOS Seatbelt confinement (failing closed when unavailable) with host-safety checks `a`–`e` and subagent check `f`. See [Behavioural Eval & OS Isolation](features/eval-and-isolation.md).
 - **Idle-time consolidation & dreaming (`internal/dream`, `internal/auto`):** Runs `fyr auto` as a binary `on` / `off` global switch (`--conversation-idle` default `1h`), discovers all Antigravity workspaces and conversations (including non-git directories and `search.GlobalWorkspace`) without registration, rates stale conversations in tool-free plan mode into `session_ratings` and `target: harness` proposals (`G4`–`G7` retired for dreaming), and executes eval-gated `skills/` workers on clean checkouts under `G1`–`G3`/`G8`/`G9`, a strict risk rubric, and a `k=3` behavioral eval gate (`ADR-090`, `ADR-522`, `ADR-523`, `ADR-524`). See [Dream Consolidation & Auto Mode](features/dream-and-auto.md).
 
@@ -269,7 +269,7 @@ To prevent Antigravity's `24,000`-byte global rules block from silently dropping
 
 ## Daily CLI Reference
 
-Use these ten commands in daily workflows, and expand the full reference below for all 28 `fyr` commands (`fyr help <verb>` prints full flags and `SPEC-fyr-*` holds complete contracts).
+Use these ten commands in daily workflows, and expand the full reference below for all 29 `fyr` commands (`fyr help <verb>` prints full flags and `SPEC-fyr-*` holds complete contracts).
 
 | Command | What it does |
 |---|---|
@@ -285,7 +285,7 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `fyr auto on` / `off` / `status` / `run` / `log` | Global binary on/off switch and log viewer for hourly stale-conversation rating, dreaming, daily HTML reports, and eval-gated skill improvement |
 
 <details>
-<summary>Complete CLI command reference (all 28 commands)</summary>
+<summary>Complete CLI command reference (all 29 commands)</summary>
 
 | Command | What it does |
 |---|---|
@@ -313,7 +313,8 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `fyr gate [--base REF] [--lease GLOB] [--lease-file FILE] [--max-files N] [--max-lines N] [--judge TEXT] [--judge-model ID] <worktree>` | Deterministic worktree gate: `Files:` lease globs, symlink/gitlink modes, secret filenames, numstat caps, added-line secret scan, commit trailers, and optional cross-family `--judge` verdict |
 | `fyr land [--lease GLOB] [--lease-file FILE] [--message TEXT] [--max-files N] [--max-lines N] [--timeout D] [--judge TEXT] [--judge-model ID] <branch>` | Gates `<branch>` (plus optional `--judge` verdict), squash-merges and runs `fyr verify` in a detached scratch worktree, fast-forwards the clean base branch, deletes `<branch>`, and refreshes `verify.stamp` |
 | `fyr close --title TEXT [--body-file FILE]` | Stores an immutable `handoff` record embedding `## Verification Digest` from a fresh `verify.stamp` without mutating or deleting prior records |
-| `fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T]` | Lists the live `agy models` + `agy changelog` catalog cached in `~/.config/fyr/models.json`, explains model profiles (`--explain`), and resolves evidence-judged role picks |
+| `fyr models [--explain ID] [--json] [--pick ROLE] [--refresh] [--tier T] [--bench [--model ID] [--max N]]` | Lists the live `agy models` + `agy changelog` catalog cached in `~/.config/fyr/models.json`, explains model profiles (`--explain`), probes new models (`--bench`), and resolves Empirical-Bayes + UCB1 role picks |
+| `fyr state export [--out FILE] [--since DATE] [--include-memory] [--json]` / `import [--dry-run] [--include-memory] [--json] <bundle.zip>` | Offline SHA-256-verified zip bundle export/import of project trail and sanitized metrics (`--include-memory` opt-in, `ADR-531`) |
 | `fyr eval --home DIR [--runs N] [--parallel N] [--runner isolate] [--acp] [--suite-file PATH] <row>...` | Runs behavioral evaluation rows against `agy` inside OS-native `isolate` sandboxes (or `--acp` sessions) and stores trials in `metrics.db` |
 | `fyr adopt <name>` | Copies a skill installed elsewhere into `skills/` |
 | `fyr version` | Prints the build version |
@@ -352,8 +353,8 @@ The repository separates immutable requirements, architecture, and verification 
 
 ```
 PRD.md        what the harness is for and what must never drift (R0–R10)
-SDD.md        how the parts fit: components M1–M25, the main flows, the decisions
-TDD.md        how each part is built: sections T1–T25 and their tests
+SDD.md        how the parts fit: components M1–M26, the main flows, the decisions
+TDD.md        how each part is built: sections T1–T26 and their tests
 TODO.md       Now, Next and Backlog; the active plan record wins
 Workflow.md   end-to-end engineering workflow (goal, plan-to-finish, feature-to-finish, DoD)
 AGENTS.md     the rules of this repository, for agents
@@ -373,8 +374,8 @@ embed.go      the go:embed of the six content directories, pinned to what git tr
 
 ```mermaid
 flowchart LR
-  prd["PRD.md\nrequirements R0 to R10"] --> sdd["SDD.md\ncomponents M1 to M25"]
-  sdd --> tdd["TDD.md\nsections T1 to T25 and their tests"]
+  prd["PRD.md\nrequirements R0 to R10"] --> sdd["SDD.md\ncomponents M1 to M26"]
+  sdd --> tdd["TDD.md\nsections T1 to T26 and their tests"]
   tdd --> todo["TODO.md\ntasks name a T section"]
   tdd --> records[("SPEC and ADR records\nthe detail")]
 ```

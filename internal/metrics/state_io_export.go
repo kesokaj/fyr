@@ -161,6 +161,8 @@ func populateRemainingExport(out *SanitizedMetricsExport, s *Store, repoID strin
 		}
 		for i := range runs {
 			runs[i].ID = 0
+			runs[i].Kind = clipSanitizedText(runs[i].Kind, 64)
+			runs[i].Outcome = clipSanitizedText(runs[i].Outcome, 64)
 		}
 		out.BackgroundRuns = runs
 	}

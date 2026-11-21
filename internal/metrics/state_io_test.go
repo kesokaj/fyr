@@ -144,7 +144,9 @@ func TestExportAndImportSanitizedStateFilteringDryRunAndIdempotency(t *testing.T
 		t.Errorf("dryRun counts = %+v, want 7 inserted", dryCounts)
 	}
 	var destSessCnt int
-	dest.db.QueryRow(`SELECT count(*) FROM sessions`).Scan(&destSessCnt)
+	if err := dest.db.QueryRow(`SELECT count(*) FROM sessions`).Scan(&destSessCnt); err != nil {
+		t.Fatal(err)
+	}
 	if destSessCnt != 0 {
 		t.Fatalf("dryRun wrote %d sessions", destSessCnt)
 	}
