@@ -7,7 +7,7 @@
 
 ## Now
 
-None.
+- [ ] Phase 2 of `PLAN-2026-11-21-1351-plan-fyr-v9-6-2-v9-7-0-optimization-fixes-daily`: Lift `search:grep` & close Bash read bypasses (`PATH` setup, `&&`/`;` read-ledger enforcement, subagent read budgets + eval gate)
 
 ## Next
 

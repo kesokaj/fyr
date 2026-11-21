@@ -76,7 +76,7 @@ func (tc *turnBrainCache) ftsMatches(dir, homeOverride string, terms []string) m
 }
 
 func queryBrainFTSRecordIDs(bo brain.Options, terms []string) map[string]bool {
-	hits, err := brain.Search(bo, terms, "", 16)
+	hits, err := brain.SearchTurnRecords(bo, terms, 16)
 	if err != nil || len(hits) == 0 {
 		return nil
 	}
@@ -143,20 +143,9 @@ func hasStemPrefixInWords(words []string, prefix string) bool {
 }
 
 func loadTurnRecords(dir, home string, global bool) []brain.Record {
-	var recs []brain.Record
 	if home != "" {
-		if _, err := os.Stat(brain.Path(home)); err == nil {
-			if prj, err := brain.List(brain.Options{Home: home, Dir: dir, Global: global}, brain.ListFilter{}); err == nil {
-				recs = append(recs, prj...)
-			}
-			if !global {
-				if globals, err := brain.List(brain.Options{Home: home, Dir: dir, Global: true}, brain.ListFilter{Kind: "memory"}); err == nil {
-					recs = append(recs, globals...)
-				}
-			}
-			if len(recs) > 0 {
-				return recs
-			}
+		if recs, err := brain.ListTurnRecords(brain.Options{Home: home, Dir: dir, Global: global}); err == nil && len(recs) > 0 {
+			return recs
 		}
 	}
 	if trailRecs, ok, err := brain.ReadTrail(dir); err == nil && ok {

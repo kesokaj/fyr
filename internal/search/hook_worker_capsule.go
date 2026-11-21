@@ -26,7 +26,8 @@ func lookupWorkerHop0AST(explicitRoot, prompt string, files []string) ([]string,
 	}
 	defer st.close()
 	sc := &scope{st: st, projects: []string{explicitRoot}}
-	g, err := sc.loadSymGraph()
+	active := resolveWorkerSeedPaths(sc, files)
+	g, err := sc.loadBoundedSymGraph(prompt, active, false, 1)
 	if err != nil || len(g.syms) == 0 {
 		return nil, nil
 	}
@@ -44,6 +45,23 @@ func lookupWorkerHop0AST(explicitRoot, prompt string, files []string) ([]string,
 		}
 	}
 	return lines, astFiles
+}
+
+func resolveWorkerSeedPaths(sc *scope, files []string) map[string]bool {
+	if sc == nil || sc.st == nil || len(files) == 0 {
+		return nil
+	}
+	indexed, err := queryIndexedFilesDB(sc.st.db, sc.projects, false)
+	if err != nil || len(indexed) == 0 {
+		return nil
+	}
+	allPaths := make([]string, 0, len(indexed))
+	hasPath := make(map[string]bool, len(indexed))
+	for _, f := range indexed {
+		allPaths = append(allPaths, f.path)
+		hasPath[f.path] = true
+	}
+	return matchPathList(allPaths, hasPath, files)
 }
 
 func selectWorkerHop0Idxs(sc *scope, g *symGraph, prompt string, active map[string]bool) []int {
@@ -78,20 +96,26 @@ func selectWorkerHop0Idxs(sc *scope, g *symGraph, prompt string, active map[stri
 }
 
 func matchGraphFiles(g *symGraph, files []string) map[string]bool {
-	active := map[string]bool{}
 	if len(files) == 0 {
-		return active
+		return map[string]bool{}
 	}
 	allPaths := make([]string, 0, len(g.byPath))
+	hasPath := make(map[string]bool, len(g.byPath))
 	for p := range g.byPath {
 		allPaths = append(allPaths, p)
+		hasPath[p] = true
 	}
 	sort.Strings(allPaths)
+	return matchPathList(allPaths, hasPath, files)
+}
+
+func matchPathList(allPaths []string, hasPath map[string]bool, files []string) map[string]bool {
+	active := map[string]bool{}
 	for _, raw := range files {
 		n := normalizeSlashPath(raw)
 		switch {
 		case n == "":
-		case len(g.byPath[n]) > 0:
+		case hasPath[n]:
 			active[n] = true
 		case isDirPathToken(n):
 			for _, p := range allPaths {

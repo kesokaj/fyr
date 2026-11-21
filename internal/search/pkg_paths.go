@@ -78,8 +78,15 @@ var excludedASTSegments = map[string]bool{
 }
 
 func isExcludedASTPath(p string) bool {
-	norm := strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(p), "\\", "/"), "./")
+	norm := strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
 	if norm == "" {
+		return true
+	}
+	norm = strings.TrimPrefix(path.Clean(norm), "./")
+	if norm == "" || norm == "." {
+		return true
+	}
+	if isVendoredSkillPath(norm) {
 		return true
 	}
 	for _, seg := range strings.Split(norm, "/") {
@@ -94,6 +101,19 @@ func isExcludedASTPath(p string) bool {
 		}
 	}
 	return false
+}
+
+// isVendoredSkillPath excludes third-party reference docs/code and assets
+// shipped under skills/<name>/{references,assets}/... or
+// .agents/skills/<name>/{references,assets}/... while preserving SKILL.md and scripts/.
+func isVendoredSkillPath(norm string) bool {
+	segs := strings.Split(norm, "/")
+	start := 0
+	if len(segs) >= 5 && segs[0] == ".agents" {
+		start = 1
+	}
+	rest := segs[start:]
+	return len(rest) >= 4 && rest[0] == "skills" && rest[1] != "" && (rest[2] == "references" || rest[2] == "assets") && rest[3] != ""
 }
 
 func isGeneratedGoText(text string) bool {

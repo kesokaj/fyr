@@ -43,14 +43,22 @@ func (sc *scope) buildContextSlice(o Options, out io.Writer) error {
 	if o.Budget <= 0 {
 		o.Budget = defaultSliceBudget
 	}
-	g, err := sc.loadSymGraphOpts(o.IncludeDocs)
+	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
+	var (
+		g   *symGraph
+		err error
+	)
+	if (strings.TrimSpace(o.Slice) != "" || len(active) > 0) && o.Hops <= 2 {
+		g, err = sc.loadBoundedSymGraph(o.Slice, active, o.IncludeDocs, o.Hops)
+	} else {
+		g, err = sc.loadSymGraphOpts(o.IncludeDocs)
+	}
 	if err != nil {
 		return err
 	}
 	if len(g.syms) == 0 {
 		return nil
 	}
-	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	ranked := g.rank(o.Slice, active)
 	tiers := g.selectSliceTiers(o.Slice, ranked, o.Hops)
 	maxBytes := max(200, o.Budget*4)

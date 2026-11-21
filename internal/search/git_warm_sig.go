@@ -16,7 +16,7 @@ import (
 const (
 	gitWarmSigMetaPrefix = "git_warm_sig:"
 	maxWarmSigEntries    = 2500
-	maxWarmSigDirs       = 128
+	maxWarmSigDirs       = 512
 	maxWarmSigRacyFileB  = 256 << 10
 	maxWarmSigRacyTotalB = 2 << 20
 	maxUntrackedFiles    = 256

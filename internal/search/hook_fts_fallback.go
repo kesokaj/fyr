@@ -75,11 +75,11 @@ func (sc *scope) ftsFallbackRanked(g *symGraph, prompt string, active map[string
 }
 
 func (sc *scope) queryFTSFallbackChunks(words []string, promptLower string) []ftsChunkHit {
-	hits := sc.runFTSFallbackSQL(ftsQuery(words, " AND "), words, promptLower, 1)
-	if len(hits) == 0 {
-		hits = sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, 2)
+	minMatched := 2
+	if len(words) < 2 {
+		minMatched = 1
 	}
-	return hits
+	return sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, minMatched)
 }
 
 func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower string, minMatched int) []ftsChunkHit {
@@ -93,14 +93,14 @@ func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower
 		WHERE f.project IN ` + sc.in() + ` AND chunks_fts MATCH ?
 		ORDER BY bm25(chunks_fts, 5.0, 1.0, 1.0)
 		LIMIT ?`
-	args := append(sc.keys(), matchExpr, ftsFallbackLimit)
+	args := append(sc.keys(), matchExpr, ftsFallbackLimit*2)
 	rows, err := sc.st.db.Query(q, args...)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
 	var out []ftsChunkHit
-	for rows.Next() {
+	for rows.Next() && len(out) < ftsFallbackLimit {
 		var h ftsChunkHit
 		if rows.Scan(&h.path, &h.line, &h.heading, &h.body) != nil {
 			continue

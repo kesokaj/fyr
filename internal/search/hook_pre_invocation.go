@@ -214,12 +214,12 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	if sc == nil || sc.st == nil || prompt == "" {
 		return SliceResult{}
 	}
-	g, err := sc.loadSymGraph()
+	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
+	g, err := sc.loadBoundedSymGraph(prompt, active, false, defaultSliceHops)
 	if err != nil || len(g.syms) == 0 {
 		return SliceResult{}
 	}
 	hits, _ := countMatchingSymbols(g, prompt)
-	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
 	ranked, confident := rankAndCheckConfidence(g, prompt, active)
 	if !confident {
 		ranked, confident = sc.ftsFallbackRanked(g, prompt, active)
