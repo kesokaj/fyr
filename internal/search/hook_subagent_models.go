@@ -1,17 +1,17 @@
 package search
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/models"
 )
 
 func formatSwarmPickReason(home, picked, fbNote string) string {
-	reason := "[AUTO_SWARM_MODEL] selected " + picked
-	if label := formatModelTag(home, picked); label != "" && label != strings.TrimSpace(picked) {
-		reason = fmt.Sprintf("[AUTO_SWARM_MODEL] selected %s (%s)", picked, label)
+	label := formatModelTag(home, picked)
+	if label == "" {
+		label = strings.TrimSpace(picked)
 	}
+	reason := "[AUTO_SWARM_MODEL] selected " + label
 	if fbNote != "" {
 		reason += "; " + fbNote
 	}

@@ -79,29 +79,30 @@ type SliceResult struct {
 
 // VetResult is the structured output of VetPrompt and BuildTurnEnvelope.
 type VetResult struct {
-	Intent             IntentMode      `json:"intent"`
-	Gate               VetGate         `json:"gate"`
-	Score              int             `json:"score"`
-	Bypassed           bool            `json:"bypassed,omitempty"`
-	SessionModel       string          `json:"sessionModel,omitempty"`
-	SessionThinking    string          `json:"sessionThinking,omitempty"`
-	Route              string          `json:"route,omitempty"`
-	PriorTurnContext   string          `json:"priorTurnContext,omitempty"`
-	TargetFiles        []string        `json:"targetFiles,omitempty"`
-	SuggestedVerify    string          `json:"suggestedVerify,omitempty"`
-	ImprovedPrompt     string          `json:"improvedPrompt,omitempty"`
-	Subtasks           []SubtaskSlice  `json:"subtasks,omitempty"`
-	CarriedFromTurn    int             `json:"carriedFromTurn,omitempty"`
-	PresentAnchors     []string        `json:"presentAnchors,omitempty"`
-	MissingAnchors     []string        `json:"missingAnchors,omitempty"`
-	Skills             []SkillMeta     `json:"skills,omitempty"`
-	SecurityRequired   bool            `json:"securityRequired,omitempty"`
-	MatchedRecords     []MatchedRecord `json:"matchedRecords,omitempty"`
-	Conflicts          []string        `json:"conflicts,omitempty"`
-	FenceBoundary      string          `json:"fenceBoundary,omitempty"`
-	UserMarkdownBanner string          `json:"userMarkdownBanner"`
-	TurnContract       string          `json:"turnContract"`
-	SystemMessage      string          `json:"systemMessage,omitempty"`
+	Intent              IntentMode      `json:"intent"`
+	Gate                VetGate         `json:"gate"`
+	Score               int             `json:"score"`
+	Bypassed            bool            `json:"bypassed,omitempty"`
+	SessionModel        string          `json:"sessionModel,omitempty"`
+	SessionModelDisplay string          `json:"sessionModelDisplay,omitempty"`
+	SessionThinking     string          `json:"sessionThinking,omitempty"`
+	Route               string          `json:"route,omitempty"`
+	PriorTurnContext    string          `json:"priorTurnContext,omitempty"`
+	TargetFiles         []string        `json:"targetFiles,omitempty"`
+	SuggestedVerify     string          `json:"suggestedVerify,omitempty"`
+	ImprovedPrompt      string          `json:"improvedPrompt,omitempty"`
+	Subtasks            []SubtaskSlice  `json:"subtasks,omitempty"`
+	CarriedFromTurn     int             `json:"carriedFromTurn,omitempty"`
+	PresentAnchors      []string        `json:"presentAnchors,omitempty"`
+	MissingAnchors      []string        `json:"missingAnchors,omitempty"`
+	Skills              []SkillMeta     `json:"skills,omitempty"`
+	SecurityRequired    bool            `json:"securityRequired,omitempty"`
+	MatchedRecords      []MatchedRecord `json:"matchedRecords,omitempty"`
+	Conflicts           []string        `json:"conflicts,omitempty"`
+	FenceBoundary       string          `json:"fenceBoundary,omitempty"`
+	UserMarkdownBanner  string          `json:"userMarkdownBanner"`
+	TurnContract        string          `json:"turnContract"`
+	SystemMessage       string          `json:"systemMessage,omitempty"`
 }
 
 var (

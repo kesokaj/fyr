@@ -72,11 +72,7 @@ func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string
 	return full, fmt.Sprintf("%dk tokens (>= %s 60%% model knee)", state.EstTokens/1000, kneeLabel)
 }
 
-func buildHookEnvelope(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
-	return buildHookEnvelopeTimed(context.Background(), o, sc, dir, convID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, time.Time{})
-}
-
-func buildHookEnvelopeTimed(ctx context.Context, o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
+func buildHookEnvelopeWithModelTimed(ctx context.Context, o Options, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, modelInfo resolvedModelInfo, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
 	if (ctx != nil && ctx.Err() != nil) || (rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals()) {
 		return "", ""
 	}
@@ -102,12 +98,11 @@ func buildHookEnvelopeTimed(ctx context.Context, o Options, sc *scope, dir, conv
 		catalog = o.SkillCatalog(o.Home)
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
-	cat, hasCat := loadModelsCatalog(o.Home)
-	vetRes.SessionModel, vetRes.SessionThinking = resolveModelAndThinkingWithCatalog(cat, hasCat, sessionModel)
+	vetRes.SessionModel, vetRes.SessionModelDisplay, vetRes.SessionThinking = modelInfo.ID, modelInfo.Display, modelInfo.Thinking
 	if sc != nil && sc.st != nil {
 		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
 	}
-	if nudge := suggestSessionModelNudgeForHome(o.Home, sc, convID, state.GenerationID, turnNum, sessionModel, vetRes); nudge != "" {
+	if nudge := suggestSessionModelNudgeForHome(o.Home, sc, convID, state.GenerationID, turnNum, modelInfo.ID, vetRes); nudge != "" {
 		meta.ModelTip = strings.TrimSpace(strings.TrimPrefix(nudge, "model tip: "))
 	}
 	meta.ExtraSections = sections

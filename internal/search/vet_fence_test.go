@@ -124,7 +124,7 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 	}
 	_, conflictBanner := BuildTurnEnvelope(&conflictVet, SliceResult{}, TurnBrainContext{}, nil, nil)
 	parsedConflict := parseFencedJSONBanner(t, conflictBanner)
-	if parsedConflict.Model != "Claude Opus 5.5" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "clarify via ask_question") {
+	if parsedConflict.Model != "claude-opus-5-5-high" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "clarify via ask_question") {
 		t.Errorf("conflict VET_FIRST banner mismatch: %+v\nraw:\n%s", parsedConflict, conflictBanner)
 	}
 
@@ -251,38 +251,43 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 	}
 
 	cases := []struct {
-		homeArg, raw, wantModel, wantThink string
+		homeArg, raw, wantModel, wantDisplay, wantThink string
 	}{
-		{home, "claude-opus-5-5-high", "Claude Opus 5.5", "HIGH"},
-		{home, "gemini-4-carbon-medium", "Gemini 4 Carbon", "MEDIUM"},
-		{home, "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
-		{home, "custom-next-xhigh", "Custom Next", "XHIGH"},
-		{home, "gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen", "XHIGH"},
-		{"", "claude-opus-5-5-high", "Claude Opus 5.5", "HIGH"},
-		{"", "gemini-4-carbon-medium", "Gemini 4 Carbon", "MEDIUM"},
-		{"", "gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen", "XHIGH"},
-		{"", "gemini-3.8-flash-tiered", "Gemini 3.8 Flash", "TIERED"},
-		{"", "gemini-flash-worker-agy", "Gemini Flash Worker", "FAST"},
-		{"", "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
-		{"", "gemini-pro-orchestrator-neon", "Orchestrator (Neon)", "DYNAMIC"},
-		{"", "gemini-4-neon-high", "Gemini 4 Neon", "HIGH"},
-		{"", "gemini-5-xenon-medium", "Gemini 5 Xenon", "MEDIUM"},
-		{"", "gpt-oss-120b-medium", "GPT-OSS 120B", "MEDIUM"},
-		{"", "auto", "", ""},
-		{"", "", "", ""},
+		{home, "claude-opus-5-5-high", "claude-opus-5-5-high", "Claude Opus 5.5 (High)", "HIGH"},
+		{home, "models/claude-opus-5-5-high", "claude-opus-5-5-high", "Claude Opus 5.5 (High)", "HIGH"},
+		{home, "Gemini 4 Carbon (Medium)", "gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)", "MEDIUM"},
+		{home, "gemini-4-carbon-medium", "gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)", "MEDIUM"},
+		{home, "gemini-pro-orchestrator", "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
+		{home, "custom-next-xhigh", "custom-next-xhigh", "Custom Next (XHigh)", "XHIGH"},
+		{home, "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-xhigh", "", "XHIGH"},
+		{"", "claude-opus-5-5-high", "claude-opus-5-5-high", "", "HIGH"},
+		{"", "gemini-4-carbon-medium", "gemini-4-carbon-medium", "", "MEDIUM"},
+		{"", "gemini-4-hydrogen-xhigh", "gemini-4-hydrogen-xhigh", "", "XHIGH"},
+		{"", "gemini-3.8-flash-tiered", "gemini-3.8-flash-tiered", "", "TIERED"},
+		{"", "gemini-flash-worker-agy", "gemini-flash-worker-agy", "", "FAST"},
+		{"", "gemini-pro-orchestrator", "gemini-pro-orchestrator", "", "DYNAMIC"},
+		{"", "gemini-pro-orchestrator-neon", "gemini-pro-orchestrator-neon", "", "DYNAMIC"},
+		{"", "gemini-4-neon-high", "gemini-4-neon-high", "", "HIGH"},
+		{"", "gemini-5-xenon-medium", "gemini-5-xenon-medium", "", "MEDIUM"},
+		{"", "gpt-oss-120b-medium", "gpt-oss-120b-medium", "", "MEDIUM"},
+		{"", "auto", "", "", ""},
+		{"", "", "", "", ""},
 	}
 	for _, tc := range cases {
-		gotModel, gotThink := ResolveModelAndThinking(tc.homeArg, tc.raw)
-		if gotModel != tc.wantModel || gotThink != tc.wantThink {
-			t.Errorf("ResolveModelAndThinking(%q, %q) = (%q, %q), want (%q, %q)",
-				tc.homeArg, tc.raw, gotModel, gotThink, tc.wantModel, tc.wantThink)
+		gotModel, gotDisplay, gotThink := ResolveModelDetails(tc.homeArg, tc.raw)
+		if gotModel != tc.wantModel || gotDisplay != tc.wantDisplay || gotThink != tc.wantThink {
+			t.Errorf("ResolveModelDetails(%q, %q) = (%q, %q, %q), want (%q, %q, %q)",
+				tc.homeArg, tc.raw, gotModel, gotDisplay, gotThink, tc.wantModel, tc.wantDisplay, tc.wantThink)
 		}
 	}
-	if m, th := parseModelFallback("  claude-opus-5-5-high  "); m != "Claude Opus 5.5" || th != "HIGH" {
-		t.Errorf("parseModelFallback leading/trailing spaces = (%q, %q), want (Claude Opus 5.5, HIGH)", m, th)
+	if id, disp, th := ResolveModelDetails(home, "  claude-opus-5-5-high  "); id != "claude-opus-5-5-high" || disp != "Claude Opus 5.5 (High)" || th != "HIGH" {
+		t.Errorf("ResolveModelDetails leading/trailing spaces = (%q, %q, %q), want (claude-opus-5-5-high, Claude Opus 5.5 (High), HIGH)", id, disp, th)
 	}
-	if got := formatModelTag("", "gemini-4-hydrogen-medium"); got != "Gemini 4 Hydrogen, thinking=MEDIUM" {
-		t.Errorf("formatModelTag = %q, want Gemini 4 Hydrogen, thinking=MEDIUM", got)
+	if got := formatModelTag("", "gemini-4-hydrogen-medium"); got != "gemini-4-hydrogen-medium, thinking=MEDIUM" {
+		t.Errorf("formatModelTag = %q, want gemini-4-hydrogen-medium, thinking=MEDIUM", got)
+	}
+	if got := formatModelTag(home, "claude-opus-5-5-high"); got != "claude-opus-5-5-high [Claude Opus 5.5 (High)], thinking=HIGH" {
+		t.Errorf("formatModelTag catalog = %q, want claude-opus-5-5-high [Claude Opus 5.5 (High)], thinking=HIGH", got)
 	}
 
 	// Verify gen_metadata field (1, 19) fallback when hook stdin carries modelName="auto".
@@ -304,7 +309,7 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)`); err != nil {
 		t.Fatal(err)
 	}
-	modelVal := []byte("claude-opus-5-5-high")
+	modelVal := []byte("models/claude-opus-5-5-high")
 	inner := binary.AppendUvarint(nil, uint64((19<<3)|2))
 	inner = binary.AppendUvarint(inner, uint64(len(modelVal)))
 	inner = append(inner, modelVal...)
@@ -323,13 +328,15 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 	}
 	assertCleanDirs := func(phase string) {
 		t.Helper()
-		ents, err := os.ReadDir(brainDir)
-		if err != nil {
-			t.Fatalf("%s ReadDir(brainDir): %v", phase, err)
-		}
-		for _, e := range ents {
-			if strings.HasPrefix(e.Name(), ".fyr-conv-") {
-				t.Errorf("%s leaked temp dir %s in brainDir", phase, e.Name())
+		for _, dir := range []string{brainDir, filepath.Dir(brainDir)} {
+			ents, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatalf("%s ReadDir(%s): %v", phase, dir, err)
+			}
+			for _, e := range ents {
+				if strings.HasPrefix(e.Name(), ".fyr-conv-") {
+					t.Errorf("%s leaked temp dir %s in %s", phase, e.Name(), dir)
+				}
 			}
 		}
 		for _, suffix := range []string{"-wal", "-shm"} {
@@ -338,61 +345,163 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 			}
 		}
 	}
-	if got := resolveHookSessionModel(hookIn); got != "claude-opus-5-5-high" {
-		t.Fatalf("resolveHookSessionModel = %q, want claude-opus-5-5-high", got)
+	if got := resolveHookSessionModelForHome("", hookIn); got != "claude-opus-5-5-high" {
+		t.Fatalf("resolveHookSessionModelForHome = %q, want claude-opus-5-5-high", got)
 	}
-	assertCleanDirs("after resolveHookSessionModel")
+	assertCleanDirs("after resolveHookSessionModelForHome")
 
-	// Verify (3, 28) concrete model ID takes precedence over (1, 19) bare stem in gen_metadata.
+	encodeField := func(num uint64, val []byte) []byte {
+		b := binary.AppendUvarint(nil, (num<<3)|2)
+		b = binary.AppendUvarint(b, uint64(len(val)))
+		return append(b, val...)
+	}
+	buildMetaBlob := func(conc328, fb119, disp121 string) []byte {
+		var msg1 []byte
+		if fb119 != "" {
+			msg1 = append(msg1, encodeField(19, []byte(fb119))...)
+		}
+		if disp121 != "" {
+			msg1 = append(msg1, encodeField(21, []byte(disp121))...)
+		}
+		var out []byte
+		if len(msg1) > 0 {
+			out = append(out, encodeField(1, msg1)...)
+		}
+		if conc328 != "" {
+			out = append(out, encodeField(3, encodeField(28, []byte(conc328)))...)
+		}
+		return out
+	}
+
+	// Verify (3, 28) concrete model ID takes precedence over (1, 19), pairs with (1, 21) display,
+	// and works even if brain/<convID> does not exist yet on Turn 0.
 	db328, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bareVal := []byte("gemini-4-neon")
-	f1 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((19<<3)|2)), uint64(len(bareVal))), bareVal...)
-	msg1 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((1<<3)|2)), uint64(len(f1))), f1...)
-	concVal := []byte("gemini-4-neon-high")
-	f3 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((28<<3)|2)), uint64(len(concVal))), concVal...)
-	msg3 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((3<<3)|2)), uint64(len(f3))), f3...)
-	combinedBlob := append(msg1, msg3...)
+	combinedBlob := buildMetaBlob("gemini-4-neon-high", "gemini-4-neon", "Gemini 4 Neon (High)")
 	if _, err := db328.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (1, ?)`, combinedBlob); err != nil {
 		t.Fatal(err)
 	}
 	_ = db328.Close()
-	if got := resolveHookSessionModel(hookIn); got != "gemini-4-neon-high" {
-		t.Fatalf("resolveHookSessionModel with (3,28) = %q, want gemini-4-neon-high", got)
+	if got := resolveHookSessionModelForHome("", hookIn); got != "gemini-4-neon-high" {
+		t.Fatalf("resolveHookSessionModelForHome with (3,28) = %q, want gemini-4-neon-high", got)
 	}
-	assertCleanDirs("after (3,28) resolveHookSessionModel")
+	assertCleanDirs("after (3,28) resolveHookSessionModelForHome")
+	_ = os.RemoveAll(brainDir)
+	absentHookIn := HookInput{ConversationID: convID, ArtifactDirectoryPath: brainDir, ModelName: "auto"}
+	if got := resolveHookSessionModelForHome(home, absentHookIn); got != "gemini-4-neon-high" {
+		t.Fatalf("resolveHookSessionModelForHome with absent brainSubdir = %q, want gemini-4-neon-high", got)
+	}
+	if err := os.MkdirAll(brainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assertCleanDirs("after absent brainSubdir fallback")
 
-	payload, _ := json.Marshal(map[string]any{
+	runPre := func(payloadMap map[string]any) PreInvocationBanner {
+		t.Helper()
+		payload, _ := json.Marshal(payloadMap)
+		var out bytes.Buffer
+		if err := RunHook(Options{Home: home, Hook: "pre-invocation"}, bytes.NewReader(payload), &out); err != nil {
+			t.Fatalf("RunHook pre-invocation: %v", err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
+			t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
+		}
+		return parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
+	}
+
+	banner := runPre(map[string]any{
 		"conversationId":        convID,
 		"artifactDirectoryPath": brainDir,
 		"modelName":             "auto",
 		"lastUserInput":         "!review internal/search/telemetry_model.go with ResolveModelAndThinking",
 		"workspacePaths":        []string{t.TempDir()},
 	})
-	var out bytes.Buffer
-	if err := RunHook(Options{Home: home, Hook: "pre-invocation"}, bytes.NewReader(payload), &out); err != nil {
-		t.Fatalf("RunHook pre-invocation: %v", err)
-	}
-	var resp PreInvocationOutput
-	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
-	}
-	banner := parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
-	if banner.Model != "Gemini 4 Neon" || banner.Thinking != "HIGH" {
-		t.Errorf("PreInvocation fallback resolved model=%q thinking=%q, want Gemini 4 Neon / HIGH", banner.Model, banner.Thinking)
+	if banner.Model != "gemini-4-neon-high" || banner.ModelDisplay != "Gemini 4 Neon (High)" || banner.Thinking != "HIGH" {
+		t.Errorf("PreInvocation fallback resolved model=%q display=%q thinking=%q, want gemini-4-neon-high / Gemini 4 Neon (High) / HIGH",
+			banner.Model, banner.ModelDisplay, banner.Thinking)
 	}
 	assertCleanDirs("after RunHook")
+
+	// Mixed-model DB guard: newer orchestrator (1, 21) MUST NOT leak onto gemini-flash-worker-agy turn.
+	convMixed := "conv-mixed-worker"
+	brainMixed := filepath.Join(appDir, "brain", convMixed)
+	if err := os.MkdirAll(brainMixed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mixedDBPath := filepath.Join(convDir, convMixed+".db")
+	mdb, err := sql.Open("sqlite", mixedDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mdb.Exec(`CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mdb.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (0, ?)`, buildMetaBlob("", "gemini-pro-orchestrator-neon", "Orchestrator (Neon)")); err != nil {
+		t.Fatal(err)
+	}
+	_ = mdb.Close()
+	repoDir := setupHookRepo(t)
+	if err := Index(Options{Dir: repoDir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index repoDir: %v", err)
+	}
+	mixedBanner := runPre(map[string]any{
+		"conversationId":        convMixed,
+		"artifactDirectoryPath": brainMixed,
+		"modelName":             "gemini-flash-worker-agy",
+		"lastUserInput":         "!inspect ReconcileProjectIndex in service.go",
+		"workspacePaths":        []string{repoDir},
+	})
+	if mixedBanner.Model != "gemini-flash-worker-agy" || mixedBanner.ModelDisplay != "" || mixedBanner.Thinking != "FAST" {
+		t.Errorf("mixed conv leaked wrong display: got model=%q display=%q thinking=%q, want gemini-flash-worker-agy / \"\" / FAST",
+			mixedBanner.Model, mixedBanner.ModelDisplay, mixedBanner.Thinking)
+	}
+
+	// Once a matching worker row exists in gen_metadata, (1, 21) resolves AND persists to search.db meta cache
+	// so even when the conv DB later exceeds maxHookConvDBBytes (or disappears), modelDisplay remains populated.
+	mdb, err = sql.Open("sqlite", mixedDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mdb.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (1, ?)`, buildMetaBlob("", "gemini-flash-worker-agy", "Gemini 4 Hydrogen (Orchestrator)")); err != nil {
+		t.Fatal(err)
+	}
+	_ = mdb.Close()
+	workerBanner := runPre(map[string]any{
+		"conversationId":        convMixed,
+		"artifactDirectoryPath": brainMixed,
+		"modelName":             "gemini-flash-worker-agy",
+		"lastUserInput":         "!inspect AlphaHelper in service.go",
+		"workspacePaths":        []string{repoDir},
+	})
+	if workerBanner.Model != "gemini-flash-worker-agy" || workerBanner.ModelDisplay != "Gemini 4 Hydrogen (Orchestrator)" || workerBanner.Thinking != "FAST" {
+		t.Errorf("worker conv resolved model=%q display=%q thinking=%q, want gemini-flash-worker-agy / Gemini 4 Hydrogen (Orchestrator) / FAST",
+			workerBanner.Model, workerBanner.ModelDisplay, workerBanner.Thinking)
+	}
+	_ = os.Remove(mixedDBPath)
+	cachedBanner := runPre(map[string]any{
+		"conversationId":        convMixed,
+		"artifactDirectoryPath": brainMixed,
+		"modelName":             "gemini-flash-worker-agy",
+		"lastUserInput":         "!inspect BetaValidator in service.go",
+		"workspacePaths":        []string{repoDir},
+	})
+	if cachedBanner.Model != "gemini-flash-worker-agy" || cachedBanner.ModelDisplay != "Gemini 4 Hydrogen (Orchestrator)" || cachedBanner.Thinking != "FAST" {
+		t.Errorf("cached worker display after conv DB removal = (%q, %q, %q), want (gemini-flash-worker-agy, Gemini 4 Hydrogen (Orchestrator), FAST)",
+			cachedBanner.Model, cachedBanner.ModelDisplay, cachedBanner.Thinking)
+	}
 }
 
 func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
 	res := VetResult{
-		Intent:          IntentBug,
-		Gate:            GateEnrichAndProceed,
-		Score:           90,
-		SessionModel:    "Gemini 4 Carbon",
-		SessionThinking: "HIGH",
+		Intent:              IntentBug,
+		Gate:                GateEnrichAndProceed,
+		Score:               90,
+		SessionModel:        "gemini-4-carbon-high",
+		SessionModelDisplay: "Gemini 4 Carbon (High)",
+		SessionThinking:     "HIGH",
 		Skills: []SkillMeta{{
 			Name:   "fyr-bug",
 			Path:   "skills/fyr-bug/SKILL.md",
@@ -413,7 +522,8 @@ func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
 	}
 	msg, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, meta)
 	b := parseFencedJSONBanner(t, msg)
-	if b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" ||
+	if b.Model != "gemini-4-carbon-high" || b.ModelDisplay != "Gemini 4 Carbon (High)" || b.Thinking != "HIGH" ||
+		b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" ||
 		b.TokenKneeWarning != meta.ContextKneeWarning || len(b.Notices) != 0 {
 		t.Fatalf("unexpected typed TurnBannerMeta output: %+v", b)
 	}

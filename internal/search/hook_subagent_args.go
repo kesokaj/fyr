@@ -9,14 +9,18 @@ import (
 )
 
 func formatModelTag(home, raw string) string {
-	mName, mThink := ResolveModelAndThinking(home, raw)
-	if mName == "" {
+	id, disp, think := ResolveModelDetails(home, raw)
+	if id == "" {
 		return strings.TrimSpace(raw)
 	}
-	if mThink != "" {
-		return fmt.Sprintf("%s, thinking=%s", mName, mThink)
+	label := id
+	if disp != "" {
+		label = fmt.Sprintf("%s [%s]", id, disp)
 	}
-	return mName
+	if think != "" {
+		return fmt.Sprintf("%s, thinking=%s", label, think)
+	}
+	return label
 }
 
 func classifyHookModel(home, modelName string) (fam, tier, eff string, isOrch bool) {

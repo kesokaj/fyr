@@ -47,6 +47,7 @@ type PreInvocationBanner struct {
 	Surface                  string                   `json:"surface"`
 	Contract                 string                   `json:"contract,omitempty"`
 	Model                    string                   `json:"model,omitempty"`
+	ModelDisplay             string                   `json:"modelDisplay,omitempty"`
 	Thinking                 string                   `json:"thinking,omitempty"`
 	Intent                   string                   `json:"intent,omitempty"`
 	Gate                     string                   `json:"gate,omitempty"`
@@ -116,17 +117,24 @@ func preInvocationDirective(res VetResult) string {
 	return "ENRICH_AND_PROCEED"
 }
 
-func bannerModelAndThinking(res VetResult, modelResolved bool) (string, string) {
-	modelName := collapseOneLine(printable(res.SessionModel), 80)
+func bannerModelAndThinking(res VetResult, modelResolved bool) (string, string, string) {
+	modelID := collapseOneLine(printable(res.SessionModel), 80)
+	modelDisplay := collapseOneLine(printable(res.SessionModelDisplay), 120)
 	thinking := collapseOneLine(printable(res.SessionThinking), 32)
-	if !modelResolved && modelName != "" && thinking == "" {
-		resolved, resolvedThink := ResolveModelAndThinking("", modelName)
-		if resolved != "" {
-			modelName = resolved
+	if !modelResolved && modelID != "" && thinking == "" {
+		id, disp, resolvedThink := ResolveModelDetails("", modelID)
+		if id != "" {
+			modelID = id
+		}
+		if modelDisplay == "" {
+			modelDisplay = disp
 		}
 		thinking = resolvedThink
 	}
-	return modelName, thinking
+	if strings.EqualFold(modelDisplay, modelID) {
+		modelDisplay = ""
+	}
+	return modelID, modelDisplay, thinking
 }
 
 func bannerRoute(res VetResult, directive string) string {
@@ -141,12 +149,13 @@ func bannerRoute(res VetResult, directive string) string {
 
 func buildPreInvocationBannerBaseWithMeta(res VetResult, meta TurnBannerMeta) PreInvocationBanner {
 	score := res.Score
-	modelName, thinking := bannerModelAndThinking(res, meta.SessionModelResolved)
+	modelName, modelDisplay, thinking := bannerModelAndThinking(res, meta.SessionModelResolved)
 	directive := preInvocationDirective(res)
 	b := PreInvocationBanner{
 		Surface:                  "PRE_INVOCATION",
 		Contract:                 "[FYR_TURN_CONTRACT]",
 		Model:                    modelName,
+		ModelDisplay:             modelDisplay,
 		Thinking:                 thinking,
 		Intent:                   normalizeUpperSnakeEnum(string(res.Intent)),
 		Gate:                     normalizeUpperSnakeEnum(string(res.Gate)),
