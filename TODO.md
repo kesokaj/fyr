@@ -19,9 +19,12 @@ Active plan: `PLAN-v9.6.0` (4 Waves, 9 Phases — `workers: yes`).
 - [x] Phase 4 — Zero-codename Empirical-Bayes + UCB1 router (`internal/models`) & `fyr models --bench` (`87153d8c`)
 - [x] Phase 5 — Pure-stdlib `fyr state export` / `fyr state import` zip bundle (`internal/state`, `D23`) (`8c8267fb`)
 
-### Wave 3 (In Progress)
-- [ ] Phase 6 — Slim `< 40 ms` Pre-Vet, out-of-root read bypass, `S4` inheritance + `neon`, `search.db` v11 & FTS5 hook search (`builder-p6`)
-- [ ] Phase 7 — Lean zero-tool dreaming (`DraftsOnly` dirty/non-git, `SessionDigest`, chunking) & closed-loop local RSI (`holdout-starter.md`, `4h` cooldown) (`builder-p7`)
+### Wave 3 (Done)
+- [x] Phase 6 — Slim `< 40 ms` Pre-Vet, out-of-root read bypass, `S4` inheritance + `neon`, `search.db` v11 & FTS5 hook search (`df8c84ca`, `4459b3ce`)
+- [x] Phase 7 — Lean zero-tool dreaming (`DraftsOnly` dirty/non-git, `SessionDigest`, chunking) & closed-loop local RSI (`holdout-starter.md`, `4h` cooldown) (`c7616f0a`)
+
+### Wave 4 (In Progress)
+- [ ] Phase 8 — Architecture docs, living `SPEC-*`/`GUIDE-*` records, `.agents/scratch/fyr-v960 verify`, isolated-`$HOME` E2E, `fyr eval`, whole-diff review, close `PLAN-v9.6.0` & `/fyr-preflight v9.6.0` readiness
 
 ## Next
 
