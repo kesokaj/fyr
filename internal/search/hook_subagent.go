@@ -8,12 +8,13 @@ import (
 )
 
 func handlePreToolSubagent(o Options, _ string, in HookInput, out io.Writer) error {
-	subagent := extractSubagentType(in.ToolCall.Args)
+	subagent, guarded := isGuardedSubagentCall(in.ToolCall.Args)
 	var (
-		cloned map[string]any
-		reason string
+		cloned   map[string]any
+		reason   string
+		upgraded bool
 	)
-	if isModelGuardedSubagent(subagent) {
+	if guarded {
 		if model, blocked := nonInheritModelOverride(in.ToolCall.Args); blocked {
 			return writeDecision(out, "deny", fmt.Sprintf("[MODEL_OVERRIDE] subagent %q forbids Model=%q override; omit Model or pass \"inherit\" (rules/agy-dispatch.md).", subagent, model))
 		}
@@ -21,7 +22,14 @@ func handlePreToolSubagent(o Options, _ string, in HookInput, out io.Writer) err
 		if needsGuardedProUpgradeForHome(o.Home, sessionModel) {
 			cloned = cloneArgsWithoutModelKeys(in.ToolCall.Args)
 			cloned["Model"] = "pro"
+			upgraded = true
 			reason = fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, formatModelTag(o.Home, sessionModel))
+		}
+		if notice := subagentCrossFamilyNotice(o.Home, subagent, sessionModel, upgraded); notice != "" {
+			if reason != "" {
+				reason += "; "
+			}
+			reason += notice
 		}
 	}
 	return finishWorkerToolDecision(o, in, cloned, reason, out, "Prompt", "prompt")
@@ -78,7 +86,7 @@ func finishWorkerToolDecision(o Options, in HookInput, cloned map[string]any, re
 		reason += "[FYR_WORKER_CAPSULE] injected worker context"
 	}
 	if cloned == nil {
-		return writeDecision(out, "allow", "")
+		return writeDecision(out, "allow", reason)
 	}
 	writeDecisionWithOverwrite(out, "allow", reason, cloned)
 	return nil

@@ -21,29 +21,10 @@ func ParseBashFileRead(cmd string) (BashFileRead, bool) {
 	return parseBashReadTokens(tokenizeValidatedSegment(segs[0]))
 }
 
-// ParseBashFileReads extracts file reads from simple && and ; shell chains, tracking cd prefixes.
+// ParseBashFileReads extracts file reads from &&, ;, and newline shell chains
+// (including benign env prefixes and strictly read-only pipes), tracking cd prefixes.
 func ParseBashFileReads(cmd string) []BashFileRead {
-	segs, _, ok := splitSimpleShellChainsCore(cmd)
-	if !ok {
-		return nil
-	}
-	var out []BashFileRead
-	cwd, unknown := "", false
-	for _, seg := range segs {
-		toks := tokenizeValidatedSegment(seg)
-		if len(toks) == 0 {
-			continue
-		}
-		if handled, nextDir, nextUnknown := stepTrackedBashDir(cwd, unknown, toks); handled {
-			cwd, unknown = nextDir, nextUnknown
-		} else if r, ok := parseBashReadTokens(toks); ok && r.Path != "" && (filepath.IsAbs(r.Path) || !unknown) {
-			if !filepath.IsAbs(r.Path) {
-				r.Path = filepath.ToSlash(filepath.Clean(filepath.Join(cwd, r.Path)))
-			}
-			out = append(out, r)
-		}
-	}
-	return out
+	return parseBashFileReadsExtended(cmd)
 }
 
 func parseBashReadTokens(tokens []string) (BashFileRead, bool) {
@@ -62,14 +43,25 @@ func parseBashReadTokens(tokens []string) (BashFileRead, bool) {
 }
 
 func stepTrackedBashDir(cwd string, unknown bool, toks []string) (bool, string, bool) {
-	if toks[0] == "builtin" && len(toks) > 1 {
+	hasEnv := false
+	for len(toks) > 0 && isEnvAssignToken(toks[0]) {
+		hasEnv = true
 		toks = toks[1:]
+	}
+	if len(toks) == 0 {
+		return false, cwd, unknown
+	}
+	if (toks[0] == "builtin" || toks[0] == "command") && len(toks) > 1 {
+		toks = toks[1:]
+		if toks[0] == "--" && len(toks) > 1 {
+			toks = toks[1:]
+		}
 	}
 	switch toks[0] {
 	case "pushd", "popd":
 		return true, "", true
 	case "cd":
-		if len(toks) != 2 || toks[1] == "" || strings.HasPrefix(toks[1], "-") || strings.HasPrefix(toks[1], "~") || strings.ContainsRune(toks[1], '$') {
+		if hasEnv || len(toks) != 2 || toks[1] == "" || strings.HasPrefix(toks[1], "-") || strings.HasPrefix(toks[1], "~") || strings.ContainsRune(toks[1], '$') {
 			return true, "", true
 		}
 		if filepath.IsAbs(toks[1]) {

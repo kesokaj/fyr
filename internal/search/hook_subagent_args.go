@@ -120,10 +120,44 @@ func suggestSessionModelNudgeForHome(home string, sc *scope, convID string, genI
 
 func isModelGuardedSubagent(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "reviewer", "verifier", "security", "dreamer":
+	case "reviewer", "verifier", "security", "dreamer", "judge":
 		return true
 	default:
 		return false
+	}
+}
+
+func isGuardedSubagentCall(args map[string]any) (string, bool) {
+	subagent := extractSubagentType(args)
+	if isModelGuardedSubagent(subagent) {
+		return subagent, true
+	}
+	if subagent == "" || strings.EqualFold(subagent, "self") {
+		if role := guardedRoleFromHint(stringArgCI(args, "Role")); role != "" {
+			return role, true
+		}
+	}
+	return subagent, false
+}
+
+func guardedRoleFromHint(raw string) string {
+	tokens := tokenizeRoleHint(raw)
+	if len(tokens) == 0 || hasSwarmRoleToken(tokens, []string{"builder", "worker", "fix", "doc", "docs", "explorer", "research"}, []string{"explor", "document"}) {
+		return ""
+	}
+	switch {
+	case hasSwarmRoleToken(tokens, nil, []string{"judge"}):
+		return "judge"
+	case hasSwarmRoleToken(tokens, []string{"sec"}, []string{"secur"}):
+		return "security"
+	case hasSwarmRoleToken(tokens, nil, []string{"review"}):
+		return "reviewer"
+	case hasSwarmRoleToken(tokens, nil, []string{"verif"}):
+		return "verifier"
+	case hasSwarmRoleToken(tokens, nil, []string{"dream"}):
+		return "dreamer"
+	default:
+		return ""
 	}
 }
 

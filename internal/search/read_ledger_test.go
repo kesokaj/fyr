@@ -570,8 +570,6 @@ func TestParseBashFileReadsIgnoresComplexShell(t *testing.T) {
 		"cat *.go",
 		"cat a?.go",
 		"cat [ab].go",
-		"cat a.go\ncat b.go",
-		"cat a.go\r\ncat b.go",
 		"cat a.go &",
 		"cat a.go &&& cat b.go",
 		"(cd sub && cat a.go)",

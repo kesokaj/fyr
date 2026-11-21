@@ -22,13 +22,13 @@ func handlePreToolUse(ctx context.Context, o Options, dir string, in HookInput, 
 		return writeDecision(out, "deny", wd.denyReason)
 	}
 	var buf bytes.Buffer
-	if err := dispatchPreToolUseCtx(ctx, o, dir, wdSt, wdRoot, in, &buf); err != nil {
+	if err := dispatchPreToolUseCtx(ctx, o, dir, wd, wdSt, wdRoot, in, &buf); err != nil {
 		return err
 	}
 	return finalizeWatchdogPreCtx(ctx, wdSt, dir, in, wd, buf.Bytes(), out)
 }
 
-func dispatchPreToolUseCtx(ctx context.Context, o Options, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
+func dispatchPreToolUseCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -45,6 +45,10 @@ func dispatchPreToolUseCtx(ctx context.Context, o Options, dir string, wdSt *sto
 		return handlePreToolSwarm(o, dir, in, out)
 	case "run_workflow":
 		return handlePreToolWorkflow(o.Home, dir, in, out)
+	case "grep_search", "grepsearch", "grep":
+		return handlePreToolGrepNudgeCtx(ctx, o.Home, dir, wdSt, wdRoot, in, out)
+	case "ask_question", "askquestion":
+		return handlePreToolAskQuestionCtx(ctx, o, dir, wd, wdSt, wdRoot, in, out)
 	default:
 		return writeDecision(out, "allow", "")
 	}
@@ -169,11 +173,16 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wd
 			return writeDecision(out, "deny", deny)
 		}
 	}
+	nudge := checkBashGrepNudgeCtx(ctx, home, dir, wdSt, wdRoot, in, cmd)
 	if overwrite != nil {
-		writeDecisionWithOverwrite(out, "allow", "[AUTO_GIT_TERMINAL_PROMPT] prepended export GIT_TERMINAL_PROMPT=0", overwrite)
+		reason := "[AUTO_GIT_TERMINAL_PROMPT] prepended export GIT_TERMINAL_PROMPT=0"
+		if nudge != "" {
+			reason += "; " + nudge
+		}
+		writeDecisionWithOverwrite(out, "allow", reason, overwrite)
 		return nil
 	}
-	return writeDecision(out, "allow", "")
+	return writeDecision(out, "allow", nudge)
 }
 
 func enforceBashFileReads(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, reads []BashFileRead) (string, error) {
