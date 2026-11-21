@@ -59,7 +59,7 @@ Every customization is a file drop with zero manifest registration code. When ru
 
 ## Context budget and installer lint
 
-Antigravity CLI builds a single `<user_rules>` block from `~/.gemini/config/rules/*.md` and truncates content silently past `24,000` bytes (`PRD.md` Known limits). To guarantee your instructions never truncate silently, `fyr` enforces four strict byte budgets in `internal/harness/size_test.go` and ends the rendered context with the canary word `GANNET`.
+Antigravity CLI builds a single `<user_rules>` block from `~/.gemini/config/rules/*.md` and truncates content silently past `24,000` bytes (`PRD.md` Known limits). To guarantee your instructions never truncate silently across `35` embedded skills (`<= 140`-char `description:` cap in `TestSkillFrontmatterDescriptionsUnder140Chars`), `fyr` enforces strict byte budgets in `internal/harness/size_test.go` (including `TestCombinedContextRulesAndRepoAgentsUnder15KB` at `15,000` bytes) and ends the rendered context with the canary word `GANNET`. Offline state and sanitized telemetry transfer across hosts via `fyr state export|import`.
 
 | Pin Test | Target Ceiling | Measured Scope |
 |---|---|---|

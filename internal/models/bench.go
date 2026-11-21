@@ -61,8 +61,17 @@ func RunBenchProbe(ctx context.Context, home, agyPath, modelID, prompt string, t
 	if timeout <= 0 {
 		timeout = BenchTimeout
 	}
-	return runAgyProbe(ctx, home, agyPath, timeout, 5*time.Second,
-		"-p", prompt, "--disable-slash-commands", "--output-format", "json", "--json-schema", benchJSONSchema, "--model", modelID)
+	return runAgyProbe(ctx, home, agyPath, timeout, 5*time.Second, benchProbeArgs(modelID, prompt)...)
+}
+
+func benchProbeArgs(modelID, prompt string) []string {
+	args := []string{"-p", prompt, "--disable-slash-commands", "--output-format", "json"}
+	// agy -p --json-schema stalls >45s on Gemini models while non-Gemini models
+	// enforce it cleanly; VerifyBenchResponse strictly validates locally either way.
+	if fam, _, _ := ClassifyModel(modelID, ""); fam != "gemini" {
+		args = append(args, "--json-schema", benchJSONSchema)
+	}
+	return append(args, "--model", modelID)
 }
 
 func SelectBenchTargets(cat Catalog, explicitModel string, maxModels int) ([]CatalogEntry, error) {

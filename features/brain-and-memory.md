@@ -22,6 +22,7 @@ Three core boundaries keep the store clean and reliable:
 1. **Global-only separation:** `feedback` and `proposal` records are allowed only with `--global` (`R8`) so local machine corrections and background asks never leak into project checkouts.
 2. **Unexported local kinds:** `memory`, `feedback`, and `proposal` rows never reach `.agents/trail.jsonl` when you run `fyr record export` (`R4`, `R7`).
 3. **One-call writes:** Both `fyr record add` and `fyr memory add` accept leading `Title:` / `Status:` / `ID:` / `Project:` (or `Type:` / `Name:` / `Description:` / `Provenance:`) headers on `stdin`, `--body-file FILE`, or `--json-in` (`internal/brain/stdin_doc.go`) so writes require a single command without temporary shell files.
+4. **Canonical `repo_id` & portable memory (`brain.db` v4):** Records carry normalized `repo_id` (`NormalizeRepoID`) for project scoping, and `fyr state export|import --include-memory` (`ADR-531`) optionally bundles `memory` records across hosts.
 
 ## Seven-step session resume
 
@@ -56,7 +57,7 @@ flowchart LR
 
 Every `memory` record tracks `provenance` (`operator`, `derived`, or `unknown`), `memory_kind` (`semantic`, `procedural`, or `episodic`), `verified_at`, `evidence_count` (corroborating sessions up to `+0.15` bonus), and `source_sessions` (`internal/brain/record.go`):
 
-- **Operator vs derived trust:** Direct `fyr memory add` calls default to `provenance: operator` (`1.00` base validity). Automated `fyr auto` drafts store `provenance: derived` (`0.55` base validity, rising to `0.70` with `3` corroborating sessions) so unverified machine guesses never outweigh operator corrections.
+- **Operator vs derived trust & immutability:** Direct `fyr memory add` calls default to `provenance: operator` (`1.00` base validity), which cannot be retired, superseded, or downgraded automatically. Automated `fyr auto` drafts store `provenance: derived` (`0.55` base validity, rising to `0.70` with `3` corroborating sessions) and cap `Prior:` chains at `<= 2` compacted bullets (`memory_draft_prior.go`).
 - **Automatic staleness and contradiction checks:** `MemoryStalenessTag` flags memory cards referencing repository files or pinned SHA-256 digests whose underlying files changed on disk (`-0.45`), while `CountMemoryContradictions` detects newer `FEEDBACK-*` records matching the card's slug or keywords (`-0.25` per contradiction, capped at `2`).
 - **On-demand progressive loading:** `fyr resume` prints only active `semantic` cards (`>= 0.40`), while `PreInvocation` injects matching `procedural`, `episodic`, and `--global` cards only when the current prompt's query or files match them.
 

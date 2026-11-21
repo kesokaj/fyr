@@ -15,7 +15,7 @@ sequenceDiagram
     Agy->>Hook: session-start (<= 1,500 B capsule)
     Hook-->>Agy: date, active plan, TODO Now, dirty Go files
     Agy->>Hook: pre-invocation (prompt + conversationId)
-    Hook->>DB: AST slice, vet_history (v10), generation dedup
+    Hook->>DB: AST slice, vet_history (v11), git_warm_sig, dedup
     Hook->>Brain: matching BUG, ADR, PLAN, and MEMORY (>= 0.40)
     Hook-->>Agy: PreInvocationBanner JSON (or {} PASS_THROUGH)
     Agy->>Hook: pre-tool-use (toolCall name + args)
@@ -33,7 +33,7 @@ At `session-start`, `handleSessionStart` (`internal/search/hook_session_start.go
 
 ## Pure-Go AST and Markdown symbol graph
 
-`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "10"`) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). Schema `v10` migrates `v9` in place (`migrateV9ToV10Tx` in `internal/search/store_migrate.go`) by adding `blobs.line_count INT DEFAULT 0` and clearing derived AST/chunk tables (`chunks_fts`, `chunks`, `refs`, `symbols`, `sym_refs`, `files`, `blobs`, `meta WHERE key LIKE 'touched:%'`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
+`fyr index` builds a derived cache in `.agents/scratch/search.db` (`schemaVersion = "11"`, plus warm Turn-0 `git_warm_sig.go` `< 40 ms` fast-path preserving compact `improvedPrompt`, and `records_fts` `brain.Search` precision) using Go's stdlib `go/ast` parser, a TypeScript/TSX scanner (`internal/search/symbols_ts.go`), and a Markdown ATX-heading extractor (`internal/search/symbols_go.go`, `internal/search/symbols_md.go`). Schema `v10` migrates `v9` in place (`migrateV9ToV10Tx` in `internal/search/store_migrate.go`) by adding `blobs.line_count INT DEFAULT 0` and clearing derived AST/chunk tables (`chunks_fts`, `chunks`, `refs`, `symbols`, `sym_refs`, `files`, `blobs`, `meta WHERE key LIKE 'touched:%'`) while preserving `projects`, `co_activity`, `read_ledger`, `read_ledger_stats`, `session_meta`, `vet_history`, and `watchdog_ring`; schemas older than `"9"` still return `staleSchemaError` and rebuild cleanly (`PRD.md` R4).
 
 The indexer resolves Go `go.mod` and `*/go.mod` module aliases (`loadGoModulesFromDB`, `resolveGoImportTarget`, and `resolveCrossPkgGoMethods` without phantom fallthrough to local directories), parses relative TS/TSX imports while suppressing unexported `const` noise (`parseTSImports`, `resolveTSRelativeSpec`, `extractTSSymbols`), and normalizes repo-relative package paths (`canonicalPkgDir`, `topLevelLayer` in `internal/search/pkg_paths.go`) so multiple `package main` directories never collide. Default exclusions skip generated Go files and non-code paths (`isExcludedASTPath`, `isGeneratedGoText`), and `.md`/`.mdx` doc files stay out of graph queries unless `--include-docs` is set. Over production `import | call | type_ref` edges (excluding `iface_call` and `implements`), `fyr` computes Tarjan strongly connected components (`TarjanSCC`, `TarjanPackageSCCs` in `internal/search/graph_tarjan.go`), deterministic Louvain communities (`LouvainCommunities` with `1 + math.Log1p(rawW)` weights and `louvainGamma = 1.35` in `internal/search/graph_louvain.go`), and read-only structural/co-activity feeds (`ReadStructuralSignals`, `ReadHiddenCouplingHints` in `internal/search/structural_signals.go`, and `LoadGraphSnapshot` in `internal/search/graph_export.go`).
 
@@ -120,7 +120,7 @@ Six deterministic mechanics keep enriched turns concise and Coordinator-aligned:
 }
 ```
 
-- `vet_history` (`schemaVersion = "10"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` on every non-empty `PreInvocation` turn—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
+- `vet_history` (`schemaVersion = "11"` in `internal/search/store.go`): persists `(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at)` plus `duration_ms`, `timed_out`, and `injected_bytes` on every non-empty `PreInvocation` turn (with `vet_history_store.go` / `process_artifact.go` short approval dedup and `[CONTEXT_KNEE_WARNING]` injection)—including `PASS_THROUGH` and `!`-bypass turns—so `PreToolUse` reads `subtask_count`, `directive`, and `!` state across follow-up tool calls.
 
 </details>
 
@@ -144,6 +144,7 @@ stateDiagram-v2
 ```
 
 - **Skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
+- **Out-of-root/unindexed `read_file` bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately on paths outside the workspace root or unindexed files without blocking.
 - **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window. The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
 
 ## Coordinator write guard and worker JIT capsules
@@ -172,21 +173,21 @@ flowchart LR
     3. `!`-prefixed bypasses (`in.LastUserInput` or `vet_history.RawPrompt` starting with `!`).
     4. Worker brief sessions (`isWorkerBriefPrompt` matching `in.LastUserInput` or `vet_history.RawPrompt` anchored at top header lines `Files:`, `Project: this clone`, `Standing approvals:` / `Standing approvals (closed set):`, line-0 `"This is a Kickoff written by fyr auto."`, or a trailing multi-line `[FYR_WORKER_CAPSULE]\ntrust:` section).
 - **`[FYR_WORKER_CAPSULE]` JIT overwrite (`handlePreToolSubagent` & `handlePreToolSwarm` in `internal/search/hook_subagent.go`):**
-  - **Deny-first model routing + merged overwrite:** Denies forbidden model overrides on guarded subagents (`reviewer`, `verifier`, `security`, `dreamer`) and weak models on `swarm` `judge` prefixes, upgrades fast session models to `Model: "pro"` (or selects `swarm` models by name prefix from `~/.config/fyr/models.json` with `30%` 5h / `20%` weekly Anthropic quota fallback), and then runs `enrichWorkerPromptArgs` across **all** allowed `invoke_subagent` (`Prompt`/`prompt`) and `swarm(action="add")` (`brief`/`Brief`) calls, merging model and prompt into one `Overwrite` map.
+  - **Deny-first model routing + S4 inheritance (`hook_subagent_models.go`, `internal/models`):** Denies forbidden model overrides on guarded subagents (`reviewer`, `verifier`, `security`, `dreamer`) and weak models on `swarm` `judge` prefixes, inherits/resolves session models via `resolveHookSessionModelForHome` (`hook_subagent.go`, `hook_workflow.go`, recognizing `neon`), and upgrades fast session models or routes `swarm` prefixes via `internal/models` using `~/.config/fyr/models.json` with `30%` 5h / `20%` weekly Anthropic quota fallback, and then runs `enrichWorkerPromptArgs` across **all** allowed `invoke_subagent` (`Prompt`/`prompt`) and `swarm(action="add")` (`brief`/`Brief`) calls, merging model and prompt into one `Overwrite` map.
   - **`AND` gating & idempotency:** Skips prompts that already contain `[FYR_WORKER_CAPSULE]`. Otherwise activates only when **(1)** the prompt/brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` explicitly resolves a checkout (no `os.Getwd()` fallback), **AND (2)** context lookup produces non-empty context (`Hop-0` AST signatures, `>= 1` matched record or `validity >= 0.40` memory, or `>= 1` matched skill digest) — OR when `coordinator-only` mode is active (injecting at least the minimal `[FYR_WORKER_CAPSULE]` worker tag). Generic targetless prompts without an explicit checkout keep `Overwrite == nil` (or model-only `Overwrite`).
   - **Priority truncation (`<= 1,200 B`):** Keeps existing `Files:` headers verbatim at the top (never duplicated inside `[FYR_WORKER_CAPSULE]`; emits `inferred_files:` only when no `Files:` line existed) and packs cryptographic `New` (`=====<18-hex>=====`, `internal/search/fence.go`) blocks within `<= 1,200 B` in priority order: (1) `Files:` / `inferred_files:`, (2) `<= 3` matched records/memories (`140 B` note cap), (3) top `1` skill digest (`<= 400 B`), (4) `Hop-0` AST slice (`<= 600 B`, line-trimmed from bottom).
 - **`run_workflow` literal safety (`internal/search/hook_workflow.go`):** `handlePreToolWorkflow` inspects Python `agent(...)` calls to enforce `model="pro"` on guarded subagents (`[AUTO_SUBAGENT_PRO]`) while skipping Python string literals and comments (`skipPythonTrivia`), never mutating prompt strings inside scripts.
 
 ## Watchdog breakers, bash stdin guard, and PostToolUse
 
-`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "10"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
+`PreToolUse` and `PostToolUse` share a two-layer Watchdog and interactive bash guard inside the same `200 ms` fail-open budget (`internal/search/hook.go`, `internal/search/hook_watchdog.go`, `internal/search/hook_bash_guard.go`). Recent tool outcomes persist in `.agents/scratch/search.db` (`schemaVersion = "11"`) via `watchdog_ring` and `session_meta` so loops and budget overruns break deterministically before burning context.
 
 ```mermaid
 flowchart LR
     preCall["PreToolUse tool call"] --> bashGuard["hook_bash_guard.go\ncheckInteractiveBashGuard"]
     preCall --> watchPre["hook_watchdog.go\nevaluateWatchdogPre"]
     bashGuard -- "Interactive or net git" --> bashOut["Deny INTERACTIVE_STDIN or\nOverwrite GIT_TERMINAL_PROMPT=0"]
-    watchPre --> ringDB[("search.db v10\nwatchdog_ring and session_meta")]
+    watchPre --> ringDB[("search.db v11\nwatchdog_ring and session_meta")]
     ringDB -- "Breach" --> watchDeny["Deny POLL_LOOP, TOKEN_LOOP,\nor SUBAGENT_BUDGET"]
     postCall["PostToolUse: handlePostToolUse"] --> postMark["markWatchdogPostError\nreturns {}"]
     postMark -.-> ringDB

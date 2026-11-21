@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,12 @@ func TestPhase1EvidenceMergeAndUnseenModelsCompete(t *testing.T) {
 }
 
 func TestVerifyBenchResponseAndRunBench(t *testing.T) {
+	if args := benchProbeArgs("gemini-3.8-flash-high", BenchPrompt); slices.Contains(args, "--json-schema") {
+		t.Errorf("gemini bench args unexpectedly included --json-schema: %v", args)
+	}
+	if args := benchProbeArgs("claude-sonnet-5-5-high", BenchPrompt); !slices.Contains(args, "--json-schema") {
+		t.Errorf("claude bench args missing --json-schema: %v", args)
+	}
 	validJSON := `{"sum":44,"go_func":"func ClampScore(v int) int { if v < 0 { return 0 }; if v > 100 { return 100 }; return v }","ok":true}`
 	for _, good := range []string{
 		validJSON,

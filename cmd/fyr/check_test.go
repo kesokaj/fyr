@@ -290,3 +290,22 @@ func TestGitCheckVerb(t *testing.T) {
 		t.Errorf("git-check outside checkout: exit %d, out %q", code, out.String())
 	}
 }
+
+func TestVocabularyCoversStateAndAutoForce(t *testing.T) {
+	v := vocabulary()
+	st, ok := v["state"]
+	if !ok {
+		t.Fatal("vocabulary missing state")
+	}
+	for _, sub := range []string{"export", "import"} {
+		if _, ok := st.Subverbs[sub]; !ok {
+			t.Errorf("state missing subverb %q", sub)
+		}
+	}
+	if !st.Subverbs["export"]["include-memory"] || !st.Subverbs["import"]["dry-run"] {
+		t.Errorf("state subverb flags unexpected: %+v", st.Subverbs)
+	}
+	if !v["auto"].Subverbs["run"]["force"] {
+		t.Errorf("auto run missing --force in vocabulary: %+v", v["auto"].Subverbs["run"])
+	}
+}

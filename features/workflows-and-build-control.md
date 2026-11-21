@@ -1,6 +1,6 @@
 # Workflows, Subagents, Parallel Swarm & Build Control
 
-`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 43 reusable `SKILL.md` workflows, 6 specialized subagents, evidence-ranked model selection (`fyr models`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`).
+`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 reusable `SKILL.md` workflows, 6 specialized subagents, evidence-ranked model selection (`fyr models` with Empirical-Bayes + UCB1 ranking and `--bench`), per-model `60%` context knee budgets (`internal/models/context_budget.go`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`).
 
 ## End-to-end build lifecycle
 
@@ -81,7 +81,7 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 - **`[BUDGET_NEAR_LIMIT]`:** Warns when subagent or session tool calls reach `>= 80%` of the `40`/`120` tool-call budget.
 
 <details>
-<summary>Complete inventory of 43 skills, 6 subagents, and build-control CLI flags</summary>
+<summary>Complete inventory of 35 skills, 6 subagents, and build-control CLI flags</summary>
 
 ### Subagents (`agents/<name>/agent.md`)
 
@@ -94,14 +94,14 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 | `documentation` | `flash` | Living docs maintainer (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) for edits over 30 lines |
 | `dreamer` | inherit | Consolidation judgement for `/fyr-retro`, proposing skill edits and memory consolidations |
 
-### Skills by group (34)
+### Skills by group (35)
 
 | Group | Skills |
 |---|---|
 | **Work & release protocols (9)** | `fyr-feature`, `fyr-swarm`, `fyr-bug`, `fyr-triage`, `fyr-review`, `review-standards`, `fyr-preflight`, `fyr-harness-audit`, `fyr-auto` |
 | **Project shape, specs & handoffs (7)** | `fyr-init-project`, `fyr-docs`, `fyr-requirements`, `fyr-spec`, `testing-strategy`, `fyr-research`, `fyr-handoff` |
 | **Learning loop (4)** | `fyr-feedback-log`, `fyr-project-memory`, `fyr-retro`, `fyr-dream` |
-| **Language, shell, APIs & UI (8)** | `golang`, `typescript`, `frontend-ui-modern`, `frontend-ui-economist`, `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
+| **Language, shell, APIs & UI (9)** | `golang`, `typescript`, `frontend-ui-modern`, `frontend-ui-economist`, `frontend-slate-ui`, `bash`, `json-api-style`, `docker`, `mermaid-syntax` |
 | **Google Cloud (6)** | `gcloud-setup`, `cloud-run-deploy`, `terraform`, `operate-gcp`, `data-gcp`, `api-auth-gcp` |
 
 ### Build-control and model CLI flags
@@ -115,7 +115,8 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 | `fyr check` | (global flags only) | Run read-only drift and trace checks; exit `1` on findings |
 | `fyr git-check` | (global flags only) | Run post-dispatch `git status`, unpushed commits, and `git tag` check |
 | `fyr watch` | `--check`, `--conv ID`, `--idle-sec N`, `--json` | Inspect session DBs, scratch artifacts, and child processes out-of-band (`< 30 ms`) for stdin blocks, stalls, and subagent budgets |
-| `fyr models` | `--explain ID`, `--json`, `--pick ROLE`, `--refresh`, `--tier T` | Inspect `~/.config/fyr/models.json`, refresh catalog/evidence, and pick role models |
+| `fyr models` | `--bench`, `--explain ID`, `--json`, `--max N`, `--model ID`, `--pick ROLE`, `--refresh`, `--tier T` | Inspect `~/.config/fyr/models.json`, refresh catalog/evidence, probe models, and pick role models |
+| `fyr state` | `export [--out FILE] [--since DATE] [--include-memory] [--json]`, `import [--dry-run] [--include-memory] [--json] FILE` | Export or import offline state archives across hosts (`internal/state`) |
 
 </details>
 

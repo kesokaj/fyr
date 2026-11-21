@@ -111,14 +111,9 @@ func vocabulary() check.Vocabulary {
 		spec := check.VerbSpec{Flags: flags}
 		switch name {
 		case "record":
-			spec.Subverbs = map[string]map[string]bool{}
-			for sub, takes := range recordFlags {
-				own := map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}
-				for f := range takes {
-					own[f] = true
-				}
-				spec.Subverbs[sub] = own
-			}
+			spec.Subverbs = subverbFlagMap(recordFlags)
+		case "state":
+			spec.Subverbs = subverbFlagMap(stateFlags)
 		case "auto":
 			spec.Subverbs = map[string]map[string]bool{}
 			for _, sub := range autoSubverbs {
@@ -136,6 +131,18 @@ func vocabulary() check.Vocabulary {
 		v[name] = spec
 	}
 	return v
+}
+
+func subverbFlagMap(src map[string]map[string]bool) map[string]map[string]bool {
+	out := map[string]map[string]bool{}
+	for sub, takes := range src {
+		own := map[string]bool{"home": true, "repo": true, "dir": true, "C": true, "help": true}
+		for f := range takes {
+			own[f] = true
+		}
+		out[sub] = own
+	}
+	return out
 }
 
 func subverbsTaking(subs []string, flags map[string]bool) map[string]map[string]bool {
