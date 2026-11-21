@@ -171,6 +171,9 @@ func hashTrackedDirsForUntracked(h hash.Hash, root string, dirs, tracked map[str
 	sort.Strings(sortedDirs)
 	untrackedCount := 0
 	for _, relDir := range sortedDirs {
+		if isIgnoredWarmDir(relDir) {
+			continue
+		}
 		absDir := root
 		if relDir != "." {
 			absDir = filepath.Join(root, filepath.FromSlash(relDir))
@@ -190,6 +193,18 @@ func isIgnoredUntrackedDir(name string) bool {
 	return false
 }
 
+func isIgnoredWarmDir(relDir string) bool {
+	if relDir == ".agents/scratch" || strings.HasPrefix(relDir, ".agents/scratch/") {
+		return true
+	}
+	for _, seg := range strings.Split(relDir, "/") {
+		if seg != ".agents" && isIgnoredUntrackedDir(seg) {
+			return true
+		}
+	}
+	return false
+}
+
 func scanUntrackedDirEntries(h hash.Hash, absDir, relDir string, depth int, count *int, dirs, tracked map[string]bool) bool {
 	if depth > maxUntrackedDepth {
 		return false
@@ -200,12 +215,12 @@ func scanUntrackedDirEntries(h hash.Hash, absDir, relDir string, depth int, coun
 	}
 	for _, d := range dents {
 		name := d.Name()
-		if isIgnoredUntrackedDir(name) {
-			continue
-		}
 		rel := name
 		if relDir != "." {
 			rel = relDir + "/" + name
+		}
+		if isIgnoredUntrackedDir(name) || isIgnoredWarmDir(rel) {
+			continue
 		}
 		if tracked[rel] || (depth == 0 && dirs[rel]) {
 			continue

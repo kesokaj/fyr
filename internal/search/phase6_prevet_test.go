@@ -249,6 +249,48 @@ func TestGitWarmSigHandlesOver128Dirs(t *testing.T) {
 	}
 }
 
+func TestGitWarmSigSkipsTrackedAgentsScratch(t *testing.T) {
+	dir := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, dir, ".agents/rules/r.md", "# Rule\n")
+	writeFile(t, dir, ".agents/scratch/.gitkeep", "")
+	writeFile(t, dir, "service.go", hookSampleServiceSrc)
+	commitAll(t, dir, "scaffolded with .agents/scratch")
+	if err := Index(Options{Dir: dir, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	for i := 0; i < 300; i++ {
+		writeFile(t, dir, fmt.Sprintf(".agents/scratch/tmp/f%03d.txt", i), "x\n")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".agents/scratch/sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "service.go"), filepath.Join(dir, ".agents/scratch/sub/sym")); err != nil {
+		t.Fatal(err)
+	}
+	sig, ok := computeGitWarmSignature(dir)
+	if !ok || sig == "" {
+		t.Fatalf("computeGitWarmSignature with busy .agents/scratch = (%q, %v), want non-empty, true", sig, ok)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	st.saveGitWarmSig(dir)
+	if !st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatal("matchesGitWarmSig = false right after saveGitWarmSig")
+	}
+	writeFile(t, dir, ".agents/scratch/more/extra.txt", "y\n")
+	if !st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatal("matchesGitWarmSig invalidated by untracked file in .agents/scratch")
+	}
+	writeFile(t, dir, ".agents/rules/extra.md", "# Extra\n")
+	if st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatal("matchesGitWarmSig stayed valid after adding untracked file in .agents/rules")
+	}
+}
+
 func TestPreInvocationBoundedLatencyLargeRepo(t *testing.T) {
 	dir := newRepo(t)
 	home := t.TempDir()

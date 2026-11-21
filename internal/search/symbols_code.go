@@ -16,6 +16,9 @@ func extractSymbolsAndRefsForIndex(filePath, text string) ([]symbolRow, []symRef
 }
 
 func extractSymbolsAndRefsCore(filePath, text string, includeImplicitGo bool) ([]symbolRow, []symRefRow) {
+	if isExcludedASTPath(filePath) {
+		return nil, nil
+	}
 	switch strings.ToLower(path.Ext(filePath)) {
 	case ".go":
 		return extractGoSymbolsCore(filePath, text, includeImplicitGo)

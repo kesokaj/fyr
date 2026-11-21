@@ -28,4 +28,11 @@ func TestIsExcludedASTPathVendoredSkills(t *testing.T) {
 			t.Errorf("isExcludedASTPath(%q) = true, want false", p)
 		}
 	}
+
+	if syms, _ := extractSymbolsAndRefs("skills/bash/references/testing.md", "# Heading\n"); len(syms) != 0 {
+		t.Errorf("vendored reference markdown extracted %d symbols, want 0", len(syms))
+	}
+	if syms, _ := extractSymbolsAndRefs("skills/bash/SKILL.md", "# Bash\n"); len(syms) == 0 {
+		t.Errorf("skills/bash/SKILL.md extracted 0 symbols, want > 0")
+	}
 }
