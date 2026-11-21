@@ -51,6 +51,7 @@ type ctx struct {
 	repoMap, register, searchIncludeDocs                                                           bool
 	graphOut, graphListen                                                                          string
 	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs                    bool
+	graphIncludeVendored                                                                           bool
 	gateBase, gateLeaseFile, landMessage, closeID, closeTitle, closeBodyFile                       string
 	gateLease                                                                                      stringSliceFlag
 	gateMaxFiles, gateMaxLines                                                                     int
@@ -178,6 +179,7 @@ var verbs = map[string]verb{
 		c.fs.BoolVar(&c.force, "force", false, "overwrite an existing output file")
 		c.fs.BoolVar(&c.graphIncludeDocs, "include-docs", false, "include Markdown files and doc headings in the graph")
 		c.fs.BoolVar(&c.graphIncludeTests, "include-tests", false, "include test files, test packages and test edges")
+		c.fs.BoolVar(&c.graphIncludeVendored, "include-vendored", false, "include vendored skill references and assets in the graph")
 		c.fs.BoolVar(&c.graphJSON, "json", false, "write the graph payload as JSON (stdout unless --out)")
 		c.fs.StringVar(&c.graphListen, "listen", "", "with --web, bind `ADDR` instead of 127.0.0.1:0")
 		c.fs.BoolVar(&c.graphMD, "md", false, "write the Markdown architecture summary (stdout unless --out)")

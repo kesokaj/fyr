@@ -224,9 +224,11 @@ var opsVerbPages = map[string]verbPage{
 	"graph": {
 		synopsis: []string{
 			"usage: fyr graph [--out FILE] [--force] [--include-tests] [--include-docs]",
+			"                 [--include-vendored]",
 			"       fyr graph (--dot | --md | --json) [--out FILE] [--force]",
-			"                 [--include-tests] [--include-docs]",
+			"                 [--include-tests] [--include-docs] [--include-vendored]",
 			"       fyr graph --web [--listen ADDR] [--include-tests] [--include-docs]",
+			"                 [--include-vendored]",
 		},
 		about: []string{
 			"Renders this checkout's AST and behavioral telemetry constellation",

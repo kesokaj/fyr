@@ -89,6 +89,8 @@ func TestVerbRefusesAnotherVerbsFlag(t *testing.T) {
 		{"index", "--refs", "BUG-001"},
 		{"index", "--open"},
 		{"search", "--rebuild", "x"},
+		{"search", "--include-vendored", "x"},
+		{"list", "--include-vendored"},
 	} {
 		home := t.TempDir()
 		var out bytes.Buffer

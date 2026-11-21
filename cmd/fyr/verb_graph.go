@@ -29,7 +29,7 @@ func runGraph(c *ctx) error {
 	}
 	snap, err := search.LoadGraphSnapshot(
 		search.Options{Dir: wd, Home: c.home, IncludeDocs: c.graphIncludeDocs},
-		search.GraphOptions{IncludeTests: c.graphIncludeTests, IncludeDocs: c.graphIncludeDocs},
+		search.GraphOptions{IncludeTests: c.graphIncludeTests, IncludeDocs: c.graphIncludeDocs, IncludeVendored: c.graphIncludeVendored},
 	)
 	if search.IsUsage(err) {
 		fmt.Fprintln(c.out, "fyr", err)
