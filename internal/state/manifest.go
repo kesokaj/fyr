@@ -19,7 +19,7 @@ const (
 	BrainRecordsEntry     = "brain_records.ndjson"
 	MetricsSanitizedEntry = "metrics_sanitized.ndjson"
 	MaxBrainSchema        = 4
-	MaxMetricsSchema      = 11
+	MaxMetricsSchema      = 12
 )
 
 var (

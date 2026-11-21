@@ -1,12 +1,16 @@
 package brain
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestResumeGolden(t *testing.T) {
@@ -185,6 +189,74 @@ func TestResumeRefusesNonCheckout(t *testing.T) {
 		_ = os.Remove(link)
 		if err == nil {
 			t.Fatalf("Resume followed symlinked %s, want error", name)
+		}
+	}
+}
+
+func TestResumeDailyHealthDigestAndFailOpen(t *testing.T) {
+	dir := repo(t)
+	home := t.TempDir()
+	digestPath := filepath.Join(home, harness.StateDir, "reports", "latest-daily-digest.json")
+	if err := os.MkdirAll(filepath.Dir(digestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"day":"2026-11-21","verdict":"regressing","actions":[{"signal_id":"sig:global:search_grep_low","action_scope":"auto_skill","status":"still_regressing","install_pending":true,"revert_cmd":"git revert abc1234"}],"signals":[{"signal_id":"sig:global:pre_invocation_timeouts","severity":"high","rule":"pre_invocation_timeouts","action_scope":"propose_only","recommended_action":"Propose fast-path fix"}]}`
+	if err := os.WriteFile(digestPath, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Resume(opts(dir, home))
+	if err != nil {
+		t.Fatalf("Resume with digest: %v", err)
+	}
+	for _, want := range []string{
+		"## Daily Health & Auto Actions",
+		"Direction: regressing (2026-11-21)",
+		"I did: sig:global:search_grep_low [auto_skill/still_regressing] [install_pending] (git revert abc1234)",
+		"We need to do: [high/propose_only] pre_invocation_timeouts (sig:global:pre_invocation_timeouts) — Propose fast-path fix",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Resume missing %q:\n%s", want, out)
+		}
+	}
+
+	// Cap at 1500 bytes and keep valid UTF-8.
+	longAct := strings.Repeat("日本語─fix ", 250)
+	bloated := `{"day":"2026-11-21","verdict":"regressing","signals":[{"signal_id":"sig:global:r1","severity":"high","rule":"r1","action_scope":"propose_only","recommended_action":"` + longAct + `"}]}`
+	if err := os.WriteFile(digestPath, []byte(bloated), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outCap, err := Resume(opts(dir, home))
+	if err != nil {
+		t.Fatalf("Resume bloated digest: %v", err)
+	}
+	idx := strings.Index(outCap, "\n## Daily Health & Auto Actions")
+	if idx < 0 {
+		t.Fatalf("missing daily section in:\n%s", outCap)
+	}
+	sec := outCap[idx:]
+	if len(sec) > 1500 || !utf8.ValidString(sec) {
+		t.Fatalf("daily section invalid: len=%d validUTF8=%v", len(sec), utf8.ValidString(sec))
+	}
+
+	// Fail-open on corrupt, oversized, and symlinked latest-daily-digest.json.
+	for _, setup := range []func(){
+		func() { _ = os.WriteFile(digestPath, []byte("{bad json"), 0o600) },
+		func() { _ = os.WriteFile(digestPath, bytes.Repeat([]byte("x"), (64<<10)+10), 0o600) },
+		func() {
+			_ = os.Remove(digestPath)
+			tgt := filepath.Join(t.TempDir(), "secret.json")
+			_ = os.WriteFile(tgt, []byte(payload), 0o600)
+			_ = os.Symlink(tgt, digestPath)
+		},
+	} {
+		setup()
+		res, rerr := Resume(opts(dir, home))
+		if rerr != nil {
+			t.Fatalf("Resume fail-open errored: %v", rerr)
+		}
+		if strings.Contains(res, "## Daily Health & Auto Actions") {
+			t.Errorf("Resume fail-open leaked section:\n%s", res)
 		}
 	}
 }

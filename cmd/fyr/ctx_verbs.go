@@ -27,38 +27,38 @@ type ctx struct {
 	// global flags, accepted by every verb
 	repoFlag, homeFlag, dirFlag string
 	// per-verb flags; a verb's flags func registers only the ones it reads
-	dryRun, check, force, openRecords, global, rebuild, dreamAll                                   bool
-	jsonOut, jsonIn                                                                                bool
-	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                      string
-	memIncludeLow                                                                                  bool
-	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut          string
-	metricsUntil, metricsSinceTag, metricsHarness, metricsListen                                   string
-	metricsContextTarget                                                                           int64
-	metricsAllLabels, metricsJSON, metricsMD, metricsWeb, metricsIncludeSandboxes                  bool
-	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
-	recBody, recAll                                                                                bool
-	evalFixture                                                                                    string
-	evalRunner                                                                                     string
-	evalList, evalACP                                                                              bool
-	evalRuns, evalParallel                                                                         int
-	autoConvIdle, autoLevel, autoProjectIdle, autoUserIdle                                         string
-	autoLines                                                                                      int
-	autoAll                                                                                        bool
-	modelsPick, modelsTier, modelsExplain                                                          string
-	modelsRefresh                                                                                  bool
-	limit, sliceHops, sliceBudget                                                                  int
-	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent string
-	repoMap, register, searchIncludeDocs                                                           bool
-	graphOut, graphListen                                                                          string
-	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs                    bool
-	graphIncludeVendored                                                                           bool
-	gateBase, gateLeaseFile, landMessage, closeID, closeTitle, closeBodyFile                       string
-	gateLease                                                                                      stringSliceFlag
-	gateMaxFiles, gateMaxLines                                                                     int
-	gateTimeout                                                                                    time.Duration
-	gateJudge, gateJudgeModel                                                                      string
-	watchConv                                                                                      string
-	watchIdleSec                                                                                   int
+	dryRun, check, force, openRecords, global, rebuild, dreamAll                                      bool
+	jsonOut, jsonIn                                                                                   bool
+	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                         string
+	memIncludeLow                                                                                     bool
+	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut             string
+	metricsUntil, metricsSinceTag, metricsHarness, metricsListen                                      string
+	metricsContextTarget                                                                              int64
+	metricsAllLabels, metricsJSON, metricsMD, metricsWeb, metricsDailyDigest, metricsIncludeSandboxes bool
+	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                         string
+	recBody, recAll                                                                                   bool
+	evalFixture                                                                                       string
+	evalRunner                                                                                        string
+	evalList, evalACP                                                                                 bool
+	evalRuns, evalParallel                                                                            int
+	autoConvIdle, autoLevel, autoProjectIdle, autoUserIdle                                            string
+	autoLines                                                                                         int
+	autoAll                                                                                           bool
+	modelsPick, modelsTier, modelsExplain                                                             string
+	modelsRefresh                                                                                     bool
+	limit, sliceHops, sliceBudget                                                                     int
+	sliceQuery, sliceSession, skeletonPath, pathFrom, pathTo, affectedTarget, vetPrompt, hookEvent    string
+	repoMap, register, searchIncludeDocs                                                              bool
+	graphOut, graphListen                                                                             string
+	graphDot, graphMD, graphJSON, graphWeb, graphIncludeTests, graphIncludeDocs                       bool
+	graphIncludeVendored                                                                              bool
+	gateBase, gateLeaseFile, landMessage, closeID, closeTitle, closeBodyFile                          string
+	gateLease                                                                                         stringSliceFlag
+	gateMaxFiles, gateMaxLines                                                                        int
+	gateTimeout                                                                                       time.Duration
+	gateJudge, gateJudgeModel                                                                         string
+	watchConv                                                                                         string
+	watchIdleSec                                                                                      int
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
@@ -237,6 +237,7 @@ func (c *ctx) registerReportFlags(withSubverbs bool) {
 	c.fs.StringVar(&c.metricsProject, "project", "", project)
 	c.fs.BoolVar(&c.global, "global", false, p("report", "all projects across the local store"))
 	c.fs.BoolVar(&c.metricsMD, "md", false, p("report", "write Markdown instead of HTML (stdout unless --out)"))
+	c.fs.BoolVar(&c.metricsDailyDigest, "daily-digest", false, p("report", "compute, store and print today's daily health digest"))
 	c.fs.BoolVar(&c.metricsWeb, "web", false, p("report", "serve the rendered report in memory on 127.0.0.1:0 in the foreground"))
 	c.fs.StringVar(&c.metricsListen, "listen", "", p("report", "with --web, bind `ADDR` instead of 127.0.0.1:0"))
 	c.fs.BoolVar(&c.metricsIncludeSandboxes, "include-sandboxes", false, p("show, report", "include ephemeral eval, smoke, probe and scratch roots"))

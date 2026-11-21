@@ -19,15 +19,17 @@ const (
 
 // DiagnosticSignal is one strictly shape-only ranked diagnostic finding.
 type DiagnosticSignal struct {
-	SignalID   string  `json:"signal_id"`
-	Severity   string  `json:"severity"`
-	Rule       string  `json:"rule"`
-	Metric     string  `json:"metric"`
-	Current    float64 `json:"current"`
-	Previous   float64 `json:"previous"`
-	Delta      float64 `json:"delta"`
-	SampleSize int     `json:"sample_size"`
-	Summary    string  `json:"summary"`
+	SignalID          string  `json:"signal_id"`
+	Severity          string  `json:"severity"`
+	Rule              string  `json:"rule"`
+	Metric            string  `json:"metric"`
+	Current           float64 `json:"current"`
+	Previous          float64 `json:"previous"`
+	Delta             float64 `json:"delta"`
+	SampleSize        int     `json:"sample_size"`
+	Summary           string  `json:"summary"`
+	ActionScope       string  `json:"action_scope,omitempty"`
+	RecommendedAction string  `json:"recommended_action,omitempty"`
 }
 
 // DiagnosticReport holds ranked, deduplicated, shape-only diagnostic signals.
@@ -45,8 +47,10 @@ func BuildDiagnosticReport(sum Summary, evals []EvalRow, scope, projectRoot stri
 	raw = appendSessionSignals(raw, sum, idPrefix)
 	raw = appendAdherenceSignals(raw, sum, idPrefix)
 	raw = appendStructuralSignals(raw, sum, idPrefix)
+	raw = appendHealthRegressionSignals(raw, sum, idPrefix)
 	raw = appendRunAndEvalSignals(raw, sum, evals, normScope, idPrefix)
 	signals := dedupAndSortSignals(raw)
+	assignDiagnosticActions(signals)
 	genAt := sum.Window["until"]
 	if genAt == "" {
 		genAt = "1970-01-01"
@@ -152,17 +156,26 @@ func appendAdherenceSignals(out []DiagnosticSignal, sum Summary, pfx string) []D
 		out = append(out, makeSignal(pfx, "retry_loops_elevated", sev, "D.retry_loops.agy",
 			float64(retries), prev, sessions, fmt.Sprintf("%d retry loops across %d sessions", retries, sessions)))
 	}
-	if red := sum.C.RedundantReads["agy"]; red >= 5 {
-		prev := priorMetricVal(sum, "C.redundant_reads.agy")
-		sev := "low"
-		if red >= sessions*3 {
-			sev = "high"
-		} else if red >= sessions {
-			sev = "medium"
-		}
-		out = append(out, makeSignal(pfx, "redundant_reads_elevated", sev, "C.redundant_reads.agy",
-			float64(red), prev, sessions, fmt.Sprintf("%d redundant file reads across %d sessions", red, sessions)))
+	out = appendRedundantReadSignal(out, sum, pfx, sessions)
+	return appendCorrectionBugSignals(out, sum, pfx, sessions)
+}
+
+func appendRedundantReadSignal(out []DiagnosticSignal, sum Summary, pfx string, sessions int) []DiagnosticSignal {
+	red := sum.C.RedundantReads["agy"]
+	if red < 5 {
+		return out
 	}
+	sev := "low"
+	if red >= sessions*3 {
+		sev = "high"
+	} else if red >= sessions {
+		sev = "medium"
+	}
+	return append(out, makeSignal(pfx, "redundant_reads_elevated", sev, "C.redundant_reads.agy",
+		float64(red), priorMetricVal(sum, "C.redundant_reads.agy"), sessions, fmt.Sprintf("%d redundant file reads across %d sessions", red, sessions)))
+}
+
+func appendCorrectionBugSignals(out []DiagnosticSignal, sum Summary, pfx string, sessions int) []DiagnosticSignal {
 	if sum.A.Corrections >= 3 {
 		prev := priorMetricVal(sum, "A.corrections")
 		sev := pickSev(sum.A.Corrections >= 6, "high", "medium")
@@ -303,40 +316,4 @@ func dedupAndSortSignals(in []DiagnosticSignal) []DiagnosticSignal {
 		return out[i].SignalID < out[j].SignalID
 	})
 	return out
-}
-
-func severityRank(sev string) int {
-	switch sev {
-	case "high":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	default:
-		return 0
-	}
-}
-
-func pickSev(cond bool, t, f string) string {
-	if cond {
-		return t
-	}
-	return f
-}
-
-func priorMetricVal(sum Summary, key string) float64 {
-	if sum.Deltas != nil && sum.Deltas.PreviousSessions >= minDiagnosticSessions {
-		if md, ok := sum.Deltas.Metrics[key]; ok {
-			return md.Previous
-		}
-	}
-	return 0
-}
-
-func priorKneeRate(sum Summary) float64 {
-	if sum.Deltas != nil && sum.Deltas.PreviousSessions >= minDiagnosticSessions && sum.Deltas.KneeRatePct != nil {
-		return round4(sum.Deltas.KneeRatePct.Previous / 100.0)
-	}
-	return 0
 }

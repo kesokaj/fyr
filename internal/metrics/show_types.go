@@ -25,6 +25,7 @@ type Summary struct {
 	AgentRoles      []AgentRoleMetrics        `json:"agent_roles,omitempty"`
 	Deltas          *WindowDeltas             `json:"deltas,omitempty"`
 	Diagnostics     *DiagnosticReport         `json:"diagnostics,omitempty"`
+	DailyDigest     *DailyDigest              `json:"daily_digest,omitempty"`
 	Projects        []ProjectRow              `json:"projects,omitempty"`
 	Daily           []Day                     `json:"daily"`
 	Notes           []string                  `json:"notes"`

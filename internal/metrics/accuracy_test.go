@@ -463,8 +463,8 @@ func TestJudgeVerdictsMigration(t *testing.T) {
 	migrations = saved
 
 	s9 := openT(t, dbPath)
-	if got := s9.meta(t, "schema"); got != "11" {
-		t.Fatalf("schema = %q, want 11", got)
+	if got := s9.meta(t, "schema"); got != "12" {
+		t.Fatalf("schema = %q, want 12", got)
 	}
 	var idxCnt int
 	if err := s9.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='judge_verdicts_ts'`).Scan(&idxCnt); err != nil || idxCnt != 1 {

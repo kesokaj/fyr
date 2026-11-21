@@ -61,6 +61,7 @@ func TestReorder(t *testing.T) {
 		"auto on --conversation-idle 2h --home /x":  {"--conversation-idle", "2h", "--home", "/x", "auto", "on"},
 		"metrics show --since-tag v9.6.3 --home /x": {"--since-tag", "v9.6.3", "--home", "/x", "metrics", "show"},
 		"report --since-tag v9.6.3 --md --home /x":  {"--since-tag", "v9.6.3", "--md", "--home", "/x", "report"},
+		"report --daily-digest --json --home /x":    {"--daily-digest", "--json", "--home", "/x", "report"},
 	}
 	for in, want := range cases {
 		if got := reorder(allFlags(), strings.Fields(in)); !reflect.DeepEqual(got, want) {
@@ -91,6 +92,8 @@ func TestVerbRefusesAnotherVerbsFlag(t *testing.T) {
 		{"search", "--rebuild", "x"},
 		{"search", "--include-vendored", "x"},
 		{"list", "--include-vendored"},
+		{"list", "--daily-digest"},
+		{"search", "--daily-digest", "x"},
 	} {
 		home := t.TempDir()
 		var out bytes.Buffer

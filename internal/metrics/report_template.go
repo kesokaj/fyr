@@ -41,6 +41,12 @@ ul.notes{color:var(--ink-2);padding-left:18px}
 <h1>Agent metrics</h1>
 <p class="sub">{{.Sum.Window.since}} to {{.Sum.Window.until}}{{if .Sum.TagCohort}} · since tag <code>{{.Sum.TagCohort.Tag}}</code> ({{.Sum.TagCohort.Cutoff}}){{end}} · generated {{.Generated}} by <code>fyr metrics report</code> from the local metrics store</p>
 <div class="legend">{{range .Series}}<span><span class="sw {{.Class}}"></span>{{.Label}}</span>{{end}}</div>
+{{with .DailyBanner}}<section class="daily-banner"><h2>Daily Direction &amp; Actions</h2>
+<p class="note">Direction: <strong>{{.Verdict}}</strong> ({{.Day}})</p>
+{{if or .NewRegressions .ResolvedSignals .PersistentHigh}}<ul class="notes">{{if .NewRegressions}}<li><strong>new_regressions:</strong> {{.NewRegressions}}</li>{{end}}{{if .ResolvedSignals}}<li><strong>resolved_signals:</strong> {{.ResolvedSignals}}</li>{{end}}{{if .PersistentHigh}}<li><strong>persistent_high:</strong> {{.PersistentHigh}}</li>{{end}}</ul>{{end}}
+{{if .Actions}}<h3>Applied Actions</h3><ul class="notes">{{range .Actions}}<li>{{.}}</li>{{end}}</ul>{{end}}
+{{if .Signals}}<h3>Priority Signals &amp; Actions</h3><ul class="notes">{{range .Signals}}<li>{{.}}</li>{{end}}</ul>{{end}}
+</section>{{end}}
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>
 {{range .Sections}}<section><h2>{{.Title}}</h2>{{if .Note}}<p class="note">{{.Note}}</p>{{end}}

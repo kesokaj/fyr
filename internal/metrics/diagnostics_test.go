@@ -170,3 +170,129 @@ func TestHiddenCouplingEditVsReadDiagnostic(t *testing.T) {
 		t.Fatalf("co_edit diagnostic mismatch: %+v", rep.Signals)
 	}
 }
+
+func TestDiagnosticsHealthRegressionRulesAndActionScopes(t *testing.T) {
+	t.Run("pre_invocation_timeouts thresholds", func(t *testing.T) {
+		pLow := 4.9
+		underRuns := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		underRuns.E = SecondBrain{TurnVets: 2, TimedOutTurns: 1, TimeoutRatePct: ptrF(50.0)}
+		if rep := BuildDiagnosticReport(*underRuns, nil, "global", ""); len(rep.Signals) != 0 {
+			t.Fatalf("under minDiagnosticRuns triggered signal: %+v", rep.Signals)
+		}
+		underPct := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		underPct.E = SecondBrain{TurnVets: 20, TimedOutTurns: 1, TimeoutRatePct: &pLow}
+		if rep := BuildDiagnosticReport(*underPct, nil, "global", ""); len(rep.Signals) != 0 {
+			t.Fatalf("below 5%% timeout triggered signal: %+v", rep.Signals)
+		}
+
+		med := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		med.E = SecondBrain{TurnVets: 10, TimedOutTurns: 1, TimeoutRatePct: ptrF(10.0)}
+		repMed := BuildDiagnosticReport(*med, nil, "global", "")
+		if len(repMed.Signals) != 1 || repMed.Signals[0].Rule != "pre_invocation_timeouts" ||
+			repMed.Signals[0].Severity != "medium" || repMed.Signals[0].ActionScope != scopeProposeOnly ||
+			!strings.Contains(repMed.Signals[0].RecommendedAction, "internal/search/") {
+			t.Fatalf("medium timeout signal = %+v", repMed.Signals)
+		}
+
+		high := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		high.E = SecondBrain{TurnVets: 10, TimedOutTurns: 2, TimeoutRatePct: ptrF(20.0)}
+		repHigh := BuildDiagnosticReport(*high, nil, "global", "")
+		if len(repHigh.Signals) != 1 || repHigh.Signals[0].Severity != "high" {
+			t.Fatalf("high timeout signal = %+v", repHigh.Signals)
+		}
+	})
+
+	t.Run("bash_read_bypass thresholds", func(t *testing.T) {
+		underSess := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		underSess.Sessions["agy"] = 4
+		underSess.C.BashReadSkips = map[string]int{"agy": 5}
+		if rep := BuildDiagnosticReport(*underSess, nil, "global", ""); len(rep.Signals) != 0 {
+			t.Fatalf("under minDiagnosticSessions triggered signal: %+v", rep.Signals)
+		}
+		underSkips := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		underSkips.Sessions["agy"] = 6
+		underSkips.C.BashReadSkips = map[string]int{"agy": 2}
+		if rep := BuildDiagnosticReport(*underSkips, nil, "global", ""); len(rep.Signals) != 0 {
+			t.Fatalf("below 3 skips triggered signal: %+v", rep.Signals)
+		}
+
+		med := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		med.Sessions["agy"] = 5
+		med.C.BashReadSkips = map[string]int{"agy": 3}
+		repMed := BuildDiagnosticReport(*med, nil, "global", "")
+		if len(repMed.Signals) != 1 || repMed.Signals[0].Rule != "bash_read_bypass" ||
+			repMed.Signals[0].Severity != "medium" || repMed.Signals[0].ActionScope != scopeProposeOnly ||
+			!strings.Contains(repMed.Signals[0].RecommendedAction, "PreToolUse") {
+			t.Fatalf("medium bash_read_bypass signal = %+v", repMed.Signals)
+		}
+
+		high := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		high.Sessions["agy"] = 5
+		high.C.BashReadSkips = map[string]int{"agy": 10}
+		repHigh := BuildDiagnosticReport(*high, nil, "global", "")
+		if len(repHigh.Signals) != 1 || repHigh.Signals[0].Severity != "high" {
+			t.Fatalf("high bash_read_bypass signal = %+v", repHigh.Signals)
+		}
+	})
+
+	t.Run("structural_regression multi-factor and deltas plus ActionScope", func(t *testing.T) {
+		// Single-factor ProdPkgCycles without worsening delta must emit only prod_pkg_cycles, NOT structural_regression.
+		single := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		single.Health.Structural = search.StructuralSignals{ProdPkgCycles: 1, TotalProdPkgs: 4}
+		repSingle := BuildDiagnosticReport(*single, nil, "project", "/work/svc")
+		if len(repSingle.Signals) != 1 || repSingle.Signals[0].Rule != "prod_pkg_cycles" || repSingle.Signals[0].ActionScope != scopeProposeOnly {
+			t.Fatalf("single-factor cycle signal = %+v", repSingle.Signals)
+		}
+
+		// Multi-factor (cycles + coupling) triggers structural_regression too.
+		multi := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		multi.Health.Structural = search.StructuralSignals{
+			ProdPkgCycles: 1, TotalProdPkgs: 4, HiddenCouplingEditPairs: 3, TotalCodeFiles: 10,
+		}
+		repMulti := BuildDiagnosticReport(*multi, nil, "project", "/work/svc")
+		if !hasDiagRule(repMulti.Signals, "structural_regression") {
+			t.Fatalf("multi-factor structural_regression missing: %+v", repMulti.Signals)
+		}
+
+		// Single risk (large files) WITH positive delta triggers structural_regression.
+		deltaOnly := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		deltaOnly.Health.Structural = search.StructuralSignals{TotalCodeFiles: 8, LargeFilesOver350: 3}
+		deltaOnly.Deltas = &WindowDeltas{Metrics: map[string]MetricDelta{
+			"H.structural.large_files_over_350": {Current: 3, Previous: 1, Delta: 2},
+		}}
+		repDelta := BuildDiagnosticReport(*deltaOnly, nil, "project", "/work/svc")
+		if !hasDiagRule(repDelta.Signals, "structural_regression") {
+			t.Fatalf("delta-driven structural_regression missing: %+v", repDelta.Signals)
+		}
+
+		// Auto-skill scope vs propose_only scope checks.
+		sk := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+		sk.Sessions["agy"] = 6
+		sk.C.GrepCalls["agy"] = 10
+		sk.C.SearchGrepRatio["agy"] = ptrF(0.2)
+		sk.C.RedundantReads = map[string]int{"agy": 12}
+		repSk := BuildDiagnosticReport(*sk, []EvalRow{{Kind: "capability", N: 4, C: 1}}, "global", "")
+		for _, rule := range []string{"search_grep_low", "redundant_reads_elevated", "eval_pass_rate_low"} {
+			sig, ok := findDiagSignal(repSk.Signals, rule)
+			if !ok || sig.ActionScope != scopeAutoSkill || sig.RecommendedAction == "" {
+				t.Fatalf("rule %s missing auto_skill action: %+v", rule, sig)
+			}
+		}
+	})
+}
+
+func ptrF(v float64) *float64 { return &v }
+
+func hasDiagRule(sigs []DiagnosticSignal, rule string) bool {
+	_, ok := findDiagSignal(sigs, rule)
+	return ok
+}
+
+func findDiagSignal(sigs []DiagnosticSignal, rule string) (DiagnosticSignal, bool) {
+	for _, s := range sigs {
+		if s.Rule == rule {
+			return s, true
+		}
+	}
+	return DiagnosticSignal{}, false
+}

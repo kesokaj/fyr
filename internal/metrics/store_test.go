@@ -304,3 +304,53 @@ func TestFirstOpenWaitsForALock(t *testing.T) {
 	}
 	s.Close()
 }
+
+func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
+	if len(tables) != 13 {
+		t.Fatalf("len(tables) = %d, want 13 (%v)", len(tables), tables)
+	}
+	dir := t.TempDir()
+	s := openT(t, filepath.Join(dir, "metrics.db"))
+	if got := s.meta(t, "schema"); got != "12" {
+		t.Fatalf("schema = %q, want 12", got)
+	}
+	if empty, err := LatestDailyDigest(s); err != nil || empty != nil {
+		t.Fatalf("empty LatestDailyDigest = (%+v, %v), want (nil, nil)", empty, err)
+	}
+	d1 := DailyDigest{Day: "2026-11-19", Verdict: VerdictSteady, CreatedAt: 100}
+	d2 := DailyDigest{Day: "2026-11-20", Verdict: VerdictImproving, CreatedAt: 200}
+	if err := SaveDailyDigest(s, d1); err != nil {
+		t.Fatalf("SaveDailyDigest d1: %v", err)
+	}
+	if err := SaveDailyDigest(s, d2); err != nil {
+		t.Fatalf("SaveDailyDigest d2: %v", err)
+	}
+	// Upsert same day overwrites cleanly.
+	d2.Verdict = VerdictRegress
+	d2.CreatedAt = 250
+	if err := SaveDailyDigest(s, d2); err != nil {
+		t.Fatalf("SaveDailyDigest upsert d2: %v", err)
+	}
+	latest, err := LatestDailyDigest(s)
+	if err != nil || latest == nil || latest.Day != "2026-11-20" || latest.Verdict != VerdictRegress || latest.CreatedAt != 250 {
+		t.Fatalf("LatestDailyDigest = (%+v, %v)", latest, err)
+	}
+	prev, err := PreviousDailyDigest(s, "2026-11-20")
+	if err != nil || prev == nil || prev.Day != "2026-11-19" || prev.Verdict != VerdictSteady {
+		t.Fatalf("PreviousDailyDigest = (%+v, %v)", prev, err)
+	}
+	if none, err := PreviousDailyDigest(s, "2026-11-19"); err != nil || none != nil {
+		t.Fatalf("PreviousDailyDigest before earliest = (%+v, %v), want (nil, nil)", none, err)
+	}
+	out := filepath.Join(dir, "export12.jsonl")
+	if err := s.Export(out); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"table":"daily_digests"`)) || !bytes.Contains(raw, []byte(`"value":"12"`)) {
+		t.Fatalf("export missing daily_digests or schema 12:\n%s", raw)
+	}
+}

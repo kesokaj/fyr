@@ -156,10 +156,12 @@ var migrations = []string{
 	ALTER TABLE turn_vets ADD COLUMN skills_loaded_count INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE session_ratings ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
 	CREATE INDEX IF NOT EXISTS sessions_repo_id ON sessions(repo_id);`,
+	// 12: shape-only daily health digests and post-fix recovery snapshots (D7).
+	`CREATE TABLE daily_digests(day TEXT PRIMARY KEY, verdict TEXT NOT NULL, kpi_json TEXT NOT NULL, ast_json TEXT NOT NULL, preinv_json TEXT NOT NULL, actions_json TEXT NOT NULL, created_at INTEGER NOT NULL); CREATE INDEX daily_digests_created ON daily_digests(created_at);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts", "background_runs"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts", "background_runs", "daily_digests"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

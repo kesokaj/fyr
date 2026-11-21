@@ -203,6 +203,9 @@ func TestScrubHostHomePathsEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportSanitizedState: %v", err)
 	}
+	if exp.Schema != 12 {
+		t.Fatalf("ExportSanitizedState.Schema = %d, want 12", exp.Schema)
+	}
 	if len(exp.SessionRatings) != 1 {
 		t.Fatalf("SessionRatings = %+v, want 1 row", exp.SessionRatings)
 	}

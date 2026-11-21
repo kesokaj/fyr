@@ -1,0 +1,157 @@
+package metrics
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"strings"
+)
+
+type dailyBannerView struct {
+	Day             string
+	Verdict         string
+	NewRegressions  string
+	ResolvedSignals string
+	PersistentHigh  string
+	Actions         []string
+	Signals         []string
+}
+
+// RenderDailyDigestJSON writes d as indented JSON to w.
+func RenderDailyDigestJSON(w io.Writer, d DailyDigest) error {
+	data, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(data, '\n'))
+	return err
+}
+
+// RenderDailyDigestText renders a human-readable summary of d.
+func RenderDailyDigestText(d DailyDigest) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Daily Health Digest (%s): %s\n", printable(d.Day), printable(d.Verdict))
+	fmt.Fprintf(&b, "  7d sessions: %.0f (%+.0f vs prior 7d) | bash_read_skips: %.0f (%+.0f)\n",
+		d.Rolling7d.Sessions.Current, d.Rolling7d.Sessions.Delta,
+		d.Rolling7d.BashReadSkips.Current, d.Rolling7d.BashReadSkips.Delta)
+	fmt.Fprintf(&b, "  AST: cycles=%d (%+d) co_edit=%d (%+d) large_files=%d/%d (%+d)\n",
+		d.ASTSnapshot.ProdPkgCycles, d.ASTDiff.ProdPkgCycles,
+		d.ASTSnapshot.HiddenCouplingEditPairs, d.ASTDiff.HiddenCouplingEditPairs,
+		d.ASTSnapshot.LargeFilesOver350, d.ASTSnapshot.TotalCodeFiles, d.ASTDiff.LargeFilesOver350)
+	fmt.Fprintf(&b, "  PreInvocation: vets=%d timeouts=%d (%s) p50=%s p95=%s\n",
+		d.PreInvocation.TurnVets, d.PreInvocation.TimedOutTurns,
+		fmtFloatPtr(d.PreInvocation.TimeoutRatePct, "%.1f%%"),
+		fmtOptMS(d.PreInvocation.P50DurationMS), fmtOptMS(d.PreInvocation.P95DurationMS))
+	appendDigestActionLines(&b, d)
+	appendDigestSignalLines(&b, d)
+	return b.String()
+}
+
+func appendDigestActionLines(b *strings.Builder, d DailyDigest) {
+	b.WriteString("  I did:\n")
+	if len(d.Actions) == 0 {
+		b.WriteString("    - (none)\n")
+		return
+	}
+	for _, a := range d.Actions {
+		fmt.Fprintf(b, "    - %s\n", formatBannerAction(a))
+	}
+}
+
+func appendDigestSignalLines(b *strings.Builder, d DailyDigest) {
+	b.WriteString("  We need to do:\n")
+	if len(d.Signals) == 0 {
+		b.WriteString("    - (none)\n")
+		return
+	}
+	for _, s := range d.Signals {
+		fmt.Fprintf(b, "    - [%s/%s] %s (%s): %s\n",
+			printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), printable(s.RecommendedAction))
+	}
+}
+
+func buildDailyBannerView(d *DailyDigest) *dailyBannerView {
+	if d == nil {
+		return nil
+	}
+	v := &dailyBannerView{
+		Day:             printable(d.Day),
+		Verdict:         printable(d.Verdict),
+		NewRegressions:  joinPrintableList(d.NewRegressions),
+		ResolvedSignals: joinPrintableList(d.ResolvedSignals),
+		PersistentHigh:  joinPrintableList(d.PersistentHigh),
+	}
+	for _, a := range d.Actions {
+		v.Actions = append(v.Actions, formatBannerAction(a))
+	}
+	v.Signals = formatBannerSignals(d.Signals, 5)
+	return v
+}
+
+func joinPrintableList(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	cleaned := make([]string, 0, len(items))
+	for _, item := range items {
+		if c := printable(strings.TrimSpace(item)); c != "" {
+			cleaned = append(cleaned, c)
+		}
+	}
+	return strings.Join(cleaned, ", ")
+}
+
+func formatBannerAction(a DigestAppliedAction) string {
+	pend, rev := "", ""
+	if a.InstallPending {
+		pend = " [install pending]"
+	}
+	if a.RevertCmd != "" {
+		rev = " revert=" + printable(a.RevertCmd)
+	}
+	return fmt.Sprintf("[%s] %s (%s, %s)%s%s",
+		printable(a.Status), printable(a.SignalID), printable(a.ActionScope), printable(a.ReportDate), pend, rev)
+}
+
+func formatBannerSignals(signals []DigestAction, limit int) []string {
+	var out []string
+	for _, s := range signals {
+		if s.Severity != "high" && s.Severity != "medium" {
+			continue
+		}
+		act := printable(s.RecommendedAction)
+		if act == "" {
+			act = printable(s.Summary)
+		}
+		out = append(out, fmt.Sprintf("[%s/%s] %s (%s): %s",
+			printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), act))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func writeMDDailyBanner(b *strings.Builder, d *DailyDigest) {
+	v := buildDailyBannerView(d)
+	if v == nil {
+		return
+	}
+	b.WriteString("\n## Daily Direction & Actions\n\n")
+	fmt.Fprintf(b, "- Direction: **%s** (%s)\n", mdCell(v.Verdict), mdCell(v.Day))
+	if v.NewRegressions != "" {
+		fmt.Fprintf(b, "- new_regressions: %s\n", mdCell(v.NewRegressions))
+	}
+	if v.ResolvedSignals != "" {
+		fmt.Fprintf(b, "- resolved_signals: %s\n", mdCell(v.ResolvedSignals))
+	}
+	if v.PersistentHigh != "" {
+		fmt.Fprintf(b, "- persistent_high: %s\n", mdCell(v.PersistentHigh))
+	}
+	for _, a := range v.Actions {
+		fmt.Fprintf(b, "- Applied action: %s\n", mdCell(a))
+	}
+	for _, s := range v.Signals {
+		fmt.Fprintf(b, "- Signal action: %s\n", mdCell(s))
+	}
+}

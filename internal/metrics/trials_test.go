@@ -36,8 +36,8 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 
 	migrations = saved
 	s2 := openT(t, p)
-	if v := s2.meta(t, "schema"); v != "11" {
-		t.Fatalf("schema after upgrade = %s, want 11", v)
+	if v := s2.meta(t, "schema"); v != "12" {
+		t.Fatalf("schema after upgrade = %s, want 12", v)
 	}
 	var got string
 	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM trials) || ',' ||
@@ -50,13 +50,13 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,0,0,0,1,1" {
 		t.Fatalf("after upgrade: %q, %v; want 0,0,0,0,0,0,1,1", got, err)
 	}
-	s2.db.Exec(`UPDATE meta SET value = '12' WHERE key = 'schema'`)
+	s2.db.Exec(`UPDATE meta SET value = '13' WHERE key = 'schema'`)
 	s2.Close()
 	if s3, err := Open(p); err == nil {
 		s3.Close()
-		t.Fatal("a store at schema 12 was opened by a binary at 11")
+		t.Fatal("a store at schema 13 was opened by a binary at 12")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 12: %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 13: %v, want ErrNewerSchema", err)
 	}
 }
 

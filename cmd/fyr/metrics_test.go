@@ -786,3 +786,73 @@ func seedSinceTagStoreT(t *testing.T, home, repo string) {
 }
 
 func jsonInt(v int64) string { b, _ := json.Marshal(v); return string(b) }
+
+func TestDailyDigestCLIAndFlagRejections(t *testing.T) {
+	home := t.TempDir()
+	agyHome(t, home, "DD1")
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "ingest", "--home", home}, &out); err != nil {
+		t.Fatalf("ingest: %v\n%s", err, out.String())
+	}
+
+	// Text output via `fyr report --daily-digest --global`.
+	out.Reset()
+	if err := run([]string{"report", "--daily-digest", "--global", "--home", home}, &out); err != nil {
+		t.Fatalf("report --daily-digest: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "Daily Health Digest (") || !strings.Contains(out.String(), "I did:") {
+		t.Fatalf("unexpected --daily-digest text:\n%s", out.String())
+	}
+	digestFile := metrics.LatestDailyDigestPath(home)
+	if _, err := os.Stat(digestFile); err != nil {
+		t.Fatalf("missing latest-daily-digest.json at %s: %v", digestFile, err)
+	}
+
+	// JSON output via `fyr metrics report --daily-digest --json --global`.
+	out.Reset()
+	if err := run([]string{"metrics", "report", "--daily-digest", "--json", "--global", "--home", home}, &out); err != nil {
+		t.Fatalf("metrics report --daily-digest --json: %v\n%s", err, out.String())
+	}
+	var dd metrics.DailyDigest
+	if err := json.Unmarshal(out.Bytes(), &dd); err != nil || dd.Day == "" || dd.Verdict == "" {
+		t.Fatalf("unmarshal --daily-digest --json: %v\n%s", err, out.String())
+	}
+
+	// Subsequent normal reports include the Daily Direction & Actions banner / daily_digest JSON.
+	out.Reset()
+	if err := run([]string{"report", "--global", "--md", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatalf("report --md: %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "## Daily Direction & Actions") {
+		t.Fatalf("report --md missing Daily Direction & Actions:\n%s", out.String())
+	}
+	out.Reset()
+	if err := run([]string{"report", "--global", "--json", "--since", "2026-10-01", "--home", home}, &out); err != nil {
+		t.Fatalf("report --json: %v\n%s", err, out.String())
+	}
+	var jr metrics.JSONReport
+	if err := json.Unmarshal(out.Bytes(), &jr); err != nil || jr.DailyDigest == nil {
+		t.Fatalf("report --json missing daily_digest: %+v (%v)", jr.DailyDigest, err)
+	}
+
+	// Conflicting flags and non-report verbs must exit 2.
+	for _, args := range [][]string{
+		{"report", "--daily-digest", "--md"},
+		{"report", "--daily-digest", "--web"},
+		{"report", "--daily-digest", "--out", filepath.Join(home, "x.txt")},
+		{"report", "--daily-digest", "--listen", "127.0.0.1:0"},
+		{"metrics", "report", "--daily-digest", "--md"},
+		{"metrics", "report", "--daily-digest", "--web"},
+		{"metrics", "report", "--daily-digest", "--out", filepath.Join(home, "x.txt")},
+		{"metrics", "show", "--daily-digest"},
+		{"metrics", "ingest", "--daily-digest"},
+		{"metrics", "evals", "--daily-digest"},
+		{"metrics", "trajectory", "--daily-digest"},
+		{"metrics", "export", "--daily-digest", filepath.Join(home, "e.jsonl")},
+	} {
+		out.Reset()
+		if err := run(append(args, "--home", home), &out); exitOf(err) != 2 {
+			t.Errorf("%v: exit=%d, want 2 (out=%q)", args, exitOf(err), out.String())
+		}
+	}
+}

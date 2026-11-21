@@ -39,6 +39,7 @@ func Resume(o Options) (string, error) {
 	writeResumeOpenPlans(&b, recs)
 	writeResumeRecentChanges(&b, recs)
 	writeResumeMemory(&b, top, recs, o.now())
+	writeResumeDailyDigest(&b, o.Home)
 	return b.String(), nil
 }
 

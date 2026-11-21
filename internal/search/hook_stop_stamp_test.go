@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func initGitGoRepoForHooks(t *testing.T) string {
@@ -427,5 +429,94 @@ func TestSessionStartReftableBranch(t *testing.T) {
 	}
 	if brokenState.Branch != "" {
 		t.Fatalf("broken .invalid ComputeGoTreeState.Branch = %q, want empty", brokenState.Branch)
+	}
+}
+
+func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
+	dir := initGitGoRepoForHooks(t)
+	home := t.TempDir()
+	digestPath := filepath.Join(home, harness.StateDir, "reports", "latest-daily-digest.json")
+	if err := os.MkdirAll(filepath.Dir(digestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := json.Marshal(map[string]any{"conversationId": "conv-alert", "workspacePaths": []string{dir}})
+
+	// 1. Non-alerting steady/improving digest emits no dailyAlert.
+	steady := `{"day":"2026-11-21","verdict":"improving","actions":[{"signal_id":"sig:global:a","status":"recovered"}],"signals":[{"signal_id":"sig:global:b","severity":"medium","rule":"eval_pass_rate_low"}]}`
+	if err := os.WriteFile(digestPath, []byte(steady), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := extractSessionDailyAlert(home); got != "" {
+		t.Fatalf("non-alerting digest emitted %q, want empty", got)
+	}
+
+	// 2. Regressing + high signal + install_pending emits <= 2 lines, <= 220 B, and SessionStart finishes < 250ms.
+	alertJSON := `{"day":"2026-11-21","verdict":"regressing","actions":[{"signal_id":"sig:global:search_grep_low","status":"still_regressing","install_pending":true}],"signals":[{"signal_id":"sig:global:pre_invocation_timeouts","severity":"high","rule":"pre_invocation_timeouts"}]}`
+	if err := os.WriteFile(digestPath, []byte(alertJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	t0 := time.Now()
+	if err := Search(Options{Home: home, Hook: "session-start", HookIn: bytes.NewReader(req)}, &out); err != nil {
+		t.Fatalf("Search(session-start): %v", err)
+	}
+	if elapsed := time.Since(t0); elapsed >= 250*time.Millisecond {
+		t.Errorf("SessionStart with dailyAlert elapsed = %v, want < 250ms", elapsed)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("unexpected SessionStart response: %+v (%v)", resp, err)
+	}
+	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
+	if len(msg) > 1500 || !strings.Contains(msg, `"dailyAlert"`) {
+		t.Fatalf("SessionStart capsule missing dailyAlert or > 1500 B:\n%s", msg)
+	}
+	alert := extractSessionDailyAlert(home)
+	if len(alert) == 0 || len(alert) > 220 || strings.Count(alert, "\n") > 1 {
+		t.Fatalf("alert violates bounds (len=%d, lines=%d): %q", len(alert), strings.Count(alert, "\n")+1, alert)
+	}
+
+	// 3. fitSessionStartCapsule trims DailyAlert > 120 chars and drops it when tight.
+	tightCap := sessionStartCapsule{
+		Surface:    "SESSION_START",
+		Date:       "2026-11-21",
+		Plan:       strings.Repeat("P", 70),
+		Now:        []string{strings.Repeat("N", 1120)},
+		DailyAlert: strings.Repeat("alert-", 35),
+		Status:     sessionGitSummary{Branch: "main", DirtyGoCount: 1},
+	}
+	fitted := fitSessionStartCapsule(&tightCap, sessionStartMaxBytes)
+	if len(fitted) > sessionStartMaxBytes || !utf8.ValidString(fitted) {
+		t.Fatalf("fitSessionStartCapsule exceeded cap: len=%d", len(fitted))
+	}
+	if len(tightCap.DailyAlert) > 120 || tightCap.DailyAlert == "" {
+		t.Fatalf("fitSessionStartCapsule did not shorten DailyAlert into (0..120]: len=%d", len(tightCap.DailyAlert))
+	}
+	dropCap := tightCap
+	dropCap.DailyAlert = strings.Repeat("alert-", 35)
+	dropped := fitSessionStartCapsule(&dropCap, 240)
+	if len(dropped) > 240 || dropCap.DailyAlert != "" {
+		t.Fatalf("fitSessionStartCapsule did not drop DailyAlert when tight: len=%d dailyAlert=%q", len(dropped), dropCap.DailyAlert)
+	}
+
+	// 4. Fail-open on empty home, missing, corrupt, oversized, and symlinked digest file.
+	if got := extractSessionDailyAlert(""); got != "" {
+		t.Fatalf("empty home returned %q", got)
+	}
+	for _, setup := range []func(){
+		func() { _ = os.WriteFile(digestPath, []byte("{corrupt"), 0o600) },
+		func() { _ = os.WriteFile(digestPath, bytes.Repeat([]byte("a"), sessionStartMaxFileRead+10), 0o600) },
+		func() {
+			_ = os.Remove(digestPath)
+			tgt := filepath.Join(t.TempDir(), "other.json")
+			_ = os.WriteFile(tgt, []byte(alertJSON), 0o600)
+			_ = os.Symlink(tgt, digestPath)
+		},
+		func() { _ = os.Remove(digestPath) },
+	} {
+		setup()
+		if got := extractSessionDailyAlert(home); got != "" {
+			t.Errorf("fail-open case returned %q, want empty", got)
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -55,9 +56,15 @@ func (c *ctx) renderReport(prefix string) error {
 		return err
 	}
 	defer s.Close()
+	if c.metricsDailyDigest {
+		return c.renderDailyDigestReport(s, o)
+	}
 	sum, err := s.Show(o)
 	if err != nil {
 		return err
+	}
+	if dd, derr := metrics.LatestDailyDigest(s); derr == nil && dd != nil {
+		sum.DailyDigest = dd
 	}
 	evals, err := metrics.ReportEvalsWithDevFallback(s, c.home, o)
 	if err != nil {
@@ -68,6 +75,24 @@ func (c *ctx) renderReport(prefix string) error {
 		return c.serveReportWeb(sum, evals, now)
 	}
 	return c.writeOrPrintReport(sum, evals, now)
+}
+
+func (c *ctx) renderDailyDigestReport(s *metrics.Store, o metrics.ShowOptions) error {
+	d, err := metrics.BuildDailyDigest(s, c.home, o.Project, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := metrics.SaveDailyDigest(s, d); err != nil {
+		return err
+	}
+	if err := metrics.WriteLatestDailyDigest(c.home, d); err != nil {
+		return err
+	}
+	if c.metricsJSON {
+		return metrics.RenderDailyDigestJSON(c.out, d)
+	}
+	_, err = io.WriteString(c.out, metrics.RenderDailyDigestText(d))
+	return err
 }
 
 func (c *ctx) writeOrPrintReport(sum *metrics.Summary, evals *metrics.EvalRows, now time.Time) error {

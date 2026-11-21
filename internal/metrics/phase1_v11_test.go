@@ -15,8 +15,8 @@ import (
 )
 
 func TestMigrationTenToEleven(t *testing.T) {
-	if len(migrations) != 11 {
-		t.Fatalf("len(migrations) = %d, want 11", len(migrations))
+	if len(migrations) < 11 {
+		t.Fatalf("len(migrations) = %d, want >= 11", len(migrations))
 	}
 	p := filepath.Join(t.TempDir(), "metrics.db")
 	saved := migrations
@@ -38,8 +38,8 @@ func TestMigrationTenToEleven(t *testing.T) {
 
 	migrations = saved
 	s11 := openT(t, p)
-	if got := s11.meta(t, "schema"); got != "11" {
-		t.Fatalf("schema = %q, want 11", got)
+	if got := s11.meta(t, "schema"); got != "12" {
+		t.Fatalf("schema = %q, want 12", got)
 	}
 	assertV11ColumnsAndIndex(t, s11)
 }
