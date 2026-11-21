@@ -142,6 +142,20 @@ Installing `fyr` deploys seven managed surfaces into `~/.gemini/config/` and `~/
 
 Ensure `~/.local/bin` is on your `PATH` and the Antigravity CLI (`agy`) is installed before choosing a delivery path. What each kind of place fetches when moving forward is defined in `SPEC-fyr-delivery` § The model.
 
+<details>
+<summary>PATH setup for non-login shells and Linux systemd user daemons</summary>
+
+1. **Interactive & SSH shells (`~/.bashrc` / `~/.config/shells/env.sh`):** Export `$HOME/.local/bin` (and `$(go env GOPATH)/bin` when building from source) **before** any non-interactive return guard (`case $- in *i*) ;; *) return;; esac`) so non-login subshells still resolve `fyr`:
+   ```bash
+   export PATH="$HOME/.local/bin:/usr/local/go/bin:$PATH"
+   ```
+2. **Linux `systemd --user` daemon subshells (e.g., `antigravity-cli-daemon`):** User services and headless subshells launched by `systemd --user` do not source `~/.bashrc`. Add `~/.config/environment.d/10-local-bin.conf` (`$HOME` and `$PATH` expand per `environment.d(5)`; `%h` is only for unit files), then run `systemctl --user daemon-reload` and restart the user service:
+   ```ini
+   PATH=$HOME/.local/bin:$PATH
+   ```
+
+</details>
+
 ### 1. From a source checkout
 
 Recommended when you customize skills, rules, or global context (`go` 1.24.4+ and `git` required):

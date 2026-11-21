@@ -528,3 +528,70 @@ func TestPreWritePendingHashAbortedAndMultiOccurrenceEdits(t *testing.T) {
 		t.Fatalf("external edit should deny with [MODIFIED], got %+v, err=%v", dec, err)
 	}
 }
+
+func TestParseBashFileReadsChainsAndCd(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want []BashFileRead
+	}{
+		{"cat a.go && head -n 10 b.go", []BashFileRead{{Tool: "cat", Path: "a.go", StartLine: 1}, {Tool: "head", Path: "b.go", StartLine: 1, EndLine: 10}}},
+		{"nl -ba a.go ; bat -r 5:25 b.go", []BashFileRead{{Tool: "nl", Path: "a.go", StartLine: 1}, {Tool: "bat", Path: "b.go", StartLine: 5, EndLine: 25}}},
+		{"cd dir && sed -n '1,10p' foo.go", []BashFileRead{{Tool: "sed", Path: "dir/foo.go", StartLine: 1, EndLine: 10}}},
+		{"head -n 20 a.go && cat b.go", []BashFileRead{{Tool: "head", Path: "a.go", StartLine: 1, EndLine: 20}, {Tool: "cat", Path: "b.go", StartLine: 1}}},
+		{"cd a/b && cd .. && cat c.go", []BashFileRead{{Tool: "cat", Path: "a/c.go", StartLine: 1}}},
+		{`sed -n '10,20p;21q' "my dir/a;b.go" && cat 'sub/file name.go'`, []BashFileRead{{Tool: "sed", Path: "my dir/a;b.go", StartLine: 10, EndLine: 20}, {Tool: "cat", Path: "sub/file name.go", StartLine: 1}}},
+		{"make test && cat a.go", []BashFileRead{{Tool: "cat", Path: "a.go", StartLine: 1}}},
+		{"cd ~ && cat a.go; cd - && cat b.go; cd -P sub && cat c.go", nil},
+		{"cd sub && cat /abs/path.go", []BashFileRead{{Tool: "cat", Path: "/abs/path.go", StartLine: 1}}},
+	}
+	for _, tc := range cases {
+		got := ParseBashFileReads(tc.cmd)
+		if len(got) != len(tc.want) {
+			t.Errorf("ParseBashFileReads(%q) len=%d (%+v), want %d (%+v)", tc.cmd, len(got), got, len(tc.want), tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("ParseBashFileReads(%q)[%d] = %+v, want %+v", tc.cmd, i, got[i], tc.want[i])
+			}
+		}
+	}
+}
+
+func TestParseBashFileReadsIgnoresComplexShell(t *testing.T) {
+	ignored := []string{
+		"grep foo bar | head",
+		"cat a.go > out.txt",
+		"cat a.go >> out.txt",
+		"cat < a.go",
+		"cat $(echo a.go)",
+		"cat \"$(echo a.go)\"",
+		"cat `echo a.go`",
+		"cat *.go",
+		"cat a?.go",
+		"cat [ab].go",
+		"cat a.go\ncat b.go",
+		"cat a.go\r\ncat b.go",
+		"cat a.go &",
+		"cat a.go &&& cat b.go",
+		"(cd sub && cat a.go)",
+		"cat a.go || cat b.go",
+		"cat 'unterminated.go",
+	}
+	for _, cmd := range ignored {
+		if got := ParseBashFileReads(cmd); len(got) != 0 {
+			t.Errorf("ParseBashFileReads(%q) = %+v, want empty slice", cmd, got)
+		}
+	}
+}
+
+func TestSplitSimpleShellChains(t *testing.T) {
+	if segs, ok := splitSimpleShellChains(`cd sub && sed -n '1,10p;11q' "a;b.go" ; cat c\;d.go`); !ok || len(segs) != 3 {
+		t.Fatalf("splitSimpleShellChains = %v, %v; want 3 segments", segs, ok)
+	}
+	for _, bad := range []string{"", "  ; && ", "cat a.go | head", "cat a.go > out", "cat a.go &", "cat a.go &&& b", "cat 'open"} {
+		if segs, ok := splitSimpleShellChains(bad); ok || len(segs) != 0 {
+			t.Errorf("splitSimpleShellChains(%q) = %v, %v; want nil, false", bad, segs, ok)
+		}
+	}
+}

@@ -675,3 +675,81 @@ func TestRunHookPreInvocationFenceAndTurnContract(t *testing.T) {
 		t.Errorf("parsed enrichment mismatch: %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
 	}
 }
+
+func invokePreToolBashT(t *testing.T, dir, home, convID, cmd string) HookDecisionOutput {
+	t.Helper()
+	req, _ := json.Marshal(map[string]any{
+		"conversationId": convID,
+		"workspacePaths": []string{dir},
+		"toolCall":       map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": cmd}},
+	})
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+		t.Fatalf("pre-tool-use %q: %v", cmd, err)
+	}
+	var dec HookDecisionOutput
+	if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+		t.Fatalf("unmarshal %q: %v", out.String(), err)
+	}
+	return dec
+}
+
+func TestRunHookPreToolBashChainClamping(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	var big strings.Builder
+	big.WriteString("package sub\n\n")
+	for i := 1; i <= 420; i++ {
+		fmt.Fprintf(&big, "func BigFn%03d() int { return %d }\n", i, i)
+	}
+	writeFile(t, dir, "sub/big.go", big.String())
+	writeFile(t, dir, "sub/small.go", "package sub\n\nfunc SmallFn() int { return 1 }\n")
+	commitAll(t, dir, "add sub files")
+
+	if d := invokePreToolBashT(t, dir, home, "conv-bash-cat", "cd sub && cat small.go && cat big.go"); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[CLAMPED]\n") || !strings.Contains(d.Reason, "sub/big.go") {
+		t.Fatalf("chained cd && cat big.go = %+v, want deny [CLAMPED] for sub/big.go", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-bash-cat", "cat sub/small.go"); d.Decision != "allow" {
+		t.Fatalf("sub/small.go after aborted chain = %+v, want allow (not stamped)", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-bash-nl", "nl -ba sub/big.go"); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[CLAMPED]\n") {
+		t.Fatalf("unranged nl -ba sub/big.go = %+v, want deny [CLAMPED]", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-bash-bat", "bat sub/big.go"); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[CLAMPED]\n") {
+		t.Fatalf("unranged bat sub/big.go = %+v, want deny [CLAMPED]", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-bash-bat", "bat -r 1:25 sub/big.go; sed -n '26,50p' sub/big.go"); d.Decision != "allow" {
+		t.Fatalf("ranged bat ; sed after clamp = %+v, want allow", d)
+	}
+}
+
+func TestRunHookPreToolBashChainDedupAndBypass(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	writeFile(t, dir, "sub/a.go", "package sub\n\nfunc Alpha() int { return 1 }\n")
+	writeFile(t, dir, "sub/b.go", "package sub\n\nfunc Beta() int { return 2 }\n")
+	writeFile(t, dir, "sub/c.go", "package sub\n\nfunc Gamma() int { return 3 }\n")
+	commitAll(t, dir, "add sub a/b/c")
+
+	if d := invokePreToolBashT(t, dir, home, "conv-chain-dedup", "cd sub && head -n 3 a.go && cat b.go"); d.Decision != "allow" {
+		t.Fatalf("1st chained read = %+v, want allow", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-chain-dedup", "sed -n '1,3p' sub/a.go"); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]") {
+		t.Fatalf("repeat ranged read of sub/a.go = %+v, want deny [UNCHANGED]", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-chain-dedup", "cat sub/c.go ; cat sub/b.go"); d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]") {
+		t.Fatalf("chain containing already-read sub/b.go = %+v, want deny [UNCHANGED]", d)
+	}
+	if d := invokePreToolBashT(t, dir, home, "conv-chain-dedup", "cat sub/c.go"); d.Decision != "allow" {
+		t.Fatalf("sub/c.go after denied chain = %+v, want allow (not stamped)", d)
+	}
+	for _, cmd := range []string{
+		"grep Alpha sub/a.go | head -n 5",
+		"cat sub/b.go > out.txt",
+		"cat $(echo sub/b.go)",
+		"cat sub/*.go",
+		"cat sub/b.go &",
+	} {
+		if d := invokePreToolBashT(t, dir, home, "conv-chain-dedup", cmd); d.Decision != "allow" {
+			t.Errorf("bypass command %q = %+v, want allow", cmd, d)
+		}
+	}
+}

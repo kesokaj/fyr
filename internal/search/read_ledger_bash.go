@@ -14,8 +14,40 @@ type BashFileRead struct {
 
 // ParseBashFileRead detects single-file cat, head, tail, sed -n, nl, and bat commands without pipes or redirects.
 func ParseBashFileRead(cmd string) (BashFileRead, bool) {
-	tokens, ok := tokenizeSimpleShell(cmd)
-	if !ok || len(tokens) < 2 {
+	segs, sawSep, ok := splitSimpleShellChainsCore(cmd)
+	if !ok || sawSep || len(segs) != 1 {
+		return BashFileRead{}, false
+	}
+	return parseBashReadTokens(tokenizeValidatedSegment(segs[0]))
+}
+
+// ParseBashFileReads extracts file reads from simple && and ; shell chains, tracking cd prefixes.
+func ParseBashFileReads(cmd string) []BashFileRead {
+	segs, _, ok := splitSimpleShellChainsCore(cmd)
+	if !ok {
+		return nil
+	}
+	var out []BashFileRead
+	cwd, unknown := "", false
+	for _, seg := range segs {
+		toks := tokenizeValidatedSegment(seg)
+		if len(toks) == 0 {
+			continue
+		}
+		if handled, nextDir, nextUnknown := stepTrackedBashDir(cwd, unknown, toks); handled {
+			cwd, unknown = nextDir, nextUnknown
+		} else if r, ok := parseBashReadTokens(toks); ok && r.Path != "" && (filepath.IsAbs(r.Path) || !unknown) {
+			if !filepath.IsAbs(r.Path) {
+				r.Path = filepath.ToSlash(filepath.Clean(filepath.Join(cwd, r.Path)))
+			}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func parseBashReadTokens(tokens []string) (BashFileRead, bool) {
+	if len(tokens) < 2 {
 		return BashFileRead{}, false
 	}
 	switch tool := filepath.Base(tokens[0]); tool {
@@ -29,34 +61,88 @@ func ParseBashFileRead(cmd string) (BashFileRead, bool) {
 	return BashFileRead{}, false
 }
 
-func tokenizeSimpleShell(cmd string) ([]string, bool) {
+func stepTrackedBashDir(cwd string, unknown bool, toks []string) (bool, string, bool) {
+	if toks[0] == "builtin" && len(toks) > 1 {
+		toks = toks[1:]
+	}
+	switch toks[0] {
+	case "pushd", "popd":
+		return true, "", true
+	case "cd":
+		if len(toks) != 2 || toks[1] == "" || strings.HasPrefix(toks[1], "-") || strings.HasPrefix(toks[1], "~") || strings.ContainsRune(toks[1], '$') {
+			return true, "", true
+		}
+		if filepath.IsAbs(toks[1]) {
+			return true, filepath.ToSlash(filepath.Clean(toks[1])), false
+		}
+		if unknown {
+			return true, "", true
+		}
+		return true, filepath.ToSlash(filepath.Clean(filepath.Join(cwd, toks[1]))), false
+	}
+	return false, cwd, unknown
+}
+
+func splitSimpleShellChains(cmd string) ([]string, bool) {
+	segs, _, ok := splitSimpleShellChainsCore(cmd)
+	return segs, ok
+}
+
+func splitSimpleShellChainsCore(cmd string) ([]string, bool, bool) {
+	var segs []string
+	start, quote, sawSep := 0, byte(0), false
+	for i := 0; i < len(cmd); i++ {
+		nextIdx, nextQ, sepLen, ok := stepChainSplit(cmd, i, quote)
+		if !ok {
+			return nil, sawSep, false
+		}
+		if sepLen > 0 {
+			sawSep = true
+			if s := strings.TrimSpace(cmd[start:i]); s != "" {
+				segs = append(segs, s)
+			}
+			start = i + sepLen
+		}
+		i, quote = nextIdx, nextQ
+	}
+	if s := strings.TrimSpace(cmd[start:]); quote == 0 && s != "" {
+		segs = append(segs, s)
+	}
+	return segs, sawSep, quote == 0 && len(segs) > 0
+}
+
+func stepChainSplit(cmd string, i int, quote byte) (int, byte, int, bool) {
+	if quote != 0 {
+		nextIdx, nextQ, ok := stepQuotedShellByte(cmd, i, quote, nil)
+		return nextIdx, nextQ, 0, ok
+	}
+	switch cmd[i] {
+	case '\\':
+		return i + 1, 0, 0, i+1 < len(cmd)
+	case '\'', '"':
+		return i, cmd[i], 0, true
+	case ';':
+		return i, 0, 1, true
+	case '&':
+		return i + 1, 0, 2, i+1 < len(cmd) && cmd[i+1] == '&' && (i+2 >= len(cmd) || cmd[i+2] != '&')
+	}
+	return i, 0, 0, strings.IndexByte("|<>()`$*?[\n\r", cmd[i]) < 0
+}
+
+func tokenizeValidatedSegment(seg string) []string {
 	var toks []string
 	var cur strings.Builder
 	inTok, quote := false, byte(0)
-	for i := 0; i < len(cmd); i++ {
-		ch := cmd[i]
-		if quote != 0 {
-			nextIdx, ok := stepQuotedShellByte(cmd, i, quote, &cur)
-			if !ok {
-				return nil, false
-			}
-			if nextIdx < 0 {
-				quote = 0
-			} else {
-				i = nextIdx
-			}
-			continue
-		}
-		if strings.IndexByte("|&;<>()`$*?[\n\r", ch) >= 0 || (ch == '\\' && i+1 >= len(cmd)) {
-			return nil, false
-		}
-		switch ch {
-		case '\'', '"':
+	for i := 0; i < len(seg); i++ {
+		switch ch := seg[i]; {
+		case quote != 0:
+			i, quote, _ = stepQuotedShellByte(seg, i, quote, &cur)
+		case ch == '\'' || ch == '"':
 			quote, inTok = ch, true
-		case '\\':
+		case ch == '\\':
 			i, inTok = i+1, true
-			cur.WriteByte(cmd[i])
-		case ' ', '\t':
+			cur.WriteByte(seg[i])
+		case ch == ' ' || ch == '\t':
 			if inTok {
 				toks, inTok = append(toks, cur.String()), false
 				cur.Reset()
@@ -69,46 +155,43 @@ func tokenizeSimpleShell(cmd string) ([]string, bool) {
 	if inTok {
 		toks = append(toks, cur.String())
 	}
-	return toks, quote == 0 && len(toks) > 0
+	return toks
 }
 
-func stepQuotedShellByte(cmd string, i int, quote byte, cur *strings.Builder) (int, bool) {
+func stepQuotedShellByte(cmd string, i int, quote byte, cur *strings.Builder) (int, byte, bool) {
 	if cmd[i] == quote {
-		return -1, true
+		return i, 0, true
 	}
 	if quote == '"' && (cmd[i] == '`' || (cmd[i] == '$' && i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{'))) {
-		return i, false
+		return i, quote, false
 	}
 	if quote == '"' && cmd[i] == '\\' && i+1 < len(cmd) {
-		cur.WriteByte(cmd[i+1])
-		return i + 1, true
+		i++
 	}
-	cur.WriteByte(cmd[i])
-	return i, true
+	if cur != nil {
+		cur.WriteByte(cmd[i])
+	}
+	return i, quote, true
 }
 
-func parseBashSimpleOrBat(rawTool string, args []string) (BashFileRead, bool) {
-	tool := rawTool
+func parseBashSimpleOrBat(tool string, args []string) (BashFileRead, bool) {
 	if tool == "batcat" {
 		tool = "bat"
 	}
 	start, end := 1, 0
 	var files []string
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			files = append(files, args[i+1:]...)
-			break
-		}
-		if strings.HasPrefix(a, "-") && a != "-" {
-			nextIdx, s, e, ok := stepSimpleOrBatFlag(tool, args, i, start, end)
-			if !ok {
+		switch a := args[i]; {
+		case a == "--":
+			files, i = append(files, args[i+1:]...), len(args)
+		case strings.HasPrefix(a, "-") && a != "-":
+			var ok bool
+			if i, start, end, ok = stepSimpleOrBatFlag(tool, args, i, start, end); !ok {
 				return BashFileRead{}, false
 			}
-			i, start, end = nextIdx, s, e
-			continue
+		default:
+			files = append(files, a)
 		}
-		files = append(files, a)
 	}
 	if len(files) != 1 || files[0] == "-" {
 		return BashFileRead{}, false
@@ -117,31 +200,25 @@ func parseBashSimpleOrBat(rawTool string, args []string) (BashFileRead, bool) {
 }
 
 func stepSimpleOrBatFlag(tool string, args []string, i, start, end int) (int, int, int, bool) {
-	a := args[i]
-	if tool == "cat" {
-		ok := strings.Contains("|--number|--number-nonblank|--squeeze-blank|--show-all|--show-ends|--show-tabs|--show-nonprinting|", "|"+a+"|") ||
+	switch a := args[i]; {
+	case tool == "cat":
+		return i, start, end, strings.Contains("|--number|--number-nonblank|--squeeze-blank|--show-all|--show-ends|--show-tabs|--show-nonprinting|", "|"+a+"|") ||
 			(!strings.HasPrefix(a, "--") && len(a) > 1 && strings.TrimLeft(a[1:], "nbsveEtTAu") == "")
-		return i, start, end, ok
-	}
-	if tool == "nl" {
+	case tool == "nl":
 		if strings.Contains("|-b|-n|-s|-w|-v|-i|-l|", "|"+a+"|") && i+1 < len(args) {
-			return i + 1, start, end, true
+			i++
 		}
-		return i, start, end, true
-	}
-	if (a == "-r" || a == "--line-range") && i+1 < len(args) {
+	case a == "-r" || a == "--line-range":
+		if i+1 >= len(args) {
+			return i, 0, 0, false
+		}
 		s, e, ok := parseBatLineRange(args[i+1])
 		return i + 1, s, e, ok
-	}
-	if strings.HasPrefix(a, "--line-range=") || (strings.HasPrefix(a, "-r") && len(a) > 2) {
+	case strings.HasPrefix(a, "--line-range=") || (strings.HasPrefix(a, "-r") && len(a) > 2):
 		s, e, ok := parseBatLineRange(strings.TrimPrefix(strings.TrimPrefix(a, "--line-range="), "-r"))
 		return i, s, e, ok
-	}
-	if a == "-r" || a == "--line-range" {
-		return i, 0, 0, false
-	}
-	if strings.Contains("|--style|--color|--paging|--decorations|--wrap|--theme|-l|--language|", "|"+a+"|") && i+1 < len(args) {
-		return i + 1, start, end, true
+	case strings.Contains("|--style|--color|--paging|--decorations|--wrap|--theme|-l|--language|", "|"+a+"|") && i+1 < len(args):
+		i++
 	}
 	return i, start, end, true
 }
@@ -151,30 +228,24 @@ func parseBatLineRange(spec string) (int, int, bool) {
 	if !ok {
 		return 0, 0, false
 	}
-	start, end := 1, 0
-	if sStr != "" {
-		if n, err := strconv.Atoi(sStr); err != nil || n <= 0 {
-			return 0, 0, false
-		} else {
-			start = n
-		}
+	start, ok1 := parseOptBatBound(sStr, 1, 1)
+	end, ok2 := parseOptBatBound(eStr, start, 0)
+	return start, end, ok1 && ok2
+}
+
+func parseOptBatBound(raw string, minVal, def int) (int, bool) {
+	if raw == "" {
+		return def, true
 	}
-	if eStr != "" {
-		if n, err := strconv.Atoi(eStr); err != nil || n < start {
-			return 0, 0, false
-		} else {
-			end = n
-		}
-	}
-	return start, end, true
+	n, err := strconv.Atoi(raw)
+	return n, err == nil && n >= minVal
 }
 
 func parseBashHeadOrTail(tool string, args []string) (BashFileRead, bool) {
 	rawCount := "10"
 	var files []string
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
+		switch a := args[i]; {
 		case a == "--":
 			files = append(files, args[i+1:]...)
 			i = len(args)
@@ -203,26 +274,22 @@ func parseBashHeadOrTail(tool string, args []string) (BashFileRead, bool) {
 
 func buildHeadOrTailRead(tool, filePath, rawCount string) (BashFileRead, bool) {
 	if tool == "head" {
-		if strings.HasPrefix(rawCount, "-") {
-			return BashFileRead{}, false
-		}
 		n, err := strconv.Atoi(strings.TrimPrefix(rawCount, "+"))
-		return BashFileRead{Tool: "head", Path: filePath, StartLine: 1, EndLine: n}, err == nil && n > 0
+		return BashFileRead{Tool: "head", Path: filePath, StartLine: 1, EndLine: n}, !strings.HasPrefix(rawCount, "-") && err == nil && n > 0
 	}
 	if strings.HasPrefix(rawCount, "+") {
 		n, err := strconv.Atoi(rawCount[1:])
-		return BashFileRead{Tool: "tail", Path: filePath, StartLine: n, EndLine: 0}, err == nil && n > 0
+		return BashFileRead{Tool: "tail", Path: filePath, StartLine: n}, err == nil && n > 0
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(rawCount, "-"))
-	return BashFileRead{Tool: "tail", Path: filePath, StartLine: -n, EndLine: 0, TailLines: n}, err == nil && n > 0
+	return BashFileRead{Tool: "tail", Path: filePath, StartLine: -n, TailLines: n}, err == nil && n > 0
 }
 
 func parseBashSed(args []string) (BashFileRead, bool) {
 	quiet := false
 	var scripts, pos []string
 	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
+		switch a := args[i]; {
 		case a == "--":
 			pos, i = append(pos, args[i+1:]...), len(args)
 		case a == "-n" || a == "--quiet" || a == "--silent":
@@ -232,10 +299,9 @@ func parseBashSed(args []string) (BashFileRead, bool) {
 				return BashFileRead{}, false
 			}
 			i, scripts = i+1, append(scripts, args[i+1])
+		case strings.HasPrefix(a, "-") && strings.ContainsAny(a, "if"):
+			return BashFileRead{}, false
 		case strings.HasPrefix(a, "-"):
-			if strings.ContainsAny(a, "if") {
-				return BashFileRead{}, false
-			}
 			quiet = quiet || strings.ContainsRune(a, 'n')
 			if strings.HasSuffix(a, "e") && i+1 < len(args) {
 				i, scripts = i+1, append(scripts, args[i+1])
@@ -266,18 +332,17 @@ func parseSedRangeScript(script string) (int, int, bool) {
 	if !strings.HasSuffix(script, "p") {
 		return 0, 0, false
 	}
-	addr := strings.TrimSuffix(script, "p")
-	if startStr, endStr, ok := strings.Cut(addr, ","); ok {
-		start, err := strconv.Atoi(strings.TrimSpace(startStr))
-		if err != nil || start <= 0 {
-			return 0, 0, false
-		}
-		if strings.TrimSpace(endStr) == "$" {
-			return start, 0, true
-		}
-		end, err := strconv.Atoi(strings.TrimSpace(endStr))
-		return start, end, err == nil && end >= start
+	startStr, endStr, hasRange := strings.Cut(strings.TrimSuffix(script, "p"), ",")
+	start, err := strconv.Atoi(strings.TrimSpace(startStr))
+	if err != nil || start <= 0 {
+		return 0, 0, false
 	}
-	line, err := strconv.Atoi(strings.TrimSpace(addr))
-	return line, line, err == nil && line > 0
+	if !hasRange {
+		return start, start, true
+	}
+	if strings.TrimSpace(endStr) == "$" {
+		return start, 0, true
+	}
+	end, err := strconv.Atoi(strings.TrimSpace(endStr))
+	return start, end, err == nil && end >= start
 }

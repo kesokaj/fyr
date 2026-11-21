@@ -36,7 +36,7 @@ func dispatchPreToolUseCtx(ctx context.Context, o Options, dir string, wdSt *sto
 	case "read_file":
 		return handlePreToolReadCtx(ctx, o.Home, dir, wdSt, wdRoot, in, out)
 	case "run_command":
-		return handlePreToolBashCtx(ctx, o.Home, dir, in, out)
+		return handlePreToolBashCtx(ctx, o.Home, dir, wdSt, wdRoot, in, out)
 	case "write_or_edit":
 		return handlePreToolWriteCtx(ctx, o, dir, in, out)
 	case "invoke_subagent", "invokesubagent":
@@ -146,14 +146,11 @@ func resolveReusableReadLedgerStore(sessionDir, home, toolDir string, wdSt *stor
 }
 
 func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
-	return handlePreToolBashCtx(context.Background(), home, dir, in, out)
+	return handlePreToolBashCtx(context.Background(), home, dir, nil, "", in, out)
 }
 
-func handlePreToolBashCtx(ctx context.Context, home, dir string, in HookInput, out io.Writer) error {
-	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
-	bfr, ok := ParseBashFileRead(cmd)
-	toolDir := resolveToolProjectDir(dir, in, bfr.Path)
-	if hooksDisabledForHome(home, toolDir) {
+func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
+	if hooksDisabledForHome(home, dir) {
 		return writeDecision(out, "allow", "")
 	}
 	if err := ctx.Err(); err != nil {
@@ -163,10 +160,12 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, in HookInput, o
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
 	}
-	if ok {
-		dec, err := CheckAndRecordReadInSession(dir, home, toolDir, in.ConversationID, bfr.Path, bfr.StartLine, bfr.EndLine, 0)
-		if err == nil && !dec.Allowed {
-			return writeDecision(out, "deny", dec.Reason)
+	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
+	if reads := ParseBashFileReads(cmd); len(reads) > 0 {
+		if deny, err := enforceBashFileReads(ctx, home, dir, wdSt, wdRoot, in, reads); err != nil {
+			return err
+		} else if deny != "" {
+			return writeDecision(out, "deny", deny)
 		}
 	}
 	if overwrite != nil {
@@ -174,6 +173,131 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, in HookInput, o
 		return nil
 	}
 	return writeDecision(out, "allow", "")
+}
+
+type bashLedgerHandle struct {
+	st    *store
+	root  string
+	ownSt bool
+}
+
+type bashLedgerCache struct {
+	byRoot map[string]bashLedgerHandle
+}
+
+func (c *bashLedgerCache) resolve(dir, home, toolDir string, wdSt *store, wdRoot string) (*store, string) {
+	ledgerDir := resolveSessionLedgerDir(dir, toolDir)
+	key := ledgerDir
+	if root, _, ok := findGitRootFast(ledgerDir); ok {
+		key = CanonicalizePath("", root)
+	}
+	if h, ok := c.byRoot[key]; ok {
+		return h.st, h.root
+	}
+	st, root, ownSt := resolveReusableReadLedgerStore(dir, home, toolDir, wdSt, wdRoot)
+	c.byRoot[key] = bashLedgerHandle{st: st, root: root, ownSt: ownSt}
+	return st, root
+}
+
+func (c *bashLedgerCache) close() {
+	for _, h := range c.byRoot {
+		if h.ownSt && h.st != nil {
+			h.st.close()
+		}
+	}
+}
+
+type resolvedBashRead struct {
+	read     BashFileRead
+	snap     readFileSnapshot
+	st       *store
+	root     string
+	unranged bool
+}
+
+func isUnrangedBashRead(r BashFileRead) bool {
+	switch r.Tool {
+	case "cat", "nl", "bat":
+		return r.StartLine <= 1 && r.EndLine == 0 && r.TailLines == 0
+	default:
+		return false
+	}
+}
+
+func resolveBashReadTargets(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, reads []BashFileRead, cache *bashLedgerCache) []resolvedBashRead {
+	items := make([]resolvedBashRead, 0, len(reads))
+	for _, r := range reads {
+		if ctx.Err() != nil {
+			break
+		}
+		toolDir := resolveToolProjectDir(dir, in, r.Path)
+		if hooksDisabledForHome(home, toolDir) {
+			continue
+		}
+		resolved := CanonicalizePath(toolDir, r.Path)
+		candRoot := resolveReadGuardRoot(dir, toolDir, wdRoot)
+		if !shouldGuardReadInRoot(candRoot, resolved) {
+			continue
+		}
+		st, root := cache.resolve(dir, home, toolDir, wdSt, wdRoot)
+		if st == nil || !shouldGuardReadInRoot(root, resolved) {
+			continue
+		}
+		snap := loadReadFileSnapshot(resolved)
+		if !snap.ok {
+			continue
+		}
+		items = append(items, resolvedBashRead{read: r, snap: snap, st: st, root: root, unranged: isUnrangedBashRead(r)})
+	}
+	return items
+}
+
+func enforceBashFileReads(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, reads []BashFileRead) (string, error) {
+	cache := bashLedgerCache{byRoot: make(map[string]bashLedgerHandle, 1)}
+	defer cache.close()
+	items := resolveBashReadTargets(ctx, home, dir, wdSt, wdRoot, in, reads, &cache)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	convID := normalizeLedgerConvID(in.ConversationID)
+	for _, it := range items {
+		if it.unranged {
+			if dec, clamped := checkUnrangedClampWithStore(ctx, it.st, it.root, in.ConversationID, it.snap, nil); clamped {
+				return dec.Reason, nil
+			}
+		}
+	}
+	for _, it := range items {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		reqStart, reqEnd := normalizeLineRange(it.read.StartLine, it.read.EndLine, it.snap.totalLines)
+		if it.st.hasUnchangedReadHit(ctx, convID, it.snap.resolved, reqStart, reqEnd, it.snap.sumHex) {
+			if dec, err := it.st.checkAndRecordResolvedRead(it.root, convID, it.snap.resolved, it.read.StartLine, it.read.EndLine, 0); err == nil && !dec.Allowed {
+				return dec.Reason, nil
+			}
+		}
+	}
+	for _, it := range items {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		reqStart, reqEnd := normalizeLineRange(it.read.StartLine, it.read.EndLine, it.snap.totalLines)
+		if !it.st.hasUnchangedReadHit(ctx, convID, it.snap.resolved, reqStart, reqEnd, it.snap.sumHex) {
+			_, _ = it.st.checkAndRecordResolvedRead(it.root, convID, it.snap.resolved, it.read.StartLine, it.read.EndLine, 0)
+		}
+	}
+	return "", nil
+}
+
+func (s *store) hasUnchangedReadHit(ctx context.Context, convID, resolved string, reqStart, reqEnd int, sumHex string) bool {
+	genID, _ := s.currentGeneration(convID)
+	var hit int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND sha256 = ? AND start_line > 0 AND start_line <= ? AND end_line >= ? LIMIT 1`,
+		convID, genID, resolved, sumHex, reqStart, reqEnd,
+	).Scan(&hit)
+	return err == nil && hit == 1
 }
 
 func handlePreToolWriteCtx(ctx context.Context, o Options, dir string, in HookInput, out io.Writer) error {
