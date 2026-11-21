@@ -6,6 +6,10 @@ func (s *store) migrateV9ToV10() error {
 	return s.withImmediateTx(s.migrateV9ToV10Tx)
 }
 
+func (s *store) migrateV10ToV11() error {
+	return s.withImmediateTx(s.migrateV10ToV11Tx)
+}
+
 const chunksDeleteTriggerSQL = `CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, heading, body, tokens) VALUES ('delete', old.id, old.heading, old.body, old.tokens);
 END;`
@@ -15,20 +19,14 @@ func (s *store) migrateV9ToV10Tx() error {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
 		return err
 	}
-	if v == schemaVersion {
+	if v == schemaVersion || v == "10" {
 		return s.ensureRefsOIDIndex()
 	}
 	if v != "9" {
 		return staleSchemaError{v}
 	}
-	hasLineCount, err := tableHasColumn(s.db, "blobs", "line_count")
-	if err != nil {
+	if err := ensureColumnDefaultZero(s.db, "blobs", "line_count"); err != nil {
 		return err
-	}
-	if !hasLineCount {
-		if _, err := s.db.Exec(`ALTER TABLE blobs ADD COLUMN line_count INT DEFAULT 0`); err != nil {
-			return err
-		}
 	}
 	stmts := []string{
 		`DROP TRIGGER IF EXISTS chunks_ad`,
@@ -43,10 +41,41 @@ func (s *store) migrateV9ToV10Tx() error {
 			return err
 		}
 	}
+	if _, err := s.db.Exec(`UPDATE meta SET value = '10' WHERE key = 'schema'`); err != nil {
+		return err
+	}
+	return s.ensureRefsOIDIndex()
+}
+
+func (s *store) migrateV10ToV11Tx() error {
+	var v string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
+		return err
+	}
+	if v == schemaVersion {
+		return s.ensureRefsOIDIndex()
+	}
+	if v != "10" {
+		return staleSchemaError{v}
+	}
+	for _, col := range []string{"duration_ms", "timed_out", "injected_bytes"} {
+		if err := ensureColumnDefaultZero(s.db, "vet_history", col); err != nil {
+			return err
+		}
+	}
 	if _, err := s.db.Exec(`UPDATE meta SET value = ? WHERE key = 'schema'`, schemaVersion); err != nil {
 		return err
 	}
 	return s.ensureRefsOIDIndex()
+}
+
+func ensureColumnDefaultZero(db *sql.DB, table, col string) error {
+	has, err := tableHasColumn(db, table, col)
+	if err != nil || has {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` INT DEFAULT 0`)
+	return err
 }
 
 func tableHasColumn(db *sql.DB, table, col string) (bool, error) {

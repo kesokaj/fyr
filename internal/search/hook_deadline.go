@@ -3,10 +3,13 @@ package search
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -14,6 +17,11 @@ import (
 type hookRunResult struct {
 	data []byte
 	err  error
+}
+
+type hookInputMeta struct {
+	dir   string
+	input HookInput
 }
 
 func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) error {
@@ -28,11 +36,13 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 	if dispatchFn == nil {
 		dispatchFn = dispatchHookEvent
 	}
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 
 	ch := make(chan hookRunResult, 1)
-	go runHookWorker(ctx, o, event, in, dispatchFn, ch)
+	metaCh := make(chan hookInputMeta, 1)
+	go runHookWorker(ctx, o, event, in, dispatchFn, ch, metaCh)
 
 	select {
 	case res := <-ch:
@@ -42,11 +52,18 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 		}
 		return writeHookAllowFallback(event, out)
 	case <-ctx.Done():
+		if event == "pre-invocation" {
+			select {
+			case m := <-metaCh:
+				recordPreInvocationTimeoutBestEffort(o, m.dir, m.input, max(1, int(time.Since(start).Milliseconds())))
+			default:
+			}
+		}
 		return writeHookAllowFallback(event, out)
 	}
 }
 
-func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, dispatchFn func(context.Context, Options, string, string, HookInput, io.Writer) error, ch chan<- hookRunResult) {
+func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, dispatchFn func(context.Context, Options, string, string, HookInput, io.Writer) error, ch chan<- hookRunResult, metaCh chan<- hookInputMeta) {
 	var buf bytes.Buffer
 	defer func() {
 		if r := recover(); r != nil {
@@ -72,11 +89,71 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 		}
 		return
 	}
+	select {
+	case metaCh <- hookInputMeta{dir: dir, input: input}:
+	default:
+	}
 	err := dispatchFn(ctx, o, event, dir, input, &buf)
 	select {
 	case ch <- hookRunResult{data: buf.Bytes(), err: err}:
 	case <-ctx.Done():
 	}
+}
+
+func recordPreInvocationTimeoutBestEffort(o Options, dir string, in HookInput, durationMS int) {
+	if hooksDisabledForHome(o.Home, dir) {
+		return
+	}
+	root, commonDir, ok := findGitRootFast(dir)
+	if !ok || hooksDisabled(root) || guardLedgerFast(root, commonDir) != nil {
+		return
+	}
+	st := openShortTimeoutStore(projectDB(root))
+	if st == nil {
+		return
+	}
+	defer st.close()
+	convID := normalizeLedgerConvID(in.ConversationID)
+	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
+	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
+	tctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	var maxTurn int
+	_ = st.db.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
+	res := VetResult{Intent: ClassifyIntent(cleanPrompt, 0), Gate: GatePassThrough}
+	_ = st.recordVetHistoryWithMetrics(convID, maxTurn+1, rawPrompt, res, nil, vetTurnMetrics{
+		durationMS: durationMS,
+		timedOut:   true,
+	})
+}
+
+func openShortTimeoutStore(path string) *store {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil
+	}
+	if err := prepareFiles(path); err != nil {
+		return nil
+	}
+	absPath := path
+	if abs, err := filepath.Abs(path); err == nil {
+		absPath = abs
+	}
+	u := url.URL{
+		Scheme:   "file",
+		Path:     filepath.ToSlash(absPath),
+		RawQuery: "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15)&_pragma=foreign_keys(0)",
+	}
+	db, err := sql.Open("sqlite", u.String())
+	if err != nil {
+		return nil
+	}
+	db.SetMaxOpenConns(1)
+	s := &store{db: db, path: path}
+	if err := s.ensureSchema(); err != nil {
+		_ = db.Close()
+		return nil
+	}
+	return s
 }
 
 func dispatchHookEvent(ctx context.Context, o Options, event, dir string, input HookInput, out io.Writer) error {

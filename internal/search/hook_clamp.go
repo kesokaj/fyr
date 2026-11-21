@@ -96,7 +96,7 @@ func hasExplicitReadRange(args map[string]any) bool {
 }
 
 func checkUnrangedClampWithStore(ctx context.Context, st *store, root, conversationID string, snap readFileSnapshot, args map[string]any) (ReadDecision, bool) {
-	if st == nil || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok || snap.totalLines < clampSkeletonMinLines {
+	if st == nil || !shouldGuardReadInRoot(root, snap.resolved) || ctx.Err() != nil || hasExplicitReadRange(args) || !snap.ok || snap.totalLines < clampSkeletonMinLines {
 		return ReadDecision{}, false
 	}
 	convID := normalizeLedgerConvID(conversationID)

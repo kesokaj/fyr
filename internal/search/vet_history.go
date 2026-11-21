@@ -22,6 +22,9 @@ type VetHistoryRow struct {
 	PivotFiles      []string
 	SubtaskCount    int
 	Directive       string
+	DurationMS      int
+	TimedOut        bool
+	InjectedBytes   int
 	CreatedAt       int64
 }
 

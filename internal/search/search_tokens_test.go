@@ -168,8 +168,8 @@ func TestBatchedSnippetsAndSchemaV9RefsOID(t *testing.T) {
 
 	db := openDB(t, root)
 	var schema string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "10" {
-		t.Fatalf("schema = %q, err = %v; want 10", schema, err)
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "11" {
+		t.Fatalf("schema = %q, err = %v; want 11", schema, err)
 	}
 	if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'refs_oid'`); n != 1 {
 		t.Fatalf("refs_oid count = %d, want 1", n)

@@ -30,12 +30,15 @@ type ProcessModelRouting struct {
 
 // ProcessTurnTelemetry records one turn's vet state inside ProcessTelemetry.
 type ProcessTurnTelemetry struct {
-	TurnNum int      `json:"turnNum"`
-	Intent  string   `json:"intent"`
-	Gate    string   `json:"gate"`
-	Score   int      `json:"score"`
-	Skills  []string `json:"skills,omitempty"`
-	Pivots  []string `json:"pivots,omitempty"`
+	TurnNum       int      `json:"turnNum"`
+	Intent        string   `json:"intent"`
+	Gate          string   `json:"gate"`
+	Score         int      `json:"score"`
+	DurationMS    int      `json:"durationMs,omitempty"`
+	TimedOut      bool     `json:"timedOut,omitempty"`
+	InjectedBytes int      `json:"injectedBytes,omitempty"`
+	Skills        []string `json:"skills,omitempty"`
+	Pivots        []string `json:"pivots,omitempty"`
 }
 
 // ProcessWorkWave describes the newest active/completed fyr work wave.
@@ -147,10 +150,13 @@ func buildProcessTurns(rows []VetHistoryRow) []ProcessTurnTelemetry {
 	var turns []ProcessTurnTelemetry
 	for _, r := range rows {
 		turn := ProcessTurnTelemetry{
-			TurnNum: r.TurnNum,
-			Intent:  normalizeUpperSnakeEnum(string(r.Intent)),
-			Gate:    normalizeUpperSnakeEnum(string(r.Gate)),
-			Score:   r.Score,
+			TurnNum:       r.TurnNum,
+			Intent:        normalizeUpperSnakeEnum(string(r.Intent)),
+			Gate:          normalizeUpperSnakeEnum(string(r.Gate)),
+			Score:         r.Score,
+			DurationMS:    r.DurationMS,
+			TimedOut:      r.TimedOut,
+			InjectedBytes: r.InjectedBytes,
 		}
 		for _, s := range r.SuggestedSkills {
 			if name := strings.TrimSpace(printable(s)); name != "" {

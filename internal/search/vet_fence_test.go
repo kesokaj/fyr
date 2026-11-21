@@ -264,6 +264,10 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		{"", "gemini-3.8-flash-tiered", "Gemini 3.8 Flash", "TIERED"},
 		{"", "gemini-flash-worker-agy", "Gemini Flash Worker", "FAST"},
 		{"", "gemini-pro-orchestrator", "Orchestrator (Carbon)", "DYNAMIC"},
+		{"", "gemini-pro-orchestrator-neon", "Orchestrator (Neon)", "DYNAMIC"},
+		{"", "gemini-4-neon-high", "Gemini 4 Neon", "HIGH"},
+		{"", "gemini-5-xenon-medium", "Gemini 5 Xenon", "MEDIUM"},
+		{"", "gpt-oss-120b-medium", "GPT-OSS 120B", "MEDIUM"},
 		{"", "auto", "", ""},
 		{"", "", "", ""},
 	}
@@ -338,6 +342,28 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		t.Fatalf("resolveHookSessionModel = %q, want claude-opus-5-5-high", got)
 	}
 	assertCleanDirs("after resolveHookSessionModel")
+
+	// Verify (3, 28) concrete model ID takes precedence over (1, 19) bare stem in gen_metadata.
+	db328, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bareVal := []byte("gemini-4-neon")
+	f1 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((19<<3)|2)), uint64(len(bareVal))), bareVal...)
+	msg1 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((1<<3)|2)), uint64(len(f1))), f1...)
+	concVal := []byte("gemini-4-neon-high")
+	f3 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((28<<3)|2)), uint64(len(concVal))), concVal...)
+	msg3 := append(binary.AppendUvarint(binary.AppendUvarint(nil, uint64((3<<3)|2)), uint64(len(f3))), f3...)
+	combinedBlob := append(msg1, msg3...)
+	if _, err := db328.Exec(`INSERT INTO gen_metadata(idx, data) VALUES (1, ?)`, combinedBlob); err != nil {
+		t.Fatal(err)
+	}
+	_ = db328.Close()
+	if got := resolveHookSessionModel(hookIn); got != "gemini-4-neon-high" {
+		t.Fatalf("resolveHookSessionModel with (3,28) = %q, want gemini-4-neon-high", got)
+	}
+	assertCleanDirs("after (3,28) resolveHookSessionModel")
+
 	payload, _ := json.Marshal(map[string]any{
 		"conversationId":        convID,
 		"artifactDirectoryPath": brainDir,
@@ -354,8 +380,8 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
 	}
 	banner := parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
-	if banner.Model != "Claude Opus 5.5" || banner.Thinking != "HIGH" {
-		t.Errorf("PreInvocation fallback resolved model=%q thinking=%q, want Claude Opus 5.5 / HIGH", banner.Model, banner.Thinking)
+	if banner.Model != "Gemini 4 Neon" || banner.Thinking != "HIGH" {
+		t.Errorf("PreInvocation fallback resolved model=%q thinking=%q, want Gemini 4 Neon / HIGH", banner.Model, banner.Thinking)
 	}
 	assertCleanDirs("after RunHook")
 }

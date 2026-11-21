@@ -6,15 +6,30 @@ import (
 	"strings"
 )
 
+type vetTurnMetrics struct {
+	durationMS    int
+	timedOut      bool
+	injectedBytes int
+}
+
+const vetHistoryCols = `conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, duration_ms, timed_out, injected_bytes, created_at`
+
 func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string) error {
+	return st.recordVetHistoryWithMetrics(convID, turnNum, rawPrompt, res, pivotFiles, vetTurnMetrics{})
+}
+
+func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string, m vetTurnMetrics) error {
 	if st == nil || st.db == nil {
 		return nil
 	}
-	if strings.TrimSpace(convID) == "" {
-		convID = "default"
-	}
+	convID = normalizeLedgerConvID(convID)
 	if turnNum <= 0 {
 		turnNum = 1
+	}
+	trimmed := strings.TrimSpace(rawPrompt)
+	now := nowFunc().Unix()
+	if st.collapseDuplicateApproval(convID, turnNum, trimmed, res, m, now) {
+		return nil
 	}
 	var skillNames []string
 	for _, s := range res.Skills {
@@ -23,36 +38,46 @@ func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, 
 		}
 	}
 	_, err := st.db.Exec(
-		`INSERT OR REPLACE INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		convID,
-		turnNum,
-		string(res.Intent),
-		string(res.Gate),
-		res.Score,
-		strings.TrimSpace(rawPrompt),
-		res.ImprovedPrompt,
-		strings.Join(res.PresentAnchors, ","),
-		strings.Join(res.MissingAnchors, ","),
-		strings.Join(skillNames, ","),
-		strings.Join(pivotFiles, ","),
-		len(res.Subtasks),
-		preInvocationDirective(res),
-		nowFunc().Unix(),
+		`INSERT OR REPLACE INTO vet_history(`+vetHistoryCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		convID, turnNum, string(res.Intent), string(res.Gate), res.Score, trimmed,
+		res.ImprovedPrompt, strings.Join(res.PresentAnchors, ","), strings.Join(res.MissingAnchors, ","),
+		strings.Join(skillNames, ","), strings.Join(pivotFiles, ","), len(res.Subtasks),
+		preInvocationDirective(res), max(0, m.durationMS), boolInt(m.timedOut), max(0, m.injectedBytes), now,
 	)
 	return err
+}
+
+func (st *store) collapseDuplicateApproval(convID string, turnNum int, trimmed string, res VetResult, m vetTurnMetrics, now int64) bool {
+	if res.Intent != IntentApproval || res.Bypassed || m.timedOut || !isShortApprovalDirective(trimmed) {
+		return false
+	}
+	prev, err := st.lastVetHistory(convID, turnNum)
+	if err != nil || prev == nil || prev.Intent != IntentApproval || prev.TimedOut {
+		return false
+	}
+	if !strings.EqualFold(collapseOneLine(prev.RawPrompt, 0), collapseOneLine(trimmed, 0)) {
+		return false
+	}
+	_, _ = st.db.Exec(
+		`UPDATE vet_history SET duration_ms = ?, injected_bytes = ?, created_at = ? WHERE conversation_id = ? AND turn_num = ?`,
+		max(0, m.durationMS), max(0, m.injectedBytes), now, convID, prev.TurnNum,
+	)
+	return true
+}
+
+func isShortApprovalDirective(prompt string) bool {
+	return prompt != "" && len(prompt) <= 80 && len(strings.Fields(prompt)) <= 8
 }
 
 func (st *store) lastVetHistory(convID string, beforeTurn int) (*VetHistoryRow, error) {
 	if st == nil || st.db == nil {
 		return nil, nil
 	}
-	if strings.TrimSpace(convID) == "" {
-		convID = "default"
-	}
-	query := `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`
+	convID = normalizeLedgerConvID(convID)
+	query := `SELECT ` + vetHistoryCols + ` FROM vet_history WHERE conversation_id = ? ORDER BY turn_num DESC LIMIT 1`
 	args := []any{convID}
 	if beforeTurn > 0 {
-		query = `SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
+		query = `SELECT ` + vetHistoryCols + ` FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
 		args = []any{convID, beforeTurn}
 	}
 	row, err := scanVetHistoryRow(st.db.QueryRow(query, args...))
@@ -66,9 +91,7 @@ func (st *store) recentSuggestedSkills(convID string, beforeTurn, window int) (m
 	if st == nil || st.db == nil {
 		return nil, nil, nil
 	}
-	if strings.TrimSpace(convID) == "" {
-		convID = "default"
-	}
+	convID = normalizeLedgerConvID(convID)
 	if window <= 0 {
 		window = 3
 	}
@@ -108,14 +131,12 @@ func (st *store) listConversationVetHistory(convID string, limit int) ([]VetHist
 	if st == nil || st.db == nil {
 		return nil, nil
 	}
-	if strings.TrimSpace(convID) == "" {
-		convID = "default"
-	}
+	convID = normalizeLedgerConvID(convID)
 	if limit <= 0 {
 		limit = 50
 	}
 	rows, err := st.db.Query(
-		`SELECT conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, subtask_count, directive, created_at FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT ?`,
+		`SELECT `+vetHistoryCols+` FROM vet_history WHERE conversation_id = ? ORDER BY turn_num ASC LIMIT ?`,
 		convID, limit,
 	)
 	if err != nil {
@@ -140,15 +161,18 @@ type rowScanner interface {
 func scanVetHistoryRow(sc rowScanner) (*VetHistoryRow, error) {
 	var r VetHistoryRow
 	var intent, gate, presentCSV, missingCSV, skillsCSV, pivotsCSV string
+	var timedOut int
 	if err := sc.Scan(
 		&r.ConversationID, &r.TurnNum, &intent, &gate, &r.Score,
 		&r.RawPrompt, &r.ImprovedPrompt, &presentCSV, &missingCSV,
-		&skillsCSV, &pivotsCSV, &r.SubtaskCount, &r.Directive, &r.CreatedAt,
+		&skillsCSV, &pivotsCSV, &r.SubtaskCount, &r.Directive,
+		&r.DurationMS, &timedOut, &r.InjectedBytes, &r.CreatedAt,
 	); err != nil {
 		return nil, err
 	}
 	r.Intent = IntentMode(intent)
 	r.Gate = VetGate(gate)
+	r.TimedOut = timedOut != 0
 	r.PresentAnchors = splitCSV(presentCSV)
 	r.MissingAnchors = splitCSV(missingCSV)
 	r.SuggestedSkills = splitCSV(skillsCSV)

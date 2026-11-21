@@ -116,6 +116,9 @@ func (sc *scope) prepareProject(o Options, root string, out io.Writer) error {
 		st.close()
 		return err
 	}
+	if len(leftOut) == 0 {
+		st.saveGitWarmSig(root)
+	}
 	sc.changed += n
 	if !o.Global {
 		sc.st, sc.projects = st, []string{root}

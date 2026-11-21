@@ -25,8 +25,8 @@ import (
 )
 
 // schemaVersion is stored in meta; a database with any older value (< 9) is
-// rebuilt, while v9 migrates in place to preserve behavioral history (ADR-528).
-const schemaVersion = "10"
+// rebuilt, while v9 and v10 migrate in place to preserve behavioral history (ADR-528, ADR-530).
+const schemaVersion = "11"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -68,7 +68,7 @@ CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path 
 CREATE TABLE read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num));
 CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT, agent_role TEXT DEFAULT '', agent_name TEXT DEFAULT '', tool_calls INT DEFAULT 0);
 CREATE TABLE co_activity(file_a TEXT, file_b TEXT, kind TEXT, count INT, updated_at INT, PRIMARY KEY(file_a, file_b, kind));
-CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT DEFAULT 0, directive TEXT DEFAULT '', created_at INT, PRIMARY KEY(conversation_id, turn_num));
+CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT DEFAULT 0, directive TEXT DEFAULT '', duration_ms INT DEFAULT 0, timed_out INT DEFAULT 0, injected_bytes INT DEFAULT 0, created_at INT, PRIMARY KEY(conversation_id, turn_num));
 CREATE TABLE watchdog_ring(conversation_id TEXT, seq INTEGER PRIMARY KEY AUTOINCREMENT, tool_call_id TEXT DEFAULT '', tool TEXT, arg_hash TEXT, is_error INT DEFAULT 0, ts INT);
 CREATE INDEX watchdog_ring_conv_seq ON watchdog_ring(conversation_id, seq);
 `
@@ -267,14 +267,21 @@ func (s *store) ensureSchema() error {
 	case err == nil && v == schemaVersion:
 		return s.ensureRefsOIDIndex()
 	case err == nil && v == "9":
-		return s.migrateV9ToV10()
+		if err := s.migrateV9ToV10(); err != nil {
+			return err
+		}
+		return s.migrateV10ToV11()
+	case err == nil && v == "10":
+		return s.migrateV10ToV11()
 	case err == nil:
 		return staleSchemaError{v}
 	case errors.Is(err, sql.ErrNoRows):
 		return staleSchemaError{"none"}
 	}
-	// A new, empty database has no meta table yet; anything else (an
-	// unreadable file, a lock) is the caller's to classify.
+	return s.initEmptySchema()
+}
+
+func (s *store) initEmptySchema() error {
 	var n int
 	if qerr := s.db.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&n); qerr != nil {
 		return qerr
@@ -285,8 +292,6 @@ func (s *store) ensureSchema() error {
 	if _, err := s.db.Exec(`BEGIN IMMEDIATE`); err != nil {
 		return err
 	}
-	// Another process may have created the schema while this one waited
-	// for the lock: look again under it.
 	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&n); err != nil {
 		s.db.Exec(`ROLLBACK`)
 		return err
@@ -305,7 +310,7 @@ func (s *store) ensureSchema() error {
 		s.db.Exec(`ROLLBACK`)
 		return err
 	}
-	_, err = s.db.Exec(`COMMIT`)
+	_, err := s.db.Exec(`COMMIT`)
 	return err
 }
 

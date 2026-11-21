@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestReadLedgerPersistenceEditAndExternalCheckout(t *testing.T) {
@@ -158,49 +160,104 @@ func TestReadLedgerPersistenceEditAndExternalCheckout(t *testing.T) {
 		}
 	})
 
-	t.Run("external_checkout_deduplicates_in_session_store", func(t *testing.T) {
+	t.Run("out_of_root_and_unindexed_reads_bypass_clamp_and_unchanged", func(t *testing.T) {
 		primaryRepo, home := setupHookRepo(t), t.TempDir()
+		if err := Index(Options{Dir: primaryRepo, Home: home}, &bytes.Buffer{}); err != nil {
+			t.Fatalf("Index: %v", err)
+		}
+
+		// 1. Out-of-root ~/.config/fyr/models.json (even >400 lines) bypasses [CLAMPED] and [UNCHANGED].
+		modelsPath := filepath.Join(home, harness.StateDir, "models.json")
+		if err := os.MkdirAll(filepath.Dir(modelsPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var bigModels strings.Builder
+		bigModels.WriteString("{\n  \"entries\": [\n")
+		for i := 0; i < 420; i++ {
+			sep := ","
+			if i == 419 {
+				sep = ""
+			}
+			fmt.Fprintf(&bigModels, "    {\"id\": \"gemini-4-neon-%03d\"}%s\n", i, sep)
+		}
+		bigModels.WriteString("  ]\n}\n")
+		if err := os.WriteFile(modelsPath, []byte(bigModels.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for attempt := 1; attempt <= 3; attempt++ {
+			if dec := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": modelsPath}); dec.Decision != "allow" {
+				t.Fatalf("models.json read #%d = %+v, want allow bypass", attempt, dec)
+			}
+		}
+
+		// 2. External unindexed checkout (small file + >400-line file) bypasses [CLAMPED] and [UNCHANGED] without creating .agents.
 		extRepo := t.TempDir()
 		gitT(t, extRepo, "init")
 		gitT(t, extRepo, "config", "user.email", "test@example.com")
 		gitT(t, extRepo, "config", "user.name", "Test")
 		extFile := filepath.Join(extRepo, "pkg", "ext.go")
 		writeFile(t, extRepo, "pkg/ext.go", "package pkg\n\nfunc ExtHelper() int { return 7 }\n")
+		var bigExt strings.Builder
+		bigExt.WriteString("package pkg\n\n")
+		for i := 1; i <= 450; i++ {
+			fmt.Fprintf(&bigExt, "func ExtFn%03d() int { return %d }\n", i, i)
+		}
+		bigExtFile := filepath.Join(extRepo, "pkg", "big_ext.go")
+		writeFile(t, extRepo, "pkg/big_ext.go", bigExt.String())
 		commitAll(t, extRepo, "init ext without agents ignore")
 
-		d1 := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": extFile})
-		if d1.Decision != "allow" {
-			t.Fatalf("external 1st read = %+v, want allow", d1)
-		}
-		d2 := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": extFile})
-		if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED]\n") {
-			t.Fatalf("external 2nd read = %+v, want deny [UNCHANGED]", d2)
-		}
-		d3 := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": extFile})
-		if d3.Decision != "deny" || !strings.HasPrefix(d3.Reason, "[UNCHANGED]\n") {
-			t.Fatalf("external 3rd read = %+v, want deny [UNCHANGED]", d3)
+		for attempt := 1; attempt <= 3; attempt++ {
+			if dec := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": extFile}); dec.Decision != "allow" {
+				t.Fatalf("external small read #%d = %+v, want allow bypass", attempt, dec)
+			}
+			if dec := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": bigExtFile}); dec.Decision != "allow" {
+				t.Fatalf("external >400-line read #%d = %+v, want allow bypass without [CLAMPED]", attempt, dec)
+			}
 		}
 		if _, err := os.Stat(filepath.Join(extRepo, ".agents")); !os.IsNotExist(err) {
 			t.Fatalf("external checkout was polluted with .agents: err=%v", err)
 		}
-
-		// Modifying the external file invalidates its ledger stamp.
-		writeFile(t, extRepo, "pkg/ext.go", "package pkg\n\nfunc ExtHelper() int { return 99 }\n")
-		d4 := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": extFile})
-		if d4.Decision != "allow" {
-			t.Fatalf("external read after hash change = %+v, want allow", d4)
+		db := openDB(t, primaryRepo)
+		if n := count(t, db, `SELECT count(*) FROM read_ledger WHERE conversation_id = 'conv-ext'`); n != 0 {
+			t.Fatalf("out-of-root reads wrote %d rows to primary read_ledger, want 0", n)
 		}
 
-		// Non-checkout workspace with scratch home falls back cleanly to <home>/.config/fyr/search.db.
+		// 3. Standalone transcript & non-checkout / unindexed directory bypass without creating .agents or global search.db.
+		transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+		if err := os.WriteFile(transcript, []byte(strings.Repeat("{\"step\":1}\n", 450)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for attempt := 1; attempt <= 2; attempt++ {
+			if dec := runReadHook(primaryRepo, home, "conv-ext", map[string]any{"Path": transcript}); dec.Decision != "allow" {
+				t.Fatalf("standalone transcript read #%d = %+v, want allow bypass", attempt, dec)
+			}
+		}
+
 		nonCheckout := t.TempDir()
-		if dec := runReadHook(nonCheckout, home, "conv-noncheckout", map[string]any{"Path": extFile}); dec.Decision != "allow" {
-			t.Fatalf("non-checkout 1st read = %+v, want allow", dec)
-		}
-		if dec := runReadHook(nonCheckout, home, "conv-noncheckout", map[string]any{"Path": extFile}); dec.Decision != "deny" {
-			t.Fatalf("non-checkout 2nd read = %+v, want deny [UNCHANGED]", dec)
+		cleanHome := t.TempDir()
+		for attempt := 1; attempt <= 2; attempt++ {
+			if dec := runReadHook(nonCheckout, cleanHome, "conv-noncheckout", map[string]any{"Path": bigExtFile}); dec.Decision != "allow" {
+				t.Fatalf("non-checkout read #%d = %+v, want allow bypass", attempt, dec)
+			}
 		}
 		if _, err := os.Stat(filepath.Join(nonCheckout, ".agents")); !os.IsNotExist(err) {
 			t.Fatalf("non-checkout had .agents created: err=%v", err)
+		}
+		if _, err := os.Stat(globalDB(cleanHome)); !os.IsNotExist(err) {
+			t.Fatalf("non-checkout bypass unexpectedly created global search.db: err=%v", err)
+		}
+
+		// Unindexed repo without session conversationId (wdSt == nil and no .agents/) also bypasses without creating .agents.
+		unindexedOnly := t.TempDir()
+		gitT(t, unindexedOnly, "init")
+		writeFile(t, unindexedOnly, "huge.go", bigExt.String())
+		for attempt := 1; attempt <= 2; attempt++ {
+			if dec := runReadHook(unindexedOnly, cleanHome, "", map[string]any{"Path": "huge.go"}); dec.Decision != "allow" {
+				t.Fatalf("unindexed repo read #%d = %+v, want allow bypass", attempt, dec)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(unindexedOnly, ".agents")); !os.IsNotExist(err) {
+			t.Fatalf("unindexed repo had .agents created: err=%v", err)
 		}
 	})
 }

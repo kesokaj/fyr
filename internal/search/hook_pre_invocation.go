@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInput, out io.Writer) error {
+	start := time.Now()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -38,7 +40,7 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	sysMsg, banner := buildHookEnvelope(o, sc, dir, in.ConversationID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta)
+	sysMsg, banner := buildHookEnvelopeTimed(o, sc, dir, in.ConversationID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, start)
 	writePreInvocation(out, sysMsg, banner)
 	return nil
 }
@@ -107,21 +109,32 @@ func prepareHookScopeReady(ctx context.Context, root string, st *store) (*scope,
 	if err := ctx.Err(); err != nil {
 		return nil, "", false, err
 	}
+	var existingFiles int
+	_ = st.db.QueryRowContext(ctx, `SELECT count(*) FROM files WHERE project = ?`, root).Scan(&existingFiles)
+	if existingFiles > 0 && st.matchesGitWarmSig(ctx, root) {
+		closeOnErr = false
+		return &scope{st: st, projects: []string{root}}, "", false, nil
+	}
+	sc, summary, fast, err := reconcileHookScopeView(ctx, root, st, existingFiles)
+	if err != nil {
+		return nil, "", false, err
+	}
+	closeOnErr = false
+	return sc, summary, fast, nil
+}
+
+func reconcileHookScopeView(ctx context.Context, root string, st *store, existingFiles int) (*scope, string, bool, error) {
 	view, leftOut, err := gitView(root)
 	if err != nil {
 		return nil, "", false, err
 	}
 	dirtyPaths := collectDirtyPaths(view)
-	var existingFiles int
-	_ = st.db.QueryRowContext(ctx, `SELECT count(*) FROM files WHERE project = ?`, root).Scan(&existingFiles)
 	if err := ctx.Err(); err != nil {
 		return nil, "", false, err
 	}
 	diffN, _ := st.diffCount(source{project: root, dir: root, view: view})
 	if existingFiles > 0 && diffN > hookMaxDirtyFastPath {
-		summary := formatDirtyFastPath(dirtyPaths, diffN)
-		closeOnErr = false
-		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, summary, true, nil
+		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, formatDirtyFastPath(dirtyPaths, diffN), true, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, "", false, err
@@ -129,7 +142,9 @@ func prepareHookScopeReady(ctx context.Context, root string, st *store) (*scope,
 	if _, err := st.apply(source{project: root, dir: root, view: view}); err != nil {
 		return nil, "", false, err
 	}
-	closeOnErr = false
+	if len(leftOut) == 0 {
+		st.saveGitWarmSig(root)
+	}
 	return &scope{st: st, projects: []string{root}, leftOut: leftOut}, "", false, nil
 }
 
@@ -215,7 +230,7 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 	}
 	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
 	if capsule != "" && preseedLedger && len(pivots) > 0 {
-		_ = RegisterCapsulePivotsWithHome(o.Dir, o.Home, o.Session, state.TurnCount, pivots)
+		sc.preseedCapsulePivots(o, state.TurnCount, pivots)
 	}
 	return SliceResult{
 		Capsule:        capsule,
@@ -225,6 +240,25 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 		Confident:      confident,
 		PkgCommunities: pkgComms,
 	}
+}
+
+func (sc *scope) preseedCapsulePivots(o Options, turnNum int, pivots []CapsulePivot) {
+	if sc != nil && sc.st != nil && len(sc.projects) == 1 && sc.projects[0] != "" {
+		root := sc.projects[0]
+		resolved := make([]resolvedCapsulePivot, 0, len(pivots))
+		for _, p := range pivots {
+			rp := CanonicalizePath(root, p.Path)
+			if sumHex, _, totalLines, ok := readFileDigestAndLines(rp); ok {
+				s, e := normalizeLineRange(p.StartLine, p.EndLine, totalLines)
+				resolved = append(resolved, resolvedCapsulePivot{resolved: rp, sumHex: sumHex, start: s, end: e})
+			}
+		}
+		if len(resolved) > 0 {
+			_ = sc.st.upsertCapsulePivotsTx(o.Session, turnNum, resolved)
+		}
+		return
+	}
+	_ = RegisterCapsulePivotsWithHome(o.Dir, o.Home, o.Session, turnNum, pivots)
 }
 
 func countMatchingSymbols(g *symGraph, prompt string) (int, map[string]bool) {

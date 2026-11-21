@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func handlePreToolUse(ctx context.Context, o Options, dir string, in HookInput, out io.Writer) error {
@@ -58,10 +61,17 @@ func handlePreToolReadCtx(ctx context.Context, home, dir string, wdSt *store, wd
 		return err
 	}
 	resolved := CanonicalizePath(toolDir, target)
+	candRoot := resolveReadGuardRoot(dir, toolDir, wdRoot)
+	if !shouldGuardReadInRoot(candRoot, resolved) {
+		return writeDecision(out, "allow", "")
+	}
 	snap := loadReadFileSnapshot(resolved)
 	ledgerSt, ledgerRoot, ownSt := resolveReusableReadLedgerStore(dir, home, toolDir, wdSt, wdRoot)
 	if ownSt && ledgerSt != nil {
 		defer ledgerSt.close()
+	}
+	if !shouldGuardReadInRoot(ledgerRoot, resolved) {
+		return writeDecision(out, "allow", "")
 	}
 	if clampDec, clamped := checkUnrangedClampWithStore(ctx, ledgerSt, ledgerRoot, in.ConversationID, snap, args); clamped {
 		return writeDecision(out, "deny", clampDec.Reason)
@@ -80,6 +90,42 @@ func handlePreToolReadCtx(ctx context.Context, home, dir string, wdSt *store, wd
 		}
 	}
 	return writeDecision(out, "allow", "")
+}
+
+func resolveReadGuardRoot(sessionDir, toolDir, wdRoot string) string {
+	if wdRoot != "" {
+		return wdRoot
+	}
+	if root, _, ok := findGitRootFast(sessionDir); ok {
+		return root
+	}
+	if toolRoot, _, ok := findGitRootFast(toolDir); ok && hasIndexedOrAgentsDir(toolRoot) {
+		return toolRoot
+	}
+	return ""
+}
+
+func shouldGuardReadInRoot(ledgerRoot, resolved string) bool {
+	if ledgerRoot == "" || resolved == "" || !hasIndexedOrAgentsDir(ledgerRoot) {
+		return false
+	}
+	canonRoot := CanonicalizePath("", ledgerRoot)
+	if canonRoot == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.FromSlash(canonRoot), filepath.FromSlash(resolved))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return false
+	}
+	return true
+}
+
+func hasIndexedOrAgentsDir(root string) bool {
+	if isRegularFileFast(projectDB(root)) {
+		return true
+	}
+	fi, err := os.Lstat(filepath.Join(root, ".agents"))
+	return err == nil && fi.Mode()&os.ModeSymlink == 0 && fi.IsDir()
 }
 
 func resolveReusableReadLedgerStore(sessionDir, home, toolDir string, wdSt *store, wdRoot string) (*store, string, bool) {

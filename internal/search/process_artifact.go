@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/models"
@@ -41,19 +42,40 @@ func buildHealthyHookTurn(o Options, sc *scope, dir, convID, sessionModel, rawPr
 			meta.PivotCount = slice.Pivots
 		}
 	}
-	knee := models.ContextKneeTokensForHome(o.Home, sessionModel)
-	if knee > 0 && int64(state.EstTokens) >= knee {
-		kneeLabel := fmt.Sprintf("%d tokens", knee)
-		if knee >= 1000 {
-			kneeLabel = fmt.Sprintf("%dK", (knee+500)/1000)
-		}
-		sections = append(sections, fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000, kneeLabel))
-		meta.ContextKneeWarning = fmt.Sprintf("%dk tokens (>= %s 60%% model knee)", state.EstTokens/1000, kneeLabel)
+	if warnFull, warnShort := dedupContextKneeWarning(o.Home, sc, convID, sessionModel, state); warnFull != "" {
+		sections = append(sections, warnFull)
+		meta.ContextKneeWarning = warnShort
 	}
 	return sections, meta, slice
 }
 
+func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string, state SessionState) (string, string) {
+	knee := models.ContextKneeTokensForHome(home, sessionModel)
+	if knee <= 0 || int64(state.EstTokens) < knee {
+		return "", ""
+	}
+	step := max(knee/2, int64(100_000))
+	bucket := (int64(state.EstTokens) - knee) / step
+	var st *store
+	if sc != nil {
+		st = sc.st
+	}
+	if !markSessionSentinelOnce(st, convID, state.GenerationID, state.TurnCount, fmt.Sprintf("__knee_warn__:%d:%d", knee, bucket)) {
+		return "", ""
+	}
+	kneeLabel := fmt.Sprintf("%d tokens", knee)
+	if knee >= 1000 {
+		kneeLabel = fmt.Sprintf("%dK", (knee+500)/1000)
+	}
+	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000, kneeLabel)
+	return full, fmt.Sprintf("%dk tokens (>= %s 60%% model knee)", state.EstTokens/1000, kneeLabel)
+}
+
 func buildHookEnvelope(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
+	return buildHookEnvelopeTimed(o, sc, dir, convID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, time.Time{})
+}
+
+func buildHookEnvelopeTimed(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
 	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
 		return "", ""
 	}
@@ -80,25 +102,35 @@ func buildHookEnvelope(o Options, sc *scope, dir, convID, sessionModel string, i
 	}
 	vetRes := vetPromptCoreWithHistory(rawPrompt, intent, slice, brainCtx, catalog, prev, recentSkills, recentPivots)
 	cat, hasCat := loadModelsCatalog(o.Home)
-	rawModel := sessionModel
-	vetRes.SessionModel, vetRes.SessionThinking = resolveModelAndThinkingWithCatalog(cat, hasCat, rawModel)
+	vetRes.SessionModel, vetRes.SessionThinking = resolveModelAndThinkingWithCatalog(cat, hasCat, sessionModel)
 	if sc != nil && sc.st != nil {
 		filterSessionDedupTurn(sc.st, convID, state.GenerationID, turnNum, &vetRes, &brainCtx)
 	}
-	if nudge := suggestSessionModelNudge(sc, convID, state.GenerationID, turnNum, rawModel, vetRes); nudge != "" {
+	if nudge := suggestSessionModelNudgeForHome(o.Home, sc, convID, state.GenerationID, turnNum, sessionModel, vetRes); nudge != "" {
 		meta.ModelTip = strings.TrimSpace(strings.TrimPrefix(nudge, "model tip: "))
 	}
 	meta.ExtraSections = sections
 	meta.SessionModelResolved = true
+	return finalizeHookEnvelope(o.Home, cat, hasCat, sc, dir, convID, turnNum, rawPrompt, cleanPrompt, in, state, vetRes, slice, brainCtx, meta, sections, start)
+}
+
+func finalizeHookEnvelope(home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in HookInput, state SessionState, vetRes VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
 	sysMsg, banner := BuildTurnEnvelopeWithMeta(&vetRes, slice, brainCtx, meta)
-	if sc != nil && sc.st != nil && rawPrompt != "" {
-		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
-		_ = sc.st.recordVetHistory(convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles)
-	}
-	writeHookProcessArtifactWithCatalog(o.Home, cat, hasCat, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
-		return "", ""
+		sysMsg, banner = "", ""
 	}
+	if sc != nil && sc.st != nil && rawPrompt != "" {
+		durMS := 0
+		if !start.IsZero() {
+			durMS = int(time.Since(start).Milliseconds())
+		}
+		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
+		_ = sc.st.recordVetHistoryWithMetrics(convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles, vetTurnMetrics{
+			durationMS:    durMS,
+			injectedBytes: len(sysMsg),
+		})
+	}
+	writeHookProcessArtifactWithCatalog(home, cat, hasCat, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	return sysMsg, banner
 }
 
