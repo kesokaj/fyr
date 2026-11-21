@@ -205,7 +205,7 @@ func (s *Store) readLoadedSkillsByConv() map[string]map[string]bool {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT session_id, LOWER(skill) FROM steps WHERE skill IS NOT NULL AND skill != '' AND COALESCE(is_error, 0) = 0`)
+	rows, err := s.db.Query(`SELECT session_id, LOWER(skill) FROM steps WHERE skill IS NOT NULL AND skill != '' AND COALESCE(is_error, 0) = 0 AND COALESCE(denied, 0) = 0`)
 	if err != nil {
 		return nil
 	}

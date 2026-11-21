@@ -197,6 +197,13 @@ func (s *Summary) addTool(r *stepRun, st stp) {
 	}
 	if st.denied {
 		a.denials++
+		if st.ts > 0 {
+			day := s.day(st.ts)
+			if day.Denials == nil {
+				day.Denials = map[string]int{}
+			}
+			day.Denials[v]++
+		}
 	}
 	if st.skill != "" {
 		s.C.Skills[v][st.skill]++

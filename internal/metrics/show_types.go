@@ -138,7 +138,9 @@ type VerbCount struct {
 
 type Reliability struct {
 	ToolErrorRate     map[string]*float64       `json:"tool_error_rate"`
+	ToolErrors        map[string]int            `json:"tool_errors,omitempty"`
 	Denials           map[string]*int           `json:"denials"`
+	HookDenials       map[string]int            `json:"hook_denials,omitempty"`
 	Interrupts        map[string]*int           `json:"interrupts"`
 	RetryLoops        map[string]int            `json:"retry_loops"`
 	SubagentToolCalls map[string]map[string]int `json:"subagent_tool_calls"`
@@ -194,6 +196,7 @@ type AgentRoleMetrics struct {
 	Sessions        int      `json:"sessions"`
 	ToolCalls       int      `json:"tool_calls"`
 	ToolErrors      int      `json:"tool_errors"`
+	HookDenials     int      `json:"hook_denials,omitempty"`
 	ToolErrorRate   *float64 `json:"tool_error_rate"`
 	SQLiteVerbs     int      `json:"sqlite_verbs"`
 	GrepCalls       int      `json:"grep_calls"`
@@ -289,6 +292,7 @@ type Day struct {
 	SQLiteVerbs map[string]int     `json:"sqlite_verbs"`
 	GrepCalls   map[string]int     `json:"grep_calls"`
 	Errors      map[string]int     `json:"errors"`
+	Denials     map[string]int     `json:"denials,omitempty"`
 }
 
 type sess struct {

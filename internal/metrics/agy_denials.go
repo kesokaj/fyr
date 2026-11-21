@@ -6,9 +6,13 @@ import (
 	"github.com/kesokaj/fyr/internal/search"
 )
 
-var hookDenialMarkers = []string{
-	"[CLAMPED]",
+var hookLedgerMarkers = []string{
 	"[UNCHANGED]",
+	"[LEDGER]",
+	"[MODIFIED]",
+}
+
+var hookGuardMarkers = []string{
 	"[COORDINATOR_GUARD]",
 	"[POLL_LOOP]",
 	"[TOKEN_LOOP]",
@@ -16,6 +20,9 @@ var hookDenialMarkers = []string{
 	"[MODEL_OVERRIDE]",
 	"[AUTO_SUBAGENT_PRO]",
 	"[INTERACTIVE_STDIN]",
+	"[VERIFY_STAMP]",
+	"[ASK_GUARD]",
+	"[KICKOFF_GUARD]",
 }
 
 // isHookDenial reports whether a tool step represents a pre-tool hook denial
@@ -75,15 +82,20 @@ func hookDenialKind(s string) string {
 	if strings.Contains(s, "[CLAMPED]") {
 		return "clamped"
 	}
-	if strings.Contains(s, "[UNCHANGED]") {
-		return "ledger"
+	for _, m := range hookLedgerMarkers {
+		if strings.Contains(s, m) {
+			return "ledger"
+		}
 	}
-	for _, m := range hookDenialMarkers[2:] {
+	for _, m := range hookGuardMarkers {
 		if strings.Contains(s, m) {
 			return "guard"
 		}
 	}
-	if strings.Contains(strings.ToLower(s), "denied by pre-tool hook") {
+	low := strings.ToLower(s)
+	if strings.Contains(low, "denied by pre-tool hook") ||
+		strings.Contains(low, "pre-tool hook denied") ||
+		strings.Contains(low, "blocked by pre-tool hook") {
 		return "guard"
 	}
 	return ""

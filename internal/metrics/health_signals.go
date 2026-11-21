@@ -236,19 +236,26 @@ func scanSessionMetaBudgets(db *sql.DB, cols map[string]bool, toolCol string, kn
 
 func subagentBudgetCap(id, agent, parent string, knownSub map[string]string, hasKnownMain bool) (int, bool) {
 	if ka, ok := knownSub[id]; ok {
-		if strings.EqualFold(ka, "self") {
-			return 120, true
-		}
-		return 40, true
+		return subagentCapForRole(ka), true
 	}
 	lowID, lowAgent := strings.ToLower(id), strings.ToLower(strings.TrimSpace(agent))
-	if lowAgent == "self" || strings.Contains(lowID, "self") {
+	if isBuilderOrSelfRole(lowAgent) || strings.Contains(lowID, "self") || isBuilderLikeID(lowID) {
 		return 120, true
 	}
 	if parent != "" || lowAgent != "" || isSubagentLikeID(lowID) || !hasKnownMain {
 		return 40, true
 	}
 	return 0, false
+}
+
+func isBuilderLikeID(low string) bool {
+	return low == "builder" ||
+		strings.HasPrefix(low, "builder-") ||
+		strings.HasPrefix(low, "builder_") ||
+		strings.Contains(low, "-builder-") ||
+		strings.Contains(low, "_builder_") ||
+		strings.HasSuffix(low, "-builder") ||
+		strings.HasSuffix(low, "_builder")
 }
 
 func isSubagentLikeID(low string) bool {

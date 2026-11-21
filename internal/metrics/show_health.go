@@ -27,17 +27,33 @@ func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map
 		}
 		subTools := countSessionStepHealth(h, x, stepsByID[x.id], seen)
 		if x.parent != "" {
-			capLimit := 40
-			if strings.EqualFold(x.agent, "self") {
-				capLimit = 120
-			}
-			if subTools > capLimit {
+			if subTools > subagentCapForRole(x.agent) {
 				overBudget[x.id] = true
 			}
 		}
 	}
 	h.OrchestrationCalls = h.SubagentDispatches + h.WorkflowCalls + h.SwarmCalls
 	return overBudget
+}
+
+// isBuilderOrSelfRole reports whether agent is a general worker role
+// (self, builder, builder-*, builder_*) that shares the 120-call watchdog budget.
+func isBuilderOrSelfRole(agent string) bool {
+	r := strings.ToLower(strings.TrimSpace(agent))
+	return r == "self" ||
+		r == "builder" ||
+		strings.HasPrefix(r, "builder-") ||
+		strings.HasPrefix(r, "builder_")
+}
+
+// subagentCapForRole returns the per-subagent tool-call budget cap aligned with
+// internal/search/hook_watchdog.go: 120 for self/builder/builder-* workers and
+// 40 for audit/specialized roles (reviewer, security, verifier, explorer, etc.).
+func subagentCapForRole(agent string) int {
+	if isBuilderOrSelfRole(agent) {
+		return 120
+	}
+	return 40
 }
 
 func countSessionStepHealth(h *HealthSignals, x sess, steps []stp, seen map[string]bool) int {

@@ -170,7 +170,7 @@ func PersistCatalogPoolsBestEffort(home string, pools []Pool) {
 	if err != nil || !ok {
 		return
 	}
-	cat.QuotaUpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	cat.QuotaUpdatedAt = usageNowFunc().Format(time.RFC3339)
 	cat.Pools = append([]Pool(nil), pools...)
 	_ = SaveCatalog(home, cat)
 }

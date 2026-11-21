@@ -130,14 +130,22 @@ func refreshCatalogAt(ctx context.Context, home, agyPath string, extra map[strin
 // EnrichCatalogPools runs `agy -p "/usage"` best-effort (never failing the
 // caller), updates QuotaUpdatedAt and Pools on cat, and saves cat when changed.
 func EnrichCatalogPools(ctx context.Context, home, agyPath string, cat Catalog) Catalog {
-	if probeCatalogPoolsBestEffort(ctx, home, agyPath, time.Now().UTC(), &cat) {
+	updated, _ := EnrichCatalogPoolsWithStatus(ctx, home, agyPath, cat)
+	return updated
+}
+
+// EnrichCatalogPoolsWithStatus behaves like EnrichCatalogPools and also reports
+// whether the live `/usage` probe succeeded.
+func EnrichCatalogPoolsWithStatus(ctx context.Context, home, agyPath string, cat Catalog) (Catalog, bool) {
+	if probeCatalogPoolsBestEffort(ctx, home, agyPath, usageNowFunc(), &cat) {
 		populateEntryScores(cat.Entries, cat.Pools)
 		cat.Picks = computeStandardPicks(cat.Entries, cat.Picks, cat.Pools)
 		if home != "" {
 			_ = SaveCatalog(home, cat)
 		}
+		return cat, true
 	}
-	return cat
+	return cat, false
 }
 
 func probeCatalogPoolsBestEffort(ctx context.Context, home, agyPath string, now time.Time, cat *Catalog) bool {

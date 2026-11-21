@@ -30,10 +30,10 @@ func (s *Store) populateCohorts(sum *Summary, o ShowOptions, all []sess, data *s
 }
 
 type roleAcc struct {
-	role                  string
-	sessions, tools, errs int
-	sqlite, grep          int
-	turnVets, timedOut    int
+	role                           string
+	sessions, tools, errs, denials int
+	sqlite, grep                   int
+	turnVets, timedOut             int
 }
 
 func buildAgentRoles(all []sess, stepsByID map[string][]stp, convVets map[string][2]int) []AgentRoleMetrics {
@@ -83,6 +83,9 @@ func accumulateRoleSteps(a *roleAcc, x sess, steps []stp, seen map[string]bool) 
 		if st.isErr && !st.denied {
 			a.errs++
 		}
+		if st.denied {
+			a.denials++
+		}
 		if st.tool == "Grep" {
 			a.grep++
 		}
@@ -103,7 +106,7 @@ func finalizeAgentRoles(accs map[string]*roleAcc) []AgentRoleMetrics {
 	out := make([]AgentRoleMetrics, 0, len(accs))
 	for _, a := range accs {
 		m := AgentRoleMetrics{
-			Role: a.role, Sessions: a.sessions, ToolCalls: a.tools, ToolErrors: a.errs,
+			Role: a.role, Sessions: a.sessions, ToolCalls: a.tools, ToolErrors: a.errs, HookDenials: a.denials,
 			SQLiteVerbs: a.sqlite, GrepCalls: a.grep, TurnVets: a.turnVets, TimedOutTurns: a.timedOut,
 		}
 		if a.tools > 0 {
@@ -291,20 +294,21 @@ func tagCohortSection(tc *TagCohort) reportSection {
 }
 
 func agentRolesSection(roles []AgentRoleMetrics) reportSection {
-	t := table{Head: []string{"Role", "Sessions", "Tool calls", "Tool error %", "Search : grep", "PreInvocation timeouts"}}
+	t := table{Head: []string{"Role", "Sessions", "Tool calls", "Tool error %", "Hook denials", "Search : grep", "PreInvocation timeouts"}}
 	for _, r := range roles {
 		t.Rows = append(t.Rows, []string{
 			printable(r.Role),
 			fmt.Sprint(r.Sessions),
 			fmt.Sprint(r.ToolCalls),
 			fmtScaledFloatPtr(r.ToolErrorRate, 100.0, "%.2f%%"),
+			fmt.Sprint(r.HookDenials),
 			fmtRatioCounts(r.SearchGrepRatio, r.SQLiteVerbs, r.GrepCalls),
 			fmtPctRatio(r.TimeoutRatePct, r.TimedOutTurns, r.TurnVets),
 		})
 	}
 	return reportSection{
 		Title: "Agent Roles",
-		Note:  "Per-role activity across filtered sessions (empty agent_type normalized to main).",
+		Note:  "Per-role activity across filtered sessions (empty agent_type normalized to main; hook denials excluded from tool errors).",
 		Table: t,
 	}
 }

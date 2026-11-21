@@ -188,50 +188,19 @@ func resolveRoleModel(ctx context.Context, home, agyPath, role, tier, explicitMo
 }
 
 // PickRoleFromCatalogWithPools selects an active model from cat for role+tier,
-// probing live Anthropic quota via agyPath when choosing an Anthropic judge/reviewer/verifier,
-// and also returns any quota pools parsed from a live `agy -p "/usage"` probe.
+// reusing fresh cached pool quotas when present (<= DefaultPoolQuotaTTL) and
+// otherwise probing live Anthropic quota via agyPath for judge/reviewer/verifier.
+// Live pools parsed from `agy -p "/usage"` are returned for persistence.
 func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
 	return pickRoleFromCatalogWithPoolsForHome(ctx, "", cat, agyPath, role, tier)
 }
 
 func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
-	normRole, normTier, err := NormalizeRoleTier(role, tier)
-	if err != nil {
-		return RolePick{}, nil, err
-	}
-	if (normRole != "judge" && normRole != "reviewer" && normRole != "verifier") || agyPath == "" {
-		pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, cat.Pools, normRole, normTier)
-		return pick, nil, err
-	}
-	pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, nil, normRole, normTier)
-	if err != nil || !isAnthropicEntryID(cat.Entries, pick.Model) {
-		return pick, nil, err
-	}
-	active := filterEntries(cat.Entries, func(e CatalogEntry) bool { ApplyModelProfile(&e); return e.Status != "gone" && isAutoPickEligible(e) })
-	if len(active) == 0 {
-		active = filterEntries(cat.Entries, func(e CatalogEntry) bool { return e.Status != "gone" })
-	}
-	gem, gemScore, _, _ := pickGeminiOrAny(active, nil, nil, "", "builder", normTier)
-	model, reason, fb, pools := probeAnthropicQuotaPools(ctx, home, agyPath, normRole, pick.Model, gem.ID)
-	if fb != "" {
-		if len(pools) > 0 {
-			gem, gemScore, _, _ = pickGeminiOrAny(active, nil, pools, "", "builder", normTier)
-		}
-		return buildRolePick(normRole, normTier, model, reason, fb, gemScore), pools, nil
-	}
-	scoredPick, serr := PickFromEntriesWithPools(cat.Entries, cat.Picks, pools, normRole, normTier)
-	if serr != nil {
-		scoredPick = pick
-	}
-	scoredPick.Reason = reason + "; " + formatScoreSummary(ScoreBreakdown{
-		PriorMean: scoredPick.PriorMean, PosteriorMean: scoredPick.PosteriorMean,
-		ExploreBonus: scoredPick.ExploreBonus, HeadroomPenalty: scoredPick.HeadroomPenalty,
-		RankScore: scoredPick.RankScore, DecayedRuns: scoredPick.DecayedRuns,
-	})
-	if scoredPick.FallbackReason == "" {
-		scoredPick.FallbackReason = pick.FallbackReason
-	}
-	return scoredPick, pools, nil
+	return PickRoleFromCatalogForHome(ctx, cat, PickRoleOptions{
+		Home:     home,
+		AgyPath:  agyPath,
+		QuotaTTL: DefaultPoolQuotaTTL,
+	}, role, tier)
 }
 
 func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropicModel, geminiFallback string) (string, string, string, []Pool) {
@@ -245,18 +214,8 @@ func probeAnthropicQuotaPools(ctx context.Context, home, agyPath, role, anthropi
 		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): /usage parse error (%s)", role, geminiFallback, shortQuote(err.Error()))
 		return geminiFallback, fb, fb, nil
 	}
-	pool, ok := findAnthropicPool(pools)
-	if !ok {
-		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): no Anthropic/Claude pool in /usage", role, geminiFallback)
-		return geminiFallback, fb, fb, pools
-	}
-	if pool.Week < AnthropicJudgeFloorWeek || pool.Five < AnthropicJudgeFloorFive {
-		fb := fmt.Sprintf("role=%s fallback to Gemini (%s): %s quota low (5h=%s, week=%s; floor %d%%/%d%%)",
-			role, geminiFallback, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week), AnthropicJudgeFloorFive, AnthropicJudgeFloorWeek)
-		return geminiFallback, fb, fb, pools
-	}
-	note := fmt.Sprintf("role=%s -> Anthropic (%s; %s 5h=%s, week=%s)", role, anthropicModel, pool.Name, formatPoolPct(pool.Five), formatPoolPct(pool.Week))
-	return anthropicModel, note, "", pools
+	model, reason, fb := evaluateAnthropicPools(pools, role, anthropicModel, geminiFallback, false)
+	return model, reason, fb, pools
 }
 
 func isAnthropicEntryID(entries []CatalogEntry, modelID string) bool {

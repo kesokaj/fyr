@@ -109,6 +109,16 @@ func (s *Summary) finishColumn(v string) {
 		r := float64(a.errs) / float64(a.tools)
 		s.D.ToolErrorRate[v] = &r
 	}
+	if s.D.ToolErrors == nil {
+		s.D.ToolErrors = map[string]int{}
+	}
+	s.D.ToolErrors[v] = a.errs
+	if v != historical {
+		if s.D.HookDenials == nil {
+			s.D.HookDenials = map[string]int{}
+		}
+		s.D.HookDenials[v] = a.denials
+	}
 	s.C.SQLiteVerbs[v] = a.sqlite
 	s.C.GrepCalls[v] = a.grep
 	if a.grep > 0 {

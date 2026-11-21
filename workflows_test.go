@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,9 @@ ns = {
     "agent": agent,
     "parallel": parallel,
 }
+conv_id = os.environ.get("FYR_TEST_CONVERSATION_ID", "")
+if conv_id:
+    ns["CONVERSATION_ID"] = conv_id
 flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
 code = compile(src, script_path, "exec", flags=flags)
 buf = io.StringIO()
@@ -88,27 +92,74 @@ with contextlib.redirect_stdout(buf):
 print(json.dumps({"prompts": prompts, "calls": calls, "output": json.loads(buf.getvalue())}))
 `
 
+type workflowExecOpts struct {
+	mocks          map[string]map[string]any
+	workDir        string
+	pathPrefix     string
+	homeDir        string
+	conversationID string
+}
+
 func runWorkflowScript(t *testing.T, script string, args map[string]any) workflowRunResult {
-	return runWorkflowScriptWithMocks(t, script, args, nil)
+	return runWorkflowScriptWithOpts(t, script, args, workflowExecOpts{})
 }
 
 func runWorkflowScriptWithMocks(t *testing.T, script string, args map[string]any, mocks map[string]map[string]any) workflowRunResult {
+	return runWorkflowScriptWithOpts(t, script, args, workflowExecOpts{mocks: mocks})
+}
+
+func overrideEnv(base []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, kv := range base {
+		k, _, _ := strings.Cut(kv, "=")
+		if _, drop := overrides[k]; drop {
+			continue
+		}
+		out = append(out, kv)
+	}
+	for k, v := range overrides {
+		if v != "" {
+			out = append(out, k+"="+v)
+		}
+	}
+	return out
+}
+
+func runWorkflowScriptWithOpts(t *testing.T, script string, args map[string]any, opts workflowExecOpts) workflowRunResult {
 	t.Helper()
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not installed")
+	}
+	absScript, err := filepath.Abs(script)
+	if err != nil {
+		t.Fatal(err)
 	}
 	rawArgs, err := json.Marshal(args)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("python3", "-c", pyWorkflowHarness, script, string(rawArgs))
-	if mocks != nil {
-		rawMocks, err := json.Marshal(mocks)
+	cmd := exec.Command("python3", "-c", pyWorkflowHarness, absScript, string(rawArgs))
+	if opts.workDir != "" {
+		cmd.Dir = opts.workDir
+	}
+	ov := map[string]string{
+		"FYR_WORKFLOW_MOCKS":       "",
+		"FYR_TEST_CONVERSATION_ID": opts.conversationID,
+	}
+	if opts.mocks != nil {
+		rawMocks, err := json.Marshal(opts.mocks)
 		if err != nil {
 			t.Fatal(err)
 		}
-		cmd.Env = append(os.Environ(), "FYR_WORKFLOW_MOCKS="+string(rawMocks))
+		ov["FYR_WORKFLOW_MOCKS"] = string(rawMocks)
 	}
+	if opts.pathPrefix != "" {
+		ov["PATH"] = opts.pathPrefix + string(os.PathListSeparator) + os.Getenv("PATH")
+	}
+	if opts.homeDir != "" {
+		ov["HOME"] = opts.homeDir
+	}
+	cmd.Env = overrideEnv(os.Environ(), ov)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s failed: %v\n%s", script, err, out)
@@ -118,6 +169,14 @@ func runWorkflowScriptWithMocks(t *testing.T, script string, args map[string]any
 		t.Fatalf("decode harness output for %s: %v\n%s", script, err, out)
 	}
 	return res
+}
+
+func writeFakeBin(t *testing.T, dir, name, body string) {
+	t.Helper()
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertSafeArtifactPrompt(t *testing.T, prompt string) {
@@ -373,4 +432,145 @@ for call in agent_calls:
 	if out, err := exec.Command("python3", "-c", pyASTCheck, "workflows/review_parallel.py").CombinedOutput(); err != nil {
 		t.Fatalf("review_parallel.py AST check failed: %v\n%s", err, out)
 	}
+}
+
+func TestWorkflowScriptsCrossFamilyRouting(t *testing.T) {
+	const (
+		pickClaude = `printf '{"model":"claude-opus-5-5-high","reason":"anthropic pool healthy"}\n'`
+		pickGemini = `printf '{"model":"gemini-4-carbon-high","fallback_reason":"anthropic quota low"}\n'`
+		failIfRun  = `echo "unexpected invocation" >&2; exit 99`
+	)
+	newEnv := func(t *testing.T, fyrBody, agyBody string) workflowExecOpts {
+		t.Helper()
+		binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
+		writeFakeBin(t, binDir, "fyr", fyrBody)
+		writeFakeBin(t, binDir, "agy", agyBody)
+		return workflowExecOpts{workDir: workDir, pathPrefix: binDir, homeDir: homeDir}
+	}
+
+	t.Run("review_parallel headless success and explorer stays flash", func(t *testing.T) {
+		opts := newEnv(t,
+			`[ "$1" = "models" ] && [ "$2" = "--pick" ] && [ "$3" = "judge" ] && [ "$4" = "--json" ] || exit 2`+"\n"+pickClaude,
+			`case " $* " in *" --model claude-opus-5-5-high "*) ;; *) exit 3 ;; esac`+"\n"+
+				`printf '{"conversation_id":"c1","status":"SUCCESS","denied_actions":[],"structured_output":{"lens":"code","agent":"reviewer","verdict":"APPROVE","artifact_path":".agents/scratch/agents/reviewer-2026-11-21-demo-code.md","high_findings":0,"summary":"headless review ok"}}\n'`,
+		)
+		res := runWorkflowScriptWithOpts(t, "workflows/review_parallel.py", map[string]any{
+			"scope_text": "git diff HEAD", "scope_slug": "demo", "date": "2026-11-21",
+			"lenses": []string{"project", "code"}, "cross_family": true,
+		}, opts)
+		routing, _ := res.Output["model_routing"].(map[string]any)
+		if routing["enabled"] != true || routing["model"] != "claude-opus-5-5-high" || routing["source"] != "fyr-models-pick" {
+			t.Fatalf("unexpected model_routing: %+v", routing)
+		}
+		if len(res.Calls) != 1 || res.Calls[0].TypeName != "explorer" || res.Calls[0].Model != "flash" {
+			t.Fatalf("expected only explorer native flash call, got %+v", res.Calls)
+		}
+		art, err := os.ReadFile(filepath.Join(opts.workDir, ".agents", "scratch", "agents", "reviewer-2026-11-21-demo-code.md"))
+		if err != nil || !strings.Contains(string(art), "claude-opus-5-5-high") || !strings.Contains(string(art), "headless review ok") {
+			t.Fatalf("expected headless artifact with model and summary, err=%v content=%q", err, art)
+		}
+	})
+
+	for _, tc := range []struct {
+		name, fyrBody, agyBody, wantSource string
+	}{
+		{
+			"review_parallel denied_actions falls back to native pro", pickClaude,
+			`printf '{"conversation_id":"c2","status":"SUCCESS","denied_actions":[{"tool":"write_file"}],"structured_output":{"lens":"code","agent":"reviewer","verdict":"APPROVE","artifact_path":".agents/scratch/agents/x.md","high_findings":0,"summary":"denied"}}\n'`,
+			"fyr-models-pick",
+		},
+		{"review_parallel agy nonzero exit falls back to native pro", pickClaude, `echo "headless error" >&2; exit 1`, "fyr-models-pick"},
+		{"review_parallel gemini pick skips agy and falls back", pickGemini, failIfRun, "fallback-gemini"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := newEnv(t, tc.fyrBody, tc.agyBody)
+			res := runWorkflowScriptWithOpts(t, "workflows/review_parallel.py", map[string]any{
+				"scope_text": "git diff HEAD", "lenses": []string{"code"}, "cross_family": true,
+			}, opts)
+			routing, _ := res.Output["model_routing"].(map[string]any)
+			if routing["source"] != tc.wantSource {
+				t.Fatalf("routing source = %v, want %s (%+v)", routing["source"], tc.wantSource, routing)
+			}
+			if len(res.Calls) != 1 || res.Calls[0].TypeName != "reviewer" || res.Calls[0].Model != "pro" {
+				t.Fatalf("expected fallback native pro call, got %+v", res.Calls)
+			}
+		})
+	}
+
+	t.Run("preflight_gate cross-family success raw JSON and fallbacks", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, fyrBody, agyBody string
+			wantCalls              int
+			wantArt                bool
+		}{
+			{
+				"envelope success", pickClaude,
+				`printf '{"conversation_id":"p1","status":"SUCCESS","denied_actions":[],"structured_output":{"stage":"reviewer","agent":"reviewer","status":"COMPLETE","verdict":"APPROVE","blocking":false,"artifact_path":".agents/scratch/agents/reviewer-2026-11-21-preflight-v9.9.0.md","not_examined":"none","summary":"ship ready"}}\n'`,
+				0, true,
+			},
+			{
+				"raw stage JSON with status COMPLETE", pickClaude,
+				`printf '{"stage":"reviewer","agent":"reviewer","status":"COMPLETE","verdict":"APPROVE","blocking":false,"artifact_path":".agents/scratch/agents/reviewer-2026-11-21-preflight-v9.9.0.md","not_examined":"none","summary":"raw json ok"}\n'`,
+				0, true,
+			},
+			{
+				"denied_actions falls back to native pro", pickClaude,
+				`printf '{"conversation_id":"p2","status":"SUCCESS","denied_actions":[{"tool":"run_command"}],"structured_output":{}}\n'`,
+				1, false,
+			},
+			{"gemini pick skips agy and uses native pro", pickGemini, failIfRun, 1, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				opts := newEnv(t, tc.fyrBody, tc.agyBody)
+				res := runWorkflowScriptWithOpts(t, "workflows/preflight_gate.py", map[string]any{
+					"base_ref": "v9.8.0", "version": "v9.9.0", "date": "2026-11-21",
+					"run_reviewer": true, "run_security": false, "run_verifier": false, "cross_family": true,
+				}, opts)
+				if res.Output["gate_verdict"] != "SHIP" || len(res.Calls) != tc.wantCalls {
+					t.Fatalf("gate=%v calls=%d (want SHIP, %d): %+v", res.Output["gate_verdict"], len(res.Calls), tc.wantCalls, res.Calls)
+				}
+				if tc.wantCalls == 1 && res.Calls[0].Model != "pro" {
+					t.Fatalf("fallback model = %q, want pro", res.Calls[0].Model)
+				}
+				if tc.wantArt {
+					if _, err := os.Stat(filepath.Join(opts.workDir, ".agents", "scratch", "agents", "reviewer-2026-11-21-preflight-v9.9.0.md")); err != nil {
+						t.Fatalf("expected artifact file: %v", err)
+					}
+				}
+			})
+		}
+	})
+
+	t.Run("runtime-aware default honors CONVERSATION_ID and FYR_WORKFLOW_MOCKS", func(t *testing.T) {
+		opts := newEnv(t, pickClaude,
+			`printf '{"conversation_id":"c3","status":"SUCCESS","denied_actions":[],"structured_output":{"lens":"code","agent":"reviewer","verdict":"APPROVE","artifact_path":".agents/scratch/agents/reviewer-today-worktree-code.md","high_findings":0,"summary":"auto cross-family"}}\n'`,
+		)
+		opts.conversationID = "conv-live-1"
+		on := runWorkflowScriptWithOpts(t, "workflows/review_parallel.py", map[string]any{
+			"scope_text": "git diff HEAD", "lenses": []string{"code"},
+		}, opts)
+		if routing, _ := on.Output["model_routing"].(map[string]any); routing["enabled"] != true || len(on.Calls) != 0 {
+			t.Fatalf("CONVERSATION_ID default should enable cross-family: routing=%+v calls=%+v", routing, on.Calls)
+		}
+
+		for _, tc := range []struct {
+			name   string
+			args   map[string]any
+			convID string
+			mocks  map[string]map[string]any
+		}{
+			{"no CONVERSATION_ID", map[string]any{"scope_text": "git diff HEAD", "lenses": []string{"code"}}, "", nil},
+			{"CONVERSATION_ID with FYR_WORKFLOW_MOCKS", map[string]any{"scope_text": "git diff HEAD", "lenses": []string{"code"}}, "conv-live-2", map[string]map[string]any{}},
+			{"CONVERSATION_ID with explicit cross_family=false", map[string]any{"scope_text": "git diff HEAD", "lenses": []string{"code"}, "cross_family": false}, "conv-live-3", nil},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				o := newEnv(t, failIfRun, failIfRun)
+				o.conversationID, o.mocks = tc.convID, tc.mocks
+				off := runWorkflowScriptWithOpts(t, "workflows/review_parallel.py", tc.args, o)
+				if routing, _ := off.Output["model_routing"].(map[string]any); routing["enabled"] != false || len(off.Calls) != 1 {
+					t.Fatalf("%s: expected disabled routing + 1 native call, got routing=%+v calls=%+v", tc.name, routing, off.Calls)
+				}
+			})
+		}
+	})
 }

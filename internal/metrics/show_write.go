@@ -164,6 +164,14 @@ func (s *Summary) textReliability(t textWriter) {
 	t.head("D. reliability")
 	t.row("tool error rate", floatCol(s.D.ToolErrorRate, "%.3f"))
 	t.row("denials", intCol(s.D.Denials))
+	if s.Health.HookDenials > 0 || s.D.HookDenials["agy"] > 0 {
+		t.row("hook denials (excl. errors)", func(v string) string {
+			if v == "agy" {
+				return fmt.Sprint(max(s.Health.HookDenials, s.D.HookDenials["agy"]))
+			}
+			return "n/a"
+		})
+	}
 	t.row("interrupts", intCol(s.D.Interrupts))
 	t.row("retry loops", countCol(s.D.RetryLoops))
 	for _, v := range t.cols {

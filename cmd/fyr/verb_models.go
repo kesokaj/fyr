@@ -85,7 +85,7 @@ func runModels(c *ctx) error {
 	defer stop()
 
 	agyPath, _ := exec.LookPath("agy")
-	cat, err := loadOrRefreshCatalog(sig, c, agyPath)
+	cat, poolsProbed, err := loadOrRefreshCatalog(sig, c, agyPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
@@ -97,7 +97,7 @@ func runModels(c *ctx) error {
 		return runModelsExplain(c, cat, c.modelsExplain)
 	}
 	if c.modelsPick != "" {
-		return runModelsPick(sig, c, cat, agyPath)
+		return runModelsPick(sig, c, cat, agyPath, poolsProbed)
 	}
 	if c.jsonOut {
 		return writeIndentedJSON(c, cat)
@@ -106,25 +106,40 @@ func runModels(c *ctx) error {
 	return nil
 }
 
-func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.Catalog, error) {
+func loadOrRefreshCatalog(ctx context.Context, c *ctx, agyPath string) (models.Catalog, bool, error) {
 	if c.modelsRefresh || !models.CatalogExists(c.home) {
 		cat, err := models.RefreshCatalog(ctx, c.home, agyPath, loadMetricsModelEvidence(c.home))
-		if err == nil {
-			if c.modelsRefresh {
-				cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
-			}
-			cat = models.EnrichCatalogPools(ctx, c.home, agyPath, cat)
+		if err != nil {
+			return cat, false, err
 		}
-		return cat, err
+		if c.modelsRefresh {
+			cat = models.EnrichCatalogChangelog(ctx, c.home, agyPath, cat)
+		}
+		if isCrossFamilyPick(c.modelsPick, c.modelsTier) {
+			return cat, false, nil
+		}
+		cat, probed := models.EnrichCatalogPoolsWithStatus(ctx, c.home, agyPath, cat)
+		return cat, probed, nil
 	}
 	cat, ok, err := models.LoadCatalog(c.home)
 	if err != nil {
-		return models.Catalog{}, err
+		return models.Catalog{}, false, err
 	}
 	if !ok {
-		return models.Catalog{}, fmt.Errorf("catalog missing at %s", models.CatalogPath(c.home))
+		return models.Catalog{}, false, fmt.Errorf("catalog missing at %s", models.CatalogPath(c.home))
 	}
-	return models.RebuildCatalogWithEvidence(time.Now().UTC(), cat, models.AggregateWorkEvidence(c.home, loadMetricsModelEvidence(c.home))), nil
+	if c.modelsPick != "" {
+		return cat, false, nil
+	}
+	return models.RebuildCatalogWithEvidence(time.Now().UTC(), cat, models.AggregateWorkEvidence(c.home, loadMetricsModelEvidence(c.home))), false, nil
+}
+
+func isCrossFamilyPick(role, tier string) bool {
+	if role == "" {
+		return false
+	}
+	normRole, _, err := models.NormalizeRoleTier(role, tier)
+	return err == nil && isCrossFamilyRole(normRole)
 }
 
 func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, bf modelsBenchFlags) error {
@@ -160,14 +175,21 @@ func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath str
 	return nil
 }
 
-func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string) error {
+func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, poolsProbed bool) error {
 	normRole, normTier, _ := models.NormalizeRoleTier(c.modelsPick, c.modelsTier)
-	pick, pools, err := models.PickRoleFromCatalogWithPools(ctx, cat, agyPath, c.modelsPick, c.modelsTier)
+	pickOpts := models.PickRoleOptions{
+		Home:         c.home,
+		AgyPath:      agyPath,
+		ForceRefresh: c.modelsRefresh && !poolsProbed,
+		QuotaTTL:     models.DefaultPoolQuotaTTL,
+	}
+	pick, pools, err := models.PickRoleFromCatalogForHome(ctx, cat, pickOpts, c.modelsPick, c.modelsTier)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
 	}
-	if agyPath == "" && isCrossFamilyRole(normRole) && isAnthropicPick(cat.Entries, pick.Model) {
+	freshCached := !pickOpts.ForceRefresh && models.HasFreshPoolQuotas(cat, time.Now().UTC(), models.DefaultPoolQuotaTTL)
+	if agyPath == "" && !freshCached && isCrossFamilyRole(normRole) && isAnthropicPick(cat.Entries, pick.Model) {
 		fb, fbErr := fallbackPickWithoutAgy(cat, normRole, normTier)
 		if fbErr != nil {
 			fmt.Fprintf(stderr, "models: %v\n", fbErr)
