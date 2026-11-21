@@ -3,6 +3,7 @@ package search
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -175,7 +176,7 @@ func TestReadStructuralSignals(t *testing.T) {
 	if sig.GodNodeClampHits != 2 || sig.GodNodeRepeatReads != 3 || sig.GodNodeChurnRate <= 0 {
 		t.Fatalf("god node churn mismatch: %+v", sig)
 	}
-	if sig.HiddenCouplingPairs != 1 || sig.HiddenCouplingRate != 0.5 || sig.HubConcentration <= 0 {
+	if sig.HiddenCouplingPairs != 1 || sig.HiddenCouplingEditPairs != 1 || sig.HiddenCouplingReadPairs != 0 || sig.HiddenCouplingRate != 0.5 || sig.HubConcentration <= 0 {
 		t.Fatalf("coupling/hub mismatch: %+v", sig)
 	}
 
@@ -234,5 +235,137 @@ func TestFindPackageCyclesBoundedOnDenseClique(t *testing.T) {
 	}
 	if !slices.Contains(cycles, "p00 -> p01 -> p00") {
 		t.Fatalf("expected canonical cycle p00 -> p01 -> p00 in %+v", cycles)
+	}
+}
+
+func TestLoadGraphSnapshotIncludeVendored(t *testing.T) {
+	root, home := newRepo(t), t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/vend\n\ngo 1.24\n")
+	writeFile(t, root, "internal/app/app.go", "package app\n\nfunc ServeApp() {}\n")
+	writeFile(t, root, "skills/demo/SKILL.md", "# Demo Skill\n")
+	writeFile(t, root, "skills/demo/references/helper.ts", "export function helperFn() { return 1 }\n")
+	writeFile(t, root, "skills/demo/references/widget.ts", "import { helperFn } from './helper'\nexport function renderWidget() { return helperFn() }\n")
+	writeFile(t, root, "skills/demo/references/guide.md", "# Ref Guide\n\nUses `renderWidget`.\n")
+	writeFile(t, root, "skills/demo/assets/theme.js", "export function themeToken() { return 'ok' }\n")
+	commitAll(t, root, "seed vendored skill")
+
+	if err := Index(Options{Dir: root, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	assertZeroVendoredRowsInDB(t, root)
+
+	snapDefault, err := LoadGraphSnapshot(Options{Dir: root, Home: home}, GraphOptions{IncludeVendored: false})
+	if err != nil {
+		t.Fatalf("LoadGraphSnapshot default: %v", err)
+	}
+	if hasSnapshotFile(snapDefault, "skills/demo/references/widget.ts") || hasSnapshotFile(snapDefault, "skills/demo/assets/theme.js") {
+		t.Fatalf("IncludeVendored=false unexpectedly included vendored files: %+v", snapDefault.Files)
+	}
+
+	snapCodeOnly, err := LoadGraphSnapshot(Options{Dir: root, Home: home}, GraphOptions{IncludeVendored: true})
+	if err != nil {
+		t.Fatalf("LoadGraphSnapshot IncludeVendored=true: %v", err)
+	}
+	assertVendoredCodeSnapshot(t, snapCodeOnly)
+
+	snapWithDocs, err := LoadGraphSnapshot(Options{Dir: root, Home: home}, GraphOptions{IncludeVendored: true, IncludeDocs: true})
+	if err != nil {
+		t.Fatalf("LoadGraphSnapshot IncludeVendored+IncludeDocs: %v", err)
+	}
+	if !hasSnapshotFile(snapWithDocs, "skills/demo/references/guide.md") || !hasSnapshotSymbol(snapWithDocs, "Ref Guide") {
+		t.Fatalf("expected guide.md heading when IncludeVendored && IncludeDocs")
+	}
+	assertZeroVendoredRowsInDB(t, root)
+}
+
+func assertVendoredCodeSnapshot(t *testing.T, snap *GraphSnapshot) {
+	t.Helper()
+	for _, want := range []string{"skills/demo/references/widget.ts", "skills/demo/references/helper.ts", "skills/demo/assets/theme.js"} {
+		if !hasSnapshotFile(snap, want) {
+			t.Fatalf("IncludeVendored=true missing %s in files", want)
+		}
+	}
+	if hasSnapshotFile(snap, "skills/demo/references/guide.md") {
+		t.Fatalf("IncludeDocs=false unexpectedly included guide.md")
+	}
+	for _, sym := range []string{"renderWidget", "helperFn", "themeToken"} {
+		if !hasSnapshotSymbol(snap, sym) {
+			t.Fatalf("IncludeVendored=true missing symbol %s", sym)
+		}
+	}
+	if len(snap.FileEdges) == 0 {
+		t.Fatalf("expected import edge widget.ts -> helper.ts in FileEdges")
+	}
+}
+
+func assertZeroVendoredRowsInDB(t *testing.T, root string) {
+	t.Helper()
+	db := openDB(t, root)
+	defer db.Close()
+	const where = `(f.path LIKE 'skills/%/references/%' OR f.path LIKE 'skills/%/assets/%')`
+	if n := count(t, db, `SELECT count(*) FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE `+where); n != 0 {
+		t.Fatalf("SKILL_SYMBOLS in search.db = %d, want 0", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM sym_refs sr JOIN files f ON f.oid = sr.oid WHERE `+where); n != 0 {
+		t.Fatalf("vendored sym_refs in search.db = %d, want 0", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.path = 'skills/demo/SKILL.md'`); n == 0 {
+		t.Fatalf("SKILL.md symbols unexpectedly 0")
+	}
+}
+
+func hasSnapshotFile(snap *GraphSnapshot, p string) bool {
+	for _, f := range snap.Files {
+		if f.Path == p {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSnapshotSymbol(snap *GraphSnapshot, name string) bool {
+	for _, s := range snap.Symbols {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHiddenCouplingSplitEditAndRead(t *testing.T) {
+	root := seedStructuralSignalsRepo(t)
+	home := t.TempDir()
+	db := openDB(t, root)
+	if _, err := db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES
+		('internal/api/api.go', 'internal/cli/cli.go', 'co_read', 6, 100),
+		('internal/cli/cli.go', 'internal/core/hub.go', 'co_read', 4, 100)`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	// Add a 4th disconnected file so co_read-only pair lacks AST edge.
+	writeFile(t, root, "internal/aux/aux.go", "package aux\nfunc Aux() {}\n")
+	commitAll(t, root, "add aux")
+	mustSearch(t, Options{Dir: root, Home: home, Words: []string{"Aux"}})
+	db2 := openDB(t, root)
+	if _, err := db2.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('internal/aux/aux.go', 'internal/cli/cli.go', 'co_read', 7, 100)`); err != nil {
+		db2.Close()
+		t.Fatal(err)
+	}
+	db2.Close()
+
+	sig, err := ReadStructuralSignals(projectDB(root), root)
+	if err != nil {
+		t.Fatalf("ReadStructuralSignals: %v", err)
+	}
+	if sig.HiddenCouplingPairs != 2 || sig.HiddenCouplingEditPairs != 1 || sig.HiddenCouplingReadPairs != 2 {
+		t.Fatalf("split coupling signals = %+v, want total=2 edit=1 read=2", sig)
+	}
+	snap, err := LoadGraphSnapshot(Options{Dir: root, Home: home}, GraphOptions{})
+	if err != nil {
+		t.Fatalf("LoadGraphSnapshot: %v", err)
+	}
+	if len(snap.HiddenCoupling) != 3 {
+		t.Fatalf("expected 3 per-kind GraphHiddenCoupling entries, got %+v", snap.HiddenCoupling)
 	}
 }

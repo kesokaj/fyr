@@ -77,16 +77,30 @@ var excludedASTSegments = map[string]bool{
 	"coverage": true, "third_party": true, "__pycache__": true,
 }
 
-func isExcludedASTPath(p string) bool {
+const vendoredExtractPrefix = "__vendored__/"
+
+func normalizeASTPath(p string) string {
 	norm := strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
 	if norm == "" {
-		return true
+		return ""
 	}
 	norm = strings.TrimPrefix(path.Clean(norm), "./")
 	if norm == "" || norm == "." {
+		return ""
+	}
+	return norm
+}
+
+func isExcludedASTPath(p string) bool {
+	return isExcludedASTPathOpt(p, false)
+}
+
+func isExcludedASTPathOpt(p string, includeVendored bool) bool {
+	norm := normalizeASTPath(p)
+	if norm == "" {
 		return true
 	}
-	if isVendoredSkillPath(norm) {
+	if !includeVendored && isVendoredSkillPath(norm) {
 		return true
 	}
 	for _, seg := range strings.Split(norm, "/") {
@@ -101,6 +115,28 @@ func isExcludedASTPath(p string) bool {
 		}
 	}
 	return false
+}
+
+// IsVendoredSkillPath reports whether p is inside a skill's vendored
+// references/ or assets/ subtree while excluding SKILL.md and scripts/.
+func IsVendoredSkillPath(p string) bool {
+	norm := normalizeASTPath(p)
+	return norm != "" && isVendoredSkillPath(norm)
+}
+
+func vendoredExtractAlias(p string) (string, string, bool) {
+	norm := normalizeASTPath(p)
+	if norm == "" || !isVendoredSkillPath(norm) || isExcludedASTPathOpt(norm, true) {
+		return "", "", false
+	}
+	return norm, vendoredExtractPrefix + norm, true
+}
+
+func stripVendoredExtractPrefix(p string) string {
+	if strings.HasPrefix(p, "./"+vendoredExtractPrefix) {
+		return "./" + strings.TrimPrefix(p, "./"+vendoredExtractPrefix)
+	}
+	return strings.TrimPrefix(p, vendoredExtractPrefix)
 }
 
 // isVendoredSkillPath excludes third-party reference docs/code and assets

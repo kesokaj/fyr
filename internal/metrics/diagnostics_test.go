@@ -133,3 +133,40 @@ func assertDiagnosticDedupAndCycleMin(t *testing.T, base *Summary) {
 		t.Fatalf("dedupAndSortSignals = %+v", dups)
 	}
 }
+
+func TestHiddenCouplingEditVsReadDiagnostic(t *testing.T) {
+	readOnly := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	readOnly.Health.Structural = search.StructuralSignals{
+		HiddenCouplingPairs:     5,
+		HiddenCouplingEditPairs: 0,
+		HiddenCouplingReadPairs: 5,
+		HiddenCouplingRate:      1.0,
+	}
+	if rep := BuildDiagnosticReport(*readOnly, nil, "project", "/work/svc"); len(rep.Signals) != 0 {
+		t.Fatalf("co_read-only pairs falsely triggered hidden_coupling: %+v", rep.Signals)
+	}
+
+	belowEditMin := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	belowEditMin.Health.Structural = search.StructuralSignals{
+		HiddenCouplingPairs:     6,
+		HiddenCouplingEditPairs: 2,
+		HiddenCouplingReadPairs: 4,
+		HiddenCouplingRate:      0.8,
+	}
+	if rep := BuildDiagnosticReport(*belowEditMin, nil, "project", "/work/svc"); len(rep.Signals) != 0 {
+		t.Fatalf("below-threshold co_edit with high co_read triggered signal: %+v", rep.Signals)
+	}
+
+	editTriggered := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	editTriggered.Health.Structural = search.StructuralSignals{
+		HiddenCouplingPairs:     5,
+		HiddenCouplingEditPairs: 3,
+		HiddenCouplingReadPairs: 2,
+		HiddenCouplingRate:      0.6,
+	}
+	rep := BuildDiagnosticReport(*editTriggered, nil, "project", "/work/svc")
+	if len(rep.Signals) != 1 || rep.Signals[0].Rule != "hidden_coupling" ||
+		rep.Signals[0].Metric != "H.structural.hidden_coupling_edit_pairs" || rep.Signals[0].Current != 3 {
+		t.Fatalf("co_edit diagnostic mismatch: %+v", rep.Signals)
+	}
+}

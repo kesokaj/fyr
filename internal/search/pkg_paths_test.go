@@ -35,4 +35,13 @@ func TestIsExcludedASTPathVendoredSkills(t *testing.T) {
 	if syms, _ := extractSymbolsAndRefs("skills/bash/SKILL.md", "# Bash\n"); len(syms) == 0 {
 		t.Errorf("skills/bash/SKILL.md extracted 0 symbols, want > 0")
 	}
+	if !IsVendoredSkillPath(".agents/skills/demo-ui/references/guide.md") || IsVendoredSkillPath("skills/fyr-bug/SKILL.md") {
+		t.Errorf("IsVendoredSkillPath classification mismatch")
+	}
+	if _, _, ok := vendoredExtractAlias("skills/demo/assets/bundle.min.js"); ok {
+		t.Errorf("minified vendored asset should stay AST-excluded")
+	}
+	if norm, alias, ok := vendoredExtractAlias("skills/demo/references/button.ts"); !ok || norm != "skills/demo/references/button.ts" || alias == "" {
+		t.Errorf("vendoredExtractAlias = (%q, %q, %v), want valid alias", norm, alias, ok)
+	}
 }

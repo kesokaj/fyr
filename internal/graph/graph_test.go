@@ -219,6 +219,8 @@ func TestGraphDOTAndMarkdown(t *testing.T) {
 		"## Top 10 God Symbols",
 		"## Package Cycles",
 		"## Hidden Co-Activity Coupling",
+		"| Hidden Co-Edit Pairs | 1 | 1 |",
+		"| Hidden Co-Read Pairs | 0 | 0 |",
 		"## High-Churn Files",
 		"## Brain-Linked Hotspots",
 		"co_modified",
@@ -227,6 +229,41 @@ func TestGraphDOTAndMarkdown(t *testing.T) {
 		if !strings.Contains(md1.String(), want) {
 			t.Errorf("Markdown summary missing %q:\n%s", want, md1.String())
 		}
+	}
+}
+
+func TestGraphHiddenCouplingMetaCounts(t *testing.T) {
+	p := Build(Input{
+		RepoName: "split-hc",
+		Files: []FileInput{
+			{Path: "a.go", Pkg: "a", PkgIdx: 0},
+			{Path: "b.go", Pkg: "b", PkgIdx: 0},
+			{Path: "c.go", Pkg: "c", PkgIdx: 0},
+		},
+		Packages: []PackageInput{{Path: "a", FileCount: 3}},
+		HiddenCoupling: []HiddenCouplingInput{
+			{FileAIdx: 0, FileBIdx: 1, Count: 4, Kind: "co_modified"},
+			{FileAIdx: 0, FileBIdx: 1, Count: 7, Kind: "co_read"},
+			{FileAIdx: 1, FileBIdx: 2, Count: 5, Kind: "co_read"},
+		},
+	})
+	if p.Meta.HiddenCouplingEditPairs != 1 || p.Meta.HiddenCouplingReadPairs != 2 {
+		t.Fatalf("Meta coupling counts = edit:%d read:%d, want 1 and 2", p.Meta.HiddenCouplingEditPairs, p.Meta.HiddenCouplingReadPairs)
+	}
+	var mdBuf, htmlBuf bytes.Buffer
+	if err := RenderMarkdown(&mdBuf, p); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| Hidden Co-Activity Pairs | 3 | 3 |", "| Hidden Co-Edit Pairs | 1 | 1 |", "| Hidden Co-Read Pairs | 2 | 2 |"} {
+		if !strings.Contains(mdBuf.String(), want) {
+			t.Fatalf("Markdown missing %q:\n%s", want, mdBuf.String())
+		}
+	}
+	if err := RenderHTML(&htmlBuf, p); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(htmlBuf.String(), `"hiddenCouplingEditPairs":1,"hiddenCouplingReadPairs":2`) {
+		t.Fatalf("HTML payload missing split hidden coupling metadata")
 	}
 }
 

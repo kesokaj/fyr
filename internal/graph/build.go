@@ -59,7 +59,7 @@ func Build(in Input) *Payload {
 	}
 	palette := append([]string(nil), DefaultPalette...)
 	return &Payload{
-		Meta:           buildMeta(repo, palette, layerColors, pkgs, files, syms, pkgEdges, fileEdges, symEdges, cycles),
+		Meta:           buildSnapshotMeta(repo, palette, layerColors, pkgs, files, syms, pkgEdges, fileEdges, symEdges, cycles, hidden),
 		Packages:       pkgs,
 		Files:          files,
 		Symbols:        syms,
@@ -69,6 +69,38 @@ func Build(in Input) *Payload {
 		HiddenCoupling: hidden,
 		BrainLinks:     fileLinksOut,
 	}
+}
+
+func buildSnapshotMeta(repo string, palette []string, layerColors map[string]string, pkgs []PackageNode, files []FileNode, syms []SymbolNode, pkgEdges, fileEdges, symEdges [][5]int, cycles [][]int, hidden []HiddenCouplingTuple) Meta {
+	meta := buildMeta(repo, palette, layerColors, pkgs, files, syms, pkgEdges, fileEdges, symEdges, cycles)
+	meta.HiddenCouplingEditPairs, meta.HiddenCouplingReadPairs = countHiddenCouplingKinds(hidden)
+	return meta
+}
+
+func countHiddenCouplingKinds(hidden []HiddenCouplingTuple) (int, int) {
+	editSeen := map[[2]int]bool{}
+	readSeen := map[[2]int]bool{}
+	for _, h := range hidden {
+		u, v := h.U, h.V
+		if u > v {
+			u, v = v, u
+		}
+		pair := [2]int{u, v}
+		switch h.Kind {
+		case "co_modified", "co_edit":
+			editSeen[pair] = true
+		case "co_read":
+			readSeen[pair] = true
+		}
+	}
+	return len(editSeen), len(readSeen)
+}
+
+func resolvedHiddenCouplingCounts(p *Payload) (int, int) {
+	if p.Meta.HiddenCouplingEditPairs > 0 || p.Meta.HiddenCouplingReadPairs > 0 || len(p.HiddenCoupling) == 0 {
+		return p.Meta.HiddenCouplingEditPairs, p.Meta.HiddenCouplingReadPairs
+	}
+	return countHiddenCouplingKinds(p.HiddenCoupling)
 }
 
 func seedLayerColors() map[string]string {

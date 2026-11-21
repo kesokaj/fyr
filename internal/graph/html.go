@@ -95,6 +95,12 @@ func ensureNonNilPayload(p *Payload) *Payload {
 		return Build(Input{})
 	}
 	cp := *p
+	ensureNonNilMetaAndSlices(&cp)
+	cp.Meta.HiddenCouplingEditPairs, cp.Meta.HiddenCouplingReadPairs = resolvedHiddenCouplingCounts(&cp)
+	return &cp
+}
+
+func ensureNonNilMetaAndSlices(cp *Payload) {
 	if cp.Meta.Palette == nil {
 		cp.Meta.Palette = append([]string(nil), DefaultPalette...)
 	}
@@ -128,5 +134,4 @@ func ensureNonNilPayload(p *Payload) *Payload {
 	if cp.BrainLinks == nil {
 		cp.BrainLinks = map[string]RecordLinks{}
 	}
-	return &cp
 }

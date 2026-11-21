@@ -40,7 +40,10 @@ func writeMDSummary(b *bytes.Buffer, p *Payload) {
 	fmt.Fprintf(b, "| File Edges | %d | %d |\n", prodFileEdges, m.FileEdges)
 	fmt.Fprintf(b, "| Symbol Edges | %d | %d |\n", prodSymEdges, m.SymEdges)
 	fmt.Fprintf(b, "| Package Cycles | %d | %d |\n", len(m.PkgCycles), len(m.PkgCycles))
-	fmt.Fprintf(b, "| Hidden Co-Activity Pairs | %d | %d |\n\n", len(p.HiddenCoupling), len(p.HiddenCoupling))
+	editPairs, readPairs := resolvedHiddenCouplingCounts(p)
+	fmt.Fprintf(b, "| Hidden Co-Activity Pairs | %d | %d |\n", len(p.HiddenCoupling), len(p.HiddenCoupling))
+	fmt.Fprintf(b, "| Hidden Co-Edit Pairs | %d | %d |\n", editPairs, editPairs)
+	fmt.Fprintf(b, "| Hidden Co-Read Pairs | %d | %d |\n\n", readPairs, readPairs)
 }
 
 func countProdEdges(edges [][5]int) int {

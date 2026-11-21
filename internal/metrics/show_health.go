@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/models"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 func collectStepHealth(h *HealthSignals, sum *Summary, all []sess, stepsByID map[string][]stp, home string) map[string]bool {
@@ -151,4 +152,71 @@ func isGuardedSubagentRole(agentType string) bool {
 func isDowngradedModel(model string) bool {
 	low := strings.ToLower(strings.TrimSpace(model))
 	return low != "" && (strings.Contains(low, "flash") || strings.Contains(low, "-low"))
+}
+
+func inspectProjectSearchDBs(sum *Summary, home string, o ShowOptions, all []sess, overBudget map[string]bool) {
+	roots := distinctProjectRoots(o, home, all)
+	knownMain, knownSub := indexSessionsByID(all)
+	var acc structuralAcc
+	for _, root := range roots {
+		db, searchDBPath, cleanup, ok := openCopySQLiteFileWithPath(home, root, ".agents", "scratch", "search.db")
+		if !ok {
+			continue
+		}
+		sum.Health.SearchDBCompactions += querySearchDBSessionMeta(db, knownMain, knownSub, overBudget)
+		if sig, err := search.ReadStructuralSignals(searchDBPath, root); err == nil {
+			acc.add(sig)
+		}
+		cleanup()
+	}
+	sum.Health.Structural = acc.finish()
+}
+
+type structuralAcc struct {
+	out                         search.StructuralSignals
+	weightSum                   float64
+	hcRateSum, churnSum, hubSum float64
+	count                       int
+	first                       search.StructuralSignals
+}
+
+func (a *structuralAcc) add(s search.StructuralSignals) {
+	if s.TotalCodeFiles == 0 && s.TotalProdPkgs == 0 && s.HiddenCouplingPairs == 0 &&
+		s.HiddenCouplingEditPairs == 0 && s.HiddenCouplingReadPairs == 0 &&
+		s.GodNodeClampHits == 0 && s.GodNodeRepeatReads == 0 && s.ProdPkgCycles == 0 {
+		return
+	}
+	if a.count == 0 {
+		a.first = s
+	}
+	a.count++
+	a.out.HiddenCouplingPairs += s.HiddenCouplingPairs
+	a.out.HiddenCouplingEditPairs += s.HiddenCouplingEditPairs
+	a.out.HiddenCouplingReadPairs += s.HiddenCouplingReadPairs
+	a.out.GodNodeClampHits += s.GodNodeClampHits
+	a.out.GodNodeRepeatReads += s.GodNodeRepeatReads
+	a.out.ProdPkgCycles += s.ProdPkgCycles
+	a.out.LargeFilesOver350 += s.LargeFilesOver350
+	a.out.TotalCodeFiles += s.TotalCodeFiles
+	a.out.TotalProdPkgs += s.TotalProdPkgs
+	w := float64(max(1, s.TotalCodeFiles))
+	a.weightSum += w
+	a.hcRateSum += s.HiddenCouplingRate * w
+	a.churnSum += s.GodNodeChurnRate * w
+	a.hubSum += s.HubConcentration * w
+}
+
+func (a *structuralAcc) finish() search.StructuralSignals {
+	if a.count == 0 {
+		return search.StructuralSignals{}
+	}
+	if a.count == 1 {
+		return a.first
+	}
+	if a.weightSum > 0 {
+		a.out.HiddenCouplingRate = round4(a.hcRateSum / a.weightSum)
+		a.out.GodNodeChurnRate = round4(a.churnSum / a.weightSum)
+		a.out.HubConcentration = round4(a.hubSum / a.weightSum)
+	}
+	return a.out
 }

@@ -138,19 +138,21 @@ func (h *HiddenCouplingTuple) UnmarshalJSON(data []byte) error {
 
 // Meta holds repository-level counts, palette, layer colors, and package cycles.
 type Meta struct {
-	Repo          string            `json:"repo"`
-	Palette       []string          `json:"palette"`
-	LayerColors   map[string]string `json:"layerColors"`
-	TotalPackages int               `json:"totalPackages"`
-	ProdPackages  int               `json:"prodPackages"`
-	TotalFiles    int               `json:"totalFiles"`
-	ProdFiles     int               `json:"prodFiles"`
-	TotalSymbols  int               `json:"totalSymbols"`
-	ProdSymbols   int               `json:"prodSymbols"`
-	PkgEdges      int               `json:"pkgEdges"`
-	FileEdges     int               `json:"fileEdges"`
-	SymEdges      int               `json:"symEdges"`
-	PkgCycles     [][]int           `json:"pkgCycles"`
+	Repo                    string            `json:"repo"`
+	Palette                 []string          `json:"palette"`
+	LayerColors             map[string]string `json:"layerColors"`
+	TotalPackages           int               `json:"totalPackages"`
+	ProdPackages            int               `json:"prodPackages"`
+	TotalFiles              int               `json:"totalFiles"`
+	ProdFiles               int               `json:"prodFiles"`
+	TotalSymbols            int               `json:"totalSymbols"`
+	ProdSymbols             int               `json:"prodSymbols"`
+	PkgEdges                int               `json:"pkgEdges"`
+	FileEdges               int               `json:"fileEdges"`
+	SymEdges                int               `json:"symEdges"`
+	PkgCycles               [][]int           `json:"pkgCycles"`
+	HiddenCouplingEditPairs int               `json:"hiddenCouplingEditPairs"`
+	HiddenCouplingReadPairs int               `json:"hiddenCouplingReadPairs"`
 }
 
 // PackageNode is one package in Payload.

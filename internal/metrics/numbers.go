@@ -103,10 +103,13 @@ func (s *Summary) putHealthNumbers(put func(string, float64)) {
 func (s *Summary) putStructuralNumbers(put func(string, float64)) {
 	st := s.Health.Structural
 	if st.TotalCodeFiles == 0 && st.TotalProdPkgs == 0 && st.HiddenCouplingPairs == 0 &&
+		st.HiddenCouplingEditPairs == 0 && st.HiddenCouplingReadPairs == 0 &&
 		st.GodNodeClampHits == 0 && st.GodNodeRepeatReads == 0 && st.ProdPkgCycles == 0 && st.LargeFilesOver350 == 0 {
 		return
 	}
 	put("H.structural.hidden_coupling_pairs", float64(st.HiddenCouplingPairs))
+	put("H.structural.hidden_coupling_edit_pairs", float64(st.HiddenCouplingEditPairs))
+	put("H.structural.hidden_coupling_read_pairs", float64(st.HiddenCouplingReadPairs))
 	put("H.structural.hidden_coupling_rate", st.HiddenCouplingRate)
 	put("H.structural.god_node_clamp_hits", float64(st.GodNodeClampHits))
 	put("H.structural.god_node_repeat_reads", float64(st.GodNodeRepeatReads))

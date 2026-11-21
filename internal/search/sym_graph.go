@@ -86,6 +86,10 @@ func (sc *scope) loadSymGraphOpts(includeDocs bool) (*symGraph, error) {
 }
 
 func buildSymGraphFromDB(db *sql.DB, projects []string, goMods map[string]string, includeDocs bool) (*symGraph, error) {
+	return buildSymGraphFromDBOpts(db, projects, goMods, includeDocs, false)
+}
+
+func buildSymGraphFromDBOpts(db *sql.DB, projects []string, goMods map[string]string, includeDocs, includeVendored bool) (*symGraph, error) {
 	if len(projects) == 0 {
 		return newSymGraphWithMeta(nil, nil, goMods), nil
 	}
@@ -97,11 +101,24 @@ func buildSymGraphFromDB(db *sql.DB, projects []string, goMods map[string]string
 	if err != nil {
 		return nil, err
 	}
-	g := newSymGraphWithMeta(syms, files, goMods)
 	rawRefs, err := queryRawSymRefsDB(db, projects, includeDocs)
 	if err != nil {
 		return nil, err
 	}
+	if includeVendored {
+		var vendRefs []rawSymRef
+		files, syms, vendRefs, err = appendVendoredGraphData(db, projects, includeDocs, files, syms)
+		if err != nil {
+			return nil, err
+		}
+		rawRefs = append(rawRefs, vendRefs...)
+	}
+	g := newSymGraphWithMeta(syms, files, goMods)
+	populateSymGraphRefs(g, rawRefs)
+	return g, nil
+}
+
+func populateSymGraphRefs(g *symGraph, rawRefs []rawSymRef) {
 	for _, r := range rawRefs {
 		if r.kind == "import" {
 			g.addImportRef(r)
@@ -112,7 +129,6 @@ func buildSymGraphFromDB(db *sql.DB, projects []string, goMods map[string]string
 			g.addRawRef(r)
 		}
 	}
-	return g, nil
 }
 
 func projectsInClause(projects []string) (string, []any) {
@@ -123,7 +139,7 @@ func projectsInClause(projects []string) (string, []any) {
 	return "(" + strings.TrimSuffix(strings.Repeat("?,", len(projects)), ",") + ")", args
 }
 
-func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
+func queryIndexedFilesSQL(db *sql.DB, projects []string) (string, []any) {
 	inSQL, args := projectsInClause(projects)
 	hasLC, _ := tableHasColumn(db, "blobs", "line_count")
 	lcExpr := "0"
@@ -133,16 +149,21 @@ func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]ind
 	q := `SELECT f.project, f.path, f.oid, ` + lcExpr + `
 		FROM files f LEFT JOIN blobs b ON b.oid = f.oid
 		WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
-	return scanIndexedFilesDB(db, q, args, includeDocs)
+	return q, args
+}
+
+func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
+	q, args := queryIndexedFilesSQL(db, projects)
+	return scanIndexedFilesDB(db, q, args, includeDocs, false)
 }
 
 func queryIndexedFilePathsDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
 	inSQL, args := projectsInClause(projects)
 	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
-	return scanIndexedFilesDB(db, q, args, includeDocs)
+	return scanIndexedFilesDB(db, q, args, includeDocs, false)
 }
 
-func scanIndexedFilesDB(db *sql.DB, q string, args []any, includeDocs bool) ([]indexedFileMeta, error) {
+func scanIndexedFilesDB(db *sql.DB, q string, args []any, includeDocs, vendoredOnly bool) ([]indexedFileMeta, error) {
 	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -154,13 +175,24 @@ func scanIndexedFilesDB(db *sql.DB, q string, args []any, includeDocs bool) ([]i
 		if err := rows.Scan(&m.project, &m.path, &m.oid, &m.lineCount); err != nil {
 			return nil, err
 		}
-		if isExcludedASTPath(m.path) || (!isCodePath(m.path) && !(includeDocs && isDocPath(m.path))) {
+		if !keepScannedFile(m.path, includeDocs, vendoredOnly) {
 			continue
 		}
 		m.pkg = canonicalPkgDir(m.path)
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+func keepScannedFile(p string, includeDocs, vendoredOnly bool) bool {
+	if vendoredOnly {
+		if !IsVendoredSkillPath(p) || isExcludedASTPathOpt(p, true) {
+			return false
+		}
+	} else if isExcludedASTPath(p) {
+		return false
+	}
+	return isCodePath(p) || (includeDocs && isDocPath(p))
 }
 
 func querySymbolNodesDB(db *sql.DB, projects []string, includeDocs bool) ([]RankedSymbol, error) {

@@ -2,6 +2,8 @@ package search
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -197,4 +199,96 @@ func buildSnapshotHiddenCoupling(db *sql.DB, root string, fileIdxOf map[string]i
 		})
 	}
 	return out
+}
+
+func appendVendoredGraphData(db *sql.DB, projects []string, includeDocs bool, files []indexedFileMeta, syms []RankedSymbol) ([]indexedFileMeta, []RankedSymbol, []rawSymRef, error) {
+	q, args := queryIndexedFilesSQL(db, projects)
+	vendFiles, err := scanIndexedFilesDB(db, q, args, includeDocs, true)
+	if err != nil || len(vendFiles) == 0 {
+		return files, syms, nil, err
+	}
+	roots := map[string]*os.Root{}
+	defer closeRoots(roots)
+	var rawRefs []rawSymRef
+	for i := range vendFiles {
+		m := vendFiles[i]
+		text, ok := readVendoredFileText(roots, m.project, m.path)
+		if !ok {
+			continue
+		}
+		if m.lineCount <= 0 {
+			m.lineCount = len(splitLines(text))
+		}
+		files = append(files, m)
+		vSyms, vRefs := extractVendoredSymbolsAndRefs(m, text, includeDocs, len(syms))
+		syms = append(syms, vSyms...)
+		rawRefs = append(rawRefs, vRefs...)
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].path != files[j].path {
+			return files[i].path < files[j].path
+		}
+		return files[i].project < files[j].project
+	})
+	return files, syms, rawRefs, nil
+}
+
+func readVendoredFileText(roots map[string]*os.Root, project, relPath string) (string, bool) {
+	if project == "" || relPath == "" {
+		return "", false
+	}
+	fsRoot, ok := roots[project]
+	if !ok {
+		var err error
+		fsRoot, err = os.OpenRoot(project)
+		if err != nil {
+			return "", false
+		}
+		roots[project] = fsRoot
+	}
+	return readIndexable(fsRoot, filepath.FromSlash(relPath))
+}
+
+func closeRoots(roots map[string]*os.Root) {
+	for _, r := range roots {
+		if r != nil {
+			_ = r.Close()
+		}
+	}
+}
+
+func extractVendoredSymbolsAndRefs(m indexedFileMeta, text string, includeDocs bool, baseIdx int) ([]RankedSymbol, []rawSymRef) {
+	norm, alias, ok := vendoredExtractAlias(m.path)
+	if !ok {
+		return nil, nil
+	}
+	syRows, refRows := extractSymbolsAndRefs(alias, text)
+	var syms []RankedSymbol
+	for _, sy := range syRows {
+		if !includeDocs && (isDocPath(norm) || sy.kind == "heading") {
+			continue
+		}
+		pkg := sy.pkg
+		if !isDocPath(norm) && sy.kind != "heading" {
+			pkg = m.pkg
+		}
+		syms = append(syms, RankedSymbol{
+			Idx: baseIdx + len(syms), Project: m.project, Path: m.path, OID: m.oid,
+			Name: sy.name, Recv: sy.recv, Kind: sy.kind, Pkg: pkg,
+			StartLine: sy.startLine, EndLine: sy.endLine, Sig: sy.sig,
+			Exported: sy.exported != 0, BodyHash: sy.bodyHash,
+		})
+	}
+	var refs []rawSymRef
+	for _, sr := range refRows {
+		if !includeDocs && (isDocPath(norm) || sr.kind == "doc_ref") {
+			continue
+		}
+		refs = append(refs, rawSymRef{
+			path: m.path, oid: m.oid, fromSym: sr.fromSym,
+			toPkg: stripVendoredExtractPrefix(sr.toPkg), toName: sr.toName,
+			kind: sr.kind, confidence: sr.confidence, weight: sr.weight, line: sr.line,
+		})
+	}
+	return syms, refs
 }

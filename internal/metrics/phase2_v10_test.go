@@ -156,7 +156,10 @@ func TestSummaryNumbersV10(t *testing.T) {
 	sum.Health.SessionsOverKnee = 2
 	sum.Health.MainSessions = 5
 	sum.Health.GuardedDowngrades = 1
-	sum.Health.Structural = search.StructuralSignals{HiddenCouplingPairs: 3, HiddenCouplingRate: 0.5, ProdPkgCycles: 1, TotalCodeFiles: 10, TotalProdPkgs: 2}
+	sum.Health.Structural = search.StructuralSignals{
+		HiddenCouplingPairs: 3, HiddenCouplingEditPairs: 3, HiddenCouplingReadPairs: 2,
+		HiddenCouplingRate: 0.5, ProdPkgCycles: 1, TotalCodeFiles: 10, TotalProdPkgs: 2,
+	}
 	sum.Health.DreamRuns = BackgroundKindStats{Runs: 2, Passed: 2, ProposalsWritten: 3}
 	sum.Health.AutoRuns = BackgroundKindStats{Runs: 1, Failed: 1, WorkersRan: 1}
 
@@ -167,22 +170,24 @@ func assertNumbersV10Keys(t *testing.T, sum *Summary) {
 	t.Helper()
 	n := sum.Numbers()
 	wants := map[string]float64{
-		"A.ratings_count":                    5,
-		"A.mean_outcome_score":               4.25,
-		"A.mean_token_efficiency":            3.75,
-		"C.redundant_reads.agy":              4,
-		"C.ranged_read_pct.agy":              65,
-		"E.turn_vets":                        9,
-		"E.mean_vet_score":                   82.5,
-		"F.workers":                          4,
-		"F.judge_failed":                     1,
-		"H.sessions_over_knee":               2,
-		"H.guarded_downgrades":               1,
-		"H.structural.hidden_coupling_pairs": 3,
-		"H.structural.prod_pkg_cycles":       1,
-		"H.background_runs.total":            3,
-		"H.background_runs.dream.runs":       2,
-		"H.background_runs.auto.workers_ran": 1,
+		"A.ratings_count":                         5,
+		"A.mean_outcome_score":                    4.25,
+		"A.mean_token_efficiency":                 3.75,
+		"C.redundant_reads.agy":                   4,
+		"C.ranged_read_pct.agy":                   65,
+		"E.turn_vets":                             9,
+		"E.mean_vet_score":                        82.5,
+		"F.workers":                               4,
+		"F.judge_failed":                          1,
+		"H.sessions_over_knee":                    2,
+		"H.guarded_downgrades":                    1,
+		"H.structural.hidden_coupling_pairs":      3,
+		"H.structural.hidden_coupling_edit_pairs": 3,
+		"H.structural.hidden_coupling_read_pairs": 2,
+		"H.structural.prod_pkg_cycles":            1,
+		"H.background_runs.total":                 3,
+		"H.background_runs.dream.runs":            2,
+		"H.background_runs.auto.workers_ran":      1,
 	}
 	for k, want := range wants {
 		if got, ok := n[k]; !ok || got != want {
@@ -194,7 +199,7 @@ func assertNumbersV10Keys(t *testing.T, sum *Summary) {
 	sum.Health.DreamRuns = BackgroundKindStats{}
 	sum.Health.AutoRuns = BackgroundKindStats{}
 	n2 := sum.Numbers()
-	for _, absent := range []string{"A.mean_outcome_score", "H.structural.prod_pkg_cycles", "H.background_runs.total"} {
+	for _, absent := range []string{"A.mean_outcome_score", "H.structural.prod_pkg_cycles", "H.structural.hidden_coupling_edit_pairs", "H.background_runs.total"} {
 		if _, ok := n2[absent]; ok {
 			t.Errorf("expected %q to be absent when empty", absent)
 		}
@@ -218,11 +223,36 @@ func TestStructuralHealthSignals(t *testing.T) {
 		t.Fatalf("Show: %v", err)
 	}
 	st := sum.Health.Structural
-	if st.TotalCodeFiles < 2 || st.HiddenCouplingPairs != 1 || st.GodNodeClampHits < 2 {
-		t.Fatalf("Structural = %+v, want >=2 files, 1 hidden coupling pair, >=2 clamp hits", st)
+	if st.TotalCodeFiles < 2 || st.HiddenCouplingPairs != 2 || st.HiddenCouplingEditPairs != 1 || st.HiddenCouplingReadPairs != 1 || st.GodNodeClampHits < 2 {
+		t.Fatalf("Structural = %+v, want >=2 files, total=2 edit=1 read=1 coupling pairs, >=2 clamp hits", st)
+	}
+	if sum.Diagnostics != nil {
+		for _, sig := range sum.Diagnostics.Signals {
+			if sig.Rule == "hidden_coupling" {
+				t.Fatalf("unexpected hidden_coupling warning with edit=1 read=1: %+v", sig)
+			}
+		}
 	}
 	if sum.Deltas == nil || sum.Deltas.PreviousSessions != 1 {
 		t.Fatalf("Deltas = %+v, want PreviousSessions=1", sum.Deltas)
+	}
+	assertStructuralAccSplitCoupling(t)
+}
+
+func assertStructuralAccSplitCoupling(t *testing.T) {
+	t.Helper()
+	var acc structuralAcc
+	acc.add(search.StructuralSignals{HiddenCouplingPairs: 2, HiddenCouplingEditPairs: 1, HiddenCouplingReadPairs: 1, TotalCodeFiles: 4})
+	acc.add(search.StructuralSignals{HiddenCouplingPairs: 3, HiddenCouplingEditPairs: 2, HiddenCouplingReadPairs: 1, TotalCodeFiles: 4})
+	got := acc.finish()
+	if got.HiddenCouplingPairs != 5 || got.HiddenCouplingEditPairs != 3 || got.HiddenCouplingReadPairs != 2 {
+		t.Fatalf("structuralAcc split mismatch: %+v", got)
+	}
+	sum := newSummary(time.Unix(0, 0), time.Unix(86400, 0))
+	sum.Health.Structural = got
+	rep := BuildDiagnosticReport(*sum, nil, "global", "")
+	if len(rep.Signals) != 1 || rep.Signals[0].Rule != "hidden_coupling" {
+		t.Fatalf("expected co_edit=3 to trigger hidden_coupling, got %+v", rep.Signals)
 	}
 }
 
@@ -234,6 +264,7 @@ func seedStructuralRepoWithSearchDB(t *testing.T, home string) string {
 		"go.mod":     "module example.com/svc\n\ngo 1.24\n",
 		"alpha/a.go": "package alpha\n\nfunc Alpha() int { return 1 }\n",
 		"beta/b.go":  "package beta\n\nfunc Beta() int { return 2 }\n",
+		"gamma/c.go": "package gamma\n\nfunc Gamma() int { return 3 }\n",
 	} {
 		full := filepath.Join(proj, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
@@ -259,7 +290,9 @@ func seedStructuralRepoWithSearchDB(t *testing.T, home string) string {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('alpha/a.go', 'beta/b.go', 'co_modified', 4, 100)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES
+		('alpha/a.go', 'beta/b.go', 'co_modified', 4, 100),
+		('beta/b.go', 'gamma/c.go', 'co_read', 5, 100)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES ('c1', 0, ?, -5, -5, 'h1', 1, 2, 100)`,

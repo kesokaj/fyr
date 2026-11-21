@@ -184,10 +184,10 @@ func appendStructuralSignals(out []DiagnosticSignal, sum Summary, pfx string) []
 		out = append(out, makeSignal(pfx, "prod_pkg_cycles", "high", "H.structural.prod_pkg_cycles",
 			float64(st.ProdPkgCycles), 0, st.ProdPkgCycles, fmt.Sprintf("%d production package dependency cycle(s) across %d packages", st.ProdPkgCycles, st.TotalProdPkgs)))
 	}
-	if st.HiddenCouplingPairs >= minHiddenCouplingPairs {
-		sev := pickSev(st.HiddenCouplingPairs >= 8 || st.HiddenCouplingRate >= 0.40, "high", "medium")
-		out = append(out, makeSignal(pfx, "hidden_coupling", sev, "H.structural.hidden_coupling_pairs",
-			float64(st.HiddenCouplingPairs), 0, st.HiddenCouplingPairs, fmt.Sprintf("%d co-active file pairs lack AST edges (rate %.1f%%)", st.HiddenCouplingPairs, st.HiddenCouplingRate*100)))
+	if st.HiddenCouplingEditPairs >= minHiddenCouplingPairs {
+		sev := pickSev(st.HiddenCouplingEditPairs >= 8 || st.HiddenCouplingRate >= 0.40, "high", "medium")
+		out = append(out, makeSignal(pfx, "hidden_coupling", sev, "H.structural.hidden_coupling_edit_pairs",
+			float64(st.HiddenCouplingEditPairs), 0, st.HiddenCouplingEditPairs, fmt.Sprintf("%d co-edited file pairs lack AST edges (co-read %d, rate %.1f%%)", st.HiddenCouplingEditPairs, st.HiddenCouplingReadPairs, st.HiddenCouplingRate*100)))
 	}
 	sessions := max(sum.Sessions["agy"], sum.Health.MainSessions)
 	churnHits := st.GodNodeClampHits + st.GodNodeRepeatReads

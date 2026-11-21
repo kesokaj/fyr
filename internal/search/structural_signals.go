@@ -4,28 +4,26 @@ import (
 	"database/sql"
 	"math"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
-
-	"github.com/kesokaj/fyr/internal/harness"
-	"github.com/kesokaj/fyr/internal/redact"
 )
 
 const defaultHiddenCouplingMinCount = 3
 
 // StructuralSignals holds strictly numeric, shape-only structural and behavioral health metrics.
 type StructuralSignals struct {
-	HiddenCouplingPairs int     `json:"hiddenCouplingPairs"`
-	HiddenCouplingRate  float64 `json:"hiddenCouplingRate"`
-	GodNodeClampHits    int     `json:"godNodeClampHits"`
-	GodNodeRepeatReads  int     `json:"godNodeRepeatReads"`
-	GodNodeChurnRate    float64 `json:"godNodeChurnRate"`
-	ProdPkgCycles       int     `json:"prodPkgCycles"`
-	HubConcentration    float64 `json:"hubConcentration"`
-	LargeFilesOver350   int     `json:"largeFilesOver350"`
-	TotalCodeFiles      int     `json:"totalCodeFiles"`
-	TotalProdPkgs       int     `json:"totalProdPkgs"`
+	HiddenCouplingPairs     int     `json:"hiddenCouplingPairs"`
+	HiddenCouplingEditPairs int     `json:"hiddenCouplingEditPairs"`
+	HiddenCouplingReadPairs int     `json:"hiddenCouplingReadPairs"`
+	HiddenCouplingRate      float64 `json:"hiddenCouplingRate"`
+	GodNodeClampHits        int     `json:"godNodeClampHits"`
+	GodNodeRepeatReads      int     `json:"godNodeRepeatReads"`
+	GodNodeChurnRate        float64 `json:"godNodeChurnRate"`
+	ProdPkgCycles           int     `json:"prodPkgCycles"`
+	HubConcentration        float64 `json:"hubConcentration"`
+	LargeFilesOver350       int     `json:"largeFilesOver350"`
+	TotalCodeFiles          int     `json:"totalCodeFiles"`
+	TotalProdPkgs           int     `json:"totalProdPkgs"`
 }
 
 // HiddenCouplingHint is a project-local redacted co-activity pair lacking any AST edge.
@@ -167,10 +165,12 @@ func computeStructuralSignalsFromGraph(db *sql.DB, repoRoot string, g *symGraph)
 		sig.GodNodeChurnRate = roundSignal4(float64(sig.GodNodeClampHits+sig.GodNodeRepeatReads) / float64(totalReadEvents))
 	}
 	astLinked := collectUndirectedASTFilePairs(g)
-	hidden, totalCoPairs := queryHiddenCouplingPairs(db, repoRoot, defaultHiddenCouplingMinCount, astLinked)
-	sig.HiddenCouplingPairs = len(hidden)
-	if totalCoPairs > 0 {
-		sig.HiddenCouplingRate = roundSignal4(float64(len(hidden)) / float64(totalCoPairs))
+	hc := summarizeHiddenCoupling(db, repoRoot, defaultHiddenCouplingMinCount, astLinked)
+	sig.HiddenCouplingPairs = hc.totalPairs
+	sig.HiddenCouplingEditPairs = hc.editPairs
+	sig.HiddenCouplingReadPairs = hc.readPairs
+	if hc.totalCoPairs > 0 {
+		sig.HiddenCouplingRate = roundSignal4(float64(hc.totalPairs) / float64(hc.totalCoPairs))
 	}
 	return sig
 }
@@ -262,66 +262,6 @@ func queryFileChurnStats(db *sql.DB, repoRoot string) (map[string]fileChurnStat,
 		out[rel] = st
 	}
 	return out, totalEvents
-}
-
-func queryHiddenCouplingPairs(db *sql.DB, repoRoot string, minCount int, astLinked map[[2]string]bool) ([]HiddenCouplingHint, int) {
-	rows, err := db.Query(`SELECT file_a, file_b, kind, count FROM co_activity WHERE count >= ? ORDER BY count DESC, file_a, file_b`, minCount)
-	if err != nil {
-		return nil, 0
-	}
-	defer rows.Close()
-	canonRoot := CanonicalizePath("", repoRoot)
-	best := map[[2]string]HiddenCouplingHint{}
-	for rows.Next() {
-		var a, b, kind string
-		var cnt int
-		if rows.Scan(&a, &b, &kind, &cnt) != nil {
-			continue
-		}
-		ra, rb := normalizeRepoRel(repoRoot, canonRoot, a), normalizeRepoRel(repoRoot, canonRoot, b)
-		if ra == "" || rb == "" || ra == rb || isExcludedASTPath(ra) || isExcludedASTPath(rb) {
-			continue
-		}
-		if harness.SecretShaped(path.Base(ra)) || harness.SecretShaped(path.Base(rb)) {
-			continue
-		}
-		if ra > rb {
-			ra, rb = rb, ra
-		}
-		key := [2]string{ra, rb}
-		cur, exists := best[key]
-		if !exists || cnt > cur.Count || (cnt == cur.Count && kind == "co_modified" && cur.Kind != "co_modified") {
-			best[key] = HiddenCouplingHint{
-				FileA: printable(redact.Redact(ra)),
-				FileB: printable(redact.Redact(rb)),
-				Kind:  printable(kind),
-				Count: cnt,
-			}
-		}
-	}
-	var hidden []HiddenCouplingHint
-	for key, h := range best {
-		if !astLinked[key] {
-			hidden = append(hidden, h)
-		}
-	}
-	sortHiddenCouplingHints(hidden)
-	return hidden, len(best)
-}
-
-func sortHiddenCouplingHints(hidden []HiddenCouplingHint) {
-	sort.Slice(hidden, func(i, j int) bool {
-		if hidden[i].Count != hidden[j].Count {
-			return hidden[i].Count > hidden[j].Count
-		}
-		if hidden[i].Kind != hidden[j].Kind {
-			return hidden[i].Kind == "co_modified"
-		}
-		if hidden[i].FileA != hidden[j].FileA {
-			return hidden[i].FileA < hidden[j].FileA
-		}
-		return hidden[i].FileB < hidden[j].FileB
-	})
 }
 
 func normalizeRepoRel(repoRoot, canonRoot, p string) string {

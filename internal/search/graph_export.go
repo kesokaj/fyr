@@ -14,10 +14,11 @@ const (
 	EdgeMaskImport = 8
 )
 
-// GraphOptions controls test and documentation inclusion for LoadGraphSnapshot.
+// GraphOptions controls test, documentation, and vendored skill inclusion for LoadGraphSnapshot.
 type GraphOptions struct {
-	IncludeTests bool
-	IncludeDocs  bool
+	IncludeTests    bool
+	IncludeDocs     bool
+	IncludeVendored bool
 }
 
 // GraphEdge encodes [u, v, prodW, testW, kindMask] directly as a 5-int tuple.
@@ -132,13 +133,13 @@ func LoadGraphSnapshot(opts Options, gopts GraphOptions) (*GraphSnapshot, error)
 		root = sc.projects[0]
 	}
 	goMods := loadGoModules(sc)
-	g, err := buildSymGraphFromDB(sc.st.db, sc.projects, goMods, includeDocs)
+	g, err := buildSymGraphFromDBOpts(sc.st.db, sc.projects, goMods, includeDocs, gopts.IncludeVendored)
 	if err != nil {
 		return nil, err
 	}
 	prodGraph := g
-	if includeDocs {
-		prodGraph, err = buildSymGraphFromDB(sc.st.db, sc.projects, goMods, false)
+	if includeDocs || gopts.IncludeVendored {
+		prodGraph, err = buildSymGraphFromDBOpts(sc.st.db, sc.projects, goMods, false, false)
 		if err != nil {
 			return nil, err
 		}
