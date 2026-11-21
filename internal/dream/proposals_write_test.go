@@ -125,6 +125,34 @@ func TestHeaderLargeMultiByteDroppedBoundedAndSanitized(t *testing.T) {
 		}
 	})
 
+	t.Run("bearer kind prefix does not self-redact entire summary", func(t *testing.T) {
+		gotBearer := o.header(Collected{Root: "/proj", Dropped: []string{"bearer:foo dropped"}}, "agy", "2026-11-21")
+		if !strings.Contains(gotBearer, "Left out: 1 (bearer 1): bearer:foo dropped\n") {
+			t.Errorf("bearer:foo kind self-redacted header:\n%s", gotBearer)
+		}
+	})
+
+	t.Run("full Left out line stays <= 1024 bytes even with worst-case summary", func(t *testing.T) {
+		worst := make([]string, 0, 120)
+		for i := 0; i < 60; i++ {
+			worst = append(worst, fmt.Sprintf("kind%02dlongprefix: %s", i, strings.Repeat("Z", 150)))
+		}
+		gotWorst := o.header(Collected{Root: "/proj", Dropped: worst}, "agy", "2026-11-21")
+		var leftLine string
+		for _, ln := range strings.Split(gotWorst, "\n") {
+			if strings.HasPrefix(ln, "Left out: ") {
+				leftLine = ln
+				break
+			}
+		}
+		if leftLine == "" {
+			t.Fatalf("missing Left out line:\n%s", gotWorst)
+		}
+		if len(leftLine) > maxDroppedHeaderBytes || !utf8.ValidString(leftLine) {
+			t.Errorf("full Left out line exceeded %d bytes or broke UTF-8: len=%d line=%q", maxDroppedHeaderBytes, len(leftLine), leftLine)
+		}
+	})
+
 	t.Run("scrubs home path and secret crossing sample boundary", func(t *testing.T) {
 		boundaryHome := filepath.Join(t.TempDir(), "home-boundary-marker")
 		oBoundary := Options{Home: boundaryHome}

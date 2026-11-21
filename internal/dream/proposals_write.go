@@ -180,10 +180,12 @@ func (o Options) buildProposals(head string, props []proposal, ratings []metrics
 var propose = brain.ProposeAll
 
 const (
-	maxDroppedHeaderBytes = 1024
-	maxDroppedSampleBytes = 100
-	maxDroppedKindsBytes  = 360
-	maxDroppedKindBytes   = 32
+	leftOutPrefix          = "Left out: "
+	maxDroppedHeaderBytes  = 1024
+	maxDroppedSummaryBytes = maxDroppedHeaderBytes - len(leftOutPrefix)
+	maxDroppedSampleBytes  = 100
+	maxDroppedKindsBytes   = 360
+	maxDroppedKindBytes    = 32
 )
 
 // header is what every proposal of one project's dream carries: where it came
@@ -200,7 +202,7 @@ func (o Options) header(c Collected, cli, day string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tool granted, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
 	if len(c.Dropped) > 0 {
-		fmt.Fprintf(&b, "Left out: %s\n", o.line(formatDroppedHeader(cleanDropped(c.Dropped, o.line))))
+		fmt.Fprintf(&b, "%s%s\n", leftOutPrefix, formatDroppedHeader(cleanDropped(c.Dropped, o.line)))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -234,13 +236,13 @@ func formatDroppedHeader(dropped []string) string {
 		if rest := len(dropped) - k; rest > 0 {
 			cand += fmt.Sprintf("; + %d more", rest)
 		}
-		if len(cand) > maxDroppedHeaderBytes {
+		if len(cand) > maxDroppedSummaryBytes {
 			break
 		}
 		out = cand
 	}
-	if len(out) > maxDroppedHeaderBytes {
-		return clipUTF8(out, maxDroppedHeaderBytes)
+	if len(out) > maxDroppedSummaryBytes {
+		return clipUTF8(out, maxDroppedSummaryBytes)
 	}
 	return out
 }
