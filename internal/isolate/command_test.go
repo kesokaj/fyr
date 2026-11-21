@@ -399,3 +399,143 @@ func TestCommandLandlockIsolatesNetworkHelper(t *testing.T) {
 		t.Fatalf("self-loopback accept/write: %v", err)
 	}
 }
+
+func TestCommandConfinedPATHFiltering(t *testing.T) {
+	base := t.TempDir()
+	osTmp := filepath.Join(base, "ostmp")
+	t.Setenv("TMPDIR", osTmp)
+
+	realHome := filepath.Join(base, "real")
+	realHomeBin := filepath.Join(realHome, ".local", "bin")
+	tmpBin := filepath.Join(osTmp, "tbin")
+	sysDir := filepath.Join(base, "sysbin")
+	roDir := filepath.Join(osTmp, "ro-bin")
+	rwDir := filepath.Join(osTmp, "rw-bin")
+	workDir := filepath.Join(osTmp, "work")
+	workBin := filepath.Join(workDir, "bin")
+	scratchHome := filepath.Join(osTmp, "scratch")
+	scratchBin := filepath.Join(scratchHome, "bin")
+	cmdTmpDir := filepath.Join(osTmp, "cmdtmp")
+	cmdTmpBin := filepath.Join(cmdTmpDir, "bin")
+	for _, d := range []string{realHomeBin, tmpBin, sysDir, roDir, rwDir, workBin, scratchBin, cmdTmpBin} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	linkToHome := filepath.Join(base, "ext-home-bin")
+	if err := os.Symlink(realHomeBin, linkToHome); err != nil {
+		t.Fatal(err)
+	}
+
+	rawPATH := strings.Join([]string{
+		realHomeBin,
+		linkToHome,
+		tmpBin,
+		sysDir,
+		sysDir + string(filepath.Separator),
+		roDir,
+		rwDir,
+		workBin,
+		scratchBin,
+		cmdTmpBin,
+	}, string(os.PathListSeparator))
+	t.Setenv("PATH", rawPATH)
+
+	confinedEnv, _ := buildCommandEnv(CommandOpts{
+		Dir:         workDir,
+		ScratchHome: scratchHome,
+		TmpDir:      cmdTmpDir,
+		RealHome:    realHome,
+		ROPaths:     []string{roDir},
+		RWPaths:     []string{rwDir},
+	})
+	parts := filepath.SplitList(envToMap(confinedEnv)["PATH"])
+	if gr := runtime.GOROOT(); gr != "" {
+		goBin := filepath.Join(gr, "bin")
+		if st, err := os.Stat(goBin); err == nil && st.IsDir() && !slices.Contains(parts, goBin) {
+			t.Errorf("confined Command PATH missing GOROOT/bin %q: %v", goBin, parts)
+		}
+	}
+	for _, want := range []string{sysDir, roDir, rwDir, workBin, scratchBin, cmdTmpBin} {
+		if !slices.Contains(parts, want) {
+			t.Errorf("confined Command PATH missing %q: %v", want, parts)
+		}
+	}
+	for _, blocked := range []string{realHomeBin, linkToHome, tmpBin} {
+		if slices.Contains(parts, blocked) {
+			t.Errorf("confined Command PATH leaked %q: %v", blocked, parts)
+		}
+	}
+	sysCount := 0
+	for _, p := range parts {
+		if p == sysDir {
+			sysCount++
+		}
+	}
+	if sysCount != 1 {
+		t.Errorf("confined Command PATH sysDir count = %d, want 1: %v", sysCount, parts)
+	}
+
+	unconfinedEnv, _ := buildCommandEnv(CommandOpts{
+		Dir:         workDir,
+		ScratchHome: scratchHome,
+		TmpDir:      cmdTmpDir,
+		RealHome:    realHome,
+		ROPaths:     []string{roDir},
+		RWPaths:     []string{rwDir},
+		Unconfined:  true,
+	})
+	if got := envToMap(unconfinedEnv)["PATH"]; got != rawPATH {
+		t.Errorf("unconfined Command PATH = %q, want %q", got, rawPATH)
+	}
+}
+
+func TestCommandLandlockShadowedPATH(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Landlock PATH shadowing test runs on Linux")
+	}
+	if err := CheckAvailable(); err != nil {
+		t.Fatalf("Landlock unavailable on Linux test host: %v", err)
+	}
+	base := t.TempDir()
+	realHome := filepath.Join(base, "real")
+	realHomeBin := filepath.Join(realHome, ".local", "bin")
+	roDir := filepath.Join(base, "ro-bin")
+	scratchHome := filepath.Join(base, "scratch")
+	tmpDir := filepath.Join(base, "tmp")
+	workDir := filepath.Join(base, "work")
+	for _, d := range []string{realHomeBin, roDir, scratchHome, tmpDir, workDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shadowTool := filepath.Join(realHomeBin, "fyr-shadow-tool")
+	if err := os.WriteFile(shadowTool, []byte("#!/bin/bash\nexit 99\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	roTool := filepath.Join(roDir, "fyr-shadow-tool")
+	if err := os.WriteFile(roTool, []byte("#!/bin/bash\nprintf 'from-ro'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", strings.Join([]string{realHomeBin, roDir, os.Getenv("PATH")}, string(os.PathListSeparator)))
+
+	cmd, cleanup, err := Command(CommandOpts{
+		Dir:         workDir,
+		ScratchHome: scratchHome,
+		TmpDir:      tmpDir,
+		RealHome:    realHome,
+		ROPaths:     []string{roDir},
+		Argv:        []string{"bash", "-c", "fyr-shadow-tool"},
+	})
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	out, runErr := cmd.CombinedOutput()
+	cleanup()
+	if runErr != nil {
+		t.Fatalf("confined command failed despite filtering RealHome shadow: %v\n%s", runErr, out)
+	}
+	if string(out) != "from-ro" {
+		t.Errorf("confined command output = %q, want %q", string(out), "from-ro")
+	}
+}

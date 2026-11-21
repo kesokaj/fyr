@@ -53,7 +53,15 @@ func resolveCommandBin(bin string) (string, error) {
 }
 
 func buildCommandEnv(opts CommandOpts) ([]string, string) {
-	env := baseSandboxEnv(os.Getenv("PATH"), opts.ScratchHome, opts.TmpDir)
+	pathVal := os.Getenv("PATH")
+	if !opts.Unconfined {
+		allow := make([]string, 0, 3+len(opts.ROPaths)+len(opts.RWPaths))
+		allow = append(allow, opts.Dir, opts.ScratchHome, opts.TmpDir)
+		allow = append(allow, opts.ROPaths...)
+		allow = append(allow, opts.RWPaths...)
+		pathVal = confinedPATH("", opts.RealHome, allow)
+	}
+	env := baseSandboxEnv(pathVal, opts.ScratchHome, opts.TmpDir)
 	env = append(env,
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
