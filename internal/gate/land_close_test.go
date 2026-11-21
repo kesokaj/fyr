@@ -179,3 +179,134 @@ func TestLandAndCloseE2E(t *testing.T) {
 		runGit(t, repo, "branch", "-D", "toctou-branch")
 	})
 }
+
+func TestLandJudgeRunsAfterVerifyWithFreshStamp(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("PASS sees fresh verify.stamp matching landCommit and fast-forwards main", func(t *testing.T) {
+		repo := initTestGoRepo(t)
+		home := t.TempDir()
+		mainHead := runGit(t, repo, "rev-parse", "HEAD")
+		if _, err := WriteStamp(repo, Stamp{
+			TreeSHA256: "stale-main-digest",
+			UpdatedAt:  "2026-11-19T00:00:00Z",
+			Branch:     "main",
+			Head:       mainHead,
+			OK:         true,
+		}); err != nil {
+			t.Fatalf("WriteStamp stale main: %v", err)
+		}
+
+		wt := filepath.Join(t.TempDir(), "wt-pass")
+		runGit(t, repo, "worktree", "add", "-b", "branch-fresh-pass", wt, "main")
+		writeFile(t, filepath.Join(wt, "prod.go"), "package main\n\nfunc Prod(a, b int) int { return a * b }\n")
+		writeFile(t, filepath.Join(wt, "prod_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestProd(t *testing.T) {\n\tif Prod(2, 3) != 6 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n")
+		runGit(t, wt, "add", "prod.go", "prod_test.go")
+		runGit(t, wt, "commit", "-m", "add Prod")
+		branchHead := runGit(t, wt, "rev-parse", "HEAD")
+		runGit(t, repo, "worktree", "remove", wt)
+
+		var gotReq JudgeRequest
+		var wtStamp Stamp
+		var recorded []JudgeVerdictRecord
+		lRep, err := Land(ctx, LandOptions{
+			Dir:        repo,
+			Branch:     "branch-fresh-pass",
+			Home:       home,
+			Lease:      []string{"prod*.go"},
+			Judge:      "Prod returns a * b",
+			JudgeModel: "explicit-judge",
+			JudgeRunner: func(_ context.Context, req JudgeRequest) (JudgeResult, error) {
+				gotReq = req
+				var rErr error
+				wtStamp, rErr = ReadStamp(req.RepoDir)
+				if rErr != nil {
+					return JudgeResult{}, rErr
+				}
+				return JudgeResult{Model: req.ExplicitModel, Verdict: "PASS", Reason: "fresh stamp matched"}, nil
+			},
+			RecordVerdict: func(r JudgeVerdictRecord) error {
+				recorded = append(recorded, r)
+				return nil
+			},
+		})
+		if err != nil || !lRep.OK || lRep.LandCommit == "" {
+			t.Fatalf("Land PASS failed: err=%v rep=%+v", err, lRep)
+		}
+		if gotReq.Head == "" || gotReq.Head == mainHead || gotReq.Head == branchHead || gotReq.Head != lRep.LandCommit {
+			t.Fatalf("judge Head = %q (main=%q branch=%q land=%q)", gotReq.Head, mainHead, branchHead, lRep.LandCommit)
+		}
+		if gotReq.MergeBase != mainHead || gotReq.RepoDir == repo {
+			t.Fatalf("expected scratch worktree RepoDir and MergeBase=%q, got RepoDir=%q MergeBase=%q", mainHead, gotReq.RepoDir, gotReq.MergeBase)
+		}
+		if !wtStamp.OK || wtStamp.Head != lRep.LandCommit {
+			t.Fatalf("scratch worktree verify.stamp = %+v, want OK=true Head=%q", wtStamp, lRep.LandCommit)
+		}
+		if !strings.HasPrefix(gotReq.StampSummary, "ok=true ") || !strings.Contains(gotReq.StampSummary, "head="+lRep.LandCommit) || strings.Contains(gotReq.StampSummary, "missing") {
+			t.Fatalf("StampSummary did not reflect fresh landCommit stamp: %q", gotReq.StampSummary)
+		}
+		if lRep.Verify == nil || !lRep.Verify.OK || lRep.Gate == nil || !lRep.Gate.OK || lRep.Gate.JudgeVerdict != "PASS" {
+			t.Fatalf("unexpected report fields: %+v", lRep)
+		}
+		if runGit(t, repo, "rev-parse", "HEAD") != lRep.LandCommit {
+			t.Fatalf("main HEAD did not fast-forward to %s", lRep.LandCommit)
+		}
+		if len(recorded) != 1 || recorded[0].Verdict != "PASS" {
+			t.Fatalf("unexpected recorded verdicts: %+v", recorded)
+		}
+	})
+
+	t.Run("FAIL after verify aborts land without moving main", func(t *testing.T) {
+		repo := initTestGoRepo(t)
+		home := t.TempDir()
+		headBefore := runGit(t, repo, "rev-parse", "HEAD")
+
+		wt := filepath.Join(t.TempDir(), "wt-fail")
+		runGit(t, repo, "worktree", "add", "-b", "branch-fresh-fail", wt, "main")
+		writeFile(t, filepath.Join(wt, "div.go"), "package main\n\nfunc Div(a, b int) int { return a / b }\n")
+		writeFile(t, filepath.Join(wt, "div_test.go"), "package main\n\nimport \"testing\"\n\nfunc TestDiv(t *testing.T) {\n\tif Div(6, 2) != 3 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n")
+		runGit(t, wt, "add", "div.go", "div_test.go")
+		runGit(t, wt, "commit", "-m", "add Div")
+		runGit(t, repo, "worktree", "remove", wt)
+
+		var gotReq JudgeRequest
+		var recorded []JudgeVerdictRecord
+		lRep, err := Land(ctx, LandOptions{
+			Dir:        repo,
+			Branch:     "branch-fresh-fail",
+			Home:       home,
+			Lease:      []string{"div*.go"},
+			Judge:      "Div guards zero divisor",
+			JudgeModel: "explicit-judge",
+			JudgeRunner: func(_ context.Context, req JudgeRequest) (JudgeResult, error) {
+				gotReq = req
+				return JudgeResult{Model: req.ExplicitModel, Verdict: "FAIL", Reason: "zero divisor unchecked"}, nil
+			},
+			RecordVerdict: func(r JudgeVerdictRecord) error {
+				recorded = append(recorded, r)
+				return nil
+			},
+		})
+		if !errors.Is(err, ErrFailed) || lRep.OK || lRep.LandCommit != "" {
+			t.Fatalf("expected ErrFailed without LandCommit, got err=%v rep=%+v", err, lRep)
+		}
+		if lRep.Verify == nil || !lRep.Verify.OK {
+			t.Fatalf("expected Verify to succeed before judge ran, got %+v", lRep.Verify)
+		}
+		if !strings.HasPrefix(gotReq.StampSummary, "ok=true ") || !strings.Contains(gotReq.StampSummary, "head="+gotReq.Head) {
+			t.Fatalf("judge did not receive fresh landCommit stamp: %q", gotReq.StampSummary)
+		}
+		if lRep.Gate == nil || lRep.Gate.OK || lRep.Gate.JudgeVerdict != "FAIL" || !hasFinding(*lRep.Gate, "judge", "zero divisor unchecked") {
+			t.Fatalf("expected Gate failure with judge finding, got %+v", lRep.Gate)
+		}
+		if runGit(t, repo, "rev-parse", "HEAD") != headBefore {
+			t.Fatalf("main HEAD moved on judge FAIL")
+		}
+		if err := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/branch-fresh-fail").Run(); err != nil {
+			t.Fatalf("branch-fresh-fail should be preserved on judge FAIL")
+		}
+		if len(recorded) != 1 || recorded[0].Verdict != "FAIL" {
+			t.Fatalf("unexpected recorded verdicts: %+v", recorded)
+		}
+	})
+}

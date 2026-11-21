@@ -4,9 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -201,21 +202,29 @@ func (o Options) header(c Collected, cli, day string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tool granted, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
-	if len(c.Dropped) > 0 {
-		fmt.Fprintf(&b, "%s%s\n", leftOutPrefix, formatDroppedHeader(cleanDropped(c.Dropped, o.line)))
+	if line := FormatLeftOutHeader(c.Dropped, o.line); line != "" {
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\n")
 	return b.String()
 }
 
+// FormatLeftOutHeader returns a bounded "Left out: ..." header line for
+// dropped items after applying clean (when non-nil), or "" when empty.
+func FormatLeftOutHeader(dropped []string, clean func(string) string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	return leftOutPrefix + formatDroppedHeader(cleanDropped(dropped, clean))
+}
+
 func cleanDropped(dropped []string, clean func(string) string) []string {
+	if clean == nil {
+		return dropped
+	}
 	out := make([]string, len(dropped))
 	for i, d := range dropped {
-		if clean != nil {
-			out[i] = clean(d)
-		} else {
-			out[i] = d
-		}
+		out[i] = clean(d)
 	}
 	return out
 }
@@ -241,10 +250,7 @@ func formatDroppedHeader(dropped []string) string {
 		}
 		out = cand
 	}
-	if len(out) > maxDroppedSummaryBytes {
-		return clipUTF8(out, maxDroppedSummaryBytes)
-	}
-	return out
+	return clipUTF8(out, maxDroppedSummaryBytes)
 }
 
 func formatDroppedKinds(dropped []string, maxBytes int) string {
@@ -252,19 +258,14 @@ func formatDroppedKinds(dropped []string, maxBytes int) string {
 	for _, d := range dropped {
 		counts[droppedKind(d)]++
 	}
-	kinds := make([]string, 0, len(counts))
-	for k := range counts {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
+	kinds := slices.Sorted(maps.Keys(counts))
 	var b strings.Builder
 	for i, k := range kinds {
 		part := fmt.Sprintf("%s %d", k, counts[k])
-		sep := ""
+		sep, tail := "", ""
 		if b.Len() > 0 {
 			sep = ", "
 		}
-		tail := ""
 		if rem := len(kinds) - (i + 1); rem > 0 {
 			tail = fmt.Sprintf(", +%d kinds", rem)
 		}
@@ -272,8 +273,7 @@ func formatDroppedKinds(dropped []string, maxBytes int) string {
 			fmt.Fprintf(&b, ", +%d kinds", len(kinds)-i)
 			break
 		}
-		b.WriteString(sep)
-		b.WriteString(part)
+		b.WriteString(sep + part)
 	}
 	return b.String()
 }
@@ -293,8 +293,7 @@ func droppedKind(raw string) string {
 	if cut > 0 {
 		s = s[:cut]
 	}
-	s = clipUTF8(s, maxDroppedKindBytes)
-	if s == "" {
+	if s = clipUTF8(s, maxDroppedKindBytes); s == "" {
 		return "unknown"
 	}
 	return s

@@ -181,9 +181,10 @@ var opsVerbPages = map[string]verbPage{
 		about: []string{
 			"Checks a clean worktree or branch against base (default HEAD) across",
 			"four deterministic gates: lease and forbidden mode/secret filenames,",
-			"numstat caps and binary diffs, added-line secret scan (without printing",
-			"secrets), and forbidden commit trailers. With --judge, runs an",
-			"isolated cross-family agy verdict and logs it to metrics.db.",
+			"numstat caps and binary adds/edits (pure deletions in lease allowed),",
+			"added-line secret scan (without printing secrets), and forbidden",
+			"commit trailers. With --judge, runs an isolated cross-family agy",
+			"verdict and logs it to metrics.db.",
 			"Exit 0 ok, 1 gate or judge failed, 2 refused, dirty, or usage error.",
 		},
 	},

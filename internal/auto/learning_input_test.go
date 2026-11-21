@@ -2,6 +2,7 @@ package auto
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/dream"
 )
 
 func TestBuildLearningInputCapsOversizedProposalsAndPreservesTelemetry(t *testing.T) {
@@ -261,4 +263,143 @@ func TestAppendProposalSectionNoOrphanHeadingAndTelemetryShare(t *testing.T) {
 	if !strings.Contains(tb.String(), "\n\n## Conversation conv-1\n") {
 		t.Errorf("missing blank-line separator before Conversation heading")
 	}
+}
+
+func TestBuildLearningInputLeftOutHeaderMatchesDream(t *testing.T) {
+	t.Run("no Left out header when everything fits", func(t *testing.T) {
+		home := t.TempDir()
+		root := initGitRepo(t)
+		pBrain := brain.Options{Home: home, Dir: root, Now: func() time.Time { return runAt }}
+		if _, err := brain.Add(pBrain, brain.AddInput{
+			Kind:       "memory",
+			Status:     "closed",
+			Provenance: "operator",
+			Title:      "Small memory",
+			Body:       strings.NewReader("fits easily"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
+		got := r.buildLearningInput(root, &Project{}, Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true}, runAt)
+		if strings.Contains(got, "Left out: ") {
+			t.Fatalf("unexpected Left out line when nothing omitted:\n%s", got)
+		}
+	})
+
+	t.Run("omitted items emit shared dream Left out line", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := filepath.Join(t.TempDir(), "realhome-leftout-secret")
+		root := initGitRepo(t)
+		pBrain := brain.Options{Home: home, Dir: root, Now: func() time.Time { return runAt }}
+		gBrain := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt }}
+
+		for i := 0; i < 6; i++ {
+			title := fmt.Sprintf("Mem %02d", i)
+			if i == 0 {
+				title = "Mem 00 " + realHome + "/x"
+			}
+			if _, err := brain.Add(pBrain, brain.AddInput{
+				Kind:       "memory",
+				Status:     "closed",
+				Provenance: "operator",
+				Title:      title,
+				Body:       strings.NewReader(strings.Repeat("m", 4000)),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tokNeedle := "gh" + "p_" + strings.Repeat("K", 36)
+		for i := 0; i < 12; i++ {
+			title := fmt.Sprintf("Prop %02d", i)
+			if i == 2 {
+				title = "Prop 02 " + tokNeedle
+			}
+			if _, err := brain.Add(gBrain, brain.AddInput{
+				Kind:    "proposal",
+				Status:  "queued",
+				Project: root,
+				Title:   title,
+				Body:    strings.NewReader(strings.Repeat("p", 2000)),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := 0; i < 40; i++ {
+			convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", fmt.Sprintf("conv-%02d", i), ".system_generated", "logs")
+			if err := os.MkdirAll(convDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			line := fmt.Sprintf(`{"cwd":%q,"type":"user","content":%q}`+"\n"+`{"type":"assistant","content":%q}`+"\n",
+				root, fmt.Sprintf("request %02d %s", i, strings.Repeat("r", 260)), fmt.Sprintf("decision %02d %s", i, strings.Repeat("d", 260)))
+			if err := os.WriteFile(filepath.Join(convDir, "transcript.jsonl"), []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ts := runAt.Add(-2 * time.Hour)
+			_ = os.Chtimes(filepath.Join(convDir, "transcript.jsonl"), ts, ts)
+		}
+
+		r := &run{o: Options{Home: home, RealHome: realHome, Now: func() time.Time { return runAt }}, cfg: Config{ConversationIdle: "1h"}}
+		task := Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true}
+		got := r.buildLearningInput(root, &Project{}, task, runAt)
+
+		if len(got) > learningInputCap || !utf8.ValidString(got) {
+			t.Fatalf("invalid size or UTF-8: len=%d valid=%v", len(got), utf8.ValidString(got))
+		}
+		for _, leaked := range []string{"realhome-leftout-secret", tokNeedle} {
+			if strings.Contains(got, leaked) {
+				t.Errorf("learning input leaked %q", leaked)
+			}
+		}
+		if forged := dream.FormatLeftOutHeader([]string{"proposal: P1\n## ForgedProp"}, func(s string) string {
+			return oneLine(scrubEntry(s, realHome, home))
+		}); strings.Contains(forged, "\n") {
+			t.Errorf("Left out header kept newline: %q", forged)
+		}
+
+		var expectedDropped []string
+		pMems, err := brain.List(pBrain, brain.ListFilter{Kind: "memory"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range pMems {
+			if m.Status == "closed" && !strings.Contains(got, "### "+m.ID+" ") {
+				expectedDropped = append(expectedDropped, "memory: "+m.ID+" "+strings.TrimSpace(m.Title))
+			}
+		}
+		props, err := r.sweepOpenProposals()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, pr := range orderMatchingProposals(props, root, task.ID) {
+			if !strings.Contains(got, "### "+pr.ID+": ") {
+				expectedDropped = append(expectedDropped, "proposal: "+pr.ID+" "+strings.TrimSpace(pr.Title))
+			}
+		}
+		for _, conv := range r.conversationsSinceCutoff(root, time.Time{}, runAt) {
+			if !strings.Contains(got, "## Conversation "+conv.label+"\n") {
+				expectedDropped = append(expectedDropped, "transcript: "+conv.label)
+			}
+		}
+		if len(expectedDropped) == 0 {
+			t.Fatalf("fixture did not omit any items")
+		}
+
+		clean := func(s string) string { return oneLine(scrubEntry(s, realHome, home)) }
+		wantLine := dream.FormatLeftOutHeader(expectedDropped, clean)
+		lines := strings.Split(got, "\n")
+		if len(lines) < 3 || lines[1] != wantLine {
+			t.Fatalf("header Left out line = %q, want %q", lines[1], wantLine)
+		}
+	})
+
+	t.Run("omitted telemetry sections reported", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString(strings.Repeat("x", 128))
+		dropped := appendTelemetrySections(&b, "nums", "diag", "traj", "", "", b.Len())
+		got := dream.FormatLeftOutHeader(dropped, nil)
+		want := "Left out: 3 (telemetry 3): telemetry: metric numbers; telemetry: diagnostic signals; telemetry: trajectory digest"
+		if got != want {
+			t.Fatalf("telemetry Left out = %q, want %q", got, want)
+		}
+	})
 }

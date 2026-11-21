@@ -53,8 +53,9 @@ type landCtx struct {
 	snap       checkoutSnapshot
 }
 
-// Land runs Gate on opts.Branch, squash-merges into a detached scratch worktree,
-// runs Verify there, fast-forwards the current branch, deletes opts.Branch,
+// Land runs deterministic Gate checks on opts.Branch, squash-merges into a
+// detached scratch worktree, runs Verify (and any Judge check against the fresh
+// verify.stamp) there, fast-forwards the current branch, deletes opts.Branch,
 // and refreshes verify.stamp on the main checkout.
 func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 	lc, err := prepareLand(ctx, opts)
@@ -62,14 +63,15 @@ func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 		return LandReport{}, err
 	}
 	rep := LandReport{MainRoot: lc.root, Target: lc.mainBranch, Branch: opts.Branch}
-	gateRep, err := Gate(ctx, GateOptions{
+	gateOpts := GateOptions{
 		Dir: lc.root, Target: opts.Branch, Base: lc.baseHead, Home: opts.Home,
 		Lease: opts.Lease, LeaseFile: opts.LeaseFile,
 		MaxFiles: opts.MaxFiles, MaxLines: opts.MaxLines,
-		Judge: opts.Judge, JudgeModel: opts.JudgeModel,
-		WorkerModel: opts.WorkerModel, WorkerSessionID: opts.WorkerSessionID,
-		JudgeRunner: opts.JudgeRunner, RecordVerdict: opts.RecordVerdict,
-	})
+		JudgeModel: opts.JudgeModel, WorkerModel: opts.WorkerModel,
+		WorkerSessionID: opts.WorkerSessionID, JudgeRunner: opts.JudgeRunner,
+		RecordVerdict: opts.RecordVerdict,
+	}
+	gateRep, err := Gate(ctx, gateOpts)
 	rep.Gate = &gateRep
 	if err != nil {
 		return rep, err
@@ -78,8 +80,10 @@ func Land(ctx context.Context, opts LandOptions) (LandReport, error) {
 	if gatedHead == "" {
 		return rep, refusef("gate returned empty head for branch %s", opts.Branch)
 	}
-	landCommit, verifyRep, err := verifyInScratchWorktree(ctx, lc, gatedHead, opts)
+	gateOpts.Judge = opts.Judge
+	landCommit, verifyRep, judgeRep, err := verifyInScratchWorktree(ctx, lc, gatedHead, opts, gateOpts)
 	rep.Verify = verifyRep
+	mergeGateJudgeReport(rep.Gate, judgeRep, err)
 	if err != nil {
 		return rep, err
 	}
@@ -176,34 +180,65 @@ func resolveLandMessage(opts LandOptions) (string, error) {
 	return msg, nil
 }
 
-func verifyInScratchWorktree(ctx context.Context, lc landCtx, gatedHead string, opts LandOptions) (string, *VerifyReport, error) {
+func verifyInScratchWorktree(ctx context.Context, lc landCtx, gatedHead string, opts LandOptions, judgeOpts GateOptions) (string, *VerifyReport, *GateReport, error) {
 	scratchDir := filepath.Join(lc.root, ".agents", "scratch")
 	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	wtDir, err := os.MkdirTemp(scratchDir, "land-wt-*")
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	defer func() {
 		_ = removeWorktree(context.Background(), lc.root, wtDir)
 		_ = os.RemoveAll(wtDir)
 	}()
-	if _, err := gitBytes(ctx, lc.root, "worktree", "add", "--detach", wtDir, lc.baseHead); err != nil {
-		return "", nil, err
-	}
-	if _, err := gitBytes(ctx, wtDir, "merge", "--squash", "--no-commit", "--", gatedHead); err != nil {
-		return "", nil, failf("squash merge failed: %v", err)
-	}
-	if _, err := gitBytes(ctx, wtDir, "commit", "-m", lc.msg); err != nil {
-		return "", nil, err
-	}
-	landCommit, err := gitLine(ctx, wtDir, "rev-parse", "HEAD")
+	landCommit, err := commitSquashInWorktree(ctx, lc, wtDir, gatedHead)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	vRep, err := Verify(ctx, VerifyOptions{Dir: wtDir, Home: opts.Home, Vocab: opts.Vocab, Timeout: opts.Timeout})
-	return landCommit, &vRep, err
+	if err != nil || strings.TrimSpace(judgeOpts.Judge) == "" {
+		return landCommit, &vRep, nil, err
+	}
+	var jRep GateReport
+	jTgt := gateTarget{
+		mainRoot:  lc.root,
+		wtRoot:    wtDir,
+		branch:    opts.Branch,
+		head:      landCommit,
+		base:      lc.baseHead,
+		mergeBase: lc.baseHead,
+	}
+	jErr := applyGateJudge(ctx, judgeOpts, jTgt, &jRep)
+	return landCommit, &vRep, &jRep, jErr
+}
+
+func commitSquashInWorktree(ctx context.Context, lc landCtx, wtDir, gatedHead string) (string, error) {
+	if _, err := gitBytes(ctx, lc.root, "worktree", "add", "--detach", wtDir, lc.baseHead); err != nil {
+		return "", err
+	}
+	if _, err := gitBytes(ctx, wtDir, "merge", "--squash", "--no-commit", "--", gatedHead); err != nil {
+		return "", failf("squash merge failed: %v", err)
+	}
+	if _, err := gitBytes(ctx, wtDir, "commit", "-m", lc.msg); err != nil {
+		return "", err
+	}
+	return gitLine(ctx, wtDir, "rev-parse", "HEAD")
+}
+
+func mergeGateJudgeReport(dst, src *GateReport, err error) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.JudgeModel = src.JudgeModel
+	dst.JudgeVerdict = src.JudgeVerdict
+	dst.JudgeFallback = src.JudgeFallback
+	dst.DiffTruncated = src.DiffTruncated
+	dst.Findings = append(dst.Findings, src.Findings...)
+	if err != nil {
+		dst.OK = false
+	}
 }
 
 func finishLand(ctx context.Context, lc landCtx, branch, gatedHead, landCommit string, rep *LandReport) (LandReport, error) {
