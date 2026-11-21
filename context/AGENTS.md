@@ -12,13 +12,13 @@ End each completed turn/phase with: (1) a 1–2 line verdict, (2) an **Autonomou
 
 Start scaffolded sessions with `fyr resume` (`fyr record sync` if `.agents/trail.jsonl` is tracked; report file trails via `fyr record import`). Unscaffolded repos skip `fyr resume` and offer `/fyr-init-project` or `fyr index` once. Read `PRD.md` before major edits; state status, plan ID, next step, and memory first. Newest handoff wins unless an open plan postdates it; name missing files; never guess intent.
 
-At each phase Checkpoint or session end, store `change` and run `/fyr-handoff` (commits, pushes and runs `fyr metrics ingest` once; stores `handoff`); store `adr` on structural choices and `bug` on escaped failures.
+At each phase Checkpoint, session end, or on a `TokenKnee` warning / compaction (/clear or fresh conversation), store `change` and run `/fyr-handoff` (commits, pushes and runs `fyr metrics ingest` once; stores `handoff`); store `adr` on structural choices and `bug` on escaped failures.
 
 ## Definition of Done (scaffolded `fyr` repos, once per task)
 
 1. **Verify:** `fyr verify` (`gofmt -l`, `go vet`, `go test -race ./...`, `fyr check` -> `.agents/scratch/verify.stamp`; explicit override e.g. `go test ./...` runs `gofmt -l .`, `go vet ./...`, and that test only). Dispatch `verifier` only for browser/container/live HTTP e2e.
 2. **Review & Docs:** `reviewer` (diff only) for 50+ lines, 5+ files, or `fyr-bug` (`--docs` on interface/command/deploy changes; self-review small diffs in `change`); `security` on auth/crypto/secrets/IAM/parsing/deps. Update docs (`<= 30` lines self, else `documentation`). Draft in `.agents/scratch/`, batch `change`/`adr`/`bug`, tick plan, update `TODO.md`.
-3. **Close:** export `.agents/trail.jsonl` if tracked; commit and push (unless told not to), then close single tasks via `fyr close --id <ID> --title <t> --body-file <p>` (`handoff` without `verify.stamp`), skipping `/fyr-handoff` and `fyr metrics ingest`.
+3. **Close:** export `.agents/trail.jsonl` if tracked; commit and push (unless told not to), then close single tasks via `fyr close --id <ID> --title <t> --body-file <p>` (`handoff` without `verify.stamp`), skipping `/fyr-handoff` and `fyr metrics ingest`. Run `/fyr-handoff` and /clear or start fresh at checkpoints, mid-task stops, or `TokenKnee`.
 
 ## Work, search, and routing
 

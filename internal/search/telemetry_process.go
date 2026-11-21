@@ -308,14 +308,43 @@ func mdCodeSpan(s string) string {
 	return fence + clean + fence
 }
 
-var tablePipeReplacer = strings.NewReplacer(`\|`, `\\\|`, "|", `\|`)
+func escapeTablePipes(s string) string {
+	if !strings.ContainsRune(s, '|') {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s) + 4)
+	bs := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			bs++
+		case '|':
+			for j := 0; j < 2*bs+1; j++ {
+				sb.WriteByte('\\')
+			}
+			sb.WriteByte('|')
+			bs = 0
+		default:
+			for j := 0; j < bs; j++ {
+				sb.WriteByte('\\')
+			}
+			bs = 0
+			sb.WriteByte(s[i])
+		}
+	}
+	for j := 0; j < bs; j++ {
+		sb.WriteByte('\\')
+	}
+	return sb.String()
+}
 
 func mdTableCell(s string) string {
 	clean := collapseOneLine(printable(s), 220)
 	if clean == "" {
 		return "-"
 	}
-	return tablePipeReplacer.Replace(clean)
+	return escapeTablePipes(clean)
 }
 
 func mdCodeCell(s string) string {
@@ -323,7 +352,7 @@ func mdCodeCell(s string) string {
 	if clean == "" {
 		return "-"
 	}
-	return tablePipeReplacer.Replace(mdCodeSpan(clean))
+	return escapeTablePipes(mdCodeSpan(clean))
 }
 
 func mdCodeList(items []string) string {

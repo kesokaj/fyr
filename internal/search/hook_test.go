@@ -288,8 +288,10 @@ func assertKneeBanner(t *testing.T, msg string, b PreInvocationBanner, wantSub s
 		}
 		return
 	}
-	if !strings.Contains(b.TokenKneeWarning, wantSub) {
-		t.Fatalf("TokenKneeWarning = %q (Notices=%v), want %q", b.TokenKneeWarning, b.Notices, wantSub)
+	if !strings.Contains(b.TokenKneeWarning, wantSub) ||
+		!strings.Contains(b.TokenKneeWarning, "/fyr-handoff") ||
+		!strings.Contains(b.TokenKneeWarning, "fresh conversation") {
+		t.Fatalf("TokenKneeWarning = %q (Notices=%v), want %q with /fyr-handoff fresh conversation cue", b.TokenKneeWarning, b.Notices, wantSub)
 	}
 	for _, notice := range b.Notices {
 		if strings.Contains(notice, "knee") {

@@ -134,7 +134,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		},
 		{
 			name:   "lookup task trace routes to fyr search --slice",
-			prompt: "Trace the call chain from Search to buildHookEnvelope",
+			prompt: "Trace the call chain from Search to buildHookEnvelopeWithModelTimed",
 			intent: IntentTask,
 			want:   "fyr search --slice",
 		},
@@ -290,7 +290,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Errorf("VetPrompt median latency = %v (all: %v), want < 25ms", median, samples)
 	}
 
-	// Live pre-invocation hook: mid-score bug emits structured enrichment.improvedPrompt
+	// Live pre-invocation hook: mid-score bug emits structured Enrichment.ImprovedPrompt
 	// alongside EXECUTE_IMPROVED_PROMPT and route inside [FYR_TURN_CONTRACT].
 	dir := setupHookRepo(t)
 	home := t.TempDir()
@@ -317,7 +317,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Errorf("parsed envelope = %+v, want Directive=EXECUTE_IMPROVED_PROMPT Route=/fyr-bug (reproduce with failing test first)\nraw:\n%s", parsed, sysMsg)
 	}
 	if parsed.Enrichment == nil || !strings.Contains(parsed.Enrichment.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") {
-		t.Errorf("expected enrichment.improvedPrompt with [VET_IMPROVED_PROMPT], got %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
+		t.Errorf("expected Enrichment.ImprovedPrompt with [VET_IMPROVED_PROMPT], got %+v\nraw:\n%s", parsed.Enrichment, sysMsg)
 	}
 }
 

@@ -149,6 +149,9 @@ func writeCachedModelDisplay(ctx context.Context, sc *scope, id, disp string) {
 }
 
 func resolveHookConvDBPathForHome(home string, in HookInput) (string, string) {
+	if strings.TrimSpace(home) == "" {
+		return "", ""
+	}
 	target := resolveProcessArtifactPathForHome(home, in)
 	if target == "" {
 		return "", ""

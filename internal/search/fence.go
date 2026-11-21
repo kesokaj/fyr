@@ -91,8 +91,8 @@ func sanitizeFenceBody(text, tag, hexPart string) string {
 	return trimmed
 }
 
-// BuildTurnEnvelope serializes turn metadata, contract, advisory route, and
-// delta-only enrichment into a single 2-space pretty-printed json fenced block.
+// BuildTurnEnvelope formats turn metadata, contract, advisory route, and
+// delta-only enrichment into a fenced text key-value card via renderPreInvocationBanner.
 func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, extraSections []string, extraBanners []string) (string, string) {
 	return BuildTurnEnvelopeWithMeta(res, slice, brainCtx, turnBannerMetaFromExtras(extraSections, extraBanners))
 }
@@ -101,11 +101,11 @@ func BuildTurnEnvelope(res *VetResult, slice SliceResult, brainCtx TurnBrainCont
 // and delta-only enrichment using typed TurnBannerMeta without stringly round-tripping.
 func BuildTurnEnvelopeWithMeta(res *VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) (string, string) {
 	res.FenceBoundary = New().String()
-	envJSON := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
-	res.TurnContract = envJSON
-	res.SystemMessage = envJSON
-	res.UserMarkdownBanner = envJSON
-	return envJSON, envJSON
+	envCard := formatPreInvocationEnvelopeWithMeta(*res, slice, brainCtx, meta)
+	res.TurnContract = envCard
+	res.SystemMessage = envCard
+	res.UserMarkdownBanner = envCard
+	return envCard, envCard
 }
 
 func collectMatchedRecords(brainCtx TurnBrainContext) []MatchedRecord {

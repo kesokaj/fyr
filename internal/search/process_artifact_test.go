@@ -68,14 +68,18 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 }
 
 func TestProcessArtifactSecurityHardening(t *testing.T) {
-	// 1. Anchored brain directory refuses nested arbitrary /brain/<conv>/sub paths and relative paths.
-	if isUnderBrainDir("relative/brain/conv-1") {
+	home := t.TempDir()
+	// 1. Anchored brain directory refuses nested arbitrary /brain/<conv>/sub paths, empty home, and relative paths.
+	if isUnderBrainDirForHome(home, "relative/brain/conv-1") {
 		t.Errorf("relative brain dir accepted")
 	}
-	if isUnderBrainDir("/tmp/brain/conv-1/nested") {
+	if isUnderBrainDirForHome(home, filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-1", "nested")) {
 		t.Errorf("nested subdir under brain accepted")
 	}
-	if got := resolveProcessArtifactPath(HookInput{TranscriptPath: "brain/conv-1/logs/transcript.jsonl"}); got != "" {
+	if isUnderBrainDirForHome("", filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-1")) {
+		t.Errorf("empty home accepted")
+	}
+	if got := resolveProcessArtifactPathForHome(home, HookInput{TranscriptPath: "brain/conv-1/logs/transcript.jsonl"}); got != "" {
 		t.Errorf("relative TranscriptPath resolved artifact path %q, want empty", got)
 	}
 	tmpRoot := t.TempDir()
@@ -83,13 +87,17 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 	if err := os.MkdirAll(realDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	symBrain := filepath.Join(tmpRoot, "brain")
+	agyDir := filepath.Join(tmpRoot, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(agyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	symBrain := filepath.Join(agyDir, "brain")
 	if err := os.Symlink(realDir, symBrain); err == nil {
 		symConv := filepath.Join(symBrain, "conv-1")
-		if isUnderBrainDir(symConv) {
+		if isUnderBrainDirForHome(tmpRoot, symConv) {
 			t.Errorf("symlinked brain dir accepted")
 		}
-		if got := resolveProcessArtifactPath(HookInput{TranscriptPath: filepath.Join(symConv, "logs", "transcript.jsonl")}); got != "" {
+		if got := resolveProcessArtifactPathForHome(tmpRoot, HookInput{TranscriptPath: filepath.Join(symConv, "logs", "transcript.jsonl")}); got != "" {
 			t.Errorf("symlinked TranscriptPath resolved artifact path %q, want empty", got)
 		}
 		if err := writeProcessArtifactAtomic(filepath.Join(symConv, "fyr-process.md"), []byte("x")); err == nil {
@@ -119,7 +127,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		Intent:          "feat|x",
 		Gate:            "ALLOW`y",
 		Score:           90,
-		SuggestedSkills: []string{"sk|a", `sk\|b`},
+		SuggestedSkills: []string{"sk|a", `sk\|b`, `sk\\|c`, `sk\\\|d`, `foo\bar`},
 		PivotFiles:      []string{"a`b.go"},
 		ImprovedPrompt:  "hello\n```\ninjected\n```\nbye",
 	}}, nil)
@@ -130,7 +138,7 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		"- **Conversation:** ````conv?|```evil````",
 		"- **Stage:** `4_BUILD`",
 		"| 1 | FEAT_X | ALLOW_Y | 90/100 |",
-		"`sk\\|a`, `sk\\\\\\|b`",
+		"`sk\\|a`, `sk\\\\\\|b`, `sk\\\\\\\\\\|c`, `sk\\\\\\\\\\\\\\|d`, `foo\\bar`",
 		"``a`b.go``",
 		"````text\nhello\n```\ninjected\n```\nbye\n````",
 	} {
@@ -161,8 +169,11 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 func TestHomeAnchoredBrainDirAndRejectsOutsideHome(t *testing.T) {
 	home := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "brain", "conv-1")
-	if !isUnderBrainDir(outside) {
-		t.Fatalf("unanchored home==\"\" should preserve isUnderBrainDir(%q)", outside)
+	if isUnderBrainDirForHome("", outside) {
+		t.Fatalf("empty home should fail closed in isUnderBrainDirForHome(%q)", outside)
+	}
+	if got := resolveProcessArtifactPathForHome("", HookInput{ArtifactDirectoryPath: outside}); got != "" {
+		t.Fatalf("empty home should fail closed in resolveProcessArtifactPathForHome(%q), got %q", outside, got)
 	}
 	if isUnderBrainDirForHome(home, outside) {
 		t.Fatalf("isUnderBrainDirForHome accepted outside brain dir %q for home %q", outside, home)
@@ -173,5 +184,16 @@ func TestHomeAnchoredBrainDirAndRejectsOutsideHome(t *testing.T) {
 	}
 	if dbPath, _ := resolveHookConvDBPathForHome(home, HookInput{ConversationID: "conv-1", ArtifactDirectoryPath: outside}); dbPath != "" {
 		t.Fatalf("resolveHookConvDBPathForHome accepted outside path: %q", dbPath)
+	}
+	if dbPath, _ := resolveHookConvDBPathForHome("", HookInput{ConversationID: "conv-1", ArtifactDirectoryPath: outside}); dbPath != "" {
+		t.Fatalf("resolveHookConvDBPathForHome accepted empty home: %q", dbPath)
+	}
+	repo := setupHookRepo(t)
+	if err := os.MkdirAll(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeHookProcessArtifact("", nil, repo, HookInput{ConversationID: "conv-1", ArtifactDirectoryPath: outside}, "BUILD", nil)
+	if _, err := os.Stat(filepath.Join(outside, "fyr-process.md")); !os.IsNotExist(err) {
+		t.Fatalf("writeHookProcessArtifact wrote artifact when home was empty (err=%v)", err)
 	}
 }

@@ -68,8 +68,9 @@ func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string
 	if knee >= 1000 {
 		kneeLabel = fmt.Sprintf("%dK", (knee+500)/1000)
 	}
-	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee); wrap up current step and run /fyr-handoff or /compact.", state.EstTokens/1000, kneeLabel)
-	return full, fmt.Sprintf("%dk tokens (>= %s 60%% model knee)", state.EstTokens/1000, kneeLabel)
+	full := fmt.Sprintf("[CONTEXT_KNEE_WARNING] Session context is ~%dk tokens (>= %s 60%% model knee) — %s (or /compact).", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
+	short := fmt.Sprintf("%dk tokens (>= %s 60%% model knee) — %s", state.EstTokens/1000, kneeLabel, contextKneeHandoffCue)
+	return full, short
 }
 
 func buildHookEnvelopeWithModelTimed(ctx context.Context, o Options, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, modelInfo resolvedModelInfo, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
@@ -164,7 +165,7 @@ func writeHookProcessArtifact(home string, sc *scope, dir string, in HookInput, 
 }
 
 func writeHookProcessArtifactWithCatalog(home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir string, in HookInput, stage string, records []MatchedRecord) {
-	if hooksDisabledForHome(home, dir) {
+	if strings.TrimSpace(home) == "" || hooksDisabledForHome(home, dir) {
 		return
 	}
 	target := resolveProcessArtifactPathForHome(home, in)
@@ -242,11 +243,10 @@ func loadLatestWorkStatus(home string) (workStatusSnapshot, bool) {
 	return snap, true
 }
 
-func resolveProcessArtifactPath(in HookInput) string {
-	return resolveProcessArtifactPathForHome("", in)
-}
-
 func resolveProcessArtifactPathForHome(home string, in HookInput) string {
+	if strings.TrimSpace(home) == "" {
+		return ""
+	}
 	if p := strings.TrimSpace(in.ArtifactDirectoryPath); p != "" {
 		clean := filepath.Clean(p)
 		if isUnderBrainDirForHome(home, clean) {
@@ -265,12 +265,8 @@ func resolveProcessArtifactPathForHome(home string, in HookInput) string {
 	return ""
 }
 
-func isUnderBrainDir(dir string) bool {
-	return isUnderBrainDirForHome("", dir)
-}
-
 func isUnderBrainDirForHome(home, dir string) bool {
-	if !filepath.IsAbs(dir) {
+	if strings.TrimSpace(home) == "" || !filepath.IsAbs(dir) {
 		return false
 	}
 	base := filepath.Base(dir)
@@ -281,7 +277,7 @@ func isUnderBrainDirForHome(home, dir string) bool {
 	if filepath.Base(brainDir) != "brain" {
 		return false
 	}
-	if strings.TrimSpace(home) != "" && !matchesAnchoredBrainRoot(home, brainDir) {
+	if !matchesAnchoredBrainRoot(home, brainDir) {
 		return false
 	}
 	for _, p := range []string{brainDir, dir} {

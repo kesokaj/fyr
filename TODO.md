@@ -11,8 +11,8 @@
 
 ## Next
 
-- [ ] Release gate for `v9.8.0` via `/fyr-preflight v9.8.0` (structured non-JSON telemetry across all 5 surfaces + full `agy` model IDs)
+None.
 
 ## Backlog
 
-- [ ] Restore explicit fresh-conversation context-knee cue in `context/AGENTS.md` and `internal/search/process_artifact.go` / `telemetry_json.go` (2026-11-21, session bf9fa1a7)
+None.

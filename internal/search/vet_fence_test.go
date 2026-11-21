@@ -369,7 +369,7 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 	if len(parsed.Enrichment.SkillDigests) != 2 ||
 		parsed.Enrichment.SkillDigests[0] != (PreInvocationSkillDigest{Name: "fyr-bug", Path: "skills/fyr-bug/SKILL.md", Digest: "Bug workflow"}) ||
 		parsed.Enrichment.SkillDigests[1] != (PreInvocationSkillDigest{Name: "golang", Path: "skills/golang/SKILL.md", Digest: "Go standards"}) {
-		t.Errorf("parsed skillDigests mismatch: %+v\nraw:\n%s", parsed.Enrichment.SkillDigests, sysMsg)
+		t.Errorf("parsed SkillDigests mismatch: %+v\nraw:\n%s", parsed.Enrichment.SkillDigests, sysMsg)
 	}
 }
 
@@ -520,7 +520,7 @@ func TestZeroEmojisAndStructuredTelemetrySurfaces(t *testing.T) {
 	}
 }
 
-func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
+func TestResolveModelDetailsAndHookFallback(t *testing.T) {
 	home := t.TempDir()
 	catDir := filepath.Join(home, harness.StateDir)
 	if err := os.MkdirAll(catDir, 0o700); err != nil {
@@ -632,7 +632,10 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 			}
 		}
 	}
-	if got := resolveHookSessionModelForHome("", hookIn); got != "claude-opus-5-5-high" {
+	if got := resolveHookSessionModelForHome("", hookIn); got != "" {
+		t.Fatalf("resolveHookSessionModelForHome with empty home = %q, want empty", got)
+	}
+	if got := resolveHookSessionModelForHome(home, hookIn); got != "claude-opus-5-5-high" {
 		t.Fatalf("resolveHookSessionModelForHome = %q, want claude-opus-5-5-high", got)
 	}
 	assertCleanDirs("after resolveHookSessionModelForHome")
@@ -671,7 +674,7 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db328.Close()
-	if got := resolveHookSessionModelForHome("", hookIn); got != "gemini-4-neon-high" {
+	if got := resolveHookSessionModelForHome(home, hookIn); got != "gemini-4-neon-high" {
 		t.Fatalf("resolveHookSessionModelForHome with (3,28) = %q, want gemini-4-neon-high", got)
 	}
 	assertCleanDirs("after (3,28) resolveHookSessionModelForHome")
@@ -809,10 +812,52 @@ func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
 	}
 	msg, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, meta)
 	b := parseStructuredBanner(t, msg)
+	wantKnee := "305k tokens (>= 300K 60% model knee) — " + contextKneeHandoffCue
 	if b.Model != "gemini-4-carbon-high" || b.ModelDisplay != "Gemini 4 Carbon (High)" || b.Thinking != "HIGH" ||
 		b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" ||
-		b.TokenKneeWarning != meta.ContextKneeWarning || len(b.Notices) != 0 {
+		b.TokenKneeWarning != wantKnee || len(b.Notices) != 0 {
 		t.Fatalf("unexpected typed TurnBannerMeta output: %+v", b)
+	}
+	// Already-cued knee warning preserves existing cue without duplicating /fyr-handoff.
+	metaAlreadyCued := TurnBannerMeta{
+		ContextKneeWarning: wantKnee,
+	}
+	msgCued, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, metaAlreadyCued)
+	bCued := parseStructuredBanner(t, msgCued)
+	if bCued.TokenKneeWarning != wantKnee || strings.Count(bCued.TokenKneeWarning, "/fyr-handoff") != 1 {
+		t.Fatalf("unexpected deduplicated knee cue: %q", bCued.TokenKneeWarning)
+	}
+	// ExtraSections fallback [CONTEXT_KNEE_WARNING] appends /fyr-handoff cue when absent and stays out of SessionContext.
+	metaFallback := TurnBannerMeta{
+		ExtraSections: []string{"[CONTEXT_KNEE_WARNING] 190k tokens (>= 180K 60% model knee)"},
+	}
+	msgFallback, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, metaFallback)
+	bFallback := parseStructuredBanner(t, msgFallback)
+	wantFallbackKnee := "190k tokens (>= 180K 60% model knee) — " + contextKneeHandoffCue
+	if bFallback.TokenKneeWarning != wantFallbackKnee || (bFallback.Enrichment != nil && len(bFallback.Enrichment.SessionContext) != 0) {
+		t.Fatalf("unexpected extraSections fallback knee warning: %+v", bFallback)
+	}
+	// Trust triggers for ImprovedPrompt-only enrichment (naming SkillDigests), and omits for Targets-only.
+	resPromptOnly := VetResult{
+		Intent:         IntentTask,
+		Gate:           GateEnrichAndProceed,
+		Score:          65,
+		ImprovedPrompt: "[VET_IMPROVED_PROMPT] fix foo",
+	}
+	msgPromptOnly, _ := BuildTurnEnvelopeWithMeta(&resPromptOnly, SliceResult{}, TurnBrainContext{}, TurnBannerMeta{})
+	bPromptOnly := parseStructuredBanner(t, msgPromptOnly)
+	if bPromptOnly.Enrichment == nil || !strings.Contains(bPromptOnly.Enrichment.Trust, "SkillDigests") {
+		t.Fatalf("expected Trust naming SkillDigests on ImprovedPrompt-only enrichment, got %+v", bPromptOnly.Enrichment)
+	}
+	resTargetsOnly := VetResult{
+		Intent:      IntentTask,
+		Gate:        GateEnrichAndProceed,
+		Score:       85,
+		TargetFiles: []string{"internal/search/fence.go"},
+	}
+	msgTargetsOnly, _ := BuildTurnEnvelopeWithMeta(&resTargetsOnly, SliceResult{}, TurnBrainContext{}, TurnBannerMeta{})
+	if strings.Contains(msgTargetsOnly, "\n---\n") || strings.Contains(msgTargetsOnly, "Trust:") {
+		t.Fatalf("expected Targets-only enrichment to omit Trust footer, got:\n%s", msgTargetsOnly)
 	}
 	for _, want := range []string{
 		"305k tokens (>= 300K 60% model knee)",

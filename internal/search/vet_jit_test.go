@@ -56,7 +56,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 		return parseStructuredBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
 	}
 
-	// 1. Turn 1: high-score multi-clause prompt emits COORDINATE_SUBTASKS, improvedPrompt, skillDigests, and disjoint subtasks.
+	// 1. Turn 1: high-score multi-clause prompt emits COORDINATE_SUBTASKS, ImprovedPrompt, SkillDigests, and disjoint Subtasks.
 	p1 := "1. Update AlphaWork in internal/alpha/alpha.go returning error and verify with go test 2. Update BetaWork in internal/beta/beta.go returning error and verify with go test"
 	b1 := runTurn(p1)
 	if b1.Score == nil || *b1.Score < 80 {
@@ -66,7 +66,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 		t.Errorf("Turn 1 directive/route = (%q, %q), want (COORDINATE_SUBTASKS, /fyr-swarm ...)", b1.Directive, b1.Route)
 	}
 	if b1.Enrichment == nil || !strings.Contains(b1.Enrichment.ImprovedPrompt, "[VET_IMPROVED_PROMPT]") {
-		t.Fatalf("Turn 1 missing enrichment.improvedPrompt: %+v", b1.Enrichment)
+		t.Fatalf("Turn 1 missing Enrichment.ImprovedPrompt: %+v", b1.Enrichment)
 	}
 	if len(b1.Enrichment.Subtasks) != 2 {
 		t.Fatalf("Turn 1 subtasks len = %d, want 2: %+v", len(b1.Enrichment.Subtasks), b1.Enrichment.Subtasks)

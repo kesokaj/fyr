@@ -365,7 +365,7 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		t.Errorf("SystemMessage parsed metadata mismatch: %+v\nraw:\n%s", parsedSys, res.SystemMessage)
 	}
 	if parsedSys.Enrichment == nil || parsedSys.Enrichment.AstSlice == "" {
-		t.Errorf("SystemMessage missing enrichment.astSlice: %+v\nraw:\n%s", parsedSys.Enrichment, res.SystemMessage)
+		t.Errorf("SystemMessage missing Enrichment.AstSlice: %+v\nraw:\n%s", parsedSys.Enrichment, res.SystemMessage)
 	} else {
 		gotRecords := make(map[string]PreInvocationRecord, len(parsedSys.Enrichment.Records))
 		for _, rec := range parsedSys.Enrichment.Records {
@@ -373,7 +373,7 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		}
 		for _, id := range []string{"MEMORY-hooks", "BUG-507", "ADR-511", "PLAN-2026-11-08"} {
 			if _, ok := gotRecords[id]; !ok {
-				t.Errorf("SystemMessage enrichment.records missing %q; got %+v", id, parsedSys.Enrichment.Records)
+				t.Errorf("SystemMessage Enrichment.Records missing %q; got %+v", id, parsedSys.Enrichment.Records)
 			}
 		}
 		if rec := gotRecords["MEMORY-hooks"]; !strings.Contains(rec.Stale, "[STALE: service.go modified since MEMORY-hooks]") {
