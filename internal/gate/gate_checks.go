@@ -15,10 +15,11 @@ import (
 var privateKeyHeaderRe = regexp.MustCompile(`-----BEGIN ([A-Z0-9 ]+ )?PRIVATE KEY-----`)
 
 func runAllGateChecks(ctx context.Context, tgt gateTarget, lease []string, maxFiles, maxLines int, rep *GateReport) error {
-	if err := checkRawChanges(ctx, tgt, lease, rep); err != nil {
+	deleted, err := checkRawChanges(ctx, tgt, lease, rep)
+	if err != nil {
 		return err
 	}
-	if err := checkNumstat(ctx, tgt, maxFiles, maxLines, rep); err != nil {
+	if err := checkNumstat(ctx, tgt, maxFiles, maxLines, deleted, rep); err != nil {
 		return err
 	}
 	if err := checkAddedSecrets(ctx, tgt, rep); err != nil {
@@ -27,11 +28,12 @@ func runAllGateChecks(ctx context.Context, tgt gateTarget, lease []string, maxFi
 	return checkCommitTrailers(ctx, tgt, rep)
 }
 
-func checkRawChanges(ctx context.Context, tgt gateTarget, lease []string, rep *GateReport) error {
+func checkRawChanges(ctx context.Context, tgt gateTarget, lease []string, rep *GateReport) (map[string]bool, error) {
 	out, err := gitBytes(ctx, tgt.mainRoot, "diff", "--raw", "-z", "--no-renames", "--no-ext-diff", tgt.mergeBase, tgt.head)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	deleted := map[string]bool{}
 	tokens := bytes.Split(out, []byte{0})
 	for i := 0; i+1 < len(tokens); i += 2 {
 		meta := string(tokens[i])
@@ -39,12 +41,14 @@ func checkRawChanges(ctx context.Context, tgt gateTarget, lease []string, rep *G
 		if meta == "" || rel == "" {
 			continue
 		}
-		evaluateRawEntry(meta, rel, lease, rep)
+		if evaluateRawEntry(meta, rel, lease, rep) {
+			deleted[rel] = true
+		}
 	}
-	return nil
+	return deleted, nil
 }
 
-func evaluateRawEntry(meta, rel string, lease []string, rep *GateReport) {
+func evaluateRawEntry(meta, rel string, lease []string, rep *GateReport) bool {
 	fields := strings.Fields(meta)
 	if len(fields) >= 2 {
 		modeNew := fields[1]
@@ -60,6 +64,7 @@ func evaluateRawEntry(meta, rel string, lease []string, rep *GateReport) {
 	if len(lease) > 0 && !matchesAnyLease(lease, rel) {
 		rep.Findings = append(rep.Findings, GateFinding{Check: "lease", Path: rel, Detail: "file outside lease"})
 	}
+	return len(fields) >= 5 && fields[1] == "000000" && fields[4] == "D"
 }
 
 func isSecretFilename(rel string) bool {
@@ -88,7 +93,7 @@ func isSecretFilename(rel string) bool {
 	return false
 }
 
-func checkNumstat(ctx context.Context, tgt gateTarget, maxFiles, maxLines int, rep *GateReport) error {
+func checkNumstat(ctx context.Context, tgt gateTarget, maxFiles, maxLines int, deleted map[string]bool, rep *GateReport) error {
 	out, err := gitBytes(ctx, tgt.mainRoot, "diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", tgt.mergeBase, tgt.head)
 	if err != nil {
 		return err
@@ -97,7 +102,7 @@ func checkNumstat(ctx context.Context, tgt gateTarget, maxFiles, maxLines int, r
 		if len(rec) == 0 {
 			continue
 		}
-		parseNumstatRecord(string(rec), rep)
+		parseNumstatRecord(string(rec), deleted, rep)
 	}
 	if rep.FilesChanged == 0 {
 		rep.Findings = append(rep.Findings, GateFinding{Check: "numstat", Detail: "empty diff"})
@@ -118,14 +123,16 @@ func checkNumstat(ctx context.Context, tgt gateTarget, maxFiles, maxLines int, r
 	return nil
 }
 
-func parseNumstatRecord(rec string, rep *GateReport) {
+func parseNumstatRecord(rec string, deleted map[string]bool, rep *GateReport) {
 	parts := strings.SplitN(rec, "\t", 3)
 	if len(parts) != 3 {
 		return
 	}
 	rep.FilesChanged++
 	if parts[0] == "-" || parts[1] == "-" {
-		rep.Findings = append(rep.Findings, GateFinding{Check: "numstat", Path: parts[2], Detail: "binary diff disallowed"})
+		if !deleted[parts[2]] {
+			rep.Findings = append(rep.Findings, GateFinding{Check: "numstat", Path: parts[2], Detail: "binary diff disallowed"})
+		}
 		return
 	}
 	add, errA := strconv.Atoi(parts[0])

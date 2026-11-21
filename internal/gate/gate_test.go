@@ -388,3 +388,101 @@ func TestParseLeaseAndMarkdownFilesSection(t *testing.T) {
 		}
 	})
 }
+
+func TestGateBinaryDiffCases(t *testing.T) {
+	ctx := context.Background()
+	repo := initTestGoRepo(t)
+	baseBin := filepath.Join(repo, "pkg", "existing.bin")
+	if err := os.MkdirAll(filepath.Dir(baseBin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(baseBin, []byte{0, 1, 2, 0, 255}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "pkg/existing.bin")
+	runGit(t, repo, "commit", "-m", "add base binary")
+
+	cases := []struct {
+		name      string
+		branch    string
+		lease     []string
+		mutate    func(t *testing.T, wt string)
+		wantOK    bool
+		wantCheck string
+		wantMsg   string
+		denyCheck string
+		denyMsg   string
+	}{
+		{
+			name:   "pure binary deletion inside lease passes",
+			branch: "feat-bin-del-ok",
+			lease:  []string{"pkg/**"},
+			mutate: func(t *testing.T, wt string) {
+				runGit(t, wt, "rm", "pkg/existing.bin")
+			},
+			wantOK: true,
+		},
+		{
+			name:   "binary add fails",
+			branch: "feat-bin-add",
+			lease:  []string{"pkg/**"},
+			mutate: func(t *testing.T, wt string) {
+				p := filepath.Join(wt, "pkg", "added.bin")
+				if err := os.WriteFile(p, []byte{0, 1, 2, 0, 255}, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				runGit(t, wt, "add", "pkg/added.bin")
+			},
+			wantCheck: "numstat",
+			wantMsg:   "binary diff disallowed",
+		},
+		{
+			name:   "binary modify fails",
+			branch: "feat-bin-mod",
+			lease:  []string{"pkg/**"},
+			mutate: func(t *testing.T, wt string) {
+				p := filepath.Join(wt, "pkg", "existing.bin")
+				if err := os.WriteFile(p, []byte{0, 9, 8, 0, 254}, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				runGit(t, wt, "add", "pkg/existing.bin")
+			},
+			wantCheck: "numstat",
+			wantMsg:   "binary diff disallowed",
+		},
+		{
+			name:   "binary deletion outside lease fails",
+			branch: "feat-bin-del-outside",
+			lease:  []string{"other/**"},
+			mutate: func(t *testing.T, wt string) {
+				runGit(t, wt, "rm", "pkg/existing.bin")
+			},
+			wantCheck: "lease",
+			wantMsg:   "file outside lease",
+			denyCheck: "numstat",
+			denyMsg:   "binary diff disallowed",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			wt := addWorktreeBranch(t, repo, tc.branch)
+			tc.mutate(t, wt)
+			runGit(t, wt, "commit", "-m", tc.name)
+
+			rep, err := Gate(ctx, GateOptions{Dir: repo, Target: wt, Lease: tc.lease})
+			if tc.wantOK {
+				if err != nil || !rep.OK || rep.FilesChanged != 1 {
+					t.Fatalf("Gate failed: err=%v rep=%+v", err, rep)
+				}
+				return
+			}
+			if !errors.Is(err, ErrFailed) || !hasFinding(rep, tc.wantCheck, tc.wantMsg) {
+				t.Fatalf("expected (%s, %q), got err=%v findings=%+v", tc.wantCheck, tc.wantMsg, err, rep.Findings)
+			}
+			if tc.denyCheck != "" && hasFinding(rep, tc.denyCheck, tc.denyMsg) {
+				t.Fatalf("unexpected finding (%s, %q) in %+v", tc.denyCheck, tc.denyMsg, rep.Findings)
+			}
+		})
+	}
+}
