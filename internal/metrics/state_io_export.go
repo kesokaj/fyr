@@ -412,6 +412,11 @@ func scanSanitizedRatings(db *sql.DB, q string, args []any, filterRepoID string)
 		if r.RepoID == "" && filterRepoID != "" {
 			r.RepoID = filterRepoID
 		}
+		r.SessionID = clipSanitizedText(r.SessionID, 128)
+		if r.SessionID == "" {
+			continue
+		}
+		r.SkillAction = clipSanitizedText(r.SkillAction, 64)
 		r.TargetSkill = clipSanitizedText(r.TargetSkill, 200)
 		r.Summary = clipSanitizedText(r.Summary, 400)
 		out = append(out, r)

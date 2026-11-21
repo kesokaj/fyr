@@ -170,3 +170,45 @@ func TestExportAndImportSanitizedStateFilteringDryRunAndIdempotency(t *testing.T
 		t.Errorf("imported ModelEvidence = %+v, want 1 trial, 1 judge, 1 rating", neon)
 	}
 }
+
+func TestScrubHostHomePathsEdgeCases(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"space after /home/", "/home/ dir /home/alice/work", "/home/ dir ~/work"},
+		{"double slash", "/home//alice/secret", "~/secret"},
+		{"newline delim", "/home/alice\nnext line", "~\nnext line"},
+		{"markdown punct", "`/Users/bob` and | /Users/carol |", "`~` and | ~ |"},
+	}
+	for _, tc := range cases {
+		if got := ScrubHostHomePaths(tc.in); got != tc.want {
+			t.Errorf("%s: ScrubHostHomePaths(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+
+	s := openT(t, filepath.Join(t.TempDir(), "ratings.db"))
+	now := time.Date(2026, 11, 21, 3, 0, 0, 0, time.UTC)
+	if _, err := s.db.Exec(
+		`INSERT INTO session_ratings(session_id, project_root, repo_id, evaluated_at, outcome_score, token_efficiency, plan_alignment, skill_action, target_skill, summary)
+		 VALUES ('sess-/home/alice/work', '', 'git:github.com/org/r', ?, 5, 4, 'matched', 'keep /home/alice/sk', 'golang', 'ok')`,
+		now.UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := ExportSanitizedState(s, "", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("ExportSanitizedState: %v", err)
+	}
+	if len(exp.SessionRatings) != 1 {
+		t.Fatalf("SessionRatings = %+v, want 1 row", exp.SessionRatings)
+	}
+	r := exp.SessionRatings[0]
+	if strings.Contains(r.SessionID, "/home/alice") || strings.Contains(r.SkillAction, "/home/alice") {
+		t.Errorf("SessionRating leaked home path: %+v", r)
+	}
+	if r.SessionID != "sess-~/work" || r.SkillAction != "keep ~/sk" {
+		t.Errorf("SessionRating = %+v, want scrubbed SessionID/SkillAction", r)
+	}
+}

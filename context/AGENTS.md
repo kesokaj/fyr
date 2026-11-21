@@ -33,7 +33,7 @@ At each phase Checkpoint or session end, store `change` and run `/fyr-handoff` (
 | Review / docs / eval | `reviewer`/`security`/`verifier` (`--judge`) · `fyr-docs` + `fyr check` · `fyr eval <row>` |
 
 - **Classify:** Trivial (`<= 10`-line docs/typo/config) -> act + DoD 2-3. Task (1 sitting, no design) -> 3-line plan + execute + DoD.
-- **Wait & progress:** End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn. Post 1-line updates every ~5 min across long loops/waves.
+- **Wait & progress:** End the turn to await a subagent or background command; only a print-mode run (`agy -p`) stays in the turn (check via `manage_subagents`, `ls`, or `fyr watch`, never shell `for`/`while`/`read`/`sleep` loops). Post 1-line updates every ~5 min across long loops/waves.
 - **Subagents & learning:** Skill = main-thread guide; subagent = isolated judgement/recon (`agy-dispatch`). After any write-capable dispatch, run `fyr git-check`: an unnamed path, commit or tag is a stop sign. Escaped bugs -> `fyr record add bug` (`graduated` in tests/skills/agents/rules). External skills: `fyr adopt` + `fyr install` (`.agents/skills/` distinct names). Corrections -> `fyr-feedback-log`; 2+ -> `/fyr-retro`.
 
 ## Git & hard rules

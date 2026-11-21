@@ -277,22 +277,46 @@ func ScrubHostHomePaths(s string) string {
 			s = strings.ReplaceAll(s, h, "~")
 		}
 	}
-	for _, rootPrefix := range []string{"/home/", "/Users/"} {
-		for {
-			idx := strings.Index(s, rootPrefix)
-			if idx < 0 {
-				break
-			}
-			after := idx + len(rootPrefix)
-			end := after
-			for end < len(s) && s[end] != '/' && s[end] != ' ' && s[end] != '\t' && s[end] != '"' && s[end] != '\'' && s[end] != ')' && s[end] != ',' && s[end] != ':' {
-				end++
-			}
-			if end == after {
-				break
-			}
-			s = s[:idx] + "~" + s[end:]
+	s = scrubHomePrefix(s, "/home/")
+	return scrubHomePrefix(s, "/Users/")
+}
+
+func scrubHomePrefix(s, rootPrefix string) string {
+	var b strings.Builder
+	pos := 0
+	for pos < len(s) {
+		rel := strings.Index(s[pos:], rootPrefix)
+		if rel < 0 {
+			break
 		}
+		idx := pos + rel
+		startUser := idx + len(rootPrefix)
+		for startUser < len(s) && s[startUser] == '/' {
+			startUser++
+		}
+		end := startUser
+		for end < len(s) && !isHomePathDelim(s[end]) {
+			end++
+		}
+		if end == startUser {
+			b.WriteString(s[pos:startUser])
+			pos = startUser
+			continue
+		}
+		b.WriteString(s[pos:idx])
+		b.WriteByte('~')
+		pos = end
 	}
-	return s
+	if pos == 0 {
+		return s
+	}
+	b.WriteString(s[pos:])
+	return b.String()
+}
+
+func isHomePathDelim(c byte) bool {
+	if c < 0x20 || c == 0x7f {
+		return true
+	}
+	return strings.IndexByte("/ \t\n\r\"')([]><`,:;|", c) >= 0
 }
