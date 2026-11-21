@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
@@ -177,6 +179,13 @@ func (o Options) buildProposals(head string, props []proposal, ratings []metrics
 // propose is brain.ProposeAll; a test replaces it.
 var propose = brain.ProposeAll
 
+const (
+	maxDroppedHeaderBytes = 1024
+	maxDroppedSampleBytes = 100
+	maxDroppedKindsBytes  = 360
+	maxDroppedKindBytes   = 32
+)
+
 // header is what every proposal of one project's dream carries: where it came
 // from and what the model read.
 func (o Options) header(c Collected, cli, day string) string {
@@ -191,10 +200,120 @@ func (o Options) header(c Collected, cli, day string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Dream of %s, %s, by %s with no tool granted, from redacted inputs: %s.\n", o.line(c.Root), day, cli, strings.Join(inputs, ", "))
 	if len(c.Dropped) > 0 {
-		fmt.Fprintf(&b, "Left out: %s\n", o.line(strings.Join(c.Dropped, "; ")))
+		fmt.Fprintf(&b, "Left out: %s\n", o.line(formatDroppedHeader(cleanDropped(c.Dropped, o.line))))
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func cleanDropped(dropped []string, clean func(string) string) []string {
+	out := make([]string, len(dropped))
+	for i, d := range dropped {
+		if clean != nil {
+			out[i] = clean(d)
+		} else {
+			out[i] = d
+		}
+	}
+	return out
+}
+
+func formatDroppedHeader(dropped []string) string {
+	if len(dropped) == 0 {
+		return ""
+	}
+	prefix := fmt.Sprintf("%d (%s)", len(dropped), formatDroppedKinds(dropped, maxDroppedKindsBytes))
+	limit := min(len(dropped), shownDropped)
+	samples := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		samples = append(samples, formatDroppedSample(dropped[i], maxDroppedSampleBytes))
+	}
+	out := fmt.Sprintf("%s; + %d more", prefix, len(dropped))
+	for k := 1; k <= len(samples); k++ {
+		cand := prefix + ": " + strings.Join(samples[:k], "; ")
+		if rest := len(dropped) - k; rest > 0 {
+			cand += fmt.Sprintf("; + %d more", rest)
+		}
+		if len(cand) > maxDroppedHeaderBytes {
+			break
+		}
+		out = cand
+	}
+	if len(out) > maxDroppedHeaderBytes {
+		return clipUTF8(out, maxDroppedHeaderBytes)
+	}
+	return out
+}
+
+func formatDroppedKinds(dropped []string, maxBytes int) string {
+	counts := map[string]int{}
+	for _, d := range dropped {
+		counts[droppedKind(d)]++
+	}
+	kinds := make([]string, 0, len(counts))
+	for k := range counts {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	var b strings.Builder
+	for i, k := range kinds {
+		part := fmt.Sprintf("%s %d", k, counts[k])
+		sep := ""
+		if b.Len() > 0 {
+			sep = ", "
+		}
+		tail := ""
+		if rem := len(kinds) - (i + 1); rem > 0 {
+			tail = fmt.Sprintf(", +%d kinds", rem)
+		}
+		if b.Len()+len(sep)+len(part)+len(tail) > maxBytes && b.Len() > 0 {
+			fmt.Fprintf(&b, ", +%d kinds", len(kinds)-i)
+			break
+		}
+		b.WriteString(sep)
+		b.WriteString(part)
+	}
+	return b.String()
+}
+
+func droppedKind(raw string) string {
+	s := strings.TrimSpace(strings.ToValidUTF8(raw, "\ufffd"))
+	if s == "" {
+		return "unknown"
+	}
+	if s == "[redacted by fyr]" {
+		return "redacted"
+	}
+	cut := strings.IndexFunc(s, func(r rune) bool { return r == ':' || unicode.IsSpace(r) })
+	if cut == 0 {
+		return "unknown"
+	}
+	if cut > 0 {
+		s = s[:cut]
+	}
+	s = clipUTF8(s, maxDroppedKindBytes)
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+func formatDroppedSample(raw string, maxBytes int) string {
+	s := strings.Join(strings.Fields(strings.ToValidUTF8(raw, "\ufffd")), " ")
+	if s == "" {
+		return "(empty)"
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	if maxBytes <= 3 {
+		return clipUTF8(s, maxBytes)
+	}
+	head := clipUTF8(s, maxBytes-3)
+	if head == "" {
+		return clipUTF8(s, maxBytes)
+	}
+	return head + "..."
 }
 
 // section is one proposal's text. The model's text is indented four spaces,
