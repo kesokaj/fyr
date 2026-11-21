@@ -1,44 +1,88 @@
 package search
 
 import (
+	"context"
 	"database/sql"
+	"path"
 	"slices"
 	"strings"
 )
 
+var boundedFileExts = map[string]bool{
+	".go": true, ".ts": true, ".tsx": true, ".js": true, ".jsx": true,
+	".py": true, ".sh": true, ".md": true, ".mdx": true, ".sql": true,
+	".json": true, ".yaml": true, ".yml": true, ".toml": true, ".css": true,
+	".html": true, ".svg": true, ".proto": true, ".txt": true, ".db": true,
+}
+
 func querySeedSymbolsLikeDB(db *sql.DB, projects []string, includeDocs bool, terms []string) ([]RankedSymbol, error) {
-	if len(projects) == 0 {
-		return nil, nil
+	return querySeedSymbolsLikeDBCtx(context.Background(), db, projects, includeDocs, terms, maxBoundedSeedNames)
+}
+
+func querySeedSymbolsLikeDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, terms []string, maxNames int) ([]RankedSymbol, error) {
+	if len(projects) == 0 || ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
-	exact, long, hasDot := collectBoundedLikeTerms(terms)
+	if maxNames <= 0 {
+		maxNames = maxBoundedSeedNames
+	}
+	exact, long, dotMethods, hasQualDot := collectBoundedLikeTerms(terms)
 	if len(exact) == 0 && len(long) == 0 {
 		return nil, nil
 	}
-	matched, seen, err := matchSymbolNamesFromIndex(db, projects, includeDocs, exact, long)
-	if err == nil && hasDot && len(matched) < maxBoundedSeedNames {
-		matched, err = matchQualSymbolNamesFromDB(db, projects, includeDocs, exact, long, seen, matched)
+	matched, seen, err := matchSymbolNamesFromIndexCtx(ctx, db, includeDocs, exact, long)
+	if err == nil && hasQualDot && len(matched) < maxNames && ctx.Err() == nil {
+		matched, err = matchQualSymbolNamesFromDBCtx(ctx, db, projects, includeDocs, exact, long, dotMethods, seen, matched, maxNames)
 	}
 	if err != nil || len(matched) == 0 {
 		return nil, err
 	}
-	return queryExactSymbolsByNameDB(db, projects, includeDocs, matched)
+	return queryBoundedMatchedSymbolsDBCtx(ctx, db, projects, includeDocs, matched, maxNames)
 }
 
-func collectBoundedLikeTerms(terms []string) (exact, long []string, hasDot bool) {
+func queryBoundedMatchedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, names []string, maxNames int) ([]RankedSymbol, error) {
+	const batchSize = 200
+	var out []RankedSymbol
+	keptNames := map[string]bool{}
+	for i := 0; i < len(names) && len(keptNames) < maxNames; i += batchSize {
+		end := min(i+batchSize, len(names))
+		syms, err := queryExactSymbolsByNameDBCtx(ctx, db, projects, includeDocs, names[i:end])
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range syms {
+			if !keptNames[s.Name] && len(keptNames) >= maxNames {
+				continue
+			}
+			keptNames[s.Name] = true
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
+func collectBoundedLikeTerms(terms []string) (exact, long, dotMethods []string, hasQualDot bool) {
+	seenMethod := map[string]bool{}
 	for _, tl := range expandBoundedSymbolTerms(terms) {
 		if strings.Contains(tl, "/") || len(tl) < 2 {
 			continue
 		}
+		isFileLike := boundedFileExts[strings.ToLower(path.Ext(tl))]
 		if len(exact) < maxBoundedSymbolTerms {
 			exact = append(exact, tl)
-			hasDot = hasDot || strings.Contains(tl, ".")
 		}
-		if len(tl) >= 4 && len(long) < maxBoundedSymbolTerms {
+		if len(tl) >= 4 && len(long) < maxBoundedSymbolTerms && !isFileLike {
 			long = append(long, tl)
-			hasDot = hasDot || strings.Contains(tl, ".")
+		}
+		if strings.Contains(tl, ".") && !isFileLike {
+			hasQualDot = true
+			if _, after, ok := strings.Cut(tl, "."); ok && len(after) >= 2 && !seenMethod[after] {
+				seenMethod[after] = true
+				dotMethods = append(dotMethods, after)
+			}
 		}
 	}
-	return exact, long, hasDot
+	return exact, long, dotMethods, hasQualDot
 }
 
 func boundedLikeDocFilterSQL(includeDocs bool) string {
@@ -48,39 +92,79 @@ func boundedLikeDocFilterSQL(includeDocs bool) string {
 	return ` AND sy.kind != 'heading' AND lower(f.path) NOT LIKE '%.md' AND lower(f.path) NOT LIKE '%.mdx'`
 }
 
-func matchSymbolNamesFromIndex(db *sql.DB, projects []string, includeDocs bool, exact, long []string) ([]string, map[string]bool, error) {
-	if len(projects) == 0 {
-		return nil, nil, nil
+// matchSymbolNamesFromIndexCtx scans the covering index symbols_name directly
+// with SQL predicate pushdown (zero table lookups, zero files JOIN, zero temp
+// B-tree sort, and zero Go-side marshaling of non-matching symbol rows);
+// project/doc filtering and maxNames capping run in queryBoundedMatchedSymbolsDBCtx.
+func matchSymbolNamesFromIndexCtx(ctx context.Context, db *sql.DB, includeDocs bool, exact, long []string) ([]string, map[string]bool, error) {
+	q, args := buildSymbolNameMatchSQL(includeDocs, exact, long)
+	if q == "" {
+		return nil, map[string]bool{}, nil
 	}
-	pSQL, pArgs := projectsInClause(projects)
-	q := `SELECT DISTINCT f.path, sy.name FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project IN ` + pSQL + boundedLikeDocFilterSQL(includeDocs) + ` ORDER BY f.path, sy.name`
-	rows, err := db.Query(q, pArgs...)
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
 	seen := map[string]bool{}
 	var matched []string
-	for rows.Next() && len(matched) < maxBoundedSeedNames {
-		var fPath, name string
-		if err := rows.Scan(&fPath, &name); err != nil {
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, nil, err
 		}
-		if isExcludedASTPath(fPath) || (!includeDocs && isDocPath(fPath)) {
-			continue
+		if !seen[name] {
+			seen[name] = true
+			matched = append(matched, name)
 		}
-		matched = addBoundedLikeMatch(seen, matched, name, name, exact, long)
 	}
 	return matched, seen, rows.Err()
 }
 
-func matchQualSymbolNamesFromDB(db *sql.DB, projects []string, includeDocs bool, exact, long []string, seen map[string]bool, matched []string) ([]string, error) {
-	if len(projects) == 0 {
-		return matched, nil
+func buildSymbolNameMatchSQL(includeDocs bool, exact, long []string) (string, []any) {
+	var preds []string
+	var args []any
+	var exactOnly []string
+	for _, e := range exact {
+		if !slices.Contains(long, e) {
+			exactOnly = append(exactOnly, e)
+		}
+	}
+	if len(exactOnly) > 0 {
+		eSQL, eArgs := projectsInClause(exactOnly)
+		preds = append(preds, `lower(name) IN `+eSQL)
+		args = append(args, eArgs...)
+	}
+	for _, l := range long {
+		preds = append(preds, `lower(name) LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeSQLLike(l)+"%")
+	}
+	if len(preds) == 0 {
+		return "", nil
+	}
+	where := `(` + strings.Join(preds, ` OR `) + `)`
+	if !includeDocs {
+		where = `instr(name, ' ') = 0 AND ` + where
+	}
+	return `SELECT DISTINCT name FROM symbols WHERE ` + where + ` LIMIT 1024`, args
+}
+
+func matchQualSymbolNamesFromDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, exact, long, dotMethods []string, seen map[string]bool, matched []string, maxNames int) ([]string, error) {
+	if len(projects) == 0 || ctx.Err() != nil {
+		return matched, ctx.Err()
 	}
 	pSQL, pArgs := projectsInClause(projects)
-	q := `SELECT DISTINCT f.path, sy.recv, sy.name FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project IN ` + pSQL + ` AND sy.recv != ''` + boundedLikeDocFilterSQL(includeDocs) + ` ORDER BY f.path, sy.recv, sy.name`
-	rows, err := db.Query(q, pArgs...)
+	q := `SELECT DISTINCT f.path, sy.recv, sy.name FROM symbols sy JOIN files f ON f.oid = sy.oid WHERE f.project IN ` + pSQL + ` AND sy.recv != ''` + boundedLikeDocFilterSQL(includeDocs)
+	args := pArgs
+	if len(dotMethods) > 0 && len(dotMethods) <= 8 {
+		var likes []string
+		for _, m := range dotMethods {
+			likes = append(likes, `lower(sy.name) LIKE ? ESCAPE '\'`)
+			args = append(args, "%"+escapeSQLLike(m)+"%")
+		}
+		q += ` AND (` + strings.Join(likes, ` OR `) + `)`
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +172,7 @@ func matchQualSymbolNamesFromDB(db *sql.DB, projects []string, includeDocs bool,
 	if seen == nil {
 		seen = map[string]bool{}
 	}
-	for rows.Next() && len(matched) < maxBoundedSeedNames {
+	for rows.Next() && len(matched) < maxNames {
 		var fPath, recv, name string
 		if err := rows.Scan(&fPath, &recv, &name); err != nil {
 			return nil, err
@@ -111,4 +195,63 @@ func addBoundedLikeMatch(seen map[string]bool, matched []string, name, cand stri
 		return append(matched, name)
 	}
 	return matched
+}
+
+const maxBoundedSymbolTerms = 24
+
+func filterBoundedQueryTerms(terms []string) []string {
+	out := make([]string, 0, len(terms))
+	for _, t := range terms {
+		tl := strings.ToLower(t)
+		if !strings.ContainsAny(tl, "/.") && ftsFallbackStopwords[tl] {
+			continue
+		}
+		out = append(out, t)
+		if len(out) >= maxBoundedQueryTerms {
+			break
+		}
+	}
+	return out
+}
+
+func expandBoundedSymbolTerms(terms []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(tok string) bool {
+		if tok == "" || seen[tok] {
+			return len(out) < maxBoundedSymbolTerms
+		}
+		seen[tok] = true
+		out = append(out, tok)
+		return len(out) < maxBoundedSymbolTerms
+	}
+	for _, t := range filterBoundedQueryTerms(terms) {
+		if !addExpandedBoundedTerm(t, add) {
+			break
+		}
+	}
+	return out
+}
+
+func addExpandedBoundedTerm(raw string, add func(string) bool) bool {
+	tl := strings.ToLower(raw)
+	if strings.Contains(tl, "/") {
+		base := path.Base(strings.TrimRight(tl, "/"))
+		stem := strings.TrimSuffix(base, path.Ext(base))
+		if len(stem) >= 4 && !ftsFallbackStopwords[stem] && !add(stem) {
+			return false
+		}
+		tl = stem
+	} else if !add(tl) {
+		return false
+	}
+	if strings.ContainsAny(tl, "-.") {
+		parts := strings.FieldsFunc(tl, func(r rune) bool { return r == '-' || r == '.' })
+		for _, p := range parts {
+			if len(p) >= 4 && !ftsFallbackStopwords[p] && !add(p) {
+				return false
+			}
+		}
+	}
+	return true
 }

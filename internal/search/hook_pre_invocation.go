@@ -15,7 +15,7 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	}
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	sc, state, skip, dirtySummary, fast, err := preparePreInvocationState(ctx, dir, in, rawPrompt)
+	sc, state, subInfo, skip, dirtySummary, fast, err := preparePreInvocationFast(ctx, o, dir, in, rawPrompt)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err
@@ -35,13 +35,12 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	cat, hasCat := loadModelsCatalog(o.Home)
-	modelInfo := resolvePreInvocationModelInfo(ctx, o.Home, cat, hasCat, sc, in)
-	sections, meta, slice := buildHealthyHookTurn(o, sc, dir, in.ConversationID, modelInfo.ID, rawPrompt, cleanPrompt, state, dirtySummary, fast)
-	if err := ctx.Err(); err != nil {
-		return err
+	if subInfo.lightweight {
+		sysMsg, banner := handleLightweightSubagentTurn(ctx, o, sc, dir, in, state, subInfo, rawPrompt, cleanPrompt, start)
+		writePreInvocation(out, sysMsg, banner)
+		return nil
 	}
-	sysMsg, banner := buildHookEnvelopeWithModelTimed(ctx, o, cat, hasCat, sc, dir, in.ConversationID, modelInfo, in, state, rawPrompt, cleanPrompt, slice, sections, meta, start)
+	sysMsg, banner := handleParallelHookTurn(ctx, o, sc, dir, in, state, rawPrompt, cleanPrompt, dirtySummary, fast, start)
 	writePreInvocation(out, sysMsg, banner)
 	return nil
 }
@@ -212,22 +211,30 @@ func (sc *scope) runVet(o Options, out io.Writer) error {
 }
 
 func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, preseedLedger bool) SliceResult {
-	if sc == nil || sc.st == nil || prompt == "" {
-		return SliceResult{}
+	res, _ := sc.buildVetSliceCtx(context.Background(), o, prompt, state, preseedLedger)
+	return res
+}
+
+func (sc *scope) buildVetSliceCtx(ctx context.Context, o Options, prompt string, state SessionState, preseedLedger bool) (SliceResult, []CapsulePivot) {
+	if sc == nil || sc.st == nil || prompt == "" || (ctx != nil && ctx.Err() != nil) {
+		return SliceResult{}, nil
 	}
 	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
-	g, err := sc.loadBoundedSymGraph(prompt, active, false, 1)
-	if err != nil || len(g.syms) == 0 {
-		return SliceResult{}
+	g, err := sc.loadBoundedSymGraphCtx(ctx, prompt, active, false, 1)
+	if err != nil || len(g.syms) == 0 || (ctx != nil && ctx.Err() != nil) {
+		return SliceResult{}, nil
 	}
 	hits, _ := countMatchingSymbols(g, prompt)
 	ranked, confident := rankAndCheckConfidence(g, prompt, active)
-	if !confident {
+	if !confident && (ctx == nil || ctx.Err() == nil) {
 		ranked, confident = sc.ftsFallbackRanked(g, prompt, active)
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return SliceResult{}, nil
 	}
 	pkgComms := g.packageCommunities()
 	if !confident && !state.Compacted {
-		return SliceResult{SymbolHits: hits, Files: nil, PkgCommunities: pkgComms}
+		return SliceResult{SymbolHits: hits, Files: nil, PkgCommunities: pkgComms}, nil
 	}
 	capsule, pivots, symFiles, symCount := sc.renderHookOrVetCapsule(o, g, prompt, ranked)
 	if capsule != "" && preseedLedger && len(pivots) > 0 {
@@ -240,7 +247,7 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 		Files:          symFiles,
 		Confident:      confident,
 		PkgCommunities: pkgComms,
-	}
+	}, pivots
 }
 
 func (sc *scope) preseedCapsulePivots(o Options, turnNum int, pivots []CapsulePivot) {
@@ -281,7 +288,7 @@ func (sc *scope) renderHookOrVetCapsule(o Options, g *symGraph, prompt string, r
 	if o.BrainRefsForDir != nil && o.Dir != "" {
 		sliceOpts.BrainRefs = func(target string) []LinkedRecord { return o.BrainRefsForDir(o.Dir, target) }
 	}
-	tiers := g.selectSliceTiers(prompt, ranked, defaultSliceHops)
+	tiers := g.selectSliceTiers(prompt, ranked, 1)
 	capsule := strings.TrimSpace(sc.renderCompactHookCapsule(sliceOpts, g, tiers, compactHookMaxBytes))
 	if capsule == "" {
 		return "", nil, nil, 0

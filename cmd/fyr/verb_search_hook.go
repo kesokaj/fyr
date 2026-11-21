@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
@@ -12,8 +13,10 @@ import (
 
 // turnBrainCache memoizes brain.List(dir) once per CLI invocation so
 // BrainTurnContext, BrainRefs, and BrainRefsForDir never trigger N+1 SQLite
-// or subprocess lookups across candidate paths (ADR-521).
+// or subprocess lookups across candidate paths (ADR-521). Guarded by mu so
+// concurrent PreInvocation AST slicing and BrainTurnContext stay race-free (ADR-532).
 type turnBrainCache struct {
+	mu         sync.Mutex
 	home       string
 	global     bool
 	byDir      map[string][]brain.Record
@@ -31,6 +34,12 @@ func newTurnBrainCache(home string, global bool) *turnBrainCache {
 }
 
 func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return tc.recordsLocked(dir, homeOverride)
+}
+
+func (tc *turnBrainCache) recordsLocked(dir, homeOverride string) []brain.Record {
 	home := tc.resolveHome(homeOverride)
 	key := canonicalCacheDir(dir) + "|" + home
 	if recs, ok := tc.byDir[key]; ok {
@@ -57,6 +66,12 @@ func canonicalCacheDir(dir string) string {
 }
 
 func (tc *turnBrainCache) ftsMatches(dir, homeOverride string, terms []string) map[string]bool {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	return tc.ftsMatchesLocked(dir, homeOverride, terms)
+}
+
+func (tc *turnBrainCache) ftsMatchesLocked(dir, homeOverride string, terms []string) map[string]bool {
 	home := tc.resolveHome(homeOverride)
 	if home == "" || len(terms) == 0 {
 		return nil
@@ -96,6 +111,8 @@ func filterFTSHitsByPrecision(hits []brain.Hit, terms []string) map[string]bool 
 }
 
 func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
 	home := tc.resolveHome(homeOverride)
 	recKey := canonicalCacheDir(dir) + "|" + home
 	recs, hasRecs := tc.byDir[recKey]
@@ -112,11 +129,11 @@ func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string)
 	if recs2, fts2, ok := tc.loadCombinedTurnData(dir, home, recKey, fkey, terms, hasRecs, hasFTS); ok {
 		return recs2, fts2
 	}
-	recs = tc.records(dir, homeOverride)
+	recs = tc.recordsLocked(dir, homeOverride)
 	if len(recs) == 0 || len(terms) == 0 {
 		return recs, nil
 	}
-	return recs, tc.ftsMatches(dir, homeOverride, terms)
+	return recs, tc.ftsMatchesLocked(dir, homeOverride, terms)
 }
 
 func (tc *turnBrainCache) loadCombinedTurnData(dir, home, recKey, fkey string, terms []string, hasRecs, hasFTS bool) ([]brain.Record, map[string]bool, bool) {

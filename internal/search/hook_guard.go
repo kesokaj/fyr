@@ -86,11 +86,14 @@ func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, r
 		Scan(&genID, &lastBytes, &turnCount, &estTokens)
 	if errors.Is(err, sql.ErrNoRows) {
 		est := curBytes / 4
-		_, err = st.db.ExecContext(ctx, `INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)`, conversationID, curBytes, est)
+		_, err = st.db.ExecContext(ctx,
+			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)
+			 ON CONFLICT(conversation_id) DO UPDATE SET last_transcript_bytes = excluded.last_transcript_bytes, turn_count = MAX(session_meta.turn_count, 1), est_tokens
+			 = excluded.est_tokens`,
+			conversationID, curBytes, est,
+		)
 		if err == nil {
-			if err = ctx.Err(); err == nil {
-				upsertPreInvocationStamp(st, conversationID, 0, 1, promptSum)
-			}
+			upsertPreInvocationStampCtx(ctx, st, conversationID, 0, 1, promptSum)
 		}
 		return SessionState{ConversationID: conversationID, GenerationID: 0, LastTranscriptBytes: curBytes, TurnCount: 1, EstTokens: est}, false, err
 	}
@@ -100,7 +103,11 @@ func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, r
 	return advanceOrSkipTurn(ctx, st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, in, promptSum)
 }
 
-func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, estTokens, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
+func isMidTurnContinuation(in HookInput) bool {
+	return in.ContinuationActive || in.ExecutionNum > 0 || (in.StepIdx > 0 && in.StepIdx > in.InitialNumSteps)
+}
+
+func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, est, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
 	compacted := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
 	var prevSum string
 	_ = st.db.QueryRowContext(ctx, `SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
@@ -108,28 +115,26 @@ func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, ge
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err
 	}
-	midTurn := in.ContinuationActive || (in.InvocationNum >= 1 && (in.ExecutionNum > 0 || in.StepIdx > in.InitialNumSteps))
+	midTurn := isMidTurnContinuation(in)
 	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
-			lastBytes, estTokens = curBytes, curBytes/4
-			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, estTokens, conversationID)
+			lastBytes, est = curBytes, curBytes/4
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, est, conversationID)
 		}
-		return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: estTokens}, true, nil
+		return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: max(1, turnCount), EstTokens: est}, true, nil
 	}
 	if compacted {
 		genID++
 	}
 	if compacted || hasSize {
-		lastBytes, estTokens = curBytes, curBytes/4
+		lastBytes, est = curBytes, curBytes/4
 	}
 	turnCount++
-	_, err := st.db.ExecContext(ctx, `UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, estTokens, conversationID)
+	_, err := st.db.ExecContext(ctx, `UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, est, conversationID)
 	if err == nil {
-		if err = ctx.Err(); err == nil {
-			upsertPreInvocationStamp(st, conversationID, genID, turnCount, promptSum)
-		}
+		upsertPreInvocationStampCtx(ctx, st, conversationID, genID, turnCount, promptSum)
 	}
-	return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: estTokens, Compacted: compacted}, false, err
+	return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: est, Compacted: compacted}, false, err
 }
 
 func statTranscriptBytes(transcriptPath string) (int, bool) {
@@ -148,10 +153,58 @@ func sha256PromptHex(rawPrompt string) string {
 }
 
 func upsertPreInvocationStamp(st *store, conversationID string, genID, turnCount int, promptSum string) {
-	if promptSum == "" {
+	upsertPreInvocationStampCtx(context.Background(), st, conversationID, genID, turnCount, promptSum)
+}
+
+func upsertPreInvocationStampCtx(ctx context.Context, st *store, conversationID string, genID, turnCount int, promptSum string) {
+	if st == nil || st.db == nil || promptSum == "" {
 		return
 	}
-	_ = st.upsertReadStamp(conversationID, genID, preInvocationSentinel, -3, -3, promptSum, turnCount, nowFunc().Unix())
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	_, _ = st.db.ExecContext(ctx,
+		`INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at)
+		 VALUES (?, ?, ?, -3, -3, ?, ?, 1, ?)
+		 ON CONFLICT(conversation_id, generation_id, resolved_path, start_line, end_line)
+		 DO UPDATE SET sha256 = excluded.sha256, turn_num = excluded.turn_num, updated_at = excluded.updated_at`,
+		normalizeLedgerConvID(conversationID), genID, preInvocationSentinel, promptSum, max(1, turnCount), nowFunc().Unix(),
+	)
+}
+
+// stampPreInvocationFallbackCtx ensures session_meta and the __pre_invocation__
+// prompt-hash stamp exist when PreInvocation times out before stamping, breaking
+// mid-turn repeat timeout spirals (ADR-532).
+func stampPreInvocationFallbackCtx(ctx context.Context, st *store, convID string, in HookInput, rawPrompt string) int {
+	if st == nil || st.db == nil || ctx.Err() != nil {
+		return 1
+	}
+	convID = normalizeLedgerConvID(convID)
+	curBytes, hasSize := statTranscriptBytes(in.TranscriptPath)
+	est := curBytes / 4
+	var genID, turnCount int
+	err := st.db.QueryRowContext(ctx, `SELECT generation_id, turn_count FROM session_meta WHERE conversation_id = ?`, convID).Scan(&genID, &turnCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		turnCount = 1
+		_, _ = st.db.ExecContext(ctx,
+			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)
+			 ON CONFLICT(conversation_id) DO UPDATE SET turn_count = MAX(session_meta.turn_count, 1)`,
+			convID, curBytes, est,
+		)
+	} else if err == nil {
+		if turnCount <= 0 {
+			turnCount = 1
+		}
+		if hasSize {
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ?, turn_count = ? WHERE conversation_id = ?`, curBytes, est, turnCount, convID)
+		} else {
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET turn_count = ? WHERE conversation_id = ?`, turnCount, convID)
+		}
+	}
+	if promptSum := sha256PromptHex(rawPrompt); promptSum != "" {
+		upsertPreInvocationStampCtx(ctx, st, convID, genID, turnCount, promptSum)
+	}
+	return max(1, turnCount)
 }
 
 func isRefusedAutoInitDir(absDir string) bool {

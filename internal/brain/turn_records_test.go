@@ -229,3 +229,105 @@ func containsRecordID(recs []Record, id string) bool {
 	}
 	return false
 }
+
+func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
+	dir := repo(t)
+	home := t.TempDir()
+
+	// 1. openStore creates records_scope_kind_status_date idempotently without bumping user_version.
+	st, err := openStore(home)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	var idxCount int
+	if err := st.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'records_scope_kind_status_date'`).Scan(&idxCount); err != nil {
+		st.close()
+		t.Fatalf("check index: %v", err)
+	}
+	if idxCount != 1 {
+		st.close()
+		t.Fatalf("records_scope_kind_status_date index count = %d, want 1", idxCount)
+	}
+	ver, err := st.version(st.db)
+	if err != nil || ver != len(migrations) {
+		st.close()
+		t.Fatalf("user_version = %d (err=%v), want %d", ver, err, len(migrations))
+	}
+	_ = st.close()
+
+	// Re-open must be idempotent.
+	st2, err := openStore(home)
+	if err != nil {
+		t.Fatalf("re-openStore: %v", err)
+	}
+	defer st2.close()
+
+	// 2. EXPLAIN QUERY PLAN for project and global listTurnQuery must use records_scope_kind_status_date.
+	for _, tc := range []struct {
+		name string
+		opts Options
+	}{
+		{"project", Options{Home: home, Dir: dir}},
+		{"global", Options{Home: home, Dir: dir, Global: true}},
+	} {
+		q, args, ok := listTurnQuery(tc.opts, len(migrations))
+		if !ok {
+			t.Fatalf("%s: listTurnQuery ok=false", tc.name)
+		}
+		rows, err := st2.db.Query(`EXPLAIN QUERY PLAN `+q, args...)
+		if err != nil {
+			t.Fatalf("%s: EXPLAIN QUERY PLAN: %v", tc.name, err)
+		}
+		var details []string
+		usedIdx := 0
+		for rows.Next() {
+			var id, parent, notused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+				rows.Close()
+				t.Fatalf("%s: scan plan: %v", tc.name, err)
+			}
+			details = append(details, detail)
+			if strings.Contains(detail, "SCAN records") {
+				t.Errorf("%s: unexpected full table scan in query plan: %s", tc.name, detail)
+			}
+			if strings.Contains(detail, "USING INDEX records_scope_kind_status_date") {
+				usedIdx++
+			}
+		}
+		rows.Close()
+		if usedIdx == 0 {
+			t.Errorf("%s: query plan never used records_scope_kind_status_date:\n%s", tc.name, strings.Join(details, "\n"))
+		}
+	}
+
+	// 3. filterTurnFTSWords strips empty, short, numeric, and trivial/stopword inputs,
+	//    deduplicates meaningful tokens, and caps at maxTurnFTSWords.
+	if got := filterTurnFTSWords(nil); got != nil {
+		t.Errorf("filterTurnFTSWords(nil) = %v, want nil", got)
+	}
+	if got := filterTurnFTSWords([]string{"", "  ", "go", "to", "1234", "the", "and", "fix", "check", "all", "approved", "please", "tests"}); len(got) != 0 {
+		t.Errorf("trivial/stopword inputs should filter to empty, got %v", got)
+	}
+	many := []string{"Migration!", "migration", "SQLite,", "WAL", "hook_deadline", "subagent", "latency", "indexer", "parser", "overflow", "extra"}
+	got := filterTurnFTSWords(many)
+	if len(got) != maxTurnFTSWords {
+		t.Errorf("len(filterTurnFTSWords(many)) = %d (%v), want %d", len(got), got, maxTurnFTSWords)
+	}
+	if got[0] != "migration" || got[1] != "sqlite" {
+		t.Errorf("unexpected normalized words: %v", got)
+	}
+
+	// 4. SearchTurnRecords and LoadTurnRecordsAndFTS skip FTS when only trivial/stopword words are passed.
+	bo := Options{Home: home, Dir: dir}
+	if _, err := Add(bo, AddInput{Kind: "adr", Status: "accepted", Title: "Check tests please", Body: strings.NewReader("Please fix and check all approved tests.\n")}); err != nil {
+		t.Fatalf("Add adr: %v", err)
+	}
+	trivialWords := []string{"please", "fix", "check", "all", "approved", "tests", "123"}
+	if hits, err := SearchTurnRecords(bo, trivialWords, 8); err != nil || len(hits) != 0 {
+		t.Errorf("SearchTurnRecords(trivial) = (%v, %v), want nil, nil", hits, err)
+	}
+	if recs, hits, err := LoadTurnRecordsAndFTS(bo, trivialWords, 8); err != nil || len(recs) != 1 || len(hits) != 0 {
+		t.Errorf("LoadTurnRecordsAndFTS(trivial) = (recs=%d, hits=%d, err=%v), want 1, 0, nil", len(recs), len(hits), err)
+	}
+}

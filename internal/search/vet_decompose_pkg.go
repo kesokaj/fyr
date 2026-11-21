@@ -8,12 +8,17 @@ import (
 )
 
 func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, knownFiles []string, catalog []SkillMeta) []SubtaskSlice {
-	low := strings.ToLower(trimmed)
-	isReadOnlyLookup := !hasDecomposeEditVerb(trimmed) && (inferClauseRole(trimmed, knownFiles) == "explorer" || hasLookupCues(low))
-	if !hasCodeOrDirTarget(knownFiles) || isReadOnlyLookup {
+	if isDiagnosticReadOnlyPrompt(trimmed) {
 		return nil
 	}
-	groups, order := groupFilesByPkg(knownFiles, slice.Capsule)
+	explicitFiles := extractExplicitPromptTargets(trimmed, knownFiles)
+	if !hasCodeOrDirTarget(explicitFiles) {
+		return nil
+	}
+	if !hasDecomposeEditVerb(trimmed) && inferClauseRole(trimmed, explicitFiles) == "explorer" {
+		return nil
+	}
+	groups, order := groupFilesByPkg(explicitFiles, slice.Capsule)
 	if len(order) < 2 {
 		return nil
 	}
@@ -37,6 +42,41 @@ func buildPackageSubtasks(trimmed string, intent IntentMode, slice SliceResult, 
 		return nil
 	}
 	return out
+}
+
+// extractExplicitPromptTargets resolves only file/dir targets named in prompt
+// itself (expanding explicit directory tokens and unique bare basenames via
+// knownFiles, never pulling in unrelated 1-hop AST neighbor packages).
+func extractExplicitPromptTargets(trimmed string, knownFiles []string) []string {
+	var resolved []string
+	for _, tok := range extractPromptAndSliceFiles(trimmed, nil) {
+		norm := normalizeSlashPath(tok)
+		if norm == "" {
+			continue
+		}
+		if isDirPathToken(norm) {
+			if under := filesUnderDir(norm, knownFiles); len(under) > 0 {
+				resolved = append(resolved, under...)
+				continue
+			}
+			resolved = append(resolved, norm)
+			continue
+		}
+		resolved = append(resolved, resolveUniqueFileMatch(norm, knownFiles))
+	}
+	return dedupKnownFiles(resolved)
+}
+
+func hasDiagnosticReadOnlyVerb(s string) bool {
+	stripped := strings.ToLower(fileTokenRe.ReplaceAllString(" "+s+" ", " "))
+	return containsAnyWord(stripped, "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies", "audit", "audits")
+}
+
+func isDiagnosticReadOnlyPrompt(trimmed string) bool {
+	if hasDecomposeEditVerb(trimmed) {
+		return false
+	}
+	return hasDiagnosticReadOnlyVerb(trimmed) || hasLookupCues(strings.ToLower(trimmed))
 }
 
 type pkgPartition struct {
@@ -193,7 +233,7 @@ func inferClauseRole(clause string, clauseFiles []string) string {
 		return "security"
 	case containsAnyWord(stripped, "doc", "docs", "documentation", "readme", "spec", "specs", "sdd", "tdd"):
 		return "documentation"
-	case containsAnyWord(stripped, "find", "search", "trace", "explain"):
+	case !hasDecomposeEditVerb(clause) && containsAnyWord(stripped, "find", "search", "trace", "explain", "check", "checks", "inspect", "inspects", "profile", "profiles", "profiling", "measure", "measures", "measuring", "verify", "verifies"):
 		return "explorer"
 	case len(clauseFiles) > 0 && allMarkdownFiles(clauseFiles) && !containsAnyWord(stripped, "implement", "fix", "add", "build", "create", "refactor", "test"):
 		return "documentation"

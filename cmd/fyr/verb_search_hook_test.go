@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -343,5 +344,66 @@ func TestSearchHookRecordsFTSAndStopwords(t *testing.T) {
 	trailCtx := makeBrainTurnContext(trailCache)(dir, emptyHome, "Update SQLite migration durability", nil)
 	if len(trailCtx.ADRs) != 1 || trailCtx.ADRs[0].ID != migADR {
 		t.Errorf("ReadTrail fallback match = %+v, want [%s]", trailCtx.ADRs, migADR)
+	}
+}
+
+func TestTurnBrainCacheConcurrentRace(t *testing.T) {
+	dir := recordRepo(t)
+	home := t.TempDir()
+	bo := brain.Options{Home: home, Dir: dir}
+	adrID, err := brain.Add(bo, brain.AddInput{
+		Kind: "adr", Status: "accepted", Title: "Parallel PreInvocation caching",
+		Body: strings.NewReader("Touches internal/search/hook_pre_invocation_fast.go and enforces mutex safety."),
+	})
+	if err != nil {
+		t.Fatalf("Add adr: %v", err)
+	}
+	if _, err := brain.Add(bo, brain.AddInput{
+		Kind: "bug", Status: "open", Title: "Data race on turnBrainCache maps",
+		Body: strings.NewReader("Observed when internal/search/hook_pre_invocation_fast.go runs concurrently."),
+	}); err != nil {
+		t.Fatalf("Add bug: %v", err)
+	}
+
+	cache := newTurnBrainCache(home, false)
+	turnCtxFn := makeBrainTurnContext(cache)
+	refsForDir := makeBrainRefsForDir(cache)
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errCh := make(chan string, 24)
+	for g := 0; g < 12; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-start
+			for i := 0; i < 8; i++ {
+				if id%2 == 0 {
+					ctx := turnCtxFn(dir, home, "Update internal/search/hook_pre_invocation_fast.go caching", []string{"internal/search/hook_pre_invocation_fast.go"})
+					if len(ctx.ADRs) == 0 || ctx.ADRs[0].ID != adrID {
+						errCh <- "BrainTurnContext missing expected ADR"
+						return
+					}
+				} else {
+					refs := refsForDir(dir, "internal/search/hook_pre_invocation_fast.go")
+					if len(refs) == 0 {
+						errCh <- "BrainRefsForDir returned empty refs"
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for msg := range errCh {
+		t.Error(msg)
+	}
+	cache.mu.Lock()
+	loads := cache.loadCount
+	cache.mu.Unlock()
+	if loads != 1 {
+		t.Errorf("concurrent turnBrainCache.loadCount = %d, want 1", loads)
 	}
 }

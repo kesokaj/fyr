@@ -141,7 +141,28 @@ func tryOpen(path string) (*store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.ensureTurnRecordsIndex(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return s, nil
+}
+
+// ensureTurnRecordsIndex idempotently creates the composite index used by
+// ListTurnRecords without bumping user_version, matching search.ensureRefsOIDIndex
+// so existing v4 stores and read-only readers stay compatible (ADR-532).
+func (s *store) ensureTurnRecordsIndex() error {
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'records_scope_kind_status_date'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	return s.tx(func(c *sql.Conn) error {
+		_, err := c.ExecContext(context.Background(), `CREATE INDEX IF NOT EXISTS records_scope_kind_status_date ON records(scope, kind, status, date)`)
+		return err
+	})
 }
 
 // openStoreReadOnly opens an existing store under home read-only without

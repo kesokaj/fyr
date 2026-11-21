@@ -2,11 +2,57 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+type hookSubagentMeta struct {
+	AgentName            string
+	ParentConversationID string
+}
+
+type hookSubagentMetaKey struct{}
+
+func withHookSubagentMeta(ctx context.Context, meta hookSubagentMeta) context.Context {
+	if meta.AgentName == "" && meta.ParentConversationID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, hookSubagentMetaKey{}, meta)
+}
+
+func hookSubagentMetaFromCtx(ctx context.Context) hookSubagentMeta {
+	if ctx == nil {
+		return hookSubagentMeta{}
+	}
+	if v, ok := ctx.Value(hookSubagentMetaKey{}).(hookSubagentMeta); ok {
+		return v
+	}
+	return hookSubagentMeta{}
+}
+
+func extractHookSubagentMeta(data []byte) hookSubagentMeta {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return hookSubagentMeta{}
+	}
+	var raw map[string]any
+	if json.Unmarshal(trimmed, &raw) != nil {
+		return hookSubagentMeta{}
+	}
+	return hookSubagentMeta{
+		AgentName: extractStringArg(raw,
+			"agentName", "agent_name", "agentType", "agent_type",
+			"subagentType", "subagent_type", "subagent", "role",
+		),
+		ParentConversationID: extractStringArg(raw,
+			"parentConversationId", "parent_conversation_id",
+			"parentSessionId", "parent_session_id",
+		),
+	}
+}
 
 func extractToolTargetPath(args map[string]any) string {
 	return extractStringArg(args, "Path", "path", "AbsolutePath", "absolutePath", "absolute_path", "FilePath", "filePath", "file_path", "TargetFile", "targetFile", "target_file")
@@ -110,8 +156,11 @@ func applyHookEnvelopeAliases(in *HookInput, raw map[string]any, optSession stri
 		in.ExecutionNum = extractIntArg(raw, "execution_num")
 	}
 	if !in.ContinuationActive {
-		if v, ok := raw["continuation_active"].(bool); ok {
-			in.ContinuationActive = v
+		for _, k := range []string{"continuation_active", "is_continuation", "isContinuation"} {
+			if v, ok := raw[k].(bool); ok && v {
+				in.ContinuationActive = true
+				break
+			}
 		}
 	}
 	in.ConversationID = resolveHookConversationID(*in, raw, optSession)

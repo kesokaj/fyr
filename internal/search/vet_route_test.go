@@ -378,3 +378,47 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 		t.Errorf("(c) banner.Directive = %q, want COORDINATE_SUBTASKS", bannerC.Directive)
 	}
 }
+
+func TestRouteFeatureSkipsSwarmOnDiagnosticPrompts(t *testing.T) {
+	multiPkgSlice := SliceResult{
+		Files:      []string{"internal/search/hook_pre_invocation.go", "internal/brain/store.go", "cmd/fyr/verb_search_hook.go"},
+		SymbolHits: 3,
+		Capsule:    "[Hop 0] internal/search/hook_pre_invocation.go:1-20 (handlePreInvocation)",
+	}
+	diagPrompts := []string{
+		"Check latency in internal/search/hook_pre_invocation.go; measure internal/brain/store.go",
+		"Profile internal/search and verify internal/brain in parallel",
+		"Audit Phase 1 and Phase 2 hook latency logs",
+		"1. Inspect internal/search/hook_pre_invocation.go 2. Measure internal/brain/turn_records.go",
+	}
+	for _, p := range diagPrompts {
+		if route := RouteFeature(p, IntentTask, nil); strings.HasPrefix(route, "/fyr-swarm") {
+			t.Errorf("diagnostic prompt %q unexpectedly routed to %q", p, route)
+		}
+		res := VetPrompt(p, "", multiPkgSlice, TurnBrainContext{})
+		if dir := preInvocationDirective(res); dir == "COORDINATE_SUBTASKS" {
+			t.Errorf("diagnostic prompt %q emitted COORDINATE_SUBTASKS", p)
+		}
+		if strings.HasPrefix(res.Route, "/fyr-swarm") {
+			t.Errorf("diagnostic prompt %q VetPrompt route = %q, want non-swarm", p, res.Route)
+		}
+	}
+
+	// Contrast positive case: explicit 2-package edit emits COORDINATE_SUBTASKS + /fyr-swarm with only those 2 packages.
+	editPrompt := "Update internal/search/hook_pre_invocation.go and internal/brain/store.go"
+	resEdit := VetPrompt(editPrompt, "", multiPkgSlice, TurnBrainContext{})
+	if len(resEdit.Subtasks) != 2 {
+		t.Fatalf("explicit 2-package edit subtasks = %d, want 2: %+v", len(resEdit.Subtasks), resEdit.Subtasks)
+	}
+	if dir := preInvocationDirective(resEdit); dir != "COORDINATE_SUBTASKS" {
+		t.Errorf("explicit 2-package edit directive = %q, want COORDINATE_SUBTASKS", dir)
+	}
+	if !strings.HasPrefix(resEdit.Route, "/fyr-swarm") {
+		t.Errorf("explicit 2-package edit route = %q, want /fyr-swarm prefix", resEdit.Route)
+	}
+	for _, st := range resEdit.Subtasks {
+		if slices.Contains(st.Files, "cmd/fyr/verb_search_hook.go") {
+			t.Errorf("explicit 2-package edit leaked 3rd-package AST neighbor into %+v", st)
+		}
+	}
+}

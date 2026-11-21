@@ -2,48 +2,141 @@ package search
 
 import (
 	"cmp"
+	"context"
 	"database/sql"
 	"slices"
 	"strconv"
 	"strings"
 )
 
-func querySeedSymbolsDB(db *sql.DB, projects []string, includeDocs bool, seedOIDs map[string]bool, terms []string) ([]RankedSymbol, error) {
+func querySeedFileOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, active map[string]bool, terms []string, maxSeedFiles int) (map[string]bool, bool, error) {
+	filteredTerms := filterBoundedQueryTerms(terms)
+	var preds []string
+	var condArgs []any
+	if len(active) > 0 {
+		aSQL, aArgs := projectsInClause(sortedMapKeys(active))
+		preds = append(preds, `f.path IN `+aSQL)
+		condArgs = append(condArgs, aArgs...)
+	}
+	for _, t := range filteredTerms {
+		tl := strings.ToLower(t)
+		esc := escapeSQLLike(tl)
+		preds = append(preds, `lower(f.path) = ?`, `lower(f.path) LIKE ? ESCAPE '\'`)
+		condArgs = append(condArgs, tl, "%/"+esc)
+		if len(tl) >= 4 && !strings.ContainsAny(tl, "/.") {
+			preds = append(preds, `lower(f.path) LIKE ? ESCAPE '\'`, `lower(f.path) LIKE ? ESCAPE '\'`)
+			condArgs = append(condArgs, esc+".%", "%/"+esc+".%")
+		}
+	}
+	if len(preds) == 0 {
+		return map[string]bool{}, false, nil
+	}
+	pSQL, pArgs := projectsInClause(projects)
+	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + pSQL + ` AND (` + strings.Join(preds, ` OR `) + `) ORDER BY f.path`
+	matched, err := scanIndexedFileMetaCtx(ctx, db, q, append(pArgs, condArgs...), includeDocs)
+	if err != nil {
+		return nil, false, err
+	}
+	oids := map[string]bool{}
+	for _, f := range matched {
+		if active[f.path] {
+			oids[f.oid] = true
+		}
+	}
+	hasExplicit := false
+	for _, f := range matched {
+		if fileMatchesBoundedTerms(f.path, filteredTerms) {
+			hasExplicit = true
+			if len(oids) < maxSeedFiles {
+				oids[f.oid] = true
+			}
+		}
+	}
+	return oids, hasExplicit, nil
+}
+
+func queryFilesByPathsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, paths []string) ([]indexedFileMeta, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	pSQL, pArgs := projectsInClause(projects)
+	fSQL, fArgs := projectsInClause(paths)
+	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + pSQL + ` AND f.path IN ` + fSQL + ` ORDER BY f.path`
+	return scanIndexedFileMetaCtx(ctx, db, q, append(pArgs, fArgs...), includeDocs)
+}
+
+func queryFilesByOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, oids []string) ([]indexedFileMeta, error) {
+	if len(oids) == 0 {
+		return nil, nil
+	}
+	pSQL, pArgs := projectsInClause(projects)
+	oSQL, oArgs := projectsInClause(oids)
+	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + pSQL + ` AND f.oid IN ` + oSQL + ` ORDER BY f.path`
+	return scanIndexedFileMetaCtx(ctx, db, q, append(pArgs, oArgs...), includeDocs)
+}
+
+func scanIndexedFileMetaCtx(ctx context.Context, db *sql.DB, q string, args []any, includeDocs bool) ([]indexedFileMeta, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []indexedFileMeta
+	for rows.Next() {
+		var m indexedFileMeta
+		if err := rows.Scan(&m.project, &m.path, &m.oid, &m.lineCount); err != nil {
+			return nil, err
+		}
+		if !keepScannedFile(m.path, includeDocs, false) {
+			continue
+		}
+		m.pkg = canonicalPkgDir(m.path)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func escapeSQLLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+func querySeedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, seedOIDs map[string]bool, hasExplicitFileSeed bool, terms []string, maxNames int) ([]RankedSymbol, error) {
 	var merged []RankedSymbol
 	if len(seedOIDs) > 0 {
-		byOID, err := querySymbolsByOIDsDB(db, projects, includeDocs, sortedMapKeys(seedOIDs))
+		byOID, err := querySymbolsByOIDsDBCtx(ctx, db, projects, includeDocs, sortedMapKeys(seedOIDs))
 		if err != nil {
 			return nil, err
 		}
 		merged = append(merged, byOID...)
 	}
 	if exactNames := collectExactSymbolCandidates(terms); len(exactNames) > 0 {
-		byName, err := queryExactSymbolsByNameDB(db, projects, includeDocs, exactNames)
+		byName, err := queryExactSymbolsByNameDBCtx(ctx, db, projects, includeDocs, exactNames)
 		if err != nil {
 			return nil, err
 		}
 		merged = append(merged, byName...)
 	}
 	merged = mergeAndSortSeedSymbols(merged)
-	if hasStrongIdentSeed(merged, terms) {
-		return merged, nil
+	if hasStrongIdentSeed(merged, terms) || (hasExplicitFileSeed && len(merged) > 0) || ctx.Err() != nil {
+		return merged, ctx.Err()
 	}
-	likeSyms, err := querySeedSymbolsLikeDB(db, projects, includeDocs, terms)
+	likeSyms, err := querySeedSymbolsLikeDBCtx(ctx, db, projects, includeDocs, terms, maxNames)
 	if err != nil {
 		return nil, err
 	}
 	return mergeAndSortSeedSymbols(append(merged, likeSyms...)), nil
 }
 
-func queryExactSymbolsByNameDB(db *sql.DB, projects []string, includeDocs bool, names []string) ([]RankedSymbol, error) {
-	return querySymbolsWhereInDB(db, projects, includeDocs, "sy.name", names)
+func queryExactSymbolsByNameDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, names []string) ([]RankedSymbol, error) {
+	return querySymbolsWhereInDBCtx(ctx, db, projects, includeDocs, "sy.name", names)
 }
 
-func querySymbolsByOIDsDB(db *sql.DB, projects []string, includeDocs bool, oids []string) ([]RankedSymbol, error) {
-	return querySymbolsWhereInDB(db, projects, includeDocs, "sy.oid", oids)
+func querySymbolsByOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, oids []string) ([]RankedSymbol, error) {
+	return querySymbolsWhereInDBCtx(ctx, db, projects, includeDocs, "sy.oid", oids)
 }
 
-func querySymbolsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col string, vals []string) ([]RankedSymbol, error) {
+func querySymbolsWhereInDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, col string, vals []string) ([]RankedSymbol, error) {
 	if len(vals) == 0 {
 		return nil, nil
 	}
@@ -53,7 +146,7 @@ func querySymbolsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col 
 		FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid
 		WHERE f.project IN ` + pSQL + ` AND ` + col + ` IN ` + vSQL + `
 		ORDER BY f.path, sy.start_line, sy.end_line, sy.recv, sy.name`
-	return scanSymbolNodeRows(db, q, append(pArgs, vArgs...), includeDocs)
+	return scanSymbolNodeRowsCtx(ctx, db, q, append(pArgs, vArgs...), includeDocs)
 }
 
 func collectExactSymbolCandidates(terms []string) []string {
@@ -98,8 +191,8 @@ func mergeAndSortSeedSymbols(in []RankedSymbol) []RankedSymbol {
 	return out
 }
 
-func scanSymbolNodeRows(db *sql.DB, q string, args []any, includeDocs bool) ([]RankedSymbol, error) {
-	rows, err := db.Query(q, args...)
+func scanSymbolNodeRowsCtx(ctx context.Context, db *sql.DB, q string, args []any, includeDocs bool) ([]RankedSymbol, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -124,18 +217,18 @@ func scanSymbolNodeRows(db *sql.DB, q string, args []any, includeDocs bool) ([]R
 	return syms, rows.Err()
 }
 
-func querySymRefsByOIDsDB(db *sql.DB, projects []string, includeDocs bool, oids []string) ([]rawSymRef, error) {
-	return querySymRefsWhereInDB(db, projects, includeDocs, "r.oid", oids, "ORDER BY f.path, r.line, r.from_sym, r.to_name")
+func querySymRefsByOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, oids []string) ([]rawSymRef, error) {
+	return querySymRefsWhereInDBCtx(ctx, db, projects, includeDocs, "r.oid", oids, "ORDER BY f.path, r.line, r.from_sym, r.to_name")
 }
 
-func queryInboundSymRefsDB(db *sql.DB, projects []string, includeDocs bool, names []string, limit int) ([]rawSymRef, error) {
+func queryInboundSymRefsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, names []string, limit int) ([]rawSymRef, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
-	return querySymRefsWhereInDB(db, projects, includeDocs, "r.to_name", names, "ORDER BY f.path, r.line LIMIT ?", limit)
+	return querySymRefsWhereInDBCtx(ctx, db, projects, includeDocs, "r.to_name", names, "ORDER BY f.path, r.line LIMIT ?", limit)
 }
 
-func querySymRefsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col string, vals []string, tail string, tailArgs ...any) ([]rawSymRef, error) {
+func querySymRefsWhereInDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, col string, vals []string, tail string, tailArgs ...any) ([]rawSymRef, error) {
 	if len(vals) == 0 {
 		return nil, nil
 	}
@@ -144,10 +237,10 @@ func querySymRefsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col 
 	q := `SELECT f.path, r.oid, r.from_sym, r.to_pkg, r.to_name, r.kind, r.confidence, r.weight, r.line
 		FROM sym_refs r CROSS JOIN files f ON f.oid = r.oid
 		WHERE f.project IN ` + pSQL + ` AND ` + col + ` IN ` + vSQL + ` ` + tail
-	return scanRawSymRefRows(db, q, append(append(pArgs, vArgs...), tailArgs...), includeDocs)
+	return scanRawSymRefRowsCtx(ctx, db, q, append(append(pArgs, vArgs...), tailArgs...), includeDocs)
 }
 
-func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, names []string) ([]string, error) {
+func queryOIDsBySymbolNamesDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, names []string) ([]string, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
@@ -155,7 +248,7 @@ func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, n
 	nSQL, nArgs := projectsInClause(names)
 	q := `SELECT DISTINCT f.path, sy.oid FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid
 		WHERE f.project IN ` + pSQL + ` AND sy.name IN ` + nSQL
-	rows, err := db.Query(q, append(pArgs, nArgs...)...)
+	rows, err := db.QueryContext(ctx, q, append(pArgs, nArgs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +268,8 @@ func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, n
 	return out, rows.Err()
 }
 
-func scanRawSymRefRows(db *sql.DB, q string, args []any, includeDocs bool) ([]rawSymRef, error) {
-	rows, err := db.Query(q, args...)
+func scanRawSymRefRowsCtx(ctx context.Context, db *sql.DB, q string, args []any, includeDocs bool) ([]rawSymRef, error) {
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

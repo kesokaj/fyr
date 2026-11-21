@@ -15,9 +15,51 @@ import (
 )
 
 const (
-	turnRecordFilterSQL = `((kind = 'plan' AND status IN ('open', '')) OR (kind = 'memory' AND status IN ('closed', '')) OR (kind = 'bug' AND status IN ('open', '')) OR (kind = 'adr' AND status IN ('accepted', 'open', '')))`
-	turnRecordAliasSQL  = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
+	turnRecordAliasSQL = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
+	maxTurnFTSWords    = 8
 )
+
+var trivialTurnFTSWords = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "from": true,
+	"this": true, "that": true, "what": true, "when": true, "where": true,
+	"which": true, "have": true, "has": true, "had": true, "yes": true,
+	"okay": true, "all": true, "approved": true, "proceed": true, "continue": true,
+	"done": true, "lgtm": true, "sgtm": true, "fix": true, "add": true,
+	"update": true, "check": true, "test": true, "tests": true, "run": true,
+	"file": true, "files": true, "code": true, "please": true, "thanks": true,
+}
+
+func filterTurnFTSWords(words []string) []string {
+	if len(words) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(words))
+	var out []string
+	for _, raw := range words {
+		w := strings.ToLower(strings.Trim(strings.TrimSpace(raw), ".,;:!?`'\"()[]{}"))
+		if len(w) < 3 || trivialTurnFTSWords[w] || isAllASCIIDigits(w) || seen[w] {
+			continue
+		}
+		seen[w] = true
+		out = append(out, w)
+		if len(out) >= maxTurnFTSWords {
+			break
+		}
+	}
+	return out
+}
+
+func isAllASCIIDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 // ListTurnRecords returns only active turn-relevant records (open plans, active
 // memories, open bugs, accepted/open ADRs) for o.Dir plus closed global memories
@@ -57,7 +99,8 @@ func queryTurnRecordsFromStore(st *store, o Options, ver int) ([]Record, error) 
 // SearchTurnRecords runs FTS5 record search scoped only to active turn-relevant
 // records, avoiding scans over rejected proposals and historical closed records.
 func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
-	if limit <= 0 || len(words) == 0 {
+	meaningful := filterTurnFTSWords(words)
+	if limit <= 0 || len(meaningful) == 0 {
 		return nil, nil
 	}
 	st, ver, err := openTurnStore(o.Home)
@@ -72,11 +115,11 @@ func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
 	if err != nil || !ok {
 		return nil, err
 	}
-	return runTurnFTSPasses(st, o, words, limit, scopes, proj)
+	return runTurnFTSPasses(st, o, meaningful, limit, scopes, proj)
 }
 
 // LoadTurnRecordsAndFTS opens brain.db once read-only and returns both active
-// turn records and FTS5 hits (when words and limit are non-empty).
+// turn records and FTS5 hits (when meaningful words and limit are non-empty).
 func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hit, error) {
 	st, ver, err := openTurnStore(o.Home)
 	if err != nil || st == nil || ver < 1 {
@@ -87,14 +130,15 @@ func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hi
 	}
 	defer st.close()
 	recs, err := queryTurnRecordsFromStore(st, o, ver)
-	if err != nil || len(words) == 0 || limit <= 0 {
+	meaningful := filterTurnFTSWords(words)
+	if err != nil || len(meaningful) == 0 || limit <= 0 {
 		return recs, nil, err
 	}
 	scopes, proj, ok, err := turnSearchScopes(st, o)
 	if err != nil || !ok {
 		return recs, nil, err
 	}
-	hits, err := runTurnFTSPasses(st, o, words, limit, scopes, proj)
+	hits, err := runTurnFTSPasses(st, o, meaningful, limit, scopes, proj)
 	return recs, hits, err
 }
 
@@ -175,15 +219,26 @@ func turnReadOnlyDSN(path string, immutable bool) string {
 func listTurnQuery(o Options, ver int) (string, []any, bool) {
 	cols := selectRecordCols(ver)
 	if o.Global {
-		q := `SELECT ` + cols + ` FROM records WHERE scope = '' AND ` + turnRecordFilterSQL + ` ORDER BY date DESC, updated DESC, id DESC`
+		q := turnScopeBranchesSQL(cols, "scope = ''")
 		return q, nil, true
 	}
 	sc, _, err := trail.Roots(o.Dir)
 	if err != nil {
 		return "", nil, false
 	}
-	q := `SELECT ` + cols + ` FROM records WHERE (scope = ? AND ` + turnRecordFilterSQL + `) OR (scope = '' AND kind = 'memory' AND status IN ('closed', '')) ORDER BY date DESC, updated DESC, id DESC`
-	return q, []any{sc}, true
+	if sc == "" {
+		return turnScopeBranchesSQL(cols, "scope = ''"), nil, true
+	}
+	q := turnScopeBranchesSQL(cols, "scope = ?") +
+		` UNION ALL SELECT ` + cols + ` FROM records WHERE scope = '' AND kind = 'memory' AND status IN ('closed', '')`
+	return q, []any{sc, sc, sc, sc}, true
+}
+
+func turnScopeBranchesSQL(cols, scopePred string) string {
+	return `SELECT ` + cols + ` FROM records WHERE ` + scopePred + ` AND kind = 'plan' AND status IN ('open', '')` +
+		` UNION ALL SELECT ` + cols + ` FROM records WHERE ` + scopePred + ` AND kind = 'memory' AND status IN ('closed', '')` +
+		` UNION ALL SELECT ` + cols + ` FROM records WHERE ` + scopePred + ` AND kind = 'bug' AND status IN ('open', '')` +
+		` UNION ALL SELECT ` + cols + ` FROM records WHERE ` + scopePred + ` AND kind = 'adr' AND status IN ('accepted', 'open', '')`
 }
 
 func turnSearchScopes(st *store, o Options) ([]string, string, bool, error) {

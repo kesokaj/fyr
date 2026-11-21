@@ -46,7 +46,7 @@ func routeTaskIntent(clean, low string, skills []SkillMeta) string {
 	if hasLookupCues(low) {
 		return "fyr search --slice"
 	}
-	if !isWorkerBriefPrompt(clean) && hasBatchOrMultiPhaseCues(clean, low) {
+	if !isWorkerBriefPrompt(clean) && !isDiagnosticReadOnlyPrompt(clean) && hasBatchOrMultiPhaseCues(clean, low) {
 		return "/fyr-swarm (isolated subtasks; zero shared memory)"
 	}
 	switch {

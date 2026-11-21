@@ -249,3 +249,65 @@ func TestDecomposeSkipsReadOnlyAndPackageLookup(t *testing.T) {
 		assertDisjointSubtaskFiles(t, got)
 	}
 }
+
+func TestDecomposeDiagnosticVerbsAndExplicitTargetsOnly(t *testing.T) {
+	multiPkgSlice := SliceResult{
+		Files:      []string{"internal/search/service.go", "internal/brain/store.go", "cmd/fyr/verb_search.go"},
+		SymbolHits: 3,
+		Capsule:    "[Hop 0] internal/search/service.go:1-10 (ReconcileProjectIndex)",
+	}
+
+	// 1. Must-fail: diagnostic verbs without edit verbs must yield 0 subtasks and never COORDINATE_SUBTASKS.
+	diagCases := []struct {
+		name   string
+		prompt string
+	}{
+		{"check", "Check PreInvocation latency across internal/search/hook_pre_invocation.go and internal/brain/store.go"},
+		{"inspect", "Inspect hook timings in internal/search/hook_pre_invocation.go; inspect internal/brain/turn_records.go"},
+		{"profile", "Profile bounded graph queries across internal/search/sym_graph_bounded.go and internal/brain/store.go"},
+		{"measure", "1. Measure warm latency in internal/search/hook_pre_invocation.go 2. Measure brain query in internal/brain/turn_records.go"},
+		{"verify", "Verify index usage across internal/search/sym_graph_bounded_like.go and internal/brain/store.go"},
+		{"audit", "Audit hook fallback behavior across internal/search/hook_deadline.go and internal/search/hook_guard.go"},
+	}
+	for _, tc := range diagCases {
+		if got := DecomposeSubtasks(tc.prompt, IntentTask, multiPkgSlice, nil, nil); len(got) != 0 {
+			t.Errorf("diagnostic %s: DecomposeSubtasks returned %d slices, want 0: %+v", tc.name, len(got), got)
+		}
+		res := VetPrompt(tc.prompt, "", multiPkgSlice, TurnBrainContext{})
+		if dir := preInvocationDirective(res); dir == "COORDINATE_SUBTASKS" {
+			t.Errorf("diagnostic %s: preInvocationDirective = %q, want != COORDINATE_SUBTASKS", tc.name, dir)
+		}
+	}
+
+	// 2. Must-fail: single-file or single-symbol edit prompt with multi-package 1-hop AST neighbors must NOT decompose.
+	for _, prompt := range []string{
+		"Update ReconcileProjectIndex in internal/search/service.go",
+		"Fix ReconcileProjectIndex timeout handling",
+	} {
+		if got := DecomposeSubtasks(prompt, IntentTask, multiPkgSlice, nil, nil); len(got) != 0 {
+			t.Errorf("single-target %q: DecomposeSubtasks returned %d slices, want 0: %+v", prompt, len(got), got)
+		}
+		res := VetPrompt(prompt, "", multiPkgSlice, TurnBrainContext{})
+		if dir := preInvocationDirective(res); dir == "COORDINATE_SUBTASKS" {
+			t.Errorf("single-target %q: preInvocationDirective = %q, want != COORDINATE_SUBTASKS", prompt, dir)
+		}
+	}
+
+	// 3. Positive case: explicit 2-package edit decomposes into exactly 2 slices and excludes 3rd-package 1-hop AST neighbor.
+	twoPkgPrompt := "Update parser in internal/search/service.go and store in internal/brain/store.go"
+	got := DecomposeSubtasks(twoPkgPrompt, IntentTask, multiPkgSlice, nil, nil)
+	if len(got) != 2 {
+		t.Fatalf("explicit 2-package edit: got %d slices, want 2: %+v", len(got), got)
+	}
+	assertDisjointSubtaskFiles(t, got)
+	var allFiles []string
+	for _, st := range got {
+		allFiles = append(allFiles, st.Files...)
+	}
+	if !slices.Contains(allFiles, "internal/search/service.go") || !slices.Contains(allFiles, "internal/brain/store.go") {
+		t.Errorf("explicit 2-package edit missing expected targets, got %v", allFiles)
+	}
+	if slices.Contains(allFiles, "cmd/fyr/verb_search.go") {
+		t.Errorf("explicit 2-package edit unexpectedly included 3rd-package 1-hop AST neighbor cmd/fyr/verb_search.go: %+v", got)
+	}
+}

@@ -77,7 +77,15 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 	if ctx.Err() != nil {
 		return
 	}
-	input, decErr := decodeHookInput(o, in)
+	rawData, readErr := io.ReadAll(io.LimitReader(in, 4<<20))
+	if ctx.Err() != nil {
+		return
+	}
+	var input HookInput
+	decErr := readErr
+	if decErr == nil {
+		input, decErr = decodeHookInput(o, bytes.NewReader(rawData))
+	}
 	if ctx.Err() != nil {
 		return
 	}
@@ -90,6 +98,7 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 		}
 		return
 	}
+	ctx = withHookSubagentMeta(ctx, extractHookSubagentMeta(rawData))
 	select {
 	case metaCh <- hookInputMeta{dir: dir, input: input}:
 	default:
@@ -102,7 +111,7 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 }
 
 func recordPreInvocationTimeoutBounded(o Options, dir string, in HookInput, durationMS int) {
-	tctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	tctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
@@ -131,13 +140,14 @@ func recordPreInvocationTimeoutBestEffort(tctx context.Context, o Options, dir s
 	convID := normalizeLedgerConvID(in.ConversationID)
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
+	stampedTurn := stampPreInvocationFallbackCtx(tctx, st, convID, in, rawPrompt)
 	var maxTurn int
 	_ = st.db.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
 	if tctx.Err() != nil {
 		return
 	}
 	res := VetResult{Intent: ClassifyIntent(cleanPrompt, 0), Gate: GatePassThrough}
-	_ = st.recordVetHistoryWithMetricsCtx(tctx, convID, maxTurn+1, rawPrompt, res, nil, vetTurnMetrics{
+	_ = st.recordVetHistoryWithMetricsCtx(tctx, convID, max(maxTurn+1, stampedTurn), rawPrompt, res, nil, vetTurnMetrics{
 		durationMS: durationMS,
 		timedOut:   true,
 	})

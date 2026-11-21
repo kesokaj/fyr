@@ -78,7 +78,8 @@ func isBlanketReadOnlyPrompt(low string) bool {
 func shouldSkipDecompose(trimmed string, intent IntentMode, symbolHits int) bool {
 	low := strings.ToLower(trimmed)
 	if trimmed == "" || strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "/") ||
-		strings.HasPrefix(low, "run /") || isWorkerBriefPrompt(trimmed) || isBlanketReadOnlyPrompt(low) {
+		strings.HasPrefix(low, "run /") || isWorkerBriefPrompt(trimmed) || isBlanketReadOnlyPrompt(low) ||
+		isDiagnosticReadOnlyPrompt(trimmed) {
 		return true
 	}
 	if intent == "" {
