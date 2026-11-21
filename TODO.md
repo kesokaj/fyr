@@ -7,11 +7,15 @@
 
 ## Now
 
+- [ ] Wave 1 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 1 (P0) `PreInvocation` `< 80ms` + mid-turn dedup + strict decomposition (`ADR-532`)
+- [ ] Wave 1 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 2A (P1a) cached `fyr models --pick` + cross-family review routing + `show_health.go` budget alignment (`ADR-532`)
 - [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Next
 
-None.
+- Wave 2 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 2B + 3 (`hook_subagent` Flash guard, `ParseBashFileReads` multi-line/pipes, search nudge) + Phase 4A (`fyr auto` pruning/proposal dedup, `BUG-560` graduation)
+- Wave 3 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 4B (`agents/builder/agent.md`, `workflows/phase_loop.py`, `verifier` boundary checklist) + Phase 4C (`fyr relay` hands-off fresh-session runner)
+- Wave 4 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 5 (living docs, `fyr verify`, cross-family review/security/verifier, `fyr eval`, live install)
 
 ## Backlog
 
