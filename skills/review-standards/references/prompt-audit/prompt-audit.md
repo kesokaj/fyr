@@ -21,7 +21,7 @@ List every instruction file, skill frontmatter `description:`, subagent `agent.m
 
 ## Step 2: Check provenance (`fyr` trail + `git blame`)
 
-Run `fyr search --refs <path>` (`--kind bug`, `--kind adr`) and `git blame` on prohibitive or narrow rules. Prohibitions tracing to a reproduced `BUG-*` or accepted `ADR-*` stay (Keep-list #5); mitigations written for retired models or one-off incidents without provenance are removal/generalization candidates.
+Run `fyr search --refs <path>` (`--kind bug`, `--kind adr`) and `git blame` on prohibitive or narrow rules. Prohibitions tracing to a reproduced `BUG-*` or accepted `ADR-*` stay (Keep-list #4); mitigations written for retired models or one-off incidents without provenance are removal/generalization candidates.
 
 ## Step 3: Apply the deletion test
 

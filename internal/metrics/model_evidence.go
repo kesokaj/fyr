@@ -281,7 +281,7 @@ func (s *Store) accumulateRatingModelEvidence(accs map[string]*modelEvidenceAcc,
 }
 
 func (s *Store) accumulateUnclaimedEvalSessions(accs map[string]*modelEvidenceAcc, since, now time.Time) error {
-	rows, err := s.db.Query(`SELECT LOWER(outcome), model FROM sessions
+	rows, err := s.db.Query(`SELECT COALESCE(started_at, ended_at, 0), LOWER(outcome), model FROM sessions
 		WHERE COALESCE(started_at, ended_at, 0) >= ? AND COALESCE(started_at, ended_at, 0) < ?
 		  AND (parent_id IS NULL OR parent_id = '')
 		  AND (run IS NULL OR run = '')
@@ -294,14 +294,22 @@ func (s *Store) accumulateUnclaimedEvalSessions(accs map[string]*modelEvidenceAc
 	}
 	defer rows.Close()
 	for rows.Next() {
+		var ts int64
 		var outcome, model string
-		if err := rows.Scan(&outcome, &model); err != nil {
+		if err := rows.Scan(&ts, &outcome, &model); err != nil {
 			return err
 		}
-		a := ensureModelAcc(accs, strings.TrimSpace(model))
+		m := strings.TrimSpace(model)
+		if m == "" || strings.EqualFold(m, "default") {
+			continue
+		}
+		a := ensureModelAcc(accs, m)
 		a.ev.EvalRuns++
+		w := trialEvidenceWeight * decayWeight(ts, now)
+		a.ev.DecayedRuns += w
 		if outcome == "pass" {
 			a.ev.EvalPass++
+			a.ev.DecayedSuccesses += w
 		}
 	}
 	return rows.Err()

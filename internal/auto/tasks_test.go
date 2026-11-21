@@ -543,8 +543,22 @@ func TestTasksSelfReferentialLogFilterAndGlobalMemories(t *testing.T) {
 	}
 	r := &run{o: Options{Home: home, RealHome: realHome, Now: func() time.Time { return runAt }}}
 	convs := r.conversationsSince(root, time.Time{})
-	if len(convs) != 1 || convs[0].label != "conv-keep" {
-		t.Fatalf("conversationsSince got %+v, want only conv-keep", convs)
+	if len(convs) != 3 {
+		t.Fatalf("conversationsSince got %+v, want 3 retained conversations (conv-keep, conv-dream, conv-capsule)", convs)
+	}
+	gotLabels := map[string]bool{}
+	for _, c := range convs {
+		gotLabels[c.label] = true
+	}
+	for _, want := range []string{"conv-keep", "conv-dream", "conv-capsule"} {
+		if !gotLabels[want] {
+			t.Errorf("missing expected conversation %s in %+v", want, convs)
+		}
+	}
+	for _, drop := range []string{"conv-auto", "conv-dreamer"} {
+		if gotLabels[drop] {
+			t.Errorf("self-referential conversation %s should have been dropped: %+v", drop, convs)
+		}
 	}
 	if n := r.countMemoriesSince("__global__", time.Time{}); n != 1 {
 		t.Fatalf("countMemoriesSince(__global__) = %d, want 1", n)

@@ -153,9 +153,7 @@ func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []c
 }
 
 func isSelfReferentialLog(raw string) bool {
-	return strings.Contains(raw, "dreaming: ") ||
-		strings.Contains(raw, "This is a Kickoff written by fyr auto.") ||
-		strings.Contains(raw, "[FYR_WORKER_CAPSULE]") ||
+	return strings.Contains(raw, "This is a Kickoff written by fyr auto.") ||
 		strings.Contains(raw, "You are the dreamer of a coding-agent harness")
 }
 

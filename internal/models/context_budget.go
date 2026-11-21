@@ -21,7 +21,7 @@ const (
 // EffectiveContextBudget returns the effective pre-compaction token budget
 // for modelID based on its family/generation or orchestrator wrapper.
 func EffectiveContextBudget(modelID string) int64 {
-	low := strings.ToLower(strings.TrimSpace(modelID))
+	low := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(modelID)), "models/")
 	if low == "" {
 		return DefaultContextBudgetTokens
 	}
@@ -83,7 +83,7 @@ func ContextWindowOverrides(home string) map[string]int64 {
 		if e.ContextWindow <= 0 {
 			continue
 		}
-		id := strings.ToLower(strings.TrimSpace(e.ID))
+		id := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(e.ID)), "models/")
 		if id == "" {
 			continue
 		}
@@ -98,7 +98,7 @@ func ContextWindowOverrides(home string) map[string]int64 {
 // ContextBudgetWithOverrides resolves modelID's token budget using overrides
 // first and falling back to EffectiveContextBudget.
 func ContextBudgetWithOverrides(modelID string, overrides map[string]int64) int64 {
-	low := strings.ToLower(strings.TrimSpace(modelID))
+	low := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(modelID)), "models/")
 	if len(overrides) > 0 && low != "" {
 		if v := overrides[low]; v > 0 {
 			return v

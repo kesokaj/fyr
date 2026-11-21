@@ -64,6 +64,12 @@ func TestNormalizeRepoIDParityAndSecrets(t *testing.T) {
 	if got := NormalizeRepoID("", ""); got != "" {
 		t.Errorf("NormalizeRepoID both empty = %q, want empty", got)
 	}
+	if got := NormalizeRepoID("", "__global__"); got != "" {
+		t.Errorf("NormalizeRepoID global = %q, want empty", got)
+	}
+	if got := ResolveRepoID("__global__"); got != "" {
+		t.Errorf("ResolveRepoID global = %q, want empty", got)
+	}
 }
 
 func TestResolveRepoIDAndWritePopulatesRepoID(t *testing.T) {

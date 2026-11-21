@@ -131,6 +131,40 @@ func TestNormalizeAndResolveRepoID(t *testing.T) {
 	if got := ResolveRepoID(sub); got != "git:gitlab.example.com/core/engine" {
 		t.Errorf("ResolveRepoID(subdir) = %q, want git:gitlab.example.com/core/engine", got)
 	}
+
+	// Local-only repo (no origin): linked worktree and subdir must match main worktree path:<16-hex>.
+	localRepo := filepath.Join(t.TempDir(), "local-only")
+	if err := os.MkdirAll(localRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitLocal := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitLocal(localRepo, "init", "-q")
+	gitLocal(localRepo, "commit", "--allow-empty", "-qm", "init")
+	localWT := filepath.Join(t.TempDir(), "local-wt")
+	gitLocal(localRepo, "worktree", "add", "-q", "-b", "wt-local", localWT, "HEAD")
+	localSub := filepath.Join(localRepo, "pkg", "nested")
+	if err := os.MkdirAll(localSub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantLocal := ResolveRepoID(localRepo)
+	if !strings.HasPrefix(wantLocal, "path:") {
+		t.Fatalf("ResolveRepoID(localRepo) = %q, want path:<16-hex>", wantLocal)
+	}
+	for _, p := range []string{localWT, localSub} {
+		if got := ResolveRepoID(p); got != wantLocal {
+			t.Errorf("ResolveRepoID(%q) = %q, want %q", p, got, wantLocal)
+		}
+	}
 }
 
 func TestRepoIDWiredAcrossAllTables(t *testing.T) {
@@ -332,5 +366,46 @@ func TestModelEvidenceDecayedSourcesAndWaveSeparation(t *testing.T) {
 	wantSucc := 1.0*w0 + 1.0*0.5*0.0 + 0.9*w7*1.0 + 0.6*0.5*0.75
 	if math.Abs(ev.DecayedRuns-wantRuns) > 1e-9 || math.Abs(ev.DecayedSuccesses-wantSucc) > 1e-9 {
 		t.Errorf("decayed = (runs=%v, succ=%v), want (runs=%v, succ=%v)", ev.DecayedRuns, ev.DecayedSuccesses, wantRuns, wantSucc)
+	}
+}
+
+func TestModelEvidenceUnclaimedEvalSessionsDecayed(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	since := now.AddDate(0, 0, -30)
+	day := 24 * time.Hour
+
+	for _, row := range []struct {
+		id, outcome, model string
+		ts                 int64
+	}{
+		{"u-pass", "pass", "gemini-4-neon-high", now.Add(-14 * day).UnixMilli()},
+		{"u-fail", "fail", "gemini-4-neon-high", now.Add(-time.Second).UnixMilli()},
+		{"u-def", "pass", "default", now.Add(-time.Second).UnixMilli()},
+	} {
+		if _, err := s.db.Exec(
+			`INSERT INTO sessions(id, vendor, label, outcome, model, started_at) VALUES (?, 'agy', 'eval=resume', ?, ?, ?)`,
+			row.id, row.outcome, row.model, row.ts,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ModelEvidence(since, now)
+	if err != nil {
+		t.Fatalf("ModelEvidence: %v", err)
+	}
+	if _, hasDef := got["default"]; hasDef {
+		t.Errorf("default model should be skipped: %+v", got["default"])
+	}
+	ev := got["gemini-4-neon-high"]
+	if ev.EvalRuns != 2 || ev.EvalPass != 1 {
+		t.Fatalf("EvalRuns/EvalPass = %+v, want 2/1", ev)
+	}
+	w0 := math.Pow(0.5, 1.0/(86400.0*14.0))
+	wantRuns := 0.5 + w0
+	wantSucc := 0.5
+	if math.Abs(ev.DecayedRuns-wantRuns) > 1e-9 || math.Abs(ev.DecayedSuccesses-wantSucc) > 1e-9 {
+		t.Errorf("decayed = (runs=%v, succ=%v), want (%v, %v)", ev.DecayedRuns, ev.DecayedSuccesses, wantRuns, wantSucc)
 	}
 }

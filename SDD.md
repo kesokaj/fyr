@@ -1,7 +1,7 @@
 # SDD — fyr
 
 How the harness's parts fit together: the content a session reads, the `fyr` binary that installs it and keeps the brain, and the paths between them.
-Status: current · Last updated: 2026-11-20 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
+Status: current · Last updated: 2026-11-21 · Requirements: [PRD.md](PRD.md) · Technical design: [TDD.md](TDD.md)
 
 <!-- A summary a human reads in ten minutes. The detail lives in the records it links (an ADR per decision, a SPEC
      per surface: `fyr record get <ID>`), never restated here. Components are M1…; each satisfies PRD requirements by

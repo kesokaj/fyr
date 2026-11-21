@@ -12,6 +12,7 @@ func TestEffectiveContextBudgetAndKnee(t *testing.T) {
 		wantKnee   int64
 	}{
 		{"gemini-4-neon-high", 500000, 300000},
+		{"models/gemini-4-neon-high", 500000, 300000},
 		{"gemini-4-carbon-medium", 500000, 300000},
 		{"gemini-4-argon-low", 500000, 300000},
 		{"gemini-4-hydrogen-xhigh", 500000, 300000},
@@ -22,10 +23,12 @@ func TestEffectiveContextBudgetAndKnee(t *testing.T) {
 		{"orchestrator()", 300000, 180000},
 		{"gemini-flash-worker-agy", 500000, 300000},
 		{"claude-opus-5-5-high", 500000, 300000},
+		{"models/claude-opus-5-5-high", 500000, 300000},
 		{"claude-sonnet-5-5-medium", 500000, 300000},
 		{"claude-opus-4-6", 300000, 180000},
 		{"gemini-3.8-flash-high", 300000, 180000},
 		{"gpt-oss-120b-medium", 128000, 76800},
+		{"models/gpt-oss-120b-medium", 128000, 76800},
 		{"", 300000, 180000},
 		{"custom-unknown-model", 300000, 180000},
 	}
@@ -53,6 +56,9 @@ func TestContextWindowOverridesAndPreserveOnMerge(t *testing.T) {
 	}
 	if got := ContextKneeTokensForHome(home, "GEMINI-4-NEON-HIGH"); got != 420000 {
 		t.Fatalf("ContextKneeTokensForHome override = %d, want 420000", got)
+	}
+	if got := ContextKneeTokensForHome(home, "models/gemini-4-neon-high"); got != 420000 {
+		t.Fatalf("ContextKneeTokensForHome models/ override = %d, want 420000", got)
 	}
 	if got := ContextKneeTokensForHome(home, "claude-opus-5-5-high"); got != 300000 {
 		t.Fatalf("ContextKneeTokensForHome default = %d, want 300000", got)
