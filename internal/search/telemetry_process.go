@@ -6,59 +6,59 @@ import (
 	"strings"
 )
 
-// ProcessTelemetry renders Surface 3 (fyr-process.md telemetry artifact) as a
-// clean Markdown heading + 2-space pretty-printed lowerCamelCase JSON payload.
+// ProcessTelemetry holds structured turn, routing, and work-wave telemetry
+// rendered into Surface 3 (fyr-process.md) as clean Markdown tables.
 type ProcessTelemetry struct {
-	ConversationID string                 `json:"conversationId"`
-	Stage          string                 `json:"stage"`
-	ActiveRecords  []string               `json:"activeRecords,omitempty"`
-	ModelRouting   ProcessModelRouting    `json:"modelRouting"`
-	Turns          []ProcessTurnTelemetry `json:"turns,omitempty"`
-	LatestWorkWave *ProcessWorkWave       `json:"latestWorkWave,omitempty"`
+	ConversationID string
+	Stage          string
+	ActiveRecords  []string
+	ModelRouting   ProcessModelRouting
+	Turns          []ProcessTurnTelemetry
+	LatestWorkWave *ProcessWorkWave
 }
 
 // ProcessModelRouting describes cached role picks or fallback policy in ProcessTelemetry.
 type ProcessModelRouting struct {
-	Policy         string `json:"policy,omitempty"`
-	BuilderPro     string `json:"builderPro,omitempty"`
-	BuilderFlash   string `json:"builderFlash,omitempty"`
-	JudgePro       string `json:"judgePro,omitempty"`
-	JudgeFlash     string `json:"judgeFlash,omitempty"`
-	FallbackReason string `json:"fallbackReason,omitempty"`
-	UpdateTime     string `json:"updateTime,omitempty"`
+	Policy         string
+	BuilderPro     string
+	BuilderFlash   string
+	JudgePro       string
+	JudgeFlash     string
+	FallbackReason string
+	UpdateTime     string
 }
 
 // ProcessTurnTelemetry records one turn's vet state inside ProcessTelemetry.
 type ProcessTurnTelemetry struct {
-	TurnNum       int      `json:"turnNum"`
-	Intent        string   `json:"intent"`
-	Gate          string   `json:"gate"`
-	Score         int      `json:"score"`
-	DurationMS    int      `json:"durationMs,omitempty"`
-	TimedOut      bool     `json:"timedOut,omitempty"`
-	InjectedBytes int      `json:"injectedBytes,omitempty"`
-	Skills        []string `json:"skills,omitempty"`
-	Pivots        []string `json:"pivots,omitempty"`
+	TurnNum       int
+	Intent        string
+	Gate          string
+	Score         int
+	DurationMS    int
+	TimedOut      bool
+	InjectedBytes int
+	Skills        []string
+	Pivots        []string
 }
 
 // ProcessWorkWave describes the newest active/completed fyr work wave.
 type ProcessWorkWave struct {
-	Stamp      string              `json:"stamp"`
-	UpdateTime string              `json:"updateTime,omitempty"`
-	Workers    []ProcessWorkWorker `json:"workers,omitempty"`
+	Stamp      string
+	UpdateTime string
+	Workers    []ProcessWorkWorker
 }
 
 // ProcessWorkWorker describes one worker status row inside ProcessWorkWave.
 type ProcessWorkWorker struct {
-	Name         string `json:"name"`
-	State        string `json:"state"`
-	Model        string `json:"model,omitempty"`
-	BaseCheck    string `json:"baseCheck,omitempty"`
-	JudgeVerdict string `json:"judgeVerdict,omitempty"`
-	JudgeModel   string `json:"judgeModel,omitempty"`
-	StepCount    int    `json:"stepCount,omitempty"`
-	Commits      int    `json:"commits,omitempty"`
-	LastStep     string `json:"lastStep,omitempty"`
+	Name         string
+	State        string
+	Model        string
+	BaseCheck    string
+	JudgeVerdict string
+	JudgeModel   string
+	StepCount    int
+	Commits      int
+	LastStep     string
 }
 
 func normalizeProcessStage(stage string) string {
@@ -95,13 +95,8 @@ func firstModelFallbackReason(picks map[string]modelRoutingPick) string {
 	return ""
 }
 
-func buildProcessModelRouting(home string) ProcessModelRouting {
-	cat, ok := loadModelsCatalog(home)
-	return buildProcessModelRoutingFromCatalog(cat, ok)
-}
-
 func buildProcessModelRoutingFromCatalog(cat modelsCatalogFile, hasCat bool) ProcessModelRouting {
-	const defaultPolicy = "Builder -> Gemini (Carbon/pro, Flash); Judge / Verifier / Reviewer -> Anthropic (Opus/pro, Sonnet/flash; fallback < 20% weekly or < 30% 5h -> Gemini)"
+	const defaultPolicy = "Builder -> Gemini (pro, flash); Judge / Verifier / Reviewer -> Anthropic (Opus/pro, Sonnet/flash; fallback < 20% weekly or < 30% 5h -> Gemini)"
 	policy := ProcessModelRouting{Policy: defaultPolicy}
 	if !hasCat || len(cat.Picks) == 0 {
 		return policy
@@ -210,11 +205,146 @@ func renderProcessTelemetryMarkdownWithCatalog(home string, cat modelsCatalogFil
 			payload.ActiveRecords = append(payload.ActiveRecords, recID)
 		}
 	}
-
 	var sb strings.Builder
 	sb.WriteString("# fyr Turn Telemetry\n\n")
-	sb.WriteString(safeBacktickFenceWithLang(marshalPrettyJSON(payload), "json"))
-	sb.WriteByte('\n')
+	fmt.Fprintf(&sb, "- **Conversation:** %s\n", mdCodeSpan(payload.ConversationID))
+	fmt.Fprintf(&sb, "- **Stage:** %s\n", mdCodeSpan(payload.Stage))
+	if len(payload.ActiveRecords) > 0 {
+		fmt.Fprintf(&sb, "- **Active Records:** %s\n", mdCodeList(payload.ActiveRecords))
+	}
+	appendProcessModelRouting(&sb, payload.ModelRouting)
+	appendProcessWorkWaveSection(&sb, payload.LatestWorkWave)
+	appendProcessTurnsSection(&sb, payload.Turns)
 	appendProcessImprovedPrompts(&sb, rows)
 	return sb.String()
+}
+
+func appendProcessModelRouting(sb *strings.Builder, mr ProcessModelRouting) {
+	sb.WriteString("\n## Model Routing\n\n")
+	if mr.Policy != "" {
+		fmt.Fprintf(sb, "- **Policy:** %s\n", collapseOneLine(printable(mr.Policy), 320))
+		return
+	}
+	sb.WriteString("| Role | Model |\n|---|---|\n")
+	for _, row := range [][2]string{
+		{"Builder (Pro)", mr.BuilderPro},
+		{"Builder (Flash)", mr.BuilderFlash},
+		{"Judge (Pro)", mr.JudgePro},
+		{"Judge (Flash)", mr.JudgeFlash},
+	} {
+		if row[1] != "" {
+			fmt.Fprintf(sb, "| %s | %s |\n", row[0], mdCodeCell(row[1]))
+		}
+	}
+	if mr.UpdateTime != "" {
+		fmt.Fprintf(sb, "\n- **Updated:** %s\n", mdCodeSpan(mr.UpdateTime))
+	}
+	if mr.FallbackReason != "" {
+		fmt.Fprintf(sb, "- **Fallback:** %s\n", collapseOneLine(printable(mr.FallbackReason), 220))
+	}
+}
+
+func appendProcessWorkWaveSection(sb *strings.Builder, wave *ProcessWorkWave) {
+	if wave == nil {
+		return
+	}
+	sb.WriteString("\n## Latest Work Wave\n\n")
+	fmt.Fprintf(sb, "- **Stamp:** %s", mdCodeSpan(wave.Stamp))
+	if wave.UpdateTime != "" {
+		fmt.Fprintf(sb, " · **Updated:** %s", mdCodeSpan(wave.UpdateTime))
+	}
+	sb.WriteByte('\n')
+	if len(wave.Workers) == 0 {
+		return
+	}
+	sb.WriteString("\n| Worker | State | Model | Base | Judge | Steps | Commits | Last Step |\n|---|---|---|---|---|---:|---:|---|\n")
+	for _, w := range wave.Workers {
+		judge := w.JudgeVerdict
+		if w.JudgeModel != "" {
+			judge += " (" + w.JudgeModel + ")"
+		}
+		fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %d | %d | %s |\n",
+			mdTableCell(w.Name), mdTableCell(w.State), mdCodeCell(w.Model),
+			mdTableCell(w.BaseCheck), mdTableCell(judge), w.StepCount, w.Commits, mdTableCell(w.LastStep))
+	}
+}
+
+func appendProcessTurnsSection(sb *strings.Builder, turns []ProcessTurnTelemetry) {
+	if len(turns) == 0 {
+		return
+	}
+	sb.WriteString("\n## Turns\n\n| Turn | Intent | Gate | Score | Duration | Injected | Skills | Pivots |\n|---:|---|---|---:|---:|---:|---|---|\n")
+	for _, t := range turns {
+		dur := fmt.Sprintf("%d ms", t.DurationMS)
+		if t.TimedOut {
+			dur += " (timeout)"
+		}
+		fmt.Fprintf(sb, "| %d | %s | %s | %d/100 | %s | %d B | %s | %s |\n",
+			t.TurnNum, mdTableCell(t.Intent), mdTableCell(t.Gate), t.Score,
+			dur, t.InjectedBytes, mdTableCodeList(t.Skills), mdTableCodeList(t.Pivots))
+	}
+}
+
+func mdCodeSpan(s string) string {
+	clean := collapseOneLine(printable(s), 220)
+	if clean == "" {
+		return ""
+	}
+	maxRun, cur := 0, 0
+	for i := 0; i < len(clean); i++ {
+		if clean[i] == '`' {
+			cur++
+			if cur > maxRun {
+				maxRun = cur
+			}
+		} else {
+			cur = 0
+		}
+	}
+	fence := strings.Repeat("`", maxRun+1)
+	if strings.HasPrefix(clean, "`") || strings.HasSuffix(clean, "`") {
+		return fence + " " + clean + " " + fence
+	}
+	return fence + clean + fence
+}
+
+var tablePipeReplacer = strings.NewReplacer(`\|`, `\\\|`, "|", `\|`)
+
+func mdTableCell(s string) string {
+	clean := collapseOneLine(printable(s), 220)
+	if clean == "" {
+		return "-"
+	}
+	return tablePipeReplacer.Replace(clean)
+}
+
+func mdCodeCell(s string) string {
+	clean := collapseOneLine(printable(s), 220)
+	if clean == "" {
+		return "-"
+	}
+	return tablePipeReplacer.Replace(mdCodeSpan(clean))
+}
+
+func mdCodeList(items []string) string {
+	var parts []string
+	for _, item := range items {
+		if span := mdCodeSpan(item); span != "" {
+			parts = append(parts, span)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func mdTableCodeList(items []string) string {
+	var parts []string
+	for _, item := range items {
+		if cell := mdCodeCell(item); cell != "-" {
+			parts = append(parts, cell)
+		}
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, ", ")
 }

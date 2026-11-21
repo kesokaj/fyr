@@ -1,8 +1,6 @@
 package search
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,17 +11,6 @@ func safeBacktickFenceWithLang(text, lang string) string {
 	body := strings.TrimRight(text, "\n")
 	fence := safeBacktickFence(body)
 	return fence + lang + "\n" + body + "\n" + fence
-}
-
-func marshalPrettyJSON(v any) string {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil {
-		return "{}"
-	}
-	return strings.TrimRight(buf.String(), "\n")
 }
 
 func turnBannerMetaFromExtras(extraSections, extraBanners []string) TurnBannerMeta {

@@ -191,7 +191,7 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 			t.Errorf("ImprovedPrompt repeated unwanted filler %q:\n%s", unwanted, res.ImprovedPrompt)
 		}
 	}
-	parsed := parseFencedJSONBanner(t, res.TurnContract)
+	parsed := parseStructuredBanner(t, res.TurnContract)
 	if parsed.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed.Enrichment == nil ||
 		parsed.Enrichment.Verify != "go test -race ./internal/search/..." ||
 		len(parsed.Enrichment.Targets) != 1 || parsed.Enrichment.Targets[0] != "internal/search/service.go" ||
@@ -223,7 +223,7 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 	if err := json.Unmarshal(out1.Bytes(), &resp1); err != nil {
 		t.Fatal(err)
 	}
-	parsed1 := parseFencedJSONBanner(t, resp1.InjectSteps[0].SystemMessage.SystemMessage)
+	parsed1 := parseStructuredBanner(t, resp1.InjectSteps[0].SystemMessage.SystemMessage)
 	if parsed1.Directive != "VET_FIRST" {
 		t.Fatalf("expected Turn 1 VET_FIRST, got:\n%s", resp1.InjectSteps[0].SystemMessage.SystemMessage)
 	}
@@ -243,7 +243,7 @@ func TestSynthesizeImprovedPromptAndStatefulHookTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys2 := resp2.InjectSteps[0].SystemMessage.SystemMessage
-	parsed2 := parseFencedJSONBanner(t, sys2)
+	parsed2 := parseStructuredBanner(t, sys2)
 	if parsed2.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed2.Enrichment == nil ||
 		!strings.Contains(parsed2.Enrichment.PriorTurnContext, "turn 1: Build a new caching layer") ||
 		!strings.Contains(parsed2.Enrichment.AstSlice, "service.go:3-5 (ReconcileProjectIndex)") {
@@ -433,11 +433,9 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
 	for _, want := range []string{
-		`"contract": "[FYR_TURN_CONTRACT]"`,
-		`"skills":`,
-		`"fyr-bug"`,
-		`"golang"`,
-		`"pivotCount": 5`,
+		"[FYR_TURN_CONTRACT] PRE_INVOCATION",
+		"Skills:    fyr-bug, golang",
+		"Pivots: 5",
 	} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("expected %q in PreInvocation systemMessage, got:\n%s", want, sysMsg)
@@ -449,7 +447,7 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 		"Stage: **[N/6",
 		"[N/6",
 		"Turn-0 capsule",
-		"(skills/golang/SKILL.md)",
+		"```json",
 	} {
 		if strings.Contains(sysMsg, unwanted) {
 			t.Errorf("unexpected verbose token %q in systemMessage:\n%s", unwanted, sysMsg)
@@ -463,13 +461,12 @@ func TestHookFyrProcessArtifact(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"# fyr Turn Telemetry",
-		`"conversationId": "conv-vis-1"`,
-		`"stage": "BUILD"`,
+		"- **Conversation:** `conv-vis-1`",
+		"- **Stage:** `BUILD`",
 		"## Synthesized Improved Prompts",
 		"[VET_IMPROVED_PROMPT]",
-		`"stamp": "2026-11-10-120000-111"`,
-		`"judgeVerdict": "PASS"`,
-		`"judgeModel": "claude-opus-5-5"`,
+		"- **Stamp:** `2026-11-10-120000-111`",
+		"PASS (claude-opus-5-5)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("fyr-process.md missing %q in:\n%s", want, text)

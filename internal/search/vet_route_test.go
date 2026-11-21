@@ -261,7 +261,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		} else if res.ImprovedPrompt != "" {
 			t.Errorf("%s: expected empty ImprovedPrompt (Score=%d), got:\n%s", vc.name, res.Score, res.ImprovedPrompt)
 		}
-		parsed := parseFencedJSONBanner(t, res.TurnContract)
+		parsed := parseStructuredBanner(t, res.TurnContract)
 		if parsed.Route != vc.wantRoute {
 			t.Errorf("%s: parsed Route = %q, want %q\n%s", vc.name, parsed.Route, vc.wantRoute, res.TurnContract)
 		}
@@ -312,7 +312,7 @@ func TestVetRoutesIntentToFeature(t *testing.T) {
 		t.Fatalf("unmarshal hook output: %v", err)
 	}
 	sysMsg := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	parsed := parseFencedJSONBanner(t, sysMsg)
+	parsed := parseStructuredBanner(t, sysMsg)
 	if parsed.Directive != "EXECUTE_IMPROVED_PROMPT" || parsed.Route != "/fyr-bug (reproduce with failing test first)" {
 		t.Errorf("parsed envelope = %+v, want Directive=EXECUTE_IMPROVED_PROMPT Route=/fyr-bug (reproduce with failing test first)\nraw:\n%s", parsed, sysMsg)
 	}
@@ -336,7 +336,7 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 	if got := preInvocationDirective(resA); got == "COORDINATE_SUBTASKS" {
 		t.Errorf("(a) preInvocationDirective = %q, want != COORDINATE_SUBTASKS", got)
 	}
-	bannerA := parseFencedJSONBanner(t, resA.TurnContract)
+	bannerA := parseStructuredBanner(t, resA.TurnContract)
 	if bannerA.Directive == "COORDINATE_SUBTASKS" {
 		t.Errorf("(a) banner.Directive = %q, want != COORDINATE_SUBTASKS", bannerA.Directive)
 	}
@@ -357,7 +357,7 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 	if got := preInvocationDirective(resB); got == "COORDINATE_SUBTASKS" {
 		t.Errorf("(b) VetPrompt preInvocationDirective = %q, want != COORDINATE_SUBTASKS", got)
 	}
-	if bannerB := parseFencedJSONBanner(t, resB.TurnContract); bannerB.Route != "fyr search --slice" {
+	if bannerB := parseStructuredBanner(t, resB.TurnContract); bannerB.Route != "fyr search --slice" {
 		t.Errorf("(b) VetPrompt banner.Route = %q, want %q", bannerB.Route, "fyr search --slice")
 	}
 
@@ -374,7 +374,7 @@ func TestReadOnlyAndMultiPackageLookupSkipsDecomposeAndKeepsSliceRoute(t *testin
 	if got := preInvocationDirective(resC); got != "COORDINATE_SUBTASKS" {
 		t.Errorf("(c) preInvocationDirective = %q, want COORDINATE_SUBTASKS", got)
 	}
-	if bannerC := parseFencedJSONBanner(t, resC.TurnContract); bannerC.Directive != "COORDINATE_SUBTASKS" {
+	if bannerC := parseStructuredBanner(t, resC.TurnContract); bannerC.Directive != "COORDINATE_SUBTASKS" {
 		t.Errorf("(c) banner.Directive = %q, want COORDINATE_SUBTASKS", bannerC.Directive)
 	}
 }

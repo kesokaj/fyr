@@ -9,28 +9,307 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func parseFencedJSONBanner(t *testing.T, banner string) PreInvocationBanner {
+func parseStructuredBanner(t *testing.T, banner string) PreInvocationBanner {
 	t.Helper()
 	trimmed := strings.TrimSpace(banner)
 	lines := strings.Split(trimmed, "\n")
-	if len(lines) < 3 || !strings.HasSuffix(lines[0], "json") || lines[len(lines)-1] != strings.TrimSuffix(lines[0], "json") {
-		t.Fatalf("banner is not a fenced json block:\n%s", banner)
+	if len(lines) < 3 || !strings.HasSuffix(lines[0], "text") {
+		t.Fatalf("banner is not a fenced text block:\n%s", banner)
 	}
-	raw := strings.Join(lines[1:len(lines)-1], "\n")
-	var got PreInvocationBanner
-	if err := json.Unmarshal([]byte(raw), &got); err != nil {
-		t.Fatalf("unmarshal PreInvocationBanner: %v\nraw:\n%s", err, raw)
+	fence := strings.TrimSuffix(lines[0], "text")
+	if len(fence) < 3 || strings.Trim(fence, "`") != "" || lines[len(lines)-1] != fence {
+		t.Fatalf("banner fence mismatch (%q vs %q):\n%s", lines[0], lines[len(lines)-1], banner)
 	}
-	if want := marshalPrettyJSON(got); raw != want {
-		t.Errorf("banner JSON not 2-space pretty-printed Hybrid Example A:\ngot:\n%s\nwant:\n%s", raw, want)
+	bodyLines := lines[1 : len(lines)-1]
+	var out PreInvocationBanner
+	parseBannerHeaderLine(t, bodyLines[0], &out)
+
+	inDetails := false
+	for i := 1; i < len(bodyLines); {
+		line := bodyLines[i]
+		if !inDetails && line == "---" {
+			inDetails = true
+			if out.Enrichment == nil {
+				out.Enrichment = &PreInvocationEnrichment{}
+			}
+			i++
+			continue
+		}
+		if !inDetails {
+			parseBannerMetaLine(&out, line)
+			i++
+			continue
+		}
+		i = parseBannerDetailSection(out.Enrichment, bodyLines, i)
 	}
-	return got
+	if out.MatchedRecordCount == 0 && out.Enrichment != nil && len(out.Enrichment.Records) > 0 {
+		out.MatchedRecordCount = len(out.Enrichment.Records)
+	}
+	return out
+}
+
+func parseBannerHeaderLine(t *testing.T, hdr string, out *PreInvocationBanner) {
+	t.Helper()
+	left, right, hasGate := strings.Cut(hdr, " · ")
+	fields := strings.Fields(left)
+	if len(fields) >= 2 {
+		out.Contract = fields[0]
+		out.Surface = fields[1]
+	} else if len(fields) == 1 {
+		out.Surface = fields[0]
+	}
+	if !hasGate {
+		return
+	}
+	if strings.HasSuffix(right, "/100)") {
+		if idx := strings.LastIndex(right, " ("); idx > 0 {
+			scoreStr := strings.TrimSuffix(right[idx+2:], "/100)")
+			if n, err := strconv.Atoi(scoreStr); err == nil {
+				out.Score = &n
+				out.Gate = strings.TrimSpace(right[:idx])
+				return
+			}
+		}
+	}
+	out.Gate = strings.TrimSpace(right)
+}
+
+func parseBannerMetaLine(out *PreInvocationBanner, line string) {
+	key, rawVal, ok := strings.Cut(line, ":")
+	if !ok {
+		return
+	}
+	val := strings.TrimSpace(rawVal)
+	switch key {
+	case "Model":
+		head, think, hasThink := strings.Cut(val, " · ")
+		if hasThink {
+			out.Thinking = think
+		}
+		if strings.HasSuffix(head, "]") {
+			if idx := strings.LastIndex(head, " ["); idx >= 0 {
+				out.Model = head[:idx]
+				out.ModelDisplay = strings.TrimSuffix(head[idx+2:], "]")
+				return
+			}
+		}
+		out.Model = head
+	case "Intent", "Status":
+		for idx, tok := range strings.Split(val, " · ") {
+			switch {
+			case strings.HasPrefix(tok, "Directive: "):
+				out.Directive = strings.TrimPrefix(tok, "Directive: ")
+			case strings.HasPrefix(tok, "Pivots: "):
+				out.PivotCount, _ = strconv.Atoi(strings.TrimPrefix(tok, "Pivots: "))
+			case strings.HasPrefix(tok, "Compacted: gen "):
+				out.CompactedGeneration, _ = strconv.Atoi(strings.TrimPrefix(tok, "Compacted: gen "))
+			case tok == "FastPath: dirty":
+				out.DirtyFastPath = true
+			case tok == "Security: required":
+				out.SecuritySubagentRequired = true
+			case key == "Intent" && idx == 0:
+				out.Intent = tok
+			}
+		}
+	case "Route":
+		out.Route = val
+	case "Skills":
+		out.Skills = splitCSVStrings(val)
+	case "Targets":
+		if out.Enrichment == nil {
+			out.Enrichment = &PreInvocationEnrichment{}
+		}
+		out.Enrichment.Targets = splitCSVStrings(val)
+	case "Verify":
+		if out.Enrichment == nil {
+			out.Enrichment = &PreInvocationEnrichment{}
+		}
+		out.Enrichment.Verify = val
+	case "Records":
+		if strings.HasSuffix(val, " matched") {
+			out.MatchedRecordCount, _ = strconv.Atoi(strings.TrimSuffix(val, " matched"))
+		} else {
+			out.MatchedRecordCount = len(splitCSVStrings(val))
+		}
+	case "Conflicts":
+		out.Conflicts = splitCSVStrings(val)
+	case "Missing":
+		out.MissingAnchors = splitCSVStrings(val)
+	case "TokenKnee":
+		out.TokenKneeWarning = val
+	case "Tip":
+		out.Tip = val
+	case "ModelTip":
+		out.ModelTip = val
+	case "StoreError":
+		out.StoreError = val
+	case "Notice":
+		out.Notices = append(out.Notices, val)
+	}
+}
+
+func parseBannerDetailSection(e *PreInvocationEnrichment, lines []string, i int) int {
+	key, rawVal, ok := strings.Cut(lines[i], ":")
+	if !ok {
+		return i + 1
+	}
+	val := strings.TrimSpace(rawVal)
+	i++
+	switch key {
+	case "Trust":
+		e.Trust = val
+		return i
+	case "Prior":
+		e.PriorTurnContext = val
+		return i
+	case "ImprovedPrompt", "AstSlice":
+		var blk []string
+		for i < len(lines) && strings.HasPrefix(lines[i], "  ") {
+			blk = append(blk, strings.TrimPrefix(lines[i], "  "))
+			i++
+		}
+		joined := strings.Join(blk, "\n")
+		if key == "ImprovedPrompt" {
+			e.ImprovedPrompt = joined
+		} else {
+			e.AstSlice = joined
+		}
+		return i
+	case "SkillDigests", "RecordNotes", "SessionContext", "Subtasks":
+		for i < len(lines) && strings.HasPrefix(lines[i], "  ") {
+			item := strings.TrimPrefix(lines[i], "  - ")
+			i++
+			for i < len(lines) && strings.HasPrefix(lines[i], "    ") {
+				item += "\n" + strings.TrimPrefix(lines[i], "    ")
+				i++
+			}
+			switch key {
+			case "SessionContext":
+				e.SessionContext = append(e.SessionContext, item)
+			case "SkillDigests":
+				head, dig, _ := strings.Cut(item, ": ")
+				name, path := head, ""
+				if strings.HasSuffix(head, ")") {
+					if idx := strings.LastIndex(head, " ("); idx >= 0 {
+						name = head[:idx]
+						path = strings.TrimSuffix(head[idx+2:], ")")
+					}
+				}
+				e.SkillDigests = append(e.SkillDigests, PreInvocationSkillDigest{Name: name, Path: path, Digest: dig})
+			case "RecordNotes":
+				rec := PreInvocationRecord{}
+				rest := item
+				if strings.HasPrefix(rest, "[") {
+					if idx := strings.Index(rest, "] "); idx > 0 {
+						tag := rest[1:idx]
+						rec.Kind, rec.Provenance, _ = strings.Cut(tag, "/")
+						rest = rest[idx+2:]
+					}
+				}
+				if strings.HasSuffix(rest, "]") {
+					if idx := strings.LastIndex(rest, " [stale: "); idx >= 0 {
+						rec.Stale = strings.TrimSuffix(rest[idx+len(" [stale: "):], "]")
+						rest = rest[:idx]
+					}
+				}
+				idPart, titleNote, _ := strings.Cut(rest, ": ")
+				rec.ID = idPart
+				rec.Title, rec.Note, _ = strings.Cut(titleNote, " — ")
+				e.Records = append(e.Records, rec)
+			case "Subtasks":
+				var st SubtaskSlice
+				for pIdx, seg := range strings.Split(item, " | ") {
+					switch {
+					case pIdx == 0:
+						idPart, restPart, hasBracket := strings.Cut(seg, " [")
+						st.ID = idPart
+						if hasBracket {
+							st.Role, st.Goal, _ = strings.Cut(restPart, "] ")
+						} else if idSpace, g, ok := strings.Cut(seg, " "); ok {
+							st.ID = idSpace
+							st.Goal = g
+						}
+					case strings.HasPrefix(seg, "files: "):
+						st.Files = splitCSVStrings(strings.TrimPrefix(seg, "files: "))
+					case strings.HasPrefix(seg, "skills: "):
+						st.Skills = splitCSVStrings(strings.TrimPrefix(seg, "skills: "))
+					case strings.HasPrefix(seg, "verify: "):
+						st.Verify = strings.TrimPrefix(seg, "verify: ")
+					}
+				}
+				e.Subtasks = append(e.Subtasks, st)
+			}
+		}
+		return i
+	}
+	return i
+}
+
+func splitCSVStrings(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func parseStructuredLedgerNotice(t *testing.T, wantStatus, raw string) LedgerNotice {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if len(lines) < 2 || lines[0] != "["+wantStatus+"]" {
+		t.Fatalf("ledger notice missing [%s] header:\n%s", wantStatus, raw)
+	}
+	n := LedgerNotice{Status: wantStatus}
+	for i := 1; i < len(lines); i++ {
+		line := lines[i]
+		if line == "Skeleton:" {
+			for j := i + 1; j < len(lines) && strings.HasPrefix(lines[j], "  "); j++ {
+				n.Skeleton = append(n.Skeleton, strings.TrimPrefix(lines[j], "  "))
+			}
+			break
+		}
+		key, rawVal, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		val := strings.TrimSpace(rawVal)
+		switch key {
+		case "Path":
+			n.Path = val
+		case "Range":
+			a, b, _ := strings.Cut(val, "-")
+			n.StartLine, _ = strconv.Atoi(a)
+			n.EndLine, _ = strconv.Atoi(b)
+		case "Lines":
+			n.TotalLines, _ = strconv.Atoi(val)
+		case "Sha256":
+			n.Sha256 = val
+		case "PreviousSha":
+			n.PreviousSha256 = val
+		case "CurrentSha":
+			n.CurrentSha256 = val
+		case "Hits":
+			n.HitCount, _ = strconv.Atoi(val)
+		case "Stamp":
+			n.StampConsumed = val == "consumed"
+		case "Note":
+			n.Message = val
+		}
+	}
+	return n
 }
 
 func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
@@ -66,16 +345,16 @@ func TestBuildTurnEnvelopeCompactStatusAndBanner(t *testing.T) {
 	if sysMsg != banner || res.TurnContract != banner {
 		t.Fatalf("expected single unified envelope across sysMsg, banner, TurnContract")
 	}
-	if !strings.HasPrefix(sysMsg, "```json\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
-		t.Fatalf("expected strictly one json fenced block with no surrounding prose, got:\n%s", sysMsg)
+	if !strings.HasPrefix(sysMsg, "```text\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
+		t.Fatalf("expected strictly one text fenced block with no surrounding prose, got:\n%s", sysMsg)
 	}
-	for _, legacy := range []string{`"stage":`, "BEGIN DATA", "status_line:", "Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder", "Turn-0 capsule"} {
+	for _, legacy := range []string{`"stage":`, `"surface":`, "BEGIN DATA", "status_line:", "Stage: **[N/6", "[N/6", "Skills: `none`", "Active: `<IDs>`", "Pre-seeded:", "Models: Builder", "Turn-0 capsule"} {
 		if strings.Contains(sysMsg, legacy) {
 			t.Errorf("envelope contains legacy/verbose token %q:\n%s", legacy, sysMsg)
 		}
 	}
 
-	parsed := parseFencedJSONBanner(t, banner)
+	parsed := parseStructuredBanner(t, banner)
 	if parsed.Surface != "PRE_INVOCATION" || parsed.Contract != "[FYR_TURN_CONTRACT]" ||
 		parsed.Intent != "BUG" || parsed.Gate != "ENRICH_AND_PROCEED" || parsed.Directive != "ENRICH_AND_PROCEED" ||
 		parsed.Score == nil || *parsed.Score != 85 || !parsed.SecuritySubagentRequired ||
@@ -103,10 +382,10 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 	}
 	_, banner := BuildTurnEnvelope(&res, SliceResult{}, TurnBrainContext{}, nil, nil)
 
-	if strings.Contains(res.TurnContract, "none") || strings.Contains(res.TurnContract, `"stage":`) || strings.Contains(res.TurnContract, `"enrichment"`) {
+	if strings.Contains(res.TurnContract, "none") || strings.Contains(res.TurnContract, `"stage":`) || strings.Contains(res.TurnContract, `"enrichment"`) || strings.Contains(res.TurnContract, "\n---\n") {
 		t.Errorf("TurnContract should omit empty skills, bare stage, and empty enrichment:\n%s", res.TurnContract)
 	}
-	parsed := parseFencedJSONBanner(t, banner)
+	parsed := parseStructuredBanner(t, banner)
 	if parsed.Surface != "PRE_INVOCATION" || parsed.Contract != "[FYR_TURN_CONTRACT]" ||
 		parsed.Intent != "FEATURE" || parsed.Gate != "VET_FIRST" || parsed.Directive != "VET_FIRST" ||
 		parsed.Score == nil || *parsed.Score != 20 || len(parsed.Skills) != 0 ||
@@ -123,14 +402,14 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 		Conflicts:    []string{"ADR-001"},
 	}
 	_, conflictBanner := BuildTurnEnvelope(&conflictVet, SliceResult{}, TurnBrainContext{}, nil, nil)
-	parsedConflict := parseFencedJSONBanner(t, conflictBanner)
+	parsedConflict := parseStructuredBanner(t, conflictBanner)
 	if parsedConflict.Model != "claude-opus-5-5-high" || parsedConflict.Thinking != "HIGH" || !strings.Contains(parsedConflict.Tip, "clarify via ask_question") {
 		t.Errorf("conflict VET_FIRST banner mismatch: %+v\nraw:\n%s", parsedConflict, conflictBanner)
 	}
 
 	proceed := VetResult{Intent: IntentTask, Gate: GateEnrichAndProceed, Score: 90}
 	BuildTurnEnvelope(&proceed, SliceResult{}, TurnBrainContext{}, nil, nil)
-	if strings.Contains(proceed.TurnContract, `"stage":`) || strings.Contains(proceed.TurnContract, `"enrichment"`) {
+	if strings.Contains(proceed.TurnContract, `"stage":`) || strings.Contains(proceed.TurnContract, `"enrichment"`) || strings.Contains(proceed.TurnContract, "\n---\n") {
 		t.Errorf("TurnContract without delta contains bare stage or empty enrichment:\n%s", proceed.TurnContract)
 	}
 
@@ -141,63 +420,69 @@ func TestBuildTurnEnvelopeNoSkillsAndVetFirstTips(t *testing.T) {
 		},
 	}
 	uRes := VetPrompt("Reinvention of sandboxing workflow without citing files", IntentTask, SliceResult{}, memCtx)
-	uParsed := parseFencedJSONBanner(t, uRes.SystemMessage)
+	uParsed := parseStructuredBanner(t, uRes.SystemMessage)
 	if uParsed.Enrichment == nil || uParsed.Enrichment.Verify != "" || len(uParsed.Enrichment.Targets) != 0 ||
 		len(uParsed.Enrichment.Records) != 1 || strings.Contains(uParsed.Enrichment.Records[0].Note, "#") {
 		t.Errorf("unanchored non-code prompt enrichment mismatch: %+v\nraw:\n%s", uParsed.Enrichment, uRes.SystemMessage)
 	}
 }
 
-func TestZeroEmojisAndPrettyJSONSurfaces(t *testing.T) {
+func TestZeroEmojisAndStructuredTelemetrySurfaces(t *testing.T) {
 	emojiRe := regexp.MustCompile("[\U0001F300-\U0001FAFF\u2600-\u27BF]")
 
-	// 1. PreInvocation degraded banner: nil score, STORE_DEGRADED gate, valid 2-space JSON, zero emojis.
+	// 1. PreInvocation degraded banner: nil score, STORE_DEGRADED gate, text fence, zero emojis.
 	degraded := formatStoreDegradedBanner(errors.New("sqlite busy"))
 	if emojiRe.MatchString(degraded) {
 		t.Errorf("degraded banner contains emoji:\n%s", degraded)
 	}
-	parsedDeg := parseFencedJSONBanner(t, degraded)
+	parsedDeg := parseStructuredBanner(t, degraded)
 	if parsedDeg.Gate != "STORE_DEGRADED" || parsedDeg.Score != nil || !strings.Contains(parsedDeg.StoreError, "sqlite busy") {
-		t.Errorf("unexpected degraded banner JSON: %+v", parsedDeg)
+		t.Errorf("unexpected degraded banner: %+v\nraw:\n%s", parsedDeg, degraded)
 	}
 
-	// 2. Read-ledger [UNCHANGED] and [MODIFIED] Hybrid Example A payloads.
+	// 2. Read-ledger [UNCHANGED] and [MODIFIED] key-value payloads.
 	unchanged := formatUnchangedLedgerNotice("internal/search/hook.go", 10, 40, "abcdef1234567890", 2, "10-40 func Foo()")
 	if !strings.HasPrefix(unchanged, "[UNCHANGED]\n") || emojiRe.MatchString(unchanged) {
 		t.Errorf("bad unchanged ledger notice:\n%s", unchanged)
 	}
-	var lUnch LedgerNotice
-	rawUnch := strings.TrimPrefix(unchanged, "[UNCHANGED]\n")
-	if err := json.Unmarshal([]byte(rawUnch), &lUnch); err != nil || lUnch.Status != "UNCHANGED" || lUnch.StampConsumed {
-		t.Errorf("invalid UNCHANGED LedgerNotice JSON (%v): %+v", err, lUnch)
+	lUnch := parseStructuredLedgerNotice(t, "UNCHANGED", unchanged)
+	if lUnch.StampConsumed || lUnch.StartLine != 10 || lUnch.EndLine != 40 || lUnch.HitCount != 2 || len(lUnch.Skeleton) != 1 {
+		t.Errorf("invalid UNCHANGED LedgerNotice: %+v\nraw:\n%s", lUnch, unchanged)
 	}
-	if rawUnch != marshalPrettyJSON(lUnch) {
-		t.Errorf("UNCHANGED JSON not 2-space pretty:\n%s", rawUnch)
+	if unchanged != renderLedgerNotice(lUnch) {
+		t.Errorf("UNCHANGED notice did not round-trip:\ngot:\n%s\nwant:\n%s", unchanged, renderLedgerNotice(lUnch))
 	}
 
 	modified := formatModifiedLedgerNotice("internal/search/hook.go", "111111111111", "222222222222", "1-50 func Bar()")
 	if !strings.HasPrefix(modified, "[MODIFIED]\n") || emojiRe.MatchString(modified) {
 		t.Errorf("bad modified ledger notice:\n%s", modified)
 	}
-	var lMod LedgerNotice
-	rawMod := strings.TrimPrefix(modified, "[MODIFIED]\n")
-	if err := json.Unmarshal([]byte(rawMod), &lMod); err != nil || lMod.Status != "MODIFIED" || lMod.PreviousSha256 != "111111111111" {
-		t.Errorf("invalid MODIFIED LedgerNotice JSON (%v): %+v", err, lMod)
+	lMod := parseStructuredLedgerNotice(t, "MODIFIED", modified)
+	if lMod.PreviousSha256 != "111111111111" || lMod.CurrentSha256 != "222222222222" {
+		t.Errorf("invalid MODIFIED LedgerNotice: %+v\nraw:\n%s", lMod, modified)
 	}
 
-	// 3. ProcessTelemetry artifact is emoji-free and round-trips cleanly.
+	// 3. ProcessTelemetry artifact is emoji-free and renders structured Markdown.
 	procMD := RenderProcessArtifactForHome("", "conv-json", "Build", []VetHistoryRow{{
 		TurnNum: 1, Intent: IntentBug, Gate: GateEnrichAndProceed, Score: 88, SuggestedSkills: nil, PivotFiles: []string{"a.go"},
 	}}, nil)
 	if emojiRe.MatchString(procMD) {
 		t.Errorf("fyr-process.md contains emoji:\n%s", procMD)
 	}
-	rawProc, docProc := extractProcessTelemetryJSON(t, procMD)
-	if docProc.Stage != "BUILD" || rawProc != marshalPrettyJSON(docProc) {
-		t.Errorf("process telemetry not 2-space pretty Hybrid Example A:\n%s", rawProc)
+	for _, wantSub := range []string{
+		"# fyr Turn Telemetry",
+		"- **Conversation:** `conv-json`",
+		"- **Stage:** `BUILD`",
+		"## Model Routing",
+		"## Turns",
+		"| 1 | BUG | ENRICH_AND_PROCEED | 88/100 |",
+	} {
+		if !strings.Contains(procMD, wantSub) {
+			t.Errorf("process telemetry missing %q:\n%s", wantSub, procMD)
+		}
 	}
 
-	// 4. context/*.md, rules/*.md, agents/*/*.md contain zero emojis and declare Hybrid Example A JSON blocks.
+	// 4. context/*.md, rules/*.md, agents/*/*.md contain zero emojis and declare structured Markdown callouts/dispatch lines.
 	root := filepath.Join("..", "..")
 	for _, glob := range []string{"context/*.md", "rules/*.md", "agents/*/*.md"} {
 		matches, err := filepath.Glob(filepath.Join(root, glob))
@@ -218,18 +503,20 @@ func TestZeroEmojisAndPrettyJSONSurfaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(ctxData), "2-space `json` fenced block") || !strings.Contains(string(ctxData), "Never use emojis") {
-		t.Errorf("context/AGENTS.md missing Hybrid Example A / zero-emoji contract")
+	if !strings.Contains(string(ctxData), "> **fyr** — <action>") ||
+		!strings.Contains(string(ctxData), "never JSON blocks") ||
+		!strings.Contains(string(ctxData), "Never use emojis") {
+		t.Errorf("context/AGENTS.md missing structured Markdown callout / zero-emoji contract")
 	}
 	dispData, err := os.ReadFile(filepath.Join(root, "rules", "agy-dispatch.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(dispData), "2-space `json` block") ||
-		!strings.Contains(string(dispData), `"model": "<model-id>", "thinking": "HIGH"`) ||
+	if !strings.Contains(string(dispData), "Dispatch: REVIEWER") ||
+		!strings.Contains(string(dispData), "<model-id> · HIGH") ||
 		strings.Contains(string(dispData), `"tier":`) ||
 		strings.Contains(string(dispData), `"model": "agy:pro"`) {
-		t.Errorf("rules/agy-dispatch.md missing exact model+thinking dispatch contract or still mentions tier/agy:pro")
+		t.Errorf("rules/agy-dispatch.md missing structured dispatch line contract or still mentions tier/agy:pro")
 	}
 }
 
@@ -409,7 +696,7 @@ func TestResolveModelAndThinkingAndHookFallback(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
 			t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
 		}
-		return parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
+		return parseStructuredBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
 	}
 
 	banner := runPre(map[string]any{
@@ -521,7 +808,7 @@ func TestBuildTurnEnvelopeWithMetaAndUTF8SkillTruncate(t *testing.T) {
 		SessionModelResolved: true,
 	}
 	msg, _ := BuildTurnEnvelopeWithMeta(&res, SliceResult{}, TurnBrainContext{}, meta)
-	b := parseFencedJSONBanner(t, msg)
+	b := parseStructuredBanner(t, msg)
 	if b.Model != "gemini-4-carbon-high" || b.ModelDisplay != "Gemini 4 Carbon (High)" || b.Thinking != "HIGH" ||
 		b.CompactedGeneration != 2 || !b.DirtyFastPath || b.PivotCount != 4 || b.ModelTip != "consider Carbon" ||
 		b.TokenKneeWarning != meta.ContextKneeWarning || len(b.Notices) != 0 {

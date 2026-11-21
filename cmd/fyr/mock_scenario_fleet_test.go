@@ -130,7 +130,7 @@ func verifyFleetTurns1And2(t *testing.T, r *fleetRig) string {
 		t.Fatalf("expected pre-worker check exit 1, got %d:\n%s", c, chkOut)
 	}
 	requireContains(t, chkOut, "TestHistogram")
-	requireContains(t, fleetHookMsg(t, r, "Add collector histogram and router severity using polling loops."), `"intent": "FEATURE"`, `"gate": "VET_FIRST"`, "conflicts with ADR-001")
+	requireContains(t, fleetHookMsg(t, r, "Add collector histogram and router severity using polling loops."), "Intent:    FEATURE", "PRE_INVOCATION · VET_FIRST", "conflicts with ADR-001")
 	t2 := runHook[search.PreInvocationOutput](t, r.home, "pre-invocation", search.HookInput{ConversationID: "conv-fleet-lead", WorkspacePaths: []string{r.proj}, LastUserInput: "go all approved — execute the collector and router phases in parallel with /fyr-swarm."})
 	if len(t2.InjectSteps) != 0 {
 		t.Fatalf("Turn 2 APPROVAL PASS_THROUGH expected zero-token empty injectSteps, got: %+v", t2.InjectSteps)
@@ -267,7 +267,7 @@ func seedFleetConversations(t *testing.T, home, ws string) {
 
 func verifyFleetTurn4LearningDreamAutoAndCheck(t *testing.T, r *fleetRig, planID string) {
 	t.Helper()
-	requireContains(t, fleetHookMsg(t, r, "Actually, never use time.Sleep in internal/collector/probe_test.go — always use a fake clock seam."), `"intent": "CORRECTION"`, `"gate": "ENRICH_AND_PROCEED"`, `"directive": "CORRECTION"`)
+	requireContains(t, fleetHookMsg(t, r, "Actually, never use time.Sleep in internal/collector/probe_test.go — always use a fake clock seam."), "Intent:    CORRECTION · Directive: CORRECTION", "PRE_INVOCATION · ENRICH_AND_PROCEED")
 	fyrMust(t, "Never use time.Sleep in collector tests; inject a fake clock.\n", "memory", "add", "--type", "feedback", "--name", "fake-clock-seam", "--description", "Fake clock seam in collector tests", "-C", r.proj, "--home", r.home)
 	fyrMust(t, "Title: Never use time.Sleep in collector tests\n\nAlways inject a fake clock seam.\n", "record", "add", "feedback", "--global", "--project", r.proj, "--home", r.home)
 	dbPath := filepath.Join(r.home, harness.StateDir, "brain.db")

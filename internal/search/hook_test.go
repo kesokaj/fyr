@@ -100,7 +100,7 @@ func TestRunHookPreInvocationCapsuleAndPreseed(t *testing.T) {
 	if !strings.Contains(sysMsg, "[Hop 0] service.go:3-5 (ReconcileProjectIndex)") {
 		t.Errorf("expected Hop 0 ReconcileProjectIndex in systemMessage, got:\n%s", sysMsg)
 	}
-	if !strings.Contains(sysMsg, `"surface": "PRE_INVOCATION"`) {
+	if !strings.Contains(sysMsg, "[FYR_TURN_CONTRACT] PRE_INVOCATION") {
 		t.Errorf("expected PRE_INVOCATION banner in systemMessage, got:\n%s", sysMsg)
 	}
 	if resp.InjectSteps[0].SystemMessage.Metadata != nil {
@@ -277,7 +277,7 @@ func runKneeHookTurn(t *testing.T, home, dir, transcript, convID string, inv int
 		return "", PreInvocationBanner{}
 	}
 	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
-	return msg, parseFencedJSONBanner(t, msg)
+	return msg, parseStructuredBanner(t, msg)
 }
 
 func assertKneeBanner(t *testing.T, msg string, b PreInvocationBanner, wantSub string) {
@@ -440,10 +440,9 @@ func TestRunHookPreInvocationStoreDegradationFailOpen(t *testing.T) {
 	}
 	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
 	for _, want := range []string{
-		`"storeError": "store unavailable (`,
+		"StoreError: store unavailable (",
 		"run fyr index",
-		`"surface": "PRE_INVOCATION"`,
-		`"gate": "STORE_DEGRADED"`,
+		"[FYR_TURN_CONTRACT] PRE_INVOCATION · STORE_DEGRADED",
 	} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("degraded systemMessage missing %q:\n%s", want, sysMsg)
@@ -502,7 +501,7 @@ func TestRunHookPreInvocationAutoInitsUnindexedDir(t *testing.T) {
 	}
 
 	sysMsg := callPreInv("conv-auto-init", "Investigate ReconcileProjectIndex failure on modified blobs")
-	for _, want := range []string{"[Hop 0] service.go:3-5 (ReconcileProjectIndex)", `"surface": "PRE_INVOCATION"`, "[FYR_TURN_CONTRACT]"} {
+	for _, want := range []string{"[Hop 0] service.go:3-5 (ReconcileProjectIndex)", "[FYR_TURN_CONTRACT] PRE_INVOCATION"} {
 		if !strings.Contains(sysMsg, want) {
 			t.Errorf("Turn 1 auto-init systemMessage missing %q:\n%s", want, sysMsg)
 		}
@@ -655,10 +654,10 @@ func TestRunHookPreInvocationFenceAndTurnContract(t *testing.T) {
 		t.Fatalf("expected 1 injectStep, got %+v", resp)
 	}
 	sysMsg := resp.InjectSteps[0].SystemMessage.SystemMessage
-	if !strings.HasPrefix(sysMsg, "```json\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
-		t.Fatalf("expected strictly one json fenced block with no surrounding prose, got:\n%s", sysMsg)
+	if !strings.HasPrefix(sysMsg, "```text\n") || !strings.HasSuffix(sysMsg, "\n```") || strings.Count(sysMsg, "```") != 2 {
+		t.Fatalf("expected strictly one text fenced block with no surrounding prose, got:\n%s", sysMsg)
 	}
-	parsed := parseFencedJSONBanner(t, sysMsg)
+	parsed := parseStructuredBanner(t, sysMsg)
 	if parsed.Surface != "PRE_INVOCATION" || parsed.Contract != "[FYR_TURN_CONTRACT]" ||
 		parsed.Intent != "BUG" || parsed.Gate != "ENRICH_AND_PROCEED" || parsed.Directive != "ENRICH_AND_PROCEED" {
 		t.Errorf("parsed envelope metadata mismatch: %+v\nraw:\n%s", parsed, sysMsg)

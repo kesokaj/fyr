@@ -190,23 +190,23 @@ func TestPreInvocationModelSuggestorSessionDedupAndOrchestratorQuiet(t *testing.
 		return resp.InjectSteps[0].SystemMessage.SystemMessage
 	}
 
-	// Turn 1 on fast model + Feature -> emits JSON modelTip field.
+	// Turn 1 on fast model + Feature -> emits ModelTip field.
 	sys1 := runTurn("conv-nudge", "gemini-3.8-flash-medium", "Implement distributed locking for service.go")
-	if !strings.Contains(sys1, `"modelTip":`) {
-		t.Errorf("Turn 1 on flash feature should emit modelTip:\n%s", sys1)
+	if !strings.Contains(sys1, "ModelTip:") {
+		t.Errorf("Turn 1 on flash feature should emit ModelTip:\n%s", sys1)
 	}
 	// Turn 2 in same session -> suppressed via read_ledger sentinel.
 	if err := os.WriteFile(transcript, []byte("turn 1\nturn 2 grew\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	sys2 := runTurn("conv-nudge", "gemini-3.8-flash-medium", "Add design options for multi-phase cache invalidation")
-	if strings.Contains(sys2, `"modelTip":`) {
-		t.Errorf("Turn 2 in same generation should suppress duplicate modelTip:\n%s", sys2)
+	if strings.Contains(sys2, "ModelTip:") {
+		t.Errorf("Turn 2 in same generation should suppress duplicate ModelTip:\n%s", sys2)
 	}
 	// Orchestrator model -> stays quiet.
 	sysOrch := runTurn("conv-orch", "gemini-pro-orchestrator", "Implement distributed locking for service.go")
-	if strings.Contains(sysOrch, `"modelTip":`) {
-		t.Errorf("Orchestrator session should never emit modelTip:\n%s", sysOrch)
+	if strings.Contains(sysOrch, "ModelTip:") {
+		t.Errorf("Orchestrator session should never emit ModelTip:\n%s", sysOrch)
 	}
 }
 

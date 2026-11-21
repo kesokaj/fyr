@@ -85,7 +85,7 @@ func TestSessionStartCapsuleAndSizeCap(t *testing.T) {
 	if len(msg) > 1500 {
 		t.Errorf("SessionStart capsule size = %d B, exceeds 1,500 B", len(msg))
 	}
-	for _, want := range []string{`"surface": "SESSION_START"`, `"date": "2026-11-15"`, `Phase 2b`, `Wire SessionStart`, `"branch": "main"`, `"dirtyGoCount": 1`, `"main.go"`} {
+	for _, want := range []string{`fyr · SESSION_START · 2026-11-15`, `Phase 2b`, `Wire SessionStart`, `Branch:    main (1 dirty Go: main.go)`} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("SessionStart capsule missing %q:\n%s", want, msg)
 		}
@@ -384,7 +384,7 @@ func TestSessionStartReftableBranch(t *testing.T) {
 		t.Fatalf("unexpected SessionStart response: %+v (%v)", resp, err)
 	}
 	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
-	if !strings.Contains(msg, `"branch": "feature/reftable"`) {
+	if !strings.Contains(msg, "Branch:    feature/reftable") {
 		t.Fatalf("SessionStart output missing feature/reftable branch:\n%s", msg)
 	}
 	if strings.Contains(msg, ".invalid") {
@@ -468,8 +468,8 @@ func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
 		t.Fatalf("unexpected SessionStart response: %+v (%v)", resp, err)
 	}
 	msg := resp.InjectSteps[0].SystemMessage.SystemMessage
-	if len(msg) > 1500 || !strings.Contains(msg, `"dailyAlert"`) {
-		t.Fatalf("SessionStart capsule missing dailyAlert or > 1500 B:\n%s", msg)
+	if len(msg) > 1500 || !strings.Contains(msg, "Daily:     daily regressing") || !strings.Contains(msg, "\n           actions: ") {
+		t.Fatalf("SessionStart capsule missing aligned dailyAlert or > 1500 B:\n%s", msg)
 	}
 	alert := extractSessionDailyAlert(home)
 	if len(alert) == 0 || len(alert) > 220 || strings.Count(alert, "\n") > 1 {
@@ -494,8 +494,8 @@ func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
 	}
 	dropCap := tightCap
 	dropCap.DailyAlert = strings.Repeat("alert-", 35)
-	dropped := fitSessionStartCapsule(&dropCap, 240)
-	if len(dropped) > 240 || dropCap.DailyAlert != "" {
+	dropped := fitSessionStartCapsule(&dropCap, 160)
+	if len(dropped) > 160 || dropCap.DailyAlert != "" {
 		t.Fatalf("fitSessionStartCapsule did not drop DailyAlert when tight: len=%d dailyAlert=%q", len(dropped), dropCap.DailyAlert)
 	}
 

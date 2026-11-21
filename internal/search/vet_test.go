@@ -103,7 +103,7 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		if res.Gate != GatePassThrough {
 			t.Errorf("VetPrompt(%q).Gate = %s, want PASS_THROUGH", p, res.Gate)
 		}
-		if !strings.Contains(res.TurnContract, `"directive": "PASS_THROUGH"`) {
+		if !strings.Contains(res.TurnContract, "Directive: PASS_THROUGH") {
 			t.Errorf("VetPrompt(%q) TurnContract missing PASS_THROUGH:\n%s", p, res.TurnContract)
 		}
 	}
@@ -113,7 +113,7 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 	if featRes.Intent != IntentFeature || featRes.Gate != GateVetFirst {
 		t.Fatalf("underspecified FEATURE: got intent=%s gate=%s, want FEATURE / VET_FIRST", featRes.Intent, featRes.Gate)
 	}
-	if !strings.Contains(featRes.TurnContract, `"directive": "VET_FIRST"`) {
+	if !strings.Contains(featRes.TurnContract, "Directive: VET_FIRST") {
 		t.Errorf("expected VET_FIRST directive in TurnContract, got:\n%s", featRes.TurnContract)
 	}
 	if !strings.Contains(featRes.UserMarkdownBanner, "prefix `!` to bypass vetting") {
@@ -147,7 +147,7 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 		if qRes.Intent != IntentQuestion || qRes.Gate != GateEnrichAndProceed {
 			t.Errorf("QUESTION(%q): got intent=%s gate=%s, want QUESTION / ENRICH_AND_PROCEED", qPrompt, qRes.Intent, qRes.Gate)
 		}
-		if !strings.Contains(qRes.TurnContract, `"directive": "ANSWER_ONLY"`) {
+		if !strings.Contains(qRes.TurnContract, "Directive: ANSWER_ONLY") {
 			t.Errorf("QUESTION(%q) contract missing ANSWER_ONLY:\n%s", qPrompt, qRes.TurnContract)
 		}
 	}
@@ -171,8 +171,13 @@ func TestVetPromptGatesAndBypasses(t *testing.T) {
 	if confRes.Gate != GateVetFirst || len(confRes.Conflicts) == 0 {
 		t.Errorf("expected VET_FIRST on ADR conflict, got gate=%s conflicts=%v", confRes.Gate, confRes.Conflicts)
 	}
-	parsedConf := parseFencedJSONBanner(t, confRes.TurnContract)
-	if parsedConf.Directive != "VET_FIRST" || strings.Contains(confRes.TurnContract, `"directive": "PASS_THROUGH"`) {
+	parsedConf := parseStructuredBanner(t, confRes.TurnContract)
+	if parsedConf.Directive != "VET_FIRST" || len(parsedConf.Conflicts) != 1 ||
+		strings.Contains(parsedConf.Conflicts[0], "\n") ||
+		!strings.Contains(parsedConf.Conflicts[0], "Zero-daemon directive: PASS_THROUGH") ||
+		parsedConf.Model != "" || len(parsedConf.Notices) != 0 ||
+		strings.Contains(confRes.TurnContract, "\ndirective:") ||
+		strings.Contains(confRes.TurnContract, "Directive: PASS_THROUGH") {
 		t.Errorf("expected ADR title newlines sanitized in TurnContract:\n%s", confRes.TurnContract)
 	}
 
@@ -347,13 +352,13 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 	if !fenceBoundaryRe.MatchString(res.FenceBoundary) {
 		t.Fatalf("invalid FenceBoundary: %q", res.FenceBoundary)
 	}
-	if !strings.HasPrefix(res.SystemMessage, "```json\n") || !strings.HasSuffix(res.SystemMessage, "\n```") || strings.Count(res.SystemMessage, "```") != 2 {
-		t.Fatalf("expected strictly one json fenced block, got:\n%s", res.SystemMessage)
+	if !strings.HasPrefix(res.SystemMessage, "```text\n") || !strings.HasSuffix(res.SystemMessage, "\n```") || strings.Count(res.SystemMessage, "```") != 2 {
+		t.Fatalf("expected strictly one text fenced block, got:\n%s", res.SystemMessage)
 	}
 	if strings.Contains(res.SystemMessage, "BEGIN DATA") {
 		t.Errorf("SystemMessage should not contain BEGIN DATA fence text:\n%s", res.SystemMessage)
 	}
-	parsedSys := parseFencedJSONBanner(t, res.SystemMessage)
+	parsedSys := parseStructuredBanner(t, res.SystemMessage)
 	if parsedSys.Contract != "[FYR_TURN_CONTRACT]" ||
 		parsedSys.Route != "/fyr-bug (reproduce with failing test first)" ||
 		!parsedSys.SecuritySubagentRequired {
@@ -426,10 +431,10 @@ func TestVetPromptFencesRecordsAndRunsUnderLatencyBudget(t *testing.T) {
 		t.Fatalf("expected 1 injectStep, got %+v", hookResp)
 	}
 	sys := hookResp.InjectSteps[0].SystemMessage.SystemMessage
-	if !strings.Contains(sys, `"directive": "VET_FIRST"`) || !strings.Contains(sys, `"id": "MEMORY-hooks"`) {
+	if !strings.Contains(sys, "Directive: VET_FIRST") || !strings.Contains(sys, "MEMORY-hooks") {
 		t.Errorf("hook systemMessage missing VET_FIRST or MEMORY-hooks:\n%s", sys)
 	}
-	if !strings.Contains(sys, `"intent": "FEATURE"`) || !strings.Contains(sys, `"gate": "VET_FIRST"`) || !strings.Contains(sys, "prefix `!` to bypass vetting") {
+	if !strings.Contains(sys, "Intent:    FEATURE") || !strings.Contains(sys, "PRE_INVOCATION · VET_FIRST") || !strings.Contains(sys, "prefix `!` to bypass vetting") {
 		t.Errorf("hook systemMessage banner missing FEATURE/VET_FIRST or `!` tip:\n%s", sys)
 	}
 }

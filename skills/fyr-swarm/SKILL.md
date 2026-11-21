@@ -6,7 +6,7 @@ argument-hint: "[plan-id or task slices]"
 
 # Swarm — Multi-Agent Parallel Execution
 
-Use parallel execution only when genuinely independent slices justify coordination overhead, and keep workers isolated (`workspace="share"`), write-bounded (`Files:`), and deterministically gated (`fyr gate` + `fyr land`). On `PRE_INVOCATION` turns with `directive: "COORDINATE_SUBTASKS"`, the `fyr` pre-hooks supply pre-split `subtasks[]`, deduplicated `skillDigests[]`, `[COORDINATOR_GUARD]` protection, and automatic `[FYR_WORKER_CAPSULE]` worker enrichment.
+Use parallel execution only when genuinely independent slices justify coordination overhead, and keep workers isolated (`workspace="share"`), write-bounded (`Files:`), and deterministically gated (`fyr gate` + `fyr land`). On `PRE_INVOCATION` turns with `Directive: COORDINATE_SUBTASKS`, the `fyr` pre-hooks supply pre-split `Subtasks`, deduplicated `SkillDigests`, `[COORDINATOR_GUARD]` protection, and automatic `[FYR_WORKER_CAPSULE]` worker enrichment.
 
 ## Orchestration routing table
 
@@ -21,24 +21,24 @@ Use parallel execution only when genuinely independent slices justify coordinati
 
 ## Coordinator pre-hook workflow (`COORDINATE_SUBTASKS`)
 
-When `PRE_INVOCATION` returns `directive: "COORDINATE_SUBTASKS"` (`route: "/fyr-swarm (isolated subtasks; zero shared memory)"`), act as Coordinator over isolated slices instead of editing source files directly on the main checkout.
+When `PRE_INVOCATION` returns `Directive: COORDINATE_SUBTASKS` (`Route: /fyr-swarm (isolated subtasks; zero shared memory)`), act as Coordinator over isolated slices instead of editing source files directly on the main checkout.
 
 ```mermaid
 flowchart LR
-    preInv["PRE_INVOCATION\n(COORDINATE_SUBTASKS)"] --> inspect["Read enrichment:\nsubtasks[], skillDigests[], improvedPrompt"]
+    preInv["PRE_INVOCATION\n(COORDINATE_SUBTASKS)"] --> inspect["Read enrichment:\nSubtasks, SkillDigests, ImprovedPrompt"]
     inspect --> dispatch["Dispatch workers\n(Files: + workspace=share)"]
     dispatch --> preTool["PreToolUse\n(inject [FYR_WORKER_CAPSULE];\nenforce [COORDINATOR_GUARD])"]
     preTool --> land["fyr gate ->\nsequential fyr land"]
 ```
 
 1. **Respect directive precedence:** `PASS_THROUGH` > `VET_FIRST` > `COORDINATE_SUBTASKS` (`len(subtasks) >= 2`) > `ANSWER_ONLY` / `CORRECTION` > `EXECUTE_IMPROVED_PROMPT` > `ENRICH_AND_PROCEED`. If `VET_FIRST` fires due to conflicts or missing critical anchors, resolve them with the operator before dispatching workers.
-2. **Consume `enrichment.subtasks[]`:** Contains up to `6` deterministic slices (`id`, `role`, `goal`, `files`, `skills`, `verify`) with pairwise-disjoint `files` (fileless exploration slices omit `files`). Use these slices to populate your `Files:` write leases and per-slice verification commands.
-3. **Consume `enrichment.skillDigests[]`:** Delivers compaction-scoped actionable skill digests (`<= 600 B` each, deduplicated per `generation_id` via `read_ledger` `start_line = -4` and automatically re-primed after context compaction). Forward slice-specific constraints when dispatching workers.
-4. **Consume `enrichment.improvedPrompt`:** Surfaces synthesized `[VET_IMPROVED_PROMPT]` targets, `ADR-*`/`BUG-*` constraints, and `verify` hints to embed in worker task prompts.
+2. **Consume `Subtasks:`:** Contains up to `6` deterministic slices (`id`, `role`, `goal`, `files`, `skills`, `verify`) with pairwise-disjoint `files` (fileless exploration slices omit `files`). Use these slices to populate your `Files:` write leases and per-slice verification commands.
+3. **Consume `SkillDigests:`:** Delivers compaction-scoped actionable skill digests (`<= 600 B` each, deduplicated per `generation_id` via `read_ledger` `start_line = -4` and automatically re-primed after context compaction). Forward slice-specific constraints when dispatching workers.
+4. **Consume `ImprovedPrompt:`:** Surfaces synthesized `[VET_IMPROVED_PROMPT]` targets, `ADR-*`/`BUG-*` constraints, and `verify` hints to embed in worker task prompts.
 
 ## Quota check & prefix model routing
 
-1. Run `agy -p "/usage"` (or check `fyr models`) before spawning any parallel wave; record per-dispatch routing (`role`, `scope`, `model`, `thinking`, `quota`) in briefs/scratch rather than emitting a wait-note reply JSON block (`context/AGENTS.md` reserves the 2-space `json` block for the final reply only).
+1. Run `agy -p "/usage"` (or check `fyr models`) before spawning any parallel wave; record per-dispatch routing (`Dispatch: <ROLE> · <scope> · <model-id> · <THINKING> [· quota <pct>]`) in briefs/scratch rather than emitting a wait-note summary callout (`context/AGENTS.md` reserves the `> **fyr**` summary callout for the final reply only).
 2. `PreToolUse` routes and validates worker models from roster name prefixes:
    - `builder-<slice>` / `coder-<slice>` -> builder model (`fyr models --pick builder`, or coordinator model when omitted).
    - `reviewer-<slice>` / `judge-<slice>` / `security-<slice>` / `verifier-<slice>` -> `pro` / cross-family when Anthropic quota is `>= 20%` weekly and `>= 30%` 5h, else Gemini Pro fallback. Fast weak overrides are denied.

@@ -72,11 +72,7 @@ func TestReadLedgerPersistenceEditAndExternalCheckout(t *testing.T) {
 			if d.Decision != "deny" || !strings.HasPrefix(d.Reason, "[UNCHANGED]\n") {
 				t.Fatalf("read #%d = %+v, want deny [UNCHANGED]", hit, d)
 			}
-			var notice LedgerNotice
-			raw := strings.TrimPrefix(d.Reason, "[UNCHANGED]\n")
-			if err := json.Unmarshal([]byte(raw), &notice); err != nil {
-				t.Fatalf("read #%d invalid JSON: %v", hit, err)
-			}
+			notice := parseStructuredLedgerNotice(t, "UNCHANGED", d.Reason)
 			if notice.StampConsumed || notice.HitCount != hit {
 				t.Fatalf("read #%d notice = %+v, want StampConsumed=false HitCount=%d", hit, notice, hit)
 			}

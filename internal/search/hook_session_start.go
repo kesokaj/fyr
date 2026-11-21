@@ -171,12 +171,12 @@ func extractTodoNow(path string, maxItems int) []string {
 
 func fitSessionStartCapsule(cap *sessionStartCapsule, maxBytes int) string {
 	for {
-		rendered := safeBacktickFenceWithLang(marshalPrettyJSON(cap), "json")
+		rendered := renderSessionStartCapsule(cap)
 		if len(rendered) <= maxBytes {
 			return rendered
 		}
 		if !trimSessionStartCapsuleStep(cap) {
-			if minimal := safeBacktickFenceWithLang("{}", "json"); len(minimal) <= maxBytes {
+			if minimal := safeBacktickFenceWithLang("fyr · SESSION_START · "+cap.Date, "text"); len(minimal) <= maxBytes {
 				return minimal
 			}
 			return truncateUTF8Bytes(rendered, maxBytes)

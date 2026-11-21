@@ -1,7 +1,6 @@
 package search
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,39 +9,25 @@ import (
 	"github.com/kesokaj/fyr/internal/harness"
 )
 
-func extractProcessTelemetryJSON(t *testing.T, md string) (string, ProcessTelemetry) {
-	t.Helper()
-	lines := strings.Split(md, "\n")
-	for i := 0; i < len(lines); i++ {
-		if strings.HasSuffix(lines[i], "json") && strings.HasPrefix(lines[i], "```") {
-			fence := strings.TrimSuffix(lines[i], "json")
-			for j := i + 1; j < len(lines); j++ {
-				if lines[j] == fence {
-					raw := strings.Join(lines[i+1:j], "\n")
-					var doc ProcessTelemetry
-					if err := json.Unmarshal([]byte(raw), &doc); err != nil {
-						t.Fatalf("unmarshal ProcessTelemetry: %v\nraw:\n%s", err, raw)
-					}
-					return raw, doc
-				}
-			}
-		}
-	}
-	t.Fatalf("missing fenced json block in process telemetry:\n%s", md)
-	return "", ProcessTelemetry{}
-}
-
 func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 	// 1. Missing models.json renders role-family policy with zero hardcoded model IDs.
 	emptyHome := t.TempDir()
 	gotPolicy := RenderProcessArtifactForHome(emptyHome, "conv-1", "2. Vet", nil, nil)
-	rawPolicy, docPolicy := extractProcessTelemetryJSON(t, gotPolicy)
-	if docPolicy.Stage != "VET" || !strings.Contains(docPolicy.ModelRouting.Policy, "Builder -> Gemini") {
-		t.Fatalf("unexpected policy telemetry %+v:\n%s", docPolicy, rawPolicy)
+	for _, want := range []string{
+		"# fyr Turn Telemetry",
+		"- **Conversation:** `conv-1`",
+		"- **Stage:** `VET`",
+		"## Model Routing",
+		"- **Policy:** ",
+		"Builder -> Gemini",
+	} {
+		if !strings.Contains(gotPolicy, want) {
+			t.Fatalf("policy telemetry missing %q:\n%s", want, gotPolicy)
+		}
 	}
-	for _, forbidden := range []string{"gemini-4-" + "argon", "claude-sonnet-" + "4-6"} {
+	for _, forbidden := range []string{"gemini-4-" + "argon", "claude-sonnet-" + "4-6", "```json"} {
 		if strings.Contains(gotPolicy, forbidden) {
-			t.Errorf("policy output leaked hardcoded model ID %q:\n%s", forbidden, gotPolicy)
+			t.Errorf("policy output leaked forbidden token %q:\n%s", forbidden, gotPolicy)
 		}
 	}
 
@@ -66,15 +51,19 @@ func TestRenderProcessArtifactModelCatalog(t *testing.T) {
 	}
 
 	gotCached := RenderProcessArtifactForHome(home, "conv-2", "4. Build", nil, nil)
-	_, docCached := extractProcessTelemetryJSON(t, gotCached)
-	if docCached.Stage != "BUILD" ||
-		docCached.ModelRouting.BuilderPro != "gemini-4-carbon-high" ||
-		docCached.ModelRouting.BuilderFlash != "gemini-3.8-flash-high" ||
-		docCached.ModelRouting.JudgePro != "claude-opus-5-5-high" ||
-		docCached.ModelRouting.JudgeFlash != "claude-sonnet-5-5-high" ||
-		docCached.ModelRouting.UpdateTime != "2026-11-11T10:00:00Z" ||
-		docCached.ModelRouting.FallbackReason != "previous model claude-opus-5-4-high is gone" {
-		t.Errorf("unexpected cached modelRouting telemetry: %+v", docCached.ModelRouting)
+	for _, want := range []string{
+		"- **Conversation:** `conv-2`",
+		"- **Stage:** `BUILD`",
+		"| Builder (Pro) | `gemini-4-carbon-high` |",
+		"| Builder (Flash) | `gemini-3.8-flash-high` |",
+		"| Judge (Pro) | `claude-opus-5-5-high` |",
+		"| Judge (Flash) | `claude-sonnet-5-5-high` |",
+		"- **Updated:** `2026-11-11T10:00:00Z`",
+		"- **Fallback:** previous model claude-opus-5-4-high is gone",
+	} {
+		if !strings.Contains(gotCached, want) {
+			t.Errorf("cached modelRouting missing %q in:\n%s", want, gotCached)
+		}
 	}
 }
 
@@ -124,25 +113,30 @@ func TestProcessArtifactSecurityHardening(t *testing.T) {
 		}
 	}
 
-	// 3. Control characters are scrubbed, JSON fields parse cleanly, and fenced content with ``` upgrades outer fences.
+	// 3. Control characters are scrubbed, Markdown cells/spans stay escaped, and fenced content with ``` upgrades outer fences.
 	out := RenderProcessArtifactForHome("", "conv\x00|```evil", "4.`Build`", []VetHistoryRow{{
 		TurnNum:         1,
 		Intent:          "feat|x",
 		Gate:            "ALLOW`y",
 		Score:           90,
-		SuggestedSkills: []string{"sk|a"},
+		SuggestedSkills: []string{"sk|a", `sk\|b`},
 		PivotFiles:      []string{"a`b.go"},
 		ImprovedPrompt:  "hello\n```\ninjected\n```\nbye",
 	}}, nil)
-	if !strings.Contains(out, "````json\n") {
-		t.Errorf("conversationId containing ``` did not upgrade outer json fence:\n%s", out)
+	if strings.Contains(out, "```json") {
+		t.Errorf("process telemetry should not emit json fence:\n%s", out)
 	}
-	_, docHard := extractProcessTelemetryJSON(t, out)
-	if docHard.ConversationID != "conv?|```evil" || docHard.Stage != "4_BUILD" || len(docHard.Turns) != 1 || docHard.Turns[0].Intent != "FEAT_X" || docHard.Turns[0].Gate != "ALLOW_Y" {
-		t.Errorf("unexpected hardened telemetry payload: %+v", docHard)
-	}
-	if !strings.Contains(out, "````text\nhello\n```\ninjected\n```\nbye\n````") {
-		t.Errorf("fenced prompt containing ``` did not upgrade outer fence:\n%s", out)
+	for _, want := range []string{
+		"- **Conversation:** ````conv?|```evil````",
+		"- **Stage:** `4_BUILD`",
+		"| 1 | FEAT_X | ALLOW_Y | 90/100 |",
+		"`sk\\|a`, `sk\\\\\\|b`",
+		"``a`b.go``",
+		"````text\nhello\n```\ninjected\n```\nbye\n````",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("hardened telemetry missing %q:\n%s", want, out)
+		}
 	}
 
 	// 4. appendProcessImprovedPrompts scrubs C0, C1, BiDi Cf, and Zl/Zp control runes while keeping newlines.

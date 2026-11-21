@@ -13,7 +13,7 @@ func featureRoutingOutcomes() map[string][]outcome {
 			"printf '%s\\n' '" + text + "' >\"$SB/.gemini/antigravity-cli/conversations/" + name + ".db\"\n"
 	}
 	goodOut := "echo 'Caller: internal/greet/greet.go:22-30 (RenderGreeting). Model pick: fyr models --pick builder. Multi-phase waves: /fyr-swarm.' >\"$OUT\"\n"
-	goodRoute := conv("hook", `{"contract": "[FYR_TURN_CONTRACT]", "route": "fyr search --slice"}`)
+	goodRoute := conv("hook", "[FYR_TURN_CONTRACT] PRE_INVOCATION\nRoute:      fyr search --slice")
 	goodCmd := conv("cmd", `{"CommandLine":"fyr search --affected BannerFormatter.Format"}`)
 
 	return map[string][]outcome{
@@ -137,7 +137,7 @@ func TestFeatureRoutingRuleAndEvalRow(t *testing.T) {
 	if got == nil {
 		t.Fatal("GUIDE-eval.md is missing row feature-routing")
 	}
-	for _, want := range []string{`"route": "fyr search --slice"`, "fyr models --pick", "/fyr-swarm"} {
+	for _, want := range []string{`Route:[[:space:]]+)fyr search --slice`, "fyr models --pick", "/fyr-swarm"} {
 		if !strings.Contains(got.Check, want) {
 			t.Errorf("feature-routing check missing %q:\n%s", want, got.Check)
 		}

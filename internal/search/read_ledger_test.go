@@ -409,7 +409,7 @@ func assertPreToolFullFileLifecycle(t *testing.T, repo, nonGitDir string, invoke
 		"workspacePaths": []string{repo},
 		"toolCall":       map[string]any{"name": "default_api:read_file", "args": map[string]any{"path": "service.go"}},
 	})
-	if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED]\n") || !strings.Contains(d2.Reason, `"path": "service.go"`) || !strings.Contains(d2.Reason, `"startLine": 1`) || !strings.Contains(d2.Reason, "already in context") || !strings.Contains(d2.Reason, "func ExecuteService") {
+	if d2.Decision != "deny" || !strings.HasPrefix(d2.Reason, "[UNCHANGED]\n") || !strings.Contains(d2.Reason, "Path:      service.go") || !strings.Contains(d2.Reason, "Range:     1-") || !strings.Contains(d2.Reason, "already in context") || !strings.Contains(d2.Reason, "func ExecuteService") {
 		t.Fatalf("2nd unchanged full read_file = %+v, want deny with [UNCHANGED] persistent stamp + skeleton", d2)
 	}
 	if got := savedCount("conv-full"); got != 1 {
@@ -450,7 +450,7 @@ func assertPreToolRangedAndEnvelopeVariants(t *testing.T, repo string, invoke fu
 		"tool_name":       "read_file",
 		"tool_input":      map[string]any{"Path": "ranged.go", "StartLine": 1, "EndLine": 42},
 	})
-	if r3.Decision != "deny" || !strings.HasPrefix(r3.Reason, "[UNCHANGED]\n") || !strings.Contains(r3.Reason, `"path": "ranged.go"`) || !strings.Contains(r3.Reason, `"startLine": 1`) || savedCount("conv-range") != 1 {
+	if r3.Decision != "deny" || !strings.HasPrefix(r3.Reason, "[UNCHANGED]\n") || !strings.Contains(r3.Reason, "Path:      ranged.go") || !strings.Contains(r3.Reason, "Range:     1-") || savedCount("conv-range") != 1 {
 		t.Fatalf("3rd covering re-read across coalesced range = %+v (saved=%d), want deny and saved=1", r3, savedCount("conv-range"))
 	}
 }

@@ -71,7 +71,7 @@ func TestReadLedgerClampsEndLineAtByteLimit(t *testing.T) {
 		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "allow" {
 			t.Fatalf("conv-offset ByteOffset=46080 continuation read: got %+v, want allow on 1st attempt", dec)
 		}
-		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.HasPrefix(dec.Reason, "[UNCHANGED]\n") || !strings.Contains(dec.Reason, `"path": "big.go"`) || !strings.Contains(dec.Reason, `"startLine": 195`) || !strings.Contains(dec.Reason, `"endLine": 250`) {
+		if dec := callReadHook("conv-offset", map[string]any{"Path": "big.go", "StartLine": 1, "EndLine": 250, "ByteOffset": 46080}); dec.Decision != "deny" || !strings.HasPrefix(dec.Reason, "[UNCHANGED]\n") || !strings.Contains(dec.Reason, "Path:      big.go") || !strings.Contains(dec.Reason, "Range:     195-250") {
 			t.Fatalf("conv-offset duplicate ByteOffset=46080 read: got %+v, want deny [UNCHANGED] big.go:195-250", dec)
 		}
 	})
@@ -246,11 +246,7 @@ func TestUnrangedReadOf600LineFileDeniedWithSkeletonAndRangedRetryAllowed(t *tes
 		if d1.Decision != "deny" || len(d1.Overwrite) != 0 || !strings.HasPrefix(d1.Reason, "[CLAMPED]\n") {
 			t.Fatalf("%s unranged = %+v, want deny [CLAMPED] with nil Overwrite", file, d1)
 		}
-		var notice LedgerNotice
-		raw := strings.TrimPrefix(d1.Reason, "[CLAMPED]\n")
-		if err := json.Unmarshal([]byte(raw), &notice); err != nil {
-			t.Fatalf("%s invalid [CLAMPED] JSON: %v\n%s", file, err, raw)
-		}
+		notice := parseStructuredLedgerNotice(t, "CLAMPED", d1.Reason)
 		if notice.Status != "CLAMPED" || notice.TotalLines < 600 || len(notice.Skeleton) == 0 || !strings.Contains(strings.Join(notice.Skeleton, "\n"), wantSkel) {
 			t.Fatalf("%s notice = %+v, want Status=CLAMPED TotalLines>=600 Skeleton containing %q", file, notice, wantSkel)
 		}

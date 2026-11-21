@@ -53,7 +53,7 @@ func TestPreInvocationEmitsImprovedPromptAndSkillDigests(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) == 0 || resp.InjectSteps[0].SystemMessage == nil {
 			t.Fatalf("unexpected PreInvocationOutput (%v): %s", err, out.String())
 		}
-		return parseFencedJSONBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
+		return parseStructuredBanner(t, resp.InjectSteps[0].SystemMessage.SystemMessage)
 	}
 
 	// 1. Turn 1: high-score multi-clause prompt emits COORDINATE_SUBTASKS, improvedPrompt, skillDigests, and disjoint subtasks.

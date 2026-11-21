@@ -8,66 +8,65 @@ import (
 // PreInvocationRecord describes one matched trail or memory record inside
 // PreInvocationEnrichment without Markdown heading clutter.
 type PreInvocationRecord struct {
-	ID         string `json:"id"`
-	Kind       string `json:"kind"`
-	Provenance string `json:"provenance,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Note       string `json:"note,omitempty"`
-	Stale      string `json:"stale,omitempty"`
+	ID         string
+	Kind       string
+	Provenance string
+	Title      string
+	Note       string
+	Stale      string
 }
 
-// PreInvocationEnrichment holds non-redundant delta enrichment emitted inside
-// the single PreInvocation JSON block. Empty or unbypassed APPROVAL/TRIVIAL
-// turns omit this object completely.
 // PreInvocationSkillDigest is one compaction-deduplicated actionable skill
-// digest emitted inside PreInvocationEnrichment.SkillDigests.
+// digest emitted under SkillDigests in PreInvocationEnrichment.
 type PreInvocationSkillDigest struct {
-	Name   string `json:"name"`
-	Path   string `json:"path,omitempty"`
-	Digest string `json:"digest"`
+	Name   string
+	Path   string
+	Digest string
 }
 
+// PreInvocationEnrichment holds non-redundant delta enrichment rendered below
+// `---` in the PreInvocation text card. Empty or unbypassed APPROVAL/TRIVIAL
+// turns omit this section completely.
 type PreInvocationEnrichment struct {
-	Trust            string                     `json:"trust,omitempty"`
-	PriorTurnContext string                     `json:"priorTurnContext,omitempty"`
-	ImprovedPrompt   string                     `json:"improvedPrompt,omitempty"`
-	Targets          []string                   `json:"targets,omitempty"`
-	Verify           string                     `json:"verify,omitempty"`
-	SkillDigests     []PreInvocationSkillDigest `json:"skillDigests,omitempty"`
-	Subtasks         []SubtaskSlice             `json:"subtasks,omitempty"`
-	Records          []PreInvocationRecord      `json:"records,omitempty"`
-	AstSlice         string                     `json:"astSlice,omitempty"`
-	SessionContext   []string                   `json:"sessionContext,omitempty"`
+	Trust            string
+	PriorTurnContext string
+	ImprovedPrompt   string
+	Targets          []string
+	Verify           string
+	SkillDigests     []PreInvocationSkillDigest
+	Subtasks         []SubtaskSlice
+	Records          []PreInvocationRecord
+	AstSlice         string
+	SessionContext   []string
 }
 
 // PreInvocationBanner renders Surface 1 (PreInvocation hook envelope) as a
-// single 2-space pretty-printed lowerCamelCase JSON block with metadata and
-// delta-only enrichment.
+// compact aligned text card with structured metadata and delta-only enrichment.
 type PreInvocationBanner struct {
-	Surface                  string                   `json:"surface"`
-	Contract                 string                   `json:"contract,omitempty"`
-	Model                    string                   `json:"model,omitempty"`
-	ModelDisplay             string                   `json:"modelDisplay,omitempty"`
-	Thinking                 string                   `json:"thinking,omitempty"`
-	Intent                   string                   `json:"intent,omitempty"`
-	Gate                     string                   `json:"gate,omitempty"`
-	Score                    *int                     `json:"score,omitempty"`
-	Directive                string                   `json:"directive,omitempty"`
-	Route                    string                   `json:"route,omitempty"`
-	Skills                   []string                 `json:"skills,omitempty"`
-	SecuritySubagentRequired bool                     `json:"securitySubagentRequired,omitempty"`
-	MatchedRecordCount       int                      `json:"matchedRecordCount,omitempty"`
-	PivotCount               int                      `json:"pivotCount,omitempty"`
-	CompactedGeneration      int                      `json:"compactedGeneration,omitempty"`
-	DirtyFastPath            bool                     `json:"dirtyFastPath,omitempty"`
-	TokenKneeWarning         string                   `json:"tokenKneeWarning,omitempty"`
-	Conflicts                []string                 `json:"conflicts,omitempty"`
-	MissingAnchors           []string                 `json:"missingAnchors,omitempty"`
-	Tip                      string                   `json:"tip,omitempty"`
-	ModelTip                 string                   `json:"modelTip,omitempty"`
-	StoreError               string                   `json:"storeError,omitempty"`
-	Notices                  []string                 `json:"notices,omitempty"`
-	Enrichment               *PreInvocationEnrichment `json:"enrichment,omitempty"`
+	Surface                  string
+	Contract                 string
+	Model                    string
+	ModelDisplay             string
+	Thinking                 string
+	Intent                   string
+	Gate                     string
+	Score                    *int
+	Directive                string
+	Route                    string
+	Skills                   []string
+	SecuritySubagentRequired bool
+	MatchedRecordCount       int
+	PivotCount               int
+	CompactedGeneration      int
+	DirtyFastPath            bool
+	TokenKneeWarning         string
+	Conflicts                []string
+	MissingAnchors           []string
+	Tip                      string
+	ModelTip                 string
+	StoreError               string
+	Notices                  []string
+	Enrichment               *PreInvocationEnrichment
 }
 
 // TurnBannerMeta passes structured PreInvocation hook metadata into
@@ -92,7 +91,7 @@ func (m TurnBannerMeta) hasSignals() bool {
 func formatPreInvocationEnvelopeWithMeta(res VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta) string {
 	b := buildPreInvocationBannerBaseWithMeta(res, meta)
 	b.Enrichment = buildPreInvocationEnrichment(res, slice, brainCtx, meta.ExtraSections, b.CompactedGeneration)
-	return safeBacktickFenceWithLang(marshalPrettyJSON(b), "json")
+	return renderPreInvocationBanner(b)
 }
 
 func preInvocationDirective(res VetResult) string {
@@ -306,8 +305,9 @@ func storeDegradedNotice(err error) string {
 func formatStoreDegradedBanner(err error) string {
 	b := PreInvocationBanner{
 		Surface:    "PRE_INVOCATION",
+		Contract:   "[FYR_TURN_CONTRACT]",
 		Gate:       "STORE_DEGRADED",
 		StoreError: storeDegradedNotice(err),
 	}
-	return safeBacktickFenceWithLang(marshalPrettyJSON(b), "json")
+	return renderPreInvocationBanner(b)
 }
