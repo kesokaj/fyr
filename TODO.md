@@ -15,4 +15,4 @@ None.
 
 ## Backlog
 
-- [ ] Allow pure binary deletions (`D` status in `git diff --raw`) in `internal/gate/gate_checks.go:127` (`checkNumstat`) while continuing to reject binary adds/edits (`v9.6.1`, `PLAN-v9.6.0` `D21`, 2026-11-20)
+- [ ] Run cross-family judge after `verifyInScratchWorktree` (or pass fresh verify summary) in `internal/gate/land.go:65-86` so `fyr land --judge` does not fail on stale main `verify.stamp` (`BUG-560`, 2026-11-21)
