@@ -230,7 +230,11 @@ func TestAppendProposalSectionNoOrphanHeadingAndTelemetryShare(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("prefix\n\n")
 	// Remaining after header ("## Queued proposals\n\n" = 21 bytes) is only 2 bytes -> boundProposalEntry returns "".
-	r.appendProposalSection(&b, root, "", b.Len()+len("## Queued proposals\n\n")+2)
+	props, err := r.sweepOpenProposals()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.writeProposalSection(&b, orderMatchingProposals(props, root, ""), b.Len()+len("## Queued proposals\n\n")+2)
 	if strings.Contains(b.String(), "## Queued proposals") {
 		t.Errorf("wrote orphaned Queued proposals heading: %q", b.String())
 	}

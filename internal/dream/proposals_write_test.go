@@ -207,6 +207,7 @@ func TestDroppedKindAndSampleHelpers(t *testing.T) {
 		{":missing", "unknown"},
 		{"   \t\n ", "unknown"},
 		{"[redacted by fyr]", "redacted"},
+		{"[redacted by fyr] details", "redacted"},
 		{strings.Repeat("世", 20), strings.Repeat("世", 10)},
 	} {
 		if got := droppedKind(tc.in); got != tc.want {

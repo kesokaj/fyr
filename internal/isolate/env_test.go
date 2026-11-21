@@ -144,6 +144,7 @@ func TestConfinedPATHHardening(t *testing.T) {
 	roDir := filepath.Join(osTmp, "ro-bin")
 	linkEscapeHome := filepath.Join(roDir, "escape-home")
 	linkEscapeTmp := filepath.Join(roDir, "escape-tmp")
+	homeLinkToRO := filepath.Join(realHome, "link-to-ro")
 	for _, d := range []string{homeBin, tmpBin, sysDir, roDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -155,6 +156,13 @@ func TestConfinedPATHHardening(t *testing.T) {
 	if err := os.Symlink(tmpBin, linkEscapeTmp); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Symlink(roDir, homeLinkToRO); err != nil {
+		t.Fatal(err)
+	}
+	resRODir, err := filepath.EvalSymlinks(roDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	rawPATH := strings.Join([]string{
 		".",
@@ -162,6 +170,7 @@ func TestConfinedPATHHardening(t *testing.T) {
 		filepath.Join("..", "tools"),
 		sysDir,
 		homeBin,
+		homeLinkToRO,
 		linkEscapeHome,
 		linkEscapeTmp,
 		roDir,
@@ -171,10 +180,13 @@ func TestConfinedPATHHardening(t *testing.T) {
 	// Empty RealHome must still fall back to HOME / user.Current and exclude homeBin.
 	got := confinedPATH("", "", []string{roDir})
 	parts := filepath.SplitList(got)
-	for _, blocked := range []string{".", "relative-bin", filepath.Join("..", "tools"), homeBin, linkEscapeHome, linkEscapeTmp} {
+	for _, blocked := range []string{".", "relative-bin", filepath.Join("..", "tools"), homeBin, homeLinkToRO, linkEscapeHome, linkEscapeTmp} {
 		if slices.Contains(parts, blocked) {
 			t.Errorf("confinedPATH leaked %q in %v", blocked, parts)
 		}
+	}
+	if !slices.Contains(parts, resRODir) {
+		t.Errorf("confinedPATH missing resolved %q from symlink %q: %v", resRODir, homeLinkToRO, parts)
 	}
 	cwd, err := os.Getwd()
 	if err == nil && slices.Contains(parts, filepath.Clean(cwd)) {

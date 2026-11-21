@@ -130,7 +130,7 @@ func safeHostPATHDirs(realHome string, allowPaths []string) (explicitDirs, hostD
 	if realHome != "" {
 		resHome, _ = resolve(realHome)
 	}
-	bounds := buildAllowBounds(allowPaths)
+	resBounds, rawBounds := buildAllowBounds(allowPaths)
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" || !filepath.IsAbs(dir) {
 			continue
@@ -140,8 +140,12 @@ func safeHostPATHDirs(realHome string, allowPaths []string) (explicitDirs, hostD
 		if err != nil || resAbs == "" {
 			continue
 		}
-		if inAllowBounds(resAbs, bounds) {
-			explicitDirs = append(explicitDirs, abs)
+		if inAllowBounds(resAbs, resBounds) {
+			if inAllowBounds(abs, rawBounds) {
+				explicitDirs = append(explicitDirs, abs)
+			} else {
+				explicitDirs = append(explicitDirs, resAbs)
+			}
 			continue
 		}
 		if !isExcludedPATHDir(abs, resAbs, tmpRoot, resTmp, realHome, resHome) {
@@ -151,8 +155,9 @@ func safeHostPATHDirs(realHome string, allowPaths []string) (explicitDirs, hostD
 	return explicitDirs, hostDirs
 }
 
-func buildAllowBounds(paths []string) []string {
-	bounds := make([]string, 0, len(paths))
+func buildAllowBounds(paths []string) (resBounds, rawBounds []string) {
+	resBounds = make([]string, 0, len(paths))
+	rawBounds = make([]string, 0, len(paths))
 	for _, p := range paths {
 		if p == "" {
 			continue
@@ -161,13 +166,15 @@ func buildAllowBounds(paths []string) []string {
 		if err != nil {
 			continue
 		}
-		res, err := resolve(filepath.Clean(abs))
+		cleanAbs := filepath.Clean(abs)
+		res, err := resolve(cleanAbs)
 		if err != nil || res == "" {
 			continue
 		}
-		bounds = append(bounds, filepath.Clean(res))
+		rawBounds = append(rawBounds, cleanAbs)
+		resBounds = append(resBounds, filepath.Clean(res))
 	}
-	return bounds
+	return resBounds, rawBounds
 }
 
 func inAllowBounds(resAbs string, bounds []string) bool {

@@ -568,3 +568,63 @@ func TestCommandLandlockShadowedPATH(t *testing.T) {
 		t.Errorf("Command(fyr-only-home-tool) err = %v, want exec.ErrNotFound", err)
 	}
 }
+
+func TestResolveCommandBinHardening(t *testing.T) {
+	base := t.TempDir()
+	cwdDir := filepath.Join(base, "cwd")
+	workDir := filepath.Join(base, "work")
+	workSub := filepath.Join(workDir, "sub")
+	absBinDir := filepath.Join(base, "absbin")
+	relBinDir := filepath.Join(cwdDir, "relbin")
+	for _, d := range []string{cwdDir, workSub, absBinDir, relBinDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Chdir(cwdDir)
+
+	cwdTool := filepath.Join(cwdDir, "tool")
+	if err := os.WriteFile(cwdTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	relDirTool := filepath.Join(relBinDir, "tool")
+	if err := os.WriteFile(relDirTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workTool := filepath.Join(workSub, "tool")
+	if err := os.WriteFile(workTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nonExec := filepath.Join(workSub, "noexec")
+	if err := os.WriteFile(nonExec, []byte("nope\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absTool := filepath.Join(absBinDir, "tool")
+	if err := os.WriteFile(absTool, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	gotWork, err := resolveCommandBin("./sub/tool", workDir, "")
+	if err != nil || gotWork != workTool {
+		t.Fatalf("resolveCommandBin(./sub/tool, workDir) = (%q, %v), want %q", gotWork, err, workTool)
+	}
+	if _, err := resolveCommandBin("./sub", workDir, ""); !errors.Is(err, os.ErrPermission) {
+		t.Errorf("resolveCommandBin(dir) err = %v, want os.ErrPermission", err)
+	}
+	if _, err := resolveCommandBin("./sub/noexec", workDir, ""); !errors.Is(err, os.ErrPermission) {
+		t.Errorf("resolveCommandBin(non-exec) err = %v, want os.ErrPermission", err)
+	}
+	if _, err := resolveCommandBin("./sub/missing", workDir, ""); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("resolveCommandBin(missing) err = %v, want os.ErrNotExist", err)
+	}
+
+	relPATH := strings.Join([]string{".", "relbin", ""}, string(os.PathListSeparator))
+	if _, err := resolveCommandBin("tool", workDir, relPATH); !errors.Is(err, exec.ErrNotFound) {
+		t.Errorf("resolveCommandBin(bare tool with relative PATH) err = %v, want exec.ErrNotFound", err)
+	}
+	fullPATH := relPATH + string(os.PathListSeparator) + absBinDir
+	gotAbs, err := resolveCommandBin("tool", workDir, fullPATH)
+	if err != nil || gotAbs != absTool {
+		t.Errorf("resolveCommandBin(bare tool with abs PATH) = (%q, %v), want %q", gotAbs, err, absTool)
+	}
+}

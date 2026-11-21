@@ -283,7 +283,7 @@ func droppedKind(raw string) string {
 	if s == "" {
 		return "unknown"
 	}
-	if s == "[redacted by fyr]" {
+	if strings.HasPrefix(s, "[redacted by fyr]") {
 		return "redacted"
 	}
 	cut := strings.IndexFunc(s, func(r rune) bool { return r == ':' || unicode.IsSpace(r) })

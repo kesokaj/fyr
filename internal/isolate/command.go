@@ -30,26 +30,37 @@ func Command(opts CommandOpts) (*exec.Cmd, func(), error) {
 		cmd.Env = env
 		return cmd, func() {}, nil
 	}
-	bin, err := resolveCommandBin(opts.Argv[0], pathVal)
+	bin, err := resolveCommandBin(opts.Argv[0], opts.Dir, pathVal)
 	if err != nil {
 		return nil, nil, err
 	}
 	return prepareIsolatedCmd(buildCommandPolicy(opts, bin, env, gomodcache))
 }
 
-func resolveCommandBin(bin, pathVal string) (string, error) {
+func resolveCommandBin(bin, workDir, pathVal string) (string, error) {
 	if filepath.IsAbs(bin) {
 		return bin, nil
 	}
 	if strings.ContainsRune(bin, filepath.Separator) {
-		abs, err := filepath.Abs(bin)
+		cand := bin
+		if workDir != "" {
+			cand = filepath.Join(workDir, bin)
+		}
+		abs, err := filepath.Abs(cand)
 		if err != nil {
 			return "", fmt.Errorf("isolate command %s: %w", bin, err)
+		}
+		st, err := os.Stat(abs)
+		if err != nil {
+			return "", fmt.Errorf("isolate command %s: %w", bin, err)
+		}
+		if st.IsDir() || st.Mode()&0o111 == 0 {
+			return "", fmt.Errorf("isolate command %s: %w", bin, os.ErrPermission)
 		}
 		return abs, nil
 	}
 	for _, dir := range filepath.SplitList(pathVal) {
-		if dir == "" {
+		if dir == "" || !filepath.IsAbs(dir) {
 			continue
 		}
 		cand := filepath.Join(dir, bin)

@@ -218,17 +218,6 @@ func orderMatchingProposals(props []brain.Record, root, taskID string) []brain.R
 	return append(first, rest...)
 }
 
-func (r *run) appendProposalSection(b *strings.Builder, root, taskID string, limit int) {
-	if b.Len() >= limit {
-		return
-	}
-	props, err := r.sweepOpenProposals()
-	if err != nil || len(props) == 0 {
-		return
-	}
-	r.writeProposalSection(b, orderMatchingProposals(props, root, taskID), limit)
-}
-
 func (r *run) writeProposalSection(b *strings.Builder, props []brain.Record, limit int) {
 	if b.Len() >= limit || len(props) == 0 {
 		return
