@@ -9,29 +9,41 @@ import (
 // TriggerCoverage aggregates the autonomy and feature-use KPIs computed from
 // metrics.db for Summary and rendered in Markdown and HTML reports.
 type TriggerCoverage struct {
-	WorkerPhases             int      `json:"worker_phases"`
-	QualifyingPhases         int      `json:"qualifying_phases"`
-	QualifyingWorkerPhasePct *float64 `json:"qualifying_worker_phase_pct"`
-	ConfiguredWorkerPhases   int      `json:"configured_worker_phases"`
-	ConfiguredWorkerPhasePct *float64 `json:"configured_worker_phase_pct"`
-	WorkerPassed             int      `json:"worker_passed"`
-	BaseCheckPassed          int      `json:"base_check_passed"`
-	BaseCheckFailed          int      `json:"base_check_failed"`
-	JudgePassed              int      `json:"judge_passed"`
-	JudgeFailed              int      `json:"judge_failed"`
-	BuildTimeQuestions       int      `json:"build_time_questions"`
-	SearchCalls              int      `json:"search_calls"`
-	GrepCalls                int      `json:"grep_calls"`
-	SearchGrepRatio          *float64 `json:"search_grep_ratio"`
-	ReadLedgerBlocks         int      `json:"read_ledger_blocks"`
-	AutoModelRuns            int      `json:"auto_model_runs"`
-	WindowWeeks              float64  `json:"window_weeks"`
-	AutoModelRunsPerWeek     float64  `json:"auto_model_runs_per_week"`
-	DoDClosedSessions        int      `json:"dod_closed_sessions"`
-	BuildSessions            int      `json:"build_sessions"`
-	DoDClosedPct             *float64 `json:"dod_closed_pct"`
-	SessionsOverKnee         int      `json:"sessions_over_knee"`
-	MainSessions             int      `json:"main_sessions"`
+	WorkerPhases              int      `json:"worker_phases"`
+	QualifyingPhases          int      `json:"qualifying_phases"`
+	QualifyingWorkerPhasePct  *float64 `json:"qualifying_worker_phase_pct"`
+	ConfiguredWorkerPhases    int      `json:"configured_worker_phases"`
+	ConfiguredWorkerPhasePct  *float64 `json:"configured_worker_phase_pct"`
+	WorkerPassed              int      `json:"worker_passed"`
+	BaseCheckPassed           int      `json:"base_check_passed"`
+	BaseCheckFailed           int      `json:"base_check_failed"`
+	JudgePassed               int      `json:"judge_passed"`
+	JudgeFailed               int      `json:"judge_failed"`
+	BuildTimeQuestions        int      `json:"build_time_questions"`
+	SearchCalls               int      `json:"search_calls"`
+	GrepCalls                 int      `json:"grep_calls"`
+	SearchGrepRatio           *float64 `json:"search_grep_ratio"`
+	ReadLedgerBlocks          int      `json:"read_ledger_blocks"`
+	AutoModelRuns             int      `json:"auto_model_runs"`
+	WindowWeeks               float64  `json:"window_weeks"`
+	AutoModelRunsPerWeek      float64  `json:"auto_model_runs_per_week"`
+	DoDClosedSessions         int      `json:"dod_closed_sessions"`
+	BuildSessions             int      `json:"build_sessions"`
+	DoDClosedPct              *float64 `json:"dod_closed_pct"`
+	SessionsOverKnee          int      `json:"sessions_over_knee"`
+	MainSessions              int      `json:"main_sessions"`
+	OrchestrationCalls        int      `json:"orchestration_calls"`
+	SwarmSkillLoads           int      `json:"swarm_skill_loads"`
+	GateVerbs                 int      `json:"gate_verbs"`
+	LandVerbs                 int      `json:"land_verbs"`
+	DeterministicGates        int      `json:"deterministic_gates"`
+	DeterministicGateSessions int      `json:"deterministic_gate_sessions"`
+	DeterministicGatePct      *float64 `json:"deterministic_gate_pct"`
+	PreInvocationTurnVets     int      `json:"pre_invocation_turn_vets"`
+	PreInvocationTimedOut     int      `json:"pre_invocation_timed_out"`
+	PreInvocationTimeoutPct   *float64 `json:"pre_invocation_timeout_pct"`
+	PreInvocationP50MS        *float64 `json:"pre_invocation_p50_ms"`
+	PreInvocationP95MS        *float64 `json:"pre_invocation_p95_ms"`
 }
 
 type sessionCommitSummary struct {
@@ -64,6 +76,11 @@ func populateTriggerCoverage(sum *Summary, o ShowOptions, all []sess, trials []t
 		tc.SearchGrepRatio = &r
 	}
 	tc.ReadLedgerBlocks = sum.E.LedgerSaved
+	tc.PreInvocationTurnVets = sum.E.TurnVets
+	tc.PreInvocationTimedOut = sum.E.TimedOutTurns
+	tc.PreInvocationTimeoutPct = sum.E.TimeoutRatePct
+	tc.PreInvocationP50MS = sum.E.P50DurationMS
+	tc.PreInvocationP95MS = sum.E.P95DurationMS
 	finalizeTriggerCoverageRates(&tc)
 	sum.TriggerCoverage = tc
 }
@@ -80,6 +97,8 @@ func finalizeTriggerCoverageRates(tc *TriggerCoverage) {
 	if tc.BuildSessions > 0 {
 		pct := round4(float64(tc.DoDClosedSessions) * 100 / float64(tc.BuildSessions))
 		tc.DoDClosedPct = &pct
+		gatePct := round4(float64(tc.DeterministicGateSessions) * 100 / float64(tc.BuildSessions))
+		tc.DeterministicGatePct = &gatePct
 	}
 }
 
@@ -112,15 +131,19 @@ func recordWaveCoverageRow(tc *TriggerCoverage, w waveRow) {
 }
 
 func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[string][]stp, eventsByID map[string][]sessEvent) {
-	seenQ := map[string]bool{}
+	seenQ, seenSteps := map[string]bool{}, map[string]bool{}
 	handBuildSessions := 0
 	for _, x := range all {
 		ev := sessionCommitSummaryFromEvents(eventsByID[x.id])
 		hasWorkVerb := countSessionBuildQuestions(tc, x, stepsByID[x.id], ev.firstCommitMS, seenQ)
+		hasGate := countSessionV9Coverage(tc, x, stepsByID[x.id], seenSteps)
 		if x.parent == "" && ev.hasNonAmbigCommit {
 			tc.BuildSessions++
 			if ev.hasHandoff {
 				tc.DoDClosedSessions++
+			}
+			if hasGate {
+				tc.DeterministicGateSessions++
 			}
 			if !hasWorkVerb && x.label == "" {
 				handBuildSessions++
@@ -128,6 +151,41 @@ func addSessionTriggerCoverage(tc *TriggerCoverage, all []sess, stepsByID map[st
 		}
 	}
 	tc.QualifyingPhases = tc.WorkerPhases + handBuildSessions
+}
+
+func countSessionV9Coverage(tc *TriggerCoverage, x sess, steps []stp, seen map[string]bool) bool {
+	if x.vendor == historical {
+		return false
+	}
+	hasGate := false
+	for _, st := range steps {
+		if st.kind == "tool" || st.kind == "assistant" || st.kind == "generation" {
+			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		if st.kind != "tool" {
+			continue
+		}
+		if st.skill == "fyr-swarm" {
+			tc.SwarmSkillLoads++
+		}
+		for _, v := range st.verbs {
+			switch {
+			case v == "fyr gate" || strings.HasPrefix(v, "fyr gate "):
+				tc.GateVerbs++
+				hasGate = true
+			case v == "fyr land" || strings.HasPrefix(v, "fyr land "):
+				tc.LandVerbs++
+				hasGate = true
+			case v == "fyr verify" || strings.HasPrefix(v, "fyr verify ") || v == "fyr close" || strings.HasPrefix(v, "fyr close "):
+				hasGate = true
+			}
+		}
+	}
+	return hasGate
 }
 
 func countSessionBuildQuestions(tc *TriggerCoverage, x sess, steps []stp, firstCommitMS int64, seenQ map[string]bool) bool {
@@ -182,16 +240,13 @@ func sessionCommitSummaryFromEvents(events []sessEvent) sessionCommitSummary {
 
 func triggerCoverageSection(s *Summary) reportSection {
 	tc := s.TriggerCoverage
+	h := s.Health
 	t := table{Head: []string{"KPI", "Value", "Target"}}
-	if s.F.Waves > 0 || s.F.Workers > 0 || tc.WorkerPhases > 0 {
-		t.Rows = append(t.Rows,
-			[]string{"Qualifying phases run as workers", fmtPctRatio(tc.QualifyingWorkerPhasePct, tc.WorkerPhases, tc.QualifyingPhases), ">= 80%"},
-			[]string{"Worker phases with model: + judge: + base-check:", fmtPctRatio(tc.ConfiguredWorkerPhasePct, tc.ConfiguredWorkerPhases, tc.WorkerPhases), "= 100%"},
-			[]string{"Worker verdicts (PASS / total)", fmt.Sprintf("%d / %d", tc.WorkerPassed, tc.WorkerPhases), "-"},
-			[]string{"Base-Check verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.BaseCheckPassed, tc.BaseCheckFailed), "-"},
-		)
-	}
 	t.Rows = append(t.Rows,
+		[]string{"v9 orchestration (/fyr-swarm / gate / land)", fmt.Sprintf("swarm-skill:%d, gate:%d, land:%d (tools:%d)", tc.SwarmSkillLoads, tc.GateVerbs, tc.LandVerbs, h.OrchestrationCalls), "-"},
+		[]string{"Deterministic gate coverage", fmtPctRatio(tc.DeterministicGatePct, tc.DeterministicGateSessions, tc.BuildSessions), ">= 80%"},
+		[]string{"PreInvocation timeout rate", fmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets), "= 0%"},
+		[]string{"PreInvocation latency (p50 / p95)", fmtP50P95MS(s.E.P50DurationMS, s.E.P95DurationMS), "< 250ms"},
 		[]string{"Judge verdicts (PASS / FAIL)", fmt.Sprintf("%d / %d", tc.JudgePassed, tc.JudgeFailed), "-"},
 		[]string{"Build-time questions", fmt.Sprint(tc.BuildTimeQuestions), "= 0"},
 		[]string{"Search : grep", fmtSearchGrepKPI(tc), ">= 1.0"},
@@ -205,6 +260,20 @@ func triggerCoverageSection(s *Summary) reportSection {
 		Note:  "KPIs computed from metrics.db against the autonomy and feature-use targets.",
 		Table: t,
 	}
+}
+
+func fmtOptMS(p *float64) string {
+	if p == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.0fms", *p)
+}
+
+func fmtP50P95MS(p50, p95 *float64) string {
+	if p50 == nil && p95 == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%s / %s", fmtOptMS(p50), fmtOptMS(p95))
 }
 
 func appendV9TriggerRows(t *table, s *Summary) {

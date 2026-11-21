@@ -16,6 +16,7 @@ type showData struct {
 	steps  map[string][]stp
 	events map[string][]sessEvent
 	waves  []waveRow
+	sbAcc  *secondBrainAcc
 }
 
 func (s *Store) loadShowData(all []sess) (*showData, error) {

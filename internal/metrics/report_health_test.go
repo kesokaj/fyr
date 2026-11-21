@@ -372,6 +372,38 @@ func TestMetricsReportV9Health(t *testing.T) {
 			t.Errorf("HTML contains %q", bad)
 		}
 	}
+	assertLiveV9ReportSections(t, md, html)
+}
+
+func assertLiveV9ReportSections(t *testing.T, md, html string) {
+	t.Helper()
+	for _, want := range []string{
+		"v9 orchestration (/fyr-swarm / gate / land)",
+		"Deterministic gate coverage",
+		"PreInvocation timeout rate",
+		"PreInvocation latency (p50 / p95)",
+		"Bash read bypasses",
+		"Top Bash verbs",
+		"PreInvocation timeouts",
+		"Mean injected bytes",
+		"Pivots used / skills loaded",
+		"Agent Roles",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing live v9 field %q:\n%s", want, md)
+		}
+		if !strings.Contains(html, want) && !strings.Contains(html, esc(want)) {
+			t.Errorf("HTML missing live v9 field %q", want)
+		}
+	}
+	for _, role := range []string{"main", "reviewer"} {
+		if !strings.Contains(md, "| "+role+" |") {
+			t.Errorf("markdown missing Agent Roles row %q:\n%s", role, md)
+		}
+		if !strings.Contains(html, "<td>"+role+"</td>") {
+			t.Errorf("HTML missing Agent Roles cell %q", role)
+		}
+	}
 }
 
 func TestHealthAndReportsPerModelKnee(t *testing.T) {

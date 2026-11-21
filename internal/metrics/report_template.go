@@ -39,7 +39,7 @@ details{margin-top:8px}summary{color:var(--ink-2);cursor:pointer}
 ul.notes{color:var(--ink-2);padding-left:18px}
 </style></head><body><main>
 <h1>Agent metrics</h1>
-<p class="sub">{{.Sum.Window.since}} to {{.Sum.Window.until}} · generated {{.Generated}} by <code>fyr metrics report</code> from the local metrics store</p>
+<p class="sub">{{.Sum.Window.since}} to {{.Sum.Window.until}}{{if .Sum.TagCohort}} · since tag <code>{{.Sum.TagCohort.Tag}}</code> ({{.Sum.TagCohort.Cutoff}}){{end}} · generated {{.Generated}} by <code>fyr metrics report</code> from the local metrics store</p>
 <div class="legend">{{range .Series}}<span><span class="sw {{.Class}}"></span>{{.Label}}</span>{{end}}</div>
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>

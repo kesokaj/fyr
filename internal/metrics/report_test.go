@@ -285,3 +285,42 @@ func TestWriteMarkdownReportRefusesOverwrite(t *testing.T) {
 		t.Fatalf("second write: %v", err)
 	}
 }
+
+func TestRenderReportCohortsAndAgentRoles(t *testing.T) {
+	sum := reportFixture(t)
+	tPct, p50, p95, inj, ratio := 10.0, 22.0, 140.0, 640.0, 3.0
+	sum.E = SecondBrain{
+		TurnVets: 10, TimedOutTurns: 1, TimeoutRatePct: &tPct,
+		P50DurationMS: &p50, P95DurationMS: &p95, MeanInjectedBytes: &inj, PivotsUsed: 4, SkillsLoaded: 3,
+	}
+	sum.C.BashReadSkips = map[string]int{"agy": 2}
+	sum.C.TopBashVerbs = []VerbCount{{Verb: "git status", Count: 5}, {Verb: "go test", Count: 3}}
+	sum.AgentRoles = []AgentRoleMetrics{
+		{Role: "main", Sessions: 2, ToolCalls: 8, SQLiteVerbs: 3, GrepCalls: 1, SearchGrepRatio: &ratio, TurnVets: 10, TimedOutTurns: 1, TimeoutRatePct: &tPct},
+		{Role: "reviewer", Sessions: 1, ToolCalls: 4},
+	}
+	sum.TagCohort = &TagCohort{
+		Tag: "v9.6.3", Cutoff: "2026-10-05T00:00:00Z",
+		Pre:  CohortMetrics{Sessions: 1, ToolCalls: 3, BashReadSkips: 2, TurnVets: 2},
+		Post: CohortMetrics{Sessions: 2, ToolCalls: 8, BashReadSkips: 0, TurnVets: 10, PreInvocationTimedOut: 1, PreInvocationTimeoutPct: &tPct, PreInvocationP50MS: &p50, PreInvocationP95MS: &p95},
+	}
+	var mdBuf, htmlBuf bytes.Buffer
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderReport(&htmlBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	md, html := mdBuf.String(), htmlBuf.String()
+	for _, want := range []string{"git status:5, go test:3", "10.0% (1 / 10)", "22ms / 140ms", "Agent Roles", "Tag Cohort (v9.6.3)", "v9.6.3"} {
+		if !strings.Contains(md, want) || !strings.Contains(html, want) {
+			t.Errorf("report missing %q", want)
+		}
+	}
+	for _, row := range [][2]string{{"Mean injected bytes", "640"}, {"Pivots used / skills loaded", "4 / 3"}} {
+		if !strings.Contains(md, "| "+row[0]+" | "+row[1]+" |") || !strings.Contains(html, "<td>"+row[0]+"</td><td>"+row[1]+"</td>") {
+			t.Errorf("report missing table row %q = %q", row[0], row[1])
+		}
+	}
+}

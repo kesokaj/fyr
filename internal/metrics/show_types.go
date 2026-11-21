@@ -21,6 +21,8 @@ type Summary struct {
 	F               WorkSummary               `json:"F"`
 	TriggerCoverage TriggerCoverage           `json:"trigger_coverage"`
 	Health          HealthSignals             `json:"health"`
+	TagCohort       *TagCohort                `json:"tag_cohort,omitempty"`
+	AgentRoles      []AgentRoleMetrics        `json:"agent_roles,omitempty"`
 	Deltas          *WindowDeltas             `json:"deltas,omitempty"`
 	Diagnostics     *DiagnosticReport         `json:"diagnostics,omitempty"`
 	Projects        []ProjectRow              `json:"projects,omitempty"`
@@ -123,6 +125,14 @@ type Adherence struct {
 	Forbidden       map[string]int            `json:"forbidden"`
 	FirstReads      map[string]int            `json:"first_reads"`
 	Skills          map[string]map[string]int `json:"skills"`
+	BashReadSkips   map[string]int            `json:"bash_read_bypasses,omitempty"`
+	TopBashVerbs    []VerbCount               `json:"top_bash_verbs,omitempty"`
+}
+
+// VerbCount is one normalized Bash verb from step_verbs and its count.
+type VerbCount struct {
+	Verb  string `json:"verb"`
+	Count int    `json:"count"`
 }
 
 type Reliability struct {
@@ -134,14 +144,62 @@ type Reliability struct {
 }
 
 // SecondBrain aggregates PreInvocation vetting and PreToolUse read-ledger
-// savings from turn_vets (schema 6).
+// savings from turn_vets (schema 6 and schema 11).
 type SecondBrain struct {
-	TurnVets      int      `json:"turn_vets"`
-	MeanVetScore  *float64 `json:"mean_vet_score"`
-	VetFirstTurns int      `json:"vet_first_turns"`
-	BypassedTurns int      `json:"bypassed_turns"`
-	PivotsSeeded  int      `json:"pivots_seeded"`
-	LedgerSaved   int      `json:"ledger_saved"`
+	TurnVets          int      `json:"turn_vets"`
+	MeanVetScore      *float64 `json:"mean_vet_score"`
+	VetFirstTurns     int      `json:"vet_first_turns"`
+	BypassedTurns     int      `json:"bypassed_turns"`
+	PivotsSeeded      int      `json:"pivots_seeded"`
+	LedgerSaved       int      `json:"ledger_saved"`
+	TimedOutTurns     int      `json:"timed_out_turns"`
+	TimeoutRatePct    *float64 `json:"timeout_rate_pct"`
+	P50DurationMS     *float64 `json:"p50_duration_ms"`
+	P95DurationMS     *float64 `json:"p95_duration_ms"`
+	MeanInjectedBytes *float64 `json:"mean_injected_bytes"`
+	PivotsUsed        int      `json:"pivots_used"`
+	SkillsLoaded      int      `json:"skills_loaded"`
+}
+
+// CohortMetrics holds comparable KPIs for one side of a TagCohort split.
+type CohortMetrics struct {
+	Since                   string   `json:"since,omitempty"`
+	Until                   string   `json:"until,omitempty"`
+	Sessions                int      `json:"sessions"`
+	ToolCalls               int      `json:"tool_calls"`
+	SQLiteVerbs             int      `json:"sqlite_verbs"`
+	GrepCalls               int      `json:"grep_calls"`
+	SearchGrepRatio         *float64 `json:"search_grep_ratio"`
+	BashReadSkips           int      `json:"bash_read_bypasses"`
+	TurnVets                int      `json:"turn_vets"`
+	PreInvocationTimedOut   int      `json:"pre_invocation_timed_out"`
+	PreInvocationTimeoutPct *float64 `json:"pre_invocation_timeout_pct"`
+	PreInvocationP50MS      *float64 `json:"pre_invocation_p50_ms"`
+	PreInvocationP95MS      *float64 `json:"pre_invocation_p95_ms"`
+}
+
+// TagCohort compares pre-tag vs post-tag metrics around a git tag cutoff.
+type TagCohort struct {
+	Tag    string        `json:"tag"`
+	Cutoff string        `json:"cutoff"`
+	Pre    CohortMetrics `json:"pre"`
+	Post   CohortMetrics `json:"post"`
+}
+
+// AgentRoleMetrics summarizes activity for one agent_type role across
+// filtered sessions (empty agent_type normalized to "main").
+type AgentRoleMetrics struct {
+	Role            string   `json:"role"`
+	Sessions        int      `json:"sessions"`
+	ToolCalls       int      `json:"tool_calls"`
+	ToolErrors      int      `json:"tool_errors"`
+	ToolErrorRate   *float64 `json:"tool_error_rate"`
+	SQLiteVerbs     int      `json:"sqlite_verbs"`
+	GrepCalls       int      `json:"grep_calls"`
+	SearchGrepRatio *float64 `json:"search_grep_ratio"`
+	TurnVets        int      `json:"turn_vets"`
+	TimedOutTurns   int      `json:"timed_out_turns"`
+	TimeoutRatePct  *float64 `json:"timeout_rate_pct"`
 }
 
 // WorkSummary aggregates fyr work wave, Base-Check, and cross-family Judge

@@ -110,7 +110,7 @@ func ingestTo(home string, w io.Writer) error {
 
 // metricsShow serves `metrics show`, as text or --json.
 func (c *ctx) metricsShow(args []string) error {
-	if bad := c.metricsFlagsOutside("since", "until", "project", "label", "all-labels", "context-target", "include-sandboxes", "json"); bad != "" {
+	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "label", "all-labels", "context-target", "include-sandboxes", "json"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics show: --%s does not apply to show", bad))
 	}
 	if len(args) > 0 {
@@ -129,7 +129,7 @@ func (c *ctx) metricsShow(args []string) error {
 
 // metricsReport serves `metrics report`: HTML, --md, --json, or --web.
 func (c *ctx) metricsReport(args []string) error {
-	if bad := c.metricsFlagsOutside("since", "until", "project", "global", "md", "json", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out"); bad != "" {
+	if bad := c.metricsFlagsOutside("since", "since-tag", "until", "project", "global", "md", "json", "web", "listen", "include-sandboxes", "label", "all-labels", "context-target", "out"); bad != "" {
 		return usageErr(c.out, "metrics", fmt.Sprintf("fyr metrics report: --%s does not apply to report", bad))
 	}
 	if len(args) > 0 {
@@ -240,10 +240,6 @@ func (c *ctx) existingMetricsStore() (*metrics.Store, error) {
 // each other, and --project is made absolute as the store records roots.
 func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 	var o metrics.ShowOptions
-	var err error
-	if o.Since, o.Now, err = c.metricsWindow(); err != nil {
-		return o, err
-	}
 	if c.metricsProject != "" && c.global {
 		return o, errors.New("--project and --global exclude each other")
 	}
@@ -263,6 +259,9 @@ func (c *ctx) metricsShowOptions() (metrics.ShowOptions, error) {
 			return o, err
 		}
 		o.Project = proj
+	}
+	if err := c.resolveMetricsWindow(&o); err != nil {
+		return o, err
 	}
 	return o, nil
 }

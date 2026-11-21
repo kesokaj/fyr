@@ -32,7 +32,7 @@ type ctx struct {
 	fromZip, kind, refs, memType, memName, memDesc, memBodyFile, dreamProject                      string
 	memIncludeLow                                                                                  bool
 	metricsSource, metricsLabel, metricsOutcome, metricsSince, metricsProject, metricsOut          string
-	metricsUntil, metricsHarness, metricsListen                                                    string
+	metricsUntil, metricsSinceTag, metricsHarness, metricsListen                                   string
 	metricsContextTarget                                                                           int64
 	metricsAllLabels, metricsJSON, metricsMD, metricsWeb, metricsIncludeSandboxes                  bool
 	recTitle, recTitleFile, recBodyFile, recOut, recStatus, recID, recProject                      string
@@ -230,6 +230,7 @@ func (c *ctx) registerReportFlags(withSubverbs bool) {
 		c.fs.BoolVar(&c.metricsJSON, "json", false, "write JSON instead of HTML (stdout unless --out)")
 	}
 	c.fs.StringVar(&c.metricsSince, "since", "", p("show, report, evals", "the window's start, `YYYY-MM-DD` (default 30 days ago)"))
+	c.fs.StringVar(&c.metricsSinceTag, "since-tag", "", p("show, report", "window start at git tag `TAG`"))
 	c.fs.StringVar(&c.metricsUntil, "until", "", p("show, report, evals", "the window's end, `YYYY-MM-DD`, exclusive (default now)"))
 	c.fs.StringVar(&c.metricsProject, "project", "", project)
 	c.fs.BoolVar(&c.global, "global", false, p("report", "all projects across the local store"))

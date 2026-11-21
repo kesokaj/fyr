@@ -45,6 +45,9 @@ func RenderMarkdownReport(w io.Writer, sum *Summary, evals *EvalRows, now time.T
 		mdCell(sum.Window["since"]), mdCell(sum.Window["until"]))
 	fmt.Fprintf(&b, "Generated %s by `fyr report` from the local metrics store.\n",
 		now.UTC().Format("2006-01-02 15:04 UTC"))
+	if sum.TagCohort != nil {
+		fmt.Fprintf(&b, "Since tag `%s` (%s).\n", mdCell(sum.TagCohort.Tag), mdCell(sum.TagCohort.Cutoff))
+	}
 	for _, sec := range reportSections(sum, series, evals) {
 		fmt.Fprintf(&b, "\n## %s\n\n", sec.Title)
 		writeMDTable(&b, sec.Table)

@@ -13,6 +13,7 @@ type ShowOptions struct {
 	Home             string
 	Since            time.Time // zero: 30 days before Now
 	Now              time.Time // zero: time.Now()
+	SinceTag         string
 	Project          string
 	Label            string
 	AllLabels        bool
@@ -81,6 +82,7 @@ func (s *Store) Show(o ShowOptions) (*Summary, error) {
 }
 
 func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
+	populateAdherenceVerbs(sum, all, data.steps)
 	if err := s.populateSecondBrainAndProjects(sum, o, all, trials, data, since, now); err != nil {
 		return err
 	}
@@ -91,6 +93,11 @@ func (s *Store) populateSummaryExtras(sum *Summary, o ShowOptions, all []sess, t
 		return err
 	}
 	if err := s.populateHealthAndFallbacks(sum, o, all, trials, data, since, now); err != nil {
+		return err
+	}
+	sum.TriggerCoverage.OrchestrationCalls = sum.Health.OrchestrationCalls
+	sum.TriggerCoverage.DeterministicGates = sum.Health.DeterministicGates
+	if err := s.populateCohorts(sum, o, all, data, since, now); err != nil {
 		return err
 	}
 	if err := s.populateWindowDeltas(sum, o, since, now); err != nil {

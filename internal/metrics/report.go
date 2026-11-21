@@ -214,6 +214,8 @@ func outcomeTable(s *Summary, series []serie) table {
 	row("peak context", func(v string) string { return fmt.Sprint(s.B.PeakContext[v]) })
 	row(fmt.Sprintf("sessions over context target (%d)", s.B.ContextTarget), s.overTarget)
 	row("fyr search : grep", optFloatCol(s.C.SearchGrepRatio, "%.3f"))
+	row("bash read bypasses", agyCol(fmt.Sprint(s.C.BashReadSkips["agy"])))
+	row("PreInvocation timeouts / p50 / p95", agyCol(fmtPreInvocationScorecardKPI(s)))
 	row("tool error rate", optFloatCol(s.D.ToolErrorRate, "%.3f"))
 	row("denials", agyFallbackCol(s.D.Denials, fmt.Sprint(s.Health.HookDenials)))
 	row("interrupts", optIntCol(s.D.Interrupts))

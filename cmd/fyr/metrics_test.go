@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -236,6 +237,14 @@ func TestMetricsUsageErrorsExit2(t *testing.T) {
 		{"metrics", "trajectory", "--limit", "-1"},
 		{"metrics", "trajectory", "--since", "2026-10-01"},
 		{"metrics", "trajectory", "--harness", "abc1234"},
+		{"metrics", "show", "--since", "2026-10-01", "--since-tag", "v9.6.3"},
+		{"report", "--since", "2026-10-01", "--since-tag", "v9.6.3"},
+		{"metrics", "show", "--since-tag", ""},
+		{"report", "--since-tag", ""},
+		{"metrics", "show", "--since-tag", "--bad"},
+		{"metrics", "show", "--since-tag", "no-such-tag-999"},
+		{"metrics", "evals", "--since-tag", "v9.6.3"},
+		{"metrics", "ingest", "--since-tag", "v9.6.3"},
 	} {
 		err := run(append(args, "--home", home), &bytes.Buffer{})
 		var code exitCode
@@ -721,3 +730,59 @@ func assertPreviewGet(t *testing.T, client *http.Client, baseURL, suffix, wantBo
 		t.Errorf("GET %s CSP = %q, want %q", suffix, gotCSP, wantCSP)
 	}
 }
+
+func TestMetricsSinceTagCLI(t *testing.T) {
+	home := t.TempDir()
+	repo, _ := gitFixture(t)
+	runGitAtT(t, repo, "2026-10-08T10:00:00Z", "commit", "--allow-empty", "-m", "v1 release")
+	runGitAtT(t, repo, "2026-10-08T10:00:00Z", "tag", "-a", "v1.0.0", "-m", "v1.0.0")
+	seedSinceTagStoreT(t, home, repo)
+
+	var out bytes.Buffer
+	if err := run([]string{"metrics", "show", "--json", "--project", repo, "--since-tag", "v1.0.0", "--home", home}, &out); err != nil {
+		t.Fatalf("metrics show --since-tag: %v\n%s", err, out.String())
+	}
+	var sum metrics.Summary
+	if err := json.Unmarshal(out.Bytes(), &sum); err != nil {
+		t.Fatal(err)
+	}
+	if sum.TagCohort == nil || sum.TagCohort.Tag != "v1.0.0" || sum.TagCohort.Pre.Sessions != 1 || sum.TagCohort.Post.Sessions != 1 {
+		t.Fatalf("TagCohort = %+v", sum.TagCohort)
+	}
+	out.Reset()
+	if err := run([]string{"report", "--md", "--since-tag", "v1.0.0", "--dir", repo, "--home", home}, &out); err != nil {
+		t.Fatalf("report --md --since-tag: %v\n%s", err, out.String())
+	}
+	for _, want := range []string{"Since tag `v1.0.0`", "## Tag Cohort (v1.0.0)", "## Agent Roles"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report --md missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func runGitAtT(t *testing.T, dir, isoDate string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(gitCleanEnv(), "GIT_AUTHOR_DATE="+isoDate, "GIT_COMMITTER_DATE="+isoDate, "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func seedSinceTagStoreT(t *testing.T, home, repo string) {
+	t.Helper()
+	preTS := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC).UnixMilli()
+	postTS := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC).UnixMilli()
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	execSQLiteT(t, metrics.Path(home),
+		`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('PRE', 'agy', '`+repo+`', `+jsonInt(preTS)+`, `+jsonInt(preTS+1000)+`), ('POST', 'agy', '`+repo+`', `+jsonInt(postTS)+`, `+jsonInt(postTS+1000)+`)`,
+		`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('PRE', 'p1', `+jsonInt(preTS+10)+`, 'tool', 'Bash'), ('POST', 'q1', `+jsonInt(postTS+10)+`, 'tool', 'Bash')`,
+		`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('PRE', 'p1', 0, 'cat'), ('POST', 'q1', 0, 'fyr search --slice')`,
+	)
+}
+
+func jsonInt(v int64) string { b, _ := json.Marshal(v); return string(b) }

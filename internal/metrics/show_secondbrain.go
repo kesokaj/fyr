@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"math"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -11,16 +13,27 @@ type projVetAcc struct {
 	lastMS          int64
 }
 
+type secondBrainAcc struct {
+	sb               SecondBrain
+	scoreSum         int
+	durations        []int
+	injSum, injCount int
+	byRoot           map[string]*projVetAcc
+	byConv           map[string][2]int
+}
+
 func (s *Store) populateSecondBrainAndProjects(sum *Summary, o ShowOptions, all []sess, trials []trial, data *showData, since, now time.Time) error {
 	if o.Label == "" {
-		sb, vetsByRoot, err := s.querySecondBrain(o, since, now)
+		where, args := windowAndProjectWhere("created_at", o, since, now)
+		acc, err := s.querySecondBrainWhere(where, args)
 		if err != nil {
 			return err
 		}
-		sum.E = sb
+		data.sbAcc = acc
+		sum.E = acc.sb
 		if o.Project == "" {
 			home := resolveMetricsHome(o, s.path)
-			sum.Projects = buildProjectRowsWithOpts(all, vetsByRoot, data.steps, data.events, o, home)
+			sum.Projects = buildProjectRowsWithOpts(all, acc.byRoot, data.steps, data.events, o, home)
 		}
 	}
 	waves, err := s.queryWaveRows(o, since, now)
@@ -45,43 +58,115 @@ func windowAndProjectWhere(tsCol string, o ShowOptions, since, now time.Time) (s
 	return w, args
 }
 
+func beforeCutoffProjectWhere(tsCol string, o ShowOptions, cutoff time.Time) (string, []any) {
+	expr := `(CASE WHEN ` + tsCol + ` >= 100000000 AND ` + tsCol + ` < 100000000000 THEN ` + tsCol + ` * 1000 ELSE ` + tsCol + ` END)`
+	w := expr + ` > 0 AND ` + expr + ` < ?`
+	args := []any{cutoff.UnixMilli()}
+	if o.Project != "" {
+		p := filepath.Clean(o.Project)
+		w += ` AND (project_root = ? OR substr(project_root, 1, length(?)) = ?)`
+		args = append(args, p, p+"/", p+"/")
+	}
+	return w, args
+}
+
 func (s *Store) querySecondBrain(o ShowOptions, since, now time.Time) (SecondBrain, map[string]*projVetAcc, error) {
 	where, args := windowAndProjectWhere("created_at", o, since, now)
-	rows, err := s.db.Query(`SELECT project_root, gate, score, bypassed, pivots_count, ledger_saved, created_at FROM turn_vets WHERE `+where, args...)
+	acc, err := s.querySecondBrainWhere(where, args)
 	if err != nil {
 		return SecondBrain{}, nil, err
 	}
+	return acc.sb, acc.byRoot, nil
+}
+
+func (s *Store) querySecondBrainWhere(where string, args []any) (*secondBrainAcc, error) {
+	rows, err := s.db.Query(`SELECT project_root, conversation_id, gate, score, bypassed, pivots_count, ledger_saved, created_at,
+		COALESCE(duration_ms, 0), COALESCE(timed_out, 0), COALESCE(injected_bytes, 0),
+		COALESCE(pivots_used_count, 0), COALESCE(skills_loaded_count, 0)
+		FROM turn_vets WHERE `+where, args...)
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
-	var sb SecondBrain
-	var scoreSum int
-	byRoot := map[string]*projVetAcc{}
+	acc := &secondBrainAcc{byRoot: map[string]*projVetAcc{}, byConv: map[string][2]int{}}
 	for rows.Next() {
-		var root, gate string
-		var score, bypassed, pivots, ledger int
+		var root, convID, gate string
+		var score, bypassed, pivots, ledger, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded int
 		var createdAt int64
-		if err := rows.Scan(&root, &gate, &score, &bypassed, &pivots, &ledger, &createdAt); err != nil {
-			return SecondBrain{}, nil, err
+		if err := rows.Scan(&root, &convID, &gate, &score, &bypassed, &pivots, &ledger, &createdAt,
+			&durMS, &timedOut, &injBytes, &pivotsUsed, &skillsLoaded); err != nil {
+			return nil, err
 		}
-		sb.TurnVets++
-		scoreSum += score
-		if gate == "VET_FIRST" {
-			sb.VetFirstTurns++
-		}
-		if bypassed != 0 {
-			sb.BypassedTurns++
-		}
-		sb.PivotsSeeded += pivots
-		sb.LedgerSaved += ledger
-		accumulateProjVet(byRoot, root, score, normalizeMilli(createdAt))
+		acc.addRow(root, convID, gate, score, bypassed, pivots, ledger, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded, createdAt)
 	}
 	if err := rows.Err(); err != nil {
-		return SecondBrain{}, nil, err
+		return nil, err
 	}
-	if sb.TurnVets > 0 {
-		mean := round4(float64(scoreSum) / float64(sb.TurnVets))
-		sb.MeanVetScore = &mean
+	acc.finish()
+	return acc, nil
+}
+
+func (a *secondBrainAcc) addRow(root, convID, gate string, score, bypassed, pivots, ledger, durMS, timedOut, injBytes, pivotsUsed, skillsLoaded int, createdAt int64) {
+	a.sb.TurnVets++
+	a.scoreSum += score
+	if gate == "VET_FIRST" {
+		a.sb.VetFirstTurns++
 	}
-	return sb, byRoot, nil
+	if bypassed != 0 {
+		a.sb.BypassedTurns++
+	}
+	a.sb.PivotsSeeded += pivots
+	a.sb.LedgerSaved += ledger
+	a.sb.PivotsUsed += pivotsUsed
+	a.sb.SkillsLoaded += skillsLoaded
+	if timedOut != 0 {
+		a.sb.TimedOutTurns++
+	}
+	if durMS > 0 {
+		a.durations = append(a.durations, durMS)
+	}
+	if injBytes > 0 || durMS > 0 || timedOut != 0 {
+		a.injSum += injBytes
+		a.injCount++
+	}
+	if cid := strings.TrimSpace(convID); cid != "" {
+		cur := a.byConv[cid]
+		cur[0]++
+		if timedOut != 0 {
+			cur[1]++
+		}
+		a.byConv[cid] = cur
+	}
+	accumulateProjVet(a.byRoot, root, score, normalizeMilli(createdAt))
+}
+
+func (a *secondBrainAcc) finish() {
+	if a.sb.TurnVets > 0 {
+		mean := round4(float64(a.scoreSum) / float64(a.sb.TurnVets))
+		a.sb.MeanVetScore = &mean
+		rate := round4(float64(a.sb.TimedOutTurns) * 100.0 / float64(a.sb.TurnVets))
+		a.sb.TimeoutRatePct = &rate
+	}
+	if len(a.durations) > 0 {
+		sort.Ints(a.durations)
+		p50 := percentileInt(a.durations, 50)
+		p95 := percentileInt(a.durations, 95)
+		a.sb.P50DurationMS = &p50
+		a.sb.P95DurationMS = &p95
+	}
+	if a.injCount > 0 {
+		mi := round4(float64(a.injSum) / float64(a.injCount))
+		a.sb.MeanInjectedBytes = &mi
+	}
+}
+
+func percentileInt(sorted []int, p int) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := int(math.Ceil(float64(p)/100.0*float64(len(sorted)))) - 1
+	idx = max(0, min(len(sorted)-1, idx))
+	return round4(float64(sorted[idx]))
 }
 
 func accumulateProjVet(byRoot map[string]*projVetAcc, root string, score int, tsMS int64) {

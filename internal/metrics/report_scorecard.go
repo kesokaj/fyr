@@ -27,6 +27,8 @@ func buildScorecardRows(s *Summary) [][]string {
 		{"2. Second-Brain", "Search:Grep Ratio", fmtScorecardSearchGrep(s), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.SearchGrepRatio }, "%.2f")},
 		{"2. Second-Brain", "Repeat Reads %", fmtRepeatReadsKPI(s), fmtRepeatReadsDelta(d)},
 		{"2. Second-Brain", "Blocked Ledger / Clamp Saves", fmtLedgerClampKPI(s), fmtSavesDelta(d)},
+		{"2. Second-Brain", "Bash Read Bypasses", fmt.Sprint(s.C.BashReadSkips["agy"]), "n/a"},
+		{"2. Second-Brain", "PreInvocation Timeouts & Latency", fmtPreInvocationScorecardKPI(s), "n/a"},
 		{"3. Reliability", "Tool Error Rate %", fmtToolErrorRateKPI(s), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.ToolErrorRatePct }, "%.2f%%")},
 		{"3. Reliability", "Retry Loops", fmt.Sprint(s.D.RetryLoops["agy"]), fmtDeltaField(d, func(w *WindowDeltas) *MetricDelta { return w.RetryLoops }, "%.0f")},
 		{"3. Reliability", "Guarded Subagent Downgrades", fmt.Sprint(s.Health.GuardedDowngrades), fmtMapMetricDelta(d, "H.guarded_downgrades", "%.0f")},
@@ -110,6 +112,12 @@ func fmtLedgerClampKPI(s *Summary) string {
 	ledger := s.E.LedgerSaved + s.Health.HookBlocksLedger
 	clamp := s.Health.ClampedSaves
 	return fmt.Sprintf("%d (ledger:%d, clamp:%d)", ledger+clamp, ledger, clamp)
+}
+
+func fmtPreInvocationScorecardKPI(s *Summary) string {
+	return fmt.Sprintf("%s (p50 %s, p95 %s)",
+		fmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets),
+		fmtOptMS(s.E.P50DurationMS), fmtOptMS(s.E.P95DurationMS))
 }
 
 func fmtToolErrorRateKPI(s *Summary) string {

@@ -13,22 +13,26 @@ import (
 
 // JSONScorecard is the structured Section 0 Scorecard in RenderJSONReport.
 type JSONScorecard struct {
-	Sessions          int                `json:"sessions"`
-	Turns             int                `json:"turns"`
-	ToolCalls         int                `json:"tool_calls"`
-	PeakContext       int64              `json:"peak_context"`
-	KneeRatePct       *float64           `json:"knee_rate_pct"`
-	OverTargetPct     *float64           `json:"over_target_pct"`
-	SearchGrepRatio   *float64           `json:"search_grep_ratio"`
-	RepeatReadsPct    *float64           `json:"repeat_reads_pct"`
-	RedundantReads    int                `json:"redundant_reads"`
-	BlockedLedgerSave int                `json:"blocked_ledger_saves"`
-	ClampSaves        int                `json:"clamp_saves"`
-	ToolErrorRatePct  *float64           `json:"tool_error_rate_pct"`
-	RetryLoops        int                `json:"retry_loops"`
-	GuardedDowngrades int                `json:"guarded_downgrades"`
-	Deltas            *WindowDeltas      `json:"deltas,omitempty"`
-	TopSignals        []DiagnosticSignal `json:"top_signals"`
+	Sessions                int                `json:"sessions"`
+	Turns                   int                `json:"turns"`
+	ToolCalls               int                `json:"tool_calls"`
+	PeakContext             int64              `json:"peak_context"`
+	KneeRatePct             *float64           `json:"knee_rate_pct"`
+	OverTargetPct           *float64           `json:"over_target_pct"`
+	SearchGrepRatio         *float64           `json:"search_grep_ratio"`
+	RepeatReadsPct          *float64           `json:"repeat_reads_pct"`
+	RedundantReads          int                `json:"redundant_reads"`
+	BlockedLedgerSave       int                `json:"blocked_ledger_saves"`
+	ClampSaves              int                `json:"clamp_saves"`
+	BashReadSkips           int                `json:"bash_read_bypasses"`
+	PreInvocationTimeoutPct *float64           `json:"pre_invocation_timeout_pct"`
+	PreInvocationP50MS      *float64           `json:"pre_invocation_p50_ms"`
+	PreInvocationP95MS      *float64           `json:"pre_invocation_p95_ms"`
+	ToolErrorRatePct        *float64           `json:"tool_error_rate_pct"`
+	RetryLoops              int                `json:"retry_loops"`
+	GuardedDowngrades       int                `json:"guarded_downgrades"`
+	Deltas                  *WindowDeltas      `json:"deltas,omitempty"`
+	TopSignals              []DiagnosticSignal `json:"top_signals"`
 }
 
 // JSONAutonomy is the structured Background Autonomy panel in RenderJSONReport.
@@ -103,18 +107,22 @@ func WriteJSONReport(sum *Summary, evals *EvalRows, file string, now time.Time) 
 
 func buildJSONScorecard(s *Summary) JSONScorecard {
 	sc := JSONScorecard{
-		Sessions:          s.Sessions["agy"],
-		Turns:             s.B.Turns["agy"],
-		ToolCalls:         s.B.ToolCalls["agy"],
-		PeakContext:       s.B.PeakContext["agy"],
-		SearchGrepRatio:   s.C.SearchGrepRatio["agy"],
-		RedundantReads:    s.C.RedundantReads["agy"],
-		BlockedLedgerSave: s.E.LedgerSaved + s.Health.HookBlocksLedger,
-		ClampSaves:        s.Health.ClampedSaves,
-		RetryLoops:        s.D.RetryLoops["agy"],
-		GuardedDowngrades: s.Health.GuardedDowngrades,
-		Deltas:            s.Deltas,
-		TopSignals:        []DiagnosticSignal{},
+		Sessions:                s.Sessions["agy"],
+		Turns:                   s.B.Turns["agy"],
+		ToolCalls:               s.B.ToolCalls["agy"],
+		PeakContext:             s.B.PeakContext["agy"],
+		SearchGrepRatio:         s.C.SearchGrepRatio["agy"],
+		RedundantReads:          s.C.RedundantReads["agy"],
+		BlockedLedgerSave:       s.E.LedgerSaved + s.Health.HookBlocksLedger,
+		ClampSaves:              s.Health.ClampedSaves,
+		BashReadSkips:           s.C.BashReadSkips["agy"],
+		PreInvocationTimeoutPct: s.E.TimeoutRatePct,
+		PreInvocationP50MS:      s.E.P50DurationMS,
+		PreInvocationP95MS:      s.E.P95DurationMS,
+		RetryLoops:              s.D.RetryLoops["agy"],
+		GuardedDowngrades:       s.Health.GuardedDowngrades,
+		Deltas:                  s.Deltas,
+		TopSignals:              []DiagnosticSignal{},
 	}
 	if v, ok := kneePct(s); ok {
 		sc.KneeRatePct = &v

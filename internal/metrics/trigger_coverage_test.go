@@ -396,18 +396,13 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 	}
 	md := mdBuf.String()
 	html := htmlBuf.String()
+	assertNoLegacyTriggerCoverageRows(t, md, html)
 	for _, want := range []string{
 		"## Trigger coverage",
-		"Qualifying phases run as workers",
-		"66.7% (4 / 6)",
-		">= 80%",
-		"Worker phases with model: + judge: + base-check:",
-		"75.0% (3 / 4)",
-		"= 100%",
-		"Worker verdicts (PASS / total)",
-		"3 / 4",
-		"Base-Check verdicts (PASS / FAIL)",
-		"3 / 0",
+		"v9 orchestration (/fyr-swarm / gate / land)",
+		"Deterministic gate coverage",
+		"PreInvocation timeout rate",
+		"PreInvocation latency (p50 / p95)",
 		"Judge verdicts (PASS / FAIL)",
 		"Build-time questions",
 		"= 0",
@@ -428,11 +423,10 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<h2>Trigger coverage</h2>",
-		"<td>Qualifying phases run as workers</td>",
-		"<td>66.7% (4 / 6)</td>",
-		"<td>Worker phases with model: &#43; judge: &#43; base-check:</td>",
-		"<td>75.0% (3 / 4)</td>",
-		"<td>Base-Check verdicts (PASS / FAIL)</td>",
+		"<td>v9 orchestration (/fyr-swarm / gate / land)</td>",
+		"<td>Deterministic gate coverage</td>",
+		"<td>PreInvocation timeout rate</td>",
+		"<td>PreInvocation latency (p50 / p95)</td>",
 		"<td>Judge verdicts (PASS / FAIL)</td>",
 		"<td>Build-time questions</td>",
 		"<td>Search : grep</td>",
@@ -462,4 +456,88 @@ func TestReportTriggerCoverageKPIs(t *testing.T) {
 	if opus.WorkRuns != 0 || opus.EvalRuns != 1 || opus.EvalPass != 0 {
 		t.Errorf("claude-opus-5-5 evidence = %+v, want WorkRuns=0 EvalRuns=1 EvalPass=0", opus)
 	}
+}
+
+func TestTriggerCoverageLiveV9AndPreInvocation(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	since := now.AddDate(0, 0, -7)
+	ts := now.Add(-2 * time.Hour).UnixMilli()
+	s := openT(t, Path(home))
+	seedLiveV9TriggerFixture(t, s, "/proj/live", ts)
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	tc := sum.TriggerCoverage
+	if tc.SwarmSkillLoads != 1 || tc.GateVerbs != 1 || tc.LandVerbs != 1 || tc.DeterministicGateSessions != 1 || tc.BuildSessions != 2 {
+		t.Fatalf("live v9 TriggerCoverage = %+v", tc)
+	}
+	assertFloatPtrNear(t, "DeterministicGatePct", tc.DeterministicGatePct, 50.0)
+	assertFloatPtrNear(t, "PreInvocationTimeoutPct", tc.PreInvocationTimeoutPct, 25.0)
+	assertFloatPtrNear(t, "PreInvocationP50MS", tc.PreInvocationP50MS, 30.0)
+	assertFloatPtrNear(t, "PreInvocationP95MS", tc.PreInvocationP95MS, 260.0)
+	var mdBuf bytes.Buffer
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"swarm-skill:1, gate:1, land:1", "50.0% (1 / 2)", "25.0% (1 / 4)", "30ms / 260ms"} {
+		if !strings.Contains(mdBuf.String(), want) {
+			t.Errorf("markdown missing %q:\n%s", want, mdBuf.String())
+		}
+	}
+}
+
+func seedLiveV9TriggerFixture(t *testing.T, s *Store, root string, ts int64) {
+	t.Helper()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('B1', 'agy', ?, ?, ?), ('B2', 'agy', ?, ?, ?)`,
+			[]any{root, ts, ts + 5000, root, ts + 6000, ts + 9000}},
+		{`INSERT INTO events(session_id, ts, kind, ref, value) VALUES ('B1', ?, 'commit', 'c1', 'ok'), ('B2', ?, 'commit', 'c2', 'ok')`,
+			[]any{ts + 4000, ts + 8000}},
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, skill) VALUES ('B1', 'sw', ?, 'tool', 'Read', 'fyr-swarm'), ('B1', 'g', ?, 'tool', 'Bash', ''), ('B1', 'l', ?, 'tool', 'Bash', '')`,
+			[]any{ts + 100, ts + 200, ts + 300}},
+		{`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('B1', 'g', 0, 'fyr gate'), ('B1', 'l', 0, 'fyr land')`, nil},
+		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, duration_ms, timed_out, injected_bytes, pivots_used_count, skills_loaded_count, created_at) VALUES
+			(?, 'B1', 1, 'FEATURE', 'PROCEED', 90, 20, 0, 800, 1, 1, ?),
+			(?, 'B1', 2, 'TASK', 'PROCEED', 85, 30, 0, 600, 1, 0, ?),
+			(?, 'B2', 1, 'TASK', 'PROCEED', 80, 40, 0, 400, 0, 1, ?),
+			(?, 'B2', 2, 'TASK', 'PROCEED', 50, 260, 1, 200, 0, 0, ?)`,
+			[]any{root, ts, root, ts + 10, root, ts + 20, root, ts + 30}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatalf("%s: %v", q.sql, err)
+		}
+	}
+}
+
+func assertNoLegacyTriggerCoverageRows(t *testing.T, md, html string) {
+	t.Helper()
+	mdSec := sliceBetween(md, "## Trigger coverage", "\n## ")
+	htmlSec := sliceBetween(html, "<h2>Trigger coverage</h2>", "</section>")
+	if mdSec == "" || htmlSec == "" {
+		t.Fatalf("missing Trigger coverage section (md=%d, html=%d)", len(mdSec), len(htmlSec))
+	}
+	for _, legacy := range []string{
+		"Qualifying phases run as workers",
+		"Worker phases with model: + judge: + base-check:",
+		"Worker verdicts (PASS / total)",
+		"Base-Check verdicts (PASS / FAIL)",
+	} {
+		if strings.Contains(mdSec, legacy) || strings.Contains(htmlSec, legacy) || strings.Contains(htmlSec, esc(legacy)) {
+			t.Errorf("legacy pre-v9 row %q should not render in Trigger coverage", legacy)
+		}
+	}
+}
+
+func sliceBetween(s, start, end string) string {
+	_, after, ok := strings.Cut(s, start)
+	if !ok {
+		return ""
+	}
+	before, _, _ := strings.Cut(after, end)
+	return before
 }

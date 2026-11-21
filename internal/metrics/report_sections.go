@@ -15,7 +15,7 @@ type reportSection struct {
 }
 
 func reportSections(sum *Summary, series []serie, evals *EvalRows) []reportSection {
-	return []reportSection{
+	secs := []reportSection{
 		scorecardSection(sum),
 		executivePulseSection(sum, series),
 		secondBrainSection(sum, series),
@@ -25,6 +25,13 @@ func reportSections(sum *Summary, series []serie, evals *EvalRows) []reportSecti
 		triggerCoverageSection(sum),
 		projectBreakdownSection(sum, series),
 	}
+	if len(sum.AgentRoles) > 0 {
+		secs = append(secs, agentRolesSection(sum.AgentRoles))
+	}
+	if sum.TagCohort != nil {
+		secs = append(secs, tagCohortSection(sum.TagCohort))
+	}
+	return secs
 }
 
 func executivePulseSection(s *Summary, series []serie) reportSection {
@@ -74,11 +81,17 @@ func secondBrainSection(s *Summary, series []serie) reportSection {
 	})
 	addSeriesRow(&t, series, "Ranged read %", func(v string) string { return fmtFloatPtr(s.C.RangedReadPct[v], "%.1f%%") })
 	addSeriesRow(&t, series, "Redundant reads", func(v string) string { return fmt.Sprint(s.C.RedundantReads[v]) })
+	addSeriesRow(&t, series, "Bash read bypasses", func(v string) string { return fmt.Sprint(s.C.BashReadSkips[v]) })
+	addSeriesRow(&t, series, "Top Bash verbs", agyCol(fmtTopVerbCounts(s.C.TopBashVerbs, 5)))
 	addSeriesRow(&t, series, "Turn vets", agyCol(fmt.Sprint(s.E.TurnVets)))
+	addSeriesRow(&t, series, "PreInvocation timeouts", agyCol(fmtPctRatio(s.E.TimeoutRatePct, s.E.TimedOutTurns, s.E.TurnVets)))
+	addSeriesRow(&t, series, "PreInvocation latency (p50 / p95)", agyCol(fmtP50P95MS(s.E.P50DurationMS, s.E.P95DurationMS)))
+	addSeriesRow(&t, series, "Mean injected bytes", agyCol(fmtFloatPtr(s.E.MeanInjectedBytes, "%.0f")))
 	addSeriesRow(&t, series, "Mean vet score", agyCol(fmtFloatPtr(s.E.MeanVetScore, "%.1f")))
 	addSeriesRow(&t, series, "VET_FIRST turns", agyCol(fmt.Sprint(s.E.VetFirstTurns)))
 	addSeriesRow(&t, series, "Bypassed turns (!)", agyCol(fmt.Sprint(s.E.BypassedTurns)))
 	addSeriesRow(&t, series, "Pivots pre-seeded", agyCol(fmt.Sprint(s.E.PivotsSeeded)))
+	addSeriesRow(&t, series, "Pivots used / skills loaded", agyCol(fmt.Sprintf("%d / %d", s.E.PivotsUsed, s.E.SkillsLoaded)))
 	addSeriesRow(&t, series, "Read-ledger blocks saved", agyCol(fmt.Sprint(s.E.LedgerSaved)))
 	addSeriesRow(&t, series, "Clamped read saves ([CLAMPED])", agyCol(fmt.Sprint(s.Health.ClampedSaves)))
 	return reportSection{Title: "2. Second-Brain Leverage", Table: t}
@@ -267,4 +280,16 @@ func formatAutoHealth(h HealthSignals) string {
 		verdict = "n/a"
 	}
 	return fmt.Sprintf("%d / %s", h.AutoOpenAsks, verdict)
+}
+
+func fmtTopVerbCounts(verbs []VerbCount, limit int) string {
+	if len(verbs) == 0 {
+		return "none"
+	}
+	n := min(limit, len(verbs))
+	parts := make([]string, 0, n)
+	for _, vc := range verbs[:n] {
+		parts = append(parts, fmt.Sprintf("%s:%d", printable(vc.Verb), vc.Count))
+	}
+	return strings.Join(parts, ", ")
 }

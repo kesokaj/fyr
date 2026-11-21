@@ -264,3 +264,57 @@ func seedGitBranchesForAutonomyT(t *testing.T, dir string, branches ...string) {
 		runGit("branch", b)
 	}
 }
+
+func TestScorecardSecondBrainLatencyAndBypasses(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	since := now.Add(-24 * time.Hour)
+	ts := now.Add(-2 * time.Hour).UnixMilli()
+	s := openT(t, Path(home))
+	seedScorecardSecondBrainT(t, s, "/proj/sc", ts)
+	sum, err := s.Show(ShowOptions{Home: home, Since: since, Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mdBuf, htmlBuf, jsonBuf bytes.Buffer
+	if err := RenderMarkdownReport(&mdBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderReport(&htmlBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenderJSONReport(&jsonBuf, sum, nil, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Bash Read Bypasses", "PreInvocation Timeouts & Latency", "50.0% (1 / 2) (p50 15ms, p95 260ms)"} {
+		if !strings.Contains(mdBuf.String(), want) || !strings.Contains(htmlBuf.String(), esc(want)) {
+			t.Errorf("missing %q in md/html", want)
+		}
+	}
+	var jr JSONReport
+	if err := json.Unmarshal(jsonBuf.Bytes(), &jr); err != nil {
+		t.Fatal(err)
+	}
+	if jr.Scorecard.BashReadSkips != 1 || jr.Scorecard.PreInvocationTimeoutPct == nil || *jr.Scorecard.PreInvocationTimeoutPct != 50.0 ||
+		jr.Scorecard.PreInvocationP50MS == nil || *jr.Scorecard.PreInvocationP50MS != 15 || jr.Scorecard.PreInvocationP95MS == nil || *jr.Scorecard.PreInvocationP95MS != 260 {
+		t.Fatalf("Scorecard JSON = %+v", jr.Scorecard)
+	}
+}
+
+func seedScorecardSecondBrainT(t *testing.T, s *Store, root string, ts int64) {
+	t.Helper()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('SC1', 'agy', ?, ?, ?)`, []any{root, ts, ts + 5000}},
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, denied) VALUES ('SC1', 'c1', ?, 'tool', 'Bash', 0), ('SC1', 'c2', ?, 'tool', 'Bash', 1)`, []any{ts + 100, ts + 200}},
+		{`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('SC1', 'c1', 0, 'cat'), ('SC1', 'c2', 0, 'cat')`, nil},
+		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, duration_ms, timed_out, injected_bytes, pivots_used_count, skills_loaded_count, created_at) VALUES
+			(?, 'SC1', 1, 'TASK', 'PROCEED', 90, 15, 0, 500, 1, 1, ?), (?, 'SC1', 2, 'TASK', 'PROCEED', 60, 260, 1, 100, 0, 0, ?)`, []any{root, ts, root, ts + 10}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

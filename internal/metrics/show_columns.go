@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"sort"
 	"strings"
 	"time"
 )
@@ -74,4 +75,108 @@ func sessionDay(x sess) string {
 		return ""
 	}
 	return time.UnixMilli(ts).UTC().Format("2006-01-02")
+}
+
+func isBashReadVerb(v string) bool {
+	fields := strings.Fields(v)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "cat", "head", "tail", "nl", "bat", "batcat":
+		return true
+	case "sed":
+		return isSedReadFlags(fields[1:])
+	default:
+		return false
+	}
+}
+
+func isSedReadFlags(flags []string) bool {
+	hasN, hasI := false, false
+	for _, f := range flags {
+		if strings.HasPrefix(f, "-") && !strings.HasPrefix(f, "--") {
+			hasN = hasN || strings.ContainsRune(f[1:], 'n')
+			hasI = hasI || strings.ContainsRune(f[1:], 'i')
+		} else if f == "--quiet" || f == "--silent" {
+			hasN = true
+		} else if f == "--in-place" {
+			hasI = true
+		}
+	}
+	return hasN && !hasI
+}
+
+func isBashReadStep(st stp) bool {
+	if st.kind != "tool" || st.tool != "Bash" || st.denied {
+		return false
+	}
+	for _, v := range st.verbs {
+		if v == "cd" || strings.HasPrefix(v, "cd ") {
+			continue
+		}
+		return isBashReadVerb(v)
+	}
+	return false
+}
+
+func populateAdherenceVerbs(sum *Summary, all []sess, stepsByID map[string][]stp) {
+	seen := map[string]bool{}
+	verbCounts := map[string]int{}
+	bypasses := map[string]int{}
+	for _, x := range all {
+		for _, st := range stepsByID[x.id] {
+			if st.kind != "tool" && st.kind != "assistant" && st.kind != "generation" {
+				continue
+			}
+			key := x.vendor + "\x00" + x.label + "\x00" + st.ext
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if isBashReadStep(st) {
+				bypasses[x.vendor]++
+			}
+			if x.vendor != historical && st.kind == "tool" && st.tool == "Bash" {
+				for _, v := range st.verbs {
+					if pv := printable(strings.TrimSpace(v)); pv != "" {
+						verbCounts[pv]++
+					}
+				}
+			}
+		}
+	}
+	if sum.Sessions["agy"] > 0 || len(bypasses) > 0 {
+		outBypasses := map[string]int{}
+		if sum.Sessions["agy"] > 0 || bypasses["agy"] > 0 {
+			outBypasses["agy"] = bypasses["agy"]
+		}
+		for v, c := range bypasses {
+			if v != "agy" && c > 0 {
+				outBypasses[v] = c
+			}
+		}
+		sum.C.BashReadSkips = outBypasses
+	}
+	sum.C.TopBashVerbs = topVerbCounts(verbCounts, 10)
+}
+
+func topVerbCounts(counts map[string]int, limit int) []VerbCount {
+	if len(counts) == 0 || limit <= 0 {
+		return nil
+	}
+	out := make([]VerbCount, 0, len(counts))
+	for v, c := range counts {
+		out = append(out, VerbCount{Verb: v, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Verb < out[j].Verb
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }

@@ -438,3 +438,91 @@ func TestShowContextTarget(t *testing.T) {
 		t.Errorf("agy has session peaks in a window without agy sessions: %v", only.B.SessionPeaks["agy"])
 	}
 }
+
+func TestShowTagCohortAndPrePostWindow(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	cutoff := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	oldPre := cutoff.AddDate(0, 0, -45).UnixMilli() // older than 30d: proves full pre-tag history is queried
+	postTS := cutoff.Add(2 * time.Hour).UnixMilli()
+	now := cutoff.AddDate(0, 0, 5)
+	seedCohortFixtureT(t, s, "/proj/coh", oldPre, postTS)
+
+	sum, err := s.Show(ShowOptions{Home: home, Since: cutoff, Now: now, SinceTag: "v9.6.3"})
+	if err != nil {
+		t.Fatalf("Show: %v", err)
+	}
+	if sum.TagCohort == nil || sum.TagCohort.Tag != "v9.6.3" {
+		t.Fatalf("TagCohort = %+v", sum.TagCohort)
+	}
+	pre, post := sum.TagCohort.Pre, sum.TagCohort.Post
+	if pre.Sessions != 1 || pre.ToolCalls != 3 || pre.BashReadSkips != 2 || pre.PreInvocationTimedOut != 1 {
+		t.Fatalf("Pre cohort = %+v, want sessions=1 tools=3 bypasses=2 timedOut=1", pre)
+	}
+	if post.Sessions != 1 || post.ToolCalls != 4 || post.BashReadSkips != 0 || post.TurnVets != 2 {
+		t.Fatalf("Post cohort = %+v, want sessions=1 tools=4 bypasses=0 turnVets=2", post)
+	}
+	if pre.SearchGrepRatio != nil || post.SearchGrepRatio == nil || *post.SearchGrepRatio != 1.0 {
+		t.Fatalf("SearchGrepRatio pre=%v post=%v, want nil and 1.0", pre.SearchGrepRatio, post.SearchGrepRatio)
+	}
+	if post.PreInvocationP50MS == nil || *post.PreInvocationP50MS != 20 || post.PreInvocationP95MS == nil || *post.PreInvocationP95MS != 40 {
+		t.Fatalf("Post latency = p50:%v p95:%v, want 20 / 40", post.PreInvocationP50MS, post.PreInvocationP95MS)
+	}
+}
+
+func seedCohortFixtureT(t *testing.T, s *Store, root string, preTS, postTS int64) {
+	t.Helper()
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES ('PRE1', 'agy', ?, ?, ?), ('POST1', 'agy', ?, ?, ?)`,
+			[]any{root, preTS, preTS + 1000, root, postTS, postTS + 1000}},
+		{`INSERT INTO steps(session_id, ext_id, ts, kind, tool, denied) VALUES
+			('PRE1', 'p1', ?, 'tool', 'Bash', 0), ('PRE1', 'p2', ?, 'tool', 'Bash', 0), ('PRE1', 'p3', ?, 'tool', 'Bash', 1),
+			('POST1', 'q1', ?, 'tool', 'Bash', 0), ('POST1', 'q2', ?, 'tool', 'Grep', 0), ('POST1', 'q3', ?, 'tool', 'Bash', 0), ('POST1', 'q4', ?, 'tool', 'Bash', 1)`,
+			[]any{preTS + 10, preTS + 20, preTS + 30, postTS + 10, postTS + 20, postTS + 30, postTS + 40}},
+		{`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES
+			('PRE1', 'p1', 0, 'cat'), ('PRE1', 'p2', 0, 'cd'), ('PRE1', 'p2', 1, 'sed -n'), ('PRE1', 'p3', 0, 'cat'),
+			('POST1', 'q1', 0, 'fyr search --slice'), ('POST1', 'q3', 0, 'go test'), ('POST1', 'q3', 1, 'tail'), ('POST1', 'q4', 0, 'head -n')`, nil},
+		{`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, duration_ms, timed_out, created_at) VALUES
+			(?, 'PRE1', 1, 'TASK', 'PROCEED', 80, 280, 1, ?), (?, 'POST1', 1, 'TASK', 'PROCEED', 95, 20, 0, ?), (?, 'POST1', 2, 'TASK', 'PROCEED', 90, 40, 0, ?)`,
+			[]any{root, preTS, root, postTS, root, postTS + 10}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatalf("%s: %v", q.sql, err)
+		}
+	}
+}
+
+func TestShowAgentRolesAndTopBashVerbs(t *testing.T) {
+	s := openT(t, filepath.Join(t.TempDir(), "metrics.db"))
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	ts := now.Add(-time.Hour).UnixMilli()
+	for _, q := range []string{
+		fmt.Sprintf(`INSERT INTO sessions(id, vendor, project_root, parent_id, agent_type, started_at, ended_at) VALUES
+			('M1', 'agy', '/p', '', '', %d, %d),
+			('R1', 'agy', '/p', 'M1', 'reviewer', %d, %d)`, ts, ts+5000, ts+100, ts+2000),
+		fmt.Sprintf(`INSERT INTO steps(session_id, ext_id, ts, kind, tool, is_error) VALUES
+			('M1', 'm1', %d, 'tool', 'Bash', 0), ('M1', 'm2', %d, 'tool', 'Bash', 1),
+			('R1', 'r1', %d, 'tool', 'Bash', 0), ('R1', 'r2', %d, 'tool', 'Grep', 0)`, ts+10, ts+20, ts+110, ts+120),
+		`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES
+			('M1', 'm1', 0, 'git status'), ('M1', 'm2', 0, 'sed -i'), ('R1', 'r1', 0, 'fyr search --slice')`,
+		fmt.Sprintf(`INSERT INTO turn_vets(project_root, conversation_id, turn_num, intent, gate, score, duration_ms, timed_out, created_at) VALUES
+			('/p', 'M1', 1, 'TASK', 'PROCEED', 90, 260, 1, %d)`, ts),
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum, err := s.Show(ShowOptions{Since: now.Add(-24 * time.Hour), Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sum.AgentRoles) != 2 || sum.AgentRoles[0].Role != "main" || sum.AgentRoles[0].TimedOutTurns != 1 || sum.AgentRoles[1].Role != "reviewer" {
+		t.Fatalf("AgentRoles = %+v", sum.AgentRoles)
+	}
+	if sum.C.BashReadSkips["agy"] != 0 || len(sum.C.TopBashVerbs) != 3 {
+		t.Fatalf("TopBashVerbs = %+v, bypasses = %v", sum.C.TopBashVerbs, sum.C.BashReadSkips)
+	}
+}

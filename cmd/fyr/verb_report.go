@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -164,4 +167,85 @@ func (c *ctx) resolveMetricsProject() (string, error) {
 		return root, nil
 	}
 	return abs, nil
+}
+
+func (c *ctx) resolveMetricsWindow(o *metrics.ShowOptions) error {
+	var sinceGiven, sinceTagGiven bool
+	c.fs.Visit(func(f *flag.Flag) {
+		sinceGiven = sinceGiven || f.Name == "since"
+		sinceTagGiven = sinceTagGiven || f.Name == "since-tag"
+	})
+	if (sinceGiven || c.metricsSince != "") && (sinceTagGiven || c.metricsSinceTag != "") {
+		return errors.New("--since and --since-tag exclude each other")
+	}
+	since, until, err := c.metricsWindow()
+	if err != nil {
+		return err
+	}
+	if sinceTagGiven || c.metricsSinceTag != "" {
+		tag, tagTime, err := c.resolveSinceTag(o.Project)
+		if err != nil {
+			return err
+		}
+		if !until.IsZero() && !until.After(tagTime) {
+			return errors.New("--until must be after --since-tag")
+		}
+		since, o.SinceTag = tagTime, tag
+	}
+	o.Since, o.Now = since, until
+	return nil
+}
+
+func (c *ctx) resolveSinceTag(project string) (string, time.Time, error) {
+	tag, err := validateSinceTag(c.metricsSinceTag)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	repoRoot, err := c.resolveTagRepoRoot(project)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	out, err := trail.Command(repoRoot, "log", "-1", "--format=%ct", "refs/tags/"+tag, "--").Output()
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("--since-tag %q: tag not found", tag)
+	}
+	rawTS := strings.TrimSpace(string(out))
+	sec, err := strconv.ParseInt(rawTS, 10, 64)
+	if err != nil || sec < 0 || rawTS == "" {
+		return "", time.Time{}, fmt.Errorf("--since-tag %q: unresolvable tag commit time", tag)
+	}
+	return tag, time.Unix(sec, 0).UTC(), nil
+}
+
+func (c *ctx) resolveTagRepoRoot(project string) (string, error) {
+	if project != "" {
+		root, _, err := trail.Roots(project)
+		if err != nil {
+			return "", fmt.Errorf("--since-tag: %s is not a git checkout", project)
+		}
+		return root, nil
+	}
+	wd, err := c.projectDir()
+	if err != nil {
+		return "", err
+	}
+	root, _, err := trail.Roots(wd)
+	if err != nil {
+		return "", errors.New("--since-tag: not in a git checkout")
+	}
+	return root, nil
+}
+
+func validateSinceTag(raw string) (string, error) {
+	tag := strings.TrimSpace(raw)
+	if tag == "" {
+		return "", errors.New("--since-tag takes a tag name")
+	}
+	bad := strings.HasPrefix(tag, "-") || strings.ContainsAny(tag, " \t\r\n^~:?*[\\") ||
+		strings.Contains(tag, "..") || strings.Contains(tag, "@{") ||
+		strings.HasPrefix(tag, "/") || strings.HasSuffix(tag, "/") || strings.HasSuffix(tag, ".lock")
+	if bad {
+		return "", fmt.Errorf("--since-tag %q: invalid tag name", tag)
+	}
+	return tag, nil
 }
