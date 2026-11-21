@@ -74,10 +74,21 @@ func formatProposalDraftMeta(d draftLine) string {
 	return b.String()
 }
 
+func isDerivedProposal(rec brain.Record) bool {
+	if strings.EqualFold(strings.TrimSpace(rec.Provenance), "derived") {
+		return true
+	}
+	for _, line := range proposalHeaderLines(rec.Body) {
+		if v, ok := recordFieldVal(line, "provenance:"); ok && strings.EqualFold(strings.TrimSpace(v), "derived") {
+			return true
+		}
+	}
+	return false
+}
+
 func extractProposalAttribution(rec brain.Record) (sigID, repDate string) {
-	text := rec.Title + "\n" + rec.Body
-	for _, raw := range strings.Split(text, "\n") {
-		line := strings.TrimSpace(raw)
+	headers := proposalHeaderLines(rec.Body)
+	for _, line := range headers {
 		if v, ok := recordFieldVal(line, "signal:", "signal_id:"); ok && sigID == "" && isValidSignalID(v) {
 			sigID = v
 		}
@@ -87,8 +98,8 @@ func extractProposalAttribution(rec brain.Record) (sigID, repDate string) {
 			}
 		}
 	}
-	if sigID == "" {
-		sigID = firstSignalID(text)
+	if sigID == "" && !isDerivedProposal(rec) {
+		sigID = firstSignalID(rec.Title + "\n" + strings.Join(headers, "\n"))
 	}
 	return sigID, repDate
 }
@@ -167,7 +178,7 @@ func (r *run) recordAppliedDigestCheckpoint(root string, t Task) {
 	now := r.o.now()
 	sigID := cmp.Or(t.SignalID, t.ID)
 	metric, baseVal := captureSignalBaseline(r.projectSummary(root), sigID)
-	_ = metrics.RecordDigestAppliedAction(s, r.o.Home, root, now, metrics.DigestAppliedAction{
+	_ = metrics.RecordDigestAppliedAction(s, r.o.Home, "", now, metrics.DigestAppliedAction{
 		SignalID: sigID, ReportDate: cmp.Or(t.ReportDate, now.UTC().Format("2006-01-02")),
 		ActionScope: "auto_skill", Status: metrics.StatusPendingData, InstallPending: true,
 		RevertCmd: "git revert " + r.appliedSHA, Summary: oneLine(t.Class + " applied " + r.appliedSHA),
@@ -255,7 +266,7 @@ func (r *run) selectModelTask(root string, p *Project, findings []Finding) (*Tas
 		return nil, "no model task due"
 	}
 	if lastSlot && !r.isHarnessCheckout(root) && t.Class != ClassHarnessEdit {
-		if r.o.Repo != "" && r.pickReservedHarnessEditTask(r.o.Repo, false) != nil {
+		if r.o.Repo != "" && workerCheckoutStop(r.o.Repo) == "" && r.pickReservedHarnessEditTask(r.o.Repo, false) != nil {
 			return nil, "worker deferred: 4th daily slot reserved for high-severity harness-edit"
 		}
 	}
@@ -286,21 +297,22 @@ func isHighSeverityAutoSkillProposal(dig *metrics.DailyDigest, rec brain.Record,
 }
 
 func isHighSeverityProposal(dig *metrics.DailyDigest, rec brain.Record) bool {
-	text := rec.Title + "\n" + rec.Body
-	if strings.Contains(strings.ToLower(text), "[high]") {
-		return true
-	}
-	for _, raw := range strings.Split(rec.Body, "\n") {
-		if v, ok := recordFieldVal(strings.TrimSpace(raw), "severity:"); ok && strings.EqualFold(v, "high") {
-			return true
+	sigID, _ := extractProposalAttribution(rec)
+	if sigID != "" && dig != nil {
+		for _, s := range dig.Signals {
+			if s.SignalID == sigID && strings.EqualFold(s.Severity, "high") {
+				return true
+			}
 		}
 	}
-	sigID, _ := extractProposalAttribution(rec)
-	if sigID == "" || dig == nil {
+	if isDerivedProposal(rec) {
 		return false
 	}
-	for _, s := range dig.Signals {
-		if s.SignalID == sigID && strings.EqualFold(s.Severity, "high") {
+	if strings.Contains(strings.ToLower(rec.Title), "[high]") {
+		return true
+	}
+	for _, line := range proposalHeaderLines(rec.Body) {
+		if v, ok := recordFieldVal(line, "severity:"); ok && strings.EqualFold(v, "high") {
 			return true
 		}
 	}
@@ -308,8 +320,8 @@ func isHighSeverityProposal(dig *metrics.DailyDigest, rec brain.Record) bool {
 }
 
 func isAutoSkillProposal(rec brain.Record, kept []string) bool {
-	for _, raw := range strings.Split(rec.Body, "\n") {
-		if v, ok := recordFieldVal(strings.TrimSpace(raw), "actionscope:", "action_scope:"); ok && v != "" {
+	for _, line := range proposalHeaderLines(rec.Body) {
+		if v, ok := recordFieldVal(line, "actionscope:", "action_scope:"); ok && v != "" {
 			return strings.EqualFold(v, "auto_skill")
 		}
 	}

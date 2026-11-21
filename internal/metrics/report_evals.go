@@ -3,6 +3,7 @@ package metrics
 import (
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/search"
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const healthFileLimit = 1 << 20
@@ -155,21 +157,25 @@ func openCopySQLiteFileWithPath(scratchHome, base string, relParts ...string) (*
 	return db, filepath.Join(tmp, filepath.Base(dbPath)), cleanup, true
 }
 
+func copySQLiteScratchParent(dbPath string) (string, bool) {
+	dbDir := filepath.Dir(filepath.Clean(dbPath))
+	agentsDir := filepath.Dir(dbDir)
+	if filepath.Base(dbDir) != "scratch" || filepath.Base(agentsDir) != ".agents" {
+		return "", false
+	}
+	for _, d := range []string{agentsDir, dbDir} {
+		if exists, ok := verifyNoSymlinkDir(d); !ok || !exists {
+			return "", false
+		}
+	}
+	return dbDir, true
+}
+
 func copySQLiteTempParent(scratchHome, dbPath string) (string, []string, bool) {
 	h := strings.TrimSpace(scratchHome)
 	if h == "" {
-		dbDir := filepath.Dir(filepath.Clean(dbPath))
-		agentsDir := filepath.Dir(dbDir)
-		if filepath.Base(dbDir) != "scratch" || filepath.Base(agentsDir) != ".agents" {
-			return "", nil, false
-		}
-		if exists, ok := verifyNoSymlinkDir(agentsDir); !ok || !exists {
-			return "", nil, false
-		}
-		if exists, ok := verifyNoSymlinkDir(dbDir); !ok || !exists {
-			return "", nil, false
-		}
-		return dbDir, nil, true
+		parent, ok := copySQLiteScratchParent(dbPath)
+		return parent, nil, ok
 	}
 	cur := filepath.Clean(h)
 	var dirs []string
@@ -224,12 +230,13 @@ func readBoundedRegularFile(base string, relParts ...string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	fi, err := os.Lstat(p)
-	if err != nil || fi.Size() > healthFileLimit {
+	f, err := trail.OpenRegular(p)
+	if err != nil {
 		return nil, false
 	}
-	data, err := os.ReadFile(p)
-	if err != nil {
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, healthFileLimit+1))
+	if err != nil || len(data) > healthFileLimit {
 		return nil, false
 	}
 	return data, true

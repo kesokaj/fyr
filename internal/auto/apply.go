@@ -212,8 +212,8 @@ func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res isolat
 	if res.Handoff != nil && res.Handoff.ID != "" {
 		handoffID = res.Handoff.ID
 	}
-	subject := fmt.Sprintf("auto: %s — %s", t.Class, commitOneLine(t, res))
-	body := formatApplyCommitBody(reportID, handoffID, t)
+	subject := redact.Redact(fmt.Sprintf("auto: %s — %s", t.Class, commitOneLine(t, res)))
+	body := redact.Redact(formatApplyCommitBody(reportID, handoffID, t))
 	env := []string{"GIT_AUTHOR_NAME=" + userName, "GIT_AUTHOR_EMAIL=" + userEmail, "GIT_COMMITTER_NAME=" + userName, "GIT_COMMITTER_EMAIL=" + userEmail}
 	if _, err := applyGit(wtDir, env, "commit", "-m", subject, "-m", body); err != nil {
 		return "", fmt.Errorf("commit: %w", err)

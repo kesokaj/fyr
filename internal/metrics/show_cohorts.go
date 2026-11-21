@@ -160,8 +160,9 @@ func (s *Store) buildTagCohort(o ShowOptions, postAll []sess, postData *showData
 	}
 	cutDay := cutoff.UTC().Format("2006-01-02")
 	nowDay := now.UTC().Format("2006-01-02")
-	pre := summarizeCohort(preAll, preData.steps, preSB, earliestSessionDay(preAll), cutDay)
-	post := summarizeCohort(postAll, postData.steps, postSB, cutDay, nowDay)
+	home := resolveMetricsHome(o, s.path)
+	pre := summarizeCohort(preAll, preData.steps, preSB, earliestSessionDay(preAll, o, home), cutDay, o, home)
+	post := summarizeCohort(postAll, postData.steps, postSB, cutDay, nowDay, o, home)
 	return &TagCohort{
 		Tag:    printable(o.SinceTag),
 		Cutoff: cutoff.UTC().Format(time.RFC3339),
@@ -171,7 +172,9 @@ func (s *Store) buildTagCohort(o ShowOptions, postAll []sess, postData *showData
 }
 
 func beforeCutoffShowQuery(o ShowOptions, cutoff time.Time) (string, []any) {
-	w := `COALESCE(started_at, ended_at, 0) < ? AND vendor != ?`
+	rawTS := `COALESCE(started_at, ended_at, 0)`
+	expr := `(CASE WHEN ` + rawTS + ` >= 100000000 AND ` + rawTS + ` < 100000000000 THEN ` + rawTS + ` * 1000 ELSE ` + rawTS + ` END)`
+	w := expr + ` > 0 AND ` + expr + ` < ? AND vendor != ?`
 	args := []any{cutoff.UnixMilli(), historical}
 	switch {
 	case o.Label != "":
@@ -191,13 +194,17 @@ func beforeCutoffShowQuery(o ShowOptions, cutoff time.Time) (string, []any) {
 	return q, args
 }
 
-func earliestSessionDay(all []sess) string {
+func earliestSessionDay(all []sess, o ShowOptions, home string) string {
 	var minTS int64
 	for _, x := range all {
+		if o.Project == "" && !o.IncludeSandboxes && isSandboxProjectRoot(x.root, home) {
+			continue
+		}
 		ts := x.start
 		if ts == 0 {
 			ts = x.end
 		}
+		ts = normalizeMilli(ts)
 		if ts > 0 && (minTS == 0 || ts < minTS) {
 			minTS = ts
 		}
@@ -208,11 +215,11 @@ func earliestSessionDay(all []sess) string {
 	return time.UnixMilli(minTS).UTC().Format("2006-01-02")
 }
 
-func summarizeCohort(all []sess, stepsByID map[string][]stp, sbAcc *secondBrainAcc, sinceStr, untilStr string) CohortMetrics {
+func summarizeCohort(all []sess, stepsByID map[string][]stp, sbAcc *secondBrainAcc, sinceStr, untilStr string, o ShowOptions, home string) CohortMetrics {
 	cm := CohortMetrics{Since: sinceStr, Until: untilStr}
 	seen := map[string]bool{}
 	for _, x := range all {
-		if x.vendor == historical {
+		if x.vendor == historical || (o.Project == "" && !o.IncludeSandboxes && isSandboxProjectRoot(x.root, home)) {
 			continue
 		}
 		if x.parent == "" {

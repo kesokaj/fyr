@@ -369,3 +369,66 @@ func TestHiddenCouplingSplitEditAndRead(t *testing.T) {
 		t.Fatalf("expected 3 per-kind GraphHiddenCoupling entries, got %+v", snap.HiddenCoupling)
 	}
 }
+
+func TestQuerySeedSymbolsLikeDBFiltersByProjectAndDocs(t *testing.T) {
+	root := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/likefilter\n\ngo 1.24\n")
+	writeFile(t, root, "internal/app/target.go", "package app\n\nfunc TargetAlphaHelper() int { return 1 }\nfunc DocMaskHelper() int { return 2 }\n")
+	commitAll(t, root, "seed target")
+	if err := Index(Options{Dir: root, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	db := openDB(t, root)
+	defer db.Close()
+
+	// Insert >= 85 matching symbols in an unrelated project with lexically earlier paths
+	// AND >= 85 matching doc headings in the target project with lexically earlier paths.
+	for i := 0; i < 85; i++ {
+		otherOID := fmt.Sprintf("other-oid-%02d", i)
+		otherPath := fmt.Sprintf("00_other_%02d.go", i)
+		otherSym := fmt.Sprintf("TargetAlphaOther%02d", i)
+		if _, err := db.Exec(`INSERT INTO files(project, path, oid, state) VALUES ('/unrelated/proj', ?, ?, 'tracked')`, otherPath, otherOID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO symbols(oid, name, recv, kind, pkg, start_line, end_line, sig, exported, body_hash) VALUES (?, ?, '', 'func', 'other', 1, 2, 'func()', 1, 'h')`, otherOID, otherSym); err != nil {
+			t.Fatal(err)
+		}
+
+		docOID := fmt.Sprintf("doc-oid-%02d", i)
+		docPath := fmt.Sprintf("00_doc_%02d.md", i)
+		docSym := fmt.Sprintf("DocMaskHeading%02d", i)
+		if _, err := db.Exec(`INSERT INTO files(project, path, oid, state) VALUES (?, ?, ?, 'tracked')`, root, docPath, docOID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO symbols(oid, name, recv, kind, pkg, start_line, end_line, sig, exported, body_hash) VALUES (?, ?, '', 'heading', '', 1, 2, '', 0, 'h')`, docOID, docSym); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	gotProj, err := querySeedSymbolsLikeDB(db, []string{root}, false, []string{"TargetAlpha"})
+	if err != nil {
+		t.Fatalf("querySeedSymbolsLikeDB project filter: %v", err)
+	}
+	if !hasSeedSymbolName(gotProj, "TargetAlphaHelper") {
+		t.Fatalf("target project symbol TargetAlphaHelper starved by unrelated project: %+v", gotProj)
+	}
+
+	gotDocs, err := querySeedSymbolsLikeDB(db, []string{root}, false, []string{"DocMask"})
+	if err != nil {
+		t.Fatalf("querySeedSymbolsLikeDB doc filter: %v", err)
+	}
+	if !hasSeedSymbolName(gotDocs, "DocMaskHelper") {
+		t.Fatalf("target code symbol DocMaskHelper starved by excluded docs: %+v", gotDocs)
+	}
+}
+
+func hasSeedSymbolName(syms []RankedSymbol, name string) bool {
+	for _, s := range syms {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}

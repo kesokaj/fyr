@@ -263,3 +263,60 @@ func TestDailyBannerInHTMLMDAndJSON(t *testing.T) {
 		t.Fatalf("JSONReport missing daily_digest: %+v, err=%v", jr.DailyDigest, err)
 	}
 }
+
+func TestDailyDigestProjectIsolationAndHyphenatedRecovery(t *testing.T) {
+	home := t.TempDir()
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	s := openT(t, Path(home))
+
+	// Save a global digest yesterday; project-scoped BuildDailyDigest must ignore it.
+	if err := SaveDailyDigest(s, DailyDigest{
+		Day:           "2026-11-20",
+		Verdict:       VerdictRegress,
+		PreInvocation: PreInvocationSnapshot{TurnVets: 12},
+		Signals:       []DigestAction{{SignalID: "sig:global:sentinel_prev", Severity: "high", Rule: "pre_invocation_timeouts"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	projDigest, err := BuildDailyDigest(s, home, "/work/app", now)
+	if err != nil {
+		t.Fatalf("BuildDailyDigest(project): %v", err)
+	}
+	if projDigest.ASTDiff.HasPrevious || projDigest.PreInvocationDiff.HasPrevious || len(projDigest.ResolvedSignals) != 0 {
+		t.Fatalf("project BuildDailyDigest diffed against global prev: %+v", projDigest)
+	}
+
+	// Hyphenated project signal ID (sig:proj-12345678:my-rule) parses cleanly.
+	act, ok := parseAppliedActionRecord("REVIEW-1", "review", "closed", "2026-11-20", "auto fix", "Applied commit abcdef1\nsig:proj-12345678:my-rule\nrevert: git revert abcdef1")
+	if !ok || act.SignalID != "sig:proj-12345678:my-rule" {
+		t.Fatalf("parseAppliedActionRecord hyphenated sig = (%+v, %v)", act, ok)
+	}
+	if got := extractRuleFromSignalID(act.SignalID); got != "my-rule" {
+		t.Fatalf("extractRuleFromSignalID = %q, want my-rule", got)
+	}
+
+	// cur == 0 non-worsening count recovery recovers when no active rule signal exists,
+	// stays still_regressing if the rule signal is still active, and never treats
+	// cur == 0 on higher-is-better metrics as recovered.
+	zeroBase := 0.0
+	countAct := DigestAppliedAction{
+		SignalID: "sig:proj-12345678:my-rule", ReportDate: "2026-11-20",
+		Metric: "C.bash_read_skips.agy", BaselineValue: &zeroBase,
+	}
+	sum := newSummary(now.AddDate(0, 0, -7), now)
+	sum.C.BashReadSkips = map[string]int{"agy": 0}
+	if got := EvaluateActionRecovery(countAct, sum, nil, "2026-11-21", 3, nil); got != StatusRecovered {
+		t.Fatalf("zero->zero count recovery = %q, want recovered", got)
+	}
+	if got := EvaluateActionRecovery(countAct, sum, nil, "2026-11-21", 3, []DigestAction{{Rule: "my-rule", Severity: "medium"}}); got != StatusStillRegressing {
+		t.Fatalf("zero count with active rule signal = %q, want still_regressing", got)
+	}
+	ratioAct := DigestAppliedAction{
+		SignalID: "sig:proj-12345678:my-rule", ReportDate: "2026-11-20",
+		Metric: "C.search_grep_ratio.agy", BaselineValue: &zeroBase,
+	}
+	sum.C.SearchGrepRatio["agy"] = ptrF(0)
+	if got := EvaluateActionRecovery(ratioAct, sum, nil, "2026-11-21", 3, nil); got != StatusStillRegressing {
+		t.Fatalf("zero->zero higher-is-better metric = %q, want still_regressing", got)
+	}
+}

@@ -460,3 +460,44 @@ func writeStateJSONT(t *testing.T, path, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestReadBoundedRegularFileRejectsSymlinksAndOversized(t *testing.T) {
+	base := t.TempDir()
+	okBytes := []byte(`{"ok":true}`)
+	writeStateJSONT(t, filepath.Join(base, "sub", "small.json"), string(okBytes))
+	if got, ok := readBoundedRegularFile(base, "sub", "small.json"); !ok || !bytes.Equal(got, okBytes) {
+		t.Fatalf("small regular file = (%q, %v), want (%q, true)", got, ok, okBytes)
+	}
+
+	atLimit := bytes.Repeat([]byte("a"), healthFileLimit)
+	writeStateJSONT(t, filepath.Join(base, "exact.bin"), string(atLimit))
+	if got, ok := readBoundedRegularFile(base, "exact.bin"); !ok || len(got) != healthFileLimit {
+		t.Fatalf("exact limit file = (len=%d, %v), want (len=%d, true)", len(got), ok, healthFileLimit)
+	}
+
+	overLimit := bytes.Repeat([]byte("b"), healthFileLimit+1)
+	writeStateJSONT(t, filepath.Join(base, "oversized.bin"), string(overLimit))
+	if got, ok := readBoundedRegularFile(base, "oversized.bin"); ok || got != nil {
+		t.Fatalf("oversized file accepted: len=%d ok=%v", len(got), ok)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, okBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(base, "link.json")); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := readBoundedRegularFile(base, "link.json"); ok || got != nil {
+		t.Fatalf("symlink file accepted: (%q, %v)", got, ok)
+	}
+
+	outsideDir := t.TempDir()
+	writeStateJSONT(t, filepath.Join(outsideDir, "nested.json"), string(okBytes))
+	if err := os.Symlink(outsideDir, filepath.Join(base, "linkdir")); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := readBoundedRegularFile(base, "linkdir", "nested.json"); ok || got != nil {
+		t.Fatalf("symlinked parent dir accepted: (%q, %v)", got, ok)
+	}
+}

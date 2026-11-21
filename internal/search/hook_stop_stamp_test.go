@@ -520,3 +520,97 @@ func TestSessionStartDailyAlertAndFailOpen(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionStartReadBoundedTextSymlinkSizeAndRedact(t *testing.T) {
+	dir := initGitGoRepoForHooks(t)
+	home := t.TempDir()
+	outside := t.TempDir()
+
+	// 1. Symlinked PLAN.md and TODO.md must be refused by readBoundedText via trail.OpenRegular.
+	secPlan := filepath.Join(outside, "PLAN.md")
+	secTodo := filepath.Join(outside, "TODO.md")
+	if err := os.WriteFile(secPlan, []byte("# SecretPlan\n### Phase 9\n- [ ] Symlinked task\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secTodo, []byte("## Now\n- [ ] SecretTodoItem\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secPlan, filepath.Join(dir, "PLAN.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secTodo, filepath.Join(dir, "TODO.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := json.Marshal(map[string]any{"conversationId": "conv-sec-start", "workspacePaths": []string{dir}})
+	runStart := func(turnBrain func(string, string, string, []string) TurnBrainContext) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := Search(Options{
+			Home:             home,
+			Hook:             "session-start",
+			HookIn:           bytes.NewReader(req),
+			BrainTurnContext: turnBrain,
+		}, &out); err != nil {
+			t.Fatalf("Search(session-start): %v", err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+			t.Fatalf("unexpected SessionStart response: %+v (%v)", resp, err)
+		}
+		return resp.InjectSteps[0].SystemMessage.SystemMessage
+	}
+
+	msgLink := runStart(nil)
+	for _, forbidden := range []string{"SecretPlan", "SecretTodoItem"} {
+		if strings.Contains(msgLink, forbidden) {
+			t.Fatalf("SessionStart followed symlinked file (%q):\n%s", forbidden, msgLink)
+		}
+	}
+
+	// 2. Oversized PLAN.md and TODO.md (> sessionStartMaxFileRead) must be rejected.
+	_ = os.Remove(filepath.Join(dir, "PLAN.md"))
+	_ = os.Remove(filepath.Join(dir, "TODO.md"))
+	bigPlan := "# OversizedPlan\n### Phase 1\n- [ ] " + strings.Repeat("x", sessionStartMaxFileRead+10) + "\n"
+	bigTodo := "## Now\n- [ ] OversizedTodo " + strings.Repeat("y", sessionStartMaxFileRead+10) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte(bigPlan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "TODO.md"), []byte(bigTodo), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msgBig := runStart(nil)
+	for _, forbidden := range []string{"OversizedPlan", "OversizedTodo"} {
+		if strings.Contains(msgBig, forbidden) {
+			t.Fatalf("SessionStart read oversized file (%q):\n%s", forbidden, msgBig)
+		}
+	}
+
+	// 3. Regular PLAN.md, TODO.md, and ActivePlan fallback redact credential shapes before rendering.
+	tokPlan := "gh" + "p_" + strings.Repeat("P", 36)
+	tokTodo := "AI" + "zaSy" + strings.Repeat("T", 33)
+	tokBrain := "gh" + "p_" + strings.Repeat("B", 36)
+	if err := os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("# Plan "+tokPlan+"\n### Phase 1\n- [ ] Open\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "TODO.md"), []byte("## Now\n- [ ] Task "+tokTodo+"\n- [ ] SafeTask\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msgRedact := runStart(nil)
+	for _, tok := range []string{tokPlan, tokTodo} {
+		if strings.Contains(msgRedact, tok) {
+			t.Fatalf("SessionStart leaked credential needle %q:\n%s", tok, msgRedact)
+		}
+	}
+	if !strings.Contains(msgRedact, "SafeTask") || !strings.Contains(msgRedact, "[redacted by fyr]") {
+		t.Fatalf("SessionStart did not keep redacted marker / safe task:\n%s", msgRedact)
+	}
+
+	_ = os.Remove(filepath.Join(dir, "PLAN.md"))
+	msgBrain := runStart(func(string, string, string, []string) TurnBrainContext {
+		return TurnBrainContext{ActivePlan: &MatchedRecord{ID: "PLAN-99", Title: "Use " + tokBrain}}
+	})
+	if strings.Contains(msgBrain, tokBrain) || !strings.Contains(msgBrain, "[redacted by fyr]") {
+		t.Fatalf("SessionStart leaked ActivePlan fallback credential:\n%s", msgBrain)
+	}
+}

@@ -63,8 +63,10 @@ func (c *ctx) renderReport(prefix string) error {
 	if err != nil {
 		return err
 	}
-	if dd, derr := metrics.LatestDailyDigest(s); derr == nil && dd != nil {
-		sum.DailyDigest = dd
+	if strings.TrimSpace(o.Project) == "" {
+		if dd, derr := metrics.LatestDailyDigest(s); derr == nil && dd != nil {
+			sum.DailyDigest = dd
+		}
 	}
 	evals, err := metrics.ReportEvalsWithDevFallback(s, c.home, o)
 	if err != nil {
@@ -82,11 +84,13 @@ func (c *ctx) renderDailyDigestReport(s *metrics.Store, o metrics.ShowOptions) e
 	if err != nil {
 		return err
 	}
-	if err := metrics.SaveDailyDigest(s, d); err != nil {
-		return err
-	}
-	if err := metrics.WriteLatestDailyDigest(c.home, d); err != nil {
-		return err
+	if strings.TrimSpace(o.Project) == "" {
+		if err := metrics.SaveDailyDigest(s, d); err != nil {
+			return err
+		}
+		if err := metrics.WriteLatestDailyDigest(c.home, d); err != nil {
+			return err
+		}
 	}
 	if c.metricsJSON {
 		return metrics.RenderDailyDigestJSON(c.out, d)

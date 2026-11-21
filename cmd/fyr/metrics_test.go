@@ -856,3 +856,114 @@ func TestDailyDigestCLIAndFlagRejections(t *testing.T) {
 		}
 	}
 }
+
+func TestDailyDigestProjectScopingCLI(t *testing.T) {
+	home := t.TempDir()
+	decoy := t.TempDir()
+	t.Setenv("HOME", decoy)
+	repoA, _ := gitFixture(t)
+	repoB, _ := gitFixture(t)
+
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	now := time.Now().UTC()
+	recentMS := now.Add(-2 * time.Hour).UnixMilli()
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	execSQLiteT(t, metrics.Path(home),
+		`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES `+
+			`('SA1', 'agy', '`+repoA+`', `+jsonInt(recentMS)+`, `+jsonInt(recentMS+1000)+`),`+
+			`('SB1', 'agy', '`+repoB+`', `+jsonInt(recentMS)+`, `+jsonInt(recentMS+1000)+`),`+
+			`('SB2', 'agy', '`+repoB+`', `+jsonInt(recentMS+2000)+`, `+jsonInt(recentMS+3000)+`)`,
+		`INSERT INTO steps(session_id, ext_id, ts, kind, tool) VALUES ('SB1', 'b1', `+jsonInt(recentMS+100)+`, 'tool', 'Bash')`,
+		`INSERT INTO step_verbs(session_id, ext_id, n, verb) VALUES ('SB1', 'b1', 0, 'cat')`,
+	)
+
+	s, err = metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalPrev := metrics.DailyDigest{
+		Day:           yesterday,
+		Verdict:       metrics.VerdictRegress,
+		PreInvocation: metrics.PreInvocationSnapshot{TurnVets: 42},
+		Signals: []metrics.DigestAction{{
+			SignalID: "sig:global:sentinel_prev", Severity: "high", Rule: "pre_invocation_timeouts",
+		}},
+	}
+	if err := metrics.SaveDailyDigest(s, globalPrev); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	s.Close()
+	sentinelDisk := metrics.DailyDigest{Day: "2026-01-01", Verdict: metrics.VerdictRegress}
+	if err := metrics.WriteLatestDailyDigest(home, sentinelDisk); err != nil {
+		t.Fatal(err)
+	}
+
+	// Project-scoped `fyr report --daily-digest` inside repoA computes only repoA
+	// without diffing against global PreviousDailyDigest or overwriting global state.
+	var out bytes.Buffer
+	if err := run([]string{"report", "--daily-digest", "--json", "--dir", repoA, "--home", home}, &out); err != nil {
+		t.Fatalf("report --daily-digest in repoA: %v\n%s", err, out.String())
+	}
+	var projDD metrics.DailyDigest
+	if err := json.Unmarshal(out.Bytes(), &projDD); err != nil {
+		t.Fatalf("unmarshal project daily digest: %v\n%s", err, out.String())
+	}
+	if projDD.Rolling7d.Sessions.Current != 1 || projDD.Rolling7d.BashReadSkips.Current != 0 {
+		t.Fatalf("project daily digest leaked other project: %+v", projDD.Rolling7d)
+	}
+	if projDD.ASTDiff.HasPrevious || projDD.PreInvocationDiff.HasPrevious || len(projDD.ResolvedSignals) != 0 {
+		t.Fatalf("project daily digest diffed against global prev: ast=%+v pre=%+v resolved=%v", projDD.ASTDiff, projDD.PreInvocationDiff, projDD.ResolvedSignals)
+	}
+
+	s, err = metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestDB, err := metrics.LatestDailyDigest(s)
+	s.Close()
+	if err != nil || latestDB == nil || latestDB.Day != yesterday || len(latestDB.Signals) != 1 || latestDB.Signals[0].SignalID != "sig:global:sentinel_prev" {
+		t.Fatalf("global daily_digests overwritten: %+v, err=%v", latestDB, err)
+	}
+	diskAfter, err := metrics.ReadLatestDailyDigest(home)
+	if err != nil || diskAfter == nil || diskAfter.Day != "2026-01-01" {
+		t.Fatalf("latest-daily-digest.json overwritten: %+v, err=%v", diskAfter, err)
+	}
+
+	// Project-scoped normal report does NOT attach global DailyDigest; --global does.
+	out.Reset()
+	if err := run([]string{"report", "--json", "--since", "2026-01-01", "--dir", repoA, "--home", home}, &out); err != nil {
+		t.Fatalf("project report --json: %v\n%s", err, out.String())
+	}
+	var projRep metrics.JSONReport
+	if err := json.Unmarshal(out.Bytes(), &projRep); err != nil {
+		t.Fatal(err)
+	}
+	if projRep.DailyDigest != nil {
+		t.Fatalf("project report attached global DailyDigest: %+v", projRep.DailyDigest)
+	}
+	out.Reset()
+	if err := run([]string{"report", "--md", "--since", "2026-01-01", "--dir", repoA, "--home", home}, &out); err != nil {
+		t.Fatalf("project report --md: %v\n%s", err, out.String())
+	}
+	if strings.Contains(out.String(), "## Daily Direction & Actions") {
+		t.Fatalf("project report --md unexpectedly rendered global Daily Direction:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := run([]string{"report", "--global", "--json", "--since", "2026-01-01", "--home", home}, &out); err != nil {
+		t.Fatalf("global report --json: %v\n%s", err, out.String())
+	}
+	var globRep metrics.JSONReport
+	if err := json.Unmarshal(out.Bytes(), &globRep); err != nil {
+		t.Fatal(err)
+	}
+	if globRep.DailyDigest == nil || globRep.DailyDigest.Day != yesterday {
+		t.Fatalf("global report missing stored DailyDigest: %+v", globRep.DailyDigest)
+	}
+}

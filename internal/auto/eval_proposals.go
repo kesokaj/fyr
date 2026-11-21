@@ -108,7 +108,10 @@ func scoreProposalImpact(rec brain.Record, targets int) proposalImpact {
 	sessions := 0
 	signals := map[string]bool{}
 	signalLines := 0
-	for _, raw := range strings.Split(rec.Body, "\n") {
+	for _, raw := range strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(rec.Body), "\n") {
+		if raw != strings.TrimLeft(raw, " \t") {
+			continue
+		}
 		line := strings.TrimSpace(raw)
 		low := strings.ToLower(line)
 		if strings.HasPrefix(low, "sessions:") {
@@ -164,13 +167,27 @@ func eligibleHarnessProposal(root string, rec brain.Record) bool {
 	return isHarnessTargetProposal(root, rec) && hasProposalEvidence(rec.Body)
 }
 
-func isHarnessTargetProposal(root string, rec brain.Record) bool {
-	lowBody := strings.ToLower(rec.Body)
-	if strings.Contains(lowBody, "target: project") || strings.Contains(lowBody, "scope: project") {
-		return false
+func proposalHeaderLines(body string) []string {
+	norm := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body)
+	var out []string
+	for _, raw := range strings.Split(norm, "\n") {
+		if raw != strings.TrimLeft(raw, " \t") {
+			break
+		}
+		if line := strings.TrimSpace(raw); line != "" {
+			out = append(out, line)
+		}
 	}
-	if strings.Contains(lowBody, "target: harness") || strings.Contains(lowBody, "scope: harness") {
-		return true
+	return out
+}
+
+func isHarnessTargetProposal(root string, rec brain.Record) bool {
+	for _, line := range proposalHeaderLines(rec.Body) {
+		if tgt := proposalHeaderTarget(line); tgt == "project" {
+			return false
+		} else if tgt == "harness" {
+			return true
+		}
 	}
 	lowTitle := strings.ToLower(rec.Title)
 	if strings.HasPrefix(lowTitle, "dream, harness") || strings.HasPrefix(lowTitle, "auto, harness") {
@@ -179,9 +196,41 @@ func isHarnessTargetProposal(root string, rec brain.Record) bool {
 	return rec.Project != "" && trail.SameDir(rec.Project, root)
 }
 
+func proposalHeaderTarget(line string) string {
+	low := strings.ToLower(line)
+	hasHarness := false
+	for _, key := range []string{"target:", "scope:"} {
+		for _, off := range []string{key, " " + key} {
+			idx := strings.Index(low, off)
+			if idx < 0 || (off == key && idx != 0) {
+				continue
+			}
+			if flds := strings.Fields(low[idx+len(off):]); len(flds) > 0 {
+				if flds[0] == "project" {
+					return "project"
+				}
+				if flds[0] == "harness" {
+					hasHarness = true
+				}
+			}
+		}
+	}
+	if hasHarness {
+		return "harness"
+	}
+	return ""
+}
+
 func hasProposalEvidence(body string) bool {
-	for _, raw := range strings.Split(body, "\n") {
+	norm := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body)
+	for _, raw := range strings.Split(norm, "\n") {
+		if raw != strings.TrimLeft(raw, " \t") {
+			continue
+		}
 		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
 		low := strings.ToLower(line)
 		if strings.HasPrefix(low, "evidence:") && strings.TrimSpace(line[len("evidence:"):]) != "" {
 			return true
@@ -196,9 +245,7 @@ func hasProposalEvidence(body string) bool {
 				}
 			}
 		}
-		for _, tok := range strings.FieldsFunc(line, func(r rune) bool {
-			return !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-')
-		}) {
+		for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
 			if recordForm.MatchString(tok) && !strings.HasPrefix(tok, "PROPOSAL-") {
 				return true
 			}

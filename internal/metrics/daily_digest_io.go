@@ -151,7 +151,7 @@ func RecordDigestAppliedAction(store *Store, home, repoRoot string, now time.Tim
 		return err
 	}
 	if d == nil {
-		built, berr := BuildDailyDigest(store, home, repoRoot, nowUTC)
+		built, berr := BuildDailyDigest(store, home, "", nowUTC)
 		if berr != nil {
 			return berr
 		}

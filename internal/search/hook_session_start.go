@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -90,8 +90,8 @@ func collectSessionGitSummary(root string) sessionGitSummary {
 
 func extractSessionPlan(o Options, root string) string {
 	if text := readBoundedText(filepath.Join(root, "PLAN.md"), sessionStartMaxFileRead); text != "" {
-		if summary := summarizePlanMarkdown(text); summary != "" {
-			return summary
+		if summary := summarizePlanMarkdown(redact.Redact(text)); summary != "" {
+			return redact.Redact(summary)
 		}
 	}
 	if o.BrainTurnContext != nil {
@@ -100,9 +100,9 @@ func extractSessionPlan(o Options, root string) string {
 			label := strings.TrimSpace(bc.ActivePlan.ID)
 			title := strings.TrimSpace(bc.ActivePlan.Title)
 			if label != "" && title != "" {
-				return collapseOneLine(printable(label+": "+title), 200)
+				return redact.Redact(collapseOneLine(printable(label+": "+title), 200))
 			}
-			return collapseOneLine(printable(label+title), 200)
+			return redact.Redact(collapseOneLine(printable(label+title), 200))
 		}
 	}
 	return ""
@@ -140,7 +140,7 @@ func summarizePlanMarkdown(md string) string {
 }
 
 func extractTodoNow(path string, maxItems int) []string {
-	text := readBoundedText(path, sessionStartMaxFileRead)
+	text := redact.Redact(readBoundedText(path, sessionStartMaxFileRead))
 	if text == "" {
 		return nil
 	}
@@ -300,12 +300,16 @@ func truncateUTF8Bytes(s string, maxBytes int) string {
 }
 
 func readBoundedText(path string, limit int64) string {
-	fi, err := os.Lstat(path)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > limit {
+	if limit < 0 {
 		return ""
 	}
-	data, err := os.ReadFile(path)
+	f, err := trail.OpenRegular(path)
 	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil || int64(len(data)) > limit {
 		return ""
 	}
 	return string(data)

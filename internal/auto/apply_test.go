@@ -366,3 +366,44 @@ func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
 		}
 	})
 }
+
+func TestApplySquashRedactsSecretNeedles(t *testing.T) {
+	home := t.TempDir()
+	root := applyFixture(t, home, defaultAgentsMD)
+	baseHead := git(t, root, "rev-parse", "HEAD")
+
+	tokTitle := "gh" + "p_" + strings.Repeat("R", 36)
+	tokHandoff := "AI" + "zaSy" + strings.Repeat("S", 33)
+	tokSignal := "gl" + "pat-" + strings.Repeat("t", 20)
+	handoffID := "HANDOFF-2026-11-01-" + tokHandoff
+	tip := makeWorkerBranch(t, root, "redact-test", handoffID)
+
+	wtDir := filepath.Join(t.TempDir(), "wt-redact")
+	if _, err := applyGit(root, nil, "worktree", "add", "--detach", "--", wtDir, baseHead); err != nil {
+		t.Fatalf("worktree add: %v", err)
+	}
+	t.Cleanup(func() { removeWorktree(root, wtDir) })
+
+	r := &run{o: Options{Home: home, Now: func() time.Time { return runAt }}}
+	task := Task{Class: ClassHarnessEdit, SignalID: tokSignal, ReportDate: "2026-11-01"}
+	kick := Kickoff{Name: "redact-test", Branch: "work/redact-test"}
+	res := isolate.WorkerResult{
+		Name:    "redact-test",
+		Verdict: "PASS",
+		Base:    baseHead,
+		Head:    tip,
+		Handoff: &isolate.WorkerRecord{ID: handoffID, Kind: "handoff", Title: "Handoff " + tokTitle},
+	}
+	if _, err := r.squashInWorktree(root, wtDir, task, kick, res); err != nil {
+		t.Fatalf("squashInWorktree: %v", err)
+	}
+	msg := git(t, wtDir, "log", "-1", "--format=%B")
+	for _, leaked := range []string{tokTitle, tokHandoff, tokSignal} {
+		if strings.Contains(msg, leaked) {
+			t.Fatalf("squashInWorktree leaked needle %q into commit message:\n%s", leaked, msg)
+		}
+	}
+	if !strings.Contains(msg, "[redacted by fyr]") || !strings.Contains(msg, "revert: git revert HEAD") {
+		t.Fatalf("squashInWorktree commit message missing redaction/revert line:\n%s", msg)
+	}
+}

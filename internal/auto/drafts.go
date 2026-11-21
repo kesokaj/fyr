@@ -292,7 +292,7 @@ func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, erro
 		title = prefix + title
 	}
 	meta := formatProposalDraftMeta(d)
-	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n%s\n%s", d.Target, class, meta, strings.TrimSpace(d.Body))
+	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n%s\n%s", d.Target, class, meta, indentProposalBody(d.Body))
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
 	if _, err := brain.Add(g, brain.AddInput{
 		Kind: "proposal", Title: title, Project: root, Body: strings.NewReader(body),
@@ -301,4 +301,9 @@ func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, erro
 	}
 	r.st.OpenAsks++
 	return Finding{}, nil
+}
+
+func indentProposalBody(s string) string {
+	s = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(strings.TrimSpace(s))
+	return "    " + strings.ReplaceAll(s, "\n", "\n    ")
 }

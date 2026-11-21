@@ -526,3 +526,67 @@ func TestShowAgentRolesAndTopBashVerbs(t *testing.T) {
 		t.Fatalf("TopBashVerbs = %+v, bypasses = %v", sum.C.TopBashVerbs, sum.C.BashReadSkips)
 	}
 }
+
+func TestShowTagCohortSecondsZeroNullAndSandboxFilter(t *testing.T) {
+	home := t.TempDir()
+	s := openT(t, Path(home))
+	cutoff := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	now := cutoff.AddDate(0, 0, 5)
+	preSec := cutoff.Add(-48 * time.Hour).Unix()    // 10-digit epoch seconds -> 2026-11-08
+	postSec := cutoff.Add(2 * time.Hour).Unix()     // 10-digit epoch seconds after cutoff (excluded from Pre)
+	postMS := cutoff.Add(3 * time.Hour).UnixMilli() // 13-digit epoch ms in Post
+	preSBMS := cutoff.Add(-72 * time.Hour).UnixMilli()
+	postSBMS := cutoff.Add(4 * time.Hour).UnixMilli()
+	preSBRoot := filepath.Join(t.TempDir(), "fyr-eval", "pre-trial")
+	postSBRoot := filepath.Join(t.TempDir(), "fyr-eval", "post-trial")
+
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES
+			('PRE_SEC', 'agy', '/proj/coh', ?, ?),
+			('PRE_ZERO', 'agy', '/proj/coh', 0, 0),
+			('PRE_NULL', 'agy', '/proj/coh', NULL, NULL),
+			('POST_SEC', 'agy', '/proj/coh', ?, ?),
+			('POST_MS', 'agy', '/proj/coh', ?, ?),
+			('PRE_SB', 'agy', ?, ?, ?),
+			('POST_SB', 'agy', ?, ?, ?)`,
+			[]any{
+				preSec, preSec + 60,
+				postSec, postSec + 60,
+				postMS, postMS + 60000,
+				preSBRoot, preSBMS, preSBMS + 60000,
+				postSBRoot, postSBMS, postSBMS + 60000,
+			}},
+	} {
+		if _, err := s.db.Exec(q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sum, err := s.Show(ShowOptions{Home: home, Since: cutoff, Now: now, SinceTag: "v9.6.3"})
+	if err != nil {
+		t.Fatalf("Show(default): %v", err)
+	}
+	if sum.TagCohort == nil {
+		t.Fatal("TagCohort is nil")
+	}
+	if sum.TagCohort.Pre.Sessions != 1 || sum.TagCohort.Pre.Since != "2026-11-08" {
+		t.Fatalf("Pre cohort = %+v, want sessions=1 since=2026-11-08", sum.TagCohort.Pre)
+	}
+	if sum.TagCohort.Post.Sessions != 1 {
+		t.Fatalf("Post cohort = %+v, want sessions=1 (sandbox excluded)", sum.TagCohort.Post)
+	}
+
+	withSB, err := s.Show(ShowOptions{Home: home, Since: cutoff, Now: now, SinceTag: "v9.6.3", IncludeSandboxes: true})
+	if err != nil {
+		t.Fatalf("Show(IncludeSandboxes): %v", err)
+	}
+	if withSB.TagCohort.Pre.Sessions != 2 || withSB.TagCohort.Pre.Since != "2026-11-07" {
+		t.Fatalf("IncludeSandboxes Pre cohort = %+v, want sessions=2 since=2026-11-07", withSB.TagCohort.Pre)
+	}
+	if withSB.TagCohort.Post.Sessions != 2 {
+		t.Fatalf("IncludeSandboxes Post cohort = %+v, want sessions=2", withSB.TagCohort.Post)
+	}
+}

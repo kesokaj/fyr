@@ -14,7 +14,7 @@ import (
 var (
 	revertSHARe  = regexp.MustCompile(`revert:\s*git revert ([0-9a-f]{7,40}|HEAD)`)
 	appliedSHARe = regexp.MustCompile(`Applied commit ` + "`?" + `([0-9a-f]{7,40})` + "`?")
-	sigIDRe      = regexp.MustCompile(`\bsig:(?:global|proj-[0-9a-f]{8}):[a-z0-9_]+\b`)
+	sigIDRe      = regexp.MustCompile(`\bsig:(?:global|proj-[0-9a-f]{8}):[a-z0-9_-]+\b`)
 )
 
 func collectDigestActions(home, repoRoot, day string, curSum *Summary, prev, today *DailyDigest, signals []DigestAction) []DigestAppliedAction {
@@ -243,6 +243,9 @@ func EvaluateActionRecovery(act DigestAppliedAction, curSum *Summary, prev *Dail
 	}
 	if act.BaselineValue != nil && strings.TrimSpace(act.Metric) != "" {
 		if curVal, ok := lookupSummaryMetric(curSum, act.Metric); ok {
+			if curVal == 0 && !isHigherBetterMetric(act.Metric) && !hasRuleSignal(activeSignals, rule) {
+				return StatusRecovered
+			}
 			return pickSev(isMetricBetter(act.Metric, curVal, *act.BaselineValue), StatusRecovered, StatusStillRegressing)
 		}
 	}
@@ -291,15 +294,21 @@ func lookupSummaryMetric(sum *Summary, metric string) (float64, bool) {
 	return 0, false
 }
 
-func isMetricBetter(metric string, cur, base float64) bool {
+func isHigherBetterMetric(metric string) bool {
 	switch metric {
 	case "C.search_grep_ratio.agy", "C.ranged_read_pct.agy", "A.mean_outcome_score",
 		"A.mean_token_efficiency", "E.mean_vet_score", "eval.pass_rate",
 		"H.clamped_saves", "E.ledger_saved":
-		return cur > base
-	default:
-		return cur < base || (cur == 0 && base == 0)
+		return true
 	}
+	return false
+}
+
+func isMetricBetter(metric string, cur, base float64) bool {
+	if isHigherBetterMetric(metric) {
+		return cur > base
+	}
+	return cur < base || cur == 0
 }
 
 func extractRuleFromSignalID(sigID string) string {

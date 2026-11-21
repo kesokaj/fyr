@@ -126,11 +126,14 @@ func BuildDailyDigest(store *Store, home, repoRoot string, now time.Time) (Daily
 	if err != nil {
 		return DailyDigest{}, err
 	}
-	prevDigest, err := PreviousDailyDigest(store, day)
-	if err != nil {
-		return DailyDigest{}, err
+	var prevDigest, todayDigest *DailyDigest
+	if strings.TrimSpace(repoRoot) == "" {
+		prevDigest, err = PreviousDailyDigest(store, day)
+		if err != nil {
+			return DailyDigest{}, err
+		}
+		todayDigest, _ = dailyDigestByDay(store, day)
 	}
-	todayDigest, _ := dailyDigestByDay(store, day)
 	return assembleDailyDigest(day, nowUTC, home, repoRoot, curSum, prevSum, prevDigest, todayDigest), nil
 }
 

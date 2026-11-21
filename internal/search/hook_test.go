@@ -753,3 +753,64 @@ func TestRunHookPreToolBashChainDedupAndBypass(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHookPreToolBashHonorsArgsCwdNoHooks(t *testing.T) {
+	dir := setupHookRepo(t)
+	otherDir := setupHookRepo(t)
+	home := t.TempDir()
+
+	// Without no-hooks, interactive git add -p is denied in both dir and otherDir.
+	if d := invokePreToolBashT(t, dir, home, "conv-nohooks-cwd", "git add -p"); d.Decision != "deny" || !strings.Contains(d.Reason, "[INTERACTIVE_STDIN]") {
+		t.Fatalf("baseline interactive git add -p = %+v, want deny [INTERACTIVE_STDIN]", d)
+	}
+
+	// Place .agents/scratch/no-hooks ONLY in otherDir while dir still has hooks enabled.
+	writeFile(t, otherDir, ".agents/scratch/no-hooks", "1\n")
+	req, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-nohooks-cwd",
+		"workspacePaths": []string{dir},
+		"toolCall": map[string]any{
+			"name": "run_command",
+			"args": map[string]any{
+				"CommandLine": "git add -p",
+				"Cwd":         otherDir,
+			},
+		},
+	})
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(req)}, &out); err != nil {
+		t.Fatalf("pre-tool-use with Args.Cwd no-hooks: %v", err)
+	}
+	var dec HookDecisionOutput
+	if err := json.Unmarshal(out.Bytes(), &dec); err != nil {
+		t.Fatalf("unmarshal %q: %v", out.String(), err)
+	}
+	if dec.Decision != "allow" {
+		t.Fatalf("Args.Cwd with .agents/scratch/no-hooks = %+v, want allow before checkInteractiveBashGuard", dec)
+	}
+
+	// Subdirectory inside otherDir also resolves to otherDir's checkout root no-hooks.
+	subDir := filepath.Join(otherDir, "nested", "pkg")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reqSub, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-nohooks-cwd-sub",
+		"workspacePaths": []string{dir},
+		"toolCall": map[string]any{
+			"name": "run_command",
+			"args": map[string]any{
+				"CommandLine": "git add -p",
+				"cwd":         subDir,
+			},
+		},
+	})
+	out.Reset()
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(reqSub)}, &out); err != nil {
+		t.Fatalf("pre-tool-use with nested Args.cwd no-hooks: %v", err)
+	}
+	dec = HookDecisionOutput{}
+	if err := json.Unmarshal(out.Bytes(), &dec); err != nil || dec.Decision != "allow" {
+		t.Fatalf("nested Args.cwd with root no-hooks = %+v (%v), want allow", dec, err)
+	}
+}

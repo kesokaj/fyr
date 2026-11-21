@@ -84,8 +84,7 @@ func handlePreToolReadCtx(ctx context.Context, home, dir string, wdSt *store, wd
 		return err
 	}
 	if ledgerSt != nil {
-		dec, err := ledgerSt.checkAndRecordResolvedRead(ledgerRoot, normalizeLedgerConvID(in.ConversationID), resolved, start, end, 0)
-		if err == nil && !dec.Allowed {
+		if dec, err := ledgerSt.checkAndRecordResolvedRead(ledgerRoot, normalizeLedgerConvID(in.ConversationID), resolved, start, end, 0); err == nil && !dec.Allowed {
 			return writeDecision(out, "deny", dec.Reason)
 		}
 	}
@@ -138,11 +137,10 @@ func resolveReusableReadLedgerStore(sessionDir, home, toolDir string, wdSt *stor
 			return wdSt, wdRoot, false
 		}
 	}
-	st, root, err := openSessionLedgerStore(ledgerDir, home)
-	if err != nil {
-		return nil, "", false
+	if st, root, err := openSessionLedgerStore(ledgerDir, home); err == nil {
+		return st, root, true
 	}
-	return st, root, true
+	return nil, "", false
 }
 
 func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
@@ -151,6 +149,9 @@ func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
 
 func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
 	if hooksDisabledForHome(home, dir) {
+		return writeDecision(out, "allow", "")
+	}
+	if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabledForHome(home, toolDir) {
 		return writeDecision(out, "allow", "")
 	}
 	if err := ctx.Err(); err != nil {
@@ -173,83 +174,6 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wd
 		return nil
 	}
 	return writeDecision(out, "allow", "")
-}
-
-type bashLedgerHandle struct {
-	st    *store
-	root  string
-	ownSt bool
-}
-
-type bashLedgerCache struct {
-	byRoot map[string]bashLedgerHandle
-}
-
-func (c *bashLedgerCache) resolve(dir, home, toolDir string, wdSt *store, wdRoot string) (*store, string) {
-	ledgerDir := resolveSessionLedgerDir(dir, toolDir)
-	key := ledgerDir
-	if root, _, ok := findGitRootFast(ledgerDir); ok {
-		key = CanonicalizePath("", root)
-	}
-	if h, ok := c.byRoot[key]; ok {
-		return h.st, h.root
-	}
-	st, root, ownSt := resolveReusableReadLedgerStore(dir, home, toolDir, wdSt, wdRoot)
-	c.byRoot[key] = bashLedgerHandle{st: st, root: root, ownSt: ownSt}
-	return st, root
-}
-
-func (c *bashLedgerCache) close() {
-	for _, h := range c.byRoot {
-		if h.ownSt && h.st != nil {
-			h.st.close()
-		}
-	}
-}
-
-type resolvedBashRead struct {
-	read     BashFileRead
-	snap     readFileSnapshot
-	st       *store
-	root     string
-	unranged bool
-}
-
-func isUnrangedBashRead(r BashFileRead) bool {
-	switch r.Tool {
-	case "cat", "nl", "bat":
-		return r.StartLine <= 1 && r.EndLine == 0 && r.TailLines == 0
-	default:
-		return false
-	}
-}
-
-func resolveBashReadTargets(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, reads []BashFileRead, cache *bashLedgerCache) []resolvedBashRead {
-	items := make([]resolvedBashRead, 0, len(reads))
-	for _, r := range reads {
-		if ctx.Err() != nil {
-			break
-		}
-		toolDir := resolveToolProjectDir(dir, in, r.Path)
-		if hooksDisabledForHome(home, toolDir) {
-			continue
-		}
-		resolved := CanonicalizePath(toolDir, r.Path)
-		candRoot := resolveReadGuardRoot(dir, toolDir, wdRoot)
-		if !shouldGuardReadInRoot(candRoot, resolved) {
-			continue
-		}
-		st, root := cache.resolve(dir, home, toolDir, wdSt, wdRoot)
-		if st == nil || !shouldGuardReadInRoot(root, resolved) {
-			continue
-		}
-		snap := loadReadFileSnapshot(resolved)
-		if !snap.ok {
-			continue
-		}
-		items = append(items, resolvedBashRead{read: r, snap: snap, st: st, root: root, unranged: isUnrangedBashRead(r)})
-	}
-	return items
 }
 
 func enforceBashFileReads(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, reads []BashFileRead) (string, error) {

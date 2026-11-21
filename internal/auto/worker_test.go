@@ -14,6 +14,7 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -656,6 +657,96 @@ func TestWorkerFourthSlotReservation(t *testing.T) {
 		}
 		if strings.Contains(logOf(t, home), "worker deferred:") {
 			t.Errorf("unexpected deferral without high-severity auto_skill proposal:\n%s", logOf(t, home))
+		}
+		if st, _, err := loadState(home); err != nil || st.ModelRuns != 4 {
+			t.Errorf("ModelRuns = %d (%v), want 4", st.ModelRuns, err)
+		}
+	})
+
+	t.Run("derived-proposal-cannot-self-assert-high-severity-without-digest-match", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		harnessRoot, _, defaultID := initHarnessEvalGateFixture(t, home, realHome, "")
+		rejected := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: defaultID, Status: &rejected}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: harnessRoot,
+			Title: "Dream, harness — [high] tighten skills/alpha/SKILL.md",
+			Body:  strings.NewReader("Target: harness\nActionScope: auto_skill\nProvenance: derived\nSignal: sig:global:search_grep_low\nReportDate: 2026-10-31\nSeverity: high\nEvidence: BUG-101\n\n    Update `skills/alpha/SKILL.md`."),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// Digest only has search_grep_low at medium severity — must NOT trigger 4th-slot reservation.
+		if err := metrics.WriteLatestDailyDigest(home, metrics.DailyDigest{
+			Day: "2026-10-31", Verdict: metrics.VerdictSteady,
+			Signals: []metrics.DigestAction{{SignalID: "sig:global:search_grep_low", Severity: "medium", Rule: "search_grep_low"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		projRoot := idleDreamProject(t, home)
+		if err := saveState(home, State{Date: runAt.Format("2006-01-02"), ModelRuns: 3}); err != nil {
+			t.Fatal(err)
+		}
+		var ranRoots []string
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, harnessRoot, &out)
+		o.Env = &fakeEnv{targets: targetsOf(projRoot, harnessRoot), usage: usageText("90%", "90%")}
+		o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+			ranRoots = append(ranRoots, wo.Root)
+			name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+			return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		if len(ranRoots) != 1 || ranRoots[0] != projRoot {
+			t.Fatalf("ranRoots = %v, want [%s] (derived proposal bypassed digest high-severity check)", ranRoots, projRoot)
+		}
+		if strings.Contains(logOf(t, home), "worker deferred:") {
+			t.Errorf("derived self-asserted [high] proposal unexpectedly deferred non-harness project:\n%s", logOf(t, home))
+		}
+	})
+
+	t.Run("dirty-harness-checkout-does-not-defer-non-harness-4th-slot", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		harnessRoot, _, defaultID := initHarnessEvalGateFixture(t, home, realHome, "")
+		rejected := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: defaultID, Status: &rejected}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: harnessRoot,
+			Title: "Dream, harness — [high] tighten skills/alpha/SKILL.md",
+			Body:  strings.NewReader("Target: harness\nActionScope: auto_skill\nSignal: sig:global:search_grep_low\nReportDate: 2026-10-31\nEvidence: BUG-102\n\nUpdate `skills/alpha/SKILL.md`."),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		// Dirty the harness checkout so workerCheckoutStop(r.o.Repo) != "".
+		writeTree(t, harnessRoot, "dirty.txt", "uncommitted\n")
+		projRoot := idleDreamProject(t, home)
+		if err := saveState(home, State{Date: runAt.Format("2006-01-02"), ModelRuns: 3}); err != nil {
+			t.Fatal(err)
+		}
+		var ranRoots []string
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, harnessRoot, &out)
+		o.Env = &fakeEnv{targets: targetsOf(projRoot, harnessRoot), usage: usageText("90%", "90%")}
+		o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+			ranRoots = append(ranRoots, wo.Root)
+			name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+			return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		if len(ranRoots) != 1 || ranRoots[0] != projRoot {
+			t.Fatalf("ranRoots = %v, want [%s] when harness checkout is dirty", ranRoots, projRoot)
+		}
+		if strings.Contains(logOf(t, home), "worker deferred:") {
+			t.Errorf("dirty harness checkout unexpectedly deferred non-harness project:\n%s", logOf(t, home))
 		}
 		if st, _, err := loadState(home); err != nil || st.ModelRuns != 4 {
 			t.Errorf("ModelRuns = %d (%v), want 4", st.ModelRuns, err)
