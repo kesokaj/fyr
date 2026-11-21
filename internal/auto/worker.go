@@ -123,6 +123,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 		r.failed = true
 		return "worker state error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
+	t.Root = root
 	k, err := WriteKickoff(r.o.Home, r.o.now(), t)
 	if err != nil {
 		r.failed = true
