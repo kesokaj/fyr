@@ -208,7 +208,7 @@ func TestSuiteHarness(t *testing.T) {
 		"triage": {"", true}, "autonomy": {"", true}, "feature-routing": {"", false},
 		"dreamer": {"dreamer", true},
 	}
-	wantVer := map[string]int{"reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2, "verifier": 2, "triage": 2, "feature-routing": 2}
+	wantVer := map[string]int{"feature": 2, "reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2, "verifier": 2, "triage": 2, "feature-routing": 2}
 	if len(rows) != len(want) {
 		t.Errorf("%d rows, want %d", len(rows), len(want))
 	}
@@ -373,7 +373,7 @@ func TestNamedRowSkillCommands(t *testing.T) {
 			allowed[strings.TrimSuffix(cmd, ")")] = true
 		}
 	}
-	for _, must := range []string{"ls", "head", "find", "sort"} {
+	for _, must := range []string{"ls", "head", "find", "sort", "rg"} {
 		if !allowed[must] {
 			t.Errorf("namedGrants is missing command(%s)", must)
 		}

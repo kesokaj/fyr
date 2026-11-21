@@ -55,6 +55,8 @@ printf '.agents/scratch/*\n' >.gitignore
 		},
 		"feature": {
 			{"two-phase worker plan stored, models.json written, cold read closed", true, goodFeature},
+			{"bulleted D-row workers: yes", true, modelsJSON + plan(strings.Replace(goodFeaturePlanBody, "D1 —", "- D1 —", 1))},
+			{"bulleted D-row workers: no", false, modelsJSON + plan(strings.Replace(strings.Replace(goodFeaturePlanBody, "D1 —", "- D1 —", 1), "workers: yes, waves W1: 1 · W2: 2", "workers: no, small scope", 1))},
 			{"no plan", false, modelsJSON},
 			{"missing goodbye scope", false, modelsJSON + planWithTitle("Plan — Farewell and version endpoints (2026-11-11)", strings.ReplaceAll(strings.ReplaceAll(goodFeaturePlanBody, "Goodbye", "Farewell"), "goodbye", "farewell"))},
 			{"missing version scope", false, modelsJSON + planWithTitle("Plan — Goodbye and health endpoints (2026-11-11)", strings.ReplaceAll(strings.ReplaceAll(goodFeaturePlanBody, "Version", "Health"), "version", "health"))},
