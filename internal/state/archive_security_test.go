@@ -11,6 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 type rawZipSpec struct {
@@ -104,4 +108,124 @@ func TestImportRejectsInvalidArchivesBeforeOpeningDB(t *testing.T) {
 		{name: ManifestEntry, body: validManifestBytes(t, 4, 11, big, empty)},
 		{name: BrainRecordsEntry, body: big}, {name: MetricsSanitizedEntry},
 	}), "oversize")
+}
+
+func TestImportSecurityHardeningRegressions(t *testing.T) {
+	empty := []byte{}
+	manWithTrailing := append(validManifestBytes(t, 4, 11, empty, empty), []byte(` {"extra":true}`)...)
+	assertRejectedNoDBTouch(t, writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: manWithTrailing},
+		{name: BrainRecordsEntry}, {name: MetricsSanitizedEntry},
+	}), "trailing data")
+
+	srcHome := t.TempDir()
+	srcRepo := initGitRepo(t, "https://github.com/org/sec-state.git")
+	tok := "ghp_" + strings.Repeat("a", 36)
+	if _, err := brain.Add(brain.Options{Home: srcHome, Dir: srcRepo}, brain.AddInput{
+		Kind: "adr", ID: "ADR-001", Title: "Token in " + srcRepo,
+		Body: strings.NewReader("Path /Users/alice/work/file and token " + tok),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.Add(brain.Options{Home: srcHome, Global: true}, brain.AddInput{
+		Kind: "feedback", Title: "Global feedback",
+		Body: strings.NewReader("path /Users/alice/work/file"), Project: "/home/alice/local-proj",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	bundlePath := filepath.Join(t.TempDir(), "bundle.zip")
+	if _, err := Export(ExportOptions{Home: srcHome, IncludeMemory: true, OutPath: bundlePath}); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.OpenReader(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exportedNDJSON string
+	for _, f := range zr.File {
+		if f.Name == BrainRecordsEntry {
+			rc, oerr := f.Open()
+			if oerr != nil {
+				t.Fatal(oerr)
+			}
+			var buf bytes.Buffer
+			_, _ = buf.ReadFrom(rc)
+			_ = rc.Close()
+			exportedNDJSON = buf.String()
+		}
+	}
+	_ = zr.Close()
+	for _, forbidden := range []string{srcRepo, "/Users/alice", "/home/alice", tok, `"scope":`} {
+		if strings.Contains(exportedNDJSON, forbidden) {
+			t.Fatalf("exported brain_records.ndjson leaked %q:\n%s", forbidden, exportedNDJSON)
+		}
+	}
+	if !strings.Contains(exportedNDJSON, "~/work/file") {
+		t.Fatalf("expected scrubbed home path ~/work/file in exportedNDJSON:\n%s", exportedNDJSON)
+	}
+
+	roDir := t.TempDir()
+	roBundle := filepath.Join(roDir, "ro-bundle.zip")
+	rawZip, err := os.ReadFile(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(roBundle, rawZip, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(roDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(roDir, 0o700) })
+
+	dstHome := t.TempDir()
+	dstRepo := initGitRepo(t, "https://github.com/org/sec-state.git")
+	if err := metrics.RecordTrial(dstHome, metrics.TrialInput{Run: "seed", Label: "t1", Status: "pass", Seconds: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.MemoryAdd(brain.Options{Home: dstHome, Dir: dstRepo}, brain.MemoryEntry{
+		Type: "semantic", Name: "local-op", Description: "sacred", Provenance: "operator",
+	}, strings.NewReader("keep local operator")); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Import(ImportOptions{Home: dstHome, Dir: dstRepo, BundlePath: roBundle, DryRun: true}); err != nil || res.Insert != 1 {
+		t.Fatalf("dry-run in sandbox with read-only bundle dir = %+v, err = %v", res, err)
+	}
+	sandboxPath := filepath.Join(filepath.Dir(metrics.Path(dstHome)), "sandbox")
+	_ = os.RemoveAll(sandboxPath)
+	if err := os.Symlink(t.TempDir(), sandboxPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Import(ImportOptions{Home: dstHome, Dir: dstRepo, BundlePath: roBundle, DryRun: true}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink sandbox rejection, got err = %v", err)
+	}
+	_ = os.Remove(sandboxPath)
+
+	futureOp, _ := json.Marshal(brain.Record{
+		RepoID: brain.ResolveRepoID(dstRepo), ID: "MEMORY-local-op", Kind: "memory", Status: "closed",
+		Date: "2026-11-21", Title: "hijack", Body: "type: semantic\n\noverwritten", Provenance: "operator",
+		Updated: time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+	})
+	hijackZip := writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: validManifestBytes(t, 4, 11, append(futureOp, '\n'), empty)},
+		{name: BrainRecordsEntry, body: append(futureOp, '\n')},
+		{name: MetricsSanitizedEntry},
+	})
+	resOp, err := Import(ImportOptions{Home: dstHome, Dir: dstRepo, BundlePath: hijackZip, IncludeMemory: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resOp.OperatorPreserved != 1 || resOp.Updated != 0 {
+		t.Fatalf("expected OperatorPreserved=1 Updated=0, got %+v", resOp)
+	}
+
+	badRepo, _ := json.Marshal(brain.Record{
+		RepoID: "/tmp/victim-repo", ID: "ADR-002", Kind: "adr", Status: "accepted",
+		Date: "2026-11-21", Title: "bad repo", Body: "body",
+	})
+	assertRejectedNoDBTouch(t, writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: validManifestBytes(t, 4, 11, append(badRepo, '\n'), empty)},
+		{name: BrainRecordsEntry, body: append(badRepo, '\n')},
+		{name: MetricsSanitizedEntry},
+	}), "invalid repo_id")
 }

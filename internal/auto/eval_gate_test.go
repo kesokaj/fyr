@@ -629,3 +629,45 @@ func (c *countingUsageEnv) Usage(home, dir string) (string, error) {
 	}
 	return c.fakeEnv.Usage(home, dir)
 }
+
+func TestEnsureHoldoutSuiteRefusesSymlinks(t *testing.T) {
+	t.Run("symlinked .agents/eval starter dir", func(t *testing.T) {
+		root := t.TempDir()
+		ext := t.TempDir()
+		if err := os.WriteFile(filepath.Join(ext, "holdout-starter.md"), []byte("starter"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(ext, filepath.Join(root, ".agents", "eval")); err != nil {
+			t.Fatal(err)
+		}
+		outPath := filepath.Join(t.TempDir(), "eval", "holdout.md")
+		_, err := ensureHoldoutSuite("", root, outPath)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("ensureHoldoutSuite err = %v, want symlink refusal", err)
+		}
+	})
+
+	t.Run("symlinked target parent outside home", func(t *testing.T) {
+		root := t.TempDir()
+		evalDir := filepath.Join(root, ".agents", "eval")
+		if err := os.MkdirAll(evalDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(evalDir, "holdout-starter.md"), []byte("starter"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		outer := t.TempDir()
+		symParent := filepath.Join(outer, "linked-dir")
+		if err := os.Symlink(t.TempDir(), symParent); err != nil {
+			t.Fatal(err)
+		}
+		home := t.TempDir()
+		_, err := ensureHoldoutSuite(home, root, filepath.Join(symParent, "sub", "holdout.md"))
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("ensureHoldoutSuite outside-home err = %v, want symlink refusal", err)
+		}
+	})
+}

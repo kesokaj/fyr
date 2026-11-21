@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type verifiedArchive struct {
@@ -51,7 +52,7 @@ func readBundleFile(bundlePath string) ([]byte, error) {
 	if strings.TrimSpace(bundlePath) == "" {
 		return nil, errors.New("state import: bundle path required")
 	}
-	f, err := os.Open(bundlePath)
+	f, err := os.OpenFile(bundlePath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, fmt.Errorf("state import: %w", err)
 	}
@@ -172,8 +173,12 @@ func readCappedEntry(f *zip.File, limit int64) ([]byte, string, error) {
 
 func parseAndValidateManifest(raw []byte, actualSHA map[string]string) (Manifest, error) {
 	var m Manifest
-	if err := json.NewDecoder(bytes.NewReader(raw)).Decode(&m); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&m); err != nil {
 		return Manifest{}, fmt.Errorf("invalid manifest.json: %w", err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return Manifest{}, errors.New("invalid manifest.json: trailing data")
 	}
 	if m.BrainSchema < 0 || m.BrainSchema > MaxBrainSchema {
 		return Manifest{}, fmt.Errorf("unsupported brain_schema %d (supported <= %d); update fyr", m.BrainSchema, MaxBrainSchema)

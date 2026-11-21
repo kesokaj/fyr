@@ -119,14 +119,24 @@ func parseSCPOrigin(u string) (string, string, bool) {
 	if strings.HasPrefix(u, "/") || strings.HasPrefix(u, "./") || strings.HasPrefix(u, "../") || strings.HasPrefix(u, "~") {
 		return "", "", false
 	}
-	left, right, hasColon := strings.Cut(u, ":")
-	if !hasColon || strings.Contains(left, "/") {
-		return "", "", false
+	head := u
+	if slash := strings.IndexByte(u, '/'); slash >= 0 {
+		head = u[:slash]
 	}
-	if at := strings.LastIndexByte(left, '@'); at >= 0 {
-		left = left[at+1:]
+	if at := strings.LastIndexByte(head, '@'); at >= 0 {
+		u = u[at+1:]
 	}
-	return left, right, left != "" && right != ""
+	colon := strings.IndexByte(u, ':')
+	slash := strings.IndexByte(u, '/')
+	if colon >= 0 && (slash < 0 || colon < slash) {
+		left, right := u[:colon], u[colon+1:]
+		return left, right, left != "" && right != ""
+	}
+	if slash >= 0 {
+		left, right := u[:slash], u[slash+1:]
+		return left, right, left != "" && right != ""
+	}
+	return "", "", false
 }
 
 func cleanRepoPath(p string) string {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
@@ -96,22 +98,11 @@ func ensureHoldoutSuite(home, root, holdoutPath string) (bool, error) {
 	if root == "" {
 		return false, nil
 	}
-	starter := filepath.Join(root, ".agents", "eval", "holdout-starter.md")
-	sst, serr := os.Lstat(starter)
-	if errors.Is(serr, fs.ErrNotExist) {
-		return false, nil
-	}
-	if serr != nil {
-		return false, serr
-	}
-	if sst.Mode()&os.ModeSymlink != 0 || !sst.Mode().IsRegular() {
-		return false, fmt.Errorf("holdout starter %s: symlink or non-regular refused", starter)
-	}
-	if err := ensureSafeHoldoutParent(home, filepath.Dir(holdoutPath)); err != nil {
+	data, found, err := readStarterHoldout(root)
+	if err != nil || !found {
 		return false, err
 	}
-	data, err := readBounded(starter, 1<<20)
-	if err != nil {
+	if err := ensureSafeHoldoutParent(home, filepath.Dir(holdoutPath)); err != nil {
 		return false, err
 	}
 	if err := harness.WriteAtomic(holdoutPath, data, 0o600); err != nil {
@@ -120,24 +111,107 @@ func ensureHoldoutSuite(home, root, holdoutPath string) (bool, error) {
 	return true, nil
 }
 
-func ensureSafeHoldoutParent(home, targetDir string) error {
-	if home != "" {
-		cleanHome := filepath.Clean(home)
-		if rel, err := filepath.Rel(cleanHome, filepath.Clean(targetDir)); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			cur := cleanHome
-			for _, part := range strings.Split(rel, string(filepath.Separator)) {
-				cur = filepath.Join(cur, part)
-				if st, err := os.Lstat(cur); err == nil {
-					if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
-						return fmt.Errorf("holdout dir %s: symlink or non-directory refused", cur)
-					}
-				} else if !errors.Is(err, fs.ErrNotExist) {
-					return err
-				}
-			}
+func readStarterHoldout(root string) ([]byte, bool, error) {
+	openRoot, err := os.OpenRoot(root)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	defer openRoot.Close()
+	relParts := []string{".agents", filepath.Join(".agents", "eval"), filepath.Join(".agents", "eval", "holdout-starter.md")}
+	for i, rel := range relParts {
+		st, lerr := openRoot.Lstat(rel)
+		if errors.Is(lerr, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		if lerr != nil {
+			return nil, false, lerr
+		}
+		isLeaf := i == len(relParts)-1
+		if st.Mode()&os.ModeSymlink != 0 || (isLeaf && !st.Mode().IsRegular()) || (!isLeaf && !st.IsDir()) {
+			return nil, false, fmt.Errorf("holdout starter %s: symlink or invalid file type refused", filepath.Join(root, rel))
 		}
 	}
-	return os.MkdirAll(targetDir, 0o700)
+	f, err := openRoot.OpenFile(relParts[2], os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > 1<<20 {
+		return nil, false, fmt.Errorf("holdout starter %s: exceeds 1 MiB", filepath.Join(root, relParts[2]))
+	}
+	return data, true, nil
+}
+
+func ensureSafeHoldoutParent(home, targetDir string) error {
+	cleanTarget := filepath.Clean(targetDir)
+	if home != "" {
+		cleanHome := filepath.Clean(home)
+		if rel, err := filepath.Rel(cleanHome, cleanTarget); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if err := checkLstatChain(cleanHome, rel); err != nil {
+				return err
+			}
+			return os.MkdirAll(cleanTarget, 0o700)
+		}
+	}
+	if err := checkLstatAncestors(cleanTarget); err != nil {
+		return err
+	}
+	return os.MkdirAll(cleanTarget, 0o700)
+}
+
+func checkLstatChain(base, rel string) error {
+	if err := rejectSymlinkOrNonDir(base); err != nil {
+		return err
+	}
+	if rel == "" || rel == "." {
+		return nil
+	}
+	cur := base
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if err := rejectSymlinkOrNonDir(cur); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkLstatAncestors(cleanTarget string) error {
+	for cur := cleanTarget; cur != "" && cur != "/" && cur != "." && cur != string(filepath.Separator); {
+		if err := rejectSymlinkOrNonDir(cur); err != nil {
+			return err
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur || parent == "/tmp" || parent == "/var" || parent == "/private" || parent == "/private/tmp" || parent == "/private/var" {
+			break
+		}
+		cur = parent
+	}
+	return nil
+}
+
+func rejectSymlinkOrNonDir(p string) error {
+	st, err := os.Lstat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+		return fmt.Errorf("holdout dir %s: symlink or non-directory refused", p)
+	}
+	return nil
 }
 
 func changedHarnessTargets(root, base, ref string) ([]string, error) {
@@ -152,7 +226,7 @@ func changedHarnessTargets(root, base, ref string) ([]string, error) {
 			continue
 		}
 		parts := strings.Split(p, "/")
-		if len(parts) < 2 || parts[0] != "skills" || parts[1] == "" || parts[1] == "google-catalog" {
+		if len(parts) < 2 || parts[0] != "skills" || parts[1] == "" {
 			return nil, fmt.Errorf("candidate touched %s outside skills/<s>/", p)
 		}
 		if !slices.Contains(names, parts[1]) {

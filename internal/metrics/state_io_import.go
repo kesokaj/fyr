@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // StateImportCounts summarizes rows merged by ImportSanitizedState.
@@ -250,7 +252,9 @@ func importOneTurnVetTx(tx *sql.Tx, r SanitizedTurnVet, c *StateImportCounts) er
 }
 
 func importOneRatingTx(tx *sql.Tx, r SessionRating, c *StateImportCounts) error {
-	r.ProjectRoot = ""
+	if r.ProjectRoot != search.GlobalWorkspace {
+		r.ProjectRoot = ""
+	}
 	r.Summary = clipSanitizedText(r.Summary, 400)
 	r.TargetSkill = clipSanitizedText(r.TargetSkill, 200)
 	norm, err := normalizeSessionRating(r)
@@ -285,7 +289,9 @@ func importOneRatingTx(tx *sql.Tx, r SessionRating, c *StateImportCounts) error 
 }
 
 func importOneVerdictTx(tx *sql.Tx, r JudgeVerdictRow, c *StateImportCounts) error {
-	r.ProjectRoot = ""
+	if r.ProjectRoot != search.GlobalWorkspace {
+		r.ProjectRoot = ""
+	}
 	r.Target = clipSanitizedText(r.Target, 256)
 	r.FallbackReason = clipSanitizedText(r.FallbackReason, 400)
 	norm, err := normalizeJudgeVerdictRow(r)

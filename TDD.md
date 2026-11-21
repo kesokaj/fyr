@@ -35,7 +35,7 @@ Packages reusable `SKILL.md` workflows and empty `commands/` directories under s
 Implements: M2 · Spec: none (the Agent Skills `SKILL.md` standard; vendored provenance in `skills/VENDORED.md`)
 
 - **Interfaces:** `skills/<name>/SKILL.md` with a `description`, loaded when it matches and typed as `/name`; `commands/<name>.md`, deployed to `~/.gemini/config/workflows/`, empty by design (the operator, 2026-09-30).
-- **Errors:** the lint refuses a skill without `SKILL.md` or a description, a description over 1,024 characters, a key outside the allow list, and a value a YAML reader would read as a comment.
+- **Errors:** the lint refuses a skill without `SKILL.md` or a description, a description over `1,024` characters (`internal/harness/frontmatter.go`), a key outside the allow list, and a value a YAML reader would read as a comment; `TestSkillFrontmatterDescriptionsUnder140Chars` (`internal/harness/size_test.go`) caps embedded harness skill descriptions at `140` characters.
 - **Configuration:** the listing budget, `TestSkillListingBudget`: 19,500 bytes over the name and description of every skill without `disable-model-invocation: true`; past Claude Code's budget a skill is a bare name nothing triggers, so catalog entries never become global skills.
 
 ## T3 — Subagents

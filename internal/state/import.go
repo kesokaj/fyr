@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
@@ -34,7 +36,11 @@ func Import(opts ImportOptions) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("state import: %s: %w", opts.BundlePath, err)
 	}
-	remapLocalRepoScope(recs, opts.Dir)
+	localScope, localRepoID := resolveLocalTarget(opts.Dir)
+	remapLocalRepoScope(recs, localScope, localRepoID)
+	if arch.manifest.MetricsSchema < 1 && len(bytes.TrimSpace(arch.metricsBytes)) > 0 {
+		return ImportResult{}, fmt.Errorf("state import: %s: metrics payload requires metrics_schema >= 1", opts.BundlePath)
+	}
 	mexp, err := decodeMetricsNDJSON(arch.metricsBytes, arch.manifest.MetricsSchema)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("state import: %s: %w", opts.BundlePath, err)
@@ -42,7 +48,7 @@ func Import(opts ImportOptions) (ImportResult, error) {
 	if repoID != "" {
 		mexp = filterMetricsByRepo(mexp, repoID)
 	}
-	bStats, mCounts, err := applyStateStores(opts, repoID, recs, mexp)
+	bStats, mCounts, err := applyStateStores(opts, repoID, localScope, localRepoID, recs, mexp)
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -177,14 +183,17 @@ func filterMetricsLedgersByRepo(in, out metrics.SanitizedMetricsExport, repoID s
 	return out
 }
 
-func applyStateStores(opts ImportOptions, repoID string, recs []brain.Record, mexp metrics.SanitizedMetricsExport) (brain.StateImportStats, metrics.StateImportCounts, error) {
-	bOpts := brain.StateImportOpts{RepoID: repoID, IncludeMemory: opts.IncludeMemory, DryRun: true}
+func applyStateStores(opts ImportOptions, repoID, localScope, localRepoID string, recs []brain.Record, mexp metrics.SanitizedMetricsExport) (brain.StateImportStats, metrics.StateImportCounts, error) {
+	bOpts := brain.StateImportOpts{
+		RepoID: repoID, LocalScope: localScope, LocalRepoID: localRepoID,
+		IncludeMemory: opts.IncludeMemory, DryRun: true,
+	}
 	dryBrain, err := brain.ImportStateRecords(opts.Home, recs, bOpts)
 	if err != nil {
 		return brain.StateImportStats{}, metrics.StateImportCounts{}, err
 	}
 	if opts.DryRun {
-		mCounts, err := dryRunMetricsImport(opts.Home, opts.BundlePath, mexp)
+		mCounts, err := dryRunMetricsImport(opts.Home, mexp)
 		return dryBrain, mCounts, err
 	}
 	mPath := metrics.Path(opts.Home)
@@ -205,30 +214,32 @@ func applyStateStores(opts ImportOptions, repoID string, recs []brain.Record, me
 	return bStats, mCounts, err
 }
 
-func dryRunMetricsImport(home, bundlePath string, mexp metrics.SanitizedMetricsExport) (metrics.StateImportCounts, error) {
+func dryRunMetricsImport(home string, mexp metrics.SanitizedMetricsExport) (metrics.StateImportCounts, error) {
 	mPath := metrics.Path(home)
 	_, statErr := os.Lstat(mPath)
-	if errors.Is(statErr, os.ErrNotExist) && !hasMetricsRows(mexp) {
-		return metrics.StateImportCounts{}, nil
-	}
-	absBundle, _ := filepath.Abs(bundlePath)
-	tmpDir, err := os.MkdirTemp(filepath.Dir(absBundle), ".fyr-state-dryrun-*")
-	if err != nil {
-		if tmpDir, err = os.MkdirTemp(home, ".fyr-state-dryrun-*"); err != nil {
+	if errors.Is(statErr, os.ErrNotExist) {
+		if !hasMetricsRows(mexp) {
+			return metrics.StateImportCounts{}, nil
+		}
+		ms, err := metrics.OpenMemory()
+		if err != nil {
 			return metrics.StateImportCounts{}, err
 		}
+		defer ms.Close()
+		return metrics.ImportSanitizedState(ms, mexp, true)
+	}
+	sandbox, err := ensureSafeSandboxDir(home, filepath.Dir(mPath))
+	if err != nil {
+		return metrics.StateImportCounts{}, err
+	}
+	tmpDir, err := os.MkdirTemp(sandbox, ".fyr-state-dryrun-*")
+	if err != nil {
+		return metrics.StateImportCounts{}, err
 	}
 	defer os.RemoveAll(tmpDir)
 	tmpDB := filepath.Join(tmpDir, "metrics.db")
-	if !errors.Is(statErr, os.ErrNotExist) {
-		if err := copyFileIfRegular(mPath, tmpDB); err != nil {
-			return metrics.StateImportCounts{}, err
-		}
-		if _, werr := os.Lstat(mPath + "-wal"); werr == nil {
-			if err := copyFileIfRegular(mPath+"-wal", tmpDB+"-wal"); err != nil {
-				return metrics.StateImportCounts{}, err
-			}
-		}
+	if err := copyMetricsSnapshot(mPath, tmpDB); err != nil {
+		return metrics.StateImportCounts{}, err
 	}
 	ms, err := metrics.Open(tmpDB)
 	if err != nil {
@@ -238,17 +249,69 @@ func dryRunMetricsImport(home, bundlePath string, mexp metrics.SanitizedMetricsE
 	return metrics.ImportSanitizedState(ms, mexp, true)
 }
 
+func ensureSafeSandboxDir(home, fyrDir string) (string, error) {
+	cleanHome := filepath.Clean(home)
+	if hst, err := os.Lstat(cleanHome); err == nil {
+		if hst.Mode()&os.ModeSymlink != 0 || !hst.IsDir() {
+			return "", fmt.Errorf("state dry-run sandbox %s: symlink or non-directory refused", cleanHome)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	sandbox := filepath.Join(fyrDir, "sandbox")
+	rel, err := filepath.Rel(cleanHome, sandbox)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("state dry-run sandbox %s: outside home %s", sandbox, cleanHome)
+	}
+	cur := cleanHome
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if st, err := os.Lstat(cur); err == nil {
+			if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+				return "", fmt.Errorf("state dry-run sandbox %s: symlink or non-directory refused", cur)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	if err := os.MkdirAll(sandbox, 0o700); err != nil {
+		return "", err
+	}
+	return sandbox, nil
+}
+
+func copyMetricsSnapshot(mPath, tmpDB string) error {
+	if err := copyFileIfRegular(mPath, tmpDB); err != nil {
+		return err
+	}
+	if _, werr := os.Lstat(mPath + "-wal"); werr == nil {
+		return copyFileIfRegular(mPath+"-wal", tmpDB+"-wal")
+	}
+	return nil
+}
+
 func copyFileIfRegular(src, dst string) error {
-	fi, err := os.Lstat(src)
+	f, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		return err
 	}
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("state import: %s is not a regular file", src)
 	}
-	data, err := os.ReadFile(src)
+	if fi.Size() > maxArchiveBytes {
+		return fmt.Errorf("state import: %s exceeds maximum snapshot size (%d bytes)", src, maxArchiveBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxArchiveBytes+1))
 	if err != nil {
 		return err
+	}
+	if int64(len(data)) > maxArchiveBytes {
+		return fmt.Errorf("state import: %s exceeds maximum snapshot size (%d bytes)", src, maxArchiveBytes)
 	}
 	return os.WriteFile(dst, data, 0o600)
 }
@@ -258,17 +321,23 @@ func hasMetricsRows(m metrics.SanitizedMetricsExport) bool {
 		len(m.TurnVets)+len(m.SessionRatings)+len(m.JudgeVerdicts)+len(m.BackgroundRuns) > 0
 }
 
-func remapLocalRepoScope(recs []brain.Record, dir string) {
+func resolveLocalTarget(dir string) (string, string) {
 	if strings.TrimSpace(dir) == "" {
-		return
+		return "", ""
 	}
 	localScope, _, err := trail.Roots(dir)
 	if err != nil || localScope == "" {
+		return "", ""
+	}
+	return localScope, brain.ResolveRepoID(localScope)
+}
+
+func remapLocalRepoScope(recs []brain.Record, localScope, localRepoID string) {
+	if localScope == "" || localRepoID == "" {
 		return
 	}
-	localRepoID := brain.ResolveRepoID(localScope)
 	for i := range recs {
-		if localRepoID != "" && recs[i].Scope != "" && recs[i].RepoID == localRepoID {
+		if recs[i].RepoID == localRepoID {
 			recs[i].Scope = localScope
 		}
 	}

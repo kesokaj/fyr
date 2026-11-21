@@ -22,7 +22,10 @@ type StateExportOpts struct {
 // StateImportOpts configures ImportStateRecords for idempotent NDJSON state merge.
 type StateImportOpts struct {
 	RepoID        string
+	LocalScope    string
+	LocalRepoID   string
 	IncludeMemory bool
+	TrustOperator bool
 	DryRun        bool
 }
 
@@ -139,7 +142,7 @@ func ImportStateRecords(home string, recs []Record, opts StateImportOpts) (State
 		return StateImportStats{Total: len(eligible)}, err
 	}
 	if opts.DryRun {
-		return importStateDryRun(home, eligible)
+		return importStateDryRun(home, eligible, opts)
 	}
 	st, err := openStore(home)
 	if err != nil {
@@ -149,33 +152,36 @@ func ImportStateRecords(home string, recs []Record, opts StateImportOpts) (State
 	var stats StateImportStats
 	err = st.tx(func(c *sql.Conn) error {
 		var txErr error
-		stats, txErr = applyStateImportTx(context.Background(), c, eligible)
+		stats, txErr = applyStateImportTx(context.Background(), c, eligible, opts)
 		return txErr
 	})
 	return stats, err
 }
 
 func filterStateImport(recs []Record, opts StateImportOpts) ([]Record, error) {
-	repoCache := map[string]string{}
 	var out []Record
 	for _, r := range recs {
 		if !knownKind(r.Kind) {
 			return nil, refuse("state import: unknown kind %q", r.Kind)
 		}
-		if !opts.IncludeMemory && unexported[r.Kind] {
+		if !opts.IncludeMemory && (unexported[r.Kind] || (r.Kind == "retro" && r.Scope == "" && r.RepoID == "")) {
 			continue
 		}
-		fillMissingRepoID(&r, repoCache)
-		if opts.RepoID != "" {
-			if r.RepoID != "" && r.RepoID != opts.RepoID {
-				continue
-			}
-			if r.RepoID == "" && !globalOnly[r.Kind] && r.Scope != "" {
-				r.RepoID = opts.RepoID
-			}
+		if opts.RepoID != "" && r.RepoID != opts.RepoID {
+			continue
 		}
-		if (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
-			r.Provenance = "unknown"
+		if !validStateRepoID(r.RepoID) {
+			return nil, refuse("state import %s: invalid repo_id %q", r.ID, r.RepoID)
+		}
+		if !globalOnly[r.Kind] && r.RepoID == "" && !opts.TrustOperator && r.Scope != "" {
+			return nil, refuse("state import %s: repo_id required for scoped record", r.ID)
+		}
+		if r.Kind == "memory" || r.Kind == "feedback" {
+			if r.Provenance == "" {
+				r.Provenance = "unknown"
+			} else if r.Provenance == "operator" && !opts.TrustOperator {
+				r.Provenance = "derived"
+			}
 		}
 		if err := checkRecord(r); err != nil {
 			return nil, refuse("state import %s: %v", r.ID, err)
@@ -185,14 +191,27 @@ func filterStateImport(recs []Record, opts StateImportOpts) ([]Record, error) {
 	return out, nil
 }
 
-func applyStateImportTx(ctx context.Context, c *sql.Conn, eligible []Record) (StateImportStats, error) {
+func validStateRepoID(id string) bool {
+	if id == "" {
+		return true
+	}
+	if len(id) < 6 || len(id) > 512 {
+		return false
+	}
+	if !strings.HasPrefix(id, "git:") && !strings.HasPrefix(id, "path:") {
+		return false
+	}
+	return !strings.ContainsAny(id, "\x00\r\n\\") && !strings.Contains(id, "..")
+}
+
+func applyStateImportTx(ctx context.Context, c *sql.Conn, eligible []Record, opts StateImportOpts) (StateImportStats, error) {
 	stats := StateImportStats{Total: len(eligible)}
 	scopeByRepo, err := loadRepoScopeMap(ctx, c, len(migrations))
 	if err != nil {
 		return StateImportStats{}, err
 	}
 	for _, r := range eligible {
-		targetScope := resolveImportScope(r, scopeByRepo)
+		targetScope := resolveImportScope(r, scopeByRepo, opts)
 		cur, rid, exists, err := lookupStateRow(ctx, c, targetScope, r.RepoID, r.ID, len(migrations))
 		if err != nil {
 			return StateImportStats{}, err
@@ -215,7 +234,7 @@ func applyStateImportTx(ctx context.Context, c *sql.Conn, eligible []Record) (St
 	return stats, nil
 }
 
-func importStateDryRun(home string, eligible []Record) (StateImportStats, error) {
+func importStateDryRun(home string, eligible []Record, opts StateImportOpts) (StateImportStats, error) {
 	stats := StateImportStats{Total: len(eligible)}
 	st, ver, err := openStoreReadOnly(home)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -232,15 +251,15 @@ func importStateDryRun(home string, eligible []Record) (StateImportStats, error)
 	}
 	overlay := map[string]Record{}
 	for _, r := range eligible {
-		if err := stepStateDryRun(q, ver, r, scopeByRepo, overlay, &stats); err != nil {
+		if err := stepStateDryRun(q, ver, r, scopeByRepo, overlay, &stats, opts); err != nil {
 			return StateImportStats{}, err
 		}
 	}
 	return stats, nil
 }
 
-func stepStateDryRun(q sqlQuerier, ver int, r Record, scopeByRepo map[string]string, overlay map[string]Record, stats *StateImportStats) error {
-	targetScope := resolveImportScope(r, scopeByRepo)
+func stepStateDryRun(q sqlQuerier, ver int, r Record, scopeByRepo map[string]string, overlay map[string]Record, stats *StateImportStats, opts StateImportOpts) error {
+	targetScope := resolveImportScope(r, scopeByRepo, opts)
 	key := stateOverlayKey(targetScope, r.RepoID, r.ID)
 	cur, exists := overlay[key]
 	if !exists && q != nil && ver >= 1 {
@@ -273,22 +292,23 @@ func stateOverlayKey(scope, repoID, id string) string {
 	return "scope:" + scope + "\x00" + id
 }
 
-func resolveImportScope(r Record, scopeByRepo map[string]string) string {
+func resolveImportScope(r Record, scopeByRepo map[string]string, opts StateImportOpts) string {
 	if globalOnly[r.Kind] {
 		return ""
 	}
-	if r.Scope == "" && r.RepoID == "" {
-		return ""
-	}
 	if r.RepoID != "" {
+		if opts.LocalRepoID != "" && r.RepoID == opts.LocalRepoID && opts.LocalScope != "" {
+			return opts.LocalScope
+		}
 		if local := scopeByRepo[r.RepoID]; local != "" {
 			return local
 		}
+		return r.RepoID
 	}
-	if r.Scope != "" {
+	if opts.TrustOperator && r.Scope != "" {
 		return r.Scope
 	}
-	return r.RepoID
+	return ""
 }
 
 func loadRepoScopeMap(ctx context.Context, q sqlQuerier, ver int) (map[string]string, error) {
@@ -356,7 +376,7 @@ func decideStateMerge(cur Record, exists bool, inc Record, stats *StateImportSta
 	}
 	tCur, tInc := parseTimeString(cur.Updated), parseTimeString(inc.Updated)
 	incNewer := !tInc.IsZero() && (tCur.IsZero() || tInc.After(tCur))
-	if cur.Provenance == "operator" && !(inc.Provenance == "operator" && incNewer) {
+	if cur.Provenance == "operator" {
 		stats.OperatorPreserved++
 		stats.Conflicts++
 		stats.Skipped++

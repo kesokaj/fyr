@@ -85,7 +85,7 @@ func missingProposalSkills(root, text string) []string {
 	var missing []string
 	for _, m := range matches {
 		slug := m[1]
-		if slug == "" || slug == "google-catalog" || seen[slug] {
+		if slug == "" || seen[slug] {
 			continue
 		}
 		seen[slug] = true

@@ -205,7 +205,12 @@ func scanSanitizedSessions(db *sql.DB, q string, args []any) ([]SanitizedSession
 		if r.ID == "" {
 			continue
 		}
+		r.Vendor = clipSanitizedText(r.Vendor, 32)
+		r.ParentID = clipSanitizedText(r.ParentID, 128)
+		r.AgentType = clipSanitizedText(r.AgentType, 64)
+		r.Model = clipSanitizedText(r.Model, 128)
 		r.Label = clipSanitizedText(r.Label, trialText)
+		r.Outcome = clipSanitizedText(r.Outcome, 32)
 		r.Run = clipSanitizedText(r.Run, trialText)
 		r.StartedAt, r.EndedAt, r.DurationMS = ptrInt64(st), ptrInt64(en), ptrInt64(dur)
 		if cost.Valid {
@@ -237,7 +242,12 @@ func exportSanitizedSteps(db *sql.DB, sids map[string]bool) ([]SanitizedStep, er
 		if !sids[r.SessionID] {
 			continue
 		}
+		r.SessionID = clipSanitizedText(r.SessionID, 128)
 		r.ExtID = clipSanitizedText(r.ExtID, 160)
+		r.Kind = clipSanitizedText(r.Kind, 64)
+		r.Tool = clipSanitizedText(r.Tool, 64)
+		r.Skill = clipSanitizedText(r.Skill, 128)
+		r.TargetKind = clipSanitizedText(r.TargetKind, 64)
 		r.TS, r.IsError, r.Denied = ptrInt64(ts), ptrInt64(isErr), ptrInt64(den)
 		r.TokIn, r.TokOut, r.CacheRead, r.CacheWrite = ptrInt64(tIn), ptrInt64(tOut), ptrInt64(cR), ptrInt64(cW)
 		r.Context, r.StartedMS, r.EndedMS, r.WaitMS = ptrInt64(ctx), ptrInt64(sMS), ptrInt64(eMS), ptrInt64(wMS)
@@ -307,9 +317,13 @@ func scanSanitizedTrials(db *sql.DB, q string, args []any) ([]SanitizedTrial, er
 		}
 		r.Run = clipSanitizedText(r.Run, trialText)
 		r.Label = clipSanitizedText(r.Label, trialText)
+		r.Kind = clipSanitizedText(r.Kind, 64)
+		r.Cluster = clipSanitizedText(r.Cluster, 128)
+		r.Expect = clipSanitizedText(r.Expect, trialText)
 		r.Harness = clipSanitizedText(r.Harness, trialText)
 		r.CLI = clipSanitizedText(r.CLI, trialText)
-		r.Expect = clipSanitizedText(r.Expect, trialText)
+		r.Status = clipSanitizedText(r.Status, 32)
+		r.Cause = clipSanitizedText(r.Cause, 256)
 		r.SessionSeconds, r.SetupSeconds, r.CheckSeconds = ptrInt64(sesS), ptrInt64(setS), ptrInt64(chkS)
 		if r.Run != "" {
 			out = append(out, r)
@@ -351,6 +365,8 @@ func scanSanitizedTurnVets(db *sql.DB, q string, args []any) ([]SanitizedTurnVet
 			return nil, err
 		}
 		r.ConversationID = clipSanitizedText(r.ConversationID, 128)
+		r.Intent = clipSanitizedText(r.Intent, 64)
+		r.Gate = clipSanitizedText(r.Gate, 64)
 		r.Directive = clipSanitizedText(r.Directive, 128)
 		if r.ConversationID != "" {
 			out = append(out, r)
@@ -431,7 +447,11 @@ func exportSanitizedVerdicts(db *sql.DB, repoID string, sinceMS int64) ([]JudgeV
 			return nil, err
 		}
 		r.Target = clipSanitizedText(r.Target, 256)
+		r.Model = clipSanitizedText(r.Model, 128)
+		r.WorkerModel = clipSanitizedText(r.WorkerModel, 128)
+		r.WorkerSessionID = clipSanitizedText(r.WorkerSessionID, 128)
 		r.FallbackReason = clipSanitizedText(r.FallbackReason, 400)
+		r.Verdict = clipSanitizedText(r.Verdict, 32)
 		out = append(out, r)
 	}
 	return out, rows.Err()

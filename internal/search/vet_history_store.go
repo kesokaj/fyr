@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -19,8 +20,12 @@ func (st *store) recordVetHistory(convID string, turnNum int, rawPrompt string, 
 }
 
 func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string, m vetTurnMetrics) error {
-	if st == nil || st.db == nil {
-		return nil
+	return st.recordVetHistoryWithMetricsCtx(context.Background(), convID, turnNum, rawPrompt, res, pivotFiles, m)
+}
+
+func (st *store) recordVetHistoryWithMetricsCtx(ctx context.Context, convID string, turnNum int, rawPrompt string, res VetResult, pivotFiles []string, m vetTurnMetrics) error {
+	if st == nil || st.db == nil || ctx.Err() != nil {
+		return ctx.Err()
 	}
 	convID = normalizeLedgerConvID(convID)
 	if turnNum <= 0 {
@@ -28,7 +33,7 @@ func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawProm
 	}
 	trimmed := strings.TrimSpace(rawPrompt)
 	now := nowFunc().Unix()
-	if st.collapseDuplicateApproval(convID, turnNum, trimmed, res, m, now) {
+	if st.collapseDuplicateApprovalCtx(ctx, convID, turnNum, trimmed, res, m, now) {
 		return nil
 	}
 	var skillNames []string
@@ -37,7 +42,7 @@ func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawProm
 			skillNames = append(skillNames, s.Name)
 		}
 	}
-	_, err := st.db.Exec(
+	_, err := st.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO vet_history(`+vetHistoryCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		convID, turnNum, string(res.Intent), string(res.Gate), res.Score, trimmed,
 		res.ImprovedPrompt, strings.Join(res.PresentAnchors, ","), strings.Join(res.MissingAnchors, ","),
@@ -47,18 +52,18 @@ func (st *store) recordVetHistoryWithMetrics(convID string, turnNum int, rawProm
 	return err
 }
 
-func (st *store) collapseDuplicateApproval(convID string, turnNum int, trimmed string, res VetResult, m vetTurnMetrics, now int64) bool {
-	if res.Intent != IntentApproval || res.Bypassed || m.timedOut || !isShortApprovalDirective(trimmed) {
+func (st *store) collapseDuplicateApprovalCtx(ctx context.Context, convID string, turnNum int, trimmed string, res VetResult, m vetTurnMetrics, now int64) bool {
+	if ctx.Err() != nil || res.Intent != IntentApproval || res.Bypassed || m.timedOut || !isShortApprovalDirective(trimmed) {
 		return false
 	}
-	prev, err := st.lastVetHistory(convID, turnNum)
+	prev, err := st.lastVetHistoryCtx(ctx, convID, turnNum)
 	if err != nil || prev == nil || prev.Intent != IntentApproval || prev.TimedOut {
 		return false
 	}
 	if !strings.EqualFold(collapseOneLine(prev.RawPrompt, 0), collapseOneLine(trimmed, 0)) {
 		return false
 	}
-	_, _ = st.db.Exec(
+	_, _ = st.db.ExecContext(ctx,
 		`UPDATE vet_history SET duration_ms = ?, injected_bytes = ?, created_at = ? WHERE conversation_id = ? AND turn_num = ?`,
 		max(0, m.durationMS), max(0, m.injectedBytes), now, convID, prev.TurnNum,
 	)
@@ -70,6 +75,10 @@ func isShortApprovalDirective(prompt string) bool {
 }
 
 func (st *store) lastVetHistory(convID string, beforeTurn int) (*VetHistoryRow, error) {
+	return st.lastVetHistoryCtx(context.Background(), convID, beforeTurn)
+}
+
+func (st *store) lastVetHistoryCtx(ctx context.Context, convID string, beforeTurn int) (*VetHistoryRow, error) {
 	if st == nil || st.db == nil {
 		return nil, nil
 	}
@@ -80,7 +89,7 @@ func (st *store) lastVetHistory(convID string, beforeTurn int) (*VetHistoryRow, 
 		query = `SELECT ` + vetHistoryCols + ` FROM vet_history WHERE conversation_id = ? AND turn_num < ? ORDER BY turn_num DESC LIMIT 1`
 		args = []any{convID, beforeTurn}
 	}
-	row, err := scanVetHistoryRow(st.db.QueryRow(query, args...))
+	row, err := scanVetHistoryRow(st.db.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

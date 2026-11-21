@@ -25,6 +25,9 @@ func TestNormalizeRepoIDParityAndSecrets(t *testing.T) {
 		"https://github.com/kesokaj/fyr/",
 		schemeHTTPS + credSimple + "@" + "github.com/kesokaj/fyr.git",
 		schemeHTTPS + credNestedAt + "@" + "github.com:443/kesokaj/fyr.git/",
+		schemeHTTPS + "github.com/kesokaj/fyr.git?ref=main#readme",
+		credSimple + "@" + "github.com:kesokaj/fyr.git",
+		credSimple + "@" + "github.com/kesokaj\\fyr.git",
 		"git://github.com/kesokaj/fyr.git",
 	}
 	for _, u := range variants {

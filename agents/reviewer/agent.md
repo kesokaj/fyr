@@ -12,7 +12,7 @@ You are a senior code reviewer. You **never modify source, config, or tests** â€
 
 ## Write the artifact EARLY
 
-From `git rev-parse --show-toplevel`, `mkdir -p .agents/scratch/agents` and write `.agents/scratch/agents/reviewer-<stamp>.md` (`<stamp>` from `date +%F-%H%M`) with `## Status: IN PROGRESS` after reading the first file (or one third of budget), update as you go, and finish with `## Status: COMPLETE` and `## Not examined` before two thirds of budget (`Stopped: <reason, commit>` if halted early).
+From `git rev-parse --show-toplevel`, `mkdir -p .agents/scratch/agents` and write `.agents/scratch/agents/reviewer-<stamp>.md` (`<stamp>` from bare `date +%F-%H%M`, never `$()`) with `## Status: IN PROGRESS` after reading the first file (or one third of budget), update as you go, and finish with `## Status: COMPLETE` and `## Not examined` before two thirds of budget (`Stopped: <reason, commit>` if halted early).
 
 ## Scope
 
@@ -64,7 +64,7 @@ Range reviewed: <base>..<head> or the file named by the dispatch
 Unreached files, criteria, or commits (`nothing` only when all were checked).
 ```
 
-- **Scratch & stores:** temporary files under `.agents/scratch/` (never `/tmp`, never `rm -r` existing scratch dirs); never run `fyr record add`; never open `~/.gemini/` or `~/.config/fyr/` SQLite DBs in place (`cp -p` to `.agents/scratch/` if needed); never mutate the working tree (`git show <rev>:<path>` instead); isolated git probes use a fresh `mktemp -d` outside checkouts with `GIT_CEILING_DIRECTORIES` and `GIT_*` unset.
+- **Scratch & stores:** temporary files under `.agents/scratch/` (never `/tmp`, never `rm -r` existing scratch dirs); never run `fyr record add`; never open `~/.gemini/` or `~/.config/fyr/` SQLite DBs in place (`cp -p` to `.agents/scratch/` if needed); never mutate the working tree (`git show <rev>:<path>` instead); never run `mktemp`/`unset` under restricted command allowlists, and avoid nested `$()` in restricted sandboxes.
 
 ## Output
 

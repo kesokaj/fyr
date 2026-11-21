@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
@@ -314,48 +314,7 @@ func resolveGateRepoID(ctx context.Context, mainRoot string) string {
 		return ""
 	}
 	origin, _ := gitLine(ctx, clean, "config", "--get", "remote.origin.url")
-	if gitID, ok := normalizeGateOrigin(origin); ok {
-		return gitID
-	}
-	sum := sha256.Sum256([]byte(clean))
-	return "path:" + hex.EncodeToString(sum[:])[:16]
-}
-
-func normalizeGateOrigin(raw string) (string, bool) {
-	u := strings.TrimSpace(raw)
-	if i := strings.IndexAny(u, "?#"); i >= 0 {
-		u = u[:i]
-	}
-	var host, repo string
-	if idx := strings.Index(u, "://"); idx >= 0 {
-		if strings.EqualFold(strings.TrimSpace(u[:idx]), "file") {
-			return "", false
-		}
-		host, repo, _ = strings.Cut(u[idx+3:], "/")
-		if at := strings.LastIndexByte(host, '@'); at >= 0 {
-			host = host[at+1:]
-		}
-		if h, p, ok := strings.Cut(host, ":"); ok && h != "" {
-			host = h
-			if strings.Trim(p, "0123456789") != "" {
-				repo = strings.Trim(p+"/"+repo, "/")
-			}
-		}
-	} else if !strings.HasPrefix(u, "/") && !strings.HasPrefix(u, ".") {
-		left, right, ok := strings.Cut(u, ":")
-		if !ok || strings.Contains(left, "/") {
-			return "", false
-		}
-		if at := strings.LastIndexByte(left, '@'); at >= 0 {
-			left = left[at+1:]
-		}
-		host, repo = left, right
-	}
-	repo = strings.Trim(strings.TrimSuffix(strings.TrimSuffix(strings.Trim(repo, "/"), ".git"), ".GIT"), "/")
-	if host == "" || repo == "" || path.Clean(repo) == "." {
-		return "", false
-	}
-	return "git:" + strings.ToLower(host+"/"+strings.Trim(path.Clean(repo), "/")), true
+	return brain.NormalizeRepoID(origin, clean)
 }
 
 func firstNonEmptyStr(vals ...string) string {

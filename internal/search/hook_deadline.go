@@ -52,14 +52,15 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 		}
 		return writeHookAllowFallback(event, out)
 	case <-ctx.Done():
+		err := writeHookAllowFallback(event, out)
 		if event == "pre-invocation" {
 			select {
 			case m := <-metaCh:
-				recordPreInvocationTimeoutBestEffort(o, m.dir, m.input, max(1, int(time.Since(start).Milliseconds())))
+				recordPreInvocationTimeoutBounded(o, m.dir, m.input, max(1, int(time.Since(start).Milliseconds())))
 			default:
 			}
 		}
-		return writeHookAllowFallback(event, out)
+		return err
 	}
 }
 
@@ -100,15 +101,29 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 	}
 }
 
-func recordPreInvocationTimeoutBestEffort(o Options, dir string, in HookInput, durationMS int) {
-	if hooksDisabledForHome(o.Home, dir) {
+func recordPreInvocationTimeoutBounded(o Options, dir string, in HookInput, durationMS int) {
+	tctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		recordPreInvocationTimeoutBestEffort(tctx, o, dir, in, durationMS)
+	}()
+	select {
+	case <-done:
+	case <-tctx.Done():
+	}
+}
+
+func recordPreInvocationTimeoutBestEffort(tctx context.Context, o Options, dir string, in HookInput, durationMS int) {
+	if tctx.Err() != nil || hooksDisabledForHome(o.Home, dir) {
 		return
 	}
 	root, commonDir, ok := findGitRootFast(dir)
 	if !ok || hooksDisabled(root) || guardLedgerFast(root, commonDir) != nil {
 		return
 	}
-	st := openShortTimeoutStore(projectDB(root))
+	st := openShortTimeoutStoreCtx(tctx, projectDB(root))
 	if st == nil {
 		return
 	}
@@ -116,18 +131,22 @@ func recordPreInvocationTimeoutBestEffort(o Options, dir string, in HookInput, d
 	convID := normalizeLedgerConvID(in.ConversationID)
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	tctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
 	var maxTurn int
 	_ = st.db.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
+	if tctx.Err() != nil {
+		return
+	}
 	res := VetResult{Intent: ClassifyIntent(cleanPrompt, 0), Gate: GatePassThrough}
-	_ = st.recordVetHistoryWithMetrics(convID, maxTurn+1, rawPrompt, res, nil, vetTurnMetrics{
+	_ = st.recordVetHistoryWithMetricsCtx(tctx, convID, maxTurn+1, rawPrompt, res, nil, vetTurnMetrics{
 		durationMS: durationMS,
 		timedOut:   true,
 	})
 }
 
-func openShortTimeoutStore(path string) *store {
+func openShortTimeoutStoreCtx(ctx context.Context, path string) *store {
+	if ctx.Err() != nil {
+		return nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil
 	}
@@ -149,6 +168,14 @@ func openShortTimeoutStore(path string) *store {
 	}
 	db.SetMaxOpenConns(1)
 	s := &store{db: db, path: path}
+	var v string
+	if err := db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err == nil && v == schemaVersion {
+		return s
+	}
+	if ctx.Err() != nil {
+		_ = db.Close()
+		return nil
+	}
 	if err := s.ensureSchema(); err != nil {
 		_ = db.Close()
 		return nil

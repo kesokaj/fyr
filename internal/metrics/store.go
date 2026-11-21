@@ -211,6 +211,21 @@ func open(path string) (*Store, error) {
 	return s, nil
 }
 
+// OpenMemory opens a transient in-memory schema-migrated Store for diskless dry-run previews.
+func OpenMemory() (*Store, error) {
+	db, err := sql.Open("sqlite", "file::memory:?_pragma=foreign_keys(0)")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db, path: ":memory:"}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
 func (s *Store) migrate() error {
 	have, hasMeta, err := readSchemaVersion(s.db, s.path)
 	if err != nil {

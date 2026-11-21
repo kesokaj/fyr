@@ -40,7 +40,7 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	sysMsg, banner := buildHookEnvelopeTimed(o, sc, dir, in.ConversationID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, start)
+	sysMsg, banner := buildHookEnvelopeTimed(ctx, o, sc, dir, in.ConversationID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, start)
 	writePreInvocation(out, sysMsg, banner)
 	return nil
 }

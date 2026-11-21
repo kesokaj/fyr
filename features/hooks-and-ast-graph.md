@@ -144,7 +144,7 @@ stateDiagram-v2
 ```
 
 - **Skeleton-first read clamping (`internal/search/hook_clamp.go`):** First-time unranged reads of files `>= 400` lines receive a `[CLAMPED]` denial containing the AST skeleton (up to `60` lines) and SHA-256 digest while stamping `start_line = -5` (`clampOnceSentinelLine` in `internal/search/read_ledger_edit.go`); an immediate ranged read or an explicit second unranged retry succeeds without deadlock.
-- **Out-of-root/unindexed `read_file` bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately on paths outside the workspace root or unindexed files without blocking.
+- **Out-of-root/unindexed `read_file` bypass (`hook_pretool.go`, `hook_clamp.go`):** `PreToolUse` `read_file` passes through immediately on paths outside the workspace root or unindexed repositories/directories without blocking.
 - **Persistent hash-keyed read ledger (`read_ledger`):** Tracks every line range read per conversation generation, modeling `read_file`'s `800`-line / `46,080`-byte window. The `start_line = -5` `[CLAMPED]` sentinel is preserved across same-generation edits (`recordResolvedReadTx` deletes only `start_line >= 0`; edit invalidation touches only `start_line > 0` or `start_line = -6`), while editing a file (`replace_file_content`, `write_to_file`, `edit_file`, `write_file`) invalidates overlapping spans and requires a prior read when modifying existing files (`internal/search/hook_guard.go`).
 
 ## Coordinator write guard and worker JIT capsules

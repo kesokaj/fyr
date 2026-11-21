@@ -1,6 +1,7 @@
 package search
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,11 +73,11 @@ func dedupContextKneeWarning(home string, sc *scope, convID, sessionModel string
 }
 
 func buildHookEnvelope(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta) (string, string) {
-	return buildHookEnvelopeTimed(o, sc, dir, convID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, time.Time{})
+	return buildHookEnvelopeTimed(context.Background(), o, sc, dir, convID, sessionModel, in, state, rawPrompt, cleanPrompt, slice, sections, meta, time.Time{})
 }
 
-func buildHookEnvelopeTimed(o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
-	if rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals() {
+func buildHookEnvelopeTimed(ctx context.Context, o Options, sc *scope, dir, convID, sessionModel string, in HookInput, state SessionState, rawPrompt, cleanPrompt string, slice SliceResult, sections []string, meta TurnBannerMeta, start time.Time) (string, string) {
+	if (ctx != nil && ctx.Err() != nil) || (rawPrompt == "" && len(sections) == 0 && slice.Capsule == "" && !meta.hasSignals()) {
 		return "", ""
 	}
 	turnNum := state.TurnCount
@@ -111,13 +112,19 @@ func buildHookEnvelopeTimed(o Options, sc *scope, dir, convID, sessionModel stri
 	}
 	meta.ExtraSections = sections
 	meta.SessionModelResolved = true
-	return finalizeHookEnvelope(o.Home, cat, hasCat, sc, dir, convID, turnNum, rawPrompt, cleanPrompt, in, state, vetRes, slice, brainCtx, meta, sections, start)
+	return finalizeHookEnvelope(ctx, o.Home, cat, hasCat, sc, dir, convID, turnNum, rawPrompt, cleanPrompt, in, state, vetRes, slice, brainCtx, meta, sections, start)
 }
 
-func finalizeHookEnvelope(home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in HookInput, state SessionState, vetRes VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
+func finalizeHookEnvelope(ctx context.Context, home string, cat modelsCatalogFile, hasCat bool, sc *scope, dir, convID string, turnNum int, rawPrompt, cleanPrompt string, in HookInput, state SessionState, vetRes VetResult, slice SliceResult, brainCtx TurnBrainContext, meta TurnBannerMeta, sections []string, start time.Time) (string, string) {
+	if ctx != nil && ctx.Err() != nil {
+		return "", ""
+	}
 	sysMsg, banner := BuildTurnEnvelopeWithMeta(&vetRes, slice, brainCtx, meta)
 	if vetRes.Gate == GatePassThrough && !vetRes.Bypassed && !state.Compacted && len(sections) == 0 && len(vetRes.Conflicts) == 0 {
 		sysMsg, banner = "", ""
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return "", ""
 	}
 	if sc != nil && sc.st != nil && rawPrompt != "" {
 		durMS := 0
@@ -125,10 +132,17 @@ func finalizeHookEnvelope(home string, cat modelsCatalogFile, hasCat bool, sc *s
 			durMS = int(time.Since(start).Milliseconds())
 		}
 		pivotFiles := extractPromptAndSliceFiles(cleanPrompt, slice.Files)
-		_ = sc.st.recordVetHistoryWithMetrics(convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles, vetTurnMetrics{
+		wctx := ctx
+		if wctx == nil {
+			wctx = context.Background()
+		}
+		_ = sc.st.recordVetHistoryWithMetricsCtx(wctx, convID, turnNum, StripSandboxPreamble(strings.TrimSpace(rawPrompt)), vetRes, pivotFiles, vetTurnMetrics{
 			durationMS:    durMS,
 			injectedBytes: len(sysMsg),
 		})
+	}
+	if ctx != nil && ctx.Err() != nil {
+		return "", ""
 	}
 	writeHookProcessArtifactWithCatalog(home, cat, hasCat, sc, dir, in, inferProcessStage(turnNum, vetRes), vetRes.MatchedRecords)
 	return sysMsg, banner

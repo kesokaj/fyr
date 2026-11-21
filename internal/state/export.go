@@ -16,6 +16,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 type metricsNDJSONLine struct {
@@ -113,12 +114,30 @@ func encodeBrainNDJSON(recs []brain.Record) ([]byte, string, error) {
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	for _, r := range recs {
-		if err := enc.Encode(r); err != nil {
+		if err := enc.Encode(sanitizeExportRecord(r)); err != nil {
 			return nil, "", err
 		}
 	}
 	sum := sha256.Sum256(buf.Bytes())
 	return buf.Bytes(), hex.EncodeToString(sum[:]), nil
+}
+
+func sanitizeExportRecord(r brain.Record) brain.Record {
+	title, body := r.Title, r.Body
+	if filepath.IsAbs(r.Scope) && len(r.Scope) > 1 {
+		title = strings.ReplaceAll(title, r.Scope, "<repo>")
+		body = strings.ReplaceAll(body, r.Scope, "<repo>")
+	}
+	r.Title = metrics.ScrubHostHomePaths(redact.Redact(title))
+	r.Body = metrics.ScrubHostHomePaths(redact.Redact(body))
+	if r.RepoID != "" {
+		r.Scope = ""
+		r.Project = ""
+	} else {
+		r.Scope = metrics.ScrubHostHomePaths(r.Scope)
+		r.Project = metrics.ScrubHostHomePaths(r.Project)
+	}
+	return r
 }
 
 func encodeMetricsNDJSON(exp metrics.SanitizedMetricsExport) ([]byte, string, error) {

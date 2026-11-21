@@ -273,18 +273,41 @@ func TestStateExportAndImportEndToEnd(t *testing.T) {
 		t.Errorf("FTS5 Search for replaced term 'quasar' = %+v, %v; want empty", hitsOld, err)
 	}
 
-	// Verify a strictly NEWER operator memory CAN update an older operator memory.
+	// Verify an incoming newer operator memory NEVER overwrites local operator memory.
 	newerOperator := Record{
 		Scope: dirA1, RepoID: repoAlpha, ID: "MEMORY-alpha-op", Kind: "memory", Status: "closed",
 		Date: "2026-11-20", Title: "updated sacred", Body: "type: semantic\n\nnewer operator body from A",
 		Provenance: "operator", Updated: tNew.Format(time.RFC3339),
 	}
 	stOpUpd, err := ImportStateRecords(homeB, []Record{newerOperator}, StateImportOpts{IncludeMemory: true})
-	if err != nil || stOpUpd.Updated != 1 || stOpUpd.OperatorPreserved != 0 {
-		t.Fatalf("newer operator update stats = %+v, err = %v; want Updated=1", stOpUpd, err)
+	if err != nil || stOpUpd.Updated != 0 || stOpUpd.OperatorPreserved != 1 || stOpUpd.Skipped != 1 {
+		t.Fatalf("newer operator overwrite stats = %+v, err = %v; want OperatorPreserved=1", stOpUpd, err)
 	}
 	gotOpAfter, _, err := Get(oB1Mid, []string{"MEMORY-alpha-op"})
-	if err != nil || !strings.Contains(gotOpAfter[0].Body, "newer operator body from A") || gotOpAfter[0].Provenance != "operator" {
-		t.Errorf("newer operator update did not apply cleanly: %+v %v", gotOpAfter, err)
+	if err != nil || strings.Contains(gotOpAfter[0].Body, "newer operator body from A") || gotOpAfter[0].Provenance != "operator" {
+		t.Errorf("local operator memory was overwritten: %+v %v", gotOpAfter, err)
+	}
+
+	// Verify newly inserted incoming operator memory downgrades to derived unless TrustOperator is set.
+	untrustedOp := Record{
+		Scope: dirA1, RepoID: repoAlpha, ID: "MEMORY-alpha-untrusted-op", Kind: "memory", Status: "closed",
+		Date: "2026-11-20", Title: "untrusted op", Body: "type: semantic\n\nuntrusted operator import",
+		Provenance: "operator", Updated: tNew.Format(time.RFC3339),
+	}
+	if stIns, err := ImportStateRecords(homeB, []Record{untrustedOp}, StateImportOpts{IncludeMemory: true}); err != nil || stIns.Inserted != 1 {
+		t.Fatalf("untrusted operator insert = %+v, err = %v", stIns, err)
+	}
+	gotDowngraded, _, err := Get(oB1Mid, []string{"MEMORY-alpha-untrusted-op"})
+	if err != nil || len(gotDowngraded) != 1 || gotDowngraded[0].Provenance != "derived" {
+		t.Fatalf("untrusted incoming operator = %+v, err = %v; want provenance=derived", gotDowngraded, err)
+	}
+	trustedOp := untrustedOp
+	trustedOp.ID = "MEMORY-alpha-trusted-op"
+	if stTr, err := ImportStateRecords(homeB, []Record{trustedOp}, StateImportOpts{IncludeMemory: true, TrustOperator: true}); err != nil || stTr.Inserted != 1 {
+		t.Fatalf("trusted operator insert = %+v, err = %v", stTr, err)
+	}
+	gotTrusted, _, err := Get(oB1Mid, []string{"MEMORY-alpha-trusted-op"})
+	if err != nil || len(gotTrusted) != 1 || gotTrusted[0].Provenance != "operator" {
+		t.Fatalf("trusted incoming operator = %+v, err = %v; want provenance=operator", gotTrusted, err)
 	}
 }

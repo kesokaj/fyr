@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -63,13 +64,16 @@ func readGitOriginURL(mainRoot string) string {
 
 func normalizeGitOrigin(raw string) string {
 	u := strings.TrimSpace(raw)
-	if u == "" || strings.HasPrefix(u, "/") || strings.HasPrefix(u, "./") || strings.HasPrefix(u, "../") {
+	if u == "" || strings.HasPrefix(u, "/") || strings.HasPrefix(u, "./") || strings.HasPrefix(u, "../") || strings.HasPrefix(u, "~") {
 		return ""
+	}
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		u = u[:i]
 	}
 	hasScheme := false
 	if idx := strings.Index(u, "://"); idx >= 0 {
-		scheme := strings.ToLower(u[:idx])
-		if scheme == "file" {
+		scheme := strings.ToLower(strings.TrimSpace(u[:idx]))
+		if scheme == "" || scheme == "file" {
 			return ""
 		}
 		hasScheme = true
@@ -101,38 +105,49 @@ func splitOriginAuthority(s string, hasScheme bool) (host, repoPath string) {
 		}
 		return auth, rest
 	}
+	s = stripLeadingUserInfo(s)
 	colon := strings.IndexByte(s, ':')
 	slash := strings.IndexByte(s, '/')
 	if colon >= 0 && (slash < 0 || colon < slash) {
-		auth := s[:colon]
-		if at := strings.LastIndexByte(auth, '@'); at >= 0 {
-			auth = auth[at+1:]
-		}
-		return auth, s[colon+1:]
+		return s[:colon], s[colon+1:]
 	}
 	if slash >= 0 {
-		auth := s[:slash]
-		if at := strings.LastIndexByte(auth, '@'); at >= 0 {
-			auth = auth[at+1:]
-		}
-		return auth, s[slash+1:]
+		return s[:slash], s[slash+1:]
 	}
 	return "", ""
 }
 
+func stripLeadingUserInfo(s string) string {
+	head := s
+	if slash := strings.IndexByte(s, '/'); slash >= 0 {
+		head = s[:slash]
+	}
+	if at := strings.LastIndexByte(head, '@'); at >= 0 {
+		return s[at+1:]
+	}
+	return s
+}
+
 func cleanOriginRepoPath(p string) string {
-	p = strings.TrimSpace(p)
-	p = strings.Trim(p, "/")
-	if len(p) >= 4 && strings.EqualFold(p[len(p)-4:], ".git") {
-		p = strings.Trim(p[:len(p)-4], "/")
-	}
-	var parts []string
-	for _, seg := range strings.Split(p, "/") {
-		if seg != "" && seg != "." {
-			parts = append(parts, seg)
+	p = strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+	for {
+		next := strings.Trim(p, "/")
+		if len(next) >= 4 && strings.EqualFold(next[len(next)-4:], ".git") {
+			next = strings.Trim(next[:len(next)-4], "/")
 		}
+		if next == p {
+			break
+		}
+		p = next
 	}
-	return strings.Join(parts, "/")
+	if p == "" || p == "." {
+		return ""
+	}
+	cleaned := path.Clean(p)
+	if cleaned == "." || cleaned == "/" || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
+		return ""
+	}
+	return strings.Trim(cleaned, "/")
 }
 
 func isDigitsOnly(s string) bool {

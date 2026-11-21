@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -263,6 +264,35 @@ func clipSanitizedText(raw string, maxLen int) string {
 	if strings.Contains(red, "[redacted by fyr") {
 		return ""
 	}
+	red = ScrubHostHomePaths(red)
 	red = strings.NewReplacer("\r", " ", "\n", " ").Replace(red)
 	return clipPrintable(red, maxLen)
+}
+
+// ScrubHostHomePaths replaces the operator home directory and /home/<user> or
+// /Users/<user> path prefixes with ~ before metrics or state leave the host.
+func ScrubHostHomePaths(s string) string {
+	if h, err := os.UserHomeDir(); err == nil {
+		if h = strings.TrimRight(strings.TrimSpace(h), "/"); h != "" {
+			s = strings.ReplaceAll(s, h, "~")
+		}
+	}
+	for _, rootPrefix := range []string{"/home/", "/Users/"} {
+		for {
+			idx := strings.Index(s, rootPrefix)
+			if idx < 0 {
+				break
+			}
+			after := idx + len(rootPrefix)
+			end := after
+			for end < len(s) && s[end] != '/' && s[end] != ' ' && s[end] != '\t' && s[end] != '"' && s[end] != '\'' && s[end] != ')' && s[end] != ',' && s[end] != ':' {
+				end++
+			}
+			if end == after {
+				break
+			}
+			s = s[:idx] + "~" + s[end:]
+		}
+	}
+	return s
 }

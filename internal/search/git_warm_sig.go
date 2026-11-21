@@ -19,6 +19,8 @@ const (
 	maxWarmSigDirs       = 128
 	maxWarmSigRacyFileB  = 256 << 10
 	maxWarmSigRacyTotalB = 2 << 20
+	maxUntrackedFiles    = 256
+	maxUntrackedDepth    = 6
 )
 
 func gitWarmSigKey(root string) string {
@@ -167,33 +169,65 @@ func hashTrackedDirsForUntracked(h hash.Hash, root string, dirs, tracked map[str
 		sortedDirs = append(sortedDirs, d)
 	}
 	sort.Strings(sortedDirs)
+	untrackedCount := 0
 	for _, relDir := range sortedDirs {
 		absDir := root
 		if relDir != "." {
 			absDir = filepath.Join(root, filepath.FromSlash(relDir))
 		}
-		dents, err := os.ReadDir(absDir)
+		if !scanUntrackedDirEntries(h, absDir, relDir, 0, &untrackedCount, dirs, tracked) {
+			return false
+		}
+	}
+	return true
+}
+
+func isIgnoredUntrackedDir(name string) bool {
+	switch name {
+	case ".git", ".agents", "node_modules", "vendor", ".next", "dist", "build", "target", "__pycache__":
+		return true
+	}
+	return false
+}
+
+func scanUntrackedDirEntries(h hash.Hash, absDir, relDir string, depth int, count *int, dirs, tracked map[string]bool) bool {
+	if depth > maxUntrackedDepth {
+		return false
+	}
+	dents, err := os.ReadDir(absDir)
+	if err != nil {
+		return false
+	}
+	for _, d := range dents {
+		name := d.Name()
+		if isIgnoredUntrackedDir(name) {
+			continue
+		}
+		rel := name
+		if relDir != "." {
+			rel = relDir + "/" + name
+		}
+		if tracked[rel] || (depth == 0 && dirs[rel]) {
+			continue
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return false
+		}
+		fi, err := d.Info()
 		if err != nil {
 			return false
 		}
-		for _, d := range dents {
-			name := d.Name()
-			if name == ".git" || name == ".agents" {
-				continue
-			}
-			rel := name
-			if relDir != "." {
-				rel = relDir + "/" + name
-			}
-			if tracked[rel] || dirs[rel] {
-				continue
-			}
-			fi, err := d.Info()
-			if err != nil {
+		if d.IsDir() {
+			if !scanUntrackedDirEntries(h, filepath.Join(absDir, name), rel, depth+1, count, dirs, tracked) {
 				return false
 			}
-			fmt.Fprintf(h, "u:%s:%v:%d:%d\n", rel, d.IsDir(), fi.Size(), fi.ModTime().UnixNano())
+			continue
 		}
+		*count++
+		if *count > maxUntrackedFiles {
+			return false
+		}
+		fmt.Fprintf(h, "u:%s:false:%d:%d\n", rel, fi.Size(), fi.ModTime().UnixNano())
 	}
 	return true
 }

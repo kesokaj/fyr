@@ -189,3 +189,36 @@ func TestVetHistoryV11TimeoutApprovalDedupAndKneeDedup(t *testing.T) {
 		t.Fatalf("timeout vet_history row = %+v, err=%v; want 1 row with TimedOut=true DurationMS>=35 InjectedBytes=0", tRows, err)
 	}
 }
+
+func TestWarmSigInvalidatesOnUntrackedSubdirFileEdit(t *testing.T) {
+	dir := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, dir, "service.go", hookSampleServiceSrc)
+	commitAll(t, dir, "init")
+	if err := Index(Options{Dir: dir, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	st.saveGitWarmSig(dir)
+
+	subFile := filepath.Join(dir, "untrackedpkg", "nested", "a.go")
+	writeFile(t, dir, "untrackedpkg/nested/a.go", "package nested\nfunc One() {}\n")
+	if st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatalf("warm sig matched after creating untracked subdirectory file")
+	}
+	st.saveGitWarmSig(dir)
+	if !st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatalf("warm sig failed to match freshly saved untracked subdirectory file")
+	}
+	time.Sleep(5 * time.Millisecond)
+	if err := os.WriteFile(subFile, []byte("package nested\nfunc OneRenamedForMoreBytes() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatalf("warm sig stayed valid after editing %s inside untracked subdirectory", subFile)
+	}
+}

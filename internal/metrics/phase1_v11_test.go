@@ -82,6 +82,8 @@ func TestNormalizeAndResolveRepoID(t *testing.T) {
 		"ssh://git@github.com:22/MyOrg/MyRepo.git/",
 		"https://user@github.com/MyOrg/MyRepo.git",
 		schemeHTTPS + "oauth2" + ":" + secretTok + "@" + "github.com/MyOrg/MyRepo.git/",
+		"oauth2:" + secretTok + "@github.com:MyOrg/MyRepo.git",
+		"oauth2:" + secretTok + "@github.com/MyOrg/MyRepo.git?foo=1#bar",
 		"http://github.com/MyOrg/MyRepo/",
 	}
 	for _, u := range urls {

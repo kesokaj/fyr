@@ -109,7 +109,7 @@ func listHarnessTargets(root string) []harnessTarget {
 		return nil
 	}
 	for _, e := range entries {
-		if !e.IsDir() || e.Name() == "google-catalog" {
+		if !e.IsDir() {
 			continue
 		}
 		rel := filepath.Join("skills", e.Name())
