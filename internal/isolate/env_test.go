@@ -130,3 +130,84 @@ func TestAgyEnvPATHFiltering(t *testing.T) {
 		t.Errorf("unconfined agyEnv PATH = %q, want %q", got, wantUnconfined)
 	}
 }
+
+func TestConfinedPATHHardening(t *testing.T) {
+	base := t.TempDir()
+	osTmp := filepath.Join(base, "ostmp")
+	t.Setenv("TMPDIR", osTmp)
+
+	realHome := filepath.Join(base, "realhome")
+	t.Setenv("HOME", realHome)
+	homeBin := filepath.Join(realHome, ".local", "bin")
+	tmpBin := filepath.Join(osTmp, "tbin")
+	sysDir := filepath.Join(base, "sysbin")
+	roDir := filepath.Join(osTmp, "ro-bin")
+	linkEscapeHome := filepath.Join(roDir, "escape-home")
+	linkEscapeTmp := filepath.Join(roDir, "escape-tmp")
+	for _, d := range []string{homeBin, tmpBin, sysDir, roDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(homeBin, linkEscapeHome); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(tmpBin, linkEscapeTmp); err != nil {
+		t.Fatal(err)
+	}
+
+	rawPATH := strings.Join([]string{
+		".",
+		"relative-bin",
+		filepath.Join("..", "tools"),
+		sysDir,
+		homeBin,
+		linkEscapeHome,
+		linkEscapeTmp,
+		roDir,
+	}, string(os.PathListSeparator))
+	t.Setenv("PATH", rawPATH)
+
+	// Empty RealHome must still fall back to HOME / user.Current and exclude homeBin.
+	got := confinedPATH("", "", []string{roDir})
+	parts := filepath.SplitList(got)
+	for _, blocked := range []string{".", "relative-bin", filepath.Join("..", "tools"), homeBin, linkEscapeHome, linkEscapeTmp} {
+		if slices.Contains(parts, blocked) {
+			t.Errorf("confinedPATH leaked %q in %v", blocked, parts)
+		}
+	}
+	cwd, err := os.Getwd()
+	if err == nil && slices.Contains(parts, filepath.Clean(cwd)) {
+		t.Errorf("confinedPATH leaked host CWD %q from '.' in PATH: %v", cwd, parts)
+	}
+	roIdx := slices.Index(parts, roDir)
+	sysIdx := slices.Index(parts, sysDir)
+	if roIdx < 0 || sysIdx < 0 {
+		t.Fatalf("confinedPATH missing roDir (%d) or sysDir (%d): %v", roIdx, sysIdx, parts)
+	}
+	if roIdx >= sysIdx {
+		t.Errorf("expected explicit roDir (%d) before sysDir (%d): %v", roIdx, sysIdx, parts)
+	}
+	if gr := runtime.GOROOT(); gr != "" {
+		goBin := filepath.Join(gr, "bin")
+		if st, err := os.Stat(goBin); err == nil && st.IsDir() {
+			goIdx := slices.Index(parts, goBin)
+			if goIdx < 0 || goIdx <= roIdx || goIdx >= sysIdx {
+				t.Errorf("expected order roDir(%d) < GOROOT/bin(%d) < sysDir(%d): %v", roIdx, goIdx, sysIdx, parts)
+			}
+		}
+	}
+
+	safeDirs := appendSafePATHDirs(nil, "")
+	for _, blocked := range []string{".", homeBin, tmpBin, linkEscapeHome, linkEscapeTmp} {
+		if slices.Contains(safeDirs, blocked) {
+			t.Errorf("appendSafePATHDirs(empty realHome) leaked %q: %v", blocked, safeDirs)
+		}
+	}
+	if cwd != "" && slices.Contains(safeDirs, filepath.Clean(cwd)) {
+		t.Errorf("appendSafePATHDirs leaked host CWD %q from relative PATH: %v", cwd, safeDirs)
+	}
+	if !slices.Contains(safeDirs, sysDir) {
+		t.Errorf("appendSafePATHDirs missing safe sysDir %q: %v", sysDir, safeDirs)
+	}
+}

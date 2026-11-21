@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -126,7 +127,7 @@ func TestCommandValidationAndEnvAllowlist(t *testing.T) {
 
 	noTmpOpts := opts
 	noTmpOpts.TmpDir = ""
-	noTmpEnv, _ := buildCommandEnv(noTmpOpts)
+	noTmpEnv, _, _ := buildCommandEnv(noTmpOpts)
 	if v, ok := envToMap(noTmpEnv)["GOPATH"]; ok {
 		t.Errorf("GOPATH unexpectedly inherited when TmpDir empty: %q", v)
 	}
@@ -441,7 +442,7 @@ func TestCommandConfinedPATHFiltering(t *testing.T) {
 	}, string(os.PathListSeparator))
 	t.Setenv("PATH", rawPATH)
 
-	confinedEnv, _ := buildCommandEnv(CommandOpts{
+	confinedEnv, _, _ := buildCommandEnv(CommandOpts{
 		Dir:         workDir,
 		ScratchHome: scratchHome,
 		TmpDir:      cmdTmpDir,
@@ -476,7 +477,7 @@ func TestCommandConfinedPATHFiltering(t *testing.T) {
 		t.Errorf("confined Command PATH sysDir count = %d, want 1: %v", sysCount, parts)
 	}
 
-	unconfinedEnv, _ := buildCommandEnv(CommandOpts{
+	unconfinedEnv, _, _ := buildCommandEnv(CommandOpts{
 		Dir:         workDir,
 		ScratchHome: scratchHome,
 		TmpDir:      cmdTmpDir,
@@ -513,29 +514,57 @@ func TestCommandLandlockShadowedPATH(t *testing.T) {
 	if err := os.WriteFile(shadowTool, []byte("#!/bin/bash\nexit 99\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	onlyHomeTool := filepath.Join(realHomeBin, "fyr-only-home-tool")
+	if err := os.WriteFile(onlyHomeTool, []byte("#!/bin/bash\nexit 98\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	roTool := filepath.Join(roDir, "fyr-shadow-tool")
 	if err := os.WriteFile(roTool, []byte("#!/bin/bash\nprintf 'from-ro'\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", strings.Join([]string{realHomeBin, roDir, os.Getenv("PATH")}, string(os.PathListSeparator)))
 
-	cmd, cleanup, err := Command(CommandOpts{
+	baseOpts := CommandOpts{
 		Dir:         workDir,
 		ScratchHome: scratchHome,
 		TmpDir:      tmpDir,
 		RealHome:    realHome,
 		ROPaths:     []string{roDir},
-		Argv:        []string{"bash", "-c", "fyr-shadow-tool"},
-	})
+	}
+
+	shellOpts := baseOpts
+	shellOpts.Argv = []string{"bash", "-c", "fyr-shadow-tool"}
+	cmd, cleanup, err := Command(shellOpts)
 	if err != nil {
-		t.Fatalf("Command: %v", err)
+		t.Fatalf("Command(bash -c): %v", err)
 	}
 	out, runErr := cmd.CombinedOutput()
 	cleanup()
 	if runErr != nil {
-		t.Fatalf("confined command failed despite filtering RealHome shadow: %v\n%s", runErr, out)
+		t.Fatalf("confined bash -c failed despite filtering RealHome shadow: %v\n%s", runErr, out)
 	}
 	if string(out) != "from-ro" {
-		t.Errorf("confined command output = %q, want %q", string(out), "from-ro")
+		t.Errorf("confined bash -c output = %q, want %q", string(out), "from-ro")
+	}
+
+	bareOpts := baseOpts
+	bareOpts.Argv = []string{"fyr-shadow-tool"}
+	bareCmd, bareCleanup, err := Command(bareOpts)
+	if err != nil {
+		t.Fatalf("Command(bare Argv[0]): %v", err)
+	}
+	bareOut, bareErr := bareCmd.CombinedOutput()
+	bareCleanup()
+	if bareErr != nil {
+		t.Fatalf("confined bare Argv[0] failed despite filtering RealHome shadow: %v\n%s", bareErr, bareOut)
+	}
+	if string(bareOut) != "from-ro" {
+		t.Errorf("confined bare Argv[0] output = %q, want %q", string(bareOut), "from-ro")
+	}
+
+	blockedOpts := baseOpts
+	blockedOpts.Argv = []string{"fyr-only-home-tool"}
+	if _, _, err := Command(blockedOpts); !errors.Is(err, exec.ErrNotFound) {
+		t.Errorf("Command(fyr-only-home-tool) err = %v, want exec.ErrNotFound", err)
 	}
 }

@@ -158,6 +158,7 @@ func appendExistingPaths(dst, candidates []string) []string {
 }
 
 func appendSafePATHDirs(dst []string, realHome string) []string {
+	realHome = effectiveRealHome(realHome)
 	tmpRoot := filepath.Clean(os.TempDir())
 	resTmp, _ := resolve(tmpRoot)
 	var resHome string
@@ -165,19 +166,16 @@ func appendSafePATHDirs(dst []string, realHome string) []string {
 		resHome, _ = resolve(realHome)
 	}
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" {
+		if dir == "" || !filepath.IsAbs(dir) {
 			continue
 		}
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			continue
-		}
+		abs := filepath.Clean(dir)
 		resAbs, err := resolve(abs)
 		if err != nil || isExcludedPATHDir(abs, resAbs, tmpRoot, resTmp, realHome, resHome) {
 			continue
 		}
 		if st, err := os.Stat(resAbs); err == nil && st.IsDir() {
-			dst = addPathPair(dst, resAbs)
+			dst = addPathPair(dst, abs)
 		}
 	}
 	return dst

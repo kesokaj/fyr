@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 // CommandOpts configures a confined (or test-unconfined) child command.
@@ -23,36 +23,50 @@ func Command(opts CommandOpts) (*exec.Cmd, func(), error) {
 	if len(opts.Argv) == 0 || opts.Argv[0] == "" {
 		return nil, nil, errors.New("isolate command: empty argv")
 	}
-	env, gomodcache := buildCommandEnv(opts)
+	env, pathVal, gomodcache := buildCommandEnv(opts)
 	if opts.Unconfined {
 		cmd := exec.Command(opts.Argv[0], opts.Argv[1:]...)
 		cmd.Dir = opts.Dir
 		cmd.Env = env
 		return cmd, func() {}, nil
 	}
-	bin, err := resolveCommandBin(opts.Argv[0])
+	bin, err := resolveCommandBin(opts.Argv[0], pathVal)
 	if err != nil {
 		return nil, nil, err
 	}
 	return prepareIsolatedCmd(buildCommandPolicy(opts, bin, env, gomodcache))
 }
 
-func resolveCommandBin(bin string) (string, error) {
+func resolveCommandBin(bin, pathVal string) (string, error) {
 	if filepath.IsAbs(bin) {
 		return bin, nil
 	}
-	resolved, err := exec.LookPath(bin)
-	if err != nil {
-		return "", fmt.Errorf("isolate command %s: %w", bin, err)
+	if strings.ContainsRune(bin, filepath.Separator) {
+		abs, err := filepath.Abs(bin)
+		if err != nil {
+			return "", fmt.Errorf("isolate command %s: %w", bin, err)
+		}
+		return abs, nil
 	}
-	abs, err := filepath.Abs(resolved)
-	if err != nil {
-		return "", fmt.Errorf("isolate command %s: %w", bin, err)
+	for _, dir := range filepath.SplitList(pathVal) {
+		if dir == "" {
+			continue
+		}
+		cand := filepath.Join(dir, bin)
+		st, err := os.Stat(cand)
+		if err != nil || st.IsDir() || st.Mode()&0o111 == 0 {
+			continue
+		}
+		abs, err := filepath.Abs(cand)
+		if err != nil {
+			return "", fmt.Errorf("isolate command %s: %w", bin, err)
+		}
+		return abs, nil
 	}
-	return abs, nil
+	return "", fmt.Errorf("isolate command %s: %w", bin, exec.ErrNotFound)
 }
 
-func buildCommandEnv(opts CommandOpts) ([]string, string) {
+func buildCommandEnv(opts CommandOpts) ([]string, string, string) {
 	pathVal := os.Getenv("PATH")
 	if !opts.Unconfined {
 		allow := make([]string, 0, 3+len(opts.ROPaths)+len(opts.RWPaths))
@@ -78,19 +92,11 @@ func buildCommandEnv(opts CommandOpts) ([]string, string) {
 		env = append(env, "GOMODCACHE="+gomodcache)
 	}
 	env = append(env, opts.ExtraEnv...)
-	return env, gomodcache
+	return env, pathVal, gomodcache
 }
 
 func hostGoDirs(realHome string) string {
-	home := realHome
-	if home == "" {
-		home = os.Getenv("HOME")
-	}
-	if home == "" {
-		if u, err := user.Current(); err == nil {
-			home = u.HomeDir
-		}
-	}
+	home := effectiveRealHome(realHome)
 	rawMC := os.Getenv("GOMODCACHE")
 	if rawMC == "" && home != "" {
 		rawMC = filepath.Join(home, "go", "pkg", "mod")

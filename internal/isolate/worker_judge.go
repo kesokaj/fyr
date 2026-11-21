@@ -171,7 +171,7 @@ func buildJudgeCmd(opts JudgeExecOptions, absRepo, scratchHome, tmpDir, tok stri
 		setCmdSetsid(cmd)
 		return cmd, func() {}, nil
 	}
-	resolvedBin, err := resolveCommandBin(bin)
+	resolvedBin, err := resolveCommandBin(bin, os.Getenv("PATH"))
 	if err != nil {
 		return nil, nil, err
 	}
