@@ -16,30 +16,25 @@ import (
 // BrainTurnContext, BrainRefs, and BrainRefsForDir never trigger N+1 SQLite
 // or subprocess lookups across candidate paths (ADR-521).
 type turnBrainCache struct {
-	home      string
-	global    bool
-	byDir     map[string][]brain.Record
-	loadCount int
+	home       string
+	global     bool
+	byDir      map[string][]brain.Record
+	ftsByQuery map[string]map[string]bool
+	loadCount  int
 }
 
 func newTurnBrainCache(home string, global bool) *turnBrainCache {
 	return &turnBrainCache{
-		home:   home,
-		global: global,
-		byDir:  map[string][]brain.Record{},
+		home:       home,
+		global:     global,
+		byDir:      map[string][]brain.Record{},
+		ftsByQuery: map[string]map[string]bool{},
 	}
 }
 
 func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
-	home := tc.home
-	if home == "" {
-		home = homeOverride
-	}
-	canon := search.CanonicalizePath("", dir)
-	if canon == "" {
-		canon = dir
-	}
-	key := canon + "|" + home
+	home := tc.resolveHome(homeOverride)
+	key := canonicalCacheDir(dir) + "|" + home
 	if recs, ok := tc.byDir[key]; ok {
 		return recs
 	}
@@ -47,6 +42,104 @@ func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
 	recs := loadTurnRecords(dir, home, tc.global)
 	tc.byDir[key] = recs
 	return recs
+}
+
+func (tc *turnBrainCache) resolveHome(homeOverride string) string {
+	if tc.home != "" {
+		return tc.home
+	}
+	return homeOverride
+}
+
+func canonicalCacheDir(dir string) string {
+	if canon := search.CanonicalizePath("", dir); canon != "" {
+		return canon
+	}
+	return dir
+}
+
+func (tc *turnBrainCache) ftsMatches(dir, homeOverride string, terms []string) map[string]bool {
+	home := tc.resolveHome(homeOverride)
+	if home == "" || len(terms) == 0 {
+		return nil
+	}
+	if _, err := os.Stat(brain.Path(home)); err != nil {
+		return nil
+	}
+	key := canonicalCacheDir(dir) + "|" + home + "|" + strings.Join(terms, " ")
+	if cached, ok := tc.ftsByQuery[key]; ok {
+		return cached
+	}
+	matched := queryBrainFTSRecordIDs(brain.Options{Home: home, Dir: dir, Global: tc.global}, terms)
+	tc.ftsByQuery[key] = matched
+	return matched
+}
+
+func queryBrainFTSRecordIDs(bo brain.Options, terms []string) map[string]bool {
+	hits, err := brain.Search(bo, terms, "", 16)
+	if err != nil || len(hits) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, h := range hits {
+		if ftsHitMeetsPrecision(h, terms) {
+			out[h.Scope+"|"+h.ID] = true
+			out[h.ID] = true
+		}
+	}
+	return out
+}
+
+func ftsHitMeetsPrecision(h brain.Hit, terms []string) bool {
+	if len(terms) == 1 {
+		return len(terms[0]) >= 5
+	}
+	return countFTSHitTerms(h, terms) >= 2
+}
+
+func countFTSHitTerms(h brain.Hit, terms []string) int {
+	snipSpans := extractMarkedSnippetWords(h.Snippet)
+	titleLow := strings.ToLower(h.ID + " " + h.Title)
+	matched := 0
+	for _, t := range terms {
+		prefix := t
+		if len(prefix) > 5 {
+			prefix = prefix[:5]
+		}
+		if strings.Contains(titleLow, prefix) || hasStemPrefixInWords(snipSpans, prefix) {
+			matched++
+		}
+	}
+	return matched
+}
+
+func extractMarkedSnippetWords(snip string) []string {
+	var out []string
+	rest := snip
+	for {
+		i := strings.IndexRune(rest, '»')
+		if i < 0 {
+			return out
+		}
+		rest = rest[i+len("»"):]
+		j := strings.IndexRune(rest, '«')
+		if j < 0 {
+			return out
+		}
+		if w := strings.ToLower(strings.TrimSpace(rest[:j])); w != "" {
+			out = append(out, w)
+		}
+		rest = rest[j+len("«"):]
+	}
+}
+
+func hasStemPrefixInWords(words []string, prefix string) bool {
+	for _, w := range words {
+		if strings.HasPrefix(w, prefix) || (len(w) >= 4 && strings.HasPrefix(prefix, w)) {
+			return true
+		}
+	}
+	return false
 }
 
 func loadTurnRecords(dir, home string, global bool) []brain.Record {
@@ -79,9 +172,10 @@ func makeBrainTurnContext(tc *turnBrainCache) func(dir, home, prompt string, fil
 			return search.TurnBrainContext{}
 		}
 		terms := extractTurnQueryTerms(prompt)
+		ftsIDs := tc.ftsMatches(dir, home, terms)
 		var out search.TurnBrainContext
 		for _, r := range recs {
-			classifyTurnRecord(&out, dir, prompt, files, terms, r)
+			classifyTurnRecordWithFTS(&out, dir, prompt, files, terms, ftsIDs, r)
 		}
 		return out
 	}
@@ -92,15 +186,19 @@ func totalMatchedRecords(ctx *search.TurnBrainContext) int {
 }
 
 func classifyTurnRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
+	classifyTurnRecordWithFTS(ctx, dir, prompt, files, terms, nil, r)
+}
+
+func classifyTurnRecordWithFTS(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
 	switch r.Kind {
 	case "plan":
 		classifyPlanRecord(ctx, r)
 	case "memory":
-		classifyMemoryRecord(ctx, dir, prompt, files, terms, r)
+		classifyMemoryRecord(ctx, dir, prompt, files, terms, ftsIDs, r)
 	case "bug":
-		classifyBugRecord(ctx, prompt, files, terms, r)
+		classifyBugRecord(ctx, prompt, files, terms, ftsIDs, r)
 	case "adr":
-		classifyADRRecord(ctx, prompt, files, terms, r)
+		classifyADRRecord(ctx, prompt, files, terms, ftsIDs, r)
 	}
 }
 
@@ -113,8 +211,8 @@ func classifyPlanRecord(ctx *search.TurnBrainContext, r brain.Record) {
 	}
 }
 
-func classifyMemoryRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, r brain.Record) {
-	if (r.Status != "closed" && r.Status != "") || !matchesRecordPrecision(r, prompt, files, terms) {
+func classifyMemoryRecord(ctx *search.TurnBrainContext, dir, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
+	if (r.Status != "closed" && r.Status != "") || !matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs) {
 		return
 	}
 	v := brain.ComputeMemoryValidity(dir, r, 0, time.Now())
@@ -157,8 +255,8 @@ func memoryPriorityLess(a, b search.MatchedRecord) bool {
 	return a.ID < b.ID
 }
 
-func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, r brain.Record) {
-	if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecision(r, prompt, files, terms) {
+func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
+	if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs) {
 		ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
 			ID: r.ID, Kind: "bug", Status: r.Status, Title: r.Title,
 			Provenance: r.Provenance, Body: r.Body,
@@ -166,7 +264,7 @@ func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms
 	}
 }
 
-func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, r brain.Record) {
+func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
 	if r.Status != "accepted" && r.Status != "open" && r.Status != "" {
 		return
 	}
@@ -178,7 +276,7 @@ func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms
 	if conflict != "" {
 		ctx.Conflicts = append(ctx.Conflicts, conflict)
 	}
-	if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecision(r, prompt, files, terms))) && len(ctx.ADRs) < 3 {
+	if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs))) && len(ctx.ADRs) < 3 {
 		ctx.ADRs = append(ctx.ADRs, rec)
 	}
 }
@@ -194,6 +292,7 @@ var turnQueryStopwords = map[string]bool{
 	"files": true, "code": true, "plan": true, "test": true, "tests": true,
 	"check": true, "update": true, "change": true, "then": true, "will": true,
 	"they": true, "them": true, "your": true, "here": true, "does": true,
+	"these": true, "those": true, "during": true,
 }
 
 func extractTurnQueryTerms(prompt string) []string {
@@ -212,7 +311,14 @@ func extractTurnQueryTerms(prompt string) []string {
 }
 
 func matchesRecordPrecision(r brain.Record, prompt string, files, terms []string) bool {
+	return matchesRecordPrecisionWithFTS(r, prompt, files, terms, nil)
+}
+
+func matchesRecordPrecisionWithFTS(r brain.Record, prompt string, files, terms []string, ftsIDs map[string]bool) bool {
 	if r.ID != "" && strings.Contains(strings.ToLower(prompt), strings.ToLower(r.ID)) {
+		return true
+	}
+	if len(ftsIDs) > 0 && (ftsIDs[r.Scope+"|"+r.ID] || ftsIDs[r.ID]) {
 		return true
 	}
 	titleHay := strings.ToLower(r.ID + "\n" + r.Title)

@@ -277,3 +277,71 @@ func TestMakeBrainReprime(t *testing.T) {
 		t.Errorf("reprime included closed plan %s:\n%s", closedID, got)
 	}
 }
+
+func TestSearchHookRecordsFTSAndStopwords(t *testing.T) {
+	dir := recordRepo(t)
+	home := t.TempDir()
+	bo := brain.Options{Home: home, Dir: dir}
+
+	migADR, err := brain.Add(bo, brain.AddInput{
+		Kind: "adr", Status: "accepted", Title: "SQLite migration durability",
+		Body: strings.NewReader("Validate transactional rollbacks before upgrading schema versions."),
+	})
+	if err != nil {
+		t.Fatalf("Add migADR: %v", err)
+	}
+	stallBug, err := brain.Add(bo, brain.AddInput{
+		Kind: "bug", Status: "open", Title: "Catalog refresh timeout",
+		Body: strings.NewReader("Observed when agy models stalls on offline laptop."),
+	})
+	if err != nil {
+		t.Fatalf("Add stallBug: %v", err)
+	}
+	if _, err := brain.Add(bo, brain.AddInput{
+		Kind: "adr", Status: "accepted", Title: "Button palette",
+		Body: strings.NewReader("Use slate tokens on web cards."),
+	}); err != nil {
+		t.Fatalf("Add unrelated ADR: %v", err)
+	}
+
+	cache := newTurnBrainCache(home, false)
+	turnCtxFn := makeBrainTurnContext(cache)
+
+	// 1. Porter stemming across title+body via records_fts ("stalling"/"refreshes" -> "stalls"/"refresh").
+	ctxStall := turnCtxFn(dir, home, "Diagnose stalling refreshes when laptop is offline", nil)
+	if len(ctxStall.Bugs) != 1 || ctxStall.Bugs[0].ID != stallBug {
+		t.Errorf("records_fts stemmed bug match = %+v, want [%s]", ctxStall.Bugs, stallBug)
+	}
+	if len(ctxStall.ADRs) != 0 {
+		t.Errorf("unrelated ADRs matched stall query: %+v", ctxStall.ADRs)
+	}
+
+	// 2. Inflected body terms ("transactional", "upgrading", "schemas") match migADR via records_fts.
+	ctxMig := turnCtxFn(dir, home, "Verify transactional schemas while upgrading", nil)
+	if len(ctxMig.ADRs) != 1 || ctxMig.ADRs[0].ID != migADR {
+		t.Errorf("records_fts body match = %+v, want [%s]", ctxMig.ADRs, migADR)
+	}
+
+	// 3. Stopwords are stripped before querying records_fts and never match unrelated records.
+	if terms := extractTurnQueryTerms("What model should they make with these files and tests during check"); len(terms) != 0 {
+		t.Errorf("expected all stopwords filtered, got %v", terms)
+	}
+	ctxStop := turnCtxFn(dir, home, "What model should they make with these files and tests during check", nil)
+	if len(ctxStop.ADRs) != 0 || len(ctxStop.Bugs) != 0 {
+		t.Errorf("stopword prompt matched records: adrs=%+v bugs=%+v", ctxStop.ADRs, ctxStop.Bugs)
+	}
+	if cache.loadCount != 1 {
+		t.Errorf("turnBrainCache.loadCount = %d after multiple FTS queries, want 1", cache.loadCount)
+	}
+
+	// 4. ReadTrail fallback works when brain.db does not exist under emptyHome.
+	if _, err := brain.Export(bo); err != nil {
+		t.Fatalf("Export trail: %v", err)
+	}
+	emptyHome := t.TempDir()
+	trailCache := newTurnBrainCache(emptyHome, false)
+	trailCtx := makeBrainTurnContext(trailCache)(dir, emptyHome, "Update SQLite migration durability", nil)
+	if len(trailCtx.ADRs) != 1 || trailCtx.ADRs[0].ID != migADR {
+		t.Errorf("ReadTrail fallback match = %+v, want [%s]", trailCtx.ADRs, migADR)
+	}
+}

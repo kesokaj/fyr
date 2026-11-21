@@ -3,9 +3,11 @@ package search
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
@@ -24,24 +26,6 @@ type modelsCatalogFile struct {
 
 const maxHookConvDBBytes = 8 << 20
 
-var exactModelFallbackMap = map[string][2]string{
-	"gemini-pro-orchestrator":       {"Orchestrator (Carbon)", "DYNAMIC"},
-	"gemini-pro-orchestrator-argon": {"Orchestrator (Argon)", "DYNAMIC"},
-	"gemini-flash-worker-agy":       {"Gemini Flash Worker", "FAST"},
-	"gemini-3.8-flash-tiered":       {"Gemini 3.8 Flash", "TIERED"},
-}
-
-var stemModelNameMap = map[string]string{
-	"claude-opus-5-5":   "Claude Opus 5.5",
-	"claude-sonnet-5-5": "Claude Sonnet 5.5",
-	"gemini-4-carbon":   "Gemini 4 Carbon",
-	"gemini-4-argon":    "Gemini 4 Argon",
-	"gemini-4-hydrogen": "Gemini 4 Hydrogen",
-	"gemini-3.8-flash":  "Gemini 3.8 Flash",
-	"gemini-3-8-flash":  "Gemini 3.8 Flash",
-	"gpt-oss-120b":      "GPT-OSS 120B",
-}
-
 var modelSuffixThinkingMap = []struct {
 	suffix   string
 	thinking string
@@ -50,13 +34,14 @@ var modelSuffixThinkingMap = []struct {
 	{"-high", "HIGH"},
 	{"-medium", "MEDIUM"},
 	{"-low", "LOW"},
+	{"-minimal", "LOW"},
 	{"-max", "MAX"},
 	{"-tiered", "TIERED"},
 }
 
 // ResolveModelAndThinking translates a raw Antigravity model ID or display name
 // into an exact human model name and an UPPER_SNAKE_CASE thinking level using
-// cached models.json metadata under home/harness.StateDir with a pure-stdlib fallback.
+// cached models.json metadata under home/harness.StateDir with a dynamic fallback.
 func ResolveModelAndThinking(home, rawModel string) (model, thinking string) {
 	trimmed := strings.TrimSpace(printable(rawModel))
 	if trimmed == "" || strings.EqualFold(trimmed, "auto") {
@@ -85,7 +70,7 @@ func loadModelsCatalog(home string) (modelsCatalogFile, bool) {
 	}
 	p := filepath.Join(home, harness.StateDir, "models.json")
 	st, err := os.Lstat(p)
-	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 1<<20 {
+	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 || st.Size() > 4<<20 {
 		return modelsCatalogFile{}, false
 	}
 	data, err := os.ReadFile(p)
@@ -124,6 +109,8 @@ func normalizeThinking(effort, id string) string {
 	switch strings.ToLower(strings.TrimSpace(effort)) {
 	case "low", "medium", "high", "xhigh", "max", "tiered", "fast":
 		return strings.ToUpper(strings.TrimSpace(effort))
+	case "minimal":
+		return "LOW"
 	case "orchestrator":
 		return "DYNAMIC"
 	}
@@ -149,22 +136,101 @@ func stripEffortSuffix(displayName, effort string) string {
 
 func parseModelFallback(rawModel string) (string, string) {
 	trimmed := strings.TrimSpace(printable(rawModel))
-	low := strings.ToLower(trimmed)
-	if pair, ok := exactModelFallbackMap[low]; ok {
-		return pair[0], pair[1]
+	low := strings.ToLower(strings.TrimPrefix(trimmed, "models/"))
+	if low == "" || low == "auto" {
+		return "", ""
 	}
-	stem, thinking := trimmed, ""
+	if low == "gemini-flash-worker-agy" {
+		return "Gemini Flash Worker", "FAST"
+	}
+	if name, ok := formatOrchestratorFallback(low); ok {
+		return name, "DYNAMIC"
+	}
+	stem, thinking := stripThinkingSuffix(strings.TrimPrefix(trimmed, "models/"))
+	if strings.Contains(stem, " ") {
+		return strings.TrimSpace(stem), thinking
+	}
+	return humanizeModelStem(stem), thinking
+}
+
+func formatOrchestratorFallback(low string) (string, bool) {
+	if low == "gemini-pro-orchestrator" {
+		return "Orchestrator (Carbon)", true
+	}
+	if variant, ok := strings.CutPrefix(low, "gemini-pro-orchestrator-"); ok && variant != "" {
+		return fmt.Sprintf("Orchestrator (%s)", humanizeModelStem(variant)), true
+	}
+	if strings.Contains(low, "orchestrator") {
+		return humanizeModelStem(low), true
+	}
+	return "", false
+}
+
+func stripThinkingSuffix(raw string) (string, string) {
+	low := strings.ToLower(raw)
 	for _, item := range modelSuffixThinkingMap {
-		if strings.HasSuffix(low, item.suffix) {
-			thinking = item.thinking
-			stem = trimmed[:len(trimmed)-len(item.suffix)]
-			break
+		if strings.HasSuffix(low, item.suffix) && len(raw) > len(item.suffix) {
+			return raw[:len(raw)-len(item.suffix)], item.thinking
+		}
+		paren := " (" + strings.TrimPrefix(item.suffix, "-") + ")"
+		if strings.HasSuffix(low, paren) && len(raw) > len(paren) {
+			return strings.TrimSpace(raw[:len(raw)-len(paren)]), item.thinking
 		}
 	}
-	if mapped, ok := stemModelNameMap[strings.ToLower(stem)]; ok {
-		return mapped, thinking
+	return raw, ""
+}
+
+func humanizeModelStem(stem string) string {
+	rawToks := strings.FieldsFunc(strings.TrimSpace(stem), func(r rune) bool { return r == '-' || r == '_' })
+	if len(rawToks) == 0 {
+		return strings.TrimSpace(stem)
 	}
-	return strings.TrimSpace(stem), thinking
+	merged := mergeNumericModelTokens(rawToks)
+	out := make([]string, 0, len(merged))
+	for i := 0; i < len(merged); i++ {
+		if i+1 < len(merged) && strings.EqualFold(merged[i], "gpt") && strings.EqualFold(merged[i+1], "oss") {
+			out = append(out, "GPT-OSS")
+			i++
+			continue
+		}
+		out = append(out, formatModelWord(merged[i]))
+	}
+	return strings.Join(out, " ")
+}
+
+func mergeNumericModelTokens(toks []string) []string {
+	var out []string
+	for _, tok := range toks {
+		if len(out) > 0 && isAllDigits(out[len(out)-1]) && isAllDigits(tok) {
+			out[len(out)-1] = out[len(out)-1] + "." + tok
+			continue
+		}
+		out = append(out, tok)
+	}
+	return out
+}
+
+func formatModelWord(tok string) string {
+	low := strings.ToLower(tok)
+	switch low {
+	case "gpt", "oss", "ai", "llm":
+		return strings.ToUpper(low)
+	}
+	if len(low) >= 2 && isAllDigits(low[:len(low)-1]) && strings.ContainsRune("bkm", rune(low[len(low)-1])) {
+		return strings.ToUpper(low)
+	}
+	runes := []rune(low)
+	if len(runes) > 0 && unicode.IsLetter(runes[0]) {
+		runes[0] = unicode.ToUpper(runes[0])
+	}
+	return string(runes)
+}
+
+func effectiveHookSessionModel(home string, in HookInput) string {
+	if m := resolveHookSessionModelForHome(home, in); m != "" {
+		return m
+	}
+	return strings.TrimSpace(in.ModelName)
 }
 
 func resolveHookSessionModel(in HookInput) string {
@@ -249,14 +315,39 @@ func readConvGenMetadataModelOnce(dbPath, brainSubdir string) (string, error) {
 		return "", err
 	}
 	defer db.Close()
-	var blob []byte
-	if err := db.QueryRow(`SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1`).Scan(&blob); err != nil {
+	rows, err := db.Query(`SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 4`)
+	if err != nil {
 		return "", err
 	}
-	for _, f := range ProtoFields(blob) {
-		if f.Wire == 2 && len(f.Path) == 2 && f.Path[0] == 1 && f.Path[1] == 19 {
-			return strings.TrimSpace(string(f.Bytes)), nil
+	defer rows.Close()
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil {
+			return "", err
+		}
+		if m := extractGenMetadataModel(blob); m != "" {
+			return m, nil
 		}
 	}
-	return "", nil
+	return "", rows.Err()
+}
+
+func extractGenMetadataModel(blob []byte) string {
+	var fallback string
+	for _, f := range ProtoFields(blob) {
+		if f.Wire != 2 || len(f.Path) != 2 {
+			continue
+		}
+		val := strings.TrimSpace(printable(string(f.Bytes)))
+		if val == "" || strings.EqualFold(val, "auto") {
+			continue
+		}
+		if f.Path[0] == 3 && f.Path[1] == 28 {
+			return val
+		}
+		if f.Path[0] == 1 && f.Path[1] == 19 && fallback == "" {
+			fallback = val
+		}
+	}
+	return fallback
 }

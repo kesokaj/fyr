@@ -356,6 +356,7 @@ func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
 	upgradeCases := []string{
 		"gemini-pro-orchestrator",
 		"gemini-pro-orchestrator-argon",
+		"gemini-pro-orchestrator-neon",
 		"auto",
 		"claude-sonnet-5-5-low",
 		"gemini-3.8-flash-medium",
@@ -379,6 +380,8 @@ func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
 		"claude-opus-5-5-high",
 		"gemini-4-carbon-high",
 		"gemini-4-argon-high",
+		"gemini-4-neon-high",
+		"gemini-4-neon-medium",
 		"claude-sonnet-5-5-high",
 		"claude-sonnet-5-5-medium",
 		"gemini-4-hydrogen-high",
@@ -395,17 +398,19 @@ func TestPreToolSubagentUpgradesOrchestratorToPro(t *testing.T) {
 		}
 	}
 
-	// handlePreToolSwarm preserves isFastExecutionModel (sonnet-high allowed, sonnet-low denied).
-	swAllow := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-sonnet-high", "gemini-4-carbon-high", "swarm", map[string]any{
-		"action": "add",
-		"name":   "reviewer-1",
-		"model":  "claude-sonnet-5-5-high",
-		"brief":  "Review diff.",
-	}, nil, "")
-	if swAllow.Decision != "allow" {
-		t.Errorf("swarm judge sonnet-high: got %+v, want allow", swAllow)
+	// handlePreToolSwarm preserves isFastExecutionModel (sonnet-high and neon-high allowed, sonnet-low denied).
+	for _, m := range []string{"claude-sonnet-5-5-high", "gemini-4-neon-high", "gemini-4-neon-medium"} {
+		swAllow := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-ok-"+m, "gemini-4-neon-high", "swarm", map[string]any{
+			"action": "add",
+			"name":   "reviewer-1",
+			"model":  m,
+			"brief":  "Review diff.",
+		}, nil, "")
+		if swAllow.Decision != "allow" {
+			t.Errorf("swarm judge %s: got %+v, want allow", m, swAllow)
+		}
 	}
-	swDeny := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-sonnet-low", "gemini-4-carbon-high", "swarm", map[string]any{
+	swDeny := runSubagentPreToolHook(t, Options{Home: home}, "conv-sw-sonnet-low", "gemini-4-neon-high", "swarm", map[string]any{
 		"action": "add",
 		"name":   "reviewer-1",
 		"model":  "claude-sonnet-5-5-low",
@@ -444,46 +449,98 @@ func TestSwarmRoleMultiToken(t *testing.T) {
 	}
 }
 
-func TestCompareSwarmModelIDsAndParseIntRuns(t *testing.T) {
-	runCases := []struct {
-		in   string
-		want []int
-	}{
-		{"", nil},
-		{"claude-opus", nil},
-		{"gemini-2.5-pro", []int{2, 5}},
-		{"model-10-beta-2", []int{10, 2}},
-		{"42", []int{42}},
+func TestPickSwarmModelCatalogAndGenMetadataInheritance(t *testing.T) {
+	home := t.TempDir()
+	catDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(catDir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range runCases {
-		got := parseIntRuns(tc.in)
-		if len(got) != len(tc.want) {
-			t.Errorf("parseIntRuns(%q) = %v, want %v", tc.in, got, tc.want)
-			continue
-		}
-		for i := range got {
-			if got[i] != tc.want[i] {
-				t.Errorf("parseIntRuns(%q)[%d] = %d, want %d", tc.in, i, got[i], tc.want[i])
-			}
-		}
+	catJSON := `{
+		"entries": [
+			{"id": "gemini-4-neon-high", "display_name": "Gemini 4 Neon (high)", "family": "gemini", "tier": "pro", "effort": "high", "status": "active"},
+			{"id": "gemini-3.8-flash-medium", "display_name": "Gemini 3.8 Flash (medium)", "family": "gemini", "tier": "flash", "effort": "medium", "status": "active"},
+			{"id": "claude-opus-5-5-high", "display_name": "Claude Opus 5.5 (high)", "family": "anthropic", "tier": "pro", "effort": "high", "status": "active"},
+			{"id": "gemini-pro-orchestrator-neon", "display_name": "Orchestrator (Neon)", "family": "gemini", "tier": "pro", "effort": "orchestrator", "interactive_only": true, "status": "active"}
+		],
+		"pools": [
+			{"name": "Anthropic Claude", "five": 15, "week": 40},
+			{"name": "Gemini Pro", "five": 80, "week": 70}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(catDir, "models.json"), []byte(catJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, fb := pickSwarmModel(home, "builder"); got != "gemini-4-neon-high" || fb != "" {
+		t.Errorf("pickSwarmModel(builder) = (%q, %q), want (gemini-4-neon-high, \"\")", got, fb)
+	}
+	if got, _ := pickSwarmModel(home, "mechanical"); got != "gemini-3.8-flash-medium" {
+		t.Errorf("pickSwarmModel(mechanical) = %q, want gemini-3.8-flash-medium", got)
+	}
+	if got, fb := pickSwarmModel(home, "judge"); got != "gemini-4-neon-high" || !strings.Contains(fb, "quota low") {
+		t.Errorf("pickSwarmModel(judge low Anthropic quota) = (%q, %q), want fallback to gemini-4-neon-high with quota reason", got, fb)
 	}
 
-	cmpCases := []struct {
-		a, b string
-		want int
-	}{
-		{"model-10", "model-2", 1},
-		{"model-2", "model-10", -1},
-		{"v2.10", "v2.5", 1},
-		{"v2.1", "v2", 1},
-		{"v2", "v2.1", -1},
-		{"alpha-1", "beta-1", -1},
-		{"beta-1", "alpha-1", 1},
-		{"same-3", "same-3", 0},
-	}
-	for _, tc := range cmpCases {
-		if got := compareSwarmModelIDs(tc.a, tc.b); got != tc.want {
-			t.Errorf("compareSwarmModelIDs(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+	// S4: Empty/auto modelName in invoke_subagent and run_workflow inherits gen_metadata (3,28) model.
+	appDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	convOrch, convNeon := "conv-s4-orch", "conv-s4-neon"
+	for _, cid := range []string{convOrch, convNeon} {
+		if err := os.MkdirAll(filepath.Join(appDir, "brain", cid), 0o700); err != nil {
+			t.Fatal(err)
 		}
+	}
+	if err := os.MkdirAll(filepath.Join(appDir, "conversations"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seedGenMetadataModelT(t, filepath.Join(appDir, "conversations", convOrch+".db"), "gemini-pro-orchestrator-neon")
+	seedGenMetadataModelT(t, filepath.Join(appDir, "conversations", convNeon+".db"), "gemini-4-neon-high")
+
+	// Empty modelName + orchestrator in gen_metadata MUST upgrade guarded subagent & workflow!
+	subPayload, _ := json.Marshal(map[string]any{
+		"conversationId":        convOrch,
+		"artifactDirectoryPath": filepath.Join(appDir, "brain", convOrch),
+		"modelName":             "",
+		"toolCall":              map[string]any{"name": "invoke_subagent", "args": map[string]any{"TypeName": "reviewer", "Prompt": "Review diff."}},
+	})
+	var subOut bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(subPayload)}, &subOut); err != nil {
+		t.Fatal(err)
+	}
+	var subDec HookDecisionOutput
+	_ = json.Unmarshal(subOut.Bytes(), &subDec)
+	if subDec.Decision != "allow" || subDec.Overwrite == nil || subDec.Overwrite["Model"] != "pro" || !strings.Contains(subDec.Reason, "Orchestrator (Neon)") {
+		t.Errorf("empty modelName with orchestrator gen_metadata: got %+v, want upgrade to Model=pro citing Orchestrator (Neon)", subDec)
+	}
+
+	wfPayload, _ := json.Marshal(map[string]any{
+		"conversationId":        convOrch,
+		"artifactDirectoryPath": filepath.Join(appDir, "brain", convOrch),
+		"modelName":             "",
+		"toolCall":              map[string]any{"name": "run_workflow", "args": map[string]any{"Script": `await agent(prompt="Check", schema={"type":"string"}, type_name="security", model="inherit")`}},
+	})
+	var wfOut bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(wfPayload)}, &wfOut); err != nil {
+		t.Fatal(err)
+	}
+	var wfDec HookDecisionOutput
+	_ = json.Unmarshal(wfOut.Bytes(), &wfDec)
+	if wfDec.Decision != "allow" || wfDec.Overwrite == nil || !strings.Contains(fmt.Sprint(wfDec.Overwrite["Script"]), `model="pro"`) {
+		t.Errorf("empty modelName workflow with orchestrator gen_metadata: got %+v, want model=\"pro\" patch", wfDec)
+	}
+
+	// modelName="auto" + gemini-4-neon-high in gen_metadata MUST NOT trigger guarded upgrade!
+	neonPayload, _ := json.Marshal(map[string]any{
+		"conversationId":        convNeon,
+		"artifactDirectoryPath": filepath.Join(appDir, "brain", convNeon),
+		"modelName":             "auto",
+		"toolCall":              map[string]any{"name": "invoke_subagent", "args": map[string]any{"TypeName": "reviewer", "Prompt": "Review diff."}},
+	})
+	var neonOut bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(neonPayload)}, &neonOut); err != nil {
+		t.Fatal(err)
+	}
+	var neonDec HookDecisionOutput
+	_ = json.Unmarshal(neonOut.Bytes(), &neonDec)
+	if neonDec.Decision != "allow" || neonDec.Overwrite != nil {
+		t.Errorf("auto modelName with gemini-4-neon-high gen_metadata: got %+v, want clean allow without upgrade", neonDec)
 	}
 }

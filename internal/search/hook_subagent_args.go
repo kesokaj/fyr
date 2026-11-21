@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 func formatModelTag(home, raw string) string {
@@ -17,54 +19,96 @@ func formatModelTag(home, raw string) string {
 	return mName
 }
 
+func classifyHookModel(home, modelName string) (fam, tier, eff string, isOrch bool) {
+	s := strings.TrimSpace(modelName)
+	if s == "" {
+		return "", "", "", false
+	}
+	if strings.TrimSpace(home) != "" {
+		if cat, ok, err := models.LoadCatalog(home); err == nil && ok {
+			for _, e := range cat.Entries {
+				if strings.EqualFold(e.ID, s) || (e.DisplayName != "" && strings.EqualFold(e.DisplayName, s)) {
+					orch := e.InteractiveOnly || e.Mode == "orchestrator" || e.Effort == "orchestrator" || models.IsInteractiveOnlyID(e.ID)
+					return strings.ToLower(e.Family), strings.ToLower(e.Tier), strings.ToLower(e.Effort), orch
+				}
+			}
+		}
+	}
+	fam, tier, eff = models.ClassifyModel(s, "")
+	isOrch = models.IsInteractiveOnlyID(s) || eff == "orchestrator"
+	if !isOrch && tier == "pro" && strings.Contains(strings.ToLower(s), "hydrogen") {
+		tier = "flash"
+	}
+	return fam, tier, eff, isOrch
+}
+
 func isFastExecutionModel(modelName string) bool {
-	s := strings.ToLower(strings.TrimSpace(modelName))
-	if s == "" || strings.Contains(s, "orchestrator") || strings.Contains(s, "carbon") || strings.Contains(s, "argon") || strings.Contains(s, "opus") {
+	return isFastExecutionModelForHome("", modelName)
+}
+
+func isFastExecutionModelForHome(home, modelName string) bool {
+	s := strings.TrimSpace(modelName)
+	if s == "" || strings.EqualFold(s, "auto") {
 		return false
 	}
-	if strings.Contains(s, "flash") || strings.Contains(s, "gpt-oss") {
+	fam, tier, eff, isOrch := classifyHookModel(home, s)
+	if isOrch || tier == "pro" {
+		return false
+	}
+	if tier == "light" {
 		return true
 	}
-	if strings.Contains(s, "hydrogen") {
-		return !strings.Contains(s, "-high") && !strings.Contains(s, "-xhigh") && !strings.Contains(s, "-max")
+	if fam == "anthropic" {
+		return eff == "low"
 	}
-	return strings.Contains(s, "sonnet") && strings.Contains(s, "-low")
+	if strings.Contains(strings.ToLower(s), "flash") || fam == "other" {
+		return true
+	}
+	return eff != "high" && eff != "xhigh" && eff != "max"
 }
 
 func needsGuardedProUpgrade(modelName string) bool {
-	s := strings.ToLower(strings.TrimSpace(modelName))
-	if s == "" || strings.Contains(s, "opus") {
+	return needsGuardedProUpgradeForHome("", modelName)
+}
+
+func needsGuardedProUpgradeForHome(home, modelName string) bool {
+	s := strings.TrimSpace(modelName)
+	if s == "" {
 		return false
 	}
-	if !strings.Contains(s, "orchestrator") && (strings.Contains(s, "carbon") || strings.Contains(s, "argon")) {
-		return false
+	if strings.EqualFold(s, "auto") {
+		return true
 	}
-	if strings.Contains(s, "sonnet") && !strings.Contains(s, "-low") {
-		return false
-	}
-	if strings.Contains(s, "hydrogen") && (strings.Contains(s, "-high") || strings.Contains(s, "-xhigh") || strings.Contains(s, "-max")) {
-		return false
-	}
-	return true
+	_, _, _, isOrch := classifyHookModel(home, s)
+	return isOrch || isFastExecutionModelForHome(home, s)
 }
 
 func suggestSessionModelNudge(sc *scope, convID string, genID, turnNum int, modelName string, res VetResult) string {
-	lower := strings.ToLower(strings.TrimSpace(modelName))
-	if lower == "" || strings.Contains(lower, "orchestrator") {
+	return suggestSessionModelNudgeForHome("", sc, convID, genID, turnNum, modelName, res)
+}
+
+func suggestSessionModelNudgeForHome(home string, sc *scope, convID string, genID, turnNum int, modelName string, res VetResult) string {
+	s := strings.TrimSpace(modelName)
+	if s == "" || strings.EqualFold(s, "auto") {
+		return ""
+	}
+	fam, tier, eff, isOrch := classifyHookModel(home, s)
+	if isOrch {
 		return ""
 	}
 	var st *store
 	if sc != nil {
 		st = sc.st
 	}
-	if isFastExecutionModel(modelName) && (res.Intent == IntentFeature || (res.Intent == IntentBug && res.Score < 70)) {
+	if isFastExecutionModelForHome(home, s) && (res.Intent == IntentFeature || (res.Intent == IntentBug && res.Score < 70)) {
 		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:pro") {
-			return "model tip: architecture/deep-debug turn on fast model — consider Orchestrator (Argon) or Carbon"
+			return "model tip: architecture/deep-debug turn on fast model — consider a pro builder/planner model or orchestrator"
 		}
 	}
-	if (strings.Contains(lower, "argon") || strings.Contains(lower, "opus")) && res.Intent == IntentTrivial {
+	isHeavyPro := tier == "pro" && (eff == "high" || eff == "xhigh" || eff == "max" || fam == "anthropic")
+	if isHeavyPro && res.Intent == IntentTrivial {
 		if markSessionSentinelOnce(st, convID, genID, turnNum, "__model_nudge__:fast") {
-			return "model tip: trivial turn on heavy reasoning model — Orchestrator or Hydrogen/Flash is faster"
+			return "model tip: trivial turn on heavy pro reasoning model — consider a flash-tier model or orchestrator"
 		}
 	}
 	return ""

@@ -17,10 +17,11 @@ func handlePreToolSubagent(o Options, _ string, in HookInput, out io.Writer) err
 		if model, blocked := nonInheritModelOverride(in.ToolCall.Args); blocked {
 			return writeDecision(out, "deny", fmt.Sprintf("[MODEL_OVERRIDE] subagent %q forbids Model=%q override; omit Model or pass \"inherit\" (rules/agy-dispatch.md).", subagent, model))
 		}
-		if needsGuardedProUpgrade(in.ModelName) {
+		sessionModel := effectiveHookSessionModel(o.Home, in)
+		if needsGuardedProUpgradeForHome(o.Home, sessionModel) {
 			cloned = cloneArgsWithoutModelKeys(in.ToolCall.Args)
 			cloned["Model"] = "pro"
-			reason = fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, formatModelTag(o.Home, in.ModelName))
+			reason = fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded %s from %s to Model=\"pro\"", subagent, formatModelTag(o.Home, sessionModel))
 		}
 	}
 	return finishWorkerToolDecision(o, in, cloned, reason, out, "Prompt", "prompt")
@@ -51,7 +52,7 @@ func handlePreToolSwarm(o Options, _ string, in HookInput, out io.Writer) error 
 		reason string
 	)
 	if m != "" && m != "auto" {
-		if role == "judge" && isFastExecutionModel(rawModel) {
+		if role == "judge" && isFastExecutionModelForHome(o.Home, rawModel) {
 			return writeDecision(out, "deny", fmt.Sprintf("[MODEL_OVERRIDE] swarm review/security worker forbids weak model=%q override", rawModel))
 		}
 	} else if picked, fbNote := pickSwarmModel(o.Home, role); picked != "" {

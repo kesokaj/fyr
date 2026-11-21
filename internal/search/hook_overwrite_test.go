@@ -232,15 +232,6 @@ func TestInferSwarmRoleAndEffortWeight(t *testing.T) {
 			t.Errorf("inferSwarmRole(name=%q, brief=%q) = %q, want %q", tc.name, tc.brief, got, tc.want)
 		}
 	}
-	if !(effortWeight("m-max") > effortWeight("m-xhigh") &&
-		effortWeight("m-xhigh") > effortWeight("m-high") &&
-		effortWeight("m-high") > effortWeight("m-plain") &&
-		effortWeight("m-plain") > effortWeight("m-medium") &&
-		effortWeight("m-medium") > effortWeight("m-low")) {
-		t.Errorf("effortWeight order broken: max=%d xhigh=%d high=%d plain=%d med=%d low=%d",
-			effortWeight("m-max"), effortWeight("m-xhigh"), effortWeight("m-high"),
-			effortWeight("m-plain"), effortWeight("m-medium"), effortWeight("m-low"))
-	}
 }
 
 func TestPreToolUseRunWorkflowGuard(t *testing.T) {

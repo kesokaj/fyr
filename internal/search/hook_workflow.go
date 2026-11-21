@@ -37,7 +37,8 @@ func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error 
 	if strings.TrimSpace(script) == "" {
 		return writeDecision(out, "allow", "")
 	}
-	denyReason, patches := inspectWorkflowScript(home, script, in.ModelName, isInline)
+	sessionModel := effectiveHookSessionModel(home, in)
+	denyReason, patches := inspectWorkflowScript(home, script, sessionModel, isInline)
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
 	}
@@ -48,7 +49,7 @@ func handlePreToolWorkflow(home, dir string, in HookInput, out io.Writer) error 
 			cloned = map[string]any{}
 		}
 		cloned[inlineKey] = rewritten
-		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatModelTag(home, in.ModelName))
+		reason := fmt.Sprintf("[AUTO_MODEL_UPGRADE] upgraded guarded run_workflow subagent(s) from %s to model=\"pro\"", formatModelTag(home, sessionModel))
 		writeDecisionWithOverwrite(out, "allow", reason, cloned)
 		return nil
 	}
@@ -144,7 +145,7 @@ func readContainedWorkflowScript(cleanDir, rel string) (string, string, bool, st
 }
 
 func inspectWorkflowScript(home, src, modelName string, isInline bool) (string, []workflowPatch) {
-	fast := needsGuardedProUpgrade(modelName)
+	fast := needsGuardedProUpgradeForHome(home, modelName)
 	spans, scanDeny := scanWorkflowAgentCalls(src)
 	if scanDeny != "" {
 		return scanDeny, nil
