@@ -1,8 +1,10 @@
 package auto
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
 )
@@ -116,5 +118,103 @@ func TestGateTargetsUnreadable(t *testing.T) {
 	o.Out, o.Env = &out, &fakeEnv{targetsErr: errFake}
 	if exit(Run(o, false)) != 1 || !strings.Contains(logOf(t, home), "targets: fake failure") {
 		t.Errorf("%s", out.String())
+	}
+}
+
+func TestGoneProjectsLifecycleAndPruning(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, validConfig)
+	returned := idleProject(t)
+	now := runAt
+	var out strings.Builder
+	env := &fakeEnv{
+		targets: []dream.Target{{Root: "/lost", Skip: "gone"}, {Root: returned, Skip: "gone"}},
+		usage:   usageText("90%", "90%"),
+	}
+	o := runOpts(home, nil)
+	o.Out, o.Env = &out, env
+	o.Now = func() time.Time { return now }
+
+	// Day 0: GoneSince recorded on skipped: gone.
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	st, _, err := loadState(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Projects["/lost"].GoneSince.Equal(now) || st.Projects["/lost"].Verdict != "skipped: gone" {
+		t.Fatalf("day 0 /lost = %+v", st.Projects["/lost"])
+	}
+	if !st.Projects[returned].GoneSince.Equal(now) {
+		t.Fatalf("day 0 returned = %+v", st.Projects[returned])
+	}
+
+	// Day 3: returned path comes back (skip == "") -> GoneSince cleared; /lost stays with original GoneSince.
+	now = runAt.Add(3 * 24 * time.Hour)
+	env.targets = []dream.Target{{Root: "/lost", Skip: "gone"}, {Root: returned}}
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = loadState(home)
+	if !st.Projects[returned].GoneSince.IsZero() || !strings.HasPrefix(st.Projects[returned].Verdict, "health:") {
+		t.Errorf("returned project did not clear GoneSince: %+v", st.Projects[returned])
+	}
+	if !st.Projects["/lost"].GoneSince.Equal(runAt) {
+		t.Errorf("day 3 /lost GoneSince mutated: %+v", st.Projects["/lost"])
+	}
+
+	// Day 6 (< 7d): /lost still retained and logged as skipped: gone.
+	now = runAt.Add(6 * 24 * time.Hour)
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = loadState(home)
+	if _, ok := st.Projects["/lost"]; !ok {
+		t.Errorf("day 6 /lost prematurely pruned")
+	}
+	if !strings.Contains(logOf(t, home), "/lost: skipped: gone") {
+		t.Errorf("missing fresh skipped: gone log")
+	}
+
+	// Day 7 + 1h (> 7d): /lost pruned while active returned project remains.
+	now = runAt.Add(7*24*time.Hour + time.Hour)
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = loadState(home)
+	if _, ok := st.Projects["/lost"]; ok {
+		t.Errorf("day 7+ /lost was not pruned: %+v", st.Projects["/lost"])
+	}
+	if _, ok := st.Projects[returned]; !ok {
+		t.Errorf("active project pruned unexpectedly")
+	}
+
+	// Cap at maxGoneKeep (20): 25 recent gone entries keep only the 20 newest.
+	projects := map[string]Project{returned: {Verdict: "health: no findings", LastRun: now}}
+	for i := 0; i < 25; i++ {
+		projects[fmt.Sprintf("/gone-%02d", i)] = Project{
+			Verdict:   "skipped: gone",
+			LastRun:   now,
+			GoneSince: now.Add(-time.Duration(i+1) * time.Hour),
+		}
+	}
+	pruneGoneProjects(projects, now)
+	goneLeft := 0
+	for k, p := range projects {
+		if p.Verdict == "skipped: gone" {
+			goneLeft++
+		}
+		for i := 20; i < 25; i++ {
+			if k == fmt.Sprintf("/gone-%02d", i) {
+				t.Errorf("stale gone cap did not drop older entry %s", k)
+			}
+		}
+	}
+	if goneLeft != maxGoneKeep {
+		t.Errorf("goneLeft = %d, want %d", goneLeft, maxGoneKeep)
+	}
+	if _, ok := projects[returned]; !ok {
+		t.Errorf("active project dropped during gone cap pruning")
 	}
 }

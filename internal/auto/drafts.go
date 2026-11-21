@@ -20,16 +20,20 @@ const (
 )
 
 type draftLine struct {
-	Kind       string
-	Action     string
-	ID         string
-	Target     string
-	Title      string
-	Body       string
-	Quote      string
-	MemoryType string
-	Scope      string
-	Sessions   string
+	Kind              string
+	Action            string
+	ID                string
+	Target            string
+	Title             string
+	Body              string
+	Quote             string
+	MemoryType        string
+	Scope             string
+	Sessions          string
+	SignalID          string
+	ReportDate        string
+	ActionScope       string
+	RecommendedAction string
 }
 
 // processDraftLines validates each JSONL line from a worker's auto-drafts.jsonl
@@ -82,14 +86,10 @@ func parseAndValidateDraft(line string) (draftLine, error) {
 	if err != nil {
 		return draftLine{}, err
 	}
-	for _, field := range []string{d.Kind, d.Action, d.ID, d.Target, d.Title, d.Body, d.Quote, d.MemoryType, d.Scope, d.Sessions} {
-		if redact.Redact(field) != field {
-			return draftLine{}, errors.New("draft field refused by redactor")
-		}
+	if redactorRefusesDraft(d) {
+		return draftLine{}, errors.New("draft field refused by redactor")
 	}
-	if strings.ContainsAny(d.ID, "\r\n\x00") || strings.ContainsAny(d.Title, "\r\n\x00") ||
-		strings.ContainsAny(d.MemoryType, "\r\n\x00") || strings.ContainsAny(d.Scope, "\r\n\x00") ||
-		strings.ContainsAny(d.Sessions, "\r\n\x00") {
+	if hasControlDraftMeta(d) {
 		return draftLine{}, errors.New("draft metadata contains control characters")
 	}
 	if len(d.Body) >= draftMaxBytes {
@@ -99,6 +99,31 @@ func parseAndValidateDraft(line string) (draftLine, error) {
 		return draftLine{}, errors.New("draft body is empty")
 	}
 	return d, nil
+}
+
+func redactorRefusesDraft(d draftLine) bool {
+	for _, fld := range []string{
+		d.Kind, d.Action, d.ID, d.Target, d.Title, d.Body, d.Quote,
+		d.MemoryType, d.Scope, d.Sessions, d.SignalID, d.ReportDate,
+		d.ActionScope, d.RecommendedAction,
+	} {
+		if redact.Redact(fld) != fld {
+			return true
+		}
+	}
+	return false
+}
+
+func hasControlDraftMeta(d draftLine) bool {
+	for _, fld := range []string{
+		d.ID, d.Title, d.MemoryType, d.Scope, d.Sessions,
+		d.SignalID, d.ReportDate, d.ActionScope, d.RecommendedAction,
+	} {
+		if strings.ContainsAny(fld, "\r\n\x00") {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeDraftObject reads one JSON object key by key, refusing repeated keys,
@@ -159,6 +184,14 @@ func setDraftField(d *draftLine, key, val string) error {
 		d.Scope = val
 	case "sessions":
 		d.Sessions = val
+	case "signal_id":
+		d.SignalID = val
+	case "report_date":
+		d.ReportDate = val
+	case "action_scope":
+		d.ActionScope = val
+	case "recommended_action":
+		d.RecommendedAction = val
 	default:
 		return fmt.Errorf("unknown key %q", key)
 	}
@@ -181,7 +214,7 @@ func (r *run) applyDraftLine(root, class string, d draftLine) (Finding, error) {
 }
 
 func applyFindingDraft(class string, d draftLine) (Finding, error) {
-	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
+	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" || hasProposalMetaFields(d) {
 		return Finding{}, errors.New("finding draft takes only body and quote")
 	}
 	detail := oneLine(d.Body)
@@ -192,7 +225,7 @@ func applyFindingDraft(class string, d draftLine) (Finding, error) {
 }
 
 func (r *run) applyMemoryDraft(root string, d draftLine) (Finding, error) {
-	if d.Target != "" || d.Title != "" || d.Quote != "" {
+	if d.Target != "" || d.Title != "" || d.Quote != "" || hasProposalMetaFields(d) {
 		return Finding{}, errors.New("memory draft takes only action, id, body, memory_type, scope and sessions")
 	}
 	if d.Scope != "" && d.Scope != "project" && d.Scope != "global" {
@@ -217,7 +250,7 @@ func (r *run) applyMemoryDraft(root string, d draftLine) (Finding, error) {
 }
 
 func (r *run) applyFeedbackDraft(root, class string, d draftLine) (Finding, error) {
-	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
+	if d.Action != "" || d.ID != "" || d.Target != "" || d.Title != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" || hasProposalMetaFields(d) {
 		return Finding{}, errors.New("feedback draft takes only body and quote")
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(d.Body), "\n")
@@ -242,10 +275,13 @@ func (r *run) applyFeedbackDraft(root, class string, d draftLine) (Finding, erro
 
 func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, error) {
 	if d.Action != "" || d.ID != "" || d.Quote != "" || d.MemoryType != "" || d.Scope != "" || d.Sessions != "" {
-		return Finding{}, errors.New("proposal draft takes only target, title and body")
+		return Finding{}, errors.New("proposal draft takes only target, title, body, signal_id, report_date, action_scope and recommended_action")
 	}
 	if d.Target != "project" && d.Target != "harness" {
 		return Finding{}, fmt.Errorf("proposal target must be project or harness, not %q", d.Target)
+	}
+	if err := validateProposalDraftMeta(d); err != nil {
+		return Finding{}, err
 	}
 	title := oneLine(strings.TrimSpace(d.Title))
 	if title == "" {
@@ -255,7 +291,8 @@ func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, erro
 	if !strings.HasPrefix(title, prefix) {
 		title = prefix + title
 	}
-	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n\n%s", d.Target, class, strings.TrimSpace(d.Body))
+	meta := formatProposalDraftMeta(d)
+	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n%s\n%s", d.Target, class, meta, strings.TrimSpace(d.Body))
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
 	if _, err := brain.Add(g, brain.AddInput{
 		Kind: "proposal", Title: title, Project: root, Body: strings.NewReader(body),

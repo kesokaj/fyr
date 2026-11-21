@@ -90,24 +90,30 @@ func (r *run) writeProposalSection(b *strings.Builder, props []brain.Record, lim
 }
 
 func appendTelemetrySections(b *strings.Builder, nums, diag, traj, realHome, home string, limit int) []string {
-	nums, diag, traj = scrubEntry(nums, realHome, home), scrubEntry(diag, realHome, home), scrubEntry(traj, realHome, home)
-	resNums, resDiag := 0, 0
-	if diag != "" {
-		resNums += telemetryMinShare
-	}
-	if traj != "" {
-		resNums += telemetryMinShare
-		resDiag = telemetryMinShare
+	return appendTelemetrySectionsWithDigest(b, nums, diag, "", traj, realHome, home, limit)
+}
+
+func appendTelemetrySectionsWithDigest(b *strings.Builder, nums, diag, digest, traj, realHome, home string, limit int) []string {
+	nums, diag = scrubEntry(nums, realHome, home), scrubEntry(diag, realHome, home)
+	digest, traj = scrubEntry(digest, realHome, home), scrubEntry(traj, realHome, home)
+	items := []struct{ label, head, body string }{
+		{"telemetry: metric numbers", "## Metric numbers\n", nums},
+		{"telemetry: diagnostic signals", "## Diagnostic signals\n", diag},
+		{"telemetry: daily digest", "## Daily digest\n", digest},
+		{"telemetry: trajectory digest", "## Trajectory digest\n", traj},
 	}
 	var dropped []string
-	add := func(label, head, body string, cap int) {
-		if d := appendCappedSection(b, label, head, body, cap); d != "" {
+	for i, it := range items {
+		reserve := 0
+		for _, rem := range items[i+1:] {
+			if rem.body != "" {
+				reserve += telemetryMinShare
+			}
+		}
+		if d := appendCappedSection(b, it.label, it.head, it.body, max(b.Len(), limit-reserve)); d != "" {
 			dropped = append(dropped, d)
 		}
 	}
-	add("telemetry: metric numbers", "## Metric numbers\n", nums, max(b.Len(), limit-resNums))
-	add("telemetry: diagnostic signals", "## Diagnostic signals\n", diag, max(b.Len(), limit-resDiag))
-	add("telemetry: trajectory digest", "## Trajectory digest\n", traj, limit)
 	return dropped
 }
 

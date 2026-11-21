@@ -10,6 +10,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/search"
 )
 
@@ -241,5 +242,33 @@ func TestCollectUsesTheRunsClock(t *testing.T) {
 	}
 	if !gotMetrics.Equal(clock) {
 		t.Errorf("metricsSummary got now %v, want the run's %v", gotMetrics, clock)
+	}
+}
+
+func TestCollectDailyDigestUnderKindMetricsDoesNotFlipChanged(t *testing.T) {
+	f := newFixture(t)
+	if err := metrics.WriteLatestDailyDigest(f.home, metrics.DailyDigest{
+		Day:     "2026-11-21",
+		Verdict: metrics.VerdictRegress,
+		Signals: []metrics.DigestAction{{SignalID: "sig:global:bash_read_bypass", Severity: "high", Rule: "bash_read_bypass", Summary: "bypass seen"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	later := now.Add(time.Hour)
+	c, err := collect(f.home, project(f), later, now.Add(2*time.Hour), maxPrompt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Changed {
+		t.Fatalf("daily_digest alone flipped Changed=true:\n%s", labels(c))
+	}
+	foundMetrics := false
+	for _, in := range c.Inputs {
+		if in.Kind == kindMetrics && strings.Contains(in.Text, `"daily_digest"`) && strings.Contains(in.Text, "sig:global:bash_read_bypass") {
+			foundMetrics = true
+		}
+	}
+	if !foundMetrics {
+		t.Errorf("collectWindow did not attach daily_digest under kindMetrics: %+v", c.Inputs)
 	}
 }

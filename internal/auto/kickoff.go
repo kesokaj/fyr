@@ -68,6 +68,7 @@ var classOrder = []classSpec{
 // Files: entries.
 type Task struct {
 	Class, Outcome, ID, Root string
+	SignalID, ReportDate     string
 	DraftsOnly               bool
 	Kept, Denied             []string
 	Count                    int
@@ -220,7 +221,7 @@ func renderClassTask(t Task) (string, error) {
 	case ClassMemoryConsolidation:
 		return fmt.Sprintf("Consolidate this project's %d memory record(s) since the last consolidation using ONLY the redacted learning input and SessionDigest (zero tool calls / zero repo exploration): write retire, merge and proposal drafts to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassRetroLite:
-		return fmt.Sprintf("Review the %d redacted conversation(s) using ONLY the redacted learning input and SessionDigest (zero tool calls / zero repo exploration) and write proposal, feedback and finding drafts to .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
+		return fmt.Sprintf("Review the %d redacted conversation(s) using ONLY the redacted learning input and SessionDigest (zero tool calls / zero repo exploration) and write proposal, feedback and finding drafts to .agents/scratch/agents/auto-drafts.jsonl; when addressing a diagnostic signal or daily-digest regression, include signal_id, report_date, action_scope, and recommended_action in the proposal draft.", t.Count), nil
 	case ClassMemoryCandidates:
 		return fmt.Sprintf("Extract memory candidates from the %d redacted conversation(s) using ONLY the redacted learning input and SessionDigest (zero tool calls / zero repo exploration) as memory add drafts in .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassDistill:

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
@@ -335,27 +334,9 @@ func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runner
 	v, af := r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
 	if r.appliedSHA == "" {
 		propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, v)
-		v = fmt.Sprintf("%s; proposal %s", v, propID)
-		return v, append(gateFindings, af...)
+		return fmt.Sprintf("%s; proposal %s", v, propID), append(gateFindings, af...)
 	}
-	// D19 item 3: auto never installs into a real home; the report says install pending.
-	r.installPending = true
-	warn := ""
-	if t.ID != "" {
-		status := "applied:" + r.appliedSHA
-		if err := brain.Edit(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.EditInput{ID: t.ID, Status: &status}); err != nil {
-			warn = "; warning: proposal " + t.ID + " update failed: " + oneLine(err.Error())
-		} else if r.st.OpenAsks > 0 {
-			r.st.OpenAsks--
-		}
-	}
-	suffix := "; install pending" + warn
-	v += suffix
-	for i := range af {
-		if af[i].Check == "worker" {
-			af[i].Text += suffix
-		}
-	}
+	v, af = r.finishKeptGateApply(root, t, v, af)
 	return v, append(gateFindings, af...)
 }
 

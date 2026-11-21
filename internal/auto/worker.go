@@ -57,9 +57,9 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 	}
 	endPass := r.beginProjectPass(root)
 	defer endPass()
-	t := r.pickProjectTask(root, p, findings)
+	t, stopMsg := r.selectModelTask(root, p, findings)
 	if t == nil {
-		return "no model task due", nil
+		return stopMsg, nil
 	}
 	if !t.DraftsOnly {
 		if why := workerCheckoutStop(root); why != "" {

@@ -168,3 +168,78 @@ func names(es []os.DirEntry) []string {
 	}
 	return out
 }
+
+func TestMetricsSummaryIncludesRedactedDailyDigestAndFailOpens(t *testing.T) {
+	t.Run("missing-store-and-missing-digest-returns-empty", func(t *testing.T) {
+		got, err := metricsSummary(t.TempDir(), "/proj", since, now)
+		if err != nil || got != "" {
+			t.Fatalf("got = %q, err = %v; want empty, nil", got, err)
+		}
+	})
+
+	t.Run("no-store-but-valid-digest-scrubs-home-and-secrets", func(t *testing.T) {
+		home := t.TempDir()
+		redactedVal := "gh" + "p_" + strings.Repeat("F", 36)
+		d := metrics.DailyDigest{
+			Day:     "2026-11-21",
+			Verdict: metrics.VerdictRegress,
+			Signals: []metrics.DigestAction{{
+				SignalID:          "sig:global:search_grep_low",
+				Severity:          "high",
+				Rule:              "search_grep_low",
+				ActionScope:       "auto_skill",
+				RecommendedAction: "Use " + redactedVal,
+				Summary:           "ratio dropped in " + home + "/file",
+			}},
+		}
+		if err := metrics.WriteLatestDailyDigest(home, d); err != nil {
+			t.Fatal(err)
+		}
+		got, err := metricsSummary(home, "/proj", since, now)
+		if err != nil || !strings.Contains(got, `"daily_digest"`) || !strings.Contains(got, "sig:global:search_grep_low") {
+			t.Fatalf("metricsSummary = %q, err=%v", got, err)
+		}
+		if strings.Contains(got, home) || strings.Contains(got, redactedVal) {
+			t.Errorf("metricsSummary leaked home or needle:\n%s", got)
+		}
+		if !strings.Contains(got, "~/file") || !strings.Contains(got, "[redacted by fyr]") {
+			t.Errorf("metricsSummary did not scrub home or needle:\n%s", got)
+		}
+	})
+
+	t.Run("store-present-includes-digest-or-fail-opens-on-corrupt", func(t *testing.T) {
+		f := newFixture(t)
+		scaffold(t, f)
+		toolConversation(t, f)
+		s, err := metrics.Open(metrics.Path(f.home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := metrics.Ingest(s, metrics.Options{Home: f.home}, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+
+		// Corrupt digest fails open while keeping metrics numbers.
+		p := metrics.LatestDailyDigestPath(f.home)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("{corrupt"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		gotCorrupt, err := metricsSummary(f.home, f.root, since, time.Now())
+		if err != nil || !strings.Contains(gotCorrupt, `"B.tool_calls.agy": 1`) || strings.Contains(gotCorrupt, `"daily_digest"`) {
+			t.Fatalf("corrupt digest handling: err=%v\n%s", err, gotCorrupt)
+		}
+
+		// Valid digest included alongside store metrics.
+		if err := metrics.WriteLatestDailyDigest(f.home, metrics.DailyDigest{Day: "2026-11-21", Verdict: metrics.VerdictSteady}); err != nil {
+			t.Fatal(err)
+		}
+		gotValid, err := metricsSummary(f.home, f.root, since, time.Now())
+		if err != nil || !strings.Contains(gotValid, `"daily_digest"`) || !strings.Contains(gotValid, `"B.tool_calls.agy": 1`) {
+			t.Fatalf("valid digest with store: err=%v\n%s", err, gotValid)
+		}
+	})
+}

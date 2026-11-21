@@ -24,7 +24,7 @@ func (r *run) projectSummary(root string) *metrics.Summary {
 	now := r.o.now()
 	sum, err := s.Show(metrics.ShowOptions{
 		Home:    r.o.Home,
-		Since:   now.AddDate(0, 0, -30),
+		Since:   now.AddDate(0, 0, -7),
 		Now:     now,
 		Project: root,
 	})

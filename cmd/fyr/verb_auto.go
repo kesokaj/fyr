@@ -179,9 +179,6 @@ func autoDreamCallback(home, repo string, recordBg func(metrics.BackgroundRunRow
 }
 
 func autoWriteDailyReport(home string, now time.Time) error {
-	if _, err := os.Lstat(metrics.DailyReportPath(home, now)); err == nil {
-		return nil
-	}
 	dbPath := metrics.Path(home)
 	if _, err := os.Lstat(dbPath); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -191,6 +188,13 @@ func autoWriteDailyReport(home string, now time.Time) error {
 		return err
 	}
 	defer s.Close()
+	digest, err := refreshDailyDigest(s, home, now)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(metrics.DailyReportPath(home, now)); err == nil {
+		return nil
+	}
 	showOpts := metrics.ShowOptions{Home: home, Now: now}
 	sum, err := s.Show(showOpts)
 	if err != nil {
@@ -200,7 +204,22 @@ func autoWriteDailyReport(home string, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	sum.DailyDigest = &digest
 	return metrics.WriteDailyReport(sum, evals, home, now)
+}
+
+func refreshDailyDigest(s *metrics.Store, home string, now time.Time) (metrics.DailyDigest, error) {
+	digest, err := metrics.BuildDailyDigest(s, home, "", now)
+	if err != nil {
+		return metrics.DailyDigest{}, err
+	}
+	if err := metrics.SaveDailyDigest(s, digest); err != nil {
+		return metrics.DailyDigest{}, err
+	}
+	if err := metrics.WriteLatestDailyDigest(home, digest); err != nil {
+		return metrics.DailyDigest{}, err
+	}
+	return digest, nil
 }
 
 // autoRequestError refuses a flag of `on` given empty or out of range before

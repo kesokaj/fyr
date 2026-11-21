@@ -276,3 +276,86 @@ func TestDraftsProposalPrefixEnforced(t *testing.T) {
 		t.Errorf("proposal title %q bypassed target prefix", props[0].Title)
 	}
 }
+
+func TestDraftsProposalDigestAttributionAndValidation(t *testing.T) {
+	home := t.TempDir()
+	root := initGitRepo(t)
+	now := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	r := &run{o: Options{Home: home, Now: func() time.Time { return now }}}
+
+	// Must-pass: all four action_scope values + valid signal_id, report_date, recommended_action.
+	scopes := []string{"auto_skill", "operator_code", "operator_rule", "propose_only"}
+	for i, sc := range scopes {
+		line := `{"kind":"proposal","target":"harness","title":"Fix ` + sc + `","body":"Evidence: 3 sessions.","signal_id":"sig:global:search_grep_low","report_date":"2026-10-31","action_scope":"` + sc + `","recommended_action":"Tighten skill ` + sc + `"}` + "\n"
+		fs := r.processDraftLines(root, ClassRetroLite, []byte(line))
+		if len(fs) != 0 {
+			t.Fatalf("scope %s (%d) produced unexpected findings: %+v", sc, i, fs)
+		}
+	}
+	g := brain.Options{Home: home, Global: true, Now: r.o.Now}
+	props, err := brain.List(g, brain.ListFilter{Kind: "proposal", Project: root})
+	if err != nil || len(props) != len(scopes) {
+		t.Fatalf("stored proposals = %d (%v), want %d", len(props), err, len(scopes))
+	}
+	seenScopes := map[string]bool{}
+	for _, pr := range props {
+		for _, want := range []string{"Signal: sig:global:search_grep_low\n", "ReportDate: 2026-10-31\n", "RecommendedAction: Tighten skill "} {
+			if !strings.Contains(pr.Body, want) {
+				t.Errorf("proposal %s missing %q:\n%s", pr.ID, want, pr.Body)
+			}
+		}
+		for _, sc := range scopes {
+			if strings.Contains(pr.Body, "ActionScope: "+sc+"\n") {
+				seenScopes[sc] = true
+			}
+		}
+	}
+	if len(seenScopes) != len(scopes) {
+		t.Errorf("seenScopes = %v, want all %v", seenScopes, scopes)
+	}
+
+	// Must-fail cases: bad scope, bad signal_id, bad report_date, control chars,
+	// redactor hit in new fields, and any of the 4 fields on finding/memory/feedback.
+	leakVal := "gh" + "p_" + strings.Repeat("D", 36)
+	badLines := []string{
+		`{"kind":"proposal","target":"project","title":"Bad scope","body":"evidence","action_scope":"unattended_code"}`,
+		`{"kind":"proposal","target":"project","title":"Bad sig","body":"evidence","signal_id":"not-a-sig"}`,
+		`{"kind":"proposal","target":"project","title":"Bad date","body":"evidence","report_date":"2026/10/31"}`,
+		`{"kind":"proposal","target":"project","title":"Ctrl sig","body":"evidence","signal_id":"sig:global:a\nb"}`,
+		`{"kind":"proposal","target":"project","title":"Ctrl date","body":"evidence","report_date":"2026-10-31\n"}`,
+		`{"kind":"proposal","target":"project","title":"Ctrl scope","body":"evidence","action_scope":"auto_skill\r"}`,
+		`{"kind":"proposal","target":"project","title":"Ctrl rec","body":"evidence","recommended_action":"do\n## Status"}`,
+		`{"kind":"proposal","target":"project","title":"Redact rec","body":"evidence","recommended_action":"use ` + leakVal + `"}`,
+		`{"kind":"proposal","target":"project","title":"Redact sig","body":"evidence","signal_id":"` + leakVal + `"}`,
+		`{"kind":"finding","body":"has sig","signal_id":"sig:global:x"}`,
+		`{"kind":"finding","body":"has date","report_date":"2026-10-31"}`,
+		`{"kind":"finding","body":"has scope","action_scope":"auto_skill"}`,
+		`{"kind":"finding","body":"has rec","recommended_action":"fix"}`,
+		`{"kind":"memory","action":"add","id":"m-sig","body":"mem","signal_id":"sig:global:x"}`,
+		`{"kind":"memory","action":"add","id":"m-date","body":"mem","report_date":"2026-10-31"}`,
+		`{"kind":"memory","action":"add","id":"m-scope","body":"mem","action_scope":"auto_skill"}`,
+		`{"kind":"memory","action":"add","id":"m-rec","body":"mem","recommended_action":"fix"}`,
+		`{"kind":"feedback","body":"fb sig","signal_id":"sig:global:x"}`,
+		`{"kind":"feedback","body":"fb date","report_date":"2026-10-31"}`,
+		`{"kind":"feedback","body":"fb scope","action_scope":"auto_skill"}`,
+		`{"kind":"feedback","body":"fb rec","recommended_action":"fix"}`,
+	}
+	fs := r.processDraftLines(root, ClassRetroLite, []byte(strings.Join(badLines, "\n")+"\n"))
+	if len(fs) != len(badLines) {
+		t.Fatalf("invalid findings = %d, want %d: %+v", len(fs), len(badLines), fs)
+	}
+	for i, f := range fs {
+		if f.Rule != "invalid" {
+			t.Errorf("badLines[%d] rule = %q, want invalid: %+v", i, f.Rule, f)
+		}
+		if strings.Contains(f.Text, leakVal) {
+			t.Errorf("badLines[%d] leaked secret into finding: %+v", i, f)
+		}
+	}
+	propsAfter, _ := brain.List(g, brain.ListFilter{Kind: "proposal", Project: root})
+	fbsAfter, _ := brain.List(g, brain.ListFilter{Kind: "feedback", Project: root})
+	memsAfter, _ := brain.List(brain.Options{Home: home, Dir: root}, brain.ListFilter{Kind: "memory"})
+	if len(propsAfter) != len(scopes) || len(fbsAfter) != 0 || len(memsAfter) != 0 {
+		t.Errorf("rejected drafts mutated stores: props=%d fbs=%d mems=%d", len(propsAfter), len(fbsAfter), len(memsAfter))
+	}
+}

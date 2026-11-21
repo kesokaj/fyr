@@ -230,3 +230,89 @@ func TestDroppedKindAndSampleHelpers(t *testing.T) {
 		t.Errorf("invalid short sample = %q", invalidShort)
 	}
 }
+
+func TestValidProposalAndSectionOptionalDigestMeta(t *testing.T) {
+	o := Options{Home: "/home/tester"}
+
+	t.Run("valid-optional-fields-accepted-and-rendered", func(t *testing.T) {
+		raw := proposal{
+			Title:             "Tighten grep skill",
+			Kind:              "rule",
+			Target:            "harness",
+			File:              "skills/fyr-auto/SKILL.md",
+			Text:              "Always use fyr search first.",
+			Evidence:          "daily_digest",
+			SignalID:          "sig:global:search_grep_low",
+			ReportDate:        "2026-11-20",
+			ActionScope:       "AUTO_SKILL",
+			RecommendedAction: "Update skills/fyr-auto/SKILL.md",
+		}
+		got, ok := o.validProposal(raw)
+		if !ok {
+			t.Fatalf("validProposal rejected valid proposal")
+		}
+		if got.SignalID != "sig:global:search_grep_low" || got.ReportDate != "2026-11-20" || got.ActionScope != "auto_skill" || got.RecommendedAction != "Update skills/fyr-auto/SKILL.md" {
+			t.Fatalf("validProposal = %+v", got)
+		}
+		sec := o.section(got)
+		for _, want := range []string{
+			"Target: harness   Kind: rule   File: skills/fyr-auto/SKILL.md\n",
+			"Signal: sig:global:search_grep_low\n",
+			"ReportDate: 2026-11-20\n",
+			"ActionScope: auto_skill\n",
+			"RecommendedAction: Update skills/fyr-auto/SKILL.md\n",
+			"\n    Always use fyr search first.\n\nEvidence: daily_digest\n",
+		} {
+			if !strings.Contains(sec, want) {
+				t.Errorf("section missing %q:\n%s", want, sec)
+			}
+		}
+	})
+
+	t.Run("invalid-optional-fields-ignored-safely", func(t *testing.T) {
+		raw := proposal{
+			Title:             "Keep safe",
+			Kind:              "rule",
+			Target:            "project",
+			File:              "AGENTS.md",
+			Text:              "Check status.",
+			Evidence:          "metrics",
+			SignalID:          "not-a-signal",
+			ReportDate:        "2026/11/20",
+			ActionScope:       "arbitrary_scope",
+			RecommendedAction: "first\n## Forged",
+		}
+		got, ok := o.validProposal(raw)
+		if !ok {
+			t.Fatalf("validProposal rejected proposal with invalid optional fields")
+		}
+		if got.SignalID != "" || got.ReportDate != "" || got.ActionScope != "" || got.RecommendedAction != "first ## Forged" {
+			t.Fatalf("invalid fields not sanitized: %+v", got)
+		}
+		sec := o.section(got)
+		for _, bad := range []string{"Signal:", "ReportDate:", "ActionScope:", "\n## Forged"} {
+			if strings.Contains(sec, bad) {
+				t.Errorf("section kept invalid %q:\n%s", bad, sec)
+			}
+		}
+	})
+
+	t.Run("omitted-optional-fields-preserve-legacy-output", func(t *testing.T) {
+		raw := proposal{
+			Title:    "Legacy shape",
+			Kind:     "rule",
+			Target:   "project",
+			File:     "AGENTS.md",
+			Text:     "Run go vet.",
+			Evidence: "seen twice",
+		}
+		got, ok := o.validProposal(raw)
+		if !ok {
+			t.Fatal("validProposal failed")
+		}
+		want := "Target: project   Kind: rule   File: AGENTS.md\n\n    Run go vet.\n\nEvidence: seen twice\n"
+		if sec := o.section(got); sec != want {
+			t.Errorf("legacy section = %q, want %q", sec, want)
+		}
+	})
+}

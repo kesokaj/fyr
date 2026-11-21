@@ -31,6 +31,16 @@ type proposalCandidate struct {
 }
 
 func (r *run) triggerHarnessEdit(root string) *Task {
+	for _, c := range r.collectHarnessCandidates(root, true) {
+		if t := preparedTask(ClassHarnessEdit, c.entries, c.rec.ID, len(c.entries)); t != nil {
+			t.SignalID, t.ReportDate = extractProposalAttribution(c.rec)
+			return t
+		}
+	}
+	return nil
+}
+
+func (r *run) collectHarnessCandidates(root string, expireStale bool) []proposalCandidate {
 	if !r.isHarnessCheckout(root) {
 		return nil
 	}
@@ -46,7 +56,9 @@ func (r *run) triggerHarnessEdit(root string) *Task {
 		}
 		entries := matchProposalTargets(rec, targets)
 		if len(entries) == 0 {
-			r.expireStaleProposal(root, rec)
+			if expireStale {
+				r.expireStaleProposal(root, rec)
+			}
 			continue
 		}
 		cands = append(cands, proposalCandidate{
@@ -56,12 +68,7 @@ func (r *run) triggerHarnessEdit(root string) *Task {
 		})
 	}
 	slices.SortFunc(cands, compareProposalCandidates)
-	for _, c := range cands {
-		if t := preparedTask(ClassHarnessEdit, c.entries, c.rec.ID, len(c.entries)); t != nil {
-			return t
-		}
-	}
-	return nil
+	return cands
 }
 
 func (r *run) expireStaleProposal(root string, rec brain.Record) {
@@ -111,7 +118,7 @@ func scoreProposalImpact(rec brain.Record, targets int) proposalImpact {
 				}
 			}
 		}
-		if strings.HasPrefix(low, "signal_id:") && strings.TrimSpace(line[len("signal_id:"):]) != "" {
+		if v, ok := recordFieldVal(line, "signal_id:", "signal:"); ok && v != "" {
 			signalLines++
 		}
 		for _, tok := range strings.FieldsFunc(line, isNonRecordRune) {
@@ -177,6 +184,9 @@ func hasProposalEvidence(body string) bool {
 		line := strings.TrimSpace(raw)
 		low := strings.ToLower(line)
 		if strings.HasPrefix(low, "evidence:") && strings.TrimSpace(line[len("evidence:"):]) != "" {
+			return true
+		}
+		if v, ok := recordFieldVal(line, "signal:", "signal_id:"); ok && isValidSignalID(v) {
 			return true
 		}
 		if strings.HasPrefix(low, "sessions:") {

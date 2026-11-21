@@ -59,6 +59,7 @@ type Project struct {
 	LastEvalCLI             string    `json:"last_eval_cli,omitempty"`
 	LastMiniAudit           time.Time `json:"last_mini_audit,omitempty"`
 	PendingMemoryCandidates int       `json:"pending_memory_candidates,omitempty"`
+	GoneSince               time.Time `json:"gone_since,omitempty"`
 	Verdict                 string    `json:"verdict"`
 	Mark                    Mark      `json:"mark"`
 }

@@ -155,7 +155,8 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	dropped = append(dropped, appendMemorySection(&body, "## Global memory records", g, realHome, memLimit)...)
 	dropped = append(dropped, r.writeProposalSection(&body, matching, memPropCap)...)
 	nums, diag, traj := r.redactedMetricsDiagnosticsAndTrajectory(root)
-	dropped = append(dropped, appendTelemetrySections(&body, nums, diag, traj, realHome, r.o.Home, nonConvCap)...)
+	dig := r.redactedDailyDigest()
+	dropped = append(dropped, appendTelemetrySectionsWithDigest(&body, nums, diag, dig, traj, realHome, r.o.Home, nonConvCap)...)
 	dropped = append(dropped, r.appendConversationSections(&body, root, p, t, cutoff, bodyCap)...)
 	leftOut := dream.FormatLeftOutHeader(dropped, func(s string) string {
 		return oneLine(scrubEntry(s, realHome, r.o.Home))

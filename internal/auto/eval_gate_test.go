@@ -11,6 +11,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 const testHarnessSuite = "# GUIDE-eval\n\n" +
@@ -612,6 +613,80 @@ func TestEvalGate(t *testing.T) {
 		staleRec := getGlobalProposal(t, home, staleID)
 		if staleRec.Status != "rejected" || !strings.Contains(staleRec.Body, "## Auto-rejected") {
 			t.Fatalf("stale proposal = %+v, want auto-rejected status=rejected", staleRec)
+		}
+	})
+
+	t.Run("records-digest-checkpoint-with-metrics-db-and-fail-opens-without", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, _, defaultID := initHarnessEvalGateFixture(t, home, realHome, "")
+		rejected := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: defaultID, Status: &rejected}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-2 * time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: root,
+			Title: "Dream, harness — fix knee via skills/alpha/SKILL.md",
+			Body:  strings.NewReader("Target: harness\nSignal: sig:proj-deadbeef:context_knee_rate\nReportDate: 2026-10-31\nEvidence: BUG-020\n\nUpdate `skills/alpha/SKILL.md`."),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		seedAutoKneeMetrics(t, home, root, runAt)
+		if err := ensureDir(home); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveState(home, State{
+			Date:     runAt.Format("2006-01-02"),
+			Projects: map[string]Project{root: {LastClass: ClassRetroLite}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, root, &out)
+		o.Work = makeCandidateBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+		o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+			return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, Errors: 0, RecordID: "TEST-gate"}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		appliedSHA := shortSHA(git(t, root, "rev-parse", "HEAD"))
+		s, err := metrics.Open(metrics.Path(home))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dig, derr := metrics.LatestDailyDigest(s)
+		s.Close()
+		if derr != nil || dig == nil || len(dig.Actions) == 0 {
+			t.Fatalf("LatestDailyDigest = %+v, err=%v", dig, derr)
+		}
+		var found *metrics.DigestAppliedAction
+		for i := range dig.Actions {
+			if dig.Actions[i].SignalID == "sig:proj-deadbeef:context_knee_rate" {
+				found = &dig.Actions[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Fatalf("missing recorded DigestAppliedAction for signal: %+v", dig.Actions)
+		}
+		if found.Status != metrics.StatusPendingData || found.AppliedSHA != appliedSHA || !found.InstallPending || found.RevertCmd != "git revert "+appliedSHA || found.ReportDate != "2026-10-31" {
+			t.Errorf("recorded DigestAppliedAction = %+v, want status=%s sha=%s install_pending=true revert='git revert %s' date=2026-10-31",
+				*found, metrics.StatusPendingData, appliedSHA, appliedSHA)
+		}
+		latestFile, rerr := metrics.ReadLatestDailyDigest(home)
+		if rerr != nil || latestFile == nil || len(latestFile.Actions) == 0 {
+			t.Errorf("ReadLatestDailyDigest = %+v, err=%v", latestFile, rerr)
+		}
+
+		// Fail-open when metrics.db is absent (already verified in keep-rule-applies-and-reports-install-pending;
+		// verify recordAppliedDigestCheckpoint directly does not create metrics.db).
+		noDBHome := t.TempDir()
+		rNoDB := &run{o: Options{Home: noDBHome, Now: func() time.Time { return runAt }}, appliedSHA: "abc1234"}
+		rNoDB.recordAppliedDigestCheckpoint(root, Task{Class: ClassHarnessEdit, SignalID: "sig:global:x", ReportDate: "2026-10-31"})
+		if _, err := os.Stat(metrics.Path(noDBHome)); !os.IsNotExist(err) {
+			t.Errorf("recordAppliedDigestCheckpoint created metrics.db when absent: err=%v", err)
 		}
 	})
 }

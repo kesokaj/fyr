@@ -11,6 +11,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/dream"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 func TestBuildLearningInputCapsOversizedProposalsAndPreservesTelemetry(t *testing.T) {
@@ -400,6 +401,80 @@ func TestBuildLearningInputLeftOutHeaderMatchesDream(t *testing.T) {
 		want := "Left out: 3 (telemetry 3): telemetry: metric numbers; telemetry: diagnostic signals; telemetry: trajectory digest"
 		if got != want {
 			t.Fatalf("telemetry Left out = %q, want %q", got, want)
+		}
+	})
+}
+
+func TestBuildLearningInputDailyDigestRedactionCapAndFailOpen(t *testing.T) {
+	t.Run("includes-redacted-digest-and-respects-cap", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := filepath.Join(t.TempDir(), "realhome-digest-path")
+		root := initGitRepo(t)
+		seedAutoKneeMetrics(t, home, root, runAt)
+
+		redactedVal := "gh" + "p_" + strings.Repeat("E", 36)
+		digest := metrics.DailyDigest{
+			Day:     "2026-11-01",
+			Verdict: metrics.VerdictRegress,
+			Signals: []metrics.DigestAction{{
+				SignalID:          "sig:global:search_grep_low",
+				Severity:          "high",
+				Rule:              "search_grep_low",
+				ActionScope:       "auto_skill",
+				RecommendedAction: "Fix item " + redactedVal,
+				Summary:           "Digest summary in " + realHome + "/skills and " + home + "/work",
+			}},
+		}
+		if err := metrics.WriteLatestDailyDigest(home, digest); err != nil {
+			t.Fatal(err)
+		}
+		// Also add oversized proposals so total output must still stay <= learningInputCap.
+		g := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt }}
+		for i := 0; i < 6; i++ {
+			if _, err := brain.Add(g, brain.AddInput{
+				Kind: "proposal", Status: "queued", Project: root,
+				Title: fmt.Sprintf("Prop %d", i), Body: strings.NewReader(strings.Repeat("z", 3000)),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		r := &run{o: Options{Home: home, RealHome: realHome, Now: func() time.Time { return runAt }}, cfg: Config{}}
+		got := r.buildLearningInput(root, &Project{}, Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true}, runAt)
+		if len(got) > learningInputCap {
+			t.Fatalf("len(got) = %d, want <= %d", len(got), learningInputCap)
+		}
+		if !strings.Contains(got, "## Daily digest\n") || !strings.Contains(got, "sig:global:search_grep_low") {
+			t.Fatalf("learning input missing Daily digest section:\n%s", got)
+		}
+		for _, leaked := range []string{"realhome-digest-path", home, redactedVal} {
+			if strings.Contains(got, leaked) {
+				t.Errorf("learning input leaked %q", leaked)
+			}
+		}
+		if !strings.Contains(got, "[redacted by fyr]") || !strings.Contains(got, "~/skills") {
+			t.Errorf("expected redacted marker and ~/skills in learning input:\n%s", got)
+		}
+	})
+
+	t.Run("missing-or-corrupt-digest-omits-cleanly", func(t *testing.T) {
+		for _, corrupt := range []bool{false, true} {
+			home := t.TempDir()
+			root := initGitRepo(t)
+			if corrupt {
+				p := metrics.LatestDailyDigestPath(home)
+				if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(p, []byte("{corrupt json"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return runAt }}, cfg: Config{}}
+			got := r.buildLearningInput(root, &Project{}, Task{Class: ClassRetroLite, Outcome: OutcomeDrafts, DraftsOnly: true}, runAt)
+			if strings.Contains(got, "## Daily digest") {
+				t.Errorf("corrupt=%v unexpectedly wrote Daily digest section:\n%s", corrupt, got)
+			}
 		}
 	})
 }

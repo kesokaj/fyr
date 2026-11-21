@@ -351,34 +351,60 @@ func TestAutoDailyReportAndDryRun(t *testing.T) {
 		t.Fatalf("dry-run modified hooks.json: %v %q", err, gotHooks)
 	}
 
-	// 2. Real sweep writes YYYY-MM-DD-daily-metrics.html (0600), records dream + auto background_runs, and leaves hooks.json untouched.
+	// 2. Real sweep writes YYYY-MM-DD-daily-metrics.html (0600) AND latest-daily-digest.json (0600),
+	// records dream + auto background_runs, and leaves hooks.json untouched.
 	out.Reset()
 	if err := run([]string{"auto", "run", "--home", home}, &out); err != nil {
 		t.Fatalf("first auto run: %v\n%s", err, out.String())
 	}
 	entries, err := os.ReadDir(reportsDir)
-	if err != nil || len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), "-daily-metrics.html") {
-		t.Fatalf("daily report entries = %v, err=%v", entries, err)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("daily report entries = %v, err=%v, want 2", entries, err)
 	}
-	dailyFile := filepath.Join(reportsDir, entries[0].Name())
+	var htmlName, digestName string
+	for _, e := range entries {
+		switch {
+		case strings.HasSuffix(e.Name(), "-daily-metrics.html"):
+			htmlName = e.Name()
+		case e.Name() == "latest-daily-digest.json":
+			digestName = e.Name()
+		}
+	}
+	if htmlName == "" || digestName == "" {
+		t.Fatalf("daily report entries = %v, want *-daily-metrics.html and latest-daily-digest.json", entries)
+	}
+	dailyFile := filepath.Join(reportsDir, htmlName)
 	fi, err := os.Stat(dailyFile)
 	if err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("daily report mode: err=%v mode=%v", err, fi.Mode().Perm())
+	}
+	digestFile := filepath.Join(reportsDir, digestName)
+	dfi, err := os.Stat(digestFile)
+	if err != nil || dfi.Mode().Perm() != 0o600 {
+		t.Fatalf("daily digest mode: err=%v mode=%v", err, dfi.Mode().Perm())
 	}
 	rawHTML, err := os.ReadFile(dailyFile)
 	if err != nil || !bytes.Contains(rawHTML, []byte("0. Scorecard")) || !bytes.Contains(rawHTML, []byte("Background Autonomy")) {
 		t.Fatalf("daily HTML missing Scorecard or Background Autonomy")
 	}
+	firstDigest, err := metrics.ReadLatestDailyDigest(home)
+	if err != nil || firstDigest == nil || firstDigest.Day == "" || firstDigest.Verdict == "" {
+		t.Fatalf("first latest-daily-digest.json = %+v, err=%v", firstDigest, err)
+	}
 
-	// Check background_runs recorded for both dream and auto.
+	// Check background_runs recorded for both dream and auto, and daily_digests DB row.
 	st, err := metrics.Open(metrics.Path(home))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bgRows, err := st.QueryBackgroundRuns(time.Time{}, time.Time{})
+	firstDBDigest, dbErr := metrics.LatestDailyDigest(st)
 	st.Close()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if dbErr != nil || firstDBDigest == nil || firstDBDigest.Day != firstDigest.Day {
+		t.Fatalf("first daily_digests row = %+v, err=%v", firstDBDigest, dbErr)
 	}
 	seenKind := map[string]int{}
 	for _, r := range bgRows {
@@ -388,9 +414,14 @@ func TestAutoDailyReportAndDryRun(t *testing.T) {
 		t.Errorf("background_runs kinds = %v, want dream>=1 and auto>=1", seenKind)
 	}
 
-	// 3. Second same-day run treats os.ErrExist on daily HTML as a quiet nil no-op.
+	// 3. Second same-day run preserves daily HTML sentinel untouched while refreshing
+	// the daily_digests DB row and reports/latest-daily-digest.json.
 	sentinel := []byte("<!-- keep first daily html -->")
 	if err := os.WriteFile(dailyFile, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staleDigest := []byte(`{"day":"1999-01-01","verdict":"stale"}`)
+	if err := os.WriteFile(digestFile, staleDigest, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
@@ -400,6 +431,19 @@ func TestAutoDailyReportAndDryRun(t *testing.T) {
 	afterSecond, err := os.ReadFile(dailyFile)
 	if err != nil || !bytes.Equal(afterSecond, sentinel) {
 		t.Fatalf("second run overwrote existing daily HTML: %q", afterSecond)
+	}
+	refreshedDigest, err := metrics.ReadLatestDailyDigest(home)
+	if err != nil || refreshedDigest == nil || refreshedDigest.Day != firstDigest.Day || refreshedDigest.CreatedAt < firstDigest.CreatedAt {
+		t.Fatalf("second run did not refresh latest-daily-digest.json: %+v (prev %+v), err=%v", refreshedDigest, firstDigest, err)
+	}
+	stCheck, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDBDigest, dbErr2 := metrics.LatestDailyDigest(stCheck)
+	stCheck.Close()
+	if dbErr2 != nil || secondDBDigest == nil || secondDBDigest.Day != firstDBDigest.Day || secondDBDigest.CreatedAt < firstDBDigest.CreatedAt {
+		t.Fatalf("second run did not refresh daily_digests DB row: %+v (prev %+v), err=%v", secondDBDigest, firstDBDigest, dbErr2)
 	}
 	if gotHooks, err := os.ReadFile(hooksPath); err != nil || string(gotHooks) != hooksOrig {
 		t.Fatalf("real run modified hooks.json: %v %q", err, gotHooks)

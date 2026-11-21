@@ -203,16 +203,18 @@ type run struct {
 	failed  bool
 	halted  bool // again stopped the run inside a project
 
-	usageRead        bool
-	usageText        string
-	usageErr         error
-	projectsChecked  int
-	workerRan        bool
-	projectWorkerRan bool
-	pendingReportID  string
-	appliedSHA       string
-	installPending   bool
-	sweepCache       *projectPassCache
+	usageRead         bool
+	usageText         string
+	usageErr          error
+	projectsChecked   int
+	workerRan         bool
+	projectWorkerRan  bool
+	pendingReportID   string
+	appliedSHA        string
+	appliedSignalID   string
+	appliedReportDate string
+	installPending    bool
+	sweepCache        *projectPassCache
 }
 
 func (r *run) context() context.Context {

@@ -19,13 +19,16 @@ type response struct {
 }
 
 type proposal struct {
-	Title    string `json:"title"`
-	Kind     string `json:"kind"`
-	Target   string `json:"target"`
-	File     string `json:"file"`
-	Text     string `json:"text"`
-	Evidence string `json:"evidence"`
-	SignalID string `json:"signal_id"`
+	Title             string `json:"title"`
+	Kind              string `json:"kind"`
+	Target            string `json:"target"`
+	File              string `json:"file"`
+	Text              string `json:"text"`
+	Evidence          string `json:"evidence"`
+	SignalID          string `json:"signal_id"`
+	ReportDate        string `json:"report_date"`
+	ActionScope       string `json:"action_scope"`
+	RecommendedAction string `json:"recommended_action"`
 }
 
 type draft struct {

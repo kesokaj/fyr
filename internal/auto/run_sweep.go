@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/dream"
@@ -43,11 +44,7 @@ func (r *run) sweep() {
 	if len(targets) == 0 {
 		r.say("no workspaces discovered")
 	}
-	for root := range r.st.Projects {
-		if !seen[root] {
-			delete(r.st.Projects, root)
-		}
-	}
+	r.pruneSweepProjects(seen)
 	if reached > 0 && !r.dry {
 		if !r.again("the machine's checks") {
 			return
@@ -75,12 +72,68 @@ func (r *run) project(root, skip string) bool {
 		verdict = short(r.health(root, &p, read))
 	}
 	r.say(short(root) + ": " + verdict)
-	p.LastRun, p.Verdict = r.o.now(), verdict
+	now := r.o.now()
+	p.LastRun, p.Verdict = now, verdict
+	if skip == "gone" {
+		if p.GoneSince.IsZero() {
+			p.GoneSince = now
+		}
+	} else {
+		p.GoneSince = time.Time{}
+	}
 	if r.st.Projects == nil {
 		r.st.Projects = map[string]Project{}
 	}
 	r.st.Projects[root] = p
 	return reached
+}
+
+const (
+	goneKeepAge = 7 * 24 * time.Hour
+	maxGoneKeep = 20
+)
+
+func (r *run) pruneSweepProjects(seen map[string]bool) {
+	for root := range r.st.Projects {
+		if !seen[root] {
+			delete(r.st.Projects, root)
+		}
+	}
+	pruneGoneProjects(r.st.Projects, r.o.now())
+}
+
+func pruneGoneProjects(projects map[string]Project, now time.Time) {
+	type goneEntry struct {
+		root string
+		at   time.Time
+	}
+	var kept []goneEntry
+	for root, p := range projects {
+		if p.Verdict != "skipped: gone" {
+			continue
+		}
+		goneAt := p.GoneSince
+		if goneAt.IsZero() {
+			goneAt = p.LastRun
+		}
+		if goneAt.IsZero() || now.Sub(goneAt) > goneKeepAge {
+			delete(projects, root)
+			continue
+		}
+		kept = append(kept, goneEntry{root: root, at: goneAt})
+	}
+	if len(kept) <= maxGoneKeep {
+		return
+	}
+	sort.Slice(kept, func(i, j int) bool {
+		if !kept[i].at.Equal(kept[j].at) {
+			return kept[i].at.After(kept[j].at)
+		}
+		return kept[i].root < kept[j].root
+	})
+	for _, g := range kept[maxGoneKeep:] {
+		delete(projects, g.root)
+	}
 }
 
 // readProject checks git readability and collects free findings only on

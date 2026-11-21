@@ -553,3 +553,112 @@ func TestWorkerCooldownAndForceOverride(t *testing.T) {
 		t.Fatalf("after 4h elapsed: workers=%d usage=%d out:\n%s", workerCalls, env.usageCalls, out.String())
 	}
 }
+
+func TestWorkerFourthSlotReservation(t *testing.T) {
+	t.Run("reserves-4th-slot-for-high-severity-auto-skill-harness-edit", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		harnessRoot, _, defaultID := initHarnessEvalGateFixture(t, home, realHome, "")
+		rejected := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: defaultID, Status: &rejected}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: harnessRoot,
+			Title: "Dream, harness — [high] tighten skills/alpha/SKILL.md",
+			Body:  strings.NewReader("Target: harness\nActionScope: auto_skill\nSignal: sig:global:search_grep_low\nReportDate: 2026-10-31\nEvidence: BUG-099\n\nUpdate `skills/alpha/SKILL.md`."),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		projRoot := idleDreamProject(t, home)
+		// Seed a stale conversation on harnessRoot and LastClass=ClassHarnessEdit so without
+		// 4th-slot prioritization, rotatedClasses would pick retro-lite instead of harness-edit.
+		convDir := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "conv-h", ".system_generated", "logs")
+		if err := os.MkdirAll(convDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		convFile := filepath.Join(convDir, "transcript.jsonl")
+		if err := os.WriteFile(convFile, []byte(`{"project":"`+harnessRoot+`"}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := runAt.Add(-3 * time.Hour)
+		_ = os.Chtimes(convFile, old, old)
+		if err := saveState(home, State{
+			Date:      runAt.Format("2006-01-02"),
+			ModelRuns: 3,
+			Projects:  map[string]Project{harnessRoot: {LastClass: ClassHarnessEdit}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+
+		var ranRoots []string
+		var ranKickoffs []string
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, harnessRoot, &out)
+		o.Env = &fakeEnv{targets: targetsOf(projRoot, harnessRoot), usage: usageText("90%", "90%")}
+		candWork := makeCandidateBranchWork(t, harnessRoot, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+		o.Work = func(ctx context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+			ranRoots = append(ranRoots, wo.Root)
+			b, _ := os.ReadFile(paths[0])
+			ranKickoffs = append(ranKickoffs, string(b))
+			return candWork(ctx, wo, paths...)
+		}
+		o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+			return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, Errors: 0, RecordID: "TEST-gate"}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		if len(ranRoots) != 1 || ranRoots[0] != harnessRoot {
+			t.Fatalf("ranRoots = %v, want only [%s]", ranRoots, harnessRoot)
+		}
+		if !strings.Contains(ranKickoffs[0], "Class: harness-edit") {
+			t.Errorf("harness kickoff did not prioritize harness-edit:\n%s", ranKickoffs[0])
+		}
+		if !strings.Contains(logOf(t, home), "worker deferred: 4th daily slot reserved for high-severity harness-edit") {
+			t.Errorf("missing deferral log for non-harness project:\n%s", logOf(t, home))
+		}
+		if st, _, err := loadState(home); err != nil || st.ModelRuns != 4 {
+			t.Errorf("ModelRuns = %d (%v), want 4", st.ModelRuns, err)
+		}
+	})
+
+	t.Run("normal-tasks-use-4th-slot-when-no-high-severity-auto-skill-queued", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		harnessRoot, _, _ := initHarnessEvalGateFixture(t, home, realHome, "")
+		// Queue a high-severity propose_only proposal — must NOT reserve the 4th slot.
+		if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: harnessRoot,
+			Title: "Dream, harness — [high] propose only skills/alpha/SKILL.md",
+			Body:  strings.NewReader("Target: harness\nActionScope: propose_only\nEvidence: BUG-100\n\nUpdate `skills/alpha/SKILL.md`."),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		projRoot := idleDreamProject(t, home)
+		if err := saveState(home, State{Date: runAt.Format("2006-01-02"), ModelRuns: 3}); err != nil {
+			t.Fatal(err)
+		}
+		var ranRoots []string
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, harnessRoot, &out)
+		o.Env = &fakeEnv{targets: targetsOf(projRoot, harnessRoot), usage: usageText("90%", "90%")}
+		o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+			ranRoots = append(ranRoots, wo.Root)
+			name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+			return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		if len(ranRoots) != 1 || ranRoots[0] != projRoot {
+			t.Fatalf("ranRoots = %v, want [%s]", ranRoots, projRoot)
+		}
+		if strings.Contains(logOf(t, home), "worker deferred:") {
+			t.Errorf("unexpected deferral without high-severity auto_skill proposal:\n%s", logOf(t, home))
+		}
+		if st, _, err := loadState(home); err != nil || st.ModelRuns != 4 {
+			t.Errorf("ModelRuns = %d (%v), want 4", st.ModelRuns, err)
+		}
+	})
+}

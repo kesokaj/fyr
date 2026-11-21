@@ -254,6 +254,68 @@ func TestApplyHappyPath(t *testing.T) {
 	_ = logFile
 }
 
+func TestApplyAttributionFlowCommitAndReport(t *testing.T) {
+	// Verify formatApplyCommitBody preserves default when empty and emits non-trailer prose when set.
+	if def := formatApplyCommitBody("REV-1", "HAND-1", Task{}); def != "Applied by fyr auto (report REV-1, handoff HAND-1).\nrevert: git revert HEAD" {
+		t.Errorf("default commit body changed: %q", def)
+	}
+	attrBody := formatApplyCommitBody("REV-1", "HAND-1", Task{SignalID: "sig:proj-1234abcd:search_grep_low", ReportDate: "2026-11-01"})
+	if !strings.Contains(attrBody, "Triggered by daily report 2026-11-01 (sig:proj-1234abcd:search_grep_low).") {
+		t.Errorf("missing attribution prose: %q", attrBody)
+	}
+
+	// Verify attribution flows end-to-end from queued proposal into squash commit body & REVIEW-* record.
+	home := t.TempDir()
+	realHome := t.TempDir()
+	root := applyFixture(t, home, defaultAgentsMD)
+	// Replace default queued proposal with an attributed harness proposal.
+	props, err := brain.List(brain.Options{Home: home, Global: true}, brain.ListFilter{Kind: "proposal", Open: true})
+	if err != nil || len(props) != 1 {
+		t.Fatalf("initial proposals = %+v, err=%v", props, err)
+	}
+	rejected := "rejected"
+	if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: props[0].ID, Status: &rejected}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-2 * time.Hour) }}, brain.AddInput{
+		Kind:    "proposal",
+		Status:  "queued",
+		Project: root,
+		Title:   "Auto, harness — tighten skills/greet/SKILL.md",
+		Body:    strings.NewReader("Target: harness\nSignal: sig:proj-deadbeef:search_grep_low\nReportDate: 2026-10-31\nEvidence: sess-1, sess-2\n\nUpdate `skills/greet/SKILL.md`.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Make GUIDE-eval match "greet" and holdout.
+	baseHead := git(t, root, "rev-parse", "HEAD")
+	writeConfig(t, home, harnessApplyConfig)
+
+	var out bytes.Buffer
+	o := applyOpts(home, root, &out)
+	o.RealHome = realHome
+	o.Work = fakePassWork(t, root, baseHead, "HANDOFF-2026-11-01-1205-attr", nil)
+	if err := Run(o, false); err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+
+	commitBody := git(t, root, "log", "-1", "--format=%B")
+	if !strings.Contains(commitBody, "Triggered by daily report 2026-10-31 (sig:proj-deadbeef:search_grep_low).") {
+		t.Errorf("commit body missing attribution prose:\n%s", commitBody)
+	}
+	if trailers := git(t, root, "log", "-1", "--format=%(trailers)"); strings.TrimSpace(trailers) != "" {
+		t.Errorf("commit body created git trailers: %q", trailers)
+	}
+	reps := reports(t, home)
+	if len(reps) != 1 {
+		t.Fatalf("expected 1 review report, got %+v", reps)
+	}
+	for _, want := range []string{"signal_id: sig:proj-deadbeef:search_grep_low", "report_date: 2026-10-31", "install pending"} {
+		if !strings.Contains(reps[0].Body, want) {
+			t.Errorf("REVIEW report missing %q:\n%s", want, reps[0].Body)
+		}
+	}
+}
+
 func TestApplyRedMarkedTestKeepsBranch(t *testing.T) {
 	t.Run("marked-test-fails", func(t *testing.T) {
 		home := t.TempDir()

@@ -103,3 +103,54 @@ func assertAutoDiagnosticDedupAndBgRun(t *testing.T, home, root string, now time
 		t.Fatalf("real Run err=%v bgRows=%+v\n%s", err, bgRows, out.String())
 	}
 }
+
+func TestProjectSummaryUses7dRollingWindowAndPopulatesDeltas(t *testing.T) {
+	home := t.TempDir()
+	root := idleProject(t)
+	now := runAt
+	s, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	db, err := sql.Open("sqlite", metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	insertSess := func(sid string, at time.Time) {
+		ts := at.UnixMilli()
+		if _, err := db.Exec(`INSERT INTO sessions(id, vendor, project_root, started_at, ended_at) VALUES (?, 'agy', ?, ?, ?)`, sid, root, ts, ts+500); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO steps(session_id, ext_id, ts, kind, context) VALUES (?, '1', ?, 'model', 1000)`, sid, ts+10); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 1 session in current 7d, 2 in prior 7d (-14d..-7d), and 1 outside both (-20d).
+	insertSess("cur-1", now.Add(-24*time.Hour))
+	insertSess("prev-1", now.AddDate(0, 0, -9))
+	insertSess("prev-2", now.AddDate(0, 0, -11))
+	insertSess("old-1", now.AddDate(0, 0, -20))
+
+	r := &run{o: Options{Home: home, RealHome: home, Now: func() time.Time { return now }}, cfg: Config{}}
+	sum := r.projectSummary(root)
+	if sum == nil {
+		t.Fatal("projectSummary returned nil")
+	}
+	wantSince := now.AddDate(0, 0, -7).UTC().Format("2006-01-02")
+	wantUntil := now.UTC().Format("2006-01-02")
+	if sum.Window["since"] != wantSince || sum.Window["until"] != wantUntil {
+		t.Errorf("sum.Window = %v, want since=%s until=%s (7d window)", sum.Window, wantSince, wantUntil)
+	}
+	if sum.Sessions["agy"] != 1 {
+		t.Errorf("current 7d agy sessions = %d, want 1", sum.Sessions["agy"])
+	}
+	if sum.Deltas == nil || sum.Deltas.PreviousSessions != 2 {
+		t.Fatalf("sum.Deltas = %+v, want PreviousSessions=2", sum.Deltas)
+	}
+	if sum.Deltas.Sessions == nil || sum.Deltas.Sessions.Current != 1 || sum.Deltas.Sessions.Previous != 2 || sum.Deltas.Sessions.Delta != -1 {
+		t.Errorf("sum.Deltas.Sessions = %+v, want cur=1 prev=2 delta=-1", sum.Deltas.Sessions)
+	}
+}

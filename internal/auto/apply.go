@@ -143,6 +143,7 @@ func (r *run) applyWithHook(root string, t Task, k Kickoff, runnerWhy string) (s
 			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 		}
 		r.appliedSHA = "applied-mock"
+		r.appliedSignalID, r.appliedReportDate = t.SignalID, t.ReportDate
 		msg := withRunner(fmt.Sprintf("PASS; applied, branch %s deleted", k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
@@ -192,6 +193,7 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 		return r.applyFail(runnerWhy, k.Branch, "merge --ff-only: "+err.Error())
 	}
 	r.appliedSHA = shortSHA(squashSHA)
+	r.appliedSignalID, r.appliedReportDate = t.SignalID, t.ReportDate
 	if err := deleteBranch(root, k.Branch); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, "branch delete: "+err.Error())
 	}
@@ -211,12 +213,20 @@ func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res isolat
 		handoffID = res.Handoff.ID
 	}
 	subject := fmt.Sprintf("auto: %s — %s", t.Class, commitOneLine(t, res))
-	body := fmt.Sprintf("Applied by fyr auto (report %s, handoff %s).\nrevert: git revert HEAD", reportID, handoffID)
+	body := formatApplyCommitBody(reportID, handoffID, t)
 	env := []string{"GIT_AUTHOR_NAME=" + userName, "GIT_AUTHOR_EMAIL=" + userEmail, "GIT_COMMITTER_NAME=" + userName, "GIT_COMMITTER_EMAIL=" + userEmail}
 	if _, err := applyGit(wtDir, env, "commit", "-m", subject, "-m", body); err != nil {
 		return "", fmt.Errorf("commit: %w", err)
 	}
 	return applyGit(wtDir, nil, "rev-parse", "--verify", "HEAD")
+}
+
+func formatApplyCommitBody(reportID, handoffID string, t Task) string {
+	body := fmt.Sprintf("Applied by fyr auto (report %s, handoff %s).", reportID, handoffID)
+	if attr := formatTriggerProse(t.SignalID, t.ReportDate); attr != "" {
+		body += "\n" + attr
+	}
+	return body + "\nrevert: git revert HEAD"
 }
 
 func gitConfigValue(root, key string) string {
