@@ -112,7 +112,7 @@ func (o Options) sweepIdle() {
 // prepareAgy checks the CLI and makes the empty working directory; each
 // project's HOME is its branch's (branchFor).
 func (r *dreamRun) prepareAgy() error {
-	r.argv = command()
+	r.argv = commandWithModel(r.o.resolveModel())
 	if err := checkAgy(); err != nil {
 		return err
 	}

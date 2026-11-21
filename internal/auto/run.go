@@ -269,6 +269,28 @@ func (r *run) usage() (string, error) {
 // budget is G9: `/usage` is read only for a project past G8, so the free gates
 // spend no call.
 func (r *run) budget() (string, bool) {
+	runs := r.st.modelRunsToday(r.o.now())
+	if runs >= modelRunsPerDay {
+		return gateBudget(runs, "", nil)
+	}
+	if !r.workerRan {
+		if cd := r.cooldownStop(); cd != "" {
+			return cd, true
+		}
+	}
 	text, err := r.usage()
-	return gateBudget(r.st.modelRunsToday(r.o.now()), text, err)
+	return gateBudget(runs, text, err)
+}
+
+func (r *run) cooldownStop() string {
+	if r.o.Force || r.st.LastModelRun.IsZero() {
+		return ""
+	}
+	elapsed := r.o.now().Sub(r.st.LastModelRun)
+	if elapsed >= modelRunCooldown {
+		return ""
+	}
+	shown := max(time.Duration(0), elapsed).Round(time.Minute)
+	rem := max(time.Minute, (modelRunCooldown - max(time.Duration(0), elapsed)).Round(time.Minute))
+	return fmt.Sprintf("G9 cooldown: last model run %s ago (%s remaining of 4h cooldown; pass --force to override)", shown, rem)
 }

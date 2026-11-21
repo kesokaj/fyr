@@ -19,6 +19,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/metrics"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -29,6 +30,7 @@ const maxPrompt = 256 * 1024
 // Options is one run.
 type Options struct {
 	Home       string // fyr's home (--home); the child CLI keeps the real environment
+	Model      string // optional --model ID; empty picks mechanical/flash from models.json when present
 	All        bool
 	Project    string // --project <dir>
 	DryRun     bool
@@ -262,6 +264,33 @@ func (o Options) since(st state, root string) time.Time {
 // argument at 128 KiB, and argv is readable in /proc).
 func command() []string {
 	return []string{"agy", "--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "-p", ""}
+}
+
+func commandWithModel(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return command()
+	}
+	base := command()
+	out := make([]string, 0, len(base)+2)
+	out = append(out, base[:len(base)-2]...)
+	out = append(out, "--model", model)
+	return append(out, base[len(base)-2:]...)
+}
+
+func (o Options) resolveModel() string {
+	if m := strings.TrimSpace(o.Model); m != "" {
+		return m
+	}
+	cat, ok, err := models.LoadCatalog(o.Home)
+	if err != nil || !ok {
+		return ""
+	}
+	pick, err := models.PickFromCatalog(cat, "mechanical", "flash")
+	if err != nil {
+		return ""
+	}
+	return pick.Model
 }
 
 // ExitError is a run's exit status: 1 when a project failed, 2 when the run

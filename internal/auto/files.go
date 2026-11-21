@@ -20,7 +20,8 @@ import (
 const (
 	// modelRunsPerDay is the budget's day limit (D1, row 7): a constant, not a
 	// setting.
-	modelRunsPerDay = 4
+	modelRunsPerDay  = 4
+	modelRunCooldown = 4 * time.Hour
 	// stateLimit bounds runs.json; logLimit bounds the prune's read.
 	stateLimit = 1 << 20
 	logLimit   = 16 << 20
@@ -29,14 +30,15 @@ const (
 
 // State is runs.json. Only a run holding the lock writes it.
 type State struct {
-	Date      string             `json:"date"`
-	ModelRuns int                `json:"model_runs"`
-	LastRun   time.Time          `json:"last_run"`
-	Verdict   string             `json:"verdict"`
-	OpenAsks  int                `json:"open_asks"`
-	Budget    string             `json:"budget,omitempty"` // the last `/usage` reading's line
-	Machine   Mark               `json:"machine"`
-	Projects  map[string]Project `json:"projects,omitempty"`
+	Date         string             `json:"date"`
+	ModelRuns    int                `json:"model_runs"`
+	LastModelRun time.Time          `json:"last_model_run,omitempty"`
+	LastRun      time.Time          `json:"last_run"`
+	Verdict      string             `json:"verdict"`
+	OpenAsks     int                `json:"open_asks"`
+	Budget       string             `json:"budget,omitempty"` // the last `/usage` reading's line
+	Machine      Mark               `json:"machine"`
+	Projects     map[string]Project `json:"projects,omitempty"`
 }
 
 // Mark is the last report of one scope: an unchanged set of findings writes no

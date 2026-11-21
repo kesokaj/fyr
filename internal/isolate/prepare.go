@@ -99,6 +99,28 @@ func (b *Box) Clone(ctx context.Context) bool {
 	return b.cloneApp(ctx) && b.openSandbox()
 }
 
+// ScratchApp prepares an isolated empty workspace in b.app (with
+// .agents/scratch/agents/ ready for auto-drafts.jsonl) without cloning a git
+// checkout, then opens the sandbox home.
+func (b *Box) ScratchApp() bool {
+	if err := os.MkdirAll(filepath.Join(b.app, ".agents", "scratch", "agents"), 0o700); err != nil {
+		b.Note("%v", err)
+		b.Fail(ReasonSetup)
+		return false
+	}
+	if err := checkRoots(b.c.RealHome, b.c.Repo, b.app, b.sb); err != nil {
+		b.Note("%v", err)
+		b.Fail(ReasonSetup)
+		return false
+	}
+	if err := outsideCheckout(b.dir); err != nil {
+		b.Note("%v (BUG-106)", err)
+		b.Fail(ReasonSetup)
+		return false
+	}
+	return b.openSandbox()
+}
+
 func (b *Box) cloneApp(ctx context.Context) bool {
 	// Step 2: the clone, its own toplevel, outside every checkout.
 	// The clone stays a plain git call: it has no -C root for trail.Command

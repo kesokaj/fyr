@@ -123,6 +123,7 @@ var verbs = map[string]verb{
 		c.fs.StringVar(&c.autoUserIdle, "user-idle", "", "on: deprecated no-op `D` (use --conversation-idle)")
 		c.fs.IntVar(&c.autoLines, "lines", 0, "log: print the last `N` lines of auto.log (default 50)")
 		c.fs.BoolVar(&c.autoAll, "all", false, "log: print every line of auto.log")
+		c.fs.BoolVar(&c.force, "force", false, "run: bypass the 4h model-run cooldown")
 		c.dryRunFlag()
 	}, positional: true, readsRepo: true},
 	"metrics": {flags: func(c *ctx) {

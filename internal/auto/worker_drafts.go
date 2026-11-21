@@ -14,6 +14,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 // collectAutoDrafts copies auto-drafts.jsonl from the worker's DraftsDir into
@@ -23,13 +24,15 @@ func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResu
 	if res.Drafts == 0 || res.DraftsDir == "" {
 		return nil, nil
 	}
-	rel := filepath.Join(filepath.FromSlash(res.DraftsDir), "auto-drafts.jsonl")
-	lead, err := os.OpenRoot(root)
+	baseRoot, rel, ok, err := resolveDraftsLocation(r.o.Home, root, res.DraftsDir)
 	if err != nil {
 		return nil, err
 	}
-	defer lead.Close()
-	f, err := lead.OpenFile(rel, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if !ok {
+		return nil, nil
+	}
+	defer baseRoot.Close()
+	f, err := baseRoot.OpenFile(filepath.Join(rel, "auto-drafts.jsonl"), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -51,10 +54,62 @@ func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResu
 	return r.processDraftLines(root, class, data), nil
 }
 
+func resolveDraftsLocation(home, root, draftsDir string) (*os.Root, string, bool, error) {
+	if filepath.IsAbs(draftsDir) {
+		sbRoot := isolate.Root(home, "sandbox")
+		rel, err := filepath.Rel(sbRoot, filepath.Clean(draftsDir))
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, "", false, fmt.Errorf("drafts dir %s outside sandbox root", draftsDir)
+		}
+		r, err := os.OpenRoot(sbRoot)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, "", false, nil
+		}
+		if err != nil {
+			return nil, "", false, err
+		}
+		return r, rel, true, nil
+	}
+	if root == "" || root == search.GlobalWorkspace {
+		return nil, "", false, nil
+	}
+	lead, err := os.OpenRoot(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, "", false, nil
+	}
+	if err != nil {
+		return nil, "", false, err
+	}
+	return lead, filepath.Clean(filepath.FromSlash(draftsDir)), true, nil
+}
+
+func (r *run) cleanWorkerDrafts(root, draftsDir string) {
+	if draftsDir == "" {
+		return
+	}
+	if filepath.IsAbs(draftsDir) {
+		sbRoot := isolate.Root(r.o.Home, "sandbox")
+		rel, err := filepath.Rel(sbRoot, filepath.Clean(draftsDir))
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return
+		}
+		if sr, err := os.OpenRoot(sbRoot); err == nil {
+			_ = sr.Remove(filepath.Join(rel, "auto-drafts.jsonl"))
+			for _, d := range []string{rel, filepath.Dir(rel), "drafts"} {
+				_ = sr.Remove(d)
+			}
+			sr.Close()
+		}
+		_ = os.Remove(sbRoot)
+		return
+	}
+	cleanProjectDrafts(root, draftsDir)
+}
+
 // cleanProjectDrafts removes the .agents/scratch/work/<stamp>/<name> directory
 // work.Run created in root, and empty parents up to .agents/scratch/work.
 func cleanProjectDrafts(root, draftsDir string) {
-	if draftsDir == "" {
+	if draftsDir == "" || root == "" || root == search.GlobalWorkspace {
 		return
 	}
 	lead, err := os.OpenRoot(root)

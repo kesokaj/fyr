@@ -2,13 +2,17 @@ package auto
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -32,7 +36,11 @@ func (o Options) holdoutFile() string {
 	if o.HoldoutFile != "" {
 		return o.HoldoutFile
 	}
-	return filepath.Join(o.realHome(), "sandbox", "fyr-auto", "holdout.md")
+	base := o.Home
+	if base == "" {
+		base = o.realHome()
+	}
+	return filepath.Join(base, "sandbox", "fyr-auto", "holdout.md")
 }
 
 func (r *run) isHarnessCheckout(root string) bool {
@@ -54,11 +62,82 @@ func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
-	rows, err := collectGateRows(r.o.Home, root, r.o.holdoutFile(), changed, t.Class)
+	holdoutPath := r.o.holdoutFile()
+	seeded, err := ensureHoldoutSuite(r.o.Home, root, holdoutPath)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), nil)
 	}
-	return r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, candSHA, rows)
+	var seedFindings []Finding
+	if seeded {
+		seedFindings = []Finding{{
+			Check: "eval-gate",
+			Rule:  "holdout-seeded",
+			Where: holdoutPath,
+			Text:  "seeded missing holdout suite from .agents/eval/holdout-starter.md",
+		}}
+	}
+	rows, err := collectGateRows(r.o.Home, root, holdoutPath, changed, t.Class)
+	if err != nil {
+		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), seedFindings)
+	}
+	v, fs := r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, candSHA, rows)
+	return v, append(seedFindings, fs...)
+}
+
+func ensureHoldoutSuite(home, root, holdoutPath string) (bool, error) {
+	if st, err := os.Lstat(holdoutPath); err == nil {
+		if st.Mode()&os.ModeSymlink != 0 || st.IsDir() {
+			return false, fmt.Errorf("holdout suite %s: invalid file type", holdoutPath)
+		}
+		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	if root == "" {
+		return false, nil
+	}
+	starter := filepath.Join(root, ".agents", "eval", "holdout-starter.md")
+	sst, serr := os.Lstat(starter)
+	if errors.Is(serr, fs.ErrNotExist) {
+		return false, nil
+	}
+	if serr != nil {
+		return false, serr
+	}
+	if sst.Mode()&os.ModeSymlink != 0 || !sst.Mode().IsRegular() {
+		return false, fmt.Errorf("holdout starter %s: symlink or non-regular refused", starter)
+	}
+	if err := ensureSafeHoldoutParent(home, filepath.Dir(holdoutPath)); err != nil {
+		return false, err
+	}
+	data, err := readBounded(starter, 1<<20)
+	if err != nil {
+		return false, err
+	}
+	if err := harness.WriteAtomic(holdoutPath, data, 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ensureSafeHoldoutParent(home, targetDir string) error {
+	if home != "" {
+		cleanHome := filepath.Clean(home)
+		if rel, err := filepath.Rel(cleanHome, filepath.Clean(targetDir)); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			cur := cleanHome
+			for _, part := range strings.Split(rel, string(filepath.Separator)) {
+				cur = filepath.Join(cur, part)
+				if st, err := os.Lstat(cur); err == nil {
+					if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+						return fmt.Errorf("holdout dir %s: symlink or non-directory refused", cur)
+					}
+				} else if !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+			}
+		}
+	}
+	return os.MkdirAll(targetDir, 0o700)
 }
 
 func changedHarnessTargets(root, base, ref string) ([]string, error) {

@@ -3,8 +3,12 @@ package dream
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+const minTranscriptChunkRoom = 512
 
 // datedKinds are the kinds that carry news. Over the cap they are dropped
 // together, newest first, and two inputs of the same time in this order
@@ -137,6 +141,9 @@ func (f *fitter) dropDated(i, how int) {
 	in := f.c.Inputs[i]
 	switch how {
 	case tooBig:
+		if f.chunkOversized(i) {
+			return
+		}
 		f.drop(i, fmt.Sprintf("too big for the %d KB cap beside memory and skills", f.limit/1024))
 	case oldestLeft:
 		f.drop(i, fmt.Sprintf("dropped to fit the %d KB cap; not sent again", f.limit/1024))
@@ -192,4 +199,127 @@ func watermark(c Collected, t0 time.Time) time.Time {
 		return c.Through
 	}
 	return t0
+}
+
+// chunkOversized compacts an oversized transcript into bounded Head +
+// Decision/Outcome + Tail windows inside f.room, returning false only when
+// f.room cannot hold even a minimal window.
+func (f *fitter) chunkOversized(i int) bool {
+	in := f.c.Inputs[i]
+	if in.Kind != kindTranscript || f.room < minTranscriptChunkRoom {
+		return false
+	}
+	avail := f.room - len(leftOut(f.c.Dropped))
+	wrap := len(block(Input{Kind: in.Kind, Label: in.Label, Time: in.Time}))
+	budget := avail - wrap - 32
+	if avail < minTranscriptChunkRoom || budget < 256 {
+		return false
+	}
+	cand := in
+	cand.Text = chunkTranscriptWindows(in.Text, budget)
+	newSize := len(block(cand))
+	if newSize > avail {
+		shrunk := budget - (newSize - avail) - 32
+		if shrunk < 128 {
+			return false
+		}
+		cand.Text = chunkTranscriptWindows(in.Text, shrunk)
+		newSize = len(block(cand))
+	}
+	if newSize > avail || newSize > f.room || newSize >= f.sizes[i] {
+		return false
+	}
+	f.c.Inputs[i] = cand
+	f.size += newSize - f.sizes[i]
+	f.sizes[i] = newSize
+	return true
+}
+
+func chunkTranscriptWindows(raw string, budget int) string {
+	raw = strings.TrimRight(raw, "\n")
+	if len(raw) <= budget {
+		return raw
+	}
+	markerReserve := 96
+	usable := max(96, budget-markerReserve)
+	headLen := usable * 35 / 100
+	midLen := usable * 30 / 100
+	tailLen := usable - headLen - midLen
+	headPart := sliceUTF8Prefix(raw, headLen)
+	tailPart := sliceUTF8Suffix(raw, tailLen)
+	midRegion := ""
+	if len(headPart)+len(tailPart) < len(raw) {
+		midRegion = raw[len(headPart) : len(raw)-len(tailPart)]
+	}
+	midPart := extractDecisionWindow(midRegion, midLen)
+	kept := len(headPart) + len(midPart) + len(tailPart)
+	dropped := max(1, len(raw)-kept)
+	if midPart == "" {
+		return fmt.Sprintf("%s\n[... truncated %d bytes ...]\n%s", headPart, dropped, tailPart)
+	}
+	d1 := dropped / 2
+	d2 := dropped - d1
+	return fmt.Sprintf("%s\n[... truncated %d bytes ...]\n%s\n[... truncated %d bytes ...]\n%s", headPart, d1, midPart, d2, tailPart)
+}
+
+func extractDecisionWindow(region string, budget int) string {
+	if budget <= 0 || strings.TrimSpace(region) == "" {
+		return ""
+	}
+	var picked []string
+	used := 0
+	for _, line := range strings.Split(region, "\n") {
+		low := strings.ToLower(line)
+		if strings.Contains(low, "decision") || strings.Contains(low, "outcome") ||
+			strings.Contains(low, "error") || strings.Contains(low, "commit") ||
+			strings.Contains(low, "adr-") || strings.Contains(low, "plan-") ||
+			strings.Contains(low, "resolved") || strings.Contains(low, "verdict") {
+			part := sliceUTF8Prefix(strings.TrimSpace(line), min(160, budget-used))
+			if part != "" {
+				picked = append(picked, part)
+				used += len(part) + 1
+				if used >= budget {
+					break
+				}
+			}
+		}
+	}
+	if len(picked) > 0 {
+		return sliceUTF8Prefix(strings.Join(picked, "\n"), budget)
+	}
+	start := len(region)/2 - budget/2
+	if start < 0 {
+		start = 0
+	}
+	for start < len(region) && !utf8.RuneStart(region[start]) {
+		start++
+	}
+	return sliceUTF8Prefix(region[start:], budget)
+}
+
+func sliceUTF8Prefix(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+func sliceUTF8Suffix(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }

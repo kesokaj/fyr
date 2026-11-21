@@ -26,8 +26,8 @@ func TestTasksKickoffTemplates(t *testing.T) {
 		wantSubstr string
 	}{
 		{ClassMemoryConsolidation, nil, "", 12, "Files:\n", "12 memory record(s)"},
-		{ClassRetroLite, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
-		{ClassMemoryCandidates, nil, "", 3, "Files:\n", "3 redacted conversation(s) under .agents/scratch/auto-input/"},
+		{ClassRetroLite, nil, "", 3, "Files:\n", "3 redacted conversation(s) using ONLY the redacted learning input and SessionDigest"},
+		{ClassMemoryCandidates, nil, "", 3, "Files:\n", "3 redacted conversation(s) using ONLY the redacted learning input and SessionDigest"},
 		{ClassDistill, []string{".agents/skills/auto-distilled/"}, "", 4, "Files: .agents/skills/auto-distilled/\n", "4 sessions"},
 		{ClassMissingSkill, nil, "PROPOSAL-2026-11-01-1000-missing-skill", 1, "Files:\n", "skills.sh"},
 		{ClassHarnessEdit, []string{"skills/foo/"}, "PROPOSAL-2026-11-01-1000-harness", 1, "Files: skills/foo/\n", "Apply the queued harness proposal"},
@@ -512,5 +512,41 @@ func TestProjectPassCacheSharesAndCleans(t *testing.T) {
 	r.finishPassMetrics()
 	if tmps, _ := filepath.Glob(filepath.Join(filepath.Dir(metrics.Path(home)), "auto-metrics-*")); len(tmps) != 0 {
 		t.Fatalf("tempdirs left = %v", tmps)
+	}
+}
+
+func TestTasksSelfReferentialLogFilterAndGlobalMemories(t *testing.T) {
+	home := t.TempDir()
+	realHome := t.TempDir()
+	root := t.TempDir()
+	brainDir := filepath.Join(realHome, ".gemini", "antigravity-cli", "brain")
+	writeConv := func(id, body string) {
+		p := filepath.Join(brainDir, id, ".system_generated", "logs", "transcript.jsonl")
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ts := runAt.Add(-2 * time.Hour)
+		_ = os.Chtimes(p, ts, ts)
+	}
+	writeConv("conv-keep", `{"content":"`+root+` normal session conversation"}`)
+	writeConv("conv-dream", `{"content":"`+root+` dreaming: skip me"}`)
+	writeConv("conv-auto", `{"content":"`+root+` This is a Kickoff written by fyr auto."}`)
+	writeConv("conv-capsule", `{"content":"`+root+` [FYR_WORKER_CAPSULE]"}`)
+	writeConv("conv-dreamer", `{"content":"`+root+` You are the dreamer of a coding-agent harness"}`)
+
+	g := brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt }}
+	if _, err := brain.Add(g, brain.AddInput{Kind: "memory", Status: "closed", Title: "global mem", Body: strings.NewReader("fact")}); err != nil {
+		t.Fatal(err)
+	}
+	r := &run{o: Options{Home: home, RealHome: realHome, Now: func() time.Time { return runAt }}}
+	convs := r.conversationsSince(root, time.Time{})
+	if len(convs) != 1 || convs[0].label != "conv-keep" {
+		t.Fatalf("conversationsSince got %+v, want only conv-keep", convs)
+	}
+	if n := r.countMemoriesSince("__global__", time.Time{}); n != 1 {
+		t.Fatalf("countMemoriesSince(__global__) = %d, want 1", n)
 	}
 }

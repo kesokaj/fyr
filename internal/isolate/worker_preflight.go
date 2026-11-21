@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func initWorkerOptions(o *WorkerOptions, files []string) error {
 		return errors.New("no Kickoff file")
 	}
 	for _, p := range []*string{&o.Root, &o.Home, &o.RealHome} {
-		if *p == "" {
+		if *p == "" || (p == &o.Root && o.DraftsOnly && *p == globalWorkspace) {
 			continue
 		}
 		abs, err := filepath.Abs(*p)
@@ -46,11 +47,16 @@ func preflightWorker(ctx context.Context, o *WorkerOptions, files []string) ([]p
 	if err := checkWorkerRoots(*o); err != nil {
 		return nil, err
 	}
-	ks, err := parseAllKickoffs(files, o.Auto)
+	ks, err := parseAllKickoffs(files, o.Auto || o.DraftsOnly)
 	if err != nil {
 		return nil, err
 	}
-	if err := branchesFree(o.Root, ks); err != nil {
+	if o.DraftsOnly {
+		err = kickoffNamesUnique(ks)
+	} else {
+		err = branchesFree(o.Root, ks)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if err := disjoint(ks); err != nil {
@@ -78,6 +84,9 @@ func preflightSessionState(ctx context.Context, o *WorkerOptions, ks []Kickoff) 
 	z, err := runZone(o.Runner)
 	if err != nil {
 		return "", zone{}, nil, err
+	}
+	if o.DraftsOnly {
+		return "", z, nil, nil
 	}
 	base, err := headCommit(o.Root)
 	if err != nil {
@@ -123,13 +132,30 @@ func buildPrepared(ctx context.Context, o *WorkerOptions, ks []Kickoff, base str
 }
 
 func checkWorkerRoots(o WorkerOptions) error {
-	if err := leadClean(o.Root); err != nil {
+	if o.DraftsOnly {
+		if o.Root != "" && o.Root != globalWorkspace {
+			if st, err := os.Stat(o.Root); err != nil || !st.IsDir() {
+				return fmt.Errorf("%s is not a directory", o.Root)
+			}
+		}
+	} else if err := leadClean(o.Root); err != nil {
 		return err
 	}
 	if err := CheckRoot(o.RealHome, o.Repo, SandboxRoot(o.Home, o.Root)); err != nil {
 		return err
 	}
 	return CheckWorkDir(o.Home)
+}
+
+func kickoffNamesUnique(ks []Kickoff) error {
+	seen := map[string]string{}
+	for _, k := range ks {
+		if prev, ok := seen[k.Name]; ok {
+			return fmt.Errorf("the Kickoffs %s and %s share the name %s", prev, k.Path, k.Name)
+		}
+		seen[k.Name] = k.Path
+	}
+	return nil
 }
 
 func leadClean(root string) error {

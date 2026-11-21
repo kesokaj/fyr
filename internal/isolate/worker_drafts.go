@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"syscall"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 // The drafts copy's caps (D21).
@@ -65,7 +68,7 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 	var dest *os.Root
 	var skipped []string
 	for _, e := range entries {
-		if !draftName.MatchString(e.Name()) && !(w.o.Auto && e.Name() == autoDraftsName) {
+		if !draftName.MatchString(e.Name()) && !((w.o.Auto || w.o.DraftsOnly) && e.Name() == autoDraftsName) {
 			skipped = append(skipped, e.Name())
 			continue
 		}
@@ -86,7 +89,7 @@ func (w *worker) copyDrafts(dir *os.Root, entries []os.DirEntry) bool {
 			return false
 		}
 		w.res.Drafts++
-		w.res.DraftsDir = filepath.ToSlash(filepath.Join(".agents", "scratch", "work", w.stamp, w.p.k.Name)) + "/"
+		w.res.DraftsDir = w.draftsResultDir()
 	}
 	if len(skipped) > 0 {
 		w.b.Note("drafts not copied (a name not matching %s, not a regular file of one link, over 1 MiB, or past %d): %s", draftName, maxDrafts, named(skipped))
@@ -174,9 +177,58 @@ func writeDraft(dest *os.Root, name string, data []byte) error {
 	return f.Close()
 }
 
+func (w *worker) draftsResultDir() string {
+	if w.o.DraftsOnly {
+		return filepath.Join(Root(w.o.Home, "sandbox"), "drafts", w.stamp, w.p.k.Name)
+	}
+	return filepath.ToSlash(filepath.Join(".agents", "scratch", "work", w.stamp, w.p.k.Name)) + "/"
+}
+
+func sandboxDraftsDest(home, stamp, name string) (*os.Root, error) {
+	hr, err := os.OpenRoot(home)
+	if err != nil {
+		return nil, err
+	}
+	defer hr.Close()
+	parts := append(strings.Split(filepath.ToSlash(harness.StateDir), "/"), "sandbox", "drafts", stamp, name)
+	var cur string
+	for idx, seg := range parts {
+		if seg == "" || seg == "." {
+			continue
+		}
+		if cur == "" {
+			cur = seg
+		} else {
+			cur = filepath.Join(cur, seg)
+		}
+		fresh := idx == len(parts)-1
+		st, err := hr.Lstat(cur)
+		switch {
+		case err == nil && !fresh && st.IsDir():
+			continue
+		case err == nil:
+			return nil, fmt.Errorf("%s exists and is not a directory this run made", cur)
+		case !errors.Is(err, fs.ErrNotExist):
+			return nil, err
+		}
+		if err := hr.Mkdir(cur, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	return hr.OpenRoot(cur)
+}
+
 func (w *worker) leadDir() (*os.Root, error) {
 	if w.dest == nil {
-		d, err := draftsDest(w.o.Root, w.stamp, w.p.k.Name)
+		var (
+			d   *os.Root
+			err error
+		)
+		if w.o.DraftsOnly {
+			d, err = sandboxDraftsDest(w.o.Home, w.stamp, w.p.k.Name)
+		} else {
+			d, err = draftsDest(w.o.Root, w.stamp, w.p.k.Name)
+		}
 		if err != nil {
 			return nil, err
 		}

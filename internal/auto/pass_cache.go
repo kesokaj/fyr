@@ -28,6 +28,8 @@ type projectPassCache struct {
 	cutoff        time.Time
 	hasCutoff     bool
 	convs         map[convCacheKey][]convSource
+	digests       map[string]SessionDigest
+	digestBuilds  int
 	metricsOpened bool
 	metricsStore  *metrics.Store
 	metricsTmp    string
@@ -40,11 +42,12 @@ type projectPassCache struct {
 
 // beginProjectPass installs a per-project sweep cache so task selection and
 // learning-input construction share one cutoff, conversation slice,
-// metrics.Snapshot, and open-proposals query.
+// SessionDigest map, metrics.Snapshot, and open-proposals query.
 func (r *run) beginProjectPass(root string) func() {
 	r.sweepCache = &projectPassCache{
-		root:  root,
-		convs: map[convCacheKey][]convSource{},
+		root:    root,
+		convs:   map[convCacheKey][]convSource{},
+		digests: map[string]SessionDigest{},
 	}
 	return func() {
 		r.finishPassMetrics()

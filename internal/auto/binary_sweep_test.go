@@ -117,6 +117,7 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 		unregGit := idleProject(t)
 		nonGit := t.TempDir()
 		dirtyGit := idleProject(t)
+		writeFakeMetricsDB(t, home, dirtyGit, []string{"search,verify", "search,verify", "search,verify"}, []int{0, 0, 0})
 		writeTree(t, dirtyGit, "main.go", "package changed\n")
 
 		seedSweepConversations(t, realHome, []struct {
@@ -125,9 +126,9 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 			modified time.Time
 			text     string
 		}{
-			{"conv-global", `[]`, runAt.Add(-2 * time.Hour), "stale global workspace conversation note"},
-			{"conv-nongit", `["file://` + nonGit + `"]`, runAt.Add(-2 * time.Hour), "stale nongit workspace conversation note"},
-			{"conv-dirty", `["file://` + dirtyGit + `"]`, runAt.Add(-2 * time.Hour), "stale dirty checkout conversation note"},
+			{"conv-global", `[]`, runAt.Add(-10 * time.Minute), "active global workspace conversation note"},
+			{"conv-nongit", `["file://` + nonGit + `"]`, runAt.Add(-10 * time.Minute), "active nongit workspace conversation note"},
+			{"conv-dirty", `["file://` + dirtyGit + `"]`, runAt.Add(-10 * time.Minute), "active dirty checkout conversation note"},
 			{"conv-unreg-active", `["file://` + unregGit + `"]`, runAt.Add(-10 * time.Minute), "active unreg workspace conversation note"},
 			{"conv-harness-active", `["file://` + harnessRoot + `"]`, runAt.Add(-10 * time.Minute), "active harness workspace conversation note"},
 		})
@@ -170,9 +171,12 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 				t.Errorf("missing health line for %s in:\n%s", root, gotOut)
 			}
 		}
-		for _, nonClean := range []string{search.GlobalWorkspace, nonGit, dirtyGit} {
-			if !strings.Contains(gotOut, nonClean+": health: no findings; budget:") || !strings.Contains(gotOut, "worker skipped:") {
-				t.Errorf("expected worker skipped for %s in:\n%s", nonClean, gotOut)
+		if !strings.Contains(gotOut, dirtyGit+": health: no findings; budget:") || !strings.Contains(gotOut, "worker skipped: the tree is dirty") {
+			t.Errorf("expected worker skipped for dirtyGit in:\n%s", gotOut)
+		}
+		for _, noTask := range []string{search.GlobalWorkspace, nonGit} {
+			if !strings.Contains(gotOut, noTask+": health: no findings; budget:") || !strings.Contains(gotOut, "no model task due") {
+				t.Errorf("expected no model task due for %s in:\n%s", noTask, gotOut)
 			}
 		}
 		for _, retired := range []string{"G4 operator", "G5 agy", "G7 idle", "G8 dirty"} {
@@ -261,13 +265,14 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 				home := t.TempDir()
 				realHome := t.TempDir()
 				proj := idleProject(t)
+				writeFakeMetricsDB(t, home, proj, []string{"search,verify", "search,verify", "search,verify"}, []int{0, 0, 0})
 				seedSweepConversations(t, realHome, []struct {
 					id       string
 					wsJSON   string
 					modified time.Time
 					text     string
 				}{
-					{"conv-stale", `["file://` + proj + `"]`, runAt.Add(-2 * time.Hour), "stale session should dream now after one hour"},
+					{"conv-active", `["file://` + proj + `"]`, runAt.Add(-10 * time.Minute), "active session keeps target discovered"},
 				})
 				tc.prep(t, proj)
 				if err := save(home, Config{Enabled: true, ConversationIdle: "1h"}); err != nil {
@@ -293,6 +298,60 @@ func TestAutoOnBinarySwitchAndAllProjectsSweep(t *testing.T) {
 				}
 				if st, _, _ := loadState(home); st.ModelRuns != 0 {
 					t.Errorf("ModelRuns = %d, want 0 when workerCheckoutStop fires", st.ModelRuns)
+				}
+			})
+		}
+	})
+
+	t.Run("drafts-only-runs-on-dirty-detached-nongit-and-global", func(t *testing.T) {
+		dirtyRoot := idleProject(t)
+		writeTree(t, dirtyRoot, "dirty.txt", "wip\n")
+		detachedRoot := idleProject(t)
+		git(t, detachedRoot, "checkout", "-q", "--detach", "HEAD")
+		nonGitRoot := t.TempDir()
+
+		for _, tc := range []struct {
+			name   string
+			root   string
+			wsJSON string
+		}{
+			{"dirty", dirtyRoot, `["file://` + dirtyRoot + `"]`},
+			{"detached", detachedRoot, `["file://` + detachedRoot + `"]`},
+			{"non-git", nonGitRoot, `["file://` + nonGitRoot + `"]`},
+			{"global", search.GlobalWorkspace, `[]`},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				home := t.TempDir()
+				realHome := t.TempDir()
+				seedSweepConversations(t, realHome, []struct {
+					id       string
+					wsJSON   string
+					modified time.Time
+					text     string
+				}{
+					{"conv-stale-" + tc.name, tc.wsJSON, runAt.Add(-2 * time.Hour), "stale session for drafts-only dreaming should run now"},
+				})
+				if err := save(home, Config{Enabled: true, ConversationIdle: "1h"}); err != nil {
+					t.Fatal(err)
+				}
+				var gotOpts isolate.WorkerOptions
+				workCalled := false
+				var out bytes.Buffer
+				o := runOpts(home, &out)
+				o.RealHome = realHome
+				o.Env = &fakeEnv{targets: targetsOf(tc.root), usage: usageText("90%", "90%")}
+				o.IsolateAvailable = func() error { return nil }
+				o.Work = func(_ context.Context, wo isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+					workCalled = true
+					gotOpts = wo
+					name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+					return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+				}
+				if err := Run(o, false); err != nil {
+					t.Fatalf("Run(%s): %v\n%s", tc.name, err, out.String())
+				}
+				if !workCalled || !gotOpts.DraftsOnly {
+					t.Fatalf("DraftsOnly worker did not run on %s: called=%v opts=%+v\nout:\n%s", tc.name, workCalled, gotOpts, out.String())
 				}
 			})
 		}

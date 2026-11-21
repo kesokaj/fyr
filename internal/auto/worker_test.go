@@ -319,9 +319,11 @@ func TestWorkerStateTamperRestoredAndDraftsCollected(t *testing.T) {
 		t.Errorf("tampered state not restored: %+v", st)
 	}
 	var name string
+	now2 := runAt.Add(4 * time.Hour)
+	o.Now = func() time.Time { return now2 }
 	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
 		name = strings.TrimSuffix(filepath.Base(paths[0]), ".md")
-		rel := filepath.Join(".agents", "scratch", "work", "2026-11-01-1200", name)
+		rel := filepath.Join(".agents", "scratch", "work", now2.Format("2006-01-02-1504"), name)
 		writeTree(t, root, filepath.Join(rel, "auto-drafts.jsonl"), "{\"kind\":\"memory\"}\n")
 		return []isolate.WorkerResult{{Name: name, Verdict: "PASS", Drafts: 1, DraftsDir: filepath.ToSlash(rel)}}, nil
 	}
@@ -492,5 +494,62 @@ func TestAutoKickoffCapsuleWithSearchIndex(t *testing.T) {
 	}
 	if res.Allowed || !strings.Contains(res.Reason, "[UNCHANGED]") {
 		t.Fatalf("expected pre-seeded read_ledger to block redundant covering read, got %+v", res)
+	}
+}
+
+func TestWorkerCooldownAndForceOverride(t *testing.T) {
+	home := t.TempDir()
+	root := idleDreamProject(t, home)
+	writeConfig(t, home, validConfig)
+	now := runAt
+	workerCalls := 0
+	var out bytes.Buffer
+	o := driftOpts(home, root, &out)
+	env := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
+	o.Env = env
+	o.Now = func() time.Time { return now }
+	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {
+		workerCalls++
+		name := strings.TrimSuffix(filepath.Base(paths[0]), ".md")
+		git(t, root, "branch", "work/"+name)
+		return []isolate.WorkerResult{{Name: name, Verdict: "PASS"}}, nil
+	}
+
+	if err := Run(o, false); err != nil {
+		t.Fatalf("run 1: %v\n%s", err, out.String())
+	}
+	if workerCalls != 1 || env.usageCalls != 1 {
+		t.Fatalf("after run 1: workers=%d usage=%d", workerCalls, env.usageCalls)
+	}
+
+	// Within 4h cooldown: stops worker without calling budget() /usage (only machineHealth reads /usage for sweep budget line).
+	now = runAt.Add(time.Hour)
+	out.Reset()
+	if err := Run(o, false); err != nil {
+		t.Fatalf("run 2: %v\n%s", err, out.String())
+	}
+	if workerCalls != 1 || env.usageCalls != 2 || !strings.Contains(out.String(), "G9 cooldown:") {
+		t.Fatalf("expected cooldown stop without worker: workers=%d usage=%d out:\n%s", workerCalls, env.usageCalls, out.String())
+	}
+
+	// With --force: bypasses cooldown and runs worker.
+	o.Force = true
+	out.Reset()
+	if err := Run(o, false); err != nil {
+		t.Fatalf("run 3 (--force): %v\n%s", err, out.String())
+	}
+	if workerCalls != 2 || env.usageCalls != 3 {
+		t.Fatalf("after --force run: workers=%d usage=%d out:\n%s", workerCalls, env.usageCalls, out.String())
+	}
+
+	// 4h after run 3 (+5h total): cooldown elapsed without --force.
+	o.Force = false
+	now = runAt.Add(5 * time.Hour)
+	out.Reset()
+	if err := Run(o, false); err != nil {
+		t.Fatalf("run 4 (+4h): %v\n%s", err, out.String())
+	}
+	if workerCalls != 3 || env.usageCalls != 4 {
+		t.Fatalf("after 4h elapsed: workers=%d usage=%d out:\n%s", workerCalls, env.usageCalls, out.String())
 	}
 }

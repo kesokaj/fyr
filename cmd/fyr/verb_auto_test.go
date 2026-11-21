@@ -66,6 +66,10 @@ func TestAutoVerbUsage(t *testing.T) {
 		"conv-idle on run":   {"auto", "run", "--conversation-idle", "2h"},
 		"conv-idle bare dry": {"auto", "--dry-run", "--conversation-idle", "2h"},
 		"dry-run on status":  {"auto", "status", "--dry-run"},
+		"force on status":    {"auto", "status", "--force"},
+		"force on on":        {"auto", "on", "--force"},
+		"force on off":       {"auto", "off", "--force"},
+		"force on log":       {"auto", "log", "--force"},
 		"short idle":         {"auto", "on", "--conversation-idle", "4m"},
 		"long idle":          {"auto", "on", "--conversation-idle", "8d"},
 		"empty idle":         {"auto", "on", "--conversation-idle="},
@@ -383,5 +387,20 @@ func TestAutoLogSubverb(t *testing.T) {
 	out.Reset()
 	if err := run([]string{"auto", "log", "--home", home}, &out); exitOf(err) != 1 || strings.Contains(out.String(), "secret") {
 		t.Fatalf("symlinked log: exit=%d out=%q, want exit 1", exitOf(err), out.String())
+	}
+}
+
+func TestAutoRunForceAndHelp(t *testing.T) {
+	home, _ := autoHome(t)
+	var out bytes.Buffer
+	if err := run([]string{"auto", "run", "--force", "--dry-run", "--home", home}, &out); err != nil {
+		t.Fatalf("auto run --force --dry-run: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := run([]string{"auto", "--help"}, &out); err != nil {
+		t.Fatalf("auto --help: %v", err)
+	}
+	if !strings.Contains(out.String(), "[--force]") || !strings.Contains(out.String(), "cooldown") {
+		t.Errorf("auto --help missing --force/cooldown docs:\n%s", out.String())
 	}
 }

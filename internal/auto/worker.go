@@ -15,6 +15,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -44,20 +45,26 @@ func chooseRunner(wo *isolate.WorkerOptions, isolateAvail func() error) (runner,
 func withRunner(line, runnerWhy string) string { return line + "; runner " + runnerWhy }
 
 // runModelTask picks the highest due model task for root (rotating p.LastClass
-// to the end), files any rubric ask, and runs at most one worker on clean git
-// checkouts (skipping execWorker on non-git, GlobalWorkspace, or dirty trees).
+// to the end), files any rubric ask, and runs at most one worker (allowing
+// DraftsOnly tasks on dirty, non-git, or GlobalWorkspace roots while enforcing
+// clean git checkouts for non-DraftsOnly tasks).
 func (r *run) runModelTask(root string, p *Project, findings []Finding) (string, []Finding) {
 	if r.workerRan {
 		return "worker already ran in this sweep", nil
 	}
-	if why := workerCheckoutStop(root); why != "" {
-		return "worker skipped: " + why, nil
+	if cd := r.cooldownStop(); cd != "" {
+		return cd, nil
 	}
 	endPass := r.beginProjectPass(root)
 	defer endPass()
 	t := r.pickProjectTask(root, p, findings)
 	if t == nil {
 		return "no model task due", nil
+	}
+	if !t.DraftsOnly {
+		if why := workerCheckoutStop(root); why != "" {
+			return "worker skipped: " + why, nil
+		}
 	}
 	var extra []Finding
 	var askID string
@@ -109,18 +116,9 @@ func (r *run) fileAsk(root string, t Task) (string, Finding) {
 }
 
 func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
-	r.workerRan = true
-	r.projectWorkerRan = true
+	r.workerRan, r.projectWorkerRan = true, true
 	cfgBefore, cfgErr := readBounded(ConfigPath(r.o.Home), configLimit)
-	if today := r.o.now().Format("2006-01-02"); r.st.Date < today {
-		r.st.Date, r.st.ModelRuns = today, 0
-	}
-	r.st.ModelRuns++
-	if err := saveState(r.o.Home, r.st); err != nil {
-		r.failed = true
-		return "worker state error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
-	}
-	stateHash, err := fileSHA256(filepath.Join(dir(r.o.Home), "runs.json"))
+	stateHash, err := r.recordWorkerStart()
 	if err != nil {
 		r.failed = true
 		return "worker state error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
@@ -130,9 +128,8 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 		r.failed = true
 		return "worker kickoff error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
-	wo := r.workOptions(root)
-	var runnerWhy string
-	_, runnerWhy, err = chooseRunner(&wo, r.o.IsolateAvailable)
+	wo := r.workOptions(root, t)
+	_, runnerWhy, err := chooseRunner(&wo, r.o.IsolateAvailable)
 	if err != nil {
 		r.failed = true
 		return "worker runner error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
@@ -144,7 +141,11 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 		return "worker input error: " + oneLine(err.Error()), []Finding{{"worker", "failed", t.Class, oneLine(err.Error())}}
 	}
 	defer cleanLearningInput(root)
-	snapBefore, snapErr := takeCheckoutSnapshot(root)
+	var snapBefore checkoutSnapshot
+	var snapErr error
+	if !t.DraftsOnly {
+		snapBefore, snapErr = takeCheckoutSnapshot(root)
+	}
 	sig, stop := signal.NotifyContext(r.context(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stop()
 	resList, runErr := r.o.workRun()(sig, wo, k.Path)
@@ -155,7 +156,20 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	return r.finishWorker(sig, root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr, learningCutoff)
 }
 
-func (r *run) workOptions(root string) isolate.WorkerOptions {
+func (r *run) recordWorkerStart() (string, error) {
+	now := r.o.now()
+	if today := now.Format("2006-01-02"); r.st.Date < today {
+		r.st.Date, r.st.ModelRuns = today, 0
+	}
+	r.st.ModelRuns++
+	r.st.LastModelRun = now
+	if err := saveState(r.o.Home, r.st); err != nil {
+		return "", err
+	}
+	return fileSHA256(filepath.Join(dir(r.o.Home), "runs.json"))
+}
+
+func (r *run) workOptions(root string, t Task) isolate.WorkerOptions {
 	return isolate.WorkerOptions{
 		Root:           root,
 		Home:           r.o.Home,
@@ -163,6 +177,8 @@ func (r *run) workOptions(root string) isolate.WorkerOptions {
 		Self:           r.o.self(),
 		Repo:           r.o.Repo,
 		Timeout:        workerTimeout,
+		Model:          r.pickWorkerModel(t),
+		DraftsOnly:     t.DraftsOnly,
 		MaxWorkers:     1,
 		Out:            io.Discard,
 		Now:            r.o.Now,
@@ -173,8 +189,24 @@ func (r *run) workOptions(root string) isolate.WorkerOptions {
 	}
 }
 
+func (r *run) pickWorkerModel(t Task) string {
+	cat, ok, err := models.LoadCatalog(r.o.Home)
+	if err != nil || !ok {
+		return ""
+	}
+	role, tier := "builder", "pro"
+	if t.DraftsOnly {
+		role, tier = "mechanical", "flash"
+	}
+	pick, err := models.PickFromCatalog(cat, role, tier)
+	if err != nil {
+		return ""
+	}
+	return pick.Model
+}
+
 func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error, learningCutoff time.Time) (string, []Finding) {
-	defer cleanProjectDrafts(root, res.DraftsDir)
+	defer r.cleanWorkerDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
 		msg := withRunner("FAIL ("+oneLine(err.Error())+"); branch "+k.Branch+" kept", runnerWhy)
@@ -210,7 +242,7 @@ func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task,
 		msg := withRunner(fmt.Sprintf("FAIL (drafts: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 	}
-	cleanProjectDrafts(root, res.DraftsDir)
+	r.cleanWorkerDrafts(root, res.DraftsDir)
 	p.LastClass = t.Class
 	r.recordLearningProgress(p, t, learningCutoff)
 	v, bf := r.finishPassBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res)

@@ -58,7 +58,7 @@ func initHarnessEvalGateFixture(t *testing.T, home, realHome, extraRows string) 
 	git(t, root, "push", "-q")
 	backdate(t, root)
 
-	holdoutPath = filepath.Join(realHome, "sandbox", "fyr-auto", "holdout.md")
+	holdoutPath = filepath.Join(home, "sandbox", "fyr-auto", "holdout.md")
 	if err := os.MkdirAll(filepath.Dir(holdoutPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -530,6 +530,88 @@ func TestEvalGate(t *testing.T) {
 		}
 		if !strings.Contains(out.String(), "asks       0 open\n") {
 			t.Errorf("Status did not reconcile externally closed ask:\n%s", out.String())
+		}
+	})
+
+	t.Run("auto-seeds-missing-holdout-under-home", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, holdoutPath, _ := initHarnessEvalGateFixture(t, home, realHome, "")
+		if err := os.Remove(holdoutPath); err != nil {
+			t.Fatal(err)
+		}
+		writeTree(t, root, ".agents/eval/holdout-starter.md", testGateHoldoutSuite)
+		git(t, root, "add", ".agents/eval/holdout-starter.md")
+		git(t, root, "commit", "-q", "-m", "add holdout starter")
+		git(t, root, "push", "-q")
+		backdate(t, root)
+
+		var out bytes.Buffer
+		o := gateOpts(home, realHome, root, &out)
+		o.Work = makeCandidateBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
+		o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
+			return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs, RecordID: "TEST-gate"}, nil
+		}
+		if err := Run(o, false); err != nil {
+			t.Fatalf("Run: %v\n%s", err, out.String())
+		}
+		info, err := os.Stat(holdoutPath)
+		if err != nil {
+			t.Fatalf("missing seeded holdout under o.Home: %v", err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Errorf("seeded holdout perm = %o, want 0600", info.Mode().Perm())
+		}
+		if _, err := os.Stat(filepath.Join(realHome, "sandbox", "fyr-auto", "holdout.md")); !os.IsNotExist(err) {
+			t.Errorf("holdout leaked into realHome: err=%v", err)
+		}
+		reps := reports(t, home)
+		if len(reps) == 0 || !strings.Contains(reps[0].Body, "eval-gate/holdout-seeded") {
+			t.Errorf("expected eval-gate/holdout-seeded finding in report, got %+v", reps)
+		}
+	})
+
+	t.Run("proposal-queue-expires-stale-and-ranks-impact", func(t *testing.T) {
+		home := t.TempDir()
+		realHome := t.TempDir()
+		root, _, defaultID := initHarnessEvalGateFixture(t, home, realHome, "")
+		closed := "rejected"
+		if err := brain.Edit(brain.Options{Home: home, Global: true}, brain.EditInput{ID: defaultID, Status: &closed}); err != nil {
+			t.Fatal(err)
+		}
+		staleID, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: root,
+			Title: "Dream, harness — deleted skill cleanup",
+			Body:  strings.NewReader("Target: harness\nEvidence: BUG-010\n\nUpdate `skills/deleted-skill/SKILL.md`."),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lowID, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-2 * time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: root,
+			Title: "Dream, harness — low impact alpha tweak",
+			Body:  strings.NewReader("Target: harness\nEvidence: BUG-011\n\nUpdate `skills/alpha/SKILL.md`."),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = lowID
+		highID, err := brain.Add(brain.Options{Home: home, Global: true, Now: func() time.Time { return runAt.Add(-6 * time.Hour) }}, brain.AddInput{
+			Kind: "proposal", Status: "queued", Project: root,
+			Title: "Dream, harness — high impact alpha fix",
+			Body:  strings.NewReader("Target: harness\nSessions: 5\nEvidence: BUG-012, RETRO-2026-10-01\n\nUpdate `skills/alpha/SKILL.md`."),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := &run{o: Options{Home: home, Repo: root, Now: func() time.Time { return runAt }}}
+		picked := r.triggerHarnessEdit(root)
+		if picked == nil || picked.ID != highID {
+			t.Fatalf("picked = %+v, want high-impact proposal %s", picked, highID)
+		}
+		staleRec := getGlobalProposal(t, home, staleID)
+		if staleRec.Status != "rejected" || !strings.Contains(staleRec.Body, "## Auto-rejected") {
+			t.Fatalf("stale proposal = %+v, want auto-rejected status=rejected", staleRec)
 		}
 	})
 }

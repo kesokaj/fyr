@@ -31,6 +31,7 @@ type Options struct {
 	Home       string
 	Out        io.Writer
 	DryRun     bool
+	Force      bool
 	Now        func() time.Time
 	GOOS       string
 	Path       string

@@ -271,11 +271,17 @@ func TestDirtyCheckoutRunsHealthAndSkipsWorker(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, validConfig)
 	root := idleProject(t)
+	writeFakeMetricsDB(t, home, root, []string{"search,verify", "search,verify", "search,verify"}, []int{0, 0, 0})
 	writeTree(t, root, "main.go", "package changed\n")
+	var out bytes.Buffer
+	o := driftOpts(home, root, &out)
 	e := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
-	out := reportRun(t, home, e)
-	if e.usageCalls != 1 || !strings.Contains(out, "worker skipped: the tree is dirty") {
-		t.Errorf("want 1 /usage call and skipped worker on dirty checkout, got %d calls:\n%s", e.usageCalls, out)
+	o.Env = e
+	if err := Run(o, false); err != nil {
+		t.Fatal(err)
+	}
+	if e.usageCalls != 1 || !strings.Contains(out.String(), "worker skipped: the tree is dirty") {
+		t.Errorf("want 1 /usage call and skipped worker on dirty checkout, got %d calls:\n%s", e.usageCalls, out.String())
 	}
 }
 

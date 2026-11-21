@@ -13,6 +13,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/models"
 )
 
 func day(n int) time.Time { return now.Add(-time.Duration(n) * 24 * time.Hour) }
@@ -308,4 +309,99 @@ func TestFitTooBigNewestFirst(t *testing.T) {
 	if got := strings.Join(c.Dropped, "|"); got != want {
 		t.Errorf("dropped %q, want %q", got, want)
 	}
+}
+
+func TestFitChunksOversizedTranscriptAndDropsTinyRoom(t *testing.T) {
+	huge := "HEAD_USER_REQUEST: refactor dream chunking\n" +
+		strings.Repeat("step output filler line abcdefghij\n", 300) +
+		"DECISION_MARKER: preserve head, decision/outcome, and tail windows\n" +
+		strings.Repeat("more intermediate filler 0123456789\n", 300) +
+		"TAIL_OUTCOME_MARKER: verified all tests green"
+	ts := day(2)
+	c := Collected{Name: "p", Inputs: []Input{
+		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
+		{Kind: kindTranscript, Label: "antigravity conv-huge", Text: huge, Time: ts},
+	}}
+	limit := len(head(c)) + 2400
+	if err := c.fit(limit); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Dropped) != 0 {
+		t.Fatalf("expected oversized transcript to be chunked rather than dropped, got Dropped=%v", c.Dropped)
+	}
+	if len(c.Inputs) != 2 {
+		t.Fatalf("len(Inputs) = %d, want 2", len(c.Inputs))
+	}
+	got := c.Inputs[1]
+	if got.Label != "antigravity conv-huge" || !got.Time.Equal(ts) {
+		t.Errorf("chunked input lost label/timestamp: label=%q time=%v", got.Label, got.Time)
+	}
+	for _, marker := range []string{"HEAD_USER_REQUEST", "DECISION_MARKER", "TAIL_OUTCOME_MARKER", "[... truncated "} {
+		if !strings.Contains(got.Text, marker) {
+			t.Errorf("chunked transcript missing %q:\n%s", marker, got.Text)
+		}
+	}
+	if rendered := prompt(c); len(rendered) > limit {
+		t.Errorf("rendered prompt size %d exceeds limit %d", len(rendered), limit)
+	}
+
+	// When f.room cannot fit even a minimal window (< 512 B), drop as tooBig.
+	cTiny := Collected{Name: "p", Inputs: []Input{
+		{Kind: kindMemory, Label: "memory/a.md", Text: "m"},
+		{Kind: kindTranscript, Label: "antigravity conv-tiny-room", Text: huge, Time: ts},
+	}}
+	tinyLimit := len(head(cTiny)) + len(block(cTiny.Inputs[0])) + 300
+	if err := cTiny.fit(tinyLimit); err != nil {
+		t.Fatal(err)
+	}
+	if len(cTiny.Inputs) != 1 || len(cTiny.Dropped) != 1 || !strings.Contains(cTiny.Dropped[0], "too big") {
+		t.Errorf("expected tooBig drop when room < 512B, got inputs=%v dropped=%v", labels(cTiny), cTiny.Dropped)
+	}
+}
+
+func TestCommandWithModelAndPrepareAgyCatalogPick(t *testing.T) {
+	if got := commandWithModel(""); !equalSlice(got, command()) {
+		t.Fatalf("commandWithModel(\"\") = %v, want %v", got, command())
+	}
+	wantWithModel := []string{"agy", "--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "--model", "gemini-4-flash-medium", "-p", ""}
+	if got := commandWithModel("gemini-4-flash-medium"); !equalSlice(got, wantWithModel) {
+		t.Fatalf("commandWithModel = %v, want %v", got, wantWithModel)
+	}
+
+	emptyHome := t.TempDir()
+	if got := (Options{Home: emptyHome}).resolveModel(); got != "" {
+		t.Fatalf("resolveModel without catalog = %q, want empty", got)
+	}
+	if got := (Options{Home: emptyHome, Model: "explicit-model-id"}).resolveModel(); got != "explicit-model-id" {
+		t.Fatalf("resolveModel with explicit Model = %q, want explicit-model-id", got)
+	}
+
+	catHome := t.TempDir()
+	cat := models.BuildCatalog(now, []models.CatalogEntry{
+		{ID: "gemini-4-pro-high", Family: "gemini", Tier: "pro", Status: "active"},
+		{ID: "gemini-4-flash-medium", Family: "gemini", Tier: "flash", Status: "active"},
+	}, nil, nil)
+	if err := models.SaveCatalog(catHome, cat); err != nil {
+		t.Fatalf("SaveCatalog: %v", err)
+	}
+	_ = fakeAgy(t, `{"proposals":[],"skills":[]}`, 0)
+	r := &dreamRun{o: Options{Home: catHome}}
+	if err := r.prepareAgy(); err != nil {
+		t.Fatalf("prepareAgy: %v", err)
+	}
+	if !equalSlice(r.argv, wantWithModel) {
+		t.Fatalf("prepareAgy argv = %v, want %v", r.argv, wantWithModel)
+	}
+}
+
+func equalSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

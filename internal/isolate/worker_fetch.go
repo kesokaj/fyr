@@ -25,6 +25,15 @@ const maxNamed = 20
 // A worker a safety reason failed, or whose session never started, gets none
 // of them (D38); a timed-out, killed or otherwise failed one is fetched (D26).
 func (w *worker) collect(ctx context.Context) {
+	if w.o.DraftsOnly {
+		if !w.ran || w.unsafe() || !w.b.Intact() {
+			return
+		}
+		drafts := w.drafts()
+		w.closeLeadDir()
+		w.collected = drafts
+		return
+	}
 	if !w.ran || w.unsafe() || !w.b.Intact() || !w.b.GitIntact() {
 		return
 	}

@@ -75,7 +75,12 @@ func (r *run) triggerProjectClass(root string, p *Project, class string, _ []Fin
 }
 
 func (r *run) countMemoriesSince(root string, since time.Time) int {
-	recs, err := brain.List(brain.Options{Home: r.o.Home, Dir: root, Now: r.o.Now}, brain.ListFilter{Kind: "memory"})
+	global := root == "" || root == search.GlobalWorkspace
+	dirArg := root
+	if global {
+		dirArg = ""
+	}
+	recs, err := brain.List(brain.Options{Home: r.o.Home, Dir: dirArg, Global: global, Now: r.o.Now}, brain.ListFilter{Kind: "memory"})
 	if err != nil {
 		return 0
 	}
@@ -133,7 +138,7 @@ func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []c
 		}
 		if agy, _, err := search.AgyConversationTextInWindow(h, root, since, cutoff); err == nil {
 			for _, a := range agy {
-				if !seen[a.ID] && strings.TrimSpace(a.Text) != "" {
+				if !seen[a.ID] && strings.TrimSpace(a.Text) != "" && !isSelfReferentialLog(a.Text) {
 					seen[a.ID] = true
 					out = append(out, convSource{label: "antigravity " + a.ID, text: a.Text})
 				}
@@ -145,6 +150,13 @@ func (r *run) conversationsSinceCutoff(root string, since, cutoff time.Time) []c
 		r.sweepCache.convs[makeConvCacheKey(since, cutoff)] = slices.Clone(out)
 	}
 	return out
+}
+
+func isSelfReferentialLog(raw string) bool {
+	return strings.Contains(raw, "dreaming: ") ||
+		strings.Contains(raw, "This is a Kickoff written by fyr auto.") ||
+		strings.Contains(raw, "[FYR_WORKER_CAPSULE]") ||
+		strings.Contains(raw, "You are the dreamer of a coding-agent harness")
 }
 
 func appendDirConversations(out []convSource, seen map[string]bool, home, root string, since, cutoff time.Time) []convSource {
@@ -162,7 +174,7 @@ func appendDirConversations(out []convSource, seen map[string]bool, home, root s
 		if !ok || (!since.IsZero() && !info.ModTime().After(since)) || (!cutoff.IsZero() && info.ModTime().After(cutoff)) {
 			continue
 		}
-		if raw, ok := readFileMentionsRoot(p, root); ok {
+		if raw, ok := readFileMentionsRoot(p, root); ok && !isSelfReferentialLog(raw) {
 			seen[convID] = true
 			out = append(out, convSource{label: convID, text: redact.RedactJSONL(raw)})
 		}

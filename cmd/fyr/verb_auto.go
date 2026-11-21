@@ -36,7 +36,7 @@ var autoFlags = map[string]map[string]bool{
 	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true},
 	"off":    {"dry-run": true},
 	"status": {},
-	"run":    {"dry-run": true},
+	"run":    {"dry-run": true, "force": true},
 	"log":    {"lines": true, "all": true},
 }
 
@@ -64,7 +64,7 @@ func runAuto(c *ctx) error {
 	if stray != "" {
 		return usageErr(c.out, "auto", fmt.Sprintf("fyr auto %s takes no --%s", sub, stray))
 	}
-	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun})
+	err := c.dispatchAutoSub(sub, auto.Options{Home: c.home, Out: c.out, DryRun: c.dryRun, Force: c.force})
 	var ee *auto.ExitError
 	if errors.As(err, &ee) {
 		if ee.Msg != "" {

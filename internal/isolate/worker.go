@@ -27,13 +27,14 @@ type WorkerOptions struct {
 	Now                              func() time.Time
 	StopGrace                        time.Duration
 	Runner, RunnerReason             string
-	Auto, ACP                        bool
+	Auto, ACP, DraftsOnly            bool
 	TestRO, TestRW                   []string
 	TestUnconfined                   bool
 }
 
 const (
-	DefaultTimeout = 30 * time.Minute
+	DefaultTimeout  = 30 * time.Minute
+	globalWorkspace = "__global__"
 
 	ReasonTimedOut     = "timed out"
 	ReasonKilled       = "killed"
@@ -46,6 +47,7 @@ const (
 	ReasonBranchFailed = "branch"
 	ReasonDiskLimit    = "disk limit"
 	ReasonJudgeFailed  = "judge failed"
+	ReasonAgyFailed    = "agy failed"
 )
 
 var (
@@ -201,6 +203,9 @@ func (w *worker) run(ctx context.Context, collect *sync.Mutex) WorkerResult {
 		checkStart = time.Now()
 		w.res.AgySec = stageSeconds(setupEnd, checkStart)
 		w.b.After()
+		if w.o.DraftsOnly && (!w.ran || w.res.AgyExit != 0) && len(w.b.Reasons()) == 0 {
+			w.b.Fail(ReasonAgyFailed)
+		}
 	}
 	w.finishChecks(ctx, collect)
 	w.res.CheckSec = stageSeconds(checkStart, time.Now())
@@ -227,14 +232,20 @@ func (w *worker) finishChecks(ctx context.Context, collect *sync.Mutex) {
 }
 
 func (w *worker) prepare(ctx context.Context) bool {
-	if !w.b.Clone(ctx) || !w.branch() {
+	if w.o.DraftsOnly {
+		if !w.b.ScratchApp() {
+			return false
+		}
+	} else if !w.b.Clone(ctx) || !w.branch() {
 		return false
 	}
 	w.b.Fingerprint()
 	if !w.b.Install(ctx) || !w.b.Settings() {
 		return false
 	}
-	w.seedRecords(ctx)
+	if !w.o.DraftsOnly {
+		w.seedRecords(ctx)
+	}
 	w.b.Baseline()
 	return ctx.Err() == nil
 }
