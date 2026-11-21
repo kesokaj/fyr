@@ -33,6 +33,10 @@ func ListTurnRecords(o Options) ([]Record, error) {
 		return nil, err
 	}
 	defer st.close()
+	return queryTurnRecordsFromStore(st, o, ver)
+}
+
+func queryTurnRecordsFromStore(st *store, o Options, ver int) ([]Record, error) {
 	q, args, ok := listTurnQuery(o, ver)
 	if !ok {
 		return nil, nil
@@ -69,6 +73,29 @@ func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
 		return nil, err
 	}
 	return runTurnFTSPasses(st, o, words, limit, scopes, proj)
+}
+
+// LoadTurnRecordsAndFTS opens brain.db once read-only and returns both active
+// turn records and FTS5 hits (when words and limit are non-empty).
+func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hit, error) {
+	st, ver, err := openTurnStore(o.Home)
+	if err != nil || st == nil || ver < 1 {
+		if st != nil {
+			_ = st.close()
+		}
+		return nil, nil, err
+	}
+	defer st.close()
+	recs, err := queryTurnRecordsFromStore(st, o, ver)
+	if err != nil || len(words) == 0 || limit <= 0 {
+		return recs, nil, err
+	}
+	scopes, proj, ok, err := turnSearchScopes(st, o)
+	if err != nil || !ok {
+		return recs, nil, err
+	}
+	hits, err := runTurnFTSPasses(st, o, words, limit, scopes, proj)
+	return recs, hits, err
 }
 
 func openTurnStore(home string) (*store, int, error) {

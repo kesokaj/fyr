@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -80,6 +78,13 @@ func queryBrainFTSRecordIDs(bo brain.Options, terms []string) map[string]bool {
 	if err != nil || len(hits) == 0 {
 		return nil
 	}
+	return filterFTSHitsByPrecision(hits, terms)
+}
+
+func filterFTSHitsByPrecision(hits []brain.Hit, terms []string) map[string]bool {
+	if len(hits) == 0 {
+		return nil
+	}
 	out := map[string]bool{}
 	for _, h := range hits {
 		if ftsHitMeetsPrecision(h, terms) {
@@ -88,6 +93,48 @@ func queryBrainFTSRecordIDs(bo brain.Options, terms []string) map[string]bool {
 		}
 	}
 	return out
+}
+
+func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
+	home := tc.resolveHome(homeOverride)
+	recKey := canonicalCacheDir(dir) + "|" + home
+	recs, hasRecs := tc.byDir[recKey]
+	var fkey string
+	var fts map[string]bool
+	hasFTS := len(terms) == 0 || home == ""
+	if !hasFTS {
+		fkey = recKey + "|" + strings.Join(terms, " ")
+		fts, hasFTS = tc.ftsByQuery[fkey]
+	}
+	if hasRecs && hasFTS {
+		return recs, fts
+	}
+	if recs2, fts2, ok := tc.loadCombinedTurnData(dir, home, recKey, fkey, terms, hasRecs, hasFTS); ok {
+		return recs2, fts2
+	}
+	recs = tc.records(dir, homeOverride)
+	if len(recs) == 0 || len(terms) == 0 {
+		return recs, nil
+	}
+	return recs, tc.ftsMatches(dir, homeOverride, terms)
+}
+
+func (tc *turnBrainCache) loadCombinedTurnData(dir, home, recKey, fkey string, terms []string, hasRecs, hasFTS bool) ([]brain.Record, map[string]bool, bool) {
+	if hasRecs || hasFTS || home == "" {
+		return nil, nil, false
+	}
+	if _, err := os.Stat(brain.Path(home)); err != nil {
+		return nil, nil, false
+	}
+	tc.loadCount++
+	recs, hits, err := brain.LoadTurnRecordsAndFTS(brain.Options{Home: home, Dir: dir, Global: tc.global}, terms, 16)
+	if err != nil || len(recs) == 0 {
+		return nil, nil, false
+	}
+	tc.byDir[recKey] = recs
+	fts := filterFTSHitsByPrecision(hits, terms)
+	tc.ftsByQuery[fkey] = fts
+	return recs, fts, true
 }
 
 func ftsHitMeetsPrecision(h brain.Hit, terms []string) bool {
@@ -156,12 +203,11 @@ func loadTurnRecords(dir, home string, global bool) []brain.Record {
 
 func makeBrainTurnContext(tc *turnBrainCache) func(dir, home, prompt string, files []string) search.TurnBrainContext {
 	return func(dir, home, prompt string, files []string) search.TurnBrainContext {
-		recs := tc.records(dir, home)
+		terms := extractTurnQueryTerms(prompt)
+		recs, ftsIDs := tc.loadTurnData(dir, home, terms)
 		if len(recs) == 0 {
 			return search.TurnBrainContext{}
 		}
-		terms := extractTurnQueryTerms(prompt)
-		ftsIDs := tc.ftsMatches(dir, home, terms)
 		var out search.TurnBrainContext
 		for _, r := range recs {
 			classifyTurnRecordWithFTS(&out, dir, prompt, files, terms, ftsIDs, r)
@@ -216,34 +262,6 @@ func classifyMemoryRecord(ctx *search.TurnBrainContext, dir, prompt string, file
 	ctx.Memories = insertPrioritizedMemory(ctx.Memories, m, totalMatchedRecords(ctx))
 }
 
-func insertPrioritizedMemory(mems []search.MatchedRecord, m search.MatchedRecord, totalRecs int) []search.MatchedRecord {
-	if len(mems) < 4 && totalRecs < 6 {
-		mems = append(mems, m)
-		sort.Slice(mems, func(i, j int) bool { return memoryPriorityLess(mems[i], mems[j]) })
-		return mems
-	}
-	if len(mems) > 0 && memoryPriorityLess(m, mems[len(mems)-1]) {
-		mems[len(mems)-1] = m
-		sort.Slice(mems, func(i, j int) bool { return memoryPriorityLess(mems[i], mems[j]) })
-	}
-	return mems
-}
-
-func memoryPriorityLess(a, b search.MatchedRecord) bool {
-	aPE := a.MemoryKind == "procedural" || a.MemoryKind == "episodic"
-	bPE := b.MemoryKind == "procedural" || b.MemoryKind == "episodic"
-	if aPE != bPE {
-		return aPE
-	}
-	if a.Validity != b.Validity {
-		return a.Validity > b.Validity
-	}
-	if a.Global != b.Global {
-		return !a.Global
-	}
-	return a.ID < b.ID
-}
-
 func classifyBugRecord(ctx *search.TurnBrainContext, prompt string, files, terms []string, ftsIDs map[string]bool, r brain.Record) {
 	if (r.Status == "open" || r.Status == "") && len(ctx.Bugs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs) {
 		ctx.Bugs = append(ctx.Bugs, search.MatchedRecord{
@@ -268,70 +286,6 @@ func classifyADRRecord(ctx *search.TurnBrainContext, prompt string, files, terms
 	if (conflict != "" || (len(ctx.ADRs) < 2 && totalMatchedRecords(ctx) < 6 && matchesRecordPrecisionWithFTS(r, prompt, files, terms, ftsIDs))) && len(ctx.ADRs) < 3 {
 		ctx.ADRs = append(ctx.ADRs, rec)
 	}
-}
-
-var turnQueryStopwords = map[string]bool{
-	"want": true, "have": true, "some": true, "sort": true, "this": true,
-	"that": true, "with": true, "from": true, "what": true, "when": true,
-	"where": true, "which": true, "there": true, "their": true, "would": true,
-	"could": true, "should": true, "about": true, "into": true, "more": true,
-	"make": true, "need": true, "like": true, "just": true, "also": true,
-	"only": true, "very": true, "good": true, "best": true, "work": true,
-	"used": true, "using": true, "models": true, "model": true, "file": true,
-	"files": true, "code": true, "plan": true, "test": true, "tests": true,
-	"check": true, "update": true, "change": true, "then": true, "will": true,
-	"they": true, "them": true, "your": true, "here": true, "does": true,
-	"these": true, "those": true, "during": true,
-}
-
-func extractTurnQueryTerms(prompt string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, w := range strings.FieldsFunc(prompt, func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' && r != '/' && r != '.'
-	}) {
-		t := strings.ToLower(strings.Trim(w, ".-_/"))
-		if len(t) >= 4 && !turnQueryStopwords[t] && !seen[t] {
-			seen[t] = true
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-func matchesRecordPrecision(r brain.Record, prompt string, files, terms []string) bool {
-	return matchesRecordPrecisionWithFTS(r, prompt, files, terms, nil)
-}
-
-func matchesRecordPrecisionWithFTS(r brain.Record, prompt string, files, terms []string, ftsIDs map[string]bool) bool {
-	if r.ID != "" && strings.Contains(strings.ToLower(prompt), strings.ToLower(r.ID)) {
-		return true
-	}
-	if len(ftsIDs) > 0 && (ftsIDs[r.Scope+"|"+r.ID] || ftsIDs[r.ID]) {
-		return true
-	}
-	titleHay := strings.ToLower(r.ID + "\n" + r.Title)
-	fullHay := titleHay + "\n" + strings.ToLower(r.Body)
-	for _, f := range files {
-		lf := strings.ToLower(strings.TrimSpace(f))
-		base := strings.ToLower(filepath.Base(f))
-		if (lf != "" && strings.Contains(fullHay, lf)) || (len(base) >= 5 && strings.Contains(fullHay, base)) {
-			return true
-		}
-	}
-	titleHits := 0
-	for _, t := range terms {
-		if len(t) >= 7 && strings.ContainsAny(t, "_-./") && strings.Contains(fullHay, t) {
-			return true
-		}
-		if strings.Contains(titleHay, t) {
-			titleHits++
-			if titleHits >= 2 {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func makeBrainReprime() func(dir, home string) string {
@@ -375,28 +329,4 @@ func makeBrainRefs(tc *turnBrainCache, dir string) func(string) []search.LinkedR
 	return func(target string) []search.LinkedRecord {
 		return filterCachedBrainRefs(tc.records(dir, ""), target)
 	}
-}
-
-func filterCachedBrainRefs(recs []brain.Record, target string) []search.LinkedRecord {
-	target = strings.TrimSpace(target)
-	if len(recs) == 0 || target == "" {
-		return nil
-	}
-	lowTarget := strings.ToLower(target)
-	var out []search.LinkedRecord
-	for _, r := range recs {
-		isOpenBug := r.Kind == "bug" && (r.Status == "open" || r.Status == "")
-		isActiveADR := r.Kind == "adr" && (r.Status == "accepted" || r.Status == "open" || r.Status == "")
-		if !isOpenBug && !isActiveADR {
-			continue
-		}
-		if strings.EqualFold(r.ID, target) || strings.Contains(strings.ToLower(r.ID+"\n"+r.Title+"\n"+r.Body), lowTarget) {
-			out = append(out, search.LinkedRecord{ID: r.ID, Status: r.Status, Title: r.Title})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	if len(out) > 10 {
-		out = out[:10]
-	}
-	return out
 }

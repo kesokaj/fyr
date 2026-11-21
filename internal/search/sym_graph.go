@@ -133,6 +133,16 @@ func queryIndexedFilesDB(db *sql.DB, projects []string, includeDocs bool) ([]ind
 	q := `SELECT f.project, f.path, f.oid, ` + lcExpr + `
 		FROM files f LEFT JOIN blobs b ON b.oid = f.oid
 		WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
+	return scanIndexedFilesDB(db, q, args, includeDocs)
+}
+
+func queryIndexedFilePathsDB(db *sql.DB, projects []string, includeDocs bool) ([]indexedFileMeta, error) {
+	inSQL, args := projectsInClause(projects)
+	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + inSQL + ` ORDER BY f.path`
+	return scanIndexedFilesDB(db, q, args, includeDocs)
+}
+
+func scanIndexedFilesDB(db *sql.DB, q string, args []any, includeDocs bool) ([]indexedFileMeta, error) {
 	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -237,4 +247,22 @@ func indexGraphSymbols(g *symGraph) {
 			g.defFile[s.Name]++
 		}
 	}
+}
+
+func matchesPromptSymbolName(s RankedSymbol, terms []string) bool {
+	nameLow := strings.ToLower(s.Name)
+	if len(terms) == 0 || (len(nameLow) < hookMinIdentLen && strings.HasSuffix(strings.ToLower(s.Path), ".sh")) {
+		return false
+	}
+	qualLow := strings.ToLower(s.QualName())
+	for _, t := range terms {
+		tl := strings.ToLower(t)
+		if tl == "" || strings.Contains(tl, "/") || ftsFallbackStopwords[tl] {
+			continue
+		}
+		if nameLow == tl || qualLow == tl || (len(tl) >= 4 && (strings.Contains(nameLow, tl) || strings.Contains(qualLow, tl))) {
+			return true
+		}
+	}
+	return false
 }

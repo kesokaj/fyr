@@ -502,3 +502,223 @@ func mapKeysSlice[V any](m map[string]V) []string {
 	}
 	return out
 }
+
+func TestGitWarmSigSupportsReftable(t *testing.T) {
+	dir := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, dir, "service.go", hookSampleServiceSrc)
+	commitAll(t, dir, "init reftable fixture")
+	if err := Index(Options{Dir: dir, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/.invalid\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rtDir := filepath.Join(gitDir, "reftable")
+	if err := os.MkdirAll(rtDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listPath := filepath.Join(rtDir, "tables.list")
+	if err := os.WriteFile(listPath, []byte("0x000000000001-0x000000000002-11111111.ref\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sig1, ok := computeGitWarmSignature(dir)
+	if !ok || sig1 == "" {
+		t.Fatalf("computeGitWarmSignature on reftable = (%q, %v), want non-empty, true", sig1, ok)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	st.saveGitWarmSig(dir)
+	if !st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatal("matchesGitWarmSig = false after saving reftable warm sig")
+	}
+	if err := os.WriteFile(listPath, []byte("0x000000000001-0x000000000003-22222222.ref\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sig2, ok := computeGitWarmSignature(dir)
+	if !ok || sig2 == sig1 {
+		t.Fatalf("reftable mutation gave (%q, %v), want different sig from %q", sig2, ok, sig1)
+	}
+	if st.matchesGitWarmSig(context.Background(), dir) {
+		t.Fatal("matchesGitWarmSig stayed true after tables.list change")
+	}
+	if err := os.Remove(listPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "service.go"), listPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := computeGitWarmSignature(dir); ok {
+		t.Fatal("symlink tables.list succeeded, want false")
+	}
+	if err := os.Remove(listPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := computeGitWarmSignature(dir); ok {
+		t.Fatal("missing tables.list succeeded, want false")
+	}
+}
+
+func TestBoundedSymGraphQueryPlansUseIndexes(t *testing.T) {
+	expanded := expandBoundedSymbolTerms([]string{"internal/search/reconcile.go"})
+	for _, forbidden := range []string{"internal", "search", "internal/search/reconcile.go"} {
+		for _, tok := range expanded {
+			if tok == forbidden {
+				t.Fatalf("expandBoundedSymbolTerms included %q in %v", forbidden, expanded)
+			}
+		}
+	}
+	if !sliceContainsString(expanded, "reconcile") {
+		t.Fatalf("expandBoundedSymbolTerms missing basename stem reconcile in %v", expanded)
+	}
+	dir := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, dir, "internal/sub/sample.go", "package sub\n\nfunc MyCustomReconcileHelper() int { return HelperLeaf() }\nfunc HelperLeaf() int { return 7 }\n")
+	commitAll(t, dir, "bounded sql fixture")
+	if err := Index(Options{Dir: dir, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	assertQueryPlanUses(t, st, "SELECT f.project, f.path, sy.oid FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid WHERE f.project IN (?) AND sy.oid IN (?)", []any{dir, "x"}, "symbols_oid", "files_oid")
+	assertQueryPlanUses(t, st, "SELECT f.path, r.oid FROM sym_refs r CROSS JOIN files f ON f.oid = r.oid WHERE f.project IN (?) AND r.oid IN (?)", []any{dir, "x"}, "sym_refs_oid", "files_oid")
+	assertQueryPlanUses(t, st, "SELECT f.path, r.oid FROM sym_refs r CROSS JOIN files f ON f.oid = r.oid WHERE f.project IN (?) AND r.to_name IN (?) ORDER BY f.path, r.line LIMIT 400", []any{dir, "x"}, "sym_refs_to_name", "files_oid")
+	assertQueryPlanUses(t, st, "SELECT DISTINCT f.path, sy.oid FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid WHERE f.project IN (?) AND sy.name IN (?)", []any{dir, "x"}, "symbols_name", "files_oid")
+	assertQueryPlanSingle(t, st, "SELECT DISTINCT name FROM symbols", "COVERING INDEX symbols_name")
+	assertFTSFallbackQueryPlan(t, st, dir)
+	sc := &scope{st: st, projects: []string{dir}}
+	g, err := sc.loadBoundedSymGraph("customreconcile", nil, false, 1)
+	if err != nil {
+		t.Fatalf("loadBoundedSymGraph fallback: %v", err)
+	}
+	if len(g.byName["MyCustomReconcileHelper"]) == 0 {
+		t.Fatalf("lowercase substring fallback missed MyCustomReconcileHelper: syms=%d", len(g.syms))
+	}
+}
+
+func explainQueryPlan(t *testing.T, st *store, query string, args ...any) []string {
+	t.Helper()
+	rows, err := st.db.Query("EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN %s: %v", query, err)
+	}
+	defer rows.Close()
+	var lines []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, detail)
+	}
+	return lines
+}
+
+func assertQueryPlanUses(t *testing.T, st *store, query string, args []any, wantFirst, wantSecond string) {
+	t.Helper()
+	lines := explainQueryPlan(t, st, query, args...)
+	if len(lines) < 2 || !strings.Contains(lines[0], wantFirst) || !strings.Contains(lines[1], wantSecond) {
+		t.Fatalf("query plan = %v, want outer %q then %q", lines, wantFirst, wantSecond)
+	}
+}
+
+func assertQueryPlanSingle(t *testing.T, st *store, query, want string) {
+	t.Helper()
+	lines := explainQueryPlan(t, st, query)
+	if len(lines) < 1 || !strings.Contains(lines[0], want) {
+		t.Fatalf("query plan = %v, want %q in first row", lines, want)
+	}
+}
+
+func assertFTSFallbackQueryPlan(t *testing.T, st *store, dir string) {
+	t.Helper()
+	q := `WITH m AS MATERIALIZED (
+			SELECT rowid AS id, bm25(chunks_fts, 5.0, 1.0, 1.0) AS score
+			FROM chunks_fts WHERE chunks_fts MATCH ?
+			ORDER BY score LIMIT ?
+		)
+		SELECT f.path, c.line, c.heading, c.body
+		FROM m
+		JOIN chunks c ON c.id = m.id
+		JOIN files f ON f.oid = c.oid
+		WHERE f.project IN (?)
+		ORDER BY m.score`
+	lines := explainQueryPlan(t, st, q, `"sample"`, ftsFallbackLimit*8, dir)
+	wantOrder := []string{"MATERIALIZE m", "SCAN chunks_fts", "SCAN m", "SEARCH c", "SEARCH f"}
+	wi := 0
+	for _, line := range lines {
+		if wi < len(wantOrder) && strings.Contains(line, wantOrder[wi]) {
+			wi++
+		}
+	}
+	if wi != len(wantOrder) {
+		t.Fatalf("fts fallback query plan = %#v, want ordered substrings %v (matched %d/%d)", lines, wantOrder, wi, len(wantOrder))
+	}
+}
+
+func sliceContainsString(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBoundedSymGraphHop1ScopesToPrioritySymbol(t *testing.T) {
+	dir := newRepo(t)
+	home := t.TempDir()
+	writeFile(t, dir, "target.go", "package sample\n\nfunc PriorityTargetFunc() int { return TargetCallee() }\nfunc NonPriorityHelper() { CloseAll() }\n")
+	writeFile(t, dir, "callee.go", "package sample\n\nfunc TargetCallee() int { return 42 }\n")
+	writeFile(t, dir, "caller.go", "package sample\n\nfunc PriorityCaller() int { return PriorityTargetFunc() }\n")
+	writeFile(t, dir, "hub.go", "package sample\n\nfunc CloseAll() {}\n")
+	for i := 1; i <= 5; i++ {
+		writeFile(t, dir, fmt.Sprintf("noise%d.go", i), fmt.Sprintf("package sample\n\nfunc Noise%d() { CloseAll() }\n", i))
+	}
+	commitAll(t, dir, "priority hop1 scope fixture")
+	if err := Index(Options{Dir: dir, Home: home}, io.Discard); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	sc := &scope{st: st, projects: []string{dir}}
+	g, err := sc.loadBoundedSymGraph("Modify PriorityTargetFunc in target.go", nil, false, 1)
+	if err != nil {
+		t.Fatalf("loadBoundedSymGraph: %v", err)
+	}
+	for _, want := range []string{"target.go", "callee.go", "caller.go"} {
+		if len(g.byPath[want]) == 0 {
+			t.Errorf("hop1 graph missing %s; got %v", want, mapKeysSlice(g.byPath))
+		}
+	}
+	for _, unwanted := range []string{"hub.go", "noise1.go", "noise2.go", "noise3.go", "noise4.go", "noise5.go"} {
+		if len(g.byPath[unwanted]) > 0 {
+			t.Errorf("hop1 graph leaked unrelated CloseAll file %s; got %v", unwanted, mapKeysSlice(g.byPath))
+		}
+	}
+}
+
+func TestExtractFTSFallbackWordsStripsPathDirs(t *testing.T) {
+	words := extractFTSFallbackWords("Update ReconcileProjectIndex in internal/search/reconcile.go")
+	for _, want := range []string{"reconcileprojectindex", "reconcile"} {
+		if !sliceContainsString(words, want) {
+			t.Fatalf("extractFTSFallbackWords missing %q in %v", want, words)
+		}
+	}
+	for _, forbidden := range []string{"internal", "search"} {
+		if sliceContainsString(words, forbidden) {
+			t.Fatalf("extractFTSFallbackWords included path dir %q in %v", forbidden, words)
+		}
+	}
+}

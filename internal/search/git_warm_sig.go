@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
@@ -21,6 +24,7 @@ const (
 	maxWarmSigRacyTotalB = 2 << 20
 	maxUntrackedFiles    = 256
 	maxUntrackedDepth    = 6
+	maxReftableListBytes = 64 << 10
 )
 
 func gitWarmSigKey(root string) string {
@@ -96,10 +100,10 @@ func hashGitHeadAndRefs(h hash.Hash, gitDir, commonDir string) bool {
 		return false
 	}
 	head := strings.TrimSpace(string(headBytes))
-	if strings.Contains(head, ".invalid") {
-		return false
-	}
 	fmt.Fprintf(h, "head:%d:%s\n", headFi.ModTime().UnixNano(), head)
+	if strings.Contains(head, ".invalid") {
+		return hashGitReftable(h, gitDir, commonDir)
+	}
 	if ref, isRef := strings.CutPrefix(head, "ref: "); isRef {
 		cleanRef := filepath.FromSlash(strings.TrimSpace(ref))
 		if !filepath.IsLocal(cleanRef) {
@@ -109,6 +113,42 @@ func hashGitHeadAndRefs(h hash.Hash, gitDir, commonDir string) bool {
 		hashOptionalStat(h, "cref", filepath.Join(commonDir, cleanRef))
 	}
 	hashOptionalStat(h, "packed", filepath.Join(commonDir, "packed-refs"))
+	return true
+}
+
+func hashGitReftable(h hash.Hash, gitDir, commonDir string) bool {
+	if !hashReftableList(h, "rt_common", filepath.Join(commonDir, "reftable", "tables.list"), true) {
+		return false
+	}
+	if gitDir != commonDir && !hashReftableList(h, "rt_worktree", filepath.Join(gitDir, "reftable", "tables.list"), false) {
+		return false
+	}
+	return true
+}
+
+func hashReftableList(h hash.Hash, tag, listPath string, required bool) bool {
+	fi, err := os.Lstat(listPath)
+	if err != nil {
+		if !required && os.IsNotExist(err) {
+			fmt.Fprintf(h, "%s:none\n", tag)
+			return true
+		}
+		return false
+	}
+	if !fi.Mode().IsRegular() || fi.Size() <= 0 || fi.Size() > maxReftableListBytes {
+		return false
+	}
+	f, err := trail.OpenRegular(listPath)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxReftableListBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maxReftableListBytes {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	fmt.Fprintf(h, "%s:%d:%d:%x\n", tag, fi.Size(), fi.ModTime().UnixNano(), sum[:16])
 	return true
 }
 

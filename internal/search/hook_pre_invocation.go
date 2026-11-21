@@ -215,7 +215,7 @@ func (sc *scope) buildVetSlice(o Options, prompt string, state SessionState, pre
 		return SliceResult{}
 	}
 	active := sc.sessionActiveFiles(o.Session, o.ActiveFiles)
-	g, err := sc.loadBoundedSymGraph(prompt, active, false, defaultSliceHops)
+	g, err := sc.loadBoundedSymGraph(prompt, active, false, 1)
 	if err != nil || len(g.syms) == 0 {
 		return SliceResult{}
 	}

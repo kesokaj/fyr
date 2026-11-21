@@ -203,6 +203,22 @@ func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
 	if _, err := SearchTurnRecords(bo, []string{"migration"}, 8); err != nil {
 		t.Errorf("SearchTurnRecords on read-only dir: %v", err)
 	}
+	if recs, hits, err := LoadTurnRecordsAndFTS(Options{Home: emptyHome, Dir: dir}, []string{"migration"}, 8); err != nil || len(recs) != 0 || len(hits) != 0 {
+		t.Errorf("missing store LoadTurnRecordsAndFTS = (%d, %d, %v), want 0, 0, nil", len(recs), len(hits), err)
+	}
+	if _, _, err := LoadTurnRecordsAndFTS(Options{Home: futureHome, Dir: dir}, []string{"migration"}, 8); err == nil || !strings.Contains(err.Error(), "schema 99") {
+		t.Errorf("LoadTurnRecordsAndFTS future schema err = %v, want schema 99 refusal", err)
+	}
+	combinedRecs, combinedHits, err := LoadTurnRecordsAndFTS(bo, []string{"migrations"}, 16)
+	if err != nil {
+		t.Fatalf("LoadTurnRecordsAndFTS: %v", err)
+	}
+	if !containsRecordID(combinedRecs, openPlanID) || !containsRecordID(combinedRecs, projMemID) {
+		t.Errorf("LoadTurnRecordsAndFTS missing expected active records")
+	}
+	if len(combinedHits) == 0 || combinedHits[0].ID == "" {
+		t.Errorf("LoadTurnRecordsAndFTS hits = %+v, want non-empty FTS hits", combinedHits)
+	}
 }
 
 func containsRecordID(recs []Record, id string) bool {

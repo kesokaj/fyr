@@ -1,110 +1,182 @@
 package search
 
 import (
+	"cmp"
 	"database/sql"
+	"slices"
+	"strconv"
 	"strings"
 )
 
 func querySeedSymbolsDB(db *sql.DB, projects []string, includeDocs bool, seedOIDs map[string]bool, terms []string) ([]RankedSymbol, error) {
-	predSQL, predArgs := buildSeedSymbolPredicate(seedOIDs, terms)
-	if predSQL == "" {
+	var merged []RankedSymbol
+	if len(seedOIDs) > 0 {
+		byOID, err := querySymbolsByOIDsDB(db, projects, includeDocs, sortedMapKeys(seedOIDs))
+		if err != nil {
+			return nil, err
+		}
+		merged = append(merged, byOID...)
+	}
+	if exactNames := collectExactSymbolCandidates(terms); len(exactNames) > 0 {
+		byName, err := queryExactSymbolsByNameDB(db, projects, includeDocs, exactNames)
+		if err != nil {
+			return nil, err
+		}
+		merged = append(merged, byName...)
+	}
+	merged = mergeAndSortSeedSymbols(merged)
+	if hasStrongIdentSeed(merged, terms) {
+		return merged, nil
+	}
+	likeSyms, err := querySeedSymbolsLikeDB(db, projects, includeDocs, terms)
+	if err != nil {
+		return nil, err
+	}
+	return mergeAndSortSeedSymbols(append(merged, likeSyms...)), nil
+}
+
+func queryExactSymbolsByNameDB(db *sql.DB, projects []string, includeDocs bool, names []string) ([]RankedSymbol, error) {
+	return querySymbolsWhereInDB(db, projects, includeDocs, "sy.name", names)
+}
+
+func querySymbolsByOIDsDB(db *sql.DB, projects []string, includeDocs bool, oids []string) ([]RankedSymbol, error) {
+	return querySymbolsWhereInDB(db, projects, includeDocs, "sy.oid", oids)
+}
+
+func querySymbolsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col string, vals []string) ([]RankedSymbol, error) {
+	if len(vals) == 0 {
 		return nil, nil
 	}
-	inSQL, args := projectsInClause(projects)
-	args = append(args, predArgs...)
-	q := `SELECT DISTINCT f.project, f.path, sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line, sy.end_line, sy.sig, sy.exported, sy.body_hash
-		FROM symbols sy JOIN files f ON f.oid = sy.oid
-		WHERE f.project IN ` + inSQL + ` AND (` + predSQL + `)
+	pSQL, pArgs := projectsInClause(projects)
+	vSQL, vArgs := projectsInClause(vals)
+	q := `SELECT f.project, f.path, sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line, sy.end_line, sy.sig, sy.exported, sy.body_hash
+		FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid
+		WHERE f.project IN ` + pSQL + ` AND ` + col + ` IN ` + vSQL + `
 		ORDER BY f.path, sy.start_line, sy.end_line, sy.recv, sy.name`
-	return scanSymbolNodeRows(db, q, args, includeDocs)
+	return scanSymbolNodeRows(db, q, append(pArgs, vArgs...), includeDocs)
 }
 
-const maxBoundedSymbolTerms = 24
+func querySeedSymbolsLikeDB(db *sql.DB, projects []string, includeDocs bool, terms []string) ([]RankedSymbol, error) {
+	exact, long, hasDot := collectBoundedLikeTerms(terms)
+	if len(exact) == 0 && len(long) == 0 {
+		return nil, nil
+	}
+	matched, seen, err := matchSymbolNamesFromIndex(db, exact, long)
+	if err == nil && hasDot && len(matched) < maxBoundedSeedNames {
+		matched, err = matchQualSymbolNamesFromDB(db, exact, long, seen, matched)
+	}
+	if err != nil || len(matched) == 0 {
+		return nil, err
+	}
+	return queryExactSymbolsByNameDB(db, projects, includeDocs, matched)
+}
 
-func filterBoundedQueryTerms(terms []string) []string {
-	out := make([]string, 0, len(terms))
-	for _, t := range terms {
-		tl := strings.ToLower(t)
-		if !strings.ContainsAny(tl, "/.") && ftsFallbackStopwords[tl] {
+func collectBoundedLikeTerms(terms []string) (exact, long []string, hasDot bool) {
+	for _, tl := range expandBoundedSymbolTerms(terms) {
+		if strings.Contains(tl, "/") || len(tl) < 2 {
 			continue
 		}
-		out = append(out, t)
-		if len(out) >= maxBoundedQueryTerms {
-			break
+		if len(exact) < maxBoundedSymbolTerms {
+			exact = append(exact, tl)
+			hasDot = hasDot || strings.Contains(tl, ".")
+		}
+		if len(tl) >= 4 && len(long) < maxBoundedSymbolTerms {
+			long = append(long, tl)
+			hasDot = hasDot || strings.Contains(tl, ".")
 		}
 	}
-	return out
+	return exact, long, hasDot
 }
 
-func expandBoundedSymbolTerms(terms []string) []string {
+func matchSymbolNamesFromIndex(db *sql.DB, exact, long []string) ([]string, map[string]bool, error) {
+	rows, err := db.Query(`SELECT DISTINCT name FROM symbols`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	var matched []string
+	for rows.Next() && len(matched) < maxBoundedSeedNames {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, nil, err
+		}
+		matched = addBoundedLikeMatch(seen, matched, name, name, exact, long)
+	}
+	return matched, seen, rows.Err()
+}
+
+func matchQualSymbolNamesFromDB(db *sql.DB, exact, long []string, seen map[string]bool, matched []string) ([]string, error) {
+	rows, err := db.Query(`SELECT DISTINCT recv, name FROM symbols WHERE recv != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if seen == nil {
+		seen = map[string]bool{}
+	}
+	for rows.Next() && len(matched) < maxBoundedSeedNames {
+		var recv, name string
+		if err := rows.Scan(&recv, &name); err != nil {
+			return nil, err
+		}
+		matched = addBoundedLikeMatch(seen, matched, name, recv+"."+name, exact, long)
+	}
+	return matched, rows.Err()
+}
+
+func addBoundedLikeMatch(seen map[string]bool, matched []string, name, cand string, exact, long []string) []string {
+	if seen[name] {
+		return matched
+	}
+	low := strings.ToLower(cand)
+	if slices.Contains(exact, low) || slices.ContainsFunc(long, func(l string) bool { return strings.Contains(low, l) }) {
+		seen[name] = true
+		return append(matched, name)
+	}
+	return matched
+}
+
+func collectExactSymbolCandidates(terms []string) []string {
 	var out []string
 	seen := map[string]bool{}
-	add := func(tok string) bool {
-		if tok == "" || seen[tok] {
-			return len(out) < maxBoundedSymbolTerms
+	add := func(s string) {
+		if len(s) >= 2 && !seen[s] && len(out) < maxBoundedSymbolTerms {
+			seen[s] = true
+			out = append(out, s)
 		}
-		seen[tok] = true
-		out = append(out, tok)
-		return len(out) < maxBoundedSymbolTerms
 	}
 	for _, t := range filterBoundedQueryTerms(terms) {
-		tl := strings.ToLower(t)
-		if !add(tl) {
-			break
-		}
-		if strings.ContainsAny(tl, "/-.") {
-			parts := strings.FieldsFunc(tl, func(r rune) bool { return r == '/' || r == '-' || r == '.' })
-			for _, p := range parts {
-				if len(p) >= 4 && !ftsFallbackStopwords[p] && !add(p) {
-					return out
-				}
+		if !strings.Contains(t, "/") {
+			add(t)
+			if dot := strings.LastIndexByte(t, '.'); dot >= 0 && dot+1 < len(t) {
+				add(t[dot+1:])
 			}
 		}
 	}
 	return out
 }
 
-func buildSeedSymbolPredicate(seedOIDs map[string]bool, terms []string) (string, []any) {
-	var parts []string
-	var args []any
-	if len(seedOIDs) > 0 {
-		inSQL, oidArgs := projectsInClause(sortedMapKeys(seedOIDs))
-		parts = append(parts, `sy.oid IN `+inSQL)
-		args = append(args, oidArgs...)
+func mergeAndSortSeedSymbols(in []RankedSymbol) []RankedSymbol {
+	if len(in) == 0 {
+		return nil
 	}
-	var exact, long []string
-	for _, tl := range expandBoundedSymbolTerms(terms) {
-		if len(tl) >= 2 && len(exact) < maxBoundedSymbolTerms {
-			exact = append(exact, tl)
-		}
-		if len(tl) >= 4 && len(long) < maxBoundedSymbolTerms {
-			long = append(long, tl)
+	seen := make(map[string]bool, len(in))
+	out := make([]RankedSymbol, 0, len(in))
+	for _, s := range in {
+		if k := s.OID + "\x00" + s.Name + "\x00" + s.Recv + "\x00" + strconv.Itoa(s.StartLine); !seen[k] {
+			seen[k] = true
+			out = append(out, s)
 		}
 	}
-	if len(exact) > 0 {
-		inSQL, exArgs := projectsInClause(exact)
-		parts = append(parts, `lower(sy.name) IN `+inSQL)
-		args = append(args, exArgs...)
+	slices.SortFunc(out, func(a, b RankedSymbol) int {
+		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.StartLine, b.StartLine),
+			cmp.Compare(a.EndLine, b.EndLine), cmp.Compare(a.Recv, b.Recv), cmp.Compare(a.Name, b.Name))
+	})
+	for i := range out {
+		out[i].Idx = i
 	}
-	for _, tl := range long {
-		pat := "%" + escapeSQLike(tl) + "%"
-		parts = append(parts, `(lower(sy.name) LIKE ? ESCAPE '\' OR lower(sy.recv || '.' || sy.name) LIKE ? ESCAPE '\')`)
-		args = append(args, pat, pat)
-	}
-	return strings.Join(parts, " OR "), args
-}
-
-func querySymbolsByOIDsDB(db *sql.DB, projects []string, includeDocs bool, oids []string) ([]RankedSymbol, error) {
-	if len(oids) == 0 {
-		return nil, nil
-	}
-	pSQL, pArgs := projectsInClause(projects)
-	oSQL, oArgs := projectsInClause(oids)
-	q := `SELECT f.project, f.path, sy.oid, sy.name, sy.recv, sy.kind, sy.pkg, sy.start_line, sy.end_line, sy.sig, sy.exported, sy.body_hash
-		FROM symbols sy JOIN files f ON f.oid = sy.oid
-		WHERE f.project IN ` + pSQL + ` AND sy.oid IN ` + oSQL + `
-		ORDER BY f.path, sy.start_line, sy.end_line, sy.recv, sy.name`
-	return scanSymbolNodeRows(db, q, append(pArgs, oArgs...), includeDocs)
+	return out
 }
 
 func scanSymbolNodeRows(db *sql.DB, q string, args []any, includeDocs bool) ([]RankedSymbol, error) {
@@ -134,30 +206,26 @@ func scanSymbolNodeRows(db *sql.DB, q string, args []any, includeDocs bool) ([]R
 }
 
 func querySymRefsByOIDsDB(db *sql.DB, projects []string, includeDocs bool, oids []string) ([]rawSymRef, error) {
-	if len(oids) == 0 {
-		return nil, nil
-	}
-	pSQL, pArgs := projectsInClause(projects)
-	oSQL, oArgs := projectsInClause(oids)
-	q := `SELECT f.path, r.oid, r.from_sym, r.to_pkg, r.to_name, r.kind, r.confidence, r.weight, r.line
-		FROM sym_refs r JOIN files f ON f.oid = r.oid
-		WHERE f.project IN ` + pSQL + ` AND r.oid IN ` + oSQL + `
-		ORDER BY f.path, r.line, r.from_sym, r.to_name`
-	return scanRawSymRefRows(db, q, append(pArgs, oArgs...), includeDocs)
+	return querySymRefsWhereInDB(db, projects, includeDocs, "r.oid", oids, "ORDER BY f.path, r.line, r.from_sym, r.to_name")
 }
 
 func queryInboundSymRefsDB(db *sql.DB, projects []string, includeDocs bool, names []string, limit int) ([]rawSymRef, error) {
-	if len(names) == 0 || limit <= 0 {
+	if limit <= 0 {
+		return nil, nil
+	}
+	return querySymRefsWhereInDB(db, projects, includeDocs, "r.to_name", names, "ORDER BY f.path, r.line LIMIT ?", limit)
+}
+
+func querySymRefsWhereInDB(db *sql.DB, projects []string, includeDocs bool, col string, vals []string, tail string, tailArgs ...any) ([]rawSymRef, error) {
+	if len(vals) == 0 {
 		return nil, nil
 	}
 	pSQL, pArgs := projectsInClause(projects)
-	nSQL, nArgs := projectsInClause(names)
+	vSQL, vArgs := projectsInClause(vals)
 	q := `SELECT f.path, r.oid, r.from_sym, r.to_pkg, r.to_name, r.kind, r.confidence, r.weight, r.line
-		FROM sym_refs r JOIN files f ON f.oid = r.oid
-		WHERE f.project IN ` + pSQL + ` AND r.to_name IN ` + nSQL + `
-		ORDER BY f.path, r.line LIMIT ?`
-	args := append(append(pArgs, nArgs...), limit)
-	return scanRawSymRefRows(db, q, args, includeDocs)
+		FROM sym_refs r CROSS JOIN files f ON f.oid = r.oid
+		WHERE f.project IN ` + pSQL + ` AND ` + col + ` IN ` + vSQL + ` ` + tail
+	return scanRawSymRefRows(db, q, append(append(pArgs, vArgs...), tailArgs...), includeDocs)
 }
 
 func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, names []string) ([]string, error) {
@@ -166,7 +234,7 @@ func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, n
 	}
 	pSQL, pArgs := projectsInClause(projects)
 	nSQL, nArgs := projectsInClause(names)
-	q := `SELECT DISTINCT f.path, sy.oid FROM symbols sy JOIN files f ON f.oid = sy.oid
+	q := `SELECT DISTINCT f.path, sy.oid FROM symbols sy CROSS JOIN files f ON f.oid = sy.oid
 		WHERE f.project IN ` + pSQL + ` AND sy.name IN ` + nSQL
 	rows, err := db.Query(q, append(pArgs, nArgs...)...)
 	if err != nil {
@@ -180,11 +248,10 @@ func queryOIDsBySymbolNamesDB(db *sql.DB, projects []string, includeDocs bool, n
 		if err := rows.Scan(&fPath, &oid); err != nil {
 			return nil, err
 		}
-		if isExcludedASTPath(fPath) || (!includeDocs && isDocPath(fPath)) || seen[oid] {
-			continue
+		if !isExcludedASTPath(fPath) && (includeDocs || !isDocPath(fPath)) && !seen[oid] {
+			seen[oid] = true
+			out = append(out, oid)
 		}
-		seen[oid] = true
-		out = append(out, oid)
 	}
 	return out, rows.Err()
 }
@@ -212,16 +279,12 @@ func scanRawSymRefRows(db *sql.DB, q string, args []any, includeDocs bool) ([]ra
 func mergeUniqueRawRefs(a, b []rawSymRef) []rawSymRef {
 	seen := make(map[rawSymRef]bool, len(a)+len(b))
 	out := make([]rawSymRef, 0, len(a)+len(b))
-	for _, r := range a {
-		if !seen[r] {
-			seen[r] = true
-			out = append(out, r)
-		}
-	}
-	for _, r := range b {
-		if !seen[r] {
-			seen[r] = true
-			out = append(out, r)
+	for _, group := range [][]rawSymRef{a, b} {
+		for _, r := range group {
+			if !seen[r] {
+				seen[r] = true
+				out = append(out, r)
+			}
 		}
 	}
 	return out
@@ -229,26 +292,25 @@ func mergeUniqueRawRefs(a, b []rawSymRef) []rawSymRef {
 
 func partitionPrioritySymNames(syms []RankedSymbol, terms []string, limit int) (priority, other []string) {
 	seen := map[string]bool{}
-	for _, s := range syms {
-		if s.Name == "" || seen[s.Name] {
-			continue
-		}
-		if matchesPromptTerms(s, terms) {
-			seen[s.Name] = true
-			priority = append(priority, s.Name)
-			if limit > 0 && len(priority) >= limit {
-				return priority, nil
+	for _, matchFn := range []func(RankedSymbol, []string) bool{matchesPromptSymbolName, matchesPromptTerms} {
+		for _, s := range syms {
+			if s.Name != "" && !seen[s.Name] && matchFn(s, terms) {
+				seen[s.Name] = true
+				priority = append(priority, s.Name)
+				if limit > 0 && len(priority) >= limit {
+					return priority, nil
+				}
 			}
 		}
-	}
-	rem := limit - len(priority)
-	for _, s := range syms {
-		if s.Name == "" || seen[s.Name] || (limit > 0 && rem <= 0) {
-			continue
+		if len(priority) > 0 {
+			break
 		}
-		seen[s.Name] = true
-		other = append(other, s.Name)
-		rem--
+	}
+	for _, s := range syms {
+		if s.Name != "" && !seen[s.Name] && (limit <= 0 || len(priority)+len(other) < limit) {
+			seen[s.Name] = true
+			other = append(other, s.Name)
+		}
 	}
 	return priority, other
 }
@@ -257,13 +319,12 @@ func collectDistinctOutTargetNames(refs []rawSymRef, limit int) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, r := range refs {
-		if r.toName == "" || r.toName == "<import>" || seen[r.toName] {
-			continue
-		}
-		seen[r.toName] = true
-		out = append(out, r.toName)
-		if limit > 0 && len(out) >= limit {
-			break
+		if r.toName != "" && r.toName != "<import>" && !seen[r.toName] {
+			seen[r.toName] = true
+			out = append(out, r.toName)
+			if limit > 0 && len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out
@@ -285,9 +346,4 @@ func addBoundedOID(dst map[string]bool, oid string, limit int) bool {
 	}
 	dst[oid] = true
 	return true
-}
-
-func escapeSQLike(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return r.Replace(s)
 }
