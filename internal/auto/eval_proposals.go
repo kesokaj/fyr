@@ -161,10 +161,23 @@ func eligibleHarnessProposal(root string, rec brain.Record) bool {
 	if rec.Status != "queued" || strings.HasPrefix(lowTitle, "auto ask:") || strings.Contains(lowTitle, "missing skill") {
 		return false
 	}
-	if strings.Contains(rec.Body, "## Eval gate") || strings.Contains(strings.ToLower(rec.Body), "missing-skill:") {
+	if hasUnindentedProposalDisqualifier(rec.Body) {
 		return false
 	}
 	return isHarnessTargetProposal(root, rec) && hasProposalEvidence(rec.Body)
+}
+
+func hasUnindentedProposalDisqualifier(body string) bool {
+	norm := strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(body)
+	for _, raw := range strings.Split(norm, "\n") {
+		if raw != strings.TrimLeft(raw, " \t") {
+			continue
+		}
+		if strings.HasPrefix(raw, "## Eval gate") || strings.Contains(strings.ToLower(raw), "missing-skill:") {
+			return true
+		}
+	}
+	return false
 }
 
 func proposalHeaderLines(body string) []string {
@@ -174,9 +187,17 @@ func proposalHeaderLines(body string) []string {
 		if raw != strings.TrimLeft(raw, " \t") {
 			break
 		}
-		if line := strings.TrimSpace(raw); line != "" {
-			out = append(out, line)
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			if len(out) > 0 {
+				break
+			}
+			continue
 		}
+		if !looksLikeHeaderKV(line) {
+			break
+		}
+		out = append(out, line)
 	}
 	return out
 }
@@ -295,6 +316,7 @@ func (r *run) fileEvalGateProposal(root string, t Task, branch string, scores []
 		Body:       body,
 		UpdateBody: section,
 		CustomKey:  evalGateProposalKey(t.Class),
+		Derived:    true,
 	})
 	if err != nil {
 		r.failed = true

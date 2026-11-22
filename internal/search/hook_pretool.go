@@ -11,6 +11,9 @@ import (
 )
 
 func handlePreToolUse(ctx context.Context, o Options, dir string, in HookInput, out io.Writer) error {
+	if deny := checkStatelessPreToolSafety(ctx, o, dir, in); deny != "" {
+		return writeDecision(out, "deny", deny)
+	}
 	wd, wdSt, wdRoot := evaluateWatchdogPreCtx(ctx, o, dir, in)
 	if wdSt != nil {
 		defer wdSt.close()
@@ -26,6 +29,45 @@ func handlePreToolUse(ctx context.Context, o Options, dir string, in HookInput, 
 		return err
 	}
 	return finalizeWatchdogPreCtx(ctx, wdSt, dir, in, wd, buf.Bytes(), out)
+}
+
+func checkStatelessPreToolSafety(ctx context.Context, o Options, dir string, in HookInput) string {
+	switch normalizeHookToolName(in.ToolCall.Name) {
+	case "run_command":
+		if !isRelaySession() {
+			if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir) {
+				return ""
+			}
+		}
+		denyReason, _ := checkInteractiveBashGuard(in.ToolCall.Args)
+		return denyReason
+	case "invoke_subagent", "invokesubagent":
+		if subagent, guarded := isGuardedSubagentCall(in.ToolCall.Args); guarded {
+			if model, blocked := nonInheritModelOverride(in.ToolCall.Args); blocked {
+				return "[MODEL_OVERRIDE] subagent \"" + subagent + "\" forbids Model=\"" + model + "\" override; omit Model or pass \"inherit\" (rules/agy-dispatch.md)."
+			}
+		}
+	case "swarm":
+		if strings.EqualFold(stringArgCI(in.ToolCall.Args, "action"), "add") {
+			role := inferSwarmRole(in.ToolCall.Args)
+			rawModel := stringArgCI(in.ToolCall.Args, "model")
+			if m := strings.ToLower(rawModel); m != "" && m != "auto" && role == "judge" && isFastExecutionModelForHome(o.Home, rawModel) {
+				return "[MODEL_OVERRIDE] swarm review/security worker forbids weak model=\"" + rawModel + "\" override"
+			}
+		}
+	case "ask_question", "askquestion":
+		if isRelaySession() {
+			return "[KICKOFF_GUARD] ask_question is blocked during autonomous Kickoff/worker turns (relay); no interactive operator is available in fyr relay sessions."
+		}
+		meta := hookSubagentMetaFromCtx(ctx)
+		if strings.TrimSpace(meta.ParentConversationID) != "" {
+			return "[KICKOFF_GUARD] ask_question is blocked during autonomous Kickoff/worker turns (subagent); subagents cannot prompt an interactive operator."
+		}
+		if a := strings.TrimSpace(meta.AgentName); a != "" && !strings.EqualFold(a, "main") {
+			return "[KICKOFF_GUARD] ask_question is blocked during autonomous Kickoff/worker turns (subagent:" + a + "); subagents cannot prompt an interactive operator."
+		}
+	}
+	return ""
 }
 
 func dispatchPreToolUseCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
@@ -152,11 +194,16 @@ func handlePreToolBash(home, dir string, in HookInput, out io.Writer) error {
 }
 
 func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
-	if hooksDisabledForHome(home, dir) {
+	if hooksDisabledGlobal(home) {
 		return writeDecision(out, "allow", "")
 	}
-	if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabledForHome(home, toolDir) {
-		return writeDecision(out, "allow", "")
+	if !isRelaySession() {
+		if hooksDisabled(dir) {
+			return writeDecision(out, "allow", "")
+		}
+		if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir) {
+			return writeDecision(out, "allow", "")
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -164,6 +211,12 @@ func handlePreToolBashCtx(ctx context.Context, home, dir string, wdSt *store, wd
 	denyReason, overwrite := checkInteractiveBashGuard(in.ToolCall.Args)
 	if denyReason != "" {
 		return writeDecision(out, "deny", denyReason)
+	}
+	if hooksDisabled(dir) {
+		return writeDecision(out, "allow", "")
+	}
+	if toolDir := bashToolProjectDir(dir, in); toolDir != "" && !sameCleanPath(dir, toolDir) && hooksDisabled(toolDir) {
+		return writeDecision(out, "allow", "")
 	}
 	cmd := extractStringArg(in.ToolCall.Args, "CommandLine", "commandLine", "command_line", "Command", "command", "cmd")
 	if reads := ParseBashFileReads(cmd); len(reads) > 0 {

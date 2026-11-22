@@ -81,14 +81,14 @@ func invokePhaseSession(ctx context.Context, opts Options, top string, plan Pars
 	return setTrackedHaltErr(res, HaltSessionError, strings.Join(parts, "; "), err, tracker)
 }
 
-func verifyPostPhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, initialHash string, tracker *ErrorTracker, res *PhaseResult) error {
+func verifyPostPhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, tracker *ErrorTracker, res *PhaseResult) error {
 	if err := checkRemoteRefsUnchanged(ctx, top, snapBefore, res); err != nil {
 		return err
 	}
 	if err := checkProgressAndTree(ctx, top, tracker, res); err != nil {
 		return err
 	}
-	if err := checkHardSafety(ctx, opts, top, plan, ph, snapBefore, initialHash, tracker, res); err != nil {
+	if err := checkHardSafety(ctx, opts, top, plan, ph, snapBefore, tracker, res); err != nil {
 		return err
 	}
 	if err := runPhaseVerify(ctx, opts, top, tracker, res); err != nil {
@@ -138,7 +138,7 @@ func checkProgressAndTree(ctx context.Context, top string, tracker *ErrorTracker
 	return nil
 }
 
-func checkHardSafety(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, initialHash string, tracker *ErrorTracker, res *PhaseResult) error {
+func checkHardSafety(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, tracker *ErrorTracker, res *PhaseResult) error {
 	tagsAfter, err := gitTags(ctx, top)
 	if err != nil {
 		return setTrackedHalt(res, HaltFail, "read git tags: "+err.Error(), tracker)
@@ -146,7 +146,7 @@ func checkHardSafety(ctx context.Context, opts Options, top string, plan ParsedP
 	if added := newTagsBetween(snapBefore.tags, tagsAfter); len(added) > 0 {
 		return setGuardHalt(res, HaltTagCreated, "unauthorized git tag(s) created: "+strings.Join(added, ", "))
 	}
-	if _, err := loadAndVerifyPlanHash(opts.Home, top, plan.ID, initialHash); err != nil {
+	if _, err := loadAndVerifyPlanIntegrity(opts.Home, top, plan, ph); err != nil {
 		return setGuardHalt(res, HaltPlanTampered, err.Error())
 	}
 	changed, err := gitDiffNames(ctx, top, res.HeadBefore, res.HeadAfter)
@@ -212,8 +212,8 @@ func runPhaseJudge(ctx context.Context, opts Options, top string, plan ParsedPla
 	return setTrackedHalt(res, HaltFail, formatGateFindings(jRep, jErr), tracker)
 }
 
-func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, initialHash string, res PhaseResult, rep *Report) (bool, error) {
-	updatedBody, tamperErr, err := tickLatestPlanPhase(opts, top, plan, ph, initialHash)
+func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, res PhaseResult, rep *Report) (bool, error) {
+	updatedBody, tamperErr, err := tickLatestPlanPhase(opts, top, plan, ph)
 	if tamperErr != nil {
 		return false, haltPlanTamper(opts, top, plan, ph, tamperErr.Error(), tamperErr, rep)
 	}
@@ -230,13 +230,13 @@ func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, ini
 	return allDone, nil
 }
 
-func loadAndVerifyPlanHash(home, top, planID, initialHash string) (ParsedPlan, error) {
-	latest, err := LoadPlan(home, top, planID)
+func loadAndVerifyPlanIntegrity(home, top string, before ParsedPlan, target Phase) (ParsedPlan, error) {
+	latest, err := LoadPlan(home, top, before.ID)
 	if err != nil {
-		return ParsedPlan{}, fmt.Errorf("reload %s failed: %w", planID, err)
+		return ParsedPlan{}, fmt.Errorf("reload %s failed: %w", before.ID, err)
 	}
-	if planStructureHash(latest.Body) != initialHash {
-		return ParsedPlan{}, fmt.Errorf("plan %s changed outside checkbox markers during relay", planID)
+	if err := verifyPlanIntegrity(before, latest, target); err != nil {
+		return ParsedPlan{}, err
 	}
 	return latest, nil
 }
@@ -246,8 +246,8 @@ func haltPlanTamper(opts Options, top string, plan ParsedPlan, ph Phase, detail 
 	return recordHaltAndAppend(opts, top, plan, ph, res, nil, cause, rep)
 }
 
-func tickLatestPlanPhase(opts Options, top string, plan ParsedPlan, ph Phase, initialHash string) (updatedBody string, tamperErr, err error) {
-	latest, tErr := loadAndVerifyPlanHash(opts.Home, top, plan.ID, initialHash)
+func tickLatestPlanPhase(opts Options, top string, plan ParsedPlan, ph Phase) (updatedBody string, tamperErr, err error) {
+	latest, tErr := loadAndVerifyPlanIntegrity(opts.Home, top, plan, ph)
 	if tErr != nil {
 		return "", tErr, nil
 	}

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -14,6 +16,7 @@ const askTranscriptScanBytes = 32 << 10
 
 var (
 	adrConflictIDRe = regexp.MustCompile(`(?i)\badr-\d+[a-z]?\b`)
+	replanWordRe    = regexp.MustCompile(`\bre-?plan\b`)
 	quotaWordRe     = regexp.MustCompile(`\bquotas?\b`)
 	quotaCueRe      = regexp.MustCompile(`(?:\b(?:exhaust\w*|deplet\w*|empty|exceed\w*|floor|low|unavailable|blocked|out\s+of)\b|(?:^|[^0-9])0%)`)
 	rateLimitWordRe = regexp.MustCompile(`\brate[\s-]+limits?\b`)
@@ -21,16 +24,18 @@ var (
 )
 
 func handlePreToolAskQuestionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput, out io.Writer) error {
-	if ctx.Err() != nil || hooksDisabledForHome(o.Home, dir) {
+	if ctx.Err() != nil || hookBypassedForEvent(o.Home, dir, "pre-tool-use") {
 		return writeDecision(out, "allow", "")
 	}
 	isAuto, source := detectKickoffOrWorkerSessionCtx(ctx, o, dir, wd, wdSt, wdRoot, in)
 	if !isAuto {
 		return writeDecision(out, "allow", "")
 	}
-	payload := collectAskQuestionText(in.ToolCall.Args)
-	if hasAskQuestionEscapeClause(payload) {
-		return writeDecision(out, "allow", "")
+	if !isHeadlessAskSource(source) {
+		payload := collectAskQuestionText(in.ToolCall.Args)
+		if hasAskQuestionEscapeClause(payload) {
+			return writeDecision(out, "allow", "")
+		}
 	}
 	return writeDecision(out, "deny", fmt.Sprintf(
 		"[KICKOFF_GUARD] ask_question is blocked during autonomous Kickoff/worker turns (%s); settle implementation choices autonomously in the Autonomous Decisions Log, or cite an explicit PRD.md/ADR conflict, Re-plan trigger, or quota exhaustion.",
@@ -38,12 +43,16 @@ func handlePreToolAskQuestionCtx(ctx context.Context, o Options, dir string, wd 
 	))
 }
 
+func isHeadlessAskSource(source string) bool {
+	return source == "relay" ||
+		strings.HasPrefix(source, "subagent") ||
+		strings.HasPrefix(source, "role:") ||
+		strings.HasPrefix(source, "session_meta:")
+}
+
 func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
 	if os.Getenv("FYR_RELAY") == "1" {
 		return true, "relay"
-	}
-	if isKickoffOrWorkerPrompt(in.LastUserInput) {
-		return true, "prompt"
 	}
 	meta := hookSubagentMetaFromCtx(ctx)
 	if strings.TrimSpace(meta.ParentConversationID) != "" {
@@ -54,6 +63,9 @@ func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string,
 	}
 	if r := strings.TrimSpace(wd.role); r != "" && !strings.EqualFold(r, "main") {
 		return true, "role:" + r
+	}
+	if isKickoffOrWorkerPrompt(in.LastUserInput) {
+		return true, "prompt"
 	}
 	if ok, src := checkPersistedKickoffSessionCtx(ctx, dir, wdSt, wdRoot, in.ConversationID); ok {
 		return true, src
@@ -263,22 +275,28 @@ func appendAskValueStrings(b *strings.Builder, v any, limit int) {
 			if b.Len() > 0 {
 				b.WriteByte('\n')
 			}
-			b.WriteString(s)
+			rem := limit - b.Len()
+			if rem > 0 {
+				if len(s) > rem {
+					s = s[:rem]
+				}
+				b.WriteString(s)
+			}
 		}
 	case []any:
 		for _, elem := range x {
 			appendAskValueStrings(b, elem, limit)
 		}
 	case map[string]any:
-		for _, val := range x {
-			appendAskValueStrings(b, val, limit)
+		for _, k := range slices.Sorted(maps.Keys(x)) {
+			appendAskValueStrings(b, x[k], limit)
 		}
 	}
 }
 
 func hasAskQuestionEscapeClause(text string) bool {
 	low := strings.ToLower(text)
-	if strings.Contains(low, "re-plan") || strings.Contains(low, "replan") {
+	if replanWordRe.MatchString(low) {
 		return true
 	}
 	if hasQuotaExhaustionCue(low) {
@@ -286,7 +304,7 @@ func hasAskQuestionEscapeClause(text string) bool {
 	}
 	hasConflictCue := containsAnySubstr(low,
 		"conflict", "contradict", "violat", "amend", "override", "supersede",
-		"incompatib", "mismatch", "diverg", "deviat", "block", "cannot satisfy", "breaks ",
+		"incompatib", "mismatch", "diverg", "deviat", "cannot satisfy", "breaks ",
 	)
 	if strings.Contains(low, "prd.md") && hasConflictCue {
 		return true

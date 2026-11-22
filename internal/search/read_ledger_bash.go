@@ -278,34 +278,8 @@ func buildHeadOrTailRead(tool, filePath, rawCount string) (BashFileRead, bool) {
 }
 
 func parseBashSed(args []string) (BashFileRead, bool) {
-	quiet := false
-	var scripts, pos []string
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--":
-			pos, i = append(pos, args[i+1:]...), len(args)
-		case a == "-n" || a == "--quiet" || a == "--silent":
-			quiet = true
-		case a == "-e":
-			if i+1 >= len(args) {
-				return BashFileRead{}, false
-			}
-			i, scripts = i+1, append(scripts, args[i+1])
-		case strings.HasPrefix(a, "-") && strings.ContainsAny(a, "if"):
-			return BashFileRead{}, false
-		case strings.HasPrefix(a, "-"):
-			quiet = quiet || strings.ContainsRune(a, 'n')
-			if strings.HasSuffix(a, "e") && i+1 < len(args) {
-				i, scripts = i+1, append(scripts, args[i+1])
-			}
-		default:
-			pos = append(pos, a)
-		}
-	}
-	if len(scripts) == 0 && len(pos) == 2 {
-		scripts, pos = []string{pos[0]}, pos[1:]
-	}
-	if !quiet || len(scripts) != 1 || len(pos) != 1 || pos[0] == "-" {
+	quiet, scripts, pos, ok := parseSedArgs(args, 1)
+	if !ok || !quiet || len(scripts) != 1 || len(pos) != 1 || pos[0] == "-" {
 		return BashFileRead{}, false
 	}
 	start, end, ok := parseSedRangeScript(scripts[0])

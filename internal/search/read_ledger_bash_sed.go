@@ -19,6 +19,11 @@ func applyStdinSedStage(cur BashFileRead, lineMapped bool, args []string) (BashF
 }
 
 func parseStdinSedArgs(args []string) (bool, []string, bool) {
+	quiet, scripts, files, ok := parseSedArgs(args, 0)
+	return quiet, scripts, ok && len(files) == 0
+}
+
+func parseSedArgs(args []string, maxFiles int) (bool, []string, []string, bool) {
 	quiet := false
 	var scripts, pos []string
 	for i := 0; i < len(args); i++ {
@@ -29,20 +34,20 @@ func parseStdinSedArgs(args []string) (bool, []string, bool) {
 			quiet = true
 		case a == "-e" || a == "--expression":
 			if i+1 >= len(args) {
-				return false, nil, false
+				return false, nil, nil, false
 			}
 			i, scripts = i+1, append(scripts, args[i+1])
 		case strings.HasPrefix(a, "--expression="):
 			scripts = append(scripts, strings.TrimPrefix(a, "--expression="))
 		case a == "-E" || a == "-r" || a == "-u" || a == "--regexp-extended" || a == "--unbuffered" || a == "--posix" || a == "--sandbox":
 		case strings.HasPrefix(a, "--"):
-			return false, nil, false
+			return false, nil, nil, false
 		case strings.HasPrefix(a, "-") && len(a) > 1:
 			var sc string
 			var hasScript, ok bool
 			i, quiet, sc, hasScript, ok = parseShortSedFlags(args, i, quiet)
 			if !ok {
-				return false, nil, false
+				return false, nil, nil, false
 			}
 			if hasScript {
 				scripts = append(scripts, sc)
@@ -51,10 +56,10 @@ func parseStdinSedArgs(args []string) (bool, []string, bool) {
 			pos = append(pos, a)
 		}
 	}
-	if len(scripts) == 0 && len(pos) == 1 && pos[0] != "-" {
-		scripts, pos = []string{pos[0]}, nil
+	if len(scripts) == 0 && len(pos) == maxFiles+1 && pos[0] != "-" {
+		scripts, pos = []string{pos[0]}, pos[1:]
 	}
-	return quiet, scripts, len(pos) == 0
+	return quiet, scripts, pos, len(pos) <= maxFiles
 }
 
 func parseShortSedFlags(args []string, i int, quiet bool) (int, bool, string, bool, bool) {

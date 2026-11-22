@@ -48,7 +48,7 @@ func BuildAgyArgs(req SessionRequest) []string {
 		pt = t.String()
 	}
 	args := []string{"-p", req.Prompt, "--disable-slash-commands", "--output-format", "json", "--print-timeout", pt}
-	if m := strings.TrimSpace(req.Model); m != "" {
+	if m := strings.TrimSpace(req.Model); m != "" && isValidModelID(m) {
 		args = append(args, "--model", m)
 	}
 	return args
@@ -57,6 +57,9 @@ func BuildAgyArgs(req SessionRequest) []string {
 // RunAgySession executes one isolated `agy -p` subprocess in req.RepoDir with a
 // bounded timeout and process-group cleanup.
 func RunAgySession(ctx context.Context, req SessionRequest) (SessionResult, error) {
+	if m := strings.TrimSpace(req.Model); m != "" && !isValidModelID(m) {
+		return SessionResult{ExitCode: -1}, fmt.Errorf("invalid model ID %q", m)
+	}
 	if len(req.Prompt) >= MaxKickoffBytes {
 		return SessionResult{ExitCode: -1}, fmt.Errorf("kickoff prompt too large: %d bytes (limit < %d)", len(req.Prompt), MaxKickoffBytes)
 	}
@@ -93,6 +96,7 @@ func execSessionCmd(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (
 	start := time.Now()
 	stdout, stderr := &cappedBuf{limit: maxSessionOutputBytes}, &cappedBuf{limit: maxSessionOutputBytes}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.WaitDelay = killGrace
 	if err := cmd.Start(); err != nil {
 		return SessionResult{ExitCode: -1, Duration: time.Since(start)}, err
 	}
@@ -100,6 +104,9 @@ func execSessionCmd(ctx context.Context, cmd *exec.Cmd, timeout time.Duration) (
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	err := awaitSession(ctx, done, pgid, timeout)
+	if errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState != nil && cmd.ProcessState.ExitCode() == 0 {
+		err = nil
+	}
 	return SessionResult{ExitCode: cmdExitCode(err), Stdout: stdout.buf.String(), Stderr: stderr.buf.String(), Duration: time.Since(start)}, err
 }
 

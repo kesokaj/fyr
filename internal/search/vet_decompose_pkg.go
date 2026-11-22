@@ -277,7 +277,9 @@ func inferSliceVerify(role string, clauseFiles []string) string {
 		case ".ts", ".tsx", ".js", ".jsx":
 			return "npm test"
 		case ".sh":
-			return "bash -n " + f
+			if isSafeVerifyPath(f) {
+				return "bash -n " + f
+			}
 		case ".md":
 			return "fyr check"
 		}
@@ -294,7 +296,11 @@ func inferGoDirsVerify(clauseFiles []string) string {
 		}
 		dir, target := packageDirKey(f), "./..."
 		if dir != "." && dir != "" {
-			target = "./" + strings.TrimPrefix(dir, "./") + "/..."
+			cleanDir := strings.TrimPrefix(dir, "./")
+			if !isSafeVerifyPath(cleanDir) {
+				continue
+			}
+			target = "./" + cleanDir + "/..."
 		}
 		if !seen[target] {
 			seen[target] = true
@@ -305,4 +311,19 @@ func inferGoDirsVerify(clauseFiles []string) string {
 		return ""
 	}
 	return "go test -race " + strings.Join(targets, " ")
+}
+
+func isSafeVerifyPath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "-") || strings.HasPrefix(p, "/") || strings.Contains(p, "..") {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '/' || c == '.' || c == '_' || c == '-' || c == '@' || c == '+'
+		if !ok {
+			return false
+		}
+	}
+	return true
 }

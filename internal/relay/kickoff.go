@@ -27,7 +27,11 @@ func BuildKickoff(repoDir string, plan ParsedPlan, ph Phase) string {
 	const note = "\n- ... [task list truncated to stay below 120 KiB]\n"
 	avail := MaxKickoffBytes - 1 - len(head) - len(tail) - len(note)
 	if avail <= 0 {
-		return truncateUTF8(head+tail, MaxKickoffBytes-1)
+		headBudget := MaxKickoffBytes - 1 - len(tail) - len(note)
+		if headBudget > 0 {
+			return truncateUTF8(head, headBudget) + note + tail
+		}
+		return truncateUTF8(tail, MaxKickoffBytes-1)
 	}
 	return head + truncateUTF8(tasks, avail) + note + tail
 }
@@ -43,21 +47,25 @@ func formatKickoffHeader(repoDir string, plan ParsedPlan, ph Phase) string {
 	}
 	return fmt.Sprintf(
 		"Project: this clone, the current directory; never another checkout.\n"+
+			"RELAY OVERRIDE: Do NOT run git push or git tag (this supersedes global commit-and-push rules).\n"+
 			"Plan: %s — %s\n"+
-			"Files: %s\n"+
-			"RELAY OVERRIDE: Do NOT run git push or git tag (this supersedes global commit-and-push rules).\n\n"+
-			"Kickoff: Execute one phase of %s in %s.\n"+
-			"Repository: %s (work ONLY in this checkout; never another checkout).\n"+
 			"Target Phase: %s\n"+
-			"Verify: %s\n\n"+
+			"Verify: %s\n"+
+			"Files: %s\n\n"+
+			"Kickoff: Execute one phase of %s in %s.\n"+
+			"Repository: %s (work ONLY in this checkout; never another checkout).\n\n"+
 			"## Open Tasks\n",
-		plan.ID, plan.Title, lease, plan.ID, repoDir, repoDir, ph.Title, verifyCmd)
+		plan.ID, plan.Title, ph.Title, verifyCmd, lease, plan.ID, repoDir, repoDir)
 }
 
 func formatKickoffFooter(ph Phase) string {
 	judgeLine := ""
 	if ph.Judge != "" {
-		judgeLine = "- Alignment criterion: " + ph.Judge + "\n"
+		j := ph.Judge
+		if len(j) > 2048 {
+			j = truncateUTF8(j, 2000) + "... [truncated]"
+		}
+		judgeLine = "- Alignment criterion: " + j + "\n"
 	}
 	return "\n## Standing Approvals\n" +
 		"- Operator pre-approved this phase in the plan; proceed autonomously.\n" +

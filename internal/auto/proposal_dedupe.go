@@ -37,7 +37,7 @@ func (r *run) upsertProposal(spec proposalSpec) (id string, created bool, err er
 	if key == "" {
 		key = proposalDedupeKey(brain.Record{Title: spec.Title, Body: spec.Body, Project: spec.Project})
 	}
-	if match, ok := r.findOpenProposalByKey(g, key); ok {
+	if match, ok := r.findOpenProposalByKey(g, key, spec.Derived); ok {
 		merged := mergeRecurringProposalBody(match.Body, spec, r.o.now())
 		if err := brain.Edit(g, brain.EditInput{ID: match.ID, Body: strings.NewReader(redact.Redact(merged))}); err != nil {
 			return "", false, err
@@ -56,7 +56,7 @@ func (r *run) upsertProposal(spec proposalSpec) (id string, created bool, err er
 	return id, true, nil
 }
 
-func (r *run) findOpenProposalByKey(g brain.Options, key string) (brain.Record, bool) {
+func (r *run) findOpenProposalByKey(g brain.Options, key string, derivedOnly bool) (brain.Record, bool) {
 	if key == "" || !brainDBExists(r.o.Home) {
 		return brain.Record{}, false
 	}
@@ -65,6 +65,9 @@ func (r *run) findOpenProposalByKey(g brain.Options, key string) (brain.Record, 
 		return brain.Record{}, false
 	}
 	for _, rec := range open {
+		if derivedOnly && !isDerivedProposal(rec) {
+			continue
+		}
 		if proposalDedupeKey(rec) == key {
 			return rec, true
 		}

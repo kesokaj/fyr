@@ -50,8 +50,14 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 			_, _ = out.Write(res.data)
 			return nil
 		}
+		if event == "pre-tool-use" && isRelaySession() {
+			return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook error or panic denied during fyr relay session (fail-closed)")
+		}
 		return writeHookAllowFallback(event, out)
 	case <-ctx.Done():
+		if event == "pre-tool-use" && isRelaySession() {
+			return writeDecision(out, "deny", "[RELAY_GUARD] pre-tool-use hook deadline exceeded during fyr relay session (fail-closed)")
+		}
 		err := writeHookAllowFallback(event, out)
 		if event == "pre-invocation" {
 			select {
@@ -90,12 +96,13 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 		return
 	}
 	dir := resolveHookDir(o, input)
-	if decErr != nil || hooksDisabledForHome(o.Home, dir) {
+	if decErr != nil {
+		emitHookDecodeError(ctx, event, &buf, ch)
+		return
+	}
+	if hookBypassedForEvent(o.Home, dir, event) {
 		_ = writeHookAllowFallback(event, &buf)
-		select {
-		case ch <- hookRunResult{data: buf.Bytes()}:
-		case <-ctx.Done():
-		}
+		sendHookResult(ctx, ch, hookRunResult{data: buf.Bytes()})
 		return
 	}
 	ctx = withHookSubagentMeta(ctx, extractHookSubagentMeta(rawData))
@@ -104,8 +111,21 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 	default:
 	}
 	err := dispatchFn(ctx, o, event, dir, input, &buf)
+	sendHookResult(ctx, ch, hookRunResult{data: buf.Bytes(), err: err})
+}
+
+func emitHookDecodeError(ctx context.Context, event string, buf *bytes.Buffer, ch chan<- hookRunResult) {
+	if event == "pre-tool-use" && isRelaySession() {
+		_ = writeDecision(buf, "deny", "[RELAY_GUARD] malformed or oversized pre-tool-use payload denied during fyr relay session (fail-closed)")
+	} else {
+		_ = writeHookAllowFallback(event, buf)
+	}
+	sendHookResult(ctx, ch, hookRunResult{data: buf.Bytes()})
+}
+
+func sendHookResult(ctx context.Context, ch chan<- hookRunResult, res hookRunResult) {
 	select {
-	case ch <- hookRunResult{data: buf.Bytes(), err: err}:
+	case ch <- res:
 	case <-ctx.Done():
 	}
 }
@@ -230,6 +250,20 @@ func hooksDisabledGlobal(home string) bool {
 	}
 	_, err := os.Stat(filepath.Join(h, harness.StateDir, "no-hooks"))
 	return err == nil
+}
+
+func isRelaySession() bool {
+	return os.Getenv("FYR_RELAY") == "1"
+}
+
+func hookBypassedForEvent(home, dir, event string) bool {
+	if hooksDisabledGlobal(home) {
+		return true
+	}
+	if event == "pre-tool-use" && isRelaySession() {
+		return false
+	}
+	return hooksDisabled(dir)
 }
 
 func hooksDisabledForHome(home, dir string) bool {

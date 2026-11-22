@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/relay"
@@ -49,7 +52,9 @@ func runRelay(c *ctx) error {
 	if err != nil {
 		return emitRelayOutcome(c, relay.Report{}, err)
 	}
-	rep, runErr := relay.Run(context.Background(), relay.Options{
+	sig, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	rep, runErr := relay.Run(sig, relay.Options{
 		Dir: wd, Home: c.home, PlanID: strings.TrimSpace(c.relayPlan),
 		MaxPhases: c.relayMaxPhases, JudgeModel: strings.TrimSpace(c.relayJudgeModel),
 		DryRun: c.dryRun, Vocab: vocabulary(), SessionRunner: relaySessionRunner,
@@ -109,7 +114,8 @@ func printRelayText(w io.Writer, rep relay.Report) {
 			fmt.Fprintf(w, "  next[%d]:   %s (%d open task(s))\n", i+1, search.Printable(ph.Title), len(ph.OpenTasks))
 		}
 		if rep.DryRunKickoff != "" {
-			fmt.Fprintf(w, "\n--- Kickoff Preview (%d bytes) ---\n%s\n", len(rep.DryRunKickoff), rep.DryRunKickoff)
+			cleanKickoff := sanitizeRelayMultiline(rep.DryRunKickoff)
+			fmt.Fprintf(w, "\n--- Kickoff Preview (%d bytes) ---\n%s\n", len(rep.DryRunKickoff), cleanKickoff)
 		}
 	case relay.StatusOK:
 		printRelayPhases(w, rep)
@@ -138,4 +144,12 @@ func printRelayPhases(w io.Writer, rep relay.Report) {
 		}
 		fmt.Fprintln(w, line)
 	}
+}
+
+func sanitizeRelayMultiline(s string) string {
+	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = search.Printable(line)
+	}
+	return strings.Join(lines, "\n")
 }

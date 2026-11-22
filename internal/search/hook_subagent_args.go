@@ -142,7 +142,7 @@ func isGuardedSubagentCall(args map[string]any) (string, bool) {
 
 func guardedRoleFromHint(raw string) string {
 	tokens := tokenizeRoleHint(raw)
-	if len(tokens) == 0 || hasSwarmRoleToken(tokens, []string{"builder", "worker", "fix", "doc", "docs", "explorer", "research"}, []string{"explor", "document"}) {
+	if len(tokens) == 0 {
 		return ""
 	}
 	switch {

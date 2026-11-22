@@ -129,6 +129,9 @@ func TestCLIRelayDryRunPassAndHalt(t *testing.T) {
 	}
 
 	// 5. --json refusals emit valid JSON with exit code 2.
+	if clean := sanitizeRelayMultiline("line1\x1b[31mred\x1b[0m\nline2"); strings.Contains(clean, "\x1b") || !strings.Contains(clean, "\n") {
+		t.Fatalf("sanitizeRelayMultiline failed to strip ESC while preserving newlines: %q", clean)
+	}
 	for _, tc := range []struct {
 		name string
 		args []string

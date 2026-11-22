@@ -67,7 +67,7 @@ func applyReadOnlyPipeStage(cur BashFileRead, lineMapped bool, toks []string) (B
 	case "tail":
 		return applyStdinTailStage(cur, lineMapped, args)
 	case "grep", "rg", "cut", "wc", "tr", "jq", "column", "expand", "fold", "rev":
-		return cur, false, true
+		return cur, false, isReadOnlyFilterArgs(tool, args)
 	case "awk":
 		return cur, false, isReadOnlyAwkArgs(args)
 	case "sort":
@@ -215,28 +215,6 @@ func refineStreamTail(cur BashFileRead, n int) BashFileRead {
 	return cur
 }
 
-func isReadOnlyAwkArgs(args []string) bool {
-	for _, a := range args {
-		low := strings.ToLower(a)
-		if a == "-f" || a == "-i" || a == "-l" || strings.HasPrefix(a, "--file") || strings.HasPrefix(a, "--include") || strings.HasPrefix(a, "--load") {
-			return false
-		}
-		if strings.ContainsAny(a, ">|") || awkSystemCallRe.MatchString(a) || strings.Contains(low, "getline") {
-			return false
-		}
-	}
-	return true
-}
-
-func isReadOnlySortArgs(args []string) bool {
-	for _, a := range args {
-		if a == "-o" || a == "--output" || strings.HasPrefix(a, "-o") || strings.HasPrefix(a, "--output=") {
-			return false
-		}
-	}
-	return true
-}
-
 func isReadOnlyUniqArgs(args []string) bool {
 	pos := 0
 	for i := 0; i < len(args); i++ {
@@ -245,7 +223,10 @@ func isReadOnlyUniqArgs(args []string) bool {
 			pos += len(args) - i - 1
 			break
 		}
-		if a == "-" || !strings.HasPrefix(a, "-") {
+		if a == "-" {
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
 			pos++
 			continue
 		}
@@ -253,5 +234,5 @@ func isReadOnlyUniqArgs(args []string) bool {
 			i++
 		}
 	}
-	return pos <= 1
+	return pos == 0
 }

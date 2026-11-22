@@ -67,6 +67,8 @@ def _cli_env():
     return env
 
 def _load_env_mocks():
+    if str(globals().get("CONVERSATION_ID") or "").strip():
+        return {}
     raw = os.environ.get("FYR_WORKFLOW_MOCKS", "").strip()
     try:
         parsed = json.loads(raw) if raw else {}
@@ -77,7 +79,7 @@ def _load_env_mocks():
 def _flag_default_live(args_dict, key):
     raw = args_dict.get(key)
     if raw is None or (isinstance(raw, str) and not raw.strip()):
-        return bool(str(globals().get("CONVERSATION_ID") or "").strip()) and not os.environ.get("FYR_WORKFLOW_MOCKS")
+        return bool(str(globals().get("CONVERSATION_ID") or "").strip())
     return _as_bool(raw, False)
 
 def _is_valid_branch_ref(raw, expected_branch=None):
@@ -279,9 +281,14 @@ def _out_of_lease_paths(changed_files, lease_patterns):
         rel = str(raw or "").strip().replace("\\", "/")
         while rel.startswith("./"):
             rel = rel[2:]
-        if not rel or rel.startswith(".agents/scratch/agents/"):
+        if not rel:
             continue
-        if rel.startswith("/") or ".." in rel.split("/") or not any(_match_lease(p, rel) for p in lease_patterns):
+        if rel.startswith("/") or ".." in rel.split("/"):
+            bad.append(rel)
+            continue
+        if rel.startswith(".agents/scratch/agents/"):
+            continue
+        if not any(_match_lease(p, rel) for p in lease_patterns):
             bad.append(rel)
     return bad
 

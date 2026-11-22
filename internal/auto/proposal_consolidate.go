@@ -44,10 +44,14 @@ func (r *run) consolidateDuplicateGroups(g brain.Options, open []brain.Record) (
 			survivors = append(survivors, rec)
 			continue
 		}
-		if _, exists := groups[key]; !exists {
-			order = append(order, key)
+		provKey := "operator|" + key
+		if isDerivedProposal(rec) {
+			provKey = "derived|" + key
 		}
-		groups[key] = append(groups[key], rec)
+		if _, exists := groups[provKey]; !exists {
+			order = append(order, provKey)
+		}
+		groups[provKey] = append(groups[provKey], rec)
 	}
 	for _, key := range order {
 		grp := groups[key]

@@ -200,7 +200,11 @@ func parseRecordTime(raw string) (time.Time, bool) {
 
 func hasBodyLine(body, want string) bool {
 	for _, l := range strings.Split(body, "\n") {
-		if strings.TrimSpace(l) == want {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "## ") {
+			return false
+		}
+		if trimmed == want {
 			return true
 		}
 	}
@@ -209,7 +213,11 @@ func hasBodyLine(body, want string) bool {
 
 func headerVal(body, prefix string) string {
 	for _, l := range strings.Split(body, "\n") {
-		if rest, ok := strings.CutPrefix(strings.TrimSpace(l), prefix); ok {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, "## ") {
+			return ""
+		}
+		if rest, ok := strings.CutPrefix(trimmed, prefix); ok {
 			return strings.TrimSpace(rest)
 		}
 	}

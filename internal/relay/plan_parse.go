@@ -190,7 +190,11 @@ func applyLabeledPhaseLine(ph *Phase, key, val string) (bool, error) {
 	case "judge":
 		ph.Judge = strings.TrimSpace(val)
 	case "model":
-		ph.Model = strings.Trim(strings.TrimSpace(val), "`")
+		m := strings.Trim(strings.TrimSpace(val), "`")
+		if m != "" && !isValidModelID(m) {
+			return false, refusef("invalid Model: %q", m)
+		}
+		ph.Model = m
 	}
 	return false, nil
 }

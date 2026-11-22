@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -309,16 +310,17 @@ func matchesAnchoredBrainRoot(home, brainDir string) bool {
 }
 
 func isRegularDirOrAbsent(p string) bool {
-	if st, err := os.Lstat(p); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
-		return false
+	st, err := os.Lstat(p)
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist)
 	}
-	return true
+	return st.Mode()&os.ModeSymlink == 0 && st.IsDir()
 }
 
 func writeProcessArtifactAtomic(target string, data []byte) error {
 	parent := filepath.Dir(target)
 	brainDir := filepath.Dir(parent)
-	if st, err := os.Lstat(brainDir); err == nil && (st.Mode()&os.ModeSymlink != 0 || !st.IsDir()) {
+	if !isRegularDirOrAbsent(brainDir) {
 		return fmt.Errorf("brain dir is not a regular directory")
 	}
 	if st, err := os.Lstat(parent); err != nil {

@@ -146,11 +146,18 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 		return rep, err
 	}
 	if !hasNext {
-		rep.OK, rep.Status, rep.PlanComplete, rep.GitClean = true, StatusComplete, true, true
+		dirty, derr := gitDirtyEntries(ctx, top)
+		rep.OK, rep.Status, rep.PlanComplete = true, StatusComplete, true
+		rep.GitClean = derr == nil && len(dirty) == 0
 		return rep, nil
 	}
 	if opts.DryRun {
 		return runDryRun(ctx, opts, top, plan, next, rep)
+	}
+	if opts.SessionRunner == nil {
+		if err := checkLiveSessionHome(opts.Home); err != nil {
+			return rep, err
+		}
 	}
 	return runRelayLoop(ctx, opts, top, plan, maxPhases, rep)
 }
@@ -165,6 +172,9 @@ func validateOptions(opts Options) (int, string, error) {
 	}
 	if maxPhases < 1 || maxPhases > MaxPhasesLimit {
 		return 0, "", refusef("--max-phases must be between 1 and %d (got %d)", MaxPhasesLimit, maxPhases)
+	}
+	if jm := strings.TrimSpace(opts.JudgeModel); jm != "" && !isValidModelID(jm) {
+		return 0, "", refusef("invalid --judge-model %q", jm)
 	}
 	dir := opts.Dir
 	if dir == "" {
@@ -194,7 +204,6 @@ func runDryRun(ctx context.Context, opts Options, top string, plan ParsedPlan, n
 }
 
 func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan, maxPhases int, rep Report) (Report, error) {
-	initialHash := planStructureHash(plan.Body)
 	tracker := NewErrorTracker(opts.PriorErrorHashes...)
 	tracker.Seed(LoadPriorErrorHashes(opts.Home, top, plan.ID))
 	for i := 0; i < maxPhases; i++ {
@@ -203,7 +212,7 @@ func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan
 			if err != nil {
 				return rep, haltPlanTamper(opts, top, plan, Phase{ID: "plan", Title: plan.Title}, "reload plan failed: "+err.Error(), err, &rep)
 			}
-			if planStructureHash(reloaded.Body) != initialHash {
+			if reloaded.Title != plan.Title || reloaded.Status != plan.Status || planStructureHash(reloaded.Body) != planStructureHash(plan.Body) {
 				return rep, haltPlanTamper(opts, top, plan, Phase{ID: "plan", Title: plan.Title}, "plan record structure changed outside checkbox state during relay", nil, &rep)
 			}
 			plan = reloaded
@@ -217,7 +226,7 @@ func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan
 			rep.PlanComplete = true
 			break
 		}
-		done, haltErr := runSinglePhase(ctx, opts, top, plan, ph, i, initialHash, tracker, &rep)
+		done, haltErr := runSinglePhase(ctx, opts, top, plan, ph, i, tracker, &rep)
 		if haltErr != nil {
 			return rep, haltErr
 		}
@@ -230,7 +239,7 @@ func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan
 	return rep, nil
 }
 
-func runSinglePhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, idx int, initialHash string, tracker *ErrorTracker, rep *Report) (bool, error) {
+func runSinglePhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, idx int, tracker *ErrorTracker, rep *Report) (bool, error) {
 	if err := checkPrePhaseTree(ctx, opts, top, plan, ph, idx, rep); err != nil {
 		return false, err
 	}
@@ -243,14 +252,19 @@ func runSinglePhase(ctx context.Context, opts Options, top string, plan ParsedPl
 	}
 	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, HeadBefore: snapBefore.head}
 	if sessErr := invokePhaseSession(ctx, opts, top, plan, ph, tracker, &res); sessErr != nil {
-		if pushErr := checkRemoteRefsUnchanged(ctx, top, snapBefore, &res); pushErr != nil {
+		postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if pushErr := checkRemoteRefsUnchanged(postCtx, top, snapBefore, &res); pushErr != nil {
 			return false, recordHaltAndAppend(opts, top, plan, ph, res, nil, pushErr, rep)
 		}
-		return false, recordHaltAndAppend(opts, top, plan, ph, res, nil, sessErr, rep)
+		dirty, _ := gitDirtyEntries(postCtx, top)
+		return false, recordHaltAndAppend(opts, top, plan, ph, res, dirty, sessErr, rep)
 	}
-	if postErr := verifyPostPhase(ctx, opts, top, plan, ph, snapBefore, initialHash, tracker, &res); postErr != nil {
-		dirty, _ := gitDirtyEntries(ctx, top)
+	if postErr := verifyPostPhase(ctx, opts, top, plan, ph, snapBefore, tracker, &res); postErr != nil {
+		postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		dirty, _ := gitDirtyEntries(postCtx, top)
 		return false, recordHaltAndAppend(opts, top, plan, ph, res, dirty, postErr, rep)
 	}
-	return finishPassingPhase(opts, top, plan, ph, initialHash, res, rep)
+	return finishPassingPhase(opts, top, plan, ph, res, rep)
 }
