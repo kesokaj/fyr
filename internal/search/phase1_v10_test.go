@@ -27,6 +27,7 @@ func seedLegacyV9SearchDB(t *testing.T, dbPath string) {
 	defer db.Close()
 	v9Schema := strings.Replace(schemaSQL, ", line_count INT DEFAULT 0", "", 1)
 	v9Schema = strings.Replace(v9Schema, ", duration_ms INT DEFAULT 0, timed_out INT DEFAULT 0, injected_bytes INT DEFAULT 0", "", 1)
+	v9Schema = strings.Replace(v9Schema, ", last_invocation_num INT DEFAULT 0, last_checkpoint_offset INT DEFAULT 0", "", 1)
 	if _, err := db.Exec(v9Schema); err != nil {
 		t.Fatalf("exec v9 schema: %v", err)
 	}
@@ -71,8 +72,8 @@ func TestSchemaV10InPlaceUpgrade(t *testing.T) {
 	}
 	db := openDB(t, root)
 	var schema string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "11" {
-		t.Fatalf("schema = %q, err = %v; want 11", schema, err)
+	if err := db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "12" {
+		t.Fatalf("schema = %q, err = %v; want 12", schema, err)
 	}
 	for _, tbl := range []string{"projects", "co_activity", "read_ledger", "read_ledger_stats", "session_meta", "vet_history", "watchdog_ring"} {
 		if n := count(t, db, `SELECT count(*) FROM `+tbl); n != 1 {
@@ -83,7 +84,7 @@ func TestSchemaV10InPlaceUpgrade(t *testing.T) {
 		t.Errorf("stale v9 chunks_fts rows survived migration: %d", n)
 	}
 	if _, err := db.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES ('integrity-check')`); err != nil {
-		t.Errorf("chunks_fts integrity-check after v9->v11 migration: %v", err)
+		t.Errorf("chunks_fts integrity-check after v9->v12 migration: %v", err)
 	}
 	if lc := count(t, db, `SELECT line_count FROM blobs b JOIN files f ON f.oid = b.oid WHERE f.path = 'pkg/svc.go'`); lc != 5 {
 		t.Errorf("blobs.line_count for pkg/svc.go = %d, want 5", lc)
@@ -110,6 +111,7 @@ func assertSchemaV10ToV11PreservesIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 	v10Schema := strings.Replace(schemaSQL, ", duration_ms INT DEFAULT 0, timed_out INT DEFAULT 0, injected_bytes INT DEFAULT 0", "", 1)
+	v10Schema = strings.Replace(v10Schema, ", last_invocation_num INT DEFAULT 0, last_checkpoint_offset INT DEFAULT 0", "", 1)
 	if _, err := rawDB.Exec(v10Schema); err != nil {
 		t.Fatalf("exec v10 schema: %v", err)
 	}
@@ -127,21 +129,82 @@ func assertSchemaV10ToV11PreservesIndexes(t *testing.T) {
 
 	st, err := openStore(dbPath, io.Discard)
 	if err != nil {
-		t.Fatalf("openStore v10->v11: %v", err)
+		t.Fatalf("openStore v10->v12: %v", err)
 	}
 	defer st.close()
 	var schema string
-	if err := st.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "11" {
-		t.Fatalf("v10->v11 schema = %q, err=%v; want 11", schema, err)
+	if err := st.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "12" {
+		t.Fatalf("v10->v12 schema = %q, err=%v; want 12", schema, err)
 	}
 	if n := count(t, st.db, `SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH 'v10preserved'`); n != 1 {
-		t.Errorf("v10->v11 wiped existing v10 chunks_fts index: got %d, want 1", n)
+		t.Errorf("v10->v12 wiped existing v10 chunks_fts index: got %d, want 1", n)
 	}
 	rows, err := st.listConversationVetHistory("cv10", 5)
 	if err != nil || len(rows) != 1 || rows[0].DurationMS != 0 || rows[0].TimedOut || rows[0].InjectedBytes != 0 {
-		t.Errorf("v10->v11 vet_history row = %+v, err=%v", rows, err)
+		t.Errorf("v10->v12 vet_history row = %+v, err=%v", rows, err)
 	}
 	_ = home
+}
+
+func TestPhase1SchemaV11ToV12Migration(t *testing.T) {
+	root := newRepo(t)
+	dbPath := projectDB(root)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareFiles(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	rawDB, err := sql.Open("sqlite", dsn(dbPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v11Schema := strings.Replace(schemaSQL, ", last_invocation_num INT DEFAULT 0, last_checkpoint_offset INT DEFAULT 0", "", 1)
+	if _, err := rawDB.Exec(v11Schema); err != nil {
+		t.Fatalf("exec v11 schema: %v", err)
+	}
+	for _, stmt := range []string{
+		`INSERT INTO meta(key, value) VALUES ('schema', '11')`,
+		`INSERT INTO blobs(oid, last_seen, skipped, line_count) VALUES ('v11oid', 300, 0, 2)`,
+		`INSERT INTO chunks(oid, line, heading, body, tokens) VALUES ('v11oid', 1, '', 'v11preserved', 'v11preserved')`,
+		`INSERT INTO co_activity(file_a, file_b, kind, count, updated_at) VALUES ('a.go', 'b.go', 'co_read', 3, 300)`,
+		`INSERT INTO read_ledger(conversation_id, generation_id, resolved_path, start_line, end_line, sha256, turn_num, hit_count, updated_at) VALUES ('c11', 0, '/p/a.go', 1, 10, 's', 1, 1, 300)`,
+		`INSERT INTO read_ledger_stats(conversation_id, turn_num, saved_count, updated_at) VALUES ('c11', 1, 2, 300)`,
+		`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES ('c11', 2, 8000, 4, 2000)`,
+		`INSERT INTO vet_history(conversation_id, turn_num, intent, gate, score, raw_prompt, improved_prompt, present_anchors, missing_anchors, suggested_skills, pivot_files, created_at) VALUES ('c11', 1, 'BUG', 'PASS_THROUGH', 90, 'p', '', '', '', '', '', 300)`,
+		`INSERT INTO watchdog_ring(conversation_id, tool, arg_hash, is_error, ts) VALUES ('c11', 'read_file', 'h', 0, 300)`,
+	} {
+		if _, err := rawDB.Exec(stmt); err != nil {
+			t.Fatalf("seed v11 (%s): %v", stmt, err)
+		}
+	}
+	_ = rawDB.Close()
+
+	var note bytes.Buffer
+	st, err := openStore(dbPath, &note)
+	if err != nil {
+		t.Fatalf("openStore v11->v12: %v", err)
+	}
+	defer st.close()
+	if strings.Contains(note.String(), "rebuilt") {
+		t.Fatalf("v11->v12 unexpectedly rebuilt DB: %s", note.String())
+	}
+	var schema string
+	if err := st.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&schema); err != nil || schema != "12" {
+		t.Fatalf("v11->v12 schema = %q, err=%v; want 12", schema, err)
+	}
+	for _, tbl := range []string{"co_activity", "read_ledger", "read_ledger_stats", "session_meta", "vet_history", "watchdog_ring"} {
+		if n := count(t, st.db, `SELECT count(*) FROM `+tbl); n != 1 {
+			t.Errorf("v11->v12 lost row in %s: got %d, want 1", tbl, n)
+		}
+	}
+	if n := count(t, st.db, `SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH 'v11preserved'`); n != 1 {
+		t.Errorf("v11->v12 lost chunks_fts entry: got %d, want 1", n)
+	}
+	var lastInv, lastCP int
+	if err := st.db.QueryRow(`SELECT last_invocation_num, last_checkpoint_offset FROM session_meta WHERE conversation_id = 'c11'`).Scan(&lastInv, &lastCP); err != nil || lastInv != 0 || lastCP != 0 {
+		t.Fatalf("v11->v12 new columns = (%d, %d), err=%v; want (0, 0)", lastInv, lastCP, err)
+	}
 }
 
 func assertSchemaBelowV9Rebuilds(t *testing.T) {

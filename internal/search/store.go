@@ -25,8 +25,8 @@ import (
 )
 
 // schemaVersion is stored in meta; a database with any older value (< 9) is
-// rebuilt, while v9 and v10 migrate in place to preserve behavioral history (ADR-528, ADR-530).
-const schemaVersion = "11"
+// rebuilt, while v9, v10, and v11 migrate in place to preserve behavioral history (ADR-528, ADR-530).
+const schemaVersion = "12"
 
 // busyTimeoutMS is how long a writer waits for another process's write lock
 // before the command refuses. A variable so tests can shorten it.
@@ -66,7 +66,7 @@ CREATE INDEX sym_refs_to_name ON sym_refs(to_name);
 CREATE INDEX sym_refs_from_sym ON sym_refs(from_sym);
 CREATE TABLE read_ledger(conversation_id TEXT, generation_id INT, resolved_path TEXT, start_line INT, end_line INT, sha256 TEXT, turn_num INT, hit_count INT, updated_at INT, PRIMARY KEY(conversation_id, generation_id, resolved_path, start_line, end_line));
 CREATE TABLE read_ledger_stats(conversation_id TEXT, turn_num INT, saved_count INT, updated_at INT, PRIMARY KEY(conversation_id, turn_num));
-CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT, agent_role TEXT DEFAULT '', agent_name TEXT DEFAULT '', tool_calls INT DEFAULT 0);
+CREATE TABLE session_meta(conversation_id TEXT PRIMARY KEY, generation_id INT, last_transcript_bytes INT, turn_count INT, est_tokens INT, agent_role TEXT DEFAULT '', agent_name TEXT DEFAULT '', tool_calls INT DEFAULT 0, last_invocation_num INT DEFAULT 0, last_checkpoint_offset INT DEFAULT 0);
 CREATE TABLE co_activity(file_a TEXT, file_b TEXT, kind TEXT, count INT, updated_at INT, PRIMARY KEY(file_a, file_b, kind));
 CREATE TABLE vet_history(conversation_id TEXT, turn_num INT, intent TEXT, gate TEXT, score INT, raw_prompt TEXT, improved_prompt TEXT, present_anchors TEXT, missing_anchors TEXT, suggested_skills TEXT, pivot_files TEXT, subtask_count INT DEFAULT 0, directive TEXT DEFAULT '', duration_ms INT DEFAULT 0, timed_out INT DEFAULT 0, injected_bytes INT DEFAULT 0, created_at INT, PRIMARY KEY(conversation_id, turn_num));
 CREATE TABLE watchdog_ring(conversation_id TEXT, seq INTEGER PRIMARY KEY AUTOINCREMENT, tool_call_id TEXT DEFAULT '', tool TEXT, arg_hash TEXT, is_error INT DEFAULT 0, ts INT);
@@ -270,9 +270,17 @@ func (s *store) ensureSchema() error {
 		if err := s.migrateV9ToV10(); err != nil {
 			return err
 		}
-		return s.migrateV10ToV11()
+		if err := s.migrateV10ToV11(); err != nil {
+			return err
+		}
+		return s.migrateV11ToV12()
 	case err == nil && v == "10":
-		return s.migrateV10ToV11()
+		if err := s.migrateV10ToV11(); err != nil {
+			return err
+		}
+		return s.migrateV11ToV12()
+	case err == nil && v == "11":
+		return s.migrateV11ToV12()
 	case err == nil:
 		return staleSchemaError{v}
 	case errors.Is(err, sql.ErrNoRows):

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/search"
 )
+
+var brainTurnQueryBudget = search.DefaultHookBrainBudget()
 
 // turnBrainCache memoizes brain.List(dir) once per CLI invocation so
 // BrainTurnContext, BrainRefs, and BrainRefsForDir never trigger N+1 SQLite
@@ -33,20 +36,38 @@ func newTurnBrainCache(home string, global bool) *turnBrainCache {
 	}
 }
 
+func boundedBrainQueryCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDL := ctx.Deadline(); hasDL {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, brainTurnQueryBudget)
+}
+
 func (tc *turnBrainCache) records(dir, homeOverride string) []brain.Record {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	return tc.recordsLocked(dir, homeOverride)
+	return tc.recordsLockedCtx(context.Background(), dir, homeOverride)
 }
 
-func (tc *turnBrainCache) recordsLocked(dir, homeOverride string) []brain.Record {
+func (tc *turnBrainCache) recordsLockedCtx(ctx context.Context, dir, homeOverride string) []brain.Record {
+	if ctx != nil && ctx.Err() != nil {
+		return nil
+	}
 	home := tc.resolveHome(homeOverride)
 	key := canonicalCacheDir(dir) + "|" + home
 	if recs, ok := tc.byDir[key]; ok {
 		return recs
 	}
 	tc.loadCount++
-	recs := loadTurnRecords(dir, home, tc.global)
+	qctx, cancel := boundedBrainQueryCtx(ctx)
+	defer cancel()
+	recs := loadTurnRecordsCtx(qctx, dir, home, tc.global)
+	if qctx.Err() != nil {
+		return nil
+	}
 	tc.byDir[key] = recs
 	return recs
 }
@@ -68,10 +89,13 @@ func canonicalCacheDir(dir string) string {
 func (tc *turnBrainCache) ftsMatches(dir, homeOverride string, terms []string) map[string]bool {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	return tc.ftsMatchesLocked(dir, homeOverride, terms)
+	return tc.ftsMatchesLockedCtx(context.Background(), dir, homeOverride, terms)
 }
 
-func (tc *turnBrainCache) ftsMatchesLocked(dir, homeOverride string, terms []string) map[string]bool {
+func (tc *turnBrainCache) ftsMatchesLockedCtx(ctx context.Context, dir, homeOverride string, terms []string) map[string]bool {
+	if ctx != nil && ctx.Err() != nil {
+		return nil
+	}
 	home := tc.resolveHome(homeOverride)
 	if home == "" || len(terms) == 0 {
 		return nil
@@ -83,13 +107,18 @@ func (tc *turnBrainCache) ftsMatchesLocked(dir, homeOverride string, terms []str
 	if cached, ok := tc.ftsByQuery[key]; ok {
 		return cached
 	}
-	matched := queryBrainFTSRecordIDs(brain.Options{Home: home, Dir: dir, Global: tc.global}, terms)
+	qctx, cancel := boundedBrainQueryCtx(ctx)
+	defer cancel()
+	matched := queryBrainFTSRecordIDsCtx(qctx, brain.Options{Home: home, Dir: dir, Global: tc.global}, terms)
+	if qctx.Err() != nil {
+		return nil
+	}
 	tc.ftsByQuery[key] = matched
 	return matched
 }
 
-func queryBrainFTSRecordIDs(bo brain.Options, terms []string) map[string]bool {
-	hits, err := brain.SearchTurnRecords(bo, terms, 16)
+func queryBrainFTSRecordIDsCtx(ctx context.Context, bo brain.Options, terms []string) map[string]bool {
+	hits, err := brain.SearchTurnRecordsCtx(ctx, bo, terms, 16)
 	if err != nil || len(hits) == 0 {
 		return nil
 	}
@@ -111,8 +140,18 @@ func filterFTSHitsByPrecision(hits []brain.Hit, terms []string) map[string]bool 
 }
 
 func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
+	return tc.loadTurnDataCtx(context.Background(), dir, homeOverride, terms)
+}
+
+func (tc *turnBrainCache) loadTurnDataCtx(ctx context.Context, dir, homeOverride string, terms []string) ([]brain.Record, map[string]bool) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, nil
+	}
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
+	if ctx != nil && ctx.Err() != nil {
+		return nil, nil
+	}
 	home := tc.resolveHome(homeOverride)
 	recKey := canonicalCacheDir(dir) + "|" + home
 	recs, hasRecs := tc.byDir[recKey]
@@ -126,25 +165,33 @@ func (tc *turnBrainCache) loadTurnData(dir, homeOverride string, terms []string)
 	if hasRecs && hasFTS {
 		return recs, fts
 	}
-	if recs2, fts2, ok := tc.loadCombinedTurnData(dir, home, recKey, fkey, terms, hasRecs, hasFTS); ok {
+	if recs2, fts2, ok := tc.loadCombinedTurnDataCtx(ctx, dir, home, recKey, fkey, terms, hasRecs, hasFTS); ok {
 		return recs2, fts2
 	}
-	recs = tc.recordsLocked(dir, homeOverride)
-	if len(recs) == 0 || len(terms) == 0 {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, nil
+	}
+	recs = tc.recordsLockedCtx(ctx, dir, homeOverride)
+	if len(recs) == 0 || len(terms) == 0 || (ctx != nil && ctx.Err() != nil) {
 		return recs, nil
 	}
-	return recs, tc.ftsMatchesLocked(dir, homeOverride, terms)
+	return recs, tc.ftsMatchesLockedCtx(ctx, dir, homeOverride, terms)
 }
 
-func (tc *turnBrainCache) loadCombinedTurnData(dir, home, recKey, fkey string, terms []string, hasRecs, hasFTS bool) ([]brain.Record, map[string]bool, bool) {
-	if hasRecs || hasFTS || home == "" {
+func (tc *turnBrainCache) loadCombinedTurnDataCtx(ctx context.Context, dir, home, recKey, fkey string, terms []string, hasRecs, hasFTS bool) ([]brain.Record, map[string]bool, bool) {
+	if hasRecs || hasFTS || home == "" || (ctx != nil && ctx.Err() != nil) {
 		return nil, nil, false
 	}
 	if _, err := os.Stat(brain.Path(home)); err != nil {
 		return nil, nil, false
 	}
+	qctx, cancel := boundedBrainQueryCtx(ctx)
+	defer cancel()
 	tc.loadCount++
-	recs, hits, err := brain.LoadTurnRecordsAndFTS(brain.Options{Home: home, Dir: dir, Global: tc.global}, terms, 16)
+	recs, hits, err := brain.LoadTurnRecordsAndFTSCtx(qctx, brain.Options{Home: home, Dir: dir, Global: tc.global}, terms, 16)
+	if qctx.Err() != nil {
+		return nil, nil, true
+	}
 	if err != nil || len(recs) == 0 {
 		return nil, nil, false
 	}
@@ -206,10 +253,17 @@ func hasStemPrefixInWords(words []string, prefix string) bool {
 	return false
 }
 
-func loadTurnRecords(dir, home string, global bool) []brain.Record {
+func loadTurnRecordsCtx(ctx context.Context, dir, home string, global bool) []brain.Record {
+	if ctx != nil && ctx.Err() != nil {
+		return nil
+	}
 	if home != "" {
-		if recs, err := brain.ListTurnRecords(brain.Options{Home: home, Dir: dir, Global: global}); err == nil && len(recs) > 0 {
+		recs, err := brain.ListTurnRecordsCtx(ctx, brain.Options{Home: home, Dir: dir, Global: global})
+		if err == nil && len(recs) > 0 {
 			return recs
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return nil
 		}
 	}
 	if trailRecs, ok, err := brain.ReadTrail(dir); err == nil && ok {
@@ -219,10 +273,20 @@ func loadTurnRecords(dir, home string, global bool) []brain.Record {
 }
 
 func makeBrainTurnContext(tc *turnBrainCache) func(dir, home, prompt string, files []string) search.TurnBrainContext {
+	ctxFn := makeBrainTurnContextCtx(tc)
 	return func(dir, home, prompt string, files []string) search.TurnBrainContext {
+		return ctxFn(context.Background(), dir, home, prompt, files)
+	}
+}
+
+func makeBrainTurnContextCtx(tc *turnBrainCache) func(ctx context.Context, dir, home, prompt string, files []string) search.TurnBrainContext {
+	return func(ctx context.Context, dir, home, prompt string, files []string) search.TurnBrainContext {
+		if ctx != nil && ctx.Err() != nil {
+			return search.TurnBrainContext{}
+		}
 		terms := extractTurnQueryTerms(prompt)
-		recs, ftsIDs := tc.loadTurnData(dir, home, terms)
-		if len(recs) == 0 {
+		recs, ftsIDs := tc.loadTurnDataCtx(ctx, dir, home, terms)
+		if len(recs) == 0 || (ctx != nil && ctx.Err() != nil) {
 			return search.TurnBrainContext{}
 		}
 		var out search.TurnBrainContext

@@ -1,6 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -405,5 +410,118 @@ func TestTurnBrainCacheConcurrentRace(t *testing.T) {
 	cache.mu.Unlock()
 	if loads != 1 {
 		t.Errorf("concurrent turnBrainCache.loadCount = %d, want 1", loads)
+	}
+}
+
+func TestVerbSearchHookWarm1143RecordsAndContextBudget(t *testing.T) {
+	dir := recordRepo(t)
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "service.go"), []byte("package sample\n\nfunc ReconcileProjectIndex(root string) error { return nil }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bo := brain.Options{Home: home, Dir: dir}
+	planID, err := brain.Add(bo, brain.AddInput{Kind: "plan", Title: "Active V910 Plan", Body: strings.NewReader("## Phase 2\n- [ ] Optimize hook\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adrID, err := brain.Add(bo, brain.AddInput{Kind: "adr", Status: "accepted", Title: "QuorumSnapshot Budget", Body: strings.NewReader("Touches service.go and enforces QuorumSnapshot invariants.\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(brain.Path(home))+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var scope string
+	if err := db.QueryRow(`SELECT scope FROM records WHERE id = ?`, planID).Scan(&scope); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	stmt, err := tx.Prepare(`INSERT INTO records(scope, id, kind, status, date, title, body, project, updated, provenance, memory_kind, validity, verified_at) VALUES (?, ?, ?, ?, '2025-01-01', ?, ?, 'demo', '2025-01-01T00:00:00Z', '', '', 1.0, '2025-01-01T00:00:00Z')`)
+	if err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	body := strings.Repeat("Historical rationale paragraph.\n", 100)
+	for i := 1; i <= 1141; i++ {
+		kind, status := "change", "closed"
+		if i <= 250 {
+			kind, status = "adr", "accepted"
+		}
+		if _, err := stmt.Exec(scope, fmt.Sprintf("REC-%04d", i), kind, status, fmt.Sprintf("Record %d", i), body); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	_ = stmt.Close()
+	if err := tx.Commit(); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	if err := search.Index(search.Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	// Canceled context must abort cleanly via makeBrainTurnContextCtx.
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	canceledRes := makeBrainTurnContextCtx(newTurnBrainCache(home, false))(cctx, dir, home, "Inspect QuorumSnapshot in service.go", nil)
+	if canceledRes.ActivePlan != nil || len(canceledRes.ADRs) != 0 {
+		t.Fatalf("canceled makeBrainTurnContextCtx returned non-empty result: %+v", canceledRes)
+	}
+
+	// Warm PreInvocation with 1,143 seeded records must complete < 120ms (timed_out=0).
+	callPreInv := func(convID string) (time.Duration, search.PreInvocationOutput) {
+		raw, _ := json.Marshal(map[string]any{
+			"conversationId": convID, "workspacePaths": []string{dir},
+			"invocationNum": 1, "lastUserInput": "Investigate QuorumSnapshot in service.go",
+		})
+		cache := newTurnBrainCache(home, false)
+		var out bytes.Buffer
+		start := time.Now()
+		if err := search.Search(search.Options{
+			Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(raw),
+			BrainTurnContext: makeBrainTurnContext(cache),
+		}, &out); err != nil {
+			t.Fatalf("PreInvocation(%s): %v", convID, err)
+		}
+		elapsed := time.Since(start)
+		var resp search.PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal(%s): %v", convID, err)
+		}
+		return elapsed, resp
+	}
+	_, _ = callPreInv("conv-1143-warmup")
+	elapsed, resp := callPreInv("conv-1143-warm")
+	if elapsed >= 120*time.Millisecond {
+		t.Errorf("warm PreInvocation on 1143 seeded brain records took %v, want < 120ms", elapsed)
+	}
+	if len(resp.InjectSteps) != 1 || resp.InjectSteps[0].SystemMessage == nil {
+		t.Fatalf("expected 1 injectStep, got %+v", resp)
+	}
+	sys := resp.InjectSteps[0].SystemMessage.SystemMessage
+	if !strings.Contains(sys, adrID) {
+		t.Errorf("warm PreInvocation missing matched ADR %s:\n%s", adrID, sys)
+	}
+	sdb, err := sql.Open("sqlite", "file:"+filepath.ToSlash(filepath.Join(dir, ".agents", "scratch", "search.db"))+"?mode=ro")
+	if err != nil {
+		t.Fatalf("open search.db: %v", err)
+	}
+	defer sdb.Close()
+	var timedOut int
+	if err := sdb.QueryRow(`SELECT timed_out FROM vet_history WHERE conversation_id = 'conv-1143-warm' ORDER BY turn_num DESC LIMIT 1`).Scan(&timedOut); err != nil || timedOut != 0 {
+		t.Errorf("conv-1143-warm vet_history timed_out = %d (err=%v), want 0", timedOut, err)
 	}
 }

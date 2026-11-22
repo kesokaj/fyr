@@ -1,9 +1,11 @@
 package search
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // maxFileBytes is the largest file indexed; larger files, and files with a
@@ -174,7 +176,161 @@ func (s *store) applyLocked(src source, now int64, files map[string]string, blob
 	if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "touched:"+src.project, now); err != nil {
 		return 0, err
 	}
+	s.saveGitIdxHeadSig(src.project)
 	return n, s.gc(now)
+}
+
+// applyDirtyPaths incrementally updates only the supplied modified, untracked,
+// restored, or deleted paths in search.db without scanning the full files/blobs tables.
+func (s *store) applyDirtyPaths(ctx context.Context, root string, dirtyPaths []entry, existingFiles int) (int, error) {
+	if len(dirtyPaths) == 0 {
+		return 0, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	fsRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return 0, err
+	}
+	defer fsRoot.Close()
+	if _, err := s.db.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		if isBusy(err) {
+			return 0, errBusy
+		}
+		return 0, err
+	}
+	n, goChanged, err := s.applyDirtyPathsLocked(ctx, root, fsRoot, dirtyPaths, nowFunc().Unix())
+	if err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		if isBusy(err) {
+			return 0, errBusy
+		}
+		return 0, err
+	}
+	if n > 0 && goChanged && existingFiles < 2000 && ctx.Err() == nil {
+		if err := s.reconcileGoInterfaces(root); err != nil {
+			_, _ = s.db.Exec(`ROLLBACK`)
+			return 0, err
+		}
+	}
+	if _, err := s.db.Exec(`COMMIT`); err != nil {
+		_, _ = s.db.Exec(`ROLLBACK`)
+		if isBusy(err) {
+			return 0, errBusy
+		}
+		return 0, err
+	}
+	return n, nil
+}
+
+func (s *store) applyDirtyPathsLocked(ctx context.Context, root string, fsRoot *os.Root, dirtyPaths []entry, now int64) (int, bool, error) {
+	stmts, err := s.prepareDirtyPathStmts()
+	if err != nil {
+		return 0, false, err
+	}
+	defer stmts.close()
+
+	var in *inserter
+	defer func() {
+		if in != nil {
+			in.close()
+		}
+	}()
+	n, goChanged := 0, false
+	for _, e := range dirtyPaths {
+		if err := ctx.Err(); err != nil {
+			return n, goChanged, err
+		}
+		if strings.HasSuffix(e.path, ".go") {
+			goChanged = true
+		}
+		if err := s.applyOneDirtyPathLocked(ctx, root, fsRoot, e, now, stmts, &in); err != nil {
+			return n, goChanged, err
+		}
+		n++
+	}
+	return n, goChanged, nil
+}
+
+type dirtyPathStmts struct {
+	del, upsert, blobSel, blobIns *sql.Stmt
+}
+
+func (d dirtyPathStmts) close() {
+	for _, st := range []*sql.Stmt{d.del, d.upsert, d.blobSel, d.blobIns} {
+		if st != nil {
+			_ = st.Close()
+		}
+	}
+}
+
+func (s *store) prepareDirtyPathStmts() (dirtyPathStmts, error) {
+	var d dirtyPathStmts
+	var err error
+	if d.del, err = s.db.Prepare(`DELETE FROM files WHERE project = ? AND path = ?`); err != nil {
+		return d, err
+	}
+	if d.upsert, err = s.db.Prepare(`INSERT INTO files(project, path, oid, state) VALUES (?, ?, ?, ?) ON CONFLICT(project, path) DO UPDATE SET oid = excluded.oid, state = excluded.state`); err != nil {
+		d.close()
+		return dirtyPathStmts{}, err
+	}
+	if d.blobSel, err = s.db.Prepare(`SELECT skipped FROM blobs WHERE oid = ?`); err != nil {
+		d.close()
+		return dirtyPathStmts{}, err
+	}
+	if d.blobIns, err = s.db.Prepare(`INSERT INTO blobs(oid, last_seen, skipped, line_count) VALUES (?, ?, ?, ?)`); err != nil {
+		d.close()
+		return dirtyPathStmts{}, err
+	}
+	return d, nil
+}
+
+func (s *store) applyOneDirtyPathLocked(ctx context.Context, root string, fsRoot *os.Root, e entry, now int64, d dirtyPathStmts, in **inserter) error {
+	if e.state == "deleted" {
+		_, err := d.del.ExecContext(ctx, root, e.path)
+		return err
+	}
+	skipped, err := s.ensureDirtyBlobLocked(ctx, fsRoot, e, now, d.blobSel, d.blobIns, in)
+	if err != nil {
+		return err
+	}
+	if skipped {
+		_, err = d.del.ExecContext(ctx, root, e.path)
+		return err
+	}
+	_, err = d.upsert.ExecContext(ctx, root, e.path, e.oid, e.state)
+	return err
+}
+
+func (s *store) ensureDirtyBlobLocked(ctx context.Context, fsRoot *os.Root, e entry, now int64, blobSel, blobIns *sql.Stmt, in **inserter) (bool, error) {
+	var skippedInt int
+	err := blobSel.QueryRowContext(ctx, e.oid).Scan(&skippedInt)
+	if err == nil {
+		return skippedInt != 0, nil
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+	text, ok := readIndexable(fsRoot, filepath.FromSlash(e.path))
+	lineCount := 0
+	if ok {
+		lineCount = len(splitLines(text))
+	}
+	if _, err := blobIns.ExecContext(ctx, e.oid, now, boolInt(!ok), lineCount); err != nil {
+		return false, err
+	}
+	if !ok {
+		return true, nil
+	}
+	if *in == nil {
+		created, err := s.newInserter()
+		if err != nil {
+			return false, err
+		}
+		*in = created
+	}
+	return false, (*in).content(e, text)
 }
 
 // indexBlobs indexes every blob the database has not seen, parsed by the

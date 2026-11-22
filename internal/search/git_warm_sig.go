@@ -17,14 +17,15 @@ import (
 )
 
 const (
-	gitWarmSigMetaPrefix = "git_warm_sig:"
-	maxWarmSigEntries    = 2500
-	maxWarmSigDirs       = 512
-	maxWarmSigRacyFileB  = 256 << 10
-	maxWarmSigRacyTotalB = 2 << 20
-	maxUntrackedFiles    = 256
-	maxUntrackedDepth    = 6
-	maxReftableListBytes = 64 << 10
+	gitWarmSigMetaPrefix    = "git_warm_sig:"
+	gitIdxHeadSigMetaPrefix = "git_idx_head_sig:"
+	maxWarmSigEntries       = 2500
+	maxWarmSigDirs          = 512
+	maxWarmSigRacyFileB     = 256 << 10
+	maxWarmSigRacyTotalB    = 2 << 20
+	maxUntrackedFiles       = 256
+	maxUntrackedDepth       = 6
+	maxReftableListBytes    = 64 << 10
 )
 
 func gitWarmSigKey(root string) string {
@@ -32,6 +33,59 @@ func gitWarmSigKey(root string) string {
 		return gitWarmSigMetaPrefix + canon
 	}
 	return gitWarmSigMetaPrefix + root
+}
+
+func gitIdxHeadSigKey(root string) string {
+	if canon := CanonicalizePath("", root); canon != "" {
+		return gitIdxHeadSigMetaPrefix + canon
+	}
+	return gitIdxHeadSigMetaPrefix + root
+}
+
+func computeGitIdxHeadSignature(root string) (string, bool) {
+	gitDir := resolveGitWorktreeDir(root)
+	_, commonDir, ok := findGitRootFast(root)
+	if !ok || gitDir == "" || commonDir == "" {
+		return "", false
+	}
+	h := sha256.New()
+	if !hashGitHeadAndRefs(h, gitDir, commonDir) {
+		return "", false
+	}
+	idxFi, err := os.Lstat(filepath.Join(gitDir, "index"))
+	if err != nil || !idxFi.Mode().IsRegular() {
+		return "", false
+	}
+	fmt.Fprintf(h, "idx:%d:%d\n", idxFi.Size(), idxFi.ModTime().UnixNano())
+	return hex.EncodeToString(h.Sum(nil)), true
+}
+
+func (s *store) matchesGitIdxHeadSig(ctx context.Context, root string) bool {
+	if s == nil || s.db == nil || root == "" {
+		return false
+	}
+	var cached string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, gitIdxHeadSigKey(root)).Scan(&cached); err != nil || cached == "" {
+		return false
+	}
+	cur, ok := computeGitIdxHeadSignature(root)
+	return ok && cur == cached
+}
+
+func (s *store) saveGitIdxHeadSig(root string) {
+	if s == nil || s.db == nil || root == "" {
+		return
+	}
+	key := gitIdxHeadSigKey(root)
+	sig, ok := computeGitIdxHeadSignature(root)
+	if !ok {
+		_, _ = s.db.Exec(`DELETE FROM meta WHERE key = ?`, key)
+		return
+	}
+	_, _ = s.db.Exec(
+		`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, sig,
+	)
 }
 
 func (s *store) matchesGitWarmSig(ctx context.Context, root string) bool {

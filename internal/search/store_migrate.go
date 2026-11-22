@@ -10,6 +10,10 @@ func (s *store) migrateV10ToV11() error {
 	return s.withImmediateTx(s.migrateV10ToV11Tx)
 }
 
+func (s *store) migrateV11ToV12() error {
+	return s.withImmediateTx(s.migrateV11ToV12Tx)
+}
+
 const chunksDeleteTriggerSQL = `CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, heading, body, tokens) VALUES ('delete', old.id, old.heading, old.body, old.tokens);
 END;`
@@ -52,7 +56,7 @@ func (s *store) migrateV10ToV11Tx() error {
 	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
 		return err
 	}
-	if v == schemaVersion {
+	if v == schemaVersion || v == "11" {
 		return s.ensureRefsOIDIndex()
 	}
 	if v != "10" {
@@ -60,6 +64,28 @@ func (s *store) migrateV10ToV11Tx() error {
 	}
 	for _, col := range []string{"duration_ms", "timed_out", "injected_bytes"} {
 		if err := ensureColumnDefaultZero(s.db, "vet_history", col); err != nil {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`UPDATE meta SET value = '11' WHERE key = 'schema'`); err != nil {
+		return err
+	}
+	return s.ensureRefsOIDIndex()
+}
+
+func (s *store) migrateV11ToV12Tx() error {
+	var v string
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'schema'`).Scan(&v); err != nil {
+		return err
+	}
+	if v == schemaVersion {
+		return s.ensureRefsOIDIndex()
+	}
+	if v != "11" {
+		return staleSchemaError{v}
+	}
+	for _, col := range []string{"last_invocation_num", "last_checkpoint_offset"} {
+		if err := ensureColumnDefaultZero(s.db, "session_meta", col); err != nil {
 			return err
 		}
 	}

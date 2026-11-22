@@ -4,8 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInput, out io.Writer) error {
@@ -15,7 +20,7 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 	}
 	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	sc, state, subInfo, skip, dirtySummary, fast, err := preparePreInvocationFast(ctx, o, dir, in, rawPrompt)
+	sc, state, subInfo, skip, err := preparePreInvocationFast(ctx, o, dir, in, rawPrompt)
 	if err != nil {
 		if ctx.Err() != nil {
 			return err
@@ -31,7 +36,11 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 		writePreInvocation(out, "", "")
 		return nil
 	}
-	defer sc.close()
+	if ref := hookTimeoutStoreRefFromCtx(ctx); ref != nil {
+		defer ref.release()
+	} else {
+		defer sc.close()
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -40,7 +49,7 @@ func handlePreInvocation(ctx context.Context, o Options, dir string, in HookInpu
 		writePreInvocation(out, sysMsg, banner)
 		return nil
 	}
-	sysMsg, banner := handleParallelHookTurn(ctx, o, sc, dir, in, state, rawPrompt, cleanPrompt, dirtySummary, fast, start)
+	sysMsg, banner := handleParallelHookTurn(ctx, o, sc, dir, in, state, rawPrompt, cleanPrompt, start)
 	writePreInvocation(out, sysMsg, banner)
 	return nil
 }
@@ -85,6 +94,16 @@ func prepareHookScope(dir string) (*scope, string, bool, error) {
 	return prepareHookScopeReady(context.Background(), root, nil)
 }
 
+func dynamicDirtyFastPathCap(ctx context.Context, existingFiles int) int {
+	if !hasRemainingBudget(ctx, 60*time.Millisecond) {
+		return 0
+	}
+	if existingFiles >= 2000 {
+		return 3
+	}
+	return 8
+}
+
 func prepareHookScopeReady(ctx context.Context, root string, st *store) (*scope, string, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", false, err
@@ -115,12 +134,209 @@ func prepareHookScopeReady(ctx context.Context, root string, st *store) (*scope,
 		closeOnErr = false
 		return &scope{st: st, projects: []string{root}}, "", false, nil
 	}
+	if existingFiles > 0 {
+		if sc, summary, fast, handled, err := tryDirtyFastReconcile(ctx, root, st, existingFiles); handled {
+			if err != nil {
+				return nil, "", false, err
+			}
+			closeOnErr = false
+			return sc, summary, fast, nil
+		}
+	}
 	sc, summary, fast, err := reconcileHookScopeView(ctx, root, st, existingFiles)
 	if err != nil {
 		return nil, "", false, err
 	}
 	closeOnErr = false
 	return sc, summary, fast, nil
+}
+
+func tryDirtyFastReconcile(ctx context.Context, root string, st *store, existingFiles int) (*scope, string, bool, bool, error) {
+	dirtyEntries, dirtyLabels, ok := detectDirtyPathsFast(ctx, root, st)
+	if !ok {
+		return nil, "", false, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "", false, true, err
+	}
+	if len(dirtyEntries) == 0 {
+		return &scope{st: st, projects: []string{root}}, "", false, true, nil
+	}
+	capLimit := dynamicDirtyFastPathCap(ctx, existingFiles)
+	if len(dirtyEntries) > capLimit {
+		return &scope{st: st, projects: []string{root}}, formatDirtyFastPath(dirtyLabels, len(dirtyEntries), capLimit), true, true, nil
+	}
+	if _, err := st.applyDirtyPaths(ctx, root, dirtyEntries, existingFiles); err != nil {
+		return nil, "", false, true, err
+	}
+	if existingFiles <= maxWarmSigEntries {
+		st.saveGitWarmSig(root)
+	}
+	return &scope{st: st, projects: []string{root}}, "", false, true, nil
+}
+
+func detectDirtyPathsFast(ctx context.Context, root string, st *store) ([]entry, []string, bool) {
+	if ctx.Err() != nil || !st.matchesGitIdxHeadSig(ctx, root) {
+		return nil, nil, false
+	}
+	gitDir := resolveGitWorktreeDir(root)
+	if gitDir == "" {
+		return nil, nil, false
+	}
+	indexPath := filepath.Join(gitDir, "index")
+	idxFi, err := os.Lstat(indexPath)
+	if err != nil || !idxFi.Mode().IsRegular() {
+		return nil, nil, false
+	}
+	entries, hasIndex, err := readGitIndex(indexPath)
+	if !hasIndex || err != nil || len(entries) == 0 {
+		return nil, nil, false
+	}
+	nonTracked, ok := loadNonTrackedFilesCtx(ctx, st, root)
+	if !ok {
+		return nil, nil, false
+	}
+	fsRoot, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, nil, false
+	}
+	defer fsRoot.Close()
+	dirtyEntries, dirtyLabels, ok := scanDirtyTrackedEntries(ctx, root, fsRoot, entries, idxFi.ModTime().Unix(), nonTracked)
+	if !ok {
+		return nil, nil, false
+	}
+	return scanDirtyUntrackedEntries(ctx, root, fsRoot, nonTracked, dirtyEntries, dirtyLabels)
+}
+
+func loadNonTrackedFilesCtx(ctx context.Context, st *store, root string) (map[string]entry, bool) {
+	rows, err := st.db.QueryContext(ctx, `SELECT path, oid, state FROM files WHERE project = ? AND state != 'tracked'`, root)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+	out := map[string]entry{}
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.path, &e.oid, &e.state); err != nil {
+			return nil, false
+		}
+		out[e.path] = e
+	}
+	return out, rows.Err() == nil
+}
+
+func scanDirtyTrackedEntries(ctx context.Context, root string, fsRoot *os.Root, entries []gitIndexEntry, idxSec int64, nonTracked map[string]entry) ([]entry, []string, bool) {
+	var dirty []entry
+	var labels []string
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return nil, nil, false
+		}
+		if e.Stage != 0 || (e.Mode&0o170000) == 0o160000 || (e.Mode&0o170000) == 0o120000 {
+			continue
+		}
+		if !indexed(e.Path) || harness.SecretShaped(path.Base(e.Path)) {
+			continue
+		}
+		if isNoIndexMarker(e.Path) || !filepath.IsLocal(filepath.FromSlash(e.Path)) {
+			return nil, nil, false
+		}
+		ch, lbl, changed := checkDirtyTrackedEntry(root, fsRoot, e, idxSec, nonTracked)
+		if changed {
+			dirty = append(dirty, ch)
+			if lbl != "" {
+				labels = append(labels, lbl)
+			}
+		}
+	}
+	return dirty, labels, true
+}
+
+func checkDirtyTrackedEntry(root string, fsRoot *os.Root, e gitIndexEntry, idxSec int64, nonTracked map[string]entry) (entry, string, bool) {
+	local := filepath.FromSlash(e.Path)
+	fi, err := os.Lstat(filepath.Join(root, local))
+	if err != nil {
+		delete(nonTracked, e.Path)
+		return entry{path: e.Path, state: "deleted"}, "D " + e.Path, true
+	}
+	if !fi.Mode().IsRegular() {
+		return entry{}, "", false
+	}
+	mt := fi.ModTime()
+	statClean := fi.Size() == int64(e.Size) && mt.Unix() == int64(e.MTimeSec) &&
+		uint32(mt.Nanosecond()) == e.MTimeNsec && e.MTimeSec != 0 &&
+		(e.MTimeNsec != 0 || int64(e.MTimeSec) < idxSec)
+	idxOID := fmt.Sprintf("%x", e.SHA1)
+	prev, wasDirty := nonTracked[e.Path]
+	delete(nonTracked, e.Path)
+	if statClean {
+		if wasDirty && prev.oid != idxOID {
+			return entry{path: e.Path, oid: idxOID, state: "tracked"}, "", true
+		}
+		return entry{}, "", false
+	}
+	if fi.Size() > maxFileBytes {
+		return entry{path: e.Path, state: "deleted"}, "", true
+	}
+	data, err := readAll(fsRoot, local)
+	if err != nil {
+		return entry{path: e.Path, state: "deleted"}, "", true
+	}
+	oid := blobID(data)
+	if oid == idxOID {
+		if wasDirty && prev.oid != idxOID {
+			return entry{path: e.Path, oid: idxOID, state: "tracked"}, "", true
+		}
+		return entry{}, "", false
+	}
+	if !wasDirty || prev.oid != oid {
+		return entry{path: e.Path, oid: oid, state: "modified"}, "M " + e.Path, true
+	}
+	return entry{}, "", false
+}
+
+func scanDirtyUntrackedEntries(ctx context.Context, root string, fsRoot *os.Root, remaining map[string]entry, dirty []entry, labels []string) ([]entry, []string, bool) {
+	if ctx.Err() != nil {
+		return nil, nil, false
+	}
+	out, err := git(root, nil, "ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, nil, false
+	}
+	seenUntracked := map[string]bool{}
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p == "" {
+			continue
+		}
+		if isNoIndexMarker(p) {
+			return nil, nil, false
+		}
+		if !indexed(p) || harness.SecretShaped(path.Base(p)) {
+			continue
+		}
+		seenUntracked[p] = true
+		fi, err := fsRoot.Lstat(filepath.FromSlash(p))
+		if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxFileBytes {
+			continue
+		}
+		data, err := readAll(fsRoot, filepath.FromSlash(p))
+		if err != nil {
+			continue
+		}
+		oid := blobID(data)
+		if prev, ok := remaining[p]; ok && prev.oid == oid {
+			continue
+		}
+		dirty = append(dirty, entry{path: p, oid: oid, state: "untracked"})
+		labels = append(labels, "?? "+p)
+	}
+	for p, prev := range remaining {
+		if prev.state == "untracked" && !seenUntracked[p] {
+			dirty = append(dirty, entry{path: p, state: "deleted"})
+			labels = append(labels, "D "+p)
+		}
+	}
+	return dirty, labels, true
 }
 
 func reconcileHookScopeView(ctx context.Context, root string, st *store, existingFiles int) (*scope, string, bool, error) {
@@ -133,8 +349,12 @@ func reconcileHookScopeView(ctx context.Context, root string, st *store, existin
 		return nil, "", false, err
 	}
 	diffN, _ := st.diffCount(source{project: root, dir: root, view: view})
-	if existingFiles > 0 && diffN > hookMaxDirtyFastPath {
-		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, formatDirtyFastPath(dirtyPaths, diffN), true, nil
+	capLimit := hookMaxDirtyFastPath
+	if existingFiles > 0 {
+		capLimit = dynamicDirtyFastPathCap(ctx, existingFiles)
+	}
+	if existingFiles > 0 && diffN > capLimit {
+		return &scope{st: st, projects: []string{root}, leftOut: leftOut}, formatDirtyFastPath(dirtyPaths, diffN, capLimit), true, nil
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, "", false, err
@@ -160,10 +380,10 @@ func collectDirtyPaths(view []entry) []string {
 	return out
 }
 
-func formatDirtyFastPath(dirtyPaths []string, diffN int) string {
+func formatDirtyFastPath(dirtyPaths []string, diffN, threshold int) string {
 	var b strings.Builder
 	count := max(len(dirtyPaths), diffN)
-	fmt.Fprintf(&b, "# fast-path: %d modified/untracked files (> %d threshold; serving cached AST snapshot)\n", count, hookMaxDirtyFastPath)
+	fmt.Fprintf(&b, "# fast-path: %d modified/untracked files (> %d threshold; serving cached AST snapshot)\n", count, threshold)
 	limit := min(20, len(dirtyPaths))
 	for i := 0; i < limit; i++ {
 		b.WriteString("  " + dirtyPaths[i] + "\n")

@@ -258,8 +258,8 @@ func runKneeHookTurn(t *testing.T, home, dir, transcript, convID string, inv int
 		"conversationId": convID,
 		"workspacePaths": []string{dir},
 		"transcriptPath": transcript,
-		"invocationNum":  inv,
-		"lastUserInput":  "Check ReconcileProjectIndex",
+		"invocationNum":  1,
+		"lastUserInput":  fmt.Sprintf("Check ReconcileProjectIndex turn %d", inv),
 	}
 	for k, v := range fields {
 		payload[k] = v

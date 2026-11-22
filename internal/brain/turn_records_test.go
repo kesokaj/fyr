@@ -1,11 +1,14 @@
 package brain
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTurnRecordsFiltersAndDoesNotCreateStore(t *testing.T) {
@@ -329,5 +332,112 @@ func TestTurnRecordsIndexAndFilterWords(t *testing.T) {
 	}
 	if recs, hits, err := LoadTurnRecordsAndFTS(bo, trivialWords, 8); err != nil || len(recs) != 1 || len(hits) != 0 {
 		t.Errorf("LoadTurnRecordsAndFTS(trivial) = (recs=%d, hits=%d, err=%v), want 1, 0, nil", len(recs), len(hits), err)
+	}
+}
+
+func seed1143TurnRecordsT(t *testing.T, bo Options) (planID, hitADRID, hitMemID, oldADRID string) {
+	t.Helper()
+	var err error
+	planID, err = Add(bo, AddInput{Kind: "plan", Title: "Active v910 plan", Body: strings.NewReader("## Phase 2\n- [ ] Step 1 quorum\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hitADRID, err = Add(bo, AddInput{Kind: "adr", Status: "accepted", Title: "QuorumSnapshot invariant", Body: strings.NewReader("Always guard QuorumSnapshot state.\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hitMemID, err = MemoryAdd(bo, MemoryEntry{Type: "procedural", Name: "quorum-rule", Description: "QuorumSnapshot verify rule"}, strings.NewReader("Check QuorumSnapshot before commit.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := openStore(bo.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.close()
+	var scope string
+	if err := st.db.QueryRow(`SELECT scope FROM records WHERE id = ?`, planID).Scan(&scope); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := st.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tx.Prepare(`INSERT INTO records(scope, id, kind, status, date, title, body, project, updated, provenance, memory_kind, validity, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo', '2026-01-01T00:00:00Z', ?, ?, 1.0, '2026-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bigADRBody := strings.Repeat("Historical architecture rationale line.\n", 120)
+	bigMemBody := strings.Repeat("Background memory context detail.\n", 80)
+	oldADRID = "ADR-0001"
+	for i := 1; i <= 250; i++ {
+		if _, err := stmt.Exec(scope, fmt.Sprintf("ADR-%04d", i), "adr", "accepted", "2025-01-01", fmt.Sprintf("Legacy ADR %d", i), bigADRBody, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= 100; i++ {
+		if _, err := stmt.Exec(scope, fmt.Sprintf("MEMORY-old-%03d", i), "memory", "closed", "2025-01-01", fmt.Sprintf("Legacy Mem %d", i), bigMemBody, "operator", "semantic"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= 790; i++ {
+		if _, err := stmt.Exec(scope, fmt.Sprintf("CHANGE-2025-01-01-%04d", i), "change", "closed", "2025-01-01", fmt.Sprintf("Historical change %d", i), bigMemBody, "", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = stmt.Close()
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	return planID, hitADRID, hitMemID, oldADRID
+}
+
+func TestTurnRecordsSeeded1143LatencyAndSelectiveBody(t *testing.T) {
+	dir := repo(t)
+	home := t.TempDir()
+	bo := Options{Home: home, Dir: dir}
+	planID, hitADRID, hitMemID, oldADRID := seed1143TurnRecordsT(t, bo)
+
+	// Warm load on 1,143 seeded records must stay well under 120ms and selectively hydrate bodies.
+	_, _, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
+	if err != nil {
+		t.Fatalf("warmup LoadTurnRecordsAndFTSCtx: %v", err)
+	}
+	start := time.Now()
+	recs, hits, err := LoadTurnRecordsAndFTSCtx(context.Background(), bo, []string{"quorumsnapshot"}, 16)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("LoadTurnRecordsAndFTSCtx: %v", err)
+	}
+	if elapsed >= 120*time.Millisecond {
+		t.Errorf("warm LoadTurnRecordsAndFTSCtx on 1143 records took %v, want < 120ms", elapsed)
+	}
+	if len(hits) < 2 {
+		t.Fatalf("expected >= 2 FTS hits for quorumsnapshot, got %+v", hits)
+	}
+	byID := map[string]Record{}
+	for _, r := range recs {
+		byID[r.ID] = r
+	}
+	for _, wantBody := range []string{planID, hitADRID, hitMemID} {
+		if strings.TrimSpace(byID[wantBody].Body) == "" {
+			t.Errorf("expected hydrated Body for %s, got empty", wantBody)
+		}
+	}
+	if byID[oldADRID].ID != oldADRID {
+		t.Errorf("expected metadata row for %s", oldADRID)
+	}
+	if byID[oldADRID].Body != "" {
+		t.Errorf("expected selective Body projection to omit full body for non-candidate %s (got %d bytes)", oldADRID, len(byID[oldADRID].Body))
+	}
+
+	// Pre-canceled context must abort cleanly without returning records.
+	cctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := LoadTurnRecordsAndFTSCtx(cctx, bo, []string{"quorumsnapshot"}, 16); err == nil {
+		t.Errorf("expected error for canceled context, got nil")
 	}
 }

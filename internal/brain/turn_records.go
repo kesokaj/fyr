@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -9,14 +10,19 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
 const (
-	turnRecordAliasSQL = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
-	maxTurnFTSWords    = 8
+	turnRecordAliasSQL      = `((r.kind = 'plan' AND r.status IN ('open', '')) OR (r.kind = 'memory' AND r.status IN ('closed', '')) OR (r.kind = 'bug' AND r.status IN ('open', '')) OR (r.kind = 'adr' AND r.status IN ('accepted', 'open', '')))`
+	maxTurnFTSWords         = 8
+	maxTurnPlanBodies       = 4
+	maxTurnADRCandidates    = 8
+	maxTurnMemoryCandidates = 8
+	maxTurnBugCandidates    = 4
 )
 
 var trivialTurnFTSWords = map[string]bool{
@@ -61,13 +67,26 @@ func isAllASCIIDigits(s string) bool {
 	return true
 }
 
+type turnMetaRow struct {
+	rid int64
+	rec Record
+}
+
 // ListTurnRecords returns only active turn-relevant records (open plans, active
 // memories, open bugs, accepted/open ADRs) for o.Dir plus closed global memories
 // (or the global scope when o.Global is true), without creating or mutating
 // brain.db (falling back to a temporary read-only copy only if a WAL blocks
 // direct mode=ro).
 func ListTurnRecords(o Options) ([]Record, error) {
-	st, ver, err := openTurnStore(o.Home)
+	return ListTurnRecordsCtx(context.Background(), o)
+}
+
+// ListTurnRecordsCtx is the context-bounded variant of ListTurnRecords.
+func ListTurnRecordsCtx(ctx context.Context, o Options) ([]Record, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	st, ver, err := openTurnStoreCtx(ctx, o.Home)
 	if err != nil || st == nil || ver < 1 {
 		if st != nil {
 			_ = st.close()
@@ -75,35 +94,34 @@ func ListTurnRecords(o Options) ([]Record, error) {
 		return nil, err
 	}
 	defer st.close()
-	return queryTurnRecordsFromStore(st, o, ver)
-}
-
-func queryTurnRecordsFromStore(st *store, o Options, ver int) ([]Record, error) {
-	q, args, ok := listTurnQuery(o, ver)
+	scope, ok := resolveTurnScope(o)
 	if !ok {
 		return nil, nil
 	}
-	rows, err := st.db.Query(q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("brain: %w", err)
-	}
-	defer rows.Close()
-	out, err := scanRecordsRows(rows)
+	metaRows, err := queryTurnRecordMetaCtx(ctx, st, o, ver, scope)
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return recordDescLess(out[i], out[j]) })
-	return out, nil
+	wantRIDs := selectTurnBodyRIDs(metaRows, nil, nil)
+	return hydrateTurnRecordsCtx(ctx, st, ver, metaRows, wantRIDs)
 }
 
 // SearchTurnRecords runs FTS5 record search scoped only to active turn-relevant
 // records, avoiding scans over rejected proposals and historical closed records.
 func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
+	return SearchTurnRecordsCtx(context.Background(), o, words, limit)
+}
+
+// SearchTurnRecordsCtx is the context-bounded variant of SearchTurnRecords.
+func SearchTurnRecordsCtx(ctx context.Context, o Options, words []string, limit int) ([]Hit, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	meaningful := filterTurnFTSWords(words)
 	if limit <= 0 || len(meaningful) == 0 {
 		return nil, nil
 	}
-	st, ver, err := openTurnStore(o.Home)
+	st, ver, err := openTurnStoreCtx(ctx, o.Home)
 	if err != nil || st == nil || ver < 1 {
 		if st != nil {
 			_ = st.close()
@@ -111,17 +129,35 @@ func SearchTurnRecords(o Options, words []string, limit int) ([]Hit, error) {
 		return nil, err
 	}
 	defer st.close()
-	scopes, proj, ok, err := turnSearchScopes(st, o)
+	scope, ok := resolveTurnScope(o)
+	if !ok {
+		return nil, nil
+	}
+	scopes, proj, ok, err := turnSearchScopesForRoot(st, o, scope)
 	if err != nil || !ok {
 		return nil, err
 	}
-	return runTurnFTSPasses(st, o, meaningful, limit, scopes, proj)
+	hits, _, err := runTurnFTSPassesCtx(ctx, st, o, meaningful, limit, scopes, proj)
+	return hits, err
 }
 
 // LoadTurnRecordsAndFTS opens brain.db once read-only and returns both active
 // turn records and FTS5 hits (when meaningful words and limit are non-empty).
 func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hit, error) {
-	st, ver, err := openTurnStore(o.Home)
+	return LoadTurnRecordsAndFTSCtx(context.Background(), o, words, limit)
+}
+
+// LoadTurnRecordsAndFTSCtx opens brain.db once read-only with ctx bounds,
+// resolves trail.Roots once, projects metadata first, runs FTS5, and fetches
+// full Body only for active plans, FTS-matched rows, and active ADR/memory candidates.
+func LoadTurnRecordsAndFTSCtx(ctx context.Context, o Options, words []string, limit int) ([]Record, []Hit, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	st, ver, err := openTurnStoreCtx(ctx, o.Home)
 	if err != nil || st == nil || ver < 1 {
 		if st != nil {
 			_ = st.close()
@@ -129,20 +165,197 @@ func LoadTurnRecordsAndFTS(o Options, words []string, limit int) ([]Record, []Hi
 		return nil, nil, err
 	}
 	defer st.close()
-	recs, err := queryTurnRecordsFromStore(st, o, ver)
+	scope, ok := resolveTurnScope(o)
+	if !ok {
+		return nil, nil, nil
+	}
+	metaRows, err := queryTurnRecordMetaCtx(ctx, st, o, ver, scope)
+	if err != nil {
+		return nil, nil, err
+	}
 	meaningful := filterTurnFTSWords(words)
-	if err != nil || len(meaningful) == 0 || limit <= 0 {
-		return recs, nil, err
+	var hits []Hit
+	var hitRIDs map[int64]bool
+	if len(meaningful) > 0 && limit > 0 {
+		scopes, proj, okScope, serr := turnSearchScopesForRoot(st, o, scope)
+		if serr != nil {
+			return nil, nil, serr
+		}
+		if okScope {
+			hits, hitRIDs, err = runTurnFTSPassesCtx(ctx, st, o, meaningful, limit, scopes, proj)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 	}
-	scopes, proj, ok, err := turnSearchScopes(st, o)
-	if err != nil || !ok {
-		return recs, nil, err
-	}
-	hits, err := runTurnFTSPasses(st, o, meaningful, limit, scopes, proj)
+	wantRIDs := selectTurnBodyRIDs(metaRows, hitRIDs, meaningful)
+	recs, err := hydrateTurnRecordsCtx(ctx, st, ver, metaRows, wantRIDs)
 	return recs, hits, err
 }
 
-func openTurnStore(home string) (*store, int, error) {
+func resolveTurnScope(o Options) (string, bool) {
+	if o.Global {
+		return "", true
+	}
+	sc, _, err := trail.Roots(o.Dir)
+	if err != nil {
+		return "", false
+	}
+	return sc, true
+}
+
+func queryTurnRecordMetaCtx(ctx context.Context, st *store, o Options, ver int, scope string) ([]turnMetaRow, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	q, args := listTurnMetaQueryForScope(o, ver, scope)
+	rows, err := st.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("brain: %w", err)
+	}
+	defer rows.Close()
+	var out []turnMetaRow
+	for rows.Next() {
+		var rid int64
+		var r Record
+		if err := rows.Scan(&rid, &r.Scope, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title); err != nil {
+			return nil, err
+		}
+		if r.Kind == "memory" || r.Kind == "feedback" {
+			r.Provenance = "unknown"
+		}
+		out = append(out, turnMetaRow{rid: rid, rec: r})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].rec.Date != out[j].rec.Date {
+			return out[i].rec.Date > out[j].rec.Date
+		}
+		return out[i].rid > out[j].rid
+	})
+	return out, nil
+}
+
+func selectTurnBodyRIDs(rows []turnMetaRow, hitRIDs map[int64]bool, words []string) map[int64]bool {
+	want := make(map[int64]bool, len(hitRIDs)+maxTurnPlanBodies+maxTurnADRCandidates+maxTurnMemoryCandidates)
+	plans, adrs, mems, bugs := 0, 0, 0, 0
+	for _, row := range rows {
+		if hitRIDs[row.rid] || titleMatchesTurnWords(row.rec, words) {
+			want[row.rid] = true
+			continue
+		}
+		switch row.rec.Kind {
+		case "plan":
+			if plans < maxTurnPlanBodies {
+				want[row.rid] = true
+				plans++
+			}
+		case "adr":
+			if adrs < maxTurnADRCandidates {
+				want[row.rid] = true
+				adrs++
+			}
+		case "memory":
+			if mems < maxTurnMemoryCandidates {
+				want[row.rid] = true
+				mems++
+			}
+		case "bug":
+			if bugs < maxTurnBugCandidates {
+				want[row.rid] = true
+				bugs++
+			}
+		}
+	}
+	return want
+}
+
+func titleMatchesTurnWords(r Record, words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	hay := strings.ToLower(r.ID + " " + r.Title)
+	for _, w := range words {
+		if len(w) >= 4 && strings.Contains(hay, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func hydrateTurnRecordsCtx(ctx context.Context, st *store, ver int, metaRows []turnMetaRow, wantRIDs map[int64]bool) ([]Record, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	full := make(map[int64]Record, len(wantRIDs))
+	if len(wantRIDs) > 0 {
+		if err := fetchFullTurnRecordsCtx(ctx, st, ver, wantRIDs, full); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]Record, len(metaRows))
+	for i, m := range metaRows {
+		if rec, ok := full[m.rid]; ok {
+			out[i] = rec
+		} else {
+			out[i] = m.rec
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return recordDescLess(out[i], out[j]) })
+	return out, nil
+}
+
+func fetchFullTurnRecordsCtx(ctx context.Context, st *store, ver int, wantRIDs map[int64]bool, dst map[int64]Record) error {
+	rids := make([]int64, 0, len(wantRIDs))
+	for rid := range wantRIDs {
+		rids = append(rids, rid)
+	}
+	sort.Slice(rids, func(i, j int) bool { return rids[i] < rids[j] })
+	cols := "rid, " + selectRecordCols(ver)
+	const batch = 200
+	for start := 0; start < len(rids); start += batch {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		chunk := rids[start:min(start+batch, len(rids))]
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		q := `SELECT ` + cols + ` FROM records WHERE rid IN (` + strings.Repeat("?,", len(chunk)-1) + `?)`
+		rows, err := st.db.QueryContext(ctx, q, args...)
+		if err != nil {
+			return fmt.Errorf("brain: %w", err)
+		}
+		for rows.Next() {
+			var rid int64
+			var r Record
+			err := rows.Scan(&rid, &r.Scope, &r.RepoID, &r.ID, &r.Kind, &r.Status, &r.Date, &r.Title, &r.Body, &r.Project, &r.Provenance,
+				&r.MemoryKind, &r.Validity, &r.VerifiedAt, &r.EvidenceCount, &r.SourceSessions, &r.Updated)
+			if err != nil {
+				rows.Close()
+				return err
+			}
+			if (r.Kind == "memory" || r.Kind == "feedback") && r.Provenance == "" {
+				r.Provenance = "unknown"
+			}
+			dst[rid] = r
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func openTurnStoreCtx(ctx context.Context, home string) (*store, int, error) {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, 0, ctx.Err()
+	}
 	if strings.TrimSpace(home) == "" {
 		return nil, 0, nil
 	}
@@ -155,10 +368,16 @@ func openTurnStore(home string) (*store, int, error) {
 	if err := checkRegularReadOnly(path); err != nil {
 		return nil, 0, refuse("brain: %v", err)
 	}
-	return openExistingTurnStore(home, path)
+	return openExistingTurnStoreCtx(ctx, home, path)
 }
 
-func openExistingTurnStore(home, path string) (*store, int, error) {
+func openExistingTurnStoreCtx(ctx context.Context, home, path string) (*store, int, error) {
+	busyMS := 1000
+	if ctx != nil {
+		if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= 200*time.Millisecond {
+			busyMS = 25
+		}
+	}
 	walInfo, werr := os.Lstat(path + "-wal")
 	walNonEmpty := werr == nil && walInfo.Size() > 0
 	_, serr := os.Lstat(path + "-shm")
@@ -166,17 +385,17 @@ func openExistingTurnStore(home, path string) (*store, int, error) {
 	if walNonEmpty && shmAbsent {
 		return openStoreReadOnly(home)
 	}
-	s, ver, err := openTurnSQLite(turnReadOnlyDSN(path, false), path)
+	if !walNonEmpty && shmAbsent {
+		if s2, ver2, err2 := openTurnSQLite(turnReadOnlyDSN(path, true, busyMS), path); err2 == nil || IsRefusal(err2) {
+			return s2, ver2, err2
+		}
+	}
+	s, ver, err := openTurnSQLite(turnReadOnlyDSN(path, false, busyMS), path)
 	if err == nil || IsRefusal(err) {
 		return s, ver, err
 	}
 	if walNonEmpty {
 		return openStoreReadOnly(home)
-	}
-	if shmAbsent {
-		if s2, ver2, err2 := openTurnSQLite(turnReadOnlyDSN(path, true), path); err2 == nil || IsRefusal(err2) {
-			return s2, ver2, err2
-		}
 	}
 	return nil, 0, err
 }
@@ -200,11 +419,11 @@ func openTurnSQLite(dsn, path string) (*store, int, error) {
 	return s, ver, nil
 }
 
-func turnReadOnlyDSN(path string, immutable bool) string {
+func turnReadOnlyDSN(path string, immutable bool, busyMS int) string {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	q := "mode=ro&_pragma=busy_timeout(1000)"
+	q := fmt.Sprintf("mode=ro&_pragma=busy_timeout(%d)", busyMS)
 	if immutable {
 		q += "&immutable=1"
 	}
@@ -216,22 +435,24 @@ func turnReadOnlyDSN(path string, immutable bool) string {
 	return u.String()
 }
 
+const turnMetaCols = `rid, scope, id, kind, status, date, title`
+
 func listTurnQuery(o Options, ver int) (string, []any, bool) {
-	cols := selectRecordCols(ver)
-	if o.Global {
-		q := turnScopeBranchesSQL(cols, "scope = ''")
-		return q, nil, true
-	}
-	sc, _, err := trail.Roots(o.Dir)
-	if err != nil {
+	sc, ok := resolveTurnScope(o)
+	if !ok {
 		return "", nil, false
 	}
-	if sc == "" {
-		return turnScopeBranchesSQL(cols, "scope = ''"), nil, true
+	q, args := listTurnMetaQueryForScope(o, ver, sc)
+	return q, args, true
+}
+
+func listTurnMetaQueryForScope(o Options, _ int, sc string) (string, []any) {
+	if o.Global || sc == "" {
+		return turnScopeBranchesSQL(turnMetaCols, "scope = ''"), nil
 	}
-	q := turnScopeBranchesSQL(cols, "scope = ?") +
-		` UNION ALL SELECT ` + cols + ` FROM records WHERE scope = '' AND kind = 'memory' AND status IN ('closed', '')`
-	return q, []any{sc, sc, sc, sc}, true
+	q := turnScopeBranchesSQL(turnMetaCols, "scope = ?") +
+		` UNION ALL SELECT ` + turnMetaCols + ` FROM records WHERE scope = '' AND kind = 'memory' AND status IN ('closed', '')`
+	return q, []any{sc, sc, sc, sc}
 }
 
 func turnScopeBranchesSQL(cols, scopePred string) string {
@@ -241,22 +462,21 @@ func turnScopeBranchesSQL(cols, scopePred string) string {
 		` UNION ALL SELECT ` + cols + ` FROM records WHERE ` + scopePred + ` AND kind = 'adr' AND status IN ('accepted', 'open', '')`
 }
 
-func turnSearchScopes(st *store, o Options) ([]string, string, bool, error) {
+func turnSearchScopesForRoot(st *store, o Options, sc string) ([]string, string, bool, error) {
 	if o.Global {
 		scopes, err := searchScopes(st, o, "")
 		return scopes, "", err == nil, err
 	}
-	sc, _, err := trail.Roots(o.Dir)
-	if err != nil {
-		return nil, "", false, nil
-	}
 	return []string{"", sc}, sc, true, nil
 }
 
-func runTurnFTSPasses(st *store, o Options, words []string, limit int, scopes []string, proj string) ([]Hit, error) {
+func runTurnFTSPassesCtx(ctx context.Context, st *store, o Options, words []string, limit int, scopes []string, proj string) ([]Hit, map[int64]bool, error) {
 	var hits []Hit
 	seen := map[int64]bool{}
 	for _, op := range []string{" ", " OR "} {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
 		if len(hits) >= limit || (op == " OR " && len(words) < 2) {
 			break
 		}
@@ -265,17 +485,17 @@ func runTurnFTSPasses(st *store, o Options, words []string, limit int, scopes []
 			break
 		}
 		var err error
-		hits, err = appendTurnFTSPass(st, o, q, scopes, proj, limit, seen, hits)
+		hits, err = appendTurnFTSPassCtx(ctx, st, o, q, scopes, proj, limit, seen, hits)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return hits, nil
+	return hits, seen, nil
 }
 
-func appendTurnFTSPass(st *store, o Options, q string, scopes []string, proj string, limit int, seen map[int64]bool, hits []Hit) ([]Hit, error) {
+func appendTurnFTSPassCtx(ctx context.Context, st *store, o Options, q string, scopes []string, proj string, limit int, seen map[int64]bool, hits []Hit) ([]Hit, error) {
 	sqlq, args := turnSearchQuery(o, q, scopes, limit*2)
-	rows, err := st.db.Query(sqlq, args...)
+	rows, err := st.db.QueryContext(ctx, sqlq, args...)
 	if err != nil {
 		return nil, fmt.Errorf("brain: %w", err)
 	}
@@ -301,7 +521,7 @@ func appendTurnFTSPass(st *store, o Options, q string, scopes []string, proj str
 func turnSearchQuery(o Options, q string, scopes []string, limit int) (string, []any) {
 	sqlq := `SELECT r.rid, r.scope, r.id, r.kind, r.status, r.date, r.title, r.project,
 		snippet(records_fts, 1, char(1), char(2), '…', 24)
-		FROM records_fts JOIN records r ON r.rid = records_fts.rowid
+		FROM records_fts CROSS JOIN records r ON r.rid = records_fts.rowid
 		WHERE records_fts MATCH ?`
 	args := []any{q}
 	var f string

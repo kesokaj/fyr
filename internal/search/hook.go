@@ -89,7 +89,7 @@ func RunHook(o Options, in io.Reader, out io.Writer) error {
 	if event == "" {
 		return usageError{"search: --hook must be one of: session-start pre-invocation pre-tool-use post-tool-use stop; see fyr help search"}
 	}
-	if hooksDisabledGlobal(o.Home) {
+	if !(event == "pre-tool-use" && isRelaySession()) && hooksDisabledGlobal(o.Home) {
 		return writeHookAllowFallback(event, out)
 	}
 	return runHookWithDeadline(o, event, in, out)

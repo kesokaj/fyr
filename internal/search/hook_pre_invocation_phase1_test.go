@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kesokaj/fyr/internal/harness"
 )
 
 func TestPreInvocationParallelSliceAndSubDeadlineDegradation(t *testing.T) {
@@ -477,5 +482,318 @@ func TestBoundedSymGraphLikeSQLPushdownUsesCoveringIndex(t *testing.T) {
 	}
 	if len(matched) != 1 || matched[0] != "alpha_beta_helper" {
 		t.Errorf("matchSymbolNamesFromIndexCtx = %v, want [alpha_beta_helper]", matched)
+	}
+}
+
+func TestV910PreInvocationLatencyDedupCompactionAndNoHooks(t *testing.T) {
+	t.Run("TestV910BrainSubDeadlineAndTimeoutRecorder", runV910BrainSubDeadlineAndTimeoutT)
+	t.Run("TestV910PreInvocationDirtyFastPath", runV910DirtyFastPathT)
+	t.Run("TestV910MidTurn", runV910MidTurnT)
+	t.Run("TestV910Compaction", runV910CompactionT)
+	t.Run("TestV910NoHooksSymlinkAndRelay", runV910NoHooksSymlinkAndRelayT)
+}
+
+func runV910BrainSubDeadlineAndTimeoutT(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	if got := hookBrainDeadline(context.Background(), Options{hookDeadline: 200 * time.Millisecond}); got > 50*time.Millisecond {
+		t.Fatalf("hookBrainDeadline(200ms) = %v, want <= 50ms", got)
+	}
+	releaseBrain := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-releaseBrain:
+		default:
+			close(releaseBrain)
+		}
+	})
+	inJSON, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-v910-brain-dl", "workspacePaths": []string{dir},
+		"invocationNum": 1, "lastUserInput": "Investigate ReconcileProjectIndex in service.go",
+	})
+	var out bytes.Buffer
+	err := Search(Options{
+		Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON),
+		hookDeadline: 200 * time.Millisecond,
+		BrainTurnContext: func(d, h, p string, files []string) TurnBrainContext {
+			<-releaseBrain
+			return TurnBrainContext{}
+		},
+	}, &out)
+	close(releaseBrain)
+	if err != nil {
+		t.Fatalf("Search degraded brain: %v", err)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 {
+		t.Fatalf("brain sub-deadline degradation expected valid contract, got %+v (err=%v)", resp, err)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.lastVetHistory("conv-v910-brain-dl", 0)
+	st.close()
+	if err != nil || row == nil || row.TimedOut {
+		t.Fatalf("brain sub-deadline vet_history = %+v (err=%v), want TimedOut=false", row, err)
+	}
+}
+
+func runV910DirtyFastPathT(t *testing.T) {
+	if got := dynamicDirtyFastPathCap(context.Background(), 500); got != 8 {
+		t.Fatalf("dynamicDirtyFastPathCap(500) = %d, want 8", got)
+	}
+	if got := dynamicDirtyFastPathCap(context.Background(), 2000); got != 3 {
+		t.Fatalf("dynamicDirtyFastPathCap(2000) = %d, want 3", got)
+	}
+	shortCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if got := dynamicDirtyFastPathCap(shortCtx, 500); got != 0 {
+		t.Fatalf("dynamicDirtyFastPathCap(<60ms) = %d, want 0", got)
+	}
+
+	dir, home := newRepo(t), t.TempDir()
+	writeFile(t, dir, "service.go", hookSampleServiceSrc)
+	for i := 0; i < 5000; i++ {
+		sub := fmt.Sprintf("pkg%02d/f%04d.txt", i%50, i)
+		writeFile(t, dir, sub, fmt.Sprintf("synthetic file %d\n", i))
+	}
+	commitAll(t, dir, "seed 5000 files")
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index 5000: %v", err)
+	}
+
+	// 2 dirty files (<= 3 cap): applyDirtyPaths updates only those 2 files without full gitView.
+	writeFile(t, dir, "service.go", hookSampleServiceSrc+"\nfunc DirtyFastUpdated() error { return nil }\n")
+	writeFile(t, dir, "untracked_v910.go", "package sample\nfunc UntrackedV910() {}\n")
+	assertV910DirtyHookTurnT(t, dir, home, "conv-v910-dirty-2", "Inspect DirtyFastUpdated in service.go", "DirtyFastUpdated", false)
+
+	// 12 dirty files (> 3 cap, <= 15): serves cached AST snapshot via fast path under 150ms.
+	for i := 0; i < 12; i++ {
+		writeFile(t, dir, fmt.Sprintf("burst_%02d.go", i), fmt.Sprintf("package sample\nfunc Burst%02d() {}\n", i))
+	}
+	assertV910DirtyHookTurnT(t, dir, home, "conv-v910-dirty-12", "Inspect ReconcileProjectIndex in service.go", "burst_00.go", true)
+}
+
+func assertV910DirtyHookTurnT(t *testing.T, dir, home, convID, prompt, wantSub string, wantFastPath bool) {
+	t.Helper()
+	inJSON, _ := json.Marshal(map[string]any{
+		"conversationId": convID, "workspacePaths": []string{dir},
+		"invocationNum": 1, "lastUserInput": prompt,
+	})
+	var out bytes.Buffer
+	opts := Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(inJSON)}
+	limit := 150 * time.Millisecond
+	if defaultHookDeadline > 200*time.Millisecond {
+		opts.hookDeadline = 5 * time.Second
+		limit = 5 * time.Second
+	}
+	start := time.Now()
+	if err := Search(opts, &out); err != nil {
+		t.Fatalf("Search(%s): %v", convID, err)
+	}
+	elapsed := time.Since(start)
+	if elapsed >= limit {
+		t.Errorf("%s took %v, want < %v", convID, elapsed, limit)
+	}
+	var resp PreInvocationOutput
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil || len(resp.InjectSteps) != 1 {
+		t.Fatalf("%s invalid resp: %+v (err=%v)", convID, resp, err)
+	}
+	sys := resp.InjectSteps[0].SystemMessage.SystemMessage
+	if !strings.Contains(sys, wantSub) {
+		t.Errorf("%s missing %q in:\n%s", convID, wantSub, sys)
+	}
+	if wantFastPath && !strings.Contains(sys, "# fast-path:") {
+		t.Errorf("%s expected # fast-path: in:\n%s", convID, sys)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := st.lastVetHistory(convID, 0)
+	st.close()
+	if err != nil || row == nil || row.TimedOut {
+		t.Fatalf("%s vet_history = %+v (err=%v), want TimedOut=false", convID, row, err)
+	}
+}
+
+func runV910MidTurnT(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	call := func(inv int, prompt string) PreInvocationOutput {
+		t.Helper()
+		raw, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-v910-mid", "workspacePaths": []string{dir},
+			"invocationNum": inv, "lastUserInput": prompt,
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(raw)}, &out); err != nil {
+			t.Fatalf("inv=%d: %v", inv, err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	p1 := "Investigate ReconcileProjectIndex in service.go"
+	if r := call(1, p1); len(r.InjectSteps) != 1 {
+		t.Fatalf("inv=1 turn 1 expected inject, got %+v", r)
+	}
+	if r := call(2, p1); len(r.InjectSteps) != 0 {
+		t.Fatalf("inv=2 same prompt expected mid-turn skip {}, got %+v", r)
+	}
+	if r := call(3, p1); len(r.InjectSteps) != 0 {
+		t.Fatalf("inv=3 same prompt expected mid-turn skip {}, got %+v", r)
+	}
+	if r := call(1, p1); len(r.InjectSteps) != 1 {
+		t.Fatalf("inv=1 new user turn with same prompt must NOT skip, got %+v", r)
+	}
+	if r := call(2, "Fix AlphaHelper error handling in service.go"); len(r.InjectSteps) != 1 {
+		t.Fatalf("inv=2 with different prompt must NOT skip, got %+v", r)
+	}
+}
+
+func runV910CompactionT(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	if err := Index(Options{Dir: dir, Home: home}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	trDir := t.TempDir()
+	tr := filepath.Join(trDir, "transcript.jsonl")
+	pad := strings.Repeat("a", 200)
+	if err := os.WriteFile(tr, []byte(`{"type":"user","text":"`+pad+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Symlinked transcript must be refused by scanTranscriptCheckpoint.
+	symTr := filepath.Join(trDir, "sym.jsonl")
+	if err := os.Symlink(tr, symTr); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, ok := scanTranscriptCheckpoint(symTr, 0); ok {
+		t.Fatalf("scanTranscriptCheckpoint followed symlink")
+	}
+
+	reprimeCount := 0
+	reprime := func(d, h string) string { reprimeCount++; return "# Re-primed V910" }
+	call := func(inv int, prompt string) PreInvocationOutput {
+		raw, _ := json.Marshal(map[string]any{
+			"conversationId": "conv-v910-cp", "workspacePaths": []string{dir},
+			"transcriptPath": tr, "invocationNum": inv, "lastUserInput": prompt,
+		})
+		var out bytes.Buffer
+		if err := Search(Options{Dir: dir, Home: home, Hook: "pre-invocation", HookIn: bytes.NewReader(raw), BrainReprime: reprime}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var resp PreInvocationOutput
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	_ = call(1, "Check ReconcileProjectIndex in service.go")
+	// False-positive text mentioning CHECKPOINT inside assistant line must NOT trigger compaction.
+	f, err := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(`{"type":"assistant","text":"detecting \"type\":\"CHECKPOINT\" safely"}` + "\n")
+	_ = f.Close()
+	_ = call(1, "Check AlphaHelper in service.go")
+	if reprimeCount != 0 {
+		t.Fatalf("assistant line mentioning CHECKPOINT falsely triggered reprime=%d", reprimeCount)
+	}
+
+	// Append large (> 512 KiB) jump ending with spaced CHECKPOINT + small post-checkpoint event.
+	f, err = os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(`{"type":"assistant","text":"` + strings.Repeat("b", 600*1024) + `"}` + "\n")
+	_, _ = f.WriteString(`{"type": "CHECKPOINT", "summary": "compacted"}` + "\n")
+	_, _ = f.WriteString(`{"type":"user","text":"post-cp"}` + "\n")
+	_ = f.Close()
+	r := call(2, "Check AlphaHelper in service.go")
+	if reprimeCount != 1 || len(r.InjectSteps) != 1 || !strings.Contains(r.InjectSteps[0].SystemMessage.SystemMessage, "Re-primed V910") {
+		t.Fatalf("append-only CHECKPOINT expected reprime=1 and banner, got reprime=%d resp=%+v", reprimeCount, r)
+	}
+	st, _, err := openLedgerStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var genID, estTokens, cpOff int
+	err = st.db.QueryRow(`SELECT generation_id, est_tokens, last_checkpoint_offset FROM session_meta WHERE conversation_id = 'conv-v910-cp'`).Scan(&genID, &estTokens, &cpOff)
+	st.close()
+	if err != nil || genID != 1 || cpOff <= 0 || estTokens >= 1000 {
+		t.Fatalf("post-checkpoint session_meta = (gen=%d est=%d cpOff=%d err=%v), want gen=1 cpOff>0 est<1000", genID, estTokens, cpOff, err)
+	}
+}
+
+func runV910NoHooksSymlinkAndRelayT(t *testing.T) {
+	dir, home := setupHookRepo(t), t.TempDir()
+	realMarker := filepath.Join(t.TempDir(), "real-marker")
+	if err := os.WriteFile(realMarker, []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 1. Symlinked repo .agents/scratch/no-hooks is refused.
+	scratchDir := filepath.Join(dir, ".agents", "scratch")
+	if err := os.MkdirAll(scratchDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realMarker, filepath.Join(scratchDir, "no-hooks")); err != nil {
+		t.Fatal(err)
+	}
+	if hooksDisabled(dir) {
+		t.Fatalf("hooksDisabled accepted symlinked .agents/scratch/no-hooks")
+	}
+	// 2. Symlinked global no-hooks is refused.
+	stateDir := filepath.Join(home, harness.StateDir)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	globalNoHooks := filepath.Join(stateDir, "no-hooks")
+	if err := os.Symlink(realMarker, globalNoHooks); err != nil {
+		t.Fatal(err)
+	}
+	if hooksDisabledGlobal(home) {
+		t.Fatalf("hooksDisabledGlobal accepted symlinked global no-hooks")
+	}
+	// 3. Regular global no-hooks CANNOT bypass FYR_RELAY=1 pre-tool-use guards.
+	_ = os.Remove(globalNoHooks)
+	if err := os.WriteFile(globalNoHooks, []byte("1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !hooksDisabledGlobal(home) {
+		t.Fatalf("hooksDisabledGlobal rejected regular global no-hooks")
+	}
+	t.Setenv("FYR_RELAY", "1")
+	pushReq, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-v910-relay", "workspacePaths": []string{dir},
+		"toolCall": map[string]any{"name": "run_command", "args": map[string]any{"CommandLine": "git push origin main", "Cwd": dir}},
+	})
+	var out bytes.Buffer
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(pushReq)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dec HookDecisionOutput
+	if err := json.Unmarshal(out.Bytes(), &dec); err != nil || dec.Decision != "deny" || !strings.Contains(dec.Reason, "[RELAY_GUARD]") {
+		t.Fatalf("global no-hooks bypassed FYR_RELAY=1 git push guard: %+v (err=%v)", dec, err)
+	}
+	askReq, _ := json.Marshal(map[string]any{
+		"conversationId": "conv-v910-relay", "workspacePaths": []string{dir},
+		"toolCall": map[string]any{"name": "ask_question", "args": map[string]any{"questions": []any{map[string]any{"question": "Proceed?"}}}},
+	})
+	out.Reset()
+	if err := Search(Options{Home: home, Hook: "pre-tool-use", HookIn: bytes.NewReader(askReq)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	dec = HookDecisionOutput{}
+	if err := json.Unmarshal(out.Bytes(), &dec); err != nil || dec.Decision != "deny" || !strings.Contains(dec.Reason, "[KICKOFF_GUARD]") {
+		t.Fatalf("global no-hooks bypassed FYR_RELAY=1 ask_question guard: %+v (err=%v)", dec, err)
 	}
 }

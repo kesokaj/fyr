@@ -9,10 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kesokaj/fyr/internal/harness"
 )
+
+const preInvocationTimeoutRecorderBudget = 45 * time.Millisecond
 
 type hookRunResult struct {
 	data []byte
@@ -20,8 +23,80 @@ type hookRunResult struct {
 }
 
 type hookInputMeta struct {
-	dir   string
-	input HookInput
+	dir      string
+	input    HookInput
+	storeRef *hookTimeoutStoreRef
+}
+
+type hookTimeoutStoreCtxKey struct{}
+
+// hookTimeoutStoreRef lets a timed-out PreInvocation recorder reuse the worker's
+// already-open SQLite store safely without concurrent close races.
+type hookTimeoutStoreRef struct {
+	mu     sync.Mutex
+	st     *store
+	root   string
+	refs   int
+	closed bool
+}
+
+func withHookTimeoutStoreRef(ctx context.Context, ref *hookTimeoutStoreRef) context.Context {
+	return context.WithValue(ctx, hookTimeoutStoreCtxKey{}, ref)
+}
+
+func hookTimeoutStoreRefFromCtx(ctx context.Context) *hookTimeoutStoreRef {
+	if ctx == nil {
+		return nil
+	}
+	ref, _ := ctx.Value(hookTimeoutStoreCtxKey{}).(*hookTimeoutStoreRef)
+	return ref
+}
+
+func (r *hookTimeoutStoreRef) attach(st *store, root string) {
+	if r == nil || st == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.st = st
+	r.root = root
+	r.refs = 1
+	r.closed = false
+}
+
+func (r *hookTimeoutStoreRef) acquire(root string) (*store, bool) {
+	if r == nil {
+		return nil, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.st == nil || r.closed || r.refs <= 0 || !sameCleanPath(r.root, root) {
+		return nil, false
+	}
+	r.refs++
+	return r.st, true
+}
+
+func (r *hookTimeoutStoreRef) release() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	if r.refs <= 0 {
+		r.mu.Unlock()
+		return
+	}
+	r.refs--
+	var toClose *store
+	if r.refs == 0 {
+		toClose = r.st
+		r.st = nil
+		r.closed = true
+	}
+	r.mu.Unlock()
+	if toClose != nil {
+		_ = toClose.close()
+	}
 }
 
 func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) error {
@@ -62,7 +137,7 @@ func runHookWithDeadline(o Options, event string, in io.Reader, out io.Writer) e
 		if event == "pre-invocation" {
 			select {
 			case m := <-metaCh:
-				recordPreInvocationTimeoutBounded(o, m.dir, m.input, max(1, int(time.Since(start).Milliseconds())))
+				recordPreInvocationTimeoutBounded(o, m, max(1, int(time.Since(start).Milliseconds())))
 			default:
 			}
 		}
@@ -105,9 +180,11 @@ func runHookWorker(ctx context.Context, o Options, event string, in io.Reader, d
 		sendHookResult(ctx, ch, hookRunResult{data: buf.Bytes()})
 		return
 	}
+	storeRef := &hookTimeoutStoreRef{}
 	ctx = withHookSubagentMeta(ctx, extractHookSubagentMeta(rawData))
+	ctx = withHookTimeoutStoreRef(ctx, storeRef)
 	select {
-	case metaCh <- hookInputMeta{dir: dir, input: input}:
+	case metaCh <- hookInputMeta{dir: dir, input: input, storeRef: storeRef}:
 	default:
 	}
 	err := dispatchFn(ctx, o, event, dir, input, &buf)
@@ -130,13 +207,13 @@ func sendHookResult(ctx context.Context, ch chan<- hookRunResult, res hookRunRes
 	}
 }
 
-func recordPreInvocationTimeoutBounded(o Options, dir string, in HookInput, durationMS int) {
-	tctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+func recordPreInvocationTimeoutBounded(o Options, m hookInputMeta, durationMS int) {
+	tctx, cancel := context.WithTimeout(context.Background(), preInvocationTimeoutRecorderBudget)
 	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		recordPreInvocationTimeoutBestEffort(tctx, o, dir, in, durationMS)
+		recordPreInvocationTimeoutBestEffort(tctx, o, m, durationMS)
 	}()
 	select {
 	case <-done:
@@ -144,23 +221,28 @@ func recordPreInvocationTimeoutBounded(o Options, dir string, in HookInput, dura
 	}
 }
 
-func recordPreInvocationTimeoutBestEffort(tctx context.Context, o Options, dir string, in HookInput, durationMS int) {
-	if tctx.Err() != nil || hooksDisabledForHome(o.Home, dir) {
+func recordPreInvocationTimeoutBestEffort(tctx context.Context, o Options, m hookInputMeta, durationMS int) {
+	if tctx.Err() != nil || hooksDisabledForHome(o.Home, m.dir) {
 		return
 	}
-	root, commonDir, ok := findGitRootFast(dir)
+	root, commonDir, ok := findGitRootFast(m.dir)
 	if !ok || hooksDisabled(root) || guardLedgerFast(root, commonDir) != nil {
 		return
 	}
-	st := openShortTimeoutStoreCtx(tctx, projectDB(root))
-	if st == nil {
-		return
+	st, reused := m.storeRef.acquire(root)
+	if reused {
+		defer m.storeRef.release()
+	} else {
+		st = openShortTimeoutStoreCtx(tctx, projectDB(root))
+		if st == nil {
+			return
+		}
+		defer st.close()
 	}
-	defer st.close()
-	convID := normalizeLedgerConvID(in.ConversationID)
-	rawPrompt := StripSandboxPreamble(strings.TrimSpace(in.LastUserInput))
+	convID := normalizeLedgerConvID(m.input.ConversationID)
+	rawPrompt := StripSandboxPreamble(strings.TrimSpace(m.input.LastUserInput))
 	cleanPrompt := strings.TrimSpace(strings.TrimPrefix(rawPrompt, "!"))
-	stampedTurn := stampPreInvocationFallbackCtx(tctx, st, convID, in, rawPrompt)
+	stampedTurn := stampPreInvocationFallbackCtx(tctx, st, convID, m.input, rawPrompt)
 	var maxTurn int
 	_ = st.db.QueryRowContext(tctx, `SELECT COALESCE(MAX(turn_num), 0) FROM vet_history WHERE conversation_id = ?`, convID).Scan(&maxTurn)
 	if tctx.Err() != nil {
@@ -190,7 +272,7 @@ func openShortTimeoutStoreCtx(ctx context.Context, path string) *store {
 	u := url.URL{
 		Scheme:   "file",
 		Path:     filepath.ToSlash(absPath),
-		RawQuery: "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15)&_pragma=foreign_keys(0)",
+		RawQuery: "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(25)&_pragma=foreign_keys(0)",
 	}
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
@@ -248,8 +330,23 @@ func hooksDisabledGlobal(home string) bool {
 	if h == "" {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(h, harness.StateDir, "no-hooks"))
-	return err == nil
+	cur := filepath.Clean(h)
+	fi, err := os.Lstat(cur)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return false
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(harness.StateDir), "/") {
+		if seg == "" || seg == "." {
+			continue
+		}
+		cur = filepath.Join(cur, seg)
+		sfi, serr := os.Lstat(cur)
+		if serr != nil || sfi.Mode()&os.ModeSymlink != 0 || !sfi.IsDir() {
+			return false
+		}
+	}
+	mfi, merr := os.Lstat(filepath.Join(cur, "no-hooks"))
+	return merr == nil && mfi.Mode().IsRegular()
 }
 
 func isRelaySession() bool {
@@ -257,11 +354,11 @@ func isRelaySession() bool {
 }
 
 func hookBypassedForEvent(home, dir, event string) bool {
-	if hooksDisabledGlobal(home) {
-		return true
-	}
 	if event == "pre-tool-use" && isRelaySession() {
 		return false
+	}
+	if hooksDisabledGlobal(home) {
+		return true
 	}
 	return hooksDisabled(dir)
 }
@@ -270,19 +367,25 @@ func hooksDisabledForHome(home, dir string) bool {
 	return hooksDisabledGlobal(home) || hooksDisabled(dir)
 }
 
-// hooksDisabled reports whether dir (or its git checkout root) contains
-// .agents/scratch/no-hooks, used by paired A/B eval control scenarios.
+func hasRegularScratchNoHooks(base string) bool {
+	if checkScratchNoSymlinks(base) != nil {
+		return false
+	}
+	fi, err := os.Lstat(filepath.Join(base, ".agents", "scratch", "no-hooks"))
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// hooksDisabled reports whether dir (or its git checkout root) contains a
+// regular (non-symlinked) .agents/scratch/no-hooks marker, used by paired A/B eval scenarios.
 func hooksDisabled(dir string) bool {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".agents", "scratch", "no-hooks")); err == nil {
+	if hasRegularScratchNoHooks(dir) {
 		return true
 	}
-	if root, _, ok := findGitRootFast(dir); ok {
-		if _, err := os.Stat(filepath.Join(root, ".agents", "scratch", "no-hooks")); err == nil {
-			return true
-		}
+	if root, _, ok := findGitRootFast(dir); ok && hasRegularScratchNoHooks(root) {
+		return true
 	}
 	return false
 }

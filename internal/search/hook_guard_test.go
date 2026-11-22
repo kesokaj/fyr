@@ -114,10 +114,10 @@ func TestCheckTurnOrMidTurn(t *testing.T) {
 		t.Errorf("after mid-turn inv 1, turn_count = %d, want 1", turnCount)
 	}
 
-	// 3. SD67: New user turn (invocationNum >= 1, but stepIdx == initialNumSteps, executionNum == 0, continuationActive == false) with the SAME prompt runs in full and increments turn_count to 2.
-	r3 := callHook(2, map[string]any{"initialNumSteps": 4, "stepIdx": 4, "executionNum": 0, "continuationActive": false}, prompt)
+	// 3. SD67 / F-002: New user turn (invocationNum == 1, stepIdx == initialNumSteps, executionNum == 0, continuationActive == false) with the SAME prompt runs in full and increments turn_count to 2.
+	r3 := callHook(1, map[string]any{"initialNumSteps": 4, "stepIdx": 4, "executionNum": 0, "continuationActive": false}, prompt)
 	if len(r3.InjectSteps) != 1 || r3.InjectSteps[0].SystemMessage == nil {
-		t.Fatalf("turn 2 inv 2 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
+		t.Fatalf("turn 2 inv 1 (same prompt, new turn): expected 1 injectStep, got %+v", r3)
 	}
 	st2, _, err := openLedgerStore(dir)
 	if err != nil {

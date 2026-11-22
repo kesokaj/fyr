@@ -1,11 +1,14 @@
 package search
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,9 +17,10 @@ import (
 )
 
 const (
-	sandboxPreamblePrefix = "The project root is the current directory,"
-	sandboxPreambleEnd    = "This is a print-mode run (`agy -p`): the turn's end is the run's end."
-	preInvocationSentinel = "__pre_invocation__"
+	sandboxPreamblePrefix  = "The project root is the current directory,"
+	sandboxPreambleEnd     = "This is a print-mode run (`agy -p`): the turn's end is the run's end."
+	preInvocationSentinel  = "__pre_invocation__"
+	maxCheckpointScanBytes = 512 << 10
 )
 
 // StripSandboxPreamble removes the fyr eval / fyr work print-mode preamble
@@ -79,47 +83,74 @@ func checkTurnOrMidTurnWithStore(ctx context.Context, st *store, in HookInput, r
 	if conversationID == "" {
 		conversationID = "default"
 	}
-	curBytes, hasSize := statTranscriptBytes(in.TranscriptPath)
 	promptSum := sha256PromptHex(rawPrompt)
-	var genID, lastBytes, turnCount, estTokens int
-	err := st.db.QueryRowContext(ctx, `SELECT generation_id, last_transcript_bytes, turn_count, est_tokens FROM session_meta WHERE conversation_id = ?`, conversationID).
-		Scan(&genID, &lastBytes, &turnCount, &estTokens)
+	var genID, lastBytes, turnCount, estTokens, lastInvNum, lastCPOff int
+	err := st.db.QueryRowContext(ctx,
+		`SELECT generation_id, last_transcript_bytes, turn_count, est_tokens, COALESCE(last_invocation_num, 0), COALESCE(last_checkpoint_offset, 0) FROM session_meta WHERE conversation_id = ?`,
+		conversationID,
+	).Scan(&genID, &lastBytes, &turnCount, &estTokens, &lastInvNum, &lastCPOff)
 	if errors.Is(err, sql.ErrNoRows) {
-		est := curBytes / 4
-		_, err = st.db.ExecContext(ctx,
-			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)
-			 ON CONFLICT(conversation_id) DO UPDATE SET last_transcript_bytes = excluded.last_transcript_bytes, turn_count = MAX(session_meta.turn_count, 1), est_tokens
-			 = excluded.est_tokens`,
-			conversationID, curBytes, est,
-		)
-		if err == nil {
-			upsertPreInvocationStampCtx(ctx, st, conversationID, 0, 1, promptSum)
-		}
-		return SessionState{ConversationID: conversationID, GenerationID: 0, LastTranscriptBytes: curBytes, TurnCount: 1, EstTokens: est}, false, err
+		return initSessionMetaTurn(ctx, st, conversationID, in, promptSum)
 	}
 	if err != nil {
 		return SessionState{}, false, err
 	}
-	return advanceOrSkipTurn(ctx, st, conversationID, genID, lastBytes, turnCount, estTokens, curBytes, hasSize, in, promptSum)
+	return advanceOrSkipTurn(ctx, st, conversationID, genID, lastBytes, turnCount, estTokens, lastInvNum, lastCPOff, in, promptSum)
+}
+
+func initSessionMetaTurn(ctx context.Context, st *store, conversationID string, in HookInput, promptSum string) (SessionState, bool, error) {
+	curBytes64, _, cpOff, _, _ := scanTranscriptCheckpoint(in.TranscriptPath, 0)
+	curBytes := int(curBytes64)
+	cpOffset := int(cpOff)
+	est := calcEstTokens(curBytes, cpOffset)
+	_, err := st.db.ExecContext(ctx,
+		`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens, last_invocation_num, last_checkpoint_offset) VALUES (?, 0, ?, 1, ?, ?, ?)
+		 ON CONFLICT(conversation_id) DO UPDATE SET last_transcript_bytes = excluded.last_transcript_bytes, turn_count = MAX(session_meta.turn_count, 1), est_tokens = ?, last_invocation_num = excluded.last_invocation_num, last_checkpoint_offset = excluded.last_checkpoint_offset`,
+		conversationID, curBytes, est, in.InvocationNum, cpOffset, est,
+	)
+	if err == nil {
+		upsertPreInvocationStampCtx(ctx, st, conversationID, 0, 1, promptSum)
+	}
+	return SessionState{ConversationID: conversationID, GenerationID: 0, LastTranscriptBytes: curBytes, TurnCount: 1, EstTokens: est}, false, err
 }
 
 func isMidTurnContinuation(in HookInput) bool {
 	return in.ContinuationActive || in.ExecutionNum > 0 || (in.StepIdx > 0 && in.StepIdx > in.InitialNumSteps)
 }
 
-func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, est, curBytes int, hasSize bool, in HookInput, promptSum string) (SessionState, bool, error) {
-	compacted := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
+func calcEstTokens(curBytes, checkpointOffset int) int {
+	delta := curBytes - checkpointOffset
+	if delta < 0 {
+		delta = curBytes
+	}
+	if delta < 0 {
+		return 0
+	}
+	return delta / 4
+}
+
+func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, genID, lastBytes, turnCount, est, lastInvNum, lastCPOff int, in HookInput, promptSum string) (SessionState, bool, error) {
+	curBytes64, _, newCPOff, cps, hasSize := scanTranscriptCheckpoint(in.TranscriptPath, int64(lastBytes))
+	curBytes := int(curBytes64)
+	truncated := hasSize && lastBytes > 0 && curBytes < lastBytes*80/100
+	compacted := truncated || (hasSize && cps > 0)
+	cpOffset := resolveCheckpointOffset(lastCPOff, int(newCPOff), curBytes, truncated, cps > 0)
+
 	var prevSum string
 	_ = st.db.QueryRowContext(ctx, `SELECT sha256 FROM read_ledger WHERE conversation_id = ? AND generation_id = ? AND resolved_path = ? AND start_line = -3 LIMIT 1`,
 		conversationID, genID, preInvocationSentinel).Scan(&prevSum)
 	if err := ctx.Err(); err != nil {
 		return SessionState{}, false, err
 	}
-	midTurn := isMidTurnContinuation(in)
+	midTurn := isMidTurnContinuation(in) || (in.InvocationNum > 1 && in.InvocationNum > lastInvNum)
 	if !compacted && promptSum != "" && prevSum == promptSum && midTurn {
 		if hasSize {
-			lastBytes, est = curBytes, curBytes/4
-			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ? WHERE conversation_id = ?`, lastBytes, est, conversationID)
+			lastBytes, est = curBytes, calcEstTokens(curBytes, cpOffset)
+			_, _ = st.db.ExecContext(ctx,
+				`UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ?, last_invocation_num = ?, last_checkpoint_offset = ? WHERE conversation_id = ?`,
+				lastBytes, est, in.InvocationNum, cpOffset, conversationID)
+		} else {
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_invocation_num = ? WHERE conversation_id = ?`, in.InvocationNum, conversationID)
 		}
 		return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: max(1, turnCount), EstTokens: est}, true, nil
 	}
@@ -127,18 +158,118 @@ func advanceOrSkipTurn(ctx context.Context, st *store, conversationID string, ge
 		genID++
 	}
 	if compacted || hasSize {
-		lastBytes, est = curBytes, curBytes/4
+		lastBytes, est = curBytes, calcEstTokens(curBytes, cpOffset)
 	}
 	turnCount++
-	_, err := st.db.ExecContext(ctx, `UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ? WHERE conversation_id = ?`, genID, lastBytes, turnCount, est, conversationID)
+	_, err := st.db.ExecContext(ctx,
+		`UPDATE session_meta SET generation_id = ?, last_transcript_bytes = ?, turn_count = ?, est_tokens = ?, last_invocation_num = ?, last_checkpoint_offset = ? WHERE conversation_id = ?`,
+		genID, lastBytes, turnCount, est, in.InvocationNum, cpOffset, conversationID)
 	if err == nil {
 		upsertPreInvocationStampCtx(ctx, st, conversationID, genID, turnCount, promptSum)
 	}
 	return SessionState{ConversationID: conversationID, GenerationID: genID, LastTranscriptBytes: lastBytes, TurnCount: turnCount, EstTokens: est, Compacted: compacted}, false, err
 }
 
+func resolveCheckpointOffset(prevOff, newOff, curBytes int, truncated, sawCheckpoint bool) int {
+	if truncated {
+		if sawCheckpoint {
+			return newOff
+		}
+		return 0
+	}
+	if sawCheckpoint {
+		return newOff
+	}
+	if curBytes < prevOff {
+		return 0
+	}
+	return prevOff
+}
+
+// scanTranscriptCheckpoint safely inspects regular transcript JSONL files from
+// fromOffset (capped at 512 KiB/call, tail-scanning on larger jumps) and returns
+// the current byte length, new scan offset, offset immediately after the last
+// CHECKPOINT record, checkpoint count, and whether path was a readable regular file.
+func scanTranscriptCheckpoint(path string, fromOffset int64) (curBytes, newOffset, lastCheckpointOffset int64, checkpoints int, ok bool) {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return 0, 0, 0, 0, false
+	}
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return 0, 0, 0, 0, false
+	}
+	curBytes = fi.Size()
+	f, err := trail.OpenRegular(p)
+	if err != nil {
+		return 0, 0, 0, 0, false
+	}
+	defer f.Close()
+	if fromOffset < 0 || fromOffset > curBytes {
+		fromOffset = 0
+	}
+	if fromOffset == curBytes {
+		return curBytes, curBytes, 0, 0, true
+	}
+	scanStart := fromOffset
+	if curBytes-fromOffset > maxCheckpointScanBytes {
+		scanStart = curBytes - maxCheckpointScanBytes
+	}
+	if _, err := f.Seek(scanStart, io.SeekStart); err != nil {
+		return curBytes, fromOffset, 0, 0, true
+	}
+	buf, err := io.ReadAll(io.LimitReader(f, maxCheckpointScanBytes))
+	if err != nil {
+		return curBytes, fromOffset, 0, 0, true
+	}
+	lastCheckpointOffset, checkpoints = scanCheckpointLines(buf, scanStart)
+	return curBytes, scanStart + int64(len(buf)), lastCheckpointOffset, checkpoints, true
+}
+
+func scanCheckpointLines(buf []byte, baseOffset int64) (int64, int) {
+	var lastCP int64
+	checkpoints := 0
+	pos := 0
+	for pos < len(buf) {
+		nl := bytes.IndexByte(buf[pos:], '\n')
+		var line []byte
+		var nextPos int
+		if nl >= 0 {
+			line = buf[pos : pos+nl]
+			nextPos = pos + nl + 1
+		} else {
+			line = buf[pos:]
+			nextPos = len(buf)
+		}
+		if isCheckpointJSONLLine(line) {
+			checkpoints++
+			lastCP = baseOffset + int64(nextPos)
+		}
+		pos = nextPos
+	}
+	return lastCP, checkpoints
+}
+
+func isCheckpointJSONLLine(line []byte) bool {
+	if !bytes.Contains(line, []byte("CHECKPOINT")) {
+		return false
+	}
+	trimmed := bytes.TrimSpace(line)
+	var rec struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(trimmed, &rec); err == nil {
+		return rec.Type == "CHECKPOINT"
+	}
+	return bytes.Contains(trimmed, []byte(`"type":"CHECKPOINT"`)) || bytes.Contains(trimmed, []byte(`"type": "CHECKPOINT"`))
+}
+
 func statTranscriptBytes(transcriptPath string) (int, bool) {
-	if fi, err := os.Stat(strings.TrimSpace(transcriptPath)); err == nil && fi.Mode().IsRegular() {
+	p := strings.TrimSpace(transcriptPath)
+	if p == "" {
+		return 0, false
+	}
+	if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
 		return int(fi.Size()), true
 	}
 	return 0, false
@@ -187,18 +318,18 @@ func stampPreInvocationFallbackCtx(ctx context.Context, st *store, convID string
 	if errors.Is(err, sql.ErrNoRows) {
 		turnCount = 1
 		_, _ = st.db.ExecContext(ctx,
-			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens) VALUES (?, 0, ?, 1, ?)
-			 ON CONFLICT(conversation_id) DO UPDATE SET turn_count = MAX(session_meta.turn_count, 1)`,
-			convID, curBytes, est,
+			`INSERT INTO session_meta(conversation_id, generation_id, last_transcript_bytes, turn_count, est_tokens, last_invocation_num) VALUES (?, 0, ?, 1, ?, ?)
+			 ON CONFLICT(conversation_id) DO UPDATE SET turn_count = MAX(session_meta.turn_count, 1), last_invocation_num = excluded.last_invocation_num`,
+			convID, curBytes, est, in.InvocationNum,
 		)
 	} else if err == nil {
 		if turnCount <= 0 {
 			turnCount = 1
 		}
 		if hasSize {
-			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ?, turn_count = ? WHERE conversation_id = ?`, curBytes, est, turnCount, convID)
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET last_transcript_bytes = ?, est_tokens = ?, turn_count = ?, last_invocation_num = ? WHERE conversation_id = ?`, curBytes, est, turnCount, in.InvocationNum, convID)
 		} else {
-			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET turn_count = ? WHERE conversation_id = ?`, turnCount, convID)
+			_, _ = st.db.ExecContext(ctx, `UPDATE session_meta SET turn_count = ?, last_invocation_num = ? WHERE conversation_id = ?`, turnCount, in.InvocationNum, convID)
 		}
 	}
 	if promptSum := sha256PromptHex(rawPrompt); promptSum != "" {
