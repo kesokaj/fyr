@@ -93,9 +93,20 @@ Your way out is `.agents/scratch/agents/auto-drafts.jsonl` in the clone: one JSO
 {"kind": "memory", "action": "add", "id": "a-short-name", "body": "the fact and where it came from", "memory_type": "semantic", "scope": "project", "sessions": "sess-1,sess-2"}
 {"kind": "memory", "action": "retire", "id": "an-existing-id", "body": "why"}
 {"kind": "feedback", "body": "the correction the operator made", "quote": "their words"}
+{"kind": "sim_manifest", "problem_id": "SIM-P001", "mechanism_class": "prompt_guidance", "rationale": "what changed and why it differs", "predicted_rows": "dreamer,sim-avoid-repeat", "predicted_signals": "sig:global:bash_read_bypass"}
 ```
 
 `target` is `project` or `harness`; `action` is `add`, `retire` or `merge`; optional `memory_type` is `semantic`, `procedural` or `episodic`; optional `scope` is `project` or `global` (a `retire` or `merge` names a memory of this project and cannot use `global`); optional `sessions` is a comma-separated list of short session IDs.
+
+For `harness-edit` and `distill` workers, emit at most one `sim_manifest` line per run (all JSON string values, `<= 4 KiB`, no secrets or control chars, and no non-SIM draft keys):
+- **Required:** `"kind": "sim_manifest"`, `"rationale"` (`<= 400 B`), and `"problem_id"` (`SIM-PNNN`) or `"root_cause"` (`<= 240 B`, alphanumeric).
+- **Optional:** `"mechanism_class"` (`structural|threshold|model_workaround|prompt_guidance`, default `prompt_guidance`), `"predicted_rows"` (CSV eval row IDs, max 16), `"predicted_signals"` (CSV `sig:...` IDs, max 8).
+
+## Self-Improvement Memory (SIM)
+
+- Read the SIM section in your learning input before proposing or editing a skill.
+- Never repeat an edit whose prior attempt on the same `SIM-P*` problem ended `not_kept`, `still_regressing`, or `reverted` unless a distinct mechanism or newer policy model justifies retrying it.
+- Emit your `sim_manifest` line before eval runs; `fyr` grades the eval gate and syncs field outcomes — never self-grade or write directly to SIM.
 
 ## Provenance
 

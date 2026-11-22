@@ -148,6 +148,7 @@ printf '.agents/scratch/*\n' >.gitignore
 	}
 	outs["dreamer"] = dreamerOutcomes()
 	outs["builder"] = builderOutcomes()
+	outs["sim-avoid-repeat"] = simAvoidRepeatOutcomes()
 	return outs
 }
 
