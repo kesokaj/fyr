@@ -206,7 +206,7 @@ func TestSuiteHarness(t *testing.T) {
 		"vet-first-gate": {"", false}, "vet-question-and-bypass": {"", false}, "fence-injection-guard": {"", false},
 		"ab-pipeline-on": {"", false}, "ab-pipeline-off": {"", false}, "acp-vet-multi-turn": {"", false},
 		"triage": {"", true}, "autonomy": {"", true}, "feature-routing": {"", false},
-		"dreamer": {"dreamer", true},
+		"dreamer": {"dreamer", true}, "builder": {"builder", true},
 	}
 	wantVer := map[string]int{"feature": 2, "reviewer-wide": 2, "reviewer-wide-bug": 2, "security": 2, "verifier": 2, "triage": 2, "feature-routing": 2}
 	if len(rows) != len(want) {

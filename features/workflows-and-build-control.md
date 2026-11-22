@@ -1,6 +1,6 @@
 # Workflows, Subagents, Parallel Swarm & Build Control
 
-`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 reusable `SKILL.md` workflows, 6 specialized subagents, evidence-ranked model selection (`fyr models` with Empirical-Bayes + UCB1 ranking and `--bench`), per-model `60%` context knee budgets (`internal/models/context_budget.go`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`).
+`fyr` coordinates multi-step engineering work by pairing Antigravity's native dispatchers (`invoke_subagent`, `run_workflow`, `swarm`) with 35 reusable `SKILL.md` workflows, 7 specialized subagents (including `builder`), 3 parallel Python workflow scripts (`phase_loop.py`, `review_parallel.py`, `preflight_gate.py`), evidence-ranked model selection (`fyr models` with `<= 10m` cached pool quotas for `< 50 ms` warm `--pick`, Empirical-Bayes + UCB1 ranking, and `--bench`), per-model `60%` context knee budgets (`internal/models/context_budget.go`), opt-in hands-off phase execution (`fyr relay`), and deterministic Go build-control gates (`fyr verify`, `fyr gate`, `fyr land`, `fyr close`, `fyr check`, `fyr watch`, `fyr state`).
 
 ## End-to-end build lifecycle
 
@@ -46,7 +46,7 @@ sequenceDiagram
 
 ## Subagents, parallel workflows, and live model routing
 
-`fyr models` (`internal/models`) maintains a cached live catalog from `agy models` and `agy changelog` at `~/.config/fyr/models.json` (`0600`), enriches each model with historical wave and eval pass rates (`Store.ModelEvidence`), reads live quota pools from `agy -p "/usage"`, and picks role models without hardcoding model IDs (`ADR-519`, `ADR-520`).
+`fyr models` (`internal/models`) maintains a cached live catalog from `agy models` and `agy changelog` at `~/.config/fyr/models.json` (`0600`), enriches each model with historical wave and eval pass rates (`Store.ModelEvidence`), caches `agy -p "/usage"` quota pools with a `<= 10m` TTL (`DefaultPoolQuotaTTL` in `internal/models/usage_cache.go`) for `< 50 ms` warm `fyr models --pick`, and picks role models without hardcoding model IDs (`ADR-519`, `ADR-520`, `ADR-532`).
 
 ```mermaid
 flowchart TD
@@ -59,7 +59,11 @@ flowchart TD
     judgeRoles -- "< 20% weekly or < 30% 5-hour quota" --> fallbackGemini["Automatic Gemini equivalent-tier fallback"]
 ```
 
-For multi-lens reviews and release gates, two native Python workflow scripts (`workflows/review_parallel.py` and `workflows/preflight_gate.py`) run `reviewer`, `security`, `verifier`, and `explorer` concurrently through Antigravity's `run_workflow` tool. Meanwhile, the `PreToolUse` hook automatically guards `invoke_subagent`, `run_workflow`, and prefix-named `swarm` workers so execution stays on capable models (`"pro"` / cross-family judges) while `security` always inherits the active session model (`internal/harness/agents_test.go`).
+For parallel build waves, multi-lens reviews, and release gates, three native Python workflow scripts (`workflows/phase_loop.py`, `workflows/review_parallel.py`, and `workflows/preflight_gate.py`) run `builder`, `reviewer`, `security`, `verifier`, and `explorer` concurrently through Antigravity's `run_workflow` tool with cross-family routing (`phase_loop.py` enforces pairwise-disjoint `files` leases, loops back structured `DefectPacket` findings `<= 2` rounds, and lands passing slices sequentially via `fyr land`). Meanwhile, the `PreToolUse` hook automatically guards `invoke_subagent`, `run_workflow`, and prefix-named `swarm` workers so execution stays on capable models (`"pro"` / cross-family judges, emitting `[CROSS_FAMILY_NOTICE]` when tier enums cannot pin concrete cross-family IDs) while `security` and `builder` inherit the active session model (`internal/harness/agents_test.go`).
+
+## Opt-in hands-off phase relay (`fyr relay`)
+
+`fyr relay --plan <PLAN-ID> [--max-phases N] [--judge-model ID] [--dry-run] [--json]` (`internal/relay`, `M27`, `ADR-532`) advances ready phases of an approved `PLAN-*` record hands-off by running one isolated fresh `agy -p` session per phase (`--disable-slash-commands --output-format json --print-timeout`, never `--dangerously-skip-permissions`, `< 120 KiB` Kickoff prompt). Before each phase it verifies clean git state and cached Gemini quota floors (`20%` 5h / `15%` week); after each phase it enforces `HEAD` progress (`ZERO_PROGRESS`), clean tree (`DIRTY_TREE`), zero `PRD.md` edits (`PRD_MODIFIED`), zero new tags (`TAG_CREATED`), lease/secret/trailer gate (`LEASE_OR_GATE_FAIL`), `fyr verify`, and cross-family alignment judge (`gate.Gate --judge`), halting immediately on any `FAIL` or repeating normalized error hash (`REPEATING_ERROR_HASH`) while recording immutable checkpoint or redacted diagnostic `handoff` records in `brain.db` without ever pushing or tagging.
 
 ## Drift and trace checking
 
@@ -81,16 +85,17 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 - **`[BUDGET_NEAR_LIMIT]`:** Warns when subagent or session tool calls reach `>= 80%` of the `40`/`120` tool-call budget.
 
 <details>
-<summary>Complete inventory of 35 skills, 6 subagents, and build-control CLI flags</summary>
+<summary>Complete inventory of 35 skills, 7 subagents, and build-control CLI flags</summary>
 
 ### Subagents (`agents/<name>/agent.md`)
 
 | Subagent | Default Model | Role |
 |---|---|---|
+| `builder` | inherit | Implements one write-leased slice in an isolated `workspace="share"` worktree: searches first, writes red-first tests, commits on `work/<slice>` with zero trailers, and detaches `HEAD` |
 | `explorer` | `flash` | Read-only codebase reconnaissance (10+ files) drafted under `.agents/scratch/agents/` for a `plan` record |
 | `reviewer` | inherit | Independent severity-ranked code, docs, simplify, and cold-reader review drafted under `.agents/scratch/agents/` |
 | `security` | inherit | Defensive security review of diffs touching auth, crypto, secrets, IAM, parsing, frontmatter allowlists, or dependencies (inherits session model) |
-| `verifier` | inherit | Live browser e2e, container smoke, and local HTTP smoke (`fyr verify` runs unit, vet, and `fyr check`) |
+| `verifier` | inherit | Live browser e2e, container smoke, and local HTTP smoke with Boundary Contract Checklist (`fyr verify` runs unit, vet, and `fyr check`) |
 | `documentation` | `flash` | Living docs maintainer (`README.md`, `SDD.md`, `TDD.md`, `SPEC-*`, `GUIDE-*`, `DEPLOY-*`) for edits over 30 lines |
 | `dreamer` | inherit | Consolidation judgement for `/fyr-retro`, proposing skill edits and memory consolidations |
 
@@ -112,6 +117,7 @@ Beside `fyr check`, `fyr git-check` (`ADR-508`) runs `git status --short --untra
 | `fyr gate <worktree>` | `--base REF`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--judge TEXT`, `--judge-model ID`, `--json` | Run 4 deterministic checks plus optional confined cross-family `--judge` verdict on a worktree or branch |
 | `fyr land <branch>` | `--message TEXT`, `--lease GLOB`, `--lease-file FILE`, `--max-files N`, `--max-lines N`, `--timeout D`, `--judge TEXT`, `--judge-model ID`, `--json` | Gate (with optional `--judge`), squash-verify in detached worktree, fast-forward `main`, and delete branch |
 | `fyr close` | `--title TEXT`, `--id ID`, `--body-file FILE`, `--json` | Write immutable `handoff` record embedding fresh verification digest |
+| `fyr relay` | `--plan PLAN-ID`, `--max-phases N`, `--judge-model ID`, `--dry-run`, `--json` | Run ready plan phases hands-off in isolated fresh `agy -p` sessions with deterministic safety, `fyr verify`, cross-family judge, and checkpoint handoffs |
 | `fyr check` | (global flags only) | Run read-only drift and trace checks; exit `1` on findings |
 | `fyr git-check` | (global flags only) | Run post-dispatch `git status`, unpushed commits, and `git tag` check |
 | `fyr watch` | `--check`, `--conv ID`, `--idle-sec N`, `--json` | Inspect session DBs, scratch artifacts, and child processes out-of-band (`< 30 ms`) for stdin blocks, stalls, and subagent budgets |

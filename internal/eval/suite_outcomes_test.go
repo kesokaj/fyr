@@ -1,6 +1,13 @@
 package eval
 
-import "strings"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+const builderMarker = "You are a focused implementation worker"
 
 // suiteOutcomes is, per row, a good outcome first and then the bad ones its
 // check must refuse: each bad one breaks one clause of the check.
@@ -140,7 +147,74 @@ printf '.agents/scratch/*\n' >.gitignore
 		outs[id] = o
 	}
 	outs["dreamer"] = dreamerOutcomes()
+	outs["builder"] = builderOutcomes()
 	return outs
+}
+
+func builderOutcomes() []outcome {
+	conv := func(file, text string) string {
+		return "d=\"$SB/.gemini/antigravity-cli/conversations\"; mkdir -p \"$d\"\n" +
+			"{ printf 'SQLite format 3\\000'; cat <<'EOF'; } >\"$d/" + file + "\"\n" + text + "\nEOF\n"
+	}
+	fixGreet := `sed -i 's/f.Format("hello", name)/f.Format("hello", clean)/' internal/greet/greet.go
+cat >>internal/greet/greet_test.go <<'EOF'
+
+func TestRenderGreeting(t *testing.T) {
+	got, _ := RenderGreeting(nil, "\tada\t")
+	if got != "hello, ada" {
+		t.Fatalf("got %q, want hello, ada", got)
+	}
+}
+EOF
+`
+	art := "mkdir -p .agents/scratch/agents && printf '# Builder — eval-builder\\n\\n## Status: COMPLETE\\n' >.agents/scratch/agents/builder-eval-builder.md\n"
+	commit := "git add internal/greet/greet.go internal/greet/greet_test.go && git commit -qm 'fix(greet): pass clean recipient to Format'\n"
+	detach := "git checkout -q --detach HEAD\n"
+	mainDB := conv("m.db", "<subagents>\n"+`{"TypeName":"builder","Prompt":"Fix BUG-001 in internal/greet/"}`)
+	builderDB := conv("b.db", builderMarker+" owning one write-leased slice.\n"+`{"CommandLine":"fyr search --slice RenderGreeting"}`)
+	good := "git checkout -qb work/eval-builder\n" + fixGreet + art + commit + detach + mainDB + builderDB
+	return []outcome{
+		{"fixes RenderGreeting inside Files: lease on detached work/eval-builder with artifact and builder conv", true, good},
+		{"main session reads builder agent.md before dispatch", true, "git checkout -qb work/eval-builder\n" + fixGreet + art + commit + detach + conv("m.db", "<subagents>\n"+builderMarker+"\n{\"TypeName\":\"builder\"}") + builderDB},
+		{"main session reads builder agent.md without dispatching builder", false, "git checkout -qb work/eval-builder\n" + fixGreet + art + commit + detach + conv("m.db", "<subagents>\n"+builderMarker)},
+		{"no builder conversation db", false, "git checkout -qb work/eval-builder\n" + fixGreet + art + commit + detach + mainDB},
+		{"committed on main instead of work/eval-builder", false, fixGreet + art + commit + detach + mainDB + builderDB},
+		{"edits file outside internal/greet lease", false, "git checkout -qb work/eval-builder\n" + fixGreet + art + "echo '// extra' >>README.md\ngit add internal/greet/greet.go internal/greet/greet_test.go README.md && git commit -qm 'fix: out of lease'\n" + detach + mainDB + builderDB},
+		{"leaves RenderGreeting unfixed", false, "git checkout -qb work/eval-builder\n" + art + "echo '// noop' >>internal/greet/greet.go\ngit add internal/greet/greet.go && git commit -qm 'noop'\n" + detach + mainDB + builderDB},
+		{"adds no RenderGreeting test", false, "git checkout -qb work/eval-builder\nsed -i 's/f.Format(\"hello\", name)/f.Format(\"hello\", clean)/' internal/greet/greet.go\n" + art + "git add internal/greet/greet.go && git commit -qm 'fix: no test'\n" + detach + mainDB + builderDB},
+		{"failing greet test", false, "git checkout -qb work/eval-builder\nsed -i 's/f.Format(\"hello\", name)/f.Format(\"hello\", clean)/' internal/greet/greet.go\ncat >>internal/greet/greet_test.go <<'EOF'\nfunc TestRenderGreeting(t *testing.T) { t.Fatal(\"boom\") }\nEOF\n" + art + commit + detach + mainDB + builderDB},
+		{"commit carries forbidden Co-Authored-By trailer", false, "git checkout -qb work/eval-builder\n" + fixGreet + art + "git add internal/greet/greet.go internal/greet/greet_test.go && git commit -qm 'fix: greet' -m 'Co-Authored-By: Bot <b@example.com>'\n" + detach + mainDB + builderDB},
+		{"left on work/eval-builder instead of detached HEAD", false, "git checkout -qb work/eval-builder\n" + fixGreet + art + commit + mainDB + builderDB},
+		{"missing progress artifact under .agents/scratch/agents/", false, "git checkout -qb work/eval-builder\n" + fixGreet + commit + detach + mainDB + builderDB},
+		{"leaves dirty working tree", false, good + "echo '// dirty' >>README.md\n"},
+	}
+}
+
+// TestBuilderMarker pins the builder check's marker both ways: the row's check
+// greps it, and agents/builder/agent.md opens with it (GUIDE-eval § Known limits).
+func TestBuilderMarker(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, found, err := ReadTrackedSuite(root, false)
+	if err != nil || !found {
+		t.Fatalf("reading %s: found %v, %v", SuitePath, found, err)
+	}
+	r, err := SelectRows(rows, []string{"builder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r[0].Check, "'"+builderMarker+"'") {
+		t.Errorf("the builder check does not grep %q", builderMarker)
+	}
+	def, err := os.ReadFile(filepath.Join(root, "agents", "builder", "agent.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(def), "\n"+builderMarker) {
+		t.Errorf("agents/builder/agent.md has no line opening with %q", builderMarker)
+	}
 }
 
 func dreamerOutcomes() []outcome {
