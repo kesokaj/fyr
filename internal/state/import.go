@@ -48,17 +48,11 @@ func Import(opts ImportOptions) (ImportResult, error) {
 	if repoID != "" {
 		mexp = filterMetricsByRepo(mexp, repoID)
 	}
-	bStats, mCounts, err := applyStateStores(opts, repoID, localScope, localRepoID, recs, mexp)
+	simExp, err := decodeOptionalSIM(arch)
 	if err != nil {
-		return ImportResult{}, err
+		return ImportResult{}, fmt.Errorf("state import: %s: %w", opts.BundlePath, err)
 	}
-	return ImportResult{
-		BundlePath: opts.BundlePath, DryRun: opts.DryRun,
-		Insert: bStats.Inserted + mCounts.Inserted, Updated: bStats.Updated + mCounts.Updated,
-		SkipDuplicate: max(0, bStats.Skipped-bStats.Conflicts) + mCounts.Skipped,
-		Conflict:      bStats.Conflicts, OperatorPreserved: bStats.OperatorPreserved,
-		Brain: bStats, Metrics: mCounts,
-	}, nil
+	return applyStateStores(opts, repoID, localScope, localRepoID, recs, simExp, mexp)
 }
 
 func decodeBrainNDJSON(data []byte) ([]brain.Record, error) {
@@ -183,35 +177,41 @@ func filterMetricsLedgersByRepo(in, out metrics.SanitizedMetricsExport, repoID s
 	return out
 }
 
-func applyStateStores(opts ImportOptions, repoID, localScope, localRepoID string, recs []brain.Record, mexp metrics.SanitizedMetricsExport) (brain.StateImportStats, metrics.StateImportCounts, error) {
+func applyStateStores(opts ImportOptions, repoID, localScope, localRepoID string, recs []brain.Record, simExp brain.SIMStateExport, mexp metrics.SanitizedMetricsExport) (ImportResult, error) {
 	bOpts := brain.StateImportOpts{
 		RepoID: repoID, LocalScope: localScope, LocalRepoID: localRepoID,
 		IncludeMemory: opts.IncludeMemory, DryRun: true,
 	}
 	dryBrain, err := brain.ImportStateRecords(opts.Home, recs, bOpts)
 	if err != nil {
-		return brain.StateImportStats{}, metrics.StateImportCounts{}, err
+		return ImportResult{}, err
+	}
+	drySIM, err := applySIMImport(opts, simExp, true)
+	if err != nil {
+		return ImportResult{}, err
 	}
 	if opts.DryRun {
 		mCounts, err := dryRunMetricsImport(opts.Home, mexp)
-		return dryBrain, mCounts, err
+		return buildImportResult(opts, dryBrain, drySIM, mCounts), err
 	}
-	mPath := metrics.Path(opts.Home)
-	_, statErr := os.Lstat(mPath)
 	var ms *metrics.Store
-	if !errors.Is(statErr, os.ErrNotExist) || hasMetricsRows(mexp) {
+	if mPath := metrics.Path(opts.Home); shouldOpenMetrics(mPath, mexp) {
 		if ms, err = metrics.Open(mPath); err != nil {
-			return brain.StateImportStats{}, metrics.StateImportCounts{}, err
+			return ImportResult{}, err
 		}
 		defer ms.Close()
 	}
 	bOpts.DryRun = false
 	bStats, err := brain.ImportStateRecords(opts.Home, recs, bOpts)
+	if err != nil {
+		return ImportResult{}, err
+	}
+	simStats, err := applySIMImport(opts, simExp, false)
 	if err != nil || ms == nil {
-		return bStats, metrics.StateImportCounts{}, err
+		return buildImportResult(opts, bStats, simStats, metrics.StateImportCounts{}), err
 	}
 	mCounts, err := metrics.ImportSanitizedState(ms, mexp, false)
-	return bStats, mCounts, err
+	return buildImportResult(opts, bStats, simStats, mCounts), err
 }
 
 func dryRunMetricsImport(home string, mexp metrics.SanitizedMetricsExport) (metrics.StateImportCounts, error) {

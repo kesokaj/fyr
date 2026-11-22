@@ -18,8 +18,9 @@ const (
 	ManifestEntry         = "manifest.json"
 	BrainRecordsEntry     = "brain_records.ndjson"
 	MetricsSanitizedEntry = "metrics_sanitized.ndjson"
-	MaxBrainSchema        = 4
-	MaxMetricsSchema      = 12
+	SIMLedgerEntry        = "sim_ledger.ndjson"
+	MaxBrainSchema        = 5
+	MaxMetricsSchema      = 13
 )
 
 var (
@@ -36,6 +37,7 @@ type Manifest struct {
 	MetricsSchema int               `json:"metrics_schema"`
 	ExportedAt    string            `json:"exported_at"`
 	IncludeMemory bool              `json:"include_memory"`
+	IncludeSIM    bool              `json:"include_sim,omitempty"`
 	RecordClasses []string          `json:"record_classes"`
 	RepoIDs       []string          `json:"repo_ids"`
 	Counts        ManifestCounts    `json:"counts"`
@@ -53,6 +55,9 @@ type ManifestCounts struct {
 	JudgeVerdicts  int `json:"judge_verdicts"`
 	BackgroundRuns int `json:"background_runs"`
 	MetricsRows    int `json:"metrics_rows"`
+	SIMProblems    int `json:"sim_problems,omitempty"`
+	SIMAttempts    int `json:"sim_attempts,omitempty"`
+	SIMAliases     int `json:"sim_aliases,omitempty"`
 }
 
 type ExportOptions struct {
@@ -81,6 +86,7 @@ type ImportResult struct {
 	Conflict          int                       `json:"conflict"`
 	OperatorPreserved int                       `json:"operator_preserved"`
 	Brain             brain.StateImportStats    `json:"brain"`
+	SIM               brain.StateImportStats    `json:"sim,omitempty"`
 	Metrics           metrics.StateImportCounts `json:"metrics"`
 }
 
@@ -112,7 +118,7 @@ func DefaultBundlePath(dir string, now time.Time) string {
 	return filepath.Join(dir, name)
 }
 
-func manifestCounts(brainCount int, m metrics.SanitizedMetricsExport) ManifestCounts {
+func manifestCounts(brainCount int, m metrics.SanitizedMetricsExport, sim brain.SIMStateExport) ManifestCounts {
 	total := len(m.Sessions) + len(m.Steps) + len(m.Events) + len(m.Trials) +
 		len(m.TurnVets) + len(m.SessionRatings) + len(m.JudgeVerdicts) + len(m.BackgroundRuns)
 	return ManifestCounts{
@@ -120,5 +126,6 @@ func manifestCounts(brainCount int, m metrics.SanitizedMetricsExport) ManifestCo
 		Events: len(m.Events), Trials: len(m.Trials), TurnVets: len(m.TurnVets),
 		SessionRatings: len(m.SessionRatings), JudgeVerdicts: len(m.JudgeVerdicts),
 		BackgroundRuns: len(m.BackgroundRuns), MetricsRows: total,
+		SIMProblems: len(sim.Problems), SIMAttempts: len(sim.Attempts), SIMAliases: len(sim.Aliases),
 	}
 }

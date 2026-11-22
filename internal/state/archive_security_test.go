@@ -96,8 +96,8 @@ func TestImportRejectsInvalidArchivesBeforeOpeningDB(t *testing.T) {
 		{"missing", "missing required entry", []rawZipSpec{{name: ManifestEntry, body: man}, {name: BrainRecordsEntry}}},
 		{"tampered brain sha256", "sha256 mismatch", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 4, 11, []byte("a\n"), empty)}, {name: BrainRecordsEntry, body: []byte("b\n")}, {name: MetricsSanitizedEntry}}},
 		{"tampered metrics sha256", "sha256 mismatch", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 4, 11, empty, []byte("a\n"))}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry, body: []byte("b\n")}}},
-		{"future brain_schema 5", "unsupported brain_schema 5", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 5, 11, empty, empty)}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry}}},
-		{"future metrics_schema 13", "unsupported metrics_schema 13", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 4, 13, empty, empty)}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry}}},
+		{"future brain_schema 6", "unsupported brain_schema 6", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 6, 11, empty, empty)}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry}}},
+		{"future metrics_schema 14", "unsupported metrics_schema 14", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 4, 14, empty, empty)}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry}}},
 		{"oversize manifest > 4 MiB", "oversize", []rawZipSpec{{name: ManifestEntry, body: append([]byte(`{"brain_schema":4`), bytes.Repeat([]byte(" "), int(maxManifestBytes)+64)...)}, {name: BrainRecordsEntry}, {name: MetricsSanitizedEntry}}},
 		{"corrupt NDJSON", "brain_records.ndjson:1", []rawZipSpec{{name: ManifestEntry, body: validManifestBytes(t, 4, 11, []byte("{bad}\n"), empty)}, {name: BrainRecordsEntry, body: []byte("{bad}\n")}, {name: MetricsSanitizedEntry}}},
 	} {

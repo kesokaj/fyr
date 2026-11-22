@@ -18,13 +18,17 @@ import (
 )
 
 type verifiedArchive struct {
-	manifest                 Manifest
-	brainBytes, metricsBytes []byte
+	manifest                           Manifest
+	brainBytes, metricsBytes, simBytes []byte
+	hasSIM                             bool
 }
 
-var allowedBundleEntries = map[string]bool{
-	ManifestEntry: true, BrainRecordsEntry: true, MetricsSanitizedEntry: true,
-}
+var (
+	requiredBundleEntries = []string{ManifestEntry, BrainRecordsEntry, MetricsSanitizedEntry}
+	allowedBundleEntries  = map[string]bool{
+		ManifestEntry: true, BrainRecordsEntry: true, MetricsSanitizedEntry: true, SIMLedgerEntry: true,
+	}
+)
 
 func readAndVerifyArchive(bundlePath string) (verifiedArchive, error) {
 	rawZip, err := readBundleFile(bundlePath)
@@ -43,8 +47,10 @@ func readAndVerifyArchive(bundlePath string) (verifiedArchive, error) {
 	if err != nil {
 		return verifiedArchive{}, fmt.Errorf("state import: %s: %w", bundlePath, err)
 	}
+	simBytes, hasSIM := contents[SIMLedgerEntry]
 	return verifiedArchive{
-		manifest: manifest, brainBytes: contents[BrainRecordsEntry], metricsBytes: contents[MetricsSanitizedEntry],
+		manifest: manifest, brainBytes: contents[BrainRecordsEntry],
+		metricsBytes: contents[MetricsSanitizedEntry], simBytes: simBytes, hasSIM: hasSIM,
 	}, nil
 }
 
@@ -97,7 +103,7 @@ func extractCheckedEntries(zr *zip.Reader) (map[string][]byte, map[string]string
 			actualSHA[f.Name] = sum
 		}
 	}
-	for req := range allowedBundleEntries {
+	for _, req := range requiredBundleEntries {
 		if !seen[req] {
 			return nil, nil, fmt.Errorf("missing required entry %q", req)
 		}
@@ -186,19 +192,48 @@ func parseAndValidateManifest(raw []byte, actualSHA map[string]string) (Manifest
 	if m.MetricsSchema < 0 || m.MetricsSchema > MaxMetricsSchema {
 		return Manifest{}, fmt.Errorf("unsupported metrics_schema %d (supported <= %d); update fyr", m.MetricsSchema, MaxMetricsSchema)
 	}
+	if err := verifyManifestDigests(m, actualSHA); err != nil {
+		return Manifest{}, err
+	}
+	return m, nil
+}
+
+func verifyManifestDigests(m Manifest, actualSHA map[string]string) error {
 	if len(m.SHA256) == 0 {
-		return Manifest{}, errors.New("manifest.json missing sha256 digests")
+		return errors.New("manifest.json missing sha256 digests")
 	}
 	for name := range m.SHA256 {
-		if name != BrainRecordsEntry && name != MetricsSanitizedEntry {
-			return Manifest{}, fmt.Errorf("manifest.json lists unexpected sha256 entry %q", name)
+		if name != BrainRecordsEntry && name != MetricsSanitizedEntry && name != SIMLedgerEntry {
+			return fmt.Errorf("manifest.json lists unexpected sha256 entry %q", name)
 		}
 	}
 	for _, req := range []string{BrainRecordsEntry, MetricsSanitizedEntry} {
-		want := strings.ToLower(strings.TrimSpace(m.SHA256[req]))
-		if len(want) != 64 || subtle.ConstantTimeCompare([]byte(want), []byte(actualSHA[req])) != 1 {
-			return Manifest{}, fmt.Errorf("sha256 mismatch for %s (declared %q, computed %q)", req, want, actualSHA[req])
+		if err := compareEntrySHA(req, m.SHA256[req], actualSHA[req]); err != nil {
+			return err
 		}
 	}
-	return m, nil
+	return verifyOptionalSIMDigest(m, actualSHA)
+}
+
+func verifyOptionalSIMDigest(m Manifest, actualSHA map[string]string) error {
+	actual, hasActual := actualSHA[SIMLedgerEntry]
+	rawWant, hasDecl := m.SHA256[SIMLedgerEntry]
+	if !hasActual && !hasDecl {
+		if m.IncludeSIM || m.Counts.SIMProblems > 0 || m.Counts.SIMAttempts > 0 || m.Counts.SIMAliases > 0 {
+			return fmt.Errorf("missing entry %q declared by manifest", SIMLedgerEntry)
+		}
+		return nil
+	}
+	if !hasActual {
+		return fmt.Errorf("manifest.json declares sha256 for missing entry %q", SIMLedgerEntry)
+	}
+	return compareEntrySHA(SIMLedgerEntry, rawWant, actual)
+}
+
+func compareEntrySHA(name, rawWant, actual string) error {
+	want := strings.ToLower(strings.TrimSpace(rawWant))
+	if len(want) != 64 || subtle.ConstantTimeCompare([]byte(want), []byte(actual)) != 1 {
+		return fmt.Errorf("sha256 mismatch for %s (declared %q, computed %q)", name, want, actual)
+	}
+	return nil
 }

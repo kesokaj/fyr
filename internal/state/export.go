@@ -24,8 +24,14 @@ type metricsNDJSONLine struct {
 	Row   json.RawMessage `json:"row"`
 }
 
+type zipStream struct {
+	name string
+	data []byte
+}
+
 // Export writes an offline state zip bundle (mode 0600, atomically renamed)
-// holding manifest.json, brain_records.ndjson, and metrics_sanitized.ndjson.
+// holding manifest.json, brain_records.ndjson, metrics_sanitized.ndjson, and
+// (when opts.IncludeMemory is true) sim_ledger.ndjson.
 func Export(opts ExportOptions) (ExportResult, error) {
 	if strings.TrimSpace(opts.Home) == "" {
 		return ExportResult{}, errors.New("state export: home directory required")
@@ -52,10 +58,16 @@ func Export(opts ExportOptions) (ExportResult, error) {
 	if err != nil {
 		return ExportResult{}, err
 	}
-	return writeExportBundle(outPath, now, opts, recs, mexp)
+	var simExp brain.SIMStateExport
+	if opts.IncludeMemory {
+		if simExp, err = brain.ExportStateSIM(opts.Home, opts.Since); err != nil {
+			return ExportResult{}, err
+		}
+	}
+	return writeExportBundle(outPath, now, opts, recs, mexp, simExp)
 }
 
-func writeExportBundle(outPath string, now time.Time, opts ExportOptions, recs []brain.Record, mexp metrics.SanitizedMetricsExport) (ExportResult, error) {
+func writeExportBundle(outPath string, now time.Time, opts ExportOptions, recs []brain.Record, mexp metrics.SanitizedMetricsExport, simExp brain.SIMStateExport) (ExportResult, error) {
 	brainBytes, brainSHA, err := encodeBrainNDJSON(recs)
 	if err != nil {
 		return ExportResult{}, err
@@ -64,6 +76,29 @@ func writeExportBundle(outPath string, now time.Time, opts ExportOptions, recs [
 	if err != nil {
 		return ExportResult{}, err
 	}
+	digests := map[string]string{BrainRecordsEntry: brainSHA, MetricsSanitizedEntry: metricsSHA}
+	streams := []zipStream{{BrainRecordsEntry, brainBytes}, {MetricsSanitizedEntry, metricsBytes}}
+	if opts.IncludeMemory {
+		simBytes, simSHA, err := encodeSIMNDJSON(simExp)
+		if err != nil {
+			return ExportResult{}, err
+		}
+		digests[SIMLedgerEntry] = simSHA
+		streams = append(streams, zipStream{SIMLedgerEntry, simBytes})
+	}
+	manifest := buildExportManifest(now, opts, recs, mexp, simExp, digests)
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return ExportResult{}, err
+	}
+	allStreams := append([]zipStream{{ManifestEntry, append(manifestBytes, '\n')}}, streams...)
+	if err := writeZipAtomically(outPath, now, allStreams); err != nil {
+		return ExportResult{}, err
+	}
+	return ExportResult{OutPath: outPath, Manifest: manifest}, nil
+}
+
+func buildExportManifest(now time.Time, opts ExportOptions, recs []brain.Record, mexp metrics.SanitizedMetricsExport, simExp brain.SIMStateExport, digests map[string]string) Manifest {
 	ver := strings.TrimSpace(opts.FyrVersion)
 	if ver == "" {
 		ver = "devel"
@@ -72,21 +107,12 @@ func writeExportBundle(outPath string, now time.Time, opts ExportOptions, recs [
 	if mSchema == 0 {
 		mSchema = MaxMetricsSchema
 	}
-	manifest := Manifest{
+	return Manifest{
 		FyrVersion: ver, BrainSchema: MaxBrainSchema, MetricsSchema: mSchema,
-		ExportedAt: now.Format(time.RFC3339), IncludeMemory: opts.IncludeMemory,
+		ExportedAt: now.Format(time.RFC3339), IncludeMemory: opts.IncludeMemory, IncludeSIM: opts.IncludeMemory,
 		RecordClasses: collectRecordClasses(recs), RepoIDs: collectRepoIDs(recs, mexp),
-		Counts: manifestCounts(len(recs), mexp),
-		SHA256: map[string]string{BrainRecordsEntry: brainSHA, MetricsSanitizedEntry: metricsSHA},
+		Counts: manifestCounts(len(recs), mexp, simExp), SHA256: digests,
 	}
-	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return ExportResult{}, err
-	}
-	if err := writeZipAtomically(outPath, now, append(manifestBytes, '\n'), brainBytes, metricsBytes); err != nil {
-		return ExportResult{}, err
-	}
-	return ExportResult{OutPath: outPath, Manifest: manifest}, nil
 }
 
 func exportMetricsIfPresent(home, repoID string, since time.Time) (metrics.SanitizedMetricsExport, error) {
@@ -216,7 +242,7 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-func writeZipAtomically(destPath string, modTime time.Time, manifestBytes, brainBytes, metricsBytes []byte) error {
+func writeZipAtomically(destPath string, modTime time.Time, streams []zipStream) error {
 	if fi, err := os.Lstat(destPath); err == nil && (fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular()) {
 		return fmt.Errorf("state export: %s is not a regular file", destPath)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -230,7 +256,7 @@ func writeZipAtomically(destPath string, modTime time.Time, manifestBytes, brain
 		return err
 	}
 	tmpName := tmp.Name()
-	if err := writeBundleStreams(tmp, modTime, manifestBytes, brainBytes, metricsBytes); err != nil {
+	if err := writeBundleStreams(tmp, modTime, streams); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return err
@@ -242,19 +268,17 @@ func writeZipAtomically(destPath string, modTime time.Time, manifestBytes, brain
 	return nil
 }
 
-func writeBundleStreams(tmp *os.File, modTime time.Time, manifestBytes, brainBytes, metricsBytes []byte) error {
+func writeBundleStreams(tmp *os.File, modTime time.Time, streams []zipStream) error {
 	if err := tmp.Chmod(0o600); err != nil {
 		return err
 	}
 	zw := zip.NewWriter(tmp)
-	names := [3]string{ManifestEntry, BrainRecordsEntry, MetricsSanitizedEntry}
-	blobs := [3][]byte{manifestBytes, brainBytes, metricsBytes}
-	for i, name := range names {
-		fh := &zip.FileHeader{Name: name, Method: zip.Deflate, Modified: modTime.UTC()}
+	for _, st := range streams {
+		fh := &zip.FileHeader{Name: st.name, Method: zip.Deflate, Modified: modTime.UTC()}
 		fh.SetMode(0o600)
 		w, err := zw.CreateHeader(fh)
 		if err == nil {
-			_, err = w.Write(blobs[i])
+			_, err = w.Write(st.data)
 		}
 		if err != nil {
 			_ = zw.Close()
