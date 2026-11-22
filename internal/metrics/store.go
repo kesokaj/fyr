@@ -160,10 +160,37 @@ var migrations = []string{
 	`CREATE TABLE daily_digests(day TEXT PRIMARY KEY, verdict TEXT NOT NULL, kpi_json TEXT NOT NULL, ast_json TEXT NOT NULL, preinv_json TEXT NOT NULL, actions_json TEXT NOT NULL, created_at INTEGER NOT NULL); CREATE INDEX daily_digests_created ON daily_digests(created_at);`,
 	// 13: per-trial policy model attribution for cross-model evals (ADR-533, SPEC-fyr-sim).
 	`ALTER TABLE trials ADD COLUMN policy_model TEXT NOT NULL DEFAULT '';`,
+	// 14: background halt reasons, turn_vets suggested skills, trials A/B columns,
+	// and shape-only orchestration_runs ledger (v9.10.0 Phase 1).
+	`ALTER TABLE background_runs ADD COLUMN halt_reason TEXT NOT NULL DEFAULT '';
+	ALTER TABLE turn_vets ADD COLUMN suggested_skills TEXT NOT NULL DEFAULT '';
+	ALTER TABLE trials ADD COLUMN skill TEXT NOT NULL DEFAULT '';
+	ALTER TABLE trials ADD COLUMN arm TEXT NOT NULL DEFAULT '';
+	ALTER TABLE trials ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE trials ADD COLUMN defects INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE orchestration_runs(
+		id TEXT PRIMARY KEY,
+		ts TEXT NOT NULL,
+		kind TEXT NOT NULL,
+		project_root TEXT NOT NULL DEFAULT '',
+		repo_id TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL,
+		halt_code TEXT NOT NULL DEFAULT '',
+		units INTEGER NOT NULL DEFAULT 0,
+		defect_rounds INTEGER NOT NULL DEFAULT 0,
+		passed INTEGER NOT NULL DEFAULT 0,
+		failed INTEGER NOT NULL DEFAULT 0,
+		duration_ms INTEGER NOT NULL DEFAULT 0,
+		worker_model TEXT NOT NULL DEFAULT '',
+		judge_model TEXT NOT NULL DEFAULT '',
+		verdict TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX orchestration_runs_ts ON orchestration_runs(ts);
+	CREATE INDEX orchestration_runs_kind_ts ON orchestration_runs(kind, ts);`,
 }
 
 // tables is every table export writes, in dependency order.
-var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts", "background_runs", "daily_digests"}
+var tables = []string{"meta", "sessions", "steps", "step_verbs", "events", "ingest_state", "trials", "turn_vets", "work_waves", "session_ratings", "judge_verdicts", "background_runs", "daily_digests", "orchestration_runs"}
 
 // Path is the store's location under home.
 func Path(home string) string { return filepath.Join(home, harness.StateDir, "metrics.db") }

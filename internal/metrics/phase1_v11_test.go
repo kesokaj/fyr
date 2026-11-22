@@ -38,8 +38,8 @@ func TestMigrationTenToEleven(t *testing.T) {
 
 	migrations = saved
 	s11 := openT(t, p)
-	if got := s11.meta(t, "schema"); got != "13" {
-		t.Fatalf("schema = %q, want 13", got)
+	if got := s11.meta(t, "schema"); got != "14" {
+		t.Fatalf("schema = %q, want 14", got)
 	}
 	assertV11ColumnsAndIndex(t, s11)
 }

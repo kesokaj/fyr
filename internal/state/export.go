@@ -183,6 +183,7 @@ func encodeMetricsNDJSON(exp metrics.SanitizedMetricsExport) ([]byte, string, er
 		{"session_ratings", len(exp.SessionRatings), func(i int) any { return exp.SessionRatings[i] }},
 		{"judge_verdicts", len(exp.JudgeVerdicts), func(i int) any { return exp.JudgeVerdicts[i] }},
 		{"background_runs", len(exp.BackgroundRuns), func(i int) any { return exp.BackgroundRuns[i] }},
+		{"orchestration_runs", len(exp.OrchestrationRuns), func(i int) any { return exp.OrchestrationRuns[i] }},
 	} {
 		for i := 0; i < t.n; i++ {
 			raw, err := json.Marshal(t.at(i))
@@ -229,6 +230,9 @@ func collectRepoIDs(recs []brain.Record, exp metrics.SanitizedMetricsExport) []s
 	}
 	for _, jv := range exp.JudgeVerdicts {
 		add(jv.RepoID)
+	}
+	for _, or := range exp.OrchestrationRuns {
+		add(or.RepoID)
 	}
 	return sortedKeys(seen)
 }

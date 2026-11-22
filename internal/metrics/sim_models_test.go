@@ -40,8 +40,8 @@ func TestSIMMetricsMigrationV13(t *testing.T) {
 
 	migrations = saved
 	s13 := openT(t, p)
-	if got := s13.meta(t, "schema"); got != "13" {
-		t.Fatalf("v13 schema = %q, want 13", got)
+	if got := s13.meta(t, "schema"); got != "14" {
+		t.Fatalf("v14 schema = %q, want 14", got)
 	}
 	var oldPM string
 	if err := s13.db.QueryRow(`SELECT policy_model FROM trials WHERE run = 'r12/smoke/1'`).Scan(&oldPM); err != nil || oldPM != "" {
@@ -57,13 +57,13 @@ func TestSIMMetricsMigrationV13(t *testing.T) {
 		t.Fatalf("v13 trial policy_model = (%q, %v), want gemini-4-neon-xhigh", newPM, err)
 	}
 
-	s13.db.Exec(`UPDATE meta SET value = '14' WHERE key = 'schema'`)
+	s13.db.Exec(`UPDATE meta SET value = '15' WHERE key = 'schema'`)
 	s13.Close()
-	if s14, err := Open(p); err == nil {
-		s14.Close()
-		t.Fatal("Open accepted schema 14")
+	if s15, err := Open(p); err == nil {
+		s15.Close()
+		t.Fatal("Open accepted schema 15")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 14 err = %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 15 err = %v, want ErrNewerSchema", err)
 	}
 }
 
@@ -111,8 +111,8 @@ func TestSIMMetricsPolicyModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportSanitizedState: %v", err)
 	}
-	if exp.Schema != 13 || len(exp.Trials) != 2 {
-		t.Fatalf("export = schema %d trials %d, want 13 and 2", exp.Schema, len(exp.Trials))
+	if exp.Schema != 14 || len(exp.Trials) != 2 {
+		t.Fatalf("export = schema %d trials %d, want 14 and 2", exp.Schema, len(exp.Trials))
 	}
 	blob, _ := json.Marshal(exp)
 	if !strings.Contains(string(blob), `"policy_model":"gemini-4-neon-xhigh"`) {

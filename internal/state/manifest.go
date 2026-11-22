@@ -20,7 +20,7 @@ const (
 	MetricsSanitizedEntry = "metrics_sanitized.ndjson"
 	SIMLedgerEntry        = "sim_ledger.ndjson"
 	MaxBrainSchema        = 5
-	MaxMetricsSchema      = 13
+	MaxMetricsSchema      = 14
 )
 
 var (
@@ -45,19 +45,20 @@ type Manifest struct {
 }
 
 type ManifestCounts struct {
-	BrainRecords   int `json:"brain_records"`
-	Sessions       int `json:"sessions"`
-	Steps          int `json:"steps"`
-	Events         int `json:"events"`
-	Trials         int `json:"trials"`
-	TurnVets       int `json:"turn_vets"`
-	SessionRatings int `json:"session_ratings"`
-	JudgeVerdicts  int `json:"judge_verdicts"`
-	BackgroundRuns int `json:"background_runs"`
-	MetricsRows    int `json:"metrics_rows"`
-	SIMProblems    int `json:"sim_problems,omitempty"`
-	SIMAttempts    int `json:"sim_attempts,omitempty"`
-	SIMAliases     int `json:"sim_aliases,omitempty"`
+	BrainRecords      int `json:"brain_records"`
+	Sessions          int `json:"sessions"`
+	Steps             int `json:"steps"`
+	Events            int `json:"events"`
+	Trials            int `json:"trials"`
+	TurnVets          int `json:"turn_vets"`
+	SessionRatings    int `json:"session_ratings"`
+	JudgeVerdicts     int `json:"judge_verdicts"`
+	BackgroundRuns    int `json:"background_runs"`
+	OrchestrationRuns int `json:"orchestration_runs"`
+	MetricsRows       int `json:"metrics_rows"`
+	SIMProblems       int `json:"sim_problems,omitempty"`
+	SIMAttempts       int `json:"sim_attempts,omitempty"`
+	SIMAliases        int `json:"sim_aliases,omitempty"`
 }
 
 type ExportOptions struct {
@@ -120,12 +121,14 @@ func DefaultBundlePath(dir string, now time.Time) string {
 
 func manifestCounts(brainCount int, m metrics.SanitizedMetricsExport, sim brain.SIMStateExport) ManifestCounts {
 	total := len(m.Sessions) + len(m.Steps) + len(m.Events) + len(m.Trials) +
-		len(m.TurnVets) + len(m.SessionRatings) + len(m.JudgeVerdicts) + len(m.BackgroundRuns)
+		len(m.TurnVets) + len(m.SessionRatings) + len(m.JudgeVerdicts) +
+		len(m.BackgroundRuns) + len(m.OrchestrationRuns)
 	return ManifestCounts{
 		BrainRecords: brainCount, Sessions: len(m.Sessions), Steps: len(m.Steps),
 		Events: len(m.Events), Trials: len(m.Trials), TurnVets: len(m.TurnVets),
 		SessionRatings: len(m.SessionRatings), JudgeVerdicts: len(m.JudgeVerdicts),
-		BackgroundRuns: len(m.BackgroundRuns), MetricsRows: total,
+		BackgroundRuns: len(m.BackgroundRuns), OrchestrationRuns: len(m.OrchestrationRuns),
+		MetricsRows: total,
 		SIMProblems: len(sim.Problems), SIMAttempts: len(sim.Attempts), SIMAliases: len(sim.Aliases),
 	}
 }

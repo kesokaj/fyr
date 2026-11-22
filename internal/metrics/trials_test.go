@@ -36,8 +36,8 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 
 	migrations = saved
 	s2 := openT(t, p)
-	if v := s2.meta(t, "schema"); v != "13" {
-		t.Fatalf("schema after upgrade = %s, want 13", v)
+	if v := s2.meta(t, "schema"); v != "14" {
+		t.Fatalf("schema after upgrade = %s, want 14", v)
 	}
 	var got string
 	if err := s2.db.QueryRow(`SELECT (SELECT count(*) FROM trials) || ',' ||
@@ -46,17 +46,18 @@ func TestMigrationThreeToCurrent(t *testing.T) {
 		(SELECT count(*) FROM session_ratings) || ',' ||
 		(SELECT count(*) FROM judge_verdicts) || ',' ||
 		(SELECT count(*) FROM background_runs) || ',' ||
+		(SELECT count(*) FROM orchestration_runs) || ',' ||
 		(SELECT count(*) FROM sessions WHERE id = 'old' AND run IS NULL AND outcome = 'pass') || ',' ||
-		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,0,0,0,1,1" {
-		t.Fatalf("after upgrade: %q, %v; want 0,0,0,0,0,0,1,1", got, err)
+		(SELECT count(*) FROM steps WHERE session_id = 'old' AND started_ms IS NULL AND ended_ms IS NULL AND wait_ms IS NULL)`).Scan(&got); err != nil || got != "0,0,0,0,0,0,0,1,1" {
+		t.Fatalf("after upgrade: %q, %v; want 0,0,0,0,0,0,0,1,1", got, err)
 	}
-	s2.db.Exec(`UPDATE meta SET value = '14' WHERE key = 'schema'`)
+	s2.db.Exec(`UPDATE meta SET value = '15' WHERE key = 'schema'`)
 	s2.Close()
 	if s3, err := Open(p); err == nil {
 		s3.Close()
-		t.Fatal("a store at schema 14 was opened by a binary at 13")
+		t.Fatal("a store at schema 15 was opened by a binary at 14")
 	} else if !errors.Is(err, ErrNewerSchema) {
-		t.Fatalf("schema 14: %v, want ErrNewerSchema", err)
+		t.Fatalf("schema 15: %v, want ErrNewerSchema", err)
 	}
 }
 

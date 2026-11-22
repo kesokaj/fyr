@@ -116,6 +116,8 @@ func decodeOneMetricsLine(raw []byte, out *metrics.SanitizedMetricsExport) error
 		return appendDecoded(env.Row, &out.JudgeVerdicts)
 	case "background_runs":
 		return appendDecoded(env.Row, &out.BackgroundRuns)
+	case "orchestration_runs":
+		return appendDecoded(env.Row, &out.OrchestrationRuns)
 	default:
 		return fmt.Errorf("unknown metrics table %q", env.Table)
 	}
@@ -172,6 +174,11 @@ func filterMetricsLedgersByRepo(in, out metrics.SanitizedMetricsExport, repoID s
 	for _, jv := range in.JudgeVerdicts {
 		if jv.RepoID == repoID {
 			out.JudgeVerdicts = append(out.JudgeVerdicts, jv)
+		}
+	}
+	for _, or := range in.OrchestrationRuns {
+		if or.RepoID == repoID {
+			out.OrchestrationRuns = append(out.OrchestrationRuns, or)
 		}
 	}
 	return out
@@ -318,7 +325,8 @@ func copyFileIfRegular(src, dst string) error {
 
 func hasMetricsRows(m metrics.SanitizedMetricsExport) bool {
 	return len(m.Sessions)+len(m.Steps)+len(m.Events)+len(m.Trials)+
-		len(m.TurnVets)+len(m.SessionRatings)+len(m.JudgeVerdicts)+len(m.BackgroundRuns) > 0
+		len(m.TurnVets)+len(m.SessionRatings)+len(m.JudgeVerdicts)+
+		len(m.BackgroundRuns)+len(m.OrchestrationRuns) > 0
 }
 
 func resolveLocalTarget(dir string) (string, string) {

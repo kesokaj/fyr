@@ -211,7 +211,7 @@ var coreVerbPages = map[string]verbPage{
 			"stores using stdlib zip and SHA-256 verification. Default export writes",
 			"project trail records and sanitized metrics (0600, atomic); memory,",
 			"feedback, proposal and SIM ledger rows require --include-memory on both",
-			"export and import. import checks zip-slip safety, schema caps (<= 5 / <= 13)",
+			"export and import. import checks zip-slip safety, schema caps (<= 5 / <= 14)",
 			"and SHA-256 digests before opening SQLite, preserves operator provenance,",
 			"and supports --dry-run with zero writes.",
 			"Exit 0 ok, 1 archive or store error, 2 a usage error or refusal.",

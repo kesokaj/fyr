@@ -38,10 +38,22 @@ type TrialInput struct {
 	RepoID         string    `json:"repo_id,omitempty"`
 	DurationMS     int64     `json:"duration_ms,omitempty"`
 	PolicyModel    string    `json:"policy_model,omitempty"`
+	Skill          string    `json:"skill,omitempty"`
+	Arm            string    `json:"arm,omitempty"`
+	Tokens         int64     `json:"tokens,omitempty"`
+	Defects        int       `json:"defects,omitempty"`
+}
+
+type trialABFields struct {
+	skill    string
+	arm      string
+	tokCount int64
+	defects  int
 }
 
 type normalizedTrialInput struct {
 	trial       Trial
+	ab          trialABFields
 	sessionID   string
 	vendor      string
 	model       string
@@ -75,7 +87,7 @@ func (s *Store) RecordTrialInput(row TrialInput) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err := insertTrialTx(tx, norm.trial); err != nil {
+	if err := insertTrialTx(tx, norm.trial, norm.ab); err != nil {
 		return err
 	}
 	if norm.sessionID != "" {
@@ -93,6 +105,9 @@ func normalizeTrialInput(row TrialInput) (normalizedTrialInput, error) {
 	}
 	if row.DurationMS < 0 {
 		return normalizedTrialInput{}, errors.New("metrics: trial: negative duration_ms")
+	}
+	if row.Tokens < 0 || row.Defects < 0 {
+		return normalizedTrialInput{}, errors.New("metrics: trial: negative tokens or defects")
 	}
 	model, err := cleanOptionalIdentifier("model", row.Model)
 	if err != nil {
@@ -114,8 +129,14 @@ func normalizeTrialInput(row TrialInput) (normalizedTrialInput, error) {
 	if durMS == 0 && tr.Seconds > 0 {
 		durMS = tr.Seconds * 1000
 	}
+	ab := trialABFields{
+		skill:    clipSanitizedText(row.Skill, trialText),
+		arm:      clipSanitizedText(row.Arm, 64),
+		tokCount: row.Tokens,
+		defects:  row.Defects,
+	}
 	return normalizedTrialInput{
-		trial: tr, sessionID: sid, vendor: vendor, model: model,
+		trial: tr, ab: ab, sessionID: sid, vendor: vendor, model: model,
 		projectRoot: projRoot, repoID: repoID, durationMS: durMS,
 	}, nil
 }
@@ -220,7 +241,7 @@ func resolveTrialRepo(rawRoot, rawRepoID string) (string, string) {
 	return clean, repoID
 }
 
-func insertTrialTx(tx *sql.Tx, t Trial) error {
+func insertTrialTx(tx *sql.Tx, t Trial, ab trialABFields) error {
 	optInt := func(p *int64) any {
 		if p == nil {
 			return nil
@@ -228,10 +249,11 @@ func insertTrialTx(tx *sql.Tx, t Trial) error {
 		return *p
 	}
 	_, err := tx.Exec(`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli,
-		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds, policy_model)
-		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
+		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds, policy_model, skill, arm, tokens, defects)
+		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.Run, t.Label, t.RowVersion, t.Kind, t.Cluster, t.Expect, t.Harness, t.CLI,
-		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds), t.PolicyModel)
+		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds), t.PolicyModel,
+		ab.skill, ab.arm, ab.tokCount, ab.defects)
 	if err != nil {
 		return fmt.Errorf("metrics: trial: %w", err)
 	}

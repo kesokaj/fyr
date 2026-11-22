@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -203,8 +204,8 @@ func TestScrubHostHomePathsEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportSanitizedState: %v", err)
 	}
-	if exp.Schema != 13 {
-		t.Fatalf("ExportSanitizedState.Schema = %d, want 13", exp.Schema)
+	if exp.Schema != 14 {
+		t.Fatalf("ExportSanitizedState.Schema = %d, want 14", exp.Schema)
 	}
 	if len(exp.SessionRatings) != 1 {
 		t.Fatalf("SessionRatings = %+v, want 1 row", exp.SessionRatings)
@@ -215,5 +216,73 @@ func TestScrubHostHomePathsEdgeCases(t *testing.T) {
 	}
 	if r.SessionID != "sess-~/work" || r.SkillAction != "keep ~/sk" {
 		t.Errorf("SessionRating = %+v, want scrubbed SessionID/SkillAction", r)
+	}
+}
+
+func TestStateIOV14FieldsAndFutureSchemaRefusal(t *testing.T) {
+	src := openT(t, filepath.Join(t.TempDir(), "src.db"))
+	now := time.Date(2026, 11, 22, 19, 0, 0, 0, time.UTC)
+
+	// Must-fail: negative tokens or defects on TrialInput.
+	for _, bad := range []TrialInput{
+		{Run: "neg-tok", Status: "pass", Tokens: -1},
+		{Run: "neg-def", Status: "pass", Defects: -1},
+	} {
+		if err := src.RecordTrialInput(bad); err == nil {
+			t.Errorf("RecordTrialInput(%+v) succeeded, want error", bad)
+		}
+	}
+
+	if err := src.RecordTrialInput(TrialInput{
+		Run: "ab/1", Label: "eval=ab", Status: "pass", StartedAt: now, Seconds: 4,
+		RepoID: "git:github.com/org/alpha", Model: "gemini-4-neon-high",
+		Skill: "golang", Arm: "control", Tokens: 4200, Defects: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.InsertBackgroundRun(BackgroundRunRow{
+		TS: now.UnixMilli(), Kind: "auto", Outcome: "halted", HaltReason: "RATE_LIMIT", DurationMS: 300,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.db.Exec(
+		`INSERT INTO turn_vets(project_root, repo_id, conversation_id, turn_num, intent, gate, score, suggested_skills, created_at) VALUES ('/Users/bob/alpha', 'git:github.com/org/alpha', 'c1', 1, 'TASK', 'PROCEED', 90, 'golang,fyr-bug', ?)`,
+		now.UnixMilli(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.InsertOrchestrationRun(OrchestrationRunRow{
+		ID: "orch-1", TS: now.Format(time.RFC3339), Kind: "swarm",
+		ProjectRoot: "/Users/bob/alpha", RepoID: "git:github.com/org/alpha",
+		Status: "COMPLETE", Units: 2, DefectRounds: 1, Passed: 2, DurationMS: 12000,
+		WorkerModel: "gemini-4-neon-high", JudgeModel: "claude-opus-5-5-high", Verdict: "PASS",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	exp, err := ExportSanitizedState(src, "", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exp.Schema != 14 || len(exp.OrchestrationRuns) != 1 || exp.OrchestrationRuns[0].ProjectRoot != "" {
+		t.Fatalf("v14 export mismatch: %+v", exp)
+	}
+
+	dest := openT(t, filepath.Join(t.TempDir(), "dest.db"))
+	// Must-fail: future schema 15 refused with ErrNewerSchema.
+	if _, err := ImportSanitizedState(dest, SanitizedMetricsExport{Schema: 15}, false); !errors.Is(err, ErrNewerSchema) {
+		t.Fatalf("ImportSanitizedState(schema 15) err = %v, want ErrNewerSchema", err)
+	}
+	c, err := ImportSanitizedState(dest, exp, false)
+	if err != nil || c.OrchestrationRuns != 1 || c.BackgroundRuns != 1 || c.Trials != 1 || c.TurnVets != 1 {
+		t.Fatalf("ImportSanitizedState v14 = (%+v, %v)", c, err)
+	}
+	// Legacy v13 payload imports cleanly.
+	v13 := SanitizedMetricsExport{
+		Schema:         13,
+		BackgroundRuns: []BackgroundRunRow{{TS: now.Add(-time.Minute).UnixMilli(), Kind: "dream", Outcome: "pass", DurationMS: 100}},
+	}
+	if c13, err := ImportSanitizedState(dest, v13, false); err != nil || c13.BackgroundRuns != 1 {
+		t.Fatalf("ImportSanitizedState v13 = (%+v, %v)", c13, err)
 	}
 }

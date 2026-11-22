@@ -122,7 +122,7 @@ func testSIMRoundTripCore(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := expRes.Manifest
-	if m.BrainSchema != 5 || m.MetricsSchema != 13 || !m.IncludeSIM || !m.IncludeMemory || m.Counts.SIMProblems != 2 || m.Counts.SIMAttempts != 2 || m.Counts.SIMAliases != 1 || len(m.SHA256[SIMLedgerEntry]) != 64 {
+	if m.BrainSchema != 5 || m.MetricsSchema != 14 || !m.IncludeSIM || !m.IncludeMemory || m.Counts.SIMProblems != 2 || m.Counts.SIMAttempts != 2 || m.Counts.SIMAliases != 1 || len(m.SHA256[SIMLedgerEntry]) != 64 {
 		t.Fatalf("unexpected manifest = %+v", m)
 	}
 	if _, mode, count := readZipEntry(t, bundle, SIMLedgerEntry); count != 4 || mode.Perm() != 0o600 {
@@ -295,7 +295,7 @@ func manifestWithSIMBytes(t *testing.T, simData []byte, includeSIM, includeSHA b
 		}
 	}
 	raw, err := json.Marshal(Manifest{
-		FyrVersion: "v9.10.0", BrainSchema: 5, MetricsSchema: 13, ExportedAt: "2026-11-22T10:00:00Z",
+		FyrVersion: "v9.10.0", BrainSchema: 5, MetricsSchema: 14, ExportedAt: "2026-11-22T10:00:00Z",
 		IncludeMemory: includeSIM, IncludeSIM: includeSIM, RecordClasses: []string{}, RepoIDs: []string{}, SHA256: digests,
 	})
 	if err != nil {

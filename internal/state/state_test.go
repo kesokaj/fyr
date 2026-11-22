@@ -178,3 +178,161 @@ func TestRepoCurrentSinceSymlinkAndEmptyManifest(t *testing.T) {
 		t.Errorf("null slices in manifest: %s", string(rawM))
 	}
 }
+
+func TestV910MetricsV14AndStateRoundTrip(t *testing.T) {
+	srcHome, dirAlpha, _, tNow := seedV14MetricsSource(t)
+	bundle := filepath.Join(t.TempDir(), "v14-state.zip")
+	expRes, err := Export(ExportOptions{
+		Home: srcHome, Dir: dirAlpha, OutPath: bundle,
+		FyrVersion: "v9.10.0-test", Now: func() time.Time { return tNow },
+	})
+	if err != nil {
+		t.Fatalf("Export v14: %v", err)
+	}
+	m := expRes.Manifest
+	if m.MetricsSchema != 14 || m.Counts.OrchestrationRuns != 2 || m.Counts.BackgroundRuns != 1 || m.Counts.TurnVets != 1 || m.Counts.Trials != 1 {
+		t.Fatalf("unexpected v14 manifest: %+v", m)
+	}
+	if !slices.Contains(m.RepoIDs, "git:github.com/org/alpha") || !slices.Contains(m.RepoIDs, "git:github.com/org/beta") {
+		t.Fatalf("manifest RepoIDs missing orchestration repos: %v", m.RepoIDs)
+	}
+	rawMetrics, _, _ := readZipEntry(t, bundle, MetricsSanitizedEntry)
+	if strings.Contains(string(rawMetrics), dirAlpha) || strings.Contains(string(rawMetrics), "project_root") {
+		t.Fatalf("metrics_sanitized.ndjson leaked host project_root:\n%s", string(rawMetrics))
+	}
+
+	assertV14ImportAndIdempotency(t, bundle, tNow)
+	assertV13LegacyCompatAndV15Refusal(t)
+}
+
+func seedV14MetricsSource(t *testing.T) (home, dirAlpha, dirBeta string, tNow time.Time) {
+	t.Helper()
+	home = t.TempDir()
+	dirAlpha = initGitRepo(t, "git@github.com:org/alpha.git")
+	dirBeta = initGitRepo(t, "https://github.com/org/beta.git")
+	tNow = time.Date(2026, 11, 22, 18, 0, 0, 0, time.UTC)
+
+	if err := metrics.RecordBackgroundRun(home, metrics.BackgroundRunRow{
+		TS: tNow.Add(-time.Hour).UnixMilli(), Kind: "auto", Outcome: "halted",
+		HaltReason: "BUDGET_FLOOR", DurationMS: 800, ProjectsChecked: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := metrics.RecordTrial(home, metrics.TrialInput{
+		Run: "ab/golang/1", Label: "eval=ab", Status: "pass", StartedAt: tNow.Add(-30 * time.Minute),
+		Seconds: 9, Model: "gemini-4-neon-high", PolicyModel: "gemini-4-neon-xhigh",
+		ProjectRoot: dirAlpha, RepoID: "git:github.com/org/alpha",
+		Skill: "golang", Arm: "treatment", Tokens: 12450, Defects: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := metrics.RecordOrchestrationRun(home, metrics.OrchestrationRunRow{
+		ID: "orch-alpha-1", TS: tNow.Add(-20 * time.Minute).Format(time.RFC3339),
+		Kind: "relay", ProjectRoot: dirAlpha, RepoID: "git:github.com/org/alpha",
+		Status: "HALTED", HaltCode: "ZERO_PROGRESS", Units: 3, DefectRounds: 2,
+		Passed: 2, Failed: 1, DurationMS: 31000,
+		WorkerModel: "gemini-4-neon-high", JudgeModel: "claude-opus-5-5-high", Verdict: "FAIL",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := metrics.RecordOrchestrationRun(home, metrics.OrchestrationRunRow{
+		ID: "orch-beta-1", TS: tNow.Add(-10 * time.Minute).Format(time.RFC3339),
+		Kind: "swarm", ProjectRoot: dirBeta, RepoID: "git:github.com/org/beta",
+		Status: "COMPLETE", Units: 2, Passed: 2, DurationMS: 19000,
+		WorkerModel: "gemini-4-neon-medium", JudgeModel: "claude-sonnet-4-6", Verdict: "PASS",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	if _, err := metrics.ImportSanitizedState(ms, metrics.SanitizedMetricsExport{
+		Schema: 14,
+		TurnVets: []metrics.SanitizedTurnVet{{
+			RepoID: "git:github.com/org/alpha", ConversationID: "conv-v14", TurnNum: 1,
+			Intent: "FEATURE", Gate: "PROCEED", Score: 92, SuggestedSkills: "fyr-feature,golang",
+			CreatedAt: tNow.Add(-15 * time.Minute).UnixMilli(),
+		}},
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	return home, dirAlpha, dirBeta, tNow
+}
+
+func assertV14ImportAndIdempotency(t *testing.T, bundle string, tNow time.Time) {
+	t.Helper()
+	dstHome := t.TempDir()
+	dryRes, err := Import(ImportOptions{Home: dstHome, BundlePath: bundle, DryRun: true})
+	if err != nil || !dryRes.DryRun || dryRes.Metrics.OrchestrationRuns != 2 || dryRes.Metrics.BackgroundRuns != 1 || dryRes.Metrics.TurnVets != 1 || dryRes.Metrics.Trials != 1 {
+		t.Fatalf("dry-run v14 import = %+v, err=%v", dryRes, err)
+	}
+	if entries, rerr := os.ReadDir(dstHome); rerr != nil || len(entries) != 0 {
+		t.Fatalf("dry-run wrote to dstHome: %v (%v)", entries, rerr)
+	}
+	liveRes, err := Import(ImportOptions{Home: dstHome, BundlePath: bundle})
+	if err != nil || liveRes.Metrics != dryRes.Metrics {
+		t.Fatalf("live v14 import = %+v, err=%v; want metrics %+v", liveRes, err, dryRes.Metrics)
+	}
+	idemRes, err := Import(ImportOptions{Home: dstHome, BundlePath: bundle})
+	if err != nil || idemRes.Insert != 0 || idemRes.Updated != 0 {
+		t.Fatalf("v14 re-import not idempotent: %+v, err=%v", idemRes, err)
+	}
+	ms, err := metrics.Open(metrics.Path(dstHome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ms.Close()
+	exp, err := metrics.ExportSanitizedState(ms, "", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exp.BackgroundRuns) != 1 || exp.BackgroundRuns[0].HaltReason != "BUDGET_FLOOR" {
+		t.Fatalf("round-trip BackgroundRuns = %+v", exp.BackgroundRuns)
+	}
+	if len(exp.TurnVets) != 1 || exp.TurnVets[0].SuggestedSkills != "fyr-feature,golang" {
+		t.Fatalf("round-trip TurnVets = %+v", exp.TurnVets)
+	}
+	if len(exp.Trials) != 1 || exp.Trials[0].Skill != "golang" || exp.Trials[0].Arm != "treatment" || exp.Trials[0].Tokens != 12450 || exp.Trials[0].Defects != 1 {
+		t.Fatalf("round-trip Trials = %+v", exp.Trials)
+	}
+	if len(exp.OrchestrationRuns) != 2 || exp.OrchestrationRuns[0].ID != "orch-alpha-1" || exp.OrchestrationRuns[0].HaltCode != "ZERO_PROGRESS" || exp.OrchestrationRuns[0].DefectRounds != 2 || exp.OrchestrationRuns[0].ProjectRoot != "" {
+		t.Fatalf("round-trip OrchestrationRuns = %+v", exp.OrchestrationRuns)
+	}
+	// Repo-filtered import keeps only beta's orchestration run.
+	betaHome := t.TempDir()
+	betaRes, err := Import(ImportOptions{Home: betaHome, BundlePath: bundle, Repo: "git:github.com/org/beta"})
+	if err != nil || betaRes.Metrics.OrchestrationRuns != 1 || betaRes.Metrics.Trials != 0 || betaRes.Metrics.TurnVets != 0 {
+		t.Fatalf("repo-filtered v14 import = %+v, err=%v", betaRes, err)
+	}
+	_ = tNow
+}
+
+func assertV13LegacyCompatAndV15Refusal(t *testing.T) {
+	t.Helper()
+	// Legacy v13 bundle omitting halt_reason, suggested_skills, trials A/B cols, and orchestration_runs.
+	v13Metrics := []byte(strings.Join([]string{
+		`{"table":"background_runs","row":{"ts":1763553600000,"kind":"auto","outcome":"pass","duration_ms":300,"projects_checked":1,"proposals_written":0,"ratings_written":0,"worker_ran":0,"applied":0}}`,
+		`{"table":"turn_vets","row":{"repo_id":"git:github.com/org/legacy","conversation_id":"conv-v13","turn_num":1,"intent":"TASK","gate":"PROCEED","score":85,"created_at":1763553600000}}`,
+		`{"table":"trials","row":{"run":"legacy-v13/1","label":"eval=row1","harness":"v9.9.0","status":"pass","cause":"","started_at":1763553600000,"seconds":4,"policy_model":"gemini-4-neon-high"}}`,
+	}, "\n") + "\n")
+	v13Zip := writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: validManifestBytes(t, 5, 13, nil, v13Metrics)},
+		{name: BrainRecordsEntry},
+		{name: MetricsSanitizedEntry, body: v13Metrics},
+	})
+	v13Home := t.TempDir()
+	res, err := Import(ImportOptions{Home: v13Home, BundlePath: v13Zip})
+	if err != nil || res.Metrics.BackgroundRuns != 1 || res.Metrics.TurnVets != 1 || res.Metrics.Trials != 1 || res.Metrics.OrchestrationRuns != 0 {
+		t.Fatalf("legacy v13 import = %+v, err=%v", res, err)
+	}
+
+	// Future v15 bundle must be refused BEFORE touching target home or opening SQLite.
+	v15Zip := writeCustomZip(t, []rawZipSpec{
+		{name: ManifestEntry, body: validManifestBytes(t, 5, 15, nil, nil)},
+		{name: BrainRecordsEntry},
+		{name: MetricsSanitizedEntry},
+	})
+	assertRejectedNoDBTouch(t, v15Zip, "unsupported metrics_schema 15")
+}

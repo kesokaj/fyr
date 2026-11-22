@@ -12,17 +12,18 @@ import (
 
 // StateImportCounts summarizes rows merged by ImportSanitizedState.
 type StateImportCounts struct {
-	Sessions       int `json:"sessions"`
-	Steps          int `json:"steps"`
-	Events         int `json:"events"`
-	Trials         int `json:"trials"`
-	TurnVets       int `json:"turn_vets"`
-	SessionRatings int `json:"session_ratings"`
-	JudgeVerdicts  int `json:"judge_verdicts"`
-	BackgroundRuns int `json:"background_runs"`
-	Inserted       int `json:"inserted"`
-	Updated        int `json:"updated"`
-	Skipped        int `json:"skipped"`
+	Sessions          int `json:"sessions"`
+	Steps             int `json:"steps"`
+	Events            int `json:"events"`
+	Trials            int `json:"trials"`
+	TurnVets          int `json:"turn_vets"`
+	SessionRatings    int `json:"session_ratings"`
+	JudgeVerdicts     int `json:"judge_verdicts"`
+	BackgroundRuns    int `json:"background_runs"`
+	OrchestrationRuns int `json:"orchestration_runs"`
+	Inserted          int `json:"inserted"`
+	Updated           int `json:"updated"`
+	Skipped           int `json:"skipped"`
 }
 
 // ImportSanitizedState merges data idempotently into s inside a single
@@ -94,6 +95,11 @@ func importLedgerTablesTx(tx *sql.Tx, data SanitizedMetricsExport, c *StateImpor
 	}
 	for _, r := range data.BackgroundRuns {
 		if err := importOneBackgroundRunTx(tx, r, c); err != nil {
+			return err
+		}
+	}
+	for _, r := range data.OrchestrationRuns {
+		if err := importOneOrchestrationRunTx(tx, r, c); err != nil {
 			return err
 		}
 	}
@@ -212,7 +218,13 @@ func importOneTrialTx(tx *sql.Tx, r SanitizedTrial, c *StateImportCounts) error 
 		c.Skipped++
 		return nil
 	}
-	if err := insertTrialTx(tx, tr); err != nil {
+	ab := trialABFields{
+		skill:    clipSanitizedText(r.Skill, trialText),
+		arm:      clipSanitizedText(r.Arm, 64),
+		tokCount: max(0, r.Tokens),
+		defects:  max(0, r.Defects),
+	}
+	if err := insertTrialTx(tx, tr, ab); err != nil {
 		return err
 	}
 	c.Trials++
@@ -237,13 +249,13 @@ func importOneTurnVetTx(tx *sql.Tx, r SanitizedTurnVet, c *StateImportCounts) er
 		c.Skipped++
 		return nil
 	}
-	_, err := tx.Exec(`INSERT INTO turn_vets(project_root, repo_id, conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, directive, subtask_count, duration_ms, timed_out, injected_bytes, pivots_used_count, skills_loaded_count, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := tx.Exec(`INSERT INTO turn_vets(project_root, repo_id, conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, directive, subtask_count, duration_ms, timed_out, injected_bytes, pivots_used_count, skills_loaded_count, suggested_skills, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		pkRoot, repoID, convID, r.TurnNum, clipSanitizedText(r.Intent, 64), clipSanitizedText(r.Gate, 64),
 		min(100, max(0, r.Score)), boolInt(r.Bypassed), max(0, r.SkillsCount), max(0, r.PivotsCount),
 		max(0, r.LedgerSaved), clipSanitizedText(r.Directive, 128), max(0, r.SubtaskCount),
 		max(0, r.DurationMS), boolInt(r.TimedOut), max(0, r.InjectedBytes),
-		max(0, r.PivotsUsedCount), max(0, r.SkillsLoadedCount), r.CreatedAt)
+		max(0, r.PivotsUsedCount), max(0, r.SkillsLoadedCount), clipSanitizedText(r.SuggestedSkills, 256), r.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -327,8 +339,8 @@ func importOneBackgroundRunTx(tx *sql.Tx, r BackgroundRunRow, c *StateImportCoun
 		c.Skipped++
 		return nil
 	}
-	if _, err := tx.Exec(`INSERT INTO background_runs(ts, kind, outcome, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		norm.TS, norm.Kind, norm.Outcome, norm.DurationMS, norm.ProjectsChecked, norm.ProposalsWritten, norm.RatingsWritten, norm.WorkerRan, norm.Applied); err != nil {
+	if _, err := tx.Exec(`INSERT INTO background_runs(ts, kind, outcome, halt_reason, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		norm.TS, norm.Kind, norm.Outcome, norm.HaltReason, norm.DurationMS, norm.ProjectsChecked, norm.ProposalsWritten, norm.RatingsWritten, norm.WorkerRan, norm.Applied); err != nil {
 		return err
 	}
 	c.BackgroundRuns++

@@ -306,13 +306,13 @@ func TestFirstOpenWaitsForALock(t *testing.T) {
 }
 
 func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
-	if len(tables) != 13 {
-		t.Fatalf("len(tables) = %d, want 13 (%v)", len(tables), tables)
+	if len(tables) != 14 {
+		t.Fatalf("len(tables) = %d, want 14 (%v)", len(tables), tables)
 	}
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
-	if got := s.meta(t, "schema"); got != "13" {
-		t.Fatalf("schema = %q, want 13", got)
+	if got := s.meta(t, "schema"); got != "14" {
+		t.Fatalf("schema = %q, want 14", got)
 	}
 	if empty, err := LatestDailyDigest(s); err != nil || empty != nil {
 		t.Fatalf("empty LatestDailyDigest = (%+v, %v), want (nil, nil)", empty, err)
@@ -350,7 +350,104 @@ func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte(`"table":"daily_digests"`)) || !bytes.Contains(raw, []byte(`"value":"13"`)) {
-		t.Fatalf("export missing daily_digests or schema 13:\n%s", raw)
+	if !bytes.Contains(raw, []byte(`"table":"daily_digests"`)) || !bytes.Contains(raw, []byte(`"value":"14"`)) {
+		t.Fatalf("export missing daily_digests or schema 14:\n%s", raw)
+	}
+}
+
+func TestV910MetricsV14Migration(t *testing.T) {
+	if len(tables) != 14 {
+		t.Fatalf("len(tables) = %d, want 14 (%v)", len(tables), tables)
+	}
+	saved := migrations
+	t.Cleanup(func() { migrations = saved })
+	if len(saved) < 14 {
+		t.Fatalf("len(migrations) = %d, want >= 14", len(saved))
+	}
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "metrics.db")
+	seedV13ForV14Upgrade(t, dbPath, saved[:13])
+
+	migrations = saved
+	s14 := openT(t, dbPath)
+	if got := s14.meta(t, "schema"); got != "14" {
+		t.Fatalf("schema = %q, want 14", got)
+	}
+	assertV14SchemaAndDefaults(t, s14, dir)
+
+	if _, err := s14.db.Exec(`UPDATE meta SET value = '15' WHERE key = 'schema'`); err != nil {
+		t.Fatal(err)
+	}
+	s14.Close()
+	if s15, err := Open(dbPath); err == nil {
+		s15.Close()
+		t.Fatal("Open accepted schema 15")
+	} else if !errors.Is(err, ErrNewerSchema) {
+		t.Fatalf("schema 15 err = %v, want ErrNewerSchema", err)
+	}
+}
+
+func seedV13ForV14Upgrade(t *testing.T, dbPath string, v13Migs []string) {
+	t.Helper()
+	migrations = v13Migs
+	s13 := openT(t, dbPath)
+	if got := s13.meta(t, "schema"); got != "13" {
+		t.Fatalf("v13 schema = %q, want 13", got)
+	}
+	for _, q := range []string{
+		`INSERT INTO background_runs(ts, kind, outcome, duration_ms, projects_checked) VALUES (1700000000000, 'auto', 'pass', 420, 2)`,
+		`INSERT INTO turn_vets(project_root, repo_id, conversation_id, turn_num, intent, gate, score, created_at) VALUES ('/repo/a', 'git:github.com/org/a', 'conv-v13', 1, 'TASK', 'PROCEED', 88, 1700000000000)`,
+		`INSERT INTO trials(run, label, harness, status, cause, started_at, seconds, policy_model) VALUES ('r13/a/1', 'eval=a', 'v9.9.0', 'pass', '', 1700000000000, 9, 'gemini-4-neon-high')`,
+	} {
+		if _, err := s13.db.Exec(q); err != nil {
+			t.Fatalf("seed v13 (%s): %v", q, err)
+		}
+	}
+	for _, absent := range []string{
+		`SELECT halt_reason FROM background_runs`,
+		`SELECT suggested_skills FROM turn_vets`,
+		`SELECT skill, arm, tokens, defects FROM trials`,
+		`SELECT id FROM orchestration_runs`,
+	} {
+		if _, err := s13.db.Exec(absent); err == nil {
+			t.Fatalf("v13 fixture unexpectedly accepted %s", absent)
+		}
+	}
+	s13.Close()
+}
+
+func assertV14SchemaAndDefaults(t *testing.T, s *Store, dir string) {
+	t.Helper()
+	var hr, sk, tSkill, tArm string
+	var tTok int64
+	var tDef int
+	if err := s.db.QueryRow(`SELECT halt_reason FROM background_runs WHERE ts = 1700000000000`).Scan(&hr); err != nil || hr != "" {
+		t.Fatalf("v13 background_runs.halt_reason = (%q, %v), want empty", hr, err)
+	}
+	if err := s.db.QueryRow(`SELECT suggested_skills FROM turn_vets WHERE conversation_id = 'conv-v13'`).Scan(&sk); err != nil || sk != "" {
+		t.Fatalf("v13 turn_vets.suggested_skills = (%q, %v), want empty", sk, err)
+	}
+	if err := s.db.QueryRow(`SELECT skill, arm, tokens, defects FROM trials WHERE run = 'r13/a/1'`).Scan(&tSkill, &tArm, &tTok, &tDef); err != nil || tSkill != "" || tArm != "" || tTok != 0 || tDef != 0 {
+		t.Fatalf("v13 trials v14 defaults = (%q, %q, %d, %d, %v), want zero defaults", tSkill, tArm, tTok, tDef, err)
+	}
+	var idxCnt int
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND tbl_name='orchestration_runs'`).Scan(&idxCnt); err != nil || idxCnt < 1 {
+		t.Fatalf("orchestration_runs indexes = %d, err=%v; want >= 1", idxCnt, err)
+	}
+	if err := s.InsertOrchestrationRun(OrchestrationRunRow{
+		ID: "orch-v14-1", TS: "2026-11-22T20:00:00Z", Kind: "relay", Status: "COMPLETE", Units: 2, Passed: 2, DurationMS: 1500,
+	}); err != nil {
+		t.Fatalf("InsertOrchestrationRun: %v", err)
+	}
+	out := filepath.Join(dir, "export14.jsonl")
+	if err := s.Export(out); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"table":"orchestration_runs"`)) || !bytes.Contains(raw, []byte(`"value":"14"`)) {
+		t.Fatalf("export missing orchestration_runs or schema 14:\n%s", raw)
 	}
 }

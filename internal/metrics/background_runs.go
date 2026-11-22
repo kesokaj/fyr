@@ -8,12 +8,13 @@ import (
 )
 
 // BackgroundRunRow records one shape-only dream or auto background run in
-// metrics.db (schema 10, ADR-528).
+// metrics.db (schema 10+, extended in schema 14 with halt_reason, ADR-528).
 type BackgroundRunRow struct {
 	ID               int64  `json:"id,omitempty"`
 	TS               int64  `json:"ts"`
 	Kind             string `json:"kind"`
 	Outcome          string `json:"outcome"`
+	HaltReason       string `json:"halt_reason,omitempty"`
 	DurationMS       int64  `json:"duration_ms"`
 	ProjectsChecked  int    `json:"projects_checked"`
 	ProposalsWritten int    `json:"proposals_written"`
@@ -57,8 +58,8 @@ func (s *Store) InsertBackgroundRun(row BackgroundRunRow) error {
 		return err
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO background_runs(ts, kind, outcome, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		norm.TS, norm.Kind, norm.Outcome, norm.DurationMS, norm.ProjectsChecked,
+		`INSERT INTO background_runs(ts, kind, outcome, halt_reason, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		norm.TS, norm.Kind, norm.Outcome, norm.HaltReason, norm.DurationMS, norm.ProjectsChecked,
 		norm.ProposalsWritten, norm.RatingsWritten, norm.WorkerRan, norm.Applied,
 	)
 	return err
@@ -79,6 +80,7 @@ func normalizeBackgroundRunRow(r BackgroundRunRow) (BackgroundRunRow, error) {
 	if r.ProjectsChecked < 0 || r.ProposalsWritten < 0 || r.RatingsWritten < 0 || r.WorkerRan < 0 || r.Applied < 0 {
 		return BackgroundRunRow{}, errors.New("metrics: background_runs: negative count")
 	}
+	r.HaltReason = clipSanitizedText(r.HaltReason, 128)
 	return r, nil
 }
 
@@ -107,7 +109,11 @@ func (s *Store) QueryBackgroundRuns(since, until time.Time) ([]BackgroundRunRow,
 		conds = append(conds, bgRunTSMSExpr+` < ?`)
 		args = append(args, until.UnixMilli())
 	}
-	q := `SELECT id, ts, kind, outcome, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied FROM background_runs`
+	haltCol := `''`
+	if schemaTableCols(s.db, "background_runs")["halt_reason"] {
+		haltCol = `COALESCE(halt_reason, '')`
+	}
+	q := `SELECT id, ts, kind, outcome, ` + haltCol + `, duration_ms, projects_checked, proposals_written, ratings_written, worker_ran, applied FROM background_runs`
 	if len(conds) > 0 {
 		q += ` WHERE ` + strings.Join(conds, ` AND `)
 	}
@@ -124,7 +130,7 @@ func (s *Store) scanBackgroundRuns(q string, args []any) ([]BackgroundRunRow, er
 	var out []BackgroundRunRow
 	for rows.Next() {
 		var r BackgroundRunRow
-		if err := rows.Scan(&r.ID, &r.TS, &r.Kind, &r.Outcome, &r.DurationMS, &r.ProjectsChecked,
+		if err := rows.Scan(&r.ID, &r.TS, &r.Kind, &r.Outcome, &r.HaltReason, &r.DurationMS, &r.ProjectsChecked,
 			&r.ProposalsWritten, &r.RatingsWritten, &r.WorkerRan, &r.Applied); err != nil {
 			return nil, err
 		}

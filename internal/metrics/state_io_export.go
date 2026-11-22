@@ -13,17 +13,18 @@ import (
 // repo_id and optional since window (ADR-531). It never includes meta.salt,
 // steps.cmd_hash, ingest_state, or host filesystem project_root paths.
 type SanitizedMetricsExport struct {
-	Schema         int                `json:"schema"`
-	RepoID         string             `json:"repo_id,omitempty"`
-	SinceMS        int64              `json:"since_ms,omitempty"`
-	Sessions       []SanitizedSession `json:"sessions,omitempty"`
-	Steps          []SanitizedStep    `json:"steps,omitempty"`
-	Events         []SanitizedEvent   `json:"events,omitempty"`
-	Trials         []SanitizedTrial   `json:"trials,omitempty"`
-	TurnVets       []SanitizedTurnVet `json:"turn_vets,omitempty"`
-	SessionRatings []SessionRating    `json:"session_ratings,omitempty"`
-	JudgeVerdicts  []JudgeVerdictRow  `json:"judge_verdicts,omitempty"`
-	BackgroundRuns []BackgroundRunRow `json:"background_runs,omitempty"`
+	Schema            int                   `json:"schema"`
+	RepoID            string                `json:"repo_id,omitempty"`
+	SinceMS           int64                 `json:"since_ms,omitempty"`
+	Sessions          []SanitizedSession    `json:"sessions,omitempty"`
+	Steps             []SanitizedStep       `json:"steps,omitempty"`
+	Events            []SanitizedEvent      `json:"events,omitempty"`
+	Trials            []SanitizedTrial      `json:"trials,omitempty"`
+	TurnVets          []SanitizedTurnVet    `json:"turn_vets,omitempty"`
+	SessionRatings    []SessionRating       `json:"session_ratings,omitempty"`
+	JudgeVerdicts     []JudgeVerdictRow     `json:"judge_verdicts,omitempty"`
+	BackgroundRuns    []BackgroundRunRow    `json:"background_runs,omitempty"`
+	OrchestrationRuns []OrchestrationRunRow `json:"orchestration_runs,omitempty"`
 }
 
 // SanitizedSession is one portable sessions row without local project_root.
@@ -91,6 +92,10 @@ type SanitizedTrial struct {
 	SetupSeconds   *int64 `json:"setup_seconds,omitempty"`
 	CheckSeconds   *int64 `json:"check_seconds,omitempty"`
 	PolicyModel    string `json:"policy_model,omitempty"`
+	Skill          string `json:"skill,omitempty"`
+	Arm            string `json:"arm,omitempty"`
+	Tokens         int64  `json:"tokens,omitempty"`
+	Defects        int    `json:"defects,omitempty"`
 }
 
 // SanitizedTurnVet is one portable turn_vets row without local project_root.
@@ -112,6 +117,7 @@ type SanitizedTurnVet struct {
 	InjectedBytes     int    `json:"injected_bytes,omitempty"`
 	PivotsUsedCount   int    `json:"pivots_used_count,omitempty"`
 	SkillsLoadedCount int    `json:"skills_loaded_count,omitempty"`
+	SuggestedSkills   string `json:"suggested_skills,omitempty"`
 	CreatedAt         int64  `json:"created_at"`
 }
 
@@ -155,6 +161,9 @@ func populateRemainingExport(out *SanitizedMetricsExport, s *Store, repoID strin
 	if out.JudgeVerdicts, err = exportSanitizedVerdicts(s.db, repoID, sinceMS); err != nil {
 		return SanitizedMetricsExport{}, err
 	}
+	if out.OrchestrationRuns, err = exportSanitizedOrchestrationRuns(s.db, repoID, since); err != nil {
+		return SanitizedMetricsExport{}, err
+	}
 	if repoID == "" {
 		runs, err := s.QueryBackgroundRuns(since, time.Time{})
 		if err != nil {
@@ -164,6 +173,7 @@ func populateRemainingExport(out *SanitizedMetricsExport, s *Store, repoID strin
 			runs[i].ID = 0
 			runs[i].Kind = clipSanitizedText(runs[i].Kind, 64)
 			runs[i].Outcome = clipSanitizedText(runs[i].Outcome, 64)
+			runs[i].HaltReason = clipSanitizedText(runs[i].HaltReason, 128)
 		}
 		out.BackgroundRuns = runs
 	}
@@ -286,11 +296,15 @@ func exportSanitizedEvents(db *sql.DB, sids map[string]bool) ([]SanitizedEvent, 
 }
 
 func exportSanitizedTrials(db *sql.DB, repoID string, sinceMS int64) ([]SanitizedTrial, error) {
-	pmCol := `''`
-	if hasTrialPolicyModelCol(db) {
-		pmCol = `COALESCE(t.policy_model, '')`
+	cols := schemaTableCols(db, "trials")
+	sel := func(col, def string) string {
+		if cols[col] {
+			return `COALESCE(t.` + col + `, ` + def + `)`
+		}
+		return def
 	}
-	q := `SELECT DISTINCT t.run, t.label, COALESCE(t.row_version, 0), COALESCE(t.kind, ''), COALESCE(t.cluster, ''), COALESCE(t.expect, ''), t.harness, COALESCE(t.cli, ''), t.status, t.cause, t.started_at, t.seconds, t.session_seconds, t.setup_seconds, t.check_seconds, ` + pmCol + ` FROM trials t`
+	q := `SELECT DISTINCT t.run, t.label, COALESCE(t.row_version, 0), COALESCE(t.kind, ''), COALESCE(t.cluster, ''), COALESCE(t.expect, ''), t.harness, COALESCE(t.cli, ''), t.status, t.cause, t.started_at, t.seconds, t.session_seconds, t.setup_seconds, t.check_seconds, ` +
+		sel("policy_model", "''") + `, ` + sel("skill", "''") + `, ` + sel("arm", "''") + `, ` + sel("tokens", "0") + `, ` + sel("defects", "0") + ` FROM trials t`
 	var conds []string
 	var args []any
 	if repoID != "" {
@@ -319,7 +333,7 @@ func scanSanitizedTrials(db *sql.DB, q string, args []any) ([]SanitizedTrial, er
 	for rows.Next() {
 		var r SanitizedTrial
 		var sesS, setS, chkS sql.NullInt64
-		if err := rows.Scan(&r.Run, &r.Label, &r.RowVersion, &r.Kind, &r.Cluster, &r.Expect, &r.Harness, &r.CLI, &r.Status, &r.Cause, &r.StartedAt, &r.Seconds, &sesS, &setS, &chkS, &r.PolicyModel); err != nil {
+		if err := rows.Scan(&r.Run, &r.Label, &r.RowVersion, &r.Kind, &r.Cluster, &r.Expect, &r.Harness, &r.CLI, &r.Status, &r.Cause, &r.StartedAt, &r.Seconds, &sesS, &setS, &chkS, &r.PolicyModel, &r.Skill, &r.Arm, &r.Tokens, &r.Defects); err != nil {
 			return nil, err
 		}
 		r.Run = clipSanitizedText(r.Run, trialText)
@@ -332,6 +346,9 @@ func scanSanitizedTrials(db *sql.DB, q string, args []any) ([]SanitizedTrial, er
 		r.Status = clipSanitizedText(r.Status, 32)
 		r.Cause = clipSanitizedText(r.Cause, 256)
 		r.PolicyModel = clipSanitizedText(r.PolicyModel, trialText)
+		r.Skill = clipSanitizedText(r.Skill, trialText)
+		r.Arm = clipSanitizedText(r.Arm, 64)
+		r.Tokens, r.Defects = max(0, r.Tokens), max(0, r.Defects)
 		r.SessionSeconds, r.SetupSeconds, r.CheckSeconds = ptrInt64(sesS), ptrInt64(setS), ptrInt64(chkS)
 		if r.Run != "" {
 			out = append(out, r)
@@ -352,7 +369,11 @@ func exportSanitizedTurnVets(db *sql.DB, repoID string, sinceMS int64) ([]Saniti
 		conds = append(conds, tsExpr+` >= ?`)
 		args = append(args, sinceMS)
 	}
-	q := `SELECT COALESCE(repo_id, ''), conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, COALESCE(directive, ''), COALESCE(subtask_count, 0), COALESCE(duration_ms, 0), COALESCE(timed_out, 0), COALESCE(injected_bytes, 0), COALESCE(pivots_used_count, 0), COALESCE(skills_loaded_count, 0), created_at FROM turn_vets`
+	skCol := `''`
+	if schemaTableCols(db, "turn_vets")["suggested_skills"] {
+		skCol = `COALESCE(suggested_skills, '')`
+	}
+	q := `SELECT COALESCE(repo_id, ''), conversation_id, turn_num, intent, gate, score, bypassed, skills_count, pivots_count, ledger_saved, COALESCE(directive, ''), COALESCE(subtask_count, 0), COALESCE(duration_ms, 0), COALESCE(timed_out, 0), COALESCE(injected_bytes, 0), COALESCE(pivots_used_count, 0), COALESCE(skills_loaded_count, 0), ` + skCol + `, created_at FROM turn_vets`
 	if len(conds) > 0 {
 		q += ` WHERE ` + strings.Join(conds, ` AND `)
 	}
@@ -369,13 +390,14 @@ func scanSanitizedTurnVets(db *sql.DB, q string, args []any) ([]SanitizedTurnVet
 	var out []SanitizedTurnVet
 	for rows.Next() {
 		var r SanitizedTurnVet
-		if err := rows.Scan(&r.RepoID, &r.ConversationID, &r.TurnNum, &r.Intent, &r.Gate, &r.Score, &r.Bypassed, &r.SkillsCount, &r.PivotsCount, &r.LedgerSaved, &r.Directive, &r.SubtaskCount, &r.DurationMS, &r.TimedOut, &r.InjectedBytes, &r.PivotsUsedCount, &r.SkillsLoadedCount, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.RepoID, &r.ConversationID, &r.TurnNum, &r.Intent, &r.Gate, &r.Score, &r.Bypassed, &r.SkillsCount, &r.PivotsCount, &r.LedgerSaved, &r.Directive, &r.SubtaskCount, &r.DurationMS, &r.TimedOut, &r.InjectedBytes, &r.PivotsUsedCount, &r.SkillsLoadedCount, &r.SuggestedSkills, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		r.ConversationID = clipSanitizedText(r.ConversationID, 128)
 		r.Intent = clipSanitizedText(r.Intent, 64)
 		r.Gate = clipSanitizedText(r.Gate, 64)
 		r.Directive = clipSanitizedText(r.Directive, 128)
+		r.SuggestedSkills = clipSanitizedText(r.SuggestedSkills, 256)
 		if r.ConversationID != "" {
 			out = append(out, r)
 		}
@@ -476,4 +498,27 @@ func ptrInt64(n sql.NullInt64) *int64 {
 	}
 	v := n.Int64
 	return &v
+}
+
+func schemaTableCols(db *sql.DB, table string) map[string]bool {
+	switch table {
+	case "trials", "turn_vets", "orchestration_runs", "background_runs":
+	default:
+		return nil
+	}
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	cols := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil {
+			cols[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+	return cols
 }
