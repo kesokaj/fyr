@@ -23,7 +23,8 @@ var psArgs = func(uid int) ([]byte, error) {
 
 // agySubcommands are the first arguments `agy --help` lists as subcommands
 // (agy 1.4.9, plan D21): a process running one is not a person at a session,
-// and `remote-control` is a daemon that would hold the check true forever.
+// except `remote-control serve`, which hosts an active remote interactive
+// session (ADR-534, F-050).
 var agySubcommands = map[string]bool{
 	"agent": true, "agents": true, "changelog": true, "help": true, "install": true,
 	"mcp": true, "mic-serve": true, "models": true, "plugin": true, "plugins": true,
@@ -114,17 +115,16 @@ func isAgy(dir string, args []string) bool {
 	return err == nil && filepath.Base(strings.TrimSuffix(exe, " (deleted)")) == "agy"
 }
 
-// interactive reports whether agy's arguments make a session a person sits
-// at: no -p, --print or --prompt anywhere (a headless run: the dream's own
-// child, fyr eval, a script), and no subcommand as the first non-flag
-// argument. Go's flag package takes one dash or two and a value after =.
+// interactive reports whether agy's arguments make an active session: no -p,
+// --print or --prompt anywhere (a headless run: the dream's own child, fyr
+// eval, a script), and either no subcommand as the first non-flag argument or
+// `remote-control serve`. Go's flag package takes one dash or two and a value
+// after =.
 func interactive(args []string) bool {
-	first := ""
+	var pos []string
 	for _, a := range args {
 		if !strings.HasPrefix(a, "-") {
-			if first == "" {
-				first = a
-			}
+			pos = append(pos, a)
 			continue
 		}
 		name, _, _ := strings.Cut(strings.TrimLeft(a, "-"), "=")
@@ -132,5 +132,11 @@ func interactive(args []string) bool {
 			return false
 		}
 	}
-	return !agySubcommands[first]
+	if len(pos) == 0 {
+		return true
+	}
+	if pos[0] == "remote-control" {
+		return len(pos) >= 2 && pos[1] == "serve"
+	}
+	return !agySubcommands[pos[0]]
 }

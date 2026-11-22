@@ -142,6 +142,7 @@ func (r *run) applyWithHook(root string, t Task, k Kickoff, runnerWhy string) (s
 			return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
 		}
 		r.appliedSHA = "applied-mock"
+		r.appliedAny = true
 		r.appliedSignalID, r.appliedReportDate = t.SignalID, t.ReportDate
 		msg := withRunner(fmt.Sprintf("PASS; applied, branch %s deleted", k.Branch), runnerWhy)
 		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
@@ -193,12 +194,32 @@ func (r *run) applyInWorktree(root string, t Task, k Kickoff, runner, runnerWhy 
 		return r.applyFail(runnerWhy, k.Branch, "merge --ff-only: "+err.Error())
 	}
 	r.appliedSHA = shortSHA(squashSHA)
+	r.appliedAny = true
 	r.appliedSignalID, r.appliedReportDate = t.SignalID, t.ReportDate
+	if appliedTouchesSkills(root, snap.head, squashSHA) {
+		// D4 / PRD R6,R9: never run real-home `fyr install` automatically; surface reminder in `fyr auto status`.
+		r.installPending = true
+		r.st.InstallPending = true
+		r.st.InstallPendingSHA = r.appliedSHA
+	}
 	if err := deleteBranch(root, k.Branch); err != nil {
 		return r.applyFail(runnerWhy, k.Branch, "branch delete: "+err.Error())
 	}
 	msg := withRunner(fmt.Sprintf("PASS; applied %s (revert: git revert %s), branch %s deleted", r.appliedSHA, r.appliedSHA, k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+}
+
+func appliedTouchesSkills(root, base, head string) bool {
+	out, err := applyGit(root, nil, "diff", "--name-only", "--end-of-options", base, head, "--")
+	if err != nil {
+		return false
+	}
+	for _, raw := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(filepath.ToSlash(raw)), "skills/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *run) squashInWorktree(root, wtDir string, t Task, k Kickoff, res isolate.WorkerResult) (string, error) {

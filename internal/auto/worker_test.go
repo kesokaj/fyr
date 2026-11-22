@@ -506,7 +506,7 @@ func TestWorkerCooldownAndForceOverride(t *testing.T) {
 	workerCalls := 0
 	var out bytes.Buffer
 	o := driftOpts(home, root, &out)
-	env := &fakeEnv{targets: targetsOf(root), usage: usageText("90%", "90%")}
+	env := &fakeEnv{targets: targetsOf(root), usage: usageText("40%", "90%")}
 	o.Env = env
 	o.Now = func() time.Time { return now }
 	o.Work = func(_ context.Context, _ isolate.WorkerOptions, paths ...string) ([]isolate.WorkerResult, error) {

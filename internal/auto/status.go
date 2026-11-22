@@ -10,6 +10,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/harness"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 func (o Options) timerSaid(c Config) string {
@@ -65,7 +66,38 @@ func Status(o Options) error {
 		fmt.Fprintln(o.Out, "quota      "+oneLine(st.Budget))
 	}
 	fmt.Fprintf(o.Out, "asks       %d open\n", reconcileOpenAsks(o.Home, o.Now, st.OpenAsks))
+	if banner := installPendingBanner(o, st); banner != "" {
+		fmt.Fprintln(o.Out, banner)
+	}
 	return nil
+}
+
+func installPendingBanner(o Options, st State) string {
+	pending, sha := st.InstallPending, strings.TrimSpace(st.InstallPendingSHA)
+	if !pending {
+		if dig, err := metrics.ReadLatestDailyDigest(o.Home); err == nil && dig != nil {
+			for _, a := range dig.Actions {
+				if a.InstallPending {
+					pending = true
+					if sha == "" {
+						sha = strings.TrimSpace(a.AppliedSHA)
+					}
+					break
+				}
+			}
+		}
+	}
+	if !pending {
+		return ""
+	}
+	if sha != "" {
+		if hst, found, err := harness.LoadState(o.Home); err == nil && found && hst.Commit != "" &&
+			(hst.Commit == sha || strings.HasPrefix(hst.Commit, sha) || strings.HasPrefix(sha, hst.Commit)) {
+			return ""
+		}
+		return fmt.Sprintf("install    pending (skills/ updated at %s; run 'fyr install' to deploy)", oneLine(sha))
+	}
+	return "install    pending (skills/ updated; run 'fyr install' to deploy)"
 }
 
 func isAutoAskTitle(title string) bool {

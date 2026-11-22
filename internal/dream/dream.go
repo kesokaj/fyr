@@ -103,7 +103,7 @@ func defaultProjects(home string) ([]search.Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append(projects, agyWS...), nil
+	return filterRefusedProjects(append(projects, agyWS...), home), nil
 }
 
 func (o *Options) withDefaults() {

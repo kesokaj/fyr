@@ -67,16 +67,17 @@ func (o Options) evalFixture(root string) string {
 	return ""
 }
 
-func (r *run) betweenEvalRows(root string, runsBefore int, rowID string, findings *[]Finding) string {
+func (r *run) betweenEvalRows(root string, runsBefore int, targetModel, rowID string, findings *[]Finding) string {
 	if !r.again(root) {
 		*findings = append(*findings, Finding{"eval-gate", "stopped", rowID, "stopped before row by machine or switch gate"})
 		return "stopped between rows"
 	}
 	r.usageRead = false
 	text, uerr := r.usage()
-	line, stop := gateBudget(runsBefore, text, uerr)
+	line, stop := gateBudgetForModel(runsBefore, targetModel, text, uerr)
 	r.st.Budget = strings.TrimPrefix(line, "G9 ")
 	if stop {
+		r.setHaltReason(classifyHaltReason(line))
 		*findings = append(*findings, Finding{"eval-gate", "budget", rowID, "stopped before row: " + line})
 		return line
 	}
@@ -121,16 +122,6 @@ func listHarnessTargets(root string) []harnessTarget {
 		}
 	}
 	return out
-}
-
-func rowNamesTarget(r eval.Row, name string) bool {
-	if name == "" {
-		return false
-	}
-	if r.Agent == name || r.ID == name || strings.HasPrefix(r.ID, name+"-") {
-		return true
-	}
-	return mentionsWord(r.Prompt, name) || mentionsWord(r.Prompt2, name)
 }
 
 func mentionsWord(text, word string) bool {

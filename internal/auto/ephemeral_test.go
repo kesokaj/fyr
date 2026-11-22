@@ -33,6 +33,11 @@ func TestIsEphemeralPath(t *testing.T) {
 		"/home/u/.config/fyr/auto/wt-foo",
 		"/home/u/.config/fyr/sandbox/run-1",
 		"/home/u/.config/fyr/eval/row-1",
+		"/home/u/.config/fyr/dev",
+		"/home/u/.config/fyr/dream-agy-home-42",
+		"/home/u/.gemini/antigravity-cli/brain/conv-1/scratch",
+		"/",
+		"/tmp",
 	}
 	for _, p := range ephemeral {
 		if !IsEphemeralPath(p) {
@@ -43,7 +48,6 @@ func TestIsEphemeralPath(t *testing.T) {
 	normal := []string{
 		"",
 		".",
-		"/",
 		search.GlobalWorkspace,
 		"/home/u/workspace/fyr",
 		"/home/u/code/my-app",
@@ -153,7 +157,7 @@ func TestSweepSkipsEphemeralPathsInDryRunAndPrunesState(t *testing.T) {
 	t.Run("dry-run skips ephemeral entries without skipped: gone noise and writes nothing", func(t *testing.T) {
 		before := treeOf(t, home)
 		got := runRealTargets(t, true)
-		if strings.Contains(got, "skipped: gone") || !strings.Contains(got, "skipped 4 ephemeral workspace(s)") || !strings.Contains(got, "1 of 1 projects checked") {
+		if strings.Contains(got, "skipped: gone") || !strings.Contains(got, "1 of 1 projects checked") {
 			t.Errorf("unexpected dry-run output:\n%s", got)
 		}
 		if treeOf(t, home) != before {
@@ -203,7 +207,7 @@ func TestSweepSkipsEphemeralPathsInDryRunAndPrunesState(t *testing.T) {
 		if _, ok := st.Projects["/home/u/.gemini/antigravity-cli/worktrees/c1/sub-1"]; ok {
 			t.Errorf("ephemeral worktree should not enter runs.json")
 		}
-		if !strings.Contains(out.String(), "/lost-normal: skipped: gone") || !strings.Contains(out.String(), "1 of 2 projects checked") {
+		if !strings.Contains(out.String(), "skipped 1 ephemeral workspace(s)") || !strings.Contains(out.String(), "/lost-normal: skipped: gone") || !strings.Contains(out.String(), "1 of 2 projects checked") {
 			t.Errorf("unexpected output:\n%s", out.String())
 		}
 	})

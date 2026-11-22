@@ -258,27 +258,32 @@ func TestEvalGate(t *testing.T) {
 	})
 
 	t.Run("stops-at-24-eval-sessions-and-becomes-proposal", func(t *testing.T) {
-		extra := "| `alpha-2` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
-			"| `alpha-3` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
-			"| `alpha-4` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
-			"| `alpha-5` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n"
 		home := t.TempDir()
 		realHome := t.TempDir()
-		root, _, propID := initHarnessEvalGateFixture(t, home, realHome, extra)
+		root, holdoutPath, propID := initHarnessEvalGateFixture(t, home, realHome, "")
 		parentSHA := git(t, root, "rev-parse", "HEAD")
+		candSHA := commitPlumbing(t, root, parentSHA, "100644", "skills/alpha/SKILL.md", "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n", "cand")
+		git(t, root, "update-ref", "refs/heads/work/auto-cap-test", candSHA)
 
 		var evalCalls []EvalRequest
 		var out bytes.Buffer
 		o := gateOpts(home, realHome, root, &out)
-		o.Work = makeCandidateBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n")
 		o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
 			evalCalls = append(evalCalls, req)
 			return EvalOutcome{Row: req.Row, Passed: 3, Graded: 3, Errors: 0, RecordID: "TEST-gate"}, nil
 		}
-
-		if err := Run(o, false); err != nil {
-			t.Fatalf("Run: %v\n%s", err, out.String())
+		r := &run{ctx: context.Background(), o: o, env: o.env(), cfg: Config{Enabled: true, ConversationIdle: "1h"}, say: func(string) {}}
+		snap, err := takeCheckoutSnapshot(root)
+		if err != nil {
+			t.Fatal(err)
 		}
+		overRows := []gateRow{
+			{ID: "alpha"}, {ID: "alpha-2"}, {ID: "alpha-3"}, {ID: "alpha-4"},
+			{ID: "secret-holdout", SuiteFile: holdoutPath, IsHoldout: true},
+		}
+		simCtx := newGateSIMCtx(root, Task{ID: propID, Class: ClassHarnessEdit, Outcome: OutcomeEvalGate}, parentSHA, candSHA, []string{"alpha"}, nil, "")
+		r.runEvalGateRows(context.Background(), root, simCtx.task, Kickoff{Name: "auto-cap-test", Branch: "work/auto-cap-test"}, isolate.RunnerIsolate, isolate.RunnerIsolate, snap, nil, isolate.WorkerResult{Base: parentSHA, Head: candSHA, Verdict: "PASS"}, simCtx, overRows)
+
 		sessions := 0
 		for _, c := range evalCalls {
 			sessions += c.Runs
@@ -455,8 +460,8 @@ func TestEvalGate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("collectGateRows: %v", err)
 		}
-		if len(rows) != 6 {
-			t.Fatalf("len(rows) = %d, want 6: %+v", len(rows), rows)
+		if len(rows) != maxGateRows {
+			t.Fatalf("len(rows) = %d, want %d: %+v", len(rows), maxGateRows, rows)
 		}
 		if rows[0].ID != "alpha" || rows[1].ID != "secret-holdout" || !rows[1].IsHoldout {
 			t.Errorf("expected target + holdout before regressions, got rows = %+v", rows)
@@ -746,3 +751,17 @@ func TestEnsureHoldoutSuiteRefusesSymlinks(t *testing.T) {
 		}
 	})
 }
+
+func TestV910AutoAndDreamUnblock(t *testing.T) {
+	t.Run("per-pool-g9", runV910AutoPerPoolG9)
+	t.Run("ephemeral-and-system-roots", runV910Ephemeral)
+	t.Run("pre-dispatch-0-row-feasibility", runV910EvalPrefixAndPreDispatchFeasibility)
+	t.Run("deterministic-row-planner-24-sessions", runV910DeterministicRowPlanner)
+	t.Run("quota-adaptive-cooldown", runV910AdaptiveCooldown)
+	t.Run("install-pending-banner", runV910InstallPendingBanner)
+	t.Run("halt-reason-persistence", runV910HaltReasonPersistence)
+}
+
+func TestV910AutoPerPoolG9(t *testing.T) { runV910AutoPerPoolG9(t) }
+
+func TestV910Ephemeral(t *testing.T) { runV910Ephemeral(t) }

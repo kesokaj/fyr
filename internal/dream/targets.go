@@ -79,10 +79,13 @@ func (o Options) dedupeTargets(projects []search.Project) ([]search.Project, []s
 	var out []search.Project
 	var skips []skipped
 	for _, p := range projects {
-		if p.Root == "" {
+		if p.Root == "" || IsRefusedWorkspace(p.Root, o.Home) {
 			continue
 		}
 		p = normalizeTarget(p)
+		if IsRefusedWorkspace(p.Root, o.Home) {
+			continue
+		}
 		k := projectKey(p.Root)
 		if seen[k] {
 			continue

@@ -404,3 +404,27 @@ func TestAutoRunForceAndHelp(t *testing.T) {
 		t.Errorf("auto --help missing --force/cooldown docs:\n%s", out.String())
 	}
 }
+
+func TestVerbAutoStatusInstallPendingBanner(t *testing.T) {
+	home, _ := autoHome(t)
+	var out bytes.Buffer
+	if err := run([]string{"auto", "on", "--home", home}, &out); err != nil {
+		t.Fatalf("auto on: %v\n%s", err, out.String())
+	}
+	autoDir := filepath.Join(home, harness.StateDir, "auto")
+	if err := os.MkdirAll(autoDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runsJSON := `{"date":"2026-11-22","model_runs":1,"install_pending":true,"install_pending_sha":"abc1234"}`
+	if err := os.WriteFile(filepath.Join(autoDir, "runs.json"), []byte(runsJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := run([]string{"auto", "status", "--home", home}, &out); err != nil {
+		t.Fatalf("auto status: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "install") || !strings.Contains(got, "pending") || !strings.Contains(got, "abc1234") || !strings.Contains(got, "fyr install") {
+		t.Fatalf("fyr auto status missing install pending banner:\n%s", got)
+	}
+}

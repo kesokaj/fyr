@@ -28,12 +28,27 @@ func (r *run) health(root string, p *Project, read projectRead) string {
 	if !r.again(root) {
 		return r.file(&p.Mark, root, filepath.Base(root), read.findings)
 	}
-	budget, stop := r.budget()
-	if stop {
+	if runs := r.st.modelRunsToday(r.o.now()); runs >= modelRunsPerDay {
+		budget, _ := gateBudgetForModel(runs, "", "", nil)
+		r.setHaltReason(classifyHaltReason(budget))
 		verdict := r.file(&p.Mark, root, filepath.Base(root), read.findings)
 		return verdict + "; " + budget
 	}
-	taskVerdict, extra := r.runModelTask(root, p, read.findings)
+	endPass := r.beginProjectPass(root)
+	defer endPass()
+	var task *Task
+	var selectStop string
+	if !r.workerRan {
+		task, selectStop = r.selectModelTask(root, p, read.findings)
+	}
+	targetModel := r.targetModelFor(task)
+	budget, stop := r.budgetForModel(targetModel)
+	if stop {
+		r.setHaltReason(classifyHaltReason(budget))
+		verdict := r.file(&p.Mark, root, filepath.Base(root), read.findings)
+		return verdict + "; " + budget
+	}
+	taskVerdict, extra := r.runSelectedModelTask(root, p, task, selectStop)
 	all := append(slices.Clone(read.findings), extra...)
 	sortFindings(all)
 	verdict := r.file(&p.Mark, root, filepath.Base(root), all)

@@ -56,7 +56,7 @@ func (r *run) discoverSweepTargets() ([]dream.Target, bool) {
 		r.failed = true
 		return nil, false
 	}
-	targets, skipped := filterSweepTargets(raw)
+	targets, skipped := filterSweepTargets(raw, r.o.Home, r.o.RealHome)
 	if skipped > 0 {
 		r.say(fmt.Sprintf("skipped %d ephemeral workspace(s)", skipped))
 	}

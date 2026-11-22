@@ -140,8 +140,10 @@ func formatTriggerProse(sigID, repDate string) string {
 }
 
 func (r *run) finishKeptGateApply(root string, t Task, policyModel, v string, af []Finding) (string, []Finding) {
-	// D19 item 3: auto never installs into a real home; the report says install pending.
+	// D19 item 3 / ADR-534 D4: auto never installs into a real home; persist installPending for status banner.
 	r.installPending = true
+	r.st.InstallPending = true
+	r.st.InstallPendingSHA = cmp.Or(r.st.InstallPendingSHA, r.appliedSHA)
 	warn := ""
 	if t.ID != "" {
 		status := "applied:" + r.appliedSHA
@@ -279,8 +281,18 @@ func (r *run) pickReservedHarnessEditTask(root string, expireStale bool) *Task {
 	if len(cands) == 0 {
 		return nil
 	}
+	suite, suiteErr := readCheckoutSuite(r.o.Home, root)
+	if suiteErr != nil {
+		return nil
+	}
 	dig, _ := metrics.ReadLatestDailyDigest(r.o.Home)
 	for _, c := range cands {
+		if !hasMatchingEvalRows(suite, c.entries) {
+			if expireStale {
+				r.quarantineUnmappedProposal(c.rec, c.entries)
+			}
+			continue
+		}
 		t := preparedTask(ClassHarnessEdit, c.entries, c.rec.ID, len(c.entries))
 		if t == nil || len(t.Kept) == 0 {
 			continue

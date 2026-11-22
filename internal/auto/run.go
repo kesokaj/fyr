@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -84,12 +85,30 @@ func (o Options) locked(ctx context.Context, c Config, now time.Time, say func(s
 	c, runSweep, preFailed := o.runPreSweep(c, say)
 	if !runSweep {
 		o.prune(now)
+		o.recordPreSweepHalt(now, preFailed, say)
 		if preFailed {
 			return &ExitError{Code: 1}
 		}
 		return nil
 	}
 	return o.finishSweep(ctx, c, st, now, say, preFailed)
+}
+
+func (o Options) recordPreSweepHalt(start time.Time, preFailed bool, say func(string)) {
+	outcome, reason := "skipped", "G1_SWITCH_OFF"
+	if preFailed {
+		outcome, reason = "fail", "CONFIG_ERROR"
+	}
+	err := o.recordBackgroundRun(metrics.BackgroundRunRow{
+		TS:         start.UnixMilli(),
+		Kind:       "auto",
+		Outcome:    outcome,
+		HaltReason: reason,
+		DurationMS: max(int64(0), o.now().Sub(start).Milliseconds()),
+	})
+	if err != nil {
+		say("auto: background_runs: " + oneLine(err.Error()))
+	}
 }
 
 func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.Time, say func(string), preFailed bool) error {
@@ -99,6 +118,7 @@ func (o Options) finishSweep(ctx context.Context, c Config, st State, now time.T
 	r.st.OpenAsks = reconcileOpenAsks(r.o.Home, r.o.Now, r.st.OpenAsks)
 	if err := saveState(o.Home, r.st); err != nil {
 		say("auto: state: " + err.Error())
+		r.setHaltReason("STATE_SAVE_ERROR")
 		r.recordSweepRun(now, true, say)
 		return &ExitError{Code: 1}
 	}
@@ -135,13 +155,18 @@ func (r *run) recordSweepRun(start time.Time, extraFail bool, say func(string)) 
 	if r.workerRan {
 		workerRan = 1
 	}
-	if r.appliedSHA != "" {
+	if r.appliedSHA != "" || r.appliedAny {
 		applied = 1
+	}
+	haltReason := r.haltReason
+	if haltReason == "" && (extraFail || r.failed) {
+		haltReason = "RUN_FAIL"
 	}
 	err := r.o.recordBackgroundRun(metrics.BackgroundRunRow{
 		TS:              start.UnixMilli(),
 		Kind:            "auto",
 		Outcome:         outcome,
+		HaltReason:      haltReason,
 		DurationMS:      max(int64(0), r.o.now().Sub(start).Milliseconds()),
 		ProjectsChecked: r.projectsChecked,
 		WorkerRan:       workerRan,
@@ -211,10 +236,46 @@ type run struct {
 	projectWorkerRan  bool
 	pendingReportID   string
 	appliedSHA        string
+	appliedAny        bool
 	appliedSignalID   string
 	appliedReportDate string
 	installPending    bool
+	haltReason        string
 	sweepCache        *projectPassCache
+}
+
+func (r *run) setHaltReason(reason string) {
+	if r.haltReason == "" && strings.TrimSpace(reason) != "" {
+		r.haltReason = reason
+	}
+}
+
+func classifyHaltReason(line string) string {
+	s := strings.TrimSpace(oneLine(line))
+	switch {
+	case strings.HasPrefix(s, "G3 power:"):
+		return "G3_POWER"
+	case strings.HasPrefix(s, "G1 switch:"):
+		return "G1_SWITCH_OFF"
+	case strings.HasPrefix(s, "G2 lock:"):
+		return "G2_LOCK_HELD"
+	case strings.HasPrefix(s, "G9 cooldown:"):
+		return "G9_COOLDOWN"
+	case strings.HasPrefix(s, "G9 budget: /usage unreadable"):
+		return "G9_USAGE_UNREADABLE"
+	case strings.HasPrefix(s, "G9 budget: target pool"):
+		return "G9_POOL_UNREADABLE"
+	case strings.HasPrefix(s, "G9 budget:") && strings.Contains(s, "model runs today"):
+		return "G9_DAILY_CAP"
+	case strings.HasPrefix(s, "G9 budget:"):
+		return "G9_BUDGET_FLOOR"
+	case strings.HasPrefix(s, "targets:"):
+		return "TARGETS_ERROR"
+	case strings.HasPrefix(s, "auto: config:"):
+		return "CONFIG_ERROR"
+	default:
+		return short(s)
+	}
 }
 
 func (r *run) context() context.Context {
@@ -236,6 +297,7 @@ func (r *run) stopMachine(line string) {
 	r.say(line)
 	r.verdict = line
 	r.halted = true
+	r.setHaltReason(classifyHaltReason(line))
 }
 
 // again reads G1 and G3 before the next project, so an `off` during a run
@@ -271,28 +333,38 @@ func (r *run) usage() (string, error) {
 // budget is G9: `/usage` is read only for a project past G8, so the free gates
 // spend no call.
 func (r *run) budget() (string, bool) {
+	return r.budgetForModel("")
+}
+
+func (r *run) budgetForModel(targetModel string) (string, bool) {
 	runs := r.st.modelRunsToday(r.o.now())
 	if runs >= modelRunsPerDay {
-		return gateBudget(runs, "", nil)
+		return gateBudgetForModel(runs, targetModel, "", nil)
 	}
+	text, err := r.usage()
 	if !r.workerRan {
-		if cd := r.cooldownStop(); cd != "" {
+		if cd := r.cooldownStopFor(targetModel, text, err); cd != "" {
 			return cd, true
 		}
 	}
-	text, err := r.usage()
-	return gateBudget(runs, text, err)
+	return gateBudgetForModel(runs, targetModel, text, err)
 }
 
 func (r *run) cooldownStop() string {
+	return r.cooldownStopFor("", r.usageText, r.usageErr)
+}
+
+func (r *run) cooldownStopFor(targetModel, text string, readErr error) string {
 	if r.o.Force || r.st.LastModelRun.IsZero() {
 		return ""
 	}
+	weekPct, known := targetPoolWeekQuota(targetModel, text, readErr)
+	cd := adaptiveModelCooldown(weekPct, known)
 	elapsed := r.o.now().Sub(r.st.LastModelRun)
-	if elapsed >= modelRunCooldown {
+	if elapsed >= cd {
 		return ""
 	}
 	shown := max(time.Duration(0), elapsed).Round(time.Minute)
-	rem := max(time.Minute, (modelRunCooldown - max(time.Duration(0), elapsed)).Round(time.Minute))
-	return fmt.Sprintf("G9 cooldown: last model run %s ago (%s remaining of 4h cooldown; pass --force to override)", shown, rem)
+	rem := max(time.Minute, (cd - max(time.Duration(0), elapsed)).Round(time.Minute))
+	return fmt.Sprintf("G9 cooldown: last model run %s ago (%s remaining of %dh cooldown; pass --force to override)", shown, rem, int(cd/time.Hour))
 }

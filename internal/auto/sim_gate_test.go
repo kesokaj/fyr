@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
@@ -116,21 +117,31 @@ func testSIMEvalGatePredictedRowsCap(t *testing.T) {
 }
 
 func testSIMEvalGateSessionCapVerdicts(t *testing.T) {
-	extra := "| `alpha-2` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
-		"| `alpha-3` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n" +
-		"| `alpha-4` |  | use skills/alpha/SKILL.md |  | `true` |  | named | 1 | capability | alpha |  |\n"
 	home, realHome := t.TempDir(), t.TempDir()
-	root, _, _ := initHarnessEvalGateFixture(t, home, realHome, extra)
-	manifest := `{"kind":"sim_manifest","root_cause":"cap hit with scores","rationale":"hit 24 session cap","predicted_rows":"alpha,alpha-4"}`
+	root, holdoutPath, propID := initHarnessEvalGateFixture(t, home, realHome, "")
+	parentSHA := git(t, root, "rev-parse", "HEAD")
+	candSHA := commitPlumbing(t, root, parentSHA, "100644", "skills/alpha/SKILL.md", "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n", "cand")
+	git(t, root, "update-ref", "refs/heads/work/auto-sim-cap", candSHA)
+	manifest := &simManifest{RootCause: "cap hit with scores", MechanismClass: "prompt_guidance", Rationale: "hit 24 session cap", PredictedRows: []string{"alpha", "alpha-4"}}
+
 	var out bytes.Buffer
 	o := gateOpts(home, realHome, root, &out)
-	o.Work = makeManifestBranchWork(t, root, "---\nname: alpha\ndescription: alpha\n---\n# alpha v2\n", manifest)
 	o.Eval = func(_ context.Context, req EvalRequest) (EvalOutcome, error) {
 		return EvalOutcome{Row: req.Row, Passed: 3, Graded: req.Runs}, nil
 	}
-	if err := Run(o, false); err != nil {
-		t.Fatalf("Run: %v\n%s", err, out.String())
+	r := &run{ctx: context.Background(), o: o, env: o.env(), cfg: Config{Enabled: true, ConversationIdle: "1h"}, say: func(string) {}}
+	snap, err := takeCheckoutSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
 	}
+	overRows := []gateRow{
+		{ID: "alpha"}, {ID: "alpha-2"}, {ID: "alpha-3"}, {ID: "alpha-4"},
+		{ID: "secret-holdout", SuiteFile: holdoutPath, IsHoldout: true},
+	}
+	task := Task{ID: propID, Class: ClassHarnessEdit, Outcome: OutcomeEvalGate}
+	simCtx := newGateSIMCtx(root, task, parentSHA, candSHA, []string{"alpha"}, manifest, "")
+	r.runEvalGateRows(context.Background(), root, task, Kickoff{Name: "auto-sim-cap", Branch: "work/auto-sim-cap"}, isolate.RunnerIsolate, isolate.RunnerIsolate, snap, nil, isolate.WorkerResult{Base: parentSHA, Head: candSHA, Verdict: "PASS"}, simCtx, overRows)
+
 	att := mustSingleSIMDetail(t, home).Attempts[0]
 	if att.EvalVerdict != "not_kept" || att.FieldStatus != "n/a" || att.EvalTotal != 4 {
 		t.Errorf("session-cap with scores attempt = %+v, want not_kept with 4 evaluated rows", att)

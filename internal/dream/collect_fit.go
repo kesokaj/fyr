@@ -8,7 +8,12 @@ import (
 	"unicode/utf8"
 )
 
-const minTranscriptChunkRoom = 512
+const (
+	minTranscriptChunkRoom = 512
+	leftOutSlackReserve    = 128
+	minSIMTrimText         = 1024
+	minTrimTranscriptBytes = 4096
+)
 
 // datedKinds are the kinds that carry news. Over the cap they are dropped
 // together, newest first, and two inputs of the same time in this order
@@ -65,11 +70,11 @@ func newFitter(c *Collected, limit int) *fitter {
 	f := &fitter{c: c, limit: limit, sizes: make([]int, len(c.Inputs))}
 	f.over = func() bool { return f.size > f.limit }
 	f.size = len(head(*c)) + len(leftOut(c.Dropped))
-	f.room = limit - len(head(*c))
+	f.room = limit - len(head(*c)) - leftOutSlackReserve
 	for i, in := range c.Inputs {
 		f.sizes[i] = len(block(in))
 		f.size += f.sizes[i]
-		if in.Kind == kindMemory || in.Kind == kindSkill {
+		if in.Kind == kindMemory || in.Kind == kindSkill || in.Kind == kindSIM {
 			f.room -= f.sizes[i]
 		}
 	}
@@ -148,6 +153,9 @@ func (f *fitter) dropDated(i, how int) {
 		}
 		f.drop(i, fmt.Sprintf("too big for the %d KB cap beside memory and skills", f.limit/1024))
 	case oldestLeft:
+		if in.Kind == kindTranscript && len(in.Text) >= minTrimTranscriptBytes && f.over() && f.trimSIMBlock(f.size-f.limit) && !f.over() {
+			return
+		}
 		f.drop(i, fmt.Sprintf("dropped to fit the %d KB cap; not sent again", f.limit/1024))
 	default:
 		f.drop(i, fmt.Sprintf("dropped to fit the %d KB cap", f.limit/1024))
@@ -164,6 +172,9 @@ func (f *fitter) drop(i int, why string) {
 	before := len(leftOut(f.c.Dropped))
 	f.c.Dropped = append(f.c.Dropped, fmt.Sprintf("%s %s (%s)", in.Kind, in.Label, why))
 	f.size += len(leftOut(f.c.Dropped)) - before - f.sizes[i]
+	if in.Kind == kindSIM || in.Kind == kindSkill {
+		f.room += f.sizes[i]
+	}
 	f.c.Inputs = append(f.c.Inputs[:i], f.c.Inputs[i+1:]...)
 	f.sizes = append(f.sizes[:i], f.sizes[i+1:]...)
 }
@@ -204,17 +215,27 @@ func watermark(c Collected, t0 time.Time) time.Time {
 }
 
 // chunkOversized compacts an oversized transcript into bounded Head +
-// Decision/Outcome + Tail windows inside f.room, returning false only when
+// Decision/Outcome + Tail windows inside f.room, falling back to trimSIMBlock
+// when kindSIM consumes the transcript's room, and returning false only when
 // f.room cannot hold even a minimal window.
 func (f *fitter) chunkOversized(i int) bool {
 	in := f.c.Inputs[i]
-	if in.Kind != kindTranscript || f.room < minTranscriptChunkRoom {
+	if in.Kind != kindTranscript {
 		return false
 	}
 	avail := f.room - len(leftOut(f.c.Dropped))
+	if len(in.Text) >= minTrimTranscriptBytes && (f.room < minTranscriptChunkRoom || avail < minTranscriptChunkRoom) {
+		need := max(minTranscriptChunkRoom-f.room, minTranscriptChunkRoom-avail) + leftOutSlackReserve
+		if f.trimSIMBlock(need) {
+			avail = f.room - len(leftOut(f.c.Dropped))
+		}
+	}
+	if f.room < minTranscriptChunkRoom || avail < minTranscriptChunkRoom {
+		return false
+	}
 	wrap := len(block(Input{Kind: in.Kind, Label: in.Label, Time: in.Time}))
 	budget := avail - wrap - 32
-	if avail < minTranscriptChunkRoom || budget < 256 {
+	if budget < 256 {
 		return false
 	}
 	cand := in
@@ -234,6 +255,46 @@ func (f *fitter) chunkOversized(i int) bool {
 	f.c.Inputs[i] = cand
 	f.size += newSize - f.sizes[i]
 	f.sizes[i] = newSize
+	return true
+}
+
+// trimSIMBlock trims the kindSIM input by at least need bytes (down to a
+// bounded minimum prefix) to preserve room for chunked transcripts instead of
+// dropping them.
+func (f *fitter) trimSIMBlock(need int) bool {
+	if need <= 0 {
+		return false
+	}
+	idx := -1
+	for i, in := range f.c.Inputs {
+		if in.Kind == kindSIM {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false
+	}
+	sim := f.c.Inputs[idx]
+	if len(sim.Text) <= minSIMTrimText {
+		return false
+	}
+	target := len(sim.Text) - need - 64
+	if target < minSIMTrimText {
+		target = minSIMTrimText
+	}
+	kept := sliceUTF8Prefix(strings.TrimRight(sim.Text, "\n"), target)
+	dropped := max(1, len(sim.Text)-len(kept))
+	sim.Text = fmt.Sprintf("%s\n[... trimmed %d bytes ...]", kept, dropped)
+	newSize := len(block(sim))
+	if newSize >= f.sizes[idx] {
+		return false
+	}
+	freed := f.sizes[idx] - newSize
+	f.c.Inputs[idx] = sim
+	f.sizes[idx] = newSize
+	f.size -= freed
+	f.room += freed
 	return true
 }
 

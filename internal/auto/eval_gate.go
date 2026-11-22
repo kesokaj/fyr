@@ -247,24 +247,13 @@ func collectGateRows(home, root, holdoutPath string, changed []string, class str
 	if len(holdout) == 0 {
 		return nil, fmt.Errorf("holdout suite %s has no rows", filepath.Base(holdoutPath))
 	}
-	var rows []gateRow
-	seen := map[string]bool{}
-	for _, r := range suite {
-		if slices.ContainsFunc(changed, func(name string) bool { return rowNamesTarget(r, name) }) {
-			rows = append(rows, gateRow{ID: r.ID, IsRegression: r.Kind == eval.KindRegression})
-			seen[r.ID] = true
-		}
-	}
-	if len(rows) == 0 && class != ClassDistill {
+	if !hasMatchingEvalRows(suite, changed) && class != ClassDistill {
 		return nil, fmt.Errorf("no GUIDE-eval row names %s", strings.Join(changed, ", "))
 	}
-	for _, r := range holdout {
-		rows = append(rows, gateRow{ID: r.ID, SuiteFile: holdoutPath, IsHoldout: true, IsRegression: r.Kind == eval.KindRegression})
-	}
-	for _, r := range suite {
-		if r.Kind == eval.KindRegression && !seen[r.ID] {
-			rows = append(rows, gateRow{ID: r.ID, IsRegression: true})
-			seen[r.ID] = true
+	rows := selectGateRows(suite, holdout, changed, maxGateRows)
+	for i := range rows {
+		if rows[i].IsHoldout {
+			rows[i].SuiteFile = holdoutPath
 		}
 	}
 	return rows, nil
@@ -272,6 +261,10 @@ func collectGateRows(home, root, holdoutPath string, changed []string, class str
 
 func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, simCtx *gateSIMCtx, rows []gateRow) (string, []Finding) {
 	runsBefore := max(0, r.st.modelRunsToday(r.o.now())-1)
+	targetModel := ""
+	if simCtx != nil {
+		targetModel = simCtx.workerModel
+	}
 	var findings []Finding
 	var scores []gateRowScore
 	sessions := 0
@@ -285,7 +278,7 @@ func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickof
 			return r.rejectEvalGateSIM(root, t, k, runnerWhy, simCtx, scores, sessions, reason, verdict, findings)
 		}
 		if i > 0 {
-			if stopReason := r.betweenEvalRows(root, runsBefore, gr.ID, &findings); stopReason != "" {
+			if stopReason := r.betweenEvalRows(root, runsBefore, targetModel, gr.ID, &findings); stopReason != "" {
 				verdict := "not_kept"
 				if len(scores) == 0 {
 					verdict = "skipped"

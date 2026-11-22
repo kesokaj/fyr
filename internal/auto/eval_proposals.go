@@ -31,13 +31,39 @@ type proposalCandidate struct {
 }
 
 func (r *run) triggerHarnessEdit(root string) *Task {
-	for _, c := range r.collectHarnessCandidates(root, true) {
+	cands := r.collectHarnessCandidates(root, true)
+	if len(cands) == 0 {
+		return nil
+	}
+	suite, suiteErr := readCheckoutSuite(r.o.Home, root)
+	if suiteErr != nil {
+		return nil
+	}
+	for _, c := range cands {
+		if !hasMatchingEvalRows(suite, c.entries) {
+			r.quarantineUnmappedProposal(c.rec, c.entries)
+			continue
+		}
 		if t := preparedTask(ClassHarnessEdit, c.entries, c.rec.ID, len(c.entries)); t != nil {
 			t.SignalID, t.ReportDate = extractProposalAttribution(c.rec)
 			return t
 		}
 	}
 	return nil
+}
+
+func (r *run) quarantineUnmappedProposal(rec brain.Record, entries []string) {
+	reason := fmt.Sprintf("no GUIDE-eval row names %s; quarantined pre-dispatch without consuming a worker slot", strings.Join(entries, ", "))
+	section := fmt.Sprintf("## Eval gate\n\n- verdict: skipped (%s)\n", oneLine(reason))
+	body := strings.TrimRight(rec.Body, "\n") + "\n\n" + section
+	queued := "queued"
+	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
+	if brain.Edit(g, brain.EditInput{ID: rec.ID, Status: &queued, Body: strings.NewReader(redact.Redact(body))}) == nil {
+		r.invalidateProposalCache()
+	}
+	if r.say != nil {
+		r.say("eval-gate pre-dispatch skip: " + oneLine(rec.ID) + ": " + oneLine(reason))
+	}
 }
 
 func (r *run) collectHarnessCandidates(root string, expireStale bool) []proposalCandidate {

@@ -50,12 +50,19 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 	if r.workerRan {
 		return "worker already ran in this sweep", nil
 	}
-	if cd := r.cooldownStop(); cd != "" {
-		return cd, nil
-	}
 	endPass := r.beginProjectPass(root)
 	defer endPass()
 	t, stopMsg := r.selectModelTask(root, p, findings)
+	return r.runSelectedModelTask(root, p, t, stopMsg)
+}
+
+func (r *run) runSelectedModelTask(root string, p *Project, t *Task, stopMsg string) (string, []Finding) {
+	if r.workerRan {
+		return "worker already ran in this sweep", nil
+	}
+	if cd := r.cooldownStopFor(r.targetModelFor(t), r.usageText, r.usageErr); cd != "" {
+		return cd, nil
+	}
 	if t == nil {
 		return stopMsg, nil
 	}
@@ -77,6 +84,13 @@ func (r *run) runModelTask(root string, p *Project, findings []Finding) (string,
 	}
 	v, wf := r.execWorker(root, p, *t)
 	return v, append(extra, wf...)
+}
+
+func (r *run) targetModelFor(t *Task) string {
+	if t != nil {
+		return r.pickWorkerModel(*t)
+	}
+	return r.pickWorkerModel(Task{})
 }
 
 func workerCheckoutStop(root string) string {

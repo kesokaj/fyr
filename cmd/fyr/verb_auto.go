@@ -97,6 +97,7 @@ func (c *ctx) dispatchAutoSub(sub string, o auto.Options) error {
 	case "off":
 		return auto.Off(o)
 	case "status":
+		o.Repo = c.resolveAutoRepo()
 		return auto.Status(o)
 	case "run":
 		return auto.Run(c.autoRunOptions(o), c.dryRun)
