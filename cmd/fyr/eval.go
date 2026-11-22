@@ -137,7 +137,7 @@ func evalSetup(c *ctx, root string, names []string) (eval.Options, harness.Sourc
 	}
 	o := eval.Options{
 		Root: root, Home: c.home, RealHome: realHome, Fixture: fixture, Self: self, Repo: src.Dir,
-		Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP,
+		Model: c.evalModel, Runs: c.evalRuns, Parallel: c.evalParallel, ACP: c.evalACP,
 		Runner: c.evalRunner,
 		Out:    c.out, BrainWatch: brain.SnapshotScopes,
 	}

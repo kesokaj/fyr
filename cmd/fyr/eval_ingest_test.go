@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/eval"
 	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 )
 
 // TestEvalIngestSkipsReplaced: a sandbox whose home the agent replaced with
@@ -114,5 +116,30 @@ func TestEvalIngestSkipsWriteFailed(t *testing.T) {
 	}
 	if got["eval=w"] != 0 || got["eval=c"] != 1 {
 		t.Errorf("sessions by label %v, want none for eval=w and one for eval=c", got)
+	}
+}
+
+func TestEvalIngestPopulatesSessionModel(t *testing.T) {
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "fyr-home")
+	dir := filepath.Join(tmp, "sb")
+	agyHomeModel(t, filepath.Join(dir, "home"), "C-model", "/proj", "gemini-4-carbon-high")
+	now := time.Now().UTC()
+	runKey := "20261122/row-m/1"
+	if err := ingestRow(home, eval.Result{Row: "row-m", Status: eval.StatusPass, Run: runKey, Dir: dir}); err != nil {
+		t.Fatalf("ingestRow: %v", err)
+	}
+	if err := recordTrial(home, metrics.Trial{
+		Run: runKey, Label: "eval=row-m", Harness: "abc1234", Status: "pass",
+		StartedAt: now, Seconds: 2,
+	}); err != nil {
+		t.Fatalf("recordTrial: %v", err)
+	}
+	sessions := exported(t, home, "sessions")
+	if len(sessions) != 1 || str(sessions[0]["model"]) != "gemini-4-carbon-high" {
+		t.Fatalf("sessions.model = %v, want gemini-4-carbon-high", sessions)
+	}
+	if got := metrics.LatestTrialModel(home, "row-m", now.Add(-time.Minute).UnixMilli()); got != "gemini-4-carbon-high" {
+		t.Errorf("LatestTrialModel = %q, want gemini-4-carbon-high", got)
 	}
 }

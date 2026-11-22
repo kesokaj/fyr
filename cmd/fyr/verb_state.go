@@ -23,7 +23,7 @@ func init() {
 
 func registerStateFlags(c *ctx) {
 	c.dryRunFlag()
-	c.fs.Bool("include-memory", false, "export, import: include memory, feedback and proposal records")
+	c.fs.Bool("include-memory", false, "export, import: include memory, feedback, proposal and SIM ledger rows")
 	c.fs.BoolVar(&c.jsonOut, "json", false, "print export or import summary as JSON")
 	c.fs.StringVar(&c.metricsOut, "out", "", "export: write the zip bundle to `FILE` (0600, atomic)")
 	c.fs.StringVar(&c.metricsSince, "since", "", "export: include rows on or after `YYYY-MM-DD`")
@@ -83,8 +83,13 @@ func runStateExport(c *ctx, args []string, set map[string]bool) error {
 	if c.jsonOut {
 		return writeJSONLine(c.out, res)
 	}
-	fmt.Fprintf(c.out, "state export: %s (brain_records=%d metrics_rows=%d include_memory=%t)\n",
-		res.OutPath, res.Manifest.Counts.BrainRecords, res.Manifest.Counts.MetricsRows, res.Manifest.IncludeMemory)
+	simText := ""
+	if res.Manifest.IncludeMemory || res.Manifest.Counts.SIMProblems > 0 || res.Manifest.Counts.SIMAttempts > 0 || res.Manifest.Counts.SIMAliases > 0 {
+		simText = fmt.Sprintf(" sim_problems=%d sim_attempts=%d sim_aliases=%d",
+			res.Manifest.Counts.SIMProblems, res.Manifest.Counts.SIMAttempts, res.Manifest.Counts.SIMAliases)
+	}
+	fmt.Fprintf(c.out, "state export: %s (brain_records=%d metrics_rows=%d%s include_memory=%t)\n",
+		res.OutPath, res.Manifest.Counts.BrainRecords, res.Manifest.Counts.MetricsRows, simText, res.Manifest.IncludeMemory)
 	return nil
 }
 
@@ -117,8 +122,12 @@ func runStateImport(c *ctx, args []string, set map[string]bool) error {
 	if res.DryRun {
 		prefix = "[dry-run] "
 	}
-	fmt.Fprintf(c.out, "%sstate import: insert=%d updated=%d skip_duplicate=%d conflict=%d operator_preserved=%d (brain=%d metrics=%d)\n",
-		prefix, res.Insert, res.Updated, res.SkipDuplicate, res.Conflict, res.OperatorPreserved, res.Brain.Inserted+res.Brain.Updated, res.Metrics.Inserted+res.Metrics.Updated)
+	simText := ""
+	if stateBoolFlag(c.fs, "include-memory") || res.SIM.Total > 0 {
+		simText = fmt.Sprintf(" sim=%d", res.SIM.Inserted+res.SIM.Updated)
+	}
+	fmt.Fprintf(c.out, "%sstate import: insert=%d updated=%d skip_duplicate=%d conflict=%d operator_preserved=%d (brain=%d metrics=%d%s)\n",
+		prefix, res.Insert, res.Updated, res.SkipDuplicate, res.Conflict, res.OperatorPreserved, res.Brain.Inserted+res.Brain.Updated, res.Metrics.Inserted+res.Metrics.Updated, simText)
 	return nil
 }
 

@@ -185,3 +185,44 @@ func runGitCmd(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+func TestStateCLISIMCounts(t *testing.T) {
+	srcHome, dstHome, proj := t.TempDir(), t.TempDir(), recordRepo(t)
+	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	r1, err := brain.RecordSIMAttempt(srcHome, brain.SIMRecordInput{
+		RootCause: "State CLI SIM test A", What: "Fix A",
+		SourceKind: "operator_commit", EvalVerdict: "operator_verified",
+		FieldStatus: "n/a", Provenance: "operator", Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := brain.RecordSIMAttempt(srcHome, brain.SIMRecordInput{
+		RootCause: "State CLI SIM test B", What: "Fix B",
+		SourceKind: "operator_commit", EvalVerdict: "operator_verified",
+		FieldStatus: "n/a", Provenance: "derived", Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brain.MergeSIMProblem(srcHome, r2.ProblemID, r1.ProblemID, "operator", now); err != nil {
+		t.Fatal(err)
+	}
+	zipPath := filepath.Join(t.TempDir(), "sim.zip")
+	expOut, err := runStateCLI(t, "state", "export", "--include-memory", "--out", zipPath, "--home", srcHome, "-C", proj)
+	if err != nil {
+		t.Fatalf("state export --include-memory: %v\n%s", err, expOut)
+	}
+	for _, want := range []string{"sim_problems=2", "sim_attempts=2", "sim_aliases=1"} {
+		if !strings.Contains(expOut, want) {
+			t.Errorf("state export text missing %q:\n%s", want, expOut)
+		}
+	}
+	impOut, err := runStateCLI(t, "state", "import", zipPath, "--include-memory", "--home", dstHome, "-C", proj)
+	if err != nil {
+		t.Fatalf("state import --include-memory: %v\n%s", err, impOut)
+	}
+	if !strings.Contains(impOut, "sim=") {
+		t.Errorf("state import text missing sim counts:\n%s", impOut)
+	}
+}

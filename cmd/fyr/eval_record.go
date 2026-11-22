@@ -23,19 +23,21 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key str
 	}
 	// After the verdict, never before: the store stamps a label's outcome
 	// first-write-wins (D6), and an interrupted invocation still ingests the
-	// trials it started (D22). The trial first, so a trial whose sessions
-	// fail to ingest, or that has none, is still counted (the eval-metrics
-	// plan D13).
+	// trials it started (D22). Ingest first so sessions.model can populate
+	// trials.policy_model when --model was not set; always record the trial
+	// even if ingest fails or finds no session (the eval-metrics plan D13).
 	for _, r := range results {
 		if r.Status != eval.StatusPass {
 			failed = true
 		}
-		if err := recordTrial(c.home, trialOf(r, byID[r.Row], key, cli)); err != nil {
-			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d trial: %v", r.Row, r.Trial, err)))
-			failed = true
-		}
 		if err := ingestRow(c.home, r); err != nil {
 			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d ingest: %v", r.Row, r.Trial, err)))
+			failed = true
+		}
+		t := trialOf(r, byID[r.Row], key, cli)
+		t.PolicyModel = trialText(trialPolicyModel(c.home, o.Model, r))
+		if err := recordTrial(c.home, t); err != nil {
+			fmt.Fprintln(c.out, search.Printable(fmt.Sprintf("eval: %s#%d trial: %v", r.Row, r.Trial, err)))
 			failed = true
 		}
 	}
@@ -48,7 +50,11 @@ func recordEval(c *ctx, root string, o eval.Options, src harness.Source, key str
 	tl := tallyOf(results)
 	tl.fromSuite(byID, trialExpects(c.home, results))
 	runs := max(o.Runs, 1)
-	rec := evalRecord{root: root, o: o, src: src, cli: cli, key: key, model: modelName(trialModels(c.home, results)), runs: runs, results: results, tally: tl}
+	runModels := trialModels(c.home, results)
+	if len(runModels) == 0 && o.Model != "" {
+		runModels = []string{o.Model}
+	}
+	rec := evalRecord{root: root, o: o, src: src, cli: cli, key: key, model: modelName(runModels), runs: runs, results: results, tally: tl}
 	id, err := brain.Add(brain.Options{Home: c.home, Dir: root}, brain.AddInput{
 		Kind: "testing", Status: "closed",
 		Title: fmt.Sprintf("Eval — %d of %d PASS at %s%s", tl.pass, tl.graded, gitShort(root), titleSuffix(runs, tl.errors)),
@@ -164,6 +170,16 @@ func errorsText(n int) string {
 		return "1 error"
 	}
 	return fmt.Sprintf("%d errors", n)
+}
+
+func trialPolicyModel(home, explicitModel string, r eval.Result) string {
+	if explicitModel != "" {
+		return explicitModel
+	}
+	if ms := trialModels(home, []eval.Result{r}); len(ms) > 0 {
+		return ms[0]
+	}
+	return ""
 }
 
 // trialModels is the models the run's sessions name in home's store; a

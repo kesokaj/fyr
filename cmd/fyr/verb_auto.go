@@ -30,7 +30,7 @@ var autoEnv auto.Env
 
 // autoSubverbs are `fyr auto`'s subcommands, each with the flags it reads:
 // a flag another one owns is a usage error, never one parsed and dropped.
-var autoSubverbs = []string{"on", "off", "status", "run", "log"}
+var autoSubverbs = []string{"on", "off", "status", "run", "log", "sim"}
 
 var autoFlags = map[string]map[string]bool{
 	"on":     {"conversation-idle": true, "level": true, "project-idle": true, "user-idle": true, "dry-run": true},
@@ -38,11 +38,22 @@ var autoFlags = map[string]map[string]bool{
 	"status": {},
 	"run":    {"dry-run": true, "force": true},
 	"log":    {"lines": true, "all": true},
+	"sim": {
+		"signal": true, "path": true, "status": true, "limit": true, "json": true, "json-in": true,
+		"problem": true, "root-cause": true, "mechanism": true, "what": true, "files": true,
+		"proposal": true, "commit": true, "parent": true, "harness": true, "proposer-model": true,
+		"policy-model": true, "source": true, "verdict": true, "field-status": true,
+		"predicted-rows": true, "predicted-signals": true, "fixed-rows": true,
+		"missed-rows": true, "regressed-rows": true, "provenance": true,
+	},
 }
 
 // runAuto needs no harness tree: `off` and `on` work on any place, and
 // harness skill edits apply only when a clean checkout is present.
 func runAuto(c *ctx) error {
+	if len(c.args) > 0 && c.args[0] == "sim" {
+		return runAutoSIM(c, c.args[1:])
+	}
 	args := c.fs.Args()
 	if len(args) == 0 && c.dryRun {
 		args = []string{"run"}
@@ -150,7 +161,7 @@ func (c *ctx) autoRunOptions(o auto.Options) auto.Options {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	o.Report = func() error { return autoWriteDailyReport(home, nowFn()) }
+	o.Report = func() error { return autoWriteDailyReport(home, o.Repo, nowFn()) }
 	o.Install = func() []auto.Finding { return autoInstallFindings(c.repoFlag, home) }
 	o.Metrics = func() ([]auto.Finding, error) {
 		refreshModelsBestEffort(context.Background(), home)
@@ -178,7 +189,7 @@ func autoDreamCallback(home, repo string, recordBg func(metrics.BackgroundRunRow
 	}
 }
 
-func autoWriteDailyReport(home string, now time.Time) error {
+func autoWriteDailyReport(home, harnessRepo string, now time.Time) error {
 	dbPath := metrics.Path(home)
 	if _, err := os.Lstat(dbPath); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -188,7 +199,7 @@ func autoWriteDailyReport(home string, now time.Time) error {
 		return err
 	}
 	defer s.Close()
-	digest, err := refreshDailyDigest(s, home, now)
+	digest, err := refreshDailyDigest(s, home, harnessRepo, now)
 	if err != nil {
 		return err
 	}
@@ -208,7 +219,7 @@ func autoWriteDailyReport(home string, now time.Time) error {
 	return metrics.WriteDailyReport(sum, evals, home, now)
 }
 
-func refreshDailyDigest(s *metrics.Store, home string, now time.Time) (metrics.DailyDigest, error) {
+func refreshDailyDigest(s *metrics.Store, home, harnessRepo string, now time.Time) (metrics.DailyDigest, error) {
 	digest, err := metrics.BuildDailyDigest(s, home, "", now)
 	if err != nil {
 		return metrics.DailyDigest{}, err
@@ -219,6 +230,7 @@ func refreshDailyDigest(s *metrics.Store, home string, now time.Time) (metrics.D
 	if err := metrics.WriteLatestDailyDigest(home, digest); err != nil {
 		return metrics.DailyDigest{}, err
 	}
+	_, _ = auto.SyncSIMFieldOutcomes(home, harnessRepo, &digest, s, now)
 	return digest, nil
 }
 

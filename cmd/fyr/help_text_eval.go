@@ -8,6 +8,7 @@ var opsVerbPages = map[string]verbPage{
 			"       fyr auto status",
 			"       fyr auto run [--force] [--dry-run]",
 			"       fyr auto log [--lines N | --all]",
+			"       fyr auto sim <list|show|record|merge> [flags]",
 			"       fyr auto --dry-run",
 		},
 		about: []string{
@@ -15,12 +16,12 @@ var opsVerbPages = map[string]verbPage{
 			"~/.config/fyr/auto.json. on installs the single hourly timer and retires",
 			"any legacy dream timer; off replaces corrupt config and removes the timer",
 			"(--dry-run previews either). status prints the switch, idle cutoff, last",
-			"run and budget; log prints the tail of ~/.config/fyr/auto/auto.log. run",
-			"ingests metrics, dreams (plan mode, no tool granted) over stale sessions,",
-			"rates them, runs free checks and eval-gated workers (4h model-run cooldown,",
-			"bypassed by --force) on clean checkouts, logs to auto.log, and writes the",
-			"daily HTML report once per day. --dry-run previews each gate without",
-			"ingesting, dreaming or writing.",
+			"run and budget; log prints ~/.config/fyr/auto/auto.log; sim manages the",
+			"global SIM ledger (fyr auto sim -h). run ingests metrics, dreams (plan",
+			"mode, no tool granted) over stale sessions, rates them, runs free checks",
+			"and eval-gated workers (4h model-run cooldown, bypassed by --force) on",
+			"clean checkouts, logs to auto.log, and writes the daily HTML report.",
+			"--dry-run previews each gate without ingesting, dreaming or writing.",
 		},
 	},
 	"dream": {
@@ -96,7 +97,7 @@ var opsVerbPages = map[string]verbPage{
 	"eval": {
 		synopsis: []string{
 			"usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]",
-			"                [--parallel N] [--acp] [--runner R] <row>...",
+			"                [--parallel N] [--model ID] [--acp] [--runner R] <row>...",
 			"       fyr eval [--suite-file PATH] --list",
 		},
 		about: []string{

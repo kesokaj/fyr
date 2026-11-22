@@ -3,16 +3,21 @@ package main
 import (
 	"flag"
 	"fmt"
+	"regexp"
 
 	"github.com/kesokaj/fyr/internal/eval"
 	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
+
+var evalModelIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
 		c.fs.StringVar(&c.evalFixture, "fixture", "", "the git repository `DIR` each row clones (default: this checkout)")
 		c.fs.BoolVar(&c.evalList, "list", false, "print the suite's rows (id, agent or -, named or wide, version, kind) and run nothing")
+		c.fs.StringVar(&c.evalModel, "model", "", "pass --model `ID` to agy for each trial (default: agy default)")
 		c.fs.IntVar(&c.evalParallel, "parallel", 1, "run up to `N` trials at once, 1 to 25 (default 1; benchmark trials stay at 1)")
 		c.fs.IntVar(&c.evalRuns, "runs", 1, "run each named row `N` times, 1 to 25, each trial in its own sandbox")
 		c.fs.String("suite-file", "", "read the suite from `PATH` outside every checkout; labels rows eval=holdout/<id>")
@@ -51,11 +56,12 @@ func labelHoldout(c *ctx, rows []eval.Row, results []eval.Result) {
 
 // evalUsage is the usage errors, exit 2, before any other refusal.
 func evalUsage(c *ctx, names []string) error {
-	var runsSet, parallelSet, runnerSet bool
+	var runsSet, parallelSet, runnerSet, modelSet bool
 	c.fs.Visit(func(f *flag.Flag) {
 		runsSet = runsSet || f.Name == "runs"
 		parallelSet = parallelSet || f.Name == "parallel"
 		runnerSet = runnerSet || f.Name == "runner"
+		modelSet = modelSet || f.Name == "model"
 	})
 	switch {
 	case c.evalList && len(names) > 0:
@@ -70,12 +76,23 @@ func evalUsage(c *ctx, names []string) error {
 	case c.evalList && runnerSet:
 		fmt.Fprintln(c.out, "fyr eval: --list takes no runner flags")
 		return exitCode(2)
+	case c.evalList && modelSet:
+		fmt.Fprintln(c.out, "fyr eval: --list takes no --model")
+		return exitCode(2)
 	case !c.evalList && len(names) == 0:
 		return usageErr(c.out, "eval", "")
 	case c.evalRuns < 1 || c.evalRuns > eval.MaxRuns:
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --runs %d: want 1 to %d", c.evalRuns, eval.MaxRuns))
 	case c.evalParallel < 1 || c.evalParallel > eval.MaxParallel:
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --parallel %d: want 1 to %d", c.evalParallel, eval.MaxParallel))
+	}
+	if modelSet || c.evalModel != "" {
+		if !evalModelIDRe.MatchString(c.evalModel) {
+			return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: invalid --model %q", c.evalModel))
+		}
+		if models.IsInteractiveOnlyID(c.evalModel) {
+			return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --model %q is interactive-only and cannot run headless", c.evalModel))
+		}
 	}
 	if err := fyrisolate.CheckEvalRunner(c.evalRunner); err != nil {
 		return usageErr(c.out, "eval", "fyr eval: "+err.Error())

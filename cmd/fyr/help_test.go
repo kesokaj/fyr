@@ -352,7 +352,7 @@ func TestHelpEvalGolden(t *testing.T) {
 		t.Errorf("fyr eval -h does not name %q:\n%s", eval.SuitePath, got)
 	}
 	const want = `usage: fyr eval --home DIR [--fixture DIR] [--suite-file PATH] [--runs N]
-                [--parallel N] [--acp] [--runner R] <row>...
+                [--parallel N] [--model ID] [--acp] [--runner R] <row>...
        fyr eval [--suite-file PATH] --list
 
 Runs the named rows of HEAD's .agents/eval/GUIDE-eval.md (else the GUIDE-eval
@@ -374,6 +374,8 @@ Flags:
   --list
       print the suite's rows (id, agent or -, named or wide, version, kind) and
       run nothing
+  --model ID
+      pass --model ID to agy for each trial (default: agy default)
   --parallel N
       run up to N trials at once, 1 to 25 (default 1; benchmark trials stay at
       1)

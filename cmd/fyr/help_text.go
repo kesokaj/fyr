@@ -45,7 +45,7 @@ Records and search
 
 Background and measurement
   dream        consolidate project memory and trail into proposals
-  auto         idle-time runs: on, off, status, run, log
+  auto         idle-time runs: on, off, status, run, log, sim
   metrics      session shapes: ingest, show, report, evals, trajectory, export
   report       project or global usage report (HTML, --md, --json, --web)
   models       the live agy model catalog and role picks
@@ -210,9 +210,9 @@ var coreVerbPages = map[string]verbPage{
 			"brain_records.ndjson and metrics_sanitized.ndjson) across ~/.config/fyr/",
 			"stores using stdlib zip and SHA-256 verification. Default export writes",
 			"project trail records and sanitized metrics (0600, atomic); memory,",
-			"feedback and proposal rows require --include-memory on both export and",
-			"import. import checks zip-slip safety, schema caps (<= 4 / <= 12) and",
-			"SHA-256 digests before opening SQLite, preserves operator provenance,",
+			"feedback, proposal and SIM ledger rows require --include-memory on both",
+			"export and import. import checks zip-slip safety, schema caps (<= 5 / <= 13)",
+			"and SHA-256 digests before opening SQLite, preserves operator provenance,",
 			"and supports --dry-run with zero writes.",
 			"Exit 0 ok, 1 archive or store error, 2 a usage error or refusal.",
 		},

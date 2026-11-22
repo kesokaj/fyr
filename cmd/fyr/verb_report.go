@@ -80,17 +80,18 @@ func (c *ctx) renderReport(prefix string) error {
 }
 
 func (c *ctx) renderDailyDigestReport(s *metrics.Store, o metrics.ShowOptions) error {
-	d, err := metrics.BuildDailyDigest(s, c.home, o.Project, time.Now())
+	now := time.Now()
+	var (
+		d   metrics.DailyDigest
+		err error
+	)
+	if strings.TrimSpace(o.Project) == "" {
+		d, err = refreshDailyDigest(s, c.home, c.resolveAutoRepo(), now)
+	} else {
+		d, err = metrics.BuildDailyDigest(s, c.home, o.Project, now)
+	}
 	if err != nil {
 		return err
-	}
-	if strings.TrimSpace(o.Project) == "" {
-		if err := metrics.SaveDailyDigest(s, d); err != nil {
-			return err
-		}
-		if err := metrics.WriteLatestDailyDigest(c.home, d); err != nil {
-			return err
-		}
 	}
 	if c.metricsJSON {
 		return metrics.RenderDailyDigestJSON(c.out, d)

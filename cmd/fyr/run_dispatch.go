@@ -80,6 +80,9 @@ func (c *ctx) resolveSource() (done bool, err error) {
 // parse parses the verb's flags and arguments; stop says run ends here, with
 // err as its result.
 func (c *ctx) parse(v verb, rest []string) (stop bool, err error) {
+	if c.cmd == "auto" && hasAutoSIMSubcommand(rest) {
+		return c.parseAutoSIMArgs(rest)
+	}
 	if err := c.fs.Parse(reorder(c.fs, rest)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			// Help is a successful ask: the verb's page, on the writer (IN15).
@@ -202,6 +205,9 @@ func (c *ctx) writesState() bool {
 		// and a refused --home is refused before anything moves (D37).
 		return !c.evalList && evalHomeRefused(c.homeFlag, c.home) == ""
 	case "auto":
+		if len(c.args) >= 1 && c.args[0] == "sim" {
+			return len(c.args) >= 2 && (c.args[1] == "record" || c.args[1] == "merge")
+		}
 		// status and any --dry-run read; on, off and real run write auto.json or auto/.
 		sub := c.fs.Arg(0)
 		return !c.dryRun && (sub == "on" || sub == "off" || sub == "run")

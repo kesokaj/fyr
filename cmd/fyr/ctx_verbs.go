@@ -22,6 +22,7 @@ func (e exitCode) Error() string { return fmt.Sprintf("exit %d", int(e)) }
 type ctx struct {
 	cmd  string
 	fs   *flag.FlagSet
+	args []string
 	out  io.Writer
 	home string
 	// global flags, accepted by every verb
@@ -39,6 +40,7 @@ type ctx struct {
 	recBody, recAll                                                                                   bool
 	evalFixture                                                                                       string
 	evalRunner                                                                                        string
+	evalModel                                                                                         string
 	evalList, evalACP                                                                                 bool
 	evalRuns, evalParallel                                                                            int
 	autoConvIdle, autoLevel, autoProjectIdle, autoUserIdle                                            string
