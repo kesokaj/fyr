@@ -22,9 +22,9 @@ func (c *Collected) adder(since time.Time) func(kind, label, text string, t time
 			return
 		}
 		c.Inputs = append(c.Inputs, Input{Kind: kind, Label: label, Text: text, Time: t})
-		// Skills and the metrics summary are context, never news: neither
-		// makes a project worth dreaming over by itself.
-		if kind != kindSkill && kind != kindMetrics && t.After(since) {
+		// Skills, SIM optimizer memory, and the metrics summary are context,
+		// never news: none makes a project worth dreaming over by itself.
+		if kind != kindSkill && kind != kindMetrics && kind != kindSIM && t.After(since) {
 			c.Changed = true
 		}
 	}

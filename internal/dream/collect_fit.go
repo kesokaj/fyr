@@ -16,7 +16,8 @@ const minTranscriptChunkRoom = 512
 var datedKinds = []string{kindTranscript, kindTrail, kindFeedback}
 
 // fit drops inputs until the prompt is under limit: the metrics summary,
-// then the dated kinds newest first, then skills (D21, ADR-055a, ADR-069).
+// then the dated kinds newest first, then SIM optimizer memory, then skills
+// (D21, ADR-055a, ADR-069, ADR-533).
 // What a capped run sends is the oldest news, and Through is set just
 // before the oldest dated input dropped, so the next run offers it again.
 // A drop holds Through only while an input strictly older than it is kept:
@@ -41,6 +42,7 @@ func (f *fitter) run() error {
 		}
 		f.dropDated(i, how)
 	}
+	f.dropKind(kindSIM)
 	f.dropKind(kindSkill)
 	if f.over() {
 		return errors.New("memory over cap")

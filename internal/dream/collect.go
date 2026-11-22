@@ -17,17 +17,19 @@ import (
 
 // The kinds, in prompt order. The metrics summary is dropped first when the
 // prompt is over the cap (ADR-055a), then the dated kinds together, newest
-// first (ADR-069), then skills; memory is always sent whole (D21).
+// first (ADR-069), then SIM optimizer memory (ADR-533), then skills; memory is
+// always sent whole (D21).
 const (
 	kindMemory     = "memory"
 	kindFeedback   = "feedback"
 	kindTrail      = "trail"
 	kindSkill      = "skill"
+	kindSIM        = "sim"
 	kindTranscript = "transcript"
 	kindMetrics    = "metrics"
 )
 
-var promptOrder = []string{kindMemory, kindFeedback, kindTrail, kindSkill, kindMetrics, kindTranscript}
+var promptOrder = []string{kindMemory, kindFeedback, kindTrail, kindSkill, kindSIM, kindMetrics, kindTranscript}
 
 // collectWindow collects project inputs in (since, upper], where upper is cutoff
 // when non-zero (sliding-window stale conversations), else now.
@@ -50,18 +52,22 @@ func collectWindow(home, brainHome string, p search.Project, since, cutoff, now 
 	return c.finishWindow(home, brainHome, p, since, cutoff, upper, limit, add)
 }
 
-// finishWindow adds skills, metrics summary, Antigravity conversations, and
-// optional PLAN-*/HANDOFF-* context, then scrubs, fits, and renders the prompt.
+// finishWindow adds skills, metrics summary, Antigravity conversations,
+// optional PLAN-*/HANDOFF-* context, and bounded SIM optimizer memory, then
+// scrubs, fits, and renders the prompt.
 func (c *Collected) finishWindow(home, brainHome string, p search.Project, since, cutoff, upper time.Time, limit int, add func(kind, label, text string, t time.Time)) (Collected, error) {
-	for _, s := range skills(home) {
+	installed := skills(home)
+	for _, s := range installed {
 		add(kindSkill, "skill "+s.name, s.name+": "+s.description, time.Time{})
 	}
 	// The project's agent metrics, numbers only, for this window and the one
 	// before it (R3's addendum, ADR-055a). A store that cannot be read is
 	// named as left out; it never fails the project.
+	metricsJSON := ""
 	if sum, err := metricsSummary(home, p.Root, since, upper); err != nil {
 		c.Dropped = append(c.Dropped, "metrics: "+err.Error())
 	} else {
+		metricsJSON = sum
 		add(kindMetrics, "metrics", sum, time.Time{})
 	}
 	addHiddenCouplingHints(home, p.Root, add)
@@ -83,6 +89,11 @@ func (c *Collected) finishWindow(home, brainHome string, p search.Project, since
 	if c.Changed {
 		addOptionalPlanAndHandoff(brainHome, p.Root, since, upper, c, add)
 	}
+	addSIMContext(home, brainHome, installed, metricsJSON, c, upper, add)
+	return c.scrubFitAndRender(home, limit)
+}
+
+func (c *Collected) scrubFitAndRender(home string, limit int) (Collected, error) {
 	// Labels too: a record's ID is project text and can hold a secret's
 	// shape (SD31 of the 2026-10-27 audit).
 	for i := range c.Inputs {

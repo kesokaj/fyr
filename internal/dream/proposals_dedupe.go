@@ -168,15 +168,16 @@ func loadExistingProposals(home, project string, idx *proposalIndex) error {
 	if err != nil {
 		return err
 	}
+	ctx := newAppliedDedupeContext(home, dedupeNow())
 	for _, rec := range recs {
 		m := parseProposalMeta(rec.Title, rec.Body)
 		if rec.Status == "queued" || rec.Status == "open" {
 			idx.addSignalsFromText(rec.Body)
-		} else {
-			m.signalID = ""
-		}
-		if rec.Status == "queued" || rec.Status == "open" || rec.Status == "applied" || strings.HasPrefix(rec.Status, "applied:") {
 			idx.add(rec.Project, m)
+			continue
+		}
+		if isAppliedStatus(rec.Status) {
+			idx.addApplied(rec, m, ctx)
 		}
 	}
 	if project != "" && project != home {
