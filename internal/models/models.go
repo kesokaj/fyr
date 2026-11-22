@@ -28,8 +28,14 @@ var (
 // ModelsTimeout bounds the agy models call (D125), a variable so a test can shorten it.
 var ModelsTimeout = time.Minute
 
-// MaxModelsOut caps stdout and stderr of subprocesses spawned by models helpers (D125).
+// ChangelogTimeout bounds `agy changelog` streaming probes (F-052).
+var ChangelogTimeout = 5 * time.Second
+
+// MaxModelsOut caps stdout and stderr of models/usage subprocesses (D125).
 const MaxModelsOut = 64 << 10
+
+// MaxChangelogOut caps stdout of `agy changelog` probes at 1 MiB (F-052).
+const MaxChangelogOut = 1 << 20
 
 // ErrModelsOver is returned when stdout exceeds MaxModelsOut.
 var ErrModelsOver = fmt.Errorf("its output is over %d KiB", MaxModelsOut>>10)
@@ -123,6 +129,17 @@ func probeWorkDir(home string) (string, func(), error) {
 }
 
 func runAgyProbe(run context.Context, home, agy string, timeout, waitDelay time.Duration, args ...string) (string, error) {
+	return runAgyProbeCapped(run, home, agy, timeout, waitDelay, MaxModelsOut, args...)
+}
+
+func runAgyProbeCapped(run context.Context, home, agy string, timeout, waitDelay time.Duration, maxOut int, args ...string) (string, error) {
+	if maxOut <= 0 {
+		maxOut = MaxModelsOut
+	}
+	overErr := ErrModelsOver
+	if maxOut != MaxModelsOut {
+		overErr = fmt.Errorf("its output is over %d KiB", maxOut>>10)
+	}
 	ctx, cancel := context.WithTimeout(run, timeout)
 	defer cancel()
 	dir, cleanup, err := probeWorkDir(home)
@@ -131,12 +148,11 @@ func runAgyProbe(run context.Context, home, agy string, timeout, waitDelay time.
 	}
 	defer cleanup()
 	cmd := exec.CommandContext(ctx, agy, args...)
-	cmd.Dir = dir
-	cmd.Env = rootEnvWithPWD(dir)
+	cmd.Dir, cmd.Env = dir, rootEnvWithPWD(dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = waitDelay
-	stdout, stderr := &Capped{Over: ErrModelsOver}, &Capped{}
+	stdout, stderr := &Capped{Limit: maxOut, Over: overErr}, &Capped{Limit: MaxModelsOut}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err = cmd.Run()
 	if cmd.Process != nil {
@@ -144,7 +160,7 @@ func runAgyProbe(run context.Context, home, agy string, timeout, waitDelay time.
 	}
 	switch {
 	case stdout.full:
-		err = ErrModelsOver
+		err = overErr
 	case run.Err() != nil:
 		err = errors.New("the run ended before it answered")
 	case ctx.Err() == context.DeadlineExceeded:
@@ -159,17 +175,22 @@ func runAgyProbe(run context.Context, home, agy string, timeout, waitDelay time.
 	return stdout.String(), nil
 }
 
-// Capped keeps up to MaxModelsOut bytes. Past that it returns Over, which
-// ends the copy and closes the child's pipe, or with Over nil drops the rest.
+// Capped keeps up to Limit bytes (defaulting to MaxModelsOut). Past that it
+// returns Over, ending the copy and closing the child's pipe, or drops the rest.
 type Capped struct {
-	buf  bytes.Buffer
-	Over error
-	full bool
+	buf   bytes.Buffer
+	Limit int
+	Over  error
+	full  bool
 }
 
-// Write appends p up to MaxModelsOut, returning Over when truncated.
+// Write appends p up to Limit (default MaxModelsOut), returning Over when truncated.
 func (c *Capped) Write(p []byte) (int, error) {
-	if room := MaxModelsOut - c.buf.Len(); len(p) > room {
+	limit := c.Limit
+	if limit <= 0 {
+		limit = MaxModelsOut
+	}
+	if room := limit - c.buf.Len(); len(p) > room {
 		c.buf.Write(p[:max(room, 0)])
 		c.full = true
 		if c.Over != nil {

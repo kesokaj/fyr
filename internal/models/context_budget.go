@@ -1,11 +1,22 @@
 package models
 
-import "strings"
+import (
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
+)
 
 const (
-	// ContextKneePercent is the share of effective pre-compaction context budget
-	// above which sessions are flagged with KNEE_EXCEEDED and receive handoff warnings.
-	ContextKneePercent = 60
+	// ContextKneePercent is the nominal pre-compaction context knee percentage.
+	ContextKneePercent    = 60
+	ContextKneeMinPercent = 40
+	ContextKneeMaxPercent = 60
+
+	// Empirical degradation onset caps (F-025): standard <=300k windows degrade
+	// past 180k tokens; 500k-1M+ windows degrade past 300k tokens.
+	StandardDegradationOnsetTokens int64 = 180000
+	ExtendedDegradationOnsetTokens int64 = 300000
 
 	// DefaultContextBudgetTokens is the conservative fallback pre-compaction
 	// context budget when a model ID is empty or unrecognized.
@@ -15,8 +26,99 @@ const (
 	DefaultContextKneeTokens int64 = (DefaultContextBudgetTokens * ContextKneePercent) / 100
 
 	extendedContextBudgetTokens int64 = 500000
+	millionContextWindowTokens  int64 = 1000000
 	gptOSSContextBudgetTokens   int64 = 128000
 )
+
+var (
+	ctxHintSuffixRe = regexp.MustCompile(`(?i)\b(\d+(?:\.\d+)?)\s*([km])\s*(?:tokens?\s*)?(?:context|ctx|window)\b`)
+	ctxHintPrefixRe = regexp.MustCompile(`(?i)\b(?:context(?:\s+window)?|ctx)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*([km])\b`)
+)
+
+// ParseContextWindowHint extracts an explicit context window token count
+// (e.g. "1M context", "200K context window", "ctx: 128k") from text.
+func ParseContextWindowHint(text string) int64 {
+	for _, re := range []*regexp.Regexp{ctxHintSuffixRe, ctxHintPrefixRe} {
+		m := re.FindStringSubmatch(text)
+		if len(m) != 3 {
+			continue
+		}
+		v, err := strconv.ParseFloat(m[1], 64)
+		if err != nil || v <= 0 {
+			continue
+		}
+		mult := 1000.0
+		if strings.EqualFold(m[2], "m") {
+			mult = 1_000_000.0
+		}
+		n := int64(math.Round(v * mult))
+		if n >= 16_000 && n <= 10_000_000 {
+			return n
+		}
+	}
+	return 0
+}
+
+// DefaultContextWindow returns the raw nominal context window for modelID
+// (1M defaults for Gemini 4+ and orchestrator models).
+func DefaultContextWindow(modelID string) int64 {
+	low := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(modelID)), "models/")
+	if low == "" {
+		return DefaultContextBudgetTokens
+	}
+	if strings.Contains(low, "orchestrator") {
+		return millionContextWindowTokens
+	}
+	if strings.HasPrefix(low, "gemini-") {
+		if strings.Contains(low, "flash-worker") {
+			return millionContextWindowTokens
+		}
+		if nums := parseVersionNums(low); len(nums) > 0 && nums[0] >= 4 {
+			return millionContextWindowTokens
+		}
+		return DefaultContextBudgetTokens
+	}
+	if strings.HasPrefix(low, "claude-") {
+		if nums := parseVersionNums(low); len(nums) > 0 && nums[0] >= 5 {
+			return extendedContextBudgetTokens
+		}
+		return DefaultContextBudgetTokens
+	}
+	if strings.HasPrefix(low, "gpt-") {
+		return gptOSSContextBudgetTokens
+	}
+	return DefaultContextBudgetTokens
+}
+
+// CalibratedContextKnee maps a context window or budget to its KNEE_EXCEEDED
+// threshold using a [40%..60%] knee ratio capped at empirical degradation onset.
+func CalibratedContextKnee(window int64) int64 {
+	if window <= 0 {
+		return DefaultContextKneeTokens
+	}
+	pct := kneePercentForWindow(window)
+	knee := (window * pct) / 100
+	capLimit := ExtendedDegradationOnsetTokens
+	if window <= DefaultContextBudgetTokens {
+		capLimit = StandardDegradationOnsetTokens
+	}
+	if knee > capLimit {
+		return capLimit
+	}
+	return knee
+}
+
+func kneePercentForWindow(window int64) int64 {
+	if window <= extendedContextBudgetTokens {
+		return ContextKneeMaxPercent
+	}
+	if window >= millionContextWindowTokens {
+		return ContextKneeMinPercent
+	}
+	span := millionContextWindowTokens - extendedContextBudgetTokens
+	drop := ((window - extendedContextBudgetTokens) * (ContextKneeMaxPercent - ContextKneeMinPercent)) / span
+	return ContextKneeMaxPercent - drop
+}
 
 // EffectiveContextBudget returns the effective pre-compaction token budget
 // for modelID based on its family/generation or orchestrator wrapper.
@@ -110,10 +212,19 @@ func ContextBudgetWithOverrides(modelID string, overrides map[string]int64) int6
 	return EffectiveContextBudget(low)
 }
 
-// ContextKneeWithOverrides returns the 60% KNEE_EXCEEDED token threshold for
-// modelID using optional overrides from ContextWindowOverrides.
+// ContextKneeWithOverrides returns the calibrated KNEE_EXCEEDED token threshold
+// for modelID using optional overrides from ContextWindowOverrides. Explicit
+// operator overrides below 1M that differ from the model's default window keep
+// the 60% override ratio; 1M+ physical windows and defaults are calibrated to
+// [40%..60%] capped at empirical degradation onset (180k-300k).
 func ContextKneeWithOverrides(modelID string, overrides map[string]int64) int64 {
-	return (ContextBudgetWithOverrides(modelID, overrides) * ContextKneePercent) / 100
+	low := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(modelID)), "models/")
+	if len(overrides) > 0 && low != "" {
+		if v := overrides[low]; v > 0 && v < millionContextWindowTokens && v != DefaultContextWindow(low) {
+			return (v * ContextKneePercent) / 100
+		}
+	}
+	return CalibratedContextKnee(ContextBudgetWithOverrides(modelID, overrides))
 }
 
 // ContextKneeTokens returns the 60% KNEE_EXCEEDED token threshold for modelID.

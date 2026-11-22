@@ -290,8 +290,9 @@ func TestCatalogEvalPassDoesNotMaskFailingWorkPass(t *testing.T) {
 	if got := byID["gemini-4-carbon-high"].Evidence; got.WorkRuns != 16 || got.WorkPass != 7 || got.EvalRuns != 35 || got.EvalPass != 31 {
 		t.Fatalf("joined carbon-high evidence = %+v, want Work=7/16 Eval=31/35", got)
 	}
-	if got := catUntestedPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-medium" {
-		t.Errorf("builder:pro with UCB1 untested peer = %q, want gemini-4-carbon-medium", got)
+	// Under conservative dampened UCB, an untested 0-run peer does not hijack a 74.5% (38/51) proven model.
+	if got := catUntestedPeer.Picks["builder:pro"].Model; got != "gemini-4-carbon-high" {
+		t.Errorf("builder:pro with conservative UCB = %q, want proven gemini-4-carbon-high", got)
 	}
 
 	catDecayedFailure := BuildCatalog(now, parsed, nil, map[string]ModelEvidence{

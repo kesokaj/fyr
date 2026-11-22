@@ -90,8 +90,8 @@ func TestResolveRoleModelPreservesFailingWorkPassUnderEvalEvidence(t *testing.T)
 			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n",
 	)
 	cat := BuildCatalog(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC), parsed, nil, map[string]ModelEvidence{
-		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 7, WorkMeanSeconds: 95},
-		"gemini-4-carbon":      {EvalRuns: 35, EvalPass: 31},
+		"gemini-4-carbon-high": {WorkRuns: 16, WorkPass: 4, WorkMeanSeconds: 95},
+		"gemini-4-carbon":      {EvalRuns: 10, EvalPass: 5},
 		"claude-opus-5-5":      {EvalRuns: 8, EvalPass: 8},
 	})
 	if err := SaveCatalog(home, cat); err != nil {

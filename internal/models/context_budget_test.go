@@ -48,17 +48,23 @@ func TestContextWindowOverridesAndPreserveOnMerge(t *testing.T) {
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 		Entries: []CatalogEntry{
 			{ID: "gemini-4-neon-high", DisplayName: "Neon", Status: "active", ContextWindow: 700000},
+			{ID: "gemini-4-argon-high", DisplayName: "Argon", Status: "active", ContextWindow: 1000000},
 			{ID: "claude-opus-5-5-high", DisplayName: "Opus", Status: "active"},
 		},
 	}
 	if err := SaveCatalog(home, cat); err != nil {
 		t.Fatalf("SaveCatalog: %v", err)
 	}
+	// Explicit mid-range operator override (700k) keeps 60% = 420k.
 	if got := ContextKneeTokensForHome(home, "GEMINI-4-NEON-HIGH"); got != 420000 {
 		t.Fatalf("ContextKneeTokensForHome override = %d, want 420000", got)
 	}
 	if got := ContextKneeTokensForHome(home, "models/gemini-4-neon-high"); got != 420000 {
 		t.Fatalf("ContextKneeTokensForHome models/ override = %d, want 420000", got)
+	}
+	// 1M physical window is calibrated and capped at 300k empirical degradation onset.
+	if got := ContextKneeTokensForHome(home, "gemini-4-argon-high"); got != 300000 {
+		t.Fatalf("ContextKneeTokensForHome 1M calibrated = %d, want 300000", got)
 	}
 	if got := ContextKneeTokensForHome(home, "claude-opus-5-5-high"); got != 300000 {
 		t.Fatalf("ContextKneeTokensForHome default = %d, want 300000", got)
@@ -66,7 +72,7 @@ func TestContextWindowOverridesAndPreserveOnMerge(t *testing.T) {
 	merged := mergeCatalogEntries("2026-11-20", []CatalogEntry{
 		{ID: "gemini-4-neon-high", DisplayName: "Neon"},
 	}, &cat, nil)
-	if len(merged) != 2 || merged[0].ContextWindow != 700000 {
+	if len(merged) != 3 || merged[0].ContextWindow != 700000 {
 		t.Fatalf("merged entries lost ContextWindow override: %+v", merged)
 	}
 	overrides := ContextWindowOverrides(home)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/kesokaj/fyr/internal/metrics"
 )
@@ -21,12 +23,8 @@ func (c *ctx) metricsEvals(args []string) error {
 	if err != nil {
 		return usageErr(c.out, "metrics", "fyr metrics evals: "+err.Error())
 	}
-	s, err := c.existingMetricsStore()
-	if err != nil {
-		return err
-	}
-	defer s.Close()
-	e, err := s.Evals(metrics.EvalOptions{Since: since, Now: until, Harness: c.metricsHarness})
+	opts := metrics.EvalOptions{Since: since, Now: until, Harness: c.metricsHarness}
+	e, err := c.loadMetricsEvalsWithFallback(opts)
 	if err != nil {
 		return err
 	}
@@ -35,4 +33,29 @@ func (c *ctx) metricsEvals(args []string) error {
 	}
 	e.WriteText(c.out)
 	return nil
+}
+
+func (c *ctx) loadMetricsEvalsWithFallback(opts metrics.EvalOptions) (*metrics.EvalRows, error) {
+	if _, err := os.Lstat(metrics.Path(c.home)); errors.Is(err, os.ErrNotExist) {
+		if devStore, cleanup, ok := metrics.OpenDevEvalFallbackRO(c.home); ok {
+			defer cleanup()
+			return devStore.Evals(opts)
+		}
+	}
+	s, err := c.existingMetricsStore()
+	if err != nil {
+		return nil, err
+	}
+	defer s.Close()
+	e, err := s.Evals(opts)
+	if err != nil || len(e.Rows) > 0 {
+		return e, err
+	}
+	if devStore, cleanup, ok := metrics.OpenDevEvalFallbackRO(c.home); ok {
+		defer cleanup()
+		if devE, derr := devStore.Evals(opts); derr == nil && len(devE.Rows) > 0 {
+			return devE, nil
+		}
+	}
+	return e, nil
 }

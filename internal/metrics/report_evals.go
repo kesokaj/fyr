@@ -48,7 +48,7 @@ func ReportEvalsWithDevFallback(s *Store, home string, o ShowOptions) (*EvalRows
 	if h == "" {
 		return ev, nil
 	}
-	devStore, cleanup, ok := openDevEvalStoreRO(h)
+	devStore, cleanup, ok := OpenDevEvalFallbackRO(h)
 	if !ok {
 		return ev, nil
 	}
@@ -61,7 +61,7 @@ func ReportEvalsWithDevFallback(s *Store, home string, o ShowOptions) (*EvalRows
 }
 
 func mergeDevEvalPassK(sum *Summary, home string, since, now time.Time) {
-	devStore, cleanup, ok := openDevEvalStoreRO(home)
+	devStore, cleanup, ok := OpenDevEvalFallbackRO(home)
 	if !ok {
 		return
 	}
@@ -105,7 +105,9 @@ func mergeUnseenPassK(sum *Summary, extra map[string]PassK) {
 	}
 }
 
-func openDevEvalStoreRO(home string) (*Store, func(), bool) {
+// OpenDevEvalFallbackRO opens <home>/<StateDir>/dev/fyr-eval/<StateDir>/metrics.db
+// via a symlink-safe read-only copy when present and schema >= 5.
+func OpenDevEvalFallbackRO(home string) (*Store, func(), bool) {
 	db, cleanup, ok := openCopySQLiteFile(home, home, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db")
 	if !ok {
 		return nil, nil, false
@@ -122,6 +124,10 @@ func openDevEvalStoreRO(home string) (*Store, func(), bool) {
 	}
 	devPath := filepath.Join(home, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db")
 	return &Store{db: db, path: devPath}, cleanup, true
+}
+
+func openDevEvalStoreRO(home string) (*Store, func(), bool) {
+	return OpenDevEvalFallbackRO(home)
 }
 
 func openCopySQLiteFile(scratchHome, base string, relParts ...string) (*sql.DB, func(), bool) {

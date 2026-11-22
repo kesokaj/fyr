@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	"github.com/kesokaj/fyr/internal/metrics"
 )
 
@@ -125,5 +126,49 @@ func TestMetricsReportEvalRows(t *testing.T) {
 		if got := strings.Contains(string(page), "<td>smoke</td>"); got != c.want {
 			t.Errorf("report %v: the eval row shown %v, want %v", c.args, got, c.want)
 		}
+	}
+}
+
+func TestV910MetricsEvalsDevFallback(t *testing.T) {
+	home := t.TempDir()
+	// Seed main metrics.db with zero eval rows and dev/fyr-eval store with eval rows.
+	mainStore, err := metrics.Open(metrics.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainStore.Close()
+
+	devPath := filepath.Join(home, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db")
+	devStore, err := metrics.Open(devPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := devStore.RecordTrial(metrics.Trial{
+		Run: "dev/fallback-row/1", Label: "eval=fallback-row", Harness: "v9.10.0",
+		Status: "pass", StartedAt: time.Now().Add(-time.Hour), Seconds: 6,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	devStore.Close()
+
+	out, err := metricsCmd(t, "evals", "--home", home)
+	if err != nil {
+		t.Fatalf("evals dev fallback: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "fallback-row") {
+		t.Errorf("fyr metrics evals missed dev/fyr-eval fallback row:\n%s", out)
+	}
+
+	// Also works when main metrics.db is absent but dev/fyr-eval store exists.
+	if err := os.Remove(metrics.Path(home)); err != nil {
+		t.Fatal(err)
+	}
+	js, err := metricsCmd(t, "evals", "--json", "--home", home)
+	if err != nil {
+		t.Fatalf("evals --json dev fallback without main db: %v\n%s", err, js)
+	}
+	var e metrics.EvalRows
+	if err := json.Unmarshal([]byte(js), &e); err != nil || len(e.Rows) != 1 || e.Rows[0].Row != "fallback-row" {
+		t.Fatalf("dev fallback --json = (%+v, %v), want fallback-row", e.Rows, err)
 	}
 }

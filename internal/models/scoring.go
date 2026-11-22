@@ -6,15 +6,18 @@ import (
 )
 
 const (
-	PriorStrength   = 4.0
-	UCBExploreCoeff = 0.15
-	UCBExploreCap   = 0.25
+	PriorStrength             = 4.0
+	UCBExploreCoeff           = 0.04
+	UCBExploreCap             = 0.06
+	MaxEfficiencyBonus        = 0.08
+	FamilyFailoverHeadroomPct = 5
 )
 
 type ScoreBreakdown struct {
 	PriorMean        float64 `json:"prior_mean"`
 	PosteriorMean    float64 `json:"posterior_mean"`
 	ExploreBonus     float64 `json:"explore_bonus"`
+	EfficiencyBonus  float64 `json:"efficiency_bonus,omitempty"`
 	HeadroomPenalty  float64 `json:"headroom_penalty"`
 	RankScore        float64 `json:"rank_score"`
 	DecayedRuns      float64 `json:"decayed_runs"`
@@ -22,7 +25,8 @@ type ScoreBreakdown struct {
 	HeadroomPct      int     `json:"headroom_pct,omitempty"`
 }
 
-// ScoreCandidate computes the Empirical-Bayes + UCB1 + headroom rank score for entry.
+// ScoreCandidate computes the hierarchical Empirical-Bayes + conservative UCB +
+// Pareto efficiency - convex headroom rank score for entry.
 func ScoreCandidate(entry CatalogEntry, role, tier string, totalRoleSamples float64, pools []Pool) ScoreBreakdown {
 	ApplyModelProfile(&entry)
 	nr, nt, err := NormalizeRoleTier(role, tier)
@@ -30,20 +34,46 @@ func ScoreCandidate(entry CatalogEntry, role, tier string, totalRoleSamples floa
 		nr, nt = nonEmpty(strings.ToLower(strings.TrimSpace(role)), "builder"), nonEmpty(strings.ToLower(strings.TrimSpace(tier)), "pro")
 	}
 	prior := RoleBaselineForTier(nr, nt, entry.Tier, entry.Effort)
-	nEff, succEff := EffectiveEvidence(entry.Evidence)
-	post := (succEff + PriorStrength*prior) / (nEff + PriorStrength)
+	nGlobal, sGlobal := EffectiveEvidence(entry.Evidence)
+	globalPost := (sGlobal + PriorStrength*prior) / (nGlobal + PriorStrength)
+	post, nEff, succEff := rolePosterior(entry.Evidence, nr, globalPost, nGlobal, sGlobal)
 	explore := ExploreBonus(totalRoleSamples, nEff)
+	effBonus := EfficiencyBonus(entry.Evidence)
 	pen, pct := HeadroomPenalty(entry, pools)
 	out := ScoreBreakdown{
 		PriorMean: roundScore(prior), PosteriorMean: roundScore(post),
-		ExploreBonus: roundScore(explore), HeadroomPenalty: roundScore(pen),
-		RankScore:   roundScore(post + explore - pen),
-		DecayedRuns: roundScore(nEff), DecayedSuccesses: roundScore(succEff),
+		ExploreBonus: roundScore(explore), EfficiencyBonus: roundScore(effBonus),
+		HeadroomPenalty: roundScore(pen),
+		RankScore:       roundScore(post + explore + effBonus - pen),
+		DecayedRuns:     roundScore(nEff), DecayedSuccesses: roundScore(succEff),
 	}
 	if pct >= 0 {
 		out.HeadroomPct = pct
 	}
 	return out
+}
+
+func rolePosterior(ev ModelEvidence, normRole string, globalPost, nGlobal, sGlobal float64) (post, nEff, succEff float64) {
+	re := ev.BuilderEvidence
+	if IsCrossFamilyRole(normRole) {
+		re = ev.JudgeEvidence
+	}
+	nRole, sRole := effectiveRoleEvidence(re)
+	if nRole <= 0 {
+		return globalPost, nGlobal, sGlobal
+	}
+	return (sRole + PriorStrength*globalPost) / (nRole + PriorStrength), nRole, sRole
+}
+
+func effectiveRoleEvidence(re RoleEvidence) (float64, float64) {
+	if re.DecayedRuns > 0 {
+		return re.DecayedRuns, min(max(re.DecayedSuccesses, 0), re.DecayedRuns)
+	}
+	if re.Runs > 0 {
+		okCount := min(max(re.Pass, 0), re.Runs)
+		return float64(re.Runs), float64(okCount)
+	}
+	return 0, 0
 }
 
 func RoleBaselineForTier(role, wantTier, candTier, effort string) float64 {
@@ -87,7 +117,31 @@ func TotalRoleSamples(candidates []CatalogEntry) float64 {
 }
 
 func ExploreBonus(totalRoleSamples, decayedN float64) float64 {
-	return min(UCBExploreCap, UCBExploreCoeff*math.Sqrt(math.Log(max(totalRoleSamples, 0)+math.E)/(max(decayedN, 0)+1.0)))
+	n := max(decayedN, 0)
+	raw := UCBExploreCoeff * math.Sqrt(math.Log(max(totalRoleSamples, 0)+math.E)/(n+1.0))
+	if n < 5 {
+		raw *= math.Sqrt(n / (n + 3.0))
+	}
+	return min(UCBExploreCap, raw)
+}
+
+// EfficiencyBonus returns a bounded Pareto efficiency bonus (<= MaxEfficiencyBonus)
+// derived from MeanTokenEfficiency (1..5 scale) and latency seconds.
+func EfficiencyBonus(ev ModelEvidence) float64 {
+	tokBonus := 0.0
+	if ev.MeanTokenEfficiency > 0 {
+		q := min(max((ev.MeanTokenEfficiency-1.0)/4.0, 0), 1)
+		tokBonus = 0.05 * q
+	}
+	latSec := ev.WorkMeanSeconds
+	if latSec <= 0 {
+		latSec = ev.MeanLatencySeconds
+	}
+	latBonus := 0.0
+	if latSec > 0 {
+		latBonus = 0.03 / (1.0 + latSec/60.0)
+	}
+	return min(MaxEfficiencyBonus, tokBonus+latBonus)
 }
 
 func HeadroomPenalty(entry CatalogEntry, pools []Pool) (float64, int) {
@@ -112,14 +166,17 @@ func PoolHeadroomPct(p Pool) (int, bool) {
 	return DisabledWindow, false
 }
 
+// HeadroomPenaltyForPct returns the smooth convex quota penalty ((50-pct)/50)^2
+// for pct < 50 (1.0 at pct <= 0, 0.0 at pct >= 50 or DisabledWindow).
 func HeadroomPenaltyForPct(pct int) float64 {
-	if pct < 0 || pct >= 50 {
+	if pct == DisabledWindow || pct >= 50 {
 		return 0.0
 	}
-	if pct < 20 {
-		return 0.50
+	if pct <= 0 {
+		return 1.0
 	}
-	return 0.15 * float64(50-pct) / 30.0
+	x := float64(50-pct) / 50.0
+	return x * x
 }
 
 func FindPoolForModel(pools []Pool, family, modelID string) (Pool, bool) {

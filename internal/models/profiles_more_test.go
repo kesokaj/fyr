@@ -40,9 +40,17 @@ esac
 	if err != nil || !ok || loaded.Entries[0].RetiringOn != "2026-12-01" {
 		t.Fatalf("LoadCatalog after EnrichCatalogChangelog = (%+v, %v, %v)", loaded, ok, err)
 	}
-	// Over-limit changelog returns empty string cleanly.
+	// 70 KiB changelog succeeds under 1 MiB cap; > 1 MiB returns empty cleanly.
+	med := filepath.Join(t.TempDir(), "agy-med")
+	medBody := "#!/bin/sh\nhead -c 70000 /dev/zero | tr '\\0' 'a'\n"
+	if err := os.WriteFile(med, []byte(medBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := RunAgyChangelog(context.Background(), med); len(got) != 70000 {
+		t.Fatalf("70 KiB changelog = %d bytes, want 70000", len(got))
+	}
 	big := filepath.Join(t.TempDir(), "agy-big")
-	bigBody := "#!/bin/sh\nhead -c 70000 /dev/zero | tr '\\0' 'a'\n"
+	bigBody := "#!/bin/sh\nhead -c 1100000 /dev/zero | tr '\\0' 'a'\n"
 	if err := os.WriteFile(big, []byte(bigBody), 0o755); err != nil {
 		t.Fatal(err)
 	}

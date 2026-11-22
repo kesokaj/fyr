@@ -172,4 +172,19 @@ func TestVerbModelsPickQuotaCacheTTLAndRefresh(t *testing.T) {
 	if !strings.Contains(errStr, "/usage unreadable") {
 		t.Errorf("expected /usage unreadable fallback notice on stderr, got %q", errStr)
 	}
+
+	// 5. Quota-adaptive TTL: 3m-old cache with low pool (<30%) triggers live /usage refresh.
+	_ = os.Remove(failUsage)
+	_ = os.Remove(callsLog)
+	seedCatalog(now.Add(-3*time.Minute).Format(time.RFC3339), []models.Pool{
+		{Name: "Gemini Models", Five: 80, Week: 80},
+		{Name: "Claude and GPT models", Five: 25, Week: 60},
+	})
+	out.Reset()
+	if err := run([]string{"models", "--pick", "judge", "--home", home}, &out); err != nil {
+		t.Fatalf("adaptive-TTL --pick judge: %v", err)
+	}
+	if calls := readCalls(); len(calls) != 1 || strings.TrimSpace(calls[0]) != "-p /usage" {
+		t.Fatalf("3m-old low-pool cache agy calls = %v, want single [-p /usage]", calls)
+	}
 }

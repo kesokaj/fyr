@@ -34,11 +34,24 @@ func ApplyModelProfile(e *CatalogEntry) {
 	e.Subfamily = inferModelSubfamily(e.ID, e.Family, e.InteractiveOnly)
 	e.Speed = inferModelSpeed(e)
 	populateDynamicGuidance(e)
+	if e.ContextWindow <= 0 {
+		e.ContextWindow = inferEntryContextWindow(*e)
+	}
 	if e.RetiringOn == "" {
 		if kwIdx := earliestKeywordIndex(strings.ToLower(e.DisplayName), "retir", "deprecat"); kwIdx >= 0 {
 			e.RetiringOn = changelogDateRe.FindString(strings.ToLower(e.DisplayName)[kwIdx:])
 		}
 	}
+}
+
+func inferEntryContextWindow(e CatalogEntry) int64 {
+	if hint := ParseContextWindowHint(e.DisplayName); hint > 0 {
+		return hint
+	}
+	if hint := ParseContextWindowHint(e.ChangelogNote); hint > 0 {
+		return hint
+	}
+	return DefaultContextWindow(e.ID)
 }
 
 func inferModelSubfamily(id, family string, interactive bool) string {
@@ -108,7 +121,7 @@ func runAgyChangelogForHome(ctx context.Context, home, agyPath string) string {
 	if strings.TrimSpace(agyPath) == "" {
 		return ""
 	}
-	out, err := runAgyProbe(ctx, home, agyPath, 2*time.Second, 2*time.Second, "changelog")
+	out, err := runAgyProbeCapped(ctx, home, agyPath, ChangelogTimeout, 2*time.Second, MaxChangelogOut, "changelog")
 	if err != nil {
 		return ""
 	}
@@ -139,23 +152,47 @@ func applyChangelogText(raw string, entries []CatalogEntry) {
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
 	for i := range entries {
 		for _, line := range lines {
-			t := strings.TrimSpace(line)
-			low := strings.ToLower(t)
-			if t == "" || !matchesChangelogLine(entries[i], low) {
-				continue
-			}
-			if entries[i].RetiringOn == "" {
-				if kwIdx := earliestKeywordIndex(low, "retir", "deprecat"); kwIdx >= 0 {
-					if m := changelogDateRe.FindString(low[kwIdx:]); m != "" {
-						entries[i].RetiringOn = m
-					}
-				}
-			}
-			if entries[i].ChangelogNote == "" {
-				entries[i].ChangelogNote = shortQuote(t)
+			for _, clause := range splitChangelogClauses(line) {
+				applyChangelogClause(&entries[i], clause)
 			}
 		}
 	}
+}
+
+func applyChangelogClause(e *CatalogEntry, clause string) {
+	low := strings.ToLower(clause)
+	if clause == "" || !matchesChangelogLine(*e, low) {
+		return
+	}
+	if e.RetiringOn == "" {
+		if kwIdx := earliestKeywordIndex(low, "retir", "deprecat"); kwIdx >= 0 {
+			if m := changelogDateRe.FindString(low[kwIdx:]); m != "" {
+				e.RetiringOn = m
+			}
+		}
+	}
+	if hint := ParseContextWindowHint(clause); hint > 0 {
+		e.ContextWindow = hint
+	}
+	if e.ChangelogNote == "" {
+		e.ChangelogNote = shortQuote(clause)
+	}
+}
+
+func splitChangelogClauses(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return nil
+	}
+	var clauses []string
+	for _, semi := range strings.Split(trimmed, ";") {
+		for _, sent := range strings.Split(semi, ". ") {
+			if c := strings.TrimSpace(sent); c != "" {
+				clauses = append(clauses, c)
+			}
+		}
+	}
+	return clauses
 }
 
 func matchesChangelogLine(e CatalogEntry, lowLine string) bool {

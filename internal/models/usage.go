@@ -197,9 +197,8 @@ func PickRoleFromCatalogWithPools(ctx context.Context, cat Catalog, agyPath, rol
 
 func pickRoleFromCatalogWithPoolsForHome(ctx context.Context, home string, cat Catalog, agyPath, role, tier string) (RolePick, []Pool, error) {
 	return PickRoleFromCatalogForHome(ctx, cat, PickRoleOptions{
-		Home:     home,
-		AgyPath:  agyPath,
-		QuotaTTL: DefaultPoolQuotaTTL,
+		Home:    home,
+		AgyPath: agyPath,
 	}, role, tier)
 }
 

@@ -328,7 +328,7 @@ func TestModelEvidenceDecayedSourcesAndWaveSeparation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 4. Session ratings joined to sessions (weight 0.6, (score-1)/4): score=4 -> 0.75 at age 14d (decay=0.5).
+	// 4. Session ratings joined to sessions (weight 0.75, (score-1)/4): score=4 -> 0.75 at age 14d (decay=0.5).
 	if _, err := s.db.Exec(`INSERT INTO sessions(id, vendor, model, started_at) VALUES ('rated-1', 'agy', 'gemini-4-neon-high', ?)`, now.Add(-14*day).UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
@@ -362,8 +362,8 @@ func TestModelEvidenceDecayedSourcesAndWaveSeparation(t *testing.T) {
 
 	w0 := math.Pow(0.5, 1.0/(86400.0*14.0))
 	w7 := math.Pow(0.5, 7.0/14.0)
-	wantRuns := 1.0*w0 + 1.0*0.5 + 0.9*w7 + 0.6*0.5
-	wantSucc := 1.0*w0 + 1.0*0.5*0.0 + 0.9*w7*1.0 + 0.6*0.5*0.75
+	wantRuns := 1.0*w0 + 1.0*0.5 + 0.9*w7 + 0.75*0.5
+	wantSucc := 1.0*w0 + 1.0*0.5*0.0 + 0.9*w7*1.0 + 0.75*0.5*0.75
 	if math.Abs(ev.DecayedRuns-wantRuns) > 1e-9 || math.Abs(ev.DecayedSuccesses-wantSucc) > 1e-9 {
 		t.Errorf("decayed = (runs=%v, succ=%v), want (runs=%v, succ=%v)", ev.DecayedRuns, ev.DecayedSuccesses, wantRuns, wantSucc)
 	}

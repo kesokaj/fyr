@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kesokaj/fyr/internal/harness"
 	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/models"
@@ -499,8 +500,18 @@ func TestVerbModelsBenchAndScoreBreakdownCLI(t *testing.T) {
 	}
 	evMap, err := ms.ModelEvidence(time.Time{}, time.Time{})
 	_ = ms.Close()
-	if err != nil || evMap["gemini-4-neon-high"].TrialRuns != 1 || evMap["gemini-4-neon-high"].TrialPass != 1 || evMap["gemini-4-neon-high"].DecayedRuns <= 0 {
+	if err != nil || evMap["gemini-4-neon-high"].TrialRuns != 1 || evMap["gemini-4-neon-high"].TrialPass != 1 || evMap["gemini-4-neon-high"].DecayedRuns <= 0 || evMap["gemini-4-neon-high"].DecayedRuns > 0.25 {
 		t.Fatalf("metrics.db neon bench evidence = %+v (err=%v)", evMap["gemini-4-neon-high"], err)
+	}
+	// Verify --bench stamped trials.policy_model in metrics.db (exported JSONL includes policy_model).
+	expPath := filepath.Join(t.TempDir(), "export.jsonl")
+	out.Reset()
+	if err := run([]string{"metrics", "export", expPath, "--home", home}, &out); err != nil {
+		t.Fatalf("metrics export: %v", err)
+	}
+	expRaw, err := os.ReadFile(expPath)
+	if err != nil || !strings.Contains(string(expRaw), `"policy_model":"gemini-4-neon-high"`) {
+		t.Fatalf("bench trial missing policy_model in metrics export: err=%v\n%s", err, string(expRaw))
 	}
 	out.Reset()
 	if err := run([]string{"models", "--bench", "--model", "gemini-2.5-flash-lite-low", "--home", home}, &out); err != nil || !strings.Contains(out.String(), "PASS") || !strings.Contains(out.String(), "post=") {
@@ -540,5 +551,94 @@ func TestVerbModelsBenchAndScoreBreakdownCLI(t *testing.T) {
 	}
 	if _, errStr, code := runCLIWithErr("models", "--bench", "--model", "gemini-pro-orchestrator", "--home", home); code != 1 || !strings.Contains(errStr, "interactive-only") {
 		t.Errorf("--bench interactive orchestrator: code=%d err=%q, want exit 1", code, errStr)
+	}
+}
+
+func TestV910ModelsCallerFamilyRolesExhaustedAndDevEval(t *testing.T) {
+	home, emptyBin := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", emptyBin)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// 1. Seed catalog with fresh healthy pools and test all 7+ agent roles + --caller-family.
+	seed := models.Catalog{
+		UpdatedAt:      now.Format(time.RFC3339),
+		QuotaUpdatedAt: now.Add(-time.Minute).Format(time.RFC3339),
+		Pools: []models.Pool{
+			{Name: "Gemini Models", Five: 80, Week: 80},
+			{Name: "Claude and GPT models", Five: 75, Week: 70},
+		},
+		Entries: []models.CatalogEntry{
+			{ID: "gemini-4-carbon-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active"},
+			{ID: "gemini-3.8-flash-high", Family: "gemini", Tier: "flash", Effort: "high", Status: "active"},
+			{ID: "claude-opus-5-5-high", Family: "anthropic", Tier: "pro", Effort: "high", Status: "active"},
+			{ID: "claude-sonnet-5-5-high", Family: "anthropic", Tier: "flash", Effort: "high", Status: "active"},
+		},
+	}
+	if err := models.SaveCatalog(home, seed); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"models", "--pick", "security", "--caller-family", "anthropic", "--home", home}, "gemini-4-carbon-high"},
+		{[]string{"models", "--pick", "security", "--caller-family", "gemini", "--home", home}, "claude-opus-5-5-high"},
+		{[]string{"models", "--pick", "explorer", "--home", home}, "gemini-3.8-flash-high"},
+		{[]string{"models", "--pick", "documentation", "--home", home}, "gemini-3.8-flash-high"},
+		{[]string{"models", "--pick", "dreamer", "--home", home}, "gemini-4-carbon-high"},
+	} {
+		var out bytes.Buffer
+		if err := run(tc.args, &out); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if got := strings.TrimSpace(out.String()); got != tc.want {
+			t.Errorf("%v = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+	// Must-fail: invalid --caller-family or --caller-family without --pick exits 2.
+	for _, bad := range [][]string{
+		{"models", "--caller-family", "anthropic", "--home", home},
+		{"models", "--pick", "judge", "--caller-family", "unknown", "--home", home},
+	} {
+		var out bytes.Buffer
+		if code := exitOf(run(bad, &out)); code != 2 {
+			t.Errorf("%v: exit=%d, want 2", bad, code)
+		}
+	}
+
+	// 2. All active pools <= 0% exits non-zero from --pick.
+	exhausted := seed
+	exhausted.Pools = []models.Pool{
+		{Name: "Gemini Models", Five: 0, Week: 0},
+		{Name: "Claude and GPT models", Five: 0, Week: 50},
+	}
+	if err := models.SaveCatalog(home, exhausted); err != nil {
+		t.Fatal(err)
+	}
+	if outStr, errStr, code := runCLIWithErr("models", "--pick", "builder", "--home", home); code == 0 || outStr != "" || !strings.Contains(errStr, "exhausted") {
+		t.Errorf("exhausted --pick builder: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+	if outStr, errStr, code := runCLIWithErr("models", "--pick", "judge", "--home", home); code == 0 || outStr != "" || !strings.Contains(errStr, "exhausted") {
+		t.Errorf("exhausted --pick judge: code=%d out=%q err=%q", code, outStr, errStr)
+	}
+
+	// 3. dev/fyr-eval fallback feeds loadMetricsModelEvidence even without main metrics.db.
+	devPath := filepath.Join(home, harness.StateDir, "dev", "fyr-eval", harness.StateDir, "metrics.db")
+	devStore, err := metrics.Open(devPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := devStore.RecordTrial(metrics.Trial{
+		Run: "dev/ev/1", Label: "eval=builder-smoke", Kind: "capability", Harness: "v9.10.0",
+		Status: "pass", StartedAt: now.Add(-time.Hour), Seconds: 4, PolicyModel: "gemini-4-carbon-high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	devStore.Close()
+
+	ev := loadMetricsModelEvidence(home)
+	if got := ev["gemini-4-carbon-high"]; got.TrialRuns != 1 || got.TrialPass != 1 {
+		t.Fatalf("loadMetricsModelEvidence missed dev/fyr-eval trial: %+v", got)
 	}
 }

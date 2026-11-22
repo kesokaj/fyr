@@ -9,8 +9,14 @@ import (
 
 const (
 	// DefaultPoolQuotaTTL is the maximum age of cached models.json pool quotas
-	// reused by warm `fyr models --pick` without shelling out to `agy -p "/usage"`.
+	// reused by warm `fyr models --pick` when all active pools are >= 30%.
 	DefaultPoolQuotaTTL = 10 * time.Minute
+
+	// LowPoolQuotaTTL shortens quota cache TTL when any active pool is < 30%.
+	LowPoolQuotaTTL = 2 * time.Minute
+
+	// LowPoolQuotaPct is the headroom threshold below which LowPoolQuotaTTL applies.
+	LowPoolQuotaPct = 30
 
 	maxQuotaClockSkew = time.Minute
 )
@@ -23,7 +29,23 @@ type PickRoleOptions struct {
 	Home         string
 	AgyPath      string
 	ForceRefresh bool
-	QuotaTTL     time.Duration // <= 0 defaults to DefaultPoolQuotaTTL
+	QuotaTTL     time.Duration // <= 0 uses AdaptivePoolQuotaTTL(cat.Pools)
+	CallerFamily string        // optional caller family for cross-family roles
+}
+
+// AdaptivePoolQuotaTTL returns LowPoolQuotaTTL (2m) when any active pool has
+// headroom < 30%, otherwise DefaultPoolQuotaTTL (10m).
+func AdaptivePoolQuotaTTL(pools []Pool) time.Duration {
+	minPct := 101
+	for _, p := range pools {
+		if pct, ok := PoolHeadroomPct(p); ok && pct < minPct {
+			minPct = pct
+		}
+	}
+	if minPct < LowPoolQuotaPct {
+		return LowPoolQuotaTTL
+	}
+	return DefaultPoolQuotaTTL
 }
 
 // HasFreshPoolQuotas reports whether cat carries structurally valid pool quotas
@@ -75,34 +97,71 @@ func PickRoleFromCatalogForHome(ctx context.Context, cat Catalog, opts PickRoleO
 	if err != nil {
 		return RolePick{}, nil, err
 	}
+	normCaller, err := NormalizeCallerFamily(opts.CallerFamily)
+	if err != nil {
+		return RolePick{}, nil, err
+	}
 	ttl := opts.QuotaTTL
 	if ttl <= 0 {
-		ttl = DefaultPoolQuotaTTL
+		ttl = AdaptivePoolQuotaTTL(cat.Pools)
 	}
-	crossFamily := normRole == "judge" || normRole == "reviewer" || normRole == "verifier"
+	crossFamily := IsCrossFamilyRole(normRole)
 	freshCache := !opts.ForceRefresh && HasFreshPoolQuotas(cat, usageNowFunc(), ttl)
 	if !crossFamily || (opts.AgyPath == "" && !freshCache) {
-		pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, cat.Pools, normRole, normTier)
+		pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, cat.Pools, normRole, normTier, normCaller)
 		return pick, nil, err
 	}
-	return pickCrossFamilyWithQuota(ctx, cat, opts, normRole, normTier, freshCache)
+	return pickCrossFamilyWithQuota(ctx, cat, opts, normRole, normTier, normCaller, freshCache)
 }
 
-func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier string, freshCache bool) (RolePick, []Pool, error) {
-	pick, err := PickFromEntriesWithPools(cat.Entries, cat.Picks, nil, normRole, normTier)
+func pickCrossFamilyWithQuota(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier, normCaller string, freshCache bool) (RolePick, []Pool, error) {
+	if normCaller == "anthropic" {
+		return pickCrossFamilyAnthropicCaller(ctx, cat, opts, normRole, normTier, freshCache)
+	}
+	pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, nil, normRole, normTier, normCaller)
 	if err != nil || !isAnthropicEntryID(cat.Entries, pick.Model) {
 		return pick, nil, err
 	}
 	active := activeAutoPickEntries(cat.Entries)
 	gem, gemScore, _, _ := pickGeminiOrAny(active, nil, nil, "", "builder", normTier)
 	model, reason, fb, livePools, activePools := resolveAnthropicQuota(ctx, cat, opts, normRole, pick.Model, gem.ID, freshCache)
+	if allActivePoolsExhausted(active, activePools) {
+		return RolePick{}, livePools, ErrAllPoolsExhausted
+	}
 	if fb != "" {
 		if len(activePools) > 0 {
 			gem, gemScore, _, _ = pickGeminiOrAny(active, nil, activePools, "", "builder", normTier)
+			if isAnthropicFamily(gem.Family) {
+				picked, perr := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, activePools, normRole, normTier, normCaller)
+				return picked, livePools, perr
+			}
+			model = gem.ID
 		}
 		return buildRolePick(normRole, normTier, model, reason, fb, gemScore), livePools, nil
 	}
 	return finalizeAnthropicPick(cat, pick, activePools, normRole, normTier, reason), livePools, nil
+}
+
+func pickCrossFamilyAnthropicCaller(ctx context.Context, cat Catalog, opts PickRoleOptions, normRole, normTier string, freshCache bool) (RolePick, []Pool, error) {
+	activePools, livePools := cat.Pools, ([]Pool)(nil)
+	if !freshCache {
+		uText, err := probeUsageForHome(ctx, opts.Home, opts.AgyPath)
+		if err == nil {
+			if parsed, perr := ParseUsage(uText); perr == nil {
+				livePools, activePools = parsed, parsed
+			}
+		} else {
+			activePools = nil
+		}
+	}
+	pick, err := PickFromEntriesWithPoolsAndCaller(cat.Entries, cat.Picks, activePools, normRole, normTier, "anthropic")
+	if err != nil {
+		return RolePick{}, livePools, err
+	}
+	if freshCache && pick.FallbackReason == "" && !strings.Contains(pick.Reason, "cached") {
+		pick.Reason += "; cached"
+	}
+	return pick, livePools, nil
 }
 
 func activeAutoPickEntries(entries []CatalogEntry) []CatalogEntry {

@@ -23,11 +23,12 @@ func init() {
 	verbs["models"] = verb{
 		flags: func(c *ctx) {
 			c.fs.Bool("bench", false, "probe up to --max 0-run active models and record kind=bench trials")
+			c.fs.String("caller-family", "", "with --pick: caller `FAMILY` (gemini, anthropic or other)")
 			c.fs.StringVar(&c.modelsExplain, "explain", "", "print profile, score breakdown, and empirical stats for model `ID`")
 			c.fs.BoolVar(&c.jsonOut, "json", false, "print the catalog, --pick, --explain or --bench result as JSON")
 			c.fs.Int("max", models.DefaultBenchMax, "with --bench: probe at most `N` 0-run active models (default 3)")
 			c.fs.String("model", "", "with --bench: probe only the active non-interactive model `ID`")
-			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE`: builder, planner, judge, reviewer, verifier or mechanical")
+			c.fs.StringVar(&c.modelsPick, "pick", "", "pick one model for `ROLE` (builder, planner, judge, security, ...)")
 			c.fs.BoolVar(&c.modelsRefresh, "refresh", false, "re-query agy models and update .config/fyr/models.json")
 			c.fs.StringVar(&c.modelsTier, "tier", "", "with --pick: the tier `T`, pro, flash or light")
 		},
@@ -36,9 +37,9 @@ func init() {
 }
 
 type modelsBenchFlags struct {
-	bench, maxSet, modelSet bool
-	model                   string
-	max                     int
+	bench, maxSet, modelSet, callerSet bool
+	model, callerFamily                string
+	max                                int
 }
 
 func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
@@ -47,6 +48,8 @@ func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
 		switch f.Name {
 		case "bench":
 			bf.bench = f.Value.String() == "true"
+		case "caller-family":
+			bf.callerFamily, bf.callerSet = f.Value.String(), true
 		case "model":
 			bf.model, bf.modelSet = f.Value.String(), true
 		case "max":
@@ -54,26 +57,38 @@ func parseAndValidateModels(c *ctx) (modelsBenchFlags, error) {
 			bf.max, _ = strconv.Atoi(f.Value.String())
 		}
 	})
+	if err := validateModelsFlags(c, bf); err != nil {
+		return bf, err
+	}
+	return bf, nil
+}
+
+func validateModelsFlags(c *ctx, bf modelsBenchFlags) error {
 	switch {
 	case c.modelsTier != "" && c.modelsPick == "":
-		return bf, usageErr(c.out, "models", "fyr models: --tier requires --pick")
+		return usageErr(c.out, "models", "fyr models: --tier requires --pick")
+	case bf.callerSet && c.modelsPick == "":
+		return usageErr(c.out, "models", "fyr models: --caller-family requires --pick")
 	case c.modelsExplain != "" && c.modelsPick != "":
-		return bf, usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
+		return usageErr(c.out, "models", "fyr models: --explain and --pick cannot be combined")
 	case bf.modelSet && !bf.bench:
-		return bf, usageErr(c.out, "models", "fyr models: --model requires --bench")
+		return usageErr(c.out, "models", "fyr models: --model requires --bench")
 	case bf.maxSet && !bf.bench:
-		return bf, usageErr(c.out, "models", "fyr models: --max requires --bench")
+		return usageErr(c.out, "models", "fyr models: --max requires --bench")
 	case bf.bench && (c.modelsPick != "" || c.modelsExplain != ""):
-		return bf, usageErr(c.out, "models", "fyr models: --bench cannot be combined with --pick or --explain")
+		return usageErr(c.out, "models", "fyr models: --bench cannot be combined with --pick or --explain")
 	case bf.bench && bf.max < 1:
-		return bf, usageErr(c.out, "models", "fyr models: --max must be at least 1")
+		return usageErr(c.out, "models", "fyr models: --max must be at least 1")
 	}
 	if c.modelsPick != "" {
 		if _, _, err := models.NormalizeRoleTier(c.modelsPick, c.modelsTier); err != nil {
-			return bf, usageErr(c.out, "models", "fyr models: "+err.Error())
+			return usageErr(c.out, "models", "fyr models: "+err.Error())
+		}
+		if _, err := models.NormalizeCallerFamily(bf.callerFamily); err != nil {
+			return usageErr(c.out, "models", "fyr models: "+err.Error())
 		}
 	}
-	return bf, nil
+	return nil
 }
 
 func runModels(c *ctx) error {
@@ -97,7 +112,7 @@ func runModels(c *ctx) error {
 		return runModelsExplain(c, cat, c.modelsExplain)
 	}
 	if c.modelsPick != "" {
-		return runModelsPick(sig, c, cat, agyPath, poolsProbed)
+		return runModelsPick(sig, c, cat, agyPath, poolsProbed, bf.callerFamily)
 	}
 	if c.jsonOut {
 		return writeIndentedJSON(c, cat)
@@ -156,7 +171,8 @@ func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath str
 		return metrics.RecordTrial(c.home, metrics.TrialInput{
 			Run: rec.Run, Label: "bench=sanity", Kind: "bench", Harness: buildVersion(),
 			Status: rec.Status, Cause: rec.Cause, StartedAt: rec.StartedAt,
-			Seconds: max(rec.DurationMS/1000, 0), DurationMS: rec.DurationMS, Model: rec.Model,
+			Seconds: max(rec.DurationMS/1000, 0), DurationMS: rec.DurationMS,
+			Model: rec.Model, PolicyModel: rec.Model,
 		})
 	})
 	if err != nil {
@@ -175,20 +191,21 @@ func runModelsBench(ctx context.Context, c *ctx, cat models.Catalog, agyPath str
 	return nil
 }
 
-func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, poolsProbed bool) error {
+func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath string, poolsProbed bool, callerFamily string) error {
 	normRole, normTier, _ := models.NormalizeRoleTier(c.modelsPick, c.modelsTier)
 	pickOpts := models.PickRoleOptions{
 		Home:         c.home,
 		AgyPath:      agyPath,
 		ForceRefresh: c.modelsRefresh && !poolsProbed,
-		QuotaTTL:     models.DefaultPoolQuotaTTL,
+		CallerFamily: callerFamily,
 	}
 	pick, pools, err := models.PickRoleFromCatalogForHome(ctx, cat, pickOpts, c.modelsPick, c.modelsTier)
 	if err != nil {
 		fmt.Fprintf(stderr, "models: %v\n", err)
 		return exitCode(1)
 	}
-	freshCached := !pickOpts.ForceRefresh && models.HasFreshPoolQuotas(cat, time.Now().UTC(), models.DefaultPoolQuotaTTL)
+	ttl := models.AdaptivePoolQuotaTTL(cat.Pools)
+	freshCached := !pickOpts.ForceRefresh && models.HasFreshPoolQuotas(cat, time.Now().UTC(), ttl)
 	if agyPath == "" && !freshCached && isCrossFamilyRole(normRole) && isAnthropicPick(cat.Entries, pick.Model) {
 		fb, fbErr := fallbackPickWithoutAgy(cat, normRole, normTier)
 		if fbErr != nil {
@@ -212,7 +229,7 @@ func runModelsPick(ctx context.Context, c *ctx, cat models.Catalog, agyPath stri
 }
 
 func isCrossFamilyRole(role string) bool {
-	return role == "judge" || role == "reviewer" || role == "verifier"
+	return models.IsCrossFamilyRole(role)
 }
 
 func isAnthropicPick(entries []models.CatalogEntry, modelID string) bool {
@@ -356,6 +373,21 @@ func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
 	if strings.TrimSpace(home) == "" {
 		return nil
 	}
+	out := map[string]models.ModelEvidence{}
+	mergeMetricsEvidenceInto(out, loadPrimaryMetricsEvidence(home))
+	if devStore, cleanup, ok := metrics.OpenDevEvalFallbackRO(home); ok {
+		defer cleanup()
+		if raw, err := devStore.ModelEvidence(time.Time{}, time.Time{}); err == nil {
+			mergeMetricsEvidenceInto(out, raw)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func loadPrimaryMetricsEvidence(home string) map[string]metrics.ModelEvidence {
 	dbPath := metrics.Path(home)
 	if fi, err := os.Lstat(dbPath); err != nil || !fi.Mode().IsRegular() {
 		return nil
@@ -374,16 +406,42 @@ func loadMetricsModelEvidence(home string) map[string]models.ModelEvidence {
 	if err != nil || len(raw) == 0 {
 		return nil
 	}
-	out := make(map[string]models.ModelEvidence, len(raw))
+	return raw
+}
+
+func mergeMetricsEvidenceInto(out map[string]models.ModelEvidence, raw map[string]metrics.ModelEvidence) {
 	for k, v := range raw {
-		var e models.ModelEvidence
-		e.WorkPass, e.WorkRuns, e.WorkMeanSeconds = v.WorkPass, v.WorkRuns, v.WorkMeanSeconds
-		e.EvalPass, e.EvalRuns = v.EvalPass, v.EvalRuns
-		e.TrialPass, e.TrialRuns = v.TrialPass, v.TrialRuns
-		e.JudgePass, e.JudgeRuns = v.JudgePass, v.JudgeRuns
-		e.RatingRuns, e.RatingScoreSum = v.RatingRuns, v.RatingScoreSum
-		e.DecayedRuns, e.DecayedSuccesses = v.DecayedRuns, v.DecayedSuccesses
-		out[k] = e
+		cur := out[k]
+		prevRatings := cur.RatingRuns
+		cur.WorkPass, cur.WorkRuns = cur.WorkPass+v.WorkPass, cur.WorkRuns+v.WorkRuns
+		if cur.WorkMeanSeconds <= 0 && v.WorkMeanSeconds > 0 {
+			cur.WorkMeanSeconds = v.WorkMeanSeconds
+		}
+		if cur.MeanLatencySeconds <= 0 && v.MeanLatencySeconds > 0 {
+			cur.MeanLatencySeconds = v.MeanLatencySeconds
+		}
+		cur.EvalPass, cur.EvalRuns = cur.EvalPass+v.EvalPass, cur.EvalRuns+v.EvalRuns
+		cur.TrialPass, cur.TrialRuns = cur.TrialPass+v.TrialPass, cur.TrialRuns+v.TrialRuns
+		cur.JudgePass, cur.JudgeRuns = cur.JudgePass+v.JudgePass, cur.JudgeRuns+v.JudgeRuns
+		cur.RatingRuns, cur.RatingScoreSum = cur.RatingRuns+v.RatingRuns, cur.RatingScoreSum+v.RatingScoreSum
+		cur.DecayedRuns, cur.DecayedSuccesses = cur.DecayedRuns+v.DecayedRuns, cur.DecayedSuccesses+v.DecayedSuccesses
+		mergeMetricsRoleEvidence(&cur.BuilderEvidence, v.BuilderEvidence)
+		mergeMetricsRoleEvidence(&cur.JudgeEvidence, v.JudgeEvidence)
+		if v.MeanTokenEfficiency > 0 {
+			eff := v.MeanTokenEfficiency
+			if cur.MeanTokenEfficiency > 0 && prevRatings > 0 && v.RatingRuns > 0 {
+				tot := float64(prevRatings + v.RatingRuns)
+				eff = (cur.MeanTokenEfficiency*float64(prevRatings) + eff*float64(v.RatingRuns)) / tot
+			}
+			cur.MeanTokenEfficiency = eff
+		}
+		out[k] = cur
 	}
-	return out
+}
+
+func mergeMetricsRoleEvidence(dst *models.RoleEvidence, src metrics.RoleEvidence) {
+	dst.Runs += src.Runs
+	dst.Pass += src.Pass
+	dst.DecayedRuns += src.DecayedRuns
+	dst.DecayedSuccesses += src.DecayedSuccesses
 }

@@ -2,7 +2,10 @@ package models
 
 import (
 	"context"
+	"errors"
 	"math"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -29,7 +32,7 @@ func TestScoreCandidateMathAndHeadroomCurve(t *testing.T) {
 	for _, tc := range []struct {
 		pct  int
 		want float64
-	}{{80, 0}, {50, 0}, {35, 0.075}, {20, 0.15}, {19, 0.50}, {0, 0.50}, {DisabledWindow, 0}} {
+	}{{80, 0}, {50, 0}, {35, 0.09}, {20, 0.36}, {19, 0.3844}, {0, 1.0}, {DisabledWindow, 0}} {
 		if got := HeadroomPenaltyForPct(tc.pct); math.Abs(got-tc.want) > 1e-6 {
 			t.Errorf("HeadroomPenaltyForPct(%d) = %v, want %v", tc.pct, got, tc.want)
 		}
@@ -40,8 +43,8 @@ func TestScoreCandidateMathAndHeadroomCurve(t *testing.T) {
 	neon := CatalogEntry{ID: "gemini-4-neon-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active", Evidence: ModelEvidence{DecayedRuns: 6.0, DecayedSuccesses: 5.4}}
 	sc := ScoreCandidate(neon, "builder", "pro", 10.0, []Pool{{Name: "Gemini Models", Five: 35, Week: 80}})
 	wantPost := (5.4 + 4.0*0.66) / 10.0
-	wantUCB := min(0.25, 0.15*math.Sqrt(math.Log(10.0+math.E)/7.0))
-	if math.Abs(sc.PosteriorMean-wantPost) > 1e-3 || math.Abs(sc.ExploreBonus-wantUCB) > 1e-3 || math.Abs(sc.HeadroomPenalty-0.075) > 1e-3 || sc.HeadroomPct != 35 {
+	wantUCB := min(UCBExploreCap, UCBExploreCoeff*math.Sqrt(math.Log(10.0+math.E)/7.0))
+	if math.Abs(sc.PosteriorMean-wantPost) > 1e-3 || math.Abs(sc.ExploreBonus-wantUCB) > 1e-3 || math.Abs(sc.HeadroomPenalty-0.09) > 1e-3 || sc.HeadroomPct != 35 {
 		t.Fatalf("ScoreCandidate mismatch: got %+v", sc)
 	}
 }
@@ -136,4 +139,203 @@ func TestVerifyBenchResponseAndRunBench(t *testing.T) {
 	if err != nil || rep.Probed != 3 || rep.Passed != 2 || rep.Failed != 1 {
 		t.Fatalf("RunBench = %+v (err=%v)", rep, err)
 	}
+}
+
+func TestV910ModelScoringFailoverChangelogAndBudgets(t *testing.T) {
+	t.Run("TestV910Changelog", func(t *testing.T) {
+		if MaxModelsOut != 64<<10 || MaxChangelogOut != 1<<20 || ChangelogTimeout != 5*time.Second {
+			t.Fatalf("limits = (%d, %d, %s)", MaxModelsOut, MaxChangelogOut, ChangelogTimeout)
+		}
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		// 90 KiB changelog (> 64 KiB MaxModelsOut, < 1 MiB MaxChangelogOut) must succeed.
+		med := filepath.Join(t.TempDir(), "agy-med")
+		medBody := "#!/bin/sh\nprintf '1.9.0: Added gemini-4-neon (1M context); retiring gpt-oss-120b on 2026-11-25\\n'\nhead -c 90000 /dev/zero | tr '\\0' 'x'\nprintf '\\n'\n"
+		if err := os.WriteFile(med, []byte(medBody), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		got := RunAgyChangelog(context.Background(), med)
+		if len(got) < 90000 || !strings.Contains(got, "gemini-4-neon") {
+			t.Fatalf("90 KiB changelog truncated or empty: len=%d", len(got))
+		}
+		// > 1 MiB changelog returns empty cleanly.
+		huge := filepath.Join(t.TempDir(), "agy-huge")
+		hugeBody := "#!/bin/sh\nhead -c 1100000 /dev/zero | tr '\\0' 'x'\n"
+		if err := os.WriteFile(huge, []byte(hugeBody), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if over := RunAgyChangelog(context.Background(), huge); over != "" {
+			t.Fatalf(">1 MiB changelog = %d bytes, want empty", len(over))
+		}
+
+		// Per-clause retirement parsing on ';' and '. ' never mis-tags siblings.
+		entries := []CatalogEntry{
+			{ID: "gemini-4-neon-high", Family: "gemini", Tier: "pro", Status: "active"},
+			{ID: "gpt-oss-120b-medium", Family: "other", Tier: "flash", Status: "active"},
+			{ID: "gemini-4-carbon-high", Family: "gemini", Tier: "pro", Status: "active"},
+			{ID: "legacy-alpha-v1", Family: "other", Tier: "pro", Status: "active"},
+		}
+		for i := range entries {
+			ApplyModelProfile(&entries[i])
+		}
+		applyChangelogText(
+			"2026-11-20: Added gemini-4-neon (1M context); retiring gpt-oss-120b on 2026-11-25\n"+
+				"2026-11-21: Updated gemini-4-carbon with faster reasoning. Deprecated legacy-alpha-v1 on 2026-12-10.\n",
+			entries,
+		)
+		if entries[0].RetiringOn != "" || entries[0].ContextWindow != 1_000_000 {
+			t.Errorf("sibling gemini-4-neon mis-tagged or missing 1M context: %+v", entries[0])
+		}
+		if entries[1].RetiringOn != "2026-11-25" {
+			t.Errorf("gpt-oss RetiringOn = %q, want 2026-11-25", entries[1].RetiringOn)
+		}
+		if entries[2].RetiringOn != "" {
+			t.Errorf("sibling gemini-4-carbon mis-tagged retiring: %+v", entries[2])
+		}
+		if entries[3].RetiringOn != "2026-12-10" {
+			t.Errorf("legacy-alpha-v1 RetiringOn = %q, want 2026-12-10", entries[3].RetiringOn)
+		}
+	})
+
+	t.Run("TestV910ModelScoringFailover", func(t *testing.T) {
+		if UCBExploreCoeff != 0.04 || UCBExploreCap != 0.06 || PriorStrength != 4.0 {
+			t.Fatalf("scoring constants = (%v, %v, %v)", UCBExploreCoeff, UCBExploreCap, PriorStrength)
+		}
+		// 1/1 newcomer must never outrank 94/100 proven peer.
+		proven := CatalogEntry{ID: "gemini-4-carbon-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{DecayedRuns: 100, DecayedSuccesses: 94, BuilderEvidence: RoleEvidence{Runs: 100, Pass: 94, DecayedRuns: 100, DecayedSuccesses: 94}}}
+		newcomer := CatalogEntry{ID: "gemini-5-nova-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{DecayedRuns: 1, DecayedSuccesses: 1, BuilderEvidence: RoleEvidence{Runs: 1, Pass: 1, DecayedRuns: 1, DecayedSuccesses: 1}}}
+		sp := ScoreCandidate(proven, "builder", "pro", 101, nil)
+		sn := ScoreCandidate(newcomer, "builder", "pro", 101, nil)
+		if sn.RankScore >= sp.RankScore {
+			t.Fatalf("1/1 newcomer (%+v) outranked 94/100 proven peer (%+v)", sn, sp)
+		}
+
+		// Role-partitioned shrinkage: builder specialist vs judge specialist.
+		buildSpec := CatalogEntry{ID: "gemini-4-alpha-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{
+				DecayedRuns: 20, DecayedSuccesses: 10,
+				BuilderEvidence: RoleEvidence{Runs: 10, Pass: 9, DecayedRuns: 10, DecayedSuccesses: 9},
+				JudgeEvidence:   RoleEvidence{Runs: 10, Pass: 1, DecayedRuns: 10, DecayedSuccesses: 1},
+			}}
+		judgeSpec := CatalogEntry{ID: "gemini-4-beta-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{
+				DecayedRuns: 20, DecayedSuccesses: 10,
+				BuilderEvidence: RoleEvidence{Runs: 10, Pass: 1, DecayedRuns: 10, DecayedSuccesses: 1},
+				JudgeEvidence:   RoleEvidence{Runs: 10, Pass: 9, DecayedRuns: 10, DecayedSuccesses: 9},
+			}}
+		if ScoreCandidate(buildSpec, "builder", "pro", 40, nil).RankScore <= ScoreCandidate(judgeSpec, "builder", "pro", 40, nil).RankScore {
+			t.Errorf("builder specialist did not outrank judge specialist on builder role")
+		}
+		if ScoreCandidate(judgeSpec, "judge", "pro", 40, nil).RankScore <= ScoreCandidate(buildSpec, "judge", "pro", 40, nil).RankScore {
+			t.Errorf("judge specialist did not outrank builder specialist on judge role")
+		}
+
+		// Bounded EfficiencyBonus (<= 0.08).
+		fastEff := CatalogEntry{ID: "gemini-4-fast-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{DecayedRuns: 20, DecayedSuccesses: 18, MeanTokenEfficiency: 5.0, WorkMeanSeconds: 15}}
+		slowHeavy := CatalogEntry{ID: "gemini-4-slow-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active",
+			Evidence: ModelEvidence{DecayedRuns: 20, DecayedSuccesses: 18, MeanTokenEfficiency: 1.2, WorkMeanSeconds: 300}}
+		sf := ScoreCandidate(fastEff, "builder", "pro", 40, nil)
+		ss := ScoreCandidate(slowHeavy, "builder", "pro", 40, nil)
+		if sf.EfficiencyBonus <= 0 || sf.EfficiencyBonus > 0.08 || sf.RankScore <= ss.RankScore {
+			t.Fatalf("efficiency bonus mismatch: fast=%+v slow=%+v", sf, ss)
+		}
+
+		// Smooth convex HeadroomPenaltyForPct: ((50-pct)/50)^2.
+		for _, tc := range []struct {
+			pct  int
+			want float64
+		}{{80, 0}, {50, 0}, {35, 0.09}, {25, 0.25}, {20, 0.36}, {5, 0.81}, {0, 1.0}, {DisabledWindow, 0}} {
+			if got := HeadroomPenaltyForPct(tc.pct); math.Abs(got-tc.want) > 1e-6 {
+				t.Errorf("HeadroomPenaltyForPct(%d) = %v, want %v", tc.pct, got, tc.want)
+			}
+		}
+
+		// Symmetric failover & ErrAllPoolsExhausted & caller-family & all roles.
+		entries := []CatalogEntry{
+			{ID: "gemini-4-carbon-high", Family: "gemini", Tier: "pro", Effort: "high", Status: "active"},
+			{ID: "gemini-3.8-flash-high", Family: "gemini", Tier: "flash", Effort: "high", Status: "active"},
+			{ID: "claude-opus-5-5-high", Family: "anthropic", Tier: "pro", Effort: "high", Status: "active"},
+			{ID: "claude-sonnet-5-5-high", Family: "anthropic", Tier: "flash", Effort: "high", Status: "active"},
+		}
+		// 0% Gemini -> builder fails over symmetrically to healthy Claude.
+		bFail, err := PickFromEntriesWithPools(entries, nil, []Pool{
+			{Name: "Gemini Models", Five: 0, Week: 50},
+			{Name: "Claude and GPT models", Five: 80, Week: 75},
+		}, "builder", "pro")
+		if err != nil || bFail.Model != "claude-opus-5-5-high" || bFail.FallbackReason == "" {
+			t.Fatalf("builder 0%% Gemini failover = (%+v, %v), want claude-opus-5-5-high", bFail, err)
+		}
+		// All pools <= 0% -> explicit ErrAllPoolsExhausted.
+		if _, err := PickFromEntriesWithPools(entries, nil, []Pool{
+			{Name: "Gemini Models", Five: 0, Week: 0},
+			{Name: "Claude and GPT models", Five: 0, Week: 50},
+		}, "builder", "pro"); !errors.Is(err, ErrAllPoolsExhausted) {
+			t.Fatalf("all pools exhausted err = %v, want ErrAllPoolsExhausted", err)
+		}
+		// --caller-family anthropic picks Gemini for cross-family roles when healthy.
+		healthy := []Pool{{Name: "Gemini Models", Five: 80, Week: 80}, {Name: "Claude and GPT models", Five: 80, Week: 80}}
+		secPick, err := PickFromEntriesWithPoolsAndCaller(entries, nil, healthy, "security", "pro", "anthropic")
+		if err != nil || secPick.Model != "gemini-4-carbon-high" {
+			t.Fatalf("security caller=anthropic = (%+v, %v), want gemini-4-carbon-high", secPick, err)
+		}
+		// All 7+ agent roles normalized cleanly; unknown role & caller-family rejected.
+		for _, role := range []string{"builder", "worker", "planner", "judge", "reviewer", "verifier", "security", "explorer", "documentation", "dreamer", "mechanical"} {
+			if _, _, err := NormalizeRoleTier(role, ""); err != nil {
+				t.Errorf("NormalizeRoleTier(%q) unexpected error: %v", role, err)
+			}
+		}
+		if _, _, err := NormalizeRoleTier("bogus-role", ""); err == nil {
+			t.Errorf("NormalizeRoleTier(bogus-role) succeeded, want error")
+		}
+		if _, err := NormalizeCallerFamily("bogus-fam"); err == nil {
+			t.Errorf("NormalizeCallerFamily(bogus-fam) succeeded, want error")
+		}
+		// Quota-adaptive TTL: 2m when min pool < 30%, 10m otherwise.
+		if got := AdaptivePoolQuotaTTL([]Pool{{Name: "Gemini", Five: 80, Week: 80}, {Name: "Claude", Five: 25, Week: 60}}); got != 2*time.Minute {
+			t.Errorf("AdaptivePoolQuotaTTL(25%%) = %s, want 2m", got)
+		}
+		if got := AdaptivePoolQuotaTTL(healthy); got != 10*time.Minute {
+			t.Errorf("AdaptivePoolQuotaTTL(80%%) = %s, want 10m", got)
+		}
+	})
+
+	t.Run("TestV910ContextBudget", func(t *testing.T) {
+		e := CatalogEntry{ID: "gemini-4-neon-high", DisplayName: "Gemini 4 Neon (High)"}
+		ApplyModelProfile(&e)
+		if e.ContextWindow != 1_000_000 {
+			t.Errorf("gemini-4 ContextWindow = %d, want 1000000", e.ContextWindow)
+		}
+		orch := CatalogEntry{ID: "gemini-pro-orchestrator", DisplayName: "Orchestrator"}
+		ApplyModelProfile(&orch)
+		if orch.ContextWindow != 1_000_000 {
+			t.Errorf("orchestrator ContextWindow = %d, want 1000000", orch.ContextWindow)
+		}
+		hint := CatalogEntry{ID: "claude-opus-5-5-high", DisplayName: "Claude Opus 5.5 (200K context)"}
+		ApplyModelProfile(&hint)
+		if hint.ContextWindow != 200_000 {
+			t.Errorf("hinted ContextWindow = %d, want 200000", hint.ContextWindow)
+		}
+		// Parameter size 120B must NOT be misparsed as context window.
+		oss := CatalogEntry{ID: "gpt-oss-120b-medium", DisplayName: "GPT-OSS 120B (Medium)"}
+		ApplyModelProfile(&oss)
+		if oss.ContextWindow != 128_000 {
+			t.Errorf("gpt-oss ContextWindow = %d, want 128000", oss.ContextWindow)
+		}
+		// Calibrated knee capped at empirical degradation onset (180k-300k).
+		if k := CalibratedContextKnee(1_000_000); k != 300_000 {
+			t.Errorf("CalibratedContextKnee(1M) = %d, want 300000", k)
+		}
+		if k := CalibratedContextKnee(2_000_000); k != 300_000 {
+			t.Errorf("CalibratedContextKnee(2M) = %d, want 300000", k)
+		}
+		if k := CalibratedContextKnee(300_000); k != 180_000 {
+			t.Errorf("CalibratedContextKnee(300k) = %d, want 180000", k)
+		}
+		if k := CalibratedContextKnee(200_000); k != 120_000 {
+			t.Errorf("CalibratedContextKnee(200k) = %d, want 120000", k)
+		}
+	})
 }

@@ -9,21 +9,33 @@ import (
 	"time"
 )
 
+// RoleEvidence holds empirical run counts and decayed totals for one role partition.
+type RoleEvidence struct {
+	Runs             int     `json:"runs,omitempty"`
+	Pass             int     `json:"pass,omitempty"`
+	DecayedRuns      float64 `json:"decayed_runs,omitempty"`
+	DecayedSuccesses float64 `json:"decayed_successes,omitempty"`
+}
+
 // ModelEvidence holds empirical run counts and pass rates for one model ID.
 type ModelEvidence struct {
-	WorkRuns         int     `json:"work_runs"`
-	WorkPass         int     `json:"work_pass"`
-	WorkMeanSeconds  float64 `json:"work_mean_seconds"`
-	EvalRuns         int     `json:"eval_runs"`
-	EvalPass         int     `json:"eval_pass"`
-	TrialRuns        int     `json:"trial_runs"`
-	TrialPass        int     `json:"trial_pass"`
-	JudgeRuns        int     `json:"judge_runs"`
-	JudgePass        int     `json:"judge_pass"`
-	RatingRuns       int     `json:"rating_runs"`
-	RatingScoreSum   float64 `json:"rating_score_sum"`
-	DecayedRuns      float64 `json:"decayed_runs"`
-	DecayedSuccesses float64 `json:"decayed_successes"`
+	WorkRuns            int          `json:"work_runs"`
+	WorkPass            int          `json:"work_pass"`
+	WorkMeanSeconds     float64      `json:"work_mean_seconds"`
+	MeanLatencySeconds  float64      `json:"mean_latency_seconds,omitempty"`
+	EvalRuns            int          `json:"eval_runs"`
+	EvalPass            int          `json:"eval_pass"`
+	TrialRuns           int          `json:"trial_runs"`
+	TrialPass           int          `json:"trial_pass"`
+	JudgeRuns           int          `json:"judge_runs"`
+	JudgePass           int          `json:"judge_pass"`
+	RatingRuns          int          `json:"rating_runs"`
+	RatingScoreSum      float64      `json:"rating_score_sum"`
+	DecayedRuns         float64      `json:"decayed_runs"`
+	DecayedSuccesses    float64      `json:"decayed_successes"`
+	MeanTokenEfficiency float64      `json:"mean_token_efficiency,omitempty"`
+	BuilderEvidence     RoleEvidence `json:"builder_evidence,omitzero"`
+	JudgeEvidence       RoleEvidence `json:"judge_evidence,omitzero"`
 }
 
 // CatalogEntry describes one model tracked in .config/fyr/models.json.
@@ -62,10 +74,14 @@ type RolePick struct {
 	PriorMean       float64 `json:"prior_mean"`
 	PosteriorMean   float64 `json:"posterior_mean"`
 	ExploreBonus    float64 `json:"explore_bonus"`
+	EfficiencyBonus float64 `json:"efficiency_bonus,omitempty"`
 	HeadroomPenalty float64 `json:"headroom_penalty"`
 	RankScore       float64 `json:"rank_score"`
 	DecayedRuns     float64 `json:"decayed_runs"`
 }
+
+// ErrAllPoolsExhausted is returned when every active model's quota pool is <= 0%.
+var ErrAllPoolsExhausted = errors.New("all active model quota pools are exhausted (<= 0%)")
 
 // Catalog is the persisted .config/fyr/models.json document.
 type Catalog struct {
@@ -87,6 +103,10 @@ var StandardRoleTiers = [][2]string{
 	{"reviewer", "flash"},
 	{"verifier", "pro"},
 	{"verifier", "flash"},
+	{"security", "pro"},
+	{"explorer", "flash"},
+	{"documentation", "flash"},
+	{"dreamer", "pro"},
 	{"mechanical", "flash"},
 }
 
@@ -224,23 +244,8 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 	entries := make([]CatalogEntry, 0, len(parsed)+len(prevByID))
 	for _, e := range parsed {
 		seen[e.ID] = true
+		preserveCatalogHistory(&e, prevByID, hasPrev, today)
 		ApplyModelProfile(&e)
-		if old, ok := prevByID[e.ID]; ok {
-			e.Status = "active"
-			e.FirstSeen = nonEmpty(old.FirstSeen, today)
-			e.ChangelogNote = nonEmpty(e.ChangelogNote, old.ChangelogNote)
-			e.RetiringOn = nonEmpty(e.RetiringOn, old.RetiringOn)
-			if e.ContextWindow <= 0 {
-				e.ContextWindow = old.ContextWindow
-			}
-		} else if hasPrev {
-			e.Status = "new"
-			e.FirstSeen = today
-		} else {
-			e.Status = "active"
-			e.FirstSeen = today
-		}
-		e.LastSeen = today
 		entries = append(entries, e)
 	}
 	if hasPrev {
@@ -257,11 +262,56 @@ func mergeCatalogEntries(today string, parsed []CatalogEntry, prev *Catalog, evi
 	return entries
 }
 
+func preserveCatalogHistory(e *CatalogEntry, prevByID map[string]CatalogEntry, hasPrev bool, today string) {
+	if old, ok := prevByID[e.ID]; ok {
+		e.Status = "active"
+		e.FirstSeen = nonEmpty(old.FirstSeen, today)
+		e.ChangelogNote = nonEmpty(e.ChangelogNote, old.ChangelogNote)
+		e.RetiringOn = nonEmpty(e.RetiringOn, old.RetiringOn)
+		if e.ContextWindow <= 0 && ParseContextWindowHint(e.DisplayName) == 0 && old.ContextWindow > 0 {
+			e.ContextWindow = old.ContextWindow
+		}
+	} else if hasPrev {
+		e.Status = "new"
+		e.FirstSeen = today
+	} else {
+		e.Status = "active"
+		e.FirstSeen = today
+	}
+	e.LastSeen = today
+}
+
 func nonEmpty(a, b string) string {
 	if a != "" {
 		return a
 	}
 	return b
+}
+
+// IsCrossFamilyRole reports whether role requires cross-family dispatch.
+func IsCrossFamilyRole(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "judge", "reviewer", "verifier", "security":
+		return true
+	default:
+		return false
+	}
+}
+
+// NormalizeCallerFamily normalizes an optional caller family hint.
+func NormalizeCallerFamily(fam string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(fam)) {
+	case "":
+		return "", nil
+	case "gemini", "google":
+		return "gemini", nil
+	case "anthropic", "claude":
+		return "anthropic", nil
+	case "other", "openai", "gpt":
+		return "other", nil
+	default:
+		return "", fmt.Errorf("unknown caller family %q (want gemini, anthropic or other)", fam)
+	}
 }
 
 // NormalizeRoleTier normalizes role and tier names for catalog lookups.
@@ -271,14 +321,15 @@ func NormalizeRoleTier(role, tier string) (normRole, normTier string, err error)
 		normRole = "builder"
 	}
 	switch normRole {
-	case "builder", "planner", "judge", "reviewer", "verifier", "mechanical":
+	case "builder", "planner", "judge", "reviewer", "verifier", "security",
+		"explorer", "documentation", "dreamer", "mechanical":
 	default:
-		return "", "", fmt.Errorf("unknown role %q (want builder, planner, judge, reviewer, verifier or mechanical)", role)
+		return "", "", fmt.Errorf("unknown role %q (want builder, planner, judge, reviewer, verifier, security, explorer, documentation, dreamer or mechanical)", role)
 	}
 	rawTier := strings.ToLower(strings.Trim(strings.TrimSpace(tier), "[]"))
 	switch rawTier {
 	case "":
-		if normRole == "mechanical" {
+		if normRole == "mechanical" || normRole == "explorer" || normRole == "documentation" {
 			normTier = "flash"
 		} else {
 			normTier = "pro"
@@ -307,13 +358,42 @@ func PickFromEntries(entries []CatalogEntry, prevPicks map[string]RolePick, role
 
 // PickFromEntriesWithPools chooses the highest-ranked active model in entries for role+tier.
 func PickFromEntriesWithPools(entries []CatalogEntry, prevPicks map[string]RolePick, pools []Pool, role, tier string) (RolePick, error) {
+	return PickFromEntriesWithPoolsAndCaller(entries, prevPicks, pools, role, tier, "")
+}
+
+// PickFromEntriesWithPoolsAndCaller selects the highest-ranked active model for
+// role+tier considering quota pools and an optional caller family for cross-family roles.
+func PickFromEntriesWithPoolsAndCaller(entries []CatalogEntry, prevPicks map[string]RolePick, pools []Pool, role, tier, callerFamily string) (RolePick, error) {
 	normRole, normTier, err := NormalizeRoleTier(role, tier)
 	if err != nil {
 		return RolePick{}, err
 	}
-	active := make([]CatalogEntry, 0, len(entries))
-	eligible := make([]CatalogEntry, 0, len(entries))
-	goneIDs := map[string]bool{}
+	normCaller, err := NormalizeCallerFamily(callerFamily)
+	if err != nil {
+		return RolePick{}, err
+	}
+	active, eligible, goneIDs := partitionActiveEntries(entries)
+	if len(active) == 0 {
+		return RolePick{}, errors.New("no active models in catalog")
+	}
+	if len(eligible) == 0 {
+		eligible = active
+	}
+	if allActivePoolsExhausted(eligible, pools) {
+		return RolePick{}, ErrAllPoolsExhausted
+	}
+	prevModel := prevPicks[normRole+":"+normTier].Model
+	if IsCrossFamilyRole(normRole) {
+		return pickCrossFamilyRole(eligible, goneIDs, pools, prevModel, normRole, normTier, normCaller), nil
+	}
+	chosen, sc, reason, fb := pickGeminiOrAny(eligible, goneIDs, pools, prevModel, normRole, normTier)
+	return buildRolePick(normRole, normTier, chosen.ID, reason, fb, sc), nil
+}
+
+func partitionActiveEntries(entries []CatalogEntry) (active, eligible []CatalogEntry, goneIDs map[string]bool) {
+	active = make([]CatalogEntry, 0, len(entries))
+	eligible = make([]CatalogEntry, 0, len(entries))
+	goneIDs = map[string]bool{}
 	for _, e := range entries {
 		ApplyModelProfile(&e)
 		if e.Status == "gone" {
@@ -325,16 +405,5 @@ func PickFromEntriesWithPools(entries []CatalogEntry, prevPicks map[string]RoleP
 			eligible = append(eligible, e)
 		}
 	}
-	if len(active) == 0 {
-		return RolePick{}, errors.New("no active models in catalog")
-	}
-	if len(eligible) == 0 {
-		eligible = active
-	}
-	prevModel := prevPicks[normRole+":"+normTier].Model
-	if normRole == "judge" || normRole == "reviewer" || normRole == "verifier" {
-		return pickCrossFamilyRole(eligible, goneIDs, pools, prevModel, normRole, normTier), nil
-	}
-	chosen, sc, reason, fb := pickGeminiOrAny(eligible, goneIDs, pools, prevModel, normRole, normTier)
-	return buildRolePick(normRole, normTier, chosen.ID, reason, fb, sc), nil
+	return active, eligible, goneIDs
 }

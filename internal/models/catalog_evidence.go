@@ -199,6 +199,7 @@ func buildListedCatalogEntriesAndPools(home string, ids []string) ([]CatalogEntr
 }
 
 func mergeStemEvidence(dst *ModelEvidence, ex ModelEvidence) {
+	prevRatings := dst.RatingRuns
 	dst.EvalRuns += ex.EvalRuns
 	dst.EvalPass += ex.EvalPass
 	dst.TrialRuns += ex.TrialRuns
@@ -207,6 +208,26 @@ func mergeStemEvidence(dst *ModelEvidence, ex ModelEvidence) {
 	dst.JudgePass += ex.JudgePass
 	dst.RatingRuns += ex.RatingRuns
 	dst.RatingScoreSum += ex.RatingScoreSum
+	dst.DecayedRuns += ex.DecayedRuns
+	dst.DecayedSuccesses += ex.DecayedSuccesses
+	mergeRoleEvidence(&dst.BuilderEvidence, ex.BuilderEvidence)
+	mergeRoleEvidence(&dst.JudgeEvidence, ex.JudgeEvidence)
+	if ex.MeanTokenEfficiency > 0 {
+		eff := ex.MeanTokenEfficiency
+		if dst.MeanTokenEfficiency > 0 && prevRatings > 0 && ex.RatingRuns > 0 {
+			tot := float64(prevRatings + ex.RatingRuns)
+			eff = (dst.MeanTokenEfficiency*float64(prevRatings) + eff*float64(ex.RatingRuns)) / tot
+		}
+		dst.MeanTokenEfficiency = eff
+	}
+	if dst.MeanLatencySeconds <= 0 && ex.MeanLatencySeconds > 0 {
+		dst.MeanLatencySeconds = ex.MeanLatencySeconds
+	}
+}
+
+func mergeRoleEvidence(dst *RoleEvidence, ex RoleEvidence) {
+	dst.Runs += ex.Runs
+	dst.Pass += ex.Pass
 	dst.DecayedRuns += ex.DecayedRuns
 	dst.DecayedSuccesses += ex.DecayedSuccesses
 }
