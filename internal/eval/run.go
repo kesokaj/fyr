@@ -26,6 +26,7 @@ type Options struct {
 	Self           string // os.Executable(): the fyr that installs and lists
 	Repo           string // the install source tree (D16); "" is the harness embedded in Self
 	Runner         string // sandbox runner: isolate ("" uses isolate.DefaultRunner)
+	Model          string // explicit agy --model override; "" keeps default agy model
 	Runs           int    // trials per row, 1 to MaxRuns; 0 is 1
 	Parallel       int    // trials at once, 1 to MaxParallel; 0 is 1
 	ACP            bool   // drive trials via `agy acp --stdio --process-per-session`

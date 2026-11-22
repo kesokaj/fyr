@@ -48,7 +48,7 @@ func newRow(o Options, r Row, dir, stamp string) *row {
 	b := isolate.New(isolate.Config{
 		Dir: dir, Source: o.Fixture, RealHome: o.RealHome, Repo: o.Repo, Self: o.Self,
 		Grants: grants, GitName: "agy-rel", GitEmail: "agy-rel@localhost",
-		Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
+		Model: o.Model, Timeout: timeout, SkipStores: true, BrainWatch: trialBrainWatch(o, dir),
 		PrintTimeout: printTimeout, StopGrace: stopGrace,
 		Prefix: "eval: " + r.ID, Out: o.Out, ACP: r.ACP || o.ACP,
 		TestRO: o.TestRO, TestRW: o.TestRW, TestUnconfined: o.TestUnconfined,
