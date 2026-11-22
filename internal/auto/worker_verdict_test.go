@@ -91,7 +91,7 @@ func TestFinishWorkerTamperSaveWarnings(t *testing.T) {
 	}
 	r := &run{o: Options{Home: home}, cfg: defaults(), st: State{Date: "2026-11-01", ModelRuns: 1}}
 	v, fs := r.finishWorker(context.Background(), root, &Project{}, Task{Class: ClassMemoryConsolidation}, Kickoff{Name: "k", Branch: "work/k"},
-		isolate.RunnerIsolate, isolate.RunnerIsolate, nil, nil, "", checkoutSnapshot{}, nil,
+		isolate.RunnerIsolate, isolate.RunnerIsolate, "", nil, nil, "", checkoutSnapshot{}, nil,
 		isolate.WorkerResult{Reasons: []string{isolate.ReasonRealConfig}}, nil, time.Time{})
 	if !strings.Contains(v, "could not disable config:") || !strings.Contains(v, "could not save state:") {
 		t.Errorf("config tamper verdict missing save warnings: %q", v)
@@ -116,7 +116,7 @@ func TestFinishWorkerTamperSaveWarnings(t *testing.T) {
 	}
 	r2 := &run{o: Options{Home: home2}, cfg: defaults(), st: State{Date: "2026-11-01", ModelRuns: 1}}
 	v2, fs2 := r2.finishWorker(context.Background(), root, &Project{}, Task{Class: ClassMemoryConsolidation}, Kickoff{Name: "k", Branch: "work/k"},
-		isolate.RunnerIsolate, isolate.RunnerIsolate, cfgBytes, cfgErr, "mismatch", checkoutSnapshot{}, nil,
+		isolate.RunnerIsolate, isolate.RunnerIsolate, "", cfgBytes, cfgErr, "mismatch", checkoutSnapshot{}, nil,
 		isolate.WorkerResult{Verdict: "PASS"}, nil, time.Time{})
 	if !strings.Contains(v2, "FAIL (runs.json changed during the run; warning: could not restore state:") {
 		t.Errorf("state tamper verdict missing restore warning: %q", v2)

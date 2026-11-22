@@ -684,7 +684,7 @@ func TestEvalGate(t *testing.T) {
 		// verify recordAppliedDigestCheckpoint directly does not create metrics.db).
 		noDBHome := t.TempDir()
 		rNoDB := &run{o: Options{Home: noDBHome, Now: func() time.Time { return runAt }}, appliedSHA: "abc1234"}
-		rNoDB.recordAppliedDigestCheckpoint(root, Task{Class: ClassHarnessEdit, SignalID: "sig:global:x", ReportDate: "2026-10-31"})
+		rNoDB.recordAppliedDigestCheckpoint(root, Task{Class: ClassHarnessEdit, SignalID: "sig:global:x", ReportDate: "2026-10-31"}, "")
 		if _, err := os.Stat(metrics.Path(noDBHome)); !os.IsNotExist(err) {
 			t.Errorf("recordAppliedDigestCheckpoint created metrics.db when absent: err=%v", err)
 		}

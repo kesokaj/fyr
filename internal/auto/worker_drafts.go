@@ -18,40 +18,41 @@ import (
 )
 
 // collectAutoDrafts copies auto-drafts.jsonl from the worker's DraftsDir into
-// ~/.config/fyr/auto/drafts/<name>.jsonl (D26 S1) and returns any D39 finding
-// lines for the project's report.
-func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResult) ([]Finding, error) {
+// ~/.config/fyr/auto/drafts/<name>.jsonl (D26 S1), returning any D39 finding
+// lines and the optional validated sim_manifest for eval-gate runs.
+func (r *run) collectAutoDrafts(root, name, class string, res isolate.WorkerResult) ([]Finding, *simManifest, error) {
 	if res.Drafts == 0 || res.DraftsDir == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	baseRoot, rel, ok, err := resolveDraftsLocation(r.o.Home, root, res.DraftsDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ok {
-		return nil, nil
+		return nil, nil, nil
 	}
 	defer baseRoot.Close()
 	f, err := baseRoot.OpenFile(filepath.Join(rel, "auto-drafts.jsonl"), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
-		return nil, errors.New("auto-drafts.jsonl unreadable or over 1 MiB")
+		return nil, nil, errors.New("auto-drafts.jsonl unreadable or over 1 MiB")
 	}
 	if err := ensureSubdir(r.o.Home, "drafts"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dest := filepath.Join(dir(r.o.Home), "drafts", name+".jsonl")
 	if err := harness.WriteAtomic(dest, data, 0o600); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return r.processDraftLines(root, class, data), nil
+	fs, manifest := r.processDraftLines(root, class, data)
+	return fs, manifest, nil
 }
 
 func resolveDraftsLocation(home, root, draftsDir string) (*os.Root, string, bool, error) {

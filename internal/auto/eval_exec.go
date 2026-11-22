@@ -10,10 +10,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/eval"
 	"github.com/kesokaj/fyr/internal/isolate"
+	"github.com/kesokaj/fyr/internal/metrics"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -30,12 +32,13 @@ type EvalRequest struct {
 
 // EvalOutcome is the result of one `fyr eval` invocation.
 type EvalOutcome struct {
-	Row      string
-	Passed   int
-	Graded   int
-	Errors   int
-	RecordID string
-	Output   string
+	Row         string
+	Passed      int
+	Graded      int
+	Errors      int
+	RecordID    string
+	PolicyModel string
+	Output      string
 }
 
 var evalSummaryRe = regexp.MustCompile(`(?m)^eval: (\d+) of (\d+) PASS, (\d+) errors?; record (\S+)\s*$`)
@@ -185,11 +188,19 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 			return EvalOutcome{}, fmt.Errorf("checkout %s for eval: %v: %s", req.Commit, err, oneLine(out))
 		}
 	}
+	startedAt := time.Now().UTC()
 	cmd := exec.CommandContext(ctx, self, evalArgv(req)...)
 	cmd.Dir = cloneDir
 	cmd.Env = evalCleanEnv()
 	raw, runErr := cmd.CombinedOutput()
-	return parseEvalOutcome(req.Row, string(raw), runErr)
+	out, err := parseEvalOutcome(req.Row, string(raw), runErr)
+	if err != nil {
+		return EvalOutcome{}, err
+	}
+	if out.PolicyModel == "" {
+		out.PolicyModel = metrics.LatestTrialModel(req.Home, req.Row, startedAt.UnixMilli())
+	}
+	return out, nil
 }
 
 func evalArgv(req EvalRequest) []string {

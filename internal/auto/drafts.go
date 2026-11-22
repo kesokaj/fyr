@@ -34,14 +34,23 @@ type draftLine struct {
 	ReportDate        string
 	ActionScope       string
 	RecommendedAction string
+	ProblemID         string
+	RootCause         string
+	MechanismClass    string
+	Rationale         string
+	PredictedRows     string
+	PredictedSignals  string
+	hasSIMField       bool
+	hasOtherField     bool
 }
 
 // processDraftLines validates each JSONL line from a worker's auto-drafts.jsonl
 // and writes valid memory, feedback and proposal records with provenance
 // "derived" (§ Drafts, D8, D39). Invalid lines become report findings and are
-// never stored.
-func (r *run) processDraftLines(root, class string, data []byte) []Finding {
+// never stored. At most one valid sim_manifest is returned for eval-gate runs.
+func (r *run) processDraftLines(root, class string, data []byte) ([]Finding, *simManifest) {
 	var out []Finding
+	var manifest *simManifest
 	lines := strings.Split(string(data), "\n")
 	nonEmpty := 0
 	for i, raw := range lines {
@@ -60,6 +69,12 @@ func (r *run) processDraftLines(root, class string, data []byte) []Finding {
 			out = append(out, Finding{"draft", "invalid", class, fmt.Sprintf("line %d: %s", lineNum, oneLine(err.Error()))})
 			continue
 		}
+		if mf, handled := handleSIMManifestDraft(class, lineNum, d, &manifest); handled {
+			if mf.Check != "" {
+				out = append(out, mf)
+			}
+			continue
+		}
 		f, err := r.applyDraftLine(root, class, d)
 		if err != nil {
 			out = append(out, Finding{"draft", "invalid", class, fmt.Sprintf("line %d: %s", lineNum, oneLine(err.Error()))})
@@ -69,7 +84,7 @@ func (r *run) processDraftLines(root, class string, data []byte) []Finding {
 			out = append(out, f)
 		}
 	}
-	return out
+	return out, manifest
 }
 
 func parseAndValidateDraft(line string) (draftLine, error) {
@@ -92,11 +107,8 @@ func parseAndValidateDraft(line string) (draftLine, error) {
 	if hasControlDraftMeta(d) {
 		return draftLine{}, errors.New("draft metadata contains control characters")
 	}
-	if len(d.Body) >= draftMaxBytes {
-		return draftLine{}, errors.New("draft body is 4 KiB or larger")
-	}
-	if strings.TrimSpace(d.Body) == "" {
-		return draftLine{}, errors.New("draft body is empty")
+	if err := validateDraftKindFields(d); err != nil {
+		return draftLine{}, err
 	}
 	return d, nil
 }
@@ -105,7 +117,8 @@ func redactorRefusesDraft(d draftLine) bool {
 	for _, fld := range []string{
 		d.Kind, d.Action, d.ID, d.Target, d.Title, d.Body, d.Quote,
 		d.MemoryType, d.Scope, d.Sessions, d.SignalID, d.ReportDate,
-		d.ActionScope, d.RecommendedAction,
+		d.ActionScope, d.RecommendedAction, d.ProblemID, d.RootCause,
+		d.MechanismClass, d.Rationale, d.PredictedRows, d.PredictedSignals,
 	} {
 		if redact.Redact(fld) != fld {
 			return true
@@ -118,12 +131,14 @@ func hasControlDraftMeta(d draftLine) bool {
 	for _, fld := range []string{
 		d.ID, d.Title, d.MemoryType, d.Scope, d.Sessions,
 		d.SignalID, d.ReportDate, d.ActionScope, d.RecommendedAction,
+		d.ProblemID, d.RootCause, d.MechanismClass, d.Rationale,
+		d.PredictedRows, d.PredictedSignals,
 	} {
 		if strings.ContainsAny(fld, "\r\n\x00") {
 			return true
 		}
 	}
-	return false
+	return hasSIMControlChar(d)
 }
 
 // decodeDraftObject reads one JSON object key by key, refusing repeated keys,
@@ -163,9 +178,13 @@ func decodeDraftObject(line string) (draftLine, error) {
 }
 
 func setDraftField(d *draftLine, key, val string) error {
+	if setSIMDraftField(d, key, val) {
+		return nil
+	}
 	switch key {
 	case "kind":
 		d.Kind = val
+		return nil
 	case "action":
 		d.Action = val
 	case "id":
@@ -195,6 +214,7 @@ func setDraftField(d *draftLine, key, val string) error {
 	default:
 		return fmt.Errorf("unknown key %q", key)
 	}
+	d.hasOtherField = true
 	return nil
 }
 

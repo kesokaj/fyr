@@ -225,14 +225,14 @@ func renderClassTask(t Task) (string, error) {
 	case ClassMemoryCandidates:
 		return fmt.Sprintf("Extract memory candidates from the %d redacted conversation(s) using ONLY the redacted learning input and SessionDigest (zero tool calls / zero repo exploration) as memory add drafts in .agents/scratch/agents/auto-drafts.jsonl.", t.Count), nil
 	case ClassDistill:
-		return fmt.Sprintf("Distill the repeated verb sequence (%d sessions) into %s and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.Count, files), nil
+		return fmt.Sprintf("Distill the repeated verb sequence (%d sessions) into %s, write a proposal draft, and emit one sim_manifest line in .agents/scratch/agents/auto-drafts.jsonl naming problem_id or root_cause, mechanism_class, rationale, predicted_rows, and predicted_signals.", t.Count, files), nil
 	case ClassMissingSkill:
 		return fmt.Sprintf("Search skills.sh for the missing skill from %s (%d candidate(s)) and write a proposal draft to .agents/scratch/agents/auto-drafts.jsonl.", t.ID, t.Count), nil
 	case ClassHarnessEdit:
 		if t.ID == "" {
 			return "", errors.New("harness-edit requires a proposal ID")
 		}
-		return fmt.Sprintf("Apply the queued harness proposal %s to %s.", t.ID, files), nil
+		return fmt.Sprintf("Apply the queued harness proposal %s to %s and emit one sim_manifest line in .agents/scratch/agents/auto-drafts.jsonl naming problem_id or root_cause, mechanism_class, rationale, predicted_rows, and predicted_signals.", t.ID, files), nil
 	default:
 		return "", fmt.Errorf("unknown auto task class %q", t.Class)
 	}

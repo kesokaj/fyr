@@ -155,7 +155,7 @@ func (r *run) execWorker(root string, p *Project, t Task) (string, []Finding) {
 	if len(resList) > 0 {
 		res = resList[0]
 	}
-	return r.finishWorker(sig, root, p, t, k, wo.Runner, runnerWhy, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr, learningCutoff)
+	return r.finishWorker(sig, root, p, t, k, wo.Runner, runnerWhy, wo.Model, cfgBefore, cfgErr, stateHash, snapBefore, snapErr, res, runErr, learningCutoff)
 }
 
 func (r *run) recordWorkerStart() (string, error) {
@@ -207,7 +207,7 @@ func (r *run) pickWorkerModel(t Task) string {
 	return pick.Model
 }
 
-func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task, k Kickoff, runner, runnerWhy string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error, learningCutoff time.Time) (string, []Finding) {
+func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task, k Kickoff, runner, runnerWhy, workerModel string, cfgBefore []byte, cfgErr error, stateHash string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, runErr error, learningCutoff time.Time) (string, []Finding) {
 	defer r.cleanWorkerDrafts(root, res.DraftsDir)
 	if err := verifyAutoDirs(r.o.Home); err != nil {
 		r.failed, r.halted = true, true
@@ -218,27 +218,12 @@ func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task,
 		return r.handleConfigTamper(k.Branch, runnerWhy)
 	}
 	if gotHash, err := fileSHA256(filepath.Join(dir(r.o.Home), "runs.json")); err != nil || gotHash != stateHash {
-		detail := "runs.json changed during the run"
-		if err := saveState(r.o.Home, r.st); err != nil {
-			detail += "; warning: could not restore state: " + oneLine(err.Error())
-		}
-		r.failed = true
-		msg := withRunner("FAIL ("+detail+"); branch "+k.Branch+" kept", runnerWhy)
-		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+		return r.handleStateTamper(t.Class, k.Branch, runnerWhy)
 	}
 	if runErr != nil || res.Verdict != "PASS" {
-		r.failed = true
-		if slices.Contains(res.Reasons, isolate.ReasonLeadChanged) {
-			return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
-		}
-		why := strings.Join(res.Reasons, "; ")
-		if runErr != nil {
-			why = oneLine(runErr.Error())
-		}
-		msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", why, k.Branch), runnerWhy)
-		return msg, []Finding{{"worker", t.Class, k.Branch, msg}}
+		return r.handleWorkerFailure(t.Class, k.Branch, runnerWhy, res, runErr)
 	}
-	draftFindings, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
+	draftFindings, manifest, err := r.collectAutoDrafts(root, k.Name, t.Class, res)
 	if err != nil {
 		r.failed = true
 		msg := withRunner(fmt.Sprintf("FAIL (drafts: %s); branch %s kept", oneLine(err.Error()), k.Branch), runnerWhy)
@@ -247,8 +232,31 @@ func (r *run) finishWorker(ctx context.Context, root string, p *Project, t Task,
 	r.cleanWorkerDrafts(root, res.DraftsDir)
 	p.LastClass = t.Class
 	r.recordLearningProgress(p, t, learningCutoff)
-	v, bf := r.finishPassBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+	v, bf := r.finishPassBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, manifest, workerModel)
 	return v, append(draftFindings, bf...)
+}
+
+func (r *run) handleStateTamper(class, branch, runnerWhy string) (string, []Finding) {
+	detail := "runs.json changed during the run"
+	if err := saveState(r.o.Home, r.st); err != nil {
+		detail += "; warning: could not restore state: " + oneLine(err.Error())
+	}
+	r.failed = true
+	msg := withRunner("FAIL ("+detail+"); branch "+branch+" kept", runnerWhy)
+	return msg, []Finding{{"worker", class, branch, msg}}
+}
+
+func (r *run) handleWorkerFailure(class, branch, runnerWhy string, res isolate.WorkerResult, runErr error) (string, []Finding) {
+	r.failed = true
+	if slices.Contains(res.Reasons, isolate.ReasonLeadChanged) {
+		return r.checkoutMovedFail(runnerWhy, class, branch)
+	}
+	why := strings.Join(res.Reasons, "; ")
+	if runErr != nil {
+		why = oneLine(runErr.Error())
+	}
+	msg := withRunner(fmt.Sprintf("FAIL (%s); branch %s kept", why, branch), runnerWhy)
+	return msg, []Finding{{"worker", class, branch, msg}}
 }
 
 func (r *run) recordLearningProgress(p *Project, t Task, cutoff time.Time) {
@@ -268,9 +276,9 @@ func (r *run) recordLearningProgress(p *Project, t Task, cutoff time.Time) {
 	}
 }
 
-func (r *run) finishPassBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
+func (r *run) finishPassBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, manifest *simManifest, workerModel string) (string, []Finding) {
 	if t.Outcome == OutcomeEvalGate {
-		return r.evalGateBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
+		return r.evalGateBranch(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, manifest, workerModel)
 	}
 	msg := withRunner(fmt.Sprintf("PASS; branch %s kept", k.Branch), runnerWhy)
 	return msg, []Finding{{"worker", t.Class, k.Branch, msg}}

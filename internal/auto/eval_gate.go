@@ -48,7 +48,7 @@ func (r *run) isHarnessCheckout(root string) bool {
 	return r.o.Repo != "" && trail.SameDir(root, r.o.Repo)
 }
 
-func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult) (string, []Finding) {
+func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, manifest *simManifest, workerModel string) (string, []Finding) {
 	if snapErr != nil || (res.Base != "" && res.Base != snapBefore.head) {
 		return r.checkoutMovedFail(runnerWhy, t.Class, k.Branch)
 	}
@@ -70,18 +70,15 @@ func (r *run) evalGateBranch(ctx context.Context, root string, t Task, k Kickoff
 	}
 	var seedFindings []Finding
 	if seeded {
-		seedFindings = []Finding{{
-			Check: "eval-gate",
-			Rule:  "holdout-seeded",
-			Where: holdoutPath,
-			Text:  "seeded missing holdout suite from .agents/eval/holdout-starter.md",
-		}}
+		seedFindings = []Finding{{"eval-gate", "holdout-seeded", holdoutPath, "seeded missing holdout suite from .agents/eval/holdout-starter.md"}}
 	}
 	rows, err := collectGateRows(r.o.Home, root, holdoutPath, changed, t.Class)
 	if err != nil {
 		return r.rejectEvalGate(root, t, k, runnerWhy, nil, 0, err.Error(), seedFindings)
 	}
-	v, fs := r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, candSHA, rows)
+	rows = appendPredictedGateRows(r.o.Home, root, rows, manifest)
+	simCtx := newGateSIMCtx(root, t, snapBefore.head, candSHA, changed, manifest, workerModel)
+	v, fs := r.runEvalGateRows(ctx, root, t, k, runner, runnerWhy, snapBefore, snapErr, res, simCtx, rows)
 	return v, append(seedFindings, fs...)
 }
 
@@ -273,7 +270,7 @@ func collectGateRows(home, root, holdoutPath string, changed []string, class str
 	return rows, nil
 }
 
-func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, candSHA string, rows []gateRow) (string, []Finding) {
+func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, simCtx *gateSIMCtx, rows []gateRow) (string, []Finding) {
 	runsBefore := max(0, r.st.modelRunsToday(r.o.now())-1)
 	var findings []Finding
 	var scores []gateRowScore
@@ -281,25 +278,35 @@ func (r *run) runEvalGateRows(ctx context.Context, root string, t Task, k Kickof
 	for i, gr := range rows {
 		if sessions+2*gateRuns > maxEvalGateSessions {
 			reason := fmt.Sprintf("stopped at %d eval sessions (%d of %d rows evaluated)", sessions, len(scores), len(rows))
-			return r.rejectEvalGate(root, t, k, runnerWhy, scores, sessions, reason, findings)
+			verdict := "not_kept"
+			if len(scores) == 0 {
+				verdict = "skipped"
+			}
+			return r.rejectEvalGateSIM(root, t, k, runnerWhy, simCtx, scores, sessions, reason, verdict, findings)
 		}
 		if i > 0 {
 			if stopReason := r.betweenEvalRows(root, runsBefore, gr.ID, &findings); stopReason != "" {
-				return r.rejectEvalGate(root, t, k, runnerWhy, scores, sessions, "stopped between rows: "+stopReason, findings)
+				verdict := "not_kept"
+				if len(scores) == 0 {
+					verdict = "skipped"
+				}
+				return r.rejectEvalGateSIM(root, t, k, runnerWhy, simCtx, scores, sessions, "stopped between rows: "+stopReason, verdict, findings)
 			}
 		}
-		pOut, cOut, err := r.evalPair(ctx, root, snapBefore.head, candSHA, gr)
+		pOut, cOut, err := r.evalPair(ctx, root, snapBefore.head, scCandSHA(simCtx), gr)
 		if err != nil {
-			return r.applyFail(runnerWhy, k.Branch, "eval gate: "+err.Error())
+			simF := r.recordStageASIM(simCtx, scores, "skipped", scCandSHA(simCtx), "n/a", t.ID, "", "")
+			v, af := r.applyFail(runnerWhy, k.Branch, "eval gate: "+err.Error())
+			return v, append(append(findings, simF...), af...)
 		}
 		sessions += 2 * gateRuns
 		scores = append(scores, gateRowScore{row: gr, parent: pOut, cand: cOut})
 		findings = append(findings, Finding{"eval-gate", "row", gr.ID, fmt.Sprintf("parent %d/%d, candidate %d/%d", pOut.Passed, pOut.Graded, cOut.Passed, cOut.Graded)})
 		if why := rowKeepError(gr, pOut, cOut); why != "" {
-			return r.rejectEvalGate(root, t, k, runnerWhy, scores, sessions, why, findings)
+			return r.rejectEvalGateSIM(root, t, k, runnerWhy, simCtx, scores, sessions, why, "not_kept", findings)
 		}
 	}
-	return r.applyKeptGateBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, scores, sessions, findings)
+	return r.applyKeptGateBranchSIM(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, simCtx, scores, sessions, findings)
 }
 
 func (r *run) evalPair(ctx context.Context, root, parentSHA, candSHA string, gr gateRow) (EvalOutcome, EvalOutcome, error) {
@@ -331,13 +338,7 @@ func rowKeepError(gr gateRow, parent, cand EvalOutcome) string {
 }
 
 func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, scores []gateRowScore, sessions int, gateFindings []Finding) (string, []Finding) {
-	v, af := r.applyBranch(root, t, k, runner, runnerWhy, snapBefore, snapErr, res)
-	if r.appliedSHA == "" {
-		propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, v)
-		return fmt.Sprintf("%s; proposal %s", v, propID), append(gateFindings, af...)
-	}
-	v, af = r.finishKeptGateApply(root, t, v, af)
-	return v, append(gateFindings, af...)
+	return r.applyKeptGateBranchSIM(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, nil, scores, sessions, gateFindings)
 }
 
 func (r *run) rejectEvalGate(root string, t Task, k Kickoff, runnerWhy string, scores []gateRowScore, sessions int, reason string, gateFindings []Finding) (string, []Finding) {

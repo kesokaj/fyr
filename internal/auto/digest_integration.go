@@ -139,7 +139,7 @@ func formatTriggerProse(sigID, repDate string) string {
 	return ""
 }
 
-func (r *run) finishKeptGateApply(root string, t Task, v string, af []Finding) (string, []Finding) {
+func (r *run) finishKeptGateApply(root string, t Task, policyModel, v string, af []Finding) (string, []Finding) {
 	// D19 item 3: auto never installs into a real home; the report says install pending.
 	r.installPending = true
 	warn := ""
@@ -151,7 +151,7 @@ func (r *run) finishKeptGateApply(root string, t Task, v string, af []Finding) (
 			r.st.OpenAsks--
 		}
 	}
-	r.recordAppliedDigestCheckpoint(root, t)
+	r.recordAppliedDigestCheckpoint(root, t, policyModel)
 	suffix := "; install pending" + warn
 	v += suffix
 	for i := range af {
@@ -162,7 +162,7 @@ func (r *run) finishKeptGateApply(root string, t Task, v string, af []Finding) (
 	return v, af
 }
 
-func (r *run) recordAppliedDigestCheckpoint(root string, t Task) {
+func (r *run) recordAppliedDigestCheckpoint(root string, t Task, policyModel string) {
 	if r.appliedSHA == "" || r.o.Apply != nil {
 		return
 	}
@@ -183,6 +183,7 @@ func (r *run) recordAppliedDigestCheckpoint(root string, t Task) {
 		ActionScope: "auto_skill", Status: metrics.StatusPendingData, InstallPending: true,
 		RevertCmd: "git revert " + r.appliedSHA, Summary: oneLine(t.Class + " applied " + r.appliedSHA),
 		AppliedSHA: r.appliedSHA, Metric: metric, BaselineValue: baseVal, AppliedAt: now.UnixMilli(),
+		PolicyModel: strings.TrimSpace(policyModel),
 	})
 }
 

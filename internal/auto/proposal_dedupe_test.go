@@ -19,7 +19,7 @@ func TestDraftsProposalDeduplicatesStillRegressingInPlace(t *testing.T) {
 
 	feed := func(label, lines string) {
 		t.Helper()
-		if fs := r.processDraftLines(root, ClassRetroLite, []byte(lines)); len(fs) != 0 {
+		if fs, _ := r.processDraftLines(root, ClassRetroLite, []byte(lines)); len(fs) != 0 {
 			t.Fatalf("%s findings: %+v", label, fs)
 		}
 	}
