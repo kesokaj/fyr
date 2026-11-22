@@ -109,7 +109,7 @@ func TestKnownToolsAreTheDerivedNames(t *testing.T) {
 	}
 }
 
-// TestCheckoutAgentsAreNative: the checkout's six agents load in the native
+// TestCheckoutAgentsAreNative: the checkout's seven agents load in the native
 // format, and the reviewer names the review-standards skill by the path
 // Antigravity installs it at (audit 2026-09-30, AG5, kept from the derivation
 // test it replaces).
@@ -134,13 +134,33 @@ func TestCheckoutAgentsAreNative(t *testing.T) {
 		if a.Front["model"] != wantModel {
 			t.Errorf("agent %s model = %q, want %q", a.Name, a.Front["model"], wantModel)
 		}
-		if a.Name == "security" {
+		if a.Name == "security" || a.Name == "builder" {
 			if _, ok := a.Front["model"]; ok {
-				t.Errorf("agent security model = %q, want none (inherits session model)", a.Front["model"])
+				t.Errorf("agent %s model = %q, want none (inherits session model)", a.Name, a.Front["model"])
+			}
+		}
+		if a.Name == "builder" {
+			if a.Front["subagent"] != "true" || a.Front["mainAgent"] != "false" {
+				t.Errorf("agent builder subagent/mainAgent = %q/%q, want true/false", a.Front["subagent"], a.Front["mainAgent"])
+			}
+			for _, tool := range []string{"view_file", "grep_search", "find_by_name", "run_command", "write_to_file", "replace_file_content"} {
+				if !strings.Contains(a.Front["tools"], tool) {
+					t.Errorf("agent builder tools %q missing %q", a.Front["tools"], tool)
+				}
+			}
+			if strings.Contains(a.Body, "read_file") {
+				t.Errorf("agent builder body names read_file outside its tools list")
+			}
+		}
+		if a.Name == "verifier" {
+			for _, wantClause := range []string{"## Boundary Contract Checklist", "< 200 ms", "128 KiB", "BUG-560", "ast.PyCF_ALLOW_TOP_LEVEL_AWAIT"} {
+				if !strings.Contains(a.Body, wantClause) {
+					t.Errorf("agent verifier missing boundary contract clause %q", wantClause)
+				}
 			}
 		}
 	}
-	want := []string{"documentation", "dreamer", "explorer", "reviewer", "security", "verifier"}
+	want := []string{"builder", "documentation", "dreamer", "explorer", "reviewer", "security", "verifier"}
 	if !slices.Equal(names, want) {
 		t.Errorf("agents = %v, want %v", names, want)
 	}
@@ -202,6 +222,7 @@ func TestRecordAgentsCarryDataAndWriteFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFirst := map[string]string{
+		"builder":       "Status: IN PROGRESS",
 		"documentation": "Status: IN PROGRESS",
 	}
 	seen := 0

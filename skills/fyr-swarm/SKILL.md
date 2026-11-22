@@ -14,7 +14,7 @@ Use parallel execution only when genuinely independent slices justify coordinati
 |---|---|---|
 | One track, 1–6 files | Plan and execute in main session | Turn-0 capsule, read clamp, `Stop` stamp, `fyr verify`, `fyr close` |
 | Single recon or blind judgement (`reviewer`, `security`, `verifier`, `explorer`) | `invoke_subagent` | Guarded model routing + `[FYR_WORKER_CAPSULE]` |
-| 2+ independent slices (`PLAN-*` wave, multi-file refactor, parallel review) | `run_workflow` (`parallel()`, `workspace="share"`, or `"inherit"` for read-only reviews) | `fyr gate` per worker branch, `fyr land` one at a time |
+| 2+ independent slices (`PLAN-*` wave, multi-file refactor, parallel review) | `run_workflow` (`workflows/phase_loop.py` with `builder` + `workspace="share"`, or `workflows/review_parallel.py` with `"inherit"` for read-only reviews) | Disjoint `Files:` validation, `<= 2` Defect Packet loop-back, anti-stuck governor, `fyr gate` per branch, sequential `fyr land` |
 | 2+ slices where workers negotiate interfaces mid-flight | Native `/swarm` (`workspace="share"`, `Files:` lease) | `Files:` lease, `[FYR_WORKER_CAPSULE]`, `fyr gate`, `fyr land` |
 | Hard single-surface bug or deep trade-off | Recommend `/boost` to operator (routing row only) | Normal session gates |
 | Multi-day autonomous campaign | Recommend `/teamwork` or `/goal` to operator (routing row only) | Per-milestone `fyr verify` from `PLAN-*` |
@@ -63,7 +63,13 @@ Done when: <Checkpoint expect or targeted base-check/test passes> (where Done wh
 
 - **Automatic `[FYR_WORKER_CAPSULE]` JIT overwrite:** For allowed `invoke_subagent` (`Prompt`) and `swarm(action="add")` (`brief`) calls, `PreToolUse` merges `Model` / `model` routing with an appended `[FYR_WORKER_CAPSULE]` (`<= 1,200 B` wrapped in `=====<18-hex>=====` fences) when **(1)** the brief names file/symbol tokens or `Files:` paths OR `workspacePaths`/`cwd`/`--dir` resolves a checkout, **AND (2)** context lookup finds Hop-0 symbols, `validity >= 0.40` records/memories, or a skill digest (or `coordinator-only` mode is active). Your leading `Files:` header stays verbatim at the top without duplication, and remaining budget fills in strict order: `<= 3` records/memories (`140 B` note cap) > top `1` skill digest (`<= 400 B`) > `Hop-0` AST slice (`<= 600 B`).
 - **Idempotency & fallback:** Prompts already carrying `[FYR_WORKER_CAPSULE]` and targetless prompts without an explicit checkout are left untouched. Always keep `Files:` and critical constraints in the brief itself so workers remain self-contained even if a caller ignores non-`Model` `Overwrite` keys.
-- **`run_workflow` literal safety:** `PreToolUse` enforces `model="pro"` on guarded `agent()` calls (`[AUTO_SUBAGENT_PRO]`) without mutating Python string literals, so embed `Files:` and relevant context directly in `run_workflow` `agent()` prompts and require calling `finish` matching the script's `schema`.
+- **`run_workflow` literal safety & automated phase loop (`workflows/phase_loop.py`):** `PreToolUse` enforces `model="pro"` on guarded `agent()` calls (`[AUTO_SUBAGENT_PRO]`) without mutating Python string literals, so embed `Files:` and relevant context directly in `run_workflow` `agent()` prompts and require calling `finish` matching the script's `schema`. For parallel build waves with disjoint leases, prefer `workflows/phase_loop.py` (installed at `<HOME>/.gemini/config/workflows/phase_loop.py`, using expanded `$HOME`, never literal `~`):
+  1. Validates pairwise-disjoint `files` leases across all `slices` up front before spawning workers.
+  2. Spawns one stateful `builder` subagent (`agents/builder/agent.md`, `type_name="builder"`, `workspace="share"`, `model="inherit"`) per slice so Round 2 runs in the same conversation with full context.
+  3. Runs deterministic `fyr gate` (`--lease`, `--max-lines`, plus cross-family `--judge` when enabled) and optional scoped `reviewer`/`security`/`verifier` (`model="pro"`).
+  4. On `FAIL`, builds a structured `DefectPacket` (`round`, `source`, `findings`, `error_hash`, `required_fixes`) and loops back to the same stateful `builder` (`<= 2` rounds).
+  5. Enforces the fail-closed anti-stuck governor: out-of-lease edit (immediate halt, no loop-back), repeating `error_hash` (stuck loop), round-2 `FAIL`, builder `BLOCKED`, or call-cap breach escalates (`status="ESCALATE"`) with zero partial landings by default.
+  6. When all slices succeed (`land=true`), runs `fyr land` strictly sequentially (one branch at a time) followed by one `fyr verify` on `main`.
 
 ## Coordinator write guard (`[COORDINATOR_GUARD]`)
 

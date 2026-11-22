@@ -25,6 +25,15 @@ Write `.agents/scratch/agents/verifier-<stamp>.md` (`<stamp>` from `date +%F-%H%
    - **Browser e2e:** Playwright against the running binary for golden path + edge case.
    - Redirect verbose logs under `.agents/scratch/verify-<slug>/` (never piping exit codes away).
 
+## Boundary Contract Checklist
+
+Whenever the scope touches hooks (`internal/search/hook*`, `cmd/fyr/verb_search_hook*`), CLI subprocess runners, `internal/gate/`, or `workflows/*.py`, explicitly verify every applicable boundary contract (or mark N/A with reason in `## Not examined`):
+
+1. **Live stdin hook JSON & `< 200 ms` latency budget:** Pipe realistic hook JSON (`SessionStart`, `PreInvocation`, `PreToolUse`, `PostToolUse`, `Stop`) via stdin; confirm warm `PreInvocation` stays `< 80 ms`, mid-turn continuation exits `< 15 ms`, and deadline expiry fails open with `{}` without unstamped retry spirals.
+2. **`> 128 KiB` argv / `E2BIG` safety boundary:** Verify child CLI spawns (`agy -p`, `git`, `fyr`) enforce prompt/argv byte caps (`< 120 KiB`) or stream large payloads via stdin/files so OS `MAX_ARG_STRLEN` (`E2BIG`) cannot crash execution.
+3. **`fyr gate -> land` verify stamp ordering (`BUG-560`):** Verify `fyr land` executes `verify` in the detached scratch worktree BEFORE invoking `--judge`, ensuring the judge evaluates a fresh matching `verify.stamp`.
+4. **`workflows/*.py` schema & runtime compatibility:** Compile scripts with `ast.PyCF_ALLOW_TOP_LEVEL_AWAIT`, confirm `CONVERSATION_ID` runtime-aware cross-family guards (zero live subprocesses under `FYR_WORKFLOW_MOCKS`), check `finish` JSON schemas, and verify literal `model=` calls satisfy `PreToolUse` (`hook_workflow.go`).
+
 ## Log format & safety rules
 
 ```markdown

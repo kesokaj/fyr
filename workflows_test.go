@@ -10,11 +10,14 @@ import (
 )
 
 type workflowAgentCall struct {
-	TypeName  string `json:"type_name"`
-	Role      string `json:"role"`
-	Model     string `json:"model"`
-	Workspace string `json:"workspace"`
-	Prompt    string `json:"prompt"`
+	AgentID        int    `json:"agent_id"`
+	Turn           int    `json:"turn"`
+	TypeName       string `json:"type_name"`
+	Role           string `json:"role"`
+	Model          string `json:"model"`
+	Workspace      string `json:"workspace"`
+	Prompt         string `json:"prompt"`
+	StandingPrompt string `json:"standing_prompt,omitempty"`
 }
 
 type workflowRunResult struct {
@@ -31,38 +34,89 @@ args = json.loads(args_json)
 mocks = json.loads(os.environ.get("FYR_WORKFLOW_MOCKS", "{}") or "{}")
 prompts = []
 calls = []
+next_aid = [0]
 
 def phase(_name): pass
 def log(_msg): pass
 
-async def agent(prompt, schema=None, role="", type_name="", workspace="", model=""):
-    prompts.append(prompt)
-    calls.append({
-        "type_name": type_name,
-        "role": role,
-        "model": model,
-        "workspace": workspace,
-        "prompt": prompt,
-    })
-    res = {
-        "stage": type_name,
-        "lens": "code-docs",
-        "agent": type_name,
-        "status": "COMPLETE",
-        "verdict": "APPROVE",
-        "blocking": False,
-        "high_findings": 0,
-        "artifact_path": ".agents/scratch/agents/mock.md",
-        "not_examined": "none",
-        "summary": "ok",
-    }
-    if type_name in mocks:
-        for k, v in mocks[type_name].items():
-            if v is None:
-                res.pop(k, None)
-            else:
-                res[k] = v
-    return res
+def _lookup_mock(type_name, role, turn):
+    slice_id = ""
+    if ":" in role:
+        slice_id = role.split(":", 1)[1].strip().split(" ", 1)[0]
+    for key in (
+        f"{type_name}:{slice_id}:r{turn}" if slice_id else "",
+        f"{type_name}:{slice_id}" if slice_id else "",
+        f"{type_name}:r{turn}",
+        type_name,
+    ):
+        if key and key in mocks:
+            val = mocks[key]
+            if isinstance(val, list):
+                return val[min(turn - 1, len(val) - 1)] if val else {}
+            return val
+    return None
+
+class _AgentHandle:
+    def __init__(self, aid, prompt, schema, role, type_name, workspace, model):
+        self.aid, self.prompt, self.schema = aid, prompt or "", schema
+        self.role, self.type_name = role or "", type_name or "self"
+        self.workspace, self.model = workspace or "inherit", model or ""
+        self.turns, self._oneshot = 0, None
+
+    async def _run(self, turn_prompt, schema=None):
+        self.turns += 1
+        p = turn_prompt if turn_prompt is not None else self.prompt
+        prompts.append(p)
+        calls.append({
+            "agent_id": self.aid,
+            "turn": self.turns,
+            "type_name": self.type_name,
+            "role": self.role,
+            "model": self.model,
+            "workspace": self.workspace,
+            "prompt": p,
+            "standing_prompt": self.prompt,
+        })
+        slice_id = self.role.split(":", 1)[1].strip().split(" ", 1)[0] if ":" in self.role else "s1"
+        res = {
+            "stage": self.type_name,
+            "lens": "code-docs",
+            "agent": self.type_name,
+            "role": self.type_name,
+            "slice_id": slice_id,
+            "status": "DONE" if self.type_name == "builder" else "COMPLETE",
+            "verdict": "APPROVE",
+            "blocking": False,
+            "high_findings": 0,
+            "branch": "",
+            "commit": "abc1234",
+            "files_changed": [],
+            "verify_ok": True,
+            "tool_calls": 12,
+            "artifact_path": ".agents/scratch/agents/mock.md",
+            "not_examined": "none",
+            "summary": "ok",
+        }
+        ov = _lookup_mock(self.type_name, self.role, self.turns)
+        if isinstance(ov, dict):
+            for k, v in ov.items():
+                if v is None:
+                    res.pop(k, None)
+                else:
+                    res[k] = v
+        return res
+
+    def __call__(self, turn_prompt, schema=None):
+        return self._run(turn_prompt, schema or self.schema)
+
+    def __await__(self):
+        if self._oneshot is None:
+            self._oneshot = self._run(self.prompt, self.schema)
+        return self._oneshot.__await__()
+
+def agent(prompt=None, schema=None, role="", type_name="self", workspace="inherit", model=""):
+    next_aid[0] += 1
+    return _AgentHandle(next_aid[0], prompt, schema, role, type_name, workspace, model)
 
 async def parallel(items, fn):
     return [await fn(item) for item in items]
@@ -94,6 +148,7 @@ print(json.dumps({"prompts": prompts, "calls": calls, "output": json.loads(buf.g
 
 type workflowExecOpts struct {
 	mocks          map[string]map[string]any
+	rawMocks       map[string]any
 	workDir        string
 	pathPrefix     string
 	homeDir        string
@@ -146,7 +201,13 @@ func runWorkflowScriptWithOpts(t *testing.T, script string, args map[string]any,
 		"FYR_WORKFLOW_MOCKS":       "",
 		"FYR_TEST_CONVERSATION_ID": opts.conversationID,
 	}
-	if opts.mocks != nil {
+	if opts.rawMocks != nil {
+		rawMocks, err := json.Marshal(opts.rawMocks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ov["FYR_WORKFLOW_MOCKS"] = string(rawMocks)
+	} else if opts.mocks != nil {
 		rawMocks, err := json.Marshal(opts.mocks)
 		if err != nil {
 			t.Fatal(err)
@@ -169,6 +230,28 @@ func runWorkflowScriptWithOpts(t *testing.T, script string, args map[string]any,
 		t.Fatalf("decode harness output for %s: %v\n%s", script, err, out)
 	}
 	return res
+}
+
+func runWorkflowScriptExpectError(t *testing.T, script string, args map[string]any) string {
+	t.Helper()
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not installed")
+	}
+	absScript, err := filepath.Abs(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawArgs, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("python3", "-c", pyWorkflowHarness, absScript, string(rawArgs))
+	cmd.Env = overrideEnv(os.Environ(), map[string]string{"FYR_WORKFLOW_MOCKS": "", "FYR_TEST_CONVERSATION_ID": ""})
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("%s unexpectedly succeeded:\n%s", script, out)
+	}
+	return string(out)
 }
 
 func writeFakeBin(t *testing.T, dir, name, body string) {
@@ -571,6 +654,352 @@ func TestWorkflowScriptsCrossFamilyRouting(t *testing.T) {
 					t.Fatalf("%s: expected disabled routing + 1 native call, got routing=%+v calls=%+v", tc.name, routing, off.Calls)
 				}
 			})
+		}
+	})
+}
+
+func TestWorkflowScriptsPhaseLoop(t *testing.T) {
+	disjointSlices := func() []map[string]any {
+		return []map[string]any{
+			{
+				"id": "slice-a", "goal": "Add alpha helper",
+				"files": []string{"internal/alpha/*.go"}, "verify_cmd": "go test -race ./internal/alpha/...",
+				"judge_criterion": "alpha tests cover edge cases", "branch": "work/slice-a",
+			},
+			{
+				"id": "slice-b", "goal": "Add beta helper",
+				"files": []string{"internal/beta/**"}, "verify_cmd": "go test -race ./internal/beta/...",
+				"judge_criterion": "beta tests cover edge cases", "branch": "work/slice-b",
+			},
+		}
+	}
+
+	t.Run("clean PASS across two disjoint slices lands sequentially then verifies main", func(t *testing.T) {
+		binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
+		logFile := filepath.Join(workDir, "fyr.log")
+		fakeFyr := `echo "$*" >> ` + logFile + `
+case "$1" in
+  gate) printf '{"ok":true,"findings":[],"judgeVerdict":"PASS"}\n' ;;
+  land) printf '{"ok":true,"branch":"%s","landCommit":"deadbeef"}\n' "$2" ;;
+  verify) printf '{"ok":true}\n' ;;
+  *) echo "unexpected cmd: $*" >&2; exit 2 ;;
+esac`
+		writeFakeBin(t, binDir, "fyr", fakeFyr)
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"plan_id": "PLAN-demo", "phase_name": "Wave 3", "date": "2026-11-22",
+			"slices": disjointSlices(), "exec_cli": true, "cross_family": true, "judge_model": "claude-opus-5-5-high",
+		}, workflowExecOpts{
+			workDir: workDir, pathPrefix: binDir, homeDir: homeDir,
+			rawMocks: map[string]any{
+				"builder:slice-a": map[string]any{"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa", "files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true},
+				"builder:slice-b": map[string]any{"status": "DONE", "branch": "work/slice-b", "commit": "222bbbb", "files_changed": []string{"internal/beta/sub/b.go"}, "verify_ok": true},
+			},
+		})
+		if res.Output["status"] != "PASS" {
+			t.Fatalf("status = %v, want PASS (%+v)", res.Output["status"], res.Output)
+		}
+		if len(res.Calls) != 2 || res.Calls[0].TypeName != "builder" || res.Calls[1].TypeName != "builder" ||
+			res.Calls[0].Workspace != "share" || res.Calls[0].Model != "inherit" || res.Calls[0].AgentID == res.Calls[1].AgentID {
+			t.Fatalf("unexpected builder calls: %+v", res.Calls)
+		}
+		landed, _ := res.Output["landed"].([]any)
+		if len(landed) != 2 {
+			t.Fatalf("landed len = %d, want 2 (%+v)", len(landed), res.Output)
+		}
+		rawLog, err := os.ReadFile(logFile)
+		if err != nil {
+			t.Fatalf("read fyr log: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(rawLog)), "\n")
+		var landSeq []string
+		var sawVerify, sawJudgeModel bool
+		for _, ln := range lines {
+			if strings.HasPrefix(ln, "gate ") && strings.Contains(ln, "--judge-model claude-opus-5-5-high") {
+				sawJudgeModel = true
+			}
+			if strings.HasPrefix(ln, "land ") {
+				landSeq = append(landSeq, strings.Fields(ln)[1])
+			}
+			if strings.HasPrefix(ln, "verify --json") {
+				sawVerify = true
+			}
+		}
+		if strings.Join(landSeq, ",") != "work/slice-a,work/slice-b" || !sawVerify || !sawJudgeModel {
+			t.Fatalf("unexpected CLI sequence (land=%v verify=%v judgeModel=%v):\n%s", landSeq, sawVerify, sawJudgeModel, rawLog)
+		}
+	})
+
+	t.Run("round-1 FAIL feeds structured DefectPacket to SAME stateful builder then round-2 PASS", func(t *testing.T) {
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 3", "slices": disjointSlices()[:1], "run_reviewer": true,
+		}, workflowExecOpts{
+			rawMocks: map[string]any{
+				"builder:slice-a": []any{
+					map[string]any{"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa", "files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true},
+					map[string]any{"status": "DONE", "branch": "work/slice-a", "commit": "111bbbb", "files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true},
+				},
+				"gate:slice-a": []any{
+					map[string]any{"ok": false, "findings": []any{map[string]any{"check": "judge", "detail": "missing nil guard in Parse"}}, "judgeVerdict": "FAIL"},
+					map[string]any{"ok": true, "findings": []any{}, "judgeVerdict": "PASS"},
+				},
+				"reviewer": map[string]any{"role": "reviewer", "verdict": "APPROVE", "blocking": false, "summary": "clean"},
+			},
+		})
+		if res.Output["status"] != "PASS" {
+			t.Fatalf("status = %v, want PASS (%+v)", res.Output["status"], res.Output)
+		}
+		var bCalls []workflowAgentCall
+		var rCalls []workflowAgentCall
+		for _, c := range res.Calls {
+			switch c.TypeName {
+			case "builder":
+				bCalls = append(bCalls, c)
+			case "reviewer":
+				rCalls = append(rCalls, c)
+			}
+		}
+		if len(bCalls) != 2 || bCalls[0].AgentID != bCalls[1].AgentID || bCalls[0].Turn != 1 || bCalls[1].Turn != 2 {
+			t.Fatalf("round-2 must reuse SAME stateful builder: %+v", bCalls)
+		}
+		if !strings.Contains(bCalls[1].Prompt, "Defect Packet") || !strings.Contains(bCalls[1].Prompt, "error_hash") || !strings.Contains(bCalls[1].Prompt, "missing nil guard in Parse") {
+			t.Fatalf("round-2 prompt missing structured DefectPacket:\n%s", bCalls[1].Prompt)
+		}
+		if len(rCalls) != 1 || rCalls[0].Model != "pro" {
+			t.Fatalf("expected 1 pro reviewer call after round-2 gate ok, got %+v", rCalls)
+		}
+	})
+
+	t.Run("round-2 FAIL escalates with zero fyr land calls", func(t *testing.T) {
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 3", "slices": disjointSlices()[:1],
+		}, workflowExecOpts{
+			rawMocks: map[string]any{
+				"builder:slice-a": map[string]any{"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa", "files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true},
+				"gate:slice-a": []any{
+					map[string]any{"ok": false, "findings": []any{map[string]any{"check": "numstat", "detail": "defect one"}}},
+					map[string]any{"ok": false, "findings": []any{map[string]any{"check": "numstat", "detail": "defect two"}}},
+				},
+			},
+		})
+		if res.Output["status"] != "ESCALATE" {
+			t.Fatalf("status = %v, want ESCALATE", res.Output["status"])
+		}
+		if landed, _ := res.Output["landed"].([]any); len(landed) != 0 {
+			t.Fatalf("expected zero landed slices on ESCALATE, got %+v", landed)
+		}
+		escs, _ := res.Output["escalations"].([]any)
+		if len(escs) != 1 || !strings.Contains(escs[0].(map[string]any)["reason"].(string), "failed after 2 round(s)") {
+			t.Fatalf("unexpected escalations: %+v", escs)
+		}
+	})
+
+	t.Run("repeating error_hash triggers immediate anti-stuck ESCALATE", func(t *testing.T) {
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 3", "slices": disjointSlices()[:1],
+		}, workflowExecOpts{
+			rawMocks: map[string]any{
+				"builder:slice-a": map[string]any{"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa", "files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true},
+				"gate:slice-a": []any{
+					map[string]any{"ok": false, "findings": []any{map[string]any{"check": "judge", "detail": "Same Failure Text"}}},
+					map[string]any{"ok": false, "findings": []any{map[string]any{"check": "judge", "detail": "  same   failure text  "}}},
+				},
+			},
+		})
+		if res.Output["status"] != "ESCALATE" {
+			t.Fatalf("status = %v, want ESCALATE", res.Output["status"])
+		}
+		escs, _ := res.Output["escalations"].([]any)
+		if len(escs) != 1 || !strings.Contains(escs[0].(map[string]any)["reason"].(string), "repeating error_hash") {
+			t.Fatalf("expected repeating error_hash escalation, got %+v", escs)
+		}
+		if landed, _ := res.Output["landed"].([]any); len(landed) != 0 {
+			t.Fatalf("expected zero landed slices on stuck ESCALATE, got %+v", landed)
+		}
+	})
+
+	t.Run("out-of-lease edit halts immediately without round-2 loop-back", func(t *testing.T) {
+		for _, tc := range []struct {
+			name     string
+			rawMocks map[string]any
+		}{
+			{
+				"builder reports nested file outside single-star glob",
+				map[string]any{
+					"builder:slice-a": map[string]any{
+						"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa",
+						"files_changed": []string{"internal/alpha/nested/escape.go"}, "verify_ok": true,
+					},
+				},
+			},
+			{
+				"fyr gate reports lease violation",
+				map[string]any{
+					"builder:slice-a": map[string]any{
+						"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa",
+						"files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true,
+					},
+					"gate:slice-a": map[string]any{
+						"ok":       false,
+						"findings": []any{map[string]any{"check": "lease", "path": "PRD.md", "detail": "file outside lease"}},
+					},
+				},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+					"phase_name": "Wave 3", "slices": disjointSlices()[:1],
+				}, workflowExecOpts{rawMocks: tc.rawMocks})
+				if res.Output["status"] != "ESCALATE" || len(res.Calls) != 1 {
+					t.Fatalf("expected immediate 1-turn ESCALATE, got status=%v calls=%d (%+v)", res.Output["status"], len(res.Calls), res.Output)
+				}
+				escs, _ := res.Output["escalations"].([]any)
+				if len(escs) != 1 || !strings.Contains(escs[0].(map[string]any)["reason"].(string), "out-of-lease edit") {
+					t.Fatalf("expected out-of-lease escalation, got %+v", escs)
+				}
+			})
+		}
+	})
+
+	t.Run("overlapping files between slices rejected up front", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			filesA []string
+			filesB []string
+		}{
+			{"recursive dir overlaps file", []string{"internal/a/**"}, []string{"internal/a/sub/x.go"}},
+			{"overlapping sibling globs", []string{"internal/a/*.go"}, []string{"internal/a/*_test.go"}},
+			{"cross-dir wildcard globs overlap", []string{"internal/*/x.go"}, []string{"internal/a/*.go"}},
+			{"middle globstar overlaps concrete path", []string{"a/**/b"}, []string{"a/x/y/b"}},
+			{"overlapping character classes", []string{"internal/a/[ab].go"}, []string{"internal/a/[bc].go"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				errOut := runWorkflowScriptExpectError(t, "workflows/phase_loop.py", map[string]any{
+					"slices": []map[string]any{
+						{"id": "s1", "goal": "g1", "files": tc.filesA},
+						{"id": "s2", "goal": "g2", "files": tc.filesB},
+					},
+				})
+				if !strings.Contains(errOut, "overlapping files lease") {
+					t.Fatalf("expected overlapping files lease error, got:\n%s", errOut)
+				}
+			})
+		}
+		for _, tc := range []struct {
+			name   string
+			filesA []string
+			filesB []string
+		}{
+			{"disjoint cross-dir suffix", []string{"internal/*/x.go"}, []string{"internal/a/*.md"}},
+			{"disjoint middle globstar prefix", []string{"a/**/b"}, []string{"a-x/b"}},
+			{"disjoint character classes", []string{"internal/a/[ab].go"}, []string{"internal/a/[cd].go"}},
+		} {
+			t.Run("disjoint "+tc.name, func(t *testing.T) {
+				dry := runWorkflowScript(t, "workflows/phase_loop.py", map[string]any{
+					"dry_run": true,
+					"slices": []map[string]any{
+						{"id": "s1", "goal": "g1", "files": tc.filesA},
+						{"id": "s2", "goal": "g2", "files": tc.filesB},
+					},
+				})
+				if dry.Output["status"] != "DRY_RUN" {
+					t.Fatalf("disjoint %s failed dry_run: %+v", tc.name, dry.Output)
+				}
+			})
+		}
+	})
+
+	t.Run("middle globstar lease matches a/b and a/x/b but rejects ab and a-x/b", func(t *testing.T) {
+		slice := []map[string]any{{
+			"id": "glob-s", "goal": "Edit b under a", "files": []string{"a/**/b"}, "branch": "work/glob-s",
+		}}
+		okRes := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 3", "slices": slice,
+		}, workflowExecOpts{
+			rawMocks: map[string]any{
+				"builder:glob-s": map[string]any{
+					"status": "DONE", "branch": "work/glob-s", "commit": "1234567",
+					"files_changed": []string{"a/b", "a/x/b", "a/x/y/b"}, "verify_ok": true,
+				},
+			},
+		})
+		if okRes.Output["status"] != "PASS" {
+			t.Fatalf("a/b and a/x/b should match a/**/b: %+v", okRes.Output)
+		}
+		for _, badPath := range []string{"ab", "a-x/b", "a/xb"} {
+			t.Run("rejects "+badPath, func(t *testing.T) {
+				badRes := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+					"phase_name": "Wave 3", "slices": slice,
+				}, workflowExecOpts{
+					rawMocks: map[string]any{
+						"builder:glob-s": map[string]any{
+							"status": "DONE", "branch": "work/glob-s", "commit": "1234567",
+							"files_changed": []string{badPath}, "verify_ok": true,
+						},
+					},
+				})
+				if badRes.Output["status"] != "ESCALATE" || len(badRes.Calls) != 1 {
+					t.Fatalf("%q should be out-of-lease ESCALATE in 1 turn, got status=%v calls=%d (%+v)", badPath, badRes.Output["status"], len(badRes.Calls), badRes.Output)
+				}
+			})
+		}
+	})
+
+	t.Run("untrusted builder branch ref fails closed with zero gate or land calls", func(t *testing.T) {
+		for _, badBranch := range []string{"--judge=evil", "../bad", "main", "work/slice-b", "work/foo..bar", "work/bad.lock", "work/a//b"} {
+			t.Run(badBranch, func(t *testing.T) {
+				binDir, workDir, homeDir := t.TempDir(), t.TempDir(), t.TempDir()
+				logFile := filepath.Join(workDir, "fyr.log")
+				writeFakeBin(t, binDir, "fyr", `echo "$*" >> `+logFile+`; echo "must not run" >&2; exit 99`)
+				res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+					"phase_name": "Wave 3", "slices": disjointSlices()[:1], "exec_cli": true,
+				}, workflowExecOpts{
+					workDir: workDir, pathPrefix: binDir, homeDir: homeDir,
+					rawMocks: map[string]any{
+						"builder:slice-a": map[string]any{
+							"status": "DONE", "branch": badBranch, "commit": "111aaaa",
+							"files_changed": []string{"internal/alpha/a.go"}, "verify_ok": true,
+						},
+					},
+				})
+				if res.Output["status"] != "ESCALATE" || len(res.Calls) != 1 {
+					t.Fatalf("branch %q: expected 1-turn ESCALATE, got status=%v calls=%d (%+v)", badBranch, res.Output["status"], len(res.Calls), res.Output)
+				}
+				escs, _ := res.Output["escalations"].([]any)
+				if len(escs) != 1 || !strings.Contains(escs[0].(map[string]any)["reason"].(string), "invalid branch") {
+					t.Fatalf("branch %q: expected invalid branch escalation, got %+v", badBranch, escs)
+				}
+				if _, err := os.Stat(logFile); !os.IsNotExist(err) {
+					raw, _ := os.ReadFile(logFile)
+					t.Fatalf("branch %q invoked fyr CLI despite invalid ref:\n%s", badBranch, raw)
+				}
+			})
+		}
+	})
+
+	t.Run("dry_run validates slices with zero agent calls and AST pins literal models", func(t *testing.T) {
+		dry := runWorkflowScript(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 3", "slices": disjointSlices(), "dry_run": true,
+		})
+		if dry.Output["status"] != "DRY_RUN" || len(dry.Calls) != 0 {
+			t.Fatalf("dry_run status=%v calls=%d, want DRY_RUN and 0", dry.Output["status"], len(dry.Calls))
+		}
+		pyASTCheck := `
+import ast, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+tree = ast.parse(src, sys.argv[1], type_comments=False)
+calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "agent"]
+assert len(calls) == 4, f"expected 4 literal agent() calls, got {len(calls)}"
+for c in calls:
+    kw = {k.arg: k.value for k in c.keywords}
+    tn, m = kw.get("type_name"), kw.get("model")
+    assert isinstance(tn, ast.Constant) and isinstance(m, ast.Constant), f"non-literal type_name/model: {ast.dump(c)}"
+    if tn.value == "builder":
+        assert m.value == "inherit", f"builder model={m.value!r}"
+    else:
+        assert tn.value in ("reviewer", "security", "verifier") and m.value == "pro", f"guarded call {tn.value!r}/{m.value!r}"
+`
+		if out, err := exec.Command("python3", "-c", pyASTCheck, "workflows/phase_loop.py").CombinedOutput(); err != nil {
+			t.Fatalf("phase_loop.py AST check failed: %v\n%s", err, out)
 		}
 	})
 }
