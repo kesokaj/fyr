@@ -19,32 +19,21 @@ func (r *run) sweep() {
 		r.stopMachine(stop)
 		return
 	}
-	env, home := r.env, r.o.Home
-	targets, err := limited(r.context(), r.o.limit(projectLimit), func() ([]dream.Target, error) { return env.Targets(home) })
-	if err != nil {
-		r.stopMachine("targets: " + oneLine(err.Error()))
-		r.failed = true
+	targets, ok := r.discoverSweepTargets()
+	if !ok {
 		return
 	}
-	reached := 0
-	seen := map[string]bool{}
-	for i, t := range targets {
-		if i > 0 && !r.again(t.Root) {
-			return
-		}
-		seen[t.Root] = true
-		if r.project(t.Root, t.Skip) {
-			reached++
-			r.projectsChecked++
-		}
-		if r.halted {
-			return
-		}
+	reached, seen := r.sweepTargets(targets)
+	if r.halted {
+		return
 	}
 	if len(targets) == 0 {
 		r.say("no workspaces discovered")
 	}
 	r.pruneSweepProjects(seen)
+	if !r.dry {
+		r.consolidateProposals()
+	}
 	if reached > 0 && !r.dry {
 		if !r.again("the machine's checks") {
 			return
@@ -56,6 +45,40 @@ func (r *run) sweep() {
 	}
 	r.verdict = fmt.Sprintf("%d of %d projects checked", reached, len(targets))
 	r.say(r.verdict)
+}
+
+func (r *run) discoverSweepTargets() ([]dream.Target, bool) {
+	env, home := r.env, r.o.Home
+	raw, err := limited(r.context(), r.o.limit(projectLimit), func() ([]dream.Target, error) { return env.Targets(home) })
+	if err != nil {
+		r.stopMachine("targets: " + oneLine(err.Error()))
+		r.failed = true
+		return nil, false
+	}
+	targets, skipped := filterSweepTargets(raw)
+	if skipped > 0 {
+		r.say(fmt.Sprintf("skipped %d ephemeral workspace(s)", skipped))
+	}
+	return targets, true
+}
+
+func (r *run) sweepTargets(targets []dream.Target) (int, map[string]bool) {
+	reached := 0
+	seen := map[string]bool{}
+	for i, t := range targets {
+		if i > 0 && !r.again(t.Root) {
+			return reached, seen
+		}
+		seen[t.Root] = true
+		if r.project(t.Root, t.Skip) {
+			reached++
+			r.projectsChecked++
+		}
+		if r.halted {
+			return reached, seen
+		}
+	}
+	return reached, seen
 }
 
 // project is one target's checks and health; it says whether health ran.
@@ -110,6 +133,10 @@ func pruneGoneProjects(projects map[string]Project, now time.Time) {
 	var kept []goneEntry
 	for root, p := range projects {
 		if p.Verdict != "skipped: gone" {
+			continue
+		}
+		if IsEphemeralPath(root) {
+			delete(projects, root)
 			continue
 		}
 		goneAt := p.GoneSince

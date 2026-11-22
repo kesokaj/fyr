@@ -13,10 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
-	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/search"
 	"github.com/kesokaj/fyr/internal/trail"
 )
@@ -101,17 +99,20 @@ func (r *run) fileAsk(root string, t Task) (string, Finding) {
 	denied := strings.Join(t.Denied, ", ")
 	body := fmt.Sprintf("# auto ask: %s in %s\n\nClass `%s` needed rubric-denied target(s): `%s`.\n",
 		t.Class, oneLine(filepath.Base(root)), t.Class, oneLine(denied))
-	id, err := brain.Add(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.AddInput{
-		Kind:    "proposal",
-		Title:   fmt.Sprintf("auto ask: %s in %s (%s)", t.Class, oneLine(filepath.Base(root)), oneLine(denied)),
-		Project: root,
-		Body:    strings.NewReader(redact.Redact(body)),
+	id, created, err := r.upsertProposal(proposalSpec{
+		Project:    root,
+		Title:      fmt.Sprintf("auto ask: %s in %s (%s)", t.Class, oneLine(filepath.Base(root)), oneLine(denied)),
+		Body:       body,
+		UpdateBody: fmt.Sprintf("Class `%s` again requested rubric-denied target(s): `%s`.", t.Class, oneLine(denied)),
+		CustomKey:  rubricAskKey(root, t.Class, denied),
 	})
 	if err != nil {
 		r.failed = true
 		return "failed", Finding{"ask", "failed", t.Class, oneLine(err.Error())}
 	}
-	r.st.OpenAsks++
+	if created {
+		r.st.OpenAsks++
+	}
 	return id, Finding{"ask", t.Class, denied, "queued proposal " + id + " (rubric-denied)"}
 }
 

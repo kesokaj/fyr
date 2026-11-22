@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/kesokaj/fyr/internal/brain"
+	"github.com/kesokaj/fyr/internal/search"
 )
 
 func TestLandAndCloseE2E(t *testing.T) {
@@ -309,4 +310,140 @@ func TestLandJudgeRunsAfterVerifyWithFreshStamp(t *testing.T) {
 			t.Fatalf("unexpected recorded verdicts: %+v", recorded)
 		}
 	})
+}
+
+func writeFakeLandJudgeAgy(t *testing.T, binDir, wantTreeSHA, mainHead, branchHead, diffNeedle, verdictJSON string) {
+	t.Helper()
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modelsText := "gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+		"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n"
+	healthyUsage := "Gemini Models\tWeekly Limit Remaining\t80%\tx\n" +
+		"Gemini Models\tFive Hour Limit Remaining\t90%\tx\n" +
+		"Claude and GPT models\tWeekly Limit Remaining\t50%\tx\n" +
+		"Claude and GPT models\tFive Hour Limit Remaining\t70%\tx\n"
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"models\" ]; then\n" +
+		"  printf '%s' " + shSingleQuote(modelsText) + "\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"-p\" ] && [ \"$2\" = \"/usage\" ]; then\n" +
+		"  printf '%s' " + shSingleQuote(healthyUsage) + "\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"-p\" ]; then\n" +
+		"  case \"$2\" in *\"BEGIN DATA verify-stamp\"*) ;; *) echo 'missing verify-stamp block' >&2; exit 42 ;; esac\n" +
+		"  case \"$2\" in *\"ok=true treeSha256=" + wantTreeSHA + " \"*) ;; *) echo 'prompt missing fresh scratch verify.stamp digest' >&2; exit 43 ;; esac\n" +
+		"  case \"$2\" in *\"missing for head\"*) echo 'prompt carried missing-for-head note' >&2; exit 44 ;; esac\n" +
+		"  case \"$2\" in *\"stale-main-preland-digest\"*) echo 'prompt carried stale main stamp' >&2; exit 45 ;; esac\n" +
+		"  case \"$2\" in *\"head=" + mainHead + "\"*) echo 'prompt carried main pre-land head' >&2; exit 46 ;; esac\n" +
+		"  case \"$2\" in *\"head=" + branchHead + "\"*) echo 'prompt carried un-squashed feature branch head' >&2; exit 47 ;; esac\n" +
+		"  case \"$2\" in *" + shSingleQuote(diffNeedle) + "*) ;; *) echo 'prompt missing branch diff' >&2; exit 48 ;; esac\n" +
+		"  printf '%s\\n' " + shSingleQuote("{\"conversation_id\":\"c-bug560\",\"status\":\"SUCCESS\",\"structured_output\":"+verdictJSON+"}") + "\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(binDir, "agy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLandJudgeRunsAfterScratchVerifyStamp is the BUG-560 regression test
+// exercising the real fake-agy isolated judge path: Land must run
+// verifyInScratchWorktree before applyGateJudge so the judge prompt carries a
+// fresh ok=true verify.stamp matching the scratch-merged tree (never "missing
+// for head" or main's stale pre-land stamp), and FAIL must abort cleanly.
+func TestLandJudgeRunsAfterScratchVerifyStamp(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx := context.Background()
+	cases := []struct {
+		name, branch, file, src, testFile, testSrc, lease, judge, diffNeedle, verdictJSON string
+		expectOK                                                                          bool
+	}{
+		{
+			name: "PASS fake agy receives fresh scratch verify.stamp and lands cleanly", branch: "feat-bug560-ok",
+			file: "sub.go", src: "package main\n\nfunc Sub(a, b int) int { return a - b }\n",
+			testFile: "sub_test.go", testSrc: "package main\n\nimport \"testing\"\n\nfunc TestSub(t *testing.T) {\n\tif Sub(5, 2) != 3 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n",
+			lease: "sub*.go", judge: "Sub returns a - b", diffNeedle: "Sub(a, b int)",
+			verdictJSON: `{"verdict":"PASS","reason":"fresh scratch verify.stamp verified"}`, expectOK: true,
+		},
+		{
+			name: "FAIL fake agy aborts land, preserves branch, and leaves main untouched", branch: "feat-bug560-fail",
+			file: "mod.go", src: "package main\n\nfunc Mod(a, b int) int { return a % b }\n",
+			testFile: "mod_test.go", testSrc: "package main\n\nimport \"testing\"\n\nfunc TestMod(t *testing.T) {\n\tif Mod(7, 3) != 1 {\n\t\tt.Fatal(\"bad\")\n\t}\n}\n",
+			lease: "mod*.go", judge: "Mod guards zero divisor", diffNeedle: "Mod(a, b int)",
+			verdictJSON: `{"verdict":"FAIL","reason":"VERDICT: FAIL — zero divisor not guarded"}`, expectOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, home := initTestGoRepo(t), t.TempDir()
+			mainHead := runGit(t, repo, "rev-parse", "HEAD")
+			if _, err := WriteStamp(repo, Stamp{
+				TreeSHA256: "stale-main-preland-digest", UpdatedAt: "2026-11-19T00:00:00Z",
+				Branch: "main", Head: mainHead, OK: true,
+			}); err != nil {
+				t.Fatalf("WriteStamp stale main: %v", err)
+			}
+			wt := filepath.Join(t.TempDir(), "wt-"+tc.branch)
+			runGit(t, repo, "worktree", "add", "-b", tc.branch, wt, "main")
+			writeFile(t, filepath.Join(wt, tc.file), tc.src)
+			writeFile(t, filepath.Join(wt, tc.testFile), tc.testSrc)
+			runGit(t, wt, "add", tc.file, tc.testFile)
+			runGit(t, wt, "commit", "-m", "add "+tc.branch)
+			branchHead := runGit(t, wt, "rev-parse", "HEAD")
+			treeState, err := search.ComputeGoTreeState(wt)
+			if err != nil {
+				t.Fatalf("ComputeGoTreeState: %v", err)
+			}
+			runGit(t, repo, "worktree", "remove", wt)
+
+			binDir := filepath.Join(t.TempDir(), "bin")
+			writeFakeLandJudgeAgy(t, binDir, treeState.TreeSHA256, mainHead, branchHead, tc.diffNeedle, tc.verdictJSON)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			var recorded []JudgeVerdictRecord
+			lRep, err := Land(ctx, LandOptions{
+				Dir: repo, Branch: tc.branch, Home: home, Lease: []string{tc.lease}, Judge: tc.judge,
+				RecordVerdict: func(r JudgeVerdictRecord) error { recorded = append(recorded, r); return nil },
+			})
+			if tc.expectOK {
+				if err != nil || !lRep.OK || !lRep.BranchDel || lRep.LandCommit == "" {
+					t.Fatalf("Land with fake agy PASS failed: err=%v rep=%+v", err, lRep)
+				}
+				if lRep.Verify == nil || !lRep.Verify.OK || lRep.Verify.TreeSHA256 != treeState.TreeSHA256 {
+					t.Fatalf("unexpected Verify report: %+v (want digest %s)", lRep.Verify, treeState.TreeSHA256)
+				}
+				if lRep.Gate == nil || !lRep.Gate.OK || lRep.Gate.JudgeVerdict != "PASS" || lRep.Gate.JudgeModel != "claude-opus-5-5-high" {
+					t.Fatalf("unexpected Gate report: %+v", lRep.Gate)
+				}
+				if runGit(t, repo, "rev-parse", "HEAD") != lRep.LandCommit {
+					t.Fatalf("main HEAD did not fast-forward to %s", lRep.LandCommit)
+				}
+				if len(recorded) != 1 || recorded[0].Verdict != "PASS" {
+					t.Fatalf("unexpected recorded verdicts: %+v", recorded)
+				}
+				return
+			}
+			if !errors.Is(err, ErrFailed) || lRep.OK || lRep.BranchDel || lRep.LandCommit != "" {
+				t.Fatalf("expected ErrFailed without moving main, got err=%v rep=%+v", err, lRep)
+			}
+			if lRep.Verify == nil || !lRep.Verify.OK {
+				t.Fatalf("expected scratch Verify to succeed before judge ran, got %+v", lRep.Verify)
+			}
+			if lRep.Gate == nil || lRep.Gate.OK || lRep.Gate.JudgeVerdict != "FAIL" || !hasFinding(*lRep.Gate, "judge", "VERDICT: FAIL") {
+				t.Fatalf("expected Gate FAIL with judge finding, got %+v", lRep.Gate)
+			}
+			if runGit(t, repo, "rev-parse", "HEAD") != mainHead {
+				t.Fatalf("main HEAD moved on judge FAIL")
+			}
+			if err := exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+tc.branch).Run(); err != nil {
+				t.Fatalf("%s must be preserved on judge FAIL", tc.branch)
+			}
+			if len(recorded) != 1 || recorded[0].Verdict != "FAIL" {
+				t.Fatalf("unexpected recorded verdicts: %+v", recorded)
+			}
+		})
+	}
 }

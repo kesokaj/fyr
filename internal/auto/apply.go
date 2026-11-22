@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/trail"
@@ -154,17 +153,18 @@ func (r *run) applyWithHook(root string, t Task, k Kickoff, runnerWhy string) (s
 func (r *run) fileNoTestAsk(root string, t Task, branch string) (string, Finding) {
 	body := fmt.Sprintf("# auto ask: %s in %s\n\nBranch `%s` passed for class `%s`, but `AGENTS.md` has no `# auto: test` command under `## Setup commands`. Mark a test command with `# auto: test` or merge `%s` by hand.\n",
 		t.Class, oneLine(filepath.Base(root)), branch, t.Class, branch)
-	id, err := brain.Add(brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}, brain.AddInput{
-		Kind:    "proposal",
-		Title:   fmt.Sprintf("auto ask: %s in %s (no # auto: test line, branch %s)", t.Class, oneLine(filepath.Base(root)), branch),
-		Project: root,
-		Body:    strings.NewReader(redact.Redact(body)),
+	id, created, err := r.upsertProposal(proposalSpec{
+		Project: root, Body: body, CustomKey: noTestAskKey(root, t.Class),
+		Title:      fmt.Sprintf("auto ask: %s in %s (no # auto: test line, branch %s)", t.Class, oneLine(filepath.Base(root)), branch),
+		UpdateBody: fmt.Sprintf("Latest passing branch `%s` for class `%s` (still missing `# auto: test` in `AGENTS.md`).", branch, t.Class),
 	})
 	if err != nil {
 		r.failed = true
 		return "failed", Finding{"ask", "failed", t.Class, oneLine(err.Error())}
 	}
-	r.st.OpenAsks++
+	if created {
+		r.st.OpenAsks++
+	}
 	return id, Finding{"ask", t.Class, branch, "queued proposal " + id + " (no # auto: test line)"}
 }
 

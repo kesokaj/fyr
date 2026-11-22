@@ -293,13 +293,15 @@ func (r *run) applyProposalDraft(root, class string, d draftLine) (Finding, erro
 	}
 	meta := formatProposalDraftMeta(d)
 	body := fmt.Sprintf("Target: %s\nClass: %s\nProvenance: derived\n%s\n%s", d.Target, class, meta, indentProposalBody(d.Body))
-	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
-	if _, err := brain.Add(g, brain.AddInput{
-		Kind: "proposal", Title: title, Project: root, Body: strings.NewReader(body),
-	}); err != nil {
+	_, created, err := r.upsertProposal(proposalSpec{
+		Project: root, Title: title, Body: body, UpdateBody: d.Body, ReportDate: d.ReportDate, Derived: true,
+	})
+	if err != nil {
 		return Finding{}, err
 	}
-	r.st.OpenAsks++
+	if created {
+		r.st.OpenAsks++
+	}
 	return Finding{}, nil
 }
 

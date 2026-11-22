@@ -283,21 +283,26 @@ func (r *run) fileEvalGateProposal(root string, t Task, branch string, scores []
 			queued := "queued"
 			body := strings.TrimRight(recs[0].Body, "\n") + "\n\n" + section
 			if brain.Edit(g, brain.EditInput{ID: t.ID, Status: &queued, Body: strings.NewReader(redact.Redact(body))}) == nil {
+				r.invalidateProposalCache()
 				return t.ID
 			}
 		}
 	}
 	body := fmt.Sprintf("Target: harness\nClass: %s\nProvenance: derived\n\n%s", t.Class, section)
-	id, err := brain.Add(g, brain.AddInput{
-		Kind: "proposal", Status: "queued", Project: root,
-		Title: fmt.Sprintf("Auto, harness — %s not kept (%s)", t.Class, oneLine(branch)),
-		Body:  strings.NewReader(redact.Redact(body)),
+	id, created, err := r.upsertProposal(proposalSpec{
+		Project:    root,
+		Title:      fmt.Sprintf("Auto, harness — %s not kept (%s)", t.Class, oneLine(branch)),
+		Body:       body,
+		UpdateBody: section,
+		CustomKey:  evalGateProposalKey(t.Class),
 	})
 	if err != nil {
 		r.failed = true
 		return "failed"
 	}
-	r.st.OpenAsks++
+	if created {
+		r.st.OpenAsks++
+	}
 	return id
 }
 
