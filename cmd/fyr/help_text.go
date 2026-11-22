@@ -54,6 +54,7 @@ Background and measurement
   gate         run lease, numstat, secret and trailer checks on a diff
   land         gate, squash-verify in worktree, ff main and delete branch
   close        write one handoff record embedding the fresh verify stamp
+  relay        hands-off fresh-session phase runner for a plan
   check        read-only drift check of this checkout's docs
   git-check    read-only post-dispatch git status, log and tag check
   watch        inspect sessions, artifacts and processes for hangs

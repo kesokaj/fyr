@@ -227,6 +227,7 @@ func TestUsageErrSites(t *testing.T) {
 		"dream scope conflict":   {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
 		"dream all and project":  {[]string{"dream", "--all", "--project", "x"}, "dream", "fyr dream: --all or --project <dir>, not both"},
 		"bare dream":             {[]string{"dream"}, "dream", ""},
+		"bare relay":             {[]string{"relay"}, "relay", "fyr relay requires --plan <PLAN-ID>"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, code := helpRun(t, append(tc.args, "--home", home)...)

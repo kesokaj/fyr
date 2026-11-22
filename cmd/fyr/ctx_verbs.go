@@ -59,6 +59,8 @@ type ctx struct {
 	gateJudge, gateJudgeModel                                                                         string
 	watchConv                                                                                         string
 	watchIdleSec                                                                                      int
+	relayPlan, relayJudgeModel                                                                        string
+	relayMaxPhases                                                                                    int
 	// src is the harness, resolved before run for the verbs that mark source
 	src harness.Source
 }
