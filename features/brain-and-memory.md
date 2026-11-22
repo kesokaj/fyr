@@ -22,7 +22,7 @@ Three core boundaries keep the store clean and reliable:
 1. **Global-only separation:** `feedback` and `proposal` records are allowed only with `--global` (`R8`) so local machine corrections and background asks never leak into project checkouts.
 2. **Unexported local kinds:** `memory`, `feedback`, and `proposal` rows never reach `.agents/trail.jsonl` when you run `fyr record export` (`R4`, `R7`).
 3. **One-call writes:** Both `fyr record add` and `fyr memory add` accept leading `Title:` / `Status:` / `ID:` / `Project:` (or `Type:` / `Name:` / `Description:` / `Provenance:`) headers on `stdin`, `--body-file FILE`, or `--json-in` (`internal/brain/stdin_doc.go`) so writes require a single command without temporary shell files.
-4. **Canonical `repo_id` & portable memory (`brain.db` v4):** Records carry normalized `repo_id` (`NormalizeRepoID`) for project scoping, and `fyr state export|import --include-memory` (`ADR-531`) optionally bundles `memory` records across hosts.
+4. **Canonical `repo_id`, portable memory & isolated SIM ledger (`brain.db` v5):** Records carry normalized `repo_id` (`NormalizeRepoID`, v4) for project scoping, migration 5 (`ADR-533`, `SPEC-fyr-sim`) adds the global optimizer SIM ledger (`sim_problems`, `sim_aliases`, `sim_attempts`, `sim_fts`, strictly isolated from `fyr resume`, `fyr memory show`, hooks, and `.agents/trail.jsonl`), and `fyr state export|import --include-memory` (`ADR-531`, `ADR-533`) optionally bundles `memory` records and `sim_ledger.ndjson` across hosts.
 
 ## Seven-step session resume
 

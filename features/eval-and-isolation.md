@@ -74,6 +74,7 @@ Why OS-native isolation matters: `agy --sandbox` restricts shell commands only a
 | `--fixture DIR` | Current checkout root | Git repository cloned read-only into each trial's sandbox |
 | `--suite-file PATH` | `""` | External `GUIDE-eval`-formatted file (`<= 1 MiB`) outside every checkout (labels trials `eval=holdout/<id>`) |
 | `--runs N` | `1` | Trials per row (`1`–`25`) |
+| `--model ID` | `""` (active `agy` default) | Pin an explicit non-interactive policy model ID for trials and record it on `metrics.db` v13 `trials.policy_model` (`SPEC-fyr-sim`) |
 | `--parallel N` | `1` | Maximum concurrent trials (`1`–`25`; `kind: benchmark` forced to `1`) |
 | `--acp` | `false` | Drive sessions via warm `agy acp --stdio --process-per-session` |
 | `--runner R` | `isolate` | Isolation runner (`isolate` only; fails closed if OS isolation is unavailable) |
