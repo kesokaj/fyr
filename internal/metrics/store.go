@@ -158,6 +158,8 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS sessions_repo_id ON sessions(repo_id);`,
 	// 12: shape-only daily health digests and post-fix recovery snapshots (D7).
 	`CREATE TABLE daily_digests(day TEXT PRIMARY KEY, verdict TEXT NOT NULL, kpi_json TEXT NOT NULL, ast_json TEXT NOT NULL, preinv_json TEXT NOT NULL, actions_json TEXT NOT NULL, created_at INTEGER NOT NULL); CREATE INDEX daily_digests_created ON daily_digests(created_at);`,
+	// 13: per-trial policy model attribution for cross-model evals (ADR-533, SPEC-fyr-sim).
+	`ALTER TABLE trials ADD COLUMN policy_model TEXT NOT NULL DEFAULT '';`,
 }
 
 // tables is every table export writes, in dependency order.

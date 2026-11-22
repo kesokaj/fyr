@@ -35,8 +35,8 @@ func TestSessionRatingsMigrationUpsertQueryAndReports(t *testing.T) {
 	migrations = saved
 
 	s := openT(t, dbPath)
-	if got := s.meta(t, "schema"); got != "12" {
-		t.Fatalf("schema = %q, want 12", got)
+	if got := s.meta(t, "schema"); got != "13" {
+		t.Fatalf("schema = %q, want 13", got)
 	}
 	var kept int
 	if err := s.db.QueryRow(`SELECT count(*) FROM sessions WHERE id = 'keep-s1'`).Scan(&kept); err != nil || kept != 1 {

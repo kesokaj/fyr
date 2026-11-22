@@ -30,6 +30,7 @@ type Trial struct {
 	// then, or not known at the run).
 	RowVersion            int
 	Kind, Cluster, Expect string
+	PolicyModel           string
 }
 
 // trialText is the longest harness, cli or run value stored: each is a
@@ -62,7 +63,7 @@ func (t Trial) validate() error {
 	if k, v, ok := strings.Cut(t.Label, "="); !ok || k == "" || v == "" {
 		return fmt.Errorf("label %q: want KEY=VALUE", printable(t.Label))
 	}
-	for name, v := range map[string]string{"run": t.Run, "label": t.Label, "harness": t.Harness, "cli": t.CLI, "kind": t.Kind, "cluster": t.Cluster, "expect": t.Expect} {
+	for name, v := range map[string]string{"run": t.Run, "label": t.Label, "harness": t.Harness, "cli": t.CLI, "kind": t.Kind, "cluster": t.Cluster, "expect": t.Expect, "policy_model": t.PolicyModel} {
 		if printable(v) != v || len(v) > trialText {
 			return fmt.Errorf("%s: not printable or over %d bytes", name, trialText)
 		}
@@ -96,10 +97,10 @@ func (s *Store) RecordTrial(t Trial) error {
 		return *p
 	}
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli,
-		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds)
-		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
+		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds, policy_model)
+		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.Run, t.Label, t.RowVersion, t.Kind, t.Cluster, t.Expect, t.Harness, t.CLI,
-		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds))
+		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds), t.PolicyModel)
 	if err != nil {
 		return fmt.Errorf("metrics: trial: %w", err)
 	}

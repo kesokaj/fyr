@@ -311,8 +311,8 @@ func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
 	}
 	dir := t.TempDir()
 	s := openT(t, filepath.Join(dir, "metrics.db"))
-	if got := s.meta(t, "schema"); got != "12" {
-		t.Fatalf("schema = %q, want 12", got)
+	if got := s.meta(t, "schema"); got != "13" {
+		t.Fatalf("schema = %q, want 13", got)
 	}
 	if empty, err := LatestDailyDigest(s); err != nil || empty != nil {
 		t.Fatalf("empty LatestDailyDigest = (%+v, %v), want (nil, nil)", empty, err)
@@ -350,7 +350,7 @@ func TestDailyDigestsMigrationSchema12AndExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte(`"table":"daily_digests"`)) || !bytes.Contains(raw, []byte(`"value":"12"`)) {
-		t.Fatalf("export missing daily_digests or schema 12:\n%s", raw)
+	if !bytes.Contains(raw, []byte(`"table":"daily_digests"`)) || !bytes.Contains(raw, []byte(`"value":"13"`)) {
+		t.Fatalf("export missing daily_digests or schema 13:\n%s", raw)
 	}
 }

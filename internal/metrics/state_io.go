@@ -37,6 +37,7 @@ type TrialInput struct {
 	ProjectRoot    string    `json:"project_root,omitempty"`
 	RepoID         string    `json:"repo_id,omitempty"`
 	DurationMS     int64     `json:"duration_ms,omitempty"`
+	PolicyModel    string    `json:"policy_model,omitempty"`
 }
 
 type normalizedTrialInput struct {
@@ -145,6 +146,7 @@ func buildValidatedTrial(row TrialInput) (Trial, error) {
 		SessionSeconds: row.SessionSeconds, CheckSeconds: row.CheckSeconds,
 		RowVersion: row.RowVersion, Kind: clipSanitizedText(row.Kind, trialText),
 		Cluster: clipSanitizedText(row.Cluster, trialText), Expect: clipSanitizedText(row.Expect, trialText),
+		PolicyModel: clipSanitizedText(row.PolicyModel, trialText),
 	}
 	if err := tr.validate(); err != nil {
 		return Trial{}, fmt.Errorf("metrics: trial: %w", err)
@@ -226,10 +228,10 @@ func insertTrialTx(tx *sql.Tx, t Trial) error {
 		return *p
 	}
 	_, err := tx.Exec(`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli,
-		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds)
-		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
+		status, cause, started_at, seconds, setup_seconds, session_seconds, check_seconds, policy_model)
+		VALUES (?, ?, NULLIF(?, 0), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.Run, t.Label, t.RowVersion, t.Kind, t.Cluster, t.Expect, t.Harness, t.CLI,
-		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds))
+		t.Status, t.Cause, t.StartedAt.UnixMilli(), t.Seconds, optInt(t.SetupSeconds), optInt(t.SessionSeconds), optInt(t.CheckSeconds), t.PolicyModel)
 	if err != nil {
 		return fmt.Errorf("metrics: trial: %w", err)
 	}

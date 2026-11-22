@@ -90,6 +90,7 @@ type SanitizedTrial struct {
 	SessionSeconds *int64 `json:"session_seconds,omitempty"`
 	SetupSeconds   *int64 `json:"setup_seconds,omitempty"`
 	CheckSeconds   *int64 `json:"check_seconds,omitempty"`
+	PolicyModel    string `json:"policy_model,omitempty"`
 }
 
 // SanitizedTurnVet is one portable turn_vets row without local project_root.
@@ -285,7 +286,11 @@ func exportSanitizedEvents(db *sql.DB, sids map[string]bool) ([]SanitizedEvent, 
 }
 
 func exportSanitizedTrials(db *sql.DB, repoID string, sinceMS int64) ([]SanitizedTrial, error) {
-	q := `SELECT DISTINCT t.run, t.label, COALESCE(t.row_version, 0), COALESCE(t.kind, ''), COALESCE(t.cluster, ''), COALESCE(t.expect, ''), t.harness, COALESCE(t.cli, ''), t.status, t.cause, t.started_at, t.seconds, t.session_seconds, t.setup_seconds, t.check_seconds FROM trials t`
+	pmCol := `''`
+	if hasTrialPolicyModelCol(db) {
+		pmCol = `COALESCE(t.policy_model, '')`
+	}
+	q := `SELECT DISTINCT t.run, t.label, COALESCE(t.row_version, 0), COALESCE(t.kind, ''), COALESCE(t.cluster, ''), COALESCE(t.expect, ''), t.harness, COALESCE(t.cli, ''), t.status, t.cause, t.started_at, t.seconds, t.session_seconds, t.setup_seconds, t.check_seconds, ` + pmCol + ` FROM trials t`
 	var conds []string
 	var args []any
 	if repoID != "" {
@@ -314,7 +319,7 @@ func scanSanitizedTrials(db *sql.DB, q string, args []any) ([]SanitizedTrial, er
 	for rows.Next() {
 		var r SanitizedTrial
 		var sesS, setS, chkS sql.NullInt64
-		if err := rows.Scan(&r.Run, &r.Label, &r.RowVersion, &r.Kind, &r.Cluster, &r.Expect, &r.Harness, &r.CLI, &r.Status, &r.Cause, &r.StartedAt, &r.Seconds, &sesS, &setS, &chkS); err != nil {
+		if err := rows.Scan(&r.Run, &r.Label, &r.RowVersion, &r.Kind, &r.Cluster, &r.Expect, &r.Harness, &r.CLI, &r.Status, &r.Cause, &r.StartedAt, &r.Seconds, &sesS, &setS, &chkS, &r.PolicyModel); err != nil {
 			return nil, err
 		}
 		r.Run = clipSanitizedText(r.Run, trialText)
@@ -326,6 +331,7 @@ func scanSanitizedTrials(db *sql.DB, q string, args []any) ([]SanitizedTrial, er
 		r.CLI = clipSanitizedText(r.CLI, trialText)
 		r.Status = clipSanitizedText(r.Status, 32)
 		r.Cause = clipSanitizedText(r.Cause, 256)
+		r.PolicyModel = clipSanitizedText(r.PolicyModel, trialText)
 		r.SessionSeconds, r.SetupSeconds, r.CheckSeconds = ptrInt64(sesS), ptrInt64(setS), ptrInt64(chkS)
 		if r.Run != "" {
 			out = append(out, r)

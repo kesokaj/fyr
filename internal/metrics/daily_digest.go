@@ -95,6 +95,7 @@ type DigestAppliedAction struct {
 	Metric         string   `json:"metric,omitempty"`
 	BaselineValue  *float64 `json:"baseline_value,omitempty"`
 	AppliedAt      int64    `json:"applied_at,omitempty"`
+	PolicyModel    string   `json:"policy_model,omitempty"`
 }
 
 // DigestAction is one shape-only prioritized action item from diagnostics.
@@ -134,13 +135,16 @@ func BuildDailyDigest(store *Store, home, repoRoot string, now time.Time) (Daily
 		}
 		todayDigest, _ = dailyDigestByDay(store, day)
 	}
-	return assembleDailyDigest(day, nowUTC, home, repoRoot, curSum, prevSum, prevDigest, todayDigest), nil
+	return assembleDailyDigest(store, day, nowUTC, home, repoRoot, curSum, prevSum, prevDigest, todayDigest), nil
 }
 
-func assembleDailyDigest(day string, nowUTC time.Time, home, repoRoot string, curSum, prevSum *Summary, prevDigest, todayDigest *DailyDigest) DailyDigest {
+func assembleDailyDigest(store *Store, day string, nowUTC time.Time, home, repoRoot string, curSum, prevSum *Summary, prevDigest, todayDigest *DailyDigest) DailyDigest {
 	astSnap, preSnap := curSum.Health.Structural, preInvFromSummary(curSum)
 	astDiff, preDiff := buildASTDiff(astSnap, prevDigest), buildPreInvDiff(preSnap, prevDigest)
 	signals := collectDigestSignals(curSum, astSnap, astDiff, repoRoot)
+	if shift := detectModelShiftAudit(store, home, repoRoot, nowUTC); shift != nil {
+		signals = append(signals, *shift)
+	}
 	actions := collectDigestActions(home, repoRoot, day, curSum, prevDigest, todayDigest, signals)
 	newReg, resolved, persistHigh := computeSignalTransitions(signals, prevDigest)
 	d := DailyDigest{
@@ -161,10 +165,16 @@ func computeSignalTransitions(signals []DigestAction, prev *DailyDigest) (newReg
 	}
 	prevByID := make(map[string]DigestAction, len(prev.Signals))
 	for _, s := range prev.Signals {
+		if s.Severity == severityInfo {
+			continue
+		}
 		prevByID[s.SignalID] = s
 	}
 	curByID := make(map[string]bool, len(signals))
 	for _, s := range signals {
+		if s.Severity == severityInfo {
+			continue
+		}
 		curByID[s.SignalID] = true
 		p, existed := prevByID[s.SignalID]
 		if !existed {
@@ -174,6 +184,9 @@ func computeSignalTransitions(signals []DigestAction, prev *DailyDigest) (newReg
 		}
 	}
 	for _, s := range prev.Signals {
+		if s.Severity == severityInfo {
+			continue
+		}
 		if !curByID[s.SignalID] {
 			resolved = append(resolved, s.SignalID)
 		}

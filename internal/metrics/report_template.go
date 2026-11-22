@@ -46,6 +46,7 @@ ul.notes{color:var(--ink-2);padding-left:18px}
 {{if or .NewRegressions .ResolvedSignals .PersistentHigh}}<ul class="notes">{{if .NewRegressions}}<li><strong>new_regressions:</strong> {{.NewRegressions}}</li>{{end}}{{if .ResolvedSignals}}<li><strong>resolved_signals:</strong> {{.ResolvedSignals}}</li>{{end}}{{if .PersistentHigh}}<li><strong>persistent_high:</strong> {{.PersistentHigh}}</li>{{end}}</ul>{{end}}
 {{if .Actions}}<h3>Applied Actions</h3><ul class="notes">{{range .Actions}}<li>{{.}}</li>{{end}}</ul>{{end}}
 {{if .Signals}}<h3>Priority Signals &amp; Actions</h3><ul class="notes">{{range .Signals}}<li>{{.}}</li>{{end}}</ul>{{end}}
+{{if .Info}}<h3>Info Notices</h3><ul class="notes">{{range .Info}}<li>{{.}}</li>{{end}}</ul>{{end}}
 </section>{{end}}
 <section><h2>Summary</h2><p class="note">n/a is a metric the CLI does not record.</p>
 <div class="tablewrap"><table><tr>{{range .Outcome.Head}}<th>{{.}}</th>{{end}}</tr>{{range .Outcome.Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{end}}</table></div></section>

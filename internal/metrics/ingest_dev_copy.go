@@ -27,7 +27,7 @@ func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 		noteSecondBrain(log, "%s: unsupported schema %q", srcPath, verStr)
 		return
 	}
-	if err := s.copyDevTrials(srcDB, label, ver >= 5); err != nil {
+	if err := s.copyDevTrials(srcDB, label, ver >= 5, ver >= 13); err != nil {
 		noteSecondBrain(log, "%s trials: %v", srcPath, err)
 	}
 	if err := s.copyDevSessionsAndSteps(srcDB, label, ver >= 5, ver >= 11); err != nil {
@@ -40,11 +40,16 @@ func (s *Store) copyDevStoreTables(srcPath, tmp, label string, log io.Writer) {
 	}
 }
 
-func (s *Store) copyDevTrials(src *sql.DB, label string, hasStageCols bool) error {
-	q := `SELECT run, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, NULL, NULL FROM trials`
+func (s *Store) copyDevTrials(src *sql.DB, label string, hasStageCols, hasPolicyModel bool) error {
+	stageCols := `NULL, NULL`
 	if hasStageCols {
-		q = `SELECT run, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, setup_seconds, check_seconds FROM trials`
+		stageCols = `setup_seconds, check_seconds`
 	}
+	pmCol := `''`
+	if hasPolicyModel {
+		pmCol = `COALESCE(policy_model, '')`
+	}
+	q := `SELECT run, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, ` + stageCols + `, ` + pmCol + ` FROM trials`
 	rows, err := src.Query(q)
 	if err != nil {
 		return err
@@ -67,11 +72,11 @@ func (s *Store) copyDevTrials(src *sql.DB, label string, hasStageCols bool) erro
 }
 
 func insertCopiedTrial(tx *sql.Tx, rows *sql.Rows, label string) error {
-	var run, harnessVal, status, cause string
+	var run, harnessVal, status, cause, policyModel string
 	var kind, cluster, expect, cli sql.NullString
 	var rowVer, sesSec, setSec, chkSec sql.NullInt64
 	var startedAt, seconds int64
-	if err := rows.Scan(&run, &rowVer, &kind, &cluster, &expect, &harnessVal, &cli, &status, &cause, &startedAt, &seconds, &sesSec, &setSec, &chkSec); err != nil {
+	if err := rows.Scan(&run, &rowVer, &kind, &cluster, &expect, &harnessVal, &cli, &status, &cause, &startedAt, &seconds, &sesSec, &setSec, &chkSec, &policyModel); err != nil {
 		return err
 	}
 	destRun := scopedKey(label, run)
@@ -79,10 +84,10 @@ func insertCopiedTrial(tx *sql.Tx, rows *sql.Rows, label string) error {
 		return nil
 	}
 	_, err := tx.Exec(
-		`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, setup_seconds, check_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO trials(run, label, row_version, kind, cluster, expect, harness, cli, status, cause, started_at, seconds, session_seconds, setup_seconds, check_seconds, policy_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		destRun, printable(label), rowVer, nullPrintable(kind), nullPrintable(cluster), nullPrintable(expect),
 		printable(harnessVal), nullPrintable(cli), printable(status), printable(cause),
-		startedAt, seconds, sesSec, setSec, chkSec,
+		startedAt, seconds, sesSec, setSec, chkSec, clipPrintable(policyModel, trialText),
 	)
 	return err
 }

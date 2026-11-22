@@ -186,6 +186,9 @@ func mergeAppliedAction(base, incoming DigestAppliedAction) DigestAppliedAction 
 	if base.AppliedAt == 0 {
 		base.AppliedAt = incoming.AppliedAt
 	}
+	if base.PolicyModel == "" {
+		base.PolicyModel = incoming.PolicyModel
+	}
 	return base
 }
 
@@ -226,6 +229,7 @@ func normalizeAppliedAction(act DigestAppliedAction, day string, nowMS int64) Di
 	act.Summary = printable(strings.TrimSpace(act.Summary))
 	act.AppliedSHA = printable(strings.TrimSpace(act.AppliedSHA))
 	act.Metric = printable(strings.TrimSpace(act.Metric))
+	act.PolicyModel = clipPrintable(act.PolicyModel, trialText)
 	if act.AppliedAt <= 0 {
 		act.AppliedAt = nowMS
 	}

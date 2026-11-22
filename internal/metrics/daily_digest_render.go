@@ -15,6 +15,7 @@ type dailyBannerView struct {
 	PersistentHigh  string
 	Actions         []string
 	Signals         []string
+	Info            []string
 }
 
 // RenderDailyDigestJSON writes d as indented JSON to w.
@@ -59,15 +60,37 @@ func appendDigestActionLines(b *strings.Builder, d DailyDigest) {
 }
 
 func appendDigestSignalLines(b *strings.Builder, d DailyDigest) {
-	b.WriteString("  We need to do:\n")
-	if len(d.Signals) == 0 {
-		b.WriteString("    - (none)\n")
-		return
-	}
+	var actionSigs, infoSigs []DigestAction
 	for _, s := range d.Signals {
-		fmt.Fprintf(b, "    - [%s/%s] %s (%s): %s\n",
-			printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), printable(s.RecommendedAction))
+		if s.Severity == severityInfo {
+			infoSigs = append(infoSigs, s)
+		} else {
+			actionSigs = append(actionSigs, s)
+		}
 	}
+	b.WriteString("  We need to do:\n")
+	if len(actionSigs) == 0 {
+		b.WriteString("    - (none)\n")
+	} else {
+		for _, s := range actionSigs {
+			fmt.Fprintf(b, "    - %s\n", formatDigestSignalLine(s))
+		}
+	}
+	if len(infoSigs) > 0 {
+		b.WriteString("  Info:\n")
+		for _, s := range infoSigs {
+			fmt.Fprintf(b, "    - %s\n", formatDigestSignalLine(s))
+		}
+	}
+}
+
+func formatDigestSignalLine(s DigestAction) string {
+	act := printable(s.RecommendedAction)
+	if act == "" {
+		act = printable(s.Summary)
+	}
+	return fmt.Sprintf("[%s/%s] %s (%s): %s",
+		printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), act)
 }
 
 func buildDailyBannerView(d *DailyDigest) *dailyBannerView {
@@ -85,6 +108,7 @@ func buildDailyBannerView(d *DailyDigest) *dailyBannerView {
 		v.Actions = append(v.Actions, formatBannerAction(a))
 	}
 	v.Signals = formatBannerSignals(d.Signals, 5)
+	v.Info = formatBannerInfoSignals(d.Signals, 5)
 	return v
 }
 
@@ -119,12 +143,21 @@ func formatBannerSignals(signals []DigestAction, limit int) []string {
 		if s.Severity != "high" && s.Severity != "medium" {
 			continue
 		}
-		act := printable(s.RecommendedAction)
-		if act == "" {
-			act = printable(s.Summary)
+		out = append(out, formatDigestSignalLine(s))
+		if len(out) >= limit {
+			break
 		}
-		out = append(out, fmt.Sprintf("[%s/%s] %s (%s): %s",
-			printable(s.Severity), printable(s.ActionScope), printable(s.Rule), printable(s.SignalID), act))
+	}
+	return out
+}
+
+func formatBannerInfoSignals(signals []DigestAction, limit int) []string {
+	var out []string
+	for _, s := range signals {
+		if s.Severity != severityInfo {
+			continue
+		}
+		out = append(out, formatDigestSignalLine(s))
 		if len(out) >= limit {
 			break
 		}
@@ -153,5 +186,8 @@ func writeMDDailyBanner(b *strings.Builder, d *DailyDigest) {
 	}
 	for _, s := range v.Signals {
 		fmt.Fprintf(b, "- Signal action: %s\n", mdCell(s))
+	}
+	for _, info := range v.Info {
+		fmt.Fprintf(b, "- Info notice: %s\n", mdCell(info))
 	}
 }

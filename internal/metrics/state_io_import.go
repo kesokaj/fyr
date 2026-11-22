@@ -201,6 +201,7 @@ func importOneTrialTx(tx *sql.Tx, r SanitizedTrial, c *StateImportCounts) error 
 		Status: strings.ToLower(strings.TrimSpace(r.Status)), Cause: clipSanitizedText(r.Cause, trialText),
 		StartedAt: time.UnixMilli(r.StartedAt), Seconds: r.Seconds,
 		SessionSeconds: r.SessionSeconds, SetupSeconds: r.SetupSeconds, CheckSeconds: r.CheckSeconds,
+		PolicyModel: clipSanitizedText(r.PolicyModel, trialText),
 	}
 	if tr.validate() != nil {
 		c.Skipped++
