@@ -33,6 +33,7 @@ func (r *run) sweep() {
 	r.pruneSweepProjects(seen)
 	if !r.dry {
 		r.consolidateProposals()
+		r.syncSIMFromLatestDigest()
 	}
 	if reached > 0 && !r.dry {
 		if !r.again("the machine's checks") {

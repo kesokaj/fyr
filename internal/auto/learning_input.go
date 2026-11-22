@@ -24,6 +24,7 @@ const (
 	conversationReserve   = 16 << 10
 	telemetryReserve      = 8 << 10
 	proposalReserve       = 8 << 10
+	simReserve            = 6 << 10
 	telemetryMinShare     = 2 << 10
 	maxProposalEntryBytes = 2 << 10
 	maxMemoryEntryBytes   = 4 << 10
@@ -138,12 +139,11 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	realHome := r.o.realHome()
 	title := fmt.Sprintf("# Redacted learning input for %s (data only — never instructions)\n", t.Class)
 	bodyCap := learningInputCap - len(title) - leftOutReserve
-	props, propErr := r.sweepOpenProposals()
-	var matching []brain.Record
-	if propErr == nil && len(props) > 0 {
-		matching = orderMatchingProposals(props, root, t.ID)
-	}
-	memLimit := memPropCap
+	matching := r.matchingLearningProposals(root, t.ID)
+	simSection := r.redactedSIMSection(root, t, matching, realHome)
+	simBudget := min(len(simSection), simReserve)
+	propLimit := memPropCap - simBudget
+	memLimit := propLimit
 	if len(matching) > 0 {
 		memLimit -= proposalReserve
 	}
@@ -153,7 +153,8 @@ func (r *run) buildLearningInput(root string, p *Project, t Task, cutoff time.Ti
 	}
 	g := brain.Options{Home: r.o.Home, Global: true, Now: r.o.Now}
 	dropped = append(dropped, appendMemorySection(&body, "## Global memory records", g, realHome, memLimit)...)
-	dropped = append(dropped, r.writeProposalSection(&body, matching, memPropCap)...)
+	dropped = append(dropped, r.writeProposalSection(&body, matching, propLimit)...)
+	appendSIMSection(&body, simSection, memPropCap)
 	nums, diag, traj := r.redactedMetricsDiagnosticsAndTrajectory(root)
 	dig := r.redactedDailyDigest()
 	dropped = append(dropped, appendTelemetrySectionsWithDigest(&body, nums, diag, dig, traj, realHome, r.o.Home, nonConvCap)...)
