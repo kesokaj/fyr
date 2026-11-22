@@ -283,7 +283,7 @@ To prevent Antigravity's `24,000`-byte global rules block from silently dropping
 
 ## Daily CLI Reference
 
-Use these ten commands in daily workflows, and expand the full reference below for all 30 `fyr` commands (`fyr help <verb>` prints full flags and `SPEC-fyr-*` holds complete contracts).
+Use these ten commands in daily workflows, and expand the full reference below for all 30 primary `fyr` commands (31 registered verbs including the `sync` alias; `fyr help <verb>` prints full flags and `SPEC-fyr-*` holds complete contracts).
 
 | Command | What it does |
 |---|---|
@@ -299,7 +299,7 @@ Use these ten commands in daily workflows, and expand the full reference below f
 | `fyr auto on` / `off` / `status` / `run` / `log` | Global binary on/off switch and log viewer for hourly stale-conversation rating, dreaming, daily HTML reports, and eval-gated skill improvement |
 
 <details>
-<summary>Complete CLI command reference (all 30 commands)</summary>
+<summary>Complete CLI command reference (30 primary commands, 31 verbs with sync)</summary>
 
 | Command | What it does |
 |---|---|

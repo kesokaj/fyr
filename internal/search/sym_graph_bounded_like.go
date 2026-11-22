@@ -20,13 +20,17 @@ func querySeedSymbolsLikeDB(db *sql.DB, projects []string, includeDocs bool, ter
 }
 
 func querySeedSymbolsLikeDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, terms []string, maxNames int) ([]RankedSymbol, error) {
+	return querySeedSymbolsLikeMinLenDBCtx(ctx, db, projects, includeDocs, terms, maxNames, 4)
+}
+
+func querySeedSymbolsLikeMinLenDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, terms []string, maxNames, minLikeLen int) ([]RankedSymbol, error) {
 	if len(projects) == 0 || ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	if maxNames <= 0 {
 		maxNames = maxBoundedSeedNames
 	}
-	exact, long, dotMethods, hasQualDot := collectBoundedLikeTerms(terms)
+	exact, long, dotMethods, hasQualDot := collectBoundedLikeTermsWithMin(terms, minLikeLen)
 	if len(exact) == 0 && len(long) == 0 {
 		return nil, nil
 	}
@@ -62,6 +66,13 @@ func queryBoundedMatchedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects [
 }
 
 func collectBoundedLikeTerms(terms []string) (exact, long, dotMethods []string, hasQualDot bool) {
+	return collectBoundedLikeTermsWithMin(terms, 4)
+}
+
+func collectBoundedLikeTermsWithMin(terms []string, minLikeLen int) (exact, long, dotMethods []string, hasQualDot bool) {
+	if minLikeLen < 4 {
+		minLikeLen = 4
+	}
 	seenMethod := map[string]bool{}
 	for _, tl := range expandBoundedSymbolTerms(terms) {
 		if strings.Contains(tl, "/") || len(tl) < 2 {
@@ -71,7 +82,7 @@ func collectBoundedLikeTerms(terms []string) (exact, long, dotMethods []string, 
 		if len(exact) < maxBoundedSymbolTerms {
 			exact = append(exact, tl)
 		}
-		if len(tl) >= 4 && len(long) < maxBoundedSymbolTerms && !isFileLike {
+		if len(tl) >= minLikeLen && len(long) < maxBoundedSymbolTerms && !isFileLike {
 			long = append(long, tl)
 		}
 		if strings.Contains(tl, ".") && !isFileLike {
@@ -97,6 +108,9 @@ func boundedLikeDocFilterSQL(includeDocs bool) string {
 // B-tree sort, and zero Go-side marshaling of non-matching symbol rows);
 // project/doc filtering and maxNames capping run in queryBoundedMatchedSymbolsDBCtx.
 func matchSymbolNamesFromIndexCtx(ctx context.Context, db *sql.DB, includeDocs bool, exact, long []string) ([]string, map[string]bool, error) {
+	if len(long) >= 2 {
+		return scanSymbolNamesCoveringGoCtx(ctx, db, includeDocs, exact, long)
+	}
 	q, args := buildSymbolNameMatchSQL(includeDocs, exact, long)
 	if q == "" {
 		return nil, map[string]bool{}, nil
@@ -116,6 +130,42 @@ func matchSymbolNamesFromIndexCtx(ctx context.Context, db *sql.DB, includeDocs b
 		if !seen[name] {
 			seen[name] = true
 			matched = append(matched, name)
+		}
+	}
+	return matched, seen, rows.Err()
+}
+
+func scanSymbolNamesCoveringGoCtx(ctx context.Context, db *sql.DB, includeDocs bool, exact, long []string) ([]string, map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `SELECT name FROM symbols`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	exactSet := make(map[string]bool, len(exact))
+	for _, e := range exact {
+		exactSet[e] = true
+	}
+	seen := map[string]bool{}
+	var matched []string
+	var prev string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, nil, err
+		}
+		if name == prev || (!includeDocs && strings.IndexByte(name, ' ') >= 0) {
+			continue
+		}
+		prev = name
+		low := strings.ToLower(name)
+		if exactSet[low] || slices.ContainsFunc(long, func(l string) bool { return strings.Contains(low, l) }) {
+			if !seen[name] {
+				seen[name] = true
+				matched = append(matched, name)
+				if len(matched) >= 1024 {
+					break
+				}
+			}
 		}
 	}
 	return matched, seen, rows.Err()

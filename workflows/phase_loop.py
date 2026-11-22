@@ -359,6 +359,8 @@ async def _run_fyr_gate(s, branch, round_num, cfg):
     if isinstance(mocked, dict):
         return mocked
     if not cfg["exec_cli"]:
+        if not cfg["mocks"]:
+            return {"ok": False, "findings": [{"check": "gate", "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}]}
         return {"ok": True, "findings": [], "judgeVerdict": "PASS" if s["judge_criterion"] else ""}
     cli_args = ["gate", branch] + _lease_cli_flags(s) + (["--base", s["base_ref"]] if s["base_ref"] else [])
     if s["judge_criterion"] and cfg["cross_family"]:
@@ -373,6 +375,8 @@ async def _run_fyr_land(s, branch, cfg):
     if isinstance(mocked, dict):
         return mocked
     if not cfg["exec_cli"]:
+        if not cfg["mocks"]:
+            return {"ok": False, "branch": branch, "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}
         return {"ok": True, "branch": branch, "landCommit": "mock-land"}
     parsed, rc, err_tail = await _exec_fyr_json(["land", branch] + _lease_cli_flags(s), cfg)
     return {**parsed, "ok": parsed.get("ok", rc == 0)} if isinstance(parsed, dict) else {"ok": rc == 0, "branch": branch, "detail": "" if rc == 0 else err_tail}
@@ -382,6 +386,8 @@ async def _run_fyr_verify(cfg):
     if isinstance(mocked, dict):
         return mocked
     if not cfg["exec_cli"]:
+        if not cfg["mocks"]:
+            return {"ok": False, "detail": "exec_cli disabled without mocks (missing CONVERSATION_ID)"}
         return {"ok": True, "source": "mock"}
     parsed, rc, err_tail = await _exec_fyr_json(["verify", "--json"], cfg)
     return {**parsed, "ok": parsed.get("ok", rc == 0)} if isinstance(parsed, dict) else {"ok": rc == 0, "detail": "" if rc == 0 else err_tail}
@@ -427,7 +433,7 @@ def _slice_res(s, status, branch, commit, rounds_run, packets, reason=""):
     return {"slice_id": s["id"], "status": status, "branch": branch, "commit": commit, "rounds": rounds_run, "defect_packets": packets, "escalation_reason": reason}
 
 async def _check_round_gates(s, b_res, branch, round_num, cfg):
-    if str(b_res.get("status", "")).strip().upper() != "DONE" or not bool(b_res.get("verify_ok", True)):
+    if str(b_res.get("status", "")).strip().upper() != "DONE" or not _as_bool(b_res.get("verify_ok"), False):
         return [], [f"[builder] {str(b_res.get('summary') or 'builder verification failed').strip()}"], ["builder"]
     lease_hits, findings, sources = _extract_gate_defects(await _run_fyr_gate(s, branch, round_num, cfg))
     if lease_hits or findings:
@@ -497,7 +503,10 @@ cfg = {
 }
 
 if cfg["dry_run"]:
-    print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": "DRY_RUN", "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "slices": [{"slice_id": s["id"], "branch": s["branch"], "files": s["files"]} for s in slices], "landed": [], "escalations": []}, indent=2))
+    print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": "DRY_RUN", "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "exec_cli": cfg["exec_cli"], "mocked": not cfg["exec_cli"], "slices": [{"slice_id": s["id"], "branch": s["branch"], "files": s["files"]} for s in slices], "landed": [], "escalations": []}, indent=2))
+elif not cfg["exec_cli"] and not cfg["mocks"]:
+    reason = "exec_cli disabled without mocks (missing CONVERSATION_ID)"
+    print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": "ESCALATE", "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "exec_cli": cfg["exec_cli"], "mocked": True, "escalation_reason": reason, "slices": [], "landed": [], "final_verify": None, "escalations": [{"slice_id": "phase", "reason": reason, "rounds": 0}]}, indent=2))
 else:
     phase(f"Parallel build & gate ({phase_name})")
     slice_results = await parallel(slices, lambda s: _run_slice(s, cfg))
@@ -520,4 +529,4 @@ else:
     overall_status = "PASS" if (not escalations and len(ok_slices) == len(slices)) else "ESCALATE"
     for r in slice_results:
         log(f"[{r['slice_id']}] status={r['status']} rounds={r['rounds']} branch={r['branch']}")
-    print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": overall_status, "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "slices": slice_results, "landed": landed, "final_verify": final_verify, "escalations": escalations}, indent=2))
+    print(json.dumps({"plan_id": plan_id, "phase": phase_name, "status": overall_status, "max_rounds": cfg["max_rounds"], "cross_family": cfg["cross_family"], "exec_cli": cfg["exec_cli"], "mocked": not cfg["exec_cli"], "slices": slice_results, "landed": landed, "final_verify": final_verify, "escalations": escalations}, indent=2))

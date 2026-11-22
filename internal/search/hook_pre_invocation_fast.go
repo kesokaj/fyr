@@ -251,6 +251,8 @@ func launchParallelVetSlice(sliceCtx context.Context, sliceOpts Options, sc *sco
 			return
 		}
 		defer roSt.close()
+		registerFTSTurnCache(roSt.db)
+		defer clearFTSTurnCache(roSt.db)
 		roScope := &scope{st: roSt, projects: projects, leftOut: leftOut}
 		s, piv := roScope.buildVetSliceCtx(sliceCtx, sliceOpts, prompt, state, false)
 		ch <- parallelSliceOutcome{slice: s, pivots: piv}

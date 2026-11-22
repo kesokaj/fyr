@@ -7,9 +7,16 @@ import (
 	"io"
 	"strings"
 
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/relay"
 	"github.com/kesokaj/fyr/internal/search"
 )
+
+type relayErrorJSON struct {
+	OK     bool   `json:"ok"`
+	Status string `json:"status"`
+	Error  string `json:"error"`
+}
 
 // Test hooks for CLI tests; nil in production.
 var (
@@ -33,14 +40,14 @@ func registerRelayFlags(c *ctx) {
 
 func runRelay(c *ctx) error {
 	if strings.TrimSpace(c.relayPlan) == "" {
-		return usageErr(c.out, "relay", "fyr relay requires --plan <PLAN-ID>")
+		return emitRelayUsageErr(c, "fyr relay requires --plan <PLAN-ID>")
 	}
 	if c.relayMaxPhases < 1 || c.relayMaxPhases > relay.MaxPhasesLimit {
-		return usageErr(c.out, "relay", fmt.Sprintf("fyr relay: --max-phases must be 1 to %d (got %d)", relay.MaxPhasesLimit, c.relayMaxPhases))
+		return emitRelayUsageErr(c, fmt.Sprintf("fyr relay: --max-phases must be 1 to %d (got %d)", relay.MaxPhasesLimit, c.relayMaxPhases))
 	}
 	wd, err := c.projectDir()
 	if err != nil {
-		return err
+		return emitRelayOutcome(c, relay.Report{}, err)
 	}
 	rep, runErr := relay.Run(context.Background(), relay.Options{
 		Dir: wd, Home: c.home, PlanID: strings.TrimSpace(c.relayPlan),
@@ -50,6 +57,16 @@ func runRelay(c *ctx) error {
 		RecordVerdict: recordGateJudgeVerdict(c.home),
 	})
 	return emitRelayOutcome(c, rep, runErr)
+}
+
+func emitRelayUsageErr(c *ctx, msg string) error {
+	if c.jsonOut {
+		if jerr := writeJSONLine(c.out, relayErrorJSON{OK: false, Status: "REFUSED", Error: search.Printable(msg)}); jerr != nil {
+			return jerr
+		}
+		return exitCode(2)
+	}
+	return usageErr(c.out, "relay", msg)
 }
 
 func emitRelayOutcome(c *ctx, rep relay.Report, err error) error {
@@ -66,11 +83,19 @@ func emitRelayOutcome(c *ctx, rep relay.Report, err error) error {
 		}
 		return nil
 	}
-	fmt.Fprintln(stderr, search.Printable("fyr relay: "+err.Error()))
+	status, code := "ERROR", exitCode(1)
 	if errors.Is(err, relay.ErrRefused) {
-		return exitCode(2)
+		status, code = "REFUSED", exitCode(2)
 	}
-	return exitCode(1)
+	cleanErr := search.Printable(redact.Redact(err.Error()))
+	if c.jsonOut {
+		if jerr := writeJSONLine(c.out, relayErrorJSON{OK: false, Status: status, Error: cleanErr}); jerr != nil {
+			return jerr
+		}
+		return code
+	}
+	fmt.Fprintln(stderr, "fyr relay: "+cleanErr)
+	return code
 }
 
 func printRelayText(w io.Writer, rep relay.Report) {

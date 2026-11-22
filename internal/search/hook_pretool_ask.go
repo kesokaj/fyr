@@ -39,6 +39,9 @@ func handlePreToolAskQuestionCtx(ctx context.Context, o Options, dir string, wd 
 }
 
 func detectKickoffOrWorkerSessionCtx(ctx context.Context, o Options, dir string, wd watchdogPreState, wdSt *store, wdRoot string, in HookInput) (bool, string) {
+	if os.Getenv("FYR_RELAY") == "1" {
+		return true, "relay"
+	}
 	if isKickoffOrWorkerPrompt(in.LastUserInput) {
 		return true, "prompt"
 	}

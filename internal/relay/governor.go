@@ -1,13 +1,16 @@
 package relay
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/models"
@@ -32,6 +35,12 @@ type QuotaCheckFunc func(ctx context.Context, home string) (QuotaStatus, error)
 // CheckBudgetFloor reads cached models.json via internal/models and checks
 // active Gemini pools against GeminiFloorFive (20%) and GeminiFloorWeek (15%).
 func CheckBudgetFloor(home string, requireQuota bool) (QuotaStatus, error) {
+	return CheckBudgetFloorAt(home, requireQuota, time.Now().UTC())
+}
+
+// CheckBudgetFloorAt checks cached models.json pool quotas at clock time now,
+// validating DefaultPoolQuotaTTL freshness and skipping DisabledWindow (-1).
+func CheckBudgetFloorAt(home string, requireQuota bool, now time.Time) (QuotaStatus, error) {
 	cat, ok, err := models.LoadCatalog(home)
 	if err != nil {
 		return QuotaStatus{OK: false, Note: "models.json unreadable: " + err.Error()}, nil
@@ -39,7 +48,14 @@ func CheckBudgetFloor(home string, requireQuota bool) (QuotaStatus, error) {
 	if !ok {
 		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, "models.json")}, nil
 	}
-	return EvaluatePoolsFloor(cat.Pools, requireQuota), nil
+	status := EvaluatePoolsFloor(cat.Pools, requireQuota)
+	if len(cat.Pools) > 0 && !models.HasFreshPoolQuotas(cat, now, models.DefaultPoolQuotaTTL) {
+		status.Note = "stale quota cache: " + status.Note
+		if requireQuota {
+			status.OK = false
+		}
+	}
+	return status, nil
 }
 
 func missingQuotaNote(required bool, what string) string {
@@ -49,7 +65,8 @@ func missingQuotaNote(required bool, what string) string {
 	return what + " absent (quota check skipped)"
 }
 
-// EvaluatePoolsFloor checks active Gemini pools against the 20% 5h / 15% weekly floors.
+// EvaluatePoolsFloor checks active Gemini pools against the 20% 5h / 15% weekly floors,
+// skipping disabled (-1) windows rather than treating them as below floor.
 func EvaluatePoolsFloor(pools []models.Pool, requireQuota bool) QuotaStatus {
 	if len(pools) == 0 {
 		return QuotaStatus{OK: !requireQuota, Note: missingQuotaNote(requireQuota, "quota pools")}
@@ -66,7 +83,9 @@ func EvaluatePoolsFloor(pools []models.Pool, requireQuota bool) QuotaStatus {
 	}
 	parts := make([]string, 0, len(gemPools))
 	for _, p := range gemPools {
-		if p.Five < GeminiFloorFive || p.Week < GeminiFloorWeek {
+		fiveLow := p.Five != models.DisabledWindow && p.Five < GeminiFloorFive
+		weekLow := p.Week != models.DisabledWindow && p.Week < GeminiFloorWeek
+		if fiveLow || weekLow {
 			note := fmt.Sprintf("%s below floor (5h=%s, week=%s; floor %d%%/%d%%)",
 				p.Name, formatPct(p.Five), formatPct(p.Week), GeminiFloorFive, GeminiFloorWeek)
 			return QuotaStatus{OK: false, Note: note, Pools: gemPools}
@@ -132,13 +151,14 @@ func (t *ErrorTracker) Record(diag string) (hash string, repeated bool) {
 	return hash, t.seen[hash] >= 2
 }
 
-// LoadPriorErrorHashes reads brain.db handoffs newest-first for planID until
-// hitting a passing checkpoint, returning prior Relay-Error-Hash digests.
+// LoadPriorErrorHashes reads brain.db handoffs explicitly sorted newest-first
+// for planID until hitting a passing checkpoint, returning prior Relay-Error-Hash digests.
 func LoadPriorErrorHashes(home, dir, planID string) []string {
 	recs, err := brain.List(brain.Options{Home: home, Dir: dir}, brain.ListFilter{Kind: "handoff"})
 	if err != nil {
 		return nil
 	}
+	sortRecordsNewestFirst(recs)
 	var hashes []string
 	planLine := "Plan: " + strings.TrimSpace(planID)
 	for _, r := range recs {
@@ -153,6 +173,29 @@ func LoadPriorErrorHashes(home, dir, planID string) []string {
 		}
 	}
 	return hashes
+}
+
+func sortRecordsNewestFirst(recs []brain.Record) {
+	slices.SortStableFunc(recs, func(a, b brain.Record) int {
+		ta, oka := parseRecordTime(a.Updated)
+		tb, okb := parseRecordTime(b.Updated)
+		if oka && okb && !ta.Equal(tb) {
+			if ta.After(tb) {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Or(cmp.Compare(b.Updated, a.Updated), cmp.Compare(b.Date, a.Date), cmp.Compare(b.ID, a.ID))
+	})
+}
+
+func parseRecordTime(raw string) (time.Time, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	return t, err == nil
 }
 
 func hasBodyLine(body, want string) bool {

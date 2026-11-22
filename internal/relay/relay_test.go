@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/gate"
@@ -186,7 +187,8 @@ func TestRelayHaltScenariosTable(t *testing.T) {
 		{
 			name: "budget floor breach stops with zero agy calls", runner: okAlpha, verify: passVerify, judge: passJudge, wantReason: HaltBudgetFloor, wantCalls: 0,
 			setup: func(t *testing.T, _, home string) {
-				if err := models.SaveCatalog(home, models.Catalog{UpdatedAt: "2026-11-22T00:00:00Z", Pools: []models.Pool{{Name: "Gemini 3 Pro", Five: 10, Week: 50}}}); err != nil {
+				ts := time.Now().UTC().Format(time.RFC3339)
+				if err := models.SaveCatalog(home, models.Catalog{UpdatedAt: ts, QuotaUpdatedAt: ts, Pools: []models.Pool{{Name: "Gemini 3 Pro", Five: 10, Week: 50}}}); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -259,4 +261,108 @@ func TestRelayRepeatingErrorHashAndDryRunRefusals(t *testing.T) {
 	if _, err := Run(context.Background(), Options{Dir: repo, Home: home, PlanID: planID}); !errors.Is(err, ErrRefused) {
 		t.Fatalf("dirty tree: want ErrRefused, got %v", err)
 	}
+}
+
+func TestRelayHardeningPushHistoryTamperLeaseAndRedaction(t *testing.T) {
+	t.Run("upstream ref advance halts PUSH_DETECTED", func(t *testing.T) {
+		repo, home := initRelayRepo(t)
+		bare := filepath.Join(t.TempDir(), "remote.git")
+		runGitT(t, t.TempDir(), "init", "--bare", bare)
+		runGitT(t, repo, "remote", "add", "origin", bare)
+		runGitT(t, repo, "push", "-u", "origin", "main")
+		planID := addPlanT(t, home, repo, "PLAN-2026-11-22-push", twoPhasePlanBody)
+		runner := func(_ context.Context, req SessionRequest) (SessionResult, error) {
+			writeFileT(t, filepath.Join(req.RepoDir, "alpha.go"), "package main\nfunc alpha() {}\n")
+			runGitT(t, req.RepoDir, "add", "alpha.go")
+			runGitT(t, req.RepoDir, "commit", "-m", "add alpha")
+			runGitT(t, req.RepoDir, "push", "origin", "main")
+			return SessionResult{}, nil
+		}
+		rep, err := Run(context.Background(), Options{
+			Dir: repo, Home: home, PlanID: planID, MaxPhases: 2,
+			SessionRunner: runner, VerifyFn: passVerify, JudgeFn: passJudge,
+		})
+		if !errors.Is(err, ErrHalted) || rep.HaltReason != HaltPushDetected {
+			t.Fatalf("push detected: rep=%+v err=%v; want HALTED/%s", rep, err, HaltPushDetected)
+		}
+	})
+
+	t.Run("git reset --hard HEAD~1 and commit halts HISTORY_REWRITE", func(t *testing.T) {
+		repo, home := initRelayRepo(t)
+		writeFileT(t, filepath.Join(repo, "base.go"), "package main\nfunc base() {}\n")
+		runGitT(t, repo, "add", "base.go")
+		runGitT(t, repo, "commit", "-m", "second commit")
+		planID := addPlanT(t, home, repo, "PLAN-2026-11-22-hist", twoPhasePlanBody)
+		runner := func(_ context.Context, req SessionRequest) (SessionResult, error) {
+			runGitT(t, req.RepoDir, "reset", "--hard", "HEAD~1")
+			writeFileT(t, filepath.Join(req.RepoDir, "alpha.go"), "package main\nfunc alpha() {}\n")
+			runGitT(t, req.RepoDir, "add", "alpha.go")
+			runGitT(t, req.RepoDir, "commit", "-m", "rewritten commit")
+			return SessionResult{}, nil
+		}
+		rep, err := Run(context.Background(), Options{
+			Dir: repo, Home: home, PlanID: planID, MaxPhases: 2,
+			SessionRunner: runner, VerifyFn: passVerify, JudgeFn: passJudge,
+		})
+		if !errors.Is(err, ErrHalted) || rep.HaltReason != HaltHistoryRewrite {
+			t.Fatalf("history rewrite: rep=%+v err=%v; want HALTED/%s", rep, err, HaltHistoryRewrite)
+		}
+	})
+
+	t.Run("plan body edit in brain.db halts PLAN_TAMPERED", func(t *testing.T) {
+		repo, home := initRelayRepo(t)
+		planID := addPlanT(t, home, repo, "PLAN-2026-11-22-tamper", twoPhasePlanBody)
+		runner := func(_ context.Context, req SessionRequest) (SessionResult, error) {
+			writeFileT(t, filepath.Join(req.RepoDir, "alpha.go"), "package main\nfunc alpha() {}\n")
+			runGitT(t, req.RepoDir, "add", "alpha.go")
+			runGitT(t, req.RepoDir, "commit", "-m", "add alpha")
+			tampered := strings.Replace(twoPhasePlanBody, "`Files:` `alpha.go`", "`Files:` `**`", 1)
+			if err := brain.Edit(brain.Options{Home: home, Dir: repo}, brain.EditInput{ID: planID, Body: strings.NewReader(tampered)}); err != nil {
+				t.Fatalf("tamper brain.Edit: %v", err)
+			}
+			return SessionResult{}, nil
+		}
+		rep, err := Run(context.Background(), Options{
+			Dir: repo, Home: home, PlanID: planID, MaxPhases: 2,
+			SessionRunner: runner, VerifyFn: passVerify, JudgeFn: passJudge,
+		})
+		if !errors.Is(err, ErrHalted) || rep.HaltReason != HaltPlanTampered {
+			t.Fatalf("plan tamper: rep=%+v err=%v; want HALTED/%s", rep, err, HaltPlanTampered)
+		}
+	})
+
+	t.Run("two-dot lease check catches out-of-lease edit even with passing GateFn", func(t *testing.T) {
+		repo, home := initRelayRepo(t)
+		planID := addPlanT(t, home, repo, "PLAN-2026-11-22-twodot", twoPhasePlanBody)
+		rep, err := Run(context.Background(), Options{
+			Dir: repo, Home: home, PlanID: planID,
+			SessionRunner: commitFileRunner(t, "unleased.go", "package main\nfunc bad() {}\n", "ool"),
+			GateFn: func(context.Context, gate.GateOptions) (gate.GateReport, error) {
+				return gate.GateReport{OK: true}, nil
+			},
+			VerifyFn: passVerify, JudgeFn: passJudge,
+		})
+		if !errors.Is(err, ErrHalted) || rep.HaltReason != HaltLeaseOrGateFail || !strings.Contains(rep.HaltDetail, "unleased.go") {
+			t.Fatalf("two-dot lease: rep=%+v err=%v; want LEASE_OR_GATE_FAIL naming unleased.go", rep, err)
+		}
+	})
+
+	t.Run("session error redacts secrets in Report and preserves cause", func(t *testing.T) {
+		repo, home := initRelayRepo(t)
+		planID := addPlanT(t, home, repo, "PLAN-2026-11-22-redact", twoPhasePlanBody)
+		secretVal := "ghp" + "_" + strings.Repeat("Z", 36)
+		causeErr := errors.New("boom with " + secretVal)
+		rep, err := Run(context.Background(), Options{
+			Dir: repo, Home: home, PlanID: planID,
+			SessionRunner: func(context.Context, SessionRequest) (SessionResult, error) {
+				return SessionResult{ExitCode: 1, Stderr: "leaked=" + secretVal}, causeErr
+			},
+		})
+		if !errors.Is(err, ErrHalted) || !errors.Is(err, causeErr) {
+			t.Fatalf("want ErrHalted wrapping causeErr, got %v", err)
+		}
+		if strings.Contains(rep.HaltDetail, secretVal) || (len(rep.Phases) > 0 && strings.Contains(rep.Phases[0].Detail, secretVal)) {
+			t.Fatalf("unredacted secret leaked into Report: %+v", rep)
+		}
+	})
 }

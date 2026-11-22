@@ -335,4 +335,33 @@ func TestPreToolUseAskQuestionKickoffGuard(t *testing.T) {
 			t.Errorf("%s should still deny with [KICKOFF_GUARD]: %+v", tc.name, d)
 		}
 	}
+
+	// 8. FYR_RELAY=1 blocks ask_question with [KICKOFF_GUARD] (relay) even on a bare prompt.
+	t.Run("FYR_RELAY=1 blocks bare ask_question", func(t *testing.T) {
+		t.Setenv("FYR_RELAY", "1")
+		d := invokeRaw(map[string]any{
+			"conversationId": "conv-relay-env",
+			"workspacePaths": []string{dir},
+			"lastUserInput":  "Implement the next step",
+			"toolCall":       map[string]any{"name": "ask_question", "args": normalQ},
+		})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[KICKOFF_GUARD]") || !strings.Contains(d.Reason, "(relay)") {
+			t.Fatalf("FYR_RELAY=1 bare prompt ask_question: got %+v, want deny [KICKOFF_GUARD] (relay)", d)
+		}
+	})
+
+	// 9. Relay Kickoff header matches [KICKOFF_GUARD] even when FYR_RELAY is unset.
+	t.Run("relay kickoff prompt matches KICKOFF_GUARD without env", func(t *testing.T) {
+		t.Setenv("FYR_RELAY", "")
+		relayPrompt := "Project: this clone, the current directory; never another checkout.\nPlan: PLAN-1 — Demo\nFiles: service.go\nRELAY OVERRIDE: Do NOT run git push or git tag.\n\n## Open Tasks\n- [ ] Add helper\n"
+		d := invokeRaw(map[string]any{
+			"conversationId": "conv-relay-prompt",
+			"workspacePaths": []string{dir},
+			"lastUserInput":  relayPrompt,
+			"toolCall":       map[string]any{"name": "ask_question", "args": normalQ},
+		})
+		if d.Decision != "deny" || !strings.Contains(d.Reason, "[KICKOFF_GUARD]") {
+			t.Fatalf("relay kickoff prompt without env: got %+v, want deny [KICKOFF_GUARD]", d)
+		}
+	})
 }

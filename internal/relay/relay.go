@@ -11,6 +11,7 @@ import (
 
 	"github.com/kesokaj/fyr/internal/check"
 	"github.com/kesokaj/fyr/internal/gate"
+	"github.com/kesokaj/fyr/internal/redact"
 	"github.com/kesokaj/fyr/internal/trail"
 )
 
@@ -29,6 +30,9 @@ const (
 	HaltRepeatingErrorHash = "REPEATING_ERROR_HASH"
 	HaltPRDModified        = "PRD_MODIFIED"
 	HaltTagCreated         = "TAG_CREATED"
+	HaltPushDetected       = "PUSH_DETECTED"
+	HaltHistoryRewrite     = "HISTORY_REWRITE"
+	HaltPlanTampered       = "PLAN_TAMPERED"
 	HaltLeaseOrGateFail    = "LEASE_OR_GATE_FAIL"
 	HaltBudgetFloor        = "BUDGET_FLOOR"
 	HaltSessionError       = "SESSION_ERROR"
@@ -46,13 +50,24 @@ type refusalErr struct{ msg string }
 func (e *refusalErr) Error() string { return e.msg }
 func (e *refusalErr) Unwrap() error { return ErrRefused }
 
-type haltErr struct{ msg string }
+type haltErr struct {
+	msg   string
+	cause error
+}
 
 func (e *haltErr) Error() string { return e.msg }
-func (e *haltErr) Unwrap() error { return ErrHalted }
+func (e *haltErr) Unwrap() []error {
+	if e.cause != nil {
+		return []error{ErrHalted, e.cause}
+	}
+	return []error{ErrHalted}
+}
 
 func refusef(format string, args ...any) error { return &refusalErr{msg: fmt.Sprintf(format, args...)} }
 func haltf(format string, args ...any) error   { return &haltErr{msg: fmt.Sprintf(format, args...)} }
+func wrapHaltf(cause error, format string, args ...any) error {
+	return &haltErr{msg: fmt.Sprintf(format, args...), cause: cause}
+}
 
 // VerifyFunc runs post-phase deterministic verification; defaults to gate.Verify.
 type VerifyFunc func(ctx context.Context, opts gate.VerifyOptions) (gate.VerifyReport, error)
@@ -127,7 +142,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	rep := Report{PlanID: plan.ID, PlanTitle: plan.Title, RepoRoot: top, MaxPhases: maxPhases, QuotaOK: true}
 	next, hasNext, err := NextReadyPhase(plan)
 	if err != nil {
-		rep.Status, rep.HaltReason, rep.HaltDetail = StatusHalted, HaltFail, err.Error()
+		rep.Status, rep.HaltReason, rep.HaltDetail = StatusHalted, HaltFail, redact.Redact(err.Error())
 		return rep, err
 	}
 	if !hasNext {
@@ -179,25 +194,30 @@ func runDryRun(ctx context.Context, opts Options, top string, plan ParsedPlan, n
 }
 
 func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan, maxPhases int, rep Report) (Report, error) {
+	initialHash := planStructureHash(plan.Body)
 	tracker := NewErrorTracker(opts.PriorErrorHashes...)
 	tracker.Seed(LoadPriorErrorHashes(opts.Home, top, plan.ID))
 	for i := 0; i < maxPhases; i++ {
 		if i > 0 {
-			var err error
-			if plan, err = LoadPlan(opts.Home, top, plan.ID); err != nil {
-				return rep, err
+			reloaded, err := LoadPlan(opts.Home, top, plan.ID)
+			if err != nil {
+				return rep, haltPlanTamper(opts, top, plan, Phase{ID: "plan", Title: plan.Title}, "reload plan failed: "+err.Error(), err, &rep)
 			}
+			if planStructureHash(reloaded.Body) != initialHash {
+				return rep, haltPlanTamper(opts, top, plan, Phase{ID: "plan", Title: plan.Title}, "plan record structure changed outside checkbox state during relay", nil, &rep)
+			}
+			plan = reloaded
 		}
 		ph, hasNext, err := NextReadyPhase(plan)
 		if err != nil {
-			rep.OK, rep.Status, rep.HaltReason, rep.HaltDetail = false, StatusHalted, HaltFail, err.Error()
+			rep.OK, rep.Status, rep.HaltReason, rep.HaltDetail = false, StatusHalted, HaltFail, redact.Redact(err.Error())
 			return rep, err
 		}
 		if !hasNext {
 			rep.PlanComplete = true
 			break
 		}
-		done, haltErr := runSinglePhase(ctx, opts, top, plan, ph, i, tracker, &rep)
+		done, haltErr := runSinglePhase(ctx, opts, top, plan, ph, i, initialHash, tracker, &rep)
 		if haltErr != nil {
 			return rep, haltErr
 		}
@@ -210,24 +230,27 @@ func runRelayLoop(ctx context.Context, opts Options, top string, plan ParsedPlan
 	return rep, nil
 }
 
-func runSinglePhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, idx int, tracker *ErrorTracker, rep *Report) (bool, error) {
+func runSinglePhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, idx int, initialHash string, tracker *ErrorTracker, rep *Report) (bool, error) {
 	if err := checkPrePhaseTree(ctx, opts, top, plan, ph, idx, rep); err != nil {
 		return false, err
 	}
 	if err := checkPrePhaseQuota(ctx, opts, top, plan, ph, rep); err != nil {
 		return false, err
 	}
-	headBefore, tagsBefore, err := snapshotGitBefore(ctx, top)
+	snapBefore, err := snapshotGitBefore(ctx, top)
 	if err != nil {
 		return false, err
 	}
-	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, HeadBefore: headBefore}
-	if err := invokePhaseSession(ctx, opts, top, plan, ph, tracker, &res); err != nil {
-		return false, recordHaltAndAppend(opts, top, plan, ph, res, nil, rep)
+	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, HeadBefore: snapBefore.head}
+	if sessErr := invokePhaseSession(ctx, opts, top, plan, ph, tracker, &res); sessErr != nil {
+		if pushErr := checkRemoteRefsUnchanged(ctx, top, snapBefore, &res); pushErr != nil {
+			return false, recordHaltAndAppend(opts, top, plan, ph, res, nil, pushErr, rep)
+		}
+		return false, recordHaltAndAppend(opts, top, plan, ph, res, nil, sessErr, rep)
 	}
-	if err := verifyPostPhase(ctx, opts, top, plan, ph, tagsBefore, tracker, &res); err != nil {
+	if postErr := verifyPostPhase(ctx, opts, top, plan, ph, snapBefore, initialHash, tracker, &res); postErr != nil {
 		dirty, _ := gitDirtyEntries(ctx, top)
-		return false, recordHaltAndAppend(opts, top, plan, ph, res, dirty, rep)
+		return false, recordHaltAndAppend(opts, top, plan, ph, res, dirty, postErr, rep)
 	}
-	return finishPassingPhase(opts, top, plan, ph, res, rep)
+	return finishPassingPhase(opts, top, plan, ph, initialHash, res, rep)
 }

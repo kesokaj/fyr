@@ -1,9 +1,11 @@
 package search
 
 import (
+	"database/sql"
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -11,6 +13,53 @@ const (
 	ftsFallbackLimit   = 12
 	ftsFallbackMinWord = 4
 )
+
+var (
+	ftsTurnCacheMu sync.Mutex
+	ftsTurnCache   = map[*sql.DB]map[string][]ftsChunkHit{}
+)
+
+func registerFTSTurnCache(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	ftsTurnCacheMu.Lock()
+	ftsTurnCache[db] = map[string][]ftsChunkHit{}
+	ftsTurnCacheMu.Unlock()
+}
+
+func clearFTSTurnCache(db *sql.DB) {
+	if db == nil {
+		return
+	}
+	ftsTurnCacheMu.Lock()
+	delete(ftsTurnCache, db)
+	ftsTurnCacheMu.Unlock()
+}
+
+func lookupFTSTurnCache(db *sql.DB, key string) ([]ftsChunkHit, bool) {
+	if db == nil {
+		return nil, false
+	}
+	ftsTurnCacheMu.Lock()
+	defer ftsTurnCacheMu.Unlock()
+	if m, ok := ftsTurnCache[db]; ok {
+		hits, found := m[key]
+		return hits, found
+	}
+	return nil, false
+}
+
+func storeFTSTurnCache(db *sql.DB, key string, hits []ftsChunkHit) {
+	if db == nil {
+		return
+	}
+	ftsTurnCacheMu.Lock()
+	if m, ok := ftsTurnCache[db]; ok {
+		m[key] = hits
+	}
+	ftsTurnCacheMu.Unlock()
+}
 
 var ftsFallbackStopwords = map[string]bool{
 	"about": true, "added": true, "adding": true, "after": true, "again": true, "also": true, "always": true,
@@ -23,7 +72,7 @@ var ftsFallbackStopwords = map[string]bool{
 	"failed": true, "failing": true, "fails": true, "find": true, "first": true,
 	"from": true, "further": true, "give": true, "good": true, "great": true,
 	"have": true, "having": true, "help": true, "here": true, "however": true,
-	"implement": true, "inspect": true, "into": true, "investigate": true, "issue": true, "just": true, "keep": true, "know": true,
+	"implement": true, "improve": true, "improved": true, "improving": true, "inspect": true, "into": true, "investigate": true, "issue": true, "just": true, "keep": true, "know": true,
 	"like": true, "list": true, "loading": true, "look": true, "looking": true,
 	"make": true, "making": true, "many": true, "modify": true, "more": true, "most": true,
 	"much": true, "must": true, "need": true, "never": true, "next": true,
@@ -80,16 +129,27 @@ func (sc *scope) ftsFallbackRanked(g *symGraph, prompt string, active map[string
 }
 
 func (sc *scope) queryFTSFallbackChunks(words []string, promptLower string) []ftsChunkHit {
+	cacheKey := strings.Join(words, "\x00") + "\x01" + promptLower
+	var db *sql.DB
+	if sc != nil && sc.st != nil {
+		db = sc.st.db
+	}
+	if cached, ok := lookupFTSTurnCache(db, cacheKey); ok {
+		return cached
+	}
 	minMatched := 2
 	if len(words) < 2 {
 		minMatched = 1
 	}
+	var hits []ftsChunkHit
 	if len(words) >= 2 {
-		if hits := sc.runFTSFallbackSQL(ftsQuery(words, " AND "), words, promptLower, minMatched); len(hits) > 0 {
-			return hits
-		}
+		hits = sc.runFTSFallbackSQL(ftsQuery(words, " AND "), words, promptLower, minMatched)
 	}
-	return sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, minMatched)
+	if len(hits) == 0 {
+		hits = sc.runFTSFallbackSQL(ftsQuery(words, " OR "), words, promptLower, minMatched)
+	}
+	storeFTSTurnCache(db, cacheKey, hits)
+	return hits
 }
 
 func (sc *scope) runFTSFallbackSQL(matchExpr string, words []string, promptLower string, minMatched int) []ftsChunkHit {
@@ -230,6 +290,12 @@ func isAllDigits(s string) bool {
 }
 
 func allowFTSFallbackPath(p, promptLower string) bool {
+	if isExcludedASTPath(p) {
+		return false
+	}
+	if isDocPath(p) {
+		return strings.Contains(promptLower, ".md") || strings.Contains(promptLower, "readme") || strings.Contains(promptLower, "docs")
+	}
 	if strings.HasPrefix(p, ".agents/") || strings.Contains(p, "/.agents/") {
 		return strings.Contains(promptLower, ".agents") || strings.Contains(promptLower, "skill") || strings.Contains(promptLower, "rule")
 	}

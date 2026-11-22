@@ -41,8 +41,17 @@ func formatKickoffHeader(repoDir string, plan ParsedPlan, ph Phase) string {
 	if verifyCmd == "" {
 		verifyCmd = "fyr verify"
 	}
-	return fmt.Sprintf("Kickoff: Execute one phase of %s in %s.\n\nRepository: %s (work ONLY in this checkout; never another checkout).\nPlan: %s — %s\nTarget Phase: %s\nFiles: %s\nVerify: %s\n\n## Open Tasks\n",
-		plan.ID, repoDir, repoDir, plan.ID, plan.Title, ph.Title, lease, verifyCmd)
+	return fmt.Sprintf(
+		"Project: this clone, the current directory; never another checkout.\n"+
+			"Plan: %s — %s\n"+
+			"Files: %s\n"+
+			"RELAY OVERRIDE: Do NOT run git push or git tag (this supersedes global commit-and-push rules).\n\n"+
+			"Kickoff: Execute one phase of %s in %s.\n"+
+			"Repository: %s (work ONLY in this checkout; never another checkout).\n"+
+			"Target Phase: %s\n"+
+			"Verify: %s\n\n"+
+			"## Open Tasks\n",
+		plan.ID, plan.Title, lease, plan.ID, repoDir, repoDir, ph.Title, verifyCmd)
 }
 
 func formatKickoffFooter(ph Phase) string {

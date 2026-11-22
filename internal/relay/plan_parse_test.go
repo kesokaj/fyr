@@ -62,6 +62,8 @@ func TestBuildKickoffCapAndSafetyRules(t *testing.T) {
 		t.Fatalf("kickoff len=%d >= %d", len(prompt), MaxKickoffBytes)
 	}
 	for _, want := range []string{
+		"Project: this clone, the current directory; never another checkout.",
+		"RELAY OVERRIDE: Do NOT run git push or git tag",
 		"/repo/path", "PLAN-CAP", "internal/relay/*.go",
 		"NEVER modify PRD.md", "NEVER create git tags", "NEVER run git push",
 		"NEVER edit files outside the Files: lease", "truncated to stay below 120 KiB",
@@ -69,6 +71,15 @@ func TestBuildKickoffCapAndSafetyRules(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("kickoff missing %q", want)
 		}
+	}
+	hOpen := planStructureHash("#### Phase 1\n`Files:` `a.go`\n- [ ] Task\n")
+	hTicked := planStructureHash("#### Phase 1\n`Files:` `a.go`\n- [x] Task\n")
+	hTampered := planStructureHash("#### Phase 1\n`Files:` `**`\n- [x] Task\n")
+	if hOpen != hTicked {
+		t.Fatalf("checkbox tick changed planStructureHash: %s != %s", hOpen, hTicked)
+	}
+	if hOpen == hTampered {
+		t.Fatalf("tampering Files: did not change planStructureHash")
 	}
 }
 

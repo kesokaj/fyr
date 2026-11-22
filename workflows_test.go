@@ -976,12 +976,58 @@ esac`
 		}
 	})
 
+	t.Run("missing CONVERSATION_ID without FYR_WORKFLOW_MOCKS fails closed as ESCALATE", func(t *testing.T) {
+		res := runWorkflowScript(t, "workflows/phase_loop.py", map[string]any{
+			"plan_id": "PLAN-failclosed", "phase_name": "Wave 4", "slices": disjointSlices()[:1],
+		})
+		if res.Output["status"] != "ESCALATE" {
+			t.Fatalf("status = %v, want ESCALATE (%+v)", res.Output["status"], res.Output)
+		}
+		if res.Output["exec_cli"] != false || res.Output["mocked"] != true {
+			t.Fatalf("expected exec_cli=false mocked=true, got %+v", res.Output)
+		}
+		if reason, _ := res.Output["escalation_reason"].(string); !strings.Contains(reason, "exec_cli disabled without mocks") {
+			t.Fatalf("unexpected escalation_reason = %q (%+v)", reason, res.Output)
+		}
+		if landed, _ := res.Output["landed"].([]any); len(landed) != 0 || len(res.Calls) != 0 {
+			t.Fatalf("expected zero landed slices and zero agent calls, got landed=%v calls=%d", landed, len(res.Calls))
+		}
+	})
+
+	t.Run("omitted builder verify_ok defaults to false and fails closed", func(t *testing.T) {
+		res := runWorkflowScriptWithOpts(t, "workflows/phase_loop.py", map[string]any{
+			"phase_name": "Wave 4", "slices": disjointSlices()[:1],
+		}, workflowExecOpts{
+			rawMocks: map[string]any{
+				"builder:slice-a": map[string]any{
+					"status": "DONE", "branch": "work/slice-a", "commit": "111aaaa",
+					"files_changed": []string{"internal/alpha/a.go"}, "verify_ok": nil,
+				},
+			},
+		})
+		if res.Output["status"] != "ESCALATE" {
+			t.Fatalf("omitted verify_ok must ESCALATE, got %v (%+v)", res.Output["status"], res.Output)
+		}
+		if res.Output["exec_cli"] != false || res.Output["mocked"] != true {
+			t.Fatalf("expected exec_cli=false mocked=true in final JSON, got %+v", res.Output)
+		}
+		if landed, _ := res.Output["landed"].([]any); len(landed) != 0 {
+			t.Fatalf("omitted verify_ok must not land: %+v", landed)
+		}
+	})
+
 	t.Run("dry_run validates slices with zero agent calls and AST pins literal models", func(t *testing.T) {
 		dry := runWorkflowScript(t, "workflows/phase_loop.py", map[string]any{
 			"phase_name": "Wave 3", "slices": disjointSlices(), "dry_run": true,
 		})
 		if dry.Output["status"] != "DRY_RUN" || len(dry.Calls) != 0 {
 			t.Fatalf("dry_run status=%v calls=%d, want DRY_RUN and 0", dry.Output["status"], len(dry.Calls))
+		}
+		if _, hasExec := dry.Output["exec_cli"]; !hasExec {
+			t.Fatalf("dry_run output missing exec_cli: %+v", dry.Output)
+		}
+		if _, hasMock := dry.Output["mocked"]; !hasMock {
+			t.Fatalf("dry_run output missing mocked: %+v", dry.Output)
 		}
 		pyASTCheck := `
 import ast, sys

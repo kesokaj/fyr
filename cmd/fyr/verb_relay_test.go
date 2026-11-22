@@ -127,4 +127,33 @@ func TestCLIRelayDryRunPassAndHalt(t *testing.T) {
 	if code != 2 || !strings.Contains(errStr, "dirty") {
 		t.Fatalf("dirty tree refusal: code=%d err=%q", code, errStr)
 	}
+
+	// 5. --json refusals emit valid JSON with exit code 2.
+	for _, tc := range []struct {
+		name string
+		args []string
+		sub  string
+	}{
+		{"dirty tree json", []string{"relay", "--home", home, "--dir", repo, "--plan", plan2ID, "--json"}, "dirty"},
+		{"missing plan json", []string{"relay", "--home", home, "--dir", repo, "--plan", "PLAN-NOPE", "--json"}, "not found"},
+		{"omitted --plan flag json", []string{"relay", "--home", home, "--json"}, "--plan"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, c := runCLIWithErr(tc.args...)
+			if c != 2 {
+				t.Fatalf("exit=%d, want 2; out=%q", c, out)
+			}
+			var errObj struct {
+				OK     bool   `json:"ok"`
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(out), &errObj); err != nil {
+				t.Fatalf("invalid json on refusal: err=%v out=%q", err, out)
+			}
+			if errObj.OK || errObj.Status != "REFUSED" || !strings.Contains(errObj.Error, tc.sub) {
+				t.Fatalf("unexpected json refusal payload: %+v", errObj)
+			}
+		})
+	}
 }

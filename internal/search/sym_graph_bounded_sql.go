@@ -1,59 +1,10 @@
 package search
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
-	"slices"
-	"strconv"
 	"strings"
 )
-
-func querySeedFileOIDsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, active map[string]bool, terms []string, maxSeedFiles int) (map[string]bool, bool, error) {
-	filteredTerms := filterBoundedQueryTerms(terms)
-	var preds []string
-	var condArgs []any
-	if len(active) > 0 {
-		aSQL, aArgs := projectsInClause(sortedMapKeys(active))
-		preds = append(preds, `f.path IN `+aSQL)
-		condArgs = append(condArgs, aArgs...)
-	}
-	for _, t := range filteredTerms {
-		tl := strings.ToLower(t)
-		esc := escapeSQLLike(tl)
-		preds = append(preds, `lower(f.path) = ?`, `lower(f.path) LIKE ? ESCAPE '\'`)
-		condArgs = append(condArgs, tl, "%/"+esc)
-		if len(tl) >= 4 && !strings.ContainsAny(tl, "/.") {
-			preds = append(preds, `lower(f.path) LIKE ? ESCAPE '\'`, `lower(f.path) LIKE ? ESCAPE '\'`)
-			condArgs = append(condArgs, esc+".%", "%/"+esc+".%")
-		}
-	}
-	if len(preds) == 0 {
-		return map[string]bool{}, false, nil
-	}
-	pSQL, pArgs := projectsInClause(projects)
-	q := `SELECT f.project, f.path, f.oid, 0 FROM files f WHERE f.project IN ` + pSQL + ` AND (` + strings.Join(preds, ` OR `) + `) ORDER BY f.path`
-	matched, err := scanIndexedFileMetaCtx(ctx, db, q, append(pArgs, condArgs...), includeDocs)
-	if err != nil {
-		return nil, false, err
-	}
-	oids := map[string]bool{}
-	for _, f := range matched {
-		if active[f.path] {
-			oids[f.oid] = true
-		}
-	}
-	hasExplicit := false
-	for _, f := range matched {
-		if fileMatchesBoundedTerms(f.path, filteredTerms) {
-			hasExplicit = true
-			if len(oids) < maxSeedFiles {
-				oids[f.oid] = true
-			}
-		}
-	}
-	return oids, hasExplicit, nil
-}
 
 func queryFilesByPathsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, paths []string) ([]indexedFileMeta, error) {
 	if len(paths) == 0 {
@@ -101,33 +52,6 @@ func escapeSQLLike(s string) string {
 	return r.Replace(s)
 }
 
-func querySeedSymbolsDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, seedOIDs map[string]bool, hasExplicitFileSeed bool, terms []string, maxNames int) ([]RankedSymbol, error) {
-	var merged []RankedSymbol
-	if len(seedOIDs) > 0 {
-		byOID, err := querySymbolsByOIDsDBCtx(ctx, db, projects, includeDocs, sortedMapKeys(seedOIDs))
-		if err != nil {
-			return nil, err
-		}
-		merged = append(merged, byOID...)
-	}
-	if exactNames := collectExactSymbolCandidates(terms); len(exactNames) > 0 {
-		byName, err := queryExactSymbolsByNameDBCtx(ctx, db, projects, includeDocs, exactNames)
-		if err != nil {
-			return nil, err
-		}
-		merged = append(merged, byName...)
-	}
-	merged = mergeAndSortSeedSymbols(merged)
-	if hasStrongIdentSeed(merged, terms) || (hasExplicitFileSeed && len(merged) > 0) || ctx.Err() != nil {
-		return merged, ctx.Err()
-	}
-	likeSyms, err := querySeedSymbolsLikeDBCtx(ctx, db, projects, includeDocs, terms, maxNames)
-	if err != nil {
-		return nil, err
-	}
-	return mergeAndSortSeedSymbols(append(merged, likeSyms...)), nil
-}
-
 func queryExactSymbolsByNameDBCtx(ctx context.Context, db *sql.DB, projects []string, includeDocs bool, names []string) ([]RankedSymbol, error) {
 	return querySymbolsWhereInDBCtx(ctx, db, projects, includeDocs, "sy.name", names)
 }
@@ -147,48 +71,6 @@ func querySymbolsWhereInDBCtx(ctx context.Context, db *sql.DB, projects []string
 		WHERE f.project IN ` + pSQL + ` AND ` + col + ` IN ` + vSQL + `
 		ORDER BY f.path, sy.start_line, sy.end_line, sy.recv, sy.name`
 	return scanSymbolNodeRowsCtx(ctx, db, q, append(pArgs, vArgs...), includeDocs)
-}
-
-func collectExactSymbolCandidates(terms []string) []string {
-	var out []string
-	seen := map[string]bool{}
-	add := func(s string) {
-		if len(s) >= 2 && !seen[s] && len(out) < maxBoundedSymbolTerms {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	for _, t := range filterBoundedQueryTerms(terms) {
-		if !strings.Contains(t, "/") {
-			add(t)
-			if dot := strings.LastIndexByte(t, '.'); dot >= 0 && dot+1 < len(t) {
-				add(t[dot+1:])
-			}
-		}
-	}
-	return out
-}
-
-func mergeAndSortSeedSymbols(in []RankedSymbol) []RankedSymbol {
-	if len(in) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool, len(in))
-	out := make([]RankedSymbol, 0, len(in))
-	for _, s := range in {
-		if k := s.OID + "\x00" + s.Name + "\x00" + s.Recv + "\x00" + strconv.Itoa(s.StartLine); !seen[k] {
-			seen[k] = true
-			out = append(out, s)
-		}
-	}
-	slices.SortFunc(out, func(a, b RankedSymbol) int {
-		return cmp.Or(cmp.Compare(a.Path, b.Path), cmp.Compare(a.StartLine, b.StartLine),
-			cmp.Compare(a.EndLine, b.EndLine), cmp.Compare(a.Recv, b.Recv), cmp.Compare(a.Name, b.Name))
-	})
-	for i := range out {
-		out[i].Idx = i
-	}
-	return out
 }
 
 func scanSymbolNodeRowsCtx(ctx context.Context, db *sql.DB, q string, args []any, includeDocs bool) ([]RankedSymbol, error) {

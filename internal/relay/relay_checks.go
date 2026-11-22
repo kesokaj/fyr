@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kesokaj/fyr/internal/brain"
 	"github.com/kesokaj/fyr/internal/gate"
+	"github.com/kesokaj/fyr/internal/redact"
 )
 
 func checkPrePhaseTree(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, idx int, rep *Report) error {
@@ -22,8 +24,8 @@ func checkPrePhaseTree(ctx context.Context, opts Options, top string, plan Parse
 	if idx == 0 {
 		return refusef("working tree is dirty (%d entry/entries); commit or discard changes first", len(dirty))
 	}
-	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, Status: StatusHalted, HaltReason: HaltDirtyTree, Detail: "dirty working tree before phase: " + strings.Join(dirty, ", ")}
-	return recordHaltAndAppend(opts, top, plan, ph, res, dirty, rep)
+	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, Status: StatusHalted, HaltReason: HaltDirtyTree, Detail: redact.Redact("dirty working tree before phase: " + strings.Join(dirty, ", "))}
+	return recordHaltAndAppend(opts, top, plan, ph, res, dirty, nil, rep)
 }
 
 func checkPrePhaseQuota(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, rep *Report) error {
@@ -31,28 +33,23 @@ func checkPrePhaseQuota(ctx context.Context, opts Options, top string, plan Pars
 	if err != nil {
 		return err
 	}
-	rep.QuotaOK, rep.QuotaNote = q.OK, q.Note
+	rep.QuotaOK, rep.QuotaNote = q.OK, redact.Redact(q.Note)
 	if q.OK {
 		return nil
 	}
-	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, Status: StatusHalted, HaltReason: HaltBudgetFloor, Detail: q.Note}
-	return recordHaltAndAppend(opts, top, plan, ph, res, nil, rep)
+	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, Status: StatusHalted, HaltReason: HaltBudgetFloor, Detail: redact.Redact(q.Note)}
+	return recordHaltAndAppend(opts, top, plan, ph, res, nil, nil, rep)
 }
 
 func runQuotaCheck(ctx context.Context, opts Options) (QuotaStatus, error) {
 	if opts.QuotaCheck != nil {
 		return opts.QuotaCheck(ctx, opts.Home)
 	}
-	return CheckBudgetFloor(opts.Home, opts.RequireQuota)
-}
-
-func snapshotGitBefore(ctx context.Context, top string) (string, map[string]bool, error) {
-	head, err := gitHead(ctx, top)
-	if err != nil {
-		return "", nil, refusef("resolve HEAD: %v", err)
+	now := time.Now().UTC()
+	if opts.Now != nil {
+		now = opts.Now().UTC()
 	}
-	tags, err := gitTags(ctx, top)
-	return head, tags, err
+	return CheckBudgetFloorAt(opts.Home, opts.RequireQuota, now)
 }
 
 func invokePhaseSession(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, tracker *ErrorTracker, res *PhaseResult) error {
@@ -81,20 +78,34 @@ func invokePhaseSession(ctx context.Context, opts Options, top string, plan Pars
 	if msg := strings.TrimSpace(sRes.Stderr); msg != "" {
 		parts = append(parts, msg)
 	}
-	return setTrackedHalt(res, HaltSessionError, strings.Join(parts, "; "), tracker)
+	return setTrackedHaltErr(res, HaltSessionError, strings.Join(parts, "; "), err, tracker)
 }
 
-func verifyPostPhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, tagsBefore map[string]bool, tracker *ErrorTracker, res *PhaseResult) error {
+func verifyPostPhase(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, initialHash string, tracker *ErrorTracker, res *PhaseResult) error {
+	if err := checkRemoteRefsUnchanged(ctx, top, snapBefore, res); err != nil {
+		return err
+	}
 	if err := checkProgressAndTree(ctx, top, tracker, res); err != nil {
 		return err
 	}
-	if err := checkHardSafety(ctx, opts, top, ph, tagsBefore, tracker, res); err != nil {
+	if err := checkHardSafety(ctx, opts, top, plan, ph, snapBefore, initialHash, tracker, res); err != nil {
 		return err
 	}
 	if err := runPhaseVerify(ctx, opts, top, tracker, res); err != nil {
 		return err
 	}
 	return runPhaseJudge(ctx, opts, top, plan, ph, tracker, res)
+}
+
+func checkRemoteRefsUnchanged(ctx context.Context, top string, snapBefore gitSnapshot, res *PhaseResult) error {
+	remoteAfter, err := gitRemoteRefs(ctx, top)
+	if err != nil {
+		return setGuardHalt(res, HaltFail, "read remote-tracking refs: "+err.Error())
+	}
+	if diffs := changedRemoteRefs(snapBefore.remoteRefs, remoteAfter, snapBefore.upstream, gitUpstreamRef(ctx, top)); len(diffs) > 0 {
+		return setGuardHalt(res, HaltPushDetected, "remote-tracking or upstream ref changed during phase: "+strings.Join(diffs, ", "))
+	}
+	return nil
 }
 
 func checkProgressAndTree(ctx context.Context, top string, tracker *ErrorTracker, res *PhaseResult) error {
@@ -114,19 +125,29 @@ func checkProgressAndTree(ctx context.Context, top string, tracker *ErrorTracker
 		}
 		return setTrackedHalt(res, HaltZeroProgress, msg, tracker)
 	}
+	anc, err := gitIsAncestor(ctx, top, res.HeadBefore, headAfter)
+	if err != nil {
+		return setTrackedHalt(res, HaltFail, "verify HEAD ancestry: "+err.Error(), tracker)
+	}
+	if !anc {
+		return setGuardHalt(res, HaltHistoryRewrite, fmt.Sprintf("HEAD %s is not a descendant of pre-phase HEAD %s (history rewrite/reset detected)", shortSHA(headAfter), shortSHA(res.HeadBefore)))
+	}
 	if len(dirty) > 0 {
 		return setTrackedHalt(res, HaltDirtyTree, "session left dirty working tree after committing: "+strings.Join(dirty, ", "), tracker)
 	}
 	return nil
 }
 
-func checkHardSafety(ctx context.Context, opts Options, top string, ph Phase, tagsBefore map[string]bool, tracker *ErrorTracker, res *PhaseResult) error {
+func checkHardSafety(ctx context.Context, opts Options, top string, plan ParsedPlan, ph Phase, snapBefore gitSnapshot, initialHash string, tracker *ErrorTracker, res *PhaseResult) error {
 	tagsAfter, err := gitTags(ctx, top)
 	if err != nil {
 		return setTrackedHalt(res, HaltFail, "read git tags: "+err.Error(), tracker)
 	}
-	if added := newTagsBetween(tagsBefore, tagsAfter); len(added) > 0 {
+	if added := newTagsBetween(snapBefore.tags, tagsAfter); len(added) > 0 {
 		return setGuardHalt(res, HaltTagCreated, "unauthorized git tag(s) created: "+strings.Join(added, ", "))
+	}
+	if _, err := loadAndVerifyPlanHash(opts.Home, top, plan.ID, initialHash); err != nil {
+		return setGuardHalt(res, HaltPlanTampered, err.Error())
 	}
 	changed, err := gitDiffNames(ctx, top, res.HeadBefore, res.HeadAfter)
 	if err != nil {
@@ -137,6 +158,9 @@ func checkHardSafety(ctx context.Context, opts Options, top string, ph Phase, ta
 		if filepath.ToSlash(filepath.Clean(f)) == "PRD.md" {
 			return setGuardHalt(res, HaltPRDModified, "PRD.md was modified during phase (strictly forbidden without approval + ADR)")
 		}
+	}
+	if outside := outOfLeaseFiles(changed, ph.Files); len(outside) > 0 {
+		return setTrackedHalt(res, HaltLeaseOrGateFail, "two-dot diff outside Files: lease: "+strings.Join(outside, ", "), tracker)
 	}
 	return runDeterministicGate(ctx, opts, top, ph, tracker, res)
 }
@@ -188,8 +212,11 @@ func runPhaseJudge(ctx context.Context, opts Options, top string, plan ParsedPla
 	return setTrackedHalt(res, HaltFail, formatGateFindings(jRep, jErr), tracker)
 }
 
-func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, res PhaseResult, rep *Report) (bool, error) {
-	updatedBody, err := tickLatestPlanPhase(opts, top, plan, ph)
+func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, initialHash string, res PhaseResult, rep *Report) (bool, error) {
+	updatedBody, tamperErr, err := tickLatestPlanPhase(opts, top, plan, ph, initialHash)
+	if tamperErr != nil {
+		return false, haltPlanTamper(opts, top, plan, ph, tamperErr.Error(), tamperErr, rep)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -203,25 +230,42 @@ func finishPassingPhase(opts Options, top string, plan ParsedPlan, ph Phase, res
 	return allDone, nil
 }
 
-func tickLatestPlanPhase(opts Options, top string, plan ParsedPlan, ph Phase) (string, error) {
-	baseBody, target := plan.Body, ph
-	if latest, err := LoadPlan(opts.Home, top, plan.ID); err == nil {
-		baseBody = latest.Body
-		for _, cand := range latest.Phases {
-			if cand.ID == ph.ID && cand.Title == ph.Title {
-				target = cand
-				break
-			}
+func loadAndVerifyPlanHash(home, top, planID, initialHash string) (ParsedPlan, error) {
+	latest, err := LoadPlan(home, top, planID)
+	if err != nil {
+		return ParsedPlan{}, fmt.Errorf("reload %s failed: %w", planID, err)
+	}
+	if planStructureHash(latest.Body) != initialHash {
+		return ParsedPlan{}, fmt.Errorf("plan %s changed outside checkbox markers during relay", planID)
+	}
+	return latest, nil
+}
+
+func haltPlanTamper(opts Options, top string, plan ParsedPlan, ph Phase, detail string, cause error, rep *Report) error {
+	res := PhaseResult{PhaseID: ph.ID, PhaseTitle: ph.Title, Status: StatusHalted, HaltReason: HaltPlanTampered, Detail: redact.Redact(detail)}
+	return recordHaltAndAppend(opts, top, plan, ph, res, nil, cause, rep)
+}
+
+func tickLatestPlanPhase(opts Options, top string, plan ParsedPlan, ph Phase, initialHash string) (updatedBody string, tamperErr, err error) {
+	latest, tErr := loadAndVerifyPlanHash(opts.Home, top, plan.ID, initialHash)
+	if tErr != nil {
+		return "", tErr, nil
+	}
+	target := ph
+	for _, cand := range latest.Phases {
+		if cand.ID == ph.ID && cand.Title == ph.Title {
+			target = cand
+			break
 		}
 	}
-	updatedBody := TickPhaseBoxes(baseBody, target)
-	if updatedBody == baseBody {
-		return updatedBody, nil
+	updatedBody = TickPhaseBoxes(latest.Body, target)
+	if updatedBody == latest.Body {
+		return updatedBody, nil, nil
 	}
 	if err := brain.Edit(brain.Options{Home: opts.Home, Dir: top, Now: opts.Now}, brain.EditInput{ID: plan.ID, Body: strings.NewReader(updatedBody)}); err != nil {
-		return "", fmt.Errorf("tick completed phase in %s: %w", plan.ID, err)
+		return "", nil, fmt.Errorf("tick completed phase in %s: %w", plan.ID, err)
 	}
-	return updatedBody, nil
+	return updatedBody, nil, nil
 }
 
 func resolveNextPhaseAfterTick(plan ParsedPlan, updatedBody string) (string, bool) {
@@ -240,20 +284,27 @@ func resolveNextPhaseAfterTick(plan ParsedPlan, updatedBody string) (string, boo
 }
 
 func setGuardHalt(res *PhaseResult, reason, detail string) error {
-	res.Status, res.HaltReason, res.Detail = StatusHalted, reason, detail
-	return haltf("%s: %s", reason, detail)
+	clean := redact.Redact(detail)
+	res.Status, res.HaltReason, res.Detail = StatusHalted, reason, clean
+	return haltf("%s: %s", reason, clean)
 }
 
 func setTrackedHalt(res *PhaseResult, defaultReason, detail string, tracker *ErrorTracker) error {
-	hash, repeated := tracker.Record(defaultReason + ": " + detail)
-	res.Status, res.ErrorHash, res.Detail, res.HaltReason = StatusHalted, hash, detail, defaultReason
+	return setTrackedHaltErr(res, defaultReason, detail, nil, tracker)
+}
+
+func setTrackedHaltErr(res *PhaseResult, defaultReason, detail string, cause error, tracker *ErrorTracker) error {
+	clean := redact.Redact(detail)
+	hash, repeated := tracker.Record(defaultReason + ": " + clean)
+	res.Status, res.ErrorHash, res.Detail, res.HaltReason = StatusHalted, hash, clean, defaultReason
 	if repeated {
 		res.HaltReason = HaltRepeatingErrorHash
 	}
-	return haltf("%s: %s", res.HaltReason, detail)
+	return wrapHaltf(cause, "%s: %s", res.HaltReason, clean)
 }
 
-func recordHaltAndAppend(opts Options, top string, plan ParsedPlan, ph Phase, res PhaseResult, dirty []string, rep *Report) error {
+func recordHaltAndAppend(opts Options, top string, plan ParsedPlan, ph Phase, res PhaseResult, dirty []string, cause error, rep *Report) error {
+	res.Detail = redact.Redact(res.Detail)
 	hid, herr := RecordHaltHandoff(opts, top, plan, ph, res, dirty)
 	if herr == nil {
 		res.HandoffID = hid
@@ -261,9 +312,9 @@ func recordHaltAndAppend(opts Options, top string, plan ParsedPlan, ph Phase, re
 	rep.Phases = append(rep.Phases, res)
 	rep.OK, rep.Status, rep.HaltReason, rep.HaltDetail = false, StatusHalted, res.HaltReason, res.Detail
 	if herr != nil {
-		return haltf("%s: %s (handoff store error: %v)", res.HaltReason, res.Detail, herr)
+		return wrapHaltf(cause, "%s: %s (handoff store error: %v)", res.HaltReason, res.Detail, herr)
 	}
-	return haltf("%s: %s", res.HaltReason, res.Detail)
+	return wrapHaltf(cause, "%s: %s", res.HaltReason, res.Detail)
 }
 
 func formatGateFindings(gRep gate.GateReport, err error) string {

@@ -420,6 +420,62 @@ func TestInteractiveBashGuard(t *testing.T) {
 	}
 }
 
+func TestRelayBashGuardPushAndTag(t *testing.T) {
+	t.Run("FYR_RELAY=1 denies push and mutating tag, allows read-only tag list", func(t *testing.T) {
+		t.Setenv("FYR_RELAY", "1")
+		for _, cmd := range []string{
+			"git push",
+			"git push origin main",
+			"git -C sub push --tags",
+			"echo ok && git push origin HEAD",
+			"echo $(git push)",
+			"git tag v9.9.0",
+			"git tag -a v9.9.0 -m release",
+			"git tag -s v9.9.0 -m signed",
+			"git tag -f v9.9.0",
+			"git tag -d v9.9.0",
+			"git tag -l -d v9.9.0",
+			"git -C repo tag --annotate v1",
+		} {
+			deny, ov := checkInteractiveBashGuard(map[string]any{"CommandLine": cmd})
+			if !strings.HasPrefix(deny, "[RELAY_GUARD] ") || ov != nil {
+				t.Errorf("FYR_RELAY=1 cmd %q: deny=%q ov=%v, want [RELAY_GUARD] deny", cmd, deny, ov)
+			}
+		}
+		for _, cmd := range []string{
+			"git tag",
+			"git tag -l",
+			"git tag --list",
+			`git tag --list "v9.*"`,
+			"git tag -l v9.*",
+			"git status",
+			`git commit -m "local commit"`,
+		} {
+			deny, ov := checkInteractiveBashGuard(map[string]any{"CommandLine": cmd})
+			if deny != "" || ov != nil {
+				t.Errorf("FYR_RELAY=1 read-only/local cmd %q unexpectedly denied: deny=%q ov=%v", cmd, deny, ov)
+			}
+		}
+		dir, home := setupHookRepo(t), t.TempDir()
+		if dec := runWatchdogPre(t, home, dir, "conv-relay-push", "run_command", map[string]any{"CommandLine": "git push origin main"}); dec.Decision != "deny" || !strings.Contains(dec.Reason, "[RELAY_GUARD]") {
+			t.Fatalf("PreToolUse FYR_RELAY=1 git push: got %+v, want deny [RELAY_GUARD]", dec)
+		}
+		if dec := runWatchdogPre(t, home, dir, "conv-relay-tag", "run_command", map[string]any{"CommandLine": "git tag --list"}); dec.Decision != "allow" {
+			t.Fatalf("PreToolUse FYR_RELAY=1 git tag --list: got %+v, want allow", dec)
+		}
+	})
+
+	t.Run("FYR_RELAY unset does not trigger RELAY_GUARD", func(t *testing.T) {
+		t.Setenv("FYR_RELAY", "")
+		if deny, _ := checkInteractiveBashGuard(map[string]any{"CommandLine": "git push origin main"}); deny != "" {
+			t.Errorf("FYR_RELAY unset git push unexpectedly denied: %q", deny)
+		}
+		if deny, _ := checkInteractiveBashGuard(map[string]any{"CommandLine": "git tag v1.0.0"}); deny != "" {
+			t.Errorf("FYR_RELAY unset git tag unexpectedly denied: %q", deny)
+		}
+	})
+}
+
 func TestLookupWatchdogSummaryRoleROAndSymlinkReject(t *testing.T) {
 	home := t.TempDir()
 	seedWatchdogSummaryDB(t, home)

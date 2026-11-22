@@ -2,6 +2,7 @@ package search
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -46,6 +47,9 @@ func inspectBashCommandTree(cmd string) (string, bool) {
 		cmdTok, rest := unwrapSegmentCommand(toks)
 		if cmdTok == "" {
 			continue
+		}
+		if reason := checkRelayBashGuard(cmdTok, rest); reason != "" {
+			return reason, false
 		}
 		if reason := checkInteractiveSegment(cmdTok, rest); reason != "" {
 			return reason, false
@@ -151,6 +155,51 @@ func isEnvAssignToken(tok string) bool {
 		}
 	}
 	return eq > 0
+}
+
+func checkRelayBashGuard(cmd string, args []string) string {
+	if os.Getenv("FYR_RELAY") != "1" || cmd != "git" {
+		return ""
+	}
+	switch sub, subArgs := skipGitGlobalFlags(args); sub {
+	case "push":
+		return "[RELAY_GUARD] git push is forbidden during fyr relay sessions (keep commits local)"
+	case "tag":
+		if !isReadOnlyGitTag(subArgs) {
+			return "[RELAY_GUARD] git tag mutation is forbidden during fyr relay sessions (only read-only git tag --list/-l is allowed)"
+		}
+	}
+	return ""
+}
+
+func isReadOnlyGitTag(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	hasList := false
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "-l" || a == "--list" || strings.HasPrefix(a, "--list=") {
+			hasList = true
+			continue
+		}
+		if isMutatingGitTagFlag(a) {
+			return false
+		}
+	}
+	return hasList
+}
+
+func isMutatingGitTagFlag(a string) bool {
+	mutLong := []string{"--annotate", "--sign", "--local-user", "--force", "--delete", "--message", "--file", "--edit", "--cleanup", "--create-reflog"}
+	for _, p := range mutLong {
+		if a == p || strings.HasPrefix(a, p+"=") {
+			return true
+		}
+	}
+	return len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.ContainsAny(a[1:], "asufdmFe")
 }
 
 func checkInteractiveSegment(cmd string, args []string) string {

@@ -16,7 +16,7 @@ func RecordPassHandoff(opts Options, root string, plan ParsedPlan, res PhaseResu
 	fmt.Fprintf(&b, "# %s\n\nPlan: %s\nPhase: %s\nRelay-Outcome: PASS\nCommits: %s..%s\n",
 		title, plan.ID, sanitizeLine(res.PhaseTitle), shortSHA(res.HeadBefore), shortSHA(res.HeadAfter))
 	if len(res.ChangedFiles) > 0 {
-		fmt.Fprintf(&b, "Changed-Files: %s\n", strings.Join(res.ChangedFiles, ", "))
+		fmt.Fprintf(&b, "Changed-Files: %s\n", sanitizeLine(strings.Join(res.ChangedFiles, ", ")))
 	}
 	fmt.Fprintf(&b, "Verify: PASS (%s)\n", shortSHA(res.VerifyTreeSHA, 12))
 	if res.JudgeModel != "" {
@@ -39,7 +39,7 @@ func RecordHaltHandoff(opts Options, root string, plan ParsedPlan, ph Phase, res
 		fmt.Fprintf(&b, "Commits: %s..%s\n", shortSHA(res.HeadBefore), shortSHA(res.HeadAfter))
 	}
 	if len(res.ChangedFiles) > 0 {
-		fmt.Fprintf(&b, "Changed-Files: %s\n", strings.Join(res.ChangedFiles, ", "))
+		fmt.Fprintf(&b, "Changed-Files: %s\n", sanitizeLine(strings.Join(res.ChangedFiles, ", ")))
 	}
 	if len(dirty) > 0 {
 		fmt.Fprintf(&b, "Dirty-Entries: %s\n", sanitizeLine(strings.Join(dirty, "; ")))
@@ -62,6 +62,12 @@ func recoveryHint(reason, headBefore, planID string) string {
 		return fmt.Sprintf("Inspect commits from %s, revert PRD.md edits (approval + ADR required), then re-run `fyr relay --plan %s`.", shortSHA(headBefore), planID)
 	case HaltTagCreated:
 		return fmt.Sprintf("Delete unauthorized local git tag(s), inspect commits from %s, then re-run `fyr relay --plan %s`.", shortSHA(headBefore), planID)
+	case HaltPushDetected:
+		return fmt.Sprintf("Inspect remote-tracking refs and upstream history for unauthorized push since %s before resuming `fyr relay --plan %s`.", shortSHA(headBefore), planID)
+	case HaltHistoryRewrite:
+		return fmt.Sprintf("HEAD diverged from pre-phase commit %s (rewrite/reset detected); inspect `git reflog`, restore linear history, then re-run `fyr relay --plan %s`.", shortSHA(headBefore), planID)
+	case HaltPlanTampered:
+		return fmt.Sprintf("Plan %s changed outside checkbox markers during relay; inspect `fyr record get %s`, restore the approved plan body, then re-run `fyr relay --plan %s`.", planID, planID, planID)
 	case HaltBudgetFloor:
 		return fmt.Sprintf("Wait for Gemini quota pools above %d%% 5h / %d%% weekly, refresh `fyr models --refresh`, then resume `fyr relay --plan %s`.", GeminiFloorFive, GeminiFloorWeek, planID)
 	case HaltRepeatingErrorHash:

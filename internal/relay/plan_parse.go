@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -289,4 +291,32 @@ func TickPhaseBoxes(body string, ph Phase) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// planStructureHash returns the SHA-256 hex digest of body with outside-fence
+// checkbox markers normalized (`[x]`/`[X]` -> `[ ]`), detecting any non-checkbox tamper.
+func planStructureHash(body string) string {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	inFence := false
+	for i, raw := range lines {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence {
+			continue
+		}
+		for _, pair := range [][2]string{
+			{"- [x] ", "- [ ] "}, {"- [X] ", "- [ ] "},
+			{"* [x] ", "* [ ] "}, {"* [X] ", "* [ ] "},
+		} {
+			if pos := strings.Index(raw, pair[0]); pos >= 0 && strings.TrimSpace(raw[:pos]) == "" {
+				lines[i] = raw[:pos] + pair[1] + raw[pos+len(pair[0]):]
+				break
+			}
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:])
 }
