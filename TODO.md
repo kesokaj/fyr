@@ -7,13 +7,12 @@
 
 ## Now
 
-- [ ] Wave 2 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 2B + 3 (`hook_subagent` Flash guard, `ParseBashFileReads` multi-line/pipes, search nudge, Kickoff `ask_question` guard) (`ADR-532`)
-- [ ] Wave 2 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 4A (`fyr auto` ephemeral worktree pruning, `still_regressing` proposal dedup, `BUG-560` graduation) (`ADR-532`)
+- [ ] Wave 3 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 4B (`agents/builder/agent.md`, `workflows/phase_loop.py`, `verifier` boundary checklist, harness tests & skill updates) (`ADR-532`)
+- [ ] Wave 3 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 4C (`fyr relay` hands-off fresh-session phase runner + realhome guard + table tests) (`ADR-532`)
 - [ ] Phase 7 box 2 of `PLAN-2026-11-14-2337-plan-fyr-v9-build-control-self-improvement-2026`: 7-day post-tag `fyr report --md` retro against `RETRO-2026-11-15-0102-graph-a-b-baseline` (earliest `2026-11-23`)
 
 ## Next
 
-- Wave 3 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 4B (`agents/builder/agent.md`, `workflows/phase_loop.py`, `verifier` boundary checklist) + Phase 4C (`fyr relay` hands-off fresh-session runner)
 - Wave 4 (`PLAN-2026-11-21-2304-plan-fyr-v9-9-workflow-subagent-hands-off-relay`): Phase 5 (living docs, `fyr verify`, cross-family review/security/verifier, `fyr eval`, live install)
 
 ## Backlog
