@@ -69,6 +69,69 @@ var migrations = []string{
 	`ALTER TABLE records ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
 	ALTER TABLE meta ADD COLUMN repo_id TEXT NOT NULL DEFAULT '';
 	CREATE INDEX IF NOT EXISTS records_repo_id ON records(repo_id);`,
+	`CREATE TABLE sim_problems(
+		pid             INTEGER PRIMARY KEY,
+		id              TEXT NOT NULL UNIQUE,
+		root_cause      TEXT NOT NULL,
+		norm_root_cause TEXT NOT NULL,
+		mechanism_class TEXT NOT NULL DEFAULT '',
+		signal_id       TEXT NOT NULL DEFAULT '',
+		target_paths    TEXT NOT NULL DEFAULT '',
+		status          TEXT NOT NULL DEFAULT 'active',
+		provenance      TEXT NOT NULL DEFAULT 'derived',
+		opened_at       TEXT NOT NULL,
+		updated_at      TEXT NOT NULL,
+		opened_harness  TEXT NOT NULL DEFAULT '',
+		opened_model    TEXT NOT NULL DEFAULT ''
+	);
+	CREATE TABLE sim_aliases(
+		old_id    TEXT PRIMARY KEY,
+		target_id TEXT NOT NULL,
+		merged_at TEXT NOT NULL
+	);
+	CREATE TABLE sim_attempts(
+		id                INTEGER PRIMARY KEY AUTOINCREMENT,
+		problem_id        TEXT NOT NULL,
+		source_kind       TEXT NOT NULL,
+		proposal_id       TEXT NOT NULL DEFAULT '',
+		commit_sha        TEXT NOT NULL DEFAULT '',
+		parent_sha        TEXT NOT NULL DEFAULT '',
+		harness_version   TEXT NOT NULL DEFAULT '',
+		proposer_model    TEXT NOT NULL DEFAULT '',
+		policy_model      TEXT NOT NULL DEFAULT '',
+		project_scope     TEXT NOT NULL DEFAULT '',
+		files_json        TEXT NOT NULL DEFAULT '[]',
+		what              TEXT NOT NULL,
+		predicted_rows    TEXT NOT NULL DEFAULT '[]',
+		predicted_signals TEXT NOT NULL DEFAULT '[]',
+		eval_verdict      TEXT NOT NULL DEFAULT 'none',
+		fixed_rows        TEXT NOT NULL DEFAULT '[]',
+		missed_rows       TEXT NOT NULL DEFAULT '[]',
+		regressed_rows    TEXT NOT NULL DEFAULT '[]',
+		eval_passed       INTEGER NOT NULL DEFAULT 0,
+		eval_total        INTEGER NOT NULL DEFAULT 0,
+		field_status      TEXT NOT NULL DEFAULT 'n/a',
+		field_metric      TEXT NOT NULL DEFAULT '',
+		field_baseline    REAL,
+		field_observed    REAL,
+		field_models_json TEXT NOT NULL DEFAULT '[]',
+		provenance        TEXT NOT NULL DEFAULT 'derived',
+		created_at        TEXT NOT NULL,
+		updated_at        TEXT NOT NULL
+	);
+	CREATE INDEX sim_attempts_problem ON sim_attempts(problem_id, created_at DESC);
+	CREATE INDEX sim_problems_signal  ON sim_problems(signal_id);
+	CREATE VIRTUAL TABLE sim_fts USING fts5(root_cause, target_paths, content='sim_problems', content_rowid='pid', ` + "token" + `ize='porter unicode61');
+	CREATE TRIGGER sim_problems_ai AFTER INSERT ON sim_problems BEGIN
+		INSERT INTO sim_fts(rowid, root_cause, target_paths) VALUES (new.pid, new.root_cause, new.target_paths);
+	END;
+	CREATE TRIGGER sim_problems_ad AFTER DELETE ON sim_problems BEGIN
+		INSERT INTO sim_fts(sim_fts, rowid, root_cause, target_paths) VALUES ('delete', old.pid, old.root_cause, old.target_paths);
+	END;
+	CREATE TRIGGER sim_problems_au AFTER UPDATE ON sim_problems BEGIN
+		INSERT INTO sim_fts(sim_fts, rowid, root_cause, target_paths) VALUES ('delete', old.pid, old.root_cause, old.target_paths);
+		INSERT INTO sim_fts(rowid, root_cause, target_paths) VALUES (new.pid, new.root_cause, new.target_paths);
+	END;`,
 }
 
 // Path is the store's location under home, or empty when home is empty.

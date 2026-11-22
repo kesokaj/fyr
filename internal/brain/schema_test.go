@@ -238,8 +238,8 @@ func TestMigrationThreeToFourAndReadOnlyV3(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ro2.Close()
-	if err := ro2.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil || uv != 4 {
-		t.Fatalf("migrated user_version = %d (%v), want 4", uv, err)
+	if err := ro2.QueryRow(`PRAGMA user_version`).Scan(&uv); err != nil || uv != len(migrations) {
+		t.Fatalf("migrated user_version = %d (%v), want %d", uv, err, len(migrations))
 	}
 	var idxCount int
 	if err := ro2.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'records_repo_id'`).Scan(&idxCount); err != nil || idxCount != 1 {
