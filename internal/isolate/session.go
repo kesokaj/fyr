@@ -50,6 +50,10 @@ func (b *Box) linkLogin(tok string) error {
 // stays for check e; on ctx's end the whole group gets SIGTERM, then
 // SIGKILL after StopGrace.
 func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, appendErr bool) int {
+	if b.c.Model != "" && !modelRe.MatchString(b.c.Model) {
+		b.Note("isolate: invalid model ID %q", b.c.Model)
+		return -1
+	}
 	if b.c.ACP {
 		return b.acpSession(ctx, agy, prompt, outPath, errPath, appendErr)
 	}
@@ -91,7 +95,7 @@ func (b *Box) agy(ctx context.Context, agy, prompt, outPath, errPath string, app
 func (b *Box) agyArgs(prompt string) []string {
 	full := "The project root is the current directory, " + b.app + "; ignore any other checkout. This is a print-mode run (`agy -p`): the turn's end is the run's end. " + prompt
 	args := []string{"-p", full, "--mode", "accept-edits", "--print-timeout", b.c.PrintTimeout}
-	if b.c.Model != "" {
+	if b.c.Model != "" && modelRe.MatchString(b.c.Model) {
 		args = append(args, "--model", b.c.Model)
 	}
 	return args

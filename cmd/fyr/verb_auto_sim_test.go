@@ -316,4 +316,22 @@ func TestVerbAutoSIMUsageGuardAndWritesState(t *testing.T) {
 			t.Errorf("vocabulary auto sim missing flag --%s", f)
 		}
 	}
+
+	// Hardening: renderAutoSIMShow sanitizes ANSI escapes in timestamps,
+	// and eval --model rejects leading hyphen and >64-byte model IDs.
+	var showBuf bytes.Buffer
+	_ = renderAutoSIMShow(&showBuf, brain.SIMProblemDetail{
+		Problem:  brain.SIMProblem{ID: "SIM-P001", Status: "active", RootCause: "rc", OpenedAt: "2026\x1b[31m", UpdatedAt: "2026\x1b[0m"},
+		Attempts: []brain.SIMAttempt{{ID: 1, CreatedAt: "2026\x1b[2J", SourceKind: "operator_commit", What: "w"}},
+	}, false)
+	if strings.Contains(showBuf.String(), "\x1b") {
+		t.Errorf("renderAutoSIMShow emitted raw ESC byte: %q", showBuf.String())
+	}
+	for _, badModel := range []string{"-leading-hyphen", "--flag", strings.Repeat("m", 65)} {
+		var evalOut bytes.Buffer
+		err := run([]string{"eval", "--model", badModel, "--home", home, "smoke"}, &evalOut)
+		if exitOf(err) != 2 {
+			t.Errorf("eval --model %q: exit %d, want 2 (out=%q)", badModel, exitOf(err), evalOut.String())
+		}
+	}
 }

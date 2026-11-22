@@ -387,6 +387,82 @@ func TestSIMStateIO(t *testing.T) {
 	if _, err := ImportStateSIM(t.TempDir(), cycExp, SIMStateImportOpts{}); !IsRefusal(err) || !strings.Contains(err.Error(), "cycle") {
 		t.Fatalf("cycle ImportStateSIM = %v, want cycle refusal", err)
 	}
+
+	// 9. Security & reviewer hardening: forged norm_root_cause recomputed, bad RFC3339/control chars/negative counts refused,
+	// full attempt column update stays idempotent, alias chains flatten, and --since keeps pre-since alias closure.
+	hardHome := t.TempDir()
+	forgeExp := SIMStateExport{
+		Problems: []SIMProblem{{
+			ID: "SIM-P001", RootCause: "real root cause", NormRootCause: "forged hijacked key",
+			Status: "active", Provenance: "derived",
+			OpenedAt: t1.Format(time.RFC3339), UpdatedAt: t1.Format(time.RFC3339),
+		}},
+		Attempts: []SIMAttempt{{
+			ProblemID: "SIM-P001", SourceKind: "auto_harness_edit", ProposalID: "PROPOSAL-1",
+			CommitSHA: "abcdef1", What: "v1", PolicyModel: "model-old", EvalVerdict: "kept",
+			FieldStatus: "pending_data", Provenance: "derived",
+			CreatedAt: t1.Format(time.RFC3339), UpdatedAt: t1.Format(time.RFC3339),
+		}},
+	}
+	if _, err := ImportStateSIM(hardHome, forgeExp, SIMStateImportOpts{}); err != nil {
+		t.Fatalf("import forged norm_root_cause: %v", err)
+	}
+	gotHard, err := GetSIMProblem(hardHome, "SIM-P001")
+	if err != nil || gotHard.Problem.NormRootCause != "real root cause" {
+		t.Fatalf("forged norm_root_cause was trusted: %+v err=%v", gotHard.Problem, err)
+	}
+	// Update non-Stage-A/B columns (PolicyModel, What, Provenance) -> persists & re-imports cleanly with 0 conflicts.
+	updAttExp := forgeExp
+	updAttExp.Attempts = []SIMAttempt{forgeExp.Attempts[0]}
+	updAttExp.Attempts[0].PolicyModel = "model-new"
+	updAttExp.Attempts[0].What = "v2 updated"
+	updAttExp.Attempts[0].Provenance = "operator"
+	updAttExp.Attempts[0].UpdatedAt = t2.Format(time.RFC3339)
+	if st1, err := ImportStateSIM(hardHome, updAttExp, SIMStateImportOpts{}); err != nil || st1.Updated != 1 {
+		t.Fatalf("attempt full-column update = (%+v, %v), want Updated=1", st1, err)
+	}
+	if st2, err := ImportStateSIM(hardHome, updAttExp, SIMStateImportOpts{}); err != nil || st2.Conflicts != 0 || st2.Updated != 0 {
+		t.Fatalf("re-import after attempt update = (%+v, %v), want 0 conflicts/updates", st2, err)
+	}
+	gotHard2, _ := GetSIMProblem(hardHome, "SIM-P001")
+	if len(gotHard2.Attempts) != 1 || gotHard2.Attempts[0].PolicyModel != "model-new" || gotHard2.Attempts[0].What != "v2 updated" || gotHard2.Attempts[0].Provenance != "operator" {
+		t.Fatalf("attempt columns not persisted: %+v", gotHard2.Attempts)
+	}
+	// Invalid RFC3339 timestamp & control chars / oversize metadata refused.
+	badTS := SIMStateExport{Problems: []SIMProblem{{ID: "SIM-P001", RootCause: "x", Status: "active", Provenance: "derived", OpenedAt: "\x1b[31m2026", UpdatedAt: t1.Format(time.RFC3339)}}}
+	if _, err := ImportStateSIM(t.TempDir(), badTS, SIMStateImportOpts{}); !IsRefusal(err) {
+		t.Fatalf("bad RFC3339 OpenedAt = %v, want refusal", err)
+	}
+	if _, err := RecordSIMAttempt(t.TempDir(), SIMRecordInput{RootCause: "x", What: "y", SignalID: "sig:\x1b[2J", Now: t1}); err == nil {
+		t.Fatal("RecordSIMAttempt accepted control char in SignalID")
+	}
+	if _, err := RecordSIMAttempt(t.TempDir(), SIMRecordInput{RootCause: "x", What: "y", PolicyModel: strings.Repeat("m", maxSIMMetaBytes+1), Now: t1}); err == nil {
+		t.Fatal("RecordSIMAttempt accepted oversize PolicyModel")
+	}
+	if _, err := UpdateSIMAttemptFieldOutcome(hardHome, SIMFieldUpdate{AttemptID: gotHard2.Attempts[0].ID, FieldStatus: "recovered", FieldMetric: "bad\x1bmetric", Now: t2}); err == nil {
+		t.Fatal("UpdateSIMAttemptFieldOutcome accepted control char in FieldMetric")
+	}
+	// --since export keeps pre-since alias edges & target problem when an aliased attempt is updated after since.
+	sinceHome := t.TempDir()
+	sp1, _ := RecordSIMAttempt(sinceHome, SIMRecordInput{RootCause: "old merged prob", What: "a1", EvalVerdict: "kept", FieldStatus: "pending_data", Now: t1})
+	sp2, _ := RecordSIMAttempt(sinceHome, SIMRecordInput{RootCause: "canon target prob", What: "a2", Now: t1.Add(time.Minute)})
+	if _, err := MergeSIMProblem(sinceHome, sp1.ProblemID, sp2.ProblemID, "derived", t1.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UpdateSIMAttemptFieldOutcome(sinceHome, SIMFieldUpdate{AttemptID: sp1.AttemptID, FieldStatus: "recovered", Now: t2}); err != nil {
+		t.Fatal(err)
+	}
+	incSince, err := ExportStateSIM(sinceHome, t2.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(incSince.Aliases) != 1 || len(incSince.Problems) != 2 {
+		t.Fatalf("--since export missed alias closure: probs=%d aliases=%d atts=%d", len(incSince.Problems), len(incSince.Aliases), len(incSince.Attempts))
+	}
+	// redactSIMLine strips ANSI control chars.
+	if got := redactSIMLine("hello\x1b[31mworld", ""); strings.Contains(got, "\x1b") {
+		t.Fatalf("redactSIMLine left ESC byte: %q", got)
+	}
 }
 
 func TestSIMIsolation(t *testing.T) {

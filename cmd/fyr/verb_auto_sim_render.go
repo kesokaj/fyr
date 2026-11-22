@@ -286,7 +286,7 @@ func renderAutoSIMShow(w io.Writer, d brain.SIMProblemDetail, asJSON bool) error
 		fmt.Fprintf(w, "target_paths: %s\n", search.Printable(p.TargetPaths))
 	}
 	fmt.Fprintf(w, "opened: %s  updated: %s  harness=%s  model=%s\n",
-		p.OpenedAt, p.UpdatedAt, search.Printable(orDash(p.OpenedHarness)), search.Printable(orDash(p.OpenedModel)))
+		search.Printable(p.OpenedAt), search.Printable(p.UpdatedAt), search.Printable(orDash(p.OpenedHarness)), search.Printable(orDash(p.OpenedModel)))
 	if len(d.Aliases) > 0 {
 		fmt.Fprintf(w, "aliases: %s\n", strings.Join(d.Aliases, ", "))
 	}
@@ -299,7 +299,7 @@ func renderAutoSIMShow(w io.Writer, d brain.SIMProblemDetail, asJSON bool) error
 
 func renderAutoSIMAttempt(w io.Writer, a brain.SIMAttempt) {
 	fmt.Fprintf(w, "  #%d  %s  source=%s  verdict=%s  field=%s  provenance=%s\n",
-		a.ID, a.CreatedAt, a.SourceKind, a.EvalVerdict, a.FieldStatus, a.Provenance)
+		a.ID, search.Printable(a.CreatedAt), a.SourceKind, a.EvalVerdict, a.FieldStatus, a.Provenance)
 	fmt.Fprintf(w, "    what: %s\n", search.Printable(a.What))
 	if a.ProposerModel != "" || a.PolicyModel != "" {
 		fmt.Fprintf(w, "    models: proposer=%s policy=%s\n",

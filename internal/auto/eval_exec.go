@@ -198,7 +198,11 @@ func runFyrEval(ctx context.Context, self string, req EvalRequest) (EvalOutcome,
 		return EvalOutcome{}, err
 	}
 	if out.PolicyModel == "" {
-		out.PolicyModel = metrics.LatestTrialModel(req.Home, req.Row, startedAt.UnixMilli())
+		rowLabel := req.Row
+		if req.SuiteFile != "" {
+			rowLabel = "holdout/" + rowLabel
+		}
+		out.PolicyModel = metrics.LatestTrialModel(req.Home, rowLabel, startedAt.UnixMilli())
 	}
 	return out, nil
 }

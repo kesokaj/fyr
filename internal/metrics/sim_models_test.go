@@ -518,6 +518,40 @@ func TestSIMMetricsModelShiftAudit(t *testing.T) {
 	if !strings.Contains(htmlBuf.String(), "model_shift_audit") || !strings.Contains(htmlBuf.String(), "SIM-P001") {
 		t.Errorf("HTML banner missing model_shift_audit:\n%s", htmlBuf.String())
 	}
+
+	// Hardening: alias cluster coverage & strict SIM-P ID validation in model_shift_audit,
+	// plus unmeasured tracked metric returning StatusPendingData (never false "recovered").
+	h5 := t.TempDir()
+	s5 := openT(t, Path(h5))
+	seedShiftSessions(t, s5, now)
+	sqliteT(t, filepath.Join(h5, harness.StateDir, "brain.db"),
+		`PRAGMA user_version = 5`,
+		`CREATE TABLE records(rid INTEGER PRIMARY KEY, scope TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, project TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL, provenance TEXT NOT NULL DEFAULT '', UNIQUE(scope, id))`,
+		`CREATE TABLE sim_problems(pid INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, root_cause TEXT NOT NULL, norm_root_cause TEXT NOT NULL, mechanism_class TEXT NOT NULL DEFAULT '', signal_id TEXT NOT NULL DEFAULT '', target_paths TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', provenance TEXT NOT NULL DEFAULT 'derived', opened_at TEXT NOT NULL, updated_at TEXT NOT NULL, opened_harness TEXT NOT NULL DEFAULT '', opened_model TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE sim_aliases(old_id TEXT PRIMARY KEY, target_id TEXT NOT NULL, merged_at TEXT NOT NULL)`,
+		`CREATE TABLE sim_attempts(id INTEGER PRIMARY KEY AUTOINCREMENT, problem_id TEXT NOT NULL, source_kind TEXT NOT NULL, proposal_id TEXT NOT NULL DEFAULT '', commit_sha TEXT NOT NULL DEFAULT '', parent_sha TEXT NOT NULL DEFAULT '', harness_version TEXT NOT NULL DEFAULT '', proposer_model TEXT NOT NULL DEFAULT '', policy_model TEXT NOT NULL DEFAULT '', project_scope TEXT NOT NULL DEFAULT '', files_json TEXT NOT NULL DEFAULT '[]', what TEXT NOT NULL, predicted_rows TEXT NOT NULL DEFAULT '[]', predicted_signals TEXT NOT NULL DEFAULT '[]', eval_verdict TEXT NOT NULL DEFAULT 'none', fixed_rows TEXT NOT NULL DEFAULT '[]', missed_rows TEXT NOT NULL DEFAULT '[]', regressed_rows TEXT NOT NULL DEFAULT '[]', eval_passed INTEGER NOT NULL DEFAULT 0, eval_total INTEGER NOT NULL DEFAULT 0, field_status TEXT NOT NULL DEFAULT 'n/a', field_metric TEXT NOT NULL DEFAULT '', field_baseline REAL, field_observed REAL, field_models_json TEXT NOT NULL DEFAULT '[]', provenance TEXT NOT NULL DEFAULT 'derived', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO sim_problems(pid, id, root_cause, norm_root_cause, mechanism_class, status, opened_at, updated_at, opened_model) VALUES
+			(1, 'SIM-P001', 'merged old', 'merged old', 'model_workaround', 'merged', '2026-11-10T00:00:00Z', '2026-11-15T00:00:00Z', ''),
+			(2, 'SIM-P002', 'canon covered via alias', 'canon covered via alias', 'model_workaround', 'active', '2026-11-10T00:00:00Z', '2026-11-20T00:00:00Z', 'gemini-4-neon-xhigh'),
+			(3, 'SIM-P003', 'merged old only', 'merged old only', 'model_workaround', 'merged', '2026-11-10T00:00:00Z', '2026-11-15T00:00:00Z', ''),
+			(4, 'SIM-P004', 'canon stale via alias', 'canon stale via alias', 'model_workaround', 'active', '2026-11-10T00:00:00Z', '2026-11-20T00:00:00Z', ''),
+			(5, 'SIM-Pbad-inject', 'bad', 'bad', 'model_workaround', 'active', '2026-11-10T00:00:00Z', '2026-11-20T00:00:00Z', 'gemini-4-neon-xhigh')`,
+		`INSERT INTO sim_aliases(old_id, target_id, merged_at) VALUES
+			('SIM-P001', 'SIM-P002', '2026-11-15T00:00:00Z'),
+			('SIM-P003', 'SIM-P004', '2026-11-15T00:00:00Z')`,
+		`INSERT INTO sim_attempts(problem_id, source_kind, policy_model, what, eval_verdict, field_models_json, created_at, updated_at) VALUES
+			('SIM-P001', 'auto_harness_edit', 'gemini-5-pro', 'aliased new validation', 'kept', '[]', '2026-11-21T00:00:00Z', '2026-11-21T00:00:00Z'),
+			('SIM-P003', 'auto_harness_edit', 'gemini-4-neon-xhigh', 'aliased old validation', 'kept', '[]', '2026-11-12T00:00:00Z', '2026-11-12T00:00:00Z')`,
+	)
+	ids5 := staleSIMWorkarounds(h5, "gemini-5-pro", 5)
+	if !reflect.DeepEqual(ids5, []string{"SIM-P004"}) {
+		t.Fatalf("alias-aware staleSIMWorkarounds = %v, want [SIM-P004] (SIM-P002 covered via SIM-P001, SIM-Pbad-inject excluded)", ids5)
+	}
+	unmeasBase := 10.0
+	stratUnmeas, err := StratifiedFieldRecovery(s5, "E.timeout_rate_pct", &unmeasBase, now.Add(-24*time.Hour).UnixMilli(), now)
+	if err != nil || len(stratUnmeas) != 1 || stratUnmeas[0].Status != StatusPendingData {
+		t.Fatalf("unmeasured tracked metric StratifiedFieldRecovery = (%+v, %v), want StatusPendingData", stratUnmeas, err)
+	}
 }
 
 func addModelSessions(t *testing.T, s *Store, prefix, model string, n int, base time.Time) {

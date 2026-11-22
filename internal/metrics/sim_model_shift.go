@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -18,7 +19,10 @@ const (
 	severityInfo          = "info"
 	minModelShiftSessions = 3
 	maxModelShiftAuditIDs = 5
+	maxBrainAliasDepth    = 16
 )
+
+var simProblemIDStrictRe = regexp.MustCompile(`^SIM-P[0-9]{3,9}$`)
 
 func detectModelShiftAudit(s *Store, home, repoRoot string, nowUTC time.Time) *DigestAction {
 	if s == nil || s.db == nil || strings.TrimSpace(repoRoot) != "" {
@@ -128,12 +132,14 @@ func staleSIMWorkarounds(home, newModel string, limit int) []string {
 	if err != nil {
 		return nil
 	}
+	aliases := loadBrainSIMAliases(db)
 	var out []string
 	for _, cand := range candidates {
 		if len(out) >= limit {
 			break
 		}
-		hasOlder, hasNew := simProblemModelCoverage(db, cand.id, cand.openedModel, newModel)
+		cluster := expandSIMAliasCluster(cand.id, aliases)
+		hasOlder, hasNew := simProblemModelCoverage(db, cluster, cand.openedModel, newModel)
 		if hasOlder && !hasNew {
 			out = append(out, cand.id)
 		}
@@ -161,12 +167,56 @@ func loadActiveSIMWorkarounds(db *sql.DB) ([]simWorkaroundCand, error) {
 		if rows.Scan(&id, &openedModel) != nil {
 			continue
 		}
-		id = clipPrintable(id, 64)
-		if strings.HasPrefix(id, "SIM-P") {
+		id = strings.TrimSpace(id)
+		if simProblemIDStrictRe.MatchString(id) {
 			out = append(out, simWorkaroundCand{id: id, openedModel: openedModel})
 		}
 	}
 	return out, rows.Err()
+}
+
+func loadBrainSIMAliases(db *sql.DB) map[string]string {
+	aliases := map[string]string{}
+	rows, err := db.Query(`SELECT old_id, target_id FROM sim_aliases`)
+	if err != nil {
+		return aliases
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var oldID, targetID string
+		if rows.Scan(&oldID, &targetID) != nil {
+			continue
+		}
+		oldID, targetID = strings.TrimSpace(oldID), strings.TrimSpace(targetID)
+		if simProblemIDStrictRe.MatchString(oldID) && simProblemIDStrictRe.MatchString(targetID) && oldID != targetID {
+			aliases[oldID] = targetID
+		}
+	}
+	return aliases
+}
+
+func expandSIMAliasCluster(canonID string, aliases map[string]string) []string {
+	cluster := []string{canonID}
+	for oldID := range aliases {
+		cur, steps := oldID, 0
+		for steps < maxBrainAliasDepth {
+			next, ok := aliases[cur]
+			if !ok {
+				break
+			}
+			cur = next
+			steps++
+			if cur == oldID {
+				cur = ""
+				break
+			}
+		}
+		if cur == canonID {
+			cluster = append(cluster, oldID)
+		}
+	}
+	sort.Strings(cluster)
+	return cluster
 }
 
 func brainHasSIMTables(db *sql.DB) bool {
@@ -179,7 +229,7 @@ func brainHasSIMTables(db *sql.DB) bool {
 	return err == nil && cnt == 2
 }
 
-func simProblemModelCoverage(db *sql.DB, probID, openedModel, newModel string) (hasOlder, hasNew bool) {
+func simProblemModelCoverage(db *sql.DB, probIDs []string, openedModel, newModel string) (hasOlder, hasNew bool) {
 	if om := strings.TrimSpace(openedModel); om != "" {
 		if strings.EqualFold(om, newModel) {
 			hasNew = true
@@ -187,7 +237,11 @@ func simProblemModelCoverage(db *sql.DB, probID, openedModel, newModel string) (
 			hasOlder = true
 		}
 	}
-	rows, err := db.Query(`SELECT COALESCE(policy_model, ''), COALESCE(eval_verdict, ''), COALESCE(field_models_json, '') FROM sim_attempts WHERE problem_id = ?`, probID)
+	if len(probIDs) == 0 {
+		return hasOlder, hasNew
+	}
+	ph, args := inPlaceholders(probIDs)
+	rows, err := db.Query(`SELECT COALESCE(policy_model, ''), COALESCE(eval_verdict, ''), COALESCE(field_models_json, '') FROM sim_attempts WHERE problem_id IN (`+ph+`)`, args...)
 	if err != nil {
 		return hasOlder, hasNew
 	}
@@ -214,24 +268,33 @@ func simProblemModelCoverage(db *sql.DB, probID, openedModel, newModel string) (
 }
 
 func fieldModelsCoverage(raw, newModel string) (hasOlder, hasNew bool) {
-	if strings.TrimSpace(raw) == "" || strings.TrimSpace(raw) == "[]" {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "[]" {
 		return false, false
 	}
 	var items []ModelFieldStatus
-	if json.Unmarshal([]byte(raw), &items) != nil {
-		return false, false
-	}
-	for _, item := range items {
-		m := strings.TrimSpace(item.Model)
-		if m == "" {
-			continue
-		}
-		if strings.EqualFold(m, newModel) {
-			if item.Status != "" && item.Status != StatusPendingData {
-				hasNew = true
+	if json.Unmarshal([]byte(trimmed), &items) == nil {
+		for _, item := range items {
+			m := strings.TrimSpace(item.Model)
+			if m == "" {
+				continue
 			}
-		} else {
-			hasOlder = true
+			if strings.EqualFold(m, newModel) {
+				if item.Status != "" && item.Status != StatusPendingData {
+					hasNew = true
+				}
+			} else {
+				hasOlder = true
+			}
+		}
+		return hasOlder, hasNew
+	}
+	var legacy []string
+	if json.Unmarshal([]byte(trimmed), &legacy) == nil {
+		for _, rawName := range legacy {
+			if m := strings.TrimSpace(rawName); m != "" && !strings.EqualFold(m, newModel) {
+				hasOlder = true
+			}
 		}
 	}
 	return hasOlder, hasNew

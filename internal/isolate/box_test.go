@@ -174,3 +174,20 @@ func TestBoxLaterSessionNeedsIntact(t *testing.T) {
 	b.After()
 	b.ExitChecks()
 }
+
+func TestBoxAgyArgsRejectsInvalidModel(t *testing.T) {
+	bGood := &Box{c: Config{Model: "gemini-4-neon-xhigh", PrintTimeout: "5m"}, app: "/app"}
+	argsGood := bGood.agyArgs("hi")
+	if !strings.Contains(strings.Join(argsGood, " "), "--model gemini-4-neon-xhigh") {
+		t.Fatalf("valid model missing from agyArgs: %v", argsGood)
+	}
+	for _, bad := range []string{"-leading", "--evil", strings.Repeat("m", 65)} {
+		bBad := &Box{c: Config{Model: bad, PrintTimeout: "5m"}, app: "/app"}
+		if args := bBad.agyArgs("hi"); strings.Contains(strings.Join(args, " "), "--model") {
+			t.Errorf("agyArgs(%q) included --model: %v", bad, args)
+		}
+		if rc := bBad.agy(context.Background(), "agy", "hi", "", "", false); rc != -1 {
+			t.Errorf("agy(%q) rc = %d, want -1", bad, rc)
+		}
+	}
+}

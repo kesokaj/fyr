@@ -96,26 +96,44 @@ func filterSIMExportSince(probs []SIMProblem, atts []SIMAttempt, aliases []SIMAl
 			needed[a.ProblemID] = true
 		}
 	}
-	var outAliases []SIMAlias
+	includeAlias := map[string]bool{}
 	for _, al := range aliases {
 		if timeAtOrAfter(al.MergedAt, since) {
+			includeAlias[al.OldID] = true
+			needed[al.OldID], needed[al.TargetID] = true, true
+		}
+	}
+	for _, p := range probs {
+		if timeAtOrAfter(p.UpdatedAt, since) || timeAtOrAfter(p.OpenedAt, since) {
+			needed[p.ID] = true
+		}
+	}
+	for step := 0; step < maxSIMAliasDepth; step++ {
+		changed := false
+		for _, al := range aliases {
+			if needed[al.OldID] && (!includeAlias[al.OldID] || !needed[al.TargetID]) {
+				includeAlias[al.OldID] = true
+				needed[al.TargetID] = true
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	var outAliases []SIMAlias
+	for _, al := range aliases {
+		if includeAlias[al.OldID] {
 			outAliases = append(outAliases, al)
-			needed[al.OldID] = true
-			needed[al.TargetID] = true
 		}
 	}
 	var outProbs []SIMProblem
 	for _, p := range probs {
-		if needed[p.ID] || timeAtOrAfter(p.UpdatedAt, since) || timeAtOrAfter(p.OpenedAt, since) {
+		if needed[p.ID] {
 			outProbs = append(outProbs, p)
 		}
 	}
 	return SIMStateExport{Problems: outProbs, Attempts: outAtts, Aliases: outAliases}
-}
-
-func timeAtOrAfter(raw string, since time.Time) bool {
-	ts := parseTimeString(raw)
-	return !ts.IsZero() && !ts.Before(since)
 }
 
 // ImportStateSIM idempotently merges SIM problems, aliases, and attempts into
@@ -226,14 +244,14 @@ func applySIMImportAliases(ctx context.Context, c *sql.Conn, incoming []SIMAlias
 		} else if ok {
 			probs[al.OldID] = p
 		}
-		apply, err := decideSIMAliasMerge(al, aliasMap, probs, stats)
+		apply, canonTarget, err := decideSIMAliasMerge(al, aliasMap, probs, stats)
 		if err != nil {
 			return err
 		}
 		if !apply {
 			continue
 		}
-		if _, err := c.ExecContext(ctx, `INSERT INTO sim_aliases(old_id, target_id, merged_at) VALUES (?, ?, ?)`, al.OldID, al.TargetID, al.MergedAt); err != nil {
+		if _, err := c.ExecContext(ctx, `INSERT INTO sim_aliases(old_id, target_id, merged_at) VALUES (?, ?, ?)`, al.OldID, canonTarget, al.MergedAt); err != nil {
 			return err
 		}
 		if p, ok := probs[al.OldID]; ok && p.Status != "merged" && p.Provenance != "operator" {
@@ -241,7 +259,7 @@ func applySIMImportAliases(ctx context.Context, c *sql.Conn, incoming []SIMAlias
 				return err
 			}
 		}
-		aliasMap[al.OldID] = al.TargetID
+		aliasMap[al.OldID] = canonTarget
 	}
 	return nil
 }
@@ -315,12 +333,18 @@ func writeSIMImportAttempt(ctx context.Context, c *sql.Conn, curID int64, isInse
 		return err
 	}
 	_, err := c.ExecContext(ctx, `UPDATE sim_attempts
-		SET eval_verdict = ?, fixed_rows = ?, missed_rows = ?, regressed_rows = ?,
+		SET parent_sha = ?, harness_version = ?, proposer_model = ?, policy_model = ?,
+		    project_scope = ?, files_json = ?, what = ?, predicted_rows = ?, predicted_signals = ?,
+		    eval_verdict = ?, fixed_rows = ?, missed_rows = ?, regressed_rows = ?,
 		    eval_passed = ?, eval_total = ?, field_status = ?, field_metric = ?,
-		    field_baseline = ?, field_observed = ?, field_models_json = ?, updated_at = ?
+		    field_baseline = ?, field_observed = ?, field_models_json = ?,
+		    provenance = ?, updated_at = ?
 		WHERE id = ?`,
+		a.ParentSHA, a.HarnessVersion, a.ProposerModel, a.PolicyModel,
+		a.ProjectScope, marshalSIMJSON(a.Files), a.What, marshalSIMJSON(a.PredictedRows), marshalSIMJSON(a.PredictedSignals),
 		a.EvalVerdict, marshalSIMJSON(a.FixedRows), marshalSIMJSON(a.MissedRows), marshalSIMJSON(a.RegressedRows),
 		a.EvalPassed, a.EvalTotal, a.FieldStatus, a.FieldMetric,
-		base, obs, marshalSIMJSON(a.FieldModels), a.UpdatedAt, curID)
+		base, obs, marshalSIMJSON(a.FieldModels),
+		a.Provenance, a.UpdatedAt, curID)
 	return err
 }

@@ -3,6 +3,7 @@ package brain
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -324,8 +325,14 @@ func formatSIMRollup(older []SIMAttempt) string {
 
 func redactSIMLine(line, cleanHome string) string {
 	line = strings.ReplaceAll(strings.ReplaceAll(line, "\r", " "), "\n", " ")
+	line = search.Printable(line)
 	if len(cleanHome) > 1 {
 		line = strings.ReplaceAll(line, cleanHome, "~")
+	}
+	if realHome, err := os.UserHomeDir(); err == nil {
+		if rh := filepath.Clean(realHome); len(rh) > 1 && rh != cleanHome {
+			line = strings.ReplaceAll(line, rh, "~")
+		}
 	}
 	return redact.Redact(line)
 }

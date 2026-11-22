@@ -91,10 +91,6 @@ func (r *run) writeProposalSection(b *strings.Builder, props []brain.Record, lim
 	return appendBoundedSection(b, "## Queued proposals", items, r.o.realHome(), r.o.Home, maxProposalEntryBytes, limit)
 }
 
-func appendTelemetrySections(b *strings.Builder, nums, diag, traj, realHome, home string, limit int) []string {
-	return appendTelemetrySectionsWithDigest(b, nums, diag, "", traj, realHome, home, limit)
-}
-
 func appendTelemetrySectionsWithDigest(b *strings.Builder, nums, diag, digest, traj, realHome, home string, limit int) []string {
 	nums, diag = scrubEntry(nums, realHome, home), scrubEntry(diag, realHome, home)
 	digest, traj = scrubEntry(digest, realHome, home), scrubEntry(traj, realHome, home)

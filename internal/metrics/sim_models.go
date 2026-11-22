@@ -238,11 +238,12 @@ func evaluateModelGroupStatus(sum *Summary, grp []sess, metric string, baseline 
 		if m == "C.search_grep_ratio.agy" && sum.C.GrepCalls["agy"] == 0 && sum.C.SQLiteVerbs["agy"] > 0 {
 			return StatusRecovered
 		}
+		return StatusPendingData
 	}
-	return evaluateFallbackGroupStatus(sum, grp, m, baseline)
+	return evaluateFallbackGroupStatus(sum, grp)
 }
 
-func evaluateFallbackGroupStatus(sum *Summary, grp []sess, metric string, baseline *float64) string {
+func evaluateFallbackGroupStatus(sum *Summary, grp []sess) string {
 	if sum.A.MeanOutcomeScore != nil {
 		return pickSev(*sum.A.MeanOutcomeScore >= 3.5, StatusRecovered, StatusStillRegressing)
 	}
@@ -261,10 +262,7 @@ func evaluateFallbackGroupStatus(sum *Summary, grp []sess, metric string, baseli
 	if er := sum.D.ToolErrorRate["agy"]; er != nil {
 		return pickSev(*er < 0.08, StatusRecovered, StatusStillRegressing)
 	}
-	if metric != "" && baseline != nil && isHigherBetterMetric(metric) {
-		return StatusStillRegressing
-	}
-	return StatusRecovered
+	return StatusPendingData
 }
 
 // LatestTrialModel opens a read-only copy of evalHome's metrics.db and returns

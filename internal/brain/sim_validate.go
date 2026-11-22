@@ -92,10 +92,13 @@ func cleanSIMFiles(files []string) ([]string, error) {
 		if s == "" {
 			continue
 		}
-		if !titleText(s) {
-			return nil, usage("sim: file path %q holds invalid characters", raw)
+		if !titleText(s) || len(s) > maxSIMSliceItemBytes {
+			return nil, usage("sim: file path %q is invalid or exceeds %d bytes", raw, maxSIMSliceItemBytes)
 		}
 		if !seen[s] {
+			if len(out) >= maxSIMSliceItems {
+				return nil, usage("sim: files exceeds %d items", maxSIMSliceItems)
+			}
 			seen[s] = true
 			out = append(out, s)
 		}
@@ -112,10 +115,13 @@ func cleanSIMStringSlice(field string, items []string) ([]string, error) {
 		if s == "" {
 			continue
 		}
-		if !titleText(s) {
-			return nil, usage("sim: %s holds invalid characters", field)
+		if !titleText(s) || len(s) > maxSIMSliceItemBytes {
+			return nil, usage("sim: %s item is invalid or exceeds %d bytes", field, maxSIMSliceItemBytes)
 		}
 		if !seen[s] {
+			if len(out) >= maxSIMSliceItems {
+				return nil, usage("sim: %s exceeds %d items", field, maxSIMSliceItems)
+			}
 			seen[s] = true
 			out = append(out, s)
 		}
@@ -177,26 +183,6 @@ func parseSIMFieldModels(raw []byte) ([]SIMModelStatus, error) {
 	return nil, usage("sim: invalid field_models JSON")
 }
 
-func marshalSIMJSON(v any) string {
-	b, err := json.Marshal(v)
-	if err != nil || string(b) == "null" {
-		return "[]"
-	}
-	return string(b)
-}
-
-func unmarshalSIMStringSlice(raw string) []string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || trimmed == "[]" || trimmed == "null" {
-		return nil
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(trimmed), &out); err != nil || len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 func validateSIMEnum(field, val, def string, allowed ...string) (string, error) {
 	v := strings.TrimSpace(val)
 	if v == "" {
@@ -211,8 +197,12 @@ func validateSIMEnum(field, val, def string, allowed ...string) (string, error) 
 }
 
 func validateSIMFieldModels(models []SIMModelStatus) error {
+	if len(models) > maxSIMSliceItems {
+		return usage("sim: field_models exceeds %d items", maxSIMSliceItems)
+	}
 	for _, m := range models {
-		if strings.TrimSpace(m.Model) == "" || !titleText(m.Model) {
+		name := strings.TrimSpace(m.Model)
+		if name == "" || !titleText(name) || len(name) > maxSIMMetaBytes {
 			return usage("sim: invalid field_models model %q", m.Model)
 		}
 		if m.Sessions < 0 {
@@ -314,14 +304,15 @@ func cleanSIMRecordDetails(out *preparedSIMInput) error {
 	if out.RegressedRows, err = cleanSIMStringSlice("regressed_rows", out.RegressedRows); err != nil {
 		return err
 	}
-	out.SignalID = strings.TrimSpace(out.SignalID)
-	out.ProposalID = strings.TrimSpace(out.ProposalID)
-	out.HarnessVersion = strings.TrimSpace(out.HarnessVersion)
-	out.ProposerModel = strings.TrimSpace(out.ProposerModel)
-	out.PolicyModel = strings.TrimSpace(out.PolicyModel)
-	out.ProjectScope = strings.TrimSpace(out.ProjectScope)
-	out.FieldMetric = strings.TrimSpace(out.FieldMetric)
-	return nil
+	return cleanSIMMetaFields([]simMetaField{
+		{"signal_id", &out.SignalID, maxSIMMetaBytes},
+		{"proposal_id", &out.ProposalID, maxSIMMetaBytes},
+		{"harness_version", &out.HarnessVersion, maxSIMMetaBytes},
+		{"proposer_model", &out.ProposerModel, maxSIMMetaBytes},
+		{"policy_model", &out.PolicyModel, maxSIMMetaBytes},
+		{"project_scope", &out.ProjectScope, maxSIMScopeBytes},
+		{"field_metric", &out.FieldMetric, maxSIMMetaBytes},
+	})
 }
 
 func validateSIMFieldUpdate(upd SIMFieldUpdate) (string, string, error) {
@@ -334,6 +325,12 @@ func validateSIMFieldUpdate(upd SIMFieldUpdate) (string, string, error) {
 	}
 	sha, err := cleanSIMSHA("commit_sha", upd.CommitSHA)
 	if err != nil {
+		return "", "", err
+	}
+	if _, err := cleanSIMText("proposal_id", upd.ProposalID, maxSIMMetaBytes, false); err != nil {
+		return "", "", err
+	}
+	if _, err := cleanSIMText("field_metric", upd.FieldMetric, maxSIMMetaBytes, false); err != nil {
 		return "", "", err
 	}
 	if upd.AttemptID <= 0 && strings.TrimSpace(upd.ProposalID) == "" && sha == "" {

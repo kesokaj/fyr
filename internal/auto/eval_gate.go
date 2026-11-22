@@ -337,10 +337,6 @@ func rowKeepError(gr gateRow, parent, cand EvalOutcome) string {
 	return ""
 }
 
-func (r *run) applyKeptGateBranch(root string, t Task, k Kickoff, runner, runnerWhy string, snapBefore checkoutSnapshot, snapErr error, res isolate.WorkerResult, scores []gateRowScore, sessions int, gateFindings []Finding) (string, []Finding) {
-	return r.applyKeptGateBranchSIM(root, t, k, runner, runnerWhy, snapBefore, snapErr, res, nil, scores, sessions, gateFindings)
-}
-
 func (r *run) rejectEvalGate(root string, t Task, k Kickoff, runnerWhy string, scores []gateRowScore, sessions int, reason string, gateFindings []Finding) (string, []Finding) {
 	propID := r.fileEvalGateProposal(root, t, k.Branch, scores, sessions, reason)
 	msg := withRunner(fmt.Sprintf("eval-gate not kept (%s); proposal %s; branch %s kept", oneLine(reason), propID, k.Branch), runnerWhy)

@@ -248,7 +248,7 @@ func TestAppendProposalSectionNoOrphanHeadingAndTelemetryShare(t *testing.T) {
 	nums := strings.Repeat("n", 16<<10)
 	diag := strings.Repeat("d", 1500)
 	traj := strings.Repeat("t", 1500)
-	appendTelemetrySections(&tb, nums, diag, traj, home, home, limit)
+	appendTelemetrySectionsWithDigest(&tb, nums, diag, "", traj, home, home, limit)
 	out := tb.String()
 	if len(out) > limit {
 		t.Fatalf("telemetry exceeded limit %d: got %d", limit, len(out))
@@ -396,7 +396,7 @@ func TestBuildLearningInputLeftOutHeaderMatchesDream(t *testing.T) {
 	t.Run("omitted telemetry sections reported", func(t *testing.T) {
 		var b strings.Builder
 		b.WriteString(strings.Repeat("x", 128))
-		dropped := appendTelemetrySections(&b, "nums", "diag", "traj", "", "", b.Len())
+		dropped := appendTelemetrySectionsWithDigest(&b, "nums", "diag", "", "traj", "", "", b.Len())
 		got := dream.FormatLeftOutHeader(dropped, nil)
 		want := "Left out: 3 (telemetry 3): telemetry: metric numbers; telemetry: diagnostic signals; telemetry: trajectory digest"
 		if got != want {

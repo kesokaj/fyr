@@ -88,7 +88,7 @@ func TestApplyKeptGateBranchReportsBrainEditWarning(t *testing.T) {
 	}
 	// Make a dummy branch to delete inside applyWithHook.
 	git(t, root, "branch", "work/gate-warn")
-	verdict, findings := r.applyKeptGateBranch(
+	verdict, findings := r.applyKeptGateBranchSIM(
 		root,
 		Task{ID: "PROPOSAL-nonexistent", Class: ClassHarnessEdit},
 		Kickoff{Name: "gate-warn", Branch: "work/gate-warn"},
@@ -97,6 +97,7 @@ func TestApplyKeptGateBranchReportsBrainEditWarning(t *testing.T) {
 		checkoutSnapshot{},
 		nil,
 		isolate.WorkerResult{},
+		nil,
 		nil,
 		0,
 		nil,

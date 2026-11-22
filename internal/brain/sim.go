@@ -3,6 +3,7 @@ package brain
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,11 @@ const (
 	maxSIMAliasDepth           = 16
 	maxSIMRootCauseBytes       = 240
 	maxSIMWhatBytes            = 400
+	maxSIMMetaBytes            = 128
+	maxSIMScopeBytes           = 256
+	maxSIMTargetPathsBytes     = 1024
+	maxSIMSliceItems           = 64
+	maxSIMSliceItemBytes       = 256
 	defaultSIMListLimit        = 20
 	defaultSIMMaxBytes         = 6144
 	defaultSIMMaxProblems      = 8
@@ -196,6 +202,61 @@ type SIMStateExport struct {
 	Problems []SIMProblem `json:"problems"`
 	Attempts []SIMAttempt `json:"attempts"`
 	Aliases  []SIMAlias   `json:"aliases"`
+}
+
+func marshalSIMJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil || string(b) == "null" {
+		return "[]"
+	}
+	return string(b)
+}
+
+func unmarshalSIMStringSlice(raw string) []string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || trimmed == "[]" || trimmed == "null" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil || len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cleanSIMTimestamp(field, raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" || !titleText(s) {
+		return "", usage("sim: invalid %s timestamp %q", field, raw)
+	}
+	if _, err := time.Parse(time.RFC3339, s); err != nil {
+		if _, err2 := time.Parse(time.RFC3339Nano, s); err2 != nil {
+			return "", usage("sim: invalid %s RFC3339 timestamp %q", field, raw)
+		}
+	}
+	return s, nil
+}
+
+type simMetaField struct {
+	name string
+	dst  *string
+	max  int
+}
+
+func cleanSIMMetaFields(fields []simMetaField) error {
+	for _, f := range fields {
+		v, err := cleanSIMText(f.name, *f.dst, f.max, false)
+		if err != nil {
+			return err
+		}
+		*f.dst = v
+	}
+	return nil
+}
+
+func timeAtOrAfter(raw string, since time.Time) bool {
+	ts := parseTimeString(raw)
+	return !ts.IsZero() && !ts.Before(since)
 }
 
 // SIMStateImportOpts configures ImportStateSIM.

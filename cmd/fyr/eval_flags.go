@@ -3,15 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"regexp"
 
 	"github.com/kesokaj/fyr/internal/eval"
 	fyrisolate "github.com/kesokaj/fyr/internal/isolate"
 	"github.com/kesokaj/fyr/internal/models"
 	"github.com/kesokaj/fyr/internal/search"
 )
-
-var evalModelIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func init() {
 	verbs["eval"] = verb{flags: func(c *ctx) {
@@ -87,7 +84,7 @@ func evalUsage(c *ctx, names []string) error {
 		return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: --parallel %d: want 1 to %d", c.evalParallel, eval.MaxParallel))
 	}
 	if modelSet || c.evalModel != "" {
-		if !evalModelIDRe.MatchString(c.evalModel) {
+		if !models.ModelIDRe.MatchString(c.evalModel) {
 			return usageErr(c.out, "eval", fmt.Sprintf("fyr eval: invalid --model %q", c.evalModel))
 		}
 		if models.IsInteractiveOnlyID(c.evalModel) {
